@@ -7,5 +7,7 @@
 
 #pragma link C++ class AliceO2::Base::Detector+;
 #pragma link C++ class AliceO2::Base::TrackReference+;
+#pragma link C++ class AliceO2::Base::Track::TrackPar;
+#pragma link C++ class AliceO2::Base::Track::TrackParCov;
 
 #endif
