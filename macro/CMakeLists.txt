@@ -33,6 +33,12 @@ GENERATE_ROOT_TEST_SCRIPT(${CMAKE_SOURCE_DIR}/macro/load_all_libs.C)
   Set_Tests_Properties(load_all_libs PROPERTIES TIMEOUT "30")
   Set_Tests_Properties(load_all_libs PROPERTIES PASS_REGULAR_EXPRESSION "Macro finished succesfully")
 
+GENERATE_ROOT_TEST_SCRIPT(${CMAKE_SOURCE_DIR}/macro/test_tracks.C)
+
+  Add_Test(test_tracks
+          ${CMAKE_BINARY_DIR}/macro/test_tracks.sh)
+  Set_Tests_Properties(test_tracks PROPERTIES TIMEOUT "30")
+  Set_Tests_Properties(test_tracks PROPERTIES PASS_REGULAR_EXPRESSION "Macro finished succesfully")
 
 Install(FILES run_sim.C run_digi.C
         DESTINATION share/its
