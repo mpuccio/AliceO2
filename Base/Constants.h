@@ -7,15 +7,15 @@
 
 namespace AliceO2 {
   namespace Base {
-    namespace Constants {    
-      
+    namespace Constants {
+
       const float kAlmost0 = 1.17549e-38;
       const float kAlmost1 = 1.f-kAlmost0;
       const float kVeryBig = 1.f/kAlmost0;
 
       const float kPI     = 3.14159274101257324e+00f;
       const float k2PI    = 2.f*kPI;
-      const float kPIHalf = 0.5f*kPI;      
+      const float kPIHalf = 0.5f*kPI;
       const float kRad2Deg = 180.f/kPI;
       const float kDeg2Rad = kPI/180.f;
 
