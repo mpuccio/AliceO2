@@ -1,5 +1,6 @@
 set(INCLUDE_DIRECTORIES
 ${CMAKE_SOURCE_DIR}
+${CMAKE_SOURCE_DIR}/Base
 ${CMAKE_SOURCE_DIR}/itsmft/its
 ${CMAKE_SOURCE_DIR}/header
 )
@@ -45,6 +46,9 @@ DigitWriteoutBuffer.cxx
 DigitContainer.cxx
 DigitLayer.cxx
 DigitStave.cxx
+CATracker.cxx
+CATrackingStation.cxx
+CAaux.cxx
 )
 
 Set(LINKDEF itsLinkDef.h)
