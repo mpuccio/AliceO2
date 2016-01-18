@@ -48,7 +48,7 @@ public:
   Double_t GetStartZ() const { return fStartZ; }
     
   /// Get Position at the start of the hit
-  void GetStartPosition(Double_t &x, Double_t &y, Double_t &z) const {
+  template<typename F> void GetStartPosition(F &x, F &y, F &z) const {
     x = fStartX;
     y = fStartY;
     z = fStartZ;

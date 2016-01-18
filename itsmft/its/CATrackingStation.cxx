@@ -19,12 +19,24 @@
 //***************************************************************************
 
 #include "CATrackingStation.h"
+
 #include <cmath>
 
+#include <TGeoMatrix.h>
+#include <TClonesArray.h>
+
+#include "Point.h"
+#include "UpgradeGeometryTGeo.h"
+#include "Utils.h"
+
+
 using namespace AliceO2::ITS::CA;
+using AliceO2::Base::Constants::k2PI;
+using AliceO2::Base::Utils::BringTo02Pi;
 
 TrackingStation::TrackingStation()
-:mVIDOffset(0)
+:mID(-1)
+,mVIDOffset(0)
 ,mNClusters(0)
 ,mZMin(0)
 ,mZMax(0)
@@ -49,11 +61,12 @@ TrackingStation::TrackingStation()
   // def. c-tor
 }
 
-TrackingStation::TrackingStation(int nzbins,int nphibins)
-:mVIDOffset()
+TrackingStation::TrackingStation(int id,float zMin, float zMax, int nzbins,int nphibins)
+:mID(id)
+,mVIDOffset()
 ,mNClusters(0)
-,mZMin(0.f)
-,mZMax(0.f)
+,mZMin(zMin)
+,mZMax(zMax)
 ,mDZInv(-1)
 ,mDPhiInv(-1)
 ,mNZBins(nzbins)
@@ -73,7 +86,6 @@ TrackingStation::TrackingStation(int nzbins,int nphibins)
 ,mSortedClInfo(0)
 ,mDetectors() {
   // c-tor
-  Init();
 }
 
 TrackingStation::~TrackingStation() {
@@ -82,49 +94,48 @@ TrackingStation::~TrackingStation() {
   delete[] mOccBins;
 }
 
-void TrackingStation::Init() {
-
-  mClusters = *lr->GetClustersAddress();
-  mZMin = lr->GetZMin();
-  mZMax = lr->GetZMax();
+void TrackingStation::Init(TClonesArray* points, AliceO2::ITS::UpgradeGeometryTGeo* geo) {
   if (mNZBins < 1)   mNZBins = 2;
   if (mNPhiBins < 1) mNPhiBins = 1;
   mDZInv   = mNZBins / (mZMax - mZMin);
-  mDPhiInv = mNPhiBins / TMath::TwoPi();
+  mDPhiInv = mNPhiBins / k2PI;
   //
   mBins = new ClBinInfo_t[mNZBins * mNPhiBins];
   mOccBins = new int[mNZBins * mNPhiBins];
-  mNClusters = mClusters->GetEntriesFast();
+  mNClusters = points->GetEntriesFast();
   if(mNClusters == 0) return;
-  mSortedClInfo.reserve(mClusters->GetEntriesFast());
-  mVIDOffset = ((AliITSUClusterPix*)mClusters->UncheckedAt(0))->GetVolumeId();
+  mSortedClInfo.reserve(mNClusters);
+  mVIDOffset = ((Point*)points->UncheckedAt(0))->GetDetectorID();
   // prepare detectors info
   int detID = -1;
-  mIndex.resize(lr->GetNSensors(),-1);
-  mDetectors.reserve(lr->GetNSensors());
-  for (int iCl = 0; iCl < mClusters->GetEntriesFast(); ++iCl) { //Fill this layer with detectors
-    AliITSUClusterPix* c = (AliITSUClusterPix*)mClusters->UncheckedAt(iCl);
-    if (detID == c->GetVolumeId()) {
+  mIndex.resize(geo->getNumberOfChipsPerLayer(mID),-1);
+  mDetectors.reserve(geo->getNumberOfChipsPerLayer(mID));
+  // prepare cluster info
+  ClearSortedInfo();
+  mSortedClInfo.reserve(mNClusters);
+  ClsInfo_t cl;
+  for (int iCl = 0; iCl < points->GetEntriesFast(); ++iCl) { //Fill this layer with detectors
+    Point* c = (Point*)points->UncheckedAt(iCl);
+    if (detID == c->GetDetectorID()) {
       continue;
     }
-    detID = c->GetVolumeId();
+    detID = c->GetDetectorID();
     ITSDetInfo_t det;
     det.index = iCl;
     //
     TGeoHMatrix m;
-    geo->GetOrigMatrix(detID,m);
+    geo->GetOriginalMatrix(detID,m);
     //
     mIndex[detID - mVIDOffset] = mDetectors.size();
-    AliITSURecoSens* sens = lr->GetSensorFromID(detID);
-    const TGeoHMatrix *tm = geo->GetMatrixT2L(detID);
+    const TGeoHMatrix *tm = geo->getMatrixT2L(detID);
     m.Multiply(tm);
     double txyz[3] = {0.,0.,0.}, xyz[3] = {0.,0.,0.};
     m.LocalToMaster(txyz,xyz);
-    det.xTF = sens->GetXTF(); // TMath::Sqrt(xyz[0] * xyz[0] + xyz[1] * xyz[1]);
+    det.xTF = sqrt(xyz[0] * xyz[0] + xyz[1] * xyz[1]);
 
-    det.phiTF = sens->GetPhiTF();//TMath::ATan2(xyz[1],xyz[0]);
-    det.sinTF = TMath::Sin(det.phiTF);
-    det.cosTF = TMath::Cos(det.phiTF);
+    det.phiTF = atan2(xyz[1],xyz[0]);
+    det.sinTF = sinf(det.phiTF);
+    det.cosTF = cosf(det.phiTF);
     //
     // compute the real radius (with misalignment)
     TGeoHMatrix mmisal(*(geo->GetMatrix(detID)));
@@ -133,38 +144,32 @@ void TrackingStation::Init() {
     xyz[1] = 0.;
     xyz[2] = 0.;
     mmisal.LocalToMaster(txyz,xyz);
-    det.xTFmisal = TMath::Sqrt(xyz[0] * xyz[0] + xyz[1] * xyz[1]);
+    det.xTFmisal = sqrt(xyz[0] * xyz[0] + xyz[1] * xyz[1]);
     mDetectors.push_back(det);
+    //
+    c->GetStartPosition(cl.x,cl.y,cl.z);
+    cl.r = sqrt(cl.x*cl.x + cl.y*cl.y);
+    cl.phi = atan2(cl.y,cl.x);
+    BringTo02Pi(cl.phi);
+    cl.zphibin = GetBinIndex(GetZBin(cl.z),GetPhiBin(cl.phi));
+    cl.detid = detID - mVIDOffset;
+    //
+    mSortedClInfo.push_back(cl);
+    //
   } // end loop on detectors
 }
 
 void TrackingStation::SortClusters(const float vtx[3]) {
   // sort clusters and build fast lookup table
   //
-  ClearSortedInfo();
-  mSortedClInfo.reserve(mNClusters);
   //
-  ClsInfo_t cl;
-  for (int icl = mNClusters;icl--;) {
-    AliITSUClusterPix* cluster = (AliITSUClusterPix*)mClusters->UncheckedAt(icl);
-    cluster->GetGlobalXYZ( (float*)&cl );
-    //
-    if (vtx) { // phi and r will be computed wrt vertex
-      cl.x -= vtx[0];
-      cl.y -= vtx[1];
+  if (vtx) {
+    for (int icl = mNClusters;icl--;) {
+      mSortedClInfo[icl].x -= vtx[0];
+      mSortedClInfo[icl].y -= vtx[1];
     }
-    //
-    cl.r = TMath::Sqrt(cl.x*cl.x + cl.y*cl.y);
-    cl.phi = TMath::ATan2(cl.y,cl.x);
-    BringTo02Pi(cl.phi);
-    cl.index = icl;
-    cl.zphibin = GetBinIndex(GetZBin(cl.z),GetPhiBin(cl.phi));
-    cl.detid = cluster->GetVolumeId() - mVIDOffset;
-    //
-    mSortedClInfo.push_back(cl);
-    //
   }
-  sort(mSortedClInfo.begin(), fSortedClInfo.end()); // sort in phi, z
+  sort(mSortedClInfo.begin(), mSortedClInfo.end()); // sort in phi, z
   //
   // fill cells in phi,z
   int currBin = -1;
@@ -180,12 +185,11 @@ void TrackingStation::SortClusters(const float vtx[3]) {
   }
 }
 
-void TrackingStation::Clear(Option_t *) {
+void TrackingStation::Clear() {
   // clear cluster info
   ClearSortedInfo();
   mIndex.clear();
   mNClusters = 0;
-  if (mClusters) fClusters = 0x0;
   //
 }
 
@@ -208,7 +212,7 @@ printf("\nCluster info\n");
 for (int i = 0; i < mNClusters;i++) {
 const ClsInfo_t &t = mSortedClInfo[i];
 printf("#%5d Bin(phi/z):%03d/%03d Z:%+8.3f Phi:%+6.3f R:%7.3f Ind:%d ",
-i,t.zphibin/mNZBins,t.zphibin%fNZBins,t.z,t.phi,t.r,t.index);
+i,t.zphibin/mNZBins,t.zphibin%mNZBins,t.z,t.phi,t.r,t.index);
 if (opts.Contains("l")) { // mc labels
 AliITSUClusterPix* rp = (AliITSUClusterPix*)mClusters->UncheckedAt(t.index);
 for (int l = 0;l < 3; l++) if (rp->GetLabel(l) >= 0) printf("| %d ",rp->GetLabel(l));
@@ -220,7 +224,7 @@ printf("\n");
 if (opts.Contains("b")) {
 printf("\nBins info (occupied only)\n");
 for (int i=0;i<mNOccBins;i++) {
-printf("%4d %5d(phi/z: %03d/%03d) -> %3d cl from %d\n",i,mOccBins[i],fOccBins[i]/mNZBins,fOccBins[i]%fNZBins,
+printf("%4d %5d(phi/z: %03d/%03d) -> %3d cl from %d\n",i,mOccBins[i],fOccBins[i]/mNZBins,fOccBins[i]%mNZBins,
 mBins[mOccBins[i]].ncl,fBins[fOccBins[i]].first);
 }
 }
@@ -233,20 +237,20 @@ int TrackingStation::SelectClusters(float zmin,float zmax,float phimin,float phi
   if (zmax < mZMin || zmin > mZMax || zmin > zmax) return 0;
   mFoundBins.clear();
   mQueryZBmin = GetZBin(zmin);
-  if (mQueryZBmin < 0) fQueryZBmin = 0;
+  if (mQueryZBmin < 0) mQueryZBmin = 0;
   mQueryZBmax = GetZBin(zmax);
-  if (mQueryZBmax >= mNZBins) fQueryZBmax = fNZBins - 1;
+  if (mQueryZBmax >= mNZBins) mQueryZBmax = mNZBins - 1;
   BringTo02Pi(phimin);
   BringTo02Pi(phimax);
   mQueryPhiBmin = GetPhiBin(phimin);
   mQueryPhiBmax = GetPhiBin(phimax);
   int dbz = 0;
   mNFoundClusters = 0;
-  int nbcheck = mQueryPhiBmax - fQueryPhiBmin + 1; //TODO:(MP) check if a circular buffer is feasible
+  int nbcheck = mQueryPhiBmax - mQueryPhiBmin + 1; //TODO:(MP) check if a circular buffer is feasible
   if (nbcheck > 0) { // no wrapping around 0-2pi, fast case
-    for (int ip = mQueryPhiBmin;ip <= fQueryPhiBmax;ip++) {
+    for (int ip = mQueryPhiBmin;ip <= mQueryPhiBmax;ip++) {
       int binID = GetBinIndex(mQueryZBmin,ip);
-      if ( !(dbz = (mQueryZBmax-fQueryZBmin)) ) { // just one Z bin in the query range
+      if ( !(dbz = (mQueryZBmax-mQueryZBmin)) ) { // just one Z bin in the query range
         ClBinInfo_t& binInfo = mBins[binID];
         if (!binInfo.ncl) continue;
         mNFoundClusters += binInfo.ncl;
@@ -265,9 +269,9 @@ int TrackingStation::SelectClusters(float zmin,float zmax,float phimin,float phi
     nbcheck += mNPhiBins;
     for (int ip0 = 0;ip0 <= nbcheck;ip0++) {
       int ip = mQueryPhiBmin + ip0;
-      if (ip >= mNPhiBins) ip -= fNPhiBins;
+      if (ip >= mNPhiBins) ip -= mNPhiBins;
       int binID = GetBinIndex(mQueryZBmin,ip);
-      if ( !(dbz = (mQueryZBmax - fQueryZBmin)) ) { // just one Z bin in the query range
+      if ( !(dbz = (mQueryZBmax - mQueryZBmin)) ) { // just one Z bin in the query range
         ClBinInfo_t& binInfo = mBins[binID];
         if (!binInfo.ncl) continue;
         mNFoundClusters += binInfo.ncl;

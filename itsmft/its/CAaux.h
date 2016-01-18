@@ -14,20 +14,7 @@ namespace AliceO2 {
       class Cell {
         public:
           Cell(int xx = 0u,int yy = 0u, int zz = 0u, int dd0 = 0,
-              int dd1 = 0, float curv = 0.f, float n[3] = 0x0)
-            : m1OverR(curv), md0(dd0), md1(dd1), mN(), mVector()
-          {
-            mVector.reserve(4);
-            mVector.push_back(xx);
-            mVector.push_back(yy);
-            mVector.push_back(zz);
-            mVector.push_back(1u);
-            if(n) {
-              mN[0] = n[0];
-              mN[1] = n[1];
-              mN[2] = n[2];
-            }
-          }
+               int dd1 = 0, float curv = 0.f, float n[3] = 0x0);
 
           int x() const { return mVector[0]; }
           int y() const { return mVector[1]; }
@@ -44,17 +31,7 @@ namespace AliceO2 {
 
           std::vector<int>::size_type NumberOfNeighbours() { return (mVector.size() - 4u); }
 
-          bool Combine(Cell &neigh, int idd) {
-            // From outside inward
-            if (this->y() == neigh.z() && this->x() == neigh.y()) { // Cells sharing two points
-              mVector.push_back(idd);
-              if (neigh.GetLevel() + 1 > GetLevel()) {
-                SetLevel(neigh.GetLevel() + 1u);
-              }
-              return true;
-            }
-            return false;
-          }
+          bool Combine(Cell &neigh, int idd);
 
         private:
           float m1OverR;

@@ -12,10 +12,14 @@
 #include <algorithm>
 #include <vector>
 #include <assert.h>
+#include "CAaux.h"
+
+class TClonesArray;
 
 namespace AliceO2 {
   namespace ITS {
-    namespace CA {
+    class UpgradeGeometryTGeo;
+    namespace CA {
       class TrackingStation {
         public:
           //
@@ -27,10 +31,11 @@ namespace AliceO2 {
           typedef struct ClBinInfo ClBinInfo_t;
           //
           TrackingStation();
-          TrackingStation(int nzbins,int nphibins);
+          TrackingStation(int id,float zMin, float zMax, int nzbins,int nphibins);
+
           virtual ~TrackingStation();
-          TrackingStation::ClsInfo_t* operator[](int i) const
-          {return (TrackingStation::ClsInfo_t*)&mSortedClInfo[i];}
+          ClsInfo_t* operator[](int i) const
+          {return (ClsInfo_t*)&mSortedClInfo[i];}
           //
           int     GetVIDOffset()                const {return mVIDOffset;}
           int     GetNClusters()                const {return mNClusters;}
@@ -44,7 +49,7 @@ namespace AliceO2 {
           void    SetZMin(float v)                    {mZMin = v;}
           void    SetZMax(float v)                    {mZMax = v;}
           //
-          void Init();
+          void Init(TClonesArray* points, AliceO2::ITS::UpgradeGeometryTGeo* geom);
           //
           void SortClusters(const float vertex[3]);
           int  GetPhiBin(float phi)             const {return phi * mDPhiInv;}
@@ -59,23 +64,24 @@ namespace AliceO2 {
           int  GetFoundBin(int i)               const {return mFoundBins[i];}
           int  GetFoundBinClusters(int i, int &first)  const;
           void ResetFoundIterator();
-          TrackingStation::ClsInfo_t* GetClusterInfo(int i) const
-          {return (TrackingStation::ClsInfo_t*)&mSortedClInfo[i];}
-          TrackingStation::ClsInfo_t* GetNextClusterInfo();
+          ClsInfo_t* GetClusterInfo(int i) const
+          {return (ClsInfo_t*)&mSortedClInfo[i];}
+          ClsInfo_t* GetNextClusterInfo();
           int                     GetNextClusterInfoID();
           //
-          TrackingStation::ITSDetInfo_t& GetDetInfo(int id)     const
+          ITSDetInfo_t& GetDetInfo(int id)     const
           {assert(mIndex[id] > -1 && "Empty sensor");return (ITSDetInfo_t&)mDetectors[mIndex[id]];}
           int                   GetNDetectors()           const
           {return mDetectors.size();}
           //
           void         ClearSortedInfo();
-          virtual void Clear(Option_t *opt="");
-          virtual void Print(Option_t *opt="")  const;
+          void Clear();
+          //virtual void Print(Option_t *opt="")  const;
 
         protected:
           TrackingStation(const TrackingStation &);
           TrackingStation &operator=(const TrackingStation &);
+          int   mID;                  // id of the layer
           int   mVIDOffset;           // offset of VID for detectors of this layer
           int   mNClusters;           // N clusters
           //
@@ -111,16 +117,10 @@ namespace AliceO2 {
         return bin.ncl;
       }
 
-      inline AliITSUClusterPix* TrackingStation::GetNextCluster() {
-        // return next cluster
-        ClsInfo_t* cli = GetNextClusterInfo();
-        return cli ? (AliITSUClusterPix*)mClusters->UncheckedAt(cli->index) : 0;
-      }
-
-      inline TrackingStation::ClsInfo_t* TrackingStation::GetNextClusterInfo() {
+      inline ClsInfo_t* TrackingStation::GetNextClusterInfo() {
         // return cluster info for next matching cluster
         int id = GetNextClusterInfoID();
-        return id < 0 ? 0 : (TrackingStation::ClsInfo_t*)&mSortedClInfo[id];
+        return id < 0 ? 0 : (ClsInfo_t*)&mSortedClInfo[id];
       }
     } // namespace CA
   } // namespace ITS

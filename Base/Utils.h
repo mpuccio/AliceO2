@@ -10,7 +10,7 @@
 
 namespace AliceO2 {
   namespace Base {
-    namespace Utils {    
+    namespace Utils {
 
       using namespace AliceO2::Base::Constants;
 
