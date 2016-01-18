@@ -46,7 +46,7 @@ DigitWriteoutBuffer.cxx
 DigitContainer.cxx
 DigitLayer.cxx
 DigitStave.cxx
-#CATracker.cxx
+CATracker.cxx
 CATrackingStation.cxx
 CAaux.cxx
 )

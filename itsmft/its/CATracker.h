@@ -13,30 +13,36 @@
 
 #include "CAaux.h"
 #include "CATrackingStation.h"
+#include "Track.h"
 
 using std::vector;
-class TrackPC;
 
 namespace AliceO2 {
-  namespace ITS {
+  namespace ITS {
     namespace CA {
+      typedef AliceO2::Base::Track::TrackParCov TrackPC;
+
       class Tracker {
         public:
-          Tracker();
+          Tracker(TrackingStation *stations[7]);
           // These functions must be implemented
           int Clusters2Tracks();
-          int PropagateBack();
-          int RefitInward();
-          int LoadClusters(void *ct);
+          int  PropagateBack();
+          int  RefitInward();
+          int  LoadClusters();
           void UnloadClusters();
           // Possibly, other public functions
-          float GetMaterialBudget(const double* p0, const double* p1, double& x2x0, double& rhol) const;
+          float    GetMaterialBudget(const double* p0, const double* p1, double& x2x0, double& rhol) const;
           bool     GetSAonly() const { return mSAonly; }
           void     SetChi2Cut(float cut) { mChi2Cut = cut; }
           void     SetPhiCut(float cut) { mPhiCut = cut; }
-          void     SetSAonly(bool sa = kTRUE) { mSAonly = sa; }
+          void     SetSAonly(bool sa = true) { mSAonly = sa; }
           void     SetZCut(float cut) { mZCut = cut; }
           //
+          float    GetX() const { return mVertex[0]; }
+          float    GetY() const { return mVertex[1]; }
+          float    GetZ() const { return mVertex[2]; }
+          template<typename F> void SetVertex(F v[3]) { for(int i=0;i<3;++i) mVertex[i]=v[i]; }
         private:
           Tracker(const Tracker&);
           Tracker &operator=(const Tracker &tr);
@@ -45,19 +51,19 @@ namespace AliceO2 {
           void   CellsTreeTraversal(vector<Road> &roads, const int &iD, const int &doubl);
           void   FindTracksCA(int iteration);
           void   MakeCells(int iteration);
-          bool   RefitAt(float xx, TrackPC* t, const TrackPC* c);
+          bool   RefitAt(float xx, Track* t);
           void   SetCuts(int it);
-          void   SetLabel(TrackPC &t, float wrong);
+          void   SetLabel(Track &t, float wrong);
           //
-          TrackingStation       mLayer[7];
+          TrackingStation**     mLayer;
           vector<bool>          mUsedClusters[7];
           float                 mChi2Cut;
           float                 mPhiCut;
           float                 mZCut;
           vector<Doublets>      mDoublets[6];
           vector<Cell>          mCells[5];
-          TClonesArray         *mCandidates[4];
-          bool                  mSAonly;             // kTRUE if the standalone tracking only
+          vector<Track>         mCandidates[4];
+          bool                  mSAonly;             // true if the standalone tracking only
           // Cuts
           float mCPhi;
           float mCDTanL;
@@ -68,6 +74,9 @@ namespace AliceO2 {
           float mCDN[4];
           float mCDP[4];
           float mCDZ[6];
+          //
+          float mVertex[3];
+          float mBz;
           //
           static const float              mkChi2Cut;      // chi2 cut during track merging
           static const int                mkNumberOfIterations;

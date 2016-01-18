@@ -13,34 +13,37 @@
 namespace AliceO2 {
   namespace Base {
     namespace Track {
-      
+
       using namespace AliceO2::Base::Constants;
       using namespace AliceO2::Base::Utils;
 
       // aliases for track elements
       enum {kX,kAlpha,
-	    kY,kZ,kSnp,kTgl,kQ2Pt,
-	    kSigY2,
-	    kSigZY,kSigZ2,
-	    kSigSnpY,kSigSnpZ,kSigSnp2,
-	    kSigTglY,kSigTglZ,kSigTglSnp,kSigTgl2,
-	    kSigQ2PtY,kSigQ2PtZ,kSigQ2PtSnp,kSigQ2PtTgl,kSigQ2Pt2};
+        kY,kZ,kSnp,kTgl,kQ2Pt,
+        kSigY2,
+        kSigZY,kSigZ2,
+        kSigSnpY,kSigSnpZ,kSigSnp2,
+        kSigTglY,kSigTglZ,kSigTglSnp,kSigTgl2,
+        kSigQ2PtY,kSigQ2PtZ,kSigQ2PtSnp,kSigQ2PtTgl,kSigQ2Pt2};
       enum {kNParams=5,kCovMatSize=15,kTrackPSize=kNParams+2,kTrackPCSize=kTrackPSize+kCovMatSize
-	    ,kLabCovMatSize=21};
+        ,kLabCovMatSize=21};
 
-      const float 
-	kCY2max=100*100, // SigmaY<=100cm
-	kCZ2max=100*100, // SigmaZ<=100cm
-	kCSnp2max=1*1,     // SigmaSin<=1
-	kCTgl2max=1*1,     // SigmaTan<=1
-	kC1Pt2max=100*100; // Sigma1/Pt<=100 1/GeV
+      const float
+        kCY2max=100*100, // SigmaY<=100cm
+        kCZ2max=100*100, // SigmaZ<=100cm
+        kCSnp2max=1*1,     // SigmaSin<=1
+        kCTgl2max=1*1,     // SigmaTan<=1
+        kC1Pt2max=100*100; // Sigma1/Pt<=100 1/GeV
 
-  
+
       class TrackPar { // track parameterization, kinematics only
         public:
           TrackPar() {memset(mP,0,kTrackPSize*sizeof(float));}
           TrackPar(float x,float alpha, const float par[kNParams]);
           TrackPar(const float xyz[3],const float pxpypz[3],int sign, bool sectorAlpha=true);
+          TrackPar(const TrackPar& src);
+          ~TrackPar() {}
+          TrackPar& operator=(const TrackPar& src);
 
           float& operator[](int i)                   { return mP[i]; }
           float  operator[](int i)             const { return mP[i]; }
@@ -87,6 +90,9 @@ namespace AliceO2 {
           TrackParCov(float x,float alpha, const float par[kNParams], const float cov[kCovMatSize]);
           TrackParCov(const float xyz[3],const float pxpypz[3],const float[kLabCovMatSize],
               int sign, bool sectorAlpha=true);
+          TrackParCov(const TrackParCov& src);
+          ~TrackParCov() {}
+          TrackParCov& operator=(const TrackParCov& src);
 
           operator TrackPar*() { return reinterpret_cast<TrackPar*>(this); }
           operator TrackPar()  { return *reinterpret_cast<TrackPar*>(this); }
@@ -169,52 +175,79 @@ namespace AliceO2 {
 
       //____________________________________________________________
       inline TrackPar::TrackPar(float x, float alpha, const float par[kNParams]) {
-	// explicit constructor
-	mP[kX] = x;
-	mP[kAlpha] = alpha;
-	memcpy(&mP[kY],par,kNParams*sizeof(float));
+        // explicit constructor
+        mP[kX] = x;
+        mP[kAlpha] = alpha;
+        memcpy(&mP[kY],par,kNParams*sizeof(float));
+      }
+
+      //____________________________________________________________
+      inline TrackPar::TrackPar(const TrackPar& src) {
+        // copy c-tor
+        memcpy(mP,src.mP,kTrackPSize*sizeof(float));
+      }
+
+      //____________________________________________________________
+      inline TrackPar& TrackPar::operator=(const TrackPar& src) {
+        // assignment operator
+        if (this!=&src) memcpy(mP,src.mP,kTrackPSize*sizeof(float));
+        return *this;
       }
 
       //_______________________________________________________
       inline void TrackPar::GetXYZ(float xyz[3]) const {
-	// track coordinates in lab frame
-	xyz[0] = GetX(); 
-	xyz[1] = GetY();
-	xyz[2] = GetZ();
-	RotateZ(xyz,GetAlpha());
+        // track coordinates in lab frame
+        xyz[0] = GetX();
+        xyz[1] = GetY();
+        xyz[2] = GetZ();
+        RotateZ(xyz,GetAlpha());
       }
 
       //_______________________________________________________
       inline float TrackPar::GetPhiPos() const {
-	// angle of track position
-	float xy[2]={GetX(),GetY()};
-	return atan2(xy[1],xy[0]);
+        // angle of track position
+        float xy[2]={GetX(),GetY()};
+        return atan2(xy[1],xy[0]);
       }
 
       //____________________________________________________________
       inline float TrackPar::GetP() const {
-	// return the track momentum
-	float ptI = fabs(mP[kQ2Pt]);
-	return (ptI>kAlmost0) ? sqrtf(1.f+ mP[kTgl]*mP[kTgl])/ptI : kVeryBig;
+        // return the track momentum
+        float ptI = fabs(mP[kQ2Pt]);
+        return (ptI>kAlmost0) ? sqrtf(1.f+ mP[kTgl]*mP[kTgl])/ptI : kVeryBig;
       }
 
       //____________________________________________________________
       inline float TrackPar::GetPt() const {
-	// return the track transverse momentum
-	float ptI = fabs(mP[kQ2Pt]);
-	return (ptI>kAlmost0) ? 1.f/ptI : kVeryBig;
+        // return the track transverse momentum
+        float ptI = fabs(mP[kQ2Pt]);
+        return (ptI>kAlmost0) ? 1.f/ptI : kVeryBig;
       }
 
       //============================================================
 
       //____________________________________________________________
       inline TrackParCov::TrackParCov(float x, float alpha, const float par[kNParams], const float cov[kCovMatSize]) {
-	// explicit constructor
-	mPC[kX] = x;
-	mPC[kAlpha] = alpha;
-	memcpy(&mPC[kY],par,kNParams*sizeof(float));
-	memcpy(&mPC[kSigY2],cov,kCovMatSize*sizeof(float));
+        // explicit constructor
+        mPC[kX] = x;
+        mPC[kAlpha] = alpha;
+        memcpy(&mPC[kY],par,kNParams*sizeof(float));
+        memcpy(&mPC[kSigY2],cov,kCovMatSize*sizeof(float));
       }
+
+      //____________________________________________________________
+      inline TrackParCov::TrackParCov(const TrackParCov& src) {
+        // copy c-tor
+        memcpy(mPC,src.mPC,kTrackPCSize*sizeof(float));
+      }
+
+      //____________________________________________________________
+      inline TrackParCov& TrackParCov::operator=(const TrackParCov& src) {
+        // assignment operator
+        if (this!=&src) memcpy(mPC,src.mPC,kTrackPSize*sizeof(float)); 
+        return *this;
+      }
+
     }
   }
 }

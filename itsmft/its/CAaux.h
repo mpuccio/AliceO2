@@ -4,6 +4,7 @@
 #include <vector>
 #include <cmath>
 #include "Constants.h"
+#include "Track.h"
 
 using AliceO2::Base::Constants::k2PI;
 
@@ -79,12 +80,36 @@ namespace AliceO2 {
 
       struct Cluster {  // cluster info, optionally XY origin at vertex
         float x,y,z,phi,r;    // lab params
+        float cov[3];
         int   zphibin; // bins is z,phi
         int   detid;          // detector index //RS ??? Do we need it?
+        int   label;
         bool operator<(const Cluster &rhs) const {return zphibin < rhs.zphibin;}
         //
       };
       typedef struct Cluster ClsInfo_t;
+
+      class Track {
+        public:
+          Track(float x, float a, float* p, float* c, int *cl);
+
+          int* Clusters() { return mCl; }
+          AliceO2::Base::Track::TrackParCov& Param() { return mT; }
+
+          int GetLabel() const { return mLabel; }
+          float GetChi2() const { return mChi2; }
+
+          void SetLabel(int label) { mLabel = label; }
+          void SetChi2(float chi) { mChi2 = chi; }
+
+          bool Update(const Cluster* cl);
+          bool GetPhiZat(float r, float bfield,float &phi, float &z) const;
+        private:
+          AliceO2::Base::Track::TrackParCov mT;
+          int mCl[7];
+          int mLabel;
+          float mChi2;
+      };
 
       class Doublets {
         public:
