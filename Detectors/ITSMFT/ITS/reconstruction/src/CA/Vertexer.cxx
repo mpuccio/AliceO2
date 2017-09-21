@@ -8,21 +8,28 @@
 // granted to it by virtue of its status as an Intergovernmental Organization
 // or submit itself to any jurisdiction.
 
-/// \file CAMathUtils.cxx
+/// \file Vertexer.cxx
 /// \brief
-/// \author iacopo.colonnelli@cern.ch
+/// \author matteo.concas@cern.ch
 /// \author maximiliano.puccio@cern.ch
 
-#include "CAMathUtils.h"
+#include "ITSReconstruction/CA/Vertexer.h"
+#include "ITSReconstruction/CA/Event.h"
 
-#include <cmath>
-
-float CAMathUtils::calculatePhiCoordinate(const float xCoordinate, const float yCoordinate)
+namespace o2
 {
-  return std::atan2(-yCoordinate, -xCoordinate) + CAConstants::Math::Pi;
+namespace ITS
+{
+namespace CA
+{
+void computeVertex() {};
+Vertexer::~Vertexer() {};
+Vertexer::Vertexer(const Event& event)
+  : mEvent(event), mUsedClustersTable(event.getTotalClusters(3), Constants::ITS::UnusedIndex)
+{
+  // Roba
+};
+
 }
-
-float CAMathUtils::calculateRCoordinate(const float xCoordinate, const float yCoordinate)
-{
-  return std::sqrt(xCoordinate * xCoordinate + yCoordinate * yCoordinate);
+}
 }

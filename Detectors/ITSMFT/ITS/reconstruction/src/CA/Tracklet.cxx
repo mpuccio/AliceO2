@@ -2,23 +2,25 @@
 // distributed under the terms of the GNU General Public License v3 (GPL
 // Version 3), copied verbatim in the file "COPYING".
 //
-// See https://alice-o2.web.cern.ch/ for full licensing information.
+// See http://alice-o2.web.cern.ch/license for full licensing information.
 //
 // In applying this license CERN does not waive the privileges and immunities
 // granted to it by virtue of its status as an Intergovernmental Organization
 // or submit itself to any jurisdiction.
 
-/// \file CATracklet.cxx
+/// \file Tracklet.cxx
 /// \brief
 /// \author iacopo.colonnelli@cern.ch
 /// \author maximiliano.puccio@cern.ch
 
-#include "CATracklet.h"
+#include "ITSReconstruction/CA/Tracklet.h"
 
-CATracklet::CATracklet(const int firstClusterIndex, const int secondClusterIndex, const float tanLambda,
-    const float phiCoordinate)
-    : firstClusterIndex { firstClusterIndex }, secondClusterIndex { secondClusterIndex }, tanLambda { tanLambda }, phiCoordinate {
-        phiCoordinate }
+o2::ITS::CA::Tracklet::Tracklet(const int firstClusterIndex, const int secondClusterIndex,
+                                const float tanLambda, const float phiCoordinate)
+  : firstClusterIndex{ firstClusterIndex },
+    secondClusterIndex{ secondClusterIndex },
+    tanLambda{ tanLambda },
+    phiCoordinate{ phiCoordinate }
 {
   // Nothing to do
 }

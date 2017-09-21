@@ -195,13 +195,7 @@ static Double_t f1(Double_t x1, Double_t y1, Double_t x2, Double_t y2, Double_t 
   Double_t b =
     0.5 * ((x2 - x1) * (y3 * y3 - y2 * y2 + x3 * x3 - x2 * x2) - (x3 - x2) * (y2 * y2 - y1 * y1 + x2 * x2 - x1 * x1));
 
-  Double_t xr = TMath::Abs(d / (d * x1 - a)), yr = TMath::Abs(d / (d * y1 - b));
-
-  Double_t crv = xr * yr / sqrt(xr * xr + yr * yr);
-  if (d > 0)
-    crv = -crv;
-
-  return crv;
+  return -1. * d / std::sqrt((d * x1 - a) * (d * x1 - a) + (d * y1 - b) * (d * y1 - b));
 }
 
 static Double_t f2(Double_t x1, Double_t y1, Double_t x2, Double_t y2, Double_t x3, Double_t y3)
@@ -264,7 +258,7 @@ static CookedTrack cookSeed
   const Double_t dlt = 0.0005;
   Double_t fy = 1. / (rad2 - rad3);
   Double_t tz = fy;
-  Double_t cy = (f1(x1, y1, x2, y2 + dlt, x3, y3) - crv) / dlt / bz / kB2C;
+  Double_t cy = (f1(x1, y1, x2, y2 + dlt, x3, y3) - crv) / (dlt * bz * kB2C);
   cy *= 20; // FIXME: MS contribution to the cov[14]
   Double_t s2 = kSigma2;
 
