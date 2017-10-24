@@ -18,7 +18,10 @@
 #include "ITSReconstruction/CA/Cluster.h"
 #include "ITSReconstruction/CA/Definitions.h"
 
+<<<<<<< HEAD
 
+=======
+>>>>>>> [WIP] Add tracking-itsu repository content
 namespace o2
 {
 namespace ITS

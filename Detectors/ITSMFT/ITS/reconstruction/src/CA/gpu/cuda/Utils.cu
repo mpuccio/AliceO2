@@ -177,8 +177,12 @@ GPU_DEVICE int Utils::Device::getLaneIndex()
 
 GPU_DEVICE int Utils::Device::shareToWarp(const int value, const int laneIndex)
 {
+<<<<<<< HEAD
   cooperative_groups::coalesced_group threadGroup = cooperative_groups::coalesced_threads();
   return threadGroup.shfl(value, laneIndex);
+=======
+  return __shfl(value, laneIndex);
+>>>>>>> [WIP] Add tracking-itsu repository content
 }
 
 GPU_DEVICE int Utils::Device::gpuAtomicAdd(int *p, const int incrementSize)

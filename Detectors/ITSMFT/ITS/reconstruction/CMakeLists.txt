@@ -8,6 +8,7 @@ set(SRCS
     src/CookedTrackerTask.cxx
     src/CA/TrackerTask.cxx
     )
+
 set(NO_DICT_SRCS # sources not for the dictionary
     src/TrivialClusterer.cxx
     src/CookedTracker.cxx
