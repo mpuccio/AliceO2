@@ -40,7 +40,6 @@ void Layer::clear()
   mClusters.clear();
   mTrackingFrameInfo.clear();
 }
-
 }
 }
 }
