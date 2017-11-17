@@ -2,19 +2,19 @@
 // distributed under the terms of the GNU General Public License v3 (GPL
 // Version 3), copied verbatim in the file "COPYING".
 //
-// See http://alice-o2.web.cern.ch/license for full licensing information.
+// See https://alice-o2.web.cern.ch/ for full licensing information.
 //
 // In applying this license CERN does not waive the privileges and immunities
 // granted to it by virtue of its status as an Intergovernmental Organization
 // or submit itself to any jurisdiction.
-///
-/// \file Layer.cxx
-/// \brief 
-///
 
-#include "ITSReconstruction/CA/Layer.h"
+/// \file Vertexer.cxx
+/// \brief
+/// \author matteo.concas@cern.ch
+/// \author maximiliano.puccio@cern.ch
 
-#include "ITSReconstruction/CA/Constants.h"
+#include "ITSReconstruction/CA/Vertexer.h"
+#include "ITSReconstruction/CA/Event.h"
 
 namespace o2
 {
@@ -22,17 +22,14 @@ namespace ITS
 {
 namespace CA
 {
-
-Layer::Layer()
-    : mLayerIndex { Constants::ITS::UnusedIndex }
+void computeVertex() {};
+Vertexer::~Vertexer() {};
+Vertexer::Vertexer()
 {
-  //Nothing to do
-}
-
-Layer::Layer(const int layerIndex)
-    : mLayerIndex { layerIndex }
+};
+Vertexer::LoadEvent(const Event &event)
 {
-  //Nothing to do
+  mEvent
 }
 
 }

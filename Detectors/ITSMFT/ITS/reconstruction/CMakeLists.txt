@@ -15,12 +15,12 @@ set(NO_DICT_SRCS # sources not for the dictionary
     src/CA/Cell.cxx
     src/CA/Cluster.cxx
     src/CA/Event.cxx
-    src/CA/IOUtils.cxx
+    # src/CA/IOUtils.cxx
     src/CA/Label.cxx
     src/CA/Layer.cxx
-    src/CA/PrimaryVertexContext.cxx
+    # src/CA/PrimaryVertexContext.cxx
     src/CA/Road.cxx
-    src/CA/Tracker.cxx
+    # src/CA/Tracker.cxx
     src/CA/TrackingUtils.cxx
     src/CA/Tracklet.cxx
     )

@@ -11,13 +11,13 @@
 /// \file Vertexer.h
 /// \brief
 /// \author matteo.concas@cern.ch
-/// \author maximiliano.puccio@cern.ch
 
 #ifndef O2_ITSMFT_RECONSTRUCTION_CA_VERTEXER_H_
 #define O2_ITSMFT_RECONSTRUCTION_CA_VERTEXER_H_
 
 #include <vector>
-#include "ITSReconstruction/CA/IndexTable.h"
+#include <array>
+#include "ITSReconstruction/CA/Constants.h"
 
 namespace o2
 {
@@ -27,10 +27,11 @@ namespace CA
 {
 
 class Event;
+class Cluster;
 class Vertexer final
 {
 public:
-  explicit Vertexer(const Event&);
+  explicit Vertexer();
   virtual ~Vertexer();
   Vertexer(const Vertexer&) = delete;
   Vertexer& operator=(const Vertexer&) = delete;
@@ -40,7 +41,7 @@ protected:
   const Event& mEvent;
   std::vector<int> mUsedClustersTable;
   std::array<std::vector<Cluster>, 3> mClusters;
-  std::array<IndexTable, Constants::ITS::TrackletsPerRoad> mIndexTables;
+  // std::array<IndexTable, Constants::ITS::TrackletsPerRoad> mIndexTables;
 };
 }
 }
