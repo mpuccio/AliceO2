@@ -40,7 +40,7 @@ class Event
       int getPrimaryVerticesNum() const;
       void addPrimaryVertex(const float, const float, const float);
       void printPrimaryVertices() const;
-      void pushClusterToLayer(const int, const int, const float, const float, const float, const float, const int);
+      void pushClusterToLayer(const int, const int, const float, const float, const float, const int);
       int getTotalClusters() const;
 
       template<typename ... T> void addCluster(int layer, T&& ... values);
