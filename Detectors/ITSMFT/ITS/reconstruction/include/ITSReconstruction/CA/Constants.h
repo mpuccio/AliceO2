@@ -38,6 +38,7 @@ constexpr float FloatMinThreshold { 1e-20f };
 
 namespace ITS {
 constexpr int LayersNumber { 7 };
+constexpr int LayersNumberVertexer { 3 };
 constexpr int TrackletsPerRoad { 6 };
 constexpr int CellsPerRoad { LayersNumber - 2 };
 constexpr int UnusedIndex { -1 };

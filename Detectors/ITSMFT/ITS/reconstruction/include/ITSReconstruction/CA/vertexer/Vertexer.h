@@ -17,7 +17,10 @@
 
 #include <vector>
 #include <array>
+
 #include "ITSReconstruction/CA/Constants.h"
+#include "ITSReconstruction/CA/Definitions.h"
+#include "ITSReconstruction/CA/Event.h"
 
 namespace o2
 {
@@ -25,24 +28,23 @@ namespace ITS
 {
 namespace CA
 {
-
-class Event;
 class Cluster;
-class Vertexer final
+class Event;
+
+class Vertexer
 {
 public:
-  explicit Vertexer();
+  explicit Vertexer(const Event& event);
   virtual ~Vertexer();
   Vertexer(const Vertexer&) = delete;
   Vertexer& operator=(const Vertexer&) = delete;
 
+  void initialize();
 protected:
-  void computeVertex(); // dummy, atm.
-  const Event& mEvent;
-  std::vector<int> mUsedClustersTable;
-  std::array<std::vector<Cluster>, 3> mClusters;
-  // std::array<IndexTable, Constants::ITS::TrackletsPerRoad> mIndexTables;
+  Event mEvent;
+  std::array<std::vector<Cluster>, Constants::ITS::LayersNumberVertexer> mClusters; ///> stands for layers
 };
+
 }
 }
 }

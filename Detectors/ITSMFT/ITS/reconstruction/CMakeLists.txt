@@ -14,7 +14,7 @@ set(NO_DICT_SRCS # sources not for the dictionary
     src/CookedTracker.cxx
     src/CA/Cell.cxx
     src/CA/Cluster.cxx
-    src/CA/Event.cxx
+    # src/CA/Event.cxx
     # src/CA/IOUtils.cxx
     src/CA/Label.cxx
     src/CA/Layer.cxx
@@ -23,6 +23,7 @@ set(NO_DICT_SRCS # sources not for the dictionary
     # src/CA/Tracker.cxx
     src/CA/TrackingUtils.cxx
     src/CA/Tracklet.cxx
+    # src/CA/vertexer/Vertexer.cxx
     )
 
 # Headers from sources
