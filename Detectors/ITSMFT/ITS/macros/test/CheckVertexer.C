@@ -39,8 +39,8 @@ std::vector<o2::ITS::CA::Event> loadEventData(const std::string& fileName)
         clusterId = 0;
       } else {
         if (inputStringStream >> unusedVariable >> unusedVariable >> unusedVariable >> unusedVariable >> monteCarlo) {
-          // events.back().pushClusterToLayer(layerId, clusterId, xCoordinate, yCoordinate, zCoordinate, monteCarlo);
-          Printf("-> %d %d %f %f %f %d", layerId, clusterId, xCoordinate, yCoordinate, zCoordinate, monteCarlo);
+          events.back().pushClusterToLayer(layerId, clusterId, xCoordinate, yCoordinate, zCoordinate, monteCarlo);
+          // Printf("-> %d %d %f %f %f %d", layerId, clusterId, xCoordinate, yCoordinate, zCoordinate, monteCarlo);
           ++clusterId;
         }
       }

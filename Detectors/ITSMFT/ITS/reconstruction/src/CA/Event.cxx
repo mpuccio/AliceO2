@@ -64,7 +64,7 @@ void Event::printPrimaryVertices() const
 void Event::pushClusterToLayer(const int layerIndex, const int clusterId, const float xCoordinate,
     const float yCoordinate, const float zCoordinate, const int monteCarlo)
 {
-  mLayers[layerIndex].addCluster(clusterId, xCoordinate, yCoordinate, zCoordinate, monteCarlo);
+  mLayers[layerIndex].addCluster(clusterId, xCoordinate, yCoordinate, zCoordinate, layerIndex);
 }
 
 >>>>>>> [WIP] Add tracking-itsu repository content
