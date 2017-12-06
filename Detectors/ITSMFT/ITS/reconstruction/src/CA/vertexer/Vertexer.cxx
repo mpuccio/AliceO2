@@ -13,12 +13,13 @@
 /// \author matteo.concas@cern.ch
 /// \author maximiliano.puccio@cern.ch
 
-#include "ITSReconstruction/CA/vertexer/Vertexer.h"
+#include <algorithm>
 
 #include "ITSReconstruction/CA/Constants.h"
 #include "ITSReconstruction/CA/Cluster.h"
 #include "ITSReconstruction/CA/Event.h"
 #include "ITSReconstruction/CA/Layer.h"
+#include "ITSReconstruction/CA/vertexer/Vertexer.h"
 
 namespace o2
 {
