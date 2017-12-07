@@ -15,12 +15,10 @@
 
 constexpr int PrimaryVertexLayerId = -1;
 constexpr int EventLabelsSeparator = -1;
+using namespace o2::ITS::CA;
 
 std::vector<o2::ITS::CA::Event> loadEventData(const std::string& fileName)
 {
-  using o2::ITS::CA::Event;
-  using o2::ITS::CA::Vertexer;
-
   std::vector<Event> events;
   std::ifstream inputStream;
   std::string line, unusedVariable;
@@ -40,21 +38,19 @@ std::vector<o2::ITS::CA::Event> loadEventData(const std::string& fileName)
       } else {
         if (inputStringStream >> unusedVariable >> unusedVariable >> unusedVariable >> unusedVariable >> monteCarlo) {
           events.back().pushClusterToLayer(layerId, clusterId, xCoordinate, yCoordinate, zCoordinate, monteCarlo);
-          // Printf("-> %d %d %f %f %f %d", layerId, clusterId, xCoordinate, yCoordinate, zCoordinate, monteCarlo);
           ++clusterId;
         }
       }
     }
   }
+  Printf(" evt vector size: %lu\n", events.size());
   return events;
 }
 
 
 void CheckVertexer(const std::string& fname ="data.txt")
 {
-  using o2::ITS::CA::Event;
-  using o2::ITS::CA::Vertexer;
-
   std::vector<Event> events = loadEventData(fname);
-  // Vertexer vertexer(events[0]); 
+  Vertexer vertexer(events.back());
+  vertexer.initialize();
 }
