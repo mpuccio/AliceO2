@@ -43,6 +43,7 @@ std::vector<Event> IOUtils::loadEventData(const std::string& fileName)
   int layerId { }, monteCarlo { };
   int clusterId { EventLabelsSeparator };
   float xCoordinate { }, yCoordinate { }, zCoordinate { }, alphaAngle { };
+  float varX { -1.f }, varY { -1.f };
 
   inputStream.open(fileName);
 
@@ -64,10 +65,16 @@ std::vector<Event> IOUtils::loadEventData(const std::string& fileName)
 
       } else {
 
-        if (inputStringStream >> unusedVariable >> unusedVariable >> unusedVariable >> alphaAngle >> monteCarlo) {
+        if (inputStringStream >> varX >> varY >> unusedVariable >> alphaAngle >> monteCarlo) {
 
-          events.back().pushClusterToLayer(layerId, clusterId, xCoordinate, yCoordinate, zCoordinate, alphaAngle,
-              monteCarlo);
+          events.back().addClusterToLayer(layerId, xCoordinate, yCoordinate, zCoordinate, clusterId, monteCarlo);
+          const float radius = std::sqrt(xCoordinate * xCoordinate + yCoordinate * yCoordinate);
+          const float sinAlpha = std::sin(alphaAngle);
+          const float cosAlpha = std::cos(alphaAngle);
+          const float xTF = xCoordinate * cosAlpha - yCoordinate * sinAlpha;
+          const float yTF = xCoordinate * sinAlpha + yCoordinate * cosAlpha;
+          events.back().addTrackingFrameInfoToLayer(layerId, radius, alphaAngle, std::array<float,2>{xTF, yTF},
+              std::array<float,3>{varX, 0.f, varY});
           ++clusterId;
         }
       }

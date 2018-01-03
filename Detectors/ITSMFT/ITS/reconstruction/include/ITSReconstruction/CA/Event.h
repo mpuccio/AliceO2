@@ -17,6 +17,7 @@
 
 #include <array>
 #include <vector>
+#include <utility>
 
 #include "ITSReconstruction/CA/Constants.h"
 #include "ITSReconstruction/CA/Layer.h"
@@ -40,8 +41,10 @@ class Event
       int getPrimaryVerticesNum() const;
       void addPrimaryVertex(const float, const float, const float);
       void printPrimaryVertices() const;
-      void pushClusterToLayer(const int, const int, const float, const float, const float, const float, const int);
       int getTotalClusters() const;
+
+      template<typename... T> void addClusterToLayer(int layer, T&&... args);
+      template<typename... T> void addTrackingFrameInfoToLayer(int layer, T&&... args);
 
     private:
       const int mEventId;
@@ -66,8 +69,16 @@ class Event
 
   inline int Event::getPrimaryVerticesNum() const
   {
-
     return mPrimaryVertices.size();
+  }
+
+  template<typename ... T> void Event::addClusterToLayer(int layer, T&& ... values)
+  {
+    mLayers[layer].addCluster(std::forward<T>(values)...);
+  }
+
+  template<typename ... T> void Event::addTrackingFrameInfoToLayer(int layer, T&& ... values) {
+    mLayers[layer].addTrackingFrameInfo(std::forward<T>(values)...);
   }
 
 }

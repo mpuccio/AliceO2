@@ -49,12 +49,6 @@ void Event::printPrimaryVertices() const
   }
 }
 
-void Event::pushClusterToLayer(const int layerIndex, const int clusterId, const float xCoordinate,
-    const float yCoordinate, const float zCoordinate, const float aplhaAngle, const int monteCarlo)
-{
-  mLayers[layerIndex].addCluster(clusterId, xCoordinate, yCoordinate, zCoordinate, aplhaAngle, monteCarlo);
-}
-
 int Event::getTotalClusters() const
 {
   int totalClusters { 0 };

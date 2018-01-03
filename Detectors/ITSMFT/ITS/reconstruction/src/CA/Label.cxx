@@ -11,8 +11,6 @@
 /// \file Label.cxx
 /// \brief 
 ///
-/// \author Iacopo Colonnelli, Politecnico di Torino
-///
 
 #include "ITSReconstruction/CA/Label.h"
 

@@ -35,12 +35,6 @@ Layer::Layer(const int layerIndex)
   //Nothing to do
 }
 
-void Layer::addCluster(const int clusterId, const float xCoordinate, const float yCoordinate, const float zCoordinate,
-    const float alphaAngle, const int monteCarlo)
-{
-  mClusters.emplace_back(clusterId, mLayerIndex, xCoordinate, yCoordinate, zCoordinate, alphaAngle, monteCarlo);
-}
-
 }
 }
 }

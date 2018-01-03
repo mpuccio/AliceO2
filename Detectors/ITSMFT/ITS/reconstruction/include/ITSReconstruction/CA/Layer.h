@@ -16,6 +16,7 @@
 #define TRACKINGITSU_INCLUDE_LAYER_H_
 
 #include <vector>
+#include <utility>
 
 #include "ITSReconstruction/CA/Cluster.h"
 #include "ITSReconstruction/CA/Definitions.h"
@@ -32,17 +33,20 @@ class Layer
   {
     public:
       Layer();
-      Layer(const int);
+      Layer(const int layerIndex);
 
       int getLayerIndex() const;
       const std::vector<Cluster>& getClusters() const;
+      const std::vector<TrackingFrameInfo>& getTrackingFrameInfo() const;
       const Cluster& getCluster(int) const;
       int getClustersSize() const;
-      void addCluster(const int, const float, const float, const float, const float, const int);
+      template<typename... T> void addCluster(T&&... args);
+      template<typename... T> void addTrackingFrameInfo(T&&... args);
 
     private:
       int mLayerIndex;
       std::vector<Cluster> mClusters;
+      std::vector<TrackingFrameInfo> mTrackingFrameInfo;
   };
 
   inline int Layer::getLayerIndex() const
@@ -55,6 +59,11 @@ class Layer
     return mClusters;
   }
 
+  inline const std::vector<TrackingFrameInfo>& Layer::getTrackingFrameInfo() const
+  {
+    return mTrackingFrameInfo;
+  }
+
   inline const Cluster& Layer::getCluster(int clusterIndex) const
   {
     return mClusters[clusterIndex];
@@ -63,6 +72,16 @@ class Layer
   inline int Layer::getClustersSize() const
   {
     return mClusters.size();
+  }
+
+  template<typename... T> void Layer::addCluster(T&&... args)
+  {
+    mClusters.emplace_back(std::forward<T>(args)...);
+  }
+
+  template<typename... T> void Layer::addTrackingFrameInfo(T&&... args)
+  {
+    mTrackingFrameInfo.emplace_back(std::forward<T>(args)...);
   }
 
 }

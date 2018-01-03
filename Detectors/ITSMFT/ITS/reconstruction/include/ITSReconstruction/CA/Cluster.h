@@ -16,6 +16,8 @@
 #ifndef TRACKINGITSU_INCLUDE_CACLUSTER_H_
 #define TRACKINGITSU_INCLUDE_CACLUSTER_H_
 
+#include <array>
+
 #include "ITSReconstruction/CA/Definitions.h"
 #include "ITSReconstruction/CA/MathUtils.h"
 #include "ITSReconstruction/CA/IndexTableUtils.h"
@@ -30,7 +32,7 @@ namespace CA
 struct Cluster
     final
     {
-      Cluster(const int, const int, const float, const float, const float, const float, const int);
+      Cluster(const float x, const float y, const float z, const int idx, const int mc);
       Cluster(const int, const float3&, const Cluster&);
 
       float xCoordinate;
@@ -39,10 +41,18 @@ struct Cluster
       float phiCoordinate;
       float rCoordinate;
       int clusterId;
-      float alphaAngle;
       int monteCarloId;
       int indexTableBinIndex;
   };
+
+struct TrackingFrameInfo {
+  TrackingFrameInfo(float xTF, float alpha, std::array<float,2>&& posTF, std::array<float,3>&& covTF);
+
+  float xTrackingFrame;
+  float alphaTrackingFrame;
+  std::array<float,2> positionTrackingFrame;
+  std::array<float,3> covarianceTrackingFrame;
+};
 
 }
 }

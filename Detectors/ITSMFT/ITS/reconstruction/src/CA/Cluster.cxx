@@ -24,10 +24,9 @@ namespace ITS
 namespace CA
 {
 
-Cluster::Cluster(const int clusterId, const int layerIndex, const float xCoordinate, const float yCoordinate,
-    const float zCoordinate, const float alphaAngle, const int monteCarloId)
-    : xCoordinate { xCoordinate }, yCoordinate { yCoordinate }, zCoordinate { zCoordinate }, phiCoordinate { 0 }, rCoordinate {
-        0 }, clusterId { clusterId }, alphaAngle { alphaAngle }, monteCarloId { monteCarloId }, indexTableBinIndex { 0 }
+Cluster::Cluster(const float x, const float y, const float z, const int index, const int mcId)
+    : xCoordinate { x }, yCoordinate { y }, zCoordinate { z }, phiCoordinate { 0 }, rCoordinate {
+        0 }, clusterId { index }, monteCarloId { mcId }, indexTableBinIndex { 0 }
 {
   // Nothing to do
 }
@@ -37,9 +36,15 @@ Cluster::Cluster(const int layerIndex, const float3 &primaryVertex, const Cluste
         MathUtils::getNormalizedPhiCoordinate(
             MathUtils::calculatePhiCoordinate(xCoordinate - primaryVertex.x, yCoordinate - primaryVertex.y)) }, rCoordinate {
         MathUtils::calculateRCoordinate(xCoordinate - primaryVertex.x, yCoordinate - primaryVertex.y) }, clusterId {
-        other.clusterId }, alphaAngle { other.alphaAngle }, monteCarloId { other.monteCarloId }, indexTableBinIndex {
+        other.clusterId }, monteCarloId { other.monteCarloId }, indexTableBinIndex {
         IndexTableUtils::getBinIndex(IndexTableUtils::getZBinIndex(layerIndex, zCoordinate),
             IndexTableUtils::getPhiBinIndex(phiCoordinate)) }
+{
+  // Nothing to do
+}
+
+TrackingFrameInfo::TrackingFrameInfo(float xTF, float alpha, std::array<float, 2>&& posTF, std::array<float, 3>&& covTF)
+  : xTrackingFrame{ xTF }, alphaTrackingFrame{ alpha }, positionTrackingFrame{ posTF }, covarianceTrackingFrame{ covTF }
 {
   // Nothing to do
 }
