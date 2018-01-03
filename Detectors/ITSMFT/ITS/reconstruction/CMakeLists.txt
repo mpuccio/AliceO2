@@ -27,10 +27,10 @@ set(NO_DICT_SRCS # sources not for the dictionary
     )
 
 # Headers from sources
-string(REPLACE ".cxx" ".h" HEADERS_WRONG_DIR "${SRCS}")
-string(REPLACE "src" "include/${MODULE_NAME}" HEADERS "${HEADERS_WRONG_DIR}")
-string(REPLACE ".cxx" ".h" NO_DICT_HEADERS_WRONG_DIR "${NO_DICT_SRCS}")
-string(REPLACE "src" "include/${MODULE_NAME}" NO_DICT_HEADERS "${NO_DICT_HEADERS_WRONG_DIR}")
+string(REPLACE ".cxx" ".h" HEADERS "${SRCS}")
+string(REPLACE "src" "include/${MODULE_NAME}" HEADERS "${HEADERS}")
+string(REPLACE ".cxx" ".h" NO_DICT_HEADERS "${NO_DICT_SRCS}")
+string(REPLACE "src" "include/${MODULE_NAME}" NO_DICT_HEADERS "${NO_DICT_HEADERS}")
 
 Set(LINKDEF src/ITSReconstructionLinkDef.h)
 Set(LIBRARY_NAME ${MODULE_NAME})
