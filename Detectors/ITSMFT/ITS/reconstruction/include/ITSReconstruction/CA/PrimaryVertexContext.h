@@ -25,6 +25,7 @@
 #include "ITSReconstruction/CA/Definitions.h"
 #include "ITSReconstruction/CA/Event.h"
 #include "ITSReconstruction/CA/Road.h"
+#include "ITSReconstruction/CA/Track.h"
 #include "ITSReconstruction/CA/Tracklet.h"
 
 #if TRACKINGITSU_GPU_MODE
@@ -55,6 +56,7 @@ class PrimaryVertexContext
         std::array<std::vector<int>, Constants::ITS::CellsPerRoad - 1>& getCellsLookupTable();
         std::array<std::vector<std::vector<int>>, Constants::ITS::CellsPerRoad - 1>& getCellsNeighbours();
         std::vector<Road>& getRoads();
+        std::vector<Track>& getTracks();
 
 #if TRACKINGITSU_GPU_MODE
         GPU::PrimaryVertexContext& getDeviceContext();
@@ -83,6 +85,7 @@ class PrimaryVertexContext
         std::array<std::vector<int>, Constants::ITS::CellsPerRoad - 1> mCellsLookupTable;
         std::array<std::vector<std::vector<int>>, Constants::ITS::CellsPerRoad - 1> mCellsNeighbours;
         std::vector<Road> mRoads;
+        std::vector<Track> mTracks;
 
 #if TRACKINGITSU_GPU_MODE
         GPU::PrimaryVertexContext mGPUContext;

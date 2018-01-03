@@ -68,7 +68,7 @@ class Tracker: private TrackerTraits<IsGPU>
     void computeCells();
     void findCellsNeighbours();
     void findRoads();
-    //void findTracks();
+    void findTracks();
     void traverseCellsTree(const int, const int);
     void computeMontecarloLabels();
 

@@ -533,6 +533,12 @@ void Tracker<IsGPU>::findRoads()
 }
 
 template<bool IsGPU>
+void Tracker<IsGPU>::findTracks()
+{
+
+}
+
+template<bool IsGPU>
 void Tracker<IsGPU>::traverseCellsTree(const int currentCellId, const int currentLayerId)
 {
   Cell& currentCell { mPrimaryVertexContext.getCells()[currentLayerId][currentCellId] };
