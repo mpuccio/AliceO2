@@ -18,6 +18,7 @@
 #include "ITSReconstruction/CA/Cluster.h"
 #include "ITSReconstruction/CA/Definitions.h"
 
+
 namespace o2
 {
 namespace ITS
@@ -28,6 +29,11 @@ namespace CA
 namespace TrackingUtils {
 GPU_HOST_DEVICE constexpr int4 getEmptyBinsRect() { return int4{ 0, 0, 0, 0 }; }
 GPU_DEVICE const int4 getBinsRect(const Cluster&, const int, const float);
+
+float computeCurvature(float x1, float y1, float x2, float y2, float x3, float y3);
+float computeCurvatureCentreX(float x1, float y1, float x2, float y2, float x3, float y3);
+float computeTanDipAngle(float x1, float y1, float x2, float y2, float z1, float z2);
+
 }
 
 }

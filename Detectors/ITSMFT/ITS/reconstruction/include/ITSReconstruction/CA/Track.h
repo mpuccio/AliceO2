@@ -25,11 +25,28 @@ namespace CA
 {
   struct Track
   {
-    Track() {}
+    Track();
+    Track(const Base::Track::TrackParCov& param, float chi2, const std::array<int,7>& clusters);
+
     Base::Track::TrackParCov mParam;    ///< Standard barrel track parameterisation
     float mChi2 = 1.e27;                ///< Chi2
     std::array<int,7> mClusters = {-1}; ///< Cluster index on the ITS layers
   };
+
+  inline Track::Track()
+  {
+    // Nothing to do
+  }
+
+  inline Track::Track(const Base::Track::TrackParCov& param, float chi2, \
+      const std::array<int,7>& clusters) :
+    mParam{param},
+    mChi2{chi2},
+    mClusters{clusters}
+  {
+    // Nothing to do
+  }
+
 }
 }
 }

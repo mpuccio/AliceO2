@@ -38,7 +38,8 @@ class Layer
       int getLayerIndex() const;
       const std::vector<Cluster>& getClusters() const;
       const std::vector<TrackingFrameInfo>& getTrackingFrameInfo() const;
-      const Cluster& getCluster(int) const;
+      const Cluster& getCluster(int idx) const;
+      const TrackingFrameInfo& getTrackingFrameInfo(int idx) const;
       int getClustersSize() const;
       template<typename... T> void addCluster(T&&... args);
       template<typename... T> void addTrackingFrameInfo(T&&... args);
@@ -67,6 +68,11 @@ class Layer
   inline const Cluster& Layer::getCluster(int clusterIndex) const
   {
     return mClusters[clusterIndex];
+  }
+
+  inline const TrackingFrameInfo& Layer::getTrackingFrameInfo(int clusterIndex) const
+  {
+    return mTrackingFrameInfo[clusterIndex];
   }
 
   inline int Layer::getClustersSize() const

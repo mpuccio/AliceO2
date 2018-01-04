@@ -58,26 +58,43 @@ class Tracker: private TrackerTraits<IsGPU>
     Tracker(const Tracker&) = delete;
     Tracker &operator=(const Tracker&) = delete;
 
+    void setBz(float bz);
+    float getBz() const;
+
     std::vector<std::vector<Road>> clustersToTracks(const Event&);
     std::vector<std::vector<Road>> clustersToTracksVerbose(const Event&);
     std::vector<std::vector<Road>> clustersToTracksMemoryBenchmark(const Event&, std::ofstream&);
     std::vector<std::vector<Road>> clustersToTracksTimeBenchmark(const Event&, std::ofstream&);
 
-  protected:
+  private:
+    Base::Track::TrackParCov buildTrackSeed(const Cluster& cluster1, const Cluster& cluster2,
+        const Cluster& cluster3, const TrackingFrameInfo& tf3);
     void computeTracklets();
     void computeCells();
     void findCellsNeighbours();
     void findRoads();
-    void findTracks();
+    void findTracks(const Event& ev);
     void traverseCellsTree(const int, const int);
     void computeMontecarloLabels();
 
-  private:
     float evaluateTask(void (Tracker<IsGPU>::*)(void), const char*);
     float evaluateTask(void (Tracker<IsGPU>::*)(void), const char*, std::ostream&);
 
     PrimaryVertexContext mPrimaryVertexContext;
+    float                mBz = 0.5f;
 };
+
+template<bool IsGPU>
+float Tracker<IsGPU>::getBz() const
+{
+  return mBz;
+}
+
+template<bool IsGPU>
+void Tracker<IsGPU>::setBz(float bz)
+{
+  mBz = bz;
+}
 
 template<> void TrackerTraits<TRACKINGITSU_GPU_MODE>::computeLayerTracklets(PrimaryVertexContext&);
 template<> void TrackerTraits<TRACKINGITSU_GPU_MODE>::computeLayerCells(PrimaryVertexContext&);

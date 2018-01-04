@@ -16,7 +16,6 @@
 
 #include <array>
 #include <cmath>
-#include <ctime>
 #include <fstream>
 #include <iomanip>
 #include <iostream>
@@ -256,7 +255,7 @@ std::vector<std::vector<Road>> Tracker<IsGPU>::clustersToTracks(const Event& eve
     computeCells();
     findCellsNeighbours();
     findRoads();
-    //findTracks();
+    //findTracks(event);
     computeMontecarloLabels();
 
     roads.emplace_back(mPrimaryVertexContext.getRoads());
@@ -289,7 +288,7 @@ std::vector<std::vector<Road>> Tracker<IsGPU>::clustersToTracksVerbose(const Eve
     evaluateTask(&Tracker<IsGPU>::computeCells, "Cells Finding");
     evaluateTask(&Tracker<IsGPU>::findCellsNeighbours, "Neighbours Finding");
     evaluateTask(&Tracker<IsGPU>::findRoads, "Roads Finding");
-    //evaluateTask(&Tracker<IsGPU>::findTracks, "Tracks Finding");
+    //evaluateTask(&Tracker<IsGPU>::findTracks(event), "Tracks Finding");
     evaluateTask(&Tracker<IsGPU>::computeMontecarloLabels, "Computing Montecarlo Labels");
 
     t2 = clock();
@@ -533,9 +532,99 @@ void Tracker<IsGPU>::findRoads()
 }
 
 template<bool IsGPU>
-void Tracker<IsGPU>::findTracks()
+void Tracker<IsGPU>::findTracks(const Event& event)
 {
+  mPrimaryVertexContext.getTracks().reserve(mPrimaryVertexContext.getRoads().size());
+  std::vector<Track> tracks;
+  tracks.reserve(mPrimaryVertexContext.getRoads().size());
+  for (auto& road : mPrimaryVertexContext.getRoads()) {
+    std::array<int, 7> clusters {Constants::ITS::UnusedIndex};
+    int lastCellLevel = -1;
+    for (int iCell{0}; iCell < Constants::ITS::CellsPerRoad; ++iCell) {
+      const int cellIndex = road[iCell];
+      if (cellIndex == Constants::ITS::UnusedIndex) {
+        continue;
+      } else {
+        clusters[iCell] = mPrimaryVertexContext.getCells()[iCell][cellIndex].getFirstClusterIndex();
+        clusters[iCell + 1] = mPrimaryVertexContext.getCells()[iCell][cellIndex].getSecondClusterIndex();
+        clusters[iCell + 2] = mPrimaryVertexContext.getCells()[iCell][cellIndex].getThirdClusterIndex();
+        lastCellLevel = iCell;
+      }
+    }
 
+    /// From primary vertex context index to event index (== the one used as input of the tracking code)
+    for (int iC{0}; iC < clusters.size(); iC++) {
+      clusters[iC] = event.getLayer(iC).getCluster(clusters[iC]).clusterId;
+    }
+    /// Track seed preparation. Clusters are numbered progressively from the outermost to the innermost.
+    const auto& cluster1_glo = event.getLayer(lastCellLevel + 2).getCluster(clusters[lastCellLevel + 2]);
+    const auto& cluster2_glo = event.getLayer(lastCellLevel + 1).getCluster(clusters[lastCellLevel + 1]);
+    const auto& cluster3_glo = event.getLayer(lastCellLevel).getCluster(clusters[lastCellLevel]);
+
+    const auto& cluster3_tf = event.getLayer(lastCellLevel).getTrackingFrameInfo(clusters[lastCellLevel]);
+
+    Track temporaryTrack {
+      buildTrackSeed(cluster1_glo, cluster2_glo, cluster3_glo, cluster3_tf),
+      0.f,
+      clusters
+    };
+    /*
+    bool fitSuccess = true;
+    for (int iCluster{Constants::ITS::LayersNumber-3}; iCluster--; ) {
+      if (temporaryTrack.mClusters[iCluster] == Constants::ITS::UnusedIndex) {
+        continue;
+      }
+      const TrackingFrameInfo& trackingHit = event.getLayer(iCluster).getTrackingFrameInfo(temporaryTrack.mClusters[iCluster]);
+      fitSuccess = temporaryTrack.mParam.rotate(trackingHit.alphaTrackingFrame);
+      if (!fitSuccess) {
+        break;
+      }
+      fitSuccess = temporaryTrack.mParam.propagateTo(trackingHit.xTrackingFrame, event.getBz());
+      if (!fitSuccess) {
+        break;
+      }
+      temporaryTrack.mChi2 += temporaryTrack.mParam.getPredictedChi2(trackingHit.positionTrackingFrame,trackingHit.covarianceTrackingFrame);
+      fitSuccess = temporaryTrack.mParam.update(trackingHit.positionTrackingFrame,trackingHit.covarianceTrackingFrame);
+      if (!fitSuccess) {
+        break;
+      }
+      const float xx0 = (iCluster > 2) ? 0.008f : 0.003f;            // Rough layer thickness
+      constexpr float radiationLength = 9.36f; // Radiation length of Si [cm]
+      constexpr float density = 2.33f;         // Density of Si [g/cm^3]
+      fitSuccess = temporaryTrack.mParam.correctForMaterial(xx0, xx0 * radiationLength * density, true);
+      if (!fitSuccess) {
+        break;
+      }
+    }
+    if (!fitSuccess) {
+      continue;
+    }*/
+    tracks.emplace_back(temporaryTrack);
+  }
+
+  std::sort(tracks.begin(),tracks.end(),[](Track& track1, Track& track2) {
+    return track1.mChi2 > track2.mChi2;
+  });
+
+  for (auto& track : tracks) {
+    /*bool sharingCluster = false;
+    for (int iCluster{0}; iCluster < Constants::ITS::LayersNumber; ++iCluster) {
+      if (track.mClusters[iCluster] == Constants::ITS::UnusedIndex) {
+        continue;
+      }
+      sharingCluster |= mPrimaryVertexContext.getUsedClusters()[iCluster][track.mClusters[iCluster]];
+    }
+    if (sharingCluster) {
+      continue;
+    }
+    for (int iCluster{0}; iCluster < Constants::ITS::LayersNumber; ++iCluster) {
+      if (track.mClusters[iCluster] == Constants::ITS::UnusedIndex) {
+        continue;
+      }
+      mPrimaryVertexContext.getUsedClusters()[iCluster][track.mClusters[iCluster]] = true;
+    }*/
+    mPrimaryVertexContext.getTracks().emplace_back(track);
+  }
 }
 
 template<bool IsGPU>
@@ -691,6 +780,46 @@ float Tracker<IsGPU>::evaluateTask(void (Tracker<IsGPU>::*task)(void), const cha
   }
 
   return diff;
+}
+
+/// Clusters are given from outside inward (cluster1 is the outermost). The innermost cluster is given in the tracking frame coordinates
+/// whereas the others are referred to the global frame. This function is almost a clone of CookSeed, adapted to return a TrackParCov
+template<bool IsGPU>
+Base::Track::TrackParCov Tracker<IsGPU>::buildTrackSeed(const Cluster& cluster1, const Cluster& cluster2, const Cluster& cluster3, const TrackingFrameInfo& tf3) {
+  const float ca = std::cos(tf3.alphaTrackingFrame), sa = std::sin(tf3.alphaTrackingFrame);
+  const float x1 =  cluster1.xCoordinate * ca + cluster1.yCoordinate * sa;
+  const float y1 = -cluster1.xCoordinate * sa + cluster1.yCoordinate * ca;
+  const float z1 =  cluster1.zCoordinate;
+  const float x2 =  cluster2.xCoordinate * ca + cluster2.yCoordinate * sa;
+  const float y2 = -cluster2.xCoordinate * sa + cluster2.yCoordinate * ca;
+  const float z2 =  cluster2.zCoordinate;
+  const float x3 =  tf3.positionTrackingFrame[0];
+  const float y3 =  tf3.positionTrackingFrame[1];
+  const float z3 =  cluster3.zCoordinate;
+
+  const float crv = TrackingUtils::computeCurvature(x1, y1, x2, y2, x3, y3);
+  const float x0  = TrackingUtils::computeCurvatureCentreX(x1, y1, x2, y2, x3, y3);
+  const float tgl12 = TrackingUtils::computeTanDipAngle(x1, y1, x2, y2, z1, z2);
+  const float tgl23 = TrackingUtils::computeTanDipAngle(x2, y2, x3, y3, z2, z3);
+
+  const float fy = 1. / (cluster2.rCoordinate - cluster3.rCoordinate);
+  const float& tz = fy;
+  const float cy = (TrackingUtils::computeCurvature(x1, y1, x2, y2 + Constants::ITS::Resolution, x3, y3) - crv) / \
+    (Constants::ITS::Resolution * getBz() * Base::Constants::kB2C) * 20.f; // FIXME: MS contribution to the cov[14] (*20 added)
+  constexpr float s2 = Constants::ITS::Resolution * Constants::ITS::Resolution;
+
+  return Base::Track::TrackParCov(
+    tf3.xTrackingFrame,
+    tf3.alphaTrackingFrame,
+    {y3, z3, crv * (x3 - x0), 0.5f * (tgl12 + tgl23), std::abs(getBz()) < Base::Constants::kAlmost0 ? Base::Constants::kAlmost0 : crv / (getBz() * Base::Constants::kB2C)},
+    {
+      s2,
+      0.f,     s2,
+      s2 * fy, 0.f,     s2 * fy * fy,
+      0.f,     s2 * tz, 0.f,          s2 * tz * tz,
+      s2 * cy, 0.f,     s2 * fy * cy, 0.f,          s2 * cy * cy
+    }
+  );
 }
 
 template class Tracker<TRACKINGITSU_GPU_MODE> ;

@@ -47,6 +47,28 @@ GPU_DEVICE const int4 TrackingUtils::getBinsRect(const Cluster& currentCluster, 
       IndexTableUtils::getPhiBinIndex(MathUtils::getNormalizedPhiCoordinate(phiRangeMax)) };
 }
 
+float TrackingUtils::computeCurvature(float x1, float y1, float x2, float y2, float x3, float y3)
+{
+  const float d = (x2 - x1) * (y3 - y2) - (x3 - x2) * (y2 - y1);
+  const float a =
+    0.5f * ((y3 - y2) * (y2 * y2 - y1 * y1 + x2 * x2 - x1 * x1) - (y2 - y1) * (y3 * y3 - y2 * y2 + x3 * x3 - x2 * x2));
+  const float b =
+    0.5f * ((x2 - x1) * (y3 * y3 - y2 * y2 + x3 * x3 - x2 * x2) - (x3 - x2) * (y2 * y2 - y1 * y1 + x2 * x2 - x1 * x1));
+
+  return -1.f * d / std::sqrt((d * x1 - a) * (d * x1 - a) + (d * y1 - b) * (d * y1 - b));
+}
+
+float TrackingUtils::computeCurvatureCentreX(float x1, float y1, float x2, float y2, float x3, float y3)
+{
+  const float k1 = (y2 - y1) / (x2 - x1), k2 = (y3 - y2) / (x3 - x2);
+  return 0.5f * (k1 * k2 * (y1 - y3) + k2 * (x1 + x2) - k1 * (x2 + x3)) / (k2 - k1);
+}
+
+float TrackingUtils::computeTanDipAngle(float x1, float y1, float x2, float y2, float z1, float z2)
+{
+  return (z1 - z2) / std::sqrt((x1 - x2) * (x1 - x2) + (y1 - y2) * (y1 - y2));
+}
+
 }
 }
 }

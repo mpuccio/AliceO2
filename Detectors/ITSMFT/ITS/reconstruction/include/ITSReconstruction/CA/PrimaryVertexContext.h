@@ -131,6 +131,11 @@ class PrimaryVertexContext
       return mRoads;
     }
 
+    inline std::vector<Track>& PrimaryVertexContext::getTracks()
+    {
+      return mTracks;
+    }
+
 #if TRACKINGITSU_GPU_MODE
     inline GPU::PrimaryVertexContext& PrimaryVertexContext::getDeviceContext()
     {
