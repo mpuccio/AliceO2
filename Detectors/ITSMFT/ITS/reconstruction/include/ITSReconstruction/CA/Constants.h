@@ -28,6 +28,8 @@ namespace CA
 
 namespace Constants {
 
+constexpr bool DoTimeBenchmarks = true;
+
 namespace Math {
 constexpr float Pi { 3.14159265359f };
 constexpr float TwoPi { 2.0f * Pi };

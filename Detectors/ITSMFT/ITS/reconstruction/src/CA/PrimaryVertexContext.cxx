@@ -28,7 +28,7 @@ PrimaryVertexContext::PrimaryVertexContext()
   // Nothing to do
 }
 
-void PrimaryVertexContext::initialize(const Event& event, const int primaryVertexIndex) {
+void PrimaryVertexContext::initialise(const Event& event, const int primaryVertexIndex) {
   mPrimaryVertex = event.getPrimaryVertex(primaryVertexIndex);
 
   for (int iLayer { 0 }; iLayer < Constants::ITS::LayersNumber; ++iLayer) {

@@ -49,7 +49,7 @@ class PrimaryVertexContext
         PrimaryVertexContext(const PrimaryVertexContext&) = delete;
         PrimaryVertexContext &operator=(const PrimaryVertexContext&) = delete;
 
-        void initialize(const Event&, const int);
+        void initialise(const Event&, const int);
         const float3& getPrimaryVertex() const;
         std::array<std::vector<Cluster>, Constants::ITS::LayersNumber>& getClusters();
         std::array<std::vector<Cell>, Constants::ITS::CellsPerRoad>& getCells();

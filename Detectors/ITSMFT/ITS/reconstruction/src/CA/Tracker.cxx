@@ -14,21 +14,10 @@
 
 #include "ITSReconstruction/CA/Tracker.h"
 
-#include <array>
-#include <cmath>
-#include <fstream>
-#include <iomanip>
-#include <iostream>
-#include <memory>
-
 #include "ITSReconstruction/CA/Cell.h"
 #include "ITSReconstruction/CA/Constants.h"
-#include "ITSReconstruction/CA/Definitions.h"
-#include "ITSReconstruction/CA/Event.h"
 #include "ITSReconstruction/CA/IndexTableUtils.h"
 #include "ITSReconstruction/CA/Layer.h"
-#include "ITSReconstruction/CA/MathUtils.h"
-#include "ITSReconstruction/CA/PrimaryVertexContext.h"
 #include "ITSReconstruction/CA/Tracklet.h"
 #include "ITSReconstruction/CA/TrackingUtils.h"
 
@@ -241,135 +230,8 @@ Tracker<IsGPU>::Tracker()
 }
 
 template<bool IsGPU>
-std::vector<std::vector<Road>> Tracker<IsGPU>::clustersToTracks(const Event& event)
-{
-  const int verticesNum { event.getPrimaryVerticesNum() };
-  std::vector<std::vector<Road>> roads { };
-  roads.reserve(verticesNum);
-
-  for (int iVertex { 0 }; iVertex < verticesNum; ++iVertex) {
-
-    mPrimaryVertexContext.initialize(event, iVertex);
-
-    computeTracklets();
-    computeCells();
-    findCellsNeighbours();
-    findRoads();
-    //findTracks(event);
-    computeMontecarloLabels();
-
-    roads.emplace_back(mPrimaryVertexContext.getRoads());
-  }
-
-  return roads;
-}
-
-template<bool IsGPU>
-std::vector<std::vector<Road>> Tracker<IsGPU>::clustersToTracksVerbose(const Event& event)
-{
-  const int verticesNum { event.getPrimaryVerticesNum() };
-  std::vector<std::vector<Road>> roads { };
-  roads.reserve(verticesNum);
-
-  for (int iVertex { 0 }; iVertex < verticesNum; ++iVertex) {
-
-    clock_t t1 { }, t2 { };
-    float diff { };
-
-    t1 = clock();
-
-    mPrimaryVertexContext.initialize(event, iVertex);
-
-    t2 = clock();
-    diff = ((float) t2 - (float) t1) / (CLOCKS_PER_SEC / 1000);
-    std::cout << std::setw(2) << " - Context initialized in: " << diff << "ms" << std::endl;
-
-    evaluateTask(&Tracker<IsGPU>::computeTracklets, "Tracklets Finding");
-    evaluateTask(&Tracker<IsGPU>::computeCells, "Cells Finding");
-    evaluateTask(&Tracker<IsGPU>::findCellsNeighbours, "Neighbours Finding");
-    evaluateTask(&Tracker<IsGPU>::findRoads, "Roads Finding");
-    //evaluateTask(&Tracker<IsGPU>::findTracks(event), "Tracks Finding");
-    evaluateTask(&Tracker<IsGPU>::computeMontecarloLabels, "Computing Montecarlo Labels");
-
-    t2 = clock();
-    diff = ((float) t2 - (float) t1) / (CLOCKS_PER_SEC / 1000);
-    std::cout << std::setw(2) << " - Vertex " << iVertex + 1 << " completed in: " << diff << "ms" << std::endl;
-
-    roads.emplace_back(mPrimaryVertexContext.getRoads());
-  }
-
-  return roads;
-}
-
-template<bool IsGPU>
-std::vector<std::vector<Road>> Tracker<IsGPU>::clustersToTracksMemoryBenchmark(
-    const Event& event, std::ofstream & memoryBenchmarkOutputStream)
-{
-  const int verticesNum { event.getPrimaryVerticesNum() };
-  std::vector<std::vector<Road>> roads { };
-  roads.reserve(verticesNum);
-
-  for (int iVertex { 0 }; iVertex < verticesNum; ++iVertex) {
-
-    mPrimaryVertexContext.initialize(event, iVertex);
-
-    for (int iLayer { 0 }; iLayer < Constants::ITS::LayersNumber; ++iLayer) {
-
-      memoryBenchmarkOutputStream << mPrimaryVertexContext.getClusters()[iLayer].size() << "\t";
-    }
-
-    memoryBenchmarkOutputStream << std::endl;
-
-#if !TRACKINGITSU_GPU_MODE
-    for (int iLayer { 0 }; iLayer < Constants::ITS::TrackletsPerRoad; ++iLayer) {
-
-      memoryBenchmarkOutputStream << mPrimaryVertexContext.getTracklets()[iLayer].capacity() << "\t";
-    }
-
-    memoryBenchmarkOutputStream << std::endl;
-
-    computeTracklets();
-
-    for (int iLayer { 0 }; iLayer < Constants::ITS::TrackletsPerRoad; ++iLayer) {
-
-      memoryBenchmarkOutputStream << mPrimaryVertexContext.getTracklets()[iLayer].size() << "\t";
-    }
-
-    memoryBenchmarkOutputStream << std::endl;
-#endif
-
-    for (int iLayer { 0 }; iLayer < Constants::ITS::CellsPerRoad; ++iLayer) {
-
-      memoryBenchmarkOutputStream << mPrimaryVertexContext.getCells()[iLayer].capacity() << "\t";
-    }
-
-    memoryBenchmarkOutputStream << std::endl;
-
-    computeCells();
-
-    for (int iLayer { 0 }; iLayer < Constants::ITS::CellsPerRoad; ++iLayer) {
-
-      memoryBenchmarkOutputStream << mPrimaryVertexContext.getCells()[iLayer].size() << "\t";
-    }
-
-    memoryBenchmarkOutputStream << std::endl;
-
-    findCellsNeighbours();
-    findRoads();
-    //findTracks();
-    computeMontecarloLabels();
-
-    roads.emplace_back(mPrimaryVertexContext.getRoads());
-
-    memoryBenchmarkOutputStream << mPrimaryVertexContext.getRoads().size() << std::endl;
-  }
-
-  return roads;
-}
-
-template<bool IsGPU>
-std::vector<std::vector<Road>> Tracker<IsGPU>::clustersToTracksTimeBenchmark(
-    const Event& event, std::ofstream& timeBenchmarkOutputStream)
+std::vector<std::vector<Road>> Tracker<IsGPU>::clustersToTracks(
+    const Event& event, std::ostream& timeBenchmarkOutputStream)
 {
   const int verticesNum = event.getPrimaryVerticesNum();
   std::vector<std::vector<Road>> roads;
@@ -377,26 +239,18 @@ std::vector<std::vector<Road>> Tracker<IsGPU>::clustersToTracksTimeBenchmark(
 
   for (int iVertex = 0; iVertex < verticesNum; ++iVertex) {
 
-    clock_t t1, t2;
-    float diff, total = .0f;
+    float total {0.f};
 
-    t1 = clock();
-
-    mPrimaryVertexContext.initialize(event, iVertex);
-
-    t2 = clock();
-    diff = ((float) t2 - (float) t1) / (CLOCKS_PER_SEC / 1000);
-    total += diff;
-    timeBenchmarkOutputStream << diff << "\t";
-
-    total += evaluateTask(&Tracker<IsGPU>::computeTracklets, nullptr, timeBenchmarkOutputStream);
-    total += evaluateTask(&Tracker<IsGPU>::computeCells, nullptr, timeBenchmarkOutputStream);
-    total += evaluateTask(&Tracker<IsGPU>::findCellsNeighbours, nullptr, timeBenchmarkOutputStream);
-    total += evaluateTask(&Tracker<IsGPU>::findRoads, nullptr, timeBenchmarkOutputStream);
-    //total += evaluateTask(&Tracker<IsGPU>::findTracks, nullptr, timeBenchmarkOutputStream);
-    total += evaluateTask(&Tracker<IsGPU>::computeMontecarloLabels, nullptr, timeBenchmarkOutputStream);
-
-    timeBenchmarkOutputStream << total << std::endl;
+    total += evaluateTask(&Tracker<IsGPU>::initialisePrimaryVertexContext, "Context initialisation", \
+        timeBenchmarkOutputStream, event, iVertex);
+    total += evaluateTask(&Tracker<IsGPU>::computeTracklets, "Tracklet finding", timeBenchmarkOutputStream);
+    total += evaluateTask(&Tracker<IsGPU>::computeCells, "Cell finding", timeBenchmarkOutputStream);
+    total += evaluateTask(&Tracker<IsGPU>::findCellsNeighbours, "Neighbour finding", timeBenchmarkOutputStream);
+    total += evaluateTask(&Tracker<IsGPU>::findRoads, "Road finding", timeBenchmarkOutputStream);
+    //total += evaluateTask(&Tracker<IsGPU>::findTracks, "Track finding", timeBenchmarkOutputStream, event);
+    total += evaluateTask(&Tracker<IsGPU>::computeMontecarloLabels, "Monte Carlo labels computation", timeBenchmarkOutputStream);
+    if (Constants::DoTimeBenchmarks)
+      timeBenchmarkOutputStream << std::setw(2) << " - " << "Vertex processing completed in: " << total << "ms" << std::endl;
 
     roads.emplace_back(mPrimaryVertexContext.getRoads());
   }
@@ -750,37 +604,6 @@ void Tracker<IsGPU>::computeMontecarloLabels()
   }
 }
 
-template<bool IsGPU>
-float Tracker<IsGPU>::evaluateTask(void (Tracker<IsGPU>::*task)(void), const char *taskName)
-{
-  return evaluateTask(task, taskName, std::cout);
-}
-
-template<bool IsGPU>
-float Tracker<IsGPU>::evaluateTask(void (Tracker<IsGPU>::*task)(void), const char *taskName,
-    std::ostream& ostream)
-{
-  clock_t t1, t2;
-  float diff;
-
-  t1 = clock();
-
-  (this->*task)();
-
-  t2 = clock();
-  diff = ((float) t2 - (float) t1) / (CLOCKS_PER_SEC / 1000);
-
-  if (taskName == nullptr) {
-
-    ostream << diff << "\t";
-
-  } else {
-
-    ostream << std::setw(2) << " - " << taskName << " completed in: " << diff << "ms" << std::endl;
-  }
-
-  return diff;
-}
 
 /// Clusters are given from outside inward (cluster1 is the outermost). The innermost cluster is given in the tracking frame coordinates
 /// whereas the others are referred to the global frame. This function is almost a clone of CookSeed, adapted to return a TrackParCov
