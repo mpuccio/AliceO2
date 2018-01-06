@@ -40,13 +40,21 @@ public:
   Vertexer& operator=(const Vertexer&) = delete;
 
   void initialize();
+  void computeTriplets();
+  void debugVertexerData();
+  void printIndexTables();
+
 protected:
+  bool mVertexerInitialized;
   Event mEvent;
-  std::array<std::vector<Cluster>, Constants::ITS::LayersNumberVertexer> mClusters; ///> stands for layers
+  std::array<std::vector<Cluster>, Constants::ITS::LayersNumberVertexer> mClusters;
+  std::array<std::array<int, Constants::IndexTable::ZBins * Constants::IndexTable::PhiBins + 1>,
+            Constants::ITS::LayersNumberVertexer> mIndexTables;
+  std::vector<std::array<Cluster, 3>> mTriplets;
 };
 
 }
 }
 }
 
-#endif /* O2_ITSMFT_RECONSTRUCTION_CA_VERTEXER_H_ */
+#endif /* O2_ITSMFT_RECONSTRUCTION_CA_VERTEXER_H_ */ 

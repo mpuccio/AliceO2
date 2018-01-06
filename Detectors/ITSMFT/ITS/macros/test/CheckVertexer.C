@@ -52,5 +52,9 @@ void CheckVertexer(const std::string& fname ="data.txt")
 {
   std::vector<Event> events = loadEventData(fname);
   Vertexer vertexer(events.back());
+  // vertexer.debugVertexerData();
   vertexer.initialize();
+  Printf(" ---------------- initialised ---------------");
+  vertexer.debugVertexerData();
+  vertexer.printIndexTables();
 }
