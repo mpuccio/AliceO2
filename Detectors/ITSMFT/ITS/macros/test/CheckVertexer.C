@@ -57,4 +57,5 @@ void CheckVertexer(const std::string& fname ="data.txt")
   Printf(" ---------------- initialised ---------------");
   vertexer.debugVertexerData();
   vertexer.printIndexTables();
+  vertexer.computeTriplets();
 }
