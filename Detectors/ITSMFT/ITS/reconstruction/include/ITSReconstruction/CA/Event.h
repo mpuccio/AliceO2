@@ -33,7 +33,7 @@ class Event
   final
   {
     public:
-      explicit Event(const int);
+      explicit Event(const int=0);
 
       int getEventId() const;
       const float3& getPrimaryVertex(const int) const;
@@ -46,6 +46,7 @@ class Event
       template<typename... T> void addClusterToLayer(int layer, T&&... args);
       template<typename... T> void addTrackingFrameInfoToLayer(int layer, T&&... args);
 
+      void clear();
     private:
       const int mEventId;
       std::vector<float3> mPrimaryVertices;
@@ -81,6 +82,12 @@ class Event
     mLayers[layer].addTrackingFrameInfo(std::forward<T>(values)...);
   }
 
+  inline void Event::clear()
+  {
+    for (auto& layer : mLayers)
+      layer.clear();
+    mPrimaryVertices.clear();
+  }
 }
 }
 }

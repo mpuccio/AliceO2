@@ -44,6 +44,7 @@ class Layer
       template<typename... T> void addCluster(T&&... args);
       template<typename... T> void addTrackingFrameInfo(T&&... args);
 
+      void clear();
     private:
       int mLayerIndex;
       std::vector<Cluster> mClusters;
@@ -88,6 +89,12 @@ class Layer
   template<typename... T> void Layer::addTrackingFrameInfo(T&&... args)
   {
     mTrackingFrameInfo.emplace_back(std::forward<T>(args)...);
+  }
+
+  inline void Layer::clear()
+  {
+    mClusters.clear();
+    mTrackingFrameInfo.clear();
   }
 
 }

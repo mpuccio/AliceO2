@@ -21,7 +21,12 @@
 #include <unordered_set>
 #include <utility>
 
+#include "DetectorsBase/Utils.h"
+#include "ITSBase/GeometryTGeo.h"
+#include "ITSMFTReconstruction/Cluster.h"
 #include "ITSReconstruction/CA/Constants.h"
+#include "SimulationDataFormat/MCCompLabel.h"
+#include "SimulationDataFormat/MCTruthContainer.h"
 
 namespace {
 constexpr int PrimaryVertexLayerId { -1 };
@@ -43,7 +48,7 @@ std::vector<Event> IOUtils::loadEventData(const std::string& fileName)
   int layerId { }, monteCarlo { };
   int clusterId { EventLabelsSeparator };
   float xCoordinate { }, yCoordinate { }, zCoordinate { }, alphaAngle { };
-  float varX { -1.f }, varY { -1.f };
+  float varZ { -1.f }, varY { -1.f };
 
   inputStream.open(fileName);
 
@@ -65,16 +70,15 @@ std::vector<Event> IOUtils::loadEventData(const std::string& fileName)
 
       } else {
 
-        if (inputStringStream >> varX >> varY >> unusedVariable >> alphaAngle >> monteCarlo) {
+        if (inputStringStream >> varY >> varZ >> unusedVariable >> alphaAngle >> monteCarlo) {
 
           events.back().addClusterToLayer(layerId, xCoordinate, yCoordinate, zCoordinate, clusterId, monteCarlo);
-          const float radius = std::sqrt(xCoordinate * xCoordinate + yCoordinate * yCoordinate);
           const float sinAlpha = std::sin(alphaAngle);
           const float cosAlpha = std::cos(alphaAngle);
           const float xTF = xCoordinate * cosAlpha - yCoordinate * sinAlpha;
           const float yTF = xCoordinate * sinAlpha + yCoordinate * cosAlpha;
-          events.back().addTrackingFrameInfoToLayer(layerId, radius, alphaAngle, std::array<float,2>{xTF, yTF},
-              std::array<float,3>{varX, 0.f, varY});
+          events.back().addTrackingFrameInfoToLayer(layerId, xTF, alphaAngle, std::array<float,2>{yTF, zCoordinate},
+              std::array<float,3>{varY, 0.f, varZ});
           ++clusterId;
         }
       }
@@ -82,6 +86,46 @@ std::vector<Event> IOUtils::loadEventData(const std::string& fileName)
   }
 
   return events;
+}
+
+void IOUtils::loadEventData(Event& event, const std::vector<ITSMFT::Cluster>* clusters, \
+   const dataformats::MCTruthContainer<MCCompLabel> *mcLabels) {
+  if (!clusters) {
+    std::cerr << "Missing clusters." << std::endl;
+    return;
+  }
+  GeometryTGeo* geom = GeometryTGeo::Instance();
+  geom->fillMatrixCache(Base::Utils::bit2Mask(Base::TransformType::T2GRot));
+  int clusterId{0}, prevLayer{0};
+  for (auto& c : *clusters) {
+    int layer = geom->getLayer(c.getSensorID());
+    if (layer != prevLayer) {
+      prevLayer = layer;
+      clusterId = 0;
+    }
+
+    /// Import MC labels, for backward compatibility we keep the MC information also in the cluster struct
+    int mcId = -1;
+    if (mcLabels) {
+      auto labels = mcLabels->getLabels(c.GetUniqueID());
+      for (auto lab : labels) { // check all labels of the cluster
+        if (lab.isEmpty())
+          break; // all following labels will be empty also
+        mcId = lab.getTrackID();
+        break;
+      }
+    }
+
+    /// Clusters are stored in the tracking frame
+    event.addTrackingFrameInfoToLayer(layer, c.getX(), geom->getSensorRefAlpha(c.getSensorID()),
+        std::array<float,2>{c.getY(),c.getZ()}, std::array<float,3>{c.getSigmaY2(),c.getSigmaYZ(),c.getSigmaZ2()});
+
+    /// Rotate to the global frame
+    auto xyz = c.getXYZGlo(*geom);
+    event.addClusterToLayer(layer,xyz.x(),xyz.y(),xyz.z(),clusterId,mcId);
+    clusterId++;
+  }
+
 }
 
 std::vector<std::unordered_map<int, Label>> IOUtils::loadLabels(const int eventsNum, const std::string& fileName)
