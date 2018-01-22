@@ -26,11 +26,13 @@ namespace CA
   struct Track
   {
     Track();
-    Track(const Base::Track::TrackParCov& param, float chi2, const std::array<int,7>& clusters);
+    Track(const Base::Track::TrackParCov& param, float chi2, \
+        const std::array<int,7>& clusters);
 
-    Base::Track::TrackParCov mParam;    ///< Standard barrel track parameterisation
+    Base::Track::TrackParCov mParam;    ///< Barrel track parameterisation
     float mChi2 = 1.e27;                ///< Chi2
     std::array<int,7> mClusters = {-1}; ///< Cluster index on the ITS layers
+    int mMClabel;                       ///< Monte Carlo label [temp]
   };
 
   inline Track::Track()

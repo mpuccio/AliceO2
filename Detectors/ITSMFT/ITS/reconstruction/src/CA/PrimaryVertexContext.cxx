@@ -37,11 +37,8 @@ void PrimaryVertexContext::initialise(const Event& event, const int primaryVerte
     const int clustersNum { currentLayer.getClustersSize() };
 
     mClusters[iLayer].clear();
-
-    if(clustersNum > static_cast<int>(mClusters[iLayer].capacity())) {
-
-      mClusters[iLayer].reserve(clustersNum);
-    }
+    mClusters[iLayer].reserve(clustersNum);
+    mUsedClusters[iLayer].resize(clustersNum,false);
 
     for (int iCluster { 0 }; iCluster < clustersNum; ++iCluster) {
 

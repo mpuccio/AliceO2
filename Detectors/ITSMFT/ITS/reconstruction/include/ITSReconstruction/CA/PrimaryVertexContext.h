@@ -58,6 +58,9 @@ class PrimaryVertexContext
         std::vector<Road>& getRoads();
         std::vector<Track>& getTracks();
 
+        bool isClusterUsed(int layer, int clusterId) const;
+        void markUsedCluster(int layer, int clusterId);
+
 #if TRACKINGITSU_GPU_MODE
         GPU::PrimaryVertexContext& getDeviceContext();
         GPU::Array<GPU::Vector<Cluster>, Constants::ITS::LayersNumber>& getDeviceClusters();
@@ -81,6 +84,7 @@ class PrimaryVertexContext
       private:
         float3 mPrimaryVertex;
         std::array<std::vector<Cluster>, Constants::ITS::LayersNumber> mClusters;
+        std::array<std::vector<bool>, Constants::ITS::LayersNumber> mUsedClusters;
         std::array<std::vector<Cell>, Constants::ITS::CellsPerRoad> mCells;
         std::array<std::vector<int>, Constants::ITS::CellsPerRoad - 1> mCellsLookupTable;
         std::array<std::vector<std::vector<int>>, Constants::ITS::CellsPerRoad - 1> mCellsNeighbours;
@@ -134,6 +138,16 @@ class PrimaryVertexContext
     inline std::vector<Track>& PrimaryVertexContext::getTracks()
     {
       return mTracks;
+    }
+
+    inline bool PrimaryVertexContext::isClusterUsed(int layer, int clusterId) const
+    {
+      return mUsedClusters[layer][clusterId];
+    }
+
+    inline void PrimaryVertexContext::markUsedCluster(int layer, int clusterId)
+    {
+      mUsedClusters[layer][clusterId] = true;
     }
 
 #if TRACKINGITSU_GPU_MODE

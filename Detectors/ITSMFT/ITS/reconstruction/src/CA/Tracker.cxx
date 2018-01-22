@@ -20,6 +20,7 @@
 #include "ITSReconstruction/CA/Layer.h"
 #include "ITSReconstruction/CA/Tracklet.h"
 #include "ITSReconstruction/CA/TrackingUtils.h"
+#include <cassert>
 
 namespace o2
 {
@@ -33,9 +34,8 @@ template<>
 void TrackerTraits<false>::computeLayerTracklets(PrimaryVertexContext& primaryVertexContext)
 {
   for (int iLayer { 0 }; iLayer < Constants::ITS::TrackletsPerRoad; ++iLayer) {
-
-    if (primaryVertexContext.getClusters()[iLayer].empty() || primaryVertexContext.getClusters()[iLayer + 1].empty()) {
-
+    if (primaryVertexContext.getClusters()[iLayer].empty() || \
+        primaryVertexContext.getClusters()[iLayer + 1].empty()) {
       return;
     }
 
@@ -247,7 +247,7 @@ std::vector<std::vector<Road>> Tracker<IsGPU>::clustersToTracks(
     total += evaluateTask(&Tracker<IsGPU>::computeCells, "Cell finding", timeBenchmarkOutputStream);
     total += evaluateTask(&Tracker<IsGPU>::findCellsNeighbours, "Neighbour finding", timeBenchmarkOutputStream);
     total += evaluateTask(&Tracker<IsGPU>::findRoads, "Road finding", timeBenchmarkOutputStream);
-    //total += evaluateTask(&Tracker<IsGPU>::findTracks, "Track finding", timeBenchmarkOutputStream, event);
+    total += evaluateTask(&Tracker<IsGPU>::findTracks, "Track finding", timeBenchmarkOutputStream, event);
     total += evaluateTask(&Tracker<IsGPU>::computeMontecarloLabels, "Monte Carlo labels computation", timeBenchmarkOutputStream);
     if (Constants::DoTimeBenchmarks)
       timeBenchmarkOutputStream << std::setw(2) << " - " << "Vertex processing completed in: " << total << "ms" << std::endl;
@@ -393,10 +393,11 @@ void Tracker<IsGPU>::findTracks(const Event& event)
   tracks.reserve(mPrimaryVertexContext.getRoads().size());
   for (auto& road : mPrimaryVertexContext.getRoads()) {
     std::array<int, 7> clusters {Constants::ITS::UnusedIndex};
-    int lastCellLevel = -1;
+    int lastCellLevel = Constants::ITS::UnusedIndex;
     for (int iCell{0}; iCell < Constants::ITS::CellsPerRoad; ++iCell) {
       const int cellIndex = road[iCell];
       if (cellIndex == Constants::ITS::UnusedIndex) {
+        assert(0);
         continue;
       } else {
         clusters[iCell] = mPrimaryVertexContext.getCells()[iCell][cellIndex].getFirstClusterIndex();
@@ -405,10 +406,16 @@ void Tracker<IsGPU>::findTracks(const Event& event)
         lastCellLevel = iCell;
       }
     }
+    if (lastCellLevel == Constants::ITS::UnusedIndex)
+      continue;
 
     /// From primary vertex context index to event index (== the one used as input of the tracking code)
     for (int iC{0}; iC < clusters.size(); iC++) {
-      clusters[iC] = event.getLayer(iC).getCluster(clusters[iC]).clusterId;
+      if (clusters[iC] != Constants::ITS::UnusedIndex) {
+        clusters[iC] = mPrimaryVertexContext.getClusters()[iC][clusters[iC]].clusterId;
+      } else {
+        assert(0);
+      }
     }
     /// Track seed preparation. Clusters are numbered progressively from the outermost to the innermost.
     const auto& cluster1_glo = event.getLayer(lastCellLevel + 2).getCluster(clusters[lastCellLevel + 2]);
@@ -422,7 +429,8 @@ void Tracker<IsGPU>::findTracks(const Event& event)
       0.f,
       clusters
     };
-    /*
+    temporaryTrack.mMClabel = road.getLabel();
+
     bool fitSuccess = true;
     for (int iCluster{Constants::ITS::LayersNumber-3}; iCluster--; ) {
       if (temporaryTrack.mClusters[iCluster] == Constants::ITS::UnusedIndex) {
@@ -433,7 +441,7 @@ void Tracker<IsGPU>::findTracks(const Event& event)
       if (!fitSuccess) {
         break;
       }
-      fitSuccess = temporaryTrack.mParam.propagateTo(trackingHit.xTrackingFrame, event.getBz());
+      fitSuccess = temporaryTrack.mParam.propagateTo(trackingHit.xTrackingFrame, getBz());
       if (!fitSuccess) {
         break;
       }
@@ -452,7 +460,7 @@ void Tracker<IsGPU>::findTracks(const Event& event)
     }
     if (!fitSuccess) {
       continue;
-    }*/
+    }
     tracks.emplace_back(temporaryTrack);
   }
 
@@ -461,22 +469,22 @@ void Tracker<IsGPU>::findTracks(const Event& event)
   });
 
   for (auto& track : tracks) {
-    /*bool sharingCluster = false;
-    for (int iCluster{0}; iCluster < Constants::ITS::LayersNumber; ++iCluster) {
-      if (track.mClusters[iCluster] == Constants::ITS::UnusedIndex) {
+    bool sharingCluster = false;
+    for (int iLayer{0}; iLayer < Constants::ITS::LayersNumber; ++iLayer) {
+      if (track.mClusters[iLayer] == Constants::ITS::UnusedIndex) {
         continue;
       }
-      sharingCluster |= mPrimaryVertexContext.getUsedClusters()[iCluster][track.mClusters[iCluster]];
+      sharingCluster |= mPrimaryVertexContext.isClusterUsed(iLayer,track.mClusters[iLayer]);
     }
     if (sharingCluster) {
       continue;
     }
-    for (int iCluster{0}; iCluster < Constants::ITS::LayersNumber; ++iCluster) {
-      if (track.mClusters[iCluster] == Constants::ITS::UnusedIndex) {
+    for (int iLayer{0}; iLayer < Constants::ITS::LayersNumber; ++iLayer) {
+      if (track.mClusters[iLayer] == Constants::ITS::UnusedIndex) {
         continue;
       }
-      mPrimaryVertexContext.getUsedClusters()[iCluster][track.mClusters[iCluster]] = true;
-    }*/
+      mPrimaryVertexContext.markUsedCluster(iLayer,track.mClusters[iLayer]);
+    }
     mPrimaryVertexContext.getTracks().emplace_back(track);
   }
 }

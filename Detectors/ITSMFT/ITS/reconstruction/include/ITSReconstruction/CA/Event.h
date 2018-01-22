@@ -18,6 +18,7 @@
 #include <array>
 #include <vector>
 #include <utility>
+#include <cassert>
 
 #include "ITSReconstruction/CA/Constants.h"
 #include "ITSReconstruction/CA/Layer.h"
@@ -65,6 +66,7 @@ class Event
 
   inline const Layer& Event::getLayer(const int layerIndex) const
   {
+    assert (layerIndex >= 0 && layerIndex < Constants::ITS::LayersNumber);
     return mLayers[layerIndex];
   }
 

@@ -62,11 +62,13 @@ class Tracker: private TrackerTraits<IsGPU>
     void setBz(float bz);
     float getBz() const;
 
-    std::vector<std::vector<Road>> clustersToTracks(const Event&, std::ostream& = std::cout);
+    std::vector<std::vector<Road>> clustersToTracks(const Event&, \
+        std::ostream& = std::cout);
 
   private:
-    Base::Track::TrackParCov buildTrackSeed(const Cluster& cluster1, const Cluster& cluster2,
-        const Cluster& cluster3, const TrackingFrameInfo& tf3);
+    Base::Track::TrackParCov buildTrackSeed(const Cluster& cluster1, \
+        const Cluster& cluster2, const Cluster& cluster3, \
+        const TrackingFrameInfo& tf3);
     template<typename ... T> void initialisePrimaryVertexContext(T&& ... args);
     void computeTracklets();
     void computeCells();
@@ -76,7 +78,8 @@ class Tracker: private TrackerTraits<IsGPU>
     void traverseCellsTree(const int, const int);
     void computeMontecarloLabels();
 
-    template<typename ... T> float evaluateTask(void (Tracker<IsGPU>::*)(T...), const char*, std::ostream& ostream, T&& ... args);
+    template<typename ...T> float evaluateTask(void (Tracker<IsGPU>::*)(T...),\
+        const char*, std::ostream& ostream, T&& ... args);
 
     PrimaryVertexContext mPrimaryVertexContext;
     float                mBz = 0.5f;
@@ -103,8 +106,8 @@ void Tracker<IsGPU>::initialisePrimaryVertexContext(T&& ... args)
 
 template<bool IsGPU>
 template<typename ... T>
-float Tracker<IsGPU>::evaluateTask(void (Tracker<IsGPU>::*task)(T ...), const char *taskName,
-    std::ostream& ostream, T&& ... args)
+float Tracker<IsGPU>::evaluateTask(void (Tracker<IsGPU>::*task)(T ...), \
+    const char *taskName, std::ostream& ostream, T&& ... args)
 {
   float diff {0.f};
 
@@ -119,7 +122,8 @@ float Tracker<IsGPU>::evaluateTask(void (Tracker<IsGPU>::*task)(T ...), const ch
     if (taskName == nullptr) {
       ostream << diff << "\t";
     } else {
-      ostream << std::setw(2) << " - " << taskName << " completed in: " << diff << " ms" << std::endl;
+      ostream << std::setw(2) << " - " << taskName << " completed in: " \
+        << diff << " ms" << std::endl;
     }
   } else {
     (this->*task)(std::forward<T>(args)...);
