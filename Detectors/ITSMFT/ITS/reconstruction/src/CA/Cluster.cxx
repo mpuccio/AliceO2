@@ -24,9 +24,9 @@ namespace ITS
 namespace CA
 {
 
-Cluster::Cluster(const float x, const float y, const float z, const int index, const int mcId)
+Cluster::Cluster(const float x, const float y, const float z, const int index)
     : xCoordinate { x }, yCoordinate { y }, zCoordinate { z }, phiCoordinate { 0 }, rCoordinate {
-        0 }, clusterId { index }, monteCarloId { mcId }, indexTableBinIndex { 0 }
+        0 }, clusterId { index }, indexTableBinIndex { 0 }
 {
   // Nothing to do
 }
@@ -36,7 +36,7 @@ Cluster::Cluster(const int layerIndex, const float3 &primaryVertex, const Cluste
         MathUtils::getNormalizedPhiCoordinate(
             MathUtils::calculatePhiCoordinate(xCoordinate - primaryVertex.x, yCoordinate - primaryVertex.y)) }, rCoordinate {
         MathUtils::calculateRCoordinate(xCoordinate - primaryVertex.x, yCoordinate - primaryVertex.y) }, clusterId {
-        other.clusterId }, monteCarloId { other.monteCarloId }, indexTableBinIndex {
+        other.clusterId }, indexTableBinIndex {
         IndexTableUtils::getBinIndex(IndexTableUtils::getZBinIndex(layerIndex, zCoordinate),
             IndexTableUtils::getPhiBinIndex(phiCoordinate)) }
 {

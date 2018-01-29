@@ -248,7 +248,7 @@ std::vector<std::vector<Road>> Tracker<IsGPU>::clustersToTracks(
     total += evaluateTask(&Tracker<IsGPU>::findCellsNeighbours, "Neighbour finding", timeBenchmarkOutputStream);
     total += evaluateTask(&Tracker<IsGPU>::findRoads, "Road finding", timeBenchmarkOutputStream);
     total += evaluateTask(&Tracker<IsGPU>::findTracks, "Track finding", timeBenchmarkOutputStream, event);
-    total += evaluateTask(&Tracker<IsGPU>::computeMontecarloLabels, "Monte Carlo labels computation", timeBenchmarkOutputStream);
+    total += evaluateTask(&Tracker<IsGPU>::computeMontecarloLabels, "Monte Carlo labels computation", timeBenchmarkOutputStream, event);
     if (Constants::DoTimeBenchmarks)
       timeBenchmarkOutputStream << std::setw(2) << " - " << "Vertex processing completed in: " << total << "ms" << std::endl;
 
@@ -397,7 +397,6 @@ void Tracker<IsGPU>::findTracks(const Event& event)
     for (int iCell{0}; iCell < Constants::ITS::CellsPerRoad; ++iCell) {
       const int cellIndex = road[iCell];
       if (cellIndex == Constants::ITS::UnusedIndex) {
-        assert(0);
         continue;
       } else {
         clusters[iCell] = mPrimaryVertexContext.getCells()[iCell][cellIndex].getFirstClusterIndex();
@@ -413,8 +412,6 @@ void Tracker<IsGPU>::findTracks(const Event& event)
     for (int iC{0}; iC < clusters.size(); iC++) {
       if (clusters[iC] != Constants::ITS::UnusedIndex) {
         clusters[iC] = mPrimaryVertexContext.getClusters()[iC][clusters[iC]].clusterId;
-      } else {
-        assert(0);
       }
     }
     /// Track seed preparation. Clusters are numbered progressively from the outermost to the innermost.
@@ -510,16 +507,12 @@ void Tracker<IsGPU>::traverseCellsTree(const int currentCellId, const int curren
       const Cell& neighbourCell = mPrimaryVertexContext.getCells()[currentLayerId - 1][neighbourCellId];
 
       if (currentCellLevel - 1 != neighbourCell.getLevel()) {
-
         continue;
       }
 
       if (isFirstValidNeighbour) {
-
         isFirstValidNeighbour = false;
-
       } else {
-
         mPrimaryVertexContext.getRoads().push_back(mPrimaryVertexContext.getRoads().back());
       }
 
@@ -532,7 +525,7 @@ void Tracker<IsGPU>::traverseCellsTree(const int currentCellId, const int curren
 }
 
 template<bool IsGPU>
-void Tracker<IsGPU>::computeMontecarloLabels()
+void Tracker<IsGPU>::computeMontecarloLabels(const Event& event)
 {
 /// Moore’s Voting Algorithm
 
@@ -547,17 +540,12 @@ void Tracker<IsGPU>::computeMontecarloLabels()
     bool isFirstRoadCell { true };
 
     for (int iCell { 0 }; iCell < Constants::ITS::CellsPerRoad; ++iCell) {
-
       const int currentCellIndex { currentRoad[iCell] };
 
       if (currentCellIndex == Constants::ITS::UnusedIndex) {
-
         if (isFirstRoadCell) {
-
           continue;
-
         } else {
-
           break;
         }
       }
@@ -566,19 +554,18 @@ void Tracker<IsGPU>::computeMontecarloLabels()
 
       if (isFirstRoadCell) {
 
-        maxOccurrencesValue =
-            mPrimaryVertexContext.getClusters()[iCell][currentCell.getFirstClusterIndex()].monteCarloId;
+        const int cl0index {mPrimaryVertexContext.getClusters()[iCell][currentCell.getFirstClusterIndex()].clusterId};
+        auto& cl0labs{event.getClusterMClabels(iCell,cl0index)};
+        maxOccurrencesValue = cl0labs.begin()->getTrackID();
         count = 1;
 
-        const int secondMonteCarlo {
-          mPrimaryVertexContext.getClusters()[iCell + 1][currentCell.getSecondClusterIndex()].monteCarloId };
+        const int cl1index {mPrimaryVertexContext.getClusters()[iCell + 1][currentCell.getSecondClusterIndex()].clusterId};
+        auto& cl1labs{event.getClusterMClabels(iCell + 1,cl1index)};
+        const int secondMonteCarlo {cl1labs.begin()->getTrackID()};
 
         if (secondMonteCarlo == maxOccurrencesValue) {
-
           ++count;
-
         } else {
-
           maxOccurrencesValue = secondMonteCarlo;
           count = 1;
           isFakeRoad = true;
@@ -587,21 +574,18 @@ void Tracker<IsGPU>::computeMontecarloLabels()
         isFirstRoadCell = false;
       }
 
-      const int currentMonteCarlo {
-        mPrimaryVertexContext.getClusters()[iCell + 2][currentCell.getThirdClusterIndex()].monteCarloId };
+      const int cl2index {mPrimaryVertexContext.getClusters()[iCell + 2][currentCell.getThirdClusterIndex()].clusterId};
+      auto& cl2labs{event.getClusterMClabels(iCell + 2,cl2index)};
+      const int currentMonteCarlo = {cl2labs.begin()->getTrackID()};
 
       if (currentMonteCarlo == maxOccurrencesValue) {
-
         ++count;
-
       } else {
-
         --count;
         isFakeRoad = true;
       }
 
       if (count == 0) {
-
         maxOccurrencesValue = currentMonteCarlo;
         count = 1;
       }

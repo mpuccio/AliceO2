@@ -32,7 +32,7 @@ namespace CA
 struct Cluster
     final
     {
-      Cluster(const float x, const float y, const float z, const int idx, const int mc);
+      Cluster(const float x, const float y, const float z, const int idx);
       Cluster(const int, const float3&, const Cluster&);
 
       float xCoordinate;
@@ -41,7 +41,6 @@ struct Cluster
       float phiCoordinate;
       float rCoordinate;
       int clusterId;
-      int monteCarloId;
       int indexTableBinIndex;
   };
 

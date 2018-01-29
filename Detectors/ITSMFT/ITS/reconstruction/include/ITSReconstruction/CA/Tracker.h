@@ -30,6 +30,8 @@
 #include "ITSReconstruction/CA/PrimaryVertexContext.h"
 #include "ITSReconstruction/CA/Road.h"
 
+#include "SimulationDataFormat/MCCompLabel.h"
+
 namespace o2
 {
 namespace ITS
@@ -76,7 +78,7 @@ class Tracker: private TrackerTraits<IsGPU>
     void findRoads();
     void findTracks(const Event& ev);
     void traverseCellsTree(const int, const int);
-    void computeMontecarloLabels();
+    void computeMontecarloLabels(const Event&);
 
     template<typename ...T> float evaluateTask(void (Tracker<IsGPU>::*)(T...),\
         const char*, std::ostream& ostream, T&& ... args);

@@ -52,16 +52,18 @@ std::vector<Event> IOUtils::loadEventData(const std::string& fileName)
 
   inputStream.open(fileName);
 
+  int currentLayer = -99;
+  /// THIS IS LEAKING IN THE BACKWARD COMPATIBLE MODE. KEEP IT IN MIND.
+  dataformats::MCTruthContainer<MCCompLabel> *mcLabels = nullptr;
   while (std::getline(inputStream, line)) {
 
     std::istringstream inputStringStream(line);
-
     if (inputStringStream >> layerId >> xCoordinate >> yCoordinate >> zCoordinate) {
 
       if (layerId == PrimaryVertexLayerId) {
 
         if (clusterId != 0) {
-
+          mcLabels = new dataformats::MCTruthContainer<MCCompLabel>();
           events.emplace_back(events.size());
         }
 
@@ -71,14 +73,22 @@ std::vector<Event> IOUtils::loadEventData(const std::string& fileName)
       } else {
 
         if (inputStringStream >> varY >> varZ >> unusedVariable >> alphaAngle >> monteCarlo) {
-
-          events.back().addClusterToLayer(layerId, xCoordinate, yCoordinate, zCoordinate, clusterId, monteCarlo);
+          if (layerId != currentLayer) {
+            currentLayer = layerId;
+            clusterId = 0;
+          }
+          events.back().addClusterToLayer(layerId, xCoordinate, yCoordinate, zCoordinate, clusterId);
           const float sinAlpha = std::sin(alphaAngle);
           const float cosAlpha = std::cos(alphaAngle);
           const float xTF = xCoordinate * cosAlpha - yCoordinate * sinAlpha;
           const float yTF = xCoordinate * sinAlpha + yCoordinate * cosAlpha;
           events.back().addTrackingFrameInfoToLayer(layerId, xTF, alphaAngle, std::array<float,2>{yTF, zCoordinate},
               std::array<float,3>{varY, 0.f, varZ});
+
+          const int globalId = events.back().getGlobalIndex(layerId,clusterId);
+          mcLabels->addElement(globalId,MCCompLabel(monteCarlo));
+          events.back().setClusterMCtruth(mcLabels);
+
           ++clusterId;
         }
       }
@@ -104,17 +114,7 @@ void IOUtils::loadEventData(Event& event, const std::vector<ITSMFT::Cluster>* cl
       clusterId = 0;
     }
 
-    /// Import MC labels, for backward compatibility we keep the MC information also in the cluster struct
-    int mcId = -1;
-    if (mcLabels) {
-      auto labels = mcLabels->getLabels(c.GetUniqueID());
-      for (auto lab : labels) { // check all labels of the cluster
-        if (lab.isEmpty())
-          break; // all following labels will be empty also
-        mcId = lab.getTrackID();
-        break;
-      }
-    }
+    event.setClusterMCtruth(mcLabels);
 
     /// Clusters are stored in the tracking frame
     event.addTrackingFrameInfoToLayer(layer, c.getX(), geom->getSensorRefAlpha(c.getSensorID()),
@@ -122,7 +122,8 @@ void IOUtils::loadEventData(Event& event, const std::vector<ITSMFT::Cluster>* cl
 
     /// Rotate to the global frame
     auto xyz = c.getXYZGlo(*geom);
-    event.addClusterToLayer(layer,xyz.x(),xyz.y(),xyz.z(),clusterId,mcId);
+    event.addClusterToLayer(layer,xyz.x(),xyz.y(),xyz.z(),clusterId);
+    std::cout << layer << "\t" << clusterId << "\t" << event.getGlobalIndex(layer,clusterId) << std::endl;
     clusterId++;
   }
 
