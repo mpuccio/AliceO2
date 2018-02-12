@@ -39,18 +39,29 @@ public:
   Vertexer(const Vertexer&) = delete;
   Vertexer& operator=(const Vertexer&) = delete;
 
-  void initialize();
+  void initialize(const float zCut, const float phiCut);
   void computeTriplets();
   void debugVertexerData();
   void printIndexTables();
 
 protected:
+    
   bool mVertexerInitialized;
+  float mR1, mR2;
+  // std::array<float, 2> mZCuts;
+  float mZCut; 
+  float mPhiCut;
+  int mPhiSpan;
+  int mZSpan;
+  std::array<float, Constants::ITS::LayersNumber> mITSRadii;
+  float mZBinSize;
+  
   Event mEvent;
+  
   std::array<std::vector<Cluster>, Constants::ITS::LayersNumberVertexer> mClusters;
   std::array<std::array<int, Constants::IndexTable::ZBins * Constants::IndexTable::PhiBins + 1>,
             Constants::ITS::LayersNumberVertexer> mIndexTables;
-  std::vector<std::array<Cluster, 3>> mTriplets;
+  std::vector<std::array<int, 3>> mTriplets;
 };
 
 }

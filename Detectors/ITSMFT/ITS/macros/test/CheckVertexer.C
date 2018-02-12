@@ -52,10 +52,13 @@ void CheckVertexer(const std::string& fname ="data.txt")
 {
   std::vector<Event> events = loadEventData(fname);
   Vertexer vertexer(events.back());
+  const float phiCut {0.3f};
+  const float zCut {0.5f};
   // vertexer.debugVertexerData();
-  vertexer.initialize();
-  Printf(" ---------------- initialised ---------------");
-  vertexer.debugVertexerData();
-  vertexer.printIndexTables();
+  vertexer.initialize(zCut, phiCut);
+  // Printf(" ---------------- initialised ---------------");
+  // vertexer.debugVertexerData();
+  // vertexer.printIndexTables();
+  // vertexer.computeTriplets();
   vertexer.computeTriplets();
 }
