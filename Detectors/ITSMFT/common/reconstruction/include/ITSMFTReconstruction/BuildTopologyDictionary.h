@@ -24,8 +24,8 @@
 #include <algorithm>
 #include <array>
 #include "ITSMFTBase/SegmentationAlpide.h"
-#include "ITSMFTReconstruction/ClusterTopology.h"
-#include "ITSMFTReconstruction/TopologyDictionary.h"
+#include "DataFormatsITSMFT/ClusterTopology.h"
+#include "DataFormatsITSMFT/TopologyDictionary.h"
 
 #define _HISTO_ // in order to have a histogram with the ditribution of groupIDs
 
