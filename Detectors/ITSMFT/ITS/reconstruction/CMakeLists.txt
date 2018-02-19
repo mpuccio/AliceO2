@@ -10,9 +10,6 @@ set(SRCS
     )
 set(NO_DICT_SRCS # sources not for the dictionary
     src/TrivialClusterer.cxx
-    src/CAaux.cxx
-    src/CATracker.cxx
-    src/CATrackingStation.cxx
     src/CookedTracker.cxx
     src/CA/Cell.cxx
     src/CA/Cluster.cxx
