@@ -21,10 +21,10 @@
 #include <unordered_set>
 #include <utility>
 
-#include "DetectorsBase/Utils.h"
+#include "DataFormatsITSMFT/Cluster.h"
 #include "ITSBase/GeometryTGeo.h"
-#include "ITSMFTReconstruction/Cluster.h"
 #include "ITSReconstruction/CA/Constants.h"
+#include "MathUtils/Utils.h"
 #include "SimulationDataFormat/MCCompLabel.h"
 #include "SimulationDataFormat/MCTruthContainer.h"
 
@@ -105,7 +105,7 @@ void IOUtils::loadEventData(Event& event, const std::vector<ITSMFT::Cluster>* cl
     return;
   }
   GeometryTGeo* geom = GeometryTGeo::Instance();
-  geom->fillMatrixCache(Base::Utils::bit2Mask(Base::TransformType::T2GRot));
+  geom->fillMatrixCache(utils::bit2Mask(TransformType::T2GRot));
   int clusterId{0}, prevLayer{0};
   for (auto& c : *clusters) {
     int layer = geom->getLayer(c.getSensorID());

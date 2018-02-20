@@ -14,6 +14,7 @@
 
 #include "ITSReconstruction/CA/Tracker.h"
 
+#include "CommonConstants/MathConstants.h"
 #include "ITSReconstruction/CA/Cell.h"
 #include "ITSReconstruction/CA/Constants.h"
 #include "ITSReconstruction/CA/IndexTableUtils.h"
@@ -600,7 +601,7 @@ void Tracker<IsGPU>::computeMontecarloLabels(const Event& event)
 /// Clusters are given from outside inward (cluster1 is the outermost). The innermost cluster is given in the tracking frame coordinates
 /// whereas the others are referred to the global frame. This function is almost a clone of CookSeed, adapted to return a TrackParCov
 template<bool IsGPU>
-Base::Track::TrackParCov Tracker<IsGPU>::buildTrackSeed(const Cluster& cluster1, const Cluster& cluster2, const Cluster& cluster3, const TrackingFrameInfo& tf3) {
+track::TrackParCov Tracker<IsGPU>::buildTrackSeed(const Cluster& cluster1, const Cluster& cluster2, const Cluster& cluster3, const TrackingFrameInfo& tf3) {
   const float ca = std::cos(tf3.alphaTrackingFrame), sa = std::sin(tf3.alphaTrackingFrame);
   const float x1 =  cluster1.xCoordinate * ca + cluster1.yCoordinate * sa;
   const float y1 = -cluster1.xCoordinate * sa + cluster1.yCoordinate * ca;
@@ -620,13 +621,13 @@ Base::Track::TrackParCov Tracker<IsGPU>::buildTrackSeed(const Cluster& cluster1,
   const float fy = 1. / (cluster2.rCoordinate - cluster3.rCoordinate);
   const float& tz = fy;
   const float cy = (TrackingUtils::computeCurvature(x1, y1, x2, y2 + Constants::ITS::Resolution, x3, y3) - crv) / \
-    (Constants::ITS::Resolution * getBz() * Base::Constants::kB2C) * 20.f; // FIXME: MS contribution to the cov[14] (*20 added)
+    (Constants::ITS::Resolution * getBz() * constants::math::B2C) * 20.f; // FIXME: MS contribution to the cov[14] (*20 added)
   constexpr float s2 = Constants::ITS::Resolution * Constants::ITS::Resolution;
 
-  return Base::Track::TrackParCov(
+  return track::TrackParCov(
     tf3.xTrackingFrame,
     tf3.alphaTrackingFrame,
-    {y3, z3, crv * (x3 - x0), 0.5f * (tgl12 + tgl23), std::abs(getBz()) < Base::Constants::kAlmost0 ? Base::Constants::kAlmost0 : crv / (getBz() * Base::Constants::kB2C)},
+    {y3, z3, crv * (x3 - x0), 0.5f * (tgl12 + tgl23), std::abs(getBz()) < constants::math::Almost0 ? constants::math::Almost0 : crv / (getBz() * constants::math::B2C)},
     {
       s2,
       0.f,     s2,

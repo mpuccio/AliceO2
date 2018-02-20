@@ -15,7 +15,7 @@
 #define O2_ITSMFT_RECONSTRUCTION_CA_TRACK_H_
 
 #include "ITSReconstruction/CA/Cluster.h"
-#include "DetectorsBase/Track.h"
+#include "ReconstructionDataFormats/Track.h"
 
 namespace o2
 {
@@ -26,10 +26,10 @@ namespace CA
   struct Track
   {
     Track();
-    Track(const Base::Track::TrackParCov& param, float chi2, \
+    Track(const track::TrackParCov& param, float chi2, \
         const std::array<int,7>& clusters);
 
-    Base::Track::TrackParCov mParam;    ///< Barrel track parameterisation
+    track::TrackParCov mParam;    ///< Barrel track parameterisation
     float mChi2 = 1.e27;                ///< Chi2
     std::array<int,7> mClusters = {-1}; ///< Cluster index on the ITS layers
     int mMClabel;                       ///< Monte Carlo label [temp]
@@ -40,7 +40,7 @@ namespace CA
     // Nothing to do
   }
 
-  inline Track::Track(const Base::Track::TrackParCov& param, float chi2, \
+  inline Track::Track(const track::TrackParCov& param, float chi2, \
       const std::array<int,7>& clusters) :
     mParam{param},
     mChi2{chi2},

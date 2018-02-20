@@ -14,8 +14,8 @@
 #include "ITSReconstruction/CA/IOUtils.h"
 #include "ITSReconstruction/CA/TrackerTask.h"
 #include "ITSReconstruction/CA/Tracker.h"
-#include "ITSMFTReconstruction/Cluster.h"
-#include "DetectorsBase/Utils.h"
+#include "DataFormatsITSMFT/Cluster.h"
+#include "MathUtils/Utils.h"
 #include "MathUtils/Cartesian3D.h"
 #include "SimulationDataFormat/MCCompLabel.h"
 #include "SimulationDataFormat/MCTruthContainer.h"
@@ -85,7 +85,7 @@ InitStatus TrackerTask::Init()
   }
 
   GeometryTGeo* geom = GeometryTGeo::Instance();
-  geom->fillMatrixCache(Base::Utils::bit2Mask(Base::TransformType::T2GRot)); // make sure T2GRot matrices are loaded
+  geom->fillMatrixCache(utils::bit2Mask(TransformType::T2GRot)); // make sure T2GRot matrices are loaded
 
   return kSUCCESS;
 }

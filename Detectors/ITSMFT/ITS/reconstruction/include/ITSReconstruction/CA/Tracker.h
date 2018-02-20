@@ -30,6 +30,7 @@
 #include "ITSReconstruction/CA/PrimaryVertexContext.h"
 #include "ITSReconstruction/CA/Road.h"
 
+#include "ReconstructionDataFormats/Track.h"
 #include "SimulationDataFormat/MCCompLabel.h"
 
 namespace o2
@@ -68,7 +69,7 @@ class Tracker: private TrackerTraits<IsGPU>
         std::ostream& = std::cout);
 
   private:
-    Base::Track::TrackParCov buildTrackSeed(const Cluster& cluster1, \
+    track::TrackParCov buildTrackSeed(const Cluster& cluster1, \
         const Cluster& cluster2, const Cluster& cluster3, \
         const TrackingFrameInfo& tf3);
     template<typename ... T> void initialisePrimaryVertexContext(T&& ... args);
