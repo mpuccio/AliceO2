@@ -41,23 +41,24 @@ public:
 
   void initialize(const float zCut, const float phiCut);
   void computeTriplets();
-  void debugVertexerData();
-  void printIndexTables();
+  void checkTriplets();
+  void FindVertices();
+  const std::vector<std::pair<int, int>> selectClusters(
+    const std::array<int, Constants::IndexTable::ZBins * Constants::IndexTable::PhiBins + 1> &indexTable,
+    const std::array<int, 4> &selectedBinsRect);
 
 protected:
-    
   bool mVertexerInitialized;
-  float mR1, mR2;
-  // std::array<float, 2> mZCuts;
-  float mZCut; 
-  float mPhiCut;
-  int mPhiSpan;
-  int mZSpan;
+  float mDeltaRadii10, mDeltaRadii21;
+  float mZCut, mPhiCut;
+  int mPhiSpan, mZSpan;
+  std::array<float, 3> mAverageClustersRadii; 
   std::array<float, Constants::ITS::LayersNumber> mITSRadii;
   float mZBinSize;
-  
+  std::vector<std::pair<int, int>> mClustersToProcessInner;
+  std::vector<std::pair<int, int>> mClustersToProcessOuter;
   Event mEvent;
-  
+  std::vector<std::array<float, 3>> mVertices;
   std::array<std::vector<Cluster>, Constants::ITS::LayersNumberVertexer> mClusters;
   std::array<std::array<int, Constants::IndexTable::ZBins * Constants::IndexTable::PhiBins + 1>,
             Constants::ITS::LayersNumberVertexer> mIndexTables;

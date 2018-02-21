@@ -6,7 +6,16 @@ set(SRCS
     src/TrivialClustererTask.cxx
     src/ClustererTask.cxx
     src/CookedTrackerTask.cxx
+<<<<<<< HEAD
     src/CA/TrackerTask.cxx
+=======
+    src/CA/Track.cxx
+    # src/CA/TrackerTask.cxx
+    src/CA/vertexer/Vertexer.cxx
+    src/CA/Event.cxx
+    src/CA/vertexer/VertexerTask.cxx
+    src/CA/vertexer/Line.cxx
+>>>>>>> Add Line class for fitting
     )
 
 set(NO_DICT_SRCS # sources not for the dictionary
@@ -14,16 +23,17 @@ set(NO_DICT_SRCS # sources not for the dictionary
     src/CookedTracker.cxx
     src/CA/Cell.cxx
     src/CA/Cluster.cxx
-    # src/CA/Event.cxx
-    # src/CA/IOUtils.cxx
+    src/CA/Event.cxx
+    src/CA/IOUtils.cxx
     src/CA/Label.cxx
     src/CA/Layer.cxx
-    # src/CA/PrimaryVertexContext.cxx
+    src/CA/PrimaryVertexContext.cxx
     src/CA/Road.cxx
-    # src/CA/Tracker.cxx
+    src/CA/Tracker.cxx
+    src/CA/vertexer/Line.cxx
     src/CA/TrackingUtils.cxx
     src/CA/Tracklet.cxx
-    # src/CA/vertexer/Vertexer.cxx
+    src/CA/vertexer/Vertexer.cxx
     )
 
 # Headers from sources

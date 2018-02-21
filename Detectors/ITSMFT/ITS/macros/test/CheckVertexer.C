@@ -7,7 +7,7 @@
   #include <sstream>
   #include <string>
   #include <vector>
-  #include "TString.h"
+  #include <iostream>
   #include "ITSReconstruction/CA/Event.h"
   #include "ITSReconstruction/CA/vertexer/Vertexer.h"
 #endif
@@ -17,7 +17,7 @@ constexpr int PrimaryVertexLayerId = -1;
 constexpr int EventLabelsSeparator = -1;
 using namespace o2::ITS::CA;
 
-std::vector<o2::ITS::CA::Event> loadEventData(const std::string& fileName)
+std::vector<o2::ITS::CA::Event> loadEventsData(const std::string& fileName)
 {
   std::vector<Event> events;
   std::ifstream inputStream;
@@ -43,22 +43,19 @@ std::vector<o2::ITS::CA::Event> loadEventData(const std::string& fileName)
       }
     }
   }
-  Printf(" evt vector size: %lu\n", events.size());
+  
   return events;
 }
 
 
-void CheckVertexer(const std::string& fname ="data.txt")
+void CheckVertexer(const std::string& fname = "data.txt", const float zCut = 0.02, const float phiCut = 0.005)
 {
-  std::vector<Event> events = loadEventData(fname);
-  Vertexer vertexer(events.back());
-  const float phiCut {0.3f};
-  const float zCut {0.5f};
-  // vertexer.debugVertexerData();
-  vertexer.initialize(zCut, phiCut);
-  // Printf(" ---------------- initialised ---------------");
-  // vertexer.debugVertexerData();
-  // vertexer.printIndexTables();
-  // vertexer.computeTriplets();
-  vertexer.computeTriplets();
+  std::vector<Event> events = loadEventsData(fname);
+  for ( auto event : events ) {
+    // Vertexer vertexer(events.back());
+    Vertexer vertexer(event);
+    vertexer.initialize(zCut, phiCut);
+    vertexer.computeTriplets();
+    vertexer.checkTriplets();
+  }
 }
