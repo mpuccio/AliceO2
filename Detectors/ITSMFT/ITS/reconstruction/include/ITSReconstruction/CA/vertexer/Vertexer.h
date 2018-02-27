@@ -39,16 +39,17 @@ public:
   Vertexer(const Vertexer&) = delete;
   Vertexer& operator=(const Vertexer&) = delete;
 
-  void initialize(const float zCut, const float phiCut);
+  void initialise(const float zCut, const float phiCut);
   void computeTriplets();
   void checkTriplets();
   void FindVertices();
+  void printIndexTables();
   const std::vector<std::pair<int, int>> selectClusters(
     const std::array<int, Constants::IndexTable::ZBins * Constants::IndexTable::PhiBins + 1> &indexTable,
     const std::array<int, 4> &selectedBinsRect);
 
 protected:
-  bool mVertexerInitialized;
+  bool mVertexerInitialised;
   float mDeltaRadii10, mDeltaRadii21;
   float mZCut, mPhiCut;
   int mPhiSpan, mZSpan;

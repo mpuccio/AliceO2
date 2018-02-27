@@ -6,16 +6,8 @@ set(SRCS
     src/TrivialClustererTask.cxx
     src/ClustererTask.cxx
     src/CookedTrackerTask.cxx
-<<<<<<< HEAD
     src/CA/TrackerTask.cxx
-=======
-    src/CA/Track.cxx
-    # src/CA/TrackerTask.cxx
-    src/CA/vertexer/Vertexer.cxx
-    src/CA/Event.cxx
     src/CA/vertexer/VertexerTask.cxx
-    src/CA/vertexer/Line.cxx
->>>>>>> Add Line class for fitting
     )
 
 set(NO_DICT_SRCS # sources not for the dictionary

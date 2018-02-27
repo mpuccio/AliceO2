@@ -31,6 +31,17 @@ Cluster::Cluster(const float x, const float y, const float z, const int index)
   // Nothing to do
 }
 
+Cluster::Cluster(const int layerIndex, const Cluster& other)
+    : xCoordinate { other.xCoordinate }, yCoordinate { other.yCoordinate }, zCoordinate { other.zCoordinate }, 
+      phiCoordinate{ MathUtils::getNormalizedPhiCoordinate(MathUtils::calculatePhiCoordinate(other.xCoordinate, other.yCoordinate)) },
+      rCoordinate{ MathUtils::calculateRCoordinate(other.xCoordinate, other.yCoordinate) },
+      clusterId{ other.clusterId },
+      indexTableBinIndex{ IndexTableUtils::getBinIndex(IndexTableUtils::getZBinIndex(layerIndex, zCoordinate),
+      IndexTableUtils::getPhiBinIndex(phiCoordinate)) } //, montecarloId{ other.montecarloId }
+{
+  // Nothing to do
+}
+
 Cluster::Cluster(const int layerIndex, const float3 &primaryVertex, const Cluster& other)
     : xCoordinate { other.xCoordinate }, yCoordinate { other.yCoordinate }, zCoordinate { other.zCoordinate }, phiCoordinate {
         MathUtils::getNormalizedPhiCoordinate(
