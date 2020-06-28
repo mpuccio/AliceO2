@@ -25,8 +25,10 @@
 
 #include "ITSBase/GeometryTGeo.h"
 
+#include "DataFormatsITSMFT/CompCluster.h"
 #include "ITStracking/ROframe.h"
 #include "ITStracking/IOUtils.h"
+#include "ITStracking/TimeFrame.h"
 #include "ITStracking/Tracker.h"
 #include "ITStracking/TrackerTraitsCPU.h"
 #include "ITStracking/Vertexer.h"
@@ -60,12 +62,12 @@ void run_trac_ca_its(std::string path = "./",
   gSystem->Load("libO2ITStracking.so");
 
   // std::unique_ptr<GPUReconstruction> rec(GPUReconstruction::CreateInstance());
-  std::unique_ptr<GPUReconstruction> rec(GPUReconstruction::CreateInstance("CUDA", true)); // for GPU with CUDA
-  auto* chainITS = rec->AddChain<GPUChainITS>();
-  rec->Init();
+  //std::unique_ptr<GPUReconstruction> rec(GPUReconstruction::CreateInstance("CUDA", true)); // for GPU with CUDA
+  // auto* chainITS = rec->AddChain<GPUChainITS>();
+  // rec->Init();
 
-  o2::its::Tracker tracker(chainITS->GetITSTrackerTraits());
-  //o2::its::Tracker tracker(new o2::its::TrackerTraitsCPU());
+  // o2::its::Tracker tracker(chainITS->GetITSTrackerTraits());
+  o2::its::Tracker tracker(new o2::its::TrackerTraitsCPU());
   o2::its::ROframe event(0);
 
   if (path.back() != '/') {
@@ -109,6 +111,9 @@ void run_trac_ca_its(std::string path = "./",
   }
   std::vector<o2::itsmft::Cluster>* clusters = nullptr;
   itsClusters.SetBranchAddress("ITSCluster", &clusters);
+
+  std::vector<o2::itsmft::CompClusterExt>* clustersComp = nullptr;
+  itsClusters.SetBranchAddress("ITSClusterComp", &clustersComp);
 
   if (!itsClusters.GetBranch("ITSClusterMCTruth")) {
     LOG(FATAL) << "Did not find ITS clusters branch ITSClusterMCTruth in the input tree";
@@ -164,11 +169,20 @@ void run_trac_ca_its(std::string path = "./",
   tracker.setParameters(memParams, trackParams);
 
   int currentEvent = -1;
+
+  o2::its::TimeFrame tf;
   for (auto& rof : *rofs) {
 
     auto start = std::chrono::high_resolution_clock::now();
 
-    o2::its::ioutils::loadROFrameData(rof, event, gsl::span(clusters->data(), clusters->size()), labels);
+    if (clusters->size()) {
+      o2::its::ioutils::loadROFrameData(rof, event, gsl::span(clusters->data(), clusters->size()), labels);
+      tf.loadROFrameData(rof, gsl::span(clusters->data(), clusters->size()), labels);
+    }
+    else {
+      std::cout << "Compact cluster mode not supported yet. Aborting." << std::endl;
+      return; 
+    }
 
     vertexer.initialiseVertexer(&event);
     vertexer.findTracklets();
@@ -176,6 +190,11 @@ void run_trac_ca_its(std::string path = "./",
     vertexer.validateTracklets();
     vertexer.findVertices();
     std::vector<Vertex> vertITS = vertexer.exportVertices();
+    std::vector<std::pair<float3, int>> tfVert;
+    for (const auto& vert : vertITS) {
+      tfVert.push_back(std::make_pair<float3,int>({vert.getX(), vert.getY(), vert.getZ()},vert.getNContributors()));
+    }
+    tf.addPrimaryVertices(tfVert);
     auto& vtxROF = vertROFvec.emplace_back(rof); // register entry and number of vertices in the
     vtxROF.setFirstEntry(vertices.size());       // dedicated ROFRecord
     vtxROF.setNEntries(vertITS.size());
@@ -192,7 +211,7 @@ void run_trac_ca_its(std::string path = "./",
     }
     trackClIdx.clear();
     tracksITS.clear();
-    tracker.clustersToTracks(event);
+    // tracker.clustersToTracks(event);
 
     auto end = std::chrono::high_resolution_clock::now();
     std::chrono::duration<double, std::milli> diff_t{end - start};
@@ -200,20 +219,22 @@ void run_trac_ca_its(std::string path = "./",
     ncls.push_back(event.getTotalClusters());
     time.push_back(diff_t.count());
 
-    tracks.swap(tracker.getTracks());
-    for (auto& trc : tracks) {
-      trc.setFirstClusterEntry(trackClIdx.size()); // before adding tracks, create final cluster indices
-      int ncl = trc.getNumberOfClusters();
-      for (int ic = 0; ic < ncl; ic++) {
-        trackClIdx.push_back(trc.getClusterIndex(ic));
-      }
-      tracksITS.emplace_back(trc);
-    }
+    // tracks.swap(tracker.getTracks());
+    // for (auto& trc : tracks) {
+    //   trc.setFirstClusterEntry(trackClIdx.size()); // before adding tracks, create final cluster indices
+    //   int ncl = trc.getNumberOfClusters();
+    //   for (int ic = 0; ic < ncl; ic++) {
+    //     trackClIdx.push_back(trc.getClusterIndex(ic));
+    //   }
+    //   tracksITS.emplace_back(trc);
+    // }
 
-    trackLabels = tracker.getTrackLabels(); /// FIXME: assignment ctor is not optimal.
+    // trackLabels = tracker.getTrackLabels(); /// FIXME: assignment ctor is not optimal.
     outTree.Fill();
     roFrameCounter++;
   }
+
+  tf.initialise(0, memParams[0]);
 
   outFile.cd();
   outTree.Write();

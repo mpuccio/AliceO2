@@ -191,7 +191,7 @@ void TrackerDPL::run(ProcessingContext& pc)
 
         event.addPrimaryVertices(vtxVecLoc);
         mTracker->setROFrame(roFrame);
-        mTracker->clustersToTracks(event);
+        // mTracker->clustersToTracks(event); TODO: fix the workflow
         tracks.swap(mTracker->getTracks());
         LOG(INFO) << "Found tracks: " << tracks.size();
         int number = tracks.size();
@@ -213,7 +213,7 @@ void TrackerDPL::run(ProcessingContext& pc)
     ioutils::loadEventData(event, compClusters, pattIt, mDict, labels);
     // RS: FIXME: this part seems to be not functional !!!
     event.addPrimaryVertex(0.f, 0.f, 0.f); //FIXME :  run an actual vertex finder !
-    mTracker->clustersToTracks(event);
+    // mTracker->clustersToTracks(event);
     tracks.swap(mTracker->getTracks());
     copyTracks(tracks, allTracks, allClusIdx);
     allTrackLabels = mTracker->getTrackLabels(); /// FIXME: assignment ctor is not optimal.

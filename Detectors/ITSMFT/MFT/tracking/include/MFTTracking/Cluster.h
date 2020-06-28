@@ -31,7 +31,7 @@ struct Cluster final {
     : xCoordinate{x},
       yCoordinate{y},
       zCoordinate{z},
-      phiCoordinate{phi},
+      phi{phi},
       rCoordinate{r},
       clusterId{idx},
       indexTableBin{bin} {};
@@ -41,7 +41,7 @@ struct Cluster final {
   Float_t xCoordinate;
   Float_t yCoordinate;
   Float_t zCoordinate;
-  Float_t phiCoordinate;
+  Float_t phi;
   Float_t rCoordinate;
   Int_t clusterId;
   Int_t indexTableBin;

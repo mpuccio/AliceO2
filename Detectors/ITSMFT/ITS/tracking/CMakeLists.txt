@@ -13,6 +13,7 @@ o2_add_library(ITStracking
                SOURCES src/ClusterLines.cxx
                        src/Cluster.cxx
                        src/ROframe.cxx
+                       src/TimeFrame.cxx
                        src/Graph.cxx
                        src/DBScan.cxx
                        src/IOUtils.cxx

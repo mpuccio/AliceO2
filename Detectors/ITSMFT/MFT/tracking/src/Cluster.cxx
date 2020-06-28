@@ -26,31 +26,31 @@ Cluster::Cluster(const Float_t x, const Float_t y, const Float_t z, const Int_t 
   : xCoordinate{x},
     yCoordinate{y},
     zCoordinate{z},
-    phiCoordinate{0.},
+    phi{0.},
     rCoordinate{0.},
     clusterId{index},
     indexTableBin{0}
 {
   auto clsPoint2D = Point2D<Float_t>(x, y);
   rCoordinate = clsPoint2D.R();
-  phiCoordinate = clsPoint2D.Phi();
-  o2::utils::BringTo02PiGen(phiCoordinate);
+  phi = clsPoint2D.Phi();
+  o2::utils::BringTo02PiGen(phi);
 }
 
 Cluster::Cluster(const Int_t layerIndex, const Cluster& other)
   : xCoordinate{other.xCoordinate},
     yCoordinate{other.yCoordinate},
     zCoordinate{other.zCoordinate},
-    phiCoordinate{0.},
+    phi{0.},
     rCoordinate{0.},
     clusterId{other.clusterId},
     indexTableBin{index_table_utils::getBinIndex(index_table_utils::getRBinIndex(layerIndex, rCoordinate),
-                                                 index_table_utils::getPhiBinIndex(phiCoordinate))}
+                                                 index_table_utils::getPhiBinIndex(phi))}
 {
   auto clsPoint2D = Point2D<Float_t>(other.xCoordinate, other.yCoordinate);
   rCoordinate = clsPoint2D.R();
-  phiCoordinate = clsPoint2D.Phi();
-  o2::utils::BringTo02PiGen(phiCoordinate);
+  phi = clsPoint2D.Phi();
+  o2::utils::BringTo02PiGen(phi);
 }
 
 } // namespace mft

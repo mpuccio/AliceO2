@@ -28,7 +28,7 @@
 #include "ITStracking/Configuration.h"
 #include "ITStracking/Definitions.h"
 #include "ITStracking/MathUtils.h"
-#include "ITStracking/PrimaryVertexContext.h"
+#include "ITStracking/TimeFrame.h"
 #include "ITStracking/Road.h"
 
 namespace o2
@@ -62,10 +62,10 @@ class TrackerTraits
   virtual void refitTracks(const std::array<std::vector<TrackingFrameInfo>, 7>&, std::vector<TrackITSExt>&){};
 
   void UpdateTrackingParameters(const TrackingParameters& trkPar);
-  PrimaryVertexContext* getPrimaryVertexContext() { return mPrimaryVertexContext; }
+  TimeFrame* getTimeFrame() { return mTimeFrame; }
 
  protected:
-  PrimaryVertexContext* mPrimaryVertexContext;
+  TimeFrame* mTimeFrame;
   TrackingParameters mTrkParams;
 
   o2::gpu::GPUChainITS* mChain = nullptr;
@@ -81,9 +81,9 @@ inline GPU_DEVICE const int4 TrackerTraits::getBinsRect(const Cluster& currentCl
                                                         const float directionZIntersection, float maxdeltaz, float maxdeltaphi)
 {
   const float zRangeMin = directionZIntersection - 2 * maxdeltaz;
-  const float phiRangeMin = currentCluster.phiCoordinate - maxdeltaphi;
+  const float phiRangeMin = currentCluster.phi - maxdeltaphi;
   const float zRangeMax = directionZIntersection + 2 * maxdeltaz;
-  const float phiRangeMax = currentCluster.phiCoordinate + maxdeltaphi;
+  const float phiRangeMax = currentCluster.phi + maxdeltaphi;
 
   if (zRangeMax < -constants::its::LayersZCoordinate()[layerIndex + 1] ||
       zRangeMin > constants::its::LayersZCoordinate()[layerIndex + 1] || zRangeMin > zRangeMax) {
@@ -92,9 +92,9 @@ inline GPU_DEVICE const int4 TrackerTraits::getBinsRect(const Cluster& currentCl
   }
 
   return int4{gpu::GPUCommonMath::Max(0, index_table_utils::getZBinIndex(layerIndex + 1, zRangeMin)),
-              index_table_utils::getPhiBinIndex(math_utils::getNormalizedPhiCoordinate(phiRangeMin)),
+              index_table_utils::getPhiBinIndex(math_utils::getNormalizedPhi(phiRangeMin)),
               gpu::GPUCommonMath::Min(constants::index_table::ZBins - 1, index_table_utils::getZBinIndex(layerIndex + 1, zRangeMax)),
-              index_table_utils::getPhiBinIndex(math_utils::getNormalizedPhiCoordinate(phiRangeMax))};
+              index_table_utils::getPhiBinIndex(math_utils::getNormalizedPhi(phiRangeMax))};
 }
 } // namespace its
 } // namespace o2

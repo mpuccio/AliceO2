@@ -57,8 +57,8 @@ __device__ void computeLayerTracklets(DeviceStoreNV& devStore, const int layerIn
      continue;
      }*/
 
-    const float tanLambda{(currentCluster.zCoordinate - devStore.getPrimaryVertex().z) / currentCluster.rCoordinate};
-    const float directionZIntersection{tanLambda * ((constants::its::LayersRCoordinate())[layerIndex + 1] - currentCluster.rCoordinate) + currentCluster.zCoordinate};
+    const float tanLambda{(currentCluster.zCoordinate - devStore.getPrimaryVertex().z) / currentCluster.radius};
+    const float directionZIntersection{tanLambda * ((constants::its::LayersRCoordinate())[layerIndex + 1] - currentCluster.radius) + currentCluster.zCoordinate};
 
     const int4 selectedBinsRect{TrackerTraits::getBinsRect(currentCluster, layerIndex, directionZIntersection,
                                                            kTrkPar.TrackletMaxDeltaZ[layerIndex], kTrkPar.TrackletMaxDeltaPhi)};
@@ -86,8 +86,8 @@ __device__ void computeLayerTracklets(DeviceStoreNV& devStore, const int layerIn
           const Cluster& nextCluster{nextLayerClusters[iNextLayerCluster]};
 
           const float deltaZ{gpu::GPUCommonMath::Abs(
-            tanLambda * (nextCluster.rCoordinate - currentCluster.rCoordinate) + currentCluster.zCoordinate - nextCluster.zCoordinate)};
-          const float deltaPhi{gpu::GPUCommonMath::Abs(currentCluster.phiCoordinate - nextCluster.phiCoordinate)};
+            tanLambda * (nextCluster.radius - currentCluster.radius) + currentCluster.zCoordinate - nextCluster.zCoordinate)};
+          const float deltaPhi{gpu::GPUCommonMath::Abs(currentCluster.phi - nextCluster.phi)};
 
           if (deltaZ < kTrkPar.TrackletMaxDeltaZ[layerIndex] && (deltaPhi < kTrkPar.TrackletMaxDeltaPhi || gpu::GPUCommonMath::Abs(deltaPhi - constants::math::TwoPi) < kTrkPar.TrackletMaxDeltaPhi)) {
 
@@ -136,8 +136,8 @@ __device__ void computeLayerCells(DeviceStoreNV& devStore, const int layerIndex,
         devStore.getClusters()[layerIndex][currentTracklet.firstClusterIndex]};
       const Cluster& secondCellCluster{
         devStore.getClusters()[layerIndex + 1][currentTracklet.secondClusterIndex]};
-      const float firstCellClusterQuadraticRCoordinate{firstCellCluster.rCoordinate * firstCellCluster.rCoordinate};
-      const float secondCellClusterQuadraticRCoordinate{secondCellCluster.rCoordinate * secondCellCluster.rCoordinate};
+      const float firstCellClusterQuadraticRCoordinate{firstCellCluster.radius * firstCellCluster.radius};
+      const float secondCellClusterQuadraticRCoordinate{secondCellCluster.radius * secondCellCluster.radius};
       const float3 firstDeltaVector{secondCellCluster.xCoordinate - firstCellCluster.xCoordinate,
                                     secondCellCluster.yCoordinate - firstCellCluster.yCoordinate, secondCellClusterQuadraticRCoordinate - firstCellClusterQuadraticRCoordinate};
 
@@ -146,12 +146,12 @@ __device__ void computeLayerCells(DeviceStoreNV& devStore, const int layerIndex,
 
         const Tracklet& nextTracklet{devStore.getTracklets()[layerIndex + 1][iNextLayerTracklet]};
         const float deltaTanLambda{gpu::GPUCommonMath::Abs(currentTracklet.tanLambda - nextTracklet.tanLambda)};
-        const float deltaPhi{gpu::GPUCommonMath::Abs(currentTracklet.phiCoordinate - nextTracklet.phiCoordinate)};
+        const float deltaPhi{gpu::GPUCommonMath::Abs(currentTracklet.phi - nextTracklet.phi)};
 
         if (deltaTanLambda < kTrkPar.CellMaxDeltaTanLambda && (deltaPhi < kTrkPar.CellMaxDeltaPhi || gpu::GPUCommonMath::Abs(deltaPhi - constants::math::TwoPi) < kTrkPar.CellMaxDeltaPhi)) {
 
           const float averageTanLambda{0.5f * (currentTracklet.tanLambda + nextTracklet.tanLambda)};
-          const float directionZIntersection{-averageTanLambda * firstCellCluster.rCoordinate + firstCellCluster.zCoordinate};
+          const float directionZIntersection{-averageTanLambda * firstCellCluster.radius + firstCellCluster.zCoordinate};
           const float deltaZ{gpu::GPUCommonMath::Abs(directionZIntersection - primaryVertex.z)};
 
           if (deltaZ < kTrkPar.CellMaxDeltaZ[layerIndex]) {
@@ -159,7 +159,7 @@ __device__ void computeLayerCells(DeviceStoreNV& devStore, const int layerIndex,
             const Cluster& thirdCellCluster{
               devStore.getClusters()[layerIndex + 2][nextTracklet.secondClusterIndex]};
 
-            const float thirdCellClusterQuadraticRCoordinate{thirdCellCluster.rCoordinate * thirdCellCluster.rCoordinate};
+            const float thirdCellClusterQuadraticRCoordinate{thirdCellCluster.radius * thirdCellCluster.radius};
 
             const float3 secondDeltaVector{thirdCellCluster.xCoordinate - firstCellCluster.xCoordinate,
                                            thirdCellCluster.yCoordinate - firstCellCluster.yCoordinate, thirdCellClusterQuadraticRCoordinate - firstCellClusterQuadraticRCoordinate};

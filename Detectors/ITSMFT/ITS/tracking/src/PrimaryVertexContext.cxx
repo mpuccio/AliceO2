@@ -62,11 +62,11 @@ void PrimaryVertexContext::initialise(const MemoryParameters& memParam, const st
         ClusterHelper& h = cHelper[iCluster];
         float x = c.xCoordinate - mPrimaryVertex.x;
         float y = c.yCoordinate - mPrimaryVertex.y;
-        float phi = math_utils::calculatePhiCoordinate(x, y);
+        float phi = math_utils::computePhi(x, y);
         int bin = index_table_utils::getBinIndex(index_table_utils::getZBinIndex(iLayer, c.zCoordinate),
                                                  index_table_utils::getPhiBinIndex(phi));
         h.phi = phi;
-        h.r = math_utils::calculateRCoordinate(x, y);
+        h.r = math_utils::hypot(x, y);
         h.bin = bin;
         h.ind = clsPerBin[bin]++;
       }
@@ -81,8 +81,8 @@ void PrimaryVertexContext::initialise(const MemoryParameters& memParam, const st
         ClusterHelper& h = cHelper[iCluster];
         Cluster& c = mClusters[iLayer][lutPerBin[h.bin] + h.ind];
         c = currentLayer[iCluster];
-        c.phiCoordinate = h.phi;
-        c.rCoordinate = h.r;
+        c.phi = h.phi;
+        c.radius = h.r;
         c.indexTableBinIndex = h.bin;
       }
 
