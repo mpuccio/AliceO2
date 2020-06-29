@@ -208,7 +208,7 @@ void Tracker::findRoads(int& iteration)
 
 void Tracker::findTracks()
 {
-  mTracks.reserve(mTracks.capacity() + mTimeFrame->getRoads().size());
+  mTracks.resize(mTimeFrame->getNrof());
   std::vector<TrackITSExt> tracks;
   tracks.reserve(mTimeFrame->getRoads().size());
 #ifdef CA_DEBUG
@@ -224,11 +224,17 @@ void Tracker::findTracks()
     int lastCellLevel = constants::its::UnusedIndex;
     CA_DEBUGGER(int nClusters = 2);
 
+    int firstTracklet{constants::its::UnusedIndex};
+    int tracklets[6]{constants::its::UnusedIndex,constants::its::UnusedIndex,constants::its::UnusedIndex,constants::its::UnusedIndex,constants::its::UnusedIndex,constants::its::UnusedIndex};
     for (int iCell{0}; iCell < constants::its::CellsPerRoad; ++iCell) {
       const int cellIndex = road[iCell];
       if (cellIndex == constants::its::UnusedIndex) {
         continue;
       } else {
+        if (firstTracklet == constants::its::UnusedIndex)
+          firstTracklet = iCell;
+        tracklets[iCell] = mTimeFrame->getCells()[iCell][cellIndex].getFirstTrackletIndex();
+        tracklets[iCell + 1] = mTimeFrame->getCells()[iCell][cellIndex].getSecondTrackletIndex();
         clusters[iCell] = mTimeFrame->getCells()[iCell][cellIndex].getFirstClusterIndex();
         clusters[iCell + 1] = mTimeFrame->getCells()[iCell][cellIndex].getSecondClusterIndex();
         clusters[iCell + 2] = mTimeFrame->getCells()[iCell][cellIndex].getThirdClusterIndex();
@@ -237,6 +243,21 @@ void Tracker::findTracks()
                clusters[iCell + 2] != constants::its::UnusedIndex);
         lastCellLevel = iCell;
         CA_DEBUGGER(nClusters++);
+      }
+    }
+
+    int count{1};
+    unsigned short rof{mTimeFrame->getTracklets()[firstTracklet][tracklets[firstTracklet]].rof[0]};
+    for (int iT = firstTracklet; iT < 6; ++iT) {
+      if (tracklets[iT] == constants::its::UnusedIndex) continue;
+      if (rof == mTimeFrame->getTracklets()[iT][tracklets[iT]].rof[1])
+        count++;
+      else
+      {
+        if (count == 1)
+          rof = mTimeFrame->getTracklets()[iT][tracklets[iT]].rof[1];
+        else
+          count--;
       }
     }
 
@@ -279,7 +300,7 @@ void Tracker::findTracks()
     if (!fitSuccess)
       continue;
     CA_DEBUGGER(refitCounters[nClusters - 4]++);
-    temporaryTrack.setROFrame(mROFrame);
+    temporaryTrack.setROFrame(rof);
     tracks.emplace_back(temporaryTrack);
     assert(nClusters == temporaryTrack.getNumberOfClusters());
   }
@@ -332,7 +353,7 @@ void Tracker::findTracks()
       }
       mTimeFrame->markUsedCluster(iLayer, track.getClusterIndex(iLayer));
     }
-    mTracks.emplace_back(track);
+    mTracks[track.getROFrame()].emplace_back(track);
   }
 
 #ifdef CA_DEBUG
@@ -529,51 +550,57 @@ void Tracker::computeTracksMClabels()
   }
 
   int tracksNum{static_cast<int>(mTracks.size())};
+  mTrackLabels.resize(mTracks.size());
 
-  for (auto& track : mTracks) {
+  for (gsl::index iROF{0}; iROF < mTracks.size(); ++iROF) {
+    auto& tracks = mTracks[iROF];
+    for (auto& track : tracks) {
 
-    MCCompLabel maxOccurrencesValue{constants::its::UnusedIndex, constants::its::UnusedIndex,
-                                    constants::its::UnusedIndex, false};
-    int count{0};
-    bool isFakeTrack{false};
+      MCCompLabel maxOccurrencesValue{constants::its::UnusedIndex, constants::its::UnusedIndex,
+                                      constants::its::UnusedIndex, false};
+      int count{0};
+      bool isFakeTrack{false};
 
-    for (int iCluster = 0; iCluster < TrackITSExt::MaxClusters; ++iCluster) {
-      const int index = track.getClusterIndex(iCluster);
-      if (index == constants::its::UnusedIndex) {
-        continue;
+      for (int iCluster = 0; iCluster < TrackITSExt::MaxClusters; ++iCluster) {
+        const int index = track.getClusterIndex(iCluster);
+        if (index == constants::its::UnusedIndex) {
+          continue;
+        }
+
+        const MCCompLabel& currentLabel = mTimeFrame->getClusterLabels(iCluster, index);
+        if (currentLabel == maxOccurrencesValue) {
+          ++count;
+        } else {
+          if (count != 0) { // only in the first iteration count can be 0 at this point
+            isFakeTrack = true;
+            --count;
+          }
+          if (count == 0) {
+            maxOccurrencesValue = currentLabel;
+            count = 1;
+          }
+        }
+        track.setExternalClusterIndex(iCluster, mTimeFrame->getClusterExternalIndex(iCluster, index));
       }
 
-      const MCCompLabel& currentLabel = mTimeFrame->getClusterLabels(iCluster, index);
-      if (currentLabel == maxOccurrencesValue) {
-        ++count;
-      } else {
-        if (count != 0) { // only in the first iteration count can be 0 at this point
-          isFakeTrack = true;
-          --count;
-        }
-        if (count == 0) {
-          maxOccurrencesValue = currentLabel;
-          count = 1;
-        }
+      if (isFakeTrack) {
+        maxOccurrencesValue.setFakeFlag();
       }
-      track.setExternalClusterIndex(iCluster, mTimeFrame->getClusterExternalIndex(iCluster, index));
+      mTrackLabels[iROF].addElement(mTrackLabels[iROF].getIndexedSize(), maxOccurrencesValue);
     }
-
-    if (isFakeTrack) {
-      maxOccurrencesValue.setFakeFlag();
-    }
-    mTrackLabels.addElement(mTrackLabels.getIndexedSize(), maxOccurrencesValue);
   }
 }
 
 void Tracker::rectifyClusterIndices()
 {
   int tracksNum{static_cast<int>(mTracks.size())};
-  for (auto& track : mTracks) {
-    for (int iCluster = 0; iCluster < TrackITSExt::MaxClusters; ++iCluster) {
-      const int index = track.getClusterIndex(iCluster);
-      if (index != constants::its::UnusedIndex) {
-        track.setExternalClusterIndex(iCluster, mTimeFrame->getClusterExternalIndex(iCluster, index));
+  for (auto& tracks : mTracks) {
+    for (auto& track : tracks) {
+      for (int iCluster = 0; iCluster < TrackITSExt::MaxClusters; ++iCluster) {
+        const int index = track.getClusterIndex(iCluster);
+        if (index != constants::its::UnusedIndex) {
+          track.setExternalClusterIndex(iCluster, mTimeFrame->getClusterExternalIndex(iCluster, index));
+        }
       }
     }
   }

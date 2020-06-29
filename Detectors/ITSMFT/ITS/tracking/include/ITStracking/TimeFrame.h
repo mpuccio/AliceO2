@@ -136,7 +136,7 @@ inline const float3& TimeFrame::getPrimaryVertex(const int vertexIndex) const { 
 inline gsl::span<const float3> TimeFrame::getPrimaryVertices(int tf) const
 { 
   const int start = tf > 0 ? tf - 1 : 0;
-  const int stop = tf > 0 ? tf + 2 : 2;
+  const int stop = tf >= mNrof - 1 ? mNrof : tf + 2;
   return {&mPrimaryVertices[start], mROframesPV[stop] - mROframesPV[start]};
 }
 
@@ -162,7 +162,10 @@ inline float TimeFrame::getBeamY() const { return mBeamPos[1]; }
 
 inline gsl::span<Cluster> TimeFrame::getClustersOnLayer(int rofId, int layerId)
 {
-  return {&mClusters[layerId][mROframesClusters[layerId][rofId]], mROframesClusters[layerId][rofId + 1] - mROframesClusters[layerId][rofId]};
+  gsl::span<Cluster> retSpan = {&mClusters[layerId][mROframesClusters[layerId][rofId]], mROframesClusters[layerId][rofId + 1] - mROframesClusters[layerId][rofId]};
+  if (mROframesClusters[layerId][rofId]+retSpan.size() > mClusters[layerId].size())
+    std::cout << "Catastrofic problem in getClustersOnLayer" << std::endl;
+  return retSpan;
 }
 
 inline gsl::span<const Cluster> TimeFrame::getUnsortedClustersOnLayer(int rofId, int layerId)

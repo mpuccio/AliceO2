@@ -67,7 +67,6 @@ void run_trac_ca_its(std::string path = "./",
   // rec->Init();
 
   // o2::its::Tracker tracker(chainITS->GetITSTrackerTraits());
-  o2::its::Tracker tracker(new o2::its::TrackerTraitsCPU());
   o2::its::ROframe event(0);
 
   if (path.back() != '/') {
@@ -86,7 +85,6 @@ void run_trac_ca_its(std::string path = "./",
     LOG(FATAL) << "Failed to load ma";
   }
   double origD[3] = {0., 0., 0.};
-  tracker.setBz(field->getBz(origD));
 
   bool isITS = grp->isDetReadOut(o2::detectors::DetID::ITS);
   if (!isITS) {
@@ -158,15 +156,14 @@ void run_trac_ca_its(std::string path = "./",
   std::vector<double> ncls;
   std::vector<double> time;
 
-  std::vector<TrackingParameters> trackParams(3);
-  trackParams[0].TrackletMaxDeltaPhi = 0.05f;
-  trackParams[1].TrackletMaxDeltaPhi = 0.1f;
-  trackParams[2].MinTrackLength = 4;
-  trackParams[2].TrackletMaxDeltaPhi = 0.3;
+  std::vector<TrackingParameters> trackParams(1);
+  // trackParams[0].TrackletMaxDeltaPhi = 0.05f;
+  // trackParams[1].TrackletMaxDeltaPhi = 0.1f;
+  // trackParams[2].MinTrackLength = 4;
+  // trackParams[2].TrackletMaxDeltaPhi = 0.3;
 
-  std::vector<MemoryParameters> memParams(3);
+  std::vector<MemoryParameters> memParams(1);
 
-  tracker.setParameters(memParams, trackParams);
 
   int currentEvent = -1;
 
@@ -234,7 +231,24 @@ void run_trac_ca_its(std::string path = "./",
     roFrameCounter++;
   }
 
-  tf.initialise(0, memParams[0]);
+  o2::its::Tracker tracker(new o2::its::TrackerTraitsCPU(&tf));
+  tracker.setBz(field->getBz(origD));
+  tracker.setParameters(memParams, trackParams);
+  tracker.clustersToTracks();
+  for (int iROF{0}; iROF < tf.getNrof(); ++iROF) {
+    tracksITS.clear();
+    for (auto& trc : tracker.getTracks(iROF)) {
+      trc.setFirstClusterEntry(trackClIdx.size()); // before adding tracks, create final cluster indices
+      int ncl = trc.getNumberOfClusters();
+      for (int ic = 0; ic < ncl; ic++) {
+        trackClIdx.push_back(trc.getClusterIndex(ic));
+      }
+      tracksITS.emplace_back(trc);
+    }
+    trackLabels = tracker.getTrackLabels(iROF); /// FIXME: assignment ctor is not optimal.
+    std::cout << tracker.getTracks(iROF).size() << "\t" << trackLabels.getNElements() << std::endl;
+     outTree.Fill();
+  }
 
   outFile.cd();
   outTree.Write();

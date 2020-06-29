@@ -36,17 +36,17 @@ void TrackerTraitsCPU::computeLayerTracklets()
   TimeFrame* tf = mTimeFrame;
 
   for (int rof0{0}; rof0 < tf->getNrof(); ++rof0) {
+    gsl::span<const float3> primaryVertices = tf->getPrimaryVertices(rof0);
     for (int iLayer{0}; iLayer < constants::its::TrackletsPerRoad; ++iLayer) {
       gsl::span<const Cluster> layer0 = tf->getClustersOnLayer(rof0, iLayer);
       if (layer0.empty()) {
         return;
       }
 
-      gsl::span<const float3> primaryVertices = tf->getPrimaryVertices(rof0);
-      const int currentLayerClustersNum{static_cast<int>(tf->getClustersOnLayer(rof0, iLayer).size())};
+      const int currentLayerClustersNum{static_cast<int>(layer0.size())};
 
       for (int iCluster{0}; iCluster < currentLayerClustersNum; ++iCluster) {
-        const Cluster& currentCluster{layer0[iCluster]};
+        const Cluster& currentCluster{layer0.at(iCluster)};
 
         if (tf->isClusterUsed(iLayer, currentCluster.clusterId)) {
           continue;
@@ -72,7 +72,8 @@ void TrackerTraitsCPU::computeLayerTracklets()
           }
 
           int minRof = (rof0 > 0) ? rof0 - 1 : 0;
-          for (int rof1{minRof}; rof1 < rof0 + 1; ++rof1) {
+          int maxRof = (rof0 == tf->getNrof() - 1) ? rof0 : rof0 + 1;
+          for (int rof1{minRof}; rof1 < maxRof; ++rof1) {
             gsl::span<const Cluster> layer1 = tf->getClustersOnLayer(rof1, iLayer + 1);
             if (layer1.empty()) {
               continue;
@@ -87,7 +88,7 @@ void TrackerTraitsCPU::computeLayerTracklets()
 
               for (int iNextCluster{firstRowClusterIndex}; iNextCluster < maxRowClusterIndex; ++iNextCluster) {
 
-                const Cluster& nextCluster{layer1[iNextCluster]};
+                const Cluster& nextCluster{layer1.at(iNextCluster)};
 
                 if (tf->isClusterUsed(iLayer + 1, nextCluster.clusterId)) {
                   continue;
@@ -100,15 +101,17 @@ void TrackerTraitsCPU::computeLayerTracklets()
                 if (deltaZ < mTrkParams.TrackletMaxDeltaZ[iLayer] &&
                     (deltaPhi < mTrkParams.TrackletMaxDeltaPhi ||
                      gpu::GPUCommonMath::Abs(deltaPhi - constants::math::TwoPi) < mTrkParams.TrackletMaxDeltaPhi)) {
-
+                  const int currentSortedIndex{tf->getSortedIndex(rof0, iLayer, iCluster)};
+                  if (iLayer > 0)
+                    if (currentSortedIndex > tf->getTrackletsLookupTable()[iLayer - 1].size())
+                      std::cout << "Issue with the tracklet LUT" << std::endl;
                   if (iLayer > 0 &&
-                      tf->getTrackletsLookupTable()[iLayer - 1][iCluster] == constants::its::UnusedIndex) {
-
-                    tf->getTrackletsLookupTable()[iLayer - 1][iCluster] =
+                      tf->getTrackletsLookupTable()[iLayer - 1][currentSortedIndex] == constants::its::UnusedIndex) {
+                    tf->getTrackletsLookupTable()[iLayer - 1][currentSortedIndex] =
                       tf->getTracklets()[iLayer].size();
                   }
 
-                  tf->getTracklets()[iLayer].emplace_back(tf->getSortedIndex(rof0, iLayer, iCluster), tf->getSortedIndex(rof1, iLayer + 1, iNextCluster), currentCluster,
+                  tf->getTracklets()[iLayer].emplace_back(currentSortedIndex, tf->getSortedIndex(rof1, iLayer + 1, iNextCluster), currentCluster,
                                                           nextCluster, rof0, rof1);
                 }
               }
@@ -117,6 +120,10 @@ void TrackerTraitsCPU::computeLayerTracklets()
         }
       }
     }
+  }
+  std::cout << "Number of tracklets " << std::endl;
+  for (int iL{0}; iL < 6; ++iL) {
+    std::cout << tf->getTracklets()[iL].size() << std::endl;
   }
 }
 
@@ -235,6 +242,10 @@ void TrackerTraitsCPU::computeLayerCells()
         }
       }
     }
+  }
+  std::cout << "Number of cells " << std::endl;
+  for (int iL{0}; iL < 5; ++iL) {
+    std::cout << tf->getCells()[iL].size() << std::endl;
   }
 }
 
