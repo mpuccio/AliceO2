@@ -70,7 +70,6 @@ struct TrackingParameters {
   /// Neighbour finding cuts
   std::vector<float> NeighbourMaxDeltaCurvature = {0.008f, 0.0025f, 0.003f, 0.0035f};
   std::vector<float> NeighbourMaxDeltaN = {0.002f, 0.0090f, 0.002f, 0.005f};
-
 };
 
 struct MemoryParameters {

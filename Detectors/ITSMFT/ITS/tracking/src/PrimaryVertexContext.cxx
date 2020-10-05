@@ -21,7 +21,7 @@ namespace o2
 namespace its
 {
 
-void PrimaryVertexContext::initialise(const MemoryParameters& memParam, const TrackingParameters& trkParam, 
+void PrimaryVertexContext::initialise(const MemoryParameters& memParam, const TrackingParameters& trkParam,
                                       const std::vector<std::vector<Cluster>>& cl, const std::array<float, 3>& pVtx, const int iteration)
 {
 
@@ -50,7 +50,7 @@ void PrimaryVertexContext::initialise(const MemoryParameters& memParam, const Tr
     mTracklets.resize(trkParam.NLayers - 1);
     mTrackletsLookupTable.resize(trkParam.NLayers - 2);
     mIndexTableUtils.setTrackingParameters(trkParam);
-    
+
     for (unsigned int iLayer{0}; iLayer < mClusters.size(); ++iLayer) {
 
       const auto& currentLayer{cl[iLayer]};

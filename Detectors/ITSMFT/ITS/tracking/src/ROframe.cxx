@@ -22,10 +22,10 @@ namespace its
 {
 
 ROframe::ROframe(int ROframeId, int nLayers) : mROframeId{ROframeId},
-  mClusters{nLayers},
-  mTrackingFrameInfo{nLayers},
-  mClusterLabels{nLayers},
-  mClusterExternalIndices{nLayers}
+                                               mClusters{nLayers},
+                                               mTrackingFrameInfo{nLayers},
+                                               mClusterLabels{nLayers},
+                                               mClusterExternalIndices{nLayers}
 {
 }
 

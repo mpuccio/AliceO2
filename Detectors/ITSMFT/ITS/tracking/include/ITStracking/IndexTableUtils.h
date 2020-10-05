@@ -35,7 +35,7 @@ namespace its
 class IndexTableUtils
 {
  public:
-  template<class T>
+  template <class T>
   void setTrackingParameters(const T& params);
   float getInverseZCoordinate(const int layerIndex) const;
   GPUhdi() int getZBinIndex(const int, const float) const;
@@ -55,8 +55,9 @@ class IndexTableUtils
   std::vector<float> mInverseZBinSize;
 };
 
-template<class T>
-inline void IndexTableUtils::setTrackingParameters(const T& params) {
+template <class T>
+inline void IndexTableUtils::setTrackingParameters(const T& params)
+{
   mInversePhiBinSize = params.PhiBins / constants::math::TwoPi;
   mInverseZBinSize.resize(params.LayerZ.size());
   mNzBins = params.ZBins;
@@ -87,8 +88,8 @@ GPUhdi() int IndexTableUtils::getBinIndex(const int zIndex, const int phiIndex) 
   return gpu::GPUCommonMath::Min(phiIndex * mNzBins + zIndex, mNzBins * mNphiBins - 1);
 }
 
-GPUhdi() int IndexTableUtils::countRowSelectedBins(const int* indexTable, const int phiBinIndex, 
-  const int minZBinIndex, const int maxZBinIndex) const
+GPUhdi() int IndexTableUtils::countRowSelectedBins(const int* indexTable, const int phiBinIndex,
+                                                   const int minZBinIndex, const int maxZBinIndex) const
 {
   const int firstBinIndex{getBinIndex(minZBinIndex, phiBinIndex)};
   const int maxBinIndex{firstBinIndex + maxZBinIndex - minZBinIndex + 1};

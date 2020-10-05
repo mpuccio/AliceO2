@@ -59,7 +59,7 @@ Cluster::Cluster(const int layerIndex, const float3& primaryVertex, const IndexT
     rCoordinate{calculateRCoordinate(xCoordinate - primaryVertex.x, yCoordinate - primaryVertex.y)},
     clusterId{other.clusterId},
     indexTableBinIndex{utils.getBinIndex(utils.getZBinIndex(layerIndex, zCoordinate),
-                                                      utils.getPhiBinIndex(phiCoordinate))}
+                                         utils.getPhiBinIndex(phiCoordinate))}
 {
   // Nothing to do
 }
@@ -74,7 +74,7 @@ void Cluster::Init(const int layerIndex, const float3& primaryVertex, const Inde
   rCoordinate = calculateRCoordinate(xCoordinate - primaryVertex.x, yCoordinate - primaryVertex.y);
   clusterId = other.clusterId;
   indexTableBinIndex = utils.getBinIndex(utils.getZBinIndex(layerIndex, zCoordinate),
-                                                      utils.getPhiBinIndex(phiCoordinate));
+                                         utils.getPhiBinIndex(phiCoordinate));
 }
 
 TrackingFrameInfo::TrackingFrameInfo(float x, float y, float z, float xTF, float alpha, GPUArray<float, 2>&& posTF,

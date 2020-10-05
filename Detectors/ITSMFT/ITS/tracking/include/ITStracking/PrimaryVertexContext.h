@@ -68,6 +68,7 @@ class PrimaryVertexContext
   bool isRoadFake(int i) const;
 
   IndexTableUtils mIndexTableUtils;
+
  protected:
   float3 mPrimaryVertex;
   std::vector<float> mMinR;
@@ -82,7 +83,7 @@ class PrimaryVertexContext
 
   // std::array<std::array<int, constants::index_table::ZBins * constants::index_table::PhiBins + 1>,
   //            constants::its::TrackletsPerRoad>
-  std::vector<std::vector<int>>  mIndexTables;
+  std::vector<std::vector<int>> mIndexTables;
   std::vector<std::vector<Tracklet>> mTracklets;
   std::vector<std::vector<int>> mTrackletsLookupTable;
 
