@@ -80,6 +80,9 @@ void TrackerTraitsCPU::computeLayerTracklets()
         for (int iNextLayerCluster{firstRowClusterIndex}; iNextLayerCluster < maxRowClusterIndex;
              ++iNextLayerCluster) {
 
+          if (iNextLayerCluster >= primaryVertexContext->getClusters()[iLayer + 1].size())
+            break;
+
           const Cluster& nextCluster{primaryVertexContext->getClusters()[iLayer + 1][iNextLayerCluster]};
 
           if (primaryVertexContext->isClusterUsed(iLayer + 1, nextCluster.clusterId)) {
