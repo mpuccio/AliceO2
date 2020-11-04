@@ -244,7 +244,7 @@ void TrackerTraitsCPU::computeLayerCells()
       }
     }
   }
-  #ifdef CA_DEBUG
+#ifdef CA_DEBUG
   std::cout << "+++ Number of cells per layer: ";
   for (int iLayer{0}; iLayer < mTrkParams.CellsPerRoad(); ++iLayer) {
     std::cout << primaryVertexContext->getCells()[iLayer].size() << "\t";

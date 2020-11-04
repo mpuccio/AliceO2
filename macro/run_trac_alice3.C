@@ -9,7 +9,6 @@
 #include <TGeoGlobalMagField.h>
 #include <vector>
 
-
 #include "DataFormatsITSMFT/ROFRecord.h"
 #include "ITSMFTSimulation/Hit.h"
 #include "ITStracking/Configuration.h"
@@ -26,18 +25,16 @@
 #include "ReconstructionDataFormats/DCA.h"
 #include "ReconstructionDataFormats/Vertex.h"
 
-
-
 #endif
 
-using o2::itsmft::Hit;
-using std::string;
 using o2::its::MemoryParameters;
 using o2::its::TrackingParameters;
+using o2::itsmft::Hit;
+using std::string;
 
 constexpr bool kUseSmearing{false};
 
-struct particle{
+struct particle {
   int pdg = 0;
   int nLayers = 0;
   float pt;
@@ -74,7 +71,6 @@ void run_trac_alice3(const string hitsFileName = "o2sim_HitsIT4.root")
   o2::its::Tracker tracker(new o2::its::TrackerTraitsCPU());
   tracker.setBz(5.f);
 
-
   std::uint32_t roFrame;
   std::vector<Hit>* hits = nullptr;
   itsHits.SetBranchAddress("IT4Hit", &hits);
@@ -83,7 +79,7 @@ void run_trac_alice3(const string hitsFileName = "o2sim_HitsIT4.root")
   trackParams[0].NLayers = 10;
   trackParams[0].MinTrackLength = 10;
 
-  std::vector<float> LayerRadii = {1.8f,2.4f,3.0f,4.0f,5.0f,6.0f,7.0f,8.0f,9.0f,10.0f};
+  std::vector<float> LayerRadii = {1.8f, 2.4f, 3.0f, 4.0f, 5.0f, 6.0f, 7.0f, 8.0f, 9.0f, 10.0f};
   std::vector<float> LayerZ(10);
   for (int i{0}; i < 10; ++i)
     LayerZ[i] = getDetLengthFromEta(1.44, LayerRadii[i]) + 1.;
@@ -105,26 +101,30 @@ void run_trac_alice3(const string hitsFileName = "o2sim_HitsIT4.root")
   trackParams[0].NeighbourMaxDeltaN = NeighbourMaxDeltaN;
 
   std::vector<MemoryParameters> memParams(4);
-  std::vector<float> CellsMemoryCoefficients = {2.3208e-08f *20, 2.104e-08f*20, 1.6432e-08f*20, 1.2412e-08f*20, 1.3543e-08f*20, 1.5e-08f*20, 1.6e-08f*20, 1.7e-08f*20};
+  std::vector<float> CellsMemoryCoefficients = {2.3208e-08f * 20, 2.104e-08f * 20, 1.6432e-08f * 20, 1.2412e-08f * 20, 1.3543e-08f * 20, 1.5e-08f * 20, 1.6e-08f * 20, 1.7e-08f * 20};
   std::vector<float> TrackletsMemoryCoefficients = {0.0016353f * 1000, 0.0013627f * 1000, 0.000984f * 1000, 0.00078135f * 1000, 0.00057934f * 1000, 0.00052217f * 1000, 0.00052217f * 1000, 0.00052217f * 1000, 0.00052217f * 1000};
   memParams[0].CellsMemoryCoefficients = CellsMemoryCoefficients;
   memParams[0].TrackletsMemoryCoefficients = TrackletsMemoryCoefficients;
   memParams[0].MemoryOffset = 8000;
-  
+
   for (int i = 1; i < 4; ++i) {
-    memParams[i] = memParams[i-1];
-    trackParams[i] = trackParams[i-1];
+    memParams[i] = memParams[i - 1];
+    trackParams[i] = trackParams[i - 1];
     // trackParams[i].MinTrackLength -= 2;
     trackParams[i].TrackletMaxDeltaPhi *= 3;
     trackParams[i].CellMaxDeltaPhi *= 3;
     trackParams[i].CellMaxDeltaTanLambda *= 3;
-    for (auto& val : trackParams[i].TrackletMaxDeltaZ) val *= 3;
-    for (auto& val : trackParams[i].CellMaxDCA) val *= 3;
-    for (auto& val : trackParams[i].CellMaxDeltaZ) val *= 3;
-    for (auto& val : trackParams[i].NeighbourMaxDeltaCurvature) val *= 3;
-    for (auto& val : trackParams[i].NeighbourMaxDeltaN) val *= 3;
+    for (auto& val : trackParams[i].TrackletMaxDeltaZ)
+      val *= 3;
+    for (auto& val : trackParams[i].CellMaxDCA)
+      val *= 3;
+    for (auto& val : trackParams[i].CellMaxDeltaZ)
+      val *= 3;
+    for (auto& val : trackParams[i].NeighbourMaxDeltaCurvature)
+      val *= 3;
+    for (auto& val : trackParams[i].NeighbourMaxDeltaN)
+      val *= 3;
   }
-
 
   tracker.setParameters(memParams, trackParams);
 
@@ -138,19 +138,18 @@ void run_trac_alice3(const string hitsFileName = "o2sim_HitsIT4.root")
     newBins[i] = factor * newBins[i - 1];
   }
 
-  TH1D genH("gen",";#it{p}_{T} (GeV/#it{c});",nBins,newBins);
-  TH1D recH("rec","Efficiency;#it{p}_{T} (GeV/#it{c});",nBins,newBins);
-  TH1D fakH("fak","Fake rate;#it{p}_{T} (GeV/#it{c});",nBins,newBins);
-  TH2D deltaPt("deltapt",";#it{p}_{T} (GeV/#it{c});#Delta#it{p}_{T} (GeV/#it{c});",nBins,newBins,100,-0.1,0.1);
-  TH2D dcaxy("dcaxy",";#it{p}_{T} (GeV/#it{c});DCA_{xy} (#mum);",nBins,newBins,200,-200,200);
-  TH2D dcaz("dcaz",";#it{p}_{T} (GeV/#it{c});DCA_{z} (#mum);",nBins,newBins,200,-200,200);
-  TH2D deltaE("deltaE",";#it{p}_{T} (GeV/#it{c});#DeltaE (MeV);",nBins,newBins,200,0,100);
+  TH1D genH("gen", ";#it{p}_{T} (GeV/#it{c});", nBins, newBins);
+  TH1D recH("rec", "Efficiency;#it{p}_{T} (GeV/#it{c});", nBins, newBins);
+  TH1D fakH("fak", "Fake rate;#it{p}_{T} (GeV/#it{c});", nBins, newBins);
+  TH2D deltaPt("deltapt", ";#it{p}_{T} (GeV/#it{c});#Delta#it{p}_{T} (GeV/#it{c});", nBins, newBins, 100, -0.1, 0.1);
+  TH2D dcaxy("dcaxy", ";#it{p}_{T} (GeV/#it{c});DCA_{xy} (#mum);", nBins, newBins, 200, -200, 200);
+  TH2D dcaz("dcaz", ";#it{p}_{T} (GeV/#it{c});DCA_{z} (#mum);", nBins, newBins, 200, -200, 200);
+  TH2D deltaE("deltaE", ";#it{p}_{T} (GeV/#it{c});#DeltaE (MeV);", nBins, newBins, 200, 0, 100);
 
-  Point3D<float> pos{0.f,0.f,0.f};
+  Point3D<float> pos{0.f, 0.f, 0.f};
   const std::array<float, 6> cov{1.e-4, 0., 0., 1.e-4, 0., 1.e-4};
   o2::dataformats::VertexBase vtx(pos, cov);
   o2::dataformats::DCA dca;
-
 
   for (int iEvent{0}; iEvent < itsHits.GetEntriesFast(); ++iEvent) {
     std::cout << "*************** Event " << iEvent << " ***************" << std::endl;
@@ -163,7 +162,7 @@ void run_trac_alice3(const string hitsFileName = "o2sim_HitsIT4.root")
     for (auto& hit : *hits) {
       const int layer{hit.GetDetectorID()};
       float xyz[3]{hit.GetX(), hit.GetY(), hit.GetZ()};
-      float r{std::hypot(xyz[0],xyz[1])};
+      float r{std::hypot(xyz[0], xyz[1])};
       float phi{std::atan2(-xyz[1], -xyz[0]) + o2::its::constants::math::Pi};
 
       if (kUseSmearing) {
@@ -191,7 +190,7 @@ void run_trac_alice3(const string hitsFileName = "o2sim_HitsIT4.root")
           mapPDG[hit.GetTrackID()].phi = part.GetPhi();
         }
       } else {
-        mapPDG[hit.GetTrackID()].nLayers|= 1 << layer;
+        mapPDG[hit.GetTrackID()].nLayers |= 1 << layer;
         mapPDG[hit.GetTrackID()].energyLast = hit.GetE();
       }
     }
@@ -199,11 +198,11 @@ void run_trac_alice3(const string hitsFileName = "o2sim_HitsIT4.root")
 
     vertexer.clustersToVertices(event);
     int nPart10layers{0};
-    for (auto &part : mapPDG) {
+    for (auto& part : mapPDG) {
       if (part.second.nLayers == 0x3FF) {
         nPart10layers++;
         genH.Fill(part.second.pt);
-        deltaE.Fill(part.second.pt, 1000*(part.second.energyFirst - part.second.energyLast));
+        deltaE.Fill(part.second.pt, 1000 * (part.second.energyFirst - part.second.energyLast));
       }
     }
     tracker.clustersToTracks(event);
@@ -219,8 +218,8 @@ void run_trac_alice3(const string hitsFileName = "o2sim_HitsIT4.root")
         if (!mapPDG[trackID].pdg)
           std::cout << "strange" << std::endl;
         mapPDG[trackID].isReco = lab.isFake() ? 2 : 1;
-        mapPDG[trackID].recoPt = track.getPt(); 
-        mapPDG[trackID].recoEta = track.getEta(); 
+        mapPDG[trackID].recoPt = track.getPt();
+        mapPDG[trackID].recoEta = track.getEta();
         (lab.isFake() ? fakH : recH).Fill(mapPDG[trackID].pt);
         deltaPt.Fill(mapPDG[trackID].pt, (mapPDG[trackID].pt - mapPDG[trackID].recoPt) / mapPDG[trackID].pt);
         if (!track.propagateToDCA(vtx, tracker.getBz(), &dca)) {
@@ -235,21 +234,20 @@ void run_trac_alice3(const string hitsFileName = "o2sim_HitsIT4.root")
 
   TH1D dcaxy_res(recH);
   dcaxy_res.Reset();
-  dcaxy_res.SetNameTitle("dcaxy_res",";#it{p}_{T} (GeV/#it{c});#sigma(DCA_{xy}) (#mum);");
+  dcaxy_res.SetNameTitle("dcaxy_res", ";#it{p}_{T} (GeV/#it{c});#sigma(DCA_{xy}) (#mum);");
   TH1D dcaz_res(recH);
   dcaz_res.Reset();
-  dcaz_res.SetNameTitle("dcaz_res",";#it{p}_{T} (GeV/#it{c});#sigma(DCA_{z}) (#mum);");
-  for (int i=1; i<=nBins;++i) {
-    auto proj = dcaxy.ProjectionY(Form("xy%i",i),i,i);
+  dcaz_res.SetNameTitle("dcaz_res", ";#it{p}_{T} (GeV/#it{c});#sigma(DCA_{z}) (#mum);");
+  for (int i = 1; i <= nBins; ++i) {
+    auto proj = dcaxy.ProjectionY(Form("xy%i", i), i, i);
     dcaxy_res.SetBinContent(i, proj->GetStdDev());
     dcaxy_res.SetBinError(i, proj->GetStdDevError());
-    proj = dcaz.ProjectionY(Form("z%i",i),i,i);
+    proj = dcaz.ProjectionY(Form("z%i", i), i, i);
     dcaz_res.SetBinContent(i, proj->GetStdDev());
     dcaz_res.SetBinError(i, proj->GetStdDevError());
   }
-  
 
-  TFile output("output.root","recreate");
+  TFile output("output.root", "recreate");
   recH.Divide(&genH);
   fakH.Divide(&genH);
   recH.Write();
