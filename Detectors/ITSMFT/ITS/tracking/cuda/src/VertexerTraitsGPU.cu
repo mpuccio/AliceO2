@@ -178,7 +178,7 @@ GPUg() void trackleterKernel(
           const int maxRowClusterIndex{store.getIndexTable(adjacentLayerIndex)[firstBinIndex + selectedBinsRect.z - selectedBinsRect.x + 1]};
           for (size_t iAdjacentCluster{(size_t)firstRowClusterIndex}; iAdjacentCluster < (size_t)maxRowClusterIndex && iAdjacentCluster < nClustersAdjacentLayer; ++iAdjacentCluster) {
             const Cluster& adjacentCluster = store.getClusters()[static_cast<int>(adjacentLayerIndex)][iAdjacentCluster]; // assign-constructor may be a problem, check
-            if (o2::gpu::GPUCommonMath::Abs(currentCluster.phiCoordinate - adjacentCluster.phiCoordinate) < phiCut) {
+            if (o2::gpu::GPUCommonMath::Abs(currentCluster.phi - adjacentCluster.phi) < phiCut) {
               if (storedTracklets < store.getConfig().maxTrackletsPerCluster) {
                 if (layerOrder == TrackletingLayerOrder::fromInnermostToMiddleLayer) {
                   store.getDuplets01().emplace(stride + storedTracklets, iAdjacentCluster, currentClusterIndex, adjacentCluster, currentCluster);
@@ -211,7 +211,7 @@ GPUg() void trackletSelectionKernel(
     for (int iTracklet12{0}; iTracklet12 < store.getNFoundTracklets(TrackletingLayerOrder::fromMiddleToOuterLayer)[currentClusterIndex]; ++iTracklet12) {
       for (int iTracklet01{0}; iTracklet01 < store.getNFoundTracklets(TrackletingLayerOrder::fromInnermostToMiddleLayer)[currentClusterIndex] && validTracklets < store.getConfig().maxTrackletsPerCluster; ++iTracklet01) {
         const float deltaTanLambda{o2::gpu::GPUCommonMath::Abs(store.getDuplets01()[stride + iTracklet01].tanLambda - store.getDuplets12()[stride + iTracklet12].tanLambda)};
-        const float deltaPhi{o2::gpu::GPUCommonMath::Abs(store.getDuplets01()[stride + iTracklet01].phiCoordinate - store.getDuplets12()[stride + iTracklet12].phiCoordinate)};
+        const float deltaPhi{o2::gpu::GPUCommonMath::Abs(store.getDuplets01()[stride + iTracklet01].phi - store.getDuplets12()[stride + iTracklet12].phi)};
         if (deltaTanLambda < tanLambdaCut && deltaPhi < phiCut && validTracklets != store.getConfig().maxTrackletsPerCluster) {
           assert(store.getDuplets01()[stride + iTracklet01].secondClusterIndex == store.getDuplets12()[stride + iTracklet12].firstClusterIndex);
           if (!isInitRun) {
