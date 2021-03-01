@@ -29,6 +29,7 @@
 #include "ITStracking/Definitions.h"
 #include "ITStracking/Road.h"
 #include "ITStracking/Tracklet.h"
+#include "ITStracking/IndexTableUtils.h"
 
 #include "SimulationDataFormat/MCCompLabel.h"
 #include "SimulationDataFormat/MCTruthContainer.h"
@@ -79,7 +80,7 @@ class TimeFrame final
   int getClusterExternalIndex(int layerId, const int clId) const;
 
   bool hasMCinformation() const;
-  void initialise(const int iteration, const MemoryParameters& memParam);
+  void initialise(const int iteration, const MemoryParameters& memParam, const TrackingParameters& trkParam);
 
   bool isClusterUsed(int layer, int clusterId) const;
   void markUsedCluster(int layer, int clusterId);

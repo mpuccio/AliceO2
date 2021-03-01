@@ -58,7 +58,7 @@ int TimeFrame::loadROFrameData(const o2::itsmft::ROFRecord& rof, gsl::span<const
                                const dataformats::MCTruthContainer<MCCompLabel>* mcLabels)
 {
   GeometryTGeo* geom = GeometryTGeo::Instance();
-  geom->fillMatrixCache(utils::bit2Mask(TransformType::T2GRot));
+  geom->fillMatrixCache(o2::math_utils::bit2Mask(o2::math_utils::TransformType::T2L, o2::math_utils::TransformType::L2G));
   int clusterId{0};
 
   auto first = rof.getFirstEntry();
@@ -91,7 +91,7 @@ int TimeFrame::loadROFrameData(const o2::itsmft::ROFRecord& rof, gsl::span<const
                                const itsmft::TopologyDictionary& dict, const dataformats::MCTruthContainer<MCCompLabel>* mcLabels)
 {
   GeometryTGeo* geom = GeometryTGeo::Instance();
-  geom->fillMatrixCache(utils::bit2Mask(TransformType::T2L, TransformType::L2G));
+  geom->fillMatrixCache(o2::math_utils::bit2Mask(o2::math_utils::TransformType::T2L, o2::math_utils::TransformType::L2G));
   int clusterId{0};
 
   auto first = rof.getFirstEntry();
@@ -100,7 +100,7 @@ int TimeFrame::loadROFrameData(const o2::itsmft::ROFRecord& rof, gsl::span<const
     int layer = geom->getLayer(c.getSensorID());
 
     auto pattID = c.getPatternID();
-    Point3D<float> locXYZ;
+    o2::math_utils::Point3D<float> locXYZ;
     float sigmaY2 = DefClusError2Row, sigmaZ2 = DefClusError2Col, sigmaYZ = 0; //Dummy COG errors (about half pixel size)
     if (pattID != itsmft::CompCluster::InvalidPatternID) {
       sigmaY2 = dict.getErr2X(pattID);
@@ -148,7 +148,7 @@ int TimeFrame::getTotalClusters() const
   return int(totalClusters);
 }
 
-void TimeFrame::initialise(const int iteration, const MemoryParameters& memParam)
+void TimeFrame::initialise(const int iteration, const MemoryParameters& memParam, const TrackingParameters& trkParam)
 {
   if (iteration == 0) {
 
@@ -162,7 +162,6 @@ void TimeFrame::initialise(const int iteration, const MemoryParameters& memParam
     mCells.resize(trkParam.CellsPerRoad());
     mCellsLookupTable.resize(trkParam.CellsPerRoad() - 1);
     mCellsNeighbours.resize(trkParam.CellsPerRoad() - 1);
-    mIndexTables.resize(trkParam.TrackletsPerRoad(), std::vector<int>(trkParam.ZBins * trkParam.PhiBins + 1, 0));
     mTracklets.resize(trkParam.TrackletsPerRoad());
     mTrackletsLookupTable.resize(trkParam.CellsPerRoad());
     mIndexTableUtils.setTrackingParameters(trkParam);
@@ -177,15 +176,14 @@ void TimeFrame::initialise(const int iteration, const MemoryParameters& memParam
     mIndexTables.resize(mNrof);
     std::vector<ClusterHelper> cHelper;
     for (int rof{0}; rof < mNrof; ++rof) {
-      for (int iLayer{0}; iLayer < constants::its::LayersNumber; ++iLayer) {
+      mIndexTables[rof].resize(trkParam.TrackletsPerRoad(), std::vector<int>(trkParam.ZBins * trkParam.PhiBins + 1, 0));
+      std::vector<int> clsPerBin(trkParam.PhiBins * trkParam.ZBins, 0);
+      for (int iLayer{0}; iLayer < trkParam.NLayers; ++iLayer) {
 
         const auto currentLayer{getUnsortedClustersOnLayer(rof,iLayer)};
         const int clustersNum{static_cast<int>(currentLayer.size())};
 
-        constexpr int _size = constants::index_table::PhiBins * constants::index_table::ZBins;
-        std::array<int, _size> clsPerBin;
-        for (int& bin : clsPerBin)
-          bin = 0;
+        std::fill(clsPerBin.begin(), clsPerBin.end(), 0);
 
         cHelper.clear();
         cHelper.resize(clustersNum);
@@ -207,9 +205,9 @@ void TimeFrame::initialise(const int iteration, const MemoryParameters& memParam
           h.ind = clsPerBin[bin]++;
         }
 
-        std::array<int, _size> lutPerBin;
+        std::vector<int> lutPerBin(clsPerBin.size());
         lutPerBin[0] = 0;
-        for (int iB{1}; iB < _size; ++iB) {
+        for (unsigned int iB{1}; iB < lutPerBin.size(); ++iB) {
           lutPerBin[iB] = lutPerBin[iB - 1] + clsPerBin[iB - 1];
         }
 
@@ -223,10 +221,10 @@ void TimeFrame::initialise(const int iteration, const MemoryParameters& memParam
         }
 
         if (iLayer > 0) {
-          for (int iB{0}; iB < _size; ++iB) {
+          for (unsigned int iB{0}; iB < clsPerBin.size(); ++iB) {
             mIndexTables[rof][iLayer - 1][iB] = lutPerBin[iB];
           }
-          for (int iB{_size}; iB < (int)mIndexTables[rof][iLayer - 1].size(); iB++) {
+          for (auto iB{clsPerBin.size()}; iB < (int)mIndexTables[rof][iLayer - 1].size(); iB++) {
             mIndexTables[rof][iLayer - 1][iB] = clustersNum;
           }
         }

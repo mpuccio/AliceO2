@@ -64,7 +64,7 @@ void Tracker::clustersToTracks(std::ostream& timeBenchmarkOutputStream)
     mTraits->UpdateTrackingParameters(mTrkParams[iteration]);
 
     total += evaluateTask(&Tracker::initialiseTimeFrame, "Context initialisation",
-                          timeBenchmarkOutputStream, iteration, mMemParams[iteration]);
+                          timeBenchmarkOutputStream, iteration, mMemParams[iteration], mTrkParams[iteration]);
     total += evaluateTask(&Tracker::computeTracklets, "Tracklet finding", timeBenchmarkOutputStream);
     total += evaluateTask(&Tracker::computeCells, "Cell finding", timeBenchmarkOutputStream);
     total += evaluateTask(&Tracker::findCellsNeighbours, "Neighbour finding", timeBenchmarkOutputStream, iteration);
@@ -226,7 +226,7 @@ void Tracker::findTracks()
   std::vector<int> nonsharingCounters(mTrkParams[0].NLayers - 3, 0);
 #endif
 
-  for (auto& road : mPrimaryVertexContext->getRoads()) {
+  for (auto& road : mTimeFrame->getRoads()) {
     std::vector<int> clusters(mTrkParams[0].NLayers, constants::its::UnusedIndex);
     int lastCellLevel = constants::its::UnusedIndex;
     CA_DEBUGGER(int nClusters = 2);
@@ -307,7 +307,7 @@ void Tracker::findTracks()
     CA_DEBUGGER(backpropagatedCounters[nClusters - 4]++);
     temporaryTrack.getParamOut() = temporaryTrack;
     temporaryTrack.resetCovariance();
-    fitSuccess = fitTrack(emporaryTrack, mTrkParams[0].NLayers - 1, -1, -1, mTrkParams[0].FitIterationMaxChi2[1]);
+    fitSuccess = fitTrack(temporaryTrack, mTrkParams[0].NLayers - 1, -1, -1, mTrkParams[0].FitIterationMaxChi2[1]);
 #ifdef CA_DEBUG
     mDebugger->dumpTrackToBranchWithInfo("testBranch", temporaryTrack, event, mPrimaryVertexContext, true);
 #endif
@@ -315,7 +315,7 @@ void Tracker::findTracks()
       continue;
     }
     CA_DEBUGGER(refitCounters[nClusters - 4]++);
-    temporaryTrack.setROFrame(rof);
+    // temporaryTrack.setROFrame(rof);
     tracks.emplace_back(temporaryTrack);
     CA_DEBUGGER(assert(nClusters == temporaryTrack.getNumberOfClusters()));
   }
@@ -368,7 +368,7 @@ void Tracker::findTracks()
       }
       mTimeFrame->markUsedCluster(iLayer, track.getClusterIndex(iLayer));
     }
-    mTracks[track.getROFrame()].emplace_back(track);
+    mTracks.emplace_back(track);
   }
 
 #ifdef CA_DEBUG
@@ -588,20 +588,27 @@ void Tracker::computeTracksMClabels()
   int tracksNum{static_cast<int>(mTracks.size())};
   mTrackLabels.resize(mTracks.size());
 
-  for (gsl::index iROF{0}; iROF < mTracks.size(); ++iROF) {
-    auto& tracks = mTracks[iROF];
-    for (auto& track : tracks) {
+  for (auto& track : mTracks) {
 
-      MCCompLabel maxOccurrencesValue{constants::its::UnusedIndex, constants::its::UnusedIndex,
-                                      constants::its::UnusedIndex, false};
-      int count{0};
-      bool isFakeTrack{false};
+    MCCompLabel maxOccurrencesValue{constants::its::UnusedIndex, constants::its::UnusedIndex,
+                                    constants::its::UnusedIndex, false};
+    int count{0};
+    bool isFakeTrack{false};
 
-      for (int iCluster = 0; iCluster < TrackITSExt::MaxClusters; ++iCluster) {
-        const int index = track.getClusterIndex(iCluster);
-        if (index == constants::its::UnusedIndex) {
-          continue;
+    for (int iCluster = 0; iCluster < TrackITSExt::MaxClusters; ++iCluster) {
+      const int index = track.getClusterIndex(iCluster);
+      if (index == constants::its::UnusedIndex) {
+        continue;
+      }
+      const MCCompLabel& currentLabel = mTimeFrame->getClusterLabels(iCluster, index);
+      if (currentLabel == maxOccurrencesValue) {
+        ++count;
+      } else {
+        if (count != 0) { // only in the first iteration count can be 0 at this point
+          isFakeTrack = true;
+          --count;
         }
+
         const MCCompLabel& currentLabel = mTimeFrame->getClusterLabels(iCluster, index);
         if (currentLabel == maxOccurrencesValue) {
           ++count;
@@ -610,42 +617,30 @@ void Tracker::computeTracksMClabels()
             isFakeTrack = true;
             --count;
           }
-
-          const MCCompLabel& currentLabel = mTimeFrame->getClusterLabels(iCluster, index);
-          if (currentLabel == maxOccurrencesValue) {
-            ++count;
-          } else {
-            if (count != 0) { // only in the first iteration count can be 0 at this point
-              isFakeTrack = true;
-              --count;
-            }
-            if (count == 0) {
-              maxOccurrencesValue = currentLabel;
-              count = 1;
-            }
+          if (count == 0) {
+            maxOccurrencesValue = currentLabel;
+            count = 1;
           }
-          track.setExternalClusterIndex(iCluster, mTimeFrame->getClusterExternalIndex(iCluster, index));
         }
-
-        if (isFakeTrack) {
-          maxOccurrencesValue.setFakeFlag();
-        }
+        track.setExternalClusterIndex(iCluster, mTimeFrame->getClusterExternalIndex(iCluster, index));
       }
-      mTrackLabels.emplace_back(maxOccurrencesValue);
+
+      if (isFakeTrack) {
+        maxOccurrencesValue.setFakeFlag();
+      }
     }
+    mTrackLabels.emplace_back(maxOccurrencesValue);
   }
 }
 
 void Tracker::rectifyClusterIndices()
 {
   int tracksNum{static_cast<int>(mTracks.size())};
-  for (auto& tracks : mTracks) {
-    for (auto& track : tracks) {
-      for (int iCluster = 0; iCluster < TrackITSExt::MaxClusters; ++iCluster) {
-        const int index = track.getClusterIndex(iCluster);
-        if (index != constants::its::UnusedIndex) {
-          track.setExternalClusterIndex(iCluster, mTimeFrame->getClusterExternalIndex(iCluster, index));
-        }
+  for (auto& track : mTracks) {
+    for (int iCluster = 0; iCluster < TrackITSExt::MaxClusters; ++iCluster) {
+      const int index = track.getClusterIndex(iCluster);
+      if (index != constants::its::UnusedIndex) {
+        track.setExternalClusterIndex(iCluster, mTimeFrame->getClusterExternalIndex(iCluster, index));
       }
     }
   }

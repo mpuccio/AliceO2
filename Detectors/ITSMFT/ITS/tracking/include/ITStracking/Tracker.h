@@ -67,8 +67,8 @@ class Tracker
   void setBz(float bz);
   float getBz() const;
 
-  std::vector<TrackITSExt>& getTracks(int rof);
-  std::vector<MCCompLabel>& getTrackLabels(int rof);
+  std::vector<TrackITSExt>& getTracks();
+  std::vector<MCCompLabel>& getTrackLabels();
   bool isMatLUT();
 
   void clustersToTracks(std::ostream& = std::cout);
@@ -107,8 +107,8 @@ class Tracker
   bool mCUDA = false;
   float mBz = 5.f;
   std::uint32_t mROFrame = 0;
-  std::vector<std::vector<TrackITSExt>> mTracks;
-  std::vector<std::vector<MCCompLabel>> mTrackLabels;
+  std::vector<TrackITSExt> mTracks;
+  std::vector<MCCompLabel> mTrackLabels;
   o2::base::MatLayerCylSet* mMatLayerCylSet = nullptr;
   o2::gpu::GPUChainITS* mRecoChain = nullptr;
 
@@ -149,14 +149,14 @@ void Tracker::initialiseTimeFrame(T&&... args)
   mTimeFrame->initialise(std::forward<T>(args)...);
 }
 
-inline std::vector<TrackITSExt>& Tracker::getTracks(int rof)
+inline std::vector<TrackITSExt>& Tracker::getTracks()
 {
-  return mTracks[rof];
+  return mTracks;
 }
 
-inline std::vector<MCCompLabel>& Tracker::getTrackLabels(int rofs)
+inline std::vector<MCCompLabel>& Tracker::getTrackLabels()
 {
-  return mTrackLabels[rofs];
+  return mTrackLabels;
 }
 
 template <typename... T>

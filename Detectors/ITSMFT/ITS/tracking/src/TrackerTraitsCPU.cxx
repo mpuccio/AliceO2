@@ -84,7 +84,7 @@ void TrackerTraitsCPU::computeLayerTracklets()
             }
 
             for (int iPhiBin{selectedBinsRect.y}, iPhiCount{0}; iPhiCount < phiBinsNum;
-                 iPhiBin = ++iPhiBin == tf->mIndexTableUtils.PhiBins ? 0 : iPhiBin, iPhiCount++) {
+                 iPhiBin = (++iPhiBin == tf->mIndexTableUtils.getNphiBins()) ? 0 : iPhiBin, iPhiCount++) {
               const int firstBinIndex{tf->mIndexTableUtils.getBinIndex(selectedBinsRect.x, iPhiBin)};
               const int maxBinIndex{firstBinIndex + selectedBinsRect.z - selectedBinsRect.x + 1};
               const int firstRowClusterIndex = tf->getIndexTables(rof1)[iLayer][firstBinIndex];
