@@ -28,7 +28,7 @@
 #include "ITStracking/Configuration.h"
 #include "ITStracking/Definitions.h"
 #include "ITStracking/MathUtils.h"
-#include "ITStracking/PrimaryVertexContext.h"
+#include "ITStracking/TimeFrame.h"
 #include "ITStracking/Road.h"
 
 namespace o2
@@ -39,8 +39,8 @@ namespace its
 class TrackerTraitsCPU : public TrackerTraits
 {
  public:
-  TrackerTraitsCPU() { mPrimaryVertexContext = new PrimaryVertexContext; }
-  ~TrackerTraitsCPU() override { delete mPrimaryVertexContext; }
+  TrackerTraitsCPU(TimeFrame *tf = nullptr) { mTimeFrame = tf; } //TODO: the TimeFrame pointer should be given by the tracker that is the external interface
+  ~TrackerTraitsCPU() override { delete mTimeFrame; }
 
   void computeLayerCells() final;
   void computeLayerTracklets() final;
