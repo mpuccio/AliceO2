@@ -497,7 +497,8 @@ void Tracker::computeRoadsMClabels()
   for (int iRoad{0}; iRoad < roadsNum; ++iRoad) {
 
     Road& currentRoad{mTimeFrame->getRoads()[iRoad]};
-    unsigned long long maxOccurrencesValue{0xffffffffffffffff};
+    MCCompLabel maxOccurrencesValue{constants::its::UnusedIndex, constants::its::UnusedIndex,
+                                    constants::its::UnusedIndex, false};
     int count{0};
     bool isFakeRoad{false};
     bool isFirstRoadCell{true};
@@ -524,6 +525,7 @@ void Tracker::computeRoadsMClabels()
 
         const int cl1index{mTimeFrame->getClusters()[iCell + 1][currentCell.getSecondClusterIndex()].clusterId};
         auto& cl1labs{mTimeFrame->getClusterLabels(iCell + 1, cl1index)};
+        const int secondMonteCarlo{cl1labs.getTrackID()};
 
         if (cl1labs == maxOccurrencesValue) {
           ++count;
@@ -538,6 +540,7 @@ void Tracker::computeRoadsMClabels()
 
       const int cl2index{mTimeFrame->getClusters()[iCell + 2][currentCell.getThirdClusterIndex()].clusterId};
       auto& cl2labs{mTimeFrame->getClusterLabels(iCell + 2, cl2index)};
+      const int currentMonteCarlo = {cl2labs.getTrackID()};
 
       if (cl2labs == maxOccurrencesValue) {
         ++count;
@@ -552,7 +555,7 @@ void Tracker::computeRoadsMClabels()
       }
     }
 
-    mTimeFrame->setRoadLabel(iRoad, maxOccurrencesValue, isFakeRoad);
+    mTimeFrame->setRoadLabel(iRoad, maxOccurrencesValue.getRawValue(), isFakeRoad);
   }
 }
 
@@ -568,7 +571,8 @@ void Tracker::computeTracksMClabels()
 
   for (auto& track : mTracks) {
 
-    unsigned long long maxOccurrencesValue{0xffffffffffffffff};
+    MCCompLabel maxOccurrencesValue{constants::its::UnusedIndex, constants::its::UnusedIndex,
+                                    constants::its::UnusedIndex, false};
     int count{0};
     bool isFakeTrack{false};
 
@@ -577,7 +581,7 @@ void Tracker::computeTracksMClabels()
       if (index == constants::its::UnusedIndex) {
         continue;
       }
-      unsigned long long currentLabel = mTimeFrame->getClusterLabels(iCluster, index);
+      const MCCompLabel& currentLabel = mTimeFrame->getClusterLabels(iCluster, index);
       if (currentLabel == maxOccurrencesValue) {
         ++count;
       } else {
@@ -586,7 +590,7 @@ void Tracker::computeTracksMClabels()
           --count;
         }
 
-        unsigned long long currentLabel = mTimeFrame->getClusterLabels(iCluster, index);
+        const MCCompLabel& currentLabel = mTimeFrame->getClusterLabels(iCluster, index);
         if (currentLabel == maxOccurrencesValue) {
           ++count;
         } else {
@@ -603,7 +607,7 @@ void Tracker::computeTracksMClabels()
       }
 
       if (isFakeTrack) {
-        maxOccurrencesValue |= static_cast<unsigned long long>(0x1) << 63;
+        maxOccurrencesValue.setFakeFlag();
       }
     }
     mTrackLabels.emplace_back(maxOccurrencesValue);
