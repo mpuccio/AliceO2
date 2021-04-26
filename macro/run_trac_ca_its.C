@@ -266,7 +266,7 @@ void run_trac_ca_its(bool cosmics = false,
   gsl::span<const unsigned char> patt(patterns->data(), patterns->size());
   auto pattIt = patt.begin();
   auto clSpan = gsl::span(cclusters->data(), cclusters->size());
-  
+
   o2::its::TimeFrame tf;
   tf.loadROFrameData(rofs, clSpan, pattIt, dict, labels);
   pattIt = patt.begin();
@@ -284,7 +284,7 @@ void run_trac_ca_its(bool cosmics = false,
     std::vector<Vertex> vertITS = vertexer.exportVertices();
     std::vector<std::pair<float3, int>> tfVert;
     for (const auto& vert : vertITS) {
-      tfVert.push_back(std::make_pair<float3,int>({vert.getX(), vert.getY(), vert.getZ()},vert.getNContributors()));
+      tfVert.push_back(std::make_pair<float3, int>({vert.getX(), vert.getY(), vert.getZ()}, vert.getNContributors()));
     }
     tf.addPrimaryVertices(tfVert);
     auto& vtxROF = vertROFvec.emplace_back(rof); // register entry and number of vertices in the

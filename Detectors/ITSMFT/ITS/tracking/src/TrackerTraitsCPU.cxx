@@ -169,7 +169,7 @@ void TrackerTraitsCPU::computeLayerCells()
                                     cellClus1R2 - cellClus0R2};
 
       for (int iNextTracklet{nextLayerFirstTrackletIndex}; iNextTracklet < nextLayerLastTrackletIndex; ++iNextTracklet) {
-        
+
         if (tf->getTracklets()[iLayer + 1][iNextTracklet].firstClusterIndex != nextLayerClusterIndex) {
           std::cout << "The Tracklet LUT " << iLayer << " is broken" << std::endl;
         }
@@ -198,7 +198,7 @@ void TrackerTraitsCPU::computeLayerCells()
               tf->getClusters()[iLayer + 2][nextTracklet.secondClusterIndex]};
 
             const float thirdCellClusterR2{thirdCellCluster.radius *
-                                                             thirdCellCluster.radius};
+                                           thirdCellCluster.radius};
 
             const float3 secondDeltaVector{thirdCellCluster.xCoordinate - cellClus0.xCoordinate,
                                            thirdCellCluster.yCoordinate - cellClus0.yCoordinate,
