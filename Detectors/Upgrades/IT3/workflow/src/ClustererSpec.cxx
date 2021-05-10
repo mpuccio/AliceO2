@@ -158,5 +158,5 @@ DataProcessorSpec getClustererSpec(bool useMC)
       {"nthreads", VariantType::Int, 1, {"Number of clustering threads"}}}};
 }
 
-} // namespace its
+} // namespace its3
 } // namespace o2
