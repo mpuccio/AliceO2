@@ -26,6 +26,8 @@
 #include "GlobalTracking/MatchTOF.h"
 #include "GlobalTrackingWorkflow/PrimaryVertexingSpec.h"
 #include "ReconstructionDataFormats/TrackTPCITS.h"
+#include "ReconstructionDataFormats/VtxTrackRef.h"
+#include "ReconstructionDataFormats/VtxTrackIndex.h"
 #include "SimulationDataFormat/DigitizationContext.h"
 #include "SimulationDataFormat/MCTrack.h"
 #include "SimulationDataFormat/MCTruthContainer.h"
@@ -37,11 +39,14 @@
 
 using namespace o2::framework;
 using namespace o2::math_utils::detail;
+using PVertex = o2::dataformats::PrimaryVertex;
+using V2TRef = o2::dataformats::VtxTrackRef;
+using GIndex = o2::dataformats::VtxTrackIndex;
 
 namespace o2::aodproducer
 {
 
-void AODProducerWorkflowDPL::findMinMaxBc(gsl::span<const o2::ft0::RecPoints>& ft0RecPoints, gsl::span<const o2::vertexing::PVertex>& primVertices, const std::vector<o2::InteractionTimeRecord>& mcRecords)
+void AODProducerWorkflowDPL::findMinMaxBc(gsl::span<const o2::ft0::RecPoints>& ft0RecPoints, gsl::span<const PVertex>& primVertices, const std::vector<o2::InteractionTimeRecord>& mcRecords)
 {
   for (auto& ft0RecPoint : ft0RecPoints) {
     uint64_t bc = ft0RecPoint.getInteractionRecord().orbit * o2::constants::lhc::LHCMaxBunches + ft0RecPoint.getInteractionRecord().bc;
@@ -355,11 +360,11 @@ void AODProducerWorkflowDPL::init(InitContext& ic)
   mFillTracksITS = ic.options().get<int>("fill-tracks-its");
   mFillTracksTPC = ic.options().get<int>("fill-tracks-tpc");
   mFillTracksITSTPC = ic.options().get<int>("fill-tracks-its-tpc");
-  mTFNumber = ic.options().get<int>("aod-timeframe-id");
+  mTFNumber = ic.options().get<int64_t>("aod-timeframe-id");
   mRecoOnly = ic.options().get<int>("reco-mctracks-only");
   mTruncate = ic.options().get<int>("enable-truncation");
 
-  if (mTFNumber == -1) {
+  if (mTFNumber == -1L) {
     LOG(INFO) << "TFNumber will be obtained from CCDB";
   }
 
@@ -412,9 +417,9 @@ void AODProducerWorkflowDPL::run(ProcessingContext& pc)
 
   auto ft0ChData = pc.inputs().get<gsl::span<o2::ft0::ChannelDataFloat>>("ft0ChData");
   auto ft0RecPoints = pc.inputs().get<gsl::span<o2::ft0::RecPoints>>("ft0RecPoints");
-  auto primVer2TRefs = pc.inputs().get<gsl::span<o2::vertexing::V2TRef>>("primVer2TRefs");
-  auto primVerGIs = pc.inputs().get<gsl::span<o2::vertexing::GIndex>>("primVerGIs");
-  auto primVertices = pc.inputs().get<gsl::span<o2::vertexing::PVertex>>("primVertices");
+  auto primVer2TRefs = pc.inputs().get<gsl::span<V2TRef>>("primVer2TRefs");
+  auto primVerGIs = pc.inputs().get<gsl::span<GIndex>>("primVerGIs");
+  auto primVertices = pc.inputs().get<gsl::span<PVertex>>("primVertices");
   auto primVerLabels = pc.inputs().get<gsl::span<o2::MCEventLabel>>("primVerLabels");
   auto tracksITS = pc.inputs().get<gsl::span<o2::its::TrackITS>>("trackITS");
   auto tracksITSTPC = pc.inputs().get<gsl::span<o2::dataformats::TrackTPCITS>>("tracksITSTPC");
@@ -496,7 +501,7 @@ void AODProducerWorkflowDPL::run(ProcessingContext& pc)
 
   uint64_t tfNumber;
   int runNumber = 244918; // TODO: get real run number
-  if (mTFNumber == -1) {
+  if (mTFNumber == -1L) {
     tfNumber = getTFNumber(firstVtxGlBC, runNumber);
   } else {
     tfNumber = mTFNumber;
@@ -733,11 +738,11 @@ void AODProducerWorkflowDPL::run(ProcessingContext& pc)
       auto trackIndex = primVerGIs[start + ti];
       const auto source = trackIndex.getSource();
       // setting collisionID for tracks attached to vertices
-      if (source == o2::vertexing::GIndex::Source::TPC) {
+      if (source == GIndex::Source::TPC) {
         vCollRefsTPC[trackIndex.getIndex()] = collisionID;
-      } else if (source == o2::vertexing::GIndex::Source::ITS) {
+      } else if (source == GIndex::Source::ITS) {
         vCollRefsITS[trackIndex.getIndex()] = collisionID;
-      } else if (source == o2::vertexing::GIndex::Source::ITSTPC) {
+      } else if (source == GIndex::Source::ITSTPC) {
         vCollRefsTPCITS[trackIndex.getIndex()] = collisionID;
       } else {
         LOG(WARNING) << "Unsupported track type!";
@@ -799,7 +804,7 @@ void AODProducerWorkflowDPL::run(ProcessingContext& pc)
   uint16_t labelMask;
 
   if (mFillTracksITS) {
-    fillTracksTable(tracksITS, vCollRefsITS, tracksCursor, tracksCovCursor, tracksExtraCursor, o2::vertexing::GIndex::Source::ITS);
+    fillTracksTable(tracksITS, vCollRefsITS, tracksCursor, tracksCovCursor, tracksExtraCursor, GIndex::Source::ITS);
     for (auto& mcTruthITS : tracksITSMCTruth) {
       labelID = std::numeric_limits<uint32_t>::max();
       // TODO: fill label mask
@@ -820,7 +825,7 @@ void AODProducerWorkflowDPL::run(ProcessingContext& pc)
   }
 
   if (mFillTracksTPC) {
-    fillTracksTable(tracksTPC, vCollRefsTPC, tracksCursor, tracksCovCursor, tracksExtraCursor, o2::vertexing::GIndex::Source::TPC);
+    fillTracksTable(tracksTPC, vCollRefsTPC, tracksCursor, tracksCovCursor, tracksExtraCursor, GIndex::Source::TPC);
     for (auto& mcTruthTPC : tracksTPCMCTruth) {
       labelID = std::numeric_limits<uint32_t>::max();
       // TODO: fill label mask
@@ -841,7 +846,7 @@ void AODProducerWorkflowDPL::run(ProcessingContext& pc)
   }
 
   if (mFillTracksITSTPC) {
-    fillTracksTable(tracksITSTPC, vCollRefsTPCITS, tracksCursor, tracksCovCursor, tracksExtraCursor, o2::vertexing::GIndex::Source::ITSTPC);
+    fillTracksTable(tracksITSTPC, vCollRefsTPCITS, tracksCursor, tracksCovCursor, tracksExtraCursor, GIndex::Source::ITSTPC);
     for (int i = 0; i < tracksITSTPC.size(); i++) {
       const auto& trc = tracksITSTPC[i];
       auto mcTruthITS = tracksITSMCTruth[trc.getRefITS()];
@@ -949,7 +954,7 @@ DataProcessorSpec getAODProducerWorkflowSpec(int mIgnoreWriter)
       ConfigParamSpec{"fill-tracks-its", VariantType::Int, 1, {"Fill ITS tracks into tracks table"}},
       ConfigParamSpec{"fill-tracks-tpc", VariantType::Int, 0, {"Fill TPC tracks into tracks table"}},
       ConfigParamSpec{"fill-tracks-its-tpc", VariantType::Int, 1, {"Fill ITS-TPC tracks into tracks table"}},
-      ConfigParamSpec{"aod-timeframe-id", VariantType::Int, -1, {"Set timeframe number"}},
+      ConfigParamSpec{"aod-timeframe-id", VariantType::Int64, -1L, {"Set timeframe number"}},
       ConfigParamSpec{"enable-truncation", VariantType::Int, 1, {"Truncation parameter: 1 -- on, != 1 -- off"}},
       ConfigParamSpec{"reco-mctracks-only", VariantType::Int, 0, {"Store only reconstructed MC tracks and their mothers/daughters. 0 -- off, != 0 -- on"}}}};
 }
