@@ -125,7 +125,8 @@ void TrackerTraitsCPU::computeLayerTracklets()
         }
       }
       if (iLayer > 0) {
-        tf->getTrackletsLookupTable()[iLayer - 1].resize(currentLayerClustersNum + 1, tf->getTracklets()[iLayer].size());
+        auto currentSize{tf->getTrackletsLookupTable()[iLayer - 1].size()};
+        tf->getTrackletsLookupTable()[iLayer - 1].resize(currentSize + currentLayerClustersNum + 1, tf->getTracklets()[iLayer].size());
       }
     }
   }
@@ -172,7 +173,6 @@ void TrackerTraitsCPU::computeLayerCells()
                                     cellClus1R2 - cellClus0R2};
 
       for (int iNextTracklet{nextLayerFirstTrackletIndex}; iNextTracklet < nextLayerLastTrackletIndex; ++iNextTracklet) {
-
         if (tf->getTracklets()[iLayer + 1][iNextTracklet].firstClusterIndex != nextLayerClusterIndex) {
           break;
         }
