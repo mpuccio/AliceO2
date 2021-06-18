@@ -30,6 +30,7 @@
 #include "Framework/CallbackService.h"
 #include "Framework/TMessageSerializer.h"
 #include "Framework/InputRecord.h"
+#include "Framework/InputSpan.h"
 #include "Framework/Signpost.h"
 #include "Framework/SourceInfoHeader.h"
 #include "Framework/Logger.h"
@@ -82,9 +83,9 @@ void on_idle_timer(uv_timer_t* handle)
   state->loopReason |= DeviceState::TIMER_EXPIRED;
 }
 
-DataProcessingDevice::DataProcessingDevice(RunningWorkflowInfo const& runningWorkflow, RunningDeviceRef ref, ServiceRegistry& registry, DeviceState& state)
-  : mSpec{runningWorkflow.devices[ref.index]},
-    mState{state},
+DataProcessingDevice::DataProcessingDevice(RunningDeviceRef ref, ServiceRegistry& registry)
+  : mSpec{registry.get<RunningWorkflowInfo const>().devices[ref.index]},
+    mState{registry.get<DeviceState>()},
     mInit{mSpec.algorithm.onInit},
     mStatefulProcess{nullptr},
     mStatelessProcess{mSpec.algorithm.onProcess},
@@ -92,7 +93,7 @@ DataProcessingDevice::DataProcessingDevice(RunningWorkflowInfo const& runningWor
     mConfigRegistry{nullptr},
     mAllocator{&mTimingInfo, &registry, mSpec.outputs},
     mServiceRegistry{registry},
-    mQuotaEvaluator{state.loop}
+    mQuotaEvaluator{registry.get<ComputingQuotaEvaluator>()}
 {
   /// FIXME: move erro handling to a service?
   if (mError != nullptr) {
@@ -145,7 +146,11 @@ void run_completion(uv_work_t* handle, int status)
 {
   TaskStreamInfo* task = (TaskStreamInfo*)handle->data;
   DataProcessorContext& context = *task->context;
-  context.deviceContext->quotaEvaluator->dispose(task->offer);
+  for (auto& consumer : context.deviceContext->state->offerConsumers) {
+    context.deviceContext->quotaEvaluator->consume(task->id.index, consumer);
+  }
+  context.deviceContext->state->offerConsumers.clear();
+  context.deviceContext->quotaEvaluator->dispose(task->id.index);
   task->running = false;
   ZoneScopedN("run_completion");
 }
@@ -306,14 +311,40 @@ void on_signal_callback(uv_signal_t* handle, int signum)
 {
   ZoneScopedN("Signal callaback");
   LOG(debug) << "Signal " << signum << " received.";
-  DeviceState* state = (DeviceState*)handle->data;
-  state->loopReason |= DeviceState::SIGNAL_ARRIVED;
+  DeviceContext* context = (DeviceContext*)handle->data;
+  context->state->loopReason |= DeviceState::SIGNAL_ARRIVED;
+  size_t ri = 0;
+  while (ri != context->quotaEvaluator->mOffers.size()) {
+    auto& offer = context->quotaEvaluator->mOffers[ri];
+    // We were already offered some sharedMemory, so we
+    // do not consider the offer.
+    // FIXME: in principle this should account for memory
+    //        available and being offered, however we
+    //        want to get out of the woods for now.
+    if (offer.valid && offer.sharedMemory != 0) {
+      return;
+    }
+    ri++;
+  }
+  // Find the first empty offer and have 1GB of shared memory there
+  for (size_t i = 0; i < context->quotaEvaluator->mOffers.size(); ++i) {
+    auto& offer = context->quotaEvaluator->mOffers[i];
+    if (offer.valid == false) {
+      offer.cpu = 0;
+      offer.memory = 0;
+      offer.sharedMemory = 1000000000;
+      offer.valid = true;
+      offer.user = -1;
+      break;
+    }
+  }
+  context->stats->totalSigusr1 += 1;
 }
 
 void DataProcessingDevice::InitTask()
 {
   for (auto& channel : fChannels) {
-    channel.second.at(0).Transport()->SubscribeToRegionEvents([& pendingRegionInfos = mPendingRegionInfos, &regionInfoMutex = mRegionInfoMutex](FairMQRegionInfo info) {
+    channel.second.at(0).Transport()->SubscribeToRegionEvents([&pendingRegionInfos = mPendingRegionInfos, &regionInfoMutex = mRegionInfoMutex](FairMQRegionInfo info) {
       std::lock_guard<std::mutex> lock(regionInfoMutex);
       LOG(debug) << ">>> Region info event" << info.event;
       LOG(debug) << "id: " << info.id;
@@ -330,7 +361,7 @@ void DataProcessingDevice::InitTask()
   // is no data pending to be processed.
   uv_signal_t* sigusr1Handle = (uv_signal_t*)malloc(sizeof(uv_signal_t));
   uv_signal_init(mState.loop, sigusr1Handle);
-  sigusr1Handle->data = &mState;
+  sigusr1Handle->data = &mDeviceContext;
   uv_signal_start(sigusr1Handle, on_signal_callback, SIGUSR1);
 
   // We add a timer only in case a channel poller is not there.
@@ -433,6 +464,7 @@ void DataProcessingDevice::fillContext(DataProcessorContext& context, DeviceCont
   deviceContext.spec = &mSpec;
   deviceContext.state = &mState;
   deviceContext.quotaEvaluator = &mQuotaEvaluator;
+  deviceContext.stats = &mStats;
 
   context.relayer = mRelayer;
   context.registry = &mServiceRegistry;
@@ -483,6 +515,9 @@ bool DataProcessingDevice::ConditionalRun()
     TracyPlot("loopReason", (int64_t)(uint64_t)mState.loopReason);
 
     mState.loopReason = DeviceState::NO_REASON;
+    if (!mState.pendingOffers.empty()) {
+      mQuotaEvaluator.updateOffers(mState.pendingOffers);
+    }
 
     // A new state was requested, we exit.
     if (NewStatePending()) {
@@ -525,10 +560,10 @@ bool DataProcessingDevice::ConditionalRun()
     // Deciding wether to run or not can be done by passing a request to
     // the evaluator. In this case, the request is always satisfied and
     // we run on whatever resource is available.
-    ComputingQuotaOfferRef offer = mQuotaEvaluator.selectOffer(mSpec.resourcePolicy.request);
+    bool enough = mQuotaEvaluator.selectOffer(streamRef.index, mSpec.resourcePolicy.request);
 
-    if (offer.index != -1) {
-      stream.offer = offer;
+    if (enough) {
+      stream.id = streamRef;
       stream.running = true;
       stream.context = &mDataProcessorContexes.at(0);
       run_callback(&handle);
@@ -753,7 +788,15 @@ void DataProcessingDevice::handleData(DataProcessorContext& context, FairMQParts
         LOGP(error, "Header stack does not contain DataProcessingHeader");
         continue;
       }
-      results[hi] = InputType::Data;
+      // We can set the type for the next splitPayloadParts
+      // because we are guaranteed they are all the same.
+      // If splitPayloadParts = 0, we assume that means there is only one (header, payload)
+      // pair.
+      size_t finalSplitPayloadIndex = hi + (dh->splitPayloadParts > 0 ? dh->splitPayloadParts : 1);
+      for (; hi < finalSplitPayloadIndex; ++hi) {
+        results[hi] = InputType::Data;
+      }
+      hi = finalSplitPayloadIndex - 1;
     }
     return results;
   };
@@ -771,10 +814,19 @@ void DataProcessingDevice::handleData(DataProcessorContext& context, FairMQParts
           auto headerIndex = 2 * pi;
           auto payloadIndex = 2 * pi + 1;
           assert(payloadIndex < parts.Size());
+          auto dh = o2::header::get<DataHeader*>(parts.At(headerIndex)->GetData());
+          // If splitPayloadParts = 0, we assume that means there is only one (header, payload)
+          // pair.
           auto relayed = relayer.relay(std::move(parts.At(headerIndex)),
-                                       std::move(parts.At(payloadIndex)));
-          if (relayed == DataRelayer::WillNotRelay) {
-            reportError("Unable to relay part.");
+                                       &parts.At(payloadIndex), dh->splitPayloadParts > 0 ? dh->splitPayloadParts * 2 - 1 : 0);
+          pi += dh->splitPayloadParts > 0 ? dh->splitPayloadParts - 1 : 0;
+          switch (relayed) {
+            case DataRelayer::WillRelay:
+              break;
+            case DataRelayer::Invalid:
+            case DataRelayer::Dropped:
+            case DataRelayer::Backpressured:
+              reportError("Unable to relay part");
           }
         } break;
         case InputType::SourceInfo: {
@@ -873,7 +925,7 @@ bool DataProcessingDevice::tryDispatchComputation(DataProcessorContext& context,
   // indicate a complete set of inputs. Notice how I fill the completed
   // vector and return it, so that I can have a nice for loop iteration later
   // on.
-  auto getReadyActions = [& relayer = context.relayer,
+  auto getReadyActions = [&relayer = context.relayer,
                           &completed,
                           &stats = context.registry->get<DataProcessingStats>()]() -> std::vector<DataRelayer::RecordAction> {
     stats.pendingInputs = (int)relayer->getParallelTimeslices() - completed.size();
@@ -881,12 +933,9 @@ bool DataProcessingDevice::tryDispatchComputation(DataProcessorContext& context,
     return completed;
   };
 
-  // This is needed to convert from a pair of pointers to an actual DataRef
-  // and to make sure the ownership is moved from the cache in the relayer to
-  // the execution.
-  auto fillInputs = [&relayer = context.relayer,
-                     &spec = context.deviceContext->spec,
-                     &currentSetOfInputs](TimesliceSlot slot) -> InputRecord {
+  //
+  auto getInputSpan = [&relayer = context.relayer,
+                       &currentSetOfInputs](TimesliceSlot slot) {
     currentSetOfInputs = std::move(relayer->getInputsForTimeslice(slot));
     auto getter = [&currentSetOfInputs](size_t i, size_t partindex) -> DataRef {
       if (currentSetOfInputs[i].size() > partindex) {
@@ -899,8 +948,7 @@ bool DataProcessingDevice::tryDispatchComputation(DataProcessorContext& context,
     auto nofPartsGetter = [&currentSetOfInputs](size_t i) -> size_t {
       return currentSetOfInputs[i].size();
     };
-    InputSpan span{getter, nofPartsGetter, currentSetOfInputs.size()};
-    return InputRecord{spec->inputs, std::move(span)};
+    return InputSpan{getter, nofPartsGetter, currentSetOfInputs.size()};
   };
 
   auto markInputsAsDone = [&relayer = context.relayer](TimesliceSlot slot) -> void {
@@ -911,7 +959,7 @@ bool DataProcessingDevice::tryDispatchComputation(DataProcessorContext& context,
   // propagates it to the various contextes (i.e. the actual entities which
   // create messages) because the messages need to have the timeslice id into
   // it.
-  auto prepareAllocatorForCurrentTimeSlice = [& timingInfo = context.timingInfo,
+  auto prepareAllocatorForCurrentTimeSlice = [&timingInfo = context.timingInfo,
                                               &relayer = context.relayer](TimesliceSlot i) {
     ZoneScopedN("DataProcessingDevice::prepareForCurrentTimeslice");
     auto timeslice = relayer->getTimesliceForSlot(i);
@@ -1022,7 +1070,7 @@ bool DataProcessingDevice::tryDispatchComputation(DataProcessorContext& context,
             LOG(ERROR) << "Forwarded data does not have a DataHeader";
             continue;
           }
-     
+
           forwardedParts[forward.channel].AddPart(std::move(header));
           forwardedParts[forward.channel].AddPart(std::move(payload));
         }
@@ -1049,7 +1097,7 @@ bool DataProcessingDevice::tryDispatchComputation(DataProcessorContext& context,
     return false;
   }
 
-  auto postUpdateStats = [& stats = context.registry->get<DataProcessingStats>()](DataRelayer::RecordAction const& action, InputRecord const& record, uint64_t tStart) {
+  auto postUpdateStats = [&stats = context.registry->get<DataProcessingStats>()](DataRelayer::RecordAction const& action, InputRecord const& record, uint64_t tStart) {
     std::atomic_thread_fence(std::memory_order_release);
     for (size_t ai = 0; ai != record.size(); ai++) {
       auto cacheId = action.slot.index * record.size() + ai;
@@ -1060,11 +1108,12 @@ bool DataProcessingDevice::tryDispatchComputation(DataProcessorContext& context,
     }
     uint64_t tEnd = uv_hrtime();
     stats.lastElapsedTimeMs = tEnd - tStart;
-    stats.lastTotalProcessedSize = calculateTotalInputRecordSize(record);
+    stats.lastProcessedSize = calculateTotalInputRecordSize(record);
+    stats.totalProcessedSize += stats.lastProcessedSize;
     stats.lastLatency = calculateInputRecordLatency(record, tStart);
   };
 
-  auto preUpdateStats = [& stats = context.registry->get<DataProcessingStats>()](DataRelayer::RecordAction const& action, InputRecord const& record, uint64_t tStart) {
+  auto preUpdateStats = [&stats = context.registry->get<DataProcessingStats>()](DataRelayer::RecordAction const& action, InputRecord const& record, uint64_t tStart) {
     std::atomic_thread_fence(std::memory_order_release);
     for (size_t ai = 0; ai != record.size(); ai++) {
       auto cacheId = action.slot.index * record.size() + ai;
@@ -1081,7 +1130,8 @@ bool DataProcessingDevice::tryDispatchComputation(DataProcessorContext& context,
     }
 
     prepareAllocatorForCurrentTimeSlice(TimesliceSlot{action.slot});
-    InputRecord record = fillInputs(action.slot);
+    InputSpan span = getInputSpan(action.slot);
+    InputRecord record{context.deviceContext->spec->inputs, span};
     ProcessingContext processContext{record, *context.registry, *context.allocator};
     {
       ZoneScopedN("service pre processing");
@@ -1136,7 +1186,7 @@ bool DataProcessingDevice::tryDispatchComputation(DataProcessorContext& context,
         forwardInputs(action.slot, record);
       }
 #ifdef TRACY_ENABLE
-        cleanupRecord(record);
+      cleanupRecord(record);
 #endif
     } else if (action.op == CompletionPolicy::CompletionOp::Process) {
       cleanTimers(action.slot, record);

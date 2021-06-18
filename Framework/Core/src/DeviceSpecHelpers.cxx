@@ -340,6 +340,7 @@ void DeviceSpecHelpers::processOutEdgeActions(std::vector<DeviceSpec>& devices,
     device.inputTimesliceId = edge.producerTimeIndex;
     device.maxInputTimeslices = processor.maxInputTimeslices;
     device.resource = {acceptedOffer};
+    device.labels = processor.labels;
     devices.push_back(device);
     return devices.size() - 1;
   };
@@ -551,6 +552,7 @@ void DeviceSpecHelpers::processInEdgeActions(std::vector<DeviceSpec>& devices,
     device.inputTimesliceId = edge.timeIndex;
     device.maxInputTimeslices = processor.maxInputTimeslices;
     device.resource = {acceptedOffer};
+    device.labels = processor.labels;
 
     // FIXME: maybe I should use an std::map in the end
     //        but this is really not performance critical
@@ -1131,6 +1133,19 @@ void DeviceSpecHelpers::prepareArguments(bool defaultQuiet, bool defaultStopped,
       haveSessionArg = haveSessionArg || varmap.count("session") != 0;
       useDefaultWS = useDefaultWS && ((varmap.count("driver-client-backend") == 0) || varmap["driver-client-backend"].as<std::string>() == "ws://");
 
+      auto processRawChannelConfig = [&tmpArgs](const std::string& conf) {
+        std::stringstream ss(conf);
+        std::string token;
+        while (std::getline(ss, token, ';')) { // split to tokens, trim spaces and add each non-empty one with channel-config options
+          token.erase(token.begin(), std::find_if(token.begin(), token.end(), [](int ch) { return !std::isspace(ch); }));
+          token.erase(std::find_if(token.rbegin(), token.rend(), [](int ch) { return !std::isspace(ch); }).base(), token.end());
+          if (!token.empty()) {
+            tmpArgs.emplace_back("--channel-config");
+            tmpArgs.emplace_back(token);
+          }
+        }
+      };
+
       for (const auto varit : varmap) {
         // find the option belonging to key, add if the option has been parsed
         // and is not defaulted
@@ -1146,10 +1161,14 @@ void DeviceSpecHelpers::prepareArguments(bool defaultQuiet, bool defaultStopped,
             assert(semantic->min_tokens() <= 1);
             //assert(semantic->max_tokens() && semantic->min_tokens());
             if (semantic->min_tokens() > 0) {
-              tmpArgs.emplace_back("--");
-              tmpArgs.back() += varit.first;
-              // add the token
-              tmpArgs.emplace_back(varit.second.as<std::string>());
+              if (varit.first == "channel-config") {
+                processRawChannelConfig(varit.second.as<std::string>());
+              } else {
+                tmpArgs.emplace_back("--");
+                tmpArgs.back() += varit.first;
+                // add the token
+                tmpArgs.emplace_back(varit.second.as<std::string>());
+              }
               optarg = tmpArgs.back().c_str();
             } else if (semantic->min_tokens() == 0 && varit.second.as<bool>()) {
               tmpArgs.emplace_back("--");

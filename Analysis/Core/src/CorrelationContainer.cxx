@@ -26,13 +26,13 @@
 #include "TCanvas.h"
 #include "TF1.h"
 #include "THn.h"
-#include "Framework/HistogramRegistry.h"
+#include "Framework/HistogramSpec.h"
 
 using namespace o2::framework;
 
-ClassImp(CorrelationContainer)
+ClassImp(CorrelationContainer);
 
-  const Int_t CorrelationContainer::fgkCFSteps = 11;
+const Int_t CorrelationContainer::fgkCFSteps = 11;
 
 CorrelationContainer::CorrelationContainer() : TNamed(),
                                                mPairHist(nullptr),
@@ -94,11 +94,10 @@ CorrelationContainer::CorrelationContainer(const char* name, const char* objTitl
 
   LOGF(info, "Creating CorrelationContainer");
 
-  // TODO Remove Clone() pending change in HistogramRegistry
-  mPairHist = (StepTHnF*)HistFactory::createHist<StepTHnF>({"mPairHist", "d^{2}N_{ch}/d#varphid#eta", {HistType::kStepTHnF, {axisList[0], axisList[1], axisList[2], axisList[3], axisList[4], axisList[5]}, fgkCFSteps}})->Clone();
-  mTriggerHist = (StepTHnF*)HistFactory::createHist<StepTHnF>({"mTriggerHist", "d^{2}N_{ch}/d#varphid#eta", {HistType::kStepTHnF, {axisList[2], axisList[3], axisList[5]}, fgkCFSteps}})->Clone();
-  mTrackHistEfficiency = (StepTHnD*)HistFactory::createHist<StepTHnD>({"mTrackHistEfficiency", "Tracking efficiency", {HistType::kStepTHnD, {axisList[6], axisList[7], {4, -0.5, 3.5, "species"}, axisList[3], axisList[8]}, fgkCFSteps}})->Clone();
-  mEventCount = (TH2F*)(HistFactory::createHist<TH2F>({"mEventCount", ";step;centrality;count", {HistType::kTH2F, {{fgkCFSteps + 2, -2.5, -0.5 + fgkCFSteps, "step"}, axisList[3]}}})->Clone());
+  mPairHist = HistFactory::createHist<StepTHnF>({"mPairHist", "d^{2}N_{ch}/d#varphid#eta", {HistType::kStepTHnF, {axisList[0], axisList[1], axisList[2], axisList[3], axisList[4], axisList[5]}, fgkCFSteps}}).release();
+  mTriggerHist = HistFactory::createHist<StepTHnF>({"mTriggerHist", "d^{2}N_{ch}/d#varphid#eta", {HistType::kStepTHnF, {axisList[2], axisList[3], axisList[5]}, fgkCFSteps}}).release();
+  mTrackHistEfficiency = HistFactory::createHist<StepTHnD>({"mTrackHistEfficiency", "Tracking efficiency", {HistType::kStepTHnD, {axisList[6], axisList[7], {4, -0.5, 3.5, "species"}, axisList[3], axisList[8]}, fgkCFSteps}}).release();
+  mEventCount = HistFactory::createHist<TH2F>({"mEventCount", ";step;centrality;count", {HistType::kTH2F, {{fgkCFSteps + 2, -2.5, -0.5 + fgkCFSteps, "step"}, axisList[3]}}}).release();
 }
 
 //_____________________________________________________________________________
@@ -711,7 +710,7 @@ TH2* CorrelationContainer::getSumOfRatios(CorrelationContainer* mixed, Correlati
       //
       //     for (Int_t x=1; x<=mixedTwoD->GetNbinsX(); x++)
       //       for (Int_t y=1; y<=mixedTwoD->GetNbinsY(); y++)
-      // 	mixedTwoD->SetBinContent(x, y, histMixedproj->GetBinContent(y));
+      //       mixedTwoD->SetBinContent(x, y, histMixedproj->GetBinContent(y));
 
       //       delete histMixedproj;
 
@@ -726,8 +725,8 @@ TH2* CorrelationContainer::getSumOfRatios(CorrelationContainer* mixed, Correlati
         }
         // tracksSame->Scale(tracksMixed->Integral() / tracksSame->Integral());
 
-        // 	new TCanvas; tracksSame->DrawClone("SURF1");
-        // 	new TCanvas; tracksMixed->DrawClone("SURF1");
+        // new TCanvas; tracksSame->DrawClone("SURF1");
+        // new TCanvas; tracksMixed->DrawClone("SURF1");
 
         // some code to judge the relative contribution of the different correlation functions to the overall uncertainty
         Double_t sums[] = {0, 0, 0};
@@ -760,11 +759,11 @@ TH2* CorrelationContainer::getSumOfRatios(CorrelationContainer* mixed, Correlati
         LOGF(info, "The correlation function %d %d has uncertainties %f %f %f (Ratio S/M %f)", multBin, vertexBin, errors[0], errors[1], errors[2], (errors[1] > 0) ? errors[0] / errors[1] : -1);
         // code to draw contributions
         /*
-	TH1* proj = tracksSame->ProjectionX("projx", tracksSame->GetYaxis()->FindBin(-1.59), tracksSame->GetYaxis()->FindBin(1.59));
-	proj->SetTitle(Form("Bin %d", vertexBin));
-	proj->SetLineColor(vertexBin);
-	proj->DrawCopy((vertexBin > 1) ? "SAME" : "");
-	*/
+        TH1* proj = tracksSame->ProjectionX("projx", tracksSame->GetYaxis()->FindBin(-1.59), tracksSame->GetYaxis()->FindBin(1.59));
+        proj->SetTitle(Form("Bin %d", vertexBin));
+        proj->SetLineColor(vertexBin);
+        proj->DrawCopy((vertexBin > 1) ? "SAME" : "");
+        */
 
         if (!totalTracks) {
           totalTracks = (TH2*)tracksSame->Clone("totalTracks");
@@ -774,7 +773,7 @@ TH2* CorrelationContainer::getSumOfRatios(CorrelationContainer* mixed, Correlati
 
         totalEvents += eventSameAll->GetBinContent(vertexBin, multBin);
 
-        // 	new TCanvas; tracksMixed->DrawCopy("SURF1");
+        //   new TCanvas; tracksMixed->DrawCopy("SURF1");
       }
 
       delete tracksSame;
@@ -1677,11 +1676,11 @@ void CorrelationContainer::extendTrackingEfficiency(Bool_t verbose)
 void CorrelationContainer::Scale(Double_t factor)
 {
   // scales all contained histograms by the given factor
-  
+
   for (Int_t i=0; i<4; i++)
     if (mTrackHist[i])
       mTrackHist[i]->Scale(factor);
-  
+
   mEventHist->Scale(factor);
   mTrackHistEfficiency->Scale(factor);
 }*/

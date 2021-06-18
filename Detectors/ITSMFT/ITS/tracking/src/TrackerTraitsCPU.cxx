@@ -19,7 +19,7 @@
 #include "ITStracking/Constants.h"
 #include "ITStracking/IndexTableUtils.h"
 #include "ITStracking/Tracklet.h"
-
+#include <fmt/format.h>
 #include "ReconstructionDataFormats/Track.h"
 #include <cassert>
 #include <iostream>

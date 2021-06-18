@@ -11,8 +11,18 @@
 o2_add_library(TRDWorkflowIO
                SOURCES src/TRDDigitReaderSpec.cxx
                        src/TRDTrackletReaderSpec.cxx
+                       src/TRDCalibReaderSpec.cxx
                        src/TRDDigitWriterSpec.cxx
                        src/TRDTrackletWriterSpec.cxx
                        src/TRDTrapRawWriterSpec.cxx
                        src/TRDCalibratedTrackletWriterSpec.cxx
-               PUBLIC_LINK_LIBRARIES O2::DataFormatsTRD O2::SimulationDataFormat O2::DPLUtils)
+                       src/TRDTrackWriterSpec.cxx
+                       src/TRDTrackReaderSpec.cxx
+                       src/TRDCalibWriterSpec.cxx
+               PUBLIC_LINK_LIBRARIES O2::DataFormatsTRD O2::SimulationDataFormat O2::DPLUtils O2::GPUDataTypeHeaders O2::DataFormatsTPC)
+
+
+o2_add_executable(track-reader
+                 COMPONENT_NAME trd
+                 SOURCES src/trd-track-reader-workflow.cxx
+                 PUBLIC_LINK_LIBRARIES O2::TRDWorkflowIO)

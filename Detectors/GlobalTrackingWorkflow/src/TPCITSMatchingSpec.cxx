@@ -95,7 +95,7 @@ void TPCITSMatchingDPL::init(InitContext& ic)
   mMatching.setVDriftCalib(mCalibMode);
   //
   std::string dictPath = ic.options().get<std::string>("its-dictionary-path");
-  std::string dictFile = o2::base::NameConf::getAlpideClusterDictionaryFileName(o2::detectors::DetID::ITS, dictPath, ".bin");
+  std::string dictFile = o2::base::NameConf::getAlpideClusterDictionaryFileName(o2::detectors::DetID::ITS, dictPath, "bin");
   if (o2::utils::Str::pathExists(dictFile)) {
     mITSDict.readBinaryFile(dictFile);
     LOG(INFO) << "Matching is running with a provided ITS dictionary: " << dictFile;
@@ -119,7 +119,7 @@ void TPCITSMatchingDPL::init(InitContext& ic)
   mMatching.setDebugFlag(dbgFlags);
 
   // set bunch filling. Eventually, this should come from CCDB
-  const auto* digctx = o2::steer::DigitizationContext::loadFromFile("collisioncontext.root");
+  const auto* digctx = o2::steer::DigitizationContext::loadFromFile();
   const auto& bcfill = digctx->getBunchFilling();
   mMatching.setBunchFilling(bcfill);
 
@@ -163,7 +163,7 @@ DataProcessorSpec getTPCITSMatchingSpec(GTrackID::mask_t src, bool useFT0, bool 
   auto dataRequest = std::make_shared<DataRequest>();
 
   dataRequest->requestTracks(src, useMC);
-  dataRequest->requestClusters(src, false); // no MC labels for clusters needed for refit only
+  dataRequest->requestClusters(GTrackID::getSourcesMask("ITS,TPC"), false); // Only ITS and TPC and no MC labels for clusters needed: refit only
 
   if (useFT0) {
     dataRequest->requestFT0RecPoints(false);

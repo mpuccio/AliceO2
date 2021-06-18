@@ -19,7 +19,7 @@ intRatePbPb=50
 # default collision system
 collSyst="pp"
 
-generPP="pythia8"
+generPP="pythia8pp"
 generPbPb="pythia8hi"
 
 # default sim engine
@@ -28,13 +28,16 @@ engine="TGeant3"
 # options to pass to every workflow
 gloOpt=" -b --run --shm-segment-size 10000000000"
 
+# ITS reco options depends on pp or pbpb
+ITSRecOpt=""
+
 # option to set the number of sim workers
 simWorker=""
 
 # option to set the number of tpc-lanes
 tpcLanes=""
 
-Usage() 
+Usage()
 {
   echo "Usage: ${0##*/} [-s system /pp[Def] or pbpb/] [-r IR(kHz) /Def = $intRatePP(pp)/$intRatePbPb(pbpb)] [-n Number of events /Def = $nevPP(pp) or $nevPbPb(pbpb)/] [-e TGeant3|TGeant4] [-f fromstage sim|digi|reco /Def = sim]"
   exit
@@ -42,23 +45,24 @@ Usage()
 
 fromstage="sim"
 while [ $# -gt 0 ] ; do
-    case $1 in
-	-n) nev=$2;  shift 2 ;;
-	-s) collSyst=$2; shift 2 ;;
-	-r) intRate=$2; shift 2 ;;
-	-e) engine=$2; shift 2 ;;
-	-f) fromstage=$2; shift 2 ;;
-        -j) simWorker="-j $2"; shift 2 ;;
-        -l) tpcLanes="--tpc-lanes $2"; shift 2 ;;
-	-h) Usage ;;
-	*) echo "Wrong input"; Usage;
-    esac
+  case $1 in
+    -n) nev=$2;  shift 2 ;;
+    -s) collSyst=$2; shift 2 ;;
+    -r) intRate=$2; shift 2 ;;
+    -e) engine=$2; shift 2 ;;
+    -f) fromstage=$2; shift 2 ;;
+    -j) simWorker="-j $2"; shift 2 ;;
+    -l) tpcLanes="--tpc-lanes $2"; shift 2 ;;
+    -h) Usage ;;
+    *) echo "Wrong input"; Usage;
+  esac
 done
 
 # convert to lower case (the bash construct ${collSyst,,} is less portable)
 collSyst=`echo "$collSyst" | awk '{print tolower($0)}'`
 if [ "$collSyst" == "pp" ]; then
     gener="$generPP"
+    ITSRecOpt=" --configKeyValues \"ITSVertexerParam.phiCut=0.5;ITSVertexerParam.clusterContributorsCut=3;ITSVertexerParam.tanLambdaCut=0.2\""
     [[ "nev" -lt "1"  ]] && nev="$nevPP"
     [[ "intRate" -lt "1"  ]] && intRate="$intRatePP"
 elif [ "$collSyst" == "pbpb" ]; then
@@ -72,15 +76,18 @@ fi
 
 dosim="0"
 dodigi="0"
+dotrdtrap="0"
 doreco="0"
 # convert to lowercase
 fromstage=`echo "$fromstage" | awk '{print tolower($0)}'`
 if [ "$fromstage" == "sim" ]; then
   dosim="1"
   dodigi="1"
+  dotrdtrap="1"
   doreco="1"
 elif [ "$fromstage" == "digi" ]; then
   dodigi="1"
+  dotrdtrap="1"
   doreco="1"
 elif [ "$fromstage" == "reco" ]; then
   doreco="1"
@@ -93,7 +100,7 @@ fi
 if [ "$dosim" == "1" ]; then
   #---------------------------------------------------
   echo "Running simulation for $nev $collSyst events with $gener generator and engine $engine"
-  taskwrapper sim.log o2-sim -n"$nev" --configKeyValue "Diamond.width[2]=6." -g "$gener" -e "$engine" $simWorker
+  taskwrapper sim.log o2-sim -n"$nev" --configKeyValues "Diamond.width[2]=6." -g "$gener" -e "$engine" $simWorker
 
   ##------ extract number of hits
   taskwrapper hitstats.log root -q -b -l ${O2_ROOT}/share/macro/analyzeHits.C
@@ -108,6 +115,13 @@ if [ "$dodigi" == "1" ]; then
   #root -b -q O2/Detectors/ITSMFT/ITS/macros/test/CheckDigits.C+
 fi
 
+if [ "$dotrdtrap" == "1" ]; then
+  echo "Running TRD trap simulator"
+  taskwrapper trdtrap.log o2-trd-trap-sim $gloOpt
+  echo "Return status of trd trap sim: $?"
+fi
+
+
 if [ "$doreco" == "1" ]; then
   echo "Running TPC reco flow"
   #needs TPC digitized data
@@ -115,7 +129,7 @@ if [ "$doreco" == "1" ]; then
   echo "Return status of tpcreco: $?"
 
   echo "Running ITS reco flow"
-  taskwrapper itsreco.log  o2-its-reco-workflow --trackerCA --tracking-mode async $gloOpt
+  taskwrapper itsreco.log  o2-its-reco-workflow --trackerCA --tracking-mode async $gloOpt $ITSRecOpt
   echo "Return status of itsreco: $?"
 
   # existing checks
@@ -135,6 +149,11 @@ if [ "$doreco" == "1" ]; then
   echo "Running ITS-TPC macthing flow"
   #needs results of o2-tpc-reco-workflow, o2-its-reco-workflow and o2-fit-reco-workflow
   taskwrapper itstpcMatch.log o2-tpcits-match-workflow $gloOpt
+  echo "Return status of itstpcMatch: $?"
+
+  echo "Running TRD matching to ITS-TPC and TPC"
+  #needs results of o2-tpc-reco-workflow and o2-tpcits-match-workflow
+  taskwrapper trdMatch.log o2-trd-global-tracking $gloOpt
   echo "Return status of itstpcMatch: $?"
 
   echo "Running ITSTPC-TOF macthing flow"

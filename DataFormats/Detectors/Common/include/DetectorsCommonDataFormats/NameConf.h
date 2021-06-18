@@ -42,6 +42,9 @@ class NameConf : public o2::conf::ConfigurableParamHelper<NameConf>
     return o2::utils::Str::concat_string(prefix, "_", DIGITS_STRING, d.getName(), ".root");
   }
 
+  // Filename of collision context
+  static std::string getCollisionContextFileName(const std::string_view prefix = "");
+
   // Filename of general run parameters (GRP)
   static std::string getGRPFileName(const std::string_view prefix = STANDARDSIMPREFIX);
 
@@ -102,6 +105,12 @@ class NameConf : public o2::conf::ConfigurableParamHelper<NameConf>
   // CTF Dictionary
   static std::string getCTFDictFileName();
 
+  // The alignment object path in CCDB
+  static std::string getAlignmentPath(o2::detectors::DetID d)
+  {
+    return o2::utils::Str::concat_string(d.getName(), "/", ALIGNPATH);
+  }
+
  private:
   // helper method to build filenames
   static std::string buildFileName(const std::string_view prefix, const std::string_view delimiter, const std::string_view defPrefix, const std::string_view defName,
@@ -121,11 +130,14 @@ class NameConf : public o2::conf::ConfigurableParamHelper<NameConf>
   static constexpr std::string_view DAT_EXT_STRING = "dat";
   static constexpr std::string_view ALPIDECLUSDICTFILENAME = "dictionary";
   static constexpr std::string_view MATBUDLUT = "matbud";
+  static constexpr std::string_view COLLISIONCONTEXT = "collisioncontext";
+  static constexpr std::string_view ALIGNPATH = "Align";
 
   // these are configurable paths for some commonly used files
   std::string mDirGRP = "none";    // directory for GRP file ("none" == "")
   std::string mDirGeom = "none";   // directory for geometry file
   std::string mDirMatLUT = "none"; // directory for material LUT
+  std::string mDirCollContext = "none"; // directory for collision context
 
   O2ParamDef(NameConf, "NameConf");
 };

@@ -44,6 +44,7 @@ namespace o2::trd
 class Tracklet64;
 class CalibratedTracklet;
 class TriggerRecord;
+class TrackTriggerRecord;
 //class TrackTRD;
 struct RecoInputContainer;
 } // namespace o2::trd
@@ -57,6 +58,11 @@ struct InputSpec;
 namespace o2::its
 {
 class TrackITS;
+}
+
+namespace o2::mft
+{
+class TrackMFT;
 }
 
 namespace o2::itsmft
@@ -73,6 +79,7 @@ class Cluster;
 namespace o2::ft0
 {
 class RecPoints;
+class ChannelDataFloat;
 }
 
 namespace o2::dataformats
@@ -85,6 +92,8 @@ class VtxTrackIndex;
 class VtxTrackRef;
 class V0;
 class Cascade;
+class TrackCosmics;
+class IRFrame;
 } // namespace o2::dataformats
 
 namespace o2
@@ -108,6 +117,7 @@ struct DataRequest {
   void requestClusters(o2::dataformats::GlobalTrackID::mask_t src, bool useMC);
 
   void requestITSTracks(bool mc);
+  void requestMFTTracks(bool mc);
   void requestTPCTracks(bool mc);
   void requestITSTPCTracks(bool mc);
   void requestTPCTOFTracks(bool mc);
@@ -121,9 +131,13 @@ struct DataRequest {
   void requestTOFClusters(bool mc);
   void requestTRDTracklets(bool mc);
 
+  void requestCoscmicTracks(bool mc);
+
   void requestPrimaryVertertices(bool mc);
   void requestPrimaryVerterticesTMP(bool mc);
   void requestSecondaryVertertices(bool mc);
+
+  void requestIRFramesITS();
 };
 
 // Helper class to requested data.
@@ -149,6 +163,7 @@ struct RecoContainer {
     INDICES,
     MCLABELS,      // track labels
     MCLABELSEXTRA, // additonal labels, like TOF clusters matching label (not sure TOF really needs it)
+    VARIA,         // misc data, which does not fit to other categories
     NCOMMONSLOTS
   };
 
@@ -168,9 +183,15 @@ struct RecoContainer {
                    PVTX_CASCREFS, // PV -> Cascade reference
                    NSVTXSLOTS };
 
+  // slots for cosmics
+  enum CosmicsSlots { COSM_TRACKS,
+                      COSM_TRACKS_MC,
+                      NCOSMSLOTS };
+
   using AccSlots = o2::dataformats::AbstractRefAccessor<int, NCOMMONSLOTS>; // int here is a dummy placeholder
   using PVertexAccessor = o2::dataformats::AbstractRefAccessor<int, NPVTXSLOTS>;
   using SVertexAccessor = o2::dataformats::AbstractRefAccessor<int, NSVTXSLOTS>;
+  using CosmicsAccessor = o2::dataformats::AbstractRefAccessor<int, NCOSMSLOTS>;
   using GTrackID = o2::dataformats::GlobalTrackID;
   using GlobalIDSet = std::array<GTrackID, GTrackID::NSources>;
 
@@ -179,6 +200,7 @@ struct RecoContainer {
   std::array<AccSlots, GTrackID::NSources> commonPool;
   PVertexAccessor pvtxPool; // containers for primary vertex related objects
   SVertexAccessor svtxPool; // containers for secondary vertex related objects
+  CosmicsAccessor cosmPool; // containers for cosmics track data
 
   std::unique_ptr<const o2::dataformats::MCTruthContainer<o2::MCCompLabel>> mcITSClusters;
   std::unique_ptr<const o2::dataformats::MCTruthContainer<o2::MCCompLabel>> mcTOFClusters;
@@ -190,12 +212,12 @@ struct RecoContainer {
 
   void collectData(o2::framework::ProcessingContext& pc, const DataRequest& request);
   void createTracks(std::function<bool(const o2::track::TrackParCov&, GTrackID)> const& creator) const;
-  void createTracksWithMatchingTimeInfo(std::function<bool(const o2::track::TrackParCov&, GTrackID, float, float)> const& creator) const;
   template <class T>
   void createTracksVariadic(T creator) const;
   void fillTrackMCLabels(const gsl::span<GTrackID> gids, std::vector<o2::MCCompLabel>& mcinfo) const;
 
   void addITSTracks(o2::framework::ProcessingContext& pc, bool mc);
+  void addMFTTracks(o2::framework::ProcessingContext& pc, bool mc);
   void addTPCTracks(o2::framework::ProcessingContext& pc, bool mc);
 
   void addITSTPCTRDTracks(o2::framework::ProcessingContext& pc, bool mc);
@@ -211,9 +233,13 @@ struct RecoContainer {
 
   void addFT0RecPoints(o2::framework::ProcessingContext& pc, bool mc);
 
+  void addCosmicTracks(o2::framework::ProcessingContext& pc, bool mc);
+
   void addPVertices(o2::framework::ProcessingContext& pc, bool mc);
   void addPVerticesTMP(o2::framework::ProcessingContext& pc, bool mc);
   void addSVertices(o2::framework::ProcessingContext& pc, bool);
+
+  void addIRFramesITS(o2::framework::ProcessingContext& pc);
 
   // custom getters
 
@@ -275,7 +301,12 @@ struct RecoContainer {
     return getObject<U>(gid, TRACKS);
   }
 
-  o2::MCCompLabel getTrackMCLabel(GTrackID id) const { return getObject<o2::MCCompLabel>(id, MCLABELS); }
+  o2::MCCompLabel getTrackMCLabel(GTrackID id) const
+  {
+    //RS FIXME: THIS IS TEMPORARY: some labels are still not implemented: in this case return dummy label
+    return commonPool[id.getSource()].getSize(MCLABELS) ? getObject<o2::MCCompLabel>(id, MCLABELS) : o2::MCCompLabel{};
+    //return getObject<o2::MCCompLabel>(id, MCLABELS);
+  }
 
   //--------------------------------------------
   // fetch track param
@@ -295,6 +326,18 @@ struct RecoContainer {
   auto getITSClusters() const { return getSpan<o2::itsmft::CompClusterExt>(GTrackID::ITS, CLUSTERS); }
   auto getITSClustersPatterns() const { return getSpan<unsigned char>(GTrackID::ITS, PATTERNS); }
   auto getITSClustersMCLabels() const { return mcITSClusters.get(); }
+
+  // MFT
+  const o2::mft::TrackMFT& getMFTTrack(GTrackID gid) const { return getTrack<o2::mft::TrackMFT>(gid); }
+  auto getMFTTracks() const { return getTracks<o2::mft::TrackMFT>(GTrackID::MFT); }
+  auto getMFTTracksROFRecords() const { return getSpan<o2::itsmft::ROFRecord>(GTrackID::MFT, TRACKREFS); }
+  auto getMFTTracksClusterRefs() const { return getSpan<int>(GTrackID::MFT, INDICES); }
+  auto getMFTTracksMCLabels() const { return getSpan<o2::MCCompLabel>(GTrackID::MFT, MCLABELS); }
+  // MFT clusters
+  //auto getMFTClustersROFRecords() const { return getSpan<o2::itsmft::ROFRecord>(GTrackID::MFT, CLUSREFS); }
+  //auto getMFTClusters() const { return getSpan<o2::itsmft::CompClusterExt>(GTrackID::MFT, CLUSTERS); }
+  //auto getMFTClustersPatterns() const { return getSpan<unsigned char>(GTrackID::MFT, PATTERNS); }
+  //auto getMFTClustersMCLabels() const { return mcMFTClusters.get(); }
 
   // TPC
   const o2::tpc::TrackTPC& getTPCTrack(GTrackID id) const { return getTrack<o2::tpc::TrackTPC>(id); }
@@ -322,6 +365,11 @@ struct RecoContainer {
   {
     return getTracks<U>(GTrackID::ITSTPCTRD);
   }
+  auto getITSTPCTRDTriggers() const
+  {
+    return getSpan<o2::trd::TrackTriggerRecord>(GTrackID::ITSTPCTRD, TRACKREFS);
+  }
+
   // TPC-TRD
   template <class U>
   auto getTPCTRDTrack(GTrackID id) const
@@ -332,6 +380,10 @@ struct RecoContainer {
   auto getTPCTRDTracks() const
   {
     return getTracks<U>(GTrackID::TPCTRD);
+  }
+  auto getTPCTRDTriggers() const
+  {
+    return getSpan<o2::trd::TrackTriggerRecord>(GTrackID::TPCTRD, TRACKREFS);
   }
   // TRD tracklets
   gsl::span<const o2::trd::Tracklet64> getTRDTracklets() const;
@@ -357,6 +409,7 @@ struct RecoContainer {
 
   // FT0
   auto getFT0RecPoints() const { return getSpan<o2::ft0::RecPoints>(GTrackID::FT0, TRACKS); }
+  auto getFT0ChannelsData() const { return getSpan<o2::ft0::ChannelDataFloat>(GTrackID::FT0, CLUSTERS); }
 
   // Primary vertices
   const o2::dataformats::PrimaryVertex& getPrimaryVertex(int i) const { return pvtxPool.get_as<o2::dataformats::PrimaryVertex>(PVTX, i); }
@@ -375,6 +428,14 @@ struct RecoContainer {
   auto getPV2V0Refs() { return svtxPool.getSpan<o2::dataformats::RangeReference<int, int>>(PVTX_V0REFS); }
   auto getCascades() const { return svtxPool.getSpan<o2::dataformats::Cascade>(CASCS); }
   auto getPV2CascadesRefs() { return svtxPool.getSpan<o2::dataformats::RangeReference<int, int>>(PVTX_CASCREFS); }
+
+  const o2::dataformats::TrackCosmics& getCosmicTrack(int i) const { return cosmPool.get_as<o2::dataformats::TrackCosmics>(COSM_TRACKS, i); }
+  auto getCosmicTrackMCLabel(int i) const { return cosmPool.get_as<o2::MCCompLabel>(COSM_TRACKS_MC, i); }
+  auto getCosmicTracks() const { return cosmPool.getSpan<o2::dataformats::TrackCosmics>(COSM_TRACKS); }
+  auto getCosmicTrackMCLabels() const { return cosmPool.getSpan<o2::MCCompLabel>(COSM_TRACKS_MC); }
+
+  // IRFrames where ITS was reconstructed and tracks were seen (e.g. sync.w-flow mult. selection)
+  auto getIRFramesITS() const { return getSpan<o2::dataformats::IRFrame>(GTrackID::ITS, VARIA); }
 };
 
 } // namespace globaltracking

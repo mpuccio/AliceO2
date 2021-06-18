@@ -139,7 +139,7 @@ struct tofPid {
 
     // Check and fill enabled tables
     auto makeTable = [&tracks](const Configurable<int>& flag, auto& table, const DetectorResponse& response, const auto& responsePID) {
-      if (flag.value) {
+      if (flag.value == 1) {
         // Prepare memory for enabled tables
         table.reserve(tracks.size());
         for (auto const& trk : tracks) { // Loop on Tracks
@@ -266,7 +266,7 @@ struct tofPidQa {
 
     for (auto t : tracks) {
       //
-      if (t.tofSignal() < 0) { // Skipping tracks without TOF
+      if (!t.hasTOF()) { // Skipping tracks without TOF
         continue;
       }
       if (!t.isGlobalTrack()) {
