@@ -254,7 +254,7 @@ void Tracker::findTracks()
       }
     }
 
-    assert(nClusters >= mTrkParams[0].MinTrackLength);
+    CA_DEBUGGER(assert(nClusters >= mTrkParams[0].MinTrackLength));
     CA_DEBUGGER(roadCounters[nClusters - 4]++);
 
     if (lastCellLevel == constants::its::UnusedIndex) {
