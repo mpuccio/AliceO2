@@ -26,11 +26,13 @@
 #include "ITStracking/ROframe.h"
 #include "ITStracking/IOUtils.h"
 #include "ITStracking/TrackingConfigParam.h"
+#include "ITSMFTBase/DPLAlpideParam.h"
 
 #include "Field/MagneticField.h"
 #include "DetectorsBase/GeometryManager.h"
 #include "DetectorsBase/Propagator.h"
 #include "ITSBase/GeometryTGeo.h"
+#include "CommonDataFormat/IRFrame.h"
 #include "DetectorsCommonDataFormats/NameConf.h"
 
 #include "ITSReconstruction/FastMultEstConfig.h"
@@ -157,6 +159,11 @@ void TrackerDPL::run(ProcessingContext& pc)
   auto rofsinput = pc.inputs().get<gsl::span<o2::itsmft::ROFRecord>>("ROframes");
   auto& rofs = pc.outputs().make<std::vector<o2::itsmft::ROFRecord>>(Output{"ITS", "ITSTrackROF", 0, Lifetime::Timeframe}, rofsinput.begin(), rofsinput.end());
 
+  auto& irFrames = pc.outputs().make<std::vector<o2::dataformats::IRFrame>>(Output{"ITS", "IRFRAMES", 0, Lifetime::Timeframe});
+
+  const auto& alpParams = o2::itsmft::DPLAlpideParam<o2::detectors::DetID::ITS>::Instance(); // RS: this should come from CCDB
+  int nBCPerTF = alpParams.roFrameLengthInBC;
+
   LOG(INFO) << "ITSTracker pulled " << compClusters.size() << " clusters, " << rofs.size() << " RO frames";
 
   const dataformats::MCTruthContainer<MCCompLabel>* labels = nullptr;
@@ -243,6 +250,10 @@ void TrackerDPL::run(ProcessingContext& pc)
       rof.setFirstEntry(first);
       rof.setNEntries(number);
 
+      if (tracks.size()) {
+        irFrames.emplace_back(rof.getBCData(), rof.getBCData() + nBCPerTF - 1);
+      }
+
       std::copy(trackLabels.begin(), trackLabels.end(), std::back_inserter(allTrackLabels));
       // Some conversions that needs to be moved in the tracker internals
       for (unsigned int iTrk{0}; iTrk < tracks.size(); ++iTrk) {
@@ -294,6 +305,7 @@ DataProcessorSpec getTrackerSpec(bool useMC, const std::string& trModeS, o2::gpu
   outputs.emplace_back("ITS", "ITSTrackROF", 0, Lifetime::Timeframe);
   outputs.emplace_back("ITS", "VERTICES", 0, Lifetime::Timeframe);
   outputs.emplace_back("ITS", "VERTICESROF", 0, Lifetime::Timeframe);
+  outputs.emplace_back("ITS", "IRFRAMES", 0, Lifetime::Timeframe);
 
   if (useMC) {
     inputs.emplace_back("labels", "ITS", "CLUSTERSMCTR", 0, Lifetime::Timeframe);
