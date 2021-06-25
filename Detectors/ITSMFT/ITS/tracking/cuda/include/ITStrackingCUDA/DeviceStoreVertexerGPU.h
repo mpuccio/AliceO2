@@ -18,6 +18,7 @@
 
 #ifndef GPUCA_GPUCODE_GENRTC
 #include <cub/cub.cuh>
+#include <cstdint>
 #endif
 
 #include "ITStracking/Cluster.h"
