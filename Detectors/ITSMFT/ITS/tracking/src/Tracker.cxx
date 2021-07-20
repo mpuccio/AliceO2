@@ -78,9 +78,9 @@ void Tracker::clustersToTracks(std::function<void(std::string s)> logger)
 
   if (mTimeFrame->hasMCinformation()) {
     computeTracksMClabels();
-  } else {
-    rectifyClusterIndices();
   }
+  rectifyClusterIndices();
+
 }
 
 void Tracker::computeTracklets()
@@ -526,7 +526,6 @@ void Tracker::computeTracksMClabels()
               count = 1;
             }
           }
-          track.setExternalClusterIndex(iCluster, mTimeFrame->getClusterExternalIndex(iCluster, index));
         }
 
         if (isFakeTrack) {
