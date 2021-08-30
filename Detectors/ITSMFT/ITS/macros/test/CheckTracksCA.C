@@ -41,7 +41,7 @@ struct ParticleInfo {
   o2::its::TrackITS track;
 };
 
-#pragma link C++ class ParticleInfo+;
+#pragma link C++ class ParticleInfo + ;
 
 void CheckTracksCA(std::string tracfile = "o2trac_its.root", std::string clusfile = "o2clus_its.root", std::string kinefile = "o2sim_Kine.root")
 {
@@ -80,7 +80,6 @@ void CheckTracksCA(std::string tracfile = "o2trac_its.root", std::string clusfil
   // Track MC labels
   std::vector<o2::MCCompLabel>* trkLabArr = nullptr;
   recTree->SetBranchAddress("ITSTrackMCTruth", &trkLabArr);
-
 
   std::cout << "** Filling particle table ... " << std::flush;
   int lastEventIDcl = -1, cf = 0;
@@ -131,7 +130,7 @@ void CheckTracksCA(std::string tracfile = "o2trac_its.root", std::string clusfil
   std::cout << "done." << std::endl;
 
   std::cout << "** Analysing tracks ... " << std::flush;
-  int unaccounted{0},good{0},fakes{0},total{0};
+  int unaccounted{0}, good{0}, fakes{0}, total{0};
   for (int frame = 0; frame < recTree->GetEntriesFast(); frame++) { // Cluster frames
     if (!recTree->GetEvent(frame))
       continue;
@@ -173,8 +172,6 @@ void CheckTracksCA(std::string tracfile = "o2trac_its.root", std::string clusfil
   std::cout << "\t- Total number of fakes: " << fakes << " (" << fakes * 100. / total << "%)" << std::endl;
   std::cout << "\t- Total number of good: " << good << " (" << good * 100. / total << "%)" << std::endl;
 
-
-
   int nb = 100;
   double xbins[nb + 1], ptcutl = 0.01, ptcuth = 10.;
   double a = std::log(ptcuth / ptcutl) / nb;
@@ -199,9 +196,9 @@ void CheckTracksCA(std::string tracfile = "o2trac_its.root", std::string clusfil
   for (auto& evInfo : info) {
     for (auto& part : evInfo) {
       if (part.clusters != 0x7f) {
-          // part.clusters != 0x3f && part.clusters != 0x3f << 1 &&
-          // part.clusters != 0x1f && part.clusters != 0x1f << 1 && part.clusters != 0x1f << 2 &&
-          // part.clusters != 0x0f && part.clusters != 0x0f << 1 && part.clusters != 0x0f << 2 && part.clusters != 0x0f << 3) {
+        // part.clusters != 0x3f && part.clusters != 0x3f << 1 &&
+        // part.clusters != 0x1f && part.clusters != 0x1f << 1 && part.clusters != 0x1f << 2 &&
+        // part.clusters != 0x0f && part.clusters != 0x0f << 1 && part.clusters != 0x0f << 2 && part.clusters != 0x0f << 3) {
         continue;
       }
       if (std::abs(part.eta) > 1.1 && !part.isPrimary) {
@@ -242,7 +239,7 @@ void CheckTracksCA(std::string tracfile = "o2trac_its.root", std::string clusfil
   fak->SetLineColor(2);
   fak->Draw("histesame");
   multiFak->Divide(multiFak, den, 1, 1, "b");
-  multiFak->SetLineColor(kRed+1);
+  multiFak->SetLineColor(kRed + 1);
   multiFak->Draw("histsame");
   clone->Divide(clone, den, 1, 1, "b");
   clone->SetLineColor(3);

@@ -48,7 +48,8 @@ class Configuration : public Param
 
 struct TrackingParameters {
   TrackingParameters& operator=(const TrackingParameters& t) = default;
-  void CopyCuts(TrackingParameters& other, float scale = 1.) {
+  void CopyCuts(TrackingParameters& other, float scale = 1.)
+  {
     TrackletMaxDeltaPhi = other.TrackletMaxDeltaPhi * scale;
     for (unsigned int ii{0}; ii < TrackletMaxDeltaZ.size(); ++ii) {
       TrackletMaxDeltaZ[ii] = other.TrackletMaxDeltaZ[ii] * scale;
