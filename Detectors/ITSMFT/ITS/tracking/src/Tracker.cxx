@@ -251,8 +251,7 @@ void Tracker::findTracks()
       }
       if (rof == mTimeFrame->getTracklets()[iT][tracklets[iT]].rof[1]) {
         count++;
-      }
-      else {
+      } else {
         if (count == 1) {
           rof = mTimeFrame->getTracklets()[iT][tracklets[iT]].rof[1];
         } else {
