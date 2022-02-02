@@ -316,7 +316,8 @@ void TimeFrame::initialise(const int iteration, const MemoryParameters& memParam
   }
 }
 
-unsigned long TimeFrame::getArtefactsMemory() {
+unsigned long TimeFrame::getArtefactsMemory()
+{
   unsigned long size{0};
   for (auto& trkl : mTracklets) {
     size += sizeof(Tracklet) * trkl.size();
