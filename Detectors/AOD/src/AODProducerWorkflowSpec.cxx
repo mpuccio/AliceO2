@@ -729,7 +729,7 @@ void AODProducerWorkflowDPL::fillMCParticlesTable(o2::steer::MCKinematicsReader&
         std::swap(daughters[0], daughters[1]);
       }
       if (daughters[0] < 0 && daughters[1] >= 0) {
-        LOG(fatal) << "Discordant daughters indices (" << daughters[0] << "," << daughters[1]"): the AO2D would be nonconforming to the data model, aborting."; 
+        LOG(fatal) << "Discordant daughters indices (" << daughters[0] << "," << daughters[1] "): the AO2D would be nonconforming to the data model, aborting.";
       }
       auto pX = (float)mcParticles[particle].Px();
       auto pY = (float)mcParticles[particle].Py();
