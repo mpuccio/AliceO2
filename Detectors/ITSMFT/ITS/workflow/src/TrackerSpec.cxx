@@ -251,7 +251,6 @@ void TrackerDPL::run(ProcessingContext& pc)
     // Run seeding vertexer
     vertexerElapsedTime = mVertexer->clustersToVertices(false, logger);
   }
-  // timeFrame->setMultiplicityCutMask(std::vector<bool>(false, processingMask.size())); // <===== THIS BREAKS EVERYTHING
 
   for (auto iRof{0}; iRof < rofspan.size(); ++iRof) {
     std::vector<Vertex> vtxVecLoc;
@@ -270,14 +269,19 @@ void TrackerDPL::run(ProcessingContext& pc)
           vertices.push_back(v);
         }
         if (processingMask[iRof] && !selROF) { // passed selection in clusters and not in vertex multiplicity
-          LOG(debug) << fmt::format("ROF {} rejected by the vertex multiplicity selection [{},{}]",
+          LOG(info) << fmt::format("ROF {} rejected by the vertex multiplicity selection [{},{}]",
                                     iRof,
                                     multEstConf.cutMultVtxLow,
                                     multEstConf.cutMultVtxHigh);
           processingMask[iRof] = selROF;
           cutVertexMult++;
         }
-      }      // vertex mult cut was requested
+      } else {
+        auto vtxSpan = timeFrame->getPrimaryVertices(iRof);
+        for (auto& v : vtxSpan) {
+          vertices.push_back(v);
+        }
+      }
     } else { // cosmics
       vtxVecLoc.emplace_back(Vertex());
       vtxVecLoc.back().setNContributors(1);
