@@ -270,9 +270,9 @@ void TrackerDPL::run(ProcessingContext& pc)
         }
         if (processingMask[iRof] && !selROF) { // passed selection in clusters and not in vertex multiplicity
           LOG(info) << fmt::format("ROF {} rejected by the vertex multiplicity selection [{},{}]",
-                                    iRof,
-                                    multEstConf.cutMultVtxLow,
-                                    multEstConf.cutMultVtxHigh);
+                                   iRof,
+                                   multEstConf.cutMultVtxLow,
+                                   multEstConf.cutMultVtxHigh);
           processingMask[iRof] = selROF;
           cutVertexMult++;
         }
