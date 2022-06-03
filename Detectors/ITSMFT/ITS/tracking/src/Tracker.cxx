@@ -421,7 +421,6 @@ void Tracker::extendTracks()
           }
           mTimeFrame->markUsedCluster(iLayer, track.getClusterIndex(iLayer));
         }
-
       }
     }
   }
