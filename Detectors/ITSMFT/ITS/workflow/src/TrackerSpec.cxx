@@ -14,6 +14,7 @@
 #include <vector>
 
 #include "TGeoGlobalMagField.h"
+#include "TRandom.h"
 
 #include "Framework/ControlService.h"
 #include "Framework/ConfigParamRegistry.h"
@@ -85,13 +86,13 @@ void TrackerDPL::init(InitContext& ic)
     trackParams[0].PhiBins = 32;
     trackParams[0].ZBins = 64;
     trackParams[0].CellDeltaTanLambdaSigma *= 3.;
-    trackParams[0].LayerMisalignment[0] = 1.e-2;
-    trackParams[0].LayerMisalignment[1] = 1.e-2;
-    trackParams[0].LayerMisalignment[2] = 1.e-2;
-    trackParams[0].LayerMisalignment[3] = 3.e-2;
-    trackParams[0].LayerMisalignment[4] = 3.e-2;
-    trackParams[0].LayerMisalignment[5] = 3.e-2;
-    trackParams[0].LayerMisalignment[6] = 3.e-2;
+    trackParams[0].LayerMisalignment[0] = 3.e-2 / 1.5;
+    trackParams[0].LayerMisalignment[1] = 3.e-2 / 1.5;
+    trackParams[0].LayerMisalignment[2] = 3.e-2 / 1.5;
+    trackParams[0].LayerMisalignment[3] = 1.e-1 / 1.5;
+    trackParams[0].LayerMisalignment[4] = 1.e-1 / 1.5;
+    trackParams[0].LayerMisalignment[5] = 1.e-1 / 1.5;
+    trackParams[0].LayerMisalignment[6] = 1.e-1 / 1.5;
     trackParams[0].FitIterationMaxChi2[0] = 50.;
     trackParams[0].FitIterationMaxChi2[1] = 25.;
     trackParams[1] = trackParams[0];
@@ -136,6 +137,7 @@ void TrackerDPL::init(InitContext& ic)
     params.CorrType = o2::base::PropagatorImpl<float>::MatCorrType::USEMatCorrLUT;
   }
   mTracker->setParameters(memParams, trackParams);
+  gRandom->SetSeed(1234); /// Have consistent random numbers for the reproducible runs
 }
 
 void TrackerDPL::run(ProcessingContext& pc)

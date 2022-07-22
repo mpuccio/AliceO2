@@ -269,7 +269,10 @@ void Tracker::findTracks()
     tracksV.reserve(mTimeFrame->getRoads().size() / mNThreads);
   }
 
-#pragma omp parallel for num_threads(mNThreads)
+#ifdef WITH_OPENMP
+  int chunkSize{mTimeFrame->getRoads().size() / mNThreads};
+#endif
+#pragma omp parallel for num_threads(mNThreads) schedule(dynamic, chunkSize)
   for (auto& road : mTimeFrame->getRoads()) {
     std::vector<int> clusters(mTrkParams[0].NLayers, constants::its::UnusedIndex);
     int lastCellLevel = constants::its::UnusedIndex;
