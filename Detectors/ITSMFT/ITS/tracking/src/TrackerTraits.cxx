@@ -933,7 +933,7 @@ track::TrackParCov TrackerTraits::buildTrackSeed(const Cluster& cluster1, const 
   return track::TrackParCov(tf3.xTrackingFrame, tf3.alphaTrackingFrame,
                             {y3, z3, snp, 0.5f * (tgl12 + tgl23),
                              zeroField ? 1.f / o2::track::kMostProbablePt
-                                                                              : crv / (getBz() * o2::constants::math::B2C)},
+                                       : crv / (getBz() * o2::constants::math::B2C)},
                             {math_utils::hypot(tf3.covarianceTrackingFrame[0], misalignment),
                              tf3.covarianceTrackingFrame[1], math_utils::hypot(tf3.covarianceTrackingFrame[2], misalignment),
                              0.f, 0.f, track::kCSnp2max,
