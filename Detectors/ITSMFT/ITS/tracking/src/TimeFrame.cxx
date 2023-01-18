@@ -257,11 +257,11 @@ void TimeFrame::initialise(const int iteration, const TrackingParameters& trkPar
     std::vector<ClusterHelper> cHelper;
     std::vector<int> clsPerBin(trkParam.PhiBins * trkParam.ZBins, 0);
 
-      for (int iLayer{0}; iLayer < trkParam.NLayers; ++iLayer) {
-      for (auto &tfInfo : mTrackingFrameInfo[iLayer]) {
-          /// Account for alignment systematics in the cluster covariance matrix
-          tfInfo.covarianceTrackingFrame[0] += trkParam.SystErrorY2[iLayer];
-          tfInfo.covarianceTrackingFrame[2] += trkParam.SystErrorZ2[iLayer];
+    for (int iLayer{0}; iLayer < trkParam.NLayers; ++iLayer) {
+      for (auto& tfInfo : mTrackingFrameInfo[iLayer]) {
+        /// Account for alignment systematics in the cluster covariance matrix
+        tfInfo.covarianceTrackingFrame[0] += trkParam.SystErrorY2[iLayer];
+        tfInfo.covarianceTrackingFrame[2] += trkParam.SystErrorZ2[iLayer];
       }
     }
 
