@@ -22,6 +22,7 @@ o2_add_library(StrangenessTracking
                                              O2::DetectorsVertexing
                                              O2::ReconstructionDataFormats
                                              O2::DCAFitter
+                                             KFParticle::KFParticle
                )
 
 o2_target_root_dictionary(StrangenessTracking

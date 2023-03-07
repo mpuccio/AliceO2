@@ -165,6 +165,8 @@ find_package(Clang)
 set_package_properties(Clang PROPERTIES TYPE OPTIONAL)
 endif()
 
+find_package(KFParticle)
+set_package_properties(KFParticle PROPERTIES TYPE REQUIRED)
 
 find_package(O2GPU)
 

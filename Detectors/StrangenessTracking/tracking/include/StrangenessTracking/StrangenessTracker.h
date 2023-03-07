@@ -138,6 +138,7 @@ class StrangenessTracker
   ClusAttachments mStructClus;                          // # of attached tracks, 1 for mother, 2 for daughter
   o2::its::TrackITS mITStrack;                          // ITS track
   std::array<GIndex, 2> mV0dauIDs;                      // V0 daughter IDs
+  o2::track::TrackParCovF mResettedMotherTrack;         // mother track
 
   ClassDefNV(StrangenessTracker, 1);
 };

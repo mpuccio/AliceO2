@@ -293,6 +293,15 @@ bool StrangenessTracker::matchDecayToITStrack(float decayR)
       LOG(debug) << "Fitter3Body failed: propagation to vertex failed";
       return false;
     }
+    int nCasc{0};
+    try {
+      nCasc = mFitterV0.process(cascV0Upd, mDaughterTracks[0]);  // refit V0
+    } catch (std::runtime_error& e) {
+      LOG(debug) << "Cascade refit failed " << e.what();
+    }
+    if (nCasc) {
+      mResettedMotherTrack = mFitterV0.createParentTrackParCov();
+    }
   }
 
   // refit V0
@@ -307,7 +316,17 @@ bool StrangenessTracker::matchDecayToITStrack(float decayR)
       LOG(debug) << "Fitter3Body failed: propagation to vertex failed";
       return false;
     }
+    int nCasc{0};
+    try {
+      nCasc = mFitterV0.process(mDaughterTracks[0], mDaughterTracks[1]);  // refit V0
+    } catch (std::runtime_error& e) {
+      LOG(debug) << "Cascade refit failed " << e.what();
+    }
+    if (nCasc) {
+      mResettedMotherTrack = mFitterV0.createParentTrackParCov();
+    }
   }
+
 
   mStrangeTrack.decayVtx = mFitter3Body.getPCACandidatePos();
   mStrangeTrack.mTopoChi2 = mFitter3Body.getChi2AtPCACandidate();
