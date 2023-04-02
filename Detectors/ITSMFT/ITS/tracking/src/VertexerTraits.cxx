@@ -426,12 +426,11 @@ void VertexerTraits::computeVertices()
 #endif
     bool atLeastOneFound{false};
     for (int iCluster{0}; iCluster < noClustersVec[rofId]; ++iCluster) {
-      bool lowMultCandidate{false};
-      if (atLeastOneFound && (lowMultCandidate = mTimeFrame->getTrackletClusters(rofId)[iCluster].getSize() < mVrtParams.clusterContributorsCut)) { // We might have pile up with nContr > cut.
+      bool lowMultCandidate{mTimeFrame->getTrackletClusters(rofId)[iCluster].getSize() < mVrtParams.clusterContributorsCut};
+      if (atLeastOneFound) { // We might have pile up with nContr > cut.
         float beamDistance2{(mTimeFrame->getBeamX() - mTimeFrame->getTrackletClusters(rofId)[iCluster].getVertex()[0]) * (mTimeFrame->getBeamX() - mTimeFrame->getTrackletClusters(rofId)[iCluster].getVertex()[0]) +
                             (mTimeFrame->getBeamY() - mTimeFrame->getTrackletClusters(rofId)[iCluster].getVertex()[1]) * (mTimeFrame->getBeamY() - mTimeFrame->getTrackletClusters(rofId)[iCluster].getVertex()[1])};
-        lowMultCandidate &= beamDistance2 < mVrtParams.lowMultXYcut2;
-        if (!lowMultCandidate) { // Not the first cluster and not a low multiplicity candidate, we can remove it
+        if (beamDistance2 > mVrtParams.lowMultXYcut2 || lowMultCandidate) {
           mTimeFrame->getTrackletClusters(rofId).erase(mTimeFrame->getTrackletClusters(rofId).begin() + iCluster);
           noClustersVec[rofId]--;
           continue;
@@ -577,12 +576,11 @@ void VertexerTraits::computeVerticesInRof(int rofId,
             [](ClusterLines& cluster1, ClusterLines& cluster2) { return cluster1.getSize() > cluster2.getSize(); }); // ensure clusters are ordered by contributors, so that we can cut after the first.
   bool atLeastOneFound{false};
   for (int iCluster{0}; iCluster < nClusters; ++iCluster) {
-    bool lowMultCandidate{false};
-    if (atLeastOneFound && (lowMultCandidate = clusterLines[iCluster].getSize() < mVrtParams.clusterContributorsCut)) { // We might have pile up with nContr > cut.
+    bool lowMultCandidate{clusterLines[iCluster].getSize() < mVrtParams.clusterContributorsCut};
+    if (atLeastOneFound) { // We might have pile up with nContr > cut.
       float beamDistance2{(beamPosXY[0] - clusterLines[iCluster].getVertex()[0]) * (beamPosXY[0] - clusterLines[iCluster].getVertex()[0]) +
                           (beamPosXY[1] - clusterLines[iCluster].getVertex()[1]) * (beamPosXY[1] - clusterLines[iCluster].getVertex()[1])};
-      lowMultCandidate &= beamDistance2 < mVrtParams.lowMultXYcut2;
-      if (!lowMultCandidate) { // Not the first cluster and not a low multiplicity candidate, we can remove it
+      if (beamDistance2 < mVrtParams.lowMultXYcut2 || lowMultCandidate) { // Not the first cluster and not a low multiplicity candidate, we can remove it
         clusterLines.erase(clusterLines.begin() + iCluster);
         nClusters--;
         continue;
