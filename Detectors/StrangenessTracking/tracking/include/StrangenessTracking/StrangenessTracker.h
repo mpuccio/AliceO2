@@ -25,6 +25,7 @@
 #include "ReconstructionDataFormats/V0.h"
 #include "ReconstructionDataFormats/Cascade.h"
 #include "ReconstructionDataFormats/StrangeTrack.h"
+#include "ReconstructionDataFormats/KinkTrack.h"
 #include "ReconstructionDataFormats/VtxTrackIndex.h"
 #include "ReconstructionDataFormats/VtxTrackRef.h"
 
@@ -57,6 +58,7 @@ class StrangenessTracker
 {
  public:
   using StrangeTrack = o2::dataformats::StrangeTrack;
+  using KinkTrack = o2::dataformats::KinkTrack;
   using PID = o2::track::PID;
   using TrackITS = o2::its::TrackITS;
   using ITSCluster = o2::BaseCluster<float>;
@@ -69,17 +71,26 @@ class StrangenessTracker
   using MCLabSpan = gsl::span<const o2::MCCompLabel>;
   using VBracket = o2::math_utils::Bracket<int>;
 
+  struct kinkTrackHelper {
+    o2::track::TrackParCovF track;
+    GIndex index;
+    VBracket vtxBracket;
+    GIndex itsRef;
+  };
+
   StrangenessTracker() = default;
   ~StrangenessTracker() = default;
 
   bool loadData(const o2::globaltracking::RecoContainer& recoData);
   bool matchDecayToITStrack(float decayR);
+  bool matchKinkToITSTrack(o2::track::TrackParCovF daughterTrack);
   void prepareITStracks();
   void process();
   bool updateTrack(const ITSCluster& clus, o2::track::TrackParCov& track);
 
   std::vector<ClusAttachments>& getClusAttachments() { return mClusAttachments; };
   std::vector<StrangeTrack>& getStrangeTrackVec() { return mStrangeTrackVec; };
+  std::vector<KinkTrack>& getKinkTrackVec() { return mKinkTrackVec; };
   std::vector<o2::MCCompLabel>& getStrangeTrackLabels() { return mStrangeTrackLabels; };
 
   float getBz() const { return mBz; }
@@ -94,10 +105,13 @@ class StrangenessTracker
     mDaughterTracks.clear();
     mClusAttachments.clear();
     mStrangeTrackVec.clear();
+    mKinkTrackVec.clear();
     mTracksIdxTable.clear();
     mSortedITStracks.clear();
     mSortedITSindexes.clear();
     mITSvtxBrackets.clear();
+    mInputITSclusters.clear();
+    mInputClusterSizes.clear();
     mInputITSclusters.clear();
     mInputClusterSizes.clear();
     if (mMCTruthON) {
@@ -109,8 +123,10 @@ class StrangenessTracker
   {
     mFitterV0.setBz(mBz);
     mFitter3Body.setBz(mBz);
+    mFitterKink.setBz(mBz);
     mFitterV0.setUseAbsDCA(true);
     mFitter3Body.setUseAbsDCA(true);
+    mFitterKink.setUseAbsDCA(true);
   }
 
   double calcV0alpha(const V0& v0)
@@ -126,12 +142,27 @@ class StrangenessTracker
 
   double calcMotherMass(double p2Mother, double p2DauFirst, double p2DauSecond, PID pidDauFirst, PID pidDauSecond)
   {
-
     double m2DauFirst = PID::getMass2(pidDauFirst);
     double m2DauSecond = PID::getMass2(pidDauSecond);
-    float ePos = std::sqrt(p2DauFirst + m2DauFirst), eNeg = std::sqrt(p2DauSecond + m2DauSecond);
-    double e2Mother = (ePos + eNeg) * (ePos + eNeg);
+    double motherE = sqrt(p2DauFirst + m2DauFirst) + sqrt(p2DauSecond + m2DauSecond); // E = sqrt(p^2 + m^2)
+    double e2Mother = motherE * motherE;
     return std::sqrt(e2Mother - p2Mother);
+  }
+
+   double calcKinkMotherMass(std::array<float, 3UL> pMother, std::array<float, 3UL> pDaughter, PID pidDaughter, PID pidKink) // Kink = neuter Daughter
+  {
+    double m2kink = PID::getMass2(pidKink);
+    double m2daughter = PID::getMass2(pidDaughter);
+    double p2Mother = pMother[0] * pMother[0] + pMother[1] * pMother[1] + pMother[2] * pMother[2];
+    double p2Daughter = pDaughter[0] * pDaughter[0] + pDaughter[1] * pDaughter[1] + pDaughter[2] * pDaughter[2];
+
+    double eDaughter = sqrt(p2Daughter + m2daughter);
+    std::array<float, 3> pKink = {pMother[0] - pDaughter[0], pMother[1] - pDaughter[1], pMother[2] - pDaughter[2]};
+    double p2Kink = pKink[0] * pKink[0] + pKink[1] * pKink[1] + pKink[2] * pKink[2];
+    double eKink = sqrt(m2kink + p2Kink);
+    double eMother = eKink + eDaughter;
+
+    return std::sqrt(eMother * eMother - p2Mother);
   }
 
   bool recreateV0(const o2::track::TrackParCov& posTrack, const o2::track::TrackParCov& negTrack, V0& newV0)
@@ -156,8 +187,7 @@ class StrangenessTracker
     propPos.getPxPyPzGlo(pP);
     propNeg.getPxPyPzGlo(pN);
     std::array<float, 3> pV0 = {pP[0] + pN[0], pP[1] + pN[1], pP[2] + pN[2]};
-    newV0 = V0(v0XYZ, pV0, mFitterV0.calcPCACovMatrixFlat(0), propPos, propNeg, mV0dauIDs[kV0DauPos], mV0dauIDs[kV0DauNeg], PID::HyperTriton);
-    return true;
+    newV0 = V0(v0XYZ, pV0, mFitterV0.calcPCACovMatrixFlat(0), propPos, propNeg, mV0dauIDs[kV0DauPos], mV0dauIDs[kV0DauNeg], PID::HyperTriton);    return true;
   };
 
   std::vector<ITSCluster> getTrackClusters()
@@ -202,11 +232,11 @@ class StrangenessTracker
     }
     // LOG(info) << " Patt Npixel: " << pattVec[0].getNPixels();
   }
-
-  float getMatchingChi2(o2::track::TrackParCovF v0, const TrackITS& itsTrack)
-  {
-    if (v0.rotate(itsTrack.getParamOut().getAlpha()) && v0.propagateTo(itsTrack.getParamOut().getX(), mBz)) {
-      return v0.getPredictedChi2(itsTrack.getParamOut());
+  
+  float getMatchingChi2(o2::track::TrackParCovF v0, const TrackITS ITStrack)  {
+    float alpha = ITStrack.getParamOut().getAlpha(), x = ITStrack.getParamOut().getX();
+    if (v0.rotate(alpha) && v0.propagateTo((x, mBz))) {
+      return v0.getPredictedChi2(ITStrack.getParamOut());
     }
     return -100;
   };
@@ -242,7 +272,10 @@ class StrangenessTracker
   std::vector<int> mSortedITSindexes;              // indexes of sorted ITS tracks
   IndexTableUtils mUtils;                          // structure for computing eta/phi matching selections
 
+  std::vector<kinkTrackHelper> mKinkTracks;        // kink tracks
+
   std::vector<StrangeTrack> mStrangeTrackVec;       // structure containing updated mother and daughter tracks
+  std::vector<KinkTrack> mKinkTrackVec;             // structure containing updated mother and daughter kink tracks
   std::vector<ClusAttachments> mClusAttachments;    // # of attached tracks, -1 not attached, 0 for the mother, > 0 for the daughters
   std::vector<o2::MCCompLabel> mStrangeTrackLabels; // vector of MC labels for mother track
 
@@ -252,11 +285,13 @@ class StrangenessTracker
 
   DCAFitter2 mFitterV0;    // optional DCA Fitter for recreating V0 with hypertriton mass hypothesis
   DCAFitter3 mFitter3Body; // optional DCA Fitter for final 3 Body refit
+  DCAFitter2 mFitterKink;  // DCA Fitter for kink fit
 
   o2::base::PropagatorImpl<float>::MatCorrType mCorrType = o2::base::PropagatorImpl<float>::MatCorrType::USEMatCorrNONE; // use mat correction
 
   std::vector<o2::track::TrackParCovF> mDaughterTracks; // vector of daughter tracks
   StrangeTrack mStrangeTrack;                           // structure containing updated mother and daughter track refs
+  KinkTrack mKinkTrack;                                 // structure containing updated mother and daughter kink refs
   ClusAttachments mStructClus;                          // # of attached tracks, 1 for mother, 2 for daughter
   o2::its::TrackITS mITStrack;                          // ITS track
   std::array<GIndex, 2> mV0dauIDs;                      // V0 daughter IDs

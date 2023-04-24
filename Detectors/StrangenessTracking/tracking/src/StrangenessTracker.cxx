@@ -43,26 +43,53 @@ bool StrangenessTracker::loadData(const o2::globaltracking::RecoContainer& recoD
     mITSvtxBrackets[i] = {-1, -1};
   }
 
-  // build time bracket for each ITS track
+  // build time bracket for each ITS and kink track
   auto trackIndex = recoData.getPrimaryVertexMatchedTracks(); // Global ID's for associated tracks
   auto vtxRefs = recoData.getPrimaryVertexMatchedTrackRefs(); // references from vertex to these track IDs
 
-  if (mStrParams->mVertexMatching) {
-    int nv = vtxRefs.size();
-    for (int iv = 0; iv < nv; iv++) {
-      const auto& vtref = vtxRefs[iv];
-      int it = vtref.getFirstEntry(), itLim = it + vtref.getEntries();
-      for (; it < itLim; it++) {
-        auto tvid = trackIndex[it];
-        if (!recoData.isTrackSourceLoaded(tvid.getSource()) || tvid.getSource() != GIndex::ITS) {
-          continue;
-        }
+  std::unordered_map<GIndex, int> kinkMap;
+
+  int nv = vtxRefs.size();
+  for (int iv = 0; iv < nv; iv++) {
+    const auto& vtref = vtxRefs[iv];
+    int it = vtref.getFirstEntry(), itLim = it + vtref.getEntries();
+    for (; it < itLim; it++) {
+      auto tvid = trackIndex[it];
+      if (!recoData.isTrackSourceLoaded(tvid.getSource())) {
+        continue;
+      }
+
+      if (tvid.getSource() == GIndex::ITS) {
         if (mITSvtxBrackets[tvid.getIndex()].getMin() == -1) {
           mITSvtxBrackets[tvid.getIndex()].setMin(iv);
           mITSvtxBrackets[tvid.getIndex()].setMax(iv);
         } else {
           mITSvtxBrackets[tvid.getIndex()].setMax(iv);
         }
+        continue;
+      }
+
+      // if (!mStrParams->mKinkFinder || tvid.getSource() != GIndex::TPC) { // exclude TPC only tracks for the time being (?)
+      if (!mStrParams->mKinkFinder) {
+        continue;
+      }
+
+      if (tvid.isAmbiguous()) {
+
+        if (kinkMap.find(tvid) != kinkMap.end()) { // track already in the map, update the time bracket
+          mKinkTracks[kinkMap[tvid]].vtxBracket.setMax(iv);
+          continue;
+        }
+      }
+
+      kinkTrackHelper kinkHelper;
+      kinkHelper.track = recoData.getTrackParam(tvid);
+      kinkHelper.index = tvid;
+      kinkHelper.vtxBracket = {iv, iv};
+      kinkHelper.itsRef = recoData.getITSContributorGID(tvid);
+      if (kinkHelper.itsRef.getSource() == GIndex::ITSAB) {
+        mKinkTracks.push_back(kinkHelper);
+        kinkMap[tvid] = mKinkTracks.size() - 1;
       }
     }
   }
@@ -78,6 +105,7 @@ bool StrangenessTracker::loadData(const o2::globaltracking::RecoContainer& recoD
   LOG(debug) << "ITS idxs size: " << mInputITSidxs.size();
   LOG(debug) << "ITS clusters size: " << mInputITSclusters.size();
   LOG(debug) << "VtxRefs size: " << vtxRefs.size();
+  LOG(debug) << "Kink tracks size: " << mKinkTracks.size();
 
   return true;
 }
@@ -86,7 +114,7 @@ void StrangenessTracker::prepareITStracks() // sort tracks by eta and phi and se
 {
 
   for (int iTrack{0}; iTrack < mInputITStracks.size(); iTrack++) {
-    if (mStrParams->mVertexMatching && mITSvtxBrackets[iTrack].getMin() == -1) {
+    if (mITSvtxBrackets[iTrack].getMin() == -1) {
       continue;
     }
     mSortedITStracks.push_back(mInputITStracks[iTrack]);
@@ -238,6 +266,124 @@ void StrangenessTracker::process()
       }
     }
   }
+  if (!mStrParams->mKinkFinder) {
+    return;
+  }
+
+  // loop over Kinks
+
+  LOG(debug) << "Analysing " << mKinkTracks.size() << " Kinks ...";
+
+  for (int iKink{0}; iKink < mKinkTracks.size(); iKink++) {
+    LOG(debug) << "--------------------------------------------";
+    LOG(debug) << "Analysing Kink: " << iKink + 1 << "/" << mKinkTracks.size();
+    auto kink = mKinkTracks[iKink].track;
+    auto vrtxTrackIdx = mKinkTracks[iKink].index;
+    auto kinkVrtxIDmin = mKinkTracks[iKink].vtxBracket.getMin();
+    auto kinkVrtxIDmax = mKinkTracks[iKink].vtxBracket.getMax();
+    auto kinkITSid = mKinkTracks[iKink].itsRef;
+    LOG(debug) << "Kink source: " << vrtxTrackIdx.getSourceName();
+    LOG(debug) << "Kink Vtx ID: " << kinkVrtxIDmin << " - " << kinkVrtxIDmax;
+    if (kinkITSid.isSourceSet() == false) {
+      LOG(debug) << "ITS source not set";
+    } else {
+      LOG(debug) << "Kink ITS ref: " << kinkITSid.getIndex();
+      LOG(debug) << "get source: " << int(kinkITSid.getSource());
+    }
+
+    auto iBinskink = mUtils.getBinRect(kink.getEta(), kink.getPhi(), mStrParams->mEtaBinSize, mStrParams->mPhiBinSize);
+    LOG(debug) << "Kink phi: " << kink.getPhi() << ", eta: " << kink.getEta();
+
+    for (int& iBinKink : iBinskink) {
+      for (int iTrack{mTracksIdxTable[iBinKink]}; iTrack < TMath::Min(mTracksIdxTable[iBinKink + 1], int(mSortedITStracks.size())); iTrack++) {
+        mITStrack = mSortedITStracks[iTrack];
+
+        auto& ITSindexRef = mSortedITSindexes[iTrack];
+
+        if (mITStrack.getCharge() != kink.getCharge())
+          continue;
+
+        if (mITSvtxBrackets[ITSindexRef].getMax() < kinkVrtxIDmin || mITSvtxBrackets[ITSindexRef].getMin() > kinkVrtxIDmax) {
+          continue;
+        }
+
+        if (matchKinkToITSTrack(kink)) {
+          LOG(debug) << "----------------------";
+          LOG(debug) << "ITS phi: " << mITStrack.getPhi() << ", eta: " << mITStrack.getEta();
+          LOG(debug) << "ITS track ref: " << mSortedITSindexes[iTrack];
+          LOG(debug) << "ITS Track matched with a Kink topology ....";
+          LOG(debug) << "Matching chi2: " << mKinkTrack.mChi2Match;
+
+          mKinkTrack.mNLayers = mITStrack.getNumberOfClusters();
+          auto trackClusters = getTrackClusters();
+          auto& lastClus = trackClusters[0];
+          mKinkTrack.mChi2Match = getMatchingChi2(kink, mITStrack);
+
+          // compute angle between kink and ITS track
+          std::array<float, 3> kinkMom;
+          kink.getPxPyPzGlo(kinkMom);
+          auto kinkMomNorm = TMath::Sqrt(kinkMom[0] * kinkMom[0] + kinkMom[1] * kinkMom[1] + kinkMom[2] * kinkMom[2]);
+          std::array<float, 3> itsMom;
+          mITStrack.getPxPyPzGlo(itsMom);
+          auto itsMomNorm = TMath::Sqrt(itsMom[0] * itsMom[0] + itsMom[1] * itsMom[1] + itsMom[2] * itsMom[2]);
+          auto dotProd = kinkMom[0] * itsMom[0] + kinkMom[1] * itsMom[1] + kinkMom[2] * itsMom[2];
+          auto angle = TMath::ACos(dotProd / (kinkMomNorm * itsMomNorm)) * TMath::RadToDeg();
+          LOG(debug) << "Angle between kink and ITS track: " << angle;
+
+          auto motherMass = calcKinkMotherMass(mKinkTrack.mMotherP, mKinkTrack.mDaughterP, PID::Triton, PID::PI0); // just the Hypertriton case for now
+          mKinkTrack.mMasses[0] = motherMass;
+
+          mKinkTrack.mTrackIdx = vrtxTrackIdx;
+          mKinkTrack.mITSRef = ITSindexRef;
+          mKinkTrackVec.push_back(mKinkTrack);
+        }
+      }
+    }
+  }
+}
+
+bool StrangenessTracker::matchKinkToITSTrack(o2::track::TrackParCovF daughterTrack)
+{
+  int nCand;
+
+  try {
+    nCand = mFitterKink.process(mITStrack.getParamOut(), daughterTrack);
+  } catch (std::runtime_error& e) {
+    LOG(debug) << "Fitterkink failed: " << e.what();
+    return false;
+  }
+
+  if (!mFitterKink.propagateTracksToVertex() || !nCand)
+    return false;
+
+  auto chi2 = mFitterKink.getChi2AtPCACandidate();
+  std::array<float, 3> R = mFitterKink.getPCACandidatePos();
+
+  LOG(debug) << "Chi 2: " << chi2;
+  if (chi2 < 0 || chi2 > mStrParams->mMaxChi2)
+    return false;
+
+  double recR = sqrt(R[0] * R[0] + R[1] * R[1]);
+  LOG(debug) << "R: " << recR;
+  if (recR < 18)
+    return false;
+
+  mKinkTrack.mChi2Vertex = chi2;
+  mKinkTrack.mDecayVtx = R;
+
+  mFitterKink.getTrack(0).getPxPyPzGlo(mKinkTrack.mMotherP);
+  mFitterKink.getTrack(1).getPxPyPzGlo(mKinkTrack.mDaughterP);
+
+  // computer cluster sizes
+  std::vector<int> motherClusSizes;
+  auto trackClusSizes = getTrackClusterSizes();
+  for (int iClus{0}; iClus < trackClusSizes.size(); iClus++) {
+    auto& compClus = trackClusSizes[iClus];
+    motherClusSizes.push_back(compClus);
+  }
+  mKinkTrack.mITSClusSize = float(std::accumulate(motherClusSizes.begin(), motherClusSizes.end(), 0)) / motherClusSizes.size();
+
+  return true;
 }
 
 bool StrangenessTracker::matchDecayToITStrack(float decayR)

@@ -26,6 +26,7 @@ o2_add_library(ReconstructionDataFormats
                        src/Cascade.cxx
                        src/DecayNbody.cxx
                        src/StrangeTrack.cxx
+                       src/KinkTrack.cxx
                        src/GlobalTrackID.cxx
                        src/VtxTrackIndex.cxx
                        src/VtxTrackRef.cxx
@@ -57,6 +58,7 @@ o2_target_root_dictionary(
           include/ReconstructionDataFormats/Cascade.h
           include/ReconstructionDataFormats/DecayNbody.h
           include/ReconstructionDataFormats/StrangeTrack.h
+          include/ReconstructionDataFormats/KinkTrack.h
           include/ReconstructionDataFormats/GlobalTrackID.h
           include/ReconstructionDataFormats/VtxTrackIndex.h
           include/ReconstructionDataFormats/VtxTrackRef.h

@@ -55,6 +55,8 @@ void customize(std::vector<o2::framework::ConfigParamSpec>& workflowOptions)
 
 WorkflowSpec defineDataProcessing(ConfigContext const& configcontext)
 {
+  auto strParams = &StrangenessTrackingParamConfig::Instance();
+
   // Update the (declared) parameters if changed from the command line
   auto useMC = !configcontext.options().get<bool>("disable-mc");
   auto useRootInput = !configcontext.options().get<bool>("disable-root-input");
@@ -62,10 +64,14 @@ WorkflowSpec defineDataProcessing(ConfigContext const& configcontext)
   o2::conf::ConfigurableParam::updateFromString(configcontext.options().get<std::string>("configKeyValues"));
   o2::conf::ConfigurableParam::writeINI("o2strangeness_tracking_workflow_configuration.ini");
   GID::mask_t itsSource = GID::getSourceMask(GID::ITS); // ITS tracks and clusters
+  
+  //GID::mask_t kinkSources = GID::getSourcesMask("ITS,ITS-TPC,TPC-TOF,TPC-TRD,ITS-TPC-TRD,ITS-TPC-TOF,TPC-TRD-TOF,ITS-TPC-TRD-TOF");
+  GID::mask_t kinkSources = GID::getSourcesMask("ITS,ITS-TPC");
 
   WorkflowSpec specs;
-  specs.emplace_back(o2::strangeness_tracking::getStrangenessTrackerSpec(itsSource, useMC));
-  o2::globaltracking::InputHelper::addInputSpecs(configcontext, specs, itsSource, itsSource, itsSource, useMC, itsSource);
+  auto sourceReq = strParams->mKinkFinder ? kinkSources : itsSource;
+  specs.emplace_back(o2::strangeness_tracking::getStrangenessTrackerSpec(sourceReq, useMC));
+  o2::globaltracking::InputHelper::addInputSpecs(configcontext, specs, sourceReq, sourceReq, sourceReq, useMC, sourceReq);
   o2::globaltracking::InputHelper::addInputSpecsPVertex(configcontext, specs, useMC); // P-vertex is always needed
   o2::globaltracking::InputHelper::addInputSpecsSVertex(configcontext, specs);        // S-vertex is always needed
   specs.emplace_back(getStrangenessTrackingWriterSpec(useMC));

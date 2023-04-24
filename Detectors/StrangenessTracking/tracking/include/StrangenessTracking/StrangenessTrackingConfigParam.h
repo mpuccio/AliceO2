@@ -31,6 +31,7 @@ struct StrangenessTrackingParamConfig : public o2::conf::ConfigurableParamHelper
   float mEtaBinSize = 0.1;     // Eta bin size for the matching grid
   float mMinMotherClus = 3.;   // minimum number of cluster to be attached to the mother
   float mMaxChi2 = 50;         // Maximum matching chi2
+  bool mKinkFinder = false;     // Flag to enable/disable the kink finder
   bool mVertexMatching = true; // Flag to enable/disable vertex matching
 
   O2ParamDef(StrangenessTrackingParamConfig, "strtracker");

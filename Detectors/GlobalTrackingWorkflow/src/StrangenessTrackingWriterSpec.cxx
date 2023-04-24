@@ -19,6 +19,7 @@
 #include "CommonDataFormat/TimeStamp.h"
 #include "CommonDataFormat/RangeReference.h"
 #include "ReconstructionDataFormats/StrangeTrack.h"
+#include "ReconstructionDataFormats/KinkTrack.h"
 #include "StrangenessTracking/StrangenessTracker.h"
 #include "SimulationDataFormat/MCCompLabel.h"
 
@@ -29,6 +30,7 @@ namespace o2
 namespace strangeness_tracking
 {
 using StrangeTrack = dataformats::StrangeTrack;
+using KinkTrack = dataformats::KinkTrack;
 
 template <typename T>
 using BranchDefinition = MakeRootTreeWriterSpec::BranchDefinition<T>;
@@ -40,8 +42,12 @@ DataProcessorSpec getStrangenessTrackingWriterSpec(bool useMC)
   auto loggerV = [](std::vector<StrangeTrack> const& v) {
     LOG(info) << "StrangenessTracker writer pulled " << v.size() << " strange tracks";
   };
+  auto loggerKink = [](std::vector<KinkTrack> const& kink) {
+    LOG(info) << "StrangenessTracker writer pulled " << kink.size() << " kink tracks";
+  };
 
   auto inpStTrkID = InputSpec{"strangetracks", "STK", "STRTRACKS", 0};
+  auto inpKinkTrkID = InputSpec{"kinktracks", "STK", "KINKTRACKS", 0};
   auto inpClusAtt = InputSpec{"clusupdates", "STK", "CLUSUPDATES", 0};
   auto inpMCLab = InputSpec{"stkmclabels", "STK", "STRK_MC", 0};
 
@@ -49,6 +55,7 @@ DataProcessorSpec getStrangenessTrackingWriterSpec(bool useMC)
                                 "o2_strange_tracks.root",
                                 MakeRootTreeWriterSpec::TreeAttributes{"o2sim", "Tree with Strange Tracks"},
                                 BranchDefinition<std::vector<StrangeTrack>>{inpStTrkID, "StrangeTracks", loggerV},
+                                                                BranchDefinition<std::vector<KinkTrack>>{inpKinkTrkID, "KinkTracks", loggerKink},
                                 BranchDefinition<std::vector<o2::strangeness_tracking::ClusAttachments>>{inpClusAtt, "ClusUpdates"},
                                 BranchDefinition<LabelsType>{inpMCLab, "StrangeTrackMCLab", (useMC ? 1 : 0), ""} // one branch if mc labels enabled
                                 )();
