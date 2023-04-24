@@ -235,7 +235,7 @@ class StrangenessTracker
   
   float getMatchingChi2(o2::track::TrackParCovF v0, const TrackITS ITStrack)  {
     float alpha = ITStrack.getParamOut().getAlpha(), x = ITStrack.getParamOut().getX();
-    if (v0.rotate(alpha) && v0.propagateTo((x, mBz))) {
+    if (v0.rotate(alpha) && v0.propagateTo(x, mBz)) {
       return v0.getPredictedChi2(ITStrack.getParamOut());
     }
     return -100;
