@@ -28,7 +28,7 @@ namespace dataformats
 {
 
 struct KinkTrack {
-  int mITSRef = -1;
+  unsigned int mITSRef = -1;
   int mNLayers = -1;
   GIndex mTrackIdx;
   float mITSClusSize;

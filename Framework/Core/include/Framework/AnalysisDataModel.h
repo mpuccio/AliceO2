@@ -1234,31 +1234,14 @@ using Tracked3body = Tracked3Bodys::iterator;
 
 namespace kinktracktopology
 {
-DECLARE_SOA_INDEX_COLUMN(Track, track);                                 //! kink track index  ????????/
-DECLARE_SOA_INDEX_COLUMN_FULL(ITSTrack, itsTrack, int, Tracks, "_ITS"); //! ITS index
-
-//DECLARE_SOA_COLUMN(DecayX, decayX, float);             //! X coordinate of decay vertex
-//DECLARE_SOA_COLUMN(DecayY, decayY, float);             //! Y coordinate of decay vertex
-//DECLARE_SOA_COLUMN(DecayZ, decayZ, float);             //! Z coordinate of decay vertex
-//DECLARE_SOA_COLUMN(Hypertriton, hypertriton, float);   //! hypertriton mass
-//DECLARE_SOA_COLUMN(Sigma, sigma, float);               //! Sigma mass
-//DECLARE_SOA_COLUMN(MatchingChi2, matchingChi2, float); //! Matching Chi2
-//DECLARE_SOA_COLUMN(VtxmatchingChi2, vtxmatchingChi2, float); //! Topology Chi2
-DECLARE_SOA_COLUMN(ITSclsSize, itsClsSize, float);     //! Average ITS cluster size
+DECLARE_SOA_INDEX_COLUMN_FULL(ITSTrackOut, itsTrackOut, int, Tracks, "_ITSout"); //! ITS out track index
 } // namespace kinktracktopology
 
 DECLARE_SOA_TABLE_FULL(Kinks, "Kinks", "AOD", "KINKS", //! Strangeness kink table
                        o2::soa::Index<>,
                        strangenesstracking::TrackId,
                        strangenesstracking::ITSTrackId,
-                       strangenesstracking::DecayX,
-                       strangenesstracking::DecayY,
-                       strangenesstracking::DecayZ,
-                       strangenesstracking::Hypertriton,
-                       strangenesstracking::Sigma,
-                       strangenesstracking::MatchingChi2,
-                       strangenesstracking::VtxmatchingChi2,
-                       strangenesstracking::ITSclsSize);
+                       kinktracktopology::ITSTrackOutId);
 
 namespace origin
 {

@@ -31,6 +31,7 @@ enum TrackTypeEnum : uint8_t {
   TrackIU = 0,      // track at point of innermost update (not propagated)
   Track = 1,        // propagated track
   StrangeTrack = 2, // track found by strangeness tracking at point of innermost update
+  OuterParamTrack = 3, // outer params of a track used in a kink topology reconstruction
   Run2Track = 254,
   Run2Tracklet = 255
 };

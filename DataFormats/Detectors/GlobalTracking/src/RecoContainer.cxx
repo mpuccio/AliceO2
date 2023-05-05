@@ -408,16 +408,13 @@ void DataRequest::requestStrangeTracks(bool mc)
   if (mc) {
     addInput({"strack_mc", "GLO", "STRANGETRACKS_MC", 0, Lifetime::Timeframe});
   }
-  requestMap["STracker"] = mc; // no MC for the time being
+  requestMap["STracker"] = mc;
 }
 
-void DataRequest::requestKinkTracks(bool mc)
+void DataRequest::requestKinkTracks(bool)
 {
   addInput({"kinktracks", "GLO", "KINKTRACKS", 0, Lifetime::Timeframe});
-  if (mc) {
-    addInput({"kink_mc", "GLO", "KINKTRACKS_MC", 0, Lifetime::Timeframe});
-  }
-  requestMap["KNKTracker"] = mc; // no MC for the time being  ///??????
+  requestMap["KNKTracker"] = false; /// No MC provided for kink tracks
 }
 
 void DataRequest::requestCTPDigits(bool mc)
@@ -771,7 +768,7 @@ void RecoContainer::collectData(ProcessingContext& pc, const DataRequest& reques
   if (req != reqMap.end()) {
     addStrangeTracks(pc, req->second);
   }
-    
+
    req = reqMap.find("KNKTracker");
    if (req != reqMap.end()) {
      addKinkTracks(pc, req->second);
@@ -823,12 +820,9 @@ void RecoContainer::addStrangeTracks(ProcessingContext& pc, bool mc)
 }
 
 //____________________________________________________________
-void RecoContainer::addKinkTracks(ProcessingContext& pc, bool mc)
+void RecoContainer::addKinkTracks(ProcessingContext& pc, bool)
 {
-  kinkPool.registerContainer(pc.inputs().get<gsl::span<o2::dataformats::KinkTrack>>("kinktracks"), KNKRACK);
-  if (mc) {
-    kinkPool.registerContainer(pc.inputs().get<gsl::span<o2::MCCompLabel>>("kink_mc"), KNKTRACK_MC);
-  }
+  kinkPool.registerContainer(pc.inputs().get<gsl::span<o2::dataformats::KinkTrack>>("kinktracks"), KNKTRACK);
 }
 
 //____________________________________________________________

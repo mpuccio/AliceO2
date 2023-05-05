@@ -53,7 +53,7 @@ class StrangenessTrackingReader : public o2::framework::Task
 
   std::vector<StrangeTrack> mStrangeTrack, *mStrangeTrackPtr = &mStrangeTrack;
   std::vector<o2::MCCompLabel> mStrangeTrackMC, *mStrangeTrackMCPtr = &mStrangeTrackMC;
-    
+
   std::vector<KinkTrack> mKinkTrack, *mKinkTrackPtr = &mKinkTrack;
   std::vector<o2::MCCompLabel> mKinkTrackMC, *mKinkTrackMCPtr = &mKinkTrackMC;
   // std::vector<RRef> mPV2V0Ref, *mPV2V0RefPtr = &mPV2V0Ref;
@@ -66,7 +66,7 @@ class StrangenessTrackingReader : public o2::framework::Task
   std::string mStrackBranchName = "StrangeTracks";
   std::string mKinkTrackBranchName = "KinkTracks";
   std::string mStrackMCBranchName = "StrangeTrackMCLab";
-  std::string mKinktrackMCBranchName = "KinkTrackMCLab";
+  std::string mKinkTrackMCBranchName = "KinkTrackMCLab";
   // std::string mPVertex2V0RefBranchName = "PV2V0Refs";
 };
 
@@ -84,14 +84,14 @@ void StrangenessTrackingReader::run(ProcessingContext& pc)
   mTree->GetEntry(ent);
   LOG(info) << "Pushing " << mStrangeTrack.size() << " strange tracks at entry " << ent;
   LOG(info) << "Pushing " << mKinkTrack.size() << " kink tracks at entry " << ent;
-    
+
   pc.outputs().snapshot(Output{"GLO", "STRANGETRACKS", 0, Lifetime::Timeframe}, mStrangeTrack);
   pc.outputs().snapshot(Output{"GLO", "KINKTRACKS", 0, Lifetime::Timeframe}, mKinkTrack);
 
   if (mUseMC) {
     LOG(info) << "Pushing " << mStrangeTrackMC.size() << " strange tracks MC labels at entry " << ent;
     LOG(info) << "Pushing " << mKinkTrackMC.size() << " kink tracks MC labels at entry " << ent;
-      
+
     pc.outputs().snapshot(Output{"GLO", "STRANGETRACKS_MC", 0, Lifetime::Timeframe}, mStrangeTrackMC);
     pc.outputs().snapshot(Output{"GLO", "KINKTRACKS_MC", 0, Lifetime::Timeframe}, mKinkTrackMC);
   }
@@ -112,16 +112,16 @@ void StrangenessTrackingReader::connectTree()
   mTree.reset((TTree*)mFile->Get(mSTrackingTreeName.c_str()));
   assert(mTree);
   assert(mTree->GetBranch(mStrackBranchName.c_str()));
-  assert(mTree->GetBranch(mKinkBranchName.c_str()));
+  assert(mTree->GetBranch(mKinkTrackBranchName.c_str()));
 
   mTree->SetBranchAddress(mStrackBranchName.c_str(), &mStrangeTrackPtr);
-  mTree->SetBranchAddress(mKinkBranchName.c_str(), &mKinkTrackPtr);
+  mTree->SetBranchAddress(mKinkTrackBranchName.c_str(), &mKinkTrackPtr);
   if (mUseMC) {
     assert(mTree->GetBranch(mStrackMCBranchName.c_str()));
     mTree->SetBranchAddress(mStrackMCBranchName.c_str(), &mStrangeTrackMCPtr);
-      
-    assert(mTree->GetBranch(mKinkMCBranchName.c_str()));
-    mTree->SetBranchAddress(mKinkMCBranchName.c_str(), &mKinkTrackMCPtr);
+
+    assert(mTree->GetBranch(mKinkTrackMCBranchName.c_str()));
+    mTree->SetBranchAddress(mKinkTrackMCBranchName.c_str(), &mKinkTrackMCPtr);
   }
 
   LOG(info) << "Loaded " << mSTrackingTreeName << " tree from " << mFileName << " with " << mTree->GetEntries() << " entries";

@@ -475,6 +475,22 @@ void AODProducerWorkflowDPL::fillTrackTablesPerCollision(int collisionID,
       }
     }
   }
+
+  /// Add kink tracks to the table
+  auto vtxRefs = data.getPrimaryVertexMatchedTrackRefs();
+  int vtxID = collisionID < 0 ? vtxRefs.size() - 1 : collisionID;
+  auto kinkTracks = data.getKinkTracks();
+  auto itsTracks = data.getITSTracks();
+  for (int iK{mVertexKinkLUT[vtxID]}; iK < mVertexKinkLUT[vtxID + 1]; ++iK) {
+    auto& kinkTrk = kinkTracks[mCollisionKinkTrk[iK].second];
+    auto& itsTrk = itsTracks[kinkTrk.mTrackIdx];
+    auto itsTrkIndex = GIndex(kinkTrk.mTrackIdx, GIndex::ITS);
+    TrackExtraInfo extraInfo = processBarrelTrack(collisionID, collisionBC, itsTrkIndex, data, bcsMap);
+    addToTracksTable(tracksCursor, tracksCovCursor, itsTrk.getParamOut(), collisionID, aod::track::OuterParamTrack);
+    addToTracksExtraTable(tracksExtraCursor, extraInfo);
+    mKinkTrkIndices[mCollisionKinkTrk[iK].second] = mTableTrID++;
+  }
+
   if (collisionID < 0) {
     return;
   }
@@ -490,23 +506,6 @@ void AODProducerWorkflowDPL::fillTrackTablesPerCollision(int collisionID,
     mStrTrkIndices[collStrTrk.second] = mTableTrID;
     mTableTrID++;
   }
-    
-    /// Add kink tracks to the table
-    auto kinkTracks = data.getKinkTracks();
-    for (auto& collKinkTrk : mCollisionKinkTrk) {
-      if (collKinkTrk.first < collisionID) {
-        continue;
-      }
-      if (collKinkTrk.first > collisionID) {
-        break;
-      }
-      auto& kinkTrk = kinkTracks[collKinkTrk.second];
-      TrackExtraInfo extraInfo;
-      extraInfo.itsChi2NCl = kinkTrk.mChi2Match; // TODO: this is the total chi2 of adding the ITS clusters, the topology chi2 meaning might change in the future
-      addToTracksTable(tracksCursor, tracksCovCursor, kinkTrk.mTrackIdx, collisionID, aod::track::KinkTrack);
-      addToTracksExtraTable(tracksExtraCursor, extraInfo);
-      mKinkTrkIndices[collKinkTrk.second] = mTableTrID++;
-    }
 }
 
 void AODProducerWorkflowDPL::fillIndexTablesPerCollision(const o2::dataformats::VtxTrackRef& trackRef, const gsl::span<const GIndex>& GIndices, const o2::globaltracking::RecoContainer& data)
@@ -1131,6 +1130,24 @@ void AODProducerWorkflowDPL::fillMCTrackLabelsTable(const MCTrackLabelCursorType
     }
   }
 
+  // filling the tables with the kink labels
+  auto kinkLabels = data.getKinkTracks();
+  int vtxID = vertexId < 0 ? data.getPrimaryVertexMatchedTrackRefs().size() - 1 : vertexId;
+  auto kinkTracks = data.getKinkTracks();
+  auto itsTracks = data.getITSTracks();
+  for (int iK{mVertexKinkLUT[vtxID]}; iK < mVertexKinkLUT[vtxID + 1]; ++iK) {
+    auto& kinkTrk = kinkTracks[mCollisionKinkTrk[iK].second];
+    auto itsTrkId = GIndex(kinkTrk.mTrackIdx, GIndex::ITS);
+    auto label = data.getTrackMCLabel(itsTrkId);
+    MCLabels labelHolder;
+    labelHolder.labelID = label.isValid() ? (*mToStore[label.getSourceID()][label.getEventID()])[label.getTrackID()] : -1;
+    labelHolder.labelMask = (label.isFake() << 15) | (label.isNoise() << 14);
+    mcTrackLabelCursor(0, labelHolder.labelID, labelHolder.labelMask);
+  }
+
+  if (vertexId < 0) {
+    return;
+  }
   // filling the tables with the strangeness tracking labels
   auto sTrackLabels = data.getStrangeTracksMCLabels();
   for (int iS{mVertexStrLUT[vertexId]}; iS < mVertexStrLUT[vertexId + 1]; ++iS) {
@@ -1250,7 +1267,6 @@ void AODProducerWorkflowDPL::prepareStrangenessTracking(const o2::globaltracking
   mVertexStrLUT.clear();
   mVertexStrLUT.resize(recoData.getPrimaryVertices().size() + 1, 0);
   for (auto& sTrk : recoData.getStrangeTracks()) {
-    auto ITSIndex = GIndex{sTrk.mITSRef, GIndex::ITS};
     int vtxId{0};
     if (sTrk.mPartType == dataformats::kStrkV0) {
       vtxId = v0s[sTrk.mDecayRef].getVertexID();
@@ -1268,31 +1284,40 @@ void AODProducerWorkflowDPL::prepareStrangenessTracking(const o2::globaltracking
   std::sort(mCollisionStrTrk.begin(), mCollisionStrTrk.end(), [](const auto& a, const auto& b) { return a.first < b.first; });
   mStrTrkIndices.clear();
   mStrTrkIndices.resize(mCollisionStrTrk.size(), -1);
-}
 
-void AODProducerWorkflowDPL::prepareKinks(const o2::globaltracking::RecoContainer& recoData)
-{
+
   int knkTrkID = 0;
-    mCollisionKinkTrk.clear();
-    kinkTrk.reserve(recoData.getKinkTracks().size());
+  mCollisionKinkTrk.clear();
+  mCollisionKinkTrk.reserve(recoData.getKinkTracks().size());
+  mVertexKinkLUT.clear();
+  auto vtxRefs = recoData.getPrimaryVertexMatchedTrackRefs();
+  mVertexKinkLUT.resize(vtxRefs.size() + 1, 0);
   for (auto& kinkTrk : recoData.getKinkTracks()) {
-    auto ITSIndex = kinkTrk.mITSRef;
+    auto src = kinkTrk.mTrackIdx.getSource();
     int vtxId{0};
-
-    vtxId=    [kinkTrk.mTrackIdx].getVertexID();   ///??????????????????   WRONG!!!!
-    auto itemV = mVtxToTableCollID.find(vtxId);
-    int collisionId = itemV != mVtxToTableCollID.end() ? itemV->second : -1;
-      kinkTrk.emplace_back(collisionId, knkTrkID++);
+    for (vtxId = 0; vtxId < vtxRefs.size(); ++vtxId) {
+      auto& vtxRef = vtxRefs[vtxId];
+      if (vtxRef.getFirstEntryOfSource(src) > kinkTrk.mTrackIdx.getIndex()) {
+        continue;
+      }
+      if (vtxRef.getFirstEntryOfSource(src) + vtxRef.getEntriesOfSource(src) <= kinkTrk.mTrackIdx.getIndex()) {
+        continue;
+      }
+      break;
+    }
+    mCollisionKinkTrk.emplace_back(vtxId, knkTrkID++);
+    mVertexKinkLUT[vtxId]++;
   }
+  std::exclusive_scan(mVertexKinkLUT.begin(), mVertexKinkLUT.end(), mVertexKinkLUT.begin(), 0);
 
   // sort by collision ID
   std::sort(mCollisionKinkTrk.begin(), mCollisionKinkTrk.end(), [](const auto& a, const auto& b) { return a.first < b.first; });
-    mKinkTrkIndices.clear();
-    mKinkTrkIndices.resize(mCollisionKinkTrk.size(), -1);
+  mKinkTrkIndices.clear();
+  mKinkTrkIndices.resize(mCollisionKinkTrk.size(), -1);
 }
 
-template <typename V0C, typename CC, typename D3BC>
-void AODProducerWorkflowDPL::fillStrangenessTrackingTables(const o2::globaltracking::RecoContainer& recoData, V0C& v0Curs, CC& cascCurs, D3BC& d3BodyCurs)
+template <typename V0C, typename CC, typename D3BC, typename KNKC>
+void AODProducerWorkflowDPL::fillStrangenessTrackingTables(const o2::globaltracking::RecoContainer& recoData, V0C& v0Curs, CC& cascCurs, D3BC& d3BodyCurs, KNKC& knkCurs)
 {
   auto v0s = recoData.getV0s();
   auto cascades = recoData.getCascades();
@@ -1321,33 +1346,27 @@ void AODProducerWorkflowDPL::fillStrangenessTrackingTables(const o2::globaltrack
                                                                                                                               sTrk.mTopoChi2,
                                                                                                                               sTrk.mITSClusSize);
   }
-}
 
-void AODProducerWorkflowDPL::fillKinkTracsTable(const o2::globaltracking::RecoContainer& recoData)
-{
-  int itsTableIdx = -1;
-  int kinkTrkID = 0;
-  for (auto& kinkTrk : recoData.getKinkTracks()) {
-    auto ITSIndex = kinkTrk.mITSRef;
+  int kinkId{0};
+  for (auto& kink : recoData.getKinkTracks()) {
+    auto ITSIndex = GIndex{kink.mITSRef, GIndex::ITS};
     auto item = mGIDToTableID.find(ITSIndex);
+    int itsTableIdx = -1;
     if (item != mGIDToTableID.end()) {
       itsTableIdx = item->second;
     } else {
-      LOG(warn) << "Could not find a ITS kink mother track index";
+      LOG(warn) << "Could not find a ITS kink track index";
       continue;
     }
-    (0,
-     mKinkTrkIndices[kinkTrkID++],
-     itsTableIdx,
-     kinkTrk.mNLayers,
-     kinkTrk.mDecayVtx[0],
-     kinkTrk.mDecayVtx[1],
-     kinkTrk.mDecayVtx[2],
-     kinkTrk.mMasses[0],
-     kinkTrk.mMasses[1],
-     kinkTrk.mChi2Vertex,
-     kinkTrk.mChi2Match,
-     kinkTrk.mITSClusSize);
+    int trackTableIdx = -1;
+    item = mGIDToTableID.find(kink.mTrackIdx);
+    if (item != mGIDToTableID.end()) {
+      trackTableIdx = item->second;
+    } else {
+      LOG(warn) << "Could not find a ITS-TPC kink track index";
+      continue;
+    }
+    knkCurs(0, trackTableIdx, itsTableIdx, mKinkTrkIndices[kinkId++]);
   }
 }
 
@@ -1655,6 +1674,7 @@ void AODProducerWorkflowDPL::run(ProcessingContext& pc)
   auto& trackedCascadeBuilder = pc.outputs().make<TableBuilder>(Output{"AOD", "TRACKEDCASCADE"});
   auto& trackedV0Builder = pc.outputs().make<TableBuilder>(Output{"AOD", "TRACKEDV0"});
   auto& tracked3BodyBuilder = pc.outputs().make<TableBuilder>(Output{"AOD", "TRACKED3BODY"});
+  auto& kinkBuilder = pc.outputs().make<TableBuilder>(Output{"AOD", "KINK"});
   auto& fddBuilder = pc.outputs().make<TableBuilder>(Output{"AOD", "FDD_001"});
   auto& ft0Builder = pc.outputs().make<TableBuilder>(Output{"AOD", "FT0"});
   auto& fv0aBuilder = pc.outputs().make<TableBuilder>(Output{"AOD", "FV0A"});
@@ -1687,6 +1707,7 @@ void AODProducerWorkflowDPL::run(ProcessingContext& pc)
   auto trackedCascadeCursor = trackedCascadeBuilder.cursor<o2::aod::TrackedCascades>();
   auto trackedV0Cursor = trackedV0Builder.cursor<o2::aod::TrackedV0s>();
   auto tracked3BodyCurs = tracked3BodyBuilder.cursor<o2::aod::Tracked3Bodys>();
+  auto kinkCursor = kinkBuilder.cursor<o2::aod::Kinks>();
   auto fddCursor = fddBuilder.cursor<o2::aod::FDDs>();
   auto ft0Cursor = ft0Builder.cursor<o2::aod::FT0s>();
   auto fv0aCursor = fv0aBuilder.cursor<o2::aod::FV0As>();
@@ -1863,7 +1884,7 @@ void AODProducerWorkflowDPL::run(ProcessingContext& pc)
     const auto channelData = fddRecPoint.getBunchChannelData(fddChData);
     for (const auto& channel : channelData) {
       if (channel.mPMNumber < 8) {
-        aFDDAmplitudesC[channel.mPMNumber] = channel.mChargeADC; // amplitude
+        aFDDAmplitudesC[channel.mPMNumber] = channel.mChargeADC;     // amplitude
       } else {
         aFDDAmplitudesA[channel.mPMNumber - 8] = channel.mChargeADC; // amplitude
       }
@@ -1961,8 +1982,6 @@ void AODProducerWorkflowDPL::run(ProcessingContext& pc)
 
   /// Strangeness tracking requires its index LUTs to be filled before the tracks are filled
   prepareStrangenessTracking(recoData);
-    
-  prepareKinks(recoData);
 
   mGIDToTableFwdID.clear(); // reset the tables to be used by 'fillTrackTablesPerCollision'
   mGIDToTableMFTID.clear();
@@ -2020,9 +2039,7 @@ void AODProducerWorkflowDPL::run(ProcessingContext& pc)
   }
 
   fillSecondaryVertices(recoData, v0sCursor, cascadesCursor, decay3BodyCursor);
-  fillStrangenessTrackingTables(recoData, trackedV0Cursor, trackedCascadeCursor, tracked3BodyCurs);
-    
-  fillKinkTracsTable(recoData);
+  fillStrangenessTrackingTables(recoData, trackedV0Cursor, trackedCascadeCursor, tracked3BodyCurs, kinkCursor);
 
   // helper map for fast search of a corresponding class mask for a bc
   std::unordered_map<uint64_t, uint64_t> bcToClassMask;
@@ -2110,14 +2127,6 @@ void AODProducerWorkflowDPL::run(ProcessingContext& pc)
       auto& trackRef = primVer2TRefs[iref];
       fillMCTrackLabelsTable(mcTrackLabelCursor, mcMFTTrackLabelCursor, mcFwdTrackLabelCursor, trackRef, primVerGIs, recoData, iref);
     }
-      
-      ///?????Kinks
-      for (auto& label : recoData.getKinkTracksMCLabels()) {
-        MCLabels labelHolder;
-        labelHolder.labelID = label.isValid() ? (*mToStore[label.getSourceID()][label.getEventID()])[label.getTrackID()] : -1;
-        labelHolder.labelMask = (label.isFake() << 15) | (label.isNoise() << 14);
-        mcTrackLabelCursor(0, labelHolder.labelID, labelHolder.labelMask);
-      }
   }
   clearMCKeepStore(mToStore);
   mGIDToTableID.clear();
@@ -2269,8 +2278,8 @@ AODProducerWorkflowDPL::TrackExtraInfo AODProducerWorkflowDPL::processBarrelTrac
     const double massZ = o2::track::PID::getMass2Z(trackPar.getPID());
     const double energy = sqrt((massZ * massZ) + (extraInfoHolder.tofExpMom * extraInfoHolder.tofExpMom));
     const double exp = extraInfoHolder.length * energy / (cSpeed * extraInfoHolder.tofExpMom);
-    auto tofSignal = (tofMatch.getSignal() - exp) * 1e-3; // time in ns wrt TF start
-    setTrackTime(tofSignal, 0.2, true);                   // FIXME: calculate actual resolution (if possible?)
+    auto tofSignal = (tofMatch.getSignal() - exp) * 1e-3;                                         // time in ns wrt TF start
+    setTrackTime(tofSignal, 0.2, true);                                                           // FIXME: calculate actual resolution (if possible?)
   }
   if (contributorsGID[GIndex::Source::TRD].isIndexSet()) {                                        // ITS-TPC-TRD-TOF, TPC-TRD-TOF, TPC-TRD, ITS-TPC-TRD
     const auto& trdOrig = data.getTrack<o2::trd::TrackTRD>(contributorsGID[GIndex::Source::TRD]); // refitted TRD trac
@@ -2610,7 +2619,7 @@ void AODProducerWorkflowDPL::endOfStream(EndOfStreamContext& ec)
        mTimer.CpuTime(), mTimer.RealTime(), mTimer.Counter() - 1);
 }
 
-DataProcessorSpec getAODProducerWorkflowSpec(GID::mask_t src, bool enableSV, bool enableStrangenessTracking, bool enableKinks, bool useMC, bool CTPConfigPerRun)
+DataProcessorSpec getAODProducerWorkflowSpec(GID::mask_t src, bool enableSV, bool enableStrangenessTracking, bool useMC, bool CTPConfigPerRun)
 {
   std::vector<OutputSpec> outputs;
   auto dataRequest = std::make_shared<DataRequest>();
@@ -2626,12 +2635,9 @@ DataProcessorSpec getAODProducerWorkflowSpec(GID::mask_t src, bool enableSV, boo
   }
   if (enableStrangenessTracking) {
     dataRequest->requestStrangeTracks(useMC);
+    dataRequest->requestKinkTracks(useMC);
     LOGF(info, "requestStrangeTracks Finish");
   }
-    if (enableKinks) {
-      dataRequest->requestKinkTracks(useMC);
-      LOGF(info, "requestKinkTracks Finish");
-    }
   if (src[GID::TPC]) {
     dataRequest->requestClusters(GIndex::getSourcesMask("TPC"), false); // no need to ask for TOF clusters as they are requested with TOF tracks
   }
@@ -2658,7 +2664,7 @@ DataProcessorSpec getAODProducerWorkflowSpec(GID::mask_t src, bool enableSV, boo
                                                               true,                              // askMatLUT
                                                               o2::base::GRPGeomRequest::Aligned, // geometry
                                                               dataRequest->inputs,
-                                                              true); // query only once all objects except mag.field
+                                                              true);                             // query only once all objects except mag.field
 
   outputs.emplace_back(OutputLabel{"O2bc"}, "AOD", "BC", 0, Lifetime::Timeframe);
   outputs.emplace_back(OutputLabel{"O2cascade_001"}, "AOD", "CASCADE_001", 0, Lifetime::Timeframe);
@@ -2682,6 +2688,7 @@ DataProcessorSpec getAODProducerWorkflowSpec(GID::mask_t src, bool enableSV, boo
   outputs.emplace_back(OutputLabel{"O2trackedcascade"}, "AOD", "TRACKEDCASCADE", 0, Lifetime::Timeframe);
   outputs.emplace_back(OutputLabel{"O2trackedv0"}, "AOD", "TRACKEDV0", 0, Lifetime::Timeframe);
   outputs.emplace_back(OutputLabel{"O2tracked3body"}, "AOD", "TRACKED3BODY", 0, Lifetime::Timeframe);
+  outputs.emplace_back(OutputLabel{"O2kink"}, "AOD", "KINK", 0, Lifetime::Timeframe);
   outputs.emplace_back(OutputLabel{"O2ambiguoustrack"}, "AOD", "AMBIGUOUSTRACK", 0, Lifetime::Timeframe);
   outputs.emplace_back(OutputLabel{"O2ambiguousMFTtrack"}, "AOD", "AMBIGUOUSMFTTR", 0, Lifetime::Timeframe);
   outputs.emplace_back(OutputLabel{"O2ambiguousFwdtrack"}, "AOD", "AMBIGUOUSFWDTR", 0, Lifetime::Timeframe);
