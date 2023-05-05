@@ -21,6 +21,7 @@
 #include "CommonUtils/NameConf.h"
 #include "CommonDataFormat/RangeReference.h"
 #include "ReconstructionDataFormats/StrangeTrack.h"
+#include "ReconstructionDataFormats/KinkTrack.h"
 #include "SimulationDataFormat/MCCompLabel.h"
 #include "TFile.h"
 #include "TTree.h"
@@ -36,6 +37,7 @@ class StrangenessTrackingReader : public o2::framework::Task
 {
   // using RRef = o2::dataformats::RangeReference<int, int>;
   using StrangeTrack = dataformats::StrangeTrack;
+  using KinkTrack = dataformats::KinkTrack;
 
  public:
   StrangenessTrackingReader(bool useMC) : mUseMC(useMC) {}
@@ -51,6 +53,9 @@ class StrangenessTrackingReader : public o2::framework::Task
 
   std::vector<StrangeTrack> mStrangeTrack, *mStrangeTrackPtr = &mStrangeTrack;
   std::vector<o2::MCCompLabel> mStrangeTrackMC, *mStrangeTrackMCPtr = &mStrangeTrackMC;
+    
+  std::vector<KinkTrack> mKinkTrack, *mKinkTrackPtr = &mKinkTrack;
+  std::vector<o2::MCCompLabel> mKinkTrackMC, *mKinkTrackMCPtr = &mKinkTrackMC;
   // std::vector<RRef> mPV2V0Ref, *mPV2V0RefPtr = &mPV2V0Ref;
 
   std::unique_ptr<TFile> mFile;
@@ -59,7 +64,9 @@ class StrangenessTrackingReader : public o2::framework::Task
   std::string mFileNameMatches = "";
   std::string mSTrackingTreeName = "o2sim";
   std::string mStrackBranchName = "StrangeTracks";
+  std::string mKinkTrackBranchName = "KinkTracks";
   std::string mStrackMCBranchName = "StrangeTrackMCLab";
+  std::string mKinktrackMCBranchName = "KinkTrackMCLab";
   // std::string mPVertex2V0RefBranchName = "PV2V0Refs";
 };
 
@@ -76,11 +83,17 @@ void StrangenessTrackingReader::run(ProcessingContext& pc)
   assert(ent < mTree->GetEntries()); // this should not happen
   mTree->GetEntry(ent);
   LOG(info) << "Pushing " << mStrangeTrack.size() << " strange tracks at entry " << ent;
+  LOG(info) << "Pushing " << mKinkTrack.size() << " kink tracks at entry " << ent;
+    
   pc.outputs().snapshot(Output{"GLO", "STRANGETRACKS", 0, Lifetime::Timeframe}, mStrangeTrack);
+  pc.outputs().snapshot(Output{"GLO", "KINKTRACKS", 0, Lifetime::Timeframe}, mKinkTrack);
 
   if (mUseMC) {
     LOG(info) << "Pushing " << mStrangeTrackMC.size() << " strange tracks MC labels at entry " << ent;
+    LOG(info) << "Pushing " << mKinkTrackMC.size() << " kink tracks MC labels at entry " << ent;
+      
     pc.outputs().snapshot(Output{"GLO", "STRANGETRACKS_MC", 0, Lifetime::Timeframe}, mStrangeTrackMC);
+    pc.outputs().snapshot(Output{"GLO", "KINKTRACKS_MC", 0, Lifetime::Timeframe}, mKinkTrackMC);
   }
 
   // pc.outputs().snapshot(Output{"GLO", "PVTX_V0REFS", 0, Lifetime::Timeframe}, mPV2V0Ref);
@@ -99,11 +112,16 @@ void StrangenessTrackingReader::connectTree()
   mTree.reset((TTree*)mFile->Get(mSTrackingTreeName.c_str()));
   assert(mTree);
   assert(mTree->GetBranch(mStrackBranchName.c_str()));
+  assert(mTree->GetBranch(mKinkBranchName.c_str()));
 
   mTree->SetBranchAddress(mStrackBranchName.c_str(), &mStrangeTrackPtr);
+  mTree->SetBranchAddress(mKinkBranchName.c_str(), &mKinkTrackPtr);
   if (mUseMC) {
     assert(mTree->GetBranch(mStrackMCBranchName.c_str()));
     mTree->SetBranchAddress(mStrackMCBranchName.c_str(), &mStrangeTrackMCPtr);
+      
+    assert(mTree->GetBranch(mKinkMCBranchName.c_str()));
+    mTree->SetBranchAddress(mKinkMCBranchName.c_str(), &mKinkTrackMCPtr);
   }
 
   LOG(info) << "Loaded " << mSTrackingTreeName << " tree from " << mFileName << " with " << mTree->GetEntries() << " entries";
@@ -113,8 +131,10 @@ DataProcessorSpec getStrangenessTrackingReaderSpec(bool useMC)
 {
   std::vector<OutputSpec> outputs;
   outputs.emplace_back("GLO", "STRANGETRACKS", 0, Lifetime::Timeframe); // found strange tracks
+  outputs.emplace_back("GLO", "KINKTRACKS", 0, Lifetime::Timeframe); // found kink tracks
   if (useMC) {
     outputs.emplace_back("GLO", "STRANGETRACKS_MC", 0, Lifetime::Timeframe); // MC labels
+    outputs.emplace_back("GLO", "KINKTRACKS_MC", 0, Lifetime::Timeframe); // MC labels
   }
 
   return DataProcessorSpec{

@@ -268,6 +268,10 @@ class AODProducerWorkflowDPL : public Task
   std::vector<std::pair<int, int>> mCollisionStrTrk; /// collision index and original index of the strangeness track
   std::vector<int> mStrTrkIndices;                   /// indices of strangeness tracks in the track table
 
+  // Kink tracking indices lookup tables
+  std::vector<std::pair<int, int>> mCollisionKinkTrk; /// collision index and original index of the kink track
+  std::vector<int> mKinkTrkIndices;                   /// indices of kink tracks in the track table
+
   //  std::unordered_map<int, int> mIndexTableFwd;
   std::vector<int> mIndexTableFwd;
   int mIndexFwdID{0};
@@ -493,8 +497,13 @@ class AODProducerWorkflowDPL : public Task
   void fillSecondaryVertices(const o2::globaltracking::RecoContainer& data, V0CursorType& v0Cursor, CascadeCursorType& cascadeCursor, Decay3bodyCursorType& decay3bodyCursor);
 
   void prepareStrangenessTracking(const o2::globaltracking::RecoContainer& recoData);
+    
+  void prepareKinks(const o2::globaltracking::RecoContainer& recoData);
+    
   template <typename V0C, typename CC, typename D3BC>
   void fillStrangenessTrackingTables(const o2::globaltracking::RecoContainer& data, V0C& v0Cursor, CC& cascadeCursor, D3BC& decay3bodyCursor);
+    
+  void fillKinkTracsTable(const o2::globaltracking::RecoContainer& data);
 
   template <typename MCParticlesCursorType>
   void fillMCParticlesTable(o2::steer::MCKinematicsReader& mcReader,
@@ -532,7 +541,7 @@ class AODProducerWorkflowDPL : public Task
 };
 
 /// create a processor spec
-framework::DataProcessorSpec getAODProducerWorkflowSpec(GID::mask_t src, bool enableSV, bool enableST, bool useMC, bool CTPConfigPerRun);
+framework::DataProcessorSpec getAODProducerWorkflowSpec(GID::mask_t src, bool enableSV, bool enableST, bool enableKNK, bool useMC, bool CTPConfigPerRun);
 
 // helper interface for calo cells to "befriend" emcal and phos cells
 class CellHelper

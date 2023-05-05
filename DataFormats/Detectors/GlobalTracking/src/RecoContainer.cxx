@@ -27,6 +27,7 @@
 #include "ReconstructionDataFormats/Cascade.h"
 #include "ReconstructionDataFormats/DecayNbody.h"
 #include "ReconstructionDataFormats/StrangeTrack.h"
+#include "ReconstructionDataFormats/KinkTrack.h"
 #include "ReconstructionDataFormats/VtxTrackIndex.h"
 #include "ReconstructionDataFormats/VtxTrackRef.h"
 #include "ReconstructionDataFormats/TrackCosmics.h"
@@ -410,6 +411,15 @@ void DataRequest::requestStrangeTracks(bool mc)
   requestMap["STracker"] = mc; // no MC for the time being
 }
 
+void DataRequest::requestKinkTracks(bool mc)
+{
+  addInput({"kinktracks", "GLO", "KINKTRACKS", 0, Lifetime::Timeframe});
+  if (mc) {
+    addInput({"kink_mc", "GLO", "KINKTRACKS_MC", 0, Lifetime::Timeframe});
+  }
+  requestMap["KNKTracker"] = mc; // no MC for the time being  ///??????
+}
+
 void DataRequest::requestCTPDigits(bool mc)
 {
   addInput({"CTPDigits", "CTP", "DIGITS", 0, Lifetime::Timeframe});
@@ -761,6 +771,11 @@ void RecoContainer::collectData(ProcessingContext& pc, const DataRequest& reques
   if (req != reqMap.end()) {
     addStrangeTracks(pc, req->second);
   }
+    
+   req = reqMap.find("KNKTracker");
+   if (req != reqMap.end()) {
+     addKinkTracks(pc, req->second);
+   }
 
   req = reqMap.find("IRFramesITS");
   if (req != reqMap.end()) {
@@ -804,6 +819,15 @@ void RecoContainer::addStrangeTracks(ProcessingContext& pc, bool mc)
   strkPool.registerContainer(pc.inputs().get<gsl::span<o2::dataformats::StrangeTrack>>("strangetracks"), STRACK);
   if (mc) {
     strkPool.registerContainer(pc.inputs().get<gsl::span<o2::MCCompLabel>>("strack_mc"), STRACK_MC);
+  }
+}
+
+//____________________________________________________________
+void RecoContainer::addKinkTracks(ProcessingContext& pc, bool mc)
+{
+  kinkPool.registerContainer(pc.inputs().get<gsl::span<o2::dataformats::KinkTrack>>("kinktracks"), KNKRACK);
+  if (mc) {
+    kinkPool.registerContainer(pc.inputs().get<gsl::span<o2::MCCompLabel>>("kink_mc"), KNKTRACK_MC);
   }
 }
 

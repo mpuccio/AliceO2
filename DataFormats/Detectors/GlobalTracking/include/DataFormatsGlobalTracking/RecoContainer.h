@@ -165,6 +165,7 @@ class VtxTrackRef;
 class V0;
 class Cascade;
 class StrangeTrack;
+class KinkTrack;
 class TrackCosmics;
 class GlobalFwdTrack;
 class MatchInfoFwd;
@@ -239,6 +240,7 @@ struct DataRequest {
   void requestPrimaryVerterticesTMP(bool mc);
   void requestSecondaryVertertices(bool mc);
   void requestStrangeTracks(bool mc);
+  void requestKinkTracks(bool mc);
 
   void requestIRFramesITS();
 };
@@ -294,6 +296,13 @@ struct RecoContainer {
     STRACK_MC,
     NSTRKSLOTS
   };
+    
+  // slots to register kink tracking data
+  enum KNKTRKSlots {
+    KNKTRACK,
+    KNKTRACK_MC,
+    KNKSTRKSLOTS
+  };
 
   // slots for cosmics
   enum CosmicsSlots { COSM_TRACKS,
@@ -316,6 +325,7 @@ struct RecoContainer {
   PVertexAccessor pvtxPool; // containers for primary vertex related objects
   SVertexAccessor svtxPool; // containers for secondary vertex related objects
   STrackAccessor strkPool;  // containers for strangeness tracking related objects
+  KNKTrackAccessor kinkPool;  // containers for kink tracking related objects
   CosmicsAccessor cosmPool; // containers for cosmics track data
 
   std::unique_ptr<const o2::dataformats::MCTruthContainer<o2::MCCompLabel>> mcITSClusters;
@@ -389,6 +399,8 @@ struct RecoContainer {
   void addSVertices(o2::framework::ProcessingContext& pc, bool);
 
   void addStrangeTracks(o2::framework::ProcessingContext& pc, bool mc);
+    
+  void addKinkTracks(o2::framework::ProcessingContext& pc, bool mc);
 
   void addIRFramesITS(o2::framework::ProcessingContext& pc);
 
@@ -692,6 +704,11 @@ struct RecoContainer {
   auto getStrangeTracks() const { return strkPool.getSpan<o2::dataformats::StrangeTrack>(STRACK); }
   auto getStrangeTracksMCLabels() const { return strkPool.getSpan<o2::MCCompLabel>(STRACK_MC); }
   const o2::dataformats::StrangeTrack& getStrangeTrack(int i) const { return strkPool.get_as<o2::dataformats::StrangeTrack>(STRACK, i); }
+    
+  // Kink track
+  auto getKinkTracks() const { return kinkPool.getSpan<o2::dataformats::KinkTrack>(KNKTRACK); }
+  auto getKinkTracksMCLabels() const { return kinkPool.getSpan<o2::MCCompLabel>(KNKTRACK_MC); }
+  const o2::dataformats::KinkTrack& getKinkTrack(int i) const { return kinkPool.get_as<o2::dataformats::KinkTrack>(KNKTRACK, i); }
 
   // Cosmic tracks
   const o2::dataformats::TrackCosmics& getCosmicTrack(int i) const { return cosmPool.get_as<o2::dataformats::TrackCosmics>(COSM_TRACKS, i); }
