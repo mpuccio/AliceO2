@@ -420,7 +420,7 @@ void TrackerTraits::findCellsNeighbours(const int iteration)
             !nextCellSeed.propagateTo(currentCellSeed.getX(), getBz())) {
           continue;
         }
-        float chi2 = currentCellSeed.getPredictedChi2(nextCellSeed); ///TODO: switch to the chi2 wrt cluster to avoid correlation
+        float chi2 = currentCellSeed.getPredictedChi2(nextCellSeed); /// TODO: switch to the chi2 wrt cluster to avoid correlation
 
 #ifdef OPTIMISATION_OUTPUT
         bool good{mTimeFrame->getCellsLabel(iLayer)[iCell] == mTimeFrame->getCellsLabel(iLayer + 1)[iNextCell]};
