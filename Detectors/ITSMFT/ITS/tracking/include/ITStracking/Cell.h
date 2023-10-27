@@ -78,22 +78,23 @@ GPUdi() Cell::Cell(const int firstClusterIndex, const int secondClusterIndex, co
 class CellSeed final : public o2::track::TrackParCovF {
   public:
     GPUhd() CellSeed() = default;
-    GPUd() CellSeed(int innerL, int cl0, int cl1, int cl2, int trkl0, int trkl1, o2::track::TrackParCovF& tpc, float chi2) : o2::track::TrackParCovF{tpc}, mChi2{chi2} {
+    GPUd() CellSeed(int innerL, int cl0, int cl1, int cl2, int trkl0, int trkl1, o2::track::TrackParCovF& tpc, float chi2) : o2::track::TrackParCovF{tpc}, mChi2{chi2}, mLevel{1} {
       setUserField(innerL);
       mClusters[innerL + 0] = cl0;
       mClusters[innerL + 1] = cl1;
       mClusters[innerL + 2] = cl2;
       mTracklets[0] = trkl0;
       mTracklets[1] = trkl1;
-
     }
     GPUhd() int getFirstClusterIndex() const { return mClusters[getUserField()]; };
     GPUhd() int getSecondClusterIndex() const { return mClusters[getUserField() + 1]; };
     GPUhd() int getThirdClusterIndex() const { return mClusters[getUserField() + 2]; };
     GPUhd() int getFirstTrackletIndex() const { return mTracklets[0]; };
     GPUhd() int getSecondTrackletIndex() const { return mTracklets[1]; };
+    GPUhd() int getChi2() const { return mChi2; };
+    GPUhd() void setChi2(float chi2) { mChi2 = chi2; };
     GPUhd() int getLevel() const { return mLevel; };
-    GPUhd() void setLevel(const int level) { mLevel = level; };
+    GPUhd() void setLevel(int level) { mLevel = level; };
     GPUhd() int* getLevelPtr() { return &mLevel; }
     GPUhd() int* getClusters() { return mClusters; }
 
