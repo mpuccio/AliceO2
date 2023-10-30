@@ -348,7 +348,7 @@ void TrackerTraits::computeLayerCells(const int iteration)
             continue;
           }
           tf->getCells()[iLayer].emplace_back(iLayer, currentTracklet.firstClusterIndex, nextTracklet.firstClusterIndex, nextTracklet.secondClusterIndex,
-            iTracklet, iNextTracklet, track, chi2);
+                                              iTracklet, iNextTracklet, track, chi2);
         }
       }
     }

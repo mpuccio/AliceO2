@@ -641,9 +641,10 @@ inline int TimeFrame::getNumberOfTracklets() const
   return nTracklets;
 }
 
-inline int TimeFrame::getNumberOfNeighbours() const {
+inline int TimeFrame::getNumberOfNeighbours() const
+{
   int n{0};
-  for (auto & l : mCellsNeighbours) {
+  for (auto& l : mCellsNeighbours) {
     n += l.size();
   }
   return n;
