@@ -457,9 +457,9 @@ void TrackerTraits::processNeighbours(int iLayer, int iLevel, const std::vector<
   updatedCellSeeds.reserve(mTimeFrame->getCellsNeighboursLUT()[iLayer - 1].size()); /// This is not the correct value, we could do a loop to count the number of neighbours
   updatedCellsIds.reserve(updatedCellSeeds.size());
   auto propagator = o2::base::Propagator::Instance();
-  #ifdef CA_DEBUG
+#ifdef CA_DEBUG
   int failed[5]{0, 0, 0, 0, 0}, attempts{0}, failedByMismatch{0};
-  #endif
+#endif
   for (unsigned int iCell{0}; iCell < currentCellSeed.size(); ++iCell) {
     const CellSeed& currentCell{currentCellSeed[iCell]};
     if (currentCell.getLevel() != iLevel) {
