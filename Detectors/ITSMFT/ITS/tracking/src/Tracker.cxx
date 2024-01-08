@@ -107,7 +107,7 @@ void Tracker::clustersToTracksHybrid(std::function<void(std::string s)> logger, 
   mTraits->UpdateTrackingParameters(mTrkParams);
   for (int iteration = 0; iteration < (int)mTrkParams.size(); ++iteration) {
     total += evaluateTask(&Tracker::initialiseTimeFrameHybrid, "Hybrid Timeframe initialisation", logger, iteration);
-    total += evaluateTask(&Tracker::computeTrackletsHybrid, "Hybrid Tracklet finding", logger, iteration, iteration); //TODO: iteration argument put just for the sake of the interface, to be updated with the proper ROF slicing
+    total += evaluateTask(&Tracker::computeTrackletsHybrid, "Hybrid Tracklet finding", logger, iteration, iteration); // TODO: iteration argument put just for the sake of the interface, to be updated with the proper ROF slicing
     logger(fmt::format("\t- Number of tracklets: {}", mTraits->getTFNumberOfTracklets()));
     if (!mTimeFrame->checkMemory(mTrkParams[iteration].MaxMemory)) {
       error("Too much memory used during trackleting, check the detector status and/or the selections.");
