@@ -68,7 +68,8 @@ void Tracker::clustersToTracks(std::function<void(std::string s)> logger, std::f
 
     do {
       for (int iROFs{0}; iROFs < nROFsIterations; ++iROFs) {
-        timeTracklets += evaluateTask(&Tracker::computeTracklets, "Tracklet finding", [](std::string) {}, iteration, iROFs, iVertex);
+        timeTracklets += evaluateTask(
+          &Tracker::computeTracklets, "Tracklet finding", [](std::string) {}, iteration, iROFs, iVertex);
         nTracklets += mTraits->getTFNumberOfTracklets();
         if (!mTimeFrame->checkMemory(mTrkParams[iteration].MaxMemory)) {
           error(fmt::format("Too much memory used during trackleting in iteration {}, check the detector status and/or the selections.", iteration));
@@ -80,7 +81,8 @@ void Tracker::clustersToTracks(std::function<void(std::string s)> logger, std::f
           break;
         }
 
-        timeCells += evaluateTask(&Tracker::computeCells, "Cell finding", [](std::string) {}, iteration);
+        timeCells += evaluateTask(
+          &Tracker::computeCells, "Cell finding", [](std::string) {}, iteration);
         nCells += mTraits->getTFNumberOfCells();
         if (!mTimeFrame->checkMemory(mTrkParams[iteration].MaxMemory)) {
           error(fmt::format("Too much memory used during cell finding in iteration {}, check the detector status and/or the selections.", iteration));
@@ -92,9 +94,11 @@ void Tracker::clustersToTracks(std::function<void(std::string s)> logger, std::f
           break;
         }
 
-        timeNeighbours += evaluateTask(&Tracker::findCellsNeighbours, "Neighbour finding", [](std::string) {}, iteration);
+        timeNeighbours += evaluateTask(
+          &Tracker::findCellsNeighbours, "Neighbour finding", [](std::string) {}, iteration);
         nNeighbours += mTimeFrame->getNumberOfNeighbours();
-        timeRoads += evaluateTask(&Tracker::findRoads, "Road finding", [](std::string) {}, iteration);
+        timeRoads += evaluateTask(
+          &Tracker::findRoads, "Road finding", [](std::string) {}, iteration);
       }
       iVertex++;
     } while (iVertex < maxNvertices);
