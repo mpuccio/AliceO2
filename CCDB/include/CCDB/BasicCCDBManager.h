@@ -328,7 +328,6 @@ T* CCDBManagerInstance::getForRunMiddleTimeStamp(std::string const& path, int ru
   return getForTimeStamp<T>(path, start / 2 + stop / 2);
 }
 
-
 class BasicCCDBManager : public CCDBManagerInstance
 {
  public:
