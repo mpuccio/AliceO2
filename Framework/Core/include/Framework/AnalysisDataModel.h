@@ -243,7 +243,7 @@ DECLARE_SOA_COLUMN(ITSClusterSizes, itsClusterSizes, uint32_t);                 
 DECLARE_SOA_COLUMN(ITSClusterMap, itsClusterMap, uint8_t);                                    //! Old cluster ITS cluster map, kept for version 0 compatibility
 DECLARE_SOA_COLUMN(TPCNClsFindable, tpcNClsFindable, uint8_t);                                //! Findable TPC clusters for this track geometry
 DECLARE_SOA_COLUMN(TPCNClsFindableMinusFound, tpcNClsFindableMinusFound, int8_t);             //! TPC Clusters: Findable - Found
-DECLARE_SOA_COLUMN(TPCNClsFindableMinusPID, tpcNClsFindableMinusPID, int8_t);             //! TPC Clusters: Findable - Found clusters used for PID
+DECLARE_SOA_COLUMN(TPCNClsFindableMinusPID, tpcNClsFindableMinusPID, int8_t);                 //! TPC Clusters: Findable - Found clusters used for PID
 DECLARE_SOA_COLUMN(TPCNClsFindableMinusCrossedRows, tpcNClsFindableMinusCrossedRows, int8_t); //! TPC Clusters: Findable - crossed rows
 DECLARE_SOA_COLUMN(TPCNClsShared, tpcNClsShared, uint8_t);                                    //! Number of shared TPC clusters
 DECLARE_SOA_COLUMN(TRDPattern, trdPattern, uint8_t);                                          //! Contributor to the track on TRD layer in bits 0-5, starting from the innermost, bit 6 indicates a potentially split tracklet, bit 7 if the track crossed a padrow
@@ -604,7 +604,7 @@ DECLARE_SOA_TABLE_FULL_VERSIONED(StoredTracksExtra_001, "TracksExtra", "AOD", "T
 
 DECLARE_SOA_TABLE_FULL_VERSIONED(StoredTracksExtra_002, "TracksExtra", "AOD", "TRACKEXTRA", 2, // On disk version of TracksExtra, version 2
                                  track::TPCInnerParam, track::Flags, track::ITSClusterSizes,
-                                 track::TPCNClsFindable, track::TPCNClsFindableMinusFound, track::TPCNClsFindableMinusPID,  track::TPCNClsFindableMinusCrossedRows,
+                                 track::TPCNClsFindable, track::TPCNClsFindableMinusFound, track::TPCNClsFindableMinusPID, track::TPCNClsFindableMinusCrossedRows,
                                  track::TPCNClsShared, track::v001::extensions::TPCDeltaTFwd<track::TrackTimeRes, track::Flags>, track::v001::extensions::TPCDeltaTBwd<track::TrackTimeRes, track::Flags>,
                                  track::TRDPattern, track::ITSChi2NCl, track::TPCChi2NCl, track::TRDChi2, track::TOFChi2,
                                  track::TPCSignal, track::TRDSignal, track::Length, track::TOFExpMom,
