@@ -289,7 +289,7 @@ void CheckTracksCA(bool doFakeClStud = false,
   clone->Divide(clone, den, 1, 1, "b");
   clone->SetLineColor(3);
   clone->Draw("histesame");
-  TCanvas *c2 = new TCanvas;
+  TCanvas* c2 = new TCanvas;
   c2->SetGridx();
   c2->SetGridy();
   hZvertex->DrawClone();
