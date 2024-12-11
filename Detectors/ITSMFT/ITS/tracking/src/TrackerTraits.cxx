@@ -618,7 +618,7 @@ void TrackerTraits::findRoads(const int iteration)
       temporaryTrack.resetCovariance();
       temporaryTrack.setChi2(0);
       fitSuccess = fitTrack(temporaryTrack, mTrkParams[0].NLayers - 1, -1, -1, mTrkParams[0].MaxChi2ClusterAttachment, mTrkParams[0].MaxChi2NDF, 50.f);
-      if (!fitSuccess || temporaryTrack.getPt() < mTrkParams[iteration].MinPt) {
+      if (!fitSuccess || temporaryTrack.getPt() < mTrkParams[iteration].MinPt[mTrkParams[iteration].NLayers - temporaryTrack.getNClusters()]) {
         continue;
       }
       tracks[trackIndex++] = temporaryTrack;
