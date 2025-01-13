@@ -1441,7 +1441,7 @@ namespace fv0a
 {
 DECLARE_SOA_INDEX_COLUMN(BC, bc);                             //! BC index
 DECLARE_SOA_COLUMN(Amplitude, amplitude, std::vector<float>); //! Amplitudes of non-zero channels. The channel IDs are given in Channel (at the same index)
-DECLARE_SOA_COLUMN(TimeFV0A, timeFV0A, std::vector<float>); //! Time of non-zero channels. The channel IDs are given in Channel (at the same index). Only for the FITExtra table
+DECLARE_SOA_COLUMN(TimeFV0A, timeFV0A, std::vector<float>);   //! Time of non-zero channels. The channel IDs are given in Channel (at the same index). Only for the FITExtra table
 DECLARE_SOA_COLUMN(Channel, channel, std::vector<uint8_t>);   //! Channel IDs which had non-zero amplitudes. There are at maximum 48 channels.
 DECLARE_SOA_COLUMN(Time, time, float);                        //! Time in ns
 DECLARE_SOA_COLUMN(TriggerMask, triggerMask, uint8_t);        //!
@@ -1472,10 +1472,10 @@ namespace ft0
 {
 DECLARE_SOA_INDEX_COLUMN(BC, bc);                               //! BC index
 DECLARE_SOA_COLUMN(AmplitudeA, amplitudeA, std::vector<float>); //! Amplitudes of non-zero channels on the A-side. The channel IDs are given in ChannelA (at the same index)
-DECLARE_SOA_COLUMN(TimeFT0A, timeFT0A, std::vector<float>); //! Time of non-zero channels on the A-side. The channel IDs are given in ChannelA (at the same index). Only for the FITExtra table
+DECLARE_SOA_COLUMN(TimeFT0A, timeFT0A, std::vector<float>);     //! Time of non-zero channels on the A-side. The channel IDs are given in ChannelA (at the same index). Only for the FITExtra table
 DECLARE_SOA_COLUMN(ChannelA, channelA, std::vector<uint8_t>);   //! Channel IDs on the A side which had non-zero amplitudes. There are at maximum 96 channels.
 DECLARE_SOA_COLUMN(AmplitudeC, amplitudeC, std::vector<float>); //! Amplitudes of non-zero channels on the C-side. The channel IDs are given in ChannelC (at the same index)
-DECLARE_SOA_COLUMN(TimeFT0C, timeFT0C, std::vector<float>); //! Time of non-zero channels on the C-side. The channel IDs are given in ChannelC (at the same index). Only for the FITExtra table
+DECLARE_SOA_COLUMN(TimeFT0C, timeFT0C, std::vector<float>);     //! Time of non-zero channels on the C-side. The channel IDs are given in ChannelC (at the same index). Only for the FITExtra table
 DECLARE_SOA_COLUMN(ChannelC, channelC, std::vector<uint8_t>);   //! Channel IDs on the C side which had non-zero amplitudes. There are at maximum 112 channels.
 DECLARE_SOA_COLUMN(TimeA, timeA, float);                        //! Average A-side time
 DECLARE_SOA_COLUMN(TimeC, timeC, float);                        //! Average C-side time

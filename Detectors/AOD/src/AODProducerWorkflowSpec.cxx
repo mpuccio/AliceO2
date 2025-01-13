@@ -2075,8 +2075,8 @@ void AODProducerWorkflowDPL::run(ProcessingContext& pc)
               fddRecPoint.getTrigger().getTriggersignals());
     if (mEnableFITextra) {
       fddExtraCursor(bcID,
-                    aFDDTimesA,
-                    aFDDTimesC);
+                     aFDDTimesA,
+                     aFDDTimesC);
     }
   }
 
