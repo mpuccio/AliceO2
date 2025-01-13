@@ -54,6 +54,7 @@ WorkflowSpec defineDataProcessing(ConfigContext const& configcontext)
   bool enableSV = !configcontext.options().get<bool>("disable-secondary-vertices");
   bool enableST = !configcontext.options().get<bool>("disable-strangeness-tracker");
   bool ctpcfgperrun = !configcontext.options().get<bool>("ctpconfig-run-independent");
+  bool enableFITextra = configcontext.options().get<bool>("enableFITextra");
 
   GID::mask_t allowedSrc = GID::getSourcesMask("ITS,MFT,MCH,MID,MCH-MID,TPC,TRD,ITS-TPC,TPC-TOF,TPC-TRD,ITS-TPC-TOF,ITS-TPC-TRD,TPC-TRD-TOF,ITS-TPC-TRD-TOF,MFT-MCH,FT0,FV0,FDD,ZDC,EMC,CTP,PHS,CPV,HMP");
   GID::mask_t src = allowedSrc & GID::getSourcesMask(configcontext.options().get<std::string>("info-sources"));
@@ -64,7 +65,7 @@ WorkflowSpec defineDataProcessing(ConfigContext const& configcontext)
   }
 
   WorkflowSpec specs;
-  specs.emplace_back(o2::aodproducer::getAODProducerWorkflowSpec(src, enableSV, enableST, useMC, ctpcfgperrun));
+  specs.emplace_back(o2::aodproducer::getAODProducerWorkflowSpec(src, enableSV, enableST, useMC, ctpcfgperrun, enableFITextra));
 
   auto srcCls = src & ~(GID::getSourceMask(GID::MCH) | GID::getSourceMask(GID::MID)); // Don't read global MID and MCH clusters (those attached to tracks are always read)
   auto srcMtc = src;

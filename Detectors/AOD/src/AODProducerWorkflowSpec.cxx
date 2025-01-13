@@ -1830,8 +1830,11 @@ void AODProducerWorkflowDPL::run(ProcessingContext& pc)
   auto trackedV0Cursor = createTableCursor<o2::aod::TrackedV0s>(pc);
   auto tracked3BodyCurs = createTableCursor<o2::aod::Tracked3Bodys>(pc);
   auto fddCursor = createTableCursor<o2::aod::FDDs>(pc);
+  auto fddExtraCursor = createTableCursor<o2::aod::FDDsExtra>(pc);
   auto ft0Cursor = createTableCursor<o2::aod::FT0s>(pc);
+  auto ft0ExtraCursor = createTableCursor<o2::aod::FT0sExtra>(pc);
   auto fv0aCursor = createTableCursor<o2::aod::FV0As>(pc);
+  auto fv0aExtraCursor = createTableCursor<o2::aod::FV0AsExtra>(pc);
   auto fwdTracksCursor = createTableCursor<o2::aod::StoredFwdTracks>(pc);
   auto fwdTracksCovCursor = createTableCursor<o2::aod::StoredFwdTracksCov>(pc);
   auto fwdTrkClsCursor = createTableCursor<o2::aod::FwdTrkCls>(pc);
@@ -1897,16 +1900,18 @@ void AODProducerWorkflowDPL::run(ProcessingContext& pc)
     tfNumber = mTFNumber;
   }
 
-  std::vector<float> aAmplitudes;
+  std::vector<float> aAmplitudes, aTimes;
   std::vector<uint8_t> aChannels;
   fv0aCursor.reserve(fv0RecPoints.size());
   for (auto& fv0RecPoint : fv0RecPoints) {
     aAmplitudes.clear();
     aChannels.clear();
+    aTimes.clear();
     const auto channelData = fv0RecPoint.getBunchChannelData(fv0ChData);
     for (auto& channel : channelData) {
       if (channel.charge > 0) {
         aAmplitudes.push_back(truncateFloatFraction(channel.charge, mV0Amplitude));
+        aTimes.push_back(channel.time);
         aChannels.push_back(channel.channel);
       }
     }
@@ -1923,6 +1928,11 @@ void AODProducerWorkflowDPL::run(ProcessingContext& pc)
                aChannels,
                truncateFloatFraction(fv0RecPoint.getCollisionGlobalMeanTime() * 1E-3, mV0Time), // ps to ns
                fv0RecPoint.getTrigger().getTriggersignals());
+
+    if (mEnableFITextra) {
+      fv0aExtraCursor(bcID,
+                      aTimes);
+    }
   }
 
   std::vector<float> zdcEnergy, zdcAmplitudes, zdcTime;
@@ -2026,25 +2036,17 @@ void AODProducerWorkflowDPL::run(ProcessingContext& pc)
             [](const std::vector<int>& left, const std::vector<int>& right) { return (left[0] < right[0]); });
 
   // vector of FDD amplitudes
-  int16_t aFDDAmplitudesA[8] = {0u};
-  int16_t aFDDAmplitudesC[8] = {0u};
+  int16_t aFDDAmplitudesA[8] = {0u}, aFDDAmplitudesC[8] = {0u};
+  float aFDDTimesA[8] = {0.f}, aFDDTimesC[8] = {0.f};
   // filling FDD table
   fddCursor.reserve(fddRecPoints.size());
   for (const auto& fddRecPoint : fddRecPoints) {
     for (int i = 0; i < 8; i++) {
       aFDDAmplitudesA[i] = 0;
       aFDDAmplitudesC[i] = 0;
+      aFDDTimesA[i] = 0.f;
+      aFDDTimesC[i] = 0.f;
     }
-
-    const auto channelData = fddRecPoint.getBunchChannelData(fddChData);
-    for (const auto& channel : channelData) {
-      if (channel.mPMNumber < 8) {
-        aFDDAmplitudesC[channel.mPMNumber] = channel.mChargeADC; // amplitude
-      } else {
-        aFDDAmplitudesA[channel.mPMNumber - 8] = channel.mChargeADC; // amplitude
-      }
-    }
-
     uint64_t globalBC = fddRecPoint.getInteractionRecord().toLong();
     uint64_t bc = globalBC;
     auto item = bcsMap.find(bc);
@@ -2054,21 +2056,39 @@ void AODProducerWorkflowDPL::run(ProcessingContext& pc)
     } else {
       LOG(fatal) << "Error: could not find a corresponding BC ID for a FDD rec. point; BC = " << bc;
     }
+    const auto channelData = fddRecPoint.getBunchChannelData(fddChData);
+    for (const auto& channel : channelData) {
+      if (channel.mPMNumber < 8) {
+        aFDDAmplitudesC[channel.mPMNumber] = channel.mChargeADC; // amplitude
+        aFDDTimesC[channel.mPMNumber] = channel.mTime;           // time
+      } else {
+        aFDDAmplitudesA[channel.mPMNumber - 8] = channel.mChargeADC; // amplitude
+        aFDDTimesA[channel.mPMNumber - 8] = channel.mTime;           // time
+      }
+    }
+
     fddCursor(bcID,
               aFDDAmplitudesA,
               aFDDAmplitudesC,
               truncateFloatFraction(fddRecPoint.getCollisionTimeA() * 1E-3, mFDDTime), // ps to ns
               truncateFloatFraction(fddRecPoint.getCollisionTimeC() * 1E-3, mFDDTime), // ps to ns
               fddRecPoint.getTrigger().getTriggersignals());
+    if (mEnableFITextra) {
+      fddExtraCursor(bcID,
+                    aFDDTimesA,
+                    aFDDTimesC);
+    }
   }
 
   // filling FT0 table
-  std::vector<float> aAmplitudesA, aAmplitudesC;
+  std::vector<float> aAmplitudesA, aAmplitudesC, aTimesA, aTimesC;
   std::vector<uint8_t> aChannelsA, aChannelsC;
   ft0Cursor.reserve(ft0RecPoints.size());
   for (auto& ft0RecPoint : ft0RecPoints) {
     aAmplitudesA.clear();
     aAmplitudesC.clear();
+    aTimesA.clear();
+    aTimesC.clear();
     aChannelsA.clear();
     aChannelsC.clear();
     const auto channelData = ft0RecPoint.getBunchChannelData(ft0ChData);
@@ -2079,9 +2099,11 @@ void AODProducerWorkflowDPL::run(ProcessingContext& pc)
         if (channel.ChId < nFT0ChannelsAside) {
           aChannelsA.push_back(channel.ChId);
           aAmplitudesA.push_back(truncateFloatFraction(channel.QTCAmpl, mT0Amplitude));
+          aTimesA.push_back(channel.CFDTime);
         } else {
           aChannelsC.push_back(channel.ChId - nFT0ChannelsAside);
           aAmplitudesC.push_back(truncateFloatFraction(channel.QTCAmpl, mT0Amplitude));
+          aTimesC.push_back(channel.CFDTime);
         }
       }
     }
@@ -2102,6 +2124,11 @@ void AODProducerWorkflowDPL::run(ProcessingContext& pc)
               truncateFloatFraction(ft0RecPoint.getCollisionTimeA() * 1E-3, mT0Time), // ps to ns
               truncateFloatFraction(ft0RecPoint.getCollisionTimeC() * 1E-3, mT0Time), // ps to ns
               ft0RecPoint.getTrigger().getTriggersignals());
+    if (mEnableFITextra) {
+      ft0ExtraCursor(bcID,
+                     aTimesA,
+                     aTimesC);
+    }
   }
 
   if (mUseMC) {
@@ -3073,7 +3100,7 @@ void AODProducerWorkflowDPL::endOfStream(EndOfStreamContext& /*ec*/)
   mStreamer.reset();
 }
 
-DataProcessorSpec getAODProducerWorkflowSpec(GID::mask_t src, bool enableSV, bool enableStrangenessTracking, bool useMC, bool CTPConfigPerRun)
+DataProcessorSpec getAODProducerWorkflowSpec(GID::mask_t src, bool enableSV, bool enableStrangenessTracking, bool useMC, bool CTPConfigPerRun, bool enableFITextra)
 {
   auto dataRequest = std::make_shared<DataRequest>();
   dataRequest->inputs.emplace_back("ctpconfig", "CTP", "CTPCONFIG", 0, Lifetime::Condition, ccdbParamSpec("CTP/Config/Config", CTPConfigPerRun));
@@ -3183,7 +3210,7 @@ DataProcessorSpec getAODProducerWorkflowSpec(GID::mask_t src, bool enableSV, boo
     "aod-producer-workflow",
     dataRequest->inputs,
     outputs,
-    AlgorithmSpec{adaptFromTask<AODProducerWorkflowDPL>(src, dataRequest, ggRequest, enableSV, useMC)},
+    AlgorithmSpec{adaptFromTask<AODProducerWorkflowDPL>(src, dataRequest, ggRequest, enableSV, useMC, enableFITextra)},
     Options{
       ConfigParamSpec{"run-number", VariantType::Int64, -1L, {"The run-number. If left default we try to get it from DPL header."}},
       ConfigParamSpec{"aod-timeframe-id", VariantType::Int64, -1L, {"Set timeframe number"}},
