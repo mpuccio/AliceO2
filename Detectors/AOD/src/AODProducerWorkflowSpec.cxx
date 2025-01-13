@@ -2062,10 +2062,10 @@ void AODProducerWorkflowDPL::run(ProcessingContext& pc)
     const auto channelData = fddRecPoint.getBunchChannelData(fddChData);
     for (const auto& channel : channelData) {
       if (channel.mPMNumber < 8) {
-        aFDDAmplitudesC[channel.mPMNumber] = channel.mChargeADC; // amplitude
+        aFDDAmplitudesC[channel.mPMNumber] = channel.mChargeADC;                                      // amplitude
         aFDDTimesC[channel.mPMNumber] = truncateFloatFraction(channel.mTime * 1E-3, mFDDChannelTime); // time
       } else {
-        aFDDAmplitudesA[channel.mPMNumber - 8] = channel.mChargeADC; // amplitude
+        aFDDAmplitudesA[channel.mPMNumber - 8] = channel.mChargeADC;                                      // amplitude
         aFDDTimesA[channel.mPMNumber - 8] = truncateFloatFraction(channel.mTime * 1E-3, mFDDChannelTime); // time
       }
     }
