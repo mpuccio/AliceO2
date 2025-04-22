@@ -370,6 +370,7 @@ void Tracker::getGlobalConfiguration()
     params.SaveTimeBenchmarks = tc.saveTimeBenchmarks;
     params.FataliseUponFailure = tc.fataliseUponFailure;
     params.DropTFUponFailure = tc.dropTFUponFailure;
+    params.AllowSharingFirstCluster = tc.allowSharingFirstCluster;
     for (int iD{0}; iD < 3; ++iD) {
       params.Diamond[iD] = tc.diamondPos[iD];
     }

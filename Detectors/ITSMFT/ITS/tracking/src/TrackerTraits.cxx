@@ -788,7 +788,9 @@ template <int nLayers>
 void TrackerTraits<nLayers>::findRoads(const int iteration)
 {
   CA_DEBUGGER(std::cout << "Finding roads, iteration " << iteration << std::endl);
-
+  std::vector<std::vector<int>> firstClusters, sharedFirstClusters;
+  firstClusters.resize(mTrkParams[iteration].NLayers);
+  sharedFirstClusters.resize(mTrkParams[iteration].NLayers);
   for (int startLevel{mTrkParams[iteration].CellsPerRoad()}; startLevel >= mTrkParams[iteration].CellMinimumLevel(); --startLevel) {
     CA_DEBUGGER(std::cout << "\t > Processing level " << startLevel << std::endl);
     auto seedFilter = [&](const CellSeed& seed) {
@@ -897,15 +899,22 @@ void TrackerTraits<nLayers>::findRoads(const int iteration)
     for (auto& track : tracks) {
       int nShared = 0;
       bool isFirstShared{false};
+      int firstLayer{-1}, firstCluster{-1};
       for (int iLayer{0}; iLayer < mTrkParams[0].NLayers; ++iLayer) {
         if (track.getClusterIndex(iLayer) == constants::its::UnusedIndex) {
           continue;
         }
-        nShared += int(mTimeFrame->isClusterUsed(iLayer, track.getClusterIndex(iLayer)));
-        isFirstShared |= !iLayer && mTimeFrame->isClusterUsed(iLayer, track.getClusterIndex(iLayer));
+        bool isShared = mTimeFrame->isClusterUsed(iLayer, track.getClusterIndex(iLayer));
+        nShared += int(isShared);
+        if (firstLayer < 0) {
+          firstCluster = track.getClusterIndex(iLayer);
+          isFirstShared = isShared && mTrkParams[0].AllowSharingFirstCluster && std::find(firstClusters[iLayer].begin(), firstClusters[iLayer].end(), firstCluster) != firstClusters[iLayer].end();
+          firstLayer = iLayer;
+        }
       }
 
-      if (nShared > mTrkParams[0].ClusterSharing) {
+      /// do not account for the first cluster in the shared clusters number if it is allowed
+      if (nShared - int(isFirstShared && mTrkParams[0].AllowSharingFirstCluster) > mTrkParams[0].ClusterSharing) {
         continue;
       }
 
@@ -934,6 +943,33 @@ void TrackerTraits<nLayers>::findRoads(const int iteration)
         track.setNextROFbit();
       }
       mTimeFrame->getTracks(o2::gpu::CAMath::Min(rofs[0], rofs[1])).emplace_back(track);
+
+      firstClusters[firstLayer].push_back(firstCluster);
+      if (isFirstShared) {
+        sharedFirstClusters[firstLayer].push_back(firstCluster);
+      }
+    }
+  }
+
+  /// Now we have to set the shared cluster flag
+  for (int iLayer{0}; iLayer < mTrkParams[0].NLayers; ++iLayer) {
+    std::sort(sharedFirstClusters[iLayer].begin(), sharedFirstClusters[iLayer].end());
+  }
+
+  for (int iROF{0}; iROF < mTimeFrame->getNrof(); ++iROF) {
+    for (auto& track : mTimeFrame->getTracks(iROF)) {
+      int firstLayer{mTrkParams[0].NLayers}, firstCluster{constants::its::UnusedIndex};
+      for (int iLayer{0}; iLayer < mTrkParams[0].NLayers; ++iLayer) {
+        if (track.getClusterIndex(iLayer) == constants::its::UnusedIndex) {
+          continue;
+        }
+        firstLayer = iLayer;
+        firstCluster = track.getClusterIndex(iLayer);
+        break;
+      }
+      if (std::binary_search(sharedFirstClusters[firstLayer].begin(), sharedFirstClusters[firstLayer].end(), firstCluster)) {
+        track.setSharedClusters();
+      }
     }
   }
 }
