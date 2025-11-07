@@ -156,7 +156,7 @@ int32_t GPUReconstructionCUDA::InitDevice_Runtime()
       }
       if (GPUChkErrI(cudaGetDeviceProperties(&deviceProp, i)) ||
           GPUChkErrI(cudaDeviceGetAttribute(&deviceMemoryClockRate, cudaDevAttrMemoryClockRate, i)) ||
-	  GPUChkErrI(cudaDeviceGetAttribute(&deviceClockRate, cudaDevAttrClockRate, i))) {
+          GPUChkErrI(cudaDeviceGetAttribute(&deviceClockRate, cudaDevAttrClockRate, i))) {
         continue;
       }
       if (GetProcessingSettings().debugLevel >= 4) {
