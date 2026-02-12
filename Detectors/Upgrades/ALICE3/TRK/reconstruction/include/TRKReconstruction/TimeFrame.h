@@ -38,7 +38,8 @@ class GeometryTGeo;
 
 /// Hash function for MCCompLabel to use as unordered_map key
 struct MCCompLabelHash {
-  std::size_t operator()(const o2::MCCompLabel& label) const {
+  std::size_t operator()(const o2::MCCompLabel& label) const
+  {
     return std::hash<uint64_t>{}(label.getRawValue());
   }
 };
@@ -71,7 +72,6 @@ class TimeFrame : public o2::its::TimeFrame<nLayers>
   void getPrimaryVerticesFromMC(TTree* mcHeaderTree, int nRofs, Long64_t nEvents, int inROFpileup);
 
  private:
-
   ClassDefNV(TimeFrame, 1);
 };
 
