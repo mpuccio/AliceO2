@@ -62,7 +62,6 @@ class TimeFrame : public o2::its::TimeFrame<nLayers>
   /// \param nEvents Number of events to process
   /// \param inROFpileup Number of events per ROF
   void getPrimaryVerticesFromMC(TTree* mcHeaderTree, int nRofs, Long64_t nEvents, int inROFpileup);
-
 };
 
 } // namespace trk
