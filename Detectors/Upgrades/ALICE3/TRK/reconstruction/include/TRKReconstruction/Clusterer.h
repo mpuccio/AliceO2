@@ -90,8 +90,8 @@ class Clusterer
     // column buffers (pre-cluster state); extra sentinel entries at [0] and [size-1]
     int* column1 = nullptr;
     int* column2 = nullptr;
-    int* curr = nullptr; ///< current column pre-cluster indices
-    int* prev = nullptr; ///< previous column pre-cluster indices
+    int* curr = nullptr;                               ///< current column pre-cluster indices
+    int* prev = nullptr;                               ///< previous column pre-cluster indices
     int size = constants::moduleMLOT::chip::nRows + 2; ///< reallocated per chip in initChip
 
     // pixels[i] = {next_in_chain, global_digit_index}
@@ -101,7 +101,7 @@ class Clusterer
     uint16_t currCol = 0xffff;
     bool noLeftCol = true;
 
-    std::array<Label, MaxLabels> labelsBuff;           ///< MC label buffer for one cluster
+    std::array<Label, MaxLabels> labelsBuff;               ///< MC label buffer for one cluster
     std::vector<std::pair<uint16_t, uint16_t>> pixArrBuff; ///< (row,col) pixel buffer for pattern
 
     // per-thread output (accumulated, then merged back by caller)

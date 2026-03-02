@@ -38,8 +38,6 @@
 #include "Framework/Logger.h"
 #endif
 
-
-
 void CheckClusters(const std::string& clusfile = "o2clus_trk.root",
                    const std::string& hitfile = "o2sim_HitsTRK.root",
                    const std::string& inputGeom = "o2sim_geometry.root",
@@ -114,8 +112,8 @@ void CheckClusters(const std::string& clusfile = "o2clus_trk.root",
   //
   // ──────────────────────────────────────────────────────────────────────────
   const float halfThicknessMLOT = o2::trk::SegmentationChip::SiliconThicknessMLOT / 2.f;
-  const float yPlaneVD   = (float)o2::trk::constants::alice3resp::responseYShift; // VD: collection plane 5 µm inside outer (entry) face in flat local frame
-  const float yPlaneMLOT = halfThicknessMLOT - depthMax;                          // MLOT: entry @ +halfThick, collection depthMax below entry
+  const float yPlaneVD = (float)o2::trk::constants::alice3resp::responseYShift; // VD: collection plane 5 µm inside outer (entry) face in flat local frame
+  const float yPlaneMLOT = halfThicknessMLOT - depthMax;                        // MLOT: entry @ +halfThick, collection depthMax below entry
   LOGP(info, "Response depthMax = {:.4f} cm  |  VD Y-plane = {:.4f} cm  |  ML/OT Y-plane = {:.4f} cm",
        depthMax, yPlaneVD, yPlaneMLOT);
 
