@@ -25,7 +25,7 @@ namespace o2::its::gpu
 {
 
 template <int nLayers = 7>
-class TimeFrameGPU final : public TimeFrame<nLayers>
+class TimeFrameGPU : public TimeFrame<nLayers>
 {
   using typename TimeFrame<nLayers>::CellSeedN;
   using typename TimeFrame<nLayers>::IndexTableUtilsN;

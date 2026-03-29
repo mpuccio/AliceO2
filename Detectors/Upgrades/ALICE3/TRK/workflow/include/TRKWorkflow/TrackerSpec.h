@@ -22,6 +22,7 @@
 #include <oneapi/tbb/task_arena.h>
 
 #include "ITStracking/BoundedAllocator.h"
+#include "ITStracking/ExternalAllocator.h"
 #include "ITStracking/TrackingInterface.h"
 #include "GPUDataTypesConfig.h"
 
@@ -56,7 +57,9 @@ class TrackerDPL : public framework::Task
   //   std::shared_ptr<o2::base::GRPGeomRequest> mGGCCDBRequest;
   //   ITSTrackingInterface mITSTrackingInterface;
   bool mIsMC{true};
+  gpu::gpudatatypes::DeviceType mDeviceType{gpu::gpudatatypes::DeviceType::CPU};
   std::shared_ptr<its::BoundedMemoryResource> mMemoryPool;
+  std::shared_ptr<its::ExternalAllocator> mGPUAllocator;
   std::shared_ptr<tbb::task_arena> mTaskArena;
   nlohmann::json mHitRecoConfig;
   nlohmann::json mClusterRecoConfig;

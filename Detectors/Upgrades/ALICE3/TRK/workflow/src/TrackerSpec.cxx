@@ -22,12 +22,18 @@
 #include "Framework/ControlService.h"
 #include "Framework/ConfigParamRegistry.h"
 #include "Framework/CCDBParamSpec.h"
+#include "ITStracking/TrackingConfigParam.h"
 #include "SimulationDataFormat/MCEventHeader.h"
 #include "SimulationDataFormat/MCCompLabel.h"
 #include "TRKBase/GeometryTGeo.h"
 #include "TRKBase/SegmentationChip.h"
 #include "TRKSimulation/Hit.h"
 #include "TRKReconstruction/TimeFrame.h"
+#ifdef TRK_HAS_GPU_TRACKING
+#include "TRKReconstruction/TimeFrameGPU.h"
+#include "TRKReconstruction/GPUExternalAllocator.h"
+#include "ITStrackingGPU/TrackerTraitsGPU.h"
+#endif
 #include "TRKWorkflow/TrackerSpec.h"
 #include <TGeoGlobalMagField.h>
 
@@ -56,6 +62,7 @@ TrackerDPL::TrackerDPL(std::shared_ptr<o2::base::GRPGeomRequest> gr,
     mClusterRecoConfig = nlohmann::json::parse(configFile);
   }
   mIsMC = isMC;
+  mDeviceType = dType;
   // mITSTrackingInterface.setTrackingMode(trMode);
 }
 
@@ -261,137 +268,166 @@ void TrackerDPL::run(ProcessingContext& pc)
   if (mTaskArena.get() == nullptr) {
     mTaskArena = std::make_shared<tbb::task_arena>(1); /// TODO: make it configurable
   }
-  o2::trk::TimeFrame<11> timeFrame;
-  o2::its::TrackerTraits<11> itsTrackerTraits;
-  o2::its::Tracker<11> itsTracker(&itsTrackerTraits);
-  timeFrame.setMemoryPool(mMemoryPool);
-  itsTrackerTraits.setMemoryPool(mMemoryPool);
-  itsTrackerTraits.setNThreads(mTaskArena->max_concurrency(), mTaskArena);
-  itsTrackerTraits.adoptTimeFrame(static_cast<o2::its::TimeFrame<11>*>(&timeFrame));
-  itsTracker.adoptTimeFrame(timeFrame);
 
   // Create tracking parameters from config and set them in the time frame
   auto trackingParams = createTrackingParamsFromConfig();
-  itsTrackerTraits.updateTrackingParameters(trackingParams);
 
   auto cput = mTimer.CpuTime();
   auto realt = mTimer.RealTime();
   mTimer.Start(false);
 
-  int nRofs{0};
-  if (!mHitRecoConfig.empty()) {
-    TFile hitsFile(mHitRecoConfig["inputfiles"]["hits"].get<std::string>().c_str(), "READ");
-    TFile mcHeaderFile(mHitRecoConfig["inputfiles"]["mcHeader"].get<std::string>().c_str(), "READ");
-    TTree* hitsTree = hitsFile.Get<TTree>("o2sim");
-    std::vector<o2::trk::Hit>* trkHit = nullptr;
-    hitsTree->SetBranchAddress("TRKHit", &trkHit);
+  const bool useGPU = mDeviceType != o2::gpu::gpudatatypes::DeviceType::CPU;
+#ifndef TRK_HAS_GPU_TRACKING
+  if (useGPU) {
+    LOGP(fatal, "TRK GPU tracking was requested, but this build has no TRK GPU backend enabled");
+  }
+#else
+#ifdef TRK_HAS_CUDA_TRACKING
+  if (useGPU && mDeviceType != o2::gpu::gpudatatypes::DeviceType::CUDA) {
+    LOGP(fatal, "This build provides the CUDA TRK tracking backend only, but device type {} was requested", static_cast<int>(mDeviceType));
+  }
+#elif defined(TRK_HAS_HIP_TRACKING)
+  if (useGPU && mDeviceType != o2::gpu::gpudatatypes::DeviceType::HIP) {
+    LOGP(fatal, "This build provides the HIP TRK tracking backend only, but device type {} was requested", static_cast<int>(mDeviceType));
+  }
+#endif
+#endif
 
-    TTree* mcHeaderTree = mcHeaderFile.Get<TTree>("o2sim");
-    auto mcheader = new o2::dataformats::MCEventHeader;
-    mcHeaderTree->SetBranchAddress("MCEventHeader.", &mcheader);
+  auto runTracking = [&](auto& timeFrame, auto& trackerTraits) {
+    o2::its::Tracker<11> itsTracker(&trackerTraits);
+    timeFrame.setMemoryPool(mMemoryPool);
+    trackerTraits.setMemoryPool(mMemoryPool);
+    trackerTraits.setNThreads(mTaskArena->max_concurrency(), mTaskArena);
+    trackerTraits.adoptTimeFrame(static_cast<o2::its::TimeFrame<11>*>(&timeFrame));
+    itsTracker.adoptTimeFrame(timeFrame);
+    trackerTraits.updateTrackingParameters(trackingParams);
 
-    o2::base::GeometryManager::loadGeometry(mHitRecoConfig["inputfiles"]["geometry"].get<std::string>().c_str(), false, true);
-    auto* gman = o2::trk::GeometryTGeo::Instance();
+    int nRofs{0};
+    if (!mHitRecoConfig.empty()) {
+      TFile hitsFile(mHitRecoConfig["inputfiles"]["hits"].get<std::string>().c_str(), "READ");
+      TFile mcHeaderFile(mHitRecoConfig["inputfiles"]["mcHeader"].get<std::string>().c_str(), "READ");
+      TTree* hitsTree = hitsFile.Get<TTree>("o2sim");
+      std::vector<o2::trk::Hit>* trkHit = nullptr;
+      hitsTree->SetBranchAddress("TRKHit", &trkHit);
 
-    const Long64_t nEvents{hitsTree->GetEntries()};
-    LOGP(info, "Starting reconstruction from hits for {} events", nEvents);
+      TTree* mcHeaderTree = mcHeaderFile.Get<TTree>("o2sim");
+      auto mcheader = new o2::dataformats::MCEventHeader;
+      mcHeaderTree->SetBranchAddress("MCEventHeader.", &mcheader);
 
-    itsTrackerTraits.setBz(mHitRecoConfig["geometry"]["bz"].get<float>());
-    auto field = new field::MagneticField("ALICE3Mag", "ALICE 3 Magnetic Field", mHitRecoConfig["geometry"]["bz"].get<float>() / 5.f, 0.0, o2::field::MagFieldParam::k5kGUniform);
-    TGeoGlobalMagField::Instance()->SetField(field);
-    TGeoGlobalMagField::Instance()->Lock();
+      o2::base::GeometryManager::loadGeometry(mHitRecoConfig["inputfiles"]["geometry"].get<std::string>().c_str(), false, true);
+      auto* gman = o2::trk::GeometryTGeo::Instance();
 
-    nRofs = timeFrame.loadROFsFromHitTree(hitsTree, gman, mHitRecoConfig);
-    const int inROFpileup{mHitRecoConfig.contains("inROFpileup") ? mHitRecoConfig["inROFpileup"].get<int>() : 1};
-    // Add primary vertices from MC headers for each ROF
-    timeFrame.getPrimaryVerticesFromMC(mcHeaderTree, nRofs, nEvents, inROFpileup);
-  } else if (!mClusterRecoConfig.empty()) {
-    LOGP(info, "Starting reconstruction from clusters");
+      const Long64_t nEvents{hitsTree->GetEntries()};
+      LOGP(info, "Starting {} reconstruction from hits for {} events", trackerTraits.getName(), nEvents);
 
-    TFile mcHeaderFile(mClusterRecoConfig["inputfiles"]["mcHeader"].get<std::string>().c_str(), "READ");
-    TTree* mcHeaderTree = mcHeaderFile.Get<TTree>("o2sim");
-    auto mcheader = new o2::dataformats::MCEventHeader;
-    mcHeaderTree->SetBranchAddress("MCEventHeader.", &mcheader);
+      trackerTraits.setBz(mHitRecoConfig["geometry"]["bz"].get<float>());
+      auto field = new field::MagneticField("ALICE3Mag", "ALICE 3 Magnetic Field", mHitRecoConfig["geometry"]["bz"].get<float>() / 5.f, 0.0, o2::field::MagFieldParam::k5kGUniform);
+      TGeoGlobalMagField::Instance()->SetField(field);
+      TGeoGlobalMagField::Instance()->Lock();
 
-    o2::base::GeometryManager::loadGeometry(mClusterRecoConfig["inputfiles"]["geometry"].get<std::string>().c_str(), false, true);
-    auto* gman = o2::trk::GeometryTGeo::Instance();
+      nRofs = timeFrame.loadROFsFromHitTree(hitsTree, gman, mHitRecoConfig);
+      const int inROFpileup{mHitRecoConfig.contains("inROFpileup") ? mHitRecoConfig["inROFpileup"].get<int>() : 1};
+      timeFrame.getPrimaryVerticesFromMC(mcHeaderTree, nRofs, nEvents, inROFpileup);
+    } else if (!mClusterRecoConfig.empty()) {
+      LOGP(info, "Starting {} reconstruction from clusters", trackerTraits.getName());
 
-    itsTrackerTraits.setBz(mClusterRecoConfig["geometry"]["bz"].get<float>());
-    auto field = new field::MagneticField("ALICE3Mag", "ALICE 3 Magnetic Field", mClusterRecoConfig["geometry"]["bz"].get<float>() / 5.f, 0.0, o2::field::MagFieldParam::k5kGUniform);
-    TGeoGlobalMagField::Instance()->SetField(field);
-    TGeoGlobalMagField::Instance()->Lock();
+      o2::base::GeometryManager::loadGeometry(mClusterRecoConfig["inputfiles"]["geometry"].get<std::string>().c_str(), false, true);
+      o2::trk::GeometryTGeo::Instance();
 
-    auto compClusters = pc.inputs().get<gsl::span<o2::trk::Cluster>>("compClusters");
-    gsl::span<const unsigned char> patterns = pc.inputs().get<gsl::span<unsigned char>>("patterns");
-    auto rofRecords = pc.inputs().get<gsl::span<o2::trk::ROFRecord>>("ROframes");
+      trackerTraits.setBz(mClusterRecoConfig["geometry"]["bz"].get<float>());
+      auto field = new field::MagneticField("ALICE3Mag", "ALICE 3 Magnetic Field", mClusterRecoConfig["geometry"]["bz"].get<float>() / 5.f, 0.0, o2::field::MagFieldParam::k5kGUniform);
+      TGeoGlobalMagField::Instance()->SetField(field);
+      TGeoGlobalMagField::Instance()->Lock();
 
-    const dataformats::MCTruthContainer<MCCompLabel>* labels = nullptr;
-    gsl::span<const trk::MC2ROFRecord> mc2rofs;
-    if (mIsMC) {
-      labels = pc.inputs().get<const dataformats::MCTruthContainer<MCCompLabel>*>("trkmclabels").release();
-      mc2rofs = pc.inputs().get<gsl::span<trk::MC2ROFRecord>>("TRKMC2ROframes");
+      auto compClusters = pc.inputs().get<gsl::span<o2::trk::Cluster>>("compClusters");
+      gsl::span<const unsigned char> patterns = pc.inputs().get<gsl::span<unsigned char>>("patterns");
+      auto rofRecords = pc.inputs().get<gsl::span<o2::trk::ROFRecord>>("ROframes");
+
+      const dataformats::MCTruthContainer<MCCompLabel>* labels = nullptr;
+      if (mIsMC) {
+        labels = pc.inputs().get<const dataformats::MCTruthContainer<MCCompLabel>*>("trkmclabels").release();
+        pc.inputs().get<gsl::span<trk::MC2ROFRecord>>("TRKMC2ROframes");
+      }
+
+      const float yPlaneMLOT = 0.0010f;
+      nRofs = timeFrame.loadROFrameData(rofRecords, compClusters, patterns, labels, yPlaneMLOT);
+      timeFrame.addTruthSeedingVertices(rofRecords);
     }
 
-    const float yPlaneMLOT = 0.0010f;
-    nRofs = timeFrame.loadROFrameData(rofRecords, compClusters, patterns, labels, yPlaneMLOT);
-    timeFrame.addTruthSeedingVertices(rofRecords);
-  }
-
-  const auto trackingLoopStart = std::chrono::steady_clock::now();
-  for (size_t iter{0}; iter < trackingParams.size(); ++iter) {
-    LOGP(info, "{}", trackingParams[iter].asString());
-    timeFrame.initialise(iter, trackingParams[iter], 11, false);
-    itsTrackerTraits.computeLayerTracklets(iter, -1, -1);
-    LOGP(info, "Number of tracklets in iteration {}: {}", iter, timeFrame.getNumberOfTracklets());
-    itsTrackerTraits.computeLayerCells(iter);
-    LOGP(info, "Number of cells in iteration {}: {}", iter, timeFrame.getNumberOfCells());
-    itsTrackerTraits.findCellsNeighbours(iter);
-    LOGP(info, "Number of cell neighbours in iteration {}: {}", iter, timeFrame.getNumberOfNeighbours());
-    itsTrackerTraits.findRoads(iter);
-    LOGP(info, "Number of roads in iteration {}: {}", iter, timeFrame.getNumberOfTracks());
-    itsTrackerTraits.extendTracks(iter);
-  }
-  const auto trackingLoopElapsedMs = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - trackingLoopStart).count();
-  LOGP(info, "Tracking iterations block took {} ms", trackingLoopElapsedMs);
-
-  itsTracker.computeTracksMClabels();
-
-  // Stream tracks and their MC labels to the output
-  // Collect all tracks and labels from all ROFs
-  std::vector<o2::its::TrackITS> allTracks;
-  std::vector<o2::MCCompLabel> allLabels;
-
-  int totalTracks = 0;
-  int goodTracks = 0;
-  int fakeTracks = 0;
-
-  for (int iRof = 0; iRof < nRofs; ++iRof) {
-    const auto& rofTracks = timeFrame.getTracks(iRof);
-    const auto& rofLabels = timeFrame.getTracksLabel(iRof);
-
-    allTracks.insert(allTracks.end(), rofTracks.begin(), rofTracks.end());
-    allLabels.insert(allLabels.end(), rofLabels.begin(), rofLabels.end());
-
-    totalTracks += rofTracks.size();
-    for (const auto& label : rofLabels) {
-      if (label.isFake()) {
-        fakeTracks++;
-      } else {
-        goodTracks++;
+    const auto trackingLoopStart = std::chrono::steady_clock::now();
+    for (size_t iter{0}; iter < trackingParams.size(); ++iter) {
+      LOGP(info, "{}", trackingParams[iter].asString());
+      trackerTraits.initialiseTimeFrame(iter);
+      trackerTraits.computeLayerTracklets(iter, -1, -1);
+      LOGP(info, "Number of tracklets in iteration {}: {}", iter, timeFrame.getNumberOfTracklets());
+      trackerTraits.computeLayerCells(iter);
+      LOGP(info, "Number of cells in iteration {}: {}", iter, timeFrame.getNumberOfCells());
+      trackerTraits.findCellsNeighbours(iter);
+      LOGP(info, "Number of cell neighbours in iteration {}: {}", iter, timeFrame.getNumberOfNeighbours());
+      trackerTraits.findRoads(iter);
+      LOGP(info, "Number of roads in iteration {}: {}", iter, timeFrame.getNumberOfTracks());
+      if (trackerTraits.supportsExtendTracks()) {
+        trackerTraits.extendTracks(iter);
       }
     }
+      const auto trackingLoopElapsedMs = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - trackingLoopStart).count();
+      LOGP(info, "Tracking iterations block took {} ms", trackingLoopElapsedMs);
+
+    if (mIsMC) {
+      itsTracker.computeTracksMClabels();
+    }
+
+    std::vector<o2::its::TrackITS> allTracks;
+    std::vector<o2::MCCompLabel> allLabels;
+
+    int totalTracks = 0;
+    int goodTracks = 0;
+    int fakeTracks = 0;
+
+    for (int iRof = 0; iRof < nRofs; ++iRof) {
+      const auto& rofTracks = timeFrame.getTracks(iRof);
+      const auto& rofLabels = timeFrame.getTracksLabel(iRof);
+
+      allTracks.insert(allTracks.end(), rofTracks.begin(), rofTracks.end());
+      allLabels.insert(allLabels.end(), rofLabels.begin(), rofLabels.end());
+
+      totalTracks += rofTracks.size();
+      for (const auto& label : rofLabels) {
+        if (label.isFake()) {
+          ++fakeTracks;
+        } else {
+          ++goodTracks;
+        }
+      }
+    }
+
+    LOGP(info, "=== Tracking Summary ===");
+    LOGP(info, "Total tracks reconstructed: {}", totalTracks);
+    LOGP(info, "Good tracks: {} ({:.1f}%)", goodTracks, totalTracks > 0 ? 100.0 * goodTracks / totalTracks : 0);
+    LOGP(info, "Fake tracks: {} ({:.1f}%)", fakeTracks, totalTracks > 0 ? 100.0 * fakeTracks / totalTracks : 0);
+
+    pc.outputs().snapshot(o2::framework::Output{"TRK", "TRACKS", 0}, allTracks);
+    pc.outputs().snapshot(o2::framework::Output{"TRK", "TRACKSMCTR", 0}, allLabels);
+
+    LOGP(info, "Tracks and MC labels streamed to output");
+  };
+
+#ifdef TRK_HAS_GPU_TRACKING
+  if (useGPU) {
+    o2::trk::TimeFrameGPU<11> timeFrame;
+    o2::its::TrackerTraitsGPU<11> itsTrackerTraits;
+    if (!mGPUAllocator) {
+      mGPUAllocator = std::make_shared<o2::trk::GPUExternalAllocator>();
+    }
+    timeFrame.setFrameworkAllocator(mGPUAllocator.get());
+    runTracking(timeFrame, itsTrackerTraits);
+  } else
+#endif
+  {
+    o2::trk::TimeFrame<11> timeFrame;
+    o2::its::TrackerTraits<11> itsTrackerTraits;
+    runTracking(timeFrame, itsTrackerTraits);
   }
-
-  LOGP(info, "=== Tracking Summary ===");
-  LOGP(info, "Total tracks reconstructed: {}", totalTracks);
-  LOGP(info, "Good tracks: {} ({:.1f}%)", goodTracks, totalTracks > 0 ? 100.0 * goodTracks / totalTracks : 0);
-  LOGP(info, "Fake tracks: {} ({:.1f}%)", fakeTracks, totalTracks > 0 ? 100.0 * fakeTracks / totalTracks : 0);
-
-  // Stream tracks and labels to DPL output
-  pc.outputs().snapshot(o2::framework::Output{"TRK", "TRACKS", 0}, allTracks);
-  pc.outputs().snapshot(o2::framework::Output{"TRK", "TRACKSMCTR", 0}, allLabels);
-
-  LOGP(info, "Tracks and MC labels streamed to output");
 
   pc.services().get<o2::framework::ControlService>().endOfStream();
   pc.services().get<o2::framework::ControlService>().readyToQuit(framework::QuitRequest::Me);

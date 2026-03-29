@@ -716,4 +716,5 @@ void TimeFrameGPU<nLayers>::wipe()
 }
 
 template class TimeFrameGPU<7>;
+template class TimeFrameGPU<11>;
 } // namespace o2::its::gpu

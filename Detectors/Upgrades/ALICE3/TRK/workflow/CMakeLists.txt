@@ -9,6 +9,13 @@
 # granted to it by virtue of its status as an Intergovernmental Organization
 # or submit itself to any jurisdiction.
 
+set(trkGpuTargets "")
+if(CUDA_ENABLED)
+  list(APPEND trkGpuTargets O2::ITStrackingCUDA)
+elseif(HIP_ENABLED)
+  list(APPEND trkGpuTargets O2::ITStrackingHIP)
+endif()
+
 o2_add_library(TRKWorkflow
                TARGETVARNAME targetName
                SOURCES src/DigitReaderSpec.cxx
@@ -28,7 +35,18 @@ o2_add_library(TRKWorkflow
                                      O2::TRKBase
                                      O2::TRKSimulation
                                      O2::TRKReconstruction
+                                     ${trkGpuTargets}
                                      nlohmann_json::nlohmann_json)
+
+if(trkGpuTargets)
+  target_compile_definitions(${targetName} PRIVATE TRK_HAS_GPU_TRACKING)
+endif()
+
+if(CUDA_ENABLED)
+  target_compile_definitions(${targetName} PRIVATE TRK_HAS_CUDA_TRACKING)
+elseif(HIP_ENABLED)
+  target_compile_definitions(${targetName} PRIVATE TRK_HAS_HIP_TRACKING)
+endif()
 
 o2_add_executable(reco-workflow
                   SOURCES src/trk-reco-workflow.cxx
