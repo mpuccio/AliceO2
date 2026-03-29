@@ -18,12 +18,14 @@
 #include "Framework/CCDBParamSpec.h"
 
 #include <string>
+#include <format>
 
 namespace o2::trk::reco_workflow
 {
 
 framework::WorkflowSpec getWorkflow(bool useMC,
                                     const std::string& hitRecoConfig,
+                                    const std::string& clusterRecoConfig,
                                     bool upstreamDigits,
                                     bool upstreamClusters,
                                     bool disableRootOutput,
@@ -43,9 +45,10 @@ framework::WorkflowSpec getWorkflow(bool useMC,
     specs.emplace_back(o2::trk::getClusterWriterSpec(useMC));
   }
 
-  if (!hitRecoConfig.empty()) {
-    LOGP(info, "Using hit reco config from file {}", hitRecoConfig);
-    specs.emplace_back(o2::trk::getTrackerSpec(useMC, hitRecoConfig, dtype));
+  if (!hitRecoConfig.empty() || !clusterRecoConfig.empty()) {
+    LOG_IF(info, !hitRecoConfig.empty()) << std::format("Using hit reco config from file {}", hitRecoConfig);
+    LOG_IF(info, !clusterRecoConfig.empty()) << std::format("Using cluster reco config from file {}", clusterRecoConfig);
+    specs.emplace_back(o2::trk::getTrackerSpec(useMC, hitRecoConfig, clusterRecoConfig, dtype));
     if (!disableRootOutput) {
       specs.emplace_back(o2::trk::getTrackWriterSpec(useMC));
     }

@@ -33,7 +33,8 @@ o2_add_library(TRKWorkflow
 o2_add_executable(reco-workflow
                   SOURCES src/trk-reco-workflow.cxx
                   COMPONENT_NAME alice3-trk
-                  PUBLIC_LINK_LIBRARIES O2::TRKWorkflow
+                  PUBLIC_LINK_LIBRARIES O2::Framework
+                                        O2::TRKWorkflow
                                         O2::TRKSimulation
                                         O2::TRKReconstruction
                                         O2::ITStracking)

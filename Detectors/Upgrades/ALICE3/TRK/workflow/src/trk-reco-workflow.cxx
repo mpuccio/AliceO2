@@ -53,6 +53,7 @@ void customize(std::vector<ConfigParamSpec>& workflowOptions)
     {"disable-root-output", VariantType::Bool, false, {"do not write output root files"}},
     {"disable-mc", VariantType::Bool, false, {"disable MC propagation even if available"}},
     {"tracking-from-hits-config", VariantType::String, "", {"JSON file with tracking from hits configuration"}},
+    {"tracking-from-clusters-config", VariantType::String, "", {"JSON file with tracking from clusters configuration"}},
     {"disable-tracking", VariantType::Bool, false, {"disable tracking step"}},
     {"configKeyValues", VariantType::String, "", {"Semicolon separated key=value strings"}},
     {"use-gpu-workflow", VariantType::Bool, false, {"use GPU workflow (default: false)"}},
@@ -68,6 +69,7 @@ WorkflowSpec defineDataProcessing(ConfigContext const& configcontext)
   // Update the (declared) parameters if changed from the command line
   auto useMC = !configcontext.options().get<bool>("disable-mc");
   auto hitRecoConfig = configcontext.options().get<std::string>("tracking-from-hits-config");
+  auto clusterRecoConfig = configcontext.options().get<std::string>("tracking-from-clusters-config");
   auto useGpuWF = configcontext.options().get<bool>("use-gpu-workflow");
   auto gpuDevice = static_cast<o2::gpu::gpudatatypes::DeviceType>(configcontext.options().get<int>("gpu-device"));
   auto extDigits = configcontext.options().get<bool>("digits-from-upstream");
@@ -78,5 +80,5 @@ WorkflowSpec defineDataProcessing(ConfigContext const& configcontext)
   // write the configuration used for the reco workflow
   o2::conf::ConfigurableParam::writeINI("o2itsrecoflow_configuration.ini");
 
-  return o2::trk::reco_workflow::getWorkflow(useMC, hitRecoConfig, extDigits, extClusters, disableRootOutput, useGpuWF, gpuDevice);
+  return o2::trk::reco_workflow::getWorkflow(useMC, hitRecoConfig, clusterRecoConfig, extDigits, extClusters, disableRootOutput, useGpuWF, gpuDevice);
 }

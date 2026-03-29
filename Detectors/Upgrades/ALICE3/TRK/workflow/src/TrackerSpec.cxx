@@ -12,6 +12,8 @@
 #include <vector>
 #include <chrono>
 
+#include "DataFormatsTRK/Cluster.h"
+#include "DataFormatsTRK/ROFRecord.h"
 #include "DetectorsBase/GeometryManager.h"
 #include "ITStracking/TimeFrame.h"
 #include "ITStracking/Configuration.h"
@@ -42,13 +44,18 @@ using Vertex = o2::dataformats::Vertex<o2::dataformats::TimeStamp<int>>;
 TrackerDPL::TrackerDPL(std::shared_ptr<o2::base::GRPGeomRequest> gr,
                        bool isMC,
                        const std::string& hitRecoConfigFileName,
+                       const std::string& clusterRecoConfigFileName,
                        o2::gpu::gpudatatypes::DeviceType dType)
 {
   if (!hitRecoConfigFileName.empty()) {
     std::ifstream configFile(hitRecoConfigFileName);
     mHitRecoConfig = nlohmann::json::parse(configFile);
   }
-
+  if (!clusterRecoConfigFileName.empty()) {
+    std::ifstream configFile(clusterRecoConfigFileName);
+    mClusterRecoConfig = nlohmann::json::parse(configFile);
+  }
+  mIsMC = isMC;
   // mITSTrackingInterface.setTrackingMode(trMode);
 }
 
@@ -71,168 +78,175 @@ void TrackerDPL::stop()
 std::vector<o2::its::TrackingParameters> TrackerDPL::createTrackingParamsFromConfig()
 {
   std::vector<o2::its::TrackingParameters> trackingParams;
+  auto loadTrackingParamsFromJson = [](std::vector<o2::its::TrackingParameters>& trackingParams, const nlohmann::json& paramConfigJson) {
+    for (const auto& paramConfig : paramConfigJson) {
+      o2::its::TrackingParameters params;
 
-  if (!mHitRecoConfig.contains("trackingparams") || !mHitRecoConfig["trackingparams"].is_array()) {
+      // Parse integer parameters
+      if (paramConfig.contains("NLayers")) {
+        params.NLayers = paramConfig["NLayers"].get<int>();
+      }
+      if (paramConfig.contains("DeltaROF")) {
+        params.DeltaROF = paramConfig["DeltaROF"].get<int>();
+      }
+      if (paramConfig.contains("ZBins")) {
+        params.ZBins = paramConfig["ZBins"].get<int>();
+      }
+      if (paramConfig.contains("PhiBins")) {
+        params.PhiBins = paramConfig["PhiBins"].get<int>();
+      }
+      if (paramConfig.contains("nROFsPerIterations")) {
+        params.nROFsPerIterations = paramConfig["nROFsPerIterations"].get<int>();
+      }
+      if (paramConfig.contains("ClusterSharing")) {
+        params.ClusterSharing = paramConfig["ClusterSharing"].get<int>();
+      }
+      if (paramConfig.contains("MinTrackLength")) {
+        params.MinTrackLength = paramConfig["MinTrackLength"].get<int>();
+      }
+      if (paramConfig.contains("ReseedIfShorter")) {
+        params.ReseedIfShorter = paramConfig["ReseedIfShorter"].get<int>();
+      }
+      if (paramConfig.contains("StartLayerMask")) {
+        params.StartLayerMask = paramConfig["StartLayerMask"].get<uint16_t>();
+      }
+
+      // Parse float parameters
+      if (paramConfig.contains("NSigmaCut")) {
+        params.NSigmaCut = paramConfig["NSigmaCut"].get<float>();
+      }
+      if (paramConfig.contains("PVres")) {
+        params.PVres = paramConfig["PVres"].get<float>();
+      }
+      if (paramConfig.contains("TrackletMinPt")) {
+        params.TrackletMinPt = paramConfig["TrackletMinPt"].get<float>();
+      }
+      if (paramConfig.contains("TrackletsPerClusterLimit")) {
+        params.TrackletsPerClusterLimit = paramConfig["TrackletsPerClusterLimit"].get<float>();
+      }
+      if (paramConfig.contains("CellDeltaTanLambdaSigma")) {
+        params.CellDeltaTanLambdaSigma = paramConfig["CellDeltaTanLambdaSigma"].get<float>();
+      }
+      if (paramConfig.contains("CellsPerClusterLimit")) {
+        params.CellsPerClusterLimit = paramConfig["CellsPerClusterLimit"].get<float>();
+      }
+      if (paramConfig.contains("MaxChi2ClusterAttachment")) {
+        params.MaxChi2ClusterAttachment = paramConfig["MaxChi2ClusterAttachment"].get<float>();
+      }
+      if (paramConfig.contains("MaxChi2NDF")) {
+        params.MaxChi2NDF = paramConfig["MaxChi2NDF"].get<float>();
+      }
+      if (paramConfig.contains("TrackFollowerNSigmaCutZ")) {
+        params.TrackFollowerNSigmaCutZ = paramConfig["TrackFollowerNSigmaCutZ"].get<float>();
+      }
+      if (paramConfig.contains("TrackFollowerNSigmaCutPhi")) {
+        params.TrackFollowerNSigmaCutPhi = paramConfig["TrackFollowerNSigmaCutPhi"].get<float>();
+      }
+
+      // Parse boolean parameters
+      if (paramConfig.contains("UseDiamond")) {
+        params.UseDiamond = paramConfig["UseDiamond"].get<bool>();
+      }
+      if (paramConfig.contains("AllowSharingFirstCluster")) {
+        params.AllowSharingFirstCluster = paramConfig["AllowSharingFirstCluster"].get<bool>();
+      }
+      if (paramConfig.contains("RepeatRefitOut")) {
+        params.RepeatRefitOut = paramConfig["RepeatRefitOut"].get<bool>();
+      }
+      if (paramConfig.contains("ShiftRefToCluster")) {
+        params.ShiftRefToCluster = paramConfig["ShiftRefToCluster"].get<bool>();
+      }
+      if (paramConfig.contains("FindShortTracks")) {
+        params.FindShortTracks = paramConfig["FindShortTracks"].get<bool>();
+      }
+      if (paramConfig.contains("PerPrimaryVertexProcessing")) {
+        params.PerPrimaryVertexProcessing = paramConfig["PerPrimaryVertexProcessing"].get<bool>();
+      }
+      if (paramConfig.contains("SaveTimeBenchmarks")) {
+        params.SaveTimeBenchmarks = paramConfig["SaveTimeBenchmarks"].get<bool>();
+      }
+      if (paramConfig.contains("DoUPCIteration")) {
+        params.DoUPCIteration = paramConfig["DoUPCIteration"].get<bool>();
+      }
+      if (paramConfig.contains("FataliseUponFailure")) {
+        params.FataliseUponFailure = paramConfig["FataliseUponFailure"].get<bool>();
+      }
+      if (paramConfig.contains("UseTrackFollower")) {
+        params.UseTrackFollower = paramConfig["UseTrackFollower"].get<bool>();
+      }
+      if (paramConfig.contains("UseTrackFollowerTop")) {
+        params.UseTrackFollowerTop = paramConfig["UseTrackFollowerTop"].get<bool>();
+      }
+      if (paramConfig.contains("UseTrackFollowerBot")) {
+        params.UseTrackFollowerBot = paramConfig["UseTrackFollowerBot"].get<bool>();
+      }
+      if (paramConfig.contains("UseTrackFollowerMix")) {
+        params.UseTrackFollowerMix = paramConfig["UseTrackFollowerMix"].get<bool>();
+      }
+      if (paramConfig.contains("createArtefactLabels")) {
+        params.createArtefactLabels = paramConfig["createArtefactLabels"].get<bool>();
+      }
+      if (paramConfig.contains("PrintMemory")) {
+        params.PrintMemory = paramConfig["PrintMemory"].get<bool>();
+      }
+      if (paramConfig.contains("DropTFUponFailure")) {
+        params.DropTFUponFailure = paramConfig["DropTFUponFailure"].get<bool>();
+      }
+
+      // Parse vector parameters
+      if (paramConfig.contains("LayerZ")) {
+        params.LayerZ = paramConfig["LayerZ"].get<std::vector<float>>();
+      }
+      if (paramConfig.contains("LayerRadii")) {
+        params.LayerRadii = paramConfig["LayerRadii"].get<std::vector<float>>();
+      }
+      if (paramConfig.contains("LayerxX0")) {
+        params.LayerxX0 = paramConfig["LayerxX0"].get<std::vector<float>>();
+      }
+      if (paramConfig.contains("LayerResolution")) {
+        params.LayerResolution = paramConfig["LayerResolution"].get<std::vector<float>>();
+      }
+      if (paramConfig.contains("SystErrorY2")) {
+        params.SystErrorY2 = paramConfig["SystErrorY2"].get<std::vector<float>>();
+      }
+      if (paramConfig.contains("SystErrorZ2")) {
+        params.SystErrorZ2 = paramConfig["SystErrorZ2"].get<std::vector<float>>();
+      }
+      if (paramConfig.contains("MinPt")) {
+        params.MinPt = paramConfig["MinPt"].get<std::vector<float>>();
+      }
+
+      // Parse Diamond array
+      if (paramConfig.contains("Diamond") && paramConfig["Diamond"].is_array() && paramConfig["Diamond"].size() == 3) {
+        params.Diamond[0] = paramConfig["Diamond"][0].get<float>();
+        params.Diamond[1] = paramConfig["Diamond"][1].get<float>();
+        params.Diamond[2] = paramConfig["Diamond"][2].get<float>();
+      }
+
+      // Parse size_t parameter
+      if (paramConfig.contains("MaxMemory")) {
+        params.MaxMemory = paramConfig["MaxMemory"].get<size_t>();
+      }
+
+      // Parse CorrType enum
+      if (paramConfig.contains("CorrType")) {
+        int corrTypeInt = paramConfig["CorrType"].get<int>();
+        params.CorrType = static_cast<o2::base::PropagatorImpl<float>::MatCorrType>(corrTypeInt);
+      }
+
+      trackingParams.push_back(params);
+    }
+  };
+
+
+
+  if (mHitRecoConfig.contains("trackingparams") && mHitRecoConfig["trackingparams"].is_array()) {
+    loadTrackingParamsFromJson(trackingParams, mHitRecoConfig["trackingparams"]);
+  } else if (mClusterRecoConfig.contains("trackingparams") && mClusterRecoConfig["trackingparams"].is_array()) {
+    loadTrackingParamsFromJson(trackingParams, mClusterRecoConfig["trackingparams"]);
+  } else {
     LOGP(fatal, "No trackingparams field found in configuration or it is not an array. Returning empty vector.");
     return trackingParams;
-  }
-
-  for (const auto& paramConfig : mHitRecoConfig["trackingparams"]) {
-    o2::its::TrackingParameters params;
-
-    // Parse integer parameters
-    if (paramConfig.contains("NLayers")) {
-      params.NLayers = paramConfig["NLayers"].get<int>();
-    }
-    if (paramConfig.contains("DeltaROF")) {
-      params.DeltaROF = paramConfig["DeltaROF"].get<int>();
-    }
-    if (paramConfig.contains("ZBins")) {
-      params.ZBins = paramConfig["ZBins"].get<int>();
-    }
-    if (paramConfig.contains("PhiBins")) {
-      params.PhiBins = paramConfig["PhiBins"].get<int>();
-    }
-    if (paramConfig.contains("nROFsPerIterations")) {
-      params.nROFsPerIterations = paramConfig["nROFsPerIterations"].get<int>();
-    }
-    if (paramConfig.contains("ClusterSharing")) {
-      params.ClusterSharing = paramConfig["ClusterSharing"].get<int>();
-    }
-    if (paramConfig.contains("MinTrackLength")) {
-      params.MinTrackLength = paramConfig["MinTrackLength"].get<int>();
-    }
-    if (paramConfig.contains("ReseedIfShorter")) {
-      params.ReseedIfShorter = paramConfig["ReseedIfShorter"].get<int>();
-    }
-    if (paramConfig.contains("StartLayerMask")) {
-      params.StartLayerMask = paramConfig["StartLayerMask"].get<uint16_t>();
-    }
-
-    // Parse float parameters
-    if (paramConfig.contains("NSigmaCut")) {
-      params.NSigmaCut = paramConfig["NSigmaCut"].get<float>();
-    }
-    if (paramConfig.contains("PVres")) {
-      params.PVres = paramConfig["PVres"].get<float>();
-    }
-    if (paramConfig.contains("TrackletMinPt")) {
-      params.TrackletMinPt = paramConfig["TrackletMinPt"].get<float>();
-    }
-    if (paramConfig.contains("TrackletsPerClusterLimit")) {
-      params.TrackletsPerClusterLimit = paramConfig["TrackletsPerClusterLimit"].get<float>();
-    }
-    if (paramConfig.contains("CellDeltaTanLambdaSigma")) {
-      params.CellDeltaTanLambdaSigma = paramConfig["CellDeltaTanLambdaSigma"].get<float>();
-    }
-    if (paramConfig.contains("CellsPerClusterLimit")) {
-      params.CellsPerClusterLimit = paramConfig["CellsPerClusterLimit"].get<float>();
-    }
-    if (paramConfig.contains("MaxChi2ClusterAttachment")) {
-      params.MaxChi2ClusterAttachment = paramConfig["MaxChi2ClusterAttachment"].get<float>();
-    }
-    if (paramConfig.contains("MaxChi2NDF")) {
-      params.MaxChi2NDF = paramConfig["MaxChi2NDF"].get<float>();
-    }
-    if (paramConfig.contains("TrackFollowerNSigmaCutZ")) {
-      params.TrackFollowerNSigmaCutZ = paramConfig["TrackFollowerNSigmaCutZ"].get<float>();
-    }
-    if (paramConfig.contains("TrackFollowerNSigmaCutPhi")) {
-      params.TrackFollowerNSigmaCutPhi = paramConfig["TrackFollowerNSigmaCutPhi"].get<float>();
-    }
-
-    // Parse boolean parameters
-    if (paramConfig.contains("UseDiamond")) {
-      params.UseDiamond = paramConfig["UseDiamond"].get<bool>();
-    }
-    if (paramConfig.contains("AllowSharingFirstCluster")) {
-      params.AllowSharingFirstCluster = paramConfig["AllowSharingFirstCluster"].get<bool>();
-    }
-    if (paramConfig.contains("RepeatRefitOut")) {
-      params.RepeatRefitOut = paramConfig["RepeatRefitOut"].get<bool>();
-    }
-    if (paramConfig.contains("ShiftRefToCluster")) {
-      params.ShiftRefToCluster = paramConfig["ShiftRefToCluster"].get<bool>();
-    }
-    if (paramConfig.contains("FindShortTracks")) {
-      params.FindShortTracks = paramConfig["FindShortTracks"].get<bool>();
-    }
-    if (paramConfig.contains("PerPrimaryVertexProcessing")) {
-      params.PerPrimaryVertexProcessing = paramConfig["PerPrimaryVertexProcessing"].get<bool>();
-    }
-    if (paramConfig.contains("SaveTimeBenchmarks")) {
-      params.SaveTimeBenchmarks = paramConfig["SaveTimeBenchmarks"].get<bool>();
-    }
-    if (paramConfig.contains("DoUPCIteration")) {
-      params.DoUPCIteration = paramConfig["DoUPCIteration"].get<bool>();
-    }
-    if (paramConfig.contains("FataliseUponFailure")) {
-      params.FataliseUponFailure = paramConfig["FataliseUponFailure"].get<bool>();
-    }
-    if (paramConfig.contains("UseTrackFollower")) {
-      params.UseTrackFollower = paramConfig["UseTrackFollower"].get<bool>();
-    }
-    if (paramConfig.contains("UseTrackFollowerTop")) {
-      params.UseTrackFollowerTop = paramConfig["UseTrackFollowerTop"].get<bool>();
-    }
-    if (paramConfig.contains("UseTrackFollowerBot")) {
-      params.UseTrackFollowerBot = paramConfig["UseTrackFollowerBot"].get<bool>();
-    }
-    if (paramConfig.contains("UseTrackFollowerMix")) {
-      params.UseTrackFollowerMix = paramConfig["UseTrackFollowerMix"].get<bool>();
-    }
-    if (paramConfig.contains("createArtefactLabels")) {
-      params.createArtefactLabels = paramConfig["createArtefactLabels"].get<bool>();
-    }
-    if (paramConfig.contains("PrintMemory")) {
-      params.PrintMemory = paramConfig["PrintMemory"].get<bool>();
-    }
-    if (paramConfig.contains("DropTFUponFailure")) {
-      params.DropTFUponFailure = paramConfig["DropTFUponFailure"].get<bool>();
-    }
-
-    // Parse vector parameters
-    if (paramConfig.contains("LayerZ")) {
-      params.LayerZ = paramConfig["LayerZ"].get<std::vector<float>>();
-    }
-    if (paramConfig.contains("LayerRadii")) {
-      params.LayerRadii = paramConfig["LayerRadii"].get<std::vector<float>>();
-    }
-    if (paramConfig.contains("LayerxX0")) {
-      params.LayerxX0 = paramConfig["LayerxX0"].get<std::vector<float>>();
-    }
-    if (paramConfig.contains("LayerResolution")) {
-      params.LayerResolution = paramConfig["LayerResolution"].get<std::vector<float>>();
-    }
-    if (paramConfig.contains("SystErrorY2")) {
-      params.SystErrorY2 = paramConfig["SystErrorY2"].get<std::vector<float>>();
-    }
-    if (paramConfig.contains("SystErrorZ2")) {
-      params.SystErrorZ2 = paramConfig["SystErrorZ2"].get<std::vector<float>>();
-    }
-    if (paramConfig.contains("MinPt")) {
-      params.MinPt = paramConfig["MinPt"].get<std::vector<float>>();
-    }
-
-    // Parse Diamond array
-    if (paramConfig.contains("Diamond") && paramConfig["Diamond"].is_array() && paramConfig["Diamond"].size() == 3) {
-      params.Diamond[0] = paramConfig["Diamond"][0].get<float>();
-      params.Diamond[1] = paramConfig["Diamond"][1].get<float>();
-      params.Diamond[2] = paramConfig["Diamond"][2].get<float>();
-    }
-
-    // Parse size_t parameter
-    if (paramConfig.contains("MaxMemory")) {
-      params.MaxMemory = paramConfig["MaxMemory"].get<size_t>();
-    }
-
-    // Parse CorrType enum
-    if (paramConfig.contains("CorrType")) {
-      int corrTypeInt = paramConfig["CorrType"].get<int>();
-      params.CorrType = static_cast<o2::base::PropagatorImpl<float>::MatCorrType>(corrTypeInt);
-    }
-
-    trackingParams.push_back(params);
   }
 
   LOGP(info, "Loaded {} tracking parameter sets from configuration", trackingParams.size());
@@ -241,10 +255,30 @@ std::vector<o2::its::TrackingParameters> TrackerDPL::createTrackingParamsFromCon
 
 void TrackerDPL::run(ProcessingContext& pc)
 {
+  if (mMemoryPool.get() == nullptr) {
+    mMemoryPool = std::make_shared<its::BoundedMemoryResource>();
+  }
+  if (mTaskArena.get() == nullptr) {
+    mTaskArena = std::make_shared<tbb::task_arena>(1); /// TODO: make it configurable
+  }
+  o2::trk::TimeFrame<11> timeFrame;
+  o2::its::TrackerTraits<11> itsTrackerTraits;
+  o2::its::Tracker<11> itsTracker(&itsTrackerTraits);
+  timeFrame.setMemoryPool(mMemoryPool);
+  itsTrackerTraits.setMemoryPool(mMemoryPool);
+  itsTrackerTraits.setNThreads(mTaskArena->max_concurrency(), mTaskArena);
+  itsTrackerTraits.adoptTimeFrame(static_cast<o2::its::TimeFrame<11>*>(&timeFrame));
+  itsTracker.adoptTimeFrame(timeFrame);
+
+  // Create tracking parameters from config and set them in the time frame
+  auto trackingParams = createTrackingParamsFromConfig();
+  itsTrackerTraits.updateTrackingParameters(trackingParams);
+
   auto cput = mTimer.CpuTime();
   auto realt = mTimer.RealTime();
   mTimer.Start(false);
 
+  int nRofs{0};
   if (!mHitRecoConfig.empty()) {
     TFile hitsFile(mHitRecoConfig["inputfiles"]["hits"].get<std::string>().c_str(), "READ");
     TFile mcHeaderFile(mHitRecoConfig["inputfiles"]["mcHeader"].get<std::string>().c_str(), "READ");
@@ -262,96 +296,104 @@ void TrackerDPL::run(ProcessingContext& pc)
     const Long64_t nEvents{hitsTree->GetEntries()};
     LOGP(info, "Starting reconstruction from hits for {} events", nEvents);
 
-    if (mMemoryPool.get() == nullptr) {
-      mMemoryPool = std::make_shared<its::BoundedMemoryResource>();
-    }
-    if (mTaskArena.get() == nullptr) {
-      mTaskArena = std::make_shared<tbb::task_arena>(1); /// TODO: make it configurable
-    }
-
-    o2::trk::TimeFrame<11> timeFrame;
-    o2::its::TrackerTraits<11> itsTrackerTraits;
-    o2::its::Tracker<11> itsTracker(&itsTrackerTraits);
-    timeFrame.setMemoryPool(mMemoryPool);
-    itsTrackerTraits.setMemoryPool(mMemoryPool);
-    itsTrackerTraits.setNThreads(mTaskArena->max_concurrency(), mTaskArena);
-    itsTrackerTraits.adoptTimeFrame(static_cast<o2::its::TimeFrame<11>*>(&timeFrame));
-    itsTracker.adoptTimeFrame(timeFrame);
     itsTrackerTraits.setBz(mHitRecoConfig["geometry"]["bz"].get<float>());
     auto field = new field::MagneticField("ALICE3Mag", "ALICE 3 Magnetic Field", mHitRecoConfig["geometry"]["bz"].get<float>() / 5.f, 0.0, o2::field::MagFieldParam::k5kGUniform);
     TGeoGlobalMagField::Instance()->SetField(field);
     TGeoGlobalMagField::Instance()->Lock();
 
-    int nRofs = timeFrame.loadROFsFromHitTree(hitsTree, gman, mHitRecoConfig);
-
+    nRofs = timeFrame.loadROFsFromHitTree(hitsTree, gman, mHitRecoConfig);
     const int inROFpileup{mHitRecoConfig.contains("inROFpileup") ? mHitRecoConfig["inROFpileup"].get<int>() : 1};
-
     // Add primary vertices from MC headers for each ROF
     timeFrame.getPrimaryVerticesFromMC(mcHeaderTree, nRofs, nEvents, inROFpileup);
-    // Create tracking parameters from config and set them in the time frame
-    auto trackingParams = createTrackingParamsFromConfig();
+  } else if (!mClusterRecoConfig.empty()) {
+    LOGP(info, "Starting reconstruction from clusters");
 
-    itsTrackerTraits.updateTrackingParameters(trackingParams);
+    TFile mcHeaderFile(mClusterRecoConfig["inputfiles"]["mcHeader"].get<std::string>().c_str(), "READ");
+    TTree* mcHeaderTree = mcHeaderFile.Get<TTree>("o2sim");
+    auto mcheader = new o2::dataformats::MCEventHeader;
+    mcHeaderTree->SetBranchAddress("MCEventHeader.", &mcheader);
 
-    const auto trackingLoopStart = std::chrono::steady_clock::now();
-    for (size_t iter{0}; iter < trackingParams.size(); ++iter) {
-      LOGP(info, "{}", trackingParams[iter].asString());
-      timeFrame.initialise(iter, trackingParams[iter], 11, false);
-      itsTrackerTraits.computeLayerTracklets(iter, -1, -1);
-      LOGP(info, "Number of tracklets in iteration {}: {}", iter, timeFrame.getNumberOfTracklets());
-      itsTrackerTraits.computeLayerCells(iter);
-      LOGP(info, "Number of cells in iteration {}: {}", iter, timeFrame.getNumberOfCells());
-      itsTrackerTraits.findCellsNeighbours(iter);
-      LOGP(info, "Number of cell neighbours in iteration {}: {}", iter, timeFrame.getNumberOfNeighbours());
-      itsTrackerTraits.findRoads(iter);
-      LOGP(info, "Number of roads in iteration {}: {}", iter, timeFrame.getNumberOfTracks());
-      itsTrackerTraits.extendTracks(iter);
+    o2::base::GeometryManager::loadGeometry(mClusterRecoConfig["inputfiles"]["geometry"].get<std::string>().c_str(), false, true);
+    auto* gman = o2::trk::GeometryTGeo::Instance();
+
+    itsTrackerTraits.setBz(mClusterRecoConfig["geometry"]["bz"].get<float>());
+    auto field = new field::MagneticField("ALICE3Mag", "ALICE 3 Magnetic Field", mClusterRecoConfig["geometry"]["bz"].get<float>() / 5.f, 0.0, o2::field::MagFieldParam::k5kGUniform);
+    TGeoGlobalMagField::Instance()->SetField(field);
+    TGeoGlobalMagField::Instance()->Lock();
+
+    auto compClusters = pc.inputs().get<gsl::span<o2::trk::Cluster>>("compClusters");
+    gsl::span<const unsigned char> patterns = pc.inputs().get<gsl::span<unsigned char>>("patterns");
+
+    const dataformats::MCTruthContainer<MCCompLabel>* labels = nullptr;
+    gsl::span<const trk::MC2ROFRecord> mc2rofs;
+    if (mIsMC) {
+      labels = pc.inputs().get<const dataformats::MCTruthContainer<MCCompLabel>*>("trkmclabels").release();
+      mc2rofs = pc.inputs().get<gsl::span<trk::MC2ROFRecord>>("TRKMC2ROframes");
     }
-    const auto trackingLoopElapsedMs = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - trackingLoopStart).count();
-    LOGP(info, "Tracking iterations block took {} ms", trackingLoopElapsedMs);
 
-    itsTracker.computeTracksMClabels();
+    // nRofs = timeFrame.loadROFsFromHitTree(hitsTree, gman, mClusterRecoConfig);
+    // Add primary vertices from MC headers for each ROF
+    // timeFrame.getPrimaryVerticesFromMC(mcHeaderTree, nRofs, nEvents, inROFpileup);
+  }
 
-    // Stream tracks and their MC labels to the output
-    // Collect all tracks and labels from all ROFs
-    std::vector<o2::its::TrackITS> allTracks;
-    std::vector<o2::MCCompLabel> allLabels;
+  const auto trackingLoopStart = std::chrono::steady_clock::now();
+  for (size_t iter{0}; iter < trackingParams.size(); ++iter) {
+    LOGP(info, "{}", trackingParams[iter].asString());
+    timeFrame.initialise(iter, trackingParams[iter], 11, false);
+    itsTrackerTraits.computeLayerTracklets(iter, -1, -1);
+    LOGP(info, "Number of tracklets in iteration {}: {}", iter, timeFrame.getNumberOfTracklets());
+    itsTrackerTraits.computeLayerCells(iter);
+    LOGP(info, "Number of cells in iteration {}: {}", iter, timeFrame.getNumberOfCells());
+    itsTrackerTraits.findCellsNeighbours(iter);
+    LOGP(info, "Number of cell neighbours in iteration {}: {}", iter, timeFrame.getNumberOfNeighbours());
+    itsTrackerTraits.findRoads(iter);
+    LOGP(info, "Number of roads in iteration {}: {}", iter, timeFrame.getNumberOfTracks());
+    itsTrackerTraits.extendTracks(iter);
+  }
+  const auto trackingLoopElapsedMs = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - trackingLoopStart).count();
+  LOGP(info, "Tracking iterations block took {} ms", trackingLoopElapsedMs);
 
-    int totalTracks = 0;
-    int goodTracks = 0;
-    int fakeTracks = 0;
+  itsTracker.computeTracksMClabels();
 
-    for (int iRof = 0; iRof < nRofs; ++iRof) {
-      const auto& rofTracks = timeFrame.getTracks(iRof);
-      const auto& rofLabels = timeFrame.getTracksLabel(iRof);
+  // Stream tracks and their MC labels to the output
+  // Collect all tracks and labels from all ROFs
+  std::vector<o2::its::TrackITS> allTracks;
+  std::vector<o2::MCCompLabel> allLabels;
 
-      allTracks.insert(allTracks.end(), rofTracks.begin(), rofTracks.end());
-      allLabels.insert(allLabels.end(), rofLabels.begin(), rofLabels.end());
+  int totalTracks = 0;
+  int goodTracks = 0;
+  int fakeTracks = 0;
 
-      totalTracks += rofTracks.size();
-      for (const auto& label : rofLabels) {
-        if (label.isFake()) {
-          fakeTracks++;
-        } else {
-          goodTracks++;
-        }
+  for (int iRof = 0; iRof < nRofs; ++iRof) {
+    const auto& rofTracks = timeFrame.getTracks(iRof);
+    const auto& rofLabels = timeFrame.getTracksLabel(iRof);
+
+    allTracks.insert(allTracks.end(), rofTracks.begin(), rofTracks.end());
+    allLabels.insert(allLabels.end(), rofLabels.begin(), rofLabels.end());
+
+    totalTracks += rofTracks.size();
+    for (const auto& label : rofLabels) {
+      if (label.isFake()) {
+        fakeTracks++;
+      } else {
+        goodTracks++;
       }
     }
-
-    LOGP(info, "=== Tracking Summary ===");
-    LOGP(info, "Total tracks reconstructed: {}", totalTracks);
-    LOGP(info, "Good tracks: {} ({:.1f}%)", goodTracks, totalTracks > 0 ? 100.0 * goodTracks / totalTracks : 0);
-    LOGP(info, "Fake tracks: {} ({:.1f}%)", fakeTracks, totalTracks > 0 ? 100.0 * fakeTracks / totalTracks : 0);
-
-    // Stream tracks and labels to DPL output
-    pc.outputs().snapshot(o2::framework::Output{"TRK", "TRACKS", 0}, allTracks);
-    pc.outputs().snapshot(o2::framework::Output{"TRK", "TRACKSMCTR", 0}, allLabels);
-
-    LOGP(info, "Tracks and MC labels streamed to output");
-
-    pc.services().get<o2::framework::ControlService>().endOfStream();
-    pc.services().get<o2::framework::ControlService>().readyToQuit(framework::QuitRequest::Me);
   }
+
+  LOGP(info, "=== Tracking Summary ===");
+  LOGP(info, "Total tracks reconstructed: {}", totalTracks);
+  LOGP(info, "Good tracks: {} ({:.1f}%)", goodTracks, totalTracks > 0 ? 100.0 * goodTracks / totalTracks : 0);
+  LOGP(info, "Fake tracks: {} ({:.1f}%)", fakeTracks, totalTracks > 0 ? 100.0 * fakeTracks / totalTracks : 0);
+
+  // Stream tracks and labels to DPL output
+  pc.outputs().snapshot(o2::framework::Output{"TRK", "TRACKS", 0}, allTracks);
+  pc.outputs().snapshot(o2::framework::Output{"TRK", "TRACKSMCTR", 0}, allLabels);
+
+  LOGP(info, "Tracks and MC labels streamed to output");
+
+  pc.services().get<o2::framework::ControlService>().endOfStream();
+  pc.services().get<o2::framework::ControlService>().readyToQuit(framework::QuitRequest::Me);
 
   mTimer.Stop();
   LOGP(info, "CPU Reconstruction time for this TF {} s (cpu), {} s (wall)", mTimer.CpuTime() - cput, mTimer.RealTime() - realt);
@@ -367,7 +409,7 @@ void TrackerDPL::endOfStream(EndOfStreamContext& ec)
   LOGF(info, "TRK CA-Tracker total timing: Cpu: %.3e Real: %.3e s in %d slots", mTimer.CpuTime(), mTimer.RealTime(), mTimer.Counter() - 1);
 }
 
-DataProcessorSpec getTrackerSpec(bool useMC, const std::string& hitRecoConfig, o2::gpu::gpudatatypes::DeviceType dType)
+DataProcessorSpec getTrackerSpec(bool useMC, const std::string& hitRecoConfig, const std::string& clusterRecoConfig, o2::gpu::gpudatatypes::DeviceType dType)
 {
   std::vector<InputSpec> inputs;
   std::vector<OutputSpec> outputs;
@@ -390,18 +432,23 @@ DataProcessorSpec getTrackerSpec(bool useMC, const std::string& hitRecoConfig, o
       AlgorithmSpec{adaptFromTask<TrackerDPL>(ggRequest,
                                               useMC,
                                               hitRecoConfig,
+                                              clusterRecoConfig,
                                               dType)},
       Options{ConfigParamSpec{"max-loops", VariantType::Int, 1, {"max number of loops"}}}};
   }
 
   inputs.emplace_back("dummy", "TRK", "DUMMY", 0, Lifetime::Timeframe);
 
-  constexpr bool expectClusterInputs = false;
-  if (expectClusterInputs) {
+  /// Keep momentarily both the hit-based and cluster-based reconstruction in the code, but if a cluster reco config is provided, we assume that the input will be clusters and not hits, and we set the inputs accordingly. This is to avoid having to change the workflow too much for the moment, but ideally we should drop the hit-based reconstruction asap.
+  if (!clusterRecoConfig.empty()) {
     inputs.pop_back();
     inputs.emplace_back("compClusters", "TRK", "COMPCLUSTERS", 0, Lifetime::Timeframe);
     inputs.emplace_back("patterns", "TRK", "PATTERNS", 0, Lifetime::Timeframe);
     inputs.emplace_back("ROframes", "TRK", "CLUSTERSROF", 0, Lifetime::Timeframe);
+    if (useMC) {
+      inputs.emplace_back("trkmclabels", "TRK", "CLUSTERSMCTR", 0, Lifetime::Timeframe);
+      inputs.emplace_back("TRKMC2ROframes", "TRK", "CLUSTERSMC2ROF", 0, Lifetime::Timeframe);
+    }
   }
 
   // inputs.emplace_back("itscldict", "TRK", "CLUSDICT", 0, Lifetime::Condition, ccdbParamSpec("ITS/Calib/ClusterDictionary"));
@@ -414,11 +461,9 @@ DataProcessorSpec getTrackerSpec(bool useMC, const std::string& hitRecoConfig, o
   // outputs.emplace_back("TRK", "IRFRAMES", 0, Lifetime::Timeframe);
 
   if (useMC) {
-    // inputs.emplace_back("trkmclabels", "TRK", "CLUSTERSMCTR", 0, Lifetime::Timeframe);
-    // inputs.emplace_back("TRKMC2ROframes", "TRK", "CLUSTERSMC2ROF", 0, Lifetime::Timeframe);
     // outputs.emplace_back("TRK", "VERTICESMCTR", 0, Lifetime::Timeframe);
     // outputs.emplace_back("TRK", "VERTICESMCPUR", 0, Lifetime::Timeframe);
-    // outputs.emplace_back("TRK", "TRACKSMCTR", 0, Lifetime::Timeframe);
+    outputs.emplace_back("TRK", "TRACKSMCTR", 0, Lifetime::Timeframe);
     // outputs.emplace_back("TRK", "TRKTrackMC2ROF", 0, Lifetime::Timeframe);
   }
 
@@ -429,6 +474,7 @@ DataProcessorSpec getTrackerSpec(bool useMC, const std::string& hitRecoConfig, o
     AlgorithmSpec{adaptFromTask<TrackerDPL>(ggRequest,
                                             useMC,
                                             hitRecoConfig,
+                                            clusterRecoConfig,
                                             dType)},
     Options{}};
 }

@@ -23,6 +23,7 @@ namespace reco_workflow
 
 o2::framework::WorkflowSpec getWorkflow(bool useMC,
                                         const std::string& hitRecoConfig,
+                                        const std::string& clusterRecoConfig,
                                         bool upstreamDigits = false,
                                         bool upstreamClusters = false,
                                         bool disableRootOutput = false,
