@@ -28,6 +28,7 @@
 #include "SimulationDataFormat/MCCompLabel.h"
 #include "SimulationDataFormat/MCTruthContainer.h"
 #include "TRKBase/Specs.h"
+#include "MathUtils/Cartesian.h"
 #include <gsl/span>
 #include <vector>
 #include <array>
@@ -170,6 +171,9 @@ class Clusterer
                        ClusterTruth* clusterLabels = nullptr,
                        gsl::span<const DigMC2ROFRecord> digMC2ROFs = {},
                        std::vector<o2::trk::MC2ROFRecord>* clusterMC2ROFs = nullptr);
+
+  static o2::math_utils::Point3D<float> getClusterLocalCoordinates(const Cluster& cluster, const uint8_t* patt,
+                                                                    float yPlaneMLOT = 0.f) noexcept;
 
  protected:
   int mNHugeClus = 0;

@@ -67,6 +67,7 @@ void CheckClusters(const std::string& clusfile = "o2clus_trk.root",
     return;
   }
   const float depthMax = alpResp->getDepthMax();
+  LOGP(info, "Retrieved AlpideSimResponse from CCDB with depthMax = {:.4f} cm", depthMax);
 
   // ── Y-plane shifts: why VD and ML/OT need different values ────────────────
   //

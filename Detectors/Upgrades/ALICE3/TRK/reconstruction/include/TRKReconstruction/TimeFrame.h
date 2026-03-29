@@ -20,6 +20,10 @@
 #include "ITStracking/Constants.h"
 #include "ITStracking/Configuration.h"
 #include "SimulationDataFormat/MCCompLabel.h"
+#include "SimulationDataFormat/MCTruthContainer.h"
+#include "DataFormatsTRK/Cluster.h"
+#include "DataFormatsTRK/ROFRecord.h"
+#include <gsl/span>
 #include <vector>
 #include <unordered_map>
 #include <bitset>
@@ -55,12 +59,25 @@ class TimeFrame : public o2::its::TimeFrame<nLayers>
   /// \param config Configuration parameters for hit reconstruction
   int loadROFsFromHitTree(TTree* hitsTree, GeometryTGeo* gman, const nlohmann::json& config);
 
+  /// Load ROF data from TRK clustered inputs (without topology dictionary for the time being).
+  /// Patterns are expected as [rowSpan, colSpan, bitmap...] for each cluster.
+  int loadROFrameData(gsl::span<const o2::trk::ROFRecord> rofs,
+                      gsl::span<const o2::trk::Cluster> clusters,
+                      gsl::span<const unsigned char> patterns,
+                      const dataformats::MCTruthContainer<MCCompLabel>* mcLabels = nullptr,
+                      float yPlaneMLOT = 0.f);
+
   /// Add primary vertices from MC headers for each ROF
   /// \param mcHeaderTree Tree containing MC event headers
   /// \param nRofs Number of ROFs (Read-Out Frames)
   /// \param nEvents Number of events to process
   /// \param inROFpileup Number of events per ROF
   void getPrimaryVerticesFromMC(TTree* mcHeaderTree, int nRofs, Long64_t nEvents, int inROFpileup);
+
+    /// Add primary vertices using truth seeding from the DigitizationContext (collisioncontext.root).
+    /// Maps each MC collision to its ROF via the ROF BCData timestamps (TRK digitising timing).
+    /// \param rofs Span of TRK ROF records used to determine which ROF each collision falls into
+    void addTruthSeedingVertices(gsl::span<const o2::trk::ROFRecord> rofs);
 };
 
 } // namespace trk

@@ -323,6 +323,7 @@ void TrackerDPL::run(ProcessingContext& pc)
 
     auto compClusters = pc.inputs().get<gsl::span<o2::trk::Cluster>>("compClusters");
     gsl::span<const unsigned char> patterns = pc.inputs().get<gsl::span<unsigned char>>("patterns");
+    auto rofRecords = pc.inputs().get<gsl::span<o2::trk::ROFRecord>>("ROframes");
 
     const dataformats::MCTruthContainer<MCCompLabel>* labels = nullptr;
     gsl::span<const trk::MC2ROFRecord> mc2rofs;
@@ -331,9 +332,9 @@ void TrackerDPL::run(ProcessingContext& pc)
       mc2rofs = pc.inputs().get<gsl::span<trk::MC2ROFRecord>>("TRKMC2ROframes");
     }
 
-    // nRofs = timeFrame.loadROFsFromHitTree(hitsTree, gman, mClusterRecoConfig);
-    // Add primary vertices from MC headers for each ROF
-    // timeFrame.getPrimaryVerticesFromMC(mcHeaderTree, nRofs, nEvents, inROFpileup);
+    const float yPlaneMLOT = 0.0010f;
+    nRofs = timeFrame.loadROFrameData(rofRecords, compClusters, patterns, labels, yPlaneMLOT);
+    timeFrame.addTruthSeedingVertices(rofRecords);
   }
 
   const auto trackingLoopStart = std::chrono::steady_clock::now();
