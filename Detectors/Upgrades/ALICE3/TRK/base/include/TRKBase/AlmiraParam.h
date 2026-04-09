@@ -24,9 +24,9 @@ constexpr float DEFAlmiraStrobeDelay = 0.f; ///< default strobe delay in ns wrt 
 
 struct AlmiraParam : public o2::conf::ConfigurableParamHelper<AlmiraParam> {
   int roFrameLengthInBC = o2::constants::lhc::LHCMaxBunches / 198; ///< ROF length in BC for continuous mode
-  float strobeDelay = DEFAlmiraStrobeDelay;                      ///< strobe start in ns wrt ROF start
-  float strobeLengthCont = -1.;                                  ///< if < 0, full ROF length minus delay
-  int roFrameBiasInBC = 0;                                      ///< ROF start bias in BC wrt orbit start
+  float strobeDelay = DEFAlmiraStrobeDelay;                        ///< strobe start in ns wrt ROF start
+  float strobeLengthCont = -1.;                                    ///< if < 0, full ROF length minus delay
+  int roFrameBiasInBC = 0;                                         ///< ROF start bias in BC wrt orbit start
 
   O2ParamDef(AlmiraParam, "TRKAlmiraParam");
 };
