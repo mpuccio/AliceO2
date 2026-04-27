@@ -312,72 +312,72 @@ void CheckClusters(const std::string& clusfile = "o2clus_trk.root",
           continue;
         }
 
-      // ── MC label ───────────────────────────────────────────────────────
-      const auto& labels = clusLabArr->getLabels(clEntry);
-      if (labels.empty() || !labels[0].isValid()) {
-        nInvalidLabel++;
-        continue;
-      }
-      const auto& lab = labels[0];
-      const int trID = lab.getTrackID();
-      const int evID = lab.getEventID();
+        // ── MC label ───────────────────────────────────────────────────────
+        const auto& labels = clusLabArr->getLabels(clEntry);
+        if (labels.empty() || !labels[0].isValid()) {
+          nInvalidLabel++;
+          continue;
+        }
+        const auto& lab = labels[0];
+        const int trID = lab.getTrackID();
+        const int evID = lab.getEventID();
 
-      // ── Find matching MC hit ────────────────────────────────────────────
-      const auto& mc2hit = mc2hitVec[evID];
-      uint64_t key = (uint64_t(trID) << 32) + cluster.chipID;
-      auto hitEntry = mc2hit.find(key);
-      if (hitEntry == mc2hit.end()) {
-        nNoMCHit++;
-        continue;
-      }
-      const auto& hit = (*hitVecPool[evID])[hitEntry->second];
-      const float pt = TMath::Hypot(hit.GetPx(), hit.GetPy());
+        // ── Find matching MC hit ────────────────────────────────────────────
+        const auto& mc2hit = mc2hitVec[evID];
+        uint64_t key = (uint64_t(trID) << 32) + cluster.chipID;
+        auto hitEntry = mc2hit.find(key);
+        if (hitEntry == mc2hit.end()) {
+          nNoMCHit++;
+          continue;
+        }
+        const auto& hit = (*hitVecPool[evID])[hitEntry->second];
+        const float pt = TMath::Hypot(hit.GetPx(), hit.GetPy());
 
-      // ── Hit global midpoint ────────────────────────────────────────────
-      const auto& gloHend = hit.GetPos();
-      const auto& gloHsta = hit.GetPosStart();
-      o2::math_utils::Point3D<float> gloHmid(
-        0.5f * (gloHend.X() + gloHsta.X()),
-        0.5f * (gloHend.Y() + gloHsta.Y()),
-        0.5f * (gloHend.Z() + gloHsta.Z()));
+        // ── Hit global midpoint ────────────────────────────────────────────
+        const auto& gloHend = hit.GetPos();
+        const auto& gloHsta = hit.GetPosStart();
+        o2::math_utils::Point3D<float> gloHmid(
+          0.5f * (gloHend.X() + gloHsta.X()),
+          0.5f * (gloHend.Y() + gloHsta.Y()),
+          0.5f * (gloHend.Z() + gloHsta.Z()));
 
-      // ── Hit global → local ─────────────────────────────
-      o2::math_utils::Point3D<float> locHsta = gman->getMatrixL2G(cluster.chipID) ^ (gloHsta); // inverse L2G
-      o2::math_utils::Point3D<float> locHend = gman->getMatrixL2G(cluster.chipID) ^ (gloHend); // inverse L2G
+        // ── Hit global → local ─────────────────────────────
+        o2::math_utils::Point3D<float> locHsta = gman->getMatrixL2G(cluster.chipID) ^ (gloHsta); // inverse L2G
+        o2::math_utils::Point3D<float> locHend = gman->getMatrixL2G(cluster.chipID) ^ (gloHend); // inverse L2G
 
-      // ── Propagate hit segment to the sensor response surface ───────────────
-      // Rather than the geometric midpoint, find where the track segment crosses
-      // the response plane (y = responseYShift in the flat local frame).
-      // For VD (curved): convert both endpoints to flat frame first.
-      // For ML/OT (flat): use local coordinates directly.
-      float hitLocX{0.f}, hitLocZ{0.f};
-      if (cluster.subDetID == 0) { // VD – curved sensor
-        auto flatSta = o2::trk::SegmentationChip::curvedToFlat(cluster.layer, locHsta.X(), locHsta.Y());
-        auto flatEnd = o2::trk::SegmentationChip::curvedToFlat(cluster.layer, locHend.X(), locHend.Y());
-        float x0 = flatSta.X(), y0 = flatSta.Y(), z0 = locHsta.Z();
-        float dltx = flatEnd.X() - x0, dlty = flatEnd.Y() - y0, dltz = locHend.Z() - z0;
-        float r = (std::abs(dlty) > 1e-9f) ? (yPlaneVD - y0) / dlty : 0.5f;
-        hitLocX = x0 + r * dltx;
-        hitLocZ = z0 + r * dltz;
-      } else { // ML/OT – flat sensor
-        float x0 = locHsta.X(), y0 = locHsta.Y(), z0 = locHsta.Z();
-        float dltx = locHend.X() - x0, dlty = locHend.Y() - y0, dltz = locHend.Z() - z0;
-        float r = (std::abs(dlty) > 1e-9f) ? (yPlaneMLOT - y0) / dlty : 0.5f;
-        hitLocX = x0 + r * dltx;
-        hitLocZ = z0 + r * dltz;
-      }
+        // ── Propagate hit segment to the sensor response surface ───────────────
+        // Rather than the geometric midpoint, find where the track segment crosses
+        // the response plane (y = responseYShift in the flat local frame).
+        // For VD (curved): convert both endpoints to flat frame first.
+        // For ML/OT (flat): use local coordinates directly.
+        float hitLocX{0.f}, hitLocZ{0.f};
+        if (cluster.subDetID == 0) { // VD – curved sensor
+          auto flatSta = o2::trk::SegmentationChip::curvedToFlat(cluster.layer, locHsta.X(), locHsta.Y());
+          auto flatEnd = o2::trk::SegmentationChip::curvedToFlat(cluster.layer, locHend.X(), locHend.Y());
+          float x0 = flatSta.X(), y0 = flatSta.Y(), z0 = locHsta.Z();
+          float dltx = flatEnd.X() - x0, dlty = flatEnd.Y() - y0, dltz = locHend.Z() - z0;
+          float r = (std::abs(dlty) > 1e-9f) ? (yPlaneVD - y0) / dlty : 0.5f;
+          hitLocX = x0 + r * dltx;
+          hitLocZ = z0 + r * dltz;
+        } else { // ML/OT – flat sensor
+          float x0 = locHsta.X(), y0 = locHsta.Y(), z0 = locHsta.Z();
+          float dltx = locHend.X() - x0, dlty = locHend.Y() - y0, dltz = locHend.Z() - z0;
+          float r = (std::abs(dlty) > 1e-9f) ? (yPlaneMLOT - y0) / dlty : 0.5f;
+          hitLocX = x0 + r * dltx;
+          hitLocZ = z0 + r * dltz;
+        }
 
-      nValid++;
-      std::array<float, 21> data = {
-        (float)evID, (float)trID,
-        hitLocX, hitLocZ,
-        (float)gloHmid.X(), (float)gloHmid.Y(), (float)gloHmid.Z(),
-        (float)gloC.X(), (float)gloC.Y(), (float)gloC.Z(),
-        clLocX, clLocZ,
-        (float)rofRec.getROFrame(), (float)cluster.size, (float)cluster.chipID,
-        (float)cluster.layer, (float)cluster.disk, (float)cluster.subDetID,
-        (float)cluster.row, (float)cluster.col, pt};
-      nt.Fill(data.data());
+        nValid++;
+        std::array<float, 21> data = {
+          (float)evID, (float)trID,
+          hitLocX, hitLocZ,
+          (float)gloHmid.X(), (float)gloHmid.Y(), (float)gloHmid.Z(),
+          (float)gloC.X(), (float)gloC.Y(), (float)gloC.Z(),
+          clLocX, clLocZ,
+          (float)rofRec.getROFrame(), (float)cluster.size, (float)cluster.chipID,
+          (float)cluster.layer, (float)cluster.disk, (float)cluster.subDetID,
+          (float)cluster.row, (float)cluster.col, pt};
+        nt.Fill(data.data());
       }
     }
   }

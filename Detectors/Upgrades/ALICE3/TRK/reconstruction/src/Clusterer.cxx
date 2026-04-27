@@ -79,7 +79,6 @@ void Clusterer::process(gsl::span<const Digit> digits,
     clusterROFs.emplace_back(inROF.getBCData(), inROF.getROFrame(),
                              outFirst, static_cast<int>(clusters.size()) - outFirst);
   }
-
 }
 
 //__________________________________________________
