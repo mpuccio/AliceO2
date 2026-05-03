@@ -380,4 +380,5 @@ void TrackerTraitsGPU<NLayers>::setBz(float bz)
 }
 
 template class TrackerTraitsGPU<7>;
+template class TrackerTraitsGPU<11>;
 } // namespace o2::its

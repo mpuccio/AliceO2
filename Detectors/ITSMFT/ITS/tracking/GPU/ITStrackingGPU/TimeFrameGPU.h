@@ -25,7 +25,7 @@ namespace o2::its::gpu
 {
 
 template <int NLayers>
-class TimeFrameGPU final : public TimeFrame<NLayers>
+class TimeFrameGPU : public TimeFrame<NLayers>
 {
   using typename TimeFrame<NLayers>::IndexTableUtilsN;
   using typename TimeFrame<NLayers>::ROFOverlapTableN;
@@ -35,7 +35,7 @@ class TimeFrameGPU final : public TimeFrame<NLayers>
 
  public:
   TimeFrameGPU() = default;
-  ~TimeFrameGPU() final = default;
+  ~TimeFrameGPU() override = default;
 
   /// Most relevant operations
   void pushMemoryStack(const int);
