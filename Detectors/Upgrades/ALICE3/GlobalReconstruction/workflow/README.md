@@ -19,6 +19,8 @@ o2-alice3-global-reconstruction-reco-workflow --tracking-from-hits-config config
 - `--tracking-from-hits-config <file>`: Path to tracking-from-hits configuration JSON file
 - `--tracking-from-clusters-config <file>`: Path to tracking-from-clusters configuration JSON file
 - `--gpu-device <id>`: Tracking device type (`1` CPU, `2` CUDA, `3` HIP)
+- `--enable-primary-vertexing`: Run the ALICE 3 primary vertex finder on reconstructed TRK tracks
+- `--skip-primary-vertexing`: Run the primary vertexing device in pass-through mode
 - `-b`: Batch mode (no GUI)
 - `--disable-root-output`: Skip writing tracks to ROOT file
 - `--help`: Show all available options
@@ -117,6 +119,12 @@ Execute the tracking workflow:
 
 ```bash
 o2-alice3-global-reconstruction-reco-workflow --tracking-from-hits-config config_tracker.json -b
+```
+
+To run primary vertexing after tracking:
+
+```bash
+o2-alice3-global-reconstruction-reco-workflow --tracking-from-hits-config config_tracker.json --enable-primary-vertexing -b
 ```
 
 This produces:
