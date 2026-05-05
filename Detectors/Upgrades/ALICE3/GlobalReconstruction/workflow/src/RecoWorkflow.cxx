@@ -12,6 +12,8 @@
 #include "ALICE3GlobalReconstructionWorkflow/RecoWorkflow.h"
 #include "ALICE3GlobalReconstructionWorkflow/TrackerSpec.h"
 #include "ALICE3GlobalReconstructionWorkflow/TrackWriterSpec.h"
+#include "ALICE3GlobalReconstructionWorkflow/PrimaryVertexingSpec.h"
+#include "ALICE3GlobalReconstructionWorkflow/PrimaryVertexWriterSpec.h"
 #include "Framework/Logger.h"
 
 namespace o2::trk::global_reco_workflow
@@ -21,7 +23,9 @@ framework::WorkflowSpec getWorkflow(bool useMC,
                                     const std::string& hitRecoConfig,
                                     const std::string& clusterRecoConfig,
                                     bool disableRootOutput,
-                                    o2::gpu::gpudatatypes::DeviceType dtype)
+                                    o2::gpu::gpudatatypes::DeviceType dtype,
+                                    bool enablePrimaryVertexing,
+                                    bool skipPrimaryVertexing)
 {
   framework::WorkflowSpec specs;
 
@@ -29,8 +33,14 @@ framework::WorkflowSpec getWorkflow(bool useMC,
     LOG_IF(info, !hitRecoConfig.empty()) << "Using hit reco config from file " << hitRecoConfig;
     LOG_IF(info, !clusterRecoConfig.empty()) << "Using cluster reco config from file " << clusterRecoConfig;
     specs.emplace_back(o2::trk::getTrackerSpec(useMC, hitRecoConfig, clusterRecoConfig, dtype));
+    if (enablePrimaryVertexing) {
+      specs.emplace_back(o2::trk::getPrimaryVertexingSpec(useMC, skipPrimaryVertexing));
+    }
     if (!disableRootOutput) {
       specs.emplace_back(o2::trk::getTrackWriterSpec(useMC));
+      if (enablePrimaryVertexing) {
+        specs.emplace_back(o2::trk::getPrimaryVertexWriterSpec(useMC));
+      }
     }
   }
 

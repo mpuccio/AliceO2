@@ -38,6 +38,8 @@ void customize(std::vector<ConfigParamSpec>& workflowOptions)
     {"disable-mc", VariantType::Bool, false, {"disable MC propagation even if available"}},
     {"tracking-from-hits-config", VariantType::String, "", {"JSON file with tracking from hits configuration"}},
     {"tracking-from-clusters-config", VariantType::String, "", {"JSON file with tracking from clusters configuration"}},
+    {"enable-primary-vertexing", VariantType::Bool, false, {"run the ALICE3 primary vertex finder on TRK tracks"}},
+    {"skip-primary-vertexing", VariantType::Bool, false, {"run primary vertexing device in pass-through mode"}},
     {"configKeyValues", VariantType::String, "", {"Semicolon separated key=value strings"}},
     {"gpu-device", VariantType::Int, 1, {"use gpu device: CPU=1,CUDA=2,HIP=3 (default: CPU)"}}};
   std::swap(workflowOptions, options);
@@ -53,6 +55,8 @@ WorkflowSpec defineDataProcessing(ConfigContext const& configcontext)
   auto clusterRecoConfig = configcontext.options().get<std::string>("tracking-from-clusters-config");
   auto gpuDevice = static_cast<o2::gpu::gpudatatypes::DeviceType>(configcontext.options().get<int>("gpu-device"));
   auto disableRootOutput = configcontext.options().get<bool>("disable-root-output");
+  auto enablePrimaryVertexing = configcontext.options().get<bool>("enable-primary-vertexing");
+  auto skipPrimaryVertexing = configcontext.options().get<bool>("skip-primary-vertexing");
   o2::conf::ConfigurableParam::updateFromString(configcontext.options().get<std::string>("configKeyValues"));
 
   if (hitRecoConfig.empty() && clusterRecoConfig.empty()) {
@@ -61,5 +65,5 @@ WorkflowSpec defineDataProcessing(ConfigContext const& configcontext)
 
   o2::conf::ConfigurableParam::writeINI("o2alice3globalrecoflow_configuration.ini");
 
-  return o2::trk::global_reco_workflow::getWorkflow(useMC, hitRecoConfig, clusterRecoConfig, disableRootOutput, gpuDevice);
+  return o2::trk::global_reco_workflow::getWorkflow(useMC, hitRecoConfig, clusterRecoConfig, disableRootOutput, gpuDevice, enablePrimaryVertexing, skipPrimaryVertexing);
 }
