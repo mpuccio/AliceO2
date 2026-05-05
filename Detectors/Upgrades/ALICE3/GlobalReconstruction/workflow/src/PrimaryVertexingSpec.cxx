@@ -13,11 +13,13 @@
 
 #include "ALICE3GlobalReconstructionWorkflow/PrimaryVertexingSpec.h"
 
+#include "ALICE3GlobalReconstructionWorkflow/MagneticFieldHelper.h"
 #include "CommonConstants/LHCConstants.h"
 #include "CommonDataFormat/BunchFilling.h"
 #include "CommonUtils/ConfigurableParam.h"
 #include "CommonUtils/NameConf.h"
 #include "DataFormatsITS/TrackITS.h"
+#include "DetectorsBase/Propagator.h"
 #include "DetectorsVertexing/PVertexer.h"
 #include "DetectorsVertexing/PVertexerHelpers.h"
 #include "Framework/ConfigParamRegistry.h"
@@ -48,7 +50,7 @@ using VtxTrackIndex = o2::dataformats::VtxTrackIndex;
 class PrimaryVertexingSpec final : public Task
 {
  public:
-  PrimaryVertexingSpec(bool useMC, bool skip) : mUseMC(useMC), mSkip(skip) {}
+  PrimaryVertexingSpec(bool useMC, bool skip, float bz) : mUseMC(useMC), mSkip(skip), mBz(bz) {}
 
   void init(InitContext& ic) final
   {
@@ -56,14 +58,16 @@ class PrimaryVertexingSpec final : public Task
     mTimer.Reset();
     mVertexer.setPoolDumpDirectory(ic.options().get<std::string>("pool-dumps-directory"));
     mVertexer.setTrackSources(GTrackID::getSourceMask(GTrackID::ITS));
+    mVertexer.setMatCorrType(o2::base::Propagator::MatCorrType::USEMatCorrNONE);
     mVertexer.setITSROFrameLength(ic.options().get<float>("alice3-pv-rof-length-bc") * o2::constants::lhc::LHCBunchSpacingMUS);
+    ensureAlice3Field(mBz);
     o2::BunchFilling bunchFilling;
     for (int bc = 0; bc < o2::constants::lhc::LHCMaxBunches; ++bc) {
       bunchFilling.setBC(bc);
     }
     mVertexer.setBunchFilling(bunchFilling);
     mVertexer.init();
-    mVertexer.setBz(ic.options().get<float>("alice3-pv-bz"));
+    mVertexer.setBz(mBz);
   }
 
   void run(ProcessingContext& pc) final
@@ -150,13 +154,14 @@ class PrimaryVertexingSpec final : public Task
  private:
   bool mUseMC{false};
   bool mSkip{false};
+  float mBz{5.f};
   o2::vertexing::PVertexer mVertexer;
   TStopwatch mTimer;
 };
 
 } // namespace
 
-DataProcessorSpec getPrimaryVertexingSpec(bool useMC, bool skip)
+DataProcessorSpec getPrimaryVertexingSpec(bool useMC, bool skip, float bz)
 {
   std::vector<InputSpec> inputs;
   inputs.emplace_back("tracks", "TRK", "TRACKS", 0, Lifetime::Timeframe);
@@ -176,9 +181,8 @@ DataProcessorSpec getPrimaryVertexingSpec(bool useMC, bool skip)
     "alice3-primary-vertexing",
     inputs,
     outputs,
-    AlgorithmSpec{adaptFromTask<PrimaryVertexingSpec>(useMC, skip)},
+    AlgorithmSpec{adaptFromTask<PrimaryVertexingSpec>(useMC, skip, bz)},
     Options{{"pool-dumps-directory", VariantType::String, "", {"Destination directory for the tracks pool dumps"}},
-            {"alice3-pv-bz", VariantType::Float, 5.f, {"Nominal ALICE3 Bz field in kG for primary vertex refits"}},
             {"alice3-pv-rof-length-bc", VariantType::Float, 1.f, {"Effective TRK readout length in BC used by pvertexer time clustering"}}}};
 }
 

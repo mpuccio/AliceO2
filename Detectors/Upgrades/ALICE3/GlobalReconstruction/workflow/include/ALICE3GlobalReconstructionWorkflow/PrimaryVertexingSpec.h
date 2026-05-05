@@ -17,7 +17,7 @@
 namespace o2::trk
 {
 
-framework::DataProcessorSpec getPrimaryVertexingSpec(bool useMC, bool skip);
+framework::DataProcessorSpec getPrimaryVertexingSpec(bool useMC, bool skip, float bz);
 
 } // namespace o2::trk
 

@@ -16,8 +16,22 @@
 #include "ALICE3GlobalReconstructionWorkflow/PrimaryVertexWriterSpec.h"
 #include "Framework/Logger.h"
 
+#include <fstream>
+#include <nlohmann/json.hpp>
+
 namespace o2::trk::global_reco_workflow
 {
+
+namespace
+{
+float getBzFromConfig(const std::string& hitRecoConfig, const std::string& clusterRecoConfig)
+{
+  const auto& configPath = !hitRecoConfig.empty() ? hitRecoConfig : clusterRecoConfig;
+  std::ifstream configFile(configPath);
+  const auto config = nlohmann::json::parse(configFile);
+  return config["geometry"]["bz"].get<float>();
+}
+} // namespace
 
 framework::WorkflowSpec getWorkflow(bool useMC,
                                     const std::string& hitRecoConfig,
@@ -34,7 +48,7 @@ framework::WorkflowSpec getWorkflow(bool useMC,
     LOG_IF(info, !clusterRecoConfig.empty()) << "Using cluster reco config from file " << clusterRecoConfig;
     specs.emplace_back(o2::trk::getTrackerSpec(useMC, hitRecoConfig, clusterRecoConfig, dtype));
     if (enablePrimaryVertexing) {
-      specs.emplace_back(o2::trk::getPrimaryVertexingSpec(useMC, skipPrimaryVertexing));
+      specs.emplace_back(o2::trk::getPrimaryVertexingSpec(useMC, skipPrimaryVertexing, getBzFromConfig(hitRecoConfig, clusterRecoConfig)));
     }
     if (!disableRootOutput) {
       specs.emplace_back(o2::trk::getTrackWriterSpec(useMC));

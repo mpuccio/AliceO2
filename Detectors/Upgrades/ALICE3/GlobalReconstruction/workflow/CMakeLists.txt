@@ -13,12 +13,14 @@ o2_add_library(ALICE3GlobalReconstructionWorkflow
                TARGETVARNAME targetName
                SOURCES src/TrackerSpec.cxx
                        src/TrackWriterSpec.cxx
+                       src/MagneticFieldHelper.cxx
                        src/PrimaryVertexingSpec.cxx
                        src/PrimaryVertexWriterSpec.cxx
                        src/RecoWorkflow.cxx
                PUBLIC_LINK_LIBRARIES O2::Framework
                                      O2::CommonConstants
                                      O2::CommonDataFormat
+                                     O2::Field
                                      O2::GPUWorkflow
                                      O2::SimConfig
                                      O2::DataFormatsITSMFT

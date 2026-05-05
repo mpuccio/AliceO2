@@ -16,13 +16,12 @@
 #include <format>
 #include <fstream>
 
+#include "ALICE3GlobalReconstructionWorkflow/MagneticFieldHelper.h"
 #include "DataFormatsTRK/Cluster.h"
 #include "DataFormatsTRK/ROFRecord.h"
 #include "DetectorsBase/GeometryManager.h"
 #include "ITStracking/TimeFrame.h"
 #include "ITStracking/Configuration.h"
-#include "Field/MagneticField.h"
-#include "Field/MagFieldParam.h"
 #include "Framework/ControlService.h"
 #include "Framework/ConfigParamRegistry.h"
 #include "Framework/CCDBParamSpec.h"
@@ -40,7 +39,6 @@
 #include "ITStrackingGPU/TrackerTraitsGPU.h"
 #endif
 #include "ALICE3GlobalReconstructionWorkflow/TrackerSpec.h"
-#include <TGeoGlobalMagField.h>
 
 #ifdef O2_WITH_ACTS
 #include "ALICE3GlobalReconstruction/TrackerACTS.h"
@@ -298,9 +296,7 @@ void TrackerDPL::run(ProcessingContext& pc)
       LOGP(info, "Starting {} reconstruction from hits for {} events", trackerTraits.getName(), nEvents);
 
       trackerTraits.setBz(mHitRecoConfig["geometry"]["bz"].get<float>());
-      auto field = new field::MagneticField("ALICE3Mag", "ALICE 3 Magnetic Field", mHitRecoConfig["geometry"]["bz"].get<float>() / 5.f, 0.0, o2::field::MagFieldParam::k5kGUniform);
-      TGeoGlobalMagField::Instance()->SetField(field);
-      TGeoGlobalMagField::Instance()->Lock();
+      ensureAlice3Field(mHitRecoConfig["geometry"]["bz"].get<float>());
 
       nRofs = timeFrame.loadROFsFromHitTree(hitsTree, gman, mHitRecoConfig);
       const int inROFpileup{mHitRecoConfig.contains("inROFpileup") ? mHitRecoConfig["inROFpileup"].get<int>() : 1};
@@ -312,9 +308,7 @@ void TrackerDPL::run(ProcessingContext& pc)
       o2::trk::GeometryTGeo::Instance();
 
       trackerTraits.setBz(mClusterRecoConfig["geometry"]["bz"].get<float>());
-      auto field = new field::MagneticField("ALICE3Mag", "ALICE 3 Magnetic Field", mClusterRecoConfig["geometry"]["bz"].get<float>() / 5.f, 0.0, o2::field::MagFieldParam::k5kGUniform);
-      TGeoGlobalMagField::Instance()->SetField(field);
-      TGeoGlobalMagField::Instance()->Lock();
+      ensureAlice3Field(mClusterRecoConfig["geometry"]["bz"].get<float>());
 
       constexpr int nLayers{11};
       std::array<gsl::span<const o2::trk::Cluster>, nLayers> layerClusters;
