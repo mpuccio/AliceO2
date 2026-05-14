@@ -94,6 +94,15 @@ std::vector<o2::its::TrackingParameters> TrackerDPL::createTrackingParamsFromCon
   auto loadTrackingParamsFromJson = [](std::vector<o2::its::TrackingParameters>& trackingParams, const nlohmann::json& paramConfigJson) {
     for (const auto& paramConfig : paramConfigJson) {
       o2::its::TrackingParameters params;
+      auto applyPassFlag = [&](const char* name, o2::its::IterationStep step) {
+        if (paramConfig.contains(name)) {
+          if (paramConfig[name].get<bool>()) {
+            params.PassFlags.set(step);
+          } else {
+            params.PassFlags.reset(step);
+          }
+        }
+      };
 
       if (paramConfig.contains("NLayers")) {
         params.NLayers = paramConfig["NLayers"].get<int>();
@@ -163,6 +172,37 @@ std::vector<o2::its::TrackingParameters> TrackerDPL::createTrackingParamsFromCon
       if (paramConfig.contains("CreateArtefactLabels")) {
         params.CreateArtefactLabels = paramConfig["CreateArtefactLabels"].get<bool>();
       }
+      if (paramConfig.contains("TrackFollower")) {
+        const auto mode = paramConfig["TrackFollower"].get<std::string>();
+        if (mode == "top" || mode == "outward") {
+          params.PassFlags.set(o2::its::IterationStep::TrackFollowerTop);
+        } else if (mode == "bot" || mode == "bottom" || mode == "inward") {
+          params.PassFlags.set(o2::its::IterationStep::TrackFollowerBot);
+        } else if (mode == "mix" || mode == "both") {
+          params.PassFlags.set(o2::its::IterationStep::TrackFollowerTop);
+          params.PassFlags.set(o2::its::IterationStep::TrackFollowerBot);
+        } else if (mode != "off") {
+          LOGP(fatal, "Invalid ALICE3 TRK tracking parameter TrackFollower: {}", mode);
+        }
+      }
+      if (paramConfig.contains("TrackFollowerNSigmaCutZ")) {
+        params.TrackFollowerNSigmaCutZ = paramConfig["TrackFollowerNSigmaCutZ"].get<float>();
+      }
+      if (paramConfig.contains("TrackFollowerNSigmaCutPhi")) {
+        params.TrackFollowerNSigmaCutPhi = paramConfig["TrackFollowerNSigmaCutPhi"].get<float>();
+      }
+      if (paramConfig.contains("TrackFollowerBeamWidth")) {
+        params.TrackFollowerBeamWidth = std::max(1, paramConfig["TrackFollowerBeamWidth"].get<int>());
+      }
+      applyPassFlag("FirstPass", o2::its::IterationStep::FirstPass);
+      applyPassFlag("RebuildClusterLUT", o2::its::IterationStep::RebuildClusterLUT);
+      applyPassFlag("UseUPCMask", o2::its::IterationStep::UseUPCMask);
+      applyPassFlag("SelectUPCVertices", o2::its::IterationStep::SelectUPCVertices);
+      applyPassFlag("ResetVertices", o2::its::IterationStep::ResetVertices);
+      applyPassFlag("SkipROFsAboveThreshold", o2::its::IterationStep::SkipROFsAboveThreshold);
+      applyPassFlag("MarkVerticesAsUPC", o2::its::IterationStep::MarkVerticesAsUPC);
+      applyPassFlag("TrackFollowerTop", o2::its::IterationStep::TrackFollowerTop);
+      applyPassFlag("TrackFollowerBot", o2::its::IterationStep::TrackFollowerBot);
       if (paramConfig.contains("PrintMemory")) {
         params.PrintMemory = paramConfig["PrintMemory"].get<bool>();
       }
@@ -280,6 +320,7 @@ void TrackerDPL::run(ProcessingContext& pc)
     trackerTraits.adoptTimeFrame(static_cast<o2::its::TimeFrame<11>*>(&timeFrame));
     itsTracker.adoptTimeFrame(timeFrame);
     trackerTraits.updateTrackingParameters(trackingParams);
+    timeFrame.initTrackerTopologies(trackingParams, 11);
 
     int nRofs{0};
     if (!mHitRecoConfig.empty()) {
@@ -354,6 +395,23 @@ void TrackerDPL::run(ProcessingContext& pc)
       LOGP(info, "Number of cell neighbours in iteration {}: {}", iter, timeFrame.getNumberOfNeighbours());
       trackerTraits.findRoads(iter);
       LOGP(info, "Number of roads in iteration {}: {}", iter, timeFrame.getNumberOfTracks());
+      if (trackerTraits.supportsExtendTracks() && (trackingParams[iter].PassFlags[o2::its::IterationStep::TrackFollowerTop] || trackingParams[iter].PassFlags[o2::its::IterationStep::TrackFollowerBot])) {
+        const auto nClustersBefore = timeFrame.getNumberOfUsedClusters();
+        const auto nTracksBefore = std::count_if(timeFrame.getTracks().begin(), timeFrame.getTracks().end(), [](const auto& track) {
+          return track.getPattern() & 0xff000000;
+        });
+        const auto extensionStart = std::chrono::steady_clock::now();
+        trackerTraits.extendTracks(iter);
+        const auto extensionElapsedMs = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - extensionStart).count();
+        const auto nTracksAfter = std::count_if(timeFrame.getTracks().begin(), timeFrame.getTracks().end(), [](const auto& track) {
+          return track.getPattern() & 0xff000000;
+        });
+        LOGP(info, "Extended {} tracks using {} clusters in iteration {} in {} ms",
+             nTracksAfter - nTracksBefore,
+             timeFrame.getNumberOfUsedClusters() - nClustersBefore,
+             iter,
+             extensionElapsedMs);
+      }
     }
     const auto trackingLoopElapsedMs = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - trackingLoopStart).count();
     LOGP(info, "Tracking iterations block took {} ms", trackingLoopElapsedMs);
