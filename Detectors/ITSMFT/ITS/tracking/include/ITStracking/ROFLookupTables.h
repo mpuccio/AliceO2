@@ -73,7 +73,7 @@ struct LayerTiming {
   }
 
   // return which ROF this BC belongs to
-  GPUhi() BCType getROF(BCType bc) const noexcept
+  GPUhdi() BCType getROF(BCType bc) const noexcept
   {
     const BCType offset = mROFDelay + mROFBias;
     if (bc <= offset) {
@@ -83,7 +83,7 @@ struct LayerTiming {
   }
 
   // return which ROF this timestamp belongs by its lower edge
-  GPUhi() BCType getROF(TimeStamp ts) const noexcept
+  GPUhdi() BCType getROF(TimeStamp ts) const noexcept
   {
     const BCType offset = mROFDelay + mROFBias;
     const BCType bc = (ts.getTimeStamp() < ts.getTimeStampError()) ? BCType(0) : static_cast<BCType>(o2::gpu::CAMath::Floor(ts.getTimeStamp() - ts.getTimeStampError()));

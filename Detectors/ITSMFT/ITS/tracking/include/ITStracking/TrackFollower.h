@@ -1,0 +1,314 @@
+// Copyright 2019-2020 CERN and copyright holders of ALICE O2.
+// See https://alice-o2.web.cern.ch/copyright for details of the copyright holders.
+// All rights not expressly granted are reserved.
+//
+// This software is distributed under the terms of the GNU General Public
+// License v3 (GPL Version 3), copied verbatim in the file "COPYING".
+//
+// In applying this license CERN does not waive the privileges and immunities
+// granted to it by virtue of its status as an Intergovernmental Organization
+// or submit itself to any jurisdiction.
+
+/// \file TrackFollower.h
+/// \brief Beam search used by CPU and GPU track extension.
+
+#ifndef TRACKINGITSU_INCLUDE_TRACKFOLLOWER_H_
+#define TRACKINGITSU_INCLUDE_TRACKFOLLOWER_H_
+
+#include "GPUCommonDef.h"
+#include "GPUCommonMath.h"
+#include "CommonConstants/MathConstants.h"
+#include "DetectorsBase/Propagator.h"
+
+#include "ITStracking/Cluster.h"
+#include "ITStracking/Constants.h"
+#include "ITStracking/IndexTableUtils.h"
+#include "ITStracking/MathUtils.h"
+#include "ITStracking/ROFLookupTables.h"
+#include "ITStracking/TrackExtensionCandidate.h"
+
+namespace o2::its
+{
+
+template <int NLayers>
+GPUhdi() bool isBetterTrackExtensionHypothesis(const TrackExtensionHypothesis<NLayers>& a, const TrackExtensionHypothesis<NLayers>& b)
+{
+  if (a.nClusters != b.nClusters) {
+    return a.nClusters > b.nClusters;
+  }
+  const float aChi2NDF = a.chi2 / static_cast<float>(a.nClusters * 2 - 5);
+  const float bChi2NDF = b.chi2 / static_cast<float>(b.nClusters * 2 - 5);
+  if (aChi2NDF != bChi2NDF) {
+    return aChi2NDF < bChi2NDF;
+  }
+  if (a.chi2 != b.chi2) {
+    return a.chi2 < b.chi2;
+  }
+  return false;
+}
+
+template <int NLayers>
+GPUhdi() void addTrackExtensionHypothesisToBeam(const TrackExtensionHypothesis<NLayers>& hypo,
+                                                TrackExtensionHypothesis<NLayers>* beam,
+                                                int& nBeam,
+                                                const int beamWidth)
+{
+  if (nBeam < beamWidth) {
+    beam[nBeam++] = hypo;
+    return;
+  }
+
+  int worst{0};
+  for (int i{1}; i < nBeam; ++i) {
+    if (isBetterTrackExtensionHypothesis(beam[worst], beam[i])) {
+      worst = i;
+    }
+  }
+  if (isBetterTrackExtensionHypothesis(hypo, beam[worst])) {
+    beam[worst] = hypo;
+  }
+}
+
+template <int NLayers>
+GPUhdi() int4 getTrackExtensionBinsAt(const IndexTableUtils<NLayers>& utils,
+                                      const int layer,
+                                      const float phi,
+                                      const float deltaPhi,
+                                      const float z,
+                                      const float deltaZ)
+{
+  const float zRangeMin = z - deltaZ;
+  const float zRangeMax = z + deltaZ;
+  if (zRangeMax < -utils.getLayerZ(layer) || zRangeMin > utils.getLayerZ(layer) || zRangeMin > zRangeMax) {
+    return {-1, -1, -1, -1};
+  }
+  const float phiRangeMin = (deltaPhi > o2::constants::math::PI) ? 0.f : phi - deltaPhi;
+  const float phiRangeMax = (deltaPhi > o2::constants::math::PI) ? o2::constants::math::TwoPI : phi + deltaPhi;
+  return {o2::gpu::CAMath::Max(0, utils.getZBinIndex(layer, zRangeMin)),
+          utils.getPhiBinIndex(math_utils::getNormalizedPhi(phiRangeMin)),
+          o2::gpu::CAMath::Min(utils.getNzBins() - 1, utils.getZBinIndex(layer, zRangeMax)),
+          utils.getPhiBinIndex(math_utils::getNormalizedPhi(phiRangeMax))};
+}
+
+template <int NLayers>
+GPUhdi() int2 getTrackExtensionCompatibleROFRange(const typename ROFOverlapTable<NLayers>::View& rofOverlaps,
+                                                  const int layer,
+                                                  const TimeStamp& time)
+{
+  const auto& timing = rofOverlaps.getLayer(layer);
+  int first = static_cast<int>(timing.getROF(static_cast<LayerTiming::BCType>(o2::gpu::CAMath::Max(time.getTimeStamp() - time.getTimeStampError(), 0.f))));
+  int last = static_cast<int>(timing.getROF(static_cast<LayerTiming::BCType>(o2::gpu::CAMath::Max(time.getTimeStamp() + time.getTimeStampError(), 0.f))));
+  first = o2::gpu::CAMath::Min(o2::gpu::CAMath::Max(first, 0), static_cast<int>(timing.mNROFsTF) - 1);
+  last = o2::gpu::CAMath::Min(o2::gpu::CAMath::Max(last, 0), static_cast<int>(timing.mNROFsTF) - 1);
+  return {first, last};
+}
+
+template <int NLayers>
+GPUhdi() bool isTrackExtensionROFTimeCompatible(const typename ROFOverlapTable<NLayers>::View& rofOverlaps,
+                                                const int layer,
+                                                const int rof,
+                                                const TimeStamp& time)
+{
+  const auto rofTS = rofOverlaps.getLayer(layer).getROFTimeBounds(rof, true);
+  const float lower = time.getTimeStamp() - time.getTimeStampError();
+  const float upper = time.getTimeStamp() + time.getTimeStampError();
+  return static_cast<float>(rofTS.upper()) > lower && upper > static_cast<float>(rofTS.lower());
+}
+
+template <int NLayers>
+GPUhdi() void initialiseTrackExtensionHypothesis(const TrackExtensionStartState<NLayers>& track,
+                                                 const bool outward,
+                                                 TrackExtensionHypothesis<NLayers>& hypo)
+{
+  hypo.param = outward ? track.paramOut : track.paramIn;
+  hypo.time = track.time;
+  hypo.chi2 = track.chi2;
+  hypo.nClusters = track.nClusters;
+  hypo.edgeLayer = outward ? track.lastClusterLayer : track.firstClusterLayer;
+  for (int iLayer{0}; iLayer < NLayers; ++iLayer) {
+    hypo.clusters[iLayer] = track.clusters[iLayer];
+  }
+}
+
+template <int NLayers>
+GPUhdi() bool followTrackExtensionDirection(const TrackExtensionStartState<NLayers>& track,
+                                            const IndexTableUtils<NLayers>& utils,
+                                            const typename ROFMaskTable<NLayers>::View& rofMask,
+                                            const typename ROFOverlapTable<NLayers>::View& rofOverlaps,
+                                            const Cluster* const* clusters,
+                                            const unsigned char* const* usedClusters,
+                                            const int* const* clustersIndexTables,
+                                            const int* const* ROFClusters,
+                                            const TrackingFrameInfo* const* trackingFrameInfo,
+                                            const float* layerRadii,
+                                            const float* layerxX0,
+                                            const int nLayers,
+                                            const int phiBins,
+                                            const int beamWidthConfig,
+                                            const float bz,
+                                            const float maxChi2ClusterAttachment,
+                                            const float maxChi2NDF,
+                                            const float nSigmaCutPhi,
+                                            const float nSigmaCutZ,
+                                            const bool outward,
+                                            const o2::base::Propagator* propagator,
+                                            const o2::base::PropagatorF::MatCorrType matCorrType,
+                                            TrackExtensionHypothesis<NLayers>* activeHypotheses,
+                                            TrackExtensionHypothesis<NLayers>* nextHypotheses,
+                                            TrackExtensionStartState<NLayers>& updatedTrack)
+{
+  const int step = outward ? 1 : -1;
+  const int end = outward ? nLayers - 1 : 0;
+  const int beamWidth = o2::gpu::CAMath::Max(beamWidthConfig, 1);
+  int nActive{1};
+  int nNext{0};
+  initialiseTrackExtensionHypothesis(track, outward, activeHypotheses[0]);
+
+  const int tableSize = utils.getNphiBins() * utils.getNzBins() + 1;
+  for (int iLayer = activeHypotheses[0].edgeLayer + step; nActive > 0; iLayer += step) {
+    if ((step > 0 && iLayer > end) || (step < 0 && iLayer < end)) {
+      break;
+    }
+    nNext = 0;
+    for (int iHypo{0}; iHypo < nActive; ++iHypo) {
+      auto hypo = activeHypotheses[iHypo];
+      const float r = layerRadii[iLayer];
+      float x{-999.f};
+      if (!hypo.param.getXatLabR(r, x, bz, o2::track::DirAuto) || x <= 0.f) {
+        continue;
+      }
+
+      if (!propagator->propagateToX(hypo.param, x, bz, o2::base::PropagatorF::MAX_SIN_PHI,
+                                    o2::base::PropagatorF::MAX_STEP, matCorrType)) {
+        continue;
+      }
+      if (matCorrType == o2::base::PropagatorF::MatCorrType::USEMatCorrNONE &&
+          !hypo.param.correctForMaterial(layerxX0[iLayer], layerxX0[iLayer] * constants::Radl * constants::Rho, true)) {
+        continue;
+      }
+
+      const float ePhi{o2::gpu::CAMath::Sqrt(hypo.param.getSigmaSnp2() / hypo.param.getCsp2())};
+      const float eZ{o2::gpu::CAMath::Sqrt(hypo.param.getSigmaZ2())};
+      const int4 selectedBins = getTrackExtensionBinsAt(utils,
+                                                        iLayer,
+                                                        hypo.param.getPhi(),
+                                                        nSigmaCutPhi * ePhi,
+                                                        hypo.param.getZ(),
+                                                        nSigmaCutZ * eZ);
+      if (selectedBins.x < 0) {
+        continue;
+      }
+
+      int phiBinsNum = selectedBins.w - selectedBins.y + 1;
+      if (phiBinsNum < 0) {
+        phiBinsNum += phiBins;
+      }
+
+      const auto rofRange = getTrackExtensionCompatibleROFRange<NLayers>(rofOverlaps, iLayer, hypo.time);
+      for (int rof = rofRange.x; rof <= rofRange.y; ++rof) {
+        if (!rofMask.isROFEnabled(iLayer, rof) || !isTrackExtensionROFTimeCompatible<NLayers>(rofOverlaps, iLayer, rof, hypo.time)) {
+          continue;
+        }
+        const int rofStart = ROFClusters[iLayer][rof];
+        const int nLayerClusters = ROFClusters[iLayer][rof + 1] - rofStart;
+        if (nLayerClusters <= 0) {
+          continue;
+        }
+        const Cluster* layerClusters = clusters[iLayer] + rofStart;
+        const int* indexTable = clustersIndexTables[iLayer] + rof * tableSize;
+        const int zBinRange = selectedBins.z - selectedBins.x + 1;
+        for (int iPhiCount = 0; iPhiCount < phiBinsNum; ++iPhiCount) {
+          const int iPhiBin = (selectedBins.y + iPhiCount) % phiBins;
+          const int firstBinIndex = utils.getBinIndex(selectedBins.x, iPhiBin);
+          const int maxBinIndex = firstBinIndex + zBinRange;
+          const int firstRowClusterIndex = indexTable[firstBinIndex];
+          const int maxRowClusterIndex = indexTable[maxBinIndex];
+          for (int iNextCluster{firstRowClusterIndex}; iNextCluster < maxRowClusterIndex; ++iNextCluster) {
+            if (iNextCluster >= nLayerClusters) {
+              break;
+            }
+            const Cluster& nextCluster = layerClusters[iNextCluster];
+            if (usedClusters[iLayer][nextCluster.clusterId]) {
+              continue;
+            }
+
+            const TrackingFrameInfo& trackingHit = trackingFrameInfo[iLayer][nextCluster.clusterId];
+            auto updated = hypo;
+            if (!updated.param.rotate(trackingHit.alphaTrackingFrame) ||
+                !propagator->propagateToX(updated.param, trackingHit.xTrackingFrame, bz,
+                                          o2::base::PropagatorF::MAX_SIN_PHI,
+                                          o2::base::PropagatorF::MAX_STEP,
+                                          matCorrType)) {
+              continue;
+            }
+
+            const auto predChi2 = updated.param.getPredictedChi2Quiet(trackingHit.positionTrackingFrame, trackingHit.covarianceTrackingFrame);
+            if (predChi2 < 0.f || predChi2 > maxChi2ClusterAttachment) {
+              continue;
+            }
+            if (!updated.param.o2::track::TrackParCov::update(trackingHit.positionTrackingFrame, trackingHit.covarianceTrackingFrame)) {
+              continue;
+            }
+            updated.chi2 += predChi2;
+            updated.clusters[iLayer] = nextCluster.clusterId;
+            ++updated.nClusters;
+            updated.edgeLayer = iLayer;
+            const auto rofTS = rofOverlaps.getLayer(iLayer).getROFTimeBounds(rof, true);
+            const auto& ts = updated.time;
+            const float lower = o2::gpu::CAMath::Max(ts.getTimeStamp() - ts.getTimeStampError(), static_cast<float>(rofTS.lower()));
+            const float upper = o2::gpu::CAMath::Min(ts.getTimeStamp() + ts.getTimeStampError(), static_cast<float>(rofTS.upper()));
+            updated.time.setTimeStamp(0.5f * (lower + upper));
+            updated.time.setTimeStampError(0.5f * (upper - lower));
+            addTrackExtensionHypothesisToBeam(updated, nextHypotheses, nNext, beamWidth);
+          }
+        }
+      }
+      addTrackExtensionHypothesisToBeam(hypo, nextHypotheses, nNext, beamWidth);
+    }
+    if (nNext == 0) {
+      break;
+    }
+    for (int iHypo{0}; iHypo < nNext; ++iHypo) {
+      activeHypotheses[iHypo] = nextHypotheses[iHypo];
+    }
+    nActive = nNext;
+  }
+
+  const TrackExtensionHypothesis<NLayers>* bestHypo{nullptr};
+  for (int iHypo{0}; iHypo < nActive; ++iHypo) {
+    const auto& hypo = activeHypotheses[iHypo];
+    if (hypo.nClusters == track.nClusters) {
+      continue;
+    }
+    const float maxChi2 = maxChi2NDF * static_cast<float>(hypo.nClusters * 2 - 5);
+    if (hypo.chi2 >= maxChi2) {
+      continue;
+    }
+    if (!bestHypo || isBetterTrackExtensionHypothesis(hypo, *bestHypo)) {
+      bestHypo = &hypo;
+    }
+  }
+  if (!bestHypo) {
+    return false;
+  }
+
+  updatedTrack = track;
+  if (outward) {
+    updatedTrack.paramOut = bestHypo->param;
+    updatedTrack.lastClusterLayer = bestHypo->edgeLayer;
+  } else {
+    updatedTrack.paramIn = bestHypo->param;
+    updatedTrack.firstClusterLayer = bestHypo->edgeLayer;
+  }
+  updatedTrack.time = bestHypo->time;
+  updatedTrack.chi2 = bestHypo->chi2;
+  updatedTrack.nClusters = bestHypo->nClusters;
+  for (int iLayer{0}; iLayer < nLayers; ++iLayer) {
+    updatedTrack.clusters[iLayer] = bestHypo->clusters[iLayer];
+  }
+  return true;
+}
+
+} // namespace o2::its
+
+#endif // TRACKINGITSU_INCLUDE_TRACKFOLLOWER_H_

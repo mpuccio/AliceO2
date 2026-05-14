@@ -16,13 +16,19 @@
 #ifndef TRACKINGITSU_INCLUDE_TRACKERTRAITS_H_
 #define TRACKINGITSU_INCLUDE_TRACKERTRAITS_H_
 
+#include <array>
 #include <oneapi/tbb.h>
+#include <vector>
 
 #include "ITStracking/Configuration.h"
+#include "ITStracking/Constants.h"
 #include "ITStracking/IndexTableUtils.h"
 #include "ITStracking/TimeFrame.h"
 #include "ITStracking/Cell.h"
 #include "ITStracking/BoundedAllocator.h"
+#include "DataFormatsITS/TimeEstBC.h"
+#include "ReconstructionDataFormats/Track.h"
+#include "ITStracking/TrackExtensionCandidate.h"
 
 // #define OPTIMISATION_OUTPUT
 
@@ -51,6 +57,8 @@ class TrackerTraits
   virtual void computeLayerCells(const int iteration);
   virtual void findCellsNeighbours(const int iteration);
   virtual void findRoads(const int iteration);
+  virtual bool supportsExtendTracks() const noexcept { return true; }
+  virtual void extendTracks(const int iteration);
 
   template <typename InputSeed>
   void processNeighbours(int iteration, int defaultCellTopologyId, int iLevel, const bounded_vector<InputSeed>& currentCellSeed, const bounded_vector<int>& currentCellId, const bounded_vector<int>& currentCellTopologyId, bounded_vector<TrackSeedN>& updatedCellSeed, bounded_vector<int>& updatedCellId, bounded_vector<int>& updatedCellTopologyId);
@@ -85,6 +93,23 @@ class TrackerTraits
   std::shared_ptr<tbb::task_arena> mTaskArena;
 
  protected:
+  using TrackExtensionCandidateN = TrackExtensionCandidate<NLayers>;
+  using TrackExtensionCandidates = std::vector<std::vector<TrackExtensionCandidateN>>;
+  using FittedExtensionTracks = std::vector<std::vector<TrackITSExt>>;
+  FittedExtensionTracks mFittedExtensionTracks;
+
+  struct TrackFollowerScratch {
+    std::vector<TrackExtensionHypothesis<NLayers>> activeHypotheses;
+    std::vector<TrackExtensionHypothesis<NLayers>> nextHypotheses;
+  };
+
+  bool trackFollowing(TrackITSExt* track, bool outward, const int iteration, TrackFollowerScratch& scratch);
+  bool refitExtendedTrack(TrackITSExt& track, const int iteration);
+  void updateExtendedTrackTimeStamp(TrackITSExt& track, const int iteration);
+  virtual bool materializeTrackExtensionCandidate(TrackITSExt& track, const TrackExtensionCandidateN& candidate, const int iteration);
+  virtual void buildTrackExtensionCandidates(const int iteration, TrackExtensionCandidates& candidatesPerTrack);
+  void applyTrackExtensionCandidates(const int iteration, TrackExtensionCandidates& candidatesPerTrack);
+
   o2::gpu::GPUChainITS* mChain = nullptr;
   TimeFrame<NLayers>* mTimeFrame;
   std::vector<TrackingParameters> mTrkParams;
