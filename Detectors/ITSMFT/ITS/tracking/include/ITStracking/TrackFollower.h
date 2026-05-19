@@ -116,22 +116,46 @@ GPUhdi() bool isTrackExtensionROFTimeCompatible(const typename ROFOverlapTable<N
 }
 
 template <int NLayers>
-GPUhdi() void initialiseTrackExtensionHypothesis(const TrackExtensionStartState<NLayers>& track,
+GPUhdi() int getTrackExtensionFirstClusterLayer(const TrackITSExt& track)
+{
+  const uint32_t pattern = track.getPattern();
+  for (int iLayer{0}; iLayer < NLayers; ++iLayer) {
+    if (pattern & (0x1u << iLayer)) {
+      return iLayer;
+    }
+  }
+  return constants::UnusedIndex;
+}
+
+template <int NLayers>
+GPUhdi() int getTrackExtensionLastClusterLayer(const TrackITSExt& track)
+{
+  const uint32_t pattern = track.getPattern();
+  for (int iLayer{NLayers}; iLayer-- > 0;) {
+    if (pattern & (0x1u << iLayer)) {
+      return iLayer;
+    }
+  }
+  return constants::UnusedIndex;
+}
+
+template <int NLayers>
+GPUhdi() void initialiseTrackExtensionHypothesis(const TrackITSExt& track,
                                                  const bool outward,
                                                  TrackExtensionHypothesis<NLayers>& hypo)
 {
-  hypo.param = outward ? track.paramOut : track.paramIn;
-  hypo.time = track.time;
-  hypo.chi2 = track.chi2;
-  hypo.nClusters = track.nClusters;
-  hypo.edgeLayer = outward ? track.lastClusterLayer : track.firstClusterLayer;
+  hypo.param = outward ? track.getParamOut() : track.getParamIn();
+  hypo.time = track.getTimeStamp();
+  hypo.chi2 = track.getChi2();
+  hypo.nClusters = track.getNClusters();
+  hypo.edgeLayer = outward ? getTrackExtensionLastClusterLayer<NLayers>(track) : getTrackExtensionFirstClusterLayer<NLayers>(track);
   for (int iLayer{0}; iLayer < NLayers; ++iLayer) {
-    hypo.clusters[iLayer] = track.clusters[iLayer];
+    hypo.clusters[iLayer] = track.getClusterIndex(iLayer);
   }
 }
 
 template <int NLayers>
-GPUhdi() bool followTrackExtensionDirection(const TrackExtensionStartState<NLayers>& track,
+GPUhdi() bool followTrackExtensionDirection(const TrackITSExt& track,
                                             const IndexTableUtils<NLayers>& utils,
                                             const typename ROFMaskTable<NLayers>::View& rofMask,
                                             const typename ROFOverlapTable<NLayers>::View& rofOverlaps,
@@ -155,7 +179,7 @@ GPUhdi() bool followTrackExtensionDirection(const TrackExtensionStartState<NLaye
                                             const o2::base::PropagatorF::MatCorrType matCorrType,
                                             TrackExtensionHypothesis<NLayers>* activeHypotheses,
                                             TrackExtensionHypothesis<NLayers>* nextHypotheses,
-                                            TrackExtensionStartState<NLayers>& updatedTrack)
+                                            TrackITSExt& updatedTrack)
 {
   const int step = outward ? 1 : -1;
   const int end = outward ? nLayers - 1 : 0;
@@ -277,7 +301,7 @@ GPUhdi() bool followTrackExtensionDirection(const TrackExtensionStartState<NLaye
   const TrackExtensionHypothesis<NLayers>* bestHypo{nullptr};
   for (int iHypo{0}; iHypo < nActive; ++iHypo) {
     const auto& hypo = activeHypotheses[iHypo];
-    if (hypo.nClusters == track.nClusters) {
+    if (hypo.nClusters == track.getNClusters()) {
       continue;
     }
     const float maxChi2 = maxChi2NDF * static_cast<float>(hypo.nClusters * 2 - 5);
@@ -294,17 +318,16 @@ GPUhdi() bool followTrackExtensionDirection(const TrackExtensionStartState<NLaye
 
   updatedTrack = track;
   if (outward) {
-    updatedTrack.paramOut = bestHypo->param;
-    updatedTrack.lastClusterLayer = bestHypo->edgeLayer;
+    updatedTrack.getParamOut() = bestHypo->param;
   } else {
-    updatedTrack.paramIn = bestHypo->param;
-    updatedTrack.firstClusterLayer = bestHypo->edgeLayer;
+    updatedTrack.getParamIn() = bestHypo->param;
   }
-  updatedTrack.time = bestHypo->time;
-  updatedTrack.chi2 = bestHypo->chi2;
-  updatedTrack.nClusters = bestHypo->nClusters;
+  updatedTrack.getTimeStamp() = bestHypo->time;
+  updatedTrack.setChi2(bestHypo->chi2);
   for (int iLayer{0}; iLayer < nLayers; ++iLayer) {
-    updatedTrack.clusters[iLayer] = bestHypo->clusters[iLayer];
+    if (updatedTrack.getClusterIndex(iLayer) == constants::UnusedIndex && bestHypo->clusters[iLayer] != constants::UnusedIndex) {
+      updatedTrack.setExternalClusterIndex(iLayer, bestHypo->clusters[iLayer], true);
+    }
   }
   return true;
 }

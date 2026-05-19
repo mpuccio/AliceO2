@@ -91,7 +91,7 @@ class TimeFrameGPU : public TimeFrame<NLayers>
   void createNeighboursDevice(const unsigned int layer);
   void createNeighboursLUTDevice(const int, const unsigned int);
   void createTrackITSExtDevice(const size_t);
-  void loadTrackExtensionStartStatesDevice();
+  void loadTrackExtensionStartTracksDevice();
   void createTrackExtensionCandidatesDevice(const size_t);
   void createTrackExtensionScratchDevice(const int nThreads, const int beamWidth);
   void createTrackExtensionResultsDevice(const size_t);
@@ -134,7 +134,7 @@ class TimeFrameGPU : public TimeFrame<NLayers>
 
   // Hybrid
   TrackITSExt* getDeviceTrackITSExt() { return mTrackITSExtDevice; }
-  TrackExtensionStartState<NLayers>* getDeviceTrackExtensionStartStates() { return mTrackExtensionStartStatesDevice; }
+  TrackITSExt* getDeviceTrackExtensionStartTracks() { return mTrackExtensionStartTracksDevice; }
   TrackExtensionCandidate<NLayers>* getDeviceTrackExtensionCandidates() { return mTrackExtensionCandidatesDevice; }
   int* getDeviceTrackExtensionCandidateOffsets() { return mTrackExtensionCandidateOffsetsDevice; }
   TrackExtensionHypothesis<NLayers>* getDeviceActiveTrackExtensionHypotheses() { return mActiveTrackExtensionHypothesesDevice; }
@@ -237,7 +237,7 @@ class TimeFrameGPU : public TimeFrame<NLayers>
   float** mCellSeedsChi2DeviceArray;
 
   TrackITSExt* mTrackITSExtDevice;
-  TrackExtensionStartState<NLayers>* mTrackExtensionStartStatesDevice{nullptr};
+  TrackITSExt* mTrackExtensionStartTracksDevice{nullptr};
   TrackExtensionCandidate<NLayers>* mTrackExtensionCandidatesDevice{nullptr};
   int* mTrackExtensionCandidateOffsetsDevice{nullptr};
   TrackExtensionHypothesis<NLayers>* mActiveTrackExtensionHypothesesDevice{nullptr};
@@ -260,8 +260,7 @@ class TimeFrameGPU : public TimeFrame<NLayers>
 
   // Temporary buffer for storing output tracks from GPU tracking
   bounded_vector<TrackITSExt> mTrackITSExt;
-  // Temporary buffer for compact track states used by GPU track extension
-  bounded_vector<TrackExtensionStartState<NLayers>> mTrackExtensionStartStates;
+  bounded_vector<TrackITSExt> mTrackExtensionStartTracks;
   // Temporary buffer for compact track extension proposals from GPU tracking
   bounded_vector<TrackExtensionCandidate<NLayers>> mTrackExtensionCandidates;
   // Temporary buffer for fitted track extension proposals from GPU tracking

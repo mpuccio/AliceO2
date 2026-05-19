@@ -904,11 +904,10 @@ void TrackerTraits<NLayers>::extendTracks(const int iteration)
 {
   const auto nTracks = mTimeFrame->getTracks().size();
   TrackExtensionCandidates candidatesPerTrack(nTracks);
-  mFittedExtensionTracks.assign(nTracks, {});
+  mTimeFrame->mFittedExtensionTracks.assign(nTracks, {});
   buildTrackExtensionCandidates(iteration, candidatesPerTrack);
   applyTrackExtensionCandidates(iteration, candidatesPerTrack);
-  mFittedExtensionTracks.clear();
-  mFittedExtensionTracks.shrink_to_fit();
+  mTimeFrame->mFittedExtensionTracks.clear();
 }
 
 template <int NLayers>
@@ -1001,10 +1000,10 @@ void TrackerTraits<NLayers>::updateExtendedTrackTimeStamp(TrackITSExt& track, co
 template <int NLayers>
 bool TrackerTraits<NLayers>::materializeTrackExtensionCandidate(TrackITSExt& track, const TrackExtensionCandidateN& candidate, const int /*iteration*/)
 {
-  if (candidate.trackIndex < 0 || candidate.trackIndex >= static_cast<int>(mFittedExtensionTracks.size())) {
+  if (candidate.trackIndex < 0 || candidate.trackIndex >= static_cast<int>(mTimeFrame->mFittedExtensionTracks.size())) {
     return false;
   }
-  const auto& slot = mFittedExtensionTracks[candidate.trackIndex];
+  const auto& slot = mTimeFrame->mFittedExtensionTracks[candidate.trackIndex];
   if (candidate.fittedTrackIndex < 0 || candidate.fittedTrackIndex >= static_cast<int>(slot.size())) {
     return false;
   }
@@ -1040,7 +1039,7 @@ void TrackerTraits<NLayers>::buildTrackExtensionCandidates(const int iteration, 
     }
     extension.chi2NDF = candidate.getChi2() / static_cast<float>(candidate.getNClusters() * 2 - 5);
     extension.chi2 = candidate.getChi2();
-    auto& fittedSlot = mFittedExtensionTracks[trackIndex];
+    auto& fittedSlot = mTimeFrame->mFittedExtensionTracks[trackIndex];
     extension.fittedTrackIndex = static_cast<int>(fittedSlot.size());
     fittedSlot.push_back(candidate);
     candidates.push_back(extension);
@@ -1210,19 +1209,6 @@ bool TrackerTraits<NLayers>::trackFollowing(TrackITSExt* track, bool outward, co
     scratch.nextHypotheses.resize(beamWidth);
   }
 
-  TrackExtensionStartState<NLayers> startState{};
-  startState.paramIn = track->getParamIn();
-  startState.paramOut = track->getParamOut();
-  startState.time = track->getTimeStamp();
-  startState.chi2 = track->getChi2();
-  startState.nClusters = track->getNClusters();
-  startState.firstClusterLayer = static_cast<int>(track->getFirstClusterLayer());
-  startState.lastClusterLayer = static_cast<int>(track->getLastClusterLayer());
-  startState.clusters.fill(constants::UnusedIndex);
-  for (int iLayer{0}; iLayer < mTrkParams[iteration].NLayers; ++iLayer) {
-    startState.clusters[iLayer] = track->getClusterIndex(iLayer);
-  }
-
   const Cluster* clustersPtrs[NLayers]{};
   const unsigned char* usedClustersPtrs[NLayers]{};
   const int* clustersIndexTablesPtrs[NLayers]{};
@@ -1236,9 +1222,9 @@ bool TrackerTraits<NLayers>::trackFollowing(TrackITSExt* track, bool outward, co
     tfInfoPtrs[iLayer] = mTimeFrame->getTrackingFrameInfoOnLayer(iLayer).data();
   }
 
-  TrackExtensionStartState<NLayers> updated;
+  TrackITSExt updated;
   const bool ok = followTrackExtensionDirection<NLayers>(
-    startState,
+    *track,
     mTimeFrame->getIndexTableUtils(),
     mTimeFrame->getROFMaskView(),
     mTimeFrame->getROFOverlapTableView(),
@@ -1268,12 +1254,12 @@ bool TrackerTraits<NLayers>::trackFollowing(TrackITSExt* track, bool outward, co
   }
 
   auto& trackParam = outward ? track->getParamOut() : track->getParamIn();
-  trackParam = outward ? updated.paramOut : updated.paramIn;
-  track->setChi2(updated.chi2);
-  track->getTimeStamp() = updated.time;
+  trackParam = outward ? updated.getParamOut() : updated.getParamIn();
+  track->setChi2(updated.getChi2());
+  track->getTimeStamp() = updated.getTimeStamp();
   for (int iLayer{0}; iLayer < mTrkParams[iteration].NLayers; ++iLayer) {
-    if (track->getClusterIndex(iLayer) == constants::UnusedIndex && updated.clusters[iLayer] != constants::UnusedIndex) {
-      track->setExternalClusterIndex(iLayer, updated.clusters[iLayer], true);
+    if (track->getClusterIndex(iLayer) == constants::UnusedIndex && updated.getClusterIndex(iLayer) != constants::UnusedIndex) {
+      track->setExternalClusterIndex(iLayer, updated.getClusterIndex(iLayer), true);
     }
   }
   return true;

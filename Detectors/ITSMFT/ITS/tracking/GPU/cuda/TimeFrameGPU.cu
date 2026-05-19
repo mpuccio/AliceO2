@@ -583,31 +583,17 @@ void TimeFrameGPU<NLayers>::createTrackITSExtDevice(const size_t nSeeds)
 }
 
 template <int NLayers>
-void TimeFrameGPU<NLayers>::loadTrackExtensionStartStatesDevice()
+void TimeFrameGPU<NLayers>::loadTrackExtensionStartTracksDevice()
 {
-  GPUTimer timer("loading track extension start states");
-  GPULog("gpu-transfer: loading {} track extension start states, for {:.2f} MB.", this->mTracks.size(), this->mTracks.size() * sizeof(o2::its::TrackExtensionStartState<NLayers>) / constants::MB);
-  mTrackExtensionStartStatesDevice = nullptr;
-  mTrackExtensionStartStates = bounded_vector<TrackExtensionStartState<NLayers>>(this->mTracks.size(), {}, this->getMemoryPool().get());
+  GPUTimer timer("loading track extension start tracks");
+  GPULog("gpu-transfer: loading {} track extension start tracks, for {:.2f} MB.", this->mTracks.size(), this->mTracks.size() * sizeof(o2::its::TrackITSExt) / constants::MB);
+  mTrackExtensionStartTracksDevice = nullptr;
+  mTrackExtensionStartTracks = bounded_vector<TrackITSExt>(this->mTracks.begin(), this->mTracks.end(), this->getMemoryPool().get());
   if (this->mTracks.empty()) {
     return;
   }
-  for (size_t iTrack{0}; iTrack < this->mTracks.size(); ++iTrack) {
-    const auto& track = this->mTracks[iTrack];
-    auto& state = mTrackExtensionStartStates[iTrack];
-    state.paramIn = track.getParamIn();
-    state.paramOut = track.getParamOut();
-    state.time = track.getTimeStamp();
-    state.chi2 = track.getChi2();
-    state.nClusters = track.getNClusters();
-    state.firstClusterLayer = static_cast<int>(track.getFirstClusterLayer());
-    state.lastClusterLayer = static_cast<int>(track.getLastClusterLayer());
-    for (int iLayer{0}; iLayer < NLayers; ++iLayer) {
-      state.clusters[iLayer] = track.getClusterIndex(iLayer);
-    }
-  }
-  allocMem(reinterpret_cast<void**>(&mTrackExtensionStartStatesDevice), mTrackExtensionStartStates.size() * sizeof(o2::its::TrackExtensionStartState<NLayers>), this->hasFrameworkAllocator(), (o2::gpu::GPUMemoryResource::MEMORY_GPU | o2::gpu::GPUMemoryResource::MEMORY_STACK));
-  GPUChkErrS(cudaMemcpy(mTrackExtensionStartStatesDevice, mTrackExtensionStartStates.data(), mTrackExtensionStartStates.size() * sizeof(o2::its::TrackExtensionStartState<NLayers>), cudaMemcpyHostToDevice));
+  allocMem(reinterpret_cast<void**>(&mTrackExtensionStartTracksDevice), mTrackExtensionStartTracks.size() * sizeof(o2::its::TrackITSExt), this->hasFrameworkAllocator(), (o2::gpu::GPUMemoryResource::MEMORY_GPU | o2::gpu::GPUMemoryResource::MEMORY_STACK));
+  GPUChkErrS(cudaMemcpy(mTrackExtensionStartTracksDevice, mTrackExtensionStartTracks.data(), mTrackExtensionStartTracks.size() * sizeof(o2::its::TrackITSExt), cudaMemcpyHostToDevice));
 }
 
 template <int NLayers>

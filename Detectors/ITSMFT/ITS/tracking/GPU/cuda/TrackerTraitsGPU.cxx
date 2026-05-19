@@ -422,7 +422,7 @@ void TrackerTraitsGPU<NLayers>::buildTrackExtensionCandidates(const int iteratio
   const auto nTracks = this->mTimeFrame->getTracks().size();
   const int beamWidth = std::max(1, this->mTrkParams[iteration].TrackFollowerBeamWidth);
   mTimeFrameGPU->syncStreams();
-  mTimeFrameGPU->loadTrackExtensionStartStatesDevice();
+  mTimeFrameGPU->loadTrackExtensionStartTracksDevice();
   mTimeFrameGPU->createTrackExtensionCandidatesDevice(nTracks);
   mTimeFrameGPU->createTrackExtensionScratchDevice(kTrackExtensionLaunchThreads, beamWidth);
   std::array<float, NLayers> layerRadii{};
@@ -431,7 +431,7 @@ void TrackerTraitsGPU<NLayers>::buildTrackExtensionCandidates(const int iteratio
     layerRadii[iLayer] = this->mTrkParams[iteration].LayerRadii[iLayer];
     layerxX0[iLayer] = this->mTrkParams[iteration].LayerxX0[iLayer];
   }
-  computeTrackExtensionCandidatesHandler<NLayers>(mTimeFrameGPU->getDeviceTrackExtensionStartStates(),
+  computeTrackExtensionCandidatesHandler<NLayers>(mTimeFrameGPU->getDeviceTrackExtensionStartTracks(),
                                                   mTimeFrameGPU->getDeviceIndexTableUtils(),
                                                   mTimeFrameGPU->getDeviceROFMaskTableView(),
                                                   mTimeFrameGPU->getDeviceROFOverlapTableView(),
@@ -461,7 +461,7 @@ void TrackerTraitsGPU<NLayers>::buildTrackExtensionCandidates(const int iteratio
                                                   this->mTrkParams[iteration].CorrType,
                                                   mTimeFrameGPU->getStream(0));
   mTimeFrameGPU->createTrackExtensionResultsDevice(nTracks);
-  computeTrackExtensionResultsHandler<NLayers>(mTimeFrameGPU->getDeviceTrackExtensionStartStates(),
+  computeTrackExtensionResultsHandler<NLayers>(mTimeFrameGPU->getDeviceTrackExtensionStartTracks(),
                                                mTimeFrameGPU->getDeviceTrackExtensionCandidates(),
                                                mTimeFrameGPU->getDeviceTrackExtensionCandidateOffsets(),
                                                mTimeFrameGPU->getDeviceTrackExtensionResults(),

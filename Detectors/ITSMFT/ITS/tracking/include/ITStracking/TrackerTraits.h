@@ -95,8 +95,6 @@ class TrackerTraits
  protected:
   using TrackExtensionCandidateN = TrackExtensionCandidate<NLayers>;
   using TrackExtensionCandidates = std::vector<std::vector<TrackExtensionCandidateN>>;
-  using FittedExtensionTracks = std::vector<std::vector<TrackITSExt>>;
-  FittedExtensionTracks mFittedExtensionTracks;
 
   struct TrackFollowerScratch {
     std::vector<TrackExtensionHypothesis<NLayers>> activeHypotheses;

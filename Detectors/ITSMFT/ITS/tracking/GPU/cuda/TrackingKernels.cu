@@ -112,8 +112,8 @@ struct compare_track_chi2 {
 
 template <int NLayers>
 GPUdi() void writeTrackExtensionCandidate(const int trackIndex,
-                                          const TrackExtensionStartState<NLayers>& original,
-                                          const TrackExtensionStartState<NLayers>& updated,
+                                          const TrackITSExt& original,
+                                          const TrackITSExt& updated,
                                           TrackExtensionCandidate<NLayers>* candidates,
                                           int& slot)
 {
@@ -124,8 +124,8 @@ GPUdi() void writeTrackExtensionCandidate(const int trackIndex,
   candidate.reset();
   candidate.trackIndex = trackIndex;
   for (int iLayer{0}; iLayer < NLayers; ++iLayer) {
-    if (original.clusters[iLayer] == constants::UnusedIndex && updated.clusters[iLayer] != constants::UnusedIndex) {
-      candidate.addedClusters[iLayer] = updated.clusters[iLayer];
+    if (original.getClusterIndex(iLayer) == constants::UnusedIndex && updated.getClusterIndex(iLayer) != constants::UnusedIndex) {
+      candidate.addedClusters[iLayer] = updated.getClusterIndex(iLayer);
       ++candidate.nAddedClusters;
     }
   }
@@ -133,13 +133,13 @@ GPUdi() void writeTrackExtensionCandidate(const int trackIndex,
     candidate.reset();
     return;
   }
-  candidate.chi2 = updated.chi2;
-  candidate.chi2NDF = updated.chi2 / static_cast<float>(updated.nClusters * 2 - 5);
+  candidate.chi2 = updated.getChi2();
+  candidate.chi2NDF = updated.getChi2() / static_cast<float>(updated.getNClusters() * 2 - 5);
   ++slot;
 }
 
 template <int NLayers>
-GPUg() void __launch_bounds__(256, 1) computeTrackExtensionCandidatesKernel(const TrackExtensionStartState<NLayers>* tracks,
+GPUg() void __launch_bounds__(256, 1) computeTrackExtensionCandidatesKernel(const TrackITSExt* tracks,
                                                                             const IndexTableUtils<NLayers>* utils,
                                                                             const typename ROFMaskTable<NLayers>::View rofMask,
                                                                             const typename ROFOverlapTable<NLayers>::View rofOverlaps,
@@ -182,24 +182,24 @@ GPUg() void __launch_bounds__(256, 1) computeTrackExtensionCandidatesKernel(cons
     auto* activeHypotheses = threadActiveHypotheses;
     auto* nextHypotheses = threadNextHypotheses;
     int slot{0};
-    if (extendTop && track.lastClusterLayer != nLayers - 1) {
-      TrackExtensionStartState<NLayers> topCandidate;
+    if (extendTop && getTrackExtensionLastClusterLayer<NLayers>(track) != nLayers - 1) {
+      TrackITSExt topCandidate;
       if (followTrackExtensionDirection(track, *utils, rofMask, rofOverlaps, clusters, usedClusters, clustersIndexTables, ROFClusters, trackingFrameInfo, layerRadii.data(), layerxX0.data(), nLayers, phiBins, beamWidth, bz, maxChi2ClusterAttachment, maxChi2NDF, nSigmaCutPhi, nSigmaCutZ, true, propagator, matCorrType, activeHypotheses, nextHypotheses, topCandidate)) {
         writeTrackExtensionCandidate(iTrack, track, topCandidate, candidates, slot);
-        if (extendBot && topCandidate.firstClusterLayer != 0) {
-          TrackExtensionStartState<NLayers> topBottomCandidate;
+        if (extendBot && getTrackExtensionFirstClusterLayer<NLayers>(topCandidate) != 0) {
+          TrackITSExt topBottomCandidate;
           if (followTrackExtensionDirection(topCandidate, *utils, rofMask, rofOverlaps, clusters, usedClusters, clustersIndexTables, ROFClusters, trackingFrameInfo, layerRadii.data(), layerxX0.data(), nLayers, phiBins, beamWidth, bz, maxChi2ClusterAttachment, maxChi2NDF, nSigmaCutPhi, nSigmaCutZ, false, propagator, matCorrType, activeHypotheses, nextHypotheses, topBottomCandidate)) {
             writeTrackExtensionCandidate(iTrack, track, topBottomCandidate, candidates, slot);
           }
         }
       }
     }
-    if (extendBot && track.firstClusterLayer != 0) {
-      TrackExtensionStartState<NLayers> bottomCandidate;
+    if (extendBot && getTrackExtensionFirstClusterLayer<NLayers>(track) != 0) {
+      TrackITSExt bottomCandidate;
       if (followTrackExtensionDirection(track, *utils, rofMask, rofOverlaps, clusters, usedClusters, clustersIndexTables, ROFClusters, trackingFrameInfo, layerRadii.data(), layerxX0.data(), nLayers, phiBins, beamWidth, bz, maxChi2ClusterAttachment, maxChi2NDF, nSigmaCutPhi, nSigmaCutZ, false, propagator, matCorrType, activeHypotheses, nextHypotheses, bottomCandidate)) {
         writeTrackExtensionCandidate(iTrack, track, bottomCandidate, candidates, slot);
-        if (extendTop && bottomCandidate.lastClusterLayer != nLayers - 1) {
-          TrackExtensionStartState<NLayers> bottomTopCandidate;
+        if (extendTop && getTrackExtensionLastClusterLayer<NLayers>(bottomCandidate) != nLayers - 1) {
+          TrackITSExt bottomTopCandidate;
           if (followTrackExtensionDirection(bottomCandidate, *utils, rofMask, rofOverlaps, clusters, usedClusters, clustersIndexTables, ROFClusters, trackingFrameInfo, layerRadii.data(), layerxX0.data(), nLayers, phiBins, beamWidth, bz, maxChi2ClusterAttachment, maxChi2NDF, nSigmaCutPhi, nSigmaCutZ, true, propagator, matCorrType, activeHypotheses, nextHypotheses, bottomTopCandidate)) {
             writeTrackExtensionCandidate(iTrack, track, bottomTopCandidate, candidates, slot);
           }
@@ -211,7 +211,7 @@ GPUg() void __launch_bounds__(256, 1) computeTrackExtensionCandidatesKernel(cons
 }
 
 template <int NLayers>
-GPUdi() bool fitTrackExtensionResult(const TrackExtensionStartState<NLayers>& startState,
+GPUdi() bool fitTrackExtensionResult(const TrackITSExt& startTrack,
                                      const TrackExtensionCandidate<NLayers>& candidate,
                                      const TrackingFrameInfo* const* trackingFrameInfo,
                                      const float* layerxX0,
@@ -224,14 +224,10 @@ GPUdi() bool fitTrackExtensionResult(const TrackExtensionStartState<NLayers>& st
                                      const bool shiftRefToCluster,
                                      TrackITSExt& track)
 {
-  track = TrackITSExt{};
-  track.getParamIn() = startState.paramIn;
-  track.getParamOut() = startState.paramOut;
-  track.getTimeStamp() = startState.time;
+  track = startTrack;
   for (int iLayer{0}; iLayer < nLayers; ++iLayer) {
-    const int cluster = candidate.addedClusters[iLayer] != constants::UnusedIndex ? candidate.addedClusters[iLayer] : startState.clusters[iLayer];
-    if (cluster != constants::UnusedIndex) {
-      track.setExternalClusterIndex(iLayer, cluster, true);
+    if (candidate.addedClusters[iLayer] != constants::UnusedIndex) {
+      track.setExternalClusterIndex(iLayer, candidate.addedClusters[iLayer], true);
     }
   }
 
@@ -291,7 +287,7 @@ GPUdi() bool fitTrackExtensionResult(const TrackExtensionStartState<NLayers>& st
 }
 
 template <int NLayers>
-GPUg() void __launch_bounds__(256, 1) computeTrackExtensionResultsKernel(const TrackExtensionStartState<NLayers>* tracks,
+GPUg() void __launch_bounds__(256, 1) computeTrackExtensionResultsKernel(const TrackITSExt* tracks,
                                                                          const TrackExtensionCandidate<NLayers>* candidates,
                                                                          const int* candidateOffsets,
                                                                          TrackExtensionResult<NLayers>* results,
@@ -309,7 +305,7 @@ GPUg() void __launch_bounds__(256, 1) computeTrackExtensionResultsKernel(const T
   for (int iTrack = blockIdx.x * blockDim.x + threadIdx.x; iTrack < nTracks; iTrack += blockDim.x * gridDim.x) {
     const int firstResult = candidateOffsets[iTrack];
     const int nResults = candidateOffsets[iTrack + 1] - firstResult;
-    const auto& startState = tracks[iTrack];
+    const auto& startTrack = tracks[iTrack];
     for (int iCandidate{0}; iCandidate < nResults; ++iCandidate) {
       const auto& candidate = candidates[getFlatTrackExtensionCandidateIndex(iTrack, iCandidate)];
       auto& result = results[firstResult + iCandidate];
@@ -319,7 +315,7 @@ GPUg() void __launch_bounds__(256, 1) computeTrackExtensionResultsKernel(const T
       }
       result.trackIndex = iTrack;
       result.candidate = candidate;
-      if (!fitTrackExtensionResult(startState,
+      if (!fitTrackExtensionResult(startTrack,
                                    candidate,
                                    trackingFrameInfo,
                                    layerxX0.data(),
@@ -817,7 +813,7 @@ GPUg() void __launch_bounds__(256, 1) processNeighboursKernel(
 } // namespace gpu
 
 template <int NLayers>
-void computeTrackExtensionCandidatesHandler(const TrackExtensionStartState<NLayers>* tracks,
+void computeTrackExtensionCandidatesHandler(const TrackITSExt* tracks,
                                             const IndexTableUtils<NLayers>* utils,
                                             const typename ROFMaskTable<NLayers>::View& rofMask,
                                             const typename ROFOverlapTable<NLayers>::View& rofOverlaps,
@@ -886,7 +882,7 @@ void computeTrackExtensionCandidatesHandler(const TrackExtensionStartState<NLaye
 }
 
 template <int NLayers>
-void computeTrackExtensionResultsHandler(const TrackExtensionStartState<NLayers>* tracks,
+void computeTrackExtensionResultsHandler(const TrackITSExt* tracks,
                                          const TrackExtensionCandidate<NLayers>* candidates,
                                          const int* candidateOffsets,
                                          TrackExtensionResult<NLayers>* results,
@@ -1471,7 +1467,7 @@ void computeTrackSeedHandler(TrackSeed<NLayers>* trackSeeds,
 }
 
 /// Explicit instantiation of ITS2 handlers
-template void computeTrackExtensionCandidatesHandler<7>(const TrackExtensionStartState<7>* tracks,
+template void computeTrackExtensionCandidatesHandler<7>(const TrackITSExt* tracks,
                                                         const IndexTableUtils<7>* utils,
                                                         const ROFMaskTable<7>::View& rofMask,
                                                         const ROFOverlapTable<7>::View& rofOverlaps,
@@ -1501,7 +1497,7 @@ template void computeTrackExtensionCandidatesHandler<7>(const TrackExtensionStar
                                                         const o2::base::PropagatorF::MatCorrType matCorrType,
                                                         gpu::Stream& stream);
 
-template void computeTrackExtensionResultsHandler<7>(const TrackExtensionStartState<7>* tracks,
+template void computeTrackExtensionResultsHandler<7>(const TrackITSExt* tracks,
                                                      const TrackExtensionCandidate<7>* candidates,
                                                      const int* candidateOffsets,
                                                      TrackExtensionResult<7>* results,
@@ -1703,7 +1699,7 @@ template void computeTrackSeedHandler(TrackSeed<7>* trackSeeds,
 
 /// Explicit instantiation of ALICE3 handlers
 #ifdef ENABLE_UPGRADES
-template void computeTrackExtensionCandidatesHandler<11>(const TrackExtensionStartState<11>* tracks,
+template void computeTrackExtensionCandidatesHandler<11>(const TrackITSExt* tracks,
                                                          const IndexTableUtils<11>* utils,
                                                          const ROFMaskTable<11>::View& rofMask,
                                                          const ROFOverlapTable<11>::View& rofOverlaps,
@@ -1733,7 +1729,7 @@ template void computeTrackExtensionCandidatesHandler<11>(const TrackExtensionSta
                                                          const o2::base::PropagatorF::MatCorrType matCorrType,
                                                          gpu::Stream& stream);
 
-template void computeTrackExtensionResultsHandler<11>(const TrackExtensionStartState<11>* tracks,
+template void computeTrackExtensionResultsHandler<11>(const TrackITSExt* tracks,
                                                       const TrackExtensionCandidate<11>* candidates,
                                                       const int* candidateOffsets,
                                                       TrackExtensionResult<11>* results,

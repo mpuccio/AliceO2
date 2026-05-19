@@ -55,18 +55,6 @@ struct TrackExtensionHypothesis {
 };
 
 template <int NLayers>
-struct TrackExtensionStartState {
-  o2::track::TrackParCov paramIn;
-  o2::track::TrackParCov paramOut;
-  std::array<int, NLayers> clusters{};
-  TimeStamp time;
-  float chi2{0.f};
-  int nClusters{0};
-  int firstClusterLayer{constants::UnusedIndex};
-  int lastClusterLayer{constants::UnusedIndex};
-};
-
-template <int NLayers>
 struct TrackExtensionCandidate {
   static constexpr float InvalidChi2 = 1.e20f;
 

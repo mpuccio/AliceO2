@@ -42,7 +42,7 @@ inline constexpr int kTrackExtensionLaunchThreadsPerBlock = 256;
 inline constexpr int kTrackExtensionLaunchThreads = kTrackExtensionLaunchBlocks * kTrackExtensionLaunchThreadsPerBlock;
 
 template <int NLayers>
-void computeTrackExtensionCandidatesHandler(const TrackExtensionStartState<NLayers>* tracks,
+void computeTrackExtensionCandidatesHandler(const TrackITSExt* tracks,
                                             const IndexTableUtils<NLayers>* utils,
                                             const typename ROFMaskTable<NLayers>::View& rofMask,
                                             const typename ROFOverlapTable<NLayers>::View& rofOverlaps,
@@ -73,7 +73,7 @@ void computeTrackExtensionCandidatesHandler(const TrackExtensionStartState<NLaye
                                             gpu::Stream& stream);
 
 template <int NLayers>
-void computeTrackExtensionResultsHandler(const TrackExtensionStartState<NLayers>* tracks,
+void computeTrackExtensionResultsHandler(const TrackITSExt* tracks,
                                          const TrackExtensionCandidate<NLayers>* candidates,
                                          const int* candidateOffsets,
                                          TrackExtensionResult<NLayers>* results,
