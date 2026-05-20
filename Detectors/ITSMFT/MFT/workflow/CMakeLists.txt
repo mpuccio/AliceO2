@@ -12,6 +12,7 @@
 o2_add_library(MFTWorkflow
                TARGETVARNAME targetName
                SOURCES src/RecoWorkflow.cxx
+                       src/CATrackerSpec.cxx
                        src/TrackerSpec.cxx
                        src/TrackReaderSpec.cxx
                        src/TrackWriterSpec.cxx
@@ -25,6 +26,7 @@ o2_add_library(MFTWorkflow
                                      O2::MFTAssessment
                                      O2::DataFormatsMFT
                                      O2::ITSMFTWorkflow
+                                     O2::ITStracking
                                      O2::MFTAlignment
                                      O2::GlobalTrackingWorkflowReaders)
 o2_add_executable(reco-workflow
@@ -49,5 +51,10 @@ o2_add_executable(cluster-writer-workflow
 
 o2_add_executable(tracks2records-workflow
                   SOURCES src/mft-tracks2records-workflow.cxx
+                  COMPONENT_NAME mft
+                  PUBLIC_LINK_LIBRARIES O2::MFTWorkflow)
+
+o2_add_executable(ca-tracker-workflow
+                  SOURCES src/mft-ca-tracker-workflow.cxx
                   COMPONENT_NAME mft
                   PUBLIC_LINK_LIBRARIES O2::MFTWorkflow)
