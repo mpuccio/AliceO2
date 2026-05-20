@@ -64,7 +64,7 @@ class ALICE3TrackingBackendLoader : public o2::utils::DLLoaderBase<ALICE3Trackin
 
 O2DLLoaderImpl(ALICE3TrackingBackendLoader)
 
-constexpr const char* kGPUBackendFunction = "runALICE3GPUTracking";
+  constexpr const char* kGPUBackendFunction = "runALICE3GPUTracking";
 } // namespace
 
 TrackerDPL::TrackerDPL(std::shared_ptr<o2::base::GRPGeomRequest> gr,
@@ -303,7 +303,6 @@ void TrackerDPL::runGPUTracking(ProcessingContext& pc)
       LOGP(fatal, "Unsupported TRK GPU device type {}", static_cast<int>(mDeviceType));
   }
 }
-
 
 void TrackerDPL::endOfStream(EndOfStreamContext& ec)
 {
