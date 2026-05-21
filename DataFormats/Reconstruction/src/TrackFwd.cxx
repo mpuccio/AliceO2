@@ -70,14 +70,6 @@ TrackParCovFwd::TrackParCovFwd(value_t z, const params_t& parameters, const covM
   setTrackChi2(chi2);
 }
 
-//_________________________________________________________________________
-void TrackParCovFwd::setCovariances(const value_t* covariances)
-{
-  for (int i = 0; i < 15; ++i) {
-    mC[i] = covariances[i];
-  }
-}
-
 //__________________________________________________________________________
 void TrackParFwd::propagateParamToZlinear(double zEnd)
 {

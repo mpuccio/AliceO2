@@ -26,6 +26,9 @@
 namespace o2::track
 {
 
+constexpr float MaxPT = 100000.;       // cap pT to avoid NaNs in derived kinematics
+constexpr float MinPTInv = 1. / MaxPT; // floor on |q/pT|
+
 template <typename derived_T, typename value_T, int nParams>
 class TrackParametrizationInterface
 {
@@ -55,9 +58,63 @@ class TrackParametrizationInterface
   GPUd() int getAbsCharge() const { return data().mAbsCharge; }
   GPUd() void setAbsCharge(int q) { data().mAbsCharge = static_cast<char>(q < 0 ? -q : q); }
   GPUd() PID getPID() const { return data().mPID; }
-  GPUd() void setPID(const PID pid) { data().mPID = pid; }
+  GPUd() void setPID(const PID pid, bool passCharge = false)
+  {
+    data().mPID = pid;
+    if (passCharge) {
+      setAbsCharge(pid.getCharge());
+    }
+  }
   GPUhd() uint16_t getUserField() const { return data().mUserField; }
   GPUhd() void setUserField(uint16_t v) { data().mUserField = v; }
+
+  // Frame-agnostic kinematics, all in terms of common storage:
+  //   mP[nParams-2] = tan(lambda) (same for barrel/fwd)
+  //   mP[nParams-1] = signed inverse pT (same for barrel/fwd)
+  //   mAbsCharge    = absolute charge (>1 only for multi-charged particles)
+  GPUd() value_t getPtInv() const
+  {
+    value_t ptInv = o2::math_utils::abs(data().mP[nParams - 1]);
+    if (ptInv < MinPTInv) {
+      ptInv = MinPTInv;
+    }
+    return (data().mAbsCharge > 1) ? ptInv / data().mAbsCharge : ptInv;
+  }
+  GPUd() value_t getPt() const { return value_t(1) / getPtInv(); }
+  GPUd() value_t getQ2P2() const
+  {
+    value_t q2pt2 = data().mP[nParams - 1] * data().mP[nParams - 1];
+    if (q2pt2 < MinPTInv * MinPTInv) {
+      q2pt2 = MinPTInv * MinPTInv;
+    }
+    const value_t tgl = data().mP[nParams - 2];
+    return q2pt2 / (value_t(1) + tgl * tgl);
+  }
+  GPUd() value_t getP2Inv() const
+  {
+    const value_t p2 = getPtInv();
+    const value_t tgl = data().mP[nParams - 2];
+    return p2 * p2 / (value_t(1) + tgl * tgl);
+  }
+  GPUd() value_t getP2() const { return value_t(1) / getP2Inv(); }
+  GPUd() value_t getPInv() const
+  {
+    const value_t tgl = data().mP[nParams - 2];
+    return getPtInv() / o2::math_utils::sqrt(value_t(1) + tgl * tgl);
+  }
+  GPUd() value_t getP() const { return value_t(1) / getPInv(); }
+  GPUd() value_t getInverseMomentum() const { return getPInv(); }
+  GPUd() value_t getTheta() const
+  {
+    const value_t tgl = data().mP[nParams - 2];
+    return value_t(0.5) * o2::math_utils::pi() - o2::math_utils::atan(tgl);
+  }
+  GPUd() value_t getEta() const
+  {
+    return -o2::math_utils::log(o2::math_utils::tan(getTheta() / value_t(2)));
+  }
+  GPUd() value_t getE2() const { return getP2() + getPID().getMass2(); }
+  GPUd() value_t getE() const { return o2::math_utils::sqrt(getE2()); }
 
  protected:
   GPUdDefault() TrackParametrizationInterface() = default;
@@ -153,8 +210,22 @@ class TrackParBarrelInterface : public TrackParametrizationInterface<derived_T, 
   GPUd() void setSnp(value_t snp) { this->data().mP[2] = snp; }
   GPUd() value_t getTgl() const { return this->data().mP[3]; }
   GPUd() void setTgl(value_t tgl) { this->data().mP[3] = tgl; }
-  GPUd() value_t getQ2Pt() const { return this->data().mAbsCharge ? this->data().mP[4] : 0.f; }
+  GPUhd() value_t getQ2Pt() const { return this->data().mP[4]; }
   GPUd() void setQ2Pt(value_t q2pt) { this->data().mP[4] = q2pt; }
+  GPUd() value_t getCharge2Pt() const { return this->data().mAbsCharge ? this->data().mP[4] : value_t(0); }
+
+  GPUd() value_t getCsp2() const
+  {
+    const value_t snp = getSnp();
+    const value_t csp2 = (value_t(1) - snp) * (value_t(1) + snp);
+    return csp2 > o2::constants::math::Almost0 ? csp2 : value_t(o2::constants::math::Almost0);
+  }
+  GPUd() value_t getCsp() const { return o2::math_utils::sqrt(getCsp2()); }
+
+  GPUd() value_t getCurvature(value_t b) const
+  {
+    return this->data().mAbsCharge ? this->data().mP[4] * b * o2::constants::math::B2C : value_t(0);
+  }
 };
 
 template <typename derived_T, typename value_T>
@@ -185,15 +256,10 @@ class TrackParFwdInterface : public TrackParametrizationInterface<derived_T, val
   GPUd() value_t getTgl() const { return this->data().mP[3]; }
   GPUd() value_t getInvQPt() const { return this->data().mP[4]; }
   GPUd() void setInvQPt(value_t invqpt) { this->data().mP[4] = invqpt; }
-  GPUd() value_t getPt() const { return o2::math_utils::abs(value_t(1) / this->data().mP[4]); }
-  GPUd() value_t getInvPt() const { return o2::math_utils::abs(this->data().mP[4]); }
-  GPUd() value_t getPx() const { return o2::math_utils::cos(getPhi()) * getPt(); }
-  GPUd() value_t getPy() const { return o2::math_utils::sin(getPhi()) * getPt(); }
-  GPUd() value_t getPz() const { return getTanl() * getPt(); }
-  GPUd() value_t getP() const { return getPt() * o2::math_utils::sqrt(value_t(1) + getTanl() * getTanl()); }
-  GPUd() value_t getInverseMomentum() const { return value_t(1) / getP(); }
-  GPUd() value_t getTheta() const { return value_t(0.5) * o2::math_utils::pi() - o2::math_utils::atan(getTanl()); }
-  GPUd() value_t getEta() const { return -o2::math_utils::log(o2::math_utils::tan(getTheta() / value_t(2))); }
+  GPUd() value_t getInvPt() const { return this->getPtInv(); } // fwd-side alias
+  GPUd() value_t getPx() const { return o2::math_utils::cos(getPhi()) * this->getPt(); }
+  GPUd() value_t getPy() const { return o2::math_utils::sin(getPhi()) * this->getPt(); }
+  GPUd() value_t getPz() const { return getTanl() * this->getPt(); }
   GPUd() value_t getCurvature(value_t b) const { return o2::constants::math::B2C * b * getInvQPt(); }
   GPUd() int getCharge() const { return this->data().mP[4] >= 0.f ? 1 : -1; }
   GPUd() void setCharge(int charge)

@@ -29,8 +29,17 @@ namespace o2::track
 template <typename derived_T, typename value_T, int nParams>
 class TrackParametrizationInterface;
 
+template <typename derived_T, typename value_T>
+class TrackParBarrelInterface;
+
+template <typename derived_T, typename value_T>
+class TrackParFwdInterface;
+
 template <typename derived_T, typename value_T, int nCov>
 class TrackCovarianceInterface;
+
+template <typename derived_T, typename value_T>
+class TrackParCovFwdInterface;
 
 template <typename value_T, int nParams>
 class TrackParametrizationData
@@ -61,6 +70,10 @@ class TrackParametrizationData
 
   template <typename, typename, int>
   friend class TrackParametrizationInterface;
+  template <typename, typename>
+  friend class TrackParBarrelInterface;
+  template <typename, typename>
+  friend class TrackParFwdInterface;
 
   ClassDefNV(TrackParametrizationData, 1);
 };
@@ -84,6 +97,8 @@ class TrackCovarianceData
 
   template <typename, typename, int>
   friend class TrackCovarianceInterface;
+  template <typename, typename>
+  friend class TrackParCovFwdInterface;
 
   ClassDefNV(TrackCovarianceData, 1);
 };

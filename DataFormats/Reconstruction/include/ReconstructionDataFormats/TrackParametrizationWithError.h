@@ -28,14 +28,27 @@ namespace track
 class TrackParCovFwd; // fwd declaration for conversion method
 
 template <typename value_T = float>
-class TrackParametrizationWithError : public TrackParametrization<value_T>, public TrackCovarianceData<value_T, kCovMatSize>
+class TrackParametrizationWithError : public TrackParametrization<value_T>,
+                                       public TrackCovarianceData<value_T, kCovMatSize>,
+                                       public TrackCovarianceInterface<TrackParametrizationWithError<value_T>, value_T, kCovMatSize>
 { // track+error parameterization
  public:
   using cov_base_t = TrackCovarianceData<value_T, kCovMatSize>;
+  using cov_interface_t = TrackCovarianceInterface<TrackParametrizationWithError<value_T>, value_T, kCovMatSize>;
   using typename TrackParametrization<value_T>::value_t;
   using typename TrackParametrization<value_T>::dim3_t;
   using typename TrackParametrization<value_T>::dim2_t;
   using typename TrackParametrization<value_T>::params_t;
+
+  // Expose cov interface accessors (dependent base, so unqualified lookup needs help).
+  using cov_interface_t::deleteCovariances;
+  using cov_interface_t::getCov;
+  using cov_interface_t::getCovariances;
+  using cov_interface_t::getCovarElem;
+  using cov_interface_t::getTrackChi2;
+  using cov_interface_t::setCov;
+  using cov_interface_t::setTrackChi2;
+  using cov_interface_t::covIndex;
 
 #ifndef GPUCA_GPUCODE_DEVICE
   static_assert(std::is_floating_point_v<value_t>);
@@ -61,7 +74,6 @@ class TrackParametrizationWithError : public TrackParametrization<value_T>, publ
   GPUd() void set(value_t x, value_t alpha, const params_t& par, const covMat_t& cov, int charge = 1, const PID pid = PID::Pion);
   GPUd() void set(value_t x, value_t alpha, const value_t* par, const value_t* cov, int charge = 1, const PID pid = PID::Pion);
   GPUd() void set(const dim3_t& xyz, const dim3_t& pxpypz, const std::array<value_t, kLabCovMatSize>& cv, int sign, bool sectorAlpha = true, const PID pid = PID::Pion);
-  GPUd() const covMat_t& getCov() const;
   GPUd() value_t getSigmaY2() const;
   GPUd() value_t getSigmaZY() const;
   GPUd() value_t getSigmaZ2() const;
@@ -77,7 +89,6 @@ class TrackParametrizationWithError : public TrackParametrization<value_T>, publ
   GPUd() value_t getSigma1PtSnp() const;
   GPUd() value_t getSigma1PtTgl() const;
   GPUd() value_t getSigma1Pt2() const;
-  GPUd() value_t getCovarElem(int i, int j) const;
   GPUd() value_t getDiagError2(int i) const;
 
   GPUd() bool getCovXYZPxPyPzGlo(std::array<value_t, kLabCovMatSize>& c) const;
@@ -133,7 +144,6 @@ class TrackParametrizationWithError : public TrackParametrization<value_T>, publ
   GPUd() void checkCorrelations();
   GPUd() void setCov(value_t v, size_t i, size_t j);
   GPUd() void setCov(value_t v, int i);
-  GPUd() void setCov(const covMat_t& mat);
 
   GPUd() void updateCov(const covMat_t& delta);
   GPUd() void updateCov(value_t delta, size_t i, size_t j);
@@ -188,13 +198,6 @@ GPUdi() void TrackParametrizationWithError<value_T>::set(value_t x, value_t alph
   for (int i = 0; i < kCovMatSize; i++) {
     mC[i] = cov[i];
   }
-}
-
-//__________________________________________________________________________
-template <typename value_T>
-GPUdi() auto TrackParametrizationWithError<value_T>::getCov() const -> const covMat_t&
-{
-  return mC;
 }
 
 //__________________________________________________________________________
@@ -304,13 +307,6 @@ GPUdi() auto TrackParametrizationWithError<value_T>::getSigma1Pt2() const -> val
 
 //__________________________________________________________________________
 template <typename value_T>
-GPUdi() auto TrackParametrizationWithError<value_T>::getCovarElem(int i, int j) const -> value_t
-{
-  return mC[CovarMap[i][j]];
-}
-
-//__________________________________________________________________________
-template <typename value_T>
 GPUdi() auto TrackParametrizationWithError<value_T>::getDiagError2(int i) const -> value_t
 {
   return mC[DiagMap[i]];
@@ -379,12 +375,6 @@ template <typename value_T>
 GPUdi() void TrackParametrizationWithError<value_T>::setCov(value_t v, size_t i, size_t j)
 {
   mC[CovarMap[i][j]] = v;
-}
-
-template <typename value_T>
-GPUdi() void TrackParametrizationWithError<value_T>::setCov(const covMat_t& cov)
-{
-  mC = cov;
 }
 
 //__________________________________________________________________________

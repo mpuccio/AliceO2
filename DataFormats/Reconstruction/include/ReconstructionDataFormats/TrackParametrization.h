@@ -53,6 +53,7 @@
 #include "ReconstructionDataFormats/PID.h"
 
 #include "ReconstructionDataFormats/TrackParametrizationData.h"
+#include "ReconstructionDataFormats/TrackParametrizationInterface.h"
 #include "ReconstructionDataFormats/TrackUtils.h"
 
 namespace o2
@@ -120,8 +121,6 @@ GPUconstexpr() int CovarMap[kNParams][kNParams] = {{0, 1, 3, 6, 10},
 GPUconstexpr() int DiagMap[kNParams] = {0, 2, 5, 9, 14};
 
 constexpr float HugeF = o2::constants::math::VeryBig;
-constexpr float MaxPT = 100000.;                  // do not allow pTs exceeding this value (to avoid NANs)
-constexpr float MinPTInv = 1. / MaxPT;            // do not allow q/pTs less this value (to avoid NANs)
 constexpr float ELoss2EKinThreshInv = 1. / 0.025; // do not allow E.Loss correction step with dE/Ekin above the inverse of this value
 constexpr int MaxELossIter = 50;                  // max number of iteration for the ELoss to account for BB dependence on beta*gamma
 constexpr float DefaultDCA = 999.f;               // default DCA value
@@ -131,15 +130,60 @@ constexpr float DefaultDCACov = 999.f;            // default DCA cov value
 // #define _BB_NONCONST_CORR_
 
 template <typename value_T = float>
-class TrackParametrization : public TrackParametrizationData<value_T, kNParams>
+class TrackParametrization : public TrackParametrizationData<value_T, kNParams>,
+                              public TrackParBarrelInterface<TrackParametrization<value_T>, value_T>
 { // track parameterization, kinematics only.
 
  public:
   using base_t = TrackParametrizationData<value_T, kNParams>;
+  using base_interface_t = TrackParBarrelInterface<TrackParametrization<value_T>, value_T>;
   using value_t = value_T;
   using dim2_t = std::array<value_t, 2>;
   using dim3_t = std::array<value_t, 3>;
   using params_t = std::array<value_t, kNParams>;
+
+  // Expose interface accessors in the derived scope (the dependent base hides
+  // them from unqualified lookup otherwise).
+  using base_interface_t::getAlpha;
+  using base_interface_t::getAbsCharge;
+  using base_interface_t::getCharge2Pt;
+  using base_interface_t::getCsp;
+  using base_interface_t::getCsp2;
+  using base_interface_t::getCurvature;
+  using base_interface_t::getE;
+  using base_interface_t::getE2;
+  using base_interface_t::getEta;
+  using base_interface_t::getInverseMomentum;
+  using base_interface_t::getP;
+  using base_interface_t::getP2;
+  using base_interface_t::getP2Inv;
+  using base_interface_t::getPInv;
+  using base_interface_t::getPt;
+  using base_interface_t::getPtInv;
+  using base_interface_t::getQ2P2;
+  using base_interface_t::getTheta;
+  using base_interface_t::getParam;
+  using base_interface_t::getParams;
+  using base_interface_t::getPID;
+  using base_interface_t::getQ2Pt;
+  using base_interface_t::getSnp;
+  using base_interface_t::getTgl;
+  using base_interface_t::getUserField;
+  using base_interface_t::getX;
+  using base_interface_t::getY;
+  using base_interface_t::getZ;
+  using base_interface_t::setAbsCharge;
+  using base_interface_t::setAlpha;
+  using base_interface_t::setParam;
+  using base_interface_t::setParams;
+  using base_interface_t::setPID;
+  using base_interface_t::setQ2Pt;
+  using base_interface_t::setSnp;
+  using base_interface_t::setTgl;
+  using base_interface_t::setUserField;
+  using base_interface_t::setX;
+  using base_interface_t::setY;
+  using base_interface_t::setZ;
 
   struct yzerr_t { // 2 measurement with error
     dim2_t yz;
@@ -161,62 +205,23 @@ class TrackParametrization : public TrackParametrizationData<value_T, kNParams>
 
   GPUd() void set(value_t x, value_t alpha, const params_t& par, int charge = 1, const PID pid = PID::Pion);
   GPUd() void set(value_t x, value_t alpha, const value_t* par, int charge = 1, const PID pid = PID::Pion);
-  GPUd() const value_t* getParams() const;
-  GPUd() value_t getParam(int i) const;
-  GPUd() value_t getX() const;
-  GPUd() value_t getAlpha() const;
-  GPUd() value_t getY() const;
-  GPUd() value_t getZ() const;
-  GPUd() value_t getSnp() const;
-  GPUd() value_t getTgl() const;
-  GPUhd() value_t getQ2Pt() const;
-  GPUd() value_t getCharge2Pt() const;
   GPUd() value_t getR2() const;
   GPUd() value_t getR() const;
-  GPUd() int getAbsCharge() const;
-  GPUd() PID getPID() const;
-  GPUd() void setPID(const PID pid, bool passCharge = false);
-
-  /// calculate cos^2 and cos of track direction in rphi-tracking
-  GPUd() value_t getCsp2() const;
-  GPUd() value_t getCsp() const;
-
-  GPUd() void setX(value_t v);
-  GPUd() void setParam(value_t v, int i);
-  GPUd() void setAlpha(value_t v);
-  GPUd() void setY(value_t v);
-  GPUd() void setZ(value_t v);
-  GPUd() void setSnp(value_t v);
-  GPUd() void setTgl(value_t v);
-  GPUd() void setQ2Pt(value_t v);
-  GPUd() void setAbsCharge(int q);
 
   // derived getters
   GPUd() bool getXatLabR(value_t r, value_t& x, value_t bz, DirType dir = DirAuto) const;
   GPUd() void getCircleParamsLoc(value_t bz, o2::math_utils::CircleXY<value_t>& circle) const;
   GPUd() void getCircleParams(value_t bz, o2::math_utils::CircleXY<value_t>& circle, value_t& sna, value_t& csa) const;
   GPUd() void getLineParams(o2::math_utils::IntervalXY<value_t>& line, value_t& sna, value_t& csa) const;
-  GPUd() value_t getCurvature(value_t b) const;
   GPUd() int getCharge() const;
   GPUd() int getSign() const;
   GPUd() value_t getPhi() const;
   GPUd() value_t getPhiPos() const;
 
-  GPUd() value_t getQ2P2() const;
-  GPUd() value_t getPtInv() const;
-  GPUd() value_t getP2Inv() const;
-  GPUd() value_t getP2() const;
-  GPUd() value_t getPInv() const;
-  GPUd() value_t getP() const;
-  GPUd() value_t getPt() const;
-  GPUd() value_t getE2() const;
-  GPUd() value_t getE() const;
   GPUdi() static value_t getdEdxBB(value_t betagamma) { return BetheBlochSolid(betagamma); }
   GPUdi() static value_t getdEdxBBOpt(value_t betagamma) { return BetheBlochSolidOpt(betagamma); }
   GPUdi() static value_t getBetheBlochSolidDerivativeApprox(value_T dedx, value_T bg) { return BetheBlochSolidDerivative(dedx, bg); }
 
-  GPUd() value_t getTheta() const;
-  GPUd() value_t getEta() const;
   GPUd() math_utils::Point3D<value_t> getXYZGlo() const;
   GPUd() void getXYZGlo(dim3_t& xyz) const;
   GPUd() bool getPxPyPzGlo(dim3_t& pxyz) const;
@@ -251,9 +256,6 @@ class TrackParametrization : public TrackParametrizationData<value_T, kNParams>
 
   GPUd() bool isValid() const;
   GPUd() void invalidate();
-
-  GPUhd() uint16_t getUserField() const;
-  GPUhd() void setUserField(uint16_t v);
 
   GPUd() void printParam() const;
   GPUd() void printParamHexadecimal();
@@ -318,76 +320,6 @@ GPUdi() void TrackParametrization<value_T>::set(value_t x, value_t alpha, const 
 
 //____________________________________________________________
 template <typename value_T>
-GPUdi() auto TrackParametrization<value_T>::getParams() const -> const value_t*
-{
-  return mP;
-}
-
-//____________________________________________________________
-template <typename value_T>
-GPUdi() auto TrackParametrization<value_T>::getParam(int i) const -> value_t
-{
-  return mP[i];
-}
-
-//____________________________________________________________
-template <typename value_T>
-GPUdi() auto TrackParametrization<value_T>::getX() const -> value_t
-{
-  return mX;
-}
-
-//____________________________________________________________
-template <typename value_T>
-GPUdi() auto TrackParametrization<value_T>::getAlpha() const -> value_t
-{
-  return mAlpha;
-}
-
-//____________________________________________________________
-template <typename value_T>
-GPUdi() auto TrackParametrization<value_T>::getY() const -> value_t
-{
-  return mP[kY];
-}
-
-//____________________________________________________________
-template <typename value_T>
-GPUdi() auto TrackParametrization<value_T>::getZ() const -> value_t
-{
-  return mP[kZ];
-}
-
-//____________________________________________________________
-template <typename value_T>
-GPUdi() auto TrackParametrization<value_T>::getSnp() const -> value_t
-{
-  return mP[kSnp];
-}
-
-//____________________________________________________________
-template <typename value_T>
-GPUdi() auto TrackParametrization<value_T>::getTgl() const -> value_t
-{
-  return mP[kTgl];
-}
-
-//____________________________________________________________
-template <typename value_T>
-GPUhdi() auto TrackParametrization<value_T>::getQ2Pt() const -> value_t
-{
-  return mP[kQ2Pt];
-}
-
-//____________________________________________________________
-template <typename value_T>
-GPUdi() auto TrackParametrization<value_T>::getCharge2Pt() const -> value_t
-{
-  return mAbsCharge ? mP[kQ2Pt] : 0.f;
-}
-
-//____________________________________________________________
-template <typename value_T>
 GPUdi() auto TrackParametrization<value_T>::getR2() const -> value_t
 {
   return mX * mX + mP[kY] * mP[kY];
@@ -398,109 +330,6 @@ template <typename value_T>
 GPUdi() auto TrackParametrization<value_T>::getR() const -> value_t
 {
   return gpu::CAMath::Sqrt(getR2());
-}
-
-//____________________________________________________________
-template <typename value_T>
-GPUdi() int TrackParametrization<value_T>::getAbsCharge() const
-{
-  return mAbsCharge;
-}
-
-//____________________________________________________________
-template <typename value_T>
-GPUdi() PID TrackParametrization<value_T>::getPID() const
-{
-  return mPID;
-}
-
-//____________________________________________________________
-template <typename value_T>
-GPUdi() void TrackParametrization<value_T>::setPID(const PID pid, bool passCharge)
-{
-  mPID = pid;
-  if (passCharge) {
-    setAbsCharge(pid.getCharge()); // If needed, user should change the charge via corr. setter
-  }
-}
-
-//____________________________________________________________
-template <typename value_T>
-GPUdi() auto TrackParametrization<value_T>::getCsp2() const -> value_t
-{
-  const value_t csp2 = (1.f - mP[kSnp]) * (1.f + mP[kSnp]);
-  return csp2 > o2::constants::math::Almost0 ? csp2 : o2::constants::math::Almost0;
-}
-
-//____________________________________________________________
-template <typename value_T>
-GPUdi() auto TrackParametrization<value_T>::getCsp() const -> value_t
-{
-  return gpu::CAMath::Sqrt(getCsp2());
-}
-
-//____________________________________________________________
-template <typename value_T>
-GPUdi() void TrackParametrization<value_T>::setX(value_t v)
-{
-  mX = v;
-}
-
-//____________________________________________________________
-template <typename value_T>
-GPUdi() void TrackParametrization<value_T>::setParam(value_t v, int i)
-{
-  mP[i] = v;
-}
-
-//____________________________________________________________
-template <typename value_T>
-GPUdi() void TrackParametrization<value_T>::setAlpha(value_t v)
-{
-  mAlpha = v;
-  math_utils::detail::bringToPMPi<value_t>(mAlpha);
-}
-
-//____________________________________________________________
-template <typename value_T>
-GPUdi() void TrackParametrization<value_T>::setY(value_t v)
-{
-  mP[kY] = v;
-}
-
-//____________________________________________________________
-template <typename value_T>
-GPUdi() void TrackParametrization<value_T>::setZ(value_t v)
-{
-  mP[kZ] = v;
-}
-
-//____________________________________________________________
-template <typename value_T>
-GPUdi() void TrackParametrization<value_T>::setSnp(value_t v)
-{
-  mP[kSnp] = v;
-}
-
-//____________________________________________________________
-template <typename value_T>
-GPUdi() void TrackParametrization<value_T>::setTgl(value_t v)
-{
-  mP[kTgl] = v;
-}
-
-//____________________________________________________________
-template <typename value_T>
-GPUdi() void TrackParametrization<value_T>::setQ2Pt(value_t v)
-{
-  mP[kQ2Pt] = v;
-}
-
-//____________________________________________________________
-template <typename value_T>
-GPUdi() void TrackParametrization<value_T>::setAbsCharge(int q)
-{
-  mAbsCharge = gpu::CAMath::Abs(q);
 }
 
 //_______________________________________________________
@@ -548,13 +377,6 @@ GPUdi() void TrackParametrization<value_T>::getLineParams(o2::math_utils::Interv
 
 //____________________________________________________________
 template <typename value_T>
-GPUdi() auto TrackParametrization<value_T>::getCurvature(value_t b) const -> value_t
-{
-  return mAbsCharge ? mP[kQ2Pt] * b * o2::constants::math::B2C : 0.;
-}
-
-//____________________________________________________________
-template <typename value_T>
 GPUdi() int TrackParametrization<value_T>::getCharge() const
 {
   return getSign() > 0 ? mAbsCharge : -mAbsCharge;
@@ -585,101 +407,6 @@ GPUdi() auto TrackParametrization<value_T>::getPhiPos() const -> value_t
   value_t phi = gpu::CAMath::ATan2(getY(), getX()) + getAlpha();
   math_utils::detail::bringTo02Pi<value_t>(phi);
   return phi;
-}
-
-//____________________________________________________________
-template <typename value_T>
-GPUdi() auto TrackParametrization<value_T>::getQ2P2() const -> value_t
-{
-  // return the (q/p)^2
-  value_t q2pt2 = mP[kQ2Pt] * mP[kQ2Pt];
-  if (q2pt2 < MinPTInv * MinPTInv) {
-    q2pt2 = MinPTInv * MinPTInv;
-  }
-  return q2pt2 / (1.f + getTgl() * getTgl());
-}
-
-//____________________________________________________________
-template <typename value_T>
-GPUdi() auto TrackParametrization<value_T>::getPtInv() const -> value_t
-{
-  // return the inverted track pT
-  value_t ptInv = gpu::CAMath::Abs(mP[kQ2Pt]);
-  if (ptInv < MinPTInv) {
-    ptInv = MinPTInv;
-  }
-  return (mAbsCharge > 1) ? ptInv / mAbsCharge : ptInv;
-}
-
-//____________________________________________________________
-template <typename value_T>
-GPUdi() auto TrackParametrization<value_T>::getP2Inv() const -> value_t
-{
-  // return the inverted track momentum^2
-  value_t p2 = getPtInv();
-  return p2 * p2 / (1.f + getTgl() * getTgl());
-}
-
-//____________________________________________________________
-template <typename value_T>
-GPUdi() auto TrackParametrization<value_T>::getP2() const -> value_t
-{
-  // return the track momentum^2
-  return 1.f / getP2Inv(); // getP2Inv is protected against being 0, full charge accounted
-}
-
-//____________________________________________________________
-template <typename value_T>
-GPUdi() auto TrackParametrization<value_T>::getPInv() const -> value_t
-{
-  // return the inverted track momentum
-  return getPtInv() / gpu::CAMath::Sqrt(1.f + getTgl() * getTgl()); // getPtInv() is protected against being 0, full charge accounted
-}
-
-//____________________________________________________________
-template <typename value_T>
-GPUdi() auto TrackParametrization<value_T>::getP() const -> value_t
-{
-  // return the track momentum
-  return 1.f / getPInv(); // getPInv is already protected against being 0
-}
-
-//____________________________________________________________
-template <typename value_T>
-GPUdi() auto TrackParametrization<value_T>::getE2() const -> value_t
-{
-  // return the track energy^2
-  return getP2() + getPID().getMass2();
-}
-
-//____________________________________________________________
-template <typename value_T>
-GPUdi() auto TrackParametrization<value_T>::getE() const -> value_t
-{
-  // return the track energy
-  return gpu::CAMath::Sqrt(getE2());
-}
-
-//____________________________________________________________
-template <typename value_T>
-GPUdi() auto TrackParametrization<value_T>::getPt() const -> value_t
-{
-  // return the track transverse momentum
-  return 1.f / getPtInv(); // getPtInv is already protected against being 0
-}
-
-//____________________________________________________________
-template <typename value_T>
-GPUdi() auto TrackParametrization<value_T>::getTheta() const -> value_t
-{
-  return constants::math::PIHalf - gpu::CAMath::ATan(mP[3]);
-}
-
-//____________________________________________________________
-template <typename value_T>
-GPUdi() auto TrackParametrization<value_T>::getEta() const -> value_t
-{
-  return -gpu::CAMath::Log(gpu::CAMath::Tan(0.5f * getTheta()));
 }
 
 //_______________________________________________________
@@ -740,18 +467,6 @@ template <typename value_T>
 GPUdi() void TrackParametrization<value_T>::invalidate()
 {
   mX = InvalidX;
-}
-
-template <typename value_T>
-GPUhdi() uint16_t TrackParametrization<value_T>::getUserField() const
-{
-  return mUserField;
-}
-
-template <typename value_T>
-GPUhdi() void TrackParametrization<value_T>::setUserField(uint16_t v)
-{
-  mUserField = v;
 }
 
 //____________________________________________________________
