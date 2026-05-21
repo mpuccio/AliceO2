@@ -15,6 +15,10 @@
 #pragma link off all classes;
 #pragma link off all functions;
 
+#pragma link C++ class o2::track::TrackParametrizationData < float, o2::track::kNParams> + ;
+#pragma link C++ class o2::track::TrackParametrizationData < double, o2::track::kNParams> + ;
+#pragma link C++ class o2::track::TrackCovarianceData < float, o2::track::kCovMatSize> + ;
+#pragma link C++ class o2::track::TrackCovarianceData < double, o2::track::kCovMatSize> + ;
 #pragma link C++ class o2::track::TrackParF + ;
 #pragma link C++ class o2::track::TrackParD + ;
 #pragma link C++ class o2::track::TrackPar + ;

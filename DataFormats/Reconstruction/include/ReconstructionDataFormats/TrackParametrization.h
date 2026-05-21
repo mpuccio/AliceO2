@@ -31,6 +31,8 @@
 #include "GPUCommonMath.h"
 #include "GPUROOTCartesianFwd.h"
 
+#include <array>
+
 #ifndef GPUCA_GPUCODE_DEVICE
 #include <algorithm>
 #include <cfloat>
@@ -38,7 +40,6 @@
 #include <cstring>
 #include <iosfwd>
 #include <type_traits>
-#include <array>
 #endif
 
 #ifndef GPUCA_ALIGPUCODE // Used only by functions that are hidden on the GPU
@@ -51,6 +52,7 @@
 #include "MathUtils/Primitive2D.h"
 #include "ReconstructionDataFormats/PID.h"
 
+#include "ReconstructionDataFormats/TrackParametrizationData.h"
 #include "ReconstructionDataFormats/TrackUtils.h"
 
 namespace o2
@@ -129,10 +131,11 @@ constexpr float DefaultDCACov = 999.f;            // default DCA cov value
 // #define _BB_NONCONST_CORR_
 
 template <typename value_T = float>
-class TrackParametrization
+class TrackParametrization : public TrackParametrizationData<value_T, kNParams>
 { // track parameterization, kinematics only.
 
  public:
+  using base_t = TrackParametrizationData<value_T, kNParams>;
   using value_t = value_T;
   using dim2_t = std::array<value_t, 2>;
   using dim3_t = std::array<value_t, 3>;
@@ -268,15 +271,17 @@ class TrackParametrization
 
   GPUd() yzerr_t getVertexInTrackFrame(const o2::dataformats::VertexBase& vtx) const;
 
+ protected:
+  using base_t::mP;
+  using base_t::mX;
+
  private:
   //
   static constexpr value_t InvalidX = -99999.f;
-  value_t mX = 0.f;             /// X of track evaluation
-  value_t mAlpha = 0.f;         /// track frame angle
-  value_t mP[kNParams] = {0.f}; /// 5 parameters: Y,Z,sin(phi),tg(lambda),q/pT
-  char mAbsCharge = 1;          /// Extra info about the abs charge, to be taken into account only if not 1
-  PID mPID{PID::Pion};          /// 8 bit PID
-  uint16_t mUserField = 0;      /// field provided to user
+  value_t mAlpha = 0.f;    /// track frame angle
+  char mAbsCharge = 1;     /// Extra info about the abs charge, to be taken into account only if not 1
+  PID mPID{PID::Pion};     /// 8 bit PID
+  uint16_t mUserField = 0; /// field provided to user
 
   ClassDefNV(TrackParametrization, 3);
 };
@@ -284,7 +289,7 @@ class TrackParametrization
 //____________________________________________________________
 template <typename value_T>
 GPUdi() TrackParametrization<value_T>::TrackParametrization(value_t x, value_t alpha, const params_t& par, int charge, const PID pid)
-  : mX{x}, mAlpha{alpha}, mAbsCharge{char(gpu::CAMath::Abs(charge))}, mPID{pid}
+  : base_t{x}, mAlpha{alpha}, mAbsCharge{char(gpu::CAMath::Abs(charge))}, mPID{pid}
 {
   // explicit constructor
   math_utils::detail::bringToPMPi<value_t>(mAlpha);

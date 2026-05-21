@@ -32,6 +32,9 @@ using TrackParCovF = TrackParametrizationWithError<float>;
 using TrackParCovD = TrackParametrizationWithError<double>;
 using TrackParCov = TrackParCovF;
 
+static_assert(sizeof(TrackPar) == sizeof(TrackPar::base_t) + 8);
+static_assert(sizeof(TrackParCov) == sizeof(TrackPar) + sizeof(TrackParCov::covMat_t));
+
 } // namespace track
 } // namespace o2
 

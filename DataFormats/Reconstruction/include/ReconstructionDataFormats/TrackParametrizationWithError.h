@@ -28,9 +28,10 @@ namespace track
 class TrackParCovFwd; // fwd declaration for conversion method
 
 template <typename value_T = float>
-class TrackParametrizationWithError : public TrackParametrization<value_T>
+class TrackParametrizationWithError : public TrackParametrization<value_T>, public TrackCovarianceData<value_T, kCovMatSize>
 { // track+error parameterization
  public:
+  using cov_base_t = TrackCovarianceData<value_T, kCovMatSize>;
   using typename TrackParametrization<value_T>::value_t;
   using typename TrackParametrization<value_T>::dim3_t;
   using typename TrackParametrization<value_T>::dim2_t;
@@ -148,7 +149,7 @@ class TrackParametrizationWithError : public TrackParametrization<value_T>
   GPUd() void updateCov(const value_t* delta2);
 
  protected:
-  covMat_t mC{0.f}; // 15 covariance matrix elements
+  using cov_base_t::mC;
 
   ClassDefNV(TrackParametrizationWithError, 2);
 };

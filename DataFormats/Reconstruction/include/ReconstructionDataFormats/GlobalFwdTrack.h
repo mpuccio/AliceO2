@@ -15,16 +15,15 @@
 #ifndef ALICEO2_TRACKGLOBALFWD_H
 #define ALICEO2_TRACKGLOBALFWD_H
 
+#include <array>
 #include "ReconstructionDataFormats/TrackFwd.h"
 #include "ReconstructionDataFormats/MatchInfoFwd.h"
-#include "Math/SMatrix.h"
 
 namespace o2
 {
 namespace dataformats
 {
-using SMatrix5 = ROOT::Math::SVector<Double_t, 5>;
-using SMatrix55Sym = ROOT::Math::SMatrix<double, 5, 5, ROOT::Math::MatRepSym<double, 5>>;
+using FwdResiduals = std::array<double, 5>;
 
 class GlobalFwdTrack : public o2::track::TrackParCovFwd, public o2::dataformats::MatchInfoFwd
 {
@@ -34,15 +33,15 @@ class GlobalFwdTrack : public o2::track::TrackParCovFwd, public o2::dataformats:
   GlobalFwdTrack(o2::track::TrackParCovFwd const& t) { *this = t; }
   ~GlobalFwdTrack() = default;
 
-  SMatrix5 computeResiduals2Cov(const o2::track::TrackParCovFwd& t) const
+  FwdResiduals computeResiduals2Cov(const o2::track::TrackParCovFwd& t) const
   {
-    SMatrix5 Residuals2Cov;
+    FwdResiduals Residuals2Cov;
 
-    Residuals2Cov(0) = (getX() - t.getX()) / TMath::Sqrt(getCovariances()(0, 0) + t.getCovariances()(0, 0));
-    Residuals2Cov(1) = (getY() - t.getY()) / TMath::Sqrt(getCovariances()(1, 1) + t.getCovariances()(1, 1));
-    Residuals2Cov(2) = (getPhi() - t.getPhi()) / TMath::Sqrt(getCovariances()(2, 2) + t.getCovariances()(2, 2));
-    Residuals2Cov(3) = (getTanl() - t.getTanl()) / TMath::Sqrt(getCovariances()(3, 3) + t.getCovariances()(3, 3));
-    Residuals2Cov(4) = (getInvQPt() - t.getInvQPt()) / TMath::Sqrt(getCovariances()(4, 4) + t.getCovariances()(4, 4));
+    Residuals2Cov[0] = (getX() - t.getX()) / o2::math_utils::sqrtd(getSigma2X() + t.getSigma2X());
+    Residuals2Cov[1] = (getY() - t.getY()) / o2::math_utils::sqrtd(getSigma2Y() + t.getSigma2Y());
+    Residuals2Cov[2] = (getPhi() - t.getPhi()) / o2::math_utils::sqrtd(getSigma2Phi() + t.getSigma2Phi());
+    Residuals2Cov[3] = (getTanl() - t.getTanl()) / o2::math_utils::sqrtd(getSigma2Tanl() + t.getSigma2Tanl());
+    Residuals2Cov[4] = (getInvQPt() - t.getInvQPt()) / o2::math_utils::sqrtd(getSigma2InvQPt() + t.getSigma2InvQPt());
     return Residuals2Cov;
   }
 

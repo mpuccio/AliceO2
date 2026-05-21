@@ -149,14 +149,14 @@ bool TrackFitter<T>::initTrack(T& track, bool outward)
       std::cout << "  initTrack: X = " << x0 << " Y = " << y0 << " Z = " << z0 << " Tgl = " << tanl0 << "  Phi = " << phi0 << " pz = " << track.getPz() << " q/pt = " << track.getInvQPt() << std::endl;
     }
 
-    SMatrix55Sym lastParamCov;
+    o2::track::TrackParCovFwd::covMat_t lastParamCov{};
     double qptsigma = TMath::Range(1., 10., std::abs(track.getInvQPt()));
 
-    lastParamCov(0, 0) = 1.;       // <X,X>
-    lastParamCov(1, 1) = 1.;       // <Y,Y>
-    lastParamCov(2, 2) = 1.;       // <PHI,PHI>
-    lastParamCov(3, 3) = 1.;       // <TANL,TANL>
-    lastParamCov(4, 4) = qptsigma; // <INVQPT,INVQPT>
+    lastParamCov[o2::track::TrackParCovFwd::covIndex(0, 0)] = 1.;        // <X,X>
+    lastParamCov[o2::track::TrackParCovFwd::covIndex(1, 1)] = 1.;        // <Y,Y>
+    lastParamCov[o2::track::TrackParCovFwd::covIndex(2, 2)] = 1.;        // <PHI,PHI>
+    lastParamCov[o2::track::TrackParCovFwd::covIndex(3, 3)] = 1.;        // <TANL,TANL>
+    lastParamCov[o2::track::TrackParCovFwd::covIndex(4, 4)] = qptsigma;  // <INVQPT,INVQPT>
 
     track.setCovariances(lastParamCov);
     track.setTrackChi2(0.);
@@ -217,14 +217,14 @@ bool TrackFitter<T>::initTrack(T& track, bool outward)
       std::cout << "  initTrack: X = " << x0 << " Y = " << y0 << " Z = " << z0 << " Tgl = " << tanl0 << "  Phi = " << phi0 << " pz = " << track.getPz() << " q/pt = " << track.getInvQPt() << std::endl;
     }
 
-    SMatrix55Sym lastParamCov;
+    o2::track::TrackParCovFwd::covMat_t lastParamCov{};
     double qptsigma = TMath::Range(1., 10., std::abs(track.getInvQPt()));
 
-    lastParamCov(0, 0) = 1.; // <X,X>
-    lastParamCov(1, 1) = 1.; // <Y,Y>
-    lastParamCov(2, 2) = 1.; // <PHI,PHI>
-    lastParamCov(3, 3) = 1.; // <TANL,TANL>
-    lastParamCov(4, 4) = 0.; // <INVQPT,INVQPT>
+    lastParamCov[o2::track::TrackParCovFwd::covIndex(0, 0)] = 1.; // <X,X>
+    lastParamCov[o2::track::TrackParCovFwd::covIndex(1, 1)] = 1.; // <Y,Y>
+    lastParamCov[o2::track::TrackParCovFwd::covIndex(2, 2)] = 1.; // <PHI,PHI>
+    lastParamCov[o2::track::TrackParCovFwd::covIndex(3, 3)] = 1.; // <TANL,TANL>
+    lastParamCov[o2::track::TrackParCovFwd::covIndex(4, 4)] = 0.; // <INVQPT,INVQPT>
 
     track.setCovariances(lastParamCov);
     track.setTrackChi2(0.);

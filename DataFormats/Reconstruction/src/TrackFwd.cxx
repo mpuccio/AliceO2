@@ -12,7 +12,6 @@
 #include "ReconstructionDataFormats/TrackFwd.h"
 #include "ReconstructionDataFormats/TrackParametrization.h"
 #include "ReconstructionDataFormats/TrackParametrizationWithError.h"
-#include "Math/MatrixFunctions.h"
 #include <GPUCommonLogger.h>
 
 namespace o2
@@ -21,13 +20,62 @@ namespace track
 {
 using namespace std;
 
+namespace
+{
+using Jacobian5 = double[5][5];
+
+void setIdentity(Jacobian5& jac)
+{
+  for (int i = 0; i < 5; ++i) {
+    for (int j = 0; j < 5; ++j) {
+      jac[i][j] = i == j ? 1. : 0.;
+    }
+  }
+}
+
+double covAt(const TrackParCovFwd::covMat_t& cov, int i, int j)
+{
+  return cov[TrackParCovFwd::covIndex(i, j)];
+}
+
+void setCov(TrackParCovFwd::covMat_t& cov, int i, int j, double value)
+{
+  cov[TrackParCovFwd::covIndex(i, j)] = TrackParFwd::value_t(value);
+}
+
+TrackParCovFwd::covMat_t similarity(const Jacobian5& jac, const TrackParCovFwd::covMat_t& cov)
+{
+  TrackParCovFwd::covMat_t result;
+  for (int row = 0; row < 5; ++row) {
+    for (int col = 0; col <= row; ++col) {
+      double v = 0.;
+      for (int i = 0; i < 5; ++i) {
+        for (int j = 0; j < 5; ++j) {
+          v += jac[row][i] * covAt(cov, i, j) * jac[col][j];
+        }
+      }
+      setCov(result, row, col, v);
+    }
+  }
+  return result;
+}
+} // namespace
+
 //_________________________________________________________________________
-TrackParCovFwd::TrackParCovFwd(const Double_t z, const SMatrix5& parameters, const SMatrix55Sym& covariances, const Double_t chi2)
+TrackParCovFwd::TrackParCovFwd(value_t z, const params_t& parameters, const covMat_t& covariances, value_t chi2)
 {
   setZ(z);
   setParameters(parameters);
   setCovariances(covariances);
   setTrackChi2(chi2);
+}
+
+//_________________________________________________________________________
+void TrackParCovFwd::setCovariances(const value_t* covariances)
+{
+  for (int i = 0; i < 15; ++i) {
+    mC[i] = covariances[i];
+  }
 }
 
 //__________________________________________________________________________
@@ -45,9 +93,9 @@ void TrackParFwd::propagateParamToZlinear(double zEnd)
   auto [sinphi0, cosphi0] = o2::math_utils::sincosd(phi0);
   auto invtanl0 = 1.0 / getTgl();
   auto n = dZ * invtanl0;
-  mParameters(0) += n * cosphi0;
-  mParameters(1) += n * sinphi0;
-  mZ = zEnd;
+  mP[0] += n * cosphi0;
+  mP[1] += n * sinphi0;
+  mX = zEnd;
 }
 
 //__________________________________________________________________________
@@ -65,19 +113,20 @@ void TrackParCovFwd::propagateToZlinear(double zEnd)
   auto m = n * invtanl0;
 
   // Extrapolate track parameters to "zEnd"
-  mParameters(0) += n * cosphi0;
-  mParameters(1) += n * sinphi0;
+  mP[0] += n * cosphi0;
+  mP[1] += n * sinphi0;
   setZ(zEnd);
 
   // Calculate Jacobian
-  SMatrix55Std jacob = ROOT::Math::SMatrixIdentity();
-  jacob(0, 2) = -n * sinphi0;
-  jacob(0, 3) = -m * cosphi0;
-  jacob(1, 2) = n * cosphi0;
-  jacob(1, 3) = -m * sinphi0;
+  Jacobian5 jacob;
+  setIdentity(jacob);
+  jacob[0][2] = -n * sinphi0;
+  jacob[0][3] = -m * cosphi0;
+  jacob[1][2] = n * cosphi0;
+  jacob[1][3] = -m * sinphi0;
 
   // Extrapolate track parameter covariances to "zEnd"
-  setCovariances(ROOT::Math::Similarity(jacob, mCovariances));
+  setCovariances(similarity(jacob, getCov()));
 }
 
 //__________________________________________________________________________
@@ -95,14 +144,14 @@ void TrackParFwd::propagateParamToZquadratic(double zEnd, double zField)
   auto [sinphi0, cosphi0] = o2::math_utils::sincosd(phi0);
   auto invtanl0 = 1.0 / getTanl();
   auto invqpt0 = getInvQPt();
-  auto Hz = std::copysign(1, zField);
-  auto k = TMath::Abs(o2::constants::math::B2C * zField);
+  auto Hz = o2::gpu::GPUCommonMath::Copysign(1., zField);
+  auto k = o2::math_utils::absd(o2::constants::math::B2C * zField);
   auto n = dZ * invtanl0;
   auto theta = -invqpt0 * dZ * k * invtanl0;
 
-  mParameters(0) += n * cosphi0 - 0.5 * n * theta * Hz * sinphi0;
-  mParameters(1) += n * sinphi0 + 0.5 * n * theta * Hz * cosphi0;
-  mParameters(2) += Hz * theta;
+  mP[0] += n * cosphi0 - 0.5 * n * theta * Hz * sinphi0;
+  mP[1] += n * sinphi0 + 0.5 * n * theta * Hz * cosphi0;
+  mP[2] += Hz * theta;
   setZ(zEnd);
 }
 
@@ -122,31 +171,32 @@ void TrackParCovFwd::propagateToZquadratic(double zEnd, double zField)
   auto [sinphi0, cosphi0] = o2::math_utils::sincosd(phi0);
   auto invtanl0 = 1.0 / getTanl();
   auto invqpt0 = getInvQPt();
-  auto Hz = std::copysign(1, zField);
-  auto k = TMath::Abs(o2::constants::math::B2C * zField);
+  auto Hz = o2::gpu::GPUCommonMath::Copysign(1., zField);
+  auto k = o2::math_utils::absd(o2::constants::math::B2C * zField);
   auto n = dZ * invtanl0;
   auto m = n * invtanl0;
   auto theta = -invqpt0 * dZ * k * invtanl0;
 
   // Extrapolate track parameters to "zEnd"
-  mParameters(0) += n * cosphi0 - 0.5 * n * theta * Hz * sinphi0;
-  mParameters(1) += n * sinphi0 + 0.5 * n * theta * Hz * cosphi0;
-  mParameters(2) += Hz * theta;
-  mZ = zEnd;
+  mP[0] += n * cosphi0 - 0.5 * n * theta * Hz * sinphi0;
+  mP[1] += n * sinphi0 + 0.5 * n * theta * Hz * cosphi0;
+  mP[2] += Hz * theta;
+  mX = zEnd;
 
   // Calculate Jacobian
-  SMatrix55Std jacob = ROOT::Math::SMatrixIdentity();
-  jacob(0, 2) = -n * theta * 0.5 * Hz * cosphi0 - n * sinphi0;
-  jacob(0, 3) = Hz * m * theta * sinphi0 - m * cosphi0;
-  jacob(0, 4) = k * m * 0.5 * Hz * dZ * sinphi0;
-  jacob(1, 2) = -n * theta * 0.5 * Hz * sinphi0 + n * cosphi0;
-  jacob(1, 3) = -Hz * m * theta * cosphi0 - m * sinphi0;
-  jacob(1, 4) = -k * m * 0.5 * Hz * dZ * cosphi0;
-  jacob(2, 3) = -Hz * theta * invtanl0;
-  jacob(2, 4) = -Hz * k * n;
+  Jacobian5 jacob;
+  setIdentity(jacob);
+  jacob[0][2] = -n * theta * 0.5 * Hz * cosphi0 - n * sinphi0;
+  jacob[0][3] = Hz * m * theta * sinphi0 - m * cosphi0;
+  jacob[0][4] = k * m * 0.5 * Hz * dZ * sinphi0;
+  jacob[1][2] = -n * theta * 0.5 * Hz * sinphi0 + n * cosphi0;
+  jacob[1][3] = -Hz * m * theta * cosphi0 - m * sinphi0;
+  jacob[1][4] = -k * m * 0.5 * Hz * dZ * cosphi0;
+  jacob[2][3] = -Hz * theta * invtanl0;
+  jacob[2][4] = -Hz * k * n;
 
   // Extrapolate track parameter covariances to "zEnd"
-  setCovariances(ROOT::Math::Similarity(jacob, mCovariances));
+  setCovariances(similarity(jacob, getCov()));
 }
 
 //__________________________________________________________________________
@@ -168,11 +218,11 @@ void TrackParFwd::propagateParamToZhelix(double zEnd, double zField)
   auto qpt0 = 1.0 / invqpt0;
   auto [sinphi0, cosphi0] = o2::math_utils::sincosd(phi0);
 
-  auto k = TMath::Abs(o2::constants::math::B2C * zField);
+  auto k = o2::math_utils::absd(o2::constants::math::B2C * zField);
   auto invk = 1.0 / k;
   auto theta = -invqpt0 * dZ * k * invtanl0;
   auto [sintheta, costheta] = o2::math_utils::sincosd(theta);
-  auto Hz = std::copysign(1, zField);
+  auto Hz = o2::gpu::GPUCommonMath::Copysign(1., zField);
   auto Y = sinphi0 * qpt0 * invk;
   auto X = cosphi0 * qpt0 * invk;
   auto YC = Y * costheta;
@@ -181,10 +231,10 @@ void TrackParFwd::propagateParamToZhelix(double zEnd, double zField)
   auto XS = X * sintheta;
 
   // Extrapolate track parameters to "zEnd"
-  mParameters(0) += Hz * (Y - YC) - XS;
-  mParameters(1) += Hz * (-X + XC) - YS;
-  mParameters(2) += Hz * theta;
-  mZ = zEnd;
+  mP[0] += Hz * (Y - YC) - XS;
+  mP[1] += Hz * (-X + XC) - YS;
+  mP[2] += Hz * theta;
+  mX = zEnd;
 }
 
 //__________________________________________________________________________
@@ -200,11 +250,11 @@ void TrackParCovFwd::propagateToZhelix(double zEnd, double zField)
   auto invqpt0 = getInvQPt();
   auto qpt0 = 1.0 / invqpt0;
   auto [sinphi0, cosphi0] = o2::math_utils::sincosd(phi0);
-  auto k = TMath::Abs(o2::constants::math::B2C * zField);
+  auto k = o2::math_utils::absd(o2::constants::math::B2C * zField);
   auto invk = 1.0 / k;
   auto theta = -invqpt0 * dZ * k * invtanl0;
   auto [sintheta, costheta] = o2::math_utils::sincosd(theta);
-  auto Hz = std::copysign(1, zField);
+  auto Hz = o2::gpu::GPUCommonMath::Copysign(1., zField);
   auto L = qpt0 * qpt0 * invk;
   auto N = dZ * invtanl0 * qpt0;
   auto O = sintheta * cosphi0;
@@ -224,24 +274,25 @@ void TrackParCovFwd::propagateToZhelix(double zEnd, double zField)
   auto m = n * invtanl0;
 
   // Extrapolate track parameters to "zEnd"
-  mParameters(0) += Hz * (Y - YC) - XS;
-  mParameters(1) += Hz * (-X + XC) - YS;
-  mParameters(2) += Hz * theta;
-  mZ = zEnd;
+  mP[0] += Hz * (Y - YC) - XS;
+  mP[1] += Hz * (-X + XC) - YS;
+  mP[2] += Hz * theta;
+  mX = zEnd;
 
   // Calculate Jacobian
-  SMatrix55Std jacob = ROOT::Math::SMatrixIdentity();
-  jacob(0, 2) = Hz * X - Hz * XC + YS;
-  jacob(0, 3) = Hz * R * m - S * m;
-  jacob(0, 4) = -Hz * N * R + Hz * T * Y - Hz * V * Y + N * S + U * X;
-  jacob(1, 2) = Hz * Y - Hz * YC - XS;
-  jacob(1, 3) = -Hz * O * m - P * m;
-  jacob(1, 4) = Hz * N * O - Hz * T * X + Hz * V * X + N * P + U * Y;
-  jacob(2, 3) = -Hz * theta * invtanl0;
-  jacob(2, 4) = -Hz * k * n;
+  Jacobian5 jacob;
+  setIdentity(jacob);
+  jacob[0][2] = Hz * X - Hz * XC + YS;
+  jacob[0][3] = Hz * R * m - S * m;
+  jacob[0][4] = -Hz * N * R + Hz * T * Y - Hz * V * Y + N * S + U * X;
+  jacob[1][2] = Hz * Y - Hz * YC - XS;
+  jacob[1][3] = -Hz * O * m - P * m;
+  jacob[1][4] = Hz * N * O - Hz * T * X + Hz * V * X + N * P + U * Y;
+  jacob[2][3] = -Hz * theta * invtanl0;
+  jacob[2][4] = -Hz * k * n;
 
   // Extrapolate track parameter covariances to "zEnd"
-  setCovariances(ROOT::Math::Similarity(jacob, mCovariances));
+  setCovariances(similarity(jacob, getCov()));
 }
 
 //__________________________________________________________________________
@@ -263,11 +314,11 @@ void TrackParCovFwd::propagateToZ(double zEnd, double zField)
   auto invqpt0 = getInvQPt();
   auto qpt0 = 1.0 / invqpt0;
   auto [sinphi0, cosphi0] = o2::math_utils::sincosd(phi0);
-  auto k = TMath::Abs(o2::constants::math::B2C * zField);
+  auto k = o2::math_utils::absd(o2::constants::math::B2C * zField);
   auto invk = 1.0 / k;
   auto theta = -invqpt0 * dZ * k * invtanl0;
   auto [sintheta, costheta] = o2::math_utils::sincosd(theta);
-  auto Hz = std::copysign(1, zField);
+  auto Hz = o2::gpu::GPUCommonMath::Copysign(1., zField);
   auto Y = sinphi0 * qpt0 * invk;
   auto X = cosphi0 * qpt0 * invk;
   auto YC = Y * costheta;
@@ -279,24 +330,25 @@ void TrackParCovFwd::propagateToZ(double zEnd, double zField)
 
   // Extrapolate track parameters to "zEnd"
   // Helix
-  mParameters(0) += Hz * (Y - YC) - XS;
-  mParameters(1) += Hz * (-X + XC) - YS;
-  mParameters(2) += Hz * theta;
-  mZ = zEnd;
+  mP[0] += Hz * (Y - YC) - XS;
+  mP[1] += Hz * (-X + XC) - YS;
+  mP[2] += Hz * theta;
+  mX = zEnd;
 
   // Jacobian (quadratic)
-  SMatrix55Std jacob = ROOT::Math::SMatrixIdentity();
-  jacob(0, 2) = -n * theta * 0.5 * Hz * cosphi0 - n * sinphi0;
-  jacob(0, 3) = Hz * m * theta * sinphi0 - m * cosphi0;
-  jacob(0, 4) = k * m * 0.5 * Hz * dZ * sinphi0;
-  jacob(1, 2) = -n * theta * 0.5 * Hz * sinphi0 + n * cosphi0;
-  jacob(1, 3) = -Hz * m * theta * cosphi0 - m * sinphi0;
-  jacob(1, 4) = -k * m * 0.5 * Hz * dZ * cosphi0;
-  jacob(2, 3) = -Hz * theta * invtanl0;
-  jacob(2, 4) = -Hz * k * n;
+  Jacobian5 jacob;
+  setIdentity(jacob);
+  jacob[0][2] = -n * theta * 0.5 * Hz * cosphi0 - n * sinphi0;
+  jacob[0][3] = Hz * m * theta * sinphi0 - m * cosphi0;
+  jacob[0][4] = k * m * 0.5 * Hz * dZ * sinphi0;
+  jacob[1][2] = -n * theta * 0.5 * Hz * sinphi0 + n * cosphi0;
+  jacob[1][3] = -Hz * m * theta * cosphi0 - m * sinphi0;
+  jacob[1][4] = -k * m * 0.5 * Hz * dZ * cosphi0;
+  jacob[2][3] = -Hz * theta * invtanl0;
+  jacob[2][4] = -Hz * k * n;
 
   // Extrapolate track parameter covariances to "zEnd"
-  setCovariances(ROOT::Math::Similarity(jacob, mCovariances));
+  setCovariances(similarity(jacob, getCov()));
 }
 
 //__________________________________________________________________________
@@ -305,81 +357,61 @@ bool TrackParCovFwd::update(const std::array<float, 2>& p, const std::array<floa
   /// Kalman update step: computes new track parameters with a new cluster position and uncertainties
   /// The current track is expected to have been propagated to the cluster z position
 
-  using SVector2 = ROOT::Math::SVector<double, 2>;
-  using SMatrix22 = ROOT::Math::SMatrix<double, 2>;
-  using SMatrix25 = ROOT::Math::SMatrix<double, 2, 5>;
-  using SMatrix52 = ROOT::Math::SMatrix<double, 5, 2>;
+  const auto currentCov = getCov();
+  const auto CP = [&currentCov](int i, int j) { return covAt(currentCov, i, j); };
+  const double sigmax2 = cov[0];
+  const double sigmay2 = cov[1];
 
-  SMatrix55Sym I = ROOT::Math::SMatrixIdentity();
-  SMatrix25 H_k;
-  SMatrix22 V_k;
-  SVector2 m_k(p[0], p[1]), r_k_kminus1;
-  V_k(0, 0) = cov[0];
-  V_k(1, 1) = cov[1];
-  H_k(0, 0) = 1.0;
-  H_k(1, 1) = 1.0;
+  const double res00 = sigmax2 + CP(0, 0);
+  const double res01 = CP(0, 1);
+  const double res11 = sigmay2 + CP(1, 1);
+  const double det = res00 * res11 - res01 * res01;
+  if (det == 0.) {
+    return false;
+  }
+  const double invRes00 = res11 / det;
+  const double invRes01 = -res01 / det;
+  const double invRes11 = res00 / det;
 
-  // Covariance of residuals
-  SMatrix22 invResCov = (V_k + ROOT::Math::Similarity(H_k, mCovariances));
-  invResCov.Invert();
-
-  // Kalman Gain Matrix
-  SMatrix52 K_k = mCovariances * ROOT::Math::Transpose(H_k) * invResCov;
-
-  // Update Parameters
-  r_k_kminus1 = m_k - H_k * mParameters; // Residuals of prediction
-  mParameters = mParameters + K_k * r_k_kminus1;
+  const double residualX = p[0] - getX();
+  const double residualY = p[1] - getY();
+  for (int i = 0; i < 5; ++i) {
+    const double gainX = CP(i, 0) * invRes00 + CP(i, 1) * invRes01;
+    const double gainY = CP(i, 0) * invRes01 + CP(i, 1) * invRes11;
+    mP[i] = value_t(mP[i] + gainX * residualX + gainY * residualY);
+  }
 
   // Update covariances Matrix
-  SMatrix55Std updatedCov;
-  auto& CP = mCovariances;
-  auto& sigmax2 = cov[0];
-  auto& sigmay2 = cov[1];
+  covMat_t updatedCov{};
   auto A = 1. / (sigmax2 * sigmay2 + sigmax2 * CP(1, 1) + sigmay2 * CP(0, 0) + CP(0, 0) * CP(1, 1) - CP(0, 1) * CP(0, 1));
   auto AX = A * sigmax2;
   auto AY = A * sigmay2;
-  auto B = sigmax2 * sigmay2;
   auto C = (sigmax2 + CP(0, 0)) * (sigmay2 + CP(1, 1));
   auto D = 1 / (-C + CP(0, 1) * CP(0, 1));
   auto E = sigmax2 + CP(0, 0);
   auto F = sigmay2 + CP(1, 1);
   auto G = -C + CP(0, 1) * CP(0, 1);
 
-  // Explicit evaluation of "updatedCov = (I - K_k * H_k) * mCovariances"
-  updatedCov(0, 0) = AX * (sigmay2 * CP(0, 0) + CP(0, 0) * CP(1, 1) - CP(0, 1) * CP(0, 1));
-  updatedCov(0, 1) = AX * sigmay2 * CP(0, 1);
-  updatedCov(0, 2) = AX * (sigmay2 * CP(0, 2) - CP(0, 1) * CP(1, 2) + CP(0, 2) * CP(1, 1));
-  updatedCov(0, 3) = AX * (sigmay2 * CP(0, 3) - CP(0, 1) * CP(1, 3) + CP(0, 3) * CP(1, 1));
-  updatedCov(0, 4) = AX * (sigmay2 * CP(0, 4) - CP(0, 1) * CP(1, 4) + CP(0, 4) * CP(1, 1));
-  updatedCov(1, 1) = AY * (sigmax2 * CP(1, 1) + CP(0, 0) * CP(1, 1) - CP(0, 1) * CP(0, 1));
-  updatedCov(1, 2) = AY * (sigmax2 * CP(1, 2) + CP(0, 0) * CP(1, 2) - CP(0, 1) * CP(0, 2));
-  updatedCov(1, 3) = AY * (sigmax2 * CP(1, 3) + CP(0, 0) * CP(1, 3) - CP(0, 1) * CP(0, 3));
-  updatedCov(1, 4) = AY * (sigmax2 * CP(1, 4) + CP(0, 0) * CP(1, 4) - CP(0, 1) * CP(0, 4));
-  updatedCov(2, 2) = D * (G * CP(2, 2) - CP(0, 2) * (-F * CP(0, 2) + CP(0, 1) * CP(1, 2)) - CP(1, 2) * (-E * CP(1, 2) + CP(0, 1) * CP(0, 2)));
-  updatedCov(2, 3) = D * (G * CP(2, 3) - CP(0, 2) * (-F * CP(0, 3) + CP(0, 1) * CP(1, 3)) - CP(1, 2) * (-E * CP(1, 3) + CP(0, 1) * CP(0, 3)));
-  updatedCov(2, 4) = D * (G * CP(2, 4) - CP(0, 2) * (-F * CP(0, 4) + CP(0, 1) * CP(1, 4)) - CP(1, 2) * (-E * CP(1, 4) + CP(0, 1) * CP(0, 4)));
-  updatedCov(3, 3) = D * (G * CP(3, 3) - CP(0, 3) * (-F * CP(0, 3) + CP(0, 1) * CP(1, 3)) - CP(1, 3) * (-E * CP(1, 3) + CP(0, 1) * CP(0, 3)));
-  updatedCov(3, 4) = D * (G * CP(3, 4) - CP(0, 3) * (-F * CP(0, 4) + CP(0, 1) * CP(1, 4)) - CP(1, 3) * (-E * CP(1, 4) + CP(0, 1) * CP(0, 4)));
-  updatedCov(4, 4) = D * (G * CP(4, 4) - CP(0, 4) * (-F * CP(0, 4) + CP(0, 1) * CP(1, 4)) - CP(1, 4) * (-E * CP(1, 4) + CP(0, 1) * CP(0, 4)));
+  // Explicit evaluation of "updatedCov = (I - K_k * H_k) * covM"
+  setCov(updatedCov, 0, 0, AX * (sigmay2 * CP(0, 0) + CP(0, 0) * CP(1, 1) - CP(0, 1) * CP(0, 1)));
+  setCov(updatedCov, 0, 1, AX * sigmay2 * CP(0, 1));
+  setCov(updatedCov, 0, 2, AX * (sigmay2 * CP(0, 2) - CP(0, 1) * CP(1, 2) + CP(0, 2) * CP(1, 1)));
+  setCov(updatedCov, 0, 3, AX * (sigmay2 * CP(0, 3) - CP(0, 1) * CP(1, 3) + CP(0, 3) * CP(1, 1)));
+  setCov(updatedCov, 0, 4, AX * (sigmay2 * CP(0, 4) - CP(0, 1) * CP(1, 4) + CP(0, 4) * CP(1, 1)));
+  setCov(updatedCov, 1, 1, AY * (sigmax2 * CP(1, 1) + CP(0, 0) * CP(1, 1) - CP(0, 1) * CP(0, 1)));
+  setCov(updatedCov, 1, 2, AY * (sigmax2 * CP(1, 2) + CP(0, 0) * CP(1, 2) - CP(0, 1) * CP(0, 2)));
+  setCov(updatedCov, 1, 3, AY * (sigmax2 * CP(1, 3) + CP(0, 0) * CP(1, 3) - CP(0, 1) * CP(0, 3)));
+  setCov(updatedCov, 1, 4, AY * (sigmax2 * CP(1, 4) + CP(0, 0) * CP(1, 4) - CP(0, 1) * CP(0, 4)));
+  setCov(updatedCov, 2, 2, D * (G * CP(2, 2) - CP(0, 2) * (-F * CP(0, 2) + CP(0, 1) * CP(1, 2)) - CP(1, 2) * (-E * CP(1, 2) + CP(0, 1) * CP(0, 2))));
+  setCov(updatedCov, 2, 3, D * (G * CP(2, 3) - CP(0, 2) * (-F * CP(0, 3) + CP(0, 1) * CP(1, 3)) - CP(1, 2) * (-E * CP(1, 3) + CP(0, 1) * CP(0, 3))));
+  setCov(updatedCov, 2, 4, D * (G * CP(2, 4) - CP(0, 2) * (-F * CP(0, 4) + CP(0, 1) * CP(1, 4)) - CP(1, 2) * (-E * CP(1, 4) + CP(0, 1) * CP(0, 4))));
+  setCov(updatedCov, 3, 3, D * (G * CP(3, 3) - CP(0, 3) * (-F * CP(0, 3) + CP(0, 1) * CP(1, 3)) - CP(1, 3) * (-E * CP(1, 3) + CP(0, 1) * CP(0, 3))));
+  setCov(updatedCov, 3, 4, D * (G * CP(3, 4) - CP(0, 3) * (-F * CP(0, 4) + CP(0, 1) * CP(1, 4)) - CP(1, 3) * (-E * CP(1, 4) + CP(0, 1) * CP(0, 4))));
+  setCov(updatedCov, 4, 4, D * (G * CP(4, 4) - CP(0, 4) * (-F * CP(0, 4) + CP(0, 1) * CP(1, 4)) - CP(1, 4) * (-E * CP(1, 4) + CP(0, 1) * CP(0, 4))));
 
-  mCovariances(0, 0) = updatedCov(0, 0);
-  mCovariances(0, 1) = updatedCov(0, 1);
-  mCovariances(0, 2) = updatedCov(0, 2);
-  mCovariances(0, 3) = updatedCov(0, 3);
-  mCovariances(0, 4) = updatedCov(0, 4);
-  mCovariances(1, 1) = updatedCov(1, 1);
-  mCovariances(1, 2) = updatedCov(1, 2);
-  mCovariances(1, 3) = updatedCov(1, 3);
-  mCovariances(1, 4) = updatedCov(1, 4);
-  mCovariances(2, 2) = updatedCov(2, 2);
-  mCovariances(2, 3) = updatedCov(2, 3);
-  mCovariances(2, 4) = updatedCov(2, 4);
-  mCovariances(3, 3) = updatedCov(3, 3);
-  mCovariances(3, 4) = updatedCov(3, 4);
-  mCovariances(4, 4) = updatedCov(4, 4);
+  setCovariances(updatedCov);
 
-  auto addChi2Track = ROOT::Math::Similarity(r_k_kminus1, invResCov);
-  mTrackChi2 += addChi2Track;
+  mTrackChi2 = value_t(mTrackChi2 + residualX * (invRes00 * residualX + invRes01 * residualY) + residualY * (invRes01 * residualX + invRes11 * residualY));
 
   return true;
 }
@@ -403,23 +435,21 @@ void TrackParCovFwd::addMCSEffect(double x_over_X0)
 
   auto [sinphi0, cosphi0] = o2::math_utils::sincosd(phi0);
 
-  auto csclambda = TMath::Abs(TMath::Sqrt(1 + tanl0 * tanl0) * invtanl0);
+  auto csclambda = o2::math_utils::absd(o2::math_utils::sqrtd(1. + tanl0 * tanl0) * invtanl0);
   auto pathLengthOverX0 = x_over_X0 * csclambda; //
 
   // Angular dispersion square of the track (variance) in a plane perpendicular to the trajectory
   auto sigmathetasq = 0.0136 * getInverseMomentum();
   sigmathetasq *= sigmathetasq * pathLengthOverX0;
 
-  // Get covariance matrix
-  SMatrix55Sym newParamCov(getCovariances());
-
   auto A = tanl0 * tanl0 + 1;
+  auto newParamCov = getCov();
 
-  newParamCov(2, 2) += sigmathetasq * A;
+  newParamCov[covIndex(2, 2)] = value_t(newParamCov[covIndex(2, 2)] + sigmathetasq * A);
 
-  newParamCov(3, 3) += sigmathetasq * A * A;
+  newParamCov[covIndex(3, 3)] = value_t(newParamCov[covIndex(3, 3)] + sigmathetasq * A * A);
 
-  newParamCov(4, 4) += sigmathetasq * tanl0 * tanl0 * invqpt0 * invqpt0;
+  newParamCov[covIndex(4, 4)] = value_t(newParamCov[covIndex(4, 4)] + sigmathetasq * tanl0 * tanl0 * invqpt0 * invqpt0);
 
   // Set new covariances
   setCovariances(newParamCov);
@@ -430,12 +460,12 @@ void TrackParFwd::getCircleParams(float bz, o2::math_utils::CircleXY<float>& c, 
 {
   c.rC = getCurvature(bz);
   constexpr double MinCurv = 1e-6;
-  if (std::abs(c.rC) > MinCurv) {
+  if (o2::math_utils::abs(c.rC) > MinCurv) {
     c.rC = 1.f / getCurvature(bz);
-    double sn = getSnp(), cs = std::sqrt((1.f - sn) * (1.f + sn));
+    double sn = getSnp(), cs = o2::math_utils::sqrtd((1. - sn) * (1. + sn));
     c.xC = getX() - sn * c.rC; // center in tracking
     c.yC = getY() + cs * c.rC; // frame. Note: r is signed!!!
-    c.rC = std::abs(c.rC);
+    c.rC = o2::math_utils::abs(c.rC);
   } else {
     c.rC = 0.f; // signal straight line
     c.xC = getX();
@@ -472,36 +502,38 @@ bool TrackParCovFwd::getCovXYZPxPyPzGlo(std::array<float, 21>& cv) const
   // Cov(pz,x)... :   cv[15] cv[16] cv[17] cv[18] cv[19] cv[20]
   //---------------------------------------------------------------------
   auto pt = getPt();
-  auto cp = std::sqrt((1. - getSnp()) * (1. + getSnp()));
+  auto cp = o2::math_utils::sqrtd((1. - getSnp()) * (1. + getSnp()));
   auto sp = getSnp();
   auto tgl = getTgl();
 
-  auto px = pt * std::sqrt((1. - getSnp()) * (1. + getSnp()));
+  auto px = pt * o2::math_utils::sqrtd((1. - getSnp()) * (1. + getSnp()));
   auto py = pt * getSnp();
   auto pz = pt * getTgl();
   auto q = getCharge();
+  const auto& covM = getCov();
+  const auto C = [&covM](int i, int j) { return covAt(covM, i, j); };
 
-  cv[0] = mCovariances(0, 0);
-  cv[1] = mCovariances(1, 0);
-  cv[2] = mCovariances(1, 1);
+  cv[0] = C(0, 0);
+  cv[1] = C(1, 0);
+  cv[2] = C(1, 1);
   cv[3] = 0;
   cv[4] = 0;
   cv[5] = 0;
-  cv[6] = -mCovariances(0, 2) * py - mCovariances(0, 4) * px * pt * q;
-  cv[7] = -mCovariances(1, 2) * py - mCovariances(1, 4) * px * pt * q;
+  cv[6] = -C(0, 2) * py - C(0, 4) * px * pt * q;
+  cv[7] = -C(1, 2) * py - C(1, 4) * px * pt * q;
   cv[8] = 0;
-  cv[9] = 2 * mCovariances(2, 4) * px * py * q * pt + mCovariances(2, 2) * py * py + mCovariances(4, 4) * px * px * pt * pt;
-  cv[10] = mCovariances(0, 2) * px - mCovariances(0, 4) * py * pt * q;
-  cv[11] = mCovariances(1, 2) * px - mCovariances(1, 4) * py * pt * q;
+  cv[9] = 2 * C(2, 4) * px * py * q * pt + C(2, 2) * py * py + C(4, 4) * px * px * pt * pt;
+  cv[10] = C(0, 2) * px - C(0, 4) * py * pt * q;
+  cv[11] = C(1, 2) * px - C(1, 4) * py * pt * q;
   cv[12] = 0;
-  cv[13] = mCovariances(2, 4) * (py * py - px * px) * q * pt - mCovariances(2, 2) * px * py + mCovariances(4, 4) * px * py * pt * pt;
-  cv[14] = -2 * mCovariances(2, 4) * px * py * q * pt + mCovariances(2, 2) * px * px + mCovariances(4, 4) * py * py * pt * pt;
-  cv[15] = mCovariances(0, 3) * pt - mCovariances(0, 4) * pt * pz * q;
-  cv[16] = mCovariances(1, 3) * pt - mCovariances(1, 4) * pt * pz * q;
+  cv[13] = C(2, 4) * (py * py - px * px) * q * pt - C(2, 2) * px * py + C(4, 4) * px * py * pt * pt;
+  cv[14] = -2 * C(2, 4) * px * py * q * pt + C(2, 2) * px * px + C(4, 4) * py * py * pt * pt;
+  cv[15] = C(0, 3) * pt - C(0, 4) * pt * pz * q;
+  cv[16] = C(1, 3) * pt - C(1, 4) * pt * pz * q;
   cv[17] = 0;
-  cv[18] = -mCovariances(2, 3) * py * pt - mCovariances(3, 4) * px * q * pt * pt + mCovariances(2, 4) * py * pz * q * pt + mCovariances(4, 4) * px * pz * pt * pt;
-  cv[19] = mCovariances(2, 3) * px * pt - mCovariances(3, 4) * q * pt * pt * py - mCovariances(2, 4) * px * pz * q * pt + mCovariances(4, 4) * py * pz * pt * pt;
-  cv[20] = -2 * mCovariances(3, 4) * pz * q * pt * pt + mCovariances(3, 3) * pt * pt + mCovariances(4, 4) * pz * pz * pt * pt;
+  cv[18] = -C(2, 3) * py * pt - C(3, 4) * px * q * pt * pt + C(2, 4) * py * pz * q * pt + C(4, 4) * px * pz * pt * pt;
+  cv[19] = C(2, 3) * px * pt - C(3, 4) * q * pt * pt * py - C(2, 4) * px * pz * q * pt + C(4, 4) * py * pz * pt * pt;
+  cv[20] = -2 * C(3, 4) * pz * q * pt * pt + C(3, 3) * pt * pt + C(4, 4) * pz * pz * pt * pt;
 
   return true;
 }
@@ -512,17 +544,17 @@ void TrackParCovFwd::propagateToDCAhelix(double zField, const std::array<double,
 {
   // Computing DCA of fwd track w.r.t vertex in helix track model, using Newton-Raphson minimization
 
-  auto x0 = mParameters(0);
-  auto y0 = mParameters(1);
-  auto z0 = mZ;
-  auto phi0 = mParameters(2);
-  auto tanl = mParameters(3);
-  auto qOverPt = mParameters(4);
-  auto k = TMath::Abs(o2::constants::math::B2C * zField);
+  auto x0 = mP[0];
+  auto y0 = mP[1];
+  auto z0 = mX;
+  auto phi0 = mP[2];
+  auto tanl = mP[3];
+  auto qOverPt = mP[4];
+  auto k = o2::math_utils::absd(o2::constants::math::B2C * zField);
   auto qpt = 1.0 / qOverPt;
-  auto qR = qpt / std::fabs(k);
+  auto qR = qpt / o2::math_utils::absd(k);
   auto invtanl = 1.0 / tanl;
-  auto Hz = std::copysign(1, zField);
+  auto Hz = o2::gpu::GPUCommonMath::Copysign(1., zField);
 
   auto xPV = p[0];
   auto yPV = p[1];
@@ -540,8 +572,8 @@ void TrackParCovFwd::propagateToDCAhelix(double zField, const std::array<double,
   while (iter++ < max_iter) {
     double theta = (z0 - z) * invqRtanl;
     double phi_theta = phi0 + Hz * theta;
-    double sin_phi_theta = sin(phi_theta);
-    double cos_phi_theta = cos(phi_theta);
+    double sin_phi_theta = o2::math_utils::sind(phi_theta);
+    double cos_phi_theta = o2::math_utils::cosd(phi_theta);
 
     double DX = x0 - Hz * qR * (sin_phi_theta - sinp) - xPV;
     double DY = y0 + Hz * qR * (cos_phi_theta - cosp) - yPV;
@@ -559,7 +591,7 @@ void TrackParCovFwd::propagateToDCAhelix(double zField, const std::array<double,
 
     double z_new = z - dD2_dZ / d2D2_dZ2;
 
-    if (std::abs(z_new - z) < tol) {
+    if (o2::math_utils::absd(z_new - z) < tol) {
       z = z_new;
       this->propagateToZhelix(z, zField);
       dca[0] = this->getX() - xPV;
@@ -579,7 +611,7 @@ void TrackParFwd::toBarrelTrackPar(TrackParametrization<T>& t) const
 {
   // we select the barrel frame with alpha = phi, then by construction the snp is 0
   auto alpha = getPhi();
-  auto csa = TMath::Cos(alpha), sna = TMath::Sin(alpha);
+  auto csa = o2::math_utils::cosd(alpha), sna = o2::math_utils::sind(alpha);
   t.setAlpha(alpha);
   t.setX(csa * getX() + sna * getY());
   t.setY(-sna * getX() + csa * getY());
@@ -594,7 +626,7 @@ void TrackParCovFwd::toBarrelTrackParCov(TrackParametrizationWithError<T>& t) co
 {
   // We select the barrel frame with alpha = phi, then by construction the snp is 0
   auto alpha = getPhi();
-  auto csa = TMath::Cos(alpha), sna = TMath::Sin(alpha);
+  auto csa = o2::math_utils::cosd(alpha), sna = o2::math_utils::sind(alpha);
   t.setAlpha(alpha);
   t.setX(csa * getX() + sna * getY());
   t.setY(-sna * getX() + csa * getY());
@@ -622,7 +654,7 @@ void TrackParCovFwd::toBarrelTrackParCov(TrackParametrizationWithError<T>& t) co
   const T b1 = -getTgl() * csa;
   const T b2 = -getTgl() * sna;
   const T cphi = 1;
-  const auto& C = getCovariances();
+  auto C = [this](int i, int j) { return getCovarElem(i, j); };
   typename TrackParametrizationWithError<T>::covMat_t covBarrel = {
     T(a1 * a1 * C(0, 0) + 2 * a1 * a2 * C(0, 1) + a2 * a2 * C(1, 1)),         // kSigY2
     T(a1 * b1 * C(0, 0) + (a1 * b2 + a2 * b1) * C(0, 1) + a2 * b2 * C(1, 1)), // kSigZY

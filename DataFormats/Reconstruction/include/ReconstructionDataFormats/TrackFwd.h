@@ -17,19 +17,18 @@
 #ifndef ALICEO2_BASE_TRACKFWD
 #define ALICEO2_BASE_TRACKFWD
 
-#include <Rtypes.h>
-#include <TMath.h>
-#include "Math/SMatrix.h"
+#include <array>
+#include "GPUCommonRtypes.h"
+#ifndef GPUCA_GPUCODE_DEVICE
+#include <ostream>
+#endif
 #include "MathUtils/Utils.h"
 #include "ReconstructionDataFormats/TrackUtils.h"
+#include "ReconstructionDataFormats/TrackParametrizationData.h"
 #include "MathUtils/Primitive2D.h"
 
 namespace o2::track
 {
-
-using SMatrix55Sym = ROOT::Math::SMatrix<double, 5, 5, ROOT::Math::MatRepSym<double, 5>>;
-using SMatrix55Std = ROOT::Math::SMatrix<double, 5>;
-using SMatrix5 = ROOT::Math::SVector<Double_t, 5>;
 
 template <typename value_T>
 class TrackParametrization; // fwd declaration for conversion method
@@ -37,9 +36,13 @@ class TrackParametrization; // fwd declaration for conversion method
 template <typename value_T>
 class TrackParametrizationWithError; // fwd declaration for conversion method
 
-class TrackParFwd
+class TrackParFwd : public TrackParametrizationData<float, 5>
 { // Forward track parameterization, kinematics only.
  public:
+  using value_t = float;
+  using base_t = TrackParametrizationData<value_t, 5>;
+  using params_t = std::array<value_t, 5>;
+
   TrackParFwd() = default;
   ~TrackParFwd() = default;
 
@@ -52,76 +55,96 @@ class TrackParFwd
   void toBarrelTrackPar(TrackParametrization<T>& t) const;
 
   /// return Z coordinate (cm)
-  Double_t getZ() const { return mZ; }
+  value_t getZ() const { return mX; }
   /// set Z coordinate (cm)
-  void setZ(Double_t z) { mZ = z; }
-  Double_t getX() const { return mParameters(0); }
-  void setX(Double_t x) { mParameters(0) = x; }
+  void setZ(value_t z) { mX = z; }
+  value_t getX() const { return mP[0]; }
+  void setX(value_t x) { mP[0] = x; }
 
-  Double_t getY() const { return mParameters(1); }
-  void setY(Double_t y) { mParameters(1) = y; }
+  value_t getY() const { return mP[1]; }
+  void setY(value_t y) { mP[1] = y; }
 
-  void setPhi(Double_t phi) { mParameters(2) = phi; }
-  Double_t getPhi() const { return mParameters(2); }
+  void setPhi(value_t phi) { mP[2] = phi; }
+  value_t getPhi() const { return mP[2]; }
 
-  Double_t getSnp() const
+  value_t getSnp() const
   {
-    return o2::math_utils::sin(mParameters(2));
+    return o2::math_utils::sin(mP[2]);
   }
 
-  Double_t getCsp2() const
+  value_t getCsp2() const
   {
-    auto snp = o2::math_utils::sin(mParameters(2));
-    Double_t csp;
-    csp = std::sqrt((1. - snp) * (1. + snp));
+    auto snp = o2::math_utils::sin(mP[2]);
+    value_t csp = o2::math_utils::sqrt((value_t(1) - snp) * (value_t(1) + snp));
     return csp * csp;
   }
 
-  void setTanl(Double_t tanl) { mParameters(3) = tanl; }
-  Double_t getTanl() const { return mParameters(3); }
+  void setTanl(value_t tanl) { mP[3] = tanl; }
+  value_t getTanl() const { return mP[3]; }
 
-  Double_t getTgl() const { return mParameters(3); } // for the sake of helixhelper
+  value_t getTgl() const { return mP[3]; } // for the sake of helixhelper
 
-  void setInvQPt(Double_t invqpt) { mParameters(4) = invqpt; }
-  Double_t getInvQPt() const { return mParameters(4); } // return Inverse charged pt
-  Double_t getPt() const { return TMath::Abs(1.f / mParameters(4)); }
-  Double_t getInvPt() const { return TMath::Abs(mParameters(4)); }
-  Double_t getPx() const { return TMath::Cos(getPhi()) * getPt(); }                   // return px
-  Double_t getPy() const { return TMath::Sin(getPhi()) * getPt(); }                   // return py
-  Double_t getPz() const { return getTanl() * getPt(); }                              // return pz
-  Double_t getP() const { return getPt() * TMath::Sqrt(1. + getTanl() * getTanl()); } // return total momentum
-  Double_t getInverseMomentum() const { return 1.f / getP(); }
+  void setInvQPt(value_t invqpt) { mP[4] = invqpt; }
+  value_t getInvQPt() const { return mP[4]; } // return Inverse charged pt
+  value_t getPt() const { return o2::math_utils::abs(value_t(1) / mP[4]); }
+  value_t getInvPt() const { return o2::math_utils::abs(mP[4]); }
+  value_t getPx() const { return o2::math_utils::cos(getPhi()) * getPt(); } // return px
+  value_t getPy() const { return o2::math_utils::sin(getPhi()) * getPt(); } // return py
+  value_t getPz() const { return getTanl() * getPt(); }                     // return pz
+  value_t getP() const { return getPt() * o2::math_utils::sqrt(value_t(1) + getTanl() * getTanl()); }
+  value_t getInverseMomentum() const { return value_t(1) / getP(); }
 
-  Double_t getTheta() const { return TMath::PiOver2() - TMath::ATan(getTanl()); }
-  Double_t getEta() const { return -TMath::Log(TMath::Tan(getTheta() / 2)); } // return total momentum
+  value_t getTheta() const { return value_t(0.5) * o2::math_utils::pi() - o2::math_utils::atan(getTanl()); }
+  value_t getEta() const { return -o2::math_utils::log(o2::math_utils::tan(getTheta() / value_t(2))); } // return total momentum
 
-  Double_t getCurvature(double b) const
+  value_t getCurvature(value_t b) const
   {
     auto invqpt = getInvQPt();
     return o2::constants::math::B2C * b * invqpt;
   }
 
   /// return the charge (assumed forward motion)
-  Double_t getCharge() const { return TMath::Sign(1., mParameters(4)); }
+  int getCharge() const { return mP[4] >= 0.f ? 1 : -1; }
   /// set the charge (assumed forward motion)
-  void setCharge(Double_t charge)
+  void setCharge(int charge)
   {
-    if (charge * mParameters(4) < 0.) {
-      mParameters(4) *= -1.;
+    if (charge * mP[4] < 0.) {
+      mP[4] *= -1.;
     }
   }
 
   /// return track parameters
-  const SMatrix5& getParameters() const { return mParameters; }
+  const value_t* getParameters() const { return mP; }
+  const value_t* getParams() const { return mP; }
+  params_t getParametersArray() const
+  {
+    params_t params;
+    for (int i = 0; i < 5; ++i) {
+      params[i] = mP[i];
+    }
+    return params;
+  }
   /// set track parameters
-  void setParameters(const SMatrix5& parameters) { mParameters = parameters; }
+  void setParameters(const params_t& parameters) { setParameters(parameters.data()); }
+  void setParameters(const value_t* parameters)
+  {
+    for (int i = 0; i < 5; ++i) {
+      mP[i] = parameters[i];
+    }
+  }
   /// add track parameters
-  void addParameters(const SMatrix5& parameters) { mParameters += parameters; }
+  void addParameters(const params_t& parameters) { addParameters(parameters.data()); }
+  void addParameters(const value_t* parameters)
+  {
+    for (int i = 0; i < 5; ++i) {
+      mP[i] += parameters[i];
+    }
+  }
 
   /// return the chi2 of the track when the associated cluster was attached
-  Double_t getTrackChi2() const { return mTrackChi2; }
+  value_t getTrackChi2() const { return mTrackChi2; }
   /// set the chi2 of the track when the associated cluster was attached
-  void setTrackChi2(Double_t chi2) { mTrackChi2 = chi2; }
+  void setTrackChi2(value_t chi2) { mTrackChi2 = chi2; }
 
   // Track parameter propagation
   void propagateParamToZlinear(double zEnd);
@@ -130,7 +153,8 @@ class TrackParFwd
   void getCircleParams(float bz, o2::math_utils::CircleXY<float>& c, float& sna, float& csa) const;
 
  protected:
-  Double_t mZ = 0.; ///< Z coordinate (cm)
+  using base_t::mP;
+  using base_t::mX;
 
   /// Track parameters ordered as follow:      <pre>
   /// X       = X coordinate   (cm)
@@ -138,35 +162,43 @@ class TrackParFwd
   /// PHI     = azimutal angle
   /// TANL    = tangent of \lambda (dip angle)
   /// INVQPT    = Inverse transverse momentum (GeV/c ** -1) times charge (assumed forward motion)  </pre>
-  SMatrix5 mParameters{};   ///< \brief Track parameters
-  Double_t mTrackChi2 = 0.; ///< Chi2 of the track when the associated cluster was attached
+  value_t mTrackChi2 = 0.; ///< Chi2 of the track when the associated cluster was attached
 
   ClassDefNV(TrackParFwd, 1);
 };
 
-class TrackParCovFwd : public TrackParFwd
+class TrackParCovFwd : public TrackParFwd, public TrackCovarianceData<TrackParFwd::value_t, 15>
 { // Forward track+error parameterization
  public:
+  using cov_base_t = TrackCovarianceData<value_t, 15>;
+  using covMat_t = std::array<value_t, 15>;
+  struct cov_view_t {
+    const value_t* data = nullptr;
+    value_t operator()(int i, int j) const { return data[TrackParCovFwd::covIndex(i, j)]; }
+  };
   using TrackParFwd::TrackParFwd; // inherit base constructors
 
   TrackParCovFwd() = default;
   ~TrackParCovFwd() = default;
   TrackParCovFwd& operator=(const TrackParCovFwd& tpf) = default;
-  TrackParCovFwd(const Double_t z, const SMatrix5& parameters, const SMatrix55Sym& covariances, const Double_t chi2);
+  TrackParCovFwd(value_t z, const params_t& parameters, const covMat_t& covariances, value_t chi2);
 
   template <typename T>
   void toBarrelTrackParCov(TrackParametrizationWithError<T>& t) const;
 
-  const SMatrix55Sym& getCovariances() const { return mCovariances; }
-  void setCovariances(const SMatrix55Sym& covariances) { mCovariances = covariances; }
-  void deleteCovariances() { mCovariances = SMatrix55Sym(); }
+  cov_view_t getCovariances() const { return {mC.data()}; }
+  const covMat_t& getCov() const { return mC; }
+  value_t getCovarElem(int i, int j) const { return mC[covIndex(i, j)]; }
+  void setCovariances(const covMat_t& covariances) { mC = covariances; }
+  void setCovariances(const value_t* covariances);
+  void deleteCovariances() { mC = {}; }
 
-  Double_t getSigma2X() const { return mCovariances(0, 0); }
-  Double_t getSigma2Y() const { return mCovariances(1, 1); }
-  Double_t getSigmaXY() const { return mCovariances(0, 1); }
-  Double_t getSigma2Phi() const { return mCovariances(2, 2); }
-  Double_t getSigma2Tanl() const { return mCovariances(3, 3); }
-  Double_t getSigma2InvQPt() const { return mCovariances(4, 4); }
+  value_t getSigma2X() const { return mC[covIndex(0, 0)]; }
+  value_t getSigma2Y() const { return mC[covIndex(1, 1)]; }
+  value_t getSigmaXY() const { return mC[covIndex(0, 1)]; }
+  value_t getSigma2Phi() const { return mC[covIndex(2, 2)]; }
+  value_t getSigma2Tanl() const { return mC[covIndex(3, 3)]; }
+  value_t getSigma2InvQPt() const { return mC[covIndex(4, 4)]; }
 
   // Propagate parameters and covariances matrix
   void propagateToZlinear(double zEnd);
@@ -187,6 +219,14 @@ class TrackParCovFwd : public TrackParFwd
 
   bool getCovXYZPxPyPzGlo(std::array<float, 21>& cv) const;
 
+  static constexpr int covIndex(int i, int j)
+  {
+    return i >= j ? i * (i + 1) / 2 + j : j * (j + 1) / 2 + i;
+  }
+
+ protected:
+  using cov_base_t::mC;
+
  private:
   /// Covariance matrix of track parameters, ordered as follows:    <pre>
   ///  <X,X>         <Y,X>           <PHI,X>       <TANL,X>        <INVQPT,X>
@@ -194,9 +234,26 @@ class TrackParCovFwd : public TrackParFwd
   /// <X,PHI>       <Y,PHI>         <PHI,PHI>     <TANL,PHI>      <INVQPT,PHI>
   /// <X,TANL>      <Y,TANL>       <PHI,TANL>     <TANL,TANL>     <INVQPT,TANL>
   /// <X,INVQPT>   <Y,INVQPT>     <PHI,INVQPT>   <TANL,INVQPT>   <INVQPT,INVQPT>  </pre>
-  SMatrix55Sym mCovariances{}; ///< \brief Covariance matrix of track parameters
   ClassDefNV(TrackParCovFwd, 1);
 };
+
+static_assert(sizeof(TrackParFwd) == sizeof(TrackParFwd::base_t) + sizeof(TrackParFwd::value_t));
+static_assert(sizeof(TrackParCovFwd) == sizeof(TrackParFwd) + 15 * sizeof(TrackParFwd::value_t));
+
+#ifndef GPUCA_GPUCODE_DEVICE
+inline std::ostream& operator<<(std::ostream& os, const TrackParCovFwd::cov_view_t& cov)
+{
+  for (int i = 0; i < 5; ++i) {
+    for (int j = 0; j <= i; ++j) {
+      os << cov(i, j);
+      if (i != 4 || j != 4) {
+        os << ' ';
+      }
+    }
+  }
+  return os;
+}
+#endif
 
 } // namespace o2::track
 

@@ -1803,25 +1803,25 @@ bool TrackParametrizationWithError<value_T>::toFwdTrackParCov(TrackParCovFwd& t)
   const value_T e1 = csa;
   const value_T e2 = -snP * tgLI;
   const value_T f1 = 1 / csp;
-  SMatrix55Sym C;
-  C(0, 0) = d1 * d1 * getSigmaY2() + 2 * d1 * d2 * getSigmaZY() + d2 * d2 * getSigmaZ2();
-  C(0, 1) = d1 * e1 * getSigmaY2() + (d1 * e2 + d2 * e1) * getSigmaZY() + d2 * e2 * getSigmaZ2();
-  C(1, 1) = e1 * e1 * getSigmaY2() + 2 * e1 * e2 * getSigmaZY() + e2 * e2 * getSigmaZ2();
+  TrackParCovFwd::covMat_t C{};
+  C[TrackParCovFwd::covIndex(0, 0)] = d1 * d1 * getSigmaY2() + 2 * d1 * d2 * getSigmaZY() + d2 * d2 * getSigmaZ2();
+  C[TrackParCovFwd::covIndex(0, 1)] = d1 * e1 * getSigmaY2() + (d1 * e2 + d2 * e1) * getSigmaZY() + d2 * e2 * getSigmaZ2();
+  C[TrackParCovFwd::covIndex(1, 1)] = e1 * e1 * getSigmaY2() + 2 * e1 * e2 * getSigmaZY() + e2 * e2 * getSigmaZ2();
 
-  C(0, 2) = f1 * (d1 * getSigmaSnpY() + d2 * getSigmaSnpZ());
-  C(1, 2) = f1 * (e1 * getSigmaSnpY() + e2 * getSigmaSnpZ());
-  C(2, 2) = f1 * f1 * getSigmaSnp2();
+  C[TrackParCovFwd::covIndex(0, 2)] = f1 * (d1 * getSigmaSnpY() + d2 * getSigmaSnpZ());
+  C[TrackParCovFwd::covIndex(1, 2)] = f1 * (e1 * getSigmaSnpY() + e2 * getSigmaSnpZ());
+  C[TrackParCovFwd::covIndex(2, 2)] = f1 * f1 * getSigmaSnp2();
 
-  C(0, 3) = d1 * getSigmaTglY() + d2 * getSigmaTglZ();
-  C(1, 3) = e1 * getSigmaTglY() + e2 * getSigmaTglZ();
-  C(2, 3) = f1 * getSigmaTglSnp();
-  C(3, 3) = getSigmaTgl2();
+  C[TrackParCovFwd::covIndex(0, 3)] = d1 * getSigmaTglY() + d2 * getSigmaTglZ();
+  C[TrackParCovFwd::covIndex(1, 3)] = e1 * getSigmaTglY() + e2 * getSigmaTglZ();
+  C[TrackParCovFwd::covIndex(2, 3)] = f1 * getSigmaTglSnp();
+  C[TrackParCovFwd::covIndex(3, 3)] = getSigmaTgl2();
 
-  C(0, 4) = d1 * getSigma1PtY() + d2 * getSigma1PtZ();
-  C(1, 4) = e1 * getSigma1PtY() + e2 * getSigma1PtZ();
-  C(2, 4) = f1 * getSigma1PtSnp();
-  C(3, 4) = getSigma1PtTgl();
-  C(4, 4) = getSigma1Pt2();
+  C[TrackParCovFwd::covIndex(0, 4)] = d1 * getSigma1PtY() + d2 * getSigma1PtZ();
+  C[TrackParCovFwd::covIndex(1, 4)] = e1 * getSigma1PtY() + e2 * getSigma1PtZ();
+  C[TrackParCovFwd::covIndex(2, 4)] = f1 * getSigma1PtSnp();
+  C[TrackParCovFwd::covIndex(3, 4)] = getSigma1PtTgl();
+  C[TrackParCovFwd::covIndex(4, 4)] = getSigma1Pt2();
   t.setCovariances(C);
   return true;
 }

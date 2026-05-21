@@ -293,7 +293,14 @@ bool MatchGlobalFwd::prepareMFTData()
       auto& trc = mMFTWork.emplace_back(TrackLocMFT{trcOrig, {tMin, tMax}, irof});
       trc.setParameters(trcOrig.getOutParam().getParameters());
       trc.setZ(trcOrig.getOutParam().getZ());
-      trc.setCovariances(trcOrig.getOutParam().getCovariances());
+      TrackParCovFwd::covMat_t covariances{};
+      const auto& outCov = trcOrig.getOutParam().getCovariances();
+      for (int i = 0; i < 5; ++i) {
+        for (int j = 0; j <= i; ++j) {
+          covariances[TrackParCovFwd::covIndex(i, j)] = outCov(i, j);
+        }
+      }
+      trc.setCovariances(covariances);
       trc.setTrackChi2(trcOrig.getOutParam().getTrackChi2());
       // Extrapolate MFT track parameters and covariances matrix to "mMatchingPlaneZ"
       // Parameters: helix track model; Error propagation: Quadratic
@@ -814,7 +821,13 @@ o2::dataformats::GlobalFwdTrack MatchGlobalFwd::MCHtoFwd(const o2::mch::TrackPar
   convertedTrack.setTanl(x3);
   convertedTrack.setInvQPt(x4);
   convertedTrack.setCharge(mchParam.getCharge());
-  convertedTrack.setCovariances(covariances);
+  TrackParCovFwd::covMat_t packedCovariances{};
+  for (int i = 0; i < 5; ++i) {
+    for (int j = 0; j <= i; ++j) {
+      packedCovariances[TrackParCovFwd::covIndex(i, j)] = covariances(i, j);
+    }
+  }
+  convertedTrack.setCovariances(packedCovariances);
 
   return convertedTrack;
 }
@@ -903,8 +916,18 @@ MatchGlobalFwd::MatchGlobalFwd()
     SVector5 m_k(mftTrack.getX(), mftTrack.getY(), mftTrack.getPhi(),
                  mftTrack.getTanl(), mftTrack.getInvQPt()),
       r_k_kminus1;
-    SVector5 GlobalMuonTrackParameters = mchTrack.getParameters();
-    SMatrix55Sym GlobalMuonTrackCovariances = mchTrack.getCovariances();
+    SVector5 GlobalMuonTrackParameters;
+    const auto params = mchTrack.getParametersArray();
+    for (int i = 0; i < 5; ++i) {
+      GlobalMuonTrackParameters(i) = params[i];
+    }
+    SMatrix55Sym GlobalMuonTrackCovariances;
+    const auto cov = mchTrack.getCovariances();
+    for (int i = 0; i < 5; ++i) {
+      for (int j = 0; j <= i; ++j) {
+        GlobalMuonTrackCovariances(i, j) = cov(i, j);
+      }
+    }
     V_k(0, 0) = mftTrack.getCovariances()(0, 0);
     V_k(1, 1) = mftTrack.getCovariances()(1, 1);
     V_k(2, 2) = mftTrack.getCovariances()(2, 2);
@@ -942,8 +965,18 @@ MatchGlobalFwd::MatchGlobalFwd()
   SVector4 m_k(mftTrack.getX(), mftTrack.getY(), mftTrack.getPhi(),
                mftTrack.getTanl()),
     r_k_kminus1;
-  SVector5 GlobalMuonTrackParameters = mchTrack.getParameters();
-  SMatrix55Sym GlobalMuonTrackCovariances = mchTrack.getCovariances();
+  SVector5 GlobalMuonTrackParameters;
+  const auto params = mchTrack.getParametersArray();
+  for (int i = 0; i < 5; ++i) {
+    GlobalMuonTrackParameters(i) = params[i];
+  }
+  SMatrix55Sym GlobalMuonTrackCovariances;
+  const auto globalCov = mchTrack.getCovariances();
+  for (int i = 0; i < 5; ++i) {
+    for (int j = 0; j <= i; ++j) {
+      GlobalMuonTrackCovariances(i, j) = globalCov(i, j);
+    }
+  }
   V_k(0, 0) = mftTrack.getCovariances()(0, 0);
   V_k(1, 1) = mftTrack.getCovariances()(1, 1);
   V_k(2, 2) = mftTrack.getCovariances()(2, 2);
@@ -976,8 +1009,18 @@ MatchGlobalFwd::MatchGlobalFwd()
   SMatrix25 H_k;
   SMatrix22 V_k;
   SVector2 m_k(mftTrack.getX(), mftTrack.getY()), r_k_kminus1;
-  SVector5 GlobalMuonTrackParameters = mchTrack.getParameters();
-  SMatrix55Sym GlobalMuonTrackCovariances = mchTrack.getCovariances();
+  SVector5 GlobalMuonTrackParameters;
+  const auto params = mchTrack.getParametersArray();
+  for (int i = 0; i < 5; ++i) {
+    GlobalMuonTrackParameters(i) = params[i];
+  }
+  SMatrix55Sym GlobalMuonTrackCovariances;
+  const auto globalCov = mchTrack.getCovariances();
+  for (int i = 0; i < 5; ++i) {
+    for (int j = 0; j <= i; ++j) {
+      GlobalMuonTrackCovariances(i, j) = globalCov(i, j);
+    }
+  }
   V_k(0, 0) = mftTrack.getCovariances()(0, 0);
   V_k(1, 1) = mftTrack.getCovariances()(1, 1);
   H_k(0, 0) = 1.0;

@@ -33,10 +33,6 @@ namespace mft
 template <typename T>
 class TrackFitter
 {
-
-  using SMatrix55Sym = ROOT::Math::SMatrix<double, 5, 5, ROOT::Math::MatRepSym<double, 5>>;
-  using SMatrix5 = ROOT::Math::SVector<Double_t, 5>;
-
  public:
   TrackFitter() = default;
   ~TrackFitter() = default;

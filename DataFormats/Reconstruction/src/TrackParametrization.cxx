@@ -35,7 +35,7 @@ using namespace o2::track;
 //______________________________________________________________
 template <typename value_T>
 GPUd() TrackParametrization<value_T>::TrackParametrization(const dim3_t& xyz, const dim3_t& pxpypz, int charge, bool sectorAlpha, const PID pid)
-  : mX{0.f}, mAlpha{0.f}, mP{0.f}
+  : base_t{}, mAlpha{0.f}
 {
   // construct track param from kinematics
 
