@@ -274,14 +274,13 @@ class TrackParametrization : public TrackParametrizationData<value_T, kNParams>
  protected:
   using base_t::mP;
   using base_t::mX;
+  using base_t::mAlpha;
+  using base_t::mAbsCharge;
+  using base_t::mPID;
+  using base_t::mUserField;
 
  private:
-  //
   static constexpr value_t InvalidX = -99999.f;
-  value_t mAlpha = 0.f;    /// track frame angle
-  char mAbsCharge = 1;     /// Extra info about the abs charge, to be taken into account only if not 1
-  PID mPID{PID::Pion};     /// 8 bit PID
-  uint16_t mUserField = 0; /// field provided to user
 
   ClassDefNV(TrackParametrization, 3);
 };
@@ -289,10 +288,8 @@ class TrackParametrization : public TrackParametrizationData<value_T, kNParams>
 //____________________________________________________________
 template <typename value_T>
 GPUdi() TrackParametrization<value_T>::TrackParametrization(value_t x, value_t alpha, const params_t& par, int charge, const PID pid)
-  : base_t{x}, mAlpha{alpha}, mAbsCharge{char(gpu::CAMath::Abs(charge))}, mPID{pid}
+  : base_t{x, alpha, charge, pid}
 {
-  // explicit constructor
-  math_utils::detail::bringToPMPi<value_t>(mAlpha);
   for (int i = 0; i < kNParams; i++) {
     mP[i] = par[i];
   }

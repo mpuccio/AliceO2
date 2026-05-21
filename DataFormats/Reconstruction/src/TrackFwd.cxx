@@ -38,7 +38,7 @@ double covAt(const TrackParCovFwd::covMat_t& cov, int i, int j)
   return cov[TrackParCovFwd::covIndex(i, j)];
 }
 
-void setCov(TrackParCovFwd::covMat_t& cov, int i, int j, double value)
+void setCovElem(TrackParCovFwd::covMat_t& cov, int i, int j, double value)
 {
   cov[TrackParCovFwd::covIndex(i, j)] = TrackParFwd::value_t(value);
 }
@@ -54,7 +54,7 @@ TrackParCovFwd::covMat_t similarity(const Jacobian5& jac, const TrackParCovFwd::
           v += jac[row][i] * covAt(cov, i, j) * jac[col][j];
         }
       }
-      setCov(result, row, col, v);
+      setCovElem(result, row, col, v);
     }
   }
   return result;
@@ -393,21 +393,21 @@ bool TrackParCovFwd::update(const std::array<float, 2>& p, const std::array<floa
   auto G = -C + CP(0, 1) * CP(0, 1);
 
   // Explicit evaluation of "updatedCov = (I - K_k * H_k) * covM"
-  setCov(updatedCov, 0, 0, AX * (sigmay2 * CP(0, 0) + CP(0, 0) * CP(1, 1) - CP(0, 1) * CP(0, 1)));
-  setCov(updatedCov, 0, 1, AX * sigmay2 * CP(0, 1));
-  setCov(updatedCov, 0, 2, AX * (sigmay2 * CP(0, 2) - CP(0, 1) * CP(1, 2) + CP(0, 2) * CP(1, 1)));
-  setCov(updatedCov, 0, 3, AX * (sigmay2 * CP(0, 3) - CP(0, 1) * CP(1, 3) + CP(0, 3) * CP(1, 1)));
-  setCov(updatedCov, 0, 4, AX * (sigmay2 * CP(0, 4) - CP(0, 1) * CP(1, 4) + CP(0, 4) * CP(1, 1)));
-  setCov(updatedCov, 1, 1, AY * (sigmax2 * CP(1, 1) + CP(0, 0) * CP(1, 1) - CP(0, 1) * CP(0, 1)));
-  setCov(updatedCov, 1, 2, AY * (sigmax2 * CP(1, 2) + CP(0, 0) * CP(1, 2) - CP(0, 1) * CP(0, 2)));
-  setCov(updatedCov, 1, 3, AY * (sigmax2 * CP(1, 3) + CP(0, 0) * CP(1, 3) - CP(0, 1) * CP(0, 3)));
-  setCov(updatedCov, 1, 4, AY * (sigmax2 * CP(1, 4) + CP(0, 0) * CP(1, 4) - CP(0, 1) * CP(0, 4)));
-  setCov(updatedCov, 2, 2, D * (G * CP(2, 2) - CP(0, 2) * (-F * CP(0, 2) + CP(0, 1) * CP(1, 2)) - CP(1, 2) * (-E * CP(1, 2) + CP(0, 1) * CP(0, 2))));
-  setCov(updatedCov, 2, 3, D * (G * CP(2, 3) - CP(0, 2) * (-F * CP(0, 3) + CP(0, 1) * CP(1, 3)) - CP(1, 2) * (-E * CP(1, 3) + CP(0, 1) * CP(0, 3))));
-  setCov(updatedCov, 2, 4, D * (G * CP(2, 4) - CP(0, 2) * (-F * CP(0, 4) + CP(0, 1) * CP(1, 4)) - CP(1, 2) * (-E * CP(1, 4) + CP(0, 1) * CP(0, 4))));
-  setCov(updatedCov, 3, 3, D * (G * CP(3, 3) - CP(0, 3) * (-F * CP(0, 3) + CP(0, 1) * CP(1, 3)) - CP(1, 3) * (-E * CP(1, 3) + CP(0, 1) * CP(0, 3))));
-  setCov(updatedCov, 3, 4, D * (G * CP(3, 4) - CP(0, 3) * (-F * CP(0, 4) + CP(0, 1) * CP(1, 4)) - CP(1, 3) * (-E * CP(1, 4) + CP(0, 1) * CP(0, 4))));
-  setCov(updatedCov, 4, 4, D * (G * CP(4, 4) - CP(0, 4) * (-F * CP(0, 4) + CP(0, 1) * CP(1, 4)) - CP(1, 4) * (-E * CP(1, 4) + CP(0, 1) * CP(0, 4))));
+  setCovElem(updatedCov, 0, 0, AX * (sigmay2 * CP(0, 0) + CP(0, 0) * CP(1, 1) - CP(0, 1) * CP(0, 1)));
+  setCovElem(updatedCov, 0, 1, AX * sigmay2 * CP(0, 1));
+  setCovElem(updatedCov, 0, 2, AX * (sigmay2 * CP(0, 2) - CP(0, 1) * CP(1, 2) + CP(0, 2) * CP(1, 1)));
+  setCovElem(updatedCov, 0, 3, AX * (sigmay2 * CP(0, 3) - CP(0, 1) * CP(1, 3) + CP(0, 3) * CP(1, 1)));
+  setCovElem(updatedCov, 0, 4, AX * (sigmay2 * CP(0, 4) - CP(0, 1) * CP(1, 4) + CP(0, 4) * CP(1, 1)));
+  setCovElem(updatedCov, 1, 1, AY * (sigmax2 * CP(1, 1) + CP(0, 0) * CP(1, 1) - CP(0, 1) * CP(0, 1)));
+  setCovElem(updatedCov, 1, 2, AY * (sigmax2 * CP(1, 2) + CP(0, 0) * CP(1, 2) - CP(0, 1) * CP(0, 2)));
+  setCovElem(updatedCov, 1, 3, AY * (sigmax2 * CP(1, 3) + CP(0, 0) * CP(1, 3) - CP(0, 1) * CP(0, 3)));
+  setCovElem(updatedCov, 1, 4, AY * (sigmax2 * CP(1, 4) + CP(0, 0) * CP(1, 4) - CP(0, 1) * CP(0, 4)));
+  setCovElem(updatedCov, 2, 2, D * (G * CP(2, 2) - CP(0, 2) * (-F * CP(0, 2) + CP(0, 1) * CP(1, 2)) - CP(1, 2) * (-E * CP(1, 2) + CP(0, 1) * CP(0, 2))));
+  setCovElem(updatedCov, 2, 3, D * (G * CP(2, 3) - CP(0, 2) * (-F * CP(0, 3) + CP(0, 1) * CP(1, 3)) - CP(1, 2) * (-E * CP(1, 3) + CP(0, 1) * CP(0, 3))));
+  setCovElem(updatedCov, 2, 4, D * (G * CP(2, 4) - CP(0, 2) * (-F * CP(0, 4) + CP(0, 1) * CP(1, 4)) - CP(1, 2) * (-E * CP(1, 4) + CP(0, 1) * CP(0, 4))));
+  setCovElem(updatedCov, 3, 3, D * (G * CP(3, 3) - CP(0, 3) * (-F * CP(0, 3) + CP(0, 1) * CP(1, 3)) - CP(1, 3) * (-E * CP(1, 3) + CP(0, 1) * CP(0, 3))));
+  setCovElem(updatedCov, 3, 4, D * (G * CP(3, 4) - CP(0, 3) * (-F * CP(0, 4) + CP(0, 1) * CP(1, 4)) - CP(1, 3) * (-E * CP(1, 4) + CP(0, 1) * CP(0, 4))));
+  setCovElem(updatedCov, 4, 4, D * (G * CP(4, 4) - CP(0, 4) * (-F * CP(0, 4) + CP(0, 1) * CP(1, 4)) - CP(1, 4) * (-E * CP(1, 4) + CP(0, 1) * CP(0, 4))));
 
   setCovariances(updatedCov);
 

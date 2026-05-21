@@ -24,7 +24,7 @@
 #endif
 #include "MathUtils/Utils.h"
 #include "ReconstructionDataFormats/TrackUtils.h"
-#include "ReconstructionDataFormats/TrackParametrizationData.h"
+#include "ReconstructionDataFormats/TrackParametrizationInterface.h"
 #include "MathUtils/Primitive2D.h"
 
 namespace o2::track
@@ -36,11 +36,12 @@ class TrackParametrization; // fwd declaration for conversion method
 template <typename value_T>
 class TrackParametrizationWithError; // fwd declaration for conversion method
 
-class TrackParFwd : public TrackParametrizationData<float, 5>
+class TrackParFwd : public TrackParametrizationData<float, 5>, public TrackParFwdInterface<TrackParFwd, float>
 { // Forward track parameterization, kinematics only.
  public:
   using value_t = float;
   using base_t = TrackParametrizationData<value_t, 5>;
+  using fwd_interface_t = TrackParFwdInterface<TrackParFwd, value_t>;
   using params_t = std::array<value_t, 5>;
 
   TrackParFwd() = default;
@@ -141,11 +142,6 @@ class TrackParFwd : public TrackParametrizationData<float, 5>
     }
   }
 
-  /// return the chi2 of the track when the associated cluster was attached
-  value_t getTrackChi2() const { return mTrackChi2; }
-  /// set the chi2 of the track when the associated cluster was attached
-  void setTrackChi2(value_t chi2) { mTrackChi2 = chi2; }
-
   // Track parameter propagation
   void propagateParamToZlinear(double zEnd);
   void propagateParamToZquadratic(double zEnd, double zField);
@@ -162,15 +158,15 @@ class TrackParFwd : public TrackParametrizationData<float, 5>
   /// PHI     = azimutal angle
   /// TANL    = tangent of \lambda (dip angle)
   /// INVQPT    = Inverse transverse momentum (GeV/c ** -1) times charge (assumed forward motion)  </pre>
-  value_t mTrackChi2 = 0.; ///< Chi2 of the track when the associated cluster was attached
 
   ClassDefNV(TrackParFwd, 1);
 };
 
-class TrackParCovFwd : public TrackParFwd, public TrackCovarianceData<TrackParFwd::value_t, 15>
+class TrackParCovFwd : public TrackParFwd, public TrackCovarianceData<TrackParFwd::value_t, 15>, public TrackParCovFwdInterface<TrackParCovFwd, TrackParFwd::value_t>
 { // Forward track+error parameterization
  public:
   using cov_base_t = TrackCovarianceData<value_t, 15>;
+  using cov_interface_t = TrackParCovFwdInterface<TrackParCovFwd, value_t>;
   using covMat_t = std::array<value_t, 15>;
   struct cov_view_t {
     const value_t* data = nullptr;
@@ -237,8 +233,8 @@ class TrackParCovFwd : public TrackParFwd, public TrackCovarianceData<TrackParFw
   ClassDefNV(TrackParCovFwd, 1);
 };
 
-static_assert(sizeof(TrackParFwd) == sizeof(TrackParFwd::base_t) + sizeof(TrackParFwd::value_t));
-static_assert(sizeof(TrackParCovFwd) == sizeof(TrackParFwd) + 15 * sizeof(TrackParFwd::value_t));
+static_assert(sizeof(TrackParFwd) == sizeof(TrackParFwd::base_t));
+static_assert(sizeof(TrackParCovFwd) == sizeof(TrackParFwd) + sizeof(TrackParCovFwd::cov_base_t));
 
 #ifndef GPUCA_GPUCODE_DEVICE
 inline std::ostream& operator<<(std::ostream& os, const TrackParCovFwd::cov_view_t& cov)

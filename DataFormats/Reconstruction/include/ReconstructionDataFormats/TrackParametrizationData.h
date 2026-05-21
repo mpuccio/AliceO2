@@ -17,11 +17,20 @@
 
 #include "GPUCommonDef.h"
 #include "GPUCommonRtypes.h"
+#include "MathUtils/Utils.h"
+#include "ReconstructionDataFormats/PID.h"
 
 #include <array>
+#include <cstdint>
 
 namespace o2::track
 {
+
+template <typename derived_T, typename value_T, int nParams>
+class TrackParametrizationInterface;
+
+template <typename derived_T, typename value_T, int nCov>
+class TrackCovarianceInterface;
 
 template <typename value_T, int nParams>
 class TrackParametrizationData
@@ -31,6 +40,11 @@ class TrackParametrizationData
 
   GPUdDefault() TrackParametrizationData() = default;
   GPUd() explicit TrackParametrizationData(value_t s) : mX{s} {}
+  GPUd() TrackParametrizationData(value_t s, value_t alpha, int charge, PID pid = PID::Pion)
+    : mX{s}, mAlpha{alpha}, mAbsCharge{static_cast<char>(charge < 0 ? -charge : charge)}, mPID{pid}
+  {
+    math_utils::detail::bringToPMPi<value_t>(mAlpha);
+  }
   GPUdDefault() TrackParametrizationData(const TrackParametrizationData&) = default;
   GPUdDefault() TrackParametrizationData(TrackParametrizationData&&) = default;
   GPUhdDefault() TrackParametrizationData& operator=(const TrackParametrizationData&) = default;
@@ -38,8 +52,15 @@ class TrackParametrizationData
   GPUdDefault() ~TrackParametrizationData() = default;
 
  protected:
-  value_t mX = 0;          ///< Intrinsic coordinate of the track parameterization
+  value_t mX = 0;           ///< Intrinsic coordinate of the track parameterization
   value_t mP[nParams] = {}; ///< Local track parameters
+  value_t mAlpha = 0;       ///< Track frame angle (where applicable)
+  char mAbsCharge = 1;      ///< Extra info about the abs charge, to be taken into account only if not 1
+  PID mPID{PID::Pion};      ///< 8 bit PID
+  uint16_t mUserField = 0;  ///< Field provided to user
+
+  template <typename, typename, int>
+  friend class TrackParametrizationInterface;
 
   ClassDefNV(TrackParametrizationData, 1);
 };
@@ -59,6 +80,10 @@ class TrackCovarianceData
 
  protected:
   std::array<value_t, nCov> mC{}; ///< Packed covariance matrix
+  value_t mTrackChi2 = 0;         ///< Chi2 of the track fit
+
+  template <typename, typename, int>
+  friend class TrackCovarianceInterface;
 
   ClassDefNV(TrackCovarianceData, 1);
 };
