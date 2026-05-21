@@ -28,7 +28,7 @@ namespace o2::its
 {
 
 template <int nLayers>
-class IndexTableUtils
+class IndexTableUtils ///TODOMFT: make name generic phi becomes row and z becomes col
 {
  public:
   template <class T>
@@ -57,7 +57,7 @@ class IndexTableUtils
 template <int nLayers>
 template <class T>
 inline void IndexTableUtils<nLayers>::setTrackingParameters(const T& params)
-{
+{ ///TODOMFT: make this generic to be used for both ITS and MFT without needing to use specific params (input number of columns, rows, and their respective width)
   mInversePhiBinSize = params.PhiBins / o2::constants::math::TwoPI;
   mNzBins = params.ZBins;
   mNphiBins = params.PhiBins;
@@ -118,7 +118,7 @@ GPUhdi() int4 getBinsRect(const int layerIndex,
                           const float z,
                           const float maxdeltaz,
                           const float maxdeltaphi,
-                          const IndexTableUtils<nLayers>& utils)
+                          const IndexTableUtils<nLayers>& utils) ///TODOMFT: rename this to getBinsPhiZ, and create a getBinsXY for the MFT case
 {
   const float zRangeMin = z - maxdeltaz;
   const float phiRangeMin = (maxdeltaphi > o2::constants::math::PI) ? 0.f : phi - maxdeltaphi;
