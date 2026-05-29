@@ -284,7 +284,8 @@ class TrackParametrization : public TrackParametrizationData<value_T, kNParams>,
  private:
   static constexpr value_t InvalidX = -99999.f;
 
-  ClassDefNV(TrackParametrization, 3);
+  // v4: mX/mP/mAlpha/mAbsCharge/mPID/mUserField relocated into TrackParametrizationData<value_T, kNParams> base.
+  ClassDefNV(TrackParametrization, 4);
 };
 
 //____________________________________________________________

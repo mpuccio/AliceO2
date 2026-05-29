@@ -72,7 +72,10 @@ class TrackParFwd : public TrackParametrizationData<float, 5>, public TrackParFw
   /// TANL    = tangent of \lambda (dip angle)
   /// INVQPT    = Inverse transverse momentum (GeV/c ** -1) times charge (assumed forward motion)  </pre>
 
-  ClassDefNV(TrackParFwd, 1);
+  // v2: storage entirely relocated into TrackParametrizationData<float, 5> base
+  //     (was SMatrix5 mParameters + Double_t mZ + Double_t mTrackChi2). Old persistent
+  //     data requires a TBufferIO read rule (SMatrix5 → mP[5], mZ → mX) to migrate.
+  ClassDefNV(TrackParFwd, 2);
 };
 
 class TrackParCovFwd : public TrackParFwd, public TrackCovarianceData<TrackParFwd::value_t, 15>, public TrackParCovFwdInterface<TrackParCovFwd, TrackParFwd::value_t>
@@ -121,7 +124,10 @@ class TrackParCovFwd : public TrackParFwd, public TrackCovarianceData<TrackParFw
   /// <X,PHI>       <Y,PHI>         <PHI,PHI>     <TANL,PHI>      <INVQPT,PHI>
   /// <X,TANL>      <Y,TANL>       <PHI,TANL>     <TANL,TANL>     <INVQPT,TANL>
   /// <X,INVQPT>   <Y,INVQPT>     <PHI,INVQPT>   <TANL,INVQPT>   <INVQPT,INVQPT>  </pre>
-  ClassDefNV(TrackParCovFwd, 1);
+  // v2: cov storage relocated into TrackCovarianceData<float, 15> base (was SMatrix55Sym
+  //     mCovariances); chi2 also moved to that base. Old persistent data requires a
+  //     TBufferIO read rule (SMatrix55Sym → mC[15] packed) to migrate.
+  ClassDefNV(TrackParCovFwd, 2);
 };
 
 static_assert(sizeof(TrackParFwd) == sizeof(TrackParFwd::base_t));

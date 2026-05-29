@@ -161,7 +161,8 @@ class TrackParametrizationWithError : public TrackParametrization<value_T>,
  protected:
   using cov_base_t::mC;
 
-  ClassDefNV(TrackParametrizationWithError, 2);
+  // v3: mC relocated into TrackCovarianceData<value_T, kCovMatSize> base; gained mTrackChi2 via the same base.
+  ClassDefNV(TrackParametrizationWithError, 3);
 };
 
 //__________________________________________________________________________

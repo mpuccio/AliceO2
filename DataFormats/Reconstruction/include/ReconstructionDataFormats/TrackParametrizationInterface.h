@@ -29,6 +29,14 @@ namespace o2::track
 constexpr float MaxPT = 100000.;       // cap pT to avoid NaNs in derived kinematics
 constexpr float MinPTInv = 1. / MaxPT; // floor on |q/pT|
 
+/// CRTP mixin: stateless accessors over TrackParametrizationData.
+///
+/// Note: `derived_T` is used only to locate the right `TrackParametrizationData` base
+/// via static_cast. When a class C inherits from B which mixes in this interface (e.g.
+/// `TrackParCovFwd : TrackParFwd : TrackParFwdInterface<TrackParFwd,...>`), the
+/// interface methods see `derived_T == B`, not the actual most-derived `C`. Do NOT add
+/// methods to this mixin that need the actual leaf type (e.g. returning `derived_T` by
+/// value, or calling methods only defined on `C`) — they would slice / miss overrides.
 template <typename derived_T, typename value_T, int nParams>
 class TrackParametrizationInterface
 {
@@ -138,6 +146,8 @@ class TrackParametrizationInterface
   GPUd() const derived_T& derived() const { return static_cast<const derived_T&>(*this); }
 };
 
+/// CRTP mixin: stateless accessors over TrackCovarianceData. Same `derived_T` caveat as
+/// TrackParametrizationInterface above.
 template <typename derived_T, typename value_T, int nCov>
 class TrackCovarianceInterface
 {
