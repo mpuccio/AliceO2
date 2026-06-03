@@ -11,6 +11,7 @@
 /// \file StrangenessTracker.cxx
 /// \brief
 
+#include <array>
 #include <numeric>
 #include "StrangenessTracking/StrangenessTracker.h"
 #include "ITStracking/IOUtils.h"
@@ -42,24 +43,55 @@ bool StrangenessTracker::loadData(const o2::globaltracking::RecoContainer& recoD
   mInputITStracks = recoData.getITSTracks();
   mInputITSidxs = recoData.getITSTracksClusterRefs();
 
-  auto compClus = recoData.getITSClusters();
-  auto clusPatt = recoData.getITSClustersPatterns();
-  auto pattIt = clusPatt.begin();
-  auto pattIt2 = clusPatt.begin();
-  mInputITSclusters.reserve(compClus.size());
-  mInputClusterSizes.resize(compClus.size());
+  mInputITSclusters.reserve(recoData.getNITSClusters());
+  mInputClusterSizes.reserve(recoData.getNITSClusters());
+  if (recoData.hasITSClustersPerLayer()) {
+    std::array<int, o2::globaltracking::RecoContainer::NITSLayers> layerOffsets{};
+    for (int iLayer = 0; iLayer < o2::globaltracking::RecoContainer::NITSLayers; ++iLayer) {
+      const auto compClus = recoData.getITSClusters(iLayer);
+      const auto clusPatt = recoData.getITSClustersPatterns(iLayer);
+      auto pattIt = clusPatt.begin();
+      auto pattIt2 = clusPatt.begin();
+      layerOffsets[iLayer] = mInputITSclusters.size();
 #ifdef ENABLE_UPGRADES
-  if (o2::GlobalParams::Instance().withITS3) {
-    o2::its3::ioutils::convertCompactClusters(compClus, pattIt, mInputITSclusters, mIT3Dict);
-    getClusterSizesIT3(mInputClusterSizes, compClus, pattIt2, mIT3Dict);
+      if (o2::GlobalParams::Instance().withITS3) {
+        o2::its3::ioutils::convertCompactClusters(compClus, pattIt, mInputITSclusters, mIT3Dict);
+        getClusterSizesIT3(mInputClusterSizes, compClus, pattIt2, mIT3Dict);
+      } else {
+        o2::its::ioutils::convertCompactClusters(compClus, pattIt, mInputITSclusters, mITSDict);
+        getClusterSizesITS(mInputClusterSizes, compClus, pattIt2, mITSDict);
+      }
+#else
+      o2::its::ioutils::convertCompactClusters(compClus, pattIt, mInputITSclusters, mITSDict);
+      getClusterSizesITS(mInputClusterSizes, compClus, pattIt2, mITSDict);
+#endif
+    }
+    mInputITSidxsFlat.resize(mInputITSidxs.size());
+    for (const auto& track : mInputITStracks) {
+      for (int iCluster = 0; iCluster < track.getNumberOfClusters(); ++iCluster) {
+        const auto ref = recoData.getITSClusterReference(track, mInputITSidxs, iCluster);
+        mInputITSidxsFlat[track.getClusterEntry(iCluster)] = layerOffsets[ref.layer] + ref.index;
+      }
+    }
+    mInputITSidxs = mInputITSidxsFlat;
   } else {
+    auto compClus = recoData.getITSClusters();
+    auto clusPatt = recoData.getITSClustersPatterns();
+    auto pattIt = clusPatt.begin();
+    auto pattIt2 = clusPatt.begin();
+#ifdef ENABLE_UPGRADES
+    if (o2::GlobalParams::Instance().withITS3) {
+      o2::its3::ioutils::convertCompactClusters(compClus, pattIt, mInputITSclusters, mIT3Dict);
+      getClusterSizesIT3(mInputClusterSizes, compClus, pattIt2, mIT3Dict);
+    } else {
+      o2::its::ioutils::convertCompactClusters(compClus, pattIt, mInputITSclusters, mITSDict);
+      getClusterSizesITS(mInputClusterSizes, compClus, pattIt2, mITSDict);
+    }
+#else
     o2::its::ioutils::convertCompactClusters(compClus, pattIt, mInputITSclusters, mITSDict);
     getClusterSizesITS(mInputClusterSizes, compClus, pattIt2, mITSDict);
-  }
-#else
-  o2::its::ioutils::convertCompactClusters(compClus, pattIt, mInputITSclusters, mITSDict);
-  getClusterSizesITS(mInputClusterSizes, compClus, pattIt2, mITSDict);
 #endif
+  }
 
   mITSvtxBrackets.resize(mInputITStracks.size());
   for (int i = 0; i < mInputITStracks.size(); i++) {

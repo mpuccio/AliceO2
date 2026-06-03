@@ -77,6 +77,8 @@ class AlignableDetectorITS : public AlignableDetector
  protected:
   //
   std::vector<ClusterD> mITSClustersArray;
+  std::vector<int> mITSTrackClusIdxFlat;
+  std::vector<int> mITSABTrackClusIdxFlat;
   std::vector<int> mOverlapCandidateID; // pool of indices for potentially overlapping clusters
   std::vector<int> mOverlapClusRef;     // 1st entry in mOverlapCandidateID for the overlapping cluster indices of each cluster
   std::vector<o2::itsmft::ChipMappingITS::Overlaps> mOverlaps;

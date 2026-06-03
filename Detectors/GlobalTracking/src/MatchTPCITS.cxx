@@ -19,6 +19,7 @@
 #include <TTree.h>
 #include <cassert>
 #include <algorithm>
+#include <array>
 
 #include <fairlogger/Logger.h>
 #include "Field/MagneticField.h"
@@ -174,6 +175,9 @@ void MatchTPCITS::clear()
   mITSTrackROFContMapping.clear();
   mITSClustersArray.clear();
   mITSClusterSizes.clear();
+  mITSTrackClusIdxFlat.clear();
+  mITSClusterROFRecFlat.clear();
+  mITSClsLabelsFlat.clear();
   mTPCABSeeds.clear();
   mTPCABIndexCache.clear();
   mABWinnersIDs.clear();
@@ -644,63 +648,105 @@ bool MatchTPCITS::prepareITSData()
   mTimer[SWPrepITS].Start(false);
   const auto& inp = *mRecoCont;
 
-  // ITS clusters
-  mITSClusterROFRec = inp.getITSClustersROFRecords();
-  const auto clusITS = inp.getITSClusters();
-  if (mITSClusterROFRec.empty() || clusITS.empty()) {
-    LOG(info) << "No ITS clusters";
-    return false;
-  }
-  const auto patterns = inp.getITSClustersPatterns();
-  auto pattIt = patterns.begin();
-  mITSClustersArray.reserve(clusITS.size());
+  auto appendClusterSizes = [this](const auto& clusITS, auto& pattIt2) {
+    for (auto& clus : clusITS) {
+      auto pattID = clus.getPatternID();
+      unsigned int npix;
 #ifdef ENABLE_UPGRADES
-  bool withITS3 = o2::GlobalParams::Instance().withITS3;
-  if (withITS3) {
-    o2::its3::ioutils::convertCompactClusters(clusITS, pattIt, mITSClustersArray, mIT3Dict);
-  } else {
-    o2::its::ioutils::convertCompactClusters(clusITS, pattIt, mITSClustersArray, mITSDict);
-  }
+      bool withITS3 = o2::GlobalParams::Instance().withITS3;
+      auto ib = o2::its3::constants::detID::isDetITS3(clus.getChipID());
+      if ((pattID == o2::itsmft::CompCluster::InvalidPatternID) || ((withITS3) ? mIT3Dict->isGroup(pattID, ib) : mITSDict->isGroup(pattID))) {
 #else
-  o2::its::ioutils::convertCompactClusters(clusITS, pattIt, mITSClustersArray, mITSDict);
+      if (pattID == o2::itsmft::CompCluster::InvalidPatternID || mITSDict->isGroup(pattID)) {
 #endif
-
-  // ITS clusters sizes
-  mITSClusterSizes.reserve(clusITS.size());
-  auto pattIt2 = patterns.begin();
-  for (auto& clus : clusITS) {
-    auto pattID = clus.getPatternID();
-    unsigned int npix;
-#ifdef ENABLE_UPGRADES
-    auto ib = o2::its3::constants::detID::isDetITS3(clus.getChipID());
-    if ((pattID == o2::itsmft::CompCluster::InvalidPatternID) || ((withITS3) ? mIT3Dict->isGroup(pattID, ib) : mITSDict->isGroup(pattID))) { // braces guarantee evaluation order
-#else
-    if (pattID == o2::itsmft::CompCluster::InvalidPatternID || mITSDict->isGroup(pattID)) {
-#endif
-      o2::itsmft::ClusterPattern patt;
-      patt.acquirePattern(pattIt2);
-      npix = patt.getNPixels();
-    } else {
-#ifdef ENABLE_UPGRADES
-      if (withITS3) {
-        npix = mIT3Dict->getNpixels(pattID, ib);
+        o2::itsmft::ClusterPattern patt;
+        patt.acquirePattern(pattIt2);
+        npix = patt.getNPixels();
       } else {
+#ifdef ENABLE_UPGRADES
+        if (withITS3) {
+          npix = mIT3Dict->getNpixels(pattID, ib);
+        } else {
+          npix = mITSDict->getNpixels(pattID);
+        }
+#else
         npix = mITSDict->getNpixels(pattID);
+#endif
+      }
+      mITSClusterSizes.push_back(std::clamp(npix, 0u, 255u));
+    }
+  };
+
+  // ITS clusters
+  mITSClustersArray.reserve(inp.getNITSClusters());
+  mITSClusterSizes.reserve(inp.getNITSClusters());
+  if (inp.hasITSClustersPerLayer()) {
+    std::array<int, o2::globaltracking::RecoContainer::NITSLayers> layerOffsets{};
+    for (int iLayer = 0; iLayer < o2::globaltracking::RecoContainer::NITSLayers; ++iLayer) {
+      const auto rofs = inp.getITSClustersROFRecords(iLayer);
+      const auto clusITS = inp.getITSClusters(iLayer);
+      const auto patterns = inp.getITSClustersPatterns(iLayer);
+      layerOffsets[iLayer] = mITSClustersArray.size();
+      for (const auto& rof : rofs) {
+        auto& rofFlat = mITSClusterROFRecFlat.emplace_back(rof);
+        rofFlat.setFirstEntry(rof.getFirstEntry() + layerOffsets[iLayer]);
+      }
+      auto pattIt = patterns.begin();
+#ifdef ENABLE_UPGRADES
+      if (o2::GlobalParams::Instance().withITS3) {
+        o2::its3::ioutils::convertCompactClusters(clusITS, pattIt, mITSClustersArray, mIT3Dict);
+      } else {
+        o2::its::ioutils::convertCompactClusters(clusITS, pattIt, mITSClustersArray, mITSDict);
       }
 #else
-      npix = mITSDict->getNpixels(pattID);
+      o2::its::ioutils::convertCompactClusters(clusITS, pattIt, mITSClustersArray, mITSDict);
 #endif
+      auto pattIt2 = patterns.begin();
+      appendClusterSizes(clusITS, pattIt2);
+      if (mMCTruthON) {
+        if (const auto* labels = inp.getITSClustersMCLabels(iLayer)) {
+          for (int iCluster = 0; iCluster < clusITS.size(); ++iCluster) {
+            for (const auto& label : labels->getLabels(iCluster)) {
+              mITSClsLabelsFlat.addElement(layerOffsets[iLayer] + iCluster, label);
+            }
+          }
+        }
+      }
     }
-    mITSClusterSizes.push_back(std::clamp(npix, 0u, 255u));
+    mITSClusterROFRec = mITSClusterROFRecFlat;
+    mITSTrackClusIdxFlat = inp.makeFlatITSTrackClusterRefs(inp.getITSTracks(), inp.getITSTracksClusterRefs(), layerOffsets);
+    mITSTrackClusIdx = mITSTrackClusIdxFlat;
+    if (mMCTruthON) {
+      mITSClsLabels = &mITSClsLabelsFlat;
+    }
+  } else {
+    mITSClusterROFRec = inp.getITSClustersROFRecords();
+    const auto clusITS = inp.getITSClusters();
+    const auto patterns = inp.getITSClustersPatterns();
+    auto pattIt = patterns.begin();
+#ifdef ENABLE_UPGRADES
+    if (o2::GlobalParams::Instance().withITS3) {
+      o2::its3::ioutils::convertCompactClusters(clusITS, pattIt, mITSClustersArray, mIT3Dict);
+    } else {
+      o2::its::ioutils::convertCompactClusters(clusITS, pattIt, mITSClustersArray, mITSDict);
+    }
+#else
+    o2::its::ioutils::convertCompactClusters(clusITS, pattIt, mITSClustersArray, mITSDict);
+#endif
+    auto pattIt2 = patterns.begin();
+    appendClusterSizes(clusITS, pattIt2);
+    mITSTrackClusIdx = inp.getITSTracksClusterRefs();
+    if (mMCTruthON) {
+      mITSClsLabels = inp.mcITSClusters.get();
+    }
   }
-
-  if (mMCTruthON) {
-    mITSClsLabels = inp.mcITSClusters.get();
+  if (mITSClusterROFRec.empty() || mITSClustersArray.empty()) {
+    LOG(info) << "No ITS clusters";
+    return false;
   }
 
   // ITS tracks
   mITSTracksArray = inp.getITSTracks();
-  mITSTrackClusIdx = inp.getITSTracksClusterRefs();
   mITSTrackROFRec = inp.getITSTracksROFRecords();
   if (mMCTruthON) {
     mITSTrkLabels = inp.getITSTracksMCLabels();

@@ -33,6 +33,7 @@
 #include "DataFormatsTPC/VDriftCorrFact.h"
 #include "Framework/Logger.h"
 #include "CCDB/BasicCCDBManager.h"
+#include <array>
 #include "GPUO2InterfaceUtils.h"
 #include "GPUO2InterfaceConfiguration.h"
 #include "GPUO2InterfaceRefit.h"
@@ -351,13 +352,27 @@ void TrackInterpolation::process()
       return;
     }
     mITSTrackClusIdx = mRecoCont->getITSTracksClusterRefs();
-    const auto clusITS = mRecoCont->getITSClusters();
-    const auto patterns = mRecoCont->getITSClustersPatterns();
-    auto pattIt = patterns.begin();
     mITSClustersArray.clear();
-    mITSClustersArray.reserve(clusITS.size());
-    LOGP(info, "We have {} ITS clusters and the number of patterns is {}", clusITS.size(), patterns.size());
-    o2::its::ioutils::convertCompactClusters(clusITS, pattIt, mITSClustersArray, mITSDict);
+    mITSClustersArray.reserve(mRecoCont->getNITSClusters());
+    if (mRecoCont->hasITSClustersPerLayer()) {
+      std::array<int, o2::globaltracking::RecoContainer::NITSLayers> layerOffsets{};
+      for (int iLayer = 0; iLayer < o2::globaltracking::RecoContainer::NITSLayers; ++iLayer) {
+        const auto clusITS = mRecoCont->getITSClusters(iLayer);
+        const auto patterns = mRecoCont->getITSClustersPatterns(iLayer);
+        auto pattIt = patterns.begin();
+        layerOffsets[iLayer] = mITSClustersArray.size();
+        LOGP(info, "We have {} ITS clusters and {} pattern bytes on layer {}", clusITS.size(), patterns.size(), iLayer);
+        o2::its::ioutils::convertCompactClusters(clusITS, pattIt, mITSClustersArray, mITSDict);
+      }
+      mITSTrackClusIdxFlat = mRecoCont->makeFlatITSTrackClusterRefs(mRecoCont->getITSTracks(), mITSTrackClusIdx, layerOffsets);
+      mITSTrackClusIdx = mITSTrackClusIdxFlat;
+    } else {
+      const auto clusITS = mRecoCont->getITSClusters();
+      const auto patterns = mRecoCont->getITSClustersPatterns();
+      auto pattIt = patterns.begin();
+      LOGP(info, "We have {} ITS clusters and the number of patterns is {}", clusITS.size(), patterns.size());
+      o2::its::ioutils::convertCompactClusters(clusITS, pattIt, mITSClustersArray, mITSDict);
+    }
   }
 
   // In case we have more input tracks available than are required per TF

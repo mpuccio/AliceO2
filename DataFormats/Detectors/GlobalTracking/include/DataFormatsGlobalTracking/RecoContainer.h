@@ -26,9 +26,18 @@
 #include "SimulationDataFormat/MCCompLabel.h"
 #include "SimulationDataFormat/MCTruthContainer.h"
 #include "SimulationDataFormat/ConstMCTruthContainer.h"
+#include "DataFormatsITS/TrackITS.h"
+#include "DataFormatsITSMFT/DPLAlpideParam.h"
+#include "DataFormatsITSMFT/CompCluster.h"
+#include "DataFormatsITSMFT/ROFRecord.h"
+#include "DataFormatsITSMFT/TrkClusRef.h"
+#include "DetectorsCommonDataFormats/DetID.h"
 #include "DataFormatsCTP/LumiInfo.h"
 #include <gsl/span>
+#include <array>
 #include <memory>
+#include <stdexcept>
+#include <vector>
 
 // We forward declare the internal structures, to reduce header dependencies.
 // Please include headers for TPC Hits or TRD tracklets directly (DataFormatsTPC/WorkflowHelper.h / DataFormatsTRD/RecoInputContainer.h)
@@ -222,7 +231,7 @@ struct DataRequest {
   void requestFV0RecPoints(bool mc);
   void requestFDDRecPoints(bool mc);
   void requestZDCRecEvents(bool mc);
-  void requestITSClusters(bool mc);
+  void requestITSClusters(bool mc, bool perLayer = false);
   void requestMFTClusters(bool mc);
   void requestTPCClusters(bool mc);
   void requestTPCOccMap();
@@ -323,6 +332,12 @@ struct RecoContainer {
   using GlobalIDSet = std::array<GTrackID, GTrackID::NSources>;
 
   static constexpr float PS2MUS = 1e-6;
+  static constexpr int NITSLayers = o2::itsmft::DPLAlpideParam<o2::detectors::DetID::ITS>::getNLayers();
+
+  struct ITSClusterReference {
+    int layer = -1;
+    int index = -1;
+  };
 
   o2::InteractionRecord startIR; // TF start IR
 
@@ -331,6 +346,11 @@ struct RecoContainer {
   SVertexAccessor svtxPool; // containers for secondary vertex related objects
   STrackAccessor strkPool;  // containers for strangeness tracking related objects
   CosmicsAccessor cosmPool; // containers for cosmics track data
+  std::array<gsl::span<const o2::itsmft::ROFRecord>, NITSLayers> itsClustersROFRecordsPerLayer;
+  std::array<gsl::span<const o2::itsmft::CompClusterExt>, NITSLayers> itsClustersPerLayer;
+  std::array<gsl::span<const unsigned char>, NITSLayers> itsClustersPatternsPerLayer;
+  std::array<std::unique_ptr<const o2::dataformats::MCTruthContainer<o2::MCCompLabel>>, NITSLayers> mcITSClustersPerLayer;
+  bool itsClustersPerLayerLoaded = false;
 
   std::unique_ptr<const o2::dataformats::MCTruthContainer<o2::MCCompLabel>> mcITSClusters;
   std::unique_ptr<const o2::dataformats::MCTruthContainer<o2::MCCompLabel>> mcTOFClusters;
@@ -375,7 +395,7 @@ struct RecoContainer {
   void addMFTMCHMatches(o2::framework::ProcessingContext& pc, bool mc);
   void addMCHMIDMatches(o2::framework::ProcessingContext& pc, bool mc);
 
-  void addITSClusters(o2::framework::ProcessingContext& pc, bool mc);
+  void addITSClusters(o2::framework::ProcessingContext& pc, bool mc, bool perLayer = false);
   void addMFTClusters(o2::framework::ProcessingContext& pc, bool mc);
   void addTPCClusters(o2::framework::ProcessingContext& pc, bool mc, bool shmap, bool occmap);
   void addTPCOccMap(o2::framework::ProcessingContext& pc);
@@ -498,10 +518,116 @@ struct RecoContainer {
   auto getITSABMCLabels() const { return getSpan<o2::MCCompLabel>(GTrackID::ITSAB, MCLABELS); }
 
   // ITS clusters
-  auto getITSClustersROFRecords() const { return getSpan<o2::itsmft::ROFRecord>(GTrackID::ITS, CLUSREFS); }
-  auto getITSClusters() const { return getSpan<o2::itsmft::CompClusterExt>(GTrackID::ITS, CLUSTERS); }
-  auto getITSClustersPatterns() const { return getSpan<unsigned char>(GTrackID::ITS, PATTERNS); }
-  auto getITSClustersMCLabels() const { return mcITSClusters.get(); }
+  auto getITSClustersROFRecords() const
+  {
+    checkFlatITSClusterAccess();
+    return getSpan<o2::itsmft::ROFRecord>(GTrackID::ITS, CLUSREFS);
+  }
+  auto getITSClusters() const
+  {
+    checkFlatITSClusterAccess();
+    return getSpan<o2::itsmft::CompClusterExt>(GTrackID::ITS, CLUSTERS);
+  }
+  auto getITSClustersPatterns() const
+  {
+    checkFlatITSClusterAccess();
+    return getSpan<unsigned char>(GTrackID::ITS, PATTERNS);
+  }
+  bool hasITSClustersPerLayer() const { return itsClustersPerLayerLoaded; }
+  auto getITSClustersROFRecords(int layer) const { return itsClustersROFRecordsPerLayer[layer]; }
+  auto getITSClusters(int layer) const { return itsClustersPerLayer[layer]; }
+  auto getITSClustersPatterns(int layer) const { return itsClustersPatternsPerLayer[layer]; }
+  auto getITSClustersMCLabels() const
+  {
+    checkFlatITSClusterAccess();
+    return mcITSClusters.get();
+  }
+  auto getITSClustersMCLabels(int layer) const { return mcITSClustersPerLayer[layer].get(); }
+  int getNITSClusterLayers() const { return hasITSClustersPerLayer() ? NITSLayers : 1; }
+  size_t getNITSClusters() const
+  {
+    if (!hasITSClustersPerLayer()) {
+      return getITSClusters().size();
+    }
+    size_t nClusters = 0;
+    for (int iLayer = 0; iLayer < NITSLayers; ++iLayer) {
+      nClusters += getITSClusters(iLayer).size();
+    }
+    return nClusters;
+  }
+  ITSClusterReference getITSClusterReference(const o2::its::TrackITS& track, gsl::span<const int> clusterRefs, int clusterOrdinal) const
+  {
+    const auto clusterEntry = track.getClusterEntry(clusterOrdinal);
+    const auto clusterIndex = clusterRefs[clusterEntry];
+    if (!hasITSClustersPerLayer()) {
+      return {-1, clusterIndex};
+    }
+    return {getClusterLayer(track.getPattern(), clusterOrdinal, true), clusterIndex};
+  }
+  ITSClusterReference getITSClusterReference(const o2::itsmft::TrkClusRef& trackletRef, gsl::span<const int> clusterRefs, int clusterOrdinal) const
+  {
+    const auto clusterEntry = trackletRef.getFirstEntry() + clusterOrdinal;
+    const auto clusterIndex = clusterRefs[clusterEntry];
+    if (!hasITSClustersPerLayer()) {
+      return {-1, clusterIndex};
+    }
+    return {getClusterLayer(trackletRef.pattern, clusterOrdinal, false), clusterIndex};
+  }
+  template <typename TrackSpan>
+  std::vector<int> makeFlatITSTrackClusterRefs(TrackSpan tracks, gsl::span<const int> clusterRefs, const std::array<int, NITSLayers>& layerOffsets) const
+  {
+    if (!hasITSClustersPerLayer()) {
+      return {};
+    }
+    std::vector<int> flatRefs(clusterRefs.size());
+    for (const auto& track : tracks) {
+      for (int iCluster = 0; iCluster < track.getNumberOfClusters(); ++iCluster) {
+        const auto ref = getITSClusterReference(track, clusterRefs, iCluster);
+        flatRefs[track.getClusterEntry(iCluster)] = layerOffsets[ref.layer] + ref.index;
+      }
+    }
+    return flatRefs;
+  }
+  template <typename TrackletRefSpan>
+  std::vector<int> makeFlatITSABClusterRefs(TrackletRefSpan trackletRefs, gsl::span<const int> clusterRefs, const std::array<int, NITSLayers>& layerOffsets) const
+  {
+    if (!hasITSClustersPerLayer()) {
+      return {};
+    }
+    std::vector<int> flatRefs(clusterRefs.size());
+    for (const auto& trackletRef : trackletRefs) {
+      for (int iCluster = 0; iCluster < trackletRef.getNClusters(); ++iCluster) {
+        const auto ref = getITSClusterReference(trackletRef, clusterRefs, iCluster);
+        flatRefs[trackletRef.getFirstEntry() + iCluster] = layerOffsets[ref.layer] + ref.index;
+      }
+    }
+    return flatRefs;
+  }
+
+  void checkFlatITSClusterAccess() const
+  {
+    if (hasITSClustersPerLayer()) {
+      throw std::runtime_error("flat ITS cluster access requested while ITS clusters are loaded per layer");
+    }
+  }
+
+  static int getClusterLayer(uint32_t pattern, int clusterOrdinal, bool outerToInner)
+  {
+    if (outerToInner) {
+      for (int iLayer = NITSLayers; iLayer--;) {
+        if ((pattern & (0x1u << iLayer)) && clusterOrdinal-- == 0) {
+          return iLayer;
+        }
+      }
+    } else {
+      for (int iLayer = 0; iLayer < NITSLayers; ++iLayer) {
+        if ((pattern & (0x1u << iLayer)) && clusterOrdinal-- == 0) {
+          return iLayer;
+        }
+      }
+    }
+    return -1;
+  }
 
   // MFT
   const o2::mft::TrackMFT& getMFTTrack(GTrackID gid) const { return getTrack<o2::mft::TrackMFT>(gid); }

@@ -250,7 +250,7 @@ void TPCITSMatchingDPL::updateTimeDependentParams(ProcessingContext& pc)
   }
 }
 
-DataProcessorSpec getTPCITSMatchingSpec(GTrackID::mask_t src, bool useFT0, bool calib, bool skipTPCOnly, bool useGeom, bool useMC, bool requestCTPLumi)
+DataProcessorSpec getTPCITSMatchingSpec(GTrackID::mask_t src, bool useFT0, bool calib, bool skipTPCOnly, bool useGeom, bool useMC, bool requestCTPLumi, bool itsClustersPerLayer)
 {
   std::vector<OutputSpec> outputs;
   auto dataRequest = std::make_shared<DataRequest>();
@@ -266,10 +266,10 @@ DataProcessorSpec getTPCITSMatchingSpec(GTrackID::mask_t src, bool useFT0, bool 
   if (o2::GlobalParams::Instance().withITS3) {
     dataRequest->requestIT3Clusters(useMC);
   } else {
-    dataRequest->requestITSClusters(useMC);
+    dataRequest->requestITSClusters(useMC, itsClustersPerLayer);
   }
 #else
-  dataRequest->requestITSClusters(useMC);
+  dataRequest->requestITSClusters(useMC, itsClustersPerLayer);
 #endif
   if (useFT0) {
     dataRequest->requestFT0RecPoints(false);

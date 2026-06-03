@@ -128,6 +128,7 @@ class StrangenessTracker
     mITSvtxBrackets.clear();
     mInputITSclusters.clear();
     mInputClusterSizes.clear();
+    mInputITSidxsFlat.clear();
   }
 
   void setupThreads(int nThreads = 1)
@@ -328,6 +329,7 @@ class StrangenessTracker
   std::vector<int> mInputClusterSizes;                 // input cluster sizes
   std::vector<ITSCluster> mInputITSclusters;           // input ITS clusters
   gsl::span<const int> mInputITSidxs;                  // input ITS track-cluster indexes
+  std::vector<int> mInputITSidxsFlat;                  // remapped indexes for local cluster working array
   gsl::span<const V0> mInputV0tracks;                  // input V0 of decay daughters
   gsl::span<const V0Index> mInputV0Indices;            // input V0 indices of decay daughters
   gsl::span<const Cascade> mInputCascadeTracks;        // input cascade of decay daughters

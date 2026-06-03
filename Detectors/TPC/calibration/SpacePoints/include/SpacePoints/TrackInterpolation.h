@@ -468,6 +468,7 @@ class TrackInterpolation
 
   // ITS specific input only needed for debugging
   gsl::span<const int> mITSTrackClusIdx;                    ///< input ITS track cluster indices span
+  std::vector<int> mITSTrackClusIdxFlat;                    ///< remapped ITS track cluster indices for local cluster working array
   std::vector<o2::BaseCluster<float>> mITSClustersArray;    ///< ITS clusters created in run() method from compact clusters
   std::vector<int> mITSRefitSeedID;                         ///< seed ID first using refitted ITS track
   const o2::itsmft::TopologyDictionary* mITSDict = nullptr; ///< cluster patterns dictionary

@@ -300,20 +300,55 @@ void TRDGlobalTracking::run(ProcessingContext& pc)
     mITSTrackClusIdx = inputTracks.getITSTracksClusterRefs();
     mITSABRefsArray = inputTracks.getITSABRefs();
     mITSABTrackClusIdx = inputTracks.getITSABClusterRefs();
-    const auto clusITS = inputTracks.getITSClusters();
-    const auto patterns = inputTracks.getITSClustersPatterns();
-    auto pattIt = patterns.begin();
     mITSClustersArray.clear();
-    mITSClustersArray.reserve(clusITS.size());
+    mITSClustersArray.reserve(inputTracks.getNITSClusters());
+    if (inputTracks.hasITSClustersPerLayer()) {
+      std::array<int, o2::globaltracking::RecoContainer::NITSLayers> layerOffsets{};
+      for (int iLayer = 0; iLayer < o2::globaltracking::RecoContainer::NITSLayers; ++iLayer) {
+        const auto clusITS = inputTracks.getITSClusters(iLayer);
+        const auto patterns = inputTracks.getITSClustersPatterns(iLayer);
+        auto pattIt = patterns.begin();
+        layerOffsets[iLayer] = mITSClustersArray.size();
 #ifdef ENABLE_UPGRADES
-    if (o2::GlobalParams::Instance().withITS3) {
-      o2::its3::ioutils::convertCompactClusters(clusITS, pattIt, mITSClustersArray, mIT3Dict);
-    } else {
-      o2::its::ioutils::convertCompactClusters(clusITS, pattIt, mITSClustersArray, mITSDict);
-    }
+        if (o2::GlobalParams::Instance().withITS3) {
+          o2::its3::ioutils::convertCompactClusters(clusITS, pattIt, mITSClustersArray, mIT3Dict);
+        } else {
+          o2::its::ioutils::convertCompactClusters(clusITS, pattIt, mITSClustersArray, mITSDict);
+        }
 #else
-    o2::its::ioutils::convertCompactClusters(clusITS, pattIt, mITSClustersArray, mITSDict);
+        o2::its::ioutils::convertCompactClusters(clusITS, pattIt, mITSClustersArray, mITSDict);
 #endif
+      }
+      mITSTrackClusIdxFlat.resize(mITSTrackClusIdx.size());
+      for (const auto& track : mITSTracksArray) {
+        for (int iCluster = 0; iCluster < track.getNumberOfClusters(); ++iCluster) {
+          const auto ref = inputTracks.getITSClusterReference(track, mITSTrackClusIdx, iCluster);
+          mITSTrackClusIdxFlat[track.getClusterEntry(iCluster)] = layerOffsets[ref.layer] + ref.index;
+        }
+      }
+      mITSTrackClusIdx = mITSTrackClusIdxFlat;
+      mITSABTrackClusIdxFlat.resize(mITSABTrackClusIdx.size());
+      for (const auto& trackletRef : mITSABRefsArray) {
+        for (int iCluster = 0; iCluster < trackletRef.getNClusters(); ++iCluster) {
+          const auto ref = inputTracks.getITSClusterReference(trackletRef, mITSABTrackClusIdx, iCluster);
+          mITSABTrackClusIdxFlat[trackletRef.getFirstEntry() + iCluster] = layerOffsets[ref.layer] + ref.index;
+        }
+      }
+      mITSABTrackClusIdx = mITSABTrackClusIdxFlat;
+    } else {
+      const auto clusITS = inputTracks.getITSClusters();
+      const auto patterns = inputTracks.getITSClustersPatterns();
+      auto pattIt = patterns.begin();
+#ifdef ENABLE_UPGRADES
+      if (o2::GlobalParams::Instance().withITS3) {
+        o2::its3::ioutils::convertCompactClusters(clusITS, pattIt, mITSClustersArray, mIT3Dict);
+      } else {
+        o2::its::ioutils::convertCompactClusters(clusITS, pattIt, mITSClustersArray, mITSDict);
+      }
+#else
+      o2::its::ioutils::convertCompactClusters(clusITS, pattIt, mITSClustersArray, mITSDict);
+#endif
+    }
   }
 
   LOGF(info, "There are %i tracklets in total from %i trigger records", mChainTracking->mIOPtrs.nTRDTracklets, mChainTracking->mIOPtrs.nTRDTriggerRecords);
@@ -933,7 +968,7 @@ void TRDGlobalTracking::endOfStream(EndOfStreamContext& ec)
        mTimer.CpuTime(), mTimer.RealTime(), mTimer.Counter() - 1);
 }
 
-DataProcessorSpec getTRDGlobalTrackingSpec(bool useMC, GTrackID::mask_t src, bool trigRecFilterActive, bool strict, bool withPID, PIDPolicy policy, bool requestCTPLumi)
+DataProcessorSpec getTRDGlobalTrackingSpec(bool useMC, GTrackID::mask_t src, bool trigRecFilterActive, bool strict, bool withPID, PIDPolicy policy, bool requestCTPLumi, bool itsClustersPerLayer)
 {
   std::vector<OutputSpec> outputs;
   uint32_t ss = o2::globaltracking::getSubSpec(strict ? o2::globaltracking::MatchingType::Strict : o2::globaltracking::MatchingType::Standard);
@@ -951,10 +986,10 @@ DataProcessorSpec getTRDGlobalTrackingSpec(bool useMC, GTrackID::mask_t src, boo
     if (o2::GlobalParams::Instance().withITS3) {
       dataRequest->requestIT3Clusters(false); // only needed for refit, don't care about labels
     } else {
-      dataRequest->requestITSClusters(false); // only needed for refit, don't care about labels
+      dataRequest->requestITSClusters(false, itsClustersPerLayer); // only needed for refit, don't care about labels
     }
 #else
-    dataRequest->requestITSClusters(false); // only needed for refit, don't care about labels
+    dataRequest->requestITSClusters(false, itsClustersPerLayer); // only needed for refit, don't care about labels
 #endif
     trkSrc |= GTrackID::getSourcesMask("ITS");
   }

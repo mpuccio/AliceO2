@@ -97,6 +97,8 @@ class TRDGlobalTracking : public o2::framework::Task
   gsl::span<const o2::itsmft::TrkClusRef> mITSABRefsArray;            ///< input ITS-TPC Afterburner ITS tracklets references
   gsl::span<const int> mITSTrackClusIdx;                              ///< input ITS track cluster indices span
   gsl::span<const int> mITSABTrackClusIdx;                            ///< input ITSAB track cluster indices span
+  std::vector<int> mITSTrackClusIdxFlat;                              ///< remapped ITS track cluster indices for local cluster working array
+  std::vector<int> mITSABTrackClusIdxFlat;                            ///< remapped ITSAB track cluster indices for local cluster working array
   std::vector<o2::BaseCluster<float>> mITSClustersArray;              ///< ITS clusters created in run() method from compact clusters
   const o2::itsmft::TopologyDictionary* mITSDict = nullptr;           ///< ITS cluster patterns dictionary
 #ifdef ENABLE_UPGRADES
@@ -112,7 +114,7 @@ class TRDGlobalTracking : public o2::framework::Task
 };
 
 /// create a processor spec
-framework::DataProcessorSpec getTRDGlobalTrackingSpec(bool useMC, o2::dataformats::GlobalTrackID::mask_t src, bool trigRecFilterActive, bool strict /* = false*/, bool withPID /* = false*/, PIDPolicy policy /* = PIDPolicy::DEFAULT*/, bool requestCTPLumi);
+framework::DataProcessorSpec getTRDGlobalTrackingSpec(bool useMC, o2::dataformats::GlobalTrackID::mask_t src, bool trigRecFilterActive, bool strict /* = false*/, bool withPID /* = false*/, PIDPolicy policy /* = PIDPolicy::DEFAULT*/, bool requestCTPLumi, bool itsClustersPerLayer);
 
 } // namespace trd
 } // namespace o2

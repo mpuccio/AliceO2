@@ -662,10 +662,12 @@ class MatchTPCITS
   gsl::span<const o2::itsmft::ROFRecord> mITSTrackROFRec;  ///< input ITS tracks ROFRecord span
   gsl::span<const o2::its::TrackITS> mITSTracksArray;      ///< input ITS tracks span
   gsl::span<const int> mITSTrackClusIdx;                   ///< input ITS track cluster indices span
+  std::vector<int> mITSTrackClusIdxFlat;                   ///< remapped ITS track cluster indices for local cluster working array
   std::vector<ITSCluster> mITSClustersArray;               ///< ITS clusters created in loadInput
   std::vector<uint8_t> mITSClusterSizes;                   ///< ITS cluster sizes created in loadInput
 
   gsl::span<const o2::itsmft::ROFRecord> mITSClusterROFRec; ///< input ITS clusters ROFRecord span
+  std::vector<o2::itsmft::ROFRecord> mITSClusterROFRecFlat; ///< remapped ITS cluster ROF records for local cluster working array
   gsl::span<const o2::ft0::RecPoints> mFITInfo;             ///< optional input FIT info span
 
   gsl::span<const unsigned char> mTPCRefitterShMap; ///< externally set TPC clusters sharing map
@@ -679,6 +681,7 @@ class MatchTPCITS
   const o2::tpc::ClusterNativeAccess* mTPCClusterIdxStruct = nullptr; ///< struct holding the TPC cluster indices
 
   const o2::dataformats::MCTruthContainer<o2::MCCompLabel>* mITSClsLabels = nullptr; ///< input ITS Cluster MC labels
+  o2::dataformats::MCTruthContainer<o2::MCCompLabel> mITSClsLabelsFlat;              ///< remapped ITS cluster MC labels for local cluster working array
   gsl::span<const o2::MCCompLabel> mITSTrkLabels;                                    ///< input ITS Track MC labels
   gsl::span<const o2::MCCompLabel> mTPCTrkLabels;                                    ///< input TPC Track MC labels
   /// <<<-----

@@ -33,6 +33,7 @@
 #include "MCHTracking/TrackExtrap.h"
 #include "DataFormatsITSMFT/TrkClusRef.h"
 #include "DataFormatsITSMFT/DPLAlpideParam.h"
+#include <array>
 #include "CommonDataFormat/IRFrame.h"
 #include "MFTBase/GeometryTGeo.h"
 #include "ITSBase/GeometryTGeo.h"
@@ -618,12 +619,27 @@ void EveWorkflowHelper::addTrackToEvent(const o2::track::TrackPar& tr, GID gid, 
 
 void EveWorkflowHelper::prepareITSClusters(const o2::itsmft::TopologyDictionary* dict)
 {
-  const auto& ITSClusterROFRec = mRecoCont->getITSClustersROFRecords();
-  const auto& clusITS = mRecoCont->getITSClusters();
-  if (clusITS.size() && ITSClusterROFRec.size()) {
+  mITSClustersArray.clear();
+  mITSClustersArray.reserve(mRecoCont->getNITSClusters());
+  if (mRecoCont->hasITSClustersPerLayer()) {
+    std::array<int, o2::globaltracking::RecoContainer::NITSLayers> layerOffsets{};
+    for (int iLayer = 0; iLayer < o2::globaltracking::RecoContainer::NITSLayers; ++iLayer) {
+      const auto& clusITS = mRecoCont->getITSClusters(iLayer);
+      const auto& patterns = mRecoCont->getITSClustersPatterns(iLayer);
+      layerOffsets[iLayer] = mITSClustersArray.size();
+      auto pattIt = patterns.begin();
+      o2::its::ioutils::convertCompactClusters(clusITS, pattIt, mITSClustersArray, dict);
+    }
+    mITSTrackClusIdxFlat = mRecoCont->makeFlatITSTrackClusterRefs(mRecoCont->getITSTracks(), mRecoCont->getITSTracksClusterRefs(), layerOffsets);
+    mITSABTrackClusIdxFlat = mRecoCont->makeFlatITSABClusterRefs(mRecoCont->getITSABRefs(), mRecoCont->getITSABClusterRefs(), layerOffsets);
+  } else {
+    const auto& ITSClusterROFRec = mRecoCont->getITSClustersROFRecords();
+    const auto& clusITS = mRecoCont->getITSClusters();
+    if (!clusITS.size() || !ITSClusterROFRec.size()) {
+      return;
+    }
     const auto& patterns = mRecoCont->getITSClustersPatterns();
     auto pattIt = patterns.begin();
-    mITSClustersArray.reserve(clusITS.size());
     o2::its::ioutils::convertCompactClusters(clusITS, pattIt, mITSClustersArray, dict);
   }
 }
@@ -987,7 +1003,8 @@ void EveWorkflowHelper::drawITSClusters(GID gid) // float trackTime
   if (gid.getSource() == GID::ITS) {
     // this is for for full standalone tracks
     const auto& trc = mRecoCont->getITSTrack(gid);
-    auto refs = mRecoCont->getITSTracksClusterRefs();
+    auto refsOrig = mRecoCont->getITSTracksClusterRefs();
+    auto refs = mRecoCont->hasITSClustersPerLayer() ? gsl::span<const int>{mITSTrackClusIdxFlat} : refsOrig;
     int ncl = trc.getNumberOfClusters();
     int offset = trc.getFirstClusterEntry();
     for (int icl = 0; icl < ncl; icl++) {
@@ -999,7 +1016,8 @@ void EveWorkflowHelper::drawITSClusters(GID gid) // float trackTime
   } else if (gid.getSource() == GID::ITSAB) {
     // this is for ITS tracklets from ITS-TPC afterburner
     const auto& trc = mRecoCont->getITSABRef(gid);
-    const auto& refs = mRecoCont->getITSABClusterRefs();
+    auto refsOrig = mRecoCont->getITSABClusterRefs();
+    auto refs = mRecoCont->hasITSClustersPerLayer() ? gsl::span<const int>{mITSABTrackClusIdxFlat} : refsOrig;
     int ncl = trc.getNClusters();
     int offset = trc.getFirstEntry();
     for (int icl = 0; icl < ncl; icl++) {

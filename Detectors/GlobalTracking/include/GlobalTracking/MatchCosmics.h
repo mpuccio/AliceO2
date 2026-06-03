@@ -86,6 +86,10 @@ class MatchCosmics
     short vtIDMin = -1;     ///< id of the 1st compatible vertex
     short vtIDMax = -1;     ///< id of the last compatible vertex
   };
+  struct ITSClusterData {
+    std::vector<o2::BaseCluster<float>> clusters;
+    std::vector<int> trackClusterRefs;
+  };
   void setTPCCorrMaps(const o2::gpu::TPCFastTransformPOD* maph);
   void setTPCVDrift(const o2::tpc::VDriftCorrFact& v);
   void setITSROFrameLengthMUS(float fums) { mITSROFrameLengthMUS = fums; }
@@ -134,7 +138,7 @@ class MatchCosmics
   bool validateMatch(int partner0);
   void selectWinners();
   void refitWinners(const o2::globaltracking::RecoContainer& data);
-  std::vector<o2::BaseCluster<float>> prepareITSClusters(const o2::globaltracking::RecoContainer& data) const;
+  ITSClusterData prepareITSClusters(const o2::globaltracking::RecoContainer& data) const;
 
   std::vector<TrackSeed> mSeeds;
   std::vector<MatchRecord> mRecords;

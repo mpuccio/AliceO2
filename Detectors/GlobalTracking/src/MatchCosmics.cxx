@@ -36,6 +36,7 @@
 #include "DataFormatsTPC/WorkflowHelper.h"
 #include "DataFormatsTPC/VDriftCorrFact.h"
 #include "TPCFastTransformPOD.h"
+#include <array>
 #include <algorithm>
 #include <numeric>
 #include <unordered_map>
@@ -134,7 +135,8 @@ void MatchCosmics::refitWinners(const o2::globaltracking::RecoContainer& data)
                                                                  tpcClusOccMap.data(), tpcClusOccMap.size(), nullptr, o2::base::Propagator::Instance());
   }
 
-  const auto& itsClusters = prepareITSClusters(data);
+  const auto itsClusterData = prepareITSClusters(data);
+  const auto& itsClusters = itsClusterData.clusters;
   // RS FIXME: this is probably a temporary solution, since ITS tracking over boundaries will likely change the TrackITS format
   std::vector<int> itsTracksROF;
 
@@ -147,10 +149,11 @@ void MatchCosmics::refitWinners(const o2::globaltracking::RecoContainer& data)
     }
   }
 
-  auto refitITSTrack = [this, &data, &itsTracksROF, &itsClusters](o2::track::TrackParCov& trFit, GTrackID gidx, float& chi2, bool inward = false) {
+  auto refitITSTrack = [this, &data, &itsTracksROF, &itsClusters, &itsClusterData](o2::track::TrackParCov& trFit, GTrackID gidx, float& chi2, bool inward = false) {
     const auto& itsTrOrig = data.getITSTrack(gidx);
     int nclRefit = 0, ncl = itsTrOrig.getNumberOfClusters(), rof = itsTracksROF[gidx.getIndex()];
-    const auto& itsTrackClusRefs = data.getITSTracksClusterRefs();
+    const auto itsTrackClusRefsOrig = data.getITSTracksClusterRefs();
+    const auto& itsTrackClusRefs = data.hasITSClustersPerLayer() ? gsl::span<const int>{itsClusterData.trackClusterRefs} : itsTrackClusRefsOrig;
     int clEntry = itsTrOrig.getFirstClusterEntry();
     const auto propagator = o2::base::Propagator::Instance();
     const auto geomITS = o2::its::GeometryTGeo::Instance();
@@ -208,7 +211,7 @@ void MatchCosmics::refitWinners(const o2::globaltracking::RecoContainer& data)
         trCosm.setQ2Pt(-o2::track::kMostProbablePt);
       }
       int retVal = tpcRefitter->RefitTrackAsTrackParCov(trCosm, tpcTrOrig.getClusterRef(), t0 * tpcTBinMUSInv, &chi2, false, false); // inward refit, reset
-      if (retVal < 0) {                                                                                                             // refit failed
+      if (retVal < 0) {                                                                                                              // refit failed
         LOG(debug) << "Inward refit of btm TPC track failed.";
         continue;
       }
@@ -622,17 +625,27 @@ void MatchCosmics::init()
 }
 
 //________________________________________________________
-std::vector<o2::BaseCluster<float>> MatchCosmics::prepareITSClusters(const o2::globaltracking::RecoContainer& data) const
+MatchCosmics::ITSClusterData MatchCosmics::prepareITSClusters(const o2::globaltracking::RecoContainer& data) const
 {
-  std::vector<o2::BaseCluster<float>> itscl;
-  const auto& clusITS = data.getITSClusters();
-  if (clusITS.size()) {
+  ITSClusterData out;
+  out.clusters.reserve(data.getNITSClusters());
+  if (data.hasITSClustersPerLayer()) {
+    std::array<int, o2::globaltracking::RecoContainer::NITSLayers> layerOffsets{};
+    for (int iLayer = 0; iLayer < o2::globaltracking::RecoContainer::NITSLayers; ++iLayer) {
+      const auto& clusITS = data.getITSClusters(iLayer);
+      const auto& patterns = data.getITSClustersPatterns(iLayer);
+      layerOffsets[iLayer] = out.clusters.size();
+      auto pattIt = patterns.begin();
+      o2::its::ioutils::convertCompactClusters(clusITS, pattIt, out.clusters, mITSDict);
+    }
+    out.trackClusterRefs = data.makeFlatITSTrackClusterRefs(data.getITSTracks(), data.getITSTracksClusterRefs(), layerOffsets);
+  } else {
+    const auto& clusITS = data.getITSClusters();
     const auto& patterns = data.getITSClustersPatterns();
-    itscl.reserve(clusITS.size());
     auto pattIt = patterns.begin();
-    o2::its::ioutils::convertCompactClusters(clusITS, pattIt, itscl, mITSDict);
+    o2::its::ioutils::convertCompactClusters(clusITS, pattIt, out.clusters, mITSDict);
   }
-  return std::move(itscl);
+  return out;
 }
 
 //______________________________________________

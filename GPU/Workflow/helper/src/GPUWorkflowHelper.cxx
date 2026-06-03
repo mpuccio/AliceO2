@@ -15,6 +15,7 @@
 #include "ITStracking/IOUtils.h"
 #include "DataFormatsTPC/WorkflowHelper.h"
 #include "DataFormatsGlobalTracking/RecoContainerCreateTracksVariadic.h"
+#include <array>
 #include <type_traits>
 
 using namespace o2::globaltracking;
@@ -22,6 +23,10 @@ using namespace o2::gpu;
 
 struct GPUWorkflowHelper::tmpDataContainer {
   std::vector<o2::BaseCluster<float>> ITSClustersArray;
+  std::vector<o2::itsmft::CompClusterExt> ITSCompClustersArray;
+  std::vector<o2::itsmft::ROFRecord> ITSClusterROFRec;
+  std::vector<int> ITSTrackClusIdx;
+  std::array<int, o2::globaltracking::RecoContainer::NITSLayers> ITSLayerOffsets{};
   std::vector<int32_t> tpcLinkITS, tpcLinkTRD, tpcLinkTOF;
   std::vector<const o2::track::TrackParCov*> globalTracks;
   std::vector<float> globalTrackTimes;
@@ -32,21 +37,46 @@ std::shared_ptr<const GPUWorkflowHelper::tmpDataContainer> GPUWorkflowHelper::fi
   auto retVal = std::make_shared<tmpDataContainer>();
 
   if (maskCl[GID::ITS] && ioPtr.nItsClusters == 0) {
-    const auto& ITSClusterROFRec = recoCont.getITSClustersROFRecords();
-    const auto& clusITS = recoCont.getITSClusters();
+    gsl::span<const o2::itsmft::ROFRecord> ITSClusterROFRec;
+    gsl::span<const o2::itsmft::CompClusterExt> clusITS;
+    if (recoCont.hasITSClustersPerLayer()) {
+      retVal->ITSCompClustersArray.reserve(recoCont.getNITSClusters());
+      for (int iLayer = 0; iLayer < o2::globaltracking::RecoContainer::NITSLayers; ++iLayer) {
+        const auto layerClusters = recoCont.getITSClusters(iLayer);
+        retVal->ITSLayerOffsets[iLayer] = retVal->ITSCompClustersArray.size();
+        retVal->ITSCompClustersArray.insert(retVal->ITSCompClustersArray.end(), layerClusters.begin(), layerClusters.end());
+        for (const auto& rof : recoCont.getITSClustersROFRecords(iLayer)) {
+          auto& rofFlat = retVal->ITSClusterROFRec.emplace_back(rof);
+          rofFlat.setFirstEntry(rof.getFirstEntry() + retVal->ITSLayerOffsets[iLayer]);
+        }
+      }
+      ITSClusterROFRec = retVal->ITSClusterROFRec;
+      clusITS = retVal->ITSCompClustersArray;
+    } else {
+      ITSClusterROFRec = recoCont.getITSClustersROFRecords();
+      clusITS = recoCont.getITSClusters();
+    }
     if (clusITS.size() && ITSClusterROFRec.size()) {
       if (calib && calib->itsPatternDict) {
-        const auto& patterns = recoCont.getITSClustersPatterns();
-        auto pattIt = patterns.begin();
         retVal->ITSClustersArray.reserve(clusITS.size());
-        o2::its::ioutils::convertCompactClusters(clusITS, pattIt, retVal->ITSClustersArray, calib->itsPatternDict);
+        if (recoCont.hasITSClustersPerLayer()) {
+          for (int iLayer = 0; iLayer < o2::globaltracking::RecoContainer::NITSLayers; ++iLayer) {
+            const auto patterns = recoCont.getITSClustersPatterns(iLayer);
+            auto pattIt = patterns.begin();
+            o2::its::ioutils::convertCompactClusters(recoCont.getITSClusters(iLayer), pattIt, retVal->ITSClustersArray, calib->itsPatternDict);
+          }
+        } else {
+          const auto& patterns = recoCont.getITSClustersPatterns();
+          auto pattIt = patterns.begin();
+          o2::its::ioutils::convertCompactClusters(clusITS, pattIt, retVal->ITSClustersArray, calib->itsPatternDict);
+        }
         ioPtr.itsClusters = retVal->ITSClustersArray.data();
       }
       ioPtr.nItsClusters = clusITS.size();
       ioPtr.itsCompClusters = clusITS.data();
       ioPtr.nItsClusterROF = ITSClusterROFRec.size();
       ioPtr.itsClusterROF = ITSClusterROFRec.data();
-      if (useMC) {
+      if (useMC && !recoCont.hasITSClustersPerLayer()) {
         const auto& ITSClsLabels = recoCont.mcITSClusters.get();
         ioPtr.itsClusterMC = ITSClsLabels;
       }
@@ -57,7 +87,11 @@ std::shared_ptr<const GPUWorkflowHelper::tmpDataContainer> GPUWorkflowHelper::fi
     const auto& ITSTracksArray = recoCont.getITSTracks();
     const auto& ITSTrackROFRec = recoCont.getITSTracksROFRecords();
     if (ITSTracksArray.size() && ITSTrackROFRec.size()) {
-      const auto& ITSTrackClusIdx = recoCont.getITSTracksClusterRefs();
+      auto ITSTrackClusIdx = recoCont.getITSTracksClusterRefs();
+      if (recoCont.hasITSClustersPerLayer()) {
+        retVal->ITSTrackClusIdx = recoCont.makeFlatITSTrackClusterRefs(ITSTracksArray, ITSTrackClusIdx, retVal->ITSLayerOffsets);
+        ITSTrackClusIdx = retVal->ITSTrackClusIdx;
+      }
       ioPtr.nItsTracks = ITSTracksArray.size();
       ioPtr.itsTracks = ITSTracksArray.data();
       ioPtr.itsTrackClusIdx = ITSTrackClusIdx.data();

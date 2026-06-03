@@ -202,6 +202,8 @@ class EveWorkflowHelper
   std::unordered_map<GID, unsigned int> mGIDTrackTime;
   std::vector<Bracket> mItsROFBrackets;
   std::vector<o2::BaseCluster<float>> mITSClustersArray;
+  std::vector<int> mITSTrackClusIdxFlat;
+  std::vector<int> mITSABTrackClusIdxFlat;
   std::vector<o2::BaseCluster<float>> mMFTClustersArray;
   o2::mft::GeometryTGeo* mMFTGeom;
   o2::its::GeometryTGeo* mITSGeom;
