@@ -1,4 +1,4 @@
-// Copyright 2019-2026 CERN and copyright holders of ALICE O2.
+// Copyright 2019-2020 CERN and copyright holders of ALICE O2.
 // See https://alice-o2.web.cern.ch/copyright for details of the copyright holders.
 // All rights not expressly granted are reserved.
 //
@@ -44,7 +44,6 @@ class TrackingTopology
   static_assert(MaxTransitions <= std::numeric_limits<Id>::max());
   static_assert(MaxCells <= std::numeric_limits<Id>::max());
 
-  // Describes from which layer to which layer the look-up happens
   struct LayerTransition {
     Id fromLayer{0};
     Id toLayer{0};
@@ -53,8 +52,6 @@ class TrackingTopology
   static_assert(std::is_trivially_copyable_v<LayerTransition>);
   static_assert(sizeof(LayerTransition) == (2 * sizeof(Id)));
 
-  // Describes from which LayerTransition a tracklet is allowed to originate
-  // and with which LayerTransition this can be combined additionally the hitMasked is cached
   struct CellTopology {
     Id firstTransition{0};
     Id secondTransition{0};
@@ -64,7 +61,6 @@ class TrackingTopology
   static_assert(std::is_trivially_copyable_v<CellTopology>);
   static_assert(sizeof(CellTopology) == (2 * sizeof(Id)) + sizeof(Mask));
 
-  // GPU ready view of the underlying LUTs
   struct View {
     const LayerTransition* transitions{nullptr};
     const CellTopology* cells{nullptr};
@@ -216,4 +212,4 @@ class TrackingTopology
 
 } // namespace o2::itsmft::tracking
 
-#endif
+#endif /* ALICEO2_ITSMFT_TRACKING_INCLUDE_TRACKINGTOPOLOGY_H_ */

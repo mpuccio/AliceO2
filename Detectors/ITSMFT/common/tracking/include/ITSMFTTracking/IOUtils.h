@@ -29,7 +29,7 @@
 #include "DataFormatsITSMFT/TopologyDictionary.h"
 #include "MathUtils/Cartesian.h"
 
-namespace o2::itsmft::tracking
+namespace o2::its
 {
 struct TrackingFrameInfo;
 }
@@ -67,7 +67,7 @@ void loadClusterTrackingFrameInfo(const CompClusterExt& c,
                                   const TopologyDictionary* dict,
                                   int& layer,
                                   unsigned int& clusterSize,
-                                  tracking::TrackingFrameInfo& tfInfo,
+                                  o2::its::TrackingFrameInfo& tfInfo,
                                   bool applySysErrors = true);
 
 /// Convert compact clusters to 3D spacepoints.

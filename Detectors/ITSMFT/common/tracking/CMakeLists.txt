@@ -14,10 +14,9 @@ o2_add_library(ITSMFTTracking
                SOURCES src/IOUtils.cxx
                        src/TrackingConfigParam.cxx
                        src/Configuration.cxx
-                       src/Cluster.cxx
-                       src/ClusterLines.cxx
                        src/TimeFrame.cxx
                PUBLIC_LINK_LIBRARIES
+                       O2::ITStracking
                        O2::GPUCommon
                        O2::CommonConstants
                        O2::DetectorsCommonDataFormats
@@ -35,10 +34,8 @@ o2_add_library(ITSMFTTracking
                        O2::MFTBase
                        O2::DataFormatsITS)
 
+# Only dictionary params (see ITSMFTTrackingLinkDef.h). TimeFrame and other
+# headers pull ITStracking internals not exposed to rootcling include paths.
 o2_target_root_dictionary(ITSMFTTracking
-                          HEADERS include/ITSMFTTracking/IOUtils.h
-                                  include/ITSMFTTracking/TrackingConfigParam.h
-                                  include/ITSMFTTracking/Configuration.h
-                                  include/ITSMFTTracking/IndexTableUtils.h
-                                  include/ITSMFTTracking/TimeFrame.h
+                          HEADERS include/ITSMFTTracking/TrackingConfigParam.h
                           LINKDEF src/ITSMFTTrackingLinkDef.h)
