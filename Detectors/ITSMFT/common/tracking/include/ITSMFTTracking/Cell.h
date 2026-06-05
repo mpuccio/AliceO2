@@ -10,17 +10,18 @@
 // or submit itself to any jurisdiction.
 ///
 /// \file Cell.h
-/// \brief
+/// \brief CA cell/track seed types with hole-layer support (ITS PR #15390)
 ///
 
 #ifndef ALICEO2_ITSMFT_TRACKING_INCLUDE_CACELL_H_
 #define ALICEO2_ITSMFT_TRACKING_INCLUDE_CACELL_H_
 
+#include <array>
 #include <cstdint>
 
-#include "ITSMFTTracking/Constants.h"
+#include "ITStracking/Constants.h"
 #include "ITSMFTTracking/LayerMask.h"
-#include "ITSMFTTracking/Types.h"
+#include "DataFormatsITS/TimeEstBC.h"
 #include "ReconstructionDataFormats/Track.h"
 #include "GPUCommonDef.h"
 
@@ -61,7 +62,7 @@ class SeedBase : public o2::track::TrackParCovF
   GPUhdDefault() SeedBase(SeedBase&&) = default;
   GPUhdDefault() SeedBase& operator=(const SeedBase&) = default;
   GPUhdDefault() SeedBase& operator=(SeedBase&&) = default;
-  GPUhd() SeedBase(const o2::track::TrackParCovF& tpc, float chi2, int level, const TimeEstBC& time)
+  GPUhd() SeedBase(const o2::track::TrackParCovF& tpc, float chi2, int level, const o2::its::TimeEstBC& time)
     : o2::track::TrackParCovF(tpc), mChi2(chi2), mLevel(level), mTime(time)
   {
   }
@@ -69,25 +70,24 @@ class SeedBase : public o2::track::TrackParCovF
   GPUhd() const auto& clustersRaw() const { return mClusters; }
 
  private:
-  float mChi2{constants::UnsetValue};
-  int mLevel{constants::UnusedIndex};
-  std::array<int, 2> mTracklets = constants::helpers::initArray<int, 2, constants::UnusedIndex>();
-  std::array<int, NClusters> mClusters = constants::helpers::initArray<int, NClusters, constants::UnusedIndex>();
-  TimeEstBC mTime;
+  float mChi2{o2::its::constants::UnsetValue};
+  int mLevel{o2::its::constants::UnusedIndex};
+  std::array<int, 2> mTracklets = o2::its::constants::helpers::initArray<int, 2, o2::its::constants::UnusedIndex>();
+  std::array<int, NClusters> mClusters = o2::its::constants::helpers::initArray<int, NClusters, o2::its::constants::UnusedIndex>();
+  o2::its::TimeEstBC mTime;
 };
 
-/// CellSeed: connections of three clusters
-class CellSeed final : public SeedBase<constants::ClustersPerCell>
+class CellSeed final : public SeedBase<o2::its::constants::ClustersPerCell>
 {
-  using Base = SeedBase<constants::ClustersPerCell>;
+  using Base = SeedBase<o2::its::constants::ClustersPerCell>;
 
  public:
   GPUhdDefault() CellSeed() = default;
-  GPUhd() CellSeed(int innerL, int cl0, int cl1, int cl2, int trkl0, int trkl1, const o2::track::TrackParCovF& tpc, float chi2, const TimeEstBC& time)
+  GPUhd() CellSeed(int innerL, int cl0, int cl1, int cl2, int trkl0, int trkl1, const o2::track::TrackParCovF& tpc, float chi2, const o2::its::TimeEstBC& time)
     : CellSeed(LayerMask(innerL, innerL + 1, innerL + 2), cl0, cl1, cl2, trkl0, trkl1, tpc, chi2, time)
   {
   }
-  GPUhd() CellSeed(LayerMask hitLayerMask, int cl0, int cl1, int cl2, int trkl0, int trkl1, const o2::track::TrackParCovF& tpc, float chi2, const TimeEstBC& time)
+  GPUhd() CellSeed(LayerMask hitLayerMask, int cl0, int cl1, int cl2, int trkl0, int trkl1, const o2::track::TrackParCovF& tpc, float chi2, const o2::its::TimeEstBC& time)
     : Base(tpc, chi2, 1, time)
   {
     setHitLayerMask(hitLayerMask);
@@ -109,18 +109,13 @@ class CellSeed final : public SeedBase<constants::ClustersPerCell>
   GPUhd() int getThirdClusterIndex() const { return this->clustersRaw()[2]; };
   GPUhd() auto& getClusters() { return this->clustersRaw(); }
   GPUhd() const auto& getClusters() const { return this->clustersRaw(); }
-  /// getCluster takes an ABSOLUTE layer index. Compact cluster slots are
-  /// mapped to absolute layers by set-bit order in the hit-layer mask.
   GPUhd() int getCluster(int layer) const
   {
     const int slot = getHitLayerMask().slot(layer);
-    return (slot >= 0 && slot < constants::ClustersPerCell) ? this->clustersRaw()[slot] : constants::UnusedIndex;
+    return (slot >= 0 && slot < o2::its::constants::ClustersPerCell) ? this->clustersRaw()[slot] : o2::its::constants::UnusedIndex;
   }
 };
 
-/// TrackSeed: full-width working representation used during road finding.
-/// processNeighbours extends the cluster list inward, so we need NLayers
-/// absolute-indexed slots here.
 template <int NLayers>
 class TrackSeed final : public SeedBase<NLayers>
 {
@@ -168,7 +163,7 @@ class TrackSeed final : public SeedBase<NLayers>
         }
       }
     }
-    return constants::UnusedIndex;
+    return o2::its::constants::UnusedIndex;
   }
 };
 

@@ -1,4 +1,4 @@
-// Copyright 2019-2026 CERN and copyright holders of ALICE O2.
+// Copyright 2019-2020 CERN and copyright holders of ALICE O2.
 // See https://alice-o2.web.cern.ch/copyright for details of the copyright holders.
 // All rights not expressly granted are reserved.
 //
@@ -22,7 +22,7 @@
 
 #include "GPUCommonDef.h"
 #include "GPUCommonMath.h"
-#include "ITSMFTTracking/Constants.h"
+#include "ITStracking/Constants.h"
 
 namespace o2::itsmft::tracking
 {
@@ -66,8 +66,8 @@ struct LayerMask {
   }
   GPUhdi() int length() const noexcept { return empty() ? 0 : last() - first() + 1; }
   GPUhdi() int count() const noexcept { return static_cast<int>(o2::gpu::GPUCommonMath::Popcount(mBits)); }
-  GPUhdi() int first() const noexcept { return mBits ? static_cast<int>(o2::gpu::GPUCommonMath::Ctz(mBits)) : constants::UnusedIndex; }
-  GPUhdi() int last() const noexcept { return mBits ? 31 - static_cast<int>(o2::gpu::GPUCommonMath::Clz(mBits)) : constants::UnusedIndex; }
+  GPUhdi() int first() const noexcept { return mBits ? static_cast<int>(o2::gpu::GPUCommonMath::Ctz(mBits)) : o2::its::constants::UnusedIndex; }
+  GPUhdi() int last() const noexcept { return mBits ? 31 - static_cast<int>(o2::gpu::GPUCommonMath::Clz(mBits)) : o2::its::constants::UnusedIndex; }
   GPUhdi() LayerMask holeMask() const noexcept
   {
     return empty() ? LayerMask{0} : (span(first(), last()) & ~(*this));
@@ -76,7 +76,7 @@ struct LayerMask {
   GPUhdi() int slot(int layer) const noexcept
   {
     if (!has(layer)) {
-      return constants::UnusedIndex;
+      return o2::its::constants::UnusedIndex;
     }
     const uint32_t lowerLayers = (uint32_t(1) << layer) - 1;
     return static_cast<int>(o2::gpu::GPUCommonMath::Popcount(static_cast<uint32_t>(mBits) & lowerLayers));
@@ -112,4 +112,4 @@ static_assert(alignof(LayerMask) == alignof(uint16_t));
 
 } // namespace o2::itsmft::tracking
 
-#endif
+#endif /* ALICEO2_ITSMFT_TRACKING_INCLUDE_LAYERMASK_H_ */

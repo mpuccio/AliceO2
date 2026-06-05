@@ -18,12 +18,10 @@
 #include "Framework/Logger.h"
 #include "ITSMFTTracking/TimeFrame.h"
 #include "ITSMFTTracking/IOUtils.h"
-#include "ITSMFTTracking/MathUtils.h"
+#include "ITStracking/MathUtils.h"
 #include "DataFormatsITSMFT/CompCluster.h"
 #include "DataFormatsITSMFT/ROFRecord.h"
 #include "DataFormatsITSMFT/TopologyDictionary.h"
-#include "ITSMFTTracking/BoundedAllocator.h"
-#include "ITSMFTTracking/Constants.h"
 #include "DetectorsCommonDataFormats/DetID.h"
 
 namespace
@@ -41,7 +39,7 @@ void loadClusterForDet(o2::detectors::DetID::ID detId,
                        const o2::itsmft::TopologyDictionary* dict,
                        int& layer,
                        unsigned int& clusterSize,
-                       o2::itsmft::tracking::TrackingFrameInfo& tfInfo)
+                       o2::its::TrackingFrameInfo& tfInfo)
 {
   switch (detId) {
     case o2::detectors::DetID::ITS:
@@ -76,6 +74,9 @@ void configureIndexTableUtils(o2::itsmft::IndexTableUtils<NLayers>& utils,
 namespace o2::itsmft::tracking
 {
 
+using o2::its::clearResizeBoundedVector;
+using o2::its::deepVectorClear;
+namespace math_utils = o2::its::math_utils;
 using o2::itsmft::IndexTableCoordType;
 using o2::itsmft::IterationStep;
 using o2::itsmft::TrackingParameters;

@@ -20,16 +20,21 @@
 #include <numeric>
 #include <gsl/gsl>
 
-#include "ITSMFTTracking/Types.h"
+#include "DataFormatsITS/TrackITS.h"
+#include "DataFormatsITS/Vertex.h"
+
+#include "ITStracking/BoundedAllocator.h"
 #include "ITSMFTTracking/Cell.h"
-#include "ITSMFTTracking/Cluster.h"
+#include "ITStracking/Cluster.h"
+#include "ITStracking/ClusterLines.h"
+#include "ITStracking/ExternalAllocator.h"
+#include "ITStracking/ROFLookupTables.h"
+#include "ITStracking/Tracklet.h"
+
 #include "ITSMFTTracking/Configuration.h"
-#include "ITSMFTTracking/ClusterLines.h"
-#include "ITSMFTTracking/Tracklet.h"
+#include "ITSMFTTracking/Constants.h"
 #include "ITSMFTTracking/IndexTableUtils.h"
-#include "ITSMFTTracking/ExternalAllocator.h"
-#include "ITSMFTTracking/BoundedAllocator.h"
-#include "ITSMFTTracking/ROFLookupTables.h"
+#include "ITSMFTTracking/LayerMask.h"
 #include "ITSMFTTracking/TrackingTopology.h"
 #include "SimulationDataFormat/MCCompLabel.h"
 #include "SimulationDataFormat/MCTruthContainer.h"
@@ -54,14 +59,38 @@ class ROFRecord;
 namespace itsmft::tracking
 {
 
+// Re-use ITS CA tracking data structures; only TimeFrame and index-table I/O are detector-aware.
+using Cluster = o2::its::Cluster;
+using TrackingFrameInfo = o2::its::TrackingFrameInfo;
+using CellSeed = o2::itsmft::tracking::CellSeed;
+using Tracklet = o2::its::Tracklet;
+using LayerMask = o2::itsmft::tracking::LayerMask;
+using BoundedMemoryResource = o2::its::BoundedMemoryResource;
+template <typename T>
+using bounded_vector = o2::its::bounded_vector<T>;
+using ExternalAllocator = o2::its::ExternalAllocator;
+using Line = o2::its::Line;
+using ClusterLines = o2::its::ClusterLines;
+using Vertex = o2::its::Vertex;
+using VertexLabel = o2::its::VertexLabel;
+using TrackITSExt = o2::its::TrackITSExt;
+
+namespace constants
+{
+using namespace o2::its::constants;
+using o2::itsmft::tracking::constants::ITSNLayers;
+using o2::itsmft::tracking::constants::MFTNLayers;
+using o2::itsmft::tracking::constants::nLayersForDet;
+} // namespace constants
+
 template <int NLayers>
 struct TimeFrame {
-  using IndexTableUtilsN = IndexTableUtils<NLayers>;
-  using ROFOverlapTableN = ROFOverlapTable<NLayers>;
-  using ROFVertexLookupTableN = ROFVertexLookupTable<NLayers>;
-  using ROFMaskTableN = ROFMaskTable<NLayers>;
-  using TrackingTopologyN = TrackingTopology<NLayers>;
-  using TrackSeedN = TrackSeed<NLayers>;
+  using IndexTableUtilsN = o2::itsmft::IndexTableUtils<NLayers>;
+  using ROFOverlapTableN = o2::its::ROFOverlapTable<NLayers>;
+  using ROFVertexLookupTableN = o2::its::ROFVertexLookupTable<NLayers>;
+  using ROFMaskTableN = o2::its::ROFMaskTable<NLayers>;
+  using TrackingTopologyN = o2::itsmft::tracking::TrackingTopology<NLayers>;
+  using TrackSeedN = o2::itsmft::tracking::TrackSeed<NLayers>;
 
   TimeFrame() = default;
   virtual ~TimeFrame() = default;

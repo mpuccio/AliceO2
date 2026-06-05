@@ -14,8 +14,8 @@
 ///
 
 #include "ITSMFTTracking/IOUtils.h"
-#include "ITSMFTTracking/Cluster.h"
 #include "ITSMFTTracking/TrackingConfigParam.h"
+#include "ITStracking/Cluster.h"
 
 #include "Framework/Logger.h"
 #include "ITSBase/GeometryTGeo.h"
@@ -46,7 +46,7 @@ void loadClusterTrackingFrameInfoImpl(GeomT* geom,
                                       const o2::itsmft::TopologyDictionary* dict,
                                       int& layer,
                                       unsigned int& clusterSize,
-                                      o2::itsmft::tracking::TrackingFrameInfo& tfInfo,
+                                      o2::its::TrackingFrameInfo& tfInfo,
                                       bool applySysErrors)
 {
   const auto sensorID = c.getSensorID();
@@ -66,14 +66,14 @@ void loadClusterTrackingFrameInfoImpl(GeomT* geom,
   if constexpr (DetId == o2::detectors::DetID::ITS) {
     const auto trkXYZ = geom->getMatrixT2L(sensorID) ^ locXYZ;
     const auto gloXYZ = geom->getMatrixL2G(sensorID) * locXYZ;
-    tfInfo = o2::itsmft::tracking::TrackingFrameInfo{
+    tfInfo = o2::its::TrackingFrameInfo{
       gloXYZ.x(), gloXYZ.y(), gloXYZ.z(), trkXYZ.x(), geom->getSensorRefAlpha(sensorID),
       std::array<float, 2>{trkXYZ.y(), trkXYZ.z()},
       std::array<float, 3>{sigma2Row, 0.f, sigma2Col}};
   } else {
     const auto gloXYZ = geom->getMatrixL2G(sensorID) * locXYZ;
     // ALPIDE row (local X) -> global X, column (local Z) -> global Y
-    tfInfo = o2::itsmft::tracking::TrackingFrameInfo{
+    tfInfo = o2::its::TrackingFrameInfo{
       gloXYZ.x(), gloXYZ.y(), gloXYZ.z(), gloXYZ.x(), 0.f,
       std::array<float, 2>{gloXYZ.y(), gloXYZ.z()},
       std::array<float, 3>{sigma2Row, 0.f, sigma2Col}};
@@ -144,7 +144,7 @@ void loadClusterTrackingFrameInfo(const CompClusterExt& c,
                                   const TopologyDictionary* dict,
                                   int& layer,
                                   unsigned int& clusterSize,
-                                  tracking::TrackingFrameInfo& tfInfo,
+                                  o2::its::TrackingFrameInfo& tfInfo,
                                   bool applySysErrors)
 {
   if constexpr (DetId == o2::detectors::DetID::ITS) {
@@ -159,7 +159,7 @@ template void loadClusterTrackingFrameInfo<o2::detectors::DetID::ITS>(const Comp
                                                                       const TopologyDictionary* dict,
                                                                       int& layer,
                                                                       unsigned int& clusterSize,
-                                                                      tracking::TrackingFrameInfo& tfInfo,
+                                                                      o2::its::TrackingFrameInfo& tfInfo,
                                                                       bool applySysErrors);
 
 template void loadClusterTrackingFrameInfo<o2::detectors::DetID::MFT>(const CompClusterExt& c,
@@ -167,7 +167,7 @@ template void loadClusterTrackingFrameInfo<o2::detectors::DetID::MFT>(const Comp
                                                                       const TopologyDictionary* dict,
                                                                       int& layer,
                                                                       unsigned int& clusterSize,
-                                                                      tracking::TrackingFrameInfo& tfInfo,
+                                                                      o2::its::TrackingFrameInfo& tfInfo,
                                                                       bool applySysErrors);
 
 template <o2::detectors::DetID::ID DetId>

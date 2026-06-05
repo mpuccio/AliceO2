@@ -23,11 +23,6 @@
 namespace o2::itsmft
 {
 
-namespace tracking_constants
-{
-constexpr int MaxIter = 4;
-} // namespace tracking_constants
-
 /// ITS vertexer settings (not used for MFT)
 struct VertexerParamConfig : public o2::conf::ConfigurableParamHelper<VertexerParamConfig> {
   bool saveTimeBenchmarks = false; // dump metrics on file
@@ -90,11 +85,11 @@ struct TrackerParamConfig : public o2::conf::ConfigurableParamHelper<TrackerPara
   bool useMatCorrTGeo = false;                                                         // use full geometry to corect for material budget accounting in the fits. Default is to use the material budget LUT.
   bool useFastMaterial = false;                                                        // use faster material approximation for material budget accounting in the fits.
   int addTimeError[getNLayers()] = {0};                                                // configure the width of the window in BC to be considered for the tracking.
-  int minTrackLgtIter[tracking_constants::MaxIter] = {};                               // minimum track length at each iteration, used only if >0, otherwise use code defaults
-  uint8_t startLayerMask[tracking_constants::MaxIter] = {};                            // mask of start layer for this iteration (if >0)
-  int maxHolesIter[tracking_constants::MaxIter] = {};                                  // maximum number of missing internal layers allowed in the CA topology for each iteration
-  uint16_t holeLayerMaskIter[tracking_constants::MaxIter] = {};                          // layers that may be skipped by the CA topology for each iteration
-  float minPtIterLgt[tracking_constants::MaxIter * (MaxTrackLength - MinTrackLength + 1)] = {}; // min.pT for given track length at this iteration, used only if >0, otherwise use code defaults
+  int minTrackLgtIter[tracking::constants::MaxIter] = {};                               // minimum track length at each iteration, used only if >0, otherwise use code defaults
+  uint8_t startLayerMask[tracking::constants::MaxIter] = {};                            // mask of start layer for this iteration (if >0)
+  int maxHolesIter[tracking::constants::MaxIter] = {};                                  // maximum number of missing internal layers allowed in the CA topology for each iteration
+  uint16_t holeLayerMaskIter[tracking::constants::MaxIter] = {};                          // layers that may be skipped by the CA topology for each iteration
+  float minPtIterLgt[tracking::constants::MaxIter * (MaxTrackLength - MinTrackLength + 1)] = {}; // min.pT for given track length at this iteration, used only if >0, otherwise use code defaults
   float sysErr2Row[getNLayers()] = {0}; // systematic error^2 along ALPIDE rows (local X) per layer
   float sysErr2Col[getNLayers()] = {0}; // systematic error^2 along ALPIDE columns (local Z) per layer
   float maxChi2ClusterAttachment = -1.f;
@@ -112,7 +107,7 @@ struct TrackerParamConfig : public o2::conf::ConfigurableParamHelper<TrackerPara
   bool overrideBeamEstimation = false;     // use beam position from meanVertex CCDB object
   int trackingMode = -1;                   // -1: unset, 0=sync, 1=async, 2=cosmics used by gpuwf only
   bool doUPCIteration = false;             // Perform an additional iteration for UPC events on tagged vertices. You want to combine this config with VertexerParamConfig.nIterations=2
-  int nIterations = tracking_constants::MaxIter;                                       // overwrite the number of iterations
+  int nIterations = tracking::constants::MaxIter;                                       // overwrite the number of iterations
   int reseedIfShorter = 6;                 // for the final refit reseed the track with circle if they are shorter than this value
   bool shiftRefToCluster{true};            // TrackFit: after update shift the linearization reference to cluster
   bool repeatRefitOut{false};              // repeat outward refit using inward refit as a seed
