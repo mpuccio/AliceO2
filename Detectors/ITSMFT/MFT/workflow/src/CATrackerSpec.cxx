@@ -13,26 +13,24 @@
 
 #include "MFTWorkflow/CATrackerSpec.h"
 
+#include <numeric>
 #include <vector>
 
 #include <gsl/span>
 
-#include "CommonConstants/LHCConstants.h"
 #include "CommonDataFormat/IRFrame.h"
 #include "DataFormatsITSMFT/CompCluster.h"
-#include "DataFormatsITSMFT/DPLAlpideParam.h"
 #include "DataFormatsITSMFT/ROFRecord.h"
 #include "DataFormatsITSMFT/TopologyDictionary.h"
-#include "DataFormatsParameters/GRPObject.h"
+#include "DataFormatsMFT/TrackMFT.h"
 #include "DetectorsBase/GeometryManager.h"
-#include "DetectorsCommonDataFormats/DetectorNameConf.h"
 #include "Framework/CCDBParamSpec.h"
-#include "Framework/ConfigParamRegistry.h"
-#include "Framework/ControlService.h"
 #include "Framework/DataProcessorSpec.h"
-#include "Framework/DeviceSpec.h"
 #include "Framework/Logger.h"
+#include "ITSMFTTracking/MFTCATrack.h"
 #include "MFTBase/GeometryTGeo.h"
+#include "MFTTracking/Constants.h"
+#include "MFTTracking/MFTTrackingParam.h"
 #include "SimulationDataFormat/MCCompLabel.h"
 #include "SimulationDataFormat/MCTruthContainer.h"
 
@@ -40,6 +38,74 @@ using namespace o2::framework;
 
 namespace o2::mft
 {
+
+static_assert(o2::itsmft::tracking::ITSMFTTrackingInterfaceMFT::DetId == o2::detectors::DetID::MFT);
+static_assert(o2::itsmft::tracking::constants::MFTNLayers == o2::mft::constants::mft::LayersNumber);
+
+namespace
+{
+template <typename TracksVec, typename ClusterIdxVec, typename ROFVec, typename LabelsVec>
+void fillMFTOutputs(const o2::itsmft::tracking::TimeFrameMFT& tf,
+                    gsl::span<const o2::itsmft::ROFRecord> inputROFs,
+                    TracksVec& tracks,
+                    ClusterIdxVec& clusterIndices,
+                    ROFVec& trackROFs,
+                    LabelsVec& trackLabels,
+                    bool useMC)
+{
+  trackROFs.assign(inputROFs.begin(), inputROFs.end());
+  for (auto& rof : trackROFs) {
+    rof.setFirstEntry(0);
+    rof.setNEntries(0);
+  }
+
+  const auto& tracksIn = tf.getTracks();
+  tracks.reserve(tracksIn.size());
+  if (useMC) {
+    trackLabels.reserve(tracksIn.size());
+  }
+
+  const auto& clockLayer = tf.getROFOverlapTableView().getClockLayer();
+  std::vector<int> rofEntries(trackROFs.size() + 1, 0);
+
+  for (size_t iTrk = 0; iTrk < tracksIn.size(); ++iTrk) {
+    const auto& src = tracksIn[iTrk];
+    auto dst = src.getTrack();
+    dst.setExternalClusterIndexOffset(clusterIndices.size());
+    int nPoints = 0;
+    for (int layer = o2::itsmft::tracking::MFTCATrack::MaxClusters; layer--;) {
+      if (!src.hasHitOnLayer(layer)) {
+        continue;
+      }
+      const int extIdx = src.getClusterIndex(layer);
+      if (extIdx < 0) {
+        continue;
+      }
+      const int clsSize = src.getClusterSize(layer);
+      dst.setClusterSize(layer, clsSize > 0 ? clsSize : tf.getClusterSize(0, extIdx));
+      clusterIndices.push_back(extIdx);
+      ++nPoints;
+    }
+    dst.setNumberOfPoints(nPoints);
+    tracks.push_back(dst);
+
+    if (useMC && iTrk < tf.getTracksLabel().size()) {
+      trackLabels.push_back(tf.getTracksLabel()[iTrk]);
+    }
+
+    const auto rof = clockLayer.getROF(src.getTimeStamp());
+    if (rof >= 0 && rof < static_cast<int>(trackROFs.size())) {
+      ++rofEntries[rof];
+    }
+  }
+
+  std::exclusive_scan(rofEntries.begin(), rofEntries.end(), rofEntries.begin(), 0);
+  for (size_t iROF = 0; iROF < trackROFs.size(); ++iROF) {
+    trackROFs[iROF].setFirstEntry(rofEntries[iROF]);
+    trackROFs[iROF].setNEntries(rofEntries[iROF + 1] - rofEntries[iROF]);
+  }
+}
+} // namespace
 
 void CATrackerDPL::init(InitContext&)
 {
@@ -50,37 +116,64 @@ void CATrackerDPL::run(ProcessingContext& pc)
 {
   updateTimeDependentParams(pc);
 
+  auto rofsinput = pc.inputs().get<const std::vector<o2::itsmft::ROFRecord>>("ROframes");
+  auto& trackROFs = pc.outputs().make<std::vector<o2::itsmft::ROFRecord>>(Output{"MFT", "MFTTrackROF", 0},
+                                                                           rofsinput.begin(), rofsinput.end());
+  auto& allTracksMFT = pc.outputs().make<std::vector<o2::mft::TrackMFT>>(Output{"MFT", "TRACKS", 0});
+  auto& allClusIdx = pc.outputs().make<std::vector<int>>(Output{"MFT", "TRACKCLSID", 0});
+  std::vector<o2::MCCompLabel> allTrackLabels;
+
+  if (!mTracking.isActive()) {
+    return;
+  }
+
   auto compClusters = pc.inputs().get<const std::vector<o2::itsmft::CompClusterExt>>("compClusters");
   gsl::span<const unsigned char> patterns = pc.inputs().get<gsl::span<unsigned char>>("patterns");
-  auto rofs = pc.inputs().get<const std::vector<o2::itsmft::ROFRecord>>("ROframes");
-  initialiseROFTable(gsl::span<const o2::itsmft::ROFRecord>(rofs.data(), rofs.size()));
 
   const dataformats::MCTruthContainer<MCCompLabel>* labels = nullptr;
-  if (mUseMC) {
+  if (mUseMC && pc.inputs().getPos("labels") >= 0) {
     labels = pc.inputs().get<const dataformats::MCTruthContainer<MCCompLabel>*>("labels").release();
   }
 
-  LOGP(info, "MFT CA input pulled {} compressed clusters, {} pattern bytes, {} RO frames, dictionary={}, MC labels={}",
-       compClusters.size(), patterns.size(), rofs.size(), mDict != nullptr, labels != nullptr);
-
-  size_t nClusterRefs = 0;
-  for (const auto& rof : rofs) {
-    nClusterRefs += rof.getNEntries();
-  }
-  LOGP(info, "MFT CA input ROF cluster references: {}", nClusterRefs);
-
+  gsl::span<const o2::dataformats::IRFrame> irFrames;
   if (pc.inputs().getPos("IRFramesITS") >= 0) {
-    auto irFrames = pc.inputs().get<gsl::span<o2::dataformats::IRFrame>>("IRFramesITS");
-    LOGP(info, "MFT CA input pulled {} ITS IR frames", irFrames.size());
+    irFrames = pc.inputs().get<gsl::span<o2::dataformats::IRFrame>>("IRFramesITS");
   }
 
-  // Next step: replace this inspection point with a loader into a generalized
-  // ITS TimeFrame interface that accepts MFT layer geometry and cluster data.
+  LOGP(info, "MFT CA input pulled {} compressed clusters in {} RO frames ({} pattern bytes)",
+       compClusters.size(), rofsinput.size(), patterns.size());
+
+  mTracking.processTimeFrame(gsl::span<const o2::itsmft::ROFRecord>(rofsinput.data(), rofsinput.size()),
+                             gsl::span<const o2::itsmft::CompClusterExt>(compClusters.data(), compClusters.size()),
+                             patterns,
+                             labels,
+                             irFrames);
+
+  fillMFTOutputs(mTracking.getTimeFrame(),
+                 gsl::span<const o2::itsmft::ROFRecord>(rofsinput.data(), rofsinput.size()),
+                 allTracksMFT,
+                 allClusIdx,
+                 trackROFs,
+                 allTrackLabels,
+                 mUseMC);
+
+  LOGP(info, "MFT CA pushed {} tracks in {} ROFs", allTracksMFT.size(), trackROFs.size());
+
+  if (mUseMC) {
+    pc.outputs().snapshot(Output{"MFT", "TRACKSMCTR", 0}, allTrackLabels);
+    LOGP(info, "MFT CA pushed {} track MC labels", allTrackLabels.size());
+  }
+
+  mTracking.clearTimeFrame();
 }
 
 void CATrackerDPL::updateTimeDependentParams(ProcessingContext& pc)
 {
   o2::base::GRPGeomHelper::instance().checkUpdates(pc);
+  if (!mTrackingInitialised) {
+    mTrackingInitialised = true;
+    mTracking.initialise();
+  }
   static bool initOnceDone = false;
   if (!initOnceDone) {
     initOnceDone = true;
@@ -90,41 +183,9 @@ void CATrackerDPL::updateTimeDependentParams(ProcessingContext& pc)
     pc.inputs().get<o2::itsmft::TopologyDictionary*>("cldict");
     o2::mft::GeometryTGeo::Instance()->fillMatrixCache(o2::math_utils::bit2Mask(o2::math_utils::TransformType::T2L,
                                                                                  o2::math_utils::TransformType::T2GRot,
-                                                                                 o2::math_utils::TransformType::T2G));
+                                                                                 o2::math_utils::TransformType::T2G,
+                                                                                 o2::math_utils::TransformType::L2G));
   }
-}
-
-void CATrackerDPL::initialiseROFTable(gsl::span<const o2::itsmft::ROFRecord> rofs)
-{
-  if (!o2::base::GRPGeomHelper::instance().getGRPECS()->isDetContinuousReadOut(o2::detectors::DetID::MFT)) {
-    LOGP(fatal, "MFT CA tracker currently supports only continuous readout");
-  }
-
-  const auto& par = o2::itsmft::DPLAlpideParam<o2::detectors::DetID::MFT>::Instance();
-  const int nOrbitsPerTF = o2::base::GRPGeomHelper::getNHBFPerTF();
-  const int timingSourceLayer = 0; // MFT CA disks share timing for now; keep per-CA-layer definition for future staggering.
-  const unsigned int nROFsPerOrbit = o2::constants::lhc::LHCMaxBunches / par.getROFLengthInBC(timingSourceLayer);
-  const auto nROFsTF = nROFsPerOrbit * nOrbitsPerTF;
-
-  ROFOverlapTable rofTable;
-  for (int caLayer = 0; caLayer < NCALayers; ++caLayer) {
-    const o2::its::LayerTiming timing{
-      .mNROFsTF = nROFsTF,
-      .mROFLength = static_cast<uint32_t>(par.getROFLengthInBC(timingSourceLayer)),
-      .mROFDelay = static_cast<uint32_t>(par.getROFDelayInBC(timingSourceLayer)),
-      .mROFBias = static_cast<uint32_t>(par.getROFBiasInBC(timingSourceLayer)),
-      .mROFAddTimeErr = 0};
-    rofTable.defineLayer(caLayer, timing);
-  }
-  rofTable.init();
-  mROFTable = std::move(rofTable);
-  mROFTableView = mROFTable.getView();
-
-  if (rofs.size() != nROFsTF) {
-    LOGP(warn, "MFT CA ROF count differs from continuous timing expectation: received {} expected {}", rofs.size(), nROFsTF);
-  }
-  LOGP(info, "MFT CA ROF lookup table initialised for {} CA layers, {} ROFs/TF, ROF length {} BC, bias {} BC",
-       NCALayers, nROFsTF, par.getROFLengthInBC(timingSourceLayer), par.getROFBiasInBC(timingSourceLayer));
 }
 
 void CATrackerDPL::finaliseCCDB(ConcreteDataMatcher& matcher, void* obj)
@@ -134,17 +195,21 @@ void CATrackerDPL::finaliseCCDB(ConcreteDataMatcher& matcher, void* obj)
   }
   if (matcher == ConcreteDataMatcher("MFT", "CLUSDICT", 0)) {
     LOG(info) << "MFT CA input cluster dictionary updated";
-    mDict = static_cast<const o2::itsmft::TopologyDictionary*>(obj);
+    mTracking.setClusterDictionary(static_cast<const o2::itsmft::TopologyDictionary*>(obj));
     return;
   }
   if (matcher == ConcreteDataMatcher("MFT", "GEOMTGEO", 0)) {
     LOG(info) << "MFT CA input GeometryTGeo loaded from CCDB";
     o2::mft::GeometryTGeo::adopt(static_cast<o2::mft::GeometryTGeo*>(obj));
+    o2::mft::GeometryTGeo::Instance()->fillMatrixCache(o2::math_utils::bit2Mask(o2::math_utils::TransformType::T2L,
+                                                                               o2::math_utils::TransformType::T2GRot,
+                                                                               o2::math_utils::TransformType::T2G,
+                                                                               o2::math_utils::TransformType::L2G));
     return;
   }
 }
 
-DataProcessorSpec getCATrackerSpec(bool useMC, bool useGeom, bool useIRFrames)
+DataProcessorSpec getCATrackerSpec(bool useMC, bool useGeom, bool useIRFrames, o2::itsmft::TrackingMode::Type trMode)
 {
   std::vector<InputSpec> inputs;
   inputs.emplace_back("compClusters", "MFT", "COMPCLUSTERS", 0, Lifetime::Timeframe);
@@ -155,27 +220,37 @@ DataProcessorSpec getCATrackerSpec(bool useMC, bool useGeom, bool useIRFrames)
   if (useMC) {
     inputs.emplace_back("labels", "MFT", "CLUSTERSMCTR", 0, Lifetime::Timeframe);
   }
-  if (useIRFrames) {
+
+  const auto& trackingParam = MFTTrackingParam::Instance();
+  if (useIRFrames || trackingParam.irFramesOnly) {
     inputs.emplace_back("IRFramesITS", "ITS", "IRFRAMES", 0, Lifetime::Timeframe);
   }
 
-  auto ggRequest = std::make_shared<o2::base::GRPGeomRequest>(false,                                                                        // orbitResetTime
-                                                              true,                                                                         // GRPECS=true
-                                                              false,                                                                        // GRPLHCIF
-                                                              true,                                                                         // GRPMagField
-                                                              false,                                                                        // askMatLUT
-                                                              useGeom ? o2::base::GRPGeomRequest::Aligned : o2::base::GRPGeomRequest::None, // geometry
+  auto ggRequest = std::make_shared<o2::base::GRPGeomRequest>(false,
+                                                              true,
+                                                              false,
+                                                              true,
+                                                              true,
+                                                              useGeom ? o2::base::GRPGeomRequest::Aligned : o2::base::GRPGeomRequest::None,
                                                               inputs,
                                                               true);
   if (!useGeom) {
     ggRequest->addInput({"mftTGeo", "MFT", "GEOMTGEO", 0, Lifetime::Condition, framework::ccdbParamSpec("MFT/Config/Geometry")}, inputs);
   }
 
+  std::vector<OutputSpec> outputs;
+  outputs.emplace_back("MFT", "TRACKS", 0, Lifetime::Timeframe);
+  outputs.emplace_back("MFT", "MFTTrackROF", 0, Lifetime::Timeframe);
+  outputs.emplace_back("MFT", "TRACKCLSID", 0, Lifetime::Timeframe);
+  if (useMC) {
+    outputs.emplace_back("MFT", "TRACKSMCTR", 0, Lifetime::Timeframe);
+  }
+
   return DataProcessorSpec{
     "mft-ca-tracker",
     inputs,
-    {},
-    AlgorithmSpec{adaptFromTask<CATrackerDPL>(ggRequest, useMC)},
+    outputs,
+    AlgorithmSpec{adaptFromTask<CATrackerDPL>(ggRequest, useMC, trMode)},
     Options{}};
 }
 

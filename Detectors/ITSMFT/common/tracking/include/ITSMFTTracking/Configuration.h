@@ -20,12 +20,15 @@
 #ifndef GPUCA_GPUCODE_DEVICE
 #include <limits>
 #include <string>
+#include <string_view>
 #include <vector>
 #endif
 
 #include "CommonUtils/EnumFlags.h"
 #include "DetectorsBase/Propagator.h"
+#include "DetectorsCommonDataFormats/DetID.h"
 #include "ITSMFTTracking/Constants.h"
+#include "ITSMFTTracking/LayerMask.h"
 
 namespace o2::itsmft
 {
@@ -68,8 +71,8 @@ struct TrackingParameters {
   std::vector<float> LayerResolution = {5.e-4f, 5.e-4f, 5.e-4f, 5.e-4f, 5.e-4f, 5.e-4f, 5.e-4f};
   std::vector<float> SystError2Row = {0.f, 0.f, 0.f, 0.f, 0.f, 0.f, 0.f}; // systematic error^2 along local row (ALPIDE X) per layer
   std::vector<float> SystError2Col = {0.f, 0.f, 0.f, 0.f, 0.f, 0.f, 0.f}; // systematic error^2 along local column (ALPIDE Z) per layer
-  int ColBins{256};
-  int RowBins{128};
+  int ColBins{256}; // ITS: ZBins
+  int RowBins{128}; // ITS: PhiBins
   bool UseDiamond = false;
   float Diamond[3] = {0.f, 0.f, 0.f};
   float DiamondCov[6] = {25.e-6f, 0.f, 0.f, 25.e-6f, 0.f, 36.f};
@@ -77,20 +80,23 @@ struct TrackingParameters {
   /// General parameters
   int MinTrackLength = 7;
   int MaxHoles = 0;
-  uint16_t HoleLayerMask = 0;
+  tracking::LayerMask HoleLayerMask = 0;
   float NSigmaCut = 5;
   float PVres = 1.e-2f;
   /// Trackleting cuts
   float TrackletMinPt = 0.3f;
   /// Cell finding cuts
   float CellDeltaTanLambdaSigma = 0.007f;
+  float CellRoadRCut = 0.05f; // MFT: max distance to seed line (classic ROADclsRCut)
+  float TrackletMinAbsX = 0.f; // MFT: reject clusters/tracks with |x| below this (cm); 0 = disabled
+  bool PrintHemisphereStats = false; // MFT debug: log x<0 vs x>0 counts per stage
   /// Fitter parameters
   o2::base::PropagatorImpl<float>::MatCorrType CorrType = o2::base::PropagatorImpl<float>::MatCorrType::USEMatCorrNONE;
   float MaxChi2ClusterAttachment = 60.f;
   float MaxChi2NDF = 30.f;
   int ReseedIfShorter = 6; // reseed for the final fit track with the length shorter than this
   std::vector<float> MinPt = {0.f, 0.f, 0.f, 0.f};
-  uint32_t StartLayerMask = 0x7F;
+  tracking::LayerMask StartLayerMask = 0x7F;
   bool RepeatRefitOut = false;   // repeat outward refit using inward refit as a seed
   bool ShiftRefToCluster = true; // TrackFit: after update shift the linearization reference to cluster
   bool PerPrimaryVertexProcessing = false;
@@ -109,6 +115,25 @@ struct TrackingParameters {
   bool SharedClusterOppositeSign = false; // For tracks sharing clusters, require opposite sign of the tracklets
   int SharedMaxClusters = 0;              // Maximal allowed shared clusters (excluding first cluster)
 };
+
+/// Reset tracking parameters to detector geometry defaults (ITS: struct defaults; MFT: MFTTracking/Constants.h).
+void resetDetectorDefaults(TrackingParameters& params, o2::detectors::DetID::ID detId);
+
+namespace TrackingMode
+{
+enum Type : int8_t {
+  Unset = -1,
+  Sync = 0,
+  Async = 1,
+  Cosmics = 2,
+  Off = 3,
+};
+
+Type fromString(std::string_view str);
+std::string toString(Type mode);
+std::vector<TrackingParameters> getTrackingParameters(o2::detectors::DetID::ID detId, Type mode);
+
+} // namespace TrackingMode
 
 struct VertexingParameters {
   std::string asString() const;

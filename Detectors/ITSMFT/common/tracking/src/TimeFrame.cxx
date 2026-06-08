@@ -16,8 +16,9 @@
 #include <numeric>
 
 #include "Framework/Logger.h"
-#include "ITSMFTTracking/TimeFrame.h"
+#include "ITSMFTTracking/DetectorTraits.h"
 #include "ITSMFTTracking/IOUtils.h"
+#include "ITSMFTTracking/TimeFrame.h"
 #include "ITStracking/MathUtils.h"
 #include "DataFormatsITSMFT/CompCluster.h"
 #include "DataFormatsITSMFT/ROFRecord.h"
@@ -32,43 +33,6 @@ struct ClusterHelper {
   int bin;
   int ind;
 };
-
-void loadClusterForDet(o2::detectors::DetID::ID detId,
-                       const o2::itsmft::CompClusterExt& cluster,
-                       gsl::span<const unsigned char>::iterator& pattIt,
-                       const o2::itsmft::TopologyDictionary* dict,
-                       int& layer,
-                       unsigned int& clusterSize,
-                       o2::its::TrackingFrameInfo& tfInfo)
-{
-  switch (detId) {
-    case o2::detectors::DetID::ITS:
-      o2::itsmft::ioutils::loadClusterTrackingFrameInfo<o2::detectors::DetID::ITS>(cluster, pattIt, dict, layer, clusterSize, tfInfo);
-      break;
-    case o2::detectors::DetID::MFT:
-      o2::itsmft::ioutils::loadClusterTrackingFrameInfo<o2::detectors::DetID::MFT>(cluster, pattIt, dict, layer, clusterSize, tfInfo);
-      break;
-    default:
-      LOGP(fatal, "Unsupported detector id {} in loadROFrameData", static_cast<int>(detId));
-  }
-}
-
-template <int NLayers>
-void configureIndexTableUtils(o2::itsmft::IndexTableUtils<NLayers>& utils,
-                              o2::detectors::DetID::ID detId,
-                              const o2::itsmft::TrackingParameters& params)
-{
-  if (detId == o2::detectors::DetID::MFT) {
-    constexpr float defaultYMin{-20.f};
-    constexpr float defaultYMax{20.f};
-    const bool hasRowRange = params.IndexRowMax != 0.f;
-    const float rowMin = hasRowRange ? params.IndexRowMin : defaultYMin;
-    const float rowMax = hasRowRange ? params.IndexRowMax : defaultYMax;
-    utils.setTrackingParametersXY(params, rowMin, rowMax);
-  } else {
-    utils.setTrackingParameters(params);
-  }
-}
 } // namespace
 
 namespace o2::itsmft::tracking
@@ -125,7 +89,11 @@ void TimeFrame<NLayers>::loadROFrameData(gsl::span<const o2::itsmft::ROFRecord> 
       int lay{0};
       unsigned int clusterSize{0};
       TrackingFrameInfo tfInfo;
-      loadClusterForDet(detId, c, pattIt, dict, lay, clusterSize, tfInfo);
+      if (detId == o2::detectors::DetID::MFT) {
+        o2::itsmft::ioutils::loadClusterTrackingFrameInfo<o2::detectors::DetID::MFT>(c, pattIt, dict, lay, clusterSize, tfInfo);
+      } else {
+        o2::itsmft::ioutils::loadClusterTrackingFrameInfo<o2::detectors::DetID::ITS>(c, pattIt, dict, lay, clusterSize, tfInfo);
+      }
       mClusterSize[layer >= 0 ? layer : 0][clusterId] = std::clamp(clusterSize, 0u, 255u);
       addTrackingFrameInfoToLayer(lay, tfInfo);
       addClusterToLayer(lay, tfInfo.xCoordinate, tfInfo.yCoordinate, tfInfo.zCoordinate, mUnsortedClusters[lay].size());
@@ -296,7 +264,7 @@ void TimeFrame<NLayers>::initialise(const TrackingParameters& trkParam, const in
       deepVectorClear(mPrimaryVerticesLabels);
     }
     clearResizeBoundedVector(mLinesLabels, getNrof(1), mMemoryPool.get());
-    configureIndexTableUtils(mIndexTableUtils, mDetId, trkParam);
+    DetectorTraits<NLayers>::configureIndexTableUtils(mIndexTableUtils, trkParam);
     clearResizeBoundedVector(mPositionResolution, trkParam.NLayers, mMemoryPool.get());
     clearResizeBoundedVector(mBogusClusters, trkParam.NLayers, mMemoryPool.get());
     deepVectorClear(mTrackletClusters);

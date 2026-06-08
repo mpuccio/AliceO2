@@ -22,6 +22,8 @@
 #include "GPUCommonMath.h"
 #include "GPUCommonDef.h"
 #include "ITSMFTTracking/Configuration.h"
+#include "ITStracking/Cluster.h"
+#include "MFTTracking/Constants.h"
 
 namespace o2::itsmft
 {
@@ -195,6 +197,32 @@ GPUhdi() int4 getBinsXY(float x, float y, const int layerIndex,
               o2::gpu::GPUCommonMath::Max(0, utils.getRowBinIndex(rowRangeMin)),
               o2::gpu::GPUCommonMath::Min(utils.getNcolBins() - 1, utils.getColBinIndex(layerIndex, colRangeMax)),
               utils.getRowBinIndex(rowRangeMax)};
+}
+
+/// MFT cone projection from one half-layer to another (used for x-y index-table lookup only).
+template <int nLayers>
+GPUhdi() void mftConeProject(const o2::its::Cluster& cluster, int fromLayer, int toLayer, float& xProj, float& yProj)
+{
+  const auto& layerZ = o2::mft::constants::mft::LayerZCoordinate();
+  const auto& invLayerZ = o2::mft::constants::mft::InverseLayerZCoordinate();
+  const float scale = (layerZ[toLayer] - layerZ[fromLayer]) * invLayerZ[fromLayer];
+  xProj = cluster.xCoordinate * (1.f + scale);
+  yProj = cluster.yCoordinate * (1.f + scale);
+}
+
+/// Cluster-driven LUT window: phi-z for ITS, cone-projected x-y for MFT.
+template <int nLayers>
+GPUhdi() int4 getBinsRectCluster(const o2::its::Cluster& cluster, int fromLayer, int toLayer,
+                                 float colRangeMin, float colRangeMax, float maxDeltaCol, float maxDeltaRow,
+                                 const IndexTableUtils<nLayers>& utils)
+{
+  if (utils.getCoordType() == IndexTableCoordType::XY) {
+    float xProj = 0.f;
+    float yProj = 0.f;
+    mftConeProject<nLayers>(cluster, fromLayer, toLayer, xProj, yProj);
+    return getBinsXY(xProj, yProj, toLayer, xProj, xProj, maxDeltaCol, maxDeltaRow, utils);
+  }
+  return getBinsPhiZ(cluster.phi, toLayer, colRangeMin, colRangeMax, maxDeltaCol, maxDeltaRow, utils);
 }
 
 } // namespace o2::itsmft
