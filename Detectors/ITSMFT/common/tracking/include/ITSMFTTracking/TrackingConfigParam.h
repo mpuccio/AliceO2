@@ -23,7 +23,8 @@
 namespace o2::itsmft
 {
 
-/// ITS vertexer settings (not used for MFT)
+/// ITS vertexer settings (header only for now; not registered or used while ITS
+/// tracking stays on O2::ITStracking)
 struct VertexerParamConfig : public o2::conf::ConfigurableParamHelper<VertexerParamConfig> {
   bool saveTimeBenchmarks = false; // dump metrics on file
 
@@ -98,16 +99,16 @@ struct TrackerParamConfig : public o2::conf::ConfigurableParamHelper<TrackerPara
   float deltaTanLres = -1.f;
   float minPt = -1.f;
   float pvRes = -1.f;
-  int LUTbinsU = -1; // number of LUT bins along the first coordinate (ITS: phi, MFT: global x)
-  int LUTbinsV = -1; // number of LUT bins along the second coordinate (ITS: z, MFT: global y)
-  float diamondPos[3] = {0.f, 0.f, 0.f};   // override the position of the vertex
-  bool useDiamond = false;                 // enable overriding the vertex position
+  int LUTbinsU = N == o2::detectors::DetID::MFT ? 64 : -1; // number of LUT bins along the first coordinate (ITS: phi, MFT: global x)
+  int LUTbinsV = N == o2::detectors::DetID::MFT ? 128 : -1; // number of LUT bins along the second coordinate (ITS: z, MFT: global y)
+  float diamondPos[3] = {0.f, 0.f, 0.f};   // diamond vertex position (MFT CA tracklet seed; ITS when useDiamond)
+  bool useDiamond = N == o2::detectors::DetID::MFT; // MFT CA: always diamond; ITS: opt-in via param
   bool perPrimaryVertexProcessing = false; // perform the full tracking considering the vertex hypotheses one at the time.
   bool saveTimeBenchmarks = false;         // dump metrics on file
-  bool overrideBeamEstimation = false;     // use beam position from meanVertex CCDB object
-  int trackingMode = -1;                   // -1: unset, 0=sync, 1=async, 2=cosmics used by gpuwf only
+  bool overrideBeamEstimation = false;     // ITS only: meanVertex CCDB beam seed (MFT CA always uses diamond)
+  int trackingMode = -1; // -1: unset (use --tracking-mode), 0=sync, 1=async, 2=cosmics
   bool doUPCIteration = false;             // Perform an additional iteration for UPC events on tagged vertices. You want to combine this config with VertexerParamConfig.nIterations=2
-  int nIterations = tracking::constants::MaxIter;                                       // overwrite the number of iterations
+  int nIterations = N == o2::detectors::DetID::MFT ? 1 : tracking::constants::MaxIter; // overwrite the number of iterations
   int reseedIfShorter = 6;                 // for the final refit reseed the track with circle if they are shorter than this value
   bool shiftRefToCluster{true};            // TrackFit: after update shift the linearization reference to cluster
   bool repeatRefitOut{false};              // repeat outward refit using inward refit as a seed
@@ -124,11 +125,16 @@ struct TrackerParamConfig : public o2::conf::ConfigurableParamHelper<TrackerPara
   float sharedClusterMaxDeltaPhi = 0.05f; // Maximum allowed delta phi at the cluster position
   float sharedClusterMaxDeltaEta = 0.03f; // Maximum allowed delta eta at the cluster position
   bool sharedClusterOppositeSign = false; // Require opposite sign of the tracklets
+  float cellRoadRCut = -1.f; // MFT: max distance to seed line; <=0 uses default (0.05 cm)
+  float trackletMinAbsX = -1.f; // MFT: min |x| (cm) for tracklet seeds and accepted tracks; <=0 uses code default
+  bool printHemisphereStats = false; // MFT debug: log x<0 vs x>0 counts per CA stage
 
   O2ParamDef(TrackerParamConfig, getParamName().data());
 
  private:
   static constexpr std::string_view TrackerParamName[2] = {"ITSCATrackerParam", "MFTCATrackerParam"};
+
+  static_assert(N == o2::detectors::DetID::ITS || N == o2::detectors::DetID::MFT, "only DetID::ITS or DetID::MFT are allowed");
 };
 
 template <int N>

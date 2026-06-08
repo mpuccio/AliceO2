@@ -31,6 +31,8 @@
 #include "ITStracking/ROFLookupTables.h"
 #include "ITStracking/Tracklet.h"
 
+#include "ITSMFTTracking/CATrackTypes.h"
+#include "ITSMFTTracking/MFTCATrack.h"
 #include "ITSMFTTracking/Configuration.h"
 #include "ITSMFTTracking/Constants.h"
 #include "ITSMFTTracking/IndexTableUtils.h"
@@ -219,6 +221,7 @@ struct TimeFrame {
 
   auto& getClusters() { return mClusters; }
   auto& getUnsortedClusters() { return mUnsortedClusters; }
+  const auto& getUnsortedClusters() const { return mUnsortedClusters; }
   int getClusterROF(int iLayer, int iCluster);
   auto& getCells() { return mCells; }
 
@@ -227,7 +230,9 @@ struct TimeFrame {
   auto& getCellsNeighboursTopology() { return mCellsNeighboursTopology; }
   auto& getCellsNeighboursLUT() { return mCellsNeighboursLUT; }
   auto& getTracks() { return mTracks; }
+  const auto& getTracks() const { return mTracks; }
   auto& getTracksLabel() { return mTracksLabel; }
+  const auto& getTracksLabel() const { return mTracksLabel; }
   auto& getLinesLabel(const int rofId) { return mLinesLabels[rofId]; }
 
   size_t getNumberOfClusters() const;
@@ -303,7 +308,7 @@ struct TimeFrame {
   std::array<bounded_vector<Cluster>, NLayers> mUnsortedClusters;
   std::vector<bounded_vector<Tracklet>> mTracklets;
   std::vector<bounded_vector<CellSeed>> mCells;
-  bounded_vector<TrackITSExt> mTracks;
+  bounded_vector<CATrackType<NLayers>> mTracks;
   bounded_vector<MCCompLabel> mTracksLabel;
   std::vector<bounded_vector<int>> mCellsNeighbours;
   std::vector<bounded_vector<int>> mCellsNeighboursTopology;
@@ -630,7 +635,14 @@ inline size_t TimeFrame<NLayers>::getNumberOfUsedClusters() const
   return nClusters;
 }
 
+template <int NLayers>
+inline const TrackingFrameInfo& TimeFrame<NLayers>::getClusterTrackingFrameInfo(int layerId, const Cluster& cl) const
+{
+  return mTrackingFrameInfo[layerId][cl.clusterId];
+}
+
 using TimeFrameITS = TimeFrame<constants::ITSNLayers>;
+/// MFT CA TimeFrame: NLayers = MFTNLayers half-disks; see ITSMFTTracking/Constants.h.
 using TimeFrameMFT = TimeFrame<constants::MFTNLayers>;
 
 } // namespace itsmft::tracking

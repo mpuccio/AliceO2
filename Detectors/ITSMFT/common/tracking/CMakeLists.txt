@@ -9,13 +9,33 @@
 # granted to it by virtue of its status as an Intergovernmental Organization
 # or submit itself to any jurisdiction.
 
+# Lightweight param registration so MFTCATrackerParam keys in --configKeyValues
+# are known to workflows that do not link O2::ITSMFTTracking (e.g. ctf-reader).
+o2_add_library(ITSMFTTrackingParams
+               SOURCES src/TrackingConfigParam.cxx
+               PUBLIC_LINK_LIBRARIES O2::CommonUtils
+                                     O2::DetectorsCommonDataFormats)
+
+o2_target_root_dictionary(ITSMFTTrackingParams
+                          HEADERS include/ITSMFTTracking/TrackingConfigParam.h
+                          LINKDEF src/ITSMFTTrackingLinkDef.h)
+
+# Shared CA tracking infrastructure for ITS and MFT. Currently wired from the
+# MFT CA tracker workflow via ITSMFTTrackingInterface; ITS production tracking
+# remains on O2::ITSTrackingInterface / O2::ITStracking.
+# Dependency is one-way (ITSMFTTracking -> ITStracking) to avoid a circular link.
 o2_add_library(ITSMFTTracking
                TARGETVARNAME targetName
                SOURCES src/IOUtils.cxx
-                       src/TrackingConfigParam.cxx
+                       src/DetectorTraits.cxx
                        src/Configuration.cxx
                        src/TimeFrame.cxx
+                       src/TrackerTraits.cxx
+                       src/CATracker.cxx
+                       src/TrackingInterface.cxx
+                       src/MFTForwardRefit.cxx
                PUBLIC_LINK_LIBRARIES
+                       O2::ITSMFTTrackingParams
                        O2::ITStracking
                        O2::GPUCommon
                        O2::CommonConstants
@@ -28,14 +48,12 @@ o2_add_library(ITSMFTTracking
                        Microsoft.GSL::GSL
                        O2::SimulationDataFormat
                        O2::ReconstructionDataFormats
+                       O2::DataFormatsCalibration
+                       O2::DataFormatsMFT
+                       TBB::tbb
                PRIVATE_LINK_LIBRARIES
                        O2::Framework
                        O2::ITSBase
                        O2::MFTBase
+                       O2::MFTTracking
                        O2::DataFormatsITS)
-
-# Only dictionary params (see ITSMFTTrackingLinkDef.h). TimeFrame and other
-# headers pull ITStracking internals not exposed to rootcling include paths.
-o2_target_root_dictionary(ITSMFTTracking
-                          HEADERS include/ITSMFTTracking/TrackingConfigParam.h
-                          LINKDEF src/ITSMFTTrackingLinkDef.h)

@@ -22,11 +22,13 @@ o2_add_library(MFTWorkflow
                                      O2::SimConfig
                                      O2::SimulationDataFormat
                                      O2::ITSMFTReconstruction
+                                     O2::ITSMFTTracking
                                      O2::MFTTracking
                                      O2::MFTAssessment
                                      O2::DataFormatsMFT
                                      O2::ITSMFTWorkflow
                                      O2::ITStracking
+                                     TBB::tbb
                                      O2::MFTAlignment
                                      O2::GlobalTrackingWorkflowReaders)
 o2_add_executable(reco-workflow

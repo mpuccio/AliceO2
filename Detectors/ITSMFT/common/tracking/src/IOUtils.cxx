@@ -14,7 +14,7 @@
 ///
 
 #include "ITSMFTTracking/IOUtils.h"
-#include "ITSMFTTracking/TrackingConfigParam.h"
+#include "ITSMFTTracking/TrackingParamRef.h"
 #include "ITStracking/Cluster.h"
 
 #include "Framework/Logger.h"
@@ -30,10 +30,16 @@ constexpr int EventLabelsSeparator{-1};
 template <o2::detectors::DetID::ID DetId>
 bool shouldApplySysErrors()
 {
-  const auto& conf = o2::itsmft::TrackerParamConfig<DetId>::Instance();
-  for (int il = 0; il < o2::itsmft::TrackerParamConfig<DetId>::getNLayers(); il++) {
-    if (conf.sysErr2Row[il] > 0.f || conf.sysErr2Col[il] > 0.f) {
-      return true;
+  const auto& conf = o2::itsmft::tracking::TrackerParamRef<DetId>::get();
+  for (int il = 0; il < o2::itsmft::tracking::TrackerParamRef<DetId>::nLayers(); il++) {
+    if constexpr (DetId == o2::detectors::DetID::MFT) {
+      if (conf.sysErr2Row[il] > 0.f || conf.sysErr2Col[il] > 0.f) {
+        return true;
+      }
+    } else {
+      if (conf.sysErrY2[il] > 0.f || conf.sysErrZ2[il] > 0.f) {
+        return true;
+      }
     }
   }
   return false;
@@ -50,17 +56,50 @@ void loadClusterTrackingFrameInfoImpl(GeomT* geom,
                                       bool applySysErrors)
 {
   const auto sensorID = c.getSensorID();
+  if (sensorID < 0 || sensorID >= geom->getSize()) {
+    LOGP(fatal, "Cluster sensorID {} is out of geometry range [0, {})", sensorID, geom->getSize());
+  }
   layer = geom->getLayer(sensorID);
-  clusterSize = o2::itsmft::ioutils::extractClusterSize(c, pattIt, dict);
+  if (layer < 0 || layer >= o2::itsmft::tracking::TrackerParamRef<DetId>::nLayers()) {
+    LOGP(fatal, "Cluster sensorID {} maps to invalid layer {} (expected [0, {}))",
+         sensorID, layer, o2::itsmft::tracking::TrackerParamRef<DetId>::nLayers());
+  }
+  const auto pattID = c.getPatternID();
+  if (pattID != o2::itsmft::CompCluster::InvalidPatternID && dict != nullptr &&
+      (pattID < 0 || pattID >= dict->getSize())) {
+    LOGP(fatal, "Cluster patternID {} is out of dictionary range [0, {})", pattID, dict->getSize());
+  }
 
-  float sigma2Row{0.f};
-  float sigma2Col{0.f};
-  const auto locXYZ = o2::itsmft::ioutils::extractClusterData(c, pattIt, dict, sigma2Row, sigma2Col);
+  float sigma2Row{o2::itsmft::ioutils::DefClusError2Row};
+  float sigma2Col{o2::itsmft::ioutils::DefClusError2Col};
+  o2::math_utils::Point3D<float> locXYZ{};
+  if (pattID != o2::itsmft::CompCluster::InvalidPatternID) {
+    sigma2Row = dict->getErr2X(pattID);
+    sigma2Col = dict->getErr2Z(pattID);
+    if (!dict->isGroup(pattID)) {
+      locXYZ = dict->getClusterCoordinates(c);
+      clusterSize = dict->getNpixels(pattID);
+    } else {
+      o2::itsmft::ClusterPattern patt(pattIt);
+      locXYZ = dict->getClusterCoordinates(c, patt);
+      clusterSize = patt.getNPixels();
+    }
+  } else {
+    o2::itsmft::ClusterPattern patt(pattIt);
+    locXYZ = dict->getClusterCoordinates(c, patt, false);
+    clusterSize = patt.getNPixels();
+  }
   if (applySysErrors && shouldApplySysErrors<DetId>()) {
     const auto layerId = geom->getLayer(sensorID);
-    const auto& conf = o2::itsmft::TrackerParamConfig<DetId>::Instance();
-    sigma2Row += conf.sysErr2Row[layerId];
-    sigma2Col += conf.sysErr2Col[layerId];
+    if constexpr (DetId == o2::detectors::DetID::MFT) {
+      const auto& conf = o2::itsmft::tracking::TrackerParamRef<DetId>::get();
+      sigma2Row += conf.sysErr2Row[layerId];
+      sigma2Col += conf.sysErr2Col[layerId];
+    } else {
+      const auto& conf = o2::itsmft::tracking::TrackerParamRef<DetId>::get();
+      sigma2Row += conf.sysErrY2[layerId];
+      sigma2Col += conf.sysErrZ2[layerId];
+    }
   }
 
   if constexpr (DetId == o2::detectors::DetID::ITS) {
@@ -71,6 +110,10 @@ void loadClusterTrackingFrameInfoImpl(GeomT* geom,
       std::array<float, 2>{trkXYZ.y(), trkXYZ.z()},
       std::array<float, 3>{sigma2Row, 0.f, sigma2Col}};
   } else {
+    if (!geom->getCacheL2G().isFilled() || geom->getCacheL2G().getSize() <= sensorID) {
+      LOGP(fatal, "MFT L2G matrix cache unavailable for sensorID {} (filled={}, size={})",
+           sensorID, geom->getCacheL2G().isFilled(), geom->getCacheL2G().getSize());
+    }
     const auto gloXYZ = geom->getMatrixL2G(sensorID) * locXYZ;
     // ALPIDE row (local X) -> global X, column (local Z) -> global Y
     tfInfo = o2::its::TrackingFrameInfo{
@@ -86,7 +129,6 @@ void fillOutputClusters(GeomT* geom,
                         gsl::span<const unsigned char>::iterator& pattIt,
                         std::vector<o2::BaseCluster<float>>& output,
                         const o2::itsmft::TopologyDictionary* dict,
-                        const o2::itsmft::TrackerParamConfig<DetId>& conf,
                         bool applyMisalignment)
 {
   for (const auto& c : clusters) {
@@ -95,8 +137,15 @@ void fillOutputClusters(GeomT* geom,
     auto locXYZ = o2::itsmft::ioutils::extractClusterData(c, pattIt, dict, sigma2Row, sigma2Col);
     if (applyMisalignment) {
       const auto layerId = geom->getLayer(c.getSensorID());
-      sigma2Row += conf.sysErr2Row[layerId];
-      sigma2Col += conf.sysErr2Col[layerId];
+      if constexpr (DetId == o2::detectors::DetID::MFT) {
+        const auto& conf = o2::itsmft::tracking::TrackerParamRef<DetId>::get();
+        sigma2Row += conf.sysErr2Row[layerId];
+        sigma2Col += conf.sysErr2Col[layerId];
+      } else {
+        const auto& conf = o2::itsmft::tracking::TrackerParamRef<DetId>::get();
+        sigma2Row += conf.sysErrY2[layerId];
+        sigma2Col += conf.sysErrZ2[layerId];
+      }
     }
     o2::math_utils::Point3D<float> outXYZ{};
     if constexpr (DetId == o2::detectors::DetID::ITS) {
@@ -178,23 +227,16 @@ void convertCompactClusters(gsl::span<const CompClusterExt> clusters,
 {
   const auto mask = o2::math_utils::bit2Mask(o2::math_utils::TransformType::T2L, o2::math_utils::TransformType::L2G);
 
-  const auto& conf = TrackerParamConfig<DetId>::Instance();
-  bool applyMisalignment = false;
-  for (int il = 0; il < TrackerParamConfig<DetId>::getNLayers(); il++) {
-    if (conf.sysErr2Row[il] > 0.f || conf.sysErr2Col[il] > 0.f) {
-      applyMisalignment = true;
-      break;
-    }
-  }
+  const bool applyMisalignment = shouldApplySysErrors<DetId>();
 
   if constexpr (DetId == o2::detectors::DetID::ITS) {
     auto* geom = o2::its::GeometryTGeo::Instance();
     geom->fillMatrixCache(mask);
-    fillOutputClusters<DetId>(geom, clusters, pattIt, output, dict, conf, applyMisalignment);
+    fillOutputClusters<DetId>(geom, clusters, pattIt, output, dict, applyMisalignment);
   } else {
     auto* geom = o2::mft::GeometryTGeo::Instance();
     geom->fillMatrixCache(mask);
-    fillOutputClusters<DetId>(geom, clusters, pattIt, output, dict, conf, applyMisalignment);
+    fillOutputClusters<DetId>(geom, clusters, pattIt, output, dict, applyMisalignment);
   }
 }
 

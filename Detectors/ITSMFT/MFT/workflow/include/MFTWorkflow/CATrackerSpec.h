@@ -15,28 +15,26 @@
 #define O2_MFT_CATRACKERSPEC_H_
 
 #include <memory>
-#include <utility>
 
-#include <gsl/span>
-
-#include "DataFormatsITSMFT/ROFRecord.h"
-#include "DataFormatsITSMFT/TopologyDictionary.h"
-#include "DataFormatsParameters/GRPObject.h"
 #include "DetectorsBase/GRPGeomHelper.h"
 #include "Framework/DataProcessorSpec.h"
 #include "Framework/Task.h"
-#include "ITStracking/ROFLookupTables.h"
+#include "ITSMFTTracking/Configuration.h"
+#include "ITSMFTTracking/TrackingInterface.h"
 
 namespace o2::mft
 {
 
+/// MFT CA tracker DPL task. Delegates reconstruction to ITSMFTTrackingInterfaceMFT.
 class CATrackerDPL : public o2::framework::Task
 {
  public:
-  static constexpr int NCALayers = 5;
-  using ROFOverlapTable = o2::its::ROFOverlapTable<NCALayers>;
-
-  CATrackerDPL(std::shared_ptr<o2::base::GRPGeomRequest> gr, bool useMC) : mGGCCDBRequest(std::move(gr)), mUseMC(useMC) {}
+  CATrackerDPL(std::shared_ptr<o2::base::GRPGeomRequest> gr,
+               bool useMC,
+               o2::itsmft::TrackingMode::Type trMode)
+    : mGGCCDBRequest(std::move(gr)), mUseMC(useMC), mTracking(useMC, trMode, false)
+  {
+  }
   ~CATrackerDPL() override = default;
 
   void init(framework::InitContext& ic) final;
@@ -45,18 +43,15 @@ class CATrackerDPL : public o2::framework::Task
 
  private:
   void updateTimeDependentParams(framework::ProcessingContext& pc);
-  void initialiseROFTable(gsl::span<const o2::itsmft::ROFRecord> rofs);
 
-  bool mUseMC = false;
   std::shared_ptr<o2::base::GRPGeomRequest> mGGCCDBRequest;
-  const o2::itsmft::TopologyDictionary* mDict = nullptr;
-  ROFOverlapTable mROFTable;
-  ROFOverlapTable::View mROFTableView;
+  bool mUseMC = false;
+  bool mTrackingInitialised = false;
+  o2::itsmft::tracking::ITSMFTTrackingInterfaceMFT mTracking;
 };
 
-/// create a processor spec that reads all MFT tracker inputs and provides the
-/// future insertion point for wiring them into a generalized ITS TimeFrame.
-o2::framework::DataProcessorSpec getCATrackerSpec(bool useMC, bool useGeom, bool useIRFrames);
+o2::framework::DataProcessorSpec getCATrackerSpec(bool useMC, bool useGeom, bool useIRFrames,
+                                                  o2::itsmft::TrackingMode::Type trMode);
 
 } // namespace o2::mft
 

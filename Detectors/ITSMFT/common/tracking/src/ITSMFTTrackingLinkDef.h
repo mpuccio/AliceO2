@@ -15,12 +15,6 @@
 #pragma link off all classes;
 #pragma link off all functions;
 
-#pragma link C++ class o2::itsmft::VertexerParamConfig + ;
-#pragma link C++ class o2::conf::ConfigurableParamHelper < o2::itsmft::VertexerParamConfig> + ;
-
-#pragma link C++ class o2::itsmft::TrackerParamConfig < o2::detectors::DetID::ITS> + ;
-#pragma link C++ class o2::conf::ConfigurableParamHelper < o2::itsmft::TrackerParamConfig < o2::detectors::DetID::ITS>> + ;
-
 #pragma link C++ class o2::itsmft::TrackerParamConfig < o2::detectors::DetID::MFT> + ;
 #pragma link C++ class o2::conf::ConfigurableParamHelper < o2::itsmft::TrackerParamConfig < o2::detectors::DetID::MFT>> + ;
 

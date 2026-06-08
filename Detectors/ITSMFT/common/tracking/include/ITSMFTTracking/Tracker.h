@@ -8,12 +8,14 @@
 // In applying this license CERN does not waive the privileges and immunities
 // granted to it by virtue of its status as an Intergovernmental Organization
 // or submit itself to any jurisdiction.
+///
+/// \file Tracker.h
+/// \brief ITS-style alias for the shared CA tracker orchestrator
+///
 
-#include "ITSMFTTracking/TrackingConfigParam.h"
+#ifndef ALICEO2_ITSMFT_TRACKING_TRACKER_H_
+#define ALICEO2_ITSMFT_TRACKING_TRACKER_H_
 
-namespace o2::itsmft
-{
-// Ensure MFT CA params are registered in the global param database.
-// ITS production tracking uses o2::its::TrackerParamConfig in O2::ITStracking.
-static auto& sMFTCATrackerParam = TrackerParamConfig<o2::detectors::DetID::MFT>::Instance();
-} // namespace o2::itsmft
+#include "ITSMFTTracking/CATracker.h"
+
+#endif /* ALICEO2_ITSMFT_TRACKING_TRACKER_H_ */
