@@ -91,7 +91,7 @@ struct TrackerParamConfig : public o2::conf::ConfigurableParamHelper<TrackerPara
   bool overrideBeamEstimation = false;     // use beam position from meanVertex CCDB object
   int trackingMode = -1;                   // -1: unset, 0=sync, 1=async, 2=cosmics used by gpuwf only
   bool doUPCIteration = false;             // Perform an additional iteration for UPC events on tagged vertices. You want to combine this config with VertexerParamConfig.nIterations=2
-  int nIterations = constants::MaxIter;    // overwrite the number of iterations
+  int nIterations = 0;                     // overwrite the number of iterations, 0 keeps the mode default
   int reseedIfShorter = 6;                 // for the final refit reseed the track with circle if they are shorter than this value
   bool shiftRefToCluster{true};            // TrackFit: after update shift the linearization reference to cluster
   bool repeatRefitOut{false};              // repeat outward refit using inward refit as a seed

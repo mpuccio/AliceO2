@@ -141,7 +141,7 @@ std::vector<TrackingParameters> TrackingMode::getTrackingParameters(TrackingMode
   std::vector<TrackingParameters> trackParams;
 
   if (mode == TrackingMode::Async) {
-    trackParams.resize(tc.doUPCIteration ? 4 : 3);
+    trackParams.resize(tc.doUPCIteration ? 5 : 3);
     trackParams[1].TrackletMinPt = 0.2f;
     trackParams[1].CellDeltaTanLambdaSigma *= 2.;
     trackParams[2].TrackletMinPt = 0.1f;
@@ -157,10 +157,29 @@ std::vector<TrackingParameters> TrackingMode::getTrackingParameters(TrackingMode
     trackParams[2].MinPt[3] = 1.f / 6;  // 4cl
 
     trackParams[2].StartLayerMask = (1 << 6) + (1 << 3);
+    trackParams[3] = trackParams[2];
+
+    trackParams[2].SeedingLayers = 15;
+    trackParams[2].TrackFollowerNSigmaCutPhi = 5.f;
+    trackParams[2].TrackFollowerNSigmaCutZ = 5.f;
+
     if (tc.doUPCIteration) {
-      trackParams[3].MinTrackLength = 4;
-      trackParams[3].TrackletMinPt = 0.1f;
-      trackParams[3].CellDeltaTanLambdaSigma *= 4.;
+      trackParams[4].MinTrackLength = 4;
+      trackParams[4].TrackletMinPt = 0.1f;
+      trackParams[4].CellDeltaTanLambdaSigma *= 4.;
+    }
+    if (tc.nIterations > static_cast<int>(trackParams.size())) {
+      const auto requestedIterations = std::min(tc.nIterations, constants::MaxIter);
+      const auto extraIteration = trackParams[2];
+      if (tc.doUPCIteration) {
+        const auto bottomExtensionIteration = trackParams[trackParams.size() - 2];
+        const auto upcIteration = trackParams.back();
+        trackParams.resize(requestedIterations, extraIteration);
+        trackParams[trackParams.size() - 2] = bottomExtensionIteration;
+        trackParams.back() = upcIteration;
+      } else {
+        trackParams.resize(requestedIterations, extraIteration);
+      }
     }
     for (int ip = 0; ip < (int)trackParams.size(); ip++) {
       auto& param = trackParams[ip];
@@ -204,8 +223,12 @@ std::vector<TrackingParameters> TrackingMode::getTrackingParameters(TrackingMode
     param.PassFlags.reset();
   }
   trackParams[0].PassFlags.set(IterationStep::FirstPass, IterationStep::RebuildClusterLUT);
+  if (trackParams.size() > 2) {
+    trackParams[2].PassFlags.set(IterationStep::TrackFollowerTop);
+  }
   if (trackParams.size() > 3 && tc.doUPCIteration) {
-    trackParams[3].PassFlags.set(IterationStep::UseUPCMask, IterationStep::RebuildClusterLUT, IterationStep::SelectUPCVertices);
+    trackParams[trackParams.size() - 2].PassFlags.set(IterationStep::TrackFollowerBot);
+    trackParams.back().PassFlags.set(IterationStep::UseUPCMask, IterationStep::RebuildClusterLUT, IterationStep::SelectUPCVertices);
   }
   float bFactor = std::abs(o2::base::Propagator::Instance()->getNominalBz()) / 5.0066791f;
   float bFactorTracklets = bFactor < 0.01f ? 1.f : bFactor; // for tracklets only
@@ -280,7 +303,7 @@ std::vector<TrackingParameters> TrackingMode::getTrackingParameters(TrackingMode
     p.UseDiamond = tc.useDiamond;
   }
 
-  if (trackParams.size() > tc.nIterations) {
+  if (tc.nIterations > 0 && trackParams.size() > static_cast<size_t>(tc.nIterations)) {
     trackParams.resize(tc.nIterations);
   }
 
