@@ -22,6 +22,7 @@
 #include "Framework/Logger.h"
 #include "ITSMFTTracking/Configuration.h"
 #include "ITSMFTTracking/TrackingConfigParam.h"
+#include "ITStracking/Constants.h"
 #include "MFTTracking/Constants.h"
 
 namespace
@@ -100,7 +101,7 @@ void resetDetectorDefaults(TrackingParameters& p, detectors::DetID::ID detId)
   if (detId == detectors::DetID::MFT) {
     namespace mftc = o2::mft::constants;
     namespace mft = mftc::mft;
-    constexpr int nLayers = tracking::constants::MFTNLayers;
+    constexpr int nLayers = o2::mft::constants::mft::LayersNumber;
 
     p = TrackingParameters{};
     p.NLayers = nLayers;
@@ -216,7 +217,7 @@ std::vector<TrackingParameters> getTrackingParameters(detectors::DetID::ID detId
 
     for (int ip = 0; ip < static_cast<int>(trackParams.size()); ip++) {
       auto& param = trackParams[ip];
-      if (ip < tracking::constants::MaxIter) {
+      if (ip < o2::its::constants::MaxIter) {
         if (tc.startLayerMask[ip] > 0) {
           param.StartLayerMask = tc.startLayerMask[ip];
         }
@@ -285,7 +286,7 @@ std::vector<TrackingParameters> getTrackingParameters(detectors::DetID::ID detId
     p.PerPrimaryVertexProcessing = tc.perPrimaryVertexProcessing;
 
     const auto iter = &p - trackParams.data();
-    if (iter < tracking::constants::MaxIter) {
+    if (iter < o2::its::constants::MaxIter) {
       p.MaxHoles = tc.maxHolesIter[iter];
       p.HoleLayerMask = tc.holeLayerMaskIter[iter];
     }

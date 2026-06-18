@@ -18,7 +18,16 @@
 #include "CommonUtils/ConfigurableParam.h"
 #include "CommonUtils/ConfigurableParamHelper.h"
 #include "DetectorsCommonDataFormats/DetID.h"
-#include "ITSMFTTracking/Constants.h"
+
+namespace o2::itsmft::tracking
+{
+/// ITS CA layer count (matches legacy o2::its::TrackingParameters::NLayers default).
+constexpr int ITSNLayers = 7;
+/// MFT CA half-disk layer count (same as o2::mft::constants::mft::LayersNumber).
+constexpr int MFTNLayers = 10;
+/// Max CA iterations (same as o2::its::constants::MaxIter).
+constexpr int MaxIter = 4;
+} // namespace o2::itsmft::tracking
 
 namespace o2::itsmft
 {
@@ -75,22 +84,22 @@ struct TrackerParamConfig : public o2::conf::ConfigurableParamHelper<TrackerPara
   }
 
   static constexpr int MinTrackLength = N == o2::detectors::DetID::ITS ? 4 : 5;
-  static constexpr int MaxTrackLength = N == o2::detectors::DetID::ITS ? o2::itsmft::tracking::constants::ITSNLayers
-                                                                        : o2::itsmft::tracking::constants::MFTNLayers;
+  static constexpr int MaxTrackLength = N == o2::detectors::DetID::ITS ? o2::itsmft::tracking::ITSNLayers
+                                                                        : o2::itsmft::tracking::MFTNLayers;
 
   static constexpr int getNLayers()
   {
-    return N == o2::detectors::DetID::ITS ? o2::itsmft::tracking::constants::ITSNLayers : o2::itsmft::tracking::constants::MFTNLayers;
+    return N == o2::detectors::DetID::ITS ? o2::itsmft::tracking::ITSNLayers : o2::itsmft::tracking::MFTNLayers;
   }
 
   bool useMatCorrTGeo = false;                                                         // use full geometry to corect for material budget accounting in the fits. Default is to use the material budget LUT.
   bool useFastMaterial = false;                                                        // use faster material approximation for material budget accounting in the fits.
   int addTimeError[getNLayers()] = {0};                                                // configure the width of the window in BC to be considered for the tracking.
-  int minTrackLgtIter[tracking::constants::MaxIter] = {};                               // minimum track length at each iteration, used only if >0, otherwise use code defaults
-  uint8_t startLayerMask[tracking::constants::MaxIter] = {};                            // mask of start layer for this iteration (if >0)
-  int maxHolesIter[tracking::constants::MaxIter] = {};                                  // maximum number of missing internal layers allowed in the CA topology for each iteration
-  uint16_t holeLayerMaskIter[tracking::constants::MaxIter] = {};                          // layers that may be skipped by the CA topology for each iteration
-  float minPtIterLgt[tracking::constants::MaxIter * (MaxTrackLength - MinTrackLength + 1)] = {}; // min.pT for given track length at this iteration, used only if >0, otherwise use code defaults
+  int minTrackLgtIter[o2::itsmft::tracking::MaxIter] = {};                               // minimum track length at each iteration, used only if >0, otherwise use code defaults
+  uint8_t startLayerMask[o2::itsmft::tracking::MaxIter] = {};                            // mask of start layer for this iteration (if >0)
+  int maxHolesIter[o2::itsmft::tracking::MaxIter] = {};                                  // maximum number of missing internal layers allowed in the CA topology for each iteration
+  uint16_t holeLayerMaskIter[o2::itsmft::tracking::MaxIter] = {};                          // layers that may be skipped by the CA topology for each iteration
+  float minPtIterLgt[o2::itsmft::tracking::MaxIter * (MaxTrackLength - MinTrackLength + 1)] = {}; // min.pT for given track length at this iteration, used only if >0, otherwise use code defaults
   float sysErr2Row[getNLayers()] = {0}; // systematic error^2 along ALPIDE rows (local X) per layer
   float sysErr2Col[getNLayers()] = {0}; // systematic error^2 along ALPIDE columns (local Z) per layer
   float maxChi2ClusterAttachment = -1.f;
@@ -108,7 +117,7 @@ struct TrackerParamConfig : public o2::conf::ConfigurableParamHelper<TrackerPara
   bool overrideBeamEstimation = false;     // ITS only: meanVertex CCDB beam seed (MFT CA always uses diamond)
   int trackingMode = -1; // -1: unset (use --tracking-mode), 0=sync, 1=async, 2=cosmics
   bool doUPCIteration = false;             // Perform an additional iteration for UPC events on tagged vertices. You want to combine this config with VertexerParamConfig.nIterations=2
-  int nIterations = N == o2::detectors::DetID::MFT ? 1 : tracking::constants::MaxIter; // overwrite the number of iterations
+  int nIterations = N == o2::detectors::DetID::MFT ? 1 : o2::itsmft::tracking::MaxIter; // overwrite the number of iterations
   int reseedIfShorter = 6;                 // for the final refit reseed the track with circle if they are shorter than this value
   bool shiftRefToCluster{true};            // TrackFit: after update shift the linearization reference to cluster
   bool repeatRefitOut{false};              // repeat outward refit using inward refit as a seed

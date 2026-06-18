@@ -67,8 +67,8 @@ class Tracker
 template <int NLayers>
 using CATracker = Tracker<NLayers>;
 
-using TrackerITS = Tracker<constants::ITSNLayers>;
-using TrackerMFT = Tracker<constants::MFTNLayers>;
+using TrackerITS = Tracker<ITSNLayers>;
+using TrackerMFT = Tracker<o2::mft::constants::mft::LayersNumber>;
 using CATrackerITS = TrackerITS;
 using CATrackerMFT = TrackerMFT;
 

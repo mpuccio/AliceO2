@@ -18,6 +18,7 @@
 #include "Framework/Logger.h"
 #include "ITSMFTTracking/DetectorTraits.h"
 #include "ITSMFTTracking/IOUtils.h"
+#include "ITSMFTTracking/MFTFwdTrackHelpers.h"
 #include "ITSMFTTracking/TimeFrame.h"
 #include "ITStracking/MathUtils.h"
 #include "DataFormatsITSMFT/CompCluster.h"
@@ -321,7 +322,7 @@ void TimeFrame<NLayers>::initialise(const TrackingParameters& trkParam, const in
   // estimate MS per layer
   std::array<float, NLayers> msAngles{};
   for (unsigned int iLayer{0}; iLayer < NLayers; ++iLayer) {
-    if constexpr (NLayers == constants::MFTNLayers) {
+    if constexpr (NLayers == o2::mft::constants::mft::LayersNumber) {
       msAngles[iLayer] = detail::mftLayerMSAngle(iLayer, trkParam);
     } else {
       msAngles[iLayer] = math_utils::MSangle(0.14f, trkParam.TrackletMinPt, trkParam.LayerxX0[iLayer]);
@@ -330,7 +331,7 @@ void TimeFrame<NLayers>::initialise(const TrackingParameters& trkParam, const in
   }
 
   // for each transition calculate the phi-cuts + integrated MS
-  if constexpr (NLayers == constants::MFTNLayers) {
+  if constexpr (NLayers == o2::mft::constants::mft::LayersNumber) {
     float oneOverR{0.001f * 0.3f * std::abs(mBz) / trkParam.TrackletMinPt};
     for (int transitionId{0}; transitionId < (int)mTracklets.size(); ++transitionId) {
       const auto& transition = mTrackingTopologyView.getTransition(transitionId);
@@ -532,11 +533,10 @@ void TimeFrame<NLayers>::wipe()
     deepVectorClear(mTrackletLabels);
     deepVectorClear(mCellLabels);
     deepVectorClear(mTracksLabel);
-    mMCArtefactCoverage.clear();
   }
 }
 
-template class TimeFrame<constants::ITSNLayers>;
-template class TimeFrame<constants::MFTNLayers>;
+template class TimeFrame<ITSNLayers>;
+template class TimeFrame<o2::mft::constants::mft::LayersNumber>;
 
 } // namespace o2::itsmft::tracking

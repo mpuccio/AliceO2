@@ -31,7 +31,6 @@
 #include "DetectorsBase/GRPGeomHelper.h"
 #include "DetectorsBase/Propagator.h"
 #include "Framework/Logger.h"
-#include "ITSMFTTracking/TrackingParamRef.h"
 #include "MFTTracking/MFTTrackingParam.h"
 
 namespace o2::itsmft::tracking

@@ -20,9 +20,12 @@
 #include <cstdint>
 #include <type_traits>
 
-#include "ITStracking/Constants.h"
-#include "ITSMFTTracking/LayerMask.h"
+#include "DetectorsCommonDataFormats/DetID.h"
+#include "DataFormatsITS/TrackITS.h"
 #include "DataFormatsITS/TimeEstBC.h"
+#include "ITSMFTTracking/Configuration.h"
+#include "ITSMFTTracking/LayerMask.h"
+#include "ITStracking/Constants.h"
 #include "ReconstructionDataFormats/Track.h"
 #include "ReconstructionDataFormats/TrackFwd.h"
 #include "GPUCommonDef.h"
@@ -187,6 +190,27 @@ class TrackSeedTpl final : public SeedBase<NLayers, TrackParT>
 
 template <int NLayers>
 using TrackSeed = TrackSeedTpl<NLayers, o2::track::TrackParCovF>;
+
+template <int NLayers>
+struct CATrackTypeHelper {
+  using type = o2::its::TrackITSExt;
+};
+
+template <int NLayers>
+using CATrackType = typename CATrackTypeHelper<NLayers>::type;
+
+/// Per-detector track parametrization stored in CA cells and extended seeds.
+template <int NLayers>
+struct CASeedTrackPar {
+  static constexpr o2::detectors::DetID::ID DetId = detIdFromNLayers<NLayers>();
+  using type = std::conditional_t<DetId == o2::detectors::DetID::MFT, o2::track::TrackParCovFwd, o2::track::TrackParCovF>;
+};
+
+template <int NLayers>
+using CellSeedN = CellSeedTpl<typename CASeedTrackPar<NLayers>::type>;
+
+template <int NLayers>
+using TrackSeedN = TrackSeedTpl<NLayers, typename CASeedTrackPar<NLayers>::type>;
 
 } // namespace o2::itsmft::tracking
 

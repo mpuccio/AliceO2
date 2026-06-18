@@ -45,21 +45,6 @@ constexpr float DefClusError2Col = DefClusErrorCol * DefClusErrorCol;
 void fillMatrixCache(o2::detectors::DetID::ID detId);
 int getClusterLayer(o2::detectors::DetID::ID detId, const CompClusterExt& cluster);
 
-template <class iterator>
-unsigned int extractClusterSize(const CompClusterExt& c, iterator& iter, const TopologyDictionary* dict)
-{
-  auto pattID = c.getPatternID();
-  if (pattID != CompCluster::InvalidPatternID) {
-    if (!dict->isGroup(pattID)) {
-      return dict->getNpixels(pattID);
-    }
-    ClusterPattern patt(iter);
-    return patt.getNPixels();
-  }
-  ClusterPattern patt(iter);
-  return patt.getNPixels();
-}
-
 /// Decode a compact cluster into layer, size, and a TrackingFrameInfo (global + local frame).
 template <o2::detectors::DetID::ID DetId>
 void loadClusterTrackingFrameInfo(const CompClusterExt& c,
@@ -79,7 +64,7 @@ void convertCompactClusters(gsl::span<const CompClusterExt> clusters,
                             const TopologyDictionary* dict);
 
 template <class iterator, typename T>
-o2::math_utils::Point3D<T> extractClusterData(const CompClusterExt& c, iterator& iter, const TopologyDictionary* dict, T& sig2Row, T& sig2Col)
+o2::math_utils::Point3D<T> extractClusterData(const CompClusterExt& c, iterator& iter, const TopologyDictionary* dict, T& sig2Row, T& sig2Col, unsigned int* clusterSize = nullptr)
 {
   auto pattID = c.getPatternID();
   sig2Row = DefClusError2Row;
@@ -88,12 +73,21 @@ o2::math_utils::Point3D<T> extractClusterData(const CompClusterExt& c, iterator&
     sig2Row = dict->getErr2X(pattID);
     sig2Col = dict->getErr2Z(pattID);
     if (!dict->isGroup(pattID)) {
+      if (clusterSize != nullptr) {
+        *clusterSize = dict->getNpixels(pattID);
+      }
       return dict->getClusterCoordinates<T>(c);
     }
     ClusterPattern patt(iter);
+    if (clusterSize != nullptr) {
+      *clusterSize = patt.getNPixels();
+    }
     return dict->getClusterCoordinates<T>(c, patt);
   }
   ClusterPattern patt(iter);
+  if (clusterSize != nullptr) {
+    *clusterSize = patt.getNPixels();
+  }
   return dict->getClusterCoordinates<T>(c, patt, false);
 }
 
