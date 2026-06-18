@@ -180,13 +180,14 @@ GPUhdi() int4 getBinsPhiZ(float phi, const int layerIndex,
 /// MFT: row = y, col = x.
 template <int nLayers>
 GPUhdi() int4 getBinsXY(float x, float y, const int layerIndex,
-                        float x1, float x2, float maxDeltaCol, float maxDeltaRow,
+                        float x1, float x2, float y1, float y2,
+                        float maxDeltaCol, float maxDeltaRow,
                         const IndexTableUtils<nLayers>& utils)
 {
   const float colRangeMin = o2::gpu::GPUCommonMath::Min(x1, x2) - maxDeltaCol;
-  const float rowRangeMin = y - maxDeltaRow;
+  const float rowRangeMin = o2::gpu::GPUCommonMath::Min(y1, y2) - maxDeltaRow;
   const float colRangeMax = o2::gpu::GPUCommonMath::Max(x1, x2) + maxDeltaCol;
-  const float rowRangeMax = y + maxDeltaRow;
+  const float rowRangeMax = o2::gpu::GPUCommonMath::Max(y1, y2) + maxDeltaRow;
 
   const float colHalf = utils.getLayerColHalfExtent(layerIndex);
   if (colRangeMax < -colHalf || colRangeMin > colHalf || colRangeMin > colRangeMax) {
@@ -199,28 +200,59 @@ GPUhdi() int4 getBinsXY(float x, float y, const int layerIndex,
               utils.getRowBinIndex(rowRangeMax)};
 }
 
-/// MFT cone projection from one half-layer to another (used for x-y index-table lookup only).
+/// MFT: extrapolate cluster to toLayer on the line through the primary vertex.
 template <int nLayers>
-GPUhdi() void mftConeProject(const o2::its::Cluster& cluster, int fromLayer, int toLayer, float& xProj, float& yProj)
+GPUhdi() void mftConeProject(const o2::its::Cluster& cluster, int fromLayer, int toLayer,
+                             float pvX, float pvY, float pvZ, float& xProj, float& yProj)
 {
   const auto& layerZ = o2::mft::constants::mft::LayerZCoordinate();
-  const auto& invLayerZ = o2::mft::constants::mft::InverseLayerZCoordinate();
-  const float scale = (layerZ[toLayer] - layerZ[fromLayer]) * invLayerZ[fromLayer];
-  xProj = cluster.xCoordinate * (1.f + scale);
-  yProj = cluster.yCoordinate * (1.f + scale);
+  const float zFrom = layerZ[fromLayer];
+  const float zTo = layerZ[toLayer];
+  const float dz0 = zFrom - pvZ;
+  if (o2::gpu::GPUCommonMath::Abs(dz0) < 1e-6f) {
+    xProj = cluster.xCoordinate;
+    yProj = cluster.yCoordinate;
+    return;
+  }
+  const float w = (zTo - pvZ) / dz0;
+  xProj = pvX + w * (cluster.xCoordinate - pvX);
+  yProj = pvY + w * (cluster.yCoordinate - pvY);
 }
 
-/// Cluster-driven LUT window: phi-z for ITS, cone-projected x-y for MFT.
+/// MFT LUT window around a precomputed (x, y) projection on toLayer.
+template <int nLayers>
+GPUhdi() int4 getBinsRectClusterAtProj(float xProj, float yProj, int toLayer,
+                                       float colRangeMin, float colRangeMax, float maxDeltaCol, float maxDeltaRow,
+                                       const IndexTableUtils<nLayers>& utils)
+{
+  const float rProj = o2::gpu::GPUCommonMath::Hypot(xProj, yProj);
+  float x1 = xProj;
+  float x2 = xProj;
+  float y1 = yProj;
+  float y2 = yProj;
+  if (rProj > 0.f) {
+    const float invRProj = 1.f / rProj;
+    x1 = colRangeMin * xProj * invRProj;
+    x2 = colRangeMax * xProj * invRProj;
+    y1 = colRangeMin * yProj * invRProj;
+    y2 = colRangeMax * yProj * invRProj;
+  }
+  return getBinsXY(xProj, yProj, toLayer, x1, x2, y1, y2, maxDeltaCol, maxDeltaRow, utils);
+}
+
+/// Cluster-driven LUT window: phi-z for ITS, projected x-y for MFT.
+/// ITS: colRangeMin/Max = z window; MFT: colRangeMin/Max = rMin/rMax at toLayer from diamond z spread.
 template <int nLayers>
 GPUhdi() int4 getBinsRectCluster(const o2::its::Cluster& cluster, int fromLayer, int toLayer,
                                  float colRangeMin, float colRangeMax, float maxDeltaCol, float maxDeltaRow,
-                                 const IndexTableUtils<nLayers>& utils)
+                                 const IndexTableUtils<nLayers>& utils,
+                                 float pvX = 0.f, float pvY = 0.f, float pvZ = 0.f)
 {
   if (utils.getCoordType() == IndexTableCoordType::XY) {
     float xProj = 0.f;
     float yProj = 0.f;
-    mftConeProject<nLayers>(cluster, fromLayer, toLayer, xProj, yProj);
-    return getBinsXY(xProj, yProj, toLayer, xProj, xProj, maxDeltaCol, maxDeltaRow, utils);
+    mftConeProject<nLayers>(cluster, fromLayer, toLayer, pvX, pvY, pvZ, xProj, yProj);
+    return getBinsRectClusterAtProj<nLayers>(xProj, yProj, toLayer, colRangeMin, colRangeMax, maxDeltaCol, maxDeltaRow, utils);
   }
   return getBinsPhiZ(cluster.phi, toLayer, colRangeMin, colRangeMax, maxDeltaCol, maxDeltaRow, utils);
 }

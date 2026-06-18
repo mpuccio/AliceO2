@@ -127,6 +127,9 @@ class MFTCATrack
   auto& getTimeStamp() { return mTime; }
   const auto& getTimeStamp() const { return mTime; }
 
+  uint16_t getSeedPattern() const { return mSeedPattern; }
+  void setSeedPattern(uint16_t pattern) { mSeedPattern = pattern; }
+
   void setSharedClusters(bool toggle = true)
   {
     mClusterSizes = toggle ? (mClusterSizes | kSharedClusters) : (mClusterSizes & ~kSharedClusters);
@@ -139,6 +142,7 @@ class MFTCATrack
   std::array<int, MaxClusters> mIndex = {};
   uint32_t mPattern = 0;
   o2::its::TimeStamp mTime;
+  uint16_t mSeedPattern{0};
   uint64_t mClusterSizes = 0;
 };
 

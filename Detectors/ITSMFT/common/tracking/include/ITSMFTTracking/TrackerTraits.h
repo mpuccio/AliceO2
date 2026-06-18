@@ -32,7 +32,8 @@ class TrackerTraits
  public:
   using TimeFrameN = TimeFrame<NLayers>;
   using IndexTableUtilsN = o2::itsmft::IndexTableUtils<NLayers>;
-  using TrackSeedN = TrackSeed<NLayers>;
+  using CellSeedN = typename TimeFrameN::CellSeedN;
+  using TrackSeedN = typename TimeFrameN::TrackSeedN;
 
   virtual ~TrackerTraits() = default;
   virtual void adoptTimeFrame(TimeFrameN* tf) { mTimeFrame = tf; }

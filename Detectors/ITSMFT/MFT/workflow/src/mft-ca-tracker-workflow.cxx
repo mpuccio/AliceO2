@@ -65,7 +65,7 @@ WorkflowSpec defineDataProcessing(ConfigContext const& config)
   WorkflowSpec specs;
   specs.emplace_back(o2::mft::getCATrackerSpec(useMC, useGeom, useIRFrames, trMode));
   if (!disableRootOutput) {
-    specs.emplace_back(o2::mft::getTrackWriterSpec(useMC));
+    specs.emplace_back(o2::mft::getTrackWriterSpec(useMC, true));
   }
 
   o2::raw::HBFUtilsInitializer hbfIni(config, specs);

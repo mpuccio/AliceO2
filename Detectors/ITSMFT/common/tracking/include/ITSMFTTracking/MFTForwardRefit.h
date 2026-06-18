@@ -16,7 +16,7 @@
 #ifndef ALICEO2_ITSMFT_TRACKING_MFTFORWARDREFIT_H_
 #define ALICEO2_ITSMFT_TRACKING_MFTFORWARDREFIT_H_
 
-#include "ITSMFTTracking/Cell.h"
+#include "ITSMFTTracking/CATrackTypes.h"
 #include "ITSMFTTracking/Configuration.h"
 #include "ITSMFTTracking/Constants.h"
 #include "ITSMFTTracking/MFTCATrack.h"
@@ -25,7 +25,7 @@
 namespace o2::itsmft::tracking
 {
 
-bool refitTrackFwd(const TrackSeed<constants::MFTNLayers>& seed,
+bool refitTrackFwd(const TrackSeedN<constants::MFTNLayers>& seed,
                    MFTCATrack& track,
                    const TimeFrame<constants::MFTNLayers>& tf,
                    const TrackingParameters& params,

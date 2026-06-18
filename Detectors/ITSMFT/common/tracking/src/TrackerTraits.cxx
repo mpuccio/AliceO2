@@ -16,7 +16,6 @@
 #include <algorithm>
 #include <iterator>
 #include <cmath>
-#include <cstdlib>
 #include <type_traits>
 
 #include <oneapi/tbb/blocked_range.h>
@@ -32,12 +31,14 @@
 #include "ITSMFTTracking/Configuration.h"
 #include "ITSMFTTracking/Constants.h"
 #include "ITSMFTTracking/DetectorTraits.h"
+#include "ITSMFTTracking/MFTFwdTrackHelpers.h"
 #include "ITSMFTTracking/IndexTableUtils.h"
 #include "ITSMFTTracking/LayerMask.h"
 #include "ITStracking/ROFLookupTables.h"
 #include "ITSMFTTracking/TrackerTraits.h"
 #include "ITStracking/TrackHelpers.h"
 #include "ITStracking/Tracklet.h"
+#include "SimulationDataFormat/MCCompLabel.h"
 
 namespace o2::itsmft::tracking
 {
@@ -52,35 +53,61 @@ struct PassMode {
   using TwoPassInsert = std::integral_constant<int, 2>;
 };
 
-struct HemisphereStats {
-  int xNeg{0};
-  int xPos{0};
-  int xZero{0};
-  void add(float x)
-  {
-    if (x < 0.f) {
-      ++xNeg;
-    } else if (x > 0.f) {
-      ++xPos;
-    } else {
-      ++xZero;
+namespace detail
+{
+constexpr int kQEDSourceID = 99;
+
+bool isUsableMCLabel(const MCCompLabel& label)
+{
+  return label.isValid() && !label.isNoise() && label.getSourceID() != kQEDSourceID;
+}
+
+uint64_t mcLabelKey(const MCCompLabel& label)
+{
+  return label.getRawValue() & MCCompLabel::maskFull;
+}
+
+template <int NLayers>
+void recordMCTrackletCoverage(TimeFrame<NLayers>* tf,
+                              const typename TrackingTopology<NLayers>::View& topology,
+                              int transitionId)
+{
+  const auto& transition = topology.getTransition(static_cast<typename TrackingTopology<NLayers>::Id>(transitionId));
+  if (transition.toLayer != transition.fromLayer + 1) {
+    return;
+  }
+  const auto& labels = tf->getTrackletsLabel(transitionId);
+  for (const auto& lab : labels) {
+    if (isUsableMCLabel(lab)) {
+      tf->recordMCArtefactTracklet(mcLabelKey(lab), transition.fromLayer);
     }
   }
-  void log(const char* stage, int iteration) const
-  {
-    LOGP(info, "MFT CA iter {} {}: x<0={} x>0={} x=0={} total={}",
-         iteration, stage, xNeg, xPos, xZero, xNeg + xPos + xZero);
-  }
-};
-
-bool printHemisphereStatsEnabled(const TrackingParameters& params)
-{
-  static const bool fromEnv = [] {
-    const char* v = std::getenv("MFT_CA_PRINT_HEMISPHERE_STATS");
-    return v != nullptr && v[0] != '\0' && v[0] != '0';
-  }();
-  return params.PrintHemisphereStats || fromEnv;
 }
+
+template <int NLayers>
+void recordMCCellCoverage(TimeFrame<NLayers>* tf,
+                          const typename TrackingTopology<NLayers>::View& topology)
+{
+  for (typename TrackingTopology<NLayers>::Id cellTopologyId = 0; cellTopologyId < topology.nCells; ++cellTopologyId) {
+    const auto& cellTopology = topology.getCell(cellTopologyId);
+    const auto& firstTransition = topology.getTransition(cellTopology.firstTransition);
+    const auto& secondTransition = topology.getTransition(cellTopology.secondTransition);
+    const auto& labels = tf->getCellsLabel(cellTopologyId);
+    for (const auto& lab : labels) {
+      if (!isUsableMCLabel(lab)) {
+        continue;
+      }
+      const uint64_t key = mcLabelKey(lab);
+      if (firstTransition.toLayer == firstTransition.fromLayer + 1) {
+        tf->recordMCArtefactCell(key, firstTransition.fromLayer);
+      }
+      if (secondTransition.toLayer == secondTransition.fromLayer + 1) {
+        tf->recordMCArtefactCell(key, secondTransition.fromLayer);
+      }
+    }
+  }
+}
+} // namespace detail
 
 template <int NLayers>
 void TrackerTraits<NLayers>::computeLayerTracklets(const int iteration, int iVertex)
@@ -126,19 +153,14 @@ void TrackerTraits<NLayers>::computeLayerTracklets(const int iteration, int iVer
       const float meanDeltaR = mTrkParams[iteration].LayerRadii[transition.toLayer] - mTrkParams[iteration].LayerRadii[transition.fromLayer];
       const float phiCut = mTimeFrame->getTransitionPhiCut(transitionId);
       const float msAngle = mTimeFrame->getTransitionMSAngle(transitionId);
-      const bool useXYBins = mTimeFrame->getIndexTableUtils().getCoordType() == IndexTableCoordType::XY;
       const bool useDiamond = mTrkParams[iteration].UseDiamond;
       const bool isMFT = DetectorTraits<NLayers>::DetId == o2::detectors::DetID::MFT;
       const float meanDeltaZ = isMFT ? detail::mftLayerZ(transition.toLayer) - detail::mftLayerZ(transition.fromLayer) : 0.f;
-      const float minAbsX = isMFT ? mTrkParams[iteration].TrackletMinAbsX : 0.f;
 
       for (int iCluster = 0; iCluster < int(layer0.size()); ++iCluster) {
         const Cluster& currentCluster = layer0[iCluster];
         const int currentSortedIndex = mTimeFrame->getSortedIndex(pivotROF, transition.fromLayer, iCluster);
         if (mTimeFrame->isClusterUsed(transition.fromLayer, currentCluster.clusterId)) {
-          continue;
-        }
-        if (isMFT && !detail::mftPassesMinAbsX(currentCluster, minAbsX)) {
           continue;
         }
         const float inverseR0 = 1.f / currentCluster.radius;
@@ -151,36 +173,55 @@ void TrackerTraits<NLayers>::computeLayerTracklets(const int iteration, int iVer
           if (pv.isFlagSet(Vertex::Flags::UPCMode) != mTrkParams[iteration].PassFlags[IterationStep::SelectUPCVertices]) {
             continue;
           }
-          const float resolution = o2::gpu::CAMath::Sqrt(math_utils::Sq(mTimeFrame->getPositionResolution(transition.fromLayer)) + math_utils::Sq(mTrkParams[iteration].PVres) / float(pv.getNContributors()));
           float colWindow = 0.f;
           float rowWindow = 0.f;
+          float sigmaX = 0.f;
+          float sigmaY = 0.f;
           float sigmaZ = 0.f;
-          float zWindowMin = 0.f;
-          float zWindowMax = 0.f;
+          float lutRangeMin = 0.f;
+          float lutRangeMax = 0.f;
           float xProj = 0.f;
           float yProj = 0.f;
           if (isMFT) {
-            sigmaZ = detail::mftTrackletSigmaZ(currentCluster.zCoordinate, currentCluster.radius, pv.getZ(), resolution, meanDeltaZ, msAngle);
-            mftConeProject<NLayers>(currentCluster, transition.fromLayer, transition.toLayer, xProj, yProj);
-            const float zExpected = detail::mftExpectedZAtLayer(currentCluster.zCoordinate, transition.fromLayer, transition.toLayer, pv.getZ());
-            zWindowMin = zExpected - sigmaZ * mTrkParams[iteration].NSigmaCut;
-            zWindowMax = zExpected + sigmaZ * mTrkParams[iteration].NSigmaCut;
-            const float absZDenom = o2::gpu::CAMath::Max(o2::gpu::CAMath::Abs(detail::mftLayerZ(transition.toLayer) - pv.getZ()), 1.e-3f);
-            const float sigmaX = sigmaZ * o2::gpu::CAMath::Abs(xProj / absZDenom);
+            const auto& tfInfo = mTimeFrame->getClusterTrackingFrameInfo(transition.fromLayer, currentCluster);
+            detail::mftTrackletProject(currentCluster.xCoordinate, currentCluster.yCoordinate, currentCluster.zCoordinate,
+                                       pv.getX(), pv.getY(), pv.getZ(),
+                                       transition.fromLayer, transition.toLayer, getBz(), mTrkParams[iteration].TrackletMinPt,
+                                       xProj, yProj);
+            detail::mftTrackletSigmaXY(currentCluster.xCoordinate, currentCluster.yCoordinate,
+                                       pv.getX(), pv.getY(), pv.getZ(),
+                                       tfInfo.covarianceTrackingFrame[0], tfInfo.covarianceTrackingFrame[2],
+                                       pv.getSigmaX2(), pv.getSigmaY2(), pv.getSigmaZ2(),
+                                       transition.fromLayer, transition.toLayer,
+                                       mTrkParams[iteration].LayerRadii[transition.fromLayer],
+                                       meanDeltaZ, msAngle, phiCut, xProj, yProj, sigmaX, sigmaY);
+            float zVtxMin = 0.f;
+            float zVtxMax = 0.f;
+            detail::mftDiamondZExtents(pv.getZ(), pv.getSigmaZ(), mTrkParams[iteration].NSigmaCut, zVtxMin, zVtxMax);
+            detail::mftRSpreadAtLayer(currentCluster.radius,
+                                      detail::mftLayerZ(transition.fromLayer),
+                                      detail::mftLayerZ(transition.toLayer),
+                                      zVtxMin, zVtxMax,
+                                      lutRangeMin, lutRangeMax);
             colWindow = sigmaX * mTrkParams[iteration].NSigmaCut;
-            rowWindow = phiCut * currentCluster.radius;
+            rowWindow = sigmaY * mTrkParams[iteration].NSigmaCut;
           } else {
+            const float resolution = o2::gpu::CAMath::Sqrt(math_utils::Sq(mTimeFrame->getPositionResolution(transition.fromLayer)) + math_utils::Sq(mTrkParams[iteration].PVres) / float(pv.getNContributors()));
             const float tanLambda = (currentCluster.zCoordinate - pv.getZ()) * inverseR0;
-            zWindowMin = tanLambda * (mTimeFrame->getMinR(transition.toLayer) - currentCluster.radius) + currentCluster.zCoordinate;
-            zWindowMax = tanLambda * (mTimeFrame->getMaxR(transition.toLayer) - currentCluster.radius) + currentCluster.zCoordinate;
+            lutRangeMin = tanLambda * (mTimeFrame->getMinR(transition.toLayer) - currentCluster.radius) + currentCluster.zCoordinate;
+            lutRangeMax = tanLambda * (mTimeFrame->getMaxR(transition.toLayer) - currentCluster.radius) + currentCluster.zCoordinate;
             const float sqInvDeltaZ0 = 1.f / (math_utils::Sq(currentCluster.zCoordinate - pv.getZ()) + constants::Tolerance);
             sigmaZ = o2::gpu::CAMath::Sqrt((math_utils::Sq(resolution) * math_utils::Sq(tanLambda) * ((math_utils::Sq(inverseR0) + sqInvDeltaZ0) * math_utils::Sq(meanDeltaR) + 1.f)) + math_utils::Sq(meanDeltaR * msAngle));
             colWindow = sigmaZ * mTrkParams[iteration].NSigmaCut;
             rowWindow = phiCut;
           }
-          const auto bins = o2::itsmft::getBinsRectCluster(currentCluster, transition.fromLayer, transition.toLayer,
-                                                           zWindowMin, zWindowMax, colWindow, rowWindow,
-                                                           mTimeFrame->getIndexTableUtils());
+          const auto bins = isMFT
+                              ? o2::itsmft::getBinsRectClusterAtProj<NLayers>(xProj, yProj, transition.toLayer,
+                                                                              lutRangeMin, lutRangeMax, colWindow, rowWindow,
+                                                                              mTimeFrame->getIndexTableUtils())
+                              : o2::itsmft::getBinsRectCluster(currentCluster, transition.fromLayer, transition.toLayer,
+                                                               lutRangeMin, lutRangeMax, colWindow, rowWindow,
+                                                               mTimeFrame->getIndexTableUtils());
           if (bins.x < 0) {
             continue;
           }
@@ -204,8 +245,8 @@ void TrackerTraits<NLayers>::computeLayerTracklets(const int iteration, int iVer
             const auto& targetIndexTable = mTimeFrame->getIndexTable(targetROF, transition.toLayer);
             const int colBinRange = (bins.z - bins.x) + 1;
             for (int iRow = 0; iRow < rowBinsNum; ++iRow) {
-              const int iRowBin = useXYBins ? (bins.y + iRow) : ((bins.y + iRow) % mTrkParams[iteration].RowBins);
-              if (useXYBins && iRowBin >= mTrkParams[iteration].RowBins) {
+              const int iRowBin = isMFT ? (bins.y + iRow) : ((bins.y + iRow) % mTrkParams[iteration].RowBins);
+              if (isMFT && iRowBin >= mTrkParams[iteration].RowBins) {
                 break;
               }
               const int firstBinIdx = mTimeFrame->getIndexTableUtils().getBinIndex(bins.x, iRowBin);
@@ -220,18 +261,15 @@ void TrackerTraits<NLayers>::computeLayerTracklets(const int iteration, int iVer
                 if (mTimeFrame->isClusterUsed(transition.toLayer, nextCluster.clusterId)) {
                   continue;
                 }
-                if (isMFT && !detail::mftPassesMinAbsX(nextCluster, minAbsX)) {
-                  continue;
-                }
 
                 bool acceptTracklet = false;
                 float tanL = 0.f;
                 if (isMFT) {
-                  const float zExpected = detail::mftExpectedZAtLayer(currentCluster.zCoordinate, transition.fromLayer, transition.toLayer, pv.getZ());
-                  const float deltaZ = o2::gpu::CAMath::Abs(zExpected - nextCluster.zCoordinate);
-                  const float transCut2 = rowWindow * rowWindow;
-                  const float transDist2 = detail::mftTrackletTransverseDist2<NLayers>(currentCluster, nextCluster, transition.fromLayer, transition.toLayer);
-                  if (sigmaZ > 0.f && deltaZ / sigmaZ < mTrkParams[iteration].NSigmaCut && transDist2 < transCut2) {
+                  const float dx = nextCluster.xCoordinate - xProj;
+                  const float dy = nextCluster.yCoordinate - yProj;
+                  const float transChi2 = detail::mftTrackletTransverseChi2(dx, dy, sigmaX, sigmaY);
+                  const float nSigmaCut2 = math_utils::Sq(mTrkParams[iteration].NSigmaCut);
+                  if (transChi2 < nSigmaCut2) {
                     acceptTracklet = std::abs(meanDeltaZ) > 1.e-6f;
                     tanL = (currentCluster.zCoordinate - nextCluster.zCoordinate) / meanDeltaZ;
                   }
@@ -314,20 +352,6 @@ void TrackerTraits<NLayers>::computeLayerTracklets(const int iteration, int iVer
       }
     });
 
-    if constexpr (DetectorTraits<NLayers>::DetId == o2::detectors::DetID::MFT) {
-      if (printHemisphereStatsEnabled(mTrkParams[iteration])) {
-        HemisphereStats stats;
-        for (int transitionId{0}; transitionId < topology.nTransitions; ++transitionId) {
-          const auto& transition = topology.getTransition(transitionId);
-          for (const auto& trkl : mTimeFrame->getTracklets()[transitionId]) {
-            const int clId = mTimeFrame->getClusters()[transition.fromLayer][trkl.firstClusterIndex].clusterId;
-            stats.add(mTimeFrame->getUnsortedClusters()[transition.fromLayer][clId].xCoordinate);
-          }
-        }
-        stats.log("tracklets", iteration);
-      }
-    }
-
     /// Create tracklets labels
     if (mTimeFrame->hasMCinformation() && mTrkParams[iteration].CreateArtefactLabels) {
       tbb::parallel_for(0, static_cast<int>(topology.nTransitions), [&](const int transitionId) {
@@ -351,6 +375,12 @@ void TrackerTraits<NLayers>::computeLayerTracklets(const int iteration, int iVer
         }
       });
     }
+
+    if (mTimeFrame->hasMCinformation() && mTrkParams[iteration].CreateArtefactLabels) {
+      for (int transitionId = 0; transitionId < topology.nTransitions; ++transitionId) {
+        detail::recordMCTrackletCoverage<NLayers>(mTimeFrame, topology, transitionId);
+      }
+    }
   });
 }
 
@@ -367,7 +397,7 @@ void TrackerTraits<NLayers>::computeLayerCells(const int iteration)
   }
 
   mTaskArena->execute([&] {
-    auto forTrackletCells = [&](auto Tag, int cellTopologyId, bounded_vector<CellSeed>& layerCells, int iTracklet, int offset = 0) -> int {
+    auto forTrackletCells = [&](auto Tag, int cellTopologyId, bounded_vector<CellSeedN>& layerCells, int iTracklet, int offset = 0) -> int {
       const auto& cellTopology = topology.getCell(cellTopologyId);
       const auto& firstTransition = topology.getTransition(cellTopology.firstTransition);
       const auto& secondTransition = topology.getTransition(cellTopology.secondTransition);
@@ -394,18 +424,43 @@ void TrackerTraits<NLayers>::computeLayerCells(const int iteration)
             mTimeFrame->getClusters()[firstTransition.toLayer][nextTracklet.firstClusterIndex].clusterId,
             mTimeFrame->getClusters()[secondTransition.toLayer][nextTracklet.secondClusterIndex].clusterId};
           const int hitLayers[3]{firstTransition.fromLayer, firstTransition.toLayer, secondTransition.toLayer};
-          const auto& cluster1_glo = mTimeFrame->getUnsortedClusters()[firstTransition.fromLayer][clusId[0]];
-          const auto& cluster2_glo = mTimeFrame->getUnsortedClusters()[firstTransition.toLayer][clusId[1]];
-          const auto& cluster3_glo = mTimeFrame->getUnsortedClusters()[secondTransition.toLayer][clusId[2]];
-          const auto& cluster3_tf = mTimeFrame->getTrackingFrameInfoOnLayer(secondTransition.toLayer)[clusId[2]];
-          auto track{o2::its::track::buildTrackSeed(cluster1_glo, cluster2_glo, cluster3_tf, mBz)};
 
           float chi2{0.f};
           bool good{false};
           if constexpr (DetectorTraits<NLayers>::DetId == o2::detectors::DetID::MFT) {
+            const auto& cluster1_glo = mTimeFrame->getUnsortedClusters()[firstTransition.fromLayer][clusId[0]];
+            const auto& cluster2_glo = mTimeFrame->getUnsortedClusters()[firstTransition.toLayer][clusId[1]];
+            const auto& cluster3_glo = mTimeFrame->getUnsortedClusters()[secondTransition.toLayer][clusId[2]];
             const float r2Cut = mTrkParams[iteration].CellRoadRCut * mTrkParams[iteration].CellRoadRCut;
-            good = DetectorTraits<NLayers>::validateMFTCellClusters(cluster1_glo, cluster2_glo, cluster3_glo, r2Cut);
+            if (!DetectorTraits<NLayers>::validateMFTCellClusters(cluster1_glo, hitLayers[0],
+                                                                  cluster2_glo, hitLayers[1],
+                                                                  cluster3_glo, hitLayers[2],
+                                                                  r2Cut)) {
+              continue;
+            }
+            o2::track::TrackParCovFwd fwdTrack;
+            good = detail::mftFwdFitCellClusters(hitLayers, clusId, *mTimeFrame, mTrkParams[iteration], getBz(), fwdTrack, chi2);
+            if (good) {
+              TimeEstBC ts = currentTracklet.getTimeStamp();
+              ts += nextTracklet.getTimeStamp();
+              if constexpr (decltype(Tag)::value == PassMode::OnePass::value) {
+                layerCells.emplace_back(cellTopology.hitLayerMask, clusId[0], clusId[1], clusId[2], iTracklet, iNextTracklet, fwdTrack, chi2, ts);
+                ++foundCells;
+              } else if constexpr (decltype(Tag)::value == PassMode::TwoPassCount::value) {
+                ++foundCells;
+              } else if constexpr (decltype(Tag)::value == PassMode::TwoPassInsert::value) {
+                layerCells[offset++] = CellSeedN(cellTopology.hitLayerMask, clusId[0], clusId[1], clusId[2], iTracklet, iNextTracklet, fwdTrack, chi2, ts);
+                ++foundCells;
+              } else {
+                static_assert(false, "Unknown mode!");
+              }
+            }
           } else {
+            const auto& cluster1_glo = mTimeFrame->getUnsortedClusters()[firstTransition.fromLayer][clusId[0]];
+            const auto& cluster2_glo = mTimeFrame->getUnsortedClusters()[firstTransition.toLayer][clusId[1]];
+            const auto& cluster3_tf = mTimeFrame->getTrackingFrameInfoOnLayer(secondTransition.toLayer)[clusId[2]];
+            auto track{o2::its::track::buildTrackSeed(cluster1_glo, cluster2_glo, cluster3_tf, mBz)};
+
             for (int iC{2}; iC--;) {
               const int hitLayer = hitLayers[iC];
               const TrackingFrameInfo& trackingHit = mTimeFrame->getTrackingFrameInfoOnLayer(hitLayer)[clusId[iC]];
@@ -434,20 +489,20 @@ void TrackerTraits<NLayers>::computeLayerCells(const int iteration)
               good = !iC;
               chi2 += predChi2;
             }
-          }
-          if (good) {
-            TimeEstBC ts = currentTracklet.getTimeStamp();
-            ts += nextTracklet.getTimeStamp();
-            if constexpr (decltype(Tag)::value == PassMode::OnePass::value) {
-              layerCells.emplace_back(cellTopology.hitLayerMask, clusId[0], clusId[1], clusId[2], iTracklet, iNextTracklet, track, chi2, ts);
-              ++foundCells;
-            } else if constexpr (decltype(Tag)::value == PassMode::TwoPassCount::value) {
-              ++foundCells;
-            } else if constexpr (decltype(Tag)::value == PassMode::TwoPassInsert::value) {
-              layerCells[offset++] = CellSeed(cellTopology.hitLayerMask, clusId[0], clusId[1], clusId[2], iTracklet, iNextTracklet, track, chi2, ts);
-              ++foundCells;
-            } else {
-              static_assert(false, "Unknown mode!");
+            if (good) {
+              TimeEstBC ts = currentTracklet.getTimeStamp();
+              ts += nextTracklet.getTimeStamp();
+              if constexpr (decltype(Tag)::value == PassMode::OnePass::value) {
+                layerCells.emplace_back(cellTopology.hitLayerMask, clusId[0], clusId[1], clusId[2], iTracklet, iNextTracklet, track, chi2, ts);
+                ++foundCells;
+              } else if constexpr (decltype(Tag)::value == PassMode::TwoPassCount::value) {
+                ++foundCells;
+              } else if constexpr (decltype(Tag)::value == PassMode::TwoPassInsert::value) {
+                layerCells[offset++] = CellSeedN(cellTopology.hitLayerMask, clusId[0], clusId[1], clusId[2], iTracklet, iNextTracklet, track, chi2, ts);
+                ++foundCells;
+              } else {
+                static_assert(false, "Unknown mode!");
+              }
             }
           }
         }
@@ -510,19 +565,8 @@ void TrackerTraits<NLayers>::computeLayerCells(const int iteration)
     }
   });
 
-  if constexpr (DetectorTraits<NLayers>::DetId == o2::detectors::DetID::MFT) {
-    if (printHemisphereStatsEnabled(mTrkParams[iteration])) {
-      HemisphereStats stats;
-      for (int cellTopologyId = 0; cellTopologyId < topology.nCells; ++cellTopologyId) {
-        const auto& cellTopology = topology.getCell(cellTopologyId);
-        const auto& firstTransition = topology.getTransition(cellTopology.firstTransition);
-        for (const auto& cell : mTimeFrame->getCells()[cellTopologyId]) {
-          const int clId = cell.getFirstClusterIndex();
-          stats.add(mTimeFrame->getUnsortedClusters()[firstTransition.fromLayer][clId].xCoordinate);
-        }
-      }
-      stats.log("cells", iteration);
-    }
+  if (mTimeFrame->hasMCinformation() && mTrkParams[iteration].CreateArtefactLabels) {
+    detail::recordMCCellCoverage<NLayers>(mTimeFrame, topology);
   }
 
   for (int transitionId = 0; transitionId < topology.nTransitions; ++transitionId) {
@@ -581,17 +625,20 @@ void TrackerTraits<NLayers>::findCellsNeighbours(const int iteration)
               }
 
               bool neighbourAccepted{false};
+              auto nextCellSeed{mTimeFrame->getCells()[nextCellTopologyId][iNextCell]}; /// copy
               if constexpr (DetectorTraits<NLayers>::DetId == o2::detectors::DetID::MFT) {
-                // Successor cell inner cluster must match current middle cluster (shared tracklet).
-                neighbourAccepted = currentCellSeed.getSecondClusterIndex() == nextCellSeedRef.getFirstClusterIndex();
+                neighbourAccepted = DetectorTraits<NLayers>::cellsAreCompatible(currentCellSeed,
+                                                                                  nextCellSeed,
+                                                                                  *mTimeFrame,
+                                                                                  mTrkParams[iteration],
+                                                                                  getBz());
               } else {
-                auto nextCellSeed{mTimeFrame->getCells()[nextCellTopologyId][iNextCell]}; /// copy
                 if (!nextCellSeed.rotate(currentCellSeed.getAlpha()) ||
                     !nextCellSeed.propagateTo(currentCellSeed.getX(), getBz())) {
                   continue;
                 }
 
-                float chi2 = currentCellSeed.getPredictedChi2(nextCellSeed);
+                const float chi2 = currentCellSeed.getPredictedChi2(nextCellSeed);
                 if (chi2 > mTrkParams[iteration].MaxChi2ClusterAttachment) {
                   continue;
                 }
@@ -713,60 +760,14 @@ void TrackerTraits<NLayers>::processNeighbours(int iteration, int defaultCellTop
         seed.getTimeStamp() = currentCell.getTimeStamp();
         seed.getTimeStamp() += neighbourCell.getTimeStamp();
 
-        if constexpr (DetectorTraits<NLayers>::DetId == o2::detectors::DetID::MFT) {
-          const float r2Cut = mTrkParams[iteration].CellRoadRCut * mTrkParams[iteration].CellRoadRCut;
-          int refLayerA{-1};
-          int refLayerB{-1};
-          int clIdxA{-1};
-          int clIdxB{-1};
-          for (int layer = NLayers - 1; layer >= 0; --layer) {
-            const int clIdx = currentCell.getCluster(layer);
-            if (clIdx == constants::UnusedIndex) {
-              continue;
-            }
-            if (refLayerA < 0) {
-              refLayerA = layer;
-              clIdxA = clIdx;
-            } else {
-              refLayerB = layer;
-              clIdxB = clIdx;
-              break;
-            }
-          }
-          if (refLayerB < 0) {
-            continue;
-          }
-          const auto& cA = mTimeFrame->getUnsortedClusters()[refLayerA][clIdxA];
-          const auto& cB = mTimeFrame->getUnsortedClusters()[refLayerB][clIdxB];
-          const auto& cN = mTimeFrame->getUnsortedClusters()[neighbourLayer][neighbourCluster];
-          if (detail::mftDistanceToSeedSquared(cA, cB, cN) >= r2Cut) {
-            continue;
-          }
-        } else {
-          const auto& trHit = mTimeFrame->getTrackingFrameInfoOnLayer(neighbourLayer)[neighbourCluster];
-
-          if (!seed.rotate(trHit.alphaTrackingFrame)) {
-            continue;
-          }
-
-          if (!propagator->propagateToX(seed, trHit.xTrackingFrame, getBz(), o2::base::PropagatorImpl<float>::MAX_SIN_PHI, o2::base::PropagatorImpl<float>::MAX_STEP, mTrkParams[iteration].CorrType)) {
-            continue;
-          }
-
-          if (mTrkParams[iteration].CorrType == o2::base::PropagatorF::MatCorrType::USEMatCorrNONE) {
-            if (!seed.correctForMaterial(mTrkParams[iteration].LayerxX0[neighbourLayer], mTrkParams[iteration].LayerxX0[neighbourLayer] * constants::Radl * constants::Rho, true)) {
-              continue;
-            }
-          }
-
-          auto predChi2{seed.getPredictedChi2Quiet(trHit.positionTrackingFrame, trHit.covarianceTrackingFrame)};
-          if ((predChi2 > mTrkParams[iteration].MaxChi2ClusterAttachment) || predChi2 < 0.f) {
-            continue;
-          }
-          seed.setChi2(seed.getChi2() + predChi2);
-          if (!seed.o2::track::TrackParCov::update(trHit.positionTrackingFrame, trHit.covarianceTrackingFrame)) {
-            continue;
-          }
+        if (!DetectorTraits<NLayers>::attachNeighbourToSeed(seed,
+                                                            neighbourLayer,
+                                                            neighbourCluster,
+                                                            *mTimeFrame,
+                                                            mTrkParams[iteration],
+                                                            getBz(),
+                                                            propagator)) {
+          continue;
         }
 
         if constexpr (decltype(Tag)::value != PassMode::TwoPassCount::value) {
@@ -899,6 +900,9 @@ void TrackerTraits<NLayers>::findRoads(const int iteration)
                                                                     unsortedClusters,
                                                                     propagator);
         if (refitSuccess) {
+          if constexpr (DetectorTraits<NLayers>::DetId == o2::detectors::DetID::MFT) {
+            temporaryTrack.setSeedPattern(trackSeeds[iSeed].getHitLayerMask().value());
+          }
           if constexpr (decltype(Tag)::value == PassMode::OnePass::value) {
             tracks.push_back(temporaryTrack);
           } else if constexpr (decltype(Tag)::value == PassMode::TwoPassCount::value) {
@@ -943,23 +947,7 @@ void TrackerTraits<NLayers>::findRoads(const int iteration)
     });
 
     DetectorTraits<NLayers>::sortRefittedTracks(tracks);
-    const int nTracksBefore = static_cast<int>(mTimeFrame->getTracks().size());
     acceptTracks(iteration, tracks, firstClusters);
-
-    if constexpr (DetectorTraits<NLayers>::DetId == o2::detectors::DetID::MFT) {
-      if (printHemisphereStatsEnabled(mTrkParams[iteration])) {
-        LOGP(info, "MFT CA iter {} road seeds at level {}: {} refitted: {} accepted: {}",
-             iteration, startLevel, trackSeeds.size(), tracks.size(), mTimeFrame->getTracks().size() - nTracksBefore);
-        HemisphereStats stats;
-        for (int i = nTracksBefore; i < static_cast<int>(mTimeFrame->getTracks().size()); ++i) {
-          const auto& track = mTimeFrame->getTracks()[i];
-          const int firstLayer = track.getFirstClusterLayer();
-          const int clId = track.getClusterIndex(firstLayer);
-          stats.add(mTimeFrame->getUnsortedClusters()[firstLayer][clId].xCoordinate);
-        }
-        stats.log("accepted tracks", iteration);
-      }
-    }
   }
   markTracks(iteration);
 }
@@ -1105,9 +1093,9 @@ void TrackerTraits<NLayers>::setNThreads(int n, std::shared_ptr<tbb::task_arena>
 
 template class TrackerTraits<7>;
 template class TrackerTraits<10>;
-template void TrackerTraits<7>::processNeighbours<CellSeed>(int, int, int, const bounded_vector<CellSeed>&, const bounded_vector<int>&, const bounded_vector<int>&, bounded_vector<TrackSeed<7>>&, bounded_vector<int>&, bounded_vector<int>&);
-template void TrackerTraits<7>::processNeighbours<TrackSeed<7>>(int, int, int, const bounded_vector<TrackSeed<7>>&, const bounded_vector<int>&, const bounded_vector<int>&, bounded_vector<TrackSeed<7>>&, bounded_vector<int>&, bounded_vector<int>&);
-template void TrackerTraits<10>::processNeighbours<CellSeed>(int, int, int, const bounded_vector<CellSeed>&, const bounded_vector<int>&, const bounded_vector<int>&, bounded_vector<TrackSeed<10>>&, bounded_vector<int>&, bounded_vector<int>&);
-template void TrackerTraits<10>::processNeighbours<TrackSeed<10>>(int, int, int, const bounded_vector<TrackSeed<10>>&, const bounded_vector<int>&, const bounded_vector<int>&, bounded_vector<TrackSeed<10>>&, bounded_vector<int>&, bounded_vector<int>&);
+template void TrackerTraits<7>::processNeighbours<typename TrackerTraits<7>::CellSeedN>(int, int, int, const bounded_vector<typename TrackerTraits<7>::CellSeedN>&, const bounded_vector<int>&, const bounded_vector<int>&, bounded_vector<typename TrackerTraits<7>::TrackSeedN>&, bounded_vector<int>&, bounded_vector<int>&);
+template void TrackerTraits<7>::processNeighbours<typename TrackerTraits<7>::TrackSeedN>(int, int, int, const bounded_vector<typename TrackerTraits<7>::TrackSeedN>&, const bounded_vector<int>&, const bounded_vector<int>&, bounded_vector<typename TrackerTraits<7>::TrackSeedN>&, bounded_vector<int>&, bounded_vector<int>&);
+template void TrackerTraits<10>::processNeighbours<typename TrackerTraits<10>::CellSeedN>(int, int, int, const bounded_vector<typename TrackerTraits<10>::CellSeedN>&, const bounded_vector<int>&, const bounded_vector<int>&, bounded_vector<typename TrackerTraits<10>::TrackSeedN>&, bounded_vector<int>&, bounded_vector<int>&);
+template void TrackerTraits<10>::processNeighbours<typename TrackerTraits<10>::TrackSeedN>(int, int, int, const bounded_vector<typename TrackerTraits<10>::TrackSeedN>&, const bounded_vector<int>&, const bounded_vector<int>&, bounded_vector<typename TrackerTraits<10>::TrackSeedN>&, bounded_vector<int>&, bounded_vector<int>&);
 
 } // namespace o2::itsmft::tracking

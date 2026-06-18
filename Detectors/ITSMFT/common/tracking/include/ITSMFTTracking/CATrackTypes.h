@@ -17,7 +17,10 @@
 #define ALICEO2_ITSMFT_TRACKING_CATRACKTYPES_H_
 
 #include "DataFormatsITS/TrackITS.h"
+#include "ITSMFTTracking/Cell.h"
 #include "ITSMFTTracking/Constants.h"
+#include "ReconstructionDataFormats/Track.h"
+#include "ReconstructionDataFormats/TrackFwd.h"
 
 namespace o2::itsmft::tracking
 {
@@ -31,6 +34,19 @@ struct CATrackTypeHelper {
 
 template <int NLayers>
 using CATrackType = typename CATrackTypeHelper<NLayers>::type;
+
+/// Per-detector track parametrization stored in CA cells and extended seeds.
+template <int NLayers>
+struct CASeedTrackPar {
+  static constexpr o2::detectors::DetID::ID DetId = constants::detIdFromNLayers<NLayers>();
+  using type = std::conditional_t<DetId == o2::detectors::DetID::MFT, o2::track::TrackParCovFwd, o2::track::TrackParCovF>;
+};
+
+template <int NLayers>
+using CellSeedN = CellSeedTpl<typename CASeedTrackPar<NLayers>::type>;
+
+template <int NLayers>
+using TrackSeedN = TrackSeedTpl<NLayers, typename CASeedTrackPar<NLayers>::type>;
 
 } // namespace o2::itsmft::tracking
 
