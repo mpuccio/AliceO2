@@ -26,7 +26,7 @@ namespace mft
 
 /// create a processor spec
 /// write MFT tracks a root file
-o2::framework::DataProcessorSpec getTrackWriterSpec(bool useMC);
+o2::framework::DataProcessorSpec getTrackWriterSpec(bool useMC, bool useCA = false);
 
 } // namespace mft
 } // namespace o2

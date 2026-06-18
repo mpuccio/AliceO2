@@ -32,7 +32,7 @@ namespace o2::itsmft::tracking
 namespace
 {
 template <typename TrackLTFType>
-bool buildTrackLTF(const TrackSeed<constants::MFTNLayers>& seed,
+bool buildTrackLTF(const TrackSeedN<constants::MFTNLayers>& seed,
                    const TimeFrame<constants::MFTNLayers>& tf,
                    const TrackingParameters& params,
                    TrackLTFType& ltf)
@@ -78,7 +78,7 @@ bool buildTrackLTF(const TrackSeed<constants::MFTNLayers>& seed,
   return true;
 }
 
-void copyClusterRefs(const TrackSeed<constants::MFTNLayers>& seed,
+void copyClusterRefs(const TrackSeedN<constants::MFTNLayers>& seed,
                      const TimeFrame<constants::MFTNLayers>& tf,
                      MFTCATrack& track)
 {
@@ -118,7 +118,7 @@ bool fitTrackLTF(TrackLTFType& ltf, float bz)
 }
 
 template <typename TrackLTFType>
-bool refitTrackFwdImpl(const TrackSeed<constants::MFTNLayers>& seed,
+bool refitTrackFwdImpl(const TrackSeedN<constants::MFTNLayers>& seed,
                        MFTCATrack& track,
                        const TimeFrame<constants::MFTNLayers>& tf,
                        const TrackingParameters& params,
@@ -173,7 +173,7 @@ bool refitTrackFwdImpl(const TrackSeed<constants::MFTNLayers>& seed,
 }
 } // namespace
 
-bool refitTrackFwd(const TrackSeed<constants::MFTNLayers>& seed,
+bool refitTrackFwd(const TrackSeedN<constants::MFTNLayers>& seed,
                                           MFTCATrack& track,
                                           const TimeFrame<constants::MFTNLayers>& tf,
                                           const TrackingParameters& params,

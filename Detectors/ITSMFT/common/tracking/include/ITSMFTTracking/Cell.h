@@ -18,11 +18,13 @@
 
 #include <array>
 #include <cstdint>
+#include <type_traits>
 
 #include "ITStracking/Constants.h"
 #include "ITSMFTTracking/LayerMask.h"
 #include "DataFormatsITS/TimeEstBC.h"
 #include "ReconstructionDataFormats/Track.h"
+#include "ReconstructionDataFormats/TrackFwd.h"
 #include "GPUCommonDef.h"
 
 namespace o2::itsmft::tracking
@@ -36,12 +38,12 @@ struct CellNeighbour {
   int level{-1};
 };
 
-template <int NClusters>
-class SeedBase : public o2::track::TrackParCovF
+template <int NClusters, typename TrackParT>
+class SeedBase : public TrackParT
 {
  public:
-  GPUhd() LayerMask getHitLayerMask() const { return LayerMask{static_cast<uint16_t>(getUserField())}; }
-  GPUhd() void setHitLayerMask(LayerMask mask) { setUserField(mask.value()); }
+  GPUhd() LayerMask getHitLayerMask() const { return LayerMask{mHitLayerMask}; }
+  GPUhd() void setHitLayerMask(LayerMask mask) { mHitLayerMask = mask.value(); }
   GPUhd() int getInnerLayer() const { return getHitLayerMask().first(); }
   GPUhd() int getFirstTrackletIndex() const { return mTracklets[0]; };
   GPUhd() void setFirstTrackletIndex(int trkl) { mTracklets[0] = trkl; };
@@ -55,6 +57,17 @@ class SeedBase : public o2::track::TrackParCovF
   GPUhd() auto& getTimeStamp() noexcept { return mTime; }
   GPUhd() const auto& getTimeStamp() const noexcept { return mTime; }
 
+  /// Road-length filter: barrel q/pT² for ITS, (invQPt)² for forward MFT seeds.
+  GPUhd() float getQ2Pt() const
+  {
+    if constexpr (std::is_same_v<TrackParT, o2::track::TrackParCovFwd>) {
+      const float invQPt = static_cast<float>(TrackParT::getInvQPt());
+      return invQPt * invQPt;
+    } else {
+      return TrackParT::getQ2Pt();
+    }
+  }
+
  protected:
   GPUhdDefault() SeedBase() = default;
   GPUhdDefault() SeedBase(const SeedBase&) = default;
@@ -62,14 +75,15 @@ class SeedBase : public o2::track::TrackParCovF
   GPUhdDefault() SeedBase(SeedBase&&) = default;
   GPUhdDefault() SeedBase& operator=(const SeedBase&) = default;
   GPUhdDefault() SeedBase& operator=(SeedBase&&) = default;
-  GPUhd() SeedBase(const o2::track::TrackParCovF& tpc, float chi2, int level, const o2::its::TimeEstBC& time)
-    : o2::track::TrackParCovF(tpc), mChi2(chi2), mLevel(level), mTime(time)
+  GPUhd() SeedBase(const TrackParT& tpc, float chi2, int level, const o2::its::TimeEstBC& time)
+    : TrackParT(tpc), mChi2(chi2), mLevel(level), mTime(time)
   {
   }
   GPUhd() auto& clustersRaw() { return mClusters; }
   GPUhd() const auto& clustersRaw() const { return mClusters; }
 
  private:
+  uint16_t mHitLayerMask{0};
   float mChi2{o2::its::constants::UnsetValue};
   int mLevel{o2::its::constants::UnusedIndex};
   std::array<int, 2> mTracklets = o2::its::constants::helpers::initArray<int, 2, o2::its::constants::UnusedIndex>();
@@ -77,32 +91,33 @@ class SeedBase : public o2::track::TrackParCovF
   o2::its::TimeEstBC mTime;
 };
 
-class CellSeed final : public SeedBase<o2::its::constants::ClustersPerCell>
+template <typename TrackParT = o2::track::TrackParCovF>
+class CellSeedTpl final : public SeedBase<o2::its::constants::ClustersPerCell, TrackParT>
 {
-  using Base = SeedBase<o2::its::constants::ClustersPerCell>;
+  using Base = SeedBase<o2::its::constants::ClustersPerCell, TrackParT>;
 
  public:
-  GPUhdDefault() CellSeed() = default;
-  GPUhd() CellSeed(int innerL, int cl0, int cl1, int cl2, int trkl0, int trkl1, const o2::track::TrackParCovF& tpc, float chi2, const o2::its::TimeEstBC& time)
-    : CellSeed(LayerMask(innerL, innerL + 1, innerL + 2), cl0, cl1, cl2, trkl0, trkl1, tpc, chi2, time)
+  GPUhdDefault() CellSeedTpl() = default;
+  GPUhd() CellSeedTpl(int innerL, int cl0, int cl1, int cl2, int trkl0, int trkl1, const TrackParT& tpc, float chi2, const o2::its::TimeEstBC& time)
+    : CellSeedTpl(LayerMask(innerL, innerL + 1, innerL + 2), cl0, cl1, cl2, trkl0, trkl1, tpc, chi2, time)
   {
   }
-  GPUhd() CellSeed(LayerMask hitLayerMask, int cl0, int cl1, int cl2, int trkl0, int trkl1, const o2::track::TrackParCovF& tpc, float chi2, const o2::its::TimeEstBC& time)
+  GPUhd() CellSeedTpl(LayerMask hitLayerMask, int cl0, int cl1, int cl2, int trkl0, int trkl1, const TrackParT& tpc, float chi2, const o2::its::TimeEstBC& time)
     : Base(tpc, chi2, 1, time)
   {
-    setHitLayerMask(hitLayerMask);
+    this->setHitLayerMask(hitLayerMask);
     auto& clusters = this->clustersRaw();
     clusters[0] = cl0;
     clusters[1] = cl1;
     clusters[2] = cl2;
-    setFirstTrackletIndex(trkl0);
-    setSecondTrackletIndex(trkl1);
+    this->setFirstTrackletIndex(trkl0);
+    this->setSecondTrackletIndex(trkl1);
   }
-  GPUhdDefault() CellSeed(const CellSeed&) = default;
-  GPUhdDefault() ~CellSeed() = default;
-  GPUhdDefault() CellSeed(CellSeed&&) = default;
-  GPUhdDefault() CellSeed& operator=(const CellSeed&) = default;
-  GPUhdDefault() CellSeed& operator=(CellSeed&&) = default;
+  GPUhdDefault() CellSeedTpl(const CellSeedTpl&) = default;
+  GPUhdDefault() ~CellSeedTpl() = default;
+  GPUhdDefault() CellSeedTpl(CellSeedTpl&&) = default;
+  GPUhdDefault() CellSeedTpl& operator=(const CellSeedTpl&) = default;
+  GPUhdDefault() CellSeedTpl& operator=(CellSeedTpl&&) = default;
 
   GPUhd() int getFirstClusterIndex() const { return this->clustersRaw()[0]; };
   GPUhd() int getSecondClusterIndex() const { return this->clustersRaw()[1]; };
@@ -111,20 +126,23 @@ class CellSeed final : public SeedBase<o2::its::constants::ClustersPerCell>
   GPUhd() const auto& getClusters() const { return this->clustersRaw(); }
   GPUhd() int getCluster(int layer) const
   {
-    const int slot = getHitLayerMask().slot(layer);
+    const int slot = this->getHitLayerMask().slot(layer);
     return (slot >= 0 && slot < o2::its::constants::ClustersPerCell) ? this->clustersRaw()[slot] : o2::its::constants::UnusedIndex;
   }
 };
 
-template <int NLayers>
-class TrackSeed final : public SeedBase<NLayers>
+/// ITS default: barrel track parameters in cells.
+using CellSeed = CellSeedTpl<o2::track::TrackParCovF>;
+
+template <int NLayers, typename TrackParT = o2::track::TrackParCovF>
+class TrackSeedTpl final : public SeedBase<NLayers, TrackParT>
 {
-  using Base = SeedBase<NLayers>;
+  using Base = SeedBase<NLayers, TrackParT>;
 
  public:
-  GPUhdDefault() TrackSeed() = default;
-  GPUhd() TrackSeed(const CellSeed& cs)
-    : Base(static_cast<const o2::track::TrackParCovF&>(cs), cs.getChi2(), cs.getLevel(), cs.getTimeStamp())
+  GPUhdDefault() TrackSeedTpl() = default;
+  GPUhd() TrackSeedTpl(const CellSeedTpl<TrackParT>& cs)
+    : Base(static_cast<const TrackParT&>(cs), cs.getChi2(), cs.getLevel(), cs.getTimeStamp())
   {
     this->setHitLayerMask(cs.getHitLayerMask());
     this->setFirstTrackletIndex(cs.getFirstTrackletIndex());
@@ -138,11 +156,11 @@ class TrackSeed final : public SeedBase<NLayers>
       }
     }
   }
-  GPUhdDefault() TrackSeed(const TrackSeed&) = default;
-  GPUhdDefault() ~TrackSeed() = default;
-  GPUhdDefault() TrackSeed(TrackSeed&&) = default;
-  GPUhdDefault() TrackSeed& operator=(const TrackSeed&) = default;
-  GPUhdDefault() TrackSeed& operator=(TrackSeed&&) = default;
+  GPUhdDefault() TrackSeedTpl(const TrackSeedTpl&) = default;
+  GPUhdDefault() ~TrackSeedTpl() = default;
+  GPUhdDefault() TrackSeedTpl(TrackSeedTpl&&) = default;
+  GPUhdDefault() TrackSeedTpl& operator=(const TrackSeedTpl&) = default;
+  GPUhdDefault() TrackSeedTpl& operator=(TrackSeedTpl&&) = default;
 
   GPUhd() int getFirstClusterIndex() const { return getClusterBySlot(0); }
   GPUhd() int getSecondClusterIndex() const { return getClusterBySlot(1); }
@@ -166,6 +184,9 @@ class TrackSeed final : public SeedBase<NLayers>
     return o2::its::constants::UnusedIndex;
   }
 };
+
+template <int NLayers>
+using TrackSeed = TrackSeedTpl<NLayers, o2::track::TrackParCovF>;
 
 } // namespace o2::itsmft::tracking
 

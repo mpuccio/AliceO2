@@ -34,7 +34,7 @@ template <typename T>
 using BranchDefinition = MakeRootTreeWriterSpec::BranchDefinition<T>;
 using namespace o2::header;
 
-DataProcessorSpec getTrackWriterSpec(bool useMC)
+DataProcessorSpec getTrackWriterSpec(bool useMC, bool useCA)
 {
   // Spectators for logging
   // this is only to restore the original behavior
@@ -53,6 +53,22 @@ DataProcessorSpec getTrackWriterSpec(bool useMC)
                                                                                  tracksSizeGetter},
                                 BranchDefinition<std::vector<int>>{InputSpec{"trackClIdx", "MFT", "TRACKCLSID", 0},
                                                                    "MFTTrackClusIdx"},
+                                BranchDefinition<std::vector<uint16_t>>{InputSpec{"trackSeedPat", "MFT", "TRACKSEEDPAT", 0},
+                                                                       "MFTTrackSeedPattern",
+                                                                       (useCA ? 1 : 0),
+                                                                       ""},
+                                BranchDefinition<std::vector<uint64_t>>{InputSpec{"artefactKeys", "MFT", "TRACKMCEARTKEY", 0},
+                                                                        "MFTMCArtefactLabelKeys",
+                                                                        (useCA && useMC ? 1 : 0),
+                                                                        ""},
+                                BranchDefinition<std::vector<uint16_t>>{InputSpec{"artefactTrkMask", "MFT", "TRACKMCEARTTRK", 0},
+                                                                        "MFTMCArtefactTrackletMask",
+                                                                        (useCA && useMC ? 1 : 0),
+                                                                        ""},
+                                BranchDefinition<std::vector<uint16_t>>{InputSpec{"artefactCellMask", "MFT", "TRACKMCEARTCELL", 0},
+                                                                        "MFTMCArtefactCellMask",
+                                                                        (useCA && useMC ? 1 : 0),
+                                                                        ""},
                                 BranchDefinition<std::vector<o2::itsmft::ROFRecord>>{InputSpec{"ROframes", "MFT", "MFTTrackROF", 0},
                                                                                      "MFTTracksROF",
                                                                                      logger},

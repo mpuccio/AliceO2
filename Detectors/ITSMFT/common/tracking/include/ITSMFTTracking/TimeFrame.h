@@ -14,8 +14,9 @@
 #define ALICEO2_ITSMFT_TRACKING_TIMEFRAME_H_
 
 #include <array>
-#include <vector>
+#include <unordered_map>
 #include <utility>
+#include <vector>
 #include <algorithm>
 #include <numeric>
 #include <gsl/gsl>
@@ -64,7 +65,6 @@ namespace itsmft::tracking
 // Re-use ITS CA tracking data structures; only TimeFrame and index-table I/O are detector-aware.
 using Cluster = o2::its::Cluster;
 using TrackingFrameInfo = o2::its::TrackingFrameInfo;
-using CellSeed = o2::itsmft::tracking::CellSeed;
 using Tracklet = o2::its::Tracklet;
 using LayerMask = o2::itsmft::tracking::LayerMask;
 using BoundedMemoryResource = o2::its::BoundedMemoryResource;
@@ -92,7 +92,8 @@ struct TimeFrame {
   using ROFVertexLookupTableN = o2::its::ROFVertexLookupTable<NLayers>;
   using ROFMaskTableN = o2::its::ROFMaskTable<NLayers>;
   using TrackingTopologyN = o2::itsmft::tracking::TrackingTopology<NLayers>;
-  using TrackSeedN = o2::itsmft::tracking::TrackSeed<NLayers>;
+  using CellSeedN = o2::itsmft::tracking::CellSeedN<NLayers>;
+  using TrackSeedN = o2::itsmft::tracking::TrackSeedN<NLayers>;
 
   TimeFrame() = default;
   virtual ~TimeFrame() = default;
@@ -206,6 +207,41 @@ struct TimeFrame {
   auto& getTrackletsLabel(int layer) { return mTrackletLabels[layer]; }
   auto& getCellsLabel(int layer) { return mCellLabels[layer]; }
 
+  struct MCArtefactCoverage {
+    uint16_t trackletMask{0};
+    uint16_t cellMask{0};
+  };
+
+  void clearMCArtefactCoverage() { mMCArtefactCoverage.clear(); }
+  void recordMCArtefactTracklet(uint64_t labelKey, int fromLayer)
+  {
+    if (fromLayer >= 0 && fromLayer < NLayers - 1) {
+      mMCArtefactCoverage[labelKey].trackletMask |= static_cast<uint16_t>(1u << fromLayer);
+    }
+  }
+  void recordMCArtefactCell(uint64_t labelKey, int fromLayer)
+  {
+    if (fromLayer >= 0 && fromLayer < NLayers - 1) {
+      mMCArtefactCoverage[labelKey].cellMask |= static_cast<uint16_t>(1u << fromLayer);
+    }
+  }
+  void exportMCArtefactCoverage(std::vector<uint64_t>& keys,
+                                std::vector<uint16_t>& trackletMasks,
+                                std::vector<uint16_t>& cellMasks) const
+  {
+    keys.clear();
+    trackletMasks.clear();
+    cellMasks.clear();
+    keys.reserve(mMCArtefactCoverage.size());
+    trackletMasks.reserve(mMCArtefactCoverage.size());
+    cellMasks.reserve(mMCArtefactCoverage.size());
+    for (const auto& entry : mMCArtefactCoverage) {
+      keys.push_back(entry.first);
+      trackletMasks.push_back(entry.second.trackletMask);
+      cellMasks.push_back(entry.second.cellMask);
+    }
+  }
+
   bool hasMCinformation() const { return mClusterLabels[0] != nullptr; }
   void initVertexingTopology(const TrackingParameters& trkParam);
   void initDefaultTrackingTopology(const TrackingParameters& trkParam, const int maxLayers = NLayers);
@@ -307,7 +343,7 @@ struct TimeFrame {
 
   std::array<bounded_vector<Cluster>, NLayers> mUnsortedClusters;
   std::vector<bounded_vector<Tracklet>> mTracklets;
-  std::vector<bounded_vector<CellSeed>> mCells;
+  std::vector<bounded_vector<CellSeedN>> mCells;
   bounded_vector<CATrackType<NLayers>> mTracks;
   bounded_vector<MCCompLabel> mTracksLabel;
   std::vector<bounded_vector<int>> mCellsNeighbours;
@@ -340,6 +376,7 @@ struct TimeFrame {
   bounded_vector<std::array<float, 2>> mPValphaX; /// PV x and alpha for track propagation
   std::vector<bounded_vector<MCCompLabel>> mTrackletLabels;
   std::vector<bounded_vector<MCCompLabel>> mCellLabels;
+  std::unordered_map<uint64_t, MCArtefactCoverage> mMCArtefactCoverage;
   std::vector<bounded_vector<int>> mCellsNeighboursLUT;
   bounded_vector<int> mBogusClusters; /// keep track of clusters with wild coordinates
 

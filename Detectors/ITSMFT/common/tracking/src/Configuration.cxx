@@ -318,7 +318,6 @@ std::vector<TrackingParameters> getTrackingParameters(detectors::DetID::ID detId
     if (tc.trackletMinAbsX >= 0.f) {
       p.TrackletMinAbsX = tc.trackletMinAbsX;
     }
-    p.PrintHemisphereStats = tc.printHemisphereStats;
     for (int iD{0}; iD < 3; ++iD) {
       p.Diamond[iD] = tc.diamondPos[iD];
     }

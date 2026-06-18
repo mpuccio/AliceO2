@@ -44,13 +44,17 @@ static_assert(o2::itsmft::tracking::constants::MFTNLayers == o2::mft::constants:
 
 namespace
 {
-template <typename TracksVec, typename ClusterIdxVec, typename ROFVec, typename LabelsVec>
+template <typename TracksVec, typename ClusterIdxVec, typename ROFVec, typename LabelsVec, typename SeedPatternVec, typename ArtefactKeysVec, typename ArtefactMaskVec>
 void fillMFTOutputs(const o2::itsmft::tracking::TimeFrameMFT& tf,
                     gsl::span<const o2::itsmft::ROFRecord> inputROFs,
                     TracksVec& tracks,
                     ClusterIdxVec& clusterIndices,
                     ROFVec& trackROFs,
                     LabelsVec& trackLabels,
+                    SeedPatternVec& seedPatterns,
+                    ArtefactKeysVec& artefactLabelKeys,
+                    ArtefactMaskVec& artefactTrackletMasks,
+                    ArtefactMaskVec& artefactCellMasks,
                     bool useMC)
 {
   trackROFs.assign(inputROFs.begin(), inputROFs.end());
@@ -61,6 +65,7 @@ void fillMFTOutputs(const o2::itsmft::tracking::TimeFrameMFT& tf,
 
   const auto& tracksIn = tf.getTracks();
   tracks.reserve(tracksIn.size());
+  seedPatterns.reserve(tracksIn.size());
   if (useMC) {
     trackLabels.reserve(tracksIn.size());
   }
@@ -88,6 +93,7 @@ void fillMFTOutputs(const o2::itsmft::tracking::TimeFrameMFT& tf,
     }
     dst.setNumberOfPoints(nPoints);
     tracks.push_back(dst);
+    seedPatterns.push_back(src.getSeedPattern());
 
     if (useMC && iTrk < tf.getTracksLabel().size()) {
       trackLabels.push_back(tf.getTracksLabel()[iTrk]);
@@ -103,6 +109,16 @@ void fillMFTOutputs(const o2::itsmft::tracking::TimeFrameMFT& tf,
   for (size_t iROF = 0; iROF < trackROFs.size(); ++iROF) {
     trackROFs[iROF].setFirstEntry(rofEntries[iROF]);
     trackROFs[iROF].setNEntries(rofEntries[iROF + 1] - rofEntries[iROF]);
+  }
+
+  if (useMC) {
+    std::vector<uint64_t> keys;
+    std::vector<uint16_t> trackletMasks;
+    std::vector<uint16_t> cellMasks;
+    tf.exportMCArtefactCoverage(keys, trackletMasks, cellMasks);
+    artefactLabelKeys.assign(keys.begin(), keys.end());
+    artefactTrackletMasks.assign(trackletMasks.begin(), trackletMasks.end());
+    artefactCellMasks.assign(cellMasks.begin(), cellMasks.end());
   }
 }
 } // namespace
@@ -121,6 +137,10 @@ void CATrackerDPL::run(ProcessingContext& pc)
                                                                            rofsinput.begin(), rofsinput.end());
   auto& allTracksMFT = pc.outputs().make<std::vector<o2::mft::TrackMFT>>(Output{"MFT", "TRACKS", 0});
   auto& allClusIdx = pc.outputs().make<std::vector<int>>(Output{"MFT", "TRACKCLSID", 0});
+  auto& allSeedPatterns = pc.outputs().make<std::vector<uint16_t>>(Output{"MFT", "TRACKSEEDPAT", 0});
+  auto& artefactLabelKeys = pc.outputs().make<std::vector<uint64_t>>(Output{"MFT", "TRACKMCEARTKEY", 0});
+  auto& artefactTrackletMasks = pc.outputs().make<std::vector<uint16_t>>(Output{"MFT", "TRACKMCEARTTRK", 0});
+  auto& artefactCellMasks = pc.outputs().make<std::vector<uint16_t>>(Output{"MFT", "TRACKMCEARTCELL", 0});
   std::vector<o2::MCCompLabel> allTrackLabels;
 
   if (!mTracking.isActive()) {
@@ -155,6 +175,10 @@ void CATrackerDPL::run(ProcessingContext& pc)
                  allClusIdx,
                  trackROFs,
                  allTrackLabels,
+                 allSeedPatterns,
+                 artefactLabelKeys,
+                 artefactTrackletMasks,
+                 artefactCellMasks,
                  mUseMC);
 
   LOGP(info, "MFT CA pushed {} tracks in {} ROFs", allTracksMFT.size(), trackROFs.size());
@@ -242,8 +266,12 @@ DataProcessorSpec getCATrackerSpec(bool useMC, bool useGeom, bool useIRFrames, o
   outputs.emplace_back("MFT", "TRACKS", 0, Lifetime::Timeframe);
   outputs.emplace_back("MFT", "MFTTrackROF", 0, Lifetime::Timeframe);
   outputs.emplace_back("MFT", "TRACKCLSID", 0, Lifetime::Timeframe);
+  outputs.emplace_back("MFT", "TRACKSEEDPAT", 0, Lifetime::Timeframe);
   if (useMC) {
     outputs.emplace_back("MFT", "TRACKSMCTR", 0, Lifetime::Timeframe);
+    outputs.emplace_back("MFT", "TRACKMCEARTKEY", 0, Lifetime::Timeframe);
+    outputs.emplace_back("MFT", "TRACKMCEARTTRK", 0, Lifetime::Timeframe);
+    outputs.emplace_back("MFT", "TRACKMCEARTCELL", 0, Lifetime::Timeframe);
   }
 
   return DataProcessorSpec{

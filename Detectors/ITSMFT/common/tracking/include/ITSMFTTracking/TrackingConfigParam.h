@@ -127,7 +127,6 @@ struct TrackerParamConfig : public o2::conf::ConfigurableParamHelper<TrackerPara
   bool sharedClusterOppositeSign = false; // Require opposite sign of the tracklets
   float cellRoadRCut = -1.f; // MFT: max distance to seed line; <=0 uses default (0.05 cm)
   float trackletMinAbsX = -1.f; // MFT: min |x| (cm) for tracklet seeds and accepted tracks; <=0 uses code default
-  bool printHemisphereStats = false; // MFT debug: log x<0 vs x>0 counts per CA stage
 
   O2ParamDef(TrackerParamConfig, getParamName().data());
 
