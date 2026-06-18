@@ -13,7 +13,6 @@
 /// \brief
 ///
 
-#include "ITSMFTTracking/CATrackTypes.h"
 #include "ITSMFTTracking/CATracker.h"
 
 #include <algorithm>
@@ -68,7 +67,7 @@ void computeTracksMClabels(TimeFrame<NLayers>& tf)
         return e1.second > e2.second;
       });
       maxOccurrencesValue = occurrences[0].first;
-      if constexpr (NLayers == constants::MFTNLayers) {
+      if constexpr (NLayers == o2::mft::constants::mft::LayersNumber) {
         const float threshold = o2::mft::MFTTrackingParam::Instance().TrueTrackMCThreshold;
         if (static_cast<float>(occurrences[0].second) / track.getNumberOfClusters() < threshold) {
           maxOccurrencesValue.setFakeFlag();

@@ -14,7 +14,6 @@
 #define ALICEO2_ITSMFT_TRACKING_TIMEFRAME_H_
 
 #include <array>
-#include <unordered_map>
 #include <utility>
 #include <vector>
 #include <algorithm>
@@ -32,10 +31,8 @@
 #include "ITStracking/ROFLookupTables.h"
 #include "ITStracking/Tracklet.h"
 
-#include "ITSMFTTracking/CATrackTypes.h"
 #include "ITSMFTTracking/MFTCATrack.h"
 #include "ITSMFTTracking/Configuration.h"
-#include "ITSMFTTracking/Constants.h"
 #include "ITSMFTTracking/IndexTableUtils.h"
 #include "ITSMFTTracking/LayerMask.h"
 #include "ITSMFTTracking/TrackingTopology.h"
@@ -80,9 +77,8 @@ using TrackITSExt = o2::its::TrackITSExt;
 namespace constants
 {
 using namespace o2::its::constants;
-using o2::itsmft::tracking::constants::ITSNLayers;
-using o2::itsmft::tracking::constants::MFTNLayers;
-using o2::itsmft::tracking::constants::nLayersForDet;
+using o2::itsmft::tracking::ITSNLayers;
+using o2::itsmft::tracking::nLayersForDet;
 } // namespace constants
 
 template <int NLayers>
@@ -206,41 +202,6 @@ struct TimeFrame {
 
   auto& getTrackletsLabel(int layer) { return mTrackletLabels[layer]; }
   auto& getCellsLabel(int layer) { return mCellLabels[layer]; }
-
-  struct MCArtefactCoverage {
-    uint16_t trackletMask{0};
-    uint16_t cellMask{0};
-  };
-
-  void clearMCArtefactCoverage() { mMCArtefactCoverage.clear(); }
-  void recordMCArtefactTracklet(uint64_t labelKey, int fromLayer)
-  {
-    if (fromLayer >= 0 && fromLayer < NLayers - 1) {
-      mMCArtefactCoverage[labelKey].trackletMask |= static_cast<uint16_t>(1u << fromLayer);
-    }
-  }
-  void recordMCArtefactCell(uint64_t labelKey, int fromLayer)
-  {
-    if (fromLayer >= 0 && fromLayer < NLayers - 1) {
-      mMCArtefactCoverage[labelKey].cellMask |= static_cast<uint16_t>(1u << fromLayer);
-    }
-  }
-  void exportMCArtefactCoverage(std::vector<uint64_t>& keys,
-                                std::vector<uint16_t>& trackletMasks,
-                                std::vector<uint16_t>& cellMasks) const
-  {
-    keys.clear();
-    trackletMasks.clear();
-    cellMasks.clear();
-    keys.reserve(mMCArtefactCoverage.size());
-    trackletMasks.reserve(mMCArtefactCoverage.size());
-    cellMasks.reserve(mMCArtefactCoverage.size());
-    for (const auto& entry : mMCArtefactCoverage) {
-      keys.push_back(entry.first);
-      trackletMasks.push_back(entry.second.trackletMask);
-      cellMasks.push_back(entry.second.cellMask);
-    }
-  }
 
   bool hasMCinformation() const { return mClusterLabels[0] != nullptr; }
   void initVertexingTopology(const TrackingParameters& trkParam);
@@ -376,7 +337,6 @@ struct TimeFrame {
   bounded_vector<std::array<float, 2>> mPValphaX; /// PV x and alpha for track propagation
   std::vector<bounded_vector<MCCompLabel>> mTrackletLabels;
   std::vector<bounded_vector<MCCompLabel>> mCellLabels;
-  std::unordered_map<uint64_t, MCArtefactCoverage> mMCArtefactCoverage;
   std::vector<bounded_vector<int>> mCellsNeighboursLUT;
   bounded_vector<int> mBogusClusters; /// keep track of clusters with wild coordinates
 
@@ -678,9 +638,9 @@ inline const TrackingFrameInfo& TimeFrame<NLayers>::getClusterTrackingFrameInfo(
   return mTrackingFrameInfo[layerId][cl.clusterId];
 }
 
-using TimeFrameITS = TimeFrame<constants::ITSNLayers>;
-/// MFT CA TimeFrame: NLayers = MFTNLayers half-disks; see ITSMFTTracking/Constants.h.
-using TimeFrameMFT = TimeFrame<constants::MFTNLayers>;
+using TimeFrameITS = TimeFrame<ITSNLayers>;
+/// MFT CA TimeFrame: NLayers = half-disk CA layers (see MFTFwdTrackHelpers.h).
+using TimeFrameMFT = TimeFrame<o2::mft::constants::mft::LayersNumber>;
 
 } // namespace itsmft::tracking
 } // namespace o2

@@ -33,7 +33,7 @@ o2_add_library(ITSMFTTracking
                        src/TrackerTraits.cxx
                        src/CATracker.cxx
                        src/TrackingInterface.cxx
-                       src/MFTForwardRefit.cxx
+                       src/MFTFwdTrackHelpers.cxx
                PUBLIC_LINK_LIBRARIES
                        O2::ITSMFTTrackingParams
                        O2::ITStracking

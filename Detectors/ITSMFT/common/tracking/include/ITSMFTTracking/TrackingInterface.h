@@ -31,7 +31,6 @@
 #include "ITSMFTTracking/DetectorTraits.h"
 #include "ITSMFTTracking/Tracker.h"
 #include "ITSMFTTracking/Configuration.h"
-#include "ITSMFTTracking/Constants.h"
 #include "ITSMFTTracking/TimeFrame.h"
 #include "ITSMFTTracking/TrackerTraits.h"
 #include "ITStracking/BoundedAllocator.h"
@@ -46,9 +45,9 @@ template <int NLayers>
 class ITSMFTTrackingInterface
 {
  public:
-  static_assert(NLayers == constants::ITSNLayers || NLayers == constants::MFTNLayers,
+  static_assert(NLayers == ITSNLayers || NLayers == o2::mft::constants::mft::LayersNumber,
                 "ITSMFTTrackingInterface supports ITS (7) and MFT (10) layer counts only");
-  static constexpr o2::detectors::DetID::ID DetId = constants::detIdFromNLayers<NLayers>();
+  static constexpr o2::detectors::DetID::ID DetId = detIdFromNLayers<NLayers>();
 
   using TimeFrameN = TimeFrame<NLayers>;
   using TrackerN = Tracker<NLayers>;
@@ -116,8 +115,8 @@ class ITSMFTTrackingInterface
   bool mMFTTriggered = false;
 };
 
-using ITSMFTTrackingInterfaceITS = ITSMFTTrackingInterface<constants::ITSNLayers>;
-using ITSMFTTrackingInterfaceMFT = ITSMFTTrackingInterface<constants::MFTNLayers>;
+using ITSMFTTrackingInterfaceITS = ITSMFTTrackingInterface<ITSNLayers>;
+using ITSMFTTrackingInterfaceMFT = ITSMFTTrackingInterface<o2::mft::constants::mft::LayersNumber>;
 
 } // namespace o2::itsmft::tracking
 

@@ -22,8 +22,9 @@
 #include "DataFormatsITS/TimeEstBC.h"
 #include "DataFormatsITS/TrackITS.h"
 #include "DataFormatsMFT/TrackMFT.h"
-#include "ITSMFTTracking/CATrackTypes.h"
+#include "ITSMFTTracking/Cell.h"
 #include "ITStracking/Constants.h"
+#include "MFTTracking/Constants.h"
 
 namespace o2::itsmft::tracking
 {
@@ -147,7 +148,7 @@ class MFTCATrack
 };
 
 template <>
-struct CATrackTypeHelper<constants::MFTNLayers> {
+struct CATrackTypeHelper<o2::mft::constants::mft::LayersNumber> {
   using type = MFTCATrack;
 };
 

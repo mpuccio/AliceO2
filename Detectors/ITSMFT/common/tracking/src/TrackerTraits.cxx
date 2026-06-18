@@ -27,9 +27,7 @@
 #include "ITStracking/BoundedAllocator.h"
 #include "ITSMFTTracking/Cell.h"
 #include "ITStracking/Constants.h"
-#include "ITSMFTTracking/CATrackTypes.h"
 #include "ITSMFTTracking/Configuration.h"
-#include "ITSMFTTracking/Constants.h"
 #include "ITSMFTTracking/DetectorTraits.h"
 #include "ITSMFTTracking/MFTFwdTrackHelpers.h"
 #include "ITSMFTTracking/IndexTableUtils.h"
@@ -52,62 +50,6 @@ struct PassMode {
   using TwoPassCount = std::integral_constant<int, 1>;
   using TwoPassInsert = std::integral_constant<int, 2>;
 };
-
-namespace detail
-{
-constexpr int kQEDSourceID = 99;
-
-bool isUsableMCLabel(const MCCompLabel& label)
-{
-  return label.isValid() && !label.isNoise() && label.getSourceID() != kQEDSourceID;
-}
-
-uint64_t mcLabelKey(const MCCompLabel& label)
-{
-  return label.getRawValue() & MCCompLabel::maskFull;
-}
-
-template <int NLayers>
-void recordMCTrackletCoverage(TimeFrame<NLayers>* tf,
-                              const typename TrackingTopology<NLayers>::View& topology,
-                              int transitionId)
-{
-  const auto& transition = topology.getTransition(static_cast<typename TrackingTopology<NLayers>::Id>(transitionId));
-  if (transition.toLayer != transition.fromLayer + 1) {
-    return;
-  }
-  const auto& labels = tf->getTrackletsLabel(transitionId);
-  for (const auto& lab : labels) {
-    if (isUsableMCLabel(lab)) {
-      tf->recordMCArtefactTracklet(mcLabelKey(lab), transition.fromLayer);
-    }
-  }
-}
-
-template <int NLayers>
-void recordMCCellCoverage(TimeFrame<NLayers>* tf,
-                          const typename TrackingTopology<NLayers>::View& topology)
-{
-  for (typename TrackingTopology<NLayers>::Id cellTopologyId = 0; cellTopologyId < topology.nCells; ++cellTopologyId) {
-    const auto& cellTopology = topology.getCell(cellTopologyId);
-    const auto& firstTransition = topology.getTransition(cellTopology.firstTransition);
-    const auto& secondTransition = topology.getTransition(cellTopology.secondTransition);
-    const auto& labels = tf->getCellsLabel(cellTopologyId);
-    for (const auto& lab : labels) {
-      if (!isUsableMCLabel(lab)) {
-        continue;
-      }
-      const uint64_t key = mcLabelKey(lab);
-      if (firstTransition.toLayer == firstTransition.fromLayer + 1) {
-        tf->recordMCArtefactCell(key, firstTransition.fromLayer);
-      }
-      if (secondTransition.toLayer == secondTransition.fromLayer + 1) {
-        tf->recordMCArtefactCell(key, secondTransition.fromLayer);
-      }
-    }
-  }
-}
-} // namespace detail
 
 template <int NLayers>
 void TrackerTraits<NLayers>::computeLayerTracklets(const int iteration, int iVertex)
@@ -195,14 +137,22 @@ void TrackerTraits<NLayers>::computeLayerTracklets(const int iteration, int iVer
                                        transition.fromLayer, transition.toLayer,
                                        mTrkParams[iteration].LayerRadii[transition.fromLayer],
                                        meanDeltaZ, msAngle, phiCut, xProj, yProj, sigmaX, sigmaY);
-            float zVtxMin = 0.f;
-            float zVtxMax = 0.f;
-            detail::mftDiamondZExtents(pv.getZ(), pv.getSigmaZ(), mTrkParams[iteration].NSigmaCut, zVtxMin, zVtxMax);
-            detail::mftRSpreadAtLayer(currentCluster.radius,
-                                      detail::mftLayerZ(transition.fromLayer),
-                                      detail::mftLayerZ(transition.toLayer),
-                                      zVtxMin, zVtxMax,
-                                      lutRangeMin, lutRangeMax);
+            const float zSpread = mTrkParams[iteration].NSigmaCut * pv.getSigmaZ();
+            const float zVtxMin = pv.getZ() - zSpread;
+            const float zVtxMax = pv.getZ() + zSpread;
+            const float zLayerFrom = detail::mftLayerZ(transition.fromLayer);
+            const float zLayerTo = detail::mftLayerZ(transition.toLayer);
+            const float absZFrom = std::abs(zLayerFrom);
+            const float absZTo = std::abs(zLayerTo);
+            const float denomMin = zVtxMax + absZFrom;
+            const float denomMax = absZFrom + zVtxMin;
+            lutRangeMin = (std::abs(denomMin) > 1.e-6f) ? currentCluster.radius * (zVtxMax + absZTo) / denomMin : currentCluster.radius;
+            lutRangeMax = (std::abs(denomMax) > 1.e-6f) ? currentCluster.radius * (absZTo + zVtxMin) / denomMax : currentCluster.radius;
+            if (lutRangeMin > lutRangeMax) {
+              const float tmp = lutRangeMin;
+              lutRangeMin = lutRangeMax;
+              lutRangeMax = tmp;
+            }
             colWindow = sigmaX * mTrkParams[iteration].NSigmaCut;
             rowWindow = sigmaY * mTrkParams[iteration].NSigmaCut;
           } else {
@@ -267,7 +217,9 @@ void TrackerTraits<NLayers>::computeLayerTracklets(const int iteration, int iVer
                 if (isMFT) {
                   const float dx = nextCluster.xCoordinate - xProj;
                   const float dy = nextCluster.yCoordinate - yProj;
-                  const float transChi2 = detail::mftTrackletTransverseChi2(dx, dy, sigmaX, sigmaY);
+                  const float invSigmaX2 = (sigmaX > 0.f) ? 1.f / (sigmaX * sigmaX) : 0.f;
+                  const float invSigmaY2 = (sigmaY > 0.f) ? 1.f / (sigmaY * sigmaY) : 0.f;
+                  const float transChi2 = dx * dx * invSigmaX2 + dy * dy * invSigmaY2;
                   const float nSigmaCut2 = math_utils::Sq(mTrkParams[iteration].NSigmaCut);
                   if (transChi2 < nSigmaCut2) {
                     acceptTracklet = std::abs(meanDeltaZ) > 1.e-6f;
@@ -375,12 +327,6 @@ void TrackerTraits<NLayers>::computeLayerTracklets(const int iteration, int iVer
         }
       });
     }
-
-    if (mTimeFrame->hasMCinformation() && mTrkParams[iteration].CreateArtefactLabels) {
-      for (int transitionId = 0; transitionId < topology.nTransitions; ++transitionId) {
-        detail::recordMCTrackletCoverage<NLayers>(mTimeFrame, topology, transitionId);
-      }
-    }
   });
 }
 
@@ -428,14 +374,14 @@ void TrackerTraits<NLayers>::computeLayerCells(const int iteration)
           float chi2{0.f};
           bool good{false};
           if constexpr (DetectorTraits<NLayers>::DetId == o2::detectors::DetID::MFT) {
-            const auto& cluster1_glo = mTimeFrame->getUnsortedClusters()[firstTransition.fromLayer][clusId[0]];
-            const auto& cluster2_glo = mTimeFrame->getUnsortedClusters()[firstTransition.toLayer][clusId[1]];
-            const auto& cluster3_glo = mTimeFrame->getUnsortedClusters()[secondTransition.toLayer][clusId[2]];
+            const auto& cluster1_glo = mTimeFrame->getUnsortedClusters()[hitLayers[0]][clusId[0]];
+            const auto& cluster2_glo = mTimeFrame->getUnsortedClusters()[hitLayers[1]][clusId[1]];
+            const auto& cluster3_glo = mTimeFrame->getUnsortedClusters()[hitLayers[2]][clusId[2]];
             const float r2Cut = mTrkParams[iteration].CellRoadRCut * mTrkParams[iteration].CellRoadRCut;
-            if (!DetectorTraits<NLayers>::validateMFTCellClusters(cluster1_glo, hitLayers[0],
-                                                                  cluster2_glo, hitLayers[1],
-                                                                  cluster3_glo, hitLayers[2],
-                                                                  r2Cut)) {
+            if (!detail::validateMFTCellClusters(cluster1_glo, hitLayers[0],
+                                               cluster2_glo, hitLayers[1],
+                                               cluster3_glo, hitLayers[2],
+                                               r2Cut)) {
               continue;
             }
             o2::track::TrackParCovFwd fwdTrack;
@@ -564,10 +510,6 @@ void TrackerTraits<NLayers>::computeLayerCells(const int iteration)
       }
     }
   });
-
-  if (mTimeFrame->hasMCinformation() && mTrkParams[iteration].CreateArtefactLabels) {
-    detail::recordMCCellCoverage<NLayers>(mTimeFrame, topology);
-  }
 
   for (int transitionId = 0; transitionId < topology.nTransitions; ++transitionId) {
     deepVectorClear(mTimeFrame->getTracklets()[transitionId]);
@@ -760,14 +702,39 @@ void TrackerTraits<NLayers>::processNeighbours(int iteration, int defaultCellTop
         seed.getTimeStamp() = currentCell.getTimeStamp();
         seed.getTimeStamp() += neighbourCell.getTimeStamp();
 
-        if (!DetectorTraits<NLayers>::attachNeighbourToSeed(seed,
-                                                            neighbourLayer,
-                                                            neighbourCluster,
-                                                            *mTimeFrame,
-                                                            mTrkParams[iteration],
-                                                            getBz(),
-                                                            propagator)) {
-          continue;
+        if constexpr (DetectorTraits<NLayers>::DetId == o2::detectors::DetID::MFT) {
+          o2::track::TrackParCovFwd fwdTrack;
+          float chi2 = seed.getChi2();
+          if (!detail::mftFwdAttachNeighbourToSeed(seed, neighbourLayer, neighbourCluster, *mTimeFrame, mTrkParams[iteration], getBz(), fwdTrack, chi2)) {
+            continue;
+          }
+          static_cast<o2::track::TrackParCovFwd&>(seed) = fwdTrack;
+          seed.setChi2(chi2);
+        } else {
+          const auto& trHit = mTimeFrame->getTrackingFrameInfoOnLayer(neighbourLayer)[neighbourCluster];
+
+          if (!seed.rotate(trHit.alphaTrackingFrame)) {
+            continue;
+          }
+
+          if (!propagator->propagateToX(seed, trHit.xTrackingFrame, getBz(), o2::base::PropagatorImpl<float>::MAX_SIN_PHI, o2::base::PropagatorImpl<float>::MAX_STEP, mTrkParams[iteration].CorrType)) {
+            continue;
+          }
+
+          if (mTrkParams[iteration].CorrType == o2::base::PropagatorF::MatCorrType::USEMatCorrNONE) {
+            if (!seed.correctForMaterial(mTrkParams[iteration].LayerxX0[neighbourLayer], mTrkParams[iteration].LayerxX0[neighbourLayer] * o2::its::constants::Radl * o2::its::constants::Rho, true)) {
+              continue;
+            }
+          }
+
+          auto predChi2{seed.getPredictedChi2Quiet(trHit.positionTrackingFrame, trHit.covarianceTrackingFrame)};
+          if ((predChi2 > mTrkParams[iteration].MaxChi2ClusterAttachment) || predChi2 < 0.f) {
+            continue;
+          }
+          seed.setChi2(seed.getChi2() + predChi2);
+          if (!seed.o2::track::TrackParCov::update(trHit.positionTrackingFrame, trHit.covarianceTrackingFrame)) {
+            continue;
+          }
         }
 
         if constexpr (decltype(Tag)::value != PassMode::TwoPassCount::value) {
@@ -946,7 +913,12 @@ void TrackerTraits<NLayers>::findRoads(const int iteration)
       deepVectorClear(trackSeeds);
     });
 
-    DetectorTraits<NLayers>::sortRefittedTracks(tracks);
+    // Same ordering as o2::its::track::isBetter (longer track, then lower chi2).
+    std::sort(tracks.begin(), tracks.end(), [](const TrackT& a, const TrackT& b) {
+      const auto ncla = a.getNumberOfClusters();
+      const auto nclb = b.getNumberOfClusters();
+      return (ncla == nclb) ? (a.getChi2() < b.getChi2()) : ncla > nclb;
+    });
     acceptTracks(iteration, tracks, firstClusters);
   }
   markTracks(iteration);
@@ -1014,7 +986,10 @@ void TrackerTraits<NLayers>::acceptTracks(int iteration, bounded_vector<CATrackT
     if (track.getTimeStamp().getTimeStampError() > smallestROFHalf) {
       track.getTimeStamp().setTimeStampError(smallestROFHalf);
     }
-    DetectorTraits<NLayers>::finalizeAcceptedTrack(track);
+    if constexpr (DetectorTraits<NLayers>::DetId == o2::detectors::DetID::ITS) {
+      track.setUserField(0);
+      track.getParamOut().setUserField(0);
+    }
     trks.emplace_back(track);
 
     if (mTrkParams[iteration].AllowSharingFirstCluster) {
@@ -1050,8 +1025,16 @@ void TrackerTraits<NLayers>::markTracks(int iteration)
       if (std::abs(t1.getEta() - t2.getEta()) > mTrkParams[iteration].SharedClusterMaxDeltaEta) {
         return false;
       }
-      if (mTrkParams[iteration].SharedClusterOppositeSign && DetectorTraits<NLayers>::sameTrackSign(t1, t2)) {
-        return false;
+      if (mTrkParams[iteration].SharedClusterOppositeSign) {
+        if constexpr (DetectorTraits<NLayers>::DetId == o2::detectors::DetID::MFT) {
+          if (t1.getCharge() == t2.getCharge()) {
+            return false;
+          }
+        } else {
+          if (t1.getSign() == t2.getSign()) {
+            return false;
+          }
+        }
       }
       return true;
     };

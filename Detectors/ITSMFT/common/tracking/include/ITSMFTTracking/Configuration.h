@@ -27,8 +27,26 @@
 #include "CommonUtils/EnumFlags.h"
 #include "DetectorsBase/Propagator.h"
 #include "DetectorsCommonDataFormats/DetID.h"
-#include "ITSMFTTracking/Constants.h"
 #include "ITSMFTTracking/LayerMask.h"
+#include "ITSMFTTracking/TrackingConfigParam.h"
+#include "MFTTracking/Constants.h"
+#include "ITStracking/TrackingConfigParam.h"
+
+namespace o2::itsmft::tracking
+{
+
+constexpr int nLayersForDet(o2::detectors::DetID::ID detId)
+{
+  return detId == o2::detectors::DetID::MFT ? o2::mft::constants::mft::LayersNumber : ITSNLayers;
+}
+
+template <int NLayers>
+constexpr o2::detectors::DetID::ID detIdFromNLayers()
+{
+  return NLayers == o2::mft::constants::mft::LayersNumber ? o2::detectors::DetID::MFT : o2::detectors::DetID::ITS;
+}
+
+} // namespace o2::itsmft::tracking
 
 namespace o2::itsmft
 {
@@ -60,7 +78,7 @@ struct TrackingParameters {
   std::string asString() const;
 
   IterationSteps PassFlags{IterationStep::FirstPass, IterationStep::RebuildClusterLUT};
-  int NLayers = tracking::constants::ITSNLayers;
+  int NLayers = tracking::ITSNLayers;
   std::vector<uint32_t> AddTimeError = {0, 0, 0, 0, 0, 0, 0};
   std::vector<float> LayerZ = {16.333f + 1, 16.333f + 1, 16.333f + 1, 42.140f + 1, 42.140f + 1, 73.745f + 1, 73.745f + 1};
   std::vector<float> LayerColHalfExtent{}; // index-table column half extent (ITS: z, MFT: global x); falls back to LayerZ
@@ -174,5 +192,28 @@ struct VertexingParameters {
 };
 
 } // namespace o2::itsmft
+
+namespace o2::itsmft::tracking
+{
+
+/// MFT uses o2::itsmft::TrackerParamConfig; ITS production params stay in O2::ITStracking.
+template <o2::detectors::DetID::ID DetId>
+struct TrackerParamRef;
+
+template <>
+struct TrackerParamRef<o2::detectors::DetID::MFT> {
+  using Type = o2::itsmft::TrackerParamConfig<o2::detectors::DetID::MFT>;
+  static const Type& get() { return Type::Instance(); }
+  static constexpr int nLayers() { return Type::getNLayers(); }
+};
+
+template <>
+struct TrackerParamRef<o2::detectors::DetID::ITS> {
+  using Type = o2::its::TrackerParamConfig;
+  static const Type& get() { return Type::Instance(); }
+  static constexpr int nLayers() { return ITSNLayers; }
+};
+
+} // namespace o2::itsmft::tracking
 
 #endif /* ALICEO2_ITSMFT_TRACKING_CONFIGURATION_H_ */

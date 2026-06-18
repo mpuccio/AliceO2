@@ -18,7 +18,6 @@
 
 #include <oneapi/tbb.h>
 
-#include "ITSMFTTracking/CATrackTypes.h"
 #include "ITSMFTTracking/Configuration.h"
 #include "ITSMFTTracking/TimeFrame.h"
 #include "ITStracking/BoundedAllocator.h"
@@ -80,8 +79,8 @@ class TrackerTraits
   float mBz{-999.f};
 };
 
-using TrackerTraitsITS = TrackerTraits<constants::ITSNLayers>;
-using TrackerTraitsMFT = TrackerTraits<constants::MFTNLayers>;
+using TrackerTraitsITS = TrackerTraits<ITSNLayers>;
+using TrackerTraitsMFT = TrackerTraits<o2::mft::constants::mft::LayersNumber>;
 
 } // namespace o2::itsmft::tracking
 
