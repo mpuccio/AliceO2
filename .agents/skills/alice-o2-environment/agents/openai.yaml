@@ -1,0 +1,4 @@
+interface:
+  display_name: "ALICE O2 Environment"
+  short_description: "Run builds and tests in an aliBuild O2 environment"
+  default_prompt: "Use $alice-o2-environment to build and test this O2 change."
