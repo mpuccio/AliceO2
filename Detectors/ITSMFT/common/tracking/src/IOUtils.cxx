@@ -242,6 +242,50 @@ template o2::itsmft::tracking::SurfaceMeasurement loadClusterSurfaceMeasurement<
   o2::itsmft::tracking::ClusterSourceId, uint32_t, o2::itsmft::tracking::SurfaceId, uint32_t, bool);
 
 template <o2::detectors::DetID::ID DetId>
+SurfaceMeasurementDecodeResult loadClusterSurfaceMeasurement(
+  const CompClusterExt& c,
+  gsl::span<const unsigned char>::iterator& pattIt,
+  const TopologyDictionary* dict,
+  gsl::span<const o2::itsmft::tracking::SurfaceId> layerToSurface,
+  o2::itsmft::tracking::ClusterSourceId source,
+  uint32_t externalClusterIndex,
+  uint32_t sourceROF,
+  bool applySysErrors)
+{
+  o2::itsmft::tracking::DecodedCluster decoded;
+  if constexpr (DetId == o2::detectors::DetID::ITS) {
+    decoded = decodeCluster<DetId>(o2::its::GeometryTGeo::Instance(), c, pattIt, dict, applySysErrors);
+  } else {
+    decoded = decodeCluster<DetId>(o2::mft::GeometryTGeo::Instance(), c, pattIt, dict, applySysErrors);
+  }
+
+  SurfaceMeasurementDecodeResult result;
+  result.layer = decoded.layer;
+  if (decoded.layer < 0 || static_cast<size_t>(decoded.layer) >= layerToSurface.size()) {
+    return result;
+  }
+  result.layerMapped = true;
+
+  const auto surface = layerToSurface[decoded.layer];
+  const o2::itsmft::tracking::DetectorSensorId sensor{DetId, decoded.sensor};
+  const o2::itsmft::tracking::ClusterRef cluster{source, externalClusterIndex};
+  if constexpr (DetId == o2::detectors::DetID::ITS) {
+    result.measurement = o2::itsmft::tracking::makeCylinderSurfaceMeasurement(decoded, sensor, surface, cluster, sourceROF);
+  } else {
+    result.measurement = o2::itsmft::tracking::makeDiskSurfaceMeasurement(decoded, sensor, surface, cluster, sourceROF);
+  }
+  return result;
+}
+
+template SurfaceMeasurementDecodeResult loadClusterSurfaceMeasurement<o2::detectors::DetID::ITS>(
+  const CompClusterExt&, gsl::span<const unsigned char>::iterator&, const TopologyDictionary*,
+  gsl::span<const o2::itsmft::tracking::SurfaceId>, o2::itsmft::tracking::ClusterSourceId, uint32_t, uint32_t, bool);
+
+template SurfaceMeasurementDecodeResult loadClusterSurfaceMeasurement<o2::detectors::DetID::MFT>(
+  const CompClusterExt&, gsl::span<const unsigned char>::iterator&, const TopologyDictionary*,
+  gsl::span<const o2::itsmft::tracking::SurfaceId>, o2::itsmft::tracking::ClusterSourceId, uint32_t, uint32_t, bool);
+
+template <o2::detectors::DetID::ID DetId>
 void convertCompactClusters(gsl::span<const CompClusterExt> clusters,
                             gsl::span<const unsigned char>::iterator& pattIt,
                             std::vector<o2::BaseCluster<float>>& output,

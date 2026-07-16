@@ -82,6 +82,34 @@ o2::itsmft::tracking::SurfaceMeasurement loadClusterSurfaceMeasurement(
   uint32_t sourceROF,
   bool applySysErrors = true);
 
+/// Result of decoding a cluster when the target SurfaceId is not known ahead
+/// of decoding: `layer` is the detector-local layer discovered by the same
+/// geometry decode used to build `measurement`, and `layerMapped` reports
+/// whether the caller-supplied detector-layer-to-SurfaceId table covered that
+/// layer. `measurement.surface` is only meaningful when `layerMapped` is true.
+struct SurfaceMeasurementDecodeResult {
+  o2::itsmft::tracking::SurfaceMeasurement measurement{};
+  int layer{-1};
+  bool layerMapped{false};
+};
+
+/// Decode a compact cluster through the detector geometry singleton exactly
+/// once, then map the discovered detector-local layer to a global SurfaceId
+/// via `layerToSurface`. This avoids the duplicate geometry/layer lookup that
+/// a caller would otherwise need in order to know the SurfaceId before
+/// decoding (see the single-surface overload above, preserved for callers
+/// that already know the target surface).
+template <o2::detectors::DetID::ID DetId>
+SurfaceMeasurementDecodeResult loadClusterSurfaceMeasurement(
+  const CompClusterExt& c,
+  gsl::span<const unsigned char>::iterator& pattIt,
+  const TopologyDictionary* dict,
+  gsl::span<const o2::itsmft::tracking::SurfaceId> layerToSurface,
+  o2::itsmft::tracking::ClusterSourceId source,
+  uint32_t externalClusterIndex,
+  uint32_t sourceROF,
+  bool applySysErrors = true);
+
 /// Convert compact clusters to 3D spacepoints.
 /// \tparam DetId o2::detectors::DetID::ITS or DetID::MFT
 template <o2::detectors::DetID::ID DetId>

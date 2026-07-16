@@ -34,6 +34,8 @@ o2_add_library(ITSMFTTracking
                        src/CATracker.cxx
                        src/TrackingInterface.cxx
                        src/MFTFwdTrackHelpers.cxx
+                       src/MultiSourceFrame.cxx
+                       src/MultiSourceLoading.cxx
                PUBLIC_LINK_LIBRARIES
                        O2::ITSMFTTrackingParams
                        O2::ITStracking
