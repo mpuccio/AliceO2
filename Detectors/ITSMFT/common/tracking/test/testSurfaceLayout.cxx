@@ -65,6 +65,18 @@ BOOST_AUTO_TEST_CASE(LayoutLimitsAndDenseIdsAreValidated)
   BOOST_CHECK(layout.getError() == DetectorLayoutError::NonDenseSurfaceIds);
 }
 
+BOOST_AUTO_TEST_CASE(CellCannotReturnToItsFirstSurface)
+{
+  SparseTrackingTopology topology{2};
+  const auto outward = topology.addTransition(adjacent(0, 1));
+  const auto returning = topology.addTransition(adjacent(1, 0));
+  BOOST_REQUIRE(outward.isValid());
+  BOOST_REQUIRE(returning.isValid());
+
+  BOOST_CHECK(!topology.addCell(outward, returning).isValid());
+  BOOST_CHECK(topology.getError() == TopologyBuildError::RepeatedSurface);
+}
+
 BOOST_AUTO_TEST_CASE(DisconnectedCombinedTopologyIsSparse)
 {
   SparseTrackingTopology topology{17};
@@ -89,6 +101,7 @@ BOOST_AUTO_TEST_CASE(DisconnectedCombinedTopologyIsSparse)
   const auto view = topology.getView();
   BOOST_CHECK_EQUAL(view.nTransitions, 15u);
   BOOST_CHECK_EQUAL(view.nCells, 13u);
+  BOOST_CHECK_EQUAL(view.getCell(CellTopologyId{0}).hitSurfaces.count(), 3);
 
   const auto firstSuccessors = view.getCellsStartingWithTransition(transitions[0]);
   BOOST_CHECK_EQUAL(firstSuccessors.getFirstEntry(), 0u);

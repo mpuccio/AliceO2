@@ -82,6 +82,7 @@ enum class TopologyBuildError : uint8_t {
   TooManyTransitions,
   InvalidTransition,
   DisconnectedTransitions,
+  RepeatedSurface,
   DuplicateCell,
   TooManyCells,
   AlreadyFinalized,
@@ -145,6 +146,10 @@ class SparseTrackingTopology
     const auto& secondTransition = mTransitions[second.value()];
     if (firstTransition.to != secondTransition.from) {
       mError = TopologyBuildError::DisconnectedTransitions;
+      return CellTopologyId::invalid();
+    }
+    if (firstTransition.from == secondTransition.to) {
+      mError = TopologyBuildError::RepeatedSurface;
       return CellTopologyId::invalid();
     }
     const auto duplicate = std::find_if(mCells.begin(), mCells.end(), [&](const auto& existing) {
