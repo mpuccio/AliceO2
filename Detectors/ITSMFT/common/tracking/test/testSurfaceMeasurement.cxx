@@ -14,6 +14,7 @@
 #include <limits>
 
 #include "DetectorsCommonDataFormats/DetID.h"
+#include "ITSMFTTracking/DecodedCluster.h"
 #include "ITSMFTTracking/SurfaceMeasurementAdapters.h"
 
 namespace
@@ -82,12 +83,14 @@ BOOST_AUTO_TEST_CASE(DefaultIdentifiersAreInvalid)
 
 BOOST_AUTO_TEST_CASE(ITSFixturePreservesCylinderConventionAndMetadata)
 {
-  const o2::its::TrackingFrameInfo legacy{
-    11.f, 12.f, 13.f,
-    21.f, 0.25f,
-    std::array<float, 2>{22.f, 23.f},
-    std::array<float, 3>{0.1f, 0.02f, 0.3f}};
-  const auto measurement = makeCylinderSurfaceMeasurement(legacy, ITSSensor, SurfaceId{3}, ITSCluster, 17, Shape);
+  const DecodedCluster decoded{
+    {11.f, 12.f, 13.f},
+    {21.f, 22.f, 23.f, 0.25f},
+    {0.1f, 0.02f, 0.3f},
+    Shape,
+    ITSSensor.sensor,
+    3};
+  const auto measurement = makeCylinderSurfaceMeasurement(decoded, ITSSensor, SurfaceId{3}, ITSCluster, 17);
 
   BOOST_CHECK_EQUAL(measurement.global.x, 11.f);
   BOOST_CHECK_EQUAL(measurement.global.y, 12.f);
@@ -115,7 +118,8 @@ BOOST_AUTO_TEST_CASE(MFTFixtureUsesExplicitDiskCoordinatesAndXYCovariance)
   constexpr SurfaceCovariance2F covarianceXY{0.4f, 0.05f, 0.6f};
   constexpr DetectorSensorId sensor{o2::detectors::DetID::MFT, 73};
   constexpr ClusterRef cluster{ClusterSourceId{1}, 0};
-  const auto measurement = makeDiskSurfaceMeasurement(global, covarianceXY, sensor, SurfaceId{9}, cluster, 23, Shape);
+  const DecodedCluster decoded{global, {}, covarianceXY, Shape, sensor.sensor, 9};
+  const auto measurement = makeDiskSurfaceMeasurement(decoded, sensor, SurfaceId{9}, cluster, 23);
 
   BOOST_CHECK_EQUAL(measurement.frame.q, global.z);
   BOOST_CHECK_EQUAL(measurement.frame.u, global.x);

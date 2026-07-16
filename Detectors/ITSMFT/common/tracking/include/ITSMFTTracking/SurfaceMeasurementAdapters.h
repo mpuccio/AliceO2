@@ -8,49 +8,45 @@
 #ifndef ALICEO2_ITSMFT_TRACKING_SURFACEMEASUREMENTADAPTERS_H_
 #define ALICEO2_ITSMFT_TRACKING_SURFACEMEASUREMENTADAPTERS_H_
 
-#include "ITSMFTTracking/SurfaceMeasurement.h"
-#include "ITStracking/Cluster.h"
+#include "ITSMFTTracking/DecodedCluster.h"
 
 namespace o2::itsmft::tracking
 {
 
-// Host compatibility helper for the established ITS cylindrical-frame data.
-inline SurfaceMeasurement makeCylinderSurfaceMeasurement(const o2::its::TrackingFrameInfo& info,
+// Project decoded ITS facts into the accepted cylindrical convention.
+inline SurfaceMeasurement makeCylinderSurfaceMeasurement(const DecodedCluster& decoded,
                                                          DetectorSensorId sensor,
                                                          SurfaceId surface,
                                                          ClusterRef cluster,
-                                                         uint32_t sourceROF,
-                                                         ClusterShape shape)
+                                                         uint32_t sourceROF)
 {
   return SurfaceMeasurement{
-    {info.xCoordinate, info.yCoordinate, info.zCoordinate},
-    {info.xTrackingFrame, info.positionTrackingFrame[0], info.positionTrackingFrame[1], info.alphaTrackingFrame},
-    {info.covarianceTrackingFrame[0], info.covarianceTrackingFrame[1], info.covarianceTrackingFrame[2]},
+    decoded.global,
+    decoded.cylinderFrame,
+    decoded.rowColumnCovariance,
     sensor,
     cluster,
-    shape,
+    decoded.shape,
     sourceROF,
     surface};
 }
 
-// A disk measurement must be built from explicitly decoded global x/y
-// covariance. The synthetic MFT TrackingFrameInfo is intentionally not an
-// accepted input because its position and covariance axes are inconsistent.
-inline SurfaceMeasurement makeDiskSurfaceMeasurement(GlobalPoint3F global,
-                                                     SurfaceCovariance2F globalXYCovariance,
+// Project decoded MFT facts into z-normal, global-x/global-y disk coordinates.
+// ALPIDE row is established as global x and column as global y by the MFT
+// geometry decoder. No legacy TrackingFrameInfo participates in this mapping.
+inline SurfaceMeasurement makeDiskSurfaceMeasurement(const DecodedCluster& decoded,
                                                      DetectorSensorId sensor,
                                                      SurfaceId surface,
                                                      ClusterRef cluster,
-                                                     uint32_t sourceROF,
-                                                     ClusterShape shape)
+                                                     uint32_t sourceROF)
 {
   return SurfaceMeasurement{
-    global,
-    {global.z, global.x, global.y, 0.f},
-    globalXYCovariance,
+    decoded.global,
+    {decoded.global.z, decoded.global.x, decoded.global.y, 0.f},
+    decoded.rowColumnCovariance,
     sensor,
     cluster,
-    shape,
+    decoded.shape,
     sourceROF,
     surface};
 }

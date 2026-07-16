@@ -15,6 +15,9 @@
 
 #include "ITSMFTTracking/IOUtils.h"
 #include "ITSMFTTracking/Configuration.h"
+#include "ITSMFTTracking/DecodedCluster.h"
+#include "ITSMFTTracking/SurfaceMeasurementAdapters.h"
+#include "ITSMFTTracking/TrackingFrameInfoAdapters.h"
 #include "ITStracking/Cluster.h"
 
 #include "Framework/Logger.h"
@@ -59,21 +62,18 @@ void addSysErrors(int layerId, float& sigma2Row, float& sigma2Col)
 }
 
 template <o2::detectors::DetID::ID DetId, typename GeomT>
-void loadClusterTrackingFrameInfoImpl(GeomT* geom,
-                                      const o2::itsmft::CompClusterExt& c,
-                                      gsl::span<const unsigned char>::iterator& pattIt,
-                                      const o2::itsmft::TopologyDictionary* dict,
-                                      int& layer,
-                                      unsigned int& clusterSize,
-                                      o2::its::TrackingFrameInfo& tfInfo,
-                                      bool applySysErrors)
+o2::itsmft::tracking::DecodedCluster decodeCluster(GeomT* geom,
+                                                   const o2::itsmft::CompClusterExt& c,
+                                                   gsl::span<const unsigned char>::iterator& pattIt,
+                                                   const o2::itsmft::TopologyDictionary* dict,
+                                                   bool applySysErrors)
 {
   const auto sensorID = c.getSensorID();
-  if (sensorID < 0 || sensorID >= geom->getSize()) {
+  if (!o2::itsmft::ioutils::detail::isSensorInGeometry(sensorID, geom->getSize())) {
     LOGP(fatal, "Cluster sensorID {} is out of geometry range [0, {})", sensorID, geom->getSize());
   }
-  layer = geom->getLayer(sensorID);
-  if (layer < 0 || layer >= o2::itsmft::tracking::TrackerParamRef<DetId>::nLayers()) {
+  const int layer = geom->getLayer(sensorID);
+  if (!o2::itsmft::ioutils::detail::isLayerInDetector(layer, o2::itsmft::tracking::TrackerParamRef<DetId>::nLayers())) {
     LOGP(fatal, "Cluster sensorID {} maps to invalid layer {} (expected [0, {}))",
          sensorID, layer, o2::itsmft::tracking::TrackerParamRef<DetId>::nLayers());
   }
@@ -85,7 +85,8 @@ void loadClusterTrackingFrameInfoImpl(GeomT* geom,
 
   float sigma2Row{0.f};
   float sigma2Col{0.f};
-  const auto locXYZ = o2::itsmft::ioutils::extractClusterData(c, pattIt, dict, sigma2Row, sigma2Col, &clusterSize);
+  o2::itsmft::tracking::ClusterShape shape{};
+  const auto locXYZ = o2::itsmft::ioutils::extractClusterData(c, pattIt, dict, sigma2Row, sigma2Col, nullptr, &shape);
 
   if (applySysErrors && shouldApplySysErrors<DetId>()) {
     addSysErrors<DetId>(layer, sigma2Row, sigma2Col);
@@ -94,10 +95,13 @@ void loadClusterTrackingFrameInfoImpl(GeomT* geom,
   if constexpr (DetId == o2::detectors::DetID::ITS) {
     const auto trkXYZ = geom->getMatrixT2L(sensorID) ^ locXYZ;
     const auto gloXYZ = geom->getMatrixL2G(sensorID) * locXYZ;
-    tfInfo = o2::its::TrackingFrameInfo{
-      gloXYZ.x(), gloXYZ.y(), gloXYZ.z(), trkXYZ.x(), geom->getSensorRefAlpha(sensorID),
-      std::array<float, 2>{trkXYZ.y(), trkXYZ.z()},
-      std::array<float, 3>{sigma2Row, 0.f, sigma2Col}};
+    return o2::itsmft::tracking::DecodedCluster{
+      {gloXYZ.x(), gloXYZ.y(), gloXYZ.z()},
+      {trkXYZ.x(), trkXYZ.y(), trkXYZ.z(), geom->getSensorRefAlpha(sensorID)},
+      {sigma2Row, 0.f, sigma2Col},
+      shape,
+      static_cast<uint32_t>(sensorID),
+      layer};
   } else {
     if (!geom->getCacheL2G().isFilled() || geom->getCacheL2G().getSize() <= sensorID) {
       LOGP(fatal, "MFT L2G matrix cache unavailable for sensorID {} (filled={}, size={})",
@@ -105,10 +109,13 @@ void loadClusterTrackingFrameInfoImpl(GeomT* geom,
     }
     const auto gloXYZ = geom->getMatrixL2G(sensorID) * locXYZ;
     // ALPIDE row (local X) -> global X, column (local Z) -> global Y
-    tfInfo = o2::its::TrackingFrameInfo{
-      gloXYZ.x(), gloXYZ.y(), gloXYZ.z(), gloXYZ.x(), 0.f,
-      std::array<float, 2>{gloXYZ.y(), gloXYZ.z()},
-      std::array<float, 3>{sigma2Row, 0.f, sigma2Col}};
+    return o2::itsmft::tracking::DecodedCluster{
+      {gloXYZ.x(), gloXYZ.y(), gloXYZ.z()},
+      {},
+      {sigma2Row, 0.f, sigma2Col},
+      shape,
+      static_cast<uint32_t>(sensorID),
+      layer};
   }
 }
 
@@ -176,11 +183,15 @@ void loadClusterTrackingFrameInfo(const CompClusterExt& c,
                                   o2::its::TrackingFrameInfo& tfInfo,
                                   bool applySysErrors)
 {
+  o2::itsmft::tracking::DecodedCluster decoded;
   if constexpr (DetId == o2::detectors::DetID::ITS) {
-    loadClusterTrackingFrameInfoImpl<DetId>(o2::its::GeometryTGeo::Instance(), c, pattIt, dict, layer, clusterSize, tfInfo, applySysErrors);
+    decoded = decodeCluster<DetId>(o2::its::GeometryTGeo::Instance(), c, pattIt, dict, applySysErrors);
   } else {
-    loadClusterTrackingFrameInfoImpl<DetId>(o2::mft::GeometryTGeo::Instance(), c, pattIt, dict, layer, clusterSize, tfInfo, applySysErrors);
+    decoded = decodeCluster<DetId>(o2::mft::GeometryTGeo::Instance(), c, pattIt, dict, applySysErrors);
   }
+  layer = decoded.layer;
+  clusterSize = decoded.shape.nPixels;
+  tfInfo = o2::itsmft::tracking::makeTrackingFrameInfo<DetId>(decoded);
 }
 
 template void loadClusterTrackingFrameInfo<o2::detectors::DetID::ITS>(const CompClusterExt& c,
@@ -198,6 +209,37 @@ template void loadClusterTrackingFrameInfo<o2::detectors::DetID::MFT>(const Comp
                                                                       unsigned int& clusterSize,
                                                                       o2::its::TrackingFrameInfo& tfInfo,
                                                                       bool applySysErrors);
+
+template <o2::detectors::DetID::ID DetId>
+o2::itsmft::tracking::SurfaceMeasurement loadClusterSurfaceMeasurement(
+  const CompClusterExt& c,
+  gsl::span<const unsigned char>::iterator& pattIt,
+  const TopologyDictionary* dict,
+  o2::itsmft::tracking::ClusterSourceId source,
+  uint32_t externalClusterIndex,
+  o2::itsmft::tracking::SurfaceId surface,
+  uint32_t sourceROF,
+  bool applySysErrors)
+{
+  o2::itsmft::tracking::DecodedCluster decoded;
+  if constexpr (DetId == o2::detectors::DetID::ITS) {
+    decoded = decodeCluster<DetId>(o2::its::GeometryTGeo::Instance(), c, pattIt, dict, applySysErrors);
+    return o2::itsmft::tracking::makeCylinderSurfaceMeasurement(
+      decoded, {DetId, decoded.sensor}, surface, {source, externalClusterIndex}, sourceROF);
+  } else {
+    decoded = decodeCluster<DetId>(o2::mft::GeometryTGeo::Instance(), c, pattIt, dict, applySysErrors);
+    return o2::itsmft::tracking::makeDiskSurfaceMeasurement(
+      decoded, {DetId, decoded.sensor}, surface, {source, externalClusterIndex}, sourceROF);
+  }
+}
+
+template o2::itsmft::tracking::SurfaceMeasurement loadClusterSurfaceMeasurement<o2::detectors::DetID::ITS>(
+  const CompClusterExt&, gsl::span<const unsigned char>::iterator&, const TopologyDictionary*,
+  o2::itsmft::tracking::ClusterSourceId, uint32_t, o2::itsmft::tracking::SurfaceId, uint32_t, bool);
+
+template o2::itsmft::tracking::SurfaceMeasurement loadClusterSurfaceMeasurement<o2::detectors::DetID::MFT>(
+  const CompClusterExt&, gsl::span<const unsigned char>::iterator&, const TopologyDictionary*,
+  o2::itsmft::tracking::ClusterSourceId, uint32_t, o2::itsmft::tracking::SurfaceId, uint32_t, bool);
 
 template <o2::detectors::DetID::ID DetId>
 void convertCompactClusters(gsl::span<const CompClusterExt> clusters,
@@ -226,8 +268,8 @@ template void convertCompactClusters<o2::detectors::DetID::ITS>(gsl::span<const 
                                                                 const TopologyDictionary* dict);
 
 template void convertCompactClusters<o2::detectors::DetID::MFT>(gsl::span<const CompClusterExt> clusters,
-                                                                  gsl::span<const unsigned char>::iterator& pattIt,
-                                                                  std::vector<o2::BaseCluster<float>>& output,
-                                                                  const TopologyDictionary* dict);
+                                                                gsl::span<const unsigned char>::iterator& pattIt,
+                                                                std::vector<o2::BaseCluster<float>>& output,
+                                                                const TopologyDictionary* dict);
 
 } // namespace o2::itsmft::ioutils

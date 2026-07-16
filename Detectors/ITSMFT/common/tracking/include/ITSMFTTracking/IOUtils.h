@@ -27,6 +27,7 @@
 #include "DataFormatsITSMFT/ClusterPattern.h"
 #include "DataFormatsITSMFT/CompCluster.h"
 #include "DataFormatsITSMFT/TopologyDictionary.h"
+#include "ITSMFTTracking/SurfaceMeasurement.h"
 #include "MathUtils/Cartesian.h"
 
 namespace o2::its
@@ -36,6 +37,19 @@ struct TrackingFrameInfo;
 
 namespace o2::itsmft::ioutils
 {
+
+namespace detail
+{
+constexpr bool isSensorInGeometry(int sensor, int geometrySize) noexcept
+{
+  return sensor >= 0 && sensor < geometrySize;
+}
+
+constexpr bool isLayerInDetector(int layer, int detectorLayers) noexcept
+{
+  return layer >= 0 && layer < detectorLayers;
+}
+} // namespace detail
 
 constexpr float DefClusErrorRow = o2::itsmft::SegmentationAlpide::PitchRow * 0.5f;
 constexpr float DefClusErrorCol = o2::itsmft::SegmentationAlpide::PitchCol * 0.5f;
@@ -55,6 +69,19 @@ void loadClusterTrackingFrameInfo(const CompClusterExt& c,
                                   o2::its::TrackingFrameInfo& tfInfo,
                                   bool applySysErrors = true);
 
+/// Decode a compact cluster through the detector geometry singleton directly
+/// into the normalized surface representation.
+template <o2::detectors::DetID::ID DetId>
+o2::itsmft::tracking::SurfaceMeasurement loadClusterSurfaceMeasurement(
+  const CompClusterExt& c,
+  gsl::span<const unsigned char>::iterator& pattIt,
+  const TopologyDictionary* dict,
+  o2::itsmft::tracking::ClusterSourceId source,
+  uint32_t externalClusterIndex,
+  o2::itsmft::tracking::SurfaceId surface,
+  uint32_t sourceROF,
+  bool applySysErrors = true);
+
 /// Convert compact clusters to 3D spacepoints.
 /// \tparam DetId o2::detectors::DetID::ITS or DetID::MFT
 template <o2::detectors::DetID::ID DetId>
@@ -64,30 +91,33 @@ void convertCompactClusters(gsl::span<const CompClusterExt> clusters,
                             const TopologyDictionary* dict);
 
 template <class iterator, typename T>
-o2::math_utils::Point3D<T> extractClusterData(const CompClusterExt& c, iterator& iter, const TopologyDictionary* dict, T& sig2Row, T& sig2Col, unsigned int* clusterSize = nullptr)
+o2::math_utils::Point3D<T> extractClusterData(const CompClusterExt& c, iterator& iter, const TopologyDictionary* dict, T& sig2Row, T& sig2Col, unsigned int* clusterSize = nullptr, o2::itsmft::tracking::ClusterShape* clusterShape = nullptr)
 {
   auto pattID = c.getPatternID();
   sig2Row = DefClusError2Row;
   sig2Col = DefClusError2Col; // Dummy COG errors (about half pixel size)
+  const auto setShape = [clusterSize, clusterShape](const ClusterPattern& patt, unsigned int nPixels) {
+    if (clusterSize != nullptr) {
+      *clusterSize = nPixels;
+    }
+    if (clusterShape != nullptr) {
+      *clusterShape = o2::itsmft::tracking::ClusterShape{
+        nPixels, static_cast<uint16_t>(patt.getRowSpan()), static_cast<uint16_t>(patt.getColumnSpan())};
+    }
+  };
   if (pattID != CompCluster::InvalidPatternID) {
     sig2Row = dict->getErr2X(pattID);
     sig2Col = dict->getErr2Z(pattID);
     if (!dict->isGroup(pattID)) {
-      if (clusterSize != nullptr) {
-        *clusterSize = dict->getNpixels(pattID);
-      }
+      setShape(dict->getPattern(pattID), dict->getNpixels(pattID));
       return dict->getClusterCoordinates<T>(c);
     }
     ClusterPattern patt(iter);
-    if (clusterSize != nullptr) {
-      *clusterSize = patt.getNPixels();
-    }
+    setShape(patt, patt.getNPixels());
     return dict->getClusterCoordinates<T>(c, patt);
   }
   ClusterPattern patt(iter);
-  if (clusterSize != nullptr) {
-    *clusterSize = patt.getNPixels();
-  }
+  setShape(patt, patt.getNPixels());
   return dict->getClusterCoordinates<T>(c, patt, false);
 }
 
