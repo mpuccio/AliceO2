@@ -352,8 +352,8 @@ Status values are `Open`, `Proposed`, `Accepted`, `Superseded`, or `Deferred`. O
 | Gate | Status | Evidence |
 |---|---|---|
 | Gate 0: baseline | Complete | Legacy characterization tests pass; the committed 20-event ITS/MFT fixture protocol records bit-identical single-thread replay metrics, physics definitions, CCDB provenance, wall time, and peak RSS |
-| Gate 1: foundations | In progress | Layout, normalized measurements, geometry-backed ITS/MFT decode adapters, Stage-A transition policy validation, and transactional multi-source loading with TF-relative timing are integrated; a bounded bridge to the existing single-detector TimeFrame interfaces remains |
-| Gate 2: common CA traversal | Blocked by Gate 1 | |
+| Gate 1: foundations | Complete | Layout, normalized measurements, geometry-backed ITS/MFT decode adapters, Stage-A transition policy validation, transactional multi-source loading with TF-relative timing, and the normalized-loading compatibility boundary in the common single-detector TimeFrame are integrated; ITS and MFT parity tests cover legacy backfill and the accepted real-geometry validation covers 7,057 fixture clusters |
+| Gate 2: common CA traversal | Ready | D007 and the bounded CA traversal design are accepted; implementation may start from this integration point |
 | Gate 3: production migration | Blocked by Gate 2 | |
 | Gate 4: combined disconnected tracking | Blocked by Gate 3 | |
 | Gate 5: mixed-surface tracking | Deferred | Requires track-state RFC |
@@ -375,9 +375,10 @@ The first three bounded assignments should be:
 
 The first follow-on implementation was the normalized measurement primitives and ITS/MFT adapter parity fixtures described by D005. It did not change TimeFrame ownership, workflows, kernels, or physics behavior. Conversion helpers receive explicit source, sensor, surface, ROF, shape, and covariance-axis information; the MFT path does not blindly project the legacy synthetic `TrackingFrameInfo` into disk coordinates.
 
-After integration of the standalone multi-source measurement owner, the only
-remaining Gate 1 task is a compatibility bridge proving that existing ITS-only
-and MFT-only TimeFrame loading can expose equivalent clusters through the new
-normalized owner/view without changing production workflows, CA orchestration,
-GPU kernels, vertexing ownership, or physics behavior. Gate 2 starts only after
-that bridge and its single-detector parity tests are accepted.
+Gate 1 closed after integration of the common TimeFrame normalized-loading
+compatibility boundary. Existing ITS-only and MFT-only inputs now expose
+equivalent clusters through the normalized owner/view while backfilling the
+legacy common TimeFrame structures without changing production workflows, CA
+orchestration, GPU kernels, vertexing ownership, or physics behavior. The
+single-detector boundary tests and the separately accepted real-geometry
+validation provide the evidence needed to start Gate 2.
