@@ -33,23 +33,33 @@ bool refitSeedITS(const typename DetectorTraits<NLayers>::TrackSeedN& seed,
                   const o2::its::Cluster* const unsortedClusters[NLayers],
                   const o2::base::PropagatorImpl<float>* propagator)
 {
-  // Common TrackSeed matches o2::its::TrackSeed layout (hole-layer mask aside); refit uses ITS helper.
-  const auto& itsSeed = reinterpret_cast<const o2::its::TrackSeed<NLayers>&>(seed);
-  return o2::its::track::refitTrack<NLayers>(itsSeed,
-                                             track,
-                                             params.MaxChi2ClusterAttachment,
-                                             params.MaxChi2NDF,
-                                             bz,
-                                             tfInfos,
-                                             unsortedClusters,
-                                             params.LayerxX0.data(),
-                                             params.LayerRadii.data(),
-                                             params.MinPt.data(),
-                                             propagator,
-                                             params.CorrType,
-                                             params.ReseedIfShorter,
-                                             params.ShiftRefToCluster,
-                                             params.RepeatRefitOut);
+  o2::its::TrackSeed<NLayers> itsSeed;
+  static_cast<o2::track::TrackParCovF&>(itsSeed) = static_cast<const o2::track::TrackParCovF&>(seed);
+  itsSeed.setHitLayerMask(o2::its::LayerMask{seed.getHitLayerMask().value()});
+  itsSeed.setFirstTrackletIndex(seed.getFirstTrackletIndex());
+  itsSeed.setSecondTrackletIndex(seed.getSecondTrackletIndex());
+  itsSeed.setChi2(seed.getChi2());
+  itsSeed.setLevel(seed.getLevel());
+  itsSeed.getTimeStamp() = seed.getTimeStamp();
+  for (int iLayer{0}; iLayer < NLayers; ++iLayer) {
+    itsSeed.getClusters()[iLayer] = seed.getCluster(iLayer);
+  }
+  const o2::its::track::TrackFitContext<NLayers> fitCtx{
+    tfInfos, params.LayerxX0.data(), params.NLayers, bz,
+    params.MaxChi2ClusterAttachment, params.MaxChi2NDF,
+    propagator, params.CorrType, params.ShiftRefToCluster, params.RepeatRefitOut};
+  o2::its::TrackITSInternal<NLayers> internalTrack;
+  if (!o2::its::track::refitTrackSeed<NLayers>(itsSeed,
+                                               internalTrack,
+                                               fitCtx,
+                                               unsortedClusters,
+                                               params.LayerRadii.data(),
+                                               params.MinPt.data(),
+                                               params.ReseedIfShorter)) {
+    return false;
+  }
+  track = o2::its::makeTrackITSExt(internalTrack);
+  return true;
 }
 } // namespace
 
