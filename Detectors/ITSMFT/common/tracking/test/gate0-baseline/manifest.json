@@ -1,0 +1,102 @@
+{
+  "role": "Baseline/validation",
+  "branch": "codex/itsmft-physics-baseline",
+  "integrationBranch": "codex/itsmft-integration",
+  "commit": "e4d35cb1a70c0254130e87bc3d0caab3cd567e75",
+  "commitSubject": "ITSMFT: accept normalized measurement and TimeFrame contracts",
+  "note": "Intervening commits since the baseline-test wave changed tests, unused new layout primitives, and documentation only; production ITS/MFT tracking code on this commit is still the pre-refactor baseline implementation.",
+
+  "build": {
+    "simDigiStack": {
+      "source": "installed alibuild package, not built from this commit",
+      "prefix": "/Users/mpuccio/alice/sw/osx_arm64/O2/run3-local1",
+      "o2simVersionString": "1.2.0 (cf19214f6e (+local changes))",
+      "note": "o2-sim / o2-sim-digitizer-workflow are simulation/digitization infrastructure, not part of the ITS/MFT tracking refactor under test; per task instructions they were taken from the installed stack. The '+local changes' suffix means this installed build has uncommitted local modifications on top of cf19214f6e -- exact diff not captured."
+    },
+    "recoAssessmentStack": {
+      "source": "built from this commit in a dedicated CMake/ninja build directory",
+      "buildDir": "/private/tmp/o2-itsmft-integration-build",
+      "sourceCheckout": "/Users/mpuccio/alice/run3/O2",
+      "binaries": [
+        "stage/bin/o2-its-reco-workflow",
+        "stage/bin/o2-mft-reco-workflow",
+        "stage/bin/o2-mft-assessment-workflow",
+        "stage/bin/o2-its-cluster-reader-workflow",
+        "stage/bin/o2-mft-cluster-reader-workflow"
+      ],
+      "additionalPluginLibsBuilt": [
+        "stage/lib/libO2FrameworkAnalysisSupport.dylib",
+        "stage/lib/libO2FrameworkCCDBSupport.dylib"
+      ],
+      "additionalPluginLibsNote": "These are dlopen'd DPL plugins (AOD run-summary support, CCDB fetch backend) not linked at build time by the reco/reader executables; a ninja build targeting only the executables silently omits them, which for CCDBSupport specifically breaks condition fetching (not just log noise) -- see README known-issues.",
+      "os": "Darwin 25.3.0 (macOS 26.3), arm64",
+      "cpu": "Apple M3 Pro, 12 cores",
+      "memory": "36 GiB"
+    }
+  },
+
+  "fixture": {
+    "fixtureId": "fixture-20ev",
+    "path": "/private/tmp/o2-itsmft-gate0/fixture-20ev (outside git, not committed)",
+    "pilotFixtureId": "pilot-2ev",
+    "pilotPath": "/private/tmp/o2-itsmft-gate0/pilot-2ev (outside git, not committed)",
+    "generator": "pythia8pp",
+    "mcEngine": "TGeant4",
+    "modules": ["PIPE", "ITS", "MFT"],
+    "nEvents": 20,
+    "runNumber": 303000,
+    "seed": 20260716,
+    "interactionRateHz": 400000,
+    "field": "-5 kGauss (explicit, not CCDB-derived)",
+    "conditionNotAfterMs": 1784207296000,
+    "resolvedConditionTimestampMs": 1547590800000,
+    "resolvedConditionTimestampNote": "o2-sim/DPL derive this historical timestamp from runNumber=303000; it is what all CCDB condition queries below actually used, not conditionNotAfterMs (which is only an upper bound on object creation time).",
+    "ccdbUrl": "http://alice-ccdb.cern.ch",
+    "ccdbObjectsFetched": [
+      {"path": "CTP/Calib/OrbitReset", "etag": "9ee68c6e-b4b5-11ec-b66d-90ce809b250c"},
+      {"path": "GLO/Config/GRPECS", "etag": "b5828315-0210-11ed-8000-200114580202"},
+      {"path": "GLO/Config/GRPMagField", "etag": "327420a4-efdc-11ec-b9c0-2a010e0a0b16"},
+      {"path": "GLO/Param/MatLUT", "etag": "3f0d0f81-99d9-11ee-b9a2-200114580202"},
+      {"path": "ITS/Calib/ClusterDictionary", "etag": "5e2e4418-a2df-11f0-95c9-58ac5bc424ee"},
+      {"path": "ITS/Calib/DeadMap", "etag": "57a0a230-a047-11ec-8357-25fc52e1250c"},
+      {"path": "ITS/Calib/NoiseMap", "etag": "5e7c5b1e-a2df-11f0-95c9-58ac5bc424ee"},
+      {"path": "ITS/Calib/TimeDeadMap", "etag": "edf6c274-b3b9-11ee-8d89-200114580202"},
+      {"path": "ITS/Config/AlpideParam", "etag": "76f24ad5-e339-11ec-9e90-200114580204"},
+      {"path": "ITS/Config/ClustererParam", "etag": "b0c41285-f1ae-11ec-b9c0-2a010e0a0b16"},
+      {"path": "ITS/Config/Geometry", "etag": "6434153f-a2df-11f0-95c9-58ac5bc424ee"},
+      {"path": "ITSMFT/Calib/ALPIDEResponseVbb0", "etag": "c386aad8-d4eb-11f0-ae8b-58ac5bc4250c"},
+      {"path": "ITSMFT/Calib/ALPIDEResponseVbbM3", "etag": "c470b844-d4eb-11f0-ae8b-58ac5bc4250c"},
+      {"path": "MFT/Calib/ClusterDictionary", "etag": "c9a0bd70-9fe3-11ec-975c-200114580202"},
+      {"path": "MFT/Calib/DeadMap", "etag": "4eca84a0-a047-11ec-8357-25fc52e1250c"},
+      {"path": "MFT/Calib/NoiseMap", "etag": "5f2172d8-a2df-11f0-95c9-58ac5bc424ee"},
+      {"path": "MFT/Calib/TimeDeadMap", "etag": "886f7bd7-b3dc-11ee-8d89-200114580202"},
+      {"path": "MFT/Config/AlpideParam", "etag": "5ed162b0-a2df-11f0-b2b3-58ac5bc4250c"},
+      {"path": "MFT/Config/ClustererParam", "etag": "8c661b10-f480-11ec-841e-2a010e0a0b16"},
+      {"path": "MFT/Config/Geometry", "etag": "69a68394-a2df-11f0-b2b3-58ac5bc4250c"}
+    ],
+    "ccdbObjectsFetchedNote": "Recovered from workflow logs (grep for 'ccdb reads'); every ETag matched exactly between initial fixture generation and every replay run (verified for canonical-1), confirming the pinned run number + condition-not-after bound reproduce the same condition set without a local CCDB snapshot. No local CCDB snapshot was committed or prepared; reproduction depends on these objects remaining available at these ETags on alice-ccdb.cern.ch.",
+    "retainedFixtureFiles": [
+      "o2clus_its.root (compact clusters + patterns + ROF + MC labels)",
+      "mftclusters.root (compact clusters + patterns + ROF + MC labels)",
+      "o2sim_Kine.root (MC kinematics, needed for assessment)",
+      "o2sim_geometry.root, o2sim_geometry-aligned.root (geometry provenance)",
+      "o2simdigitizerworkflow_configuration.ini (HBFUtils/run provenance, required for replay -- see README)",
+      "o2trac_its.root, mfttracks.root (initial-pass tracks; baseline OUTPUT, not input -- kept for reference only, not the reusable fixture)"
+    ],
+    "notCommitted": "All of the above are outside the git worktree under /private/tmp/o2-itsmft-gate0/ and were not committed. Only generate_fixture.sh, replay_tracking.sh, extract_metrics.C, this manifest, and baseline_summary.md are committed."
+  },
+
+  "pilotProjection": {
+    "nEvents": 2,
+    "elapsedSeconds": 34,
+    "peakRSSBytesITS": 671203328,
+    "boundCheck": "34s and <700MB for 2 events projects to well under the 20min/2GB bound for 20 events; proceeded automatically per policy §4."
+  },
+
+  "replay": {
+    "replayDirs": ["warmup", "canonical-1", "canonical-2", "canonical-3", "canonical-4", "parallel-1"],
+    "knownIssueHbfutilsConfig": "See README.md 'HBFUtils ini handling'. --hbfutils-config pointed at an absolute ini path hung o2-its-reco-workflow indefinitely before spawning any device (root cause not identified further given time budget); the working form copies the fixture's ini into REPLAY_DIR under its default relative name and omits --hbfutils-config entirely.",
+    "clusterRofBranchOnlyNote": "--cluster-rof-branch-only is required on both o2-its-reco-workflow and o2-mft-reco-workflow during replay: their embedded cluster-writer device (present even with --clusters-from-upstream) otherwise requires a CLUSTERSMC2ROF input the cluster-reader-workflow does not provide, and the merged topology fails validation.",
+    "pipeFlagNote": "Only the last command in a DPL '|' pipe may carry -b/--run; the upstream reader must be invoked bare so it dumps its workflow spec via stdout for merging instead of running as its own standalone driver."
+  }
+}
