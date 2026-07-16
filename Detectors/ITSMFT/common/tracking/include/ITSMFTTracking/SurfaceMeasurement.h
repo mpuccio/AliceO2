@@ -20,7 +20,14 @@ namespace o2::itsmft::tracking
 {
 
 struct ClusterRef {
+  GPUhdDefault() constexpr ClusterRef() noexcept = default;
+  GPUhdDefault() constexpr ClusterRef(ClusterSourceId sourceValue, uint32_t indexValue, uint16_t flagsValue = 0) noexcept
+    : source{sourceValue}, flags{flagsValue}, index{indexValue}
+  {
+  }
+
   ClusterSourceId source{};
+  uint16_t flags{0};
   uint32_t index{std::numeric_limits<uint32_t>::max()};
 
   GPUhdi() constexpr bool isValid() const noexcept { return source.isValid() && index != std::numeric_limits<uint32_t>::max(); }
@@ -79,6 +86,7 @@ struct SurfaceMeasurement {
   ClusterShape shape{};
   uint32_t sourceROF{std::numeric_limits<uint32_t>::max()};
   SurfaceId surface{};
+  uint16_t flags{0};
 };
 
 #define O2_ITSMFT_ASSERT_DEVICE_TYPE(Type, Size)     \
@@ -93,6 +101,9 @@ O2_ITSMFT_ASSERT_DEVICE_TYPE(SurfaceFramePoint, 16);
 O2_ITSMFT_ASSERT_DEVICE_TYPE(SurfaceCovariance2F, 12);
 O2_ITSMFT_ASSERT_DEVICE_TYPE(ClusterShape, 8);
 O2_ITSMFT_ASSERT_DEVICE_TYPE(SurfaceMeasurement, 72);
+static_assert(offsetof(ClusterRef, source) == 0);
+static_assert(offsetof(ClusterRef, flags) == 2);
+static_assert(offsetof(ClusterRef, index) == 4);
 static_assert(alignof(SurfaceMeasurement) == 4);
 static_assert(offsetof(SurfaceMeasurement, global) == 0);
 static_assert(offsetof(SurfaceMeasurement, frame) == 12);
@@ -102,6 +113,7 @@ static_assert(offsetof(SurfaceMeasurement, cluster) == 48);
 static_assert(offsetof(SurfaceMeasurement, shape) == 56);
 static_assert(offsetof(SurfaceMeasurement, sourceROF) == 64);
 static_assert(offsetof(SurfaceMeasurement, surface) == 68);
+static_assert(offsetof(SurfaceMeasurement, flags) == 70);
 
 #undef O2_ITSMFT_ASSERT_DEVICE_TYPE
 

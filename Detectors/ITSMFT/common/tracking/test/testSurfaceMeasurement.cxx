@@ -29,12 +29,25 @@ BOOST_AUTO_TEST_CASE(ExternalIdentityIsSourceAndIndex)
 {
   constexpr ClusterRef sourceZero{ClusterSourceId{0}, 0};
   constexpr ClusterRef sourceOne{ClusterSourceId{1}, 0};
+  constexpr ClusterRef flaggedSourceZero{ClusterSourceId{0}, 0, 0xffff};
 
   BOOST_CHECK(sourceZero.isValid());
   BOOST_CHECK(sourceOne.isValid());
   BOOST_CHECK(sourceZero != sourceOne);
+  BOOST_CHECK(sourceZero == flaggedSourceZero);
+  BOOST_CHECK_EQUAL(sourceZero.flags, 0u);
+  BOOST_CHECK_EQUAL(flaggedSourceZero.flags, 0xffffu);
   BOOST_CHECK_EQUAL(sourceZero.index, 0u);
   BOOST_CHECK_EQUAL(sourceOne.index, 0u);
+}
+
+BOOST_AUTO_TEST_CASE(FlagsHaveLockedABI)
+{
+  BOOST_CHECK_EQUAL(offsetof(ClusterRef, source), 0u);
+  BOOST_CHECK_EQUAL(offsetof(ClusterRef, flags), 2u);
+  BOOST_CHECK_EQUAL(offsetof(ClusterRef, index), 4u);
+  BOOST_CHECK_EQUAL(offsetof(SurfaceMeasurement, surface), 68u);
+  BOOST_CHECK_EQUAL(offsetof(SurfaceMeasurement, flags), 70u);
 }
 
 BOOST_AUTO_TEST_CASE(SensorIdentityIsDetectorQualified)
@@ -62,6 +75,8 @@ BOOST_AUTO_TEST_CASE(DefaultIdentifiersAreInvalid)
   BOOST_CHECK(!measurement.cluster.isValid());
   BOOST_CHECK(!measurement.sensor.isValid());
   BOOST_CHECK(!measurement.surface.isValid());
+  BOOST_CHECK_EQUAL(cluster.flags, 0u);
+  BOOST_CHECK_EQUAL(measurement.flags, 0u);
   BOOST_CHECK_EQUAL(measurement.sourceROF, std::numeric_limits<uint32_t>::max());
 }
 
@@ -87,6 +102,7 @@ BOOST_AUTO_TEST_CASE(ITSFixturePreservesCylinderConventionAndMetadata)
   BOOST_CHECK(measurement.sensor == ITSSensor);
   BOOST_CHECK(measurement.cluster == ITSCluster);
   BOOST_CHECK(measurement.surface == SurfaceId{3});
+  BOOST_CHECK_EQUAL(measurement.flags, 0u);
   BOOST_CHECK_EQUAL(measurement.sourceROF, 17u);
   BOOST_CHECK_EQUAL(measurement.shape.nPixels, Shape.nPixels);
   BOOST_CHECK_EQUAL(measurement.shape.rowSpan, Shape.rowSpan);
@@ -111,6 +127,7 @@ BOOST_AUTO_TEST_CASE(MFTFixtureUsesExplicitDiskCoordinatesAndXYCovariance)
   BOOST_CHECK(measurement.sensor == sensor);
   BOOST_CHECK(measurement.cluster == cluster);
   BOOST_CHECK(measurement.surface == SurfaceId{9});
+  BOOST_CHECK_EQUAL(measurement.flags, 0u);
   BOOST_CHECK_EQUAL(measurement.sourceROF, 23u);
   BOOST_CHECK_EQUAL(measurement.shape.nPixels, Shape.nPixels);
   BOOST_CHECK_EQUAL(measurement.shape.rowSpan, Shape.rowSpan);
