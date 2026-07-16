@@ -351,12 +351,19 @@ Status values are `Open`, `Proposed`, `Accepted`, `Superseded`, or `Deferred`. O
 
 | Gate | Status | Evidence |
 |---|---|---|
-| Gate 0: baseline | In progress | Legacy mask/topology characterization and integrated builds pass; end-to-end physics and performance baselines are still missing |
-| Gate 1: foundations | In progress | Layout, normalized measurements, geometry-backed ITS/MFT decode adapters, and Stage-A transition policy validation are integrated; real-geometry Gate 0 execution and multi-source TimeFrame/loading work remain |
+| Gate 0: baseline | Complete | Legacy characterization tests pass; the committed 20-event ITS/MFT fixture protocol records bit-identical single-thread replay metrics, physics definitions, CCDB provenance, wall time, and peak RSS |
+| Gate 1: foundations | In progress | Layout, normalized measurements, geometry-backed ITS/MFT decode adapters, and Stage-A transition policy validation are integrated; multi-source TimeFrame/loading work remains |
 | Gate 2: common CA traversal | Blocked by Gate 1 | |
 | Gate 3: production migration | Blocked by Gate 2 | |
 | Gate 4: combined disconnected tracking | Blocked by Gate 3 | |
 | Gate 5: mixed-surface tracking | Deferred | Requires track-state RFC |
+
+Gate 0 acceptance is a regression and performance baseline, not a claim of
+offline or scaling coverage. Reproduction currently depends on the recorded
+CCDB objects remaining network-accessible; the 12-thread replay is
+characterization rather than a meaningful scaling test at this fixture size;
+and the documented MFT reconstructability denominator is intentionally simpler
+than the geometry-aware ITS definition.
 
 ## 15. Immediate kickoff tasks
 
