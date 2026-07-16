@@ -27,6 +27,7 @@
 #include "DataFormatsITSMFT/ClusterPattern.h"
 #include "DataFormatsITSMFT/CompCluster.h"
 #include "DataFormatsITSMFT/TopologyDictionary.h"
+#include "ITSMFTTracking/SurfaceDescriptor.h"
 #include "ITSMFTTracking/SurfaceMeasurement.h"
 #include "MathUtils/Cartesian.h"
 
@@ -86,9 +87,13 @@ o2::itsmft::tracking::SurfaceMeasurement loadClusterSurfaceMeasurement(
 /// of decoding: `layer` is the detector-local layer discovered by the same
 /// geometry decode used to build `measurement`, and `layerMapped` reports
 /// whether the caller-supplied detector-layer-to-SurfaceId table covered that
-/// layer. `measurement.surface` is only meaningful when `layerMapped` is true.
+/// layer. `measurement`/`kind` are only meaningful when `layerMapped` is
+/// true. `kind` is the geometry kind (cylinder/disk) the decoder actually
+/// produced; it lets a caller validate the target surface's kind explicitly,
+/// without inferring detector geometry from surface count.
 struct SurfaceMeasurementDecodeResult {
   o2::itsmft::tracking::SurfaceMeasurement measurement{};
+  o2::itsmft::tracking::SurfaceKind kind{o2::itsmft::tracking::SurfaceKind::Cylinder};
   int layer{-1};
   bool layerMapped{false};
 };

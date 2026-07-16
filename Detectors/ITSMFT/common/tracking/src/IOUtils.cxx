@@ -270,8 +270,10 @@ SurfaceMeasurementDecodeResult loadClusterSurfaceMeasurement(
   const o2::itsmft::tracking::DetectorSensorId sensor{DetId, decoded.sensor};
   const o2::itsmft::tracking::ClusterRef cluster{source, externalClusterIndex};
   if constexpr (DetId == o2::detectors::DetID::ITS) {
+    result.kind = o2::itsmft::tracking::SurfaceKind::Cylinder;
     result.measurement = o2::itsmft::tracking::makeCylinderSurfaceMeasurement(decoded, sensor, surface, cluster, sourceROF);
   } else {
+    result.kind = o2::itsmft::tracking::SurfaceKind::Disk;
     result.measurement = o2::itsmft::tracking::makeDiskSurfaceMeasurement(decoded, sensor, surface, cluster, sourceROF);
   }
   return result;

@@ -75,34 +75,106 @@ BOOST_AUTO_TEST_CASE(OverflowIsDetectedAndChecked)
   BOOST_CHECK(built.error == TimingBuildError::Overflow);
 }
 
+BOOST_AUTO_TEST_CASE(InvalidSourceROFIsRejected)
+{
+  const o2::InteractionRecord origin{0, 0};
+  const ROFTimingConfig cfg{40, 0, 0, 0};
+  const auto built = computeROFIntervalBC(origin, origin, cfg, std::numeric_limits<uint32_t>::max());
+  BOOST_CHECK(!built.ok());
+  BOOST_CHECK(built.error == TimingBuildError::InvalidSourceROF);
+}
+
 BOOST_AUTO_TEST_CASE(WidenAppliesSymmetricMarginOnDemandOnly)
 {
   const ROFIntervalBC interval{10, 20, 3, 0};
   const auto widened = widen(interval, 5);
-  BOOST_CHECK_EQUAL(widened.begin, 5);
-  BOOST_CHECK_EQUAL(widened.end, 25);
+  BOOST_REQUIRE(widened.ok());
+  BOOST_CHECK_EQUAL(widened.interval.begin, 5);
+  BOOST_CHECK_EQUAL(widened.interval.end, 25);
+  BOOST_CHECK_EQUAL(widened.interval.sourceROF, 3u);
   // The base interval itself is never mutated by widen().
   BOOST_CHECK_EQUAL(interval.begin, 10);
   BOOST_CHECK_EQUAL(interval.end, 20);
 }
 
+BOOST_AUTO_TEST_CASE(WidenRejectsInvalidInterval)
+{
+  constexpr ROFIntervalBC invalidInterval{};
+  const auto widened = widen(invalidInterval, 5);
+  BOOST_CHECK(!widened.ok());
+  BOOST_CHECK(widened.error == WidenError::InvalidInterval);
+}
+
+BOOST_AUTO_TEST_CASE(WidenRejectsNegativeMargin)
+{
+  const ROFIntervalBC interval{10, 20, 3, 0};
+  const auto widened = widen(interval, -1);
+  BOOST_CHECK(!widened.ok());
+  BOOST_CHECK(widened.error == WidenError::InvalidMargin);
+}
+
+BOOST_AUTO_TEST_CASE(WidenDetectsLowerBoundOverflow)
+{
+  const ROFIntervalBC interval{std::numeric_limits<TFBC>::min() + 5, 20, 3, 0};
+  const auto widened = widen(interval, 10);
+  BOOST_CHECK(!widened.ok());
+  BOOST_CHECK(widened.error == WidenError::LowerBoundOverflow);
+}
+
+BOOST_AUTO_TEST_CASE(WidenDetectsUpperBoundOverflow)
+{
+  const ROFIntervalBC interval{10, std::numeric_limits<TFBC>::max() - 5, 3, 0};
+  const auto widened = widen(interval, 10);
+  BOOST_CHECK(!widened.ok());
+  BOOST_CHECK(widened.error == WidenError::UpperBoundOverflow);
+}
+
 BOOST_AUTO_TEST_CASE(IntersectionIsHalfOpenAndIgnoresROFOrdinal)
 {
   const ROFIntervalBC a{0, 10, 5, 0};
-  const ROFIntervalBC touching{10, 20, 5, 0}; // same sourceROF as `a`, adjacent
+  const ROFIntervalBC touching{10, 20, 5, 0};    // same sourceROF as `a`, adjacent
   const ROFIntervalBC overlapping{9, 15, 99, 0}; // different sourceROF, overlaps
   const ROFIntervalBC disjoint{100, 110, 5, 0};
 
-  BOOST_CHECK(!intersects(a, touching));    // half-open: touching does not intersect
-  BOOST_CHECK(intersects(a, overlapping));  // overlap decided by time, not ROF equality
+  BOOST_CHECK(!intersects(a, touching));   // half-open: touching does not intersect
+  BOOST_CHECK(intersects(a, overlapping)); // overlap decided by time, not ROF equality
   BOOST_CHECK(!intersects(a, disjoint));
   BOOST_CHECK(intersects(a, a));
+}
+
+BOOST_AUTO_TEST_CASE(InvalidIntervalsNeverIntersect)
+{
+  constexpr ROFIntervalBC invalidInterval{};
+  const ROFIntervalBC valid{0, 10, 0, 0};
+  const ROFIntervalBC invalidSourceROF{0, 10, std::numeric_limits<uint32_t>::max(), 0};
+  const ROFIntervalBC zeroLength{5, 5, 0, 0};
+  const ROFIntervalBC reversed{10, 5, 0, 0};
+
+  BOOST_CHECK(!intersects(invalidInterval, valid));
+  BOOST_CHECK(!intersects(valid, invalidInterval));
+  BOOST_CHECK(!intersects(invalidSourceROF, valid));
+  BOOST_CHECK(!intersects(zeroLength, valid));
+  BOOST_CHECK(!intersects(reversed, valid));
 }
 
 BOOST_AUTO_TEST_CASE(DefaultIntervalIsInvalidSentinel)
 {
   constexpr ROFIntervalBC interval{};
   BOOST_CHECK_EQUAL(interval.sourceROF, std::numeric_limits<uint32_t>::max());
-  BOOST_CHECK(interval.isValid()); // begin == end == 0
+  BOOST_CHECK(!interval.isValid()); // sourceROF is the sentinel and begin == end
   BOOST_CHECK_EQUAL(interval.length(), 0);
+}
+
+BOOST_AUTO_TEST_CASE(ZeroLengthAndReversedIntervalsAreInvalid)
+{
+  constexpr ROFIntervalBC zeroLength{5, 5, 0, 0};
+  constexpr ROFIntervalBC reversed{10, 5, 0, 0};
+  BOOST_CHECK(!zeroLength.isValid());
+  BOOST_CHECK(!reversed.isValid());
+}
+
+BOOST_AUTO_TEST_CASE(IntervalWithInvalidSourceROFIsInvalidEvenWithPositiveExtent)
+{
+  constexpr ROFIntervalBC interval{0, 10, std::numeric_limits<uint32_t>::max(), 0};
+  BOOST_CHECK(!interval.isValid());
 }

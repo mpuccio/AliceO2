@@ -30,6 +30,17 @@ enum class MultiSourceLoadError : uint8_t {
   InvalidROFRange,
   InvalidLayerMapping,
   DetectorSurfaceMismatch,
+  // The decoder-produced SurfaceMeasurement disagrees with the request that
+  // produced it (surface not equal to layerToSurface[layer], or cluster
+  // source/index/sourceROF/sensor-detector not equal to what was requested).
+  // This guards cluster identity against a buggy host adapter; it is
+  // distinct from DetectorSurfaceMismatch, which is a layout/source
+  // detector-qualification mismatch rather than a decoder self-consistency
+  // failure.
+  InconsistentDecoderMetadata,
+  // The decoder's declared SurfaceKind (cylinder/disk) does not match the
+  // target surface's descriptor. Never inferred from surface count.
+  SurfaceKindMismatch,
   TimingError
 };
 

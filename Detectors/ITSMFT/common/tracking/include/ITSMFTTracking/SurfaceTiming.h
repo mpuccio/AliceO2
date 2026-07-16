@@ -35,7 +35,15 @@ struct ROFIntervalBC {
   uint32_t sourceROF{std::numeric_limits<uint32_t>::max()};
   uint32_t flags{0};
 
-  GPUhdi() constexpr bool isValid() const noexcept { return begin <= end; }
+  // The default-constructed interval (begin==end==0, sourceROF==invalid) is
+  // deliberately the invalid sentinel. A genuinely stored ROF interval must
+  // carry a real source ROF ordinal and a strictly positive half-open
+  // extent; a zero-length or reversed interval is not valid even if its
+  // sourceROF looks real.
+  GPUhdi() constexpr bool isValid() const noexcept
+  {
+    return sourceROF != std::numeric_limits<uint32_t>::max() && begin < end;
+  }
   GPUhdi() constexpr TFBC length() const noexcept { return end - begin; }
 };
 
@@ -63,6 +71,7 @@ static_assert(std::is_trivially_copyable_v<ROFTimingConfig>);
 enum class TimingBuildError : uint8_t {
   None,
   InvalidROFLength,
+  InvalidSourceROF,
   Overflow
 };
 
@@ -71,6 +80,21 @@ struct ROFIntervalBuildResult {
   TimingBuildError error{TimingBuildError::None};
 
   constexpr bool ok() const noexcept { return error == TimingBuildError::None; }
+};
+
+enum class WidenError : uint8_t {
+  None,
+  InvalidInterval,
+  InvalidMargin,
+  LowerBoundOverflow,
+  UpperBoundOverflow
+};
+
+struct WidenResult {
+  ROFIntervalBC interval{};
+  WidenError error{WidenError::None};
+
+  constexpr bool ok() const noexcept { return error == WidenError::None; }
 };
 
 #ifndef GPUCA_GPUCODE
@@ -103,6 +127,9 @@ inline ROFIntervalBuildResult computeROFIntervalBC(const o2::InteractionRecord& 
                                                    const ROFTimingConfig& cfg,
                                                    uint32_t sourceROF) noexcept
 {
+  if (sourceROF == std::numeric_limits<uint32_t>::max()) {
+    return {{}, TimingBuildError::InvalidSourceROF};
+  }
   if (cfg.rofLength <= 0) {
     return {{}, TimingBuildError::InvalidROFLength};
   }
@@ -118,21 +145,37 @@ inline ROFIntervalBuildResult computeROFIntervalBC(const o2::InteractionRecord& 
   return {ROFIntervalBC{begin, end, sourceROF, 0}, TimingBuildError::None};
 }
 
-// Widen an interval symmetrically by an explicit margin (e.g. rofAddTimeErr)
-// on demand; uncertainty is never folded in automatically.
-inline ROFIntervalBC widen(const ROFIntervalBC& interval, TFBC margin) noexcept
+// Widen an interval symmetrically by an explicit, non-negative margin (e.g.
+// rofAddTimeErr) on demand; uncertainty is never folded in automatically.
+// Every failure mode is reported rather than silently wrapping: an invalid
+// input interval, a negative margin, or overflow in either bound.
+inline WidenResult widen(const ROFIntervalBC& interval, TFBC margin) noexcept
 {
-  return ROFIntervalBC{interval.begin - margin, interval.end + margin, interval.sourceROF, interval.flags};
+  if (!interval.isValid()) {
+    return {{}, WidenError::InvalidInterval};
+  }
+  if (margin < 0) {
+    return {{}, WidenError::InvalidMargin};
+  }
+  TFBC newBegin{0};
+  if (!detail::checkedAddBC(interval.begin, -margin, newBegin)) {
+    return {{}, WidenError::LowerBoundOverflow};
+  }
+  TFBC newEnd{0};
+  if (!detail::checkedAddBC(interval.end, margin, newEnd)) {
+    return {{}, WidenError::UpperBoundOverflow};
+  }
+  return {ROFIntervalBC{newBegin, newEnd, interval.sourceROF, interval.flags}, WidenError::None};
 }
 
 #endif // GPUCA_GPUCODE
 
 // Cross-source compatibility uses interval intersection, never equal ROF
 // ordinals. Half-open intervals: adjacent (touching) intervals do not
-// intersect.
+// intersect. An invalid interval never intersects anything.
 GPUhdi() constexpr bool intersects(const ROFIntervalBC& a, const ROFIntervalBC& b) noexcept
 {
-  return a.begin < b.end && b.begin < a.end;
+  return a.isValid() && b.isValid() && a.begin < b.end && b.begin < a.end;
 }
 
 } // namespace o2::itsmft::tracking

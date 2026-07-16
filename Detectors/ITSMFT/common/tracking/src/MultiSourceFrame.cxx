@@ -41,6 +41,9 @@ gsl::span<const SurfaceMeasurement> MultiSourceFrame::getSurfaceMeasurements(Sur
     return {};
   }
   const auto& range = mSurfaceRanges[surface.value()];
+  if (range.getEntries() == 0) {
+    return {};
+  }
   return {mMeasurements.data() + range.getFirstEntry(), range.getEntries()};
 }
 
@@ -51,6 +54,9 @@ gsl::span<const ROFIntervalBC> MultiSourceFrame::getSourceIntervals(ClusterSourc
   }
   const auto first = mSourceROFOffsets[source.value()];
   const auto last = mSourceROFOffsets[source.value() + 1];
+  if (last == first) {
+    return {};
+  }
   return {mROFIntervals.data() + first, last - first};
 }
 

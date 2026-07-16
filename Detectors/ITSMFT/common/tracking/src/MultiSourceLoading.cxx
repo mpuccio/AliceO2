@@ -62,15 +62,29 @@ LoadSourcesResult loadSources(MultiSourceFrame& frame,
 
     // 2. Validate ROF cluster ranges against this source's cluster span
     //    before any decoding, so an out-of-range access can never happen.
-    int64_t previousEnd = 0;
+    //    The contract (documented on ClusterSourceInput::rofs) is an exact,
+    //    ordered partition of the cluster span: the first range begins at
+    //    zero, each range begins exactly where the previous one ended, and
+    //    the final range ends exactly at clusters.size(). Leading gaps,
+    //    internal gaps and trailing unreferenced clusters are all rejected,
+    //    because explicit-pattern consumption follows ROF traversal order
+    //    and a gap would silently associate the wrong pattern bytes with
+    //    the clusters that follow it.
+    int64_t expectedNext = 0;
     for (uint32_t r = 0; r < src.rofs.size(); ++r) {
       const auto& rof = src.rofs[r];
       const int64_t first = rof.getFirstEntry();
       const int64_t n = rof.getNEntries();
-      if (first < 0 || n < 0 || first + n > static_cast<int64_t>(src.clusters.size()) || first < previousEnd) {
+      if (n < 0 || first != expectedNext) {
         return {MultiSourceLoadError::InvalidROFRange, src.id, r};
       }
-      previousEnd = first + n;
+      expectedNext = first + n;
+      if (expectedNext > static_cast<int64_t>(src.clusters.size())) {
+        return {MultiSourceLoadError::InvalidROFRange, src.id, r};
+      }
+    }
+    if (expectedNext != static_cast<int64_t>(src.clusters.size())) {
+      return {MultiSourceLoadError::InvalidROFRange, src.id, static_cast<uint32_t>(src.rofs.size())};
     }
 
     // 3. Timing: one independent config per source; sourceROF is the
@@ -95,19 +109,41 @@ LoadSourcesResult loadSources(MultiSourceFrame& frame,
       const auto nEntries = rof.getNEntries();
       for (int32_t clusterId = firstEntry; clusterId < firstEntry + nEntries; ++clusterId) {
         const auto& cluster = src.clusters[clusterId];
+        const auto externalIndex = static_cast<uint32_t>(clusterId);
         const auto decoded = src.decoder->decode(cluster, pattIt, src.dictionary, src.layerToSurface,
-                                                  src.id, static_cast<uint32_t>(clusterId), r, src.applySysErrors);
+                                                 src.id, externalIndex, r, src.applySysErrors);
         if (!decoded.layerMapped) {
-          return {MultiSourceLoadError::InvalidLayerMapping, src.id, r, static_cast<uint32_t>(clusterId)};
+          return {MultiSourceLoadError::InvalidLayerMapping, src.id, r, externalIndex};
         }
-        const auto surface = decoded.measurement.surface;
-        if (!surface.isValid() || surface.value() >= layout.nSurfaces) {
-          return {MultiSourceLoadError::InvalidLayerMapping, src.id, r, static_cast<uint32_t>(clusterId)};
+        // decoded.layer is guaranteed in range here: layerMapped is only
+        // true when the decoder itself found it within layerToSurface.
+        const auto expectedSurface = src.layerToSurface[decoded.layer];
+        if (!expectedSurface.isValid() || expectedSurface.value() >= layout.nSurfaces) {
+          return {MultiSourceLoadError::InvalidLayerMapping, src.id, r, externalIndex};
         }
-        if (layout.getSurface(surface).detectorId != static_cast<uint8_t>(src.detector)) {
-          return {MultiSourceLoadError::DetectorSurfaceMismatch, src.id, r, static_cast<uint32_t>(clusterId)};
+        // Authoritative cluster identity: a buggy host adapter must not be
+        // able to substitute a different surface, source, external index,
+        // source-local ROF or sensor detector than the ones it was asked to
+        // decode against.
+        const auto& measurement = decoded.measurement;
+        if (measurement.surface != expectedSurface ||
+            measurement.cluster.source != src.id ||
+            measurement.cluster.index != externalIndex ||
+            measurement.sourceROF != r ||
+            measurement.sensor.detector != static_cast<uint32_t>(src.detector)) {
+          return {MultiSourceLoadError::InconsistentDecoderMetadata, src.id, r, externalIndex};
         }
-        perSurface[surface.value()].push_back(decoded.measurement);
+        const auto& surfaceDescriptor = layout.getSurface(expectedSurface);
+        if (surfaceDescriptor.detectorId != static_cast<uint8_t>(src.detector)) {
+          return {MultiSourceLoadError::DetectorSurfaceMismatch, src.id, r, externalIndex};
+        }
+        // Explicit surface-kind check: geometry kind is never inferred from
+        // surface count, only compared between the decoder's own declared
+        // kind and the layout's explicit descriptor.
+        if (surfaceDescriptor.kind != decoded.kind) {
+          return {MultiSourceLoadError::SurfaceKindMismatch, src.id, r, externalIndex};
+        }
+        perSurface[expectedSurface.value()].push_back(measurement);
       }
     }
   }

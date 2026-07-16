@@ -35,6 +35,15 @@ struct ClusterSourceInput {
   o2::detectors::DetID::ID detector{o2::detectors::DetID::ITS};
   gsl::span<const o2::itsmft::CompClusterExt> clusters{};
   gsl::span<const unsigned char> patterns{};
+  // `rofs` must form an exact, ordered partition of `clusters`: the first
+  // range begins at index zero, each subsequent range begins exactly where
+  // the previous one ended (getFirstEntry() == previous getFirstEntry() +
+  // getNEntries()), and the final range's end equals clusters.size()
+  // exactly. Leading gaps, internal gaps, and trailing clusters not covered
+  // by any ROF are all rejected by loadSources() -- explicit-pattern
+  // consumption follows ROF traversal order, so a gap would silently
+  // associate the wrong pattern bytes with the clusters that follow it. An
+  // empty `rofs` is valid only when `clusters` is also empty.
   gsl::span<const o2::itsmft::ROFRecord> rofs{};
   const o2::itsmft::TopologyDictionary* dictionary{nullptr};
   const o2::dataformats::MCTruthContainer<o2::MCCompLabel>* labels{nullptr};

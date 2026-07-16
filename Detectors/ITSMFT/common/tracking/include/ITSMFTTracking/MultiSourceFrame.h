@@ -40,7 +40,10 @@ static_assert(std::is_standard_layout_v<SurfaceMeasurementRange>);
 static_assert(std::is_trivially_copyable_v<SurfaceMeasurementRange>);
 
 // Read-only, device-facing view: pointer/count pairs only, no STL containers
-// or gsl::span (Architecture.md section 6/14).
+// or gsl::span (Architecture.md section 6/14). Every pointer here is
+// non-owning and remains valid only while the MultiSourceFrame that produced
+// it is alive and has not been cleared, reloaded, moved from, or destroyed;
+// this view does not extend that owner's lifetime.
 struct MultiSourceFrameView {
   const SurfaceMeasurement* measurements{nullptr};
   uint32_t nMeasurements{0};
@@ -50,17 +53,24 @@ struct MultiSourceFrameView {
   const uint32_t* sourceROFOffsets{nullptr};  // size == nSources + 1
   uint32_t nSources{0};
 
+  // Returns nullptr (never a computed nullptr+0) when the surface has no
+  // measurements.
   GPUhdi() const SurfaceMeasurement* getSurfaceMeasurements(SurfaceId surface) const noexcept
   {
-    return measurements + surfaceRanges[surface.value()].firstEntry;
+    const auto& range = surfaceRanges[surface.value()];
+    return range.entries == 0 ? nullptr : measurements + range.firstEntry;
   }
   GPUhdi() uint32_t getSurfaceMeasurementCount(SurfaceId surface) const noexcept
   {
     return surfaceRanges[surface.value()].entries;
   }
+  // Returns nullptr (never a computed nullptr+0) when the source has no
+  // ROF intervals.
   GPUhdi() const ROFIntervalBC* getSourceIntervals(ClusterSourceId source) const noexcept
   {
-    return rofIntervals + sourceROFOffsets[source.value()];
+    const auto first = sourceROFOffsets[source.value()];
+    const auto last = sourceROFOffsets[source.value() + 1];
+    return first == last ? nullptr : rofIntervals + first;
   }
   GPUhdi() uint32_t getSourceIntervalCount(ClusterSourceId source) const noexcept
   {
@@ -85,6 +95,17 @@ struct SourceMetadata {
 // TimeFrame: no CA artefacts, sorting, index tables, cells, roads or tracks
 // are stored here. It retains no geometry singletons, dictionaries, compact
 // clusters or detector output types after loading.
+//
+// Non-owning label lifetime: MC labels are never copied into this owner.
+// `assignLoadedData()` (called only by loadSources()) stores raw, non-owning
+// MCTruthContainer pointers taken directly from each source's
+// ClusterSourceInput::labels. Every such pointer -- and therefore every
+// span returned by getLabels() -- is valid only as long as the caller's
+// label container outlives it. clear(), a subsequent successful
+// loadSources() call, moving from or destroying this owner, or destroying a
+// source's label container all invalidate the corresponding lookups.
+// Likewise, a MultiSourceFrameView obtained from getView() only remains
+// valid while this owner is alive and has not been cleared or reloaded.
 class MultiSourceFrame
 {
  public:
@@ -96,9 +117,12 @@ class MultiSourceFrame
 
   gsl::span<const SurfaceMeasurement> getSurfaceMeasurements(SurfaceId surface) const;
   gsl::span<const ROFIntervalBC> getSourceIntervals(ClusterSourceId source) const;
-  // MC labels stay external; resolved through ClusterRef. Absent labels
-  // (no container for that source, or an out-of-range index) are legal and
-  // yield an empty span rather than an error.
+  // MC labels stay external -- never copied here -- and are resolved
+  // through ClusterRef via the non-owning per-source container pointer
+  // recorded by assignLoadedData(). Absent labels (no container for that
+  // source, or an out-of-range index) are legal and yield an empty span
+  // rather than an error. The returned span is only valid while the
+  // referenced label container is still alive.
   gsl::span<const o2::MCCompLabel> getLabels(ClusterRef cluster) const;
 
   const std::vector<SourceMetadata>& getSources() const noexcept { return mSources; }
@@ -108,6 +132,8 @@ class MultiSourceFrame
   // Assembled exclusively by loadSources() once every source has been fully
   // validated and decoded; replaces all prior content atomically so that a
   // failed load (which never calls this) leaves the frame untouched.
+  // `labelSources` are stored as-is (non-owning): see the class-level note
+  // on label lifetime above.
   void assignLoadedData(std::vector<SurfaceMeasurement>&& measurements,
                         std::vector<SurfaceMeasurementRange>&& surfaceRanges,
                         std::vector<SourceMetadata>&& sources,
@@ -121,6 +147,7 @@ class MultiSourceFrame
   std::vector<SourceMetadata> mSources;
   std::vector<ROFIntervalBC> mROFIntervals;
   std::vector<uint32_t> mSourceROFOffsets;
+  // Non-owning: see the class-level note on label lifetime above.
   std::vector<const o2::dataformats::MCTruthContainer<o2::MCCompLabel>*> mLabelSources;
 };
 
