@@ -52,6 +52,12 @@ o2_add_test(multisourceloading
             LABELS "itsmft;tracking"
             PUBLIC_LINK_LIBRARIES O2::ITSMFTTracking)
 
+o2_add_test(legacytimeframebridge
+            SOURCES testLegacyTimeFrameBridge.cxx
+            COMPONENT_NAME itsmft-tracking
+            LABELS "itsmft;tracking"
+            PUBLIC_LINK_LIBRARIES O2::ITSMFTTracking)
+
 # The Gate 0 extractor needs generated tracker/MC dictionaries and external
 # fixture files at execution time. Keep its runnable replay in the documented
 # baseline protocol, while compiling the macro here so clean O2 configurations
