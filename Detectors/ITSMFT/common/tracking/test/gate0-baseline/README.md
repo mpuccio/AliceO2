@@ -66,6 +66,15 @@ under `$GEANT4_ROOT/share/Geant4/data/`; `o2-sim` aborts
 them from that directory before calling `generate_fixture.sh` (see
 `manifest.json` for the exact paths recorded for this baseline run).
 
+`replay_tracking.sh`'s two DPL pipelines (`cluster-reader-workflow |
+reco-workflow`) each run inside their own `bash -o pipefail -c "..."`.
+This is required, not decorative: the outer script's own `set -o
+pipefail` only applies to pipelines written directly in that script, not
+to a nested `bash -c` subshell it spawns, which starts with pipefail off
+by default. Without it, a crash in the upstream reader would be masked by
+the downstream reco-workflow's exit code, since a plain (non-pipefail)
+pipe reports only the last command's status.
+
 Finally, `replay_tracking.sh` copies `FIXTURE_DIR`'s
 `o2simdigitizerworkflow_configuration.ini` into `REPLAY_DIR` and relies on
 `--hbfutils-config`'s *default* value (the same filename, resolved
@@ -75,6 +84,17 @@ file's absolute path via `--hbfutils-config <path>` reproducibly hung
 reading clusters through the piped `o2-its-cluster-reader-workflow`; root
 cause not identified further given the time budget. Do not "simplify" this
 back to an explicit path without re-testing.
+
+## Fresh-directory enforcement
+
+Both scripts refuse to run if their output directory already exists and is
+non-empty (`FIXTURE_DIR` for `generate_fixture.sh`, `REPLAY_DIR` for
+`replay_tracking.sh`): they exit 1 with a message rather than silently
+mixing a previous run's files with a new one. Remove the directory (or
+point at a fresh path) to regenerate/re-replay. Both scripts also validate
+every required output file as non-empty before exiting 0 -- a partially
+failed run cannot look like a success just because some `ls` printed file
+names.
 
 ## Variables
 

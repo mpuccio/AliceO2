@@ -10,7 +10,11 @@
 #   o2-grp-simgrp-tool built from the commit under test.
 #
 # Required variables:
-#   FIXTURE_DIR   output directory (created if missing; should be empty)
+#   FIXTURE_DIR   output directory. Must not already exist as a non-empty
+#                 directory -- this script refuses to run into a dirty
+#                 FIXTURE_DIR rather than silently mixing outputs from a
+#                 previous run with this one. Remove it first, or point at
+#                 a fresh path, to regenerate.
 #   RUNNUMBER     fixed ALICE run number
 #   SEED          fixed o2-sim seed
 #   TIMESTAMP     fixed CCDB condition-not-after value, ms since epoch
@@ -35,6 +39,10 @@ for bin in o2-sim o2-sim-digitizer-workflow o2-its-reco-workflow o2-mft-reco-wor
   command -v "$bin" >/dev/null 2>&1 || { echo "missing $bin on PATH" >&2; exit 1; }
 done
 
+if [[ -d "$FIXTURE_DIR" ]] && [[ -n "$(ls -A "$FIXTURE_DIR" 2>/dev/null)" ]]; then
+  echo "FIXTURE_DIR '$FIXTURE_DIR' already exists and is not empty; refusing to reuse it. Remove it or pick a fresh path." >&2
+  exit 1
+fi
 mkdir -p "$FIXTURE_DIR"
 cd "$FIXTURE_DIR"
 
@@ -66,5 +74,10 @@ echo "[generate_fixture] initial MFT reco (clusterizer+CA tracker, produces fixt
   --resources-monitoring 1 --resources-monitoring-file mft_reco_initial.resources.json \
   > mft_reco_initial.log 2> mft_reco_initial.time.log
 
-echo "[generate_fixture] fixture files:"
-ls -la o2clus_its.root mftclusters.root o2trac_its.root mfttracks.root o2sim_Kine.root 2>&1 || true
+echo "[generate_fixture] validating fixture outputs"
+for f in o2clus_its.root mftclusters.root o2trac_its.root mfttracks.root \
+         o2sim_Kine.root o2sim_geometry.root o2sim_geometry-aligned.root \
+         o2simdigitizerworkflow_configuration.ini; do
+  [[ -s "$f" ]] || { echo "missing or empty required fixture output: $f" >&2; exit 1; }
+done
+ls -la o2clus_its.root mftclusters.root o2trac_its.root mfttracks.root o2sim_Kine.root

@@ -9,7 +9,11 @@
 #
 # Required variables:
 #   FIXTURE_DIR   directory produced by generate_fixture.sh (read-only here)
-#   REPLAY_DIR    output directory for this replay (created, should be empty)
+#   REPLAY_DIR    output directory for this replay. Must not already exist
+#                 as a non-empty directory -- this script refuses to run
+#                 into a dirty REPLAY_DIR rather than silently mixing
+#                 outputs from a previous replay with this one. Remove it
+#                 first, or point at a fresh path, to re-replay.
 #   TIMESTAMP     same fixed CCDB condition-not-after value used at generation
 #   RUNNUMBER     same fixed run number used at generation (sanity-checked
 #                 against FIXTURE_DIR's HBFUtils ini).
@@ -50,6 +54,10 @@ HBFUTILS_INI_SRC="$FIXTURE_DIR/o2simdigitizerworkflow_configuration.ini"
 [[ -f "$HBFUTILS_INI_SRC" ]] || { echo "missing $HBFUTILS_INI_SRC" >&2; exit 1; }
 grep -q "runNumber=$RUNNUMBER" "$HBFUTILS_INI_SRC" || { echo "RUNNUMBER=$RUNNUMBER does not match $HBFUTILS_INI_SRC" >&2; exit 1; }
 
+if [[ -d "$REPLAY_DIR" ]] && [[ -n "$(ls -A "$REPLAY_DIR" 2>/dev/null)" ]]; then
+  echo "REPLAY_DIR '$REPLAY_DIR' already exists and is not empty; refusing to reuse it. Remove it or pick a fresh path." >&2
+  exit 1
+fi
 mkdir -p "$REPLAY_DIR"
 cp "$HBFUTILS_INI_SRC" "$REPLAY_DIR/o2simdigitizerworkflow_configuration.ini"
 cd "$REPLAY_DIR"
@@ -58,7 +66,12 @@ echo "[replay_tracking] ITS replay: nthreads=$ITS_NTHREADS"
 # Note: only the last command in a DPL pipe gets -b/--run; the upstream
 # reader must stay a bare invocation so it dumps its workflow spec (via
 # stdout) for merging instead of executing as its own standalone driver.
-$TIME_CMD bash -c "
+# The inner "bash -c" starts a fresh shell that does NOT inherit this
+# script's "set -o pipefail" (each bash process gets its own default shell
+# options), so it is set explicitly here too -- otherwise a failure in the
+# upstream reader would be masked by the downstream reco-workflow's exit
+# code, which is the only one a plain pipe reports.
+$TIME_CMD bash -o pipefail -c "
   o2-its-cluster-reader-workflow --with-mc \
     --input-dir '$FIXTURE_DIR' --its-cluster-infile o2clus_its.root \
     --shm-segment-size $SHM_SEGMENT_SIZE |
@@ -69,10 +82,11 @@ $TIME_CMD bash -c "
     --configKeyValues 'ITSCATrackerParam.nThreads=$ITS_NTHREADS' \
     --its-track-writer '--outfile o2trac_its.root'
 " > its_replay.log 2> its_replay.time.log
+[[ -s o2trac_its.root ]] || { echo "its replay produced no o2trac_its.root, see its_replay.log" >&2; exit 1; }
 grep -q "Processed [1-9][0-9]* TFs" its_replay.log || { echo "its-tracker processed 0 TFs, see its_replay.log" >&2; exit 1; }
 
 echo "[replay_tracking] MFT replay"
-$TIME_CMD bash -c "
+$TIME_CMD bash -o pipefail -c "
   o2-mft-cluster-reader-workflow --with-mc \
     --input-dir '$FIXTURE_DIR' --mft-cluster-infile mftclusters.root \
     --shm-segment-size $SHM_SEGMENT_SIZE |
@@ -83,5 +97,8 @@ $TIME_CMD bash -c "
 " > mft_replay.log 2> mft_replay.time.log
 [[ -s mfttracks.root ]] || { echo "mft replay produced no mfttracks.root, see mft_replay.log" >&2; exit 1; }
 
-echo "[replay_tracking] outputs:"
-ls -la o2trac_its.root mfttracks.root 2>&1 || true
+echo "[replay_tracking] validating replay outputs"
+for f in o2trac_its.root mfttracks.root; do
+  [[ -s "$f" ]] || { echo "missing or empty required replay output: $f" >&2; exit 1; }
+done
+ls -la o2trac_its.root mfttracks.root
