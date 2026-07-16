@@ -352,7 +352,7 @@ Status values are `Open`, `Proposed`, `Accepted`, `Superseded`, or `Deferred`. O
 | Gate | Status | Evidence |
 |---|---|---|
 | Gate 0: baseline | In progress | Legacy mask/topology characterization and integrated builds pass; end-to-end physics and performance baselines are still missing |
-| Gate 1: foundations | In progress | Layout, normalized measurements, and geometry-backed ITS/MFT decode adapters are integrated and D005–D007 are accepted; real-geometry Gate 0 execution and multi-source TimeFrame/loading work remain |
+| Gate 1: foundations | In progress | Layout, normalized measurements, geometry-backed ITS/MFT decode adapters, and Stage-A transition policy validation are integrated; real-geometry Gate 0 execution and multi-source TimeFrame/loading work remain |
 | Gate 2: common CA traversal | Blocked by Gate 1 | |
 | Gate 3: production migration | Blocked by Gate 2 | |
 | Gate 4: combined disconnected tracking | Blocked by Gate 3 | |
