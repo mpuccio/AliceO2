@@ -1,0 +1,370 @@
+# ITS/MFT Tracking Refactoring: Agent Coordination Manifest
+
+Status: Active planning document  
+Integration owner: Codex architecture/integration agent  
+Integration branch: `codex/itsmft-integration`  
+Architecture: [Architecture.md](Architecture.md)
+
+## 1. Objective
+
+Coordinate multiple coding agents working on the shared ITS/MFT CA tracking refactoring without duplicating work, changing incompatible interfaces, or creating unreviewable cross-cutting commits.
+
+This document defines roles, file ownership, work waves, integration gates, communication rules, and the required handoff format. It is operational rather than architectural; architectural choices belong in `Architecture.md` and the decision log below.
+
+## 2. Coordination principles
+
+1. Contract first: public interfaces are agreed before dependent agents implement against them.
+2. One active owner per production file in each wave.
+3. One worktree and branch per agent; agents do not share a mutable checkout.
+4. The integration owner alone updates the integration branch.
+5. Commits are small, buildable, and ordered by dependency.
+6. Compatibility is implemented with aliases/adapters, not copied code.
+7. Physics retuning is excluded from structural commits.
+8. Existing user changes are preserved and never overwritten by an agent.
+9. A gate closes only when its acceptance checks are recorded as passing.
+10. Architecture changes require a decision-log entry before implementation spreads to other branches.
+
+## 3. Agent roster
+
+Names are stable role identifiers. The concrete tool or human assigned to a role may change.
+
+| Role | Suggested branch | Responsibilities | Starts |
+|---|---|---|---|
+| Architecture/integration | `codex/itsmft-integration` | Contracts, dependency boundaries, reviews, integration, combined validation | Wave 0 |
+| Baseline/validation | `codex/itsmft-baseline-tests` | Characterization tests, unit tests, benchmarks, regression reports | Wave 0 |
+| Core layout/data model | `codex/itsmft-core-layout` | Surface IDs/descriptors, masks, sparse topology, shared primitive ownership | Wave 0/1 |
+| TimeFrame/input | `codex/itsmft-timeframe-input` | Multi-source loading, cluster references, timing, normalized measurements | Wave 1 |
+| CA policies | `codex/itsmft-ca-policies` | Policy boundary, barrel/disk operations, detector-free orchestration | Wave 2 |
+| ITS migration | `codex/itsmft-its-migration` | ITS production adapter, CPU parity, duplicate removal, GPU impact report | Wave 2/3 |
+| MFT adapter | `codex/itsmft-mft-adapter` | MFT output/refit adapter, workflow migration, `MFTCATrack` removal | Wave 3 |
+
+The architecture/integration role should remain lightly loaded with direct implementation so it can review and unblock other roles.
+
+## 4. Ownership map
+
+Ownership applies only while a role's wave is active. Exact new filenames are assigned in the kickoff issue/message.
+
+| Area | Primary owner | Other agents may |
+|---|---|---|
+| `LayerMask`, surface IDs and descriptors | Core layout | Review and request interface changes |
+| `TrackingTopology` and layout builders | Core layout | Add tests through validation owner |
+| Common cluster/tracklet/cell primitives | Core layout | Add compatibility aliases after approval |
+| `TimeFrame`, normalized measurements | TimeFrame/input | Consume established core interfaces |
+| Cluster loading, dictionaries, labels | TimeFrame/input | Add detector adapters in owned adapter files |
+| ROF timing and overlap integration | TimeFrame/input | Add tests through validation owner |
+| `TrackerTraits` orchestration | CA policies | Add instrumentation through agreed hooks |
+| Projection/index/fitting policies | CA policies | ITS/MFT agents may implement adapter-specific backends |
+| ITS production workflow and compatibility | ITS migration | Modify only ITS-owned adapter/workflow files |
+| MFT workflow and output conversion | MFT adapter | Modify only MFT-owned adapter/workflow files |
+| Tests, fixtures, regression scripts | Baseline/validation | Production owners may add local unit tests after coordination |
+| Cross-target CMake dependency changes | Architecture/integration | Propose a patch or dependency requirement |
+| Architecture and decision log | Architecture/integration | Submit proposed amendments |
+
+When a task requires edits in another role's active files, the agent must stop and send one of:
+
+- An interface request.
+- A minimal proposed diff for the owner to apply.
+- A request to transfer ownership for explicitly listed files.
+
+Silent cross-ownership edits are not accepted for integration.
+
+## 5. Worktree and branch policy
+
+Each role receives a dedicated Git worktree based on the integration branch. Example layout outside the primary checkout:
+
+```text
+O2-worktrees/
+  baseline-tests/
+  core-layout/
+  timeframe-input/
+  ca-policies/
+  its-migration/
+  mft-adapter/
+```
+
+Branch names use the `codex/` prefix regardless of whether Codex or Claude Code performs the work, unless repository policy requires otherwise. The branch identifies the workstream, not the tool.
+
+Agents must:
+
+- Check `git status` before starting and before handing off.
+- Never reset, restore, or overwrite changes they did not create.
+- Rebase or merge only when instructed by the integration owner.
+- Avoid generated formatting changes outside owned files.
+- Avoid amending commits after their hashes have been handed off unless requested.
+
+## 6. Wave plan
+
+### Wave 0: contracts and baseline
+
+Active roles:
+
+- Architecture/integration.
+- Baseline/validation.
+- Core layout feasibility.
+
+Deliverables:
+
+- Architecture RFC accepted for implementation.
+- Decision log initialized.
+- Current ITS and MFT build/run commands recorded.
+- Initial characterization tests or a documented fixture plan.
+- Proposed public types for surface IDs, descriptors, masks, and topology views.
+
+Exit criteria:
+
+- No unresolved decision blocks Wave 1 interfaces.
+- Baseline failures are classified as pre-existing or introduced.
+
+### Wave 1: foundations and TimeFrame
+
+Active roles:
+
+- Core layout/data model.
+- TimeFrame/input.
+- Baseline/validation.
+- Architecture/integration.
+
+Deliverables:
+
+- Surface/layout model.
+- Mask supporting the chosen maximum surface count.
+- Explicit sparse topology.
+- Normalized cluster and qualified reference proposal/implementation.
+- Single-detector loading retained through adapters.
+- Unit tests for the new foundations.
+
+Exit criteria:
+
+- ITS-only and MFT-only layouts reproduce current reachability.
+- A 17-surface disconnected layout constructs successfully.
+- Current single-detector TimeFrames still load and expose equivalent clusters.
+
+### Wave 2: common CA orchestration
+
+Active roles:
+
+- CA policies.
+- ITS migration preparation.
+- Baseline/validation.
+- Architecture/integration.
+
+Deliverables:
+
+- Transition-policy interface.
+- Cylinder-cylinder and disk-disk policies.
+- Detector-wide branches removed from main CA loops.
+- Existing refitters available behind adapters.
+- ITS and MFT algorithm regression report.
+
+Exit criteria:
+
+- Both detector layouts run through the same traversal implementation.
+- Differences from baseline are understood and accepted.
+
+### Wave 3: production workflow migration
+
+Active roles:
+
+- ITS migration.
+- MFT adapter.
+- Baseline/validation.
+- Architecture/integration.
+
+Deliverables:
+
+- ITS CPU workflow uses the common core.
+- MFT CA workflow uses the common core.
+- External outputs and configurable parameters remain compatible.
+- Duplicate CPU implementation removal plan executed.
+- CMake dependency direction corrected.
+
+Exit criteria:
+
+- Production workflows build and pass agreed regression tests.
+- No shared core public header depends on detector tracking implementations.
+
+### Wave 4: combined disconnected TimeFrame
+
+Deliverables:
+
+- ITS and MFT sources loaded into one TimeFrame.
+- Independent timing handled in one common time domain.
+- Two disconnected topology components processed in one invocation.
+- Results routed to the correct detector output adapters.
+
+Exit criteria:
+
+- Combined results agree with running the two layouts separately within tolerance.
+- Memory and runtime changes are recorded.
+
+### Wave 5: mixed-surface state research
+
+This wave starts only after a separate track-state RFC is approved. It is not implicitly authorized by earlier waves.
+
+## 7. Commit protocol
+
+Each commit should do one conceptual job and remain reviewable. Preferred examples:
+
+```text
+ITSMFT: add strongly typed surface identifiers
+ITSMFT: widen tracking surface mask to 32 bits
+ITSMFT: add sparse transition topology
+ITSMFT: qualify cluster references by input source
+ITSMFT: add disk-disk transition policy
+ITS: adapt CPU tracker to common TimeFrame
+MFT: convert common tracks to TrackMFT output
+```
+
+Do not combine:
+
+- Structural refactoring and cut retuning.
+- Data-model changes and workflow output changes.
+- Broad renaming and behavioral changes.
+- Multiple ownership areas without prior agreement.
+
+Every production commit must state tests run in its commit message or handoff report.
+
+## 8. Agent kickoff message template
+
+The integration owner sends each agent a bounded task using this template:
+
+```text
+Role: <stable role name>
+Branch/worktree: <branch and absolute worktree path>
+Base commit: <integration commit>
+
+Objective:
+<one concrete outcome>
+
+Read first:
+- Detectors/ITSMFT/common/tracking/doc/Architecture.md
+- Detectors/ITSMFT/common/tracking/doc/AgentCoordination.md
+- <role-specific files>
+
+Owned files:
+- <explicit paths or path patterns>
+
+Do not modify:
+- <other active ownership areas>
+
+Required deliverables:
+- <code/tests/design note>
+
+Acceptance checks:
+- <commands or observable conditions>
+
+Handoff:
+Return commit hashes, changed interfaces, tests/results, assumptions,
+known limitations, and follow-up requests. Do not merge or push unless asked.
+```
+
+Objectives must be achievable in one bounded work cycle. “Refactor TimeFrame” is too broad; “introduce detector-qualified `ClusterRef` and adapt accessors without changing loading” is appropriate.
+
+## 9. Handoff report template
+
+Every agent returns:
+
+```text
+Role:
+Branch:
+Base commit:
+Commits:
+
+Outcome:
+
+Interfaces added or changed:
+
+Files modified:
+
+Tests and results:
+
+Behavioral or physics differences:
+
+Assumptions:
+
+Known limitations:
+
+Requested decisions or follow-up work:
+
+Worktree status:
+```
+
+If no commit was created, the report must say why and list any working-tree modifications.
+
+## 10. Integration procedure
+
+For every handoff, the integration owner:
+
+1. Confirms the branch is based on the expected integration commit.
+2. Reviews ownership compliance and unrelated changes.
+3. Reviews public interfaces against `Architecture.md`.
+4. Runs focused tests from the handoff.
+5. Cherry-picks or merges the smallest dependency-complete commit set.
+6. Runs integration-level build/tests.
+7. Updates the gate status and decision log.
+8. Notifies dependent agents of the new integration commit.
+
+If substantial rework is needed, the original role receives a concrete follow-up task rather than the integration owner silently rewriting the subsystem.
+
+## 11. Cross-agent communication
+
+Agents communicate through short written messages tied to stable role names. Messages should contain one of:
+
+- `DECISION NEEDED`: options, recommendation, and blocking impact.
+- `INTERFACE REQUEST`: current interface, requested change, and consumer.
+- `OWNERSHIP REQUEST`: exact files and duration.
+- `BASE UPDATE`: new integration commit and required rebase/merge instruction.
+- `HANDOFF`: the report from Section 9.
+
+Agents should continue independent work when a question is non-blocking. They must stop before making an assumption that changes a public contract or another role's scope.
+
+## 12. Testing and acceptance ownership
+
+Production owners write focused unit tests for behavior introduced in their component. The baseline/validation role owns:
+
+- Shared fixtures.
+- End-to-end regression comparison.
+- Physics-output tolerance definitions.
+- Performance and memory reports.
+- Classification of pre-existing failures.
+
+An agent may not declare a gate passed based only on compilation. Gate status is assigned by the integration owner after validation results are available.
+
+## 13. Decision log
+
+The integration owner records accepted decisions here or links a dedicated follow-up RFC.
+
+| ID | Status | Decision | Rationale | Affected waves |
+|---|---|---|---|---|
+| D001 | Proposed | Use explicit detector-qualified `SurfaceId` metadata; never infer detector from surface count | Required for arbitrary layouts | 1+ |
+| D002 | Open | Choose 32-bit or 64-bit `SurfaceMask` | 17 surfaces require more than current 16 bits; GPU/layout cost must be assessed | 1 |
+| D003 | Proposed | Use an explicit sparse directed topology | Avoid combinatorial storage and numeric-order assumptions | 1+ |
+| D004 | Proposed | First combined layout uses disconnected ITS and MFT subgraphs | Decouples container integration from mixed-state propagation | 4 |
+| D005 | Open | Define normalized surface measurement structure | Must serve both current detectors and device views | 1 |
+| D006 | Open | Decide tracking TimeFrame/ITS vertexing ownership boundary | Avoid carrying ITS-only state into all layouts | 1/3 |
+| D007 | Open | Select device-compatible policy dispatch representation | Required before GPU migration | 2/3 |
+| D008 | Deferred | Select mixed cylinder-disk track state | Requires a dedicated RFC after common production migration | 5 |
+
+Status values are `Open`, `Proposed`, `Accepted`, `Superseded`, or `Deferred`. Only the integration owner marks a decision accepted after maintainer agreement.
+
+## 14. Gate status
+
+| Gate | Status | Evidence |
+|---|---|---|
+| Gate 0: baseline | Not started | |
+| Gate 1: foundations | Blocked by Gate 0/contracts | |
+| Gate 2: common CA traversal | Blocked by Gate 1 | |
+| Gate 3: production migration | Blocked by Gate 2 | |
+| Gate 4: combined disconnected tracking | Blocked by Gate 3 | |
+| Gate 5: mixed-surface tracking | Deferred | Requires track-state RFC |
+
+## 15. Immediate kickoff tasks
+
+The first three bounded assignments should be:
+
+1. **Baseline/validation**: inventory existing relevant tests and build targets; propose and implement the smallest unit tests that characterize current 7- and 10-surface topology/mask behavior. Do not change production code.
+2. **Core layout feasibility**: propose concrete identifier widths, mask width, sparse topology storage, and device view layouts. Implement only after D002 is accepted.
+3. **Architecture/integration**: review the current uncommitted `DetectorTraits.cxx` seed-conversion fix, establish the integration branch/worktrees, and resolve D002, D005, and D006 with maintainers.
+
+The TimeFrame/input agent should start after the normalized measurement and ownership-boundary decisions are sufficiently stable.
+
