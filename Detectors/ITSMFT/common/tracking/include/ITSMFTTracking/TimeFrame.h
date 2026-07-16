@@ -33,8 +33,11 @@
 
 #include "ITSMFTTracking/MFTCATrack.h"
 #include "ITSMFTTracking/Configuration.h"
+#include "ITSMFTTracking/ClusterDecoder.h"
 #include "ITSMFTTracking/IndexTableUtils.h"
 #include "ITSMFTTracking/LayerMask.h"
+#include "ITSMFTTracking/MultiSourceFrame.h"
+#include "ITSMFTTracking/MultiSourceLoading.h"
 #include "ITSMFTTracking/TrackingTopology.h"
 #include "SimulationDataFormat/MCCompLabel.h"
 #include "SimulationDataFormat/MCTruthContainer.h"
@@ -115,6 +118,37 @@ struct TimeFrame {
   void setDetId(o2::detectors::DetID::ID detId) { mDetId = detId; }
   void resetROFrameData(int iLayer);
   void prepareROFrameData(gsl::span<const itsmft::CompClusterExt> clusters, int layer);
+
+  // Gate 1 compatibility boundary: loads one single-detector cluster stream
+  // -- the same raw ROFRecord/CompClusterExt/pattern/dictionary/label inputs
+  // loadROFrameData() above already consumes -- through the normalized
+  // MultiSourceFrame owner (loadSources(), single decode per cluster via the
+  // caller-supplied `decoder`), then backfills this TimeFrame's existing
+  // legacy compatibility structures (unsorted clusters, TrackingFrameInfo,
+  // external indices, cluster sizes, ROF boundaries, label lookup) from the
+  // committed normalized measurements. Purely additive: loadROFrameData()
+  // and its production callers are unchanged, and this entry point does not
+  // decode any compact cluster a second time. Transactional across *both*
+  // representations: if the normalized load fails, neither getNormalizedFrame()
+  // nor any legacy compatibility accessor below is modified.
+  LoadSourcesResult loadNormalizedSource(const DetectorLayoutView& layout,
+                                         gsl::span<const SurfaceId> layerToSurface,
+                                         const ClusterDecoder& decoder,
+                                         ClusterSourceId sourceId,
+                                         const o2::InteractionRecord& origin,
+                                         const ROFTimingConfig& timing,
+                                         gsl::span<const itsmft::CompClusterExt> clusters,
+                                         gsl::span<const unsigned char> patterns,
+                                         gsl::span<const o2::itsmft::ROFRecord> rofs,
+                                         const itsmft::TopologyDictionary* dictionary,
+                                         const dataformats::MCTruthContainer<MCCompLabel>* labels,
+                                         o2::detectors::DetID::ID detId);
+
+  // Non-owning, read-only access to the normalized owner/view associated
+  // with this TimeFrame by the most recent successful loadNormalizedSource()
+  // call. Empty/default until that first succeeds.
+  const MultiSourceFrame& getNormalizedFrame() const noexcept { return mNormalizedFrame; }
+  MultiSourceFrameView getNormalizedFrameView() const noexcept { return mNormalizedFrame.getView(); }
 
   int getTotalClusters() const;
   bool empty() const { return getTotalClusters() == 0; }
@@ -370,6 +404,10 @@ struct TimeFrame {
   bool mIsStaggered{false};
 
   std::shared_ptr<BoundedMemoryResource> mMemoryPool;
+
+  // Normalized owner associated by loadNormalizedSource(); host-only, never
+  // GPU-managed or dictionary-serialized (see getNormalizedFrame()).
+  MultiSourceFrame mNormalizedFrame;
 };
 
 template <int NLayers>

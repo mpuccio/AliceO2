@@ -125,6 +125,113 @@ void TimeFrame<NLayers>::loadROFrameData(gsl::span<const o2::itsmft::ROFRecord> 
 }
 
 template <int NLayers>
+LoadSourcesResult TimeFrame<NLayers>::loadNormalizedSource(
+  const DetectorLayoutView& layout,
+  gsl::span<const SurfaceId> layerToSurface,
+  const ClusterDecoder& decoder,
+  ClusterSourceId sourceId,
+  const o2::InteractionRecord& origin,
+  const ROFTimingConfig& timing,
+  gsl::span<const itsmft::CompClusterExt> clusters,
+  gsl::span<const unsigned char> patterns,
+  gsl::span<const o2::itsmft::ROFRecord> rofs,
+  const itsmft::TopologyDictionary* dictionary,
+  const dataformats::MCTruthContainer<MCCompLabel>* labels,
+  o2::detectors::DetID::ID detId)
+{
+  if (NLayers != constants::nLayersForDet(detId)) {
+    return {MultiSourceLoadError::UnsupportedDetector, sourceId};
+  }
+  if (layerToSurface.size() != static_cast<size_t>(NLayers)) {
+    return {MultiSourceLoadError::InvalidLayerMapping, sourceId};
+  }
+
+  // Stage into a scratch owner: loadSources() itself never mutates its
+  // `frame` argument on failure, but staging separately also protects the
+  // *existing* mNormalizedFrame (and, by construction below, every legacy
+  // compatibility structure) from a failed reload.
+  MultiSourceFrame staged;
+  ClusterSourceInput src;
+  src.id = sourceId;
+  src.detector = detId;
+  src.clusters = clusters;
+  src.patterns = patterns;
+  src.rofs = rofs;
+  src.dictionary = dictionary;
+  src.labels = labels;
+  src.layerToSurface = layerToSurface;
+  src.timing = timing;
+  src.decoder = &decoder;
+  src.applySysErrors = false; // Neither existing loadROFrameData path applies systematic errors while loading.
+
+  const auto result = loadSources(staged, layout, gsl::span<const ClusterSourceInput>(&src, 1), origin);
+  if (!result.ok()) {
+    return result;
+  }
+
+  // Commit: every check above already passed, so nothing from here on can
+  // fail -- mNormalizedFrame and the legacy compatibility structures below
+  // are therefore always updated together.
+  mNormalizedFrame = std::move(staged);
+  mDetId = detId;
+
+  const bool isMFT = (detId == o2::detectors::DetID::MFT);
+  auto* mr = getMaybeFrameworkHostResource();
+  const auto nROFs = static_cast<size_t>(rofs.size());
+
+  for (int layer = 0; layer < NLayers; ++layer) {
+    const auto measurements = mNormalizedFrame.getSurfaceMeasurements(layerToSurface[layer]);
+
+    deepVectorClear(mUnsortedClusters[layer], mr);
+    deepVectorClear(mTrackingFrameInfo[layer], mr);
+    deepVectorClear(mClusterExternalIndices[layer], mMemoryPool.get());
+    clearResizeBoundedVector(mClusterSize[layer], measurements.size(), mMemoryPool.get());
+    clearResizeBoundedVector(mROFramesClusters[layer], nROFs + 1, mr, 0);
+
+    size_t mi{0};
+    for (const auto& m : measurements) {
+      TrackingFrameInfo tfInfo;
+      if (isMFT) {
+        // Recreate the established synthetic legacy MFT representation
+        // (TrackingFrameInfoAdapters.h::makeTrackingFrameInfo<MFT>) from the
+        // normalized global position and row/column covariance. This is
+        // deliberately not m.frame, which for a Disk-kind SurfaceMeasurement
+        // holds the (z, x, y) disk-frame projection, not the legacy
+        // synthetic layout existing production code consumes.
+        tfInfo = TrackingFrameInfo{
+          m.global.x, m.global.y, m.global.z,
+          m.global.x, 0.f,
+          std::array<float, 2>{m.global.y, m.global.z},
+          std::array<float, 3>{m.covariance.uu, m.covariance.uv, m.covariance.vv}};
+      } else {
+        tfInfo = TrackingFrameInfo{
+          m.global.x, m.global.y, m.global.z,
+          m.frame.q, m.frame.frameAngle,
+          std::array<float, 2>{m.frame.u, m.frame.v},
+          std::array<float, 3>{m.covariance.uu, m.covariance.uv, m.covariance.vv}};
+      }
+      addTrackingFrameInfoToLayer(layer, tfInfo);
+      addClusterToLayer(layer, m.global.x, m.global.y, m.global.z, mUnsortedClusters[layer].size());
+      addClusterExternalIndexToLayer(layer, static_cast<int>(m.cluster.index));
+      mClusterSize[layer][mi] = static_cast<uint8_t>(std::clamp(m.shape.nPixels, 0u, 255u));
+      ++mi;
+    }
+
+    size_t mj{0};
+    for (size_t r = 0; r < nROFs; ++r) {
+      while (mj < measurements.size() && measurements[mj].sourceROF == static_cast<uint32_t>(r)) {
+        ++mj;
+      }
+      mROFramesClusters[layer][r + 1] = static_cast<int>(mj);
+    }
+
+    mClusterLabels[layer] = labels;
+  }
+
+  return result;
+}
+
+template <int NLayers>
 void TimeFrame<NLayers>::resetROFrameData(int layer)
 {
   if (layer >= 0) {
