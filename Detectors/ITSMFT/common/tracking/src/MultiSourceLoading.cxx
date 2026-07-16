@@ -112,11 +112,13 @@ LoadSourcesResult loadSources(MultiSourceFrame& frame,
         const auto externalIndex = static_cast<uint32_t>(clusterId);
         const auto decoded = src.decoder->decode(cluster, pattIt, src.dictionary, src.layerToSurface,
                                                  src.id, externalIndex, r, src.applySysErrors);
-        if (!decoded.layerMapped) {
+        // A buggy decoder could report layerMapped=true while its own
+        // `layer` is negative or out of range for `src.layerToSurface`;
+        // layerMapped is never trusted on its own before indexing.
+        if (!decoded.layerMapped || decoded.layer < 0 ||
+            static_cast<size_t>(decoded.layer) >= src.layerToSurface.size()) {
           return {MultiSourceLoadError::InvalidLayerMapping, src.id, r, externalIndex};
         }
-        // decoded.layer is guaranteed in range here: layerMapped is only
-        // true when the decoder itself found it within layerToSurface.
         const auto expectedSurface = src.layerToSurface[decoded.layer];
         if (!expectedSurface.isValid() || expectedSurface.value() >= layout.nSurfaces) {
           return {MultiSourceLoadError::InvalidLayerMapping, src.id, r, externalIndex};

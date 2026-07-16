@@ -178,3 +178,13 @@ BOOST_AUTO_TEST_CASE(IntervalWithInvalidSourceROFIsInvalidEvenWithPositiveExtent
   constexpr ROFIntervalBC interval{0, 10, std::numeric_limits<uint32_t>::max(), 0};
   BOOST_CHECK(!interval.isValid());
 }
+
+BOOST_AUTO_TEST_CASE(LengthIsSafeForExtremeSignedRange)
+{
+  // Signed `end - begin` overflows TFBC here (INT64_MAX - INT64_MIN does not
+  // fit in int64_t); length() must still return the exact, correct distance
+  // via unsigned arithmetic instead of invoking signed-overflow UB.
+  constexpr ROFIntervalBC interval{std::numeric_limits<TFBC>::min(), std::numeric_limits<TFBC>::max(), 0, 0};
+  BOOST_CHECK(interval.isValid());
+  BOOST_CHECK_EQUAL(interval.length(), std::numeric_limits<uint64_t>::max());
+}

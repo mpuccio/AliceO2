@@ -50,7 +50,12 @@ enum class Corruption {
   WrongIndex,
   WrongSourceROF,
   WrongSensorDetector,
-  WrongKind
+  WrongKind,
+  // These two report layerMapped=true while `layer` itself is not a usable
+  // index into layerToSurface: loadSources() must not trust layerMapped
+  // alone before indexing with `layer`.
+  LayerMappedTrueWithNegativeLayer,
+  LayerMappedTrueWithLayerOutOfRange
 };
 
 class FakeClusterDecoder final : public ClusterDecoder
@@ -71,6 +76,22 @@ class FakeClusterDecoder final : public ClusterDecoder
     uint32_t sourceROF,
     bool applySysErrors) const override
   {
+    // Simulate a decoder that lies about layerMapped without ever touching
+    // the pattern cursor or geometry decode: loadSources() must catch this
+    // from layerMapped/layer alone, before indexing layerToSurface.
+    if (mCorruption == Corruption::LayerMappedTrueWithNegativeLayer) {
+      o2::itsmft::ioutils::SurfaceMeasurementDecodeResult result;
+      result.layerMapped = true;
+      result.layer = -1;
+      return result;
+    }
+    if (mCorruption == Corruption::LayerMappedTrueWithLayerOutOfRange) {
+      o2::itsmft::ioutils::SurfaceMeasurementDecodeResult result;
+      result.layerMapped = true;
+      result.layer = static_cast<int>(layerToSurface.size());
+      return result;
+    }
+
     float sigma2Row{0.f};
     float sigma2Col{0.f};
     ClusterShape shape{};
@@ -980,6 +1001,41 @@ BOOST_AUTO_TEST_CASE(InconsistentDecoderMetadataIsRejected)
     const auto result = loadSources(frame, layout.getView(), gsl::span<const ClusterSourceInput>(&src, 1), {0, 0});
     BOOST_CHECK(!result.ok());
     BOOST_CHECK(result.error == MultiSourceLoadError::InconsistentDecoderMetadata);
+  }
+}
+
+BOOST_AUTO_TEST_CASE(LayerMappedTrueWithUnsafeLayerIsRejected)
+{
+  // A decoder reporting layerMapped=true must never be trusted to also have
+  // produced a `layer` that is safe to index into layerToSurface with:
+  // negative, or equal to/beyond its size, must both be rejected the same
+  // way as layerMapped=false, without ever indexing layerToSurface[layer].
+  const auto layout = makeCombinedLayout();
+  BOOST_REQUIRE(layout.valid());
+  const std::vector<CompClusterExt> clusters{{1, 1, CompCluster::InvalidPatternID, 0}};
+  const auto patterns = makePatternBytes(clusters.size());
+  const std::vector<ROFRecord> rofs{ROFRecord{{0, 0}, 0, 0, 1}};
+
+  const std::array<Corruption, 2> corruptions{
+    Corruption::LayerMappedTrueWithNegativeLayer, Corruption::LayerMappedTrueWithLayerOutOfRange};
+  for (const auto corruption : corruptions) {
+    FakeClusterDecoder decoder{o2::detectors::DetID::ITS, {0}, false, corruption};
+    ClusterSourceInput src;
+    src.id = ClusterSourceId{0};
+    src.detector = o2::detectors::DetID::ITS;
+    src.clusters = clusters;
+    src.patterns = patterns;
+    src.rofs = rofs;
+    src.dictionary = &dict();
+    src.layerToSurface = itsLayerToSurface;
+    src.timing = ROFTimingConfig{40, 0, 0, 0};
+    src.decoder = &decoder;
+
+    MultiSourceFrame frame;
+    const auto result = loadSources(frame, layout.getView(), gsl::span<const ClusterSourceInput>(&src, 1), {0, 0});
+    BOOST_CHECK(!result.ok());
+    BOOST_CHECK(result.error == MultiSourceLoadError::InvalidLayerMapping);
+    BOOST_CHECK_EQUAL(frame.getTotalMeasurements(), 0u);
   }
 }
 

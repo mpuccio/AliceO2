@@ -44,7 +44,16 @@ struct ROFIntervalBC {
   {
     return sourceROF != std::numeric_limits<uint32_t>::max() && begin < end;
   }
-  GPUhdi() constexpr TFBC length() const noexcept { return end - begin; }
+  // Signed `end - begin` can overflow TFBC for a valid interval spanning
+  // more than INT64_MAX BC (e.g. begin close to INT64_MIN, end close to
+  // INT64_MAX). Computing the subtraction in uint64_t is well-defined
+  // (unsigned arithmetic never overflows) and reproduces the exact
+  // mathematical distance for every begin <= end pair representable in
+  // TFBC, since that distance is always within [0, UINT64_MAX].
+  GPUhdi() constexpr uint64_t length() const noexcept
+  {
+    return static_cast<uint64_t>(end) - static_cast<uint64_t>(begin);
+  }
 };
 
 static_assert(std::is_standard_layout_v<ROFIntervalBC>);
@@ -79,7 +88,12 @@ struct ROFIntervalBuildResult {
   ROFIntervalBC interval{};
   TimingBuildError error{TimingBuildError::None};
 
-  constexpr bool ok() const noexcept { return error == TimingBuildError::None; }
+  // A default-constructed (never-assigned) result must not read as ok(): its
+  // `interval` is the invalid sentinel even though `error` defaults to None.
+  // Every genuine success path builds an interval with a real sourceROF and
+  // begin < end, so requiring interval.isValid() only excludes the
+  // uninitialized/default case, never a real success.
+  constexpr bool ok() const noexcept { return error == TimingBuildError::None && interval.isValid(); }
 };
 
 enum class WidenError : uint8_t {
@@ -94,7 +108,10 @@ struct WidenResult {
   ROFIntervalBC interval{};
   WidenError error{WidenError::None};
 
-  constexpr bool ok() const noexcept { return error == WidenError::None; }
+  // Same self-consistency invariant as ROFIntervalBuildResult::ok(): a
+  // default-constructed result must not read as ok() while its `interval` is
+  // still the invalid sentinel.
+  constexpr bool ok() const noexcept { return error == WidenError::None && interval.isValid(); }
 };
 
 #ifndef GPUCA_GPUCODE
