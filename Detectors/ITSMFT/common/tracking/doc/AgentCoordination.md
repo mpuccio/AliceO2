@@ -352,7 +352,7 @@ Status values are `Open`, `Proposed`, `Accepted`, `Superseded`, or `Deferred`. O
 | Gate | Status | Evidence |
 |---|---|---|
 | Gate 0: baseline | Complete | Legacy characterization tests pass; the committed 20-event ITS/MFT fixture protocol records bit-identical single-thread replay metrics, physics definitions, CCDB provenance, wall time, and peak RSS |
-| Gate 1: foundations | In progress | Layout, normalized measurements, geometry-backed ITS/MFT decode adapters, and Stage-A transition policy validation are integrated; multi-source TimeFrame/loading work remains |
+| Gate 1: foundations | In progress | Layout, normalized measurements, geometry-backed ITS/MFT decode adapters, Stage-A transition policy validation, and transactional multi-source loading with TF-relative timing are integrated; a bounded bridge to the existing single-detector TimeFrame interfaces remains |
 | Gate 2: common CA traversal | Blocked by Gate 1 | |
 | Gate 3: production migration | Blocked by Gate 2 | |
 | Gate 4: combined disconnected tracking | Blocked by Gate 3 | |
@@ -365,7 +365,7 @@ characterization rather than a meaningful scaling test at this fixture size;
 and the documented MFT reconstructability denominator is intentionally simpler
 than the geometry-aware ITS definition.
 
-## 15. Immediate kickoff tasks
+## 15. Kickoff record and next task
 
 The first three bounded assignments should be:
 
@@ -373,4 +373,11 @@ The first three bounded assignments should be:
 2. **Core layout feasibility**: propose concrete identifier widths, mask width, sparse topology storage, and device view layouts. Implement only after D002 is accepted.
 3. **Architecture/integration**: review the current uncommitted `DetectorTraits.cxx` seed-conversion fix, establish the integration branch/worktrees, and resolve D002, D005, and D006 with maintainers.
 
-The next bounded implementation task is the normalized measurement primitives and ITS/MFT adapter parity fixtures described by D005. It must not change TimeFrame ownership, workflows, kernels, or physics behavior. Conversion helpers must receive explicit source, sensor, surface, ROF, shape, and covariance-axis information; the MFT path must not blindly project the legacy synthetic `TrackingFrameInfo` into disk coordinates.
+The first follow-on implementation was the normalized measurement primitives and ITS/MFT adapter parity fixtures described by D005. It did not change TimeFrame ownership, workflows, kernels, or physics behavior. Conversion helpers receive explicit source, sensor, surface, ROF, shape, and covariance-axis information; the MFT path does not blindly project the legacy synthetic `TrackingFrameInfo` into disk coordinates.
+
+After integration of the standalone multi-source measurement owner, the only
+remaining Gate 1 task is a compatibility bridge proving that existing ITS-only
+and MFT-only TimeFrame loading can expose equivalent clusters through the new
+normalized owner/view without changing production workflows, CA orchestration,
+GPU kernels, vertexing ownership, or physics behavior. Gate 2 starts only after
+that bridge and its single-detector parity tests are accepted.

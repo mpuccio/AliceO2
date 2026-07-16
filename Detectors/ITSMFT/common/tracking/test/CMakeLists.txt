@@ -51,3 +51,18 @@ o2_add_test(multisourceloading
             COMPONENT_NAME itsmft-tracking
             LABELS "itsmft;tracking"
             PUBLIC_LINK_LIBRARIES O2::ITSMFTTracking)
+
+# The Gate 0 extractor needs generated tracker/MC dictionaries and external
+# fixture files at execution time. Keep its runnable replay in the documented
+# baseline protocol, while compiling the macro here so clean O2 configurations
+# validate its includes and types.
+o2_add_test_root_macro(gate0-baseline/extract_metrics.C
+                       COMPILE_ONLY
+                       LABELS "itsmft;tracking;gate0"
+                       PUBLIC_LINK_LIBRARIES
+                         O2::DataFormatsITS
+                         O2::DataFormatsITSMFT
+                         O2::DataFormatsMFT
+                         O2::DetectorsBase
+                         O2::ITSBase
+                         O2::SimulationDataFormat)

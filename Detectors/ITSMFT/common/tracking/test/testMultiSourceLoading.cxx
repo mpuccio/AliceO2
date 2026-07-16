@@ -144,6 +144,10 @@ class FakeClusterDecoder final : public ClusterDecoder
       case Corruption::WrongKind:
         result.kind = (result.kind == SurfaceKind::Cylinder) ? SurfaceKind::Disk : SurfaceKind::Cylinder;
         break;
+      case Corruption::LayerMappedTrueWithNegativeLayer:
+      case Corruption::LayerMappedTrueWithLayerOutOfRange:
+        // Handled by the early returns above, before normal decoding.
+        break;
       case Corruption::None:
         break;
     }
