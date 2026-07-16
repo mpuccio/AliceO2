@@ -154,7 +154,8 @@ These quantities must not be inferred interchangeably.
 
 ### 6.5 Normalized cluster measurement
 
-The core cluster representation must contain only detector-independent information:
+The core cluster representation is a 72-byte, standard-layout, trivially-copyable
+`SurfaceMeasurement`. It contains only detector-independent information:
 
 - Global position.
 - Measurement coordinates and covariance in the surface frame.
@@ -165,6 +166,26 @@ The core cluster representation must contain only detector-independent informati
 - Timing/ROF association.
 
 ITS `TrackingFrameInfo` may initially be adapted into this representation, but it must not remain the semantic definition for all future surface types.
+
+External identity is the pair `{ClusterSourceId, external index}`. A source identifies
+an input stream, not a detector, so two streams from the same detector and equal
+external indices remain distinct. Source IDs are dense and TimeFrame-local, remain
+stable for the TimeFrame lifetime, and reserve the all-ones value as invalid. Sensor
+identity independently contains both the detector ID and detector-local sensor ID.
+
+Surface-frame coordinates have an explicit convention selected by the surface
+descriptor:
+
+- Cylinder: normal coordinate `q=xTF`, measured coordinates `u=yTF`, `v=zTF`, and
+  `frameAngle=alpha`.
+- Disk: normal coordinate `q=z`, measured coordinates `u=x`, `v=y`, and
+  `frameAngle=0`.
+
+The 2D covariance always corresponds to `(u,v)`. In particular, the MFT adapter must
+decode this information from detector geometry and cluster errors. It must not infer
+disk-frame semantics by copying the current synthetic MFT `TrackingFrameInfo`, whose
+stored position axes and covariance axes do not form this contract. MC labels are not
+embedded in each measurement; host-side label lookup is keyed by `ClusterRef`.
 
 ## 7. TimeFrame responsibilities
 
@@ -185,7 +206,17 @@ It must not intrinsically own:
 - ITS-only vertexing artefacts that are unused by tracking.
 - Detector output track containers.
 
-ITS vertexing state should be composed with or layered on top of the tracking TimeFrame. Compatibility accessors can be retained while production code migrates.
+ITS vertexing state is composed with the tracking TimeFrame. It owns primary vertices,
+vertex labels and lookup tables, and vertexing-only scratch, while reading a common
+measurement/timing view. Tracking receives an optional non-owning
+`VertexConstraintView`; an empty view supports MFT and vertex-free operation.
+Compatibility accessors and the inherited GPU TimeFrame may remain temporary facades
+while CPU and device consumers migrate to POD views.
+
+Framework allocation state owns memory resources, device mirrors, streams, and pinning
+registrations, but not the semantic host data. Lifetimes must guarantee that common
+tracking and vertexing owners outlive all host/device views and asynchronous work that
+uses them.
 
 ### 7.1 Loading multiple sources
 
@@ -193,6 +224,7 @@ Loading accepts one or more detector-qualified sources:
 
 ```cpp
 struct ClusterSourceView {
+  ClusterSourceId id;
   o2::detectors::DetID::ID detector;
   gsl::span<const CompClusterExt> clusters;
   gsl::span<const unsigned char> patterns;
@@ -203,11 +235,22 @@ struct ClusterSourceView {
 };
 ```
 
-The decoder maps a detector-local sensor/layer to a global surface and normalized measurement. The source retains ownership of detector-specific inputs.
+The decoder maps a detector-local sensor/layer to a global surface and normalized
+measurement. Decoder polymorphism is confined to this host loading boundary. The
+source retains ownership of detector-specific inputs; the common TimeFrame retains no
+compact clusters, dictionaries, geometry singletons, or detector output types. Pattern
+cursors and ROF ordinals are maintained independently per source.
 
 ### 7.2 Timing
 
-Per-surface ROF timing is stored independently. Overlap queries operate in a common interaction-record or bunch-crossing time domain. Loading must not require equal ROF counts, lengths, or delays across detectors.
+Per-source/per-surface ROF timing is stored independently as checked, signed 64-bit
+TimeFrame-relative bunch-crossing intervals. Intervals are half-open and incorporate
+the source's readout length and configured delay/bias; uncertainty handling must be
+explicit in the compatibility policy. Overlap queries compare intervals, never ROF
+ordinals. Loading must not require equal ROF counts, lengths, or delays across
+detectors. A measurement's `sourceROF` is interpreted together with the source in its
+`ClusterRef`. Checked 32-bit rebasing is allowed only in a device view whose complete
+extent fits.
 
 Cluster and track timestamps must remain convertible to detector-specific output ROF records. Tests must cover triggered and continuous readout configurations.
 

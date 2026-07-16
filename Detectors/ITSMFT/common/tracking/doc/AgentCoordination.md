@@ -340,8 +340,8 @@ The integration owner records accepted decisions here or links a dedicated follo
 | D002 | Accepted | Use a 32-bit `SurfaceMask` with at most 32 global surfaces | Covers the 17-surface target with 15 spare bits while preserving a compact GPU-friendly POD | 1 |
 | D003 | Accepted | Use an explicit sparse directed topology with 16-bit strong IDs and CSR lookup views | Avoids combinatorial storage and numeric-order assumptions while remaining device-friendly | 1+ |
 | D004 | Accepted | First combined layout uses disconnected ITS and MFT subgraphs | Decouples container integration from mixed-state propagation | 4 |
-| D005 | Open | Define normalized surface measurement structure | Must serve both current detectors and device views | 1 |
-| D006 | Open | Decide tracking TimeFrame/ITS vertexing ownership boundary | Avoid carrying ITS-only state into all layouts | 1/3 |
+| D005 | Accepted | Use a 72-byte trivially-copyable `SurfaceMeasurement` with detector-qualified sensor/surface identity and `{ClusterSourceId, external index}` cluster identity | Gives CPU/device code one normalized measurement while keeping labels and detector decoding at the adapters; disk covariance must be decoded in explicit x/y surface axes rather than copied from synthetic MFT `TrackingFrameInfo` semantics | 1 |
+| D006 | Accepted | Compose a common tracking TimeFrame, separate `ITSVertexingState`, optional non-owning `VertexConstraintView`, and framework/device allocation state | Keeps ITS-only products out of MFT/common ownership and permits incremental GPU migration through POD views and temporary compatibility facades | 1/3 |
 | D007 | Open | Select device-compatible policy dispatch representation | Required before GPU migration | 2/3 |
 | D008 | Deferred | Select mixed cylinder-disk track state | Requires a dedicated RFC after common production migration | 5 |
 
@@ -352,7 +352,7 @@ Status values are `Open`, `Proposed`, `Accepted`, `Superseded`, or `Deferred`. O
 | Gate | Status | Evidence |
 |---|---|---|
 | Gate 0: baseline | In progress | Legacy mask/topology characterization and integrated builds pass; end-to-end physics and performance baselines are still missing |
-| Gate 1: foundations | In progress | 32-bit mask, strong IDs, sparse topology, layout views, and disconnected 17-surface tests are integrated; normalized measurements and TimeFrame work remain |
+| Gate 1: foundations | In progress | Layout primitives and disconnected 17-surface tests are integrated; D005/D006 contracts are accepted, but normalized measurement implementation and detector adapter parity tests remain |
 | Gate 2: common CA traversal | Blocked by Gate 1 | |
 | Gate 3: production migration | Blocked by Gate 2 | |
 | Gate 4: combined disconnected tracking | Blocked by Gate 3 | |
@@ -366,4 +366,4 @@ The first three bounded assignments should be:
 2. **Core layout feasibility**: propose concrete identifier widths, mask width, sparse topology storage, and device view layouts. Implement only after D002 is accepted.
 3. **Architecture/integration**: review the current uncommitted `DetectorTraits.cxx` seed-conversion fix, establish the integration branch/worktrees, and resolve D002, D005, and D006 with maintainers.
 
-The TimeFrame/input agent should start after the normalized measurement and ownership-boundary decisions are sufficiently stable.
+The next bounded implementation task is the normalized measurement primitives and ITS/MFT adapter parity fixtures described by D005. It must not change TimeFrame ownership, workflows, kernels, or physics behavior. Conversion helpers must receive explicit source, sensor, surface, ROF, shape, and covariance-axis information; the MFT path must not blindly project the legacy synthetic `TrackingFrameInfo` into disk coordinates.
