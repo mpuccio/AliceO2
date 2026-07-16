@@ -336,10 +336,10 @@ The integration owner records accepted decisions here or links a dedicated follo
 
 | ID | Status | Decision | Rationale | Affected waves |
 |---|---|---|---|---|
-| D001 | Proposed | Use explicit detector-qualified `SurfaceId` metadata; never infer detector from surface count | Required for arbitrary layouts | 1+ |
-| D002 | Open | Choose 32-bit or 64-bit `SurfaceMask` | 17 surfaces require more than current 16 bits; GPU/layout cost must be assessed | 1 |
-| D003 | Proposed | Use an explicit sparse directed topology | Avoid combinatorial storage and numeric-order assumptions | 1+ |
-| D004 | Proposed | First combined layout uses disconnected ITS and MFT subgraphs | Decouples container integration from mixed-state propagation | 4 |
+| D001 | Accepted | Use explicit detector-qualified `SurfaceId` metadata; never infer detector from surface count | Required for arbitrary layouts | 1+ |
+| D002 | Accepted | Use a 32-bit `SurfaceMask` with at most 32 global surfaces | Covers the 17-surface target with 15 spare bits while preserving a compact GPU-friendly POD | 1 |
+| D003 | Accepted | Use an explicit sparse directed topology with 16-bit strong IDs and CSR lookup views | Avoids combinatorial storage and numeric-order assumptions while remaining device-friendly | 1+ |
+| D004 | Accepted | First combined layout uses disconnected ITS and MFT subgraphs | Decouples container integration from mixed-state propagation | 4 |
 | D005 | Open | Define normalized surface measurement structure | Must serve both current detectors and device views | 1 |
 | D006 | Open | Decide tracking TimeFrame/ITS vertexing ownership boundary | Avoid carrying ITS-only state into all layouts | 1/3 |
 | D007 | Open | Select device-compatible policy dispatch representation | Required before GPU migration | 2/3 |
@@ -351,8 +351,8 @@ Status values are `Open`, `Proposed`, `Accepted`, `Superseded`, or `Deferred`. O
 
 | Gate | Status | Evidence |
 |---|---|---|
-| Gate 0: baseline | Not started | |
-| Gate 1: foundations | Blocked by Gate 0/contracts | |
+| Gate 0: baseline | In progress | Legacy mask/topology characterization and integrated builds pass; end-to-end physics and performance baselines are still missing |
+| Gate 1: foundations | In progress | 32-bit mask, strong IDs, sparse topology, layout views, and disconnected 17-surface tests are integrated; normalized measurements and TimeFrame work remain |
 | Gate 2: common CA traversal | Blocked by Gate 1 | |
 | Gate 3: production migration | Blocked by Gate 2 | |
 | Gate 4: combined disconnected tracking | Blocked by Gate 3 | |
@@ -367,4 +367,3 @@ The first three bounded assignments should be:
 3. **Architecture/integration**: review the current uncommitted `DetectorTraits.cxx` seed-conversion fix, establish the integration branch/worktrees, and resolve D002, D005, and D006 with maintainers.
 
 The TimeFrame/input agent should start after the normalized measurement and ownership-boundary decisions are sufficiently stable.
-

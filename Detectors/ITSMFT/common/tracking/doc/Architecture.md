@@ -423,7 +423,7 @@ Physics comparisons must define tolerances rather than requiring bitwise equalit
 
 The following must be resolved and recorded in the decision log:
 
-1. Maximum supported surface count and mask width.
+1. Accepted: a 32-bit `SurfaceMask` supports at most 32 global surfaces in the initial shared layout.
 2. Compile-time maximum layout versus fully runtime-sized host storage.
 3. Exact normalized measurement representation.
 4. Ownership boundary between tracking TimeFrame and ITS vertexing state.
@@ -431,4 +431,3 @@ The following must be resolved and recorded in the decision log:
 6. Internal track state container during Stage A.
 7. Long-term mixed-surface track-state representation.
 8. Migration and removal schedule for existing public ITS tracking types.
-
