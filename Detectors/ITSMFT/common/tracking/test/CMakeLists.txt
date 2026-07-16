@@ -17,6 +17,13 @@ o2_add_test(layermask
 
 o2_add_test(trackingtopology
             SOURCES testTrackingTopology.cxx
+
+            COMPONENT_NAME itsmft-tracking
+            LABELS "itsmft;tracking"
+            PUBLIC_LINK_LIBRARIES O2::ITSMFTTracking)
+
+o2_add_test(surfacelayout
+            SOURCES testSurfaceLayout.cxx
             COMPONENT_NAME itsmft-tracking
             LABELS "itsmft;tracking"
             PUBLIC_LINK_LIBRARIES O2::ITSMFTTracking)

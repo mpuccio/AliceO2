@@ -27,6 +27,7 @@
 #include "GPUCommonDef.h"
 #include "GPUCommonMath.h"
 #include "ITSMFTTracking/LayerMask.h"
+#include "ITSMFTTracking/SparseTrackingTopology.h"
 
 namespace o2::itsmft::tracking
 {
