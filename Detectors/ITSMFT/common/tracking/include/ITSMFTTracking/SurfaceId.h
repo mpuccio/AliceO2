@@ -45,10 +45,14 @@ class Identifier16
 struct SurfaceIdTag;
 struct TransitionIdTag;
 struct CellTopologyIdTag;
+struct ClusterSourceIdTag;
 
 using SurfaceId = detail::Identifier16<SurfaceIdTag>;
 using TransitionId = detail::Identifier16<TransitionIdTag>;
 using CellTopologyId = detail::Identifier16<CellTopologyIdTag>;
+// Dense, TimeFrame-local input-stream ID. The inherited all-ones value is
+// reserved as invalid.
+using ClusterSourceId = detail::Identifier16<ClusterSourceIdTag>;
 
 inline constexpr uint32_t MaxLayoutSurfaces = 32;
 inline constexpr uint32_t MaxLayoutTransitions = MaxLayoutSurfaces * (MaxLayoutSurfaces - 1);
@@ -59,9 +63,11 @@ static_assert(MaxLayoutCellTopologies < CellTopologyId::InvalidValue);
 static_assert(std::is_standard_layout_v<SurfaceId> && std::is_trivially_copyable_v<SurfaceId>);
 static_assert(std::is_standard_layout_v<TransitionId> && std::is_trivially_copyable_v<TransitionId>);
 static_assert(std::is_standard_layout_v<CellTopologyId> && std::is_trivially_copyable_v<CellTopologyId>);
+static_assert(std::is_standard_layout_v<ClusterSourceId> && std::is_trivially_copyable_v<ClusterSourceId>);
 static_assert(sizeof(SurfaceId) == sizeof(uint16_t));
 static_assert(sizeof(TransitionId) == sizeof(uint16_t));
 static_assert(sizeof(CellTopologyId) == sizeof(uint16_t));
+static_assert(sizeof(ClusterSourceId) == sizeof(uint16_t));
 
 } // namespace o2::itsmft::tracking
 

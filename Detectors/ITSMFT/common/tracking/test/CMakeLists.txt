@@ -27,3 +27,9 @@ o2_add_test(surfacelayout
             COMPONENT_NAME itsmft-tracking
             LABELS "itsmft;tracking"
             PUBLIC_LINK_LIBRARIES O2::ITSMFTTracking)
+
+o2_add_test(surfacemeasurement
+            SOURCES testSurfaceMeasurement.cxx
+            COMPONENT_NAME itsmft-tracking
+            LABELS "itsmft;tracking"
+            PUBLIC_LINK_LIBRARIES O2::ITSMFTTracking)
