@@ -57,3 +57,5 @@ o2_add_library(ITSMFTTracking
                        O2::MFTBase
                        O2::MFTTracking
                        O2::DataFormatsITS)
+
+add_subdirectory(test)
