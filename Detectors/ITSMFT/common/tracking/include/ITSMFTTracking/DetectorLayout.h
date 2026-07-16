@@ -42,7 +42,9 @@ enum class DetectorLayoutError : uint8_t {
   TooManySurfaces,
   NonDenseSurfaceIds,
   TopologySurfaceCountMismatch,
-  TopologyNotFinalized
+  TopologyNotFinalized,
+  MixedSurfaceTransition,
+  PolicySurfaceKindMismatch
 };
 
 class DetectorLayout
@@ -92,6 +94,21 @@ class DetectorLayout
         mCylinderSurfaces.set(surface.id);
       } else {
         mDiskSurfaces.set(surface.id);
+      }
+    }
+    for (const auto& transition : mTopology.getTransitions()) {
+      const auto fromKind = mSurfaces[transition.from.value()].kind;
+      const auto toKind = mSurfaces[transition.to.value()].kind;
+      if (fromKind != toKind) {
+        mError = DetectorLayoutError::MixedSurfaceTransition;
+        return;
+      }
+      const bool matchesPolicy =
+        (transition.policyTag == TransitionPolicyTag::CylinderCylinder && fromKind == SurfaceKind::Cylinder) ||
+        (transition.policyTag == TransitionPolicyTag::DiskDisk && fromKind == SurfaceKind::Disk);
+      if (!matchesPolicy) {
+        mError = DetectorLayoutError::PolicySurfaceKindMismatch;
+        return;
       }
     }
   }

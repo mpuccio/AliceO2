@@ -8,6 +8,7 @@
 #ifndef ALICEO2_ITSMFT_TRACKING_SPARSETRACKINGTOPOLOGY_H_
 #define ALICEO2_ITSMFT_TRACKING_SPARSETRACKINGTOPOLOGY_H_
 
+#include <cstddef>
 #include <cstdint>
 #include <type_traits>
 
@@ -19,6 +20,7 @@
 #include "GPUCommonDef.h"
 #include "ITSMFTTracking/SurfaceId.h"
 #include "ITSMFTTracking/SurfaceMask.h"
+#include "ITSMFTTracking/TransitionPolicy.h"
 
 namespace o2::itsmft::tracking
 {
@@ -27,7 +29,7 @@ struct SurfaceTransition {
   SurfaceId from{};
   SurfaceId to{};
   SurfaceMask skippedSurfaces{};
-  uint16_t policyTag{0};
+  TransitionPolicyTag policyTag{TransitionPolicyTag::Invalid};
   uint16_t flags{0};
 };
 
@@ -70,6 +72,11 @@ static_assert(std::is_standard_layout_v<TopologyRange> && std::is_trivially_copy
 static_assert(std::is_standard_layout_v<SparseTrackingTopologyView> && std::is_trivially_copyable_v<SparseTrackingTopologyView>);
 static_assert(sizeof(SurfaceTransition) == 12);
 static_assert(sizeof(SurfaceCellTopology) == 8);
+static_assert(offsetof(SurfaceTransition, from) == 0);
+static_assert(offsetof(SurfaceTransition, to) == 2);
+static_assert(offsetof(SurfaceTransition, skippedSurfaces) == 4);
+static_assert(offsetof(SurfaceTransition, policyTag) == 8);
+static_assert(offsetof(SurfaceTransition, flags) == 10);
 
 #ifndef GPUCA_GPUCODE
 
@@ -77,10 +84,12 @@ enum class TopologyBuildError : uint8_t {
   None,
   InvalidSurfaceCount,
   InvalidSurface,
+  InvalidPolicyTag,
   SelfTransition,
   DuplicateTransition,
   TooManyTransitions,
   InvalidTransition,
+  MixedPolicyCell,
   DisconnectedTransitions,
   RepeatedSurface,
   DuplicateCell,
@@ -105,6 +114,10 @@ class SparseTrackingTopology
   TransitionId addTransition(SurfaceTransition transition)
   {
     if (!canModify()) {
+      return TransitionId::invalid();
+    }
+    if (!isStageATransitionPolicyTagEnabled(transition.policyTag)) {
+      mError = TopologyBuildError::InvalidPolicyTag;
       return TransitionId::invalid();
     }
     if (!isSurfaceInLayout(transition.from) || !isSurfaceInLayout(transition.to) ||
@@ -144,6 +157,10 @@ class SparseTrackingTopology
     }
     const auto& firstTransition = mTransitions[first.value()];
     const auto& secondTransition = mTransitions[second.value()];
+    if (firstTransition.policyTag != secondTransition.policyTag) {
+      mError = TopologyBuildError::MixedPolicyCell;
+      return CellTopologyId::invalid();
+    }
     if (firstTransition.to != secondTransition.from) {
       mError = TopologyBuildError::DisconnectedTransitions;
       return CellTopologyId::invalid();
