@@ -342,7 +342,7 @@ The integration owner records accepted decisions here or links a dedicated follo
 | D004 | Accepted | First combined layout uses disconnected ITS and MFT subgraphs | Decouples container integration from mixed-state propagation | 4 |
 | D005 | Accepted | Use a 72-byte trivially-copyable `SurfaceMeasurement` with detector-qualified sensor/surface identity and `{ClusterSourceId, external index}` cluster identity | Gives CPU/device code one normalized measurement while keeping labels and detector decoding at the adapters; disk covariance must be decoded in explicit x/y surface axes rather than copied from synthetic MFT `TrackingFrameInfo` semantics | 1 |
 | D006 | Accepted | Compose a common tracking TimeFrame, separate `ITSVertexingState`, optional non-owning `VertexConstraintView`, and framework/device allocation state | Keeps ITS-only products out of MFT/common ownership and permits incremental GPU migration through POD views and temporary compatibility facades | 1/3 |
-| D007 | Open | Select device-compatible policy dispatch representation | Required before GPU migration | 2/3 |
+| D007 | Accepted | Carry one validated policy tag per transition; derive the state family and cell policy, dispatch only outside hot loops, and launch one specialized GPU kernel per active `(stage, family)` | Supports data-driven disconnected layouts without virtual/device-indirect calls or per-candidate branching; parameter and typed-state view ABIs remain separate implementation contracts | 2/3 |
 | D008 | Deferred | Select mixed cylinder-disk track state | Requires a dedicated RFC after common production migration | 5 |
 
 Status values are `Open`, `Proposed`, `Accepted`, `Superseded`, or `Deferred`. Only the integration owner marks a decision accepted after maintainer agreement.
@@ -352,7 +352,7 @@ Status values are `Open`, `Proposed`, `Accepted`, `Superseded`, or `Deferred`. O
 | Gate | Status | Evidence |
 |---|---|---|
 | Gate 0: baseline | In progress | Legacy mask/topology characterization and integrated builds pass; end-to-end physics and performance baselines are still missing |
-| Gate 1: foundations | In progress | Layout primitives and disconnected 17-surface tests are integrated; D005/D006 contracts are accepted, but normalized measurement implementation and detector adapter parity tests remain |
+| Gate 1: foundations | In progress | Layout and normalized-measurement primitives are integrated and D005–D007 are accepted; geometry-backed detector adapter parity and TimeFrame/loading work remain |
 | Gate 2: common CA traversal | Blocked by Gate 1 | |
 | Gate 3: production migration | Blocked by Gate 2 | |
 | Gate 4: combined disconnected tracking | Blocked by Gate 3 | |

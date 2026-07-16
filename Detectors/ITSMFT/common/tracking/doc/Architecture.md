@@ -313,6 +313,35 @@ Initial policy implementations are:
 
 The core loops must not branch on `DetID`. Dispatch may be compile-time or through compact policy tags in a transition descriptor, provided device execution remains practical.
 
+### 10.1 Policy dispatch
+
+Each configured transition carries a validated `TransitionPolicyTag`. The initial tags
+are cylinder-cylinder and disk-disk; each maps to exactly one Stage-A state family.
+The state family is derived from the tag rather than stored independently. A cell
+inherits its policy from its two transitions, which must have equal tags, so the cell
+does not store a second copy of the tag.
+
+Host owners pre-group transition, cell-topology, road, and seed work by policy family.
+CPU orchestration selects a template-specialized policy at the outer family or topology
+loop. It must not dispatch inside candidate, cluster, neighbour, road, or refit loops.
+GPU execution uses a separate specialized kernel launch per active `(stage, family)`;
+single-family layouts therefore keep one launch per stage, while a disconnected
+cylinder-plus-disk layout may issue two. Device kernels contain no policy branch.
+
+Dispatch is an enum/tag switch to statically compiled policy functions. Device virtual
+calls, function pointers, `std::variant` visitation, and generated dispatch tables are
+not part of this contract. Device views use explicit pointer/count PODs, not host
+`gsl::span` objects.
+
+The tag is the single source of policy identity. Parameter storage and typed
+family-state owner/view layouts are separate contracts: they must not duplicate tag or
+family fields, and an untyped flat-float parameter block is not accepted without a
+field-level ABI and bounds validation. Layout construction rejects invalid tags,
+surface-kind/tag mismatches, mixed-policy cells, and all cylinder-disk transitions
+until D008 is resolved. Configuration-dependent reachability and parameter-range
+checks occur when configuration is bound to a valid layout, not in the topology owner
+alone.
+
 ## 11. Track-state strategy
 
 The migration has two track-state stages.
