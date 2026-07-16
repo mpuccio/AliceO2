@@ -128,13 +128,27 @@ struct TimeFrame {
   // external indices, cluster sizes, ROF boundaries, label lookup) from the
   // committed normalized measurements. Purely additive: loadROFrameData()
   // and its production callers are unchanged, and this entry point does not
-  // decode any compact cluster a second time. Transactional across *both*
-  // representations: if the normalized load fails, neither getNormalizedFrame()
-  // nor any legacy compatibility accessor below is modified.
+  // decode any compact cluster a second time.
+  //
+  // Exactly one source is ever submitted here, and loadSources() requires
+  // dense, zero-based source IDs, so the source ID is always
+  // ClusterSourceId{0} -- not a caller-supplied parameter -- and every
+  // ClusterRef produced by this call carries that source.
+  //
+  // `applySysErrors` defaults to true to match loadROFrameData()'s own
+  // existing behavior above, which calls loadClusterTrackingFrameInfo<DetId>()
+  // with its default applySysErrors=true.
+  //
+  // If loadSources() returns a failing (non-ok()) result, this call returns
+  // before touching anything: neither getNormalizedFrame() nor any legacy
+  // compatibility accessor below is modified. This guarantee covers only a
+  // *returned* validation failure; it is not a strong exception-safety
+  // guarantee -- an allocation failure inside the backfill that runs after a
+  // successful loadSources() call could still throw with mNormalizedFrame
+  // already committed, which this slice does not attempt to roll back.
   LoadSourcesResult loadNormalizedSource(const DetectorLayoutView& layout,
                                          gsl::span<const SurfaceId> layerToSurface,
                                          const ClusterDecoder& decoder,
-                                         ClusterSourceId sourceId,
                                          const o2::InteractionRecord& origin,
                                          const ROFTimingConfig& timing,
                                          gsl::span<const itsmft::CompClusterExt> clusters,
@@ -142,7 +156,8 @@ struct TimeFrame {
                                          gsl::span<const o2::itsmft::ROFRecord> rofs,
                                          const itsmft::TopologyDictionary* dictionary,
                                          const dataformats::MCTruthContainer<MCCompLabel>* labels,
-                                         o2::detectors::DetID::ID detId);
+                                         o2::detectors::DetID::ID detId,
+                                         bool applySysErrors = true);
 
   // Non-owning, read-only access to the normalized owner/view associated
   // with this TimeFrame by the most recent successful loadNormalizedSource()

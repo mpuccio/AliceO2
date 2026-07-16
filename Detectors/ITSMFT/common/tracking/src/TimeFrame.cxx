@@ -129,7 +129,6 @@ LoadSourcesResult TimeFrame<NLayers>::loadNormalizedSource(
   const DetectorLayoutView& layout,
   gsl::span<const SurfaceId> layerToSurface,
   const ClusterDecoder& decoder,
-  ClusterSourceId sourceId,
   const o2::InteractionRecord& origin,
   const ROFTimingConfig& timing,
   gsl::span<const itsmft::CompClusterExt> clusters,
@@ -137,13 +136,20 @@ LoadSourcesResult TimeFrame<NLayers>::loadNormalizedSource(
   gsl::span<const o2::itsmft::ROFRecord> rofs,
   const itsmft::TopologyDictionary* dictionary,
   const dataformats::MCTruthContainer<MCCompLabel>* labels,
-  o2::detectors::DetID::ID detId)
+  o2::detectors::DetID::ID detId,
+  bool applySysErrors)
 {
+  // Exactly one source is ever submitted here, and loadSources() requires
+  // dense, zero-based source IDs, so ClusterSourceId{0} is the only value
+  // that could ever succeed; it is fixed internally rather than accepted as
+  // a parameter that would misleadingly suggest other IDs are supported.
+  constexpr ClusterSourceId kSourceId{0};
+
   if (NLayers != constants::nLayersForDet(detId)) {
-    return {MultiSourceLoadError::UnsupportedDetector, sourceId};
+    return {MultiSourceLoadError::UnsupportedDetector, kSourceId};
   }
   if (layerToSurface.size() != static_cast<size_t>(NLayers)) {
-    return {MultiSourceLoadError::InvalidLayerMapping, sourceId};
+    return {MultiSourceLoadError::InvalidLayerMapping, kSourceId};
   }
 
   // Stage into a scratch owner: loadSources() itself never mutates its
@@ -152,7 +158,7 @@ LoadSourcesResult TimeFrame<NLayers>::loadNormalizedSource(
   // compatibility structure) from a failed reload.
   MultiSourceFrame staged;
   ClusterSourceInput src;
-  src.id = sourceId;
+  src.id = kSourceId;
   src.detector = detId;
   src.clusters = clusters;
   src.patterns = patterns;
@@ -162,16 +168,23 @@ LoadSourcesResult TimeFrame<NLayers>::loadNormalizedSource(
   src.layerToSurface = layerToSurface;
   src.timing = timing;
   src.decoder = &decoder;
-  src.applySysErrors = false; // Neither existing loadROFrameData path applies systematic errors while loading.
+  src.applySysErrors = applySysErrors; // Matches loadROFrameData()'s own default (loadClusterTrackingFrameInfo<DetId>(..., applySysErrors=true)).
 
   const auto result = loadSources(staged, layout, gsl::span<const ClusterSourceInput>(&src, 1), origin);
   if (!result.ok()) {
+    // Nothing below has run: mNormalizedFrame and every legacy compatibility
+    // structure are exactly as they were before this call.
     return result;
   }
 
-  // Commit: every check above already passed, so nothing from here on can
-  // fail -- mNormalizedFrame and the legacy compatibility structures below
-  // are therefore always updated together.
+  // From here on, loadSources() has already succeeded and every remaining
+  // step is plain data transformation over its output; no further
+  // *validation* failure is possible, so mNormalizedFrame and the legacy
+  // compatibility structures below are always updated together whenever this
+  // function returns an ok() result. This is not a strong exception-safety
+  // guarantee: an allocation failure inside the backfill below could still
+  // throw after mNormalizedFrame has already been committed, leaving the two
+  // representations inconsistent; that guarantee is not required here.
   mNormalizedFrame = std::move(staged);
   mDetId = detId;
 

@@ -82,7 +82,9 @@ namespace
 // pure, independently-recomputable functions of (sensorID, row, col). Pattern
 // consumption goes through the real production helper
 // (o2::itsmft::ioutils::extractClusterData), so cursor bookkeeping is
-// exercised identically to GeometryClusterDecoder.
+// exercised identically to GeometryClusterDecoder. Also records the
+// `applySysErrors` value it was called with, so tests can verify
+// loadNormalizedSource() propagates it correctly.
 class LegacyLikeDecoder final : public ClusterDecoder
 {
  public:
@@ -96,8 +98,9 @@ class LegacyLikeDecoder final : public ClusterDecoder
     ClusterSourceId source,
     uint32_t externalIndex,
     uint32_t sourceROF,
-    bool /*applySysErrors*/) const override
+    bool applySysErrors) const override
   {
+    lastApplySysErrors = applySysErrors;
     float sigma2Row{0.f};
     float sigma2Col{0.f};
     ClusterShape shape{};
@@ -128,6 +131,8 @@ class LegacyLikeDecoder final : public ClusterDecoder
                                : makeCylinderSurfaceMeasurement(decoded, sensor, surface, clusterRef, sourceROF);
     return result;
   }
+
+  mutable bool lastApplySysErrors{false};
 
  private:
   o2::detectors::DetID::ID mDetector;
@@ -257,10 +262,15 @@ void checkParity(const DetectorLayout& layout, const Fixture& f)
   LegacyLikeDecoder decoder{f.detector, f.disk};
   const o2::InteractionRecord origin{50, 5};
   const ROFTimingConfig timing{40, 0, 0, 0}; // rofLength > 0: required, no unusable zero-length default.
-  const ClusterSourceId sourceId{0};
+  // loadNormalizedSource() always submits exactly one source and fixes its
+  // ID to ClusterSourceId{0} internally (loadSources() requires dense,
+  // zero-based IDs, so no other value could ever succeed for a single
+  // source); this local constant mirrors that fixed value for building
+  // expected ClusterRefs below, it is not passed to loadNormalizedSource().
+  constexpr ClusterSourceId kSourceId{0};
 
   TimeFrame<NLayers> tf;
-  const auto result = tf.loadNormalizedSource(layout.getView(), layerToSurface, decoder, sourceId, origin, timing,
+  const auto result = tf.loadNormalizedSource(layout.getView(), layerToSurface, decoder, origin, timing,
                                               f.clusters, f.patterns, f.rofs, &dict(), &f.labels, f.detector);
   BOOST_REQUIRE(result.ok());
 
@@ -281,7 +291,7 @@ void checkParity(const DetectorLayout& layout, const Fixture& f)
   BOOST_REQUIRE_EQUAL(tf.getNormalizedFrame().getSources().size(), 1u);
   BOOST_CHECK(tf.getNormalizedFrame().getSources()[0].detector == f.detector);
   BOOST_CHECK_EQUAL(tf.getNormalizedFrame().getSources()[0].nROFs, f.rofs.size());
-  const auto intervals = tf.getNormalizedFrame().getSourceIntervals(sourceId);
+  const auto intervals = tf.getNormalizedFrame().getSourceIntervals(kSourceId);
   BOOST_REQUIRE_EQUAL(intervals.size(), f.rofs.size());
   for (uint32_t r = 0; r < f.rofs.size(); ++r) {
     BOOST_CHECK_EQUAL(intervals[r].sourceROF, r);
@@ -364,7 +374,7 @@ void checkParity(const DetectorLayout& layout, const Fixture& f)
     // --- external indices and source-qualified references ---
     BOOST_CHECK_EQUAL(tf.getClusterExternalIndex(e.layer, clId), static_cast<int>(e.externalIndex));
     BOOST_CHECK_EQUAL(measurement->cluster.index, e.externalIndex);
-    BOOST_CHECK(measurement->cluster.source == sourceId);
+    BOOST_CHECK(measurement->cluster.source == kSourceId);
     BOOST_CHECK(measurement->sensor.detector == static_cast<uint32_t>(f.detector));
     BOOST_CHECK_EQUAL(measurement->sensor.sensor, static_cast<uint32_t>(e.sensorID));
     BOOST_CHECK(measurement->surface == SurfaceId{static_cast<uint16_t>(e.layer)});
@@ -378,7 +388,7 @@ void checkParity(const DetectorLayout& layout, const Fixture& f)
 
     // --- labels: legacy lookup vs. normalized ClusterRef lookup ---
     const auto legacyLabels = tf.getClusterLabels(e.layer, clId);
-    const auto normalizedLabels = tf.getNormalizedFrame().getLabels(ClusterRef{sourceId, e.externalIndex});
+    const auto normalizedLabels = tf.getNormalizedFrame().getLabels(ClusterRef{kSourceId, e.externalIndex});
     BOOST_REQUIRE_EQUAL(legacyLabels.size(), 1u);
     BOOST_REQUIRE_EQUAL(normalizedLabels.size(), 1u);
     BOOST_CHECK(legacyLabels[0] == normalizedLabels[0]);
@@ -406,7 +416,7 @@ BOOST_AUTO_TEST_CASE(EmptyInputsAreLegalForBothDetectors)
     const auto layerToSurface = identitySurfaces(ITSNLayers);
     LegacyLikeDecoder decoder{o2::detectors::DetID::ITS, false};
     TimeFrame<ITSNLayers> tf;
-    const auto result = tf.loadNormalizedSource(layout.getView(), layerToSurface, decoder, ClusterSourceId{0}, {0, 0},
+    const auto result = tf.loadNormalizedSource(layout.getView(), layerToSurface, decoder, {0, 0},
                                                 ROFTimingConfig{40, 0, 0, 0}, {}, {}, {}, &dict(), nullptr, o2::detectors::DetID::ITS);
     BOOST_CHECK(result.ok());
     BOOST_CHECK_EQUAL(tf.getNormalizedFrame().getTotalMeasurements(), 0u);
@@ -420,7 +430,7 @@ BOOST_AUTO_TEST_CASE(EmptyInputsAreLegalForBothDetectors)
     const auto layerToSurface = identitySurfaces(MFTNLayers);
     LegacyLikeDecoder decoder{o2::detectors::DetID::MFT, true};
     TimeFrame<MFTNLayers> tf;
-    const auto result = tf.loadNormalizedSource(layout.getView(), layerToSurface, decoder, ClusterSourceId{0}, {0, 0},
+    const auto result = tf.loadNormalizedSource(layout.getView(), layerToSurface, decoder, {0, 0},
                                                 ROFTimingConfig{40, 0, 0, 0}, {}, {}, {}, &dict(), nullptr, o2::detectors::DetID::MFT);
     BOOST_CHECK(result.ok());
     BOOST_CHECK_EQUAL(tf.getNormalizedFrame().getTotalMeasurements(), 0u);
@@ -443,7 +453,7 @@ BOOST_AUTO_TEST_CASE(FailedNormalizedLoadLeavesBothRepresentationsUnchanged)
   const std::vector<ROFRecord> goodRofs{ROFRecord{{0, 0}, 0, 0, 1}};
 
   TimeFrame<ITSNLayers> tf;
-  const auto baseline = tf.loadNormalizedSource(layout.getView(), layerToSurface, decoder, ClusterSourceId{0}, {0, 0},
+  const auto baseline = tf.loadNormalizedSource(layout.getView(), layerToSurface, decoder, {0, 0},
                                                 timing, goodClusters, goodPatterns, goodRofs, &dict(), nullptr, o2::detectors::DetID::ITS);
   BOOST_REQUIRE(baseline.ok());
   BOOST_REQUIRE_EQUAL(tf.getNormalizedFrame().getTotalMeasurements(), 1u);
@@ -455,7 +465,7 @@ BOOST_AUTO_TEST_CASE(FailedNormalizedLoadLeavesBothRepresentationsUnchanged)
   const auto badPatterns = std::vector<unsigned char>(onePixelPattern.begin(), onePixelPattern.end());
   const std::vector<ROFRecord> badRofs{ROFRecord{{0, 0}, 0, 1, 1}}; // gap: cluster 0 unreferenced
 
-  const auto failed = tf.loadNormalizedSource(layout.getView(), layerToSurface, decoder, ClusterSourceId{0}, {0, 0},
+  const auto failed = tf.loadNormalizedSource(layout.getView(), layerToSurface, decoder, {0, 0},
                                               timing, badClusters, badPatterns, badRofs, &dict(), nullptr, o2::detectors::DetID::ITS);
   BOOST_CHECK(!failed.ok());
   BOOST_CHECK(failed.error == MultiSourceLoadError::InvalidROFRange);
@@ -468,4 +478,39 @@ BOOST_AUTO_TEST_CASE(FailedNormalizedLoadLeavesBothRepresentationsUnchanged)
   BOOST_CHECK_EQUAL(tf.getUnsortedClustersOnLayer(0, 0).size(), 1u);
   BOOST_CHECK_EQUAL(tf.getNrof(0), 1);
   BOOST_CHECK_EQUAL(tf.getClusterExternalIndex(0, 0), 0);
+}
+
+// TimeFrame<NLayers>::loadROFrameData() calls loadClusterTrackingFrameInfo()
+// with its own default applySysErrors=true; loadNormalizedSource() must match
+// that default (covariance compatibility) and must also honor and propagate
+// an explicit override, since callers may deliberately want the
+// GeometryClusterDecoder sys-error convention turned off.
+BOOST_AUTO_TEST_CASE(ApplySysErrorsDefaultsTrueAndPropagatesToTheDecoder)
+{
+  const auto layout = makeITSTestLayout();
+  BOOST_REQUIRE(layout.valid());
+  const auto layerToSurface = identitySurfaces(ITSNLayers);
+  const std::vector<CompClusterExt> clusters{{1, 1, CompCluster::InvalidPatternID, 0}};
+  const auto patterns = std::vector<unsigned char>(onePixelPattern.begin(), onePixelPattern.end());
+  const std::vector<ROFRecord> rofs{ROFRecord{{0, 0}, 0, 0, 1}};
+  const ROFTimingConfig timing{40, 0, 0, 0};
+
+  {
+    // No explicit argument: must match loadROFrameData()'s own default.
+    LegacyLikeDecoder decoder{o2::detectors::DetID::ITS, false};
+    TimeFrame<ITSNLayers> tf;
+    const auto result = tf.loadNormalizedSource(layout.getView(), layerToSurface, decoder, {0, 0}, timing,
+                                                clusters, patterns, rofs, &dict(), nullptr, o2::detectors::DetID::ITS);
+    BOOST_REQUIRE(result.ok());
+    BOOST_CHECK(decoder.lastApplySysErrors);
+  }
+  {
+    // Explicit false is honored and reaches the decoder unchanged.
+    LegacyLikeDecoder decoder{o2::detectors::DetID::ITS, false};
+    TimeFrame<ITSNLayers> tf;
+    const auto result = tf.loadNormalizedSource(layout.getView(), layerToSurface, decoder, {0, 0}, timing,
+                                                clusters, patterns, rofs, &dict(), nullptr, o2::detectors::DetID::ITS, false);
+    BOOST_REQUIRE(result.ok());
+    BOOST_CHECK(!decoder.lastApplySysErrors);
+  }
 }
