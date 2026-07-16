@@ -26,9 +26,20 @@
 // real o2::itsmft::ioutils::extractClusterData pattern/dictionary
 // consumption path, so cursor bookkeeping is exercised exactly as production
 // would; only the geometry transform itself is a deterministic stand-in.
-// Full production GeometryClusterDecoder execution against the retained
-// Gate 0 fixture (real ITS/MFT geometry, real reconstruction) is being
-// validated separately and is not claimed here.
+//
+// Real decode parity is not re-validated here: it was already confirmed by
+// a separate, accepted real-geometry validation that ran
+// ITSGeometryClusterDecoder, MFTGeometryClusterDecoder and loadSources() over
+// all 7,057 clusters of the retained Gate 0 fixture with zero discrepancies,
+// against real ITS/MFT geometry and the recorded CCDB dictionaries. That
+// validation covered common/group pattern consumption, ITS legacy-frame
+// parity, the explicit separation of MFT's legacy synthetic coordinates from
+// normalized disk coordinates, and ITS-only, MFT-only and combined
+// normalized loading. This test suite instead covers what that validation
+// does not: the common TimeFrame<NLayers> compatibility boundary itself
+// (loadNormalizedSource() and its backfill of legacy compatibility
+// structures from the normalized owner), which is unaffected by which
+// decoder produced the measurements.
 
 #define BOOST_TEST_MODULE ITSMFT TimeFrameNormalizedSource
 #define BOOST_TEST_MAIN
