@@ -353,7 +353,7 @@ Status values are `Open`, `Proposed`, `Accepted`, `Superseded`, or `Deferred`. O
 |---|---|---|
 | Gate 0: baseline | Complete | Legacy characterization tests pass; the committed 20-event ITS/MFT fixture protocol records bit-identical single-thread replay metrics, physics definitions, CCDB provenance, wall time, and peak RSS |
 | Gate 1: foundations | Complete | Layout, normalized measurements, geometry-backed ITS/MFT decode adapters, Stage-A transition policy validation, transactional multi-source loading with TF-relative timing, and the normalized-loading compatibility boundary in the common single-detector TimeFrame are integrated; ITS and MFT parity tests cover legacy backfill and the accepted real-geometry validation covers 7,057 fixture clusters |
-| Gate 2: common CA traversal | In progress | D007, device-compatible cylinder/disk policy parameter and state-family traits, and host outer-family dispatch are integrated; wiring the shared TrackerTraits/CATracker orchestration and demonstrating ITS/MFT algorithm parity remain |
+| Gate 2: common CA traversal | In progress | D007, device-compatible cylinder/disk policy parameter and state-family traits, host outer-family dispatch, and the first host CPU policy operation (`cellsAreCompatible`) are integrated. The legacy duplicate formula and the detector branch in that hot loop are removed; associating the sparse policy-tagged topology with the production TimeFrame, completing topology-driven TrackerTraits/CATracker orchestration, and demonstrating ITS/MFT algorithm parity remain. |
 | Gate 3: production migration | Blocked by Gate 2 | |
 | Gate 4: combined disconnected tracking | Blocked by Gate 3 | |
 | Gate 5: mixed-surface tracking | Deferred | Requires track-state RFC |
