@@ -13,6 +13,7 @@
 
 #include <boost/test/unit_test.hpp>
 
+#include "ITSMFTTracking/MFTFwdTrackHelpers.h"
 #include "ITSMFTTracking/TransitionPolicyBinding.h"
 #include "ITSMFTTracking/TransitionPolicyOperations.h"
 
@@ -104,6 +105,34 @@ BOOST_AUTO_TEST_CASE(BarrelRotationFailureIsRejectedNotThrown)
   BOOST_REQUIRE(!reference.rotate(currentCell.getAlpha()));
 
   CylinderCylinderPolicyParams params; // permissive threshold: only rotation should matter
+  params.maxChi2ClusterAttachment = 1.e6f;
+  BOOST_CHECK(!cellsAreCompatible<TransitionPolicyTag::CylinderCylinder>(currentCell, nextCell, Bz, params));
+}
+
+BOOST_AUTO_TEST_CASE(BarrelPropagationFailureIsRejectedNotThrown)
+{
+  // Distinct from the rotation-failure case above: here rotate() succeeds
+  // (both cells share alpha, so the local cos(phi)>=0 precondition trivially
+  // holds) and propagateTo() itself is the one that fails.
+  //
+  // TrackParametrization::propagateParamTo(xk, b) (the scalar-field overload
+  // CellSeedTpl::propagateTo resolves to) fails exactly when the requested
+  // step would push the local sin(phi) parameter (snp) outside (-1, 1):
+  // with curvature crv = q2pt * b * B2C and step x2r = crv * dx (dx = xk -
+  // x_current), it requires |snp + x2r| <= Almost1 (~0.999999). Choosing an
+  // extreme q2pt (very low pt) for `nextCell` and a several-cm dx makes x2r
+  // exceed that bound by a comfortable margin regardless of B2C's exact
+  // value, without needing any other precondition to be near a boundary.
+  const auto currentState = makeBarrelState(5.f, 0.3f, 0.1f, 1.f, 0.f, 0.4f, 0.2f);
+  const auto nextState = makeBarrelState(0.f, 0.3f, 0.1f, 1.f, 0.f, 0.4f, 2000.f); // same alpha as currentState; extreme q2pt
+  const auto currentCell = makeBarrelCell(currentState, 10, 20, 30);
+  const auto nextCell = makeBarrelCell(nextState, 20, 30, 40);
+
+  auto reference = nextCell;
+  BOOST_REQUIRE(reference.rotate(currentCell.getAlpha()));
+  BOOST_REQUIRE(!reference.propagateTo(currentCell.getX(), Bz));
+
+  CylinderCylinderPolicyParams params; // permissive threshold: only propagation should matter
   params.maxChi2ClusterAttachment = 1.e6f;
   BOOST_CHECK(!cellsAreCompatible<TransitionPolicyTag::CylinderCylinder>(currentCell, nextCell, Bz, params));
 }

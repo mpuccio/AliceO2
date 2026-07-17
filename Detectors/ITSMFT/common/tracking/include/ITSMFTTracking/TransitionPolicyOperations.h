@@ -8,9 +8,7 @@
 #ifndef ALICEO2_ITSMFT_TRACKING_TRANSITIONPOLICYOPERATIONS_H_
 #define ALICEO2_ITSMFT_TRACKING_TRANSITIONPOLICYOPERATIONS_H_
 
-#include "GPUCommonDef.h"
 #include "ITSMFTTracking/Cell.h"
-#include "ITSMFTTracking/MFTFwdTrackHelpers.h"
 #include "ITSMFTTracking/TransitionPolicyState.h"
 
 namespace o2::itsmft::tracking
@@ -26,42 +24,46 @@ namespace o2::itsmft::tracking
 /// this operation or its callers' hot loops. Instantiating the primary
 /// template for an unsupported tag is a compile error rather than a silent
 /// fallback (mirrors TransitionPolicyTraits).
+///
+/// Host-only for this CPU migration slice: the disk (DiskDisk) specialization
+/// is defined in TransitionPolicyOperations.cxx against the existing MFT
+/// forward-state helpers (TrackParCovFwd::propagateToZhelix/Linear and
+/// friends), which are themselves host-only. This operation must not be
+/// declared or assumed device-compatible until a device-capable forward
+/// state/propagator exists; do not add GPU qualifiers here without first
+/// making that dependency chain device-compatible. The public header
+/// deliberately does not include MFTFwdTrackHelpers.h, so the MFT-specific
+/// helper stays behind this implementation boundary rather than leaking MFT
+/// constants/TimeFrame/MFTCATrack dependencies into a common policy header.
 template <TransitionPolicyTag Tag>
-GPUhdi() bool cellsAreCompatible(const CellSeedTpl<typename TransitionPolicyTraits<Tag>::SeedState>& currentCell,
-                                 const CellSeedTpl<typename TransitionPolicyTraits<Tag>::SeedState>& nextCell,
-                                 float bz,
-                                 const typename TransitionPolicyTraits<Tag>::Params& params) noexcept;
+bool cellsAreCompatible(const CellSeedTpl<typename TransitionPolicyTraits<Tag>::SeedState>& currentCell,
+                        const CellSeedTpl<typename TransitionPolicyTraits<Tag>::SeedState>& nextCell,
+                        float bz,
+                        const typename TransitionPolicyTraits<Tag>::Params& params);
 
 /// Barrel formula: rotate/propagate `nextCell` into `currentCell`'s frame and
 /// accept if the predicted chi2 stays within the bound. `nextCell` is never
 /// mutated -- the propagated state is a local copy -- so callers may pass a
-/// stored cell directly without pre-copying it for this call.
+/// stored cell directly without pre-copying it for this call. Defined out of
+/// line in TransitionPolicyOperations.cxx.
 template <>
-GPUhdi() bool cellsAreCompatible<TransitionPolicyTag::CylinderCylinder>(
+bool cellsAreCompatible<TransitionPolicyTag::CylinderCylinder>(
   const CellSeedTpl<o2::track::TrackParCovF>& currentCell,
   const CellSeedTpl<o2::track::TrackParCovF>& nextCell,
   float bz,
-  const CylinderCylinderPolicyParams& params) noexcept
-{
-  auto propagated = nextCell;
-  if (!propagated.rotate(currentCell.getAlpha()) || !propagated.propagateTo(currentCell.getX(), bz)) {
-    return false;
-  }
-  return currentCell.getPredictedChi2(propagated) <= params.maxChi2ClusterAttachment;
-}
+  const CylinderCylinderPolicyParams& params);
 
 /// Disk formula: delegates to the existing MFT forward-state helper, which
 /// already performs its own internal copy/propagation; neither input cell is
-/// mutated.
+/// mutated. Defined out of line in TransitionPolicyOperations.cxx, the only
+/// translation unit permitted to include MFTFwdTrackHelpers.h on behalf of
+/// this policy operation.
 template <>
-GPUhdi() bool cellsAreCompatible<TransitionPolicyTag::DiskDisk>(
+bool cellsAreCompatible<TransitionPolicyTag::DiskDisk>(
   const CellSeedTpl<o2::track::TrackParCovFwd>& currentCell,
   const CellSeedTpl<o2::track::TrackParCovFwd>& nextCell,
   float bz,
-  const DiskDiskPolicyParams& params) noexcept
-{
-  return detail::mftFwdCellsAreCompatible(currentCell, nextCell, bz, params.maxChi2ClusterAttachment);
-}
+  const DiskDiskPolicyParams& params);
 
 } // namespace o2::itsmft::tracking
 
