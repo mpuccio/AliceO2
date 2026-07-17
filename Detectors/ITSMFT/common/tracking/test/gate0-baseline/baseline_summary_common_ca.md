@@ -95,45 +95,61 @@ saved cluster fixture, in a separate replay directory tree
 (`/private/tmp/o2-itsmft-gate0/replay-common-ca/`) from the legacy
 baseline's `fixture-20ev/replay/`.
 
-**Result: every integer and floating-point metric above was bit-identical
-across all 5 single-threaded runs** (track count, clusters-per-track
-summary, chi2 mean/median/min/max, efficiency, fake rate, clone rate). No
-discrepancy observed.
+**Result: every metric field emitted by `extract_metrics_common_ca.C` was
+identical across all 5 single-threaded runs** (track count,
+clusters-per-track summary, chi2 mean/median/min/max, efficiency, fake
+rate, clone rate, as read back from the JSON files listed below). No
+discrepancy observed in any emitted field. This is repeatability of the
+metrics the extractor computes, not an independent claim about every byte
+or every branch of `mfttracks.root` -- see the content-hash paragraph below
+for exactly what additional evidence was and was not checked.
 
 `mfttracks.root`'s own file bytes differ run-to-run (verified with
-`shasum -a 256` on all runs) even though the tracking output is
-bit-identical: a ROOT `TFile` embeds a per-write UUID/timestamp in its
+`shasum -a 256` on all runs) even though the extracted metrics are
+identical: a ROOT `TFile` embeds a per-write UUID/timestamp in its
 metadata, so a raw-file hash is not meaningful repeatability evidence here.
 `extract_metrics_common_ca.C` therefore also computes `trackContentHash`:
 an MD5 over the ordered per-track `(nPoints, chi2, x, y, z, phi, tanl,
-invQPt)` tuples (`%.9g`-formatted), which is stable content-level evidence
-independent of ROOT container metadata. **This hash was identical
-(`826dc653cd936a472929c600c97c140b`) across all 6 runs**, including the
-12-thread run below -- stronger evidence than the summary statistics alone,
-since it is sensitive to e.g. track reordering that could otherwise leave
-mean/median/min/max unchanged.
+invQPt)` tuple listed in its `trackContentHashDefinition` field
+(`%.9g`-formatted), which is stable content-level evidence independent of
+ROOT container metadata for exactly those eight fields, in track order.
+It is not a bitwise hash of every semantic output branch -- `MFTTrackROF`,
+`MFTTrackClusIdx`, `MFTTrackSeedPattern`, and the MC label content beyond
+what feeds the efficiency/fake/clone counts above are not included in it.
+**This hash was identical (`826dc653cd936a472929c600c97c140b`) across all 6
+runs**, including the 12-thread run below -- stronger evidence than the
+summary statistics alone for the fields it covers, since it is sensitive to
+e.g. track reordering that could otherwise leave mean/median/min/max
+unchanged, but it does not by itself establish agreement on the branches it
+does not cover.
 
 ## Parallel characterization (`MFTCATrackerParam.nThreads=12`)
 
 One replay run (`parallel-1`) at 12 threads (all local cores), compared
 against the canonical single-threaded runs. `MFTCATrackerParam.nThreads` is
-a genuine thread-count knob for the common-CA core (unlike the legacy
-`MFTTrackingParam`, which has no `nThreads` field at all -- legacy MFT
-tracking is inherently single-threaded, so this comparison has no legacy
-MFT equivalent).
+a genuine thread-count knob for the common-CA core. The legacy
+`MFTTrackingParam` (`Detectors/ITSMFT/MFT/tracking/include/MFTTracking/MFTTrackingParam.h`)
+exposes no equivalent configurable field, so `replay_tracking.sh` has no MFT
+thread-count knob to compare against -- this is a statement about the
+absence of an *exposed configuration option*, not a verified claim that the
+legacy implementation's internals are single-threaded (that was not
+independently checked, e.g. no source-level audit for internal
+threading/TBB/OpenMP usage was performed).
 
 **Result: identical to canonical, no observed difference in any output
 metric or the content hash.** Per task instruction #7 this is recorded as
-characterization, not a scaling or determinism proof: no per-invocation
-tracker-only compute-time breakdown is printed by
-`o2-mft-ca-tracker-workflow` (unlike `o2-its-reco-workflow`'s "Tracker
-summary: TOT=... s" line used by the Gate 0 baseline to show DPL/CCDB
-startup dominates at this scale), so this run cannot itself demonstrate
-that tracker time is a meaningful fraction of wall time at this 20-event,
-single-TF scale; the identical wall time and RSS between `parallel-1` and
-the canonical runs (see performance table below) suggest it likely does
-not, consistent with the Gate 0 baseline's finding for the ITS tracker at
-the same fixture size.
+characterization, not a scaling or determinism proof: `o2-mft-ca-tracker-workflow`
+prints no per-invocation tracker-only compute-time breakdown (unlike
+`o2-its-reco-workflow`'s "Tracker summary: TOT=... s" line, which is what
+let the Gate 0 baseline directly show DPL/CCDB startup dominating at this
+scale for ITS). Without that breakdown, this run cannot directly demonstrate
+what fraction of wall time is tracker compute at this 20-event, single-TF
+scale. The identical wall time and RSS between `parallel-1` and the
+canonical runs (see performance table below) are consistent with
+startup/CCDB overhead dominating here too, by analogy with the Gate 0
+ITS finding at the same fixture size -- but that is an inference from
+indirect evidence (unchanged wall time/RSS under 12x thread count), not a
+measurement of tracker-only time the way the ITS case has.
 
 ## Performance (median of 4 canonical runs, 1 discarded warm-up)
 
@@ -158,9 +174,11 @@ was modified) -- worth flagging for whoever next tunes the common core's
 memory footprint, since it may reflect the shared `o::itsmft::tracking`
 core's index-table sizing (`LUTbinsU`/`LUTbinsV` = 64/128 for MFT) or other
 common-core allocations not present in the legacy prototype. Wall time is
-comparable between the two paths (~2.9 s vs ~2.5 s) but both are dominated
-by DPL/CCDB process-startup overhead at this fixture size, not tracking
-compute time, per the parallel-characterization note above.
+comparable between the two paths (~2.9 s vs ~2.5 s); per the
+parallel-characterization note above, this is consistent with both being
+dominated by DPL/CCDB process-startup overhead rather than tracking compute
+time at this fixture size, but that remains an inference from indirect
+evidence for the common-CA path, not a directly measured tracker-only time.
 
 Commands (see `manifest_common_ca.json` for the exact per-run invocation):
 ```
@@ -209,12 +227,14 @@ baseline.
 - `baseline_summary_common_ca.md` -- this file (sibling to
   `baseline_summary.md`).
 
-No existing Gate 0 file (`README.md`, `manifest.json`,
-`baseline_summary.md`, `generate_fixture.sh`, `replay_tracking.sh`,
-`extract_metrics.C`) was modified. No production tracking code, parameters,
-workflows, kernels, or outputs were modified. No binary fixture or
-generated output is committed; all replay/metrics directories referenced
-above live under `/private/tmp/o2-itsmft-gate0/` outside the git worktree.
+`README.md` received only the labelled sibling-section addition pointing at
+these new files (a pure append, no existing line changed or removed); its
+Gate 0 content is otherwise unchanged. `manifest.json`, `baseline_summary.md`,
+`generate_fixture.sh`, `replay_tracking.sh`, and `extract_metrics.C` were not
+touched at all. No production tracking code, parameters, workflows, kernels,
+or outputs were modified. No binary fixture or generated output is
+committed; all replay/metrics directories referenced above live under
+`/private/tmp/o2-itsmft-gate0/` outside the git worktree.
 
 **Not marking Gate 2 complete** -- the integration owner reviews this
 evidence, per `AgentCoordination.md` §12 ("An agent may not declare a gate

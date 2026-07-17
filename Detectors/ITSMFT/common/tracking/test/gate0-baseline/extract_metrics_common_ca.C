@@ -15,6 +15,13 @@
 // so the semantics genuinely match and no new extraction logic was needed --
 // only a smaller driver that does not also require an ITS replay output.
 //
+// Every ROOT file/tree/branch/entry access below is explicitly validated
+// (open succeeded, tree/branch exists, GetEntry succeeded, resulting pointer
+// non-null) before use, and the output JSON is only written after the full
+// extraction succeeds -- a failure prints a message to stderr and exits
+// non-zero instead of dereferencing a null pointer or leaving a partial
+// output file on disk.
+//
 // Usage:
 //   root -l -b -q 'extract_metrics_common_ca.C("<fixtureDir>", "<out.json>", "<replayDir>")'
 //
@@ -29,7 +36,9 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
+#include <cstdlib>
 #include <fstream>
+#include <iostream>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -68,43 +77,110 @@ Summary summarize(std::vector<double> v)
   return s;
 }
 
-void writeSummary(std::ofstream& out, const char* name, const Summary& s, bool last = false)
+void writeSummary(std::ostream& out, const char* name, const Summary& s, bool last = false)
 {
   out << "    \"" << name << "\": {\"n\": " << s.n << ", \"mean\": " << s.mean
       << ", \"median\": " << s.median << ", \"min\": " << s.min << ", \"max\": " << s.max
       << "}" << (last ? "\n" : ",\n");
 }
+
+// Every validation failure below goes through this single choke point: print
+// a specific message to stderr and exit non-zero immediately. Never returns,
+// so callers do not need to guard against a "failed but kept going" state --
+// there is no path from a validation failure back into extraction logic that
+// would dereference an unchecked pointer or reach the output-writing stage.
+[[noreturn]] void failExtract(const std::string& msg)
+{
+  std::cerr << "[extract_metrics_common_ca] " << msg << std::endl;
+  std::exit(1);
+}
+
+void requireOpen(TFile& f, const std::string& path)
+{
+  if (f.IsZombie() || !f.IsOpen()) {
+    failExtract("failed to open ROOT file: " + path);
+  }
+}
+
+TTree* requireTree(TFile& f, const char* name, const std::string& fileDesc)
+{
+  auto* t = dynamic_cast<TTree*>(f.Get(name));
+  if (!t) {
+    failExtract("missing tree '" + std::string(name) + "' in " + fileDesc);
+  }
+  return t;
+}
+
+template <typename T>
+void requireBranch(TTree* t, const char* name, T*& ptr, const std::string& treeDesc)
+{
+  if (!t->GetBranch(name)) {
+    failExtract("missing branch '" + std::string(name) + "' in " + treeDesc);
+  }
+  if (t->SetBranchAddress(name, &ptr) < 0) {
+    failExtract("SetBranchAddress failed for branch '" + std::string(name) + "' in " + treeDesc);
+  }
+}
+
+void requireEntry(TTree* t, Long64_t entry, const std::string& treeDesc)
+{
+  if (entry >= t->GetEntries()) {
+    failExtract(treeDesc + " has no entry " + std::to_string(entry) +
+                " (nEntries=" + std::to_string(t->GetEntries()) + ")");
+  }
+  if (t->GetEntry(entry) <= 0) {
+    failExtract("GetEntry(" + std::to_string(entry) + ") failed for " + treeDesc);
+  }
+}
+
+template <typename T>
+void requireNonNull(T* ptr, const std::string& what)
+{
+  if (!ptr) {
+    failExtract("null branch object after read: " + what);
+  }
+}
 } // namespace
 
-// Unmodified copy of extract_metrics.C's extractMFT(), except for the JSON
-// key ("mftCommonCA" instead of "mft") and the denominatorDefinition string,
-// so common-CA and legacy MFT results are never confused when both JSON
-// files are read side by side.
-void extractMFTCommonCA(const std::string& fixtureDir, const std::string& replayDir, std::ofstream& out)
+// Copy of extract_metrics.C's extractMFT(), with explicit validation added
+// at every file/tree/branch/entry access, except for the JSON key
+// ("mftCommonCA" instead of "mft") and the denominatorDefinition string, so
+// common-CA and legacy MFT results are never confused when both JSON files
+// are read side by side.
+void extractMFTCommonCA(const std::string& fixtureDir, const std::string& replayDir, std::ostream& out)
 {
   using namespace o2::mft;
   const int minClustersMFT = 4; // matches MFTTrackingParam.MinTrackPointsCA default
 
-  TFile fClus((fixtureDir + "/mftclusters.root").c_str());
-  auto clusTree = (TTree*)fClus.Get("o2sim");
+  const std::string clusPath = fixtureDir + "/mftclusters.root";
+  TFile fClus(clusPath.c_str());
+  requireOpen(fClus, clusPath);
+  auto clusTree = requireTree(fClus, "o2sim", clusPath);
   std::vector<o2::itsmft::CompClusterExt>* clusArr = nullptr;
   std::vector<o2::itsmft::ROFRecord>* clusROF = nullptr;
   o2::dataformats::MCTruthContainer<o2::MCCompLabel>* clusLabArr = nullptr;
-  clusTree->SetBranchAddress("MFTClusterComp", &clusArr);
-  clusTree->SetBranchAddress("MFTClustersROF", &clusROF);
-  clusTree->SetBranchAddress("MFTClusterMCTruth", &clusLabArr);
-  clusTree->GetEntry(0);
+  requireBranch(clusTree, "MFTClusterComp", clusArr, clusPath + ":o2sim");
+  requireBranch(clusTree, "MFTClustersROF", clusROF, clusPath + ":o2sim");
+  requireBranch(clusTree, "MFTClusterMCTruth", clusLabArr, clusPath + ":o2sim");
+  requireEntry(clusTree, 0, clusPath + ":o2sim");
+  requireNonNull(clusArr, clusPath + ":o2sim:MFTClusterComp");
+  requireNonNull(clusROF, clusPath + ":o2sim:MFTClustersROF");
+  requireNonNull(clusLabArr, clusPath + ":o2sim:MFTClusterMCTruth");
 
   int nClusters = (int)clusArr->size();
   int nROF = (int)clusROF->size();
 
-  TFile fTrac((replayDir + "/mfttracks.root").c_str());
-  auto trTree = (TTree*)fTrac.Get("o2sim");
+  const std::string tracPath = replayDir + "/mfttracks.root";
+  TFile fTrac(tracPath.c_str());
+  requireOpen(fTrac, tracPath);
+  auto trTree = requireTree(fTrac, "o2sim", tracPath);
   std::vector<o2::mft::TrackMFT>* trkArr = nullptr;
   std::vector<o2::MCCompLabel>* trkLabArr = nullptr;
-  trTree->SetBranchAddress("MFTTrack", &trkArr);
-  trTree->SetBranchAddress("MFTTrackMCTruth", &trkLabArr);
-  trTree->GetEntry(0);
+  requireBranch(trTree, "MFTTrack", trkArr, tracPath + ":o2sim");
+  requireBranch(trTree, "MFTTrackMCTruth", trkLabArr, tracPath + ":o2sim");
+  requireEntry(trTree, 0, tracPath + ":o2sim");
+  requireNonNull(trkArr, tracPath + ":o2sim:MFTTrack");
+  requireNonNull(trkLabArr, tracPath + ":o2sim:MFTTrackMCTruth");
 
   int nTracks = (int)trkArr->size();
   std::vector<double> clustersPerTrack, chi2;
@@ -112,7 +188,10 @@ void extractMFTCommonCA(const std::string& fixtureDir, const std::string& replay
   // track, independent of the mfttracks.root file's own bytes: a ROOT TFile
   // embeds a per-write UUID/timestamp in its metadata, so hashing the raw
   // file bytes is NOT repeatability evidence across separately-produced runs
-  // even when the tracking output is bit-identical. This hash is.
+  // even when this tuple is identical. This hash covers exactly these eight
+  // fields per track, in track order -- it is not a hash of every branch
+  // written by the track writer (e.g. MFTTrackROF, MFTTrackClusIdx,
+  // MFTTrackSeedPattern are not included).
   TMD5 contentMD5;
   char buf[256];
   for (auto& t : *trkArr) {
@@ -126,11 +205,16 @@ void extractMFTCommonCA(const std::string& fixtureDir, const std::string& replay
   contentMD5.Final();
   std::string trackContentHash = contentMD5.AsString();
 
-  TFile fKine((fixtureDir + "/o2sim_Kine.root").c_str());
-  auto kineTree = (TTree*)fKine.Get("o2sim");
+  const std::string kinePath = fixtureDir + "/o2sim_Kine.root";
+  TFile fKine(kinePath.c_str());
+  requireOpen(fKine, kinePath);
+  auto kineTree = requireTree(fKine, "o2sim", kinePath);
   std::vector<o2::MCTrack>* mcArr = nullptr;
-  kineTree->SetBranchAddress("MCTrack", &mcArr);
+  requireBranch(kineTree, "MCTrack", mcArr, kinePath + ":o2sim");
   int nev = (int)kineTree->GetEntries();
+  if (nev <= 0) {
+    failExtract(kinePath + ":o2sim has no entries (nev=" + std::to_string(nev) + ")");
+  }
 
   struct PInfo {
     bool isPrimary = false;
@@ -140,7 +224,8 @@ void extractMFTCommonCA(const std::string& fixtureDir, const std::string& replay
   };
   std::vector<std::vector<PInfo>> info(nev);
   for (int n = 0; n < nev; n++) {
-    kineTree->GetEntry(n);
+    requireEntry(kineTree, n, kinePath + ":o2sim");
+    requireNonNull(mcArr, kinePath + ":o2sim:MCTrack@entry" + std::to_string(n));
     info[n].resize(mcArr->size());
     for (size_t i = 0; i < mcArr->size(); ++i) {
       info[n][i].isPrimary = mcArr->at(i).isPrimary();
@@ -212,7 +297,7 @@ void extractMFTCommonCA(const std::string& fixtureDir, const std::string& replay
   out << "    \"inputROFs\": " << nROF << ",\n";
   out << "    \"outputTracks\": " << nTracks << ",\n";
   out << "    \"trackContentHash\": \"" << trackContentHash << "\",\n";
-  out << "    \"trackContentHashDefinition\": \"MD5 over ordered per-track (nPoints,chi2,x,y,z,phi,tanl,invQPt), %.9g-formatted; NOT a hash of mfttracks.root's bytes, which vary run-to-run due to ROOT TFile UUID/timestamp metadata even for identical content\",\n";
+  out << "    \"trackContentHashDefinition\": \"MD5 over ordered per-track (nPoints,chi2,x,y,z,phi,tanl,invQPt), %.9g-formatted; covers exactly this tuple per track in track order, NOT every branch written by the track writer (MFTTrackROF/MFTTrackClusIdx/MFTTrackSeedPattern are excluded) and NOT a hash of mfttracks.root's bytes, which vary run-to-run due to ROOT TFile UUID/timestamp metadata even for identical content\",\n";
   writeSummary(out, "clustersPerTrack", summarize(clustersPerTrack));
   writeSummary(out, "chi2", summarize(chi2));
   out << "    \"mcReconstructable\": " << reconstructable << ",\n";
@@ -231,10 +316,21 @@ void extract_metrics_common_ca(std::string fixtureDir, std::string outFile, std:
   if (replayDir.empty()) {
     replayDir = fixtureDir;
   }
+  // Extraction is built into an in-memory buffer first and outFile is only
+  // touched after it fully succeeds, so a validation failure partway through
+  // (via failExtract's exit(1)) never leaves a truncated/partial JSON file
+  // on disk -- there is simply no output file at all on failure.
+  std::ostringstream body;
+  extractMFTCommonCA(fixtureDir, replayDir, body);
+
   std::ofstream out(outFile);
-  out << "{\n";
-  extractMFTCommonCA(fixtureDir, replayDir, out);
-  out << "\n}\n";
+  if (!out) {
+    failExtract("failed to open output file for writing: " + outFile);
+  }
+  out << "{\n" << body.str() << "\n}\n";
   out.close();
+  if (out.fail()) {
+    failExtract("failed while writing output file: " + outFile);
+  }
   std::cout << "[extract_metrics_common_ca] wrote " << outFile << std::endl;
 }

@@ -43,9 +43,11 @@
 # Optional:
 #   MFT_CA_NTHREADS   MFTCATrackerParam.nThreads (default 1). This is a
 #                     genuine common-CA thread-count knob; the legacy
-#                     MFTTrackingParam has no such field (legacy MFT tracking
-#                     is inherently single-threaded), so replay_tracking.sh
-#                     has no MFT thread-count equivalent to compare against.
+#                     MFTTrackingParam exposes no equivalent configurable
+#                     field, so replay_tracking.sh has no MFT thread-count
+#                     knob to compare against. This says nothing about
+#                     whether the legacy implementation is internally
+#                     single-threaded -- that was not independently checked.
 #   SHM_SEGMENT_SIZE  bytes (default 4000000000)
 #   TIME_CMD          wrapper prefixed to the reco invocation, e.g.
 #                      "/usr/bin/time -l" to capture wall time + peak RSS.
@@ -64,9 +66,9 @@ TIME_CMD="${TIME_CMD:-}"
 for bin in o2-mft-cluster-reader-workflow o2-mft-ca-tracker-workflow; do
   command -v "$bin" >/dev/null 2>&1 || { echo "missing $bin on PATH" >&2; exit 1; }
 done
-[[ -f "$FIXTURE_DIR/mftclusters.root" ]] || { echo "missing $FIXTURE_DIR/mftclusters.root" >&2; exit 1; }
+[[ -s "$FIXTURE_DIR/mftclusters.root" ]] || { echo "missing or empty $FIXTURE_DIR/mftclusters.root" >&2; exit 1; }
 HBFUTILS_INI_SRC="$FIXTURE_DIR/o2simdigitizerworkflow_configuration.ini"
-[[ -f "$HBFUTILS_INI_SRC" ]] || { echo "missing $HBFUTILS_INI_SRC" >&2; exit 1; }
+[[ -s "$HBFUTILS_INI_SRC" ]] || { echo "missing or empty $HBFUTILS_INI_SRC" >&2; exit 1; }
 grep -q "runNumber=$RUNNUMBER" "$HBFUTILS_INI_SRC" || { echo "RUNNUMBER=$RUNNUMBER does not match $HBFUTILS_INI_SRC" >&2; exit 1; }
 
 if [[ -d "$REPLAY_DIR" ]] && [[ -n "$(ls -A "$REPLAY_DIR" 2>/dev/null)" ]]; then
