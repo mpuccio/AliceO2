@@ -120,3 +120,13 @@ names.
 
 See `baseline_summary.md` (generated per run) for the actual recorded
 numbers and `manifest.json` for full provenance.
+
+## Gate 2 common-CA MFT characterization (sibling, separate files)
+
+This directory also contains a bounded, separately-labelled
+characterization of `o2-mft-ca-tracker-workflow` -- the Gate 2 common
+`o2::itsmft::tracking` core, distinct from the legacy `O2::MFTTracking`
+package characterized above. It reuses this directory's fixture but writes
+to its own scripts/manifest/summary so the legacy values above are never
+touched: `replay_tracking_common_ca.sh`, `extract_metrics_common_ca.C`,
+`manifest_common_ca.json`, `baseline_summary_common_ca.md`.

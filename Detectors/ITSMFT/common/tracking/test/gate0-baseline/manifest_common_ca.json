@@ -1,0 +1,66 @@
+{
+  "role": "Baseline/validation",
+  "gate": "Gate 2 (in progress) common-CA MFT characterization -- NOT the accepted Gate 0 baseline, NOT a claim of Gate 2 completion",
+  "branch": "codex/itsmft-mft-ca-baseline",
+  "worktree": "/Users/mpuccio/alice/run3/O2-worktrees/mft-ca-baseline",
+  "commit": "43011425b02780425f1929d1cdb7c7053cc6564e",
+  "commitSubject": "ITSMFT: record explicit Gate 2 layout construction",
+  "note": "This is a SIBLING characterization to manifest.json/baseline_summary.md, not a replacement or an update to either. Gate 0's accepted baseline exercises o2-mft-reco-workflow (legacy O2::MFTTracking). This file characterizes the separate common o2::itsmft::tracking core exercised by o2-mft-ca-tracker-workflow, which no accepted baseline previously covered. Legacy manifest.json/baseline_summary.md values are unchanged by this work.",
+
+  "build": {
+    "recoStack": {
+      "source": "built from this commit (43011425b0, codex/itsmft-mft-ca-baseline) in a dedicated CMake/ninja build directory configured from this worktree",
+      "buildDir": "/private/tmp/o2-mft-ca-baseline-build",
+      "sourceCheckout": "/Users/mpuccio/alice/run3/O2-worktrees/mft-ca-baseline",
+      "configureCommand": "cmake -S /Users/mpuccio/alice/run3/O2-worktrees/mft-ca-baseline -B /private/tmp/o2-mft-ca-baseline-build -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo",
+      "buildCommand": "ninja -C /private/tmp/o2-mft-ca-baseline-build stage/bin/o2-mft-ca-tracker-workflow stage/bin/o2-mft-cluster-reader-workflow stage/lib/libO2FrameworkAnalysisSupport.dylib stage/lib/libO2FrameworkCCDBSupport.dylib",
+      "binaries": [
+        "stage/bin/o2-mft-ca-tracker-workflow",
+        "stage/bin/o2-mft-cluster-reader-workflow"
+      ],
+      "additionalPluginLibsBuilt": [
+        "stage/lib/libO2FrameworkAnalysisSupport.dylib",
+        "stage/lib/libO2FrameworkCCDBSupport.dylib"
+      ],
+      "additionalPluginLibsNote": "Same dlopen'd-plugin caveat as the legacy Gate 0 baseline (see README.md 'Required environment'): these are not linked dependencies of o2-mft-ca-tracker-workflow, so a ninja build targeting only the executables silently omits them, which breaks CCDB condition fetching. Built explicitly for this characterization.",
+      "os": "Darwin 25.3.0 (macOS 26.3), arm64",
+      "cpu": "Apple M3 Pro, 12 cores",
+      "memory": "36 GiB",
+      "buildType": "RelWithDebInfo"
+    },
+    "envRunner": ".agents/skills/alice-o2-environment/scripts/run-in-o2-env.zsh (per alice-o2-environment skill; used for every configure/build/run command below)"
+  },
+
+  "workflowInvestigation": {
+    "binaryName": "o2-mft-ca-tracker-workflow (ca-tracker-workflow target in Detectors/ITSMFT/MFT/workflow/CMakeLists.txt, source Detectors/ITSMFT/MFT/workflow/src/mft-ca-tracker-workflow.cxx)",
+    "coreLibrary": "o2::itsmft::tracking common core (Detectors/ITSMFT/common/tracking), invoked via o2::mft::CATrackerDPL / getCATrackerSpec in Detectors/ITSMFT/MFT/workflow/src/CATrackerSpec.cxx -- this is the Gate 2 code path under characterization, distinct from Detectors/ITSMFT/MFT/tracking (legacy O2::MFTTracking) used by o2-mft-reco-workflow",
+    "inputSpecs": "compClusters=MFT/COMPCLUSTERS, patterns=MFT/PATTERNS, ROframes=MFT/CLUSTERSROF, labels=MFT/CLUSTERSMCTR (with MC) -- identical InputSpec names/types to the legacy o2::mft::TrackerSpec (Detectors/ITSMFT/MFT/workflow/src/TrackerSpec.cxx), confirmed by direct source comparison, so o2-mft-cluster-reader-workflow pipes into either binary unmodified",
+    "noClustersFromUpstreamFlag": "o2-mft-ca-tracker-workflow has no --clusters-from-upstream or --cluster-rof-branch-only option: unlike o2-mft-reco-workflow, its customize() only registers getCATrackerSpec + getTrackWriterSpec, with no embedded clusterizer or cluster-writer device, so there is no upstream-vs-clusterize ambiguity to disambiguate and no competing CLUSTERSMC2ROF requirement",
+    "outputContract": "mft-track-writer (Detectors/ITSMFT/MFT/workflow/src/TrackWriterSpec.cxx) writes mfttracks.root, tree 'o2sim', branches MFTTrack (std::vector<o2::mft::TrackMFT>), MFTTrackClusIdx, MFTTrackSeedPattern, MFTTracksROF, MFTTrackMCTruth (with MC) -- byte-identical file/tree/branch naming contract to the legacy o2-mft-reco-workflow output, confirmed by direct source comparison of TrackWriterSpec.cxx (both binaries share this same spec source, called with useCA=true here vs false there)",
+    "configKey": "MFTCATrackerParam.nThreads (Detectors/ITSMFT/common/tracking/include/ITSMFTTracking/TrackingConfigParam.h TrackerParamConfig<DetID::MFT>) -- a real thread-count knob for the common-CA core; the legacy MFTTrackingParam (Detectors/ITSMFT/MFT/tracking/include/MFTTracking/MFTTrackingParam.h) has no nThreads field at all, i.e. legacy MFT tracking is inherently single-threaded and replay_tracking.sh has no MFT thread-count equivalent to compare against",
+    "helpVerified": "o2-mft-ca-tracker-workflow --help full, run against the built binary, confirmed --disable-mc, --disable-root-output, --use-geom, --use-irframes, --tracking-mode (default sync), --configKeyValues, --hbfutils-config (default o2simdigitizerworkflow_configuration.ini), --condition-not-after exactly as read from source"
+  },
+
+  "fixture": {
+    "reused": "/private/tmp/o2-itsmft-gate0/fixture-20ev (external, not committed) -- identical fixture used by the accepted Gate 0 legacy baseline; full generation provenance (sim/digi/CCDB ETags/run number/seed/timestamp) is recorded in the sibling manifest.json and is NOT repeated or re-verified here beyond confirming the retained fixture files listed there are present and non-empty",
+    "provenanceVerification": "Before any replay, ls -la on /private/tmp/o2-itsmft-gate0/fixture-20ev confirmed every file listed under manifest.json's fixture.retainedFixtureFiles is present (mftclusters.root, o2sim_Kine.root, o2simdigitizerworkflow_configuration.ini, plus the other retained files) and non-empty; this run only reads mftclusters.root, o2sim_Kine.root, and o2simdigitizerworkflow_configuration.ini from it (does not touch o2clus_its.root/o2trac_its.root -- no ITS component runs in this bounded replay)",
+    "onlyMFTComponentReplayed": "This characterization runs only the MFT common-CA leg; it does not run or characterize an ITS common-CA path (no o2-its-ca-tracker-workflow / equivalent exists yet)."
+  },
+
+  "replay": {
+    "replayDirs": ["warmup", "canonical-1", "canonical-2", "canonical-3", "canonical-4", "parallel-1"],
+    "replayDirsPath": "/private/tmp/o2-itsmft-gate0/replay-common-ca/ (external, not committed; separate directory tree from the legacy baseline's fixture-20ev/replay/ -- never wrote into that directory)",
+    "metricsPath": "/private/tmp/o2-itsmft-gate0/metrics-common-ca/*.json (external, not committed; separate directory tree from the legacy baseline's metrics/ -- never wrote into that directory)",
+    "script": "Detectors/ITSMFT/common/tracking/test/gate0-baseline/replay_tracking_common_ca.sh",
+    "extractor": "Detectors/ITSMFT/common/tracking/test/gate0-baseline/extract_metrics_common_ca.C",
+    "commands": {
+      "perRun": "FIXTURE_DIR=/private/tmp/o2-itsmft-gate0/fixture-20ev REPLAY_DIR=/private/tmp/o2-itsmft-gate0/replay-common-ca/<name> TIMESTAMP=1784207296000 RUNNUMBER=303000 MFT_CA_NTHREADS=<1|12> TIME_CMD='/usr/bin/time -l' O2_BUILD_DIR=/private/tmp/o2-mft-ca-baseline-build .agents/skills/alice-o2-environment/scripts/run-in-o2-env.zsh -- bash Detectors/ITSMFT/common/tracking/test/gate0-baseline/replay_tracking_common_ca.sh",
+      "perExtract": "O2_BUILD_DIR=/private/tmp/o2-mft-ca-baseline-build .agents/skills/alice-o2-environment/scripts/run-in-o2-env.zsh -- root -l -b -q 'Detectors/ITSMFT/common/tracking/test/gate0-baseline/extract_metrics_common_ca.C(\"/private/tmp/o2-itsmft-gate0/fixture-20ev\", \"/private/tmp/o2-itsmft-gate0/metrics-common-ca/<name>.json\", \"/private/tmp/o2-itsmft-gate0/replay-common-ca/<name>\")'"
+    },
+    "internalPipeline": "o2-mft-cluster-reader-workflow --with-mc --input-dir <fixture> --mft-cluster-infile mftclusters.root | o2-mft-ca-tracker-workflow -b --run --tracking-mode sync --condition-not-after 1784207296000 --configKeyValues 'MFTCATrackerParam.nThreads=<N>' -- same TIMESTAMP/RUNNUMBER pinning and hbfutils-ini-in-cwd workaround as replay_tracking.sh (see replay_tracking_common_ca.sh header)",
+    "clusterRofBranchOnlyNote": "Not applicable here: --cluster-rof-branch-only exists only on o2-mft-reco-workflow to work around its embedded cluster-writer device's CLUSTERSMC2ROF requirement; o2-mft-ca-tracker-workflow has no such device and no such flag.",
+    "contentHashNote": "mfttracks.root's own file bytes differ run-to-run (verified by sha256sum on all 6 runs) even though tracking output is bit-identical, because a ROOT TFile embeds a per-write UUID/timestamp in its metadata. extract_metrics_common_ca.C therefore computes trackContentHash: an MD5 over the ordered per-track (nPoints, chi2, x, y, z, phi, tanl, invQPt) tuples, which IS stable repeatability evidence and was verified identical across all 6 runs (826dc653cd936a472929c600c97c140b)."
+  },
+
+  "notMarkingGate2Complete": "This characterization does not claim Gate 2 acceptance. Per AgentCoordination.md Gate status, Gate 2 (common CA traversal) remains 'In progress' pending topology-driven TrackerTraits/CATracker orchestration and demonstrated ITS/MFT algorithm parity; this baseline only establishes a labelled, reproducible reference point for the current o2-mft-ca-tracker-workflow output so future Gate 2 changes can be compared against it."
+}
