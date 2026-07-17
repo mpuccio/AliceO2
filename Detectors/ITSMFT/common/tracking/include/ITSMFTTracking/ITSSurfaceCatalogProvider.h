@@ -8,6 +8,8 @@
 #ifndef ALICEO2_ITSMFT_TRACKING_ITSSURFACECATALOGPROVIDER_H_
 #define ALICEO2_ITSMFT_TRACKING_ITSSURFACECATALOGPROVIDER_H_
 
+#ifndef GPUCA_GPUCODE
+
 #include "ITSMFTTracking/DetectorSurfaceCatalogProvider.h"
 
 namespace o2::itsmft::tracking
@@ -20,5 +22,7 @@ class ITSSurfaceCatalogProvider final : public DetectorSurfaceCatalogProvider
 };
 
 } // namespace o2::itsmft::tracking
+
+#endif // GPUCA_GPUCODE
 
 #endif /* ALICEO2_ITSMFT_TRACKING_ITSSURFACECATALOGPROVIDER_H_ */

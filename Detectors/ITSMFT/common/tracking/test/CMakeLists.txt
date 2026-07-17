@@ -114,3 +114,20 @@ o2_add_test_root_macro(gate0-baseline/extract_metrics.C
                          O2::DetectorsBase
                          O2::ITSBase
                          O2::SimulationDataFormat)
+
+o2_add_test_root_macro(gate0-baseline/extract_metrics_common_ca.C
+                       COMPILE_ONLY
+                       LABELS "itsmft;tracking;gate0"
+                       PUBLIC_LINK_LIBRARIES
+                         O2::DataFormatsITSMFT
+                         O2::DataFormatsMFT
+                         O2::SimulationDataFormat)
+
+o2_add_test_root_macro(validateGeometrySurfaceCatalogs.C
+                       COMPILE_ONLY
+                       LABELS "itsmft;tracking;geometry"
+                       PUBLIC_LINK_LIBRARIES
+                         O2::DetectorsBase
+                         O2::ITSBase
+                         O2::ITSMFTTracking
+                         O2::MFTBase)
