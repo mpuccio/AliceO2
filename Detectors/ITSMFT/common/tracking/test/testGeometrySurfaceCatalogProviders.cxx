@@ -16,15 +16,16 @@
 #include "../src/GeometrySurfaceCatalogProvider.h"
 #include "ITSMFTTracking/ITSSurfaceCatalogProvider.h"
 #include "ITSMFTTracking/MFTSurfaceCatalogProvider.h"
+#include "ITSMFTTracking/TrackingConfigParam.h"
 
 using namespace o2::itsmft::tracking;
 using namespace o2::itsmft::tracking::detail;
 
 namespace
 {
-const DetectorGeometryCatalogSpec itsSpec{o2::detectors::DetID::ITS, 7, SurfaceKind::Cylinder,
+const DetectorGeometryCatalogSpec itsSpec{o2::detectors::DetID::ITS, ITSNLayers, SurfaceKind::Cylinder,
                                           SurfaceReferenceCoordinate::MeanRadius};
-const DetectorGeometryCatalogSpec mftSpec{o2::detectors::DetID::MFT, 10, SurfaceKind::Disk,
+const DetectorGeometryCatalogSpec mftSpec{o2::detectors::DetID::MFT, MFTNLayers, SurfaceKind::Disk,
                                           SurfaceReferenceCoordinate::MeanZ};
 
 DetectorSurfaceCatalogRequest request(o2::detectors::DetID::ID detector, uint16_t first, uint32_t count)
@@ -57,74 +58,74 @@ BOOST_AUTO_TEST_CASE(fixed_request_contracts_precede_geometry_lookup)
     lookedUp = true;
     return std::nullopt;
   };
-  checkEmptyFailure(buildGeometrySurfaceCatalog(request(o2::detectors::DetID::MFT, 0, 7), itsSpec, lookup),
+  checkEmptyFailure(buildGeometrySurfaceCatalog(request(o2::detectors::DetID::MFT, 0, ITSNLayers), itsSpec, lookup),
                     DetectorSurfaceCatalogError::UnsupportedDetector);
-  checkEmptyFailure(buildGeometrySurfaceCatalog(request(o2::detectors::DetID::ITS, 1, 7), itsSpec, lookup),
+  checkEmptyFailure(buildGeometrySurfaceCatalog(request(o2::detectors::DetID::ITS, 1, ITSNLayers), itsSpec, lookup),
                     DetectorSurfaceCatalogError::InvalidRequest);
-  checkEmptyFailure(buildGeometrySurfaceCatalog(request(o2::detectors::DetID::ITS, 0, 6), itsSpec, lookup),
+  checkEmptyFailure(buildGeometrySurfaceCatalog(request(o2::detectors::DetID::ITS, 0, ITSNLayers - 1), itsSpec, lookup),
                     DetectorSurfaceCatalogError::InvalidRequest);
   BOOST_CHECK(!lookedUp);
 
-  checkEmptyFailure(buildGeometrySurfaceCatalog(request(o2::detectors::DetID::ITS, 0, 10), mftSpec, lookup),
+  checkEmptyFailure(buildGeometrySurfaceCatalog(request(o2::detectors::DetID::ITS, 0, MFTNLayers), mftSpec, lookup),
                     DetectorSurfaceCatalogError::UnsupportedDetector);
-  checkEmptyFailure(buildGeometrySurfaceCatalog(request(o2::detectors::DetID::MFT, 1, 10), mftSpec, lookup),
+  checkEmptyFailure(buildGeometrySurfaceCatalog(request(o2::detectors::DetID::MFT, 1, MFTNLayers), mftSpec, lookup),
                     DetectorSurfaceCatalogError::InvalidRequest);
-  checkEmptyFailure(buildGeometrySurfaceCatalog(request(o2::detectors::DetID::MFT, 0, 9), mftSpec, lookup),
+  checkEmptyFailure(buildGeometrySurfaceCatalog(request(o2::detectors::DetID::MFT, 0, MFTNLayers - 1), mftSpec, lookup),
                     DetectorSurfaceCatalogError::InvalidRequest);
   BOOST_CHECK(!lookedUp);
 }
 
 BOOST_AUTO_TEST_CASE(geometry_initialization_and_cache_failures)
 {
-  checkEmptyFailure(buildGeometrySurfaceCatalog(request(o2::detectors::DetID::ITS, 0, 7), itsSpec,
+  checkEmptyFailure(buildGeometrySurfaceCatalog(request(o2::detectors::DetID::ITS, 0, ITSNLayers), itsSpec,
                                                 []() -> std::optional<DetectorGeometryView> { return std::nullopt; }),
                     DetectorSurfaceCatalogError::GeometryNotInitialized);
 
-  auto absent = geometry(7, 7);
+  auto absent = geometry(ITSNLayers, ITSNLayers);
   absent.l2gCacheFilled = false;
-  checkEmptyFailure(buildGeometrySurfaceCatalog(request(o2::detectors::DetID::ITS, 0, 7), itsSpec,
+  checkEmptyFailure(buildGeometrySurfaceCatalog(request(o2::detectors::DetID::ITS, 0, ITSNLayers), itsSpec,
                                                 [absent] { return absent; }),
                     DetectorSurfaceCatalogError::GeometryUnavailable);
 
-  auto undersized = geometry(7, 7);
-  undersized.l2gCacheSize = 6;
-  checkEmptyFailure(buildGeometrySurfaceCatalog(request(o2::detectors::DetID::ITS, 0, 7), itsSpec,
+  auto undersized = geometry(ITSNLayers, ITSNLayers);
+  undersized.l2gCacheSize = ITSNLayers - 1;
+  checkEmptyFailure(buildGeometrySurfaceCatalog(request(o2::detectors::DetID::ITS, 0, ITSNLayers), itsSpec,
                                                 [undersized] { return undersized; }),
                     DetectorSurfaceCatalogError::GeometryUnavailable);
 }
 
 BOOST_AUTO_TEST_CASE(surface_lookup_failures)
 {
-  auto outOfRange = geometry(7, 7);
-  outOfRange.surfaceForChip = [](size_t) { return 7; };
-  checkEmptyFailure(buildGeometrySurfaceCatalog(request(o2::detectors::DetID::ITS, 0, 7), itsSpec,
+  auto outOfRange = geometry(ITSNLayers, ITSNLayers);
+  outOfRange.surfaceForChip = [](size_t) { return ITSNLayers; };
+  checkEmptyFailure(buildGeometrySurfaceCatalog(request(o2::detectors::DetID::ITS, 0, ITSNLayers), itsSpec,
                                                 [outOfRange] { return outOfRange; }),
                     DetectorSurfaceCatalogError::SurfaceLookupFailure);
 
-  const auto emptyBucket = geometry(6, 7);
-  checkEmptyFailure(buildGeometrySurfaceCatalog(request(o2::detectors::DetID::ITS, 0, 7), itsSpec,
+  const auto emptyBucket = geometry(ITSNLayers - 1, ITSNLayers);
+  checkEmptyFailure(buildGeometrySurfaceCatalog(request(o2::detectors::DetID::ITS, 0, ITSNLayers), itsSpec,
                                                 [emptyBucket] { return emptyBucket; }),
                     DetectorSurfaceCatalogError::SurfaceLookupFailure);
 }
 
 BOOST_AUTO_TEST_CASE(invalid_surface_geometry_is_mapped_and_transactional)
 {
-  auto invalid = geometry(7, 7);
+  auto invalid = geometry(ITSNLayers, ITSNLayers);
   invalid.localToGlobal = [](size_t, const GeometryPoint&) {
     return GeometryPoint{std::numeric_limits<double>::quiet_NaN(), 0., 0.};
   };
-  checkEmptyFailure(buildGeometrySurfaceCatalog(request(o2::detectors::DetID::ITS, 0, 7), itsSpec,
+  checkEmptyFailure(buildGeometrySurfaceCatalog(request(o2::detectors::DetID::ITS, 0, ITSNLayers), itsSpec,
                                                 [invalid] { return invalid; }),
                     DetectorSurfaceCatalogError::InvalidSurfaceGeometry);
 }
 
 BOOST_AUTO_TEST_CASE(successful_its_and_mft_catalogs)
 {
-  const auto itsGeometry = geometry(7, 7);
-  const auto its = buildGeometrySurfaceCatalog(request(o2::detectors::DetID::ITS, 0, 7), itsSpec,
+  const auto itsGeometry = geometry(ITSNLayers, ITSNLayers);
+  const auto its = buildGeometrySurfaceCatalog(request(o2::detectors::DetID::ITS, 0, ITSNLayers), itsSpec,
                                                [itsGeometry] { return itsGeometry; });
   BOOST_REQUIRE(its.ok());
-  BOOST_REQUIRE_EQUAL(its.catalog.size(), 7);
+  BOOST_REQUIRE_EQUAL(its.catalog.size(), ITSNLayers);
   for (uint16_t i = 0; i < its.catalog.size(); ++i) {
     BOOST_CHECK(its.catalog[i].id == SurfaceId{i});
     BOOST_CHECK_EQUAL(its.catalog[i].detectorSurfaceIndex, i);
@@ -134,11 +135,11 @@ BOOST_AUTO_TEST_CASE(successful_its_and_mft_catalogs)
     BOOST_CHECK_LE(its.catalog[i].radialMin, its.catalog[i].radialMax);
   }
 
-  const auto mftGeometry = geometry(10, 10);
-  const auto mft = buildGeometrySurfaceCatalog(request(o2::detectors::DetID::MFT, 0, 10), mftSpec,
+  const auto mftGeometry = geometry(MFTNLayers, MFTNLayers);
+  const auto mft = buildGeometrySurfaceCatalog(request(o2::detectors::DetID::MFT, 0, MFTNLayers), mftSpec,
                                                [mftGeometry] { return mftGeometry; });
   BOOST_REQUIRE(mft.ok());
-  BOOST_REQUIRE_EQUAL(mft.catalog.size(), 10);
+  BOOST_REQUIRE_EQUAL(mft.catalog.size(), MFTNLayers);
   for (uint16_t i = 0; i < mft.catalog.size(); ++i) {
     BOOST_CHECK(mft.catalog[i].id == SurfaceId{i});
     BOOST_CHECK_EQUAL(mft.catalog[i].detectorSurfaceIndex, i);
@@ -152,18 +153,18 @@ BOOST_AUTO_TEST_CASE(successful_its_and_mft_catalogs)
 BOOST_AUTO_TEST_CASE(public_providers_do_not_create_missing_singletons_for_bad_requests)
 {
   ITSSurfaceCatalogProvider its;
-  checkEmptyFailure(its.buildCatalog(request(o2::detectors::DetID::MFT, 0, 7)),
+  checkEmptyFailure(its.buildCatalog(request(o2::detectors::DetID::MFT, 0, ITSNLayers)),
                     DetectorSurfaceCatalogError::UnsupportedDetector);
-  checkEmptyFailure(its.buildCatalog(request(o2::detectors::DetID::ITS, 1, 7)),
+  checkEmptyFailure(its.buildCatalog(request(o2::detectors::DetID::ITS, 1, ITSNLayers)),
                     DetectorSurfaceCatalogError::InvalidRequest);
-  checkEmptyFailure(its.buildCatalog(request(o2::detectors::DetID::ITS, 0, 7)),
+  checkEmptyFailure(its.buildCatalog(request(o2::detectors::DetID::ITS, 0, ITSNLayers)),
                     DetectorSurfaceCatalogError::GeometryNotInitialized);
 
   MFTSurfaceCatalogProvider mft;
-  checkEmptyFailure(mft.buildCatalog(request(o2::detectors::DetID::ITS, 0, 10)),
+  checkEmptyFailure(mft.buildCatalog(request(o2::detectors::DetID::ITS, 0, MFTNLayers)),
                     DetectorSurfaceCatalogError::UnsupportedDetector);
-  checkEmptyFailure(mft.buildCatalog(request(o2::detectors::DetID::MFT, 0, 9)),
+  checkEmptyFailure(mft.buildCatalog(request(o2::detectors::DetID::MFT, 0, MFTNLayers - 1)),
                     DetectorSurfaceCatalogError::InvalidRequest);
-  checkEmptyFailure(mft.buildCatalog(request(o2::detectors::DetID::MFT, 0, 10)),
+  checkEmptyFailure(mft.buildCatalog(request(o2::detectors::DetID::MFT, 0, MFTNLayers)),
                     DetectorSurfaceCatalogError::GeometryNotInitialized);
 }

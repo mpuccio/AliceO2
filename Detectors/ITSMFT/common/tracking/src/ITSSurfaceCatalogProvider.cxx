@@ -9,6 +9,7 @@
 
 #include "GeometrySurfaceCatalogProvider.h"
 #include "ITSBase/GeometryTGeo.h"
+#include "ITSMFTTracking/TrackingConfigParam.h"
 #include "MathUtils/Cartesian.h"
 
 namespace o2::itsmft::tracking
@@ -16,7 +17,7 @@ namespace o2::itsmft::tracking
 
 DetectorSurfaceCatalogResult ITSSurfaceCatalogProvider::buildCatalog(const DetectorSurfaceCatalogRequest& request) const
 {
-  const detail::DetectorGeometryCatalogSpec spec{o2::detectors::DetID::ITS, 7, SurfaceKind::Cylinder,
+  const detail::DetectorGeometryCatalogSpec spec{o2::detectors::DetID::ITS, ITSNLayers, SurfaceKind::Cylinder,
                                                  detail::SurfaceReferenceCoordinate::MeanRadius};
   return detail::buildGeometrySurfaceCatalog(request, spec, []() -> std::optional<detail::DetectorGeometryView> {
     if (!o2::its::GeometryTGeo::instanceExist()) {

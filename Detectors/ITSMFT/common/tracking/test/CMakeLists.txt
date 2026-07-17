@@ -100,6 +100,16 @@ o2_add_test(geometry-surface-catalog-providers
             LABELS "itsmft;tracking"
             PUBLIC_LINK_LIBRARIES O2::ITSMFTTracking)
 
+o2_add_executable(geometry-surface-catalog-validation
+                  SOURCES validateGeometrySurfaceCatalogs.cxx
+                  COMPONENT_NAME itsmft-tracking
+                  NO_INSTALL
+                  PUBLIC_LINK_LIBRARIES
+                    O2::DetectorsBase
+                    O2::ITSBase
+                    O2::ITSMFTTracking
+                    O2::MFTBase)
+
 # The Gate 0 extractor needs generated tracker/MC dictionaries and external
 # fixture files at execution time. Keep its runnable replay in the documented
 # baseline protocol, while compiling the macro here so clean O2 configurations

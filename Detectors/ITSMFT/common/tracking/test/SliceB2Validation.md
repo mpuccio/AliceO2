@@ -11,13 +11,20 @@ was run through
 
 ## Real geometry
 
-The committed macro was run against the retained geometry fixture without
-modifying it:
+The staged validation executable is compiled and linked against this
+worktree's `O2::ITSMFTTracking` and detector geometry libraries. It was run
+against the retained geometry fixture without modifying it:
 
 ```sh
-root -l -b -q \
-  'Detectors/ITSMFT/common/tracking/test/validateGeometrySurfaceCatalogs.C("/private/tmp/o2-itsmft-gate0/fixture-20ev/o2sim")'
+O2_BUILD_DIR=/private/tmp/o2-layout-providers-build \
+  .agents/skills/alice-o2-environment/scripts/run-in-o2-env.zsh -- \
+  /private/tmp/o2-layout-providers-build/stage/bin/o2-itsmft-tracking-geometry-surface-catalog-validation \
+  /private/tmp/o2-itsmft-gate0/fixture-20ev/o2sim
 ```
+
+The command exited with status zero. `validateGeometrySurfaceCatalogs.C`
+remains a compile-only ROOT wrapper around the same shared validation
+implementation; it is not the real-geometry execution protocol.
 
 It loaded both detector geometry singletons, populated their L2G caches, and
 verified dense catalogs with 7 ITS layers and 10 MFT disk planes, finite

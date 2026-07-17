@@ -15,6 +15,7 @@
 
 #include <array>
 #include <numeric>
+#include <utility>
 #include <vector>
 
 #include <gsl/span>
@@ -44,12 +45,14 @@ static_assert(o2::itsmft::tracking::ITSMFTTrackingInterfaceMFT::DetId == o2::det
 
 namespace
 {
-constexpr std::array<o2::itsmft::tracking::SurfaceId, 10> MFTSurfaceOrder{
-  o2::itsmft::tracking::SurfaceId{0}, o2::itsmft::tracking::SurfaceId{1},
-  o2::itsmft::tracking::SurfaceId{2}, o2::itsmft::tracking::SurfaceId{3},
-  o2::itsmft::tracking::SurfaceId{4}, o2::itsmft::tracking::SurfaceId{5},
-  o2::itsmft::tracking::SurfaceId{6}, o2::itsmft::tracking::SurfaceId{7},
-  o2::itsmft::tracking::SurfaceId{8}, o2::itsmft::tracking::SurfaceId{9}};
+template <size_t... I>
+constexpr auto makeIdentitySurfaceOrder(std::index_sequence<I...>)
+{
+  return std::array{o2::itsmft::tracking::SurfaceId{static_cast<uint16_t>(I)}...};
+}
+
+constexpr auto MFTSurfaceOrder = makeIdentitySurfaceOrder(
+  std::make_index_sequence<o2::itsmft::tracking::MFTNLayers>{});
 
 template <typename TracksVec, typename ClusterIdxVec, typename ROFVec, typename LabelsVec, typename SeedPatternVec>
 void fillMFTOutputs(const o2::itsmft::tracking::TimeFrameMFT& tf,
@@ -201,7 +204,8 @@ void CATrackerDPL::updateTimeDependentParams(ProcessingContext& pc)
 
   if (mTracking.isActive()) {
     const o2::itsmft::tracking::DetectorSurfaceCatalogRequest request{
-      o2::detectors::DetID::MFT, o2::itsmft::tracking::SurfaceId{0}, 10};
+      o2::detectors::DetID::MFT, o2::itsmft::tracking::SurfaceId{0},
+      static_cast<uint32_t>(MFTSurfaceOrder.size())};
     const auto result = mTracking.configureDetectorLayouts(request, MFTSurfaceOrder,
                                                            o2::itsmft::tracking::TransitionPolicyTag::DiskDisk);
     if (!result.ok()) {
