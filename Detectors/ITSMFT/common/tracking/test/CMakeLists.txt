@@ -88,6 +88,12 @@ o2_add_test(timeframe-detector-layouts
             LABELS "itsmft;tracking"
             PUBLIC_LINK_LIBRARIES O2::ITSMFTTracking O2::MFTTracking)
 
+o2_add_test(detector-surface-catalog-aggregation
+            SOURCES testDetectorSurfaceCatalogAggregation.cxx
+            COMPONENT_NAME itsmft-tracking
+            LABELS "itsmft;tracking"
+            PUBLIC_LINK_LIBRARIES O2::ITSMFTTracking)
+
 # The Gate 0 extractor needs generated tracker/MC dictionaries and external
 # fixture files at execution time. Keep its runnable replay in the documented
 # baseline protocol, while compiling the macro here so clean O2 configurations
