@@ -172,6 +172,7 @@ struct TimeFrame {
 
 #ifndef GPUCA_GPUCODE
   DetectorLayoutSetBuildResult ensureDetectorLayouts(const DetectorSurfaceCatalogProvider* provider,
+                                                     const DetectorSurfaceCatalogRequest& catalogRequest,
                                                      gsl::span<const SurfaceId> orderedSurfaces,
                                                      TransitionPolicyTag policyTag,
                                                      gsl::span<const TrackingParameters> trackingParameters);
@@ -179,6 +180,16 @@ struct TimeFrame {
   DetectorGeometryEpoch getRequiredDetectorGeometryEpoch() const noexcept { return mRequiredDetectorGeometryEpoch; }
   bool detectorLayoutsCurrent() const noexcept;
   bool hasStoredDetectorLayouts() const noexcept { return mDetectorLayouts.has_value(); }
+  const std::vector<SurfaceDescriptor>* getSurfaceCatalog() const noexcept
+  {
+    const auto* layouts = getDetectorLayouts();
+    return layouts ? &layouts->getSurfaceCatalog() : nullptr;
+  }
+  gsl::span<const SurfaceDescriptor> getSurfaceCatalogView() const noexcept
+  {
+    const auto* catalog = getSurfaceCatalog();
+    return catalog ? gsl::span<const SurfaceDescriptor>{catalog->data(), catalog->size()} : gsl::span<const SurfaceDescriptor>{};
+  }
   const DetectorLayoutSet* getDetectorLayouts() const noexcept
   {
     return detectorLayoutsCurrent() ? &*mDetectorLayouts : nullptr;

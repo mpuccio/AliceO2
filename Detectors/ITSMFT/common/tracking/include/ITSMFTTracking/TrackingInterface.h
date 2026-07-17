@@ -65,15 +65,11 @@ class ITSMFTTrackingInterface
   ITSMFTTrackingInterface(bool useMC, o2::itsmft::TrackingMode::Type mode, bool overrideBeamEst,
                           std::unique_ptr<DetectorSurfaceCatalogProvider> catalogProvider);
 
-  void setDetectorSurfaceCatalogProvider(std::unique_ptr<DetectorSurfaceCatalogProvider> catalogProvider)
-  {
-    mTimeFrame.invalidateDetectorLayouts();
-    mDetectorSurfaceCatalogProvider = std::move(catalogProvider);
-  }
-  DetectorLayoutSetBuildResult configureDetectorLayouts(gsl::span<const SurfaceId> orderedSurfaces,
+  DetectorLayoutSetBuildResult configureDetectorLayouts(const DetectorSurfaceCatalogRequest& catalogRequest,
+                                                        gsl::span<const SurfaceId> orderedSurfaces,
                                                         TransitionPolicyTag policyTag)
   {
-    return mTimeFrame.ensureDetectorLayouts(mDetectorSurfaceCatalogProvider.get(), orderedSurfaces, policyTag, mTrackParams);
+    return mTimeFrame.ensureDetectorLayouts(mDetectorSurfaceCatalogProvider.get(), catalogRequest, orderedSurfaces, policyTag, mTrackParams);
   }
 #endif
 

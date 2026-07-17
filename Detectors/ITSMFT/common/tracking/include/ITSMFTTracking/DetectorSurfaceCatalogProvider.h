@@ -13,6 +13,7 @@
 #ifndef GPUCA_GPUCODE
 #include <vector>
 
+#include "DetectorsCommonDataFormats/DetID.h"
 #include "ITSMFTTracking/SurfaceDescriptor.h"
 
 namespace o2::itsmft::tracking
@@ -20,8 +21,23 @@ namespace o2::itsmft::tracking
 
 enum class DetectorSurfaceCatalogError : uint8_t {
   None,
-  Unavailable,
-  GeometryFailure
+  InvalidRequest,
+  UnsupportedDetector,
+  GeometryUnavailable,
+  GeometryNotInitialized,
+  SurfaceLookupFailure,
+  InvalidSurfaceGeometry
+};
+
+struct DetectorSurfaceCatalogRequest {
+  o2::detectors::DetID::ID detector{o2::detectors::DetID::ITS};
+  SurfaceId firstSurface{};
+  uint32_t detectorSurfaceCount{0};
+
+  bool operator==(const DetectorSurfaceCatalogRequest& other) const noexcept
+  {
+    return detector == other.detector && firstSurface == other.firstSurface && detectorSurfaceCount == other.detectorSurfaceCount;
+  }
 };
 
 struct DetectorSurfaceCatalogResult {
@@ -37,7 +53,7 @@ class DetectorSurfaceCatalogProvider
 {
  public:
   virtual ~DetectorSurfaceCatalogProvider() = default;
-  virtual DetectorSurfaceCatalogResult buildCatalog() const = 0;
+  virtual DetectorSurfaceCatalogResult buildCatalog(const DetectorSurfaceCatalogRequest& request) const = 0;
 };
 
 } // namespace o2::itsmft::tracking

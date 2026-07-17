@@ -52,6 +52,54 @@ SurfaceMask positionalSurfaceMask(LayerMask layerMask, gsl::span<const SurfaceId
   }
   return result;
 }
+
+DetectorSurfaceCatalogValidationError validateSurfaceCatalog(const DetectorSurfaceCatalogRequest& request,
+                                                             gsl::span<const SurfaceDescriptor> catalog)
+{
+  if (request.detector < o2::detectors::DetID::First || request.detector > o2::detectors::DetID::Last) {
+    return DetectorSurfaceCatalogValidationError::InvalidDetector;
+  }
+  if (!request.firstSurface.isValid()) {
+    return DetectorSurfaceCatalogValidationError::InvalidFirstSurface;
+  }
+  if (request.detectorSurfaceCount == 0) {
+    return DetectorSurfaceCatalogValidationError::EmptyDetector;
+  }
+  const uint64_t expectedSize = static_cast<uint64_t>(request.firstSurface.value()) + request.detectorSurfaceCount;
+  if (expectedSize > MaxLayoutSurfaces) {
+    return DetectorSurfaceCatalogValidationError::TooManySurfaces;
+  }
+  if (catalog.size() != expectedSize) {
+    return DetectorSurfaceCatalogValidationError::SizeMismatch;
+  }
+  for (size_t globalIndex = 0; globalIndex < catalog.size(); ++globalIndex) {
+    if (catalog[globalIndex].id != SurfaceId{static_cast<uint16_t>(globalIndex)}) {
+      return DetectorSurfaceCatalogValidationError::NonDenseGlobalSurfaceIds;
+    }
+  }
+
+  std::vector<bool> detectorSurfaceIndices(request.detectorSurfaceCount, false);
+  for (size_t globalIndex = request.firstSurface.value(); globalIndex < expectedSize; ++globalIndex) {
+    const auto& surface = catalog[globalIndex];
+    if (surface.detectorId != static_cast<uint8_t>(request.detector)) {
+      return DetectorSurfaceCatalogValidationError::DetectorMismatch;
+    }
+    if (surface.detectorSurfaceIndex == std::numeric_limits<uint16_t>::max()) {
+      return DetectorSurfaceCatalogValidationError::MissingDetectorSurfaceIndex;
+    }
+    if (surface.detectorSurfaceIndex >= request.detectorSurfaceCount) {
+      return DetectorSurfaceCatalogValidationError::DetectorSurfaceIndexOutOfRange;
+    }
+    if (detectorSurfaceIndices[surface.detectorSurfaceIndex]) {
+      return DetectorSurfaceCatalogValidationError::DuplicateDetectorSurfaceIndex;
+    }
+    detectorSurfaceIndices[surface.detectorSurfaceIndex] = true;
+  }
+  if (std::find(detectorSurfaceIndices.begin(), detectorSurfaceIndices.end(), false) != detectorSurfaceIndices.end()) {
+    return DetectorSurfaceCatalogValidationError::MissingDetectorSurfaceIndex;
+  }
+  return DetectorSurfaceCatalogValidationError::None;
+}
 } // namespace
 
 template <int NLayers>
@@ -79,12 +127,14 @@ void TimeFrame<NLayers>::invalidateDetectorLayouts() noexcept
 
 template <int NLayers>
 DetectorLayoutSetBuildResult TimeFrame<NLayers>::ensureDetectorLayouts(const DetectorSurfaceCatalogProvider* provider,
+                                                                       const DetectorSurfaceCatalogRequest& catalogRequest,
                                                                        gsl::span<const SurfaceId> orderedSurfaces,
                                                                        TransitionPolicyTag policyTag,
                                                                        gsl::span<const TrackingParameters> trackingParameters)
 {
   DetectorLayoutConfigurationKey key;
   key.geometryEpoch = mRequiredDetectorGeometryEpoch;
+  key.catalogRequest = catalogRequest;
   key.orderedSurfaces.assign(orderedSurfaces.begin(), orderedSurfaces.end());
   key.policyTag = policyTag;
   key.iterations.reserve(trackingParameters.size());
@@ -108,10 +158,15 @@ DetectorLayoutSetBuildResult TimeFrame<NLayers>::ensureDetectorLayouts(const Det
     return {.error = DetectorLayoutSetBuildError::MissingProvider};
   }
 
-  auto catalogResult = provider->buildCatalog();
+  auto catalogResult = provider->buildCatalog(catalogRequest);
   if (!catalogResult.ok()) {
     return {.error = DetectorLayoutSetBuildError::CatalogProviderFailure,
             .catalogError = catalogResult.error};
+  }
+  const auto catalogValidationError = validateSurfaceCatalog(catalogRequest, catalogResult.catalog);
+  if (catalogValidationError != DetectorSurfaceCatalogValidationError::None) {
+    return {.error = DetectorLayoutSetBuildError::InvalidCatalog,
+            .catalogValidationError = catalogValidationError};
   }
 
   std::vector<DetectorLayout> staging;
@@ -138,7 +193,9 @@ DetectorLayoutSetBuildResult TimeFrame<NLayers>::ensureDetectorLayouts(const Det
     staging.push_back(std::move(*buildResult.layout));
   }
 
-  mDetectorLayouts.emplace(std::move(key), std::move(staging));
+  DetectorLayoutSet stagedSet{std::move(key), std::move(catalogResult.catalog), std::move(staging)};
+  static_assert(std::is_nothrow_move_constructible_v<DetectorLayoutSet>);
+  mDetectorLayouts.emplace(std::move(stagedSet));
   return {.rebuilt = true};
 }
 #endif

@@ -11,6 +11,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <limits>
+#include <type_traits>
 
 #ifndef GPUCA_GPUCODE
 #include <utility>
@@ -48,13 +49,14 @@ struct DetectorLayoutIterationConfiguration {
 
 struct DetectorLayoutConfigurationKey {
   DetectorGeometryEpoch geometryEpoch{InitialDetectorGeometryEpoch};
+  DetectorSurfaceCatalogRequest catalogRequest{};
   std::vector<SurfaceId> orderedSurfaces{};
   std::vector<DetectorLayoutIterationConfiguration> iterations{};
   TransitionPolicyTag policyTag{TransitionPolicyTag::Invalid};
 
   bool operator==(const DetectorLayoutConfigurationKey& other) const noexcept
   {
-    return geometryEpoch == other.geometryEpoch && orderedSurfaces == other.orderedSurfaces &&
+    return geometryEpoch == other.geometryEpoch && catalogRequest == other.catalogRequest && orderedSurfaces == other.orderedSurfaces &&
            iterations == other.iterations && policyTag == other.policyTag;
   }
 };
@@ -62,12 +64,16 @@ struct DetectorLayoutConfigurationKey {
 class DetectorLayoutSet
 {
  public:
-  DetectorLayoutSet(DetectorLayoutConfigurationKey key, std::vector<DetectorLayout> layouts)
-    : mConfigurationKey{std::move(key)}, mLayouts{std::move(layouts)}
+  DetectorLayoutSet(DetectorLayoutConfigurationKey key, std::vector<SurfaceDescriptor> catalog, std::vector<DetectorLayout> layouts) noexcept
+    : mConfigurationKey{std::move(key)}, mCatalog{std::move(catalog)}, mLayouts{std::move(layouts)}
   {
   }
 
+  DetectorLayoutSet(DetectorLayoutSet&&) noexcept = default;
+  DetectorLayoutSet& operator=(DetectorLayoutSet&&) noexcept = default;
+
   const DetectorLayoutConfigurationKey& getConfigurationKey() const noexcept { return mConfigurationKey; }
+  const std::vector<SurfaceDescriptor>& getSurfaceCatalog() const noexcept { return mCatalog; }
   size_t size() const noexcept { return mLayouts.size(); }
   const std::vector<DetectorLayout>& getLayouts() const noexcept { return mLayouts; }
   const DetectorLayout* getLayout(size_t iteration) const noexcept
@@ -82,20 +88,39 @@ class DetectorLayoutSet
 
  private:
   DetectorLayoutConfigurationKey mConfigurationKey;
+  std::vector<SurfaceDescriptor> mCatalog;
   std::vector<DetectorLayout> mLayouts;
 };
+
+static_assert(std::is_nothrow_move_constructible_v<DetectorLayoutSet>);
 
 enum class DetectorLayoutSetBuildError : uint8_t {
   None,
   MissingProvider,
   CatalogProviderFailure,
+  InvalidCatalog,
   InvalidActiveCount,
   LayoutBuilderFailure
+};
+
+enum class DetectorSurfaceCatalogValidationError : uint8_t {
+  None,
+  InvalidDetector,
+  InvalidFirstSurface,
+  EmptyDetector,
+  TooManySurfaces,
+  SizeMismatch,
+  NonDenseGlobalSurfaceIds,
+  DetectorMismatch,
+  DetectorSurfaceIndexOutOfRange,
+  DuplicateDetectorSurfaceIndex,
+  MissingDetectorSurfaceIndex
 };
 
 struct DetectorLayoutSetBuildResult {
   DetectorLayoutSetBuildError error{DetectorLayoutSetBuildError::None};
   DetectorSurfaceCatalogError catalogError{DetectorSurfaceCatalogError::None};
+  DetectorSurfaceCatalogValidationError catalogValidationError{DetectorSurfaceCatalogValidationError::None};
   size_t failedIteration{std::numeric_limits<size_t>::max()};
   DetectorLayoutBuildError layoutBuildError{DetectorLayoutBuildError::None};
   TopologyBuildError topologyError{TopologyBuildError::None};
