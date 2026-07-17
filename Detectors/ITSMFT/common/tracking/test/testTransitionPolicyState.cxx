@@ -9,6 +9,8 @@
 #define BOOST_TEST_MAIN
 #define BOOST_TEST_DYN_LINK
 
+#include <cstddef>
+#include <limits>
 #include <type_traits>
 
 #include <boost/test/unit_test.hpp>
@@ -44,13 +46,43 @@ BOOST_AUTO_TEST_CASE(PolicyParamDefaultsMatchCurrentProductionValues)
   BOOST_CHECK_CLOSE(barrel.maxChi2NDF, 30.f, 1e-6);
   BOOST_CHECK(barrel.isValid());
 
+  // Disk-disk carries its own TrackletMinPt/CellDeltaTanLambdaSigma because
+  // the disk path reads them directly (MFT projection and the
+  // detector-specific cell-building branch), not shared with the barrel
+  // struct. Defaults mirror resetDetectorDefaults(..., MFT) (Configuration.cxx):
+  // TrackletMinPt/CellDeltaTanLambdaSigma are left at the TrackingParameters
+  // struct defaults (unset by the MFT branch), TrackletMinAbsX is explicitly
+  // set to 0.05f there.
   DiskDiskPolicyParams forward;
+  BOOST_CHECK_CLOSE(forward.trackletMinPt, 0.3f, 1e-6);
+  BOOST_CHECK_CLOSE(forward.cellDeltaTanLambdaSigma, 0.007f, 1e-6);
   BOOST_CHECK_CLOSE(forward.cellRoadRCut, 0.05f, 1e-6);
-  BOOST_CHECK_CLOSE(forward.trackletMinAbsX, 0.f, 1e-6);
+  BOOST_CHECK_CLOSE(forward.trackletMinAbsX, 0.05f, 1e-6);
   BOOST_CHECK_CLOSE(forward.nSigmaCut, 5.f, 1e-6);
   BOOST_CHECK_CLOSE(forward.maxChi2ClusterAttachment, 60.f, 1e-6);
   BOOST_CHECK_CLOSE(forward.maxChi2NDF, 30.f, 1e-6);
   BOOST_CHECK(forward.isValid());
+}
+
+BOOST_AUTO_TEST_CASE(PolicyParamsAbiIsLocked)
+{
+  BOOST_CHECK_EQUAL(sizeof(CylinderCylinderPolicyParams), 20u);
+  BOOST_CHECK_EQUAL(alignof(CylinderCylinderPolicyParams), alignof(float));
+  BOOST_CHECK_EQUAL(offsetof(CylinderCylinderPolicyParams, trackletMinPt), 0u);
+  BOOST_CHECK_EQUAL(offsetof(CylinderCylinderPolicyParams, cellDeltaTanLambdaSigma), 4u);
+  BOOST_CHECK_EQUAL(offsetof(CylinderCylinderPolicyParams, nSigmaCut), 8u);
+  BOOST_CHECK_EQUAL(offsetof(CylinderCylinderPolicyParams, maxChi2ClusterAttachment), 12u);
+  BOOST_CHECK_EQUAL(offsetof(CylinderCylinderPolicyParams, maxChi2NDF), 16u);
+
+  BOOST_CHECK_EQUAL(sizeof(DiskDiskPolicyParams), 28u);
+  BOOST_CHECK_EQUAL(alignof(DiskDiskPolicyParams), alignof(float));
+  BOOST_CHECK_EQUAL(offsetof(DiskDiskPolicyParams, trackletMinPt), 0u);
+  BOOST_CHECK_EQUAL(offsetof(DiskDiskPolicyParams, cellDeltaTanLambdaSigma), 4u);
+  BOOST_CHECK_EQUAL(offsetof(DiskDiskPolicyParams, cellRoadRCut), 8u);
+  BOOST_CHECK_EQUAL(offsetof(DiskDiskPolicyParams, trackletMinAbsX), 12u);
+  BOOST_CHECK_EQUAL(offsetof(DiskDiskPolicyParams, nSigmaCut), 16u);
+  BOOST_CHECK_EQUAL(offsetof(DiskDiskPolicyParams, maxChi2ClusterAttachment), 20u);
+  BOOST_CHECK_EQUAL(offsetof(DiskDiskPolicyParams, maxChi2NDF), 24u);
 }
 
 BOOST_AUTO_TEST_CASE(PolicyParamBoundsAreValidated)
@@ -60,15 +92,101 @@ BOOST_AUTO_TEST_CASE(PolicyParamBoundsAreValidated)
   BOOST_CHECK(!barrel.isValid());
 
   barrel = CylinderCylinderPolicyParams{};
+  barrel.cellDeltaTanLambdaSigma = 0.f;
+  BOOST_CHECK(!barrel.isValid());
+
+  barrel = CylinderCylinderPolicyParams{};
   barrel.nSigmaCut = -1.f;
   BOOST_CHECK(!barrel.isValid());
 
+  barrel = CylinderCylinderPolicyParams{};
+  barrel.maxChi2ClusterAttachment = 0.f;
+  BOOST_CHECK(!barrel.isValid());
+
+  barrel = CylinderCylinderPolicyParams{};
+  barrel.maxChi2NDF = -1.f;
+  BOOST_CHECK(!barrel.isValid());
+
   DiskDiskPolicyParams forward;
+  forward.trackletMinPt = 0.f;
+  BOOST_CHECK(!forward.isValid());
+
+  forward = DiskDiskPolicyParams{};
+  forward.cellDeltaTanLambdaSigma = 0.f;
+  BOOST_CHECK(!forward.isValid());
+
+  forward = DiskDiskPolicyParams{};
   forward.cellRoadRCut = 0.f;
   BOOST_CHECK(!forward.isValid());
 
   forward = DiskDiskPolicyParams{};
   forward.trackletMinAbsX = -1.f;
+  BOOST_CHECK(!forward.isValid());
+
+  forward = DiskDiskPolicyParams{};
+  forward.nSigmaCut = -1.f;
+  BOOST_CHECK(!forward.isValid());
+
+  forward = DiskDiskPolicyParams{};
+  forward.maxChi2ClusterAttachment = 0.f;
+  BOOST_CHECK(!forward.isValid());
+
+  forward = DiskDiskPolicyParams{};
+  forward.maxChi2NDF = -1.f;
+  BOOST_CHECK(!forward.isValid());
+}
+
+BOOST_AUTO_TEST_CASE(PolicyParamsRejectNonFiniteValues)
+{
+  const float nan = std::numeric_limits<float>::quiet_NaN();
+  const float inf = std::numeric_limits<float>::infinity();
+
+  CylinderCylinderPolicyParams barrel;
+  barrel.trackletMinPt = nan;
+  BOOST_CHECK(!barrel.isValid());
+
+  barrel = CylinderCylinderPolicyParams{};
+  barrel.cellDeltaTanLambdaSigma = inf;
+  BOOST_CHECK(!barrel.isValid());
+
+  barrel = CylinderCylinderPolicyParams{};
+  barrel.nSigmaCut = -inf;
+  BOOST_CHECK(!barrel.isValid());
+
+  barrel = CylinderCylinderPolicyParams{};
+  barrel.maxChi2ClusterAttachment = nan;
+  BOOST_CHECK(!barrel.isValid());
+
+  barrel = CylinderCylinderPolicyParams{};
+  barrel.maxChi2NDF = inf;
+  BOOST_CHECK(!barrel.isValid());
+
+  DiskDiskPolicyParams forward;
+  forward.trackletMinPt = nan;
+  BOOST_CHECK(!forward.isValid());
+
+  forward = DiskDiskPolicyParams{};
+  forward.cellDeltaTanLambdaSigma = inf;
+  BOOST_CHECK(!forward.isValid());
+
+  forward = DiskDiskPolicyParams{};
+  forward.cellRoadRCut = nan;
+  BOOST_CHECK(!forward.isValid());
+
+  forward = DiskDiskPolicyParams{};
+  forward.trackletMinAbsX = inf;
+  BOOST_CHECK(!forward.isValid());
+
+  forward = DiskDiskPolicyParams{};
+  forward.nSigmaCut = nan;
+  BOOST_CHECK(!forward.isValid());
+
+  forward = DiskDiskPolicyParams{};
+  forward.maxChi2ClusterAttachment = inf;
+  BOOST_CHECK(!forward.isValid());
+
+  forward = DiskDiskPolicyParams{};
+  forward.maxChi2NDF = nan;
   BOOST_CHECK(!forward.isValid());
 }
 

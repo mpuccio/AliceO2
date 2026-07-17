@@ -18,6 +18,7 @@
 
 #include "ITSMFTTracking/SparseTrackingTopology.h"
 #include "ITSMFTTracking/SurfaceDescriptor.h"
+#include "ITSMFTTracking/TransitionPolicy.h"
 
 namespace o2::itsmft::tracking
 {
@@ -103,10 +104,7 @@ class DetectorLayout
         mError = DetectorLayoutError::MixedSurfaceTransition;
         return;
       }
-      const bool matchesPolicy =
-        (transition.policyTag == TransitionPolicyTag::CylinderCylinder && fromKind == SurfaceKind::Cylinder) ||
-        (transition.policyTag == TransitionPolicyTag::DiskDisk && fromKind == SurfaceKind::Disk);
-      if (!matchesPolicy) {
+      if (!isSurfaceKindCompatible(transition.policyTag, fromKind)) {
         mError = DetectorLayoutError::PolicySurfaceKindMismatch;
         return;
       }

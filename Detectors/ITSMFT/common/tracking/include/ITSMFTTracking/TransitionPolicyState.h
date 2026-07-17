@@ -8,9 +8,11 @@
 #ifndef ALICEO2_ITSMFT_TRACKING_TRANSITIONPOLICYSTATE_H_
 #define ALICEO2_ITSMFT_TRACKING_TRANSITIONPOLICYSTATE_H_
 
+#include <cstddef>
 #include <type_traits>
 
 #include "GPUCommonDef.h"
+#include "GPUCommonMath.h"
 #include "ReconstructionDataFormats/Track.h"
 #include "ReconstructionDataFormats/TrackFwd.h"
 #include "ITSMFTTracking/SurfaceDescriptor.h"
@@ -18,6 +20,17 @@
 
 namespace o2::itsmft::tracking
 {
+
+/// True for finite `x` (excludes +-Inf and NaN, both of which set every
+/// exponent bit of an IEEE-754 single-precision value). GPUCommonMath::Finite()/
+/// IsNaN() are a float-determinism switch (TPC compression) that unconditionally
+/// return "finite"/"not NaN" outside GPUCA_DETERMINISTIC_MODE, so they cannot
+/// back a real bounds check here; this reads the bit pattern directly through
+/// the same device-portable reinterpretation GPUCommonMath itself uses.
+GPUhdi() bool isFiniteParam(float x) noexcept
+{
+  return (o2::gpu::GPUCommonMath::Float2UIntReint(x) & 0x7f800000u) != 0x7f800000u;
+}
 
 /// Device-compatible cylinder-cylinder policy parameter boundary. Every cut
 /// is a named, bounds-checked field; an untyped flat-float block is not an
@@ -31,49 +44,69 @@ struct CylinderCylinderPolicyParams {
   float maxChi2ClusterAttachment{60.f};
   float maxChi2NDF{30.f};
 
-  GPUhdi() constexpr bool isValid() const noexcept
+  GPUhdi() bool isValid() const noexcept
   {
-    return trackletMinPt > 0.f && cellDeltaTanLambdaSigma > 0.f && nSigmaCut > 0.f &&
-           maxChi2ClusterAttachment > 0.f && maxChi2NDF > 0.f;
+    return isFiniteParam(trackletMinPt) && trackletMinPt > 0.f &&
+           isFiniteParam(cellDeltaTanLambdaSigma) && cellDeltaTanLambdaSigma > 0.f &&
+           isFiniteParam(nSigmaCut) && nSigmaCut > 0.f &&
+           isFiniteParam(maxChi2ClusterAttachment) && maxChi2ClusterAttachment > 0.f &&
+           isFiniteParam(maxChi2NDF) && maxChi2NDF > 0.f;
   }
 };
 
-/// Device-compatible disk-disk policy parameter boundary. Defaults mirror the
-/// current production MFT-style defaults in TrackingParameters.
+/// Device-compatible disk-disk policy parameter boundary. `trackletMinPt` and
+/// `cellDeltaTanLambdaSigma` are required here, not only in the barrel
+/// struct, because the disk path reads TrackletMinPt during MFT projection
+/// and applies CellDeltaTanLambdaSigma ahead of the detector-specific
+/// cell-building branch (TrackerTraits::computeLayerTracklets/computeLayerCells).
+/// Defaults mirror resetDetectorDefaults(..., MFT) (Configuration.cxx):
+/// TrackletMinPt and CellDeltaTanLambdaSigma are left at the TrackingParameters
+/// struct defaults (MFT does not override them), while TrackletMinAbsX is
+/// explicitly set to 0.05f.
 struct DiskDiskPolicyParams {
+  float trackletMinPt{0.3f};
+  float cellDeltaTanLambdaSigma{0.007f};
   float cellRoadRCut{0.05f};
-  float trackletMinAbsX{0.f};
+  float trackletMinAbsX{0.05f};
   float nSigmaCut{5.f};
   float maxChi2ClusterAttachment{60.f};
   float maxChi2NDF{30.f};
 
-  GPUhdi() constexpr bool isValid() const noexcept
+  GPUhdi() bool isValid() const noexcept
   {
-    return cellRoadRCut > 0.f && trackletMinAbsX >= 0.f && nSigmaCut > 0.f &&
-           maxChi2ClusterAttachment > 0.f && maxChi2NDF > 0.f;
+    return isFiniteParam(trackletMinPt) && trackletMinPt > 0.f &&
+           isFiniteParam(cellDeltaTanLambdaSigma) && cellDeltaTanLambdaSigma > 0.f &&
+           isFiniteParam(cellRoadRCut) && cellRoadRCut > 0.f &&
+           isFiniteParam(trackletMinAbsX) && trackletMinAbsX >= 0.f &&
+           isFiniteParam(nSigmaCut) && nSigmaCut > 0.f &&
+           isFiniteParam(maxChi2ClusterAttachment) && maxChi2ClusterAttachment > 0.f &&
+           isFiniteParam(maxChi2NDF) && maxChi2NDF > 0.f;
   }
 };
 
+// Device-facing ABI lock: standard-layout/trivially-copyable, exact size and
+// alignment, and a fixed byte offset for every field. Any reordering,
+// insertion, or width change is a breaking ABI change and must fail here
+// first.
 static_assert(std::is_standard_layout_v<CylinderCylinderPolicyParams> && std::is_trivially_copyable_v<CylinderCylinderPolicyParams>);
-static_assert(std::is_standard_layout_v<DiskDiskPolicyParams> && std::is_trivially_copyable_v<DiskDiskPolicyParams>);
+static_assert(sizeof(CylinderCylinderPolicyParams) == 20);
+static_assert(alignof(CylinderCylinderPolicyParams) == alignof(float));
+static_assert(offsetof(CylinderCylinderPolicyParams, trackletMinPt) == 0);
+static_assert(offsetof(CylinderCylinderPolicyParams, cellDeltaTanLambdaSigma) == 4);
+static_assert(offsetof(CylinderCylinderPolicyParams, nSigmaCut) == 8);
+static_assert(offsetof(CylinderCylinderPolicyParams, maxChi2ClusterAttachment) == 12);
+static_assert(offsetof(CylinderCylinderPolicyParams, maxChi2NDF) == 16);
 
-/// True if a transition carrying `tag` may legally connect surfaces of `kind`.
-/// This mirrors, but does not replace, DetectorLayout's own construction-time
-/// policy/surface-kind validation; it exists so the dispatch boundary and its
-/// tests can state the same compatibility rule without depending on layout
-/// construction succeeding first.
-GPUhdi() constexpr bool isSurfaceKindCompatible(TransitionPolicyTag tag, SurfaceKind kind) noexcept
-{
-  switch (tag) {
-    case TransitionPolicyTag::CylinderCylinder:
-      return kind == SurfaceKind::Cylinder;
-    case TransitionPolicyTag::DiskDisk:
-      return kind == SurfaceKind::Disk;
-    case TransitionPolicyTag::Invalid:
-      return false;
-  }
-  return false;
-}
+static_assert(std::is_standard_layout_v<DiskDiskPolicyParams> && std::is_trivially_copyable_v<DiskDiskPolicyParams>);
+static_assert(sizeof(DiskDiskPolicyParams) == 28);
+static_assert(alignof(DiskDiskPolicyParams) == alignof(float));
+static_assert(offsetof(DiskDiskPolicyParams, trackletMinPt) == 0);
+static_assert(offsetof(DiskDiskPolicyParams, cellDeltaTanLambdaSigma) == 4);
+static_assert(offsetof(DiskDiskPolicyParams, cellRoadRCut) == 8);
+static_assert(offsetof(DiskDiskPolicyParams, trackletMinAbsX) == 12);
+static_assert(offsetof(DiskDiskPolicyParams, nSigmaCut) == 16);
+static_assert(offsetof(DiskDiskPolicyParams, maxChi2ClusterAttachment) == 20);
+static_assert(offsetof(DiskDiskPolicyParams, maxChi2NDF) == 24);
 
 /// Per-tag policy/state boundary: the derived state family, the surface kind
 /// every transition carrying this tag must have, the Stage-A track state used

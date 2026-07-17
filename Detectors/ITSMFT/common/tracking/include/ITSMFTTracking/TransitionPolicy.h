@@ -12,6 +12,7 @@
 #include <type_traits>
 
 #include "GPUCommonDef.h"
+#include "ITSMFTTracking/SurfaceDescriptor.h"
 
 namespace o2::itsmft::tracking
 {
@@ -55,6 +56,23 @@ GPUhdi() constexpr StateFamily stateFamilyOf(TransitionPolicyTag tag) noexcept
       return StateFamily::Invalid;
   }
   return StateFamily::Invalid;
+}
+
+/// True if a transition carrying `tag` may legally connect surfaces of
+/// `kind`. This is the single shared definition of the policy/surface-kind
+/// compatibility rule; DetectorLayout construction-time validation and the
+/// policy/state traits both call this instead of each encoding their own copy.
+GPUhdi() constexpr bool isSurfaceKindCompatible(TransitionPolicyTag tag, SurfaceKind kind) noexcept
+{
+  switch (tag) {
+    case TransitionPolicyTag::CylinderCylinder:
+      return kind == SurfaceKind::Cylinder;
+    case TransitionPolicyTag::DiskDisk:
+      return kind == SurfaceKind::Disk;
+    case TransitionPolicyTag::Invalid:
+      return false;
+  }
+  return false;
 }
 
 static_assert(std::is_same_v<std::underlying_type_t<StateFamily>, uint8_t>);
