@@ -34,6 +34,8 @@
 #include "ITSMFTTracking/LayerMask.h"
 #include "ITStracking/ROFLookupTables.h"
 #include "ITSMFTTracking/TrackerTraits.h"
+#include "ITSMFTTracking/TransitionPolicyBinding.h"
+#include "ITSMFTTracking/TransitionPolicyOperations.h"
 #include "ITStracking/TrackHelpers.h"
 #include "ITStracking/Tracklet.h"
 #include "SimulationDataFormat/MCCompLabel.h"
@@ -521,6 +523,15 @@ template <int NLayers>
 void TrackerTraits<NLayers>::findCellsNeighbours(const int iteration)
 {
   const auto topology = mTimeFrame->getTrackingTopologyView();
+  // Temporary legacy single-detector compatibility boundary (same note as
+  // DetectorTraits.cxx::cellsAreCompatible): DetId is inferred from NLayers
+  // rather than carried on a sparse-topology transition tag. Local to this
+  // translation unit; replaced by TransitionPolicyGrouping-driven dispatch
+  // once TrackerTraits consumes a real DetectorLayout. Bound once per
+  // iteration, outside mTaskArena->execute and every candidate/neighbour
+  // loop below -- never rebind per-candidate.
+  constexpr auto kPolicyTag = DetectorTraits<NLayers>::DetId == o2::detectors::DetID::MFT ? TransitionPolicyTag::DiskDisk : TransitionPolicyTag::CylinderCylinder;
+  const auto policyParams = bindTransitionPolicyParams<kPolicyTag>(mTrkParams[iteration]);
   mTaskArena->execute([&] {
     std::vector<bounded_vector<CellNeighbour>> cellsNeighboursByTarget;
     cellsNeighboursByTarget.reserve(topology.nCells);
@@ -566,27 +577,7 @@ void TrackerTraits<NLayers>::findCellsNeighbours(const int iteration)
                 break;
               }
 
-              bool neighbourAccepted{false};
-              auto nextCellSeed{mTimeFrame->getCells()[nextCellTopologyId][iNextCell]}; /// copy
-              if constexpr (DetectorTraits<NLayers>::DetId == o2::detectors::DetID::MFT) {
-                neighbourAccepted = DetectorTraits<NLayers>::cellsAreCompatible(currentCellSeed,
-                                                                                  nextCellSeed,
-                                                                                  *mTimeFrame,
-                                                                                  mTrkParams[iteration],
-                                                                                  getBz());
-              } else {
-                if (!nextCellSeed.rotate(currentCellSeed.getAlpha()) ||
-                    !nextCellSeed.propagateTo(currentCellSeed.getX(), getBz())) {
-                  continue;
-                }
-
-                const float chi2 = currentCellSeed.getPredictedChi2(nextCellSeed);
-                if (chi2 > mTrkParams[iteration].MaxChi2ClusterAttachment) {
-                  continue;
-                }
-                neighbourAccepted = true;
-              }
-              if (!neighbourAccepted) {
+              if (!o2::itsmft::tracking::cellsAreCompatible<kPolicyTag>(currentCellSeed, nextCellSeedRef, getBz(), policyParams)) {
                 continue;
               }
 
