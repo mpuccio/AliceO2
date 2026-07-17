@@ -34,6 +34,9 @@ o2_add_library(ITSMFTTracking
                        src/TransitionPolicyOperations.cxx
                        src/DetectorLayoutBuilder.cxx
                        src/DetectorSurfaceCatalogAggregation.cxx
+                       src/GeometrySurfaceCatalogProvider.cxx
+                       src/ITSSurfaceCatalogProvider.cxx
+                       src/MFTSurfaceCatalogProvider.cxx
                        src/CATracker.cxx
                        src/TrackingInterface.cxx
                        src/MFTFwdTrackHelpers.cxx
