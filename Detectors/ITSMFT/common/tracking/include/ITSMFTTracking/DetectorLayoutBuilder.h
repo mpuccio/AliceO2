@@ -12,6 +12,7 @@
 
 #ifndef GPUCA_GPUCODE
 #include <optional>
+#include <utility>
 #include <vector>
 
 #include "ITSMFTTracking/DetectorLayout.h"

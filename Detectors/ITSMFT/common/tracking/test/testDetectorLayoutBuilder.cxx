@@ -314,6 +314,42 @@ BOOST_AUTO_TEST_CASE(PolicySurfaceKindMismatchIsRejected)
   BOOST_CHECK(result.layoutError == DetectorLayoutError::PolicySurfaceKindMismatch);
 }
 
+BOOST_AUTO_TEST_CASE(SingletonSubgraphInvalidPolicyTagIsRejected)
+{
+  // A singleton subgraph never calls addTransition, so this must be caught
+  // by explicit up-front validation rather than falling out of transition
+  // enumeration.
+  DetectorLayoutBuilder builder{denseCatalog(1)};
+  builder.addSubgraph(DetectorLayoutSubgraph{orderedIds({0}), 0, SurfaceMask{}, SurfaceMask{}, TransitionPolicyTag::Invalid});
+
+  const auto result = builder.build();
+  BOOST_CHECK(!result.ok());
+  BOOST_CHECK(result.error == DetectorLayoutBuildError::TopologyRejected);
+  BOOST_CHECK(result.topologyError == TopologyBuildError::InvalidPolicyTag);
+}
+
+BOOST_AUTO_TEST_CASE(SingletonDiskSurfaceTaggedCylinderCylinderIsRejected)
+{
+  DetectorLayoutBuilder builder{denseCatalog(1, SurfaceKind::Disk)};
+  builder.addSubgraph(DetectorLayoutSubgraph{orderedIds({0}), 0, SurfaceMask{}, SurfaceMask{}, TransitionPolicyTag::CylinderCylinder});
+
+  const auto result = builder.build();
+  BOOST_CHECK(!result.ok());
+  BOOST_CHECK(result.error == DetectorLayoutBuildError::LayoutRejected);
+  BOOST_CHECK(result.layoutError == DetectorLayoutError::PolicySurfaceKindMismatch);
+}
+
+BOOST_AUTO_TEST_CASE(SingletonCylinderSurfaceTaggedDiskDiskIsRejected)
+{
+  DetectorLayoutBuilder builder{denseCatalog(1, SurfaceKind::Cylinder)};
+  builder.addSubgraph(DetectorLayoutSubgraph{orderedIds({0}), 0, SurfaceMask{}, SurfaceMask{}, TransitionPolicyTag::DiskDisk});
+
+  const auto result = builder.build();
+  BOOST_CHECK(!result.ok());
+  BOOST_CHECK(result.error == DetectorLayoutBuildError::LayoutRejected);
+  BOOST_CHECK(result.layoutError == DetectorLayoutError::PolicySurfaceKindMismatch);
+}
+
 BOOST_AUTO_TEST_CASE(NegativeMaxHolesIsRejected)
 {
   // Explicit contract: a negative maxHoles is rejected outright rather than

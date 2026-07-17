@@ -66,6 +66,16 @@ DetectorLayoutBuildResult DetectorLayoutBuilder::build() const
       return result;
     }
 
+    // Checked explicitly rather than left to fall out of addTransition():
+    // a singleton subgraph never calls addTransition at all, so an Invalid
+    // policy tag or a policy/surface-kind mismatch would otherwise pass
+    // through unreported.
+    if (!isStageATransitionPolicyTagEnabled(subgraph.policyTag)) {
+      result.error = DetectorLayoutBuildError::TopologyRejected;
+      result.topologyError = TopologyBuildError::InvalidPolicyTag;
+      return result;
+    }
+
     SurfaceMask subgraphSurfaces{};
     for (const auto& id : subgraph.orderedSurfaces) {
       if (!id.isValid() || id.value() >= mCatalog.size()) {
@@ -78,6 +88,11 @@ DetectorLayoutBuildResult DetectorLayoutBuilder::build() const
       }
       if (seenAcrossSubgraphs.has(id)) {
         result.error = DetectorLayoutBuildError::SurfaceDuplicatedAcrossSubgraphs;
+        return result;
+      }
+      if (!isSurfaceKindCompatible(subgraph.policyTag, mCatalog[id.value()].kind)) {
+        result.error = DetectorLayoutBuildError::LayoutRejected;
+        result.layoutError = DetectorLayoutError::PolicySurfaceKindMismatch;
         return result;
       }
       subgraphSurfaces.set(id);
