@@ -39,6 +39,11 @@
 #include "ITSMFTTracking/MultiSourceFrame.h"
 #include "ITSMFTTracking/MultiSourceLoading.h"
 #include "ITSMFTTracking/TrackingTopology.h"
+#ifndef GPUCA_GPUCODE
+#include <optional>
+#include "ITSMFTTracking/DetectorLayoutSet.h"
+#include "ITSMFTTracking/DetectorSurfaceCatalogProvider.h"
+#endif
 #include "SimulationDataFormat/MCCompLabel.h"
 #include "SimulationDataFormat/MCTruthContainer.h"
 
@@ -164,6 +169,31 @@ struct TimeFrame {
   // call. Empty/default until that first succeeds.
   const MultiSourceFrame& getNormalizedFrame() const noexcept { return mNormalizedFrame; }
   MultiSourceFrameView getNormalizedFrameView() const noexcept { return mNormalizedFrame.getView(); }
+
+#ifndef GPUCA_GPUCODE
+  DetectorLayoutSetBuildResult ensureDetectorLayouts(const DetectorSurfaceCatalogProvider* provider,
+                                                     gsl::span<const SurfaceId> orderedSurfaces,
+                                                     TransitionPolicyTag policyTag,
+                                                     gsl::span<const TrackingParameters> trackingParameters);
+  void invalidateDetectorLayouts() noexcept;
+  DetectorGeometryEpoch getRequiredDetectorGeometryEpoch() const noexcept { return mRequiredDetectorGeometryEpoch; }
+  bool detectorLayoutsCurrent() const noexcept;
+  bool hasStoredDetectorLayouts() const noexcept { return mDetectorLayouts.has_value(); }
+  const DetectorLayoutSet* getDetectorLayouts() const noexcept
+  {
+    return detectorLayoutsCurrent() ? &*mDetectorLayouts : nullptr;
+  }
+  const DetectorLayout* getDetectorLayout(size_t iteration) const noexcept
+  {
+    const auto* layouts = getDetectorLayouts();
+    return layouts ? layouts->getLayout(iteration) : nullptr;
+  }
+  DetectorLayoutView getDetectorLayoutView(size_t iteration) const noexcept
+  {
+    const auto* layouts = getDetectorLayouts();
+    return layouts ? layouts->getLayoutView(iteration) : DetectorLayoutView{};
+  }
+#endif
 
   int getTotalClusters() const;
   bool empty() const { return getTotalClusters() == 0; }
@@ -423,6 +453,13 @@ struct TimeFrame {
   // Normalized owner associated by loadNormalizedSource(); host-only, never
   // GPU-managed or dictionary-serialized (see getNormalizedFrame()).
   MultiSourceFrame mNormalizedFrame;
+
+#ifndef GPUCA_GPUCODE
+  // Semantic configuration, unlike event artefacts, survives wipe().
+  std::optional<DetectorLayoutSet> mDetectorLayouts;
+  std::optional<DetectorLayoutConfigurationKey> mRequiredDetectorLayoutConfiguration;
+  DetectorGeometryEpoch mRequiredDetectorGeometryEpoch{InitialDetectorGeometryEpoch};
+#endif
 };
 
 template <int NLayers>

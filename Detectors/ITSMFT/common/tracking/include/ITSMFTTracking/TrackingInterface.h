@@ -29,6 +29,9 @@
 #include "DataFormatsITSMFT/TopologyDictionary.h"
 #include "DetectorsCommonDataFormats/DetID.h"
 #include "ITSMFTTracking/DetectorTraits.h"
+#ifndef GPUCA_GPUCODE
+#include "ITSMFTTracking/DetectorSurfaceCatalogProvider.h"
+#endif
 #include "ITSMFTTracking/Tracker.h"
 #include "ITSMFTTracking/Configuration.h"
 #include "ITSMFTTracking/TimeFrame.h"
@@ -58,6 +61,21 @@ class ITSMFTTrackingInterface
   using BoundedMemoryResourceN = BoundedMemoryResource;
 
   ITSMFTTrackingInterface(bool useMC, o2::itsmft::TrackingMode::Type mode, bool overrideBeamEst);
+#ifndef GPUCA_GPUCODE
+  ITSMFTTrackingInterface(bool useMC, o2::itsmft::TrackingMode::Type mode, bool overrideBeamEst,
+                          std::unique_ptr<DetectorSurfaceCatalogProvider> catalogProvider);
+
+  void setDetectorSurfaceCatalogProvider(std::unique_ptr<DetectorSurfaceCatalogProvider> catalogProvider)
+  {
+    mTimeFrame.invalidateDetectorLayouts();
+    mDetectorSurfaceCatalogProvider = std::move(catalogProvider);
+  }
+  DetectorLayoutSetBuildResult configureDetectorLayouts(gsl::span<const SurfaceId> orderedSurfaces,
+                                                        TransitionPolicyTag policyTag)
+  {
+    return mTimeFrame.ensureDetectorLayouts(mDetectorSurfaceCatalogProvider.get(), orderedSurfaces, policyTag, mTrackParams);
+  }
+#endif
 
   void setTrackingMode(o2::itsmft::TrackingMode::Type mode) { mTrackingMode = mode; }
   void setClusterDictionary(const o2::itsmft::TopologyDictionary* dict) { mDict = dict; }
@@ -108,6 +126,9 @@ class ITSMFTTrackingInterface
   std::shared_ptr<BoundedMemoryResourceN> mMemoryPool;
   std::unique_ptr<TrackerTraitsN> mTrackerTraits;
   std::unique_ptr<TrackerN> mTracker;
+#ifndef GPUCA_GPUCODE
+  std::unique_ptr<DetectorSurfaceCatalogProvider> mDetectorSurfaceCatalogProvider;
+#endif
   const o2::itsmft::TopologyDictionary* mDict = nullptr;
   const o2::dataformats::MeanVertexObject* mMeanVertex = nullptr;
   TimeFrameN mTimeFrame;

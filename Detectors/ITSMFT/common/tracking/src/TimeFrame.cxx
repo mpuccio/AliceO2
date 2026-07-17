@@ -39,6 +39,110 @@ struct ClusterHelper {
 namespace o2::itsmft::tracking
 {
 
+#ifndef GPUCA_GPUCODE
+namespace
+{
+SurfaceMask positionalSurfaceMask(LayerMask layerMask, gsl::span<const SurfaceId> orderedSurfaces, uint32_t activeCount)
+{
+  SurfaceMask result;
+  for (uint32_t position = 0; position < activeCount; ++position) {
+    if (layerMask.has(position)) {
+      result.set(orderedSurfaces[position]);
+    }
+  }
+  return result;
+}
+} // namespace
+
+template <int NLayers>
+bool TimeFrame<NLayers>::detectorLayoutsCurrent() const noexcept
+{
+  return mDetectorLayouts.has_value() && mRequiredDetectorLayoutConfiguration.has_value() &&
+         mDetectorLayouts->getConfigurationKey() == *mRequiredDetectorLayoutConfiguration &&
+         mDetectorLayouts->getConfigurationKey().geometryEpoch == mRequiredDetectorGeometryEpoch;
+}
+
+template <int NLayers>
+void TimeFrame<NLayers>::invalidateDetectorLayouts() noexcept
+{
+  const auto previousEpoch = mRequiredDetectorGeometryEpoch;
+  mRequiredDetectorGeometryEpoch = nextDetectorGeometryEpoch(previousEpoch);
+  if (previousEpoch == std::numeric_limits<DetectorGeometryEpoch>::max()) {
+    // Epoch one may have existed before the counter wrapped. Dropping the old
+    // owner is the only way to prevent that ancient catalog becoming current.
+    mDetectorLayouts.reset();
+  }
+  if (mRequiredDetectorLayoutConfiguration) {
+    mRequiredDetectorLayoutConfiguration->geometryEpoch = mRequiredDetectorGeometryEpoch;
+  }
+}
+
+template <int NLayers>
+DetectorLayoutSetBuildResult TimeFrame<NLayers>::ensureDetectorLayouts(const DetectorSurfaceCatalogProvider* provider,
+                                                                       gsl::span<const SurfaceId> orderedSurfaces,
+                                                                       TransitionPolicyTag policyTag,
+                                                                       gsl::span<const TrackingParameters> trackingParameters)
+{
+  DetectorLayoutConfigurationKey key;
+  key.geometryEpoch = mRequiredDetectorGeometryEpoch;
+  key.orderedSurfaces.assign(orderedSurfaces.begin(), orderedSurfaces.end());
+  key.policyTag = policyTag;
+  key.iterations.reserve(trackingParameters.size());
+  for (const auto& parameters : trackingParameters) {
+    if (parameters.NLayers < 0 || static_cast<size_t>(parameters.NLayers) > orderedSurfaces.size()) {
+      const auto failedIteration = key.iterations.size();
+      mRequiredDetectorLayoutConfiguration.reset();
+      return {.error = DetectorLayoutSetBuildError::InvalidActiveCount,
+              .failedIteration = failedIteration};
+    }
+    key.iterations.push_back(DetectorLayoutIterationConfiguration{
+      static_cast<uint32_t>(parameters.NLayers), parameters.MaxHoles,
+      parameters.HoleLayerMask, parameters.StartLayerMask});
+  }
+
+  mRequiredDetectorLayoutConfiguration = key;
+  if (detectorLayoutsCurrent()) {
+    return {};
+  }
+  if (provider == nullptr) {
+    return {.error = DetectorLayoutSetBuildError::MissingProvider};
+  }
+
+  auto catalogResult = provider->buildCatalog();
+  if (!catalogResult.ok()) {
+    return {.error = DetectorLayoutSetBuildError::CatalogProviderFailure,
+            .catalogError = catalogResult.error};
+  }
+
+  std::vector<DetectorLayout> staging;
+  staging.reserve(key.iterations.size());
+  for (size_t iteration = 0; iteration < key.iterations.size(); ++iteration) {
+    const auto& configuration = key.iterations[iteration];
+    std::vector<SurfaceId> activeSurfaces(orderedSurfaces.begin(), orderedSurfaces.begin() + configuration.activeCount);
+    DetectorLayoutSubgraph subgraph;
+    subgraph.orderedSurfaces = std::move(activeSurfaces);
+    subgraph.maxHoles = configuration.maxHoles;
+    subgraph.holeSurfaces = positionalSurfaceMask(configuration.holeLayerMask, orderedSurfaces, configuration.activeCount);
+    subgraph.seedingSurfaces = positionalSurfaceMask(configuration.startLayerMask, orderedSurfaces, configuration.activeCount);
+    subgraph.policyTag = policyTag;
+
+    DetectorLayoutBuilder builder{catalogResult.catalog};
+    auto buildResult = builder.addSubgraph(std::move(subgraph)).build();
+    if (!buildResult.ok()) {
+      return {.error = DetectorLayoutSetBuildError::LayoutBuilderFailure,
+              .failedIteration = iteration,
+              .layoutBuildError = buildResult.error,
+              .topologyError = buildResult.topologyError,
+              .layoutError = buildResult.layoutError};
+    }
+    staging.push_back(std::move(*buildResult.layout));
+  }
+
+  mDetectorLayouts.emplace(std::move(key), std::move(staging));
+  return {.rebuilt = true};
+}
+#endif
+
 using o2::its::clearResizeBoundedVector;
 using o2::its::deepVectorClear;
 namespace math_utils = o2::its::math_utils;

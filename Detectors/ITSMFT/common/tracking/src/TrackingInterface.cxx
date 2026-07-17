@@ -61,13 +61,32 @@ bool rofOverlapsIRFrames(const o2::itsmft::ROFRecord& rof, int rofLengthInBC, gs
 }
 } // namespace
 
+#ifndef GPUCA_GPUCODE
 template <int NLayers>
 ITSMFTTrackingInterface<NLayers>::ITSMFTTrackingInterface(bool useMC,
                                                           o2::itsmft::TrackingMode::Type mode,
                                                           bool overrideBeamEst)
-  : mUseMC(useMC), mTrackingMode(mode), mOverrideBeamEstimation(overrideBeamEst)
+  : ITSMFTTrackingInterface(useMC, mode, overrideBeamEst, nullptr)
 {
 }
+
+template <int NLayers>
+ITSMFTTrackingInterface<NLayers>::ITSMFTTrackingInterface(bool useMC,
+                                                          o2::itsmft::TrackingMode::Type mode,
+                                                          bool overrideBeamEst,
+                                                          std::unique_ptr<DetectorSurfaceCatalogProvider> catalogProvider)
+  : mUseMC(useMC), mOverrideBeamEstimation(overrideBeamEst), mTrackingMode(mode), mDetectorSurfaceCatalogProvider(std::move(catalogProvider))
+{
+}
+#else
+template <int NLayers>
+ITSMFTTrackingInterface<NLayers>::ITSMFTTrackingInterface(bool useMC,
+                                                          o2::itsmft::TrackingMode::Type mode,
+                                                          bool overrideBeamEst)
+  : mUseMC(useMC), mOverrideBeamEstimation(overrideBeamEst), mTrackingMode(mode)
+{
+}
+#endif
 
 template <int NLayers>
 void ITSMFTTrackingInterface<NLayers>::initialise()
