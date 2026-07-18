@@ -15,6 +15,7 @@
 #include "ITSMFTTracking/TransitionPolicyOperations.h"
 
 #include "ITSMFTTracking/MFTFwdTrackHelpers.h"
+#include "ITStracking/Cluster.h"
 #include "ITStracking/Constants.h"
 
 namespace o2::itsmft::tracking

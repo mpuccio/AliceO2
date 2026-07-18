@@ -139,6 +139,11 @@ void checkBarrelStateEqual(const o2::track::TrackParCovF& lhs, const o2::track::
   BOOST_CHECK_EQUAL(lhs.getSnp(), rhs.getSnp());
   BOOST_CHECK_EQUAL(lhs.getTgl(), rhs.getTgl());
   BOOST_CHECK_EQUAL(lhs.getQ2Pt(), rhs.getQ2Pt());
+  const auto& lhsCov = lhs.getCov();
+  const auto& rhsCov = rhs.getCov();
+  for (size_t element = 0; element < lhsCov.size(); ++element) {
+    BOOST_CHECK_EQUAL(lhsCov[element], rhsCov[element]);
+  }
 }
 
 void checkDiskStateEqual(const o2::track::TrackParCovFwd& lhs, const o2::track::TrackParCovFwd& rhs)
@@ -149,6 +154,14 @@ void checkDiskStateEqual(const o2::track::TrackParCovFwd& lhs, const o2::track::
   BOOST_CHECK_EQUAL(lhs.getPhi(), rhs.getPhi());
   BOOST_CHECK_EQUAL(lhs.getTanl(), rhs.getTanl());
   BOOST_CHECK_EQUAL(lhs.getInvQPt(), rhs.getInvQPt());
+  BOOST_CHECK_EQUAL(lhs.getTrackChi2(), rhs.getTrackChi2());
+  const auto& lhsCov = lhs.getCovariances();
+  const auto& rhsCov = rhs.getCovariances();
+  for (size_t row = 0; row < 5; ++row) {
+    for (size_t column = 0; column < 5; ++column) {
+      BOOST_CHECK_EQUAL(lhsCov(row, column), rhsCov(row, column));
+    }
+  }
 }
 
 } // namespace

@@ -10,22 +10,28 @@
 
 #include "ITSMFTTracking/Cell.h"
 #include "ITSMFTTracking/TransitionPolicyState.h"
-#include "ITStracking/Cluster.h"
+
+#ifndef GPUCA_GPUCODE
 #include "DetectorsBase/Propagator.h"
+
+namespace o2::its
+{
+struct TrackingFrameInfo;
+}
+#endif
 
 namespace o2::itsmft::tracking
 {
 
 /// D007 policy-boundary operation (Architecture.md 10): true if `nextCell`
-/// may extend a road built on `currentCell`. This is the first of the five
-/// policy operations listed there (projectSearchWindow, buildCellSeed,
-/// cellsAreCompatible, attachHit, finalRefit); the other four remain
-/// TrackerTraits-internal until later slices. Dispatch is a compile-time tag
-/// switch -- one specialization per Tag, selected by the caller once outside
-/// any candidate/neighbour loop -- never a runtime detector branch inside
-/// this operation or its callers' hot loops. Instantiating the primary
-/// template for an unsupported tag is a compile error rather than a silent
-/// fallback (mirrors TransitionPolicyTraits).
+/// may extend a road built on `currentCell`. cellsAreCompatible and attachHit
+/// are now migrated to this boundary; projectSearchWindow, buildCellSeed, and
+/// finalRefit remain TrackerTraits-internal until later slices. Dispatch is a
+/// compile-time tag switch -- one specialization per Tag, selected by the
+/// caller once outside any candidate/neighbour loop -- never a runtime detector
+/// branch inside this operation or its callers' hot loops. Instantiating the
+/// primary template for an unsupported tag is a compile error rather than a
+/// silent fallback (mirrors TransitionPolicyTraits).
 ///
 /// Host-only for this CPU migration slice: the disk (DiskDisk) specialization
 /// is defined in TransitionPolicyOperations.cxx against the existing MFT
@@ -67,10 +73,15 @@ bool cellsAreCompatible<TransitionPolicyTag::DiskDisk>(
   float bz,
   const DiskDiskPolicyParams& params);
 
+#ifndef GPUCA_GPUCODE
+
 /// D007 attach-hit policy operation. The typed family state and parameter
 /// block are selected once by the caller's outer policy dispatch. `xOverX0`
 /// is the already-selected material budget for the hit surface; no legacy
 /// TrackingParameters object or detector identity crosses this boundary.
+/// `o2::its::TrackingFrameInfo` is a temporary Gate 3 compatibility boundary,
+/// not a detector-neutral measurement contract; production normalized loading
+/// must eventually supply SurfaceMeasurement directly.
 ///
 /// Host-only: CylinderCylinder calls the host Propagator singleton and
 /// DiskDisk calls the host forward-state propagation/update chain. The two
@@ -106,6 +117,8 @@ bool attachHit<TransitionPolicyTag::DiskDisk>(
   float bz,
   float& chi2,
   const DiskDiskPolicyParams& params);
+
+#endif // GPUCA_GPUCODE
 
 } // namespace o2::itsmft::tracking
 
