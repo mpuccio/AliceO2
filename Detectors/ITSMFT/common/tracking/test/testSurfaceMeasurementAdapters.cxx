@@ -12,6 +12,7 @@
 
 #include <array>
 #include <cstring>
+#include <vector>
 
 #include <gsl/gsl>
 
@@ -147,6 +148,58 @@ BOOST_AUTO_TEST_CASE(ExplicitPatternIsConsumedExactlyOnceAndProvidesShape)
   BOOST_CHECK_EQUAL(secondShape.nPixels, 2u);
   BOOST_CHECK_EQUAL(secondShape.rowSpan, 1u);
   BOOST_CHECK_EQUAL(secondShape.columnSpan, 2u);
+}
+
+BOOST_AUTO_TEST_CASE(BoundedExplicitPatternConsumptionRejectsEveryTruncationBoundary)
+{
+  // 3x3 requires two payload bytes: encoded size is 2 + ceil(9/8) = 4.
+  constexpr std::array<unsigned char, 4> encoded{3, 3, 0x80, 0x80};
+  const CompClusterExt cluster{10, 20, CompCluster::InvalidPatternID, 1};
+  const TopologyDictionary dictionary;
+
+  for (size_t available = 0; available < encoded.size(); ++available) {
+    BoundedPatternCursor patterns{gsl::span<const unsigned char>{encoded.data(), available}};
+    const auto decoded = o2::itsmft::ioutils::extractClusterDataBounded(cluster, patterns, &dictionary);
+    BOOST_CHECK(decoded.error == ClusterDecodeError::TruncatedExplicitPattern);
+    BOOST_CHECK_EQUAL(patterns.consumed(), 0u);
+  }
+
+  BoundedPatternCursor patterns{encoded};
+  const auto decoded = o2::itsmft::ioutils::extractClusterDataBounded(cluster, patterns, &dictionary);
+  BOOST_REQUIRE(decoded.ok());
+  BOOST_CHECK_EQUAL(patterns.consumed(), encoded.size());
+  BOOST_CHECK(patterns.empty());
+  BOOST_CHECK_EQUAL(decoded.shape.nPixels, 2u);
+  BOOST_CHECK_EQUAL(decoded.shape.rowSpan, 3u);
+  BOOST_CHECK_EQUAL(decoded.shape.columnSpan, 3u);
+}
+
+BOOST_AUTO_TEST_CASE(BoundedExplicitPatternRejectsMalformedSpansAndEmptyBitmap)
+{
+  const TopologyDictionary dictionary;
+  const CompClusterExt cluster{10, 20, CompCluster::InvalidPatternID, 1};
+  const std::array<std::vector<unsigned char>, 4> malformed{
+    std::vector<unsigned char>{0, 1},
+    std::vector<unsigned char>{1, 0},
+    std::vector<unsigned char>{129, 1},
+    std::vector<unsigned char>{1, 1, 0x00}};
+
+  for (const auto& encoded : malformed) {
+    BoundedPatternCursor patterns{encoded};
+    const auto decoded = o2::itsmft::ioutils::extractClusterDataBounded(cluster, patterns, &dictionary);
+    BOOST_CHECK(decoded.error == ClusterDecodeError::MalformedExplicitPattern);
+    BOOST_CHECK_EQUAL(patterns.consumed(), 0u);
+  }
+}
+
+BOOST_AUTO_TEST_CASE(BoundedDecodeReportsMissingDictionaryBeforeReadingPatterns)
+{
+  constexpr std::array<unsigned char, 3> encoded{1, 1, 0x80};
+  BoundedPatternCursor patterns{encoded};
+  const CompClusterExt cluster{10, 20, CompCluster::InvalidPatternID, 1};
+  const auto decoded = o2::itsmft::ioutils::extractClusterDataBounded(cluster, patterns, nullptr);
+  BOOST_CHECK(decoded.error == ClusterDecodeError::MissingDictionary);
+  BOOST_CHECK_EQUAL(patterns.consumed(), 0u);
 }
 
 BOOST_AUTO_TEST_CASE(SensorAndLayerValidationKeepsBothBounds)

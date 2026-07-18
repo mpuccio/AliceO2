@@ -163,6 +163,63 @@ class FakeClusterDecoder final : public ClusterDecoder
   Corruption mCorruption;
 };
 
+// Geometry-free decoder used only to exercise the normalized loader's
+// dictionary/common/group/explicit pattern contract. Pattern ID 0 represents
+// a common dictionary entry (no explicit bytes), pattern ID 1 represents a
+// grouped dictionary entry (explicit bytes required), and InvalidPatternID
+// represents an ordinary explicit pattern.
+class PatternContractDecoder final : public ClusterDecoder
+{
+ public:
+  o2::itsmft::ioutils::SurfaceMeasurementDecodeResult decode(
+    const CompClusterExt& cluster,
+    BoundedPatternCursor& patterns,
+    const TopologyDictionary* dictionary,
+    gsl::span<const SurfaceId> layerToSurface,
+    ClusterSourceId source,
+    uint32_t externalIndex,
+    uint32_t sourceROF,
+    bool) const override
+  {
+    o2::itsmft::ioutils::SurfaceMeasurementDecodeResult result;
+    if (dictionary == nullptr) {
+      result.error = ClusterDecodeError::MissingDictionary;
+      return result;
+    }
+    if (layerToSurface.empty()) {
+      result.error = ClusterDecodeError::InvalidLayerMapping;
+      return result;
+    }
+
+    ClusterShape shape{1, 1, 1};
+    if (cluster.getPatternID() != 0) {
+      ClusterPattern pattern;
+      result.error = patterns.acquirePattern(pattern);
+      if (!result.ok()) {
+        return result;
+      }
+      shape = {static_cast<uint32_t>(pattern.getNPixels()),
+               static_cast<uint16_t>(pattern.getRowSpan()),
+               static_cast<uint16_t>(pattern.getColumnSpan())};
+    }
+
+    DecodedCluster decoded{};
+    decoded.global = {1.f, 2.f, 3.f};
+    decoded.cylinderFrame = {4.f, 5.f, 6.f, 0.f};
+    decoded.rowColumnCovariance = {0.1f, 0.f, 0.2f};
+    decoded.shape = shape;
+    decoded.sensor = static_cast<uint32_t>(cluster.getSensorID());
+    decoded.layer = 0;
+    result.layer = 0;
+    result.layerMapped = true;
+    result.kind = SurfaceKind::Cylinder;
+    result.measurement = makeCylinderSurfaceMeasurement(
+      decoded, {o2::detectors::DetID::ITS, decoded.sensor}, layerToSurface[0],
+      {source, externalIndex}, sourceROF);
+    return result;
+  }
+};
+
 // 4-surface disconnected ITS(cylinder)+MFT(disk) layout: surfaces {0,1} are
 // ITS layers 0/1, surfaces {2,3} are MFT layers 0/1. No transitions are
 // needed to exercise loading.
@@ -733,6 +790,145 @@ BOOST_AUTO_TEST_CASE(SourceSpecificPatternCursorsAreIndependent)
   for (const auto& m : frame.getSurfaceMeasurements(SurfaceId{0})) {
     BOOST_CHECK_EQUAL(m.shape.nPixels, 1u);
   }
+}
+
+BOOST_AUTO_TEST_CASE(CommonDictionaryPatternDoesNotConsumeExplicitBytes)
+{
+  const auto layout = makeCombinedLayout();
+  const std::vector<CompClusterExt> clusters{
+    {1, 1, 0, 0},                              // common dictionary pattern
+    {2, 2, CompCluster::InvalidPatternID, 0}}; // explicit pattern
+  const std::vector<unsigned char> patterns{onePixelPattern.begin(), onePixelPattern.end()};
+  const std::vector<ROFRecord> rofs{ROFRecord{{0, 0}, 0, 0, 2}};
+  PatternContractDecoder decoder;
+
+  ClusterSourceInput src;
+  src.id = ClusterSourceId{0};
+  src.detector = o2::detectors::DetID::ITS;
+  src.clusters = clusters;
+  src.patterns = patterns;
+  src.rofs = rofs;
+  src.dictionary = &dict();
+  src.layerToSurface = itsLayerToSurface;
+  src.timing = ROFTimingConfig{40, 0, 0, 0};
+  src.decoder = &decoder;
+
+  MultiSourceFrame frame;
+  const auto result = loadSources(frame, layout.getView().getSurfaceCatalogView(), gsl::span<const ClusterSourceInput>(&src, 1), {0, 0});
+  BOOST_REQUIRE(result.ok());
+  BOOST_REQUIRE_EQUAL(frame.getSurfaceMeasurements(SurfaceId{0}).size(), 2u);
+  BOOST_CHECK_EQUAL(frame.getSurfaceMeasurements(SurfaceId{0})[0].shape.nPixels, 1u);
+  BOOST_CHECK_EQUAL(frame.getSurfaceMeasurements(SurfaceId{0})[1].shape.nPixels, 1u);
+}
+
+BOOST_AUTO_TEST_CASE(ExplicitAndGroupedPatternTruncationIsTypedAndContextual)
+{
+  const auto layout = makeCombinedLayout();
+  PatternContractDecoder decoder;
+  const std::vector<ROFRecord> rofs{ROFRecord{{0, 0}, 0, 0, 1}};
+  constexpr std::array<unsigned char, 4> encoded{3, 3, 0x80, 0x80};
+
+  for (const auto patternID : {CompCluster::InvalidPatternID, static_cast<unsigned short>(1)}) {
+    const std::vector<CompClusterExt> clusters{{1, 1, patternID, 0}};
+    for (size_t available = 0; available < encoded.size(); ++available) {
+      ClusterSourceInput src;
+      src.id = ClusterSourceId{0};
+      src.detector = o2::detectors::DetID::ITS;
+      src.clusters = clusters;
+      src.patterns = gsl::span<const unsigned char>{encoded.data(), available};
+      src.rofs = rofs;
+      src.dictionary = &dict();
+      src.layerToSurface = itsLayerToSurface;
+      src.timing = ROFTimingConfig{40, 0, 0, 0};
+      src.decoder = &decoder;
+
+      MultiSourceFrame frame;
+      const auto result = loadSources(frame, layout.getView().getSurfaceCatalogView(), gsl::span<const ClusterSourceInput>(&src, 1), {0, 0});
+      BOOST_CHECK(result.error == MultiSourceLoadError::TruncatedExplicitPattern);
+      BOOST_CHECK(result.source == ClusterSourceId{0});
+      BOOST_CHECK_EQUAL(result.rof, 0u);
+      BOOST_CHECK_EQUAL(result.clusterIndex, 0u);
+      BOOST_CHECK_EQUAL(frame.getTotalMeasurements(), 0u);
+    }
+  }
+
+  const std::vector<CompClusterExt> malformedClusters{{1, 1, CompCluster::InvalidPatternID, 0}};
+  const std::array<unsigned char, 2> malformedPattern{0, 1};
+  ClusterSourceInput malformedSource;
+  malformedSource.id = ClusterSourceId{0};
+  malformedSource.detector = o2::detectors::DetID::ITS;
+  malformedSource.clusters = malformedClusters;
+  malformedSource.patterns = malformedPattern;
+  malformedSource.rofs = rofs;
+  malformedSource.dictionary = &dict();
+  malformedSource.layerToSurface = itsLayerToSurface;
+  malformedSource.timing = ROFTimingConfig{40, 0, 0, 0};
+  malformedSource.decoder = &decoder;
+  MultiSourceFrame frame;
+  const auto malformed = loadSources(
+    frame, layout.getView().getSurfaceCatalogView(),
+    gsl::span<const ClusterSourceInput>(&malformedSource, 1), {0, 0});
+  BOOST_CHECK(malformed.error == MultiSourceLoadError::MalformedExplicitPattern);
+  BOOST_CHECK_EQUAL(malformed.rof, 0u);
+  BOOST_CHECK_EQUAL(malformed.clusterIndex, 0u);
+}
+
+BOOST_AUTO_TEST_CASE(ExactPatternConsumptionSucceedsAndTrailingBytesAreRejected)
+{
+  const auto layout = makeCombinedLayout();
+  PatternContractDecoder decoder;
+  const std::vector<CompClusterExt> clusters{{1, 1, CompCluster::InvalidPatternID, 0}};
+  const std::vector<ROFRecord> rofs{ROFRecord{{0, 0}, 0, 0, 1}};
+
+  auto makeSource = [&](gsl::span<const unsigned char> patterns) {
+    ClusterSourceInput src;
+    src.id = ClusterSourceId{0};
+    src.detector = o2::detectors::DetID::ITS;
+    src.clusters = clusters;
+    src.patterns = patterns;
+    src.rofs = rofs;
+    src.dictionary = &dict();
+    src.layerToSurface = itsLayerToSurface;
+    src.timing = ROFTimingConfig{40, 0, 0, 0};
+    src.decoder = &decoder;
+    return src;
+  };
+
+  const std::vector<unsigned char> exact{onePixelPattern.begin(), onePixelPattern.end()};
+  auto exactSource = makeSource(exact);
+  MultiSourceFrame frame;
+  BOOST_REQUIRE(loadSources(frame, layout.getView().getSurfaceCatalogView(), gsl::span<const ClusterSourceInput>(&exactSource, 1), {0, 0}).ok());
+
+  const std::vector<unsigned char> trailing{1, 1, 0x80, 0xff};
+  auto trailingSource = makeSource(trailing);
+  const auto result = loadSources(frame, layout.getView().getSurfaceCatalogView(), gsl::span<const ClusterSourceInput>(&trailingSource, 1), {0, 0});
+  BOOST_CHECK(result.error == MultiSourceLoadError::TrailingPatternData);
+  BOOST_CHECK_EQUAL(result.rof, 1u);
+  BOOST_CHECK_EQUAL(result.clusterIndex, 1u);
+  // The failed replacement load is transactional.
+  BOOST_CHECK_EQUAL(frame.getTotalMeasurements(), 1u);
+
+  auto missingDictionarySource = makeSource(exact);
+  missingDictionarySource.dictionary = nullptr;
+  const auto missingDictionary = loadSources(
+    frame, layout.getView().getSurfaceCatalogView(),
+    gsl::span<const ClusterSourceInput>(&missingDictionarySource, 1), {0, 0});
+  BOOST_CHECK(missingDictionary.error == MultiSourceLoadError::MissingDictionary);
+  BOOST_CHECK(missingDictionary.source == ClusterSourceId{0});
+  BOOST_CHECK_EQUAL(missingDictionary.rof, 0u);
+  BOOST_CHECK_EQUAL(missingDictionary.clusterIndex, 0u);
+  BOOST_CHECK_EQUAL(frame.getTotalMeasurements(), 1u);
+}
+
+BOOST_AUTO_TEST_CASE(MissingDictionaryIsTypedBeforeProductionGeometryDecode)
+{
+  ITSGeometryClusterDecoder decoder;
+  const CompClusterExt cluster{1, 1, CompCluster::InvalidPatternID, 0};
+  BoundedPatternCursor patterns{onePixelPattern};
+  const std::array<SurfaceId, 1> mapping{SurfaceId{0}};
+  const auto decoded = decoder.decode(cluster, patterns, nullptr, mapping, ClusterSourceId{0}, 0, 0, false);
+  BOOST_CHECK(decoded.error == ClusterDecodeError::MissingDictionary);
+  BOOST_CHECK_EQUAL(patterns.consumed(), 0u);
 }
 
 BOOST_AUTO_TEST_CASE(AbsentLabelsAreLegal)
