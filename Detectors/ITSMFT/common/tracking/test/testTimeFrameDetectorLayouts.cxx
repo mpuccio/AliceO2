@@ -20,6 +20,7 @@
 #include "ITSMFTTracking/DetectorSurfaceCatalogProvider.h"
 #include "ITSMFTTracking/TimeFrame.h"
 #include "ITSMFTTracking/TrackingInterface.h"
+#include "ITSMFTTracking/TrackerTraits.h"
 
 using namespace o2::itsmft::tracking;
 using o2::itsmft::TrackingParameters;
@@ -48,6 +49,19 @@ class FakeCatalogProvider final : public DetectorSurfaceCatalogProvider
 struct EpochTestTimeFrame : TimeFrame<7> {
   void setRequiredEpoch(DetectorGeometryEpoch epoch) { mRequiredDetectorGeometryEpoch = epoch; }
   const DetectorLayoutSet* getStoredDetectorLayouts() const { return mDetectorLayouts ? &*mDetectorLayouts : nullptr; }
+};
+
+struct TraversalTestTimeFrame : TimeFrame<10> {
+  void installLayout(DetectorLayout layout)
+  {
+    DetectorLayoutConfigurationKey key;
+    key.geometryEpoch = mRequiredDetectorGeometryEpoch;
+    auto surfaces = layout.getSurfaces();
+    std::vector<DetectorLayout> layouts;
+    layouts.push_back(std::move(layout));
+    mRequiredDetectorLayoutConfiguration = key;
+    mDetectorLayouts.emplace(std::move(key), std::move(surfaces), std::move(layouts));
+  }
 };
 
 static_assert(std::is_nothrow_move_constructible_v<DetectorLayoutSet>);
@@ -92,6 +106,33 @@ std::vector<SurfaceId> order(size_t count)
   return result;
 }
 
+DetectorLayout cyclicDiskLayout()
+{
+  SparseTrackingTopology topology{10};
+  BOOST_REQUIRE(topology.addTransition(SurfaceTransition{SurfaceId{0}, SurfaceId{1}, {}, TransitionPolicyTag::DiskDisk, 0}).isValid());
+  BOOST_REQUIRE(topology.addTransition(SurfaceTransition{SurfaceId{1}, SurfaceId{2}, {}, TransitionPolicyTag::DiskDisk, 0}).isValid());
+  BOOST_REQUIRE(topology.addTransition(SurfaceTransition{SurfaceId{2}, SurfaceId{0}, {}, TransitionPolicyTag::DiskDisk, 0}).isValid());
+  BOOST_REQUIRE(topology.finalize());
+  return DetectorLayout{catalog(10, SurfaceKind::Disk, o2::detectors::DetID::MFT), std::move(topology)};
+}
+
+DetectorLayout mixedDisconnectedLayout()
+{
+  SparseTrackingTopology topology{10};
+  for (uint16_t id = 0; id < 4; ++id) {
+    BOOST_REQUIRE(topology.addTransition(SurfaceTransition{SurfaceId{id}, SurfaceId{static_cast<uint16_t>(id + 1)}, {}, TransitionPolicyTag::CylinderCylinder, 0}).isValid());
+  }
+  for (uint16_t id = 5; id < 9; ++id) {
+    BOOST_REQUIRE(topology.addTransition(SurfaceTransition{SurfaceId{id}, SurfaceId{static_cast<uint16_t>(id + 1)}, {}, TransitionPolicyTag::DiskDisk, 0}).isValid());
+  }
+  BOOST_REQUIRE(topology.finalize());
+  auto surfaces = catalog(10, SurfaceKind::Disk, o2::detectors::DetID::MFT);
+  for (uint16_t id = 0; id < 5; ++id) {
+    surfaces[id].kind = SurfaceKind::Cylinder;
+  }
+  return DetectorLayout{std::move(surfaces), std::move(topology)};
+}
+
 TrackingParameters parameters(int activeCount, int maxHoles = 0, uint16_t holes = 0, uint16_t starts = 0xffff)
 {
   TrackingParameters result;
@@ -100,6 +141,29 @@ TrackingParameters parameters(int activeCount, int maxHoles = 0, uint16_t holes 
   result.HoleLayerMask = holes;
   result.StartLayerMask = starts;
   return result;
+}
+
+template <int NLayers>
+void prepareTraversalFrame(TimeFrame<NLayers>& frame,
+                           TrackerTraits<NLayers>& traits,
+                           const std::shared_ptr<BoundedMemoryResource>& pool,
+                           const std::vector<TrackingParameters>& params)
+{
+  frame.setMemoryPool(pool);
+  for (auto& rofOffsets : frame.mROFramesClusters) {
+    rofOffsets.resize(1, 0);
+  }
+  frame.initTrackerTopologies(params);
+  traits.setMemoryPool(pool);
+  traits.adoptTimeFrame(&frame);
+  traits.updateTrackingParameters(params);
+}
+
+std::vector<TrackingParameters> mftTraversalParameters()
+{
+  std::vector<TrackingParameters> params(1);
+  o2::itsmft::resetDetectorDefaults(params.front(), o2::detectors::DetID::MFT);
+  return params;
 }
 
 template <int NLayers>
@@ -389,6 +453,138 @@ BOOST_AUTO_TEST_CASE(catalog_identity_active_count_and_mask_mapping)
   });
   BOOST_REQUIRE(skipped != reducedTransitions.end());
   BOOST_CHECK(skipped->skippedSurfaces.has(SurfaceId{0}));
+}
+
+BOOST_AUTO_TEST_CASE(traversal_initialisation_classifies_missing_and_stale_layouts)
+{
+  auto params = mftTraversalParameters();
+  auto pool = std::make_shared<BoundedMemoryResource>();
+  TimeFrame<10> frame;
+  TrackerTraits<10> traits;
+  prepareTraversalFrame(frame, traits, pool, params);
+
+  try {
+    traits.initialiseTimeFrame(0);
+    BOOST_FAIL("missing layout must throw");
+  } catch (const TraversalException& error) {
+    BOOST_CHECK_EQUAL(error.getIteration(), 0);
+    BOOST_CHECK(error.getReason() == TraversalFailureReason::MissingLayout);
+  }
+  BOOST_CHECK(!traits.hasTraversalCache());
+
+  const auto catalogRequest = request(10, o2::detectors::DetID::MFT);
+  FakeCatalogProvider provider{catalog(catalogRequest, SurfaceKind::Disk)};
+  const auto ordered = order(10);
+  BOOST_REQUIRE(frame.ensureDetectorLayouts(&provider, catalogRequest, ordered,
+                                            TransitionPolicyTag::DiskDisk, params).ok());
+  frame.invalidateDetectorLayouts();
+  try {
+    traits.initialiseTimeFrame(0);
+    BOOST_FAIL("stale layout must throw");
+  } catch (const TraversalException& error) {
+    BOOST_CHECK(error.getReason() == TraversalFailureReason::StaleLayout);
+  }
+  BOOST_CHECK(!traits.hasTraversalCache());
+
+  auto twoIterations = mftTraversalParameters();
+  twoIterations.push_back(twoIterations.front());
+  TimeFrame<10> shortLayoutFrame;
+  TrackerTraits<10> shortLayoutTraits;
+  prepareTraversalFrame(shortLayoutFrame, shortLayoutTraits, pool, twoIterations);
+  std::vector<TrackingParameters> oneLayout{twoIterations.front()};
+  BOOST_REQUIRE(shortLayoutFrame.ensureDetectorLayouts(&provider, catalogRequest, ordered,
+                                                       TransitionPolicyTag::DiskDisk, oneLayout).ok());
+  try {
+    shortLayoutTraits.initialiseTimeFrame(1);
+    BOOST_FAIL("iteration beyond the configured layout set must throw");
+  } catch (const TraversalException& error) {
+    BOOST_CHECK_EQUAL(error.getIteration(), 1);
+    BOOST_CHECK(error.getReason() == TraversalFailureReason::IterationOutOfRange);
+  }
+  BOOST_CHECK(!shortLayoutTraits.hasTraversalCache());
+}
+
+BOOST_AUTO_TEST_CASE(traversal_cache_groups_and_binds_once_across_repeated_neighbour_calls)
+{
+  auto params = mftTraversalParameters();
+  auto pool = std::make_shared<BoundedMemoryResource>();
+  TimeFrame<10> frame;
+  TrackerTraits<10> traits;
+  prepareTraversalFrame(frame, traits, pool, params);
+  const auto catalogRequest = request(10, o2::detectors::DetID::MFT);
+  FakeCatalogProvider provider{catalog(catalogRequest, SurfaceKind::Disk)};
+  const auto ordered = order(10);
+  BOOST_REQUIRE(frame.ensureDetectorLayouts(&provider, catalogRequest, ordered,
+                                            TransitionPolicyTag::DiskDisk, params).ok());
+
+  std::shared_ptr<tbb::task_arena> arena;
+  traits.setNThreads(1, arena);
+  traits.initialiseTimeFrame(0);
+  BOOST_REQUIRE(traits.hasTraversalCache());
+  BOOST_CHECK_EQUAL(traits.getTraversalGroupingCount(), 1);
+  BOOST_CHECK_EQUAL(traits.getPolicyBindingCount(TransitionPolicyTag::CylinderCylinder), 0);
+  BOOST_CHECK_EQUAL(traits.getPolicyBindingCount(TransitionPolicyTag::DiskDisk), 1);
+
+  traits.findCellsNeighbours(0);
+  traits.findCellsNeighbours(0);
+  BOOST_CHECK_EQUAL(traits.getTraversalGroupingCount(), 1);
+  BOOST_CHECK_EQUAL(traits.getPolicyBindingCount(TransitionPolicyTag::DiskDisk), 1);
+}
+
+BOOST_AUTO_TEST_CASE(traversal_preflight_rejects_legacy_mismatch_state_mismatch_and_bad_parameters)
+{
+  auto checkFailure = [](std::vector<TrackingParameters> params,
+                         std::vector<SurfaceDescriptor> surfaces,
+                         std::vector<SurfaceId> ordered,
+                         TransitionPolicyTag tag,
+                         TraversalFailureReason expected) {
+    auto pool = std::make_shared<BoundedMemoryResource>();
+    TimeFrame<10> frame;
+    TrackerTraits<10> traits;
+    prepareTraversalFrame(frame, traits, pool, params);
+    const auto catalogRequest = request(10, o2::detectors::DetID::MFT);
+    FakeCatalogProvider provider{std::move(surfaces)};
+    BOOST_REQUIRE(frame.ensureDetectorLayouts(&provider, catalogRequest, ordered, tag, params).ok());
+    try {
+      traits.initialiseTimeFrame(0);
+      BOOST_FAIL("invalid traversal preflight must throw");
+    } catch (const TraversalException& error) {
+      BOOST_CHECK(error.getReason() == expected);
+    }
+    BOOST_CHECK(!traits.hasTraversalCache());
+  };
+
+  auto params = mftTraversalParameters();
+  checkFailure(params, catalog(10, SurfaceKind::Disk, o2::detectors::DetID::MFT),
+               {SurfaceId{3}, SurfaceId{0}, SurfaceId{6}, SurfaceId{2}, SurfaceId{9}, SurfaceId{5}, SurfaceId{1}, SurfaceId{8}, SurfaceId{4}, SurfaceId{7}},
+               TransitionPolicyTag::DiskDisk, TraversalFailureReason::LegacyIndexMismatch);
+  checkFailure(params, catalog(10, SurfaceKind::Cylinder, o2::detectors::DetID::MFT), order(10),
+               TransitionPolicyTag::CylinderCylinder, TraversalFailureReason::StateFamilyMismatch);
+  params[0].MaxChi2ClusterAttachment = -1.f;
+  checkFailure(params, catalog(10, SurfaceKind::Disk, o2::detectors::DetID::MFT), order(10), TransitionPolicyTag::DiskDisk,
+               TraversalFailureReason::InvalidPolicyParameters);
+}
+
+BOOST_AUTO_TEST_CASE(traversal_preflight_reports_invalid_schedule_and_mixed_policy_layout)
+{
+  auto checkInstalledLayout = [](DetectorLayout layout, TraversalFailureReason expected) {
+    auto params = mftTraversalParameters();
+    auto pool = std::make_shared<BoundedMemoryResource>();
+    TraversalTestTimeFrame frame;
+    TrackerTraits<10> traits;
+    prepareTraversalFrame(frame, traits, pool, params);
+    frame.installLayout(std::move(layout));
+    try {
+      traits.initialiseTimeFrame(0);
+      BOOST_FAIL("invalid installed layout must throw");
+    } catch (const TraversalException& error) {
+      BOOST_CHECK(error.getReason() == expected);
+    }
+    BOOST_CHECK(!traits.hasTraversalCache());
+  };
+
+  checkInstalledLayout(cyclicDiskLayout(), TraversalFailureReason::InvalidTraversalSchedule);
+  checkInstalledLayout(mixedDisconnectedLayout(), TraversalFailureReason::MixedPolicyLayout);
 }
 
 BOOST_AUTO_TEST_CASE(malformed_catalog_failure_preserves_stale_owner)

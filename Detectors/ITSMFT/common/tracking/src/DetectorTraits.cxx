@@ -17,8 +17,6 @@
 
 #include "Framework/Logger.h"
 #include "ITSMFTTracking/MFTFwdTrackHelpers.h"
-#include "ITSMFTTracking/TransitionPolicyBinding.h"
-#include "ITSMFTTracking/TransitionPolicyOperations.h"
 #include "ITStracking/TrackHelpers.h"
 
 namespace o2::itsmft::tracking
@@ -64,30 +62,6 @@ bool refitSeedITS(const typename DetectorTraits<NLayers>::TrackSeedN& seed,
   return true;
 }
 } // namespace
-
-template <int NLayers>
-bool DetectorTraits<NLayers>::cellsAreCompatible(const CellSeedN& currentCell,
-                                                  const CellSeedN& nextCell,
-                                                  const TimeFrameN& tf,
-                                                  const TrackingParameters& params,
-                                                  float bz)
-{
-  // Temporary legacy single-detector compatibility boundary: DetId is
-  // inferred from the compile-time NLayers template, which D001 forbids as a
-  // permanent design (detector identity must never be inferred from a
-  // layer/surface count). This entry point exists only so any remaining
-  // caller of the legacy per-detector API keeps working; it is local to this
-  // translation unit and delegates to the one shared cellsAreCompatible<Tag>
-  // formula (TransitionPolicyOperations.h) rather than re-implementing it.
-  // Sparse-topology tag dispatch (TransitionPolicyGrouping) replaces this
-  // mapping once TrackerTraits consumes a real DetectorLayout instead of the
-  // legacy TrackingTopology<NLayers>.
-  constexpr auto kPolicyTag = DetId == o2::detectors::DetID::MFT ? TransitionPolicyTag::DiskDisk : TransitionPolicyTag::CylinderCylinder;
-  // Qualified: an unqualified call would resolve to this very static member
-  // (class-scope lookup shadows the enclosing-namespace free function of the
-  // same name) and recurse instead of delegating.
-  return o2::itsmft::tracking::cellsAreCompatible<kPolicyTag>(currentCell, nextCell, bz, bindTransitionPolicyParams<kPolicyTag>(params));
-}
 
 template <int NLayers>
 bool DetectorTraits<NLayers>::refitSeed(const TrackSeedN& seed,

@@ -51,12 +51,6 @@ struct DetectorTraits {
 
   static void configureIndexTableUtils(IndexTableUtils<NLayers>& utils, const TrackingParameters& params);
 
-  /// ITS: barrel χ² between connected cells; MFT: forward χ² between connected cells.
-  static bool cellsAreCompatible(const CellSeedN& currentCell,
-                                 const CellSeedN& nextCell,
-                                 const TimeFrameN& tf,
-                                 const TrackingParameters& params,
-                                 float bz);
 };
 
 template <o2::detectors::DetID::ID DetId, int NLayers>

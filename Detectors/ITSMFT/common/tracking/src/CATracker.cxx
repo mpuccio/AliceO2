@@ -122,6 +122,9 @@ float Tracker<NLayers>::clustersToTracks()
         findRoads(iteration);
       } while (++iVertex < maxNvertices);
     }
+  } catch (const TraversalException&) {
+    mTimeFrame->getTracks().clear();
+    throw;
   } catch (const BoundedMemoryResource::MemoryLimitExceeded& err) {
     LOGP(error, "CA tracker exceeded memory limit: {}", err.what());
     if (mTrkParams[0].DropTFUponFailure) {

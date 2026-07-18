@@ -15,6 +15,7 @@
 
 #include <array>
 #include <numeric>
+#include <stdexcept>
 #include <utility>
 #include <vector>
 
@@ -157,11 +158,14 @@ void CATrackerDPL::run(ProcessingContext& pc)
   LOGP(info, "MFT CA input pulled {} compressed clusters in {} RO frames ({} pattern bytes)",
        compClusters.size(), rofsinput.size(), patterns.size());
 
-  mTracking.processTimeFrame(gsl::span<const o2::itsmft::ROFRecord>(rofsinput.data(), rofsinput.size()),
-                             gsl::span<const o2::itsmft::CompClusterExt>(compClusters.data(), compClusters.size()),
-                             patterns,
-                             labels,
-                             irFrames);
+  const float trackingResult = mTracking.processTimeFrame(gsl::span<const o2::itsmft::ROFRecord>(rofsinput.data(), rofsinput.size()),
+                                                           gsl::span<const o2::itsmft::CompClusterExt>(compClusters.data(), compClusters.size()),
+                                                           patterns,
+                                                           labels,
+                                                           irFrames);
+  if (trackingResult < 0.f) {
+    throw std::runtime_error{"MFT CA tracking failed; refusing to publish empty output"};
+  }
 
   fillMFTOutputs(mTracking.getTimeFrame(),
                  gsl::span<const o2::itsmft::ROFRecord>(rofsinput.data(), rofsinput.size()),
@@ -210,11 +214,12 @@ void CATrackerDPL::updateTimeDependentParams(ProcessingContext& pc)
                                                            o2::itsmft::tracking::TransitionPolicyTag::DiskDisk);
     if (!result.ok()) {
       LOGP(error,
-           "MFT detector layout configuration failed: error={} catalogError={} catalogValidationError={} failedIteration={} layoutBuildError={} topologyError={} layoutError={}; continuing with legacy CA topology",
+           "MFT detector layout configuration failed: error={} catalogError={} catalogValidationError={} failedIteration={} layoutBuildError={} topologyError={} layoutError={}",
            static_cast<int>(result.error), static_cast<int>(result.catalogError),
            static_cast<int>(result.catalogValidationError), result.failedIteration,
            static_cast<int>(result.layoutBuildError), static_cast<int>(result.topologyError),
            static_cast<int>(result.layoutError));
+      throw std::runtime_error{"MFT detector layout configuration failed; refusing to run legacy CA fallback"};
     } else if (result.rebuilt) {
       LOGP(info, "MFT detector layout configured from geometry: surfaces={} iterations={} epoch={}",
            mTracking.getTimeFrame().getSurfaceCatalogView().size(),

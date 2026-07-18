@@ -54,6 +54,164 @@ struct PassMode {
 };
 
 template <int NLayers>
+void TrackerTraits<NLayers>::resetTraversalCache() noexcept
+{
+  mTraversalLayout = {};
+  mTraversalGrouping.reset();
+  mCylinderPolicyParams.reset();
+  mDiskPolicyParams.reset();
+  mTraversalGroupingCount = 0;
+  mPolicyBindingCounts.fill(0);
+}
+
+template <int NLayers>
+int TrackerTraits<NLayers>::getPolicyBindingCount(TransitionPolicyTag tag) const noexcept
+{
+  switch (tag) {
+    case TransitionPolicyTag::CylinderCylinder:
+      return mPolicyBindingCounts[0];
+    case TransitionPolicyTag::DiskDisk:
+      return mPolicyBindingCounts[1];
+    case TransitionPolicyTag::Invalid:
+      return 0;
+  }
+  return 0;
+}
+
+template <int NLayers>
+void TrackerTraits<NLayers>::validateLegacyParity(int iteration,
+                                                   const DetectorLayoutView& layout,
+                                                   TransitionPolicyTag& activeTag,
+                                                   bool& mixedPolicy) const
+{
+  const auto fail = [iteration]() { throw TraversalException{iteration, TraversalFailureReason::LegacyIndexMismatch}; };
+  const auto sparse = layout.topology;
+  const auto legacy = mTimeFrame->getTrackingTopologyView();
+  using LegacyId = typename TimeFrameN::TrackingTopologyN::Id;
+  if (sparse.nTransitions != legacy.nTransitions || sparse.nCells != legacy.nCells ||
+      (sparse.nTransitions != 0 && (sparse.transitions == nullptr || sparse.cellsByFirstTransitionOffsets == nullptr)) ||
+      (sparse.nCells != 0 && (sparse.cells == nullptr || sparse.cellsByFirstTransition == nullptr))) {
+    fail();
+  }
+
+  activeTag = TransitionPolicyTag::Invalid;
+  mixedPolicy = false;
+  for (uint32_t id = 0; id < sparse.nTransitions; ++id) {
+    const auto sparseId = TransitionId{static_cast<uint16_t>(id)};
+    const auto& current = sparse.getTransition(sparseId);
+    const auto& reference = legacy.getTransition(static_cast<LegacyId>(id));
+    if (current.from.value() != reference.fromLayer || current.to.value() != reference.toLayer ||
+        current.skippedSurfaces.value() != LayerMask::skipped(reference.fromLayer, reference.toLayer).value()) {
+      fail();
+    }
+    if (activeTag == TransitionPolicyTag::Invalid) {
+      activeTag = current.policyTag;
+    } else if (current.policyTag != activeTag) {
+      mixedPolicy = true;
+    }
+  }
+
+  for (uint32_t id = 0; id < sparse.nCells; ++id) {
+    const auto sparseId = CellTopologyId{static_cast<uint16_t>(id)};
+    const auto& current = sparse.getCell(sparseId);
+    const auto& reference = legacy.getCell(static_cast<LegacyId>(id));
+    if (current.firstTransition.value() != reference.firstTransition ||
+        current.secondTransition.value() != reference.secondTransition ||
+        current.hitSurfaces.value() != reference.hitLayerMask.value()) {
+      fail();
+    }
+    const auto firstTag = sparse.getTransition(current.firstTransition).policyTag;
+    const auto secondTag = sparse.getTransition(current.secondTransition).policyTag;
+    if (firstTag != secondTag || (activeTag != TransitionPolicyTag::Invalid && firstTag != activeTag)) {
+      mixedPolicy = true;
+    }
+  }
+
+  if (sparse.seedingSurfaces.value() != mTrkParams[iteration].StartLayerMask.value() ||
+      sparse.nCells != legacy.nCellsByFirstTransition) {
+    fail();
+  }
+  for (uint32_t transition = 0; transition < sparse.nTransitions; ++transition) {
+    const auto sparseRange = sparse.getCellsStartingWithTransition(TransitionId{static_cast<uint16_t>(transition)});
+    const auto legacyRange = legacy.getCellsStartingWithTransition(static_cast<LegacyId>(transition));
+    if (sparse.cellsByFirstTransitionOffsets[transition] != sparseRange.getFirstEntry() ||
+        sparse.cellsByFirstTransitionOffsets[transition + 1] != sparseRange.getEntriesBound() ||
+        sparseRange.getFirstEntry() != legacyRange.getFirstEntry() ||
+        sparseRange.getEntries() != legacyRange.getEntries()) {
+      fail();
+    }
+  }
+  for (uint32_t entry = 0; entry < sparse.nCells; ++entry) {
+    if (sparse.cellsByFirstTransition[entry].value() != legacy.cellsByFirstTransition[entry]) {
+      fail();
+    }
+  }
+}
+
+template <int NLayers>
+void TrackerTraits<NLayers>::initialiseTimeFrame(const int iteration)
+{
+  resetTraversalCache();
+  mTimeFrame->initialise(mTrkParams[iteration], mTrkParams[iteration].NLayers, iteration);
+
+  if (!mTimeFrame->hasStoredDetectorLayouts()) {
+    throw TraversalException{iteration, TraversalFailureReason::MissingLayout};
+  }
+  if (!mTimeFrame->detectorLayoutsCurrent()) {
+    throw TraversalException{iteration, TraversalFailureReason::StaleLayout};
+  }
+  const auto* layouts = mTimeFrame->getDetectorLayouts();
+  if (layouts == nullptr || iteration < 0 || static_cast<size_t>(iteration) >= layouts->size()) {
+    throw TraversalException{iteration, TraversalFailureReason::IterationOutOfRange};
+  }
+  const auto layout = mTimeFrame->getDetectorLayoutView(iteration);
+
+  TransitionPolicyGrouping grouping{layout};
+  ++mTraversalGroupingCount;
+  if (!grouping.valid()) {
+    throw TraversalException{iteration, TraversalFailureReason::InvalidTraversalSchedule};
+  }
+  if (grouping.hasTag(TransitionPolicyTag::CylinderCylinder) && grouping.hasTag(TransitionPolicyTag::DiskDisk)) {
+    throw TraversalException{iteration, TraversalFailureReason::MixedPolicyLayout};
+  }
+
+  TransitionPolicyTag activeTag = TransitionPolicyTag::Invalid;
+  bool mixedPolicy = false;
+  validateLegacyParity(iteration, layout, activeTag, mixedPolicy);
+  if (mixedPolicy) {
+    throw TraversalException{iteration, TraversalFailureReason::MixedPolicyLayout};
+  }
+
+  constexpr StateFamily cellStateFamily = std::is_same_v<typename CASeedTrackPar<NLayers>::type, o2::track::TrackParCovFwd> ? StateFamily::Forward : StateFamily::Barrel;
+  if (stateFamilyOf(activeTag) != cellStateFamily) {
+    throw TraversalException{iteration, TraversalFailureReason::StateFamilyMismatch};
+  }
+
+  std::optional<CylinderCylinderPolicyParams> cylinderParams;
+  std::optional<DiskDiskPolicyParams> diskParams;
+  if (activeTag == TransitionPolicyTag::CylinderCylinder) {
+    cylinderParams = bindTransitionPolicyParams<TransitionPolicyTag::CylinderCylinder>(mTrkParams[iteration]);
+    ++mPolicyBindingCounts[0];
+    if (!cylinderParams->isValid()) {
+      throw TraversalException{iteration, TraversalFailureReason::InvalidPolicyParameters};
+    }
+  } else if (activeTag == TransitionPolicyTag::DiskDisk) {
+    diskParams = bindTransitionPolicyParams<TransitionPolicyTag::DiskDisk>(mTrkParams[iteration]);
+    ++mPolicyBindingCounts[1];
+    if (!diskParams->isValid()) {
+      throw TraversalException{iteration, TraversalFailureReason::InvalidPolicyParameters};
+    }
+  } else {
+    throw TraversalException{iteration, TraversalFailureReason::StateFamilyMismatch};
+  }
+
+  mTraversalLayout = layout;
+  mTraversalGrouping.emplace(std::move(grouping));
+  mCylinderPolicyParams = cylinderParams;
+  mDiskPolicyParams = diskParams;
+}
+
+template <int NLayers>
 void TrackerTraits<NLayers>::computeLayerTracklets(const int iteration, int iVertex)
 {
   const auto topology = mTimeFrame->getTrackingTopologyView();
@@ -522,92 +680,129 @@ void TrackerTraits<NLayers>::computeLayerCells(const int iteration)
 template <int NLayers>
 void TrackerTraits<NLayers>::findCellsNeighbours(const int iteration)
 {
-  const auto topology = mTimeFrame->getTrackingTopologyView();
-  // Temporary legacy single-detector compatibility boundary (same note as
-  // DetectorTraits.cxx::cellsAreCompatible): DetId is inferred from NLayers
-  // rather than carried on a sparse-topology transition tag. Local to this
-  // translation unit; replaced by TransitionPolicyGrouping-driven dispatch
-  // once TrackerTraits consumes a real DetectorLayout. Bound once per
-  // iteration, outside mTaskArena->execute and every candidate/neighbour
-  // loop below -- never rebind per-candidate.
-  constexpr auto kPolicyTag = DetectorTraits<NLayers>::DetId == o2::detectors::DetID::MFT ? TransitionPolicyTag::DiskDisk : TransitionPolicyTag::CylinderCylinder;
-  const auto policyParams = bindTransitionPolicyParams<kPolicyTag>(mTrkParams[iteration]);
+  if (!mTraversalGrouping.has_value()) {
+    throw TraversalException{iteration, TraversalFailureReason::InvalidTraversalSchedule};
+  }
+  dispatchTransitionPolicies(*mTraversalGrouping, [&](auto traits, auto, auto) {
+    using Traits = decltype(traits);
+    if constexpr (!std::is_same_v<CellSeedN, CellSeedTpl<typename Traits::SeedState>>) {
+      throw TraversalException{iteration, TraversalFailureReason::StateFamilyMismatch};
+    } else if constexpr (Traits::Tag == TransitionPolicyTag::CylinderCylinder) {
+      if (!mCylinderPolicyParams.has_value()) {
+        throw TraversalException{iteration, TraversalFailureReason::InvalidPolicyParameters};
+      }
+      findCellsNeighboursForPolicy<Traits::Tag>(iteration, mTraversalGrouping->scheduledCellsForTag(Traits::Tag), *mCylinderPolicyParams);
+    } else if constexpr (Traits::Tag == TransitionPolicyTag::DiskDisk) {
+      if (!mDiskPolicyParams.has_value()) {
+        throw TraversalException{iteration, TraversalFailureReason::InvalidPolicyParameters};
+      }
+      findCellsNeighboursForPolicy<Traits::Tag>(iteration, mTraversalGrouping->scheduledCellsForTag(Traits::Tag), *mDiskPolicyParams);
+    }
+  });
+}
+
+template <int NLayers>
+template <TransitionPolicyTag Tag>
+void TrackerTraits<NLayers>::findCellsNeighboursForPolicy(
+  int iteration,
+  gsl::span<const CellTopologyId> scheduledCells,
+  const typename TransitionPolicyTraits<Tag>::Params& params)
+{
+  const auto topology = mTraversalLayout.topology;
+  if (mTimeFrame->getCells().size() != topology.nCells ||
+      mTimeFrame->getCellsLookupTable().size() != topology.nCells ||
+      mTimeFrame->getCellsNeighbours().size() != topology.nCells ||
+      mTimeFrame->getCellsNeighboursTopology().size() != topology.nCells ||
+      mTimeFrame->getCellsNeighboursLUT().size() != topology.nCells) {
+    throw TraversalException{iteration, TraversalFailureReason::LegacyIndexMismatch};
+  }
   mTaskArena->execute([&] {
     std::vector<bounded_vector<CellNeighbour>> cellsNeighboursByTarget;
     cellsNeighboursByTarget.reserve(topology.nCells);
-    for (int cellTopologyId{0}; cellTopologyId < topology.nCells; ++cellTopologyId) {
+    for (uint32_t cellTopologyId = 0; cellTopologyId < topology.nCells; ++cellTopologyId) {
       deepVectorClear(mTimeFrame->getCellsNeighbours()[cellTopologyId]);
       deepVectorClear(mTimeFrame->getCellsNeighboursTopology()[cellTopologyId]);
       deepVectorClear(mTimeFrame->getCellsNeighboursLUT()[cellTopologyId]);
       cellsNeighboursByTarget.emplace_back(mMemoryPool.get());
     }
 
-    for (int outerLayer{0}; outerLayer < NLayers; ++outerLayer) {
-      for (int cellTopologyId{0}; cellTopologyId < topology.nCells; ++cellTopologyId) {
-        const auto& cellTopology = topology.getCell(cellTopologyId);
-        if (cellTopology.hitLayerMask.last() != outerLayer ||
-            mTimeFrame->getCells()[cellTopologyId].empty()) {
-          continue;
-        }
-        const auto successors = topology.getCellsStartingWithTransition(cellTopology.secondTransition);
-        if (!successors.getEntries()) {
-          continue;
-        }
+    for (const auto scheduledId : scheduledCells) {
+      const auto cellTopologyId = scheduledId.value();
+      if (cellTopologyId >= topology.nCells || cellTopologyId >= mTimeFrame->getCells().size() ||
+          cellTopologyId >= mTimeFrame->getCellsLookupTable().size()) {
+        throw TraversalException{iteration, TraversalFailureReason::LegacyIndexMismatch};
+      }
+      const auto& cellTopology = topology.getCell(scheduledId);
+      if (mTimeFrame->getCells()[cellTopologyId].empty()) {
+        continue;
+      }
+      const auto successors = topology.getCellsStartingWithTransition(cellTopology.secondTransition);
+      if (!successors.getEntries()) {
+        continue;
+      }
 
-        tbb::enumerable_thread_specific<bounded_vector<CellNeighbour>> sourceNeighbours([&]() { return bounded_vector<CellNeighbour>{mMemoryPool.get()}; });
-        tbb::parallel_for(0, static_cast<int>(mTimeFrame->getCells()[cellTopologyId].size()), [&](const int iCell) {
-          auto& localNeighbours = sourceNeighbours.local();
-          const auto& currentCellSeed{mTimeFrame->getCells()[cellTopologyId][iCell]};
-          const int nextLayerTrackletIndex{currentCellSeed.getSecondTrackletIndex()};
-          for (int iSuccessor{0}; iSuccessor < successors.getEntries(); ++iSuccessor) {
-            const int nextCellTopologyId = topology.cellsByFirstTransition[successors.getFirstEntry() + iSuccessor];
-            if (mTimeFrame->getCells()[nextCellTopologyId].empty() ||
-                mTimeFrame->getCellsLookupTable()[nextCellTopologyId].empty()) {
+      tbb::enumerable_thread_specific<bounded_vector<CellNeighbour>> sourceNeighbours([&]() { return bounded_vector<CellNeighbour>{mMemoryPool.get()}; });
+      tbb::parallel_for(0, static_cast<int>(mTimeFrame->getCells()[cellTopologyId].size()), [&](const int iCell) {
+        auto& localNeighbours = sourceNeighbours.local();
+        const auto& currentCellSeed{mTimeFrame->getCells()[cellTopologyId][iCell]};
+        const int nextLayerTrackletIndex{currentCellSeed.getSecondTrackletIndex()};
+        for (uint32_t iSuccessor = 0; iSuccessor < successors.getEntries(); ++iSuccessor) {
+          const auto nextTopologyId = topology.cellsByFirstTransition[successors.getFirstEntry() + iSuccessor];
+          const auto nextCellTopologyId = nextTopologyId.value();
+          if (nextCellTopologyId >= topology.nCells || nextCellTopologyId >= mTimeFrame->getCells().size() ||
+              nextCellTopologyId >= mTimeFrame->getCellsLookupTable().size()) {
+            throw TraversalException{iteration, TraversalFailureReason::LegacyIndexMismatch};
+          }
+          if (mTimeFrame->getCells()[nextCellTopologyId].empty() ||
+              mTimeFrame->getCellsLookupTable()[nextCellTopologyId].empty()) {
+            continue;
+          }
+          const auto& nextCellLUT = mTimeFrame->getCellsLookupTable()[nextCellTopologyId];
+          if (nextLayerTrackletIndex < 0 || nextLayerTrackletIndex + 1 >= static_cast<int>(nextCellLUT.size())) {
+            continue;
+          }
+          const int nextLayerFirstCellIndex{nextCellLUT[nextLayerTrackletIndex]};
+          const int nextLayerLastCellIndex{nextCellLUT[nextLayerTrackletIndex + 1]};
+          if (nextLayerFirstCellIndex < 0 || nextLayerLastCellIndex < nextLayerFirstCellIndex ||
+              nextLayerLastCellIndex > static_cast<int>(mTimeFrame->getCells()[nextCellTopologyId].size())) {
+            throw TraversalException{iteration, TraversalFailureReason::LegacyIndexMismatch};
+          }
+          for (int iNextCell{nextLayerFirstCellIndex}; iNextCell < nextLayerLastCellIndex; ++iNextCell) {
+            const auto& nextCellSeedRef{mTimeFrame->getCells()[nextCellTopologyId][iNextCell]};
+            if (nextCellSeedRef.getFirstTrackletIndex() != nextLayerTrackletIndex || !currentCellSeed.getTimeStamp().isCompatible(nextCellSeedRef.getTimeStamp())) {
+              break;
+            }
+
+            if (!o2::itsmft::tracking::cellsAreCompatible<Tag>(currentCellSeed, nextCellSeedRef, getBz(), params)) {
               continue;
             }
-            const auto& nextCellLUT = mTimeFrame->getCellsLookupTable()[nextCellTopologyId];
-            if (nextLayerTrackletIndex + 1 >= static_cast<int>(nextCellLUT.size())) {
-              continue;
-            }
-            const int nextLayerFirstCellIndex{nextCellLUT[nextLayerTrackletIndex]};
-            const int nextLayerLastCellIndex{nextCellLUT[nextLayerTrackletIndex + 1]};
-            for (int iNextCell{nextLayerFirstCellIndex}; iNextCell < nextLayerLastCellIndex; ++iNextCell) {
-              const auto& nextCellSeedRef{mTimeFrame->getCells()[nextCellTopologyId][iNextCell]};
-              if (nextCellSeedRef.getFirstTrackletIndex() != nextLayerTrackletIndex || !currentCellSeed.getTimeStamp().isCompatible(nextCellSeedRef.getTimeStamp())) {
-                break;
-              }
 
-              if (!o2::itsmft::tracking::cellsAreCompatible<kPolicyTag>(currentCellSeed, nextCellSeedRef, getBz(), policyParams)) {
-                continue;
-              }
-
-              const int nextLevel = currentCellSeed.getLevel() + 1;
-              localNeighbours.emplace_back(cellTopologyId, iCell, nextCellTopologyId, iNextCell, nextLevel);
-            }
-          }
-        });
-
-        bounded_vector<size_t> count(topology.nCells, 0, mMemoryPool.get());
-        for (const auto& localNeighbours : sourceNeighbours) {
-          for (const auto& neigh : localNeighbours) {
-            ++count[neigh.nextCellTopology];
+            const int nextLevel = currentCellSeed.getLevel() + 1;
+            localNeighbours.emplace_back(cellTopologyId, iCell, nextCellTopologyId, iNextCell, nextLevel);
           }
         }
-        for (size_t i{0}; i < topology.nCells; ++i) {
-          cellsNeighboursByTarget[i].reserve(count[i]);
+      });
+
+      bounded_vector<size_t> count(topology.nCells, 0, mMemoryPool.get());
+      for (const auto& localNeighbours : sourceNeighbours) {
+        for (const auto& neigh : localNeighbours) {
+          ++count[neigh.nextCellTopology];
         }
-        for (const auto& localNeighbours : sourceNeighbours) {
-          for (const auto& neigh : localNeighbours) {
-            cellsNeighboursByTarget[neigh.nextCellTopology].emplace_back(neigh);
-            if (neigh.level > mTimeFrame->getCells()[neigh.nextCellTopology][neigh.nextCell].getLevel()) {
-              mTimeFrame->getCells()[neigh.nextCellTopology][neigh.nextCell].setLevel(neigh.level);
-            }
+      }
+      for (size_t i{0}; i < topology.nCells; ++i) {
+        cellsNeighboursByTarget[i].reserve(count[i]);
+      }
+      for (const auto& localNeighbours : sourceNeighbours) {
+        for (const auto& neigh : localNeighbours) {
+          cellsNeighboursByTarget[neigh.nextCellTopology].emplace_back(neigh);
+          if (neigh.level > mTimeFrame->getCells()[neigh.nextCellTopology][neigh.nextCell].getLevel()) {
+            mTimeFrame->getCells()[neigh.nextCellTopology][neigh.nextCell].setLevel(neigh.level);
           }
         }
       }
     }
 
-    for (int cellTopologyId{0}; cellTopologyId < topology.nCells; ++cellTopologyId) {
+    for (uint32_t cellTopologyId = 0; cellTopologyId < topology.nCells; ++cellTopologyId) {
       auto& cellsNeighbours = cellsNeighboursByTarget[cellTopologyId];
       if (cellsNeighbours.empty()) {
         continue;

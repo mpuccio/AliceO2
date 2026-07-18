@@ -16,14 +16,49 @@
 #ifndef ALICEO2_ITSMFT_TRACKING_TRACKERTRAITS_H_
 #define ALICEO2_ITSMFT_TRACKING_TRACKERTRAITS_H_
 
+#include <array>
+#include <optional>
+#include <stdexcept>
+#include <string>
+
 #include <oneapi/tbb.h>
 
 #include "ITSMFTTracking/Configuration.h"
 #include "ITSMFTTracking/TimeFrame.h"
+#include "ITSMFTTracking/TransitionPolicyDispatch.h"
+#include "ITSMFTTracking/TransitionPolicyState.h"
 #include "ITStracking/BoundedAllocator.h"
 
 namespace o2::itsmft::tracking
 {
+
+enum class TraversalFailureReason : uint8_t {
+  MissingLayout,
+  StaleLayout,
+  IterationOutOfRange,
+  LegacyIndexMismatch,
+  InvalidTraversalSchedule,
+  MixedPolicyLayout,
+  StateFamilyMismatch,
+  InvalidPolicyParameters
+};
+
+class TraversalException final : public std::runtime_error
+{
+ public:
+  TraversalException(int iteration, TraversalFailureReason reason)
+    : std::runtime_error{"CA traversal initialization failed at iteration " + std::to_string(iteration) + " (reason=" + std::to_string(static_cast<int>(reason)) + ")"},
+      mIteration{iteration}, mReason{reason}
+  {
+  }
+
+  int getIteration() const noexcept { return mIteration; }
+  TraversalFailureReason getReason() const noexcept { return mReason; }
+
+ private:
+  int mIteration{-1};
+  TraversalFailureReason mReason{TraversalFailureReason::MissingLayout};
+};
 
 template <int NLayers>
 class TrackerTraits
@@ -36,10 +71,7 @@ class TrackerTraits
 
   virtual ~TrackerTraits() = default;
   virtual void adoptTimeFrame(TimeFrameN* tf) { mTimeFrame = tf; }
-  virtual void initialiseTimeFrame(const int iteration)
-  {
-    mTimeFrame->initialise(mTrkParams[iteration], mTrkParams[iteration].NLayers, iteration);
-  }
+  virtual void initialiseTimeFrame(const int iteration);
 
   virtual void computeLayerTracklets(const int iteration, int iVertex);
   virtual void computeLayerCells(const int iteration);
@@ -69,9 +101,27 @@ class TrackerTraits
   int getTFNumberOfTracklets() const { return mTimeFrame->getNumberOfTracklets(); }
   int getTFNumberOfCells() const { return mTimeFrame->getNumberOfCells(); }
 
+  int getTraversalGroupingCount() const noexcept { return mTraversalGroupingCount; }
+  int getPolicyBindingCount(TransitionPolicyTag tag) const noexcept;
+  bool hasTraversalCache() const noexcept { return mTraversalGrouping.has_value(); }
+
  private:
+  void resetTraversalCache() noexcept;
+  void validateLegacyParity(int iteration, const DetectorLayoutView& layout, TransitionPolicyTag& activeTag, bool& mixedPolicy) const;
+
+  template <TransitionPolicyTag Tag>
+  void findCellsNeighboursForPolicy(int iteration,
+                                    gsl::span<const CellTopologyId> scheduledCells,
+                                    const typename TransitionPolicyTraits<Tag>::Params& params);
+
   std::shared_ptr<BoundedMemoryResource> mMemoryPool;
   std::shared_ptr<tbb::task_arena> mTaskArena;
+  DetectorLayoutView mTraversalLayout{};
+  std::optional<TransitionPolicyGrouping> mTraversalGrouping;
+  std::optional<CylinderCylinderPolicyParams> mCylinderPolicyParams;
+  std::optional<DiskDiskPolicyParams> mDiskPolicyParams;
+  int mTraversalGroupingCount{0};
+  std::array<int, 2> mPolicyBindingCounts{};
 
  protected:
   TimeFrameN* mTimeFrame = nullptr;
