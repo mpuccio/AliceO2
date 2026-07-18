@@ -425,32 +425,32 @@ No CPU abstraction requiring virtual calls in inner tracking loops should be int
 - Masks and topology support at least 17 surfaces.
 - ITS-only and MFT-only layouts reproduce current topology.
 - Common primitives no longer require duplicated definitions.
+- Single-detector normalized loading, timing, catalog ownership, and legacy
+  compatibility backfill are transactional and validated for ITS and MFT.
 
-### Gate 2: TimeFrame and loading
+### Gate 2: common CA traversal
 
-- Existing single-detector workflows load through source adapters.
-- A combined TimeFrame accepts ITS and MFT sources with independent timing.
-- Cluster references, labels, and sizes round-trip correctly.
+- Cylinder-cylinder and disk-disk policy/state boundaries use one host
+  orchestration and one-shot outer dispatch.
+- The first production CA operation is driven by validated sparse topology
+  without a detector branch in its hot loop.
+- Legacy graph/index parity, failure behavior, physics output, and performance
+  are characterized and accepted before subsequent operations migrate.
 
-### Gate 3: common CA traversal
-
-- Cylinder-cylinder and disk-disk policies run under one orchestration implementation.
-- Main CA loops contain no detector-wide branches.
-- ITS and MFT regression tests pass.
-
-### Gate 4: production migration
+### Gate 3: production migration
 
 - Production ITS CPU and MFT CA workflows use the common core.
+- Remaining CA operations migrate to the common topology/policy boundary.
 - Duplicated CPU tracking implementations are removed or reduced to adapters.
 - The final CMake dependency direction matches Section 4.
 
-### Gate 5: combined disconnected tracking
+### Gate 4: combined disconnected tracking
 
 - One TimeFrame contains all ITS and MFT surfaces.
 - Both disconnected topology components run in one invocation.
 - Outputs are split correctly by detector and time.
 
-### Gate 6: mixed-surface tracking
+### Gate 5: mixed-surface tracking
 
 - A separate track-state RFC is approved.
 - Cross-kind transitions are implemented and validated.

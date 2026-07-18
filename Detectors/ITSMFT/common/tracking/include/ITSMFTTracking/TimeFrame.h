@@ -182,14 +182,11 @@ struct TimeFrame {
   // != detId (DetectorSurfaceMismatch). Every preflight failure returns
   // source ClusterSourceId{0}, consistent with this single-source API.
   //
-  // If loadSources() returns a failing (non-ok()) result -- including every
-  // preflight rejection above -- this call returns before touching anything:
-  // neither getNormalizedFrame() nor any legacy compatibility accessor below
-  // is modified. This guarantee covers only a *returned* validation failure;
-  // it is not a strong exception-safety guarantee -- an allocation failure
-  // inside the backfill that runs after a successful loadSources() call
-  // could still throw with mNormalizedFrame already committed, which this
-  // slice does not attempt to roll back.
+  // Preflight, decoding, and the complete legacy backfill are staged before
+  // either representation is committed. A returned failing (non-ok()) result
+  // or an exception during staging therefore leaves both the normalized owner
+  // and every legacy compatibility accessor unchanged. The final commit uses
+  // only checked equal-allocator swaps and no-throw owner moves.
   LoadSourcesResult loadNormalizedSource(const ClusterDecoder& decoder,
                                          const o2::InteractionRecord& origin,
                                          const ROFTimingConfig& timing,
