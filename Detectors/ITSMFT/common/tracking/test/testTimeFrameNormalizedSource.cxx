@@ -99,7 +99,7 @@ class LegacyLikeDecoder final : public ClusterDecoder
 
   o2::itsmft::ioutils::SurfaceMeasurementDecodeResult decode(
     const CompClusterExt& cluster,
-    gsl::span<const unsigned char>::iterator& pattIt,
+    BoundedPatternCursor& patterns,
     const TopologyDictionary* dict,
     gsl::span<const SurfaceId> layerToSurface,
     ClusterSourceId source,
@@ -108,10 +108,12 @@ class LegacyLikeDecoder final : public ClusterDecoder
     bool applySysErrors) const override
   {
     lastApplySysErrors = applySysErrors;
-    float sigma2Row{0.f};
-    float sigma2Col{0.f};
-    ClusterShape shape{};
-    o2::itsmft::ioutils::extractClusterData(cluster, pattIt, dict, sigma2Row, sigma2Col, nullptr, &shape);
+    const auto clusterData = o2::itsmft::ioutils::extractClusterDataBounded(cluster, patterns, dict);
+    if (!clusterData.ok()) {
+      o2::itsmft::ioutils::SurfaceMeasurementDecodeResult result;
+      result.error = clusterData.error;
+      return result;
+    }
 
     o2::itsmft::ioutils::SurfaceMeasurementDecodeResult result;
     const int sensorID = cluster.getSensorID();
@@ -126,8 +128,8 @@ class LegacyLikeDecoder final : public ClusterDecoder
     DecodedCluster decoded{};
     decoded.global = {static_cast<float>(sensorID) * 10.f, static_cast<float>(cluster.getRow()), static_cast<float>(cluster.getCol())};
     decoded.cylinderFrame = {static_cast<float>(sensorID) + 100.f, static_cast<float>(cluster.getRow()) + 1.f, static_cast<float>(cluster.getCol()) + 2.f, 0.01f * sensorID};
-    decoded.rowColumnCovariance = {sigma2Row, 0.f, sigma2Col};
-    decoded.shape = shape;
+    decoded.rowColumnCovariance = {clusterData.sig2Row, 0.f, clusterData.sig2Col};
+    decoded.shape = clusterData.shape;
     decoded.sensor = static_cast<uint32_t>(sensorID);
     decoded.layer = layer;
 

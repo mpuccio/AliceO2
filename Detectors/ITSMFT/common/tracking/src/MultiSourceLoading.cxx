@@ -20,6 +20,33 @@ bool isSupportedDetector(o2::detectors::DetID::ID det) noexcept
 {
   return det == o2::detectors::DetID::ITS || det == o2::detectors::DetID::MFT;
 }
+
+MultiSourceLoadError mapDecodeError(ClusterDecodeError error) noexcept
+{
+  switch (error) {
+    case ClusterDecodeError::None:
+      return MultiSourceLoadError::None;
+    case ClusterDecodeError::MissingDictionary:
+      return MultiSourceLoadError::MissingDictionary;
+    case ClusterDecodeError::TruncatedExplicitPattern:
+      return MultiSourceLoadError::TruncatedExplicitPattern;
+    case ClusterDecodeError::MalformedExplicitPattern:
+      return MultiSourceLoadError::MalformedExplicitPattern;
+    case ClusterDecodeError::InvalidPatternId:
+      return MultiSourceLoadError::InvalidPatternId;
+    case ClusterDecodeError::InvalidSensor:
+      return MultiSourceLoadError::InvalidSensor;
+    case ClusterDecodeError::InvalidLayer:
+      return MultiSourceLoadError::InvalidDecodedLayer;
+    case ClusterDecodeError::InvalidLayerMapping:
+      return MultiSourceLoadError::InvalidLayerMapping;
+    case ClusterDecodeError::GeometryUnavailable:
+      return MultiSourceLoadError::GeometryUnavailable;
+    case ClusterDecodeError::OtherMalformedInput:
+      return MultiSourceLoadError::OtherMalformedInput;
+  }
+  return MultiSourceLoadError::OtherMalformedInput;
+}
 } // namespace
 
 LoadSourcesResult loadSources(MultiSourceFrame& frame,
@@ -45,6 +72,9 @@ LoadSourcesResult loadSources(MultiSourceFrame& frame,
     }
     if (src.decoder == nullptr) {
       return {MultiSourceLoadError::MissingDecoder, src.id};
+    }
+    if (!src.clusters.empty() && src.dictionary == nullptr) {
+      return {MultiSourceLoadError::MissingDictionary, src.id, 0, 0};
     }
   }
 
@@ -102,7 +132,7 @@ LoadSourcesResult loadSources(MultiSourceFrame& frame,
     // 4. Decode: one independent pattern cursor per source. Each cluster is
     //    decoded exactly once by the source's decoder.
     src.decoder->prepare();
-    auto pattIt = src.patterns.begin();
+    BoundedPatternCursor patterns{src.patterns};
     for (uint32_t r = 0; r < src.rofs.size(); ++r) {
       const auto& rof = src.rofs[r];
       const auto firstEntry = rof.getFirstEntry();
@@ -110,8 +140,11 @@ LoadSourcesResult loadSources(MultiSourceFrame& frame,
       for (int32_t clusterId = firstEntry; clusterId < firstEntry + nEntries; ++clusterId) {
         const auto& cluster = src.clusters[clusterId];
         const auto externalIndex = static_cast<uint32_t>(clusterId);
-        const auto decoded = src.decoder->decode(cluster, pattIt, src.dictionary, src.layerToSurface,
+        const auto decoded = src.decoder->decode(cluster, patterns, src.dictionary, src.layerToSurface,
                                                  src.id, externalIndex, r, src.applySysErrors);
+        if (!decoded.ok()) {
+          return {mapDecodeError(decoded.error), src.id, r, externalIndex};
+        }
         // A buggy decoder could report layerMapped=true while its own
         // `layer` is negative or out of range for `src.layerToSurface`;
         // layerMapped is never trusted on its own before indexing.
@@ -147,6 +180,14 @@ LoadSourcesResult loadSources(MultiSourceFrame& frame,
         }
         perSurface[expectedSurface.value()].push_back(measurement);
       }
+    }
+    // The source pattern buffer is an exact serialization of the explicit
+    // and grouped patterns encountered above. Any bytes left after the last
+    // cluster are inconsistent input and are rejected, with the after-last
+    // ROF/cluster ordinals identifying the boundary where consumption ended.
+    if (!patterns.empty()) {
+      return {MultiSourceLoadError::TrailingPatternData, src.id,
+              static_cast<uint32_t>(src.rofs.size()), static_cast<uint32_t>(src.clusters.size())};
     }
   }
 

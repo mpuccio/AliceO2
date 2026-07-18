@@ -27,6 +27,7 @@
 #include "DataFormatsITSMFT/ClusterPattern.h"
 #include "DataFormatsITSMFT/CompCluster.h"
 #include "DataFormatsITSMFT/TopologyDictionary.h"
+#include "ITSMFTTracking/ClusterDecoding.h"
 #include "ITSMFTTracking/SurfaceDescriptor.h"
 #include "ITSMFTTracking/SurfaceMeasurement.h"
 #include "MathUtils/Cartesian.h"
@@ -91,11 +92,17 @@ o2::itsmft::tracking::SurfaceMeasurement loadClusterSurfaceMeasurement(
 /// true. `kind` is the geometry kind (cylinder/disk) the decoder actually
 /// produced; it lets a caller validate the target surface's kind explicitly,
 /// without inferring detector geometry from surface count.
+/// `error` is the typed host decode failure; other fields are meaningful only
+/// when ok() is true (except `layer`, which may identify an InvalidLayerMapping
+/// failure).
 struct SurfaceMeasurementDecodeResult {
   o2::itsmft::tracking::SurfaceMeasurement measurement{};
   o2::itsmft::tracking::SurfaceKind kind{o2::itsmft::tracking::SurfaceKind::Cylinder};
   int layer{-1};
   bool layerMapped{false};
+  o2::itsmft::tracking::ClusterDecodeError error{o2::itsmft::tracking::ClusterDecodeError::None};
+
+  bool ok() const noexcept { return error == o2::itsmft::tracking::ClusterDecodeError::None; }
 };
 
 /// Decode a compact cluster through the detector geometry singleton exactly
@@ -107,7 +114,7 @@ struct SurfaceMeasurementDecodeResult {
 template <o2::detectors::DetID::ID DetId>
 SurfaceMeasurementDecodeResult loadClusterSurfaceMeasurement(
   const CompClusterExt& c,
-  gsl::span<const unsigned char>::iterator& pattIt,
+  o2::itsmft::tracking::BoundedPatternCursor& patterns,
   const TopologyDictionary* dict,
   gsl::span<const o2::itsmft::tracking::SurfaceId> layerToSurface,
   o2::itsmft::tracking::ClusterSourceId source,
@@ -152,6 +159,65 @@ o2::math_utils::Point3D<T> extractClusterData(const CompClusterExt& c, iterator&
   ClusterPattern patt(iter);
   setShape(patt, patt.getNPixels());
   return dict->getClusterCoordinates<T>(c, patt, false);
+}
+
+template <typename T>
+struct ClusterDataDecodeResult {
+  o2::math_utils::Point3D<T> coordinates{};
+  T sig2Row{DefClusError2Row};
+  T sig2Col{DefClusError2Col};
+  o2::itsmft::tracking::ClusterShape shape{};
+  o2::itsmft::tracking::ClusterDecodeError error{o2::itsmft::tracking::ClusterDecodeError::None};
+
+  bool ok() const noexcept { return error == o2::itsmft::tracking::ClusterDecodeError::None; }
+};
+
+// Bounded counterpart used by normalized loading. Legacy iterator-based
+// helpers remain unchanged for existing workflows. Explicit and grouped
+// patterns are acquired only after BoundedPatternCursor has proved that the
+// complete encoded pattern is present.
+template <typename T = float>
+ClusterDataDecodeResult<T> extractClusterDataBounded(
+  const CompClusterExt& c,
+  o2::itsmft::tracking::BoundedPatternCursor& patterns,
+  const TopologyDictionary* dict)
+{
+  ClusterDataDecodeResult<T> result;
+  if (dict == nullptr) {
+    result.error = o2::itsmft::tracking::ClusterDecodeError::MissingDictionary;
+    return result;
+  }
+
+  const auto pattID = c.getPatternID();
+  if (pattID != CompCluster::InvalidPatternID) {
+    if (pattID >= dict->getSize()) {
+      result.error = o2::itsmft::tracking::ClusterDecodeError::InvalidPatternId;
+      return result;
+    }
+    result.sig2Row = dict->getErr2X(pattID);
+    result.sig2Col = dict->getErr2Z(pattID);
+    if (!dict->isGroup(pattID)) {
+      const auto& pattern = dict->getPattern(pattID);
+      result.shape = o2::itsmft::tracking::ClusterShape{
+        static_cast<uint32_t>(dict->getNpixels(pattID)),
+        static_cast<uint16_t>(pattern.getRowSpan()),
+        static_cast<uint16_t>(pattern.getColumnSpan())};
+      result.coordinates = dict->getClusterCoordinates<T>(c);
+      return result;
+    }
+  }
+
+  ClusterPattern pattern;
+  result.error = patterns.acquirePattern(pattern);
+  if (!result.ok()) {
+    return result;
+  }
+  result.shape = o2::itsmft::tracking::ClusterShape{
+    static_cast<uint32_t>(pattern.getNPixels()),
+    static_cast<uint16_t>(pattern.getRowSpan()),
+    static_cast<uint16_t>(pattern.getColumnSpan())};
+  result.coordinates = dict->getClusterCoordinates<T>(c, pattern, pattID != CompCluster::InvalidPatternID);
+  return result;
 }
 
 // same method returning coordinates as an array (suitable for the TGeoMatrix)

@@ -47,7 +47,17 @@ enum class MultiSourceLoadError : uint8_t {
   SurfaceCatalogNotConfigured,
   // TimeFrame-owned normalized loading preflight: a DetectorLayoutSet owner
   // is stored, but it is not current (see TimeFrame::detectorLayoutsCurrent()).
-  SurfaceCatalogStale
+  SurfaceCatalogStale,
+  // Appended to preserve the numeric values of the pre-existing contract.
+  MissingDictionary,
+  TruncatedExplicitPattern,
+  MalformedExplicitPattern,
+  InvalidPatternId,
+  InvalidSensor,
+  InvalidDecodedLayer,
+  GeometryUnavailable,
+  OtherMalformedInput,
+  TrailingPatternData
 };
 
 struct LoadSourcesResult {
@@ -64,7 +74,9 @@ struct LoadSourcesResult {
 // application occur exactly once per cluster. Transactional: on any
 // validation failure `frame` is left completely unmodified (whatever it
 // held before the call) and the returned result identifies the first
-// offending source/ROF/cluster. `origin` is the single explicit
+// offending source/ROF/cluster. Pattern buffers must be consumed exactly;
+// trailing data is reported at the after-last ROF and cluster ordinals.
+// `origin` is the single explicit
 // InteractionRecord chosen for the loaded frame; every source ROF is
 // converted to a signed TF-relative BC interval against it.
 LoadSourcesResult loadSources(MultiSourceFrame& frame,

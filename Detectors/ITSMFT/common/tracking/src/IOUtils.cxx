@@ -119,6 +119,83 @@ o2::itsmft::tracking::DecodedCluster decodeCluster(GeomT* geom,
   }
 }
 
+struct DecodedClusterResult {
+  o2::itsmft::tracking::DecodedCluster decoded{};
+  o2::itsmft::tracking::ClusterDecodeError error{o2::itsmft::tracking::ClusterDecodeError::None};
+
+  bool ok() const noexcept { return error == o2::itsmft::tracking::ClusterDecodeError::None; }
+};
+
+// Safe normalized-loading boundary. The iterator-based decodeCluster above
+// remains for unchanged legacy APIs; this overload performs every
+// malformed-input check before geometry or ClusterPattern data are used.
+template <o2::detectors::DetID::ID DetId, typename GeomT>
+DecodedClusterResult decodeClusterBounded(GeomT* geom,
+                                          const o2::itsmft::CompClusterExt& c,
+                                          o2::itsmft::tracking::BoundedPatternCursor& patterns,
+                                          const o2::itsmft::TopologyDictionary* dict,
+                                          bool applySysErrors)
+{
+  using o2::itsmft::tracking::ClusterDecodeError;
+  DecodedClusterResult result;
+  if (dict == nullptr) {
+    result.error = ClusterDecodeError::MissingDictionary;
+    return result;
+  }
+  if (geom == nullptr) {
+    result.error = ClusterDecodeError::GeometryUnavailable;
+    return result;
+  }
+
+  const auto sensorID = c.getSensorID();
+  if (!o2::itsmft::ioutils::detail::isSensorInGeometry(sensorID, geom->getSize())) {
+    result.error = ClusterDecodeError::InvalidSensor;
+    return result;
+  }
+  const int layer = geom->getLayer(sensorID);
+  if (!o2::itsmft::ioutils::detail::isLayerInDetector(layer, o2::itsmft::tracking::TrackerParamRef<DetId>::nLayers())) {
+    result.error = ClusterDecodeError::InvalidLayer;
+    return result;
+  }
+
+  const auto clusterData = o2::itsmft::ioutils::extractClusterDataBounded(c, patterns, dict);
+  if (!clusterData.ok()) {
+    result.error = clusterData.error;
+    return result;
+  }
+  float sigma2Row = clusterData.sig2Row;
+  float sigma2Col = clusterData.sig2Col;
+  if (applySysErrors && shouldApplySysErrors<DetId>()) {
+    addSysErrors<DetId>(layer, sigma2Row, sigma2Col);
+  }
+
+  if constexpr (DetId == o2::detectors::DetID::ITS) {
+    const auto trkXYZ = geom->getMatrixT2L(sensorID) ^ clusterData.coordinates;
+    const auto gloXYZ = geom->getMatrixL2G(sensorID) * clusterData.coordinates;
+    result.decoded = o2::itsmft::tracking::DecodedCluster{
+      {gloXYZ.x(), gloXYZ.y(), gloXYZ.z()},
+      {trkXYZ.x(), trkXYZ.y(), trkXYZ.z(), geom->getSensorRefAlpha(sensorID)},
+      {sigma2Row, 0.f, sigma2Col},
+      clusterData.shape,
+      static_cast<uint32_t>(sensorID),
+      layer};
+  } else {
+    if (!geom->getCacheL2G().isFilled() || geom->getCacheL2G().getSize() <= sensorID) {
+      result.error = ClusterDecodeError::GeometryUnavailable;
+      return result;
+    }
+    const auto gloXYZ = geom->getMatrixL2G(sensorID) * clusterData.coordinates;
+    result.decoded = o2::itsmft::tracking::DecodedCluster{
+      {gloXYZ.x(), gloXYZ.y(), gloXYZ.z()},
+      {},
+      {sigma2Row, 0.f, sigma2Col},
+      clusterData.shape,
+      static_cast<uint32_t>(sensorID),
+      layer};
+  }
+  return result;
+}
+
 template <o2::detectors::DetID::ID DetId, typename GeomT>
 void fillOutputClusters(GeomT* geom,
                         gsl::span<const o2::itsmft::CompClusterExt> clusters,
@@ -244,7 +321,7 @@ template o2::itsmft::tracking::SurfaceMeasurement loadClusterSurfaceMeasurement<
 template <o2::detectors::DetID::ID DetId>
 SurfaceMeasurementDecodeResult loadClusterSurfaceMeasurement(
   const CompClusterExt& c,
-  gsl::span<const unsigned char>::iterator& pattIt,
+  o2::itsmft::tracking::BoundedPatternCursor& patterns,
   const TopologyDictionary* dict,
   gsl::span<const o2::itsmft::tracking::SurfaceId> layerToSurface,
   o2::itsmft::tracking::ClusterSourceId source,
@@ -252,16 +329,22 @@ SurfaceMeasurementDecodeResult loadClusterSurfaceMeasurement(
   uint32_t sourceROF,
   bool applySysErrors)
 {
-  o2::itsmft::tracking::DecodedCluster decoded;
+  DecodedClusterResult decodedResult;
   if constexpr (DetId == o2::detectors::DetID::ITS) {
-    decoded = decodeCluster<DetId>(o2::its::GeometryTGeo::Instance(), c, pattIt, dict, applySysErrors);
+    decodedResult = decodeClusterBounded<DetId>(o2::its::GeometryTGeo::Instance(), c, patterns, dict, applySysErrors);
   } else {
-    decoded = decodeCluster<DetId>(o2::mft::GeometryTGeo::Instance(), c, pattIt, dict, applySysErrors);
+    decodedResult = decodeClusterBounded<DetId>(o2::mft::GeometryTGeo::Instance(), c, patterns, dict, applySysErrors);
   }
 
   SurfaceMeasurementDecodeResult result;
+  if (!decodedResult.ok()) {
+    result.error = decodedResult.error;
+    return result;
+  }
+  const auto& decoded = decodedResult.decoded;
   result.layer = decoded.layer;
   if (decoded.layer < 0 || static_cast<size_t>(decoded.layer) >= layerToSurface.size()) {
+    result.error = o2::itsmft::tracking::ClusterDecodeError::InvalidLayerMapping;
     return result;
   }
   result.layerMapped = true;
@@ -280,11 +363,11 @@ SurfaceMeasurementDecodeResult loadClusterSurfaceMeasurement(
 }
 
 template SurfaceMeasurementDecodeResult loadClusterSurfaceMeasurement<o2::detectors::DetID::ITS>(
-  const CompClusterExt&, gsl::span<const unsigned char>::iterator&, const TopologyDictionary*,
+  const CompClusterExt&, o2::itsmft::tracking::BoundedPatternCursor&, const TopologyDictionary*,
   gsl::span<const o2::itsmft::tracking::SurfaceId>, o2::itsmft::tracking::ClusterSourceId, uint32_t, uint32_t, bool);
 
 template SurfaceMeasurementDecodeResult loadClusterSurfaceMeasurement<o2::detectors::DetID::MFT>(
-  const CompClusterExt&, gsl::span<const unsigned char>::iterator&, const TopologyDictionary*,
+  const CompClusterExt&, o2::itsmft::tracking::BoundedPatternCursor&, const TopologyDictionary*,
   gsl::span<const o2::itsmft::tracking::SurfaceId>, o2::itsmft::tracking::ClusterSourceId, uint32_t, uint32_t, bool);
 
 template <o2::detectors::DetID::ID DetId>

@@ -36,7 +36,7 @@ class ClusterDecoder
 
   virtual o2::itsmft::ioutils::SurfaceMeasurementDecodeResult decode(
     const o2::itsmft::CompClusterExt& cluster,
-    gsl::span<const unsigned char>::iterator& pattIt,
+    BoundedPatternCursor& patterns,
     const o2::itsmft::TopologyDictionary* dict,
     gsl::span<const SurfaceId> layerToSurface,
     ClusterSourceId source,
@@ -58,7 +58,7 @@ class GeometryClusterDecoder final : public ClusterDecoder
 
   o2::itsmft::ioutils::SurfaceMeasurementDecodeResult decode(
     const o2::itsmft::CompClusterExt& cluster,
-    gsl::span<const unsigned char>::iterator& pattIt,
+    BoundedPatternCursor& patterns,
     const o2::itsmft::TopologyDictionary* dict,
     gsl::span<const SurfaceId> layerToSurface,
     ClusterSourceId source,
@@ -66,8 +66,16 @@ class GeometryClusterDecoder final : public ClusterDecoder
     uint32_t sourceROF,
     bool applySysErrors) const override
   {
+    // Check the required dictionary before asking GeometryTGeo::Instance()
+    // for anything. In particular, this keeps a missing dictionary typed
+    // even when detector geometry has not been loaded yet.
+    if (dict == nullptr) {
+      o2::itsmft::ioutils::SurfaceMeasurementDecodeResult result;
+      result.error = ClusterDecodeError::MissingDictionary;
+      return result;
+    }
     return o2::itsmft::ioutils::loadClusterSurfaceMeasurement<DetId>(
-      cluster, pattIt, dict, layerToSurface, source, externalIndex, sourceROF, applySysErrors);
+      cluster, patterns, dict, layerToSurface, source, externalIndex, sourceROF, applySysErrors);
   }
 };
 

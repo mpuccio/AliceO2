@@ -34,6 +34,10 @@ struct ClusterSourceInput {
   ClusterSourceId id{};
   o2::detectors::DetID::ID detector{o2::detectors::DetID::ITS};
   gsl::span<const o2::itsmft::CompClusterExt> clusters{};
+  // Exact source-local serialization of explicit and grouped patterns. The
+  // normalized loader rejects truncation, malformed encodings, and bytes
+  // left after all clusters have been decoded; common dictionary patterns
+  // consume no bytes.
   gsl::span<const unsigned char> patterns{};
   // `rofs` must form an exact, ordered partition of `clusters`: the first
   // range begins at index zero, each subsequent range begins exactly where
