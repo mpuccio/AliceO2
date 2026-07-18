@@ -439,10 +439,18 @@ No CPU abstraction requiring virtual calls in inner tracking loops should be int
 
 ### Gate 3: production migration
 
-- Production ITS CPU and MFT CA workflows use the common core.
+- Explicit opt-in ITS and MFT CPU workflows exercise the complete common core
+  while the legacy workflows and production defaults remain unchanged.
 - Remaining CA operations migrate to the common topology/policy boundary.
-- Duplicated CPU tracking implementations are removed or reduced to adapters.
-- The final CMake dependency direction matches Section 4.
+- Output, failure, physics, determinism, and resource contracts are validated
+  through independent legacy/common jobs with identical inputs and conditions.
+- Both implementations remain buildable on the same development branch for an
+  extended A/B validation period. Default switching and legacy retirement
+  require a separate decision based on that evidence.
+- New adapters and workflow targets follow the dependency direction in Section
+  4. Existing compatibility dependencies are documented and time-boxed; they
+  are not replaced by new duplicated primitives merely to avoid touching the
+  frozen legacy implementation.
 
 ### Gate 4: combined disconnected tracking
 
