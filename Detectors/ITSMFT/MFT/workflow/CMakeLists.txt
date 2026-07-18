@@ -60,3 +60,9 @@ o2_add_executable(ca-tracker-workflow
                   SOURCES src/mft-ca-tracker-workflow.cxx
                   COMPONENT_NAME mft
                   PUBLIC_LINK_LIBRARIES O2::MFTWorkflow)
+
+o2_add_test(ca-tracker-publication-decision
+            COMPONENT_NAME mft
+            LABELS "mft;workflow;itsmft"
+            SOURCES test/testCATrackerPublicationDecision.cxx
+            PUBLIC_LINK_LIBRARIES O2::MFTWorkflow)

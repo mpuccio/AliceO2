@@ -26,6 +26,24 @@
 namespace o2::mft
 {
 
+/// Gate 3 failure-contract publication decision for CATrackerDPL::run(),
+/// factored out as a pure function of (tracker active, tracking result) so
+/// the publish-vs-skip contract can be exercised by a unit test without a
+/// DPL ProcessingContext.
+enum class CATrackerPublicationAction {
+  PublishInactiveEmpty, ///< tracker not configured/active: publish the existing echoed-empty outputs
+  PublishActiveResult,  ///< active tracking returned a non-dropped result (including valid-empty input): publish tracker outputs
+  SkipDroppedTimeFrame, ///< active tracking recoverably dropped this TF: publish nothing, keep the device running
+};
+
+/// `trackingResult` is only meaningful when `trackerActive` is true (it is
+/// the value `ITSMFTTrackingInterfaceMFT::processTimeFrame()` returned);
+/// when `trackerActive` is false it is ignored. A structural/unclassified
+/// tracking failure never reaches this function: `processTimeFrame()`
+/// throws in that case, and CATrackerDPL::run() lets the exception
+/// propagate uncaught rather than returning a value to decide on.
+CATrackerPublicationAction decideCATrackerPublicationAction(bool trackerActive, float trackingResult);
+
 /// MFT CA tracker DPL task. Delegates reconstruction to ITSMFTTrackingInterfaceMFT.
 class CATrackerDPL : public o2::framework::Task
 {

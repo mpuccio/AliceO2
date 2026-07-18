@@ -30,6 +30,7 @@
 #include "Framework/CCDBParamSpec.h"
 #include "Framework/DataProcessorSpec.h"
 #include "Framework/Logger.h"
+#include "ITSMFTTracking/CATracker.h"
 #include "ITSMFTTracking/MFTCATrack.h"
 #include "MFTBase/GeometryTGeo.h"
 #include "MFTTracking/Constants.h"
@@ -121,6 +122,17 @@ void fillMFTOutputs(const o2::itsmft::tracking::TimeFrameMFT& tf,
 }
 } // namespace
 
+CATrackerPublicationAction decideCATrackerPublicationAction(bool trackerActive, float trackingResult)
+{
+  if (!trackerActive) {
+    return CATrackerPublicationAction::PublishInactiveEmpty;
+  }
+  if (o2::itsmft::tracking::isDroppedTimeFrame(trackingResult)) {
+    return CATrackerPublicationAction::SkipDroppedTimeFrame;
+  }
+  return CATrackerPublicationAction::PublishActiveResult;
+}
+
 void CATrackerDPL::init(InitContext&)
 {
   o2::base::GRPGeomHelper::instance().setRequest(mGGCCDBRequest);
@@ -131,14 +143,20 @@ void CATrackerDPL::run(ProcessingContext& pc)
   updateTimeDependentParams(pc);
 
   auto rofsinput = pc.inputs().get<const std::vector<o2::itsmft::ROFRecord>>("ROframes");
-  auto& trackROFs = pc.outputs().make<std::vector<o2::itsmft::ROFRecord>>(Output{"MFT", "MFTTrackROF", 0},
-                                                                           rofsinput.begin(), rofsinput.end());
-  auto& allTracksMFT = pc.outputs().make<std::vector<o2::mft::TrackMFT>>(Output{"MFT", "TRACKS", 0});
-  auto& allClusIdx = pc.outputs().make<std::vector<int>>(Output{"MFT", "TRACKCLSID", 0});
-  auto& allSeedPatterns = pc.outputs().make<std::vector<uint16_t>>(Output{"MFT", "TRACKSEEDPAT", 0});
-  std::vector<o2::MCCompLabel> allTrackLabels;
 
-  if (!mTracking.isActive()) {
+  if (decideCATrackerPublicationAction(mTracking.isActive(), 0.f) == CATrackerPublicationAction::PublishInactiveEmpty) {
+    // Existing production behavior: publish echoed-but-empty outputs so
+    // downstream consumers always see one ROF record per input ROF, with
+    // zero track entries, when the tracker is not configured to run.
+    auto& trackROFs = pc.outputs().make<std::vector<o2::itsmft::ROFRecord>>(Output{"MFT", "MFTTrackROF", 0},
+                                                                             rofsinput.begin(), rofsinput.end());
+    for (auto& rof : trackROFs) {
+      rof.setFirstEntry(0);
+      rof.setNEntries(0);
+    }
+    pc.outputs().make<std::vector<o2::mft::TrackMFT>>(Output{"MFT", "TRACKS", 0});
+    pc.outputs().make<std::vector<int>>(Output{"MFT", "TRACKCLSID", 0});
+    pc.outputs().make<std::vector<uint16_t>>(Output{"MFT", "TRACKSEEDPAT", 0});
     return;
   }
 
@@ -158,14 +176,29 @@ void CATrackerDPL::run(ProcessingContext& pc)
   LOGP(info, "MFT CA input pulled {} compressed clusters in {} RO frames ({} pattern bytes)",
        compClusters.size(), rofsinput.size(), patterns.size());
 
+  // A structural or unclassified failure inside processTimeFrame() throws
+  // uncaught out of this function -- no output is created on that path, and
+  // DPL treats the escaping exception as fatal for this device. Only a
+  // recoverable, dropped-and-wiped TimeFrame returns here as a sentinel
+  // value; see CATracker.h/CATracker.cxx for the classification.
   const float trackingResult = mTracking.processTimeFrame(gsl::span<const o2::itsmft::ROFRecord>(rofsinput.data(), rofsinput.size()),
                                                            gsl::span<const o2::itsmft::CompClusterExt>(compClusters.data(), compClusters.size()),
                                                            patterns,
                                                            labels,
                                                            irFrames);
-  if (trackingResult < 0.f) {
-    throw std::runtime_error{"MFT CA tracking failed; refusing to publish empty output"};
+
+  if (decideCATrackerPublicationAction(mTracking.isActive(), trackingResult) == CATrackerPublicationAction::SkipDroppedTimeFrame) {
+    LOGP(error, "MFT CA tracking dropped this TimeFrame ({} ROFs, {} clusters); publishing nothing and continuing with the next TimeFrame",
+         rofsinput.size(), compClusters.size());
+    return;
   }
+
+  auto& trackROFs = pc.outputs().make<std::vector<o2::itsmft::ROFRecord>>(Output{"MFT", "MFTTrackROF", 0},
+                                                                           rofsinput.begin(), rofsinput.end());
+  auto& allTracksMFT = pc.outputs().make<std::vector<o2::mft::TrackMFT>>(Output{"MFT", "TRACKS", 0});
+  auto& allClusIdx = pc.outputs().make<std::vector<int>>(Output{"MFT", "TRACKCLSID", 0});
+  auto& allSeedPatterns = pc.outputs().make<std::vector<uint16_t>>(Output{"MFT", "TRACKSEEDPAT", 0});
+  std::vector<o2::MCCompLabel> allTrackLabels;
 
   fillMFTOutputs(mTracking.getTimeFrame(),
                  gsl::span<const o2::itsmft::ROFRecord>(rofsinput.data(), rofsinput.size()),

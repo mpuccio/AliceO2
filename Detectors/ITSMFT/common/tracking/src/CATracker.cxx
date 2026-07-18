@@ -122,20 +122,44 @@ float Tracker<NLayers>::clustersToTracks()
         findRoads(iteration);
       } while (++iVertex < maxNvertices);
     }
-  } catch (const TraversalException&) {
-    mTimeFrame->getTracks().clear();
+  } catch (const TraversalException& err) {
+    // Structural/configuration failure (bad layout, stale layout, policy or
+    // index mismatch): never a per-TF data problem, so DropTFUponFailure
+    // never applies. Always wipe before propagating -- see class-level
+    // comment: never rely on "the process is going down anyway".
+    LOGP(error, "CA tracker hit a structural traversal failure: {}", err.what());
+    mTimeFrame->wipe();
     throw;
   } catch (const BoundedMemoryResource::MemoryLimitExceeded& err) {
+    // Recoverable, per-TF resource failure: the bounded pool's configured
+    // budget was exceeded for this TimeFrame's data volume.
     LOGP(error, "CA tracker exceeded memory limit: {}", err.what());
+    mTimeFrame->wipe();
     if (mTrkParams[0].DropTFUponFailure) {
-      mTimeFrame->wipe();
-      return -1.f;
+      return kDroppedTimeFrameResult;
+    }
+    throw;
+  } catch (const std::bad_alloc& err) {
+    // Also recoverable/per-TF: several CA scratch containers on the hot path
+    // (e.g. TrackerTraits::findCellsNeighbours' cellsNeighboursByTarget and
+    // its per-thread TBB storage) allocate from the plain heap rather than
+    // the bounded pool, so genuine memory pressure surfaces here as a plain
+    // bad_alloc rather than MemoryLimitExceeded. Handled identically.
+    LOGP(error, "CA tracker allocation failed: {}", err.what());
+    mTimeFrame->wipe();
+    if (mTrkParams[0].DropTFUponFailure) {
+      return kDroppedTimeFrameResult;
     }
     throw;
   } catch (const std::exception& err) {
-    LOGP(error, "CA tracker failed: {}", err.what());
-    mTimeFrame->getTracks().clear();
-    return -1.f;
+    // Unclassified: not a recognized recoverable-resource failure, so it is
+    // treated as structural and always propagates, regardless of
+    // DropTFUponFailure. A future explicitly typed
+    // RecoverableTimeFrameException may extend the recoverable set; until
+    // then, recoverability is never inferred from std::exception alone.
+    LOGP(error, "CA tracker failed with an unclassified exception; treating as structural: {}", err.what());
+    mTimeFrame->wipe();
+    throw;
   }
 
   if (mTimeFrame->hasMCinformation()) {

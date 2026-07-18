@@ -1,0 +1,533 @@
+// Copyright 2019-2026 CERN and copyright holders of ALICE O2.
+// See https://alice-o2.web.cern.ch/copyright for details of the copyright holders.
+// All rights not expressly granted are reserved.
+//
+// This software is distributed under the terms of the GNU General Public
+// License v3 (GPL Version 3), copied verbatim in the file "COPYING".
+
+// Gate 3 common-CA failure contract: Tracker<NLayers>::clustersToTracks()
+// exception classification, wipe-on-every-failure, and the exact drop
+// sentinel.
+//
+// Contract under test (see CATracker.h/CATracker.cxx):
+//  - TraversalException (structural/configuration failure): TimeFrame is
+//    wiped, then the exception always rethrows, regardless of
+//    DropTFUponFailure.
+//  - BoundedMemoryResource::MemoryLimitExceeded (recoverable, per-TF
+//    resource failure): TimeFrame is wiped; DropTFUponFailure=true returns
+//    the exact kDroppedTimeFrameResult sentinel, DropTFUponFailure=false
+//    rethrows.
+//  - Any other std::exception: treated as unclassified/structural, wiped,
+//    always rethrows regardless of the flag.
+//  - Valid empty input (a real layout/topology with zero loaded clusters)
+//    completes without throwing and returns a non-negative, non-sentinel
+//    result.
+//  - A tracker instance that dropped one TimeFrame can immediately process a
+//    following one successfully.
+//
+// Every fixture below establishes a real layout (ensureDetectorLayouts())
+// and then loads a normalized source -- even the structural-failure case,
+// and even when that source carries zero clusters/ROFs -- before running
+// tracking. This is load-bearing, not incidental: TimeFrame::initialise()
+// unconditionally calls getNrof(layer) = mROFramesClusters[layer].size()-1
+// on every layer before TrackerTraits::initialiseTimeFrame() ever reaches
+// its own hasStoredDetectorLayouts()/detectorLayoutsCurrent() checks, and a
+// never-loaded (default-constructed, size-0) mROFramesClusters underflows
+// that subtraction, corrupting memory deep inside prepareClusters() rather
+// than throwing a clean exception. loadNormalizedSource() sizes
+// mROFramesClusters[layer] to rofs.size()+1 for every layer regardless of
+// whether clusters/rofs are empty, which is what makes that call, and every
+// "iterate 0..getNrof()" loop reached afterward, safe. The structural
+// failure itself is then produced by invalidateDetectorLayouts() right
+// before running tracking (TraversalException{StaleLayout}), not by
+// skipping layout establishment altogether -- see the comment on
+// StructuralFailureViaStaleLayoutAlwaysRethrowsAndWipes for why the
+// "never establish a layout" mechanism does not work with the current
+// TimeFrame::initialise() call order.
+//
+// The recoverable-failure fixtures trigger BoundedMemoryResource::
+// MemoryLimitExceeded through TrackingParameters::MaxMemory (via
+// Rig::forceMemoryLimitBelowCurrentUsage()), not by calling
+// BoundedMemoryResource::setMaxMemory() directly on the pool: Tracker<N>::
+// clustersToTracks() itself calls mMemoryPool->setMaxMemory(mTrkParams[
+// iteration].MaxMemory) as the first statement in its try block on every
+// call, which would silently undo a limit set directly on the pool object
+// beforehand.
+
+#define BOOST_TEST_MODULE ITSMFT CATracker failure contract
+#define BOOST_TEST_MAIN
+#define BOOST_TEST_DYN_LINK
+#include <boost/test/unit_test.hpp>
+
+#include <limits>
+#include <memory>
+#include <vector>
+
+#include <gsl/gsl>
+#include <oneapi/tbb/task_arena.h>
+
+#include <TGeoGlobalMagField.h>
+#include "Field/MagneticField.h"
+
+#include "CommonDataFormat/InteractionRecord.h"
+#include "DataFormatsITSMFT/CompCluster.h"
+#include "DataFormatsITSMFT/ROFRecord.h"
+#include "DataFormatsITSMFT/TopologyDictionary.h"
+#include "DetectorsCommonDataFormats/DetID.h"
+#include "ITSMFTTracking/CATracker.h"
+#include "ITSMFTTracking/ClusterDecoder.h"
+#include "ITSMFTTracking/Configuration.h"
+#include "ITSMFTTracking/DecodedCluster.h"
+#include "ITSMFTTracking/DetectorLayout.h"
+#include "ITSMFTTracking/DetectorSurfaceCatalogProvider.h"
+#include "ITSMFTTracking/MultiSourceFrame.h"
+#include "ITSMFTTracking/MultiSourceLoading.h"
+#include "ITSMFTTracking/SurfaceDescriptor.h"
+#include "ITSMFTTracking/SurfaceMeasurementAdapters.h"
+#include "ITSMFTTracking/TimeFrame.h"
+#include "ITSMFTTracking/TrackerTraits.h"
+#include "ITSMFTTracking/TrackingConfigParam.h"
+#include "SimulationDataFormat/MCCompLabel.h"
+#include "SimulationDataFormat/MCTruthContainer.h"
+
+using namespace o2::itsmft;
+using namespace o2::itsmft::tracking;
+
+namespace
+{
+
+// Deterministic, geometry-free stand-in for GeometryClusterDecoder<DetId>,
+// identical construction to testTimeFrameLifecycle.cxx /
+// testTimeFrameNormalizedSource.cxx / testMultiSourceLoading.cxx.
+class LegacyLikeDecoder final : public ClusterDecoder
+{
+ public:
+  explicit LegacyLikeDecoder(o2::detectors::DetID::ID detector) : mDetector(detector) {}
+
+  o2::itsmft::ioutils::SurfaceMeasurementDecodeResult decode(
+    const CompClusterExt& cluster,
+    BoundedPatternCursor& patterns,
+    const TopologyDictionary* dict,
+    gsl::span<const SurfaceId> layerToSurface,
+    ClusterSourceId source,
+    uint32_t externalIndex,
+    uint32_t sourceROF,
+    bool applySysErrors) const override
+  {
+    const auto clusterData = o2::itsmft::ioutils::extractClusterDataBounded(cluster, patterns, dict);
+    if (!clusterData.ok()) {
+      o2::itsmft::ioutils::SurfaceMeasurementDecodeResult result;
+      result.error = clusterData.error;
+      return result;
+    }
+
+    o2::itsmft::ioutils::SurfaceMeasurementDecodeResult result;
+    const int sensorID = cluster.getSensorID();
+    const int layer = sensorID;
+    result.layer = layer;
+    if (layer < 0 || static_cast<size_t>(layer) >= layerToSurface.size()) {
+      return result;
+    }
+    result.layerMapped = true;
+    result.kind = SurfaceKind::Cylinder;
+
+    DecodedCluster decoded{};
+    decoded.global = {static_cast<float>(sensorID) * 10.f, static_cast<float>(cluster.getRow()), static_cast<float>(cluster.getCol())};
+    decoded.cylinderFrame = {static_cast<float>(sensorID) + 100.f, static_cast<float>(cluster.getRow()) + 1.f, static_cast<float>(cluster.getCol()) + 2.f, 0.01f * sensorID};
+    decoded.rowColumnCovariance = {clusterData.sig2Row, 0.f, clusterData.sig2Col};
+    decoded.shape = clusterData.shape;
+    decoded.sensor = static_cast<uint32_t>(sensorID);
+    decoded.layer = layer;
+
+    const auto surface = layerToSurface[layer];
+    const DetectorSensorId sensor{static_cast<uint32_t>(mDetector), decoded.sensor};
+    const ClusterRef clusterRef{source, externalIndex};
+    result.measurement = makeCylinderSurfaceMeasurement(decoded, sensor, surface, clusterRef, sourceROF);
+    return result;
+  }
+
+ private:
+  o2::detectors::DetID::ID mDetector;
+};
+
+const TopologyDictionary& dict()
+{
+  static const TopologyDictionary d;
+  return d;
+}
+
+// TrackerTraits::findRoads() unconditionally touches the global
+// o2::base::Propagator singleton on first use, which in turn requires
+// TGeoGlobalMagField to already hold a real o2::field::MagneticField
+// object -- with none set (the state of every other test in this suite,
+// none of which calls clustersToTracks() end to end), Propagator falls
+// back to a legacy FairRunAna singleton that also does not exist in this
+// process and segfaults dereferencing it. Only the tests that expect a
+// genuinely successful clustersToTracks() run (valid empty input,
+// continued processing after a drop) reach findRoads(); the
+// structural/recoverable-failure tests throw/return before ever getting
+// there and do not need this. A trivial default-constructed
+// MagneticField (no field map file, zero solenoid current) is sufficient
+// -- these tests never fit or propagate an actual trajectory since there
+// are no clusters. TGeoGlobalMagField::Instance()->Lock() only allows one
+// SetField() call per process, so this must run at most once.
+void ensureTrivialMagneticFieldIsSet()
+{
+  static const bool done = [] {
+    TGeoGlobalMagField::Instance()->SetField(new o2::field::MagneticField());
+    TGeoGlobalMagField::Instance()->Lock();
+    return true;
+  }();
+  (void)done;
+}
+
+constexpr std::array<unsigned char, 3> onePixelPattern{1, 1, 0x80};
+constexpr std::array<unsigned char, 3> threePixelPattern{1, 3, 0xE0};
+
+std::vector<unsigned char> concatPatterns(std::initializer_list<gsl::span<const unsigned char>> parts)
+{
+  std::vector<unsigned char> bytes;
+  for (const auto& p : parts) {
+    bytes.insert(bytes.end(), p.begin(), p.end());
+  }
+  return bytes;
+}
+
+std::vector<SurfaceDescriptor> makeITSTestCatalog()
+{
+  std::vector<SurfaceDescriptor> surfaces;
+  surfaces.reserve(ITSNLayers);
+  for (uint16_t i = 0; i < ITSNLayers; ++i) {
+    surfaces.push_back(SurfaceDescriptor{SurfaceId{i}, i, static_cast<uint8_t>(o2::detectors::DetID::ITS), SurfaceKind::Cylinder});
+  }
+  return surfaces;
+}
+
+std::vector<SurfaceId> identitySurfaces(uint16_t nLayers)
+{
+  std::vector<SurfaceId> mapping;
+  mapping.reserve(nLayers);
+  for (uint16_t i = 0; i < nLayers; ++i) {
+    mapping.push_back(SurfaceId{i});
+  }
+  return mapping;
+}
+
+class FakeCatalogProvider final : public DetectorSurfaceCatalogProvider
+{
+ public:
+  explicit FakeCatalogProvider(std::vector<SurfaceDescriptor> catalog) : mCatalog{std::move(catalog)} {}
+
+  DetectorSurfaceCatalogResult buildCatalog(const DetectorSurfaceCatalogRequest&) const final
+  {
+    return {mCatalog, DetectorSurfaceCatalogError::None};
+  }
+
+  std::vector<SurfaceDescriptor> mCatalog;
+};
+
+struct Fixture {
+  std::vector<CompClusterExt> clusters;
+  std::vector<unsigned char> patterns;
+  std::vector<ROFRecord> rofs;
+  o2::dataformats::MCTruthContainer<o2::MCCompLabel> labels;
+};
+
+// 4 clusters on layers {0,1,0,2}, partitioned into 3 ROFs. Same shape as
+// testTimeFrameLifecycle.cxx's fixture -- only needed to give the
+// recoverable-failure fixture genuine per-event content to wipe.
+Fixture makeFixture()
+{
+  Fixture f;
+  f.clusters = {
+    CompClusterExt{10, 20, CompCluster::InvalidPatternID, 0},
+    CompClusterExt{11, 21, CompCluster::InvalidPatternID, 1},
+    CompClusterExt{12, 22, CompCluster::InvalidPatternID, 0},
+    CompClusterExt{13, 23, CompCluster::InvalidPatternID, 2},
+  };
+  f.patterns = concatPatterns({onePixelPattern, threePixelPattern, onePixelPattern, threePixelPattern});
+  f.rofs = {
+    ROFRecord{{100, 5}, 0, 0, 2},
+    ROFRecord{{140, 5}, 1, 2, 1},
+    ROFRecord{{1000, 6}, 2, 3, 1}};
+  for (uint32_t i = 0; i < f.clusters.size(); ++i) {
+    f.labels.addElement(i, o2::MCCompLabel{static_cast<int>(i) + 1, 0, 0});
+  }
+  return f;
+}
+
+std::vector<TrackingParameters> makeOneIterationITSParams(bool dropTFUponFailure, size_t maxMemory = std::numeric_limits<size_t>::max())
+{
+  std::vector<TrackingParameters> params(1);
+  resetDetectorDefaults(params[0], o2::detectors::DetID::ITS);
+  params[0].DropTFUponFailure = dropTFUponFailure;
+  params[0].MaxMemory = maxMemory;
+  return params;
+}
+
+// Bundles a TimeFrame<ITSNLayers>, a real TrackerTraits<ITSNLayers>/
+// Tracker<ITSNLayers> pair, and a bounded memory pool -- the minimal wiring
+// Tracker<N>::clustersToTracks() needs to run at all (task arena included:
+// TrackerTraits::computeLayerTracklets() dereferences it unconditionally,
+// even though the structural-failure cases never reach that far).
+struct Rig {
+  explicit Rig(bool dropTFUponFailure, size_t maxMemory = std::numeric_limits<size_t>::max())
+    : pool(std::make_shared<BoundedMemoryResource>()),
+      params(makeOneIterationITSParams(dropTFUponFailure, maxMemory)),
+      tracker(&traits)
+  {
+    tf.setMemoryPool(pool);
+    traits.setMemoryPool(pool);
+    traits.setNThreads(1, arena);
+    tracker.adoptTimeFrame(tf);
+    tracker.setParameters(params);
+    tracker.setMemoryPool(pool);
+    tracker.setBz(0.5f);
+  }
+
+  std::shared_ptr<BoundedMemoryResource> pool;
+  std::vector<TrackingParameters> params;
+  TimeFrame<ITSNLayers> tf;
+  TrackerTraits<ITSNLayers> traits;
+  Tracker<ITSNLayers> tracker;
+  std::shared_ptr<tbb::task_arena> arena;
+
+  // Establishes a real, valid detector layout + topology, without loading
+  // any clusters. Proven pattern from testTimeFrameLifecycle.cxx.
+  void establishValidLayout()
+  {
+    const auto orderedSurfaces = identitySurfaces(ITSNLayers);
+    FakeCatalogProvider provider{makeITSTestCatalog()};
+    const DetectorSurfaceCatalogRequest catalogRequest{o2::detectors::DetID::ITS, SurfaceId{0}, ITSNLayers};
+    BOOST_REQUIRE(tf.ensureDetectorLayouts(&provider, catalogRequest, orderedSurfaces, TransitionPolicyTag::CylinderCylinder, params).ok());
+    tf.initTrackerTopologies(params);
+  }
+
+  // Loads clusters (or, with an empty Fixture, zero clusters -- still a
+  // valid load that sizes every per-layer ROF boundary table to a real,
+  // if trivial, state) through the same normalized-loading path production
+  // code uses. This sizing is load-bearing: TimeFrame::initialise() calls
+  // getNrof(layer) = mROFramesClusters[layer].size() - 1 unconditionally,
+  // and a never-loaded (default-constructed, size-0) mROFramesClusters
+  // underflows that subtraction, crashing deep inside prepareClusters()
+  // before any failure-contract check ever runs. loadNormalizedSource()
+  // sizes mROFramesClusters[layer] to rofs.size()+1 for every layer even
+  // when rofs/clusters are empty, so calling it with an empty Fixture is
+  // the only proven-safe way to reach a genuinely valid, still-empty
+  // TimeFrame state.
+  void loadSource(const Fixture& f)
+  {
+    LegacyLikeDecoder decoder{o2::detectors::DetID::ITS};
+    const o2::InteractionRecord origin{50, 5};
+    const ROFTimingConfig timing{40, 0, 0, 0};
+    const auto result = tf.loadNormalizedSource(decoder, origin, timing, f.clusters, f.patterns, f.rofs, &dict(),
+                                                 f.labels.getIndexedSize() > 0 ? &f.labels : nullptr, o2::detectors::DetID::ITS);
+    BOOST_REQUIRE(result.ok());
+
+    // TrackerTraits::computeLayerTracklets() reads per-layer ROF counts
+    // from mROFOverlapTableView (o2::its::LayerTiming), a separate table
+    // from mROFramesClusters/getNrof() -- it is never populated by
+    // loadNormalizedSource() and defaults to an unconfigured/garbage view.
+    // A traversal that reaches computeLayerTracklets() without this being
+    // set derives its ROF loop bound from that garbage view and walks out
+    // of bounds. Mirrors TrackingInterface::configureROFLookupTables()'s
+    // shape, but with every layer given the same trivial timing matching
+    // this fixture's single combined ROF stream (real production input has
+    // per-detector-param ROF length/delay/bias; none of that is exercised
+    // by the failure-contract cases here, only the ROF *count* is load
+    // -bearing).
+    o2::its::LayerTiming timing2{};
+    timing2.mNROFsTF = static_cast<unsigned int>(f.rofs.size());
+    timing2.mROFLength = 40;
+    typename TimeFrame<ITSNLayers>::ROFOverlapTableN rofTable;
+    for (int iLayer = 0; iLayer < ITSNLayers; ++iLayer) {
+      rofTable.defineLayer(iLayer, timing2);
+    }
+    rofTable.init();
+    tf.setROFOverlapTable(rofTable);
+
+    typename TimeFrame<ITSNLayers>::ROFMaskTableN mask{rofTable};
+    mask.resetMask();
+    for (int iLayer = 0; iLayer < ITSNLayers; ++iLayer) {
+      mask.setROFsEnabled(iLayer, 0, timing2.mNROFsTF, 1);
+    }
+    tf.setMultiplicityCutMask(std::move(mask));
+  }
+
+  // Tracker<N>::clustersToTracks() calls mMemoryPool->setMaxMemory(params[0].
+  // MaxMemory) as the very first statement in its try block, on every call
+  // -- so a memory pool limit tightened directly on the pool object (rather
+  // than through TrackingParameters::MaxMemory) is silently undone the
+  // instant clustersToTracks() runs. Setting MaxMemory here below the
+  // pool's current usage makes that same setMaxMemory() call throw
+  // BoundedMemoryResource::MemoryLimitExceeded immediately, before
+  // initialiseTimeFrame()/prepareClusters() or any traversal code runs.
+  // Tracker<N> keeps its own copy of the parameters vector (setParameters()
+  // copies by value), so it must be re-applied after this mutation.
+  void forceMemoryLimitBelowCurrentUsage()
+  {
+    const auto used = pool->getUsedMemory();
+    params[0].MaxMemory = used > 0 ? used - 1 : 0;
+    tracker.setParameters(params);
+  }
+
+  void restoreUnboundedMemory()
+  {
+    params[0].MaxMemory = std::numeric_limits<size_t>::max();
+    tracker.setParameters(params);
+  }
+};
+
+Fixture emptyFixture()
+{
+  return Fixture{};
+}
+
+} // namespace
+
+// --- Sentinel exactness --------------------------------------------------
+
+BOOST_AUTO_TEST_CASE(SentinelIsExactMatchNotSignCheck)
+{
+  BOOST_CHECK(isDroppedTimeFrame(kDroppedTimeFrameResult));
+  BOOST_CHECK(!isDroppedTimeFrame(0.f));
+  BOOST_CHECK(!isDroppedTimeFrame(3.5f));
+  BOOST_CHECK(!isDroppedTimeFrame(-2.f));
+  BOOST_CHECK(!isDroppedTimeFrame(std::numeric_limits<float>::infinity()));
+  BOOST_CHECK(!isDroppedTimeFrame(std::numeric_limits<float>::quiet_NaN()));
+}
+
+// --- Structural failure: always rethrows, always wipes -------------------
+//
+// Mechanism: establish a real layout and load a (deliberately empty)
+// normalized source -- required so TimeFrame::initialise()'s unconditional
+// getNrof(layer) calls see a validly-sized ROF table instead of underflowing
+// -- then invalidate the layout right before running tracking, producing
+// TraversalException{StaleLayout} deterministically.
+//
+// A never-established layout (skipping ensureDetectorLayouts() entirely)
+// was also tried, aiming for TraversalException{MissingLayout}, but
+// TrackerTraits::initialiseTimeFrame() calls TimeFrame::initialise() BEFORE
+// its hasStoredDetectorLayouts() check, and initialise() unconditionally
+// runs prepareClusters()/getNrof() on every layer regardless of whether any
+// source was ever loaded; with mROFramesClusters never sized, getNrof()
+// underflows and prepareClusters() reads out of bounds. That crash is a
+// pre-existing precondition gap in initialise()'s call order, not part of
+// this task's bounded scope (CATracker.cxx/CATrackerSpec.cxx/declarations
+// only) -- worth a separate follow-up, not fixed here.
+
+BOOST_AUTO_TEST_CASE(StructuralFailureViaStaleLayoutAlwaysRethrowsAndWipes)
+{
+  for (const bool dropFlag : {false, true}) {
+    Rig rig{dropFlag};
+    rig.establishValidLayout();
+    rig.loadSource(emptyFixture());
+    BOOST_REQUIRE(rig.tf.hasStoredDetectorLayouts());
+    const auto epochBefore = rig.tf.getRequiredDetectorGeometryEpoch();
+
+    rig.tf.invalidateDetectorLayouts();
+    BOOST_REQUIRE(!rig.tf.detectorLayoutsCurrent());
+
+    // Seed genuine content so the assertion below proves wipe() actually
+    // ran, not merely that mTracks started out empty.
+    rig.tf.getTracks().push_back(CATrackType<ITSNLayers>{});
+    BOOST_REQUIRE(!rig.tf.getTracks().empty());
+
+    BOOST_CHECK_THROW(rig.tracker.clustersToTracks(), TraversalException);
+
+    BOOST_CHECK(rig.tf.getTracks().empty());
+    BOOST_CHECK_EQUAL(rig.tf.getNormalizedFrame().getTotalMeasurements(), 0u);
+    // The stored layout object itself survives invalidation (only the
+    // required epoch changes) -- wipe() must not additionally destroy it.
+    BOOST_CHECK(rig.tf.hasStoredDetectorLayouts());
+    BOOST_CHECK(rig.tf.getRequiredDetectorGeometryEpoch() != epochBefore);
+  }
+}
+
+// --- Recoverable failure: DropTFUponFailure decides, always wipes --------
+
+BOOST_AUTO_TEST_CASE(RecoverableFailureDroppedReturnsExactSentinelAndWipes)
+{
+  Rig rig{/*dropTFUponFailure=*/true};
+  rig.establishValidLayout();
+  rig.loadSource(makeFixture());
+  BOOST_REQUIRE(rig.tf.getNormalizedFrame().getTotalMeasurements() > 0u);
+
+  const auto catalogSizeBefore = rig.tf.getSurfaceCatalog()->size();
+  const auto epochBefore = rig.tf.getRequiredDetectorGeometryEpoch();
+
+  rig.forceMemoryLimitBelowCurrentUsage();
+
+  const float result = rig.tracker.clustersToTracks();
+
+  BOOST_CHECK(isDroppedTimeFrame(result));
+  BOOST_CHECK_EQUAL(rig.tf.getNormalizedFrame().getTotalMeasurements(), 0u);
+  BOOST_CHECK(rig.tf.getTracks().empty());
+  // Catalog/layout configuration and geometry epoch survive the wipe.
+  BOOST_REQUIRE(rig.tf.getSurfaceCatalog() != nullptr);
+  BOOST_CHECK_EQUAL(rig.tf.getSurfaceCatalog()->size(), catalogSizeBefore);
+  BOOST_CHECK(rig.tf.detectorLayoutsCurrent());
+  BOOST_CHECK_EQUAL(rig.tf.getRequiredDetectorGeometryEpoch(), epochBefore);
+}
+
+BOOST_AUTO_TEST_CASE(RecoverableFailureNotDroppedRethrowsButStillWipesFirst)
+{
+  Rig rig{/*dropTFUponFailure=*/false};
+  rig.establishValidLayout();
+  rig.loadSource(makeFixture());
+  BOOST_REQUIRE(rig.tf.getNormalizedFrame().getTotalMeasurements() > 0u);
+
+  rig.forceMemoryLimitBelowCurrentUsage();
+
+  BOOST_CHECK_THROW(rig.tracker.clustersToTracks(), BoundedMemoryResource::MemoryLimitExceeded);
+
+  // Wipe must have already happened before the exception propagated -- not
+  // "the process is going down anyway".
+  BOOST_CHECK_EQUAL(rig.tf.getNormalizedFrame().getTotalMeasurements(), 0u);
+  BOOST_CHECK(rig.tf.getTracks().empty());
+  BOOST_CHECK(rig.tf.hasStoredDetectorLayouts());
+  BOOST_CHECK(rig.tf.detectorLayoutsCurrent());
+}
+
+// --- Valid empty input -----------------------------------------------------
+
+BOOST_AUTO_TEST_CASE(ValidEmptyInputCompletesWithoutErrorAndProducesNoTracks)
+{
+  ensureTrivialMagneticFieldIsSet();
+  Rig rig{/*dropTFUponFailure=*/false};
+  rig.establishValidLayout();
+  rig.loadSource(emptyFixture());
+  BOOST_REQUIRE_EQUAL(rig.tf.getNormalizedFrame().getTotalMeasurements(), 0u);
+
+  float result = std::numeric_limits<float>::quiet_NaN();
+  BOOST_CHECK_NO_THROW(result = rig.tracker.clustersToTracks());
+
+  BOOST_CHECK(!isDroppedTimeFrame(result));
+  BOOST_CHECK(result >= 0.f);
+  BOOST_CHECK_EQUAL(rig.tf.getNumberOfTracks(), 0u);
+}
+
+// --- Continued processing after a drop ------------------------------------
+
+BOOST_AUTO_TEST_CASE(TrackerRemainsUsableAfterADroppedTimeFrame)
+{
+  ensureTrivialMagneticFieldIsSet();
+  Rig rig{/*dropTFUponFailure=*/true};
+  rig.establishValidLayout();
+  rig.loadSource(makeFixture());
+
+  rig.forceMemoryLimitBelowCurrentUsage();
+  const float dropped = rig.tracker.clustersToTracks();
+  BOOST_REQUIRE(isDroppedTimeFrame(dropped));
+
+  // Restore headroom and process a fresh (here, empty) TimeFrame on the
+  // SAME Tracker/TrackerTraits instance -- proving the tracker/device stays
+  // usable after a drop, matching the DPL device staying alive.
+  rig.restoreUnboundedMemory();
+  rig.loadSource(emptyFixture());
+
+  float result = std::numeric_limits<float>::quiet_NaN();
+  BOOST_CHECK_NO_THROW(result = rig.tracker.clustersToTracks());
+  BOOST_CHECK(!isDroppedTimeFrame(result));
+  BOOST_CHECK(result >= 0.f);
+}
