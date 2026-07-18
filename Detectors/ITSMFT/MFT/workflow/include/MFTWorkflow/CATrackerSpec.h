@@ -42,7 +42,7 @@ enum class CATrackerPublicationAction {
 /// tracking failure never reaches this function: `processTimeFrame()`
 /// throws in that case, and CATrackerDPL::run() lets the exception
 /// propagate uncaught rather than returning a value to decide on.
-CATrackerPublicationAction decideCATrackerPublicationAction(bool trackerActive, float trackingResult);
+CATrackerPublicationAction decideCATrackerPublicationAction(bool trackerActive, float trackingResult) noexcept;
 
 /// MFT CA tracker DPL task. Delegates reconstruction to ITSMFTTrackingInterfaceMFT.
 class CATrackerDPL : public o2::framework::Task

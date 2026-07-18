@@ -13,17 +13,24 @@
 //  - TraversalException (structural/configuration failure): TimeFrame is
 //    wiped, then the exception always rethrows, regardless of
 //    DropTFUponFailure.
-//  - BoundedMemoryResource::MemoryLimitExceeded (recoverable, per-TF
-//    resource failure): TimeFrame is wiped; DropTFUponFailure=true returns
-//    the exact kDroppedTimeFrameResult sentinel, DropTFUponFailure=false
-//    rethrows.
-//  - Any other std::exception: treated as unclassified/structural, wiped,
-//    always rethrows regardless of the flag.
+//  - BoundedMemoryResource::MemoryLimitExceeded and std::bad_alloc
+//    (recoverable, per-TF resource failures): TimeFrame is wiped;
+//    DropTFUponFailure=true returns the exact kDroppedTimeFrameResult
+//    sentinel, DropTFUponFailure=false rethrows.
+//  - Any other std::exception (e.g. std::runtime_error): treated as
+//    unclassified/structural, wiped, always rethrows regardless of the
+//    flag -- it must never be silently converted into a dropped-TF result.
 //  - Valid empty input (a real layout/topology with zero loaded clusters)
 //    completes without throwing and returns a non-negative, non-sentinel
 //    result.
 //  - A tracker instance that dropped one TimeFrame can immediately process a
 //    following one successfully.
+//
+// The std::bad_alloc and unclassified-std::exception cases are exercised
+// through InjectingTrackerTraits, a test-only TrackerTraits<ITSNLayers>
+// subclass that overrides the virtual computeLayerTracklets() traversal-stage
+// boundary to throw on demand, deterministically, without provoking real
+// host OOM or needing to reach genuine tracklet/cell/road computation.
 //
 // Every fixture below establishes a real layout (ensureDetectorLayouts())
 // and then loads a normalized source -- even the structural-failure case,
@@ -61,6 +68,7 @@
 
 #include <limits>
 #include <memory>
+#include <stdexcept>
 #include <vector>
 
 #include <gsl/gsl>
@@ -265,13 +273,49 @@ std::vector<TrackingParameters> makeOneIterationITSParams(bool dropTFUponFailure
   return params;
 }
 
-// Bundles a TimeFrame<ITSNLayers>, a real TrackerTraits<ITSNLayers>/
-// Tracker<ITSNLayers> pair, and a bounded memory pool -- the minimal wiring
-// Tracker<N>::clustersToTracks() needs to run at all (task arena included:
-// TrackerTraits::computeLayerTracklets() dereferences it unconditionally,
-// even though the structural-failure cases never reach that far).
-struct Rig {
-  explicit Rig(bool dropTFUponFailure, size_t maxMemory = std::numeric_limits<size_t>::max())
+// Deterministic injection seam for the std::bad_alloc and
+// unclassified-std::exception cases: TrackerTraits::computeLayerTracklets()
+// is virtual and is the first traversal stage Tracker<N>::clustersToTracks()
+// calls after initialiseTimeFrame() succeeds (see CATracker.cxx's do/while
+// loop), so overriding it to throw immediately exercises CATracker.cxx's
+// catch chain deterministically -- without provoking real host OOM, and
+// without ever reaching genuine tracklet/cell/road computation (so, unlike
+// ValidEmptyInputCompletesWithoutErrorAndProducesNoTracks /
+// TrackerRemainsUsableAfterADroppedTimeFrame, these cases do not need
+// ensureTrivialMagneticFieldIsSet(): findRoads() is never reached).
+enum class InjectedFailure { None,
+                              BadAlloc,
+                              UnclassifiedRuntimeError };
+
+class InjectingTrackerTraits final : public TrackerTraits<ITSNLayers>
+{
+ public:
+  InjectedFailure failure = InjectedFailure::None;
+
+  void computeLayerTracklets(const int iteration, int iVertex) override
+  {
+    switch (failure) {
+      case InjectedFailure::BadAlloc:
+        throw std::bad_alloc{};
+      case InjectedFailure::UnclassifiedRuntimeError:
+        throw std::runtime_error{"injected unclassified failure"};
+      case InjectedFailure::None:
+        break;
+    }
+    TrackerTraits<ITSNLayers>::computeLayerTracklets(iteration, iVertex);
+  }
+};
+
+// Bundles a TimeFrame<ITSNLayers>, a TraitsT/Tracker<ITSNLayers> pair, and a
+// bounded memory pool -- the minimal wiring Tracker<N>::clustersToTracks()
+// needs to run at all (task arena included: TrackerTraits::
+// computeLayerTracklets() dereferences it unconditionally, even though the
+// structural-failure cases never reach that far). TraitsT defaults to the
+// real TrackerTraits<ITSNLayers>; RigT<InjectingTrackerTraits> (aliased
+// ThrowingRig below) is used by the injected-failure tests.
+template <class TraitsT = TrackerTraits<ITSNLayers>>
+struct RigT {
+  explicit RigT(bool dropTFUponFailure, size_t maxMemory = std::numeric_limits<size_t>::max())
     : pool(std::make_shared<BoundedMemoryResource>()),
       params(makeOneIterationITSParams(dropTFUponFailure, maxMemory)),
       tracker(&traits)
@@ -288,7 +332,7 @@ struct Rig {
   std::shared_ptr<BoundedMemoryResource> pool;
   std::vector<TrackingParameters> params;
   TimeFrame<ITSNLayers> tf;
-  TrackerTraits<ITSNLayers> traits;
+  TraitsT traits;
   Tracker<ITSNLayers> tracker;
   std::shared_ptr<tbb::task_arena> arena;
 
@@ -377,6 +421,9 @@ struct Rig {
     tracker.setParameters(params);
   }
 };
+
+using Rig = RigT<>;
+using ThrowingRig = RigT<InjectingTrackerTraits>;
 
 Fixture emptyFixture()
 {
@@ -487,6 +534,76 @@ BOOST_AUTO_TEST_CASE(RecoverableFailureNotDroppedRethrowsButStillWipesFirst)
   BOOST_CHECK(rig.tf.getTracks().empty());
   BOOST_CHECK(rig.tf.hasStoredDetectorLayouts());
   BOOST_CHECK(rig.tf.detectorLayoutsCurrent());
+}
+
+// --- std::bad_alloc: recoverable, same drop-or-rethrow policy ------------
+//
+// Injected via InjectingTrackerTraits rather than genuine host OOM (see the
+// class comment above): computeLayerTracklets() throws std::bad_alloc
+// immediately, after initialiseTimeFrame() has already established a real,
+// valid state from establishValidLayout()+loadSource(makeFixture()).
+
+BOOST_AUTO_TEST_CASE(BadAllocDroppedReturnsExactSentinelAndWipes)
+{
+  ThrowingRig rig{/*dropTFUponFailure=*/true};
+  rig.establishValidLayout();
+  rig.loadSource(makeFixture());
+  BOOST_REQUIRE(rig.tf.getNormalizedFrame().getTotalMeasurements() > 0u);
+
+  const auto catalogSizeBefore = rig.tf.getSurfaceCatalog()->size();
+  const auto epochBefore = rig.tf.getRequiredDetectorGeometryEpoch();
+
+  rig.traits.failure = InjectedFailure::BadAlloc;
+  const float result = rig.tracker.clustersToTracks();
+
+  BOOST_CHECK(isDroppedTimeFrame(result));
+  BOOST_CHECK_EQUAL(rig.tf.getNormalizedFrame().getTotalMeasurements(), 0u);
+  BOOST_CHECK(rig.tf.getTracks().empty());
+  BOOST_REQUIRE(rig.tf.getSurfaceCatalog() != nullptr);
+  BOOST_CHECK_EQUAL(rig.tf.getSurfaceCatalog()->size(), catalogSizeBefore);
+  BOOST_CHECK(rig.tf.detectorLayoutsCurrent());
+  BOOST_CHECK_EQUAL(rig.tf.getRequiredDetectorGeometryEpoch(), epochBefore);
+}
+
+BOOST_AUTO_TEST_CASE(BadAllocNotDroppedRethrowsButStillWipesFirst)
+{
+  ThrowingRig rig{/*dropTFUponFailure=*/false};
+  rig.establishValidLayout();
+  rig.loadSource(makeFixture());
+  BOOST_REQUIRE(rig.tf.getNormalizedFrame().getTotalMeasurements() > 0u);
+
+  rig.traits.failure = InjectedFailure::BadAlloc;
+  BOOST_CHECK_THROW(rig.tracker.clustersToTracks(), std::bad_alloc);
+
+  BOOST_CHECK_EQUAL(rig.tf.getNormalizedFrame().getTotalMeasurements(), 0u);
+  BOOST_CHECK(rig.tf.getTracks().empty());
+  BOOST_CHECK(rig.tf.hasStoredDetectorLayouts());
+  BOOST_CHECK(rig.tf.detectorLayoutsCurrent());
+}
+
+// --- Unclassified std::exception: always structural, never a sentinel ----
+//
+// A plain std::runtime_error (or any std::exception that is neither
+// TraversalException, BoundedMemoryResource::MemoryLimitExceeded, nor
+// std::bad_alloc) must always rethrow and never be silently converted into
+// a dropped-TF result, regardless of DropTFUponFailure.
+
+BOOST_AUTO_TEST_CASE(UnclassifiedExceptionAlwaysRethrowsAndWipesRegardlessOfFlag)
+{
+  for (const bool dropFlag : {false, true}) {
+    ThrowingRig rig{dropFlag};
+    rig.establishValidLayout();
+    rig.loadSource(makeFixture());
+    BOOST_REQUIRE(rig.tf.getNormalizedFrame().getTotalMeasurements() > 0u);
+
+    rig.traits.failure = InjectedFailure::UnclassifiedRuntimeError;
+    BOOST_CHECK_THROW(rig.tracker.clustersToTracks(), std::runtime_error);
+
+    BOOST_CHECK_EQUAL(rig.tf.getNormalizedFrame().getTotalMeasurements(), 0u);
+    BOOST_CHECK(rig.tf.getTracks().empty());
+    BOOST_CHECK(rig.tf.hasStoredDetectorLayouts());
+    BOOST_CHECK(rig.tf.detectorLayoutsCurrent());
+  }
 }
 
 // --- Valid empty input -----------------------------------------------------

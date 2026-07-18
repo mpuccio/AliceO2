@@ -45,7 +45,7 @@ inline constexpr float kDroppedTimeFrameResult = -1.f;
 /// Exact-match test for the drop sentinel above. Deliberately not `result <
 /// 0.f`: only the literal kDroppedTimeFrameResult value means "dropped",
 /// so callers cannot silently widen the contract to other negative values.
-inline bool isDroppedTimeFrame(float result)
+inline bool isDroppedTimeFrame(float result) noexcept
 {
   return result == kDroppedTimeFrameResult;
 }

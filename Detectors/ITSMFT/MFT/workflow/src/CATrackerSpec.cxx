@@ -122,7 +122,7 @@ void fillMFTOutputs(const o2::itsmft::tracking::TimeFrameMFT& tf,
 }
 } // namespace
 
-CATrackerPublicationAction decideCATrackerPublicationAction(bool trackerActive, float trackingResult)
+CATrackerPublicationAction decideCATrackerPublicationAction(bool trackerActive, float trackingResult) noexcept
 {
   if (!trackerActive) {
     return CATrackerPublicationAction::PublishInactiveEmpty;
@@ -145,15 +145,12 @@ void CATrackerDPL::run(ProcessingContext& pc)
   auto rofsinput = pc.inputs().get<const std::vector<o2::itsmft::ROFRecord>>("ROframes");
 
   if (decideCATrackerPublicationAction(mTracking.isActive(), 0.f) == CATrackerPublicationAction::PublishInactiveEmpty) {
-    // Existing production behavior: publish echoed-but-empty outputs so
-    // downstream consumers always see one ROF record per input ROF, with
-    // zero track entries, when the tracker is not configured to run.
-    auto& trackROFs = pc.outputs().make<std::vector<o2::itsmft::ROFRecord>>(Output{"MFT", "MFTTrackROF", 0},
-                                                                             rofsinput.begin(), rofsinput.end());
-    for (auto& rof : trackROFs) {
-      rof.setFirstEntry(0);
-      rof.setNEntries(0);
-    }
+    // Existing production behavior, preserved exactly: publish the input
+    // ROFs verbatim (their firstEntry/nEntries are not rewritten here) plus
+    // empty track/cluster-index/seed-pattern outputs, when the tracker is
+    // not configured to run.
+    pc.outputs().make<std::vector<o2::itsmft::ROFRecord>>(Output{"MFT", "MFTTrackROF", 0},
+                                                           rofsinput.begin(), rofsinput.end());
     pc.outputs().make<std::vector<o2::mft::TrackMFT>>(Output{"MFT", "TRACKS", 0});
     pc.outputs().make<std::vector<int>>(Output{"MFT", "TRACKCLSID", 0});
     pc.outputs().make<std::vector<uint16_t>>(Output{"MFT", "TRACKSEEDPAT", 0});
