@@ -17,6 +17,7 @@
 #endif
 
 #include "ITSMFTTracking/SparseTrackingTopology.h"
+#include "ITSMFTTracking/SurfaceCatalogView.h"
 #include "ITSMFTTracking/SurfaceDescriptor.h"
 #include "ITSMFTTracking/TransitionPolicy.h"
 
@@ -31,6 +32,9 @@ struct DetectorLayoutView {
   SparseTrackingTopologyView topology{};
 
   GPUhdi() const SurfaceDescriptor& getSurface(SurfaceId id) const { return surfaces[id.value()]; }
+  // Narrowed, catalog-only view: geometry identity alone, with no topology,
+  // masks or transition-policy dependency.
+  GPUhdi() SurfaceCatalogView getSurfaceCatalogView() const noexcept { return SurfaceCatalogView{surfaces, nSurfaces}; }
 };
 
 static_assert(std::is_standard_layout_v<DetectorLayoutView>);

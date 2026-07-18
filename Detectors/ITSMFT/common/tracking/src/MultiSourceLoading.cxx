@@ -23,7 +23,7 @@ bool isSupportedDetector(o2::detectors::DetID::ID det) noexcept
 } // namespace
 
 LoadSourcesResult loadSources(MultiSourceFrame& frame,
-                              const DetectorLayoutView& layout,
+                              const SurfaceCatalogView& catalog,
                               gsl::span<const ClusterSourceInput> sources,
                               const o2::InteractionRecord& origin)
 {
@@ -50,7 +50,7 @@ LoadSourcesResult loadSources(MultiSourceFrame& frame,
 
   // Staging storage: nothing here is visible to `frame` until every source
   // has been fully validated and decoded.
-  std::vector<std::vector<SurfaceMeasurement>> perSurface(layout.nSurfaces);
+  std::vector<std::vector<SurfaceMeasurement>> perSurface(catalog.nSurfaces);
   std::vector<SourceMetadata> sourcesMeta(nSources);
   std::vector<std::vector<ROFIntervalBC>> perSourceIntervals(nSources);
   std::vector<const o2::dataformats::MCTruthContainer<o2::MCCompLabel>*> labelSources(nSources, nullptr);
@@ -120,7 +120,7 @@ LoadSourcesResult loadSources(MultiSourceFrame& frame,
           return {MultiSourceLoadError::InvalidLayerMapping, src.id, r, externalIndex};
         }
         const auto expectedSurface = src.layerToSurface[decoded.layer];
-        if (!expectedSurface.isValid() || expectedSurface.value() >= layout.nSurfaces) {
+        if (!expectedSurface.isValid() || expectedSurface.value() >= catalog.nSurfaces) {
           return {MultiSourceLoadError::InvalidLayerMapping, src.id, r, externalIndex};
         }
         // Authoritative cluster identity: a buggy host adapter must not be
@@ -135,7 +135,7 @@ LoadSourcesResult loadSources(MultiSourceFrame& frame,
             measurement.sensor.detector != static_cast<uint32_t>(src.detector)) {
           return {MultiSourceLoadError::InconsistentDecoderMetadata, src.id, r, externalIndex};
         }
-        const auto& surfaceDescriptor = layout.getSurface(expectedSurface);
+        const auto& surfaceDescriptor = catalog.getSurface(expectedSurface);
         if (surfaceDescriptor.detectorId != static_cast<uint8_t>(src.detector)) {
           return {MultiSourceLoadError::DetectorSurfaceMismatch, src.id, r, externalIndex};
         }
@@ -153,13 +153,13 @@ LoadSourcesResult loadSources(MultiSourceFrame& frame,
   // 5. Commit: flatten per-surface buckets and per-source timing into the
   //    frame's contiguous storage in a single atomic assignment.
   std::vector<SurfaceMeasurement> flatMeasurements;
-  std::vector<SurfaceMeasurementRange> ranges(layout.nSurfaces);
+  std::vector<SurfaceMeasurementRange> ranges(catalog.nSurfaces);
   size_t total = 0;
-  for (uint32_t s = 0; s < layout.nSurfaces; ++s) {
+  for (uint32_t s = 0; s < catalog.nSurfaces; ++s) {
     total += perSurface[s].size();
   }
   flatMeasurements.reserve(total);
-  for (uint32_t s = 0; s < layout.nSurfaces; ++s) {
+  for (uint32_t s = 0; s < catalog.nSurfaces; ++s) {
     ranges[s] = SurfaceMeasurementRange{static_cast<uint32_t>(flatMeasurements.size()), static_cast<uint32_t>(perSurface[s].size())};
     flatMeasurements.insert(flatMeasurements.end(), perSurface[s].begin(), perSurface[s].end());
   }

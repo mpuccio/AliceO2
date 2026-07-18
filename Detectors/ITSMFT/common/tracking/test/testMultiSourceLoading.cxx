@@ -226,7 +226,7 @@ BOOST_AUTO_TEST_CASE(SingleITSSourceLoadsIntoExpectedSurfaces)
   src.decoder = &decoder;
 
   MultiSourceFrame frame;
-  const auto result = loadSources(frame, layout.getView(), gsl::span<const ClusterSourceInput>(&src, 1), {0, 0});
+  const auto result = loadSources(frame, layout.getView().getSurfaceCatalogView(), gsl::span<const ClusterSourceInput>(&src, 1), {0, 0});
   BOOST_REQUIRE(result.ok());
 
   BOOST_CHECK_EQUAL(frame.getSurfaceMeasurements(SurfaceId{0}).size(), 1u);
@@ -263,7 +263,7 @@ BOOST_AUTO_TEST_CASE(SingleMFTSourceLoadsIntoExpectedSurfaces)
   src.decoder = &decoder;
 
   MultiSourceFrame frame;
-  const auto result = loadSources(frame, layout.getView(), gsl::span<const ClusterSourceInput>(&src, 1), {0, 0});
+  const auto result = loadSources(frame, layout.getView().getSurfaceCatalogView(), gsl::span<const ClusterSourceInput>(&src, 1), {0, 0});
   BOOST_REQUIRE(result.ok());
 
   BOOST_CHECK_EQUAL(frame.getSurfaceMeasurements(SurfaceId{2}).size(), 1u);
@@ -308,7 +308,7 @@ BOOST_AUTO_TEST_CASE(CombinedITSAndMFTSourcesLoadTogether)
   sources[1].decoder = &mftDecoder;
 
   MultiSourceFrame frame;
-  const auto result = loadSources(frame, layout.getView(), gsl::span<const ClusterSourceInput>(sources), {0, 0});
+  const auto result = loadSources(frame, layout.getView().getSurfaceCatalogView(), gsl::span<const ClusterSourceInput>(sources), {0, 0});
   BOOST_REQUIRE(result.ok());
 
   BOOST_CHECK_EQUAL(frame.getSurfaceMeasurements(SurfaceId{0}).size(), 1u);
@@ -353,7 +353,7 @@ BOOST_AUTO_TEST_CASE(TwoSourcesOfSameDetectorBothAppendToOneSurface)
   sources[1].decoder = &decoderB;
 
   MultiSourceFrame frame;
-  const auto result = loadSources(frame, layout.getView(), gsl::span<const ClusterSourceInput>(sources), {0, 0});
+  const auto result = loadSources(frame, layout.getView().getSurfaceCatalogView(), gsl::span<const ClusterSourceInput>(sources), {0, 0});
   BOOST_REQUIRE(result.ok());
 
   const auto onSurfaceZero = frame.getSurfaceMeasurements(SurfaceId{0});
@@ -405,7 +405,7 @@ BOOST_AUTO_TEST_CASE(IdenticalExternalIndicesInDifferentSourcesDoNotCollide)
   sources[1].decoder = &decoderB;
 
   MultiSourceFrame frame;
-  const auto result = loadSources(frame, layout.getView(), gsl::span<const ClusterSourceInput>(sources), {0, 0});
+  const auto result = loadSources(frame, layout.getView().getSurfaceCatalogView(), gsl::span<const ClusterSourceInput>(sources), {0, 0});
   BOOST_REQUIRE(result.ok());
 
   const auto onSurfaceZero = frame.getSurfaceMeasurements(SurfaceId{0});
@@ -451,7 +451,7 @@ BOOST_AUTO_TEST_CASE(ClusterRefFlagsDoNotAffectIdentityOrLabelLookup)
   src.decoder = &decoder;
 
   MultiSourceFrame frame;
-  const auto result = loadSources(frame, layout.getView(), gsl::span<const ClusterSourceInput>(&src, 1), {0, 0});
+  const auto result = loadSources(frame, layout.getView().getSurfaceCatalogView(), gsl::span<const ClusterSourceInput>(&src, 1), {0, 0});
   BOOST_REQUIRE(result.ok());
 
   const ClusterRef plain{ClusterSourceId{0}, 0};
@@ -522,7 +522,7 @@ BOOST_AUTO_TEST_CASE(IndependentROFCountsAcrossSourcesAreAllowed)
   sources[1].decoder = &decoderB;
 
   MultiSourceFrame frame;
-  const auto result = loadSources(frame, layout.getView(), gsl::span<const ClusterSourceInput>(sources), {0, 0});
+  const auto result = loadSources(frame, layout.getView().getSurfaceCatalogView(), gsl::span<const ClusterSourceInput>(sources), {0, 0});
   BOOST_REQUIRE(result.ok());
 
   BOOST_CHECK_EQUAL(frame.getSources()[0].nROFs, 3u);
@@ -585,7 +585,7 @@ BOOST_AUTO_TEST_CASE(OverlappingAndNonOverlappingSourceTimingIntervals)
   sources[2].decoder = &decoderC;
 
   MultiSourceFrame frame;
-  const auto result = loadSources(frame, layout.getView(), gsl::span<const ClusterSourceInput>(sources), {0, 0});
+  const auto result = loadSources(frame, layout.getView().getSurfaceCatalogView(), gsl::span<const ClusterSourceInput>(sources), {0, 0});
   BOOST_REQUIRE(result.ok());
 
   const auto a = frame.getSourceIntervals(ClusterSourceId{0})[0];
@@ -656,7 +656,7 @@ BOOST_AUTO_TEST_CASE(TriggeredAndContinuousReadoutAreBothSupportedTogether)
   sources[1].decoder = &triggeredDecoder;
 
   MultiSourceFrame frame;
-  const auto result = loadSources(frame, layout.getView(), gsl::span<const ClusterSourceInput>(sources), {0, 0});
+  const auto result = loadSources(frame, layout.getView().getSurfaceCatalogView(), gsl::span<const ClusterSourceInput>(sources), {0, 0});
   BOOST_REQUIRE(result.ok());
 
   const auto continuousIntervals = frame.getSourceIntervals(ClusterSourceId{0});
@@ -724,7 +724,7 @@ BOOST_AUTO_TEST_CASE(SourceSpecificPatternCursorsAreIndependent)
   sources[1].decoder = &decoderB;
 
   MultiSourceFrame frame;
-  const auto result = loadSources(frame, layout.getView(), gsl::span<const ClusterSourceInput>(sources), {0, 0});
+  const auto result = loadSources(frame, layout.getView().getSurfaceCatalogView(), gsl::span<const ClusterSourceInput>(sources), {0, 0});
   BOOST_REQUIRE(result.ok());
 
   // Every cluster consumed exactly one 1-pixel pattern regardless of source.
@@ -756,7 +756,7 @@ BOOST_AUTO_TEST_CASE(AbsentLabelsAreLegal)
   src.decoder = &decoder;
 
   MultiSourceFrame frame;
-  const auto result = loadSources(frame, layout.getView(), gsl::span<const ClusterSourceInput>(&src, 1), {0, 0});
+  const auto result = loadSources(frame, layout.getView().getSurfaceCatalogView(), gsl::span<const ClusterSourceInput>(&src, 1), {0, 0});
   BOOST_REQUIRE(result.ok());
 
   BOOST_CHECK(frame.getLabels(ClusterRef{ClusterSourceId{0}, 0}).empty());
@@ -791,7 +791,7 @@ BOOST_AUTO_TEST_CASE(NonDenseAndDuplicateAndInvalidSourceIdsAreRejected)
     // Non-dense: ids {0, 2} for two sources.
     std::array<ClusterSourceInput, 2> sources{makeSource(ClusterSourceId{0}, decoderA), makeSource(ClusterSourceId{2}, decoderB)};
     MultiSourceFrame frame;
-    const auto result = loadSources(frame, layout.getView(), gsl::span<const ClusterSourceInput>(sources), {0, 0});
+    const auto result = loadSources(frame, layout.getView().getSurfaceCatalogView(), gsl::span<const ClusterSourceInput>(sources), {0, 0});
     BOOST_CHECK(!result.ok());
     BOOST_CHECK(result.error == MultiSourceLoadError::NonDenseSourceIds);
   }
@@ -799,7 +799,7 @@ BOOST_AUTO_TEST_CASE(NonDenseAndDuplicateAndInvalidSourceIdsAreRejected)
     // Duplicate ids {0, 0}.
     std::array<ClusterSourceInput, 2> sources{makeSource(ClusterSourceId{0}, decoderA), makeSource(ClusterSourceId{0}, decoderB)};
     MultiSourceFrame frame;
-    const auto result = loadSources(frame, layout.getView(), gsl::span<const ClusterSourceInput>(sources), {0, 0});
+    const auto result = loadSources(frame, layout.getView().getSurfaceCatalogView(), gsl::span<const ClusterSourceInput>(sources), {0, 0});
     BOOST_CHECK(!result.ok());
     BOOST_CHECK(result.error == MultiSourceLoadError::DuplicateSourceId);
   }
@@ -807,7 +807,7 @@ BOOST_AUTO_TEST_CASE(NonDenseAndDuplicateAndInvalidSourceIdsAreRejected)
     // Explicitly invalid id.
     std::array<ClusterSourceInput, 1> sources{makeSource(ClusterSourceId::invalid(), decoderA)};
     MultiSourceFrame frame;
-    const auto result = loadSources(frame, layout.getView(), gsl::span<const ClusterSourceInput>(sources), {0, 0});
+    const auto result = loadSources(frame, layout.getView().getSurfaceCatalogView(), gsl::span<const ClusterSourceInput>(sources), {0, 0});
     BOOST_CHECK(!result.ok());
     BOOST_CHECK(result.error == MultiSourceLoadError::NonDenseSourceIds);
   }
@@ -842,7 +842,7 @@ BOOST_AUTO_TEST_CASE(InvalidROFClusterRangesAreRejected)
     const std::vector<ROFRecord> rofs{ROFRecord{{0, 0}, 0, 0, 5}};
     auto src = makeSrc(rofs);
     MultiSourceFrame frame;
-    const auto result = loadSources(frame, layout.getView(), gsl::span<const ClusterSourceInput>(&src, 1), {0, 0});
+    const auto result = loadSources(frame, layout.getView().getSurfaceCatalogView(), gsl::span<const ClusterSourceInput>(&src, 1), {0, 0});
     BOOST_CHECK(!result.ok());
     BOOST_CHECK(result.error == MultiSourceLoadError::InvalidROFRange);
   }
@@ -851,7 +851,7 @@ BOOST_AUTO_TEST_CASE(InvalidROFClusterRangesAreRejected)
     const std::vector<ROFRecord> rofs{ROFRecord{{0, 0}, 0, 0, 2}, ROFRecord{{40, 0}, 1, 1, 1}};
     auto src = makeSrc(rofs);
     MultiSourceFrame frame;
-    const auto result = loadSources(frame, layout.getView(), gsl::span<const ClusterSourceInput>(&src, 1), {0, 0});
+    const auto result = loadSources(frame, layout.getView().getSurfaceCatalogView(), gsl::span<const ClusterSourceInput>(&src, 1), {0, 0});
     BOOST_CHECK(!result.ok());
     BOOST_CHECK(result.error == MultiSourceLoadError::InvalidROFRange);
   }
@@ -860,7 +860,7 @@ BOOST_AUTO_TEST_CASE(InvalidROFClusterRangesAreRejected)
     const std::vector<ROFRecord> rofs{ROFRecord{{0, 0}, 0, 1, 1}};
     auto src = makeSrc(rofs);
     MultiSourceFrame frame;
-    const auto result = loadSources(frame, layout.getView(), gsl::span<const ClusterSourceInput>(&src, 1), {0, 0});
+    const auto result = loadSources(frame, layout.getView().getSurfaceCatalogView(), gsl::span<const ClusterSourceInput>(&src, 1), {0, 0});
     BOOST_CHECK(!result.ok());
     BOOST_CHECK(result.error == MultiSourceLoadError::InvalidROFRange);
   }
@@ -871,7 +871,7 @@ BOOST_AUTO_TEST_CASE(InvalidROFClusterRangesAreRejected)
     const std::vector<ROFRecord> rofs{ROFRecord{{0, 0}, 0, 0, 1}, ROFRecord{{40, 0}, 1, 2, 0}};
     auto src = makeSrc(rofs);
     MultiSourceFrame frame;
-    const auto result = loadSources(frame, layout.getView(), gsl::span<const ClusterSourceInput>(&src, 1), {0, 0});
+    const auto result = loadSources(frame, layout.getView().getSurfaceCatalogView(), gsl::span<const ClusterSourceInput>(&src, 1), {0, 0});
     BOOST_CHECK(!result.ok());
     BOOST_CHECK(result.error == MultiSourceLoadError::InvalidROFRange);
   }
@@ -881,7 +881,7 @@ BOOST_AUTO_TEST_CASE(InvalidROFClusterRangesAreRejected)
     const std::vector<ROFRecord> rofs{ROFRecord{{0, 0}, 0, 0, 1}};
     auto src = makeSrc(rofs);
     MultiSourceFrame frame;
-    const auto result = loadSources(frame, layout.getView(), gsl::span<const ClusterSourceInput>(&src, 1), {0, 0});
+    const auto result = loadSources(frame, layout.getView().getSurfaceCatalogView(), gsl::span<const ClusterSourceInput>(&src, 1), {0, 0});
     BOOST_CHECK(!result.ok());
     BOOST_CHECK(result.error == MultiSourceLoadError::InvalidROFRange);
   }
@@ -891,7 +891,7 @@ BOOST_AUTO_TEST_CASE(InvalidROFClusterRangesAreRejected)
     const std::vector<ROFRecord> rofs{};
     auto src = makeSrc(rofs);
     MultiSourceFrame frame;
-    const auto result = loadSources(frame, layout.getView(), gsl::span<const ClusterSourceInput>(&src, 1), {0, 0});
+    const auto result = loadSources(frame, layout.getView().getSurfaceCatalogView(), gsl::span<const ClusterSourceInput>(&src, 1), {0, 0});
     BOOST_CHECK(!result.ok());
     BOOST_CHECK(result.error == MultiSourceLoadError::InvalidROFRange);
   }
@@ -918,7 +918,7 @@ BOOST_AUTO_TEST_CASE(ZeroROFsIsValidWithZeroClusters)
   src.decoder = &decoder;
 
   MultiSourceFrame frame;
-  const auto result = loadSources(frame, layout.getView(), gsl::span<const ClusterSourceInput>(&src, 1), {0, 0});
+  const auto result = loadSources(frame, layout.getView().getSurfaceCatalogView(), gsl::span<const ClusterSourceInput>(&src, 1), {0, 0});
   BOOST_CHECK(result.ok());
   BOOST_CHECK_EQUAL(frame.getTotalMeasurements(), 0u);
 }
@@ -944,7 +944,7 @@ BOOST_AUTO_TEST_CASE(InvalidLayerToSurfaceMappingIsRejected)
   src.decoder = &decoder;
 
   MultiSourceFrame frame;
-  const auto result = loadSources(frame, layout.getView(), gsl::span<const ClusterSourceInput>(&src, 1), {0, 0});
+  const auto result = loadSources(frame, layout.getView().getSurfaceCatalogView(), gsl::span<const ClusterSourceInput>(&src, 1), {0, 0});
   BOOST_CHECK(!result.ok());
   BOOST_CHECK(result.error == MultiSourceLoadError::InvalidLayerMapping);
 }
@@ -972,7 +972,7 @@ BOOST_AUTO_TEST_CASE(DetectorSurfaceMismatchIsRejected)
   src.decoder = &decoder;
 
   MultiSourceFrame frame;
-  const auto result = loadSources(frame, layout.getView(), gsl::span<const ClusterSourceInput>(&src, 1), {0, 0});
+  const auto result = loadSources(frame, layout.getView().getSurfaceCatalogView(), gsl::span<const ClusterSourceInput>(&src, 1), {0, 0});
   BOOST_CHECK(!result.ok());
   BOOST_CHECK(result.error == MultiSourceLoadError::DetectorSurfaceMismatch);
 }
@@ -1002,7 +1002,7 @@ BOOST_AUTO_TEST_CASE(InconsistentDecoderMetadataIsRejected)
     src.decoder = &decoder;
 
     MultiSourceFrame frame;
-    const auto result = loadSources(frame, layout.getView(), gsl::span<const ClusterSourceInput>(&src, 1), {0, 0});
+    const auto result = loadSources(frame, layout.getView().getSurfaceCatalogView(), gsl::span<const ClusterSourceInput>(&src, 1), {0, 0});
     BOOST_CHECK(!result.ok());
     BOOST_CHECK(result.error == MultiSourceLoadError::InconsistentDecoderMetadata);
   }
@@ -1036,7 +1036,7 @@ BOOST_AUTO_TEST_CASE(LayerMappedTrueWithUnsafeLayerIsRejected)
     src.decoder = &decoder;
 
     MultiSourceFrame frame;
-    const auto result = loadSources(frame, layout.getView(), gsl::span<const ClusterSourceInput>(&src, 1), {0, 0});
+    const auto result = loadSources(frame, layout.getView().getSurfaceCatalogView(), gsl::span<const ClusterSourceInput>(&src, 1), {0, 0});
     BOOST_CHECK(!result.ok());
     BOOST_CHECK(result.error == MultiSourceLoadError::InvalidLayerMapping);
     BOOST_CHECK_EQUAL(frame.getTotalMeasurements(), 0u);
@@ -1068,7 +1068,7 @@ BOOST_AUTO_TEST_CASE(SurfaceKindMismatchIsRejected)
   src.decoder = &wrongKindDecoder;
 
   MultiSourceFrame frame;
-  const auto result = loadSources(frame, layout.getView(), gsl::span<const ClusterSourceInput>(&src, 1), {0, 0});
+  const auto result = loadSources(frame, layout.getView().getSurfaceCatalogView(), gsl::span<const ClusterSourceInput>(&src, 1), {0, 0});
   BOOST_CHECK(!result.ok());
   BOOST_CHECK(result.error == MultiSourceLoadError::SurfaceKindMismatch);
 }
@@ -1095,13 +1095,13 @@ BOOST_AUTO_TEST_CASE(FailedLoadLeavesNoPartialState)
   goodSrc.decoder = &decoder;
 
   MultiSourceFrame frame;
-  BOOST_REQUIRE(loadSources(frame, layout.getView(), gsl::span<const ClusterSourceInput>(&goodSrc, 1), {0, 0}).ok());
+  BOOST_REQUIRE(loadSources(frame, layout.getView().getSurfaceCatalogView(), gsl::span<const ClusterSourceInput>(&goodSrc, 1), {0, 0}).ok());
   const auto totalBefore = frame.getTotalMeasurements();
   BOOST_REQUIRE_EQUAL(totalBefore, 1u);
 
   // Now attempt an invalid load (duplicate ids) on the SAME frame.
   std::array<ClusterSourceInput, 2> badSources{goodSrc, goodSrc}; // both id==0
-  const auto result = loadSources(frame, layout.getView(), gsl::span<const ClusterSourceInput>(badSources), {0, 0});
+  const auto result = loadSources(frame, layout.getView().getSurfaceCatalogView(), gsl::span<const ClusterSourceInput>(badSources), {0, 0});
   BOOST_REQUIRE(!result.ok());
 
   BOOST_CHECK_EQUAL(frame.getTotalMeasurements(), totalBefore);
@@ -1138,7 +1138,7 @@ BOOST_AUTO_TEST_CASE(FailedLoadAfterFirstSourceStagedLeavesNoPartialState)
   goodSrc.decoder = &decoder;
 
   MultiSourceFrame frame;
-  BOOST_REQUIRE(loadSources(frame, layout.getView(), gsl::span<const ClusterSourceInput>(&goodSrc, 1), {0, 0}).ok());
+  BOOST_REQUIRE(loadSources(frame, layout.getView().getSurfaceCatalogView(), gsl::span<const ClusterSourceInput>(&goodSrc, 1), {0, 0}).ok());
 
   // Baseline: content and view pointer identity before the failing call.
   const std::vector<SurfaceMeasurement> baselineMeasurements(
@@ -1172,7 +1172,7 @@ BOOST_AUTO_TEST_CASE(FailedLoadAfterFirstSourceStagedLeavesNoPartialState)
   srcB.decoder = &decoderB;
 
   std::array<ClusterSourceInput, 2> sources{srcA, srcB};
-  const auto result = loadSources(frame, layout.getView(), gsl::span<const ClusterSourceInput>(sources), {0, 0});
+  const auto result = loadSources(frame, layout.getView().getSurfaceCatalogView(), gsl::span<const ClusterSourceInput>(sources), {0, 0});
   BOOST_REQUIRE(!result.ok());
   BOOST_CHECK(result.error == MultiSourceLoadError::DetectorSurfaceMismatch);
   BOOST_CHECK(result.source == ClusterSourceId{1});
@@ -1224,7 +1224,7 @@ BOOST_AUTO_TEST_CASE(EmptyFrameAccessorsAvoidNullPointerArithmetic)
   // leave every per-surface bucket and per-source interval list empty.
   const auto layout = makeCombinedLayout();
   BOOST_REQUIRE(layout.valid());
-  const auto result = loadSources(frame, layout.getView(), gsl::span<const ClusterSourceInput>{}, {0, 0});
+  const auto result = loadSources(frame, layout.getView().getSurfaceCatalogView(), gsl::span<const ClusterSourceInput>{}, {0, 0});
   BOOST_REQUIRE(result.ok());
   BOOST_CHECK_EQUAL(frame.getTotalMeasurements(), 0u);
 
@@ -1248,7 +1248,7 @@ BOOST_AUTO_TEST_CASE(EmptyLayoutWithZeroSourcesLoadsSuccessfully)
   BOOST_CHECK_EQUAL(emptyLayout.getView().nSurfaces, 0u);
 
   MultiSourceFrame frame;
-  const auto result = loadSources(frame, emptyLayout.getView(), gsl::span<const ClusterSourceInput>{}, {0, 0});
+  const auto result = loadSources(frame, emptyLayout.getView().getSurfaceCatalogView(), gsl::span<const ClusterSourceInput>{}, {0, 0});
   BOOST_CHECK(result.ok());
   BOOST_CHECK_EQUAL(frame.getTotalMeasurements(), 0u);
   BOOST_CHECK_EQUAL(frame.getNSurfaces(), 0u);

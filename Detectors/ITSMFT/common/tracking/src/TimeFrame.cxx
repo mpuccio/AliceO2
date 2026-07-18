@@ -331,7 +331,7 @@ LoadSourcesResult TimeFrame<NLayers>::loadNormalizedSource(
   src.decoder = &decoder;
   src.applySysErrors = applySysErrors; // Matches loadROFrameData()'s own default (loadClusterTrackingFrameInfo<DetId>(..., applySysErrors=true)).
 
-  const auto result = loadSources(staged, layout, gsl::span<const ClusterSourceInput>(&src, 1), origin);
+  const auto result = loadSources(staged, layout.getSurfaceCatalogView(), gsl::span<const ClusterSourceInput>(&src, 1), origin);
   if (!result.ok()) {
     // Nothing below has run: mNormalizedFrame and every legacy compatibility
     // structure are exactly as they were before this call.

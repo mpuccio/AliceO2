@@ -15,8 +15,8 @@
 
 #include "CommonDataFormat/InteractionRecord.h"
 #include "ITSMFTTracking/ClusterSource.h"
-#include "ITSMFTTracking/DetectorLayout.h"
 #include "ITSMFTTracking/MultiSourceFrame.h"
+#include "ITSMFTTracking/SurfaceCatalogView.h"
 
 namespace o2::itsmft::tracking
 {
@@ -62,7 +62,7 @@ struct LoadSourcesResult {
 // InteractionRecord chosen for the loaded frame; every source ROF is
 // converted to a signed TF-relative BC interval against it.
 LoadSourcesResult loadSources(MultiSourceFrame& frame,
-                              const DetectorLayoutView& layout,
+                              const SurfaceCatalogView& catalog,
                               gsl::span<const ClusterSourceInput> sources,
                               const o2::InteractionRecord& origin);
 
