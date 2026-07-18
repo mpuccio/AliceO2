@@ -18,8 +18,6 @@
 #include <vector>
 #include <algorithm>
 #include <numeric>
-#include <stdexcept>
-#include <string>
 #include <gsl/gsl>
 
 #include "DataFormatsITS/TrackITS.h"
@@ -91,27 +89,6 @@ using o2::itsmft::tracking::ITSNLayers;
 using o2::itsmft::tracking::nLayersForDet;
 } // namespace constants
 
-#ifndef GPUCA_GPUCODE
-// Internal invariant violation: loadNormalizedSource() staged a legacy
-// backfill vector (mUnsortedClusters/mTrackingFrameInfo/
-// mClusterExternalIndices/mClusterSize/mROFramesClusters) with a
-// memory-resource pointer different from its corresponding live TimeFrame
-// vector. Correctly configured operation always derives both the staged and
-// live pointers from the same getMaybeFrameworkHostResource()/
-// mMemoryPool.get() calls, so this can never be triggered by caller input;
-// it is a defensive internal-invariant gate checked unconditionally right
-// before commit, not a validation outcome reported through
-// LoadSourcesResult.
-class NormalizedBackfillAllocatorMismatch final : public std::logic_error
-{
- public:
-  explicit NormalizedBackfillAllocatorMismatch(int layer)
-    : std::logic_error("TimeFrame::loadNormalizedSource(): staged/live memory-resource mismatch on layer " + std::to_string(layer))
-  {
-  }
-};
-#endif
-
 template <int NLayers>
 struct TimeFrame {
   using IndexTableUtilsN = o2::itsmft::IndexTableUtils<NLayers>;
@@ -150,11 +127,16 @@ struct TimeFrame {
   // Non-owning, read-only access to the normalized owner/view associated
   // with this TimeFrame by the most recent successful loadNormalizedSource()
   // call. Empty/default until that first succeeds, and after wipe() (see
-  // below): wipe() unconditionally clears this owner, so any
-  // MultiSourceFrame&/MultiSourceFrameView obtained before a wipe() call is
-  // invalidated by it -- callers must call getNormalizedFrame()/
-  // getNormalizedFrameView() again afterwards rather than reusing a
-  // pre-wipe reference or view.
+  // below): wipe() unconditionally clears this owner in place. The
+  // `const MultiSourceFrame&` returned by getNormalizedFrame() is a
+  // reference to that same long-lived member object -- it remains valid
+  // and safe to dereference across a wipe() call, it simply then observes
+  // the owner's newly cleared (empty) state. What wipe() does invalidate is
+  // any MultiSourceFrameView or gsl::span (getSurfaceMeasurements(),
+  // getSourceIntervals(), getLabels(), getView()) obtained *before* the
+  // wipe() call: those hold pointers into the owner's internal buffers,
+  // which clear() may reallocate/free, so they must be re-obtained
+  // afterwards rather than reused.
   const MultiSourceFrame& getNormalizedFrame() const noexcept { return mNormalizedFrame; }
   MultiSourceFrameView getNormalizedFrameView() const noexcept { return mNormalizedFrame.getView(); }
 
@@ -411,7 +393,21 @@ struct TimeFrame {
 
   /// State if memory will be externally managed by the GPU framework
   ExternalAllocator* mExternalAllocator{nullptr};
+  // Both host memory-pool owners below must be declared -- and therefore
+  // destroyed -- before every pmr/bounded_vector member that may allocate
+  // through them (mClusters, mUnsortedClusters, mClusterExternalIndices,
+  // mROFramesClusters, mClusterSize, and every other bounded_vector-typed
+  // member declared later in this class, public or protected). C++ destroys
+  // non-static data members in reverse declaration order, so declaring
+  // these resource owners first guarantees they are destroyed last, after
+  // every vector that could still hold memory allocated from them has
+  // already released it back. Declaring either shared_ptr after any
+  // allocator-backed member would let TimeFrame release the last external
+  // reference to that BoundedMemoryResource while such a member still holds
+  // a buffer allocated from it, leaving that member's later destructor call
+  // into now-freed memory.
   std::shared_ptr<BoundedMemoryResource> mExtMemoryPool; // host memory pool managed by the framework
+  std::shared_ptr<BoundedMemoryResource> mMemoryPool;
   auto getFrameworkAllocator() { return mExternalAllocator; };
   void setFrameworkAllocator(ExternalAllocator* ext);
   bool hasFrameworkAllocator() const noexcept { return mExternalAllocator != nullptr; }
@@ -507,10 +503,11 @@ struct TimeFrame {
 
   bool mIsStaggered{false};
 
-  std::shared_ptr<BoundedMemoryResource> mMemoryPool;
-
   // Normalized owner associated by loadNormalizedSource(); host-only, never
-  // GPU-managed or dictionary-serialized (see getNormalizedFrame()).
+  // GPU-managed or dictionary-serialized (see getNormalizedFrame()). Does
+  // not itself hold pmr/bounded-vector allocations (MultiSourceFrame's own
+  // members are plain std::vector<T> with the default allocator), so it has
+  // no ordering dependency on mMemoryPool/mExtMemoryPool above.
   MultiSourceFrame mNormalizedFrame;
 
 #ifndef GPUCA_GPUCODE

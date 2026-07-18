@@ -112,8 +112,15 @@ class LegacyLikeDecoder final : public ClusterDecoder
     const DetectorSensorId sensor{static_cast<uint32_t>(mDetector), decoded.sensor};
     const ClusterRef clusterRef{source, externalIndex};
     result.measurement = makeCylinderSurfaceMeasurement(decoded, sensor, surface, clusterRef, sourceROF);
+    // Counts only clusters this decoder actually turned into a measurement
+    // (the early-return failure paths above never reach here), so a test can
+    // prove every cluster of a given input was successfully decoded by
+    // checking how much this counter advanced across that call.
+    ++decodeCount;
     return result;
   }
+
+  mutable int decodeCount{0};
 
  private:
   o2::detectors::DetID::ID mDetector;
@@ -201,6 +208,35 @@ Fixture makeFixture()
     ROFRecord{{1000, 6}, 2, 3, 1}};
   for (uint32_t i = 0; i < f.clusters.size(); ++i) {
     f.labels.addElement(i, o2::MCCompLabel{static_cast<int>(i) + 1, 0, 0});
+  }
+  return f;
+}
+
+// A second, distinct, independently valid fixture: different sensors/layers
+// (3,4,3,5,3 instead of 0,1,0,2), different rows/columns, a different
+// pattern arrangement, a different ROF partition (3 ROFs over 5 clusters
+// instead of 4), and its own separate MCTruthContainer with different label
+// values. Used as the *replacement* load in the strong-exception-safety
+// test, so that if any partial commit ever leaked through, it would be
+// observable as foreign data (wrong layer, wrong coordinates, wrong label)
+// rather than being masked by coincidentally reloading the same values.
+Fixture makeReplacementFixture()
+{
+  Fixture f;
+  f.clusters = {
+    CompClusterExt{50, 60, CompCluster::InvalidPatternID, 3}, // sensor 3 -> layer 3
+    CompClusterExt{51, 61, CompCluster::InvalidPatternID, 4}, // sensor 4 -> layer 4
+    CompClusterExt{52, 62, CompCluster::InvalidPatternID, 3}, // sensor 3 -> layer 3
+    CompClusterExt{53, 63, CompCluster::InvalidPatternID, 5}, // sensor 5 -> layer 5
+    CompClusterExt{54, 64, CompCluster::InvalidPatternID, 3}, // sensor 3 -> layer 3
+  };
+  f.patterns = concatPatterns({threePixelPattern, threePixelPattern, onePixelPattern, threePixelPattern, onePixelPattern});
+  f.rofs = {
+    ROFRecord{{500, 1}, 0, 0, 3},
+    ROFRecord{{540, 1}, 1, 3, 1},
+    ROFRecord{{2000, 2}, 2, 4, 1}};
+  for (uint32_t i = 0; i < f.clusters.size(); ++i) {
+    f.labels.addElement(i, o2::MCCompLabel{static_cast<int>(i) + 101, 1, 1});
   }
   return f;
 }
@@ -411,31 +447,95 @@ BOOST_AUTO_TEST_CASE(BackfillAllocationFailureLeavesNormalizedAndLegacyStateAtBa
   BOOST_REQUIRE(tf.ensureDetectorLayouts(&provider, catalogRequest, orderedSurfaces, TransitionPolicyTag::CylinderCylinder, noIterations).ok());
 
   const auto f = makeFixture();
+  const auto replacement = makeReplacementFixture();
 
   // Baseline: a successful normalized load, with real content in both the
   // normalized owner and every legacy compatibility structure.
   const auto baseline = tf.loadNormalizedSource(decoder, origin, timing, f.clusters, f.patterns, f.rofs, &dict(), &f.labels, o2::detectors::DetID::ITS);
   BOOST_REQUIRE(baseline.ok());
+  BOOST_CHECK_EQUAL(decoder.decodeCount, static_cast<int>(f.clusters.size()));
   verifyFixtureLoaded(tf, f, origin, timing);
 
   // Remove all BoundedMemoryResource headroom: any further allocation from
   // this pool must now throw.
   pool->setMaxMemory(pool->getUsedMemory());
 
-  // A second, otherwise-valid normalized load (loadSources() itself runs on
-  // plain heap storage and succeeds) that deterministically throws while
+  // A second, independently valid normalized load of a *distinct* fixture
+  // (different sensors/layers, coordinates, pattern shapes, ROF partition
+  // and MC labels -- see makeReplacementFixture()): loadSources() itself
+  // runs on plain heap storage and succeeds, decoding every one of this
+  // fixture's clusters, before the load deterministically throws while
   // building the staged legacy backfill, which allocates from the
   // now-exhausted bounded pool.
   bool threw = false;
   try {
-    tf.loadNormalizedSource(decoder, origin, timing, f.clusters, f.patterns, f.rofs, &dict(), &f.labels, o2::detectors::DetID::ITS);
+    tf.loadNormalizedSource(decoder, origin, timing, replacement.clusters, replacement.patterns, replacement.rofs, &dict(), &replacement.labels, o2::detectors::DetID::ITS);
   } catch (const BoundedMemoryResource::MemoryLimitExceeded&) {
     threw = true;
   }
   BOOST_REQUIRE(threw);
+  // All of the replacement fixture's clusters were successfully decoded
+  // (loadSources() ran to completion) before the staged legacy backfill
+  // allocation failed: the decoder was called exactly once per baseline
+  // cluster plus once per replacement cluster, never partially.
+  BOOST_CHECK_EQUAL(decoder.decodeCount, static_cast<int>(f.clusters.size() + replacement.clusters.size()));
 
   // mDetId, every normalized measurement/source/timing/label, and every
   // legacy layer's clusters/tracking information/external indices/sizes/ROF
-  // boundaries/label pointers remain exactly at their baseline state.
+  // boundaries/label pointers remain exactly at their baseline state -- not
+  // even partially replaced by the distinct replacement fixture's data.
   verifyFixtureLoaded(tf, f, origin, timing);
+}
+
+// --- C. TimeFrame as sole owner of its BoundedMemoryResource ------------
+//
+// Exercises the member-destruction-order contract directly (see the
+// mExtMemoryPool/mMemoryPool declaration-order comment in TimeFrame.h):
+// both pool owners are declared before every pmr/bounded_vector member, so
+// TimeFrame destroys every pool-backed vector -- returning its memory to
+// the pool -- before releasing its own shared_ptr to that pool. Here the
+// caller's shared_ptr is released first, making the TimeFrame the *sole*
+// remaining owner of the BoundedMemoryResource while its pool-backed
+// vectors are still populated; a regression in that member order would
+// have TimeFrame free the pool while those vectors still reference it,
+// then crash or corrupt memory when they are destroyed. A sanitizer build
+// (e.g. ASan) would catch such a regression far more reliably than this
+// plain host run can -- a use-after-free here is not guaranteed to crash
+// every time -- but this test still documents and exercises the ordering
+// contract this correction depends on.
+BOOST_AUTO_TEST_CASE(TimeFrameOutlivesSoleOwnershipOfItsMemoryPool)
+{
+  const auto orderedSurfaces = identitySurfaces(ITSNLayers);
+  FakeCatalogProvider provider{makeITSTestCatalog()};
+  const DetectorSurfaceCatalogRequest catalogRequest{o2::detectors::DetID::ITS, SurfaceId{0}, ITSNLayers};
+  LegacyLikeDecoder decoder{o2::detectors::DetID::ITS};
+  const o2::InteractionRecord origin{50, 5};
+  const ROFTimingConfig timing{40, 0, 0, 0};
+  const auto f = makeFixture();
+
+  {
+    auto pool = std::make_shared<BoundedMemoryResource>();
+    TimeFrame<ITSNLayers> tf;
+    tf.setMemoryPool(pool);
+
+    std::vector<TrackingParameters> noIterations;
+    BOOST_REQUIRE(tf.ensureDetectorLayouts(&provider, catalogRequest, orderedSurfaces, TransitionPolicyTag::CylinderCylinder, noIterations).ok());
+
+    // Populate every pool-backed vector (mUnsortedClusters,
+    // mTrackingFrameInfo, mClusterExternalIndices, mClusterSize,
+    // mROFramesClusters) with real content.
+    const auto result = tf.loadNormalizedSource(decoder, origin, timing, f.clusters, f.patterns, f.rofs, &dict(), &f.labels, o2::detectors::DetID::ITS);
+    BOOST_REQUIRE(result.ok());
+    BOOST_REQUIRE(tf.getUnsortedClustersOnLayer(0, 0).size() + tf.getUnsortedClustersOnLayer(1, 0).size() > 0);
+
+    // tf.mMemoryPool holds a second reference at this point.
+    BOOST_REQUIRE_EQUAL(pool.use_count(), 2);
+    // Release the caller's reference: tf is now the sole owner of this
+    // BoundedMemoryResource, while its pool-backed vectors above are still
+    // fully populated and alive.
+    pool.reset();
+    // Falling off this scope destroys `tf` -- and, per the member-order
+    // contract, every pool-backed vector before the pool's own last
+    // shared_ptr -- without any of them touching already-freed memory.
+  }
 }

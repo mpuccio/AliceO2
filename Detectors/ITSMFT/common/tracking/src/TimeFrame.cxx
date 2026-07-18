@@ -14,6 +14,8 @@
 ///
 
 #include <numeric>
+#include <stdexcept>
+#include <string>
 
 #include "Framework/Logger.h"
 #include "ITSMFTTracking/DetectorTraits.h"
@@ -42,6 +44,26 @@ namespace o2::itsmft::tracking
 #ifndef GPUCA_GPUCODE
 namespace
 {
+// Internal invariant violation: loadNormalizedSource() staged a legacy
+// backfill vector (mUnsortedClusters/mTrackingFrameInfo/
+// mClusterExternalIndices/mClusterSize/mROFramesClusters) with a
+// memory-resource pointer different from its corresponding live TimeFrame
+// vector. Correctly configured operation always derives both the staged and
+// live pointers from the same getMaybeFrameworkHostResource()/
+// mMemoryPool.get() calls, so this can never be triggered by caller input;
+// it is a defensive internal-invariant gate checked unconditionally right
+// before commit, not a validation outcome reported through
+// LoadSourcesResult. Internal to this translation unit: not part of
+// TimeFrame's public API.
+class NormalizedBackfillAllocatorMismatch final : public std::logic_error
+{
+ public:
+  explicit NormalizedBackfillAllocatorMismatch(int layer)
+    : std::logic_error("TimeFrame::loadNormalizedSource(): staged/live memory-resource mismatch on layer " + std::to_string(layer))
+  {
+  }
+};
+
 SurfaceMask positionalSurfaceMask(LayerMask layerMask, gsl::span<const SurfaceId> orderedSurfaces, uint32_t activeCount)
 {
   SurfaceMask result;
@@ -948,12 +970,17 @@ void TimeFrame<NLayers>::wipe()
   }
   // Event-owned normalized data and non-owning label pointers, cleared
   // unconditionally (unlike the framework-allocator-gated block above,
-  // MultiSourceFrame is host-only and never framework/GPU-managed). Any
-  // MultiSourceFrame&/MultiSourceFrameView obtained before this call is
-  // invalidated by it. Catalog/layout ownership (mDetectorLayouts), the
-  // required layout configuration, the required geometry epoch and mDetId
-  // are semantic configuration rather than event data and must survive
-  // wipe() unchanged; this call intentionally never touches them.
+  // MultiSourceFrame is host-only and never framework/GPU-managed). This
+  // clears mNormalizedFrame in place: a getNormalizedFrame() reference
+  // obtained before this call still refers to that same live member and
+  // remains safe to use, now observing its cleared (empty) state. Any
+  // MultiSourceFrameView or gsl::span obtained before this call (from
+  // getNormalizedFrameView(), getSurfaceMeasurements(), getSourceIntervals(),
+  // getLabels()) is invalidated by it, since clear() may reallocate/free the
+  // buffers those point into. Catalog/layout ownership (mDetectorLayouts),
+  // the required layout configuration, the required geometry epoch and
+  // mDetId are semantic configuration rather than event data and must
+  // survive wipe() unchanged; this call intentionally never touches them.
   mNormalizedFrame.clear();
 }
 
