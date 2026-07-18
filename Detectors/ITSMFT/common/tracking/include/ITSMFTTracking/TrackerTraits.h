@@ -25,6 +25,7 @@
 
 #include "ITSMFTTracking/Configuration.h"
 #include "ITSMFTTracking/TimeFrame.h"
+#include "ITSMFTTracking/TransitionPolicyBinding.h"
 #include "ITSMFTTracking/TransitionPolicyDispatch.h"
 #include "ITSMFTTracking/TransitionPolicyState.h"
 #include "ITStracking/BoundedAllocator.h"
@@ -78,8 +79,8 @@ class TrackerTraits
   virtual void findCellsNeighbours(const int iteration);
   virtual void findRoads(const int iteration);
 
-  template <typename InputSeed>
-  void processNeighbours(int iteration, int defaultCellTopologyId, int iLevel, const bounded_vector<InputSeed>& currentCellSeed, const bounded_vector<int>& currentCellId, const bounded_vector<int>& currentCellTopologyId, bounded_vector<TrackSeedN>& updatedCellSeed, bounded_vector<int>& updatedCellId, bounded_vector<int>& updatedCellTopologyId);
+  template <TransitionPolicyTag Tag, typename InputSeed>
+  void processNeighbours(int iteration, int defaultCellTopologyId, int iLevel, const bounded_vector<InputSeed>& currentCellSeed, const bounded_vector<int>& currentCellId, const bounded_vector<int>& currentCellTopologyId, bounded_vector<TrackSeedN>& updatedCellSeed, bounded_vector<int>& updatedCellId, bounded_vector<int>& updatedCellTopologyId, const typename TransitionPolicyTraits<Tag>::Params& params);
 
   void acceptTracks(int iteration, bounded_vector<CATrackType<NLayers>>& tracks, bounded_vector<bounded_vector<int>>& firstClusters);
   void markTracks(int iteration);
@@ -114,12 +115,16 @@ class TrackerTraits
                                     gsl::span<const CellTopologyId> scheduledCells,
                                     const typename TransitionPolicyTraits<Tag>::Params& params);
 
+  template <TransitionPolicyTag Tag>
+  void findRoadsForPolicy(int iteration, const typename TransitionPolicyTraits<Tag>::Params& params);
+
   std::shared_ptr<BoundedMemoryResource> mMemoryPool;
   std::shared_ptr<tbb::task_arena> mTaskArena;
   DetectorLayoutView mTraversalLayout{};
   std::optional<TransitionPolicyGrouping> mTraversalGrouping;
   std::optional<CylinderCylinderPolicyParams> mCylinderPolicyParams;
   std::optional<DiskDiskPolicyParams> mDiskPolicyParams;
+  AttachHitPolicyConfigView mAttachHitConfig;
   int mTraversalGroupingCount{0};
   std::array<int, 2> mPolicyBindingCounts{};
 

@@ -11,6 +11,8 @@
 
 #include <boost/test/unit_test.hpp>
 
+#include <TGeoGlobalMagField.h>
+
 #include <algorithm>
 #include <limits>
 #include <memory>
@@ -18,12 +20,25 @@
 #include <vector>
 
 #include "ITSMFTTracking/DetectorSurfaceCatalogProvider.h"
+#include "Field/MagneticField.h"
 #include "ITSMFTTracking/TimeFrame.h"
 #include "ITSMFTTracking/TrackingInterface.h"
 #include "ITSMFTTracking/TrackerTraits.h"
 
 using namespace o2::itsmft::tracking;
 using o2::itsmft::TrackingParameters;
+
+struct TraversalPropagatorFieldFixture {
+  TraversalPropagatorFieldFixture()
+  {
+    if (!TGeoGlobalMagField::Instance()->GetField()) {
+      TGeoGlobalMagField::Instance()->SetField(o2::field::MagneticField::createNominalField(5, true));
+      TGeoGlobalMagField::Instance()->Lock();
+    }
+  }
+};
+
+BOOST_GLOBAL_FIXTURE(TraversalPropagatorFieldFixture);
 
 namespace
 {
@@ -504,7 +519,7 @@ BOOST_AUTO_TEST_CASE(traversal_initialisation_classifies_missing_and_stale_layou
   BOOST_CHECK(!shortLayoutTraits.hasTraversalCache());
 }
 
-BOOST_AUTO_TEST_CASE(traversal_cache_groups_and_binds_once_across_repeated_neighbour_calls)
+BOOST_AUTO_TEST_CASE(traversal_cache_groups_and_binds_once_across_repeated_neighbour_and_road_calls)
 {
   auto params = mftTraversalParameters();
   auto pool = std::make_shared<BoundedMemoryResource>();
@@ -527,8 +542,26 @@ BOOST_AUTO_TEST_CASE(traversal_cache_groups_and_binds_once_across_repeated_neigh
 
   traits.findCellsNeighbours(0);
   traits.findCellsNeighbours(0);
+  traits.findRoads(0);
+  traits.findRoads(0);
   BOOST_CHECK_EQUAL(traits.getTraversalGroupingCount(), 1);
   BOOST_CHECK_EQUAL(traits.getPolicyBindingCount(TransitionPolicyTag::DiskDisk), 1);
+
+  std::vector<TrackingParameters> itsParams{parameters(7, 0, 0, 0x7f)};
+  TimeFrame<7> itsFrame;
+  TrackerTraits<7> itsTraits;
+  prepareTraversalFrame(itsFrame, itsTraits, pool, itsParams);
+  const auto itsCatalogRequest = request(7, o2::detectors::DetID::ITS);
+  FakeCatalogProvider itsProvider{catalog(itsCatalogRequest, SurfaceKind::Cylinder)};
+  BOOST_REQUIRE(itsFrame.ensureDetectorLayouts(&itsProvider, itsCatalogRequest, order(7),
+                                               TransitionPolicyTag::CylinderCylinder, itsParams).ok());
+  itsTraits.setNThreads(1, arena);
+  itsTraits.initialiseTimeFrame(0);
+  itsTraits.findRoads(0);
+  itsTraits.findRoads(0);
+  BOOST_CHECK_EQUAL(itsTraits.getTraversalGroupingCount(), 1);
+  BOOST_CHECK_EQUAL(itsTraits.getPolicyBindingCount(TransitionPolicyTag::CylinderCylinder), 1);
+  BOOST_CHECK_EQUAL(itsTraits.getPolicyBindingCount(TransitionPolicyTag::DiskDisk), 0);
 }
 
 BOOST_AUTO_TEST_CASE(traversal_preflight_rejects_legacy_mismatch_state_mismatch_and_bad_parameters)
@@ -561,6 +594,21 @@ BOOST_AUTO_TEST_CASE(traversal_preflight_rejects_legacy_mismatch_state_mismatch_
   checkFailure(params, catalog(10, SurfaceKind::Cylinder, o2::detectors::DetID::MFT), order(10),
                TransitionPolicyTag::CylinderCylinder, TraversalFailureReason::StateFamilyMismatch);
   params[0].MaxChi2ClusterAttachment = -1.f;
+  checkFailure(params, catalog(10, SurfaceKind::Disk, o2::detectors::DetID::MFT), order(10), TransitionPolicyTag::DiskDisk,
+               TraversalFailureReason::InvalidPolicyParameters);
+
+  params = mftTraversalParameters();
+  params[0].LayerxX0[3] = std::numeric_limits<float>::quiet_NaN();
+  checkFailure(params, catalog(10, SurfaceKind::Disk, o2::detectors::DetID::MFT), order(10), TransitionPolicyTag::DiskDisk,
+               TraversalFailureReason::InvalidPolicyParameters);
+
+  params = mftTraversalParameters();
+  params[0].LayerxX0[7] = std::numeric_limits<float>::infinity();
+  checkFailure(params, catalog(10, SurfaceKind::Disk, o2::detectors::DetID::MFT), order(10), TransitionPolicyTag::DiskDisk,
+               TraversalFailureReason::InvalidPolicyParameters);
+
+  params = mftTraversalParameters();
+  params[0].CorrType = static_cast<o2::base::PropagatorF::MatCorrType>(99);
   checkFailure(params, catalog(10, SurfaceKind::Disk, o2::detectors::DetID::MFT), order(10), TransitionPolicyTag::DiskDisk,
                TraversalFailureReason::InvalidPolicyParameters);
 }

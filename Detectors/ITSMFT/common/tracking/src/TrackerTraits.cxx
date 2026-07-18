@@ -60,6 +60,7 @@ void TrackerTraits<NLayers>::resetTraversalCache() noexcept
   mTraversalGrouping.reset();
   mCylinderPolicyParams.reset();
   mDiskPolicyParams.reset();
+  mAttachHitConfig = {};
   mTraversalGroupingCount = 0;
   mPolicyBindingCounts.fill(0);
 }
@@ -189,6 +190,10 @@ void TrackerTraits<NLayers>::initialiseTimeFrame(const int iteration)
 
   std::optional<CylinderCylinderPolicyParams> cylinderParams;
   std::optional<DiskDiskPolicyParams> diskParams;
+  const auto attachHitConfig = bindAttachHitPolicyConfig(mTrkParams[iteration]);
+  if (!attachHitConfig.isValid(NLayers)) {
+    throw TraversalException{iteration, TraversalFailureReason::InvalidPolicyParameters};
+  }
   if (activeTag == TransitionPolicyTag::CylinderCylinder) {
     cylinderParams = bindTransitionPolicyParams<TransitionPolicyTag::CylinderCylinder>(mTrkParams[iteration]);
     ++mPolicyBindingCounts[0];
@@ -209,6 +214,7 @@ void TrackerTraits<NLayers>::initialiseTimeFrame(const int iteration)
   mTraversalGrouping.emplace(std::move(grouping));
   mCylinderPolicyParams = cylinderParams;
   mDiskPolicyParams = diskParams;
+  mAttachHitConfig = attachHitConfig;
 }
 
 template <int NLayers>
@@ -833,17 +839,18 @@ void TrackerTraits<NLayers>::findCellsNeighboursForPolicy(
 }
 
 template <int NLayers>
-template <typename InputSeed>
-void TrackerTraits<NLayers>::processNeighbours(int iteration, int defaultCellTopologyId, int iLevel, const bounded_vector<InputSeed>& currentCellSeed, const bounded_vector<int>& currentCellId, const bounded_vector<int>& currentCellTopologyId, bounded_vector<TrackSeedN>& updatedCellSeeds, bounded_vector<int>& updatedCellsIds, bounded_vector<int>& updatedCellsTopologyIds)
+template <TransitionPolicyTag Tag, typename InputSeed>
+void TrackerTraits<NLayers>::processNeighbours(int iteration, int defaultCellTopologyId, int iLevel, const bounded_vector<InputSeed>& currentCellSeed, const bounded_vector<int>& currentCellId, const bounded_vector<int>& currentCellTopologyId, bounded_vector<TrackSeedN>& updatedCellSeeds, bounded_vector<int>& updatedCellsIds, bounded_vector<int>& updatedCellsTopologyIds, const typename TransitionPolicyTraits<Tag>::Params& params)
 {
-  auto propagator = o2::base::Propagator::Instance();
+  const auto layerxX0 = mAttachHitConfig.layerxX0;
+  const auto corrType = mAttachHitConfig.corrType;
 
   mTaskArena->execute([&] {
-    auto forCellNeighbours = [&](auto Tag, int iCell, int offset = 0) -> int {
+    auto forCellNeighbours = [&](auto Mode, int iCell, int offset = 0) -> int {
       const auto& currentCell{currentCellSeed[iCell]};
       const int cellTopologyId = currentCellTopologyId.empty() ? defaultCellTopologyId : currentCellTopologyId[iCell];
 
-      if constexpr (decltype(Tag)::value != PassMode::TwoPassInsert::value) {
+      if constexpr (decltype(Mode)::value != PassMode::TwoPassInsert::value) {
         if (currentCell.getLevel() != iLevel) {
           return 0;
         }
@@ -888,42 +895,15 @@ void TrackerTraits<NLayers>::processNeighbours(int iteration, int defaultCellTop
         seed.getTimeStamp() = currentCell.getTimeStamp();
         seed.getTimeStamp() += neighbourCell.getTimeStamp();
 
-        if constexpr (DetectorTraits<NLayers>::DetId == o2::detectors::DetID::MFT) {
-          o2::track::TrackParCovFwd fwdTrack;
-          float chi2 = seed.getChi2();
-          if (!detail::mftFwdAttachNeighbourToSeed(seed, neighbourLayer, neighbourCluster, *mTimeFrame, mTrkParams[iteration], getBz(), fwdTrack, chi2)) {
-            continue;
-          }
-          static_cast<o2::track::TrackParCovFwd&>(seed) = fwdTrack;
-          seed.setChi2(chi2);
-        } else {
-          const auto& trHit = mTimeFrame->getTrackingFrameInfoOnLayer(neighbourLayer)[neighbourCluster];
-
-          if (!seed.rotate(trHit.alphaTrackingFrame)) {
-            continue;
-          }
-
-          if (!propagator->propagateToX(seed, trHit.xTrackingFrame, getBz(), o2::base::PropagatorImpl<float>::MAX_SIN_PHI, o2::base::PropagatorImpl<float>::MAX_STEP, mTrkParams[iteration].CorrType)) {
-            continue;
-          }
-
-          if (mTrkParams[iteration].CorrType == o2::base::PropagatorF::MatCorrType::USEMatCorrNONE) {
-            if (!seed.correctForMaterial(mTrkParams[iteration].LayerxX0[neighbourLayer], mTrkParams[iteration].LayerxX0[neighbourLayer] * o2::its::constants::Radl * o2::its::constants::Rho, true)) {
-              continue;
-            }
-          }
-
-          auto predChi2{seed.getPredictedChi2Quiet(trHit.positionTrackingFrame, trHit.covarianceTrackingFrame)};
-          if ((predChi2 > mTrkParams[iteration].MaxChi2ClusterAttachment) || predChi2 < 0.f) {
-            continue;
-          }
-          seed.setChi2(seed.getChi2() + predChi2);
-          if (!seed.o2::track::TrackParCov::update(trHit.positionTrackingFrame, trHit.covarianceTrackingFrame)) {
-            continue;
-          }
+        const auto& trHit = mTimeFrame->getTrackingFrameInfoOnLayer(neighbourLayer)[neighbourCluster];
+        float chi2 = seed.getChi2();
+        if (!o2::itsmft::tracking::attachHit<Tag>(static_cast<typename TransitionPolicyTraits<Tag>::SeedState&>(seed),
+                                                  trHit, layerxX0[neighbourLayer], corrType, getBz(), chi2, params)) {
+          continue;
         }
+        seed.setChi2(chi2);
 
-        if constexpr (decltype(Tag)::value != PassMode::TwoPassCount::value) {
+        if constexpr (decltype(Mode)::value != PassMode::TwoPassCount::value) {
           seed.getClusters()[neighbourLayer] = neighbourCluster;
           auto mask = seed.getHitLayerMask();
           mask.set(neighbourLayer);
@@ -933,13 +913,13 @@ void TrackerTraits<NLayers>::processNeighbours(int iteration, int defaultCellTop
           seed.setSecondTrackletIndex(neighbourCell.getSecondTrackletIndex());
         }
 
-        if constexpr (decltype(Tag)::value == PassMode::OnePass::value) {
+        if constexpr (decltype(Mode)::value == PassMode::OnePass::value) {
           updatedCellSeeds.push_back(seed);
           updatedCellsIds.push_back(neighbourCellId);
           updatedCellsTopologyIds.push_back(neighbourCellTopologyId);
-        } else if constexpr (decltype(Tag)::value == PassMode::TwoPassCount::value) {
+        } else if constexpr (decltype(Mode)::value == PassMode::TwoPassCount::value) {
           ++foundSeeds;
-        } else if constexpr (decltype(Tag)::value == PassMode::TwoPassInsert::value) {
+        } else if constexpr (decltype(Mode)::value == PassMode::TwoPassInsert::value) {
           updatedCellSeeds[offset] = seed;
           updatedCellsIds[offset] = neighbourCellId;
           updatedCellsTopologyIds[offset++] = neighbourCellTopologyId;
@@ -984,6 +964,31 @@ void TrackerTraits<NLayers>::processNeighbours(int iteration, int defaultCellTop
 template <int NLayers>
 void TrackerTraits<NLayers>::findRoads(const int iteration)
 {
+  if (!mTraversalGrouping.has_value()) {
+    throw TraversalException{iteration, TraversalFailureReason::InvalidTraversalSchedule};
+  }
+  dispatchTransitionPolicies(*mTraversalGrouping, [&](auto traits, auto, auto) {
+    using Traits = decltype(traits);
+    if constexpr (!std::is_same_v<TrackSeedN, TrackSeedTpl<NLayers, typename Traits::SeedState>>) {
+      throw TraversalException{iteration, TraversalFailureReason::StateFamilyMismatch};
+    } else if constexpr (Traits::Tag == TransitionPolicyTag::CylinderCylinder) {
+      if (!mCylinderPolicyParams.has_value()) {
+        throw TraversalException{iteration, TraversalFailureReason::InvalidPolicyParameters};
+      }
+      findRoadsForPolicy<Traits::Tag>(iteration, *mCylinderPolicyParams);
+    } else if constexpr (Traits::Tag == TransitionPolicyTag::DiskDisk) {
+      if (!mDiskPolicyParams.has_value()) {
+        throw TraversalException{iteration, TraversalFailureReason::InvalidPolicyParameters};
+      }
+      findRoadsForPolicy<Traits::Tag>(iteration, *mDiskPolicyParams);
+    }
+  });
+}
+
+template <int NLayers>
+template <TransitionPolicyTag Tag>
+void TrackerTraits<NLayers>::findRoadsForPolicy(const int iteration, const typename TransitionPolicyTraits<Tag>::Params& params)
+{
   bounded_vector<bounded_vector<int>> firstClusters(mTrkParams[iteration].NLayers, bounded_vector<int>(mMemoryPool.get()), mMemoryPool.get());
   firstClusters.resize(mTrkParams[iteration].NLayers);
   const auto propagator = o2::base::Propagator::Instance();
@@ -1013,7 +1018,7 @@ void TrackerTraits<NLayers>::findRoads(const int iteration)
       bounded_vector<int> lastCellTopologyId(mMemoryPool.get()), updatedCellTopologyId(mMemoryPool.get());
       bounded_vector<TrackSeedN> lastCellSeed(mMemoryPool.get()), updatedCellSeed(mMemoryPool.get());
 
-      processNeighbours(iteration, startCellTopologyId, startLevel, mTimeFrame->getCells()[startCellTopologyId], lastCellId, lastCellTopologyId, updatedCellSeed, updatedCellId, updatedCellTopologyId);
+      processNeighbours<Tag>(iteration, startCellTopologyId, startLevel, mTimeFrame->getCells()[startCellTopologyId], lastCellId, lastCellTopologyId, updatedCellSeed, updatedCellId, updatedCellTopologyId, params);
 
       int level = startLevel;
       while (level > 2 && !updatedCellSeed.empty()) {
@@ -1023,7 +1028,7 @@ void TrackerTraits<NLayers>::findRoads(const int iteration)
         deepVectorClear(updatedCellSeed); /// tame the memory peaks
         deepVectorClear(updatedCellId);   /// tame the memory peaks
         deepVectorClear(updatedCellTopologyId);
-        processNeighbours(iteration, constants::UnusedIndex, --level, lastCellSeed, lastCellId, lastCellTopologyId, updatedCellSeed, updatedCellId, updatedCellTopologyId);
+        processNeighbours<Tag>(iteration, constants::UnusedIndex, --level, lastCellSeed, lastCellId, lastCellTopologyId, updatedCellSeed, updatedCellId, updatedCellTopologyId, params);
       }
       deepVectorClear(lastCellId);         /// tame the memory peaks
       deepVectorClear(lastCellTopologyId); /// tame the memory peaks
@@ -1042,7 +1047,7 @@ void TrackerTraits<NLayers>::findRoads(const int iteration)
     using TrackT = typename DetectorTraits<NLayers>::TrackType;
     bounded_vector<TrackT> tracks(mMemoryPool.get());
     mTaskArena->execute([&] {
-      auto forSeed = [&](auto Tag, int iSeed, int offset = 0) {
+      auto forSeed = [&](auto Mode, int iSeed, int offset = 0) {
         TrackT temporaryTrack;
         const bool refitSuccess = DetectorTraits<NLayers>::refitSeed(trackSeeds[iSeed],
                                                                     temporaryTrack,
@@ -1056,11 +1061,11 @@ void TrackerTraits<NLayers>::findRoads(const int iteration)
           if constexpr (DetectorTraits<NLayers>::DetId == o2::detectors::DetID::MFT) {
             temporaryTrack.setSeedPattern(trackSeeds[iSeed].getHitLayerMask().value());
           }
-          if constexpr (decltype(Tag)::value == PassMode::OnePass::value) {
+          if constexpr (decltype(Mode)::value == PassMode::OnePass::value) {
             tracks.push_back(temporaryTrack);
-          } else if constexpr (decltype(Tag)::value == PassMode::TwoPassCount::value) {
+          } else if constexpr (decltype(Mode)::value == PassMode::TwoPassCount::value) {
             // nothing to do
-          } else if constexpr (decltype(Tag)::value == PassMode::TwoPassInsert::value) {
+          } else if constexpr (decltype(Mode)::value == PassMode::TwoPassInsert::value) {
             tracks[offset] = temporaryTrack;
           } else {
             static_assert(false, "Unknown mode!");
@@ -1262,9 +1267,9 @@ void TrackerTraits<NLayers>::setNThreads(int n, std::shared_ptr<tbb::task_arena>
 
 template class TrackerTraits<7>;
 template class TrackerTraits<10>;
-template void TrackerTraits<7>::processNeighbours<typename TrackerTraits<7>::CellSeedN>(int, int, int, const bounded_vector<typename TrackerTraits<7>::CellSeedN>&, const bounded_vector<int>&, const bounded_vector<int>&, bounded_vector<typename TrackerTraits<7>::TrackSeedN>&, bounded_vector<int>&, bounded_vector<int>&);
-template void TrackerTraits<7>::processNeighbours<typename TrackerTraits<7>::TrackSeedN>(int, int, int, const bounded_vector<typename TrackerTraits<7>::TrackSeedN>&, const bounded_vector<int>&, const bounded_vector<int>&, bounded_vector<typename TrackerTraits<7>::TrackSeedN>&, bounded_vector<int>&, bounded_vector<int>&);
-template void TrackerTraits<10>::processNeighbours<typename TrackerTraits<10>::CellSeedN>(int, int, int, const bounded_vector<typename TrackerTraits<10>::CellSeedN>&, const bounded_vector<int>&, const bounded_vector<int>&, bounded_vector<typename TrackerTraits<10>::TrackSeedN>&, bounded_vector<int>&, bounded_vector<int>&);
-template void TrackerTraits<10>::processNeighbours<typename TrackerTraits<10>::TrackSeedN>(int, int, int, const bounded_vector<typename TrackerTraits<10>::TrackSeedN>&, const bounded_vector<int>&, const bounded_vector<int>&, bounded_vector<typename TrackerTraits<10>::TrackSeedN>&, bounded_vector<int>&, bounded_vector<int>&);
+template void TrackerTraits<7>::processNeighbours<TransitionPolicyTag::CylinderCylinder, typename TrackerTraits<7>::CellSeedN>(int, int, int, const bounded_vector<typename TrackerTraits<7>::CellSeedN>&, const bounded_vector<int>&, const bounded_vector<int>&, bounded_vector<typename TrackerTraits<7>::TrackSeedN>&, bounded_vector<int>&, bounded_vector<int>&, const CylinderCylinderPolicyParams&);
+template void TrackerTraits<7>::processNeighbours<TransitionPolicyTag::CylinderCylinder, typename TrackerTraits<7>::TrackSeedN>(int, int, int, const bounded_vector<typename TrackerTraits<7>::TrackSeedN>&, const bounded_vector<int>&, const bounded_vector<int>&, bounded_vector<typename TrackerTraits<7>::TrackSeedN>&, bounded_vector<int>&, bounded_vector<int>&, const CylinderCylinderPolicyParams&);
+template void TrackerTraits<10>::processNeighbours<TransitionPolicyTag::DiskDisk, typename TrackerTraits<10>::CellSeedN>(int, int, int, const bounded_vector<typename TrackerTraits<10>::CellSeedN>&, const bounded_vector<int>&, const bounded_vector<int>&, bounded_vector<typename TrackerTraits<10>::TrackSeedN>&, bounded_vector<int>&, bounded_vector<int>&, const DiskDiskPolicyParams&);
+template void TrackerTraits<10>::processNeighbours<TransitionPolicyTag::DiskDisk, typename TrackerTraits<10>::TrackSeedN>(int, int, int, const bounded_vector<typename TrackerTraits<10>::TrackSeedN>&, const bounded_vector<int>&, const bounded_vector<int>&, bounded_vector<typename TrackerTraits<10>::TrackSeedN>&, bounded_vector<int>&, bounded_vector<int>&, const DiskDiskPolicyParams&);
 
 } // namespace o2::itsmft::tracking

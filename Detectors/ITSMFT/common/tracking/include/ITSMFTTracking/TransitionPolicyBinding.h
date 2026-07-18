@@ -17,9 +17,40 @@
 #ifndef GPUCA_GPUCODE
 
 #include "ITSMFTTracking/Configuration.h"
+#include <gsl/span>
 
 namespace o2::itsmft::tracking
 {
+
+/// Host view of the existing per-surface material and propagation-correction
+/// configuration consumed by attachHit<Tag>. The view borrows one iteration's
+/// TrackingParameters storage and is bound/validated with the typed family
+/// Params before traversal starts.
+struct AttachHitPolicyConfigView {
+  gsl::span<const float> layerxX0;
+  o2::base::PropagatorF::MatCorrType corrType{o2::base::PropagatorF::MatCorrType::USEMatCorrNONE};
+
+  bool isValid(size_t expectedLayers) const noexcept
+  {
+    if (layerxX0.size() < expectedLayers ||
+        (corrType != o2::base::PropagatorF::MatCorrType::USEMatCorrNONE &&
+         corrType != o2::base::PropagatorF::MatCorrType::USEMatCorrTGeo &&
+         corrType != o2::base::PropagatorF::MatCorrType::USEMatCorrLUT)) {
+      return false;
+    }
+    for (size_t layer = 0; layer < expectedLayers; ++layer) {
+      if (!isFiniteParam(layerxX0[layer]) || layerxX0[layer] < 0.f) {
+        return false;
+      }
+    }
+    return true;
+  }
+};
+
+inline AttachHitPolicyConfigView bindAttachHitPolicyConfig(const TrackingParameters& params) noexcept
+{
+  return {gsl::span<const float>{params.LayerxX0.data(), params.LayerxX0.size()}, params.CorrType};
+}
 
 /// Binds one iteration's legacy TrackingParameters into a typed,
 /// bounds-checkable policy parameter block (TransitionPolicyState.h). Callers

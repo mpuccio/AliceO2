@@ -10,6 +10,8 @@
 
 #include "ITSMFTTracking/Cell.h"
 #include "ITSMFTTracking/TransitionPolicyState.h"
+#include "ITStracking/Cluster.h"
+#include "DetectorsBase/Propagator.h"
 
 namespace o2::itsmft::tracking
 {
@@ -63,6 +65,46 @@ bool cellsAreCompatible<TransitionPolicyTag::DiskDisk>(
   const CellSeedTpl<o2::track::TrackParCovFwd>& currentCell,
   const CellSeedTpl<o2::track::TrackParCovFwd>& nextCell,
   float bz,
+  const DiskDiskPolicyParams& params);
+
+/// D007 attach-hit policy operation. The typed family state and parameter
+/// block are selected once by the caller's outer policy dispatch. `xOverX0`
+/// is the already-selected material budget for the hit surface; no legacy
+/// TrackingParameters object or detector identity crosses this boundary.
+///
+/// Host-only: CylinderCylinder calls the host Propagator singleton and
+/// DiskDisk calls the host forward-state propagation/update chain. The two
+/// specializations deliberately preserve their existing failure mutation
+/// contracts: the cylinder state is modified as each successful step is
+/// applied, while the disk state and chi2 are committed only after the full
+/// attachment succeeds.
+template <TransitionPolicyTag Tag>
+bool attachHit(typename TransitionPolicyTraits<Tag>::SeedState& state,
+               const o2::its::TrackingFrameInfo& hit,
+               float xOverX0,
+               o2::base::PropagatorF::MatCorrType corrType,
+               float bz,
+               float& chi2,
+               const typename TransitionPolicyTraits<Tag>::Params& params);
+
+template <>
+bool attachHit<TransitionPolicyTag::CylinderCylinder>(
+  o2::track::TrackParCovF& state,
+  const o2::its::TrackingFrameInfo& hit,
+  float xOverX0,
+  o2::base::PropagatorF::MatCorrType corrType,
+  float bz,
+  float& chi2,
+  const CylinderCylinderPolicyParams& params);
+
+template <>
+bool attachHit<TransitionPolicyTag::DiskDisk>(
+  o2::track::TrackParCovFwd& state,
+  const o2::its::TrackingFrameInfo& hit,
+  float xOverX0,
+  o2::base::PropagatorF::MatCorrType corrType,
+  float bz,
+  float& chi2,
   const DiskDiskPolicyParams& params);
 
 } // namespace o2::itsmft::tracking

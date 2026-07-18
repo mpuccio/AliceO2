@@ -10,15 +10,31 @@
 #define BOOST_TEST_DYN_LINK
 
 #include <limits>
+#include <cmath>
 
 #include <boost/test/unit_test.hpp>
 
+#include <TGeoGlobalMagField.h>
+
+#include "Field/MagneticField.h"
 #include "ITSMFTTracking/MFTFwdTrackHelpers.h"
 #include "ITSMFTTracking/TransitionPolicyBinding.h"
 #include "ITSMFTTracking/TransitionPolicyOperations.h"
 
 using namespace o2::itsmft;
 using namespace o2::itsmft::tracking;
+
+struct PropagatorFieldFixture {
+  PropagatorFieldFixture()
+  {
+    if (!TGeoGlobalMagField::Instance()->GetField()) {
+      TGeoGlobalMagField::Instance()->SetField(o2::field::MagneticField::createNominalField(5, true));
+      TGeoGlobalMagField::Instance()->Lock();
+    }
+  }
+};
+
+BOOST_GLOBAL_FIXTURE(PropagatorFieldFixture);
 
 /// Focused numerical-parity coverage for the first D007 policy-boundary
 /// operation migrated off the legacy per-detector branch (Architecture.md
@@ -63,6 +79,77 @@ CellSeedTpl<o2::track::TrackParCovFwd> makeForwardCell(const o2::track::TrackPar
 }
 
 constexpr float Bz = 0.5f;
+constexpr auto NoMaterialCorrection = o2::base::PropagatorF::MatCorrType::USEMatCorrNONE;
+
+o2::its::TrackingFrameInfo makeBarrelHit(float xTF, float alpha, float y, float z, float sigma2Y = 1.e-4f, float sigma2Z = 1.e-4f)
+{
+  return o2::its::TrackingFrameInfo{xTF, y, z, xTF, alpha, {y, z}, {sigma2Y, 0.f, sigma2Z}};
+}
+
+o2::its::TrackingFrameInfo makeDiskHit(float z, float x, float y, float sigma2X = 1.e-2f, float sigma2Y = 1.e-2f)
+{
+  return o2::its::TrackingFrameInfo{x, y, z, 0.f, 0.f, {x, y}, {sigma2X, 0.f, sigma2Y}};
+}
+
+bool legacyBarrelAttach(o2::track::TrackParCovF& state, const o2::its::TrackingFrameInfo& hit,
+                        float xOverX0, o2::base::PropagatorF::MatCorrType corrType,
+                        float bz, float maxChi2, float& chi2)
+{
+  if (!state.rotate(hit.alphaTrackingFrame)) {
+    return false;
+  }
+  if (!o2::base::Propagator::Instance()->propagateToX(state, hit.xTrackingFrame, bz,
+                                                       o2::base::PropagatorImpl<float>::MAX_SIN_PHI,
+                                                       o2::base::PropagatorImpl<float>::MAX_STEP, corrType)) {
+    return false;
+  }
+  if (corrType == NoMaterialCorrection &&
+      !state.correctForMaterial(xOverX0, xOverX0 * o2::its::constants::Radl * o2::its::constants::Rho, true)) {
+    return false;
+  }
+  const float predictedChi2 = state.getPredictedChi2Quiet(hit.positionTrackingFrame, hit.covarianceTrackingFrame);
+  if (predictedChi2 > maxChi2 || predictedChi2 < 0.f) {
+    return false;
+  }
+  chi2 += predictedChi2;
+  return state.o2::track::TrackParCov::update(hit.positionTrackingFrame, hit.covarianceTrackingFrame);
+}
+
+bool legacyDiskAttach(o2::track::TrackParCovFwd& state, const o2::its::TrackingFrameInfo& hit,
+                      float xOverX0, float bz, float maxChi2, float& chi2)
+{
+  auto updated = state;
+  float updatedChi2 = chi2;
+  if (!detail::mftFwdAttachCluster(updated, hit.zCoordinate, hit.xCoordinate, hit.yCoordinate,
+                                   hit.covarianceTrackingFrame[0], hit.covarianceTrackingFrame[2],
+                                   xOverX0, bz, maxChi2, updatedChi2, true)) {
+    return false;
+  }
+  state = updated;
+  chi2 = updatedChi2;
+  return true;
+}
+
+void checkBarrelStateEqual(const o2::track::TrackParCovF& lhs, const o2::track::TrackParCovF& rhs)
+{
+  BOOST_CHECK_EQUAL(lhs.getX(), rhs.getX());
+  BOOST_CHECK_EQUAL(lhs.getAlpha(), rhs.getAlpha());
+  BOOST_CHECK_EQUAL(lhs.getY(), rhs.getY());
+  BOOST_CHECK_EQUAL(lhs.getZ(), rhs.getZ());
+  BOOST_CHECK_EQUAL(lhs.getSnp(), rhs.getSnp());
+  BOOST_CHECK_EQUAL(lhs.getTgl(), rhs.getTgl());
+  BOOST_CHECK_EQUAL(lhs.getQ2Pt(), rhs.getQ2Pt());
+}
+
+void checkDiskStateEqual(const o2::track::TrackParCovFwd& lhs, const o2::track::TrackParCovFwd& rhs)
+{
+  BOOST_CHECK_EQUAL(lhs.getZ(), rhs.getZ());
+  BOOST_CHECK_EQUAL(lhs.getX(), rhs.getX());
+  BOOST_CHECK_EQUAL(lhs.getY(), rhs.getY());
+  BOOST_CHECK_EQUAL(lhs.getPhi(), rhs.getPhi());
+  BOOST_CHECK_EQUAL(lhs.getTanl(), rhs.getTanl());
+  BOOST_CHECK_EQUAL(lhs.getInvQPt(), rhs.getInvQPt());
+}
 
 } // namespace
 
@@ -233,6 +320,8 @@ BOOST_AUTO_TEST_CASE(BindingCopiesEveryFieldToTheCorrectSlot)
   legacy.MaxChi2NDF = 5.55f;
   legacy.CellRoadRCut = 6.66f;
   legacy.TrackletMinAbsX = 7.77f;
+  legacy.LayerxX0 = {0.011f, 0.022f, 0.033f};
+  legacy.CorrType = o2::base::PropagatorF::MatCorrType::USEMatCorrLUT;
 
   const auto barrel = bindTransitionPolicyParams<TransitionPolicyTag::CylinderCylinder>(legacy);
   BOOST_CHECK_CLOSE(barrel.trackletMinPt, 1.11f, 1e-6);
@@ -251,6 +340,15 @@ BOOST_AUTO_TEST_CASE(BindingCopiesEveryFieldToTheCorrectSlot)
   BOOST_CHECK_CLOSE(disk.maxChi2ClusterAttachment, 4.44f, 1e-6);
   BOOST_CHECK_CLOSE(disk.maxChi2NDF, 5.55f, 1e-6);
   BOOST_CHECK(disk.isValid());
+
+  const auto attach = bindAttachHitPolicyConfig(legacy);
+  BOOST_REQUIRE_EQUAL(attach.layerxX0.size(), 3u);
+  BOOST_CHECK_CLOSE(attach.layerxX0[0], 0.011f, 1e-6);
+  BOOST_CHECK_CLOSE(attach.layerxX0[1], 0.022f, 1e-6);
+  BOOST_CHECK_CLOSE(attach.layerxX0[2], 0.033f, 1e-6);
+  BOOST_CHECK(attach.corrType == o2::base::PropagatorF::MatCorrType::USEMatCorrLUT);
+  BOOST_CHECK(attach.isValid(3));
+  BOOST_CHECK(!attach.isValid(4));
 }
 
 BOOST_AUTO_TEST_CASE(BoundNonFiniteParametersAreDetectableThroughIsValid)
@@ -284,4 +382,124 @@ BOOST_AUTO_TEST_CASE(BoundNonFiniteParametersAreDetectableThroughIsValid)
   auto diskInf = legacy;
   diskInf.TrackletMinAbsX = inf;
   BOOST_CHECK(!bindTransitionPolicyParams<TransitionPolicyTag::DiskDisk>(diskInf).isValid());
+
+  auto materialNaN = legacy;
+  materialNaN.LayerxX0[2] = nan;
+  BOOST_CHECK(!bindAttachHitPolicyConfig(materialNaN).isValid(materialNaN.LayerxX0.size()));
+  auto materialInf = legacy;
+  materialInf.LayerxX0[4] = inf;
+  BOOST_CHECK(!bindAttachHitPolicyConfig(materialInf).isValid(materialInf.LayerxX0.size()));
+  auto invalidCorrection = legacy;
+  invalidCorrection.CorrType = static_cast<o2::base::PropagatorF::MatCorrType>(99);
+  BOOST_CHECK(!bindAttachHitPolicyConfig(invalidCorrection).isValid(invalidCorrection.LayerxX0.size()));
+}
+
+BOOST_AUTO_TEST_CASE(BarrelAttachHitExactBoundaryAndInlineEquivalence)
+{
+  const auto initial = makeBarrelState(4.f, 0.3f, 0.2f, 1.1f, 0.06f, 0.42f, 0.21f);
+  const auto hit = makeBarrelHit(5.f, 0.3f, 0.35f, 1.25f);
+  auto reference = initial;
+  BOOST_REQUIRE(reference.rotate(hit.alphaTrackingFrame));
+  BOOST_REQUIRE(o2::base::Propagator::Instance()->propagateToX(reference, hit.xTrackingFrame, Bz,
+                                                               o2::base::PropagatorImpl<float>::MAX_SIN_PHI,
+                                                               o2::base::PropagatorImpl<float>::MAX_STEP,
+                                                               NoMaterialCorrection));
+  BOOST_REQUIRE(reference.correctForMaterial(0.f, 0.f, true));
+  const float exactChi2 = reference.getPredictedChi2Quiet(hit.positionTrackingFrame, hit.covarianceTrackingFrame);
+  BOOST_REQUIRE_GT(exactChi2, 0.f);
+
+  CylinderCylinderPolicyParams exact;
+  exact.maxChi2ClusterAttachment = exactChi2;
+  auto policyState = initial;
+  auto inlineState = initial;
+  float policyChi2 = 7.25f;
+  float inlineChi2 = policyChi2;
+  BOOST_CHECK(attachHit<TransitionPolicyTag::CylinderCylinder>(policyState, hit, 0.f, NoMaterialCorrection, Bz, policyChi2, exact));
+  BOOST_CHECK(legacyBarrelAttach(inlineState, hit, 0.f, NoMaterialCorrection, Bz, exact.maxChi2ClusterAttachment, inlineChi2));
+  checkBarrelStateEqual(policyState, inlineState);
+  BOOST_CHECK_EQUAL(policyChi2, inlineChi2);
+
+  CylinderCylinderPolicyParams below = exact;
+  below.maxChi2ClusterAttachment = std::nextafter(exactChi2, 0.f);
+  policyState = initial;
+  inlineState = initial;
+  policyChi2 = inlineChi2 = 7.25f;
+  BOOST_CHECK(!attachHit<TransitionPolicyTag::CylinderCylinder>(policyState, hit, 0.f, NoMaterialCorrection, Bz, policyChi2, below));
+  BOOST_CHECK(!legacyBarrelAttach(inlineState, hit, 0.f, NoMaterialCorrection, Bz, below.maxChi2ClusterAttachment, inlineChi2));
+  checkBarrelStateEqual(policyState, inlineState);
+  BOOST_CHECK_EQUAL(policyChi2, inlineChi2);
+  BOOST_CHECK_NE(policyState.getX(), initial.getX()); // legacy barrel failure retains successful propagation
+}
+
+BOOST_AUTO_TEST_CASE(BarrelAttachHitPreservesRotationPropagationAndUpdateFailures)
+{
+  CylinderCylinderPolicyParams params;
+  params.maxChi2ClusterAttachment = std::numeric_limits<float>::max();
+
+  auto rotationState = makeBarrelState(5.f, 3.f, 0.1f, 1.f, 0.f, 0.4f, 0.2f);
+  const auto rotationBefore = rotationState;
+  const auto rotationHit = makeBarrelHit(5.f, 0.f, 0.1f, 1.f);
+  float chi2 = 3.f;
+  BOOST_CHECK(!attachHit<TransitionPolicyTag::CylinderCylinder>(rotationState, rotationHit, 0.f, NoMaterialCorrection, Bz, chi2, params));
+  checkBarrelStateEqual(rotationState, rotationBefore);
+  BOOST_CHECK_EQUAL(chi2, 3.f);
+
+  auto propagationState = makeBarrelState(0.f, 0.3f, 0.1f, 1.f, 0.f, 0.4f, 2000.f);
+  const auto propagationHit = makeBarrelHit(5.f, 0.3f, 0.1f, 1.f);
+  chi2 = 4.f;
+  BOOST_CHECK(!attachHit<TransitionPolicyTag::CylinderCylinder>(propagationState, propagationHit, 0.f, NoMaterialCorrection, Bz, chi2, params));
+  BOOST_CHECK_EQUAL(chi2, 4.f);
+
+  const o2::track::TrackParCovF::params_t zeroPar{0.f, 0.f, 0.f, 0.4f, 0.2f};
+  o2::track::TrackParCovF::covMat_t singularCov{};
+  singularCov[5] = 1.e-4f;
+  singularCov[9] = 1.e-4f;
+  singularCov[14] = 1.e-2f;
+  auto updateState = o2::track::TrackParCovF{5.f, 0.3f, zeroPar, singularCov};
+  auto inlineUpdateState = updateState;
+  const auto singularHit = makeBarrelHit(5.f, 0.3f, 0.f, 0.f, 0.f, 0.f);
+  chi2 = 5.f;
+  float inlineChi2 = chi2;
+  BOOST_CHECK(!attachHit<TransitionPolicyTag::CylinderCylinder>(updateState, singularHit, 0.f, NoMaterialCorrection, Bz, chi2, params));
+  BOOST_CHECK(!legacyBarrelAttach(inlineUpdateState, singularHit, 0.f, NoMaterialCorrection, Bz,
+                                  params.maxChi2ClusterAttachment, inlineChi2));
+  checkBarrelStateEqual(updateState, inlineUpdateState);
+  BOOST_CHECK_EQUAL(chi2, inlineChi2);
+  BOOST_CHECK_GT(chi2, 5.f); // legacy increments chi2 before the failed update
+}
+
+BOOST_AUTO_TEST_CASE(DiskAttachHitExactBoundaryFailureImmutabilityAndInlineEquivalence)
+{
+  const auto initial = makeForwardState(-1.f, 0.05f, -0.03f, 0.02f, -1.19f, 0.11f);
+  const auto hit = makeDiskHit(0.f, 0.2f, -0.1f);
+  auto propagated = initial;
+  detail::mftFwdPropagateToZ(propagated, hit.zCoordinate, Bz);
+  const float exactChi2 = detail::mftFwdPredictedChi2(propagated, hit.xCoordinate, hit.yCoordinate,
+                                                      hit.covarianceTrackingFrame[0], hit.covarianceTrackingFrame[2]);
+  BOOST_REQUIRE_GT(exactChi2, 0.f);
+
+  DiskDiskPolicyParams exact;
+  exact.maxChi2ClusterAttachment = exactChi2;
+  auto policyState = initial;
+  auto inlineState = initial;
+  float policyChi2 = 8.5f;
+  float inlineChi2 = policyChi2;
+  BOOST_CHECK(attachHit<TransitionPolicyTag::DiskDisk>(policyState, hit, 0.017f, NoMaterialCorrection, Bz, policyChi2, exact));
+  BOOST_CHECK(legacyDiskAttach(inlineState, hit, 0.017f, Bz, exact.maxChi2ClusterAttachment, inlineChi2));
+  checkDiskStateEqual(policyState, inlineState);
+  BOOST_CHECK_EQUAL(policyChi2, inlineChi2);
+  BOOST_CHECK_NE(policyState.getZ(), initial.getZ());
+
+  DiskDiskPolicyParams below = exact;
+  below.maxChi2ClusterAttachment = std::nextafter(exactChi2, 0.f);
+  policyState = initial;
+  inlineState = initial;
+  const auto before = policyState;
+  policyChi2 = inlineChi2 = 8.5f;
+  BOOST_CHECK(!attachHit<TransitionPolicyTag::DiskDisk>(policyState, hit, 0.017f, NoMaterialCorrection, Bz, policyChi2, below));
+  BOOST_CHECK(!legacyDiskAttach(inlineState, hit, 0.017f, Bz, below.maxChi2ClusterAttachment, inlineChi2));
+  checkDiskStateEqual(policyState, before);
+  checkDiskStateEqual(policyState, inlineState);
+  BOOST_CHECK_EQUAL(policyChi2, 8.5f);
+  BOOST_CHECK_EQUAL(policyChi2, inlineChi2);
 }
