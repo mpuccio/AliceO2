@@ -20,13 +20,24 @@
 // kernel per active (stage, family), selected from this same grouping.
 #ifndef GPUCA_GPUCODE
 
+#include <algorithm>
 #include <array>
+#include <queue>
 #include <vector>
 
 #include <gsl/gsl>
 
 namespace o2::itsmft::tracking
 {
+
+enum class TransitionPolicyScheduleError : uint8_t {
+  None,
+  MissingSurfaceData,
+  MissingTopologyData,
+  InvalidTransitionSurface,
+  InvalidCellTransition,
+  CyclicTopology
+};
 
 /// Host-side, one-shot grouping of an already-validated DetectorLayoutView's
 /// transitions and cell topologies by TransitionPolicyTag. Built once outside
@@ -37,26 +48,90 @@ class TransitionPolicyGrouping
  public:
   explicit TransitionPolicyGrouping(const DetectorLayoutView& layout)
   {
-    if (layout.surfaces == nullptr) {
+    if (layout.nSurfaces != 0 && layout.surfaces == nullptr) {
+      mScheduleError = TransitionPolicyScheduleError::MissingSurfaceData;
       return;
     }
     const auto& topology = layout.topology;
+    if ((topology.nTransitions != 0 && topology.transitions == nullptr) ||
+        (topology.nCells != 0 && topology.cells == nullptr)) {
+      mScheduleError = TransitionPolicyScheduleError::MissingTopologyData;
+      return;
+    }
+
+    std::vector<uint32_t> indegree(layout.nSurfaces, 0);
+    std::vector<uint32_t> rank(layout.nSurfaces, 0);
     for (uint32_t i = 0; i < topology.nTransitions; ++i) {
       const auto id = TransitionId{static_cast<uint16_t>(i)};
-      auto* group = groupFor(topology.getTransition(id).policyTag);
+      const auto& transition = topology.getTransition(id);
+      if (!transition.from.isValid() || !transition.to.isValid() ||
+          transition.from.value() >= layout.nSurfaces || transition.to.value() >= layout.nSurfaces) {
+        mScheduleError = TransitionPolicyScheduleError::InvalidTransitionSurface;
+        clear();
+        return;
+      }
+      ++indegree[transition.to.value()];
+      auto* group = groupFor(transition.policyTag);
       if (group != nullptr) {
         group->transitions.push_back(id);
       }
     }
+
+    const auto laterSurface = [](SurfaceId lhs, SurfaceId rhs) { return rhs < lhs; };
+    std::priority_queue<SurfaceId, std::vector<SurfaceId>, decltype(laterSurface)> ready{laterSurface};
+    for (uint16_t surface = 0; surface < layout.nSurfaces; ++surface) {
+      if (indegree[surface] == 0) {
+        ready.push(SurfaceId{surface});
+      }
+    }
+    uint32_t visited = 0;
+    while (!ready.empty()) {
+      const auto surface = ready.top();
+      ready.pop();
+      ++visited;
+      for (uint32_t i = 0; i < topology.nTransitions; ++i) {
+        const auto& transition = topology.getTransition(TransitionId{static_cast<uint16_t>(i)});
+        if (transition.from != surface) {
+          continue;
+        }
+        rank[transition.to.value()] = std::max(rank[transition.to.value()], rank[surface.value()] + 1);
+        if (--indegree[transition.to.value()] == 0) {
+          ready.push(transition.to);
+        }
+      }
+    }
+    if (visited != layout.nSurfaces) {
+      mScheduleError = TransitionPolicyScheduleError::CyclicTopology;
+      clear();
+      return;
+    }
+
     for (uint32_t i = 0; i < topology.nCells; ++i) {
       const auto id = CellTopologyId{static_cast<uint16_t>(i)};
       const auto& cell = topology.getCell(id);
+      if (!cell.firstTransition.isValid() || !cell.secondTransition.isValid() ||
+          cell.firstTransition.value() >= topology.nTransitions || cell.secondTransition.value() >= topology.nTransitions) {
+        mScheduleError = TransitionPolicyScheduleError::InvalidCellTransition;
+        clear();
+        return;
+      }
       auto* group = groupFor(topology.getTransition(cell.firstTransition).policyTag);
       if (group != nullptr) {
         group->cells.push_back(id);
+        group->scheduledCells.push_back(id);
       }
     }
+    for (auto& group : mGroups) {
+      std::sort(group.scheduledCells.begin(), group.scheduledCells.end(), [&](CellTopologyId lhs, CellTopologyId rhs) {
+        const auto lhsTarget = topology.getTransition(topology.getCell(lhs).secondTransition).to;
+        const auto rhsTarget = topology.getTransition(topology.getCell(rhs).secondTransition).to;
+        return rank[lhsTarget.value()] != rank[rhsTarget.value()] ? rank[lhsTarget.value()] < rank[rhsTarget.value()] : lhs < rhs;
+      });
+    }
   }
+
+  bool valid() const noexcept { return mScheduleError == TransitionPolicyScheduleError::None; }
+  TransitionPolicyScheduleError getScheduleError() const noexcept { return mScheduleError; }
 
   bool hasTag(TransitionPolicyTag tag) const noexcept
   {
@@ -76,11 +151,27 @@ class TransitionPolicyGrouping
     return group != nullptr ? gsl::span<const CellTopologyId>(group->cells) : gsl::span<const CellTopologyId>();
   }
 
+  gsl::span<const CellTopologyId> scheduledCellsForTag(TransitionPolicyTag tag) const noexcept
+  {
+    const auto* group = findGroup(tag);
+    return group != nullptr ? gsl::span<const CellTopologyId>(group->scheduledCells) : gsl::span<const CellTopologyId>();
+  }
+
  private:
   struct Group {
     std::vector<TransitionId> transitions;
     std::vector<CellTopologyId> cells;
+    std::vector<CellTopologyId> scheduledCells;
   };
+
+  void clear() noexcept
+  {
+    for (auto& group : mGroups) {
+      group.transitions.clear();
+      group.cells.clear();
+      group.scheduledCells.clear();
+    }
+  }
 
   static constexpr int indexOf(TransitionPolicyTag tag) noexcept
   {
@@ -107,6 +198,7 @@ class TransitionPolicyGrouping
   }
 
   std::array<Group, 2> mGroups{};
+  TransitionPolicyScheduleError mScheduleError{TransitionPolicyScheduleError::None};
 };
 
 /// Outer-loop dispatch: for each TransitionPolicyTag with active work, calls
