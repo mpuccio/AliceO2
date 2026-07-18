@@ -41,7 +41,13 @@ enum class MultiSourceLoadError : uint8_t {
   // The decoder's declared SurfaceKind (cylinder/disk) does not match the
   // target surface's descriptor. Never inferred from surface count.
   SurfaceKindMismatch,
-  TimingError
+  TimingError,
+  // TimeFrame-owned normalized loading preflight (loadNormalizedSource()):
+  // no DetectorLayoutSet owner has ever been stored for this TimeFrame.
+  SurfaceCatalogNotConfigured,
+  // TimeFrame-owned normalized loading preflight: a DetectorLayoutSet owner
+  // is stored, but it is not current (see TimeFrame::detectorLayoutsCurrent()).
+  SurfaceCatalogStale
 };
 
 struct LoadSourcesResult {

@@ -5,7 +5,7 @@
 // This software is distributed under the terms of the GNU General Public
 // License v3 (GPL Version 3), copied verbatim in the file "COPYING".
 
-// Gate 1 compatibility-boundary parity tests (AgentCoordination.md / Wave 1
+// Gate 1/2 compatibility-boundary parity tests (AgentCoordination.md / Wave 1
 // exit criteria: "Current single-detector TimeFrames still load and expose
 // equivalent clusters"). These instantiate the actual common
 // o2::itsmft::tracking::TimeFrame<ITSNLayers>/<MFTNLayers> (the TimeFrame
@@ -17,6 +17,13 @@
 // TimeFrame's existing legacy compatibility structures (unsorted clusters,
 // TrackingFrameInfo, external indices, cluster sizes, ROF boundaries, label
 // lookup) from the committed normalized measurements.
+//
+// Gate 2 (Slice B3): loadNormalizedSource() no longer accepts an externally
+// supplied DetectorLayoutView or layer-to-surface mapping. Every test below
+// configures the TimeFrame's own canonical catalog through
+// ensureDetectorLayouts() (via a FakeCatalogProvider) before loading; the
+// canonical SurfaceCatalogView and layer-to-surface mapping are derived
+// internally from that same stored DetectorLayoutSet.
 //
 // Deterministic adapter parity (this test) vs. real decode parity: like
 // every other Gate 1 test in this directory (see testMultiSourceLoading.cxx),
@@ -47,6 +54,7 @@
 #include <boost/test/unit_test.hpp>
 
 #include <array>
+#include <type_traits>
 #include <vector>
 
 #include <gsl/gsl>
@@ -59,10 +67,9 @@
 #include "ITSMFTTracking/ClusterDecoder.h"
 #include "ITSMFTTracking/DecodedCluster.h"
 #include "ITSMFTTracking/DetectorLayout.h"
-#include "ITSMFTTracking/IOUtils.h"
+#include "ITSMFTTracking/DetectorSurfaceCatalogProvider.h"
 #include "ITSMFTTracking/MultiSourceFrame.h"
 #include "ITSMFTTracking/MultiSourceLoading.h"
-#include "ITSMFTTracking/SparseTrackingTopology.h"
 #include "ITSMFTTracking/SurfaceDescriptor.h"
 #include "ITSMFTTracking/SurfaceMeasurementAdapters.h"
 #include "ITSMFTTracking/TimeFrame.h"
@@ -161,31 +168,27 @@ std::vector<unsigned char> concatPatterns(std::initializer_list<gsl::span<const 
   return bytes;
 }
 
-// Explicit, hard-coded 7-surface ITS (all cylinder) layout: no
+// Explicit, hard-coded 7-surface ITS (all cylinder) canonical catalog: no
 // detector-to-kind inference, just the literal SurfaceKind this test wants.
-DetectorLayout makeITSTestLayout()
+std::vector<SurfaceDescriptor> makeITSTestCatalog()
 {
-  SparseTrackingTopology topology{static_cast<uint32_t>(ITSNLayers)};
-  topology.finalize();
   std::vector<SurfaceDescriptor> surfaces;
   surfaces.reserve(ITSNLayers);
   for (uint16_t i = 0; i < ITSNLayers; ++i) {
     surfaces.push_back(SurfaceDescriptor{SurfaceId{i}, i, static_cast<uint8_t>(o2::detectors::DetID::ITS), SurfaceKind::Cylinder});
   }
-  return DetectorLayout{std::move(surfaces), std::move(topology)};
+  return surfaces;
 }
 
-// Explicit, hard-coded 10-surface MFT (all disk) layout.
-DetectorLayout makeMFTTestLayout()
+// Explicit, hard-coded 10-surface MFT (all disk) canonical catalog.
+std::vector<SurfaceDescriptor> makeMFTTestCatalog()
 {
-  SparseTrackingTopology topology{static_cast<uint32_t>(MFTNLayers)};
-  topology.finalize();
   std::vector<SurfaceDescriptor> surfaces;
   surfaces.reserve(MFTNLayers);
   for (uint16_t i = 0; i < MFTNLayers; ++i) {
     surfaces.push_back(SurfaceDescriptor{SurfaceId{i}, i, static_cast<uint8_t>(o2::detectors::DetID::MFT), SurfaceKind::Disk});
   }
-  return DetectorLayout{std::move(surfaces), std::move(topology)};
+  return surfaces;
 }
 
 std::vector<SurfaceId> identitySurfaces(uint16_t nLayers)
@@ -197,6 +200,23 @@ std::vector<SurfaceId> identitySurfaces(uint16_t nLayers)
   }
   return mapping;
 }
+
+// Minimal provider: returns a fixed catalog regardless of the request, since
+// every test here configures a self-consistent catalog/request pair up
+// front. Real validation of catalogRequest/catalog agreement is covered by
+// testTimeFrameDetectorLayouts.cxx and is not repeated here.
+class FakeCatalogProvider final : public DetectorSurfaceCatalogProvider
+{
+ public:
+  explicit FakeCatalogProvider(std::vector<SurfaceDescriptor> catalog) : mCatalog{std::move(catalog)} {}
+
+  DetectorSurfaceCatalogResult buildCatalog(const DetectorSurfaceCatalogRequest&) const final
+  {
+    return {mCatalog, DetectorSurfaceCatalogError::None};
+  }
+
+  std::vector<SurfaceDescriptor> mCatalog;
+};
 
 GlobalPoint3F expectedGlobal(int sensorID, int row, int col)
 {
@@ -254,10 +274,11 @@ const std::vector<Expected> expectedClusters{
 };
 
 template <int NLayers>
-void checkParity(const DetectorLayout& layout, const Fixture& f)
+void checkParity(std::vector<SurfaceDescriptor> catalog, TransitionPolicyTag policyTag, const Fixture& f)
 {
-  BOOST_REQUIRE(layout.valid());
-  const auto layerToSurface = identitySurfaces(static_cast<uint16_t>(NLayers));
+  const auto orderedSurfaces = identitySurfaces(static_cast<uint16_t>(NLayers));
+  FakeCatalogProvider provider{std::move(catalog)};
+  const DetectorSurfaceCatalogRequest catalogRequest{f.detector, SurfaceId{0}, static_cast<uint32_t>(NLayers)};
 
   LegacyLikeDecoder decoder{f.detector, f.disk};
   const o2::InteractionRecord origin{50, 5};
@@ -270,7 +291,10 @@ void checkParity(const DetectorLayout& layout, const Fixture& f)
   constexpr ClusterSourceId kSourceId{0};
 
   TimeFrame<NLayers> tf;
-  const auto result = tf.loadNormalizedSource(layout.getView(), layerToSurface, decoder, origin, timing,
+  std::vector<TrackingParameters> noIterations;
+  BOOST_REQUIRE(tf.ensureDetectorLayouts(&provider, catalogRequest, orderedSurfaces, policyTag, noIterations).ok());
+
+  const auto result = tf.loadNormalizedSource(decoder, origin, timing,
                                               f.clusters, f.patterns, f.rofs, &dict(), &f.labels, f.detector);
   BOOST_REQUIRE(result.ok());
 
@@ -396,27 +420,49 @@ void checkParity(const DetectorLayout& layout, const Fixture& f)
   }
 }
 
+// A caller can no longer supply an unrelated DetectorLayoutView or
+// layer-to-surface mapping by API construction: taking the current member
+// function's address is unambiguous (there is exactly one overload), so
+// checking its invocability against the removed Gate 1 argument list proves
+// the parameters are gone from the signature itself, not merely unused.
+static_assert(!std::is_invocable_v<decltype(&TimeFrame<ITSNLayers>::loadNormalizedSource),
+                                   TimeFrame<ITSNLayers>&,
+                                   const DetectorLayoutView&,
+                                   gsl::span<const SurfaceId>,
+                                   const ClusterDecoder&,
+                                   const o2::InteractionRecord&,
+                                   const ROFTimingConfig&,
+                                   gsl::span<const o2::itsmft::CompClusterExt>,
+                                   gsl::span<const unsigned char>,
+                                   gsl::span<const o2::itsmft::ROFRecord>,
+                                   const o2::itsmft::TopologyDictionary*,
+                                   const o2::dataformats::MCTruthContainer<o2::MCCompLabel>*,
+                                   o2::detectors::DetID::ID>,
+              "loadNormalizedSource must no longer accept an externally supplied layout or layer-to-surface mapping");
+
 } // namespace
 
 BOOST_AUTO_TEST_CASE(ITSTimeFrameNormalizedSourceParity)
 {
-  checkParity<ITSNLayers>(makeITSTestLayout(), makeFixture(o2::detectors::DetID::ITS, false));
+  checkParity<ITSNLayers>(makeITSTestCatalog(), TransitionPolicyTag::CylinderCylinder, makeFixture(o2::detectors::DetID::ITS, false));
 }
 
 BOOST_AUTO_TEST_CASE(MFTTimeFrameNormalizedSourceParity)
 {
-  checkParity<MFTNLayers>(makeMFTTestLayout(), makeFixture(o2::detectors::DetID::MFT, true));
+  checkParity<MFTNLayers>(makeMFTTestCatalog(), TransitionPolicyTag::DiskDisk, makeFixture(o2::detectors::DetID::MFT, true));
 }
 
 BOOST_AUTO_TEST_CASE(EmptyInputsAreLegalForBothDetectors)
 {
   {
-    const auto layout = makeITSTestLayout();
-    BOOST_REQUIRE(layout.valid());
-    const auto layerToSurface = identitySurfaces(ITSNLayers);
+    const auto orderedSurfaces = identitySurfaces(ITSNLayers);
+    FakeCatalogProvider provider{makeITSTestCatalog()};
+    const DetectorSurfaceCatalogRequest catalogRequest{o2::detectors::DetID::ITS, SurfaceId{0}, ITSNLayers};
     LegacyLikeDecoder decoder{o2::detectors::DetID::ITS, false};
     TimeFrame<ITSNLayers> tf;
-    const auto result = tf.loadNormalizedSource(layout.getView(), layerToSurface, decoder, {0, 0},
+    std::vector<TrackingParameters> noIterations;
+    BOOST_REQUIRE(tf.ensureDetectorLayouts(&provider, catalogRequest, orderedSurfaces, TransitionPolicyTag::CylinderCylinder, noIterations).ok());
+    const auto result = tf.loadNormalizedSource(decoder, {0, 0},
                                                 ROFTimingConfig{40, 0, 0, 0}, {}, {}, {}, &dict(), nullptr, o2::detectors::DetID::ITS);
     BOOST_CHECK(result.ok());
     BOOST_CHECK_EQUAL(tf.getNormalizedFrame().getTotalMeasurements(), 0u);
@@ -425,12 +471,14 @@ BOOST_AUTO_TEST_CASE(EmptyInputsAreLegalForBothDetectors)
     BOOST_CHECK_EQUAL(tf.getNrof(0), 0);
   }
   {
-    const auto layout = makeMFTTestLayout();
-    BOOST_REQUIRE(layout.valid());
-    const auto layerToSurface = identitySurfaces(MFTNLayers);
+    const auto orderedSurfaces = identitySurfaces(MFTNLayers);
+    FakeCatalogProvider provider{makeMFTTestCatalog()};
+    const DetectorSurfaceCatalogRequest catalogRequest{o2::detectors::DetID::MFT, SurfaceId{0}, MFTNLayers};
     LegacyLikeDecoder decoder{o2::detectors::DetID::MFT, true};
     TimeFrame<MFTNLayers> tf;
-    const auto result = tf.loadNormalizedSource(layout.getView(), layerToSurface, decoder, {0, 0},
+    std::vector<TrackingParameters> noIterations;
+    BOOST_REQUIRE(tf.ensureDetectorLayouts(&provider, catalogRequest, orderedSurfaces, TransitionPolicyTag::DiskDisk, noIterations).ok());
+    const auto result = tf.loadNormalizedSource(decoder, {0, 0},
                                                 ROFTimingConfig{40, 0, 0, 0}, {}, {}, {}, &dict(), nullptr, o2::detectors::DetID::MFT);
     BOOST_CHECK(result.ok());
     BOOST_CHECK_EQUAL(tf.getNormalizedFrame().getTotalMeasurements(), 0u);
@@ -438,13 +486,246 @@ BOOST_AUTO_TEST_CASE(EmptyInputsAreLegalForBothDetectors)
   }
 }
 
+// Focused test: a canonical catalog configured with zero tracking iterations
+// (no DetectorLayout ever built) must still support normalized loading --
+// loadNormalizedSource() never selects or requires any tracking-iteration
+// layout.
+BOOST_AUTO_TEST_CASE(ZeroIterationCatalogOnlyLoadingSucceeds)
+{
+  const auto orderedSurfaces = identitySurfaces(ITSNLayers);
+  FakeCatalogProvider provider{makeITSTestCatalog()};
+  const DetectorSurfaceCatalogRequest catalogRequest{o2::detectors::DetID::ITS, SurfaceId{0}, ITSNLayers};
+
+  TimeFrame<ITSNLayers> tf;
+  std::vector<TrackingParameters> noIterations;
+  BOOST_REQUIRE(tf.ensureDetectorLayouts(&provider, catalogRequest, orderedSurfaces, TransitionPolicyTag::CylinderCylinder, noIterations).ok());
+  BOOST_REQUIRE_EQUAL(tf.getDetectorLayouts()->size(), 0u);
+  BOOST_CHECK(tf.getDetectorLayout(0) == nullptr);
+
+  LegacyLikeDecoder decoder{o2::detectors::DetID::ITS, false};
+  const std::vector<CompClusterExt> clusters{{1, 1, CompCluster::InvalidPatternID, 0}};
+  const auto patterns = std::vector<unsigned char>(onePixelPattern.begin(), onePixelPattern.end());
+  const std::vector<ROFRecord> rofs{ROFRecord{{0, 0}, 0, 0, 1}};
+
+  const auto result = tf.loadNormalizedSource(decoder, {0, 0}, ROFTimingConfig{40, 0, 0, 0},
+                                              clusters, patterns, rofs, &dict(), nullptr, o2::detectors::DetID::ITS);
+  BOOST_CHECK(result.ok());
+  BOOST_CHECK_EQUAL(tf.getNormalizedFrame().getTotalMeasurements(), 1u);
+  BOOST_CHECK_EQUAL(tf.getUnsortedClustersOnLayer(0, 0).size(), 1u);
+}
+
+BOOST_AUTO_TEST_CASE(NeverConfiguredCatalogIsRejected)
+{
+  TimeFrame<ITSNLayers> tf;
+  LegacyLikeDecoder decoder{o2::detectors::DetID::ITS, false};
+  const std::vector<CompClusterExt> clusters{{1, 1, CompCluster::InvalidPatternID, 0}};
+  const auto patterns = std::vector<unsigned char>(onePixelPattern.begin(), onePixelPattern.end());
+  const std::vector<ROFRecord> rofs{ROFRecord{{0, 0}, 0, 0, 1}};
+
+  const auto result = tf.loadNormalizedSource(decoder, {0, 0}, ROFTimingConfig{40, 0, 0, 0},
+                                              clusters, patterns, rofs, &dict(), nullptr, o2::detectors::DetID::ITS);
+  BOOST_CHECK(!result.ok());
+  BOOST_CHECK(result.error == MultiSourceLoadError::SurfaceCatalogNotConfigured);
+  BOOST_CHECK(result.source == ClusterSourceId{0});
+  BOOST_CHECK_EQUAL(tf.getNormalizedFrame().getTotalMeasurements(), 0u);
+}
+
+BOOST_AUTO_TEST_CASE(StaleCatalogAfterInvalidationIsRejected)
+{
+  const auto orderedSurfaces = identitySurfaces(ITSNLayers);
+  FakeCatalogProvider provider{makeITSTestCatalog()};
+  const DetectorSurfaceCatalogRequest catalogRequest{o2::detectors::DetID::ITS, SurfaceId{0}, ITSNLayers};
+
+  TimeFrame<ITSNLayers> tf;
+  std::vector<TrackingParameters> noIterations;
+  BOOST_REQUIRE(tf.ensureDetectorLayouts(&provider, catalogRequest, orderedSurfaces, TransitionPolicyTag::CylinderCylinder, noIterations).ok());
+  tf.invalidateDetectorLayouts();
+  BOOST_REQUIRE(tf.hasStoredDetectorLayouts());
+  BOOST_REQUIRE(!tf.detectorLayoutsCurrent());
+
+  LegacyLikeDecoder decoder{o2::detectors::DetID::ITS, false};
+  const std::vector<CompClusterExt> clusters{{1, 1, CompCluster::InvalidPatternID, 0}};
+  const auto patterns = std::vector<unsigned char>(onePixelPattern.begin(), onePixelPattern.end());
+  const std::vector<ROFRecord> rofs{ROFRecord{{0, 0}, 0, 0, 1}};
+
+  const auto result = tf.loadNormalizedSource(decoder, {0, 0}, ROFTimingConfig{40, 0, 0, 0},
+                                              clusters, patterns, rofs, &dict(), nullptr, o2::detectors::DetID::ITS);
+  BOOST_CHECK(!result.ok());
+  BOOST_CHECK(result.error == MultiSourceLoadError::SurfaceCatalogStale);
+  BOOST_CHECK_EQUAL(tf.getNormalizedFrame().getTotalMeasurements(), 0u);
+}
+
+// configurationKey.catalogRequest.detector must equal the detId passed to
+// loadNormalizedSource(). nLayersForDet() only distinguishes MFT (10 layers)
+// from everything else (7 layers), so a TimeFrame<ITSNLayers> configured for
+// ITS can be probed with any non-MFT detId (e.g. TPC) that shares NLayers==7
+// -- passing the Gate-0 detector/NLayers preflight while still triggering
+// the catalog-request detector mismatch this test targets.
+BOOST_AUTO_TEST_CASE(CatalogRequestDetectorMismatchIsRejected)
+{
+  const auto orderedSurfaces = identitySurfaces(ITSNLayers);
+  FakeCatalogProvider provider{makeITSTestCatalog()};
+  const DetectorSurfaceCatalogRequest catalogRequest{o2::detectors::DetID::ITS, SurfaceId{0}, ITSNLayers};
+
+  TimeFrame<ITSNLayers> tf;
+  std::vector<TrackingParameters> noIterations;
+  BOOST_REQUIRE(tf.ensureDetectorLayouts(&provider, catalogRequest, orderedSurfaces, TransitionPolicyTag::CylinderCylinder, noIterations).ok());
+
+  LegacyLikeDecoder decoder{o2::detectors::DetID::TPC, false};
+  const std::vector<CompClusterExt> clusters{{1, 1, CompCluster::InvalidPatternID, 0}};
+  const auto patterns = std::vector<unsigned char>(onePixelPattern.begin(), onePixelPattern.end());
+  const std::vector<ROFRecord> rofs{ROFRecord{{0, 0}, 0, 0, 1}};
+
+  const auto result = tf.loadNormalizedSource(decoder, {0, 0}, ROFTimingConfig{40, 0, 0, 0},
+                                              clusters, patterns, rofs, &dict(), nullptr, o2::detectors::DetID::TPC);
+  BOOST_CHECK(!result.ok());
+  BOOST_CHECK(result.error == MultiSourceLoadError::DetectorSurfaceMismatch);
+  BOOST_CHECK_EQUAL(tf.getNormalizedFrame().getTotalMeasurements(), 0u);
+}
+
+BOOST_AUTO_TEST_CASE(WrongMappingCardinalityIsRejected)
+{
+  // Ordered surfaces shorter than NLayers: the catalog itself is still a
+  // valid, self-consistent 7-surface ITS catalog, but only the first 6 are
+  // designated as the per-layer mapping.
+  const std::vector<SurfaceId> shortOrderedSurfaces{SurfaceId{0}, SurfaceId{1}, SurfaceId{2}, SurfaceId{3}, SurfaceId{4}, SurfaceId{5}};
+  FakeCatalogProvider provider{makeITSTestCatalog()};
+  const DetectorSurfaceCatalogRequest catalogRequest{o2::detectors::DetID::ITS, SurfaceId{0}, ITSNLayers};
+
+  TimeFrame<ITSNLayers> tf;
+  std::vector<TrackingParameters> noIterations;
+  BOOST_REQUIRE(tf.ensureDetectorLayouts(&provider, catalogRequest, shortOrderedSurfaces, TransitionPolicyTag::CylinderCylinder, noIterations).ok());
+
+  LegacyLikeDecoder decoder{o2::detectors::DetID::ITS, false};
+  const std::vector<CompClusterExt> clusters{{1, 1, CompCluster::InvalidPatternID, 0}};
+  const auto patterns = std::vector<unsigned char>(onePixelPattern.begin(), onePixelPattern.end());
+  const std::vector<ROFRecord> rofs{ROFRecord{{0, 0}, 0, 0, 1}};
+
+  const auto result = tf.loadNormalizedSource(decoder, {0, 0}, ROFTimingConfig{40, 0, 0, 0},
+                                              clusters, patterns, rofs, &dict(), nullptr, o2::detectors::DetID::ITS);
+  BOOST_CHECK(!result.ok());
+  BOOST_CHECK(result.error == MultiSourceLoadError::InvalidLayerMapping);
+}
+
+BOOST_AUTO_TEST_CASE(InvalidOrOutOfRangeMappedSurfaceIsRejected)
+{
+  {
+    // Explicitly invalid SurfaceId in the mapping.
+    auto orderedSurfaces = identitySurfaces(ITSNLayers);
+    orderedSurfaces[3] = SurfaceId::invalid();
+    FakeCatalogProvider provider{makeITSTestCatalog()};
+    const DetectorSurfaceCatalogRequest catalogRequest{o2::detectors::DetID::ITS, SurfaceId{0}, ITSNLayers};
+    TimeFrame<ITSNLayers> tf;
+    std::vector<TrackingParameters> noIterations;
+    BOOST_REQUIRE(tf.ensureDetectorLayouts(&provider, catalogRequest, orderedSurfaces, TransitionPolicyTag::CylinderCylinder, noIterations).ok());
+
+    LegacyLikeDecoder decoder{o2::detectors::DetID::ITS, false};
+    const std::vector<CompClusterExt> clusters{{1, 1, CompCluster::InvalidPatternID, 0}};
+    const auto patterns = std::vector<unsigned char>(onePixelPattern.begin(), onePixelPattern.end());
+    const std::vector<ROFRecord> rofs{ROFRecord{{0, 0}, 0, 0, 1}};
+    const auto result = tf.loadNormalizedSource(decoder, {0, 0}, ROFTimingConfig{40, 0, 0, 0},
+                                                clusters, patterns, rofs, &dict(), nullptr, o2::detectors::DetID::ITS);
+    BOOST_CHECK(!result.ok());
+    BOOST_CHECK(result.error == MultiSourceLoadError::InvalidLayerMapping);
+  }
+  {
+    // Out-of-range SurfaceId: beyond the 7-entry catalog.
+    auto orderedSurfaces = identitySurfaces(ITSNLayers);
+    orderedSurfaces[3] = SurfaceId{100};
+    FakeCatalogProvider provider{makeITSTestCatalog()};
+    const DetectorSurfaceCatalogRequest catalogRequest{o2::detectors::DetID::ITS, SurfaceId{0}, ITSNLayers};
+    TimeFrame<ITSNLayers> tf;
+    std::vector<TrackingParameters> noIterations;
+    BOOST_REQUIRE(tf.ensureDetectorLayouts(&provider, catalogRequest, orderedSurfaces, TransitionPolicyTag::CylinderCylinder, noIterations).ok());
+
+    LegacyLikeDecoder decoder{o2::detectors::DetID::ITS, false};
+    const std::vector<CompClusterExt> clusters{{1, 1, CompCluster::InvalidPatternID, 0}};
+    const auto patterns = std::vector<unsigned char>(onePixelPattern.begin(), onePixelPattern.end());
+    const std::vector<ROFRecord> rofs{ROFRecord{{0, 0}, 0, 0, 1}};
+    const auto result = tf.loadNormalizedSource(decoder, {0, 0}, ROFTimingConfig{40, 0, 0, 0},
+                                                clusters, patterns, rofs, &dict(), nullptr, o2::detectors::DetID::ITS);
+    BOOST_CHECK(!result.ok());
+    BOOST_CHECK(result.error == MultiSourceLoadError::InvalidLayerMapping);
+  }
+}
+
+BOOST_AUTO_TEST_CASE(DuplicateMappedSurfaceIsRejected)
+{
+  auto orderedSurfaces = identitySurfaces(ITSNLayers);
+  orderedSurfaces[3] = orderedSurfaces[2]; // duplicate: surface 2 mapped twice, surface 3 unmapped
+  FakeCatalogProvider provider{makeITSTestCatalog()};
+  const DetectorSurfaceCatalogRequest catalogRequest{o2::detectors::DetID::ITS, SurfaceId{0}, ITSNLayers};
+
+  TimeFrame<ITSNLayers> tf;
+  std::vector<TrackingParameters> noIterations;
+  BOOST_REQUIRE(tf.ensureDetectorLayouts(&provider, catalogRequest, orderedSurfaces, TransitionPolicyTag::CylinderCylinder, noIterations).ok());
+
+  LegacyLikeDecoder decoder{o2::detectors::DetID::ITS, false};
+  const std::vector<CompClusterExt> clusters{{1, 1, CompCluster::InvalidPatternID, 0}};
+  const auto patterns = std::vector<unsigned char>(onePixelPattern.begin(), onePixelPattern.end());
+  const std::vector<ROFRecord> rofs{ROFRecord{{0, 0}, 0, 0, 1}};
+
+  const auto result = tf.loadNormalizedSource(decoder, {0, 0}, ROFTimingConfig{40, 0, 0, 0},
+                                              clusters, patterns, rofs, &dict(), nullptr, o2::detectors::DetID::ITS);
+  BOOST_CHECK(!result.ok());
+  BOOST_CHECK(result.error == MultiSourceLoadError::InvalidLayerMapping);
+}
+
+// A mapped SurfaceDescriptor.detectorId that disagrees with detId, while
+// configurationKey.catalogRequest.detector still equals detId: only
+// constructible because the catalog validation performed by
+// ensureDetectorLayouts() requires catalog.size() == firstSurface + count
+// and only checks the surfaces within [firstSurface, firstSurface + count)
+// against the request -- surfaces before firstSurface (here, an MFT prefix
+// occupying the low global SurfaceIds, as a combined catalog would place an
+// earlier-registered detector) are not checked there. This is the accepted
+// test seam for this preflight step.
+BOOST_AUTO_TEST_CASE(MappedDescriptorDetectorMismatchIsRejected)
+{
+  auto mftHead = makeMFTTestCatalog(); // occupies global SurfaceIds [0, MFTNLayers)
+  auto itsTail = makeITSTestCatalog();
+  for (uint16_t i = 0; i < itsTail.size(); ++i) {
+    itsTail[i].id = SurfaceId{static_cast<uint16_t>(MFTNLayers + i)};
+  }
+  std::vector<SurfaceDescriptor> combinedCatalog{mftHead};
+  combinedCatalog.insert(combinedCatalog.end(), itsTail.begin(), itsTail.end());
+
+  auto orderedSurfaces = identitySurfaces(ITSNLayers);
+  for (auto& surfaceId : orderedSurfaces) {
+    surfaceId = SurfaceId{static_cast<uint16_t>(MFTNLayers + surfaceId.value())};
+  }
+  orderedSurfaces[3] = SurfaceId{2}; // an MFT surface from the unrelated prefix, wrong detector for an ITS mapping
+  FakeCatalogProvider provider{combinedCatalog};
+  // Request covers only the ITS-owned suffix, matching ensureDetectorLayouts()'s
+  // catalog validation contract (catalog.size() == firstSurface + count).
+  const DetectorSurfaceCatalogRequest catalogRequest{o2::detectors::DetID::ITS, SurfaceId{MFTNLayers}, ITSNLayers};
+
+  TimeFrame<ITSNLayers> tf;
+  std::vector<TrackingParameters> noIterations;
+  BOOST_REQUIRE(tf.ensureDetectorLayouts(&provider, catalogRequest, orderedSurfaces, TransitionPolicyTag::CylinderCylinder, noIterations).ok());
+
+  LegacyLikeDecoder decoder{o2::detectors::DetID::ITS, false};
+  const std::vector<CompClusterExt> clusters{{1, 1, CompCluster::InvalidPatternID, 0}};
+  const auto patterns = std::vector<unsigned char>(onePixelPattern.begin(), onePixelPattern.end());
+  const std::vector<ROFRecord> rofs{ROFRecord{{0, 0}, 0, 0, 1}};
+
+  const auto result = tf.loadNormalizedSource(decoder, {0, 0}, ROFTimingConfig{40, 0, 0, 0},
+                                              clusters, patterns, rofs, &dict(), nullptr, o2::detectors::DetID::ITS);
+  BOOST_CHECK(!result.ok());
+  BOOST_CHECK(result.error == MultiSourceLoadError::DetectorSurfaceMismatch);
+}
+
 BOOST_AUTO_TEST_CASE(FailedNormalizedLoadLeavesBothRepresentationsUnchanged)
 {
-  const auto layout = makeITSTestLayout();
-  BOOST_REQUIRE(layout.valid());
-  const auto layerToSurface = identitySurfaces(ITSNLayers);
+  const auto orderedSurfaces = identitySurfaces(ITSNLayers);
+  FakeCatalogProvider provider{makeITSTestCatalog()};
+  const DetectorSurfaceCatalogRequest catalogRequest{o2::detectors::DetID::ITS, SurfaceId{0}, ITSNLayers};
   LegacyLikeDecoder decoder{o2::detectors::DetID::ITS, false};
   const ROFTimingConfig timing{40, 0, 0, 0};
+
+  TimeFrame<ITSNLayers> tf;
+  std::vector<TrackingParameters> noIterations;
+  BOOST_REQUIRE(tf.ensureDetectorLayouts(&provider, catalogRequest, orderedSurfaces, TransitionPolicyTag::CylinderCylinder, noIterations).ok());
 
   // First, a valid baseline load to give the TimeFrame real content in both
   // the normalized owner and the legacy compatibility structures.
@@ -452,20 +733,20 @@ BOOST_AUTO_TEST_CASE(FailedNormalizedLoadLeavesBothRepresentationsUnchanged)
   const auto goodPatterns = std::vector<unsigned char>(onePixelPattern.begin(), onePixelPattern.end());
   const std::vector<ROFRecord> goodRofs{ROFRecord{{0, 0}, 0, 0, 1}};
 
-  TimeFrame<ITSNLayers> tf;
-  const auto baseline = tf.loadNormalizedSource(layout.getView(), layerToSurface, decoder, {0, 0},
+  const auto baseline = tf.loadNormalizedSource(decoder, {0, 0},
                                                 timing, goodClusters, goodPatterns, goodRofs, &dict(), nullptr, o2::detectors::DetID::ITS);
   BOOST_REQUIRE(baseline.ok());
   BOOST_REQUIRE_EQUAL(tf.getNormalizedFrame().getTotalMeasurements(), 1u);
   BOOST_REQUIRE_EQUAL(tf.getUnsortedClustersOnLayer(0, 0).size(), 1u);
   BOOST_REQUIRE_EQUAL(tf.getNrof(0), 1);
 
-  // Then a malformed ROF partition (leading gap): firstEntry != 0.
+  // Then a malformed ROF partition (leading gap): firstEntry != 0. This
+  // fails inside loadSources() itself, after the preflight above has passed.
   const std::vector<CompClusterExt> badClusters{{2, 2, CompCluster::InvalidPatternID, 0}};
   const auto badPatterns = std::vector<unsigned char>(onePixelPattern.begin(), onePixelPattern.end());
   const std::vector<ROFRecord> badRofs{ROFRecord{{0, 0}, 0, 1, 1}}; // gap: cluster 0 unreferenced
 
-  const auto failed = tf.loadNormalizedSource(layout.getView(), layerToSurface, decoder, {0, 0},
+  const auto failed = tf.loadNormalizedSource(decoder, {0, 0},
                                               timing, badClusters, badPatterns, badRofs, &dict(), nullptr, o2::detectors::DetID::ITS);
   BOOST_CHECK(!failed.ok());
   BOOST_CHECK(failed.error == MultiSourceLoadError::InvalidROFRange);
@@ -480,6 +761,44 @@ BOOST_AUTO_TEST_CASE(FailedNormalizedLoadLeavesBothRepresentationsUnchanged)
   BOOST_CHECK_EQUAL(tf.getClusterExternalIndex(0, 0), 0);
 }
 
+// Every preflight failure -- not only a loadSources()-internal one -- must
+// also preserve a prior successful normalized and legacy load. Here the
+// catalog is invalidated between the baseline load and the failing one, so
+// the failure is caught entirely in loadNormalizedSource()'s own preflight,
+// before loadSources() is ever called.
+BOOST_AUTO_TEST_CASE(PreflightFailureAfterBaselineLoadPreservesState)
+{
+  const auto orderedSurfaces = identitySurfaces(ITSNLayers);
+  FakeCatalogProvider provider{makeITSTestCatalog()};
+  const DetectorSurfaceCatalogRequest catalogRequest{o2::detectors::DetID::ITS, SurfaceId{0}, ITSNLayers};
+  LegacyLikeDecoder decoder{o2::detectors::DetID::ITS, false};
+  const ROFTimingConfig timing{40, 0, 0, 0};
+
+  TimeFrame<ITSNLayers> tf;
+  std::vector<TrackingParameters> noIterations;
+  BOOST_REQUIRE(tf.ensureDetectorLayouts(&provider, catalogRequest, orderedSurfaces, TransitionPolicyTag::CylinderCylinder, noIterations).ok());
+
+  const std::vector<CompClusterExt> goodClusters{{1, 1, CompCluster::InvalidPatternID, 0}};
+  const auto goodPatterns = std::vector<unsigned char>(onePixelPattern.begin(), onePixelPattern.end());
+  const std::vector<ROFRecord> goodRofs{ROFRecord{{0, 0}, 0, 0, 1}};
+  const auto baseline = tf.loadNormalizedSource(decoder, {0, 0},
+                                                timing, goodClusters, goodPatterns, goodRofs, &dict(), nullptr, o2::detectors::DetID::ITS);
+  BOOST_REQUIRE(baseline.ok());
+  BOOST_REQUIRE_EQUAL(tf.getNormalizedFrame().getTotalMeasurements(), 1u);
+  BOOST_REQUIRE_EQUAL(tf.getUnsortedClustersOnLayer(0, 0).size(), 1u);
+
+  tf.invalidateDetectorLayouts();
+  const auto failed = tf.loadNormalizedSource(decoder, {0, 0},
+                                              timing, goodClusters, goodPatterns, goodRofs, &dict(), nullptr, o2::detectors::DetID::ITS);
+  BOOST_CHECK(!failed.ok());
+  BOOST_CHECK(failed.error == MultiSourceLoadError::SurfaceCatalogStale);
+
+  BOOST_CHECK_EQUAL(tf.getNormalizedFrame().getTotalMeasurements(), 1u);
+  BOOST_CHECK_EQUAL(tf.getUnsortedClustersOnLayer(0, 0).size(), 1u);
+  BOOST_CHECK_EQUAL(tf.getNrof(0), 1);
+  BOOST_CHECK_EQUAL(tf.getClusterExternalIndex(0, 0), 0);
+}
+
 // TimeFrame<NLayers>::loadROFrameData() calls loadClusterTrackingFrameInfo()
 // with its own default applySysErrors=true; loadNormalizedSource() must match
 // that default (covariance compatibility) and must also honor and propagate
@@ -487,28 +806,33 @@ BOOST_AUTO_TEST_CASE(FailedNormalizedLoadLeavesBothRepresentationsUnchanged)
 // GeometryClusterDecoder sys-error convention turned off.
 BOOST_AUTO_TEST_CASE(ApplySysErrorsDefaultsTrueAndPropagatesToTheDecoder)
 {
-  const auto layout = makeITSTestLayout();
-  BOOST_REQUIRE(layout.valid());
-  const auto layerToSurface = identitySurfaces(ITSNLayers);
+  const auto orderedSurfaces = identitySurfaces(ITSNLayers);
   const std::vector<CompClusterExt> clusters{{1, 1, CompCluster::InvalidPatternID, 0}};
   const auto patterns = std::vector<unsigned char>(onePixelPattern.begin(), onePixelPattern.end());
   const std::vector<ROFRecord> rofs{ROFRecord{{0, 0}, 0, 0, 1}};
   const ROFTimingConfig timing{40, 0, 0, 0};
+  const DetectorSurfaceCatalogRequest catalogRequest{o2::detectors::DetID::ITS, SurfaceId{0}, ITSNLayers};
 
   {
     // No explicit argument: must match loadROFrameData()'s own default.
+    FakeCatalogProvider provider{makeITSTestCatalog()};
     LegacyLikeDecoder decoder{o2::detectors::DetID::ITS, false};
     TimeFrame<ITSNLayers> tf;
-    const auto result = tf.loadNormalizedSource(layout.getView(), layerToSurface, decoder, {0, 0}, timing,
+    std::vector<TrackingParameters> noIterations;
+    BOOST_REQUIRE(tf.ensureDetectorLayouts(&provider, catalogRequest, orderedSurfaces, TransitionPolicyTag::CylinderCylinder, noIterations).ok());
+    const auto result = tf.loadNormalizedSource(decoder, {0, 0}, timing,
                                                 clusters, patterns, rofs, &dict(), nullptr, o2::detectors::DetID::ITS);
     BOOST_REQUIRE(result.ok());
     BOOST_CHECK(decoder.lastApplySysErrors);
   }
   {
     // Explicit false is honored and reaches the decoder unchanged.
+    FakeCatalogProvider provider{makeITSTestCatalog()};
     LegacyLikeDecoder decoder{o2::detectors::DetID::ITS, false};
     TimeFrame<ITSNLayers> tf;
-    const auto result = tf.loadNormalizedSource(layout.getView(), layerToSurface, decoder, {0, 0}, timing,
+    std::vector<TrackingParameters> noIterations;
+    BOOST_REQUIRE(tf.ensureDetectorLayouts(&provider, catalogRequest, orderedSurfaces, TransitionPolicyTag::CylinderCylinder, noIterations).ok());
+    const auto result = tf.loadNormalizedSource(decoder, {0, 0}, timing,
                                                 clusters, patterns, rofs, &dict(), nullptr, o2::detectors::DetID::ITS, false);
     BOOST_REQUIRE(result.ok());
     BOOST_CHECK(!decoder.lastApplySysErrors);

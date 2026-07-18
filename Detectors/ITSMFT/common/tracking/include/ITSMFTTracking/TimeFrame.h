@@ -124,7 +124,14 @@ struct TimeFrame {
   void resetROFrameData(int iLayer);
   void prepareROFrameData(gsl::span<const itsmft::CompClusterExt> clusters, int layer);
 
-  // Gate 1 compatibility boundary: loads one single-detector cluster stream
+  // Non-owning, read-only access to the normalized owner/view associated
+  // with this TimeFrame by the most recent successful loadNormalizedSource()
+  // call. Empty/default until that first succeeds.
+  const MultiSourceFrame& getNormalizedFrame() const noexcept { return mNormalizedFrame; }
+  MultiSourceFrameView getNormalizedFrameView() const noexcept { return mNormalizedFrame.getView(); }
+
+#ifndef GPUCA_GPUCODE
+  // Gate 2 compatibility boundary: loads one single-detector cluster stream
   // -- the same raw ROFRecord/CompClusterExt/pattern/dictionary/label inputs
   // loadROFrameData() above already consumes -- through the normalized
   // MultiSourceFrame owner (loadSources(), single decode per cluster via the
@@ -135,6 +142,17 @@ struct TimeFrame {
   // and its production callers are unchanged, and this entry point does not
   // decode any compact cluster a second time.
   //
+  // Unlike the Gate 1 signature, this no longer accepts an externally
+  // supplied DetectorLayoutView or layer-to-surface mapping: both are
+  // derived, from a single current DetectorLayoutSet snapshot obtained once,
+  // via ensureDetectorLayouts()/getDetectorLayouts() below -- the canonical
+  // SurfaceCatalogView from that set's owned catalog, and the layer-to-
+  // surface mapping from its configurationKey.orderedSurfaces. No tracking
+  // iteration (DetectorLayout) is selected or required, so a canonical
+  // catalog configured with zero tracking iterations loads normally. Because
+  // this now touches host-only layout ownership, the declaration lives
+  // inside this GPUCA_GPUCODE guard.
+  //
   // Exactly one source is ever submitted here, and loadSources() requires
   // dense, zero-based source IDs, so the source ID is always
   // ClusterSourceId{0} -- not a caller-supplied parameter -- and every
@@ -144,16 +162,25 @@ struct TimeFrame {
   // existing behavior above, which calls loadClusterTrackingFrameInfo<DetId>()
   // with its default applySysErrors=true.
   //
-  // If loadSources() returns a failing (non-ok()) result, this call returns
-  // before touching anything: neither getNormalizedFrame() nor any legacy
-  // compatibility accessor below is modified. This guarantee covers only a
-  // *returned* validation failure; it is not a strong exception-safety
-  // guarantee -- an allocation failure inside the backfill that runs after a
-  // successful loadSources() call could still throw with mNormalizedFrame
-  // already committed, which this slice does not attempt to roll back.
-  LoadSourcesResult loadNormalizedSource(const DetectorLayoutView& layout,
-                                         gsl::span<const SurfaceId> layerToSurface,
-                                         const ClusterDecoder& decoder,
+  // Preflight (in order, before any allocation/decoding/mutation) rejects:
+  // NLayers not matching detId (UnsupportedDetector); no catalog owner ever
+  // stored (SurfaceCatalogNotConfigured); a stored owner that is not current
+  // (SurfaceCatalogStale); configurationKey.catalogRequest.detector != detId
+  // (DetectorSurfaceMismatch); orderedSurfaces.size() != NLayers
+  // (InvalidLayerMapping); any mapped SurfaceId invalid, out of range, or
+  // duplicated (InvalidLayerMapping); any mapped SurfaceDescriptor.detectorId
+  // != detId (DetectorSurfaceMismatch). Every preflight failure returns
+  // source ClusterSourceId{0}, consistent with this single-source API.
+  //
+  // If loadSources() returns a failing (non-ok()) result -- including every
+  // preflight rejection above -- this call returns before touching anything:
+  // neither getNormalizedFrame() nor any legacy compatibility accessor below
+  // is modified. This guarantee covers only a *returned* validation failure;
+  // it is not a strong exception-safety guarantee -- an allocation failure
+  // inside the backfill that runs after a successful loadSources() call
+  // could still throw with mNormalizedFrame already committed, which this
+  // slice does not attempt to roll back.
+  LoadSourcesResult loadNormalizedSource(const ClusterDecoder& decoder,
                                          const o2::InteractionRecord& origin,
                                          const ROFTimingConfig& timing,
                                          gsl::span<const itsmft::CompClusterExt> clusters,
@@ -164,13 +191,6 @@ struct TimeFrame {
                                          o2::detectors::DetID::ID detId,
                                          bool applySysErrors = true);
 
-  // Non-owning, read-only access to the normalized owner/view associated
-  // with this TimeFrame by the most recent successful loadNormalizedSource()
-  // call. Empty/default until that first succeeds.
-  const MultiSourceFrame& getNormalizedFrame() const noexcept { return mNormalizedFrame; }
-  MultiSourceFrameView getNormalizedFrameView() const noexcept { return mNormalizedFrame.getView(); }
-
-#ifndef GPUCA_GPUCODE
   DetectorLayoutSetBuildResult ensureDetectorLayouts(const DetectorSurfaceCatalogProvider* provider,
                                                      const DetectorSurfaceCatalogRequest& catalogRequest,
                                                      gsl::span<const SurfaceId> orderedSurfaces,

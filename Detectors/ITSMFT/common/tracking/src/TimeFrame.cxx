@@ -287,8 +287,6 @@ void TimeFrame<NLayers>::loadROFrameData(gsl::span<const o2::itsmft::ROFRecord> 
 
 template <int NLayers>
 LoadSourcesResult TimeFrame<NLayers>::loadNormalizedSource(
-  const DetectorLayoutView& layout,
-  gsl::span<const SurfaceId> layerToSurface,
   const ClusterDecoder& decoder,
   const o2::InteractionRecord& origin,
   const ROFTimingConfig& timing,
@@ -309,9 +307,45 @@ LoadSourcesResult TimeFrame<NLayers>::loadNormalizedSource(
   if (NLayers != constants::nLayersForDet(detId)) {
     return {MultiSourceLoadError::UnsupportedDetector, kSourceId};
   }
-  if (layerToSurface.size() != static_cast<size_t>(NLayers)) {
+  if (!mDetectorLayouts.has_value()) {
+    return {MultiSourceLoadError::SurfaceCatalogNotConfigured, kSourceId};
+  }
+  if (!detectorLayoutsCurrent()) {
+    return {MultiSourceLoadError::SurfaceCatalogStale, kSourceId};
+  }
+
+  // One current snapshot: the canonical catalog view and the layer-to-
+  // surface mapping below are both derived from this same DetectorLayoutSet,
+  // never from a selected tracking-iteration DetectorLayout -- so a canonical
+  // catalog configured with zero tracking iterations loads normally.
+  const auto* layouts = &*mDetectorLayouts;
+  const auto& configurationKey = layouts->getConfigurationKey();
+  if (configurationKey.catalogRequest.detector != detId) {
+    return {MultiSourceLoadError::DetectorSurfaceMismatch, kSourceId};
+  }
+  const auto& orderedSurfaces = configurationKey.orderedSurfaces;
+  if (orderedSurfaces.size() != static_cast<size_t>(NLayers)) {
     return {MultiSourceLoadError::InvalidLayerMapping, kSourceId};
   }
+  const auto& catalog = layouts->getSurfaceCatalog();
+  std::vector<bool> mappedSurfaceSeen(catalog.size(), false);
+  for (const auto& surfaceId : orderedSurfaces) {
+    if (!surfaceId.isValid() || surfaceId.value() >= catalog.size()) {
+      return {MultiSourceLoadError::InvalidLayerMapping, kSourceId};
+    }
+    if (mappedSurfaceSeen[surfaceId.value()]) {
+      return {MultiSourceLoadError::InvalidLayerMapping, kSourceId};
+    }
+    mappedSurfaceSeen[surfaceId.value()] = true;
+  }
+  for (const auto& surfaceId : orderedSurfaces) {
+    if (catalog[surfaceId.value()].detectorId != static_cast<uint8_t>(detId)) {
+      return {MultiSourceLoadError::DetectorSurfaceMismatch, kSourceId};
+    }
+  }
+
+  const SurfaceCatalogView catalogView{catalog.data(), static_cast<uint32_t>(catalog.size())};
+  const gsl::span<const SurfaceId> layerToSurface{orderedSurfaces.data(), orderedSurfaces.size()};
 
   // Stage into a scratch owner: loadSources() itself never mutates its
   // `frame` argument on failure, but staging separately also protects the
@@ -331,7 +365,7 @@ LoadSourcesResult TimeFrame<NLayers>::loadNormalizedSource(
   src.decoder = &decoder;
   src.applySysErrors = applySysErrors; // Matches loadROFrameData()'s own default (loadClusterTrackingFrameInfo<DetId>(..., applySysErrors=true)).
 
-  const auto result = loadSources(staged, layout.getSurfaceCatalogView(), gsl::span<const ClusterSourceInput>(&src, 1), origin);
+  const auto result = loadSources(staged, catalogView, gsl::span<const ClusterSourceInput>(&src, 1), origin);
   if (!result.ok()) {
     // Nothing below has run: mNormalizedFrame and every legacy compatibility
     // structure are exactly as they were before this call.
