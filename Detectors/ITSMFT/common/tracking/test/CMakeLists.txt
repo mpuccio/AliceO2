@@ -88,6 +88,12 @@ o2_add_test(timeframe-detector-layouts
             LABELS "itsmft;tracking"
             PUBLIC_LINK_LIBRARIES O2::ITSMFTTracking O2::MFTTracking)
 
+o2_add_test(timeframe-lifecycle
+            SOURCES testTimeFrameLifecycle.cxx
+            COMPONENT_NAME itsmft-tracking
+            LABELS "itsmft;tracking"
+            PUBLIC_LINK_LIBRARIES O2::ITSMFTTracking O2::MFTTracking)
+
 o2_add_test(detector-surface-catalog-aggregation
             SOURCES testDetectorSurfaceCatalogAggregation.cxx
             COMPONENT_NAME itsmft-tracking
