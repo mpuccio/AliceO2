@@ -555,22 +555,51 @@ BOOST_AUTO_TEST_CASE(StaleCatalogAfterInvalidationIsRejected)
   BOOST_CHECK_EQUAL(tf.getNormalizedFrame().getTotalMeasurements(), 0u);
 }
 
-// configurationKey.catalogRequest.detector must equal the detId passed to
-// loadNormalizedSource(). nLayersForDet() only distinguishes MFT (10 layers)
-// from everything else (7 layers), so a TimeFrame<ITSNLayers> configured for
-// ITS can be probed with any non-MFT detId (e.g. TPC) that shares NLayers==7
-// -- passing the Gate-0 detector/NLayers preflight while still triggering
-// the catalog-request detector mismatch this test targets.
+// TPC (or any non-ITS/MFT detector) is rejected as UnsupportedDetector before
+// nLayersForDet() or catalog-ownership are ever consulted -- see
+// UnsupportedDetectorWinsOverSharedNLayers below. To exercise the
+// catalog-request/detId mismatch specifically, both values must be a
+// supported detector (ITS or MFT); the stored catalog here is a 7-entry
+// catalog labeled MFT (an artificial, but validation-passing, construction)
+// while the request is probed with ITS, so detId is supported and shares
+// NLayers with the TimeFrame, yet still disagrees with the stored
+// configurationKey.catalogRequest.detector.
 BOOST_AUTO_TEST_CASE(CatalogRequestDetectorMismatchIsRejected)
 {
   const auto orderedSurfaces = identitySurfaces(ITSNLayers);
-  FakeCatalogProvider provider{makeITSTestCatalog()};
-  const DetectorSurfaceCatalogRequest catalogRequest{o2::detectors::DetID::ITS, SurfaceId{0}, ITSNLayers};
+  auto catalog = makeITSTestCatalog();
+  for (auto& surface : catalog) {
+    surface.detectorId = static_cast<uint8_t>(o2::detectors::DetID::MFT);
+  }
+  FakeCatalogProvider provider{catalog};
+  const DetectorSurfaceCatalogRequest catalogRequest{o2::detectors::DetID::MFT, SurfaceId{0}, ITSNLayers};
 
   TimeFrame<ITSNLayers> tf;
   std::vector<TrackingParameters> noIterations;
   BOOST_REQUIRE(tf.ensureDetectorLayouts(&provider, catalogRequest, orderedSurfaces, TransitionPolicyTag::CylinderCylinder, noIterations).ok());
 
+  LegacyLikeDecoder decoder{o2::detectors::DetID::ITS, false};
+  const std::vector<CompClusterExt> clusters{{1, 1, CompCluster::InvalidPatternID, 0}};
+  const auto patterns = std::vector<unsigned char>(onePixelPattern.begin(), onePixelPattern.end());
+  const std::vector<ROFRecord> rofs{ROFRecord{{0, 0}, 0, 0, 1}};
+
+  const auto result = tf.loadNormalizedSource(decoder, {0, 0}, ROFTimingConfig{40, 0, 0, 0},
+                                              clusters, patterns, rofs, &dict(), nullptr, o2::detectors::DetID::ITS);
+  BOOST_CHECK(!result.ok());
+  BOOST_CHECK(result.error == MultiSourceLoadError::DetectorSurfaceMismatch);
+  BOOST_CHECK_EQUAL(tf.getNormalizedFrame().getTotalMeasurements(), 0u);
+}
+
+// nLayersForDet() maps every non-MFT detector (including TPC) to ITSNLayers,
+// so a TimeFrame<ITSNLayers> probed with detId=TPC shares NLayers==7 with the
+// frame. The detector-identity preflight must still reject it as
+// UnsupportedDetector, and it must do so before catalog ownership is ever
+// inspected: no catalog is configured here at all, so a result of
+// SurfaceCatalogNotConfigured (or anything catalog-related) would prove the
+// unsupported-detector check ran too late or not at all.
+BOOST_AUTO_TEST_CASE(UnsupportedDetectorWinsOverSharedNLayers)
+{
+  TimeFrame<ITSNLayers> tf;
   LegacyLikeDecoder decoder{o2::detectors::DetID::TPC, false};
   const std::vector<CompClusterExt> clusters{{1, 1, CompCluster::InvalidPatternID, 0}};
   const auto patterns = std::vector<unsigned char>(onePixelPattern.begin(), onePixelPattern.end());
@@ -579,7 +608,27 @@ BOOST_AUTO_TEST_CASE(CatalogRequestDetectorMismatchIsRejected)
   const auto result = tf.loadNormalizedSource(decoder, {0, 0}, ROFTimingConfig{40, 0, 0, 0},
                                               clusters, patterns, rofs, &dict(), nullptr, o2::detectors::DetID::TPC);
   BOOST_CHECK(!result.ok());
-  BOOST_CHECK(result.error == MultiSourceLoadError::DetectorSurfaceMismatch);
+  BOOST_CHECK(result.error == MultiSourceLoadError::UnsupportedDetector);
+  BOOST_CHECK(result.source == ClusterSourceId{0});
+  BOOST_CHECK_EQUAL(tf.getNormalizedFrame().getTotalMeasurements(), 0u);
+}
+
+// A supported detector (MFT) whose NLayers disagrees with the TimeFrame's own
+// NLayers (here TimeFrame<ITSNLayers>, i.e. 7 vs. MFT's 10) must still be
+// rejected as UnsupportedDetector, not merely because the detector is
+// unknown but because it does not match this TimeFrame's layer count.
+BOOST_AUTO_TEST_CASE(SupportedDetectorNLayersMismatchIsRejected)
+{
+  TimeFrame<ITSNLayers> tf;
+  LegacyLikeDecoder decoder{o2::detectors::DetID::MFT, true};
+  const std::vector<CompClusterExt> clusters{{1, 1, CompCluster::InvalidPatternID, 0}};
+  const auto patterns = std::vector<unsigned char>(onePixelPattern.begin(), onePixelPattern.end());
+  const std::vector<ROFRecord> rofs{ROFRecord{{0, 0}, 0, 0, 1}};
+
+  const auto result = tf.loadNormalizedSource(decoder, {0, 0}, ROFTimingConfig{40, 0, 0, 0},
+                                              clusters, patterns, rofs, &dict(), nullptr, o2::detectors::DetID::MFT);
+  BOOST_CHECK(!result.ok());
+  BOOST_CHECK(result.error == MultiSourceLoadError::UnsupportedDetector);
   BOOST_CHECK_EQUAL(tf.getNormalizedFrame().getTotalMeasurements(), 0u);
 }
 

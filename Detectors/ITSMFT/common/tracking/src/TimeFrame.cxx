@@ -304,6 +304,13 @@ LoadSourcesResult TimeFrame<NLayers>::loadNormalizedSource(
   // a parameter that would misleadingly suggest other IDs are supported.
   constexpr ClusterSourceId kSourceId{0};
 
+  // nLayersForDet() maps every non-MFT detector to ITSNLayers, so it alone
+  // cannot distinguish ITS from an unsupported detector that happens to
+  // share NLayers==7; the detector identity must be checked explicitly and
+  // first, before nLayersForDet() or any catalog-ownership inspection.
+  if (detId != o2::detectors::DetID::ITS && detId != o2::detectors::DetID::MFT) {
+    return {MultiSourceLoadError::UnsupportedDetector, kSourceId};
+  }
   if (NLayers != constants::nLayersForDet(detId)) {
     return {MultiSourceLoadError::UnsupportedDetector, kSourceId};
   }
@@ -328,15 +335,19 @@ LoadSourcesResult TimeFrame<NLayers>::loadNormalizedSource(
     return {MultiSourceLoadError::InvalidLayerMapping, kSourceId};
   }
   const auto& catalog = layouts->getSurfaceCatalog();
-  std::vector<bool> mappedSurfaceSeen(catalog.size(), false);
+  // Fixed-size, non-allocating duplicate check: the stored catalog is
+  // already guaranteed (by ensureDetectorLayouts()'s own validation) to fit
+  // within the fixed 32-bit SurfaceMask capacity, so this preflight step
+  // still performs no allocation before decoding/mutation.
+  SurfaceMask mappedSurfaceSeen{};
   for (const auto& surfaceId : orderedSurfaces) {
     if (!surfaceId.isValid() || surfaceId.value() >= catalog.size()) {
       return {MultiSourceLoadError::InvalidLayerMapping, kSourceId};
     }
-    if (mappedSurfaceSeen[surfaceId.value()]) {
+    if (mappedSurfaceSeen.has(surfaceId)) {
       return {MultiSourceLoadError::InvalidLayerMapping, kSourceId};
     }
-    mappedSurfaceSeen[surfaceId.value()] = true;
+    mappedSurfaceSeen.set(surfaceId);
   }
   for (const auto& surfaceId : orderedSurfaces) {
     if (catalog[surfaceId.value()].detectorId != static_cast<uint8_t>(detId)) {
