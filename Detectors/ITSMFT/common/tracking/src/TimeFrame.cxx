@@ -383,29 +383,71 @@ LoadSourcesResult TimeFrame<NLayers>::loadNormalizedSource(
     return result;
   }
 
-  // From here on, loadSources() has already succeeded and every remaining
-  // step is plain data transformation over its output; no further
-  // *validation* failure is possible, so mNormalizedFrame and the legacy
-  // compatibility structures below are always updated together whenever this
-  // function returns an ok() result. This is not a strong exception-safety
-  // guarantee: an allocation failure inside the backfill below could still
-  // throw after mNormalizedFrame has already been committed, leaving the two
-  // representations inconsistent; that guarantee is not required here.
-  mNormalizedFrame = std::move(staged);
-  mDetId = detId;
-
+  // From here on, loadSources() has already succeeded. Strong exception
+  // safety for the legacy backfill: every field below is first built on a
+  // complete set of *local* staged owners -- constructed with the same
+  // memory-resource pointers as the live vectors they will replace -- and
+  // measurements are read from the local `staged` normalized frame, never
+  // from mNormalizedFrame. mNormalizedFrame, mDetId and every legacy member
+  // are left untouched until the allocator invariant gate below has passed,
+  // so an allocation failure anywhere in this staging (the only way this can
+  // throw, e.g. BoundedMemoryResource::MemoryLimitExceeded) unwinds the stack
+  // through plain local-variable destruction and leaves every live
+  // representation exactly as it was before this call.
   const bool isMFT = (detId == o2::detectors::DetID::MFT);
   auto* mr = getMaybeFrameworkHostResource();
+  auto* pool = mMemoryPool.get();
   const auto nROFs = static_cast<size_t>(rofs.size());
 
-  for (int layer = 0; layer < NLayers; ++layer) {
-    const auto measurements = mNormalizedFrame.getSurfaceMeasurements(layerToSurface[layer]);
+  // Staged owners, one entry per layer, built below with std::vector<T>::
+  // emplace_back so each element is constructed in place with its final
+  // memory-resource pointer directly -- never by default-constructing (with
+  // whatever default allocator that implies) and then swapping in a
+  // differently-allocated replacement. bounded_vector is std::pmr::vector,
+  // whose swap() is only well-defined when both vectors' allocators compare
+  // equal (std::pmr::polymorphic_allocator neither propagates on swap nor is
+  // ever always_equal); swapping unequal-allocator vectors is undefined
+  // behavior, and in practice this libc++ resolves it by keeping each side's
+  // own original allocator, silently discarding the intended one. Each
+  // vector is reserved to NLayers up front so growing it one emplace_back
+  // per layer can never reallocate (and thus never move/invalidate) an
+  // already-staged element.
+  std::vector<bounded_vector<Cluster>> stagedUnsortedClusters;
+  std::vector<bounded_vector<TrackingFrameInfo>> stagedTrackingFrameInfo;
+  std::vector<bounded_vector<int>> stagedClusterExternalIndices;
+  std::vector<bounded_vector<uint8_t>> stagedClusterSize;
+  std::vector<bounded_vector<int>> stagedROFramesClusters;
+  std::array<const dataformats::MCTruthContainer<MCCompLabel>*, NLayers> stagedClusterLabels{nullptr};
+  stagedUnsortedClusters.reserve(NLayers);
+  stagedTrackingFrameInfo.reserve(NLayers);
+  stagedClusterExternalIndices.reserve(NLayers);
+  stagedClusterSize.reserve(NLayers);
+  stagedROFramesClusters.reserve(NLayers);
 
-    deepVectorClear(mUnsortedClusters[layer], mr);
-    deepVectorClear(mTrackingFrameInfo[layer], mr);
-    deepVectorClear(mClusterExternalIndices[layer], mMemoryPool.get());
-    clearResizeBoundedVector(mClusterSize[layer], measurements.size(), mMemoryPool.get());
-    clearResizeBoundedVector(mROFramesClusters[layer], nROFs + 1, mr, 0);
+  for (int layer = 0; layer < NLayers; ++layer) {
+    const auto measurements = staged.getSurfaceMeasurements(layerToSurface[layer]);
+
+    // mr/pool are nullptr whenever no framework allocator and no memory pool
+    // have been configured (setMemoryPool() was never called); a nullptr
+    // std::pmr::memory_resource* is not a valid polymorphic_allocator target
+    // (constructing a non-empty vector through it would dereference the
+    // nullptr). Falling back to the *live* vector's own current allocator
+    // resource -- exactly what deepVectorClear()/clearResizeBoundedVector()
+    // do for the same nullptr case -- avoids that and, since the
+    // corresponding live vector has not been touched yet, is exactly the
+    // resource the invariant gate below requires the staged vector to
+    // match.
+    auto* unsortedClustersMr = mr != nullptr ? mr : mUnsortedClusters[layer].get_allocator().resource();
+    auto* trackingFrameInfoMr = mr != nullptr ? mr : mTrackingFrameInfo[layer].get_allocator().resource();
+    auto* clusterExternalIndicesMr = pool != nullptr ? pool : mClusterExternalIndices[layer].get_allocator().resource();
+    auto* clusterSizeMr = pool != nullptr ? pool : mClusterSize[layer].get_allocator().resource();
+    auto* rofFramesClustersMr = mr != nullptr ? mr : mROFramesClusters[layer].get_allocator().resource();
+
+    stagedUnsortedClusters.emplace_back(std::pmr::polymorphic_allocator<Cluster>{unsortedClustersMr});
+    stagedTrackingFrameInfo.emplace_back(std::pmr::polymorphic_allocator<TrackingFrameInfo>{trackingFrameInfoMr});
+    stagedClusterExternalIndices.emplace_back(std::pmr::polymorphic_allocator<int>{clusterExternalIndicesMr});
+    stagedClusterSize.emplace_back(measurements.size(), uint8_t{0}, std::pmr::polymorphic_allocator<uint8_t>{clusterSizeMr});
+    stagedROFramesClusters.emplace_back(nROFs + 1, 0, std::pmr::polymorphic_allocator<int>{rofFramesClustersMr});
 
     size_t mi{0};
     for (const auto& m : measurements) {
@@ -429,10 +471,10 @@ LoadSourcesResult TimeFrame<NLayers>::loadNormalizedSource(
           std::array<float, 2>{m.frame.u, m.frame.v},
           std::array<float, 3>{m.covariance.uu, m.covariance.uv, m.covariance.vv}};
       }
-      addTrackingFrameInfoToLayer(layer, tfInfo);
-      addClusterToLayer(layer, m.global.x, m.global.y, m.global.z, mUnsortedClusters[layer].size());
-      addClusterExternalIndexToLayer(layer, static_cast<int>(m.cluster.index));
-      mClusterSize[layer][mi] = static_cast<uint8_t>(std::clamp(m.shape.nPixels, 0u, 255u));
+      stagedTrackingFrameInfo[layer].push_back(tfInfo);
+      stagedUnsortedClusters[layer].emplace_back(m.global.x, m.global.y, m.global.z, static_cast<int>(stagedUnsortedClusters[layer].size()));
+      stagedClusterExternalIndices[layer].push_back(static_cast<int>(m.cluster.index));
+      stagedClusterSize[layer][mi] = static_cast<uint8_t>(std::clamp(m.shape.nPixels, 0u, 255u));
       ++mi;
     }
 
@@ -441,10 +483,54 @@ LoadSourcesResult TimeFrame<NLayers>::loadNormalizedSource(
       while (mj < measurements.size() && measurements[mj].sourceROF == static_cast<uint32_t>(r)) {
         ++mj;
       }
-      mROFramesClusters[layer][r + 1] = static_cast<int>(mj);
+      stagedROFramesClusters[layer][r + 1] = static_cast<int>(mj);
     }
 
-    mClusterLabels[layer] = labels;
+    stagedClusterLabels[layer] = labels;
+  }
+
+  // Invariant gate: every staged vector must share its live counterpart's
+  // memory resource before anything is committed. Construction above always
+  // derives both pointers from the same getMaybeFrameworkHostResource()/
+  // mMemoryPool.get() calls, so this is unreachable through caller input; a
+  // mismatch here means the staging above is internally inconsistent, which
+  // is reported as an internal logic error rather than a LoadSourcesResult
+  // error code. This check -- and everything above it -- must run before
+  // mNormalizedFrame, mDetId or any legacy member is touched.
+  for (int layer = 0; layer < NLayers; ++layer) {
+    if (mUnsortedClusters[layer].get_allocator().resource() != stagedUnsortedClusters[layer].get_allocator().resource() ||
+        mTrackingFrameInfo[layer].get_allocator().resource() != stagedTrackingFrameInfo[layer].get_allocator().resource() ||
+        mClusterExternalIndices[layer].get_allocator().resource() != stagedClusterExternalIndices[layer].get_allocator().resource() ||
+        mClusterSize[layer].get_allocator().resource() != stagedClusterSize[layer].get_allocator().resource() ||
+        mROFramesClusters[layer].get_allocator().resource() != stagedROFramesClusters[layer].get_allocator().resource()) {
+      throw NormalizedBackfillAllocatorMismatch(layer);
+    }
+  }
+
+  // Commit: nothing past this point can throw. mNormalizedFrame's move
+  // assignment is statically nothrow (see the static_assert below); every
+  // legacy container exchange is a same-allocator bounded_vector::swap (the
+  // gate above just proved the allocators equal, which is the vector swap's
+  // own precondition for well-defined, allocation-free behavior); mDetId and
+  // the per-layer label pointers are POD/raw-pointer assignments.
+  static_assert(std::is_nothrow_move_assignable_v<MultiSourceFrame>);
+  // bounded_vector::swap (std::pmr::vector::swap) is unconditionally
+  // noexcept -- a pointer/size exchange only -- but its well-defined
+  // behavior has a narrow contract: the two vectors' allocators must compare
+  // equal, since std::pmr::polymorphic_allocator never propagates on swap
+  // and is never always_equal. That precondition is exactly what the
+  // runtime allocator-equality gate above proves before any swap below runs.
+  static_assert(noexcept(std::declval<bounded_vector<Cluster>&>().swap(std::declval<bounded_vector<Cluster>&>())));
+
+  mNormalizedFrame = std::move(staged);
+  mDetId = detId;
+  for (int layer = 0; layer < NLayers; ++layer) {
+    mUnsortedClusters[layer].swap(stagedUnsortedClusters[layer]);
+    mTrackingFrameInfo[layer].swap(stagedTrackingFrameInfo[layer]);
+    mClusterExternalIndices[layer].swap(stagedClusterExternalIndices[layer]);
+    mClusterSize[layer].swap(stagedClusterSize[layer]);
+    mROFramesClusters[layer].swap(stagedROFramesClusters[layer]);
+    mClusterLabels[layer] = stagedClusterLabels[layer];
   }
 
   return result;
@@ -860,6 +946,15 @@ void TimeFrame<NLayers>::wipe()
     deepVectorClear(mCellLabels);
     deepVectorClear(mTracksLabel);
   }
+  // Event-owned normalized data and non-owning label pointers, cleared
+  // unconditionally (unlike the framework-allocator-gated block above,
+  // MultiSourceFrame is host-only and never framework/GPU-managed). Any
+  // MultiSourceFrame&/MultiSourceFrameView obtained before this call is
+  // invalidated by it. Catalog/layout ownership (mDetectorLayouts), the
+  // required layout configuration, the required geometry epoch and mDetId
+  // are semantic configuration rather than event data and must survive
+  // wipe() unchanged; this call intentionally never touches them.
+  mNormalizedFrame.clear();
 }
 
 template class TimeFrame<ITSNLayers>;

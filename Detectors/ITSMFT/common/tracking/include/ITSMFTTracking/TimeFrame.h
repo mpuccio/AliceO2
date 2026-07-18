@@ -18,6 +18,8 @@
 #include <vector>
 #include <algorithm>
 #include <numeric>
+#include <stdexcept>
+#include <string>
 #include <gsl/gsl>
 
 #include "DataFormatsITS/TrackITS.h"
@@ -89,6 +91,27 @@ using o2::itsmft::tracking::ITSNLayers;
 using o2::itsmft::tracking::nLayersForDet;
 } // namespace constants
 
+#ifndef GPUCA_GPUCODE
+// Internal invariant violation: loadNormalizedSource() staged a legacy
+// backfill vector (mUnsortedClusters/mTrackingFrameInfo/
+// mClusterExternalIndices/mClusterSize/mROFramesClusters) with a
+// memory-resource pointer different from its corresponding live TimeFrame
+// vector. Correctly configured operation always derives both the staged and
+// live pointers from the same getMaybeFrameworkHostResource()/
+// mMemoryPool.get() calls, so this can never be triggered by caller input;
+// it is a defensive internal-invariant gate checked unconditionally right
+// before commit, not a validation outcome reported through
+// LoadSourcesResult.
+class NormalizedBackfillAllocatorMismatch final : public std::logic_error
+{
+ public:
+  explicit NormalizedBackfillAllocatorMismatch(int layer)
+    : std::logic_error("TimeFrame::loadNormalizedSource(): staged/live memory-resource mismatch on layer " + std::to_string(layer))
+  {
+  }
+};
+#endif
+
 template <int NLayers>
 struct TimeFrame {
   using IndexTableUtilsN = o2::itsmft::IndexTableUtils<NLayers>;
@@ -126,7 +149,12 @@ struct TimeFrame {
 
   // Non-owning, read-only access to the normalized owner/view associated
   // with this TimeFrame by the most recent successful loadNormalizedSource()
-  // call. Empty/default until that first succeeds.
+  // call. Empty/default until that first succeeds, and after wipe() (see
+  // below): wipe() unconditionally clears this owner, so any
+  // MultiSourceFrame&/MultiSourceFrameView obtained before a wipe() call is
+  // invalidated by it -- callers must call getNormalizedFrame()/
+  // getNormalizedFrameView() again afterwards rather than reusing a
+  // pre-wipe reference or view.
   const MultiSourceFrame& getNormalizedFrame() const noexcept { return mNormalizedFrame; }
   MultiSourceFrameView getNormalizedFrameView() const noexcept { return mNormalizedFrame.getView(); }
 
