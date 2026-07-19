@@ -17,6 +17,7 @@
 #include "ITSMFTTracking/ClusterSource.h"
 #include "ITSMFTTracking/MultiSourceFrame.h"
 #include "ITSMFTTracking/SurfaceCatalogView.h"
+#include "ITSMFTTracking/SurfaceTiming.h"
 
 namespace o2::itsmft::tracking
 {
@@ -65,6 +66,13 @@ struct LoadSourcesResult {
   ClusterSourceId source{};
   uint32_t rof{std::numeric_limits<uint32_t>::max()};
   uint32_t clusterIndex{std::numeric_limits<uint32_t>::max()};
+  // Meaningful only when error == MultiSourceLoadError::TimingError: the
+  // underlying computeROFIntervalBC() failure. None for every other error
+  // value, including MultiSourceLoadError::None on success. Callers must not
+  // classify TimingError without inspecting this field -- InvalidROFLength
+  // and InvalidSourceROF are configuration problems, while Overflow is a
+  // genuine per-TF BC-arithmetic overflow caused by the incoming ROF data.
+  TimingBuildError timingDetail{TimingBuildError::None};
 
   bool ok() const noexcept { return error == MultiSourceLoadError::None; }
 };

@@ -124,7 +124,12 @@ LoadSourcesResult loadSources(MultiSourceFrame& frame,
     for (uint32_t r = 0; r < src.rofs.size(); ++r) {
       const auto built = computeROFIntervalBC(src.rofs[r].getBCData(), origin, src.timing, r);
       if (!built.ok()) {
-        return {MultiSourceLoadError::TimingError, src.id, r};
+        // Designated initialization, not {error, id, r, {}}: the latter
+        // would explicitly zero clusterIndex instead of leaving its
+        // invalid-sentinel default member initializer in place, which is
+        // not meaningful for a timing failure (timing is validated before
+        // any cluster is decoded).
+        return LoadSourcesResult{.error = MultiSourceLoadError::TimingError, .source = src.id, .rof = r, .timingDetail = built.error};
       }
       intervals.push_back(built.interval);
     }

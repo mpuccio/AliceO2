@@ -287,6 +287,9 @@ BOOST_AUTO_TEST_CASE(SingleITSSourceLoadsIntoExpectedSurfaces)
   MultiSourceFrame frame;
   const auto result = loadSources(frame, layout.getView().getSurfaceCatalogView(), gsl::span<const ClusterSourceInput>(&src, 1), {0, 0});
   BOOST_REQUIRE(result.ok());
+  // A success result must retain the timingDetail default: it is only ever
+  // meaningful when error == TimingError.
+  BOOST_CHECK(result.timingDetail == TimingBuildError::None);
 
   BOOST_CHECK_EQUAL(frame.getSurfaceMeasurements(SurfaceId{0}).size(), 1u);
   BOOST_CHECK_EQUAL(frame.getSurfaceMeasurements(SurfaceId{1}).size(), 1u);
@@ -295,6 +298,43 @@ BOOST_AUTO_TEST_CASE(SingleITSSourceLoadsIntoExpectedSurfaces)
   BOOST_CHECK(frame.getSources()[0].detector == o2::detectors::DetID::ITS);
   BOOST_CHECK_EQUAL(frame.getSources()[0].nROFs, 1u);
   BOOST_CHECK_EQUAL(frame.getSurfaceMeasurements(SurfaceId{0})[0].sensor.detector, static_cast<uint32_t>(o2::detectors::DetID::ITS));
+}
+
+BOOST_AUTO_TEST_CASE(InvalidTimingConfigurationIsReportedWithBuildErrorDetail)
+{
+  // computeROFIntervalBC()'s own exhaustive TimingBuildError coverage lives
+  // in testSurfaceTiming.cxx (InvalidROFLengthIsRejected, OverflowIsDetected
+  // AndChecked, InvalidSourceROFIsRejected); this test only proves that
+  // loadSources() actually plumbs that detail into LoadSourcesResult rather
+  // than discarding it. InvalidROFLength (rofLength <= 0) is the only one of
+  // the three practically reachable through loadSources() itself:
+  // InvalidSourceROF would require a source ROF count exceeding UINT32_MAX,
+  // and Overflow requires contrived BC values already covered directly at
+  // the computeROFIntervalBC() level.
+  const auto layout = makeCombinedLayout();
+  BOOST_REQUIRE(layout.valid());
+
+  const std::vector<CompClusterExt> clusters{{1, 1, CompCluster::InvalidPatternID, 0}};
+  const auto patterns = makePatternBytes(clusters.size());
+  const std::vector<ROFRecord> rofs{ROFRecord{{0, 0}, 0, 0, 1}};
+
+  FakeClusterDecoder decoder{o2::detectors::DetID::ITS, {0}, false};
+  ClusterSourceInput src;
+  src.id = ClusterSourceId{0};
+  src.detector = o2::detectors::DetID::ITS;
+  src.clusters = clusters;
+  src.patterns = patterns;
+  src.rofs = rofs;
+  src.dictionary = &dict();
+  src.layerToSurface = itsLayerToSurface;
+  src.timing = ROFTimingConfig{0, 0, 0, 0}; // rofLength <= 0
+  src.decoder = &decoder;
+
+  MultiSourceFrame frame;
+  const auto result = loadSources(frame, layout.getView().getSurfaceCatalogView(), gsl::span<const ClusterSourceInput>(&src, 1), {0, 0});
+  BOOST_CHECK(result.error == MultiSourceLoadError::TimingError);
+  BOOST_CHECK(result.timingDetail == TimingBuildError::InvalidROFLength);
+  BOOST_CHECK_EQUAL(frame.getTotalMeasurements(), 0u);
 }
 
 BOOST_AUTO_TEST_CASE(SingleMFTSourceLoadsIntoExpectedSurfaces)
