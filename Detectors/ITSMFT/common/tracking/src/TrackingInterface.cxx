@@ -164,11 +164,58 @@ float ITSMFTTrackingInterface<NLayers>::processTimeFrame(gsl::span<const o2::its
     LOGP(info, "{} CA tracking mode is off, skipping TimeFrame processing", detName<DetId>());
     return 0.f;
   }
-  if (mDict == nullptr) {
-    LOGP(fatal, "{} CA tracker cluster dictionary is not available", detName<DetId>());
-  }
 
-  loadTimeFrame(rofs, clusters, patterns, labels, irFrames);
+  // mDict == nullptr is a structural configuration failure (the dictionary
+  // was never configured on this interface), not per-TF data -- it belongs
+  // inside the same failure boundary as every other loading-phase check
+  // below, not as a bare LOGP(fatal,...) ahead of it, so that it wipes
+  // TimeFrame state and propagates through the identical typed contract
+  // rather than a separate, uncaught fatal path.
+  try {
+    if (mDict == nullptr) {
+      throw TimeFrameLoadException{TimeFrameLoadFailureReason::DictionaryNotConfigured,
+                                   std::format("{} CA tracker cluster dictionary is not available", detName<DetId>())};
+    }
+    loadTimeFrame(rofs, clusters, patterns, labels, irFrames);
+  } catch (const RecoverableLoadFailure& err) {
+    // Typed, per-TF malformed loading input (see TimeFrameLoadFailure.h /
+    // isRecoverableLoadError()).
+    LOGP(error, "{} CA loading recoverably failed: {}", detName<DetId>(), err.what());
+    mTimeFrame.wipe();
+    if (mTrackParams[0].DropTFUponFailure) {
+      return kDroppedTimeFrameResult;
+    }
+    throw;
+  } catch (const BoundedMemoryResourceN::MemoryLimitExceeded& err) {
+    // Recoverable, per-TF resource failure during loading -- same
+    // classification/gating as the identical catch clause in
+    // Tracker::clustersToTracks() (CATracker.cxx).
+    LOGP(error, "{} CA loading exceeded memory limit: {}", detName<DetId>(), err.what());
+    mTimeFrame.wipe();
+    if (mTrackParams[0].DropTFUponFailure) {
+      return kDroppedTimeFrameResult;
+    }
+    throw;
+  } catch (const std::bad_alloc& err) {
+    LOGP(error, "{} CA loading allocation failed: {}", detName<DetId>(), err.what());
+    mTimeFrame.wipe();
+    if (mTrackParams[0].DropTFUponFailure) {
+      return kDroppedTimeFrameResult;
+    }
+    throw;
+  } catch (const TimeFrameLoadException& err) {
+    // Structural loading-boundary failure: never gated by DropTFUponFailure.
+    LOGP(error, "{} CA loading hit a structural failure: {}", detName<DetId>(), err.what());
+    mTimeFrame.wipe();
+    throw;
+  } catch (const std::exception& err) {
+    // Unclassified: not a recognized recoverable-resource or recoverable
+    // loading-data failure, so treated as structural regardless of
+    // DropTFUponFailure, and rethrown by its original type (not wrapped).
+    LOGP(error, "{} CA loading failed with an unclassified exception; treating as structural: {}", detName<DetId>(), err.what());
+    mTimeFrame.wipe();
+    throw;
+  }
   onTimeFrameLoaded();
 
   const float elapsedMs = runTracking();

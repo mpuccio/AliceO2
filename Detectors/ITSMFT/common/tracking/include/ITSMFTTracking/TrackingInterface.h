@@ -86,8 +86,26 @@ class ITSMFTTrackingInterface
 
   void initialise();
 
-  /// Phase 2 (TimeFrame load) + Phase 3 (CA tracking). Returns tracker elapsed ms or -1 on failure.
-  /// Does not wipe the TimeFrame; call clearTimeFrame() after outputs are extracted.
+  /// Phase 2 (TimeFrame load) + Phase 3 (CA tracking).
+  ///
+  /// - Success (load and tracking both completed): returns elapsed tracking
+  ///   ms (>= 0). The loaded/tracked event is retained in the TimeFrame;
+  ///   call clearTimeFrame() once outputs have been extracted.
+  /// - Recoverable failure (malformed per-TF loading input, or a per-TF
+  ///   resource-exhaustion exception) with DropTFUponFailure=true: the
+  ///   TimeFrame is fully wiped first, then this returns exactly
+  ///   kDroppedTimeFrameResult (see CATracker.h); nothing was published for
+  ///   this TF. onTrackingFinished()/onTimeFrameLoaded() are not both
+  ///   called in this case -- see loadTimeFrame()/runTracking() for which
+  ///   ran.
+  /// - Every other failure -- structural/configuration (bad or stale
+  ///   catalog, non-uniform per-layer ROF timing, a missing dictionary, a
+  ///   structural LoadSourcesResult), unclassified, or a recoverable
+  ///   failure with DropTFUponFailure=false: the TimeFrame is fully wiped,
+  ///   then the failure is rethrown (by its original type for an
+  ///   unclassified exception; see TimeFrameLoadFailure.h for the loading
+  ///   boundary's typed exceptions and CATracker.h for the CA-tracking
+  ///   ones). No output is created on this path.
   float processTimeFrame(gsl::span<const o2::itsmft::ROFRecord> rofs,
                          gsl::span<const o2::itsmft::CompClusterExt> clusters,
                          gsl::span<const unsigned char> patterns,
