@@ -327,38 +327,51 @@ ROFTimingConfig ITSMFTTrackingInterface<NLayers>::configureROFLookupTables()
   const auto& par = o2::itsmft::DPLAlpideParam<DetId>::Instance();
   const int nOrbitsPerTF = o2::base::GRPGeomHelper::getNHBFPerTF();
 
+  // Per-layer LayerTiming, and the timing-validation this whole boundary
+  // exists for, are both completed before anything below constructs or
+  // commits ROFOverlapTable/ROFVertexLookupTable/mTimeFrame state -- so a
+  // rejected configuration never leaves TimeFrame partially updated (see
+  // loadTimeFrame()'s mutation-inventory contract).
+  //
+  // A non-positive configured ROF length would divide by zero computing
+  // nROFsPerOrbit below (o2::detectors::ID::DPLAlpideParam's
+  // roFrameLayerLengthInBC/roFrameLengthInBC are plain runtime-configurable
+  // ints, so this is reachable through misconfiguration, not just a
+  // theoretical type-level concern); checked per layer, before that
+  // division, and reported through the same typed structural failure as
+  // every other timing problem in this boundary.
   std::array<o2::its::LayerTiming, NLayers> layerTimings{};
-  ROFOverlapTableN rofTable;
-  ROFVertexLookupTableN vtxTable;
   for (int iLayer = 0; iLayer < NLayers; ++iLayer) {
-    const unsigned int nROFsPerOrbit = o2::constants::lhc::LHCMaxBunches / par.getROFLengthInBC(iLayer);
+    const auto rofLengthInBC = par.getROFLengthInBC(iLayer);
+    if (rofLengthInBC <= 0) {
+      throw TimeFrameLoadException{
+        TimeFrameLoadFailureReason::NonUniformROFTiming,
+        std::format("{} CA per-layer ROF timing configuration has a non-positive ROF length ({}) on layer {}",
+                    detName<DetId>(), rofLengthInBC, iLayer)};
+    }
+    const unsigned int nROFsPerOrbit = o2::constants::lhc::LHCMaxBunches / static_cast<unsigned int>(rofLengthInBC);
     layerTimings[iLayer] = o2::its::LayerTiming{
       .mNROFsTF = nROFsPerOrbit * static_cast<unsigned int>(nOrbitsPerTF),
-      .mROFLength = static_cast<uint32_t>(par.getROFLengthInBC(iLayer)),
+      .mROFLength = static_cast<uint32_t>(rofLengthInBC),
       .mROFDelay = static_cast<uint32_t>(par.getROFDelayInBC(iLayer)),
       .mROFBias = static_cast<uint32_t>(par.getROFBiasInBC(iLayer)),
       .mROFAddTimeErr = mTrackParams.empty()
                          ? static_cast<uint32_t>(o2::itsmft::tracking::TrackerParamRef<DetId>::get().addTimeError[iLayer])
                          : mTrackParams[0].AddTimeError[iLayer]};
-    rofTable.defineLayer(iLayer, layerTimings[iLayer]);
-    vtxTable.defineLayer(iLayer, layerTimings[iLayer]);
-  }
-
-  const auto nROFsLayer0 = rofTable.getLayer(0).mNROFsTF;
-  for (int iLayer = 1; iLayer < NLayers; ++iLayer) {
-    if (rofTable.getLayer(iLayer).mNROFsTF != nROFsLayer0) {
-      LOGP(fatal,
-           "{} CA single CLUSTERSROF input requires identical mNROFsTF on all {} layers (layer 0: {}, layer {}: {})",
-           detName<DetId>(), NLayers, nROFsLayer0, iLayer, rofTable.getLayer(iLayer).mNROFsTF);
-    }
   }
 
   // TimeFrame::loadNormalizedSource() takes one source-level ROFTimingConfig,
   // but DPLAlpideParam supports genuine per-layer staggering (see
   // ROFTimingUniformity.h). Both ITS and MFT default every staggering
   // override to zero, so production configurations are uniform out of the
-  // box; a divergent configuration is rejected here, structurally, before
-  // any mTimeFrame mutation below -- never silently collapsed.
+  // box; a divergent configuration -- including one that only disagrees on
+  // mNROFsTF -- is rejected here, structurally, through the same typed
+  // failure as every other timing problem in this boundary, never a bare
+  // LOGP(fatal, ...) and never silently collapsed. A separate per-layer
+  // mNROFsTF equality check is unnecessary once this passes: mNROFsTF is a
+  // pure function of mROFLength and the single shared nOrbitsPerTF above, so
+  // a uniform mROFLength across all layers already guarantees a uniform
+  // mNROFsTF.
   const auto uniformTiming = deriveUniformROFTimingConfig(layerTimings);
   if (!uniformTiming.uniform) {
     throw TimeFrameLoadException{
@@ -367,6 +380,12 @@ ROFTimingConfig ITSMFTTrackingInterface<NLayers>::configureROFLookupTables()
                   detName<DetId>(), NLayers)};
   }
 
+  ROFOverlapTableN rofTable;
+  ROFVertexLookupTableN vtxTable;
+  for (int iLayer = 0; iLayer < NLayers; ++iLayer) {
+    rofTable.defineLayer(iLayer, layerTimings[iLayer]);
+    vtxTable.defineLayer(iLayer, layerTimings[iLayer]);
+  }
   rofTable.init();
   mTimeFrame.setROFOverlapTable(std::move(rofTable));
   vtxTable.init();

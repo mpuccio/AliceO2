@@ -50,6 +50,7 @@
 #include <TGeoGlobalMagField.h>
 
 #include "DataFormatsITSMFT/CompCluster.h"
+#include "DataFormatsITSMFT/DPLAlpideParam.h"
 #include "DataFormatsITSMFT/ROFRecord.h"
 #include "DataFormatsITSMFT/TopologyDictionary.h"
 #include "DataFormatsParameters/GRPECSObject.h"
@@ -297,6 +298,42 @@ std::vector<CompClusterExt> oneCluster()
 {
   return {CompClusterExt{10, 20, CompCluster::InvalidPatternID, 0}};
 }
+
+// RAII guard for the process-wide DPLAlpideParam<MFT> singleton: stashes one
+// layer's roFrameLayerLengthInBC on construction and restores it on
+// destruction (including on a thrown/failed check), so a test that stages a
+// non-uniform per-layer configuration can never leak that state into a
+// later test case in this same test binary.
+o2::itsmft::DPLAlpideParam<o2::detectors::DetID::MFT>& mutableMFTAlpideParam()
+{
+  // ConfigurableParamHelper<P>::Instance() deliberately returns const P& to
+  // discourage casual mutation from production code; tests that need to
+  // stage a specific singleton value use the same const_cast pattern as
+  // e.g. testCommonTrackingParameters.cxx (o2::its::TrackerParamConfig) and
+  // several ZDC RecoParamZDC call sites.
+  return const_cast<o2::itsmft::DPLAlpideParam<o2::detectors::DetID::MFT>&>(
+    o2::itsmft::DPLAlpideParam<o2::detectors::DetID::MFT>::Instance());
+}
+
+class ScopedMFTLayerROFLengthOverride
+{
+ public:
+  ScopedMFTLayerROFLengthOverride(int layer, int overrideValue)
+    : mLayer(layer), mOriginal(mutableMFTAlpideParam().roFrameLayerLengthInBC[layer])
+  {
+    mutableMFTAlpideParam().roFrameLayerLengthInBC[mLayer] = overrideValue;
+  }
+  ~ScopedMFTLayerROFLengthOverride()
+  {
+    mutableMFTAlpideParam().roFrameLayerLengthInBC[mLayer] = mOriginal;
+  }
+  ScopedMFTLayerROFLengthOverride(const ScopedMFTLayerROFLengthOverride&) = delete;
+  ScopedMFTLayerROFLengthOverride& operator=(const ScopedMFTLayerROFLengthOverride&) = delete;
+
+ private:
+  int mLayer;
+  int mOriginal;
+};
 
 } // namespace
 
@@ -599,3 +636,108 @@ void checkNoCallbacksPastLoadFailure()
 }
 
 BOOST_AUTO_TEST_CASE(MFT_NoCallbacksPastLoadFailure) { checkNoCallbacksPastLoadFailure<10>(); }
+
+// ---------------------------------------------------------------------
+// Non-uniform per-layer ROF timing (configureROFLookupTables()) is
+// structural: it must throw TimeFrameLoadException{NonUniformROFTiming},
+// never a dropped-TF sentinel, even with DropTFUponFailure=true; it must
+// wipe existing TimeFrame event state; and a subsequent valid load must
+// succeed once the configuration is restored. ITS is not covered here (see
+// this file's header comment): only MFT has a real opt-in
+// ITSMFTTrackingInterface consumer today, and DPLAlpideParam<MFT> is the
+// singleton this test perturbs.
+// ---------------------------------------------------------------------
+
+BOOST_AUTO_TEST_CASE(MFT_NonUniformROFTimingIsStructuralNeverDroppedAndWipes)
+{
+  OneLayerDecoder* decoder = nullptr;
+  auto interfacePtr = makeReadyInterface<10>(decoder);
+  auto& interface = *interfacePtr;
+  // Structural failures are never gated by DropTFUponFailure: set it so a
+  // dropped-sentinel return (rather than a thrown exception) would be an
+  // observable, wrong outcome if this were misclassified as recoverable.
+  const_cast<std::vector<o2::itsmft::TrackingParameters>&>(interface.getTrackingParameters())[0].DropTFUponFailure = true;
+
+  const auto rofs = oneRof();
+  const auto clusters = oneCluster();
+  const auto patterns = makePatternBytes(clusters.size());
+
+  // Baseline valid load first, so the later wipe check proves state was
+  // actually cleared, not merely "still empty".
+  const float baseline = interface.processTimeFrame(rofs, clusters, patterns, nullptr);
+  BOOST_REQUIRE(!isDroppedTimeFrame(baseline));
+  BOOST_REQUIRE_EQUAL(interface.getTimeFrame().getTotalClusters(), 1u);
+
+  {
+    // MFT default roFrameLengthInBC is LHCMaxBunches/18 = 198; overriding
+    // one layer to 202 changes that layer's own nROFsPerOrbit (3564/202=17)
+    // away from every other layer's (3564/198=18), so mNROFsTF -- not only
+    // mROFLength -- differs across layers, exactly the case the removed
+    // per-layer mNROFsTF fatal check used to catch, now reachable only
+    // through deriveUniformROFTimingConfig()'s mROFLength comparison.
+    constexpr int overriddenLayer = 3;
+    constexpr int overrideROFLengthInBC = 202;
+    ScopedMFTLayerROFLengthOverride guard{overriddenLayer, overrideROFLengthInBC};
+
+    bool threw = false;
+    try {
+      interface.processTimeFrame(rofs, clusters, patterns, nullptr);
+      BOOST_FAIL("expected TimeFrameLoadException{NonUniformROFTiming}");
+    } catch (const TimeFrameLoadException& err) {
+      threw = true;
+      BOOST_CHECK(err.reason() == TimeFrameLoadFailureReason::NonUniformROFTiming);
+    }
+    BOOST_CHECK(threw);
+    // Wiped: the baseline TF's clusters are gone, not merely never-replaced.
+    BOOST_CHECK_EQUAL(interface.getTimeFrame().getTotalClusters(), 0u);
+  } // guard restores DPLAlpideParam<MFT>::Instance().roFrameLayerLengthInBC[3] here, even though the checks above never threw past it
+
+  // Catalog/layout/detId are untouched by the failure (Slice 6/7 contract);
+  // a subsequent valid load succeeds on the same interface once the
+  // configuration is uniform again.
+  const float retried = interface.processTimeFrame(rofs, clusters, patterns, nullptr);
+  BOOST_CHECK(!isDroppedTimeFrame(retried));
+  BOOST_CHECK_EQUAL(interface.getTimeFrame().getTotalClusters(), 1u);
+}
+
+BOOST_AUTO_TEST_CASE(MFT_NonPositiveROFLengthIsStructuralBeforeDivision)
+{
+  OneLayerDecoder* decoder = nullptr;
+  auto interfacePtr = makeReadyInterface<10>(decoder);
+  auto& interface = *interfacePtr;
+
+  const auto rofs = oneRof();
+  const auto clusters = oneCluster();
+  const auto patterns = makePatternBytes(clusters.size());
+
+  {
+    // roFrameLayerLengthInBC[layer] == 0 makes getROFLengthInBC(layer) fall
+    // back to the shared default (it is a "use the global value" sentinel,
+    // not literally zero), so a non-positive *effective* ROF length can
+    // only be reached by overriding the shared default itself. This proves
+    // configureROFLookupTables() checks positivity before ever computing
+    // LHCMaxBunches/rofLengthInBC (a division that would otherwise be
+    // undefined behavior for a zero divisor) rather than crashing.
+    auto& par = mutableMFTAlpideParam();
+    const int originalShared = par.roFrameLengthInBC;
+    struct RestoreShared {
+      int& field;
+      int original;
+      ~RestoreShared() { field = original; }
+    } restoreGuard{par.roFrameLengthInBC, originalShared};
+    par.roFrameLengthInBC = 0;
+
+    bool threw = false;
+    try {
+      interface.processTimeFrame(rofs, clusters, patterns, nullptr);
+      BOOST_FAIL("expected TimeFrameLoadException{NonUniformROFTiming}");
+    } catch (const TimeFrameLoadException& err) {
+      threw = true;
+      BOOST_CHECK(err.reason() == TimeFrameLoadFailureReason::NonUniformROFTiming);
+    }
+    BOOST_CHECK(threw);
+  }
+
+  const float retried = interface.processTimeFrame(rofs, clusters, patterns, nullptr);
+  BOOST_CHECK(!isDroppedTimeFrame(retried));
+}
