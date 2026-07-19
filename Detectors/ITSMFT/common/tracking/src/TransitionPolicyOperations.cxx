@@ -306,7 +306,7 @@ bool buildCellSeed<TransitionPolicyTag::DiskDisk>(
 {
   // Matches detail::mftFwdFitCellClusters exactly, reading its three
   // clusters/hits directly instead of through a TimeFrame. The geometric
-  // road pre-cut (detail::validateMFTCellClusters) is intentionally not
+  // road pre-cut (passesCellRoadPrecut<DiskDisk>) is intentionally not
   // repeated here -- it depends on nominal layer position, not on these
   // measurements, and remains a TrackerTraits-owned guard.
   if (clusterInner.zCoordinate <= clusterOuter.zCoordinate + 1.e-6f) {

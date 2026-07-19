@@ -18,7 +18,6 @@
 
 #include <array>
 #include <cmath>
-#include <limits>
 
 #include "CommonConstants/MathConstants.h"
 #include "ITSMFTTracking/Cell.h"
@@ -182,45 +181,6 @@ inline bool mftFwdAttachCluster(o2::track::TrackParCovFwd& track, float z, float
   }
   chi2 += predChi2;
   return true;
-}
-
-/// Squared transverse distance from cluster c to the seed line c1→c2 (legacy MFT getDistanceToSeed).
-inline float mftDistanceToSeedSquared(const o2::its::Cluster& c1, const o2::its::Cluster& c2, const o2::its::Cluster& c)
-{
-  const float dxSeed = c2.xCoordinate - c1.xCoordinate;
-  const float dySeed = c2.yCoordinate - c1.yCoordinate;
-  const float dzSeed = c2.zCoordinate - c1.zCoordinate;
-  if (std::abs(dzSeed) < 1e-9f) {
-    return std::numeric_limits<float>::max();
-  }
-  const float invdzSeed = (c.zCoordinate - c1.zCoordinate) / dzSeed;
-  const float xSeed = c1.xCoordinate + dxSeed * invdzSeed;
-  const float ySeed = c1.yCoordinate + dySeed * invdzSeed;
-  const float dx = c.xCoordinate - xSeed;
-  const float dy = c.yCoordinate - ySeed;
-  return dx * dx + dy * dy;
-}
-
-/// Conical road scale (1 + dz/z_from)^2 between half-layers (legacy ROADclsRCut behaviour).
-inline float mftConicalRoadR2Scale(int layerFrom, int layerTo)
-{
-  const float zFrom = mftLayerZ(layerFrom);
-  if (std::abs(zFrom) < 1e-6f) {
-    return 1.f;
-  }
-  const float dCone = 1.f + (mftLayerZ(layerTo) - zFrom) / zFrom;
-  return dCone * dCone;
-}
-
-/// Cheap geometric pre-cut before forward cell fit (CellRoadRCut / ROADclsRCut).
-inline bool validateMFTCellClusters(const o2::its::Cluster& c0, int layer0,
-                                    const o2::its::Cluster& c1, int layer1,
-                                    const o2::its::Cluster& c2, int layer2,
-                                    float r2Cut)
-{
-  return mftDistanceToSeedSquared(c0, c2, c1) < r2Cut * mftConicalRoadR2Scale(layer0, layer1) &&
-         mftDistanceToSeedSquared(c0, c1, c2) < r2Cut * mftConicalRoadR2Scale(layer0, layer2) &&
-         mftDistanceToSeedSquared(c1, c2, c0) < r2Cut * mftConicalRoadR2Scale(layer1, layer0);
 }
 
 /// Build inward forward seed at the outer cluster and Kalman-fit the three cell clusters.

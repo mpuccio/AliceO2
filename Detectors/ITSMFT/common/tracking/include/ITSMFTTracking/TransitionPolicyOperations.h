@@ -14,9 +14,13 @@
 #include "ITSMFTTracking/TransitionPolicyState.h"
 
 #ifndef GPUCA_GPUCODE
+#include <cmath>
+#include <limits>
+
 #include <gsl/span>
 
 #include "DetectorsBase/Propagator.h"
+#include "ITSMFTTracking/SurfaceMeasurement.h"
 
 namespace o2::dataformats
 {
@@ -219,9 +223,9 @@ bool attachHit<TransitionPolicyTag::DiskDisk>(
 /// slots its own attachment order consumes (documented per specialization
 /// below) -- the caller resolves these floats from the same per-iteration
 /// AttachHitPolicyConfigView.layerxX0 binding used by attachHit, outside any
-/// candidate/neighbour loop. The MFT geometric road pre-cut (legacy
-/// CellRoadRCut / detail::validateMFTCellClusters) is deliberately not part
-/// of this operation: it depends on nominal per-surface layer position, not
+/// candidate/neighbour loop. The MFT geometric road pre-cut
+/// (CellRoadRCut / passesCellRoadPrecut<DiskDisk>, below) is deliberately not
+/// part of this operation: it depends on nominal per-surface layer position, not
 /// on the measurements passed here, and remains a TrackerTraits-owned
 /// orchestration guard evaluated before this operation is called -- exactly
 /// as the tracklet timestamp/deltaTanLambda checks already are for
@@ -316,6 +320,131 @@ bool buildCellSeed<TransitionPolicyTag::DiskDisk>(
   o2::track::TrackParCovFwd& outState,
   float& chi2,
   const DiskDiskPolicyParams& params);
+
+/// D007 policy-boundary operation (Architecture.md Sec 10, Gate 3 cell-road
+/// pre-cut slice): true if the three-cluster candidate {inner, middle, outer}
+/// should be considered by buildCellSeed<Tag> at all. This is the last
+/// detector-branch removed from TrackerTraits::computeLayerCellsForPolicy's
+/// candidate loop -- the caller now issues one unconditional call for both
+/// families, exactly like cellsAreCompatible/attachHit/buildCellSeed.
+///
+/// Operates on `GlobalPoint3F` (SurfaceMeasurement.h), the existing
+/// detector-neutral 3-float global-position primitive, rather than
+/// `o2::its::Cluster`: this header therefore does not include
+/// ITStracking/Cluster.h, MFTFwdTrackHelpers.h, or any MFT/detector geometry
+/// header. The caller converts its three Cluster positions to GlobalPoint3F
+/// immediately before the call (TrackerTraits.cxx).
+///
+/// Defined inline, in this header, unlike cellsAreCompatible/attachHit/
+/// buildCellSeed: this predicate calls nothing host-only external (no
+/// Propagator singleton, no TrackParCovFwd Kalman machinery), so there is no
+/// reason to hide an implementation behind a separate translation unit. It
+/// runs once per CA candidate, before the expensive fit it guards, so being
+/// visible for ordinary same-translation-unit inlining in the caller
+/// (TrackerTraits.cxx already includes this header) matters -- this is
+/// described as inlineable/same-TU, not as a guarantee that any particular
+/// compiler/flags combination will inline or eliminate every construction.
+///
+/// `layerInner`/`layerMiddle`/`layerOuter` are legacy layout-local layer
+/// indices (the same index space as `TrackletProjectionState<Tag>` and
+/// `LayerScatteringInputs<Tag>::referenceCoordinate` already document).
+/// `perLayerReferenceZ` is the caller's once-per-iteration cached span from
+/// `DiskDiskReferenceCoordinateView`/`bindLegacyMFTReferenceCoordinates()` --
+/// this operation does not call `mftLayerZ()`, `MFT::LayerZCoordinate()`, or
+/// any detector constant lookup itself. Unchecked caller precondition
+/// (matching every other operation in this file): `perLayerReferenceZ` must
+/// have a valid element at each of `layerInner`, `layerMiddle`, `layerOuter`
+/// for the `DiskDisk` specialization; the `CylinderCylinder` specialization
+/// never reads any of its layer/span/cluster-position arguments.
+///
+/// Pure predicate: no argument is mutated, on acceptance or rejection.
+/// noexcept: the arithmetic is total for valid inputs (see the DiskDisk
+/// specialization doc for the exact, non-blanket NaN/Inf behavior); this
+/// slice adds no new finite/range/physics validation beyond the legacy
+/// formula's own behavior.
+template <TransitionPolicyTag Tag>
+bool passesCellRoadPrecut(const GlobalPoint3F& pointInner,
+                          const GlobalPoint3F& pointMiddle,
+                          const GlobalPoint3F& pointOuter,
+                          int layerInner, int layerMiddle, int layerOuter,
+                          gsl::span<const float> perLayerReferenceZ,
+                          const typename TransitionPolicyTraits<Tag>::Params& params) noexcept;
+
+/// CylinderCylinder has no geometric road pre-cut; compile-time no-op so the
+/// caller's candidate loop stays a single unconditional call for both
+/// families (Architecture.md 10.1: dispatch is a compile-time tag switch to
+/// statically compiled functions, never a runtime branch in the hot loop).
+/// Reads none of its arguments -- including an empty/default `perLayerReferenceZ`,
+/// which is always safe here.
+template <>
+inline bool passesCellRoadPrecut<TransitionPolicyTag::CylinderCylinder>(
+  const GlobalPoint3F&, const GlobalPoint3F&, const GlobalPoint3F&,
+  int, int, int, gsl::span<const float>, const CylinderCylinderPolicyParams&) noexcept
+{
+  return true;
+}
+
+/// Disk formula: the legacy detail::validateMFTCellClusters() three-check
+/// road pre-cut (CellRoadRCut / ROADclsRCut), re-expressed on GlobalPoint3F
+/// and an explicit per-layer reference z instead of o2::its::Cluster and an
+/// internal mftLayerZ() lookup. Cluster ordering is strictly {inner, middle,
+/// outer}; every distance-function argument permutation and the asymmetric
+/// conical-scale argument order are preserved exactly, as is strict `<` for
+/// all three checks and short-circuit evaluation of the combining `&&`.
+/// `params.cellRoadRCut` is the unsquared cut (matching
+/// DiskDiskPolicyParams::cellRoadRCut's existing contract); it is squared
+/// exactly once, here.
+template <>
+inline bool passesCellRoadPrecut<TransitionPolicyTag::DiskDisk>(
+  const GlobalPoint3F& pointInner, const GlobalPoint3F& pointMiddle, const GlobalPoint3F& pointOuter,
+  int layerInner, int layerMiddle, int layerOuter,
+  gsl::span<const float> perLayerReferenceZ,
+  const DiskDiskPolicyParams& params) noexcept
+{
+  // Squared transverse distance from `point` to the seed line from->to
+  // (legacy detail::mftDistanceToSeedSquared / MFT getDistanceToSeed, moved
+  // here verbatim -- this arithmetic never referenced MFT constants, only
+  // measured coordinates). |dzSeed| < 1e-9f (near-degenerate seed line,
+  // parallel to the measurement plane) returns FLT_MAX, guaranteeing
+  // rejection against any finite cut.
+  auto distanceToSeedLineSquared = [](const GlobalPoint3F& from, const GlobalPoint3F& to, const GlobalPoint3F& point) -> float {
+    const float dxSeed = to.x - from.x;
+    const float dySeed = to.y - from.y;
+    const float dzSeed = to.z - from.z;
+    if (std::abs(dzSeed) < 1e-9f) {
+      return std::numeric_limits<float>::max();
+    }
+    const float invdzSeed = (point.z - from.z) / dzSeed;
+    const float xSeed = from.x + dxSeed * invdzSeed;
+    const float ySeed = from.y + dySeed * invdzSeed;
+    const float dx = point.x - xSeed;
+    const float dy = point.y - ySeed;
+    return dx * dx + dy * dy;
+  };
+
+  // Conical road scale (legacy detail::mftConicalRoadR2Scale), taking zFrom/
+  // zTo explicitly instead of calling mftLayerZ(layerFrom/layerTo)
+  // internally. |zFrom| < 1e-6f (near-zero reference z) falls back to 1.f
+  // (no conical correction). Preserved exactly as `1.f + (zTo - zFrom) /
+  // zFrom` -- do NOT simplify to zTo/zFrom, which would change float
+  // rounding.
+  auto conicalRoadR2Scale = [](float zFrom, float zTo) -> float {
+    if (std::abs(zFrom) < 1e-6f) {
+      return 1.f;
+    }
+    const float dCone = 1.f + (zTo - zFrom) / zFrom;
+    return dCone * dCone;
+  };
+
+  const float zInner = perLayerReferenceZ[layerInner];
+  const float zMiddle = perLayerReferenceZ[layerMiddle];
+  const float zOuter = perLayerReferenceZ[layerOuter];
+  const float r2Cut = params.cellRoadRCut * params.cellRoadRCut;
+
+  return distanceToSeedLineSquared(pointInner, pointOuter, pointMiddle) < r2Cut * conicalRoadR2Scale(zInner, zMiddle) &&
+         distanceToSeedLineSquared(pointInner, pointMiddle, pointOuter) < r2Cut * conicalRoadR2Scale(zInner, zOuter) &&
+         distanceToSeedLineSquared(pointMiddle, pointOuter, pointInner) < r2Cut * conicalRoadR2Scale(zMiddle, zInner);
+}
 
 /// Gate 3 transition-preparation slice (Architecture.md Sec 10/10.1):
 /// per-layer multiple-scattering angle, one specialization per Tag. Called
