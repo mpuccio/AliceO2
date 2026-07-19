@@ -52,6 +52,32 @@ inline AttachHitPolicyConfigView bindAttachHitPolicyConfig(const TrackingParamet
   return {gsl::span<const float>{params.LayerxX0.data(), params.LayerxX0.size()}, params.CorrType};
 }
 
+/// Host view of TrackingParameters::LayerRadii for the transition-preparation
+/// slice (layerMultipleScatteringAngle<Tag> / prepareTransitionScatteringAndBending).
+/// `layerxX0` is deliberately not rebound here: it is borrowed directly from
+/// the caller's already-bound-and-validated AttachHitPolicyConfigView rather
+/// than re-validated independently, so this struct cannot define a second,
+/// divergent numeric contract for the same data. isValid() therefore checks
+/// span bounds only -- it intentionally adds no numeric constraint on
+/// LayerRadii (legacy TimeFrame::initialise() has none: degenerate/zero radii
+/// flow through to the existing floating-point behavior unrejected, and this
+/// slice must not silently start rejecting them).
+struct LayerGeometryConfigView {
+  gsl::span<const float> layerRadii;
+  gsl::span<const float> layerxX0;
+
+  bool isValid(size_t expectedLayers) const noexcept
+  {
+    return layerRadii.size() >= expectedLayers && layerxX0.size() >= expectedLayers;
+  }
+};
+
+inline LayerGeometryConfigView bindLayerGeometryConfig(const TrackingParameters& params,
+                                                       const AttachHitPolicyConfigView& attachHitConfig) noexcept
+{
+  return {gsl::span<const float>{params.LayerRadii.data(), params.LayerRadii.size()}, attachHitConfig.layerxX0};
+}
+
 /// Binds one iteration's legacy TrackingParameters into a typed,
 /// bounds-checkable policy parameter block (TransitionPolicyState.h). Callers
 /// must invoke this once per iteration, outside any candidate/neighbour/road

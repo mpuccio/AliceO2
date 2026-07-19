@@ -1591,6 +1591,43 @@ BOOST_AUTO_TEST_CASE(DiskScatteringAngleNearZeroReferenceRadiusFallback)
   BOOST_CHECK_EQUAL(reference, expectedWithSentinelCscLambda);
 }
 
+BOOST_AUTO_TEST_CASE(LayerGeometryConfigViewChecksSpanSizeOnlyNotNumericValues)
+{
+  TrackingParameters legacy;
+  legacy.LayerRadii = {0.f, -1.f, 3.91924f, 19.6213f, 24.5597f, 34.388f, 39.3329f}; // degenerate/negative radii
+  legacy.LayerxX0 = {5.e-3f, 5.e-3f, 5.e-3f, 1.e-2f, 1.e-2f, 1.e-2f, 1.e-2f};       // valid
+
+  const auto attachHitConfig = bindAttachHitPolicyConfig(legacy);
+  BOOST_CHECK(attachHitConfig.isValid(7));
+
+  const auto geometryConfig = bindLayerGeometryConfig(legacy, attachHitConfig);
+  // Legacy TimeFrame::initialise() never rejected degenerate/zero/negative
+  // radii; this slice must not silently start doing so.
+  BOOST_CHECK(geometryConfig.isValid(7));
+  BOOST_CHECK(!geometryConfig.isValid(8)); // span-size check still applies
+
+  // Negative xX0 must be rejected -- by AttachHitPolicyConfigView, the single
+  // established contract for that data. LayerGeometryConfigView borrows the
+  // same (rejected) span rather than independently re-validating it, so it
+  // must not be read as a numeric-validity signal on its own.
+  auto corrupted = legacy;
+  corrupted.LayerxX0[3] = -1.f;
+  const auto corruptedAttachHitConfig = bindAttachHitPolicyConfig(corrupted);
+  BOOST_CHECK(!corruptedAttachHitConfig.isValid(7));
+  const auto corruptedGeometryConfig = bindLayerGeometryConfig(corrupted, corruptedAttachHitConfig);
+  BOOST_CHECK(corruptedGeometryConfig.isValid(7)); // size-only: still reports valid
+}
+
+BOOST_AUTO_TEST_CASE(BindLayerGeometryConfigBorrowsAttachHitLayerxX0Span)
+{
+  TrackingParameters legacy;
+  const auto attachHitConfig = bindAttachHitPolicyConfig(legacy);
+  const auto geometryConfig = bindLayerGeometryConfig(legacy, attachHitConfig);
+  BOOST_CHECK_EQUAL(geometryConfig.layerxX0.data(), attachHitConfig.layerxX0.data());
+  BOOST_CHECK_EQUAL(geometryConfig.layerxX0.size(), attachHitConfig.layerxX0.size());
+  BOOST_CHECK_EQUAL(geometryConfig.layerRadii.data(), legacy.LayerRadii.data());
+}
+
 BOOST_AUTO_TEST_CASE(ClampTransitionCurvatureMatchesExactLegacyExpressionPerFamily)
 {
   // Integration review finding: the two legacy branches compare `0.5 *
