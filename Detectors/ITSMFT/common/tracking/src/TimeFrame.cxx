@@ -46,15 +46,16 @@ namespace
 {
 // Internal invariant violation: loadNormalizedSource() staged a legacy
 // backfill vector (mUnsortedClusters/mTrackingFrameInfo/
-// mClusterExternalIndices/mClusterSize/mROFramesClusters) with a
-// memory-resource pointer different from its corresponding live TimeFrame
-// vector. Correctly configured operation always derives both the staged and
-// live pointers from the same getMaybeFrameworkHostResource()/
-// mMemoryPool.get() calls, so this can never be triggered by caller input;
-// it is a defensive internal-invariant gate checked unconditionally right
-// before commit, not a validation outcome reported through
-// LoadSourcesResult. Internal to this translation unit: not part of
-// TimeFrame's public API.
+// mClusterExternalIndices/mClusterSize/mROFramesClusters, or the non-per-
+// layer mNTrackletsPerCluster/mNTrackletsPerClusterSum, reported with the
+// sentinel layer -1) with a memory-resource pointer different from its
+// corresponding live TimeFrame vector. Correctly configured operation always
+// derives both the staged and live pointers from the same
+// getMaybeFrameworkHostResource()/mMemoryPool.get() calls, so this can never
+// be triggered by caller input; it is a defensive internal-invariant gate
+// checked unconditionally right before commit, not a validation outcome
+// reported through LoadSourcesResult. Internal to this translation unit: not
+// part of TimeFrame's public API.
 class NormalizedBackfillAllocatorMismatch final : public std::logic_error
 {
  public:
@@ -511,6 +512,30 @@ LoadSourcesResult TimeFrame<NLayers>::loadNormalizedSource(
     stagedClusterLabels[layer] = labels;
   }
 
+  // mNTrackletsPerCluster/mNTrackletsPerClusterSum are not per-layer (see
+  // their declaration: std::array<bounded_vector<int>, 2>, sized from layer
+  // 1's cluster count, consumed later by computeTrackletsPerROFScans() on
+  // the CA hot path). loadROFrameData() has always sized them as part of its
+  // own commit; loadNormalizedSource() must too, or a TF loaded through this
+  // path silently carries stale/empty tracklet-per-cluster scratch into
+  // tracking. Sized from the *staged* (not yet committed) layer-1 count, so
+  // this stays consistent with everything else staged above.
+  const size_t nClustersLayer1 = stagedUnsortedClusters[1].size();
+  auto* nTrackletsPerClusterMr = pool != nullptr ? pool : mNTrackletsPerCluster[0].get_allocator().resource();
+  auto* nTrackletsPerClusterSumMr = pool != nullptr ? pool : mNTrackletsPerClusterSum[0].get_allocator().resource();
+  // List-initialized at declaration, not assigned: each element is
+  // *constructed* directly with its final allocator. std::pmr::vector
+  // move-assignment falls back to an element-wise move when allocators
+  // differ (polymorphic_allocator neither propagates on move-assignment nor
+  // is ever always_equal), which would silently discard the intended pool --
+  // the same hazard the per-layer vectors above avoid via emplace_back.
+  std::array<bounded_vector<int>, 2> stagedNTrackletsPerCluster{
+    bounded_vector<int>(nClustersLayer1, 0, std::pmr::polymorphic_allocator<int>{nTrackletsPerClusterMr}),
+    bounded_vector<int>(nClustersLayer1, 0, std::pmr::polymorphic_allocator<int>{nTrackletsPerClusterMr})};
+  std::array<bounded_vector<int>, 2> stagedNTrackletsPerClusterSum{
+    bounded_vector<int>(nClustersLayer1 + 1, 0, std::pmr::polymorphic_allocator<int>{nTrackletsPerClusterSumMr}),
+    bounded_vector<int>(nClustersLayer1 + 1, 0, std::pmr::polymorphic_allocator<int>{nTrackletsPerClusterSumMr})};
+
   // Invariant gate: every staged vector must share its live counterpart's
   // memory resource before anything is committed. Construction above always
   // derives both pointers from the same getMaybeFrameworkHostResource()/
@@ -528,6 +553,15 @@ LoadSourcesResult TimeFrame<NLayers>::loadNormalizedSource(
       throw NormalizedBackfillAllocatorMismatch(layer);
     }
   }
+  // mNTrackletsPerCluster/mNTrackletsPerClusterSum are not indexed by layer:
+  // every one of their two elements is checked individually, not just
+  // element zero, since each was constructed as an independent bounded_vector.
+  for (int i = 0; i < 2; ++i) {
+    if (mNTrackletsPerCluster[i].get_allocator().resource() != stagedNTrackletsPerCluster[i].get_allocator().resource() ||
+        mNTrackletsPerClusterSum[i].get_allocator().resource() != stagedNTrackletsPerClusterSum[i].get_allocator().resource()) {
+      throw NormalizedBackfillAllocatorMismatch(-1); // -1: not a per-layer container; see declaration comment above.
+    }
+  }
 
   // Commit: nothing past this point can throw. mNormalizedFrame's move
   // assignment is statically nothrow (see the static_assert below); every
@@ -543,6 +577,10 @@ LoadSourcesResult TimeFrame<NLayers>::loadNormalizedSource(
   // and is never always_equal. That precondition is exactly what the
   // runtime allocator-equality gate above proves before any swap below runs.
   static_assert(noexcept(std::declval<bounded_vector<Cluster>&>().swap(std::declval<bounded_vector<Cluster>&>())));
+  // mNTrackletsPerCluster/mNTrackletsPerClusterSum are bounded_vector<int>,
+  // a distinct instantiation from bounded_vector<Cluster> above; asserted
+  // separately rather than assumed to swap noexcept by analogy.
+  static_assert(noexcept(std::declval<bounded_vector<int>&>().swap(std::declval<bounded_vector<int>&>())));
 
   mNormalizedFrame = std::move(staged);
   mDetId = detId;
@@ -553,6 +591,10 @@ LoadSourcesResult TimeFrame<NLayers>::loadNormalizedSource(
     mClusterSize[layer].swap(stagedClusterSize[layer]);
     mROFramesClusters[layer].swap(stagedROFramesClusters[layer]);
     mClusterLabels[layer] = stagedClusterLabels[layer];
+  }
+  for (int i = 0; i < 2; ++i) {
+    mNTrackletsPerCluster[i].swap(stagedNTrackletsPerCluster[i]);
+    mNTrackletsPerClusterSum[i].swap(stagedNTrackletsPerClusterSum[i]);
   }
 
   return result;

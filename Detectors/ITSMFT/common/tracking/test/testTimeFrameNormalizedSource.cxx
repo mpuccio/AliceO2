@@ -307,6 +307,18 @@ void checkParity(std::vector<SurfaceDescriptor> catalog, TransitionPolicyTag pol
   BOOST_CHECK_EQUAL(tf.getUnsortedClustersOnLayer(0, 0).size() + tf.getUnsortedClustersOnLayer(1, 0).size(), 2u);
   BOOST_CHECK_EQUAL(tf.getUnsortedClustersOnLayer(0, 1).size(), 1u);
   BOOST_CHECK_EQUAL(tf.getUnsortedClustersOnLayer(2, 2).size(), 1u);
+
+  // loadROFrameData() has always sized mNTrackletsPerCluster/
+  // mNTrackletsPerClusterSum (both 2-element, not per-layer, consumed by
+  // computeTrackletsPerROFScans() on the CA hot path) from layer 1's total
+  // cluster count; loadNormalizedSource() must do the same, or a TF loaded
+  // through this path would silently carry stale/empty tracklet-per-cluster
+  // scratch into tracking.
+  const auto nClustersLayer1 = tf.mUnsortedClusters[1].size();
+  for (int i = 0; i < 2; ++i) {
+    BOOST_CHECK_EQUAL(tf.mNTrackletsPerCluster[i].size(), nClustersLayer1);
+    BOOST_CHECK_EQUAL(tf.mNTrackletsPerClusterSum[i].size(), nClustersLayer1 + 1);
+  }
   for (int l = 3; l < NLayers; ++l) {
     BOOST_CHECK_EQUAL(tf.getNormalizedFrame().getSurfaceMeasurements(SurfaceId{static_cast<uint16_t>(l)}).size(), 0u);
     BOOST_CHECK_EQUAL(tf.getNrof(l), static_cast<int>(f.rofs.size()));
