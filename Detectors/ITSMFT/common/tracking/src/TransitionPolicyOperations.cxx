@@ -431,4 +431,23 @@ float clampTransitionCurvature<TransitionPolicyTag::DiskDisk>(float oneOverR, fl
   return (0.5f * oneOverR >= 1.f / r2) ? (2.f / r2) - o2::constants::math::Almost0 : oneOverR;
 }
 
+TransitionScatteringBendingPrep prepareTransitionScatteringAndBending(
+  gsl::span<const float> perLayerMSAngle, int fromLayer, int toLayer,
+  float r1, float r2, float clampedOneOverR, float res1, float res2) noexcept
+{
+  float ms2 = 0.f;
+  for (int layer = fromLayer; layer < toLayer; ++layer) {
+    ms2 += o2::its::math_utils::Sq(perLayerMSAngle[layer]);
+  }
+  const float msAngle = o2::gpu::CAMath::Sqrt(ms2);
+  const float cosTheta1half = o2::gpu::CAMath::Sqrt(1.f - o2::its::math_utils::Sq(0.5f * r1 * clampedOneOverR));
+  const float cosTheta2half = o2::gpu::CAMath::Sqrt(1.f - o2::its::math_utils::Sq(0.5f * r2 * clampedOneOverR));
+  const float x = (r2 * cosTheta1half) - (r1 * cosTheta2half);
+  const float delta = o2::gpu::CAMath::Sqrt(1.f / (1.f - 0.25f * o2::its::math_utils::Sq(x * clampedOneOverR)) *
+                                            (o2::its::math_utils::Sq((0.25f * r1 * r2 * o2::its::math_utils::Sq(clampedOneOverR) / cosTheta2half) + cosTheta1half) * o2::its::math_utils::Sq(res1) +
+                                             o2::its::math_utils::Sq((0.25f * r1 * r2 * o2::its::math_utils::Sq(clampedOneOverR) / cosTheta1half) + cosTheta2half) * o2::its::math_utils::Sq(res2)));
+  const float phiCut = o2::gpu::CAMath::Min(o2::gpu::CAMath::ASin(0.5f * x * clampedOneOverR) + 2.f * msAngle + delta, o2::constants::math::PI * 0.5f);
+  return TransitionScatteringBendingPrep{msAngle, phiCut};
+}
+
 } // namespace o2::itsmft::tracking

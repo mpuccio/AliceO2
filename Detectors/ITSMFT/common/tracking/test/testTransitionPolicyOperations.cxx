@@ -11,6 +11,7 @@
 
 #include <array>
 #include <cmath>
+#include <cstring>
 #include <limits>
 #include <utility>
 
@@ -1488,6 +1489,34 @@ BOOST_AUTO_TEST_CASE(DiskBuildCellSeedRepeatedCallsAreDeterministic)
 /// production traversal (covered separately in
 /// testComputeLayerTrackletsOrchestration.cxx).
 
+namespace
+{
+/// Independent re-transcription of the shared arithmetic in the frozen
+/// ITS-only TimeFrame::initialise() (ITS/tracking/src/TimeFrame.cxx:352-370),
+/// which the (now-removed) common-CA non-MFT branch reproduced verbatim.
+/// Deliberately re-derived here rather than calling
+/// prepareTransitionScatteringAndBending, so a transcription mistake in
+/// either the operation or this reference would show up as a mismatch.
+TransitionScatteringBendingPrep referenceTransitionScatteringAndBending(
+  gsl::span<const float> perLayerMSAngle, int fromLayer, int toLayer,
+  float r1, float r2, float clampedOneOverR, float res1, float res2)
+{
+  float ms2 = 0.f;
+  for (int layer = fromLayer; layer < toLayer; ++layer) {
+    ms2 += o2::its::math_utils::Sq(perLayerMSAngle[layer]);
+  }
+  const float msAngle = o2::gpu::CAMath::Sqrt(ms2);
+  const float cosTheta1half = o2::gpu::CAMath::Sqrt(1.f - o2::its::math_utils::Sq(0.5f * r1 * clampedOneOverR));
+  const float cosTheta2half = o2::gpu::CAMath::Sqrt(1.f - o2::its::math_utils::Sq(0.5f * r2 * clampedOneOverR));
+  const float x = (r2 * cosTheta1half) - (r1 * cosTheta2half);
+  const float delta = o2::gpu::CAMath::Sqrt(1.f / (1.f - 0.25f * o2::its::math_utils::Sq(x * clampedOneOverR)) *
+                                            (o2::its::math_utils::Sq((0.25f * r1 * r2 * o2::its::math_utils::Sq(clampedOneOverR) / cosTheta2half) + cosTheta1half) * o2::its::math_utils::Sq(res1) +
+                                             o2::its::math_utils::Sq((0.25f * r1 * r2 * o2::its::math_utils::Sq(clampedOneOverR) / cosTheta1half) + cosTheta2half) * o2::its::math_utils::Sq(res2)));
+  const float phiCut = o2::gpu::CAMath::Min(o2::gpu::CAMath::ASin(0.5f * x * clampedOneOverR) + 2.f * msAngle + delta, o2::constants::math::PI * 0.5f);
+  return TransitionScatteringBendingPrep{msAngle, phiCut};
+}
+} // namespace
+
 BOOST_AUTO_TEST_CASE(CylinderScatteringAngleMatchesFrozenITSFormula)
 {
   // Bit-exact vs the frozen ITS expression (ITS/tracking/src/TimeFrame.cxx:347):
@@ -1660,4 +1689,87 @@ BOOST_AUTO_TEST_CASE(CurvatureRatchetThreadsInIncreasingLegacyTransitionIdOrder)
   const float reversedFirstStep = clampTransitionCurvature<TransitionPolicyTag::CylinderCylinder>(
     initialOneOverR, r2InIncreasingTransitionIdOrder[2]);
   BOOST_CHECK_NE(reversedFirstStep, forwardResults[0]);
+}
+
+BOOST_AUTO_TEST_CASE(PrepareTransitionScatteringAndBendingMatchesFrozenFormulaForITSAndMFTShapedInputs)
+{
+  // ITS-shaped (cm-scale barrel radii from TrackingParameters defaults).
+  {
+    const std::array<float, 7> msAngles{1.e-3f, 1.1e-3f, 1.2e-3f, 2.e-3f, 2.1e-3f, 2.2e-3f, 2.3e-3f};
+    constexpr int fromLayer = 0;
+    constexpr int toLayer = 3; // half-open: sums layers 0,1,2 only
+    constexpr float r1 = 2.33959f;
+    constexpr float r2 = 19.6213f;
+    constexpr float res1 = 5.e-4f;
+    constexpr float res2 = 5.e-4f;
+    const float oneOverR = clampTransitionCurvature<TransitionPolicyTag::CylinderCylinder>(
+      0.001f * 0.3f * std::abs(Bz) / 0.3f, r2);
+    const gsl::span<const float> msSpan(msAngles.data(), msAngles.size());
+    const auto actual = prepareTransitionScatteringAndBending(msSpan, fromLayer, toLayer, r1, r2, oneOverR, res1, res2);
+    const auto reference = referenceTransitionScatteringAndBending(msSpan, fromLayer, toLayer, r1, r2, oneOverR, res1, res2);
+    BOOST_CHECK_EQUAL(actual.msAngle, reference.msAngle);
+    BOOST_CHECK_EQUAL(actual.phiCut, reference.phiCut);
+
+    // Half-open range: layer index `toLayer` itself must not contribute.
+    const auto includingToLayer = referenceTransitionScatteringAndBending(msSpan, fromLayer, toLayer + 1, r1, r2, oneOverR, res1, res2);
+    BOOST_CHECK_NE(actual.msAngle, includingToLayer.msAngle);
+  }
+
+  // MFT-shaped, deliberately skipped/non-adjacent transition (fromLayer=1,
+  // toLayer=4: sums layers 1,2,3, skipping layer 4 itself as the endpoint).
+  {
+    TrackingParameters mft;
+    resetDetectorDefaults(mft, o2::detectors::DetID::MFT);
+    std::array<float, o2::mft::constants::mft::LayersNumber> msAngles{};
+    for (int layer = 0; layer < o2::mft::constants::mft::LayersNumber; ++layer) {
+      msAngles[layer] = layerMultipleScatteringAngle<TransitionPolicyTag::DiskDisk>(
+        LayerScatteringInputs<TransitionPolicyTag::DiskDisk>{mft.LayerxX0[layer], mft.LayerRadii[layer], detail::mftLayerZ(layer)},
+        mft.TrackletMinPt);
+    }
+    constexpr int fromLayer = 1;
+    constexpr int toLayer = 4;
+    const float r1 = mft.LayerRadii[fromLayer];
+    const float r2 = mft.LayerRadii[toLayer];
+    constexpr float res1 = 5.e-4f;
+    constexpr float res2 = 6.e-4f;
+    const float oneOverR = clampTransitionCurvature<TransitionPolicyTag::DiskDisk>(
+      0.001f * 0.3f * std::abs(Bz) / mft.TrackletMinPt, r2);
+    const gsl::span<const float> msSpan(msAngles.data(), msAngles.size());
+    const auto actual = prepareTransitionScatteringAndBending(msSpan, fromLayer, toLayer, r1, r2, oneOverR, res1, res2);
+    const auto reference = referenceTransitionScatteringAndBending(msSpan, fromLayer, toLayer, r1, r2, oneOverR, res1, res2);
+    BOOST_CHECK_EQUAL(actual.msAngle, reference.msAngle);
+    BOOST_CHECK_EQUAL(actual.phiCut, reference.phiCut);
+  }
+}
+
+BOOST_AUTO_TEST_CASE(PrepareTransitionScatteringAndBendingZeroFieldAndDegenerateRadiusMatchLegacyFormula)
+{
+  const std::array<float, 3> msAngles{1.e-3f, 1.2e-3f, 1.4e-3f};
+  const gsl::span<const float> msSpan(msAngles.data(), msAngles.size());
+
+  // Zero field: oneOverR's initial value (before any clamp) is exactly 0,
+  // matching the legacy `0.001f * 0.3f * std::abs(mBz) / trkParam.TrackletMinPt`.
+  {
+    const float zeroFieldOneOverR = 0.001f * 0.3f * std::abs(0.f) / 0.3f;
+    BOOST_CHECK_EQUAL(zeroFieldOneOverR, 0.f);
+    const float clamped = clampTransitionCurvature<TransitionPolicyTag::CylinderCylinder>(zeroFieldOneOverR, 5.f);
+    BOOST_CHECK_EQUAL(clamped, 0.f); // 0.5*0 >= 1/5 is false: clamp does not trigger
+    const auto actual = prepareTransitionScatteringAndBending(msSpan, 0, 2, 2.f, 5.f, clamped, 5.e-4f, 5.e-4f);
+    const auto reference = referenceTransitionScatteringAndBending(msSpan, 0, 2, 2.f, 5.f, clamped, 5.e-4f, 5.e-4f);
+    BOOST_CHECK_EQUAL(actual.msAngle, reference.msAngle);
+    BOOST_CHECK_EQUAL(actual.phiCut, reference.phiCut);
+  }
+
+  // Degenerate radius (r2 == 0): legacy does not reject this -- it flows
+  // through to whatever the floating-point expression produces. This test
+  // asserts parity with that expression, not any particular finiteness.
+  {
+    const float oneOverR = clampTransitionCurvature<TransitionPolicyTag::CylinderCylinder>(0.01f, 0.f);
+    const auto actual = prepareTransitionScatteringAndBending(msSpan, 0, 2, 2.f, 0.f, oneOverR, 5.e-4f, 5.e-4f);
+    const auto reference = referenceTransitionScatteringAndBending(msSpan, 0, 2, 2.f, 0.f, oneOverR, 5.e-4f, 5.e-4f);
+    // BOOST_CHECK_EQUAL on NaN is always false (NaN != NaN); compare the bit
+    // pattern so a NaN-vs-NaN legacy-parity match is still recognized as a pass.
+    BOOST_CHECK(std::memcmp(&actual.msAngle, &reference.msAngle, sizeof(float)) == 0);
+    BOOST_CHECK(std::memcmp(&actual.phiCut, &reference.phiCut, sizeof(float)) == 0);
+  }
 }

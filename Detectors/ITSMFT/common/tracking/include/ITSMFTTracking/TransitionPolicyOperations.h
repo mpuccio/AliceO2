@@ -406,6 +406,31 @@ float clampTransitionCurvature<TransitionPolicyTag::CylinderCylinder>(float oneO
 template <>
 float clampTransitionCurvature<TransitionPolicyTag::DiskDisk>(float oneOverR, float r2) noexcept;
 
+/// Tag-independent: the arithmetic after the family-specific curvature clamp
+/// (clampTransitionCurvature) is verified byte-identical between
+/// CylinderCylinder and DiskDisk in the frozen legacy code (both the common
+/// TimeFrame's former if-constexpr branches and, for the barrel case, the
+/// separate frozen ITS-only TimeFrame::initialise()). It is therefore not a
+/// policy specialization point without new evidence of divergence; adding a
+/// Tag parameter here would duplicate a formula that does not currently
+/// differ. Performs the integrated multiple-scattering sum over
+/// `[fromLayer, toLayer)` (half-open, legacy layout-local layer indices) and
+/// the transverse bending/phi-acceptance half-width, clamped to [., PI/2].
+/// Never fails (pure, total float arithmetic, matching legacy: degenerate
+/// inputs such as `r2==0` propagate through to a non-finite result exactly as
+/// today, they are not rejected here).
+struct TransitionScatteringBendingPrep {
+  float msAngle; // integrated multiple-scattering angle across the transition
+  float phiCut;  // combined phi-acceptance / bending half-width, radians; called
+                 // "transitionPhiCut" by CylinderCylinder and
+                 // "transitionBendingAngle" by DiskDisk downstream -- same
+                 // quantity, two domain names
+};
+
+TransitionScatteringBendingPrep prepareTransitionScatteringAndBending(
+  gsl::span<const float> perLayerMSAngle, int fromLayer, int toLayer,
+  float r1, float r2, float clampedOneOverR, float res1, float res2) noexcept;
+
 #endif // GPUCA_GPUCODE
 
 } // namespace o2::itsmft::tracking
