@@ -27,6 +27,7 @@
 #include "ITSMFTTracking/TimeFrame.h"
 #include "ITSMFTTracking/TransitionPolicyBinding.h"
 #include "ITSMFTTracking/TransitionPolicyDispatch.h"
+#include "ITSMFTTracking/TransitionPolicyOperations.h"
 #include "ITSMFTTracking/TransitionPolicyState.h"
 #include "ITStracking/BoundedAllocator.h"
 
@@ -128,6 +129,24 @@ class TrackerTraits
 
   template <TransitionPolicyTag Tag>
   void findRoadsForPolicy(int iteration, const typename TransitionPolicyTraits<Tag>::Params& params);
+
+  // Gate 3 transition-preparation slice: relocated from TimeFrame::initialise()
+  // (Architecture.md Sec 10/10.1). Called from initialiseTimeFrame() only
+  // after all existing and new fallible validation for this iteration has
+  // already succeeded (activeTag, cylinder/disk params, attachHitConfig,
+  // geometryConfig, and -- for DiskDisk -- referenceCoordinateView); this
+  // method itself never throws. Fills TimeFrame's already-sized
+  // mTransitionMSAngles/mTransitionPhiCuts (container sizing stays in
+  // TimeFrame::initialise(), unchanged) by iterating legacy transitionIds
+  // 0..nTransitions-1 in increasing order directly off
+  // TimeFrame::getTrackingTopologyView() -- not through mTraversalGrouping's
+  // per-tag span -- so the loop-carried oneOverR ratchet threads in exactly
+  // the same order the frozen legacy code used, with no dependency on
+  // grouping-span ordering.
+  template <TransitionPolicyTag Tag>
+  void prepareTransitionScatteringAndBendingForPolicy(int iteration,
+                                                      const LayerGeometryConfigView& geometryConfig,
+                                                      const DiskDiskReferenceCoordinateView& referenceCoordinateView);
 
   std::shared_ptr<BoundedMemoryResource> mMemoryPool;
   std::shared_ptr<tbb::task_arena> mTaskArena;

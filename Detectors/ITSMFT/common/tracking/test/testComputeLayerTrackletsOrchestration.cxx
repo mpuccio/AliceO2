@@ -10,6 +10,7 @@
 #define BOOST_TEST_DYN_LINK
 
 #include <array>
+#include <cmath>
 #include <memory>
 #include <vector>
 
@@ -213,6 +214,23 @@ TrackletSnapshot runFixture(o2::detectors::DetID::ID detector,
   const auto otherTag = tag == TransitionPolicyTag::CylinderCylinder ? TransitionPolicyTag::DiskDisk : TransitionPolicyTag::CylinderCylinder;
   BOOST_CHECK_EQUAL(traits.getPolicyBindingCount(otherTag), 0);
 
+  // Gate 3 transition-preparation slice: successful initialisation must fill
+  // every transition entry (relocated from TimeFrame::initialise() into
+  // TrackerTraits::initialiseTimeFrame(), see TransitionPolicyOperations.h).
+  // Exercised here for both CylinderCylinder and DiskDisk through the
+  // existing fixture rather than a separate harness.
+  {
+    const auto preparedTopology = tf.getTrackingTopologyView();
+    const auto& msAngles = tf.getTransitionMSAngles();
+    const auto& phiCuts = tf.getTransitionPhiCuts();
+    BOOST_REQUIRE_EQUAL(msAngles.size(), static_cast<size_t>(preparedTopology.nTransitions));
+    BOOST_REQUIRE_EQUAL(phiCuts.size(), static_cast<size_t>(preparedTopology.nTransitions));
+    for (int id = 0; id < preparedTopology.nTransitions; ++id) {
+      BOOST_CHECK(std::isfinite(msAngles[id]));
+      BOOST_CHECK(std::isfinite(phiCuts[id]));
+    }
+  }
+
   const auto topology = tf.getTrackingTopologyView();
   int transitionId = -1;
   for (int id = 0; id < topology.nTransitions; ++id) {
@@ -346,4 +364,87 @@ BOOST_AUTO_TEST_CASE(ComputeLayerTrackletsFailsClosedWithoutInitialiseTimeFrame)
   BOOST_CHECK_EXCEPTION(traits.computeLayerTracklets(0, -1), TraversalException, [](const TraversalException& error) {
     return error.getReason() == TraversalFailureReason::InvalidTraversalSchedule;
   });
+}
+
+BOOST_AUTO_TEST_CASE(InitialiseTimeFrameFailureLeavesTransitionArraysZeroFilledNotPartial)
+{
+  // Gate 3 transition-preparation slice failure contract: TimeFrame::initialise()
+  // already clears/resizes mTransitionMSAngles/mTransitionPhiCuts to
+  // nTransitions before any policy/geometry validation runs (unchanged by
+  // this slice). A later fallible check (here: LayerxX0 corrupted so
+  // AttachHitPolicyConfigView::isValid() fails) must leave those arrays
+  // exactly zero-filled at the correct size -- never a mixture of computed
+  // and zero entries -- because the (non-throwing) value-computation loop
+  // this slice added never starts until every fallible check has succeeded.
+  auto pool = std::make_shared<BoundedMemoryResource>();
+  TimeFrame<ITSNLayers> tf;
+  TrackerTraits<ITSNLayers> traits;
+  std::shared_ptr<tbb::task_arena> arena;
+  std::vector<TrackingParameters> params(1);
+  resetDetectorDefaults(params[0], o2::detectors::DetID::ITS);
+  params[0].PassFlags.reset();
+  params[0].PassFlags.set(IterationStep::FirstPass, IterationStep::RebuildClusterLUT);
+  params[0].LayerxX0[2] = -1.f; // invalid: AttachHitPolicyConfigView rejects negative xX0
+
+  tf.setMemoryPool(pool);
+  traits.setMemoryPool(pool);
+  traits.setNThreads(1, arena);
+  traits.adoptTimeFrame(&tf);
+  traits.updateTrackingParameters(params);
+  traits.setBz(Bz);
+
+  const auto orderedSurfaces = identitySurfaces(static_cast<uint16_t>(ITSNLayers));
+  FakeCatalogProvider provider{makeCatalog(static_cast<uint16_t>(ITSNLayers), o2::detectors::DetID::ITS, SurfaceKind::Cylinder)};
+  const DetectorSurfaceCatalogRequest catalogRequest{o2::detectors::DetID::ITS, SurfaceId{0}, static_cast<uint32_t>(ITSNLayers)};
+  BOOST_REQUIRE(tf.ensureDetectorLayouts(&provider, catalogRequest, orderedSurfaces, TransitionPolicyTag::CylinderCylinder, params).ok());
+  tf.initTrackerTopologies(params);
+
+  // Same minimal cluster/ROF/mask setup as runFixture(): TimeFrame::initialise()
+  // (called unconditionally, before any of this test's induced failure) needs
+  // it to size mIndexTables/mClusters correctly, regardless of what this test
+  // is actually probing.
+  const std::vector<DecodedCluster> decoded{cylinderCluster(3.f, 0.3f, 0), cylinderCluster(4.f, 0.4f, 1)};
+  std::vector<CompClusterExt> compactClusters;
+  std::vector<unsigned char> patterns;
+  compactClusters.reserve(decoded.size());
+  patterns.reserve(decoded.size() * OnePixelPattern.size());
+  for (const auto& cluster : decoded) {
+    compactClusters.emplace_back(0, 0, CompCluster::InvalidPatternID, cluster.layer);
+    patterns.insert(patterns.end(), OnePixelPattern.begin(), OnePixelPattern.end());
+  }
+  const std::vector<ROFRecord> rofs{ROFRecord{{100, 5}, 0, 0, static_cast<int>(compactClusters.size())}};
+  PrescribedDecoder decoder{o2::detectors::DetID::ITS, SurfaceKind::Cylinder, decoded};
+  const auto load = tf.loadNormalizedSource(decoder, o2::InteractionRecord{50, 5}, ROFTimingConfig{40, 0, 0, 0},
+                                            compactClusters, patterns, rofs, &dict(), nullptr, o2::detectors::DetID::ITS);
+  BOOST_REQUIRE(load.ok());
+
+  o2::its::LayerTiming layerTiming{};
+  layerTiming.mNROFsTF = 1;
+  layerTiming.mROFLength = 40;
+  TimeFrame<ITSNLayers>::ROFOverlapTableN rofTable;
+  for (int layer = 0; layer < ITSNLayers; ++layer) {
+    rofTable.defineLayer(layer, layerTiming);
+  }
+  rofTable.init();
+  tf.setROFOverlapTable(rofTable);
+  TimeFrame<ITSNLayers>::ROFMaskTableN mask{rofTable};
+  mask.resetMask();
+  for (int layer = 0; layer < ITSNLayers; ++layer) {
+    mask.setROFsEnabled(layer, 0, 1, 1);
+  }
+  tf.setMultiplicityCutMask(std::move(mask));
+
+  BOOST_CHECK_EXCEPTION(traits.initialiseTimeFrame(0), TraversalException, [](const TraversalException& error) {
+    return error.getReason() == TraversalFailureReason::InvalidPolicyParameters;
+  });
+
+  const auto topology = tf.getTrackingTopologyView();
+  const auto& msAngles = tf.getTransitionMSAngles();
+  const auto& phiCuts = tf.getTransitionPhiCuts();
+  BOOST_REQUIRE_EQUAL(msAngles.size(), static_cast<size_t>(topology.nTransitions));
+  BOOST_REQUIRE_EQUAL(phiCuts.size(), static_cast<size_t>(topology.nTransitions));
+  for (int id = 0; id < topology.nTransitions; ++id) {
+    BOOST_CHECK_EQUAL(msAngles[id], 0.f);
+    BOOST_CHECK_EQUAL(phiCuts[id], 0.f);
+  }
 }

@@ -195,6 +195,17 @@ void TrackerTraits<NLayers>::initialiseTimeFrame(const int iteration)
   if (!attachHitConfig.isValid(NLayers)) {
     throw TraversalException{iteration, TraversalFailureReason::InvalidPolicyParameters};
   }
+  const auto geometryConfig = bindLayerGeometryConfig(mTrkParams[iteration], attachHitConfig);
+  if (!geometryConfig.isValid(NLayers)) {
+    throw TraversalException{iteration, TraversalFailureReason::InvalidPolicyParameters};
+  }
+  DiskDiskReferenceCoordinateView referenceCoordinateView{};
+  if (activeTag == TransitionPolicyTag::DiskDisk) {
+    referenceCoordinateView = bindLegacyMFTReferenceCoordinates();
+    if (!referenceCoordinateView.isValid(NLayers)) {
+      throw TraversalException{iteration, TraversalFailureReason::InvalidPolicyParameters};
+    }
+  }
   if (activeTag == TransitionPolicyTag::CylinderCylinder) {
     cylinderParams = bindTransitionPolicyParams<TransitionPolicyTag::CylinderCylinder>(mTrkParams[iteration]);
     ++mPolicyBindingCounts[0];
@@ -216,6 +227,67 @@ void TrackerTraits<NLayers>::initialiseTimeFrame(const int iteration)
   mCylinderPolicyParams = cylinderParams;
   mDiskPolicyParams = diskParams;
   mAttachHitConfig = attachHitConfig;
+
+  // All fallible validation for this iteration (layout/grouping, legacy
+  // parity, state-family, and every policy/geometry binding above) has now
+  // succeeded. What follows is the relocated, total (non-throwing) per-layer
+  // and per-transition scattering/bending preparation -- see the method doc
+  // for the ordering/failure contract this relies on.
+  if (activeTag == TransitionPolicyTag::CylinderCylinder) {
+    prepareTransitionScatteringAndBendingForPolicy<TransitionPolicyTag::CylinderCylinder>(iteration, geometryConfig, referenceCoordinateView);
+  } else {
+    prepareTransitionScatteringAndBendingForPolicy<TransitionPolicyTag::DiskDisk>(iteration, geometryConfig, referenceCoordinateView);
+  }
+}
+
+template <int NLayers>
+template <TransitionPolicyTag Tag>
+void TrackerTraits<NLayers>::prepareTransitionScatteringAndBendingForPolicy(
+  int iteration,
+  const LayerGeometryConfigView& geometryConfig,
+  const DiskDiskReferenceCoordinateView& referenceCoordinateView)
+{
+  const auto& trkParam = mTrkParams[iteration];
+
+  // Per-layer step: genuinely policy-specific (typed operation), preserving
+  // the exact legacy loop bound (compile-time NLayers, not trkParam.NLayers --
+  // matches TimeFrame.cxx's original "estimate MS per layer" loop verbatim).
+  std::array<float, NLayers> msAngles{};
+  for (unsigned int iLayer{0}; iLayer < NLayers; ++iLayer) {
+    if constexpr (Tag == TransitionPolicyTag::CylinderCylinder) {
+      msAngles[iLayer] = layerMultipleScatteringAngle<Tag>(
+        LayerScatteringInputs<Tag>{geometryConfig.layerxX0[iLayer]}, trkParam.TrackletMinPt);
+    } else {
+      msAngles[iLayer] = layerMultipleScatteringAngle<Tag>(
+        LayerScatteringInputs<Tag>{geometryConfig.layerxX0[iLayer], geometryConfig.layerRadii[iLayer],
+                                   referenceCoordinateView.perLayerReferenceZ[iLayer]},
+        trkParam.TrackletMinPt);
+    }
+  }
+
+  // Per-transition step: shared/Tag-independent post-clamp arithmetic behind
+  // a Tag-specific curvature clamp. Iterates legacy transitionIds
+  // 0..nTransitions-1 directly off the legacy-shaped TrackingTopology view (in
+  // increasing order, matching the frozen code) rather than through
+  // mTraversalGrouping's per-tag span, so the loop-carried oneOverR ratchet
+  // is threaded in exactly the same order every time -- ordering does not
+  // depend on, and is not proven against, grouping-span order.
+  const auto& topology = mTimeFrame->getTrackingTopologyView();
+  auto& transitionMSAngles = mTimeFrame->getTransitionMSAngles();
+  auto& transitionPhiCuts = mTimeFrame->getTransitionPhiCuts();
+  float oneOverR{0.001f * 0.3f * std::abs(getBz()) / trkParam.TrackletMinPt};
+  for (int transitionId{0}; transitionId < static_cast<int>(topology.nTransitions); ++transitionId) {
+    const auto& transition = topology.getTransition(transitionId);
+    const float r1 = trkParam.LayerRadii[transition.fromLayer];
+    const float r2 = trkParam.LayerRadii[transition.toLayer];
+    oneOverR = clampTransitionCurvature<Tag>(oneOverR, r2);
+    const float res1 = o2::gpu::CAMath::Hypot(trkParam.PVres, mTimeFrame->getPositionResolution(transition.fromLayer));
+    const float res2 = o2::gpu::CAMath::Hypot(trkParam.PVres, mTimeFrame->getPositionResolution(transition.toLayer));
+    const auto prep = prepareTransitionScatteringAndBending(
+      gsl::span<const float>(msAngles.data(), msAngles.size()), transition.fromLayer, transition.toLayer, r1, r2, oneOverR, res1, res2);
+    transitionMSAngles[transitionId] = prep.msAngle;
+    transitionPhiCuts[transitionId] = prep.phiCut;
+  }
 }
 
 template <int NLayers>

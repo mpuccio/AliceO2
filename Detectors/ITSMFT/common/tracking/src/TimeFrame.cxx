@@ -795,72 +795,23 @@ void TimeFrame<NLayers>::initialise(const TrackingParameters& trkParam, const in
     }
   }
 
-  // estimate MS per layer
-  std::array<float, NLayers> msAngles{};
+  // Per-layer position resolution (unchanged; multiple-scattering angle and
+  // per-transition phi-cut/bending preparation are relocated to
+  // TrackerTraits::initialiseTimeFrame() -- see TransitionPolicyOperations.h
+  // layerMultipleScatteringAngle<Tag>/prepareTransitionScatteringAndBending).
   for (unsigned int iLayer{0}; iLayer < NLayers; ++iLayer) {
-    if constexpr (NLayers == o2::mft::constants::mft::LayersNumber) {
-      msAngles[iLayer] = detail::mftLayerMSAngle(iLayer, trkParam);
-    } else {
-      msAngles[iLayer] = math_utils::MSangle(0.14f, trkParam.TrackletMinPt, trkParam.LayerxX0[iLayer]);
-    }
     mPositionResolution[iLayer] = o2::gpu::CAMath::Sqrt((0.5f * (trkParam.SystError2Col[iLayer] + trkParam.SystError2Row[iLayer])) + (trkParam.LayerResolution[iLayer] * trkParam.LayerResolution[iLayer]));
   }
 
-  // for each transition calculate the phi-cuts + integrated MS
-  if constexpr (NLayers == o2::mft::constants::mft::LayersNumber) {
-    float oneOverR{0.001f * 0.3f * std::abs(mBz) / trkParam.TrackletMinPt};
-    for (int transitionId{0}; transitionId < (int)mTracklets.size(); ++transitionId) {
-      const auto& transition = mTrackingTopologyView.getTransition(transitionId);
-      float ms2 = 0.f;
-      for (int layer = transition.fromLayer; layer < transition.toLayer; ++layer) {
-        ms2 += math_utils::Sq(msAngles[layer]);
-      }
-      mTransitionMSAngles[transitionId] = o2::gpu::CAMath::Sqrt(ms2);
-      const float& r1 = trkParam.LayerRadii[transition.fromLayer];
-      const float& r2 = trkParam.LayerRadii[transition.toLayer];
-      oneOverR = (0.5f * oneOverR >= 1.f / r2) ? (2.f / r2) - o2::constants::math::Almost0 : oneOverR;
-      const float res1 = o2::gpu::CAMath::Hypot(trkParam.PVres, mPositionResolution[transition.fromLayer]);
-      const float res2 = o2::gpu::CAMath::Hypot(trkParam.PVres, mPositionResolution[transition.toLayer]);
-      const float cosTheta1half = o2::gpu::CAMath::Sqrt(1.f - math_utils::Sq(0.5f * r1 * oneOverR));
-      const float cosTheta2half = o2::gpu::CAMath::Sqrt(1.f - math_utils::Sq(0.5f * r2 * oneOverR));
-      const float x = (r2 * cosTheta1half) - (r1 * cosTheta2half);
-      const float delta = o2::gpu::CAMath::Sqrt(1.f / (1.f - 0.25f * math_utils::Sq(x * oneOverR)) *
-                                                (math_utils::Sq((0.25f * r1 * r2 * math_utils::Sq(oneOverR) / cosTheta2half) + cosTheta1half) * math_utils::Sq(res1) +
-                                                 math_utils::Sq((0.25f * r1 * r2 * math_utils::Sq(oneOverR) / cosTheta1half) + cosTheta2half) * math_utils::Sq(res2)));
-      // For MFT: bending angle (rad) at TrackletMinPt, used to widen x-y tracklet windows.
-      mTransitionPhiCuts[transitionId] = o2::gpu::CAMath::Min(o2::gpu::CAMath::ASin(0.5f * x * oneOverR) + 2.f * mTransitionMSAngles[transitionId] + delta, o2::constants::math::PI * 0.5f);
-
-      deepVectorClear(mTracklets[transitionId]);
-      deepVectorClear(mTrackletLabels[transitionId]);
-      deepVectorClear(mTrackletsLookupTable[transitionId]);
-      mTrackletsLookupTable[transitionId].resize(mClusters[transition.fromLayer].size() + 1, 0);
-    }
-  } else {
-    float oneOverR{0.001f * 0.3f * std::abs(mBz) / trkParam.TrackletMinPt};
-    for (int transitionId{0}; transitionId < (int)mTracklets.size(); ++transitionId) {
-      const auto& transition = mTrackingTopologyView.getTransition(transitionId);
-      float ms2 = 0.f;
-      for (int layer = transition.fromLayer; layer < transition.toLayer; ++layer) {
-        ms2 += math_utils::Sq(msAngles[layer]);
-      }
-      mTransitionMSAngles[transitionId] = o2::gpu::CAMath::Sqrt(ms2);
-      const float& r1 = trkParam.LayerRadii[transition.fromLayer];
-      const float& r2 = trkParam.LayerRadii[transition.toLayer];
-      oneOverR = (0.5 * oneOverR >= 1.f / r2) ? (2.f / r2) - o2::constants::math::Almost0 : oneOverR;
-      const float res1 = o2::gpu::CAMath::Hypot(trkParam.PVres, mPositionResolution[transition.fromLayer]);
-      const float res2 = o2::gpu::CAMath::Hypot(trkParam.PVres, mPositionResolution[transition.toLayer]);
-      const float cosTheta1half = o2::gpu::CAMath::Sqrt(1.f - math_utils::Sq(0.5f * r1 * oneOverR));
-      const float cosTheta2half = o2::gpu::CAMath::Sqrt(1.f - math_utils::Sq(0.5f * r2 * oneOverR));
-      float x = (r2 * cosTheta1half) - (r1 * cosTheta2half);
-      float delta = o2::gpu::CAMath::Sqrt(1.f / (1.f - 0.25f * math_utils::Sq(x * oneOverR)) * (math_utils::Sq((0.25f * r1 * r2 * math_utils::Sq(oneOverR) / cosTheta2half) + cosTheta1half) * math_utils::Sq(res1) + math_utils::Sq((0.25f * r1 * r2 * math_utils::Sq(oneOverR) / cosTheta1half) + cosTheta2half) * math_utils::Sq(res2)));
-      /// the expression std::asin(0.5f * x * oneOverR) is equivalent to std::aCos(0.5f * r1 * oneOverR) - std::acos(0.5 * r2 * oneOverR)
-      mTransitionPhiCuts[transitionId] = o2::gpu::CAMath::Min(o2::gpu::CAMath::ASin(0.5f * x * oneOverR) + 2.f * mTransitionMSAngles[transitionId] + delta, o2::constants::math::PI * 0.5f);
-
-      deepVectorClear(mTracklets[transitionId]);
-      deepVectorClear(mTrackletLabels[transitionId]);
-      deepVectorClear(mTrackletsLookupTable[transitionId]);
-      mTrackletsLookupTable[transitionId].resize(mClusters[transition.fromLayer].size() + 1, 0);
-    }
+  // Transition tracklet/label/LUT container clearing and resizing (unchanged;
+  // both legacy branches were already identical here, so no NLayers/detector
+  // branch is needed once the (relocated) value computation is removed).
+  for (int transitionId{0}; transitionId < (int)mTracklets.size(); ++transitionId) {
+    const auto& transition = mTrackingTopologyView.getTransition(transitionId);
+    deepVectorClear(mTracklets[transitionId]);
+    deepVectorClear(mTrackletLabels[transitionId]);
+    deepVectorClear(mTrackletsLookupTable[transitionId]);
+    mTrackletsLookupTable[transitionId].resize(mClusters[transition.fromLayer].size() + 1, 0);
   }
 
   for (int cellId{0}; cellId < (int)mCells.size(); ++cellId) {
