@@ -82,6 +82,12 @@ o2_add_test(timeframenormalizedsource
             LABELS "itsmft;tracking"
             PUBLIC_LINK_LIBRARIES O2::ITSMFTTracking O2::MFTTracking)
 
+o2_add_test(timeframe-load-failure
+            SOURCES testTimeFrameLoadFailure.cxx
+            COMPONENT_NAME itsmft-tracking
+            LABELS "itsmft;tracking"
+            PUBLIC_LINK_LIBRARIES O2::ITSMFTTracking)
+
 o2_add_test(timeframe-detector-layouts
             SOURCES testTimeFrameDetectorLayouts.cxx
             COMPONENT_NAME itsmft-tracking
