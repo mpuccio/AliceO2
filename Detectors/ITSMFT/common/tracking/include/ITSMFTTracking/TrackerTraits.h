@@ -111,6 +111,12 @@ class TrackerTraits
   void validateLegacyParity(int iteration, const DetectorLayoutView& layout, TransitionPolicyTag& activeTag, bool& mixedPolicy) const;
 
   template <TransitionPolicyTag Tag>
+  void computeLayerTrackletsForPolicy(int iteration,
+                                      int iVertex,
+                                      gsl::span<const TransitionId> transitionIds,
+                                      const typename TransitionPolicyTraits<Tag>::Params& params);
+
+  template <TransitionPolicyTag Tag>
   void computeLayerCellsForPolicy(int iteration,
                                   const typename TimeFrameN::TrackingTopologyN::View& topology,
                                   const typename TransitionPolicyTraits<Tag>::Params& params);

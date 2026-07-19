@@ -228,11 +228,67 @@ void TrackerTraits<NLayers>::computeLayerTracklets(const int iteration, int iVer
     std::fill(mTimeFrame->getTrackletsLookupTable()[transitionId].begin(), mTimeFrame->getTrackletsLookupTable()[transitionId].end(), 0);
   }
 
+  if (!mTraversalGrouping.has_value()) {
+    throw TraversalException{iteration, TraversalFailureReason::InvalidTraversalSchedule};
+  }
+
+  dispatchTransitionPolicies(*mTraversalGrouping, [&](auto traits, auto transitionIds, auto) {
+    using Traits = decltype(traits);
+    if constexpr (!std::is_same_v<CellSeedN, CellSeedTpl<typename Traits::SeedState>>) {
+      throw TraversalException{iteration, TraversalFailureReason::StateFamilyMismatch};
+    } else if constexpr (Traits::Tag == TransitionPolicyTag::CylinderCylinder) {
+      if (!mCylinderPolicyParams.has_value()) {
+        throw TraversalException{iteration, TraversalFailureReason::InvalidPolicyParameters};
+      }
+      computeLayerTrackletsForPolicy<Traits::Tag>(iteration, iVertex, transitionIds, *mCylinderPolicyParams);
+    } else if constexpr (Traits::Tag == TransitionPolicyTag::DiskDisk) {
+      if (!mDiskPolicyParams.has_value()) {
+        throw TraversalException{iteration, TraversalFailureReason::InvalidPolicyParameters};
+      }
+      computeLayerTrackletsForPolicy<Traits::Tag>(iteration, iVertex, transitionIds, *mDiskPolicyParams);
+    }
+  });
+}
+
+template <int NLayers>
+template <TransitionPolicyTag Tag>
+void TrackerTraits<NLayers>::computeLayerTrackletsForPolicy(
+  const int iteration,
+  const int iVertex,
+  gsl::span<const TransitionId> transitionIds,
+  const typename TransitionPolicyTraits<Tag>::Params& params)
+{
+  const auto topology = mTimeFrame->getTrackingTopologyView();
   const Vertex diamondVert(mTrkParams[iteration].Diamond, mTrkParams[iteration].DiamondCov, 1, 1.f);
   gsl::span<const Vertex> diamondSpan(&diamondVert, 1);
 
   mTaskArena->execute([&] {
-    auto forTracklets = [&](auto Tag, int transitionId, int pivotROF, int base, int& offset) -> int {
+    auto makeTransitionState = [&](int transitionId) {
+      const auto& transition = topology.getTransition(transitionId);
+      if constexpr (Tag == TransitionPolicyTag::CylinderCylinder) {
+        return TrackletProjectionState<Tag>{transition.fromLayer,
+                                            transition.toLayer,
+                                            mTrkParams[iteration].LayerRadii[transition.toLayer] - mTrkParams[iteration].LayerRadii[transition.fromLayer],
+                                            mTimeFrame->getMinR(transition.toLayer),
+                                            mTimeFrame->getMaxR(transition.toLayer),
+                                            mTimeFrame->getPositionResolution(transition.fromLayer),
+                                            mTimeFrame->getTransitionMSAngle(transitionId),
+                                            mTimeFrame->getTransitionPhiCut(transitionId)};
+      } else {
+        const float fromZ = detail::mftLayerZ(transition.fromLayer);
+        const float toZ = detail::mftLayerZ(transition.toLayer);
+        return TrackletProjectionState<Tag>{transition.fromLayer,
+                                            transition.toLayer,
+                                            fromZ,
+                                            toZ,
+                                            toZ - fromZ,
+                                            mTrkParams[iteration].LayerRadii[transition.fromLayer],
+                                            mTimeFrame->getTransitionMSAngle(transitionId),
+                                            mTimeFrame->getTransitionPhiCut(transitionId)};
+      }
+    };
+
+    auto forTracklets = [&](auto Mode, int transitionId, const TrackletProjectionState<Tag>& transitionState, int pivotROF, int base, int& offset) -> int {
       const auto& transition = topology.getTransition(transitionId);
       if (!mTimeFrame->getROFMaskView().isROFEnabled(transition.fromLayer, pivotROF)) {
         return 0;
@@ -259,12 +315,7 @@ void TrackerTraits<NLayers>::computeLayerTracklets(const int iteration, int iVer
         return 0;
       }
 
-      const float meanDeltaR = mTrkParams[iteration].LayerRadii[transition.toLayer] - mTrkParams[iteration].LayerRadii[transition.fromLayer];
-      const float phiCut = mTimeFrame->getTransitionPhiCut(transitionId);
-      const float msAngle = mTimeFrame->getTransitionMSAngle(transitionId);
       const bool useDiamond = mTrkParams[iteration].UseDiamond;
-      const bool isMFT = DetectorTraits<NLayers>::DetId == o2::detectors::DetID::MFT;
-      const float meanDeltaZ = isMFT ? detail::mftLayerZ(transition.toLayer) - detail::mftLayerZ(transition.fromLayer) : 0.f;
 
       for (int iCluster = 0; iCluster < int(layer0.size()); ++iCluster) {
         const Cluster& currentCluster = layer0[iCluster];
@@ -272,7 +323,6 @@ void TrackerTraits<NLayers>::computeLayerTracklets(const int iteration, int iVer
         if (mTimeFrame->isClusterUsed(transition.fromLayer, currentCluster.clusterId)) {
           continue;
         }
-        const float inverseR0 = 1.f / currentCluster.radius;
 
         for (int iV = startVtx; iV < endVtx; ++iV) {
           const auto& pv = primaryVertices[iV];
@@ -282,66 +332,13 @@ void TrackerTraits<NLayers>::computeLayerTracklets(const int iteration, int iVer
           if (pv.isFlagSet(Vertex::Flags::UPCMode) != mTrkParams[iteration].PassFlags[IterationStep::SelectUPCVertices]) {
             continue;
           }
-          float colWindow = 0.f;
-          float rowWindow = 0.f;
-          float sigmaX = 0.f;
-          float sigmaY = 0.f;
-          float sigmaZ = 0.f;
-          float lutRangeMin = 0.f;
-          float lutRangeMax = 0.f;
-          float xProj = 0.f;
-          float yProj = 0.f;
-          if (isMFT) {
-            const auto& tfInfo = mTimeFrame->getClusterTrackingFrameInfo(transition.fromLayer, currentCluster);
-            detail::mftTrackletProject(currentCluster.xCoordinate, currentCluster.yCoordinate, currentCluster.zCoordinate,
-                                       pv.getX(), pv.getY(), pv.getZ(),
-                                       transition.fromLayer, transition.toLayer, getBz(), mTrkParams[iteration].TrackletMinPt,
-                                       xProj, yProj);
-            detail::mftTrackletSigmaXY(currentCluster.xCoordinate, currentCluster.yCoordinate,
-                                       pv.getX(), pv.getY(), pv.getZ(),
-                                       tfInfo.covarianceTrackingFrame[0], tfInfo.covarianceTrackingFrame[2],
-                                       pv.getSigmaX2(), pv.getSigmaY2(), pv.getSigmaZ2(),
-                                       transition.fromLayer, transition.toLayer,
-                                       mTrkParams[iteration].LayerRadii[transition.fromLayer],
-                                       meanDeltaZ, msAngle, phiCut, xProj, yProj, sigmaX, sigmaY);
-            const float zSpread = mTrkParams[iteration].NSigmaCut * pv.getSigmaZ();
-            const float zVtxMin = pv.getZ() - zSpread;
-            const float zVtxMax = pv.getZ() + zSpread;
-            const float zLayerFrom = detail::mftLayerZ(transition.fromLayer);
-            const float zLayerTo = detail::mftLayerZ(transition.toLayer);
-            const float absZFrom = std::abs(zLayerFrom);
-            const float absZTo = std::abs(zLayerTo);
-            const float denomMin = zVtxMax + absZFrom;
-            const float denomMax = absZFrom + zVtxMin;
-            lutRangeMin = (std::abs(denomMin) > 1.e-6f) ? currentCluster.radius * (zVtxMax + absZTo) / denomMin : currentCluster.radius;
-            lutRangeMax = (std::abs(denomMax) > 1.e-6f) ? currentCluster.radius * (absZTo + zVtxMin) / denomMax : currentCluster.radius;
-            if (lutRangeMin > lutRangeMax) {
-              const float tmp = lutRangeMin;
-              lutRangeMin = lutRangeMax;
-              lutRangeMax = tmp;
-            }
-            colWindow = sigmaX * mTrkParams[iteration].NSigmaCut;
-            rowWindow = sigmaY * mTrkParams[iteration].NSigmaCut;
-          } else {
-            const float resolution = o2::gpu::CAMath::Sqrt(math_utils::Sq(mTimeFrame->getPositionResolution(transition.fromLayer)) + math_utils::Sq(mTrkParams[iteration].PVres) / float(pv.getNContributors()));
-            const float tanLambda = (currentCluster.zCoordinate - pv.getZ()) * inverseR0;
-            lutRangeMin = tanLambda * (mTimeFrame->getMinR(transition.toLayer) - currentCluster.radius) + currentCluster.zCoordinate;
-            lutRangeMax = tanLambda * (mTimeFrame->getMaxR(transition.toLayer) - currentCluster.radius) + currentCluster.zCoordinate;
-            const float sqInvDeltaZ0 = 1.f / (math_utils::Sq(currentCluster.zCoordinate - pv.getZ()) + constants::Tolerance);
-            sigmaZ = o2::gpu::CAMath::Sqrt((math_utils::Sq(resolution) * math_utils::Sq(tanLambda) * ((math_utils::Sq(inverseR0) + sqInvDeltaZ0) * math_utils::Sq(meanDeltaR) + 1.f)) + math_utils::Sq(meanDeltaR * msAngle));
-            colWindow = sigmaZ * mTrkParams[iteration].NSigmaCut;
-            rowWindow = phiCut;
-          }
-          const auto bins = isMFT
-                              ? o2::itsmft::getBinsRectClusterAtProj<NLayers>(xProj, yProj, transition.toLayer,
-                                                                              lutRangeMin, lutRangeMax, colWindow, rowWindow,
-                                                                              mTimeFrame->getIndexTableUtils())
-                              : o2::itsmft::getBinsRectCluster(currentCluster, transition.fromLayer, transition.toLayer,
-                                                               lutRangeMin, lutRangeMax, colWindow, rowWindow,
-                                                               mTimeFrame->getIndexTableUtils());
-          if (bins.x < 0) {
+          const auto& tfInfo = mTimeFrame->getClusterTrackingFrameInfo(transition.fromLayer, currentCluster);
+          TrackletSearchWindow<Tag> searchWindow{};
+          if (!projectSearchWindow<Tag, NLayers>(currentCluster, tfInfo, pv, transitionState, getBz(),
+                                                 mTimeFrame->getIndexTableUtils(), params, searchWindow)) {
             continue;
           }
+          const auto bins = searchWindow.bins;
           int rowBinsNum = bins.w - bins.y + 1;
           if (rowBinsNum < 0) {
             rowBinsNum += mTrkParams[iteration].RowBins;
@@ -362,9 +359,13 @@ void TrackerTraits<NLayers>::computeLayerTracklets(const int iteration, int iVer
             const auto& targetIndexTable = mTimeFrame->getIndexTable(targetROF, transition.toLayer);
             const int colBinRange = (bins.z - bins.x) + 1;
             for (int iRow = 0; iRow < rowBinsNum; ++iRow) {
-              const int iRowBin = isMFT ? (bins.y + iRow) : ((bins.y + iRow) % mTrkParams[iteration].RowBins);
-              if (isMFT && iRowBin >= mTrkParams[iteration].RowBins) {
-                break;
+              int iRowBin = bins.y + iRow;
+              if constexpr (Tag == TransitionPolicyTag::DiskDisk) {
+                if (iRowBin >= mTrkParams[iteration].RowBins) {
+                  break;
+                }
+              } else {
+                iRowBin %= mTrkParams[iteration].RowBins;
               }
               const int firstBinIdx = mTimeFrame->getIndexTableUtils().getBinIndex(bins.x, iRowBin);
               const int maxBinIdx = firstBinIdx + colBinRange;
@@ -379,36 +380,14 @@ void TrackerTraits<NLayers>::computeLayerTracklets(const int iteration, int iVer
                   continue;
                 }
 
-                bool acceptTracklet = false;
                 float tanL = 0.f;
-                if (isMFT) {
-                  const float dx = nextCluster.xCoordinate - xProj;
-                  const float dy = nextCluster.yCoordinate - yProj;
-                  const float invSigmaX2 = (sigmaX > 0.f) ? 1.f / (sigmaX * sigmaX) : 0.f;
-                  const float invSigmaY2 = (sigmaY > 0.f) ? 1.f / (sigmaY * sigmaY) : 0.f;
-                  const float transChi2 = dx * dx * invSigmaX2 + dy * dy * invSigmaY2;
-                  const float nSigmaCut2 = math_utils::Sq(mTrkParams[iteration].NSigmaCut);
-                  if (transChi2 < nSigmaCut2) {
-                    acceptTracklet = std::abs(meanDeltaZ) > 1.e-6f;
-                    tanL = (currentCluster.zCoordinate - nextCluster.zCoordinate) / meanDeltaZ;
-                  }
-                } else {
-                  const float tanLambda = (currentCluster.zCoordinate - pv.getZ()) * inverseR0;
-                  const float deltaZ = o2::gpu::CAMath::Abs((tanLambda * (nextCluster.radius - currentCluster.radius)) + currentCluster.zCoordinate - nextCluster.zCoordinate);
-                  if (deltaZ / sigmaZ < mTrkParams[iteration].NSigmaCut &&
-                      math_utils::isPhiDifferenceBelow(currentCluster.phi, nextCluster.phi, phiCut)) {
-                    acceptTracklet = true;
-                    tanL = (currentCluster.zCoordinate - nextCluster.zCoordinate) / (currentCluster.radius - nextCluster.radius);
-                  }
-                }
-
-                if (acceptTracklet) {
+                if (searchWindow.acceptCandidate(currentCluster, nextCluster, tanL)) {
                   const float phi{o2::gpu::CAMath::ATan2(currentCluster.yCoordinate - nextCluster.yCoordinate, currentCluster.xCoordinate - nextCluster.xCoordinate)};
-                  if constexpr (decltype(Tag)::value == PassMode::OnePass::value) {
+                  if constexpr (decltype(Mode)::value == PassMode::OnePass::value) {
                     tracklets.emplace_back(currentSortedIndex, mTimeFrame->getSortedIndex(targetROF, transition.toLayer, iNext), tanL, phi, ts);
-                  } else if constexpr (decltype(Tag)::value == PassMode::TwoPassCount::value) {
+                  } else if constexpr (decltype(Mode)::value == PassMode::TwoPassCount::value) {
                     ++localCount;
-                  } else if constexpr (decltype(Tag)::value == PassMode::TwoPassInsert::value) {
+                  } else if constexpr (decltype(Mode)::value == PassMode::TwoPassInsert::value) {
                     const int idx = base + offset++;
                     tracklets[idx] = Tracklet(currentSortedIndex, mTimeFrame->getSortedIndex(targetROF, transition.toLayer, iNext), tanL, phi, ts);
                   }
@@ -423,20 +402,24 @@ void TrackerTraits<NLayers>::computeLayerTracklets(const int iteration, int iVer
 
     int dummy{0};
     if (mTaskArena->max_concurrency() <= 1) {
-      for (int transitionId{0}; transitionId < topology.nTransitions; ++transitionId) {
+      for (const auto typedTransitionId : transitionIds) {
+        const int transitionId = typedTransitionId.value();
+        const auto transitionState = makeTransitionState(transitionId);
         const int fromLayer = topology.getTransition(transitionId).fromLayer;
         const int startROF = 0, endROF = mTimeFrame->getROFOverlapTableView().getLayer(fromLayer).mNROFsTF;
         for (int pivotROF{startROF}; pivotROF < endROF; ++pivotROF) {
-          forTracklets(PassMode::OnePass{}, transitionId, pivotROF, 0, dummy);
+          forTracklets(PassMode::OnePass{}, transitionId, transitionState, pivotROF, 0, dummy);
         }
       }
     } else {
-      tbb::parallel_for(0, static_cast<int>(topology.nTransitions), [&](const int transitionId) {
+      tbb::parallel_for(0, static_cast<int>(transitionIds.size()), [&](const int transitionIndex) {
+        const int transitionId = transitionIds[transitionIndex].value();
+        const auto transitionState = makeTransitionState(transitionId);
         const int fromLayer = topology.getTransition(transitionId).fromLayer;
         const int startROF = 0, endROF = mTimeFrame->getROFOverlapTableView().getLayer(fromLayer).mNROFsTF;
         bounded_vector<int> perROFCount((endROF - startROF) + 1, mMemoryPool.get());
         tbb::parallel_for(startROF, endROF, [&](const int pivotROF) {
-          perROFCount[pivotROF - startROF] = forTracklets(PassMode::TwoPassCount{}, transitionId, pivotROF, 0, dummy);
+          perROFCount[pivotROF - startROF] = forTracklets(PassMode::TwoPassCount{}, transitionId, transitionState, pivotROF, 0, dummy);
         });
         std::exclusive_scan(perROFCount.begin(), perROFCount.end(), perROFCount.begin(), 0);
         const int nTracklets = perROFCount.back();
@@ -450,12 +433,13 @@ void TrackerTraits<NLayers>::computeLayerTracklets(const int iteration, int iVer
             return;
           }
           int localIdx = 0;
-          forTracklets(PassMode::TwoPassInsert{}, transitionId, pivotROF, baseIdx, localIdx);
+          forTracklets(PassMode::TwoPassInsert{}, transitionId, transitionState, pivotROF, baseIdx, localIdx);
         });
       });
     }
 
-    tbb::parallel_for(0, static_cast<int>(topology.nTransitions), [&](const int transitionId) {
+    tbb::parallel_for(0, static_cast<int>(transitionIds.size()), [&](const int transitionIndex) {
+      const int transitionId = transitionIds[transitionIndex].value();
       /// Sort tracklets & remove duplicates
       // duplicates can exist simply since we evaluate per vertex
       auto& trkl{mTimeFrame->getTracklets()[transitionId]};
@@ -473,7 +457,8 @@ void TrackerTraits<NLayers>::computeLayerTracklets(const int iteration, int iVer
 
     /// Create tracklets labels
     if (mTimeFrame->hasMCinformation() && mTrkParams[iteration].CreateArtefactLabels) {
-      tbb::parallel_for(0, static_cast<int>(topology.nTransitions), [&](const int transitionId) {
+      tbb::parallel_for(0, static_cast<int>(transitionIds.size()), [&](const int transitionIndex) {
+        const int transitionId = transitionIds[transitionIndex].value();
         const auto& transition = topology.getTransition(transitionId);
         for (auto& trk : mTimeFrame->getTracklets()[transitionId]) {
           MCCompLabel label;
