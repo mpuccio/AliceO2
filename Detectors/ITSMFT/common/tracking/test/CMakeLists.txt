@@ -94,6 +94,12 @@ o2_add_test(rof-timing-uniformity
             LABELS "itsmft;tracking"
             PUBLIC_LINK_LIBRARIES O2::ITSMFTTracking O2::ITStracking)
 
+o2_add_test(tracking-interface-load-failure-contract
+            SOURCES testTrackingInterfaceLoadFailureContract.cxx
+            COMPONENT_NAME itsmft-tracking
+            LABELS "itsmft;tracking"
+            PUBLIC_LINK_LIBRARIES O2::ITSMFTTracking O2::MFTTracking O2::DetectorsBase O2::Field)
+
 o2_add_test(timeframe-detector-layouts
             SOURCES testTimeFrameDetectorLayouts.cxx
             COMPONENT_NAME itsmft-tracking
