@@ -48,4 +48,5 @@ o2_add_executable(its-common-tracker-onboarding-compile
                   SOURCES compileCommonTrackerOnboarding.cxx
                   COMPONENT_NAME its-tracking
                   NO_INSTALL
-                  PUBLIC_LINK_LIBRARIES O2::ITSCommonTrackingAdapter)
+                  PUBLIC_LINK_LIBRARIES O2::ITSCommonTrackingAdapter
+                                        O2::MFTTracking)

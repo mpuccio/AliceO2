@@ -29,7 +29,6 @@
 #include "DetectorsCommonDataFormats/DetID.h"
 #include "ITSMFTTracking/LayerMask.h"
 #include "ITSMFTTracking/TrackingConfigParam.h"
-#include "MFTTracking/Constants.h"
 #include "ITStracking/TrackingConfigParam.h"
 
 namespace o2::itsmft::tracking
@@ -37,13 +36,13 @@ namespace o2::itsmft::tracking
 
 constexpr int nLayersForDet(o2::detectors::DetID::ID detId)
 {
-  return detId == o2::detectors::DetID::MFT ? o2::mft::constants::mft::LayersNumber : ITSNLayers;
+  return detId == o2::detectors::DetID::MFT ? MFTNLayers : ITSNLayers;
 }
 
 template <int NLayers>
 constexpr o2::detectors::DetID::ID detIdFromNLayers()
 {
-  return NLayers == o2::mft::constants::mft::LayersNumber ? o2::detectors::DetID::MFT : o2::detectors::DetID::ITS;
+  return NLayers == MFTNLayers ? o2::detectors::DetID::MFT : o2::detectors::DetID::ITS;
 }
 
 } // namespace o2::itsmft::tracking
@@ -67,6 +66,8 @@ enum class IterationStep : uint16_t {
 };
 using IterationSteps = o2::utils::EnumFlags<IterationStep>;
 
+static_assert(sizeof(IterationStep) == sizeof(uint16_t));
+static_assert(sizeof(IterationSteps) == sizeof(uint16_t));
 static_assert(static_cast<uint16_t>(IterationStep::FirstPass) == 0);
 static_assert(static_cast<uint16_t>(IterationStep::RebuildClusterLUT) == 1);
 static_assert(static_cast<uint16_t>(IterationStep::UseUPCMask) == 2);

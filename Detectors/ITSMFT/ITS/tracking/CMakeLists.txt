@@ -47,8 +47,7 @@ o2_add_library(ITSCommonTrackingAdapter
                SOURCES src/CommonTrackingParameters.cxx
                PUBLIC_LINK_LIBRARIES
                        O2::ITStracking
-                       O2::ITSMFTTracking
-                       O2::MFTTracking)
+                       O2::ITSMFTTracking)
 
 o2_add_library(ITSTrackingInterface
                TARGETVARNAME targetName
