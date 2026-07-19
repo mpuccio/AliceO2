@@ -115,7 +115,11 @@ class ITSMFTTrackingInterface
                      const o2::dataformats::MCTruthContainer<o2::MCCompLabel>* labels,
                      gsl::span<const o2::dataformats::IRFrame> irFrames);
   float runTracking();
-  void configureROFLookupTables();
+  // Returns the single source-level ROFTimingConfig derived from per-layer
+  // DPLAlpideParam values; throws TimeFrameLoadException if those values are
+  // not uniform across layers (see ROFTimingUniformity.h). Also configures
+  // mTimeFrame's ROF overlap/vertex-lookup tables as a side effect, as before.
+  ROFTimingConfig configureROFLookupTables();
   void configureBeamPosition();
   void configureTrackingTopology();
   void configureROFMask(gsl::span<const o2::itsmft::ROFRecord> rofs,

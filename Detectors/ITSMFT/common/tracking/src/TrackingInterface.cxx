@@ -31,7 +31,11 @@
 #include "DetectorsBase/GRPGeomHelper.h"
 #include "DetectorsBase/Propagator.h"
 #include "Framework/Logger.h"
+#include "ITSMFTTracking/ROFTimingUniformity.h"
+#include "ITSMFTTracking/TimeFrameLoadFailure.h"
 #include "MFTTracking/MFTTrackingParam.h"
+
+#include <format>
 
 namespace o2::itsmft::tracking
 {
@@ -180,7 +184,11 @@ void ITSMFTTrackingInterface<NLayers>::loadTimeFrame(gsl::span<const o2::itsmft:
                                                      const o2::dataformats::MCTruthContainer<o2::MCCompLabel>* labels,
                                                      gsl::span<const o2::dataformats::IRFrame> irFrames)
 {
-  configureROFLookupTables();
+  // Throws TimeFrameLoadException (NonUniformROFTiming) before touching
+  // mTimeFrame if per-layer DPLAlpideParam values disagree; otherwise
+  // configures mTimeFrame's ROF overlap/vertex-lookup tables as a side
+  // effect and returns the single source-level ROFTimingConfig loadNormalizedSource() needs below.
+  const ROFTimingConfig timing = configureROFLookupTables();
   validateROFInput(rofs);
 
   mTimeFrame.setBz(o2::base::Propagator::Instance()->getNominalBz());
@@ -188,8 +196,21 @@ void ITSMFTTrackingInterface<NLayers>::loadTimeFrame(gsl::span<const o2::itsmft:
 
   configureROFMask(rofs, irFrames);
 
-  auto pattIt = patterns.begin();
-  mTimeFrame.loadROFrameData(rofs, clusters, pattIt, mDict, -1, labels, DetId);
+  // origin: the TF-relative BC anchor every source ROF is converted against
+  // (Architecture.md 7.2). The first ROF's own real interaction record, or
+  // the explicit default InteractionRecord{} when there are no ROFs at all.
+  const o2::InteractionRecord origin = rofs.empty() ? o2::InteractionRecord{} : rofs.front().getBCData();
+
+  // Transactional (TimeFrame::loadNormalizedSource()/loadSources()): on any
+  // failure below, mTimeFrame's normalized frame and every legacy
+  // compatibility container are left exactly as they were before this call.
+  const auto result = mTimeFrame.loadNormalizedSource(*mClusterDecoder, origin, timing, clusters, patterns, rofs, mDict, labels, DetId);
+  if (!result.ok()) {
+    if (isRecoverableLoadError(result.error, result.timingDetail)) {
+      throw RecoverableLoadFailure{result};
+    }
+    throw TimeFrameLoadException{result};
+  }
 
   configureTrackingTopology();
 
@@ -242,7 +263,7 @@ void ITSMFTTrackingInterface<NLayers>::configureBeamPosition()
 }
 
 template <int NLayers>
-void ITSMFTTrackingInterface<NLayers>::configureROFLookupTables()
+ROFTimingConfig ITSMFTTrackingInterface<NLayers>::configureROFLookupTables()
 {
   if constexpr (DetId == o2::detectors::DetID::MFT) {
     const bool continuous = o2::base::GRPGeomHelper::instance().getGRPECS()->isDetContinuousReadOut(DetId);
@@ -259,11 +280,12 @@ void ITSMFTTrackingInterface<NLayers>::configureROFLookupTables()
   const auto& par = o2::itsmft::DPLAlpideParam<DetId>::Instance();
   const int nOrbitsPerTF = o2::base::GRPGeomHelper::getNHBFPerTF();
 
+  std::array<o2::its::LayerTiming, NLayers> layerTimings{};
   ROFOverlapTableN rofTable;
   ROFVertexLookupTableN vtxTable;
   for (int iLayer = 0; iLayer < NLayers; ++iLayer) {
     const unsigned int nROFsPerOrbit = o2::constants::lhc::LHCMaxBunches / par.getROFLengthInBC(iLayer);
-    const o2::its::LayerTiming timing{
+    layerTimings[iLayer] = o2::its::LayerTiming{
       .mNROFsTF = nROFsPerOrbit * static_cast<unsigned int>(nOrbitsPerTF),
       .mROFLength = static_cast<uint32_t>(par.getROFLengthInBC(iLayer)),
       .mROFDelay = static_cast<uint32_t>(par.getROFDelayInBC(iLayer)),
@@ -271,8 +293,8 @@ void ITSMFTTrackingInterface<NLayers>::configureROFLookupTables()
       .mROFAddTimeErr = mTrackParams.empty()
                          ? static_cast<uint32_t>(o2::itsmft::tracking::TrackerParamRef<DetId>::get().addTimeError[iLayer])
                          : mTrackParams[0].AddTimeError[iLayer]};
-    rofTable.defineLayer(iLayer, timing);
-    vtxTable.defineLayer(iLayer, timing);
+    rofTable.defineLayer(iLayer, layerTimings[iLayer]);
+    vtxTable.defineLayer(iLayer, layerTimings[iLayer]);
   }
 
   const auto nROFsLayer0 = rofTable.getLayer(0).mNROFsTF;
@@ -284,10 +306,26 @@ void ITSMFTTrackingInterface<NLayers>::configureROFLookupTables()
     }
   }
 
+  // TimeFrame::loadNormalizedSource() takes one source-level ROFTimingConfig,
+  // but DPLAlpideParam supports genuine per-layer staggering (see
+  // ROFTimingUniformity.h). Both ITS and MFT default every staggering
+  // override to zero, so production configurations are uniform out of the
+  // box; a divergent configuration is rejected here, structurally, before
+  // any mTimeFrame mutation below -- never silently collapsed.
+  const auto uniformTiming = deriveUniformROFTimingConfig(layerTimings);
+  if (!uniformTiming.uniform) {
+    throw TimeFrameLoadException{
+      TimeFrameLoadFailureReason::NonUniformROFTiming,
+      std::format("{} CA per-layer ROF timing configuration is not uniform; source-level normalized loading requires equal length/delay/bias/addTimeErr across all {} layers",
+                  detName<DetId>(), NLayers)};
+  }
+
   rofTable.init();
   mTimeFrame.setROFOverlapTable(std::move(rofTable));
   vtxTable.init();
   mTimeFrame.setROFVertexLookupTable(std::move(vtxTable));
+
+  return uniformTiming.config;
 }
 
 template <int NLayers>
