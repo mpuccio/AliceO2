@@ -21,6 +21,7 @@
 #include <stdexcept>
 #include <string>
 
+#include <gsl/span>
 #include <oneapi/tbb.h>
 
 #include "ITSMFTTracking/Configuration.h"
@@ -160,6 +161,15 @@ class TrackerTraits
   std::optional<TransitionPolicyGrouping> mTraversalGrouping;
   std::optional<CylinderCylinderPolicyParams> mCylinderPolicyParams;
   std::optional<DiskDiskPolicyParams> mDiskPolicyParams;
+  // Gate 3 cell-road pre-cut slice: the legacy MFT reference-z span bound
+  // once per iteration by bindLegacyMFTReferenceCoordinates() (static-storage
+  // duration, never dangles), reused by passesCellRoadPrecut<DiskDisk> across
+  // every candidate. Stored as the raw span -- not the full
+  // DiskDiskReferenceCoordinateView -- so this header does not need that
+  // type complete (see the forward declaration above). Left empty (default)
+  // for CylinderCylinder iterations; passesCellRoadPrecut<CylinderCylinder>
+  // never reads it.
+  gsl::span<const float> mDiskLayerReferenceZ{};
   AttachHitPolicyConfigView mAttachHitConfig;
   int mTraversalGroupingCount{0};
   std::array<int, 2> mPolicyBindingCounts{};

@@ -17,8 +17,12 @@
 //    unchanged (checked against an oracle call to buildCellSeed<Tag> itself,
 //    built from the same values refetched through the TimeFrame, not
 //    re-typed literals);
-//  - keeps the MFT road pre-cut (detail::validateMFTCellClusters) outside
-//    buildCellSeed and driven by the bound DiskDiskPolicyParams::cellRoadRCut;
+//  - keeps the MFT road pre-cut (passesCellRoadPrecut<DiskDisk>, formerly
+//    detail::validateMFTCellClusters) outside buildCellSeed, called
+//    unconditionally for both families with no detector-ID branch in the
+//    candidate loop, and driven by the bound DiskDiskPolicyParams::cellRoadRCut
+//    and the once-per-iteration cached legacy reference-z span
+//    (TrackerTraits::mDiskLayerReferenceZ);
 //  - leaves cellTopologyId indexing, the LUT, MC-label construction, and
 //    one-pass/two-pass ordering untouched;
 //  - fails closed (TraversalException::InvalidTraversalSchedule) through the
@@ -411,7 +415,7 @@ BOOST_AUTO_TEST_CASE(DiskComputeLayerCellsRoadPreCutRejectsBeforeBuildCellSeed)
   rig.params[0].MaxChi2ClusterAttachment = 1.e6f;
   rig.params[0].TrackletMinPt = 0.3f;
   // Same geometry as DiskComputeLayerCellsMatchesBuildCellSeedOracle, but a
-  // vanishingly small road cut: proves detail::validateMFTCellClusters still
+  // vanishingly small road cut: proves passesCellRoadPrecut<DiskDisk> still
   // runs before buildCellSeed<DiskDisk> and is driven by the bound
   // DiskDiskPolicyParams::cellRoadRCut, not a stale/uninitialized value.
   rig.params[0].CellRoadRCut = 1.e-6f;
@@ -493,6 +497,162 @@ BOOST_AUTO_TEST_CASE(CylinderComputeLayerCellsOnePassAndTwoPassAgree)
   BOOST_CHECK_EQUAL(onePass.cl0, twoPass.cl0);
   BOOST_CHECK_EQUAL(onePass.cl1, twoPass.cl1);
   BOOST_CHECK_EQUAL(onePass.cl2, twoPass.cl2);
+}
+
+BOOST_AUTO_TEST_CASE(DiskComputeLayerCellsOnePassAndTwoPassAgree)
+{
+  struct Result {
+    int cellTopologyId{-1};
+    std::vector<int> lut;
+    float chi2{0.f};
+    int cl0{-1}, cl1{-1}, cl2{-1};
+  };
+
+  auto run = [](int nThreads) {
+    Rig<MFTNLayers> rig{o2::detectors::DetID::MFT, SurfaceKind::Disk, TransitionPolicyTag::DiskDisk, nThreads};
+    rig.params[0].MaxChi2ClusterAttachment = 1.e6f;
+    rig.params[0].TrackletMinPt = 0.3f;
+    rig.params[0].CellRoadRCut = 1000.f; // generous: road pre-cut must pass here
+    rig.traits.updateTrackingParameters(rig.params);
+    rig.traits.initialiseTimeFrame(0);
+
+    const auto topology = rig.tf.getTrackingTopologyView();
+    const int cellTopologyId = findCellTopologyId(topology, 0, 1, 2);
+    BOOST_REQUIRE_GE(cellTopologyId, 0);
+
+    injectOneCellCandidate(rig, cellTopologyId,
+                           {makeGlobalCluster(1.0f, 0.5f, -0.4f, 0),
+                            makeGlobalCluster(1.3f, 0.62f, -0.6f, 0),
+                            makeGlobalCluster(1.7f, 0.78f, -0.9f, 0)},
+                           {makeDiskHit(-0.4f, 1.0f, 0.5f),
+                            makeDiskHit(-0.6f, 1.3f, 0.62f),
+                            makeDiskHit(-0.9f, 1.7f, 0.78f)});
+
+    rig.traits.computeLayerCells(0);
+
+    Result r;
+    r.cellTopologyId = cellTopologyId;
+    const auto& lut = rig.tf.getCellsLookupTable()[cellTopologyId];
+    r.lut.assign(lut.begin(), lut.end());
+    BOOST_REQUIRE_EQUAL(rig.tf.getCells()[cellTopologyId].size(), 1u);
+    const auto& cell = rig.tf.getCells()[cellTopologyId][0];
+    r.chi2 = cell.getChi2();
+    r.cl0 = cell.getFirstClusterIndex();
+    r.cl1 = cell.getSecondClusterIndex();
+    r.cl2 = cell.getThirdClusterIndex();
+    return r;
+  };
+
+  const auto onePass = run(1);
+  const auto twoPass = run(4);
+
+  BOOST_CHECK_EQUAL(onePass.cellTopologyId, twoPass.cellTopologyId);
+  BOOST_CHECK_EQUAL_COLLECTIONS(onePass.lut.begin(), onePass.lut.end(), twoPass.lut.begin(), twoPass.lut.end());
+  BOOST_CHECK_EQUAL(onePass.chi2, twoPass.chi2);
+  BOOST_CHECK_EQUAL(onePass.cl0, twoPass.cl0);
+  BOOST_CHECK_EQUAL(onePass.cl1, twoPass.cl1);
+  BOOST_CHECK_EQUAL(onePass.cl2, twoPass.cl2);
+}
+
+// --- Gate 3 cell-road pre-cut cache: empty span safety and one-time binding
+
+BOOST_AUTO_TEST_CASE(CylinderComputeLayerCellsSafeWithEmptyDiskReferenceSpan)
+{
+  // A CylinderCylinder iteration never binds a legacy MFT reference-z span:
+  // TrackerTraits::mDiskLayerReferenceZ stays default-constructed (empty) for
+  // the whole traversal, exactly as it does today. passesCellRoadPrecut<
+  // CylinderCylinder> is still called unconditionally by the shared candidate
+  // loop and must never read it. This is already incidentally exercised by
+  // every Cylinder test above; this case documents and asserts it explicitly.
+  Rig<ITSNLayers> rig{o2::detectors::DetID::ITS, SurfaceKind::Cylinder, TransitionPolicyTag::CylinderCylinder};
+  rig.params[0].MaxChi2ClusterAttachment = 1.e6f;
+  rig.params[0].LayerxX0[0] = 0.005f;
+  rig.params[0].LayerxX0[1] = 0.005f;
+  rig.traits.updateTrackingParameters(rig.params);
+  rig.traits.initialiseTimeFrame(0);
+  BOOST_REQUIRE(rig.traits.hasTraversalCache());
+
+  const auto topology = rig.tf.getTrackingTopologyView();
+  const int cellTopologyId = findCellTopologyId(topology, 0, 1, 2);
+  BOOST_REQUIRE_GE(cellTopologyId, 0);
+
+  injectOneCellCandidate(rig, cellTopologyId,
+                         {makeGlobalCluster(3.0f, 0.100f, 0.9f, 0),
+                          makeGlobalCluster(4.0f, 0.150f, 1.05f, 0),
+                          makeGlobalCluster(5.0f, 0.201f, 1.25f, 0)},
+                         {makeBarrelHit(3.f, 0.f, 0.100f, 0.9f),
+                          makeBarrelHit(4.f, 0.f, 0.150f, 1.05f),
+                          makeBarrelHit(5.f, 0.f, 0.201f, 1.25f)});
+
+  rig.traits.computeLayerCells(0);
+
+  BOOST_REQUIRE_EQUAL(rig.tf.getCells()[cellTopologyId].size(), 1u);
+}
+
+BOOST_AUTO_TEST_CASE(RepeatedComputeLayerCellsCallsDoNotRebindOrIncreaseCounts)
+{
+  // getTraversalGroupingCount()/getPolicyBindingCount() only increment inside
+  // initialiseTimeFrame() (Gate 2 counters, unchanged by this slice).
+  // computeLayerCells() has no code path that rebinds mDiskLayerReferenceZ or
+  // any other cached policy/geometry state -- calling it repeatedly for the
+  // same iteration must leave both counters exactly as they were after the
+  // single initialiseTimeFrame() call, the closest observable proxy, through
+  // the public API alone, for "the legacy reference-z span is bound once per
+  // iteration, not once per candidate". (computeLayerCells() itself clears
+  // and consumes tracklets as an existing, unrelated post-step, so a second
+  // call with no freshly injected tracklets legitimately produces zero cells
+  // -- that is not what this test checks.)
+  Rig<MFTNLayers> rig{o2::detectors::DetID::MFT, SurfaceKind::Disk, TransitionPolicyTag::DiskDisk};
+  rig.params[0].MaxChi2ClusterAttachment = 1.e6f;
+  rig.params[0].TrackletMinPt = 0.3f;
+  rig.params[0].CellRoadRCut = 1000.f;
+  rig.traits.updateTrackingParameters(rig.params);
+  rig.traits.initialiseTimeFrame(0);
+  BOOST_REQUIRE(rig.traits.hasTraversalCache());
+
+  const int groupingCountAfterInit = rig.traits.getTraversalGroupingCount();
+  const int diskBindingCountAfterInit = rig.traits.getPolicyBindingCount(TransitionPolicyTag::DiskDisk);
+  const int cylinderBindingCountAfterInit = rig.traits.getPolicyBindingCount(TransitionPolicyTag::CylinderCylinder);
+
+  const auto topology = rig.tf.getTrackingTopologyView();
+  const int cellTopologyId = findCellTopologyId(topology, 0, 1, 2);
+  BOOST_REQUIRE_GE(cellTopologyId, 0);
+
+  injectOneCellCandidate(rig, cellTopologyId,
+                         {makeGlobalCluster(1.0f, 0.5f, -0.4f, 0),
+                          makeGlobalCluster(1.3f, 0.62f, -0.6f, 0),
+                          makeGlobalCluster(1.7f, 0.78f, -0.9f, 0)},
+                         {makeDiskHit(-0.4f, 1.0f, 0.5f),
+                          makeDiskHit(-0.6f, 1.3f, 0.62f),
+                          makeDiskHit(-0.9f, 1.7f, 0.78f)});
+
+  rig.traits.computeLayerCells(0);
+  BOOST_REQUIRE_EQUAL(rig.tf.getCells()[cellTopologyId].size(), 1u);
+  const auto firstChi2 = rig.tf.getCells()[cellTopologyId][0].getChi2();
+
+  rig.traits.computeLayerCells(0);
+  rig.traits.computeLayerCells(0);
+
+  BOOST_CHECK_EQUAL(rig.traits.getTraversalGroupingCount(), groupingCountAfterInit);
+  BOOST_CHECK_EQUAL(rig.traits.getPolicyBindingCount(TransitionPolicyTag::DiskDisk), diskBindingCountAfterInit);
+  BOOST_CHECK_EQUAL(rig.traits.getPolicyBindingCount(TransitionPolicyTag::CylinderCylinder), cylinderBindingCountAfterInit);
+
+  // Re-inject and recompute: a fresh call after the tracklets were consumed
+  // must still reproduce the identical chi2 through the same, never-rebound
+  // mDiskLayerReferenceZ/mDiskPolicyParams cache.
+  injectOneCellCandidate(rig, cellTopologyId,
+                         {makeGlobalCluster(1.0f, 0.5f, -0.4f, 0),
+                          makeGlobalCluster(1.3f, 0.62f, -0.6f, 0),
+                          makeGlobalCluster(1.7f, 0.78f, -0.9f, 0)},
+                         {makeDiskHit(-0.4f, 1.0f, 0.5f),
+                          makeDiskHit(-0.6f, 1.3f, 0.62f),
+                          makeDiskHit(-0.9f, 1.7f, 0.78f)});
+  rig.traits.computeLayerCells(0);
+
+  BOOST_CHECK_EQUAL(rig.traits.getTraversalGroupingCount(), groupingCountAfterInit);
+  BOOST_CHECK_EQUAL(rig.traits.getPolicyBindingCount(TransitionPolicyTag::DiskDisk), diskBindingCountAfterInit);
+  BOOST_REQUIRE_EQUAL(rig.tf.getCells()[cellTopologyId].size(), 1u);
+  BOOST_CHECK_EQUAL(rig.tf.getCells()[cellTopologyId][0].getChi2(), firstChi2);
 }
 
 // --- Fail-closed: no test-only seam, only the existing public entry point -

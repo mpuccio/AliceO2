@@ -61,6 +61,7 @@ void TrackerTraits<NLayers>::resetTraversalCache() noexcept
   mTraversalGrouping.reset();
   mCylinderPolicyParams.reset();
   mDiskPolicyParams.reset();
+  mDiskLayerReferenceZ = {};
   mAttachHitConfig = {};
   mTraversalGroupingCount = 0;
   mPolicyBindingCounts.fill(0);
@@ -226,6 +227,7 @@ void TrackerTraits<NLayers>::initialiseTimeFrame(const int iteration)
   mTraversalGrouping.emplace(std::move(grouping));
   mCylinderPolicyParams = cylinderParams;
   mDiskPolicyParams = diskParams;
+  mDiskLayerReferenceZ = referenceCoordinateView.perLayerReferenceZ;
   mAttachHitConfig = attachHitConfig;
 
   // All fallible validation for this iteration (layout/grouping, legacy
@@ -583,7 +585,14 @@ void TrackerTraits<NLayers>::computeLayerCells(const int iteration)
       }
       computeLayerCellsForPolicy<Traits::Tag>(iteration, topology, *mCylinderPolicyParams);
     } else if constexpr (Traits::Tag == TransitionPolicyTag::DiskDisk) {
-      if (!mDiskPolicyParams.has_value()) {
+      // The size check is a defensive invariant, not independently reachable
+      // through the public API today: mDiskLayerReferenceZ and
+      // mDiskPolicyParams are always committed together, at the same point,
+      // gated by the same activeTag validation in initialiseTimeFrame() (see
+      // that method). It guards against a future refactor accidentally
+      // decoupling the two commits, not a state this call site can currently
+      // observe on its own.
+      if (!mDiskPolicyParams.has_value() || mDiskLayerReferenceZ.size() < static_cast<size_t>(NLayers)) {
         throw TraversalException{iteration, TraversalFailureReason::InvalidPolicyParameters};
       }
       computeLayerCellsForPolicy<Traits::Tag>(iteration, topology, *mDiskPolicyParams);
@@ -636,16 +645,18 @@ void TrackerTraits<NLayers>::computeLayerCellsForPolicy(
           const auto& clusterMiddle = mTimeFrame->getUnsortedClusters()[hitLayers[1]][clusId[1]];
           const auto& clusterOuter = mTimeFrame->getUnsortedClusters()[hitLayers[2]][clusId[2]];
 
-          if constexpr (Tag == TransitionPolicyTag::DiskDisk) {
-            // MFT geometric road pre-cut: TrackerTraits-owned, outside buildCellSeed
-            // (Architecture.md Sec 10 / TransitionPolicyOperations.h doc on buildCellSeed).
-            const float r2Cut = params.cellRoadRCut * params.cellRoadRCut;
-            if (!detail::validateMFTCellClusters(clusterInner, hitLayers[0],
-                                               clusterMiddle, hitLayers[1],
-                                               clusterOuter, hitLayers[2],
-                                               r2Cut)) {
-              continue;
-            }
+          // MFT geometric road pre-cut: TrackerTraits-owned, outside buildCellSeed
+          // (Architecture.md Sec 10 / TransitionPolicyOperations.h doc on buildCellSeed).
+          // One unconditional call for both families -- no detector-ID/Tag
+          // branch here; CylinderCylinder's specialization is an inline
+          // no-op returning true.
+          const GlobalPoint3F pointInner{clusterInner.xCoordinate, clusterInner.yCoordinate, clusterInner.zCoordinate};
+          const GlobalPoint3F pointMiddle{clusterMiddle.xCoordinate, clusterMiddle.yCoordinate, clusterMiddle.zCoordinate};
+          const GlobalPoint3F pointOuter{clusterOuter.xCoordinate, clusterOuter.yCoordinate, clusterOuter.zCoordinate};
+          if (!passesCellRoadPrecut<Tag>(pointInner, pointMiddle, pointOuter,
+                                         hitLayers[0], hitLayers[1], hitLayers[2],
+                                         mDiskLayerReferenceZ, params)) {
+            continue;
           }
 
           const auto& hitInner = mTimeFrame->getTrackingFrameInfoOnLayer(hitLayers[0])[clusId[0]];
