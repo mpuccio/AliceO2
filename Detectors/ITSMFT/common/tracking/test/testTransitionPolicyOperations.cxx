@@ -20,6 +20,7 @@
 #include "ITSMFTTracking/MFTFwdTrackHelpers.h"
 #include "ITSMFTTracking/TransitionPolicyBinding.h"
 #include "ITSMFTTracking/TransitionPolicyOperations.h"
+#include "ITStracking/TrackHelpers.h"
 
 using namespace o2::itsmft;
 using namespace o2::itsmft::tracking;
@@ -127,6 +128,130 @@ bool legacyDiskAttach(o2::track::TrackParCovFwd& state, const o2::its::TrackingF
   }
   state = updated;
   chi2 = updatedChi2;
+  return true;
+}
+
+/// buildCellSeed<Tag> equivalence coverage (D007, Architecture.md Sec 10).
+/// These reference helpers independently re-transcribe the pre-existing
+/// legacy formulas (TrackerTraits::computeLayerCells' barrel branch and
+/// detail::mftFwdFitCellClusters) directly from clusters/hits, so a
+/// transcription mistake in either the operation or the test would show up
+/// as a mismatch rather than being masked by sharing code.
+
+o2::its::Cluster makeGlobalCluster(float x, float y, float z, int id = 0)
+{
+  return o2::its::Cluster{x, y, z, id};
+}
+
+/// Independent re-transcription of TrackerTraits::computeLayerCells' barrel
+/// branch: buildTrackSeed(clusterInner, clusterMiddle, hitOuter, bz) then
+/// middle-then-inner rotate/propagateTo/correctForMaterial/update, chi2 cut
+/// only on the last (inner) step. `nSteps==1` runs only the middle step, for
+/// deriving the inner step's exact marginal chi2 in boundary tests.
+bool legacyBarrelCellFit(const o2::its::Cluster& clusterInner, const o2::its::Cluster& clusterMiddle,
+                         const o2::its::TrackingFrameInfo& hitMiddle, const o2::its::TrackingFrameInfo& hitInner,
+                         const o2::its::TrackingFrameInfo& hitOuter,
+                         float xOverX0Middle, float xOverX0Inner, float bz, float maxChi2,
+                         o2::track::TrackParCovF& outTrack, float& outChi2, int nSteps = 2)
+{
+  auto track = o2::its::track::buildTrackSeed(clusterInner, clusterMiddle, hitOuter, bz);
+  const std::array<const o2::its::TrackingFrameInfo*, 2> hits{&hitMiddle, &hitInner};
+  const std::array<float, 2> x0{xOverX0Middle, xOverX0Inner};
+  float chi2 = 0.f;
+  for (int step = 0; step < nSteps; ++step) {
+    const bool isLast = (nSteps == 2) && (step == 1);
+    const auto& h = *hits[step];
+    if (!track.rotate(h.alphaTrackingFrame)) {
+      return false;
+    }
+    if (!track.propagateTo(h.xTrackingFrame, bz)) {
+      return false;
+    }
+    if (!track.correctForMaterial(x0[step], x0[step] * o2::its::constants::Radl * o2::its::constants::Rho, true)) {
+      return false;
+    }
+    const float predChi2 = track.getPredictedChi2Quiet(h.positionTrackingFrame, h.covarianceTrackingFrame);
+    if (isLast && predChi2 > maxChi2) {
+      return false;
+    }
+    if (!track.o2::track::TrackParCov::update(h.positionTrackingFrame, h.covarianceTrackingFrame)) {
+      return false;
+    }
+    chi2 += predChi2;
+  }
+  outTrack = track;
+  outChi2 = chi2;
+  return true;
+}
+
+/// Independent re-transcription of detail::mftFwdFitCellClusters, reading
+/// its three clusters/hits directly instead of through a TimeFrame, and
+/// deliberately NOT applying the geometric road pre-cut (that guard is
+/// TrackerTraits-owned, not part of the operation under test).
+/// `nSteps` limits how many of the outer/middle/inner attach steps run (used
+/// to derive the inner step's exact marginal chi2 in boundary tests); the
+/// chi2 cut is only active when all three steps run.
+bool legacyDiskCellFit(const o2::its::Cluster& clusterInner, const o2::its::Cluster& clusterMiddle, const o2::its::Cluster& clusterOuter,
+                       const o2::its::TrackingFrameInfo& hitOuter, const o2::its::TrackingFrameInfo& hitMiddle, const o2::its::TrackingFrameInfo& hitInner,
+                       float xOverX0Outer, float xOverX0Middle, float xOverX0Inner,
+                       float bz, float trackletMinPt, float maxChi2,
+                       o2::track::TrackParCovFwd& outTrack, float& outChi2, int nSteps = 3)
+{
+  if (clusterInner.zCoordinate <= clusterOuter.zCoordinate + 1.e-6f) {
+    return false;
+  }
+
+  const float dxTan = clusterMiddle.xCoordinate - clusterInner.xCoordinate;
+  const float dyTan = clusterMiddle.yCoordinate - clusterInner.yCoordinate;
+  const float dzTan = clusterMiddle.zCoordinate - clusterInner.zCoordinate;
+  const float drTan = std::sqrt(dxTan * dxTan + dyTan * dyTan);
+  const float dxPhi = clusterOuter.xCoordinate - clusterInner.xCoordinate;
+  const float dyPhi = clusterOuter.yCoordinate - clusterInner.yCoordinate;
+  const float dzPhi = clusterOuter.zCoordinate - clusterInner.zCoordinate;
+  const float drPhi = std::sqrt(dxPhi * dxPhi + dyPhi * dyPhi);
+  if (drTan < 1.e-6f || std::abs(dzTan) < 1.e-6f || drPhi < 1.e-6f || std::abs(dzPhi) < 1.e-6f) {
+    return false;
+  }
+
+  const float invQPt = (trackletMinPt > 0.f) ? 1.f / trackletMinPt : 0.f;
+  float tanl{0.f};
+  float phi{0.f};
+  if (std::abs(bz) > 0.01f) {
+    tanl = -std::abs(dzTan) / drTan;
+    phi = std::atan2(dyPhi, dxPhi);
+    if (std::abs(tanl) > 1.e-6f) {
+      const float k = std::abs(o2::constants::math::B2C * bz);
+      const float hz = (bz > 0.f) ? 1.f : -1.f;
+      phi -= 0.5f * hz * invQPt * dzPhi * k / tanl;
+    }
+  } else {
+    tanl = -std::abs(dzPhi) / drPhi;
+    phi = std::atan2(dyPhi, dxPhi);
+  }
+
+  ROOT::Math::SVector<double, 5> seedParams{clusterOuter.xCoordinate, clusterOuter.yCoordinate, phi, tanl, invQPt};
+  ROOT::Math::SMatrix<double, 5, 5, ROOT::Math::MatRepSym<double, 5>> seedCov{};
+  seedCov(0, 0) = hitOuter.covarianceTrackingFrame[0] > 0.f ? hitOuter.covarianceTrackingFrame[0] : 1.f;
+  seedCov(1, 1) = hitOuter.covarianceTrackingFrame[2] > 0.f ? hitOuter.covarianceTrackingFrame[2] : 1.f;
+  seedCov(2, 2) = seedCov(3, 3) = 1.;
+  const double qptSigma = std::clamp(static_cast<double>(std::abs(invQPt)), 1., 10.);
+  seedCov(4, 4) = qptSigma * qptSigma;
+
+  o2::track::TrackParCovFwd track{clusterOuter.zCoordinate, seedParams, seedCov, 0.};
+  float chi2 = 0.f;
+  const std::array<const o2::its::TrackingFrameInfo*, 3> hits{&hitOuter, &hitMiddle, &hitInner};
+  const std::array<float, 3> x0{xOverX0Outer, xOverX0Middle, xOverX0Inner};
+  for (int step = 0; step < nSteps; ++step) {
+    const bool checkLast = (nSteps == 3) && (step == 2);
+    const auto& h = *hits[step];
+    if (!detail::mftFwdAttachCluster(track, h.zCoordinate, h.xCoordinate, h.yCoordinate,
+                                     h.covarianceTrackingFrame[0], h.covarianceTrackingFrame[2],
+                                     x0[step], bz, maxChi2, chi2, checkLast)) {
+      return false;
+    }
+  }
+  outTrack = track;
+  outChi2 = chi2;
   return true;
 }
 
@@ -515,4 +640,480 @@ BOOST_AUTO_TEST_CASE(DiskAttachHitExactBoundaryFailureImmutabilityAndInlineEquiv
   checkDiskStateEqual(policyState, inlineState);
   BOOST_CHECK_EQUAL(policyChi2, 8.5f);
   BOOST_CHECK_EQUAL(policyChi2, inlineChi2);
+}
+
+// ---------------------------------------------------------------------------
+// buildCellSeed<Tag>
+// ---------------------------------------------------------------------------
+
+BOOST_AUTO_TEST_CASE(CylinderBuildCellSeedAcceptsAtExactChi2ThresholdAndMatchesInlineEquivalence)
+{
+  // Nearly-collinear points: a realistic high-pt (gentle curvature) barrel
+  // trajectory, so rotate/propagateTo/correctForMaterial/update all succeed
+  // on both steps.
+  const auto clusterInner = makeGlobalCluster(3.0f, 0.100f, 0.9f, 10);
+  const auto clusterMiddle = makeGlobalCluster(4.0f, 0.150f, 1.05f, 20);
+  const auto clusterOuter = makeGlobalCluster(5.0f, 0.201f, 1.25f, 30);
+  const auto hitOuter = makeBarrelHit(5.f, 0.f, 0.201f, 1.25f);
+  const auto hitMiddle = makeBarrelHit(4.f, 0.f, 0.150f, 1.05f);
+  const auto hitInner = makeBarrelHit(3.f, 0.f, 0.100f, 0.9f);
+  const std::array<float, 3> xOverX0{0.005f, 0.005f, 0.005f}; // inner, middle, outer
+
+  // Independently derive the exact marginal chi2 the inner (last) step
+  // contributes: run only the middle step generously, then perform the
+  // inner step's rotate/propagateTo/correctForMaterial without updating.
+  o2::track::TrackParCovF afterMiddle;
+  float chi2AfterMiddle = 0.f;
+  BOOST_REQUIRE(legacyBarrelCellFit(clusterInner, clusterMiddle, hitMiddle, hitInner, hitOuter,
+                                    xOverX0[1], xOverX0[0], Bz, 1.e6f, afterMiddle, chi2AfterMiddle, 1));
+  auto atInner = afterMiddle;
+  BOOST_REQUIRE(atInner.rotate(hitInner.alphaTrackingFrame));
+  BOOST_REQUIRE(atInner.propagateTo(hitInner.xTrackingFrame, Bz));
+  BOOST_REQUIRE(atInner.correctForMaterial(xOverX0[0], xOverX0[0] * o2::its::constants::Radl * o2::its::constants::Rho, true));
+  const float exactChi2 = atInner.getPredictedChi2Quiet(hitInner.positionTrackingFrame, hitInner.covarianceTrackingFrame);
+  BOOST_REQUIRE_GT(exactChi2, 0.f);
+
+  CylinderCylinderPolicyParams accept;
+  accept.maxChi2ClusterAttachment = exactChi2;
+
+  o2::track::TrackParCovF policyState{};
+  float policyChi2 = 6.25f;
+  BOOST_CHECK(buildCellSeed<TransitionPolicyTag::CylinderCylinder>(clusterInner, clusterMiddle, clusterOuter,
+                                                                    hitInner, hitMiddle, hitOuter, xOverX0, Bz,
+                                                                    policyState, policyChi2, accept));
+
+  o2::track::TrackParCovF inlineState{};
+  float inlineChi2 = 0.f;
+  BOOST_CHECK(legacyBarrelCellFit(clusterInner, clusterMiddle, hitMiddle, hitInner, hitOuter,
+                                  xOverX0[1], xOverX0[0], Bz, accept.maxChi2ClusterAttachment, inlineState, inlineChi2));
+  checkBarrelStateEqual(policyState, inlineState);
+  BOOST_CHECK_EQUAL(policyChi2, inlineChi2);
+
+  CylinderCylinderPolicyParams reject = accept;
+  reject.maxChi2ClusterAttachment = std::nextafter(exactChi2, 0.f);
+  policyState = o2::track::TrackParCovF{};
+  policyChi2 = 6.25f;
+  BOOST_CHECK(!buildCellSeed<TransitionPolicyTag::CylinderCylinder>(clusterInner, clusterMiddle, clusterOuter,
+                                                                     hitInner, hitMiddle, hitOuter, xOverX0, Bz,
+                                                                     policyState, policyChi2, reject));
+  checkBarrelStateEqual(policyState, o2::track::TrackParCovF{});
+  BOOST_CHECK_EQUAL(policyChi2, 6.25f);
+}
+
+BOOST_AUTO_TEST_CASE(CylinderBuildCellSeedRotationFailureLeavesOutputUnchanged)
+{
+  const auto clusterInner = makeGlobalCluster(3.0f, 0.05f, 0.9f, 10);
+  const auto clusterMiddle = makeGlobalCluster(4.0f, 0.15f, 1.05f, 20);
+  const auto clusterOuter = makeGlobalCluster(5.0f, 0.30f, 1.25f, 30);
+  const auto hitOuter = makeBarrelHit(5.f, 0.f, 0.30f, 1.25f);
+  const auto hitMiddle = makeBarrelHit(4.f, 3.f, 0.15f, 1.05f); // far alpha: rotate must fail
+  const auto hitInner = makeBarrelHit(3.f, 0.f, 0.05f, 0.9f);
+  const std::array<float, 3> xOverX0{0.005f, 0.005f, 0.005f};
+
+  auto seed = o2::its::track::buildTrackSeed(clusterInner, clusterMiddle, hitOuter, Bz);
+  BOOST_REQUIRE(!seed.rotate(hitMiddle.alphaTrackingFrame));
+
+  CylinderCylinderPolicyParams params;
+  params.maxChi2ClusterAttachment = 1.e6f;
+  auto outState = makeBarrelState(9.f, 9.f, 9.f, 9.f, 9.f, 9.f, 9.f);
+  const auto before = outState;
+  float chi2 = 12.5f;
+  BOOST_CHECK(!buildCellSeed<TransitionPolicyTag::CylinderCylinder>(clusterInner, clusterMiddle, clusterOuter,
+                                                                     hitInner, hitMiddle, hitOuter, xOverX0, Bz,
+                                                                     outState, chi2, params));
+  checkBarrelStateEqual(outState, before);
+  BOOST_CHECK_EQUAL(chi2, 12.5f);
+}
+
+BOOST_AUTO_TEST_CASE(CylinderBuildCellSeedPropagationFailureLeavesOutputUnchanged)
+{
+  const auto clusterInner = makeGlobalCluster(3.0f, 0.05f, 0.9f, 10);
+  const auto clusterMiddle = makeGlobalCluster(4.0f, 0.15f, 1.05f, 20);
+  const auto clusterOuter = makeGlobalCluster(5.0f, 0.30f, 1.25f, 30);
+  const auto hitOuter = makeBarrelHit(5.f, 0.f, 0.30f, 1.25f);
+  const auto hitMiddle = makeBarrelHit(500.f, 0.f, 0.15f, 1.05f); // huge step: propagateTo must fail
+  const auto hitInner = makeBarrelHit(3.f, 0.f, 0.05f, 0.9f);
+  const std::array<float, 3> xOverX0{0.005f, 0.005f, 0.005f};
+
+  auto seed = o2::its::track::buildTrackSeed(clusterInner, clusterMiddle, hitOuter, Bz);
+  BOOST_REQUIRE(seed.rotate(hitMiddle.alphaTrackingFrame));
+  BOOST_REQUIRE(!seed.propagateTo(hitMiddle.xTrackingFrame, Bz));
+
+  CylinderCylinderPolicyParams params;
+  params.maxChi2ClusterAttachment = 1.e6f;
+  auto outState = makeBarrelState(9.f, 9.f, 9.f, 9.f, 9.f, 9.f, 9.f);
+  const auto before = outState;
+  float chi2 = 7.5f;
+  BOOST_CHECK(!buildCellSeed<TransitionPolicyTag::CylinderCylinder>(clusterInner, clusterMiddle, clusterOuter,
+                                                                     hitInner, hitMiddle, hitOuter, xOverX0, Bz,
+                                                                     outState, chi2, params));
+  checkBarrelStateEqual(outState, before);
+  BOOST_CHECK_EQUAL(chi2, 7.5f);
+}
+
+BOOST_AUTO_TEST_CASE(CylinderBuildCellSeedUpdateFailureLeavesOutputUnchanged)
+{
+  // Force a singular innovation covariance on the first (middle) attach
+  // step: the seed's Y/Z covariance comes directly from hitOuter's
+  // covariance (o2::its::track::buildTrackSeed), and a zero-distance
+  // propagation (hitMiddle at the seed's own xTrackingFrame) leaves it
+  // untouched; pairing a zero-covariance outer seed with a zero-covariance
+  // middle hit makes the combined innovation covariance exactly singular, so
+  // update() must fail -- same mechanism as the existing singular-covariance
+  // attachHit coverage.
+  const auto clusterInner = makeGlobalCluster(3.0f, 0.05f, 0.9f, 10);
+  const auto clusterMiddle = makeGlobalCluster(4.0f, 0.15f, 1.05f, 20);
+  const auto clusterOuter = makeGlobalCluster(5.0f, 0.30f, 1.25f, 30);
+  const auto hitOuter = makeBarrelHit(5.f, 0.f, 0.30f, 1.25f, 0.f, 0.f);
+  const auto hitMiddle = makeBarrelHit(5.f, 0.f, 0.15f, 1.05f, 0.f, 0.f);
+  const auto hitInner = makeBarrelHit(3.f, 0.f, 0.05f, 0.9f);
+  const std::array<float, 3> xOverX0{0.005f, 0.f, 0.005f};
+
+  auto seed = o2::its::track::buildTrackSeed(clusterInner, clusterMiddle, hitOuter, Bz);
+  BOOST_REQUIRE(seed.rotate(hitMiddle.alphaTrackingFrame));
+  BOOST_REQUIRE(seed.propagateTo(hitMiddle.xTrackingFrame, Bz));
+  BOOST_REQUIRE(seed.correctForMaterial(0.f, 0.f, true));
+  BOOST_REQUIRE(!seed.o2::track::TrackParCov::update(hitMiddle.positionTrackingFrame, hitMiddle.covarianceTrackingFrame));
+
+  CylinderCylinderPolicyParams params;
+  params.maxChi2ClusterAttachment = 1.e6f;
+  auto outState = makeBarrelState(9.f, 9.f, 9.f, 9.f, 9.f, 9.f, 9.f);
+  const auto before = outState;
+  float chi2 = 3.5f;
+  BOOST_CHECK(!buildCellSeed<TransitionPolicyTag::CylinderCylinder>(clusterInner, clusterMiddle, clusterOuter,
+                                                                     hitInner, hitMiddle, hitOuter, xOverX0, Bz,
+                                                                     outState, chi2, params));
+  checkBarrelStateEqual(outState, before);
+  BOOST_CHECK_EQUAL(chi2, 3.5f);
+}
+
+BOOST_AUTO_TEST_CASE(CylinderBuildCellSeedInputsAreNotMutated)
+{
+  const auto clusterInner = makeGlobalCluster(3.0f, 0.100f, 0.9f, 10);
+  const auto clusterMiddle = makeGlobalCluster(4.0f, 0.150f, 1.05f, 20);
+  const auto clusterOuter = makeGlobalCluster(5.0f, 0.201f, 1.25f, 30);
+  const auto hitOuter = makeBarrelHit(5.f, 0.f, 0.201f, 1.25f);
+  const auto hitMiddle = makeBarrelHit(4.f, 0.f, 0.150f, 1.05f);
+  const auto hitInner = makeBarrelHit(3.f, 0.f, 0.100f, 0.9f);
+  const std::array<float, 3> xOverX0{0.005f, 0.005f, 0.005f};
+  const auto clusterInnerBefore = clusterInner;
+  const auto clusterMiddleBefore = clusterMiddle;
+  const auto clusterOuterBefore = clusterOuter;
+  const auto hitOuterBefore = hitOuter;
+  const auto hitMiddleBefore = hitMiddle;
+  const auto hitInnerBefore = hitInner;
+
+  CylinderCylinderPolicyParams params;
+  params.maxChi2ClusterAttachment = 1.e6f;
+  o2::track::TrackParCovF outState{};
+  float chi2 = 0.f;
+  BOOST_CHECK(buildCellSeed<TransitionPolicyTag::CylinderCylinder>(clusterInner, clusterMiddle, clusterOuter,
+                                                                    hitInner, hitMiddle, hitOuter, xOverX0, Bz,
+                                                                    outState, chi2, params));
+
+  BOOST_CHECK_EQUAL(clusterInner.xCoordinate, clusterInnerBefore.xCoordinate);
+  BOOST_CHECK_EQUAL(clusterInner.yCoordinate, clusterInnerBefore.yCoordinate);
+  BOOST_CHECK_EQUAL(clusterInner.zCoordinate, clusterInnerBefore.zCoordinate);
+  BOOST_CHECK_EQUAL(clusterMiddle.xCoordinate, clusterMiddleBefore.xCoordinate);
+  BOOST_CHECK_EQUAL(clusterMiddle.yCoordinate, clusterMiddleBefore.yCoordinate);
+  BOOST_CHECK_EQUAL(clusterMiddle.zCoordinate, clusterMiddleBefore.zCoordinate);
+  BOOST_CHECK_EQUAL(clusterOuter.xCoordinate, clusterOuterBefore.xCoordinate);
+  BOOST_CHECK_EQUAL(clusterOuter.yCoordinate, clusterOuterBefore.yCoordinate);
+  BOOST_CHECK_EQUAL(clusterOuter.zCoordinate, clusterOuterBefore.zCoordinate);
+  BOOST_CHECK_EQUAL(hitOuter.xTrackingFrame, hitOuterBefore.xTrackingFrame);
+  BOOST_CHECK_EQUAL(hitOuter.alphaTrackingFrame, hitOuterBefore.alphaTrackingFrame);
+  BOOST_CHECK_EQUAL(hitMiddle.xTrackingFrame, hitMiddleBefore.xTrackingFrame);
+  BOOST_CHECK_EQUAL(hitMiddle.alphaTrackingFrame, hitMiddleBefore.alphaTrackingFrame);
+  BOOST_CHECK_EQUAL(hitInner.xTrackingFrame, hitInnerBefore.xTrackingFrame);
+  BOOST_CHECK_EQUAL(hitInner.alphaTrackingFrame, hitInnerBefore.alphaTrackingFrame);
+}
+
+BOOST_AUTO_TEST_CASE(CylinderBuildCellSeedUsesMaterialSlotsOneThenZero)
+{
+  const auto clusterInner = makeGlobalCluster(3.0f, 0.100f, 0.9f, 10);
+  const auto clusterMiddle = makeGlobalCluster(4.0f, 0.150f, 1.05f, 20);
+  const auto clusterOuter = makeGlobalCluster(5.0f, 0.201f, 1.25f, 30);
+  const auto hitOuter = makeBarrelHit(5.f, 0.f, 0.201f, 1.25f);
+  const auto hitMiddle = makeBarrelHit(4.f, 0.f, 0.150f, 1.05f);
+  const auto hitInner = makeBarrelHit(3.f, 0.f, 0.100f, 0.9f);
+  // Distinct values in the two real slots; NaN in the unused outer slot
+  // proves it is never read (a real read would poison state/chi2 with NaN
+  // and desynchronize them from the reference, which never touches index 2).
+  const std::array<float, 3> xOverX0{0.05f, 0.005f, std::numeric_limits<float>::quiet_NaN()};
+
+  CylinderCylinderPolicyParams params;
+  params.maxChi2ClusterAttachment = 1.e6f;
+
+  o2::track::TrackParCovF policyState{};
+  float policyChi2 = 0.f;
+  BOOST_REQUIRE(buildCellSeed<TransitionPolicyTag::CylinderCylinder>(clusterInner, clusterMiddle, clusterOuter,
+                                                                      hitInner, hitMiddle, hitOuter, xOverX0, Bz,
+                                                                      policyState, policyChi2, params));
+  BOOST_CHECK(std::isfinite(policyChi2));
+
+  o2::track::TrackParCovF referenceState{};
+  float referenceChi2 = 0.f;
+  BOOST_REQUIRE(legacyBarrelCellFit(clusterInner, clusterMiddle, hitMiddle, hitInner, hitOuter,
+                                    xOverX0[1], xOverX0[0], Bz, params.maxChi2ClusterAttachment,
+                                    referenceState, referenceChi2));
+  checkBarrelStateEqual(policyState, referenceState);
+  BOOST_CHECK_EQUAL(policyChi2, referenceChi2);
+}
+
+BOOST_AUTO_TEST_CASE(CylinderBuildCellSeedRepeatedCallsAreDeterministic)
+{
+  const auto clusterInner = makeGlobalCluster(3.0f, 0.100f, 0.9f, 10);
+  const auto clusterMiddle = makeGlobalCluster(4.0f, 0.150f, 1.05f, 20);
+  const auto clusterOuter = makeGlobalCluster(5.0f, 0.201f, 1.25f, 30);
+  const auto hitOuter = makeBarrelHit(5.f, 0.f, 0.201f, 1.25f);
+  const auto hitMiddle = makeBarrelHit(4.f, 0.f, 0.150f, 1.05f);
+  const auto hitInner = makeBarrelHit(3.f, 0.f, 0.100f, 0.9f);
+  const std::array<float, 3> xOverX0{0.005f, 0.005f, 0.005f};
+
+  CylinderCylinderPolicyParams params;
+  params.maxChi2ClusterAttachment = 1.e6f;
+
+  o2::track::TrackParCovF firstState{};
+  float firstChi2 = 0.f;
+  BOOST_REQUIRE(buildCellSeed<TransitionPolicyTag::CylinderCylinder>(clusterInner, clusterMiddle, clusterOuter,
+                                                                      hitInner, hitMiddle, hitOuter, xOverX0, Bz,
+                                                                      firstState, firstChi2, params));
+
+  o2::track::TrackParCovF secondState{};
+  float secondChi2 = 0.f;
+  BOOST_REQUIRE(buildCellSeed<TransitionPolicyTag::CylinderCylinder>(clusterInner, clusterMiddle, clusterOuter,
+                                                                      hitInner, hitMiddle, hitOuter, xOverX0, Bz,
+                                                                      secondState, secondChi2, params));
+
+  checkBarrelStateEqual(firstState, secondState);
+  BOOST_CHECK_EQUAL(firstChi2, secondChi2);
+}
+
+BOOST_AUTO_TEST_CASE(DiskBuildCellSeedAcceptsAtExactChi2ThresholdAndMatchesInlineEquivalence)
+{
+  const auto clusterInner = makeGlobalCluster(1.0f, 0.5f, -0.4f, 10);
+  const auto clusterMiddle = makeGlobalCluster(1.3f, 0.62f, -0.6f, 20);
+  const auto clusterOuter = makeGlobalCluster(1.7f, 0.78f, -0.9f, 30);
+  const auto hitInner = makeDiskHit(-0.4f, 1.0f, 0.5f);
+  const auto hitMiddle = makeDiskHit(-0.6f, 1.3f, 0.62f);
+  const auto hitOuter = makeDiskHit(-0.9f, 1.7f, 0.78f);
+  const std::array<float, 3> xOverX0{0.015f, 0.017f, 0.02f}; // inner, middle, outer
+
+  const float trackletMinPt = 0.3f;
+
+  // Independently derive the exact marginal chi2 the inner (last) step
+  // contributes: run only the outer+middle steps generously, then propagate
+  // to the inner hit and read its predicted chi2 without updating.
+  o2::track::TrackParCovFwd afterMiddle;
+  float chi2AfterMiddle = 0.f;
+  BOOST_REQUIRE(legacyDiskCellFit(clusterInner, clusterMiddle, clusterOuter, hitOuter, hitMiddle, hitInner,
+                                  xOverX0[2], xOverX0[1], xOverX0[0], Bz, trackletMinPt, 1.e6f,
+                                  afterMiddle, chi2AfterMiddle, 2));
+  auto atInner = afterMiddle;
+  detail::mftFwdPropagateToZ(atInner, hitInner.zCoordinate, Bz);
+  const float exactChi2 = detail::mftFwdPredictedChi2(atInner, hitInner.xCoordinate, hitInner.yCoordinate,
+                                                       hitInner.covarianceTrackingFrame[0], hitInner.covarianceTrackingFrame[2]);
+  BOOST_REQUIRE_GT(exactChi2, 0.f);
+
+  DiskDiskPolicyParams accept;
+  accept.trackletMinPt = trackletMinPt;
+  accept.maxChi2ClusterAttachment = exactChi2;
+
+  o2::track::TrackParCovFwd policyState{};
+  float policyChi2 = 9.25f;
+  BOOST_CHECK(buildCellSeed<TransitionPolicyTag::DiskDisk>(clusterInner, clusterMiddle, clusterOuter,
+                                                            hitInner, hitMiddle, hitOuter, xOverX0, Bz,
+                                                            policyState, policyChi2, accept));
+
+  o2::track::TrackParCovFwd inlineState{};
+  float inlineChi2 = 0.f;
+  BOOST_CHECK(legacyDiskCellFit(clusterInner, clusterMiddle, clusterOuter, hitOuter, hitMiddle, hitInner,
+                                xOverX0[2], xOverX0[1], xOverX0[0], Bz, accept.trackletMinPt,
+                                accept.maxChi2ClusterAttachment, inlineState, inlineChi2));
+  checkDiskStateEqual(policyState, inlineState);
+  BOOST_CHECK_EQUAL(policyChi2, inlineChi2);
+
+  DiskDiskPolicyParams reject = accept;
+  reject.maxChi2ClusterAttachment = std::nextafter(exactChi2, 0.f);
+  policyState = o2::track::TrackParCovFwd{};
+  policyChi2 = 9.25f;
+  BOOST_CHECK(!buildCellSeed<TransitionPolicyTag::DiskDisk>(clusterInner, clusterMiddle, clusterOuter,
+                                                             hitInner, hitMiddle, hitOuter, xOverX0, Bz,
+                                                             policyState, policyChi2, reject));
+  checkDiskStateEqual(policyState, o2::track::TrackParCovFwd{});
+  BOOST_CHECK_EQUAL(policyChi2, 9.25f);
+}
+
+BOOST_AUTO_TEST_CASE(DiskBuildCellSeedZOrderingRejectionLeavesOutputUnchanged)
+{
+  // clusterInner.z is not strictly greater than clusterOuter.z: the legacy
+  // z-ordering precondition (detail::mftFwdFitCellClusters) must reject.
+  const auto clusterInner = makeGlobalCluster(1.0f, 0.5f, -0.9f, 10);
+  const auto clusterMiddle = makeGlobalCluster(1.3f, 0.62f, -0.6f, 20);
+  const auto clusterOuter = makeGlobalCluster(1.7f, 0.78f, -0.9f, 30);
+  const auto hitInner = makeDiskHit(-0.9f, 1.0f, 0.5f);
+  const auto hitMiddle = makeDiskHit(-0.6f, 1.3f, 0.62f);
+  const auto hitOuter = makeDiskHit(-0.9f, 1.7f, 0.78f);
+  const std::array<float, 3> xOverX0{0.015f, 0.017f, 0.02f};
+
+  DiskDiskPolicyParams params;
+  params.trackletMinPt = 0.3f;
+  params.maxChi2ClusterAttachment = 1.e6f;
+  auto outState = makeForwardState(1.f, 2.f, 3.f, 4.f, 5.f, 6.f);
+  const auto before = outState;
+  float chi2 = 4.25f;
+  BOOST_CHECK(!buildCellSeed<TransitionPolicyTag::DiskDisk>(clusterInner, clusterMiddle, clusterOuter,
+                                                             hitInner, hitMiddle, hitOuter, xOverX0, Bz,
+                                                             outState, chi2, params));
+  checkDiskStateEqual(outState, before);
+  BOOST_CHECK_EQUAL(chi2, 4.25f);
+}
+
+BOOST_AUTO_TEST_CASE(DiskBuildCellSeedDegenerateGeometryRejectionLeavesOutputUnchanged)
+{
+  // clusterMiddle coincides with clusterInner in x/y: drTan collapses to
+  // zero, the legacy degenerate-geometry precondition must reject.
+  const auto clusterInner = makeGlobalCluster(1.0f, 0.5f, -0.4f, 10);
+  const auto clusterMiddle = makeGlobalCluster(1.0f, 0.5f, -0.6f, 20);
+  const auto clusterOuter = makeGlobalCluster(1.7f, 0.78f, -0.9f, 30);
+  const auto hitInner = makeDiskHit(-0.4f, 1.0f, 0.5f);
+  const auto hitMiddle = makeDiskHit(-0.6f, 1.0f, 0.5f);
+  const auto hitOuter = makeDiskHit(-0.9f, 1.7f, 0.78f);
+  const std::array<float, 3> xOverX0{0.015f, 0.017f, 0.02f};
+
+  DiskDiskPolicyParams params;
+  params.trackletMinPt = 0.3f;
+  params.maxChi2ClusterAttachment = 1.e6f;
+  auto outState = makeForwardState(1.f, 2.f, 3.f, 4.f, 5.f, 6.f);
+  const auto before = outState;
+  float chi2 = 2.75f;
+  BOOST_CHECK(!buildCellSeed<TransitionPolicyTag::DiskDisk>(clusterInner, clusterMiddle, clusterOuter,
+                                                             hitInner, hitMiddle, hitOuter, xOverX0, Bz,
+                                                             outState, chi2, params));
+  checkDiskStateEqual(outState, before);
+  BOOST_CHECK_EQUAL(chi2, 2.75f);
+}
+
+BOOST_AUTO_TEST_CASE(DiskBuildCellSeedDoesNotApplyRoadPreCut)
+{
+  // clusterMiddle is displaced far off the inner-outer seed line -- legacy
+  // detail::validateMFTCellClusters (CellRoadRCut) would reject this, but
+  // that guard is TrackerTraits-owned, not part of buildCellSeed. With a
+  // generous chi2 bound and otherwise valid geometry, the fit must still
+  // succeed, proving no road pre-cut is applied inside the operation.
+  const auto clusterInner = makeGlobalCluster(1.0f, 0.5f, -0.4f, 10);
+  const auto clusterMiddle = makeGlobalCluster(5.0f, 4.5f, -0.6f, 20); // far off the seed line
+  const auto clusterOuter = makeGlobalCluster(1.7f, 0.78f, -0.9f, 30);
+  const auto hitInner = makeDiskHit(-0.4f, 1.0f, 0.5f);
+  const auto hitMiddle = makeDiskHit(-0.6f, 5.0f, 4.5f);
+  const auto hitOuter = makeDiskHit(-0.9f, 1.7f, 0.78f);
+  const std::array<float, 3> xOverX0{0.015f, 0.017f, 0.02f};
+
+  DiskDiskPolicyParams params;
+  params.trackletMinPt = 0.3f;
+  params.maxChi2ClusterAttachment = 1.e9f;
+
+  o2::track::TrackParCovFwd outState{};
+  float chi2 = 0.f;
+  BOOST_CHECK(buildCellSeed<TransitionPolicyTag::DiskDisk>(clusterInner, clusterMiddle, clusterOuter,
+                                                            hitInner, hitMiddle, hitOuter, xOverX0, Bz,
+                                                            outState, chi2, params));
+}
+
+BOOST_AUTO_TEST_CASE(DiskBuildCellSeedInputsAreNotMutated)
+{
+  const auto clusterInner = makeGlobalCluster(1.0f, 0.5f, -0.4f, 10);
+  const auto clusterMiddle = makeGlobalCluster(1.3f, 0.62f, -0.6f, 20);
+  const auto clusterOuter = makeGlobalCluster(1.7f, 0.78f, -0.9f, 30);
+  const auto hitInner = makeDiskHit(-0.4f, 1.0f, 0.5f);
+  const auto hitMiddle = makeDiskHit(-0.6f, 1.3f, 0.62f);
+  const auto hitOuter = makeDiskHit(-0.9f, 1.7f, 0.78f);
+  const std::array<float, 3> xOverX0{0.015f, 0.017f, 0.02f};
+  const auto clusterInnerBefore = clusterInner;
+  const auto clusterMiddleBefore = clusterMiddle;
+  const auto clusterOuterBefore = clusterOuter;
+  const auto hitInnerBefore = hitInner;
+  const auto hitMiddleBefore = hitMiddle;
+  const auto hitOuterBefore = hitOuter;
+
+  DiskDiskPolicyParams params;
+  params.trackletMinPt = 0.3f;
+  params.maxChi2ClusterAttachment = 1.e6f;
+  o2::track::TrackParCovFwd outState{};
+  float chi2 = 0.f;
+  BOOST_CHECK(buildCellSeed<TransitionPolicyTag::DiskDisk>(clusterInner, clusterMiddle, clusterOuter,
+                                                            hitInner, hitMiddle, hitOuter, xOverX0, Bz,
+                                                            outState, chi2, params));
+
+  BOOST_CHECK_EQUAL(clusterInner.xCoordinate, clusterInnerBefore.xCoordinate);
+  BOOST_CHECK_EQUAL(clusterInner.zCoordinate, clusterInnerBefore.zCoordinate);
+  BOOST_CHECK_EQUAL(clusterMiddle.xCoordinate, clusterMiddleBefore.xCoordinate);
+  BOOST_CHECK_EQUAL(clusterMiddle.zCoordinate, clusterMiddleBefore.zCoordinate);
+  BOOST_CHECK_EQUAL(clusterOuter.xCoordinate, clusterOuterBefore.xCoordinate);
+  BOOST_CHECK_EQUAL(clusterOuter.zCoordinate, clusterOuterBefore.zCoordinate);
+  BOOST_CHECK_EQUAL(hitInner.zCoordinate, hitInnerBefore.zCoordinate);
+  BOOST_CHECK_EQUAL(hitMiddle.zCoordinate, hitMiddleBefore.zCoordinate);
+  BOOST_CHECK_EQUAL(hitOuter.zCoordinate, hitOuterBefore.zCoordinate);
+}
+
+BOOST_AUTO_TEST_CASE(DiskBuildCellSeedUsesMaterialSlotsTwoOneZero)
+{
+  const auto clusterInner = makeGlobalCluster(1.0f, 0.5f, -0.4f, 10);
+  const auto clusterMiddle = makeGlobalCluster(1.3f, 0.62f, -0.6f, 20);
+  const auto clusterOuter = makeGlobalCluster(1.7f, 0.78f, -0.9f, 30);
+  const auto hitInner = makeDiskHit(-0.4f, 1.0f, 0.5f);
+  const auto hitMiddle = makeDiskHit(-0.6f, 1.3f, 0.62f);
+  const auto hitOuter = makeDiskHit(-0.9f, 1.7f, 0.78f);
+  // All three slots distinct: an index-order bug (e.g. inner/outer swapped)
+  // would desynchronize the policy result from the correctly-ordered
+  // reference below.
+  const std::array<float, 3> xOverX0{0.005f, 0.05f, 0.1f}; // inner, middle, outer
+
+  DiskDiskPolicyParams params;
+  params.trackletMinPt = 0.3f;
+  params.maxChi2ClusterAttachment = 1.e6f;
+
+  o2::track::TrackParCovFwd policyState{};
+  float policyChi2 = 0.f;
+  BOOST_REQUIRE(buildCellSeed<TransitionPolicyTag::DiskDisk>(clusterInner, clusterMiddle, clusterOuter,
+                                                              hitInner, hitMiddle, hitOuter, xOverX0, Bz,
+                                                              policyState, policyChi2, params));
+
+  o2::track::TrackParCovFwd referenceState{};
+  float referenceChi2 = 0.f;
+  BOOST_REQUIRE(legacyDiskCellFit(clusterInner, clusterMiddle, clusterOuter, hitOuter, hitMiddle, hitInner,
+                                  xOverX0[2], xOverX0[1], xOverX0[0], Bz, params.trackletMinPt,
+                                  params.maxChi2ClusterAttachment, referenceState, referenceChi2));
+  checkDiskStateEqual(policyState, referenceState);
+  BOOST_CHECK_EQUAL(policyChi2, referenceChi2);
+}
+
+BOOST_AUTO_TEST_CASE(DiskBuildCellSeedRepeatedCallsAreDeterministic)
+{
+  const auto clusterInner = makeGlobalCluster(1.0f, 0.5f, -0.4f, 10);
+  const auto clusterMiddle = makeGlobalCluster(1.3f, 0.62f, -0.6f, 20);
+  const auto clusterOuter = makeGlobalCluster(1.7f, 0.78f, -0.9f, 30);
+  const auto hitInner = makeDiskHit(-0.4f, 1.0f, 0.5f);
+  const auto hitMiddle = makeDiskHit(-0.6f, 1.3f, 0.62f);
+  const auto hitOuter = makeDiskHit(-0.9f, 1.7f, 0.78f);
+  const std::array<float, 3> xOverX0{0.015f, 0.017f, 0.02f};
+
+  DiskDiskPolicyParams params;
+  params.trackletMinPt = 0.3f;
+  params.maxChi2ClusterAttachment = 1.e6f;
+
+  o2::track::TrackParCovFwd firstState{};
+  float firstChi2 = 0.f;
+  BOOST_REQUIRE(buildCellSeed<TransitionPolicyTag::DiskDisk>(clusterInner, clusterMiddle, clusterOuter,
+                                                              hitInner, hitMiddle, hitOuter, xOverX0, Bz,
+                                                              firstState, firstChi2, params));
+
+  o2::track::TrackParCovFwd secondState{};
+  float secondChi2 = 0.f;
+  BOOST_REQUIRE(buildCellSeed<TransitionPolicyTag::DiskDisk>(clusterInner, clusterMiddle, clusterOuter,
+                                                              hitInner, hitMiddle, hitOuter, xOverX0, Bz,
+                                                              secondState, secondChi2, params));
+
+  checkDiskStateEqual(firstState, secondState);
+  BOOST_CHECK_EQUAL(firstChi2, secondChi2);
 }
