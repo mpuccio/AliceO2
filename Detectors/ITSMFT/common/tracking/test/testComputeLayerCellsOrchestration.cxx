@@ -1,0 +1,509 @@
+// Copyright 2019-2026 CERN and copyright holders of ALICE O2.
+// See https://alice-o2.web.cern.ch/copyright for details of the copyright holders.
+// All rights not expressly granted are reserved.
+//
+// This software is distributed under the terms of the GNU General Public
+// License v3 (GPL Version 3), copied verbatim in the file "COPYING".
+
+// Orchestration coverage for TrackerTraits<NLayers>::computeLayerCells after
+// its detector-family branch was replaced by a one-shot outer dispatch to
+// buildCellSeed<Tag> (Architecture.md Sec 10/10.1). buildCellSeed<Tag>'s
+// numerical parity with the legacy inline formulas is already proven by
+// testTransitionPolicyOperations.cxx; this file does not re-derive or
+// duplicate that formula. It proves instead that the real public
+// computeLayerCells() entry point:
+//  - resolves the three clusters/hits/material values for a candidate in
+//    strict {inner, middle, outer} order and hands them to buildCellSeed<Tag>
+//    unchanged (checked against an oracle call to buildCellSeed<Tag> itself,
+//    built from the same values refetched through the TimeFrame, not
+//    re-typed literals);
+//  - keeps the MFT road pre-cut (detail::validateMFTCellClusters) outside
+//    buildCellSeed and driven by the bound DiskDiskPolicyParams::cellRoadRCut;
+//  - leaves cellTopologyId indexing, the LUT, MC-label construction, and
+//    one-pass/two-pass ordering untouched;
+//  - fails closed (TraversalException::InvalidTraversalSchedule) through the
+//    existing public API alone, with no test-only seam into private
+//    traversal-cache state.
+
+#define BOOST_TEST_MODULE ITSMFT ComputeLayerCells orchestration
+#define BOOST_TEST_MAIN
+#define BOOST_TEST_DYN_LINK
+
+#include <array>
+#include <memory>
+#include <vector>
+
+#include <boost/test/unit_test.hpp>
+
+#include <oneapi/tbb/task_arena.h>
+
+#include "CommonDataFormat/InteractionRecord.h"
+#include "DataFormatsITSMFT/CompCluster.h"
+#include "DataFormatsITSMFT/ROFRecord.h"
+#include "DataFormatsITSMFT/TopologyDictionary.h"
+#include "DetectorsCommonDataFormats/DetID.h"
+#include "ITSMFTTracking/ClusterDecoder.h"
+#include "ITSMFTTracking/Configuration.h"
+#include "ITSMFTTracking/DecodedCluster.h"
+#include "ITSMFTTracking/DetectorLayout.h"
+#include "ITSMFTTracking/DetectorSurfaceCatalogProvider.h"
+#include "ITSMFTTracking/MultiSourceLoading.h"
+#include "ITSMFTTracking/SurfaceDescriptor.h"
+#include "ITSMFTTracking/TimeFrame.h"
+#include "ITSMFTTracking/TrackerTraits.h"
+#include "ITSMFTTracking/TrackingConfigParam.h"
+#include "ITSMFTTracking/TransitionPolicyOperations.h"
+#include "ITStracking/Cluster.h"
+#include "ITStracking/Tracklet.h"
+#include "MFTTracking/Constants.h"
+
+using namespace o2::itsmft;
+using namespace o2::itsmft::tracking;
+
+namespace
+{
+
+constexpr float Bz = 0.5f;
+
+// Every fixture in this file loads zero real clusters -- computeLayerCells()
+// is exercised by injecting synthetic post-decode cluster/tracklet/lookup
+// state directly (see file header), so this decoder's decode() is never
+// actually invoked. It exists only to satisfy loadNormalizedSource()'s
+// interface, mirroring testCATrackerFailureContract.cxx's LegacyLikeDecoder.
+class NeverDecodedDecoder final : public ClusterDecoder
+{
+ public:
+  explicit NeverDecodedDecoder(o2::detectors::DetID::ID detector) : mDetector(detector) {}
+
+  o2::itsmft::ioutils::SurfaceMeasurementDecodeResult decode(
+    const CompClusterExt&, BoundedPatternCursor&, const TopologyDictionary*,
+    gsl::span<const SurfaceId>, ClusterSourceId, uint32_t, uint32_t, bool) const override
+  {
+    return {};
+  }
+
+ private:
+  o2::detectors::DetID::ID mDetector;
+};
+
+const TopologyDictionary& dict()
+{
+  static const TopologyDictionary d;
+  return d;
+}
+
+std::vector<SurfaceId> identitySurfaces(uint16_t nLayers)
+{
+  std::vector<SurfaceId> mapping;
+  mapping.reserve(nLayers);
+  for (uint16_t i = 0; i < nLayers; ++i) {
+    mapping.push_back(SurfaceId{i});
+  }
+  return mapping;
+}
+
+class FakeCatalogProvider final : public DetectorSurfaceCatalogProvider
+{
+ public:
+  explicit FakeCatalogProvider(std::vector<SurfaceDescriptor> catalog) : mCatalog{std::move(catalog)} {}
+
+  DetectorSurfaceCatalogResult buildCatalog(const DetectorSurfaceCatalogRequest&) const final
+  {
+    return {mCatalog, DetectorSurfaceCatalogError::None};
+  }
+
+  std::vector<SurfaceDescriptor> mCatalog;
+};
+
+std::vector<SurfaceDescriptor> makeCatalog(uint16_t nLayers, o2::detectors::DetID::ID det, SurfaceKind kind)
+{
+  std::vector<SurfaceDescriptor> surfaces;
+  surfaces.reserve(nLayers);
+  for (uint16_t i = 0; i < nLayers; ++i) {
+    surfaces.push_back(SurfaceDescriptor{SurfaceId{i}, i, static_cast<uint8_t>(det), kind});
+  }
+  return surfaces;
+}
+
+// Same construction as testTransitionPolicyOperations.cxx's helpers -- plain
+// input-struct builders, not a reimplementation of any fit formula.
+o2::its::Cluster makeGlobalCluster(float x, float y, float z, int id = 0)
+{
+  return o2::its::Cluster{x, y, z, id};
+}
+
+o2::its::TrackingFrameInfo makeBarrelHit(float xTF, float alpha, float y, float z, float sigma2Y = 1.e-4f, float sigma2Z = 1.e-4f)
+{
+  return o2::its::TrackingFrameInfo{xTF, y, z, xTF, alpha, {y, z}, {sigma2Y, 0.f, sigma2Z}};
+}
+
+o2::its::TrackingFrameInfo makeDiskHit(float z, float x, float y, float sigma2X = 1.e-2f, float sigma2Y = 1.e-2f)
+{
+  return o2::its::TrackingFrameInfo{x, y, z, 0.f, 0.f, {x, y}, {sigma2X, 0.f, sigma2Y}};
+}
+
+void checkBarrelStateEqual(const o2::track::TrackParCovF& lhs, const o2::track::TrackParCovF& rhs)
+{
+  BOOST_CHECK_EQUAL(lhs.getX(), rhs.getX());
+  BOOST_CHECK_EQUAL(lhs.getAlpha(), rhs.getAlpha());
+  BOOST_CHECK_EQUAL(lhs.getY(), rhs.getY());
+  BOOST_CHECK_EQUAL(lhs.getZ(), rhs.getZ());
+  BOOST_CHECK_EQUAL(lhs.getSnp(), rhs.getSnp());
+  BOOST_CHECK_EQUAL(lhs.getTgl(), rhs.getTgl());
+  BOOST_CHECK_EQUAL(lhs.getQ2Pt(), rhs.getQ2Pt());
+  const auto& lhsCov = lhs.getCov();
+  const auto& rhsCov = rhs.getCov();
+  for (size_t element = 0; element < lhsCov.size(); ++element) {
+    BOOST_CHECK_EQUAL(lhsCov[element], rhsCov[element]);
+  }
+}
+
+void checkDiskStateEqual(const o2::track::TrackParCovFwd& lhs, const o2::track::TrackParCovFwd& rhs)
+{
+  BOOST_CHECK_EQUAL(lhs.getZ(), rhs.getZ());
+  BOOST_CHECK_EQUAL(lhs.getX(), rhs.getX());
+  BOOST_CHECK_EQUAL(lhs.getY(), rhs.getY());
+  BOOST_CHECK_EQUAL(lhs.getPhi(), rhs.getPhi());
+  BOOST_CHECK_EQUAL(lhs.getTanl(), rhs.getTanl());
+  BOOST_CHECK_EQUAL(lhs.getInvQPt(), rhs.getInvQPt());
+  BOOST_CHECK_EQUAL(lhs.getTrackChi2(), rhs.getTrackChi2());
+  const auto& lhsCov = lhs.getCovariances();
+  const auto& rhsCov = rhs.getCovariances();
+  for (size_t row = 0; row < 5; ++row) {
+    for (size_t column = 0; column < 5; ++column) {
+      BOOST_CHECK_EQUAL(lhsCov(row, column), rhsCov(row, column));
+    }
+  }
+}
+
+// Minimal wiring TrackerTraits<NLayers>::computeLayerCells() needs: a real
+// layout/topology (so initialiseTimeFrame() genuinely binds
+// mTraversalGrouping/mCylinderPolicyParams|mDiskPolicyParams/mAttachHitConfig
+// -- computeLayerCells()'s own private caches, never poked directly), and a
+// validly-sized-but-empty normalized load (proven pattern from
+// testCATrackerFailureContract.cxx: TimeFrame::initialise() unconditionally
+// reads mROFramesClusters sizes, which only loadNormalizedSource() sets up
+// safely, even for zero clusters).
+template <int NLayers>
+struct Rig {
+  Rig(o2::detectors::DetID::ID det, SurfaceKind kind, TransitionPolicyTag tag, int nThreads = 1)
+    : pool(std::make_shared<BoundedMemoryResource>()),
+      params(1)
+  {
+    resetDetectorDefaults(params[0], det);
+    tf.setMemoryPool(pool);
+    traits.setMemoryPool(pool);
+    traits.setNThreads(nThreads, arena);
+    traits.adoptTimeFrame(&tf);
+    traits.updateTrackingParameters(params);
+    traits.setBz(Bz);
+
+    const auto orderedSurfaces = identitySurfaces(static_cast<uint16_t>(NLayers));
+    FakeCatalogProvider provider{makeCatalog(static_cast<uint16_t>(NLayers), det, kind)};
+    const DetectorSurfaceCatalogRequest catalogRequest{det, SurfaceId{0}, static_cast<uint32_t>(NLayers)};
+    BOOST_REQUIRE(tf.ensureDetectorLayouts(&provider, catalogRequest, orderedSurfaces, tag, params).ok());
+    tf.initTrackerTopologies(params);
+
+    NeverDecodedDecoder decoder{det};
+    const o2::InteractionRecord origin{50, 5};
+    const ROFTimingConfig timing{40, 0, 0, 0};
+    const std::vector<CompClusterExt> noClusters;
+    const std::vector<unsigned char> noPatterns;
+    const std::vector<ROFRecord> noRofs;
+    const auto result = tf.loadNormalizedSource(decoder, origin, timing, noClusters, noPatterns, noRofs, &dict(), nullptr, det);
+    BOOST_REQUIRE(result.ok());
+  }
+
+  std::shared_ptr<BoundedMemoryResource> pool;
+  std::vector<TrackingParameters> params;
+  TimeFrame<NLayers> tf;
+  TrackerTraits<NLayers> traits;
+  std::shared_ptr<tbb::task_arena> arena;
+};
+
+// Finds the cellTopologyId whose two transitions span exactly
+// inner->middle->outer, without assuming any particular enumeration order
+// out of TrackingTopology<NLayers>::init().
+template <typename TopologyView>
+int findCellTopologyId(const TopologyView& topology, int inner, int middle, int outer)
+{
+  for (int i = 0; i < topology.nCells; ++i) {
+    const auto& cell = topology.getCell(i);
+    const auto& first = topology.getTransition(cell.firstTransition);
+    const auto& second = topology.getTransition(cell.secondTransition);
+    if (first.fromLayer == inner && first.toLayer == middle && second.fromLayer == middle && second.toLayer == outer) {
+      return i;
+    }
+  }
+  return -1;
+}
+
+// Bypasses the real (untouched, out-of-scope-for-this-change)
+// computeLayerTracklets() phi/z/index-table cuts entirely: injects exactly
+// one synthetic cluster per layer and exactly one synthetic tracklet per
+// transition of cellTopologyId, wired so computeLayerCellsForPolicy<Tag>'s
+// tracklet-pairing loop finds exactly one candidate pair.
+template <int NLayers>
+void injectOneCellCandidate(Rig<NLayers>& rig, int cellTopologyId,
+                            const std::array<o2::its::Cluster, 3>& clusters,
+                            const std::array<o2::its::TrackingFrameInfo, 3>& hits)
+{
+  const auto topology = rig.tf.getTrackingTopologyView();
+  const auto& cell = topology.getCell(cellTopologyId);
+  const auto& first = topology.getTransition(cell.firstTransition);
+  const auto& second = topology.getTransition(cell.secondTransition);
+  const int layers[3] = {first.fromLayer, first.toLayer, second.toLayer};
+
+  for (int i = 0; i < 3; ++i) {
+    rig.tf.getUnsortedClusters()[layers[i]].push_back(clusters[i]);
+    rig.tf.getClusters()[layers[i]].push_back(clusters[i]);
+    rig.tf.addTrackingFrameInfoToLayer(layers[i], hits[i]);
+  }
+
+  const o2::its::TimeEstBC ts{static_cast<uint32_t>(0), static_cast<uint16_t>(1)};
+  rig.tf.getTracklets()[cell.firstTransition].push_back(o2::its::Tracklet{0, 0, 0.f, 0.f, ts});
+  rig.tf.getTracklets()[cell.secondTransition].push_back(o2::its::Tracklet{0, 0, 0.f, 0.f, ts});
+
+  auto& secondLUT = rig.tf.getTrackletsLookupTable()[cell.secondTransition];
+  secondLUT.resize(2);
+  secondLUT[0] = 0;
+  secondLUT[1] = 1;
+}
+
+} // namespace
+
+// --- Barrel: real orchestration matches the buildCellSeed<Tag> oracle -----
+
+BOOST_AUTO_TEST_CASE(CylinderComputeLayerCellsMatchesBuildCellSeedOracle)
+{
+  Rig<ITSNLayers> rig{o2::detectors::DetID::ITS, SurfaceKind::Cylinder, TransitionPolicyTag::CylinderCylinder};
+  rig.params[0].MaxChi2ClusterAttachment = 1.e6f;
+  rig.params[0].LayerxX0[0] = 0.005f; // inner
+  rig.params[0].LayerxX0[1] = 0.005f; // middle
+  rig.params[0].LayerxX0[2] = 0.f;    // outer: contractually unused by CylinderCylinder
+  rig.traits.updateTrackingParameters(rig.params);
+  rig.traits.initialiseTimeFrame(0);
+  BOOST_REQUIRE(rig.traits.hasTraversalCache());
+
+  const auto topology = rig.tf.getTrackingTopologyView();
+  const int cellTopologyId = findCellTopologyId(topology, 0, 1, 2);
+  BOOST_REQUIRE_GE(cellTopologyId, 0);
+
+  injectOneCellCandidate(rig, cellTopologyId,
+                         {makeGlobalCluster(3.0f, 0.100f, 0.9f, 0),
+                          makeGlobalCluster(4.0f, 0.150f, 1.05f, 0),
+                          makeGlobalCluster(5.0f, 0.201f, 1.25f, 0)},
+                         {makeBarrelHit(3.f, 0.f, 0.100f, 0.9f),
+                          makeBarrelHit(4.f, 0.f, 0.150f, 1.05f),
+                          makeBarrelHit(5.f, 0.f, 0.201f, 1.25f)});
+
+  // Any other cellTopologyId keeps its empty-transition early-continue
+  // path: cleared once up front, never touched again.
+  int otherCellTopologyId = -1;
+  for (int i = 0; i < topology.nCells; ++i) {
+    if (i != cellTopologyId) {
+      otherCellTopologyId = i;
+      break;
+    }
+  }
+  BOOST_REQUIRE_GE(otherCellTopologyId, 0);
+
+  rig.traits.computeLayerCells(0);
+
+  BOOST_CHECK(rig.tf.getCells()[otherCellTopologyId].empty());
+  BOOST_CHECK(rig.tf.getCellsLookupTable()[otherCellTopologyId].empty());
+  BOOST_CHECK(rig.tf.getCellsLabel(otherCellTopologyId).empty());
+
+  BOOST_REQUIRE_EQUAL(rig.tf.getCells()[cellTopologyId].size(), 1u);
+  const auto& producedCell = rig.tf.getCells()[cellTopologyId][0];
+
+  BOOST_REQUIRE_EQUAL(rig.tf.getCellsLookupTable()[cellTopologyId].size(), 2u);
+  BOOST_CHECK_EQUAL(rig.tf.getCellsLookupTable()[cellTopologyId][0], 0);
+  BOOST_CHECK_EQUAL(rig.tf.getCellsLookupTable()[cellTopologyId][1], 1);
+
+  // hasMCinformation() is false (no labels were loaded), so label
+  // construction is skipped, exactly as before this change.
+  BOOST_CHECK(rig.tf.getCellsLabel(cellTopologyId).empty());
+
+  // Oracle: independently refetch the same clusters/hits/material through
+  // the TimeFrame accessors (never re-typed literals) and call
+  // buildCellSeed<CylinderCylinder> directly.
+  const auto& oracleClusterInner = rig.tf.getUnsortedClusters()[0][producedCell.getFirstClusterIndex()];
+  const auto& oracleClusterMiddle = rig.tf.getUnsortedClusters()[1][producedCell.getSecondClusterIndex()];
+  const auto& oracleClusterOuter = rig.tf.getUnsortedClusters()[2][producedCell.getThirdClusterIndex()];
+  const auto& oracleHitInner = rig.tf.getTrackingFrameInfoOnLayer(0)[producedCell.getFirstClusterIndex()];
+  const auto& oracleHitMiddle = rig.tf.getTrackingFrameInfoOnLayer(1)[producedCell.getSecondClusterIndex()];
+  const auto& oracleHitOuter = rig.tf.getTrackingFrameInfoOnLayer(2)[producedCell.getThirdClusterIndex()];
+  const std::array<float, 3> xOverX0{rig.params[0].LayerxX0[0], rig.params[0].LayerxX0[1], rig.params[0].LayerxX0[2]};
+
+  CylinderCylinderPolicyParams policyParams;
+  policyParams.maxChi2ClusterAttachment = rig.params[0].MaxChi2ClusterAttachment;
+
+  o2::track::TrackParCovF oracleState{};
+  float oracleChi2 = 0.f;
+  BOOST_REQUIRE(buildCellSeed<TransitionPolicyTag::CylinderCylinder>(
+    oracleClusterInner, oracleClusterMiddle, oracleClusterOuter,
+    oracleHitInner, oracleHitMiddle, oracleHitOuter,
+    xOverX0, Bz, oracleState, oracleChi2, policyParams));
+
+  checkBarrelStateEqual(producedCell, oracleState);
+  BOOST_CHECK_EQUAL(producedCell.getChi2(), oracleChi2);
+}
+
+// --- Disk: real orchestration matches the buildCellSeed<Tag> oracle -------
+
+BOOST_AUTO_TEST_CASE(DiskComputeLayerCellsMatchesBuildCellSeedOracle)
+{
+  Rig<MFTNLayers> rig{o2::detectors::DetID::MFT, SurfaceKind::Disk, TransitionPolicyTag::DiskDisk};
+  rig.params[0].MaxChi2ClusterAttachment = 1.e6f;
+  rig.params[0].TrackletMinPt = 0.3f;
+  rig.params[0].CellRoadRCut = 1000.f; // generous: road pre-cut must pass here
+  rig.params[0].LayerxX0[0] = 0.015f;  // inner
+  rig.params[0].LayerxX0[1] = 0.017f;  // middle
+  rig.params[0].LayerxX0[2] = 0.02f;   // outer
+  rig.traits.updateTrackingParameters(rig.params);
+  rig.traits.initialiseTimeFrame(0);
+  BOOST_REQUIRE(rig.traits.hasTraversalCache());
+
+  const auto topology = rig.tf.getTrackingTopologyView();
+  const int cellTopologyId = findCellTopologyId(topology, 0, 1, 2);
+  BOOST_REQUIRE_GE(cellTopologyId, 0);
+
+  injectOneCellCandidate(rig, cellTopologyId,
+                         {makeGlobalCluster(1.0f, 0.5f, -0.4f, 0),
+                          makeGlobalCluster(1.3f, 0.62f, -0.6f, 0),
+                          makeGlobalCluster(1.7f, 0.78f, -0.9f, 0)},
+                         {makeDiskHit(-0.4f, 1.0f, 0.5f),
+                          makeDiskHit(-0.6f, 1.3f, 0.62f),
+                          makeDiskHit(-0.9f, 1.7f, 0.78f)});
+
+  rig.traits.computeLayerCells(0);
+
+  BOOST_REQUIRE_EQUAL(rig.tf.getCells()[cellTopologyId].size(), 1u);
+  const auto& producedCell = rig.tf.getCells()[cellTopologyId][0];
+
+  const auto& oracleClusterInner = rig.tf.getUnsortedClusters()[0][producedCell.getFirstClusterIndex()];
+  const auto& oracleClusterMiddle = rig.tf.getUnsortedClusters()[1][producedCell.getSecondClusterIndex()];
+  const auto& oracleClusterOuter = rig.tf.getUnsortedClusters()[2][producedCell.getThirdClusterIndex()];
+  const auto& oracleHitInner = rig.tf.getTrackingFrameInfoOnLayer(0)[producedCell.getFirstClusterIndex()];
+  const auto& oracleHitMiddle = rig.tf.getTrackingFrameInfoOnLayer(1)[producedCell.getSecondClusterIndex()];
+  const auto& oracleHitOuter = rig.tf.getTrackingFrameInfoOnLayer(2)[producedCell.getThirdClusterIndex()];
+  const std::array<float, 3> xOverX0{rig.params[0].LayerxX0[0], rig.params[0].LayerxX0[1], rig.params[0].LayerxX0[2]};
+
+  DiskDiskPolicyParams policyParams;
+  policyParams.maxChi2ClusterAttachment = rig.params[0].MaxChi2ClusterAttachment;
+  policyParams.trackletMinPt = rig.params[0].TrackletMinPt;
+
+  o2::track::TrackParCovFwd oracleState{};
+  float oracleChi2 = 0.f;
+  BOOST_REQUIRE(buildCellSeed<TransitionPolicyTag::DiskDisk>(
+    oracleClusterInner, oracleClusterMiddle, oracleClusterOuter,
+    oracleHitInner, oracleHitMiddle, oracleHitOuter,
+    xOverX0, Bz, oracleState, oracleChi2, policyParams));
+
+  checkDiskStateEqual(producedCell, oracleState);
+  BOOST_CHECK_EQUAL(producedCell.getChi2(), oracleChi2);
+}
+
+BOOST_AUTO_TEST_CASE(DiskComputeLayerCellsRoadPreCutRejectsBeforeBuildCellSeed)
+{
+  Rig<MFTNLayers> rig{o2::detectors::DetID::MFT, SurfaceKind::Disk, TransitionPolicyTag::DiskDisk};
+  rig.params[0].MaxChi2ClusterAttachment = 1.e6f;
+  rig.params[0].TrackletMinPt = 0.3f;
+  // Same geometry as DiskComputeLayerCellsMatchesBuildCellSeedOracle, but a
+  // vanishingly small road cut: proves detail::validateMFTCellClusters still
+  // runs before buildCellSeed<DiskDisk> and is driven by the bound
+  // DiskDiskPolicyParams::cellRoadRCut, not a stale/uninitialized value.
+  rig.params[0].CellRoadRCut = 1.e-6f;
+  rig.traits.updateTrackingParameters(rig.params);
+  rig.traits.initialiseTimeFrame(0);
+
+  const auto topology = rig.tf.getTrackingTopologyView();
+  const int cellTopologyId = findCellTopologyId(topology, 0, 1, 2);
+  BOOST_REQUIRE_GE(cellTopologyId, 0);
+
+  injectOneCellCandidate(rig, cellTopologyId,
+                         {makeGlobalCluster(1.0f, 0.5f, -0.4f, 0),
+                          makeGlobalCluster(1.3f, 0.62f, -0.6f, 0),
+                          makeGlobalCluster(1.7f, 0.78f, -0.9f, 0)},
+                         {makeDiskHit(-0.4f, 1.0f, 0.5f),
+                          makeDiskHit(-0.6f, 1.3f, 0.62f),
+                          makeDiskHit(-0.9f, 1.7f, 0.78f)});
+
+  rig.traits.computeLayerCells(0);
+
+  BOOST_CHECK(rig.tf.getCells()[cellTopologyId].empty());
+  BOOST_REQUIRE_EQUAL(rig.tf.getCellsLookupTable()[cellTopologyId].size(), 2u);
+  BOOST_CHECK_EQUAL(rig.tf.getCellsLookupTable()[cellTopologyId][0], 0);
+  BOOST_CHECK_EQUAL(rig.tf.getCellsLookupTable()[cellTopologyId][1], 0);
+}
+
+// --- One-pass vs two-pass: identical result regardless of thread count ----
+
+BOOST_AUTO_TEST_CASE(CylinderComputeLayerCellsOnePassAndTwoPassAgree)
+{
+  struct Result {
+    int cellTopologyId{-1};
+    std::vector<int> lut;
+    float chi2{0.f};
+    int cl0{-1}, cl1{-1}, cl2{-1};
+  };
+
+  auto run = [](int nThreads) {
+    Rig<ITSNLayers> rig{o2::detectors::DetID::ITS, SurfaceKind::Cylinder, TransitionPolicyTag::CylinderCylinder, nThreads};
+    rig.params[0].MaxChi2ClusterAttachment = 1.e6f;
+    rig.params[0].LayerxX0[0] = 0.005f;
+    rig.params[0].LayerxX0[1] = 0.005f;
+    rig.traits.updateTrackingParameters(rig.params);
+    rig.traits.initialiseTimeFrame(0);
+
+    const auto topology = rig.tf.getTrackingTopologyView();
+    const int cellTopologyId = findCellTopologyId(topology, 0, 1, 2);
+    BOOST_REQUIRE_GE(cellTopologyId, 0);
+
+    injectOneCellCandidate(rig, cellTopologyId,
+                           {makeGlobalCluster(3.0f, 0.100f, 0.9f, 0),
+                            makeGlobalCluster(4.0f, 0.150f, 1.05f, 0),
+                            makeGlobalCluster(5.0f, 0.201f, 1.25f, 0)},
+                           {makeBarrelHit(3.f, 0.f, 0.100f, 0.9f),
+                            makeBarrelHit(4.f, 0.f, 0.150f, 1.05f),
+                            makeBarrelHit(5.f, 0.f, 0.201f, 1.25f)});
+
+    rig.traits.computeLayerCells(0);
+
+    Result r;
+    r.cellTopologyId = cellTopologyId;
+    const auto& lut = rig.tf.getCellsLookupTable()[cellTopologyId];
+    r.lut.assign(lut.begin(), lut.end());
+    BOOST_REQUIRE_EQUAL(rig.tf.getCells()[cellTopologyId].size(), 1u);
+    const auto& cell = rig.tf.getCells()[cellTopologyId][0];
+    r.chi2 = cell.getChi2();
+    r.cl0 = cell.getFirstClusterIndex();
+    r.cl1 = cell.getSecondClusterIndex();
+    r.cl2 = cell.getThirdClusterIndex();
+    return r;
+  };
+
+  const auto onePass = run(1);
+  const auto twoPass = run(4);
+
+  BOOST_CHECK_EQUAL(onePass.cellTopologyId, twoPass.cellTopologyId);
+  BOOST_CHECK_EQUAL_COLLECTIONS(onePass.lut.begin(), onePass.lut.end(), twoPass.lut.begin(), twoPass.lut.end());
+  BOOST_CHECK_EQUAL(onePass.chi2, twoPass.chi2);
+  BOOST_CHECK_EQUAL(onePass.cl0, twoPass.cl0);
+  BOOST_CHECK_EQUAL(onePass.cl1, twoPass.cl1);
+  BOOST_CHECK_EQUAL(onePass.cl2, twoPass.cl2);
+}
+
+// --- Fail-closed: no test-only seam, only the existing public entry point -
+
+BOOST_AUTO_TEST_CASE(ComputeLayerCellsFailsClosedWithoutInitialiseTimeFrame)
+{
+  TimeFrame<ITSNLayers> tf;
+  TrackerTraits<ITSNLayers> traits;
+  traits.adoptTimeFrame(&tf);
+
+  BOOST_CHECK_EXCEPTION(traits.computeLayerCells(0), TraversalException, [](const TraversalException& e) {
+    return e.getReason() == TraversalFailureReason::InvalidTraversalSchedule;
+  });
+}
