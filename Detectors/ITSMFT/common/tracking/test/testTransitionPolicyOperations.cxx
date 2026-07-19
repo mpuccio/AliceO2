@@ -9,13 +9,16 @@
 #define BOOST_TEST_MAIN
 #define BOOST_TEST_DYN_LINK
 
-#include <limits>
+#include <array>
 #include <cmath>
+#include <limits>
+#include <utility>
 
 #include <boost/test/unit_test.hpp>
 
 #include <TGeoGlobalMagField.h>
 
+#include "DetectorsCommonDataFormats/DetID.h"
 #include "Field/MagneticField.h"
 #include "ITSMFTTracking/MFTFwdTrackHelpers.h"
 #include "ITSMFTTracking/TransitionPolicyBinding.h"
@@ -1472,4 +1475,189 @@ BOOST_AUTO_TEST_CASE(DiskBuildCellSeedRepeatedCallsAreDeterministic)
 
   checkDiskStateEqual(firstState, secondState);
   BOOST_CHECK_EQUAL(firstChi2, secondChi2);
+}
+
+/// Gate 3 transition-preparation slice coverage (relocated from
+/// TimeFrame::initialise() into TrackerTraits::initialiseTimeFrame(); see
+/// TransitionPolicyOperations.h layerMultipleScatteringAngle<Tag>,
+/// clampTransitionCurvature<Tag>, prepareTransitionScatteringAndBending, and
+/// TransitionPolicyBinding.h LayerGeometryConfigView). These tests verify
+/// exact legacy-formula parity, the family-specific arithmetic literal that
+/// integration review required preserved (not canonicalized), and the
+/// order-sensitive oneOverR ratchet -- independently of TrackerTraits'
+/// production traversal (covered separately in
+/// testComputeLayerTrackletsOrchestration.cxx).
+
+BOOST_AUTO_TEST_CASE(CylinderScatteringAngleMatchesFrozenITSFormula)
+{
+  // Bit-exact vs the frozen ITS expression (ITS/tracking/src/TimeFrame.cxx:347):
+  // math_utils::MSangle(0.14f, trkParam.TrackletMinPt, trkParam.LayerxX0[iLayer]).
+  const std::array<float, 4> xX0Values{0.f, -0.001f, 5.e-3f, 1.e-2f};
+  const std::array<float, 3> trackletMinPtValues{0.1f, 0.3f, 2.5f};
+  for (float xX0 : xX0Values) {
+    for (float trackletMinPt : trackletMinPtValues) {
+      const float reference = o2::its::math_utils::MSangle(0.14f, trackletMinPt, xX0);
+      const float actual = layerMultipleScatteringAngle<TransitionPolicyTag::CylinderCylinder>(
+        LayerScatteringInputs<TransitionPolicyTag::CylinderCylinder>{xX0}, trackletMinPt);
+      BOOST_CHECK_EQUAL(actual, reference);
+    }
+  }
+  // xX0 <= 0 behavior, explicit: legacy MSangle maps this to zero, not a
+  // rejection; the typed operation must not add validation beyond it.
+  BOOST_CHECK_EQUAL(layerMultipleScatteringAngle<TransitionPolicyTag::CylinderCylinder>(
+                      LayerScatteringInputs<TransitionPolicyTag::CylinderCylinder>{0.f}, 0.3f),
+                    0.f);
+}
+
+BOOST_AUTO_TEST_CASE(DiskScatteringAngleMatchesLegacyMftFormulaWithExplicitReferenceZ)
+{
+  // Bit-exact vs the legacy detail::mftLayerMSAngle(layer, params), except
+  // the DiskDisk operation receives referenceCoordinate/layerRadius
+  // explicitly instead of calling mftLayerZ()/LayerZCoordinate() internally.
+  // mftLayerZ() is used here only to construct the *expected* legacy value,
+  // exactly as this operation's caller (TrackerTraits::initialiseTimeFrame(),
+  // via bindLegacyMFTReferenceCoordinates()) is required to do.
+  TrackingParameters legacy;
+  resetDetectorDefaults(legacy, o2::detectors::DetID::MFT);
+  for (int layer : {0, 3, o2::mft::constants::mft::LayersNumber - 1}) {
+    const float referenceZ = detail::mftLayerZ(layer);
+    const float radius = legacy.LayerRadii[layer];
+    const float xX0 = legacy.LayerxX0[layer];
+
+    const float reference = detail::mftLayerMSAngle(layer, legacy);
+    const float actual = layerMultipleScatteringAngle<TransitionPolicyTag::DiskDisk>(
+      LayerScatteringInputs<TransitionPolicyTag::DiskDisk>{xX0, radius, referenceZ}, legacy.TrackletMinPt);
+    BOOST_CHECK_EQUAL(actual, reference);
+  }
+
+  // xX0 == 0 behavior, explicit: the legacy formula has no special case for
+  // it (sqrt(0 * cscLambda) == 0), and this operation must not add one.
+  const float referenceZ = detail::mftLayerZ(0);
+  const float zeroX0Actual = layerMultipleScatteringAngle<TransitionPolicyTag::DiskDisk>(
+    LayerScatteringInputs<TransitionPolicyTag::DiskDisk>{0.f, legacy.LayerRadii[0], referenceZ}, legacy.TrackletMinPt);
+  BOOST_CHECK_EQUAL(zeroX0Actual, 0.f);
+}
+
+BOOST_AUTO_TEST_CASE(DiskScatteringAngleNearZeroReferenceRadiusFallback)
+{
+  // Legacy fallback: |rRef| <= 1e-6 => tanlRef = 0 (detail::mftLayerMSAngle),
+  // rather than dividing by a near-zero radius.
+  TrackingParameters legacy;
+  resetDetectorDefaults(legacy, o2::detectors::DetID::MFT);
+  legacy.LayerRadii[0] = 1.e-9f; // below the legacy 1e-6 fallback threshold
+  const float referenceZ = detail::mftLayerZ(0);
+
+  const float reference = detail::mftLayerMSAngle(0, legacy);
+  const float actual = layerMultipleScatteringAngle<TransitionPolicyTag::DiskDisk>(
+    LayerScatteringInputs<TransitionPolicyTag::DiskDisk>{legacy.LayerxX0[0], legacy.LayerRadii[0], referenceZ},
+    legacy.TrackletMinPt);
+  BOOST_CHECK_EQUAL(actual, reference);
+
+  // Cross-check the fallback actually engages: tanlRef == 0 (rRef below the
+  // 1e-6 threshold) makes absTanl == 0, which is *not* > 1e-6 either, so
+  // cscLambda takes the near-parallel-incidence sentinel 1e6f, not 1 -- i.e.
+  // this input is genuinely exercising the near-zero-radius branch, not
+  // merely reproducing an unrelated formula.
+  const float expectedWithSentinelCscLambda = 0.0136f * (1.f / legacy.TrackletMinPt) * std::sqrt(legacy.LayerxX0[0] * 1.e6f);
+  BOOST_CHECK_EQUAL(reference, expectedWithSentinelCscLambda);
+}
+
+BOOST_AUTO_TEST_CASE(ClampTransitionCurvatureMatchesExactLegacyExpressionPerFamily)
+{
+  // Integration review finding: the two legacy branches compare `0.5 *
+  // oneOverR` (CylinderCylinder: double-promoted) against `0.5f * oneOverR`
+  // (DiskDisk: float) before the same `>= 1.f / r2` clamp. Preserved
+  // verbatim per family, not canonicalized -- see
+  // ClampTransitionCurvatureFloatVersusDoubleDiscriminatorAttempt for why no
+  // observable difference could be constructed, and note that preservation,
+  // not the (negative) discriminator search, is what this test asserts.
+  const std::array<std::pair<float, float>, 5> samples{{
+    {0.001f, 50.f}, // clamp does not trigger
+    {3.0f, 1.0f},   // clamp triggers
+    {0.02f, 25.f},
+    {0.5f, 0.9f},
+    {0.0001f, 4.f},
+  }};
+  for (const auto& sample : samples) {
+    const float oneOverR = sample.first;
+    const float r2 = sample.second;
+
+    const float cylinderActual = clampTransitionCurvature<TransitionPolicyTag::CylinderCylinder>(oneOverR, r2);
+    const float cylinderReference = (0.5 * oneOverR >= 1.f / r2) ? (2.f / r2) - o2::constants::math::Almost0 : oneOverR;
+    BOOST_CHECK_EQUAL(cylinderActual, cylinderReference);
+
+    const float diskActual = clampTransitionCurvature<TransitionPolicyTag::DiskDisk>(oneOverR, r2);
+    const float diskReference = (0.5f * oneOverR >= 1.f / r2) ? (2.f / r2) - o2::constants::math::Almost0 : oneOverR;
+    BOOST_CHECK_EQUAL(diskActual, diskReference);
+  }
+}
+
+BOOST_AUTO_TEST_CASE(ClampTransitionCurvatureFloatVersusDoubleDiscriminatorAttempt)
+{
+  // Attempted discriminator search. Multiplying/dividing an IEEE-754 value by
+  // exactly 0.5 (a power of two) is *exact* in both binary32 and binary64 --
+  // it only decrements the exponent, no mantissa rounding is required --
+  // provided the result does not underflow into the subnormal range.
+  // Consequently `0.5 * oneOverR` (double: `0.5` is an exact double literal
+  // and `oneOverR` promotes to double losslessly) and `0.5f * oneOverR`
+  // (float) are provably bit-identical once compared against the same
+  // `1.f / r2`, for any `oneOverR` that is not itself subnormal. Physically,
+  // `oneOverR == 0.001f*0.3f*|Bz|/TrackletMinPt` is many orders of magnitude
+  // away from the float underflow boundary (~1e-4..1e-2 for realistic
+  // Bz/TrackletMinPt), so no discriminating input exists in the physically
+  // meaningful domain this code operates in. This sweeps representative and
+  // extreme-but-normal values, including the clamp boundary itself, and
+  // finds none; it does not probe genuinely subnormal `oneOverR` (below
+  // ~1.18e-38), since those are far outside any value this code can produce
+  // and would not demonstrate a real risk.
+  const std::array<float, 9> oneOverRSamples{
+    0.f, 1.e-6f, 1.e-4f, 1.e-3f, 1.e-2f, 0.1f, 1.f, 10.f, 1.e10f};
+  const std::array<float, 7> r2Samples{
+    0.5f, 1.f, 2.33959f, 5.f, 19.6213f, 39.3329f, 1.e6f};
+
+  bool discriminatorFound = false;
+  for (float oneOverR : oneOverRSamples) {
+    for (float r2 : r2Samples) {
+      const float viaFloatLiteral = (0.5f * oneOverR >= 1.f / r2) ? (2.f / r2) - o2::constants::math::Almost0 : oneOverR;
+      const float viaDoubleLiteral = (0.5 * oneOverR >= 1.f / r2) ? (2.f / r2) - o2::constants::math::Almost0 : oneOverR;
+      if (viaFloatLiteral != viaDoubleLiteral) {
+        discriminatorFound = true;
+      }
+    }
+  }
+  BOOST_CHECK(!discriminatorFound); // documents the (negative) search result described above
+}
+
+BOOST_AUTO_TEST_CASE(CurvatureRatchetThreadsInIncreasingLegacyTransitionIdOrder)
+{
+  // The legacy oneOverR is a loop-carried variable, not reset per transition:
+  // clampTransitionCurvature<Tag> must be called once per transition, in
+  // increasing legacy transitionId order, threading its return value into the
+  // next call. This proves the computation is genuinely order-sensitive (an
+  // unproven iteration order, e.g. a policy-grouping span, cannot be
+  // substituted without first proving it matches legacy transitionId order)
+  // and pins the exact sequence increasing order must produce.
+  constexpr float initialOneOverR = 3.f;
+  const std::array<float, 3> r2InIncreasingTransitionIdOrder{1.f, 4.f, 0.5f};
+
+  float running = initialOneOverR;
+  std::array<float, 3> forwardResults{};
+  for (int i = 0; i < 3; ++i) {
+    running = clampTransitionCurvature<TransitionPolicyTag::CylinderCylinder>(running, r2InIncreasingTransitionIdOrder[i]);
+    forwardResults[i] = running;
+  }
+
+  float manual = initialOneOverR;
+  manual = (0.5 * manual >= 1.f / r2InIncreasingTransitionIdOrder[0]) ? (2.f / r2InIncreasingTransitionIdOrder[0]) - o2::constants::math::Almost0 : manual;
+  BOOST_CHECK_EQUAL(forwardResults[0], manual);
+  manual = (0.5 * manual >= 1.f / r2InIncreasingTransitionIdOrder[1]) ? (2.f / r2InIncreasingTransitionIdOrder[1]) - o2::constants::math::Almost0 : manual;
+  BOOST_CHECK_EQUAL(forwardResults[1], manual);
+  manual = (0.5 * manual >= 1.f / r2InIncreasingTransitionIdOrder[2]) ? (2.f / r2InIncreasingTransitionIdOrder[2]) - o2::constants::math::Almost0 : manual;
+  BOOST_CHECK_EQUAL(forwardResults[2], manual);
+
+  // A different processing order must not be assumed to reproduce the same
+  // first step: proves the caller cannot substitute an unproven order.
+  const float reversedFirstStep = clampTransitionCurvature<TransitionPolicyTag::CylinderCylinder>(
+    initialOneOverR, r2InIncreasingTransitionIdOrder[2]);
+  BOOST_CHECK_NE(reversedFirstStep, forwardResults[0]);
 }

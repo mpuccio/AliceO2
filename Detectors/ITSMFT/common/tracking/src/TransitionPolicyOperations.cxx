@@ -15,14 +15,18 @@
 #include "ITSMFTTracking/TransitionPolicyOperations.h"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 
+#include "CommonConstants/MathConstants.h"
 #include "DataFormatsITS/Vertex.h"
 #include "ITSMFTTracking/MFTFwdTrackHelpers.h"
 #include "ITSMFTTracking/IndexTableUtils.h"
 #include "ITStracking/Cluster.h"
 #include "ITStracking/Constants.h"
+#include "ITStracking/MathUtils.h"
 #include "ITStracking/TrackHelpers.h"
+#include "MFTTracking/Constants.h"
 
 namespace o2::itsmft::tracking
 {
@@ -364,6 +368,67 @@ bool buildCellSeed<TransitionPolicyTag::DiskDisk>(
   outState = track;
   chi2 = localChi2;
   return true;
+}
+
+template <>
+float layerMultipleScatteringAngle<TransitionPolicyTag::CylinderCylinder>(
+  const LayerScatteringInputs<TransitionPolicyTag::CylinderCylinder>& inputs, float trackletMinPt)
+{
+  // Unchanged from the frozen ITS expression:
+  // math_utils::MSangle(0.14f, trkParam.TrackletMinPt, trkParam.LayerxX0[iLayer]).
+  return o2::its::math_utils::MSangle(0.14f, trackletMinPt, inputs.layerxX0);
+}
+
+template <>
+float layerMultipleScatteringAngle<TransitionPolicyTag::DiskDisk>(
+  const LayerScatteringInputs<TransitionPolicyTag::DiskDisk>& inputs, float trackletMinPt)
+{
+  // Same formula as the legacy detail::mftLayerMSAngle(), except zLayer/rRef
+  // are supplied explicitly by the caller instead of being derived here from
+  // mftLayerZ()/LayerZCoordinate() -- see the header doc on this
+  // specialization and bindLegacyMFTReferenceCoordinates() below.
+  const float invP = 1.f / trackletMinPt;
+  const float zLayer = inputs.referenceCoordinate;
+  const float rRef = inputs.layerRadius;
+  const float tanlRef = (std::abs(rRef) > 1e-6f) ? zLayer / rRef : 0.f;
+  const float absTanl = std::abs(tanlRef);
+  const float cscLambda = (absTanl > 1e-6f) ? std::sqrt(1.f + tanlRef * tanlRef) / absTanl : 1e6f;
+  return 0.0136f * invP * std::sqrt(inputs.layerxX0 * cscLambda);
+}
+
+namespace
+{
+// Time-boxed Gate 3 compatibility values: the legacy nominal half-disk z
+// coordinates already used by mftLayerMSAngle() today, preserved bit-for-bit
+// so layerMultipleScatteringAngle<DiskDisk> reproduces the accepted 91-track
+// / hash 826dc653cd936a472929c600c97c140b baseline. Deliberately NOT
+// SurfaceDescriptor::referenceCoordinate -- see the header doc on
+// bindLegacyMFTReferenceCoordinates(). static constexpr storage duration:
+// initialized at compile time, lives for the process lifetime, so a span
+// over it is valid indefinitely and needs no per-iteration staging.
+static constexpr std::array<float, o2::mft::constants::mft::LayersNumber> kLegacyMFTReferenceCoordinate =
+  o2::mft::constants::mft::LayerZCoordinate();
+} // namespace
+
+DiskDiskReferenceCoordinateView bindLegacyMFTReferenceCoordinates() noexcept
+{
+  return DiskDiskReferenceCoordinateView{gsl::span<const float>(kLegacyMFTReferenceCoordinate)};
+}
+
+template <>
+float clampTransitionCurvature<TransitionPolicyTag::CylinderCylinder>(float oneOverR, float r2) noexcept
+{
+  // Preserves the legacy double-promoted comparison verbatim (frozen ITS
+  // TimeFrame.cxx / common-CA non-MFT branch): `0.5` is a double literal.
+  return (0.5 * oneOverR >= 1.f / r2) ? (2.f / r2) - o2::constants::math::Almost0 : oneOverR;
+}
+
+template <>
+float clampTransitionCurvature<TransitionPolicyTag::DiskDisk>(float oneOverR, float r2) noexcept
+{
+  // Preserves the legacy float-only comparison verbatim (common-CA MFT
+  // branch): `0.5f` stays in float.
+  return (0.5f * oneOverR >= 1.f / r2) ? (2.f / r2) - o2::constants::math::Almost0 : oneOverR;
 }
 
 } // namespace o2::itsmft::tracking

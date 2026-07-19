@@ -14,6 +14,8 @@
 #include "ITSMFTTracking/TransitionPolicyState.h"
 
 #ifndef GPUCA_GPUCODE
+#include <gsl/span>
+
 #include "DetectorsBase/Propagator.h"
 
 namespace o2::dataformats
@@ -314,6 +316,95 @@ bool buildCellSeed<TransitionPolicyTag::DiskDisk>(
   o2::track::TrackParCovFwd& outState,
   float& chi2,
   const DiskDiskPolicyParams& params);
+
+/// Gate 3 transition-preparation slice (Architecture.md Sec 10/10.1):
+/// per-layer multiple-scattering angle, one specialization per Tag. Called
+/// once per iteration/layer by the caller's outer policy dispatch, never per
+/// candidate. Each specialization receives every physical fact it needs
+/// explicitly; in particular the DiskDisk specialization does not call
+/// mftLayerZ()/LayerZCoordinate() or otherwise infer MFT geometry -- the
+/// caller supplies `referenceCoordinate` via the explicit, time-boxed
+/// compatibility binding below (bindLegacyMFTReferenceCoordinates()).
+/// Instantiating the primary template for an unsupported tag is a compile
+/// error rather than a silent fallback (mirrors TransitionPolicyTraits).
+template <TransitionPolicyTag Tag>
+struct LayerScatteringInputs;
+
+/// Barrel: mass/momentum radiation-length formula (math_utils::MSangle),
+/// unchanged from the frozen ITS expression.
+template <>
+struct LayerScatteringInputs<TransitionPolicyTag::CylinderCylinder> {
+  float layerxX0;
+};
+
+/// Disk: adds the incidence-angle (pseudo-tan(lambda)) correction that
+/// mftLayerMSAngle() already applies. `layerRadius` is
+/// TrackingParameters::LayerRadii[layer] reused as MFT's nominal transverse
+/// reference radius at `referenceCoordinate` (z) -- the same legacy field
+/// overload as today, not something this slice changes.
+template <>
+struct LayerScatteringInputs<TransitionPolicyTag::DiskDisk> {
+  float layerxX0;
+  float layerRadius;
+  float referenceCoordinate;
+};
+
+template <TransitionPolicyTag Tag>
+float layerMultipleScatteringAngle(const LayerScatteringInputs<Tag>& inputs, float trackletMinPt);
+
+template <>
+float layerMultipleScatteringAngle<TransitionPolicyTag::CylinderCylinder>(
+  const LayerScatteringInputs<TransitionPolicyTag::CylinderCylinder>& inputs, float trackletMinPt);
+
+template <>
+float layerMultipleScatteringAngle<TransitionPolicyTag::DiskDisk>(
+  const LayerScatteringInputs<TransitionPolicyTag::DiskDisk>& inputs, float trackletMinPt);
+
+/// Explicit, time-boxed Gate 3 compatibility binding: supplies the legacy MFT
+/// half-disk z coordinates (o2::mft::constants::mft::LayerZCoordinate()) used
+/// by legacy mftLayerMSAngle() and required for
+/// layerMultipleScatteringAngle<DiskDisk> to reproduce the accepted 91-track /
+/// hash 826dc653cd936a472929c600c97c140b MFT common-CA baseline bit-for-bit.
+/// Deliberately NOT SurfaceDescriptor::referenceCoordinate: the real-geometry
+/// catalog values differ from these legacy constants, and substituting one
+/// for the other would silently change the accepted physics baseline rather
+/// than migrate it -- that substitution is a separate, later, independently
+/// replay-validated decision. Isolated here so the generic DiskDisk operation
+/// above never references MFT constants directly; a future disk layout
+/// supplies its own LayerScatteringInputs<DiskDisk>::referenceCoordinate
+/// without changing layerMultipleScatteringAngle's signature or body.
+struct DiskDiskReferenceCoordinateView {
+  gsl::span<const float> perLayerReferenceZ; // legacy layout-local layer index
+  bool isValid(size_t expectedLayers) const noexcept { return perLayerReferenceZ.size() >= expectedLayers; }
+};
+
+/// Bound from static-storage-duration legacy constants (see .cxx) -- the
+/// returned view never dangles and needs no per-iteration staging.
+DiskDiskReferenceCoordinateView bindLegacyMFTReferenceCoordinates() noexcept;
+
+/// Narrowly isolated legacy-arithmetic compatibility step (integration review
+/// finding): the two legacy branches this slice replaces compare
+/// `0.5 * oneOverR` (CylinderCylinder: `0.5` is a double literal, so the
+/// multiply is evaluated in double after promoting `oneOverR`) against
+/// `0.5f * oneOverR` (DiskDisk: stays in float) before the same `>= 1.f / r2`
+/// clamp. This is not a policy/physics difference -- it is an accidental
+/// literal difference in the frozen legacy code -- but it is preserved
+/// bit-for-bit rather than canonicalized, since no evidence yet justifies
+/// unifying the precision and doing so would require its own boundary tests
+/// and replay evidence. Preserving it here, isolated, avoids duplicating the
+/// (genuinely shared) remainder of the transition formula just to keep this
+/// one literal. The caller owns the loop-carried `oneOverR` and must call
+/// this once per transition, in increasing legacy transitionId order,
+/// threading the returned value into the next call -- `oneOverR` is not
+/// reset per transition.
+template <TransitionPolicyTag Tag>
+float clampTransitionCurvature(float oneOverR, float r2) noexcept;
+
+template <>
+float clampTransitionCurvature<TransitionPolicyTag::CylinderCylinder>(float oneOverR, float r2) noexcept;
+
+template <>
+float clampTransitionCurvature<TransitionPolicyTag::DiskDisk>(float oneOverR, float r2) noexcept;
 
 #endif // GPUCA_GPUCODE
 
