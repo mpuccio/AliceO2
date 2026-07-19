@@ -40,6 +40,16 @@ o2_add_library(ITStracking
                        TBB::tbb)
 # target_compile_options(${targetName} PRIVATE -O0 -g -fPIC -fno-omit-frame-pointer)
 
+# ITS-owned, explicit opt-in translation boundary between the production ITS
+# presets and the common CA parameter representation. Neither dependency may
+# link back to this additive adapter target.
+o2_add_library(ITSCommonTrackingAdapter
+               SOURCES src/CommonTrackingParameters.cxx
+               PUBLIC_LINK_LIBRARIES
+                       O2::ITStracking
+                       O2::ITSMFTTracking
+                       O2::MFTTracking)
+
 o2_add_library(ITSTrackingInterface
                TARGETVARNAME targetName
                SOURCES src/TrackingInterface.cxx

@@ -54,16 +54,28 @@ namespace o2::itsmft
 inline constexpr int ClustersPerCell = 3;
 
 // Steering of dedicated steps in an iteration
-enum class IterationStep : uint8_t {
+enum class IterationStep : uint16_t {
   FirstPass = 0,
-  RebuildClusterLUT,
-  UseUPCMask,
-  SelectUPCVertices,
-  ResetVertices,
-  SkipROFsAboveThreshold,
-  MarkVerticesAsUPC,
+  RebuildClusterLUT = 1,
+  UseUPCMask = 2,
+  SelectUPCVertices = 3,
+  ResetVertices = 4,
+  SkipROFsAboveThreshold = 5,
+  MarkVerticesAsUPC = 6,
+  TrackFollowerTop = 7,
+  TrackFollowerBot = 8,
 };
 using IterationSteps = o2::utils::EnumFlags<IterationStep>;
+
+static_assert(static_cast<uint16_t>(IterationStep::FirstPass) == 0);
+static_assert(static_cast<uint16_t>(IterationStep::RebuildClusterLUT) == 1);
+static_assert(static_cast<uint16_t>(IterationStep::UseUPCMask) == 2);
+static_assert(static_cast<uint16_t>(IterationStep::SelectUPCVertices) == 3);
+static_assert(static_cast<uint16_t>(IterationStep::ResetVertices) == 4);
+static_assert(static_cast<uint16_t>(IterationStep::SkipROFsAboveThreshold) == 5);
+static_assert(static_cast<uint16_t>(IterationStep::MarkVerticesAsUPC) == 6);
+static_assert(static_cast<uint16_t>(IterationStep::TrackFollowerTop) == 7);
+static_assert(static_cast<uint16_t>(IterationStep::TrackFollowerBot) == 8);
 
 struct TrackingParameters {
   int CellMinimumLevel() const noexcept
@@ -99,6 +111,11 @@ struct TrackingParameters {
   int MinTrackLength = 7;
   int MaxHoles = 0;
   tracking::LayerMask HoleLayerMask = 0;
+  // Gate 3 compatibility storage. The common CA does not consume inactive or
+  // explicit seeding-layer semantics yet; an event-processing adapter must
+  // reject non-empty values until that behavior is implemented.
+  tracking::LayerMask InactiveLayerMask = 0;
+  tracking::LayerMask SeedingLayers = 0;
   float NSigmaCut = 5;
   float PVres = 1.e-2f;
   /// Trackleting cuts
@@ -121,6 +138,11 @@ struct TrackingParameters {
   bool DoUPCIteration = false;
   bool FataliseUponFailure = true;
   bool CreateArtefactLabels{false};
+  // Gate 3 compatibility storage only. Top/bottom follower execution remains
+  // unavailable in the common tracker.
+  float TrackFollowerNSigmaCutZ = 1.f;
+  float TrackFollowerNSigmaCutPhi = 1.f;
+  int TrackFollowerMaxHypotheses = 1;
   bool PrintMemory = false; // print allocator usage in epilog report
   size_t MaxMemory = std::numeric_limits<size_t>::max();
   bool DropTFUponFailure = false;
