@@ -142,6 +142,8 @@ struct TrackletSnapshot {
   int transitionId{-1};
   std::vector<o2::its::Tracklet> tracklets;
   std::vector<int> lookup;
+  o2::its::TimeEstBC expectedTimestamp;
+  bool nonparticipatingTransitionsEmpty{false};
 };
 
 template <int NLayers>
@@ -206,7 +208,10 @@ TrackletSnapshot runFixture(o2::detectors::DetID::ID detector,
   tf.setMultiplicityCutMask(std::move(mask));
 
   traits.initialiseTimeFrame(0);
-  traits.computeLayerTracklets(0, -1);
+  BOOST_CHECK_EQUAL(traits.getTraversalGroupingCount(), 1);
+  BOOST_CHECK_EQUAL(traits.getPolicyBindingCount(tag), 1);
+  const auto otherTag = tag == TransitionPolicyTag::CylinderCylinder ? TransitionPolicyTag::DiskDisk : TransitionPolicyTag::CylinderCylinder;
+  BOOST_CHECK_EQUAL(traits.getPolicyBindingCount(otherTag), 0);
 
   const auto topology = tf.getTrackingTopologyView();
   int transitionId = -1;
@@ -219,12 +224,29 @@ TrackletSnapshot runFixture(o2::detectors::DetID::ID detector,
   }
   BOOST_REQUIRE_GE(transitionId, 0);
 
+  // Repeated per-vertex processing must reuse the initialization-time
+  // traversal grouping and typed parameter binding.
+  traits.computeLayerTracklets(0, 0);
+  BOOST_CHECK_EQUAL(traits.getTraversalGroupingCount(), 1);
+  BOOST_CHECK_EQUAL(traits.getPolicyBindingCount(tag), 1);
+  traits.computeLayerTracklets(0, 0);
+  BOOST_CHECK_EQUAL(traits.getTraversalGroupingCount(), 1);
+  BOOST_CHECK_EQUAL(traits.getPolicyBindingCount(tag), 1);
+
   TrackletSnapshot result;
   result.transitionId = transitionId;
+  result.expectedTimestamp = tf.getROFOverlapTableView().getTimeStamp(0, 0, 1, 0);
   const auto& tracklets = tf.getTracklets()[transitionId];
   result.tracklets.assign(tracklets.begin(), tracklets.end());
   const auto& lookup = tf.getTrackletsLookupTable()[transitionId];
   result.lookup.assign(lookup.begin(), lookup.end());
+  result.nonparticipatingTransitionsEmpty = true;
+  for (int id = 0; id < topology.nTransitions; ++id) {
+    if (id != transitionId && !tf.getTracklets()[id].empty()) {
+      result.nonparticipatingTransitionsEmpty = false;
+      break;
+    }
+  }
   return result;
 }
 
@@ -236,6 +258,21 @@ void checkSame(const TrackletSnapshot& serial, const TrackletSnapshot& parallel)
   for (size_t i = 0; i < serial.tracklets.size(); ++i) {
     BOOST_CHECK(serial.tracklets[i] == parallel.tracklets[i]);
   }
+}
+
+void checkExactTracklet(const TrackletSnapshot& snapshot, float expectedTanLambda, float expectedPhi)
+{
+  BOOST_REQUIRE_EQUAL(snapshot.tracklets.size(), 1u);
+  const auto& tracklet = snapshot.tracklets.front();
+  BOOST_CHECK_EQUAL(tracklet.firstClusterIndex, 0);
+  BOOST_CHECK_EQUAL(tracklet.secondClusterIndex, 0);
+  BOOST_CHECK_EQUAL(tracklet.tanLambda, expectedTanLambda);
+  BOOST_CHECK_EQUAL(tracklet.phi, expectedPhi);
+  BOOST_CHECK_EQUAL(tracklet.getTimeStamp().getTimeStamp(), snapshot.expectedTimestamp.getTimeStamp());
+  BOOST_CHECK_EQUAL(tracklet.getTimeStamp().getTimeStampError(), snapshot.expectedTimestamp.getTimeStampError());
+  const std::vector<int> expectedLookup{0, 1};
+  BOOST_CHECK_EQUAL_COLLECTIONS(snapshot.lookup.begin(), snapshot.lookup.end(), expectedLookup.begin(), expectedLookup.end());
+  BOOST_CHECK(snapshot.nonparticipatingTransitionsEmpty);
 }
 
 DecodedCluster cylinderCluster(float radius, float z, int layer)
@@ -270,7 +307,8 @@ BOOST_AUTO_TEST_CASE(CylinderOnePassAndTwoPassProduceIdenticalTracklets)
                                              TransitionPolicyTag::CylinderCylinder, clusters, 1);
   const auto parallel = runFixture<ITSNLayers>(o2::detectors::DetID::ITS, SurfaceKind::Cylinder,
                                                TransitionPolicyTag::CylinderCylinder, clusters, 4);
-  BOOST_REQUIRE_EQUAL(serial.tracklets.size(), 1u);
+  checkExactTracklet(serial, (0.3f - 0.4f) / (3.f - 4.f), o2::gpu::CAMath::ATan2(0.f, -1.f));
+  checkExactTracklet(parallel, (0.3f - 0.4f) / (3.f - 4.f), o2::gpu::CAMath::ATan2(0.f, -1.f));
   checkSame(serial, parallel);
 }
 
@@ -292,7 +330,10 @@ BOOST_AUTO_TEST_CASE(DiskOnePassAndTwoPassProduceIdenticalTracklets)
                                              TransitionPolicyTag::DiskDisk, clusters, 1);
   const auto parallel = runFixture<MFTNLayers>(o2::detectors::DetID::MFT, SurfaceKind::Disk,
                                                TransitionPolicyTag::DiskDisk, clusters, 4);
-  BOOST_REQUIRE_EQUAL(serial.tracklets.size(), 1u);
+  const float expectedTanLambda = (fromZ - toZ) / (toZ - fromZ);
+  const float expectedPhi = o2::gpu::CAMath::ATan2(0.5f - targetY, 1.f - targetX);
+  checkExactTracklet(serial, expectedTanLambda, expectedPhi);
+  checkExactTracklet(parallel, expectedTanLambda, expectedPhi);
   checkSame(serial, parallel);
 }
 

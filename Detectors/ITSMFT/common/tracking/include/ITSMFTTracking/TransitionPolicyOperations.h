@@ -14,11 +14,18 @@
 #include "ITSMFTTracking/TransitionPolicyState.h"
 
 #ifndef GPUCA_GPUCODE
-#include "DataFormatsITS/Vertex.h"
 #include "DetectorsBase/Propagator.h"
+
+namespace o2::dataformats
+{
+template <typename Stamp>
+class Vertex;
+}
 
 namespace o2::its
 {
+class TimeEstBC;
+using Vertex = o2::dataformats::Vertex<TimeEstBC>;
 struct TrackingFrameInfo;
 struct Cluster;
 } // namespace o2::its

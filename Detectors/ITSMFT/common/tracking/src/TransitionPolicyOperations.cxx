@@ -17,6 +17,7 @@
 #include <algorithm>
 #include <cmath>
 
+#include "DataFormatsITS/Vertex.h"
 #include "ITSMFTTracking/MFTFwdTrackHelpers.h"
 #include "ITSMFTTracking/IndexTableUtils.h"
 #include "ITStracking/Cluster.h"
