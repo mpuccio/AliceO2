@@ -20,13 +20,13 @@
 #include "Framework/Logger.h"
 #include "ITSMFTTracking/DetectorTraits.h"
 #include "ITSMFTTracking/IOUtils.h"
-#include "ITSMFTTracking/MFTFwdTrackHelpers.h"
 #include "ITSMFTTracking/TimeFrame.h"
 #include "ITStracking/MathUtils.h"
 #include "DataFormatsITSMFT/CompCluster.h"
 #include "DataFormatsITSMFT/ROFRecord.h"
 #include "DataFormatsITSMFT/TopologyDictionary.h"
 #include "DetectorsCommonDataFormats/DetID.h"
+#include "MFTTracking/Constants.h"
 
 namespace
 {

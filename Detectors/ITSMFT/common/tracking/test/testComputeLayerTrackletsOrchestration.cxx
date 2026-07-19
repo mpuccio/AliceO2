@@ -35,8 +35,10 @@
 #include "ITSMFTTracking/TimeFrame.h"
 #include "ITSMFTTracking/TrackerTraits.h"
 #include "ITSMFTTracking/TrackingConfigParam.h"
+#include "ITStracking/MathUtils.h"
 #include "ITStracking/Tracklet.h"
 #include "MFTTracking/Constants.h"
+#include "CommonConstants/MathConstants.h"
 
 using namespace o2::itsmft;
 using namespace o2::itsmft::tracking;
@@ -147,6 +149,66 @@ struct TrackletSnapshot {
   bool nonparticipatingTransitionsEmpty{false};
 };
 
+/// Independent acceptance oracle for the Gate 3 transition-preparation slice
+/// (layerMultipleScatteringAngle<Tag>, clampTransitionCurvature<Tag>,
+/// prepareTransitionScatteringAndBending, relocated into
+/// TrackerTraits::initialiseTimeFrame()). Re-derives the frozen legacy
+/// per-layer/per-transition formula directly -- from math_utils::MSangle
+/// (barrel) or detail::mftLayerMSAngle (disk, which itself still calls the
+/// legacy mftLayerZ()/LayerZCoordinate() constants internally, exactly as
+/// production did before this migration) and the exact former
+/// TimeFrame::initialise() transition loop -- and deliberately never calls
+/// layerMultipleScatteringAngle<Tag>, clampTransitionCurvature<Tag>, or
+/// prepareTransitionScatteringAndBending, so this is a genuine external
+/// oracle for those operations rather than a caller of them. Preserves the
+/// half-open [fromLayer, toLayer) MS accumulation range, threads oneOverR in
+/// increasing legacy transitionId order exactly as the production loop
+/// does, and uses the literal matching each family (`isDisk`selects `0.5f`
+/// float for DiskDisk vs `0.5` double-promoted for CylinderCylinder, per the
+/// integration review finding preserved -- not canonicalized -- in part 1/4
+/// of this slice).
+template <int NLayers>
+void computeLegacyTransitionMSAndPhiCut(const TrackingParameters& trkParam, float bz, bool isDisk,
+                                        const typename TimeFrame<NLayers>::TrackingTopologyN::View& topology,
+                                        gsl::span<const float> positionResolution,
+                                        std::vector<float>& msAnglesOut, std::vector<float>& phiCutsOut)
+{
+  std::array<float, NLayers> msAngles{};
+  for (unsigned int iLayer{0}; iLayer < NLayers; ++iLayer) {
+    msAngles[iLayer] = isDisk ? detail::mftLayerMSAngle(iLayer, trkParam)
+                              : o2::its::math_utils::MSangle(0.14f, trkParam.TrackletMinPt, trkParam.LayerxX0[iLayer]);
+  }
+
+  msAnglesOut.assign(topology.nTransitions, 0.f);
+  phiCutsOut.assign(topology.nTransitions, 0.f);
+  float oneOverR{0.001f * 0.3f * std::abs(bz) / trkParam.TrackletMinPt};
+  for (int transitionId{0}; transitionId < static_cast<int>(topology.nTransitions); ++transitionId) {
+    const auto& transition = topology.getTransition(transitionId);
+    float ms2 = 0.f;
+    for (int layer = transition.fromLayer; layer < transition.toLayer; ++layer) {
+      ms2 += o2::its::math_utils::Sq(msAngles[layer]);
+    }
+    const float msAngle = o2::gpu::CAMath::Sqrt(ms2);
+    const float r1 = trkParam.LayerRadii[transition.fromLayer];
+    const float r2 = trkParam.LayerRadii[transition.toLayer];
+    if (isDisk) {
+      oneOverR = (0.5f * oneOverR >= 1.f / r2) ? (2.f / r2) - o2::constants::math::Almost0 : oneOverR;
+    } else {
+      oneOverR = (0.5 * oneOverR >= 1.f / r2) ? (2.f / r2) - o2::constants::math::Almost0 : oneOverR;
+    }
+    const float res1 = o2::gpu::CAMath::Hypot(trkParam.PVres, positionResolution[transition.fromLayer]);
+    const float res2 = o2::gpu::CAMath::Hypot(trkParam.PVres, positionResolution[transition.toLayer]);
+    const float cosTheta1half = o2::gpu::CAMath::Sqrt(1.f - o2::its::math_utils::Sq(0.5f * r1 * oneOverR));
+    const float cosTheta2half = o2::gpu::CAMath::Sqrt(1.f - o2::its::math_utils::Sq(0.5f * r2 * oneOverR));
+    const float x = (r2 * cosTheta1half) - (r1 * cosTheta2half);
+    const float delta = o2::gpu::CAMath::Sqrt(1.f / (1.f - 0.25f * o2::its::math_utils::Sq(x * oneOverR)) *
+                                              (o2::its::math_utils::Sq((0.25f * r1 * r2 * o2::its::math_utils::Sq(oneOverR) / cosTheta2half) + cosTheta1half) * o2::its::math_utils::Sq(res1) +
+                                               o2::its::math_utils::Sq((0.25f * r1 * r2 * o2::its::math_utils::Sq(oneOverR) / cosTheta1half) + cosTheta2half) * o2::its::math_utils::Sq(res2)));
+    msAnglesOut[transitionId] = msAngle;
+    phiCutsOut[transitionId] = o2::gpu::CAMath::Min(o2::gpu::CAMath::ASin(0.5f * x * oneOverR) + 2.f * msAngle + delta, o2::constants::math::PI * 0.5f);
+  }
+}
+
 template <int NLayers>
 TrackletSnapshot runFixture(o2::detectors::DetID::ID detector,
                             SurfaceKind kind,
@@ -218,7 +280,11 @@ TrackletSnapshot runFixture(o2::detectors::DetID::ID detector,
   // every transition entry (relocated from TimeFrame::initialise() into
   // TrackerTraits::initialiseTimeFrame(), see TransitionPolicyOperations.h).
   // Exercised here for both CylinderCylinder and DiskDisk through the
-  // existing fixture rather than a separate harness.
+  // existing fixture rather than a separate harness. Beyond finiteness, each
+  // entry is checked bit-for-bit against computeLegacyTransitionMSAndPhiCut's
+  // independent oracle -- the only replay-grade acceptance evidence for the
+  // common CylinderCylinder path, since no real-geometry common-CA ITS
+  // replay exists yet.
   {
     const auto preparedTopology = tf.getTrackingTopologyView();
     const auto& msAngles = tf.getTransitionMSAngles();
@@ -228,6 +294,22 @@ TrackletSnapshot runFixture(o2::detectors::DetID::ID detector,
     for (int id = 0; id < preparedTopology.nTransitions; ++id) {
       BOOST_CHECK(std::isfinite(msAngles[id]));
       BOOST_CHECK(std::isfinite(phiCuts[id]));
+    }
+
+    std::vector<float> positionResolution(NLayers);
+    for (int layer = 0; layer < NLayers; ++layer) {
+      positionResolution[layer] = tf.getPositionResolution(layer);
+    }
+    std::vector<float> expectedMSAngles;
+    std::vector<float> expectedPhiCuts;
+    computeLegacyTransitionMSAndPhiCut<NLayers>(params[0], Bz, kind == SurfaceKind::Disk, preparedTopology,
+                                                gsl::span<const float>(positionResolution.data(), positionResolution.size()),
+                                                expectedMSAngles, expectedPhiCuts);
+    BOOST_REQUIRE_EQUAL(expectedMSAngles.size(), msAngles.size());
+    BOOST_REQUIRE_EQUAL(expectedPhiCuts.size(), phiCuts.size());
+    for (int id = 0; id < preparedTopology.nTransitions; ++id) {
+      BOOST_CHECK_EQUAL(msAngles[id], expectedMSAngles[id]);
+      BOOST_CHECK_EQUAL(phiCuts[id], expectedPhiCuts[id]);
     }
   }
 

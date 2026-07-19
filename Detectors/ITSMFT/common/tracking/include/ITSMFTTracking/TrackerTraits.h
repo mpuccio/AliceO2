@@ -27,12 +27,18 @@
 #include "ITSMFTTracking/TimeFrame.h"
 #include "ITSMFTTracking/TransitionPolicyBinding.h"
 #include "ITSMFTTracking/TransitionPolicyDispatch.h"
-#include "ITSMFTTracking/TransitionPolicyOperations.h"
 #include "ITSMFTTracking/TransitionPolicyState.h"
 #include "ITStracking/BoundedAllocator.h"
 
 namespace o2::itsmft::tracking
 {
+
+// Full definition lives in TransitionPolicyOperations.h (included by
+// TrackerTraits.cxx, where the operation itself is called). Only used here
+// by const reference in a private method declaration, so a forward
+// declaration is sufficient and keeps this public header's dependency
+// surface narrow.
+struct DiskDiskReferenceCoordinateView;
 
 enum class TraversalFailureReason : uint8_t {
   MissingLayout,

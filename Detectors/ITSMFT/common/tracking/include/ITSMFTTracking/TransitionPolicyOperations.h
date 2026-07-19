@@ -427,6 +427,25 @@ struct TransitionScatteringBendingPrep {
                  // quantity, two domain names
 };
 
+/// Unchecked caller preconditions (noexcept reflects the arithmetic being
+/// total for valid inputs, not that these are validated here -- matching
+/// every other operation in this file, which likewise do not re-validate
+/// caller-supplied indices/ranges):
+///  - `perLayerMSAngle` must have a valid element at every index in
+///    `[fromLayer, toLayer)`; it is indexed without a bounds check.
+///  - `fromLayer` and `toLayer` must be validated legacy layout-local layer
+///    indices for the active topology (the same index space
+///    TrackletProjectionState<Tag>/TrackerTraits already document and
+///    validate elsewhere via TrackingTopology/DetectorLayoutView), not
+///    arbitrary integers or global SurfaceIds.
+///  - `fromLayer <= toLayer`; the accumulation loop is a no-op (`ms2 == 0`)
+///    for `fromLayer == toLayer` and undefined for `fromLayer > toLayer`
+///    only in the sense of iterating zero times, but callers must not rely
+///    on that as a substitute for passing a valid transition's own
+///    fromLayer/toLayer pair.
+/// This slice adds no new runtime validation for these and does not change
+/// any legacy behavior; violating them is a caller bug, exactly as it would
+/// have been in the inline code this operation replaces.
 TransitionScatteringBendingPrep prepareTransitionScatteringAndBending(
   gsl::span<const float> perLayerMSAngle, int fromLayer, int toLayer,
   float r1, float r2, float clampedOneOverR, float res1, float res2) noexcept;
