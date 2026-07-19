@@ -30,7 +30,9 @@
 #include "DetectorsCommonDataFormats/DetID.h"
 #include "ITSMFTTracking/DetectorTraits.h"
 #ifndef GPUCA_GPUCODE
+#include "ITSMFTTracking/ClusterDecoder.h"
 #include "ITSMFTTracking/DetectorSurfaceCatalogProvider.h"
+#include "ITSMFTTracking/TimeFrameLoadFailure.h"
 #endif
 #include "ITSMFTTracking/Tracker.h"
 #include "ITSMFTTracking/Configuration.h"
@@ -62,8 +64,13 @@ class ITSMFTTrackingInterface
 
   ITSMFTTrackingInterface(bool useMC, o2::itsmft::TrackingMode::Type mode, bool overrideBeamEst);
 #ifndef GPUCA_GPUCODE
+  // clusterDecoder == nullptr (the default) selects the production adapter
+  // GeometryClusterDecoder<DetId>. Tests inject a fake ClusterDecoder here
+  // instead of adding a virtual factory hook to the class: explicit,
+  // constructor-owned lifetime, no dispatch added to the processing path.
   ITSMFTTrackingInterface(bool useMC, o2::itsmft::TrackingMode::Type mode, bool overrideBeamEst,
-                          std::unique_ptr<DetectorSurfaceCatalogProvider> catalogProvider);
+                          std::unique_ptr<DetectorSurfaceCatalogProvider> catalogProvider,
+                          std::unique_ptr<ClusterDecoder> clusterDecoder = nullptr);
 
   DetectorLayoutSetBuildResult configureDetectorLayouts(const DetectorSurfaceCatalogRequest& catalogRequest,
                                                         gsl::span<const SurfaceId> orderedSurfaces,
@@ -124,6 +131,7 @@ class ITSMFTTrackingInterface
   std::unique_ptr<TrackerN> mTracker;
 #ifndef GPUCA_GPUCODE
   std::unique_ptr<DetectorSurfaceCatalogProvider> mDetectorSurfaceCatalogProvider;
+  std::unique_ptr<ClusterDecoder> mClusterDecoder;
 #endif
   const o2::itsmft::TopologyDictionary* mDict = nullptr;
   const o2::dataformats::MeanVertexObject* mMeanVertex = nullptr;
