@@ -68,6 +68,7 @@ inline CylinderCylinderPolicyParams bindTransitionPolicyParams<TransitionPolicyT
   out.nSigmaCut = params.NSigmaCut;
   out.maxChi2ClusterAttachment = params.MaxChi2ClusterAttachment;
   out.maxChi2NDF = params.MaxChi2NDF;
+  out.pvResolution = params.PVres;
   return out;
 }
 

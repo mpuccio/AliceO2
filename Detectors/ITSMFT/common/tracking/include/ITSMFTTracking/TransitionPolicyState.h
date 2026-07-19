@@ -43,6 +43,7 @@ struct CylinderCylinderPolicyParams {
   float nSigmaCut{5.f};
   float maxChi2ClusterAttachment{60.f};
   float maxChi2NDF{30.f};
+  float pvResolution{1.e-2f};
 
   GPUhdi() bool isValid() const noexcept
   {
@@ -50,7 +51,8 @@ struct CylinderCylinderPolicyParams {
            isFiniteParam(cellDeltaTanLambdaSigma) && cellDeltaTanLambdaSigma > 0.f &&
            isFiniteParam(nSigmaCut) && nSigmaCut > 0.f &&
            isFiniteParam(maxChi2ClusterAttachment) && maxChi2ClusterAttachment > 0.f &&
-           isFiniteParam(maxChi2NDF) && maxChi2NDF > 0.f;
+           isFiniteParam(maxChi2NDF) && maxChi2NDF > 0.f &&
+           isFiniteParam(pvResolution) && pvResolution >= 0.f;
   }
 };
 
@@ -89,13 +91,14 @@ struct DiskDiskPolicyParams {
 // insertion, or width change is a breaking ABI change and must fail here
 // first.
 static_assert(std::is_standard_layout_v<CylinderCylinderPolicyParams> && std::is_trivially_copyable_v<CylinderCylinderPolicyParams>);
-static_assert(sizeof(CylinderCylinderPolicyParams) == 20);
+static_assert(sizeof(CylinderCylinderPolicyParams) == 24);
 static_assert(alignof(CylinderCylinderPolicyParams) == alignof(float));
 static_assert(offsetof(CylinderCylinderPolicyParams, trackletMinPt) == 0);
 static_assert(offsetof(CylinderCylinderPolicyParams, cellDeltaTanLambdaSigma) == 4);
 static_assert(offsetof(CylinderCylinderPolicyParams, nSigmaCut) == 8);
 static_assert(offsetof(CylinderCylinderPolicyParams, maxChi2ClusterAttachment) == 12);
 static_assert(offsetof(CylinderCylinderPolicyParams, maxChi2NDF) == 16);
+static_assert(offsetof(CylinderCylinderPolicyParams, pvResolution) == 20);
 
 static_assert(std::is_standard_layout_v<DiskDiskPolicyParams> && std::is_trivially_copyable_v<DiskDiskPolicyParams>);
 static_assert(sizeof(DiskDiskPolicyParams) == 28);

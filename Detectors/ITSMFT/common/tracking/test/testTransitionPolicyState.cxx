@@ -44,6 +44,7 @@ BOOST_AUTO_TEST_CASE(PolicyParamDefaultsMatchCurrentProductionValues)
   BOOST_CHECK_CLOSE(barrel.nSigmaCut, 5.f, 1e-6);
   BOOST_CHECK_CLOSE(barrel.maxChi2ClusterAttachment, 60.f, 1e-6);
   BOOST_CHECK_CLOSE(barrel.maxChi2NDF, 30.f, 1e-6);
+  BOOST_CHECK_CLOSE(barrel.pvResolution, 1.e-2f, 1e-6);
   BOOST_CHECK(barrel.isValid());
 
   // Disk-disk carries its own TrackletMinPt/CellDeltaTanLambdaSigma because
@@ -66,13 +67,14 @@ BOOST_AUTO_TEST_CASE(PolicyParamDefaultsMatchCurrentProductionValues)
 
 BOOST_AUTO_TEST_CASE(PolicyParamsAbiIsLocked)
 {
-  BOOST_CHECK_EQUAL(sizeof(CylinderCylinderPolicyParams), 20u);
+  BOOST_CHECK_EQUAL(sizeof(CylinderCylinderPolicyParams), 24u);
   BOOST_CHECK_EQUAL(alignof(CylinderCylinderPolicyParams), alignof(float));
   BOOST_CHECK_EQUAL(offsetof(CylinderCylinderPolicyParams, trackletMinPt), 0u);
   BOOST_CHECK_EQUAL(offsetof(CylinderCylinderPolicyParams, cellDeltaTanLambdaSigma), 4u);
   BOOST_CHECK_EQUAL(offsetof(CylinderCylinderPolicyParams, nSigmaCut), 8u);
   BOOST_CHECK_EQUAL(offsetof(CylinderCylinderPolicyParams, maxChi2ClusterAttachment), 12u);
   BOOST_CHECK_EQUAL(offsetof(CylinderCylinderPolicyParams, maxChi2NDF), 16u);
+  BOOST_CHECK_EQUAL(offsetof(CylinderCylinderPolicyParams, pvResolution), 20u);
 
   BOOST_CHECK_EQUAL(sizeof(DiskDiskPolicyParams), 28u);
   BOOST_CHECK_EQUAL(alignof(DiskDiskPolicyParams), alignof(float));
@@ -105,6 +107,13 @@ BOOST_AUTO_TEST_CASE(PolicyParamBoundsAreValidated)
 
   barrel = CylinderCylinderPolicyParams{};
   barrel.maxChi2NDF = -1.f;
+  BOOST_CHECK(!barrel.isValid());
+
+  barrel = CylinderCylinderPolicyParams{};
+  barrel.pvResolution = 0.f;
+  BOOST_CHECK(barrel.isValid());
+
+  barrel.pvResolution = -1.f;
   BOOST_CHECK(!barrel.isValid());
 
   DiskDiskPolicyParams forward;
@@ -159,6 +168,13 @@ BOOST_AUTO_TEST_CASE(PolicyParamsRejectNonFiniteValues)
 
   barrel = CylinderCylinderPolicyParams{};
   barrel.maxChi2NDF = inf;
+  BOOST_CHECK(!barrel.isValid());
+
+  barrel = CylinderCylinderPolicyParams{};
+  barrel.pvResolution = nan;
+  BOOST_CHECK(!barrel.isValid());
+
+  barrel.pvResolution = inf;
   BOOST_CHECK(!barrel.isValid());
 
   DiskDiskPolicyParams forward;

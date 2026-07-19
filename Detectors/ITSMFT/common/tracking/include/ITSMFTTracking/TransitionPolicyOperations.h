@@ -14,12 +14,19 @@
 #include "ITSMFTTracking/TransitionPolicyState.h"
 
 #ifndef GPUCA_GPUCODE
+#include "DataFormatsITS/Vertex.h"
 #include "DetectorsBase/Propagator.h"
 
 namespace o2::its
 {
 struct TrackingFrameInfo;
 struct Cluster;
+} // namespace o2::its
+
+namespace o2::itsmft
+{
+template <int NLayers>
+class IndexTableUtils;
 }
 #endif
 
@@ -77,6 +84,82 @@ bool cellsAreCompatible<TransitionPolicyTag::DiskDisk>(
   const DiskDiskPolicyParams& params);
 
 #ifndef GPUCA_GPUCODE
+
+/// Stage-A compatibility state for tracklet projection. `fromLayer` and
+/// `toLayer` are legacy layout-local indices into TimeFrame, IndexTableUtils,
+/// TrackingParameters, and MFT helper arrays. They are not global SurfaceIds;
+/// replacing them belongs to the later layout-driven indexing migration.
+template <TransitionPolicyTag Tag>
+struct TrackletProjectionState;
+
+template <>
+struct TrackletProjectionState<TransitionPolicyTag::CylinderCylinder> {
+  int fromLayer;
+  int toLayer;
+  float meanDeltaR;
+  float targetMinR;
+  float targetMaxR;
+  float sourcePositionResolution;
+  float transitionMSAngle;
+  float transitionPhiCut;
+};
+
+template <>
+struct TrackletProjectionState<TransitionPolicyTag::DiskDisk> {
+  int fromLayer;
+  int toLayer;
+  float fromZ;
+  float toZ;
+  float meanDeltaZ;
+  float sourceReferenceRadius;
+  float transitionMSAngle;
+  float transitionBendingAngle;
+};
+
+template <TransitionPolicyTag Tag>
+struct TrackletSearchWindow;
+
+template <>
+struct TrackletSearchWindow<TransitionPolicyTag::CylinderCylinder> {
+  int4 bins;
+  float tanLambda;
+  float sigmaZ;
+  float phiCut;
+  float nSigmaCut;
+
+  bool acceptCandidate(const o2::its::Cluster& source,
+                       const o2::its::Cluster& target,
+                       float& tanLambdaOut) const;
+};
+
+template <>
+struct TrackletSearchWindow<TransitionPolicyTag::DiskDisk> {
+  int4 bins;
+  float xProj;
+  float yProj;
+  float sigmaX;
+  float sigmaY;
+  float meanDeltaZ;
+  float nSigmaCut;
+
+  bool acceptCandidate(const o2::its::Cluster& source,
+                       const o2::its::Cluster& target,
+                       float& tanLambdaOut) const;
+};
+
+/// Projects one source cluster/vertex pair and builds the family-specific LUT
+/// window. Implemented and explicitly instantiated in the host translation
+/// unit: DiskDisk reuses MFTFwdTrackHelpers, which must not leak into this
+/// declarations-only header. On rejection `out` is left unchanged.
+template <TransitionPolicyTag Tag, int NLayers>
+bool projectSearchWindow(const o2::its::Cluster& source,
+                         const o2::its::TrackingFrameInfo& sourceHit,
+                         const o2::its::Vertex& vertex,
+                         const TrackletProjectionState<Tag>& transitionState,
+                         float bz,
+                         const o2::itsmft::IndexTableUtils<NLayers>& indexUtils,
+                         const typename TransitionPolicyTraits<Tag>::Params& params,
+                         TrackletSearchWindow<Tag>& out);
 
 /// D007 attach-hit policy operation. The typed family state and parameter
 /// block are selected once by the caller's outer policy dispatch. `xOverX0`

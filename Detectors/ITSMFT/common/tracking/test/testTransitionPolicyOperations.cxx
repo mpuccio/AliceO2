@@ -92,6 +92,15 @@ o2::its::TrackingFrameInfo makeDiskHit(float z, float x, float y, float sigma2X 
   return o2::its::TrackingFrameInfo{x, y, z, 0.f, 0.f, {x, y}, {sigma2X, 0.f, sigma2Y}};
 }
 
+o2::its::Vertex makeVertex(float x, float y, float z,
+                           float sigma2X, float sigma2Y, float sigma2Z,
+                           unsigned short contributors = 1)
+{
+  const float position[3]{x, y, z};
+  const float covariance[6]{sigma2X, 0.f, sigma2Y, 0.f, 0.f, sigma2Z};
+  return o2::its::Vertex{position, covariance, contributors, 1.f};
+}
+
 bool legacyBarrelAttach(o2::track::TrackParCovF& state, const o2::its::TrackingFrameInfo& hit,
                         float xOverX0, o2::base::PropagatorF::MatCorrType corrType,
                         float bz, float maxChi2, float& chi2)
@@ -100,8 +109,8 @@ bool legacyBarrelAttach(o2::track::TrackParCovF& state, const o2::its::TrackingF
     return false;
   }
   if (!o2::base::Propagator::Instance()->propagateToX(state, hit.xTrackingFrame, bz,
-                                                       o2::base::PropagatorImpl<float>::MAX_SIN_PHI,
-                                                       o2::base::PropagatorImpl<float>::MAX_STEP, corrType)) {
+                                                      o2::base::PropagatorImpl<float>::MAX_SIN_PHI,
+                                                      o2::base::PropagatorImpl<float>::MAX_STEP, corrType)) {
     return false;
   }
   if (corrType == NoMaterialCorrection &&
@@ -456,6 +465,7 @@ BOOST_AUTO_TEST_CASE(BindingCopiesEveryFieldToTheCorrectSlot)
   legacy.NSigmaCut = 3.33f;
   legacy.MaxChi2ClusterAttachment = 4.44f;
   legacy.MaxChi2NDF = 5.55f;
+  legacy.PVres = 8.88f;
   legacy.CellRoadRCut = 6.66f;
   legacy.TrackletMinAbsX = 7.77f;
   legacy.LayerxX0 = {0.011f, 0.022f, 0.033f};
@@ -467,6 +477,7 @@ BOOST_AUTO_TEST_CASE(BindingCopiesEveryFieldToTheCorrectSlot)
   BOOST_CHECK_CLOSE(barrel.nSigmaCut, 3.33f, 1e-6);
   BOOST_CHECK_CLOSE(barrel.maxChi2ClusterAttachment, 4.44f, 1e-6);
   BOOST_CHECK_CLOSE(barrel.maxChi2NDF, 5.55f, 1e-6);
+  BOOST_CHECK_CLOSE(barrel.pvResolution, 8.88f, 1e-6);
   BOOST_CHECK(barrel.isValid());
 
   const auto disk = bindTransitionPolicyParams<TransitionPolicyTag::DiskDisk>(legacy);
@@ -530,6 +541,138 @@ BOOST_AUTO_TEST_CASE(BoundNonFiniteParametersAreDetectableThroughIsValid)
   auto invalidCorrection = legacy;
   invalidCorrection.CorrType = static_cast<o2::base::PropagatorF::MatCorrType>(99);
   BOOST_CHECK(!bindAttachHitPolicyConfig(invalidCorrection).isValid(invalidCorrection.LayerxX0.size()));
+}
+
+BOOST_AUTO_TEST_CASE(CylinderProjectSearchWindowMatchesInlineFormulaAndDirectPhiZBins)
+{
+  TrackingParameters legacy;
+  legacy.PVres = 0.f; // valid: disables only the primary-vertex resolution term
+  const auto params = bindTransitionPolicyParams<TransitionPolicyTag::CylinderCylinder>(legacy);
+  BOOST_REQUIRE(params.isValid());
+
+  IndexTableUtils<7> indexUtils;
+  indexUtils.setTrackingParameters(legacy);
+
+  const auto source = makeGlobalCluster(2.f, 0.f, 0.5f);
+  const auto sourceHit = makeBarrelHit(2.f, 0.f, 0.f, 0.5f);
+  const auto vertex = makeVertex(0.f, 0.f, 0.f, 1.e-4f, 1.e-4f, 4.e-4f, 4);
+  const TrackletProjectionState<TransitionPolicyTag::CylinderCylinder> state{
+    0, 3, 2.f, 3.8f, 4.2f, 5.e-4f, 2.e-3f, 0.08f};
+
+  TrackletSearchWindow<TransitionPolicyTag::CylinderCylinder> window{};
+  BOOST_REQUIRE((projectSearchWindow<TransitionPolicyTag::CylinderCylinder, 7>(
+    source, sourceHit, vertex, state, Bz, indexUtils, params, window)));
+
+  const float inverseR0 = 1.f / source.radius;
+  const float resolution = o2::gpu::CAMath::Sqrt(o2::its::math_utils::Sq(state.sourcePositionResolution) +
+                                                 o2::its::math_utils::Sq(params.pvResolution) / float(vertex.getNContributors()));
+  const float tanLambda = (source.zCoordinate - vertex.getZ()) * inverseR0;
+  const float zAtTargetMinR = tanLambda * (state.targetMinR - source.radius) + source.zCoordinate;
+  const float zAtTargetMaxR = tanLambda * (state.targetMaxR - source.radius) + source.zCoordinate;
+  const float sqInvDeltaZ0 = 1.f / (o2::its::math_utils::Sq(source.zCoordinate - vertex.getZ()) + o2::its::constants::Tolerance);
+  const float sigmaZ = o2::gpu::CAMath::Sqrt((o2::its::math_utils::Sq(resolution) * o2::its::math_utils::Sq(tanLambda) *
+                                              ((o2::its::math_utils::Sq(inverseR0) + sqInvDeltaZ0) * o2::its::math_utils::Sq(state.meanDeltaR) + 1.f)) +
+                                             o2::its::math_utils::Sq(state.meanDeltaR * state.transitionMSAngle));
+  const auto directBins = getBinsPhiZ(source.phi, state.toLayer, zAtTargetMinR, zAtTargetMaxR,
+                                      sigmaZ * params.nSigmaCut, state.transitionPhiCut, indexUtils);
+
+  BOOST_CHECK_EQUAL(window.bins.x, directBins.x);
+  BOOST_CHECK_EQUAL(window.bins.y, directBins.y);
+  BOOST_CHECK_EQUAL(window.bins.z, directBins.z);
+  BOOST_CHECK_EQUAL(window.bins.w, directBins.w);
+  BOOST_CHECK_EQUAL(window.tanLambda, tanLambda);
+  BOOST_CHECK_EQUAL(window.sigmaZ, sigmaZ);
+
+  const float targetRadius = 4.f;
+  const float targetZ = tanLambda * (targetRadius - source.radius) + source.zCoordinate;
+  const auto acceptedTarget = makeGlobalCluster(targetRadius, 0.f, targetZ);
+  float acceptedTanLambda = -999.f;
+  BOOST_CHECK(window.acceptCandidate(source, acceptedTarget, acceptedTanLambda));
+  BOOST_CHECK_EQUAL(acceptedTanLambda, (source.zCoordinate - acceptedTarget.zCoordinate) / (source.radius - acceptedTarget.radius));
+
+  const auto rejectedTarget = makeGlobalCluster(-targetRadius, 0.f, targetZ);
+  float rejectedTanLambda = 123.f;
+  BOOST_CHECK(!window.acceptCandidate(source, rejectedTarget, rejectedTanLambda));
+  BOOST_CHECK_EQUAL(rejectedTanLambda, 123.f);
+}
+
+BOOST_AUTO_TEST_CASE(DiskProjectSearchWindowReusesHelpersAndDirectProjectedXYBins)
+{
+  TrackingParameters legacy;
+  const auto params = bindTransitionPolicyParams<TransitionPolicyTag::DiskDisk>(legacy);
+  BOOST_REQUIRE(params.isValid());
+
+  IndexTableUtils<10> indexUtils;
+  std::array<float, 10> halfExtents{};
+  halfExtents.fill(20.f);
+  indexUtils.setIndexTableParams(IndexTableCoordType::XY, legacy.RowBins, legacy.ColBins, -20.f, 20.f, halfExtents);
+
+  constexpr int fromLayer = 1;
+  constexpr int toLayer = 4; // deliberately skipped/nonadjacent transition
+  const float fromZ = detail::mftLayerZ(fromLayer);
+  const float toZ = detail::mftLayerZ(toLayer);
+  const auto source = makeGlobalCluster(1.2f, 0.7f, fromZ);
+  const auto sourceHit = makeDiskHit(fromZ, source.xCoordinate, source.yCoordinate, 2.e-4f, 3.e-4f);
+  const auto vertex = makeVertex(0.01f, -0.02f, 0.1f, 4.e-4f, 5.e-4f, 0.04f, 3);
+  const TrackletProjectionState<TransitionPolicyTag::DiskDisk> state{
+    fromLayer, toLayer, fromZ, toZ, toZ - fromZ, 2.f, 3.e-3f, 0.04f};
+
+  TrackletSearchWindow<TransitionPolicyTag::DiskDisk> window{};
+  BOOST_REQUIRE((projectSearchWindow<TransitionPolicyTag::DiskDisk, 10>(
+    source, sourceHit, vertex, state, Bz, indexUtils, params, window)));
+
+  float expectedX = 0.f;
+  float expectedY = 0.f;
+  detail::mftTrackletProject(source.xCoordinate, source.yCoordinate, source.zCoordinate,
+                             vertex.getX(), vertex.getY(), vertex.getZ(),
+                             fromLayer, toLayer, Bz, params.trackletMinPt, expectedX, expectedY);
+  float expectedSigmaX = 0.f;
+  float expectedSigmaY = 0.f;
+  detail::mftTrackletSigmaXY(source.xCoordinate, source.yCoordinate,
+                             vertex.getX(), vertex.getY(), vertex.getZ(),
+                             sourceHit.covarianceTrackingFrame[0], sourceHit.covarianceTrackingFrame[2],
+                             vertex.getSigmaX2(), vertex.getSigmaY2(), vertex.getSigmaZ2(),
+                             fromLayer, toLayer, state.sourceReferenceRadius, state.meanDeltaZ,
+                             state.transitionMSAngle, state.transitionBendingAngle,
+                             expectedX, expectedY, expectedSigmaX, expectedSigmaY);
+
+  const float zSpread = params.nSigmaCut * vertex.getSigmaZ();
+  const float zVtxMin = vertex.getZ() - zSpread;
+  const float zVtxMax = vertex.getZ() + zSpread;
+  const float absZFrom = std::abs(fromZ);
+  const float absZTo = std::abs(toZ);
+  const float denomMin = zVtxMax + absZFrom;
+  const float denomMax = absZFrom + zVtxMin;
+  float radialRangeMin = (std::abs(denomMin) > 1.e-6f) ? source.radius * (zVtxMax + absZTo) / denomMin : source.radius;
+  float radialRangeMax = (std::abs(denomMax) > 1.e-6f) ? source.radius * (absZTo + zVtxMin) / denomMax : source.radius;
+  if (radialRangeMin > radialRangeMax) {
+    std::swap(radialRangeMin, radialRangeMax);
+  }
+  const auto directBins = getBinsRectClusterAtProj<10>(expectedX, expectedY, toLayer,
+                                                       radialRangeMin, radialRangeMax,
+                                                       expectedSigmaX * params.nSigmaCut,
+                                                       expectedSigmaY * params.nSigmaCut,
+                                                       indexUtils);
+
+  BOOST_CHECK_EQUAL(window.bins.x, directBins.x);
+  BOOST_CHECK_EQUAL(window.bins.y, directBins.y);
+  BOOST_CHECK_EQUAL(window.bins.z, directBins.z);
+  BOOST_CHECK_EQUAL(window.bins.w, directBins.w);
+  BOOST_CHECK_EQUAL(window.xProj, expectedX);
+  BOOST_CHECK_EQUAL(window.yProj, expectedY);
+  BOOST_CHECK_EQUAL(window.sigmaX, expectedSigmaX);
+  BOOST_CHECK_EQUAL(window.sigmaY, expectedSigmaY);
+
+  const auto acceptedTarget = makeGlobalCluster(expectedX, expectedY, toZ);
+  float acceptedTanLambda = -999.f;
+  BOOST_CHECK(window.acceptCandidate(source, acceptedTarget, acceptedTanLambda));
+  BOOST_CHECK_EQUAL(acceptedTanLambda, (source.zCoordinate - acceptedTarget.zCoordinate) / state.meanDeltaZ);
+
+  auto rejectedWindow = window;
+  rejectedWindow.meanDeltaZ = 0.f;
+  float rejectedTanLambda = 123.f;
+  BOOST_CHECK(!rejectedWindow.acceptCandidate(source, acceptedTarget, rejectedTanLambda));
+  BOOST_CHECK_EQUAL(rejectedTanLambda, 123.f);
 }
 
 BOOST_AUTO_TEST_CASE(BarrelAttachHitExactBoundaryAndInlineEquivalence)
@@ -679,8 +822,8 @@ BOOST_AUTO_TEST_CASE(CylinderBuildCellSeedAcceptsAtExactChi2ThresholdAndMatchesI
   o2::track::TrackParCovF policyState{};
   float policyChi2 = 6.25f;
   BOOST_CHECK(buildCellSeed<TransitionPolicyTag::CylinderCylinder>(clusterInner, clusterMiddle, clusterOuter,
-                                                                    hitInner, hitMiddle, hitOuter, xOverX0, Bz,
-                                                                    policyState, policyChi2, accept));
+                                                                   hitInner, hitMiddle, hitOuter, xOverX0, Bz,
+                                                                   policyState, policyChi2, accept));
 
   o2::track::TrackParCovF inlineState{};
   float inlineChi2 = 0.f;
@@ -694,8 +837,8 @@ BOOST_AUTO_TEST_CASE(CylinderBuildCellSeedAcceptsAtExactChi2ThresholdAndMatchesI
   policyState = o2::track::TrackParCovF{};
   policyChi2 = 6.25f;
   BOOST_CHECK(!buildCellSeed<TransitionPolicyTag::CylinderCylinder>(clusterInner, clusterMiddle, clusterOuter,
-                                                                     hitInner, hitMiddle, hitOuter, xOverX0, Bz,
-                                                                     policyState, policyChi2, reject));
+                                                                    hitInner, hitMiddle, hitOuter, xOverX0, Bz,
+                                                                    policyState, policyChi2, reject));
   checkBarrelStateEqual(policyState, o2::track::TrackParCovF{});
   BOOST_CHECK_EQUAL(policyChi2, 6.25f);
 }
@@ -719,8 +862,8 @@ BOOST_AUTO_TEST_CASE(CylinderBuildCellSeedRotationFailureLeavesOutputUnchanged)
   const auto before = outState;
   float chi2 = 12.5f;
   BOOST_CHECK(!buildCellSeed<TransitionPolicyTag::CylinderCylinder>(clusterInner, clusterMiddle, clusterOuter,
-                                                                     hitInner, hitMiddle, hitOuter, xOverX0, Bz,
-                                                                     outState, chi2, params));
+                                                                    hitInner, hitMiddle, hitOuter, xOverX0, Bz,
+                                                                    outState, chi2, params));
   checkBarrelStateEqual(outState, before);
   BOOST_CHECK_EQUAL(chi2, 12.5f);
 }
@@ -745,8 +888,8 @@ BOOST_AUTO_TEST_CASE(CylinderBuildCellSeedPropagationFailureLeavesOutputUnchange
   const auto before = outState;
   float chi2 = 7.5f;
   BOOST_CHECK(!buildCellSeed<TransitionPolicyTag::CylinderCylinder>(clusterInner, clusterMiddle, clusterOuter,
-                                                                     hitInner, hitMiddle, hitOuter, xOverX0, Bz,
-                                                                     outState, chi2, params));
+                                                                    hitInner, hitMiddle, hitOuter, xOverX0, Bz,
+                                                                    outState, chi2, params));
   checkBarrelStateEqual(outState, before);
   BOOST_CHECK_EQUAL(chi2, 7.5f);
 }
@@ -781,8 +924,8 @@ BOOST_AUTO_TEST_CASE(CylinderBuildCellSeedUpdateFailureLeavesOutputUnchanged)
   const auto before = outState;
   float chi2 = 3.5f;
   BOOST_CHECK(!buildCellSeed<TransitionPolicyTag::CylinderCylinder>(clusterInner, clusterMiddle, clusterOuter,
-                                                                     hitInner, hitMiddle, hitOuter, xOverX0, Bz,
-                                                                     outState, chi2, params));
+                                                                    hitInner, hitMiddle, hitOuter, xOverX0, Bz,
+                                                                    outState, chi2, params));
   checkBarrelStateEqual(outState, before);
   BOOST_CHECK_EQUAL(chi2, 3.5f);
 }
@@ -808,8 +951,8 @@ BOOST_AUTO_TEST_CASE(CylinderBuildCellSeedInputsAreNotMutated)
   o2::track::TrackParCovF outState{};
   float chi2 = 0.f;
   BOOST_CHECK(buildCellSeed<TransitionPolicyTag::CylinderCylinder>(clusterInner, clusterMiddle, clusterOuter,
-                                                                    hitInner, hitMiddle, hitOuter, xOverX0, Bz,
-                                                                    outState, chi2, params));
+                                                                   hitInner, hitMiddle, hitOuter, xOverX0, Bz,
+                                                                   outState, chi2, params));
 
   BOOST_CHECK_EQUAL(clusterInner.xCoordinate, clusterInnerBefore.xCoordinate);
   BOOST_CHECK_EQUAL(clusterInner.yCoordinate, clusterInnerBefore.yCoordinate);
@@ -847,8 +990,8 @@ BOOST_AUTO_TEST_CASE(CylinderBuildCellSeedUsesMaterialSlotsOneThenZero)
   o2::track::TrackParCovF policyState{};
   float policyChi2 = 0.f;
   BOOST_REQUIRE(buildCellSeed<TransitionPolicyTag::CylinderCylinder>(clusterInner, clusterMiddle, clusterOuter,
-                                                                      hitInner, hitMiddle, hitOuter, xOverX0, Bz,
-                                                                      policyState, policyChi2, params));
+                                                                     hitInner, hitMiddle, hitOuter, xOverX0, Bz,
+                                                                     policyState, policyChi2, params));
   BOOST_CHECK(std::isfinite(policyChi2));
 
   o2::track::TrackParCovF referenceState{};
@@ -876,14 +1019,14 @@ BOOST_AUTO_TEST_CASE(CylinderBuildCellSeedRepeatedCallsAreDeterministic)
   o2::track::TrackParCovF firstState{};
   float firstChi2 = 0.f;
   BOOST_REQUIRE(buildCellSeed<TransitionPolicyTag::CylinderCylinder>(clusterInner, clusterMiddle, clusterOuter,
-                                                                      hitInner, hitMiddle, hitOuter, xOverX0, Bz,
-                                                                      firstState, firstChi2, params));
+                                                                     hitInner, hitMiddle, hitOuter, xOverX0, Bz,
+                                                                     firstState, firstChi2, params));
 
   o2::track::TrackParCovF secondState{};
   float secondChi2 = 0.f;
   BOOST_REQUIRE(buildCellSeed<TransitionPolicyTag::CylinderCylinder>(clusterInner, clusterMiddle, clusterOuter,
-                                                                      hitInner, hitMiddle, hitOuter, xOverX0, Bz,
-                                                                      secondState, secondChi2, params));
+                                                                     hitInner, hitMiddle, hitOuter, xOverX0, Bz,
+                                                                     secondState, secondChi2, params));
 
   checkBarrelStateEqual(firstState, secondState);
   BOOST_CHECK_EQUAL(firstChi2, secondChi2);
@@ -912,7 +1055,7 @@ BOOST_AUTO_TEST_CASE(DiskBuildCellSeedAcceptsAtExactChi2ThresholdAndMatchesInlin
   auto atInner = afterMiddle;
   detail::mftFwdPropagateToZ(atInner, hitInner.zCoordinate, Bz);
   const float exactChi2 = detail::mftFwdPredictedChi2(atInner, hitInner.xCoordinate, hitInner.yCoordinate,
-                                                       hitInner.covarianceTrackingFrame[0], hitInner.covarianceTrackingFrame[2]);
+                                                      hitInner.covarianceTrackingFrame[0], hitInner.covarianceTrackingFrame[2]);
   BOOST_REQUIRE_GT(exactChi2, 0.f);
 
   DiskDiskPolicyParams accept;
@@ -922,8 +1065,8 @@ BOOST_AUTO_TEST_CASE(DiskBuildCellSeedAcceptsAtExactChi2ThresholdAndMatchesInlin
   o2::track::TrackParCovFwd policyState{};
   float policyChi2 = 9.25f;
   BOOST_CHECK(buildCellSeed<TransitionPolicyTag::DiskDisk>(clusterInner, clusterMiddle, clusterOuter,
-                                                            hitInner, hitMiddle, hitOuter, xOverX0, Bz,
-                                                            policyState, policyChi2, accept));
+                                                           hitInner, hitMiddle, hitOuter, xOverX0, Bz,
+                                                           policyState, policyChi2, accept));
 
   o2::track::TrackParCovFwd inlineState{};
   float inlineChi2 = 0.f;
@@ -938,8 +1081,8 @@ BOOST_AUTO_TEST_CASE(DiskBuildCellSeedAcceptsAtExactChi2ThresholdAndMatchesInlin
   policyState = o2::track::TrackParCovFwd{};
   policyChi2 = 9.25f;
   BOOST_CHECK(!buildCellSeed<TransitionPolicyTag::DiskDisk>(clusterInner, clusterMiddle, clusterOuter,
-                                                             hitInner, hitMiddle, hitOuter, xOverX0, Bz,
-                                                             policyState, policyChi2, reject));
+                                                            hitInner, hitMiddle, hitOuter, xOverX0, Bz,
+                                                            policyState, policyChi2, reject));
   checkDiskStateEqual(policyState, o2::track::TrackParCovFwd{});
   BOOST_CHECK_EQUAL(policyChi2, 9.25f);
 }
@@ -963,8 +1106,8 @@ BOOST_AUTO_TEST_CASE(DiskBuildCellSeedZOrderingRejectionLeavesOutputUnchanged)
   const auto before = outState;
   float chi2 = 4.25f;
   BOOST_CHECK(!buildCellSeed<TransitionPolicyTag::DiskDisk>(clusterInner, clusterMiddle, clusterOuter,
-                                                             hitInner, hitMiddle, hitOuter, xOverX0, Bz,
-                                                             outState, chi2, params));
+                                                            hitInner, hitMiddle, hitOuter, xOverX0, Bz,
+                                                            outState, chi2, params));
   checkDiskStateEqual(outState, before);
   BOOST_CHECK_EQUAL(chi2, 4.25f);
 }
@@ -988,8 +1131,8 @@ BOOST_AUTO_TEST_CASE(DiskBuildCellSeedDegenerateGeometryRejectionLeavesOutputUnc
   const auto before = outState;
   float chi2 = 2.75f;
   BOOST_CHECK(!buildCellSeed<TransitionPolicyTag::DiskDisk>(clusterInner, clusterMiddle, clusterOuter,
-                                                             hitInner, hitMiddle, hitOuter, xOverX0, Bz,
-                                                             outState, chi2, params));
+                                                            hitInner, hitMiddle, hitOuter, xOverX0, Bz,
+                                                            outState, chi2, params));
   checkDiskStateEqual(outState, before);
   BOOST_CHECK_EQUAL(chi2, 2.75f);
 }
@@ -1016,8 +1159,8 @@ BOOST_AUTO_TEST_CASE(DiskBuildCellSeedDoesNotApplyRoadPreCut)
   o2::track::TrackParCovFwd outState{};
   float chi2 = 0.f;
   BOOST_CHECK(buildCellSeed<TransitionPolicyTag::DiskDisk>(clusterInner, clusterMiddle, clusterOuter,
-                                                            hitInner, hitMiddle, hitOuter, xOverX0, Bz,
-                                                            outState, chi2, params));
+                                                           hitInner, hitMiddle, hitOuter, xOverX0, Bz,
+                                                           outState, chi2, params));
 }
 
 BOOST_AUTO_TEST_CASE(DiskBuildCellSeedInputsAreNotMutated)
@@ -1042,8 +1185,8 @@ BOOST_AUTO_TEST_CASE(DiskBuildCellSeedInputsAreNotMutated)
   o2::track::TrackParCovFwd outState{};
   float chi2 = 0.f;
   BOOST_CHECK(buildCellSeed<TransitionPolicyTag::DiskDisk>(clusterInner, clusterMiddle, clusterOuter,
-                                                            hitInner, hitMiddle, hitOuter, xOverX0, Bz,
-                                                            outState, chi2, params));
+                                                           hitInner, hitMiddle, hitOuter, xOverX0, Bz,
+                                                           outState, chi2, params));
 
   BOOST_CHECK_EQUAL(clusterInner.xCoordinate, clusterInnerBefore.xCoordinate);
   BOOST_CHECK_EQUAL(clusterInner.zCoordinate, clusterInnerBefore.zCoordinate);
@@ -1076,8 +1219,8 @@ BOOST_AUTO_TEST_CASE(DiskBuildCellSeedUsesMaterialSlotsTwoOneZero)
   o2::track::TrackParCovFwd policyState{};
   float policyChi2 = 0.f;
   BOOST_REQUIRE(buildCellSeed<TransitionPolicyTag::DiskDisk>(clusterInner, clusterMiddle, clusterOuter,
-                                                              hitInner, hitMiddle, hitOuter, xOverX0, Bz,
-                                                              policyState, policyChi2, params));
+                                                             hitInner, hitMiddle, hitOuter, xOverX0, Bz,
+                                                             policyState, policyChi2, params));
 
   o2::track::TrackParCovFwd referenceState{};
   float referenceChi2 = 0.f;
@@ -1105,14 +1248,14 @@ BOOST_AUTO_TEST_CASE(DiskBuildCellSeedRepeatedCallsAreDeterministic)
   o2::track::TrackParCovFwd firstState{};
   float firstChi2 = 0.f;
   BOOST_REQUIRE(buildCellSeed<TransitionPolicyTag::DiskDisk>(clusterInner, clusterMiddle, clusterOuter,
-                                                              hitInner, hitMiddle, hitOuter, xOverX0, Bz,
-                                                              firstState, firstChi2, params));
+                                                             hitInner, hitMiddle, hitOuter, xOverX0, Bz,
+                                                             firstState, firstChi2, params));
 
   o2::track::TrackParCovFwd secondState{};
   float secondChi2 = 0.f;
   BOOST_REQUIRE(buildCellSeed<TransitionPolicyTag::DiskDisk>(clusterInner, clusterMiddle, clusterOuter,
-                                                              hitInner, hitMiddle, hitOuter, xOverX0, Bz,
-                                                              secondState, secondChi2, params));
+                                                             hitInner, hitMiddle, hitOuter, xOverX0, Bz,
+                                                             secondState, secondChi2, params));
 
   checkDiskStateEqual(firstState, secondState);
   BOOST_CHECK_EQUAL(firstChi2, secondChi2);
