@@ -476,9 +476,10 @@ void TrackerTraits<NLayers>::computeLayerTrackletsForPolicy(
             continue;
           }
           const auto bins = searchWindow.bins;
+          const int rowBinsCount = mTimeFrame->getIndexTableUtils().getNrowBins();
           int rowBinsNum = bins.w - bins.y + 1;
           if (rowBinsNum < 0) {
-            rowBinsNum += mTrkParams[iteration].RowBins;
+            rowBinsNum += rowBinsCount;
           }
 
           for (int targetROF = rofOverlap.getFirstEntry(); targetROF < rofOverlap.getEntriesBound(); ++targetROF) {
@@ -498,11 +499,11 @@ void TrackerTraits<NLayers>::computeLayerTrackletsForPolicy(
             for (int iRow = 0; iRow < rowBinsNum; ++iRow) {
               int iRowBin = bins.y + iRow;
               if constexpr (Tag == TransitionPolicyTag::DiskDisk) {
-                if (iRowBin >= mTrkParams[iteration].RowBins) {
+                if (iRowBin >= rowBinsCount) {
                   break;
                 }
               } else {
-                iRowBin %= mTrkParams[iteration].RowBins;
+                iRowBin %= rowBinsCount;
               }
               const int firstBinIdx = mTimeFrame->getIndexTableUtils().getBinIndex(bins.x, iRowBin);
               const int maxBinIdx = firstBinIdx + colBinRange;

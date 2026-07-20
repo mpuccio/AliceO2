@@ -13,11 +13,14 @@
 /// \brief
 ///
 
+#include <limits>
+#include <new>
 #include <numeric>
 #include <stdexcept>
 #include <string>
 
 #include "Framework/Logger.h"
+#include "ITSMFTTracking/IndexTableConfiguration.h"
 #include "ITSMFTTracking/IOUtils.h"
 #include "ITSMFTTracking/TimeFrame.h"
 #include "ITStracking/MathUtils.h"
@@ -34,6 +37,25 @@ struct ClusterHelper {
   float r;
   int bin;
   int ind;
+};
+
+// Implementation detail of TimeFrame::initialise()/prepareClusters()'s
+// checked index-table allocation-size arithmetic (checkedIndexTableSizeProduct,
+// ITSMFTTracking/IndexTableConfiguration.h). Deriving from std::bad_alloc --
+// rather than TrackerTraits.h's TraversalException -- is deliberate: an
+// unrepresentable allocation size here is a function of this TimeFrame's
+// actual loaded ROF volume combined with an otherwise-valid bin
+// configuration, the same per-TF resource-failure category as a genuine
+// bad_alloc/BoundedMemoryResource::MemoryLimitExceeded, not a structural
+// TrackingParameters problem. This keeps it caught (and DropTFUponFailure-
+// gated) by the existing `catch (const std::bad_alloc&)` handling in
+// CATracker.cxx/TrackingInterface.cxx without TimeFrame.cxx depending on
+// TrackerTraits.h. Only its std::bad_alloc base-class behavior is part of
+// the failure contract; the type itself is not part of any public API.
+class IndexTableAllocationSizeError final : public std::bad_alloc
+{
+ public:
+  const char* what() const noexcept override { return "index-table allocation size is unrepresentable"; }
 };
 } // namespace
 
@@ -642,8 +664,17 @@ void TimeFrame<NLayers>::prepareROFrameData(gsl::span<const itsmft::CompClusterE
 template <int NLayers>
 void TimeFrame<NLayers>::prepareClusters(const TrackingParameters& trkParam, const int maxLayers)
 {
-  const int numBins{trkParam.RowBins * trkParam.ColBins};
-  const int stride{numBins + 1};
+  // numBins/stride come from the already-committed, already-validated
+  // mIndexTableUtils -- never again from trkParam.RowBins/ColBins -- via
+  // checked size_t arithmetic (see the identical reasoning in initialise()).
+  const int colBinsCount = mIndexTableUtils.getNcolBins();
+  std::size_t numBins = 0;
+  if (!checkedIndexTableSizeProduct(static_cast<std::size_t>(mIndexTableUtils.getNrowBins()),
+                                    static_cast<std::size_t>(colBinsCount), numBins) ||
+      numBins == std::numeric_limits<std::size_t>::max()) {
+    throw IndexTableAllocationSizeError{};
+  }
+  const std::size_t stride{numBins + 1};
   bounded_vector<ClusterHelper> cHelper(mMemoryPool.get());
   bounded_vector<int> clsPerBin(numBins, 0, mMemoryPool.get());
   bounded_vector<int> lutPerBin(numBins, 0, mMemoryPool.get());
@@ -670,8 +701,8 @@ void TimeFrame<NLayers>::prepareClusters(const TrackingParameters& trkParam, con
         const float rowCoord = useXYBinning ? c.yCoordinate : math_utils::computePhi(x, y);
         const float colCoord = useXYBinning ? c.xCoordinate : z;
         int colBin{mIndexTableUtils.getColBinIndex(iLayer, colCoord)};
-        if (colBin < 0 || colBin >= trkParam.ColBins) {
-          colBin = std::clamp(colBin, 0, trkParam.ColBins - 1);
+        if (colBin < 0 || colBin >= colBinsCount) {
+          colBin = std::clamp(colBin, 0, colBinsCount - 1);
           mBogusClusters[iLayer]++;
         }
         int bin = mIndexTableUtils.getBinIndex(colBin, mIndexTableUtils.getRowBinIndex(rowCoord));
@@ -757,8 +788,25 @@ void TimeFrame<NLayers>::initialise(const TrackingParameters& trkParam, const in
     clearResizeBoundedVector(mLines, getNrof(1), mMemoryPool.get());
     clearResizeBoundedVector(mTrackletClusters, getNrof(1), mMemoryPool.get());
 
+    // Sized from the just-committed, already-validated mIndexTableUtils --
+    // never again from trkParam.RowBins/ColBins directly -- with checked
+    // size_t arithmetic at every multiplication (RowBins*ColBins is already
+    // bind-time bounded to fit int, but nROFs is a TimeFrame runtime
+    // quantity independent of that bound, so the final product is checked
+    // here too rather than assumed safe).
+    std::size_t indexTableStride = 0;
+    if (!checkedIndexTableSizeProduct(static_cast<std::size_t>(mIndexTableUtils.getNrowBins()),
+                                      static_cast<std::size_t>(mIndexTableUtils.getNcolBins()), indexTableStride) ||
+        indexTableStride == std::numeric_limits<std::size_t>::max()) {
+      throw IndexTableAllocationSizeError{};
+    }
+    ++indexTableStride;
     for (int iLayer{0}; iLayer < NLayers; ++iLayer) {
-      clearResizeBoundedVector(mIndexTables[iLayer], getNrof(iLayer) * ((trkParam.ColBins * trkParam.RowBins) + 1), getMaybeFrameworkHostResource());
+      std::size_t indexTableSize = 0;
+      if (!checkedIndexTableSizeProduct(static_cast<std::size_t>(getNrof(iLayer)), indexTableStride, indexTableSize)) {
+        throw IndexTableAllocationSizeError{};
+      }
+      clearResizeBoundedVector(mIndexTables[iLayer], indexTableSize, getMaybeFrameworkHostResource());
     }
     for (int iLayer{0}; iLayer < trkParam.NLayers; ++iLayer) {
       if (trkParam.SystError2Row[iLayer] > 0.f || trkParam.SystError2Col[iLayer] > 0.f) {
