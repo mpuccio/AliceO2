@@ -51,8 +51,11 @@ inside generated O2 profiles; callers should not need to set both.
 ### Package selection policy
 
 - **Ordinary unpinned work** (day-to-day builds, tests, exploring the repo)
-  should just use the default: `O2_PACKAGE` unset resolves to `latest`, the
-  moving alias for the newest working daily build.
+  should just use the default: `O2_PACKAGE` unset resolves to `latest` --
+  the current moving package alias selected by this installation. This
+  skill has no way to know, and does not claim, that whatever `latest`
+  happens to point to at any given time is newest or working; it only
+  reports what it actually resolves to (`O2_PACKAGE_RESOLVED`).
 - **Reproducible/canonical validation work** (fixture generation, paired
   A/B replay, anything whose result you will compare against a recorded
   baseline) must set `O2_PACKAGE` to the **exact resolved package name**
@@ -108,13 +111,27 @@ O2_BUILD_DIR=/path/to/build \
 ```bash
 O2_BUILD_DIR=/path/to/build \
   .agents/skills/alice-o2-environment/scripts/run-in-o2-env.zsh -- \
-  ctest --test-dir /path/to/build --output-on-failure -R 'test-name'
+  ctest --test-dir /path/to/build --output-on-failure -R 'testLayerMask'
 ```
 
 Prefer a build configured from the active worktree via
-`configure-worktree-build.zsh`. Verify the source directory in
-`CMakeCache.txt` before using an unfamiliar build directory (the configure
-script does this for you).
+`configure-worktree-build.zsh`, which explicitly passes
+`-DBUILD_TESTING=ON` (O2's own `include(CTest)` already defaults it to ON,
+but the helper does not rely on that default going unchanged). Verify the
+source directory in `CMakeCache.txt` before using an unfamiliar build
+directory (the configure script does this for you).
+
+**`-R`/test-name pitfall:** O2's `o2_add_test()` registers each CTest test
+under its **source file's relative path**
+(`Detectors/ITSMFT/common/tracking/test/testLayerMask.cxx`), not the Ninja
+target name (`O2test-itsmft-tracking-layermask`) or the staged executable
+name (`o2-test-itsmft-tracking-layermask`). A `-R` pattern built from
+either of the latter two matches nothing and `ctest` reports "No tests were
+found!!!" -- which looks exactly like a build/registration problem but
+isn't one. Filter by the actual test name substring (e.g. `testLayerMask`)
+or by `-L <label>` (labels match `o2_add_test(... LABELS ...)`, typically
+the detector/component name, e.g. `-L itsmft`); run `ctest -N` with no
+filter first if unsure what's registered.
 
 ## Staged vs. installed execution
 
@@ -196,14 +213,33 @@ via `dlopen` at runtime and are **not** linked dependencies of the
 reconstruction/simulation executables, so a Ninja build that only targets
 those executables silently omits them -- which breaks CCDB condition
 fetching, not just logging. Build them explicitly whenever replay
-readiness matters:
+readiness matters. The shared-library suffix is platform-dependent --
+`.dylib` on macOS/Darwin (this environment), `.so` on Linux (most CI/cluster
+environments this skill also has to work in); pick the one matching
+`uname -s`, or use the plain CMake/Ninja **target name** (no suffix), which
+resolves to the correct artifact on either platform:
 
 ```bash
+# Darwin
 O2_BUILD_DIR=/path/to/build \
   .agents/skills/alice-o2-environment/scripts/run-in-o2-env.zsh -- \
   ninja -C /path/to/build \
     stage/lib/libO2FrameworkAnalysisSupport.dylib \
     stage/lib/libO2FrameworkCCDBSupport.dylib
+
+# Linux
+O2_BUILD_DIR=/path/to/build \
+  .agents/skills/alice-o2-environment/scripts/run-in-o2-env.zsh -- \
+  ninja -C /path/to/build \
+    stage/lib/libO2FrameworkAnalysisSupport.so \
+    stage/lib/libO2FrameworkCCDBSupport.so
+
+# portable: CMake target names, no platform-specific suffix
+O2_BUILD_DIR=/path/to/build \
+  .agents/skills/alice-o2-environment/scripts/run-in-o2-env.zsh -- \
+  ninja -C /path/to/build \
+    O2lib-FrameworkAnalysisSupport \
+    O2lib-FrameworkCCDBSupport
 ```
 
 ## Durable artifacts

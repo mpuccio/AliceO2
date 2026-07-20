@@ -50,10 +50,13 @@ a2e_list_available_packages() {
 # message and returns 1; O2_INSTALL_ROOT is still set in that case so the
 # caller can list available packages.
 #
-# Package default: O2_PACKAGE defaults to "latest" (the moving alias),
-# matching the policy that ordinary unpinned work should track the newest
-# working daily build. Reproducible validation work must pass an explicit
-# --package/O2_PACKAGE naming the exact resolved package, never an alias.
+# Package default: O2_PACKAGE defaults to "latest" -- the current moving
+# package alias selected by this installation. This script has no way to
+# know, and does not claim, that whatever "latest" happens to point to at
+# any given time is newest or working; it only reports what it actually
+# resolves to (O2_PACKAGE_RESOLVED). Reproducible validation work must pass
+# an explicit --package/O2_PACKAGE naming the exact resolved package, never
+# an alias.
 a2e_discover_environment() {
   A2E_ERROR=""
 
@@ -84,12 +87,14 @@ a2e_discover_environment() {
   if O2_PACKAGE_RESOLVED="$(a2e_resolve_package_target "${O2_PACKAGE}" "${O2_INSTALL_ROOT}")"; then
     export O2_PACKAGE_RESOLVED
   else
-    # The alias resolved to a readable profile above but somehow cannot be
-    # stat'd as a directory now (race, or a non-symlink path) -- fall back
-    # to reporting the alias itself as its own resolution rather than
-    # silently guessing at another package.
-    O2_PACKAGE_RESOLVED="${O2_PACKAGE}"
-    export O2_PACKAGE_RESOLVED
+    # The profile is readable (checked above) but physical resolution still
+    # failed (race between the two checks, a non-symlink path `cd -P`
+    # couldn't handle, or similar). This must be a hard failure, not a
+    # fallback to reporting the alias as if it were its own resolution --
+    # this library's whole contract is that O2_PACKAGE_RESOLVED is always a
+    # real, physically-verified target, never a guess.
+    A2E_ERROR="could not physically resolve package '${O2_PACKAGE}' under ${O2_INSTALL_ROOT} even though its profile is readable; refusing to report an unresolved alias as if it were resolved."
+    return 1
   fi
 
   return 0
@@ -124,4 +129,77 @@ a2e_package_provenance() {
   root="$(eval "print -r -- \${${prefix}_ROOT:-}")"
   [[ -n "$root" ]] || return 0
   print -r -- "${prefix}: version=${version} revision=${revision} hash=${hash} root=${root}"
+}
+
+# a2e_check_alien_token
+# Runs `alien-token-info`, HONORS its exit status (the previous version of
+# this check discarded it with `|| true`), and independently verifies the
+# EXPIRE timestamp it prints against the current time.
+#
+# This second step is necessary, not decorative: `alien-token-info` invokes
+# xjalienfs's CertInfo(), which parses and prints certificate fields
+# unconditionally and returns 0 for ANY parseable certificate -- it never
+# checks whether "now" falls inside [BEGIN, EXPIRE]. Only the unexposed
+# `token-verify` subcommand (no standalone `alien-token-verify` binary
+# ships in this install) does real chain/expiry verification. So an exit
+# status of 0 alone does NOT mean the token is currently valid; comparing
+# the EXPIRE field it does print, portably, against `date`, is the
+# strongest check actually available from what this tool exposes.
+#
+# Sets A2E_TOKEN_STATUS to one of: ok, missing-command, nonzero-exit,
+# malformed-output, expired. Sets A2E_TOKEN_DETAIL to a human-readable
+# detail line. Prints alien-token-info's own stdout+stderr (if any) so the
+# caller can relay it. Returns 0 only for "ok".
+a2e_check_alien_token() {
+  A2E_TOKEN_STATUS="ok"
+  A2E_TOKEN_DETAIL=""
+
+  if ! command -v alien-token-info >/dev/null 2>&1; then
+    A2E_TOKEN_STATUS="missing-command"
+    A2E_TOKEN_DETAIL="alien-token-info not found on PATH."
+    return 1
+  fi
+
+  local output rc
+  output="$(alien-token-info 2>&1 < /dev/null)"
+  rc=$?
+  [[ -n "$output" ]] && print -r -- "$output"
+
+  if (( rc != 0 )); then
+    A2E_TOKEN_STATUS="nonzero-exit"
+    A2E_TOKEN_DETAIL="alien-token-info exited ${rc}."
+    return 1
+  fi
+
+  local dn_line begin_line expire_line
+  dn_line="$(print -r -- "$output" | grep -m1 '^DN')"
+  begin_line="$(print -r -- "$output" | grep -m1 '^BEGIN')"
+  expire_line="$(print -r -- "$output" | grep -m1 '^EXPIRE')"
+  if [[ -z "$dn_line" || -z "$begin_line" || -z "$expire_line" ]]; then
+    A2E_TOKEN_STATUS="malformed-output"
+    A2E_TOKEN_DETAIL="alien-token-info exited 0 but its output is missing DN/BEGIN/EXPIRE fields."
+    return 1
+  fi
+
+  local expire_str expire_epoch now_epoch
+  expire_str="${expire_line#EXPIRE >>> }"
+  if [[ "$(uname -s)" == "Darwin" ]]; then
+    expire_epoch="$(date -j -u -f '%Y-%m-%d %H:%M:%S' "$expire_str" +%s 2>/dev/null)"
+  else
+    expire_epoch="$(date -u -d "$expire_str" +%s 2>/dev/null)"
+  fi
+  if [[ -z "$expire_epoch" ]]; then
+    A2E_TOKEN_STATUS="malformed-output"
+    A2E_TOKEN_DETAIL="could not parse EXPIRE timestamp '${expire_str}' as UTC."
+    return 1
+  fi
+  now_epoch="$(date -u +%s)"
+  if (( expire_epoch <= now_epoch )); then
+    A2E_TOKEN_STATUS="expired"
+    A2E_TOKEN_DETAIL="token EXPIRE ${expire_str} UTC has already passed."
+    return 1
+  fi
+
+  A2E_TOKEN_DETAIL="token valid until ${expire_str} UTC."
+  return 0
 }
