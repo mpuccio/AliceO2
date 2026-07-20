@@ -131,25 +131,52 @@ a2e_package_provenance() {
   print -r -- "${prefix}: version=${version} revision=${revision} hash=${hash} root=${root}"
 }
 
+# a2e_parse_alien_timestamp <"BEGIN"|"EXPIRE"-style timestamp string>
+# Parses a "%Y-%m-%d %H:%M:%S" UTC timestamp (the format alien-token-info's
+# CertInfo() prints for both BEGIN and EXPIRE) into epoch seconds, using the
+# same Darwin/Linux `date` handling for both fields -- there is exactly one
+# parsing path, shared, so BEGIN and EXPIRE can never silently drift apart
+# in how they're interpreted. Prints the epoch seconds on stdout; returns 1
+# (nothing printed) if the string cannot be parsed.
+a2e_parse_alien_timestamp() {
+  local ts="$1" epoch
+  if [[ "$(uname -s)" == "Darwin" ]]; then
+    epoch="$(date -j -u -f '%Y-%m-%d %H:%M:%S' "$ts" +%s 2>/dev/null)"
+  else
+    epoch="$(date -u -d "$ts" +%s 2>/dev/null)"
+  fi
+  [[ -n "$epoch" ]] || return 1
+  print -r -- "$epoch"
+}
+
 # a2e_check_alien_token
 # Runs `alien-token-info`, HONORS its exit status (the previous version of
-# this check discarded it with `|| true`), and independently verifies the
-# EXPIRE timestamp it prints against the current time.
+# this check discarded it with `|| true`), and independently verifies BOTH
+# the BEGIN and EXPIRE timestamps it prints against the current time,
+# requiring the complete validity interval: begin <= now < expire.
 #
-# This second step is necessary, not decorative: `alien-token-info` invokes
-# xjalienfs's CertInfo(), which parses and prints certificate fields
-# unconditionally and returns 0 for ANY parseable certificate -- it never
-# checks whether "now" falls inside [BEGIN, EXPIRE]. Only the unexposed
-# `token-verify` subcommand (no standalone `alien-token-verify` binary
-# ships in this install) does real chain/expiry verification. So an exit
-# status of 0 alone does NOT mean the token is currently valid; comparing
-# the EXPIRE field it does print, portably, against `date`, is the
-# strongest check actually available from what this tool exposes.
+# This is necessary, not decorative: `alien-token-info` invokes xjalienfs's
+# CertInfo(), which parses and prints certificate fields unconditionally
+# and returns 0 for ANY parseable certificate -- it never checks whether
+# "now" falls inside [BEGIN, EXPIRE]. Only the unexposed `token-verify`
+# subcommand (no standalone `alien-token-verify` binary ships in this
+# install) does real chain/expiry verification. So an exit status of 0
+# alone does NOT mean the token is currently valid; comparing the BEGIN/
+# EXPIRE fields it does print, portably, against `date`, is the strongest
+# check actually available from what this tool exposes.
+#
+# The alien-token-info invocation is written as an `if`-guarded assignment
+# rather than a bare `output="$(...)"; rc=$?` pair specifically so this
+# function is safe to call under `set -e` even if some future caller
+# invokes it outside an if/while/&&/||/! context (where a bare failing
+# command substitution would abort the whole script before `rc=$?` ever
+# ran) -- not just in how this library's own current callers happen to
+# invoke it.
 #
 # Sets A2E_TOKEN_STATUS to one of: ok, missing-command, nonzero-exit,
-# malformed-output, expired. Sets A2E_TOKEN_DETAIL to a human-readable
-# detail line. Prints alien-token-info's own stdout+stderr (if any) so the
-# caller can relay it. Returns 0 only for "ok".
+# malformed-output, not-yet-valid, expired. Sets A2E_TOKEN_DETAIL to a
+# human-readable detail line. Prints alien-token-info's own stdout+stderr
+# (if any) so the caller can relay it. Returns 0 only for "ok".
 a2e_check_alien_token() {
   A2E_TOKEN_STATUS="ok"
   A2E_TOKEN_DETAIL=""
@@ -161,8 +188,11 @@ a2e_check_alien_token() {
   fi
 
   local output rc
-  output="$(alien-token-info 2>&1 < /dev/null)"
-  rc=$?
+  if output="$(alien-token-info 2>&1 < /dev/null)"; then
+    rc=0
+  else
+    rc=$?
+  fi
   [[ -n "$output" ]] && print -r -- "$output"
 
   if (( rc != 0 )); then
@@ -181,25 +211,34 @@ a2e_check_alien_token() {
     return 1
   fi
 
-  local expire_str expire_epoch now_epoch
+  local begin_str expire_str begin_epoch expire_epoch now_epoch
+  begin_str="${begin_line#BEGIN >>> }"
   expire_str="${expire_line#EXPIRE >>> }"
-  if [[ "$(uname -s)" == "Darwin" ]]; then
-    expire_epoch="$(date -j -u -f '%Y-%m-%d %H:%M:%S' "$expire_str" +%s 2>/dev/null)"
-  else
-    expire_epoch="$(date -u -d "$expire_str" +%s 2>/dev/null)"
+
+  if ! begin_epoch="$(a2e_parse_alien_timestamp "$begin_str")"; then
+    A2E_TOKEN_STATUS="malformed-output"
+    A2E_TOKEN_DETAIL="could not parse BEGIN timestamp '${begin_str}' as UTC."
+    return 1
   fi
-  if [[ -z "$expire_epoch" ]]; then
+  if ! expire_epoch="$(a2e_parse_alien_timestamp "$expire_str")"; then
     A2E_TOKEN_STATUS="malformed-output"
     A2E_TOKEN_DETAIL="could not parse EXPIRE timestamp '${expire_str}' as UTC."
     return 1
   fi
+
   now_epoch="$(date -u +%s)"
-  if (( expire_epoch <= now_epoch )); then
+
+  if (( now_epoch < begin_epoch )); then
+    A2E_TOKEN_STATUS="not-yet-valid"
+    A2E_TOKEN_DETAIL="token BEGIN ${begin_str} UTC is still in the future."
+    return 1
+  fi
+  if (( now_epoch >= expire_epoch )); then
     A2E_TOKEN_STATUS="expired"
     A2E_TOKEN_DETAIL="token EXPIRE ${expire_str} UTC has already passed."
     return 1
   fi
 
-  A2E_TOKEN_DETAIL="token valid until ${expire_str} UTC."
+  A2E_TOKEN_DETAIL="token valid from ${begin_str} UTC until ${expire_str} UTC."
   return 0
 }
