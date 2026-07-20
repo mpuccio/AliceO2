@@ -49,7 +49,16 @@ enum class TraversalFailureReason : uint8_t {
   InvalidTraversalSchedule,
   MixedPolicyLayout,
   StateFamilyMismatch,
-  InvalidPolicyParameters
+  InvalidPolicyParameters,
+  // The index-table configuration bound from this iteration's
+  // TrackingParameters (IndexTableConfiguration.h) failed its own
+  // structural validation.
+  InvalidIndexTableConfiguration,
+  // A non-FirstPass iteration's freshly bound index-table configuration
+  // disagrees with the configuration (and populated LUT) the TimeFrame
+  // already owns, which this iteration would otherwise silently reuse or
+  // resort clusters into.
+  IndexTableConfigurationMismatch
 };
 
 class TraversalException final : public std::runtime_error
