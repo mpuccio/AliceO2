@@ -1036,6 +1036,20 @@ void TrackerTraits<NLayers>::findRoads(const int iteration)
   if (!mTraversalGrouping.has_value()) {
     throw TraversalException{iteration, TraversalFailureReason::InvalidTraversalSchedule};
   }
+  // Defensive parity check (Architecture.md Sec 9 / validateLegacyParity()):
+  // findRoadsForPolicy() below indexes mTimeFrame->getCells() -- a legacy,
+  // per-legacy-CellTopologyId TimeFrame array -- with the .value() of sparse
+  // CellTopologyIds returned by roadStartCellsForTag(). That is only safe
+  // because validateLegacyParity(), run once per initialiseTimeFrame() before
+  // mTraversalLayout/mTraversalGrouping are committed, already proves the
+  // sparse and legacy topologies have identical cell count and per-index
+  // correspondence for this iteration. Re-checking the count here, at the
+  // road-finding boundary and before any indexing, turns a future desync
+  // between that cached proof and TimeFrame's own containers into an
+  // explicit failure instead of an out-of-bounds/misaligned read.
+  if (mTimeFrame->getCells().size() != mTraversalLayout.topology.nCells) {
+    throw TraversalException{iteration, TraversalFailureReason::LegacyIndexMismatch};
+  }
   dispatchTransitionPolicies(*mTraversalGrouping, [&](auto traits, auto, auto) {
     using Traits = decltype(traits);
     if constexpr (!std::is_same_v<TrackSeedN, TrackSeedTpl<NLayers, typename Traits::SeedState>>) {
@@ -1067,7 +1081,22 @@ void TrackerTraits<NLayers>::findRoadsForPolicy(const int iteration, const typen
     tfInfos[iLayer] = mTimeFrame->getTrackingFrameInfoOnLayer(iLayer).data();
     unsortedClusters[iLayer] = mTimeFrame->getUnsortedClusters()[iLayer].data();
   }
-  const auto topology = mTimeFrame->getTrackingTopologyView();
+  // Road-start selection is topology-derived, not a StartLayerMask/LayerMask
+  // runtime decision (Architecture.md Sec 10, D003): mTraversalGrouping's
+  // roadStartCellsForTag(Tag) (TransitionPolicyDispatch.h) is the deterministic
+  // ascending-CellTopologyId subsequence of the sparse layout's cells whose
+  // traversal endpoint is a seeding SurfaceId, cached once per
+  // initialiseTimeFrame() call and reused unchanged across every startLevel
+  // pass below and across every repeated findRoads() call in the
+  // PerPrimaryVertexProcessing loop (CATracker.cxx). StartLayerMask itself
+  // remains a legacy configuration/layout-construction input (see
+  // positionalSurfaceMask() in TimeFrame.cxx and validateLegacyParity()) --
+  // it is simply no longer read here. Each returned CellTopologyId is a
+  // sparse identifier; only its numeric .value() is used, and only to index
+  // mTimeFrame->getCells(), the parity-validated legacy per-cell-topology
+  // TimeFrame array (see the defensive count check in findRoads()). No
+  // SurfaceId is used as a legacy layer/vector index anywhere in this
+  // function.
   for (int startLevel{mTrkParams[iteration].CellsPerRoad()}; startLevel >= mTrkParams[iteration].CellMinimumLevel(); --startLevel) {
 
     auto seedFilter = [&](const auto& seed) {
@@ -1077,9 +1106,12 @@ void TrackerTraits<NLayers>::findRoadsForPolicy(const int iteration, const typen
     };
 
     bounded_vector<TrackSeedN> trackSeeds(mMemoryPool.get());
-    for (int startCellTopologyId{0}; startCellTopologyId < topology.nCells; ++startCellTopologyId) {
-      const int startLayer = topology.getCell(startCellTopologyId).hitLayerMask.last();
-      if (!(mTrkParams[iteration].StartLayerMask.has(startLayer)) || mTimeFrame->getCells()[startCellTopologyId].empty()) {
+    for (const auto startId : mTraversalGrouping->roadStartCellsForTag(Tag)) {
+      const int startCellTopologyId = startId.value();
+      // Cell population is per-event/per-vertex data, never cached in
+      // TransitionPolicyGrouping: this check must stay here, evaluated at
+      // runtime against the current iVertex's TimeFrame content.
+      if (mTimeFrame->getCells()[startCellTopologyId].empty()) {
         continue;
       }
 

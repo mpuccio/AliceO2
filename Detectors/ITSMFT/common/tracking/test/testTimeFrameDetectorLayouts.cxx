@@ -195,13 +195,20 @@ void checkLegacyParity(SurfaceKind kind, TransitionPolicyTag policyTag, uint16_t
   TrackingTopology<NLayers> legacy;
   legacy.init(NLayers, params[0].MaxHoles, params[0].HoleLayerMask);
   const auto legacyView = legacy.getView();
-  const auto sparse = frame.getDetectorLayoutView(0).topology;
+  const auto layoutView = frame.getDetectorLayoutView(0);
+  const auto sparse = layoutView.topology;
   BOOST_REQUIRE_EQUAL(sparse.nTransitions, legacyView.nTransitions);
   BOOST_REQUIRE_EQUAL(sparse.nCells, legacyView.nCells);
   for (uint32_t i = 0; i < sparse.nTransitions; ++i) {
     BOOST_CHECK_EQUAL(sparse.transitions[i].from.value(), legacyView.transitions[i].fromLayer);
     BOOST_CHECK_EQUAL(sparse.transitions[i].to.value(), legacyView.transitions[i].toLayer);
   }
+  // Independent legacy oracle for which CellTopologyIds the *former*
+  // findRoadsForPolicy predicate (hitLayerMask.last() + StartLayerMask.has())
+  // would have selected as road starts, recomputed here from the frozen
+  // legacy TrackingTopology<NLayers> view -- not by calling into any
+  // TransitionPolicyGrouping/TrackerTraits production code.
+  std::vector<CellTopologyId> legacyOracleStarts;
   for (uint32_t i = 0; i < sparse.nCells; ++i) {
     const auto& sparseCell = sparse.cells[i];
     const auto& legacyCell = legacyView.cells[i];
@@ -211,6 +218,22 @@ void checkLegacyParity(SurfaceKind kind, TransitionPolicyTag policyTag, uint16_t
     const auto legacyStartLayer = legacyCell.hitLayerMask.last();
     const auto sparseStartSurface = SurfaceId{static_cast<uint16_t>(sparseCell.hitSurfaces.last())};
     BOOST_CHECK_EQUAL(sparse.seedingSurfaces.has(sparseStartSurface), params[0].StartLayerMask.has(legacyStartLayer));
+    if (params[0].StartLayerMask.has(legacyStartLayer)) {
+      legacyOracleStarts.push_back(CellTopologyId{static_cast<uint16_t>(i)});
+    }
+  }
+
+  // Item 7: exact identity-layout parity between roadStartCellsForTag() and
+  // the former StartLayerMask/hitLayerMask.last() selection, for both
+  // TrackerTraits<7> (ITS-like) and TrackerTraits<10> (MFT-like) call sites
+  // of this helper.
+  TransitionPolicyGrouping grouping{layoutView};
+  BOOST_REQUIRE(grouping.valid());
+  const auto starts = grouping.roadStartCellsForTag(policyTag);
+  BOOST_CHECK(std::is_sorted(starts.begin(), starts.end()));
+  BOOST_REQUIRE_EQUAL(starts.size(), legacyOracleStarts.size());
+  for (size_t i = 0; i < starts.size(); ++i) {
+    BOOST_CHECK(starts[i] == legacyOracleStarts[i]);
   }
 }
 } // namespace
@@ -468,6 +491,33 @@ BOOST_AUTO_TEST_CASE(catalog_identity_active_count_and_mask_mapping)
   });
   BOOST_REQUIRE(skipped != reducedTransitions.end());
   BOOST_CHECK(skipped->skippedSurfaces.has(SurfaceId{0}));
+
+  // Selected-iteration isolation (item 6): iterations 0 and 1 use different
+  // StartLayerMask-derived seeding masks over the same catalog/ordering
+  // (`ordered`: position 0 = SurfaceId 3, position 4 = SurfaceId 5).
+  // Position 0 is a seeding surface in *both* iterations' masks but can
+  // never be a cell's transition endpoint (transitions only run from an
+  // earlier to a later position) -- "a seeded surface with no terminating
+  // cell" in both layouts simultaneously. Iteration 0's other seeding
+  // surface (5, position 4) is reachable within the full 7-active-surface
+  // layout; iteration 1's activeCount=4 mask only ever tests position 0
+  // (positions 4 and 6 of its starts bitset are out of range and ignored by
+  // positionalSurfaceMask), so iteration 1's own layout must select no road
+  // starts at all -- proving each iteration's roadStartCellsForTag reflects
+  // only its own layout's seedingSurfaces.
+  TransitionPolicyGrouping fullGrouping{full->getView()};
+  TransitionPolicyGrouping reducedGrouping{reduced->getView()};
+  BOOST_REQUIRE(fullGrouping.valid());
+  BOOST_REQUIRE(reducedGrouping.valid());
+  const auto fullStarts = fullGrouping.roadStartCellsForTag(TransitionPolicyTag::CylinderCylinder);
+  const auto reducedStarts = reducedGrouping.roadStartCellsForTag(TransitionPolicyTag::CylinderCylinder);
+  BOOST_CHECK(std::is_sorted(fullStarts.begin(), fullStarts.end()));
+  BOOST_CHECK(reducedStarts.empty());
+  BOOST_REQUIRE_GT(fullStarts.size(), 0u);
+  for (const auto id : fullStarts) {
+    const auto endpoint = full->getView().topology.getTransition(full->getView().topology.getCell(id).secondTransition).to;
+    BOOST_CHECK(endpoint == SurfaceId{5});
+  }
 }
 
 BOOST_AUTO_TEST_CASE(traversal_initialisation_classifies_missing_and_stale_layouts)
@@ -562,6 +612,68 @@ BOOST_AUTO_TEST_CASE(traversal_cache_groups_and_binds_once_across_repeated_neigh
   BOOST_CHECK_EQUAL(itsTraits.getTraversalGroupingCount(), 1);
   BOOST_CHECK_EQUAL(itsTraits.getPolicyBindingCount(TransitionPolicyTag::CylinderCylinder), 1);
   BOOST_CHECK_EQUAL(itsTraits.getPolicyBindingCount(TransitionPolicyTag::DiskDisk), 0);
+}
+
+BOOST_AUTO_TEST_CASE(traversal_empty_road_start_span_is_valid_and_produces_no_tracks)
+{
+  // StartLayerMask=0 -> an empty seeding mask -> an empty roadStartCellsForTag
+  // span (Architecture.md Sec 10, item 7: "empty road-start span is valid").
+  // Unlike testCATrackerFailureContract.cxx's
+  // ValidEmptyInputCompletesWithoutErrorAndProducesNoTracks (full StartLayerMask,
+  // no cluster data), this exercises the *topologically empty* road-start case
+  // through the same initialiseTimeFrame()/findRoads() pair.
+  auto params = mftTraversalParameters();
+  params[0].StartLayerMask = 0;
+  auto pool = std::make_shared<BoundedMemoryResource>();
+  TimeFrame<10> frame;
+  TrackerTraits<10> traits;
+  prepareTraversalFrame(frame, traits, pool, params);
+  const auto catalogRequest = request(10, o2::detectors::DetID::MFT);
+  FakeCatalogProvider provider{catalog(catalogRequest, SurfaceKind::Disk)};
+  const auto ordered = order(10);
+  BOOST_REQUIRE(frame.ensureDetectorLayouts(&provider, catalogRequest, ordered,
+                                            TransitionPolicyTag::DiskDisk, params).ok());
+
+  std::shared_ptr<tbb::task_arena> arena;
+  traits.setNThreads(1, arena);
+  BOOST_CHECK_NO_THROW(traits.initialiseTimeFrame(0));
+  BOOST_REQUIRE(traits.hasTraversalCache());
+  BOOST_CHECK_NO_THROW(traits.findRoads(0));
+  BOOST_CHECK_EQUAL(frame.getNumberOfTracks(), 0u);
+}
+
+BOOST_AUTO_TEST_CASE(traversal_legacy_cell_container_size_mismatch_fails_before_indexing)
+{
+  // Item 4/7: findRoads() indexes mTimeFrame->getCells() with sparse
+  // CellTopologyId values; a desync between that legacy container and the
+  // cached sparse layout must fail with LegacyIndexMismatch rather than
+  // index out of bounds. Reached here through TimeFrame::getCells(), the
+  // existing public, non-const production accessor (TimeFrame.h) -- no new
+  // mutation API is added for this test.
+  auto params = mftTraversalParameters();
+  auto pool = std::make_shared<BoundedMemoryResource>();
+  TimeFrame<10> frame;
+  TrackerTraits<10> traits;
+  prepareTraversalFrame(frame, traits, pool, params);
+  const auto catalogRequest = request(10, o2::detectors::DetID::MFT);
+  FakeCatalogProvider provider{catalog(catalogRequest, SurfaceKind::Disk)};
+  const auto ordered = order(10);
+  BOOST_REQUIRE(frame.ensureDetectorLayouts(&provider, catalogRequest, ordered,
+                                            TransitionPolicyTag::DiskDisk, params).ok());
+
+  std::shared_ptr<tbb::task_arena> arena;
+  traits.setNThreads(1, arena);
+  traits.initialiseTimeFrame(0);
+  BOOST_REQUIRE(traits.hasTraversalCache());
+  BOOST_REQUIRE(!frame.getCells().empty());
+  frame.getCells().pop_back();
+
+  try {
+    traits.findRoads(0);
+    BOOST_FAIL("legacy cell-container size mismatch must throw before indexing");
+  } catch (const TraversalException& error) {
+    BOOST_CHECK(error.getReason() == TraversalFailureReason::LegacyIndexMismatch);
+  }
 }
 
 BOOST_AUTO_TEST_CASE(traversal_preflight_rejects_legacy_mismatch_state_mismatch_and_bad_parameters)
