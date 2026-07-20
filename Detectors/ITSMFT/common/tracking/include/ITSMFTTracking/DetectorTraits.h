@@ -20,7 +20,6 @@
 #include "DetectorsCommonDataFormats/DetID.h"
 #include "DataFormatsCalibration/MeanVertexObject.h"
 #include "ITSMFTTracking/Configuration.h"
-#include "ITSMFTTracking/IndexTableUtils.h"
 #include "ITSMFTTracking/TimeFrame.h"
 #include "ITSMFTTracking/Cell.h"
 #include "ITStracking/BoundedAllocator.h"
@@ -48,9 +47,6 @@ struct DetectorTraits {
                         const o2::its::TrackingFrameInfo* const tfInfos[NLayers],
                         const o2::its::Cluster* const unsortedClusters[NLayers],
                         const o2::base::PropagatorImpl<float>* propagator);
-
-  static void configureIndexTableUtils(IndexTableUtils<NLayers>& utils, const TrackingParameters& params);
-
 };
 
 template <o2::detectors::DetID::ID DetId, int NLayers>

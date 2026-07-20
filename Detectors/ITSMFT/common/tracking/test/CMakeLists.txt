@@ -124,6 +124,12 @@ o2_add_test(catracker-failure-contract
             LABELS "itsmft;tracking"
             PUBLIC_LINK_LIBRARIES O2::ITSMFTTracking O2::MFTTracking O2::Field)
 
+o2_add_test(indextableactivation
+            SOURCES testIndexTableActivation.cxx
+            COMPONENT_NAME itsmft-tracking
+            LABELS "itsmft;tracking"
+            PUBLIC_LINK_LIBRARIES O2::ITSMFTTracking O2::MFTTracking)
+
 o2_add_test(computelayercells-orchestration
             SOURCES testComputeLayerCellsOrchestration.cxx
             COMPONENT_NAME itsmft-tracking

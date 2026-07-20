@@ -273,6 +273,22 @@ std::vector<TrackingParameters> makeOneIterationITSParams(bool dropTFUponFailure
   return params;
 }
 
+// A valid FirstPass iteration 0 followed by a non-FirstPass (RebuildClusterLUT
+// only, matching the legacy ITS async-iteration-3 shape) iteration 1, both ITS
+// defaults -- callers mutate params[1]'s index-table fields to construct a
+// deliberate mismatch against the configuration iteration 0 will commit.
+std::vector<TrackingParameters> makeTwoIterationITSParams(bool dropTFUponFailure)
+{
+  std::vector<TrackingParameters> params(2);
+  resetDetectorDefaults(params[0], o2::detectors::DetID::ITS);
+  resetDetectorDefaults(params[1], o2::detectors::DetID::ITS);
+  params[1].PassFlags = IterationSteps{IterationStep::RebuildClusterLUT};
+  for (auto& p : params) {
+    p.DropTFUponFailure = dropTFUponFailure;
+  }
+  return params;
+}
+
 // Deterministic injection seam for the std::bad_alloc and
 // unclassified-std::exception cases: TrackerTraits::computeLayerTracklets()
 // is virtual and is the first traversal stage Tracker<N>::clustersToTracks()
@@ -600,6 +616,67 @@ BOOST_AUTO_TEST_CASE(UnclassifiedExceptionAlwaysRethrowsAndWipesRegardlessOfFlag
     BOOST_CHECK_THROW(rig.tracker.clustersToTracks(), std::runtime_error);
 
     BOOST_CHECK_EQUAL(rig.tf.getNormalizedFrame().getTotalMeasurements(), 0u);
+    BOOST_CHECK(rig.tf.getTracks().empty());
+    BOOST_CHECK(rig.tf.hasStoredDetectorLayouts());
+    BOOST_CHECK(rig.tf.detectorLayoutsCurrent());
+  }
+}
+
+// --- Index-table configuration failures: structural, always rethrow -------
+//
+// Both new TraversalFailureReason values (InvalidIndexTableConfiguration,
+// IndexTableConfigurationMismatch; TrackerTraits.cxx::initialiseTimeFrame())
+// are TraversalException, the same structural-failure type as StaleLayout
+// above -- so they must follow the identical always-rethrow-and-wipe
+// contract, regardless of DropTFUponFailure.
+
+BOOST_AUTO_TEST_CASE(InvalidIndexTableConfigurationAlwaysRethrowsAndWipesRegardlessOfFlag)
+{
+  for (const bool dropFlag : {false, true}) {
+    Rig rig{dropFlag};
+    rig.params[0].RowBins = 0; // structurally invalid
+    rig.tracker.setParameters(rig.params);
+    rig.establishValidLayout();
+    rig.loadSource(emptyFixture());
+
+    rig.tf.getTracks().push_back(CATrackType<ITSNLayers>{});
+    BOOST_REQUIRE(!rig.tf.getTracks().empty());
+
+    bool threw = false;
+    try {
+      rig.tracker.clustersToTracks();
+    } catch (const TraversalException& e) {
+      threw = true;
+      BOOST_CHECK(e.getReason() == TraversalFailureReason::InvalidIndexTableConfiguration);
+    }
+    BOOST_CHECK(threw);
+
+    BOOST_CHECK(rig.tf.getTracks().empty());
+    BOOST_CHECK(rig.tf.hasStoredDetectorLayouts());
+    BOOST_CHECK(rig.tf.detectorLayoutsCurrent());
+  }
+}
+
+BOOST_AUTO_TEST_CASE(IndexTableConfigurationMismatchAlwaysRethrowsAndWipesRegardlessOfFlag)
+{
+  ensureTrivialMagneticFieldIsSet(); // iteration 0 runs to completion (findRoads()) before iteration 1 fails
+  for (const bool dropFlag : {false, true}) {
+    Rig rig{dropFlag};
+    rig.params = makeTwoIterationITSParams(dropFlag);
+    rig.params[1].RowBins = rig.params[0].RowBins + 1; // mismatched against what iteration 0 will commit
+    rig.tracker.setParameters(rig.params);
+    rig.establishValidLayout();
+    rig.loadSource(emptyFixture());
+
+    bool threw = false;
+    try {
+      rig.tracker.clustersToTracks();
+    } catch (const TraversalException& e) {
+      threw = true;
+      BOOST_CHECK(e.getReason() == TraversalFailureReason::IndexTableConfigurationMismatch);
+    }
+    BOOST_CHECK(threw);
+
     BOOST_CHECK(rig.tf.getTracks().empty());
     BOOST_CHECK(rig.tf.hasStoredDetectorLayouts());
     BOOST_CHECK(rig.tf.detectorLayoutsCurrent());

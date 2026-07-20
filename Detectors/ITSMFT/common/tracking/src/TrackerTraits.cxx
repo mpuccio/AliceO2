@@ -30,6 +30,7 @@
 #include "ITStracking/Constants.h"
 #include "ITSMFTTracking/Configuration.h"
 #include "ITSMFTTracking/DetectorTraits.h"
+#include "ITSMFTTracking/IndexTableConfiguration.h"
 #include "ITSMFTTracking/MFTFwdTrackHelpers.h"
 #include "ITSMFTTracking/IndexTableUtils.h"
 #include "ITSMFTTracking/LayerMask.h"
@@ -155,8 +156,9 @@ template <int NLayers>
 void TrackerTraits<NLayers>::initialiseTimeFrame(const int iteration)
 {
   resetTraversalCache();
-  mTimeFrame->initialise(mTrkParams[iteration], mTrkParams[iteration].NLayers, iteration);
 
+  // 1. Layout ownership/currentness/iteration bounds, checked before any
+  // index-table (or other) configuration is touched.
   if (!mTimeFrame->hasStoredDetectorLayouts()) {
     throw TraversalException{iteration, TraversalFailureReason::MissingLayout};
   }
@@ -169,6 +171,10 @@ void TrackerTraits<NLayers>::initialiseTimeFrame(const int iteration)
   }
   const auto layout = mTimeFrame->getDetectorLayoutView(iteration);
 
+  // 2. Grouping + single active tag, resolved from `layout` alone -- no
+  // dependency on TimeFrame::initialise() having run, since neither
+  // TransitionPolicyGrouping nor dispatchTransitionPolicies read the legacy
+  // topology view that call populates.
   TransitionPolicyGrouping grouping{layout};
   ++mTraversalGroupingCount;
   if (!grouping.valid()) {
@@ -178,6 +184,63 @@ void TrackerTraits<NLayers>::initialiseTimeFrame(const int iteration)
     throw TraversalException{iteration, TraversalFailureReason::MixedPolicyLayout};
   }
 
+  // 3. Bind + validate index-table configuration into a local scratch value,
+  // dispatched on the single active tag via dispatchTransitionPolicies --
+  // the same idiom computeLayerTracklets() uses below. TimeFrame is not
+  // touched yet, so a failure here leaves it completely unchanged.
+  typename TimeFrameN::IndexTableUtilsN stagedIndexTableConfig{};
+  IndexTableConfigError indexTableConfigError = IndexTableConfigError::None;
+  bool activePolicyTagResolved = false;
+  bool stateFamilyMismatch = false;
+  dispatchTransitionPolicies(grouping, [&](auto traits, auto /*transitionIds*/, auto /*cellIds*/) {
+    using Traits = decltype(traits);
+    activePolicyTagResolved = true;
+    // Discards the call (and therefore the need for a
+    // bindIndexTableConfiguration<Traits::Tag, NLayers> instantiation)
+    // whenever this policy family's seed state cannot possibly match this
+    // TrackerTraits<NLayers> instantiation's own CellSeedN -- the identical
+    // compile-time compatibility guard computeLayerTracklets() already uses
+    // below. A mismatch here is a genuine misconfiguration (this layout's
+    // active transitions do not belong to this NLayers/state family), not a
+    // NLayers-to-Tag policy selection: the active Tag itself still comes
+    // exclusively from `grouping`/`layout` above.
+    if constexpr (!std::is_same_v<CellSeedN, CellSeedTpl<typename Traits::SeedState>>) {
+      stateFamilyMismatch = true;
+    } else {
+      indexTableConfigError = bindIndexTableConfiguration<Traits::Tag, NLayers>(stagedIndexTableConfig, mTrkParams[iteration]);
+    }
+  });
+  if (!activePolicyTagResolved || stateFamilyMismatch) {
+    throw TraversalException{iteration, TraversalFailureReason::StateFamilyMismatch};
+  }
+  if (indexTableConfigError != IndexTableConfigError::None) {
+    throw TraversalException{iteration, TraversalFailureReason::InvalidIndexTableConfiguration};
+  }
+
+  // 4. LUT-reuse invariant: a non-FirstPass iteration will not have its
+  // index-table configuration (re)committed or its LUT storage reallocated
+  // by TimeFrame::initialise() below (TimeFrame.cxx, PassFlags[FirstPass]
+  // gate) -- whether or not RebuildClusterLUT resorts clusters into the
+  // existing LUT using whatever configuration TimeFrame already owns (e.g.
+  // legacy ITS's async iteration 3, which sets RebuildClusterLUT without
+  // FirstPass; ITS/tracking/src/Configuration.cxx). The freshly bound
+  // configuration for such an iteration must therefore already match the
+  // owned one exactly, checked before TimeFrame is touched at all.
+  if (!mTrkParams[iteration].PassFlags[IterationStep::FirstPass] &&
+      !indexTableConfigurationsMatch(stagedIndexTableConfig, mTimeFrame->getIndexTableUtils())) {
+    throw TraversalException{iteration, TraversalFailureReason::IndexTableConfigurationMismatch};
+  }
+
+  // 5. Only now is TimeFrame touched: it receives an already-validated
+  // configuration by value and never inspects a tag or detector ID.
+  mTimeFrame->initialise(mTrkParams[iteration], mTrkParams[iteration].NLayers, iteration, stagedIndexTableConfig);
+
+  // 6. validateLegacyParity needs mTimeFrame->getTrackingTopologyView(),
+  // which TimeFrame::initialise() just populated, so it necessarily still
+  // runs after that call -- exactly as before, just with index-table
+  // binding now happening ahead of it instead of buried inside it. Both
+  // this resolution and step 2/3's are pure functions of the identical
+  // `layout` value, so they agree by construction.
   TransitionPolicyTag activeTag = TransitionPolicyTag::Invalid;
   bool mixedPolicy = false;
   validateLegacyParity(iteration, layout, activeTag, mixedPolicy);

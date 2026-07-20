@@ -18,7 +18,6 @@
 #include <string>
 
 #include "Framework/Logger.h"
-#include "ITSMFTTracking/DetectorTraits.h"
 #include "ITSMFTTracking/IOUtils.h"
 #include "ITSMFTTracking/TimeFrame.h"
 #include "ITStracking/MathUtils.h"
@@ -727,7 +726,7 @@ void TimeFrame<NLayers>::initTrackerTopologies(gsl::span<const TrackingParameter
 }
 
 template <int NLayers>
-void TimeFrame<NLayers>::initialise(const TrackingParameters& trkParam, const int maxLayers, const int iteration)
+void TimeFrame<NLayers>::initialise(const TrackingParameters& trkParam, const int maxLayers, const int iteration, const IndexTableUtilsN& indexTableConfig)
 {
   mTrackingTopologyView = iteration != constants::UnusedIndex ? mTrackerTopologies[iteration].getView() : (maxLayers == 3 ? mVertexingTopology.getView() : mDefaultTrackingTopology.getView());
 
@@ -741,7 +740,12 @@ void TimeFrame<NLayers>::initialise(const TrackingParameters& trkParam, const in
       deepVectorClear(mPrimaryVerticesLabels);
     }
     clearResizeBoundedVector(mLinesLabels, getNrof(1), mMemoryPool.get());
-    DetectorTraits<NLayers>::configureIndexTableUtils(mIndexTableUtils, trkParam);
+    // The caller (TrackerTraits::initialiseTimeFrame) has already bound and
+    // validated this configuration -- from the transition-policy tag
+    // resolved through the validated DetectorLayout/TransitionPolicyGrouping,
+    // never from NLayers or DetID -- before this call. TimeFrame commits it
+    // by value and never inspects a tag or detector ID itself.
+    mIndexTableUtils = indexTableConfig;
     clearResizeBoundedVector(mPositionResolution, trkParam.NLayers, mMemoryPool.get());
     clearResizeBoundedVector(mBogusClusters, trkParam.NLayers, mMemoryPool.get());
     deepVectorClear(mTrackletClusters);

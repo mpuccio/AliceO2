@@ -80,21 +80,6 @@ bool DetectorTraits<NLayers>::refitSeed(const TrackSeedN& seed,
   }
 }
 
-template <int NLayers>
-void DetectorTraits<NLayers>::configureIndexTableUtils(IndexTableUtils<NLayers>& utils, const TrackingParameters& params)
-{
-  if constexpr (DetId == o2::detectors::DetID::MFT) {
-    constexpr float defaultYMin{-20.f};
-    constexpr float defaultYMax{20.f};
-    const bool hasRowRange = params.IndexRowMax != 0.f;
-    const float rowMin = hasRowRange ? params.IndexRowMin : defaultYMin;
-    const float rowMax = hasRowRange ? params.IndexRowMax : defaultYMax;
-    utils.setTrackingParametersXY(params, rowMin, rowMax);
-  } else {
-    utils.setTrackingParameters(params);
-  }
-}
-
 template <o2::detectors::DetID::ID DetId, int NLayers>
 void TrackingLoadPolicy<DetId, NLayers>::configureBeamPosition(TimeFrame<NLayers>& tf,
                                                                  const TrackingParameters& p,

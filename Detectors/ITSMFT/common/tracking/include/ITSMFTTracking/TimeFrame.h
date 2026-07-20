@@ -324,7 +324,14 @@ struct TimeFrame {
   void initVertexingTopology(const TrackingParameters& trkParam);
   void initDefaultTrackingTopology(const TrackingParameters& trkParam, const int maxLayers = NLayers);
   void initTrackerTopologies(gsl::span<const TrackingParameters> trkParams, const int maxLayers = NLayers);
-  void initialise(const TrackingParameters& trkParam, const int maxLayers = NLayers, const int iteration = constants::UnusedIndex);
+  // `indexTableConfig` must already be validated by the caller (see
+  // ITSMFTTracking/IndexTableConfiguration.h::bindIndexTableConfiguration);
+  // TimeFrame never inspects a TransitionPolicyTag or DetID to derive it, and
+  // never fails to configure/allocate on this account -- it simply commits
+  // an already-valid value. The only call site (TrackerTraits::
+  // initialiseTimeFrame) always supplies every argument explicitly, so no
+  // parameter here carries a default.
+  void initialise(const TrackingParameters& trkParam, const int maxLayers, const int iteration, const IndexTableUtilsN& indexTableConfig);
 
   bool isClusterUsed(int layer, int clusterId) const { return mUsedClusters[layer][clusterId]; }
   void markUsedCluster(int layer, int clusterId) { mUsedClusters[layer][clusterId] = true; }
