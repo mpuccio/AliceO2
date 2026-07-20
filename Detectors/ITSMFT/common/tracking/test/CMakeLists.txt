@@ -46,6 +46,12 @@ o2_add_test(transitionpolicydispatch
             LABELS "itsmft;tracking"
             PUBLIC_LINK_LIBRARIES O2::ITSMFTTracking)
 
+o2_add_test(indextableconfigbinding
+            SOURCES testIndexTableConfigBinding.cxx
+            COMPONENT_NAME itsmft-tracking
+            LABELS "itsmft;tracking"
+            PUBLIC_LINK_LIBRARIES O2::ITSMFTTracking O2::MFTTracking O2::DetectorsCommonDataFormats)
+
 o2_add_test(transitionpolicyoperations
             SOURCES testTransitionPolicyOperations.cxx
             COMPONENT_NAME itsmft-tracking

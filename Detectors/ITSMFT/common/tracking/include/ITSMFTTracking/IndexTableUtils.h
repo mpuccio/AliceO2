@@ -117,6 +117,11 @@ class IndexTableUtils
   GPUhdi() void setNcolBins(const int colBins) { mNcolBins = colBins; }
   GPUhdi() void setNrowBins(const int rowBins) { mNrowBins = rowBins; }
   GPUhdi() IndexTableCoordType getCoordType() const { return mCoordType; }
+  /// Row origin/span, needed alongside the other getters to detect a
+  /// configuration mismatch between a freshly bound IndexTableUtils and one
+  /// already owned by a TimeFrame (LUT-reuse invariant); not test-only.
+  GPUhdi() float getRowOrigin() const { return mRowOrigin; }
+  GPUhdi() float getRowCoordinateSpan() const { return mRowCoordinateSpan; }
 
  private:
   template <class T>
