@@ -119,6 +119,21 @@ class TransitionPolicyGrouping
       if (group != nullptr) {
         group->cells.push_back(id);
         group->scheduledCells.push_back(id);
+        // Road-start eligibility (Architecture.md Sec 10, D003): a cell may
+        // start a road iff its traversal endpoint -- the `to` SurfaceId of
+        // its *second* transition, never a numeric/highest-bit reading of
+        // hitSurfaces -- is one of the layout's seeding surfaces. Both
+        // `endpoint` (SurfaceId) and `topology.seedingSurfaces` (SurfaceMask)
+        // live in the global-SurfaceId space; this is a SurfaceMask::has()
+        // test, never a legacy vector index. Appended in the same ascending
+        // CellTopologyId order as `cells` above, so `roadStartCells` is
+        // exactly that loop's eligible subsequence -- not sorted, not
+        // rank-ordered like `scheduledCells` (which stays neighbour-schedule
+        // specific and must not be reused here).
+        const auto endpoint = topology.getTransition(cell.secondTransition).to;
+        if (topology.seedingSurfaces.has(endpoint)) {
+          group->roadStartCells.push_back(id);
+        }
       }
     }
     for (auto& group : mGroups) {
@@ -157,11 +172,25 @@ class TransitionPolicyGrouping
     return group != nullptr ? gsl::span<const CellTopologyId>(group->scheduledCells) : gsl::span<const CellTopologyId>();
   }
 
+  /// Deterministic, ascending-CellTopologyId subsequence of `cellsForTag`
+  /// whose traversal endpoint (topology.getTransition(cell.secondTransition).to)
+  /// is a layout seeding surface. Built once per grouping construction
+  /// (TrackerTraits::initialiseTimeFrame(), Architecture.md Sec 10.1); never
+  /// rank-sorted, unlike `scheduledCellsForTag`. An empty seeding mask, or a
+  /// seeding surface that terminates no cell, both yield a valid empty/short
+  /// span -- not a schedule error.
+  gsl::span<const CellTopologyId> roadStartCellsForTag(TransitionPolicyTag tag) const noexcept
+  {
+    const auto* group = findGroup(tag);
+    return group != nullptr ? gsl::span<const CellTopologyId>(group->roadStartCells) : gsl::span<const CellTopologyId>();
+  }
+
  private:
   struct Group {
     std::vector<TransitionId> transitions;
     std::vector<CellTopologyId> cells;
     std::vector<CellTopologyId> scheduledCells;
+    std::vector<CellTopologyId> roadStartCells;
   };
 
   void clear() noexcept
@@ -170,6 +199,7 @@ class TransitionPolicyGrouping
       group.transitions.clear();
       group.cells.clear();
       group.scheduledCells.clear();
+      group.roadStartCells.clear();
     }
   }
 

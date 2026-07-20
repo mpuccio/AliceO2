@@ -9,6 +9,8 @@
 #define BOOST_TEST_MAIN
 #define BOOST_TEST_DYN_LINK
 
+#include <algorithm>
+#include <array>
 #include <map>
 #include <vector>
 
@@ -32,13 +34,21 @@ SurfaceDescriptor surface(uint16_t id, SurfaceKind kind)
   return SurfaceDescriptor{SurfaceId{id}, id, 0, kind};
 }
 
+SurfaceMask maskOf(uint16_t id)
+{
+  SurfaceMask mask;
+  mask.set(SurfaceId{id});
+  return mask;
+}
+
 /// A chain of `nSurfaces` surfaces of one kind, adjacent-only transitions and
 /// cells (no holes) -- ITS-like when Cylinder/CylinderCylinder, MFT-like when
 /// Disk/DiskDisk. Mirrors the fixture style already accepted in
-/// testSurfaceLayout.cxx.
-DetectorLayout buildChainLayout(uint16_t nSurfaces, SurfaceKind kind, TransitionPolicyTag tag)
+/// testSurfaceLayout.cxx. `seedingSurfaces` defaults to empty so existing
+/// (pre-road-start) callers are unaffected.
+DetectorLayout buildChainLayout(uint16_t nSurfaces, SurfaceKind kind, TransitionPolicyTag tag, SurfaceMask seedingSurfaces = {})
 {
-  SparseTrackingTopology topology{nSurfaces};
+  SparseTrackingTopology topology{nSurfaces, seedingSurfaces};
   std::vector<TransitionId> transitions;
   for (uint16_t s = 0; s + 1 < nSurfaces; ++s) {
     transitions.push_back(topology.addTransition(adjacent(s, s + 1, tag)));
@@ -55,14 +65,45 @@ DetectorLayout buildChainLayout(uint16_t nSurfaces, SurfaceKind kind, Transition
   return DetectorLayout{std::move(surfaces), std::move(topology)};
 }
 
+/// Two disconnected chains sharing one TransitionPolicyTag: surfaces
+/// [0, nA) and [nA, nA+nB), each an adjacent-only chain of `kind`. Used to
+/// prove road-start selection needs no per-component special-casing (the
+/// grouping's rank computation already treats disconnected components
+/// independently -- TransitionPolicyDispatch.h's Kahn's-algorithm loop).
+DetectorLayout buildTwoChainsSameTag(uint16_t nA, uint16_t nB, SurfaceKind kind, TransitionPolicyTag tag, SurfaceMask seedingSurfaces = {})
+{
+  const uint16_t total = static_cast<uint16_t>(nA + nB);
+  SparseTrackingTopology topology{total, seedingSurfaces};
+  std::vector<TransitionId> transitionsA, transitionsB;
+  for (uint16_t s = 0; s + 1 < nA; ++s) {
+    transitionsA.push_back(topology.addTransition(adjacent(s, s + 1, tag)));
+  }
+  for (uint16_t s = nA; s + 1 < total; ++s) {
+    transitionsB.push_back(topology.addTransition(adjacent(s, s + 1, tag)));
+  }
+  for (size_t t = 0; t + 1 < transitionsA.size(); ++t) {
+    topology.addCell(transitionsA[t], transitionsA[t + 1]);
+  }
+  for (size_t t = 0; t + 1 < transitionsB.size(); ++t) {
+    topology.addCell(transitionsB[t], transitionsB[t + 1]);
+  }
+  BOOST_REQUIRE(topology.finalize());
+
+  std::vector<SurfaceDescriptor> surfaces;
+  for (uint16_t s = 0; s < total; ++s) {
+    surfaces.push_back(surface(s, kind));
+  }
+  return DetectorLayout{std::move(surfaces), std::move(topology)};
+}
+
 /// A disconnected combined layout: an ITS-like cylinder chain over the first
 /// `nCylinders` surfaces and an MFT-like disk chain over the next `nDisks`
 /// surfaces, in one shared global surface-id space (Architecture.md §8, the
 /// first combined milestone).
-DetectorLayout buildCombinedDisconnectedLayout(uint16_t nCylinders, uint16_t nDisks)
+DetectorLayout buildCombinedDisconnectedLayout(uint16_t nCylinders, uint16_t nDisks, SurfaceMask seedingSurfaces = {})
 {
   const uint16_t total = nCylinders + nDisks;
-  SparseTrackingTopology topology{total};
+  SparseTrackingTopology topology{total, seedingSurfaces};
   std::vector<TransitionId> cylinderTransitions;
   std::vector<TransitionId> diskTransitions;
   for (uint16_t s = 0; s + 1 < nCylinders; ++s) {
@@ -89,14 +130,7 @@ DetectorLayout buildCombinedDisconnectedLayout(uint16_t nCylinders, uint16_t nDi
   return DetectorLayout{std::move(surfaces), std::move(topology)};
 }
 
-SurfaceMask maskOf(uint16_t id)
-{
-  SurfaceMask mask;
-  mask.set(SurfaceId{id});
-  return mask;
-}
-
-DetectorLayout buildIdentityLayout(uint16_t nSurfaces, SurfaceKind kind, TransitionPolicyTag tag, int maxHoles, uint16_t hole)
+DetectorLayout buildIdentityLayout(uint16_t nSurfaces, SurfaceKind kind, TransitionPolicyTag tag, int maxHoles, uint16_t hole, SurfaceMask seedingSurfaces = {})
 {
   std::vector<SurfaceDescriptor> surfaces;
   std::vector<SurfaceId> order;
@@ -105,7 +139,7 @@ DetectorLayout buildIdentityLayout(uint16_t nSurfaces, SurfaceKind kind, Transit
     order.push_back(SurfaceId{id});
   }
   DetectorLayoutBuilder builder{std::move(surfaces)};
-  const auto result = builder.addSubgraph(DetectorLayoutSubgraph{std::move(order), maxHoles, maxHoles ? maskOf(hole) : SurfaceMask{}, SurfaceMask{}, tag}).build();
+  const auto result = builder.addSubgraph(DetectorLayoutSubgraph{std::move(order), maxHoles, maxHoles ? maskOf(hole) : SurfaceMask{}, seedingSurfaces, tag}).build();
   BOOST_REQUIRE(result.ok());
   return std::move(*result.layout);
 }
@@ -214,6 +248,8 @@ BOOST_AUTO_TEST_CASE(CyclicTopologyIsRejectedExplicitly)
   BOOST_CHECK(grouping.getScheduleError() == TransitionPolicyScheduleError::CyclicTopology);
   BOOST_CHECK(grouping.transitionsForTag(TransitionPolicyTag::CylinderCylinder).empty());
   BOOST_CHECK(grouping.scheduledCellsForTag(TransitionPolicyTag::CylinderCylinder).empty());
+  BOOST_CHECK(grouping.cellsForTag(TransitionPolicyTag::CylinderCylinder).empty());
+  BOOST_CHECK(grouping.roadStartCellsForTag(TransitionPolicyTag::CylinderCylinder).empty());
 }
 
 BOOST_AUTO_TEST_CASE(ItsLikeLayoutOnlyGroupsCylinderCylinderWork)
@@ -315,4 +351,263 @@ BOOST_AUTO_TEST_CASE(DispatchIsANoOpForALayoutWithNoActiveWork)
   RecordingVisitor visitor;
   dispatchTransitionPolicies(grouping, visitor);
   BOOST_CHECK_EQUAL(visitor.calls, 0);
+}
+
+// --- Gate 3 road-start selection (Architecture.md Sec 10, D003) ---------
+
+BOOST_AUTO_TEST_CASE(RoadStartCellsMatchIdentityItsLikeSeeding)
+{
+  // Full seeding mask (all 7 layers, the ITS StartLayerMask default in
+  // Configuration.h): every cell in a monotonic identity chain is a road
+  // start, i.e. roadStartCellsForTag must equal cellsForTag exactly.
+  const auto full = buildChainLayout(7, SurfaceKind::Cylinder, TransitionPolicyTag::CylinderCylinder, SurfaceMask{0x7Fu});
+  TransitionPolicyGrouping fullGrouping{full.getView()};
+  BOOST_REQUIRE(fullGrouping.valid());
+  const auto allCells = fullGrouping.cellsForTag(TransitionPolicyTag::CylinderCylinder);
+  const auto allStarts = fullGrouping.roadStartCellsForTag(TransitionPolicyTag::CylinderCylinder);
+  BOOST_REQUIRE_EQUAL(allStarts.size(), allCells.size());
+  for (size_t i = 0; i < allCells.size(); ++i) {
+    BOOST_CHECK(allStarts[i] == allCells[i]);
+  }
+
+  // Restricted mask: only the cell(s) whose transition endpoint is surface 6
+  // (the outermost layer) qualify.
+  const auto restricted = buildChainLayout(7, SurfaceKind::Cylinder, TransitionPolicyTag::CylinderCylinder, maskOf(6));
+  TransitionPolicyGrouping restrictedGrouping{restricted.getView()};
+  BOOST_REQUIRE(restrictedGrouping.valid());
+  const auto restrictedCells = restrictedGrouping.cellsForTag(TransitionPolicyTag::CylinderCylinder);
+  const auto restrictedStarts = restrictedGrouping.roadStartCellsForTag(TransitionPolicyTag::CylinderCylinder);
+  const auto view = restricted.getView();
+  BOOST_REQUIRE_GT(restrictedStarts.size(), 0u);
+  BOOST_CHECK(std::is_sorted(restrictedStarts.begin(), restrictedStarts.end()));
+  for (const auto id : restrictedCells) {
+    const auto& cell = view.topology.getCell(id);
+    const bool isEndpoint6 = view.topology.getTransition(cell.secondTransition).to == SurfaceId{6};
+    const bool selected = std::find(restrictedStarts.begin(), restrictedStarts.end(), id) != restrictedStarts.end();
+    BOOST_CHECK_EQUAL(isEndpoint6, selected);
+  }
+}
+
+BOOST_AUTO_TEST_CASE(RoadStartCellsMatchIdentityMftLikeSeeding)
+{
+  // Same proof as the ITS-like case above, over a 10-disk identity chain
+  // (MFT's StartLayerMask default is also "all layers set").
+  const auto full = buildChainLayout(10, SurfaceKind::Disk, TransitionPolicyTag::DiskDisk, SurfaceMask{0x3FFu});
+  TransitionPolicyGrouping fullGrouping{full.getView()};
+  BOOST_REQUIRE(fullGrouping.valid());
+  const auto allCells = fullGrouping.cellsForTag(TransitionPolicyTag::DiskDisk);
+  const auto allStarts = fullGrouping.roadStartCellsForTag(TransitionPolicyTag::DiskDisk);
+  BOOST_REQUIRE_EQUAL(allStarts.size(), allCells.size());
+  for (size_t i = 0; i < allCells.size(); ++i) {
+    BOOST_CHECK(allStarts[i] == allCells[i]);
+  }
+
+  const auto restricted = buildChainLayout(10, SurfaceKind::Disk, TransitionPolicyTag::DiskDisk, maskOf(9));
+  TransitionPolicyGrouping restrictedGrouping{restricted.getView()};
+  BOOST_REQUIRE(restrictedGrouping.valid());
+  const auto restrictedCells = restrictedGrouping.cellsForTag(TransitionPolicyTag::DiskDisk);
+  const auto restrictedStarts = restrictedGrouping.roadStartCellsForTag(TransitionPolicyTag::DiskDisk);
+  const auto view = restricted.getView();
+  BOOST_REQUIRE_GT(restrictedStarts.size(), 0u);
+  BOOST_CHECK(std::is_sorted(restrictedStarts.begin(), restrictedStarts.end()));
+  for (const auto id : restrictedCells) {
+    const auto& cell = view.topology.getCell(id);
+    const bool isEndpoint9 = view.topology.getTransition(cell.secondTransition).to == SurfaceId{9};
+    const bool selected = std::find(restrictedStarts.begin(), restrictedStarts.end(), id) != restrictedStarts.end();
+    BOOST_CHECK_EQUAL(isEndpoint9, selected);
+  }
+}
+
+BOOST_AUTO_TEST_CASE(RoadStartEndpointWinsOverNumericHighestHitSurfaceBit)
+{
+  // Non-monotonic SurfaceId order: order = {3, 1, 4, 0} at positions 0..3,
+  // matching NonMonotonicSurfaceIdsFollowGraphRank above. Cells:
+  //   cell0: transitions (3->1),(1->4), hitSurfaces {3,1,4}, endpoint = 4
+  //   cell1: transitions (1->4),(4->0), hitSurfaces {1,4,0}, endpoint = 0
+  // For cell1, the numerically greatest set bit of hitSurfaces is 4 (not 0):
+  // a LayerMask::last()-style oracle would misidentify the endpoint. Seeding
+  // surface 4 makes this concrete: the correct (transition-endpoint) answer
+  // selects only cell0; a numeric-highest-bit reading of hitSurfaces would
+  // wrongly also select cell1 (whose hitSurfaces contains 4).
+  std::vector<SurfaceDescriptor> surfaces;
+  for (uint16_t id = 0; id < 5; ++id) {
+    surfaces.push_back(surface(id, SurfaceKind::Cylinder));
+  }
+  DetectorLayoutBuilder builder{std::move(surfaces)};
+  auto result = builder.addSubgraph(DetectorLayoutSubgraph{{SurfaceId{3}, SurfaceId{1}, SurfaceId{4}, SurfaceId{0}}, 0, {}, maskOf(4), TransitionPolicyTag::CylinderCylinder}).build();
+  BOOST_REQUIRE(result.ok());
+  TransitionPolicyGrouping grouping{result.layout->getView()};
+  BOOST_REQUIRE(grouping.valid());
+  const auto starts = grouping.roadStartCellsForTag(TransitionPolicyTag::CylinderCylinder);
+  BOOST_REQUIRE_EQUAL(starts.size(), 1u);
+  BOOST_CHECK(starts[0] == CellTopologyId{0});
+
+  // Seeding surface 0 (cell1's true, transition-graph endpoint) selects only
+  // cell1, even though surface 0 is not the numerically greatest bit of
+  // either cell's hitSurfaces.
+  DetectorLayoutBuilder builder2{[] { std::vector<SurfaceDescriptor> s; for (uint16_t id = 0; id < 5; ++id) { s.push_back(surface(id, SurfaceKind::Cylinder)); } return s; }()};
+  auto result2 = builder2.addSubgraph(DetectorLayoutSubgraph{{SurfaceId{3}, SurfaceId{1}, SurfaceId{4}, SurfaceId{0}}, 0, {}, maskOf(0), TransitionPolicyTag::CylinderCylinder}).build();
+  BOOST_REQUIRE(result2.ok());
+  TransitionPolicyGrouping grouping2{result2.layout->getView()};
+  BOOST_REQUIRE(grouping2.valid());
+  const auto starts2 = grouping2.roadStartCellsForTag(TransitionPolicyTag::CylinderCylinder);
+  BOOST_REQUIRE_EQUAL(starts2.size(), 1u);
+  BOOST_CHECK(starts2[0] == CellTopologyId{1});
+}
+
+BOOST_AUTO_TEST_CASE(RoadStartCellsSeparateDisconnectedSamePolicyComponents)
+{
+  // Two disconnected CylinderCylinder chains sharing surfaces [0,4) and
+  // [4,8). Seeding surfaces 3 (component A's endpoint) and 7 (component B's
+  // endpoint) must each select exactly one cell, from the correct component,
+  // in ascending CellTopologyId order (component A's cells are constructed
+  // before component B's).
+  const auto layout = buildTwoChainsSameTag(4, 4, SurfaceKind::Cylinder, TransitionPolicyTag::CylinderCylinder, maskOf(3) | maskOf(7));
+  TransitionPolicyGrouping grouping{layout.getView()};
+  BOOST_REQUIRE(grouping.valid());
+  const auto cells = grouping.cellsForTag(TransitionPolicyTag::CylinderCylinder);
+  BOOST_REQUIRE_EQUAL(cells.size(), 4u); // 2 cells per 4-surface chain
+  const auto starts = grouping.roadStartCellsForTag(TransitionPolicyTag::CylinderCylinder);
+  BOOST_REQUIRE_EQUAL(starts.size(), 2u);
+  BOOST_CHECK(std::is_sorted(starts.begin(), starts.end()));
+
+  const auto view = layout.getView();
+  for (const auto id : starts) {
+    const auto& cell = view.topology.getCell(id);
+    const auto endpoint = view.topology.getTransition(cell.secondTransition).to;
+    BOOST_CHECK(endpoint == SurfaceId{3} || endpoint == SurfaceId{7});
+  }
+  // Ascending order means the component-A cell (lower CellTopologyId, built
+  // first) precedes the component-B cell.
+  BOOST_CHECK(starts[0].value() < starts[1].value());
+}
+
+BOOST_AUTO_TEST_CASE(RoadStartCellsHandleMultipleSeedingSurfaces)
+{
+  const auto layout = buildChainLayout(7, SurfaceKind::Cylinder, TransitionPolicyTag::CylinderCylinder, maskOf(4) | maskOf(6));
+  TransitionPolicyGrouping grouping{layout.getView()};
+  BOOST_REQUIRE(grouping.valid());
+  const auto starts = grouping.roadStartCellsForTag(TransitionPolicyTag::CylinderCylinder);
+  BOOST_REQUIRE_EQUAL(starts.size(), 2u);
+  BOOST_CHECK(std::is_sorted(starts.begin(), starts.end()));
+  const auto view = layout.getView();
+  for (const auto id : starts) {
+    const auto& cell = view.topology.getCell(id);
+    const auto endpoint = view.topology.getTransition(cell.secondTransition).to;
+    BOOST_CHECK(endpoint == SurfaceId{4} || endpoint == SurfaceId{6});
+  }
+}
+
+BOOST_AUTO_TEST_CASE(RoadStartCellsAreEmptyForAnEmptySeedingMask)
+{
+  const auto layout = buildChainLayout(7, SurfaceKind::Cylinder, TransitionPolicyTag::CylinderCylinder, SurfaceMask{});
+  TransitionPolicyGrouping grouping{layout.getView()};
+  BOOST_REQUIRE(grouping.valid());
+  BOOST_CHECK(!grouping.cellsForTag(TransitionPolicyTag::CylinderCylinder).empty());
+  BOOST_CHECK(grouping.roadStartCellsForTag(TransitionPolicyTag::CylinderCylinder).empty());
+}
+
+BOOST_AUTO_TEST_CASE(RoadStartCellsAreEmptyWhenSeedingSurfaceTerminatesNoCell)
+{
+  // Surface 0 (the very first position of a monotonic chain) is never the
+  // `to` endpoint of any transition, so it can never be a cell's
+  // secondTransition.to -- a seeding surface that is valid but unreachable
+  // as an endpoint.
+  const auto layout = buildChainLayout(7, SurfaceKind::Cylinder, TransitionPolicyTag::CylinderCylinder, maskOf(0));
+  TransitionPolicyGrouping grouping{layout.getView()};
+  BOOST_REQUIRE(grouping.valid());
+  BOOST_CHECK(!grouping.cellsForTag(TransitionPolicyTag::CylinderCylinder).empty());
+  BOOST_CHECK(grouping.roadStartCellsForTag(TransitionPolicyTag::CylinderCylinder).empty());
+}
+
+BOOST_AUTO_TEST_CASE(RoadStartCellsToleratesSkippedNonAdjacentTransitions)
+{
+  // maxHoles=1 with hole surface 3 permits the skip transition 2->4
+  // (skipping 3) alongside the adjacent ones. Seeding surface 5 is reachable
+  // both via the plain adjacent chain (3,4,5) and via the hole-skipping
+  // chain (2,4,5) [first transition 2->4 skips 3, second transition 4->5].
+  // The endpoint definition (secondTransition.to) must keep selecting
+  // exactly the cells ending at the seeded surface regardless of whether
+  // their first transition is adjacent or hole-skipping.
+  const auto layout = buildIdentityLayout(7, SurfaceKind::Cylinder, TransitionPolicyTag::CylinderCylinder, 1, 3, maskOf(5));
+  TransitionPolicyGrouping grouping{layout.getView()};
+  BOOST_REQUIRE(grouping.valid());
+  const auto starts = grouping.roadStartCellsForTag(TransitionPolicyTag::CylinderCylinder);
+  BOOST_REQUIRE_GT(starts.size(), 0u);
+  BOOST_CHECK(std::is_sorted(starts.begin(), starts.end()));
+  const auto view = layout.getView();
+  bool sawSkippedTransition = false;
+  for (const auto id : starts) {
+    const auto& cell = view.topology.getCell(id);
+    BOOST_CHECK(view.topology.getTransition(cell.secondTransition).to == SurfaceId{5});
+    if (!view.topology.getTransition(cell.firstTransition).skippedSurfaces.empty() ||
+        !view.topology.getTransition(cell.secondTransition).skippedSurfaces.empty()) {
+      sawSkippedTransition = true;
+    }
+  }
+  BOOST_CHECK(sawSkippedTransition);
+}
+
+BOOST_AUTO_TEST_CASE(RoadStartCellsSeparateCylinderAndDiskSpansInACombinedGrouping)
+{
+  // Grouping-only combined fixture (mixed-family production activation is
+  // rejected elsewhere, in TrackerTraits::initialiseTimeFrame -- not here):
+  // seeding surface 6 is the cylinder chain's endpoint, surface 16 is the
+  // disk chain's endpoint (surfaces 7..16 for 10 disks). Each tag's
+  // roadStartCellsForTag must contain only cells from its own family.
+  const auto layout = buildCombinedDisconnectedLayout(7, 10, maskOf(6) | maskOf(16));
+  TransitionPolicyGrouping grouping{layout.getView()};
+  BOOST_REQUIRE(grouping.valid());
+
+  const auto cylinderStarts = grouping.roadStartCellsForTag(TransitionPolicyTag::CylinderCylinder);
+  const auto diskStarts = grouping.roadStartCellsForTag(TransitionPolicyTag::DiskDisk);
+  BOOST_REQUIRE_EQUAL(cylinderStarts.size(), 1u);
+  BOOST_REQUIRE_EQUAL(diskStarts.size(), 1u);
+
+  const auto view = layout.getView();
+  const auto& cylinderCell = view.topology.getCell(cylinderStarts[0]);
+  const auto& diskCell = view.topology.getCell(diskStarts[0]);
+  BOOST_CHECK(view.topology.getTransition(cylinderCell.secondTransition).to == SurfaceId{6});
+  BOOST_CHECK(view.topology.getTransition(diskCell.secondTransition).to == SurfaceId{16});
+  // Cross-check per-policy ownership matches the existing cellsForTag split.
+  const auto cylinderCells = grouping.cellsForTag(TransitionPolicyTag::CylinderCylinder);
+  const auto diskCells = grouping.cellsForTag(TransitionPolicyTag::DiskDisk);
+  BOOST_CHECK(std::find(cylinderCells.begin(), cylinderCells.end(), cylinderStarts[0]) != cylinderCells.end());
+  BOOST_CHECK(std::find(diskCells.begin(), diskCells.end(), diskStarts[0]) != diskCells.end());
+}
+
+BOOST_AUTO_TEST_CASE(ConstructorFailureClearsRoadStartCellsAlongsideAllGroups)
+{
+  // A hand-built raw view (SparseTrackingTopologyView/DetectorLayoutView are
+  // trivially-copyable PODs, already used directly by
+  // GroupingIsEmptyForAnEmptyLayoutView above) whose first cell is valid and
+  // road-start-eligible, and whose second cell references an out-of-range
+  // TransitionId. The grouping must reject the whole schedule
+  // (InvalidCellTransition) and clear() must wipe every group's
+  // roadStartCells -- not just the ones the offending cell would have
+  // touched -- exactly as it already does for transitions/cells/scheduledCells.
+  std::array<SurfaceDescriptor, 3> surfaces{
+    surface(0, SurfaceKind::Cylinder), surface(1, SurfaceKind::Cylinder), surface(2, SurfaceKind::Cylinder)};
+  std::array<SurfaceTransition, 2> transitions{
+    adjacent(0, 1, TransitionPolicyTag::CylinderCylinder),
+    adjacent(1, 2, TransitionPolicyTag::CylinderCylinder)};
+  std::array<SurfaceCellTopology, 2> cells{
+    SurfaceCellTopology{TransitionId{0}, TransitionId{1}, SurfaceMask{}},   // valid: endpoint surface 2, seeded
+    SurfaceCellTopology{TransitionId{0}, TransitionId{99}, SurfaceMask{}}}; // invalid: out-of-range secondTransition
+  std::array<uint32_t, 3> offsets{0, 2, 2};
+  std::array<CellTopologyId, 2> byFirstTransition{CellTopologyId{0}, CellTopologyId{1}};
+
+  SparseTrackingTopologyView topologyView{transitions.data(), cells.data(), offsets.data(), byFirstTransition.data(),
+                                          maskOf(2), static_cast<uint32_t>(transitions.size()), static_cast<uint32_t>(cells.size())};
+  DetectorLayoutView layoutView{surfaces.data(), static_cast<uint32_t>(surfaces.size()), SurfaceMask{}, SurfaceMask{}, topologyView};
+
+  TransitionPolicyGrouping grouping{layoutView};
+  BOOST_CHECK(!grouping.valid());
+  BOOST_CHECK(grouping.getScheduleError() == TransitionPolicyScheduleError::InvalidCellTransition);
+  for (const auto tag : {TransitionPolicyTag::CylinderCylinder, TransitionPolicyTag::DiskDisk}) {
+    BOOST_CHECK(grouping.transitionsForTag(tag).empty());
+    BOOST_CHECK(grouping.cellsForTag(tag).empty());
+    BOOST_CHECK(grouping.scheduledCellsForTag(tag).empty());
+    BOOST_CHECK(grouping.roadStartCellsForTag(tag).empty());
+  }
 }
