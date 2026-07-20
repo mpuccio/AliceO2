@@ -47,6 +47,10 @@ struct DetectorTraits {
                         const o2::its::TrackingFrameInfo* const tfInfos[NLayers],
                         const o2::its::Cluster* const unsortedClusters[NLayers],
                         const o2::base::PropagatorImpl<float>* propagator);
+
+  static void copySeedPatternToTrack(TrackType& track, const TrackSeedN& seed) noexcept;
+  static void clearTransientLayerPattern(TrackType& track) noexcept;
+  static bool haveSamePolarity(const TrackType& a, const TrackType& b) noexcept;
 };
 
 template <o2::detectors::DetID::ID DetId, int NLayers>

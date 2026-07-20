@@ -80,6 +80,32 @@ bool DetectorTraits<NLayers>::refitSeed(const TrackSeedN& seed,
   }
 }
 
+template <int NLayers>
+void DetectorTraits<NLayers>::copySeedPatternToTrack(TrackType& track, const TrackSeedN& seed) noexcept
+{
+  if constexpr (DetId == o2::detectors::DetID::MFT) {
+    track.setSeedPattern(seed.getHitLayerMask().value());
+  }
+}
+
+template <int NLayers>
+void DetectorTraits<NLayers>::clearTransientLayerPattern(TrackType& track) noexcept
+{
+  if constexpr (DetId == o2::detectors::DetID::ITS) {
+    track.clearExtendedLayerPattern();
+  }
+}
+
+template <int NLayers>
+bool DetectorTraits<NLayers>::haveSamePolarity(const TrackType& a, const TrackType& b) noexcept
+{
+  if constexpr (DetId == o2::detectors::DetID::MFT) {
+    return a.getCharge() == b.getCharge();
+  } else {
+    return a.getSign() == b.getSign();
+  }
+}
+
 template <o2::detectors::DetID::ID DetId, int NLayers>
 void TrackingLoadPolicy<DetId, NLayers>::configureBeamPosition(TimeFrame<NLayers>& tf,
                                                                  const TrackingParameters& p,

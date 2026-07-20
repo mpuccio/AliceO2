@@ -1223,9 +1223,7 @@ void TrackerTraits<NLayers>::findRoadsForPolicy(const int iteration, const typen
                                                                     unsortedClusters,
                                                                     propagator);
         if (refitSuccess) {
-          if constexpr (DetectorTraits<NLayers>::DetId == o2::detectors::DetID::MFT) {
-            temporaryTrack.setSeedPattern(trackSeeds[iSeed].getHitLayerMask().value());
-          }
+          DetectorTraits<NLayers>::copySeedPatternToTrack(temporaryTrack, trackSeeds[iSeed]);
           if constexpr (decltype(Mode)::value == PassMode::OnePass::value) {
             tracks.push_back(temporaryTrack);
           } else if constexpr (decltype(Mode)::value == PassMode::TwoPassCount::value) {
@@ -1342,10 +1340,7 @@ void TrackerTraits<NLayers>::acceptTracks(int iteration, bounded_vector<CATrackT
     if (track.getTimeStamp().getTimeStampError() > smallestROFHalf) {
       track.getTimeStamp().setTimeStampError(smallestROFHalf);
     }
-    if constexpr (DetectorTraits<NLayers>::DetId == o2::detectors::DetID::ITS) {
-      track.setUserField(0);
-      track.getParamOut().setUserField(0);
-    }
+    DetectorTraits<NLayers>::clearTransientLayerPattern(track);
     trks.emplace_back(track);
 
     if (mTrkParams[iteration].AllowSharingFirstCluster) {
@@ -1382,14 +1377,8 @@ void TrackerTraits<NLayers>::markTracks(int iteration)
         return false;
       }
       if (mTrkParams[iteration].SharedClusterOppositeSign) {
-        if constexpr (DetectorTraits<NLayers>::DetId == o2::detectors::DetID::MFT) {
-          if (t1.getCharge() == t2.getCharge()) {
-            return false;
-          }
-        } else {
-          if (t1.getSign() == t2.getSign()) {
-            return false;
-          }
+        if (DetectorTraits<NLayers>::haveSamePolarity(t1, t2)) {
+          return false;
         }
       }
       return true;
