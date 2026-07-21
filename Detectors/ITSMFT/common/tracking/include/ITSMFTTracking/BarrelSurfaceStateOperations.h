@@ -35,6 +35,13 @@ bool predictedChi2(const SurfaceKinematicState& state, const SurfaceMeasurement&
 bool update(SurfaceKinematicState& state, const SurfaceMeasurement& measurement, float& chi2,
             OperationFailureReason& reason) noexcept;
 
+// Same-family compatibility chi2 between two barrel states expressed at the
+// same reference X and alpha. Residuals are the direct (unwrapped)
+// differences of (Y, Z, Snp, Tgl, Q2Pt). Neither input is mutated and chi2 is
+// unchanged on failure.
+bool stateChi2(const SurfaceKinematicState& reference, const SurfaceKinematicState& candidate, float& chi2,
+               OperationFailureReason& reason) noexcept;
+
 } // namespace o2::itsmft::tracking::barrel
 
 #endif // ALICEO2_ITSMFT_TRACKING_BARRELSURFACESTATEOPERATIONS_H_
