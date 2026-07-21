@@ -94,6 +94,12 @@ o2_add_test(forward-surface-state-operations
             LABELS "itsmft;tracking"
             PUBLIC_LINK_LIBRARIES O2::ITSMFTTracking)
 
+o2_add_test(barrel-surface-state-operations
+            SOURCES testBarrelSurfaceStateOperations.cxx
+            COMPONENT_NAME itsmft-tracking
+            LABELS "itsmft;tracking"
+            PUBLIC_LINK_LIBRARIES O2::ITSMFTTracking)
+
 o2_add_test(surfacemeasurement-adapters
             SOURCES testSurfaceMeasurementAdapters.cxx
             COMPONENT_NAME itsmft-tracking
