@@ -75,6 +75,10 @@ struct ThirtyTwoSurfaces {
   inline static constexpr auto surfaces = cylindersFor<32>(93);
 };
 
+struct ThirtyOneSurfaces {
+  inline static constexpr auto surfaces = cylindersFor<31>(93);
+};
+
 struct ThirtyThreeSurfaces {
   inline static constexpr auto surfaces = cylindersFor<33>(93);
 };
@@ -108,6 +112,8 @@ constexpr auto nanCoordinate = [](auto& surfaces) {
 constexpr auto infiniteCoordinate = [](auto& surfaces) {
   surfaces[0].nominalReferenceCoordinate = std::numeric_limits<float>::infinity();
 };
+constexpr auto zeroCylinderRadius = [](auto& surfaces) { surfaces[0].nominalReferenceCoordinate = 0.f; };
+constexpr auto negativeCylinderRadius = [](auto& surfaces) { surfaces[0].nominalReferenceCoordinate = -1.f; };
 constexpr auto nanAcceptance = [](auto& surfaces) {
   surfaces[0].nominalTrackingAcceptance = SurfaceAcceptance::fromCylinder(
     {std::numeric_limits<float>::quiet_NaN(), 1.f});
@@ -136,7 +142,17 @@ struct ReversedDiskBounds {
   inline static constexpr std::array surfaces{disk(0, 201, 0, -40.f, 20.f, 1.f)};
 };
 
+struct CrossBoundaryIdentityCollision {
+  inline static constexpr std::array surfaces{cylinder(0, 37, 0)};
+};
+
+using ThirtyTwoCombined = ConcatenatedSurfaceSpec<ThirtyOneSurfaces, OneSurface>;
+
 static_assert(SurfaceSpec<Cylinders> && SurfaceSpec<Disks> && SurfaceSpec<Combined>);
+static_assert(SurfaceSpecDefinition<MutatedCylinders<sparseId>>);
+static_assert(!SurfaceSpec<MutatedCylinders<sparseId>>);
+static_assert(SurfaceSpecDefinition<ThirtyThreeSurfaces>);
+static_assert(!SurfaceSpec<ThirtyThreeSurfaces>);
 static_assert(validateSurfaceSpec<Cylinders>());
 static_assert(validateSurfaceSpec<Disks>());
 static_assert(validateSurfaceSpec<Combined>());
@@ -157,6 +173,8 @@ static_assert(!validateSurfaceSpec<MutatedCylinders<mismatchedAcceptance>>());
 static_assert(!validateSurfaceSpec<MutatedCylinders<invalidAcceptance>>());
 static_assert(!validateSurfaceSpec<MutatedCylinders<nanCoordinate>>());
 static_assert(!validateSurfaceSpec<MutatedCylinders<infiniteCoordinate>>());
+static_assert(!validateSurfaceSpec<MutatedCylinders<zeroCylinderRadius>>());
+static_assert(!validateSurfaceSpec<MutatedCylinders<negativeCylinderRadius>>());
 static_assert(!validateSurfaceSpec<MutatedCylinders<nanAcceptance>>());
 static_assert(!validateSurfaceSpec<MutatedCylinders<infiniteAcceptance>>());
 static_assert(!validateSurfaceSpec<MutatedCylinders<reversedAcceptance>>());
@@ -168,8 +186,14 @@ static_assert(!validateSurfaceSpec<NegativeDiskRadius>());
 static_assert(!validateSurfaceSpec<ReversedDiskBounds>());
 static_assert(validateSurfaceSpec<ThirtyTwoSurfaces>());
 static_assert(!validateSurfaceSpec<ThirtyThreeSurfaces>());
-static_assert(SurfaceSpecsCanBeConcatenated<ThirtyTwoSurfaces, Cylinders> == false);
-static_assert(SurfaceSpecsCanBeConcatenated<ThirtyTwoSurfaces, OneSurface> == false);
+static_assert(SurfaceSpecsCanBeConcatenated<Cylinders, Disks>);
+static_assert(!SurfaceSpecsCanBeConcatenated<MutatedCylinders<sparseId>, Disks>);
+static_assert(!SurfaceSpecsCanBeConcatenated<Disks, MutatedCylinders<sparseId>>);
+static_assert(!SurfaceSpecsCanBeConcatenated<Cylinders, CrossBoundaryIdentityCollision>);
+static_assert(SurfaceSpecsCanBeConcatenated<ThirtyOneSurfaces, OneSurface>);
+static_assert(!SurfaceSpecsCanBeConcatenated<ThirtyTwoSurfaces, OneSurface>);
+static_assert(SurfaceSpec<ThirtyTwoCombined>);
+static_assert(SurfaceCount<ThirtyTwoCombined> == 32);
 
 static_assert(std::is_standard_layout_v<DetectorSurfaceIdentity>);
 static_assert(std::is_trivially_copyable_v<DetectorSurfaceIdentity>);

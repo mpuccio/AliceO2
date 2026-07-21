@@ -61,10 +61,81 @@ consteval bool hasStaticSurfaceArray()
     }
   }
 }
+
+template <std::size_t N>
+consteval bool validateSurfaceArray(const std::array<StaticSurfaceDescriptor, N>& surfaces)
+{
+  if constexpr (N > MaxLayoutSurfaces) {
+    return false;
+  }
+
+  for (std::size_t i = 0; i < N; ++i) {
+    const auto& surface = surfaces[i];
+    if (!surface.id.isValid() || surface.id.value() != i || !isEnabled(surface.kind) ||
+        !isFinite(surface.nominalReferenceCoordinate) ||
+        (surface.kind == SurfaceKind::Cylinder && surface.nominalReferenceCoordinate <= 0.f) ||
+        !isEnabled(surface.indexingFamily)) {
+      return false;
+    }
+
+    const auto& acceptance = surface.nominalTrackingAcceptance;
+    const bool acceptanceMatches =
+      (surface.kind == SurfaceKind::Cylinder && acceptance.kind == SurfaceAcceptanceKind::CylinderZ) ||
+      (surface.kind == SurfaceKind::Disk && acceptance.kind == SurfaceAcceptanceKind::DiskRadius);
+    if (!acceptanceMatches || !isFinite(acceptance.min) || !isFinite(acceptance.max) || acceptance.min > acceptance.max ||
+        (surface.kind == SurfaceKind::Disk && acceptance.min < 0.f)) {
+      return false;
+    }
+
+    if (!isFinite(surface.material.xOverX0) || surface.material.xOverX0 <= 0.f) {
+      return false;
+    }
+
+    for (std::size_t other = i + 1; other < N; ++other) {
+      if (surface.identity == surfaces[other].identity) {
+        return false;
+      }
+    }
+  }
+
+  // Detector-local indices form an independent dense [0, N) range for every
+  // arbitrary detector ID represented in the catalogue.
+  for (std::size_t i = 0; i < N; ++i) {
+    const auto detectorId = surfaces[i].identity.detectorId;
+    std::size_t detectorCount = 0;
+    for (const auto& surface : surfaces) {
+      detectorCount += surface.identity.detectorId == detectorId;
+    }
+    for (std::size_t expected = 0; expected < detectorCount; ++expected) {
+      bool found = false;
+      for (const auto& surface : surfaces) {
+        found = found ||
+                (surface.identity.detectorId == detectorId && surface.identity.detectorSurfaceIndex == expected);
+      }
+      if (!found) {
+        return false;
+      }
+    }
+  }
+  return true;
+}
+
+template <typename Spec>
+consteval bool validateSurfaceSpecDefinition()
+{
+  return validateSurfaceArray(Spec::surfaces);
+}
 } // namespace detail
 
 template <typename Spec>
-concept SurfaceSpec = detail::hasStaticSurfaceArray<Spec>();
+// Structural requirement only: canonical inline-static-array shape and
+// lifetime. Catalogue contents are deliberately not accepted by this concept.
+concept SurfaceSpecDefinition = detail::hasStaticSurfaceArray<Spec>();
+
+template <typename Spec>
+// A consumer-facing SurfaceSpec has both the required definition shape and a
+// fully validated catalogue.
+concept SurfaceSpec = SurfaceSpecDefinition<Spec> && detail::validateSurfaceSpecDefinition<Spec>();
 
 template <SurfaceSpec Spec>
 inline constexpr std::size_t SurfaceCount = std::tuple_size_v<std::remove_cv_t<decltype(Spec::surfaces)>>;
@@ -72,73 +143,21 @@ inline constexpr std::size_t SurfaceCount = std::tuple_size_v<std::remove_cv_t<d
 template <typename Spec>
 consteval bool validateSurfaceSpec()
 {
-  if constexpr (!SurfaceSpec<Spec>) {
+  if constexpr (!SurfaceSpecDefinition<Spec>) {
     return false;
   } else {
-    constexpr auto count = SurfaceCount<Spec>;
-    if constexpr (count > MaxLayoutSurfaces) {
-      return false;
-    }
-
-    for (std::size_t i = 0; i < count; ++i) {
-      const auto& surface = Spec::surfaces[i];
-      if (!surface.id.isValid() || surface.id.value() != i || !detail::isEnabled(surface.kind) ||
-          !detail::isFinite(surface.nominalReferenceCoordinate) || !detail::isEnabled(surface.indexingFamily)) {
-        return false;
-      }
-
-      const auto& acceptance = surface.nominalTrackingAcceptance;
-      const bool acceptanceMatches =
-        (surface.kind == SurfaceKind::Cylinder && acceptance.kind == SurfaceAcceptanceKind::CylinderZ) ||
-        (surface.kind == SurfaceKind::Disk && acceptance.kind == SurfaceAcceptanceKind::DiskRadius);
-      if (!acceptanceMatches || !detail::isFinite(acceptance.min) || !detail::isFinite(acceptance.max) ||
-          acceptance.min > acceptance.max || (surface.kind == SurfaceKind::Disk && acceptance.min < 0.f)) {
-        return false;
-      }
-
-      if (!detail::isFinite(surface.material.xOverX0) || surface.material.xOverX0 <= 0.f) {
-        return false;
-      }
-
-      for (std::size_t other = i + 1; other < count; ++other) {
-        if (surface.identity == Spec::surfaces[other].identity) {
-          return false;
-        }
-      }
-    }
-
-    // Detector-local indices form an independent dense [0, N) range for
-    // every arbitrary detector ID represented in the catalogue.
-    for (std::size_t i = 0; i < count; ++i) {
-      const auto detectorId = Spec::surfaces[i].identity.detectorId;
-      std::size_t detectorCount = 0;
-      for (const auto& surface : Spec::surfaces) {
-        detectorCount += surface.identity.detectorId == detectorId;
-      }
-      for (std::size_t expected = 0; expected < detectorCount; ++expected) {
-        bool found = false;
-        for (const auto& surface : Spec::surfaces) {
-          found = found || (surface.identity.detectorId == detectorId &&
-                            surface.identity.detectorSurfaceIndex == expected);
-        }
-        if (!found) {
-          return false;
-        }
-      }
-    }
-    return true;
+    return detail::validateSurfaceSpecDefinition<Spec>();
   }
 }
 
-template <SurfaceSpec A, SurfaceSpec B>
-inline constexpr bool SurfaceSpecsCanBeConcatenated = SurfaceCount<A> + SurfaceCount<B> <= MaxLayoutSurfaces;
-
 namespace detail
 {
-template <SurfaceSpec A, SurfaceSpec B>
+template <SurfaceSpecDefinition A, SurfaceSpecDefinition B>
 consteval auto concatenateAndRebase()
 {
-  std::array<StaticSurfaceDescriptor, SurfaceCount<A> + SurfaceCount<B>> result{};
+  constexpr auto countA = std::tuple_size_v<std::remove_cv_t<decltype(A::surfaces)>>;
+  constexpr auto countB = std::tuple_size_v<std::remove_cv_t<decltype(B::surfaces)>>;
+  std::array<StaticSurfaceDescriptor, countA + countB> result{};
   std::size_t output = 0;
   for (const auto& surface : A::surfaces) {
     result[output] = surface;
@@ -152,11 +171,26 @@ consteval auto concatenateAndRebase()
   }
   return result;
 }
+
+template <SurfaceSpecDefinition A, SurfaceSpecDefinition B>
+consteval bool surfaceSpecsCanBeConcatenated()
+{
+  if constexpr (!SurfaceSpec<A> || !SurfaceSpec<B>) {
+    return false;
+  } else if constexpr (SurfaceCount<A> + SurfaceCount<B> > MaxLayoutSurfaces) {
+    return false;
+  } else {
+    return validateSurfaceArray(concatenateAndRebase<A, B>());
+  }
+}
 } // namespace detail
+
+template <SurfaceSpecDefinition A, SurfaceSpecDefinition B>
+inline constexpr bool SurfaceSpecsCanBeConcatenated = detail::surfaceSpecsCanBeConcatenated<A, B>();
 
 template <SurfaceSpec A, SurfaceSpec B>
 struct ConcatenatedSurfaceSpec {
-  static_assert(SurfaceSpecsCanBeConcatenated<A, B>, "a SurfaceSpec catalogue cannot contain more than 32 surfaces");
+  static_assert(SurfaceSpecsCanBeConcatenated<A, B>, "SurfaceSpecs cannot be concatenated into a valid catalogue");
   inline static constexpr auto surfaces = detail::concatenateAndRebase<A, B>();
 };
 

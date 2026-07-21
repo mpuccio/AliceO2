@@ -88,8 +88,10 @@ struct StaticSurfaceDescriptor {
   SurfaceIndexingFamily indexingFamily{SurfaceIndexingFamily::Invalid};
 };
 
-// Ideal/static layout projection only. Runtime geometry observations are
-// validation data and do not define a second Stage-B surface catalogue.
+// Precondition: source belongs to a validated SurfaceSpec. This is an
+// ideal/static layout projection only; it neither validates nor repairs an
+// arbitrary descriptor. Runtime geometry observations are validation data and
+// do not define a second Stage-B surface catalogue.
 GPUhdi() constexpr SurfaceDescriptor toRuntimeSurfaceDescriptor(const StaticSurfaceDescriptor& source) noexcept
 {
   SurfaceDescriptor result{source.id,
