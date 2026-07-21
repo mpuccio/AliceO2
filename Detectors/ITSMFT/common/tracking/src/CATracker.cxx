@@ -17,12 +17,11 @@
 
 #include <algorithm>
 #include <numeric>
-#include <vector>
 
 #include "Framework/Logger.h"
 #include "ITStracking/Constants.h"
 #include "ITStracking/BoundedAllocator.h"
-#include "MFTTracking/MFTTrackingParam.h"
+#include "ITSMFTTracking/MCLabelAccumulator.h"
 #include "SimulationDataFormat/MCCompLabel.h"
 
 namespace o2::itsmft::tracking
@@ -38,47 +37,15 @@ void computeTracksMClabels(TimeFrame<NLayers>& tf)
   trackLabels.reserve(tf.getNumberOfTracks());
 
   for (auto& track : tf.getTracks()) {
-    std::vector<std::pair<MCCompLabel, size_t>> occurrences;
+    MCLabelAccumulator labels;
     for (int iLayer = 0; iLayer < NLayers; ++iLayer) {
       const int index = track.getClusterIndex(iLayer);
       if (index == constants::UnusedIndex) {
         continue;
       }
-      const auto labels = tf.getClusterLabels(iLayer, index);
-      bool found{false};
-      for (auto& occurrence : occurrences) {
-        for (const auto& label : labels) {
-          if (label == occurrence.first) {
-            ++occurrence.second;
-            found = true;
-          }
-        }
-      }
-      if (!found) {
-        for (const auto& label : labels) {
-          occurrences.emplace_back(label, 1);
-        }
-      }
+      labels.addCluster(tf.getClusterLabels(iLayer, index));
     }
-
-    MCCompLabel maxOccurrencesValue;
-    if (!occurrences.empty()) {
-      std::sort(occurrences.begin(), occurrences.end(), [](const auto& e1, const auto& e2) {
-        return e1.second > e2.second;
-      });
-      maxOccurrencesValue = occurrences[0].first;
-      if constexpr (NLayers == o2::mft::constants::mft::LayersNumber) {
-        const float threshold = o2::mft::MFTTrackingParam::Instance().TrueTrackMCThreshold;
-        if (static_cast<float>(occurrences[0].second) / track.getNumberOfClusters() < threshold) {
-          maxOccurrencesValue.setFakeFlag();
-        }
-      } else if (occurrences[0].second < static_cast<size_t>(track.getNumberOfClusters())) {
-        maxOccurrencesValue.setFakeFlag();
-      }
-    } else {
-      maxOccurrencesValue.setFakeFlag();
-    }
-    trackLabels.emplace_back(maxOccurrencesValue);
+    trackLabels.emplace_back(labels.finalize());
   }
 }
 } // namespace
