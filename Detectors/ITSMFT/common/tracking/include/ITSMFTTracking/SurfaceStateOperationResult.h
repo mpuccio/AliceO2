@@ -23,7 +23,9 @@ enum class OperationFailureReason : uint8_t {
   MaterialFailure = 6,
   PredictedChi2Failure = 7,
   UpdateFailure = 8,
-  RotationFailure = 9
+  RotationFailure = 9,
+  AlphaMismatch = 10,
+  ReferenceCoordinateMismatch = 11
 };
 
 static_assert(sizeof(OperationFailureReason) == sizeof(uint8_t));
