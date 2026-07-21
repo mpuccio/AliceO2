@@ -16,11 +16,12 @@
 #include <limits>
 #include <type_traits>
 
-#include "ITSMFTTracking/SurfaceKinematicStateAdapters.h"
+#include "ITSMFTTracking/SurfaceKinematicStateLegacyAdapters.h"
 
 namespace
 {
 using namespace o2::itsmft::tracking;
+namespace legacy = o2::itsmft::tracking::legacy;
 
 o2::track::TrackParCovF makeBarrelState()
 {
@@ -73,6 +74,10 @@ BOOST_AUTO_TEST_CASE(AbiIsLocked)
   BOOST_CHECK_EQUAL(offsetof(SurfaceKinematicState, flags), 89U);
   BOOST_CHECK_EQUAL(offsetof(SurfaceKinematicState, absCharge), 90U);
   BOOST_CHECK_EQUAL(offsetof(SurfaceKinematicState, pid), 91U);
+  BOOST_CHECK_EQUAL(sizeof(BarrelStateView), sizeof(SurfaceKinematicState*));
+  BOOST_CHECK_EQUAL(alignof(BarrelStateView), alignof(SurfaceKinematicState*));
+  BOOST_CHECK_EQUAL(sizeof(ForwardStateView), sizeof(SurfaceKinematicState*));
+  BOOST_CHECK_EQUAL(alignof(ForwardStateView), alignof(SurfaceKinematicState*));
 }
 
 BOOST_AUTO_TEST_CASE(DefaultStateIsDeterministicallyInvalid)
@@ -87,6 +92,7 @@ BOOST_AUTO_TEST_CASE(DefaultStateIsDeterministicallyInvalid)
   BOOST_CHECK_EQUAL(state.referenceCoordinate, 0.f);
   BOOST_CHECK_EQUAL(state.alpha, 0.f);
   BOOST_CHECK(state.family == StateFamily::Invalid);
+  BOOST_CHECK(!state.isValid());
   BOOST_CHECK_EQUAL(state.flags, 0U);
   BOOST_CHECK_EQUAL(state.absCharge, 0U);
   BOOST_CHECK_EQUAL(state.pid.getID(), o2::track::PID::Pion);
@@ -159,12 +165,12 @@ BOOST_AUTO_TEST_CASE(BarrelAdapterHasExactDeclaredParityAndChargePidRoundTrip)
 {
   const auto barrel = makeBarrelState();
   SurfaceKinematicState state{};
-  BOOST_REQUIRE(fromBarrelTrackParCov(barrel, state));
+  BOOST_REQUIRE(legacy::importBarrelTrackParCov(barrel, state));
   BOOST_CHECK(state.family == StateFamily::Barrel);
   BOOST_CHECK_EQUAL(state.absCharge, 2U);
   BOOST_CHECK_EQUAL(state.pid.getID(), o2::track::PID::Kaon);
   o2::track::TrackParCovF restored{};
-  BOOST_REQUIRE(toBarrelTrackParCov(state, restored));
+  BOOST_REQUIRE(legacy::exportBarrelTrackParCov(state, restored));
   BOOST_CHECK_EQUAL(restored.getX(), barrel.getX());
   BOOST_CHECK_EQUAL(restored.getAlpha(), barrel.getAlpha());
   BOOST_CHECK_EQUAL(restored.getAbsCharge(), barrel.getAbsCharge());
@@ -178,7 +184,7 @@ BOOST_AUTO_TEST_CASE(BarrelAdapterHasExactDeclaredParityAndChargePidRoundTrip)
 
   const auto sentinel = restored;
   state.family = StateFamily::Forward;
-  BOOST_CHECK(!toBarrelTrackParCov(state, restored));
+  BOOST_CHECK(!legacy::exportBarrelTrackParCov(state, restored));
   BOOST_CHECK(bitEqual(restored, sentinel));
 }
 
@@ -186,41 +192,32 @@ BOOST_AUTO_TEST_CASE(ForwardAdapterNarrowsWithExplicitToleranceAndRejectsNonFini
 {
   const auto forward = makeForwardState();
   SurfaceKinematicState state{};
-  BOOST_REQUIRE(fromForwardTrackParCov(forward, state));
+  BOOST_REQUIRE(legacy::importLegacyForwardTrackParCov(forward, state));
   BOOST_CHECK(state.family == StateFamily::Forward);
   BOOST_CHECK_EQUAL(state.alpha, 0.f);
   BOOST_CHECK_EQUAL(state.absCharge, 1U);
   BOOST_CHECK_EQUAL(state.pid.getID(), o2::track::PID::Pion);
 
-  o2::track::TrackParCovFwd restored{};
-  BOOST_REQUIRE(toForwardTrackParCov(state, restored));
-  BOOST_CHECK_CLOSE_FRACTION(restored.getZ(), forward.getZ(), 1.e-7);
-  BOOST_CHECK_CLOSE_FRACTION(restored.getX(), forward.getX(), 1.e-7);
-  BOOST_CHECK_CLOSE_FRACTION(restored.getY(), forward.getY(), 1.e-7);
-  BOOST_CHECK_CLOSE_FRACTION(restored.getPhi(), forward.getPhi(), 1.e-7);
-  BOOST_CHECK_CLOSE_FRACTION(restored.getTanl(), forward.getTanl(), 1.e-7);
-  BOOST_CHECK_CLOSE_FRACTION(restored.getInvQPt(), forward.getInvQPt(), 1.e-7);
-  for (uint8_t row = 0; row < 5; ++row) {
-    for (uint8_t column = 0; column <= row; ++column) {
-      BOOST_CHECK_CLOSE_FRACTION(restored.getCovariances()(row, column), forward.getCovariances()(row, column), 1.e-7);
-    }
-  }
+  BOOST_CHECK(state.isValid());
+  BOOST_CHECK_CLOSE_FRACTION(state.referenceCoordinate, static_cast<float>(forward.getZ()), 1.e-7);
+  BOOST_CHECK_CLOSE_FRACTION(state.parameters[0], static_cast<float>(forward.getX()), 1.e-7);
+  BOOST_CHECK_CLOSE_FRACTION(state.parameters[4], static_cast<float>(forward.getInvQPt()), 1.e-7);
 
   const SurfaceKinematicState sentinel = state;
   auto invalid = forward;
   invalid.setX(std::numeric_limits<double>::infinity());
-  BOOST_CHECK(!fromForwardTrackParCov(invalid, state));
+  BOOST_CHECK(!legacy::importLegacyForwardTrackParCov(invalid, state));
   BOOST_CHECK(bitEqual(state, sentinel));
-}
 
-BOOST_AUTO_TEST_CASE(ForwardAdapterRejectsWrongFamilyWithoutMutatingDestination)
-{
-  SurfaceKinematicState source{};
-  source.family = StateFamily::Barrel;
-  const auto sentinel = makeForwardState();
-  auto destination = sentinel;
-  BOOST_CHECK(!toForwardTrackParCov(source, destination));
-  BOOST_CHECK_EQUAL(destination.getZ(), sentinel.getZ());
-  BOOST_CHECK_EQUAL(destination.getX(), sentinel.getX());
-  BOOST_CHECK_EQUAL(destination.getCovariances()(4, 3), sentinel.getCovariances()(4, 3));
+  invalid = forward;
+  invalid.setX(std::numeric_limits<double>::max());
+  BOOST_CHECK(!legacy::importLegacyForwardTrackParCov(invalid, state));
+  BOOST_CHECK(bitEqual(state, sentinel));
+
+  invalid = forward;
+  auto covariance = invalid.getCovariances();
+  covariance(3, 1) = std::numeric_limits<double>::max();
+  invalid.setCovariances(covariance);
+  BOOST_CHECK(!legacy::importLegacyForwardTrackParCov(invalid, state));
+  BOOST_CHECK(bitEqual(state, sentinel));
 }

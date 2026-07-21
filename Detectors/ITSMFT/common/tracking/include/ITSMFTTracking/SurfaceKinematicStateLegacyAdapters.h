@@ -5,8 +5,12 @@
 // This software is distributed under the terms of the GNU General Public
 // License v3 (GPL Version 3), copied verbatim in the file "COPYING".
 
-#ifndef ALICEO2_ITSMFT_TRACKING_SURFACEKINEMATICSTATEADAPTERS_H_
-#define ALICEO2_ITSMFT_TRACKING_SURFACEKINEMATICSTATEADAPTERS_H_
+#ifndef ALICEO2_ITSMFT_TRACKING_SURFACEKINEMATICSTATELEGACYADAPTERS_H_
+#define ALICEO2_ITSMFT_TRACKING_SURFACEKINEMATICSTATELEGACYADAPTERS_H_
+
+#include "GPUCommonDef.h"
+
+#if !defined(GPUCA_GPUCODE)
 
 #include <cmath>
 
@@ -14,12 +18,14 @@
 #include "ReconstructionDataFormats/TrackFwd.h"
 #include "ReconstructionDataFormats/Track.h"
 
-namespace o2::itsmft::tracking
+namespace o2::itsmft::tracking::legacy
 {
 
-// Host-only compatibility adapters. They only copy same-family representations;
-// they never propagate or convert between barrel and forward parameterizations.
-inline bool fromBarrelTrackParCov(const o2::track::TrackParCovF& source, SurfaceKinematicState& destination) noexcept
+// Host-only migration boundary. These adapters are for retained-legacy fixtures,
+// parity tests, and temporary boundary validation only. Stage-B production state
+// operations must use SurfaceKinematicState directly and must not include this
+// header or construct TrackParCovFwd.
+inline bool importBarrelTrackParCov(const o2::track::TrackParCovF& source, SurfaceKinematicState& destination) noexcept
 {
   SurfaceKinematicState scratch{};
   scratch.referenceCoordinate = source.getX();
@@ -37,7 +43,7 @@ inline bool fromBarrelTrackParCov(const o2::track::TrackParCovF& source, Surface
   return true;
 }
 
-inline bool toBarrelTrackParCov(const SurfaceKinematicState& source, o2::track::TrackParCovF& destination) noexcept
+inline bool exportBarrelTrackParCov(const SurfaceKinematicState& source, o2::track::TrackParCovF& destination) noexcept
 {
   if (source.family != StateFamily::Barrel) {
     return false;
@@ -55,7 +61,7 @@ inline bool toBarrelTrackParCov(const SurfaceKinematicState& source, o2::track::
   return true;
 }
 
-inline bool fromForwardTrackParCov(const o2::track::TrackParCovFwd& source, SurfaceKinematicState& destination) noexcept
+inline bool importLegacyForwardTrackParCov(const o2::track::TrackParCovFwd& source, SurfaceKinematicState& destination) noexcept
 {
   SurfaceKinematicState scratch{};
   const auto& covariance = source.getCovariances();
@@ -75,14 +81,26 @@ inline bool fromForwardTrackParCov(const o2::track::TrackParCovFwd& source, Surf
       }
     }
   }
-  scratch.referenceCoordinate = static_cast<float>(source.getZ());
+  const float referenceCoordinate = static_cast<float>(source.getZ());
+  if (!std::isfinite(referenceCoordinate)) {
+    return false;
+  }
+  scratch.referenceCoordinate = referenceCoordinate;
   scratch.alpha = 0.f;
   for (uint8_t i = 0; i < 5; ++i) {
-    scratch.parameters[i] = static_cast<float>(parameters[i]);
+    const float value = static_cast<float>(parameters[i]);
+    if (!std::isfinite(value)) {
+      return false;
+    }
+    scratch.parameters[i] = value;
   }
   for (uint8_t row = 0; row < 5; ++row) {
     for (uint8_t column = 0; column <= row; ++column) {
-      scratch.covariance[packedCovarianceIndex(row, column)] = static_cast<float>(covariance(row, column));
+      const float value = static_cast<float>(covariance(row, column));
+      if (!std::isfinite(value)) {
+        return false;
+      }
+      scratch.covariance[packedCovarianceIndex(row, column)] = value;
     }
   }
   scratch.family = StateFamily::Forward;
@@ -92,26 +110,8 @@ inline bool fromForwardTrackParCov(const o2::track::TrackParCovFwd& source, Surf
   return true;
 }
 
-inline bool toForwardTrackParCov(const SurfaceKinematicState& source, o2::track::TrackParCovFwd& destination) noexcept
-{
-  if (source.family != StateFamily::Forward) {
-    return false;
-  }
-  o2::track::SMatrix5 parameters{};
-  o2::track::SMatrix55Sym covariance{};
-  for (uint8_t i = 0; i < 5; ++i) {
-    parameters(i) = static_cast<double>(source.parameters[i]);
-  }
-  for (uint8_t row = 0; row < 5; ++row) {
-    for (uint8_t column = 0; column <= row; ++column) {
-      covariance(row, column) = static_cast<double>(source.covariance[packedCovarianceIndex(row, column)]);
-    }
-  }
-  const o2::track::TrackParCovFwd scratch{static_cast<double>(source.referenceCoordinate), parameters, covariance, 0.};
-  destination = scratch;
-  return true;
-}
+} // namespace o2::itsmft::tracking::legacy
 
-} // namespace o2::itsmft::tracking
+#endif // !defined(GPUCA_GPUCODE)
 
-#endif // ALICEO2_ITSMFT_TRACKING_SURFACEKINEMATICSTATEADAPTERS_H_
+#endif // ALICEO2_ITSMFT_TRACKING_SURFACEKINEMATICSTATELEGACYADAPTERS_H_

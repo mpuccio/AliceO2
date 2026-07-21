@@ -31,6 +31,8 @@ struct SurfaceKinematicState {
   uint8_t flags{0}; // Reserved: no flag semantics are defined in this slice.
   uint8_t absCharge{0};
   o2::track::PID pid{o2::track::PID::Pion};
+
+  GPUhdi() constexpr bool isValid() const noexcept { return family == StateFamily::Barrel || family == StateFamily::Forward; }
 };
 
 static_assert(std::is_standard_layout_v<SurfaceKinematicState>);
@@ -61,6 +63,8 @@ bool makeForwardStateView(SurfaceKinematicState& state, ForwardStateView& view) 
 class BarrelStateView
 {
  public:
+  // An invalid default view has a null pointer. Dereference only after a host
+  // validation factory has returned true.
   BarrelStateView() = default;
 
   GPUhdi() float getY() const noexcept { return mState->parameters[0]; }
@@ -90,6 +94,8 @@ class BarrelStateView
 class ForwardStateView
 {
  public:
+  // An invalid default view has a null pointer. Dereference only after a host
+  // validation factory has returned true.
   ForwardStateView() = default;
 
   GPUhdi() float getX() const noexcept { return mState->parameters[0]; }
@@ -135,8 +141,12 @@ inline bool makeForwardStateView(SurfaceKinematicState& state, ForwardStateView&
 
 static_assert(std::is_standard_layout_v<BarrelStateView>);
 static_assert(std::is_trivially_copyable_v<BarrelStateView>);
+static_assert(sizeof(BarrelStateView) == sizeof(SurfaceKinematicState*));
+static_assert(alignof(BarrelStateView) == alignof(SurfaceKinematicState*));
 static_assert(std::is_standard_layout_v<ForwardStateView>);
 static_assert(std::is_trivially_copyable_v<ForwardStateView>);
+static_assert(sizeof(ForwardStateView) == sizeof(SurfaceKinematicState*));
+static_assert(alignof(ForwardStateView) == alignof(SurfaceKinematicState*));
 
 } // namespace o2::itsmft::tracking
 
