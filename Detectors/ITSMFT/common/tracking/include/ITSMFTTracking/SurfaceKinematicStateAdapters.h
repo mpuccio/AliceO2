@@ -12,7 +12,7 @@
 
 #include "ITSMFTTracking/SurfaceKinematicState.h"
 #include "ReconstructionDataFormats/TrackFwd.h"
-#include "ReconstructionDataFormats/TrackParametrizationWithError.h"
+#include "ReconstructionDataFormats/Track.h"
 
 namespace o2::itsmft::tracking
 {
