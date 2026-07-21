@@ -6,6 +6,8 @@
 // License v3 (GPL Version 3), copied verbatim in the file "COPYING".
 
 #define BOOST_TEST_MODULE ITSMFTSurfaceKinematicState
+#define BOOST_TEST_MAIN
+#define BOOST_TEST_DYN_LINK
 #include <boost/test/unit_test.hpp>
 
 #include <cmath>
