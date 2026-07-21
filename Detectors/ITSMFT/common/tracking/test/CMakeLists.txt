@@ -76,6 +76,12 @@ o2_add_test(surfacemeasurement
             LABELS "itsmft;tracking"
             PUBLIC_LINK_LIBRARIES O2::ITSMFTTracking)
 
+o2_add_test(surfacespec
+            SOURCES testSurfaceSpec.cxx
+            COMPONENT_NAME itsmft-tracking
+            LABELS "itsmft;tracking"
+            PUBLIC_LINK_LIBRARIES O2::ITSMFTTracking)
+
 o2_add_test(surfacekinematicstate
             SOURCES testSurfaceKinematicState.cxx
             COMPONENT_NAME itsmft-tracking
