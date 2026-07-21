@@ -79,6 +79,59 @@ o2::track::TrackParCovFwd makeOracle(const SurfaceKinematicState& state)
   return {state.referenceCoordinate, parameters, covariance, 0.};
 }
 
+SurfaceKinematicState makeCandidateState()
+{
+  auto state = makeState();
+  state.parameters[0] += 0.06f;
+  state.parameters[1] -= 0.04f;
+  state.parameters[2] += 0.02f;
+  state.parameters[3] -= 0.03f;
+  state.parameters[4] += 0.01f;
+  state.absCharge = 1;
+  state.pid = o2::track::PID::Pion;
+  for (uint8_t row = 0; row < 5; ++row) {
+    for (uint8_t column = 0; column <= row; ++column) {
+      state.covariance[packedCovarianceIndex(row, column)] =
+        row == column ? 0.015f * (row + 1) : 0.00015f * (1 + packedCovarianceIndex(row, column));
+    }
+  }
+  return state;
+}
+
+// Mirrors o2::itsmft::tracking::detail::mftFwdStateChi2 (MFTFwdTrackHelpers.h),
+// reimplemented here rather than included: that header pulls in O2::MFTTracking,
+// which this test target does not link (see test/CMakeLists.txt), and this is a
+// retained-oracle comparison, not a production dependency.
+float retainedMftFwdStateChi2(const o2::track::TrackParCovFwd& current, const o2::track::TrackParCovFwd& rhs)
+{
+  ROOT::Math::SVector<double, 5> diff{
+    rhs.getX() - current.getX(),
+    rhs.getY() - current.getY(),
+    rhs.getPhi() - current.getPhi(),
+    rhs.getTanl() - current.getTanl(),
+    rhs.getInvQPt() - current.getInvQPt()};
+  auto cov = current.getCovariances();
+  cov += rhs.getCovariances();
+  if (!cov.Invert()) {
+    return o2::constants::math::VeryBig;
+  }
+  return static_cast<float>(ROOT::Math::Similarity(cov, diff));
+}
+
+void checkStateChi2FailurePreservesBytes(SurfaceKinematicState reference, SurfaceKinematicState candidate, float chi2,
+                                         OperationFailureReason expected)
+{
+  const auto referenceBefore = reference;
+  const auto candidateBefore = candidate;
+  const float chi2Before = chi2;
+  OperationFailureReason reason{};
+  BOOST_CHECK(!stateChi2(reference, candidate, chi2, reason));
+  BOOST_CHECK(reason == expected);
+  BOOST_CHECK(bitEqual(reference, referenceBefore));
+  BOOST_CHECK(bitEqual(candidate, candidateBefore));
+  BOOST_CHECK_EQUAL(chi2, chi2Before);
+}
+
 struct OracleDrift {
   double maximumAbsolute{0.};
   double maximumRelative{0.};
@@ -88,6 +141,7 @@ OracleDrift parameterDrift;
 OracleDrift covarianceDrift;
 OracleDrift referenceDrift;
 OracleDrift chi2Drift;
+OracleDrift stateChi2Drift;
 
 void checkClose(float value, double oracle, double absoluteTolerance, double relativeTolerance, OracleDrift& drift)
 {
@@ -368,6 +422,225 @@ BOOST_AUTO_TEST_CASE(FailuresPreserveEveryDestinationByte)
                                   [](auto& state, auto& reason) { return propagate<PropagationModel::Linear>(state, std::numeric_limits<float>::infinity(), 0.f, reason); });
 }
 
+BOOST_AUTO_TEST_CASE(StateChi2MatchesRetainedLegacyOracleAndHandReferences)
+{
+  const auto reference = makeState();
+  const auto candidate = makeCandidateState();
+  float chi2 = -1.f;
+  OperationFailureReason reason{};
+  BOOST_REQUIRE(stateChi2(reference, candidate, chi2, reason));
+
+  const auto referenceOracle = makeOracle(reference);
+  const auto candidateOracle = makeOracle(candidate);
+  // Retained-oracle drift characterization only: detail::mftFwdStateChi2
+  // inverts the combined covariance in double precision and does not prove
+  // physical correctness of this float-native primitive.
+  const float oracleChi2 = retainedMftFwdStateChi2(referenceOracle, candidateOracle);
+  checkClose(chi2, oracleChi2, 3.e-4, 3.e-4, stateChi2Drift);
+  BOOST_TEST_MESSAGE("stateChi2 retained-oracle max drift: abs=" << stateChi2Drift.maximumAbsolute
+                                                                 << " rel=" << stateChi2Drift.maximumRelative);
+
+  // Independent hand reference #1: diagonal combined covariance, split evenly
+  // between reference and candidate to also exercise the packed-storage sum.
+  auto diagonalReference = makeState();
+  auto diagonalCandidate = makeCandidateState();
+  for (float& value : diagonalReference.covariance) {
+    value = 0.f;
+  }
+  for (float& value : diagonalCandidate.covariance) {
+    value = 0.f;
+  }
+  const float diagShare[5] = {0.02f, 0.015f, 0.05f, 0.03f, 0.04f};
+  for (uint8_t i = 0; i < 5; ++i) {
+    diagonalReference.covariance[packedCovarianceIndex(i, i)] = diagShare[i];
+    diagonalCandidate.covariance[packedCovarianceIndex(i, i)] = diagShare[i];
+  }
+  float diagonalChi2 = -1.f;
+  BOOST_REQUIRE(stateChi2(diagonalReference, diagonalCandidate, diagonalChi2, reason));
+  float diff[5];
+  for (uint8_t i = 0; i < 5; ++i) {
+    diff[i] = diagonalReference.parameters[i] - diagonalCandidate.parameters[i];
+  }
+  float handDiagonalChi2 = 0.f;
+  for (uint8_t i = 0; i < 5; ++i) {
+    handDiagonalChi2 += diff[i] * diff[i] / (2.f * diagShare[i]);
+  }
+  BOOST_CHECK_CLOSE_FRACTION(diagonalChi2, handDiagonalChi2, 2.e-5f);
+
+  // Independent hand reference #2: rows (0,1) correlated, rows 2/3/4 diagonal;
+  // the combined covariance is block-diagonal so a closed-form 2x2 inverse
+  // plus per-row division verifies the packed symmetric access independently
+  // of the production Bunch-Kaufman inversion.
+  auto blockReference = makeState();
+  auto blockCandidate = makeCandidateState();
+  for (float& value : blockReference.covariance) {
+    value = 0.f;
+  }
+  for (float& value : blockCandidate.covariance) {
+    value = 0.f;
+  }
+  constexpr float d0 = 0.05f, d1 = 0.04f, c01 = 0.012f, d2 = 0.02f, d3 = 0.03f, d4 = 0.025f;
+  blockReference.covariance[packedCovarianceIndex(0, 0)] = 0.6f * d0;
+  blockCandidate.covariance[packedCovarianceIndex(0, 0)] = 0.4f * d0;
+  blockReference.covariance[packedCovarianceIndex(1, 1)] = 0.6f * d1;
+  blockCandidate.covariance[packedCovarianceIndex(1, 1)] = 0.4f * d1;
+  blockReference.covariance[packedCovarianceIndex(1, 0)] = 0.6f * c01;
+  blockCandidate.covariance[packedCovarianceIndex(1, 0)] = 0.4f * c01;
+  blockReference.covariance[packedCovarianceIndex(2, 2)] = 0.6f * d2;
+  blockCandidate.covariance[packedCovarianceIndex(2, 2)] = 0.4f * d2;
+  blockReference.covariance[packedCovarianceIndex(3, 3)] = 0.6f * d3;
+  blockCandidate.covariance[packedCovarianceIndex(3, 3)] = 0.4f * d3;
+  blockReference.covariance[packedCovarianceIndex(4, 4)] = 0.6f * d4;
+  blockCandidate.covariance[packedCovarianceIndex(4, 4)] = 0.4f * d4;
+  float blockChi2 = -1.f;
+  BOOST_REQUIRE(stateChi2(blockReference, blockCandidate, blockChi2, reason));
+  for (uint8_t i = 0; i < 5; ++i) {
+    diff[i] = blockReference.parameters[i] - blockCandidate.parameters[i];
+  }
+  const float det = d0 * d1 - c01 * c01;
+  const float inverse00 = d1 / det;
+  const float inverse01 = -c01 / det;
+  const float inverse11 = d0 / det;
+  const float handBlockChi2 = diff[0] * (inverse00 * diff[0] + inverse01 * diff[1]) +
+                              diff[1] * (inverse01 * diff[0] + inverse11 * diff[1]) +
+                              diff[2] * diff[2] / d2 + diff[3] * diff[3] / d3 + diff[4] * diff[4] / d4;
+  BOOST_CHECK_CLOSE_FRACTION(blockChi2, handBlockChi2, 3.e-5f);
+
+  // Ill-conditioned but invertible characterization: a near-perfectly
+  // correlated (0,1) block (determinant close to, but not exactly, zero).
+  auto illConditionedReference = makeState();
+  auto illConditionedCandidate = makeCandidateState();
+  for (float& value : illConditionedReference.covariance) {
+    value = 0.f;
+  }
+  for (float& value : illConditionedCandidate.covariance) {
+    value = 0.f;
+  }
+  constexpr float illD0 = 1.f, illD1 = 1.f, illC01 = 0.999999f;
+  illConditionedReference.covariance[packedCovarianceIndex(0, 0)] = illD0;
+  illConditionedReference.covariance[packedCovarianceIndex(1, 1)] = illD1;
+  illConditionedReference.covariance[packedCovarianceIndex(1, 0)] = illC01;
+  illConditionedReference.covariance[packedCovarianceIndex(2, 2)] = 0.02f;
+  illConditionedReference.covariance[packedCovarianceIndex(3, 3)] = 0.03f;
+  illConditionedReference.covariance[packedCovarianceIndex(4, 4)] = 0.04f;
+  float illConditionedChi2 = -1.f;
+  BOOST_REQUIRE(stateChi2(illConditionedReference, illConditionedCandidate, illConditionedChi2, reason));
+  BOOST_CHECK(std::isfinite(illConditionedChi2));
+  for (uint8_t i = 0; i < 5; ++i) {
+    diff[i] = illConditionedReference.parameters[i] - illConditionedCandidate.parameters[i];
+  }
+  const float illDet = illD0 * illD1 - illC01 * illC01;
+  const float illInverse00 = illD1 / illDet;
+  const float illInverse01 = -illC01 / illDet;
+  const float illInverse11 = illD0 / illDet;
+  const float handIllConditionedChi2 = diff[0] * (illInverse00 * diff[0] + illInverse01 * diff[1]) +
+                                       diff[1] * (illInverse01 * diff[0] + illInverse11 * diff[1]) +
+                                       diff[2] * diff[2] / 0.02f + diff[3] * diff[3] / 0.03f + diff[4] * diff[4] / 0.04f;
+  BOOST_TEST_MESSAGE("stateChi2 ill-conditioned characterization: production=" << illConditionedChi2
+                                                                               << " hand=" << handIllConditionedChi2
+                                                                               << " determinant=" << illDet);
+  BOOST_CHECK_CLOSE_FRACTION(illConditionedChi2, handIllConditionedChi2, 5.e-3f); // Loose: characterizes conditioning, not a proof.
+}
+
+BOOST_AUTO_TEST_CASE(StateChi2RejectsInvalidInputsAndPreservesState)
+{
+  constexpr float InitialChi2 = 88.f;
+
+  auto wrongFamilyCandidate = makeCandidateState();
+  wrongFamilyCandidate.family = StateFamily::Barrel;
+  checkStateChi2FailurePreservesBytes(makeState(), wrongFamilyCandidate, InitialChi2, OperationFailureReason::SourceFamilyMismatch);
+
+  auto wrongFamilyReference = makeState();
+  wrongFamilyReference.family = StateFamily::Barrel;
+  checkStateChi2FailurePreservesBytes(wrongFamilyReference, makeCandidateState(), InitialChi2, OperationFailureReason::SourceFamilyMismatch);
+
+  auto nonFiniteReference = makeState();
+  nonFiniteReference.parameters[3] = std::numeric_limits<float>::quiet_NaN();
+  checkStateChi2FailurePreservesBytes(nonFiniteReference, makeCandidateState(), InitialChi2, OperationFailureReason::NonFiniteInput);
+
+  auto nonFiniteCandidate = makeCandidateState();
+  nonFiniteCandidate.covariance[packedCovarianceIndex(4, 4)] = std::numeric_limits<float>::infinity();
+  checkStateChi2FailurePreservesBytes(makeState(), nonFiniteCandidate, InitialChi2, OperationFailureReason::NonFiniteInput);
+
+  auto referenceZMismatch = makeCandidateState();
+  referenceZMismatch.referenceCoordinate += 0.5f;
+  checkStateChi2FailurePreservesBytes(makeState(), referenceZMismatch, InitialChi2, OperationFailureReason::ReferenceCoordinateMismatch);
+
+  auto singularReference = makeState();
+  auto singularCandidate = makeCandidateState();
+  for (float& value : singularReference.covariance) {
+    value = 0.f;
+  }
+  for (float& value : singularCandidate.covariance) {
+    value = 0.f;
+  }
+  checkStateChi2FailurePreservesBytes(singularReference, singularCandidate, InitialChi2, OperationFailureReason::InvalidCovariance);
+
+  auto nonFiniteOutputReference = makeState();
+  nonFiniteOutputReference.parameters[0] = std::numeric_limits<float>::max();
+  auto nonFiniteOutputCandidate = makeCandidateState();
+  nonFiniteOutputCandidate.parameters[0] = -std::numeric_limits<float>::max();
+  checkStateChi2FailurePreservesBytes(nonFiniteOutputReference, nonFiniteOutputCandidate, InitialChi2, OperationFailureReason::NonFiniteOutput);
+}
+
+BOOST_AUTO_TEST_CASE(StateChi2PreservesInputsOnSuccessAndIsByteDeterministic)
+{
+  const auto reference = makeState();
+  const auto candidate = makeCandidateState();
+  const auto referenceBefore = reference;
+  const auto candidateBefore = candidate;
+  float firstChi2 = -1.f;
+  float secondChi2 = -2.f;
+  OperationFailureReason reason{};
+  BOOST_REQUIRE(stateChi2(reference, candidate, firstChi2, reason));
+  BOOST_REQUIRE(stateChi2(reference, candidate, secondChi2, reason));
+  BOOST_CHECK(bitEqual(reference, referenceBefore));
+  BOOST_CHECK(bitEqual(candidate, candidateBefore));
+  BOOST_CHECK_EQUAL(firstChi2, secondChi2);
+}
+
+BOOST_AUTO_TEST_CASE(StateChi2RawPhiBoundaryDoesNotWrap)
+{
+  // Characterizes current behavior: stateChi2 uses the raw (unwrapped) phi
+  // difference across the +-pi boundary. This is deliberate for this slice;
+  // any shortest-angle wrapping would be a later, explicit physics decision.
+  auto reference = makeState();
+  auto candidate = makeCandidateState();
+  reference.parameters[2] = o2::constants::math::PI - 0.01f;
+  candidate.parameters[2] = -o2::constants::math::PI + 0.01f;
+  for (float& value : reference.covariance) {
+    value = 0.f;
+  }
+  for (float& value : candidate.covariance) {
+    value = 0.f;
+  }
+  const float diag[5] = {0.01f, 0.02f, 0.05f, 0.04f, 0.05f};
+  for (uint8_t i = 0; i < 5; ++i) {
+    reference.covariance[packedCovarianceIndex(i, i)] = 0.5f * diag[i];
+    candidate.covariance[packedCovarianceIndex(i, i)] = 0.5f * diag[i];
+  }
+  float chi2 = -1.f;
+  OperationFailureReason reason{};
+  BOOST_REQUIRE(stateChi2(reference, candidate, chi2, reason));
+
+  float diff[5];
+  for (uint8_t i = 0; i < 5; ++i) {
+    diff[i] = reference.parameters[i] - candidate.parameters[i];
+  }
+  BOOST_CHECK_GT(std::abs(diff[2]), 6.f); // Raw phi difference is near 2*pi, not wrapped to near zero.
+  float handRawChi2 = 0.f;
+  for (uint8_t i = 0; i < 5; ++i) {
+    handRawChi2 += diff[i] * diff[i] / diag[i];
+  }
+  BOOST_CHECK_CLOSE_FRACTION(chi2, handRawChi2, 2.e-5f);
+
+  const float wrappedPhiDiff = std::remainder(diff[2], 2.f * o2::constants::math::PI);
+  BOOST_CHECK_LT(std::abs(wrappedPhiDiff), 0.1f);
+  const float wrappedChi2 = handRawChi2 - diff[2] * diff[2] / diag[2] + wrappedPhiDiff * wrappedPhiDiff / diag[2];
+  BOOST_CHECK_GT(std::abs(chi2 - wrappedChi2), 1.f); // Documents: raw phi gives a materially different chi2 than shortest-angle wrapping would.
+  BOOST_TEST_MESSAGE("stateChi2 raw-phi boundary: chi2=" << chi2 << " rawPhiDiff=" << diff[2] << " wrappedPhiDiff=" << wrappedPhiDiff);
+}
+
 BOOST_AUTO_TEST_CASE(RepeatedMultiStepChainsAreByteDeterministicAndCharacterizeOracleDrift)
 {
   auto runChain = [] {
@@ -429,5 +702,6 @@ BOOST_AUTO_TEST_CASE(NewProductionFilesHaveNoLegacyForwardDependency)
                      << parameterDrift.maximumAbsolute << "/" << parameterDrift.maximumRelative
                      << ", covariance=" << covarianceDrift.maximumAbsolute << "/" << covarianceDrift.maximumRelative
                      << ", reference=" << referenceDrift.maximumAbsolute << "/" << referenceDrift.maximumRelative
-                     << ", update chi2=" << chi2Drift.maximumAbsolute << "/" << chi2Drift.maximumRelative);
+                     << ", update chi2=" << chi2Drift.maximumAbsolute << "/" << chi2Drift.maximumRelative
+                     << ", stateChi2=" << stateChi2Drift.maximumAbsolute << "/" << stateChi2Drift.maximumRelative);
 }

@@ -62,6 +62,14 @@ constexpr float highlandTheta2(float inverseMomentum, float xOverX0) noexcept
 // Preserves the legacy forward, mass/PID/absCharge-agnostic MCS behavior.
 bool correctForMaterial(SurfaceKinematicState& state, float xOverX0, OperationFailureReason& reason) noexcept;
 
+// Same-family compatibility chi2 between two forward states expressed at the
+// same reference Z. Residuals are the direct (unwrapped) differences of
+// (X, Y, Phi, Tanl, InvQPt), preserving the legacy same-family behavior of
+// detail::mftFwdStateChi2. Neither input is mutated and chi2 is unchanged on
+// failure.
+bool stateChi2(const SurfaceKinematicState& reference, const SurfaceKinematicState& candidate, float& chi2,
+               OperationFailureReason& reason) noexcept;
+
 } // namespace o2::itsmft::tracking::forward
 
 #endif // ALICEO2_ITSMFT_TRACKING_FORWARDSURFACESTATEOPERATIONS_H_
