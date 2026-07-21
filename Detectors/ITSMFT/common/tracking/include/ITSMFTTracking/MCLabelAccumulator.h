@@ -12,6 +12,8 @@
 #ifndef ALICEO2_ITSMFT_TRACKING_MCLABELACCUMULATOR_H_
 #define ALICEO2_ITSMFT_TRACKING_MCLABELACCUMULATOR_H_
 
+#ifndef GPUCA_GPUCODE
+
 #include <cstddef>
 #include <vector>
 
@@ -31,34 +33,22 @@ class MCLabelAccumulator
   void addCluster(gsl::span<const MCCompLabel> labels)
   {
     ++mAttachedClusters;
-
-    // A cluster may contain the same identity several times. Keep a local
-    // identity set so it contributes at most once to the global counts.
-    std::vector<MCCompLabel> clusterIdentities;
-    clusterIdentities.reserve(labels.size());
     for (const auto& label : labels) {
-      bool seenInCluster = false;
-      for (const auto& identity : clusterIdentities) {
-        if (label == identity) {
-          seenInCluster = true;
-          break;
-        }
-      }
-      if (seenInCluster) {
-        continue;
-      }
-      clusterIdentities.push_back(label);
-
       bool foundCandidate = false;
       for (auto& candidate : mCandidates) {
         if (label == candidate.representative) {
-          ++candidate.count;
+          // Repeated identities in this span see the same cluster ordinal and
+          // therefore contribute only once without per-cluster storage.
+          if (candidate.lastSeenCluster != mAttachedClusters) {
+            ++candidate.count;
+            candidate.lastSeenCluster = mAttachedClusters;
+          }
           foundCandidate = true;
           break;
         }
       }
       if (!foundCandidate) {
-        mCandidates.push_back({label, 1});
+        mCandidates.push_back({label, 1, mAttachedClusters});
       }
     }
   }
@@ -91,6 +81,7 @@ class MCLabelAccumulator
   struct Candidate {
     MCCompLabel representative;
     size_t count;
+    size_t lastSeenCluster;
   };
 
   size_t mAttachedClusters = 0;
@@ -99,4 +90,5 @@ class MCLabelAccumulator
 
 } // namespace o2::itsmft::tracking
 
+#endif // GPUCA_GPUCODE
 #endif
