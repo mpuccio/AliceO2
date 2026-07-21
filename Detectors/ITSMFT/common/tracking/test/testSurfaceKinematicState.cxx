@@ -92,7 +92,7 @@ BOOST_AUTO_TEST_CASE(DefaultStateIsDeterministicallyInvalid)
   BOOST_CHECK_EQUAL(state.referenceCoordinate, 0.f);
   BOOST_CHECK_EQUAL(state.alpha, 0.f);
   BOOST_CHECK(state.family == StateFamily::Invalid);
-  BOOST_CHECK(!state.isValid());
+  BOOST_CHECK(!state.hasRecognizedFamily());
   BOOST_CHECK_EQUAL(state.flags, 0U);
   BOOST_CHECK_EQUAL(state.absCharge, 0U);
   BOOST_CHECK_EQUAL(state.pid.getID(), o2::track::PID::Pion);
@@ -108,7 +108,9 @@ BOOST_AUTO_TEST_CASE(BarrelViewMapsBarrelCoordinates)
     state.parameters[i] = 2.f + i;
   }
   BarrelStateView view;
+  BOOST_CHECK(!view.isValid());
   BOOST_REQUIRE(makeBarrelStateView(state, view));
+  BOOST_CHECK(view.isValid());
   BOOST_CHECK_EQUAL(view.getY(), 2.f);
   BOOST_CHECK_EQUAL(view.getZ(), 3.f);
   BOOST_CHECK_EQUAL(view.getSnp(), 4.f);
@@ -129,7 +131,9 @@ BOOST_AUTO_TEST_CASE(ForwardViewMapsForwardCoordinates)
     state.parameters[i] = 3.f + i;
   }
   ForwardStateView view;
+  BOOST_CHECK(!view.isValid());
   BOOST_REQUIRE(makeForwardStateView(state, view));
+  BOOST_CHECK(view.isValid());
   BOOST_CHECK_EQUAL(view.getX(), 3.f);
   BOOST_CHECK_EQUAL(view.getY(), 4.f);
   BOOST_CHECK_EQUAL(view.getPhi(), 5.f);
@@ -198,14 +202,31 @@ BOOST_AUTO_TEST_CASE(ForwardAdapterNarrowsWithExplicitToleranceAndRejectsNonFini
   BOOST_CHECK_EQUAL(state.absCharge, 1U);
   BOOST_CHECK_EQUAL(state.pid.getID(), o2::track::PID::Pion);
 
-  BOOST_CHECK(state.isValid());
+  BOOST_CHECK(state.hasRecognizedFamily());
   BOOST_CHECK_CLOSE_FRACTION(state.referenceCoordinate, static_cast<float>(forward.getZ()), 1.e-7);
-  BOOST_CHECK_CLOSE_FRACTION(state.parameters[0], static_cast<float>(forward.getX()), 1.e-7);
-  BOOST_CHECK_CLOSE_FRACTION(state.parameters[4], static_cast<float>(forward.getInvQPt()), 1.e-7);
+  BOOST_CHECK_EQUAL(state.alpha, 0.f);
+  BOOST_CHECK(state.family == StateFamily::Forward);
+  BOOST_CHECK_EQUAL(state.absCharge, 1U);
+  BOOST_CHECK_EQUAL(state.pid.getID(), o2::track::PID::Pion);
+  const double expectedParameters[] = {forward.getX(), forward.getY(), forward.getPhi(), forward.getTanl(), forward.getInvQPt()};
+  for (uint8_t i = 0; i < 5; ++i) {
+    BOOST_CHECK_CLOSE_FRACTION(state.parameters[i], static_cast<float>(expectedParameters[i]), 1.e-7);
+  }
+  for (uint8_t row = 0; row < 5; ++row) {
+    for (uint8_t column = 0; column <= row; ++column) {
+      BOOST_CHECK_CLOSE_FRACTION(state.covariance[packedCovarianceIndex(row, column)],
+                                 static_cast<float>(forward.getCovariances()(row, column)), 1.e-7);
+    }
+  }
 
   const SurfaceKinematicState sentinel = state;
   auto invalid = forward;
   invalid.setX(std::numeric_limits<double>::infinity());
+  BOOST_CHECK(!legacy::importLegacyForwardTrackParCov(invalid, state));
+  BOOST_CHECK(bitEqual(state, sentinel));
+
+  invalid = forward;
+  invalid.setZ(std::numeric_limits<double>::max());
   BOOST_CHECK(!legacy::importLegacyForwardTrackParCov(invalid, state));
   BOOST_CHECK(bitEqual(state, sentinel));
 

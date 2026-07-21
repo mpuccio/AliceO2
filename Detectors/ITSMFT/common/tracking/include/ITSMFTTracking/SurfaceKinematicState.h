@@ -32,7 +32,9 @@ struct SurfaceKinematicState {
   uint8_t absCharge{0};
   o2::track::PID pid{o2::track::PID::Pion};
 
-  GPUhdi() constexpr bool isValid() const noexcept { return family == StateFamily::Barrel || family == StateFamily::Forward; }
+  // This only recognizes the two supported family tags. It does not validate
+  // parameter ranges, covariance, PID, alpha, or family-specific metadata.
+  GPUhdi() constexpr bool hasRecognizedFamily() const noexcept { return family == StateFamily::Barrel || family == StateFamily::Forward; }
 };
 
 static_assert(std::is_standard_layout_v<SurfaceKinematicState>);
@@ -67,6 +69,8 @@ class BarrelStateView
   // validation factory has returned true.
   BarrelStateView() = default;
 
+  GPUhdi() bool isValid() const noexcept { return mState != nullptr; }
+
   GPUhdi() float getY() const noexcept { return mState->parameters[0]; }
   GPUhdi() float getZ() const noexcept { return mState->parameters[1]; }
   GPUhdi() float getSnp() const noexcept { return mState->parameters[2]; }
@@ -97,6 +101,8 @@ class ForwardStateView
   // An invalid default view has a null pointer. Dereference only after a host
   // validation factory has returned true.
   ForwardStateView() = default;
+
+  GPUhdi() bool isValid() const noexcept { return mState != nullptr; }
 
   GPUhdi() float getX() const noexcept { return mState->parameters[0]; }
   GPUhdi() float getY() const noexcept { return mState->parameters[1]; }
