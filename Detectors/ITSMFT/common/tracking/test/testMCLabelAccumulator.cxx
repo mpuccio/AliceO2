@@ -94,7 +94,12 @@ BOOST_AUTO_TEST_CASE(existing_and_new_candidate_on_same_cluster_are_both_process
   const MCCompLabel both[] = {a, b};
   accumulator.addCluster(both);
   accumulator.addCluster({&b, 1});
-  checkIdentityAndFake(accumulator.finalize(), a, true);
+  accumulator.addCluster({&b, 1});
+
+  // The old cluster-global-found implementation dropped B from `both`,
+  // leaving A and B tied at two clusters and incorrectly selecting A.
+  // B must instead win with three of four attached clusters and be fake.
+  checkIdentityAndFake(accumulator.finalize(), b, true);
 }
 
 BOOST_AUTO_TEST_CASE(duplicates_within_one_cluster_count_once)
