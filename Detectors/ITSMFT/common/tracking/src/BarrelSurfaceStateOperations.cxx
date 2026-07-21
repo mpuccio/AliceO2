@@ -148,7 +148,8 @@ bool rotate(SurfaceKinematicState& state, float targetAlpha, OperationFailureRea
     return false;
   }
   SurfaceKinematicState scratch = state;
-  const float delta = std::remainder(targetAlpha - scratch.alpha, 2.f * o2::constants::math::PI);
+  const float canonicalTargetAlpha = std::remainder(targetAlpha, 2.f * o2::constants::math::PI);
+  const float delta = std::remainder(canonicalTargetAlpha - scratch.alpha, 2.f * o2::constants::math::PI);
   const float sine = std::sin(delta);
   const float cosine = std::cos(delta);
   const float snp = scratch.parameters[2];
@@ -168,7 +169,7 @@ bool rotate(SurfaceKinematicState& state, float targetAlpha, OperationFailureRea
   scratch.referenceCoordinate = x * cosine + y * sine;
   scratch.parameters[0] = -x * sine + y * cosine;
   scratch.parameters[2] = rotatedSnp;
-  scratch.alpha = targetAlpha;
+  scratch.alpha = canonicalTargetAlpha;
   const float ratio = cosine + snp / csp * sine;
   scratch.covariance[packedCovarianceIndex(0, 0)] *= cosine * cosine;
   scratch.covariance[packedCovarianceIndex(1, 0)] *= cosine;

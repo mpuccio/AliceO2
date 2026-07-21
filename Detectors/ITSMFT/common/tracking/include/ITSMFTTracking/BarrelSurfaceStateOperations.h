@@ -15,10 +15,10 @@
 namespace o2::itsmft::tracking::barrel
 {
 
-// Rotates the local barrel frame to targetAlpha. On success alpha is exactly
-// targetAlpha; referenceCoordinate and the local-X plane are transformed with
-// the frame. The operation fails if the rotated state would not have a
-// forward-going local direction.
+// Rotates the local barrel frame to targetAlpha. On success alpha is
+// canonicalized to [-pi, pi], while referenceCoordinate and the local-X plane
+// are transformed with the frame. The operation fails if the rotated state
+// would not have a forward-going local direction.
 bool rotate(SurfaceKinematicState& state, float targetAlpha, OperationFailureReason& reason) noexcept;
 
 // Propagates in the current local barrel frame to targetX in a uniform Bz.
