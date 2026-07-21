@@ -12,48 +12,35 @@
 
 #include "ITSMFTTracking/SurfaceKinematicState.h"
 #include "ITSMFTTracking/SurfaceMeasurement.h"
+#include "ITSMFTTracking/SurfaceStateOperationResult.h"
 
-namespace o2::itsmft::tracking
+namespace o2::itsmft::tracking::forward
 {
 
 // Values intentionally match the four legacy MFT propagation choices. The
 // template argument binds the model outside a tracking hot loop.
-enum class ForwardPropagationModel : uint8_t {
+enum class PropagationModel : uint8_t {
   Linear,
   Quadratic,
   Helix,
   Optimized // Helix parameters with the quadratic covariance Jacobian.
 };
 
-// This is the subset needed by the isolated forward primitive slice. Values
-// may be appended when the complete Stage-B operation contract is accepted.
-enum class OperationFailureReason : uint8_t {
-  SourceFamilyMismatch,
-  NonFiniteInput,
-  NonFiniteOutput,
-  InvalidCovariance,
-  UnreachableTarget,
-  PropagationFailure,
-  MaterialFailure,
-  PredictedChi2Failure,
-  UpdateFailure
-};
-
 // All operations below are host-only and float-native. Parameters,
 // covariance, local arithmetic, and committed results remain float; no legacy
 // forward track object is constructed. Mutating operations use scratch then
 // commit and therefore leave state byte-for-byte unchanged on failure.
-template <ForwardPropagationModel Model>
-bool propagateToDisk(SurfaceKinematicState& state, float targetZ, float bz, OperationFailureReason& reason) noexcept;
+template <PropagationModel Model>
+bool propagate(SurfaceKinematicState& state, float targetZ, float bz, OperationFailureReason& reason) noexcept;
 
 template <>
-bool propagateToDisk<ForwardPropagationModel::Linear>(SurfaceKinematicState&, float, float, OperationFailureReason&) noexcept;
+bool propagate<PropagationModel::Linear>(SurfaceKinematicState&, float, float, OperationFailureReason&) noexcept;
 template <>
-bool propagateToDisk<ForwardPropagationModel::Quadratic>(SurfaceKinematicState&, float, float, OperationFailureReason&) noexcept;
+bool propagate<PropagationModel::Quadratic>(SurfaceKinematicState&, float, float, OperationFailureReason&) noexcept;
 template <>
-bool propagateToDisk<ForwardPropagationModel::Helix>(SurfaceKinematicState&, float, float, OperationFailureReason&) noexcept;
+bool propagate<PropagationModel::Helix>(SurfaceKinematicState&, float, float, OperationFailureReason&) noexcept;
 template <>
-bool propagateToDisk<ForwardPropagationModel::Optimized>(SurfaceKinematicState&, float, float, OperationFailureReason&) noexcept;
+bool propagate<PropagationModel::Optimized>(SurfaceKinematicState&, float, float, OperationFailureReason&) noexcept;
 
 // Disk measurements use global x/y as u/v, including the full uu/uv/vv
 // covariance. chi2 is unchanged on failure.
@@ -75,6 +62,6 @@ constexpr float highlandTheta2(float inverseMomentum, float xOverX0) noexcept
 // Preserves the legacy forward, mass/PID/absCharge-agnostic MCS behavior.
 bool correctForMaterial(SurfaceKinematicState& state, float xOverX0, OperationFailureReason& reason) noexcept;
 
-} // namespace o2::itsmft::tracking
+} // namespace o2::itsmft::tracking::forward
 
 #endif // ALICEO2_ITSMFT_TRACKING_FORWARDSURFACESTATEOPERATIONS_H_

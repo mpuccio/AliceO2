@@ -26,6 +26,7 @@
 namespace
 {
 using namespace o2::itsmft::tracking;
+using namespace o2::itsmft::tracking::forward;
 
 SurfaceKinematicState makeState()
 {
@@ -114,22 +115,22 @@ void compareWithRetainedLegacyOracle(const SurfaceKinematicState& state, const o
   }
 }
 
-template <ForwardPropagationModel Model>
+template <PropagationModel Model>
 void comparePropagationWithOracle(float targetZ, float bz)
 {
   auto state = makeState();
   auto oracle = makeOracle(state);
-  if constexpr (Model == ForwardPropagationModel::Linear) {
+  if constexpr (Model == PropagationModel::Linear) {
     oracle.propagateToZlinear(targetZ);
-  } else if constexpr (Model == ForwardPropagationModel::Quadratic) {
+  } else if constexpr (Model == PropagationModel::Quadratic) {
     oracle.propagateToZquadratic(targetZ, bz);
-  } else if constexpr (Model == ForwardPropagationModel::Helix) {
+  } else if constexpr (Model == PropagationModel::Helix) {
     oracle.propagateToZhelix(targetZ, bz);
   } else {
     oracle.propagateToZ(targetZ, bz);
   }
   OperationFailureReason reason{};
-  BOOST_REQUIRE(propagateToDisk<Model>(state, targetZ, bz, reason));
+  BOOST_REQUIRE(propagate<Model>(state, targetZ, bz, reason));
   compareWithRetainedLegacyOracle(state, oracle);
 }
 
@@ -167,7 +168,7 @@ BOOST_AUTO_TEST_CASE(LinearPropagationMatchesHandCalculationAndPackedCovariance)
   constexpr float targetZ = -50.f;
   const float n = (targetZ - before.referenceCoordinate) / before.parameters[3];
   OperationFailureReason reason{};
-  BOOST_REQUIRE(propagateToDisk<ForwardPropagationModel::Linear>(state, targetZ, 5.f, reason));
+  BOOST_REQUIRE(propagate<PropagationModel::Linear>(state, targetZ, 5.f, reason));
   BOOST_CHECK_CLOSE_FRACTION(state.parameters[0], before.parameters[0] + n * std::cos(before.parameters[2]), 2.e-6f);
   BOOST_CHECK_CLOSE_FRACTION(state.parameters[1], before.parameters[1] + n * std::sin(before.parameters[2]), 2.e-6f);
   BOOST_CHECK_EQUAL(state.referenceCoordinate, targetZ);
@@ -185,24 +186,24 @@ BOOST_AUTO_TEST_CASE(ZeroFieldOptimizedIsExactlyLinearInBothDirections)
     auto linear = makeState();
     auto optimized = linear;
     OperationFailureReason reason{};
-    BOOST_REQUIRE(propagateToDisk<ForwardPropagationModel::Linear>(linear, targetZ, 0.f, reason));
-    BOOST_REQUIRE(propagateToDisk<ForwardPropagationModel::Optimized>(optimized, targetZ, 0.f, reason));
+    BOOST_REQUIRE(propagate<PropagationModel::Linear>(linear, targetZ, 0.f, reason));
+    BOOST_REQUIRE(propagate<PropagationModel::Optimized>(optimized, targetZ, 0.f, reason));
     BOOST_CHECK(bitEqual(linear, optimized));
   }
 }
 
 BOOST_AUTO_TEST_CASE(NonzeroFieldModelsMatchRetainedLegacyOracle)
 {
-  comparePropagationWithOracle<ForwardPropagationModel::Linear>(-52.f, 5.f);
-  comparePropagationWithOracle<ForwardPropagationModel::Quadratic>(-52.f, 5.f);
-  comparePropagationWithOracle<ForwardPropagationModel::Helix>(-52.f, 5.f);
-  comparePropagationWithOracle<ForwardPropagationModel::Optimized>(-52.f, 5.f);
-  comparePropagationWithOracle<ForwardPropagationModel::Helix>(-38.f, -5.f);
+  comparePropagationWithOracle<PropagationModel::Linear>(-52.f, 5.f);
+  comparePropagationWithOracle<PropagationModel::Quadratic>(-52.f, 5.f);
+  comparePropagationWithOracle<PropagationModel::Helix>(-52.f, 5.f);
+  comparePropagationWithOracle<PropagationModel::Optimized>(-52.f, 5.f);
+  comparePropagationWithOracle<PropagationModel::Helix>(-38.f, -5.f);
 }
 
 BOOST_AUTO_TEST_CASE(NearZeroNonzeroFieldRetainsOptimizedHelixSelection)
 {
-  comparePropagationWithOracle<ForwardPropagationModel::Optimized>(-45.01f, 1.e-4f);
+  comparePropagationWithOracle<PropagationModel::Optimized>(-45.01f, 1.e-4f);
 }
 
 BOOST_AUTO_TEST_CASE(PredictedChi2UsesDiskGlobalXYAndNonzeroUV)
@@ -299,7 +300,7 @@ BOOST_AUTO_TEST_CASE(FailuresPreserveEveryDestinationByte)
   auto wrongFamily = makeState();
   wrongFamily.family = StateFamily::Barrel;
   checkStateFailurePreservesBytes(wrongFamily, OperationFailureReason::SourceFamilyMismatch,
-                                  [](auto& state, auto& reason) { return propagateToDisk<ForwardPropagationModel::Linear>(state, -50.f, 0.f, reason); });
+                                  [](auto& state, auto& reason) { return propagate<PropagationModel::Linear>(state, -50.f, 0.f, reason); });
 
   auto nonFinite = makeState();
   nonFinite.parameters[0] = std::numeric_limits<float>::quiet_NaN();
@@ -309,10 +310,10 @@ BOOST_AUTO_TEST_CASE(FailuresPreserveEveryDestinationByte)
   auto unreachable = makeState();
   unreachable.parameters[3] = 0.f;
   checkStateFailurePreservesBytes(unreachable, OperationFailureReason::UnreachableTarget,
-                                  [](auto& state, auto& reason) { return propagateToDisk<ForwardPropagationModel::Quadratic>(state, -50.f, 5.f, reason); });
+                                  [](auto& state, auto& reason) { return propagate<PropagationModel::Quadratic>(state, -50.f, 5.f, reason); });
 
   checkStateFailurePreservesBytes(makeState(), OperationFailureReason::PropagationFailure,
-                                  [](auto& state, auto& reason) { return propagateToDisk<ForwardPropagationModel::Helix>(state, -50.f, 0.f, reason); });
+                                  [](auto& state, auto& reason) { return propagate<PropagationModel::Helix>(state, -50.f, 0.f, reason); });
 
   auto material = makeState();
   material.parameters[3] = 0.f;
@@ -364,7 +365,7 @@ BOOST_AUTO_TEST_CASE(FailuresPreserveEveryDestinationByte)
   BOOST_CHECK_EQUAL(chi2, chi2Before);
 
   checkStateFailurePreservesBytes(makeState(), OperationFailureReason::NonFiniteInput,
-                                  [](auto& state, auto& reason) { return propagateToDisk<ForwardPropagationModel::Linear>(state, std::numeric_limits<float>::infinity(), 0.f, reason); });
+                                  [](auto& state, auto& reason) { return propagate<PropagationModel::Linear>(state, std::numeric_limits<float>::infinity(), 0.f, reason); });
 }
 
 BOOST_AUTO_TEST_CASE(RepeatedMultiStepChainsAreByteDeterministicAndCharacterizeOracleDrift)
@@ -375,7 +376,7 @@ BOOST_AUTO_TEST_CASE(RepeatedMultiStepChainsAreByteDeterministicAndCharacterizeO
     float chi2 = 0.f;
     for (int step = 0; step < 5; ++step) {
       const float z = -48.f - 2.f * step;
-      BOOST_REQUIRE(propagateToDisk<ForwardPropagationModel::Optimized>(state, z, 5.f, reason));
+      BOOST_REQUIRE(propagate<PropagationModel::Optimized>(state, z, 5.f, reason));
       BOOST_REQUIRE(correctForMaterial(state, 0.004f + 0.001f * step, reason));
       auto measurement = makeMeasurement();
       measurement.global.x = state.parameters[0] + 0.01f * (step + 1);
@@ -398,7 +399,7 @@ BOOST_AUTO_TEST_CASE(RepeatedMultiStepChainsAreByteDeterministicAndCharacterizeO
   OperationFailureReason reason{};
   for (int step = 0; step < 5; ++step) {
     const float z = -48.f - 2.f * step;
-    BOOST_REQUIRE(propagateToDisk<ForwardPropagationModel::Optimized>(state, z, 5.f, reason));
+    BOOST_REQUIRE(propagate<PropagationModel::Optimized>(state, z, 5.f, reason));
     BOOST_REQUIRE(correctForMaterial(state, 0.004f + 0.001f * step, reason));
     oracle.propagateToZ(z, 5.f);
     oracle.addMCSEffect(0.004f + 0.001f * step);

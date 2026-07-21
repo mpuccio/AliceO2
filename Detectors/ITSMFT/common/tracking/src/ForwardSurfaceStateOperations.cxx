@@ -11,7 +11,7 @@
 
 #include "CommonConstants/MathConstants.h"
 
-namespace o2::itsmft::tracking
+namespace o2::itsmft::tracking::forward
 {
 namespace
 {
@@ -274,7 +274,7 @@ bool propagateHelix(SurfaceKinematicState& state, float targetZ, float bz,
   return true;
 }
 
-template <ForwardPropagationModel Model>
+template <PropagationModel Model>
 bool propagateBound(SurfaceKinematicState& destination, float targetZ, float bz,
                     OperationFailureReason& reason) noexcept
 {
@@ -286,11 +286,11 @@ bool propagateBound(SurfaceKinematicState& destination, float targetZ, float bz,
   }
   SurfaceKinematicState scratch = destination;
   bool success = false;
-  if constexpr (Model == ForwardPropagationModel::Linear) {
+  if constexpr (Model == PropagationModel::Linear) {
     success = propagateLinear(scratch, targetZ, reason);
-  } else if constexpr (Model == ForwardPropagationModel::Quadratic) {
+  } else if constexpr (Model == PropagationModel::Quadratic) {
     success = propagateQuadratic(scratch, targetZ, bz, reason);
-  } else if constexpr (Model == ForwardPropagationModel::Helix) {
+  } else if constexpr (Model == PropagationModel::Helix) {
     success = propagateHelix(scratch, targetZ, bz, reason);
   } else {
     if (bz == 0.f) {
@@ -338,31 +338,31 @@ bool residualInverse(const SurfaceKinematicState& state, const SurfaceMeasuremen
 } // namespace
 
 template <>
-bool propagateToDisk<ForwardPropagationModel::Linear>(SurfaceKinematicState& state, float targetZ, float bz,
-                                                      OperationFailureReason& reason) noexcept
+bool propagate<PropagationModel::Linear>(SurfaceKinematicState& state, float targetZ, float bz,
+                                         OperationFailureReason& reason) noexcept
 {
-  return propagateBound<ForwardPropagationModel::Linear>(state, targetZ, bz, reason);
+  return propagateBound<PropagationModel::Linear>(state, targetZ, bz, reason);
 }
 
 template <>
-bool propagateToDisk<ForwardPropagationModel::Quadratic>(SurfaceKinematicState& state, float targetZ, float bz,
-                                                         OperationFailureReason& reason) noexcept
+bool propagate<PropagationModel::Quadratic>(SurfaceKinematicState& state, float targetZ, float bz,
+                                            OperationFailureReason& reason) noexcept
 {
-  return propagateBound<ForwardPropagationModel::Quadratic>(state, targetZ, bz, reason);
+  return propagateBound<PropagationModel::Quadratic>(state, targetZ, bz, reason);
 }
 
 template <>
-bool propagateToDisk<ForwardPropagationModel::Helix>(SurfaceKinematicState& state, float targetZ, float bz,
-                                                     OperationFailureReason& reason) noexcept
+bool propagate<PropagationModel::Helix>(SurfaceKinematicState& state, float targetZ, float bz,
+                                        OperationFailureReason& reason) noexcept
 {
-  return propagateBound<ForwardPropagationModel::Helix>(state, targetZ, bz, reason);
+  return propagateBound<PropagationModel::Helix>(state, targetZ, bz, reason);
 }
 
 template <>
-bool propagateToDisk<ForwardPropagationModel::Optimized>(SurfaceKinematicState& state, float targetZ, float bz,
-                                                         OperationFailureReason& reason) noexcept
+bool propagate<PropagationModel::Optimized>(SurfaceKinematicState& state, float targetZ, float bz,
+                                            OperationFailureReason& reason) noexcept
 {
-  return propagateBound<ForwardPropagationModel::Optimized>(state, targetZ, bz, reason);
+  return propagateBound<PropagationModel::Optimized>(state, targetZ, bz, reason);
 }
 
 bool predictedChi2(const SurfaceKinematicState& state, const SurfaceMeasurement& measurement, float& chi2,
@@ -473,4 +473,4 @@ bool correctForMaterial(SurfaceKinematicState& state, float xOverX0, OperationFa
   return true;
 }
 
-} // namespace o2::itsmft::tracking
+} // namespace o2::itsmft::tracking::forward
