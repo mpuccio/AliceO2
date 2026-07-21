@@ -1,0 +1,476 @@
+// Copyright 2019-2026 CERN and copyright holders of ALICE O2.
+// See https://alice-o2.web.cern.ch/copyright for details of the copyright holders.
+// All rights not expressly granted are reserved.
+//
+// This software is distributed under the terms of the GNU General Public
+// License v3 (GPL Version 3), copied verbatim in the file "COPYING".
+
+#include "ITSMFTTracking/ForwardSurfaceStateOperations.h"
+
+#include <cmath>
+
+#include "CommonConstants/MathConstants.h"
+
+namespace o2::itsmft::tracking
+{
+namespace
+{
+
+using Matrix5 = float[5][5];
+
+bool finiteState(const SurfaceKinematicState& state) noexcept
+{
+  if (!std::isfinite(state.referenceCoordinate) || !std::isfinite(state.alpha)) {
+    return false;
+  }
+  for (const float value : state.parameters) {
+    if (!std::isfinite(value)) {
+      return false;
+    }
+  }
+  for (const float value : state.covariance) {
+    if (!std::isfinite(value)) {
+      return false;
+    }
+  }
+  return true;
+}
+
+bool finiteMeasurement(const SurfaceMeasurement& measurement) noexcept
+{
+  return std::isfinite(measurement.global.x) && std::isfinite(measurement.global.y) &&
+         std::isfinite(measurement.covariance.uu) && std::isfinite(measurement.covariance.uv) &&
+         std::isfinite(measurement.covariance.vv);
+}
+
+void unpackCovariance(const SurfaceKinematicState& state, Matrix5& covariance) noexcept
+{
+  for (uint8_t row = 0; row < 5; ++row) {
+    for (uint8_t column = 0; column < 5; ++column) {
+      covariance[row][column] = state.covariance[packedCovarianceIndex(row, column)];
+    }
+  }
+}
+
+void packCovariance(const Matrix5& covariance, SurfaceKinematicState& state) noexcept
+{
+  for (uint8_t row = 0; row < 5; ++row) {
+    for (uint8_t column = 0; column <= row; ++column) {
+      state.covariance[packedCovarianceIndex(row, column)] = covariance[row][column];
+    }
+  }
+}
+
+void transportCovariance(SurfaceKinematicState& state, const Matrix5& jacobian) noexcept
+{
+  Matrix5 covariance{};
+  Matrix5 product{};
+  Matrix5 transported{};
+  unpackCovariance(state, covariance);
+  for (uint8_t row = 0; row < 5; ++row) {
+    for (uint8_t column = 0; column < 5; ++column) {
+      for (uint8_t inner = 0; inner < 5; ++inner) {
+        product[row][column] += jacobian[row][inner] * covariance[inner][column];
+      }
+    }
+  }
+  for (uint8_t row = 0; row < 5; ++row) {
+    for (uint8_t column = 0; column < 5; ++column) {
+      for (uint8_t inner = 0; inner < 5; ++inner) {
+        transported[row][column] += product[row][inner] * jacobian[column][inner];
+      }
+    }
+  }
+  packCovariance(transported, state);
+}
+
+void identity(Matrix5& matrix) noexcept
+{
+  for (uint8_t i = 0; i < 5; ++i) {
+    matrix[i][i] = 1.f;
+  }
+}
+
+bool validateSource(const SurfaceKinematicState& state, OperationFailureReason& reason) noexcept
+{
+  if (state.family != StateFamily::Forward) {
+    reason = OperationFailureReason::SourceFamilyMismatch;
+    return false;
+  }
+  if (!finiteState(state)) {
+    reason = OperationFailureReason::NonFiniteInput;
+    return false;
+  }
+  return true;
+}
+
+bool commitPropagation(SurfaceKinematicState& destination, SurfaceKinematicState& scratch,
+                       OperationFailureReason& reason) noexcept
+{
+  if (!finiteState(scratch)) {
+    reason = OperationFailureReason::NonFiniteOutput;
+    return false;
+  }
+  destination = scratch;
+  return true;
+}
+
+bool propagateLinear(SurfaceKinematicState& state, float targetZ, OperationFailureReason& reason) noexcept
+{
+  const float dz = targetZ - state.referenceCoordinate;
+  const float tanl = state.parameters[3];
+  if (tanl == 0.f && dz != 0.f) {
+    reason = OperationFailureReason::UnreachableTarget;
+    return false;
+  }
+  if (dz == 0.f) {
+    return true;
+  }
+  const float inverseTanl = 1.f / tanl;
+  const float n = dz * inverseTanl;
+  const float m = n * inverseTanl;
+  const float sinPhi = std::sin(state.parameters[2]);
+  const float cosPhi = std::cos(state.parameters[2]);
+  state.parameters[0] += n * cosPhi;
+  state.parameters[1] += n * sinPhi;
+  state.referenceCoordinate = targetZ;
+
+  Matrix5 jacobian{};
+  identity(jacobian);
+  jacobian[0][2] = -n * sinPhi;
+  jacobian[0][3] = -m * cosPhi;
+  jacobian[1][2] = n * cosPhi;
+  jacobian[1][3] = -m * sinPhi;
+  transportCovariance(state, jacobian);
+  return true;
+}
+
+bool propagateQuadratic(SurfaceKinematicState& state, float targetZ, float bz,
+                        OperationFailureReason& reason) noexcept
+{
+  const float dz = targetZ - state.referenceCoordinate;
+  const float tanl = state.parameters[3];
+  if (tanl == 0.f && dz != 0.f) {
+    reason = OperationFailureReason::UnreachableTarget;
+    return false;
+  }
+  if (dz == 0.f) {
+    return true;
+  }
+  const float inverseTanl = 1.f / tanl;
+  const float inverseQPt = state.parameters[4];
+  const float sinPhi = std::sin(state.parameters[2]);
+  const float cosPhi = std::cos(state.parameters[2]);
+  const float fieldSign = std::copysign(1.f, bz);
+  const float k = std::abs(o2::constants::math::B2C * bz);
+  const float n = dz * inverseTanl;
+  const float m = n * inverseTanl;
+  const float theta = -inverseQPt * dz * k * inverseTanl;
+
+  state.parameters[0] += n * cosPhi - 0.5f * n * theta * fieldSign * sinPhi;
+  state.parameters[1] += n * sinPhi + 0.5f * n * theta * fieldSign * cosPhi;
+  state.parameters[2] += fieldSign * theta;
+  state.referenceCoordinate = targetZ;
+
+  Matrix5 jacobian{};
+  identity(jacobian);
+  jacobian[0][2] = -0.5f * n * theta * fieldSign * cosPhi - n * sinPhi;
+  jacobian[0][3] = fieldSign * m * theta * sinPhi - m * cosPhi;
+  jacobian[0][4] = 0.5f * k * m * fieldSign * dz * sinPhi;
+  jacobian[1][2] = -0.5f * n * theta * fieldSign * sinPhi + n * cosPhi;
+  jacobian[1][3] = -fieldSign * m * theta * cosPhi - m * sinPhi;
+  jacobian[1][4] = -0.5f * k * m * fieldSign * dz * cosPhi;
+  jacobian[2][3] = -fieldSign * theta * inverseTanl;
+  jacobian[2][4] = -fieldSign * k * n;
+  transportCovariance(state, jacobian);
+  return true;
+}
+
+bool propagateHelixParameters(SurfaceKinematicState& state, float targetZ, float bz,
+                              OperationFailureReason& reason) noexcept
+{
+  const float dz = targetZ - state.referenceCoordinate;
+  if (dz == 0.f) {
+    return true;
+  }
+  const float tanl = state.parameters[3];
+  const float inverseQPt = state.parameters[4];
+  if (tanl == 0.f) {
+    reason = OperationFailureReason::UnreachableTarget;
+    return false;
+  }
+  if (bz == 0.f || inverseQPt == 0.f) {
+    reason = OperationFailureReason::PropagationFailure;
+    return false;
+  }
+  const float inverseTanl = 1.f / tanl;
+  const float qPt = 1.f / inverseQPt;
+  const float phi = state.parameters[2];
+  const float sinPhi = std::sin(phi);
+  const float cosPhi = std::cos(phi);
+  const float k = std::abs(o2::constants::math::B2C * bz);
+  const float inverseK = 1.f / k;
+  const float theta = -inverseQPt * dz * k * inverseTanl;
+  const float sinTheta = std::sin(theta);
+  const float cosTheta = std::cos(theta);
+  const float fieldSign = std::copysign(1.f, bz);
+  const float y = sinPhi * qPt * inverseK;
+  const float x = cosPhi * qPt * inverseK;
+  state.parameters[0] += fieldSign * (y - y * cosTheta) - x * sinTheta;
+  state.parameters[1] += fieldSign * (-x + x * cosTheta) - y * sinTheta;
+  state.parameters[2] += fieldSign * theta;
+  state.referenceCoordinate = targetZ;
+  return true;
+}
+
+bool propagateHelix(SurfaceKinematicState& state, float targetZ, float bz,
+                    OperationFailureReason& reason) noexcept
+{
+  const float originalZ = state.referenceCoordinate;
+  const float dz = targetZ - originalZ;
+  if (dz == 0.f) {
+    return true;
+  }
+  const float phi = state.parameters[2];
+  const float tanl = state.parameters[3];
+  const float inverseQPt = state.parameters[4];
+  if (!propagateHelixParameters(state, targetZ, bz, reason)) {
+    return false;
+  }
+  const float inverseTanl = 1.f / tanl;
+  const float qPt = 1.f / inverseQPt;
+  const float sinPhi = std::sin(phi);
+  const float cosPhi = std::cos(phi);
+  const float k = std::abs(o2::constants::math::B2C * bz);
+  const float inverseK = 1.f / k;
+  const float theta = -inverseQPt * dz * k * inverseTanl;
+  const float sinTheta = std::sin(theta);
+  const float cosTheta = std::cos(theta);
+  const float fieldSign = std::copysign(1.f, bz);
+  const float n = dz * inverseTanl;
+  const float m = n * inverseTanl;
+  const float o = sinTheta * cosPhi;
+  const float p = sinPhi * cosTheta;
+  const float r = sinPhi * sinTheta;
+  const float s = cosPhi * cosTheta;
+  const float y = sinPhi * qPt * inverseK;
+  const float x = cosPhi * qPt * inverseK;
+  const float t = qPt * cosTheta;
+  const float u = qPt * sinTheta;
+  const float v = qPt;
+  const float nn = dz * inverseTanl * qPt;
+
+  Matrix5 jacobian{};
+  identity(jacobian);
+  jacobian[0][2] = fieldSign * x - fieldSign * x * cosTheta + y * sinTheta;
+  jacobian[0][3] = fieldSign * r * m - s * m;
+  jacobian[0][4] = -fieldSign * nn * r + fieldSign * t * y - fieldSign * v * y + nn * s + u * x;
+  jacobian[1][2] = fieldSign * y - fieldSign * y * cosTheta - x * sinTheta;
+  jacobian[1][3] = -fieldSign * o * m - p * m;
+  jacobian[1][4] = fieldSign * nn * o - fieldSign * t * x + fieldSign * v * x + nn * p + u * y;
+  jacobian[2][3] = -fieldSign * theta * inverseTanl;
+  jacobian[2][4] = -fieldSign * k * n;
+  transportCovariance(state, jacobian);
+  return true;
+}
+
+template <ForwardPropagationModel Model>
+bool propagateBound(SurfaceKinematicState& destination, float targetZ, float bz,
+                    OperationFailureReason& reason) noexcept
+{
+  if (!validateSource(destination, reason) || !std::isfinite(targetZ) || !std::isfinite(bz)) {
+    if (destination.family == StateFamily::Forward && finiteState(destination)) {
+      reason = OperationFailureReason::NonFiniteInput;
+    }
+    return false;
+  }
+  SurfaceKinematicState scratch = destination;
+  bool success = false;
+  if constexpr (Model == ForwardPropagationModel::Linear) {
+    success = propagateLinear(scratch, targetZ, reason);
+  } else if constexpr (Model == ForwardPropagationModel::Quadratic) {
+    success = propagateQuadratic(scratch, targetZ, bz, reason);
+  } else if constexpr (Model == ForwardPropagationModel::Helix) {
+    success = propagateHelix(scratch, targetZ, bz, reason);
+  } else {
+    if (bz == 0.f) {
+      success = propagateLinear(scratch, targetZ, reason);
+    } else {
+      const SurfaceKinematicState original = scratch;
+      success = propagateHelixParameters(scratch, targetZ, bz, reason);
+      if (success) {
+        SurfaceKinematicState covarianceScratch = original;
+        success = propagateQuadratic(covarianceScratch, targetZ, bz, reason);
+        if (success) {
+          for (uint8_t i = 0; i < 15; ++i) {
+            scratch.covariance[i] = covarianceScratch.covariance[i];
+          }
+        }
+      }
+    }
+  }
+  return success && commitPropagation(destination, scratch, reason);
+}
+
+bool residualInverse(const SurfaceKinematicState& state, const SurfaceMeasurement& measurement,
+                     float& inverse00, float& inverse01, float& inverse11,
+                     OperationFailureReason& reason, OperationFailureReason failure) noexcept
+{
+  const float s00 = state.covariance[packedCovarianceIndex(0, 0)] + measurement.covariance.uu;
+  const float s01 = state.covariance[packedCovarianceIndex(1, 0)] + measurement.covariance.uv;
+  const float s11 = state.covariance[packedCovarianceIndex(1, 1)] + measurement.covariance.vv;
+  const float determinant = s00 * s11 - s01 * s01;
+  if (!std::isfinite(determinant) || determinant == 0.f) {
+    reason = std::isfinite(determinant) ? OperationFailureReason::InvalidCovariance : failure;
+    return false;
+  }
+  const float inverseDeterminant = 1.f / determinant;
+  inverse00 = s11 * inverseDeterminant;
+  inverse01 = -s01 * inverseDeterminant;
+  inverse11 = s00 * inverseDeterminant;
+  if (!std::isfinite(inverse00) || !std::isfinite(inverse01) || !std::isfinite(inverse11)) {
+    reason = failure;
+    return false;
+  }
+  return true;
+}
+
+} // namespace
+
+template <>
+bool propagateToDisk<ForwardPropagationModel::Linear>(SurfaceKinematicState& state, float targetZ, float bz,
+                                                      OperationFailureReason& reason) noexcept
+{
+  return propagateBound<ForwardPropagationModel::Linear>(state, targetZ, bz, reason);
+}
+
+template <>
+bool propagateToDisk<ForwardPropagationModel::Quadratic>(SurfaceKinematicState& state, float targetZ, float bz,
+                                                         OperationFailureReason& reason) noexcept
+{
+  return propagateBound<ForwardPropagationModel::Quadratic>(state, targetZ, bz, reason);
+}
+
+template <>
+bool propagateToDisk<ForwardPropagationModel::Helix>(SurfaceKinematicState& state, float targetZ, float bz,
+                                                     OperationFailureReason& reason) noexcept
+{
+  return propagateBound<ForwardPropagationModel::Helix>(state, targetZ, bz, reason);
+}
+
+template <>
+bool propagateToDisk<ForwardPropagationModel::Optimized>(SurfaceKinematicState& state, float targetZ, float bz,
+                                                         OperationFailureReason& reason) noexcept
+{
+  return propagateBound<ForwardPropagationModel::Optimized>(state, targetZ, bz, reason);
+}
+
+bool predictedChi2(const SurfaceKinematicState& state, const SurfaceMeasurement& measurement, float& chi2,
+                   OperationFailureReason& reason) noexcept
+{
+  if (!validateSource(state, reason) || !finiteMeasurement(measurement)) {
+    if (state.family == StateFamily::Forward && finiteState(state)) {
+      reason = OperationFailureReason::NonFiniteInput;
+    }
+    return false;
+  }
+  float inverse00 = 0.f;
+  float inverse01 = 0.f;
+  float inverse11 = 0.f;
+  if (!residualInverse(state, measurement, inverse00, inverse01, inverse11, reason,
+                       OperationFailureReason::PredictedChi2Failure)) {
+    return false;
+  }
+  const float residualX = measurement.global.x - state.parameters[0];
+  const float residualY = measurement.global.y - state.parameters[1];
+  const float scratchChi2 = residualX * (inverse00 * residualX + inverse01 * residualY) +
+                            residualY * (inverse01 * residualX + inverse11 * residualY);
+  if (!std::isfinite(scratchChi2)) {
+    reason = OperationFailureReason::PredictedChi2Failure;
+    return false;
+  }
+  chi2 = scratchChi2;
+  return true;
+}
+
+bool update(SurfaceKinematicState& state, const SurfaceMeasurement& measurement, float& chi2,
+            OperationFailureReason& reason) noexcept
+{
+  if (!validateSource(state, reason) || !finiteMeasurement(measurement)) {
+    if (state.family == StateFamily::Forward && finiteState(state)) {
+      reason = OperationFailureReason::NonFiniteInput;
+    }
+    return false;
+  }
+  float inverse00 = 0.f;
+  float inverse01 = 0.f;
+  float inverse11 = 0.f;
+  if (!residualInverse(state, measurement, inverse00, inverse01, inverse11, reason,
+                       OperationFailureReason::UpdateFailure)) {
+    return false;
+  }
+
+  Matrix5 covariance{};
+  Matrix5 updatedCovariance{};
+  float gain[5][2]{};
+  unpackCovariance(state, covariance);
+  const float residual[2] = {measurement.global.x - state.parameters[0], measurement.global.y - state.parameters[1]};
+  SurfaceKinematicState scratch = state;
+  for (uint8_t row = 0; row < 5; ++row) {
+    gain[row][0] = covariance[row][0] * inverse00 + covariance[row][1] * inverse01;
+    gain[row][1] = covariance[row][0] * inverse01 + covariance[row][1] * inverse11;
+    scratch.parameters[row] += gain[row][0] * residual[0] + gain[row][1] * residual[1];
+  }
+  for (uint8_t row = 0; row < 5; ++row) {
+    for (uint8_t column = 0; column < 5; ++column) {
+      updatedCovariance[row][column] = covariance[row][column] -
+                                       gain[row][0] * covariance[0][column] -
+                                       gain[row][1] * covariance[1][column];
+    }
+  }
+  packCovariance(updatedCovariance, scratch);
+  const float scratchChi2 = residual[0] * (inverse00 * residual[0] + inverse01 * residual[1]) +
+                            residual[1] * (inverse01 * residual[0] + inverse11 * residual[1]);
+  if (!finiteState(scratch) || !std::isfinite(scratchChi2)) {
+    reason = OperationFailureReason::NonFiniteOutput;
+    return false;
+  }
+  state = scratch;
+  chi2 = scratchChi2;
+  return true;
+}
+
+bool correctForMaterial(SurfaceKinematicState& state, float xOverX0, OperationFailureReason& reason) noexcept
+{
+  if (!validateSource(state, reason) || !std::isfinite(xOverX0)) {
+    if (state.family == StateFamily::Forward && finiteState(state)) {
+      reason = OperationFailureReason::NonFiniteInput;
+    }
+    return false;
+  }
+  if (xOverX0 == 0.f) {
+    return true;
+  }
+  const float tanl = state.parameters[3];
+  if (tanl == 0.f) {
+    reason = OperationFailureReason::MaterialFailure;
+    return false;
+  }
+  const float inverseQPt = state.parameters[4];
+  const float onePlusTanl2 = 1.f + tanl * tanl;
+  const float inverseMomentum = std::abs(inverseQPt) / std::sqrt(onePlusTanl2);
+  const float pathLengthOverX0 = xOverX0 * std::abs(std::sqrt(onePlusTanl2) / tanl);
+  const float theta2 = highlandTheta2(inverseMomentum, pathLengthOverX0);
+  SurfaceKinematicState scratch = state;
+  scratch.covariance[packedCovarianceIndex(2, 2)] += theta2 * onePlusTanl2;
+  scratch.covariance[packedCovarianceIndex(3, 3)] += theta2 * onePlusTanl2 * onePlusTanl2;
+  scratch.covariance[packedCovarianceIndex(4, 4)] += theta2 * tanl * tanl * inverseQPt * inverseQPt;
+  if (!finiteState(scratch)) {
+    reason = OperationFailureReason::NonFiniteOutput;
+    return false;
+  }
+  state = scratch;
+  return true;
+}
+
+} // namespace o2::itsmft::tracking
