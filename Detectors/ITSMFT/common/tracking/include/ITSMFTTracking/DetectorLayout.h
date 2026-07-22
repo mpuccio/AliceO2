@@ -48,8 +48,10 @@ struct DetectorLayoutView {
   SparseTrackingTopologyView topology{};
 
   GPUhdi() const SurfaceDescriptor& getSurface(SurfaceId id) const { return surfaces[id.value()]; }
-  // Narrowed, catalog-only view: geometry identity alone, with no topology,
-  // masks or transition-policy dependency.
+  // Narrowed, topology-free, mask-free and policy-free view: each
+  // SurfaceDescriptor still carries its identity, geometry and nominal
+  // material (see SurfaceCatalogView.h); this narrowing drops topology,
+  // masks and transition-policy dependency, not material.
   GPUhdi() SurfaceCatalogView getSurfaceCatalogView() const noexcept { return SurfaceCatalogView{surfaces, nSurfaces}; }
 };
 

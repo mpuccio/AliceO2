@@ -18,12 +18,22 @@
 namespace o2::itsmft::tracking
 {
 
-// Minimal, geometry-only view over a canonical surface catalog: a pointer
-// to const SurfaceDescriptor plus a count, nothing else. Deliberately
-// carries no topology, masks, transition-policy, STL ownership or detector
-// dependency, so consumers that only need surface identity (e.g. loading)
-// do not have to depend on DetectorLayout/SparseTrackingTopology/
-// TransitionPolicy.
+// Minimal, topology-free, mask-free and policy-free view over a canonical
+// surface catalog: a pointer to const SurfaceDescriptor plus a count,
+// nothing else. Deliberately carries no topology, masks, transition-policy,
+// STL ownership or detector dependency, so consumers that only need the
+// surface descriptions (e.g. loading) do not have to depend on
+// DetectorLayout/SparseTrackingTopology/TransitionPolicy.
+//
+// A SurfaceDescriptor now includes immutable identity, geometry and nominal
+// material (see SurfaceDescriptor.h), so this view is not geometry-only:
+// consumers that only care about identity/geometry may simply ignore the
+// `material` field on each returned SurfaceDescriptor, but the view does
+// not hide it. No separate material pointer or accessor is added here for
+// that -- it is naturally reachable through the returned SurfaceDescriptor
+// itself. What keeps this view narrow is what it deliberately excludes:
+// topology, masks, transition policies, timing, measurements, and any
+// runtime (endpoint-dependent) material-query result.
 struct SurfaceCatalogView {
   const SurfaceDescriptor* surfaces{nullptr};
   uint32_t nSurfaces{0};

@@ -68,6 +68,18 @@ Consequences of putting material directly on the descriptor:
 - `DetectorLayoutView` accesses material through its `SurfaceDescriptor`
   entries (`layoutView.getSurface(id).material`), not through a parallel
   array or a dedicated accessor.
+- `SurfaceCatalogView` (`SurfaceCatalogView.h`) is a narrow topology-free,
+  mask-free and policy-free view of the shared surface descriptions -- not a
+  "geometry-only" view. A `SurfaceDescriptor` now includes immutable
+  identity, geometry and nominal material, so `SurfaceCatalogView` exposes
+  material too, simply because it returns `SurfaceDescriptor`. Consumers
+  that only need identity/geometry may ignore the `material` field; the view
+  does not hide it, and no separate material accessor was added to it.
+- `SurfaceSpec` plus `StaticSurfaceDescriptor` already carries both nominal
+  material fields, and `toRuntimeSurfaceDescriptor()` already projects them
+  onto the runtime `SurfaceDescriptor`. No separate `MaterialSpec` or
+  nominal-material projection layer is required: the existing static-to-
+  runtime projection is the projection layer.
 - Changing nominal material is changing the surface description, so it goes
   through the existing detector-layout invalidation/geometry-epoch mechanism
   (`TimeFrame::invalidateDetectorLayouts()`/`DetectorGeometryEpoch`) exactly
@@ -103,8 +115,16 @@ here.
 - **Standalone `NominalMaterialCatalog` owner with its own key and
   `isCurrentFor()`**: an earlier-still alternative to the parallel-array
   design above; rejected for the same reason and superseded along with it.
-- **Material folded into `SurfaceCatalogView`**: breaks its documented
-  narrow, geometry-only contract for every existing consumer.
+- **A dedicated second, geometry-only view type, to preserve `SurfaceCatalogView`'s
+  old "geometry-only" framing now that `SurfaceDescriptor` carries material**:
+  rejected. No separate material pointer or accessor was added to
+  `SurfaceCatalogView` -- material is naturally reachable simply because
+  `SurfaceCatalogView` returns `SurfaceDescriptor`, and a second view type
+  existing only to keep a name accurate would itself be the kind of
+  unnecessary parallel machinery this decision removes. The view remains
+  narrow for a different reason: it excludes topology, masks, transition
+  policies, timing, measurements and any runtime (endpoint-dependent)
+  material-query result, not identity or geometry.
 - **Combined geometry+material provider abstraction now**: premature without
   a second, real (TGeo/LUT) material source to validate the abstraction
   against; still deferred.
