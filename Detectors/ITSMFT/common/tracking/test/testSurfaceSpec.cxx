@@ -235,6 +235,38 @@ static_assert(SurfaceMeasurementIndex{7} != SurfaceMeasurementIndex{8});
 
 } // namespace
 
+// -------------------------------------------------------------------------
+// Runtime ABI/layout lock, alongside the compile-time static_asserts in
+// SurfaceDescriptor.h/StaticSurfaceDescriptor.h: nominal material is a field
+// directly on both descriptor types, not a parallel array or pointer.
+// -------------------------------------------------------------------------
+
+BOOST_AUTO_TEST_CASE(SurfaceDescriptorRuntimeAbiLock)
+{
+  BOOST_CHECK_EQUAL(sizeof(NominalSurfaceMaterial), 8u);
+  BOOST_CHECK_EQUAL(alignof(NominalSurfaceMaterial), 4u);
+  BOOST_CHECK_EQUAL(offsetof(NominalSurfaceMaterial, xOverX0), 0u);
+  BOOST_CHECK_EQUAL(offsetof(NominalSurfaceMaterial, arealDensityGPerCm2), 4u);
+
+  BOOST_CHECK_EQUAL(sizeof(SurfaceDescriptor), 28u);
+  BOOST_CHECK_EQUAL(alignof(SurfaceDescriptor), 4u);
+  BOOST_CHECK_EQUAL(offsetof(SurfaceDescriptor, material), 20u);
+
+  BOOST_CHECK_EQUAL(sizeof(StaticSurfaceDescriptor), 36u);
+  BOOST_CHECK_EQUAL(alignof(StaticSurfaceDescriptor), 4u);
+  BOOST_CHECK_EQUAL(offsetof(StaticSurfaceDescriptor, material), 24u);
+  BOOST_CHECK_EQUAL(offsetof(StaticSurfaceDescriptor, indexingFamily), 32u);
+
+  // Default-constructed material on both descriptor types is zero on both
+  // fields independently -- not just "some default", but exactly zero.
+  constexpr SurfaceDescriptor defaultRuntime{};
+  BOOST_CHECK_EQUAL(defaultRuntime.material.xOverX0, 0.f);
+  BOOST_CHECK_EQUAL(defaultRuntime.material.arealDensityGPerCm2, 0.f);
+  constexpr StaticSurfaceDescriptor defaultStatic{};
+  BOOST_CHECK_EQUAL(defaultStatic.material.xOverX0, 0.f);
+  BOOST_CHECK_EQUAL(defaultStatic.material.arealDensityGPerCm2, 0.f);
+}
+
 BOOST_AUTO_TEST_CASE(ConcatenationRebasesAndPreservesFields)
 {
   BOOST_CHECK_EQUAL(Combined::surfaces[0].id.value(), 0);
