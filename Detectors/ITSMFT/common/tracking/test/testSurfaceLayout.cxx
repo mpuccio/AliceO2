@@ -252,8 +252,7 @@ BOOST_AUTO_TEST_CASE(LayoutCachesKindMasksInTheGlobalIdSpace)
   const auto masks = computeSurfaceKindMasks(surfaces);
   DetectorLayout layout{surfaces, std::move(topology)};
   BOOST_REQUIRE(layout.valid());
-  const std::vector<NominalSurfaceMaterialBudget> zeroMaterial(surfaces.size());
-  const auto view = layout.getView(surfaces, masks.first, masks.second, zeroMaterial);
+  const auto view = layout.getView(surfaces, masks.first, masks.second);
   BOOST_CHECK_EQUAL(view.nSurfaces, 4u);
   BOOST_CHECK_EQUAL(view.cylinderSurfaces.value(), 0x3u);
   BOOST_CHECK_EQUAL(view.diskSurfaces.value(), 0xcu);

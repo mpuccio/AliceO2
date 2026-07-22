@@ -20,12 +20,14 @@ using namespace o2::itsmft::tracking;
 
 namespace
 {
-SurfaceDescriptor surface(uint16_t id, SurfaceKind kind = SurfaceKind::Cylinder)
+SurfaceDescriptor surface(uint16_t id, SurfaceKind kind = SurfaceKind::Cylinder, NominalSurfaceMaterial material = {})
 {
-  return SurfaceDescriptor{SurfaceId{id}, id, 0, kind};
+  SurfaceDescriptor result{SurfaceId{id}, id, 0, kind};
+  result.material = material;
+  return result;
 }
 
-DetectorLayoutSet buildSet(std::vector<SurfaceDescriptor> catalog, std::vector<NominalSurfaceMaterialBudget> material, int nIterations)
+DetectorLayoutSet buildSet(std::vector<SurfaceDescriptor> catalog, int nIterations)
 {
   DetectorLayoutConfigurationKey key;
   key.geometryEpoch = 1;
@@ -36,7 +38,7 @@ DetectorLayoutSet buildSet(std::vector<SurfaceDescriptor> catalog, std::vector<N
     topology.finalize();
     layouts.emplace_back(catalog, std::move(topology));
   }
-  return DetectorLayoutSet{std::move(key), std::move(catalog), std::move(material), std::move(layouts)};
+  return DetectorLayoutSet{std::move(key), std::move(catalog), std::move(layouts)};
 }
 
 // Structural proof that no per-iteration surface ownership remains:
@@ -59,98 +61,78 @@ static_assert(!HasGetDiskSurfaces<DetectorLayout>);
 
 static_assert(std::is_standard_layout_v<DetectorLayoutView>);
 static_assert(std::is_trivially_copyable_v<DetectorLayoutView>);
-static_assert(sizeof(DetectorLayoutView) == 88);
+static_assert(sizeof(DetectorLayoutView) == 72);
 static_assert(alignof(DetectorLayoutView) == 8);
 static_assert(offsetof(DetectorLayoutView, surfaces) == 0);
 static_assert(offsetof(DetectorLayoutView, nSurfaces) == 8);
 static_assert(offsetof(DetectorLayoutView, cylinderSurfaces) == 12);
 static_assert(offsetof(DetectorLayoutView, diskSurfaces) == 16);
 static_assert(offsetof(DetectorLayoutView, topology) == 24);
-static_assert(offsetof(DetectorLayoutView, nominalMaterial) == 72);
-static_assert(offsetof(DetectorLayoutView, status) == 80);
-static_assert(static_cast<uint8_t>(DetectorLayoutViewStatus::Invalid) == 0);
-static_assert(static_cast<uint8_t>(DetectorLayoutViewStatus::Valid) == 1);
 
 // -------------------------------------------------------------------------
-// Valid / invalid status contract
+// Default / out-of-range sentinel
 // -------------------------------------------------------------------------
 
-BOOST_AUTO_TEST_CASE(DefaultConstructedViewIsInvalid)
+BOOST_AUTO_TEST_CASE(DefaultConstructedViewIsTheSentinel)
 {
   DetectorLayoutView view{};
-  BOOST_CHECK(!view.isValid());
-  BOOST_CHECK(view.status == DetectorLayoutViewStatus::Invalid);
   BOOST_CHECK(view.surfaces == nullptr);
-  BOOST_CHECK(view.nominalMaterial == nullptr);
-}
-
-BOOST_AUTO_TEST_CASE(OutOfRangeIterationReturnsInvalid)
-{
-  auto set = buildSet({surface(0), surface(1)}, {{}, {}}, 1);
-  BOOST_CHECK(!set.getLayoutView(5).isValid());
-  BOOST_CHECK(set.getLayoutView(5).status == DetectorLayoutViewStatus::Invalid);
-}
-
-BOOST_AUTO_TEST_CASE(ZeroIterationsHasNoValidView)
-{
-  auto set = buildSet({surface(0)}, {{}}, 0);
-  BOOST_CHECK_EQUAL(set.size(), 0u);
-  BOOST_CHECK(!set.getLayoutView(0).isValid());
-}
-
-BOOST_AUTO_TEST_CASE(ValidIterationIsValidIndependentOfZeroCounts)
-{
-  // Zero surfaces, one (trivially valid) iteration: a legitimate
-  // empty-but-valid layout, distinguished from the invalid default purely
-  // via status, not via nSurfaces/pointer nullness.
-  auto set = buildSet({}, {}, 1);
-  const auto view = set.getLayoutView(0);
-  BOOST_CHECK(view.isValid());
-  BOOST_CHECK(view.status == DetectorLayoutViewStatus::Valid);
   BOOST_CHECK_EQUAL(view.nSurfaces, 0u);
 }
 
+BOOST_AUTO_TEST_CASE(OutOfRangeIterationReturnsSentinel)
+{
+  auto set = buildSet({surface(0), surface(1)}, 1);
+  BOOST_CHECK(set.getLayoutView(5).surfaces == nullptr);
+}
+
 // -------------------------------------------------------------------------
-// Shared storage: identical pointers across multiple iteration views
+// Shared storage: identical pointers across multiple iteration views, and
+// material values visible identically from every iteration view.
 // -------------------------------------------------------------------------
 
-BOOST_AUTO_TEST_CASE(MultipleIterationViewsShareTheSameSurfaceAndMaterialPointers)
+BOOST_AUTO_TEST_CASE(MultipleIterationViewsShareTheSameSurfaceCatalog)
 {
-  std::vector<SurfaceDescriptor> catalog{surface(0, SurfaceKind::Cylinder), surface(1, SurfaceKind::Cylinder), surface(2, SurfaceKind::Disk)};
-  std::vector<NominalSurfaceMaterialBudget> material{{0.01f, 0.f}, {0.02f, 0.f}, {0.03f, 0.5f}};
-  auto set = buildSet(catalog, material, 3);
+  std::vector<SurfaceDescriptor> catalog{surface(0, SurfaceKind::Cylinder, {0.01f, 0.f}),
+                                         surface(1, SurfaceKind::Cylinder, {0.02f, 0.f}),
+                                         surface(2, SurfaceKind::Disk, {0.03f, 0.5f})};
+  auto set = buildSet(catalog, 3);
 
   const auto v0 = set.getLayoutView(0);
   const auto v1 = set.getLayoutView(1);
   const auto v2 = set.getLayoutView(2);
-  BOOST_REQUIRE(v0.isValid() && v1.isValid() && v2.isValid());
+  BOOST_REQUIRE(v0.surfaces != nullptr && v1.surfaces != nullptr && v2.surfaces != nullptr);
 
-  // Same shared arrays, not per-iteration copies: identical pointers.
+  // Same shared catalog, not per-iteration copies: identical pointers.
   BOOST_CHECK(v0.surfaces == v1.surfaces);
   BOOST_CHECK(v1.surfaces == v2.surfaces);
-  BOOST_CHECK(v0.nominalMaterial == v1.nominalMaterial);
-  BOOST_CHECK(v1.nominalMaterial == v2.nominalMaterial);
   BOOST_CHECK_EQUAL(v0.nSurfaces, 3u);
   BOOST_CHECK_EQUAL(v0.cylinderSurfaces.value(), v1.cylinderSurfaces.value());
   BOOST_CHECK_EQUAL(v0.diskSurfaces.value(), v1.diskSurfaces.value());
   BOOST_CHECK_EQUAL(v0.cylinderSurfaces.value(), 0x3u);
   BOOST_CHECK_EQUAL(v0.diskSurfaces.value(), 0x4u);
 
-  BOOST_CHECK_EQUAL(v0.getNominalMaterial(SurfaceId{2}).normalArealDensityGPerCm2, 0.5f);
+  // Material is reached through the shared SurfaceDescriptor, not a
+  // parallel array -- and is identical from every iteration's view.
+  BOOST_CHECK_EQUAL(v0.getSurface(SurfaceId{2}).material.arealDensityGPerCm2, 0.5f);
+  BOOST_CHECK_EQUAL(v0.getSurface(SurfaceId{2}).material.arealDensityGPerCm2,
+                    v1.getSurface(SurfaceId{2}).material.arealDensityGPerCm2);
+  BOOST_CHECK_EQUAL(v1.getSurface(SurfaceId{2}).material.arealDensityGPerCm2,
+                    v2.getSurface(SurfaceId{2}).material.arealDensityGPerCm2);
+  BOOST_CHECK(&v0.getSurface(SurfaceId{0}) == &v1.getSurface(SurfaceId{0}));
 }
 
 BOOST_AUTO_TEST_CASE(SharedCatalogAndMasksAreComputedOnceFromDetectorLayoutSet)
 {
   std::vector<SurfaceDescriptor> catalog{surface(0, SurfaceKind::Disk), surface(1, SurfaceKind::Cylinder)};
-  auto set = buildSet(catalog, {{}, {}}, 2);
+  auto set = buildSet(catalog, 2);
   BOOST_CHECK_EQUAL(set.getCylinderSurfaces().value(), 0x2u);
   BOOST_CHECK_EQUAL(set.getDiskSurfaces().value(), 0x1u);
   BOOST_CHECK_EQUAL(&set.getSurfaceCatalog(), &set.getSurfaceCatalog()); // same object, not recomputed
 }
 
 // -------------------------------------------------------------------------
-// DetectorLayout::getView() alignment requirement (nominalMaterial.size()
-// must equal surfaces.size(); no default argument -- see DetectorLayout.h)
+// DetectorLayout::getView()
 // -------------------------------------------------------------------------
 
 namespace
@@ -163,55 +145,45 @@ DetectorLayout buildLayout(const std::vector<SurfaceDescriptor>& surfaces)
 }
 } // namespace
 
-BOOST_AUTO_TEST_CASE(GetViewValidForMatchingNonEmptyGeometryAndMaterial)
+BOOST_AUTO_TEST_CASE(GetViewValidForNonEmptyGeometry)
 {
-  const std::vector<SurfaceDescriptor> surfaces{surface(0), surface(1)};
+  const std::vector<SurfaceDescriptor> surfaces{surface(0, SurfaceKind::Cylinder, {0.01f, 0.f}),
+                                                surface(1, SurfaceKind::Cylinder, {0.02f, 0.5f})};
   auto layout = buildLayout(surfaces);
   BOOST_REQUIRE(layout.valid());
   const auto masks = computeSurfaceKindMasks(surfaces);
-  const std::vector<NominalSurfaceMaterialBudget> material{{0.01f, 0.f}, {0.02f, 0.5f}};
-  const auto view = layout.getView(surfaces, masks.first, masks.second, material);
-  BOOST_CHECK(view.isValid());
+  const auto view = layout.getView(surfaces, masks.first, masks.second);
+  BOOST_CHECK(view.surfaces != nullptr);
   BOOST_CHECK_EQUAL(view.nSurfaces, 2u);
-  BOOST_CHECK_EQUAL(view.getNominalMaterial(SurfaceId{1}).normalArealDensityGPerCm2, 0.5f);
+  BOOST_CHECK_EQUAL(view.getSurface(SurfaceId{1}).material.arealDensityGPerCm2, 0.5f);
 }
 
-BOOST_AUTO_TEST_CASE(GetViewInvalidForNonEmptyGeometryWithEmptyMaterial)
+BOOST_AUTO_TEST_CASE(GetViewIsSentinelForInvalidLayout)
 {
+  // Mismatched topology surface count makes the layout invalid.
+  SparseTrackingTopology topology{3};
+  BOOST_REQUIRE(topology.finalize());
   const std::vector<SurfaceDescriptor> surfaces{surface(0), surface(1)};
-  auto layout = buildLayout(surfaces);
-  BOOST_REQUIRE(layout.valid());
+  DetectorLayout layout{surfaces, std::move(topology)};
+  BOOST_CHECK(!layout.valid());
   const auto masks = computeSurfaceKindMasks(surfaces);
-  const auto view = layout.getView(surfaces, masks.first, masks.second, {});
-  BOOST_CHECK(!view.isValid());
-  BOOST_CHECK(view.status == DetectorLayoutViewStatus::Invalid);
+  const auto view = layout.getView(surfaces, masks.first, masks.second);
+  BOOST_CHECK(view.surfaces == nullptr);
+  BOOST_CHECK_EQUAL(view.nSurfaces, 0u);
 }
 
-BOOST_AUTO_TEST_CASE(GetViewInvalidForMismatchedNonEmptySizes)
-{
-  const std::vector<SurfaceDescriptor> surfaces{surface(0), surface(1)};
-  auto layout = buildLayout(surfaces);
-  BOOST_REQUIRE(layout.valid());
-  const auto masks = computeSurfaceKindMasks(surfaces);
-  const std::vector<NominalSurfaceMaterialBudget> tooFewMaterial{{0.01f, 0.f}}; // 1 entry for 2 surfaces
-  const auto view = layout.getView(surfaces, masks.first, masks.second, tooFewMaterial);
-  BOOST_CHECK(!view.isValid());
-}
-
-BOOST_AUTO_TEST_CASE(GetViewValidForLegitimateEmptyGeometryAndEmptyMaterial)
+BOOST_AUTO_TEST_CASE(GetViewValidForLegitimateEmptyGeometry)
 {
   auto layout = buildLayout({});
   BOOST_REQUIRE(layout.valid());
-  const auto view = layout.getView({}, {}, {}, {});
-  BOOST_CHECK(view.isValid());
+  const auto view = layout.getView({}, {}, {});
   BOOST_CHECK_EQUAL(view.nSurfaces, 0u);
 }
 
 BOOST_AUTO_TEST_CASE(DetectorLayoutSetProducedViewsRemainValid)
 {
   std::vector<SurfaceDescriptor> catalog{surface(0), surface(1), surface(2)};
-  std::vector<NominalSurfaceMaterialBudget> material{{0.01f, 0.f}, {0.02f, 0.f}, {0.03f, 0.f}};
-  auto set = buildSet(catalog, material, 2);
-  BOOST_CHECK(set.getLayoutView(0).isValid());
-  BOOST_CHECK(set.getLayoutView(1).isValid());
+  auto set = buildSet(catalog, 2);
+  BOOST_CHECK(set.getLayoutView(0).surfaces != nullptr);
+  BOOST_CHECK(set.getLayoutView(1).surfaces != nullptr);
 }

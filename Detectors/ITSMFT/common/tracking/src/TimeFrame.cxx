@@ -146,30 +146,6 @@ DetectorSurfaceCatalogValidationError validateSurfaceCatalog(const DetectorSurfa
   return DetectorSurfaceCatalogValidationError::None;
 }
 
-// Positional identity-bearing validation: `entries` must be the same size
-// as, and claim exactly the SurfaceIds of, the already-dense, already-
-// validated `surfaceCatalog`, at matching positions. A duplicate, missing
-// or reordered entry fails SurfaceIdMismatch through this positional
-// contract; catalog denseness itself is validateSurfaceCatalog()'s job and
-// is assumed already established by the caller.
-DetectorLayoutMaterialValidationError validateNominalMaterialEntries(gsl::span<const SurfaceDescriptor> surfaceCatalog,
-                                                                     gsl::span<const NominalSurfaceMaterialEntry> entries)
-{
-  if (entries.size() != surfaceCatalog.size()) {
-    return DetectorLayoutMaterialValidationError::SizeMismatch;
-  }
-  for (size_t i = 0; i < entries.size(); ++i) {
-    if (entries[i].surface != surfaceCatalog[i].id) {
-      return DetectorLayoutMaterialValidationError::SurfaceIdMismatch;
-    }
-    const auto& budget = entries[i].budget;
-    if (!std::isfinite(budget.normalXOverX0) || budget.normalXOverX0 < 0.f ||
-        !std::isfinite(budget.normalArealDensityGPerCm2) || budget.normalArealDensityGPerCm2 < 0.f) {
-      return DetectorLayoutMaterialValidationError::InvalidBudget;
-    }
-  }
-  return DetectorLayoutMaterialValidationError::None;
-}
 } // namespace
 
 template <int NLayers>
@@ -219,29 +195,6 @@ DetectorLayoutSetBuildResult TimeFrame<NLayers>::ensureDetectorLayouts(const Det
                                                                        TransitionPolicyTag policyTag,
                                                                        gsl::span<const TrackingParameters> trackingParameters)
 {
-  return ensureDetectorLayoutsImpl(provider, catalogRequest, orderedSurfaces, policyTag, trackingParameters, {}, true);
-}
-
-template <int NLayers>
-DetectorLayoutSetBuildResult TimeFrame<NLayers>::ensureDetectorLayouts(const DetectorSurfaceCatalogProvider* provider,
-                                                                       const DetectorSurfaceCatalogRequest& catalogRequest,
-                                                                       gsl::span<const SurfaceId> orderedSurfaces,
-                                                                       TransitionPolicyTag policyTag,
-                                                                       gsl::span<const TrackingParameters> trackingParameters,
-                                                                       gsl::span<const NominalSurfaceMaterialEntry> materialEntries)
-{
-  return ensureDetectorLayoutsImpl(provider, catalogRequest, orderedSurfaces, policyTag, trackingParameters, materialEntries, false);
-}
-
-template <int NLayers>
-DetectorLayoutSetBuildResult TimeFrame<NLayers>::ensureDetectorLayoutsImpl(const DetectorSurfaceCatalogProvider* provider,
-                                                                           const DetectorSurfaceCatalogRequest& catalogRequest,
-                                                                           gsl::span<const SurfaceId> orderedSurfaces,
-                                                                           TransitionPolicyTag policyTag,
-                                                                           gsl::span<const TrackingParameters> trackingParameters,
-                                                                           gsl::span<const NominalSurfaceMaterialEntry> materialEntries,
-                                                                           bool synthesizeZeroMaterialWhenEmpty)
-{
   DetectorLayoutConfigurationKey key;
   key.geometryEpoch = mRequiredDetectorGeometryEpoch;
   key.materialEpoch = mRequiredMaterialCatalogEpoch;
@@ -280,42 +233,6 @@ DetectorLayoutSetBuildResult TimeFrame<NLayers>::ensureDetectorLayoutsImpl(const
             .catalogValidationError = catalogValidationError};
   }
 
-  // Transactional nominal-material validation, before any owner is
-  // committed. materialEpoch==0 cannot currently arise through the public
-  // epoch API (nextMaterialCatalogEpoch() never yields 0), but is checked
-  // explicitly as documented defense-in-depth. synthesizeZeroMaterialWhenEmpty
-  // is true only for the compatibility overload: there, an empty
-  // materialEntries synthesizes a size-matched, zero-initialized ("no
-  // material yet") entry set positioned against the just-validated dense
-  // catalog, and that synthesized input still runs through the identical
-  // validation below. For the explicit overload (false), an empty
-  // materialEntries is validated exactly as supplied -- against a
-  // non-empty catalog that fails SizeMismatch, exactly like any other
-  // wrong-size input; against an empty catalog it is trivially valid.
-  if (key.materialEpoch == 0) {
-    return {.error = DetectorLayoutSetBuildError::InvalidMaterial,
-            .materialValidationError = DetectorLayoutMaterialValidationError::InvalidMaterialEpoch};
-  }
-  std::vector<NominalSurfaceMaterialEntry> autoMaterialEntries;
-  gsl::span<const NominalSurfaceMaterialEntry> effectiveMaterialEntries = materialEntries;
-  if (synthesizeZeroMaterialWhenEmpty && materialEntries.empty() && !catalogResult.catalog.empty()) {
-    autoMaterialEntries.reserve(catalogResult.catalog.size());
-    for (const auto& surface : catalogResult.catalog) {
-      autoMaterialEntries.push_back(NominalSurfaceMaterialEntry{surface.id, NominalSurfaceMaterialBudget{}});
-    }
-    effectiveMaterialEntries = autoMaterialEntries;
-  }
-  const auto materialValidationError = validateNominalMaterialEntries(catalogResult.catalog, effectiveMaterialEntries);
-  if (materialValidationError != DetectorLayoutMaterialValidationError::None) {
-    return {.error = DetectorLayoutSetBuildError::InvalidMaterial,
-            .materialValidationError = materialValidationError};
-  }
-  std::vector<NominalSurfaceMaterialBudget> materialBudgets;
-  materialBudgets.reserve(effectiveMaterialEntries.size());
-  for (const auto& entry : effectiveMaterialEntries) {
-    materialBudgets.push_back(entry.budget);
-  }
-
   std::vector<DetectorLayout> staging;
   staging.reserve(key.iterations.size());
   for (size_t iteration = 0; iteration < key.iterations.size(); ++iteration) {
@@ -340,10 +257,7 @@ DetectorLayoutSetBuildResult TimeFrame<NLayers>::ensureDetectorLayoutsImpl(const
     staging.push_back(std::move(*buildResult.layout));
   }
 
-  // materialBudgets is exactly the transactionally validated, positionally
-  // aligned payload from effectiveMaterialEntries above -- only the compact
-  // budgets are stored, not the identity-bearing entries themselves.
-  DetectorLayoutSet stagedSet{std::move(key), std::move(catalogResult.catalog), std::move(materialBudgets), std::move(staging)};
+  DetectorLayoutSet stagedSet{std::move(key), std::move(catalogResult.catalog), std::move(staging)};
   static_assert(std::is_nothrow_move_constructible_v<DetectorLayoutSet>);
   mDetectorLayouts.emplace(std::move(stagedSet));
   return {.rebuilt = true};

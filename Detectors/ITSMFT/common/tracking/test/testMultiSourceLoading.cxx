@@ -232,8 +232,7 @@ struct BuiltLayout {
   DetectorLayoutView getView() const noexcept
   {
     const auto masks = computeSurfaceKindMasks(surfaces);
-    const std::vector<NominalSurfaceMaterialBudget> zeroMaterial(surfaces.size());
-    return layout.getView(surfaces, masks.first, masks.second, zeroMaterial);
+    return layout.getView(surfaces, masks.first, masks.second);
   }
 };
 
@@ -1500,10 +1499,10 @@ BOOST_AUTO_TEST_CASE(EmptyLayoutWithZeroSourcesLoadsSuccessfully)
   emptyTopology.finalize();
   DetectorLayout emptyLayout{{}, std::move(emptyTopology)};
   BOOST_REQUIRE(emptyLayout.valid());
-  BOOST_CHECK_EQUAL(emptyLayout.getView({}, {}, {}, {}).nSurfaces, 0u);
+  BOOST_CHECK_EQUAL(emptyLayout.getView({}, {}, {}).nSurfaces, 0u);
 
   MultiSourceFrame frame;
-  const auto result = loadSources(frame, emptyLayout.getView({}, {}, {}, {}).getSurfaceCatalogView(), gsl::span<const ClusterSourceInput>{}, {0, 0});
+  const auto result = loadSources(frame, emptyLayout.getView({}, {}, {}).getSurfaceCatalogView(), gsl::span<const ClusterSourceInput>{}, {0, 0});
   BOOST_CHECK(result.ok());
   BOOST_CHECK_EQUAL(frame.getTotalMeasurements(), 0u);
   BOOST_CHECK_EQUAL(frame.getNSurfaces(), 0u);

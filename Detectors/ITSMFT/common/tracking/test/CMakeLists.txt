@@ -15,12 +15,6 @@ o2_add_test(layermask
             LABELS "itsmft;tracking"
             PUBLIC_LINK_LIBRARIES O2::ITSMFTTracking)
 
-o2_add_test(nominal-surface-material
-            SOURCES testNominalSurfaceMaterial.cxx
-            COMPONENT_NAME itsmft-tracking
-            LABELS "itsmft;tracking"
-            PUBLIC_LINK_LIBRARIES O2::ITSMFTTracking)
-
 o2_add_test(mclabelaccumulator
             SOURCES testMCLabelAccumulator.cxx
             COMPONENT_NAME itsmft-tracking
@@ -51,12 +45,6 @@ o2_add_test(detectorlayoutview
             COMPONENT_NAME itsmft-tracking
             LABELS "itsmft;tracking"
             PUBLIC_LINK_LIBRARIES O2::ITSMFTTracking)
-
-o2_add_test(timeframe-material-catalog
-            SOURCES testTimeFrameMaterialCatalog.cxx
-            COMPONENT_NAME itsmft-tracking
-            LABELS "itsmft;tracking"
-            PUBLIC_LINK_LIBRARIES O2::ITSMFTTracking O2::MFTTracking)
 
 o2_add_test(transitionpolicystate
             SOURCES testTransitionPolicyState.cxx

@@ -206,11 +206,10 @@ BOOST_AUTO_TEST_CASE(SingleCallDisconnectedCylinderAndDiskLayout)
   BOOST_CHECK(result.layout->valid());
 
   const auto masks = computeSurfaceKindMasks(catalog);
-  const std::vector<NominalSurfaceMaterialBudget> zeroMaterial(catalog.size());
-  const auto layoutView = result.layout->getView(catalog, masks.first, masks.second, zeroMaterial);
+  const auto layoutView = result.layout->getView(catalog, masks.first, masks.second);
   BOOST_CHECK_EQUAL(layoutView.nSurfaces, 17u);
-  BOOST_CHECK_EQUAL(layoutView.cylinderSurfaces.value(), 0x7fu);           // bits 0-6
-  BOOST_CHECK_EQUAL(layoutView.diskSurfaces.value(), 0x1ff80u);            // bits 7-16
+  BOOST_CHECK_EQUAL(layoutView.cylinderSurfaces.value(), 0x7fu); // bits 0-6
+  BOOST_CHECK_EQUAL(layoutView.diskSurfaces.value(), 0x1ff80u);  // bits 7-16
 
   const auto view = layoutView.topology;
   BOOST_CHECK_EQUAL(view.nTransitions, 15u); // 6 + 9
@@ -389,7 +388,7 @@ BOOST_AUTO_TEST_CASE(EmptyCatalogWithNoSubgraphsIsATrivialValidLayout)
   DetectorLayoutBuilder builder{{}};
   const auto result = builder.build();
   BOOST_REQUIRE(result.ok());
-  BOOST_CHECK_EQUAL(result.layout->getView({}, {}, {}, {}).nSurfaces, 0u);
+  BOOST_CHECK_EQUAL(result.layout->getView({}, {}, {}).nSurfaces, 0u);
   BOOST_CHECK_EQUAL(result.layout->getTopology().getView().nTransitions, 0u);
 }
 

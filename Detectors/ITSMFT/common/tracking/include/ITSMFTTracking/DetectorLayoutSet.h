@@ -21,7 +21,6 @@
 #include "ITSMFTTracking/DetectorLayoutBuilder.h"
 #include "ITSMFTTracking/DetectorSurfaceCatalogProvider.h"
 #include "ITSMFTTracking/LayerMask.h"
-#include "ITSMFTTracking/NominalSurfaceMaterial.h"
 
 namespace o2::itsmft::tracking
 {
@@ -80,24 +79,18 @@ struct DetectorLayoutConfigurationKey {
 };
 
 // Owns the complete shared detector description exactly once: the dense
-// surface catalog, its parallel nominal-material budgets (same index space),
-// and the full-catalogue cylinder/disk masks derived from it. Iteration-
-// specific DetectorLayout objects hold no copy of any of these; they are
-// validated against a borrowed view at construction and combined with the
-// shared arrays only when a DetectorLayoutView is assembled (getLayoutView()
-// below, the sole production assembly point).
-//
-// Precondition: nominalMaterial.size() == catalog.size() (parallel, same-
-// index arrays). This is not re-validated here -- the caller (currently
-// TimeFrame::ensureDetectorLayouts()) is responsible for supplying already
-// size-matched, already-validated data; see NominalSurfaceMaterialEntry-based
-// validation added alongside the caller.
+// surface catalog (each entry carrying its own nominal material, see
+// SurfaceDescriptor::material) and the full-catalogue cylinder/disk masks
+// derived from it. Iteration-specific DetectorLayout objects hold no copy of
+// either; they are validated against a borrowed view at construction and
+// combined with the shared catalog only when a DetectorLayoutView is
+// assembled (getLayoutView() below, the sole production assembly point).
 class DetectorLayoutSet
 {
  public:
   DetectorLayoutSet(DetectorLayoutConfigurationKey key, std::vector<SurfaceDescriptor> catalog,
-                    std::vector<NominalSurfaceMaterialBudget> nominalMaterial, std::vector<DetectorLayout> layouts) noexcept
-    : mConfigurationKey{std::move(key)}, mCatalog{std::move(catalog)}, mNominalMaterial{std::move(nominalMaterial)}, mLayouts{std::move(layouts)}
+                    std::vector<DetectorLayout> layouts) noexcept
+    : mConfigurationKey{std::move(key)}, mCatalog{std::move(catalog)}, mLayouts{std::move(layouts)}
   {
     const auto masks = computeSurfaceKindMasks(mCatalog);
     mCylinderSurfaces = masks.first;
@@ -109,7 +102,6 @@ class DetectorLayoutSet
 
   const DetectorLayoutConfigurationKey& getConfigurationKey() const noexcept { return mConfigurationKey; }
   const std::vector<SurfaceDescriptor>& getSurfaceCatalog() const noexcept { return mCatalog; }
-  const std::vector<NominalSurfaceMaterialBudget>& getNominalMaterial() const noexcept { return mNominalMaterial; }
   SurfaceMask getCylinderSurfaces() const noexcept { return mCylinderSurfaces; }
   SurfaceMask getDiskSurfaces() const noexcept { return mDiskSurfaces; }
   size_t size() const noexcept { return mLayouts.size(); }
@@ -121,13 +113,12 @@ class DetectorLayoutSet
   DetectorLayoutView getLayoutView(size_t iteration) const noexcept
   {
     const auto* layout = getLayout(iteration);
-    return layout ? layout->getView(mCatalog, mCylinderSurfaces, mDiskSurfaces, mNominalMaterial) : DetectorLayoutView{};
+    return layout ? layout->getView(mCatalog, mCylinderSurfaces, mDiskSurfaces) : DetectorLayoutView{};
   }
 
  private:
   DetectorLayoutConfigurationKey mConfigurationKey;
   std::vector<SurfaceDescriptor> mCatalog;
-  std::vector<NominalSurfaceMaterialBudget> mNominalMaterial;
   SurfaceMask mCylinderSurfaces{};
   SurfaceMask mDiskSurfaces{};
   std::vector<DetectorLayout> mLayouts;

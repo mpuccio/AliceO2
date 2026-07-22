@@ -19,7 +19,6 @@
 #include <gsl/gsl>
 #endif
 
-#include "ITSMFTTracking/NominalSurfaceMaterial.h"
 #include "ITSMFTTracking/SparseTrackingTopology.h"
 #include "ITSMFTTracking/SurfaceCatalogView.h"
 #include "ITSMFTTracking/SurfaceDescriptor.h"
@@ -28,44 +27,27 @@
 namespace o2::itsmft::tracking
 {
 
-// Invalid MUST be the zero/default value: DetectorLayoutView{} is used
-// throughout as the failure/no-such-iteration sentinel (DetectorLayoutSet::
-// getLayoutView() for an out-of-range iteration, TimeFrame::
-// getDetectorLayoutView() when no current layout set exists), and that
-// default construction must be unambiguously invalid regardless of which
-// pointers/counts/masks happen to be null or zero for an otherwise
-// legitimate, empty-but-valid layout (e.g. zero surfaces).
-enum class DetectorLayoutViewStatus : uint8_t {
-  Invalid = 0,
-  Valid = 1
-};
-
 // Device-facing POD composing one iteration's DetectorLayoutView. Field
 // order is append-only by contract: every existing field's offset is
-// pinned by the static_asserts below, and any future addition must be
-// appended after `status`, never inserted, since this type is built via
+// pinned by the static_asserts below, since this type is built via
 // positional aggregate initialization (DetectorLayoutSet::getLayoutView()
 // is the sole production assembly point; see also the narrow test fixture
-// in testTransitionPolicyDispatch.cxx).
+// in testTransitionPolicyDispatch.cxx). The default-constructed value
+// (surfaces == nullptr, nSurfaces == 0) is the failure/no-such-iteration
+// sentinel (DetectorLayoutSet::getLayoutView() for an out-of-range
+// iteration, TimeFrame::getDetectorLayoutView() when no current layout set
+// exists); the production geometry contract rejects an empty detector
+// (DetectorSurfaceCatalogValidationError::EmptyDetector), so a legitimate
+// zero-surface-but-valid view is not a state this framework needs to
+// distinguish from that sentinel.
 struct DetectorLayoutView {
   const SurfaceDescriptor* surfaces{nullptr};
   uint32_t nSurfaces{0};
   SurfaceMask cylinderSurfaces{};
   SurfaceMask diskSurfaces{};
   SparseTrackingTopologyView topology{};
-  const NominalSurfaceMaterialBudget* nominalMaterial{nullptr};
-  DetectorLayoutViewStatus status{DetectorLayoutViewStatus::Invalid};
 
-  // The sole authoritative validity discriminator: true only for a view
-  // assembled by DetectorLayoutSet::getLayoutView() for a successfully
-  // built iteration, independently of nSurfaces/pointer nullness (a
-  // legitimate zero-surface layout is Valid with null/zero fields
-  // everywhere else).
-  GPUhdi() bool isValid() const noexcept { return status == DetectorLayoutViewStatus::Valid; }
   GPUhdi() const SurfaceDescriptor& getSurface(SurfaceId id) const { return surfaces[id.value()]; }
-  // Precondition: id is valid and id.value() < nSurfaces, matching
-  // getSurface()'s existing bounds-unchecked contract.
-  GPUhdi() const NominalSurfaceMaterialBudget& getNominalMaterial(SurfaceId id) const { return nominalMaterial[id.value()]; }
   // Narrowed, catalog-only view: geometry identity alone, with no topology,
   // masks or transition-policy dependency.
   GPUhdi() SurfaceCatalogView getSurfaceCatalogView() const noexcept { return SurfaceCatalogView{surfaces, nSurfaces}; }
@@ -77,15 +59,13 @@ static_assert(std::is_trivially_copyable_v<DetectorLayoutView>);
 // aggregate initialization at its sole production assembly point
 // (DetectorLayoutSet::getLayoutView()), so its field order/offsets are a
 // real contract, not an implementation detail.
-static_assert(sizeof(DetectorLayoutView) == 88);
+static_assert(sizeof(DetectorLayoutView) == 72);
 static_assert(alignof(DetectorLayoutView) == 8);
 static_assert(offsetof(DetectorLayoutView, surfaces) == 0);
 static_assert(offsetof(DetectorLayoutView, nSurfaces) == 8);
 static_assert(offsetof(DetectorLayoutView, cylinderSurfaces) == 12);
 static_assert(offsetof(DetectorLayoutView, diskSurfaces) == 16);
 static_assert(offsetof(DetectorLayoutView, topology) == 24);
-static_assert(offsetof(DetectorLayoutView, nominalMaterial) == 72);
-static_assert(offsetof(DetectorLayoutView, status) == 80);
 
 #ifndef GPUCA_GPUCODE
 
@@ -133,29 +113,19 @@ class DetectorLayout
   }
 
   // Assembles a DetectorLayoutView from this iteration's topology plus a
-  // caller-supplied shared surface/material catalog and its precomputed
-  // full-catalogue masks. Precondition: `surfaces`/`cylinderSurfaces`/
-  // `diskSurfaces`/`nominalMaterial` are the exact shared description this
-  // DetectorLayout was validated against (DetectorLayoutSet::getLayoutView()
-  // is the sole production caller; behavior is unspecified for a mismatched
-  // catalog, other than the explicit size check below). `nominalMaterial`
-  // is required and must be exactly `surfaces.size()` long -- there is no
-  // default and no partial/absent-material Valid view: a Valid view with
-  // nSurfaces > 0 always has an aligned nominal-material array, so
-  // getNominalMaterial() can stay a bounds-unchecked hot accessor. A size
-  // mismatch (including a caller that has no material yet and passes an
-  // empty span against a non-empty surfaces span) returns the Invalid
-  // sentinel rather than a view with a dangling/misaligned material array.
-  DetectorLayoutView getView(gsl::span<const SurfaceDescriptor> surfaces, SurfaceMask cylinderSurfaces, SurfaceMask diskSurfaces,
-                             gsl::span<const NominalSurfaceMaterialBudget> nominalMaterial) const noexcept
+  // caller-supplied shared surface catalog and its precomputed full-catalogue
+  // masks. Precondition: `surfaces`/`cylinderSurfaces`/`diskSurfaces` are the
+  // exact shared description this DetectorLayout was validated against
+  // (DetectorLayoutSet::getLayoutView() is the sole production caller;
+  // behavior is unspecified for a mismatched catalog). Per-surface material
+  // is reached through the returned view's SurfaceDescriptor entries
+  // themselves (SurfaceDescriptor::material), not through a parallel array.
+  DetectorLayoutView getView(gsl::span<const SurfaceDescriptor> surfaces, SurfaceMask cylinderSurfaces, SurfaceMask diskSurfaces) const noexcept
   {
-    if (!valid() || nominalMaterial.size() != surfaces.size()) {
+    if (!valid()) {
       return DetectorLayoutView{};
     }
-    DetectorLayoutView view{surfaces.data(), static_cast<uint32_t>(surfaces.size()), cylinderSurfaces, diskSurfaces, mTopology.getView(),
-                            nominalMaterial.data()};
-    view.status = DetectorLayoutViewStatus::Valid;
-    return view;
+    return DetectorLayoutView{surfaces.data(), static_cast<uint32_t>(surfaces.size()), cylinderSurfaces, diskSurfaces, mTopology.getView()};
   }
 
   bool valid() const noexcept { return mError == DetectorLayoutError::None; }

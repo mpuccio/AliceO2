@@ -80,9 +80,8 @@ struct TraversalTestTimeFrame : TimeFrame<10> {
     key.geometryEpoch = mRequiredDetectorGeometryEpoch;
     std::vector<DetectorLayout> layouts;
     layouts.push_back(std::move(built.layout));
-    std::vector<NominalSurfaceMaterialBudget> nominalMaterial(built.surfaces.size());
     mRequiredDetectorLayoutConfiguration = key;
-    mDetectorLayouts.emplace(std::move(key), std::move(built.surfaces), std::move(nominalMaterial), std::move(layouts));
+    mDetectorLayouts.emplace(std::move(key), std::move(built.surfaces), std::move(layouts));
   }
 };
 
@@ -544,7 +543,8 @@ BOOST_AUTO_TEST_CASE(traversal_initialisation_classifies_missing_and_stale_layou
   FakeCatalogProvider provider{catalog(catalogRequest, SurfaceKind::Disk)};
   const auto ordered = order(10);
   BOOST_REQUIRE(frame.ensureDetectorLayouts(&provider, catalogRequest, ordered,
-                                            TransitionPolicyTag::DiskDisk, params).ok());
+                                            TransitionPolicyTag::DiskDisk, params)
+                  .ok());
   frame.invalidateDetectorLayouts();
   try {
     traits.initialiseTimeFrame(0);
@@ -561,7 +561,8 @@ BOOST_AUTO_TEST_CASE(traversal_initialisation_classifies_missing_and_stale_layou
   prepareTraversalFrame(shortLayoutFrame, shortLayoutTraits, pool, twoIterations);
   std::vector<TrackingParameters> oneLayout{twoIterations.front()};
   BOOST_REQUIRE(shortLayoutFrame.ensureDetectorLayouts(&provider, catalogRequest, ordered,
-                                                       TransitionPolicyTag::DiskDisk, oneLayout).ok());
+                                                       TransitionPolicyTag::DiskDisk, oneLayout)
+                  .ok());
   try {
     shortLayoutTraits.initialiseTimeFrame(1);
     BOOST_FAIL("iteration beyond the configured layout set must throw");
@@ -583,7 +584,8 @@ BOOST_AUTO_TEST_CASE(traversal_cache_groups_and_binds_once_across_repeated_neigh
   FakeCatalogProvider provider{catalog(catalogRequest, SurfaceKind::Disk)};
   const auto ordered = order(10);
   BOOST_REQUIRE(frame.ensureDetectorLayouts(&provider, catalogRequest, ordered,
-                                            TransitionPolicyTag::DiskDisk, params).ok());
+                                            TransitionPolicyTag::DiskDisk, params)
+                  .ok());
 
   std::shared_ptr<tbb::task_arena> arena;
   traits.setNThreads(1, arena);
@@ -607,7 +609,8 @@ BOOST_AUTO_TEST_CASE(traversal_cache_groups_and_binds_once_across_repeated_neigh
   const auto itsCatalogRequest = request(7, o2::detectors::DetID::ITS);
   FakeCatalogProvider itsProvider{catalog(itsCatalogRequest, SurfaceKind::Cylinder)};
   BOOST_REQUIRE(itsFrame.ensureDetectorLayouts(&itsProvider, itsCatalogRequest, order(7),
-                                               TransitionPolicyTag::CylinderCylinder, itsParams).ok());
+                                               TransitionPolicyTag::CylinderCylinder, itsParams)
+                  .ok());
   itsTraits.setNThreads(1, arena);
   itsTraits.initialiseTimeFrame(0);
   itsTraits.findRoads(0);
@@ -635,7 +638,8 @@ BOOST_AUTO_TEST_CASE(traversal_empty_road_start_span_is_valid_and_produces_no_tr
   FakeCatalogProvider provider{catalog(catalogRequest, SurfaceKind::Disk)};
   const auto ordered = order(10);
   BOOST_REQUIRE(frame.ensureDetectorLayouts(&provider, catalogRequest, ordered,
-                                            TransitionPolicyTag::DiskDisk, params).ok());
+                                            TransitionPolicyTag::DiskDisk, params)
+                  .ok());
 
   std::shared_ptr<tbb::task_arena> arena;
   traits.setNThreads(1, arena);
@@ -662,7 +666,8 @@ BOOST_AUTO_TEST_CASE(traversal_legacy_cell_container_size_mismatch_fails_before_
   FakeCatalogProvider provider{catalog(catalogRequest, SurfaceKind::Disk)};
   const auto ordered = order(10);
   BOOST_REQUIRE(frame.ensureDetectorLayouts(&provider, catalogRequest, ordered,
-                                            TransitionPolicyTag::DiskDisk, params).ok());
+                                            TransitionPolicyTag::DiskDisk, params)
+                  .ok());
 
   std::shared_ptr<tbb::task_arena> arena;
   traits.setNThreads(1, arena);
