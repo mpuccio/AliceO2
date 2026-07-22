@@ -62,8 +62,15 @@ not implemented in this slice.
 
 ## Consequences
 
-- One allocation of the shared geometry+material+mask arrays per
-  `DetectorLayoutSet` rebuild, not one per iteration.
+- One persistent shared geometry/material allocation in the resulting
+  `DetectorLayoutSet`, not one per iteration. `DetectorLayoutBuilder`
+  currently still owns a temporary catalogue copy for the duration of one
+  `build()` call (unchanged from before this decision, since span-ifying it
+  would dangle against existing temporary-argument call sites); removing
+  that temporary copy is a later simplification, not part of this
+  decision's persistent-ownership invariant, which concerns only the
+  long-lived owner every iteration is validated against and every view is
+  assembled from.
 - `DetectorLayoutView`'s ABI changes exactly once, fully audited and
   statically asserted, with an explicit validity discriminator.
 - Geometry-epoch and material-epoch currency share one key and one

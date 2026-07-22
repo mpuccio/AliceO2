@@ -147,3 +147,71 @@ BOOST_AUTO_TEST_CASE(SharedCatalogAndMasksAreComputedOnceFromDetectorLayoutSet)
   BOOST_CHECK_EQUAL(set.getDiskSurfaces().value(), 0x1u);
   BOOST_CHECK_EQUAL(&set.getSurfaceCatalog(), &set.getSurfaceCatalog()); // same object, not recomputed
 }
+
+// -------------------------------------------------------------------------
+// DetectorLayout::getView() alignment requirement (nominalMaterial.size()
+// must equal surfaces.size(); no default argument -- see DetectorLayout.h)
+// -------------------------------------------------------------------------
+
+namespace
+{
+DetectorLayout buildLayout(const std::vector<SurfaceDescriptor>& surfaces)
+{
+  SparseTrackingTopology topology{static_cast<uint32_t>(surfaces.size())};
+  BOOST_REQUIRE(topology.finalize());
+  return DetectorLayout{surfaces, std::move(topology)};
+}
+} // namespace
+
+BOOST_AUTO_TEST_CASE(GetViewValidForMatchingNonEmptyGeometryAndMaterial)
+{
+  const std::vector<SurfaceDescriptor> surfaces{surface(0), surface(1)};
+  auto layout = buildLayout(surfaces);
+  BOOST_REQUIRE(layout.valid());
+  const auto masks = computeSurfaceKindMasks(surfaces);
+  const std::vector<NominalSurfaceMaterialBudget> material{{0.01f, 0.f}, {0.02f, 0.5f}};
+  const auto view = layout.getView(surfaces, masks.first, masks.second, material);
+  BOOST_CHECK(view.isValid());
+  BOOST_CHECK_EQUAL(view.nSurfaces, 2u);
+  BOOST_CHECK_EQUAL(view.getNominalMaterial(SurfaceId{1}).normalArealDensityGPerCm2, 0.5f);
+}
+
+BOOST_AUTO_TEST_CASE(GetViewInvalidForNonEmptyGeometryWithEmptyMaterial)
+{
+  const std::vector<SurfaceDescriptor> surfaces{surface(0), surface(1)};
+  auto layout = buildLayout(surfaces);
+  BOOST_REQUIRE(layout.valid());
+  const auto masks = computeSurfaceKindMasks(surfaces);
+  const auto view = layout.getView(surfaces, masks.first, masks.second, {});
+  BOOST_CHECK(!view.isValid());
+  BOOST_CHECK(view.status == DetectorLayoutViewStatus::Invalid);
+}
+
+BOOST_AUTO_TEST_CASE(GetViewInvalidForMismatchedNonEmptySizes)
+{
+  const std::vector<SurfaceDescriptor> surfaces{surface(0), surface(1)};
+  auto layout = buildLayout(surfaces);
+  BOOST_REQUIRE(layout.valid());
+  const auto masks = computeSurfaceKindMasks(surfaces);
+  const std::vector<NominalSurfaceMaterialBudget> tooFewMaterial{{0.01f, 0.f}}; // 1 entry for 2 surfaces
+  const auto view = layout.getView(surfaces, masks.first, masks.second, tooFewMaterial);
+  BOOST_CHECK(!view.isValid());
+}
+
+BOOST_AUTO_TEST_CASE(GetViewValidForLegitimateEmptyGeometryAndEmptyMaterial)
+{
+  auto layout = buildLayout({});
+  BOOST_REQUIRE(layout.valid());
+  const auto view = layout.getView({}, {}, {}, {});
+  BOOST_CHECK(view.isValid());
+  BOOST_CHECK_EQUAL(view.nSurfaces, 0u);
+}
+
+BOOST_AUTO_TEST_CASE(DetectorLayoutSetProducedViewsRemainValid)
+{
+  std::vector<SurfaceDescriptor> catalog{surface(0), surface(1), surface(2)};
+  std::vector<NominalSurfaceMaterialBudget> material{{0.01f, 0.f}, {0.02f, 0.f}, {0.03f, 0.f}};
+  auto set = buildSet(catalog, material, 2);
+  BOOST_CHECK(set.getLayoutView(0).isValid());
+  BOOST_CHECK(set.getLayoutView(1).isValid());
+}

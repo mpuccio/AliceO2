@@ -217,8 +217,30 @@ DetectorLayoutSetBuildResult TimeFrame<NLayers>::ensureDetectorLayouts(const Det
                                                                        const DetectorSurfaceCatalogRequest& catalogRequest,
                                                                        gsl::span<const SurfaceId> orderedSurfaces,
                                                                        TransitionPolicyTag policyTag,
+                                                                       gsl::span<const TrackingParameters> trackingParameters)
+{
+  return ensureDetectorLayoutsImpl(provider, catalogRequest, orderedSurfaces, policyTag, trackingParameters, {}, true);
+}
+
+template <int NLayers>
+DetectorLayoutSetBuildResult TimeFrame<NLayers>::ensureDetectorLayouts(const DetectorSurfaceCatalogProvider* provider,
+                                                                       const DetectorSurfaceCatalogRequest& catalogRequest,
+                                                                       gsl::span<const SurfaceId> orderedSurfaces,
+                                                                       TransitionPolicyTag policyTag,
                                                                        gsl::span<const TrackingParameters> trackingParameters,
                                                                        gsl::span<const NominalSurfaceMaterialEntry> materialEntries)
+{
+  return ensureDetectorLayoutsImpl(provider, catalogRequest, orderedSurfaces, policyTag, trackingParameters, materialEntries, false);
+}
+
+template <int NLayers>
+DetectorLayoutSetBuildResult TimeFrame<NLayers>::ensureDetectorLayoutsImpl(const DetectorSurfaceCatalogProvider* provider,
+                                                                           const DetectorSurfaceCatalogRequest& catalogRequest,
+                                                                           gsl::span<const SurfaceId> orderedSurfaces,
+                                                                           TransitionPolicyTag policyTag,
+                                                                           gsl::span<const TrackingParameters> trackingParameters,
+                                                                           gsl::span<const NominalSurfaceMaterialEntry> materialEntries,
+                                                                           bool synthesizeZeroMaterialWhenEmpty)
 {
   DetectorLayoutConfigurationKey key;
   key.geometryEpoch = mRequiredDetectorGeometryEpoch;
@@ -261,18 +283,22 @@ DetectorLayoutSetBuildResult TimeFrame<NLayers>::ensureDetectorLayouts(const Det
   // Transactional nominal-material validation, before any owner is
   // committed. materialEpoch==0 cannot currently arise through the public
   // epoch API (nextMaterialCatalogEpoch() never yields 0), but is checked
-  // explicitly as documented defense-in-depth. An empty materialEntries
-  // (the default) synthesizes a size-matched, zero-initialized ("no
+  // explicitly as documented defense-in-depth. synthesizeZeroMaterialWhenEmpty
+  // is true only for the compatibility overload: there, an empty
+  // materialEntries synthesizes a size-matched, zero-initialized ("no
   // material yet") entry set positioned against the just-validated dense
-  // catalog, so the same validation always runs against concrete data --
-  // no caller-visible opt-out branch, only a caller-visible default input.
+  // catalog, and that synthesized input still runs through the identical
+  // validation below. For the explicit overload (false), an empty
+  // materialEntries is validated exactly as supplied -- against a
+  // non-empty catalog that fails SizeMismatch, exactly like any other
+  // wrong-size input; against an empty catalog it is trivially valid.
   if (key.materialEpoch == 0) {
     return {.error = DetectorLayoutSetBuildError::InvalidMaterial,
             .materialValidationError = DetectorLayoutMaterialValidationError::InvalidMaterialEpoch};
   }
   std::vector<NominalSurfaceMaterialEntry> autoMaterialEntries;
   gsl::span<const NominalSurfaceMaterialEntry> effectiveMaterialEntries = materialEntries;
-  if (materialEntries.empty() && !catalogResult.catalog.empty()) {
+  if (synthesizeZeroMaterialWhenEmpty && materialEntries.empty() && !catalogResult.catalog.empty()) {
     autoMaterialEntries.reserve(catalogResult.catalog.size());
     for (const auto& surface : catalogResult.catalog) {
       autoMaterialEntries.push_back(NominalSurfaceMaterialEntry{surface.id, NominalSurfaceMaterialBudget{}});

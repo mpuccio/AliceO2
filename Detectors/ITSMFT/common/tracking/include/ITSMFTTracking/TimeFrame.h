@@ -198,21 +198,51 @@ struct TimeFrame {
                                          o2::detectors::DetID::ID detId,
                                          bool applySysErrors = true);
 
+  // Temporary compatibility boundary, kept only until production callers
+  // supply MaterialSpec-derived entries: deliberately synthesizes a
+  // size-matched, zero-initialized ("no material yet") entry set against
+  // the resolved dense catalog and runs it through the same transactional
+  // validation as the explicit overload below. Do not add new callers of
+  // this overload once a real material source exists for them; prefer the
+  // explicit-entries overload instead.
+  DetectorLayoutSetBuildResult ensureDetectorLayouts(const DetectorSurfaceCatalogProvider* provider,
+                                                     const DetectorSurfaceCatalogRequest& catalogRequest,
+                                                     gsl::span<const SurfaceId> orderedSurfaces,
+                                                     TransitionPolicyTag policyTag,
+                                                     gsl::span<const TrackingParameters> trackingParameters);
   // `materialEntries` is the interim identity-bearing nominal-material input
-  // (see NominalSurfaceMaterial.h). Left empty (the default), a size-matched,
-  // zero-initialized ("no material yet") entry set is synthesized
-  // internally and still runs through the same transactional validation --
-  // callers that do not yet have a real material source (all current
-  // callers, since no MaterialSpec projection exists in this slice) need no
-  // changes. A caller that does supply entries takes on the documented
-  // contract: content must not change without also bumping the epoch
-  // returned by getRequiredMaterialCatalogEpoch() (see invalidateNominalMaterial()).
+  // (see NominalSurfaceMaterial.h). Validates exactly what is supplied, with
+  // no auto-fill: for a non-empty resolved catalog, an empty materialEntries
+  // fails InvalidMaterial/SizeMismatch (use the compatibility overload above
+  // if no material source exists yet); for an empty catalog, an empty
+  // materialEntries is valid. A caller that supplies entries takes on the
+  // documented contract: content must not change without also bumping the
+  // epoch returned by getRequiredMaterialCatalogEpoch() (see
+  // invalidateNominalMaterial()).
   DetectorLayoutSetBuildResult ensureDetectorLayouts(const DetectorSurfaceCatalogProvider* provider,
                                                      const DetectorSurfaceCatalogRequest& catalogRequest,
                                                      gsl::span<const SurfaceId> orderedSurfaces,
                                                      TransitionPolicyTag policyTag,
                                                      gsl::span<const TrackingParameters> trackingParameters,
-                                                     gsl::span<const NominalSurfaceMaterialEntry> materialEntries = {});
+                                                     gsl::span<const NominalSurfaceMaterialEntry> materialEntries);
+
+ private:
+  // Shared implementation for both ensureDetectorLayouts() overloads above --
+  // identical provider/catalog/layout construction either way, no
+  // duplicated logic. `synthesizeZeroMaterialWhenEmpty` is the only
+  // difference: true for the compatibility overload (auto-fills a
+  // size-matched zero entry set when materialEntries is empty), false for
+  // the explicit overload (validates exactly what was supplied, so an
+  // empty span against a non-empty catalog fails SizeMismatch).
+  DetectorLayoutSetBuildResult ensureDetectorLayoutsImpl(const DetectorSurfaceCatalogProvider* provider,
+                                                         const DetectorSurfaceCatalogRequest& catalogRequest,
+                                                         gsl::span<const SurfaceId> orderedSurfaces,
+                                                         TransitionPolicyTag policyTag,
+                                                         gsl::span<const TrackingParameters> trackingParameters,
+                                                         gsl::span<const NominalSurfaceMaterialEntry> materialEntries,
+                                                         bool synthesizeZeroMaterialWhenEmpty);
+
+ public:
   void invalidateDetectorLayouts() noexcept;
   // Bumps only the material epoch (geometry epoch/owner are untouched
   // unless the bump wraps, in which case the stored owner is dropped to

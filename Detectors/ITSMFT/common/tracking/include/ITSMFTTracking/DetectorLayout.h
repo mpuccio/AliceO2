@@ -138,13 +138,18 @@ class DetectorLayout
   // `diskSurfaces`/`nominalMaterial` are the exact shared description this
   // DetectorLayout was validated against (DetectorLayoutSet::getLayoutView()
   // is the sole production caller; behavior is unspecified for a mismatched
-  // catalog). `nominalMaterial` may be empty (e.g. not yet supplied by an
-  // older caller); the resulting view's `nominalMaterial` pointer is then
-  // null, matching `surfaces`' own null-when-empty convention.
+  // catalog, other than the explicit size check below). `nominalMaterial`
+  // is required and must be exactly `surfaces.size()` long -- there is no
+  // default and no partial/absent-material Valid view: a Valid view with
+  // nSurfaces > 0 always has an aligned nominal-material array, so
+  // getNominalMaterial() can stay a bounds-unchecked hot accessor. A size
+  // mismatch (including a caller that has no material yet and passes an
+  // empty span against a non-empty surfaces span) returns the Invalid
+  // sentinel rather than a view with a dangling/misaligned material array.
   DetectorLayoutView getView(gsl::span<const SurfaceDescriptor> surfaces, SurfaceMask cylinderSurfaces, SurfaceMask diskSurfaces,
-                             gsl::span<const NominalSurfaceMaterialBudget> nominalMaterial = {}) const noexcept
+                             gsl::span<const NominalSurfaceMaterialBudget> nominalMaterial) const noexcept
   {
-    if (!valid()) {
+    if (!valid() || nominalMaterial.size() != surfaces.size()) {
       return DetectorLayoutView{};
     }
     DetectorLayoutView view{surfaces.data(), static_cast<uint32_t>(surfaces.size()), cylinderSurfaces, diskSurfaces, mTopology.getView(),

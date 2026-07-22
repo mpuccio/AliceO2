@@ -76,10 +76,12 @@ struct MaterialTestTimeFrame : TimeFrame<7> {
 } // namespace
 
 // -------------------------------------------------------------------------
-// Default (no material supplied): auto-filled, zero, still validated
+// Compatibility overload (no materialEntries parameter at all): auto-filled,
+// zero, still validated. This is the temporary compatibility boundary --
+// see ensureDetectorLayouts()'s declaration comment in TimeFrame.h.
 // -------------------------------------------------------------------------
 
-BOOST_AUTO_TEST_CASE(DefaultCallSiteAutoFillsZeroMaterialAndSucceeds)
+BOOST_AUTO_TEST_CASE(CompatibilityOverloadAutoFillsZeroMaterialAndSucceeds)
 {
   TimeFrame<7> frame;
   FakeCatalogProvider provider{catalog(7)};
@@ -94,6 +96,72 @@ BOOST_AUTO_TEST_CASE(DefaultCallSiteAutoFillsZeroMaterialAndSucceeds)
     BOOST_CHECK_EQUAL(budget.normalXOverX0, 0.f);
     BOOST_CHECK_EQUAL(budget.normalArealDensityGPerCm2, 0.f);
   }
+}
+
+// -------------------------------------------------------------------------
+// Explicit overload: validates exactly what is supplied, no auto-fill.
+// -------------------------------------------------------------------------
+
+BOOST_AUTO_TEST_CASE(ExplicitOverloadWithEmptySpanAndNonEmptyCatalogueFailsSizeMismatch)
+{
+  TimeFrame<7> frame;
+  FakeCatalogProvider provider{catalog(7)};
+  auto ordered = order(7);
+  std::vector<TrackingParameters> params{};
+  // Explicitly empty, not omitted: this must NOT auto-fill (that is the
+  // compatibility overload's job), so it fails SizeMismatch against the
+  // resolved 7-surface catalog.
+  const gsl::span<const NominalSurfaceMaterialEntry> emptyEntries{};
+  const auto result = frame.ensureDetectorLayouts(&provider, request(7), ordered, TransitionPolicyTag::CylinderCylinder, params, emptyEntries);
+  BOOST_CHECK(!result.ok());
+  BOOST_CHECK(result.error == DetectorLayoutSetBuildError::InvalidMaterial);
+  BOOST_CHECK(result.materialValidationError == DetectorLayoutMaterialValidationError::SizeMismatch);
+  BOOST_CHECK(!frame.hasStoredDetectorLayouts());
+}
+
+// A zero-count DetectorSurfaceCatalogRequest is already rejected by the
+// pre-existing, unrelated geometry validation (EmptyDetector, checked
+// before material validation ever runs) -- so "empty surface catalogue"
+// is not a state ensureDetectorLayouts() can reach via its public,
+// request-based provider path. The material-validation contract for a
+// genuinely empty geometry/material pair is exercised directly at the
+// DetectorLayout::getView() layer instead:
+// testDetectorLayoutView.cxx::GetViewValidForLegitimateEmptyGeometryAndEmptyMaterial.
+
+BOOST_AUTO_TEST_CASE(ExplicitOverloadWithCorrectlySizedEntriesSucceeds)
+{
+  TimeFrame<7> frame;
+  FakeCatalogProvider provider{catalog(7)};
+  auto ordered = order(7);
+  std::vector<TrackingParameters> params{};
+  const auto entries = matchingEntries(catalog(7), 0.03f, 0.04f);
+  const auto result = frame.ensureDetectorLayouts(&provider, request(7), ordered, TransitionPolicyTag::CylinderCylinder, params, entries);
+  BOOST_REQUIRE(result.ok());
+  const auto& stored = frame.getDetectorLayouts()->getNominalMaterial();
+  BOOST_REQUIRE_EQUAL(stored.size(), 7u);
+  for (const auto& budget : stored) {
+    BOOST_CHECK_EQUAL(budget.normalXOverX0, 0.03f);
+    BOOST_CHECK_EQUAL(budget.normalArealDensityGPerCm2, 0.04f);
+  }
+}
+
+BOOST_AUTO_TEST_CASE(ExplicitOverloadEmptySpanFailureIsTransactional)
+{
+  // A prior successful build (via the compatibility overload) must survive,
+  // stale-but-stored, after a failed explicit-overload call.
+  TimeFrame<7> frame;
+  FakeCatalogProvider provider{catalog(7)};
+  auto ordered = order(7);
+  std::vector<TrackingParameters> params{};
+  BOOST_REQUIRE(frame.ensureDetectorLayouts(&provider, request(7), ordered, TransitionPolicyTag::CylinderCylinder, params).ok());
+  BOOST_REQUIRE(frame.hasStoredDetectorLayouts());
+
+  frame.invalidateNominalMaterial();
+  const gsl::span<const NominalSurfaceMaterialEntry> emptyEntries{};
+  const auto failed = frame.ensureDetectorLayouts(&provider, request(7), ordered, TransitionPolicyTag::CylinderCylinder, params, emptyEntries);
+  BOOST_CHECK(!failed.ok());
+  BOOST_CHECK(frame.hasStoredDetectorLayouts()); // old owner retained
+  BOOST_CHECK(!frame.detectorLayoutsCurrent());  // but exposed as stale
 }
 
 // -------------------------------------------------------------------------

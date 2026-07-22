@@ -56,7 +56,8 @@ struct BuiltLayout {
   DetectorLayoutView getView() const noexcept
   {
     const auto masks = computeSurfaceKindMasks(surfaces);
-    return layout.getView(surfaces, masks.first, masks.second);
+    const std::vector<NominalSurfaceMaterialBudget> zeroMaterial(surfaces.size());
+    return layout.getView(surfaces, masks.first, masks.second, zeroMaterial);
   }
 };
 
@@ -226,7 +227,8 @@ BOOST_AUTO_TEST_CASE(NonMonotonicSurfaceIdsFollowGraphRank)
   auto result = builder.addSubgraph(DetectorLayoutSubgraph{{SurfaceId{3}, SurfaceId{1}, SurfaceId{4}, SurfaceId{0}}, 0, {}, {}, TransitionPolicyTag::CylinderCylinder}).build();
   BOOST_REQUIRE(result.ok());
   const auto masks = computeSurfaceKindMasks(surfaces);
-  TransitionPolicyGrouping grouping{result.layout->getView(surfaces, masks.first, masks.second)};
+  const std::vector<NominalSurfaceMaterialBudget> zeroMaterial(surfaces.size());
+  TransitionPolicyGrouping grouping{result.layout->getView(surfaces, masks.first, masks.second, zeroMaterial)};
   BOOST_REQUIRE(grouping.valid());
   const auto scheduled = grouping.scheduledCellsForTag(TransitionPolicyTag::CylinderCylinder);
   BOOST_REQUIRE_EQUAL(scheduled.size(), 2u);
@@ -265,7 +267,8 @@ BOOST_AUTO_TEST_CASE(CyclicTopologyIsRejectedExplicitly)
   BOOST_REQUIRE(layout.valid());
 
   const auto masks = computeSurfaceKindMasks(surfaces);
-  TransitionPolicyGrouping grouping{layout.getView(surfaces, masks.first, masks.second)};
+  const std::vector<NominalSurfaceMaterialBudget> zeroMaterial(surfaces.size());
+  TransitionPolicyGrouping grouping{layout.getView(surfaces, masks.first, masks.second, zeroMaterial)};
   BOOST_CHECK(!grouping.valid());
   BOOST_CHECK(grouping.getScheduleError() == TransitionPolicyScheduleError::CyclicTopology);
   BOOST_CHECK(grouping.transitionsForTag(TransitionPolicyTag::CylinderCylinder).empty());
@@ -370,7 +373,8 @@ BOOST_AUTO_TEST_CASE(DispatchIsANoOpForALayoutWithNoActiveWork)
   DetectorLayout layout{surfaces, std::move(topology)};
   BOOST_REQUIRE(layout.valid());
   const auto masks = computeSurfaceKindMasks(surfaces);
-  TransitionPolicyGrouping grouping{layout.getView(surfaces, masks.first, masks.second)};
+  const std::vector<NominalSurfaceMaterialBudget> zeroMaterial(surfaces.size());
+  TransitionPolicyGrouping grouping{layout.getView(surfaces, masks.first, masks.second, zeroMaterial)};
 
   RecordingVisitor visitor;
   dispatchTransitionPolicies(grouping, visitor);
@@ -461,7 +465,8 @@ BOOST_AUTO_TEST_CASE(RoadStartEndpointWinsOverNumericHighestHitSurfaceBit)
   auto result = builder.addSubgraph(DetectorLayoutSubgraph{{SurfaceId{3}, SurfaceId{1}, SurfaceId{4}, SurfaceId{0}}, 0, {}, maskOf(4), TransitionPolicyTag::CylinderCylinder}).build();
   BOOST_REQUIRE(result.ok());
   const auto masks = computeSurfaceKindMasks(surfaces);
-  TransitionPolicyGrouping grouping{result.layout->getView(surfaces, masks.first, masks.second)};
+  const std::vector<NominalSurfaceMaterialBudget> zeroMaterial(surfaces.size());
+  TransitionPolicyGrouping grouping{result.layout->getView(surfaces, masks.first, masks.second, zeroMaterial)};
   BOOST_REQUIRE(grouping.valid());
   const auto starts = grouping.roadStartCellsForTag(TransitionPolicyTag::CylinderCylinder);
   BOOST_REQUIRE_EQUAL(starts.size(), 1u);
@@ -478,7 +483,8 @@ BOOST_AUTO_TEST_CASE(RoadStartEndpointWinsOverNumericHighestHitSurfaceBit)
   auto result2 = builder2.addSubgraph(DetectorLayoutSubgraph{{SurfaceId{3}, SurfaceId{1}, SurfaceId{4}, SurfaceId{0}}, 0, {}, maskOf(0), TransitionPolicyTag::CylinderCylinder}).build();
   BOOST_REQUIRE(result2.ok());
   const auto masks2 = computeSurfaceKindMasks(surfaces2);
-  TransitionPolicyGrouping grouping2{result2.layout->getView(surfaces2, masks2.first, masks2.second)};
+  const std::vector<NominalSurfaceMaterialBudget> zeroMaterial2(surfaces2.size());
+  TransitionPolicyGrouping grouping2{result2.layout->getView(surfaces2, masks2.first, masks2.second, zeroMaterial2)};
   BOOST_REQUIRE(grouping2.valid());
   const auto starts2 = grouping2.roadStartCellsForTag(TransitionPolicyTag::CylinderCylinder);
   BOOST_REQUIRE_EQUAL(starts2.size(), 1u);
