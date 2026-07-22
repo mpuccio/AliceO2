@@ -100,7 +100,7 @@ BOOST_AUTO_TEST_CASE(LayoutLimitsAndDenseIdsAreValidated)
   std::vector<SurfaceDescriptor> surfaces;
   surfaces.push_back(SurfaceDescriptor{SurfaceId{0}, 0, 0, SurfaceKind::Cylinder});
   surfaces.push_back(SurfaceDescriptor{SurfaceId{2}, 1, 0, SurfaceKind::Cylinder});
-  DetectorLayout layout{std::move(surfaces), std::move(topology)};
+  DetectorLayout layout{surfaces, std::move(topology)};
   BOOST_CHECK(!layout.valid());
   BOOST_CHECK(layout.getError() == DetectorLayoutError::NonDenseSurfaceIds);
 }
@@ -169,13 +169,15 @@ BOOST_AUTO_TEST_CASE(CylinderAndDiskLayoutsAcceptMatchingPolicies)
   SparseTrackingTopology cylinderTopology{2};
   BOOST_REQUIRE(cylinderTopology.addTransition(adjacent(0, 1, TransitionPolicyTag::CylinderCylinder)).isValid());
   BOOST_REQUIRE(cylinderTopology.finalize());
-  DetectorLayout cylinderLayout{{surface(0, SurfaceKind::Cylinder), surface(1, SurfaceKind::Cylinder)}, std::move(cylinderTopology)};
+  const std::vector<SurfaceDescriptor> cylinderSurfaces{surface(0, SurfaceKind::Cylinder), surface(1, SurfaceKind::Cylinder)};
+  DetectorLayout cylinderLayout{cylinderSurfaces, std::move(cylinderTopology)};
   BOOST_CHECK(cylinderLayout.valid());
 
   SparseTrackingTopology diskTopology{2};
   BOOST_REQUIRE(diskTopology.addTransition(adjacent(0, 1, TransitionPolicyTag::DiskDisk)).isValid());
   BOOST_REQUIRE(diskTopology.finalize());
-  DetectorLayout diskLayout{{surface(0, SurfaceKind::Disk), surface(1, SurfaceKind::Disk)}, std::move(diskTopology)};
+  const std::vector<SurfaceDescriptor> diskSurfaces{surface(0, SurfaceKind::Disk), surface(1, SurfaceKind::Disk)};
+  DetectorLayout diskLayout{diskSurfaces, std::move(diskTopology)};
   BOOST_CHECK(diskLayout.valid());
 }
 
@@ -186,9 +188,9 @@ BOOST_AUTO_TEST_CASE(DisconnectedCombinedLayoutAcceptsBothPolicies)
   BOOST_REQUIRE(topology.addTransition(adjacent(2, 3, TransitionPolicyTag::DiskDisk)).isValid());
   BOOST_REQUIRE(topology.finalize());
 
-  DetectorLayout layout{{surface(0, SurfaceKind::Cylinder), surface(1, SurfaceKind::Cylinder),
-                         surface(2, SurfaceKind::Disk), surface(3, SurfaceKind::Disk)},
-                        std::move(topology)};
+  const std::vector<SurfaceDescriptor> surfaces{surface(0, SurfaceKind::Cylinder), surface(1, SurfaceKind::Cylinder),
+                                                surface(2, SurfaceKind::Disk), surface(3, SurfaceKind::Disk)};
+  DetectorLayout layout{surfaces, std::move(topology)};
   BOOST_CHECK(layout.valid());
 }
 
@@ -198,7 +200,8 @@ BOOST_AUTO_TEST_CASE(LayoutRejectsPolicySurfaceKindMismatch)
   BOOST_REQUIRE(diskPolicy.addTransition(adjacent(0, 1, TransitionPolicyTag::DiskDisk)).isValid());
   BOOST_REQUIRE(diskPolicy.finalize());
 
-  DetectorLayout cylinders{{surface(0, SurfaceKind::Cylinder), surface(1, SurfaceKind::Cylinder)}, std::move(diskPolicy)};
+  const std::vector<SurfaceDescriptor> cylinderSurfaces{surface(0, SurfaceKind::Cylinder), surface(1, SurfaceKind::Cylinder)};
+  DetectorLayout cylinders{cylinderSurfaces, std::move(diskPolicy)};
   BOOST_CHECK(!cylinders.valid());
   BOOST_CHECK(cylinders.getError() == DetectorLayoutError::PolicySurfaceKindMismatch);
 
@@ -206,7 +209,8 @@ BOOST_AUTO_TEST_CASE(LayoutRejectsPolicySurfaceKindMismatch)
   BOOST_REQUIRE(cylinderPolicy.addTransition(adjacent(0, 1, TransitionPolicyTag::CylinderCylinder)).isValid());
   BOOST_REQUIRE(cylinderPolicy.finalize());
 
-  DetectorLayout disks{{surface(0, SurfaceKind::Disk), surface(1, SurfaceKind::Disk)}, std::move(cylinderPolicy)};
+  const std::vector<SurfaceDescriptor> diskSurfaces{surface(0, SurfaceKind::Disk), surface(1, SurfaceKind::Disk)};
+  DetectorLayout disks{diskSurfaces, std::move(cylinderPolicy)};
   BOOST_CHECK(!disks.valid());
   BOOST_CHECK(disks.getError() == DetectorLayoutError::PolicySurfaceKindMismatch);
 }
@@ -216,14 +220,16 @@ BOOST_AUTO_TEST_CASE(LayoutRejectsCylinderDiskTransitions)
   SparseTrackingTopology cylinderToDisk{2};
   BOOST_REQUIRE(cylinderToDisk.addTransition(adjacent(0, 1, TransitionPolicyTag::CylinderCylinder)).isValid());
   BOOST_REQUIRE(cylinderToDisk.finalize());
-  DetectorLayout outward{{surface(0, SurfaceKind::Cylinder), surface(1, SurfaceKind::Disk)}, std::move(cylinderToDisk)};
+  const std::vector<SurfaceDescriptor> outwardSurfaces{surface(0, SurfaceKind::Cylinder), surface(1, SurfaceKind::Disk)};
+  DetectorLayout outward{outwardSurfaces, std::move(cylinderToDisk)};
   BOOST_CHECK(!outward.valid());
   BOOST_CHECK(outward.getError() == DetectorLayoutError::MixedSurfaceTransition);
 
   SparseTrackingTopology diskToCylinder{2};
   BOOST_REQUIRE(diskToCylinder.addTransition(adjacent(0, 1, TransitionPolicyTag::DiskDisk)).isValid());
   BOOST_REQUIRE(diskToCylinder.finalize());
-  DetectorLayout inward{{surface(0, SurfaceKind::Disk), surface(1, SurfaceKind::Cylinder)}, std::move(diskToCylinder)};
+  const std::vector<SurfaceDescriptor> inwardSurfaces{surface(0, SurfaceKind::Disk), surface(1, SurfaceKind::Cylinder)};
+  DetectorLayout inward{inwardSurfaces, std::move(diskToCylinder)};
   BOOST_CHECK(!inward.valid());
   BOOST_CHECK(inward.getError() == DetectorLayoutError::MixedSurfaceTransition);
 }
@@ -239,9 +245,14 @@ BOOST_AUTO_TEST_CASE(LayoutCachesKindMasksInTheGlobalIdSpace)
   surfaces.push_back(SurfaceDescriptor{SurfaceId{2}, 0, 8, SurfaceKind::Disk});
   surfaces.push_back(SurfaceDescriptor{SurfaceId{3}, 1, 8, SurfaceKind::Disk});
 
-  DetectorLayout layout{std::move(surfaces), std::move(topology)};
+  // Cylinder/disk masks are now a full-catalogue property computed once by
+  // the shared owner (DetectorLayoutSet in production; computeSurfaceKindMasks()
+  // directly here, since this test builds one DetectorLayout in isolation),
+  // not cached per DetectorLayout.
+  const auto masks = computeSurfaceKindMasks(surfaces);
+  DetectorLayout layout{surfaces, std::move(topology)};
   BOOST_REQUIRE(layout.valid());
-  const auto view = layout.getView();
+  const auto view = layout.getView(surfaces, masks.first, masks.second);
   BOOST_CHECK_EQUAL(view.nSurfaces, 4u);
   BOOST_CHECK_EQUAL(view.cylinderSurfaces.value(), 0x3u);
   BOOST_CHECK_EQUAL(view.diskSurfaces.value(), 0xcu);

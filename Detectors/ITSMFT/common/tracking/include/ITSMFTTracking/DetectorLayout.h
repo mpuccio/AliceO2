@@ -14,6 +14,8 @@
 #ifndef GPUCA_GPUCODE
 #include <utility>
 #include <vector>
+
+#include <gsl/gsl>
 #endif
 
 #include "ITSMFTTracking/SparseTrackingTopology.h"
@@ -52,36 +54,63 @@ enum class DetectorLayoutError : uint8_t {
   PolicySurfaceKindMismatch
 };
 
+// Full-catalogue cylinder/disk masks: a pure function of a dense surface
+// catalog's `.kind` values, independent of any iteration/subgraph. Callers
+// that own a shared catalog (DetectorLayoutSet) should compute this once and
+// cache the result rather than calling it per iteration/per view.
+inline std::pair<SurfaceMask, SurfaceMask> computeSurfaceKindMasks(gsl::span<const SurfaceDescriptor> surfaces) noexcept
+{
+  SurfaceMask cylinderSurfaces{};
+  SurfaceMask diskSurfaces{};
+  for (const auto& surface : surfaces) {
+    if (surface.kind == SurfaceKind::Cylinder) {
+      cylinderSurfaces.set(surface.id);
+    } else {
+      diskSurfaces.set(surface.id);
+    }
+  }
+  return {cylinderSurfaces, diskSurfaces};
+}
+
+// Owns only iteration-specific topology and validation state. Surface
+// geometry, nominal material and the full-catalogue cylinder/disk masks are
+// not owned here -- they live once in the shared detector description
+// (DetectorLayoutSet) that every iteration's DetectorLayout is validated
+// against. `surfaces` is borrowed for construction/validation only and is
+// never retained past the constructor call.
 class DetectorLayout
 {
  public:
-  DetectorLayout(std::vector<SurfaceDescriptor> surfaces, SparseTrackingTopology topology)
-    : mSurfaces{std::move(surfaces)}, mTopology{std::move(topology)}
+  DetectorLayout(gsl::span<const SurfaceDescriptor> surfaces, SparseTrackingTopology topology)
+    : mTopology{std::move(topology)}
   {
-    validate();
+    validate(surfaces);
   }
 
-  DetectorLayoutView getView() const noexcept
+  // Assembles a DetectorLayoutView from this iteration's topology plus a
+  // caller-supplied shared surface catalog and its precomputed full-catalogue
+  // masks. Precondition: `surfaces`/`cylinderSurfaces`/`diskSurfaces` are the
+  // exact shared description this DetectorLayout was validated against
+  // (DetectorLayoutSet::getLayoutView() is the sole production caller;
+  // behavior is unspecified for a mismatched catalog).
+  DetectorLayoutView getView(gsl::span<const SurfaceDescriptor> surfaces, SurfaceMask cylinderSurfaces, SurfaceMask diskSurfaces) const noexcept
   {
-    return valid() ? DetectorLayoutView{mSurfaces.data(), static_cast<uint32_t>(mSurfaces.size()), mCylinderSurfaces, mDiskSurfaces, mTopology.getView()}
+    return valid() ? DetectorLayoutView{surfaces.data(), static_cast<uint32_t>(surfaces.size()), cylinderSurfaces, diskSurfaces, mTopology.getView()}
                    : DetectorLayoutView{};
   }
 
   bool valid() const noexcept { return mError == DetectorLayoutError::None; }
   DetectorLayoutError getError() const noexcept { return mError; }
-  const auto& getSurfaces() const noexcept { return mSurfaces; }
   const auto& getTopology() const noexcept { return mTopology; }
-  SurfaceMask getCylinderSurfaces() const noexcept { return mCylinderSurfaces; }
-  SurfaceMask getDiskSurfaces() const noexcept { return mDiskSurfaces; }
 
  private:
-  void validate()
+  void validate(gsl::span<const SurfaceDescriptor> surfaces)
   {
-    if (mSurfaces.size() > MaxLayoutSurfaces) {
+    if (surfaces.size() > MaxLayoutSurfaces) {
       mError = DetectorLayoutError::TooManySurfaces;
       return;
     }
-    if (mTopology.getSurfaceCount() != mSurfaces.size()) {
+    if (mTopology.getSurfaceCount() != surfaces.size()) {
       mError = DetectorLayoutError::TopologySurfaceCountMismatch;
       return;
     }
@@ -89,21 +118,15 @@ class DetectorLayout
       mError = DetectorLayoutError::TopologyNotFinalized;
       return;
     }
-    for (uint16_t i = 0; i < mSurfaces.size(); ++i) {
-      const auto& surface = mSurfaces[i];
-      if (surface.id != SurfaceId{i}) {
+    for (uint16_t i = 0; i < surfaces.size(); ++i) {
+      if (surfaces[i].id != SurfaceId{i}) {
         mError = DetectorLayoutError::NonDenseSurfaceIds;
         return;
       }
-      if (surface.kind == SurfaceKind::Cylinder) {
-        mCylinderSurfaces.set(surface.id);
-      } else {
-        mDiskSurfaces.set(surface.id);
-      }
     }
     for (const auto& transition : mTopology.getTransitions()) {
-      const auto fromKind = mSurfaces[transition.from.value()].kind;
-      const auto toKind = mSurfaces[transition.to.value()].kind;
+      const auto fromKind = surfaces[transition.from.value()].kind;
+      const auto toKind = surfaces[transition.to.value()].kind;
       if (fromKind != toKind) {
         mError = DetectorLayoutError::MixedSurfaceTransition;
         return;
@@ -115,10 +138,7 @@ class DetectorLayout
     }
   }
 
-  std::vector<SurfaceDescriptor> mSurfaces;
   SparseTrackingTopology mTopology;
-  SurfaceMask mCylinderSurfaces{};
-  SurfaceMask mDiskSurfaces{};
   DetectorLayoutError mError{DetectorLayoutError::None};
 };
 

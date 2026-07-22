@@ -197,7 +197,7 @@ BOOST_AUTO_TEST_CASE(SingleCallDisconnectedCylinderAndDiskLayout)
     catalog.push_back(surface(id, SurfaceKind::Disk));
   }
 
-  DetectorLayoutBuilder builder{std::move(catalog)};
+  DetectorLayoutBuilder builder{catalog};
   builder.addSubgraph(DetectorLayoutSubgraph{orderedIds({0, 1, 2, 3, 4, 5, 6}), 0, SurfaceMask{}, maskOf({0}), TransitionPolicyTag::CylinderCylinder});
   builder.addSubgraph(DetectorLayoutSubgraph{orderedIds({7, 8, 9, 10, 11, 12, 13, 14, 15, 16}), 0, SurfaceMask{}, maskOf({7}), TransitionPolicyTag::DiskDisk});
 
@@ -205,7 +205,8 @@ BOOST_AUTO_TEST_CASE(SingleCallDisconnectedCylinderAndDiskLayout)
   BOOST_REQUIRE(result.ok());
   BOOST_CHECK(result.layout->valid());
 
-  const auto layoutView = result.layout->getView();
+  const auto masks = computeSurfaceKindMasks(catalog);
+  const auto layoutView = result.layout->getView(catalog, masks.first, masks.second);
   BOOST_CHECK_EQUAL(layoutView.nSurfaces, 17u);
   BOOST_CHECK_EQUAL(layoutView.cylinderSurfaces.value(), 0x7fu);           // bits 0-6
   BOOST_CHECK_EQUAL(layoutView.diskSurfaces.value(), 0x1ff80u);            // bits 7-16
@@ -387,7 +388,7 @@ BOOST_AUTO_TEST_CASE(EmptyCatalogWithNoSubgraphsIsATrivialValidLayout)
   DetectorLayoutBuilder builder{{}};
   const auto result = builder.build();
   BOOST_REQUIRE(result.ok());
-  BOOST_CHECK_EQUAL(result.layout->getView().nSurfaces, 0u);
+  BOOST_CHECK_EQUAL(result.layout->getView({}, {}, {}).nSurfaces, 0u);
   BOOST_CHECK_EQUAL(result.layout->getTopology().getView().nTransitions, 0u);
 }
 

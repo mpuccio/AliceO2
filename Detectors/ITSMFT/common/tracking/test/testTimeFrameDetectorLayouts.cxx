@@ -66,16 +66,23 @@ struct EpochTestTimeFrame : TimeFrame<7> {
   const DetectorLayoutSet* getStoredDetectorLayouts() const { return mDetectorLayouts ? &*mDetectorLayouts : nullptr; }
 };
 
+/// DetectorLayout no longer owns a surface copy (Slice 3, shared ownership):
+/// test fixtures that build one in isolation keep the surfaces alongside it.
+struct BuiltLayout {
+  DetectorLayout layout;
+  std::vector<SurfaceDescriptor> surfaces;
+};
+
 struct TraversalTestTimeFrame : TimeFrame<10> {
-  void installLayout(DetectorLayout layout)
+  void installLayout(BuiltLayout built)
   {
     DetectorLayoutConfigurationKey key;
     key.geometryEpoch = mRequiredDetectorGeometryEpoch;
-    auto surfaces = layout.getSurfaces();
     std::vector<DetectorLayout> layouts;
-    layouts.push_back(std::move(layout));
+    layouts.push_back(std::move(built.layout));
+    std::vector<NominalSurfaceMaterialBudget> nominalMaterial(built.surfaces.size());
     mRequiredDetectorLayoutConfiguration = key;
-    mDetectorLayouts.emplace(std::move(key), std::move(surfaces), std::move(layouts));
+    mDetectorLayouts.emplace(std::move(key), std::move(built.surfaces), std::move(nominalMaterial), std::move(layouts));
   }
 };
 
@@ -121,17 +128,18 @@ std::vector<SurfaceId> order(size_t count)
   return result;
 }
 
-DetectorLayout cyclicDiskLayout()
+BuiltLayout cyclicDiskLayout()
 {
   SparseTrackingTopology topology{10};
   BOOST_REQUIRE(topology.addTransition(SurfaceTransition{SurfaceId{0}, SurfaceId{1}, {}, TransitionPolicyTag::DiskDisk, 0}).isValid());
   BOOST_REQUIRE(topology.addTransition(SurfaceTransition{SurfaceId{1}, SurfaceId{2}, {}, TransitionPolicyTag::DiskDisk, 0}).isValid());
   BOOST_REQUIRE(topology.addTransition(SurfaceTransition{SurfaceId{2}, SurfaceId{0}, {}, TransitionPolicyTag::DiskDisk, 0}).isValid());
   BOOST_REQUIRE(topology.finalize());
-  return DetectorLayout{catalog(10, SurfaceKind::Disk, o2::detectors::DetID::MFT), std::move(topology)};
+  auto surfaces = catalog(10, SurfaceKind::Disk, o2::detectors::DetID::MFT);
+  return BuiltLayout{DetectorLayout{surfaces, std::move(topology)}, std::move(surfaces)};
 }
 
-DetectorLayout mixedDisconnectedLayout()
+BuiltLayout mixedDisconnectedLayout()
 {
   SparseTrackingTopology topology{10};
   for (uint16_t id = 0; id < 4; ++id) {
@@ -145,7 +153,7 @@ DetectorLayout mixedDisconnectedLayout()
   for (uint16_t id = 0; id < 5; ++id) {
     surfaces[id].kind = SurfaceKind::Cylinder;
   }
-  return DetectorLayout{std::move(surfaces), std::move(topology)};
+  return BuiltLayout{DetectorLayout{surfaces, std::move(topology)}, std::move(surfaces)};
 }
 
 TrackingParameters parameters(int activeCount, int maxHoles = 0, uint16_t holes = 0, uint16_t starts = 0xffff)
@@ -326,7 +334,7 @@ BOOST_AUTO_TEST_CASE(invalidation_replacement_and_provider_failure_are_transacti
   BOOST_REQUIRE(storedOwner != nullptr);
   const auto storedEpoch = storedOwner->getConfigurationKey().geometryEpoch;
   const auto firstEpoch = frame.getRequiredDetectorGeometryEpoch();
-  BOOST_CHECK_EQUAL(frame.getDetectorLayout(0)->getSurfaces()[0].referenceCoordinate, 1.f);
+  BOOST_CHECK_EQUAL((*frame.getSurfaceCatalog())[0].referenceCoordinate, 1.f);
   frame.invalidateDetectorLayouts();
   BOOST_CHECK_EQUAL(frame.getRequiredDetectorGeometryEpoch(), firstEpoch + 1);
   provider.fail = true;
@@ -343,7 +351,7 @@ BOOST_AUTO_TEST_CASE(invalidation_replacement_and_provider_failure_are_transacti
   BOOST_REQUIRE(replaced.ok());
   BOOST_CHECK(replaced.rebuilt);
   BOOST_CHECK(frame.detectorLayoutsCurrent());
-  BOOST_CHECK_EQUAL(frame.getDetectorLayout(0)->getSurfaces()[0].referenceCoordinate, 42.f);
+  BOOST_CHECK_EQUAL((*frame.getSurfaceCatalog())[0].referenceCoordinate, 42.f);
 }
 
 BOOST_AUTO_TEST_CASE(request_change_forces_rebuild)
@@ -462,20 +470,13 @@ BOOST_AUTO_TEST_CASE(catalog_identity_active_count_and_mask_mapping)
   const auto* full = frame.getDetectorLayout(0);
   const auto* reduced = frame.getDetectorLayout(1);
   BOOST_REQUIRE(full != nullptr && reduced != nullptr);
-  BOOST_REQUIRE_EQUAL(full->getSurfaces().size(), 7);
-  BOOST_REQUIRE_EQUAL(reduced->getSurfaces().size(), 7);
-  for (size_t i = 0; i < 7; ++i) {
-    const auto& lhs = full->getSurfaces()[i];
-    const auto& rhs = reduced->getSurfaces()[i];
-    BOOST_CHECK_EQUAL(lhs.id.value(), rhs.id.value());
-    BOOST_CHECK_EQUAL(lhs.detectorSurfaceIndex, rhs.detectorSurfaceIndex);
-    BOOST_CHECK_EQUAL(lhs.detectorId, rhs.detectorId);
-    BOOST_CHECK(lhs.kind == rhs.kind);
-    BOOST_CHECK_EQUAL(lhs.flags, rhs.flags);
-    BOOST_CHECK_EQUAL(lhs.referenceCoordinate, rhs.referenceCoordinate);
-    BOOST_CHECK_EQUAL(lhs.radialMin, rhs.radialMin);
-    BOOST_CHECK_EQUAL(lhs.radialMax, rhs.radialMax);
-  }
+  // Slice 3: the surface catalog is now owned exactly once by
+  // DetectorLayoutSet, shared by every iteration -- there is no longer a
+  // separate per-DetectorLayout copy to compare element-by-element. Both
+  // iterations trivially observe the same single catalog by construction.
+  const auto* sharedCatalog = frame.getSurfaceCatalog();
+  BOOST_REQUIRE(sharedCatalog != nullptr);
+  BOOST_REQUIRE_EQUAL(sharedCatalog->size(), 7);
   BOOST_CHECK_LT(reduced->getTopology().getTransitions().size(), full->getTopology().getTransitions().size());
   BOOST_CHECK(full->getTopology().getView().seedingSurfaces.has(SurfaceId{3}));
   BOOST_CHECK(full->getTopology().getView().seedingSurfaces.has(SurfaceId{5}));
@@ -505,8 +506,10 @@ BOOST_AUTO_TEST_CASE(catalog_identity_active_count_and_mask_mapping)
   // positionalSurfaceMask), so iteration 1's own layout must select no road
   // starts at all -- proving each iteration's roadStartCellsForTag reflects
   // only its own layout's seedingSurfaces.
-  TransitionPolicyGrouping fullGrouping{full->getView()};
-  TransitionPolicyGrouping reducedGrouping{reduced->getView()};
+  const auto fullView = frame.getDetectorLayoutView(0);
+  const auto reducedView = frame.getDetectorLayoutView(1);
+  TransitionPolicyGrouping fullGrouping{fullView};
+  TransitionPolicyGrouping reducedGrouping{reducedView};
   BOOST_REQUIRE(fullGrouping.valid());
   BOOST_REQUIRE(reducedGrouping.valid());
   const auto fullStarts = fullGrouping.roadStartCellsForTag(TransitionPolicyTag::CylinderCylinder);
@@ -515,7 +518,7 @@ BOOST_AUTO_TEST_CASE(catalog_identity_active_count_and_mask_mapping)
   BOOST_CHECK(reducedStarts.empty());
   BOOST_REQUIRE_GT(fullStarts.size(), 0u);
   for (const auto id : fullStarts) {
-    const auto endpoint = full->getView().topology.getTransition(full->getView().topology.getCell(id).secondTransition).to;
+    const auto endpoint = fullView.topology.getTransition(fullView.topology.getCell(id).secondTransition).to;
     BOOST_CHECK(endpoint == SurfaceId{5});
   }
 }
@@ -727,7 +730,7 @@ BOOST_AUTO_TEST_CASE(traversal_preflight_rejects_legacy_mismatch_state_mismatch_
 
 BOOST_AUTO_TEST_CASE(traversal_preflight_reports_invalid_schedule_and_mixed_policy_layout)
 {
-  auto checkInstalledLayout = [](DetectorLayout layout, TraversalFailureReason expected) {
+  auto checkInstalledLayout = [](BuiltLayout layout, TraversalFailureReason expected) {
     auto params = mftTraversalParameters();
     auto pool = std::make_shared<BoundedMemoryResource>();
     TraversalTestTimeFrame frame;

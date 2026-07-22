@@ -237,7 +237,13 @@ DetectorLayoutSetBuildResult TimeFrame<NLayers>::ensureDetectorLayouts(const Det
     staging.push_back(std::move(*buildResult.layout));
   }
 
-  DetectorLayoutSet stagedSet{std::move(key), std::move(catalogResult.catalog), std::move(staging)};
+  // Placeholder, size-matched, zero-initialized nominal material: ensureDetectorLayouts()
+  // does not yet accept validated material input (added in a follow-up commit).
+  // Zero budgets are inert no-op values (see the SurfaceSpec zero-xOverX0
+  // semantic), and keeping this parallel to mCatalog by construction avoids a
+  // transient size mismatch between the two shared arrays.
+  std::vector<NominalSurfaceMaterialBudget> placeholderMaterial(catalogResult.catalog.size());
+  DetectorLayoutSet stagedSet{std::move(key), std::move(catalogResult.catalog), std::move(placeholderMaterial), std::move(staging)};
   static_assert(std::is_nothrow_move_constructible_v<DetectorLayoutSet>);
   mDetectorLayouts.emplace(std::move(stagedSet));
   return {.rebuilt = true};

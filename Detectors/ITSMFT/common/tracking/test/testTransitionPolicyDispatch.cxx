@@ -41,12 +41,31 @@ SurfaceMask maskOf(uint16_t id)
   return mask;
 }
 
+/// DetectorLayout no longer owns a surface copy (Slice 3, shared ownership):
+/// it borrows a caller-supplied catalog span only for construction/view
+/// assembly. Test fixtures that build one DetectorLayout in isolation (no
+/// DetectorLayoutSet involved) keep their own catalog alongside it so
+/// `.getView()` keeps working as a zero-argument call at every existing call
+/// site below.
+struct BuiltLayout {
+  DetectorLayout layout;
+  std::vector<SurfaceDescriptor> surfaces;
+
+  bool valid() const noexcept { return layout.valid(); }
+  const auto& getTopology() const noexcept { return layout.getTopology(); }
+  DetectorLayoutView getView() const noexcept
+  {
+    const auto masks = computeSurfaceKindMasks(surfaces);
+    return layout.getView(surfaces, masks.first, masks.second);
+  }
+};
+
 /// A chain of `nSurfaces` surfaces of one kind, adjacent-only transitions and
 /// cells (no holes) -- ITS-like when Cylinder/CylinderCylinder, MFT-like when
 /// Disk/DiskDisk. Mirrors the fixture style already accepted in
 /// testSurfaceLayout.cxx. `seedingSurfaces` defaults to empty so existing
 /// (pre-road-start) callers are unaffected.
-DetectorLayout buildChainLayout(uint16_t nSurfaces, SurfaceKind kind, TransitionPolicyTag tag, SurfaceMask seedingSurfaces = {})
+BuiltLayout buildChainLayout(uint16_t nSurfaces, SurfaceKind kind, TransitionPolicyTag tag, SurfaceMask seedingSurfaces = {})
 {
   SparseTrackingTopology topology{nSurfaces, seedingSurfaces};
   std::vector<TransitionId> transitions;
@@ -62,7 +81,7 @@ DetectorLayout buildChainLayout(uint16_t nSurfaces, SurfaceKind kind, Transition
   for (uint16_t s = 0; s < nSurfaces; ++s) {
     surfaces.push_back(surface(s, kind));
   }
-  return DetectorLayout{std::move(surfaces), std::move(topology)};
+  return BuiltLayout{DetectorLayout{surfaces, std::move(topology)}, std::move(surfaces)};
 }
 
 /// Two disconnected chains sharing one TransitionPolicyTag: surfaces
@@ -70,7 +89,7 @@ DetectorLayout buildChainLayout(uint16_t nSurfaces, SurfaceKind kind, Transition
 /// prove road-start selection needs no per-component special-casing (the
 /// grouping's rank computation already treats disconnected components
 /// independently -- TransitionPolicyDispatch.h's Kahn's-algorithm loop).
-DetectorLayout buildTwoChainsSameTag(uint16_t nA, uint16_t nB, SurfaceKind kind, TransitionPolicyTag tag, SurfaceMask seedingSurfaces = {})
+BuiltLayout buildTwoChainsSameTag(uint16_t nA, uint16_t nB, SurfaceKind kind, TransitionPolicyTag tag, SurfaceMask seedingSurfaces = {})
 {
   const uint16_t total = static_cast<uint16_t>(nA + nB);
   SparseTrackingTopology topology{total, seedingSurfaces};
@@ -93,14 +112,14 @@ DetectorLayout buildTwoChainsSameTag(uint16_t nA, uint16_t nB, SurfaceKind kind,
   for (uint16_t s = 0; s < total; ++s) {
     surfaces.push_back(surface(s, kind));
   }
-  return DetectorLayout{std::move(surfaces), std::move(topology)};
+  return BuiltLayout{DetectorLayout{surfaces, std::move(topology)}, std::move(surfaces)};
 }
 
 /// A disconnected combined layout: an ITS-like cylinder chain over the first
 /// `nCylinders` surfaces and an MFT-like disk chain over the next `nDisks`
 /// surfaces, in one shared global surface-id space (Architecture.md §8, the
 /// first combined milestone).
-DetectorLayout buildCombinedDisconnectedLayout(uint16_t nCylinders, uint16_t nDisks, SurfaceMask seedingSurfaces = {})
+BuiltLayout buildCombinedDisconnectedLayout(uint16_t nCylinders, uint16_t nDisks, SurfaceMask seedingSurfaces = {})
 {
   const uint16_t total = nCylinders + nDisks;
   SparseTrackingTopology topology{total, seedingSurfaces};
@@ -127,10 +146,10 @@ DetectorLayout buildCombinedDisconnectedLayout(uint16_t nCylinders, uint16_t nDi
   for (uint16_t s = nCylinders; s < total; ++s) {
     surfaces.push_back(surface(s, SurfaceKind::Disk));
   }
-  return DetectorLayout{std::move(surfaces), std::move(topology)};
+  return BuiltLayout{DetectorLayout{surfaces, std::move(topology)}, std::move(surfaces)};
 }
 
-DetectorLayout buildIdentityLayout(uint16_t nSurfaces, SurfaceKind kind, TransitionPolicyTag tag, int maxHoles, uint16_t hole, SurfaceMask seedingSurfaces = {})
+BuiltLayout buildIdentityLayout(uint16_t nSurfaces, SurfaceKind kind, TransitionPolicyTag tag, int maxHoles, uint16_t hole, SurfaceMask seedingSurfaces = {})
 {
   std::vector<SurfaceDescriptor> surfaces;
   std::vector<SurfaceId> order;
@@ -138,10 +157,10 @@ DetectorLayout buildIdentityLayout(uint16_t nSurfaces, SurfaceKind kind, Transit
     surfaces.push_back(surface(id, kind));
     order.push_back(SurfaceId{id});
   }
-  DetectorLayoutBuilder builder{std::move(surfaces)};
-  const auto result = builder.addSubgraph(DetectorLayoutSubgraph{std::move(order), maxHoles, maxHoles ? maskOf(hole) : SurfaceMask{}, seedingSurfaces, tag}).build();
+  DetectorLayoutBuilder builder{surfaces};
+  auto result = builder.addSubgraph(DetectorLayoutSubgraph{std::move(order), maxHoles, maxHoles ? maskOf(hole) : SurfaceMask{}, seedingSurfaces, tag}).build();
   BOOST_REQUIRE(result.ok());
-  return std::move(*result.layout);
+  return BuiltLayout{std::move(*result.layout), std::move(surfaces)};
 }
 
 void checkIdentitySchedule(uint16_t nSurfaces, SurfaceKind kind, TransitionPolicyTag tag, int maxHoles, uint16_t hole)
@@ -203,10 +222,11 @@ BOOST_AUTO_TEST_CASE(NonMonotonicSurfaceIdsFollowGraphRank)
   for (uint16_t id = 0; id < 5; ++id) {
     surfaces.push_back(surface(id, SurfaceKind::Cylinder));
   }
-  DetectorLayoutBuilder builder{std::move(surfaces)};
+  DetectorLayoutBuilder builder{surfaces};
   auto result = builder.addSubgraph(DetectorLayoutSubgraph{{SurfaceId{3}, SurfaceId{1}, SurfaceId{4}, SurfaceId{0}}, 0, {}, {}, TransitionPolicyTag::CylinderCylinder}).build();
   BOOST_REQUIRE(result.ok());
-  TransitionPolicyGrouping grouping{result.layout->getView()};
+  const auto masks = computeSurfaceKindMasks(surfaces);
+  TransitionPolicyGrouping grouping{result.layout->getView(surfaces, masks.first, masks.second)};
   BOOST_REQUIRE(grouping.valid());
   const auto scheduled = grouping.scheduledCellsForTag(TransitionPolicyTag::CylinderCylinder);
   BOOST_REQUIRE_EQUAL(scheduled.size(), 2u);
@@ -240,10 +260,12 @@ BOOST_AUTO_TEST_CASE(CyclicTopologyIsRejectedExplicitly)
   BOOST_REQUIRE(topology.addTransition(adjacent(1, 2, TransitionPolicyTag::CylinderCylinder)).isValid());
   BOOST_REQUIRE(topology.addTransition(adjacent(2, 0, TransitionPolicyTag::CylinderCylinder)).isValid());
   BOOST_REQUIRE(topology.finalize());
-  DetectorLayout layout{{surface(0, SurfaceKind::Cylinder), surface(1, SurfaceKind::Cylinder), surface(2, SurfaceKind::Cylinder)}, std::move(topology)};
+  const std::vector<SurfaceDescriptor> surfaces{surface(0, SurfaceKind::Cylinder), surface(1, SurfaceKind::Cylinder), surface(2, SurfaceKind::Cylinder)};
+  DetectorLayout layout{surfaces, std::move(topology)};
   BOOST_REQUIRE(layout.valid());
 
-  TransitionPolicyGrouping grouping{layout.getView()};
+  const auto masks = computeSurfaceKindMasks(surfaces);
+  TransitionPolicyGrouping grouping{layout.getView(surfaces, masks.first, masks.second)};
   BOOST_CHECK(!grouping.valid());
   BOOST_CHECK(grouping.getScheduleError() == TransitionPolicyScheduleError::CyclicTopology);
   BOOST_CHECK(grouping.transitionsForTag(TransitionPolicyTag::CylinderCylinder).empty());
@@ -344,9 +366,11 @@ BOOST_AUTO_TEST_CASE(DispatchIsANoOpForALayoutWithNoActiveWork)
 {
   SparseTrackingTopology topology{2};
   BOOST_REQUIRE(topology.finalize());
-  DetectorLayout layout{{surface(0, SurfaceKind::Cylinder), surface(1, SurfaceKind::Cylinder)}, std::move(topology)};
+  const std::vector<SurfaceDescriptor> surfaces{surface(0, SurfaceKind::Cylinder), surface(1, SurfaceKind::Cylinder)};
+  DetectorLayout layout{surfaces, std::move(topology)};
   BOOST_REQUIRE(layout.valid());
-  TransitionPolicyGrouping grouping{layout.getView()};
+  const auto masks = computeSurfaceKindMasks(surfaces);
+  TransitionPolicyGrouping grouping{layout.getView(surfaces, masks.first, masks.second)};
 
   RecordingVisitor visitor;
   dispatchTransitionPolicies(grouping, visitor);
@@ -433,10 +457,11 @@ BOOST_AUTO_TEST_CASE(RoadStartEndpointWinsOverNumericHighestHitSurfaceBit)
   for (uint16_t id = 0; id < 5; ++id) {
     surfaces.push_back(surface(id, SurfaceKind::Cylinder));
   }
-  DetectorLayoutBuilder builder{std::move(surfaces)};
+  DetectorLayoutBuilder builder{surfaces};
   auto result = builder.addSubgraph(DetectorLayoutSubgraph{{SurfaceId{3}, SurfaceId{1}, SurfaceId{4}, SurfaceId{0}}, 0, {}, maskOf(4), TransitionPolicyTag::CylinderCylinder}).build();
   BOOST_REQUIRE(result.ok());
-  TransitionPolicyGrouping grouping{result.layout->getView()};
+  const auto masks = computeSurfaceKindMasks(surfaces);
+  TransitionPolicyGrouping grouping{result.layout->getView(surfaces, masks.first, masks.second)};
   BOOST_REQUIRE(grouping.valid());
   const auto starts = grouping.roadStartCellsForTag(TransitionPolicyTag::CylinderCylinder);
   BOOST_REQUIRE_EQUAL(starts.size(), 1u);
@@ -445,10 +470,15 @@ BOOST_AUTO_TEST_CASE(RoadStartEndpointWinsOverNumericHighestHitSurfaceBit)
   // Seeding surface 0 (cell1's true, transition-graph endpoint) selects only
   // cell1, even though surface 0 is not the numerically greatest bit of
   // either cell's hitSurfaces.
-  DetectorLayoutBuilder builder2{[] { std::vector<SurfaceDescriptor> s; for (uint16_t id = 0; id < 5; ++id) { s.push_back(surface(id, SurfaceKind::Cylinder)); } return s; }()};
+  std::vector<SurfaceDescriptor> surfaces2;
+  for (uint16_t id = 0; id < 5; ++id) {
+    surfaces2.push_back(surface(id, SurfaceKind::Cylinder));
+  }
+  DetectorLayoutBuilder builder2{surfaces2};
   auto result2 = builder2.addSubgraph(DetectorLayoutSubgraph{{SurfaceId{3}, SurfaceId{1}, SurfaceId{4}, SurfaceId{0}}, 0, {}, maskOf(0), TransitionPolicyTag::CylinderCylinder}).build();
   BOOST_REQUIRE(result2.ok());
-  TransitionPolicyGrouping grouping2{result2.layout->getView()};
+  const auto masks2 = computeSurfaceKindMasks(surfaces2);
+  TransitionPolicyGrouping grouping2{result2.layout->getView(surfaces2, masks2.first, masks2.second)};
   BOOST_REQUIRE(grouping2.valid());
   const auto starts2 = grouping2.roadStartCellsForTag(TransitionPolicyTag::CylinderCylinder);
   BOOST_REQUIRE_EQUAL(starts2.size(), 1u);
