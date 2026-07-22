@@ -111,8 +111,15 @@ MaterialOperationResult calculateMaterialPhysics(
 
   const float q2 = static_cast<float>(absCharge) * static_cast<float>(absCharge);
   const float p0 = momentumGeV;
-  const float e0 = std::sqrt(p0 * p0 + mass * mass);
-  const float beta2 = (p0 * p0) / (e0 * e0);
+  const float p0Squared = p0 * p0;
+  const float e0 = std::sqrt(p0Squared + mass * mass);
+  if (!std::isfinite(e0)) {
+    return makeFailureResult(momentumGeV, MaterialFailureReason::NonFiniteResult);
+  }
+  const float beta2 = p0Squared / (e0 * e0);
+  if (!std::isfinite(beta2) || beta2 <= 0.f) {
+    return makeFailureResult(momentumGeV, MaterialFailureReason::NonFiniteResult);
+  }
 
   float e = e0;
   float p = p0;

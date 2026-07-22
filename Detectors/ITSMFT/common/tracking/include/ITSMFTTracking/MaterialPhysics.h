@@ -25,8 +25,8 @@ namespace o2::itsmft::tracking::material
 // momentum. This is independent of the sign of any propagation/covariance
 // convention used by a caller's track state.
 enum class MaterialTraversalDirection : uint8_t {
-  AlongMomentum,
-  OppositeMomentum
+  AlongMomentum = 0,
+  OppositeMomentum = 1
 };
 
 // Unsigned, already path-integrated material budget crossed by a state.
@@ -42,19 +42,19 @@ struct IntegratedMaterialBudget {
 // InvalidCovariance are reserved for later composite family operations that
 // carry a full track state; calculateMaterialPhysics() never emits them.
 enum class MaterialFailureReason : uint8_t {
-  None,
-  SourceFamilyMismatch,
-  NonFiniteState,
-  InvalidStateKinematics,
-  InvalidPID,
-  ChargedMasslessPID,
-  InvalidDirection,
-  InvalidMaterial,
-  StoppedInMaterial,
-  MomentumBelowMinimum,
-  ExcessiveScattering,
-  InvalidCovariance,
-  NonFiniteResult
+  None = 0,
+  SourceFamilyMismatch = 1,
+  NonFiniteState = 2,
+  InvalidStateKinematics = 3,
+  InvalidPID = 4,
+  ChargedMasslessPID = 5,
+  InvalidDirection = 6,
+  InvalidMaterial = 7,
+  StoppedInMaterial = 8,
+  MomentumBelowMinimum = 9,
+  ExcessiveScattering = 10,
+  InvalidCovariance = 11,
+  NonFiniteResult = 12
 };
 
 enum class MaterialOperationFlags : uint8_t {
@@ -132,6 +132,13 @@ static_assert(offsetof(MaterialOperationResult, reserved) == 23);
 //   4. pid.getID() is below PID::NIDsTot, else InvalidPID (checked before
 //      any mass-array access).
 //   5. absCharge != 0 with zero PID mass, else ChargedMasslessPID.
+//
+// For a charged, massive state, the entry-derived total energy (e0) and
+// beta^2 are explicitly checked to be finite (and beta^2 additionally
+// checked to be strictly positive) before any energy-loss or multiple-
+// scattering arithmetic runs, since both quantities feed both branches;
+// this is a deterministic NonFiniteResult, not a reliance on later
+// inf-inf/inf-over-inf/NaN propagation to eventually surface the problem.
 //
 // For a charged, massive state, momentumGeV is the physical input momentum
 // already selected by the caller (no covariance projection is performed by

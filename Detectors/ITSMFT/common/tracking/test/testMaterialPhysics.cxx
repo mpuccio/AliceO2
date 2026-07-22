@@ -149,6 +149,28 @@ BOOST_AUTO_TEST_CASE(RepresentationLayout)
   static_assert(sizeof(MaterialFailureReason) == 1);
   static_assert(sizeof(MaterialOperationFlags) == 1);
 
+  // Lock the exact numeric values already reported as part of the reviewed
+  // API, even though the enums are not yet a durable serialized/device ABI.
+  static_assert(static_cast<uint8_t>(MaterialTraversalDirection::AlongMomentum) == 0);
+  static_assert(static_cast<uint8_t>(MaterialTraversalDirection::OppositeMomentum) == 1);
+
+  static_assert(static_cast<uint8_t>(MaterialFailureReason::None) == 0);
+  static_assert(static_cast<uint8_t>(MaterialFailureReason::SourceFamilyMismatch) == 1);
+  static_assert(static_cast<uint8_t>(MaterialFailureReason::NonFiniteState) == 2);
+  static_assert(static_cast<uint8_t>(MaterialFailureReason::InvalidStateKinematics) == 3);
+  static_assert(static_cast<uint8_t>(MaterialFailureReason::InvalidPID) == 4);
+  static_assert(static_cast<uint8_t>(MaterialFailureReason::ChargedMasslessPID) == 5);
+  static_assert(static_cast<uint8_t>(MaterialFailureReason::InvalidDirection) == 6);
+  static_assert(static_cast<uint8_t>(MaterialFailureReason::InvalidMaterial) == 7);
+  static_assert(static_cast<uint8_t>(MaterialFailureReason::StoppedInMaterial) == 8);
+  static_assert(static_cast<uint8_t>(MaterialFailureReason::MomentumBelowMinimum) == 9);
+  static_assert(static_cast<uint8_t>(MaterialFailureReason::ExcessiveScattering) == 10);
+  static_assert(static_cast<uint8_t>(MaterialFailureReason::InvalidCovariance) == 11);
+  static_assert(static_cast<uint8_t>(MaterialFailureReason::NonFiniteResult) == 12);
+
+  static_assert(static_cast<uint8_t>(MaterialOperationFlags::None) == 0);
+  static_assert(static_cast<uint8_t>(MaterialOperationFlags::SubstepCountClamped) == 1);
+
   BOOST_CHECK(true);
 }
 
@@ -246,6 +268,42 @@ BOOST_AUTO_TEST_CASE(DirectionInvalidCastRejected)
     auto result = calculateMaterialPhysics(1.f, PID::Pion, 1, direction, material);
     expectDeterministicFailure(result, MaterialFailureReason::InvalidDirection, 1.f);
   }
+}
+
+BOOST_AUTO_TEST_CASE(ValidationPrecedenceWithCombinedInvalidInputs)
+{
+  const auto badDirection = static_cast<MaterialTraversalDirection>(255);
+  const float nan = std::numeric_limits<float>::quiet_NaN();
+  const IntegratedMaterialBudget badMaterial{nan, -1.f};
+  const IntegratedMaterialBudget goodMaterial{0.f, 0.f};
+  const float badMomentum = -1.f;
+  const float goodMomentum = 1.f;
+  const PID badPid(static_cast<PID::ID>(255));
+  const PID goodMasslessPid = PID::Photon;
+
+  // 1. invalid direction wins over invalid material/momentum/PID.
+  auto r1 = calculateMaterialPhysics(badMomentum, badPid, 1, badDirection, badMaterial);
+  BOOST_CHECK(r1.failure == MaterialFailureReason::InvalidDirection);
+
+  // 2. invalid material wins over invalid momentum/PID.
+  auto r2 = calculateMaterialPhysics(badMomentum, badPid, 1, MaterialTraversalDirection::AlongMomentum, badMaterial);
+  BOOST_CHECK(r2.failure == MaterialFailureReason::InvalidMaterial);
+
+  // 3. invalid momentum wins over invalid PID.
+  auto r3 = calculateMaterialPhysics(badMomentum, badPid, 1, MaterialTraversalDirection::AlongMomentum, goodMaterial);
+  BOOST_CHECK(r3.failure == MaterialFailureReason::MomentumBelowMinimum);
+
+  // 4. invalid PID wins over charged-massless inspection: an unresolvable
+  // id must surface InvalidPID, never attempting the mass lookup that
+  // ChargedMasslessPID depends on.
+  auto r4 = calculateMaterialPhysics(goodMomentum, badPid, 1, MaterialTraversalDirection::AlongMomentum, goodMaterial);
+  BOOST_CHECK(r4.failure == MaterialFailureReason::InvalidPID);
+
+  // Control: same absCharge/direction/material/momentum, but a valid
+  // massless PID -- confirms r4 is really about id validity winning over
+  // the charged-massless inspection, not some unrelated mismatch.
+  auto r4Control = calculateMaterialPhysics(goodMomentum, goodMasslessPid, 1, MaterialTraversalDirection::AlongMomentum, goodMaterial);
+  BOOST_CHECK(r4Control.failure == MaterialFailureReason::ChargedMasslessPID);
 }
 
 BOOST_AUTO_TEST_CASE(MaterialFieldsMustBeFiniteAndNonNegative)
@@ -470,27 +528,38 @@ BOOST_AUTO_TEST_CASE(ExcessiveScatteringIsRejected)
   expectDeterministicFailure(result, MaterialFailureReason::ExcessiveScattering, 0.1f);
 }
 
-BOOST_AUTO_TEST_CASE(HugeFiniteMaterialInputsDoNotInvokeConversionUB)
+BOOST_AUTO_TEST_CASE(HugeFiniteArealDensityDeterministicallyStops)
 {
+  // 1e30 g/cm^2 is many orders of magnitude beyond what a 1 GeV/c proton's
+  // kinetic energy can absorb: even after the substep count clamps to 50
+  // (since the requested count vastly exceeds it), the very first substep's
+  // energy loss drives the particle's energy far below its rest mass. This
+  // must terminate deterministically without any float-to-int UB in the
+  // substep-count calculation.
+  const float p0 = 1.f;
   IntegratedMaterialBudget material{0.f, 1.e30f};
-  auto result = calculateMaterialPhysics(1.f, PID::Proton, 1, MaterialTraversalDirection::AlongMomentum, material);
-  // Must terminate deterministically without UB; the physical outcome for
-  // such an extreme areal density is that the particle stops.
-  BOOST_CHECK(result.failure == MaterialFailureReason::StoppedInMaterial ||
-              result.failure == MaterialFailureReason::NonFiniteResult);
-  auto repeat = calculateMaterialPhysics(1.f, PID::Proton, 1, MaterialTraversalDirection::AlongMomentum, material);
+  auto result = calculateMaterialPhysics(p0, PID::Proton, 1, MaterialTraversalDirection::AlongMomentum, material);
+  expectDeterministicFailure(result, MaterialFailureReason::StoppedInMaterial, p0);
+
+  auto repeat = calculateMaterialPhysics(p0, PID::Proton, 1, MaterialTraversalDirection::AlongMomentum, material);
   BOOST_CHECK_EQUAL(std::memcmp(&result, &repeat, sizeof(MaterialOperationResult)), 0);
 }
 
-BOOST_AUTO_TEST_CASE(HugeFiniteMomentumInputDoesNotInvokeConversionUB)
+BOOST_AUTO_TEST_CASE(HugeFiniteMomentumDeterministicallyYieldsNonFiniteResult)
 {
+  // std::numeric_limits<float>::max() / 4 squared overflows float range, so
+  // the entry-derived e0 (sqrt(p0^2 + mass^2)) is itself non-finite. This is
+  // now rejected explicitly before any energy-loss/MCS arithmetic runs
+  // (rather than relying on later inf-inf/inf-over-inf propagation), giving
+  // an exact, deterministic NonFiniteResult with no float-to-int UB along
+  // the way.
+  const float p0 = std::numeric_limits<float>::max() / 4.f;
   IntegratedMaterialBudget material{0.01f, 1.e10f};
-  auto result = calculateMaterialPhysics(std::numeric_limits<float>::max() / 4.f, PID::Proton, 1,
-                                         MaterialTraversalDirection::AlongMomentum, material);
-  BOOST_CHECK(result.failure == MaterialFailureReason::None ||
-              result.failure == MaterialFailureReason::StoppedInMaterial ||
-              result.failure == MaterialFailureReason::NonFiniteResult ||
-              result.failure == MaterialFailureReason::ExcessiveScattering);
+  auto result = calculateMaterialPhysics(p0, PID::Proton, 1, MaterialTraversalDirection::AlongMomentum, material);
+  expectDeterministicFailure(result, MaterialFailureReason::NonFiniteResult, p0);
+
+  auto repeat = calculateMaterialPhysics(p0, PID::Proton, 1, MaterialTraversalDirection::AlongMomentum, material);
+  BOOST_CHECK_EQUAL(std::memcmp(&result, &repeat, sizeof(MaterialOperationResult)), 0);
 }
 
 BOOST_AUTO_TEST_CASE(DirectBetheBlochReferenceValue)
@@ -509,6 +578,52 @@ BOOST_AUTO_TEST_CASE(DirectBetheBlochReferenceValue)
   const double expectedEnergyAfter = e0 - dedx * material.arealDensityGPerCm2;
   const double expectedSignedChange = expectedEnergyAfter - e0;
   BOOST_CHECK(closeTo(result.signedEnergyChangeGeV, static_cast<float>(expectedSignedChange)));
+}
+
+BOOST_AUTO_TEST_CASE(ChargeSquaredScalesSingleSubstepEnergyLoss)
+{
+  // Material thin enough that absCharge up to 3 (q^2 up to 9) still resolves
+  // to a single substep for every case below. PID::Electron's nominal
+  // PID::getCharge() is fixed at 1 regardless of absCharge, so any observed
+  // scaling with absCharge (not with PID::getCharge()) demonstrates that
+  // getCharge() is never consulted.
+  const float p0 = 1.f;
+  const PID pid = PID::Electron;
+  const double mass = pid.getMass();
+  const IntegratedMaterialBudget material{0.f, 0.0001f};
+
+  const double e0 = std::sqrt(static_cast<double>(p0) * p0 + mass * mass);
+  const double bg0 = p0 / mass;
+  const double dedxUnit = o2::track::BetheBlochSolidOpt<double>(bg0); // reference dE/dx at q^2 = 1
+
+  float baseSignedChange = 0.f;
+  float baseVariance = 0.f;
+  for (uint8_t absCharge : {1, 2, 3}) {
+    auto result = calculateMaterialPhysics(p0, pid, absCharge, MaterialTraversalDirection::AlongMomentum, material);
+    BOOST_REQUIRE(result.ok());
+    BOOST_REQUIRE_EQUAL(result.energyLossSubsteps, 1);
+
+    const double q2 = static_cast<double>(absCharge) * absCharge;
+    const double expectedDE = dedxUnit * q2 * material.arealDensityGPerCm2;
+    const double expectedEnergyAfter = e0 - expectedDE;
+    const double expectedSignedChange = expectedEnergyAfter - e0;
+    const double expectedMomentumAfter = std::sqrt(expectedEnergyAfter * expectedEnergyAfter - mass * mass);
+    const double expectedVariance = kStragglingConst * kStragglingConst * std::fabs(expectedSignedChange) * e0 * e0 /
+                                    (static_cast<double>(p0) * p0 * p0 * p0);
+
+    BOOST_CHECK(closeTo(result.signedEnergyChangeGeV, static_cast<float>(expectedSignedChange)));
+    BOOST_CHECK(closeTo(result.momentumAfterGeV, static_cast<float>(expectedMomentumAfter)));
+    BOOST_CHECK(closeTo(result.relativeInverseMomentumVariance, static_cast<float>(expectedVariance)));
+
+    if (absCharge == 1) {
+      baseSignedChange = result.signedEnergyChangeGeV;
+      baseVariance = result.relativeInverseMomentumVariance;
+    } else {
+      const float q2f = static_cast<float>(absCharge) * static_cast<float>(absCharge);
+      BOOST_CHECK(closeTo(result.signedEnergyChangeGeV, q2f * baseSignedChange));
+      BOOST_CHECK(closeTo(result.relativeInverseMomentumVariance, q2f * baseVariance));
+    }
+  }
 }
 
 BOOST_AUTO_TEST_CASE(RepeatedCallsAreByteIdentical)
