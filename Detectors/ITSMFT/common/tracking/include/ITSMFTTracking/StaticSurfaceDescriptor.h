@@ -68,9 +68,8 @@ struct SurfaceAcceptance {
   GPUhdi() constexpr DiskRadialAcceptance disk() const noexcept { return {min, max}; }
 };
 
-struct NominalSurfaceMaterial {
-  float xOverX0{0.f};
-};
+// NominalSurfaceMaterial itself is defined once in SurfaceDescriptor.h and
+// shared by both descriptor types; no duplicate definition here.
 
 enum class SurfaceIndexingFamily : uint8_t {
   Invalid,
@@ -101,7 +100,8 @@ GPUhdi() constexpr SurfaceDescriptor toRuntimeSurfaceDescriptor(const StaticSurf
                            0,
                            source.nominalReferenceCoordinate,
                            source.nominalReferenceCoordinate,
-                           source.nominalReferenceCoordinate};
+                           source.nominalReferenceCoordinate,
+                           source.material};
   if (source.kind == SurfaceKind::Disk && source.nominalTrackingAcceptance.isDisk()) {
     const auto radial = source.nominalTrackingAcceptance.disk();
     result.radialMin = radial.radiusMin;
@@ -120,8 +120,9 @@ O2_ITSMFT_ASSERT_STATIC_SURFACE_TYPE(DetectorSurfaceIdentity, 4, 2);
 O2_ITSMFT_ASSERT_STATIC_SURFACE_TYPE(CylinderZAcceptance, 8, 4);
 O2_ITSMFT_ASSERT_STATIC_SURFACE_TYPE(DiskRadialAcceptance, 8, 4);
 O2_ITSMFT_ASSERT_STATIC_SURFACE_TYPE(SurfaceAcceptance, 12, 4);
-O2_ITSMFT_ASSERT_STATIC_SURFACE_TYPE(NominalSurfaceMaterial, 4, 4);
-O2_ITSMFT_ASSERT_STATIC_SURFACE_TYPE(StaticSurfaceDescriptor, 32, 4);
+// NominalSurfaceMaterial's own layout is asserted once, in
+// SurfaceDescriptor.h, where the shared type is defined.
+O2_ITSMFT_ASSERT_STATIC_SURFACE_TYPE(StaticSurfaceDescriptor, 36, 4);
 
 static_assert(offsetof(DetectorSurfaceIdentity, detectorId) == 0);
 static_assert(offsetof(DetectorSurfaceIdentity, detectorSurfaceIndex) == 2);
@@ -131,7 +132,7 @@ static_assert(offsetof(StaticSurfaceDescriptor, kind) == 6);
 static_assert(offsetof(StaticSurfaceDescriptor, nominalReferenceCoordinate) == 8);
 static_assert(offsetof(StaticSurfaceDescriptor, nominalTrackingAcceptance) == 12);
 static_assert(offsetof(StaticSurfaceDescriptor, material) == 24);
-static_assert(offsetof(StaticSurfaceDescriptor, indexingFamily) == 28);
+static_assert(offsetof(StaticSurfaceDescriptor, indexingFamily) == 32);
 
 #undef O2_ITSMFT_ASSERT_STATIC_SURFACE_TYPE
 

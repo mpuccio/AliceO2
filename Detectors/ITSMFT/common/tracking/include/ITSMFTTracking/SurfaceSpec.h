@@ -87,7 +87,8 @@ consteval bool validateSurfaceArray(const std::array<StaticSurfaceDescriptor, N>
       return false;
     }
 
-    if (!isFinite(surface.material.xOverX0) || surface.material.xOverX0 <= 0.f) {
+    if (!isFinite(surface.material.xOverX0) || surface.material.xOverX0 < 0.f ||
+        !isFinite(surface.material.arealDensityGPerCm2) || surface.material.arealDensityGPerCm2 < 0.f) {
       return false;
     }
 

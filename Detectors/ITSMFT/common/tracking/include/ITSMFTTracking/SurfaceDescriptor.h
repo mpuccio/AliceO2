@@ -8,6 +8,7 @@
 #ifndef ALICEO2_ITSMFT_TRACKING_SURFACEDESCRIPTOR_H_
 #define ALICEO2_ITSMFT_TRACKING_SURFACEDESCRIPTOR_H_
 
+#include <cstddef>
 #include <cstdint>
 #include <type_traits>
 
@@ -21,8 +22,26 @@ enum class SurfaceKind : uint8_t {
   Disk
 };
 
-// Geometry identity shared by host and device code. Measurement, timing,
-// material and indexing descriptors are deliberately composed separately.
+// Nominal (normal-incidence) per-surface material. An immutable property of
+// the surface itself, alongside its geometry -- not a separate catalogue
+// keyed by identity. Both fields are independently legal at zero (a surface
+// with no material yet configured); shared by SurfaceDescriptor and
+// StaticSurfaceDescriptor so there is exactly one definition of this type.
+struct NominalSurfaceMaterial {
+  float xOverX0{0.f};
+  float arealDensityGPerCm2{0.f};
+};
+
+static_assert(std::is_standard_layout_v<NominalSurfaceMaterial>);
+static_assert(std::is_trivially_copyable_v<NominalSurfaceMaterial>);
+static_assert(sizeof(NominalSurfaceMaterial) == 8);
+static_assert(alignof(NominalSurfaceMaterial) == 4);
+static_assert(offsetof(NominalSurfaceMaterial, xOverX0) == 0);
+static_assert(offsetof(NominalSurfaceMaterial, arealDensityGPerCm2) == 4);
+
+// Geometry identity shared by host and device code, plus its nominal
+// material. Measurement, timing and indexing descriptors are deliberately
+// composed separately.
 struct SurfaceDescriptor {
   SurfaceId id{};
   uint16_t detectorSurfaceIndex{0};
@@ -32,11 +51,22 @@ struct SurfaceDescriptor {
   float referenceCoordinate{0.f}; // nominal radius for cylinders, z for disks
   float radialMin{0.f};
   float radialMax{0.f};
+  NominalSurfaceMaterial material{};
 };
 
 static_assert(std::is_standard_layout_v<SurfaceDescriptor>);
 static_assert(std::is_trivially_copyable_v<SurfaceDescriptor>);
-static_assert(sizeof(SurfaceDescriptor) == 20);
+static_assert(sizeof(SurfaceDescriptor) == 28);
+static_assert(alignof(SurfaceDescriptor) == 4);
+static_assert(offsetof(SurfaceDescriptor, id) == 0);
+static_assert(offsetof(SurfaceDescriptor, detectorSurfaceIndex) == 2);
+static_assert(offsetof(SurfaceDescriptor, detectorId) == 4);
+static_assert(offsetof(SurfaceDescriptor, kind) == 5);
+static_assert(offsetof(SurfaceDescriptor, flags) == 6);
+static_assert(offsetof(SurfaceDescriptor, referenceCoordinate) == 8);
+static_assert(offsetof(SurfaceDescriptor, radialMin) == 12);
+static_assert(offsetof(SurfaceDescriptor, radialMax) == 16);
+static_assert(offsetof(SurfaceDescriptor, material) == 20);
 
 } // namespace o2::itsmft::tracking
 

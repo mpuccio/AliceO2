@@ -22,26 +22,28 @@ using namespace o2::itsmft::tracking;
 namespace
 {
 constexpr StaticSurfaceDescriptor cylinder(uint16_t id, uint8_t detector, uint16_t local, float radius = 2.f,
-                                           float zMin = -10.f, float zMax = 10.f, float material = 0.01f)
+                                           float zMin = -10.f, float zMax = 10.f, float material = 0.01f,
+                                           float arealDensity = 0.f)
 {
   return {SurfaceId{id},
           {detector, local},
           SurfaceKind::Cylinder,
           radius,
           SurfaceAcceptance::fromCylinder({zMin, zMax}),
-          {material},
+          {material, arealDensity},
           SurfaceIndexingFamily::CylindricalPhiZ};
 }
 
 constexpr StaticSurfaceDescriptor disk(uint16_t id, uint8_t detector, uint16_t local, float z = -40.f,
-                                       float radiusMin = 1.f, float radiusMax = 20.f, float material = 0.02f)
+                                       float radiusMin = 1.f, float radiusMax = 20.f, float material = 0.02f,
+                                       float arealDensity = 0.f)
 {
   return {SurfaceId{id},
           {detector, local},
           SurfaceKind::Disk,
           z,
           SurfaceAcceptance::fromDisk({radiusMin, radiusMax}),
-          {material},
+          {material, arealDensity},
           SurfaceIndexingFamily::CartesianXY};
 }
 
@@ -133,6 +135,18 @@ constexpr auto nanMaterial = [](auto& surfaces) {
 constexpr auto infiniteMaterial = [](auto& surfaces) {
   surfaces[0].material.xOverX0 = std::numeric_limits<float>::infinity();
 };
+constexpr auto zeroArealDensity = [](auto& surfaces) { surfaces[0].material.arealDensityGPerCm2 = 0.f; };
+constexpr auto negativeArealDensity = [](auto& surfaces) { surfaces[0].material.arealDensityGPerCm2 = -0.02f; };
+constexpr auto nanArealDensity = [](auto& surfaces) {
+  surfaces[0].material.arealDensityGPerCm2 = std::numeric_limits<float>::quiet_NaN();
+};
+constexpr auto infiniteArealDensity = [](auto& surfaces) {
+  surfaces[0].material.arealDensityGPerCm2 = std::numeric_limits<float>::infinity();
+};
+constexpr auto zeroBothMaterialFields = [](auto& surfaces) {
+  surfaces[0].material.xOverX0 = 0.f;
+  surfaces[0].material.arealDensityGPerCm2 = 0.f;
+};
 
 struct NegativeDiskRadius {
   inline static constexpr std::array surfaces{disk(0, 201, 0, -40.f, -1.f, 20.f)};
@@ -178,10 +192,17 @@ static_assert(!validateSurfaceSpec<MutatedCylinders<negativeCylinderRadius>>());
 static_assert(!validateSurfaceSpec<MutatedCylinders<nanAcceptance>>());
 static_assert(!validateSurfaceSpec<MutatedCylinders<infiniteAcceptance>>());
 static_assert(!validateSurfaceSpec<MutatedCylinders<reversedAcceptance>>());
-static_assert(!validateSurfaceSpec<MutatedCylinders<zeroMaterial>>());
+// Zero is legal, independently, for either material field: a surface with no
+// material configured yet is a valid SurfaceSpec, not a rejected one.
+static_assert(validateSurfaceSpec<MutatedCylinders<zeroMaterial>>());
+static_assert(validateSurfaceSpec<MutatedCylinders<zeroArealDensity>>());
+static_assert(validateSurfaceSpec<MutatedCylinders<zeroBothMaterialFields>>());
 static_assert(!validateSurfaceSpec<MutatedCylinders<negativeMaterial>>());
 static_assert(!validateSurfaceSpec<MutatedCylinders<nanMaterial>>());
 static_assert(!validateSurfaceSpec<MutatedCylinders<infiniteMaterial>>());
+static_assert(!validateSurfaceSpec<MutatedCylinders<negativeArealDensity>>());
+static_assert(!validateSurfaceSpec<MutatedCylinders<nanArealDensity>>());
+static_assert(!validateSurfaceSpec<MutatedCylinders<infiniteArealDensity>>());
 static_assert(!validateSurfaceSpec<NegativeDiskRadius>());
 static_assert(!validateSurfaceSpec<ReversedDiskBounds>());
 static_assert(validateSurfaceSpec<ThirtyTwoSurfaces>());
@@ -242,6 +263,8 @@ BOOST_AUTO_TEST_CASE(RuntimeProjectionHasIdealStaticSemantics)
   BOOST_CHECK_EQUAL(projectedCylinder.referenceCoordinate, 4.f);
   BOOST_CHECK_EQUAL(projectedCylinder.radialMin, 4.f);
   BOOST_CHECK_EQUAL(projectedCylinder.radialMax, 4.f);
+  BOOST_CHECK_EQUAL(projectedCylinder.material.xOverX0, Cylinders::surfaces[1].material.xOverX0);
+  BOOST_CHECK_EQUAL(projectedCylinder.material.arealDensityGPerCm2, Cylinders::surfaces[1].material.arealDensityGPerCm2);
 
   const auto projectedDisk = toRuntimeSurfaceDescriptor(Disks::surfaces[0]);
   BOOST_CHECK(projectedDisk.id == SurfaceId{0});
@@ -252,6 +275,26 @@ BOOST_AUTO_TEST_CASE(RuntimeProjectionHasIdealStaticSemantics)
   BOOST_CHECK_EQUAL(projectedDisk.referenceCoordinate, -40.f);
   BOOST_CHECK_EQUAL(projectedDisk.radialMin, 1.f);
   BOOST_CHECK_EQUAL(projectedDisk.radialMax, 20.f);
+  BOOST_CHECK_EQUAL(projectedDisk.material.xOverX0, Disks::surfaces[0].material.xOverX0);
+  BOOST_CHECK_EQUAL(projectedDisk.material.arealDensityGPerCm2, Disks::surfaces[0].material.arealDensityGPerCm2);
+}
+
+BOOST_AUTO_TEST_CASE(StaticToRuntimeMaterialProjectionCopiesBothFieldsIndependently)
+{
+  constexpr auto surface = cylinder(0, 37, 0, 2.f, -10.f, 10.f, 0.03f, 0.04f);
+  const auto projected = toRuntimeSurfaceDescriptor(surface);
+  BOOST_CHECK_EQUAL(projected.material.xOverX0, 0.03f);
+  BOOST_CHECK_EQUAL(projected.material.arealDensityGPerCm2, 0.04f);
+
+  constexpr auto zeroXOverX0 = cylinder(0, 37, 0, 2.f, -10.f, 10.f, 0.f, 0.05f);
+  const auto projectedZeroXOverX0 = toRuntimeSurfaceDescriptor(zeroXOverX0);
+  BOOST_CHECK_EQUAL(projectedZeroXOverX0.material.xOverX0, 0.f);
+  BOOST_CHECK_EQUAL(projectedZeroXOverX0.material.arealDensityGPerCm2, 0.05f);
+
+  constexpr auto zeroArealDensityValue = cylinder(0, 37, 0, 2.f, -10.f, 10.f, 0.06f, 0.f);
+  const auto projectedZeroArealDensity = toRuntimeSurfaceDescriptor(zeroArealDensityValue);
+  BOOST_CHECK_EQUAL(projectedZeroArealDensity.material.xOverX0, 0.06f);
+  BOOST_CHECK_EQUAL(projectedZeroArealDensity.material.arealDensityGPerCm2, 0.f);
 }
 
 BOOST_AUTO_TEST_CASE(SurfaceMeasurementIndexBoundaries)
