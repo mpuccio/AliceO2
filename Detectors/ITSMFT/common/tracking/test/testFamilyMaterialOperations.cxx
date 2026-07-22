@@ -760,3 +760,143 @@ BOOST_AUTO_TEST_CASE(ForwardAnalyticReferenceChargeAboveUnityWithEnergyLoss)
   BOOST_CHECK(closeTo(state.covariance[14], before.covariance[14] + h * (t * k) * (t * k) + k * k * R));
   BOOST_CHECK_LT(result.momentumAfterGeV, result.momentumBeforeGeV);
 }
+
+BOOST_AUTO_TEST_CASE(UnconditionalNoopLeavesOverLimitBarrelCovarianceUntouched)
+{
+  // Once the scalar kernel succeeds, absCharge == 0 or an exactly-{0,0}
+  // materialBudget must return immediately, before projectCovariance (and
+  // the barrel covariance-range limiting it applies) or the slot-4 update
+  // ever run -- even when the source covariance diagonals already exceed
+  // the retained checkCovariance limits, which must not be silently
+  // clamped by an operation that has no material to apply.
+  for (auto direction : {material::MaterialTraversalDirection::AlongMomentum, material::MaterialTraversalDirection::OppositeMomentum}) {
+    {
+      auto state = withMomentum(makeBarrelState(), 1.2f, 1);
+      state.pid = o2::track::PID::Pion;
+      state.covariance[packedCovarianceIndex(2, 2)] = 2.f * o2::track::kCSnp2max;
+      state.covariance[packedCovarianceIndex(3, 3)] = 2.f * o2::track::kCTgl2max;
+      const auto before = state;
+      material::IntegratedMaterialBudget materialBudget{0.f, 0.f}; // zero material, charged
+      auto result = barrel::correctForMaterial(state, materialBudget, direction);
+      BOOST_REQUIRE(result.ok());
+      BOOST_CHECK(bitEqual(state, before));
+    }
+    {
+      auto state = withMomentum(makeBarrelState(), 1.2f, 0);
+      state.pid = o2::track::PID::Pion;
+      state.covariance[packedCovarianceIndex(2, 2)] = 2.f * o2::track::kCSnp2max;
+      state.covariance[packedCovarianceIndex(3, 3)] = 2.f * o2::track::kCTgl2max;
+      const auto before = state;
+      material::IntegratedMaterialBudget materialBudget{0.5f, 3.f}; // nonzero, neutral (would matter if charged)
+      auto result = barrel::correctForMaterial(state, materialBudget, direction);
+      BOOST_REQUIRE(result.ok());
+      BOOST_CHECK(bitEqual(state, before));
+    }
+  }
+}
+
+BOOST_AUTO_TEST_CASE(Slot4ZeroChangePreservesBitForBit)
+{
+  // MCS-only material (xOverX0 > 0, arealDensity == 0) leaves momentum
+  // exactly unchanged even though covariance is projected; the equality
+  // branch of the slot-4 update must recover kBefore bit-for-bit here.
+  for (const auto& family : kFamilies) {
+    auto state = withMomentum(family.makeValid(), 2.f, 1);
+    state.pid = o2::track::PID::Kaon;
+    material::IntegratedMaterialBudget materialBudget{0.05f, 0.f};
+    const float kBefore = state.parameters[4];
+    auto result = family.correct(state, materialBudget, material::MaterialTraversalDirection::AlongMomentum);
+    BOOST_REQUIRE(result.ok());
+    BOOST_CHECK_EQUAL(result.momentumBeforeGeV, result.momentumAfterGeV);
+    BOOST_CHECK_EQUAL(state.parameters[4], kBefore);
+  }
+}
+
+BOOST_AUTO_TEST_CASE(Slot4OrdinaryLossAndGainMatchExplicitProductFirstFormula)
+{
+  // For an ordinary (non-equal) momentum change, the retained/accepted
+  // arithmetic is left-to-right: (kBefore * pBefore) / pAfter, not
+  // kBefore * (pBefore / pAfter).
+  for (const auto& family : kFamilies) {
+    for (auto direction : {material::MaterialTraversalDirection::AlongMomentum, material::MaterialTraversalDirection::OppositeMomentum}) {
+      auto state = withMomentum(family.makeValid(), 1.5f, 1);
+      state.pid = o2::track::PID::Proton;
+      material::IntegratedMaterialBudget materialBudget{0.f, 0.01f}; // energy-loss only: pBefore != pAfter
+      const float kBefore = state.parameters[4];
+      auto result = family.correct(state, materialBudget, direction);
+      BOOST_REQUIRE(result.ok());
+      BOOST_REQUIRE_NE(result.momentumBeforeGeV, result.momentumAfterGeV);
+      const float expectedKAfter = (kBefore * result.momentumBeforeGeV) / result.momentumAfterGeV;
+      BOOST_CHECK_EQUAL(state.parameters[4], expectedKAfter);
+    }
+  }
+}
+
+BOOST_AUTO_TEST_CASE(RatioFirstArithmeticUnderflowsWhileSelectedFormulationRemainsFinite)
+{
+  // Constructing a scalar-kernel-success physical fixture that reaches this
+  // exact float-underflow boundary was not possible: any state whose slot 4
+  // is small enough (or whose derived momentum is large enough) to approach
+  // this regime causes the physical-momentum derivation or the scalar
+  // kernel's own entry-energy computation (e0 = sqrt(p^2 + mass^2)) to
+  // overflow first, which is rejected earlier as InvalidStateKinematics or
+  // NonFiniteResult -- never reaching this arithmetic. This is therefore a
+  // direct, scalar-kernel-independent characterization of why the ratio
+  // must not be computed before multiplying by kBefore, using the exact
+  // formulas the production code chooses between.
+  const float kBefore = 1.e25f;
+  const float pBefore = 1.e-25f;
+  const float pAfter = 1.e25f;
+
+  const float ratioFirst = kBefore * (pBefore / pAfter);
+  const float productFirst = (kBefore * pBefore) / pAfter;
+
+  BOOST_CHECK_EQUAL(ratioFirst, 0.f); // pBefore/pAfter underflows to exactly zero first
+  BOOST_CHECK(std::isfinite(productFirst));
+  BOOST_CHECK_GT(productFirst, 0.f); // (kBefore * pBefore) / pAfter remains finite and nonzero
+}
+
+BOOST_AUTO_TEST_CASE(Slot4ArithmeticRepeatedExecutionIsDeterministic)
+{
+  material::IntegratedMaterialBudget materialBudget{0.f, 0.02f};
+  for (const auto& family : kFamilies) {
+    for (auto direction : {material::MaterialTraversalDirection::AlongMomentum, material::MaterialTraversalDirection::OppositeMomentum}) {
+      auto stateA = withMomentum(family.makeValid(), 1.4f, 1);
+      stateA.pid = o2::track::PID::Proton;
+      auto stateB = stateA;
+      auto resultA = family.correct(stateA, materialBudget, direction);
+      auto resultB = family.correct(stateB, materialBudget, direction);
+      BOOST_CHECK(bitEqual(resultA, resultB));
+      BOOST_CHECK(bitEqual(stateA, stateB));
+    }
+  }
+}
+
+BOOST_AUTO_TEST_CASE(PostProjectionValidationDoesNotFalsePositiveNearBoundary)
+{
+  // The three new post-projection checks (finite output, slot 4 valid plus
+  // family kinematics, re-derivable momentum, non-negative covariance
+  // diagonals) are defense-in-depth for the current projection formulas:
+  // parameters[0..3] are never written by projectCovariance, so the
+  // family-specific kinematics check (which only reads those) cannot
+  // legitimately fail post-projection given it already passed preflight,
+  // and every covariance increment (h*A*c2, h*A^2, h*A*t*k, h*(t*k)^2+k^2*R)
+  // is provably non-negative or, for slot 13, bounded by quantities already
+  // required finite by the scalar kernel's own success. A fixture with
+  // large-but-legitimate t/k that would overflow the projection arithmetic
+  // was found to overflow the scalar kernel's own e0 = sqrt(p^2 + mass^2)
+  // computation first (or the physical-momentum derivation itself), so no
+  // reachable public fixture drives NonFiniteResult, InvalidStateKinematics,
+  // or InvalidCovariance out of the post-projection checks specifically
+  // (as opposed to preflight or the scalar kernel). This test instead
+  // confirms the checks do not spuriously reject a legitimate large-but-
+  // valid boundary fixture.
+  for (const auto& family : kFamilies) {
+    auto state = withMomentum(family.makeValid(), 5.f, 1);
+    state.parameters[3] = 1.e4f; // large but finite slope, well short of overflowing t*t
+    state.pid = o2::track::PID::Pion;
+    material::IntegratedMaterialBudget materialBudget{5.f, 0.01f}; // sizable but under the ExcessiveScattering cap
+    auto result = family.correct(state, materialBudget, material::MaterialTraversalDirection::AlongMomentum);
+    BOOST_CHECK_MESSAGE(result.ok(), family.name << " unexpectedly failed with reason " << static_cast<int>(result.failure));
+  }
+}

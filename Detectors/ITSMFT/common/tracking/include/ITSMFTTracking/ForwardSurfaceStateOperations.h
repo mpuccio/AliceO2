@@ -69,12 +69,24 @@ bool correctForMaterial(SurfaceKinematicState& state, float xOverX0, OperationFa
 // (MaterialPhysics.h): derives physical momentum from the pre-material
 // state, evaluates calculateMaterialPhysics() with the state's own PID and
 // absCharge, and projects the resulting energy-loss/scattering/straggling
-// contributions onto the packed covariance. The complete 92-byte state is
-// left byte-for-byte unchanged unless the operation returns a successful
-// result (result.ok()); see MaterialPhysics.h for the exact
-// success/preflight-failure/projection-failure diagnostics contract. This is
-// an independent overload from the legacy correctForMaterial() above, which
-// remains unchanged.
+// contributions onto the packed covariance. This is an independent overload
+// from the legacy correctForMaterial() above, which remains unchanged.
+//
+// Diagnostics contract (result is always the scalar MaterialOperationResult,
+// see MaterialPhysics.h for field semantics):
+//  - Preflight failure (state validation or physical-momentum derivation
+//    fails before the scalar kernel runs): momentumBeforeGeV, every other
+//    numeric diagnostic, and flags are all zero/None; only failure is set.
+//  - Scalar-kernel failure: the scalar kernel's own result is returned
+//    unchanged (momentumBeforeGeV echoes the derived input momentum; all
+//    other diagnostics are that kernel's deterministic zero/None values).
+//  - Projection failure (the scalar kernel succeeds but the projected
+//    scratch state fails post-projection validation): momentumBeforeGeV is
+//    preserved from the scalar result; every other numeric diagnostic and
+//    flags are zero/None; only failure is set.
+//  - Success: the scalar kernel's successful result is returned unchanged.
+// In every case above, the complete 92-byte state is left byte-for-byte
+// unchanged unless the operation returns a successful result (result.ok()).
 material::MaterialOperationResult correctForMaterial(SurfaceKinematicState& state, material::IntegratedMaterialBudget materialBudget,
                                                      material::MaterialTraversalDirection direction) noexcept;
 

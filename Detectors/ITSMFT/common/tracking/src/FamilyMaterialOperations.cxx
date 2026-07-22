@@ -190,6 +190,14 @@ bool preflightValidate(const SurfaceKinematicState& state, StateFamily expectedF
 // projectCovariance may additionally apply family-specific covariance range
 // handling (barrel only); it must not touch state.parameters[4], which this
 // function updates uniformly for both families after projection.
+//
+// Unconditional no-op contract: once the scalar kernel succeeds, absCharge
+// == 0 or an exactly-{0,0} materialBudget returns the scalar result
+// immediately, before projectCovariance (and any barrel covariance-range
+// limiting it applies) or the slot-4 update ever run. This holds even when
+// the source state's barrel covariance diagonals already exceed the
+// retained checkCovariance limits: those diagonals must not be silently
+// clamped by an operation that has no material to apply.
 template <typename FamilyKinematicsCheck, typename ProjectCovariance>
 material::MaterialOperationResult correctForMaterialImpl(SurfaceKinematicState& state, StateFamily expectedFamily,
                                                          material::IntegratedMaterialBudget materialBudget,
@@ -213,21 +221,41 @@ material::MaterialOperationResult correctForMaterialImpl(SurfaceKinematicState& 
     return scalarResult;
   }
 
+  const bool isNoopMaterial = (materialBudget.xOverX0 == 0.f && materialBudget.arealDensityGPerCm2 == 0.f);
+  if (scratch.absCharge == 0 || isNoopMaterial) {
+    return scalarResult;
+  }
+
   const float tBefore = scratch.parameters[3];
   const float kBefore = scratch.parameters[4];
   projectCovariance(scratch, scalarResult, tBefore, kBefore);
 
-  // Compute the ratio before multiplying: when momentumBeforeGeV and
-  // momentumAfterGeV are bit-identical (zero material, or neutral states),
-  // x/x is exactly 1.0f for any finite nonzero x, so kAfter == kBefore
-  // bit-for-bit. Multiplying first then dividing would round-trip through an
-  // intermediate product and generally fail to recover kBefore exactly,
-  // breaking the required byte-identical invariant.
-  const float kAfter = kBefore * (scalarResult.momentumBeforeGeV / scalarResult.momentumAfterGeV);
+  // The equality branch preserves the exact no-op invariant for the
+  // MCS-only-with-unchanged-momentum case (xOverX0 > 0, arealDensity == 0):
+  // x == y implies kAfter == kBefore bit-for-bit with no division rounding.
+  // The nonzero-change branch keeps the accepted/legacy left-to-right
+  // arithmetic (multiply, then divide) rather than dividing the momenta
+  // first, which would prematurely underflow for extreme momentum ratios
+  // and would not reproduce the retained nonzero-material rounding.
+  const float kAfter = (scalarResult.momentumBeforeGeV == scalarResult.momentumAfterGeV)
+                         ? kBefore
+                         : (kBefore * scalarResult.momentumBeforeGeV) / scalarResult.momentumAfterGeV;
   scratch.parameters[4] = kAfter;
 
+  // Complete post-projection validation. Deliberately more than
+  // allStateFloatsFinite() plus a covariance-diagonal scan: the projected
+  // state must still satisfy every family/kinematics precondition the
+  // source state was required to satisfy, and physical momentum must still
+  // be re-derivable.
   if (!allStateFloatsFinite(scratch)) {
     return makeProjectionFailure(scalarResult, material::MaterialFailureReason::NonFiniteResult);
+  }
+  if (scratch.parameters[4] == 0.f || !familyCheck(scratch)) {
+    return makeProjectionFailure(scalarResult, material::MaterialFailureReason::InvalidStateKinematics);
+  }
+  float momentumAfterDerived = 0.f;
+  if (!derivePhysicalMomentum(scratch, momentumAfterDerived)) {
+    return makeProjectionFailure(scalarResult, material::MaterialFailureReason::InvalidStateKinematics);
   }
   if (!covarianceDiagonalsNonNegative(scratch)) {
     return makeProjectionFailure(scalarResult, material::MaterialFailureReason::InvalidCovariance);
