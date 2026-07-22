@@ -13,6 +13,7 @@
 /// \brief
 ///
 
+#include <cmath>
 #include <limits>
 #include <new>
 #include <numeric>
@@ -144,6 +145,31 @@ DetectorSurfaceCatalogValidationError validateSurfaceCatalog(const DetectorSurfa
   }
   return DetectorSurfaceCatalogValidationError::None;
 }
+
+// Positional identity-bearing validation: `entries` must be the same size
+// as, and claim exactly the SurfaceIds of, the already-dense, already-
+// validated `surfaceCatalog`, at matching positions. A duplicate, missing
+// or reordered entry fails SurfaceIdMismatch through this positional
+// contract; catalog denseness itself is validateSurfaceCatalog()'s job and
+// is assumed already established by the caller.
+DetectorLayoutMaterialValidationError validateNominalMaterialEntries(gsl::span<const SurfaceDescriptor> surfaceCatalog,
+                                                                     gsl::span<const NominalSurfaceMaterialEntry> entries)
+{
+  if (entries.size() != surfaceCatalog.size()) {
+    return DetectorLayoutMaterialValidationError::SizeMismatch;
+  }
+  for (size_t i = 0; i < entries.size(); ++i) {
+    if (entries[i].surface != surfaceCatalog[i].id) {
+      return DetectorLayoutMaterialValidationError::SurfaceIdMismatch;
+    }
+    const auto& budget = entries[i].budget;
+    if (!std::isfinite(budget.normalXOverX0) || budget.normalXOverX0 < 0.f ||
+        !std::isfinite(budget.normalArealDensityGPerCm2) || budget.normalArealDensityGPerCm2 < 0.f) {
+      return DetectorLayoutMaterialValidationError::InvalidBudget;
+    }
+  }
+  return DetectorLayoutMaterialValidationError::None;
+}
 } // namespace
 
 template <int NLayers>
@@ -151,7 +177,8 @@ bool TimeFrame<NLayers>::detectorLayoutsCurrent() const noexcept
 {
   return mDetectorLayouts.has_value() && mRequiredDetectorLayoutConfiguration.has_value() &&
          mDetectorLayouts->getConfigurationKey() == *mRequiredDetectorLayoutConfiguration &&
-         mDetectorLayouts->getConfigurationKey().geometryEpoch == mRequiredDetectorGeometryEpoch;
+         mDetectorLayouts->getConfigurationKey().geometryEpoch == mRequiredDetectorGeometryEpoch &&
+         mDetectorLayouts->getConfigurationKey().materialEpoch == mRequiredMaterialCatalogEpoch;
 }
 
 template <int NLayers>
@@ -170,14 +197,32 @@ void TimeFrame<NLayers>::invalidateDetectorLayouts() noexcept
 }
 
 template <int NLayers>
+void TimeFrame<NLayers>::invalidateNominalMaterial() noexcept
+{
+  const auto previousEpoch = mRequiredMaterialCatalogEpoch;
+  mRequiredMaterialCatalogEpoch = nextMaterialCatalogEpoch(previousEpoch);
+  if (previousEpoch == std::numeric_limits<MaterialCatalogEpoch>::max()) {
+    // materialEpoch==InitialMaterialCatalogEpoch may have existed before the
+    // counter wrapped. Dropping the old owner is the only way to prevent
+    // that ancient material content becoming current again by aliasing.
+    mDetectorLayouts.reset();
+  }
+  if (mRequiredDetectorLayoutConfiguration) {
+    mRequiredDetectorLayoutConfiguration->materialEpoch = mRequiredMaterialCatalogEpoch;
+  }
+}
+
+template <int NLayers>
 DetectorLayoutSetBuildResult TimeFrame<NLayers>::ensureDetectorLayouts(const DetectorSurfaceCatalogProvider* provider,
                                                                        const DetectorSurfaceCatalogRequest& catalogRequest,
                                                                        gsl::span<const SurfaceId> orderedSurfaces,
                                                                        TransitionPolicyTag policyTag,
-                                                                       gsl::span<const TrackingParameters> trackingParameters)
+                                                                       gsl::span<const TrackingParameters> trackingParameters,
+                                                                       gsl::span<const NominalSurfaceMaterialEntry> materialEntries)
 {
   DetectorLayoutConfigurationKey key;
   key.geometryEpoch = mRequiredDetectorGeometryEpoch;
+  key.materialEpoch = mRequiredMaterialCatalogEpoch;
   key.catalogRequest = catalogRequest;
   key.orderedSurfaces.assign(orderedSurfaces.begin(), orderedSurfaces.end());
   key.policyTag = policyTag;
@@ -213,6 +258,38 @@ DetectorLayoutSetBuildResult TimeFrame<NLayers>::ensureDetectorLayouts(const Det
             .catalogValidationError = catalogValidationError};
   }
 
+  // Transactional nominal-material validation, before any owner is
+  // committed. materialEpoch==0 cannot currently arise through the public
+  // epoch API (nextMaterialCatalogEpoch() never yields 0), but is checked
+  // explicitly as documented defense-in-depth. An empty materialEntries
+  // (the default) synthesizes a size-matched, zero-initialized ("no
+  // material yet") entry set positioned against the just-validated dense
+  // catalog, so the same validation always runs against concrete data --
+  // no caller-visible opt-out branch, only a caller-visible default input.
+  if (key.materialEpoch == 0) {
+    return {.error = DetectorLayoutSetBuildError::InvalidMaterial,
+            .materialValidationError = DetectorLayoutMaterialValidationError::InvalidMaterialEpoch};
+  }
+  std::vector<NominalSurfaceMaterialEntry> autoMaterialEntries;
+  gsl::span<const NominalSurfaceMaterialEntry> effectiveMaterialEntries = materialEntries;
+  if (materialEntries.empty() && !catalogResult.catalog.empty()) {
+    autoMaterialEntries.reserve(catalogResult.catalog.size());
+    for (const auto& surface : catalogResult.catalog) {
+      autoMaterialEntries.push_back(NominalSurfaceMaterialEntry{surface.id, NominalSurfaceMaterialBudget{}});
+    }
+    effectiveMaterialEntries = autoMaterialEntries;
+  }
+  const auto materialValidationError = validateNominalMaterialEntries(catalogResult.catalog, effectiveMaterialEntries);
+  if (materialValidationError != DetectorLayoutMaterialValidationError::None) {
+    return {.error = DetectorLayoutSetBuildError::InvalidMaterial,
+            .materialValidationError = materialValidationError};
+  }
+  std::vector<NominalSurfaceMaterialBudget> materialBudgets;
+  materialBudgets.reserve(effectiveMaterialEntries.size());
+  for (const auto& entry : effectiveMaterialEntries) {
+    materialBudgets.push_back(entry.budget);
+  }
+
   std::vector<DetectorLayout> staging;
   staging.reserve(key.iterations.size());
   for (size_t iteration = 0; iteration < key.iterations.size(); ++iteration) {
@@ -237,13 +314,10 @@ DetectorLayoutSetBuildResult TimeFrame<NLayers>::ensureDetectorLayouts(const Det
     staging.push_back(std::move(*buildResult.layout));
   }
 
-  // Placeholder, size-matched, zero-initialized nominal material: ensureDetectorLayouts()
-  // does not yet accept validated material input (added in a follow-up commit).
-  // Zero budgets are inert no-op values (see the SurfaceSpec zero-xOverX0
-  // semantic), and keeping this parallel to mCatalog by construction avoids a
-  // transient size mismatch between the two shared arrays.
-  std::vector<NominalSurfaceMaterialBudget> placeholderMaterial(catalogResult.catalog.size());
-  DetectorLayoutSet stagedSet{std::move(key), std::move(catalogResult.catalog), std::move(placeholderMaterial), std::move(staging)};
+  // materialBudgets is exactly the transactionally validated, positionally
+  // aligned payload from effectiveMaterialEntries above -- only the compact
+  // budgets are stored, not the identity-bearing entries themselves.
+  DetectorLayoutSet stagedSet{std::move(key), std::move(catalogResult.catalog), std::move(materialBudgets), std::move(staging)};
   static_assert(std::is_nothrow_move_constructible_v<DetectorLayoutSet>);
   mDetectorLayouts.emplace(std::move(stagedSet));
   return {.rebuilt = true};
@@ -1028,10 +1102,11 @@ void TimeFrame<NLayers>::wipe()
   // MultiSourceFrameView or gsl::span obtained before this call (from
   // getNormalizedFrameView(), getSurfaceMeasurements(), getSourceIntervals(),
   // getLabels()) is invalidated by it, since clear() may reallocate/free the
-  // buffers those point into. Catalog/layout ownership (mDetectorLayouts),
-  // the required layout configuration, the required geometry epoch and
-  // mDetId are semantic configuration rather than event data and must
-  // survive wipe() unchanged; this call intentionally never touches them.
+  // buffers those point into. Catalog/layout/material ownership
+  // (mDetectorLayouts), the required layout configuration, the required
+  // geometry epoch, the required material catalog epoch and mDetId are
+  // semantic configuration rather than event data and must survive wipe()
+  // unchanged; this call intentionally never touches them.
   mNormalizedFrame.clear();
 }
 

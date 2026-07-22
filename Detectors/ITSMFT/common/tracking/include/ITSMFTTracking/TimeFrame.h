@@ -198,13 +198,29 @@ struct TimeFrame {
                                          o2::detectors::DetID::ID detId,
                                          bool applySysErrors = true);
 
+  // `materialEntries` is the interim identity-bearing nominal-material input
+  // (see NominalSurfaceMaterial.h). Left empty (the default), a size-matched,
+  // zero-initialized ("no material yet") entry set is synthesized
+  // internally and still runs through the same transactional validation --
+  // callers that do not yet have a real material source (all current
+  // callers, since no MaterialSpec projection exists in this slice) need no
+  // changes. A caller that does supply entries takes on the documented
+  // contract: content must not change without also bumping the epoch
+  // returned by getRequiredMaterialCatalogEpoch() (see invalidateNominalMaterial()).
   DetectorLayoutSetBuildResult ensureDetectorLayouts(const DetectorSurfaceCatalogProvider* provider,
                                                      const DetectorSurfaceCatalogRequest& catalogRequest,
                                                      gsl::span<const SurfaceId> orderedSurfaces,
                                                      TransitionPolicyTag policyTag,
-                                                     gsl::span<const TrackingParameters> trackingParameters);
+                                                     gsl::span<const TrackingParameters> trackingParameters,
+                                                     gsl::span<const NominalSurfaceMaterialEntry> materialEntries = {});
   void invalidateDetectorLayouts() noexcept;
+  // Bumps only the material epoch (geometry epoch/owner are untouched
+  // unless the bump wraps, in which case the stored owner is dropped to
+  // avoid materialEpoch==InitialMaterialCatalogEpoch aliasing a pre-wrap
+  // owner -- mirrors invalidateDetectorLayouts()'s existing wrap handling).
+  void invalidateNominalMaterial() noexcept;
   DetectorGeometryEpoch getRequiredDetectorGeometryEpoch() const noexcept { return mRequiredDetectorGeometryEpoch; }
+  MaterialCatalogEpoch getRequiredMaterialCatalogEpoch() const noexcept { return mRequiredMaterialCatalogEpoch; }
   bool detectorLayoutsCurrent() const noexcept;
   bool hasStoredDetectorLayouts() const noexcept { return mDetectorLayouts.has_value(); }
   const std::vector<SurfaceDescriptor>* getSurfaceCatalog() const noexcept
@@ -519,6 +535,7 @@ struct TimeFrame {
   std::optional<DetectorLayoutSet> mDetectorLayouts;
   std::optional<DetectorLayoutConfigurationKey> mRequiredDetectorLayoutConfiguration;
   DetectorGeometryEpoch mRequiredDetectorGeometryEpoch{InitialDetectorGeometryEpoch};
+  MaterialCatalogEpoch mRequiredMaterialCatalogEpoch{InitialMaterialCatalogEpoch};
 #endif
 };
 

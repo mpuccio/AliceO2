@@ -34,6 +34,22 @@ constexpr DetectorGeometryEpoch nextDetectorGeometryEpoch(DetectorGeometryEpoch 
   return epoch == std::numeric_limits<DetectorGeometryEpoch>::max() ? InitialDetectorGeometryEpoch : epoch + 1;
 }
 
+// Independent versioning for the shared nominal-material content, distinct
+// from DetectorGeometryEpoch: a material-only or geometry-only rebuild
+// changes exactly one of the two. Owned/incremented by whichever caller
+// detects the *material content* changed (TimeFrame::invalidateNominalMaterial());
+// DetectorLayoutSet/ensureDetectorLayouts() only compare and store it.
+// Changing material content without bumping this epoch is a caller-contract
+// violation the framework cannot independently detect -- symmetric to the
+// existing DetectorGeometryEpoch contract.
+using MaterialCatalogEpoch = uint64_t;
+inline constexpr MaterialCatalogEpoch InitialMaterialCatalogEpoch = 1;
+
+constexpr MaterialCatalogEpoch nextMaterialCatalogEpoch(MaterialCatalogEpoch epoch) noexcept
+{
+  return epoch == std::numeric_limits<MaterialCatalogEpoch>::max() ? InitialMaterialCatalogEpoch : epoch + 1;
+}
+
 struct DetectorLayoutIterationConfiguration {
   uint32_t activeCount{0};
   int maxHoles{0};
@@ -50,6 +66,7 @@ struct DetectorLayoutIterationConfiguration {
 
 struct DetectorLayoutConfigurationKey {
   DetectorGeometryEpoch geometryEpoch{InitialDetectorGeometryEpoch};
+  MaterialCatalogEpoch materialEpoch{InitialMaterialCatalogEpoch};
   DetectorSurfaceCatalogRequest catalogRequest{};
   std::vector<SurfaceId> orderedSurfaces{};
   std::vector<DetectorLayoutIterationConfiguration> iterations{};
@@ -57,8 +74,8 @@ struct DetectorLayoutConfigurationKey {
 
   bool operator==(const DetectorLayoutConfigurationKey& other) const noexcept
   {
-    return geometryEpoch == other.geometryEpoch && catalogRequest == other.catalogRequest && orderedSurfaces == other.orderedSurfaces &&
-           iterations == other.iterations && policyTag == other.policyTag;
+    return geometryEpoch == other.geometryEpoch && materialEpoch == other.materialEpoch && catalogRequest == other.catalogRequest &&
+           orderedSurfaces == other.orderedSurfaces && iterations == other.iterations && policyTag == other.policyTag;
   }
 };
 
@@ -123,8 +140,22 @@ enum class DetectorLayoutSetBuildError : uint8_t {
   MissingProvider,
   CatalogProviderFailure,
   InvalidCatalog,
+  InvalidMaterial,
   InvalidActiveCount,
   LayoutBuilderFailure
+};
+
+// Diagnostic detail for DetectorLayoutSetBuildError::InvalidMaterial.
+// Checked in this order (see TimeFrame::ensureDetectorLayouts()): a nonzero
+// material epoch, then positional identity-bearing entry validation against
+// the already-dense, already-validated surface catalog, then per-entry
+// budget finiteness/non-negativity.
+enum class DetectorLayoutMaterialValidationError : uint8_t {
+  None,
+  InvalidMaterialEpoch,
+  SizeMismatch,
+  SurfaceIdMismatch,
+  InvalidBudget
 };
 
 enum class DetectorSurfaceCatalogValidationError : uint8_t {
@@ -145,6 +176,7 @@ struct DetectorLayoutSetBuildResult {
   DetectorLayoutSetBuildError error{DetectorLayoutSetBuildError::None};
   DetectorSurfaceCatalogError catalogError{DetectorSurfaceCatalogError::None};
   DetectorSurfaceCatalogValidationError catalogValidationError{DetectorSurfaceCatalogValidationError::None};
+  DetectorLayoutMaterialValidationError materialValidationError{DetectorLayoutMaterialValidationError::None};
   size_t failedIteration{std::numeric_limits<size_t>::max()};
   DetectorLayoutBuildError layoutBuildError{DetectorLayoutBuildError::None};
   TopologyBuildError topologyError{TopologyBuildError::None};
