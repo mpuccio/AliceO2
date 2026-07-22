@@ -8,6 +8,7 @@
 #ifndef ALICEO2_ITSMFT_TRACKING_BARRELSURFACESTATEOPERATIONS_H_
 #define ALICEO2_ITSMFT_TRACKING_BARRELSURFACESTATEOPERATIONS_H_
 
+#include "ITSMFTTracking/MaterialPhysics.h"
 #include "ITSMFTTracking/SurfaceKinematicState.h"
 #include "ITSMFTTracking/SurfaceMeasurement.h"
 #include "ITSMFTTracking/SurfaceStateOperationResult.h"
@@ -34,6 +35,17 @@ bool predictedChi2(const SurfaceKinematicState& state, const SurfaceMeasurement&
 // increment. State and chi2 are unchanged on failure.
 bool update(SurfaceKinematicState& state, const SurfaceMeasurement& measurement, float& chi2,
             OperationFailureReason& reason) noexcept;
+
+// PID/absCharge-aware material correction using the shared scalar kernel
+// (MaterialPhysics.h): derives physical momentum from the pre-material
+// state, evaluates calculateMaterialPhysics() with the state's own PID and
+// absCharge, and projects the resulting energy-loss/scattering/straggling
+// contributions onto the packed covariance. The complete 92-byte state is
+// left byte-for-byte unchanged unless the operation returns a successful
+// result (result.ok()); see MaterialPhysics.h for the exact
+// success/preflight-failure/projection-failure diagnostics contract.
+material::MaterialOperationResult correctForMaterial(SurfaceKinematicState& state, material::IntegratedMaterialBudget materialBudget,
+                                                     material::MaterialTraversalDirection direction) noexcept;
 
 // Same-family compatibility chi2 between two barrel states expressed at the
 // same reference X and alpha. Residuals are the direct (unwrapped)

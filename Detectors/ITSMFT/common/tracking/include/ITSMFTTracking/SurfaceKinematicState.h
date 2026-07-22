@@ -109,6 +109,12 @@ class ForwardStateView
   GPUhdi() float getPhi() const noexcept { return mState->parameters[2]; }
   GPUhdi() float getTanl() const noexcept { return mState->parameters[3]; }
   GPUhdi() float getInvQPt() const noexcept { return mState->parameters[4]; }
+  // The Stage-B forward slot carries signed q/pT for arbitrary absCharge
+  // (not merely the unit-charge inverse pT the legacy name suggests).
+  // getQ2Pt()/setQ2Pt() are the accepted post-migration names; getInvQPt()/
+  // setInvQPt() remain as documented migration aliases over the same slot,
+  // with no layout or ABI change.
+  GPUhdi() float getQ2Pt() const noexcept { return mState->parameters[4]; }
   GPUhdi() float getCovariance(uint8_t row, uint8_t column) const noexcept { return mState->covariance[packedCovarianceIndex(row, column)]; }
   GPUhdi() float getReferenceZ() const noexcept { return mState->referenceCoordinate; }
 
@@ -117,6 +123,7 @@ class ForwardStateView
   GPUhdi() void setPhi(float value) noexcept { mState->parameters[2] = value; }
   GPUhdi() void setTanl(float value) noexcept { mState->parameters[3] = value; }
   GPUhdi() void setInvQPt(float value) noexcept { mState->parameters[4] = value; }
+  GPUhdi() void setQ2Pt(float value) noexcept { mState->parameters[4] = value; }
   GPUhdi() void setCovariance(uint8_t row, uint8_t column, float value) noexcept { mState->covariance[packedCovarianceIndex(row, column)] = value; }
 
  private:

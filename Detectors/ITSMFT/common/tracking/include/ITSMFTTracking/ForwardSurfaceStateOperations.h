@@ -10,6 +10,7 @@
 
 #include <cstdint>
 
+#include "ITSMFTTracking/MaterialPhysics.h"
 #include "ITSMFTTracking/SurfaceKinematicState.h"
 #include "ITSMFTTracking/SurfaceMeasurement.h"
 #include "ITSMFTTracking/SurfaceStateOperationResult.h"
@@ -60,7 +61,22 @@ constexpr float highlandTheta2(float inverseMomentum, float xOverX0) noexcept
 }
 
 // Preserves the legacy forward, mass/PID/absCharge-agnostic MCS behavior.
+// This is a retained characterization boundary: it is not redirected to the
+// PID/absCharge-aware physics below, even where both are available.
 bool correctForMaterial(SurfaceKinematicState& state, float xOverX0, OperationFailureReason& reason) noexcept;
+
+// PID/absCharge-aware material correction using the shared scalar kernel
+// (MaterialPhysics.h): derives physical momentum from the pre-material
+// state, evaluates calculateMaterialPhysics() with the state's own PID and
+// absCharge, and projects the resulting energy-loss/scattering/straggling
+// contributions onto the packed covariance. The complete 92-byte state is
+// left byte-for-byte unchanged unless the operation returns a successful
+// result (result.ok()); see MaterialPhysics.h for the exact
+// success/preflight-failure/projection-failure diagnostics contract. This is
+// an independent overload from the legacy correctForMaterial() above, which
+// remains unchanged.
+material::MaterialOperationResult correctForMaterial(SurfaceKinematicState& state, material::IntegratedMaterialBudget materialBudget,
+                                                     material::MaterialTraversalDirection direction) noexcept;
 
 // Same-family compatibility chi2 between two forward states expressed at the
 // same reference Z. Residuals are the direct (unwrapped) differences of
