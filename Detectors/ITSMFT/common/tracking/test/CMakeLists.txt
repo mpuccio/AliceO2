@@ -46,6 +46,12 @@ o2_add_test(detectorlayoutbuilder
             LABELS "itsmft;tracking"
             PUBLIC_LINK_LIBRARIES O2::ITSMFTTracking)
 
+o2_add_test(detectorlayoutview
+            SOURCES testDetectorLayoutView.cxx
+            COMPONENT_NAME itsmft-tracking
+            LABELS "itsmft;tracking"
+            PUBLIC_LINK_LIBRARIES O2::ITSMFTTracking)
+
 o2_add_test(transitionpolicystate
             SOURCES testTransitionPolicyState.cxx
             COMPONENT_NAME itsmft-tracking

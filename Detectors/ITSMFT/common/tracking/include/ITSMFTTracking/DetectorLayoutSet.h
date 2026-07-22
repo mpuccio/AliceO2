@@ -104,7 +104,7 @@ class DetectorLayoutSet
   DetectorLayoutView getLayoutView(size_t iteration) const noexcept
   {
     const auto* layout = getLayout(iteration);
-    return layout ? layout->getView(mCatalog, mCylinderSurfaces, mDiskSurfaces) : DetectorLayoutView{};
+    return layout ? layout->getView(mCatalog, mCylinderSurfaces, mDiskSurfaces, mNominalMaterial) : DetectorLayoutView{};
   }
 
  private:
