@@ -209,14 +209,13 @@ struct TimeFrame {
                                                      TransitionPolicyTag policyTag,
                                                      gsl::span<const TrackingParameters> trackingParameters);
 
+  // Invalidates the current DetectorLayoutSet, forcing a rebuild on the next
+  // ensureDetectorLayouts() call. A change to nominal surface material is a
+  // change to the surface description (SurfaceDescriptor::material), so it
+  // is invalidated through this same geometry path -- there is no separate
+  // material invalidation entry point.
   void invalidateDetectorLayouts() noexcept;
-  // Bumps only the material epoch (geometry epoch/owner are untouched
-  // unless the bump wraps, in which case the stored owner is dropped to
-  // avoid materialEpoch==InitialMaterialCatalogEpoch aliasing a pre-wrap
-  // owner -- mirrors invalidateDetectorLayouts()'s existing wrap handling).
-  void invalidateNominalMaterial() noexcept;
   DetectorGeometryEpoch getRequiredDetectorGeometryEpoch() const noexcept { return mRequiredDetectorGeometryEpoch; }
-  MaterialCatalogEpoch getRequiredMaterialCatalogEpoch() const noexcept { return mRequiredMaterialCatalogEpoch; }
   bool detectorLayoutsCurrent() const noexcept;
   bool hasStoredDetectorLayouts() const noexcept { return mDetectorLayouts.has_value(); }
   const std::vector<SurfaceDescriptor>* getSurfaceCatalog() const noexcept
@@ -531,7 +530,6 @@ struct TimeFrame {
   std::optional<DetectorLayoutSet> mDetectorLayouts;
   std::optional<DetectorLayoutConfigurationKey> mRequiredDetectorLayoutConfiguration;
   DetectorGeometryEpoch mRequiredDetectorGeometryEpoch{InitialDetectorGeometryEpoch};
-  MaterialCatalogEpoch mRequiredMaterialCatalogEpoch{InitialMaterialCatalogEpoch};
 #endif
 };
 

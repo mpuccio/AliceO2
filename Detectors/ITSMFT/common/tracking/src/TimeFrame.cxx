@@ -13,7 +13,6 @@
 /// \brief
 ///
 
-#include <cmath>
 #include <limits>
 #include <new>
 #include <numeric>
@@ -153,8 +152,7 @@ bool TimeFrame<NLayers>::detectorLayoutsCurrent() const noexcept
 {
   return mDetectorLayouts.has_value() && mRequiredDetectorLayoutConfiguration.has_value() &&
          mDetectorLayouts->getConfigurationKey() == *mRequiredDetectorLayoutConfiguration &&
-         mDetectorLayouts->getConfigurationKey().geometryEpoch == mRequiredDetectorGeometryEpoch &&
-         mDetectorLayouts->getConfigurationKey().materialEpoch == mRequiredMaterialCatalogEpoch;
+         mDetectorLayouts->getConfigurationKey().geometryEpoch == mRequiredDetectorGeometryEpoch;
 }
 
 template <int NLayers>
@@ -173,22 +171,6 @@ void TimeFrame<NLayers>::invalidateDetectorLayouts() noexcept
 }
 
 template <int NLayers>
-void TimeFrame<NLayers>::invalidateNominalMaterial() noexcept
-{
-  const auto previousEpoch = mRequiredMaterialCatalogEpoch;
-  mRequiredMaterialCatalogEpoch = nextMaterialCatalogEpoch(previousEpoch);
-  if (previousEpoch == std::numeric_limits<MaterialCatalogEpoch>::max()) {
-    // materialEpoch==InitialMaterialCatalogEpoch may have existed before the
-    // counter wrapped. Dropping the old owner is the only way to prevent
-    // that ancient material content becoming current again by aliasing.
-    mDetectorLayouts.reset();
-  }
-  if (mRequiredDetectorLayoutConfiguration) {
-    mRequiredDetectorLayoutConfiguration->materialEpoch = mRequiredMaterialCatalogEpoch;
-  }
-}
-
-template <int NLayers>
 DetectorLayoutSetBuildResult TimeFrame<NLayers>::ensureDetectorLayouts(const DetectorSurfaceCatalogProvider* provider,
                                                                        const DetectorSurfaceCatalogRequest& catalogRequest,
                                                                        gsl::span<const SurfaceId> orderedSurfaces,
@@ -197,7 +179,6 @@ DetectorLayoutSetBuildResult TimeFrame<NLayers>::ensureDetectorLayouts(const Det
 {
   DetectorLayoutConfigurationKey key;
   key.geometryEpoch = mRequiredDetectorGeometryEpoch;
-  key.materialEpoch = mRequiredMaterialCatalogEpoch;
   key.catalogRequest = catalogRequest;
   key.orderedSurfaces.assign(orderedSurfaces.begin(), orderedSurfaces.end());
   key.policyTag = policyTag;
