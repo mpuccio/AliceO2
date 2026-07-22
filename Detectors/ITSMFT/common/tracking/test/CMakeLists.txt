@@ -100,6 +100,12 @@ o2_add_test(barrel-surface-state-operations
             LABELS "itsmft;tracking"
             PUBLIC_LINK_LIBRARIES O2::ITSMFTTracking)
 
+o2_add_test(material-physics
+            SOURCES testMaterialPhysics.cxx
+            COMPONENT_NAME itsmft-tracking
+            LABELS "itsmft;tracking"
+            PUBLIC_LINK_LIBRARIES O2::ITSMFTTracking)
+
 o2_add_test(surfacemeasurement-adapters
             SOURCES testSurfaceMeasurementAdapters.cxx
             COMPONENT_NAME itsmft-tracking
