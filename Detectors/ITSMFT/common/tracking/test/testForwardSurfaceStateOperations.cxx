@@ -22,6 +22,7 @@
 #include "CommonConstants/MathConstants.h"
 #include "ITSMFTTracking/ForwardSurfaceStateOperations.h"
 #include "ITSMFTTracking/SurfaceKinematicStateLegacyAdapters.h"
+#include "ITStracking/Cluster.h"
 
 namespace
 {
@@ -167,6 +168,127 @@ void compareWithRetainedLegacyOracle(const SurfaceKinematicState& state, const o
       checkClose(state.covariance[packedCovarianceIndex(row, column)], oracle.getCovariances()(row, column), 3.e-6, 2.e-4, covarianceDrift);
     }
   }
+}
+
+// buildSeed fixtures: inner z is greater (less negative) than outer z, the
+// established MFT half-disk inner/outer ordering, with well-separated
+// transverse positions so the strict-boundary checks stay clear of their
+// own 1e-6f minimums in the "success" oracle tests below.
+o2::its::Cluster makeForwardInnerCluster()
+{
+  return o2::its::Cluster{2.0f, 1.0f, -40.0f, 0};
+}
+
+o2::its::Cluster makeForwardMiddleCluster()
+{
+  return o2::its::Cluster{2.5f, 1.3f, -55.0f, 1};
+}
+
+o2::its::Cluster makeForwardOuterCluster()
+{
+  return o2::its::Cluster{3.0f, 1.6f, -70.0f, 2};
+}
+
+// xCoordinate/yCoordinate/zCoordinate/xTrackingFrame/alphaTrackingFrame/
+// positionTrackingFrame are irrelevant to buildSeed's formula (only
+// covarianceTrackingFrame[0]/[2] are read) and are set to 0 here.
+o2::its::TrackingFrameInfo makeForwardOuterHit(float sigma2X = 0.05f, float sigma2Y = 0.07f)
+{
+  return o2::its::TrackingFrameInfo{0.f, 0.f, 0.f, 0.f, 0.f, {0.f, 0.f}, {sigma2X, 0.f, sigma2Y}};
+}
+
+// Retained oracle for forward::buildSeed: reimplements the initial seed
+// construction currently inside buildCellSeed<DiskDisk>
+// (TransitionPolicyOperations.cxx) / detail::mftFwdFitCellClusters
+// (MFTFwdTrackHelpers.h) using the exact legacy double-precision
+// SVector/SMatrix types, reimplemented here rather than included for the
+// same reason as retainedMftFwdStateChi2 above (MFTFwdTrackHelpers.h pulls
+// in O2::MFTTracking, not linked by this test target).
+bool retainedForwardBuildSeed(const o2::its::Cluster& clusterInner, const o2::its::Cluster& clusterMiddle,
+                              const o2::its::Cluster& clusterOuter, const o2::its::TrackingFrameInfo& hitOuter,
+                              float bz, float trackletMinPt, o2::track::TrackParCovFwd& outTrack)
+{
+  if (clusterInner.zCoordinate <= clusterOuter.zCoordinate + 1.e-6f) {
+    return false;
+  }
+  const float dxTan = clusterMiddle.xCoordinate - clusterInner.xCoordinate;
+  const float dyTan = clusterMiddle.yCoordinate - clusterInner.yCoordinate;
+  const float dzTan = clusterMiddle.zCoordinate - clusterInner.zCoordinate;
+  const float drTan = std::sqrt(dxTan * dxTan + dyTan * dyTan);
+  const float dxPhi = clusterOuter.xCoordinate - clusterInner.xCoordinate;
+  const float dyPhi = clusterOuter.yCoordinate - clusterInner.yCoordinate;
+  const float dzPhi = clusterOuter.zCoordinate - clusterInner.zCoordinate;
+  const float drPhi = std::sqrt(dxPhi * dxPhi + dyPhi * dyPhi);
+  if (drTan < 1.e-6f || std::abs(dzTan) < 1.e-6f || drPhi < 1.e-6f || std::abs(dzPhi) < 1.e-6f) {
+    return false;
+  }
+
+  const float invQPt = (trackletMinPt > 0.f) ? 1.f / trackletMinPt : 0.f;
+  float tanl{0.f};
+  float phi{0.f};
+  if (std::abs(bz) > 0.01f) {
+    tanl = -std::abs(dzTan) / drTan;
+    phi = std::atan2(dyPhi, dxPhi);
+    if (std::abs(tanl) > 1.e-6f) {
+      const float k = std::abs(o2::constants::math::B2C * bz);
+      const float hz = (bz > 0.f) ? 1.f : -1.f;
+      phi -= 0.5f * hz * invQPt * dzPhi * k / tanl;
+    }
+  } else {
+    tanl = -std::abs(dzPhi) / drPhi;
+    phi = std::atan2(dyPhi, dxPhi);
+  }
+
+  ROOT::Math::SVector<double, 5> seedParams{clusterOuter.xCoordinate, clusterOuter.yCoordinate, phi, tanl, invQPt};
+  ROOT::Math::SMatrix<double, 5, 5, ROOT::Math::MatRepSym<double, 5>> seedCov{};
+  seedCov(0, 0) = hitOuter.covarianceTrackingFrame[0] > 0.f ? hitOuter.covarianceTrackingFrame[0] : 1.f;
+  seedCov(1, 1) = hitOuter.covarianceTrackingFrame[2] > 0.f ? hitOuter.covarianceTrackingFrame[2] : 1.f;
+  seedCov(2, 2) = seedCov(3, 3) = 1.;
+  const double qptSigma = std::clamp(static_cast<double>(std::abs(invQPt)), 1., 10.);
+  seedCov(4, 4) = qptSigma * qptSigma;
+
+  outTrack = o2::track::TrackParCovFwd{clusterOuter.zCoordinate, seedParams, seedCov, 0.};
+  return true;
+}
+
+OracleDrift buildSeedParameterDrift;
+OracleDrift buildSeedCovarianceDrift;
+OracleDrift buildSeedReferenceDrift;
+
+void compareBuildSeedWithRetainedLegacyOracle(const SurfaceKinematicState& state, const o2::track::TrackParCovFwd& oracle)
+{
+  const double oracleParameters[5] = {oracle.getX(), oracle.getY(), oracle.getPhi(), oracle.getTanl(), oracle.getInvQPt()};
+  for (uint8_t i = 0; i < 5; ++i) {
+    checkClose(state.parameters[i], oracleParameters[i], 3.e-5, 3.e-5, buildSeedParameterDrift);
+  }
+  checkClose(state.referenceCoordinate, oracle.getZ(), 1.e-6, 1.e-6, buildSeedReferenceDrift);
+  for (uint8_t row = 0; row < 5; ++row) {
+    for (uint8_t column = 0; column <= row; ++column) {
+      checkClose(state.covariance[packedCovarianceIndex(row, column)], oracle.getCovariances()(row, column), 3.e-6, 2.e-4, buildSeedCovarianceDrift);
+    }
+  }
+}
+
+void checkBuildSeedMetadata(const SurfaceKinematicState& state, uint8_t expectedAbsCharge, o2::track::PID expectedPid)
+{
+  BOOST_CHECK(state.family == StateFamily::Forward);
+  BOOST_CHECK_EQUAL(state.flags, uint8_t{0});
+  BOOST_CHECK_EQUAL(state.absCharge, expectedAbsCharge);
+  BOOST_CHECK_EQUAL(static_cast<uint8_t>(state.pid), static_cast<uint8_t>(expectedPid));
+  BOOST_CHECK_EQUAL(state.alpha, 0.f);
+}
+
+void checkBuildSeedFailurePreservesBytes(const o2::its::Cluster& clusterInner, const o2::its::Cluster& clusterMiddle,
+                                         const o2::its::Cluster& clusterOuter, const o2::its::TrackingFrameInfo& hitOuter,
+                                         float bz, float trackletMinPt, OperationFailureReason expected)
+{
+  auto outState = makeState(); // deliberately non-default sentinel pattern
+  const auto before = outState;
+  OperationFailureReason reason{};
+  BOOST_CHECK(!forward::buildSeed(clusterInner, clusterMiddle, clusterOuter, hitOuter, bz, trackletMinPt,
+                                  1, o2::track::PID::Pion, outState, reason));
+  BOOST_CHECK(reason == expected);
+  BOOST_CHECK(bitEqual(outState, before));
 }
 
 template <PropagationModel Model>
@@ -680,6 +802,220 @@ BOOST_AUTO_TEST_CASE(RepeatedMultiStepChainsAreByteDeterministicAndCharacterizeO
   compareWithRetainedLegacyOracle(state, oracle);
 }
 
+// --- forward::buildSeed (Stage-B Slice A) ---
+
+BOOST_AUTO_TEST_CASE(BuildSeedMatchesRetainedLegacyOracleNonzeroField)
+{
+  for (const float bz : {0.5f, -0.5f}) { // opposite field sign -> opposite hz branch
+    const auto clusterInner = makeForwardInnerCluster();
+    const auto clusterMiddle = makeForwardMiddleCluster();
+    const auto clusterOuter = makeForwardOuterCluster();
+    const auto hitOuter = makeForwardOuterHit();
+    const float trackletMinPt = 0.5f;
+
+    o2::track::TrackParCovFwd oracle{};
+    BOOST_REQUIRE(retainedForwardBuildSeed(clusterInner, clusterMiddle, clusterOuter, hitOuter, bz, trackletMinPt, oracle));
+
+    SurfaceKinematicState outState{};
+    OperationFailureReason reason{};
+    BOOST_REQUIRE(forward::buildSeed(clusterInner, clusterMiddle, clusterOuter, hitOuter, bz, trackletMinPt,
+                                     1, o2::track::PID::Pion, outState, reason));
+    compareBuildSeedWithRetainedLegacyOracle(outState, oracle);
+    checkBuildSeedMetadata(outState, 1, o2::track::PID::Pion);
+  }
+}
+
+BOOST_AUTO_TEST_CASE(BuildSeedMatchesRetainedLegacyOracleZeroField)
+{
+  const auto clusterInner = makeForwardInnerCluster();
+  const auto clusterMiddle = makeForwardMiddleCluster();
+  const auto clusterOuter = makeForwardOuterCluster();
+  const auto hitOuter = makeForwardOuterHit();
+  const float bz = 0.002f; // |bz| <= 0.01f -> zero-field branch
+  const float trackletMinPt = 0.5f;
+
+  o2::track::TrackParCovFwd oracle{};
+  BOOST_REQUIRE(retainedForwardBuildSeed(clusterInner, clusterMiddle, clusterOuter, hitOuter, bz, trackletMinPt, oracle));
+
+  SurfaceKinematicState outState{};
+  OperationFailureReason reason{};
+  BOOST_REQUIRE(forward::buildSeed(clusterInner, clusterMiddle, clusterOuter, hitOuter, bz, trackletMinPt,
+                                   2, o2::track::PID::Kaon, outState, reason));
+  compareBuildSeedWithRetainedLegacyOracle(outState, oracle);
+  checkBuildSeedMetadata(outState, 2, o2::track::PID::Kaon);
+}
+
+BOOST_AUTO_TEST_CASE(BuildSeedZeroOrNegativeTrackletMinPtFallsBackToZeroInvQPt)
+{
+  // Established fallback (preserved verbatim, not re-validated): minPt<=0
+  // yields invQPt=0 rather than a rejection.
+  for (const float trackletMinPt : {0.f, -1.f}) {
+    const auto clusterInner = makeForwardInnerCluster();
+    const auto clusterMiddle = makeForwardMiddleCluster();
+    const auto clusterOuter = makeForwardOuterCluster();
+    const auto hitOuter = makeForwardOuterHit();
+    const float bz = 0.5f;
+
+    o2::track::TrackParCovFwd oracle{};
+    BOOST_REQUIRE(retainedForwardBuildSeed(clusterInner, clusterMiddle, clusterOuter, hitOuter, bz, trackletMinPt, oracle));
+    BOOST_CHECK_EQUAL(oracle.getInvQPt(), 0.);
+
+    SurfaceKinematicState outState{};
+    OperationFailureReason reason{};
+    BOOST_REQUIRE(forward::buildSeed(clusterInner, clusterMiddle, clusterOuter, hitOuter, bz, trackletMinPt,
+                                     1, o2::track::PID::Pion, outState, reason));
+    BOOST_CHECK_EQUAL(outState.parameters[4], 0.f);
+    compareBuildSeedWithRetainedLegacyOracle(outState, oracle);
+  }
+}
+
+BOOST_AUTO_TEST_CASE(BuildSeedPhiSignFollowsFieldSign)
+{
+  // With a nonzero, non-negligible tanl, the phi correction term's sign
+  // tracks bz's sign through hz -- verified against the retained oracle
+  // rather than a hardcoded sign, since the correction also depends on
+  // dzPhi/tanl/invQPt.
+  const auto clusterInner = makeForwardInnerCluster();
+  const auto clusterMiddle = makeForwardMiddleCluster();
+  const auto clusterOuter = makeForwardOuterCluster();
+  const auto hitOuter = makeForwardOuterHit();
+  const float trackletMinPt = 0.5f;
+
+  o2::track::TrackParCovFwd oraclePositive{};
+  o2::track::TrackParCovFwd oracleNegative{};
+  BOOST_REQUIRE(retainedForwardBuildSeed(clusterInner, clusterMiddle, clusterOuter, hitOuter, 0.5f, trackletMinPt, oraclePositive));
+  BOOST_REQUIRE(retainedForwardBuildSeed(clusterInner, clusterMiddle, clusterOuter, hitOuter, -0.5f, trackletMinPt, oracleNegative));
+  BOOST_CHECK_NE(oraclePositive.getPhi(), oracleNegative.getPhi());
+
+  SurfaceKinematicState statePositive{};
+  SurfaceKinematicState stateNegative{};
+  OperationFailureReason reason{};
+  BOOST_REQUIRE(forward::buildSeed(clusterInner, clusterMiddle, clusterOuter, hitOuter, 0.5f, trackletMinPt,
+                                   1, o2::track::PID::Pion, statePositive, reason));
+  BOOST_REQUIRE(forward::buildSeed(clusterInner, clusterMiddle, clusterOuter, hitOuter, -0.5f, trackletMinPt,
+                                   1, o2::track::PID::Pion, stateNegative, reason));
+  BOOST_CHECK_CLOSE(statePositive.parameters[2], static_cast<float>(oraclePositive.getPhi()), 1.e-2f);
+  BOOST_CHECK_CLOSE(stateNegative.parameters[2], static_cast<float>(oracleNegative.getPhi()), 1.e-2f);
+  BOOST_CHECK_NE(statePositive.parameters[2], stateNegative.parameters[2]);
+}
+
+BOOST_AUTO_TEST_CASE(BuildSeedStrictZOrderingBoundary)
+{
+  // A magnitude-~1 outer z is used here (unlike makeForwardOuterCluster's
+  // z=-70.f) so that a 1e-6f/1e-7f offset is well above the float ULP at
+  // this magnitude (~1.2e-7) and is not rounded away -- the boundary itself
+  // is otherwise identical to the production formula's own
+  // `clusterInner.zCoordinate <= clusterOuter.zCoordinate + 1.e-6f` check.
+  const auto clusterMiddle = makeForwardMiddleCluster();
+  const o2::its::Cluster clusterOuter{3.0f, 1.6f, -1.0f, 2};
+  const auto hitOuter = makeForwardOuterHit();
+  const float bz = 0.5f;
+  const float trackletMinPt = 0.5f;
+
+  // Exactly at the margin (inner.z == outer.z + 1e-6f): still rejected, `<=`.
+  o2::its::Cluster boundaryInner{2.0f, 1.0f, clusterOuter.zCoordinate + 1.e-6f, 0};
+  checkBuildSeedFailurePreservesBytes(boundaryInner, clusterMiddle, clusterOuter, hitOuter, bz, trackletMinPt,
+                                      OperationFailureReason::SeedGeometryDegenerate);
+
+  // Just above the margin: accepted.
+  o2::its::Cluster acceptedInner{2.0f, 1.0f, clusterOuter.zCoordinate + 1.e-6f + 1.e-7f, 0};
+  SurfaceKinematicState outState{};
+  OperationFailureReason reason{};
+  BOOST_CHECK(forward::buildSeed(acceptedInner, clusterMiddle, clusterOuter, hitOuter, bz, trackletMinPt,
+                                 1, o2::track::PID::Pion, outState, reason));
+}
+
+BOOST_AUTO_TEST_CASE(BuildSeedStrictSeparationBoundaries)
+{
+  const auto clusterInner = makeForwardInnerCluster();
+  const auto hitOuter = makeForwardOuterHit();
+  const float bz = 0.5f;
+  const float trackletMinPt = 0.5f;
+
+  // drTan < 1e-6f: middle coincides with inner in x/y.
+  {
+    auto degenerateMiddle = clusterInner;
+    degenerateMiddle.zCoordinate = -55.f;
+    const auto clusterOuter = makeForwardOuterCluster();
+    checkBuildSeedFailurePreservesBytes(clusterInner, degenerateMiddle, clusterOuter, hitOuter, bz, trackletMinPt,
+                                        OperationFailureReason::SeedGeometryDegenerate);
+  }
+  // |dzTan| < 1e-6f: middle coincides with inner in z only.
+  {
+    auto degenerateMiddle = makeForwardMiddleCluster();
+    degenerateMiddle.zCoordinate = clusterInner.zCoordinate;
+    const auto clusterOuter = makeForwardOuterCluster();
+    checkBuildSeedFailurePreservesBytes(clusterInner, degenerateMiddle, clusterOuter, hitOuter, bz, trackletMinPt,
+                                        OperationFailureReason::SeedGeometryDegenerate);
+  }
+  // drPhi < 1e-6f: outer coincides with inner in x/y.
+  {
+    const auto clusterMiddle = makeForwardMiddleCluster();
+    auto degenerateOuter = clusterInner;
+    degenerateOuter.zCoordinate = -70.f;
+    checkBuildSeedFailurePreservesBytes(clusterInner, clusterMiddle, degenerateOuter, hitOuter, bz, trackletMinPt,
+                                        OperationFailureReason::SeedGeometryDegenerate);
+  }
+  // |dzPhi| < 1e-6f: outer coincides with inner in z only.
+  {
+    const auto clusterMiddle = makeForwardMiddleCluster();
+    auto degenerateOuter = makeForwardOuterCluster();
+    degenerateOuter.zCoordinate = clusterInner.zCoordinate;
+    checkBuildSeedFailurePreservesBytes(clusterInner, clusterMiddle, degenerateOuter, hitOuter, bz, trackletMinPt,
+                                        OperationFailureReason::SeedGeometryDegenerate);
+  }
+}
+
+BOOST_AUTO_TEST_CASE(BuildSeedRejectsNonFiniteInput)
+{
+  const auto clusterInner = makeForwardInnerCluster();
+  const auto clusterMiddle = makeForwardMiddleCluster();
+  const auto clusterOuter = makeForwardOuterCluster();
+  const auto hitOuter = makeForwardOuterHit();
+  const float bz = 0.5f;
+  const float trackletMinPt = 0.5f;
+
+  auto badInner = clusterInner;
+  badInner.xCoordinate = std::numeric_limits<float>::quiet_NaN();
+  checkBuildSeedFailurePreservesBytes(badInner, clusterMiddle, clusterOuter, hitOuter, bz, trackletMinPt,
+                                      OperationFailureReason::NonFiniteInput);
+
+  auto badOuter = clusterOuter;
+  badOuter.zCoordinate = std::numeric_limits<float>::infinity();
+  checkBuildSeedFailurePreservesBytes(clusterInner, clusterMiddle, badOuter, hitOuter, bz, trackletMinPt,
+                                      OperationFailureReason::NonFiniteInput);
+
+  auto badHit = hitOuter;
+  badHit.covarianceTrackingFrame[0] = std::numeric_limits<float>::quiet_NaN();
+  checkBuildSeedFailurePreservesBytes(clusterInner, clusterMiddle, clusterOuter, badHit, bz, trackletMinPt,
+                                      OperationFailureReason::NonFiniteInput);
+
+  checkBuildSeedFailurePreservesBytes(clusterInner, clusterMiddle, clusterOuter, hitOuter,
+                                      std::numeric_limits<float>::quiet_NaN(), trackletMinPt,
+                                      OperationFailureReason::NonFiniteInput);
+
+  checkBuildSeedFailurePreservesBytes(clusterInner, clusterMiddle, clusterOuter, hitOuter, bz,
+                                      std::numeric_limits<float>::quiet_NaN(),
+                                      OperationFailureReason::NonFiniteInput);
+}
+
+BOOST_AUTO_TEST_CASE(BuildSeedIsByteDeterministic)
+{
+  const auto clusterInner = makeForwardInnerCluster();
+  const auto clusterMiddle = makeForwardMiddleCluster();
+  const auto clusterOuter = makeForwardOuterCluster();
+  const auto hitOuter = makeForwardOuterHit();
+
+  SurfaceKinematicState firstState{};
+  SurfaceKinematicState secondState{};
+  OperationFailureReason reason{};
+  BOOST_REQUIRE(forward::buildSeed(clusterInner, clusterMiddle, clusterOuter, hitOuter, 0.5f, 0.5f,
+                                   1, o2::track::PID::Pion, firstState, reason));
+  BOOST_REQUIRE(forward::buildSeed(clusterInner, clusterMiddle, clusterOuter, hitOuter, 0.5f, 0.5f,
+                                   1, o2::track::PID::Pion, secondState, reason));
+  BOOST_CHECK(bitEqual(firstState, secondState));
+}
+
 BOOST_AUTO_TEST_CASE(NewProductionFilesHaveNoLegacyForwardDependency)
 {
   const std::string testFile = __FILE__;
@@ -703,5 +1039,8 @@ BOOST_AUTO_TEST_CASE(NewProductionFilesHaveNoLegacyForwardDependency)
                      << ", covariance=" << covarianceDrift.maximumAbsolute << "/" << covarianceDrift.maximumRelative
                      << ", reference=" << referenceDrift.maximumAbsolute << "/" << referenceDrift.maximumRelative
                      << ", update chi2=" << chi2Drift.maximumAbsolute << "/" << chi2Drift.maximumRelative
-                     << ", stateChi2=" << stateChi2Drift.maximumAbsolute << "/" << stateChi2Drift.maximumRelative);
+                     << ", stateChi2=" << stateChi2Drift.maximumAbsolute << "/" << stateChi2Drift.maximumRelative
+                     << ", buildSeed parameters=" << buildSeedParameterDrift.maximumAbsolute << "/" << buildSeedParameterDrift.maximumRelative
+                     << ", buildSeed covariance=" << buildSeedCovarianceDrift.maximumAbsolute << "/" << buildSeedCovarianceDrift.maximumRelative
+                     << ", buildSeed reference=" << buildSeedReferenceDrift.maximumAbsolute << "/" << buildSeedReferenceDrift.maximumRelative);
 }
