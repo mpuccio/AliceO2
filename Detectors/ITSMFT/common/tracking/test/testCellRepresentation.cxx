@@ -10,7 +10,8 @@
 // activation slice's structural claims -- composition rather than
 // inheritance, one common CellSeed type regardless of NLayers, TrackSeed
 // differing only by cluster-array width, complete Cell->TrackSeed transfer,
-// and one common getQ2Pt() formula -- without imposing a durable byte-offset
+// and one common raw-q/pT getQOverPt() accessor plus the family-agnostic
+// road-filter bound built on it -- without imposing a durable byte-offset
 // ABI lock (only SurfaceKinematicState.h itself carries that lock).
 
 #define BOOST_TEST_MODULE ITSMFT CellRepresentation
@@ -18,7 +19,10 @@
 #define BOOST_TEST_DYN_LINK
 #include <boost/test/unit_test.hpp>
 
+#include <array>
+#include <cmath>
 #include <cstring>
+#include <limits>
 #include <type_traits>
 
 #include "ITSMFTTracking/Cell.h"
@@ -119,9 +123,37 @@ BOOST_AUTO_TEST_CASE(TrackSeedConstructionFromCellCopiesStateAndMetadataComplete
   BOOST_CHECK_EQUAL(seed.getCluster(innerLayer + 2), cell.getThirdClusterIndex());
 }
 
-// --- getQ2Pt: one common formula, no family branch --------------------------
+// --- getQOverPt: raw signed q/pT, one common accessor, no family branch ----
+//
+// Correction to the Stage-B activation: the former common getQ2Pt()
+// accessor squared slot 4 for both families, which was the correct
+// convention for neither (SurfaceKinematicState's slot 4 is the raw signed
+// q/pT parameter for both Barrel and Forward -- see SurfaceKinematicState.h's
+// BarrelStateView::getQ2Pt()/ForwardStateView::getInvQPt(), which already
+// returned this same raw value unsquared). getQ2Pt() has been removed from
+// Cell.h/SeedMetadataBase; getQOverPt() is its sole replacement.
 
-BOOST_AUTO_TEST_CASE(GetQ2PtSquaresSlotFourIdenticallyForBarrelAndForward)
+BOOST_AUTO_TEST_CASE(GetQOverPtReturnsTheExactRawPositiveValue)
+{
+  auto state = makeDistinctState(StateFamily::Barrel);
+  state.parameters[4] = 12.5f;
+  const o2::its::TimeEstBC time{};
+  CellSeed cell{0, 0, 1, 2, 0, 1, state, 0.f, time};
+  BOOST_CHECK_EQUAL(cell.getQOverPt(), 12.5f);
+}
+
+BOOST_AUTO_TEST_CASE(GetQOverPtReturnsTheExactRawNegativeValueWithoutSquaringOrAbs)
+{
+  auto state = makeDistinctState(StateFamily::Forward);
+  state.parameters[4] = -12.5f;
+  const o2::its::TimeEstBC time{};
+  CellSeed cell{0, 0, 1, 2, 0, 1, state, 0.f, time};
+  // Neither squared (which would be positive 156.25) nor made positive by abs().
+  BOOST_CHECK_EQUAL(cell.getQOverPt(), -12.5f);
+  BOOST_CHECK_LT(cell.getQOverPt(), 0.f);
+}
+
+BOOST_AUTO_TEST_CASE(GetQOverPtIsIdenticalForBarrelAndForwardGivenTheSameSlotValue)
 {
   const auto barrelState = makeDistinctState(StateFamily::Barrel);
   const auto forwardState = makeDistinctState(StateFamily::Forward);
@@ -130,11 +162,92 @@ BOOST_AUTO_TEST_CASE(GetQ2PtSquaresSlotFourIdenticallyForBarrelAndForward)
   CellSeed barrelCell{0, 0, 1, 2, 0, 1, barrelState, 0.f, time};
   CellSeed forwardCell{0, 0, 1, 2, 0, 1, forwardState, 0.f, time};
 
-  const float expected = barrelState.parameters[4] * barrelState.parameters[4];
   BOOST_REQUIRE_EQUAL(barrelState.parameters[4], forwardState.parameters[4]);
-  BOOST_CHECK_EQUAL(barrelCell.getQ2Pt(), expected);
-  BOOST_CHECK_EQUAL(forwardCell.getQ2Pt(), expected);
-  BOOST_CHECK_EQUAL(barrelCell.getQ2Pt(), forwardCell.getQ2Pt());
+  BOOST_CHECK_EQUAL(barrelCell.getQOverPt(), barrelState.parameters[4]);
+  BOOST_CHECK_EQUAL(forwardCell.getQOverPt(), forwardState.parameters[4]);
+  BOOST_CHECK_EQUAL(barrelCell.getQOverPt(), forwardCell.getQOverPt());
+}
+
+// --- Road-length filter bound: std::abs(getQOverPt()) <= maxAbsQOverPt -----
+//
+// TrackerTraits<NLayers>::findRoadsForPolicy's seedFilter (TrackerTraits.cxx)
+// applies `std::abs(seed.getQOverPt()) <= maxAbsQOverPt` (maxAbsQOverPt =
+// 1.e3f) identically for both TransitionPolicyTag values: the expression
+// itself never reads NLayers, DetID, or SurfaceKinematicState::family. These
+// tests re-derive that exact expression as an independent oracle (mirroring
+// the pattern already used elsewhere in this test suite for other
+// production formulas) against CellSeed/TrackSeedN objects built for both
+// families, so a family branch reintroduced in TrackerTraits.cxx would not
+// be caught by this test file -- only a divergence in the formula's own
+// pass/fail boundary would. Orchestration-level proof that TrackerTraits.cxx
+// itself calls this unconditionally for both tags lives in
+// testComputeLayerCellsOrchestration.cxx/testComputeLayerTrackletsOrchestration.cxx's
+// existing one-shot-dispatch coverage.
+namespace
+{
+constexpr float kMaxAbsQOverPt = 1.e3f;
+
+bool passesRoadOverPtFilter(float qOverPt) noexcept
+{
+  return std::abs(qOverPt) <= kMaxAbsQOverPt;
+}
+} // namespace
+
+BOOST_AUTO_TEST_CASE(RoadFilterAcceptsBothInclusiveBoundariesForBothFamilies)
+{
+  for (const auto family : {StateFamily::Barrel, StateFamily::Forward}) {
+    BOOST_CHECK(passesRoadOverPtFilter(kMaxAbsQOverPt));
+    BOOST_CHECK(passesRoadOverPtFilter(-kMaxAbsQOverPt));
+    (void)family; // formula itself takes no family argument; looped only for documentation
+  }
+}
+
+BOOST_AUTO_TEST_CASE(RoadFilterRejectsTheImmediatelyRepresentableValuesOutsideBothBoundaries)
+{
+  const float justAbove = std::nextafter(kMaxAbsQOverPt, std::numeric_limits<float>::infinity());
+  const float justBelowNegative = std::nextafter(-kMaxAbsQOverPt, -std::numeric_limits<float>::infinity());
+  BOOST_REQUIRE_GT(justAbove, kMaxAbsQOverPt);
+  BOOST_REQUIRE_LT(justBelowNegative, -kMaxAbsQOverPt);
+
+  BOOST_CHECK(!passesRoadOverPtFilter(justAbove));
+  BOOST_CHECK(!passesRoadOverPtFilter(justBelowNegative));
+}
+
+BOOST_AUTO_TEST_CASE(RoadFilterAcceptsZero)
+{
+  BOOST_CHECK(passesRoadOverPtFilter(0.f));
+}
+
+BOOST_AUTO_TEST_CASE(RoadFilterRejectsNaNAndBothInfinities)
+{
+  // std::abs(x) <= finite bound is false for every non-finite x under
+  // ordinary IEEE-754 comparison semantics; this is asserted explicitly
+  // (per the correction requirement not to rely on it without a focused
+  // test) rather than merely assumed.
+  BOOST_CHECK(!passesRoadOverPtFilter(std::numeric_limits<float>::quiet_NaN()));
+  BOOST_CHECK(!passesRoadOverPtFilter(std::numeric_limits<float>::infinity()));
+  BOOST_CHECK(!passesRoadOverPtFilter(-std::numeric_limits<float>::infinity()));
+}
+
+BOOST_AUTO_TEST_CASE(RoadFilterTreatsEqualMagnitudeOppositeSignSeedsIdentically)
+{
+  const std::array<float, 4> magnitudes{0.f, 1.f, kMaxAbsQOverPt, kMaxAbsQOverPt * 2.f};
+  for (const float magnitude : magnitudes) {
+    BOOST_CHECK_EQUAL(passesRoadOverPtFilter(magnitude), passesRoadOverPtFilter(-magnitude));
+  }
+
+  // Same check through the real accessor, for both families, at a
+  // representative in-bound magnitude.
+  auto barrelState = makeDistinctState(StateFamily::Barrel);
+  auto forwardState = makeDistinctState(StateFamily::Forward);
+  const o2::its::TimeEstBC time{};
+  for (const float signedValue : {10.f, -10.f}) {
+    barrelState.parameters[4] = signedValue;
+    forwardState.parameters[4] = signedValue;
+    CellSeed barrelCell{0, 0, 1, 2, 0, 1, barrelState, 0.f, time};
+    CellSeed forwardCell{0, 0, 1, 2, 0, 1, forwardState, 0.f, time};
+    BOOST_CHECK_EQUAL(passesRoadOverPtFilter(barrelCell.getQOverPt()), passesRoadOverPtFilter(forwardCell.getQOverPt()));
+  }
 }
 
 // --- Size/alignment characterization (no static ABI lock) ------------------

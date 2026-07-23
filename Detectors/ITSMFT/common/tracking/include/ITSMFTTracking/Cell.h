@@ -66,10 +66,12 @@ class SeedMetadataBase
   GPUhd() SurfaceKinematicState& state() noexcept { return mState; }
   GPUhd() const SurfaceKinematicState& state() const noexcept { return mState; }
 
-  /// One common formula for both families (no barrel/forward branch): slot 4
-  /// carries q/pT (barrel) or signed q/pT (forward) in both Stage-B state
-  /// conventions.
-  GPUhd() float getQ2Pt() const noexcept { return mState.parameters[4] * mState.parameters[4]; }
+  /// Raw signed q/pT, common to both families (no barrel/forward branch):
+  /// slot 4 is the raw signed q/pT parameter for both Barrel and Forward
+  /// Stage-B state conventions -- never squared. The former common
+  /// getQ2Pt() accessor squared this value (correct convention for neither
+  /// family) and has been removed; do not reintroduce it.
+  GPUhd() float getQOverPt() const noexcept { return mState.parameters[4]; }
 
  protected:
   GPUhdDefault() SeedMetadataBase() = default;

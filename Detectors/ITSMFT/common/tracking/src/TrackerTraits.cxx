@@ -1235,12 +1235,22 @@ void TrackerTraits<NLayers>::findRoadsForPolicy(const int iteration, const typen
   // TimeFrame array (see the defensive count check in findRoads()). No
   // SurfaceId is used as a legacy layer/vector index anywhere in this
   // function.
+  // Road-length filter bound: maximum absolute q/pT, in the same (GeV/c)^-1
+  // units as SurfaceKinematicState::parameters[4]. Applied identically to
+  // both families via getQOverPt() (raw signed value, never squared); no
+  // NLayers/DetID/state-family branch. std::abs() of a NaN/+-Inf q/pT is
+  // never <= this finite bound (standard IEEE-754 comparison semantics), so
+  // non-finite seeds are rejected deterministically without extra checks --
+  // see testCellRepresentation.cxx's dedicated road-filter tests for focused
+  // coverage of that behavior, per the correction's requirement not to rely
+  // on it without a test.
+  constexpr float maxAbsQOverPt = 1.e3f;
   for (int startLevel{mTrkParams[iteration].CellsPerRoad()}; startLevel >= mTrkParams[iteration].CellMinimumLevel(); --startLevel) {
 
     auto seedFilter = [&](const auto& seed) {
       return seed.getHitLayerMask().isAllowed(mTrkParams[iteration].MaxHoles, mTrkParams[iteration].HoleLayerMask) &&
              seed.getHitLayerMask().length() >= mTrkParams[iteration].MinTrackLength &&
-             seed.getQ2Pt() <= 1.e3 && seed.getChi2() <= mTrkParams[iteration].MaxChi2NDF * ((startLevel + 2) * 2 - 5);
+             std::abs(seed.getQOverPt()) <= maxAbsQOverPt && seed.getChi2() <= mTrkParams[iteration].MaxChi2NDF * ((startLevel + 2) * 2 - 5);
     };
 
     bounded_vector<TrackSeedN> trackSeeds(mMemoryPool.get());

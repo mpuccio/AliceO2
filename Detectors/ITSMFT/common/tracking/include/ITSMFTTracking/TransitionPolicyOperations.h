@@ -18,7 +18,6 @@
 
 #include <gsl/span>
 
-#include "DetectorsBase/Propagator.h"
 #include "ITSMFTTracking/SurfaceDescriptor.h"
 #include "ITSMFTTracking/SurfaceKinematicState.h"
 #include "ITSMFTTracking/SurfaceMeasurement.h"
