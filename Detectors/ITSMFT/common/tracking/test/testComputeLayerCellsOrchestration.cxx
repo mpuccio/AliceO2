@@ -139,6 +139,16 @@ std::vector<SurfaceDescriptor> makeCatalog(uint16_t nLayers, o2::detectors::DetI
   return surfaces;
 }
 
+NominalSurfaceMaterial toMaterial(float xOverX0)
+{
+  return NominalSurfaceMaterial{xOverX0, xOverX0 * o2::its::constants::Radl * o2::its::constants::Rho};
+}
+
+std::array<NominalSurfaceMaterial, 3> toMaterial(const std::array<float, 3>& xOverX0)
+{
+  return {toMaterial(xOverX0[0]), toMaterial(xOverX0[1]), toMaterial(xOverX0[2])};
+}
+
 // Same construction as testTransitionPolicyOperations.cxx's helpers -- plain
 // input-struct builders, not a reimplementation of any fit formula.
 o2::its::Cluster makeGlobalCluster(float x, float y, float z, int id = 0)
@@ -368,6 +378,7 @@ BOOST_AUTO_TEST_CASE(CylinderComputeLayerCellsMatchesBuildCellSeedOracle)
   const auto& oracleHitMiddle = rig.tf.getTrackingFrameInfoOnLayer(1)[producedCell.getSecondClusterIndex()];
   const auto& oracleHitOuter = rig.tf.getTrackingFrameInfoOnLayer(2)[producedCell.getThirdClusterIndex()];
   const std::array<float, 3> xOverX0{rig.params[0].LayerxX0[0], rig.params[0].LayerxX0[1], rig.params[0].LayerxX0[2]};
+  const auto material = toMaterial(xOverX0);
 
   CylinderCylinderPolicyParams policyParams;
   policyParams.maxChi2ClusterAttachment = rig.params[0].MaxChi2ClusterAttachment;
@@ -377,7 +388,7 @@ BOOST_AUTO_TEST_CASE(CylinderComputeLayerCellsMatchesBuildCellSeedOracle)
   BOOST_REQUIRE(buildCellSeed<TransitionPolicyTag::CylinderCylinder>(
     oracleClusterInner, oracleClusterMiddle, oracleClusterOuter,
     oracleHitInner, oracleHitMiddle, oracleHitOuter,
-    xOverX0, Bz, oracleState, oracleChi2, policyParams));
+    material, Bz, oracleState, oracleChi2, policyParams));
 
   checkBarrelStateEqual(producedCell, oracleState);
   BOOST_CHECK_EQUAL(producedCell.getChi2(), oracleChi2);
@@ -423,6 +434,7 @@ BOOST_AUTO_TEST_CASE(DiskComputeLayerCellsMatchesBuildCellSeedOracle)
   const auto& oracleHitMiddle = rig.tf.getTrackingFrameInfoOnLayer(1)[producedCell.getSecondClusterIndex()];
   const auto& oracleHitOuter = rig.tf.getTrackingFrameInfoOnLayer(2)[producedCell.getThirdClusterIndex()];
   const std::array<float, 3> xOverX0{rig.params[0].LayerxX0[0], rig.params[0].LayerxX0[1], rig.params[0].LayerxX0[2]};
+  const auto material = toMaterial(xOverX0);
 
   DiskDiskPolicyParams policyParams;
   policyParams.maxChi2ClusterAttachment = rig.params[0].MaxChi2ClusterAttachment;
@@ -433,7 +445,7 @@ BOOST_AUTO_TEST_CASE(DiskComputeLayerCellsMatchesBuildCellSeedOracle)
   BOOST_REQUIRE(buildCellSeed<TransitionPolicyTag::DiskDisk>(
     oracleClusterInner, oracleClusterMiddle, oracleClusterOuter,
     oracleHitInner, oracleHitMiddle, oracleHitOuter,
-    xOverX0, Bz, oracleState, oracleChi2, policyParams));
+    material, Bz, oracleState, oracleChi2, policyParams));
 
   checkDiskStateEqual(producedCell, oracleState);
   BOOST_CHECK_EQUAL(producedCell.getChi2(), oracleChi2);

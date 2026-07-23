@@ -17,29 +17,34 @@
 #ifndef GPUCA_GPUCODE
 
 #include "ITSMFTTracking/Configuration.h"
+#include "ITSMFTTracking/SurfaceDescriptor.h"
 #include <gsl/span>
 
 namespace o2::itsmft::tracking
 {
 
-/// Host view of the existing per-surface material and propagation-correction
-/// configuration consumed by attachHit<Tag>. The view borrows one iteration's
-/// TrackingParameters storage and is bound/validated with the typed family
-/// Params before traversal starts.
+/// Host view of the authoritative per-surface nominal material (resolved by
+/// TrackerTraits::initialiseTimeFrame() into TrackerTraits::mLayerMaterial,
+/// see TrackerTraits.h) and the existing propagation-correction configuration
+/// consumed by attachHit<Tag>. The view borrows one iteration's already-
+/// resolved material array plus the TrackingParameters correction type, and
+/// is bound/validated with the typed family Params before traversal starts.
 struct AttachHitPolicyConfigView {
-  gsl::span<const float> layerxX0;
+  gsl::span<const NominalSurfaceMaterial> layerMaterial;
   o2::base::PropagatorF::MatCorrType corrType{o2::base::PropagatorF::MatCorrType::USEMatCorrNONE};
 
   bool isValid(size_t expectedLayers) const noexcept
   {
-    if (layerxX0.size() < expectedLayers ||
+    if (layerMaterial.size() < expectedLayers ||
         (corrType != o2::base::PropagatorF::MatCorrType::USEMatCorrNONE &&
          corrType != o2::base::PropagatorF::MatCorrType::USEMatCorrTGeo &&
          corrType != o2::base::PropagatorF::MatCorrType::USEMatCorrLUT)) {
       return false;
     }
     for (size_t layer = 0; layer < expectedLayers; ++layer) {
-      if (!isFiniteParam(layerxX0[layer]) || layerxX0[layer] < 0.f) {
+      const auto& material = layerMaterial[layer];
+      if (!isFiniteParam(material.xOverX0) || material.xOverX0 < 0.f ||
+          !isFiniteParam(material.arealDensityGPerCm2) || material.arealDensityGPerCm2 < 0.f) {
         return false;
       }
     }
@@ -47,35 +52,36 @@ struct AttachHitPolicyConfigView {
   }
 };
 
-inline AttachHitPolicyConfigView bindAttachHitPolicyConfig(const TrackingParameters& params) noexcept
+inline AttachHitPolicyConfigView bindAttachHitPolicyConfig(gsl::span<const NominalSurfaceMaterial> layerMaterial,
+                                                           const TrackingParameters& params) noexcept
 {
-  return {gsl::span<const float>{params.LayerxX0.data(), params.LayerxX0.size()}, params.CorrType};
+  return {layerMaterial, params.CorrType};
 }
 
 /// Host view of TrackingParameters::LayerRadii for the transition-preparation
 /// slice (layerMultipleScatteringAngle<Tag> / prepareTransitionScatteringAndBending).
-/// `layerxX0` is deliberately not rebound here: it is borrowed directly from
-/// the caller's already-bound-and-validated AttachHitPolicyConfigView rather
-/// than re-validated independently, so this struct cannot define a second,
-/// divergent numeric contract for the same data. isValid() therefore checks
-/// span bounds only -- it intentionally adds no numeric constraint on
+/// `layerMaterial` is deliberately not rebound here: it is borrowed directly
+/// from the caller's already-bound-and-validated AttachHitPolicyConfigView
+/// rather than re-validated independently, so this struct cannot define a
+/// second, divergent numeric contract for the same data. isValid() therefore
+/// checks span bounds only -- it intentionally adds no numeric constraint on
 /// LayerRadii (legacy TimeFrame::initialise() has none: degenerate/zero radii
 /// flow through to the existing floating-point behavior unrejected, and this
 /// slice must not silently start rejecting them).
 struct LayerGeometryConfigView {
   gsl::span<const float> layerRadii;
-  gsl::span<const float> layerxX0;
+  gsl::span<const NominalSurfaceMaterial> layerMaterial;
 
   bool isValid(size_t expectedLayers) const noexcept
   {
-    return layerRadii.size() >= expectedLayers && layerxX0.size() >= expectedLayers;
+    return layerRadii.size() >= expectedLayers && layerMaterial.size() >= expectedLayers;
   }
 };
 
 inline LayerGeometryConfigView bindLayerGeometryConfig(const TrackingParameters& params,
                                                        const AttachHitPolicyConfigView& attachHitConfig) noexcept
 {
-  return {gsl::span<const float>{params.LayerRadii.data(), params.LayerRadii.size()}, attachHitConfig.layerxX0};
+  return {gsl::span<const float>{params.LayerRadii.data(), params.LayerRadii.size()}, attachHitConfig.layerMaterial};
 }
 
 /// Binds one iteration's legacy TrackingParameters into a typed,

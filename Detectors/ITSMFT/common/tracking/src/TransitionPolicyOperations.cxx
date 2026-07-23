@@ -180,7 +180,7 @@ template <>
 bool attachHit<TransitionPolicyTag::CylinderCylinder>(
   o2::track::TrackParCovF& state,
   const o2::its::TrackingFrameInfo& hit,
-  float xOverX0,
+  const NominalSurfaceMaterial& material,
   o2::base::PropagatorF::MatCorrType corrType,
   float bz,
   float& chi2,
@@ -196,7 +196,7 @@ bool attachHit<TransitionPolicyTag::CylinderCylinder>(
     return false;
   }
   if (corrType == o2::base::PropagatorF::MatCorrType::USEMatCorrNONE &&
-      !state.correctForMaterial(xOverX0, xOverX0 * o2::its::constants::Radl * o2::its::constants::Rho, true)) {
+      !state.correctForMaterial(material.xOverX0, material.arealDensityGPerCm2, true)) {
     return false;
   }
   const float predictedChi2 = state.getPredictedChi2Quiet(hit.positionTrackingFrame, hit.covarianceTrackingFrame);
@@ -211,7 +211,7 @@ template <>
 bool attachHit<TransitionPolicyTag::DiskDisk>(
   o2::track::TrackParCovFwd& state,
   const o2::its::TrackingFrameInfo& hit,
-  float xOverX0,
+  const NominalSurfaceMaterial& material,
   o2::base::PropagatorF::MatCorrType,
   float bz,
   float& chi2,
@@ -221,7 +221,7 @@ bool attachHit<TransitionPolicyTag::DiskDisk>(
   float updatedChi2 = chi2;
   if (!detail::mftFwdAttachCluster(updatedState, hit.zCoordinate, hit.xCoordinate, hit.yCoordinate,
                                    hit.covarianceTrackingFrame[0], hit.covarianceTrackingFrame[2],
-                                   xOverX0, bz, params.maxChi2ClusterAttachment, updatedChi2, true)) {
+                                   material.xOverX0, bz, params.maxChi2ClusterAttachment, updatedChi2, true)) {
     return false;
   }
   state = updatedState;
@@ -237,7 +237,7 @@ bool buildCellSeed<TransitionPolicyTag::CylinderCylinder>(
   const o2::its::TrackingFrameInfo& hitInner,
   const o2::its::TrackingFrameInfo& hitMiddle,
   const o2::its::TrackingFrameInfo& hitOuter,
-  const std::array<float, 3>& xOverX0,
+  const std::array<NominalSurfaceMaterial, 3>& material,
   float bz,
   o2::track::TrackParCovF& outState,
   float& chi2,
@@ -245,12 +245,12 @@ bool buildCellSeed<TransitionPolicyTag::CylinderCylinder>(
 {
   // Matches TrackerTraits::computeLayerCells' barrel branch exactly: the
   // outer surface only enters through hitOuter inside buildTrackSeed, so
-  // xOverX0[2] (outer) is never read here.
+  // material[2] (outer) is never read here.
   auto track = o2::its::track::buildTrackSeed(clusterInner, clusterMiddle, hitOuter, bz);
   float localChi2{0.f};
 
   const std::array<const o2::its::TrackingFrameInfo*, 2> steps{&hitMiddle, &hitInner};
-  const std::array<float, 2> stepsXOverX0{xOverX0[1], xOverX0[0]};
+  const std::array<NominalSurfaceMaterial, 2> stepsMaterial{material[1], material[0]};
   bool good = false;
   for (int step = 0; step < 2; ++step) {
     const bool isLast = (step == 1);
@@ -264,8 +264,8 @@ bool buildCellSeed<TransitionPolicyTag::CylinderCylinder>(
       good = false;
       break;
     }
-    const float x0 = stepsXOverX0[step];
-    if (!track.correctForMaterial(x0, x0 * o2::its::constants::Radl * o2::its::constants::Rho, true)) {
+    const auto& stepMaterial = stepsMaterial[step];
+    if (!track.correctForMaterial(stepMaterial.xOverX0, stepMaterial.arealDensityGPerCm2, true)) {
       good = false;
       break;
     }
@@ -298,7 +298,7 @@ bool buildCellSeed<TransitionPolicyTag::DiskDisk>(
   const o2::its::TrackingFrameInfo& hitInner,
   const o2::its::TrackingFrameInfo& hitMiddle,
   const o2::its::TrackingFrameInfo& hitOuter,
-  const std::array<float, 3>& xOverX0,
+  const std::array<NominalSurfaceMaterial, 3>& material,
   float bz,
   o2::track::TrackParCovFwd& outState,
   float& chi2,
@@ -354,13 +354,15 @@ bool buildCellSeed<TransitionPolicyTag::DiskDisk>(
   float localChi2{0.f};
 
   const std::array<const o2::its::TrackingFrameInfo*, 3> steps{&hitOuter, &hitMiddle, &hitInner};
-  const std::array<float, 3> stepsXOverX0{xOverX0[2], xOverX0[1], xOverX0[0]};
+  const std::array<NominalSurfaceMaterial, 3> stepsMaterial{material[2], material[1], material[0]};
   for (int step = 0; step < 3; ++step) {
     const bool isLast = (step == 2);
     const auto& tfInfo = *steps[step];
+    // MCS-only, matching attachHit<DiskDisk>: only xOverX0 is read here,
+    // arealDensityGPerCm2 is not passed to this legacy path.
     if (!detail::mftFwdAttachCluster(track, tfInfo.zCoordinate, tfInfo.xCoordinate, tfInfo.yCoordinate,
                                      tfInfo.covarianceTrackingFrame[0], tfInfo.covarianceTrackingFrame[2],
-                                     stepsXOverX0[step], bz, params.maxChi2ClusterAttachment, localChi2, isLast)) {
+                                     stepsMaterial[step].xOverX0, bz, params.maxChi2ClusterAttachment, localChi2, isLast)) {
       return false;
     }
   }

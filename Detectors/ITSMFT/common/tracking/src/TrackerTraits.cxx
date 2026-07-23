@@ -290,7 +290,8 @@ void TrackerTraits<NLayers>::initialiseTimeFrame(const int iteration)
 
   std::optional<CylinderCylinderPolicyParams> cylinderParams;
   std::optional<DiskDiskPolicyParams> diskParams;
-  const auto attachHitConfig = bindAttachHitPolicyConfig(mTrkParams[iteration]);
+  const auto attachHitConfig = bindAttachHitPolicyConfig(
+    gsl::span<const NominalSurfaceMaterial>(mLayerMaterial.data(), mLayerMaterial.size()), mTrkParams[iteration]);
   if (!attachHitConfig.isValid(NLayers)) {
     throw TraversalException{iteration, TraversalFailureReason::InvalidPolicyParameters};
   }
@@ -356,10 +357,10 @@ void TrackerTraits<NLayers>::prepareTransitionScatteringAndBendingForPolicy(
   for (unsigned int iLayer{0}; iLayer < NLayers; ++iLayer) {
     if constexpr (Tag == TransitionPolicyTag::CylinderCylinder) {
       msAngles[iLayer] = layerMultipleScatteringAngle<Tag>(
-        LayerScatteringInputs<Tag>{geometryConfig.layerxX0[iLayer]}, trkParam.TrackletMinPt);
+        LayerScatteringInputs<Tag>{geometryConfig.layerMaterial[iLayer].xOverX0}, trkParam.TrackletMinPt);
     } else {
       msAngles[iLayer] = layerMultipleScatteringAngle<Tag>(
-        LayerScatteringInputs<Tag>{geometryConfig.layerxX0[iLayer], geometryConfig.layerRadii[iLayer],
+        LayerScatteringInputs<Tag>{geometryConfig.layerMaterial[iLayer].xOverX0, geometryConfig.layerRadii[iLayer],
                                    referenceCoordinateView.perLayerReferenceZ[iLayer]},
         trkParam.TrackletMinPt);
     }
@@ -763,17 +764,17 @@ void TrackerTraits<NLayers>::computeLayerCellsForPolicy(
           const auto& hitOuter = mTimeFrame->getTrackingFrameInfoOnLayer(hitLayers[2])[clusId[2]];
           // Strictly {inner, middle, outer}: CylinderCylinder reads [1] then
           // [0] (outer slot unused), DiskDisk reads [2], [1], [0].
-          const std::array<float, 3> xOverX0{
-            mAttachHitConfig.layerxX0[hitLayers[0]],
-            mAttachHitConfig.layerxX0[hitLayers[1]],
-            mAttachHitConfig.layerxX0[hitLayers[2]]};
+          const std::array<NominalSurfaceMaterial, 3> material{
+            mAttachHitConfig.layerMaterial[hitLayers[0]],
+            mAttachHitConfig.layerMaterial[hitLayers[1]],
+            mAttachHitConfig.layerMaterial[hitLayers[2]]};
 
           typename TransitionPolicyTraits<Tag>::SeedState state{};
           float chi2{0.f};
           const bool good = o2::itsmft::tracking::buildCellSeed<Tag>(
             clusterInner, clusterMiddle, clusterOuter,
             hitInner, hitMiddle, hitOuter,
-            xOverX0, getBz(), state, chi2, params);
+            material, getBz(), state, chi2, params);
 
           if (good) {
             TimeEstBC ts = currentTracklet.getTimeStamp();
@@ -1010,7 +1011,7 @@ template <int NLayers>
 template <TransitionPolicyTag Tag, typename InputSeed>
 void TrackerTraits<NLayers>::processNeighbours(int iteration, int defaultCellTopologyId, int iLevel, const bounded_vector<InputSeed>& currentCellSeed, const bounded_vector<int>& currentCellId, const bounded_vector<int>& currentCellTopologyId, bounded_vector<TrackSeedN>& updatedCellSeeds, bounded_vector<int>& updatedCellsIds, bounded_vector<int>& updatedCellsTopologyIds, const typename TransitionPolicyTraits<Tag>::Params& params)
 {
-  const auto layerxX0 = mAttachHitConfig.layerxX0;
+  const auto layerMaterial = mAttachHitConfig.layerMaterial;
   const auto corrType = mAttachHitConfig.corrType;
 
   mTaskArena->execute([&] {
@@ -1066,7 +1067,7 @@ void TrackerTraits<NLayers>::processNeighbours(int iteration, int defaultCellTop
         const auto& trHit = mTimeFrame->getTrackingFrameInfoOnLayer(neighbourLayer)[neighbourCluster];
         float chi2 = seed.getChi2();
         if (!o2::itsmft::tracking::attachHit<Tag>(static_cast<typename TransitionPolicyTraits<Tag>::SeedState&>(seed),
-                                                  trHit, layerxX0[neighbourLayer], corrType, getBz(), chi2, params)) {
+                                                  trHit, layerMaterial[neighbourLayer], corrType, getBz(), chi2, params)) {
           continue;
         }
         seed.setChi2(chi2);

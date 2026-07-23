@@ -20,6 +20,7 @@
 #include <gsl/span>
 
 #include "DetectorsBase/Propagator.h"
+#include "ITSMFTTracking/SurfaceDescriptor.h"
 #include "ITSMFTTracking/SurfaceMeasurement.h"
 
 namespace o2::dataformats
@@ -175,12 +176,14 @@ bool projectSearchWindow(const o2::its::Cluster& source,
                          TrackletSearchWindow<Tag>& out);
 
 /// D007 attach-hit policy operation. The typed family state and parameter
-/// block are selected once by the caller's outer policy dispatch. `xOverX0`
-/// is the already-selected material budget for the hit surface; no legacy
-/// TrackingParameters object or detector identity crosses this boundary.
-/// `o2::its::TrackingFrameInfo` is a temporary Gate 3 compatibility boundary,
-/// not a detector-neutral measurement contract; production normalized loading
-/// must eventually supply SurfaceMeasurement directly.
+/// block are selected once by the caller's outer policy dispatch. `material`
+/// is the already-selected authoritative nominal material for the hit
+/// surface (SurfaceDescriptor::material, resolved once per iteration into
+/// TrackerTraits::mLayerMaterial); no legacy TrackingParameters object or
+/// detector identity crosses this boundary. `o2::its::TrackingFrameInfo` is a
+/// temporary Gate 3 compatibility boundary, not a detector-neutral
+/// measurement contract; production normalized loading must eventually
+/// supply SurfaceMeasurement directly.
 ///
 /// Host-only: CylinderCylinder calls the host Propagator singleton and
 /// DiskDisk calls the host forward-state propagation/update chain. The two
@@ -191,39 +194,48 @@ bool projectSearchWindow(const o2::its::Cluster& source,
 template <TransitionPolicyTag Tag>
 bool attachHit(typename TransitionPolicyTraits<Tag>::SeedState& state,
                const o2::its::TrackingFrameInfo& hit,
-               float xOverX0,
+               const NominalSurfaceMaterial& material,
                o2::base::PropagatorF::MatCorrType corrType,
                float bz,
                float& chi2,
                const typename TransitionPolicyTraits<Tag>::Params& params);
 
+/// Barrel formula: calls the same legacy correction as before, now reading
+/// its two arguments directly off `material` (xOverX0, arealDensityGPerCm2)
+/// instead of recomputing the silicon-equivalent areal density inline --
+/// bit-for-bit identical to the previous `xOverX0 * Radl * Rho`, since the
+/// catalog population uses the exact same expression (GeometrySurfaceCatalogProvider.cxx).
 template <>
 bool attachHit<TransitionPolicyTag::CylinderCylinder>(
   o2::track::TrackParCovF& state,
   const o2::its::TrackingFrameInfo& hit,
-  float xOverX0,
+  const NominalSurfaceMaterial& material,
   o2::base::PropagatorF::MatCorrType corrType,
   float bz,
   float& chi2,
   const CylinderCylinderPolicyParams& params);
 
+/// Disk formula: passes only `material.xOverX0` to the unchanged legacy MFT
+/// addMCSEffect path (detail::mftFwdAttachCluster) -- MCS-only, exactly as
+/// before. `material.arealDensityGPerCm2` is deliberately not read: this
+/// slice does not activate MFT energy loss.
 template <>
 bool attachHit<TransitionPolicyTag::DiskDisk>(
   o2::track::TrackParCovFwd& state,
   const o2::its::TrackingFrameInfo& hit,
-  float xOverX0,
+  const NominalSurfaceMaterial& material,
   o2::base::PropagatorF::MatCorrType corrType,
   float bz,
   float& chi2,
   const DiskDiskPolicyParams& params);
 
 /// D007 policy-boundary operation (Architecture.md Sec 10): seeds and fits
-/// the three-cluster CA cell state for one candidate cell. `xOverX0` is
+/// the three-cluster CA cell state for one candidate cell. `material` is
 /// always ordered {inner, middle, outer}; each specialization reads only the
 /// slots its own attachment order consumes (documented per specialization
-/// below) -- the caller resolves these floats from the same per-iteration
-/// AttachHitPolicyConfigView.layerxX0 binding used by attachHit, outside any
-/// candidate/neighbour loop. The MFT geometric road pre-cut
+/// below) -- the caller resolves these from the same per-iteration
+/// AttachHitPolicyConfigView.layerMaterial binding used by attachHit, outside
+/// any candidate/neighbour loop. The MFT geometric road pre-cut
 /// (CellRoadRCut / passesCellRoadPrecut<DiskDisk>, below) is deliberately not
 /// part of this operation: it depends on nominal per-surface layer position, not
 /// on the measurements passed here, and remains a TrackerTraits-owned
@@ -271,7 +283,7 @@ bool buildCellSeed(const o2::its::Cluster& clusterInner,
                    const o2::its::TrackingFrameInfo& hitInner,
                    const o2::its::TrackingFrameInfo& hitMiddle,
                    const o2::its::TrackingFrameInfo& hitOuter,
-                   const std::array<float, 3>& xOverX0,
+                   const std::array<NominalSurfaceMaterial, 3>& material,
                    float bz,
                    typename TransitionPolicyTraits<Tag>::SeedState& outState,
                    float& chi2,
@@ -279,9 +291,12 @@ bool buildCellSeed(const o2::its::Cluster& clusterInner,
 
 /// Barrel formula: o2::its::track::buildTrackSeed(clusterInner,
 /// clusterMiddle, hitOuter, bz) followed by middle-then-inner
-/// rotate/propagateTo/correctForMaterial/update (xOverX0[1] then xOverX0[0];
-/// xOverX0[2] is unused -- the outer surface contributes only through
-/// hitOuter inside buildTrackSeed, never a separate attach step). The chi2
+/// rotate/propagateTo/correctForMaterial/update (material[1] then
+/// material[0]; material[2]/outer is unused -- the outer surface contributes
+/// only through hitOuter inside buildTrackSeed, never a separate attach
+/// step). correctForMaterial reads material.xOverX0/arealDensityGPerCm2
+/// directly, bit-for-bit identical to the previous inline
+/// `xOverX0 * Radl * Rho` (see attachHit<CylinderCylinder>'s doc). The chi2
 /// cut (params.maxChi2ClusterAttachment) is enforced only on the final
 /// (inner) step, matching the legacy `!iC` condition. Defined out of line in
 /// TransitionPolicyOperations.cxx.
@@ -293,7 +308,7 @@ bool buildCellSeed<TransitionPolicyTag::CylinderCylinder>(
   const o2::its::TrackingFrameInfo& hitInner,
   const o2::its::TrackingFrameInfo& hitMiddle,
   const o2::its::TrackingFrameInfo& hitOuter,
-  const std::array<float, 3>& xOverX0,
+  const std::array<NominalSurfaceMaterial, 3>& material,
   float bz,
   o2::track::TrackParCovF& outState,
   float& chi2,
@@ -302,9 +317,11 @@ bool buildCellSeed<TransitionPolicyTag::CylinderCylinder>(
 /// Disk formula: the same closed-form outward direction estimate and
 /// outer/middle/inner MFT Kalman attachment (detail::mftFwdAttachCluster) as
 /// detail::mftFwdFitCellClusters, reading its three clusters/hits directly
-/// instead of through a TimeFrame. xOverX0 is consumed in outer/middle/inner
-/// order (xOverX0[2], then [1], then [0]); the chi2 cut is enforced only on
-/// the final (inner) step. Defined out of line in
+/// instead of through a TimeFrame. `material` is consumed in outer/middle/inner
+/// order (material[2], then [1], then [0]), passing only each slot's
+/// `.xOverX0` to the unchanged MCS-only legacy path (arealDensityGPerCm2 is
+/// not read here, matching attachHit<DiskDisk>); the chi2 cut is enforced
+/// only on the final (inner) step. Defined out of line in
 /// TransitionPolicyOperations.cxx, the only translation unit permitted to
 /// include MFTFwdTrackHelpers.h on behalf of this policy operation.
 template <>
@@ -315,7 +332,7 @@ bool buildCellSeed<TransitionPolicyTag::DiskDisk>(
   const o2::its::TrackingFrameInfo& hitInner,
   const o2::its::TrackingFrameInfo& hitMiddle,
   const o2::its::TrackingFrameInfo& hitOuter,
-  const std::array<float, 3>& xOverX0,
+  const std::array<NominalSurfaceMaterial, 3>& material,
   float bz,
   o2::track::TrackParCovFwd& outState,
   float& chi2,
