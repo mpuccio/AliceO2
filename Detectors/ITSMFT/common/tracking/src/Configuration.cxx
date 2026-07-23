@@ -117,7 +117,7 @@ void resetDetectorDefaults(TrackingParameters& p, detectors::DetID::ID detId)
     for (int i{0}; i < nLayers; ++i) {
       p.LayerRadii[i] = 0.5f * (mftc::index_table::RMin[i] + mftc::index_table::RMax[i]);
     }
-    p.LayerxX0.assign(nLayers, 0.042f / mft::DisksNumber); // MFTRadLength / disks
+    p.LayerxX0.assign(tracking::kNominalMFTLayerX0.begin(), tracking::kNominalMFTLayerX0.end());
     p.LayerResolution.assign(nLayers, mft::Resolution);
     p.SystError2Row.assign(nLayers, 0.f);
     p.SystError2Col.assign(nLayers, 0.f);

@@ -12,6 +12,8 @@
 #include <functional>
 #include <optional>
 
+#include <gsl/span>
+
 #include "DetectorSurfaceCatalogAggregation.h"
 #include "ITSMFTTracking/DetectorSurfaceCatalogProvider.h"
 
@@ -23,6 +25,12 @@ struct DetectorGeometryCatalogSpec {
   uint32_t surfaceCount;
   SurfaceKind kind;
   SurfaceReferenceCoordinate referenceCoordinate;
+  // Detector-default nominal xOverX0 per tracking surface (one entry per
+  // catalog surface, in surface order), supplied by each concrete provider
+  // from NominalSurfaceMaterialDefaults.h. Not a material catalogue: this is
+  // the single common-CA nominal model consumed once, here, to populate
+  // every staged SurfaceDescriptor::material.
+  gsl::span<const float> nominalLayerX0;
 };
 
 struct DetectorGeometryView {

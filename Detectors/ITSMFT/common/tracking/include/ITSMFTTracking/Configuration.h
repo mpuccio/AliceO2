@@ -28,6 +28,7 @@
 #include "DetectorsBase/Propagator.h"
 #include "DetectorsCommonDataFormats/DetID.h"
 #include "ITSMFTTracking/LayerMask.h"
+#include "ITSMFTTracking/NominalSurfaceMaterialDefaults.h"
 #include "ITSMFTTracking/TrackingConfigParam.h"
 #include "ITStracking/TrackingConfigParam.h"
 
@@ -98,12 +99,12 @@ struct TrackingParameters {
   float IndexRowMin{0.f};                  // index-table row origin (MFT: global y min; unused for ITS phi-z)
   float IndexRowMax{0.f};                  // index-table row span end (MFT: global y max; 0 => TwoPI for ITS)
   std::vector<float> LayerRadii = {2.33959f, 3.14076f, 3.91924f, 19.6213f, 24.5597f, 34.388f, 39.3329f};
-  std::vector<float> LayerxX0 = {5.e-3f, 5.e-3f, 5.e-3f, 1.e-2f, 1.e-2f, 1.e-2f, 1.e-2f};
+  std::vector<float> LayerxX0{tracking::kNominalITSLayerX0.begin(), tracking::kNominalITSLayerX0.end()};
   std::vector<float> LayerResolution = {5.e-4f, 5.e-4f, 5.e-4f, 5.e-4f, 5.e-4f, 5.e-4f, 5.e-4f};
   std::vector<float> SystError2Row = {0.f, 0.f, 0.f, 0.f, 0.f, 0.f, 0.f}; // systematic error^2 along local row (ALPIDE X) per layer
   std::vector<float> SystError2Col = {0.f, 0.f, 0.f, 0.f, 0.f, 0.f, 0.f}; // systematic error^2 along local column (ALPIDE Z) per layer
-  int ColBins{256}; // ITS: ZBins
-  int RowBins{128}; // ITS: PhiBins
+  int ColBins{256};                                                       // ITS: ZBins
+  int RowBins{128};                                                       // ITS: PhiBins
   bool UseDiamond = false;
   float Diamond[3] = {0.f, 0.f, 0.f};
   float DiamondCov[6] = {25.e-6f, 0.f, 0.f, 25.e-6f, 0.f, 36.f};
@@ -123,7 +124,7 @@ struct TrackingParameters {
   float TrackletMinPt = 0.3f;
   /// Cell finding cuts
   float CellDeltaTanLambdaSigma = 0.007f;
-  float CellRoadRCut = 0.05f; // MFT: max distance to seed line (classic ROADclsRCut)
+  float CellRoadRCut = 0.05f;  // MFT: max distance to seed line (classic ROADclsRCut)
   float TrackletMinAbsX = 0.f; // MFT: reject clusters/tracks with |x| below this (cm); 0 = disabled
   /// Fitter parameters
   o2::base::PropagatorImpl<float>::MatCorrType CorrType = o2::base::PropagatorImpl<float>::MatCorrType::USEMatCorrNONE;

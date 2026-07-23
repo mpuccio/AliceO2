@@ -21,9 +21,11 @@
 
 #include "ITSMFTTracking/DetectorSurfaceCatalogProvider.h"
 #include "Field/MagneticField.h"
+#include "ITSMFTTracking/NominalSurfaceMaterialDefaults.h"
 #include "ITSMFTTracking/TimeFrame.h"
 #include "ITSMFTTracking/TrackingInterface.h"
 #include "ITSMFTTracking/TrackerTraits.h"
+#include "ITStracking/Constants.h"
 
 using namespace o2::itsmft::tracking;
 using o2::itsmft::TrackingParameters;
@@ -94,6 +96,20 @@ DetectorSurfaceCatalogRequest request(uint32_t count,
   return DetectorSurfaceCatalogRequest{detector, SurfaceId{firstSurface}, count};
 }
 
+// Nominal material matching this detector's default TrackingParameters::LayerxX0
+// (o2::itsmft::resetDetectorDefaults()), so fixtures that reach
+// TrackerTraits::initialiseTimeFrame() with unperturbed parameters satisfy the
+// LegacyMaterialMismatch compatibility check by construction. Indexed by
+// global surface id, which equals the legacy layer index for every identity-
+// ordered fixture in this file.
+float nominalXOverX0(o2::detectors::DetID::ID detector, uint16_t surfaceIndex)
+{
+  if (detector == o2::detectors::DetID::MFT) {
+    return kNominalMFTLayerX0[surfaceIndex % MFTNLayers];
+  }
+  return kNominalITSLayerX0[surfaceIndex % ITSNLayers];
+}
+
 std::vector<SurfaceDescriptor> catalog(size_t count, SurfaceKind kind = SurfaceKind::Cylinder,
                                        o2::detectors::DetID::ID detector = o2::detectors::DetID::ITS)
 {
@@ -101,6 +117,9 @@ std::vector<SurfaceDescriptor> catalog(size_t count, SurfaceKind kind = SurfaceK
   result.reserve(count);
   for (uint16_t i = 0; i < count; ++i) {
     result.push_back(SurfaceDescriptor{SurfaceId{i}, i, static_cast<uint8_t>(detector), kind, 0, static_cast<float>(i + 1), 0.f, 100.f});
+    const float xOverX0 = nominalXOverX0(detector, i);
+    result.back().material.xOverX0 = xOverX0;
+    result.back().material.arealDensityGPerCm2 = xOverX0 * o2::its::constants::Radl * o2::its::constants::Rho;
   }
   return result;
 }
@@ -109,7 +128,7 @@ std::vector<SurfaceDescriptor> catalog(const DetectorSurfaceCatalogRequest& cata
                                        SurfaceKind kind = SurfaceKind::Cylinder)
 {
   const auto size = catalogRequest.firstSurface.value() + catalogRequest.detectorSurfaceCount;
-  auto result = catalog(size, kind, o2::detectors::DetID::ITS);
+  auto result = catalog(size, kind, catalogRequest.detector);
   for (uint32_t localIndex = 0; localIndex < catalogRequest.detectorSurfaceCount; ++localIndex) {
     auto& surface = result[catalogRequest.firstSurface.value() + localIndex];
     surface.detectorId = static_cast<uint8_t>(catalogRequest.detector);
@@ -404,6 +423,22 @@ BOOST_AUTO_TEST_CASE(catalog_request_validation)
   auto missingIndex = catalog(7);
   missingIndex[6].detectorSurfaceIndex = std::numeric_limits<uint16_t>::max();
   checkFailure(request(7), std::move(missingIndex), DetectorSurfaceCatalogValidationError::MissingDetectorSurfaceIndex);
+
+  auto negativeXOverX0 = catalog(7);
+  negativeXOverX0[2].material.xOverX0 = -1.f;
+  checkFailure(request(7), std::move(negativeXOverX0), DetectorSurfaceCatalogValidationError::InvalidMaterial);
+
+  auto nanXOverX0 = catalog(7);
+  nanXOverX0[2].material.xOverX0 = std::numeric_limits<float>::quiet_NaN();
+  checkFailure(request(7), std::move(nanXOverX0), DetectorSurfaceCatalogValidationError::InvalidMaterial);
+
+  auto infAreal = catalog(7);
+  infAreal[5].material.arealDensityGPerCm2 = std::numeric_limits<float>::infinity();
+  checkFailure(request(7), std::move(infAreal), DetectorSurfaceCatalogValidationError::InvalidMaterial);
+
+  auto negativeAreal = catalog(7);
+  negativeAreal[5].material.arealDensityGPerCm2 = -0.1f;
+  checkFailure(request(7), std::move(negativeAreal), DetectorSurfaceCatalogValidationError::InvalidMaterial);
 }
 
 BOOST_AUTO_TEST_CASE(malformed_catalog_rejected_with_zero_iterations)

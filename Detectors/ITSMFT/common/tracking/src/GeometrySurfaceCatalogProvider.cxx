@@ -8,6 +8,7 @@
 #include "GeometrySurfaceCatalogProvider.h"
 
 #include "ITSMFTBase/SegmentationAlpide.h"
+#include "ITStracking/Constants.h"
 
 namespace o2::itsmft::tracking::detail
 {
@@ -60,15 +61,26 @@ DetectorSurfaceCatalogResult buildGeometrySurfaceCatalog(const DetectorSurfaceCa
     return {{}, mapAggregationError(aggregation.error)};
   }
 
+  // Before indexing: the nominal-material span supplied by the concrete
+  // provider must cover every catalog surface.
+  if (spec.nominalLayerX0.size() != spec.surfaceCount) {
+    return {{}, DetectorSurfaceCatalogError::InvalidRequest};
+  }
+
   DetectorSurfaceCatalogResult result;
   result.catalog.reserve(spec.surfaceCount);
   for (uint16_t surface = 0; surface < spec.surfaceCount; ++surface) {
     const auto& geometryValues = aggregation.surfaces[surface];
-    result.catalog.push_back(SurfaceDescriptor{SurfaceId{surface}, surface,
-                                               static_cast<uint8_t>(spec.detector), spec.kind, 0,
-                                               geometryValues.referenceCoordinate,
-                                               geometryValues.radialMin,
-                                               geometryValues.radialMax});
+    SurfaceDescriptor descriptor{SurfaceId{surface}, surface,
+                                 static_cast<uint8_t>(spec.detector), spec.kind, 0,
+                                 geometryValues.referenceCoordinate,
+                                 geometryValues.radialMin,
+                                 geometryValues.radialMax};
+    descriptor.material.xOverX0 = spec.nominalLayerX0[surface];
+    descriptor.material.arealDensityGPerCm2 = spec.nominalLayerX0[surface] *
+                                              o2::its::constants::Radl *
+                                              o2::its::constants::Rho;
+    result.catalog.push_back(descriptor);
   }
   return result;
 }

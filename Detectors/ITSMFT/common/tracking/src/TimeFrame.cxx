@@ -13,6 +13,7 @@
 /// \brief
 ///
 
+#include <cmath>
 #include <limits>
 #include <new>
 #include <numeric>
@@ -141,6 +142,13 @@ DetectorSurfaceCatalogValidationError validateSurfaceCatalog(const DetectorSurfa
   }
   if (std::find(detectorSurfaceIndices.begin(), detectorSurfaceIndices.end(), false) != detectorSurfaceIndices.end()) {
     return DetectorSurfaceCatalogValidationError::MissingDetectorSurfaceIndex;
+  }
+  for (size_t globalIndex = request.firstSurface.value(); globalIndex < expectedSize; ++globalIndex) {
+    const auto& material = catalog[globalIndex].material;
+    if (!std::isfinite(material.xOverX0) || material.xOverX0 < 0.f ||
+        !std::isfinite(material.arealDensityGPerCm2) || material.arealDensityGPerCm2 < 0.f) {
+      return DetectorSurfaceCatalogValidationError::InvalidMaterial;
+    }
   }
   return DetectorSurfaceCatalogValidationError::None;
 }

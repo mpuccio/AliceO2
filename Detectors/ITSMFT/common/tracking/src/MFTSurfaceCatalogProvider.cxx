@@ -8,6 +8,7 @@
 #include "ITSMFTTracking/MFTSurfaceCatalogProvider.h"
 
 #include "GeometrySurfaceCatalogProvider.h"
+#include "ITSMFTTracking/NominalSurfaceMaterialDefaults.h"
 #include "ITSMFTTracking/TrackingConfigParam.h"
 #include "MathUtils/Cartesian.h"
 #include "MFTBase/GeometryTGeo.h"
@@ -18,7 +19,8 @@ namespace o2::itsmft::tracking
 DetectorSurfaceCatalogResult MFTSurfaceCatalogProvider::buildCatalog(const DetectorSurfaceCatalogRequest& request) const
 {
   const detail::DetectorGeometryCatalogSpec spec{o2::detectors::DetID::MFT, MFTNLayers, SurfaceKind::Disk,
-                                                 detail::SurfaceReferenceCoordinate::MeanZ};
+                                                 detail::SurfaceReferenceCoordinate::MeanZ,
+                                                 gsl::span<const float>{kNominalMFTLayerX0.data(), kNominalMFTLayerX0.size()}};
   return detail::buildGeometrySurfaceCatalog(request, spec, []() -> std::optional<detail::DetectorGeometryView> {
     if (!o2::mft::GeometryTGeo::instanceExist()) {
       return std::nullopt;

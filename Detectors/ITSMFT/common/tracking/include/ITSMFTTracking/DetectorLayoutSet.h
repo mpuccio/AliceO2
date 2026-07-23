@@ -136,7 +136,8 @@ enum class DetectorSurfaceCatalogValidationError : uint8_t {
   DetectorMismatch,
   DetectorSurfaceIndexOutOfRange,
   DuplicateDetectorSurfaceIndex,
-  MissingDetectorSurfaceIndex
+  MissingDetectorSurfaceIndex,
+  InvalidMaterial
 };
 
 struct DetectorLayoutSetBuildResult {
