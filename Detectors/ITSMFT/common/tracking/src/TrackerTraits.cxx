@@ -185,6 +185,27 @@ void TrackerTraits<NLayers>::initialiseTimeFrame(const int iteration)
     throw TraversalException{iteration, TraversalFailureReason::MixedPolicyLayout};
   }
 
+  // 2.1 (Stage-B activation, Architecture.md Sec 11): material-correction-mode
+  // preflight for the active policy, once per iteration -- after layout/
+  // grouping validation and mixed-policy resolution, before any material
+  // staging, index-table binding, or TimeFrame tracking-state mutation.
+  // `grouping` alone (not yet `activeTag`, which validateLegacyParity() only
+  // resolves later) already tells us which single tag is active, exactly
+  // like step 3's index-table dispatch below. An `Unsupported` result is a
+  // structural/configuration failure (TraversalFailureReason doc); an
+  // `InvalidMode` result is deliberately not raised here -- it defers to the
+  // existing AttachHitPolicyConfigView::isValid() check further below, which
+  // remains the single source of truth for "this CorrType value is not
+  // recognized at all".
+  MaterialCorrectionModeSupport materialModeSupport = MaterialCorrectionModeSupport::Supported;
+  dispatchTransitionPolicies(grouping, [&](auto traits, auto /*transitionIds*/, auto /*cellIds*/) {
+    using Traits = decltype(traits);
+    materialModeSupport = checkMaterialCorrectionModeSupport<Traits::Tag>(mTrkParams[iteration].CorrType);
+  });
+  if (materialModeSupport == MaterialCorrectionModeSupport::Unsupported) {
+    throw TraversalException{iteration, TraversalFailureReason::UnsupportedMaterialCorrectionMode};
+  }
+
   // 2.5. Resolve and validate this iteration's authoritative per-layer
   // nominal material, entirely from `layouts`/`layout` (already resolved
   // above) and `mTrkParams[iteration]` -- before any TimeFrame tracking
@@ -243,7 +264,7 @@ void TrackerTraits<NLayers>::initialiseTimeFrame(const int iteration)
     // active transitions do not belong to this NLayers/state family), not a
     // NLayers-to-Tag policy selection: the active Tag itself still comes
     // exclusively from `grouping`/`layout` above.
-    if constexpr (!std::is_same_v<CellSeedN, CellSeedTpl<typename Traits::SeedState>>) {
+    if constexpr (stateFamilyFromNLayers<NLayers>() != Traits::Family) {
       stateFamilyMismatch = true;
     } else {
       indexTableConfigError = bindIndexTableConfiguration<Traits::Tag, NLayers>(stagedIndexTableConfig, mTrkParams[iteration]);
@@ -287,7 +308,7 @@ void TrackerTraits<NLayers>::initialiseTimeFrame(const int iteration)
     throw TraversalException{iteration, TraversalFailureReason::MixedPolicyLayout};
   }
 
-  constexpr StateFamily cellStateFamily = std::is_same_v<typename CASeedTrackPar<NLayers>::type, o2::track::TrackParCovFwd> ? StateFamily::Forward : StateFamily::Barrel;
+  constexpr StateFamily cellStateFamily = stateFamilyFromNLayers<NLayers>();
   if (stateFamilyOf(activeTag) != cellStateFamily) {
     throw TraversalException{iteration, TraversalFailureReason::StateFamilyMismatch};
   }
@@ -422,7 +443,7 @@ void TrackerTraits<NLayers>::computeLayerTracklets(const int iteration, int iVer
 
   dispatchTransitionPolicies(*mTraversalGrouping, [&](auto traits, auto transitionIds, auto) {
     using Traits = decltype(traits);
-    if constexpr (!std::is_same_v<CellSeedN, CellSeedTpl<typename Traits::SeedState>>) {
+    if constexpr (stateFamilyFromNLayers<NLayers>() != Traits::Family) {
       throw TraversalException{iteration, TraversalFailureReason::StateFamilyMismatch};
     } else if constexpr (Traits::Tag == TransitionPolicyTag::CylinderCylinder) {
       if (!mCylinderPolicyParams.has_value()) {
@@ -692,7 +713,7 @@ void TrackerTraits<NLayers>::computeLayerCells(const int iteration)
 
   dispatchTransitionPolicies(*mTraversalGrouping, [&](auto traits, auto, auto) {
     using Traits = decltype(traits);
-    if constexpr (!std::is_same_v<CellSeedN, CellSeedTpl<typename Traits::SeedState>>) {
+    if constexpr (stateFamilyFromNLayers<NLayers>() != Traits::Family) {
       throw TraversalException{iteration, TraversalFailureReason::StateFamilyMismatch};
     } else if constexpr (Traits::Tag == TransitionPolicyTag::CylinderCylinder) {
       if (!mCylinderPolicyParams.has_value()) {
@@ -784,12 +805,13 @@ void TrackerTraits<NLayers>::computeLayerCellsForPolicy(
             mAttachHitConfig.layerMaterial[hitLayers[1]],
             mAttachHitConfig.layerMaterial[hitLayers[2]]};
 
-          typename TransitionPolicyTraits<Tag>::SeedState state{};
+          SurfaceKinematicState state{};
           float chi2{0.f};
+          OperationFailureReason buildReason{};
           const bool good = o2::itsmft::tracking::buildCellSeed<Tag>(
             clusterInner, clusterMiddle, clusterOuter,
             hitInner, hitMiddle, hitOuter,
-            material, getBz(), state, chi2, params);
+            material, getBz(), kCompatibilityAbsCharge, kCompatibilityPID, state, chi2, params, buildReason);
 
           if (good) {
             TimeEstBC ts = currentTracklet.getTimeStamp();
@@ -875,7 +897,7 @@ void TrackerTraits<NLayers>::findCellsNeighbours(const int iteration)
   }
   dispatchTransitionPolicies(*mTraversalGrouping, [&](auto traits, auto, auto) {
     using Traits = decltype(traits);
-    if constexpr (!std::is_same_v<CellSeedN, CellSeedTpl<typename Traits::SeedState>>) {
+    if constexpr (stateFamilyFromNLayers<NLayers>() != Traits::Family) {
       throw TraversalException{iteration, TraversalFailureReason::StateFamilyMismatch};
     } else if constexpr (Traits::Tag == TransitionPolicyTag::CylinderCylinder) {
       if (!mCylinderPolicyParams.has_value()) {
@@ -963,7 +985,9 @@ void TrackerTraits<NLayers>::findCellsNeighboursForPolicy(
               break;
             }
 
-            if (!o2::itsmft::tracking::cellsAreCompatible<Tag>(currentCellSeed, nextCellSeedRef, getBz(), params)) {
+            if (!o2::itsmft::tracking::cellsAreCompatible<Tag>(currentCellSeed.state(), nextCellSeedRef.state(),
+                                                               currentCellSeed.getSecondClusterIndex(), nextCellSeedRef.getFirstClusterIndex(),
+                                                               getBz(), params)) {
               continue;
             }
 
@@ -1027,7 +1051,6 @@ template <TransitionPolicyTag Tag, typename InputSeed>
 void TrackerTraits<NLayers>::processNeighbours(int iteration, int defaultCellTopologyId, int iLevel, const bounded_vector<InputSeed>& currentCellSeed, const bounded_vector<int>& currentCellId, const bounded_vector<int>& currentCellTopologyId, bounded_vector<TrackSeedN>& updatedCellSeeds, bounded_vector<int>& updatedCellsIds, bounded_vector<int>& updatedCellsTopologyIds, const typename TransitionPolicyTraits<Tag>::Params& params)
 {
   const auto layerMaterial = mAttachHitConfig.layerMaterial;
-  const auto corrType = mAttachHitConfig.corrType;
 
   mTaskArena->execute([&] {
     auto forCellNeighbours = [&](auto Mode, int iCell, int offset = 0) -> int {
@@ -1081,8 +1104,8 @@ void TrackerTraits<NLayers>::processNeighbours(int iteration, int defaultCellTop
 
         const auto& trHit = mTimeFrame->getTrackingFrameInfoOnLayer(neighbourLayer)[neighbourCluster];
         float chi2 = seed.getChi2();
-        if (!o2::itsmft::tracking::attachHit<Tag>(static_cast<typename TransitionPolicyTraits<Tag>::SeedState&>(seed),
-                                                  trHit, layerMaterial[neighbourLayer], corrType, getBz(), chi2, params)) {
+        OperationFailureReason attachReason{};
+        if (!o2::itsmft::tracking::attachHit<Tag>(seed.state(), trHit, layerMaterial[neighbourLayer], getBz(), chi2, params, attachReason)) {
           continue;
         }
         seed.setChi2(chi2);
@@ -1167,7 +1190,7 @@ void TrackerTraits<NLayers>::findRoads(const int iteration)
   }
   dispatchTransitionPolicies(*mTraversalGrouping, [&](auto traits, auto, auto) {
     using Traits = decltype(traits);
-    if constexpr (!std::is_same_v<TrackSeedN, TrackSeedTpl<NLayers, typename Traits::SeedState>>) {
+    if constexpr (stateFamilyFromNLayers<NLayers>() != Traits::Family) {
       throw TraversalException{iteration, TraversalFailureReason::StateFamilyMismatch};
     } else if constexpr (Traits::Tag == TransitionPolicyTag::CylinderCylinder) {
       if (!mCylinderPolicyParams.has_value()) {

@@ -17,6 +17,7 @@
 
 #include "Framework/Logger.h"
 #include "ITSMFTTracking/MFTFwdTrackHelpers.h"
+#include "ITSMFTTracking/SurfaceKinematicStateLegacyAdapters.h"
 #include "ITStracking/TrackHelpers.h"
 
 namespace o2::itsmft::tracking
@@ -34,7 +35,15 @@ bool refitSeedITS(const typename DetectorTraits<NLayers>::TrackSeedN& seed,
                   const o2::base::PropagatorImpl<float>* propagator)
 {
   o2::its::TrackSeed<NLayers> itsSeed;
-  static_cast<o2::track::TrackParCovF&>(itsSeed) = static_cast<const o2::track::TrackParCovF&>(seed);
+  // Stage-B activation boundary (Architecture.md Sec 12 / this class's own
+  // doc): the common seed no longer inherits TrackParCovF, so the frozen ITS
+  // refit is fed through the single explicit legacy export adapter instead of
+  // an inheritance cast. A wrong-family/invalid state fails the refit cleanly.
+  o2::track::TrackParCovF barrelState{};
+  if (!o2::itsmft::tracking::legacy::exportBarrelTrackParCov(seed.state(), barrelState)) {
+    return false;
+  }
+  static_cast<o2::track::TrackParCovF&>(itsSeed) = barrelState;
   itsSeed.setHitLayerMask(o2::its::LayerMask{seed.getHitLayerMask().value()});
   itsSeed.setFirstTrackletIndex(seed.getFirstTrackletIndex());
   itsSeed.setSecondTrackletIndex(seed.getSecondTrackletIndex());

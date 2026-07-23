@@ -166,38 +166,20 @@ o2::its::TrackingFrameInfo makeDiskHit(float z, float x, float y, float sigma2X 
   return o2::its::TrackingFrameInfo{x, y, z, 0.f, 0.f, {x, y}, {sigma2X, 0.f, sigma2Y}};
 }
 
-void checkBarrelStateEqual(const o2::track::TrackParCovF& lhs, const o2::track::TrackParCovF& rhs)
+// Stage-B activation: the produced Cell no longer inherits a track
+// parametrization, so the oracle comparison is done directly on
+// SurfaceKinematicState (both the produced cell's own .state() and the
+// oracle's native buildCellSeed<Tag> output are this type).
+void checkSurfaceKinematicStateEqual(const SurfaceKinematicState& lhs, const SurfaceKinematicState& rhs)
 {
-  BOOST_CHECK_EQUAL(lhs.getX(), rhs.getX());
-  BOOST_CHECK_EQUAL(lhs.getAlpha(), rhs.getAlpha());
-  BOOST_CHECK_EQUAL(lhs.getY(), rhs.getY());
-  BOOST_CHECK_EQUAL(lhs.getZ(), rhs.getZ());
-  BOOST_CHECK_EQUAL(lhs.getSnp(), rhs.getSnp());
-  BOOST_CHECK_EQUAL(lhs.getTgl(), rhs.getTgl());
-  BOOST_CHECK_EQUAL(lhs.getQ2Pt(), rhs.getQ2Pt());
-  const auto& lhsCov = lhs.getCov();
-  const auto& rhsCov = rhs.getCov();
-  for (size_t element = 0; element < lhsCov.size(); ++element) {
-    BOOST_CHECK_EQUAL(lhsCov[element], rhsCov[element]);
+  for (int i = 0; i < 5; ++i) {
+    BOOST_CHECK_EQUAL(lhs.parameters[i], rhs.parameters[i]);
   }
-}
-
-void checkDiskStateEqual(const o2::track::TrackParCovFwd& lhs, const o2::track::TrackParCovFwd& rhs)
-{
-  BOOST_CHECK_EQUAL(lhs.getZ(), rhs.getZ());
-  BOOST_CHECK_EQUAL(lhs.getX(), rhs.getX());
-  BOOST_CHECK_EQUAL(lhs.getY(), rhs.getY());
-  BOOST_CHECK_EQUAL(lhs.getPhi(), rhs.getPhi());
-  BOOST_CHECK_EQUAL(lhs.getTanl(), rhs.getTanl());
-  BOOST_CHECK_EQUAL(lhs.getInvQPt(), rhs.getInvQPt());
-  BOOST_CHECK_EQUAL(lhs.getTrackChi2(), rhs.getTrackChi2());
-  const auto& lhsCov = lhs.getCovariances();
-  const auto& rhsCov = rhs.getCovariances();
-  for (size_t row = 0; row < 5; ++row) {
-    for (size_t column = 0; column < 5; ++column) {
-      BOOST_CHECK_EQUAL(lhsCov(row, column), rhsCov(row, column));
-    }
+  for (int i = 0; i < 15; ++i) {
+    BOOST_CHECK_EQUAL(lhs.covariance[i], rhs.covariance[i]);
   }
+  BOOST_CHECK_EQUAL(lhs.referenceCoordinate, rhs.referenceCoordinate);
+  BOOST_CHECK_EQUAL(lhs.alpha, rhs.alpha);
 }
 
 // Minimal wiring TrackerTraits<NLayers>::computeLayerCells() needs: a real
@@ -383,14 +365,15 @@ BOOST_AUTO_TEST_CASE(CylinderComputeLayerCellsMatchesBuildCellSeedOracle)
   CylinderCylinderPolicyParams policyParams;
   policyParams.maxChi2ClusterAttachment = rig.params[0].MaxChi2ClusterAttachment;
 
-  o2::track::TrackParCovF oracleState{};
+  SurfaceKinematicState oracleState{};
   float oracleChi2 = 0.f;
+  OperationFailureReason oracleReason{};
   BOOST_REQUIRE(buildCellSeed<TransitionPolicyTag::CylinderCylinder>(
     oracleClusterInner, oracleClusterMiddle, oracleClusterOuter,
     oracleHitInner, oracleHitMiddle, oracleHitOuter,
-    material, Bz, oracleState, oracleChi2, policyParams));
+    material, Bz, kCompatibilityAbsCharge, kCompatibilityPID, oracleState, oracleChi2, policyParams, oracleReason));
 
-  checkBarrelStateEqual(producedCell, oracleState);
+  checkSurfaceKinematicStateEqual(producedCell.state(), oracleState);
   BOOST_CHECK_EQUAL(producedCell.getChi2(), oracleChi2);
 }
 
@@ -440,14 +423,15 @@ BOOST_AUTO_TEST_CASE(DiskComputeLayerCellsMatchesBuildCellSeedOracle)
   policyParams.maxChi2ClusterAttachment = rig.params[0].MaxChi2ClusterAttachment;
   policyParams.trackletMinPt = rig.params[0].TrackletMinPt;
 
-  o2::track::TrackParCovFwd oracleState{};
+  SurfaceKinematicState oracleState{};
   float oracleChi2 = 0.f;
+  OperationFailureReason oracleReason{};
   BOOST_REQUIRE(buildCellSeed<TransitionPolicyTag::DiskDisk>(
     oracleClusterInner, oracleClusterMiddle, oracleClusterOuter,
     oracleHitInner, oracleHitMiddle, oracleHitOuter,
-    material, Bz, oracleState, oracleChi2, policyParams));
+    material, Bz, kCompatibilityAbsCharge, kCompatibilityPID, oracleState, oracleChi2, policyParams, oracleReason));
 
-  checkDiskStateEqual(producedCell, oracleState);
+  checkSurfaceKinematicStateEqual(producedCell.state(), oracleState);
   BOOST_CHECK_EQUAL(producedCell.getChi2(), oracleChi2);
 }
 

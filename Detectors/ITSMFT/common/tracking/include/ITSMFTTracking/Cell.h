@@ -18,16 +18,15 @@
 
 #include <array>
 #include <cstdint>
-#include <type_traits>
 
 #include "DetectorsCommonDataFormats/DetID.h"
 #include "DataFormatsITS/TrackITS.h"
 #include "DataFormatsITS/TimeEstBC.h"
 #include "ITSMFTTracking/Configuration.h"
 #include "ITSMFTTracking/LayerMask.h"
+#include "ITSMFTTracking/SurfaceKinematicState.h"
+#include "ITSMFTTracking/TransitionPolicy.h"
 #include "ITStracking/Constants.h"
-#include "ReconstructionDataFormats/Track.h"
-#include "ReconstructionDataFormats/TrackFwd.h"
 #include "GPUCommonDef.h"
 
 namespace o2::itsmft::tracking
@@ -41,8 +40,12 @@ struct CellNeighbour {
   int level{-1};
 };
 
-template <int NClusters, typename TrackParT>
-class SeedBase : public TrackParT
+/// Stage-B activation (Architecture.md Sec 10/11): shared Cell/TrackSeed
+/// metadata, composing a named SurfaceKinematicState rather than inheriting a
+/// detector-selected track parametrization. Neither TrackParCovF nor
+/// TrackParCovFwd is a base of this type or of anything derived from it.
+template <int NClusters>
+class SeedMetadataBase
 {
  public:
   GPUhd() LayerMask getHitLayerMask() const { return LayerMask{mHitLayerMask}; }
@@ -60,32 +63,30 @@ class SeedBase : public TrackParT
   GPUhd() auto& getTimeStamp() noexcept { return mTime; }
   GPUhd() const auto& getTimeStamp() const noexcept { return mTime; }
 
-  /// Road-length filter: barrel q/pT² for ITS, (invQPt)² for forward MFT seeds.
-  GPUhd() float getQ2Pt() const
-  {
-    if constexpr (std::is_same_v<TrackParT, o2::track::TrackParCovFwd>) {
-      const float invQPt = static_cast<float>(TrackParT::getInvQPt());
-      return invQPt * invQPt;
-    } else {
-      return TrackParT::getQ2Pt();
-    }
-  }
+  GPUhd() SurfaceKinematicState& state() noexcept { return mState; }
+  GPUhd() const SurfaceKinematicState& state() const noexcept { return mState; }
+
+  /// One common formula for both families (no barrel/forward branch): slot 4
+  /// carries q/pT (barrel) or signed q/pT (forward) in both Stage-B state
+  /// conventions.
+  GPUhd() float getQ2Pt() const noexcept { return mState.parameters[4] * mState.parameters[4]; }
 
  protected:
-  GPUhdDefault() SeedBase() = default;
-  GPUhdDefault() SeedBase(const SeedBase&) = default;
-  GPUhdDefault() ~SeedBase() = default;
-  GPUhdDefault() SeedBase(SeedBase&&) = default;
-  GPUhdDefault() SeedBase& operator=(const SeedBase&) = default;
-  GPUhdDefault() SeedBase& operator=(SeedBase&&) = default;
-  GPUhd() SeedBase(const TrackParT& tpc, float chi2, int level, const o2::its::TimeEstBC& time)
-    : TrackParT(tpc), mChi2(chi2), mLevel(level), mTime(time)
+  GPUhdDefault() SeedMetadataBase() = default;
+  GPUhdDefault() SeedMetadataBase(const SeedMetadataBase&) = default;
+  GPUhdDefault() ~SeedMetadataBase() = default;
+  GPUhdDefault() SeedMetadataBase(SeedMetadataBase&&) = default;
+  GPUhdDefault() SeedMetadataBase& operator=(const SeedMetadataBase&) = default;
+  GPUhdDefault() SeedMetadataBase& operator=(SeedMetadataBase&&) = default;
+  GPUhd() SeedMetadataBase(const SurfaceKinematicState& state, float chi2, int level, const o2::its::TimeEstBC& time)
+    : mState(state), mChi2(chi2), mLevel(level), mTime(time)
   {
   }
   GPUhd() auto& clustersRaw() { return mClusters; }
   GPUhd() const auto& clustersRaw() const { return mClusters; }
 
  private:
+  SurfaceKinematicState mState{};
   uint16_t mHitLayerMask{0};
   float mChi2{o2::its::constants::UnsetValue};
   int mLevel{o2::its::constants::UnusedIndex};
@@ -94,19 +95,19 @@ class SeedBase : public TrackParT
   o2::its::TimeEstBC mTime;
 };
 
-template <typename TrackParT = o2::track::TrackParCovF>
-class CellSeedTpl final : public SeedBase<o2::its::constants::ClustersPerCell, TrackParT>
+/// Common (non-family-templated) CA cell representation.
+class CellSeed final : public SeedMetadataBase<o2::its::constants::ClustersPerCell>
 {
-  using Base = SeedBase<o2::its::constants::ClustersPerCell, TrackParT>;
+  using Base = SeedMetadataBase<o2::its::constants::ClustersPerCell>;
 
  public:
-  GPUhdDefault() CellSeedTpl() = default;
-  GPUhd() CellSeedTpl(int innerL, int cl0, int cl1, int cl2, int trkl0, int trkl1, const TrackParT& tpc, float chi2, const o2::its::TimeEstBC& time)
-    : CellSeedTpl(LayerMask(innerL, innerL + 1, innerL + 2), cl0, cl1, cl2, trkl0, trkl1, tpc, chi2, time)
+  GPUhdDefault() CellSeed() = default;
+  GPUhd() CellSeed(int innerL, int cl0, int cl1, int cl2, int trkl0, int trkl1, const SurfaceKinematicState& state, float chi2, const o2::its::TimeEstBC& time)
+    : CellSeed(LayerMask(innerL, innerL + 1, innerL + 2), cl0, cl1, cl2, trkl0, trkl1, state, chi2, time)
   {
   }
-  GPUhd() CellSeedTpl(LayerMask hitLayerMask, int cl0, int cl1, int cl2, int trkl0, int trkl1, const TrackParT& tpc, float chi2, const o2::its::TimeEstBC& time)
-    : Base(tpc, chi2, 1, time)
+  GPUhd() CellSeed(LayerMask hitLayerMask, int cl0, int cl1, int cl2, int trkl0, int trkl1, const SurfaceKinematicState& state, float chi2, const o2::its::TimeEstBC& time)
+    : Base(state, chi2, 1, time)
   {
     this->setHitLayerMask(hitLayerMask);
     auto& clusters = this->clustersRaw();
@@ -116,11 +117,11 @@ class CellSeedTpl final : public SeedBase<o2::its::constants::ClustersPerCell, T
     this->setFirstTrackletIndex(trkl0);
     this->setSecondTrackletIndex(trkl1);
   }
-  GPUhdDefault() CellSeedTpl(const CellSeedTpl&) = default;
-  GPUhdDefault() ~CellSeedTpl() = default;
-  GPUhdDefault() CellSeedTpl(CellSeedTpl&&) = default;
-  GPUhdDefault() CellSeedTpl& operator=(const CellSeedTpl&) = default;
-  GPUhdDefault() CellSeedTpl& operator=(CellSeedTpl&&) = default;
+  GPUhdDefault() CellSeed(const CellSeed&) = default;
+  GPUhdDefault() ~CellSeed() = default;
+  GPUhdDefault() CellSeed(CellSeed&&) = default;
+  GPUhdDefault() CellSeed& operator=(const CellSeed&) = default;
+  GPUhdDefault() CellSeed& operator=(CellSeed&&) = default;
 
   GPUhd() int getFirstClusterIndex() const { return this->clustersRaw()[0]; };
   GPUhd() int getSecondClusterIndex() const { return this->clustersRaw()[1]; };
@@ -134,18 +135,24 @@ class CellSeedTpl final : public SeedBase<o2::its::constants::ClustersPerCell, T
   }
 };
 
-/// ITS default: barrel track parameters in cells.
-using CellSeed = CellSeedTpl<o2::track::TrackParCovF>;
+/// Compatibility alias: resolves to the same common CellSeed type regardless
+/// of NLayers (kept only so existing ITSNLayers/MFTNLayers call sites do not
+/// need to change to the bare name).
+template <int NLayers>
+using CellSeedN = CellSeed;
 
-template <int NLayers, typename TrackParT = o2::track::TrackParCovF>
-class TrackSeedTpl final : public SeedBase<NLayers, TrackParT>
+/// TrackSeed remains templated only by NLayers: its cluster-index array width
+/// is a temporary legacy boundary (raw int indices, LayerMask), not a
+/// detector-selected state family.
+template <int NLayers>
+class TrackSeedTpl final : public SeedMetadataBase<NLayers>
 {
-  using Base = SeedBase<NLayers, TrackParT>;
+  using Base = SeedMetadataBase<NLayers>;
 
  public:
   GPUhdDefault() TrackSeedTpl() = default;
-  GPUhd() TrackSeedTpl(const CellSeedTpl<TrackParT>& cs)
-    : Base(static_cast<const TrackParT&>(cs), cs.getChi2(), cs.getLevel(), cs.getTimeStamp())
+  GPUhd() TrackSeedTpl(const CellSeed& cs)
+    : Base(cs.state(), cs.getChi2(), cs.getLevel(), cs.getTimeStamp())
   {
     this->setHitLayerMask(cs.getHitLayerMask());
     this->setFirstTrackletIndex(cs.getFirstTrackletIndex());
@@ -188,8 +195,10 @@ class TrackSeedTpl final : public SeedBase<NLayers, TrackParT>
   }
 };
 
+/// Compatibility alias: TrackSeedN<NLayers> resolves to TrackSeedTpl<NLayers>,
+/// differing between families only by cluster-array width.
 template <int NLayers>
-using TrackSeed = TrackSeedTpl<NLayers, o2::track::TrackParCovF>;
+using TrackSeedN = TrackSeedTpl<NLayers>;
 
 template <int NLayers>
 struct CATrackTypeHelper {
@@ -199,18 +208,20 @@ struct CATrackTypeHelper {
 template <int NLayers>
 using CATrackType = typename CATrackTypeHelper<NLayers>::type;
 
-/// Per-detector track parametrization stored in CA cells and extended seeds.
+/// Temporary NLayers -> StateFamily compatibility boundary (Architecture.md
+/// Sec 10.1): the common Cell/TrackSeed representation no longer encodes
+/// family in its C++ type, so orchestration boundaries that need to validate
+/// "this TrackerTraits<NLayers> instantiation may process this
+/// TransitionPolicyTraits<Tag>::Family" compare this against Traits::Family
+/// directly, instead of comparing Cell/TrackSeed types. ITSNLayers maps to
+/// Barrel, MFTNLayers (o2::mft::constants::mft::LayersNumber) maps to
+/// Forward. This inference is temporary and must not be expanded into a new
+/// durable detector abstraction.
 template <int NLayers>
-struct CASeedTrackPar {
-  static constexpr o2::detectors::DetID::ID DetId = detIdFromNLayers<NLayers>();
-  using type = std::conditional_t<DetId == o2::detectors::DetID::MFT, o2::track::TrackParCovFwd, o2::track::TrackParCovF>;
-};
-
-template <int NLayers>
-using CellSeedN = CellSeedTpl<typename CASeedTrackPar<NLayers>::type>;
-
-template <int NLayers>
-using TrackSeedN = TrackSeedTpl<NLayers, typename CASeedTrackPar<NLayers>::type>;
+GPUhdi() constexpr StateFamily stateFamilyFromNLayers() noexcept
+{
+  return detIdFromNLayers<NLayers>() == o2::detectors::DetID::MFT ? StateFamily::Forward : StateFamily::Barrel;
+}
 
 } // namespace o2::itsmft::tracking
 

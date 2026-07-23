@@ -249,32 +249,6 @@ inline bool mftFwdFitCellClusters(const int hitLayers[3], const int clusIds[3],
   return true;
 }
 
-template <int NLayers, typename SeedT>
-inline bool mftFwdAttachNeighbourToSeed(const SeedT& seed, int neighbourLayer, int neighbourClIdx,
-                                        const TimeFrame<NLayers>& tf, const TrackingParameters& params,
-                                        float bz, o2::track::TrackParCovFwd& fwdTrack, float& chi2)
-{
-  fwdTrack = static_cast<const o2::track::TrackParCovFwd&>(seed);
-  chi2 = seed.getChi2();
-  const auto& trHit = tf.getTrackingFrameInfoOnLayer(neighbourLayer)[neighbourClIdx];
-  return mftFwdAttachCluster(fwdTrack, trHit.zCoordinate, trHit.xCoordinate, trHit.yCoordinate,
-                             trHit.covarianceTrackingFrame[0], trHit.covarianceTrackingFrame[2],
-                             params.LayerxX0[neighbourLayer], bz, params.MaxChi2ClusterAttachment, chi2, true);
-}
-
-inline bool mftFwdCellsAreCompatible(const CellSeedTpl<o2::track::TrackParCovFwd>& currentCell,
-                                   const CellSeedTpl<o2::track::TrackParCovFwd>& nextCell,
-                                   float bz, float maxChi2)
-{
-  if (currentCell.getSecondClusterIndex() != nextCell.getFirstClusterIndex()) {
-    return false;
-  }
-  o2::track::TrackParCovFwd nextFwd = static_cast<const o2::track::TrackParCovFwd&>(nextCell);
-  const auto& currentFwd = static_cast<const o2::track::TrackParCovFwd&>(currentCell);
-  mftFwdPropagateToZ(nextFwd, static_cast<float>(currentFwd.getZ()), bz);
-  return mftFwdStateChi2(currentFwd, nextFwd) <= maxChi2;
-}
-
 } // namespace o2::itsmft::tracking::detail
 
 namespace o2::itsmft::tracking

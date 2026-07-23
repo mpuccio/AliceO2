@@ -217,15 +217,17 @@ BOOST_AUTO_TEST_CASE(TraitsAgreeWithStageAStateFamilyFoundation)
   BOOST_CHECK(Forward::Family == StateFamily::Forward);
 }
 
-BOOST_AUTO_TEST_CASE(TraitsSelectDistinctStageAStateTypes)
+BOOST_AUTO_TEST_CASE(TraitsShareOneStateTypeButDistinctParamTypes)
 {
   using Barrel = TransitionPolicyTraits<TransitionPolicyTag::CylinderCylinder>;
   using Forward = TransitionPolicyTraits<TransitionPolicyTag::DiskDisk>;
 
-  // Barrel paths use the barrel track state, forward (disk) paths use the
-  // forward track state (Architecture.md Stage A); the two must not collapse
-  // onto one shared representation.
-  BOOST_CHECK(!(std::is_same_v<Barrel::SeedState, Forward::SeedState>));
+  // Stage-B activation: barrel and forward paths now compose the same common
+  // SurfaceKinematicState (Architecture.md Sec 11); family is carried at
+  // runtime by SurfaceKinematicState::family, not by a distinct C++ type per
+  // family. Bounds-checked policy parameter blocks remain distinct per family.
+  BOOST_CHECK((std::is_same_v<Barrel::SeedState, Forward::SeedState>));
+  BOOST_CHECK((std::is_same_v<Barrel::SeedState, SurfaceKinematicState>));
   BOOST_CHECK(!(std::is_same_v<Barrel::Params, Forward::Params>));
 }
 

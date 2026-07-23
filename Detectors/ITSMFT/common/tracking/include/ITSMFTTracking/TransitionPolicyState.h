@@ -13,9 +13,8 @@
 
 #include "GPUCommonDef.h"
 #include "GPUCommonMath.h"
-#include "ReconstructionDataFormats/Track.h"
-#include "ReconstructionDataFormats/TrackFwd.h"
 #include "ITSMFTTracking/SurfaceDescriptor.h"
+#include "ITSMFTTracking/SurfaceKinematicState.h"
 #include "ITSMFTTracking/TransitionPolicy.h"
 
 namespace o2::itsmft::tracking
@@ -111,6 +110,13 @@ static_assert(offsetof(DiskDiskPolicyParams, nSigmaCut) == 16);
 static_assert(offsetof(DiskDiskPolicyParams, maxChi2ClusterAttachment) == 20);
 static_assert(offsetof(DiskDiskPolicyParams, maxChi2NDF) == 24);
 
+/// Stage-B activation compatibility hypothesis, used only at initial
+/// Cell-state construction (native buildCellSeed<Tag>, TransitionPolicyOperations.h);
+/// never re-set afterward. Centrally named so every call site shares one
+/// definition rather than repeating a magic charge/PID literal.
+inline constexpr uint8_t kCompatibilityAbsCharge = 1;
+inline const o2::track::PID kCompatibilityPID = o2::track::PID::Pion;
+
 /// Per-tag policy/state boundary: the derived state family, the surface kind
 /// every transition carrying this tag must have, the Stage-A track state used
 /// by cell/road construction, and the tag-specific bounds-checked parameter
@@ -125,7 +131,7 @@ struct TransitionPolicyTraits<TransitionPolicyTag::CylinderCylinder> {
   static constexpr TransitionPolicyTag Tag = TransitionPolicyTag::CylinderCylinder;
   static constexpr StateFamily Family = StateFamily::Barrel;
   static constexpr SurfaceKind ExpectedSurfaceKind = SurfaceKind::Cylinder;
-  using SeedState = o2::track::TrackParCovF;
+  using SeedState = SurfaceKinematicState;
   using Params = CylinderCylinderPolicyParams;
 };
 
@@ -134,7 +140,7 @@ struct TransitionPolicyTraits<TransitionPolicyTag::DiskDisk> {
   static constexpr TransitionPolicyTag Tag = TransitionPolicyTag::DiskDisk;
   static constexpr StateFamily Family = StateFamily::Forward;
   static constexpr SurfaceKind ExpectedSurfaceKind = SurfaceKind::Disk;
-  using SeedState = o2::track::TrackParCovFwd;
+  using SeedState = SurfaceKinematicState;
   using Params = DiskDiskPolicyParams;
 };
 
