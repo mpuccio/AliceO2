@@ -70,6 +70,12 @@ o2_add_test(transitionpolicyoperations
             LABELS "itsmft;tracking"
             PUBLIC_LINK_LIBRARIES O2::ITSMFTTracking O2::MFTTracking)
 
+o2_add_test(transitionpolicyoperations-native
+            SOURCES testTransitionPolicyOperationsNative.cxx
+            COMPONENT_NAME itsmft-tracking
+            LABELS "itsmft;tracking"
+            PUBLIC_LINK_LIBRARIES O2::ITSMFTTracking)
+
 o2_add_test(detectortraits-track-representation
             SOURCES testDetectorTraitsTrackRepresentation.cxx
             COMPONENT_NAME itsmft-tracking
