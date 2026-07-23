@@ -66,7 +66,22 @@ enum class TraversalFailureReason : uint8_t {
   // range, or the layer-to-surface mapping needed to resolve it is itself
   // invalid/incomplete. Raised before any TimeFrame tracking state is
   // touched; SurfaceDescriptor::material is never overwritten as a result.
-  LegacyMaterialMismatch
+  LegacyMaterialMismatch,
+  // Stage-B activation constraint (Slice C: policy preflight only, not yet
+  // wired into initialiseTimeFrame() -- see
+  // checkMaterialCorrectionModeSupport() in TransitionPolicyBinding.h). The
+  // active transition policy's Stage-A native SurfaceKinematicState path does
+  // not support this iteration's configured MatCorrType: currently only
+  // CylinderCylinder with a non-NONE, otherwise-recognized CorrType
+  // (USEMatCorrLUT/USEMatCorrTGeo remain legacy-ITS-only). This is a
+  // structural/configuration failure like every other TraversalException
+  // reason above: when the later activation slice wires it in, it is always
+  // wiped and rethrown regardless of DropTFUponFailure -- it must never be
+  // reported as the dropped-TF sentinel. A recognized-invalid CorrType value
+  // is a distinct, pre-existing configuration-validation failure
+  // (AttachHitPolicyConfigView::isValid()) and must never be reported as
+  // this reason.
+  UnsupportedMaterialCorrectionMode
 };
 
 class TraversalException final : public std::runtime_error
