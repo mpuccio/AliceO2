@@ -88,6 +88,12 @@ o2_add_test(detectortraits-track-representation
             LABELS "itsmft;tracking"
             PUBLIC_LINK_LIBRARIES O2::ITSMFTTracking O2::MFTTracking)
 
+o2_add_test(cell-representation
+            SOURCES testCellRepresentation.cxx
+            COMPONENT_NAME itsmft-tracking
+            LABELS "itsmft;tracking"
+            PUBLIC_LINK_LIBRARIES O2::ITSMFTTracking O2::MFTTracking)
+
 o2_add_test(surfacemeasurement
             SOURCES testSurfaceMeasurement.cxx
             COMPONENT_NAME itsmft-tracking

@@ -698,3 +698,81 @@ BOOST_AUTO_TEST_CASE(ComputeLayerCellsFailsClosedWithoutInitialiseTimeFrame)
     return e.getReason() == TraversalFailureReason::InvalidTraversalSchedule;
   });
 }
+
+// --- Stage-B activation: material-correction-mode preflight wiring --------
+//
+// checkMaterialCorrectionModeSupport<Tag>() itself is unit-tested in
+// isolation (testMaterialCorrectionModePreflight.cxx); these tests instead
+// prove it is genuinely wired into TrackerTraits<NLayers>::initialiseTimeFrame()
+// through the real public API, using the same Rig harness as the rest of
+// this file.
+
+BOOST_AUTO_TEST_CASE(CylinderNoneCorrectionInitialisesSuccessfully)
+{
+  Rig<ITSNLayers> rig{o2::detectors::DetID::ITS, SurfaceKind::Cylinder, TransitionPolicyTag::CylinderCylinder};
+  rig.params[0].CorrType = o2::base::PropagatorF::MatCorrType::USEMatCorrNONE;
+  rig.establishLayout();
+  rig.traits.updateTrackingParameters(rig.params);
+  BOOST_CHECK_NO_THROW(rig.traits.initialiseTimeFrame(0));
+  BOOST_CHECK(rig.traits.hasTraversalCache());
+}
+
+BOOST_AUTO_TEST_CASE(CylinderUnsupportedMaterialCorrectionModeThrowsBeforeTimeFrameMutation)
+{
+  for (const auto corrType : {o2::base::PropagatorF::MatCorrType::USEMatCorrLUT, o2::base::PropagatorF::MatCorrType::USEMatCorrTGeo}) {
+    Rig<ITSNLayers> rig{o2::detectors::DetID::ITS, SurfaceKind::Cylinder, TransitionPolicyTag::CylinderCylinder};
+    rig.params[0].CorrType = corrType;
+    rig.establishLayout();
+    rig.traits.updateTrackingParameters(rig.params);
+
+    BOOST_CHECK_EXCEPTION(rig.traits.initialiseTimeFrame(0), TraversalException, [](const TraversalException& e) {
+      return e.getReason() == TraversalFailureReason::UnsupportedMaterialCorrectionMode;
+    });
+    // Structural failure: the traversal cache stays exactly as
+    // resetTraversalCache() left it -- never partially populated -- and a
+    // later call with a supported mode still succeeds, proving no lingering
+    // corrupted state from the rejected attempt.
+    BOOST_CHECK(!rig.traits.hasTraversalCache());
+    BOOST_CHECK_EQUAL(rig.traits.getPolicyBindingCount(TransitionPolicyTag::CylinderCylinder), 0);
+
+    rig.params[0].CorrType = o2::base::PropagatorF::MatCorrType::USEMatCorrNONE;
+    rig.traits.updateTrackingParameters(rig.params);
+    BOOST_CHECK_NO_THROW(rig.traits.initialiseTimeFrame(0));
+    BOOST_CHECK(rig.traits.hasTraversalCache());
+  }
+}
+
+BOOST_AUTO_TEST_CASE(InvalidCorrTypeRetainsExistingInvalidPolicyParametersReason)
+{
+  // A CorrType value isRecognizedMatCorrType() does not recognize must
+  // surface as the pre-existing InvalidPolicyParameters failure (from
+  // AttachHitPolicyConfigView::isValid()), never as
+  // UnsupportedMaterialCorrectionMode -- the preflight explicitly defers to
+  // that established classification for this case.
+  Rig<ITSNLayers> rig{o2::detectors::DetID::ITS, SurfaceKind::Cylinder, TransitionPolicyTag::CylinderCylinder};
+  rig.params[0].CorrType = static_cast<o2::base::PropagatorF::MatCorrType>(99);
+  rig.establishLayout();
+  rig.traits.updateTrackingParameters(rig.params);
+
+  BOOST_CHECK_EXCEPTION(rig.traits.initialiseTimeFrame(0), TraversalException, [](const TraversalException& e) {
+    return e.getReason() == TraversalFailureReason::InvalidPolicyParameters;
+  });
+  BOOST_CHECK(!rig.traits.hasTraversalCache());
+}
+
+BOOST_AUTO_TEST_CASE(DiskAcceptsAllRecognizedMaterialCorrectionModes)
+{
+  // DiskDisk's native path always uses descriptor-based nominal material
+  // regardless of CorrType, so it must never be rejected by this preflight
+  // for any recognized mode.
+  for (const auto corrType : {o2::base::PropagatorF::MatCorrType::USEMatCorrNONE,
+                              o2::base::PropagatorF::MatCorrType::USEMatCorrLUT,
+                              o2::base::PropagatorF::MatCorrType::USEMatCorrTGeo}) {
+    Rig<MFTNLayers> rig{o2::detectors::DetID::MFT, SurfaceKind::Disk, TransitionPolicyTag::DiskDisk};
+    rig.params[0].CorrType = corrType;
+    rig.establishLayout();
+    rig.traits.updateTrackingParameters(rig.params);
+    BOOST_CHECK_NO_THROW(rig.traits.initialiseTimeFrame(0));
+    BOOST_CHECK(rig.traits.hasTraversalCache());
+  }
+}

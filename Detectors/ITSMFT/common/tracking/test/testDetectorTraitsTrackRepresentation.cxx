@@ -14,6 +14,7 @@
 #include <boost/test/unit_test.hpp>
 
 #include "ITSMFTTracking/DetectorTraits.h"
+#include "ITSMFTTracking/TimeFrame.h"
 
 using namespace o2::itsmft::tracking;
 
@@ -166,4 +167,33 @@ BOOST_AUTO_TEST_CASE(have_same_polarity)
   static_cast<o2::track::TrackParCovFwd&>(mftOpposite.getTrack()) = makeForwardState(-0.25);
   BOOST_CHECK(DetectorTraits<10>::haveSamePolarity(mftPositive, mftSame));
   BOOST_CHECK(!DetectorTraits<10>::haveSamePolarity(mftPositive, mftOpposite));
+}
+
+// --- Stage-B activation: single-shot barrel refitter boundary --------------
+//
+// refitSeedITS (DetectorTraits.cxx) no longer casts the common seed's
+// inherited TrackParCovF; it goes through the one accepted
+// legacy::exportBarrelTrackParCov() boundary instead. exportBarrelTrackParCov's
+// own field-level round-trip parity and family rejection are already proven
+// in testSurfaceKinematicState.cxx; this test proves the boundary as
+// DetectorTraits<7>::refitSeed itself actually uses it: a wrong-family seed
+// state must make the whole refit fail cleanly (return false) without ever
+// reaching the refit machinery -- exercised through tfInfos/unsortedClusters/
+// propagator inputs that would be invalid to dereference, proving they are
+// never touched.
+BOOST_AUTO_TEST_CASE(RefitSeedFailsCleanlyForWrongFamilySeedState)
+{
+  DetectorTraits<7>::TrackSeedN seed;
+  seed.state().family = StateFamily::Forward; // wrong family for the ITS barrel refitter
+  seed.state().parameters[4] = 0.2f;
+  seed.setHitLayerMask(LayerMask{0x007f});
+
+  DetectorTraits<7>::TrackType track;
+  o2::itsmft::TrackingParameters params;
+  TimeFrame<7> tf;
+  const o2::its::TrackingFrameInfo* const tfInfos[7] = {nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr};
+  const o2::its::Cluster* const unsortedClusters[7] = {nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr};
+
+  const bool refitSuccess = DetectorTraits<7>::refitSeed(seed, track, params, 0.5f, tf, tfInfos, unsortedClusters, nullptr);
+  BOOST_CHECK(!refitSuccess);
 }
