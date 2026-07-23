@@ -13,6 +13,20 @@
 #include "ITSMFTTracking/SurfaceMeasurement.h"
 #include "ITSMFTTracking/SurfaceStateOperationResult.h"
 
+// Option-A temporary input boundary (Stage-B design report Sec 6): buildSeed
+// below still consumes o2::its::Cluster/o2::its::TrackingFrameInfo, not a
+// normalized SurfaceMeasurement. Forward-declared, not included, to keep
+// this public header's dependency surface narrow -- mirrors
+// TransitionPolicyOperations.h's existing forward declarations of the same
+// two types. Host-only: never needed for GPUCA_GPUCODE compilation.
+#ifndef GPUCA_GPUCODE
+namespace o2::its
+{
+struct Cluster;
+struct TrackingFrameInfo;
+} // namespace o2::its
+#endif
+
 namespace o2::itsmft::tracking::barrel
 {
 
@@ -66,6 +80,65 @@ material::MaterialOperationResult correctForMaterial(SurfaceKinematicState& stat
 // unchanged on failure.
 bool stateChi2(const SurfaceKinematicState& reference, const SurfaceKinematicState& candidate, float& chi2,
                OperationFailureReason& reason) noexcept;
+
+#ifndef GPUCA_GPUCODE
+
+// Slice A (Stage-B design report Sec 8/11): builds the initial *outer*-
+// anchored SurfaceKinematicState seed for a cylindrical three-hit Cell
+// candidate, transcribing the exact o2::its::track::buildTrackSeed
+// initialization (ITStracking/TrackHelpers.h) directly onto
+// SurfaceKinematicState. Production must never call buildTrackSeed or
+// construct the legacy barrel track-parametrization-with-error type it
+// returns; this operation reproduces the identical parameter meaning,
+// covariance initialization, alpha/reference-coordinate convention and
+// field/sign convention using only float arithmetic and the packed
+// SurfaceKinematicState layout. This function is additive and unwired in
+// this slice: no production call site uses it yet.
+//
+// Input order matches this operation family's existing {inner, middle,
+// outer} contract, never inferred from numeric layer/SurfaceId/radius/z:
+// `clusterInner`/`clusterMiddle` are read only for their global (x, y, z)
+// position; `hitOuter` additionally supplies the seed's reference frame
+// (alpha/x) and its own measured (Y, Z) position/covariance. The outer
+// cluster's global position is not a parameter -- buildTrackSeed never reads
+// it either, only the outer hit's already-frame-expressed
+// o2::its::TrackingFrameInfo.
+//
+// Output anchor/reference frame: referenceCoordinate == hitOuter.
+// xTrackingFrame and alpha == hitOuter.alphaTrackingFrame -- the *outer*
+// hit's own tracking frame. This is deliberately not the Cell's eventual
+// inner-anchored frame (anchor contract, design report Sec 5): this
+// operation produces only the initial outer seed that the existing
+// outer->middle->inner buildCellSeed sequence subsequently
+// rotates/propagates/updates inward, hit by hit, to reach the Cell's actual
+// innermost-surface anchor. Calling buildSeed alone does not produce a
+// complete Cell state.
+//
+// Compatibility hypothesis (absCharge, pid): supplied by the caller and
+// never defaulted here. SurfaceKinematicState's own absCharge=0 default
+// would silently select neutral-material behavior in later material
+// operations, so this operation always sets state.absCharge/state.pid from
+// the caller-supplied values on success. Unchecked caller precondition
+// (matching every other operation in this file family): absCharge/pid are
+// caller-fixed constants, not per-candidate data, and are not independently
+// validated here. flags is always set to 0.
+//
+// Failure vocabulary: OperationFailureReason::NonFiniteInput if any raw
+// input is not finite; OperationFailureReason::NonFiniteOutput if the fully
+// constructed candidate state is not finite (the retained formula has no
+// other explicit rejection -- its own Almost0/VeryBig degenerate-geometry
+// fallbacks are preserved verbatim and only surface here if they ultimately
+// produce a non-finite parameter or covariance entry).
+//
+// Transactional: constructed entirely in local scratch; outState is
+// committed only on complete success. On any failure outState is left
+// exactly as passed in, byte-for-byte.
+bool buildSeed(const o2::its::Cluster& clusterInner, const o2::its::Cluster& clusterMiddle,
+               const o2::its::TrackingFrameInfo& hitOuter, float bz,
+               uint8_t absCharge, o2::track::PID pid,
+               SurfaceKinematicState& outState, OperationFailureReason& reason) noexcept;
+
+#endif // GPUCA_GPUCODE
 
 } // namespace o2::itsmft::tracking::barrel
 

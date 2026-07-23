@@ -25,7 +25,19 @@ enum class OperationFailureReason : uint8_t {
   UpdateFailure = 8,
   RotationFailure = 9,
   AlphaMismatch = 10,
-  ReferenceCoordinateMismatch = 11
+  ReferenceCoordinateMismatch = 11,
+  // forward::buildSeed's own established strict-boundary rejections
+  // (the retained detail::mftFwdFitCellClusters / buildCellSeed<DiskDisk>
+  // initializer treats an insufficient inner/outer z-ordering margin, or any
+  // inner-middle/inner-outer separation below its 1e-6f minimum, as a hard
+  // rejection before any direction estimate is computed -- not a NaN/Inf
+  // artifact of the arithmetic itself). Distinct from NonFiniteInput (raw
+  // inputs are finite; the *geometry* is degenerate) and from
+  // NonFiniteOutput (no output was even attempted yet). barrel::buildSeed
+  // never raises this: its retained oracle (o2::its::track::buildTrackSeed)
+  // has no analogous early rejection, only NonFiniteOutput-detected numeric
+  // fallbacks.
+  SeedGeometryDegenerate = 12
 };
 
 static_assert(sizeof(OperationFailureReason) == sizeof(uint8_t));

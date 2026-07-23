@@ -7,12 +7,17 @@
 
 #include "ITSMFTTracking/ForwardSurfaceStateOperations.h"
 
+#include <algorithm>
 #include <cmath>
 #include <cstdint>
 
 #include "CommonConstants/MathConstants.h"
 #include "GPUROOTSMatrixFwd.h"
 #include <Math/SMatrix.h>
+
+#ifndef GPUCA_GPUCODE
+#include "ITStracking/Cluster.h"
+#endif
 
 namespace o2::itsmft::tracking::forward
 {
@@ -533,5 +538,95 @@ bool stateChi2(const SurfaceKinematicState& reference, const SurfaceKinematicSta
   chi2 = scratchChi2;
   return true;
 }
+
+#ifndef GPUCA_GPUCODE
+
+bool buildSeed(const o2::its::Cluster& clusterInner, const o2::its::Cluster& clusterMiddle, const o2::its::Cluster& clusterOuter,
+               const o2::its::TrackingFrameInfo& hitOuter, float bz, float trackletMinPt,
+               uint8_t absCharge, o2::track::PID pid,
+               SurfaceKinematicState& outState, OperationFailureReason& reason) noexcept
+{
+  if (!std::isfinite(clusterInner.xCoordinate) || !std::isfinite(clusterInner.yCoordinate) || !std::isfinite(clusterInner.zCoordinate) ||
+      !std::isfinite(clusterMiddle.xCoordinate) || !std::isfinite(clusterMiddle.yCoordinate) || !std::isfinite(clusterMiddle.zCoordinate) ||
+      !std::isfinite(clusterOuter.xCoordinate) || !std::isfinite(clusterOuter.yCoordinate) || !std::isfinite(clusterOuter.zCoordinate) ||
+      !std::isfinite(hitOuter.covarianceTrackingFrame[0]) || !std::isfinite(hitOuter.covarianceTrackingFrame[2]) ||
+      !std::isfinite(bz) || !std::isfinite(trackletMinPt)) {
+    reason = OperationFailureReason::NonFiniteInput;
+    return false;
+  }
+
+  // Strict boundary, transcribed verbatim from buildCellSeed<DiskDisk>
+  // (TransitionPolicyOperations.cxx) / detail::mftFwdFitCellClusters
+  // (MFTFwdTrackHelpers.h): established hard rejections, not non-finite-
+  // output artifacts, so they are reported through the dedicated
+  // SeedGeometryDegenerate reason.
+  if (clusterInner.zCoordinate <= clusterOuter.zCoordinate + 1.e-6f) {
+    reason = OperationFailureReason::SeedGeometryDegenerate;
+    return false;
+  }
+
+  const float dxTan = clusterMiddle.xCoordinate - clusterInner.xCoordinate;
+  const float dyTan = clusterMiddle.yCoordinate - clusterInner.yCoordinate;
+  const float dzTan = clusterMiddle.zCoordinate - clusterInner.zCoordinate;
+  const float drTan = std::sqrt(dxTan * dxTan + dyTan * dyTan);
+  const float dxPhi = clusterOuter.xCoordinate - clusterInner.xCoordinate;
+  const float dyPhi = clusterOuter.yCoordinate - clusterInner.yCoordinate;
+  const float dzPhi = clusterOuter.zCoordinate - clusterInner.zCoordinate;
+  const float drPhi = std::sqrt(dxPhi * dxPhi + dyPhi * dyPhi);
+  if (drTan < 1.e-6f || std::abs(dzTan) < 1.e-6f || drPhi < 1.e-6f || std::abs(dzPhi) < 1.e-6f) {
+    reason = OperationFailureReason::SeedGeometryDegenerate;
+    return false;
+  }
+
+  // trackletMinPt<=0 fallback preserved verbatim (established behavior, not
+  // re-validated here): invQPt becomes 0 rather than being rejected.
+  const float invQPt = (trackletMinPt > 0.f) ? 1.f / trackletMinPt : 0.f;
+  float tanl = 0.f;
+  float phi = 0.f;
+  if (std::abs(bz) > 0.01f) {
+    tanl = -std::abs(dzTan) / drTan;
+    phi = std::atan2(dyPhi, dxPhi);
+    if (std::abs(tanl) > 1.e-6f) {
+      const float k = std::abs(o2::constants::math::B2C * bz);
+      const float hz = (bz > 0.f) ? 1.f : -1.f;
+      phi -= 0.5f * hz * invQPt * dzPhi * k / tanl;
+    }
+  } else {
+    tanl = -std::abs(dzPhi) / drPhi;
+    phi = std::atan2(dyPhi, dxPhi);
+  }
+
+  SurfaceKinematicState scratch{};
+  scratch.referenceCoordinate = clusterOuter.zCoordinate;
+  scratch.alpha = 0.f;
+  scratch.parameters[0] = clusterOuter.xCoordinate;
+  scratch.parameters[1] = clusterOuter.yCoordinate;
+  scratch.parameters[2] = phi;
+  scratch.parameters[3] = tanl;
+  scratch.parameters[4] = invQPt;
+  // Only the diagonal is populated, matching the legacy seedCov (a
+  // default-constructed, i.e. zero, SMatrix55Sym with just five diagonal
+  // assignments) -- every off-diagonal packed entry stays at its
+  // value-initialized 0.f.
+  scratch.covariance[packedCovarianceIndex(0, 0)] = hitOuter.covarianceTrackingFrame[0] > 0.f ? hitOuter.covarianceTrackingFrame[0] : 1.f;
+  scratch.covariance[packedCovarianceIndex(1, 1)] = hitOuter.covarianceTrackingFrame[2] > 0.f ? hitOuter.covarianceTrackingFrame[2] : 1.f;
+  scratch.covariance[packedCovarianceIndex(2, 2)] = 1.f;
+  scratch.covariance[packedCovarianceIndex(3, 3)] = 1.f;
+  const float qptSigma = std::clamp(std::abs(invQPt), 1.f, 10.f);
+  scratch.covariance[packedCovarianceIndex(4, 4)] = qptSigma * qptSigma;
+  scratch.family = StateFamily::Forward;
+  scratch.flags = 0;
+  scratch.absCharge = absCharge;
+  scratch.pid = pid;
+
+  if (!finiteState(scratch)) {
+    reason = OperationFailureReason::NonFiniteOutput;
+    return false;
+  }
+  outState = scratch;
+  return true;
+}
+
+#endif // GPUCA_GPUCODE
 
 } // namespace o2::itsmft::tracking::forward
