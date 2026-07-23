@@ -168,41 +168,6 @@ template bool projectSearchWindow<TransitionPolicyTag::DiskDisk, 10>(
 namespace
 {
 
-// Private compatibility projection (Stage-B design report Sec 6): the
-// minimum SurfaceMeasurement fields the native barrel/forward update
-// operations read, transcribed from the temporary o2::its::TrackingFrameInfo
-// input boundary. This is not a claim that TrackingFrameInfo is a normalized
-// SurfaceMeasurement -- only the documented fields below are populated;
-// every other SurfaceMeasurement field (global position for barrel,
-// sensor/cluster/shape/timing/surface identity for both) is left at its
-// value-initialized default and is never read by barrel::/forward::
-// predictedChi2/update.
-SurfaceMeasurement barrelMeasurementFromTrackingFrameInfo(const o2::its::TrackingFrameInfo& hit) noexcept
-{
-  SurfaceMeasurement measurement{};
-  measurement.frame.u = hit.positionTrackingFrame[0];
-  measurement.frame.v = hit.positionTrackingFrame[1];
-  measurement.covariance.uu = hit.covarianceTrackingFrame[0];
-  measurement.covariance.uv = hit.covarianceTrackingFrame[1];
-  measurement.covariance.vv = hit.covarianceTrackingFrame[2];
-  return measurement;
-}
-
-// Forward measurements use the established diagonal-only covariance
-// behavior (matching detail::mftFwdAttachCluster/mftFwdPredictedChi2, which
-// only ever read sigma2X/sigma2Y separately): covarianceTrackingFrame[1]
-// (the yz-style cross term) is never read here.
-SurfaceMeasurement forwardMeasurementFromTrackingFrameInfo(const o2::its::TrackingFrameInfo& hit) noexcept
-{
-  SurfaceMeasurement measurement{};
-  measurement.global.x = hit.xCoordinate;
-  measurement.global.y = hit.yCoordinate;
-  measurement.covariance.uu = hit.covarianceTrackingFrame[0];
-  measurement.covariance.uv = 0.f;
-  measurement.covariance.vv = hit.covarianceTrackingFrame[2];
-  return measurement;
-}
-
 // "The accepted forward model" (Stage-B kickoff): reproduces
 // detail::mftFwdPropagateToZ's own field-magnitude dispatch exactly --
 // forward::propagate<Helix> when |bz| > 0.01f, otherwise
@@ -226,12 +191,9 @@ bool forwardPropagateAcceptedModel(SurfaceKinematicState& state, float targetZ, 
 
 template <>
 bool buildCellSeed<TransitionPolicyTag::CylinderCylinder>(
-  const o2::its::Cluster& clusterInner,
-  const o2::its::Cluster& clusterMiddle,
-  const o2::its::Cluster& /*clusterOuter*/,
-  const o2::its::TrackingFrameInfo& hitInner,
-  const o2::its::TrackingFrameInfo& hitMiddle,
-  const o2::its::TrackingFrameInfo& hitOuter,
+  const SurfaceMeasurement& measurementInner,
+  const SurfaceMeasurement& measurementMiddle,
+  const SurfaceMeasurement& measurementOuter,
   const std::array<NominalSurfaceMaterial, 3>& material,
   float bz,
   uint8_t absCharge,
@@ -242,21 +204,21 @@ bool buildCellSeed<TransitionPolicyTag::CylinderCylinder>(
   OperationFailureReason& reason) noexcept
 {
   SurfaceKinematicState scratch{};
-  if (!barrel::buildSeed(clusterInner, clusterMiddle, hitOuter, bz, absCharge, pid, scratch, reason)) {
+  if (!barrel::buildSeed(measurementInner, measurementMiddle, measurementOuter, bz, absCharge, pid, scratch, reason)) {
     return false;
   }
 
   float localChi2{0.f};
-  const std::array<const o2::its::TrackingFrameInfo*, 2> steps{&hitMiddle, &hitInner};
+  const std::array<const SurfaceMeasurement*, 2> steps{&measurementMiddle, &measurementInner};
   const std::array<NominalSurfaceMaterial, 2> stepsMaterial{material[1], material[0]};
   for (int step = 0; step < 2; ++step) {
     const bool isLast = (step == 1);
-    const auto& trackingHit = *steps[step];
+    const auto& measurement = *steps[step];
 
-    if (!barrel::rotate(scratch, trackingHit.alphaTrackingFrame, reason)) {
+    if (!barrel::rotate(scratch, measurement.frame.frameAngle, reason)) {
       return false;
     }
-    if (!barrel::propagate(scratch, trackingHit.xTrackingFrame, bz, reason)) {
+    if (!barrel::propagate(scratch, measurement.frame.q, bz, reason)) {
       return false;
     }
     const auto& stepMaterial = stepsMaterial[step];
@@ -267,7 +229,6 @@ bool buildCellSeed<TransitionPolicyTag::CylinderCylinder>(
       reason = OperationFailureReason::MaterialFailure;
       return false;
     }
-    const SurfaceMeasurement measurement = barrelMeasurementFromTrackingFrameInfo(trackingHit);
     float predChi2{0.f};
     if (!barrel::predictedChi2(scratch, measurement, predChi2, reason)) {
       return false;
@@ -290,12 +251,9 @@ bool buildCellSeed<TransitionPolicyTag::CylinderCylinder>(
 
 template <>
 bool buildCellSeed<TransitionPolicyTag::DiskDisk>(
-  const o2::its::Cluster& clusterInner,
-  const o2::its::Cluster& clusterMiddle,
-  const o2::its::Cluster& clusterOuter,
-  const o2::its::TrackingFrameInfo& hitInner,
-  const o2::its::TrackingFrameInfo& hitMiddle,
-  const o2::its::TrackingFrameInfo& hitOuter,
+  const SurfaceMeasurement& measurementInner,
+  const SurfaceMeasurement& measurementMiddle,
+  const SurfaceMeasurement& measurementOuter,
   const std::array<NominalSurfaceMaterial, 3>& material,
   float bz,
   uint8_t absCharge,
@@ -306,19 +264,19 @@ bool buildCellSeed<TransitionPolicyTag::DiskDisk>(
   OperationFailureReason& reason) noexcept
 {
   SurfaceKinematicState scratch{};
-  if (!forward::buildSeed(clusterInner, clusterMiddle, clusterOuter, hitOuter, bz, params.trackletMinPt,
+  if (!forward::buildSeed(measurementInner, measurementMiddle, measurementOuter, bz, params.trackletMinPt,
                           absCharge, pid, scratch, reason)) {
     return false;
   }
 
   float localChi2{0.f};
-  const std::array<const o2::its::TrackingFrameInfo*, 3> steps{&hitOuter, &hitMiddle, &hitInner};
+  const std::array<const SurfaceMeasurement*, 3> steps{&measurementOuter, &measurementMiddle, &measurementInner};
   const std::array<NominalSurfaceMaterial, 3> stepsMaterial{material[2], material[1], material[0]};
   for (int step = 0; step < 3; ++step) {
     const bool isLast = (step == 2);
-    const auto& trackingHit = *steps[step];
+    const auto& measurement = *steps[step];
 
-    if (!forwardPropagateAcceptedModel(scratch, trackingHit.zCoordinate, bz, reason)) {
+    if (!forwardPropagateAcceptedModel(scratch, measurement.frame.q, bz, reason)) {
       return false;
     }
     const auto& stepMaterial = stepsMaterial[step];
@@ -329,7 +287,6 @@ bool buildCellSeed<TransitionPolicyTag::DiskDisk>(
       reason = OperationFailureReason::MaterialFailure;
       return false;
     }
-    const SurfaceMeasurement measurement = forwardMeasurementFromTrackingFrameInfo(trackingHit);
     float predChi2{0.f};
     if (!forward::predictedChi2(scratch, measurement, predChi2, reason)) {
       return false;
@@ -353,7 +310,7 @@ bool buildCellSeed<TransitionPolicyTag::DiskDisk>(
 template <>
 bool attachHit<TransitionPolicyTag::CylinderCylinder>(
   SurfaceKinematicState& state,
-  const o2::its::TrackingFrameInfo& hit,
+  const SurfaceMeasurement& measurement,
   const NominalSurfaceMaterial& material,
   float bz,
   float& chi2,
@@ -363,10 +320,10 @@ bool attachHit<TransitionPolicyTag::CylinderCylinder>(
   SurfaceKinematicState scratch = state;
   float scratchChi2 = chi2;
 
-  if (!barrel::rotate(scratch, hit.alphaTrackingFrame, reason)) {
+  if (!barrel::rotate(scratch, measurement.frame.frameAngle, reason)) {
     return false;
   }
-  if (!barrel::propagate(scratch, hit.xTrackingFrame, bz, reason)) {
+  if (!barrel::propagate(scratch, measurement.frame.q, bz, reason)) {
     return false;
   }
   const auto materialResult = barrel::correctForMaterial(
@@ -376,7 +333,6 @@ bool attachHit<TransitionPolicyTag::CylinderCylinder>(
     reason = OperationFailureReason::MaterialFailure;
     return false;
   }
-  const SurfaceMeasurement measurement = barrelMeasurementFromTrackingFrameInfo(hit);
   float predChi2{0.f};
   if (!barrel::predictedChi2(scratch, measurement, predChi2, reason)) {
     return false;
@@ -399,7 +355,7 @@ bool attachHit<TransitionPolicyTag::CylinderCylinder>(
 template <>
 bool attachHit<TransitionPolicyTag::DiskDisk>(
   SurfaceKinematicState& state,
-  const o2::its::TrackingFrameInfo& hit,
+  const SurfaceMeasurement& measurement,
   const NominalSurfaceMaterial& material,
   float bz,
   float& chi2,
@@ -409,7 +365,7 @@ bool attachHit<TransitionPolicyTag::DiskDisk>(
   SurfaceKinematicState scratch = state;
   float scratchChi2 = chi2;
 
-  if (!forwardPropagateAcceptedModel(scratch, hit.zCoordinate, bz, reason)) {
+  if (!forwardPropagateAcceptedModel(scratch, measurement.frame.q, bz, reason)) {
     return false;
   }
   const auto materialResult = forward::correctForMaterial(
@@ -419,7 +375,6 @@ bool attachHit<TransitionPolicyTag::DiskDisk>(
     reason = OperationFailureReason::MaterialFailure;
     return false;
   }
-  const SurfaceMeasurement measurement = forwardMeasurementFromTrackingFrameInfo(hit);
   float predChi2{0.f};
   if (!forward::predictedChi2(scratch, measurement, predChi2, reason)) {
     return false;

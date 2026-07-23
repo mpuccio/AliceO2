@@ -26,6 +26,7 @@
 
 #include "ITSMFTTracking/Configuration.h"
 #include "ITSMFTTracking/SurfaceDescriptor.h"
+#include "ITSMFTTracking/SurfaceMeasurement.h"
 #include "ITSMFTTracking/TimeFrame.h"
 #include "ITSMFTTracking/TransitionPolicyBinding.h"
 #include "ITSMFTTracking/TransitionPolicyDispatch.h"
@@ -67,21 +68,37 @@ enum class TraversalFailureReason : uint8_t {
   // invalid/incomplete. Raised before any TimeFrame tracking state is
   // touched; SurfaceDescriptor::material is never overwritten as a result.
   LegacyMaterialMismatch,
-  // Stage-B activation constraint (Slice C: policy preflight only, not yet
-  // wired into initialiseTimeFrame() -- see
-  // checkMaterialCorrectionModeSupport() in TransitionPolicyBinding.h). The
-  // active transition policy's Stage-A native SurfaceKinematicState path does
-  // not support this iteration's configured MatCorrType: currently only
-  // CylinderCylinder with a non-NONE, otherwise-recognized CorrType
-  // (USEMatCorrLUT/USEMatCorrTGeo remain legacy-ITS-only). This is a
-  // structural/configuration failure like every other TraversalException
-  // reason above: when the later activation slice wires it in, it is always
-  // wiped and rethrown regardless of DropTFUponFailure -- it must never be
-  // reported as the dropped-TF sentinel. A recognized-invalid CorrType value
-  // is a distinct, pre-existing configuration-validation failure
+  // Stage-B activation constraint: policy preflight, wired into
+  // initialiseTimeFrame() (see checkMaterialCorrectionModeSupport() in
+  // TransitionPolicyBinding.h, called once per iteration right after
+  // grouping/mixed-policy validation and before material staging/index-table
+  // binding/TimeFrame::initialise()). The active transition policy's Stage-A
+  // native SurfaceKinematicState path does not support this iteration's
+  // configured MatCorrType: currently only CylinderCylinder with a non-NONE,
+  // otherwise-recognized CorrType (USEMatCorrLUT/USEMatCorrTGeo remain
+  // legacy-ITS-only). This is a structural/configuration failure like every
+  // other TraversalException reason above: it is always wiped and rethrown
+  // regardless of DropTFUponFailure -- it must never be reported as the
+  // dropped-TF sentinel. A recognized-invalid CorrType value is a distinct,
+  // pre-existing configuration-validation failure
   // (AttachHitPolicyConfigView::isValid()) and must never be reported as
   // this reason.
-  UnsupportedMaterialCorrectionMode
+  UnsupportedMaterialCorrectionMode,
+  // Stage-B normalized-CA-measurements slice: this iteration's one-time
+  // normalized-measurement binding (mLayerMeasurements) failed its own
+  // compatibility validation against the already-loaded normalized frame and
+  // legacy compatibility structures -- covers a normalized measurement count
+  // that disagrees with the corresponding legacy unsorted-cluster count, a
+  // TrackingFrameInfo count that disagrees with that same count, a
+  // measurement whose SurfaceId does not match the expected mapped surface,
+  // an invalid measurement.cluster ClusterRef, a nonzero measurement source
+  // under the current single-source TimeFrame contract, a negative legacy
+  // external index, or a measurement.cluster.index that disagrees with the
+  // corresponding legacy external index. Raised before any TimeFrame
+  // tracking state is touched, alongside the LegacyMaterialMismatch check
+  // this mirrors; mLayerMeasurements is never partially populated as a
+  // result -- see mLayerMeasurements' own doc for the commit contract.
+  NormalizedMeasurementMismatch
 };
 
 class TraversalException final : public std::runtime_error
@@ -158,6 +175,20 @@ class TrackerTraits
   // test/inspection accessor; production consumption is through
   // mAttachHitConfig (TransitionPolicyBinding.h), not this span directly.
   gsl::span<const NominalSurfaceMaterial> getLayerMaterial() const noexcept { return {mLayerMaterial.data(), mLayerMaterial.size()}; }
+  // Authoritative per-(legacy-)layer normalized SurfaceMeasurement span,
+  // resolved once by the most recent successful initialiseTimeFrame() call
+  // from the already-loaded, already-validated
+  // TimeFrame::getNormalizedFrame() via this iteration's orderedSurfaces
+  // mapping -- never re-decoded, re-projected, or re-validated per candidate.
+  // Same commit/reset contract as getLayerMaterial() above: valid only after
+  // a successful initialiseTimeFrame() call, reset to empty spans by
+  // resetTraversalCache() otherwise. Every span is non-owning and remains
+  // valid only while the owning TimeFrame's normalized frame is alive and
+  // has not been cleared/reloaded (see MultiSourceFrame's own lifetime
+  // documentation). Read-only test/inspection accessor; production
+  // consumption is through the private mLayerMeasurements member directly in
+  // computeLayerCellsForPolicy/processNeighbours.
+  gsl::span<const gsl::span<const SurfaceMeasurement>> getLayerMeasurements() const noexcept { return {mLayerMeasurements.data(), mLayerMeasurements.size()}; }
 
  private:
   void resetTraversalCache() noexcept;
@@ -234,6 +265,21 @@ class TrackerTraits
   // the top of every call, and it stays that way unless the call returns
   // normally. See getLayerMaterial()'s doc for the read-side contract.
   std::array<NominalSurfaceMaterial, NLayers> mLayerMaterial{};
+  // One-time normalized-measurement binding (Stage-B normalized-CA-
+  // measurements slice): non-owning per-(legacy-)layer span into the
+  // TimeFrame-owned normalized frame, resolved and validated once per
+  // initialiseTimeFrame() call from this iteration's orderedSurfaces mapping
+  // -- never an owning container (Architecture.md Sec 7: the common
+  // TimeFrame/TrackerTraits own no compact clusters or duplicated
+  // measurement storage). Same staged-then-committed contract as
+  // mLayerMaterial above: resolved into a local scratch array first and
+  // committed here only in the final traversal-cache commit block, alongside
+  // mLayerMaterial and every other successfully staged state; a later
+  // fallible check in the same call must not leave this populated from an
+  // iteration that ultimately failed. resetTraversalCache() resets every
+  // element to an empty span at the top of every call, and it stays that way
+  // unless the call returns normally.
+  std::array<gsl::span<const SurfaceMeasurement>, NLayers> mLayerMeasurements{};
   int mTraversalGroupingCount{0};
   std::array<int, 2> mPolicyBindingCounts{};
 

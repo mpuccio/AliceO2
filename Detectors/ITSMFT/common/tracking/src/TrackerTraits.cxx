@@ -65,6 +65,7 @@ void TrackerTraits<NLayers>::resetTraversalCache() noexcept
   mDiskLayerReferenceZ = {};
   mAttachHitConfig = {};
   mLayerMaterial.fill(NominalSurfaceMaterial{});
+  mLayerMeasurements.fill(gsl::span<const SurfaceMeasurement>{});
   mTraversalGroupingCount = 0;
   mPolicyBindingCounts.fill(0);
 }
@@ -244,6 +245,41 @@ void TrackerTraits<NLayers>::initialiseTimeFrame(const int iteration)
     }
   }
 
+  // 2.6. One-time normalized-measurement binding (Stage-B normalized-CA-
+  // measurements slice): resolve and validate this iteration's authoritative
+  // per-(legacy-)layer normalized SurfaceMeasurement span, entirely from
+  // `orderedSurfaces` (already resolved and validated above) and the
+  // already-loaded TimeFrame normalized frame / legacy compatibility
+  // structures -- before any TimeFrame tracking state is touched.
+  // `stagedLayerMeasurements` is kept local (not yet committed to the
+  // mLayerMeasurements member) until every remaining fallible check in this
+  // function has also succeeded -- see the final commit block below -- so a
+  // later failure leaves mLayerMeasurements exactly as resetTraversalCache()
+  // left it (reset/empty spans), never partially populated from a failed
+  // iteration.
+  std::array<gsl::span<const SurfaceMeasurement>, NLayers> stagedLayerMeasurements{};
+  for (int legacyLayer = 0; legacyLayer < NLayers; ++legacyLayer) {
+    const auto surfaceId = orderedSurfaces[legacyLayer];
+    const auto measurements = mTimeFrame->getNormalizedFrame().getSurfaceMeasurements(surfaceId);
+    const auto& legacyClusters = mTimeFrame->getUnsortedClusters()[legacyLayer];
+    const auto& legacyHits = mTimeFrame->getTrackingFrameInfoOnLayer(legacyLayer);
+    if (measurements.size() != legacyClusters.size() || legacyHits.size() != legacyClusters.size()) {
+      throw TraversalException{iteration, TraversalFailureReason::NormalizedMeasurementMismatch};
+    }
+    for (size_t i = 0; i < measurements.size(); ++i) {
+      const auto& measurement = measurements[i];
+      if (measurement.surface != surfaceId || !measurement.cluster.isValid() ||
+          measurement.cluster.source != ClusterSourceId{0}) {
+        throw TraversalException{iteration, TraversalFailureReason::NormalizedMeasurementMismatch};
+      }
+      const int legacyExternalIndex = mTimeFrame->getClusterExternalIndex(legacyLayer, static_cast<int>(i));
+      if (legacyExternalIndex < 0 || static_cast<uint32_t>(legacyExternalIndex) != measurement.cluster.index) {
+        throw TraversalException{iteration, TraversalFailureReason::NormalizedMeasurementMismatch};
+      }
+    }
+    stagedLayerMeasurements[legacyLayer] = measurements;
+  }
+
   // 3. Bind + validate index-table configuration into a local scratch value,
   // dispatched on the single active tag via dispatchTransitionPolicies --
   // the same idiom computeLayerTracklets() uses below. TimeFrame is not
@@ -364,6 +400,10 @@ void TrackerTraits<NLayers>::initialiseTimeFrame(const int iteration)
   mLayerMaterial = stagedLayerMaterial;
   attachHitConfig.layerMaterial = gsl::span<const NominalSurfaceMaterial>(mLayerMaterial.data(), mLayerMaterial.size());
   mAttachHitConfig = attachHitConfig;
+  // One-time normalized-measurement binding: committed here, alongside every
+  // other successfully staged traversal cache -- see mLayerMeasurements' own
+  // doc for the commit contract.
+  mLayerMeasurements = stagedLayerMeasurements;
 
   // All fallible validation for this iteration (layout/grouping, legacy
   // parity, state-family, and every policy/geometry binding above) has now
@@ -777,27 +817,24 @@ void TrackerTraits<NLayers>::computeLayerCellsForPolicy(
             mTimeFrame->getClusters()[secondTransition.toLayer][nextTracklet.secondClusterIndex].clusterId};
           const int hitLayers[3]{firstTransition.fromLayer, firstTransition.toLayer, secondTransition.toLayer};
 
-          const auto& clusterInner = mTimeFrame->getUnsortedClusters()[hitLayers[0]][clusId[0]];
-          const auto& clusterMiddle = mTimeFrame->getUnsortedClusters()[hitLayers[1]][clusId[1]];
-          const auto& clusterOuter = mTimeFrame->getUnsortedClusters()[hitLayers[2]][clusId[2]];
+          const auto& measurementInner = mLayerMeasurements[hitLayers[0]][clusId[0]];
+          const auto& measurementMiddle = mLayerMeasurements[hitLayers[1]][clusId[1]];
+          const auto& measurementOuter = mLayerMeasurements[hitLayers[2]][clusId[2]];
 
           // MFT geometric road pre-cut: TrackerTraits-owned, outside buildCellSeed
           // (Architecture.md Sec 10 / TransitionPolicyOperations.h doc on buildCellSeed).
           // One unconditional call for both families -- no detector-ID/Tag
           // branch here; CylinderCylinder's specialization is an inline
           // no-op returning true.
-          const GlobalPoint3F pointInner{clusterInner.xCoordinate, clusterInner.yCoordinate, clusterInner.zCoordinate};
-          const GlobalPoint3F pointMiddle{clusterMiddle.xCoordinate, clusterMiddle.yCoordinate, clusterMiddle.zCoordinate};
-          const GlobalPoint3F pointOuter{clusterOuter.xCoordinate, clusterOuter.yCoordinate, clusterOuter.zCoordinate};
+          const GlobalPoint3F pointInner = measurementInner.global;
+          const GlobalPoint3F pointMiddle = measurementMiddle.global;
+          const GlobalPoint3F pointOuter = measurementOuter.global;
           if (!passesCellRoadPrecut<Tag>(pointInner, pointMiddle, pointOuter,
                                          hitLayers[0], hitLayers[1], hitLayers[2],
                                          mDiskLayerReferenceZ, params)) {
             continue;
           }
 
-          const auto& hitInner = mTimeFrame->getTrackingFrameInfoOnLayer(hitLayers[0])[clusId[0]];
-          const auto& hitMiddle = mTimeFrame->getTrackingFrameInfoOnLayer(hitLayers[1])[clusId[1]];
-          const auto& hitOuter = mTimeFrame->getTrackingFrameInfoOnLayer(hitLayers[2])[clusId[2]];
           // Strictly {inner, middle, outer}: CylinderCylinder reads [1] then
           // [0] (outer slot unused), DiskDisk reads [2], [1], [0].
           const std::array<NominalSurfaceMaterial, 3> material{
@@ -809,8 +846,7 @@ void TrackerTraits<NLayers>::computeLayerCellsForPolicy(
           float chi2{0.f};
           OperationFailureReason buildReason{};
           const bool good = o2::itsmft::tracking::buildCellSeed<Tag>(
-            clusterInner, clusterMiddle, clusterOuter,
-            hitInner, hitMiddle, hitOuter,
+            measurementInner, measurementMiddle, measurementOuter,
             material, getBz(), kCompatibilityAbsCharge, kCompatibilityPID, state, chi2, params, buildReason);
 
           if (good) {
@@ -1102,10 +1138,10 @@ void TrackerTraits<NLayers>::processNeighbours(int iteration, int defaultCellTop
         seed.getTimeStamp() = currentCell.getTimeStamp();
         seed.getTimeStamp() += neighbourCell.getTimeStamp();
 
-        const auto& trHit = mTimeFrame->getTrackingFrameInfoOnLayer(neighbourLayer)[neighbourCluster];
+        const auto& measurement = mLayerMeasurements[neighbourLayer][neighbourCluster];
         float chi2 = seed.getChi2();
         OperationFailureReason attachReason{};
-        if (!o2::itsmft::tracking::attachHit<Tag>(seed.state(), trHit, layerMaterial[neighbourLayer], getBz(), chi2, params, attachReason)) {
+        if (!o2::itsmft::tracking::attachHit<Tag>(seed.state(), measurement, layerMaterial[neighbourLayer], getBz(), chi2, params, attachReason)) {
           continue;
         }
         seed.setChi2(chi2);

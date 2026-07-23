@@ -13,20 +13,6 @@
 #include "ITSMFTTracking/SurfaceMeasurement.h"
 #include "ITSMFTTracking/SurfaceStateOperationResult.h"
 
-// Option-A temporary input boundary (Stage-B design report Sec 6): buildSeed
-// below still consumes o2::its::Cluster/o2::its::TrackingFrameInfo, not a
-// normalized SurfaceMeasurement. Forward-declared, not included, to keep
-// this public header's dependency surface narrow -- mirrors
-// TransitionPolicyOperations.h's existing forward declarations of the same
-// two types. Host-only: never needed for GPUCA_GPUCODE compilation.
-#ifndef GPUCA_GPUCODE
-namespace o2::its
-{
-struct Cluster;
-struct TrackingFrameInfo;
-} // namespace o2::its
-#endif
-
 namespace o2::itsmft::tracking::barrel
 {
 
@@ -83,31 +69,33 @@ bool stateChi2(const SurfaceKinematicState& reference, const SurfaceKinematicSta
 
 #ifndef GPUCA_GPUCODE
 
-// Slice A (Stage-B design report Sec 8/11): builds the initial *outer*-
-// anchored SurfaceKinematicState seed for a cylindrical three-hit Cell
-// candidate, transcribing the exact o2::its::track::buildTrackSeed
-// initialization (ITStracking/TrackHelpers.h) directly onto
-// SurfaceKinematicState. Production must never call buildTrackSeed or
-// construct the legacy barrel track-parametrization-with-error type it
-// returns; this operation reproduces the identical parameter meaning,
-// covariance initialization, alpha/reference-coordinate convention and
-// field/sign convention using only float arithmetic and the packed
-// SurfaceKinematicState layout. This function is additive and unwired in
-// this slice: no production call site uses it yet.
+// Slice A (Stage-B design report Sec 8/11), migrated in the Stage-B
+// normalized-measurement slice to consume SurfaceMeasurement directly:
+// builds the initial *outer*-anchored SurfaceKinematicState seed for a
+// cylindrical three-hit Cell candidate, transcribing the exact
+// o2::its::track::buildTrackSeed initialization (ITStracking/TrackHelpers.h)
+// directly onto SurfaceKinematicState. Production must never call
+// buildTrackSeed or construct the legacy barrel track-parametrization-with-
+// error type it returns; this operation reproduces the identical parameter
+// meaning, covariance initialization, alpha/reference-coordinate convention
+// and field/sign convention using only float arithmetic and the packed
+// SurfaceKinematicState layout.
 //
 // Input order matches this operation family's existing {inner, middle,
 // outer} contract, never inferred from numeric layer/SurfaceId/radius/z:
-// `clusterInner`/`clusterMiddle` are read only for their global (x, y, z)
-// position; `hitOuter` additionally supplies the seed's reference frame
-// (alpha/x) and its own measured (Y, Z) position/covariance. The outer
-// cluster's global position is not a parameter -- buildTrackSeed never reads
-// it either, only the outer hit's already-frame-expressed
-// o2::its::TrackingFrameInfo.
+// `measurementInner`/`measurementMiddle` are read only for their
+// `measurement.global` (x, y, z) position; `measurementOuter` additionally
+// supplies the seed's reference frame (`measurement.frame.q`/
+// `measurement.frame.frameAngle`) and its own measured (u, v) position
+// (`measurement.frame.u`/`measurement.frame.v`) and covariance
+// (`measurement.covariance`). The outer measurement's global position is not
+// a parameter -- buildTrackSeed never reads it either, only the outer hit's
+// already-frame-expressed tracking-frame fields.
 //
-// Output anchor/reference frame: referenceCoordinate == hitOuter.
-// xTrackingFrame and alpha == hitOuter.alphaTrackingFrame -- the *outer*
-// hit's own tracking frame. This is deliberately not the Cell's eventual
-// inner-anchored frame (anchor contract, design report Sec 5): this
+// Output anchor/reference frame: referenceCoordinate == measurementOuter.
+// frame.q and alpha == measurementOuter.frame.frameAngle -- the *outer*
+// measurement's own tracking frame. This is deliberately not the Cell's
+// eventual inner-anchored frame (anchor contract, design report Sec 5): this
 // operation produces only the initial outer seed that the existing
 // outer->middle->inner buildCellSeed sequence subsequently
 // rotates/propagates/updates inward, hit by hit, to reach the Cell's actual
@@ -133,8 +121,8 @@ bool stateChi2(const SurfaceKinematicState& reference, const SurfaceKinematicSta
 // Transactional: constructed entirely in local scratch; outState is
 // committed only on complete success. On any failure outState is left
 // exactly as passed in, byte-for-byte.
-bool buildSeed(const o2::its::Cluster& clusterInner, const o2::its::Cluster& clusterMiddle,
-               const o2::its::TrackingFrameInfo& hitOuter, float bz,
+bool buildSeed(const SurfaceMeasurement& measurementInner, const SurfaceMeasurement& measurementMiddle,
+               const SurfaceMeasurement& measurementOuter, float bz,
                uint8_t absCharge, o2::track::PID pid,
                SurfaceKinematicState& outState, OperationFailureReason& reason) noexcept;
 

@@ -15,10 +15,6 @@
 #include "GPUROOTSMatrixFwd.h"
 #include <Math/SMatrix.h>
 
-#ifndef GPUCA_GPUCODE
-#include "ITStracking/Cluster.h"
-#endif
-
 namespace o2::itsmft::tracking::forward
 {
 namespace
@@ -541,15 +537,16 @@ bool stateChi2(const SurfaceKinematicState& reference, const SurfaceKinematicSta
 
 #ifndef GPUCA_GPUCODE
 
-bool buildSeed(const o2::its::Cluster& clusterInner, const o2::its::Cluster& clusterMiddle, const o2::its::Cluster& clusterOuter,
-               const o2::its::TrackingFrameInfo& hitOuter, float bz, float trackletMinPt,
+bool buildSeed(const SurfaceMeasurement& measurementInner, const SurfaceMeasurement& measurementMiddle, const SurfaceMeasurement& measurementOuter,
+               float bz, float trackletMinPt,
                uint8_t absCharge, o2::track::PID pid,
                SurfaceKinematicState& outState, OperationFailureReason& reason) noexcept
 {
-  if (!std::isfinite(clusterInner.xCoordinate) || !std::isfinite(clusterInner.yCoordinate) || !std::isfinite(clusterInner.zCoordinate) ||
-      !std::isfinite(clusterMiddle.xCoordinate) || !std::isfinite(clusterMiddle.yCoordinate) || !std::isfinite(clusterMiddle.zCoordinate) ||
-      !std::isfinite(clusterOuter.xCoordinate) || !std::isfinite(clusterOuter.yCoordinate) || !std::isfinite(clusterOuter.zCoordinate) ||
-      !std::isfinite(hitOuter.covarianceTrackingFrame[0]) || !std::isfinite(hitOuter.covarianceTrackingFrame[2]) ||
+  if (!std::isfinite(measurementInner.global.x) || !std::isfinite(measurementInner.global.y) || !std::isfinite(measurementInner.global.z) ||
+      !std::isfinite(measurementMiddle.global.x) || !std::isfinite(measurementMiddle.global.y) || !std::isfinite(measurementMiddle.global.z) ||
+      !std::isfinite(measurementOuter.global.x) || !std::isfinite(measurementOuter.global.y) || !std::isfinite(measurementOuter.global.z) ||
+      !std::isfinite(measurementOuter.frame.q) ||
+      !std::isfinite(measurementOuter.covariance.uu) || !std::isfinite(measurementOuter.covariance.vv) ||
       !std::isfinite(bz) || !std::isfinite(trackletMinPt)) {
     reason = OperationFailureReason::NonFiniteInput;
     return false;
@@ -560,18 +557,18 @@ bool buildSeed(const o2::its::Cluster& clusterInner, const o2::its::Cluster& clu
   // (MFTFwdTrackHelpers.h): established hard rejections, not non-finite-
   // output artifacts, so they are reported through the dedicated
   // SeedGeometryDegenerate reason.
-  if (clusterInner.zCoordinate <= clusterOuter.zCoordinate + 1.e-6f) {
+  if (measurementInner.global.z <= measurementOuter.global.z + 1.e-6f) {
     reason = OperationFailureReason::SeedGeometryDegenerate;
     return false;
   }
 
-  const float dxTan = clusterMiddle.xCoordinate - clusterInner.xCoordinate;
-  const float dyTan = clusterMiddle.yCoordinate - clusterInner.yCoordinate;
-  const float dzTan = clusterMiddle.zCoordinate - clusterInner.zCoordinate;
+  const float dxTan = measurementMiddle.global.x - measurementInner.global.x;
+  const float dyTan = measurementMiddle.global.y - measurementInner.global.y;
+  const float dzTan = measurementMiddle.global.z - measurementInner.global.z;
   const float drTan = std::sqrt(dxTan * dxTan + dyTan * dyTan);
-  const float dxPhi = clusterOuter.xCoordinate - clusterInner.xCoordinate;
-  const float dyPhi = clusterOuter.yCoordinate - clusterInner.yCoordinate;
-  const float dzPhi = clusterOuter.zCoordinate - clusterInner.zCoordinate;
+  const float dxPhi = measurementOuter.global.x - measurementInner.global.x;
+  const float dyPhi = measurementOuter.global.y - measurementInner.global.y;
+  const float dzPhi = measurementOuter.global.z - measurementInner.global.z;
   const float drPhi = std::sqrt(dxPhi * dxPhi + dyPhi * dyPhi);
   if (drTan < 1.e-6f || std::abs(dzTan) < 1.e-6f || drPhi < 1.e-6f || std::abs(dzPhi) < 1.e-6f) {
     reason = OperationFailureReason::SeedGeometryDegenerate;
@@ -597,10 +594,10 @@ bool buildSeed(const o2::its::Cluster& clusterInner, const o2::its::Cluster& clu
   }
 
   SurfaceKinematicState scratch{};
-  scratch.referenceCoordinate = clusterOuter.zCoordinate;
+  scratch.referenceCoordinate = measurementOuter.frame.q;
   scratch.alpha = 0.f;
-  scratch.parameters[0] = clusterOuter.xCoordinate;
-  scratch.parameters[1] = clusterOuter.yCoordinate;
+  scratch.parameters[0] = measurementOuter.global.x;
+  scratch.parameters[1] = measurementOuter.global.y;
   scratch.parameters[2] = phi;
   scratch.parameters[3] = tanl;
   scratch.parameters[4] = invQPt;
@@ -608,8 +605,8 @@ bool buildSeed(const o2::its::Cluster& clusterInner, const o2::its::Cluster& clu
   // default-constructed, i.e. zero, SMatrix55Sym with just five diagonal
   // assignments) -- every off-diagonal packed entry stays at its
   // value-initialized 0.f.
-  scratch.covariance[packedCovarianceIndex(0, 0)] = hitOuter.covarianceTrackingFrame[0] > 0.f ? hitOuter.covarianceTrackingFrame[0] : 1.f;
-  scratch.covariance[packedCovarianceIndex(1, 1)] = hitOuter.covarianceTrackingFrame[2] > 0.f ? hitOuter.covarianceTrackingFrame[2] : 1.f;
+  scratch.covariance[packedCovarianceIndex(0, 0)] = measurementOuter.covariance.uu > 0.f ? measurementOuter.covariance.uu : 1.f;
+  scratch.covariance[packedCovarianceIndex(1, 1)] = measurementOuter.covariance.vv > 0.f ? measurementOuter.covariance.vv : 1.f;
   scratch.covariance[packedCovarianceIndex(2, 2)] = 1.f;
   scratch.covariance[packedCovarianceIndex(3, 3)] = 1.f;
   const float qptSigma = std::clamp(std::abs(invQPt), 1.f, 10.f);

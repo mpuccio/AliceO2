@@ -15,20 +15,6 @@
 #include "ITSMFTTracking/SurfaceMeasurement.h"
 #include "ITSMFTTracking/SurfaceStateOperationResult.h"
 
-// Option-A temporary input boundary (Stage-B design report Sec 6): buildSeed
-// below still consumes o2::its::Cluster/o2::its::TrackingFrameInfo, not a
-// normalized SurfaceMeasurement. Forward-declared, not included, to keep
-// this public header's dependency surface narrow -- mirrors
-// TransitionPolicyOperations.h's existing forward declarations of the same
-// two types. Host-only: never needed for GPUCA_GPUCODE compilation.
-#ifndef GPUCA_GPUCODE
-namespace o2::its
-{
-struct Cluster;
-struct TrackingFrameInfo;
-} // namespace o2::its
-#endif
-
 namespace o2::itsmft::tracking::forward
 {
 
@@ -114,44 +100,47 @@ bool stateChi2(const SurfaceKinematicState& reference, const SurfaceKinematicSta
 
 #ifndef GPUCA_GPUCODE
 
-// Slice A (Stage-B design report Sec 8/11): builds the initial *outer*-
-// anchored SurfaceKinematicState seed for a forward/disk three-hit Cell
-// candidate, transcribing the current closed-form direction/covariance
-// initialization at the start of buildCellSeed<DiskDisk>
-// (TransitionPolicyOperations.cxx) / detail::mftFwdFitCellClusters
-// (MFTFwdTrackHelpers.h) directly onto SurfaceKinematicState in float
-// arithmetic only. The legacy initializer stores its seed in a
-// ROOT::Math::SVector<double,5>/SMatrix<double,5,5,MatRepSym<double,5>>
-// pair; this operation reproduces the identical formula and strict-
-// boundary/fallback behavior without ever holding a double-precision
-// parameter or covariance value. Production must never construct the legacy
-// MFT forward track-parametrization-with-error type this reproduces. This
-// function is additive and unwired in this slice: no production call site
-// uses it yet.
+// Slice A (Stage-B design report Sec 8/11), migrated in the Stage-B
+// normalized-measurement slice to consume SurfaceMeasurement directly:
+// builds the initial *outer*-anchored SurfaceKinematicState seed for a
+// forward/disk three-hit Cell candidate, transcribing the current
+// closed-form direction/covariance initialization at the start of
+// buildCellSeed<DiskDisk> (TransitionPolicyOperations.cxx) /
+// detail::mftFwdFitCellClusters (MFTFwdTrackHelpers.h) directly onto
+// SurfaceKinematicState in float arithmetic only. The legacy initializer
+// stores its seed in a ROOT::Math::SVector<double,5>/
+// SMatrix<double,5,5,MatRepSym<double,5>> pair; this operation reproduces
+// the identical formula and strict-boundary/fallback behavior without ever
+// holding a double-precision parameter or covariance value. Production must
+// never construct the legacy MFT forward track-parametrization-with-error
+// type this reproduces.
 //
 // Input order matches this operation family's existing {inner, middle,
 // outer} contract, never inferred from numeric layer/SurfaceId/radius/z:
-// clusterInner/clusterMiddle/clusterOuter supply global (x, y, z); hitOuter
-// additionally supplies the outer hit's measured (u, v) covariance used to
-// seed the diagonal. trackletMinPt is the same configured minimum-pT scale
-// buildCellSeed<DiskDisk> already reads from DiskDiskPolicyParams; its
-// established `(trackletMinPt > 0.f) ? 1.f/trackletMinPt : 0.f` fallback is
-// preserved verbatim, not re-validated here.
+// measurementInner/measurementMiddle/measurementOuter supply
+// `measurement.global` (x, y, z); measurementOuter additionally supplies the
+// outer measurement's measured (u, v) covariance (`measurement.covariance`)
+// used to seed the diagonal. trackletMinPt is the same configured
+// minimum-pT scale buildCellSeed<DiskDisk> already reads from
+// DiskDiskPolicyParams; its established `(trackletMinPt > 0.f) ?
+// 1.f/trackletMinPt : 0.f` fallback is preserved verbatim, not
+// re-validated here.
 //
 // Strict boundary (preserved exactly, and reported through the dedicated
 // OperationFailureReason::SeedGeometryDegenerate rather than a generic
 // non-finite reason -- these are hard rejections the legacy initializer
 // already applies before any direction estimate is computed, not NaN/Inf
 // artifacts of arithmetic that ran anyway): rejects unless
-// clusterInner.zCoordinate is strictly greater than
-// clusterOuter.zCoordinate by more than 1e-6f, and unless every one of the
+// measurementInner.global.z is strictly greater than
+// measurementOuter.global.z by more than 1e-6f, and unless every one of the
 // inner-middle and inner-outer transverse/longitudinal separations exceeds
 // its established 1e-6f minimum.
 //
 // Output anchor/reference frame: Forward family, alpha == 0 (forward has no
-// rotation frame), referenceCoordinate == clusterOuter.zCoordinate -- the
-// *outer* hit's own z. This is deliberately not the Cell's eventual
-// inner-anchored frame (anchor contract, design report Sec 5): this
+// rotation frame), referenceCoordinate == measurementOuter.frame.q -- the
+// *outer* measurement's own reference z (the accepted disk adapter contract
+// guarantees frame.q == global.z). This is deliberately not the Cell's
+// eventual inner-anchored frame (anchor contract, design report Sec 5): this
 // operation produces only the initial outer seed that the existing
 // outer->middle->inner buildCellSeed sequence subsequently attaches inward,
 // hit by hit, to reach the Cell's actual innermost-surface anchor. Calling
@@ -172,8 +161,8 @@ bool stateChi2(const SurfaceKinematicState& reference, const SurfaceKinematicSta
 // Transactional: constructed entirely in local scratch; outState is
 // committed only on complete success. On any failure outState is left
 // exactly as passed in, byte-for-byte.
-bool buildSeed(const o2::its::Cluster& clusterInner, const o2::its::Cluster& clusterMiddle, const o2::its::Cluster& clusterOuter,
-               const o2::its::TrackingFrameInfo& hitOuter, float bz, float trackletMinPt,
+bool buildSeed(const SurfaceMeasurement& measurementInner, const SurfaceMeasurement& measurementMiddle,
+               const SurfaceMeasurement& measurementOuter, float bz, float trackletMinPt,
                uint8_t absCharge, o2::track::PID pid,
                SurfaceKinematicState& outState, OperationFailureReason& reason) noexcept;
 

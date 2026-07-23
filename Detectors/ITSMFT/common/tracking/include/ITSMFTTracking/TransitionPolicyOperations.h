@@ -158,13 +158,14 @@ bool projectSearchWindow(const o2::its::Cluster& source,
 /// formula, which was MCS-only) -- an intentional physics difference, not a
 /// legacy-equivalence claim.
 ///
-/// Measurement input: the private compatibility projection in
-/// TransitionPolicyOperations.cxx converts each o2::its::TrackingFrameInfo
-/// hit into the minimum SurfaceMeasurement fields the native update
-/// operation reads (barrel: local Y/Z and full yy/yz/zz; forward: global X/Y
-/// and the diagonal-only uu/vv, matching the established
-/// mftFwdAttachCluster contract) -- this is not a claim that
-/// TrackingFrameInfo is a normalized SurfaceMeasurement.
+/// Measurement input (Stage-B normalized-measurement slice): the three
+/// already-loaded, already-validated normalized SurfaceMeasurement objects
+/// are consumed directly -- passed straight into barrel::/forward::buildSeed
+/// and into predictedChi2()/update(), with no o2::its::Cluster/
+/// o2::its::TrackingFrameInfo intermediary and no per-call adapter
+/// projection. See ITSMFTTracking/SurfaceMeasurement.h and the field-mapping
+/// notes on barrel::buildSeed/forward::buildSeed for exactly which
+/// SurfaceMeasurement fields each formula step reads.
 ///
 /// Output contract: `outState`/`chi2`/`reason` are the only outputs, and
 /// `outState`/`chi2` are committed only on complete success. On any
@@ -178,18 +179,10 @@ bool projectSearchWindow(const o2::its::Cluster& source,
 /// primitives (other than buildSeed) are individually declared
 /// unconditionally -- no device readiness has been established for this
 /// composed operation as a whole.
-///
-/// o2::its::Cluster and o2::its::TrackingFrameInfo are forward-declared
-/// above and used here only as the documented, time-boxed Gate 3
-/// compatibility boundary (mirrors attachHit's TrackingFrameInfo use); this
-/// header does not include ITStracking/Cluster.h.
 template <TransitionPolicyTag Tag>
-bool buildCellSeed(const o2::its::Cluster& clusterInner,
-                   const o2::its::Cluster& clusterMiddle,
-                   const o2::its::Cluster& clusterOuter,
-                   const o2::its::TrackingFrameInfo& hitInner,
-                   const o2::its::TrackingFrameInfo& hitMiddle,
-                   const o2::its::TrackingFrameInfo& hitOuter,
+bool buildCellSeed(const SurfaceMeasurement& measurementInner,
+                   const SurfaceMeasurement& measurementMiddle,
+                   const SurfaceMeasurement& measurementOuter,
                    const std::array<NominalSurfaceMaterial, 3>& material,
                    float bz,
                    uint8_t absCharge,
@@ -199,24 +192,22 @@ bool buildCellSeed(const o2::its::Cluster& clusterInner,
                    const typename TransitionPolicyTraits<Tag>::Params& params,
                    OperationFailureReason& reason) noexcept;
 
-/// Barrel formula: barrel::buildSeed(clusterInner, clusterMiddle, hitOuter,
-/// bz, absCharge, pid, ...) for the outer anchor, then middle-then-inner
-/// rotate/propagate/correctForMaterial/predictedChi2/update using material[1]
-/// then material[0] (material[2]/outer unused -- the outer surface
-/// contributes only through hitOuter inside barrel::buildSeed, never a
-/// separate attach step). The chi2 cut (params.maxChi2ClusterAttachment) is
-/// enforced only on the final (inner) step, with no `< 0.f` rejection
-/// (unlike native attachHit below, which does reject `< 0.f`). Finishes
-/// anchored at the inner hit's frame/reference coordinate. Defined out of
-/// line in TransitionPolicyOperations.cxx.
+/// Barrel formula: barrel::buildSeed(measurementInner, measurementMiddle,
+/// measurementOuter, bz, absCharge, pid, ...) for the outer anchor, then
+/// middle-then-inner rotate/propagate/correctForMaterial/predictedChi2/update
+/// using material[1] then material[0] (material[2]/outer unused -- the outer
+/// surface contributes only through measurementOuter inside
+/// barrel::buildSeed, never a separate attach step). The chi2 cut
+/// (params.maxChi2ClusterAttachment) is enforced only on the final (inner)
+/// step, with no `< 0.f` rejection (unlike native attachHit below, which
+/// does reject `< 0.f`). Finishes anchored at the inner measurement's
+/// frame/reference coordinate. Defined out of line in
+/// TransitionPolicyOperations.cxx.
 template <>
 bool buildCellSeed<TransitionPolicyTag::CylinderCylinder>(
-  const o2::its::Cluster& clusterInner,
-  const o2::its::Cluster& clusterMiddle,
-  const o2::its::Cluster& clusterOuter,
-  const o2::its::TrackingFrameInfo& hitInner,
-  const o2::its::TrackingFrameInfo& hitMiddle,
-  const o2::its::TrackingFrameInfo& hitOuter,
+  const SurfaceMeasurement& measurementInner,
+  const SurfaceMeasurement& measurementMiddle,
+  const SurfaceMeasurement& measurementOuter,
   const std::array<NominalSurfaceMaterial, 3>& material,
   float bz,
   uint8_t absCharge,
@@ -226,9 +217,9 @@ bool buildCellSeed<TransitionPolicyTag::CylinderCylinder>(
   const CylinderCylinderPolicyParams& params,
   OperationFailureReason& reason) noexcept;
 
-/// Disk formula: forward::buildSeed(clusterInner, clusterMiddle,
-/// clusterOuter, hitOuter, bz, params.trackletMinPt, absCharge, pid, ...) for
-/// the outer anchor, then outer/middle/inner propagation with the accepted
+/// Disk formula: forward::buildSeed(measurementInner, measurementMiddle,
+/// measurementOuter, bz, params.trackletMinPt, absCharge, pid, ...) for the
+/// outer anchor, then outer/middle/inner propagation with the accepted
 /// forward model (threshold dispatch to forward::propagate<Helix>/<Linear>
 /// reproducing the legacy |bz|>0.01f selection exactly -- PropagationModel::
 /// Optimized is not used by this slice) and correctForMaterial using
@@ -236,16 +227,13 @@ bool buildCellSeed<TransitionPolicyTag::CylinderCylinder>(
 /// consumed: this activates PID-aware energy loss and straggling, which is
 /// intentionally not required to reproduce the retired MCS-only legacy
 /// numerical result. Chi2 cut enforced only on the final (inner) step, no
-/// `< 0.f` rejection. Finishes anchored at the inner hit's z. Defined out of
-/// line in TransitionPolicyOperations.cxx.
+/// `< 0.f` rejection. Finishes anchored at the inner measurement's reference
+/// z. Defined out of line in TransitionPolicyOperations.cxx.
 template <>
 bool buildCellSeed<TransitionPolicyTag::DiskDisk>(
-  const o2::its::Cluster& clusterInner,
-  const o2::its::Cluster& clusterMiddle,
-  const o2::its::Cluster& clusterOuter,
-  const o2::its::TrackingFrameInfo& hitInner,
-  const o2::its::TrackingFrameInfo& hitMiddle,
-  const o2::its::TrackingFrameInfo& hitOuter,
+  const SurfaceMeasurement& measurementInner,
+  const SurfaceMeasurement& measurementMiddle,
+  const SurfaceMeasurement& measurementOuter,
   const std::array<NominalSurfaceMaterial, 3>& material,
   float bz,
   uint8_t absCharge,
@@ -270,36 +258,38 @@ bool buildCellSeed<TransitionPolicyTag::DiskDisk>(
 /// forward model for DiskDisk, matching buildCellSeed above), the
 /// PID/absCharge-aware correctForMaterial overload with
 /// MaterialTraversalDirection::OppositeMomentum, predictedChi2, and update,
-/// using the same private TrackingFrameInfo->SurfaceMeasurement projection as
-/// native buildCellSeed.
+/// using the already-loaded normalized `measurement` directly (Stage-B
+/// normalized-measurement slice): no o2::its::TrackingFrameInfo
+/// intermediary and no per-call adapter projection, matching buildCellSeed
+/// above.
 ///
 /// Host-only for this slice, kept behind this GPUCA_GPUCODE guard like
 /// buildCellSeed above.
 template <TransitionPolicyTag Tag>
 bool attachHit(SurfaceKinematicState& state,
-               const o2::its::TrackingFrameInfo& hit,
+               const SurfaceMeasurement& measurement,
                const NominalSurfaceMaterial& material,
                float bz,
                float& chi2,
                const typename TransitionPolicyTraits<Tag>::Params& params,
                OperationFailureReason& reason) noexcept;
 
-/// Barrel formula: rotate to hit.alphaTrackingFrame, propagate to
-/// hit.xTrackingFrame, PID/absCharge-aware correctForMaterial(material,
+/// Barrel formula: rotate to measurement.frame.frameAngle, propagate to
+/// measurement.frame.q, PID/absCharge-aware correctForMaterial(material,
 /// OppositeMomentum), predictedChi2, reject if predictedChi2 >
 /// params.maxChi2ClusterAttachment or predictedChi2 < 0.f, then update.
 /// Defined out of line in TransitionPolicyOperations.cxx.
 template <>
 bool attachHit<TransitionPolicyTag::CylinderCylinder>(
   SurfaceKinematicState& state,
-  const o2::its::TrackingFrameInfo& hit,
+  const SurfaceMeasurement& measurement,
   const NominalSurfaceMaterial& material,
   float bz,
   float& chi2,
   const CylinderCylinderPolicyParams& params,
   OperationFailureReason& reason) noexcept;
 
-/// Disk formula: propagate to hit.zCoordinate with the accepted forward
+/// Disk formula: propagate to measurement.frame.q with the accepted forward
 /// model (see buildCellSeed<DiskDisk> doc), PID/absCharge-aware
 /// correctForMaterial(material, OppositeMomentum) -- both .xOverX0 and
 /// .arealDensityGPerCm2 are read, activating PID-aware energy loss/
@@ -309,7 +299,7 @@ bool attachHit<TransitionPolicyTag::CylinderCylinder>(
 template <>
 bool attachHit<TransitionPolicyTag::DiskDisk>(
   SurfaceKinematicState& state,
-  const o2::its::TrackingFrameInfo& hit,
+  const SurfaceMeasurement& measurement,
   const NominalSurfaceMaterial& material,
   float bz,
   float& chi2,

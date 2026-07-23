@@ -16,7 +16,6 @@
 #include <Math/SMatrix.h>
 
 #ifndef GPUCA_GPUCODE
-#include "ITStracking/Cluster.h"
 // TrackParametrization.h is included solely to reuse its public
 // kCSnp2max/kCTgl2max/kC1Pt2max/kMostProbablePt constants, matching the
 // exact covariance/curvature conventions o2::its::track::buildTrackSeed
@@ -26,6 +25,7 @@
 // nothing here constructs or references a TrackParametrization/TrackParCov
 // object.
 #include "ReconstructionDataFormats/TrackParametrization.h"
+#include "ITStracking/MathUtils.h"
 #endif
 
 namespace o2::itsmft::tracking::barrel
@@ -398,19 +398,19 @@ bool stateChi2(const SurfaceKinematicState& reference, const SurfaceKinematicSta
 
 #ifndef GPUCA_GPUCODE
 
-bool buildSeed(const o2::its::Cluster& clusterInner, const o2::its::Cluster& clusterMiddle,
-               const o2::its::TrackingFrameInfo& hitOuter, float bz,
+bool buildSeed(const SurfaceMeasurement& measurementInner, const SurfaceMeasurement& measurementMiddle,
+               const SurfaceMeasurement& measurementOuter, float bz,
                uint8_t absCharge, o2::track::PID pid,
                SurfaceKinematicState& outState, OperationFailureReason& reason) noexcept
 {
-  if (!std::isfinite(clusterInner.xCoordinate) || !std::isfinite(clusterInner.yCoordinate) ||
-      !std::isfinite(clusterInner.zCoordinate) ||
-      !std::isfinite(clusterMiddle.xCoordinate) || !std::isfinite(clusterMiddle.yCoordinate) ||
-      !std::isfinite(clusterMiddle.zCoordinate) ||
-      !std::isfinite(hitOuter.xTrackingFrame) || !std::isfinite(hitOuter.alphaTrackingFrame) ||
-      !std::isfinite(hitOuter.positionTrackingFrame[0]) || !std::isfinite(hitOuter.positionTrackingFrame[1]) ||
-      !std::isfinite(hitOuter.covarianceTrackingFrame[0]) || !std::isfinite(hitOuter.covarianceTrackingFrame[1]) ||
-      !std::isfinite(hitOuter.covarianceTrackingFrame[2]) || !std::isfinite(bz)) {
+  if (!std::isfinite(measurementInner.global.x) || !std::isfinite(measurementInner.global.y) ||
+      !std::isfinite(measurementInner.global.z) ||
+      !std::isfinite(measurementMiddle.global.x) || !std::isfinite(measurementMiddle.global.y) ||
+      !std::isfinite(measurementMiddle.global.z) ||
+      !std::isfinite(measurementOuter.frame.q) || !std::isfinite(measurementOuter.frame.frameAngle) ||
+      !std::isfinite(measurementOuter.frame.u) || !std::isfinite(measurementOuter.frame.v) ||
+      !std::isfinite(measurementOuter.covariance.uu) || !std::isfinite(measurementOuter.covariance.uv) ||
+      !std::isfinite(measurementOuter.covariance.vv) || !std::isfinite(bz)) {
     reason = OperationFailureReason::NonFiniteInput;
     return false;
   }
@@ -418,16 +418,16 @@ bool buildSeed(const o2::its::Cluster& clusterInner, const o2::its::Cluster& clu
   // Transcribed verbatim from o2::its::track::buildTrackSeed
   // (ITStracking/TrackHelpers.h), reverse=false (the only mode
   // buildCellSeed<CylinderCylinder> ever calls): rotate the inner/middle
-  // global positions into the outer hit's own tracking frame, then apply the
-  // identical zero-field / non-zero-field curvature branch.
-  const float cosAlpha = std::cos(hitOuter.alphaTrackingFrame);
-  const float sinAlpha = std::sin(hitOuter.alphaTrackingFrame);
-  const float x1 = (clusterInner.xCoordinate * cosAlpha) + (clusterInner.yCoordinate * sinAlpha);
-  const float y1 = (-clusterInner.xCoordinate * sinAlpha) + (clusterInner.yCoordinate * cosAlpha);
-  const float x2 = (clusterMiddle.xCoordinate * cosAlpha) + (clusterMiddle.yCoordinate * sinAlpha);
-  const float y2 = (-clusterMiddle.xCoordinate * sinAlpha) + (clusterMiddle.yCoordinate * cosAlpha);
-  const float x3 = hitOuter.xTrackingFrame;
-  const float y3 = hitOuter.positionTrackingFrame[0];
+  // global positions into the outer measurement's own tracking frame, then
+  // apply the identical zero-field / non-zero-field curvature branch.
+  const float cosAlpha = std::cos(measurementOuter.frame.frameAngle);
+  const float sinAlpha = std::sin(measurementOuter.frame.frameAngle);
+  const float x1 = (measurementInner.global.x * cosAlpha) + (measurementInner.global.y * sinAlpha);
+  const float y1 = (-measurementInner.global.x * sinAlpha) + (measurementInner.global.y * cosAlpha);
+  const float x2 = (measurementMiddle.global.x * cosAlpha) + (measurementMiddle.global.y * sinAlpha);
+  const float y2 = (-measurementMiddle.global.x * sinAlpha) + (measurementMiddle.global.y * cosAlpha);
+  const float x3 = measurementOuter.frame.q;
+  const float y3 = measurementOuter.frame.u;
 
   float snp = 0.f;
   float q2pt = 0.f;
@@ -444,15 +444,15 @@ bool buildSeed(const o2::its::Cluster& clusterInner, const o2::its::Cluster& clu
     q2pt = crv / (bz * o2::constants::math::B2C);
     q2pt2 = crv * crv;
   }
-  const float tgl = -0.5f * (o2::its::math_utils::computeTanDipAngle(x1, y1, x2, y2, clusterInner.zCoordinate, clusterMiddle.zCoordinate) +
-                             o2::its::math_utils::computeTanDipAngle(x2, y2, x3, y3, clusterMiddle.zCoordinate, hitOuter.positionTrackingFrame[1]));
+  const float tgl = -0.5f * (o2::its::math_utils::computeTanDipAngle(x1, y1, x2, y2, measurementInner.global.z, measurementMiddle.global.z) +
+                             o2::its::math_utils::computeTanDipAngle(x2, y2, x3, y3, measurementMiddle.global.z, measurementOuter.frame.v));
   const float sg2q2pt = o2::track::kC1Pt2max * std::clamp(q2pt2, 0.0005f, 1.0f);
 
   SurfaceKinematicState scratch{};
   scratch.referenceCoordinate = x3;
-  scratch.alpha = hitOuter.alphaTrackingFrame;
+  scratch.alpha = measurementOuter.frame.frameAngle;
   scratch.parameters[0] = y3;
-  scratch.parameters[1] = hitOuter.positionTrackingFrame[1];
+  scratch.parameters[1] = measurementOuter.frame.v;
   scratch.parameters[2] = snp;
   scratch.parameters[3] = tgl;
   scratch.parameters[4] = q2pt;
@@ -460,9 +460,9 @@ bool buildSeed(const o2::its::Cluster& clusterInner, const o2::its::Cluster& clu
   // packed-symmetric storage index-for-index (both are row*(row+1)/2+column
   // for row >= column), so the legacy flat covariance initializer list
   // transcribes directly, entry for entry, with no reshuffling.
-  scratch.covariance[packedCovarianceIndex(0, 0)] = hitOuter.covarianceTrackingFrame[0];
-  scratch.covariance[packedCovarianceIndex(1, 0)] = hitOuter.covarianceTrackingFrame[1];
-  scratch.covariance[packedCovarianceIndex(1, 1)] = hitOuter.covarianceTrackingFrame[2];
+  scratch.covariance[packedCovarianceIndex(0, 0)] = measurementOuter.covariance.uu;
+  scratch.covariance[packedCovarianceIndex(1, 0)] = measurementOuter.covariance.uv;
+  scratch.covariance[packedCovarianceIndex(1, 1)] = measurementOuter.covariance.vv;
   scratch.covariance[packedCovarianceIndex(2, 0)] = 0.f;
   scratch.covariance[packedCovarianceIndex(2, 1)] = 0.f;
   scratch.covariance[packedCovarianceIndex(2, 2)] = o2::track::kCSnp2max;
