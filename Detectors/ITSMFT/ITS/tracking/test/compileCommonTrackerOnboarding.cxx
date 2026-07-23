@@ -5,6 +5,7 @@
 // This software is distributed under the terms of the GNU General Public
 // License v3 (GPL Version 3), copied verbatim in the file "COPYING".
 
+#include <array>
 #include <memory>
 #include <vector>
 
@@ -51,6 +52,34 @@ int initializeCommonITSTracker(DetectorSurfaceCatalogProvider& provider)
   if (!frame.ensureDetectorLayouts(&provider, request, ordered, TransitionPolicyTag::CylinderCylinder, parameters).ok()) {
     return 2;
   }
+
+  // Resolve the authoritative per-surface nominal material from the
+  // TimeFrame-owned surface catalogue, mirroring
+  // TrackerTraits<NLayers>::initialiseTimeFrame()'s own accessor chain
+  // (TrackerTraits.cxx): TimeFrame::getDetectorLayouts() for the ordered
+  // SurfaceId mapping, TimeFrame::getDetectorLayoutView() for the resolved
+  // per-iteration view, and SurfaceDescriptor::material off each ordered
+  // surface -- never a hardcoded or duplicated material value. `layerMaterial`
+  // must outlive the borrowed span handed to bindAttachHitPolicyConfig()
+  // below, so it stays alive in this same scope through that call.
+  const auto* layouts = frame.getDetectorLayouts();
+  if (layouts == nullptr) {
+    return 4;
+  }
+  const auto layout = frame.getDetectorLayoutView(0);
+  const auto& orderedSurfaces = layouts->getConfigurationKey().orderedSurfaces;
+  if (orderedSurfaces.size() < 7) {
+    return 4;
+  }
+  std::array<NominalSurfaceMaterial, 7> layerMaterial{};
+  for (int layer = 0; layer < 7; ++layer) {
+    const auto surfaceId = orderedSurfaces[layer];
+    if (!surfaceId.isValid() || surfaceId.value() >= layout.nSurfaces) {
+      return 4;
+    }
+    layerMaterial[layer] = layout.getSurface(surfaceId).material;
+  }
+
   frame.initDefaultTrackingTopology(parameters.front(), 7);
   frame.initTrackerTopologies(parameters);
 
@@ -64,7 +93,8 @@ int initializeCommonITSTracker(DetectorSurfaceCatalogProvider& provider)
   traits.setNThreads(1, arena);
 
   const auto cylinderParameters = bindTransitionPolicyParams<TransitionPolicyTag::CylinderCylinder>(parameters.front());
-  const auto materialParameters = bindAttachHitPolicyConfig(parameters.front());
+  const auto materialParameters = bindAttachHitPolicyConfig(
+    gsl::span<const NominalSurfaceMaterial>(layerMaterial.data(), layerMaterial.size()), parameters.front());
   if (!cylinderParameters.isValid() || !materialParameters.isValid(7)) {
     return 3;
   }
