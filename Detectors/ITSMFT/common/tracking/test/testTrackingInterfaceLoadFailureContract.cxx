@@ -63,9 +63,11 @@
 #include "ITSMFTTracking/DecodedCluster.h"
 #include "ITSMFTTracking/DetectorSurfaceCatalogProvider.h"
 #include "ITSMFTTracking/IOUtils.h"
+#include "ITSMFTTracking/NominalSurfaceMaterialDefaults.h"
 #include "ITSMFTTracking/SurfaceMeasurementAdapters.h"
 #include "ITSMFTTracking/TimeFrameLoadFailure.h"
 #include "ITSMFTTracking/TrackingInterface.h"
+#include "ITStracking/Constants.h"
 
 using namespace o2::itsmft;
 using namespace o2::itsmft::tracking;
@@ -135,6 +137,12 @@ std::vector<SurfaceDescriptor> identityCatalog(int nLayers, o2::detectors::DetID
   result.reserve(nLayers);
   for (uint16_t i = 0; i < nLayers; ++i) {
     result.push_back(SurfaceDescriptor{SurfaceId{i}, i, static_cast<uint8_t>(detector), kind, 0, static_cast<float>(i + 1), 0.f, 100.f});
+    // Matches o2::itsmft::resetDetectorDefaults(..., DetID::MFT)'s LayerxX0
+    // default (this file is MFT-only), so TrackerTraits::initialiseTimeFrame()'s
+    // LegacyMaterialMismatch compatibility check passes for unperturbed params.
+    const float xOverX0 = kNominalMFTLayerX0[i % MFTNLayers];
+    result.back().material.xOverX0 = xOverX0;
+    result.back().material.arealDensityGPerCm2 = xOverX0 * o2::its::constants::Radl * o2::its::constants::Rho;
   }
   return result;
 }

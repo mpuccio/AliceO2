@@ -58,6 +58,7 @@
 #include "ITSMFTTracking/TrackingConfigParam.h"
 #include "ITSMFTTracking/TransitionPolicyOperations.h"
 #include "ITStracking/Cluster.h"
+#include "ITStracking/Constants.h"
 #include "ITStracking/Tracklet.h"
 #include "MFTTracking/Constants.h"
 
@@ -119,12 +120,21 @@ class FakeCatalogProvider final : public DetectorSurfaceCatalogProvider
   std::vector<SurfaceDescriptor> mCatalog;
 };
 
-std::vector<SurfaceDescriptor> makeCatalog(uint16_t nLayers, o2::detectors::DetID::ID det, SurfaceKind kind)
+// `layerxX0` supplies each surface's nominal material to embed in the
+// catalog, in legacy layer order -- callers pass the exact TrackingParameters::
+// LayerxX0 values they intend to run with, so TrackerTraits::
+// initialiseTimeFrame()'s LegacyMaterialMismatch compatibility check (which
+// compares the two) always passes here; this file exercises computeLayerCells()
+// orchestration, not that compatibility check.
+std::vector<SurfaceDescriptor> makeCatalog(uint16_t nLayers, o2::detectors::DetID::ID det, SurfaceKind kind, gsl::span<const float> layerxX0)
 {
   std::vector<SurfaceDescriptor> surfaces;
   surfaces.reserve(nLayers);
   for (uint16_t i = 0; i < nLayers; ++i) {
     surfaces.push_back(SurfaceDescriptor{SurfaceId{i}, i, static_cast<uint8_t>(det), kind});
+    const float xOverX0 = layerxX0[i];
+    surfaces.back().material.xOverX0 = xOverX0;
+    surfaces.back().material.arealDensityGPerCm2 = xOverX0 * o2::its::constants::Radl * o2::its::constants::Rho;
   }
   return surfaces;
 }
@@ -192,7 +202,10 @@ template <int NLayers>
 struct Rig {
   Rig(o2::detectors::DetID::ID det, SurfaceKind kind, TransitionPolicyTag tag, int nThreads = 1)
     : pool(std::make_shared<BoundedMemoryResource>()),
-      params(1)
+      params(1),
+      mDet(det),
+      mKind(kind),
+      mTag(tag)
   {
     resetDetectorDefaults(params[0], det);
     tf.setMemoryPool(pool);
@@ -201,20 +214,30 @@ struct Rig {
     traits.adoptTimeFrame(&tf);
     traits.updateTrackingParameters(params);
     traits.setBz(Bz);
+  }
 
+  // Establishes the catalog/layout and loads a (zero-cluster) normalized
+  // source. Deliberately not run by the constructor: it builds the catalog's
+  // nominal material from the *current* params[0].LayerxX0, so callers must
+  // finish any TrackingParameters::LayerxX0 override first -- matching
+  // TrackerTraits::initialiseTimeFrame()'s LegacyMaterialMismatch
+  // compatibility check, which this file does not itself exercise.
+  void establishLayout()
+  {
     const auto orderedSurfaces = identitySurfaces(static_cast<uint16_t>(NLayers));
-    FakeCatalogProvider provider{makeCatalog(static_cast<uint16_t>(NLayers), det, kind)};
-    const DetectorSurfaceCatalogRequest catalogRequest{det, SurfaceId{0}, static_cast<uint32_t>(NLayers)};
-    BOOST_REQUIRE(tf.ensureDetectorLayouts(&provider, catalogRequest, orderedSurfaces, tag, params).ok());
+    FakeCatalogProvider provider{makeCatalog(static_cast<uint16_t>(NLayers), mDet, mKind,
+                                             gsl::span<const float>(params[0].LayerxX0))};
+    const DetectorSurfaceCatalogRequest catalogRequest{mDet, SurfaceId{0}, static_cast<uint32_t>(NLayers)};
+    BOOST_REQUIRE(tf.ensureDetectorLayouts(&provider, catalogRequest, orderedSurfaces, mTag, params).ok());
     tf.initTrackerTopologies(params);
 
-    NeverDecodedDecoder decoder{det};
+    NeverDecodedDecoder decoder{mDet};
     const o2::InteractionRecord origin{50, 5};
     const ROFTimingConfig timing{40, 0, 0, 0};
     const std::vector<CompClusterExt> noClusters;
     const std::vector<unsigned char> noPatterns;
     const std::vector<ROFRecord> noRofs;
-    const auto result = tf.loadNormalizedSource(decoder, origin, timing, noClusters, noPatterns, noRofs, &dict(), nullptr, det);
+    const auto result = tf.loadNormalizedSource(decoder, origin, timing, noClusters, noPatterns, noRofs, &dict(), nullptr, mDet);
     BOOST_REQUIRE(result.ok());
   }
 
@@ -223,6 +246,11 @@ struct Rig {
   TimeFrame<NLayers> tf;
   TrackerTraits<NLayers> traits;
   std::shared_ptr<tbb::task_arena> arena;
+
+ private:
+  o2::detectors::DetID::ID mDet;
+  SurfaceKind mKind;
+  TransitionPolicyTag mTag;
 };
 
 // Finds the cellTopologyId whose two transitions span exactly
@@ -285,6 +313,7 @@ BOOST_AUTO_TEST_CASE(CylinderComputeLayerCellsMatchesBuildCellSeedOracle)
   rig.params[0].LayerxX0[0] = 0.005f; // inner
   rig.params[0].LayerxX0[1] = 0.005f; // middle
   rig.params[0].LayerxX0[2] = 0.f;    // outer: contractually unused by CylinderCylinder
+  rig.establishLayout();
   rig.traits.updateTrackingParameters(rig.params);
   rig.traits.initialiseTimeFrame(0);
   BOOST_REQUIRE(rig.traits.hasTraversalCache());
@@ -365,6 +394,7 @@ BOOST_AUTO_TEST_CASE(DiskComputeLayerCellsMatchesBuildCellSeedOracle)
   rig.params[0].LayerxX0[0] = 0.015f;  // inner
   rig.params[0].LayerxX0[1] = 0.017f;  // middle
   rig.params[0].LayerxX0[2] = 0.02f;   // outer
+  rig.establishLayout();
   rig.traits.updateTrackingParameters(rig.params);
   rig.traits.initialiseTimeFrame(0);
   BOOST_REQUIRE(rig.traits.hasTraversalCache());
@@ -419,6 +449,7 @@ BOOST_AUTO_TEST_CASE(DiskComputeLayerCellsRoadPreCutRejectsBeforeBuildCellSeed)
   // runs before buildCellSeed<DiskDisk> and is driven by the bound
   // DiskDiskPolicyParams::cellRoadRCut, not a stale/uninitialized value.
   rig.params[0].CellRoadRCut = 1.e-6f;
+  rig.establishLayout();
   rig.traits.updateTrackingParameters(rig.params);
   rig.traits.initialiseTimeFrame(0);
 
@@ -458,6 +489,7 @@ BOOST_AUTO_TEST_CASE(CylinderComputeLayerCellsOnePassAndTwoPassAgree)
     rig.params[0].MaxChi2ClusterAttachment = 1.e6f;
     rig.params[0].LayerxX0[0] = 0.005f;
     rig.params[0].LayerxX0[1] = 0.005f;
+    rig.establishLayout();
     rig.traits.updateTrackingParameters(rig.params);
     rig.traits.initialiseTimeFrame(0);
 
@@ -513,6 +545,7 @@ BOOST_AUTO_TEST_CASE(DiskComputeLayerCellsOnePassAndTwoPassAgree)
     rig.params[0].MaxChi2ClusterAttachment = 1.e6f;
     rig.params[0].TrackletMinPt = 0.3f;
     rig.params[0].CellRoadRCut = 1000.f; // generous: road pre-cut must pass here
+    rig.establishLayout();
     rig.traits.updateTrackingParameters(rig.params);
     rig.traits.initialiseTimeFrame(0);
 
@@ -568,6 +601,7 @@ BOOST_AUTO_TEST_CASE(CylinderComputeLayerCellsSafeWithEmptyDiskReferenceSpan)
   rig.params[0].MaxChi2ClusterAttachment = 1.e6f;
   rig.params[0].LayerxX0[0] = 0.005f;
   rig.params[0].LayerxX0[1] = 0.005f;
+  rig.establishLayout();
   rig.traits.updateTrackingParameters(rig.params);
   rig.traits.initialiseTimeFrame(0);
   BOOST_REQUIRE(rig.traits.hasTraversalCache());
@@ -606,6 +640,7 @@ BOOST_AUTO_TEST_CASE(RepeatedComputeLayerCellsCallsDoNotRebindOrIncreaseCounts)
   rig.params[0].MaxChi2ClusterAttachment = 1.e6f;
   rig.params[0].TrackletMinPt = 0.3f;
   rig.params[0].CellRoadRCut = 1000.f;
+  rig.establishLayout();
   rig.traits.updateTrackingParameters(rig.params);
   rig.traits.initialiseTimeFrame(0);
   BOOST_REQUIRE(rig.traits.hasTraversalCache());

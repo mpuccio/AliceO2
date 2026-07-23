@@ -30,11 +30,13 @@
 #include "ITSMFTTracking/DetectorSurfaceCatalogProvider.h"
 #include "ITSMFTTracking/MFTFwdTrackHelpers.h"
 #include "ITSMFTTracking/MultiSourceLoading.h"
+#include "ITSMFTTracking/NominalSurfaceMaterialDefaults.h"
 #include "ITSMFTTracking/SurfaceDescriptor.h"
 #include "ITSMFTTracking/SurfaceMeasurementAdapters.h"
 #include "ITSMFTTracking/TimeFrame.h"
 #include "ITSMFTTracking/TrackerTraits.h"
 #include "ITSMFTTracking/TrackingConfigParam.h"
+#include "ITStracking/Constants.h"
 #include "ITStracking/MathUtils.h"
 #include "ITStracking/Tracklet.h"
 #include "MFTTracking/Constants.h"
@@ -85,6 +87,12 @@ std::vector<SurfaceDescriptor> makeCatalog(uint16_t nLayers, o2::detectors::DetI
   surfaces.reserve(nLayers);
   for (uint16_t i = 0; i < nLayers; ++i) {
     surfaces.push_back(SurfaceDescriptor{SurfaceId{i}, i, static_cast<uint8_t>(detector), kind});
+    // Matches o2::itsmft::resetDetectorDefaults()'s per-detector LayerxX0
+    // default, so TrackerTraits::initialiseTimeFrame()'s LegacyMaterialMismatch
+    // compatibility check passes for these unperturbed fixtures.
+    const float xOverX0 = detector == o2::detectors::DetID::MFT ? kNominalMFTLayerX0[i % MFTNLayers] : kNominalITSLayerX0[i % ITSNLayers];
+    surfaces.back().material.xOverX0 = xOverX0;
+    surfaces.back().material.arealDensityGPerCm2 = xOverX0 * o2::its::constants::Radl * o2::its::constants::Rho;
   }
   return surfaces;
 }
@@ -453,11 +461,16 @@ BOOST_AUTO_TEST_CASE(InitialiseTimeFrameFailureLeavesTransitionArraysZeroFilledN
   // Gate 3 transition-preparation slice failure contract: TimeFrame::initialise()
   // already clears/resizes mTransitionMSAngles/mTransitionPhiCuts to
   // nTransitions before any policy/geometry validation runs (unchanged by
-  // this slice). A later fallible check (here: LayerxX0 corrupted so
+  // this slice). A later fallible check (here: an invalid CorrType, so
   // AttachHitPolicyConfigView::isValid() fails) must leave those arrays
   // exactly zero-filled at the correct size -- never a mixture of computed
   // and zero entries -- because the (non-throwing) value-computation loop
   // this slice added never starts until every fallible check has succeeded.
+  // Deliberately not a corrupted LayerxX0 value: since the compatibility-only
+  // LegacyMaterialMismatch check (TrackerTraits::initialiseTimeFrame()) now
+  // runs before TimeFrame::initialise(), a corrupted LayerxX0 would fail
+  // there instead, before the arrays are ever resized -- this test wants a
+  // fallible check that fires strictly after TimeFrame::initialise().
   auto pool = std::make_shared<BoundedMemoryResource>();
   TimeFrame<ITSNLayers> tf;
   TrackerTraits<ITSNLayers> traits;
@@ -466,7 +479,7 @@ BOOST_AUTO_TEST_CASE(InitialiseTimeFrameFailureLeavesTransitionArraysZeroFilledN
   resetDetectorDefaults(params[0], o2::detectors::DetID::ITS);
   params[0].PassFlags.reset();
   params[0].PassFlags.set(IterationStep::FirstPass, IterationStep::RebuildClusterLUT);
-  params[0].LayerxX0[2] = -1.f; // invalid: AttachHitPolicyConfigView rejects negative xX0
+  params[0].CorrType = static_cast<o2::base::PropagatorImpl<float>::MatCorrType>(99); // invalid: AttachHitPolicyConfigView rejects it
 
   tf.setMemoryPool(pool);
   traits.setMemoryPool(pool);

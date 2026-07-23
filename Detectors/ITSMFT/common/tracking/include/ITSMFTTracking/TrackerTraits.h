@@ -25,6 +25,7 @@
 #include <oneapi/tbb.h>
 
 #include "ITSMFTTracking/Configuration.h"
+#include "ITSMFTTracking/SurfaceDescriptor.h"
 #include "ITSMFTTracking/TimeFrame.h"
 #include "ITSMFTTracking/TransitionPolicyBinding.h"
 #include "ITSMFTTracking/TransitionPolicyDispatch.h"
@@ -58,7 +59,14 @@ enum class TraversalFailureReason : uint8_t {
   // disagrees with the configuration (and populated LUT) the TimeFrame
   // already owns, which this iteration would otherwise silently reuse or
   // resort clusters into.
-  IndexTableConfigurationMismatch
+  IndexTableConfigurationMismatch,
+  // Temporary compatibility check (Stage-B surface-material fast-fit slice):
+  // this iteration's legacy TrackingParameters::LayerxX0 does not match the
+  // authoritative SurfaceDescriptor::material resolved for the same layer
+  // range, or the layer-to-surface mapping needed to resolve it is itself
+  // invalid/incomplete. Raised before any TimeFrame tracking state is
+  // touched; SurfaceDescriptor::material is never overwritten as a result.
+  LegacyMaterialMismatch
 };
 
 class TraversalException final : public std::runtime_error
@@ -122,6 +130,13 @@ class TrackerTraits
   int getTraversalGroupingCount() const noexcept { return mTraversalGroupingCount; }
   int getPolicyBindingCount(TransitionPolicyTag tag) const noexcept;
   bool hasTraversalCache() const noexcept { return mTraversalGrouping.has_value(); }
+  // Authoritative per-(legacy-)layer nominal material resolved once by the
+  // most recent successful initialiseTimeFrame() call, from
+  // SurfaceDescriptor::material via this iteration's orderedSurfaces mapping
+  // -- never inferred from legacy index/detector identity/geometry. Read-only
+  // test/inspection accessor; production consumption is through
+  // mAttachHitConfig (TransitionPolicyBinding.h), not this span directly.
+  gsl::span<const NominalSurfaceMaterial> getLayerMaterial() const noexcept { return {mLayerMaterial.data(), mLayerMaterial.size()}; }
 
  private:
   void resetTraversalCache() noexcept;
@@ -180,6 +195,14 @@ class TrackerTraits
   // never reads it.
   gsl::span<const float> mDiskLayerReferenceZ{};
   AttachHitPolicyConfigView mAttachHitConfig;
+  // Authoritative per-(legacy-)layer nominal material, resolved once per
+  // initialiseTimeFrame() from SurfaceDescriptor::material via this
+  // iteration's orderedSurfaces mapping (never inferred from legacy index,
+  // detector identity, radius, z, or numeric ordering). Compatibility-only:
+  // SurfaceDescriptor::material is authoritative and never overwritten here;
+  // this cache is temporary duplication that disappears once the final ITS
+  // refit migrates off TrackingParameters::LayerxX0.
+  std::array<NominalSurfaceMaterial, NLayers> mLayerMaterial{};
   int mTraversalGroupingCount{0};
   std::array<int, 2> mPolicyBindingCounts{};
 

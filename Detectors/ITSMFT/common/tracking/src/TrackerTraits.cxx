@@ -64,6 +64,7 @@ void TrackerTraits<NLayers>::resetTraversalCache() noexcept
   mDiskPolicyParams.reset();
   mDiskLayerReferenceZ = {};
   mAttachHitConfig = {};
+  mLayerMaterial.fill(NominalSurfaceMaterial{});
   mTraversalGroupingCount = 0;
   mPolicyBindingCounts.fill(0);
 }
@@ -183,6 +184,40 @@ void TrackerTraits<NLayers>::initialiseTimeFrame(const int iteration)
   if (grouping.hasTag(TransitionPolicyTag::CylinderCylinder) && grouping.hasTag(TransitionPolicyTag::DiskDisk)) {
     throw TraversalException{iteration, TraversalFailureReason::MixedPolicyLayout};
   }
+
+  // 2.5. Resolve and validate this iteration's authoritative per-layer
+  // nominal material, entirely from `layouts`/`layout` (already resolved
+  // above) and `mTrkParams[iteration]` -- before any TimeFrame tracking
+  // state is touched (see TrackerTraits.h's TraversalFailureReason doc).
+  // The layer-to-surface mapping is this DetectorLayoutSet's own validated
+  // orderedSurfaces (never inferred from legacy index, detector identity,
+  // radius, z, or numeric ordering); a size mismatch, an invalid/out-of-range
+  // mapped SurfaceId, or a numeric disagreement against the temporary legacy
+  // TrackingParameters::LayerxX0 all reject with the same
+  // LegacyMaterialMismatch reason -- this whole block is one compatibility
+  // precondition, not several. SurfaceDescriptor::material itself is never
+  // written here; only this iteration's local mLayerMaterial cache is.
+  const auto& orderedSurfaces = layouts->getConfigurationKey().orderedSurfaces;
+  if (orderedSurfaces.size() < static_cast<size_t>(NLayers)) {
+    throw TraversalException{iteration, TraversalFailureReason::LegacyMaterialMismatch};
+  }
+  std::array<NominalSurfaceMaterial, NLayers> stagedLayerMaterial{};
+  for (int legacyLayer = 0; legacyLayer < NLayers; ++legacyLayer) {
+    const auto surfaceId = orderedSurfaces[legacyLayer];
+    if (!surfaceId.isValid() || surfaceId.value() >= layout.nSurfaces) {
+      throw TraversalException{iteration, TraversalFailureReason::LegacyMaterialMismatch};
+    }
+    stagedLayerMaterial[legacyLayer] = layout.getSurface(surfaceId).material;
+  }
+  if (mTrkParams[iteration].LayerxX0.size() != static_cast<size_t>(NLayers)) {
+    throw TraversalException{iteration, TraversalFailureReason::LegacyMaterialMismatch};
+  }
+  for (int legacyLayer = 0; legacyLayer < NLayers; ++legacyLayer) {
+    if (mTrkParams[iteration].LayerxX0[legacyLayer] != stagedLayerMaterial[legacyLayer].xOverX0) {
+      throw TraversalException{iteration, TraversalFailureReason::LegacyMaterialMismatch};
+    }
+  }
+  mLayerMaterial = stagedLayerMaterial;
 
   // 3. Bind + validate index-table configuration into a local scratch value,
   // dispatched on the single active tag via dispatchTransitionPolicies --

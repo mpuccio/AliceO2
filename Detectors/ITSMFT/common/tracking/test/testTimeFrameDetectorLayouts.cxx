@@ -752,20 +752,141 @@ BOOST_AUTO_TEST_CASE(traversal_preflight_rejects_legacy_mismatch_state_mismatch_
   checkFailure(params, catalog(10, SurfaceKind::Disk, o2::detectors::DetID::MFT), order(10), TransitionPolicyTag::DiskDisk,
                TraversalFailureReason::InvalidPolicyParameters);
 
+  // Perturbing the temporary legacy LayerxX0 away from the catalog's
+  // authoritative material now fails the material-compatibility check
+  // (LegacyMaterialMismatch) before ever reaching attachHitConfig's own
+  // finite/non-negative validation -- the catalog's material is unperturbed
+  // and finite, so the mismatch is purely numeric.
   params = mftTraversalParameters();
   params[0].LayerxX0[3] = std::numeric_limits<float>::quiet_NaN();
   checkFailure(params, catalog(10, SurfaceKind::Disk, o2::detectors::DetID::MFT), order(10), TransitionPolicyTag::DiskDisk,
-               TraversalFailureReason::InvalidPolicyParameters);
+               TraversalFailureReason::LegacyMaterialMismatch);
 
   params = mftTraversalParameters();
   params[0].LayerxX0[7] = std::numeric_limits<float>::infinity();
   checkFailure(params, catalog(10, SurfaceKind::Disk, o2::detectors::DetID::MFT), order(10), TransitionPolicyTag::DiskDisk,
-               TraversalFailureReason::InvalidPolicyParameters);
+               TraversalFailureReason::LegacyMaterialMismatch);
 
   params = mftTraversalParameters();
   params[0].CorrType = static_cast<o2::base::PropagatorF::MatCorrType>(99);
   checkFailure(params, catalog(10, SurfaceKind::Disk, o2::detectors::DetID::MFT), order(10), TransitionPolicyTag::DiskDisk,
                TraversalFailureReason::InvalidPolicyParameters);
+}
+
+BOOST_AUTO_TEST_CASE(every_iteration_resolves_identical_authoritative_material)
+{
+  auto params = mftTraversalParameters();
+  params.push_back(params.front());
+  auto pool = std::make_shared<BoundedMemoryResource>();
+  TimeFrame<10> frame;
+  TrackerTraits<10> traits;
+  prepareTraversalFrame(frame, traits, pool, params);
+  const auto catalogRequest = request(10, o2::detectors::DetID::MFT);
+  FakeCatalogProvider provider{catalog(catalogRequest, SurfaceKind::Disk)};
+  const auto ordered = order(10);
+  BOOST_REQUIRE(frame.ensureDetectorLayouts(&provider, catalogRequest, ordered,
+                                            TransitionPolicyTag::DiskDisk, params)
+                  .ok());
+
+  traits.initialiseTimeFrame(0);
+  const auto firstIterationMaterial = traits.getLayerMaterial();
+  std::vector<NominalSurfaceMaterial> firstIteration(firstIterationMaterial.begin(), firstIterationMaterial.end());
+
+  traits.initialiseTimeFrame(1);
+  const auto secondIteration = traits.getLayerMaterial();
+  BOOST_REQUIRE_EQUAL(secondIteration.size(), firstIteration.size());
+  for (size_t layer = 0; layer < firstIteration.size(); ++layer) {
+    BOOST_CHECK_EQUAL(secondIteration[layer].xOverX0, firstIteration[layer].xOverX0);
+    BOOST_CHECK_EQUAL(secondIteration[layer].arealDensityGPerCm2, firstIteration[layer].arealDensityGPerCm2);
+  }
+}
+
+BOOST_AUTO_TEST_CASE(rejected_initialisation_does_not_mutate_surface_descriptor_material)
+{
+  auto params = mftTraversalParameters();
+  params[0].LayerxX0[4] = std::numeric_limits<float>::quiet_NaN();
+  auto pool = std::make_shared<BoundedMemoryResource>();
+  TimeFrame<10> frame;
+  TrackerTraits<10> traits;
+  prepareTraversalFrame(frame, traits, pool, params);
+  const auto catalogRequest = request(10, o2::detectors::DetID::MFT);
+  FakeCatalogProvider provider{catalog(catalogRequest, SurfaceKind::Disk)};
+  const auto ordered = order(10);
+  BOOST_REQUIRE(frame.ensureDetectorLayouts(&provider, catalogRequest, ordered,
+                                            TransitionPolicyTag::DiskDisk, params)
+                  .ok());
+  const NominalSurfaceMaterial materialBefore = frame.getSurfaceCatalog()->at(4).material;
+
+  try {
+    traits.initialiseTimeFrame(0);
+    BOOST_FAIL("perturbed LayerxX0 must throw");
+  } catch (const TraversalException& error) {
+    BOOST_CHECK(error.getReason() == TraversalFailureReason::LegacyMaterialMismatch);
+  }
+
+  const auto& materialAfter = frame.getSurfaceCatalog()->at(4).material;
+  BOOST_CHECK_EQUAL(materialAfter.xOverX0, materialBefore.xOverX0);
+  BOOST_CHECK_EQUAL(materialAfter.arealDensityGPerCm2, materialBefore.arealDensityGPerCm2);
+}
+
+BOOST_AUTO_TEST_CASE(non_monotonic_ordered_surfaces_maps_legacy_layers_to_correct_surface_ids)
+{
+  // Distinct-per-surface material (not the uniform MFT nominal default) so an
+  // identity-assuming mapping bug (mLayerMaterial[legacyLayer] read from
+  // catalog[legacyLayer] instead of catalog[orderedSurfaces[legacyLayer]])
+  // would be observable as a numeric difference, not masked by every layer
+  // happening to carry the same value.
+  auto surfaces = catalog(10, SurfaceKind::Disk, o2::detectors::DetID::MFT);
+  for (uint16_t id = 0; id < surfaces.size(); ++id) {
+    const float xOverX0 = 0.001f * static_cast<float>(id + 1);
+    surfaces[id].material.xOverX0 = xOverX0;
+    surfaces[id].material.arealDensityGPerCm2 = xOverX0 * o2::its::constants::Radl * o2::its::constants::Rho;
+  }
+  const std::vector<SurfaceId> nonMonotonicOrder{
+    SurfaceId{3}, SurfaceId{0}, SurfaceId{6}, SurfaceId{2}, SurfaceId{9},
+    SurfaceId{5}, SurfaceId{1}, SurfaceId{8}, SurfaceId{4}, SurfaceId{7}};
+
+  auto params = mftTraversalParameters();
+  for (size_t legacyLayer = 0; legacyLayer < nonMonotonicOrder.size(); ++legacyLayer) {
+    params[0].LayerxX0[legacyLayer] = surfaces[nonMonotonicOrder[legacyLayer].value()].material.xOverX0;
+  }
+
+  auto pool = std::make_shared<BoundedMemoryResource>();
+  TimeFrame<10> frame;
+  TrackerTraits<10> traits;
+  prepareTraversalFrame(frame, traits, pool, params);
+  const auto catalogRequest = request(10, o2::detectors::DetID::MFT);
+  FakeCatalogProvider provider{surfaces};
+  BOOST_REQUIRE(frame.ensureDetectorLayouts(&provider, catalogRequest, nonMonotonicOrder,
+                                            TransitionPolicyTag::DiskDisk, params)
+                  .ok());
+
+  // The non-identity mapping is structurally incompatible with the separate
+  // legacy-topology-parity check (validateLegacyParity), so the overall call
+  // still fails -- with LegacyIndexMismatch, not a material reason -- but
+  // only after mLayerMaterial has already been resolved and committed from
+  // the correct (non-identity) mapping, which is what this test verifies.
+  try {
+    traits.initialiseTimeFrame(0);
+    BOOST_FAIL("non-monotonic ordering must fail legacy topology parity");
+  } catch (const TraversalException& error) {
+    BOOST_CHECK(error.getReason() == TraversalFailureReason::LegacyIndexMismatch);
+  }
+
+  const auto resolvedMaterial = traits.getLayerMaterial();
+  BOOST_REQUIRE_EQUAL(resolvedMaterial.size(), nonMonotonicOrder.size());
+  for (size_t legacyLayer = 0; legacyLayer < nonMonotonicOrder.size(); ++legacyLayer) {
+    const auto& expected = surfaces[nonMonotonicOrder[legacyLayer].value()].material;
+    BOOST_CHECK_EQUAL(resolvedMaterial[legacyLayer].xOverX0, expected.xOverX0);
+    BOOST_CHECK_EQUAL(resolvedMaterial[legacyLayer].arealDensityGPerCm2, expected.arealDensityGPerCm2);
+    // Confirms the mapping is genuinely position-driven, not an identity
+    // shortcut, at every position where this permutation actually moves the
+    // surface (nonMonotonicOrder[legacyLayer] != legacyLayer): the
+    // identity-mapped value would differ from `expected` there.
+    if (nonMonotonicOrder[legacyLayer].value() != legacyLayer) {
+      BOOST_CHECK_NE(resolvedMaterial[legacyLayer].xOverX0, surfaces[legacyLayer].material.xOverX0);
+    }
+  }
 }
 
 BOOST_AUTO_TEST_CASE(traversal_preflight_reports_invalid_schedule_and_mixed_policy_layout)

@@ -58,10 +58,12 @@
 #include "ITSMFTTracking/DetectorSurfaceCatalogProvider.h"
 #include "ITSMFTTracking/IndexTableConfiguration.h"
 #include "ITSMFTTracking/IndexTableUtils.h"
+#include "ITSMFTTracking/NominalSurfaceMaterialDefaults.h"
 #include "ITSMFTTracking/SurfaceDescriptor.h"
 #include "ITSMFTTracking/SurfaceMeasurementAdapters.h"
 #include "ITSMFTTracking/TimeFrame.h"
 #include "ITSMFTTracking/TrackerTraits.h"
+#include "ITStracking/Constants.h"
 #include "SimulationDataFormat/MCCompLabel.h"
 #include "SimulationDataFormat/MCTruthContainer.h"
 
@@ -148,6 +150,12 @@ std::vector<SurfaceDescriptor> makeITSTestCatalog()
   surfaces.reserve(ITSNLayers);
   for (uint16_t i = 0; i < ITSNLayers; ++i) {
     surfaces.push_back(SurfaceDescriptor{SurfaceId{i}, i, static_cast<uint8_t>(o2::detectors::DetID::ITS), SurfaceKind::Cylinder});
+    // Matches o2::itsmft::resetDetectorDefaults(..., DetID::ITS)'s LayerxX0
+    // default, so TrackerTraits::initialiseTimeFrame()'s LegacyMaterialMismatch
+    // compatibility check passes for these unperturbed fixtures.
+    const float xOverX0 = kNominalITSLayerX0[i];
+    surfaces.back().material.xOverX0 = xOverX0;
+    surfaces.back().material.arealDensityGPerCm2 = xOverX0 * o2::its::constants::Radl * o2::its::constants::Rho;
   }
   return surfaces;
 }
