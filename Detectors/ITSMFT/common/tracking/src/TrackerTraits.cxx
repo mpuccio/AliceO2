@@ -196,7 +196,12 @@ void TrackerTraits<NLayers>::initialiseTimeFrame(const int iteration)
   // TrackingParameters::LayerxX0 all reject with the same
   // LegacyMaterialMismatch reason -- this whole block is one compatibility
   // precondition, not several. SurfaceDescriptor::material itself is never
-  // written here; only this iteration's local mLayerMaterial cache is.
+  // written here. `stagedLayerMaterial` is kept local (not yet committed to
+  // the mLayerMaterial member) until every remaining fallible check in this
+  // function has also succeeded -- see the final commit block below -- so a
+  // later failure leaves mLayerMaterial exactly as resetTraversalCache() left
+  // it (reset/zero-filled), never partially populated from a failed
+  // iteration.
   const auto& orderedSurfaces = layouts->getConfigurationKey().orderedSurfaces;
   if (orderedSurfaces.size() < static_cast<size_t>(NLayers)) {
     throw TraversalException{iteration, TraversalFailureReason::LegacyMaterialMismatch};
@@ -217,7 +222,6 @@ void TrackerTraits<NLayers>::initialiseTimeFrame(const int iteration)
       throw TraversalException{iteration, TraversalFailureReason::LegacyMaterialMismatch};
     }
   }
-  mLayerMaterial = stagedLayerMaterial;
 
   // 3. Bind + validate index-table configuration into a local scratch value,
   // dispatched on the single active tag via dispatchTransitionPolicies --
@@ -290,8 +294,12 @@ void TrackerTraits<NLayers>::initialiseTimeFrame(const int iteration)
 
   std::optional<CylinderCylinderPolicyParams> cylinderParams;
   std::optional<DiskDiskPolicyParams> diskParams;
-  const auto attachHitConfig = bindAttachHitPolicyConfig(
-    gsl::span<const NominalSurfaceMaterial>(mLayerMaterial.data(), mLayerMaterial.size()), mTrkParams[iteration]);
+  // Bound from the still-local stagedLayerMaterial, not the mLayerMaterial
+  // member (not committed yet): attachHitConfig.layerMaterial is rebound to
+  // point at mLayerMaterial once that member is actually populated, at the
+  // final commit below, before it escapes into mAttachHitConfig.
+  auto attachHitConfig = bindAttachHitPolicyConfig(
+    gsl::span<const NominalSurfaceMaterial>(stagedLayerMaterial.data(), stagedLayerMaterial.size()), mTrkParams[iteration]);
   if (!attachHitConfig.isValid(NLayers)) {
     throw TraversalException{iteration, TraversalFailureReason::InvalidPolicyParameters};
   }
@@ -327,6 +335,13 @@ void TrackerTraits<NLayers>::initialiseTimeFrame(const int iteration)
   mCylinderPolicyParams = cylinderParams;
   mDiskPolicyParams = diskParams;
   mDiskLayerReferenceZ = referenceCoordinateView.perLayerReferenceZ;
+  // Commit the material cache itself only now, alongside every other
+  // traversal cache, then rebind attachHitConfig's span off the
+  // about-to-be-destroyed local stagedLayerMaterial and onto the
+  // now-populated, function-lifetime-independent mLayerMaterial member
+  // before mAttachHitConfig (which outlives this call) retains it.
+  mLayerMaterial = stagedLayerMaterial;
+  attachHitConfig.layerMaterial = gsl::span<const NominalSurfaceMaterial>(mLayerMaterial.data(), mLayerMaterial.size());
   mAttachHitConfig = attachHitConfig;
 
   // All fallible validation for this iteration (layout/grouping, legacy

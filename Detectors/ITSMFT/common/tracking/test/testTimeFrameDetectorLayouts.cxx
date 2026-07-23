@@ -829,7 +829,7 @@ BOOST_AUTO_TEST_CASE(rejected_initialisation_does_not_mutate_surface_descriptor_
   BOOST_CHECK_EQUAL(materialAfter.arealDensityGPerCm2, materialBefore.arealDensityGPerCm2);
 }
 
-BOOST_AUTO_TEST_CASE(non_monotonic_ordered_surfaces_maps_legacy_layers_to_correct_surface_ids)
+BOOST_AUTO_TEST_CASE(non_monotonic_ordered_surfaces_maps_correctly_then_resets_on_later_failure)
 {
   // Distinct-per-surface material (not the uniform MFT nominal default) so an
   // identity-assuming mapping bug (mLayerMaterial[legacyLayer] read from
@@ -863,9 +863,13 @@ BOOST_AUTO_TEST_CASE(non_monotonic_ordered_surfaces_maps_legacy_layers_to_correc
 
   // The non-identity mapping is structurally incompatible with the separate
   // legacy-topology-parity check (validateLegacyParity), so the overall call
-  // still fails -- with LegacyIndexMismatch, not a material reason -- but
-  // only after mLayerMaterial has already been resolved and committed from
-  // the correct (non-identity) mapping, which is what this test verifies.
+  // still fails -- with LegacyIndexMismatch, not a material reason. Getting
+  // LegacyIndexMismatch here (rather than LegacyMaterialMismatch) is itself
+  // the proof that the material-compatibility check used the correct
+  // (non-identity) orderedSurfaces mapping: params.LayerxX0 above was built
+  // from surfaces[nonMonotonicOrder[legacyLayer]], so an identity-mapping bug
+  // (reading surfaces[legacyLayer] instead) would disagree with it at every
+  // permuted position and fail earlier with LegacyMaterialMismatch instead.
   try {
     traits.initialiseTimeFrame(0);
     BOOST_FAIL("non-monotonic ordering must fail legacy topology parity");
@@ -873,19 +877,19 @@ BOOST_AUTO_TEST_CASE(non_monotonic_ordered_surfaces_maps_legacy_layers_to_correc
     BOOST_CHECK(error.getReason() == TraversalFailureReason::LegacyIndexMismatch);
   }
 
+  // Material validation passing is not the same as initialisation succeeding:
+  // this later (unrelated) failure must still leave mLayerMaterial exactly at
+  // its resetTraversalCache() state, never partially populated from the
+  // staged-but-never-committed resolution above. hasTraversalCache() is the
+  // existing single source of truth that the call did not succeed, and
+  // mAttachHitConfig (material-dependent, committed in the same final block
+  // as mTraversalGrouping) is therefore equally not in effect.
+  BOOST_CHECK(!traits.hasTraversalCache());
   const auto resolvedMaterial = traits.getLayerMaterial();
   BOOST_REQUIRE_EQUAL(resolvedMaterial.size(), nonMonotonicOrder.size());
-  for (size_t legacyLayer = 0; legacyLayer < nonMonotonicOrder.size(); ++legacyLayer) {
-    const auto& expected = surfaces[nonMonotonicOrder[legacyLayer].value()].material;
-    BOOST_CHECK_EQUAL(resolvedMaterial[legacyLayer].xOverX0, expected.xOverX0);
-    BOOST_CHECK_EQUAL(resolvedMaterial[legacyLayer].arealDensityGPerCm2, expected.arealDensityGPerCm2);
-    // Confirms the mapping is genuinely position-driven, not an identity
-    // shortcut, at every position where this permutation actually moves the
-    // surface (nonMonotonicOrder[legacyLayer] != legacyLayer): the
-    // identity-mapped value would differ from `expected` there.
-    if (nonMonotonicOrder[legacyLayer].value() != legacyLayer) {
-      BOOST_CHECK_NE(resolvedMaterial[legacyLayer].xOverX0, surfaces[legacyLayer].material.xOverX0);
-    }
+  for (const auto& material : resolvedMaterial) {
+    BOOST_CHECK_EQUAL(material.xOverX0, 0.f);
+    BOOST_CHECK_EQUAL(material.arealDensityGPerCm2, 0.f);
   }
 }
 

@@ -133,7 +133,13 @@ class TrackerTraits
   // Authoritative per-(legacy-)layer nominal material resolved once by the
   // most recent successful initialiseTimeFrame() call, from
   // SurfaceDescriptor::material via this iteration's orderedSurfaces mapping
-  // -- never inferred from legacy index/detector identity/geometry. Read-only
+  // -- never inferred from legacy index/detector identity/geometry. Valid
+  // (and committed) only after initialiseTimeFrame() returns without
+  // throwing: a failed call -- for any reason, including one raised after
+  // material validation itself already passed -- leaves this exactly as
+  // resetTraversalCache() left it (reset/zero-filled), like every other
+  // traversal cache; hasTraversalCache() is the existing, single source of
+  // truth for whether the most recent call actually succeeded. Read-only
   // test/inspection accessor; production consumption is through
   // mAttachHitConfig (TransitionPolicyBinding.h), not this span directly.
   gsl::span<const NominalSurfaceMaterial> getLayerMaterial() const noexcept { return {mLayerMaterial.data(), mLayerMaterial.size()}; }
@@ -202,6 +208,16 @@ class TrackerTraits
   // SurfaceDescriptor::material is authoritative and never overwritten here;
   // this cache is temporary duplication that disappears once the final ITS
   // refit migrates off TrackingParameters::LayerxX0.
+  //
+  // Commit contract: resolved into a local scratch array first and only
+  // copied here at the very end of initialiseTimeFrame(), alongside every
+  // other traversal cache (mTraversalGrouping et al.) -- never as soon as
+  // material validation itself passes. A later fallible check in the same
+  // call (index-table binding, legacy topology parity, state-family, or any
+  // other policy/geometry validation) must not leave this populated from an
+  // iteration that ultimately failed; resetTraversalCache() zero-fills it at
+  // the top of every call, and it stays that way unless the call returns
+  // normally. See getLayerMaterial()'s doc for the read-side contract.
   std::array<NominalSurfaceMaterial, NLayers> mLayerMaterial{};
   int mTraversalGroupingCount{0};
   std::array<int, 2> mPolicyBindingCounts{};
