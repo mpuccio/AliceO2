@@ -34,6 +34,7 @@
 #define BOOST_TEST_DYN_LINK
 
 #include <array>
+#include <map>
 #include <memory>
 #include <vector>
 
@@ -70,11 +71,10 @@ namespace
 
 constexpr float Bz = 0.5f;
 
-// Every fixture in this file loads zero real clusters -- computeLayerCells()
-// is exercised by injecting synthetic post-decode cluster/tracklet/lookup
-// state directly (see file header), so this decoder's decode() is never
-// actually invoked. It exists only to satisfy loadNormalizedSource()'s
-// interface, mirroring testCATrackerFailureContract.cxx's LegacyLikeDecoder.
+// Preflight-only fixtures (Rig::establishLayout()) load zero real clusters --
+// this decoder's decode() is never actually invoked there. It exists only to
+// satisfy loadNormalizedSource()'s interface, mirroring
+// testCATrackerFailureContract.cxx's LegacyLikeDecoder.
 class NeverDecodedDecoder final : public ClusterDecoder
 {
  public:
@@ -89,6 +89,60 @@ class NeverDecodedDecoder final : public ClusterDecoder
 
  private:
   o2::detectors::DetID::ID mDetector;
+};
+
+// Stage-B normalized-CA-measurements slice: computeLayerCells() now reads
+// TrackerTraits::mLayerMeasurements, resolved once per initialiseTimeFrame()
+// from the TimeFrame's already-loaded normalized frame. Candidate fixtures
+// therefore load their three clusters through the real loadNormalizedSource()
+// path -- backfilling both the normalized frame and every legacy
+// compatibility structure (unsorted clusters, TrackingFrameInfo, external
+// indices, ROF boundaries) together, in lockstep -- rather than poking legacy
+// structures directly. This decoder returns exactly the caller-supplied
+// SurfaceMeasurement for a given detector-local layer (encoded as the
+// synthetic CompClusterExt's chipID/sensorID), verbatim except for the
+// surface/sensor/cluster/sourceROF identity fields loadSources() itself
+// validates against its own call parameters.
+class FixedMeasurementDecoder final : public ClusterDecoder
+{
+ public:
+  FixedMeasurementDecoder(o2::detectors::DetID::ID detector, SurfaceKind kind) : mDetector(detector), mKind(kind) {}
+
+  void setMeasurement(int layer, const SurfaceMeasurement& measurement) { mByLayer[layer] = measurement; }
+
+  o2::itsmft::ioutils::SurfaceMeasurementDecodeResult decode(
+    const CompClusterExt& cluster,
+    BoundedPatternCursor&,
+    const TopologyDictionary*,
+    gsl::span<const SurfaceId> layerToSurface,
+    ClusterSourceId source,
+    uint32_t externalIndex,
+    uint32_t sourceROF,
+    bool) const override
+  {
+    o2::itsmft::ioutils::SurfaceMeasurementDecodeResult result;
+    const int layer = cluster.getSensorID();
+    result.layer = layer;
+    if (layer < 0 || static_cast<size_t>(layer) >= layerToSurface.size()) {
+      return result;
+    }
+    result.layerMapped = true;
+    result.kind = mKind;
+    const auto it = mByLayer.find(layer);
+    BOOST_REQUIRE(it != mByLayer.end());
+    auto measurement = it->second;
+    measurement.surface = layerToSurface[layer];
+    measurement.sensor = DetectorSensorId{static_cast<uint32_t>(mDetector), static_cast<uint32_t>(layer)};
+    measurement.cluster = ClusterRef{source, externalIndex};
+    measurement.sourceROF = sourceROF;
+    result.measurement = measurement;
+    return result;
+  }
+
+ private:
+  o2::detectors::DetID::ID mDetector;
+  SurfaceKind mKind;
+  std::map<int, SurfaceMeasurement> mByLayer;
 };
 
 const TopologyDictionary& dict()
@@ -166,6 +220,36 @@ o2::its::TrackingFrameInfo makeDiskHit(float z, float x, float y, float sigma2X 
   return o2::its::TrackingFrameInfo{x, y, z, 0.f, 0.f, {x, y}, {sigma2X, 0.f, sigma2Y}};
 }
 
+// Test-local field-mapping helpers (not a production API), matching the same
+// Cylinder/Disk field mapping used by the production migration and by
+// testTransitionPolicyOperationsNative.cxx: the single SurfaceMeasurement now
+// standing in for the retired {Cluster, TrackingFrameInfo} pair at each
+// candidate position.
+SurfaceMeasurement barrelMeasurementFor(const o2::its::Cluster& cluster, const o2::its::TrackingFrameInfo& hit)
+{
+  SurfaceMeasurement measurement{};
+  measurement.global = {cluster.xCoordinate, cluster.yCoordinate, cluster.zCoordinate};
+  measurement.frame.q = hit.xTrackingFrame;
+  measurement.frame.frameAngle = hit.alphaTrackingFrame;
+  measurement.frame.u = hit.positionTrackingFrame[0];
+  measurement.frame.v = hit.positionTrackingFrame[1];
+  measurement.covariance.uu = hit.covarianceTrackingFrame[0];
+  measurement.covariance.uv = hit.covarianceTrackingFrame[1];
+  measurement.covariance.vv = hit.covarianceTrackingFrame[2];
+  return measurement;
+}
+
+SurfaceMeasurement diskMeasurementFor(const o2::its::Cluster& cluster, const o2::its::TrackingFrameInfo& hit)
+{
+  SurfaceMeasurement measurement{};
+  measurement.global = {cluster.xCoordinate, cluster.yCoordinate, cluster.zCoordinate};
+  measurement.frame.q = cluster.zCoordinate; // disk adapter contract: frame.q == global.z
+  measurement.covariance.uu = hit.covarianceTrackingFrame[0];
+  measurement.covariance.uv = 0.f;
+  measurement.covariance.vv = hit.covarianceTrackingFrame[2];
+  return measurement;
+}
+
 // Stage-B activation: the produced Cell no longer inherits a track
 // parametrization, so the oracle comparison is done directly on
 // SurfaceKinematicState (both the produced cell's own .state() and the
@@ -200,6 +284,17 @@ struct Rig {
       mTag(tag)
   {
     resetDetectorDefaults(params[0], det);
+    // This file bypasses computeLayerTracklets()'s phi/z/index-table cuts
+    // entirely (candidates are injected directly, see
+    // injectCandidateTracklets() below): clearing RebuildClusterLUT keeps
+    // TimeFrame::initialise() from also exercising prepareClusters()'s
+    // index-table row/col binning and ROF-mask lookup on the synthetic
+    // candidate positions/ROF this file uses -- that out-of-scope subsystem
+    // is not configured for this file's candidates (in particular, no
+    // multiplicity/UPC ROF mask is ever loaded, so its default view is
+    // never a valid one to index once real clusters are present, unlike
+    // when this file loaded zero real clusters).
+    params[0].PassFlags.reset(IterationStep::RebuildClusterLUT);
     tf.setMemoryPool(pool);
     traits.setMemoryPool(pool);
     traits.setNThreads(nThreads, arena);
@@ -233,6 +328,9 @@ struct Rig {
     BOOST_REQUIRE(result.ok());
   }
 
+  o2::detectors::DetID::ID detector() const noexcept { return mDet; }
+  SurfaceKind kind() const noexcept { return mKind; }
+
   std::shared_ptr<BoundedMemoryResource> pool;
   std::vector<TrackingParameters> params;
   TimeFrame<NLayers> tf;
@@ -244,6 +342,39 @@ struct Rig {
   SurfaceKind mKind;
   TransitionPolicyTag mTag;
 };
+
+// Loads exactly the three supplied {cluster, hit} candidates at legacy
+// layers {0, 1, 2} (every test in this file locates its candidate cell via
+// findCellTopologyId(topology, 0, 1, 2), so the layer mapping is always this
+// identity triple) through the real loadNormalizedSource() path, via
+// FixedMeasurementDecoder -- so the normalized frame and every legacy
+// compatibility structure are populated together, in lockstep, exactly as
+// TrackerTraits::initialiseTimeFrame()'s one-time normalized-measurement
+// binding requires. Must be called after Rig::establishLayout() (which needs
+// the catalog/topology first) and before TrackerTraits::initialiseTimeFrame()
+// (which validates the normalized frame against the legacy structures this
+// call also populates).
+template <int NLayers>
+void loadCandidateClusters(Rig<NLayers>& rig,
+                           const std::array<o2::its::Cluster, 3>& clusters,
+                           const std::array<o2::its::TrackingFrameInfo, 3>& hits)
+{
+  const bool isDisk = rig.kind() == SurfaceKind::Disk;
+  FixedMeasurementDecoder decoder{rig.detector(), rig.kind()};
+  std::vector<CompClusterExt> compClusters;
+  compClusters.reserve(3);
+  for (int layer = 0; layer < 3; ++layer) {
+    compClusters.emplace_back(0, 0, CompCluster::InvalidPatternID, static_cast<uint16_t>(layer));
+    const auto measurement = isDisk ? diskMeasurementFor(clusters[layer], hits[layer]) : barrelMeasurementFor(clusters[layer], hits[layer]);
+    decoder.setMeasurement(layer, measurement);
+  }
+  const std::vector<unsigned char> noPatterns;
+  const std::vector<ROFRecord> rofs{ROFRecord{{0, 0}, 0, 0, 3}};
+  const o2::InteractionRecord origin{50, 5};
+  const ROFTimingConfig timing{40, 0, 0, 0};
+  const auto result = rig.tf.loadNormalizedSource(decoder, origin, timing, compClusters, noPatterns, rofs, &dict(), nullptr, rig.detector());
+  BOOST_REQUIRE(result.ok());
+}
 
 // Finds the cellTopologyId whose two transitions span exactly
 // inner->middle->outer, without assuming any particular enumeration order
@@ -263,14 +394,18 @@ int findCellTopologyId(const TopologyView& topology, int inner, int middle, int 
 }
 
 // Bypasses the real (untouched, out-of-scope-for-this-change)
-// computeLayerTracklets() phi/z/index-table cuts entirely: injects exactly
-// one synthetic cluster per layer and exactly one synthetic tracklet per
-// transition of cellTopologyId, wired so computeLayerCellsForPolicy<Tag>'s
-// tracklet-pairing loop finds exactly one candidate pair.
+// computeLayerTracklets() phi/z/index-table cuts entirely: RebuildClusterLUT
+// is cleared (Rig's constructor), so TimeFrame::initialise() resizes
+// mClusters[layer] to match the single already-loaded unsorted cluster but
+// leaves it default-constructed (clusterId == UnusedIndex) rather than
+// sorting real content into it. This helper assigns the real sorted-cluster
+// entry at index 0 directly (matching loadCandidateClusters()'s own
+// unsorted-index-0 cluster on each layer) and injects exactly one synthetic
+// tracklet per transition of cellTopologyId, wired so
+// computeLayerCellsForPolicy<Tag>'s tracklet-pairing loop finds exactly one
+// candidate pair.
 template <int NLayers>
-void injectOneCellCandidate(Rig<NLayers>& rig, int cellTopologyId,
-                            const std::array<o2::its::Cluster, 3>& clusters,
-                            const std::array<o2::its::TrackingFrameInfo, 3>& hits)
+void injectCandidateTracklets(Rig<NLayers>& rig, int cellTopologyId, const std::array<o2::its::Cluster, 3>& clusters)
 {
   const auto topology = rig.tf.getTrackingTopologyView();
   const auto& cell = topology.getCell(cellTopologyId);
@@ -279,9 +414,8 @@ void injectOneCellCandidate(Rig<NLayers>& rig, int cellTopologyId,
   const int layers[3] = {first.fromLayer, first.toLayer, second.toLayer};
 
   for (int i = 0; i < 3; ++i) {
-    rig.tf.getUnsortedClusters()[layers[i]].push_back(clusters[i]);
-    rig.tf.getClusters()[layers[i]].push_back(clusters[i]);
-    rig.tf.addTrackingFrameInfoToLayer(layers[i], hits[i]);
+    BOOST_REQUIRE_EQUAL(rig.tf.getClusters()[layers[i]].size(), 1u);
+    rig.tf.getClusters()[layers[i]][0] = clusters[i];
   }
 
   const o2::its::TimeEstBC ts{static_cast<uint32_t>(0), static_cast<uint16_t>(1)};
@@ -306,6 +440,15 @@ BOOST_AUTO_TEST_CASE(CylinderComputeLayerCellsMatchesBuildCellSeedOracle)
   rig.params[0].LayerxX0[1] = 0.005f; // middle
   rig.params[0].LayerxX0[2] = 0.f;    // outer: contractually unused by CylinderCylinder
   rig.establishLayout();
+
+  const std::array<o2::its::Cluster, 3> clusters{makeGlobalCluster(3.0f, 0.100f, 0.9f, 0),
+                                                 makeGlobalCluster(4.0f, 0.150f, 1.05f, 0),
+                                                 makeGlobalCluster(5.0f, 0.201f, 1.25f, 0)};
+  loadCandidateClusters(rig, clusters,
+                        {makeBarrelHit(3.f, 0.f, 0.100f, 0.9f),
+                         makeBarrelHit(4.f, 0.f, 0.150f, 1.05f),
+                         makeBarrelHit(5.f, 0.f, 0.201f, 1.25f)});
+
   rig.traits.updateTrackingParameters(rig.params);
   rig.traits.initialiseTimeFrame(0);
   BOOST_REQUIRE(rig.traits.hasTraversalCache());
@@ -314,13 +457,7 @@ BOOST_AUTO_TEST_CASE(CylinderComputeLayerCellsMatchesBuildCellSeedOracle)
   const int cellTopologyId = findCellTopologyId(topology, 0, 1, 2);
   BOOST_REQUIRE_GE(cellTopologyId, 0);
 
-  injectOneCellCandidate(rig, cellTopologyId,
-                         {makeGlobalCluster(3.0f, 0.100f, 0.9f, 0),
-                          makeGlobalCluster(4.0f, 0.150f, 1.05f, 0),
-                          makeGlobalCluster(5.0f, 0.201f, 1.25f, 0)},
-                         {makeBarrelHit(3.f, 0.f, 0.100f, 0.9f),
-                          makeBarrelHit(4.f, 0.f, 0.150f, 1.05f),
-                          makeBarrelHit(5.f, 0.f, 0.201f, 1.25f)});
+  injectCandidateTracklets(rig, cellTopologyId, clusters);
 
   // Any other cellTopologyId keeps its empty-transition early-continue
   // path: cleared once up front, never touched again.
@@ -350,15 +487,13 @@ BOOST_AUTO_TEST_CASE(CylinderComputeLayerCellsMatchesBuildCellSeedOracle)
   // construction is skipped, exactly as before this change.
   BOOST_CHECK(rig.tf.getCellsLabel(cellTopologyId).empty());
 
-  // Oracle: independently refetch the same clusters/hits/material through
-  // the TimeFrame accessors (never re-typed literals) and call
+  // Oracle: independently refetch the same measurements through
+  // TrackerTraits::getLayerMeasurements() (never re-typed literals) and call
   // buildCellSeed<CylinderCylinder> directly.
-  const auto& oracleClusterInner = rig.tf.getUnsortedClusters()[0][producedCell.getFirstClusterIndex()];
-  const auto& oracleClusterMiddle = rig.tf.getUnsortedClusters()[1][producedCell.getSecondClusterIndex()];
-  const auto& oracleClusterOuter = rig.tf.getUnsortedClusters()[2][producedCell.getThirdClusterIndex()];
-  const auto& oracleHitInner = rig.tf.getTrackingFrameInfoOnLayer(0)[producedCell.getFirstClusterIndex()];
-  const auto& oracleHitMiddle = rig.tf.getTrackingFrameInfoOnLayer(1)[producedCell.getSecondClusterIndex()];
-  const auto& oracleHitOuter = rig.tf.getTrackingFrameInfoOnLayer(2)[producedCell.getThirdClusterIndex()];
+  const auto layerMeasurements = rig.traits.getLayerMeasurements();
+  const auto& oracleMeasurementInner = layerMeasurements[0][producedCell.getFirstClusterIndex()];
+  const auto& oracleMeasurementMiddle = layerMeasurements[1][producedCell.getSecondClusterIndex()];
+  const auto& oracleMeasurementOuter = layerMeasurements[2][producedCell.getThirdClusterIndex()];
   const std::array<float, 3> xOverX0{rig.params[0].LayerxX0[0], rig.params[0].LayerxX0[1], rig.params[0].LayerxX0[2]};
   const auto material = toMaterial(xOverX0);
 
@@ -369,8 +504,7 @@ BOOST_AUTO_TEST_CASE(CylinderComputeLayerCellsMatchesBuildCellSeedOracle)
   float oracleChi2 = 0.f;
   OperationFailureReason oracleReason{};
   BOOST_REQUIRE(buildCellSeed<TransitionPolicyTag::CylinderCylinder>(
-    oracleClusterInner, oracleClusterMiddle, oracleClusterOuter,
-    oracleHitInner, oracleHitMiddle, oracleHitOuter,
+    oracleMeasurementInner, oracleMeasurementMiddle, oracleMeasurementOuter,
     material, Bz, kCompatibilityAbsCharge, kCompatibilityPID, oracleState, oracleChi2, policyParams, oracleReason));
 
   checkSurfaceKinematicStateEqual(producedCell.state(), oracleState);
@@ -389,6 +523,15 @@ BOOST_AUTO_TEST_CASE(DiskComputeLayerCellsMatchesBuildCellSeedOracle)
   rig.params[0].LayerxX0[1] = 0.017f;  // middle
   rig.params[0].LayerxX0[2] = 0.02f;   // outer
   rig.establishLayout();
+
+  const std::array<o2::its::Cluster, 3> clusters{makeGlobalCluster(1.0f, 0.5f, -0.4f, 0),
+                                                 makeGlobalCluster(1.3f, 0.62f, -0.6f, 0),
+                                                 makeGlobalCluster(1.7f, 0.78f, -0.9f, 0)};
+  loadCandidateClusters(rig, clusters,
+                        {makeDiskHit(-0.4f, 1.0f, 0.5f),
+                         makeDiskHit(-0.6f, 1.3f, 0.62f),
+                         makeDiskHit(-0.9f, 1.7f, 0.78f)});
+
   rig.traits.updateTrackingParameters(rig.params);
   rig.traits.initialiseTimeFrame(0);
   BOOST_REQUIRE(rig.traits.hasTraversalCache());
@@ -397,25 +540,17 @@ BOOST_AUTO_TEST_CASE(DiskComputeLayerCellsMatchesBuildCellSeedOracle)
   const int cellTopologyId = findCellTopologyId(topology, 0, 1, 2);
   BOOST_REQUIRE_GE(cellTopologyId, 0);
 
-  injectOneCellCandidate(rig, cellTopologyId,
-                         {makeGlobalCluster(1.0f, 0.5f, -0.4f, 0),
-                          makeGlobalCluster(1.3f, 0.62f, -0.6f, 0),
-                          makeGlobalCluster(1.7f, 0.78f, -0.9f, 0)},
-                         {makeDiskHit(-0.4f, 1.0f, 0.5f),
-                          makeDiskHit(-0.6f, 1.3f, 0.62f),
-                          makeDiskHit(-0.9f, 1.7f, 0.78f)});
+  injectCandidateTracklets(rig, cellTopologyId, clusters);
 
   rig.traits.computeLayerCells(0);
 
   BOOST_REQUIRE_EQUAL(rig.tf.getCells()[cellTopologyId].size(), 1u);
   const auto& producedCell = rig.tf.getCells()[cellTopologyId][0];
 
-  const auto& oracleClusterInner = rig.tf.getUnsortedClusters()[0][producedCell.getFirstClusterIndex()];
-  const auto& oracleClusterMiddle = rig.tf.getUnsortedClusters()[1][producedCell.getSecondClusterIndex()];
-  const auto& oracleClusterOuter = rig.tf.getUnsortedClusters()[2][producedCell.getThirdClusterIndex()];
-  const auto& oracleHitInner = rig.tf.getTrackingFrameInfoOnLayer(0)[producedCell.getFirstClusterIndex()];
-  const auto& oracleHitMiddle = rig.tf.getTrackingFrameInfoOnLayer(1)[producedCell.getSecondClusterIndex()];
-  const auto& oracleHitOuter = rig.tf.getTrackingFrameInfoOnLayer(2)[producedCell.getThirdClusterIndex()];
+  const auto layerMeasurements = rig.traits.getLayerMeasurements();
+  const auto& oracleMeasurementInner = layerMeasurements[0][producedCell.getFirstClusterIndex()];
+  const auto& oracleMeasurementMiddle = layerMeasurements[1][producedCell.getSecondClusterIndex()];
+  const auto& oracleMeasurementOuter = layerMeasurements[2][producedCell.getThirdClusterIndex()];
   const std::array<float, 3> xOverX0{rig.params[0].LayerxX0[0], rig.params[0].LayerxX0[1], rig.params[0].LayerxX0[2]};
   const auto material = toMaterial(xOverX0);
 
@@ -427,8 +562,7 @@ BOOST_AUTO_TEST_CASE(DiskComputeLayerCellsMatchesBuildCellSeedOracle)
   float oracleChi2 = 0.f;
   OperationFailureReason oracleReason{};
   BOOST_REQUIRE(buildCellSeed<TransitionPolicyTag::DiskDisk>(
-    oracleClusterInner, oracleClusterMiddle, oracleClusterOuter,
-    oracleHitInner, oracleHitMiddle, oracleHitOuter,
+    oracleMeasurementInner, oracleMeasurementMiddle, oracleMeasurementOuter,
     material, Bz, kCompatibilityAbsCharge, kCompatibilityPID, oracleState, oracleChi2, policyParams, oracleReason));
 
   checkSurfaceKinematicStateEqual(producedCell.state(), oracleState);
@@ -446,6 +580,15 @@ BOOST_AUTO_TEST_CASE(DiskComputeLayerCellsRoadPreCutRejectsBeforeBuildCellSeed)
   // DiskDiskPolicyParams::cellRoadRCut, not a stale/uninitialized value.
   rig.params[0].CellRoadRCut = 1.e-6f;
   rig.establishLayout();
+
+  const std::array<o2::its::Cluster, 3> clusters{makeGlobalCluster(1.0f, 0.5f, -0.4f, 0),
+                                                 makeGlobalCluster(1.3f, 0.62f, -0.6f, 0),
+                                                 makeGlobalCluster(1.7f, 0.78f, -0.9f, 0)};
+  loadCandidateClusters(rig, clusters,
+                        {makeDiskHit(-0.4f, 1.0f, 0.5f),
+                         makeDiskHit(-0.6f, 1.3f, 0.62f),
+                         makeDiskHit(-0.9f, 1.7f, 0.78f)});
+
   rig.traits.updateTrackingParameters(rig.params);
   rig.traits.initialiseTimeFrame(0);
 
@@ -453,13 +596,7 @@ BOOST_AUTO_TEST_CASE(DiskComputeLayerCellsRoadPreCutRejectsBeforeBuildCellSeed)
   const int cellTopologyId = findCellTopologyId(topology, 0, 1, 2);
   BOOST_REQUIRE_GE(cellTopologyId, 0);
 
-  injectOneCellCandidate(rig, cellTopologyId,
-                         {makeGlobalCluster(1.0f, 0.5f, -0.4f, 0),
-                          makeGlobalCluster(1.3f, 0.62f, -0.6f, 0),
-                          makeGlobalCluster(1.7f, 0.78f, -0.9f, 0)},
-                         {makeDiskHit(-0.4f, 1.0f, 0.5f),
-                          makeDiskHit(-0.6f, 1.3f, 0.62f),
-                          makeDiskHit(-0.9f, 1.7f, 0.78f)});
+  injectCandidateTracklets(rig, cellTopologyId, clusters);
 
   rig.traits.computeLayerCells(0);
 
@@ -486,6 +623,15 @@ BOOST_AUTO_TEST_CASE(CylinderComputeLayerCellsOnePassAndTwoPassAgree)
     rig.params[0].LayerxX0[0] = 0.005f;
     rig.params[0].LayerxX0[1] = 0.005f;
     rig.establishLayout();
+
+    const std::array<o2::its::Cluster, 3> clusters{makeGlobalCluster(3.0f, 0.100f, 0.9f, 0),
+                                                   makeGlobalCluster(4.0f, 0.150f, 1.05f, 0),
+                                                   makeGlobalCluster(5.0f, 0.201f, 1.25f, 0)};
+    loadCandidateClusters(rig, clusters,
+                          {makeBarrelHit(3.f, 0.f, 0.100f, 0.9f),
+                           makeBarrelHit(4.f, 0.f, 0.150f, 1.05f),
+                           makeBarrelHit(5.f, 0.f, 0.201f, 1.25f)});
+
     rig.traits.updateTrackingParameters(rig.params);
     rig.traits.initialiseTimeFrame(0);
 
@@ -493,13 +639,7 @@ BOOST_AUTO_TEST_CASE(CylinderComputeLayerCellsOnePassAndTwoPassAgree)
     const int cellTopologyId = findCellTopologyId(topology, 0, 1, 2);
     BOOST_REQUIRE_GE(cellTopologyId, 0);
 
-    injectOneCellCandidate(rig, cellTopologyId,
-                           {makeGlobalCluster(3.0f, 0.100f, 0.9f, 0),
-                            makeGlobalCluster(4.0f, 0.150f, 1.05f, 0),
-                            makeGlobalCluster(5.0f, 0.201f, 1.25f, 0)},
-                           {makeBarrelHit(3.f, 0.f, 0.100f, 0.9f),
-                            makeBarrelHit(4.f, 0.f, 0.150f, 1.05f),
-                            makeBarrelHit(5.f, 0.f, 0.201f, 1.25f)});
+    injectCandidateTracklets(rig, cellTopologyId, clusters);
 
     rig.traits.computeLayerCells(0);
 
@@ -542,6 +682,15 @@ BOOST_AUTO_TEST_CASE(DiskComputeLayerCellsOnePassAndTwoPassAgree)
     rig.params[0].TrackletMinPt = 0.3f;
     rig.params[0].CellRoadRCut = 1000.f; // generous: road pre-cut must pass here
     rig.establishLayout();
+
+    const std::array<o2::its::Cluster, 3> clusters{makeGlobalCluster(1.0f, 0.5f, -0.4f, 0),
+                                                   makeGlobalCluster(1.3f, 0.62f, -0.6f, 0),
+                                                   makeGlobalCluster(1.7f, 0.78f, -0.9f, 0)};
+    loadCandidateClusters(rig, clusters,
+                          {makeDiskHit(-0.4f, 1.0f, 0.5f),
+                           makeDiskHit(-0.6f, 1.3f, 0.62f),
+                           makeDiskHit(-0.9f, 1.7f, 0.78f)});
+
     rig.traits.updateTrackingParameters(rig.params);
     rig.traits.initialiseTimeFrame(0);
 
@@ -549,13 +698,7 @@ BOOST_AUTO_TEST_CASE(DiskComputeLayerCellsOnePassAndTwoPassAgree)
     const int cellTopologyId = findCellTopologyId(topology, 0, 1, 2);
     BOOST_REQUIRE_GE(cellTopologyId, 0);
 
-    injectOneCellCandidate(rig, cellTopologyId,
-                           {makeGlobalCluster(1.0f, 0.5f, -0.4f, 0),
-                            makeGlobalCluster(1.3f, 0.62f, -0.6f, 0),
-                            makeGlobalCluster(1.7f, 0.78f, -0.9f, 0)},
-                           {makeDiskHit(-0.4f, 1.0f, 0.5f),
-                            makeDiskHit(-0.6f, 1.3f, 0.62f),
-                            makeDiskHit(-0.9f, 1.7f, 0.78f)});
+    injectCandidateTracklets(rig, cellTopologyId, clusters);
 
     rig.traits.computeLayerCells(0);
 
@@ -598,6 +741,15 @@ BOOST_AUTO_TEST_CASE(CylinderComputeLayerCellsSafeWithEmptyDiskReferenceSpan)
   rig.params[0].LayerxX0[0] = 0.005f;
   rig.params[0].LayerxX0[1] = 0.005f;
   rig.establishLayout();
+
+  const std::array<o2::its::Cluster, 3> clusters{makeGlobalCluster(3.0f, 0.100f, 0.9f, 0),
+                                                 makeGlobalCluster(4.0f, 0.150f, 1.05f, 0),
+                                                 makeGlobalCluster(5.0f, 0.201f, 1.25f, 0)};
+  loadCandidateClusters(rig, clusters,
+                        {makeBarrelHit(3.f, 0.f, 0.100f, 0.9f),
+                         makeBarrelHit(4.f, 0.f, 0.150f, 1.05f),
+                         makeBarrelHit(5.f, 0.f, 0.201f, 1.25f)});
+
   rig.traits.updateTrackingParameters(rig.params);
   rig.traits.initialiseTimeFrame(0);
   BOOST_REQUIRE(rig.traits.hasTraversalCache());
@@ -606,13 +758,7 @@ BOOST_AUTO_TEST_CASE(CylinderComputeLayerCellsSafeWithEmptyDiskReferenceSpan)
   const int cellTopologyId = findCellTopologyId(topology, 0, 1, 2);
   BOOST_REQUIRE_GE(cellTopologyId, 0);
 
-  injectOneCellCandidate(rig, cellTopologyId,
-                         {makeGlobalCluster(3.0f, 0.100f, 0.9f, 0),
-                          makeGlobalCluster(4.0f, 0.150f, 1.05f, 0),
-                          makeGlobalCluster(5.0f, 0.201f, 1.25f, 0)},
-                         {makeBarrelHit(3.f, 0.f, 0.100f, 0.9f),
-                          makeBarrelHit(4.f, 0.f, 0.150f, 1.05f),
-                          makeBarrelHit(5.f, 0.f, 0.201f, 1.25f)});
+  injectCandidateTracklets(rig, cellTopologyId, clusters);
 
   rig.traits.computeLayerCells(0);
 
@@ -637,6 +783,15 @@ BOOST_AUTO_TEST_CASE(RepeatedComputeLayerCellsCallsDoNotRebindOrIncreaseCounts)
   rig.params[0].TrackletMinPt = 0.3f;
   rig.params[0].CellRoadRCut = 1000.f;
   rig.establishLayout();
+
+  const std::array<o2::its::Cluster, 3> clusters{makeGlobalCluster(1.0f, 0.5f, -0.4f, 0),
+                                                 makeGlobalCluster(1.3f, 0.62f, -0.6f, 0),
+                                                 makeGlobalCluster(1.7f, 0.78f, -0.9f, 0)};
+  loadCandidateClusters(rig, clusters,
+                        {makeDiskHit(-0.4f, 1.0f, 0.5f),
+                         makeDiskHit(-0.6f, 1.3f, 0.62f),
+                         makeDiskHit(-0.9f, 1.7f, 0.78f)});
+
   rig.traits.updateTrackingParameters(rig.params);
   rig.traits.initialiseTimeFrame(0);
   BOOST_REQUIRE(rig.traits.hasTraversalCache());
@@ -649,13 +804,7 @@ BOOST_AUTO_TEST_CASE(RepeatedComputeLayerCellsCallsDoNotRebindOrIncreaseCounts)
   const int cellTopologyId = findCellTopologyId(topology, 0, 1, 2);
   BOOST_REQUIRE_GE(cellTopologyId, 0);
 
-  injectOneCellCandidate(rig, cellTopologyId,
-                         {makeGlobalCluster(1.0f, 0.5f, -0.4f, 0),
-                          makeGlobalCluster(1.3f, 0.62f, -0.6f, 0),
-                          makeGlobalCluster(1.7f, 0.78f, -0.9f, 0)},
-                         {makeDiskHit(-0.4f, 1.0f, 0.5f),
-                          makeDiskHit(-0.6f, 1.3f, 0.62f),
-                          makeDiskHit(-0.9f, 1.7f, 0.78f)});
+  injectCandidateTracklets(rig, cellTopologyId, clusters);
 
   rig.traits.computeLayerCells(0);
   BOOST_REQUIRE_EQUAL(rig.tf.getCells()[cellTopologyId].size(), 1u);
@@ -668,16 +817,14 @@ BOOST_AUTO_TEST_CASE(RepeatedComputeLayerCellsCallsDoNotRebindOrIncreaseCounts)
   BOOST_CHECK_EQUAL(rig.traits.getPolicyBindingCount(TransitionPolicyTag::DiskDisk), diskBindingCountAfterInit);
   BOOST_CHECK_EQUAL(rig.traits.getPolicyBindingCount(TransitionPolicyTag::CylinderCylinder), cylinderBindingCountAfterInit);
 
-  // Re-inject and recompute: a fresh call after the tracklets were consumed
-  // must still reproduce the identical chi2 through the same, never-rebound
+  // Re-inject tracklets and recompute (the underlying candidate clusters/
+  // measurements loaded above are untouched -- reloading them here would
+  // invalidate TrackerTraits::mLayerMeasurements without a fresh
+  // initialiseTimeFrame() call to re-resolve it, which is not what this test
+  // checks): a fresh call after the tracklets were consumed must still
+  // reproduce the identical chi2 through the same, never-rebound
   // mDiskLayerReferenceZ/mDiskPolicyParams cache.
-  injectOneCellCandidate(rig, cellTopologyId,
-                         {makeGlobalCluster(1.0f, 0.5f, -0.4f, 0),
-                          makeGlobalCluster(1.3f, 0.62f, -0.6f, 0),
-                          makeGlobalCluster(1.7f, 0.78f, -0.9f, 0)},
-                         {makeDiskHit(-0.4f, 1.0f, 0.5f),
-                          makeDiskHit(-0.6f, 1.3f, 0.62f),
-                          makeDiskHit(-0.9f, 1.7f, 0.78f)});
+  injectCandidateTracklets(rig, cellTopologyId, clusters);
   rig.traits.computeLayerCells(0);
 
   BOOST_CHECK_EQUAL(rig.traits.getTraversalGroupingCount(), groupingCountAfterInit);

@@ -105,9 +105,17 @@ std::array<NominalSurfaceMaterial, 3> barrelMaterial()
   return {barrelMaterialInner(), barrelMaterialMiddle(), barrelMaterialOuterPoison()};
 }
 
+// Test-local field-mapping helper (not a production API), combining a
+// full-precision hit's tracking-frame fields (reference coordinate/frame
+// angle/measured local coordinates/covariance -- everything predictedChi2/
+// update/rotate/propagate read) into one SurfaceMeasurement. Also used
+// directly (without an accompanying cluster) as the single measurement input
+// for attachHit<CylinderCylinder> below.
 SurfaceMeasurement barrelMeasurementFromHit(const o2::its::TrackingFrameInfo& hit)
 {
   SurfaceMeasurement measurement{};
+  measurement.frame.q = hit.xTrackingFrame;
+  measurement.frame.frameAngle = hit.alphaTrackingFrame;
   measurement.frame.u = hit.positionTrackingFrame[0];
   measurement.frame.v = hit.positionTrackingFrame[1];
   measurement.covariance.uu = hit.covarianceTrackingFrame[0];
@@ -115,6 +123,21 @@ SurfaceMeasurement barrelMeasurementFromHit(const o2::its::TrackingFrameInfo& hi
   measurement.covariance.vv = hit.covarianceTrackingFrame[2];
   return measurement;
 }
+
+// Combines a cluster's global position with a hit's tracking-frame fields:
+// the single SurfaceMeasurement now standing in for the retired
+// {Cluster, TrackingFrameInfo} pair at each of buildCellSeed<Tag>'s three
+// candidate positions.
+SurfaceMeasurement barrelMeasurementFor(const o2::its::Cluster& cluster, const o2::its::TrackingFrameInfo& hit)
+{
+  auto measurement = barrelMeasurementFromHit(hit);
+  measurement.global = {cluster.xCoordinate, cluster.yCoordinate, cluster.zCoordinate};
+  return measurement;
+}
+
+SurfaceMeasurement barrelMeasurementInner() { return barrelMeasurementFor(barrelClusterInner(), barrelHitInner()); }
+SurfaceMeasurement barrelMeasurementMiddle() { return barrelMeasurementFor(barrelClusterMiddle(), barrelHitMiddle()); }
+SurfaceMeasurement barrelMeasurementOuter() { return barrelMeasurementFor(barrelClusterOuter(), barrelHitOuter()); }
 
 // Independent re-transcription of native buildCellSeed<CylinderCylinder>'s
 // own documented call sequence, built directly on the public barrel::
@@ -128,21 +151,21 @@ bool replayBuildCellSeedBarrel(uint8_t absCharge, o2::track::PID pid, float maxC
                                OperationFailureReason& reason, int nSteps = 2)
 {
   SurfaceKinematicState state{};
-  if (!barrel::buildSeed(barrelClusterInner(), barrelClusterMiddle(), barrelHitOuter(), BarrelBz,
+  if (!barrel::buildSeed(barrelMeasurementInner(), barrelMeasurementMiddle(), barrelMeasurementOuter(), BarrelBz,
                          absCharge, pid, state, reason)) {
     return false;
   }
-  const std::array<o2::its::TrackingFrameInfo, 2> steps{barrelHitMiddle(), barrelHitInner()};
+  const std::array<SurfaceMeasurement, 2> steps{barrelMeasurementMiddle(), barrelMeasurementInner()};
   const std::array<NominalSurfaceMaterial, 2> stepMaterial{barrelMaterialMiddle(), barrelMaterialInner()};
   float chi2 = 0.f;
   float stepChi2 = 0.f;
   for (int step = 0; step < nSteps; ++step) {
     const bool isLast = (nSteps == 2) && (step == 1);
-    const auto& hit = steps[step];
-    if (!barrel::rotate(state, hit.alphaTrackingFrame, reason)) {
+    const auto& measurement = steps[step];
+    if (!barrel::rotate(state, measurement.frame.frameAngle, reason)) {
       return false;
     }
-    if (!barrel::propagate(state, hit.xTrackingFrame, BarrelBz, reason)) {
+    if (!barrel::propagate(state, measurement.frame.q, BarrelBz, reason)) {
       return false;
     }
     const auto& stepMat = stepMaterial[step];
@@ -153,7 +176,6 @@ bool replayBuildCellSeedBarrel(uint8_t absCharge, o2::track::PID pid, float maxC
       reason = OperationFailureReason::MaterialFailure;
       return false;
     }
-    const SurfaceMeasurement measurement = barrelMeasurementFromHit(hit);
     float predChi2 = 0.f;
     if (!barrel::predictedChi2(state, measurement, predChi2, reason)) {
       return false;
@@ -219,6 +241,25 @@ SurfaceMeasurement diskMeasurementFromHit(const o2::its::TrackingFrameInfo& hit)
   return measurement;
 }
 
+// Combines a cluster's global position (including z, read by
+// forward::buildSeed's z-ordering/direction formula) with a hit's diagonal
+// covariance and a reference z (Disk field mapping: reference z ->
+// measurement.frame.q, contractually == global.z for the accepted disk
+// adapter): the single SurfaceMeasurement now standing in for the retired
+// {Cluster, TrackingFrameInfo} pair at each of buildCellSeed<Tag>'s three
+// candidate positions.
+SurfaceMeasurement diskMeasurementFor(const o2::its::Cluster& cluster, const o2::its::TrackingFrameInfo& hit)
+{
+  auto measurement = diskMeasurementFromHit(hit);
+  measurement.global = {cluster.xCoordinate, cluster.yCoordinate, cluster.zCoordinate};
+  measurement.frame.q = cluster.zCoordinate;
+  return measurement;
+}
+
+SurfaceMeasurement diskMeasurementInner() { return diskMeasurementFor(diskClusterInner(), diskHitInner()); }
+SurfaceMeasurement diskMeasurementMiddle() { return diskMeasurementFor(diskClusterMiddle(), diskHitMiddle()); }
+SurfaceMeasurement diskMeasurementOuter() { return diskMeasurementFor(diskClusterOuter(), diskHitOuter()); }
+
 // "The accepted forward model": reproduces detail::mftFwdPropagateToZ's own
 // |bz|>0.01f threshold dispatch to Helix/Linear (see
 // TransitionPolicyOperations.cxx's forwardPropagateAcceptedModel, which is
@@ -240,18 +281,18 @@ bool replayBuildCellSeedDisk(uint8_t absCharge, o2::track::PID pid, float maxChi
                              OperationFailureReason& reason, int nSteps = 3)
 {
   SurfaceKinematicState state{};
-  if (!forward::buildSeed(diskClusterInner(), diskClusterMiddle(), diskClusterOuter(), diskHitOuter(),
+  if (!forward::buildSeed(diskMeasurementInner(), diskMeasurementMiddle(), diskMeasurementOuter(),
                           DiskBz, DiskTrackletMinPt, absCharge, pid, state, reason)) {
     return false;
   }
-  const std::array<o2::its::TrackingFrameInfo, 3> steps{diskHitOuter(), diskHitMiddle(), diskHitInner()};
+  const std::array<SurfaceMeasurement, 3> steps{diskMeasurementOuter(), diskMeasurementMiddle(), diskMeasurementInner()};
   const std::array<NominalSurfaceMaterial, 3> stepMaterial{diskMaterialOuter(), diskMaterialMiddle(), diskMaterialInner()};
   float chi2 = 0.f;
   float stepChi2 = 0.f;
   for (int step = 0; step < nSteps; ++step) {
     const bool isLast = (nSteps == 3) && (step == 2);
-    const auto& hit = steps[step];
-    if (!replayForwardPropagateAcceptedModel(state, hit.zCoordinate, DiskBz, reason)) {
+    const auto& measurement = steps[step];
+    if (!replayForwardPropagateAcceptedModel(state, measurement.frame.q, DiskBz, reason)) {
       return false;
     }
     const auto& stepMat = stepMaterial[step];
@@ -262,7 +303,6 @@ bool replayBuildCellSeedDisk(uint8_t absCharge, o2::track::PID pid, float maxChi
       reason = OperationFailureReason::MaterialFailure;
       return false;
     }
-    const SurfaceMeasurement measurement = diskMeasurementFromHit(hit);
     float predChi2 = 0.f;
     if (!forward::predictedChi2(state, measurement, predChi2, reason)) {
       return false;
@@ -345,6 +385,20 @@ constexpr float DiskAttachBz = 5.f;
 
 NominalSurfaceMaterial diskAttachMaterial() { return NominalSurfaceMaterial{0.02f, 0.002f}; }
 
+// Test-local field-mapping helper: builds the SurfaceMeasurement
+// attachHit<DiskDisk> reads from a single legacy hit (Disk field mapping:
+// global coordinates -> measurement.global, reference z -> measurement.
+// frame.q [read as the propagate target, in place of the retired
+// hit.zCoordinate], measured covariance -> measurement.covariance).
+SurfaceMeasurement diskAttachMeasurementFrom(const o2::its::TrackingFrameInfo& hit)
+{
+  auto measurement = diskMeasurementFromHit(hit);
+  measurement.frame.q = hit.zCoordinate;
+  return measurement;
+}
+
+SurfaceMeasurement diskAttachMeasurement() { return diskAttachMeasurementFrom(diskAttachHit()); }
+
 } // namespace
 
 // ===========================================================================
@@ -365,8 +419,7 @@ BOOST_AUTO_TEST_CASE(BuildCellSeedBarrelSuccessMatchesIndependentReplayAndCharac
   CylinderCylinderPolicyParams params;
   params.maxChi2ClusterAttachment = 1.e6f;
   BOOST_REQUIRE(buildCellSeed<TransitionPolicyTag::CylinderCylinder>(
-    barrelClusterInner(), barrelClusterMiddle(), barrelClusterOuter(),
-    barrelHitInner(), barrelHitMiddle(), barrelHitOuter(), barrelMaterial(), BarrelBz,
+    barrelMeasurementInner(), barrelMeasurementMiddle(), barrelMeasurementOuter(), barrelMaterial(), BarrelBz,
     1, o2::track::PID::Kaon, outState, chi2, params, reason));
 
   BOOST_CHECK(bitEqual(outState, replayState));
@@ -399,8 +452,7 @@ BOOST_AUTO_TEST_CASE(BuildCellSeedBarrelExactChi2ThresholdBoundary)
   CylinderCylinderPolicyParams accept;
   accept.maxChi2ClusterAttachment = lastStepChi2; // exact threshold: inclusive accept
   BOOST_CHECK(buildCellSeed<TransitionPolicyTag::CylinderCylinder>(
-    barrelClusterInner(), barrelClusterMiddle(), barrelClusterOuter(),
-    barrelHitInner(), barrelHitMiddle(), barrelHitOuter(), barrelMaterial(), BarrelBz,
+    barrelMeasurementInner(), barrelMeasurementMiddle(), barrelMeasurementOuter(), barrelMaterial(), BarrelBz,
     1, o2::track::PID::Pion, outState, chi2, accept, reason));
 
   const auto sentinel = barrelAttachState();
@@ -411,8 +463,7 @@ BOOST_AUTO_TEST_CASE(BuildCellSeedBarrelExactChi2ThresholdBoundary)
   CylinderCylinderPolicyParams reject;
   reject.maxChi2ClusterAttachment = std::nextafter(lastStepChi2, -std::numeric_limits<float>::infinity());
   BOOST_CHECK(!buildCellSeed<TransitionPolicyTag::CylinderCylinder>(
-    barrelClusterInner(), barrelClusterMiddle(), barrelClusterOuter(),
-    barrelHitInner(), barrelHitMiddle(), barrelHitOuter(), barrelMaterial(), BarrelBz,
+    barrelMeasurementInner(), barrelMeasurementMiddle(), barrelMeasurementOuter(), barrelMaterial(), BarrelBz,
     1, o2::track::PID::Pion, rejectedState, rejectedChi2, reject, reason));
   BOOST_CHECK(reason == OperationFailureReason::PredictedChi2Failure);
   BOOST_CHECK(bitEqual(rejectedState, before));
@@ -433,7 +484,7 @@ BOOST_AUTO_TEST_CASE(BuildCellSeedBarrelFailuresAreTransactional)
     CylinderCylinderPolicyParams params;
     params.maxChi2ClusterAttachment = 1.e6f;
     BOOST_CHECK(!buildCellSeed<TransitionPolicyTag::CylinderCylinder>(
-      clusterInner, barrelClusterMiddle(), barrelClusterOuter(), barrelHitInner(), hitMiddle, barrelHitOuter(),
+      barrelMeasurementFor(clusterInner, barrelHitInner()), barrelMeasurementFor(barrelClusterMiddle(), hitMiddle), barrelMeasurementOuter(),
       material, BarrelBz, 1, o2::track::PID::Pion, state, chi2, params, reason));
     BOOST_CHECK(reason == expected);
     BOOST_CHECK(bitEqual(state, before));
@@ -470,7 +521,7 @@ BOOST_AUTO_TEST_CASE(BuildCellSeedBarrelFailuresAreTransactional)
     CylinderCylinderPolicyParams params;
     params.maxChi2ClusterAttachment = 1.e6f;
     BOOST_CHECK(!buildCellSeed<TransitionPolicyTag::CylinderCylinder>(
-      barrelClusterInner(), barrelClusterMiddle(), barrelClusterOuter(), barrelHitInner(), farHit, barrelHitOuter(),
+      barrelMeasurementInner(), barrelMeasurementFor(barrelClusterMiddle(), farHit), barrelMeasurementOuter(),
       barrelMaterial(), BarrelBz, 1, o2::track::PID::Pion, state, chi2, params, reason));
     BOOST_CHECK(reason == OperationFailureReason::UnreachableTarget || reason == OperationFailureReason::PropagationFailure);
     BOOST_CHECK(bitEqual(state, before));
@@ -495,11 +546,9 @@ BOOST_AUTO_TEST_CASE(BuildCellSeedBarrelIsByteDeterministic)
   CylinderCylinderPolicyParams params;
   params.maxChi2ClusterAttachment = 1.e6f;
   BOOST_REQUIRE(buildCellSeed<TransitionPolicyTag::CylinderCylinder>(
-    barrelClusterInner(), barrelClusterMiddle(), barrelClusterOuter(), barrelHitInner(), barrelHitMiddle(),
-    barrelHitOuter(), barrelMaterial(), BarrelBz, 1, o2::track::PID::Kaon, first, chi2First, params, reason));
+    barrelMeasurementInner(), barrelMeasurementMiddle(), barrelMeasurementOuter(), barrelMaterial(), BarrelBz, 1, o2::track::PID::Kaon, first, chi2First, params, reason));
   BOOST_REQUIRE(buildCellSeed<TransitionPolicyTag::CylinderCylinder>(
-    barrelClusterInner(), barrelClusterMiddle(), barrelClusterOuter(), barrelHitInner(), barrelHitMiddle(),
-    barrelHitOuter(), barrelMaterial(), BarrelBz, 1, o2::track::PID::Kaon, second, chi2Second, params, reason));
+    barrelMeasurementInner(), barrelMeasurementMiddle(), barrelMeasurementOuter(), barrelMaterial(), BarrelBz, 1, o2::track::PID::Kaon, second, chi2Second, params, reason));
   BOOST_CHECK(bitEqual(first, second));
   BOOST_CHECK_EQUAL(chi2First, chi2Second);
 }
@@ -523,8 +572,7 @@ BOOST_AUTO_TEST_CASE(BuildCellSeedDiskSuccessMatchesIndependentReplayAndCharacte
   params.trackletMinPt = DiskTrackletMinPt;
   params.maxChi2ClusterAttachment = 1.e6f;
   BOOST_REQUIRE(buildCellSeed<TransitionPolicyTag::DiskDisk>(
-    diskClusterInner(), diskClusterMiddle(), diskClusterOuter(),
-    diskHitInner(), diskHitMiddle(), diskHitOuter(), diskMaterial(), DiskBz,
+    diskMeasurementInner(), diskMeasurementMiddle(), diskMeasurementOuter(), diskMaterial(), DiskBz,
     2, o2::track::PID::Pion, outState, chi2, params, reason));
 
   BOOST_CHECK(bitEqual(outState, replayState));
@@ -556,8 +604,7 @@ BOOST_AUTO_TEST_CASE(BuildCellSeedDiskExactChi2ThresholdBoundary)
   accept.trackletMinPt = DiskTrackletMinPt;
   accept.maxChi2ClusterAttachment = lastStepChi2;
   BOOST_CHECK(buildCellSeed<TransitionPolicyTag::DiskDisk>(
-    diskClusterInner(), diskClusterMiddle(), diskClusterOuter(),
-    diskHitInner(), diskHitMiddle(), diskHitOuter(), diskMaterial(), DiskBz,
+    diskMeasurementInner(), diskMeasurementMiddle(), diskMeasurementOuter(), diskMaterial(), DiskBz,
     2, o2::track::PID::Pion, outState, chi2, accept, reason));
 
   const auto sentinel = diskAttachState();
@@ -569,8 +616,7 @@ BOOST_AUTO_TEST_CASE(BuildCellSeedDiskExactChi2ThresholdBoundary)
   reject.trackletMinPt = DiskTrackletMinPt;
   reject.maxChi2ClusterAttachment = std::nextafter(lastStepChi2, -std::numeric_limits<float>::infinity());
   BOOST_CHECK(!buildCellSeed<TransitionPolicyTag::DiskDisk>(
-    diskClusterInner(), diskClusterMiddle(), diskClusterOuter(),
-    diskHitInner(), diskHitMiddle(), diskHitOuter(), diskMaterial(), DiskBz,
+    diskMeasurementInner(), diskMeasurementMiddle(), diskMeasurementOuter(), diskMaterial(), DiskBz,
     2, o2::track::PID::Pion, rejectedState, rejectedChi2, reject, reason));
   BOOST_CHECK(reason == OperationFailureReason::PredictedChi2Failure);
   BOOST_CHECK(bitEqual(rejectedState, before));
@@ -594,20 +640,20 @@ BOOST_AUTO_TEST_CASE(BuildCellSeedDiskFailuresAreTransactional)
     params.trackletMinPt = DiskTrackletMinPt;
     params.maxChi2ClusterAttachment = 1.e6f;
     BOOST_CHECK(!buildCellSeed<TransitionPolicyTag::DiskDisk>(
-      diskClusterOuter() /* swapped: inner<=outer violates the strict boundary */, diskClusterMiddle(), diskClusterInner(),
-      diskHitInner(), diskHitMiddle(), diskHitOuter(), diskMaterial(), DiskBz,
+      diskMeasurementOuter() /* swapped: inner<=outer violates the strict boundary */, diskMeasurementMiddle(), diskMeasurementInner(),
+      diskMaterial(), DiskBz,
       2, o2::track::PID::Pion, state, chi2, params, reason));
     BOOST_CHECK(reason == OperationFailureReason::SeedGeometryDegenerate);
     BOOST_CHECK(bitEqual(state, before));
     BOOST_CHECK_EQUAL(chi2, chi2Before);
   }
 
-  // Propagation-stage failure: a non-finite inner-hit target z is rejected
-  // by forward::propagate's own finite-target precondition before any
-  // commit.
+  // Propagation-stage failure: a non-finite inner reference z (measurement.
+  // frame.q) is rejected by forward::propagate's own finite-target
+  // precondition before any commit.
   {
-    auto badHitInner = diskHitInner();
-    badHitInner.zCoordinate = std::numeric_limits<float>::infinity();
+    auto badMeasurementInner = diskMeasurementInner();
+    badMeasurementInner.frame.q = std::numeric_limits<float>::infinity();
     auto state = sentinel;
     float chi2 = -321.f;
     const auto before = state;
@@ -617,8 +663,7 @@ BOOST_AUTO_TEST_CASE(BuildCellSeedDiskFailuresAreTransactional)
     params.trackletMinPt = DiskTrackletMinPt;
     params.maxChi2ClusterAttachment = 1.e6f;
     BOOST_CHECK(!buildCellSeed<TransitionPolicyTag::DiskDisk>(
-      diskClusterInner(), diskClusterMiddle(), diskClusterOuter(),
-      badHitInner, diskHitMiddle(), diskHitOuter(), diskMaterial(), DiskBz,
+      badMeasurementInner, diskMeasurementMiddle(), diskMeasurementOuter(), diskMaterial(), DiskBz,
       2, o2::track::PID::Pion, state, chi2, params, reason));
     BOOST_CHECK(reason == OperationFailureReason::NonFiniteInput);
     BOOST_CHECK(bitEqual(state, before));
@@ -638,8 +683,7 @@ BOOST_AUTO_TEST_CASE(BuildCellSeedDiskFailuresAreTransactional)
     params.trackletMinPt = DiskTrackletMinPt;
     params.maxChi2ClusterAttachment = 1.e6f;
     BOOST_CHECK(!buildCellSeed<TransitionPolicyTag::DiskDisk>(
-      diskClusterInner(), diskClusterMiddle(), diskClusterOuter(),
-      diskHitInner(), diskHitMiddle(), diskHitOuter(), badMaterial, DiskBz,
+      diskMeasurementInner(), diskMeasurementMiddle(), diskMeasurementOuter(), badMaterial, DiskBz,
       2, o2::track::PID::Pion, state, chi2, params, reason));
     BOOST_CHECK(reason == OperationFailureReason::MaterialFailure);
     BOOST_CHECK(bitEqual(state, before));
@@ -658,10 +702,10 @@ BOOST_AUTO_TEST_CASE(BuildCellSeedDiskIsByteDeterministic)
   params.trackletMinPt = DiskTrackletMinPt;
   params.maxChi2ClusterAttachment = 1.e6f;
   BOOST_REQUIRE(buildCellSeed<TransitionPolicyTag::DiskDisk>(
-    diskClusterInner(), diskClusterMiddle(), diskClusterOuter(), diskHitInner(), diskHitMiddle(), diskHitOuter(),
+    diskMeasurementInner(), diskMeasurementMiddle(), diskMeasurementOuter(),
     diskMaterial(), DiskBz, 2, o2::track::PID::Pion, first, chi2First, params, reason));
   BOOST_REQUIRE(buildCellSeed<TransitionPolicyTag::DiskDisk>(
-    diskClusterInner(), diskClusterMiddle(), diskClusterOuter(), diskHitInner(), diskHitMiddle(), diskHitOuter(),
+    diskMeasurementInner(), diskMeasurementMiddle(), diskMeasurementOuter(),
     diskMaterial(), DiskBz, 2, o2::track::PID::Pion, second, chi2Second, params, reason));
   BOOST_CHECK(bitEqual(first, second));
   BOOST_CHECK_EQUAL(chi2First, chi2Second);
@@ -688,10 +732,10 @@ BOOST_AUTO_TEST_CASE(BuildCellSeedDiskActivatesEnergyLossUnlikeLegacyMcsOnlyPath
   params.trackletMinPt = DiskTrackletMinPt;
   params.maxChi2ClusterAttachment = 1.e6f;
   BOOST_REQUIRE(buildCellSeed<TransitionPolicyTag::DiskDisk>(
-    diskClusterInner(), diskClusterMiddle(), diskClusterOuter(), diskHitInner(), diskHitMiddle(), diskHitOuter(),
+    diskMeasurementInner(), diskMeasurementMiddle(), diskMeasurementOuter(),
     noEnergyLoss, DiskBz, 2, o2::track::PID::Pion, stateNoLoss, chi2NoLoss, params, reason));
   BOOST_REQUIRE(buildCellSeed<TransitionPolicyTag::DiskDisk>(
-    diskClusterInner(), diskClusterMiddle(), diskClusterOuter(), diskHitInner(), diskHitMiddle(), diskHitOuter(),
+    diskMeasurementInner(), diskMeasurementMiddle(), diskMeasurementOuter(),
     withEnergyLoss, DiskBz, 2, o2::track::PID::Pion, stateWithLoss, chi2WithLoss, params, reason));
 
   BOOST_CHECK_NE(stateNoLoss.parameters[4], stateWithLoss.parameters[4]);
@@ -941,7 +985,7 @@ BOOST_AUTO_TEST_CASE(CellsAreCompatibleDiskInputsUntouchedAndByteDeterministic)
 BOOST_AUTO_TEST_CASE(AttachHitBarrelSuccessAndExactChi2Threshold)
 {
   const auto state0 = barrelAttachState();
-  const auto hit = barrelAttachHit();
+  const auto hit = barrelMeasurementFromHit(barrelAttachHit());
   const auto material = barrelAttachMaterial();
 
   auto probe = state0;
@@ -978,14 +1022,14 @@ BOOST_AUTO_TEST_CASE(AttachHitBarrelEachFailureStagePreservesStateTransactionall
   CylinderCylinderPolicyParams permissive;
   permissive.maxChi2ClusterAttachment = 1.e6f;
 
-  auto checkFailure = [&](const o2::its::TrackingFrameInfo& hit, const NominalSurfaceMaterial& material,
+  auto checkFailure = [&](const SurfaceMeasurement& measurement, const NominalSurfaceMaterial& material,
                           OperationFailureReason expectedOneOf1, OperationFailureReason expectedOneOf2) {
     auto state = state0;
     float chi2 = -1.f;
     const auto before = state;
     const float chi2Before = chi2;
     OperationFailureReason reason{};
-    BOOST_CHECK(!attachHit<TransitionPolicyTag::CylinderCylinder>(state, hit, material, BarrelAttachBz, chi2, permissive, reason));
+    BOOST_CHECK(!attachHit<TransitionPolicyTag::CylinderCylinder>(state, measurement, material, BarrelAttachBz, chi2, permissive, reason));
     BOOST_CHECK(reason == expectedOneOf1 || reason == expectedOneOf2);
     BOOST_CHECK(bitEqual(state, before));
     BOOST_CHECK_EQUAL(chi2, chi2Before);
@@ -995,20 +1039,20 @@ BOOST_AUTO_TEST_CASE(AttachHitBarrelEachFailureStagePreservesStateTransactionall
   {
     auto farHit = barrelAttachHit();
     farHit.alphaTrackingFrame = state0.alpha + 3.f;
-    checkFailure(farHit, barrelAttachMaterial(), OperationFailureReason::RotationFailure, OperationFailureReason::RotationFailure);
+    checkFailure(barrelMeasurementFromHit(farHit), barrelAttachMaterial(), OperationFailureReason::RotationFailure, OperationFailureReason::RotationFailure);
   }
 
   // Propagation failure.
   {
     auto farHit = barrelAttachHit();
     farHit.xTrackingFrame = -50000.f;
-    checkFailure(farHit, barrelAttachMaterial(), OperationFailureReason::UnreachableTarget, OperationFailureReason::PropagationFailure);
+    checkFailure(barrelMeasurementFromHit(farHit), barrelAttachMaterial(), OperationFailureReason::UnreachableTarget, OperationFailureReason::PropagationFailure);
   }
 
   // Material failure.
   {
     const NominalSurfaceMaterial badMaterial{std::numeric_limits<float>::quiet_NaN(), std::numeric_limits<float>::quiet_NaN()};
-    checkFailure(barrelAttachHit(), badMaterial, OperationFailureReason::MaterialFailure, OperationFailureReason::MaterialFailure);
+    checkFailure(barrelMeasurementFromHit(barrelAttachHit()), badMaterial, OperationFailureReason::MaterialFailure, OperationFailureReason::MaterialFailure);
   }
 }
 
@@ -1034,6 +1078,7 @@ BOOST_AUTO_TEST_CASE(AttachHitBarrelNegativeChi2IsRejectedMatchingLegacyInclusiv
   hit.alphaTrackingFrame = state.alpha;
   hit.xTrackingFrame = state.referenceCoordinate;
   hit.covarianceTrackingFrame[1] = 50.f; // huge uv cross term
+  const auto measurement = barrelMeasurementFromHit(hit);
   const NominalSurfaceMaterial noopMaterial{0.f, 0.f};
   const auto before = state;
   float chi2 = -1.f;
@@ -1041,7 +1086,7 @@ BOOST_AUTO_TEST_CASE(AttachHitBarrelNegativeChi2IsRejectedMatchingLegacyInclusiv
   OperationFailureReason reason{};
   CylinderCylinderPolicyParams permissive;
   permissive.maxChi2ClusterAttachment = 1.e6f;
-  BOOST_CHECK(!attachHit<TransitionPolicyTag::CylinderCylinder>(state, hit, noopMaterial, BarrelAttachBz, chi2, permissive, reason));
+  BOOST_CHECK(!attachHit<TransitionPolicyTag::CylinderCylinder>(state, measurement, noopMaterial, BarrelAttachBz, chi2, permissive, reason));
   BOOST_CHECK(reason == OperationFailureReason::PredictedChi2Failure);
   BOOST_CHECK(bitEqual(state, before));
   BOOST_CHECK_EQUAL(chi2, chi2Before);
@@ -1057,7 +1102,7 @@ BOOST_AUTO_TEST_CASE(AttachHitBarrelIsChargeAwareUnlikeNeutralMaterialCorrection
   neutral.absCharge = 0;
   auto charged = barrelAttachState();
   charged.absCharge = 1;
-  const auto hit = barrelAttachHit();
+  const auto hit = barrelMeasurementFromHit(barrelAttachHit());
   const auto material = barrelAttachMaterial();
 
   float neutralChi2 = 0.f;
@@ -1079,8 +1124,8 @@ BOOST_AUTO_TEST_CASE(AttachHitBarrelIsByteDeterministic)
   OperationFailureReason reason{};
   CylinderCylinderPolicyParams permissive;
   permissive.maxChi2ClusterAttachment = 1.e6f;
-  BOOST_REQUIRE(attachHit<TransitionPolicyTag::CylinderCylinder>(first, barrelAttachHit(), barrelAttachMaterial(), BarrelAttachBz, chi2First, permissive, reason));
-  BOOST_REQUIRE(attachHit<TransitionPolicyTag::CylinderCylinder>(second, barrelAttachHit(), barrelAttachMaterial(), BarrelAttachBz, chi2Second, permissive, reason));
+  BOOST_REQUIRE(attachHit<TransitionPolicyTag::CylinderCylinder>(first, barrelMeasurementFromHit(barrelAttachHit()), barrelAttachMaterial(), BarrelAttachBz, chi2First, permissive, reason));
+  BOOST_REQUIRE(attachHit<TransitionPolicyTag::CylinderCylinder>(second, barrelMeasurementFromHit(barrelAttachHit()), barrelAttachMaterial(), BarrelAttachBz, chi2Second, permissive, reason));
   BOOST_CHECK(bitEqual(first, second));
   BOOST_CHECK_EQUAL(chi2First, chi2Second);
 }
@@ -1092,7 +1137,7 @@ BOOST_AUTO_TEST_CASE(AttachHitBarrelIsByteDeterministic)
 BOOST_AUTO_TEST_CASE(AttachHitDiskSuccessAndExactChi2Threshold)
 {
   const auto state0 = diskAttachState();
-  const auto hit = diskAttachHit();
+  const auto hit = diskAttachMeasurement();
   const auto material = diskAttachMaterial();
 
   auto probe = state0;
@@ -1136,12 +1181,13 @@ BOOST_AUTO_TEST_CASE(AttachHitDiskEachFailureStagePreservesStateTransactionally)
     zeroTanl.parameters[3] = 0.f;
     auto hit = diskAttachHit();
     hit.zCoordinate = -60.f; // dz != 0
+    const auto measurement = diskAttachMeasurementFrom(hit);
     auto state = zeroTanl;
     float chi2 = -1.f;
     const auto before = state;
     const float chi2Before = chi2;
     OperationFailureReason reason{};
-    BOOST_CHECK(!attachHit<TransitionPolicyTag::DiskDisk>(state, hit, diskAttachMaterial(), 0.f, chi2, permissive, reason));
+    BOOST_CHECK(!attachHit<TransitionPolicyTag::DiskDisk>(state, measurement, diskAttachMaterial(), 0.f, chi2, permissive, reason));
     BOOST_CHECK(reason == OperationFailureReason::UnreachableTarget);
     BOOST_CHECK(bitEqual(state, before));
     BOOST_CHECK_EQUAL(chi2, chi2Before);
@@ -1155,7 +1201,7 @@ BOOST_AUTO_TEST_CASE(AttachHitDiskEachFailureStagePreservesStateTransactionally)
     const auto before = state;
     const float chi2Before = chi2;
     OperationFailureReason reason{};
-    BOOST_CHECK(!attachHit<TransitionPolicyTag::DiskDisk>(state, diskAttachHit(), badMaterial, DiskAttachBz, chi2, permissive, reason));
+    BOOST_CHECK(!attachHit<TransitionPolicyTag::DiskDisk>(state, diskAttachMeasurement(), badMaterial, DiskAttachBz, chi2, permissive, reason));
     BOOST_CHECK(reason == OperationFailureReason::MaterialFailure);
     BOOST_CHECK(bitEqual(state, before));
     BOOST_CHECK_EQUAL(chi2, chi2Before);
@@ -1168,7 +1214,7 @@ BOOST_AUTO_TEST_CASE(AttachHitDiskIsChargeAwareUnlikeNeutralMaterialCorrection)
   neutral.absCharge = 0;
   auto charged = diskAttachState();
   charged.absCharge = 1;
-  const auto hit = diskAttachHit();
+  const auto hit = diskAttachMeasurement();
   const auto material = diskAttachMaterial();
 
   float neutralChi2 = 0.f;
@@ -1189,7 +1235,7 @@ BOOST_AUTO_TEST_CASE(AttachHitDiskActivatesEnergyLossUnlikeLegacyMcsOnlyPath)
 
   auto stateNoLoss = diskAttachState();
   auto stateWithLoss = diskAttachState();
-  const auto hit = diskAttachHit();
+  const auto hit = diskAttachMeasurement();
   float chi2NoLoss = 0.f;
   float chi2WithLoss = 0.f;
   OperationFailureReason reason{};
@@ -1209,8 +1255,8 @@ BOOST_AUTO_TEST_CASE(AttachHitDiskIsByteDeterministic)
   OperationFailureReason reason{};
   DiskDiskPolicyParams permissive;
   permissive.maxChi2ClusterAttachment = 1.e6f;
-  BOOST_REQUIRE(attachHit<TransitionPolicyTag::DiskDisk>(first, diskAttachHit(), diskAttachMaterial(), DiskAttachBz, chi2First, permissive, reason));
-  BOOST_REQUIRE(attachHit<TransitionPolicyTag::DiskDisk>(second, diskAttachHit(), diskAttachMaterial(), DiskAttachBz, chi2Second, permissive, reason));
+  BOOST_REQUIRE(attachHit<TransitionPolicyTag::DiskDisk>(first, diskAttachMeasurement(), diskAttachMaterial(), DiskAttachBz, chi2First, permissive, reason));
+  BOOST_REQUIRE(attachHit<TransitionPolicyTag::DiskDisk>(second, diskAttachMeasurement(), diskAttachMaterial(), DiskAttachBz, chi2Second, permissive, reason));
   BOOST_CHECK(bitEqual(first, second));
   BOOST_CHECK_EQUAL(chi2First, chi2Second);
 }
@@ -1235,8 +1281,8 @@ BOOST_AUTO_TEST_CASE(BarrelProjectionUsesFullCovarianceIncludingCrossTerm)
   OperationFailureReason reason{};
   CylinderCylinderPolicyParams permissive;
   permissive.maxChi2ClusterAttachment = 1.e6f;
-  BOOST_REQUIRE(attachHit<TransitionPolicyTag::CylinderCylinder>(stateLow, lowCrossTerm, barrelAttachMaterial(), BarrelAttachBz, chi2Low, permissive, reason));
-  BOOST_REQUIRE(attachHit<TransitionPolicyTag::CylinderCylinder>(stateHigh, highCrossTerm, barrelAttachMaterial(), BarrelAttachBz, chi2High, permissive, reason));
+  BOOST_REQUIRE(attachHit<TransitionPolicyTag::CylinderCylinder>(stateLow, barrelMeasurementFromHit(lowCrossTerm), barrelAttachMaterial(), BarrelAttachBz, chi2Low, permissive, reason));
+  BOOST_REQUIRE(attachHit<TransitionPolicyTag::CylinderCylinder>(stateHigh, barrelMeasurementFromHit(highCrossTerm), barrelAttachMaterial(), BarrelAttachBz, chi2High, permissive, reason));
   BOOST_CHECK_NE(chi2Low, chi2High);
 }
 
@@ -1259,17 +1305,17 @@ BOOST_AUTO_TEST_CASE(ForwardProjectionIsDiagonalOnlyAndIgnoresUnreadTrackingFram
 
   auto stateBaseline = state0;
   float chi2Baseline = 0.f;
-  BOOST_REQUIRE(attachHit<TransitionPolicyTag::DiskDisk>(stateBaseline, baseline, diskAttachMaterial(), DiskAttachBz, chi2Baseline, permissive, reason));
+  BOOST_REQUIRE(attachHit<TransitionPolicyTag::DiskDisk>(stateBaseline, diskAttachMeasurementFrom(baseline), diskAttachMaterial(), DiskAttachBz, chi2Baseline, permissive, reason));
 
   auto stateCrossTerm = state0;
   float chi2CrossTerm = 0.f;
-  BOOST_REQUIRE(attachHit<TransitionPolicyTag::DiskDisk>(stateCrossTerm, varyingCrossTerm, diskAttachMaterial(), DiskAttachBz, chi2CrossTerm, permissive, reason));
+  BOOST_REQUIRE(attachHit<TransitionPolicyTag::DiskDisk>(stateCrossTerm, diskAttachMeasurementFrom(varyingCrossTerm), diskAttachMaterial(), DiskAttachBz, chi2CrossTerm, permissive, reason));
   BOOST_CHECK(bitEqual(stateBaseline, stateCrossTerm));
   BOOST_CHECK_EQUAL(chi2Baseline, chi2CrossTerm);
 
   auto stateUnreadFields = state0;
   float chi2UnreadFields = 0.f;
-  BOOST_REQUIRE(attachHit<TransitionPolicyTag::DiskDisk>(stateUnreadFields, varyingUnreadFields, diskAttachMaterial(), DiskAttachBz, chi2UnreadFields, permissive, reason));
+  BOOST_REQUIRE(attachHit<TransitionPolicyTag::DiskDisk>(stateUnreadFields, diskAttachMeasurementFrom(varyingUnreadFields), diskAttachMaterial(), DiskAttachBz, chi2UnreadFields, permissive, reason));
   BOOST_CHECK(bitEqual(stateBaseline, stateUnreadFields));
   BOOST_CHECK_EQUAL(chi2Baseline, chi2UnreadFields);
 }

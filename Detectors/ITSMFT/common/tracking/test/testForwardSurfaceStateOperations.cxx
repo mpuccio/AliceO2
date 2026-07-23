@@ -278,6 +278,30 @@ void checkBuildSeedMetadata(const SurfaceKinematicState& state, uint8_t expected
   BOOST_CHECK_EQUAL(state.alpha, 0.f);
 }
 
+// Test-local field-mapping helper (not a production API): builds the
+// SurfaceMeasurement fields forward::buildSeed reads from a global-position-
+// only input (Disk field mapping: global coordinates -> measurement.global).
+SurfaceMeasurement measurementFromGlobalCluster(const o2::its::Cluster& cluster)
+{
+  SurfaceMeasurement measurement{};
+  measurement.global = {cluster.xCoordinate, cluster.yCoordinate, cluster.zCoordinate};
+  return measurement;
+}
+
+// Test-local field-mapping helper: builds the SurfaceMeasurement fields
+// forward::buildSeed reads from the outer cluster/hit pair (Disk field
+// mapping: global coordinates -> measurement.global, reference z ->
+// measurement.frame.q -- contractually == global.z for the accepted disk
+// adapter -- measured covariance -> measurement.covariance).
+SurfaceMeasurement measurementFromOuterClusterAndHit(const o2::its::Cluster& clusterOuter, const o2::its::TrackingFrameInfo& hitOuter)
+{
+  auto measurement = measurementFromGlobalCluster(clusterOuter);
+  measurement.frame.q = clusterOuter.zCoordinate;
+  measurement.covariance.uu = hitOuter.covarianceTrackingFrame[0];
+  measurement.covariance.vv = hitOuter.covarianceTrackingFrame[2];
+  return measurement;
+}
+
 void checkBuildSeedFailurePreservesBytes(const o2::its::Cluster& clusterInner, const o2::its::Cluster& clusterMiddle,
                                          const o2::its::Cluster& clusterOuter, const o2::its::TrackingFrameInfo& hitOuter,
                                          float bz, float trackletMinPt, OperationFailureReason expected)
@@ -285,7 +309,8 @@ void checkBuildSeedFailurePreservesBytes(const o2::its::Cluster& clusterInner, c
   auto outState = makeState(); // deliberately non-default sentinel pattern
   const auto before = outState;
   OperationFailureReason reason{};
-  BOOST_CHECK(!forward::buildSeed(clusterInner, clusterMiddle, clusterOuter, hitOuter, bz, trackletMinPt,
+  BOOST_CHECK(!forward::buildSeed(measurementFromGlobalCluster(clusterInner), measurementFromGlobalCluster(clusterMiddle),
+                                  measurementFromOuterClusterAndHit(clusterOuter, hitOuter), bz, trackletMinPt,
                                   1, o2::track::PID::Pion, outState, reason));
   BOOST_CHECK(reason == expected);
   BOOST_CHECK(bitEqual(outState, before));
@@ -818,7 +843,8 @@ BOOST_AUTO_TEST_CASE(BuildSeedMatchesRetainedLegacyOracleNonzeroField)
 
     SurfaceKinematicState outState{};
     OperationFailureReason reason{};
-    BOOST_REQUIRE(forward::buildSeed(clusterInner, clusterMiddle, clusterOuter, hitOuter, bz, trackletMinPt,
+    BOOST_REQUIRE(forward::buildSeed(measurementFromGlobalCluster(clusterInner), measurementFromGlobalCluster(clusterMiddle),
+                                     measurementFromOuterClusterAndHit(clusterOuter, hitOuter), bz, trackletMinPt,
                                      1, o2::track::PID::Pion, outState, reason));
     compareBuildSeedWithRetainedLegacyOracle(outState, oracle);
     checkBuildSeedMetadata(outState, 1, o2::track::PID::Pion);
@@ -839,7 +865,8 @@ BOOST_AUTO_TEST_CASE(BuildSeedMatchesRetainedLegacyOracleZeroField)
 
   SurfaceKinematicState outState{};
   OperationFailureReason reason{};
-  BOOST_REQUIRE(forward::buildSeed(clusterInner, clusterMiddle, clusterOuter, hitOuter, bz, trackletMinPt,
+  BOOST_REQUIRE(forward::buildSeed(measurementFromGlobalCluster(clusterInner), measurementFromGlobalCluster(clusterMiddle),
+                                   measurementFromOuterClusterAndHit(clusterOuter, hitOuter), bz, trackletMinPt,
                                    2, o2::track::PID::Kaon, outState, reason));
   compareBuildSeedWithRetainedLegacyOracle(outState, oracle);
   checkBuildSeedMetadata(outState, 2, o2::track::PID::Kaon);
@@ -862,7 +889,8 @@ BOOST_AUTO_TEST_CASE(BuildSeedZeroOrNegativeTrackletMinPtFallsBackToZeroInvQPt)
 
     SurfaceKinematicState outState{};
     OperationFailureReason reason{};
-    BOOST_REQUIRE(forward::buildSeed(clusterInner, clusterMiddle, clusterOuter, hitOuter, bz, trackletMinPt,
+    BOOST_REQUIRE(forward::buildSeed(measurementFromGlobalCluster(clusterInner), measurementFromGlobalCluster(clusterMiddle),
+                                     measurementFromOuterClusterAndHit(clusterOuter, hitOuter), bz, trackletMinPt,
                                      1, o2::track::PID::Pion, outState, reason));
     BOOST_CHECK_EQUAL(outState.parameters[4], 0.f);
     compareBuildSeedWithRetainedLegacyOracle(outState, oracle);
@@ -890,9 +918,11 @@ BOOST_AUTO_TEST_CASE(BuildSeedPhiSignFollowsFieldSign)
   SurfaceKinematicState statePositive{};
   SurfaceKinematicState stateNegative{};
   OperationFailureReason reason{};
-  BOOST_REQUIRE(forward::buildSeed(clusterInner, clusterMiddle, clusterOuter, hitOuter, 0.5f, trackletMinPt,
+  BOOST_REQUIRE(forward::buildSeed(measurementFromGlobalCluster(clusterInner), measurementFromGlobalCluster(clusterMiddle),
+                                   measurementFromOuterClusterAndHit(clusterOuter, hitOuter), 0.5f, trackletMinPt,
                                    1, o2::track::PID::Pion, statePositive, reason));
-  BOOST_REQUIRE(forward::buildSeed(clusterInner, clusterMiddle, clusterOuter, hitOuter, -0.5f, trackletMinPt,
+  BOOST_REQUIRE(forward::buildSeed(measurementFromGlobalCluster(clusterInner), measurementFromGlobalCluster(clusterMiddle),
+                                   measurementFromOuterClusterAndHit(clusterOuter, hitOuter), -0.5f, trackletMinPt,
                                    1, o2::track::PID::Pion, stateNegative, reason));
   BOOST_CHECK_CLOSE(statePositive.parameters[2], static_cast<float>(oraclePositive.getPhi()), 1.e-2f);
   BOOST_CHECK_CLOSE(stateNegative.parameters[2], static_cast<float>(oracleNegative.getPhi()), 1.e-2f);
@@ -921,7 +951,8 @@ BOOST_AUTO_TEST_CASE(BuildSeedStrictZOrderingBoundary)
   o2::its::Cluster acceptedInner{2.0f, 1.0f, clusterOuter.zCoordinate + 1.e-6f + 1.e-7f, 0};
   SurfaceKinematicState outState{};
   OperationFailureReason reason{};
-  BOOST_CHECK(forward::buildSeed(acceptedInner, clusterMiddle, clusterOuter, hitOuter, bz, trackletMinPt,
+  BOOST_CHECK(forward::buildSeed(measurementFromGlobalCluster(acceptedInner), measurementFromGlobalCluster(clusterMiddle),
+                                 measurementFromOuterClusterAndHit(clusterOuter, hitOuter), bz, trackletMinPt,
                                  1, o2::track::PID::Pion, outState, reason));
 }
 
@@ -1009,9 +1040,11 @@ BOOST_AUTO_TEST_CASE(BuildSeedIsByteDeterministic)
   SurfaceKinematicState firstState{};
   SurfaceKinematicState secondState{};
   OperationFailureReason reason{};
-  BOOST_REQUIRE(forward::buildSeed(clusterInner, clusterMiddle, clusterOuter, hitOuter, 0.5f, 0.5f,
+  BOOST_REQUIRE(forward::buildSeed(measurementFromGlobalCluster(clusterInner), measurementFromGlobalCluster(clusterMiddle),
+                                   measurementFromOuterClusterAndHit(clusterOuter, hitOuter), 0.5f, 0.5f,
                                    1, o2::track::PID::Pion, firstState, reason));
-  BOOST_REQUIRE(forward::buildSeed(clusterInner, clusterMiddle, clusterOuter, hitOuter, 0.5f, 0.5f,
+  BOOST_REQUIRE(forward::buildSeed(measurementFromGlobalCluster(clusterInner), measurementFromGlobalCluster(clusterMiddle),
+                                   measurementFromOuterClusterAndHit(clusterOuter, hitOuter), 0.5f, 0.5f,
                                    1, o2::track::PID::Pion, secondState, reason));
   BOOST_CHECK(bitEqual(firstState, secondState));
 }
