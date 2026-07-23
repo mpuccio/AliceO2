@@ -21,7 +21,9 @@
 
 #include "DetectorsBase/Propagator.h"
 #include "ITSMFTTracking/SurfaceDescriptor.h"
+#include "ITSMFTTracking/SurfaceKinematicState.h"
 #include "ITSMFTTracking/SurfaceMeasurement.h"
+#include "ITSMFTTracking/SurfaceStateOperationResult.h"
 
 namespace o2::dataformats
 {
@@ -337,6 +339,266 @@ bool buildCellSeed<TransitionPolicyTag::DiskDisk>(
   o2::track::TrackParCovFwd& outState,
   float& chi2,
   const DiskDiskPolicyParams& params);
+
+/// Stage-B Slice B (design report Sec 8/11): native SurfaceKinematicState
+/// overload of the same-named operation above, distinguished purely by
+/// argument type (outState here is SurfaceKinematicState&, never
+/// TrackParCovF/TrackParCovFwd) -- ordinary overload resolution on an
+/// explicit Tag call site, not a TransitionPolicyTraits<Tag>::SeedState
+/// change. Additive and unwired: no production caller exists yet: this
+/// slice only composes barrel::/forward:: primitives (buildSeed, rotate/
+/// propagate, the PID/absCharge-aware correctForMaterial overload,
+/// predictedChi2, update) that are already characterized against their own
+/// legacy oracles; it does not itself construct or convert through
+/// TrackParCovF/TrackParCovFwd.
+///
+/// Both specializations: composed from barrel::/forward::buildSeed for the
+/// initial outer anchor, then step inward hit-by-hit exactly as the legacy
+/// operation above does (same material-slot order, same chi2-cut step
+/// placement), applying MaterialTraversalDirection::OppositeMomentum via the
+/// PID/absCharge-aware correctForMaterial(state, IntegratedMaterialBudget,
+/// direction) overload -- never the legacy MCS-only
+/// forward::correctForMaterial(state, xOverX0, reason) overload. `absCharge`/
+/// `pid` are caller-supplied compatibility values threaded straight into
+/// buildSeed (which sets state.absCharge/state.pid/state.flags=0 on the
+/// constructed seed; not re-set by this operation). DiskDisk additionally
+/// activates PID-aware energy loss/straggling by reading
+/// material[*].arealDensityGPerCm2 (unlike the legacy DiskDisk operation
+/// above, which is MCS-only) -- an intentional physics difference, not a
+/// legacy-equivalence claim.
+///
+/// Measurement input: the private compatibility projection in
+/// TransitionPolicyOperations.cxx converts each o2::its::TrackingFrameInfo
+/// hit into the minimum SurfaceMeasurement fields the native update
+/// operation reads (barrel: local Y/Z and full yy/yz/zz; forward: global X/Y
+/// and the diagonal-only uu/vv, matching the established
+/// mftFwdAttachCluster contract) -- this is not a claim that
+/// TrackingFrameInfo is a normalized SurfaceMeasurement.
+///
+/// Transactional and byte-identical-on-failure exactly like the legacy
+/// operation above: outState/chi2/reason are the only outputs, and
+/// outState/chi2 are committed only on complete success. reason is always
+/// written on failure and otherwise left unspecified on success (mirrors
+/// every other native operation's own reason contract in this file family).
+///
+/// Host-only for this slice (requirement: no GPU/device claim): kept behind
+/// this GPUCA_GPUCODE guard like the legacy buildCellSeed/attachHit above,
+/// even though its own underlying barrel::/forward:: primitives (other than
+/// buildSeed) are individually declared unconditionally -- no device
+/// readiness has been established for this composed operation as a whole.
+template <TransitionPolicyTag Tag>
+bool buildCellSeed(const o2::its::Cluster& clusterInner,
+                   const o2::its::Cluster& clusterMiddle,
+                   const o2::its::Cluster& clusterOuter,
+                   const o2::its::TrackingFrameInfo& hitInner,
+                   const o2::its::TrackingFrameInfo& hitMiddle,
+                   const o2::its::TrackingFrameInfo& hitOuter,
+                   const std::array<NominalSurfaceMaterial, 3>& material,
+                   float bz,
+                   uint8_t absCharge,
+                   o2::track::PID pid,
+                   SurfaceKinematicState& outState,
+                   float& chi2,
+                   const typename TransitionPolicyTraits<Tag>::Params& params,
+                   OperationFailureReason& reason) noexcept;
+
+/// Barrel formula: barrel::buildSeed(clusterInner, clusterMiddle, hitOuter,
+/// bz, absCharge, pid, ...) for the outer anchor, then middle-then-inner
+/// rotate/propagate/correctForMaterial/predictedChi2/update using material[1]
+/// then material[0] (material[2]/outer unused, matching the legacy operation
+/// above exactly). The chi2 cut (params.maxChi2ClusterAttachment) is enforced
+/// only on the final (inner) step, with no `< 0.f` rejection -- matching the
+/// legacy buildCellSeed<CylinderCylinder> exactly (unlike native attachHit
+/// below, which does reject `< 0.f`). Finishes anchored at the inner hit's
+/// frame/reference coordinate. Defined out of line in
+/// TransitionPolicyOperations.cxx.
+template <>
+bool buildCellSeed<TransitionPolicyTag::CylinderCylinder>(
+  const o2::its::Cluster& clusterInner,
+  const o2::its::Cluster& clusterMiddle,
+  const o2::its::Cluster& clusterOuter,
+  const o2::its::TrackingFrameInfo& hitInner,
+  const o2::its::TrackingFrameInfo& hitMiddle,
+  const o2::its::TrackingFrameInfo& hitOuter,
+  const std::array<NominalSurfaceMaterial, 3>& material,
+  float bz,
+  uint8_t absCharge,
+  o2::track::PID pid,
+  SurfaceKinematicState& outState,
+  float& chi2,
+  const CylinderCylinderPolicyParams& params,
+  OperationFailureReason& reason) noexcept;
+
+/// Disk formula: forward::buildSeed(clusterInner, clusterMiddle,
+/// clusterOuter, hitOuter, bz, params.trackletMinPt, absCharge, pid, ...) for
+/// the outer anchor, then outer/middle/inner propagation with the accepted
+/// forward model (threshold dispatch to forward::propagate<Helix>/<Linear>
+/// reproducing detail::mftFwdPropagateToZ's own |bz|>0.01f selection exactly
+/// -- PropagationModel::Optimized is not used by this slice) and
+/// correctForMaterial using material[2], material[1], material[0] in that
+/// order -- all three slots consumed (unlike the legacy DiskDisk operation
+/// above, which is MCS-only and reads only .xOverX0): this activates
+/// PID-aware energy loss and straggling and is intentionally not required to
+/// reproduce the legacy MCS-only numerical result. Chi2 cut enforced only on
+/// the final (inner) step, no `< 0.f` rejection (matches the legacy
+/// buildCellSeed<DiskDisk> exactly). Finishes anchored at the inner hit's z.
+/// Defined out of line in TransitionPolicyOperations.cxx.
+template <>
+bool buildCellSeed<TransitionPolicyTag::DiskDisk>(
+  const o2::its::Cluster& clusterInner,
+  const o2::its::Cluster& clusterMiddle,
+  const o2::its::Cluster& clusterOuter,
+  const o2::its::TrackingFrameInfo& hitInner,
+  const o2::its::TrackingFrameInfo& hitMiddle,
+  const o2::its::TrackingFrameInfo& hitOuter,
+  const std::array<NominalSurfaceMaterial, 3>& material,
+  float bz,
+  uint8_t absCharge,
+  o2::track::PID pid,
+  SurfaceKinematicState& outState,
+  float& chi2,
+  const DiskDiskPolicyParams& params,
+  OperationFailureReason& reason) noexcept;
+
+/// Stage-B Slice B (design report Sec 8/11): native SurfaceKinematicState
+/// overload of the legacy attachHit<Tag> above, distinguished by argument
+/// type (state here is SurfaceKinematicState&, never TrackParCovF/
+/// TrackParCovFwd) and by omitting the legacy corrType parameter entirely
+/// (requirement: no corrType on the new native attachHit API -- the later
+/// activation slice rejects non-NONE CylinderCylinder material modes before
+/// candidate processing, not this operation). Additive and unwired.
+///
+/// In-place semantics like the legacy operation: `state`/`chi2` are both
+/// input and output, updated only on complete success; on any failure both
+/// are left exactly as passed in (byte-for-byte), and `reason` is always
+/// written. Composed entirely from barrel::/forward:: primitives: rotate
+/// (barrel only)/propagate (accepted forward model for DiskDisk, matching
+/// buildCellSeed above), the PID/absCharge-aware correctForMaterial overload
+/// with MaterialTraversalDirection::OppositeMomentum, predictedChi2, and
+/// update, using the same private TrackingFrameInfo->SurfaceMeasurement
+/// projection as native buildCellSeed.
+///
+/// Host-only for this slice, kept behind this GPUCA_GPUCODE guard like the
+/// legacy attachHit/buildCellSeed above.
+template <TransitionPolicyTag Tag>
+bool attachHit(SurfaceKinematicState& state,
+               const o2::its::TrackingFrameInfo& hit,
+               const NominalSurfaceMaterial& material,
+               float bz,
+               float& chi2,
+               const typename TransitionPolicyTraits<Tag>::Params& params,
+               OperationFailureReason& reason) noexcept;
+
+/// Barrel formula: rotate to hit.alphaTrackingFrame, propagate to
+/// hit.xTrackingFrame, PID/absCharge-aware correctForMaterial(material,
+/// OppositeMomentum), predictedChi2, reject if predictedChi2 >
+/// params.maxChi2ClusterAttachment or predictedChi2 < 0.f (matching the
+/// legacy attachHit<CylinderCylinder> exactly, including its `< 0.f` guard),
+/// then update. Defined out of line in TransitionPolicyOperations.cxx.
+template <>
+bool attachHit<TransitionPolicyTag::CylinderCylinder>(
+  SurfaceKinematicState& state,
+  const o2::its::TrackingFrameInfo& hit,
+  const NominalSurfaceMaterial& material,
+  float bz,
+  float& chi2,
+  const CylinderCylinderPolicyParams& params,
+  OperationFailureReason& reason) noexcept;
+
+/// Disk formula: propagate to hit.zCoordinate with the accepted forward
+/// model (see native buildCellSeed<DiskDisk> doc), PID/absCharge-aware
+/// correctForMaterial(material, OppositeMomentum) -- both .xOverX0 and
+/// .arealDensityGPerCm2 are read, activating PID-aware energy loss/
+/// straggling unlike the legacy MCS-only attachHit<DiskDisk> above --
+/// predictedChi2, reject only if predictedChi2 > params.maxChi2ClusterAttachment
+/// (no `< 0.f` guard, matching the legacy attachHit<DiskDisk> exactly), then
+/// update. Defined out of line in TransitionPolicyOperations.cxx.
+template <>
+bool attachHit<TransitionPolicyTag::DiskDisk>(
+  SurfaceKinematicState& state,
+  const o2::its::TrackingFrameInfo& hit,
+  const NominalSurfaceMaterial& material,
+  float bz,
+  float& chi2,
+  const DiskDiskPolicyParams& params,
+  OperationFailureReason& reason) noexcept;
+
+/// Stage-B Slice B (design report Sec 8/11): native SurfaceKinematicState
+/// overload of the legacy cellsAreCompatible<Tag> at the top of this file,
+/// distinguished by argument type/arity (current/next here are
+/// SurfaceKinematicState, never CellSeedTpl<...>, and this overload takes
+/// two extra explicit cluster-index parameters). Additive and unwired.
+///
+/// General contract (both families): `current` is the inner Cell state,
+/// `next` is the outer Cell state; `next` is copied into local scratch,
+/// transported inward to current's reference surface/frame, and evaluated
+/// against untouched `current` -- neither input is ever mutated (enforced by
+/// the type system: both are `const&`). Threshold comparison is inclusive
+/// (`<=`), exactly as today.
+///
+/// `currentSecondClusterIndex`/`nextFirstClusterIndex`: the temporary,
+/// explicitly threaded raw legacy cluster-index continuity input
+/// (requirement: this native state-only API cannot silently lose
+/// detail::mftFwdCellsAreCompatible's `currentCell.getSecondClusterIndex()
+/// == nextCell.getFirstClusterIndex()` check). CylinderCylinder ignores both
+/// (mirrors passesCellRoadPrecut<CylinderCylinder>'s own unused-parameter
+/// pattern above); DiskDisk checks them first, exactly matching legacy
+/// precedence. This raw-index input is temporary and will be replaced by a
+/// topology surface plus SurfaceMeasurementIndex in the measurement-index
+/// slice; continuity is never inferred from state fields.
+///
+/// No `reason` out-param, unlike native buildCellSeed/attachHit above: this
+/// mirrors the legacy cellsAreCompatible<Tag>'s own bool-only contract
+/// exactly (it has none today either); rotation/propagation/family-mismatch
+/// causes are already covered by the focused barrel::/forward:: primitive
+/// tests and simply surface here as `false`.
+///
+/// Host-only for this slice (requirement: no GPU/device claim). This
+/// deliberately differs from the legacy cellsAreCompatible<Tag> above, which
+/// is declared unconditionally (outside any GPUCA_GPUCODE guard): that
+/// declaration's host-only status is carried entirely by its .cxx
+/// definition, with prior evidence of an eventual device-portable
+/// dependency chain. This new operation has no such evidence yet, so it is
+/// declared behind this guard instead of inheriting the unconditional
+/// declaration.
+template <TransitionPolicyTag Tag>
+bool cellsAreCompatible(const SurfaceKinematicState& current,
+                        const SurfaceKinematicState& next,
+                        int currentSecondClusterIndex,
+                        int nextFirstClusterIndex,
+                        float bz,
+                        const typename TransitionPolicyTraits<Tag>::Params& params) noexcept;
+
+/// Barrel formula: copy `next` into scratch, rotate to current.alpha,
+/// propagate to current.referenceCoordinate, then barrel::stateChi2(current,
+/// scratch, ...) <= params.maxChi2ClusterAttachment -- matching the legacy
+/// cellsAreCompatible<CylinderCylinder> formula exactly. Cluster-index
+/// parameters are ignored (CylinderCylinder has no continuity check, legacy
+/// or native). Defined out of line in TransitionPolicyOperations.cxx.
+template <>
+bool cellsAreCompatible<TransitionPolicyTag::CylinderCylinder>(
+  const SurfaceKinematicState& current,
+  const SurfaceKinematicState& next,
+  int currentSecondClusterIndex,
+  int nextFirstClusterIndex,
+  float bz,
+  const CylinderCylinderPolicyParams& params) noexcept;
+
+/// Disk formula: checked first, `currentSecondClusterIndex ==
+/// nextFirstClusterIndex` (see the primary template's doc); then copy `next`
+/// into scratch, propagate to current.referenceCoordinate with the accepted
+/// forward model, then forward::stateChi2(current, scratch, ...) <=
+/// params.maxChi2ClusterAttachment -- matching
+/// detail::mftFwdCellsAreCompatible's formula and precedence exactly.
+/// Defined out of line in TransitionPolicyOperations.cxx.
+template <>
+bool cellsAreCompatible<TransitionPolicyTag::DiskDisk>(
+  const SurfaceKinematicState& current,
+  const SurfaceKinematicState& next,
+  int currentSecondClusterIndex,
+  int nextFirstClusterIndex,
+  float bz,
+  const DiskDiskPolicyParams& params) noexcept;
 
 /// D007 policy-boundary operation (Architecture.md Sec 10, Gate 3 cell-road
 /// pre-cut slice): true if the three-cluster candidate {inner, middle, outer}
