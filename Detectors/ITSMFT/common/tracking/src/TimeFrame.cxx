@@ -737,6 +737,7 @@ void TimeFrame<NLayers>::prepareClusters(const TrackingParameters& trkParam, con
         Cluster& c = clusters2beSorted[lutPerBin[h.bin] + h.ind];
 
         c = unsortedClusters[iCluster];
+        const auto& measurement = layerMeasurements[iLayer][c.clusterId];
         c.phi = useXYBinning ? math_utils::computePhi(measurement.global.x, measurement.global.y) : h.rowCoord;
         c.radius = h.r;
         c.indexTableBinIndex = h.bin;

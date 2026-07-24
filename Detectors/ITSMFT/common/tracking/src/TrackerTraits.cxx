@@ -706,7 +706,14 @@ void TrackerTraits<NLayers>::computeLayerTrackletsForPolicy(
                 const auto& targetMeasurement = mLayerMeasurements[transition.toLayer][nextCluster.clusterId];
 
                 float tanL = 0.f;
-                if (searchWindow.acceptCandidate(sourceMeasurement, currentCluster, targetMeasurement, nextCluster, tanL)) {
+                const bool accepted = [&] {
+                  if constexpr (Tag == TransitionPolicyTag::CylinderCylinder) {
+                    return searchWindow.acceptCandidate(sourceMeasurement, currentCluster, targetMeasurement, nextCluster, tanL);
+                  } else {
+                    return searchWindow.acceptCandidate(sourceMeasurement, targetMeasurement, tanL);
+                  }
+                }();
+                if (accepted) {
                   const float phi{o2::gpu::GPUCommonMath::ATan2(sourceMeasurement.global.y - targetMeasurement.global.y,
                                                                  sourceMeasurement.global.x - targetMeasurement.global.x)};
                   if constexpr (decltype(Mode)::value == PassMode::OnePass::value) {
