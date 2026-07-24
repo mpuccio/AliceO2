@@ -511,13 +511,18 @@ LoadSourcesResult TimeFrame<NLayers>::loadNormalizedSource(
         // normalized global position and row/column covariance. This is
         // deliberately not m.frame, which for a Disk-kind SurfaceMeasurement
         // holds the (z, x, y) disk-frame projection, not the legacy
-        // synthetic layout existing production code consumes.
+        // synthetic layout existing production code consumes. The normalized
+        // covariance is authoritative: decoding/loading has already applied
+        // detector systematics when requested, and this compatibility
+        // backfill copies that covariance without adding to it.
         tfInfo = TrackingFrameInfo{
           m.global.x, m.global.y, m.global.z,
           m.global.x, 0.f,
           std::array<float, 2>{m.global.y, m.global.z},
           std::array<float, 3>{m.covariance.uu, m.covariance.uv, m.covariance.vv}};
       } else {
+        // As for MFT above, compatibility storage copies the authoritative
+        // normalized covariance produced by decoding/loading.
         tfInfo = TrackingFrameInfo{
           m.global.x, m.global.y, m.global.z,
           m.frame.q, m.frame.frameAngle,
@@ -817,15 +822,14 @@ void TimeFrame<NLayers>::initialise(const TrackingParameters& trkParam, const in
       }
       clearResizeBoundedVector(mIndexTables[iLayer], indexTableSize, getMaybeFrameworkHostResource());
     }
-    for (int iLayer{0}; iLayer < trkParam.NLayers; ++iLayer) {
-      if (trkParam.SystError2Row[iLayer] > 0.f || trkParam.SystError2Col[iLayer] > 0.f) {
-        for (auto& tfInfo : mTrackingFrameInfo[iLayer]) {
-          /// Account for alignment systematics in the cluster covariance matrix
-          tfInfo.covarianceTrackingFrame[0] += trkParam.SystError2Row[iLayer];
-          tfInfo.covarianceTrackingFrame[2] += trkParam.SystError2Col[iLayer];
-        }
-      }
-    }
+
+    // Cluster covariance is immutable after decoding/loading:
+    // SurfaceMeasurement owns the authoritative value (including detector
+    // systematics exactly once when requested), and TrackingFrameInfo is only
+    // its compatibility copy. initialise() never mutates either
+    // representation, so FirstPass, later iterations, LUT rebuild/reuse,
+    // repeated initialisation, wipe and reload cannot accumulate systematic
+    // covariance.
 
     mMinR.fill(std::numeric_limits<float>::max());
     mMaxR.fill(std::numeric_limits<float>::min());
