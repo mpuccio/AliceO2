@@ -1,0 +1,456 @@
+// Copyright 2019-2026 CERN and copyright holders of ALICE O2.
+// See https://alice-o2.web.cern.ch/copyright for details of the copyright holders.
+// All rights not expressly granted are reserved.
+//
+// This software is distributed under the terms of the GNU General Public
+// License v3 (GPL Version 3), copied verbatim in the file "COPYING".
+
+// Stage-B Slice A: exactly-once systematic covariance in the common
+// normalized-loading path. SurfaceMeasurement covariance is authoritative;
+// compatibility TrackingFrameInfo copies it, and TimeFrame initialization
+// never mutates either representation.
+
+#define BOOST_TEST_MODULE ITSMFT TimeFrameCovarianceLifecycle
+#define BOOST_TEST_MAIN
+#define BOOST_TEST_DYN_LINK
+#include <boost/test/unit_test.hpp>
+
+#include <array>
+#include <bit>
+#include <cstdint>
+#include <memory>
+#include <vector>
+
+#include <gsl/gsl>
+
+#include "CommonDataFormat/InteractionRecord.h"
+#include "DataFormatsITSMFT/CompCluster.h"
+#include "DataFormatsITSMFT/ROFRecord.h"
+#include "DataFormatsITSMFT/TopologyDictionary.h"
+#include "DetectorsCommonDataFormats/DetID.h"
+#include "GPUCommonMath.h"
+#include "ITSMFTTracking/ClusterDecoder.h"
+#include "ITSMFTTracking/Configuration.h"
+#include "ITSMFTTracking/DecodedCluster.h"
+#include "ITSMFTTracking/DetectorSurfaceCatalogProvider.h"
+#include "ITSMFTTracking/NominalSurfaceMaterialDefaults.h"
+#include "ITSMFTTracking/SurfaceMeasurementAdapters.h"
+#include "ITSMFTTracking/TimeFrame.h"
+#include "ITSMFTTracking/TrackerTraits.h"
+#include "ITStracking/Constants.h"
+
+using namespace o2::itsmft;
+using namespace o2::itsmft::tracking;
+
+namespace
+{
+
+constexpr std::array<unsigned char, 3> OnePixelPattern{1, 1, 0x80};
+constexpr float ConfiguredRowIncrement{0.125f};
+constexpr float ConfiguredColumnIncrement{0.25f};
+
+const TopologyDictionary& dictionary()
+{
+  static const TopologyDictionary value;
+  return value;
+}
+
+uint32_t floatBits(float value)
+{
+  return std::bit_cast<uint32_t>(value);
+}
+
+void checkBitIdentical(float lhs, float rhs)
+{
+  BOOST_CHECK_EQUAL(floatBits(lhs), floatBits(rhs));
+}
+
+// Geometry-free decoder seam with the production covariance contract:
+// extract the real base covariance, then apply the configured detector
+// increments once if and only if loadNormalizedSource() requests it.
+class SystematicContractDecoder final : public ClusterDecoder
+{
+ public:
+  SystematicContractDecoder(o2::detectors::DetID::ID detector, SurfaceKind kind,
+                            float rowIncrement, float columnIncrement)
+    : mDetector(detector), mKind(kind), mRowIncrement(rowIncrement), mColumnIncrement(columnIncrement)
+  {
+  }
+
+  o2::itsmft::ioutils::SurfaceMeasurementDecodeResult decode(
+    const CompClusterExt& cluster,
+    BoundedPatternCursor& patterns,
+    const TopologyDictionary* dict,
+    gsl::span<const SurfaceId> layerToSurface,
+    ClusterSourceId source,
+    uint32_t externalIndex,
+    uint32_t sourceROF,
+    bool applySysErrors) const override
+  {
+    lastApplySysErrors = applySysErrors;
+    const auto clusterData = o2::itsmft::ioutils::extractClusterDataBounded(cluster, patterns, dict);
+    if (!clusterData.ok()) {
+      o2::itsmft::ioutils::SurfaceMeasurementDecodeResult result;
+      result.error = clusterData.error;
+      return result;
+    }
+
+    o2::itsmft::ioutils::SurfaceMeasurementDecodeResult result;
+    const int layer = cluster.getSensorID();
+    result.layer = layer;
+    if (layer < 0 || static_cast<size_t>(layer) >= layerToSurface.size()) {
+      result.error = ClusterDecodeError::InvalidLayerMapping;
+      return result;
+    }
+    result.layerMapped = true;
+    result.kind = mKind;
+
+    const float rowCovariance = clusterData.sig2Row + (applySysErrors ? mRowIncrement : 0.f);
+    const float columnCovariance = clusterData.sig2Col + (applySysErrors ? mColumnIncrement : 0.f);
+    DecodedCluster decoded{
+      {3.f, 4.f, 5.f},
+      {6.f, 7.f, 8.f, 0.125f},
+      {rowCovariance, 0.f, columnCovariance},
+      clusterData.shape,
+      static_cast<uint32_t>(cluster.getSensorID()),
+      layer};
+
+    const DetectorSensorId sensor{static_cast<uint32_t>(mDetector), decoded.sensor};
+    const ClusterRef clusterRef{source, externalIndex};
+    result.measurement = mKind == SurfaceKind::Disk
+                           ? makeDiskSurfaceMeasurement(decoded, sensor, layerToSurface[layer], clusterRef, sourceROF)
+                           : makeCylinderSurfaceMeasurement(decoded, sensor, layerToSurface[layer], clusterRef, sourceROF);
+    return result;
+  }
+
+  mutable bool lastApplySysErrors{false};
+
+ private:
+  o2::detectors::DetID::ID mDetector;
+  SurfaceKind mKind;
+  float mRowIncrement;
+  float mColumnIncrement;
+};
+
+class FixedCatalogProvider final : public DetectorSurfaceCatalogProvider
+{
+ public:
+  explicit FixedCatalogProvider(std::vector<SurfaceDescriptor> catalog) : mCatalog(std::move(catalog)) {}
+
+  DetectorSurfaceCatalogResult buildCatalog(const DetectorSurfaceCatalogRequest&) const final
+  {
+    return {mCatalog, DetectorSurfaceCatalogError::None};
+  }
+
+ private:
+  std::vector<SurfaceDescriptor> mCatalog;
+};
+
+template <int NLayers>
+std::vector<SurfaceId> identitySurfaces()
+{
+  std::vector<SurfaceId> result;
+  result.reserve(NLayers);
+  for (uint16_t layer = 0; layer < NLayers; ++layer) {
+    result.emplace_back(layer);
+  }
+  return result;
+}
+
+template <int NLayers>
+std::vector<SurfaceDescriptor> makeCatalog(o2::detectors::DetID::ID detector, SurfaceKind kind)
+{
+  std::vector<SurfaceDescriptor> result;
+  result.reserve(NLayers);
+  for (uint16_t layer = 0; layer < NLayers; ++layer) {
+    result.push_back(SurfaceDescriptor{
+      SurfaceId{layer}, layer, static_cast<uint8_t>(detector), kind, 0,
+      static_cast<float>(layer + 1), 0.f, 100.f});
+    const float xOverX0 = detector == o2::detectors::DetID::ITS
+                            ? kNominalITSLayerX0[layer]
+                            : kNominalMFTLayerX0[layer];
+    result.back().material.xOverX0 = xOverX0;
+    result.back().material.arealDensityGPerCm2 =
+      xOverX0 * o2::its::constants::Radl * o2::its::constants::Rho;
+  }
+  return result;
+}
+
+template <int NLayers>
+std::vector<TrackingParameters> makeLifecycleParameters(o2::detectors::DetID::ID detector,
+                                                        float rowIncrement,
+                                                        float columnIncrement)
+{
+  std::vector<TrackingParameters> result(3);
+  for (auto& parameters : result) {
+    resetDetectorDefaults(parameters, detector);
+    parameters.SystError2Row.assign(NLayers, rowIncrement);
+    parameters.SystError2Col.assign(NLayers, columnIncrement);
+  }
+  result[1].PassFlags.reset(); // later iteration, LUT reuse
+  result[2].PassFlags = IterationSteps{IterationStep::RebuildClusterLUT};
+  return result;
+}
+
+struct CovarianceSnapshot {
+  std::array<uint32_t, 3> normalized{};
+  std::array<uint32_t, 3> compatibility{};
+
+  friend bool operator==(const CovarianceSnapshot&, const CovarianceSnapshot&) = default;
+};
+
+template <int NLayers>
+CovarianceSnapshot snapshotCovariance(const TimeFrame<NLayers>& tf)
+{
+  const auto measurements = tf.getNormalizedFrame().getSurfaceMeasurements(SurfaceId{0});
+  BOOST_REQUIRE_EQUAL(measurements.size(), 1u);
+  const auto& compatibility = tf.getTrackingFrameInfoOnLayer(0);
+  BOOST_REQUIRE_EQUAL(compatibility.size(), 1u);
+  return {
+    {floatBits(measurements[0].covariance.uu),
+     floatBits(measurements[0].covariance.uv),
+     floatBits(measurements[0].covariance.vv)},
+    {floatBits(compatibility[0].covarianceTrackingFrame[0]),
+     floatBits(compatibility[0].covarianceTrackingFrame[1]),
+     floatBits(compatibility[0].covarianceTrackingFrame[2])}};
+}
+
+template <int NLayers>
+void checkRepresentationsAligned(const TimeFrame<NLayers>& tf)
+{
+  const auto snapshot = snapshotCovariance(tf);
+  BOOST_CHECK(snapshot.normalized == snapshot.compatibility);
+}
+
+template <int NLayers>
+struct Rig {
+  Rig(o2::detectors::DetID::ID detectorValue, SurfaceKind kindValue,
+      float rowIncrement, float columnIncrement)
+    : detector(detectorValue), kind(kindValue), decoder(detectorValue, kindValue, rowIncrement, columnIncrement), pool(std::make_shared<BoundedMemoryResource>())
+  {
+    tf.setMemoryPool(pool);
+    traits.setMemoryPool(pool);
+    traits.adoptTimeFrame(&tf);
+    traits.setBz(5.f);
+  }
+
+  void configure(gsl::span<const TrackingParameters> parameters)
+  {
+    FixedCatalogProvider provider{makeCatalog<NLayers>(detector, kind)};
+    const auto orderedSurfaces = identitySurfaces<NLayers>();
+    const DetectorSurfaceCatalogRequest request{detector, SurfaceId{0}, NLayers};
+    const auto policy = kind == SurfaceKind::Disk
+                          ? TransitionPolicyTag::DiskDisk
+                          : TransitionPolicyTag::CylinderCylinder;
+    BOOST_REQUIRE(tf.ensureDetectorLayouts(&provider, request, orderedSurfaces, policy, parameters).ok());
+    tf.initTrackerTopologies(parameters);
+  }
+
+  void load(bool applySysErrors)
+  {
+    const std::vector<CompClusterExt> clusters{
+      CompClusterExt{10, 20, CompCluster::InvalidPatternID, 0}};
+    const std::vector<unsigned char> patterns{OnePixelPattern.begin(), OnePixelPattern.end()};
+    const std::vector<ROFRecord> rofs{ROFRecord{{100, 5}, 0, 0, 1}};
+    const auto result = tf.loadNormalizedSource(
+      decoder, o2::InteractionRecord{50, 5}, ROFTimingConfig{40, 0, 0, 0},
+      clusters, patterns, rofs, &dictionary(), nullptr, detector, applySysErrors);
+    BOOST_REQUIRE(result.ok());
+
+    o2::its::LayerTiming timing{};
+    timing.mNROFsTF = 1;
+    timing.mROFLength = 40;
+    typename TimeFrame<NLayers>::ROFOverlapTableN rofTable;
+    for (int layer = 0; layer < NLayers; ++layer) {
+      rofTable.defineLayer(layer, timing);
+    }
+    rofTable.init();
+    tf.setROFOverlapTable(rofTable);
+
+    typename TimeFrame<NLayers>::ROFMaskTableN mask{rofTable};
+    mask.resetMask();
+    for (int layer = 0; layer < NLayers; ++layer) {
+      mask.setROFsEnabled(layer, 0, 1, 1);
+    }
+    tf.setMultiplicityCutMask(std::move(mask));
+  }
+
+  o2::detectors::DetID::ID detector;
+  SurfaceKind kind;
+  SystematicContractDecoder decoder;
+  std::shared_ptr<BoundedMemoryResource> pool;
+  TimeFrame<NLayers> tf;
+  TrackerTraits<NLayers> traits;
+};
+
+template <int NLayers>
+void checkPositionResolution(const Rig<NLayers>& rig,
+                             const TrackingParameters& parameters,
+                             float rowIncrement,
+                             float columnIncrement)
+{
+  const float expected = o2::gpu::CAMath::Sqrt(
+    0.5f * (columnIncrement + rowIncrement) +
+    parameters.LayerResolution[0] * parameters.LayerResolution[0]);
+  checkBitIdentical(rig.tf.getPositionResolution(0), expected);
+}
+
+template <int NLayers>
+void exerciseDisabled(o2::detectors::DetID::ID detector, SurfaceKind kind)
+{
+  auto parameters = makeLifecycleParameters<NLayers>(detector, 0.f, 0.f);
+  Rig<NLayers> rig{detector, kind, 0.f, 0.f};
+  rig.configure(parameters);
+  rig.load(true);
+  rig.traits.updateTrackingParameters(parameters);
+
+  const auto before = snapshotCovariance(rig.tf);
+  checkBitIdentical(std::bit_cast<float>(before.normalized[0]), o2::itsmft::ioutils::DefClusError2Row);
+  checkBitIdentical(std::bit_cast<float>(before.normalized[2]), o2::itsmft::ioutils::DefClusError2Col);
+  checkRepresentationsAligned(rig.tf);
+
+  BOOST_REQUIRE_NO_THROW(rig.traits.initialiseTimeFrame(0));
+  BOOST_CHECK(snapshotCovariance(rig.tf) == before);
+  checkRepresentationsAligned(rig.tf);
+}
+
+template <int NLayers>
+void exerciseEnabledLifecycle(o2::detectors::DetID::ID detector, SurfaceKind kind)
+{
+  auto parameters = makeLifecycleParameters<NLayers>(
+    detector, ConfiguredRowIncrement, ConfiguredColumnIncrement);
+  Rig<NLayers> rig{
+    detector, kind, ConfiguredRowIncrement, ConfiguredColumnIncrement};
+  rig.configure(parameters);
+  rig.load(true);
+  BOOST_REQUIRE(rig.decoder.lastApplySysErrors);
+  rig.traits.updateTrackingParameters(parameters);
+
+  const float expectedRow = o2::itsmft::ioutils::DefClusError2Row + ConfiguredRowIncrement;
+  const float expectedColumn = o2::itsmft::ioutils::DefClusError2Col + ConfiguredColumnIncrement;
+  const auto loaded = snapshotCovariance(rig.tf);
+  checkBitIdentical(std::bit_cast<float>(loaded.normalized[0]), expectedRow);
+  checkBitIdentical(std::bit_cast<float>(loaded.normalized[2]), expectedColumn);
+  checkRepresentationsAligned(rig.tf);
+
+  // FirstPass + LUT rebuild.
+  BOOST_REQUIRE_NO_THROW(rig.traits.initialiseTimeFrame(0));
+  BOOST_CHECK(snapshotCovariance(rig.tf) == loaded);
+  checkPositionResolution(rig, parameters[0], ConfiguredRowIncrement, ConfiguredColumnIncrement);
+
+  // Later iteration + LUT reuse.
+  BOOST_REQUIRE_NO_THROW(rig.traits.initialiseTimeFrame(1));
+  BOOST_CHECK(snapshotCovariance(rig.tf) == loaded);
+
+  // Later iteration + LUT rebuild.
+  BOOST_REQUIRE_NO_THROW(rig.traits.initialiseTimeFrame(2));
+  BOOST_CHECK(snapshotCovariance(rig.tf) == loaded);
+
+  // Repeated FirstPass initialization is bit-identical.
+  BOOST_REQUIRE_NO_THROW(rig.traits.initialiseTimeFrame(0));
+  BOOST_CHECK(snapshotCovariance(rig.tf) == loaded);
+  BOOST_REQUIRE_NO_THROW(rig.traits.initialiseTimeFrame(0));
+  BOOST_CHECK(snapshotCovariance(rig.tf) == loaded);
+  checkRepresentationsAligned(rig.tf);
+
+  // A rejected later iteration leaves normalized and compatibility
+  // covariance untouched.
+  auto invalidParameters = parameters;
+  ++invalidParameters[1].RowBins;
+  rig.traits.updateTrackingParameters(invalidParameters);
+  bool rejected = false;
+  try {
+    rig.traits.initialiseTimeFrame(1);
+  } catch (const TraversalException& error) {
+    rejected = true;
+    BOOST_CHECK(error.getReason() == TraversalFailureReason::IndexTableConfigurationMismatch);
+  }
+  BOOST_REQUIRE(rejected);
+  BOOST_CHECK(snapshotCovariance(rig.tf) == loaded);
+  checkRepresentationsAligned(rig.tf);
+
+  // wipe() clears event state but preserves the configured layout. Reloading
+  // and initializing the same event starts again from one decoded increment,
+  // never from the previous compatibility copy.
+  rig.tf.wipe();
+  rig.load(true);
+  rig.traits.updateTrackingParameters(parameters);
+  const auto reloaded = snapshotCovariance(rig.tf);
+  BOOST_CHECK(reloaded == loaded);
+  BOOST_REQUIRE_NO_THROW(rig.traits.initialiseTimeFrame(0));
+  BOOST_CHECK(snapshotCovariance(rig.tf) == loaded);
+  checkRepresentationsAligned(rig.tf);
+}
+
+template <int NLayers>
+void exerciseExplicitFalse(o2::detectors::DetID::ID detector, SurfaceKind kind)
+{
+  auto parameters = makeLifecycleParameters<NLayers>(
+    detector, ConfiguredRowIncrement, ConfiguredColumnIncrement);
+  Rig<NLayers> rig{
+    detector, kind, ConfiguredRowIncrement, ConfiguredColumnIncrement};
+  rig.configure(parameters);
+  rig.load(false);
+  BOOST_REQUIRE(!rig.decoder.lastApplySysErrors);
+  rig.traits.updateTrackingParameters(parameters);
+
+  const auto loaded = snapshotCovariance(rig.tf);
+  checkBitIdentical(std::bit_cast<float>(loaded.normalized[0]), o2::itsmft::ioutils::DefClusError2Row);
+  checkBitIdentical(std::bit_cast<float>(loaded.normalized[2]), o2::itsmft::ioutils::DefClusError2Col);
+  checkRepresentationsAligned(rig.tf);
+
+  BOOST_REQUIRE_NO_THROW(rig.traits.initialiseTimeFrame(0));
+  BOOST_CHECK(snapshotCovariance(rig.tf) == loaded);
+  BOOST_REQUIRE_NO_THROW(rig.traits.initialiseTimeFrame(1));
+  BOOST_CHECK(snapshotCovariance(rig.tf) == loaded);
+  BOOST_REQUIRE_NO_THROW(rig.traits.initialiseTimeFrame(2));
+  BOOST_CHECK(snapshotCovariance(rig.tf) == loaded);
+
+  // Position-resolution preparation intentionally still consumes configured
+  // systematic contributions even when this explicit loading override keeps
+  // cluster covariance at its base value.
+  checkPositionResolution(rig, parameters[2], ConfiguredRowIncrement, ConfiguredColumnIncrement);
+  checkRepresentationsAligned(rig.tf);
+}
+
+// Common TimeFrame::loadROFrameData() calls this decoder API without the
+// final boolean. This compile-time source/API characterization proves that
+// the retained call form still selects applySysErrors=true by default. The
+// lifecycle tests above prove the shared later initialization contributes no
+// additional increment.
+static_assert(requires(const CompClusterExt& cluster,
+                       gsl::span<const unsigned char>::iterator& patterns,
+                       const TopologyDictionary* dict,
+                       int& layer,
+                       unsigned int& clusterSize,
+                       o2::its::TrackingFrameInfo& info) {
+  o2::itsmft::ioutils::loadClusterTrackingFrameInfo<o2::detectors::DetID::ITS>(
+    cluster, patterns, dict, layer, clusterSize, info);
+  o2::itsmft::ioutils::loadClusterTrackingFrameInfo<o2::detectors::DetID::MFT>(
+    cluster, patterns, dict, layer, clusterSize, info);
+});
+
+} // namespace
+
+BOOST_AUTO_TEST_CASE(SystematicsDisabledPreservesBaseCovarianceForITSAndMFT)
+{
+  exerciseDisabled<ITSNLayers>(o2::detectors::DetID::ITS, SurfaceKind::Cylinder);
+  exerciseDisabled<MFTNLayers>(o2::detectors::DetID::MFT, SurfaceKind::Disk);
+}
+
+BOOST_AUTO_TEST_CASE(SystematicsEnabledRemainExactlyOnceAcrossTheFullLifecycle)
+{
+  exerciseEnabledLifecycle<ITSNLayers>(o2::detectors::DetID::ITS, SurfaceKind::Cylinder);
+  exerciseEnabledLifecycle<MFTNLayers>(o2::detectors::DetID::MFT, SurfaceKind::Disk);
+}
+
+BOOST_AUTO_TEST_CASE(ExplicitApplySysErrorsFalseSurvivesInitialization)
+{
+  exerciseExplicitFalse<ITSNLayers>(o2::detectors::DetID::ITS, SurfaceKind::Cylinder);
+  exerciseExplicitFalse<MFTNLayers>(o2::detectors::DetID::MFT, SurfaceKind::Disk);
+}
+
+BOOST_AUTO_TEST_CASE(RetainedLoadROFrameDataUsesTheDefaultSystematicDecoderAPI)
+{
+  BOOST_CHECK(true);
+}

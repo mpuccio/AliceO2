@@ -190,6 +190,12 @@ o2_add_test(timeframe-lifecycle
             LABELS "itsmft;tracking"
             PUBLIC_LINK_LIBRARIES O2::ITSMFTTracking O2::MFTTracking)
 
+o2_add_test(timeframe-covariance-lifecycle
+            SOURCES testTimeFrameCovarianceLifecycle.cxx
+            COMPONENT_NAME itsmft-tracking
+            LABELS "itsmft;tracking"
+            PUBLIC_LINK_LIBRARIES O2::ITSMFTTracking O2::MFTTracking)
+
 o2_add_test(catracker-failure-contract
             SOURCES testCATrackerFailureContract.cxx
             COMPONENT_NAME itsmft-tracking
