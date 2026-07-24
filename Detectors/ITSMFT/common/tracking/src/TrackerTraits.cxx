@@ -369,13 +369,23 @@ void TrackerTraits<NLayers>::initialiseTimeFrame(const int iteration)
     }
     const auto measurements = stagedLayerMeasurements[layer];
     const auto rofBoundaries = mTimeFrame->getROFrameClusters(layer);
+    const auto rofMask = mTimeFrame->getROFMaskView();
+    // Orchestration-only users can intentionally omit the mask altogether;
+    // without it no ROF is candidate-reachable. Do not validate allocated
+    // spans until a later configuration actually enables one.
+    if (rofMask.mFlatMask == nullptr || rofMask.mLayerROFOffsets == nullptr) {
+      continue;
+    }
     for (int rof = 0; rof < mTimeFrame->getNrof(layer); ++rof) {
-      if (!mTimeFrame->getROFMaskView().isROFEnabled(layer, rof)) {
+      const auto sorted = mTimeFrame->getClustersOnLayer(rof, layer);
+      if (sorted.empty()) {
+        continue;
+      }
+      if (!rofMask.isROFEnabled(layer, rof)) {
         continue;
       }
       const int first = rofBoundaries[rof];
       const int last = rofBoundaries[rof + 1];
-      const auto sorted = mTimeFrame->getClustersOnLayer(rof, layer);
       if (first < 0 || last < first || last > static_cast<int>(measurements.size()) ||
           sorted.size() != static_cast<size_t>(last - first)) {
         throw TraversalException{iteration, TraversalFailureReason::NormalizedMeasurementMismatch};
