@@ -577,7 +577,7 @@ BOOST_AUTO_TEST_CASE(NormalizedMeasurementsRemainAuthoritativeOverPoisonedLocato
   float baselineTanLambda = -1.f;
   BOOST_REQUIRE(baseline.acceptCandidate(sourceMeasurement, source, targetMeasurement, target, baselineTanLambda));
   const float baselinePhi = o2::gpu::GPUCommonMath::ATan2(sourceMeasurement.global.y - targetMeasurement.global.y,
-                                                           sourceMeasurement.global.x - targetMeasurement.global.x);
+                                                          sourceMeasurement.global.x - targetMeasurement.global.x);
 
   auto poisonedSource = source;
   auto poisonedTarget = target;
@@ -595,7 +595,7 @@ BOOST_AUTO_TEST_CASE(NormalizedMeasurementsRemainAuthoritativeOverPoisonedLocato
   BOOST_REQUIRE(poisonedWindow.acceptCandidate(sourceMeasurement, poisonedSource, targetMeasurement, poisonedTarget, poisonedTanLambda));
   BOOST_CHECK_EQUAL(poisonedTanLambda, baselineTanLambda);
   BOOST_CHECK_EQUAL(o2::gpu::GPUCommonMath::ATan2(sourceMeasurement.global.y - targetMeasurement.global.y,
-                                                   sourceMeasurement.global.x - targetMeasurement.global.x),
+                                                  sourceMeasurement.global.x - targetMeasurement.global.x),
                     baselinePhi);
 
   auto poisonedNavigationCache = source;

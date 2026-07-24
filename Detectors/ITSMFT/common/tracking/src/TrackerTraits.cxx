@@ -715,7 +715,7 @@ void TrackerTraits<NLayers>::computeLayerTrackletsForPolicy(
                 }();
                 if (accepted) {
                   const float phi{o2::gpu::GPUCommonMath::ATan2(sourceMeasurement.global.y - targetMeasurement.global.y,
-                                                                 sourceMeasurement.global.x - targetMeasurement.global.x)};
+                                                                sourceMeasurement.global.x - targetMeasurement.global.x)};
                   if constexpr (decltype(Mode)::value == PassMode::OnePass::value) {
                     tracklets.emplace_back(currentSortedIndex, mTimeFrame->getSortedIndex(targetROF, transition.toLayer, iNext), tanL, phi, ts);
                   } else if constexpr (decltype(Mode)::value == PassMode::TwoPassCount::value) {
