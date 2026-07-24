@@ -21,6 +21,7 @@
 
 #include "DetectorsCommonDataFormats/DetID.h"
 #include "Field/MagneticField.h"
+#include "GPUCommonMath.h"
 #include "ITSMFTTracking/MFTFwdTrackHelpers.h"
 #include "ITSMFTTracking/TransitionPolicyBinding.h"
 #include "ITSMFTTracking/TransitionPolicyOperations.h"
@@ -73,6 +74,19 @@ o2::its::Vertex makeVertex(float x, float y, float z,
 o2::its::Cluster makeGlobalCluster(float x, float y, float z, int id = 0)
 {
   return o2::its::Cluster{x, y, z, id};
+}
+
+SurfaceMeasurement makeMeasurement(float x, float y, float z, float uu = 1.e-4f, float vv = 1.e-4f, float uv = 0.f)
+{
+  SurfaceMeasurement measurement{};
+  measurement.global = {x, y, z};
+  measurement.covariance = {uu, uv, vv};
+  return measurement;
+}
+
+SurfaceMeasurement makeMeasurement(const o2::its::Cluster& cluster, float uu = 1.e-4f, float vv = 1.e-4f, float uv = 0.f)
+{
+  return makeMeasurement(cluster.xCoordinate, cluster.yCoordinate, cluster.zCoordinate, uu, vv, uv);
 }
 
 template <TransitionPolicyTag Tag>
@@ -224,14 +238,14 @@ BOOST_AUTO_TEST_CASE(CylinderProjectSearchWindowMatchesInlineFormulaAndDirectPhi
   indexUtils.setTrackingParameters(legacy);
 
   const auto source = makeGlobalCluster(2.f, 0.f, 0.5f);
-  const auto sourceHit = makeBarrelHit(2.f, 0.f, 0.f, 0.5f);
+  const auto sourceMeasurement = makeMeasurement(source);
   const auto vertex = makeVertex(0.f, 0.f, 0.f, 1.e-4f, 1.e-4f, 4.e-4f, 4);
   const TrackletProjectionState<TransitionPolicyTag::CylinderCylinder> state{
     0, 3, 2.f, 3.8f, 4.2f, 5.e-4f, 2.e-3f, 0.08f};
 
   TrackletSearchWindow<TransitionPolicyTag::CylinderCylinder> window{};
   BOOST_REQUIRE((projectSearchWindow<TransitionPolicyTag::CylinderCylinder, 7>(
-    source, sourceHit, vertex, state, Bz, indexUtils, params, window)));
+    sourceMeasurement, source, vertex, state, Bz, indexUtils, params, window)));
 
   const float inverseR0 = 1.f / source.radius;
   const float resolution = o2::gpu::CAMath::Sqrt(o2::its::math_utils::Sq(state.sourcePositionResolution) +
@@ -258,7 +272,7 @@ BOOST_AUTO_TEST_CASE(CylinderProjectSearchWindowMatchesInlineFormulaAndDirectPhi
   BOOST_REQUIRE(positivePVParams.isValid());
   TrackletSearchWindow<TransitionPolicyTag::CylinderCylinder> positivePVWindow{};
   BOOST_REQUIRE((projectSearchWindow<TransitionPolicyTag::CylinderCylinder, 7>(
-    source, sourceHit, vertex, state, Bz, indexUtils, positivePVParams, positivePVWindow)));
+    sourceMeasurement, source, vertex, state, Bz, indexUtils, positivePVParams, positivePVWindow)));
   const float positivePVResolution = o2::gpu::CAMath::Sqrt(o2::its::math_utils::Sq(state.sourcePositionResolution) +
                                                            o2::its::math_utils::Sq(positivePVParams.pvResolution) / float(vertex.getNContributors()));
   const float positivePVSigmaZ = o2::gpu::CAMath::Sqrt((o2::its::math_utils::Sq(positivePVResolution) * o2::its::math_utils::Sq(tanLambda) *
@@ -270,13 +284,15 @@ BOOST_AUTO_TEST_CASE(CylinderProjectSearchWindowMatchesInlineFormulaAndDirectPhi
   const float targetRadius = 4.f;
   const float targetZ = tanLambda * (targetRadius - source.radius) + source.zCoordinate;
   const auto acceptedTarget = makeGlobalCluster(targetRadius, 0.f, targetZ);
+  const auto acceptedTargetMeasurement = makeMeasurement(acceptedTarget);
   float acceptedTanLambda = -999.f;
-  BOOST_CHECK(window.acceptCandidate(source, acceptedTarget, acceptedTanLambda));
+  BOOST_CHECK(window.acceptCandidate(sourceMeasurement, source, acceptedTargetMeasurement, acceptedTarget, acceptedTanLambda));
   BOOST_CHECK_EQUAL(acceptedTanLambda, (source.zCoordinate - acceptedTarget.zCoordinate) / (source.radius - acceptedTarget.radius));
 
   const auto rejectedTarget = makeGlobalCluster(-targetRadius, 0.f, targetZ);
+  const auto rejectedTargetMeasurement = makeMeasurement(rejectedTarget);
   float rejectedTanLambda = 123.f;
-  BOOST_CHECK(!window.acceptCandidate(source, rejectedTarget, rejectedTanLambda));
+  BOOST_CHECK(!window.acceptCandidate(sourceMeasurement, source, rejectedTargetMeasurement, rejectedTarget, rejectedTanLambda));
   BOOST_CHECK_EQUAL(rejectedTanLambda, 123.f);
 }
 
@@ -296,14 +312,14 @@ BOOST_AUTO_TEST_CASE(DiskProjectSearchWindowReusesHelpersAndDirectProjectedXYBin
   const float fromZ = detail::mftLayerZ(fromLayer);
   const float toZ = detail::mftLayerZ(toLayer);
   const auto source = makeGlobalCluster(1.2f, 0.7f, fromZ);
-  const auto sourceHit = makeDiskHit(fromZ, source.xCoordinate, source.yCoordinate, 2.e-4f, 3.e-4f);
+  const auto sourceMeasurement = makeMeasurement(source, 2.e-4f, 3.e-4f);
   const auto vertex = makeVertex(0.01f, -0.02f, 0.1f, 4.e-4f, 5.e-4f, 0.04f, 3);
   const TrackletProjectionState<TransitionPolicyTag::DiskDisk> state{
     fromLayer, toLayer, fromZ, toZ, toZ - fromZ, 2.f, 3.e-3f, 0.04f};
 
   TrackletSearchWindow<TransitionPolicyTag::DiskDisk> window{};
   BOOST_REQUIRE((projectSearchWindow<TransitionPolicyTag::DiskDisk, 10>(
-    source, sourceHit, vertex, state, Bz, indexUtils, params, window)));
+    sourceMeasurement, source, vertex, state, Bz, indexUtils, params, window)));
 
   float expectedX = 0.f;
   float expectedY = 0.f;
@@ -314,7 +330,7 @@ BOOST_AUTO_TEST_CASE(DiskProjectSearchWindowReusesHelpersAndDirectProjectedXYBin
   float expectedSigmaY = 0.f;
   detail::mftTrackletSigmaXY(source.xCoordinate, source.yCoordinate,
                              vertex.getX(), vertex.getY(), vertex.getZ(),
-                             sourceHit.covarianceTrackingFrame[0], sourceHit.covarianceTrackingFrame[2],
+                             sourceMeasurement.covariance.uu, sourceMeasurement.covariance.vv,
                              vertex.getSigmaX2(), vertex.getSigmaY2(), vertex.getSigmaZ2(),
                              fromLayer, toLayer, state.sourceReferenceRadius, state.meanDeltaZ,
                              state.transitionMSAngle, state.transitionBendingAngle,
@@ -348,14 +364,15 @@ BOOST_AUTO_TEST_CASE(DiskProjectSearchWindowReusesHelpersAndDirectProjectedXYBin
   BOOST_CHECK_EQUAL(window.sigmaY, expectedSigmaY);
 
   const auto acceptedTarget = makeGlobalCluster(expectedX, expectedY, toZ);
+  const auto acceptedTargetMeasurement = makeMeasurement(acceptedTarget);
   float acceptedTanLambda = -999.f;
-  BOOST_CHECK(window.acceptCandidate(source, acceptedTarget, acceptedTanLambda));
+  BOOST_CHECK(window.acceptCandidate(sourceMeasurement, acceptedTargetMeasurement, acceptedTanLambda));
   BOOST_CHECK_EQUAL(acceptedTanLambda, (source.zCoordinate - acceptedTarget.zCoordinate) / state.meanDeltaZ);
 
   auto rejectedWindow = window;
   rejectedWindow.meanDeltaZ = 0.f;
   float rejectedTanLambda = 123.f;
-  BOOST_CHECK(!rejectedWindow.acceptCandidate(source, acceptedTarget, rejectedTanLambda));
+  BOOST_CHECK(!rejectedWindow.acceptCandidate(sourceMeasurement, acceptedTargetMeasurement, rejectedTanLambda));
   BOOST_CHECK_EQUAL(rejectedTanLambda, 123.f);
 }
 
@@ -367,7 +384,7 @@ BOOST_AUTO_TEST_CASE(ProjectSearchWindowInvalidBinsLeaveEveryOutputFieldUnchange
   cylinderIndexUtils.setTrackingParameters(legacy);
   const auto cylinderParams = bindTransitionPolicyParams<TransitionPolicyTag::CylinderCylinder>(legacy);
   const auto cylinderSource = makeGlobalCluster(2.f, 0.f, 100.f);
-  const auto cylinderHit = makeBarrelHit(2.f, 0.f, 0.f, 100.f);
+  const auto cylinderMeasurement = makeMeasurement(cylinderSource);
   const auto cylinderVertex = makeVertex(0.f, 0.f, 0.f, 0.f, 0.f, 0.f);
   const TrackletProjectionState<TransitionPolicyTag::CylinderCylinder> cylinderState{
     0, 3, 2.f, 3.8f, 4.2f, 5.e-4f, 2.e-3f, 0.08f};
@@ -375,7 +392,7 @@ BOOST_AUTO_TEST_CASE(ProjectSearchWindowInvalidBinsLeaveEveryOutputFieldUnchange
     {101, 102, 103, 104}, 105.f, 106.f, 107.f, 108.f};
   auto cylinderOut = cylinderSentinel;
   BOOST_CHECK(!(projectSearchWindow<TransitionPolicyTag::CylinderCylinder, 7>(
-    cylinderSource, cylinderHit, cylinderVertex, cylinderState, Bz, cylinderIndexUtils, cylinderParams, cylinderOut)));
+    cylinderMeasurement, cylinderSource, cylinderVertex, cylinderState, Bz, cylinderIndexUtils, cylinderParams, cylinderOut)));
   checkSearchWindowEqual(cylinderOut, cylinderSentinel);
 
   IndexTableUtils<10> diskIndexUtils;
@@ -388,7 +405,7 @@ BOOST_AUTO_TEST_CASE(ProjectSearchWindowInvalidBinsLeaveEveryOutputFieldUnchange
   const float fromZ = detail::mftLayerZ(fromLayer);
   const float toZ = detail::mftLayerZ(toLayer);
   const auto diskSource = makeGlobalCluster(1.f, 0.5f, fromZ);
-  const auto diskHit = makeDiskHit(fromZ, diskSource.xCoordinate, diskSource.yCoordinate);
+  const auto diskMeasurement = makeMeasurement(diskSource);
   const auto diskVertex = makeVertex(0.f, 0.f, 0.f, 0.f, 0.f, 0.f);
   const TrackletProjectionState<TransitionPolicyTag::DiskDisk> diskState{
     fromLayer, toLayer, fromZ, toZ, toZ - fromZ, 2.f, 3.e-3f, 0.04f};
@@ -396,7 +413,7 @@ BOOST_AUTO_TEST_CASE(ProjectSearchWindowInvalidBinsLeaveEveryOutputFieldUnchange
     {201, 202, 203, 204}, 205.f, 206.f, 207.f, 208.f, 209.f, 210.f};
   auto diskOut = diskSentinel;
   BOOST_CHECK(!(projectSearchWindow<TransitionPolicyTag::DiskDisk, 10>(
-    diskSource, diskHit, diskVertex, diskState, Bz, diskIndexUtils, diskParams, diskOut)));
+    diskMeasurement, diskSource, diskVertex, diskState, Bz, diskIndexUtils, diskParams, diskOut)));
   checkSearchWindowEqual(diskOut, diskSentinel);
 }
 
@@ -410,21 +427,22 @@ BOOST_AUTO_TEST_CASE(CylinderCandidateUsesPeriodicPhiAndStrictSigmaAndPhiBoundar
   const auto wrappedTarget = makeGlobalCluster(2.f * std::cos(wrapEpsilon), 2.f * std::sin(wrapEpsilon), 0.f);
   float tanLambda = -9.f;
   BOOST_REQUIRE(o2::its::math_utils::isPhiDifferenceBelow(wrappedSource.phi, wrappedTarget.phi, window.phiCut));
-  BOOST_CHECK(window.acceptCandidate(wrappedSource, wrappedTarget, tanLambda));
+  BOOST_CHECK(window.acceptCandidate(makeMeasurement(wrappedSource), wrappedSource, makeMeasurement(wrappedTarget), wrappedTarget, tanLambda));
 
   const auto source = makeGlobalCluster(1.f, 0.f, 0.f);
+  const auto sourceMeasurement = makeMeasurement(source);
   const auto exactSigmaTarget = makeGlobalCluster(2.f, 0.f, 5.f);
   tanLambda = 71.f;
-  BOOST_CHECK(!window.acceptCandidate(source, exactSigmaTarget, tanLambda));
+  BOOST_CHECK(!window.acceptCandidate(sourceMeasurement, source, makeMeasurement(exactSigmaTarget), exactSigmaTarget, tanLambda));
   BOOST_CHECK_EQUAL(tanLambda, 71.f);
   const auto insideSigmaTarget = makeGlobalCluster(2.f, 0.f, std::nextafter(5.f, 0.f));
-  BOOST_CHECK(window.acceptCandidate(source, insideSigmaTarget, tanLambda));
+  BOOST_CHECK(window.acceptCandidate(sourceMeasurement, source, makeMeasurement(insideSigmaTarget), insideSigmaTarget, tanLambda));
 
   const auto phiTarget = makeGlobalCluster(2.f * std::cos(0.125f), 2.f * std::sin(0.125f), 0.f);
   window.phiCut = o2::gpu::CAMath::Abs(source.phi - phiTarget.phi);
   const bool directPhiDecision = o2::its::math_utils::isPhiDifferenceBelow(source.phi, phiTarget.phi, window.phiCut);
   tanLambda = 72.f;
-  BOOST_CHECK_EQUAL(window.acceptCandidate(source, phiTarget, tanLambda), directPhiDecision);
+  BOOST_CHECK_EQUAL(window.acceptCandidate(sourceMeasurement, source, makeMeasurement(phiTarget), phiTarget, tanLambda), directPhiDecision);
   BOOST_CHECK(!directPhiDecision);
   BOOST_CHECK_EQUAL(tanLambda, 72.f);
 }
@@ -438,7 +456,7 @@ BOOST_AUTO_TEST_CASE(DiskProjectionCoversStraightLineNearZeroDenominatorAndRadia
   const float fromZ = detail::mftLayerZ(fromLayer);
   const float toZ = detail::mftLayerZ(toLayer);
   const auto source = makeGlobalCluster(1.f, 0.5f, fromZ);
-  const auto sourceHit = makeDiskHit(fromZ, source.xCoordinate, source.yCoordinate);
+  const auto sourceMeasurement = makeMeasurement(source);
   const TrackletProjectionState<TransitionPolicyTag::DiskDisk> state{
     fromLayer, toLayer, fromZ, toZ, toZ - fromZ, 2.f, 3.e-3f, 0.04f};
 
@@ -450,7 +468,7 @@ BOOST_AUTO_TEST_CASE(DiskProjectionCoversStraightLineNearZeroDenominatorAndRadia
   const auto straightVertex = makeVertex(0.1f, -0.2f, 0.3f, 4.e-4f, 5.e-4f, 0.04f);
   TrackletSearchWindow<TransitionPolicyTag::DiskDisk> straightWindow{};
   BOOST_REQUIRE((projectSearchWindow<TransitionPolicyTag::DiskDisk, 10>(
-    source, sourceHit, straightVertex, state, 0.f, indexUtils, params, straightWindow)));
+    sourceMeasurement, source, straightVertex, state, 0.f, indexUtils, params, straightWindow)));
   float expectedX = 0.f;
   float expectedY = 0.f;
   detail::mftTrackletProject(source.xCoordinate, source.yCoordinate, source.zCoordinate,
@@ -462,7 +480,7 @@ BOOST_AUTO_TEST_CASE(DiskProjectionCoversStraightLineNearZeroDenominatorAndRadia
   const auto fallbackVertex = makeVertex(0.1f, -0.2f, fromZ, 4.e-4f, 5.e-4f, 0.f);
   TrackletSearchWindow<TransitionPolicyTag::DiskDisk> fallbackWindow{};
   BOOST_REQUIRE((projectSearchWindow<TransitionPolicyTag::DiskDisk, 10>(
-    source, sourceHit, fallbackVertex, state, 0.f, indexUtils, params, fallbackWindow)));
+    sourceMeasurement, source, fallbackVertex, state, 0.f, indexUtils, params, fallbackWindow)));
   expectedX = expectedY = 0.f;
   detail::mftTrackletProject(source.xCoordinate, source.yCoordinate, source.zCoordinate,
                              fallbackVertex.getX(), fallbackVertex.getY(), fallbackVertex.getZ(),
@@ -483,7 +501,7 @@ BOOST_AUTO_TEST_CASE(DiskProjectionCoversStraightLineNearZeroDenominatorAndRadia
   BOOST_REQUIRE_GT(rawRadialMin, rawRadialMax);
   TrackletSearchWindow<TransitionPolicyTag::DiskDisk> swapWindow{};
   BOOST_REQUIRE((projectSearchWindow<TransitionPolicyTag::DiskDisk, 10>(
-    source, sourceHit, swapVertex, state, 0.f, indexUtils, params, swapWindow)));
+    sourceMeasurement, source, swapVertex, state, 0.f, indexUtils, params, swapWindow)));
   expectedX = expectedY = 0.f;
   detail::mftTrackletProject(source.xCoordinate, source.yCoordinate, source.zCoordinate,
                              swapVertex.getX(), swapVertex.getY(), swapVertex.getZ(),
@@ -492,7 +510,7 @@ BOOST_AUTO_TEST_CASE(DiskProjectionCoversStraightLineNearZeroDenominatorAndRadia
   float expectedSigmaY = 0.f;
   detail::mftTrackletSigmaXY(source.xCoordinate, source.yCoordinate,
                              swapVertex.getX(), swapVertex.getY(), swapVertex.getZ(),
-                             sourceHit.covarianceTrackingFrame[0], sourceHit.covarianceTrackingFrame[2],
+                             sourceMeasurement.covariance.uu, sourceMeasurement.covariance.vv,
                              swapVertex.getSigmaX2(), swapVertex.getSigmaY2(), swapVertex.getSigmaZ2(),
                              fromLayer, toLayer, state.sourceReferenceRadius, state.meanDeltaZ,
                              state.transitionMSAngle, state.transitionBendingAngle,
@@ -512,28 +530,104 @@ BOOST_AUTO_TEST_CASE(DiskCandidatePreservesInverseVarianceAndStrictBoundarySeman
 {
   const auto source = makeGlobalCluster(1.f, 0.f, -45.f);
   const auto distantTarget = makeGlobalCluster(100.f, -80.f, -47.f);
+  const auto sourceMeasurement = makeMeasurement(source);
+  const auto distantTargetMeasurement = makeMeasurement(distantTarget);
   TrackletSearchWindow<TransitionPolicyTag::DiskDisk> zeroSigmaWindow{
     {}, 0.f, 0.f, 0.f, -1.f, 2.f, 5.f};
   float tanLambda = -8.f;
-  BOOST_CHECK(zeroSigmaWindow.acceptCandidate(source, distantTarget, tanLambda));
+  BOOST_CHECK(zeroSigmaWindow.acceptCandidate(sourceMeasurement, distantTargetMeasurement, tanLambda));
   BOOST_CHECK_EQUAL(tanLambda, 1.f);
 
   TrackletSearchWindow<TransitionPolicyTag::DiskDisk> chi2Window{
     {}, 0.f, 0.f, 1.f, 1.f, 2.f, 5.f};
   const auto exactChi2Target = makeGlobalCluster(5.f, 0.f, -47.f);
   tanLambda = 81.f;
-  BOOST_CHECK(!chi2Window.acceptCandidate(source, exactChi2Target, tanLambda));
+  BOOST_CHECK(!chi2Window.acceptCandidate(sourceMeasurement, makeMeasurement(exactChi2Target), tanLambda));
   BOOST_CHECK_EQUAL(tanLambda, 81.f);
   const auto insideChi2Target = makeGlobalCluster(std::nextafter(5.f, 0.f), 0.f, -47.f);
-  BOOST_CHECK(chi2Window.acceptCandidate(source, insideChi2Target, tanLambda));
+  BOOST_CHECK(chi2Window.acceptCandidate(sourceMeasurement, makeMeasurement(insideChi2Target), tanLambda));
 
   const auto centeredTarget = makeGlobalCluster(0.f, 0.f, -47.f);
   chi2Window.meanDeltaZ = 1.e-6f;
   tanLambda = 82.f;
-  BOOST_CHECK(!chi2Window.acceptCandidate(source, centeredTarget, tanLambda));
+  BOOST_CHECK(!chi2Window.acceptCandidate(sourceMeasurement, makeMeasurement(centeredTarget), tanLambda));
   BOOST_CHECK_EQUAL(tanLambda, 82.f);
   chi2Window.meanDeltaZ = std::nextafter(1.e-6f, std::numeric_limits<float>::infinity());
-  BOOST_CHECK(chi2Window.acceptCandidate(source, centeredTarget, tanLambda));
+  BOOST_CHECK(chi2Window.acceptCandidate(sourceMeasurement, makeMeasurement(centeredTarget), tanLambda));
+}
+
+BOOST_AUTO_TEST_CASE(NormalizedMeasurementsRemainAuthoritativeOverPoisonedLocatorCoordinates)
+{
+  TrackingParameters cylinderParameters;
+  cylinderParameters.PVres = 0.f;
+  const auto cylinderPolicy = bindTransitionPolicyParams<TransitionPolicyTag::CylinderCylinder>(cylinderParameters);
+  IndexTableUtils<7> cylinderIndex;
+  cylinderIndex.setTrackingParameters(cylinderParameters);
+  const auto vertex = makeVertex(0.f, 0.f, 0.f, 1.e-4f, 1.e-4f, 4.e-4f, 4);
+  const TrackletProjectionState<TransitionPolicyTag::CylinderCylinder> cylinderState{
+    0, 1, 2.f, 3.8f, 4.2f, 5.e-4f, 2.e-3f, 0.08f};
+  const auto sourceMeasurement = makeMeasurement(2.f, 0.f, 0.5f);
+  const auto targetMeasurement = makeMeasurement(4.f, 0.f, 1.f);
+  const auto source = makeGlobalCluster(2.f, 0.f, 0.5f);
+  const auto target = makeGlobalCluster(4.f, 0.f, 1.f);
+
+  TrackletSearchWindow<TransitionPolicyTag::CylinderCylinder> baseline{};
+  BOOST_REQUIRE((projectSearchWindow<TransitionPolicyTag::CylinderCylinder, 7>(
+    sourceMeasurement, source, vertex, cylinderState, Bz, cylinderIndex, cylinderPolicy, baseline)));
+  float baselineTanLambda = -1.f;
+  BOOST_REQUIRE(baseline.acceptCandidate(sourceMeasurement, source, targetMeasurement, target, baselineTanLambda));
+  const float baselinePhi = o2::gpu::GPUCommonMath::ATan2(sourceMeasurement.global.y - targetMeasurement.global.y,
+                                                           sourceMeasurement.global.x - targetMeasurement.global.x);
+
+  auto poisonedSource = source;
+  auto poisonedTarget = target;
+  poisonedSource.xCoordinate = -999.f;
+  poisonedSource.yCoordinate = 888.f;
+  poisonedSource.zCoordinate = -777.f;
+  poisonedTarget.xCoordinate = 666.f;
+  poisonedTarget.yCoordinate = -555.f;
+  poisonedTarget.zCoordinate = 444.f;
+  TrackletSearchWindow<TransitionPolicyTag::CylinderCylinder> poisonedWindow{};
+  BOOST_REQUIRE((projectSearchWindow<TransitionPolicyTag::CylinderCylinder, 7>(
+    sourceMeasurement, poisonedSource, vertex, cylinderState, Bz, cylinderIndex, cylinderPolicy, poisonedWindow)));
+  checkSearchWindowEqual(poisonedWindow, baseline);
+  float poisonedTanLambda = -2.f;
+  BOOST_REQUIRE(poisonedWindow.acceptCandidate(sourceMeasurement, poisonedSource, targetMeasurement, poisonedTarget, poisonedTanLambda));
+  BOOST_CHECK_EQUAL(poisonedTanLambda, baselineTanLambda);
+  BOOST_CHECK_EQUAL(o2::gpu::GPUCommonMath::ATan2(sourceMeasurement.global.y - targetMeasurement.global.y,
+                                                   sourceMeasurement.global.x - targetMeasurement.global.x),
+                    baselinePhi);
+
+  auto poisonedNavigationCache = source;
+  poisonedNavigationCache.radius = 4.f;
+  TrackletSearchWindow<TransitionPolicyTag::CylinderCylinder> cachePoisonedWindow{};
+  BOOST_REQUIRE((projectSearchWindow<TransitionPolicyTag::CylinderCylinder, 7>(
+    sourceMeasurement, poisonedNavigationCache, vertex, cylinderState, Bz, cylinderIndex, cylinderPolicy, cachePoisonedWindow)));
+  BOOST_CHECK_NE(cachePoisonedWindow.tanLambda, baseline.tanLambda);
+
+  TrackingParameters diskParameters;
+  const auto diskPolicy = bindTransitionPolicyParams<TransitionPolicyTag::DiskDisk>(diskParameters);
+  IndexTableUtils<10> diskIndex;
+  std::array<float, 10> halfExtents{};
+  halfExtents.fill(20.f);
+  diskIndex.setIndexTableParams(IndexTableCoordType::XY, diskParameters.RowBins, diskParameters.ColBins, -20.f, 20.f, halfExtents);
+  const float fromZ = detail::mftLayerZ(0);
+  const float toZ = detail::mftLayerZ(1);
+  const auto diskMeasurement = makeMeasurement(1.f, 0.5f, fromZ, 2.e-4f, 3.e-4f, 7.f);
+  auto diskLocator = makeGlobalCluster(1.f, 0.5f, fromZ);
+  const TrackletProjectionState<TransitionPolicyTag::DiskDisk> diskState{0, 1, fromZ, toZ, toZ - fromZ, 2.f, 3.e-3f, 0.04f};
+  TrackletSearchWindow<TransitionPolicyTag::DiskDisk> diskBaseline{};
+  BOOST_REQUIRE((projectSearchWindow<TransitionPolicyTag::DiskDisk, 10>(
+    diskMeasurement, diskLocator, vertex, diskState, Bz, diskIndex, diskPolicy, diskBaseline)));
+  diskLocator.xCoordinate = 123.f;
+  diskLocator.yCoordinate = -321.f;
+  diskLocator.zCoordinate = 456.f;
+  auto uvPoisoned = diskMeasurement;
+  uvPoisoned.covariance.uv = -12345.f;
+  TrackletSearchWindow<TransitionPolicyTag::DiskDisk> diskPoisoned{};
+  BOOST_REQUIRE((projectSearchWindow<TransitionPolicyTag::DiskDisk, 10>(
+    uvPoisoned, diskLocator, vertex, diskState, Bz, diskIndex, diskPolicy, diskPoisoned)));
+  checkSearchWindowEqual(diskPoisoned, diskBaseline);
 }
 
 /// Gate 3 cell-road pre-cut slice coverage: passesCellRoadPrecut<Tag>

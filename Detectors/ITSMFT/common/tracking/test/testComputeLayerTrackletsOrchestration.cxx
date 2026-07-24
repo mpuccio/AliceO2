@@ -365,6 +365,10 @@ void checkSame(const TrackletSnapshot& serial, const TrackletSnapshot& parallel)
   BOOST_CHECK_EQUAL_COLLECTIONS(serial.lookup.begin(), serial.lookup.end(), parallel.lookup.begin(), parallel.lookup.end());
   for (size_t i = 0; i < serial.tracklets.size(); ++i) {
     BOOST_CHECK(serial.tracklets[i] == parallel.tracklets[i]);
+    BOOST_CHECK_EQUAL(serial.tracklets[i].tanLambda, parallel.tracklets[i].tanLambda);
+    BOOST_CHECK_EQUAL(serial.tracklets[i].phi, parallel.tracklets[i].phi);
+    BOOST_CHECK_EQUAL(serial.tracklets[i].getTimeStamp().getTimeStamp(), parallel.tracklets[i].getTimeStamp().getTimeStamp());
+    BOOST_CHECK_EQUAL(serial.tracklets[i].getTimeStamp().getTimeStampError(), parallel.tracklets[i].getTimeStamp().getTimeStampError());
   }
 }
 
