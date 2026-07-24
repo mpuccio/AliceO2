@@ -676,7 +676,8 @@ void TimeFrame<NLayers>::prepareROFrameData(gsl::span<const itsmft::CompClusterE
 }
 
 template <int NLayers>
-void TimeFrame<NLayers>::prepareClusters(const TrackingParameters& trkParam, const int maxLayers)
+void TimeFrame<NLayers>::prepareClusters(const TrackingParameters& trkParam, const int maxLayers,
+                                         const LayerMeasurementSpans<NLayers>& layerMeasurements)
 {
   // numBins/stride come from the already-committed, already-validated
   // mIndexTableUtils -- never again from trkParam.RowBins/ColBins -- via
@@ -706,14 +707,15 @@ void TimeFrame<NLayers>::prepareClusters(const TrackingParameters& trkParam, con
       const bool useXYBinning = mIndexTableUtils.getCoordType() == IndexTableCoordType::XY;
       for (int iCluster{0}; iCluster < clustersNum; ++iCluster) {
         const Cluster& c = unsortedClusters[iCluster];
+        const auto& measurement = layerMeasurements[iLayer][c.clusterId];
         ClusterHelper& h = cHelper[iCluster];
 
-        const float x = c.xCoordinate - (useXYBinning ? 0.f : mBeamPos[0]);
-        const float y = c.yCoordinate - (useXYBinning ? 0.f : mBeamPos[1]);
-        const float z = c.zCoordinate;
+        const float x = measurement.global.x - (useXYBinning ? 0.f : mBeamPos[0]);
+        const float y = measurement.global.y - (useXYBinning ? 0.f : mBeamPos[1]);
+        const float z = measurement.global.z;
 
-        const float rowCoord = useXYBinning ? c.yCoordinate : math_utils::computePhi(x, y);
-        const float colCoord = useXYBinning ? c.xCoordinate : z;
+        const float rowCoord = useXYBinning ? measurement.global.y : math_utils::computePhi(x, y);
+        const float colCoord = useXYBinning ? measurement.global.x : z;
         int colBin{mIndexTableUtils.getColBinIndex(iLayer, colCoord)};
         if (colBin < 0 || colBin >= colBinsCount) {
           colBin = std::clamp(colBin, 0, colBinsCount - 1);
@@ -735,7 +737,7 @@ void TimeFrame<NLayers>::prepareClusters(const TrackingParameters& trkParam, con
         Cluster& c = clusters2beSorted[lutPerBin[h.bin] + h.ind];
 
         c = unsortedClusters[iCluster];
-        c.phi = useXYBinning ? math_utils::computePhi(c.xCoordinate, c.yCoordinate) : h.rowCoord;
+        c.phi = useXYBinning ? math_utils::computePhi(measurement.global.x, measurement.global.y) : h.rowCoord;
         c.radius = h.r;
         c.indexTableBinIndex = h.bin;
       }
@@ -771,7 +773,9 @@ void TimeFrame<NLayers>::initTrackerTopologies(gsl::span<const TrackingParameter
 }
 
 template <int NLayers>
-void TimeFrame<NLayers>::initialise(const TrackingParameters& trkParam, const int maxLayers, const int iteration, const IndexTableUtilsN& indexTableConfig)
+void TimeFrame<NLayers>::initialise(const TrackingParameters& trkParam, const int maxLayers, const int iteration,
+                                    const IndexTableUtilsN& indexTableConfig,
+                                    const LayerMeasurementSpans<NLayers>& layerMeasurements)
 {
   mTrackingTopologyView = iteration != constants::UnusedIndex ? mTrackerTopologies[iteration].getView() : (maxLayers == 3 ? mVertexingTopology.getView() : mDefaultTrackingTopology.getView());
 
@@ -850,7 +854,7 @@ void TimeFrame<NLayers>::initialise(const TrackingParameters& trkParam, const in
     v = bounded_vector<int>(getNrof(1) + 1, 0, mMemoryPool.get());
   }
   if (trkParam.PassFlags[IterationStep::RebuildClusterLUT]) {
-    prepareClusters(trkParam, maxLayers);
+    prepareClusters(trkParam, maxLayers, layerMeasurements);
   }
   mTotalTracklets = {0, 0};
   if (maxLayers < trkParam.NLayers) { // Vertexer only, but in both iterations

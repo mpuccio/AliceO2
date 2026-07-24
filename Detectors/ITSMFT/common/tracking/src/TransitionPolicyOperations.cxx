@@ -35,14 +35,16 @@ namespace o2::itsmft::tracking
 {
 
 bool TrackletSearchWindow<TransitionPolicyTag::CylinderCylinder>::acceptCandidate(
-  const o2::its::Cluster& source,
-  const o2::its::Cluster& target,
+  const SurfaceMeasurement& sourceMeasurement,
+  const o2::its::Cluster& sourceLocator,
+  const SurfaceMeasurement& targetMeasurement,
+  const o2::its::Cluster& targetLocator,
   float& tanLambdaOut) const
 {
-  const float deltaZ = o2::gpu::CAMath::Abs((tanLambda * (target.radius - source.radius)) + source.zCoordinate - target.zCoordinate);
+  const float deltaZ = o2::gpu::CAMath::Abs((tanLambda * (targetLocator.radius - sourceLocator.radius)) + sourceMeasurement.global.z - targetMeasurement.global.z);
   if (deltaZ / sigmaZ < nSigmaCut &&
-      o2::its::math_utils::isPhiDifferenceBelow(source.phi, target.phi, phiCut)) {
-    const float acceptedTanLambda = (source.zCoordinate - target.zCoordinate) / (source.radius - target.radius);
+      o2::its::math_utils::isPhiDifferenceBelow(sourceLocator.phi, targetLocator.phi, phiCut)) {
+    const float acceptedTanLambda = (sourceMeasurement.global.z - targetMeasurement.global.z) / (sourceLocator.radius - targetLocator.radius);
     tanLambdaOut = acceptedTanLambda;
     return true;
   }
@@ -50,17 +52,17 @@ bool TrackletSearchWindow<TransitionPolicyTag::CylinderCylinder>::acceptCandidat
 }
 
 bool TrackletSearchWindow<TransitionPolicyTag::DiskDisk>::acceptCandidate(
-  const o2::its::Cluster& source,
-  const o2::its::Cluster& target,
+  const SurfaceMeasurement& sourceMeasurement,
+  const SurfaceMeasurement& targetMeasurement,
   float& tanLambdaOut) const
 {
-  const float dx = target.xCoordinate - xProj;
-  const float dy = target.yCoordinate - yProj;
+  const float dx = targetMeasurement.global.x - xProj;
+  const float dy = targetMeasurement.global.y - yProj;
   const float invSigmaX2 = (sigmaX > 0.f) ? 1.f / (sigmaX * sigmaX) : 0.f;
   const float invSigmaY2 = (sigmaY > 0.f) ? 1.f / (sigmaY * sigmaY) : 0.f;
   const float transChi2 = dx * dx * invSigmaX2 + dy * dy * invSigmaY2;
   if (transChi2 < o2::its::math_utils::Sq(nSigmaCut) && std::abs(meanDeltaZ) > 1.e-6f) {
-    const float acceptedTanLambda = (source.zCoordinate - target.zCoordinate) / meanDeltaZ;
+    const float acceptedTanLambda = (sourceMeasurement.global.z - targetMeasurement.global.z) / meanDeltaZ;
     tanLambdaOut = acceptedTanLambda;
     return true;
   }
@@ -68,8 +70,8 @@ bool TrackletSearchWindow<TransitionPolicyTag::DiskDisk>::acceptCandidate(
 }
 
 template <TransitionPolicyTag Tag, int NLayers>
-bool projectSearchWindow(const o2::its::Cluster& source,
-                         const o2::its::TrackingFrameInfo& sourceHit,
+bool projectSearchWindow(const SurfaceMeasurement& sourceMeasurement,
+                         const o2::its::Cluster& sourceLocator,
                          const o2::its::Vertex& vertex,
                          const TrackletProjectionState<Tag>& transitionState,
                          float bz,
@@ -78,17 +80,17 @@ bool projectSearchWindow(const o2::its::Cluster& source,
                          TrackletSearchWindow<Tag>& out)
 {
   if constexpr (Tag == TransitionPolicyTag::CylinderCylinder) {
-    const float inverseR0 = 1.f / source.radius;
+    const float inverseR0 = 1.f / sourceLocator.radius;
     const float resolution = o2::gpu::CAMath::Sqrt(o2::its::math_utils::Sq(transitionState.sourcePositionResolution) +
                                                    o2::its::math_utils::Sq(params.pvResolution) / float(vertex.getNContributors()));
-    const float tanLambda = (source.zCoordinate - vertex.getZ()) * inverseR0;
-    const float zAtTargetMinR = tanLambda * (transitionState.targetMinR - source.radius) + source.zCoordinate;
-    const float zAtTargetMaxR = tanLambda * (transitionState.targetMaxR - source.radius) + source.zCoordinate;
-    const float sqInvDeltaZ0 = 1.f / (o2::its::math_utils::Sq(source.zCoordinate - vertex.getZ()) + o2::its::constants::Tolerance);
+    const float tanLambda = (sourceMeasurement.global.z - vertex.getZ()) * inverseR0;
+    const float zAtTargetMinR = tanLambda * (transitionState.targetMinR - sourceLocator.radius) + sourceMeasurement.global.z;
+    const float zAtTargetMaxR = tanLambda * (transitionState.targetMaxR - sourceLocator.radius) + sourceMeasurement.global.z;
+    const float sqInvDeltaZ0 = 1.f / (o2::its::math_utils::Sq(sourceMeasurement.global.z - vertex.getZ()) + o2::its::constants::Tolerance);
     const float sigmaZ = o2::gpu::CAMath::Sqrt((o2::its::math_utils::Sq(resolution) * o2::its::math_utils::Sq(tanLambda) *
                                                 ((o2::its::math_utils::Sq(inverseR0) + sqInvDeltaZ0) * o2::its::math_utils::Sq(transitionState.meanDeltaR) + 1.f)) +
                                                o2::its::math_utils::Sq(transitionState.meanDeltaR * transitionState.transitionMSAngle));
-    const auto bins = o2::itsmft::getBinsPhiZ(source.phi, transitionState.toLayer,
+    const auto bins = o2::itsmft::getBinsPhiZ(sourceLocator.phi, transitionState.toLayer,
                                               zAtTargetMinR, zAtTargetMaxR,
                                               sigmaZ * params.nSigmaCut, transitionState.transitionPhiCut,
                                               indexUtils);
@@ -100,15 +102,15 @@ bool projectSearchWindow(const o2::its::Cluster& source,
   } else if constexpr (Tag == TransitionPolicyTag::DiskDisk) {
     float xProj = 0.f;
     float yProj = 0.f;
-    detail::mftTrackletProject(source.xCoordinate, source.yCoordinate, source.zCoordinate,
+    detail::mftTrackletProject(sourceMeasurement.global.x, sourceMeasurement.global.y, sourceMeasurement.global.z,
                                vertex.getX(), vertex.getY(), vertex.getZ(),
                                transitionState.fromLayer, transitionState.toLayer, bz, params.trackletMinPt,
                                xProj, yProj);
     float sigmaX = 0.f;
     float sigmaY = 0.f;
-    detail::mftTrackletSigmaXY(source.xCoordinate, source.yCoordinate,
+    detail::mftTrackletSigmaXY(sourceMeasurement.global.x, sourceMeasurement.global.y,
                                vertex.getX(), vertex.getY(), vertex.getZ(),
-                               sourceHit.covarianceTrackingFrame[0], sourceHit.covarianceTrackingFrame[2],
+                               sourceMeasurement.covariance.uu, sourceMeasurement.covariance.vv,
                                vertex.getSigmaX2(), vertex.getSigmaY2(), vertex.getSigmaZ2(),
                                transitionState.fromLayer, transitionState.toLayer,
                                transitionState.sourceReferenceRadius, transitionState.meanDeltaZ,
@@ -122,8 +124,8 @@ bool projectSearchWindow(const o2::its::Cluster& source,
     const float absZTo = std::abs(transitionState.toZ);
     const float denomMin = zVtxMax + absZFrom;
     const float denomMax = absZFrom + zVtxMin;
-    float radialRangeMin = (std::abs(denomMin) > 1.e-6f) ? source.radius * (zVtxMax + absZTo) / denomMin : source.radius;
-    float radialRangeMax = (std::abs(denomMax) > 1.e-6f) ? source.radius * (absZTo + zVtxMin) / denomMax : source.radius;
+    float radialRangeMin = (std::abs(denomMin) > 1.e-6f) ? sourceLocator.radius * (zVtxMax + absZTo) / denomMin : sourceLocator.radius;
+    float radialRangeMax = (std::abs(denomMax) > 1.e-6f) ? sourceLocator.radius * (absZTo + zVtxMin) / denomMax : sourceLocator.radius;
     if (radialRangeMin > radialRangeMax) {
       const float tmp = radialRangeMin;
       radialRangeMin = radialRangeMax;
@@ -144,13 +146,13 @@ bool projectSearchWindow(const o2::its::Cluster& source,
 }
 
 template bool projectSearchWindow<TransitionPolicyTag::CylinderCylinder, 7>(
-  const o2::its::Cluster&, const o2::its::TrackingFrameInfo&, const o2::its::Vertex&,
+  const SurfaceMeasurement&, const o2::its::Cluster&, const o2::its::Vertex&,
   const TrackletProjectionState<TransitionPolicyTag::CylinderCylinder>&, float,
   const o2::itsmft::IndexTableUtils<7>&, const CylinderCylinderPolicyParams&,
   TrackletSearchWindow<TransitionPolicyTag::CylinderCylinder>&);
 
 template bool projectSearchWindow<TransitionPolicyTag::DiskDisk, 10>(
-  const o2::its::Cluster&, const o2::its::TrackingFrameInfo&, const o2::its::Vertex&,
+  const SurfaceMeasurement&, const o2::its::Cluster&, const o2::its::Vertex&,
   const TrackletProjectionState<TransitionPolicyTag::DiskDisk>&, float,
   const o2::itsmft::IndexTableUtils<10>&, const DiskDiskPolicyParams&,
   TrackletSearchWindow<TransitionPolicyTag::DiskDisk>&);

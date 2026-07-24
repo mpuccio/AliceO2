@@ -33,7 +33,6 @@ namespace o2::its
 {
 class TimeEstBC;
 using Vertex = o2::dataformats::Vertex<TimeEstBC>;
-struct TrackingFrameInfo;
 struct Cluster;
 } // namespace o2::its
 
@@ -91,8 +90,10 @@ struct TrackletSearchWindow<TransitionPolicyTag::CylinderCylinder> {
   float phiCut;
   float nSigmaCut;
 
-  bool acceptCandidate(const o2::its::Cluster& source,
-                       const o2::its::Cluster& target,
+  bool acceptCandidate(const SurfaceMeasurement& sourceMeasurement,
+                       const o2::its::Cluster& sourceLocator,
+                       const SurfaceMeasurement& targetMeasurement,
+                       const o2::its::Cluster& targetLocator,
                        float& tanLambdaOut) const;
 };
 
@@ -106,8 +107,8 @@ struct TrackletSearchWindow<TransitionPolicyTag::DiskDisk> {
   float meanDeltaZ;
   float nSigmaCut;
 
-  bool acceptCandidate(const o2::its::Cluster& source,
-                       const o2::its::Cluster& target,
+  bool acceptCandidate(const SurfaceMeasurement& sourceMeasurement,
+                       const SurfaceMeasurement& targetMeasurement,
                        float& tanLambdaOut) const;
 };
 
@@ -116,8 +117,8 @@ struct TrackletSearchWindow<TransitionPolicyTag::DiskDisk> {
 /// unit: DiskDisk reuses MFTFwdTrackHelpers, which must not leak into this
 /// declarations-only header. On rejection `out` is left unchanged.
 template <TransitionPolicyTag Tag, int NLayers>
-bool projectSearchWindow(const o2::its::Cluster& source,
-                         const o2::its::TrackingFrameInfo& sourceHit,
+bool projectSearchWindow(const SurfaceMeasurement& sourceMeasurement,
+                         const o2::its::Cluster& sourceLocator,
                          const o2::its::Vertex& vertex,
                          const TrackletProjectionState<Tag>& transitionState,
                          float bz,

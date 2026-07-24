@@ -17,6 +17,7 @@
 #include <array>
 #include <iterator>
 #include <cmath>
+#include <limits>
 #include <type_traits>
 
 #include <oneapi/tbb/blocked_range.h>
@@ -257,24 +258,43 @@ void TrackerTraits<NLayers>::initialiseTimeFrame(const int iteration)
   // later failure leaves mLayerMeasurements exactly as resetTraversalCache()
   // left it (reset/empty spans), never partially populated from a failed
   // iteration.
-  std::array<gsl::span<const SurfaceMeasurement>, NLayers> stagedLayerMeasurements{};
+  LayerMeasurementSpans<NLayers> stagedLayerMeasurements{};
   for (int legacyLayer = 0; legacyLayer < NLayers; ++legacyLayer) {
     const auto surfaceId = orderedSurfaces[legacyLayer];
     const auto measurements = mTimeFrame->getNormalizedFrame().getSurfaceMeasurements(surfaceId);
     const auto& legacyClusters = mTimeFrame->getUnsortedClusters()[legacyLayer];
     const auto& legacyHits = mTimeFrame->getTrackingFrameInfoOnLayer(legacyLayer);
-    if (measurements.size() != legacyClusters.size() || legacyHits.size() != legacyClusters.size()) {
+    if (measurements.size() != legacyClusters.size() || legacyHits.size() != legacyClusters.size() ||
+        measurements.size() > static_cast<size_t>(std::numeric_limits<int>::max())) {
       throw TraversalException{iteration, TraversalFailureReason::NormalizedMeasurementMismatch};
     }
     for (size_t i = 0; i < measurements.size(); ++i) {
       const auto& measurement = measurements[i];
       if (measurement.surface != surfaceId || !measurement.cluster.isValid() ||
-          measurement.cluster.source != ClusterSourceId{0}) {
+          measurement.cluster.source != ClusterSourceId{0} ||
+          measurement.cluster.index > static_cast<uint32_t>(std::numeric_limits<int>::max()) ||
+          legacyClusters[i].clusterId != static_cast<int>(i)) {
         throw TraversalException{iteration, TraversalFailureReason::NormalizedMeasurementMismatch};
       }
       const int legacyExternalIndex = mTimeFrame->getClusterExternalIndex(legacyLayer, static_cast<int>(i));
       if (legacyExternalIndex < 0 || static_cast<uint32_t>(legacyExternalIndex) != measurement.cluster.index) {
         throw TraversalException{iteration, TraversalFailureReason::NormalizedMeasurementMismatch};
+      }
+    }
+    const auto rofBoundaries = mTimeFrame->getROFrameClusters(legacyLayer);
+    if (rofBoundaries.empty() || rofBoundaries.front() != 0 || rofBoundaries.back() != static_cast<int>(measurements.size())) {
+      throw TraversalException{iteration, TraversalFailureReason::NormalizedMeasurementMismatch};
+    }
+    for (size_t rof = 0; rof + 1 < rofBoundaries.size(); ++rof) {
+      const int first = rofBoundaries[rof];
+      const int last = rofBoundaries[rof + 1];
+      if (first < 0 || last < first || last > static_cast<int>(measurements.size())) {
+        throw TraversalException{iteration, TraversalFailureReason::NormalizedMeasurementMismatch};
+      }
+      for (int index = first; index < last; ++index) {
+        if (measurements[index].sourceROF != rof) {
+          throw TraversalException{iteration, TraversalFailureReason::NormalizedMeasurementMismatch};
+        }
       }
     }
     stagedLayerMeasurements[legacyLayer] = measurements;
@@ -329,7 +349,61 @@ void TrackerTraits<NLayers>::initialiseTimeFrame(const int iteration)
 
   // 5. Only now is TimeFrame touched: it receives an already-validated
   // configuration by value and never inspects a tag or detector ID.
-  mTimeFrame->initialise(mTrkParams[iteration], mTrkParams[iteration].NLayers, iteration, stagedIndexTableConfig);
+  mTimeFrame->initialise(mTrkParams[iteration], mTrkParams[iteration].NLayers, iteration,
+                         stagedIndexTableConfig, stagedLayerMeasurements);
+
+  // A sorted Cluster is a locator/navigation cache only. Validate each
+  // enabled ROF that can participate in a configured transition after every
+  // TimeFrame initialisation, including LUT reuse and non-FirstPass paths.
+  // The spans remain local until this check and all subsequent policy setup
+  // have succeeded, so a structural failure cannot publish traversal caches.
+  std::array<bool, NLayers> candidateReachableLayers{};
+  for (int transitionId = 0; transitionId < mTimeFrame->getTrackingTopologyView().nTransitions; ++transitionId) {
+    const auto& transition = mTimeFrame->getTrackingTopologyView().getTransition(transitionId);
+    candidateReachableLayers[transition.fromLayer] = true;
+    candidateReachableLayers[transition.toLayer] = true;
+  }
+  for (int layer = 0; layer < NLayers; ++layer) {
+    if (!candidateReachableLayers[layer]) {
+      continue;
+    }
+    const auto measurements = stagedLayerMeasurements[layer];
+    const auto rofBoundaries = mTimeFrame->getROFrameClusters(layer);
+    for (int rof = 0; rof < mTimeFrame->getNrof(layer); ++rof) {
+      if (!mTimeFrame->getROFMaskView().isROFEnabled(layer, rof)) {
+        continue;
+      }
+      const int first = rofBoundaries[rof];
+      const int last = rofBoundaries[rof + 1];
+      const auto sorted = mTimeFrame->getClustersOnLayer(rof, layer);
+      if (first < 0 || last < first || last > static_cast<int>(measurements.size()) ||
+          sorted.size() != static_cast<size_t>(last - first)) {
+        throw TraversalException{iteration, TraversalFailureReason::NormalizedMeasurementMismatch};
+      }
+      std::vector<uint8_t> seen(static_cast<size_t>(last - first), uint8_t{0});
+      for (const auto& locator : sorted) {
+        const int clusterId = locator.clusterId;
+        if (clusterId < first || clusterId >= last) {
+          throw TraversalException{iteration, TraversalFailureReason::NormalizedMeasurementMismatch};
+        }
+        const size_t localId = static_cast<size_t>(clusterId - first);
+        if (seen[localId] != 0) {
+          throw TraversalException{iteration, TraversalFailureReason::NormalizedMeasurementMismatch};
+        }
+        seen[localId] = 1;
+        const auto& measurement = measurements[clusterId];
+        const int externalIndex = mTimeFrame->getClusterExternalIndex(layer, clusterId);
+        if (measurement.surface != orderedSurfaces[layer] || measurement.sourceROF != static_cast<uint32_t>(rof) || !measurement.cluster.isValid() ||
+            measurement.cluster.source != ClusterSourceId{0} || externalIndex < 0 ||
+            static_cast<uint32_t>(externalIndex) != measurement.cluster.index) {
+          throw TraversalException{iteration, TraversalFailureReason::NormalizedMeasurementMismatch};
+        }
+      }
+      if (std::find(seen.begin(), seen.end(), uint8_t{0}) != seen.end()) {
+        throw TraversalException{iteration, TraversalFailureReason::NormalizedMeasurementMismatch};
+      }
+    }
+  }
 
   // 6. validateLegacyParity needs mTimeFrame->getTrackingTopologyView(),
   // which TimeFrame::initialise() just populated, so it necessarily still
@@ -572,6 +646,7 @@ void TrackerTraits<NLayers>::computeLayerTrackletsForPolicy(
         if (mTimeFrame->isClusterUsed(transition.fromLayer, currentCluster.clusterId)) {
           continue;
         }
+        const auto& sourceMeasurement = mLayerMeasurements[transition.fromLayer][currentCluster.clusterId];
 
         for (int iV = startVtx; iV < endVtx; ++iV) {
           const auto& pv = primaryVertices[iV];
@@ -581,9 +656,8 @@ void TrackerTraits<NLayers>::computeLayerTrackletsForPolicy(
           if (pv.isFlagSet(Vertex::Flags::UPCMode) != mTrkParams[iteration].PassFlags[IterationStep::SelectUPCVertices]) {
             continue;
           }
-          const auto& tfInfo = mTimeFrame->getClusterTrackingFrameInfo(transition.fromLayer, currentCluster);
           TrackletSearchWindow<Tag> searchWindow{};
-          if (!projectSearchWindow<Tag, NLayers>(currentCluster, tfInfo, pv, transitionState, getBz(),
+          if (!projectSearchWindow<Tag, NLayers>(sourceMeasurement, currentCluster, pv, transitionState, getBz(),
                                                  mTimeFrame->getIndexTableUtils(), params, searchWindow)) {
             continue;
           }
@@ -629,10 +703,12 @@ void TrackerTraits<NLayers>::computeLayerTrackletsForPolicy(
                 if (mTimeFrame->isClusterUsed(transition.toLayer, nextCluster.clusterId)) {
                   continue;
                 }
+                const auto& targetMeasurement = mLayerMeasurements[transition.toLayer][nextCluster.clusterId];
 
                 float tanL = 0.f;
-                if (searchWindow.acceptCandidate(currentCluster, nextCluster, tanL)) {
-                  const float phi{o2::gpu::CAMath::ATan2(currentCluster.yCoordinate - nextCluster.yCoordinate, currentCluster.xCoordinate - nextCluster.xCoordinate)};
+                if (searchWindow.acceptCandidate(sourceMeasurement, currentCluster, targetMeasurement, nextCluster, tanL)) {
+                  const float phi{o2::gpu::GPUCommonMath::ATan2(sourceMeasurement.global.y - targetMeasurement.global.y,
+                                                                 sourceMeasurement.global.x - targetMeasurement.global.x)};
                   if constexpr (decltype(Mode)::value == PassMode::OnePass::value) {
                     tracklets.emplace_back(currentSortedIndex, mTimeFrame->getSortedIndex(targetROF, transition.toLayer, iNext), tanL, phi, ts);
                   } else if constexpr (decltype(Mode)::value == PassMode::TwoPassCount::value) {

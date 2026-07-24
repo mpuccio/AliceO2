@@ -38,6 +38,7 @@
 #include "ITSMFTTracking/LayerMask.h"
 #include "ITSMFTTracking/MultiSourceFrame.h"
 #include "ITSMFTTracking/MultiSourceLoading.h"
+#include "ITSMFTTracking/SurfaceMeasurement.h"
 #include "ITSMFTTracking/TrackingTopology.h"
 #ifndef GPUCA_GPUCODE
 #include <optional>
@@ -81,6 +82,12 @@ using ClusterLines = o2::its::ClusterLines;
 using Vertex = o2::its::Vertex;
 using VertexLabel = o2::its::VertexLabel;
 using TrackITSExt = o2::its::TrackITSExt;
+
+// Non-owning per-layer normalized measurements used while building the
+// transient sorted locator/navigation cache. TimeFrame deliberately retains
+// no copy: TrackerTraits owns the validated lifetime contract.
+template <int NLayers>
+using LayerMeasurementSpans = std::array<gsl::span<const SurfaceMeasurement>, NLayers>;
 
 namespace constants
 {
@@ -342,7 +349,9 @@ struct TimeFrame {
   // an already-valid value. The only call site (TrackerTraits::
   // initialiseTimeFrame) always supplies every argument explicitly, so no
   // parameter here carries a default.
-  void initialise(const TrackingParameters& trkParam, const int maxLayers, const int iteration, const IndexTableUtilsN& indexTableConfig);
+  void initialise(const TrackingParameters& trkParam, const int maxLayers, const int iteration,
+                  const IndexTableUtilsN& indexTableConfig,
+                  const LayerMeasurementSpans<NLayers>& layerMeasurements);
 
   bool isClusterUsed(int layer, int clusterId) const { return mUsedClusters[layer][clusterId]; }
   void markUsedCluster(int layer, int clusterId) { mUsedClusters[layer][clusterId] = true; }
@@ -470,7 +479,8 @@ struct TimeFrame {
   virtual const char* getName() const noexcept { return "CPU"; }
 
  protected:
-  void prepareClusters(const TrackingParameters& trkParam, const int maxLayers = NLayers);
+  void prepareClusters(const TrackingParameters& trkParam, const int maxLayers,
+                       const LayerMeasurementSpans<NLayers>& layerMeasurements);
   float mBz = 5.;
   unsigned int mNTotalLowPtVertices = 0;
   int mBeamPosWeight = 0;
