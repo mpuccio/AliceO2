@@ -186,7 +186,10 @@ bool buildSeed(const SurfaceMeasurement& measurementInner, const SurfaceMeasurem
 // z-ordering/degenerate-separation boundary (SeedGeometryDegenerate) is
 // unchanged: it is a physical-ordering check on the three hits, not an
 // anchor-dependent one. An unrecognized `SeedAnchor` value fails with
-// `OperationFailureReason::NonFiniteInput` and leaves `outState` unchanged.
+// `OperationFailureReason::InvalidSeedAnchor` (not NonFiniteInput -- the
+// raw measurement/bz/absCharge/pid inputs may be perfectly well-formed;
+// it is the anchor selector itself that is invalid) and leaves `outState`
+// unchanged.
 // Same failure-precedence, absCharge/pid contract, and scratch-then-commit
 // transactionality as `buildSeed` above.
 bool buildSeed(SeedAnchor anchor, const SurfaceMeasurement& measurementInner, const SurfaceMeasurement& measurementMiddle,
@@ -221,6 +224,16 @@ bool buildSeed(SeedAnchor anchor, const SurfaceMeasurement& measurementInner, co
 // for both `linRef` and `state` with a Quadratic-Jacobian covariance
 // transport, exactly mirroring the plain `propagate<Optimized>` composition
 // above.
+//
+// Fitted-state/linRef pairing precondition, checked before the above:
+// exact `state.family == linRef.family`
+// (OperationFailureReason::SourceFamilyMismatch) and exact
+// `state.referenceCoordinate == linRef.referenceCoordinate`
+// (OperationFailureReason::ReferenceCoordinateMismatch) -- both bit
+// comparisons, not tolerance checks, matching barrel::rotate/propagate's
+// identical contract. No alpha check: Forward's alpha is always 0/unused.
+// Parameters may differ between `state` and `linRef` -- that is the
+// entire purpose of a linearization reference -- but the anchor may not.
 //
 // Full scratch-then-commit transactionality: both `state` and `linRef` are
 // left completely unchanged (byte-for-byte) on any failure.

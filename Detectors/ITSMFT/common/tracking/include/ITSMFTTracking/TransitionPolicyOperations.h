@@ -340,6 +340,18 @@ bool attachHit<TransitionPolicyTag::DiskDisk>(
 ///      `nCl >= 3` first-two-hits-ungated rule without a signature change
 ///      here.
 ///
+/// Chi2/configuration input hardening, checked before step 1 below (no
+/// transport has happened yet, so rejection here is trivially
+/// transactional): the incoming `chi2` accumulator must be finite
+/// (OperationFailureReason::NonFiniteInput) and non-negative
+/// (OperationFailureReason::PredictedChi2Failure); when `chi2GateEnabled`
+/// is true, `maxChi2` must likewise be finite/non-negative (same two
+/// reasons) -- when the gate is disabled, `maxChi2` is never read and may
+/// hold an arbitrary sentinel. After `chi2` + updateChi2 (step 6 below) is
+/// accumulated, the result must still be finite and non-negative
+/// (OperationFailureReason::NonFiniteOutput otherwise) before it is
+/// committed.
+///
 /// Per-step contract (both families, in this exact order):
 ///   1. frame preparation: CylinderCylinder rotates `state`+`linRef`
 ///      (barrel::rotate(state, linRef, ...)) to measurement.frame.

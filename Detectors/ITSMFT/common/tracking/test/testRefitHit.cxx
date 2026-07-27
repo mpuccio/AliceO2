@@ -226,6 +226,27 @@ bool replayRefitHitDisk(SurfaceKinematicState state, SurfaceLinearizationReferen
   return true;
 }
 
+// Shared chi2/configuration-hardening rejection check, templated on Tag so
+// both refitHit specializations reuse one assertion body. `chi2In` is
+// compared to the post-call `chi2` via raw bytes (not BOOST_CHECK_EQUAL)
+// since NaN != NaN under ordinary float comparison.
+template <TransitionPolicyTag Tag>
+void checkChi2ConfigRejection(const SurfaceKinematicState& baseState, const SurfaceLinearizationReference& baseLinRef,
+                              const SurfaceMeasurement& measurement, const NominalSurfaceMaterial& material, float bz,
+                              material::MaterialTraversalDirection direction, bool gateEnabled, float maxChi2In,
+                              float chi2In, OperationFailureReason expectedReason)
+{
+  auto state = baseState;
+  auto linRef = baseLinRef;
+  float chi2 = chi2In;
+  OperationFailureReason reason{};
+  BOOST_CHECK(!refitHit<Tag>(state, linRef, measurement, material, bz, direction, gateEnabled, maxChi2In, chi2, false, reason));
+  BOOST_CHECK(reason == expectedReason);
+  BOOST_CHECK(bitEqual(state, baseState));
+  BOOST_CHECK(bitEqual(linRef, baseLinRef));
+  BOOST_CHECK(std::memcmp(&chi2, &chi2In, sizeof(float)) == 0);
+}
+
 } // namespace
 
 // ===========================================================================
@@ -530,6 +551,113 @@ BOOST_AUTO_TEST_CASE(RefitHitBarrelShiftReferenceOnOff)
   BOOST_CHECK(bitEqual(onState, offState)); // shift never touches the fitted state
 }
 
+// --- Chi2/configuration hardening (item 2) --------------------------------
+
+BOOST_AUTO_TEST_CASE(RefitHitBarrelRejectsNonFiniteInputChi2)
+{
+  const auto state = barrelState();
+  const auto linRef = barrelLinRef(state);
+  const auto measurement = barrelMeasurement();
+  const auto material = barrelMaterial();
+  checkChi2ConfigRejection<TransitionPolicyTag::CylinderCylinder>(
+    state, linRef, measurement, material, BarrelBz, material::MaterialTraversalDirection::AlongMomentum, false, 0.f,
+    std::numeric_limits<float>::quiet_NaN(), OperationFailureReason::NonFiniteInput);
+  checkChi2ConfigRejection<TransitionPolicyTag::CylinderCylinder>(
+    state, linRef, measurement, material, BarrelBz, material::MaterialTraversalDirection::AlongMomentum, false, 0.f,
+    std::numeric_limits<float>::infinity(), OperationFailureReason::NonFiniteInput);
+}
+
+BOOST_AUTO_TEST_CASE(RefitHitBarrelRejectsNegativeInputChi2)
+{
+  const auto state = barrelState();
+  const auto linRef = barrelLinRef(state);
+  checkChi2ConfigRejection<TransitionPolicyTag::CylinderCylinder>(
+    state, linRef, barrelMeasurement(), barrelMaterial(), BarrelBz, material::MaterialTraversalDirection::AlongMomentum,
+    false, 0.f, -1.f, OperationFailureReason::PredictedChi2Failure);
+}
+
+BOOST_AUTO_TEST_CASE(RefitHitBarrelGateEnabledRejectsNonFiniteMaxChi2)
+{
+  const auto state = barrelState();
+  const auto linRef = barrelLinRef(state);
+  const auto measurement = barrelMeasurement();
+  const auto material = barrelMaterial();
+  checkChi2ConfigRejection<TransitionPolicyTag::CylinderCylinder>(
+    state, linRef, measurement, material, BarrelBz, material::MaterialTraversalDirection::AlongMomentum, true,
+    std::numeric_limits<float>::quiet_NaN(), 0.f, OperationFailureReason::NonFiniteInput);
+  checkChi2ConfigRejection<TransitionPolicyTag::CylinderCylinder>(
+    state, linRef, measurement, material, BarrelBz, material::MaterialTraversalDirection::AlongMomentum, true,
+    std::numeric_limits<float>::infinity(), 0.f, OperationFailureReason::NonFiniteInput);
+}
+
+BOOST_AUTO_TEST_CASE(RefitHitBarrelGateEnabledRejectsNegativeMaxChi2)
+{
+  const auto state = barrelState();
+  const auto linRef = barrelLinRef(state);
+  checkChi2ConfigRejection<TransitionPolicyTag::CylinderCylinder>(
+    state, linRef, barrelMeasurement(), barrelMaterial(), BarrelBz, material::MaterialTraversalDirection::AlongMomentum,
+    true, -1.f, 0.f, OperationFailureReason::PredictedChi2Failure);
+}
+
+// A disabled gate never reads maxChi2 -- an arbitrary (even poisoned) sentinel
+// must not affect the outcome.
+BOOST_AUTO_TEST_CASE(RefitHitBarrelGateDisabledIgnoresPoisonedMaxChi2Sentinel)
+{
+  const auto state = barrelState();
+  const auto linRef = barrelLinRef(state);
+  auto stateResult = state;
+  auto linRefResult = linRef;
+  float chi2 = 0.f;
+  OperationFailureReason reason{};
+  BOOST_CHECK(refitHit<TransitionPolicyTag::CylinderCylinder>(
+    stateResult, linRefResult, barrelMeasurement(), barrelMaterial(), BarrelBz,
+    material::MaterialTraversalDirection::AlongMomentum, /*gateEnabled=*/false,
+    /*maxChi2=*/std::numeric_limits<float>::quiet_NaN(), chi2, false, reason));
+}
+
+// Deterministically constructs an update chi2 increment large enough that
+// chi2In + updateChi2 overflows float range: an exact-no-op rotate
+// (frame.frameAngle == state.alpha) and exact-no-op propagate (frame.q ==
+// state.referenceCoordinate) plus an exact material no-op ({0,0} budget)
+// leave `state`'s covariance completely unchanged going into predictedChi2/
+// update, so state.covariance[(0,0)]=1e-30 (tiny but nonzero, avoiding the
+// determinant==0 rejection) with the measurement's own covariance.uu=0
+// gives inv00 == 1/state.covariance[(0,0)] exactly (s11 cancels out of the
+// s11/det ratio); a residualY of 14200 and residualZ == 0 (frame.v equals
+// state's own Z exactly) then yields predChi2 == updateChi2 ~2.02e38 --
+// large but still finite (< FLT_MAX ~3.4e38) -- so it passes every
+// per-step finiteness check and only the final chi2In+updateChi2
+// accumulation (chi2In also ~2e38) exceeds float range.
+BOOST_AUTO_TEST_CASE(RefitHitBarrelRejectsAccumulationOverflowAndPreservesBytes)
+{
+  auto state = barrelState();
+  state.covariance[packedCovarianceIndex(0, 0)] = 1.e-30f;
+  state.covariance[packedCovarianceIndex(1, 0)] = 0.f;
+  auto linRef = barrelLinRef(state);
+
+  SurfaceMeasurement measurement{};
+  measurement.frame.frameAngle = state.alpha;
+  measurement.frame.q = state.referenceCoordinate;
+  measurement.frame.u = state.parameters[0] + 14200.f;
+  measurement.frame.v = state.parameters[1];
+  measurement.covariance = {0.f, 0.f, 1.f};
+
+  const NominalSurfaceMaterial noMaterial{0.f, 0.f};
+
+  auto stateResult = state;
+  auto linRefResult = linRef;
+  float chi2 = 2.e38f;
+  const float chi2Before = chi2;
+  OperationFailureReason reason{};
+  BOOST_CHECK(!refitHit<TransitionPolicyTag::CylinderCylinder>(
+    stateResult, linRefResult, measurement, noMaterial, BarrelBz, material::MaterialTraversalDirection::AlongMomentum,
+    /*gateEnabled=*/false, 0.f, chi2, false, reason));
+  BOOST_CHECK(reason == OperationFailureReason::NonFiniteOutput);
+  BOOST_CHECK(bitEqual(stateResult, state));
+  BOOST_CHECK(bitEqual(linRefResult, linRef));
+  BOOST_CHECK_EQUAL(chi2, chi2Before);
+}
+
 // ===========================================================================
 // refitHit<DiskDisk>: same orchestration contract as CylinderCylinder above.
 // ===========================================================================
@@ -588,6 +716,93 @@ BOOST_AUTO_TEST_CASE(RefitHitDiskDirectionAffectsQ2PtOppositely)
   // above: the shared Kalman update dominates the delta from the pre-fit
   // value, so compare the two full results against each other directly.
   BOOST_CHECK_GT(alongState.parameters[4], oppositeState.parameters[4]);
+}
+
+// --- Item 5: complete Disk refitHit coverage -------------------------------
+
+BOOST_AUTO_TEST_CASE(RefitHitDiskPidAffectsResult)
+{
+  const auto measurement = diskMeasurement();
+  // A thick absorber, not diskMaterial()'s thin fixture: at diskState()'s
+  // momentum (~3.4 GeV/c, Tgl=-2.5), pion and proton beta are close enough
+  // that a thin crossing's mass-dependent dE/dx difference rounds away
+  // underneath the shared Kalman update's much larger contribution to
+  // parameters[4] (the same dominance already documented on
+  // RefitHitBarrelDirectionAffectsQ2PtOppositely). A thicker crossing
+  // makes the PID-dependent energy loss large enough to survive.
+  const NominalSurfaceMaterial material{0.3f, 5.f};
+
+  const auto pionState = diskState(1, o2::track::PID::Pion);
+  auto pionResult = pionState;
+  auto pionRef = diskLinRef(pionState);
+  float pionChi2 = 0.f;
+  OperationFailureReason reason{};
+  BOOST_REQUIRE(refitHit<TransitionPolicyTag::DiskDisk>(
+    pionResult, pionRef, measurement, material, DiskBz, material::MaterialTraversalDirection::OppositeMomentum, false,
+    0.f, pionChi2, false, reason));
+
+  const auto protonState = diskState(1, o2::track::PID::Proton);
+  auto protonResult = protonState;
+  auto protonRef = diskLinRef(protonState);
+  float protonChi2 = 0.f;
+  BOOST_REQUIRE(refitHit<TransitionPolicyTag::DiskDisk>(
+    protonResult, protonRef, measurement, material, DiskBz, material::MaterialTraversalDirection::OppositeMomentum,
+    false, 0.f, protonChi2, false, reason));
+
+  BOOST_CHECK_NE(pionResult.parameters[4], protonResult.parameters[4]);
+}
+
+BOOST_AUTO_TEST_CASE(RefitHitDiskAbsChargeZeroIsDirectionIndependent)
+{
+  const auto state = diskState(0, o2::track::PID::Pion);
+  const auto linRef = diskLinRef(state);
+  const auto measurement = diskMeasurement();
+  const auto material = diskMaterial();
+
+  auto alongState = state;
+  auto alongRef = linRef;
+  float alongChi2 = 0.f;
+  OperationFailureReason reason{};
+  BOOST_REQUIRE(refitHit<TransitionPolicyTag::DiskDisk>(
+    alongState, alongRef, measurement, material, DiskBz, material::MaterialTraversalDirection::AlongMomentum, false,
+    0.f, alongChi2, false, reason));
+
+  auto oppositeState = state;
+  auto oppositeRef = linRef;
+  float oppositeChi2 = 0.f;
+  BOOST_REQUIRE(refitHit<TransitionPolicyTag::DiskDisk>(
+    oppositeState, oppositeRef, measurement, material, DiskBz, material::MaterialTraversalDirection::OppositeMomentum,
+    false, 0.f, oppositeChi2, false, reason));
+
+  BOOST_CHECK(bitEqual(alongState, oppositeState));
+}
+
+// Charge magnitude scales the material effect: absCharge=2 must diverge
+// from absCharge=1 for identical material (q^2 scaling of energy loss and
+// multiple scattering in the shared scalar material kernel).
+BOOST_AUTO_TEST_CASE(RefitHitDiskAbsChargeMagnitudeAffectsResult)
+{
+  const auto measurement = diskMeasurement();
+  const auto material = diskMaterial();
+
+  const auto singleState = diskState(1, o2::track::PID::Pion);
+  auto singleResult = singleState;
+  auto singleRef = diskLinRef(singleState);
+  float singleChi2 = 0.f;
+  OperationFailureReason reason{};
+  BOOST_REQUIRE(refitHit<TransitionPolicyTag::DiskDisk>(
+    singleResult, singleRef, measurement, material, DiskBz, material::MaterialTraversalDirection::OppositeMomentum,
+    false, 0.f, singleChi2, false, reason));
+
+  const auto doubleState = diskState(2, o2::track::PID::Pion);
+  auto doubleResult = doubleState;
+  auto doubleRef = diskLinRef(doubleState);
+  float doubleChi2 = 0.f;
+  BOOST_REQUIRE(refitHit<TransitionPolicyTag::DiskDisk>(
+    doubleResult, doubleRef, measurement, material, DiskBz, material::MaterialTraversalDirection::OppositeMomentum,
+    false, 0.f, doubleChi2, false, reason));
+
+  BOOST_CHECK_NE(singleResult.parameters[4], doubleResult.parameters[4]);
 }
 
 BOOST_AUTO_TEST_CASE(RefitHitDiskGateAcceptedAndRejectedBoundary)
@@ -685,6 +900,91 @@ BOOST_AUTO_TEST_CASE(RefitHitDiskNonMutationOnMaterialFailure)
   BOOST_CHECK_EQUAL(chi2, chi2Before);
 }
 
+BOOST_AUTO_TEST_CASE(RefitHitDiskNonMutationOnPropagationFailure)
+{
+  auto state = diskState();
+  state.parameters[3] = 0.f; // tanl == 0: Helix propagation's own UnreachableTarget precondition
+  auto linRef = diskLinRef(state);
+  auto measurement = diskMeasurement(); // frame.q == -50 != state.referenceCoordinate == -45, a real step
+  const auto material = diskMaterial();
+  const auto stateBefore = state;
+  const auto refBefore = linRef;
+  float chi2 = 0.3f;
+  const float chi2Before = chi2;
+  OperationFailureReason reason{};
+  BOOST_CHECK(!refitHit<TransitionPolicyTag::DiskDisk>(
+    state, linRef, measurement, material, DiskBz, material::MaterialTraversalDirection::OppositeMomentum, false, 0.f,
+    chi2, false, reason));
+  BOOST_CHECK(reason == OperationFailureReason::UnreachableTarget);
+  BOOST_CHECK(bitEqual(state, stateBefore));
+  BOOST_CHECK(bitEqual(linRef, refBefore));
+  BOOST_CHECK_EQUAL(chi2, chi2Before);
+}
+
+// Dedicated, explicit non-mutation check for the ordinary `predChi2 >
+// maxChi2` gate rejection (distinct from RefitHitDiskRejectsNegativeChi2
+// RegardlessOfGate above, which exercises the unconditional negative-chi2
+// path instead).
+BOOST_AUTO_TEST_CASE(RefitHitDiskNonMutationOnChi2GateFailure)
+{
+  auto state = diskState();
+  auto linRef = diskLinRef(state);
+  auto measurement = diskMeasurement();
+  const auto material = diskMaterial();
+  const auto stateBefore = state;
+  const auto refBefore = linRef;
+  float chi2 = 0.4f;
+  const float chi2Before = chi2;
+  OperationFailureReason reason{};
+  BOOST_CHECK(!refitHit<TransitionPolicyTag::DiskDisk>(
+    state, linRef, measurement, material, DiskBz, material::MaterialTraversalDirection::OppositeMomentum,
+    /*gateEnabled=*/true, /*maxChi2=*/-1.f, chi2, false, reason));
+  BOOST_CHECK(reason == OperationFailureReason::PredictedChi2Failure);
+  BOOST_CHECK(bitEqual(state, stateBefore));
+  BOOST_CHECK(bitEqual(linRef, refBefore));
+  BOOST_CHECK_EQUAL(chi2, chi2Before);
+}
+
+// Update-failure transactionality is physically reachable (no test-only
+// seam needed): forward::update()'s Kalman gain reads every row of
+// `state`'s own covariance against the inner 2x2 (Y,Z) block's inverse, so
+// a huge-but-finite off-diagonal cross term (state.covariance[(4,0)], the
+// Q2Pt-Y correlation) that never enters predictedChi2's own 2x2-only
+// computation can still drive the gain-weighted parameter update to
+// overflow inside update() itself, after predictedChi2/the gate have
+// already accepted a completely ordinary, modest chi2. This deliberately
+// differs from RefitHitDiskRejectsAccumulationOverflow (which overflows
+// the chi2 *accumulator*, not a state parameter, via a tiny (0,0)
+// variance instead of a huge (4,0) cross term).
+BOOST_AUTO_TEST_CASE(RefitHitDiskNonMutationOnUpdateFailure)
+{
+  auto state = diskState();
+  state.covariance[packedCovarianceIndex(4, 0)] = 1.e35f;
+  state.covariance[packedCovarianceIndex(1, 0)] = 0.f;
+  auto linRef = diskLinRef(state);
+
+  SurfaceMeasurement measurement{};
+  measurement.frame.q = state.referenceCoordinate; // exact no-op propagation (dz == 0)
+  measurement.global.x = state.parameters[0] + 100.f;
+  measurement.global.y = state.parameters[1]; // residual == 0 exactly
+  measurement.covariance = {0.f, 0.f, 1.f};
+
+  const NominalSurfaceMaterial noMaterial{0.f, 0.f}; // exact material no-op
+
+  auto stateResult = state;
+  auto linRefResult = linRef;
+  float chi2 = 0.f;
+  const float chi2Before = chi2;
+  OperationFailureReason reason{};
+  BOOST_CHECK(!refitHit<TransitionPolicyTag::DiskDisk>(
+    stateResult, linRefResult, measurement, noMaterial, DiskBz, material::MaterialTraversalDirection::OppositeMomentum,
+    /*gateEnabled=*/false, 0.f, chi2, false, reason));
+  BOOST_CHECK(reason == OperationFailureReason::NonFiniteOutput);
+  BOOST_CHECK(bitEqual(stateResult, state));
+  BOOST_CHECK(bitEqual(linRefResult, linRef));
+  BOOST_CHECK_EQUAL(chi2, chi2Before);
+}
+
 BOOST_AUTO_TEST_CASE(RefitHitDiskShiftReferenceOnOff)
 {
   const auto state = diskState();
@@ -710,4 +1010,105 @@ BOOST_AUTO_TEST_CASE(RefitHitDiskShiftReferenceOnOff)
     offChi2, false, reason));
   BOOST_CHECK_NE(offRef.parameters[0], measurement.frame.u);
   BOOST_CHECK(bitEqual(onState, offState));
+}
+
+// --- Chi2/configuration hardening (item 2): same contract as
+// CylinderCylinder above --------------------------------------------------
+
+BOOST_AUTO_TEST_CASE(RefitHitDiskRejectsNonFiniteInputChi2)
+{
+  const auto state = diskState();
+  const auto linRef = diskLinRef(state);
+  const auto measurement = diskMeasurement();
+  const auto material = diskMaterial();
+  checkChi2ConfigRejection<TransitionPolicyTag::DiskDisk>(
+    state, linRef, measurement, material, DiskBz, material::MaterialTraversalDirection::OppositeMomentum, false, 0.f,
+    std::numeric_limits<float>::quiet_NaN(), OperationFailureReason::NonFiniteInput);
+  checkChi2ConfigRejection<TransitionPolicyTag::DiskDisk>(
+    state, linRef, measurement, material, DiskBz, material::MaterialTraversalDirection::OppositeMomentum, false, 0.f,
+    std::numeric_limits<float>::infinity(), OperationFailureReason::NonFiniteInput);
+}
+
+BOOST_AUTO_TEST_CASE(RefitHitDiskRejectsNegativeInputChi2)
+{
+  const auto state = diskState();
+  const auto linRef = diskLinRef(state);
+  checkChi2ConfigRejection<TransitionPolicyTag::DiskDisk>(
+    state, linRef, diskMeasurement(), diskMaterial(), DiskBz, material::MaterialTraversalDirection::OppositeMomentum,
+    false, 0.f, -1.f, OperationFailureReason::PredictedChi2Failure);
+}
+
+BOOST_AUTO_TEST_CASE(RefitHitDiskGateEnabledRejectsNonFiniteMaxChi2)
+{
+  const auto state = diskState();
+  const auto linRef = diskLinRef(state);
+  const auto measurement = diskMeasurement();
+  const auto material = diskMaterial();
+  checkChi2ConfigRejection<TransitionPolicyTag::DiskDisk>(
+    state, linRef, measurement, material, DiskBz, material::MaterialTraversalDirection::OppositeMomentum, true,
+    std::numeric_limits<float>::quiet_NaN(), 0.f, OperationFailureReason::NonFiniteInput);
+  checkChi2ConfigRejection<TransitionPolicyTag::DiskDisk>(
+    state, linRef, measurement, material, DiskBz, material::MaterialTraversalDirection::OppositeMomentum, true,
+    std::numeric_limits<float>::infinity(), 0.f, OperationFailureReason::NonFiniteInput);
+}
+
+BOOST_AUTO_TEST_CASE(RefitHitDiskGateEnabledRejectsNegativeMaxChi2)
+{
+  const auto state = diskState();
+  const auto linRef = diskLinRef(state);
+  checkChi2ConfigRejection<TransitionPolicyTag::DiskDisk>(
+    state, linRef, diskMeasurement(), diskMaterial(), DiskBz, material::MaterialTraversalDirection::OppositeMomentum,
+    true, -1.f, 0.f, OperationFailureReason::PredictedChi2Failure);
+}
+
+BOOST_AUTO_TEST_CASE(RefitHitDiskGateDisabledIgnoresPoisonedMaxChi2Sentinel)
+{
+  const auto state = diskState();
+  const auto linRef = diskLinRef(state);
+  auto stateResult = state;
+  auto linRefResult = linRef;
+  float chi2 = 0.f;
+  OperationFailureReason reason{};
+  BOOST_CHECK(refitHit<TransitionPolicyTag::DiskDisk>(
+    stateResult, linRefResult, diskMeasurement(), diskMaterial(), DiskBz,
+    material::MaterialTraversalDirection::OppositeMomentum, /*gateEnabled=*/false,
+    /*maxChi2=*/std::numeric_limits<float>::quiet_NaN(), chi2, false, reason));
+}
+
+// Disk counterpart of RefitHitBarrelRejectsAccumulationOverflowAndPreservesBytes
+// above: an exact-no-op propagate (frame.q == state.referenceCoordinate,
+// dz == 0 for every forward propagation model) plus an exact material
+// no-op ({0,0} budget) leave state.covariance[(0,0)]=1e-30 completely
+// unchanged going into predictedChi2/update; measurement.covariance.uu=0
+// makes inv00 == 1/state.covariance[(0,0)] exactly (s11 cancels out), and a
+// global.x residual of 14200 with global.y matching state's own Y exactly
+// (residual == 0 there) yields predChi2 == updateChi2 ~2.02e38 -- finite,
+// but large enough that chi2In (~2e38) + updateChi2 overflows float range.
+BOOST_AUTO_TEST_CASE(RefitHitDiskRejectsAccumulationOverflowAndPreservesBytes)
+{
+  auto state = diskState();
+  state.covariance[packedCovarianceIndex(0, 0)] = 1.e-30f;
+  state.covariance[packedCovarianceIndex(1, 0)] = 0.f;
+  auto linRef = diskLinRef(state);
+
+  SurfaceMeasurement measurement{};
+  measurement.frame.q = state.referenceCoordinate;
+  measurement.global.x = state.parameters[0] + 14200.f;
+  measurement.global.y = state.parameters[1];
+  measurement.covariance = {0.f, 0.f, 1.f};
+
+  const NominalSurfaceMaterial noMaterial{0.f, 0.f};
+
+  auto stateResult = state;
+  auto linRefResult = linRef;
+  float chi2 = 2.e38f;
+  const float chi2Before = chi2;
+  OperationFailureReason reason{};
+  BOOST_CHECK(!refitHit<TransitionPolicyTag::DiskDisk>(
+    stateResult, linRefResult, measurement, noMaterial, DiskBz, material::MaterialTraversalDirection::OppositeMomentum,
+    /*gateEnabled=*/false, 0.f, chi2, false, reason));
+  BOOST_CHECK(reason == OperationFailureReason::NonFiniteOutput);
+  BOOST_CHECK(bitEqual(stateResult, state));
+  BOOST_CHECK(bitEqual(linRefResult, linRef));
+  BOOST_CHECK_EQUAL(chi2, chi2Before);
 }

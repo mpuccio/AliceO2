@@ -825,6 +825,14 @@ bool propagateWithLinRefImpl(SurfaceKinematicState& state, SurfaceLinearizationR
     reason = OperationFailureReason::NonFiniteInput;
     return false;
   }
+  // Fitted-state/linRef pairing precondition (exact comparison; parameters
+  // may differ -- that is the entire purpose of a linearization reference --
+  // but the anchor may not). No alpha check here: Forward's alpha is always
+  // 0/unused, unlike Barrel's frame angle.
+  if (state.referenceCoordinate != linRef.referenceCoordinate) {
+    reason = OperationFailureReason::ReferenceCoordinateMismatch;
+    return false;
+  }
 
   SurfaceLinearizationReference scratchRef = linRef;
   Matrix5 jacobian{};
@@ -896,7 +904,7 @@ bool buildSeed(SeedAnchor anchor, const SurfaceMeasurement& measurementInner, co
     case SeedAnchor::Inner:
       return buildSeedImpl(measurementInner, measurementMiddle, measurementOuter, measurementInner, bz, trackletMinPt, absCharge, pid, outState, reason);
   }
-  reason = OperationFailureReason::NonFiniteInput;
+  reason = OperationFailureReason::InvalidSeedAnchor;
   return false;
 }
 

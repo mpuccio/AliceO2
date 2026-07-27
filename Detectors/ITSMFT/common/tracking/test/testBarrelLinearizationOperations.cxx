@@ -475,5 +475,67 @@ BOOST_AUTO_TEST_CASE(AnchoredBuildSeedRejectsInvalidAnchorTransactionally)
   const auto before = outState;
   OperationFailureReason reason{};
   BOOST_CHECK(!barrel::buildSeed(static_cast<SeedAnchor>(2), clusterInner, clusterMiddle, outer, -5.f, 1, o2::track::PID::Pion, outState, reason));
+  BOOST_CHECK(reason == OperationFailureReason::InvalidSeedAnchor);
   BOOST_CHECK(bitEqual(outState, before));
+}
+
+// --- Fitted-state/linRef pairing preconditions (hardening) -----------------
+// Parameters may legitimately differ between `state` and `linRef` -- that is
+// the entire purpose of a linearization reference -- but referenceCoordinate
+// and (for Barrel) alpha must match exactly.
+
+BOOST_AUTO_TEST_CASE(RotateWithLinRefRejectsReferenceCoordinateMismatchAndPreservesBytes)
+{
+  auto state = makeState();
+  auto linRef = linRefFromState(state);
+  linRef.referenceCoordinate += 0.5f;
+  const auto stateBefore = state;
+  const auto linRefBefore = linRef;
+  OperationFailureReason reason{};
+  BOOST_CHECK(!rotate(state, linRef, 0.5f, -5.f, reason));
+  BOOST_CHECK(reason == OperationFailureReason::ReferenceCoordinateMismatch);
+  BOOST_CHECK(bitEqual(state, stateBefore));
+  BOOST_CHECK(bitEqual(linRef, linRefBefore));
+}
+
+BOOST_AUTO_TEST_CASE(RotateWithLinRefRejectsAlphaMismatchAndPreservesBytes)
+{
+  auto state = makeState();
+  auto linRef = linRefFromState(state);
+  linRef.alpha += 0.1f;
+  const auto stateBefore = state;
+  const auto linRefBefore = linRef;
+  OperationFailureReason reason{};
+  BOOST_CHECK(!rotate(state, linRef, 0.5f, -5.f, reason));
+  BOOST_CHECK(reason == OperationFailureReason::AlphaMismatch);
+  BOOST_CHECK(bitEqual(state, stateBefore));
+  BOOST_CHECK(bitEqual(linRef, linRefBefore));
+}
+
+BOOST_AUTO_TEST_CASE(PropagateWithLinRefRejectsReferenceCoordinateMismatchAndPreservesBytes)
+{
+  auto state = makeState();
+  auto linRef = linRefFromState(state);
+  linRef.referenceCoordinate += 0.5f;
+  const auto stateBefore = state;
+  const auto linRefBefore = linRef;
+  OperationFailureReason reason{};
+  BOOST_CHECK(!propagate(state, linRef, 6.5f, -5.f, reason));
+  BOOST_CHECK(reason == OperationFailureReason::ReferenceCoordinateMismatch);
+  BOOST_CHECK(bitEqual(state, stateBefore));
+  BOOST_CHECK(bitEqual(linRef, linRefBefore));
+}
+
+BOOST_AUTO_TEST_CASE(PropagateWithLinRefRejectsAlphaMismatchAndPreservesBytes)
+{
+  auto state = makeState();
+  auto linRef = linRefFromState(state);
+  linRef.alpha += 0.1f;
+  const auto stateBefore = state;
+  const auto linRefBefore = linRef;
+  OperationFailureReason reason{};
+  BOOST_CHECK(!propagate(state, linRef, 6.5f, -5.f, reason));
+  BOOST_CHECK(reason == OperationFailureReason::AlphaMismatch);
+  BOOST_CHECK(bitEqual(state, stateBefore));
+  BOOST_CHECK(bitEqual(linRef, linRefBefore));
 }

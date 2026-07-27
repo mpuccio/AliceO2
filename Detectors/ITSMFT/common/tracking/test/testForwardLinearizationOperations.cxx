@@ -31,6 +31,33 @@ bool bitEqual(const T& lhs, const T& rhs)
   return std::memcmp(&lhs, &rhs, sizeof(T)) == 0;
 }
 
+constexpr float AbsoluteTolerance = 3.e-4f;
+constexpr float RelativeTolerance = 3.e-4f;
+
+struct Drift {
+  float maximumAbsolute{0.f};
+  float maximumRelative{0.f};
+};
+
+// Module-scope drift accumulators (item 4 hardening): every numerical
+// cross-check below folds its observed drift into one of these, and the
+// final BOOST_AUTO_TEST_CASE at the bottom of the file reports the maxima
+// -- Boost.Test executes cases in registration order within one
+// translation unit, so this reliably runs last.
+Drift selfDrivenReductionParameterDrift;
+Drift selfDrivenReductionCovarianceDrift;
+Drift jacobianFiniteDifferenceDrift;
+
+void checkClose(float value, float oracle, Drift& drift)
+{
+  const float difference = std::abs(value - oracle);
+  drift.maximumAbsolute = std::max(drift.maximumAbsolute, difference);
+  if (oracle != 0.f) {
+    drift.maximumRelative = std::max(drift.maximumRelative, difference / std::abs(oracle));
+  }
+  BOOST_CHECK_LE(difference, AbsoluteTolerance + RelativeTolerance * std::abs(oracle));
+}
+
 SurfaceKinematicState makeState()
 {
   SurfaceKinematicState state{};
@@ -111,6 +138,79 @@ void computeExpectedLinear(const SurfaceKinematicState& state, const SurfaceLine
       value += jacobian[row][column] * diff[column];
     }
     expectedState.parameters[row] = value;
+  }
+}
+
+// state == linRef reduction (item 4 hardening): when the reference is an
+// exact, unperturbed copy of the fitted state, the linRef-aware
+// propagate<Model> must agree with the already-accepted, independently
+// oracle-tested non-linRef propagate<Model> for BOTH parameters and
+// covariance -- not merely to first order, but to the tolerance floor of
+// this file's shared float arithmetic (the two paths compute the position
+// update and Jacobian from identical starting values and feed the same
+// transportCovariance() congruence transform). No legacy MFT oracle claim
+// is made or required here.
+template <PropagationModel Model>
+void checkSelfDrivenReduction(float bz, float targetZ)
+{
+  const auto baseState = makeState();
+
+  auto linRefDriven = baseState;
+  auto linRef = linRefFromState(baseState);
+  OperationFailureReason reason{};
+  BOOST_REQUIRE((propagate<Model>(linRefDriven, linRef, targetZ, bz, reason)));
+
+  auto selfDriven = baseState;
+  BOOST_REQUIRE((propagate<Model>(selfDriven, targetZ, bz, reason)));
+
+  checkClose(linRefDriven.referenceCoordinate, selfDriven.referenceCoordinate, selfDrivenReductionParameterDrift);
+  for (uint8_t i = 0; i < 5; ++i) {
+    checkClose(linRefDriven.parameters[i], selfDriven.parameters[i], selfDrivenReductionParameterDrift);
+  }
+  for (uint8_t i = 0; i < 15; ++i) {
+    checkClose(linRefDriven.covariance[i], selfDriven.covariance[i], selfDrivenReductionCovarianceDrift);
+  }
+}
+
+// Finite-difference Jacobian check (item 4 hardening): perturbs exactly one
+// of the five parameters of `state` away from an otherwise-identical
+// `linRef`, and compares the linRef-aware propagate<Model> parameter
+// output against a first-order Taylor prediction built from an
+// INDEPENDENT central-difference numerical derivative -- computed purely
+// from two calls to the already-accepted, non-linRef propagate<Model>
+// (never this slice's own analytic Jacobian formulas). This validates the
+// analytic Jacobian embedded in propagate<Model>(state, linRef, ...)
+// against a numerically-derived one.
+template <PropagationModel Model>
+void checkJacobianAgainstFiniteDifference(float bz, float targetZ, uint8_t paramIndex)
+{
+  const auto baseState = makeState();
+  const float epsilon = 1.e-3f;
+
+  auto plusSelf = baseState;
+  plusSelf.parameters[paramIndex] += epsilon;
+  auto minusSelf = baseState;
+  minusSelf.parameters[paramIndex] -= epsilon;
+  OperationFailureReason reason{};
+  BOOST_REQUIRE((propagate<Model>(plusSelf, targetZ, bz, reason)));
+  BOOST_REQUIRE((propagate<Model>(minusSelf, targetZ, bz, reason)));
+
+  auto baseSelf = baseState;
+  BOOST_REQUIRE((propagate<Model>(baseSelf, targetZ, bz, reason)));
+
+  float numericalDerivative[5];
+  for (uint8_t row = 0; row < 5; ++row) {
+    numericalDerivative[row] = (plusSelf.parameters[row] - minusSelf.parameters[row]) / (2.f * epsilon);
+  }
+
+  auto perturbedState = baseState;
+  perturbedState.parameters[paramIndex] += epsilon;
+  auto linRef = linRefFromState(baseState);
+  BOOST_REQUIRE((propagate<Model>(perturbedState, linRef, targetZ, bz, reason)));
+
+  for (uint8_t row = 0; row < 5; ++row) {
+    const float predicted = baseSelf.parameters[row] + numericalDerivative[row] * epsilon;
+    checkClose(perturbedState.parameters[row], predicted, jacobianFiniteDifferenceDrift);
   }
 }
 
@@ -209,6 +309,63 @@ BOOST_AUTO_TEST_CASE(PropagateOptimizedFirstOrderConsistencyZeroField)
   checkFirstOrderConsistency<PropagationModel::Optimized>(0.f, -60.f);
 }
 
+// --- state == linRef reduction (item 4): parameters AND covariance, all
+// four models, zero field where applicable, both magnetic-field signs. ---
+
+BOOST_AUTO_TEST_CASE(PropagateLinearSelfDrivenReductionZeroField)
+{
+  checkSelfDrivenReduction<PropagationModel::Linear>(0.f, -60.f);
+}
+
+BOOST_AUTO_TEST_CASE(PropagateQuadraticSelfDrivenReductionBothFieldSigns)
+{
+  checkSelfDrivenReduction<PropagationModel::Quadratic>(0.5f, -80.f);
+  checkSelfDrivenReduction<PropagationModel::Quadratic>(-0.5f, -80.f);
+}
+
+BOOST_AUTO_TEST_CASE(PropagateHelixSelfDrivenReductionBothFieldSigns)
+{
+  checkSelfDrivenReduction<PropagationModel::Helix>(0.5f, -80.f);
+  checkSelfDrivenReduction<PropagationModel::Helix>(-0.5f, -80.f);
+}
+
+// Optimized at nonzero field is exactly the composition the header
+// documents (helix parameter transport, quadratic-Jacobian covariance
+// transport): the plain (non-linRef) propagate<Optimized> already
+// implements that composition and is this test's oracle, so agreement
+// here confirms both halves of the composition survive the linRef-aware
+// transform intact.
+BOOST_AUTO_TEST_CASE(PropagateOptimizedSelfDrivenReductionConfirmsHelixPlusQuadraticCompositionBothFieldSigns)
+{
+  checkSelfDrivenReduction<PropagationModel::Optimized>(0.5f, -80.f);
+  checkSelfDrivenReduction<PropagationModel::Optimized>(-0.5f, -80.f);
+}
+
+BOOST_AUTO_TEST_CASE(PropagateOptimizedSelfDrivenReductionZeroField)
+{
+  checkSelfDrivenReduction<PropagationModel::Optimized>(0.f, -60.f);
+}
+
+// --- Finite-difference Jacobian checks (item 4): each of the five
+// parameters perturbed independently, Quadratic and Helix, both field
+// signs. ---
+
+BOOST_AUTO_TEST_CASE(PropagateQuadraticJacobianMatchesFiniteDifferenceBothFieldSigns)
+{
+  for (uint8_t param = 0; param < 5; ++param) {
+    checkJacobianAgainstFiniteDifference<PropagationModel::Quadratic>(0.5f, -80.f, param);
+    checkJacobianAgainstFiniteDifference<PropagationModel::Quadratic>(-0.5f, -80.f, param);
+  }
+}
+
+BOOST_AUTO_TEST_CASE(PropagateHelixJacobianMatchesFiniteDifferenceBothFieldSigns)
+{
+  for (uint8_t param = 0; param < 5; ++param) {
+    checkJacobianAgainstFiniteDifference<PropagationModel::Helix>(0.5f, -80.f, param);
+    checkJacobianAgainstFiniteDifference<PropagationModel::Helix>(-0.5f, -80.f, param);
+  }
+}
+
 // Reference-driven propagation with a perturbed linRef must differ from
 // self-driven propagation of the same starting state (Jacobian evaluated
 // at different points).
@@ -246,6 +403,24 @@ BOOST_AUTO_TEST_CASE(PropagateWithLinRefRejectsFamilyMismatchAndPreservesBytes)
   OperationFailureReason reason{};
   BOOST_CHECK(!(propagate<PropagationModel::Linear>(state, linRef, -60.f, 0.f, reason)));
   BOOST_CHECK(reason == OperationFailureReason::SourceFamilyMismatch);
+  BOOST_CHECK(bitEqual(state, stateBefore));
+  BOOST_CHECK(bitEqual(linRef, linRefBefore));
+}
+
+// Fitted-state/linRef pairing precondition (hardening): parameters may
+// legitimately differ (the entire purpose of a linearization reference),
+// but referenceCoordinate must match exactly. No alpha check for Forward
+// (always 0/unused).
+BOOST_AUTO_TEST_CASE(PropagateWithLinRefRejectsReferenceCoordinateMismatchAndPreservesBytes)
+{
+  auto state = makeState();
+  auto linRef = linRefFromState(state);
+  linRef.referenceCoordinate += 1.f;
+  const auto stateBefore = state;
+  const auto linRefBefore = linRef;
+  OperationFailureReason reason{};
+  BOOST_CHECK(!(propagate<PropagationModel::Linear>(state, linRef, -60.f, 0.f, reason)));
+  BOOST_CHECK(reason == OperationFailureReason::ReferenceCoordinateMismatch);
   BOOST_CHECK(bitEqual(state, stateBefore));
   BOOST_CHECK(bitEqual(linRef, linRefBefore));
 }
@@ -353,16 +528,23 @@ BOOST_AUTO_TEST_CASE(AnchoredBuildSeedOuterIsByteCompatibleWithExistingBuildSeed
   BOOST_CHECK(bitEqual(plain, anchored));
 }
 
+// A second transverse handedness: negates the y-component of all three
+// global positions (z-ordering, hence the SeedGeometryDegenerate boundary,
+// is untouched), giving a geometrically distinct candidate whose estimated
+// signed q/pT has the opposite sense from the un-mirrored fixture above.
+SurfaceMeasurement mirrorTransverse(SurfaceMeasurement measurement)
+{
+  measurement.global.y = -measurement.global.y;
+  return measurement;
+}
+
 // SeedAnchor::Inner: same physical hits, anchored at the inner measurement's
 // own frame/reference/covariance instead of the outer's, with the identical
 // (anchor-symmetric) direction estimate as Outer -- correct signed q/pT and
-// endpoint frame per the header contract.
-BOOST_AUTO_TEST_CASE(AnchoredBuildSeedInnerUsesInnerFrameWithSameDirectionAsOuter)
+// endpoint frame per the header contract. Exercised at both magnetic-field
+// signs and both transverse handedness fixtures (item 6 hardening).
+void checkAnchorSymmetry(const SurfaceMeasurement& inner, const SurfaceMeasurement& middle, const SurfaceMeasurement& outer, float bz)
 {
-  const auto inner = makeInnerMeasurement();
-  const auto middle = makeMiddleMeasurement();
-  const auto outer = makeOuterMeasurement();
-  const float bz = 0.5f;
   const float trackletMinPt = 0.3f;
 
   SurfaceKinematicState outerAnchored{};
@@ -373,18 +555,82 @@ BOOST_AUTO_TEST_CASE(AnchoredBuildSeedInnerUsesInnerFrameWithSameDirectionAsOute
   OperationFailureReason reasonInner{};
   BOOST_REQUIRE(forward::buildSeed(SeedAnchor::Inner, inner, middle, outer, bz, trackletMinPt, 1, o2::track::PID::Pion, innerAnchored, reasonInner));
 
+  // Anchor/reference/covariance fields are the only fields the contract
+  // says may differ, and each is pinned to its own measurement's frame.
   BOOST_CHECK(innerAnchored.family == StateFamily::Forward);
+  BOOST_CHECK(outerAnchored.family == StateFamily::Forward);
   BOOST_CHECK_EQUAL(innerAnchored.referenceCoordinate, inner.frame.q);
+  BOOST_CHECK_EQUAL(outerAnchored.referenceCoordinate, outer.frame.q);
   BOOST_CHECK_EQUAL(innerAnchored.parameters[0], inner.global.x);
   BOOST_CHECK_EQUAL(innerAnchored.parameters[1], inner.global.y);
+  BOOST_CHECK_EQUAL(outerAnchored.parameters[0], outer.global.x);
+  BOOST_CHECK_EQUAL(outerAnchored.parameters[1], outer.global.y);
   BOOST_CHECK_EQUAL(innerAnchored.covariance[packedCovarianceIndex(0, 0)], inner.covariance.uu);
   BOOST_CHECK_EQUAL(innerAnchored.covariance[packedCovarianceIndex(1, 1)], inner.covariance.vv);
+  BOOST_CHECK_EQUAL(outerAnchored.covariance[packedCovarianceIndex(0, 0)], outer.covariance.uu);
+  BOOST_CHECK_EQUAL(outerAnchored.covariance[packedCovarianceIndex(1, 1)], outer.covariance.vv);
 
-  // Same direction estimate (phi/tanl/invQPt -- the signed q/pT) as Outer,
-  // by the documented anchor-symmetry of the closed-form geometry estimate.
+  // Everything else -- alpha (always 0/unused for Forward), absCharge,
+  // pid, and the direction estimate (phi/tanl, geometry-derived, plus
+  // invQPt, the caller-configured trackletMinPt-derived magnitude that is
+  // anchor- and geometry-invariant by construction -- see
+  // forward::buildSeed's established compatibility fallback) -- must be
+  // identical between the two anchors, by the documented anchor-symmetry
+  // of the closed-form geometry estimate.
+  BOOST_CHECK_EQUAL(innerAnchored.alpha, outerAnchored.alpha);
+  BOOST_CHECK_EQUAL(innerAnchored.absCharge, outerAnchored.absCharge);
+  BOOST_CHECK(innerAnchored.pid == outerAnchored.pid);
   BOOST_CHECK_CLOSE(innerAnchored.parameters[2], outerAnchored.parameters[2], 1.e-3f);
   BOOST_CHECK_CLOSE(innerAnchored.parameters[3], outerAnchored.parameters[3], 1.e-3f);
   BOOST_CHECK_CLOSE(innerAnchored.parameters[4], outerAnchored.parameters[4], 1.e-3f);
+}
+
+BOOST_AUTO_TEST_CASE(AnchoredBuildSeedInnerOuterSymmetryPositiveFieldUnmirrored)
+{
+  checkAnchorSymmetry(makeInnerMeasurement(), makeMiddleMeasurement(), makeOuterMeasurement(), 0.5f);
+}
+
+BOOST_AUTO_TEST_CASE(AnchoredBuildSeedInnerOuterSymmetryNegativeFieldUnmirrored)
+{
+  checkAnchorSymmetry(makeInnerMeasurement(), makeMiddleMeasurement(), makeOuterMeasurement(), -0.5f);
+}
+
+BOOST_AUTO_TEST_CASE(AnchoredBuildSeedInnerOuterSymmetryPositiveFieldMirrored)
+{
+  checkAnchorSymmetry(mirrorTransverse(makeInnerMeasurement()), mirrorTransverse(makeMiddleMeasurement()),
+                      mirrorTransverse(makeOuterMeasurement()), 0.5f);
+}
+
+BOOST_AUTO_TEST_CASE(AnchoredBuildSeedInnerOuterSymmetryNegativeFieldMirrored)
+{
+  checkAnchorSymmetry(mirrorTransverse(makeInnerMeasurement()), mirrorTransverse(makeMiddleMeasurement()),
+                      mirrorTransverse(makeOuterMeasurement()), -0.5f);
+}
+
+// The mirrored fixture is a geometrically distinct candidate (opposite
+// transverse handedness): its Outer-anchored phi (the atan2(dyPhi, dxPhi)
+// direction estimate, sign-sensitive to handedness) must differ from the
+// un-mirrored fixture's, confirming the two handedness fixtures above are
+// not accidentally equivalent. parameters[4] (invQPt) is deliberately not
+// used as the discriminator here: forward::buildSeed's established
+// `(trackletMinPt > 0.f) ? 1.f/trackletMinPt : 0.f` compatibility fallback
+// (see the header doc) makes it a fixed configured magnitude, not a
+// geometry-derived estimate, so it is identical for both fixtures by
+// construction.
+BOOST_AUTO_TEST_CASE(MirroredFixtureIsGeometricallyDistinctFromUnmirrored)
+{
+  SurfaceKinematicState plain{};
+  OperationFailureReason reasonPlain{};
+  BOOST_REQUIRE(forward::buildSeed(makeInnerMeasurement(), makeMiddleMeasurement(), makeOuterMeasurement(), 0.5f, 0.3f,
+                                   1, o2::track::PID::Pion, plain, reasonPlain));
+
+  SurfaceKinematicState mirrored{};
+  OperationFailureReason reasonMirrored{};
+  BOOST_REQUIRE(forward::buildSeed(mirrorTransverse(makeInnerMeasurement()), mirrorTransverse(makeMiddleMeasurement()),
+                                   mirrorTransverse(makeOuterMeasurement()), 0.5f, 0.3f, 1, o2::track::PID::Pion,
+                                   mirrored, reasonMirrored));
+
+  BOOST_CHECK_NE(plain.parameters[2], mirrored.parameters[2]);
 }
 
 BOOST_AUTO_TEST_CASE(AnchoredBuildSeedRejectsInvalidAnchorTransactionally)
@@ -396,5 +642,20 @@ BOOST_AUTO_TEST_CASE(AnchoredBuildSeedRejectsInvalidAnchorTransactionally)
   const auto before = outState;
   OperationFailureReason reason{};
   BOOST_CHECK(!forward::buildSeed(static_cast<SeedAnchor>(2), inner, middle, outer, 0.5f, 0.3f, 1, o2::track::PID::Pion, outState, reason));
+  BOOST_CHECK(reason == OperationFailureReason::InvalidSeedAnchor);
   BOOST_CHECK(bitEqual(outState, before));
+}
+
+// Reports the observed maximum absolute/relative drift accumulated by the
+// item 4 numerical cross-checks above. Relies on Boost.Test's default
+// registration-order execution within one translation unit to run last.
+BOOST_AUTO_TEST_CASE(ReportNonlinearForwardNumericalDrift)
+{
+  BOOST_TEST_MESSAGE("self-driven reduction max drift: parameters abs="
+                     << selfDrivenReductionParameterDrift.maximumAbsolute
+                     << " rel=" << selfDrivenReductionParameterDrift.maximumRelative
+                     << ", covariance abs=" << selfDrivenReductionCovarianceDrift.maximumAbsolute
+                     << " rel=" << selfDrivenReductionCovarianceDrift.maximumRelative);
+  BOOST_TEST_MESSAGE("finite-difference Jacobian max drift: abs=" << jacobianFiniteDifferenceDrift.maximumAbsolute
+                                                                  << " rel=" << jacobianFiniteDifferenceDrift.maximumRelative);
 }

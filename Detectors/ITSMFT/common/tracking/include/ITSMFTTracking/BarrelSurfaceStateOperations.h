@@ -149,7 +149,10 @@ bool buildSeed(const SurfaceMeasurement& measurementInner, const SurfaceMeasurem
 // outer} physical hit ordering; the anchor is never inferred from argument
 // permutation, numeric SurfaceId, or radius/z sign -- it is the explicit
 // `anchor` argument alone. An unrecognized `SeedAnchor` value fails with
-// `OperationFailureReason::NonFiniteInput` and leaves `outState` unchanged
+// `OperationFailureReason::InvalidSeedAnchor` (not NonFiniteInput -- the
+// raw measurement/bz/absCharge/pid inputs may be perfectly well-formed;
+// it is the anchor selector itself that is invalid) and leaves `outState`
+// unchanged
 // (this primitive does not yet implement midpoint selection or
 // ReseedIfShorter orchestration; it only makes seed construction anchor-
 // capable). Same failure vocabulary, absCharge/pid contract, and
@@ -179,6 +182,20 @@ bool buildSeed(SeedAnchor anchor, const SurfaceMeasurement& measurementInner, co
 // SurfaceLinearizationReference operation reads a field from its paired
 // state rather than from itself.
 //
+// Fitted-state/linRef pairing precondition, checked before the legacy
+// preconditions below: `state.family == linRef.family`
+// (OperationFailureReason::SourceFamilyMismatch -- already implied by both
+// being required to equal StateFamily::Barrel individually, so this never
+// triggers independently of that), `state.referenceCoordinate ==
+// linRef.referenceCoordinate` exactly
+// (OperationFailureReason::ReferenceCoordinateMismatch), and `state.alpha
+// == linRef.alpha` exactly (OperationFailureReason::AlphaMismatch). These
+// are exact bit comparisons, not tolerance checks: makeLinearizationReference
+// and every successful paired rotate/propagate establish both values
+// identically. Parameters may differ between `state` and `linRef` --
+// that is the entire purpose of a linearization reference -- but the
+// anchor (reference coordinate) and frame (alpha) may not.
+//
 // Preconditions checked in the same order as the legacy formula: `state`'s
 // own |snp|<1 first, then `linRef`'s own |snp|<1 and post-rotation
 // validity, then `linRef`'s own propagation-to-trackX validity, then
@@ -203,6 +220,11 @@ bool rotate(SurfaceKinematicState& state, SurfaceLinearizationReference& linRef,
 // `linRef`'s pre-propagation parameters, transported through a Jacobian
 // evaluated at `linRef`'s own pre/post-propagation trajectory -- never at
 // `state` itself.
+//
+// Fitted-state/linRef pairing precondition: identical to the one
+// documented on `rotate` above (exact `state.family == linRef.family`,
+// `state.referenceCoordinate == linRef.referenceCoordinate`, and
+// `state.alpha == linRef.alpha` comparisons; parameters may differ).
 //
 // Trivial-step contract: if `targetX == state.referenceCoordinate`
 // (|dx| below the legacy Almost0 threshold), both `state.

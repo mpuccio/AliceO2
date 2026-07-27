@@ -422,6 +422,32 @@ bool refitHit<TransitionPolicyTag::CylinderCylinder>(
   bool shiftReferenceToMeasurement,
   OperationFailureReason& reason) noexcept
 {
+  // Chi2/configuration hardening, checked before any transport (no
+  // state/linRef mutation has happened yet, so returning here is
+  // trivially transactional). A non-finite accumulator/gate configuration
+  // reports NonFiniteInput; a finite-but-negative one reports
+  // PredictedChi2Failure (the value is well-formed as a float but not a
+  // valid chi2). maxChi2 is only validated when the gate is enabled -- a
+  // disabled gate never reads it, so an arbitrary sentinel is fine.
+  if (!std::isfinite(chi2)) {
+    reason = OperationFailureReason::NonFiniteInput;
+    return false;
+  }
+  if (chi2 < 0.f) {
+    reason = OperationFailureReason::PredictedChi2Failure;
+    return false;
+  }
+  if (chi2GateEnabled) {
+    if (!std::isfinite(maxChi2)) {
+      reason = OperationFailureReason::NonFiniteInput;
+      return false;
+    }
+    if (maxChi2 < 0.f) {
+      reason = OperationFailureReason::PredictedChi2Failure;
+      return false;
+    }
+  }
+
   SurfaceKinematicState scratchState = state;
   SurfaceLinearizationReference scratchRef = linRef;
   float scratchChi2 = chi2;
@@ -455,6 +481,10 @@ bool refitHit<TransitionPolicyTag::CylinderCylinder>(
     return false;
   }
   scratchChi2 += updateChi2;
+  if (!std::isfinite(scratchChi2) || scratchChi2 < 0.f) {
+    reason = OperationFailureReason::NonFiniteOutput;
+    return false;
+  }
 
   if (shiftReferenceToMeasurement) {
     if (!barrel::shiftReferenceToMeasurement(scratchRef, measurement, reason)) {
@@ -482,6 +512,28 @@ bool refitHit<TransitionPolicyTag::DiskDisk>(
   bool shiftReferenceToMeasurement,
   OperationFailureReason& reason) noexcept
 {
+  // Chi2/configuration hardening -- identical contract to
+  // refitHit<CylinderCylinder> above; see that specialization's comment for
+  // the rationale.
+  if (!std::isfinite(chi2)) {
+    reason = OperationFailureReason::NonFiniteInput;
+    return false;
+  }
+  if (chi2 < 0.f) {
+    reason = OperationFailureReason::PredictedChi2Failure;
+    return false;
+  }
+  if (chi2GateEnabled) {
+    if (!std::isfinite(maxChi2)) {
+      reason = OperationFailureReason::NonFiniteInput;
+      return false;
+    }
+    if (maxChi2 < 0.f) {
+      reason = OperationFailureReason::PredictedChi2Failure;
+      return false;
+    }
+  }
+
   SurfaceKinematicState scratchState = state;
   SurfaceLinearizationReference scratchRef = linRef;
   float scratchChi2 = chi2;
@@ -512,6 +564,10 @@ bool refitHit<TransitionPolicyTag::DiskDisk>(
     return false;
   }
   scratchChi2 += updateChi2;
+  if (!std::isfinite(scratchChi2) || scratchChi2 < 0.f) {
+    reason = OperationFailureReason::NonFiniteOutput;
+    return false;
+  }
 
   if (shiftReferenceToMeasurement) {
     if (!forward::shiftReferenceToMeasurement(scratchRef, measurement, reason)) {

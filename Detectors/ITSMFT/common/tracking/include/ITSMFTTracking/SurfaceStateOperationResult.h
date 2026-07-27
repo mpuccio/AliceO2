@@ -37,7 +37,14 @@ enum class OperationFailureReason : uint8_t {
   // never raises this: its retained oracle (o2::its::track::buildTrackSeed)
   // has no analogous early rejection, only NonFiniteOutput-detected numeric
   // fallbacks.
-  SeedGeometryDegenerate = 12
+  SeedGeometryDegenerate = 12,
+  // barrel::/forward::buildSeed(SeedAnchor, ...): the anchor argument is
+  // not one of the enum's locked values (SeedAnchor::Inner/Outer).
+  // Distinct from NonFiniteInput -- the raw measurement/bz/absCharge
+  // inputs may be perfectly well-formed; it is the anchor selector itself
+  // that is invalid -- so an out-of-range SeedAnchor is never
+  // misclassified as a numeric-input problem.
+  InvalidSeedAnchor = 13
 };
 
 static_assert(sizeof(OperationFailureReason) == sizeof(uint8_t));

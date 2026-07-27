@@ -582,7 +582,7 @@ bool buildSeed(SeedAnchor anchor, const SurfaceMeasurement& measurementInner, co
     case SeedAnchor::Inner:
       return buildSeedImpl(measurementOuter, measurementMiddle, measurementInner, bz, -1.f, absCharge, pid, outState, reason);
   }
-  reason = OperationFailureReason::NonFiniteInput;
+  reason = OperationFailureReason::InvalidSeedAnchor;
   return false;
 }
 
@@ -598,6 +598,20 @@ bool rotate(SurfaceKinematicState& state, SurfaceLinearizationReference& linRef,
   }
   if (!finiteLinRef(linRef) || !std::isfinite(targetAlpha) || !std::isfinite(bz)) {
     reason = OperationFailureReason::NonFiniteInput;
+    return false;
+  }
+  // Fitted-state/linRef pairing precondition: parameters may legitimately
+  // differ (that is the entire purpose of a linearization reference), but
+  // the anchor and frame may not. makeLinearizationReference and every
+  // successful paired rotate/propagate establish referenceCoordinate/alpha
+  // identically (bit-for-bit, not merely within tolerance), so this is an
+  // exact comparison, not an epsilon check.
+  if (state.referenceCoordinate != linRef.referenceCoordinate) {
+    reason = OperationFailureReason::ReferenceCoordinateMismatch;
+    return false;
+  }
+  if (state.alpha != linRef.alpha) {
+    reason = OperationFailureReason::AlphaMismatch;
     return false;
   }
   const float stateSnp = state.parameters[2];
@@ -741,6 +755,17 @@ bool propagate(SurfaceKinematicState& state, SurfaceLinearizationReference& linR
   }
   if (!finiteLinRef(linRef) || !std::isfinite(targetX) || !std::isfinite(bz)) {
     reason = OperationFailureReason::NonFiniteInput;
+    return false;
+  }
+  // Fitted-state/linRef pairing precondition -- see the identical check in
+  // rotate() above for the rationale (exact comparison; parameters may
+  // differ, anchor/frame may not).
+  if (state.referenceCoordinate != linRef.referenceCoordinate) {
+    reason = OperationFailureReason::ReferenceCoordinateMismatch;
+    return false;
+  }
+  if (state.alpha != linRef.alpha) {
+    reason = OperationFailureReason::AlphaMismatch;
     return false;
   }
 
