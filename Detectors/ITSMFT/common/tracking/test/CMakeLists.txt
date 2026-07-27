@@ -160,6 +160,12 @@ o2_add_test(drive-refit-leg
             LABELS "itsmft;tracking"
             PUBLIC_LINK_LIBRARIES O2::ITSMFTTracking)
 
+o2_add_test(refit-leg-assembly
+            SOURCES testRefitLegAssembly.cxx
+            COMPONENT_NAME itsmft-tracking
+            LABELS "itsmft;tracking"
+            PUBLIC_LINK_LIBRARIES O2::ITSMFTTracking O2::MFTTracking)
+
 o2_add_test(material-physics
             SOURCES testMaterialPhysics.cxx
             COMPONENT_NAME itsmft-tracking
