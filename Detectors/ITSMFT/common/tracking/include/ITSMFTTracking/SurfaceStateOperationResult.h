@@ -44,7 +44,15 @@ enum class OperationFailureReason : uint8_t {
   // inputs may be perfectly well-formed; it is the anchor selector itself
   // that is invalid -- so an out-of-range SeedAnchor is never
   // misclassified as a numeric-input problem.
-  InvalidSeedAnchor = 13
+  InvalidSeedAnchor = 13,
+  // driveRefitLeg<Tag>: a present (non-hole) slot's SurfaceId/catalog
+  // association could not be validated -- covers an invalid
+  // measurement.surface, a catalog with a null surfaces pointer and a
+  // nonzero nSurfaces, an out-of-range measurement.surface.value(), or a
+  // resolved SurfaceDescriptor whose own id does not match
+  // measurement.surface. Distinct from every reason above: no propagation,
+  // material, or chi2 arithmetic has been attempted yet for this slot.
+  InvalidSurfaceCatalogAssociation = 14
 };
 
 static_assert(sizeof(OperationFailureReason) == sizeof(uint8_t));

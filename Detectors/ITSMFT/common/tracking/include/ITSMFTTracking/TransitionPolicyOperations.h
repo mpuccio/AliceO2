@@ -19,6 +19,7 @@
 #include <gsl/span>
 
 #include "ITSMFTTracking/MaterialPhysics.h"
+#include "ITSMFTTracking/SurfaceCatalogView.h"
 #include "ITSMFTTracking/SurfaceDescriptor.h"
 #include "ITSMFTTracking/SurfaceKinematicState.h"
 #include "ITSMFTTracking/SurfaceLinearizationReference.h"
@@ -336,9 +337,9 @@ bool attachHit<TransitionPolicyTag::DiskDisk>(
 ///   3. its chi2 gate is caller-decided via `chi2GateEnabled`/`maxChi2`
 ///      (attachHit<CylinderCylinder> hard-codes `nCl>=3` by never being
 ///      called before nCl==3; attachHit<DiskDisk> has no such gate at
-///      all), so a future driveRefitLeg can implement the frozen ITS
-///      `nCl >= 3` first-two-hits-ungated rule without a signature change
-///      here.
+///      all), so driveRefitLeg (below) can implement the frozen ITS
+///      `nCl >= 3` rule -- accepted hits 1, 2, and 3 are ungated by
+///      maxChi2, hit 4 onward is gated -- without a signature change here.
 ///
 /// Chi2/configuration input hardening, checked before step 1 below (no
 /// transport has happened yet, so rejection here is trivially
@@ -434,6 +435,144 @@ bool refitHit<TransitionPolicyTag::DiskDisk>(
   float& chi2,
   bool shiftReferenceToMeasurement,
   OperationFailureReason& reason) noexcept;
+
+/// Minimum accepted-hit count (within one driveRefitLeg leg) at which the
+/// maxChi2 gate activates: hits 1, 2, and 3 (accepted counts 0, 1, 2 going
+/// in) are ungated, hit 4 onward (accepted count 3 going in) is gated --
+/// the frozen ITS `nCl >= 3` fitTrack rule (ITSMFTTracking/TrackHelpers.h),
+/// reproduced here without a family/detector branch.
+inline constexpr uint32_t kRefitLegChi2GateMinAcceptedHits = 3;
+
+/// Stage-B refit-leg orchestration slice (design report Sec 8/11 successor to
+/// buildCellSeed/attachHit above): drives refitHit<Tag> across one ordered
+/// leg of measurement slots, reproducing the frozen ITS `fitTrack` loop
+/// (ITSMFTTracking/TrackHelpers.h) as a single generic, Tag-blind orchestration.
+/// Tag only selects which refitHit<Tag> specialization is called; there is no
+/// family, detector, NLayers, radius, z, or SurfaceId-order branch anywhere in
+/// this function.
+///
+/// `orderedSlots` is caller-ordered (inner-to-outer or outer-to-inner,
+/// according to the leg direction the caller has already chosen); this
+/// operation never reorders, sorts, or otherwise depends on any relationship
+/// between successive slots' SurfaceId values.
+///
+/// Slot classification: a slot with `!measurement.cluster.isValid()` is a
+/// hole -- skipped before `measurement.surface` or `surfaceCatalog` is even
+/// inspected, and never counted. A present slot's `measurement.surface` is
+/// resolved against `surfaceCatalog` before any transport is attempted, in
+/// this exact order: `measurement.surface.isValid()`; `surfaceCatalog`
+/// itself is well-formed (`nSurfaces == 0` or `surfaces != nullptr`, checked
+/// before dereferencing); `measurement.surface.value() < nSurfaces`; and
+/// finally the resolved `SurfaceDescriptor::id` matches `measurement.surface`
+/// exactly. Any failure of these four checks rejects the whole leg with
+/// `OperationFailureReason::InvalidSurfaceCatalogAssociation`, transactionally
+/// (nothing has been mutated yet for this slot). Material is read only
+/// through `surfaceCatalog.getSurface(measurement.surface).material` -- no
+/// parallel material span/array/catalogue is introduced here.
+///
+/// Per present slot, `refitHit<Tag>` is called with `chi2GateEnabled =
+/// scratchAcceptedHitCount >= kRefitLegChi2GateMinAcceptedHits` (see above),
+/// and with `direction`/`shiftReferenceToMeasurement` passed through
+/// unchanged on every call. The accepted-hit count used for this decision is
+/// a fresh local scratch counter starting at zero -- `acceptedHitCount`'s
+/// incoming value is an output-only parameter and is never read -- and is
+/// incremented only after the corresponding `refitHit<Tag>` call succeeds.
+///
+/// Transactionality: `state`/`linRef`/`chi2` are copied into local scratch
+/// before any slot is processed, and `maxChi2`/`shiftReferenceToMeasurement`
+/// affect only refitHit<Tag>'s own scratch-then-commit behavior on each
+/// call. `state`, `linRef`, `chi2`, and `acceptedHitCount` are committed
+/// exactly once, after every present slot has succeeded; on any failure
+/// (chi2 hardening below, an invalid surface/catalog association, or a
+/// refitHit<Tag> rejection) all four outputs are left exactly as passed in,
+/// byte-for-byte, and `reason` is always written. An empty leg, or a leg
+/// consisting entirely of holes, is unconditional success: `state`, `linRef`,
+/// and `chi2` are unchanged, `acceptedHitCount` is written as zero, and
+/// `direction`, `maxChi2`, every measurement's `surface`, and
+/// `surfaceCatalog` are never inspected.
+///
+/// Chi2 input hardening, checked unconditionally before any slot is
+/// processed (this applies identically to an empty or all-hole leg): the
+/// incoming `chi2` accumulator must be finite
+/// (OperationFailureReason::NonFiniteInput) and non-negative
+/// (OperationFailureReason::PredictedChi2Failure). `maxChi2` itself is never
+/// inspected here, or by this operation at all while the gate is disabled --
+/// its own finite/non-negative validation is refitHit<Tag>'s responsibility,
+/// applied only once the gate activates at the fourth accepted hit.
+///
+/// Host-only for this slice (no GPU/device-readiness claim), like
+/// buildCellSeed/attachHit/refitHit above. Defined inline here, unlike
+/// refitHit<Tag>: this orchestration calls nothing host-only external of its
+/// own (only refitHit<Tag>, gsl::span, and SurfaceCatalogView::getSurface),
+/// so there is no reason to hide it behind a separate translation unit --
+/// the same rationale passesCellRoadPrecut<DiskDisk> already documents.
+///
+/// Unwired in this slice: no production call site uses driveRefitLeg yet.
+template <TransitionPolicyTag Tag>
+inline bool driveRefitLeg(
+  SurfaceKinematicState& state,
+  SurfaceLinearizationReference& linRef,
+  float& chi2,
+  uint32_t& acceptedHitCount,
+  gsl::span<const SurfaceMeasurement> orderedSlots,
+  SurfaceCatalogView surfaceCatalog,
+  float bz,
+  material::MaterialTraversalDirection direction,
+  bool shiftReferenceToMeasurement,
+  float maxChi2,
+  OperationFailureReason& reason) noexcept
+{
+  if (!std::isfinite(chi2)) {
+    reason = OperationFailureReason::NonFiniteInput;
+    return false;
+  }
+  if (chi2 < 0.f) {
+    reason = OperationFailureReason::PredictedChi2Failure;
+    return false;
+  }
+
+  SurfaceKinematicState scratchState = state;
+  SurfaceLinearizationReference scratchLinRef = linRef;
+  float scratchChi2 = chi2;
+  uint32_t scratchAcceptedHitCount = 0;
+
+  for (const auto& measurement : orderedSlots) {
+    if (!measurement.cluster.isValid()) {
+      continue;
+    }
+
+    if (!measurement.surface.isValid()) {
+      reason = OperationFailureReason::InvalidSurfaceCatalogAssociation;
+      return false;
+    }
+    if (!(surfaceCatalog.nSurfaces == 0 || surfaceCatalog.surfaces != nullptr)) {
+      reason = OperationFailureReason::InvalidSurfaceCatalogAssociation;
+      return false;
+    }
+    if (!(measurement.surface.value() < surfaceCatalog.nSurfaces)) {
+      reason = OperationFailureReason::InvalidSurfaceCatalogAssociation;
+      return false;
+    }
+    const SurfaceDescriptor& descriptor = surfaceCatalog.getSurface(measurement.surface);
+    if (!(descriptor.id == measurement.surface)) {
+      reason = OperationFailureReason::InvalidSurfaceCatalogAssociation;
+      return false;
+    }
+
+    const bool chi2GateEnabled = scratchAcceptedHitCount >= kRefitLegChi2GateMinAcceptedHits;
+    if (!refitHit<Tag>(scratchState, scratchLinRef, measurement, descriptor.material, bz, direction,
+                       chi2GateEnabled, maxChi2, scratchChi2, shiftReferenceToMeasurement, reason)) {
+      return false;
+    }
+    ++scratchAcceptedHitCount;
+  }
+
+  state = scratchState;
+  linRef = scratchLinRef;
+  chi2 = scratchChi2;
+  acceptedHitCount = scratchAcceptedHitCount;
+  return true;
+}
 
 /// Stage-B Slice B (design report Sec 8/11), now the sole production
 /// cellsAreCompatible<Tag>: native SurfaceKinematicState operation. `current`/
