@@ -34,6 +34,7 @@ o2_add_library(ITSMFTTracking
                        src/TransitionPolicyOperations.cxx
                        src/BarrelSurfaceStateOperations.cxx
                        src/ForwardSurfaceStateOperations.cxx
+                       src/SurfaceLinearizationReference.cxx
                        src/MaterialPhysics.cxx
                        src/FamilyMaterialOperations.cxx
                        src/IndexTableConfiguration.cxx
