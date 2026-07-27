@@ -23,6 +23,32 @@ enum class StateFamily : uint8_t {
   Forward
 };
 
+// Selects which of the three hits in a {inner, middle, outer} candidate
+// supplies the anchor/reference frame for seed construction (Stage-B
+// refit-primitive slice, design report Sec 5). Explicit values are locked
+// (never renumbered) because they may be threaded through device-facing
+// call sites in a later slice. Outer is the current accepted
+// buildCellSeed/buildSeed anchor (referenceCoordinate/alpha/covariance
+// come from the outer measurement's own tracking frame). Inner is the
+// frozen ITS `reverse=true` anchor
+// (o2::its::track::buildTrackSeed/seedTrackForRefit,
+// ITStracking/TrackHelpers.h): referenceCoordinate/alpha/covariance come
+// from the inner measurement's own tracking frame instead, with the
+// legacy sign flip applied to snp/q2pt/tgl so the local direction
+// convention stays consistent with the swapped anchor. This is a plain
+// selector, not a reverse-traversal flag: it never encodes propagation
+// direction, material-correction direction, or fit-leg order by itself.
+enum class SeedAnchor : uint8_t {
+  Inner = 0,
+  Outer = 1
+};
+
+static_assert(std::is_standard_layout_v<SeedAnchor> && std::is_trivially_copyable_v<SeedAnchor>);
+static_assert(std::is_same_v<std::underlying_type_t<SeedAnchor>, uint8_t>);
+static_assert(sizeof(SeedAnchor) == sizeof(uint8_t));
+static_assert(static_cast<uint8_t>(SeedAnchor::Inner) == 0);
+static_assert(static_cast<uint8_t>(SeedAnchor::Outer) == 1);
+
 enum class TransitionPolicyTag : uint16_t {
   Invalid,
   CylinderCylinder,

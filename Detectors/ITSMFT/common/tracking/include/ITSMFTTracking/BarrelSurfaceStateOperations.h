@@ -10,8 +10,10 @@
 
 #include "ITSMFTTracking/MaterialPhysics.h"
 #include "ITSMFTTracking/SurfaceKinematicState.h"
+#include "ITSMFTTracking/SurfaceLinearizationReference.h"
 #include "ITSMFTTracking/SurfaceMeasurement.h"
 #include "ITSMFTTracking/SurfaceStateOperationResult.h"
+#include "ITSMFTTracking/TransitionPolicy.h"
 
 namespace o2::itsmft::tracking::barrel
 {
@@ -125,6 +127,117 @@ bool buildSeed(const SurfaceMeasurement& measurementInner, const SurfaceMeasurem
                const SurfaceMeasurement& measurementOuter, float bz,
                uint8_t absCharge, o2::track::PID pid,
                SurfaceKinematicState& outState, OperationFailureReason& reason) noexcept;
+
+// Stage-B refit-primitive slice: builds the initial anchor-selected
+// SurfaceKinematicState seed for a cylindrical three-hit candidate.
+// `SeedAnchor::Outer` reproduces `buildSeed` above exactly (byte-for-byte;
+// that overload now delegates here). `SeedAnchor::Inner` reproduces the
+// frozen ITS `o2::its::track::buildTrackSeed(cluster1, cluster2, tf3, bz,
+// reverse=true)` convention used by `o2::its::track::seedTrackForRefit`
+// (ITStracking/TrackHelpers.h) for its short-track reseed: the roles of
+// `measurementInner` and `measurementOuter` swap (the anchor/frame-providing
+// measurement becomes `measurementInner`, and the two rotated global
+// positions become `measurementOuter`/`measurementMiddle`), and the
+// snp/q2pt/tgl formulas carry the legacy reverse=true sign flip (`sign =
+// -1`) needed to keep the local direction convention consistent with the
+// anchor swap. Output anchor/reference frame follows the anchor: Outer
+// anchors at measurementOuter's frame/reference exactly as `buildSeed`
+// above; Inner anchors at measurementInner's frame/reference (`alpha ==
+// measurementInner.frame.frameAngle`, `referenceCoordinate ==
+// measurementInner.frame.q`, covariance seeded from
+// measurementInner.covariance). Both anchors read the same {inner, middle,
+// outer} physical hit ordering; the anchor is never inferred from argument
+// permutation, numeric SurfaceId, or radius/z sign -- it is the explicit
+// `anchor` argument alone. An unrecognized `SeedAnchor` value fails with
+// `OperationFailureReason::NonFiniteInput` and leaves `outState` unchanged
+// (this primitive does not yet implement midpoint selection or
+// ReseedIfShorter orchestration; it only makes seed construction anchor-
+// capable). Same failure vocabulary, absCharge/pid contract, and
+// scratch-then-commit transactionality as `buildSeed` above.
+bool buildSeed(SeedAnchor anchor, const SurfaceMeasurement& measurementInner, const SurfaceMeasurement& measurementMiddle,
+               const SurfaceMeasurement& measurementOuter, float bz,
+               uint8_t absCharge, o2::track::PID pid,
+               SurfaceKinematicState& outState, OperationFailureReason& reason) noexcept;
+
+// Stage-B refit-primitive slice (linRef-aware rotate): transcribes
+// o2::track::TrackParametrizationWithError<float>::rotate(alpha, linRef0,
+// bz) (DataFormats/Reconstruction/src/TrackParametrizationWithError.cxx)
+// onto SurfaceKinematicState/SurfaceLinearizationReference in float
+// arithmetic only -- the same float-native departure from the legacy
+// double-promoted covariance intermediates already established by the
+// non-linRef `rotate` above. `linRef` supplies the Kalman linearization
+// point: it is rotated to targetAlpha using its own snp-derived
+// cos/sin-delta (not `state`'s), then `state`'s covariance is transported
+// using a Jacobian evaluated at that rotated reference -- never at `state`
+// itself. This is what makes linRef-aware rotation distinct from a second
+// call to the non-linRef `rotate` above (which linearizes at the state
+// being rotated).
+//
+// `state.absCharge` supplies the curvature-relevant charge for `linRef`'s
+// own propagation step (linRef carries no absCharge/pid of its own --
+// see SurfaceLinearizationReference.h); this is the one place a
+// SurfaceLinearizationReference operation reads a field from its paired
+// state rather than from itself.
+//
+// Preconditions checked in the same order as the legacy formula: `state`'s
+// own |snp|<1 first, then `linRef`'s own |snp|<1 and post-rotation
+// validity, then `linRef`'s own propagation-to-trackX validity, then
+// `state`'s own post-rotation validity. Any violation fails with
+// OperationFailureReason::RotationFailure.
+//
+// Full scratch-then-commit transactionality: both `state` and `linRef` are
+// left completely unchanged (byte-for-byte) on any failure, and both are
+// only committed together on complete success.
+bool rotate(SurfaceKinematicState& state, SurfaceLinearizationReference& linRef, float targetAlpha, float bz,
+            OperationFailureReason& reason) noexcept;
+
+// Stage-B refit-primitive slice (linRef-aware propagate): transcribes
+// o2::track::TrackParametrizationWithError<float>::propagateTo(xk,
+// linRef0, bz) (same translation unit as the rotate oracle above) onto
+// SurfaceKinematicState/SurfaceLinearizationReference in float arithmetic
+// only. `linRef` is propagated to targetX first with the plain
+// (non-linRef) position/direction formula (the parameter-only half of the
+// non-linRef `propagate` above, again reading curvature from
+// `state.absCharge`); `state`'s parameters and covariance are then updated
+// from the *difference* between `state`'s pre-propagation parameters and
+// `linRef`'s pre-propagation parameters, transported through a Jacobian
+// evaluated at `linRef`'s own pre/post-propagation trajectory -- never at
+// `state` itself.
+//
+// Trivial-step contract: if `targetX == state.referenceCoordinate`
+// (|dx| below the legacy Almost0 threshold), both `state.
+// referenceCoordinate` and `linRef.referenceCoordinate` are set to
+// targetX and nothing else changes, matching the legacy early return.
+//
+// Failure vocabulary matches the non-linRef `propagate` above
+// (UnreachableTarget / PropagationFailure) for either `state`'s or
+// `linRef`'s own trajectory becoming invalid. Full scratch-then-commit
+// transactionality: both `state` and `linRef` are left completely
+// unchanged (byte-for-byte) on any failure.
+bool propagate(SurfaceKinematicState& state, SurfaceLinearizationReference& linRef, float targetX, float bz,
+               OperationFailureReason& reason) noexcept;
+
+// Explicit reference-shift operation required by the future
+// ShiftRefToCluster leg option (design report Sec 8/11), transcribing the
+// legacy `linRef->setY(trackingHit.positionTrackingFrame[0]);
+// linRef->setZ(trackingHit.positionTrackingFrame[1]);` (ITStracking/
+// TrackHelpers.h fitTrack) onto SurfaceLinearizationReference: sets only
+// `linRef.parameters[0]`/`linRef.parameters[1]` (Y, Z) to
+// `measurement.frame.u`/`measurement.frame.v` -- the same local-frame
+// measured coordinates the state's own `update` above reads. Deliberately
+// narrow: this is a parameter overwrite, not a rotation or propagation, so
+// it does not touch `linRef.referenceCoordinate`, `linRef.alpha`, Snp,
+// Tgl, or Q2Pt, and it never reads or writes `state`. Callers apply it only
+// after `linRef` is already expressed at the measurement's own surface
+// (i.e. immediately after the rotate/propagate above that reached this
+// measurement), matching the legacy call site's placement immediately
+// after `update()`.
+//
+// Fails (leaving `linRef` completely unchanged) if `linRef.family !=
+// StateFamily::Barrel` or if `measurement.frame.u`/`measurement.frame.v`
+// is not finite.
+bool shiftReferenceToMeasurement(SurfaceLinearizationReference& linRef, const SurfaceMeasurement& measurement,
+                                 OperationFailureReason& reason) noexcept;
 
 #endif // GPUCA_GPUCODE
 

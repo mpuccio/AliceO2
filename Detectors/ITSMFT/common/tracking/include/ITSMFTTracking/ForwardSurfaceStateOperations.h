@@ -12,8 +12,10 @@
 
 #include "ITSMFTTracking/MaterialPhysics.h"
 #include "ITSMFTTracking/SurfaceKinematicState.h"
+#include "ITSMFTTracking/SurfaceLinearizationReference.h"
 #include "ITSMFTTracking/SurfaceMeasurement.h"
 #include "ITSMFTTracking/SurfaceStateOperationResult.h"
+#include "ITSMFTTracking/TransitionPolicy.h"
 
 namespace o2::itsmft::tracking::forward
 {
@@ -165,6 +167,92 @@ bool buildSeed(const SurfaceMeasurement& measurementInner, const SurfaceMeasurem
                const SurfaceMeasurement& measurementOuter, float bz, float trackletMinPt,
                uint8_t absCharge, o2::track::PID pid,
                SurfaceKinematicState& outState, OperationFailureReason& reason) noexcept;
+
+// Stage-B refit-primitive slice: builds the initial anchor-selected
+// SurfaceKinematicState seed for a forward/disk three-hit candidate.
+// `SeedAnchor::Outer` reproduces `buildSeed` above exactly (byte-for-byte;
+// that overload now delegates here). `SeedAnchor::Inner` anchors at
+// measurementInner's own frame/reference/covariance instead
+// (`referenceCoordinate == measurementInner.frame.q`, `parameters[0]/[1] ==
+// measurementInner.global.x/y`, covariance diagonal seeded from
+// measurementInner.covariance) using the same {inner, middle, outer}
+// physical ordering and physically identical direction estimate. Unlike
+// barrel::buildSeed's Inner anchor, no sign flip is applied to phi/tanl/
+// invQPt: there is no legacy MFT "reverse" seed formula to reproduce, and
+// this operation's closed-form phi/tanl estimate (secant lines through the
+// same three global positions) is anchor-symmetric by construction --
+// changing which measurement supplies the reference frame does not change
+// the estimated direction of the same physical trajectory. The strict
+// z-ordering/degenerate-separation boundary (SeedGeometryDegenerate) is
+// unchanged: it is a physical-ordering check on the three hits, not an
+// anchor-dependent one. An unrecognized `SeedAnchor` value fails with
+// `OperationFailureReason::NonFiniteInput` and leaves `outState` unchanged.
+// Same failure-precedence, absCharge/pid contract, and scratch-then-commit
+// transactionality as `buildSeed` above.
+bool buildSeed(SeedAnchor anchor, const SurfaceMeasurement& measurementInner, const SurfaceMeasurement& measurementMiddle,
+               const SurfaceMeasurement& measurementOuter, float bz, float trackletMinPt,
+               uint8_t absCharge, o2::track::PID pid,
+               SurfaceKinematicState& outState, OperationFailureReason& reason) noexcept;
+
+// Stage-B refit-primitive slice (linRef-aware propagate): the Disk
+// counterpart to barrel::propagate(state, linRef, ...) above, adopting the
+// same linearization structure -- propagate the reference trajectory
+// non-linearly with the accepted forward Model, evaluate that Model's own
+// Jacobian at the reference's pre-propagation parameters (rather than at
+// `state`'s own, which is what the plain `propagate<Model>` above does),
+// then transport `state` as reference_after + Jacobian*(state_before -
+// reference_before) for parameters and as Jacobian*Cov*Jacobian^T
+// (congruence) for covariance. There is no legacy MFT linRef oracle to
+// transcribe (the legacy MFT forward track-parametrization-with-error type
+// has no linearization-reference refit counterpart), so this reuses the
+// accepted forward float-native propagation mathematics (the same
+// position-update and Jacobian formulas `propagate<Model>` already
+// implements) rather than an independent derivation.
+//
+// `linRef` carries no absCharge/pid of its own (see
+// SurfaceLinearizationReference.h); its own propagation and Jacobian
+// evaluation always use `state.absCharge`/`state.pid` implicitly through
+// the shared per-Model helper, matching barrel's identical substitution.
+//
+// Same per-Model preconditions as `propagate<Model>` above (Linear/
+// Quadratic require only tanl!=0 for a nonzero step; Helix additionally
+// requires bz!=0 and invQPt!=0), evaluated against the *reference's*
+// pre-propagation parameters. Optimized combines a Helix position update
+// for both `linRef` and `state` with a Quadratic-Jacobian covariance
+// transport, exactly mirroring the plain `propagate<Optimized>` composition
+// above.
+//
+// Full scratch-then-commit transactionality: both `state` and `linRef` are
+// left completely unchanged (byte-for-byte) on any failure.
+template <PropagationModel Model>
+bool propagate(SurfaceKinematicState& state, SurfaceLinearizationReference& linRef, float targetZ, float bz,
+               OperationFailureReason& reason) noexcept;
+
+template <>
+bool propagate<PropagationModel::Linear>(SurfaceKinematicState&, SurfaceLinearizationReference&, float, float, OperationFailureReason&) noexcept;
+template <>
+bool propagate<PropagationModel::Quadratic>(SurfaceKinematicState&, SurfaceLinearizationReference&, float, float, OperationFailureReason&) noexcept;
+template <>
+bool propagate<PropagationModel::Helix>(SurfaceKinematicState&, SurfaceLinearizationReference&, float, float, OperationFailureReason&) noexcept;
+template <>
+bool propagate<PropagationModel::Optimized>(SurfaceKinematicState&, SurfaceLinearizationReference&, float, float, OperationFailureReason&) noexcept;
+
+// Explicit reference-shift operation required by the future
+// ShiftRefToCluster leg option (design report Sec 8/11), the Disk
+// counterpart to barrel::shiftReferenceToMeasurement above. The disk
+// measurement frame maps normal/measured coordinates as q=z, u=x, v=y
+// (Architecture.md Sec 6.5); `parameters[0]/[1]` (X, Y) are the disk
+// family's direct position parameters, the same structural role Y/Z play
+// for barrel -- so this sets `linRef.parameters[0]/[1]` to
+// `measurement.frame.u`/`measurement.frame.v` (equivalently
+// `measurement.global.x`/`measurement.global.y` under the disk adapter
+// contract), never touching `linRef.referenceCoordinate`, Phi, Tanl, or
+// InvQPt. `linRef.alpha` is likewise untouched (always 0 for Forward,
+// unused). Fails (leaving `linRef` completely unchanged) if `linRef.family
+// != StateFamily::Forward` or if `measurement.frame.u`/`measurement.frame.v`
+// is not finite.
+bool shiftReferenceToMeasurement(SurfaceLinearizationReference& linRef, const SurfaceMeasurement& measurement,
+                                 OperationFailureReason& reason) noexcept;
 
 #endif // GPUCA_GPUCODE
 
