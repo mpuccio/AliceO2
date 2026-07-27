@@ -52,7 +52,26 @@ enum class OperationFailureReason : uint8_t {
   // resolved SurfaceDescriptor whose own id does not match
   // measurement.surface. Distinct from every reason above: no propagation,
   // material, or chi2 arithmetic has been attempted yet for this slot.
-  InvalidSurfaceCatalogAssociation = 14
+  InvalidSurfaceCatalogAssociation = 14,
+  // Gate 3 Slice B (native CylinderCylinder refit driver, unwired): one leg's
+  // final acceptance check failed after driveRefitLeg<Tag> itself already
+  // succeeded for that leg -- reproducing the frozen ITS fitTrack's own
+  // trailing `|Q2Pt| < maxQoverPt && chi2 < maxChi2NDF*(nCl*2-5)` return
+  // condition (ITSMFTTracking/TrackHelpers.h), evaluated once per leg with
+  // that leg's own maxQoverPt (VeryBig for the two inward-index legs, 50.f
+  // for the outward-index leg) and driveRefitLeg's own per-leg
+  // acceptedHitCount/chi2 outputs. Distinct from PredictedChi2Failure (a
+  // per-hit rejection raised inside refitHit/driveRefitLeg itself, before
+  // this whole-leg check is even reached).
+  LegAcceptanceFailure = 15,
+  // Gate 3 Slice B: the frozen ITS refitTrackSeed's trailing
+  // `if (minPt > 0.f && track.getPt() < minPt) return false;` check
+  // (TrackHelpers.h), evaluated once after the outward-index leg using
+  // params.MinPt[NLayers - seed.getHitLayerMask().count()]. Distinct from
+  // LegAcceptanceFailure: this is a refitTrackSeed-level check keyed on the
+  // seed's own attached-cluster count, not a per-leg fitTrack acceptance
+  // condition.
+  MinPtFailure = 16
 };
 
 static_assert(sizeof(OperationFailureReason) == sizeof(uint8_t));
