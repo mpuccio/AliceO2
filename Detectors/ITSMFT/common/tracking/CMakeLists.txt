@@ -11,8 +11,13 @@
 
 # Lightweight param registration so MFTCATrackerParam keys in --configKeyValues
 # are known to workflows that do not link O2::ITSMFTTracking (e.g. ctf-reader).
+# Also hosts the pure ITS common-CA --configKeyValues namespace preflight
+# (ConfigKeyValuesPreflight.{h,cxx}), for the same reason: a future workflow
+# spec should be able to reject a legacy-namespace override before linking
+# the full tracking core.
 o2_add_library(ITSMFTTrackingParams
                SOURCES src/TrackingConfigParam.cxx
+                       src/ConfigKeyValuesPreflight.cxx
                PUBLIC_LINK_LIBRARIES O2::CommonUtils
                                      O2::DetectorsCommonDataFormats)
 
