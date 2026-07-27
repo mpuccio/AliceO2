@@ -193,7 +193,8 @@ BOOST_AUTO_TEST_CASE(RefitSeedFailsCleanlyForWrongFamilySeedState)
   TimeFrame<7> tf;
   const o2::its::TrackingFrameInfo* const tfInfos[7] = {nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr};
   const o2::its::Cluster* const unsortedClusters[7] = {nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr};
+  const LayerMeasurementSpans<7> layerMeasurements{};
 
-  const bool refitSuccess = DetectorTraits<7>::refitSeed(seed, track, params, 0.5f, tf, tfInfos, unsortedClusters, nullptr);
+  const bool refitSuccess = DetectorTraits<7>::refitSeed(seed, track, params, 0.5f, tf, tfInfos, unsortedClusters, nullptr, layerMeasurements);
   BOOST_CHECK(!refitSuccess);
 }

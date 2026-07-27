@@ -52,6 +52,12 @@ o2_add_test(transitionpolicystate
             LABELS "itsmft;tracking"
             PUBLIC_LINK_LIBRARIES O2::ITSMFTTracking)
 
+o2_add_test(mft-normalized-refit
+            SOURCES testMFTNormalizedRefit.cxx
+            COMPONENT_NAME itsmft-tracking
+            LABELS "itsmft;tracking"
+            PUBLIC_LINK_LIBRARIES O2::ITSMFTTracking O2::MFTTracking)
+
 o2_add_test(transitionpolicydispatch
             SOURCES testTransitionPolicyDispatch.cxx
             COMPONENT_NAME itsmft-tracking
