@@ -76,6 +76,32 @@ struct VertexerParamConfig : public o2::conf::ConfigurableParamHelper<VertexerPa
   O2ParamDef(VertexerParamConfig, "ITSVertexerParam");
 };
 
+/// Dedicated, minimal configuration for the opt-in ITS common-CA tracking
+/// path (workflow-onboarding Slice 1: Sync mode only). Deliberately a
+/// distinct, non-templated type: it neither instantiates nor renames the
+/// still-dormant TrackerParamConfig<DetID::ITS> below, and its registered
+/// name is not "ITSCATrackerParam" -- that name already belongs to the
+/// unrelated, frozen legacy o2::its::TrackerParamConfig in O2::ITStracking,
+/// which stays transitively linked into any executable using this library
+/// (O2::ITSMFTTracking -> O2::ITStracking, for the frozen final-refit
+/// boundary) regardless of which type is used here.
+/// Exposes only fields actually consumed by
+/// TrackingMode::getTrackingParameters(DetID::ITS, Sync); legacy-only knobs
+/// (TrackFollower*, UPC orchestration, vertexing, FataliseUponFailure) are
+/// intentionally absent, not merely unread. Defaults match
+/// TrackingParameters' own struct defaults (the documented Sync baseline),
+/// so an unmodified ITSCommonCATrackerParam changes nothing relative to
+/// resetDetectorDefaults(..., DetID::ITS) alone.
+struct ITSCommonCATrackerParam : public o2::conf::ConfigurableParamHelper<ITSCommonCATrackerParam> {
+  bool dropTFUponFailure = false;
+  bool printMemory = false;
+  size_t maxMemory = std::numeric_limits<size_t>::max();
+  bool saveTimeBenchmarks = false;
+  bool useDiamond = false;
+
+  O2ParamDef(ITSCommonCATrackerParam, "ITSCommonCATrackerParam");
+};
+
 template <int N>
 struct TrackerParamConfig : public o2::conf::ConfigurableParamHelper<TrackerParamConfig<N>> {
   static constexpr std::string_view getParamName()

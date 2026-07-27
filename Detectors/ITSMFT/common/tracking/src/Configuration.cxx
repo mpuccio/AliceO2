@@ -177,7 +177,25 @@ std::string toString(Type mode)
 std::vector<TrackingParameters> getTrackingParameters(detectors::DetID::ID detId, Type mode)
 {
   if (detId == detectors::DetID::ITS) {
-    LOGP(fatal, "ITS CA tracking via O2::ITSMFTTracking is not enabled yet; use O2::ITStracking");
+    // Workflow-onboarding Slice 1: only Sync is implemented. Every other
+    // mode value fails closed with an explicit, mode-naming diagnostic --
+    // none of Off/Unset/Async/Cosmics is silently mapped onto Sync or onto
+    // an empty result.
+    if (mode != Sync) {
+      LOGP(fatal, "ITS common-CA tracking mode '{}' is not supported yet; only 'sync' is implemented", toString(mode));
+    }
+
+    const auto& tc = ITSCommonCATrackerParam::Instance();
+    std::vector<TrackingParameters> trackParams(1);
+    auto& p = trackParams[0];
+    resetDetectorDefaults(p, detectors::DetID::ITS);
+    p.MinTrackLength = TrackerParamConfig<detectors::DetID::ITS>::MinTrackLength;
+    p.DropTFUponFailure = tc.dropTFUponFailure;
+    p.PrintMemory = tc.printMemory;
+    p.MaxMemory = tc.maxMemory;
+    p.SaveTimeBenchmarks = tc.saveTimeBenchmarks;
+    p.UseDiamond = tc.useDiamond;
+    return trackParams;
   }
   if (detId != detectors::DetID::MFT) {
     LOGP(fatal, "Unsupported detector id {} in getTrackingParameters", static_cast<int>(detId));

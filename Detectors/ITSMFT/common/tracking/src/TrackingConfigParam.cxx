@@ -17,3 +17,9 @@ namespace o2::itsmft
 // ITS production tracking uses o2::its::TrackerParamConfig in O2::ITStracking.
 static auto& sMFTCATrackerParam = TrackerParamConfig<o2::detectors::DetID::MFT>::Instance();
 } // namespace o2::itsmft
+
+// Dedicated ITS common-CA opt-in configuration (workflow-onboarding Slice 1).
+// Registered explicitly here, via the standard non-template O2ParamImpl
+// macro -- does not touch, instantiate, or rename the still-dormant
+// templated TrackerParamConfig<DetID::ITS> above.
+O2ParamImpl(o2::itsmft::ITSCommonCATrackerParam);
