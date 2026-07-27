@@ -1428,13 +1428,14 @@ void TrackerTraits<NLayers>::findRoadsForPolicy(const int iteration, const typen
       auto forSeed = [&](auto Mode, int iSeed, int offset = 0) {
         TrackT temporaryTrack;
         const bool refitSuccess = DetectorTraits<NLayers>::refitSeed(trackSeeds[iSeed],
-                                                                    temporaryTrack,
-                                                                    mTrkParams[iteration],
-                                                                    mBz,
-                                                                    *mTimeFrame,
-                                                                    tfInfos,
-                                                                    unsortedClusters,
-                                                                    propagator);
+                                                                     temporaryTrack,
+                                                                     mTrkParams[iteration],
+                                                                     mBz,
+                                                                     *mTimeFrame,
+                                                                     tfInfos,
+                                                                     unsortedClusters,
+                                                                     propagator,
+                                                                     mLayerMeasurements);
         if (refitSuccess) {
           DetectorTraits<NLayers>::copySeedPatternToTrack(temporaryTrack, trackSeeds[iSeed]);
           if constexpr (decltype(Mode)::value == PassMode::OnePass::value) {

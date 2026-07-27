@@ -39,6 +39,11 @@ struct DetectorTraits {
   using TimeFrameN = TimeFrame<NLayers>;
   static constexpr o2::detectors::DetID::ID DetId = detIdFromNLayers<NLayers>();
 
+  // layerMeasurements is TrackerTraits::mLayerMeasurements: the authoritative,
+  // already-validated per-layer normalized SurfaceMeasurement span resolved
+  // once per initialiseTimeFrame() call (see TrackerTraits.h's own doc). The
+  // MFT branch is the only consumer; the barrel/ITS branch keeps reading
+  // tfInfos/unsortedClusters and ignores this parameter unchanged.
   static bool refitSeed(const TrackSeedN& seed,
                         TrackType& track,
                         const TrackingParameters& params,
@@ -46,7 +51,8 @@ struct DetectorTraits {
                         TimeFrameN& tf,
                         const o2::its::TrackingFrameInfo* const tfInfos[NLayers],
                         const o2::its::Cluster* const unsortedClusters[NLayers],
-                        const o2::base::PropagatorImpl<float>* propagator);
+                        const o2::base::PropagatorImpl<float>* propagator,
+                        const LayerMeasurementSpans<NLayers>& layerMeasurements);
 
   static void copySeedPatternToTrack(TrackType& track, const TrackSeedN& seed) noexcept;
   static void clearTransientLayerPattern(TrackType& track) noexcept;

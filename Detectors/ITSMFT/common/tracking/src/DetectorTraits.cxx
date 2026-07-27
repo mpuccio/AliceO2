@@ -74,16 +74,17 @@ bool refitSeedITS(const typename DetectorTraits<NLayers>::TrackSeedN& seed,
 
 template <int NLayers>
 bool DetectorTraits<NLayers>::refitSeed(const TrackSeedN& seed,
-                                         TrackType& track,
-                                         const TrackingParameters& params,
-                                         float bz,
-                                         TimeFrameN& tf,
-                                         const o2::its::TrackingFrameInfo* const tfInfos[NLayers],
-                                         const o2::its::Cluster* const unsortedClusters[NLayers],
-                                         const o2::base::PropagatorImpl<float>* propagator)
+                                        TrackType& track,
+                                        const TrackingParameters& params,
+                                        float bz,
+                                        TimeFrameN& tf,
+                                        const o2::its::TrackingFrameInfo* const tfInfos[NLayers],
+                                        const o2::its::Cluster* const unsortedClusters[NLayers],
+                                        const o2::base::PropagatorImpl<float>* propagator,
+                                        const LayerMeasurementSpans<NLayers>& layerMeasurements)
 {
   if constexpr (DetId == o2::detectors::DetID::MFT) {
-    return refitTrackFwd(seed, track, tf, params, bz);
+    return refitTrackFwd(seed, track, tf, params, bz, layerMeasurements);
   } else {
     return refitSeedITS<NLayers>(seed, track, params, bz, tfInfos, unsortedClusters, propagator);
   }

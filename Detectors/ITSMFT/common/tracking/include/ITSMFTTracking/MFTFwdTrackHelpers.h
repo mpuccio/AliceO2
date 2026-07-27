@@ -254,11 +254,17 @@ inline bool mftFwdFitCellClusters(const int hitLayers[3], const int clusIds[3],
 namespace o2::itsmft::tracking
 {
 
+// layerMeasurements is TrackerTraits::mLayerMeasurements (see DetectorTraits::
+// refitSeed's doc): the authoritative, already-validated per-layer normalized
+// SurfaceMeasurement span. Every physical hit coordinate/covariance consumed
+// by the retained fitter comes from it; tf is retained only for cluster
+// external-index/size bookkeeping (output metadata, not physical reads).
 bool refitTrackFwd(const TrackSeedN<o2::mft::constants::mft::LayersNumber>& seed,
                    MFTCATrack& track,
                    const TimeFrame<o2::mft::constants::mft::LayersNumber>& tf,
                    const TrackingParameters& params,
-                   float bz);
+                   float bz,
+                   const LayerMeasurementSpans<o2::mft::constants::mft::LayersNumber>& layerMeasurements);
 
 } // namespace o2::itsmft::tracking
 

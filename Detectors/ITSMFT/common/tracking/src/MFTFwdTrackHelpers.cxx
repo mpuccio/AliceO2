@@ -34,10 +34,10 @@ bool refitTrackFwdImpl(const TrackSeedN<o2::mft::constants::mft::LayersNumber>& 
                        MFTCATrack& track,
                        const TimeFrame<o2::mft::constants::mft::LayersNumber>& tf,
                        const TrackingParameters& params,
-                       float bz)
+                       float bz,
+                       const LayerMeasurementSpans<o2::mft::constants::mft::LayersNumber>& layerMeasurements)
 {
   TrackLTFType ltf(true);
-  const auto& unsorted = tf.getUnsortedClusters();
   const auto hitMask = seed.getHitLayerMask();
 
   for (int layer = 0; layer < o2::mft::constants::mft::LayersNumber; ++layer) {
@@ -48,17 +48,40 @@ bool refitTrackFwdImpl(const TrackSeedN<o2::mft::constants::mft::LayersNumber>& 
     if (clIdx == o2::its::constants::UnusedIndex) {
       continue;
     }
-    if (clIdx >= static_cast<int>(unsorted[layer].size())) {
+    if (clIdx < 0 || clIdx >= static_cast<int>(layerMeasurements[layer].size())) {
       LOGP(warn, "MFT CA forward refit: invalid cluster index {} on layer {}", clIdx, layer);
       return false;
     }
-    const auto& cluster = unsorted[layer][clIdx];
-    const auto& tfInfo = tf.getClusterTrackingFrameInfo(layer, cluster);
-    o2::mft::Cluster mftCluster{
-      tfInfo.xCoordinate, tfInfo.yCoordinate, tfInfo.zCoordinate,
-      cluster.phi, cluster.radius, clIdx, 0,
-      tfInfo.covarianceTrackingFrame[0], tfInfo.covarianceTrackingFrame[2], 0};
+    const auto& measurement = layerMeasurements[layer][clIdx];
     const int extIdx = tf.getClusterExternalIndex(layer, clIdx);
+    // Defensive re-check of the ClusterRef identity contract that
+    // TrackerTraits::initialiseTimeFrame() already established for every
+    // entry of mLayerMeasurements (NormalizedMeasurementMismatch). Checked
+    // again here because a failure at this final-refit boundary must fail
+    // only this one seed (return false) rather than the
+    // TraversalException/dropped-TF path that guards the bulk validation.
+    if (!measurement.cluster.isValid() || measurement.cluster.source != ClusterSourceId{0} ||
+        extIdx < 0 || static_cast<uint32_t>(extIdx) != measurement.cluster.index) {
+      LOGP(warn, "MFT CA forward refit: normalized measurement identity mismatch on layer {} clIdx {}", layer, clIdx);
+      return false;
+    }
+    if (!std::isfinite(measurement.global.x) || !std::isfinite(measurement.global.y) || !std::isfinite(measurement.global.z) ||
+        !std::isfinite(measurement.covariance.uu) || !std::isfinite(measurement.covariance.vv) ||
+        measurement.covariance.uu < 0.f || measurement.covariance.vv < 0.f) {
+      LOGP(warn, "MFT CA forward refit: invalid normalized measurement on layer {} clIdx {}", layer, clIdx);
+      return false;
+    }
+    // o2::mft::Cluster's phi/radius constructor arguments are not read by
+    // TrackLTF::setPoint (MFTTracking/TrackCA.h), which only consumes
+    // x/y/z and sigmaX2/sigmaY2 (via BaseCluster); pass deterministic
+    // neutral values rather than reading legacy Cluster::phi/radius or
+    // recomputing them from the normalized coordinates. This fitter is
+    // diagonal-only: measurement.covariance.uv is intentionally unused,
+    // and no off-diagonal approximation is substituted for it.
+    o2::mft::Cluster mftCluster{
+      measurement.global.x, measurement.global.y, measurement.global.z,
+      0.f, 0.f, clIdx, 0,
+      measurement.covariance.uu, measurement.covariance.vv, 0};
     ltf.setPoint(mftCluster, layer, clIdx, {}, extIdx, tf.getClusterSize(0, extIdx));
   }
 
@@ -102,7 +125,7 @@ bool refitTrackFwdImpl(const TrackSeedN<o2::mft::constants::mft::LayersNumber>& 
       }
       const int clIdx = seed.getCluster(layer);
       if (clIdx != o2::its::constants::UnusedIndex &&
-          std::abs(unsorted[layer][clIdx].xCoordinate) < params.TrackletMinAbsX) {
+          std::abs(layerMeasurements[layer][clIdx].global.x) < params.TrackletMinAbsX) {
         return false;
       }
     }
@@ -131,13 +154,14 @@ bool refitTrackFwd(const TrackSeedN<o2::mft::constants::mft::LayersNumber>& seed
                    MFTCATrack& track,
                    const TimeFrame<o2::mft::constants::mft::LayersNumber>& tf,
                    const TrackingParameters& params,
-                   float bz)
+                   float bz,
+                   const LayerMeasurementSpans<o2::mft::constants::mft::LayersNumber>& layerMeasurements)
 {
   const auto& mftParam = o2::mft::MFTTrackingParam::Instance();
   if (mftParam.forceZeroField || std::abs(bz) < 1e-6f) {
-    return refitTrackFwdImpl<o2::mft::TrackLTFL>(seed, track, tf, params, 0.f);
+    return refitTrackFwdImpl<o2::mft::TrackLTFL>(seed, track, tf, params, 0.f, layerMeasurements);
   }
-  return refitTrackFwdImpl<o2::mft::TrackLTF>(seed, track, tf, params, bz);
+  return refitTrackFwdImpl<o2::mft::TrackLTF>(seed, track, tf, params, bz, layerMeasurements);
 }
 
 } // namespace o2::itsmft::tracking
