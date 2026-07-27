@@ -189,6 +189,18 @@ bool forwardPropagateAcceptedModel(SurfaceKinematicState& state, float targetZ, 
   return forward::propagate<forward::PropagationModel::Linear>(state, targetZ, bz, reason);
 }
 
+// linRef-aware counterpart of forwardPropagateAcceptedModel above, used by
+// refitHit<DiskDisk>: same |bz|>0.01f Helix/Linear threshold, applied to the
+// linRef-aware forward::propagate<Model> overloads (ForwardSurfaceStateOperations.h).
+bool forwardPropagateAcceptedModel(SurfaceKinematicState& state, SurfaceLinearizationReference& linRef, float targetZ, float bz,
+                                   OperationFailureReason& reason) noexcept
+{
+  if (std::abs(bz) > 0.01f) {
+    return forward::propagate<forward::PropagationModel::Helix>(state, linRef, targetZ, bz, reason);
+  }
+  return forward::propagate<forward::PropagationModel::Linear>(state, linRef, targetZ, bz, reason);
+}
+
 } // namespace
 
 template <>
@@ -392,6 +404,123 @@ bool attachHit<TransitionPolicyTag::DiskDisk>(
   scratchChi2 += updateChi2;
 
   state = scratch;
+  chi2 = scratchChi2;
+  return true;
+}
+
+template <>
+bool refitHit<TransitionPolicyTag::CylinderCylinder>(
+  SurfaceKinematicState& state,
+  SurfaceLinearizationReference& linRef,
+  const SurfaceMeasurement& measurement,
+  const NominalSurfaceMaterial& material,
+  float bz,
+  material::MaterialTraversalDirection direction,
+  bool chi2GateEnabled,
+  float maxChi2,
+  float& chi2,
+  bool shiftReferenceToMeasurement,
+  OperationFailureReason& reason) noexcept
+{
+  SurfaceKinematicState scratchState = state;
+  SurfaceLinearizationReference scratchRef = linRef;
+  float scratchChi2 = chi2;
+
+  if (!barrel::rotate(scratchState, scratchRef, measurement.frame.frameAngle, bz, reason)) {
+    return false;
+  }
+  if (!barrel::propagate(scratchState, scratchRef, measurement.frame.q, bz, reason)) {
+    return false;
+  }
+  const auto materialResult = barrel::correctForMaterial(
+    scratchState, material::IntegratedMaterialBudget{material.xOverX0, material.arealDensityGPerCm2}, direction);
+  if (!materialResult.ok()) {
+    reason = OperationFailureReason::MaterialFailure;
+    return false;
+  }
+  float predChi2{0.f};
+  if (!barrel::predictedChi2(scratchState, measurement, predChi2, reason)) {
+    return false;
+  }
+  if (predChi2 < 0.f || !std::isfinite(predChi2)) {
+    reason = OperationFailureReason::PredictedChi2Failure;
+    return false;
+  }
+  if (chi2GateEnabled && predChi2 > maxChi2) {
+    reason = OperationFailureReason::PredictedChi2Failure;
+    return false;
+  }
+  float updateChi2{0.f};
+  if (!barrel::update(scratchState, measurement, updateChi2, reason)) {
+    return false;
+  }
+  scratchChi2 += updateChi2;
+
+  if (shiftReferenceToMeasurement) {
+    if (!barrel::shiftReferenceToMeasurement(scratchRef, measurement, reason)) {
+      return false;
+    }
+  }
+
+  state = scratchState;
+  linRef = scratchRef;
+  chi2 = scratchChi2;
+  return true;
+}
+
+template <>
+bool refitHit<TransitionPolicyTag::DiskDisk>(
+  SurfaceKinematicState& state,
+  SurfaceLinearizationReference& linRef,
+  const SurfaceMeasurement& measurement,
+  const NominalSurfaceMaterial& material,
+  float bz,
+  material::MaterialTraversalDirection direction,
+  bool chi2GateEnabled,
+  float maxChi2,
+  float& chi2,
+  bool shiftReferenceToMeasurement,
+  OperationFailureReason& reason) noexcept
+{
+  SurfaceKinematicState scratchState = state;
+  SurfaceLinearizationReference scratchRef = linRef;
+  float scratchChi2 = chi2;
+
+  if (!forwardPropagateAcceptedModel(scratchState, scratchRef, measurement.frame.q, bz, reason)) {
+    return false;
+  }
+  const auto materialResult = forward::correctForMaterial(
+    scratchState, material::IntegratedMaterialBudget{material.xOverX0, material.arealDensityGPerCm2}, direction);
+  if (!materialResult.ok()) {
+    reason = OperationFailureReason::MaterialFailure;
+    return false;
+  }
+  float predChi2{0.f};
+  if (!forward::predictedChi2(scratchState, measurement, predChi2, reason)) {
+    return false;
+  }
+  if (predChi2 < 0.f || !std::isfinite(predChi2)) {
+    reason = OperationFailureReason::PredictedChi2Failure;
+    return false;
+  }
+  if (chi2GateEnabled && predChi2 > maxChi2) {
+    reason = OperationFailureReason::PredictedChi2Failure;
+    return false;
+  }
+  float updateChi2{0.f};
+  if (!forward::update(scratchState, measurement, updateChi2, reason)) {
+    return false;
+  }
+  scratchChi2 += updateChi2;
+
+  if (shiftReferenceToMeasurement) {
+    if (!forward::shiftReferenceToMeasurement(scratchRef, measurement, reason)) {
+      return false;
+    }
+  }
+
+  state = scratchState;
+  linRef = scratchRef;
   chi2 = scratchChi2;
   return true;
 }

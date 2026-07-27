@@ -18,8 +18,10 @@
 
 #include <gsl/span>
 
+#include "ITSMFTTracking/MaterialPhysics.h"
 #include "ITSMFTTracking/SurfaceDescriptor.h"
 #include "ITSMFTTracking/SurfaceKinematicState.h"
+#include "ITSMFTTracking/SurfaceLinearizationReference.h"
 #include "ITSMFTTracking/SurfaceMeasurement.h"
 #include "ITSMFTTracking/SurfaceStateOperationResult.h"
 
@@ -305,6 +307,120 @@ bool attachHit<TransitionPolicyTag::DiskDisk>(
   float bz,
   float& chi2,
   const DiskDiskPolicyParams& params,
+  OperationFailureReason& reason) noexcept;
+
+/// Stage-B refit-primitive slice: the direction-aware, linRef-carrying
+/// per-hit refit step the future driveRefitLeg/finalRefit will call --
+/// unwired in this slice (no production call site uses it yet). Unlike
+/// attachHit<Tag> above, this is explicitly NOT part of CA cell/road
+/// construction: it is the ITS-shaped *refit* step (frozen
+/// o2::its::track::fitTrack, ITStracking/TrackHelpers.h), which differs
+/// from attachHit in three ways this operation makes explicit rather than
+/// hard-coded:
+///   1. it carries a SurfaceLinearizationReference alongside the fitted
+///      state (attachHit has none -- CA cell construction never
+///      linearizes at a separate reference point);
+///   2. its material-correction direction is an explicit caller argument
+///      (attachHit always hard-codes OppositeMomentum); per the accepted
+///      integration-owner decision, native material direction is
+///      uniform -- inner->outer legs (including a repeated inward->outward
+///      precision leg) use AlongMomentum, outer->inner legs use
+///      OppositeMomentum -- and this operation does not encode that
+///      choice itself, nor any family/CorrType-specific branch; the
+///      caller (the future driveRefitLeg) selects it. This is a
+///      deliberate departure from the frozen ITS explicit-NONE
+///      fixed-positive-material quirk (TrackHelpers.h fitTrack:
+///      `correctForMaterial(*linRef, layerxX0, layerxX0*Radl*Rho, true)`,
+///      always positive-signed regardless of leg direction) -- native
+///      legs correct signed, direction-aware energy loss instead;
+///   3. its chi2 gate is caller-decided via `chi2GateEnabled`/`maxChi2`
+///      (attachHit<CylinderCylinder> hard-codes `nCl>=3` by never being
+///      called before nCl==3; attachHit<DiskDisk> has no such gate at
+///      all), so a future driveRefitLeg can implement the frozen ITS
+///      `nCl >= 3` first-two-hits-ungated rule without a signature change
+///      here.
+///
+/// Per-step contract (both families, in this exact order):
+///   1. frame preparation: CylinderCylinder rotates `state`+`linRef`
+///      (barrel::rotate(state, linRef, ...)) to measurement.frame.
+///      frameAngle; DiskDisk has no rotation frame (alpha is always 0) and
+///      skips this step entirely, exactly like attachHit<DiskDisk>.
+///   2. linRef-aware propagation to measurement.frame.q: barrel::propagate
+///      (state, linRef, ...) or the accepted forward model's linRef-aware
+///      forward::propagate<Model> (same |bz|>0.01f Helix/Linear threshold
+///      as attachHit<DiskDisk>'s forwardPropagateAcceptedModel).
+///   3. direction-aware material correction: the PID/absCharge-aware
+///      correctForMaterial(state, IntegratedMaterialBudget, direction)
+///      overload (never the legacy MCS-only forward::correctForMaterial
+///      (state, xOverX0, reason) overload), using the caller-supplied
+///      `direction` verbatim.
+///   4. predicted chi2 (barrel::/forward::predictedChi2).
+///   5. unconditional finite/non-negative chi2 rejection
+///      (OperationFailureReason::PredictedChi2Failure if predChi2 < 0.f or
+///      non-finite) -- applied identically for both families, unlike
+///      attachHit's family-asymmetric `< 0.f` handling (Cylinder rejects,
+///      Disk does not); then, only if `chi2GateEnabled`, an additional
+///      `predChi2 > maxChi2` rejection.
+///   6. measurement update (barrel::/forward::update), accumulating into
+///      `chi2` (in/out, like attachHit).
+///   7. optional reference shift: if `shiftReferenceToMeasurement` is
+///      true, barrel::/forward::shiftReferenceToMeasurement(linRef,
+///      measurement, reason) is applied last, after the update in step 6
+///      (matching the legacy `fitTrack` call-site placement).
+///
+/// Contracts: `state`/`linRef`/`chi2` are all input and output, updated
+/// only on complete success; on any failure all three are left exactly as
+/// passed in, byte-for-byte, and `reason` is always written
+/// (full scratch-then-commit transactionality, matching attachHit/
+/// buildCellSeed above). No detector ID/NLayers branch. No Cluster/
+/// TrackingFrameInfo reads -- the already-loaded, already-validated
+/// `measurement` is authoritative, exactly like attachHit/buildCellSeed.
+///
+/// This operation does not modify, does not call, and is not called by
+/// attachHit<Tag> above: attachHit's existing public signature and
+/// behavior are completely unchanged by this slice.
+///
+/// Host-only for this slice (no GPU/device-readiness claim), like
+/// buildCellSeed/attachHit above.
+template <TransitionPolicyTag Tag>
+bool refitHit(SurfaceKinematicState& state,
+              SurfaceLinearizationReference& linRef,
+              const SurfaceMeasurement& measurement,
+              const NominalSurfaceMaterial& material,
+              float bz,
+              material::MaterialTraversalDirection direction,
+              bool chi2GateEnabled,
+              float maxChi2,
+              float& chi2,
+              bool shiftReferenceToMeasurement,
+              OperationFailureReason& reason) noexcept;
+
+template <>
+bool refitHit<TransitionPolicyTag::CylinderCylinder>(
+  SurfaceKinematicState& state,
+  SurfaceLinearizationReference& linRef,
+  const SurfaceMeasurement& measurement,
+  const NominalSurfaceMaterial& material,
+  float bz,
+  material::MaterialTraversalDirection direction,
+  bool chi2GateEnabled,
+  float maxChi2,
+  float& chi2,
+  bool shiftReferenceToMeasurement,
+  OperationFailureReason& reason) noexcept;
+
+template <>
+bool refitHit<TransitionPolicyTag::DiskDisk>(
+  SurfaceKinematicState& state,
+  SurfaceLinearizationReference& linRef,
+  const SurfaceMeasurement& measurement,
+  const NominalSurfaceMaterial& material,
+  float bz,
+  material::MaterialTraversalDirection direction,
+  bool chi2GateEnabled,
+  float maxChi2,
+  float& chi2,
+  bool shiftReferenceToMeasurement,
   OperationFailureReason& reason) noexcept;
 
 /// Stage-B Slice B (design report Sec 8/11), now the sole production
