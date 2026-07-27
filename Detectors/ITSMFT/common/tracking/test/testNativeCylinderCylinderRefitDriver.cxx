@@ -258,7 +258,7 @@ struct NativeDriverResult {
 
 NativeDriverResult runNativeDriver(SharedFixture& fixture, int nHitLayers, float maxChi2ClusterAttachment,
                                    float maxChi2NDF, bool shiftRefToCluster, bool repeatRefitOut,
-                                   const std::vector<float>& minPt)
+                                   const std::vector<float>& minPt, int reseedIfShorter = 0)
 {
   const auto nativeSeed = makeNativeSeed(nHitLayers);
   NativeDriverResult result{};
@@ -266,7 +266,8 @@ NativeDriverResult runNativeDriver(SharedFixture& fixture, int nHitLayers, float
   float chi2{0.f};
   result.ok = nativeRefitTrackCylinderCylinder<NLayers>(
     nativeSeed, fixture.layerMeasurements, fixture.catalog, Bz, shiftRefToCluster, maxChi2ClusterAttachment,
-    maxChi2NDF, repeatRefitOut, gsl::span<const float>(minPt), paramIn, paramOut, chi2, result.reason);
+    maxChi2NDF, repeatRefitOut, gsl::span<const float>(minPt), reseedIfShorter, paramIn, paramOut, chi2,
+    result.reason);
   if (result.ok) {
     BOOST_REQUIRE(exportNativeRefitToTrackITSExt<NLayers>(nativeSeed, paramIn, paramOut, chi2, result.track));
   }
@@ -434,6 +435,67 @@ BOOST_AUTO_TEST_CASE(MinPtFailureRejectsAfterLegB)
   BOOST_CHECK(!legacy.ok);
   BOOST_CHECK(!native.ok);
   BOOST_CHECK(native.reason == OperationFailureReason::MinPtFailure);
+}
+
+// --- ReseedIfShorter hardening: reject unconditionally, before mutation ----
+
+BOOST_AUTO_TEST_CASE(NonzeroReseedIfShorterIsRejectedBeforeAnyMutation)
+{
+  // Any nonzero reseedIfShorter is rejected outright -- this fixture's own
+  // 7-hit cluster count would never actually trigger legacy's reseed
+  // condition (ncl < reseedIfShorter && ncl > 2 needs ncl < reseedIfShorter,
+  // i.e. reseedIfShorter > 7 here), which is exactly the point: the driver
+  // does not attempt to reproduce or evaluate that condition itself, it
+  // simply refuses every nonzero configuration.
+  SharedFixture fixture(0.f, 0.f, NLayers);
+  const auto nativeSeed = makeNativeSeed(NLayers);
+
+  SurfaceKinematicState paramIn{};
+  paramIn.parameters[0] = -777.f; // poison sentinel
+  SurfaceKinematicState paramOut{};
+  paramOut.parameters[0] = -888.f;
+  float chi2 = -999.f;
+  OperationFailureReason reason{};
+
+  const bool ok = nativeRefitTrackCylinderCylinder<NLayers>(
+    nativeSeed, fixture.layerMeasurements, fixture.catalog, Bz, false, 60.f, 30.f, false,
+    gsl::span<const float>(std::vector<float>(NLayers + 1, 0.f)), /*reseedIfShorter=*/4, paramIn, paramOut, chi2,
+    reason);
+
+  BOOST_CHECK(!ok);
+  BOOST_CHECK(reason == OperationFailureReason::ReseedNotSupported);
+  // Untouched: state/output must be left exactly as passed in.
+  BOOST_CHECK_EQUAL(paramIn.parameters[0], -777.f);
+  BOOST_CHECK_EQUAL(paramOut.parameters[0], -888.f);
+  BOOST_CHECK_EQUAL(chi2, -999.f);
+}
+
+BOOST_AUTO_TEST_CASE(NonzeroReseedIfShorterIsRejectedRegardlessOfSign)
+{
+  // A negative reseedIfShorter is equally rejected: the check is "!= 0", not
+  // a range/positivity validation of an otherwise-supported feature.
+  SharedFixture fixture(0.f, 0.f, NLayers);
+  const auto native = runNativeDriver(fixture, NLayers, 60.f, 30.f, false, false,
+                                      std::vector<float>(NLayers + 1, 0.f), /*reseedIfShorter=*/-1);
+  BOOST_CHECK(!native.ok);
+  BOOST_CHECK(native.reason == OperationFailureReason::ReseedNotSupported);
+}
+
+BOOST_AUTO_TEST_CASE(ZeroReseedIfShorterKeepsTheCharacterizedPath)
+{
+  // reseedIfShorter == 0 must behave exactly as every other test in this
+  // file already relies on (runNativeDriver's own default) -- this test
+  // makes that reliance explicit rather than only implicit in a default
+  // argument, and reuses the same structural-parity comparison the
+  // characterized zero-material path already passes.
+  SharedFixture fixture(0.f, 0.f, NLayers);
+  const auto legacy = runLegacyOracle(fixture, NLayers, 60.f, 30.f, false, false, std::vector<float>(NLayers + 1, 0.f),
+                                      o2::base::PropagatorF::MatCorrType::USEMatCorrNONE);
+  const auto native = runNativeDriver(fixture, NLayers, 60.f, 30.f, false, false, std::vector<float>(NLayers + 1, 0.f),
+                                      /*reseedIfShorter=*/0);
+  BOOST_REQUIRE(legacy.ok);
+  BOOST_REQUIRE(native.ok);
+  BOOST_CHECK_EQUAL(legacy.track.getPattern(), native.track.getPattern());
 }
 
 // --- Export-failure handling (native driver's own contract, no legacy side) ---

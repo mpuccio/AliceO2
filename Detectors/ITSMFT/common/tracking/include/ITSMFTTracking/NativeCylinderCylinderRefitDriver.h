@@ -86,7 +86,7 @@ GPUhdi() float getPtFromQOverPt(float q2pt, uint8_t absCharge) noexcept
 ///
 /// Leg sequencing, exactly matching `refitTrack`:
 ///   Leg A (inward-index, `[0, NLayers)`, step +1): seeded from `seed.
-///     state()` as-is (see the stated scope limitation below), direction
+///     state()` as-is (see the enforced scope limitation below), direction
 ///     AlongMomentum, maxQoverPt = VeryBig. Its result becomes `outParamOut`
 ///     unless `repeatRefitOut` succeeds below.
 ///   Leg B (outward-index, `[NLayers-1, -1)`, step -1): re-seeded from leg
@@ -121,15 +121,20 @@ GPUhdi() float getPtFromQOverPt(float q2pt, uint8_t absCharge) noexcept
 /// `ctx.maxChi2ClusterAttachment`'s own per-call-identical usage in the
 /// frozen driver.
 ///
-/// Stated scope limitation (Gate 3 Slice B, not implemented here): the
-/// frozen `seedTrackForRefit`'s conditional mid-track geometric reseed
-/// (`ncl < reseedIfShorter && ncl > 2`, re-deriving the initial
-/// parametrization via `buildTrackSeed`/`selectReseedMidLayer` from raw
-/// `Cluster`/`TrackingFrameInfo`) is *not* reproduced by this driver. This
-/// driver always starts leg A from `seed.state()` unchanged -- callers
-/// (and this slice's own tests) must not rely on this driver for seeds
-/// whose cluster count would trigger that legacy reseed path. Reproducing
-/// it natively is deferred to a follow-up slice.
+/// Enforced scope limitation (Gate 3 Slice B hardening): the frozen
+/// `seedTrackForRefit`'s conditional mid-track geometric reseed (`ncl <
+/// reseedIfShorter && ncl > 2`, re-deriving the initial parametrization via
+/// `buildTrackSeed`/`selectReseedMidLayer` from raw `Cluster`/
+/// `TrackingFrameInfo`) is *not* reproduced by this driver. Rather than
+/// silently running the non-reseeded algorithm for a configuration where
+/// legacy could have taken a different starting point, this driver rejects
+/// any nonzero `reseedIfShorter` outright -- unconditionally, not only when
+/// this particular seed's cluster count would actually trigger legacy's
+/// reseed -- with `OperationFailureReason::ReseedNotSupported`, checked
+/// first, before leg A or any output parameter is touched. `reseedIfShorter
+/// == 0` (never triggers legacy's reseed either) is the only currently
+/// supported configuration; reproducing the reseed formula natively is
+/// deferred to a follow-up slice.
 ///
 /// Host-only (no GPU/device-readiness claim), like driveRefitLeg/refitHit
 /// above, whose contracts this driver inherits unchanged.
@@ -144,11 +149,17 @@ bool nativeRefitTrackCylinderCylinder(
   float maxChi2NDF,
   bool repeatRefitOut,
   gsl::span<const float> minPt,
+  int reseedIfShorter,
   SurfaceKinematicState& outParamIn,
   SurfaceKinematicState& outParamOut,
   float& outChi2,
   OperationFailureReason& reason) noexcept
 {
+  if (reseedIfShorter != 0) {
+    reason = OperationFailureReason::ReseedNotSupported;
+    return false;
+  }
+
   constexpr auto Tag = TransitionPolicyTag::CylinderCylinder;
 
   auto legAcceptable = [](const SurfaceKinematicState& state, float chi2, uint32_t acceptedHitCount,

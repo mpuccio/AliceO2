@@ -71,7 +71,18 @@ enum class OperationFailureReason : uint8_t {
   // LegAcceptanceFailure: this is a refitTrackSeed-level check keyed on the
   // seed's own attached-cluster count, not a per-leg fitTrack acceptance
   // condition.
-  MinPtFailure = 16
+  MinPtFailure = 16,
+  // Gate 3 Slice B hardening: nativeRefitTrackCylinderCylinder does not
+  // reproduce the frozen seedTrackForRefit's conditional mid-track geometric
+  // reseed (ncl < reseedIfShorter && ncl > 2, re-deriving the initial
+  // parametrization via buildTrackSeed/selectReseedMidLayer from raw
+  // Cluster/TrackingFrameInfo, ITSMFTTracking/TrackHelpers.h). Any nonzero
+  // reseedIfShorter is rejected unconditionally -- before leg A or any output
+  // is touched -- rather than silently running the non-reseeded algorithm
+  // for a configuration where legacy could have taken a different starting
+  // point. Distinct from every reason above: no rotate/propagate/material/
+  // chi2 arithmetic has been attempted for any leg.
+  ReseedNotSupported = 17
 };
 
 static_assert(sizeof(OperationFailureReason) == sizeof(uint8_t));
