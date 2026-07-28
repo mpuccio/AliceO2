@@ -1,0 +1,137 @@
+// Copyright 2019-2026 CERN and copyright holders of ALICE O2.
+// See https://alice-o2.web.cern.ch/copyright for details of the copyright holders.
+// All rights not expressly granted are reserved.
+//
+// This software is distributed under the terms of the GNU General Public
+// License v3 (GPL Version 3), copied verbatim in the file "COPYING".
+//
+// In applying this license CERN does not waive the privileges and immunities
+// granted to it by virtue of its status as an Intergovernmental Organization
+// or submit itself to any jurisdiction.
+///
+/// \file CATrackerSpec.h
+/// \brief Opt-in ITS common-CA tracker DPL device (Gate 3 workflow-onboarding
+///        Slice 2). Modeled on MFTWorkflow/CATrackerSpec.h where contracts
+///        match; publishes tracker-only outputs (no VERTICES/VERTICESROF).
+
+#ifndef O2_ITS_CA_WORKFLOW_CATRACKERSPEC_H_
+#define O2_ITS_CA_WORKFLOW_CATRACKERSPEC_H_
+
+#include <cassert>
+#include <memory>
+#include <vector>
+
+#include <gsl/span>
+
+#include "DataFormatsITS/TrackITS.h"
+#include "DataFormatsITSMFT/ROFRecord.h"
+#include "DetectorsBase/GRPGeomHelper.h"
+#include "Framework/DataProcessorSpec.h"
+#include "Framework/Task.h"
+#include "ITSMFTTracking/Configuration.h"
+#include "ITSMFTTracking/ITSSurfaceCatalogProvider.h"
+#include "ITSMFTTracking/TrackingInterface.h"
+#include "SimulationDataFormat/MCCompLabel.h"
+
+namespace o2::its::ca
+{
+
+/// Gate 3 failure-contract publication decision, mirroring
+/// o2::mft::decideCATrackerPublicationAction() exactly (same three-way
+/// outcome, same meaning) -- factored out as a pure function so the
+/// publish-vs-skip contract can be exercised without a DPL ProcessingContext.
+enum class CATrackerPublicationAction {
+  PublishInactiveEmpty, ///< tracker not configured/active: publish empty outputs
+  PublishActiveResult,  ///< active tracking returned a non-dropped result (including valid-empty input)
+  SkipDroppedTimeFrame, ///< active tracking recoverably dropped this TF: publish nothing
+};
+
+CATrackerPublicationAction decideCATrackerPublicationAction(bool trackerActive, float trackingResult) noexcept;
+
+/// Converts one o2::its::TrackITSExt (the common tracker's internal barrel
+/// track representation, see ITSMFTTracking/Cell.h's CATrackTypeHelper<7>)
+/// into the persisted o2::its::TrackITS, appending this track's flattened
+/// external cluster indices onto `clusterIndices` and setting the
+/// RangeRefComp cluster range (o2::its::TrackITS::setFirstClusterEntry(),
+/// via the CA algorithm's own pre-set cluster count) accordingly.
+///
+/// Byte-for-byte the same per-track logic as the legacy
+/// ITSWorkflow/TrackerSpec.cxx::run() loop: cluster indices are read
+/// per-layer (`track.getClusterIndex(layer)`, -1 if that layer has no hit)
+/// in decreasing layer order, each valid one is pushed onto `clusterIndices`
+/// and its packed cluster size set via `clusterSizeAt(layer, externalIdx)`;
+/// the resulting flattened order is outer-to-inner-most-populated-first, not
+/// physical layer order -- this matches every existing ITS track consumer's
+/// expectation (they all read through RangeRefComp + TRACKCLSID, never by
+/// assuming physical layer order).
+///
+/// Takes `track` by value: the RangeRefComp/cluster-size mutations happen on
+/// the caller's own copy of the source TrackITSExt before it is sliced into
+/// the output TrackITS, so the caller's TimeFrame-owned track is never
+/// mutated by this call.
+///
+/// `clusterIndices`/`tracks` are templated (not plain std::vector<>&): DPL's
+/// pc.outputs().make<std::vector<T>>() actually returns a pmr-allocator
+/// vector (std::vector<T, polymorphic_allocator<T>>), not std::vector<T>, so
+/// a fixed std::vector<T>& parameter would reject the real call site in
+/// CATrackerSpec.cxx while only ever being exercised with plain
+/// std::vector<T> in tests -- genericity here is required for the real
+/// caller, not speculative.
+template <typename ClusterIdxVec, typename TracksVec, typename ClusterSizeFn>
+void convertTrackITSExtToTrackITS(o2::its::TrackITSExt track,
+                                  ClusterIdxVec& clusterIndices,
+                                  TracksVec& tracks,
+                                  ClusterSizeFn&& clusterSizeAt)
+{
+  track.setFirstClusterEntry(static_cast<int>(clusterIndices.size()));
+  const int nclExpected = track.getNumberOfClusters();
+  int nclFound = 0;
+  for (int layer = o2::its::TrackITSExt::MaxClusters; layer--;) {
+    const int clid = track.getClusterIndex(layer);
+    if (clid < 0) {
+      continue;
+    }
+    track.setClusterSize(layer, clusterSizeAt(layer, clid));
+    clusterIndices.push_back(clid);
+    ++nclFound;
+  }
+  assert(nclFound == nclExpected);
+  (void)nclExpected;
+  (void)nclFound;
+  tracks.push_back(track);
+}
+
+/// ITS common-CA tracker DPL task. Delegates reconstruction to
+/// o2::itsmft::tracking::ITSMFTTrackingInterfaceITS
+/// (ITSMFTTrackingInterface<7>). Frozen legacy o2::its::TrackerDPL
+/// (ITSWorkflow/TrackerSpec.h) and o2-its-reco-workflow are untouched by
+/// this class; it lives in an isolated library/executable
+/// (o2-its-ca-tracker-workflow) with no link-graph overlap with ITSWorkflow.
+class CATrackerDPL : public o2::framework::Task
+{
+ public:
+  CATrackerDPL(std::shared_ptr<o2::base::GRPGeomRequest> gr, bool useMC, o2::itsmft::TrackingMode::Type trMode)
+    : mGGCCDBRequest(std::move(gr)), mUseMC(useMC),
+      mTracking(useMC, trMode, false, std::make_unique<o2::itsmft::tracking::ITSSurfaceCatalogProvider>())
+  {
+  }
+  ~CATrackerDPL() override = default;
+
+  void init(framework::InitContext& ic) final;
+  void run(framework::ProcessingContext& pc) final;
+  void finaliseCCDB(framework::ConcreteDataMatcher& matcher, void* obj) final;
+
+ private:
+  void updateTimeDependentParams(framework::ProcessingContext& pc);
+
+  std::shared_ptr<o2::base::GRPGeomRequest> mGGCCDBRequest;
+  bool mUseMC = false;
+  bool mTrackingInitialised = false;
+  o2::itsmft::tracking::ITSMFTTrackingInterfaceITS mTracking;
+};
+
+o2::framework::DataProcessorSpec getCATrackerSpec(bool useMC, bool useGeom, o2::itsmft::TrackingMode::Type trMode);
+
+} // namespace o2::its::ca
+
+#endif // O2_ITS_CA_WORKFLOW_CATRACKERSPEC_H_

@@ -18,6 +18,7 @@
 o2_add_library(ITSCAWorkflow
                TARGETVARNAME targetName
                SOURCES src/ConfigPreflight.cxx
+                       src/CATrackerSpec.cxx
                PUBLIC_LINK_LIBRARIES O2::Framework
                                      O2::SimulationDataFormat
                                      O2::DataFormatsITS
@@ -39,4 +40,16 @@ o2_add_test(its-ca-config-preflight
             COMPONENT_NAME its
             LABELS "its;workflow;itsmft"
             SOURCES test/testITSCAConfigPreflight.cxx
+            PUBLIC_LINK_LIBRARIES O2::ITSCAWorkflow)
+
+o2_add_test(its-ca-trackits-conversion
+            COMPONENT_NAME its
+            LABELS "its;workflow;itsmft"
+            SOURCES test/testITSCATrackITSConversion.cxx
+            PUBLIC_LINK_LIBRARIES O2::ITSCAWorkflow)
+
+o2_add_test(its-ca-tracker-dpl-contract
+            COMPONENT_NAME its
+            LABELS "its;workflow;itsmft"
+            SOURCES test/testITSCATrackerDPLContract.cxx
             PUBLIC_LINK_LIBRARIES O2::ITSCAWorkflow)
