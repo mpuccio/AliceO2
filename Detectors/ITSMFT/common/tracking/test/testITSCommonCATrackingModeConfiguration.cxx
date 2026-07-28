@@ -24,6 +24,7 @@
 #define BOOST_TEST_DYN_LINK
 #include <boost/test/unit_test.hpp>
 
+#include <boost/property_tree/ptree.hpp>
 #include <fairlogger/Logger.h>
 #include <stdexcept>
 
@@ -62,6 +63,10 @@ BOOST_AUTO_TEST_CASE(DedicatedDefaultsMatchDocumentedSyncBaseline)
   BOOST_CHECK_EQUAL(tc.maxMemory, std::numeric_limits<size_t>::max());
   BOOST_CHECK_EQUAL(tc.saveTimeBenchmarks, false);
   BOOST_CHECK_EQUAL(tc.useDiamond, false);
+  BOOST_CHECK_EQUAL(tc.diamondPos[0], 0.f);
+  BOOST_CHECK_EQUAL(tc.diamondPos[1], 0.f);
+  BOOST_CHECK_EQUAL(tc.diamondPos[2], 0.f);
+  BOOST_CHECK_EQUAL(tc.pvRes, -1.f);
 }
 
 // --- ITS Sync construction is valid, one-iteration, with expected values ---
@@ -167,4 +172,29 @@ BOOST_FIXTURE_TEST_CASE(MFTOffStillReturnsEmptyNotFatal, FatalToExceptionFixture
     const auto trackParams = TrackingMode::getTrackingParameters(o2::detectors::DetID::MFT, TrackingMode::Off);
     BOOST_CHECK(trackParams.empty());
   });
+}
+
+// --- workflow-onboarding Slice 2: diamondPos/pvRes are wired through -------
+//
+// Mutates the global ITSCommonCATrackerParam singleton via
+// ConfigurableParam::setValue -- deliberately placed last in this
+// translation unit so no other test observes the mutated state.
+
+BOOST_AUTO_TEST_CASE(DiamondPosAndPVresAreWiredIntoITSSyncTrackingParameters)
+{
+  o2::conf::ConfigurableParam::setValue<float>("ITSCommonCATrackerParam", "diamondPos[0]", 1.5f);
+  o2::conf::ConfigurableParam::setValue<float>("ITSCommonCATrackerParam", "diamondPos[1]", -2.5f);
+  o2::conf::ConfigurableParam::setValue<float>("ITSCommonCATrackerParam", "diamondPos[2]", 3.5f);
+  o2::conf::ConfigurableParam::setValue<float>("ITSCommonCATrackerParam", "pvRes", 0.25f);
+  o2::conf::ConfigurableParam::setValue<bool>("ITSCommonCATrackerParam", "useDiamond", true);
+
+  const auto trackParams = TrackingMode::getTrackingParameters(o2::detectors::DetID::ITS, TrackingMode::Sync);
+  BOOST_REQUIRE_EQUAL(trackParams.size(), 1u);
+  const auto& p = trackParams[0];
+
+  BOOST_CHECK_EQUAL(p.UseDiamond, true);
+  BOOST_CHECK_EQUAL(p.Diamond[0], 1.5f);
+  BOOST_CHECK_EQUAL(p.Diamond[1], -2.5f);
+  BOOST_CHECK_EQUAL(p.Diamond[2], 3.5f);
+  BOOST_CHECK_EQUAL(p.PVres, 0.25f);
 }

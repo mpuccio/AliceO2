@@ -195,6 +195,10 @@ std::vector<TrackingParameters> getTrackingParameters(detectors::DetID::ID detId
     p.MaxMemory = tc.maxMemory;
     p.SaveTimeBenchmarks = tc.saveTimeBenchmarks;
     p.UseDiamond = tc.useDiamond;
+    for (int iD = 0; iD < 3; ++iD) {
+      p.Diamond[iD] = tc.diamondPos[iD];
+    }
+    p.PVres = tc.pvRes > 0 ? tc.pvRes : p.PVres;
     return trackParams;
   }
   if (detId != detectors::DetID::MFT) {

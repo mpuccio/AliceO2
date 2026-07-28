@@ -92,12 +92,24 @@ struct VertexerParamConfig : public o2::conf::ConfigurableParamHelper<VertexerPa
 /// TrackingParameters' own struct defaults (the documented Sync baseline),
 /// so an unmodified ITSCommonCATrackerParam changes nothing relative to
 /// resetDetectorDefaults(..., DetID::ITS) alone.
+///
+/// workflow-onboarding Slice 2: diamondPos/pvRes added alongside the
+/// pre-existing useDiamond, mirroring the legacy
+/// o2::its::TrackerParamConfig fields of the same name/semantics. These
+/// three fields together are the one Sync vertex/beam-constraint mode the
+/// opt-in ITS common-CA workflow can reproduce faithfully without a real
+/// per-event vertexer (see ITSCAWorkflow/ConfigPreflight.h): a static,
+/// config-supplied diamond vertex consumed identically by the shared
+/// TrackerTraits (Detectors/ITSMFT/common/tracking/src/TrackerTraits.cxx)
+/// regardless of detector.
 struct ITSCommonCATrackerParam : public o2::conf::ConfigurableParamHelper<ITSCommonCATrackerParam> {
   bool dropTFUponFailure = false;
   bool printMemory = false;
   size_t maxMemory = std::numeric_limits<size_t>::max();
   bool saveTimeBenchmarks = false;
   bool useDiamond = false;
+  float diamondPos[3] = {0.f, 0.f, 0.f}; // diamond vertex position, consumed only when useDiamond is set
+  float pvRes = -1.f;                    // PV resolution override for the diamond vertex; <=0 keeps the struct default
 
   O2ParamDef(ITSCommonCATrackerParam, "ITSCommonCATrackerParam");
 };
