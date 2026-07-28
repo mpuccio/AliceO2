@@ -1,0 +1,102 @@
+{
+  "role": "Gate 3 Slice 3 validation (ITS common-CA characterization; not a bitwise-parity gate)",
+  "branch": "codex/itsmft-gate3-its-common-ca-validation",
+  "worktree": "/Users/mpuccio/alice/run3/O2-worktrees/its-common-ca-validation",
+  "commitUnderTest": "4a2bf6c3644deca2fe6cd75e31f691572a4d2a5d",
+  "commitSubject": "ITSCAWorkflow: add vertex-free ITS common-CA writer, driver, and o2-its-ca-tracker-workflow executable (Slice 2C)",
+  "note": "This validation adds only files under this directory; no production tracker/workflow/config/CMake/legacy code was touched.",
+
+  "build": {
+    "source": "/Users/mpuccio/alice/run3/O2-worktrees/its-common-ca-validation",
+    "buildDir": "/Users/mpuccio/alice/run3/O2-worktree-builds/its-common-ca-validation-daily20260717",
+    "buildType": "RelWithDebInfo",
+    "configuredVia": ".agents/skills/alice-o2-environment/scripts/configure-worktree-build.zsh --build <buildDir> --package daily-20260717-0700-local1",
+    "o2PackageRequested": "daily-20260717-0700-local1",
+    "o2PackageResolved": "daily-20260717-0700-local1",
+    "targetsBuilt": [
+      "o2-its-ca-tracker-workflow",
+      "o2-its-cluster-reader-workflow",
+      "o2-its-reco-workflow",
+      "o2-mft-cluster-reader-workflow",
+      "o2-mft-ca-tracker-workflow",
+      "O2lib-FrameworkAnalysisSupport",
+      "O2lib-FrameworkCCDBSupport"
+    ],
+    "buildCommand": "O2_BUILD_DIR=<buildDir> O2_PACKAGE=daily-20260717-0700-local1 .agents/skills/alice-o2-environment/scripts/run-in-o2-env.zsh -- ninja -C <buildDir> -j 8 o2-its-ca-tracker-workflow o2-its-cluster-reader-workflow o2-its-reco-workflow o2-mft-cluster-reader-workflow o2-mft-ca-tracker-workflow O2lib-FrameworkAnalysisSupport O2lib-FrameworkCCDBSupport",
+    "buildResult": "1363/1363 ninja steps, exit 0",
+    "os": "Darwin 25.3.0 (macOS 26.3), arm64",
+    "cpu": "Apple M3 Pro, 12 cores",
+    "memory": "36 GiB"
+  },
+
+  "fixture": {
+    "fixtureId": "pp-20ev-run303000-seed20260716-daily20260717",
+    "path": "/Users/mpuccio/alice/run3/O2-validation-data/itsmft/fixtures/pp-20ev-run303000-seed20260716-daily20260717",
+    "readOnly": true,
+    "checksumVerification": "shasum -a 256 -c checksums.sha256 -> all 40 files OK, run before any replay in this validation",
+    "generatingPackage": "daily-20260717-0700-local1",
+    "runNumber": 303000,
+    "seed": 20260716,
+    "nEvents": 20,
+    "conditionNotAfterMs": 1784207296000,
+    "resolvedConditionTimestampMs": 1547590800000,
+    "filesUsed": ["o2clus_its.root", "mftclusters.root", "o2sim_Kine.root", "o2sim_geometry.root", "o2sim_geometry-aligned.root", "o2simdigitizerworkflow_configuration.ini"],
+    "provenance": "see fixture's own provenance.json; not reproduced here"
+  },
+
+  "diamondConstraint": {
+    "definition": "Explicit static diamond vertex/beam constraint, identical values on both legs; NOT a claim of equivalence to the legacy real-vertexer Sync default or a CCDB MeanVertex beam-position override.",
+    "diamondPosXYZ": [0, 0, 0],
+    "pvRes": 0.05,
+    "commonLegParam": "ITSCommonCATrackerParam.useDiamond=true;ITSCommonCATrackerParam.diamondPos[0..2]=0;ITSCommonCATrackerParam.pvRes=0.05",
+    "legacyLegParam": "ITSCATrackerParam.useDiamond=true;ITSCATrackerParam.diamondPos[0..2]=0;ITSCATrackerParam.pvRes=0.05;ITSCATrackerParam.nThreads=1"
+  },
+
+  "replays": {
+    "itsCommonCACanonical1": {
+      "dir": "/Users/mpuccio/alice/run3/O2-validation-artifacts/itsmft/gate3-slice3-its-ca-validation/its-common-ca-canonical-1",
+      "command": "FIXTURE_DIR=<fixture> REPLAY_DIR=<dir> TIMESTAMP=1784207296000 RUNNUMBER=303000 O2_BUILD_DIR=<buildDir> O2_PACKAGE=daily-20260717-0700-local1 run-in-o2-env.zsh -- bash replay_tracking_its_common_ca.sh",
+      "output": "o2trac_its_ca.root, 54745 bytes",
+      "metricsFile": "metrics-its-common-ca-canonical-1.json"
+    },
+    "itsCommonCACanonical2": {
+      "dir": "/Users/mpuccio/alice/run3/O2-validation-artifacts/itsmft/gate3-slice3-its-ca-validation/its-common-ca-canonical-2",
+      "purpose": "determinism repeat of canonical-1, identical configuration, fresh directory",
+      "output": "o2trac_its_ca.root, 54746 bytes (raw bytes differ from canonical-1, as expected: ROOT TFile UUID/timestamp metadata)",
+      "metricsFile": "metrics-its-common-ca-canonical-2.json"
+    },
+    "itsLegacyDiamond1": {
+      "dir": "/Users/mpuccio/alice/run3/O2-validation-artifacts/itsmft/gate3-slice3-its-ca-validation/its-legacy-diamond-1",
+      "command": "FIXTURE_DIR=<fixture> REPLAY_DIR=<dir> TIMESTAMP=1784207296000 RUNNUMBER=303000 O2_BUILD_DIR=<buildDir> O2_PACKAGE=daily-20260717-0700-local1 run-in-o2-env.zsh -- bash replay_tracking_its_legacy_diamond.sh",
+      "output": "o2trac_its.root, 25906 bytes, 0 tracks (see characterization_summary.md for root-cause analysis)",
+      "metricsFile": "metrics-its-legacy-diamond-1.json",
+      "operationalNote": "2 of 4 attempts hung indefinitely before completing; see README.md 'Known flaky-hang observation'. This successful run completed on retry."
+    },
+    "mftCommonCAFence1": {
+      "dir": "/Users/mpuccio/alice/run3/O2-validation-artifacts/itsmft/gate3-slice3-its-ca-validation/mft-common-ca-fence-1",
+      "scriptUsed": "gate0-baseline/replay_tracking_common_ca.sh (unchanged)",
+      "command": "FIXTURE_DIR=<fixture> REPLAY_DIR=<dir> TIMESTAMP=1784207296000 RUNNUMBER=303000 O2_BUILD_DIR=<buildDir> O2_PACKAGE=daily-20260717-0700-local1 run-in-o2-env.zsh -- bash gate0-baseline/replay_tracking_common_ca.sh",
+      "output": "mfttracks.root, 41651 bytes",
+      "metricsFile": "metrics-mft-common-ca-fence-1.json",
+      "expected": {"outputTracks": 70, "trackContentHash": "24737e73b7146bf3bd35a90a2517c527"},
+      "observed": {"outputTracks": 70, "trackContentHash": "24737e73b7146bf3bd35a90a2517c527"},
+      "result": "MATCH -- non-regression fence held"
+    },
+    "negativeChecks": {
+      "dir": "/Users/mpuccio/alice/run3/O2-validation-artifacts/itsmft/gate3-slice3-its-ca-validation/negative-checks",
+      "command": "TIMESTAMP=1784207296000 OUT_DIR=<dir> O2_BUILD_DIR=<buildDir> O2_PACKAGE=daily-20260717-0700-local1 run-in-o2-env.zsh -- bash negative_checks_its_common_ca.sh",
+      "cases": {
+        "no-diamond": {"exit": 134, "expectedFatalSubstring": "requires ITSCommonCATrackerParam.useDiamond=true", "outputFileCreated": false, "result": "PASS"},
+        "legacy-param-override": {"exit": 134, "configKeyValuesTried": "ITSCATrackerParam.useDiamond=true", "expectedFatalSubstring": "rejects legacy 'ITSCATrackerParam' --configKeyValues override", "outputFileCreated": false, "result": "PASS"}
+      }
+    }
+  },
+
+  "metricsExtraction": {
+    "itsCommonCA": "extract_metrics_its_common_ca.C (new, this directory)",
+    "itsLegacyDiamond": "extract_metrics_its_legacy_diamond.sh, wrapping gate0-baseline/extract_metrics.C's extractITS() unmodified via ROOT .L",
+    "mftCommonCAFence": "gate0-baseline/extract_metrics_common_ca.C (unchanged)"
+  },
+
+  "notCommittedToGit": "This file, characterization_summary.md, and README.md live in the git worktree (validation-only, no binaries). All *.root replay outputs and metrics-*.json files referenced above live under /Users/mpuccio/alice/run3/O2-validation-artifacts/itsmft/gate3-slice3-its-ca-validation/, outside the git worktree, and are not committed."
+}
