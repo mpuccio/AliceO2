@@ -326,6 +326,22 @@ o2_add_test_root_macro(gate0-baseline/extract_metrics_common_ca.C
                          O2::DataFormatsMFT
                          O2::SimulationDataFormat)
 
+# Gate 3 Slice 3 ITS common-CA characterization extractor (see
+# gate3-slice3-its-ca-validation/README.md). Sibling to the gate0-baseline
+# macros above: compiled here so a clean configure validates its includes
+# and types, while its runnable replay/extraction stays in that directory's
+# own documented protocol (external fixture/replay artifacts, not present
+# at configure time).
+o2_add_test_root_macro(gate3-slice3-its-ca-validation/extract_metrics_its_common_ca.C
+                       COMPILE_ONLY
+                       LABELS "itsmft;tracking;gate3"
+                       PUBLIC_LINK_LIBRARIES
+                         O2::DataFormatsITS
+                         O2::DataFormatsITSMFT
+                         O2::DetectorsBase
+                         O2::ITSBase
+                         O2::SimulationDataFormat)
+
 o2_add_test_root_macro(validateGeometrySurfaceCatalogs.C
                        COMPILE_ONLY
                        LABELS "itsmft;tracking;geometry"
