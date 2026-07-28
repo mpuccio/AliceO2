@@ -145,11 +145,32 @@ void ITSMFTTrackingInterface<NLayers>::initialiseTracker()
   if (mTrackParams.empty()) {
     return;
   }
-  const auto& tc = o2::itsmft::tracking::TrackerParamRef<DetId>::get();
   mTrackerTraits = std::make_unique<TrackerTraitsN>();
   mTrackerTraits->setMemoryPool(mMemoryPool);
   std::shared_ptr<tbb::task_arena> taskArena;
-  mTrackerTraits->setNThreads(tc.nThreads, taskArena);
+
+  int nThreads;
+  if constexpr (DetId == o2::detectors::DetID::ITS) {
+    // The common ITS interface must consume its own dedicated
+    // ITSCommonCATrackerParam.nThreads, never TrackerParamRef<ITS>::get()
+    // (o2::its::TrackerParamConfig, the frozen legacy "ITSCATrackerParam"
+    // namespace -- see TrackingConfigParam.h's doc comment on why
+    // ITSCommonCATrackerParam is kept a deliberately distinct type). A
+    // non-positive value is a construction-time misconfiguration, not
+    // per-TF data, so it is rejected here, once, before a tbb::task_arena
+    // is ever built from it -- TrackerTraits::setNThreads silently
+    // std::abs()-es its argument, which is MFT's pre-existing, untouched
+    // behavior via TrackerParamRef<MFT> below, not something ITS should
+    // rely on for its own dedicated knob.
+    const auto& itsCommonParam = o2::itsmft::ITSCommonCATrackerParam::Instance();
+    if (itsCommonParam.nThreads <= 0) {
+      LOGP(fatal, "ITS CA tracker requires ITSCommonCATrackerParam.nThreads > 0, got {}", itsCommonParam.nThreads);
+    }
+    nThreads = itsCommonParam.nThreads;
+  } else {
+    nThreads = o2::itsmft::tracking::TrackerParamRef<DetId>::get().nThreads;
+  }
+  mTrackerTraits->setNThreads(nThreads, taskArena);
   mTracker = std::make_unique<TrackerN>(mTrackerTraits.get());
 }
 

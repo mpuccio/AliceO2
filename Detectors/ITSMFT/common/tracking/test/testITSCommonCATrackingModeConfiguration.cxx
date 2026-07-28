@@ -67,6 +67,7 @@ BOOST_AUTO_TEST_CASE(DedicatedDefaultsMatchDocumentedSyncBaseline)
   BOOST_CHECK_EQUAL(tc.diamondPos[1], 0.f);
   BOOST_CHECK_EQUAL(tc.diamondPos[2], 0.f);
   BOOST_CHECK_EQUAL(tc.pvRes, -1.f);
+  BOOST_CHECK_EQUAL(tc.nThreads, 1);
 }
 
 // --- ITS Sync construction is valid, one-iteration, with expected values ---

@@ -118,6 +118,12 @@ class ITSMFTTrackingInterface
   const TimeFrameN& getTimeFrame() const { return mTimeFrame; }
   const std::vector<o2::itsmft::TrackingParameters>& getTrackingParameters() const { return mTrackParams; }
   bool isActive() const { return !mTrackParams.empty(); }
+  // Actual tbb::task_arena concurrency the tracker was constructed with (0
+  // if initialiseTracker() has not run yet, e.g. mTrackParams is empty).
+  // Exposed for testing initialiseTracker()'s DetId-dependent nThreads
+  // source (ITSCommonCATrackerParam for ITS, TrackerParamConfig<MFT> for
+  // MFT unchanged) -- see TrackingInterface.cxx.
+  int getTrackerNThreads() const { return mTrackerTraits ? mTrackerTraits->getNThreads() : 0; }
 
  protected:
   virtual void onTimeFrameLoaded() {}

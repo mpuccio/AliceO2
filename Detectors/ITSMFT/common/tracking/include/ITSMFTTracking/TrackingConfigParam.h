@@ -111,6 +111,16 @@ struct ITSCommonCATrackerParam : public o2::conf::ConfigurableParamHelper<ITSCom
   float diamondPos[3] = {0.f, 0.f, 0.f}; // diamond vertex position, consumed only when useDiamond is set
   float pvRes = -1.f;                    // PV resolution override for the diamond vertex; <=0 keeps the struct default
 
+  /// Number of tbb::task_arena threads for the ITS common-CA tracker
+  /// (ITSMFTTrackingInterface<7>::initialiseTracker()). Deliberately this
+  /// struct's own field, not TrackerParamRef<ITS>::get().nThreads (the
+  /// frozen legacy o2::its::TrackerParamConfig, registered "ITSCATrackerParam"
+  /// -- see this struct's own doc comment above on why the two are kept
+  /// distinct): the common ITS interface must read this dedicated value.
+  /// Must be > 0; validated where consumed, not here (ConfigurableParam
+  /// structs cannot fail construction).
+  int nThreads = 1;
+
   O2ParamDef(ITSCommonCATrackerParam, "ITSCommonCATrackerParam");
 };
 

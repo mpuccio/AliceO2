@@ -299,6 +299,14 @@ o2_add_test(static-diamond-rof-compatibility
             LABELS "itsmft;tracking"
             PUBLIC_LINK_LIBRARIES O2::ITStracking)
 
+o2_add_test(its-common-ca-nthreads
+            SOURCES testITSCommonCANThreads.cxx
+            COMPONENT_NAME itsmft-tracking
+            LABELS "itsmft;tracking"
+            PUBLIC_LINK_LIBRARIES O2::ITSMFTTracking
+                                  O2::MFTTracking
+                                  FairLogger::FairLogger)
+
 o2_add_executable(geometry-surface-catalog-validation
                   SOURCES validateGeometrySurfaceCatalogs.cxx
                   COMPONENT_NAME itsmft-tracking

@@ -793,3 +793,31 @@ BOOST_AUTO_TEST_CASE(MFT_ZeroROFCountFromOversizedROFLengthIsStructural)
   BOOST_CHECK(!isDroppedTimeFrame(retried));
   BOOST_CHECK_EQUAL(interface.getTimeFrame().getTotalClusters(), 1u);
 }
+
+// ---------------------------------------------------------------------
+// MFT thread configuration is unaffected by ITS's dedicated nThreads.
+//
+// ITSMFTTrackingInterface<NLayers>::initialiseTracker() now branches on
+// DetId to source nThreads (TrackingInterface.cxx): ITS reads its own
+// ITSCommonCATrackerParam.nThreads (testITSCommonCANThreads.cxx), MFT is
+// untouched and still reads TrackerParamConfig<MFT>.nThreads via
+// TrackerParamRef<MFT>::get() -- confirmed here through the real interface,
+// not just by inspection.
+// ---------------------------------------------------------------------
+
+BOOST_AUTO_TEST_CASE(MFT_ThreadConfigurationUnaffectedByITSDedicatedNThreads)
+{
+  auto& mftParam = const_cast<TrackerParamConfig<o2::detectors::DetID::MFT>&>(
+    TrackerParamConfig<o2::detectors::DetID::MFT>::Instance());
+  const int original = mftParam.nThreads;
+  struct RestoreNThreads {
+    int& field;
+    int original;
+    ~RestoreNThreads() { field = original; }
+  } restoreGuard{mftParam.nThreads, original};
+  mftParam.nThreads = 3;
+
+  OneLayerDecoder* decoder = nullptr;
+  auto interfacePtr = makeReadyInterface<10>(decoder);
+  BOOST_CHECK_EQUAL(interfacePtr->getTrackerNThreads(), 3);
+}
