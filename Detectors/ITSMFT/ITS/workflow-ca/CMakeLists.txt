@@ -19,6 +19,7 @@ o2_add_library(ITSCAWorkflow
                TARGETVARNAME targetName
                SOURCES src/ConfigPreflight.cxx
                        src/CATrackerSpec.cxx
+                       src/TrackWriterSpec.cxx
                PUBLIC_LINK_LIBRARIES O2::Framework
                                      O2::SimulationDataFormat
                                      O2::DataFormatsITS
@@ -35,6 +36,11 @@ o2_add_library(ITSCAWorkflow
                                      # include path (same as O2::MFTWorkflow does).
                                      O2::MFTTracking
                                      O2::CCDB)
+
+o2_add_executable(ca-tracker-workflow
+                  SOURCES src/its-ca-tracker-workflow.cxx
+                  COMPONENT_NAME its
+                  PUBLIC_LINK_LIBRARIES O2::ITSCAWorkflow)
 
 o2_add_test(its-ca-config-preflight
             COMPONENT_NAME its
