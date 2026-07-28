@@ -271,6 +271,18 @@ TrackletSnapshot runFixture(o2::detectors::DetID::ID detector,
   }
   rofTable.init();
   tf.setROFOverlapTable(rofTable);
+  // Real production (ITSMFTTrackingInterface::configureROFLookupTables())
+  // always builds and sets this alongside the ROFOverlapTable above, from
+  // the same per-layer LayerTiming, regardless of UseDiamond -- the diamond
+  // vertex derived per-ROF for tracklet finding (TrackerTraits.cxx) is
+  // checked through the genuine isVertexCompatible() on this table, not a
+  // useDiamond-skipped shortcut, so this fixture needs it populated too.
+  typename TimeFrame<NLayers>::ROFVertexLookupTableN vtxTable;
+  for (int layer = 0; layer < NLayers; ++layer) {
+    vtxTable.defineLayer(layer, layerTiming);
+  }
+  vtxTable.init();
+  tf.setROFVertexLookupTable(vtxTable);
   typename TimeFrame<NLayers>::ROFMaskTableN mask{rofTable};
   mask.resetMask();
   for (int layer = 0; layer < NLayers; ++layer) {

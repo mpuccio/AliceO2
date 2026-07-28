@@ -749,3 +749,47 @@ BOOST_AUTO_TEST_CASE(MFT_NonPositiveROFLengthIsStructuralBeforeDivision)
   const float retried = interface.processTimeFrame(rofs, clusters, patterns, nullptr);
   BOOST_CHECK(!isDroppedTimeFrame(retried));
 }
+
+// ---------------------------------------------------------------------
+// A per-layer ROF length exceeding LHCMaxBunches (3564) makes
+// nROFsPerOrbit (== LHCMaxBunches / rofLengthInBC) integer-divide to 0,
+// so mNROFsTF == 0: a real, malformed per-TF timing configuration with no
+// ROF at all to anchor a diamond-vertex TF interval envelope on (see
+// TrackerTraits::computeLayerTrackletsForPolicy). This must fail
+// structurally (TimeFrameLoadException{ZeroROFCount}) before any
+// tracklet/cell code ever indexes ROF 0 or ROF mNROFsTF-1, exactly like
+// every other malformed per-layer timing case above -- never silently
+// treated as "0 ROFs to track", and never a crash.
+// ---------------------------------------------------------------------
+
+BOOST_AUTO_TEST_CASE(MFT_ZeroROFCountFromOversizedROFLengthIsStructural)
+{
+  OneLayerDecoder* decoder = nullptr;
+  auto interfacePtr = makeReadyInterface<10>(decoder);
+  auto& interface = *interfacePtr;
+
+  const auto rofs = oneRof();
+  const auto clusters = oneCluster();
+  const auto patterns = makePatternBytes(clusters.size());
+
+  {
+    constexpr int overriddenLayer = 0;
+    constexpr int oversizedROFLengthInBC = 4000; // > LHCMaxBunches (3564)
+    ScopedMFTLayerROFLengthOverride guard{overriddenLayer, oversizedROFLengthInBC};
+
+    bool threw = false;
+    try {
+      interface.processTimeFrame(rofs, clusters, patterns, nullptr);
+      BOOST_FAIL("expected TimeFrameLoadException{ZeroROFCount}");
+    } catch (const TimeFrameLoadException& err) {
+      threw = true;
+      BOOST_CHECK(err.reason() == TimeFrameLoadFailureReason::ZeroROFCount);
+    }
+    BOOST_CHECK(threw);
+    BOOST_CHECK_EQUAL(interface.getTimeFrame().getTotalClusters(), 0u);
+  }
+
+  const float retried = interface.processTimeFrame(rofs, clusters, patterns, nullptr);
+  BOOST_CHECK(!isDroppedTimeFrame(retried));
+  BOOST_CHECK_EQUAL(interface.getTimeFrame().getTotalClusters(), 1u);
+}

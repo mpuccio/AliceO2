@@ -293,6 +293,12 @@ o2_add_test(its-common-ca-configkeyvalues-preflight
             LABELS "itsmft;tracking"
             PUBLIC_LINK_LIBRARIES O2::ITSMFTTrackingParams)
 
+o2_add_test(static-diamond-rof-compatibility
+            SOURCES testStaticDiamondROFCompatibility.cxx
+            COMPONENT_NAME itsmft-tracking
+            LABELS "itsmft;tracking"
+            PUBLIC_LINK_LIBRARIES O2::ITStracking)
+
 o2_add_executable(geometry-surface-catalog-validation
                   SOURCES validateGeometrySurfaceCatalogs.cxx
                   COMPONENT_NAME itsmft-tracking

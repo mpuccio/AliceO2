@@ -56,6 +56,35 @@ struct PassMode {
   using TwoPassInsert = std::integral_constant<int, 2>;
 };
 
+namespace {
+// A static "diamond" vertex (ITSCommonCATrackerParam.useDiamond /
+// TrackerTraits::computeLayerTrackletsForPolicy) carries no genuine
+// per-event timing: it stands in for every real primary vertex at once, so
+// it must compare as time-compatible with whichever ROF it is being tested
+// against. Vertex::getTimeStamp() is a fixed-width TimeEstBC whose error
+// field is only 16 bits (DataFormatsITS/TimeEstBC.h) -- sized for one ROF's
+// own uncertainty, not for an entire TimeFrame's real BC span (order
+// 1e5-1e6 BC for a realistic TF) -- so one static timestamp value literally
+// cannot overlap every ROF in a real TimeFrame at once; the correct
+// full-TimeFrame envelope has to be re-derived at each (layer, rofId) this
+// vertex is actually tested against, from that ROF's own real interval
+// (ROFOverlapTableView::getLayer(layer).getROFTimeBounds(rofId, true) -- the
+// exact same, already-configured per-TF bounds every real-vertex ROF
+// compatibility check in this file already uses; not an independently
+// invented arithmetic formula). A vertex timestamp built this way is
+// therefore provably -- not just observed to be -- compatible with the ROF
+// it was derived from: see this function's two call sites below for the two
+// provable cases (an exact-match window, and a tracklet-time window that is
+// always a subset of one of its two source ROF windows).
+template <typename ROFOverlapView>
+Vertex diamondVertexForROF(const Vertex& base, const ROFOverlapView& rofOverlapView, int layer, int rofId)
+{
+  Vertex v = base;
+  v.setTimeStamp(rofOverlapView.getLayer(layer).getROFTimeBounds(rofId, true));
+  return v;
+}
+} // namespace
+
 template <int NLayers>
 void TrackerTraits<NLayers>::resetTraversalCache() noexcept
 {
@@ -593,7 +622,6 @@ void TrackerTraits<NLayers>::computeLayerTrackletsForPolicy(
 {
   const auto topology = mTimeFrame->getTrackingTopologyView();
   const Vertex diamondVert(mTrkParams[iteration].Diamond, mTrkParams[iteration].DiamondCov, 1, 1.f);
-  gsl::span<const Vertex> diamondSpan(&diamondVert, 1);
 
   mTaskArena->execute([&] {
     auto makeTransitionState = [&](int transitionId) {
@@ -626,7 +654,20 @@ void TrackerTraits<NLayers>::computeLayerTrackletsForPolicy(
       if (!mTimeFrame->getROFMaskView().isROFEnabled(transition.fromLayer, pivotROF)) {
         return 0;
       }
-      gsl::span<const Vertex> primaryVertices = mTrkParams[iteration].UseDiamond ? diamondSpan : mTimeFrame->getPrimaryVertices(transition.fromLayer, pivotROF);
+      // A diamond vertex valid for this specific pivotROF is derived fresh
+      // here (see diamondVertexForROF's doc comment above) rather than
+      // reused from a single shared instance: the derivation is cheap
+      // (two field reads + arithmetic already computed for every real ROF
+      // timing check) and each forTracklets invocation owns its own stack
+      // frame, so this is safe under the tbb::parallel_for dispatch below.
+      Vertex diamondForROF{};
+      gsl::span<const Vertex> primaryVertices;
+      if (mTrkParams[iteration].UseDiamond) {
+        diamondForROF = diamondVertexForROF(diamondVert, mTimeFrame->getROFOverlapTableView(), transition.fromLayer, pivotROF);
+        primaryVertices = gsl::span<const Vertex>(&diamondForROF, 1);
+      } else {
+        primaryVertices = mTimeFrame->getPrimaryVertices(transition.fromLayer, pivotROF);
+      }
       if (primaryVertices.empty()) {
         return 0;
       }
@@ -648,8 +689,6 @@ void TrackerTraits<NLayers>::computeLayerTrackletsForPolicy(
         return 0;
       }
 
-      const bool useDiamond = mTrkParams[iteration].UseDiamond;
-
       for (int iCluster = 0; iCluster < int(layer0.size()); ++iCluster) {
         const Cluster& currentCluster = layer0[iCluster];
         const int currentSortedIndex = mTimeFrame->getSortedIndex(pivotROF, transition.fromLayer, iCluster);
@@ -660,7 +699,7 @@ void TrackerTraits<NLayers>::computeLayerTrackletsForPolicy(
 
         for (int iV = startVtx; iV < endVtx; ++iV) {
           const auto& pv = primaryVertices[iV];
-          if (!useDiamond && !mTimeFrame->getROFVertexLookupTableView().isVertexCompatible(transition.fromLayer, pivotROF, pv)) {
+          if (!mTimeFrame->getROFVertexLookupTableView().isVertexCompatible(transition.fromLayer, pivotROF, pv)) {
             continue;
           }
           if (pv.isFlagSet(Vertex::Flags::UPCMode) != mTrkParams[iteration].PassFlags[IterationStep::SelectUPCVertices]) {
@@ -687,7 +726,7 @@ void TrackerTraits<NLayers>::computeLayerTrackletsForPolicy(
               continue;
             }
             const auto ts = mTimeFrame->getROFOverlapTableView().getTimeStamp(transition.fromLayer, pivotROF, transition.toLayer, targetROF);
-            if (!useDiamond && !ts.isCompatible(pv.getTimeStamp())) {
+            if (!ts.isCompatible(pv.getTimeStamp())) {
               continue;
             }
             const auto& targetIndexTable = mTimeFrame->getIndexTable(targetROF, transition.toLayer);

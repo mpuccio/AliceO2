@@ -358,6 +358,19 @@ ROFTimingConfig ITSMFTTrackingInterface<NLayers>::configureROFLookupTables()
       .mROFAddTimeErr = mTrackParams.empty()
                          ? static_cast<uint32_t>(o2::itsmft::tracking::TrackerParamRef<DetId>::get().addTimeError[iLayer])
                          : mTrackParams[0].AddTimeError[iLayer]};
+    // A zero ROF count (rofLengthInBC > LHCMaxBunches makes nROFsPerOrbit
+    // integer-divide to 0, or a misconfigured nOrbitsPerTF <= 0) leaves no
+    // real ROF to anchor a diamond-vertex TF interval envelope on
+    // (TrackerTraits::computeLayerTrackletsForPolicy indexes ROF 0 and ROF
+    // mNROFsTF-1); reject here, at the same structural loading boundary as
+    // every other timing misconfiguration, rather than let it reach that
+    // indexing later.
+    if (layerTimings[iLayer].mNROFsTF == 0) {
+      throw TimeFrameLoadException{
+        TimeFrameLoadFailureReason::ZeroROFCount,
+        std::format("{} CA per-layer ROF timing configuration yields zero ROFs per TimeFrame on layer {} (rofLengthInBC={}, nOrbitsPerTF={})",
+                    detName<DetId>(), iLayer, rofLengthInBC, nOrbitsPerTF)};
+    }
   }
 
   // TimeFrame::loadNormalizedSource() takes one source-level ROFTimingConfig,

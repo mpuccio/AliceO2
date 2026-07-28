@@ -52,6 +52,7 @@ class RecoverableLoadFailure final : public std::runtime_error
 enum class TimeFrameLoadFailureReason : uint8_t {
   DictionaryNotConfigured, // ITSMFTTrackingInterface::mDict == nullptr
   NonUniformROFTiming,     // deriveUniformROFTimingConfig() found divergent per-layer length/delay/bias/addTimeErr
+  ZeroROFCount,            // configured per-layer timing yields mNROFsTF == 0 (e.g. rofLengthInBC > LHCMaxBunches, or 0 orbits/TF)
   LoadSourcesFailure       // a structural LoadSourcesResult; see loadResult()
 };
 
