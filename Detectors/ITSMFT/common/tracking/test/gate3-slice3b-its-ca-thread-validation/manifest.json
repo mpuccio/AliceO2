@@ -1,0 +1,141 @@
+{
+  "role": "Gate 3 Slice 3b validation (validation-only): ITS common-CA thread/determinism characterization + labelled legacy reference; NOT a bitwise-parity gate, NOT production code",
+  "branch": "codex/itsmft-gate3-its-common-ca-thread-validation",
+  "worktree": "/Users/mpuccio/alice/run3/O2-worktrees/its-common-ca-thread-validation",
+  "commitUnderTest": "62e2c75bc8ff3b5c556910116a860bde2af4b424",
+  "commitSubject": "ITSMFTTracking: add explicit ITSCommonCATrackerParam.nThreads",
+  "precedingRelevantCommits": [
+    {"sha": "b47271fb13edef3526c4ac90ac243343f4794034", "subject": "ITSMFTTracking: derive static-diamond timestamp from the real per-ROF interval envelope", "relevance": "removes the timestamp-compatibility gap that made gate3-slice3-its-ca-validation's legacy-diamond leg produce 0 tracks; not exercised directly by this validation's legacy leg (which uses the real Sync vertexer, no diamond override at all) but relevant context for why this validation's common-CA baseline reproduces Slice 3's accepted 203-track/ee7f7c79... result unchanged."},
+    {"sha": "a5e2132abfab9f1fd20d73184171db2d46070415", "subject": "ITSMFT: add Gate 3 Slice 3 ITS common-CA validation (characterization only)", "relevance": "prior sibling validation this one extends with a thread knob that did not exist when it ran"}
+  ],
+  "note": "This validation adds only files under this directory (gate3-slice3b-its-ca-thread-validation). No production tracker/workflow/config/CMake/legacy code was touched, and no file under gate0-baseline or gate3-slice3-its-ca-validation was modified -- both were only read or invoked unchanged.",
+
+  "build": {
+    "source": "/Users/mpuccio/alice/run3/O2-worktrees/its-common-ca-thread-validation",
+    "buildDir": "/Users/mpuccio/alice/run3/O2-worktree-builds/its-common-ca-thread-validation-daily20260717",
+    "buildType": "RelWithDebInfo",
+    "configuredVia": ".agents/skills/alice-o2-environment/scripts/configure-worktree-build.zsh --build <buildDir> --package daily-20260717-0700-local1 --build-type RelWithDebInfo",
+    "o2PackageRequested": "daily-20260717-0700-local1",
+    "o2PackageResolved": "daily-20260717-0700-local1",
+    "targetsBuilt": [
+      "o2-its-ca-tracker-workflow",
+      "o2-its-cluster-reader-workflow",
+      "o2-its-reco-workflow",
+      "o2-mft-cluster-reader-workflow",
+      "o2-mft-ca-tracker-workflow",
+      "O2lib-FrameworkAnalysisSupport",
+      "O2lib-FrameworkCCDBSupport"
+    ],
+    "buildCommand": "O2_BUILD_DIR=<buildDir> O2_PACKAGE=daily-20260717-0700-local1 .agents/skills/alice-o2-environment/scripts/run-in-o2-env.zsh -- ninja -C <buildDir> -j 8 o2-its-ca-tracker-workflow o2-its-cluster-reader-workflow o2-its-reco-workflow o2-mft-cluster-reader-workflow o2-mft-ca-tracker-workflow O2lib-FrameworkAnalysisSupport O2lib-FrameworkCCDBSupport",
+    "buildResult": "1363/1363 ninja steps, exit 0",
+    "os": "Darwin 25.3.0 (macOS 26.3), arm64",
+    "cpu": "Apple Silicon (per host aliBuild osx_arm64 architecture)",
+    "note": "Fresh build directory dedicated to this worktree/task; not shared with any prior validation build."
+  },
+
+  "fixture": {
+    "fixtureId": "pp-20ev-run303000-seed20260716-daily20260717",
+    "path": "/Users/mpuccio/alice/run3/O2-validation-data/itsmft/fixtures/pp-20ev-run303000-seed20260716-daily20260717",
+    "readOnly": true,
+    "checksumVerification": "shasum -a 256 -c checksums.sha256 -> all 40 files OK; run once before the first replay of this session and re-run once more after the full replay campaign completed, both OK -- fixture never modified during this validation",
+    "generatingPackage": "daily-20260717-0700-local1",
+    "runNumber": 303000,
+    "seed": 20260716,
+    "nEvents": 20,
+    "conditionNotAfterMs": 1784207296000,
+    "filesUsed": ["o2clus_its.root", "mftclusters.root", "o2sim_Kine.root", "o2sim_geometry.root", "o2sim_geometry-aligned.root", "o2simdigitizerworkflow_configuration.ini"],
+    "provenance": "see fixture's own provenance.json; not reproduced here"
+  },
+
+  "staticDiamondConstraint": {
+    "definition": "Explicit static diamond vertex/beam constraint, identical to gate3-slice3-its-ca-validation's canonical values -- NOT a claim of equivalence to the legacy real-vertexer Sync default used by this validation's own legacy leg (see legacyReference below).",
+    "diamondPosXYZ": [0, 0, 0],
+    "pvRes": 0.05,
+    "commonCAParam": "ITSCommonCATrackerParam.useDiamond=true;ITSCommonCATrackerParam.diamondPos[0..2]=0;ITSCommonCATrackerParam.pvRes=0.05;ITSCommonCATrackerParam.nThreads=<1|12>",
+    "nThreadsKnobProvenance": "ITSCommonCATrackerParam.nThreads did not exist for gate3-slice3-its-ca-validation (added afterwards in commit 62e2c75bc8); this is the first validation able to set it explicitly."
+  },
+
+  "replays": {
+    "itsCommonCACanonicalNThreads1": {
+      "warmup": {
+        "dir": "/Users/mpuccio/alice/run3/O2-validation-artifacts/itsmft/gate3-slice3b-its-ca-thread-validation/its-common-ca-nthreads1-warmup",
+        "purpose": "warm-up, not measured (no TIME_CMD)"
+      },
+      "measured": [
+        {"dir": "/Users/mpuccio/alice/run3/O2-validation-artifacts/itsmft/gate3-slice3b-its-ca-thread-validation/its-common-ca-nthreads1-run1", "wallTimeRealSec": 5.95, "userSec": 6.03, "sysSec": 1.14, "peakRSSBytes": 2649931776, "metricsFile": "metrics-its-common-ca-nthreads1-run1.json"},
+        {"dir": "/Users/mpuccio/alice/run3/O2-validation-artifacts/itsmft/gate3-slice3b-its-ca-thread-validation/its-common-ca-nthreads1-run2", "wallTimeRealSec": 5.72, "userSec": 6.06, "sysSec": 1.13, "peakRSSBytes": 2649800704, "metricsFile": "metrics-its-common-ca-nthreads1-run2.json"},
+        {"dir": "/Users/mpuccio/alice/run3/O2-validation-artifacts/itsmft/gate3-slice3b-its-ca-thread-validation/its-common-ca-nthreads1-run3", "wallTimeRealSec": 5.58, "userSec": 5.98, "sysSec": 1.13, "peakRSSBytes": 2649784320, "metricsFile": "metrics-its-common-ca-nthreads1-run3.json"}
+      ],
+      "medianWallTimeRealSec": 5.72,
+      "medianPeakRSSBytes": 2649800704,
+      "command": "FIXTURE_DIR=<fixture> REPLAY_DIR=<dir> TIMESTAMP=1784207296000 RUNNUMBER=303000 ITS_CA_NTHREADS=1 TIME_CMD='/usr/bin/time -l' O2_BUILD_DIR=<buildDir> O2_PACKAGE=daily-20260717-0700-local1 run-in-o2-env.zsh -- bash replay_tracking_its_common_ca_nthreads.sh",
+      "expected": {"outputTracks": 203, "trackContentHash": "ee7f7c794d60f2362fd2564258b7887e"},
+      "observed": {"outputTracks": 203, "trackContentHash": "ee7f7c794d60f2362fd2564258b7887e", "allThreeRunsIdentical": true},
+      "result": "MATCH -- accepted Slice 3 canonical baseline reproduced exactly, byte-identical metrics JSON (o2trac_its_ca.root bytes themselves differ run-to-run: ROOT TFile UUID/timestamp metadata, not content, per gate3-slice3-its-ca-validation's own established distinction)"
+    },
+    "itsCommonCAThreadCharacterizationNThreads12": {
+      "warmup": {
+        "dir": "/Users/mpuccio/alice/run3/O2-validation-artifacts/itsmft/gate3-slice3b-its-ca-thread-validation/its-common-ca-nthreads12-warmup",
+        "purpose": "warm-up, not measured (no TIME_CMD)"
+      },
+      "measured": [
+        {"dir": "/Users/mpuccio/alice/run3/O2-validation-artifacts/itsmft/gate3-slice3b-its-ca-thread-validation/its-common-ca-nthreads12-run1", "wallTimeRealSec": 15.31, "userSec": 6.02, "sysSec": 1.24, "peakRSSBytes": 2650685440, "metricsFile": "metrics-its-common-ca-nthreads12-run1.json", "note": "outlier -- see characterization_summary.md"},
+        {"dir": "/Users/mpuccio/alice/run3/O2-validation-artifacts/itsmft/gate3-slice3b-its-ca-thread-validation/its-common-ca-nthreads12-run2", "wallTimeRealSec": 6.70, "userSec": 5.96, "sysSec": 1.14, "peakRSSBytes": 2651013120, "metricsFile": "metrics-its-common-ca-nthreads12-run2.json"},
+        {"dir": "/Users/mpuccio/alice/run3/O2-validation-artifacts/itsmft/gate3-slice3b-its-ca-thread-validation/its-common-ca-nthreads12-run3", "wallTimeRealSec": 6.03, "userSec": 6.06, "sysSec": 1.15, "peakRSSBytes": 2650685440, "metricsFile": "metrics-its-common-ca-nthreads12-run3.json"}
+      ],
+      "medianWallTimeRealSec": 6.70,
+      "medianPeakRSSBytes": 2650685440,
+      "command": "FIXTURE_DIR=<fixture> REPLAY_DIR=<dir> TIMESTAMP=1784207296000 RUNNUMBER=303000 ITS_CA_NTHREADS=12 TIME_CMD='/usr/bin/time -l' O2_BUILD_DIR=<buildDir> O2_PACKAGE=daily-20260717-0700-local1 run-in-o2-env.zsh -- bash replay_tracking_its_common_ca_nthreads.sh",
+      "observed": {"outputTracks": 203, "trackContentHash": "ee7f7c794d60f2362fd2564258b7887e", "allThreeRunsIdentical": true, "identicalToNThreads1Metrics": true},
+      "result": "Semantic metrics/hash identical to the nThreads=1 baseline (determinism preserved across a thread-count change). NOT a scaling proof: median wall time (6.70s) is not lower than nThreads=1's median (5.72s), and `user` CPU-seconds is ~6.0s regardless of nThreads in every one of the 6 measured common-CA runs -- see characterization_summary.md for the overhead analysis."
+    },
+    "legacyReference": {
+      "dir": "/Users/mpuccio/alice/run3/O2-validation-artifacts/itsmft/gate3-slice3b-its-ca-thread-validation/its-legacy-sync-1",
+      "label": "NON-EQUIVALENT REFERENCE ONLY -- frozen o2-its-reco-workflow, ordinary Sync/default-vertex mode, real per-event vertexer. Explicitly NOT paired against the static-diamond common-CA legs above (see gate3-slice3-its-ca-validation's own separate legacy-diamond leg for that different, also-non-equivalent framing). Do not compare hashes/track counts between this leg and the common-CA legs as a pass/fail signal.",
+      "command": "FIXTURE_DIR=<fixture> REPLAY_DIR=<dir> TIMESTAMP=1784207296000 RUNNUMBER=303000 TIME_CMD='/usr/bin/time -l' O2_BUILD_DIR=<buildDir> O2_PACKAGE=daily-20260717-0700-local1 run-in-o2-env.zsh -- bash replay_tracking_its_legacy_sync.sh",
+      "configKeyValues": "ITSCATrackerParam.nThreads=1 (only knob set; useDiamond left at its struct default, false)",
+      "wallTimeRealSec": 6.68,
+      "userSec": 10.47,
+      "sysSec": 1.67,
+      "peakRSSBytes": 669974528,
+      "output": "o2trac_its.root, 59152 bytes, 175 tracks",
+      "metricsFile": "metrics-its-legacy-sync-1.json",
+      "trackContentHashFile": "track-content-hash-its-legacy-sync-1.json",
+      "trackContentHash": "f69f50948c20fb7375cb5b7a6d126a3e",
+      "flakyHangObserved": false,
+      "flakyHangNote": "gate3-slice3-its-ca-validation/README.md documents this same piped-ITS-reco invocation shape hanging on 2/4 attempts for its (different) legacy-diamond leg. This leg's single run completed normally on the first attempt with no hang; stdin was explicitly closed as a defensive measure regardless (see replay_tracking_its_legacy_sync.sh header)."
+    },
+    "mftCommonCAFence1": {
+      "dir": "/Users/mpuccio/alice/run3/O2-validation-artifacts/itsmft/gate3-slice3b-its-ca-thread-validation/mft-common-ca-fence-1",
+      "scriptUsed": "gate0-baseline/replay_tracking_common_ca.sh (unchanged)",
+      "command": "FIXTURE_DIR=<fixture> REPLAY_DIR=<dir> TIMESTAMP=1784207296000 RUNNUMBER=303000 O2_BUILD_DIR=<buildDir> O2_PACKAGE=daily-20260717-0700-local1 run-in-o2-env.zsh -- bash gate0-baseline/replay_tracking_common_ca.sh",
+      "output": "mfttracks.root, 41651 bytes",
+      "metricsFile": "metrics-mft-common-ca-fence-1.json",
+      "expected": {"outputTracks": 70, "trackContentHash": "24737e73b7146bf3bd35a90a2517c527"},
+      "observed": {"outputTracks": 70, "trackContentHash": "24737e73b7146bf3bd35a90a2517c527"},
+      "result": "MATCH -- MFT non-regression fence held, unaffected by this validation's ITS-only work"
+    },
+    "negativeCheckNThreads0": {
+      "dir": "/Users/mpuccio/alice/run3/O2-validation-artifacts/itsmft/gate3-slice3b-its-ca-thread-validation/negative-nthreads0",
+      "command": "FIXTURE_DIR=<fixture> OUT_DIR=<dir> TIMESTAMP=1784207296000 RUNNUMBER=303000 TIMEOUT_SECONDS=120 O2_BUILD_DIR=<buildDir> O2_PACKAGE=daily-20260717-0700-local1 run-in-o2-env.zsh -- bash negative_check_its_common_ca_nthreads0.sh",
+      "configKeyValues": "ITSCommonCATrackerParam.useDiamond=true;diamondPos=(0,0,0);pvRes=0.05;ITSCommonCATrackerParam.nThreads=0 (otherwise-valid diamond config, only nThreads is invalid)",
+      "expectedFatalSubstring": "ITS CA tracker requires ITSCommonCATrackerParam.nThreads > 0, got 0",
+      "result": "PASS: driver-reported exit 1 (its-ca-tracker child device itself exited 128/SIGABRT via LOGP(fatal)); expected fatal message present in run.log; o2trac_its_ca.root DOES exist (created by the its-ca-track-writer device's ordinary startup, independent of tracker success) but its 'o2sim' TTree has 0 entries -- confirmed no track data was ever written",
+      "structuralDifferenceFromSlice3NegativeChecks": "gate3-slice3-its-ca-validation/negative_checks_its_common_ca.sh's two cases fire inside ConfigPreflight at defineDataProcessing()-time, before any device is constructed at all (confirmed there: no output file appears). This nThreads<=0 check instead lives in ITSMFTTrackingInterface::initialiseTracker(), only reached from the tracker device's first real run() call (source-confirmed via CATrackerSpec.cxx:184-189 before writing this check) -- so devices, including the writer, ARE constructed and started first. This is why this script's 'no usable output' assertion checks tree-entry-count==0 rather than file-non-existence."
+    }
+  },
+
+  "metricsExtraction": {
+    "itsCommonCA": "gate3-slice3-its-ca-validation/extract_metrics_its_common_ca.C (unchanged, invoked directly against this session's own replay dirs)",
+    "legacyReferenceTrackMetrics": "gate3-slice3-its-ca-validation/extract_metrics_its_legacy_diamond.sh (unchanged; generic over FIXTURE_DIR/REPLAY_DIR, does not assume diamond-vs-Sync mode)",
+    "legacyReferenceTrackContentHash": "extract_track_content_hash_its_legacy.C (new, this directory -- gate0-baseline/extract_metrics.C's extractITS() has no hash field; this macro adds one using the identical MD5 definition as extract_metrics_its_common_ca.C's trackContentHash)",
+    "mftCommonCAFence": "gate0-baseline/extract_metrics_common_ca.C (unchanged)"
+  },
+
+  "fixtureChecksumChecks": [
+    "shasum -a 256 -c checksums.sha256 --status, before first replay: all OK",
+    "shasum -a 256 -c checksums.sha256 --status, after the full replay campaign completed: all OK (fixture unmodified throughout)"
+  ],
+
+  "notCommittedToGit": "manifest.json, characterization_summary.md, README.md, and the *.sh/*.C scripts live in the git worktree (validation-only, no binaries/ROOT files). All *.root replay outputs, *.log files, and metrics-*.json/*.time.log outputs live under /Users/mpuccio/alice/run3/O2-validation-artifacts/itsmft/gate3-slice3b-its-ca-thread-validation/, outside the git worktree, and are not committed."
+}
