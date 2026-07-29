@@ -30,36 +30,8 @@ namespace
 constexpr int PrimaryVertexLayerId{-1};
 constexpr int EventLabelsSeparator{-1};
 
-template <o2::detectors::DetID::ID DetId>
-bool shouldApplySysErrors()
-{
-  const auto& conf = o2::itsmft::tracking::TrackerParamRef<DetId>::get();
-  for (int il = 0; il < o2::itsmft::tracking::TrackerParamRef<DetId>::nLayers(); il++) {
-    if constexpr (DetId == o2::detectors::DetID::MFT) {
-      if (conf.sysErr2Row[il] > 0.f || conf.sysErr2Col[il] > 0.f) {
-        return true;
-      }
-    } else {
-      if (conf.sysErrY2[il] > 0.f || conf.sysErrZ2[il] > 0.f) {
-        return true;
-      }
-    }
-  }
-  return false;
-}
-
-template <o2::detectors::DetID::ID DetId>
-void addSysErrors(int layerId, float& sigma2Row, float& sigma2Col)
-{
-  const auto& conf = o2::itsmft::tracking::TrackerParamRef<DetId>::get();
-  if constexpr (DetId == o2::detectors::DetID::MFT) {
-    sigma2Row += conf.sysErr2Row[layerId];
-    sigma2Col += conf.sysErr2Col[layerId];
-  } else {
-    sigma2Row += conf.sysErrY2[layerId];
-    sigma2Col += conf.sysErrZ2[layerId];
-  }
-}
+using o2::itsmft::ioutils::detail::addSysErrors;
+using o2::itsmft::ioutils::detail::shouldApplySysErrors;
 
 template <o2::detectors::DetID::ID DetId, typename GeomT>
 o2::itsmft::tracking::DecodedCluster decodeCluster(GeomT* geom,

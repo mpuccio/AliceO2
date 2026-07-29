@@ -325,6 +325,13 @@ o2_add_test(beam-position-ownership
                                   O2::MFTTracking
                                   O2::DataFormatsCalibration)
 
+o2_add_test(ioutils-syserror-ownership
+            SOURCES testIOUtilsSysErrorOwnership.cxx
+            COMPONENT_NAME itsmft-tracking
+            LABELS "itsmft;tracking"
+            PUBLIC_LINK_LIBRARIES O2::ITSMFTTracking
+                                  O2::MFTTracking)
+
 o2_add_executable(geometry-surface-catalog-validation
                   SOURCES validateGeometrySurfaceCatalogs.cxx
                   COMPONENT_NAME itsmft-tracking

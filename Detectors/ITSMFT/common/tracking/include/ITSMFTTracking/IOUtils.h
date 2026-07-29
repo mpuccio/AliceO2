@@ -28,6 +28,7 @@
 #include "DataFormatsITSMFT/CompCluster.h"
 #include "DataFormatsITSMFT/TopologyDictionary.h"
 #include "ITSMFTTracking/ClusterDecoding.h"
+#include "ITSMFTTracking/Configuration.h"
 #include "ITSMFTTracking/SurfaceDescriptor.h"
 #include "ITSMFTTracking/SurfaceMeasurement.h"
 #include "MathUtils/Cartesian.h"
@@ -50,6 +51,51 @@ constexpr bool isSensorInGeometry(int sensor, int geometrySize) noexcept
 constexpr bool isLayerInDetector(int layer, int detectorLayers) noexcept
 {
   return layer >= 0 && layer < detectorLayers;
+}
+
+/// Whether a cluster-decoding systematic-error correction should be applied
+/// for `DetId`. ITS common-CA is an explicit no-op here: the dedicated
+/// ITSCommonCATrackerParam configuration does not support this feature, so
+/// common ITS normalized decoding must not consult TrackerParamRef<ITS>::get()
+/// (the frozen legacy ITSCATrackerParam's sysErrY2/sysErrZ2 -- see
+/// TrackingConfigParam.h's doc comment on why the two namespaces are kept
+/// distinct). MFT is unchanged: it keeps reading its own live
+/// TrackerParamConfig<MFT> ("MFTCATrackerParam") sysErr2Row/sysErr2Col.
+/// A free function (not a class member) purely so isolation tests can call it
+/// directly without a geometry/dictionary fixture; not intended as broad
+/// public API.
+template <o2::detectors::DetID::ID DetId>
+bool shouldApplySysErrors()
+{
+  if constexpr (DetId == o2::detectors::DetID::ITS) {
+    return false;
+  } else {
+    const auto& conf = o2::itsmft::tracking::TrackerParamRef<DetId>::get();
+    for (int il = 0; il < o2::itsmft::tracking::TrackerParamRef<DetId>::nLayers(); il++) {
+      if (conf.sysErr2Row[il] > 0.f || conf.sysErr2Col[il] > 0.f) {
+        return true;
+      }
+    }
+    return false;
+  }
+}
+
+/// Adds the configured systematic-error correction to `sigma2Row`/`sigma2Col`
+/// for `DetId`. ITS is an explicit no-op: see shouldApplySysErrors<ITS>()
+/// above -- kept callable (rather than removed) so callers stay
+/// detector-generic, but it never reads TrackerParamRef<ITS>::get().
+template <o2::detectors::DetID::ID DetId>
+void addSysErrors(int layerId, float& sigma2Row, float& sigma2Col)
+{
+  if constexpr (DetId == o2::detectors::DetID::ITS) {
+    (void)layerId;
+    (void)sigma2Row;
+    (void)sigma2Col;
+  } else {
+    const auto& conf = o2::itsmft::tracking::TrackerParamRef<DetId>::get();
+    sigma2Row += conf.sysErr2Row[layerId];
+    sigma2Col += conf.sysErr2Col[layerId];
+  }
 }
 } // namespace detail
 
