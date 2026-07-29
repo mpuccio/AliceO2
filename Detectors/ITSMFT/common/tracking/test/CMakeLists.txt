@@ -356,6 +356,18 @@ o2_add_test_root_macro(gate3-slice3-its-ca-validation/extract_metrics_its_common
                          O2::ITSBase
                          O2::SimulationDataFormat)
 
+# Gate 3 Slice 3b legacy track-content-hash extractor (see
+# gate3-slice3b-its-ca-thread-validation/README.md). Same treatment as the
+# gate3-slice3 macro above: compiled here so a clean configure validates its
+# includes and types, while its runnable replay/extraction stays in that
+# directory's own documented protocol (external replay artifacts, not
+# present at configure time).
+o2_add_test_root_macro(gate3-slice3b-its-ca-thread-validation/extract_track_content_hash_its_legacy.C
+                       COMPILE_ONLY
+                       LABELS "itsmft;tracking;gate3"
+                       PUBLIC_LINK_LIBRARIES
+                         O2::DataFormatsITS)
+
 o2_add_test_root_macro(validateGeometrySurfaceCatalogs.C
                        COMPILE_ONLY
                        LABELS "itsmft;tracking;geometry"
