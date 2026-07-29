@@ -307,6 +307,24 @@ o2_add_test(its-common-ca-nthreads
                                   O2::MFTTracking
                                   FairLogger::FairLogger)
 
+o2_add_test(tracking-mode-ownership
+            SOURCES testTrackingModeOwnership.cxx
+            COMPONENT_NAME itsmft-tracking
+            LABELS "itsmft;tracking"
+            PUBLIC_LINK_LIBRARIES O2::ITSMFTTracking
+                                  O2::MFTTracking
+                                  O2::DetectorsBase
+                                  O2::Field
+                                  FairLogger::FairLogger)
+
+o2_add_test(beam-position-ownership
+            SOURCES testBeamPositionOwnership.cxx
+            COMPONENT_NAME itsmft-tracking
+            LABELS "itsmft;tracking"
+            PUBLIC_LINK_LIBRARIES O2::ITSMFTTracking
+                                  O2::MFTTracking
+                                  O2::DataFormatsCalibration)
+
 o2_add_executable(geometry-surface-catalog-validation
                   SOURCES validateGeometrySurfaceCatalogs.cxx
                   COMPONENT_NAME itsmft-tracking

@@ -122,7 +122,6 @@ void TrackingLoadPolicy<DetId, NLayers>::configureBeamPosition(TimeFrame<NLayers
                                                                  const o2::dataformats::MeanVertexObject* meanVertex,
                                                                  bool overrideBeamEstimation)
 {
-  const auto& tc = TrackerParamRef<DetId>::get();
   const float systErrY2 = p.SystError2Row.empty() ? 0.f : p.SystError2Row[0];
   const float layerRes = p.LayerResolution.empty() ? 0.f : p.LayerResolution[0];
 
@@ -130,7 +129,12 @@ void TrackingLoadPolicy<DetId, NLayers>::configureBeamPosition(TimeFrame<NLayers
     tf.setBeamPosition(p.Diamond[0], p.Diamond[1], p.DiamondCov[3], layerRes, systErrY2);
     LOGP(info, "MFT CA vertex seed from diamond: x={:.4f} y={:.4f} z={:.4f}",
          p.Diamond[0], p.Diamond[1], p.Diamond[2]);
-  } else if ((overrideBeamEstimation || tc.overrideBeamEstimation) && meanVertex != nullptr) {
+  } else if (overrideBeamEstimation && meanVertex != nullptr) {
+    // ITS common-CA must not consult TrackerParamRef<ITS>::get() (the frozen
+    // legacy ITSCATrackerParam's overrideBeamEstimation); the common workflow
+    // constructor/configuration (overrideBeamEstimation, p.UseDiamond -- both
+    // sourced from ITSCommonCATrackerParam via getTrackingParameters()) is
+    // the sole owner of the selected static-diamond constraint.
     tf.setBeamPosition(meanVertex->getX(), meanVertex->getY(), meanVertex->getSigmaY2(), layerRes, systErrY2);
     LOGP(info, "ITS CA beam position from MeanVertex: x={:.4f} y={:.4f}", meanVertex->getX(), meanVertex->getY());
   } else if (p.UseDiamond) {

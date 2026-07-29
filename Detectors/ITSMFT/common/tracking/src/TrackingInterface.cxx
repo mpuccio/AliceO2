@@ -105,19 +105,32 @@ void ITSMFTTrackingInterface<NLayers>::initialise()
 template <int NLayers>
 void ITSMFTTrackingInterface<NLayers>::resolveTrackingParameters()
 {
-  const auto& tc = o2::itsmft::tracking::TrackerParamRef<DetId>::get();
   auto mode = mTrackingMode;
-  if (auto parmode = static_cast<o2::itsmft::TrackingMode::Type>(tc.trackingMode);
-      mode == o2::itsmft::TrackingMode::Unset ||
-      (parmode != o2::itsmft::TrackingMode::Unset && mode != parmode)) {
-    if (parmode != o2::itsmft::TrackingMode::Unset) {
-      LOGP(info, "{} CA tracking mode overwritten by configurable params from {} to {}",
-           detName<DetId>(), o2::itsmft::TrackingMode::toString(mode), o2::itsmft::TrackingMode::toString(parmode));
-      mode = parmode;
+  if constexpr (DetId == o2::detectors::DetID::ITS) {
+    // The common ITS interface must not consult TrackerParamRef<ITS>::get()
+    // (o2::its::TrackerParamConfig, the frozen legacy "ITSCATrackerParam"
+    // namespace -- see TrackingConfigParam.h's doc comment and this class's
+    // own nThreads isolation in initialiseTracker() below for the same
+    // rationale) for its tracking mode. The common workflow
+    // constructor/setTrackingMode() is the sole owner of mTrackingMode; only
+    // its Unset default is resolved here.
+    if (mode == o2::itsmft::TrackingMode::Unset) {
+      mode = o2::itsmft::TrackingMode::Sync;
     }
-  }
-  if (mode == o2::itsmft::TrackingMode::Unset) {
-    mode = o2::itsmft::TrackingMode::Sync;
+  } else {
+    const auto& tc = o2::itsmft::tracking::TrackerParamRef<DetId>::get();
+    if (auto parmode = static_cast<o2::itsmft::TrackingMode::Type>(tc.trackingMode);
+        mode == o2::itsmft::TrackingMode::Unset ||
+        (parmode != o2::itsmft::TrackingMode::Unset && mode != parmode)) {
+      if (parmode != o2::itsmft::TrackingMode::Unset) {
+        LOGP(info, "{} CA tracking mode overwritten by configurable params from {} to {}",
+             detName<DetId>(), o2::itsmft::TrackingMode::toString(mode), o2::itsmft::TrackingMode::toString(parmode));
+        mode = parmode;
+      }
+    }
+    if (mode == o2::itsmft::TrackingMode::Unset) {
+      mode = o2::itsmft::TrackingMode::Sync;
+    }
   }
   mTrackingMode = mode;
   mTrackParams = o2::itsmft::TrackingMode::getTrackingParameters(DetId, mode);
