@@ -280,6 +280,12 @@ o2_add_test(geometry-surface-catalog-providers
             LABELS "itsmft;tracking"
             PUBLIC_LINK_LIBRARIES O2::ITSMFTTracking)
 
+o2_add_test(combined-surface-catalog-builder
+            SOURCES testCombinedSurfaceCatalogBuilder.cxx
+            COMPONENT_NAME itsmft-tracking
+            LABELS "itsmft;tracking"
+            PUBLIC_LINK_LIBRARIES O2::ITSMFTTracking)
+
 o2_add_test(its-common-ca-tracking-mode-configuration
             SOURCES testITSCommonCATrackingModeConfiguration.cxx
             COMPONENT_NAME itsmft-tracking
