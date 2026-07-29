@@ -368,6 +368,34 @@ o2_add_test_root_macro(gate3-slice3b-its-ca-thread-validation/extract_track_cont
                        PUBLIC_LINK_LIBRARIES
                          O2::DataFormatsITS)
 
+# Publication/CMake correction handoff: cluster-attachment identity
+# checkers (see cluster-attachment-validation/ -- proving every emitted
+# flattened cluster reference has the correct hit layer, external index,
+# published cluster size, and associated ROF; siblings to the
+# gate3-slice3-its-ca-validation and gate0-baseline extractors above, not a
+# replacement for either). Compiled here so a clean configure validates
+# their includes and types; their runnable replay/check protocol stays
+# external (fixture/replay artifacts not present at configure time).
+o2_add_test_root_macro(cluster-attachment-validation/check_cluster_attachment_its_common_ca.C
+                       COMPILE_ONLY
+                       LABELS "itsmft;tracking;gate3"
+                       PUBLIC_LINK_LIBRARIES
+                         O2::CCDB
+                         O2::DataFormatsITS
+                         O2::DataFormatsITSMFT
+                         O2::DetectorsBase
+                         O2::ITSBase)
+
+o2_add_test_root_macro(cluster-attachment-validation/check_cluster_attachment_mft_common_ca.C
+                       COMPILE_ONLY
+                       LABELS "itsmft;tracking;gate3"
+                       PUBLIC_LINK_LIBRARIES
+                         O2::CCDB
+                         O2::DataFormatsITSMFT
+                         O2::DataFormatsMFT
+                         O2::DetectorsBase
+                         O2::MFTBase)
+
 o2_add_test_root_macro(validateGeometrySurfaceCatalogs.C
                        COMPILE_ONLY
                        LABELS "itsmft;tracking;geometry"
