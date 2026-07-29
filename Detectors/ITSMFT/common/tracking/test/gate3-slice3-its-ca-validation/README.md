@@ -4,9 +4,10 @@ Scripts and results characterizing `o2-its-ca-tracker-workflow` (the opt-in
 ITS common-CA workflow built in Gate 3 workflow-onboarding Slice 2, commit
 `4a2bf6c364` at the time this validation ran) against the durable Gate 0
 fixture, per this validation task's scope: build/verify/characterize the ITS
-common-CA leg, pair it with a legacy ITS leg under an equivalent explicit
-diamond constraint, check determinism, check negative (fail-closed)
-behavior, and run the existing MFT common-CA non-regression fence unchanged.
+common-CA leg, pair it diagnostically with a legacy ITS leg run under the
+same explicit diamondPos/pvRes CLI values (not an equivalent constraint --
+see below), check determinism, check negative (fail-closed) behavior, and
+run the existing MFT common-CA non-regression fence unchanged.
 
 **This is characterization, not a bitwise-parity gate.** No physics
 tolerance is invented here, and no claim is made that the common-CA leg's

@@ -9,12 +9,16 @@
 # Unlike gate0-baseline/replay_tracking.sh, this script runs ONLY the ITS
 # leg (no MFT) and does not require o2-mft-reco-workflow to be built --
 # Gate 3 Slice 3's build scope is legacy o2-its-reco-workflow, not legacy
-# MFT tracking. It exists purely to pair with
-# replay_tracking_its_common_ca.sh under an equivalent explicit
-# vertex/beam-constraint configuration (same field names/semantics,
-# ITSCATrackerParam is the legacy namespace equivalent of
-# ITSCommonCATrackerParam), never to claim the common-CA leg reproduces the
-# legacy real-vertexer/CCDB MeanVertex-override Sync default.
+# MFT tracking. It exists purely to pair diagnostically with
+# replay_tracking_its_common_ca.sh, passing the same diamondPos/pvRes CLI
+# values (ITSCATrackerParam is the legacy namespace equivalent of
+# ITSCommonCATrackerParam in field names only) -- NOT an equivalent
+# vertex/beam-constraint configuration: this leg's diamond vertex carries no
+# timestamp and yields zero tracks (see characterization_summary.md Sec.3),
+# while the common-CA leg derives a separate, common-only, ROF-local
+# timestamped diamond. Never to claim the common-CA leg reproduces the
+# legacy real-vertexer/CCDB MeanVertex-override Sync default, nor that the
+# two legs' constraints are equivalent to each other.
 #
 # Required variables:
 #   FIXTURE_DIR   directory produced by gate0-baseline/generate_fixture.sh

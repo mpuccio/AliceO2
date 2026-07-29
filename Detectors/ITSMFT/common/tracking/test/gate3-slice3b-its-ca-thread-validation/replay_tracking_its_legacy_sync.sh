@@ -8,10 +8,11 @@
 #
 # This is a DIFFERENT leg from
 # gate3-slice3-its-ca-validation/replay_tracking_its_legacy_diamond.sh
-# (which forces ITSCATrackerParam.useDiamond=true to pair with the common-CA
-# static-diamond leg under an "equivalent explicit constraint" framing). No
-# file under gate3-slice3-its-ca-validation is read, written, or modified by
-# this script.
+# (which forces ITSCATrackerParam.useDiamond=true to pair diagnostically,
+# NOT under an equivalent constraint, with the common-CA static-diamond leg
+# -- that other legacy leg's diamond vertex carries no timestamp and yields
+# zero tracks). No file under gate3-slice3-its-ca-validation is read,
+# written, or modified by this script.
 #
 # Per task scope: this is a LABELLED REFERENCE ONLY. Its real per-event
 # vertexer is not comparable to the common-CA leg's static-diamond
