@@ -5,7 +5,7 @@
   "commitUnderTest": "62e2c75bc8ff3b5c556910116a860bde2af4b424",
   "commitSubject": "ITSMFTTracking: add explicit ITSCommonCATrackerParam.nThreads",
   "precedingRelevantCommits": [
-    {"sha": "b47271fb13edef3526c4ac90ac243343f4794034", "subject": "ITSMFTTracking: derive static-diamond timestamp from the real per-ROF interval envelope", "relevance": "removes the timestamp-compatibility gap that made gate3-slice3-its-ca-validation's legacy-diamond leg produce 0 tracks; not exercised directly by this validation's legacy leg (which uses the real Sync vertexer, no diamond override at all) but relevant context for why this validation's common-CA baseline reproduces Slice 3's accepted 203-track/ee7f7c79... result unchanged."},
+    {"sha": "b47271fb13edef3526c4ac90ac243343f4794034", "subject": "ITSMFTTracking: derive static-diamond timestamp from the real per-ROF interval envelope", "relevance": "changes only the common-CA leg's own diamond-timestamp derivation (TrackerTraits::computeLayerTrackletsForPolicy in Detectors/ITSMFT/common/tracking), giving the common-CA static diamond a common-only, ROF-local timestamp; it does NOT touch the frozen legacy Detectors/ITSMFT/ITS/tracking code path and does NOT repair gate3-slice3-its-ca-validation's forced-useDiamond legacy leg's separate unstamped-vertex zero-track problem (that legacy code was never modified and was not re-run here). Not exercised at all by this validation's own legacy leg either, which uses the real Sync vertexer with no diamond override. Relevant context only for why this validation's common-CA baseline reproduces Slice 3's accepted 203-track/ee7f7c79... result unchanged."},
     {"sha": "a5e2132abfab9f1fd20d73184171db2d46070415", "subject": "ITSMFT: add Gate 3 Slice 3 ITS common-CA validation (characterization only)", "relevance": "prior sibling validation this one extends with a thread knob that did not exist when it ran"}
   ],
   "note": "This validation adds only files under this directory (gate3-slice3b-its-ca-thread-validation). No production tracker/workflow/config/CMake/legacy code was touched, and no file under gate0-baseline or gate3-slice3-its-ca-validation was modified -- both were only read or invoked unchanged.",
@@ -37,7 +37,7 @@
     "fixtureId": "pp-20ev-run303000-seed20260716-daily20260717",
     "path": "/Users/mpuccio/alice/run3/O2-validation-data/itsmft/fixtures/pp-20ev-run303000-seed20260716-daily20260717",
     "readOnly": true,
-    "checksumVerification": "shasum -a 256 -c checksums.sha256 -> all 40 files OK; run once before the first replay of this session and re-run once more after the full replay campaign completed, both OK -- fixture never modified during this validation",
+    "checksumVerification": "shasum -a 256 -c checksums.sha256 -> all 43 files OK; run once before the first replay of this session and re-run once more after the full replay campaign completed, both OK -- fixture never modified during this validation",
     "generatingPackage": "daily-20260717-0700-local1",
     "runNumber": 303000,
     "seed": 20260716,

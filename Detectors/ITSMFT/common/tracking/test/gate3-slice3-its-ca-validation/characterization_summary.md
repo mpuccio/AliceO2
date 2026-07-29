@@ -9,7 +9,13 @@ verified before use. Full commands/paths in `manifest.json`.
 
 **This is characterization, not a bitwise-parity gate**, per task scope.
 No physics tolerance is invented; no equivalence to legacy real-vertex/CCDB
-modes is claimed.
+modes is claimed. The paired legacy-diamond replay in Sec.3 below is a
+diagnostic, root-causing why the frozen legacy tracker's forced-diamond leg
+yields zero tracks -- it is NOT an equivalent common-versus-legacy A/B
+comparison: the frozen legacy static diamond has an unstamped vertex, while
+the common-CA leg uses a common-only, ROF-local timestamped diamond. Do not
+read Sec.3's table as evidence of equal constraints, parity, or comparison
+validity between the two legs.
 
 ## 1. Build
 
@@ -33,12 +39,17 @@ against the pinned package.
   `CATrackerSpec.cxx`/`TrackWriterSpec.cxx`, not just by absence in the
   output file) -- matches task requirement #4 exactly.
 
-## 3. Paired replay metrics (canonical-1, single-threaded)
+## 3. Diagnostic replay metrics (canonical-1, single-threaded) -- NOT an equivalent comparison
 
-Explicit diamond constraint on both legs: `diamondPos=(0,0,0)`,
-`pvRes=0.05` cm (`ITSCommonCATrackerParam.*` / `ITSCATrackerParam.*`
-respectively -- same field names/semantics, different registered
-namespace).
+Same explicit `diamondPos=(0,0,0)`, `pvRes=0.05` cm CLI values passed to
+both legs (`ITSCommonCATrackerParam.*` / `ITSCATrackerParam.*`
+respectively -- same field names, different registered namespace), but this
+does NOT make the two legs' resulting diamond vertices equivalent: the
+frozen legacy leg's vertex carries no timestamp at all (root-caused below),
+while the common-CA leg's diamond is a common-only, ROF-local timestamped
+construction. The table below is a diagnostic pairing, not a
+common-versus-legacy A/B comparison, and no claim of equal constraints or
+comparison validity is made.
 
 | Metric | ITS common-CA | ITS legacy (forced useDiamond=true) |
 |---|---|---|
@@ -77,12 +88,15 @@ regardless of `Diamond`/`DiamondCov` values. This is a legacy-code behavior
 specific to forcing `useDiamond=true` onto Sync mode via `--configKeyValues`
 -- not something this validation's scripts caused, and not something this
 task is in scope to fix (no production code was touched). It is recorded
-here as an honest characterization finding: **the common-CA leg's diamond
-constraint mechanism does not have this timestamp gate and produced
+here as an honest characterization finding, not a parity result: **the
+common-CA leg's diamond constraint mechanism instead derives a common-only,
+ROF-local timestamp and does not have this timestamp gate, producing
 sensible non-zero, non-degenerate output (203 tracks, 95.1% efficiency
-against the same MC-reconstructable denominator) under the identical
-explicit values that make the legacy leg's tracker stage emit zero
-tracklets.**
+against the same MC-reconstructable denominator) under the same
+diamondPos/pvRes CLI values that leave the legacy leg's unstamped vertex
+failing the timestamp-compatibility check for every ROF. The two legs'
+diamond vertices are not equivalent constraints, and this pairing is
+diagnostic, not a comparison of equal setups.**
 
 ## 4. Determinism (2 canonical single-threaded common-CA ITS replays)
 
@@ -131,7 +145,7 @@ validation work did not disturb the MFT common-CA path.
 ## 7. Fixture integrity
 
 `shasum -a 256 -c checksums.sha256` run against the fixture directory before
-any replay: all 40 listed files OK. Fixture never regenerated, overwritten,
+any replay: all 43 listed files OK. Fixture never regenerated, overwritten,
 or chmod'd; all replay/metrics output went to fresh directories under
 `O2-validation-artifacts/itsmft/gate3-slice3-its-ca-validation/`, never
 inside the fixture directory.

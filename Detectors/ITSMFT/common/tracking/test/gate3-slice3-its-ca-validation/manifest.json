@@ -33,7 +33,7 @@
     "fixtureId": "pp-20ev-run303000-seed20260716-daily20260717",
     "path": "/Users/mpuccio/alice/run3/O2-validation-data/itsmft/fixtures/pp-20ev-run303000-seed20260716-daily20260717",
     "readOnly": true,
-    "checksumVerification": "shasum -a 256 -c checksums.sha256 -> all 40 files OK, run before any replay in this validation",
+    "checksumVerification": "shasum -a 256 -c checksums.sha256 -> all 43 files OK, run before any replay in this validation",
     "generatingPackage": "daily-20260717-0700-local1",
     "runNumber": 303000,
     "seed": 20260716,
@@ -45,7 +45,7 @@
   },
 
   "diamondConstraint": {
-    "definition": "Explicit static diamond vertex/beam constraint, identical values on both legs; NOT a claim of equivalence to the legacy real-vertexer Sync default or a CCDB MeanVertex beam-position override.",
+    "definition": "Same explicit diamondPos/pvRes CLI values passed to both legs, but NOT an equivalent common-versus-legacy A/B comparison and NOT a claim of equivalence to the legacy real-vertexer Sync default or a CCDB MeanVertex beam-position override: the frozen legacy leg's diamond vertex constructor never sets a timestamp (see characterization_summary.md Sec.3 root-cause) and yields zero tracks under this forced configuration, while the common-CA leg derives its own common-only, ROF-local timestamped diamond -- the two legs' diamond vertices are not equivalent objects despite sharing position/pvRes values. This paired replay is diagnostic (root-causing the legacy zero-track behavior), not a parity gate.",
     "diamondPosXYZ": [0, 0, 0],
     "pvRes": 0.05,
     "commonLegParam": "ITSCommonCATrackerParam.useDiamond=true;ITSCommonCATrackerParam.diamondPos[0..2]=0;ITSCommonCATrackerParam.pvRes=0.05",

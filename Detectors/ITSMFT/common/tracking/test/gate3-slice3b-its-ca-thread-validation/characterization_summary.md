@@ -196,7 +196,7 @@ ever producing track data.
 `shasum -a 256 -c checksums.sha256 --status` run against the fixture
 directory both before the first replay of this session and again after the
 full campaign (baseline + thread characterization + legacy reference + MFT
-fence + negative check): all 40 listed files OK both times. Fixture never
+fence + negative check): all 43 listed files OK both times. Fixture never
 regenerated, overwritten, or chmod'd; all replay/metrics output went to
 fresh directories under
 `O2-validation-artifacts/itsmft/gate3-slice3b-its-ca-thread-validation/`,

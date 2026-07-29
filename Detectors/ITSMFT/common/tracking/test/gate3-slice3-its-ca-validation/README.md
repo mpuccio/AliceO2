@@ -12,7 +12,12 @@ behavior, and run the existing MFT common-CA non-regression fence unchanged.
 tolerance is invented here, and no claim is made that the common-CA leg's
 numbers match the legacy leg's, or that the explicit static-diamond
 constraint used on both legs is equivalent to the legacy real-vertexer or
-CCDB MeanVertex-override Sync defaults.
+CCDB MeanVertex-override Sync defaults. In particular, the legacy-diamond
+replay below is a diagnostic, not an equivalent common-versus-legacy A/B
+comparison: the frozen legacy static diamond has an unstamped vertex and
+yields zero tracks, while the common-CA leg uses a common-only, ROF-local
+timestamped diamond -- do not read the paired results as evidence of equal
+constraints, parity, or comparison validity.
 
 **Production code is untouched.** This directory contains only validation
 scripts, a metrics extractor, and result documentation. No file under
@@ -30,13 +35,17 @@ outside the git worktree.
   an explicit `ITSCommonCATrackerParam.useDiamond=true` +
   `diamondPos[0..2]` + `pvRes` constraint (values recorded, not left at
   struct defaults). Produces `o2trac_its_ca.root`.
-- `replay_tracking_its_legacy_diamond.sh` -- pairs the above: replays
+- `replay_tracking_its_legacy_diamond.sh` -- a diagnostic companion to the
+  above, not an equivalent comparison leg: replays
   `o2-its-cluster-reader-workflow | o2-its-reco-workflow` (ITS-only, no
   MFT -- this validation's build scope is legacy `o2-its-reco-workflow`,
-  not legacy MFT tracking) with the identical explicit diamond values via
-  the legacy `ITSCATrackerParam` namespace. Produces `o2trac_its.root`.
-  Sibling to `gate0-baseline/replay_tracking.sh`, not a replacement --
-  no file in `gate0-baseline` is read, written, or modified.
+  not legacy MFT tracking) with the same diamondPos/pvRes CLI values via
+  the legacy `ITSCATrackerParam` namespace. The frozen legacy leg's diamond
+  vertex carries no timestamp and yields zero tracks (see
+  `characterization_summary.md` Sec.3); the common-CA leg's diamond is a
+  separate, common-only, ROF-local timestamped construction. Produces
+  `o2trac_its.root`. Sibling to `gate0-baseline/replay_tracking.sh`, not a
+  replacement -- no file in `gate0-baseline` is read, written, or modified.
 - `negative_checks_its_common_ca.sh` -- runs `o2-its-ca-tracker-workflow`
   standalone under two configurations that must both fatal before any
   device is constructed and before any output file is created: (1) default
