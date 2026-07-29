@@ -58,17 +58,32 @@ CATrackerPublicationAction decideCATrackerPublicationAction(bool trackerActive, 
 /// Byte-for-byte the same per-track logic as the legacy
 /// ITSWorkflow/TrackerSpec.cxx::run() loop: cluster indices are read
 /// per-layer (`track.getClusterIndex(layer)`, -1 if that layer has no hit)
-/// in decreasing layer order, each valid one is pushed onto `clusterIndices`
-/// and its packed cluster size set via `clusterSizeAt(layer, externalIdx)`;
-/// the resulting flattened order is outer-to-inner-most-populated-first, not
-/// physical layer order -- this matches every existing ITS track consumer's
-/// expectation (they all read through RangeRefComp + TRACKCLSID, never by
-/// assuming physical layer order).
+/// in decreasing layer order and each valid one is pushed onto
+/// `clusterIndices`; the resulting flattened order is
+/// outer-to-inner-most-populated-first, not physical layer order -- this
+/// matches every existing ITS track consumer's expectation (they all read
+/// through RangeRefComp + TRACKCLSID, never by assuming physical layer
+/// order).
 ///
-/// Takes `track` by value: the RangeRefComp/cluster-size mutations happen on
-/// the caller's own copy of the source TrackITSExt before it is sliced into
-/// the output TrackITS, so the caller's TimeFrame-owned track is never
-/// mutated by this call.
+/// Unlike the legacy loop, this does NOT re-derive the packed cluster size
+/// here: by the time a track reaches `tf.getTracks()`,
+/// `track.getClusterIndex(layer)` has already been rewritten by
+/// Tracker<NLayers>::rectifyClusterIndices() (CATracker.cxx) from this
+/// layer's own local cluster identity -- the domain mClusterSize is keyed
+/// by -- to the external/global one, so the local identity needed to
+/// address mClusterSize is gone by the time this function runs.
+/// rectifyClusterIndices() captures `tf.getClusterSize(layer, localIndex)`
+/// onto the track itself (via TrackITS::setClusterSize()) while the local
+/// index is still available, so this function only has to carry that
+/// already-correct per-layer size through the by-value copy into the output
+/// TrackITS -- it must not query the TimeFrame with the (by-then external)
+/// `clid` here, which is exactly the local-vs-external index confusion this
+/// function used to have.
+///
+/// Takes `track` by value: the RangeRefComp mutation happens on the
+/// caller's own copy of the source TrackITSExt before it is sliced into the
+/// output TrackITS, so the caller's TimeFrame-owned track is never mutated
+/// by this call.
 ///
 /// `clusterIndices`/`tracks` are templated (not plain std::vector<>&): DPL's
 /// pc.outputs().make<std::vector<T>>() actually returns a pmr-allocator
@@ -77,11 +92,10 @@ CATrackerPublicationAction decideCATrackerPublicationAction(bool trackerActive, 
 /// CATrackerSpec.cxx while only ever being exercised with plain
 /// std::vector<T> in tests -- genericity here is required for the real
 /// caller, not speculative.
-template <typename ClusterIdxVec, typename TracksVec, typename ClusterSizeFn>
+template <typename ClusterIdxVec, typename TracksVec>
 void convertTrackITSExtToTrackITS(o2::its::TrackITSExt track,
                                   ClusterIdxVec& clusterIndices,
-                                  TracksVec& tracks,
-                                  ClusterSizeFn&& clusterSizeAt)
+                                  TracksVec& tracks)
 {
   track.setFirstClusterEntry(static_cast<int>(clusterIndices.size()));
   const int nclExpected = track.getNumberOfClusters();
@@ -91,7 +105,6 @@ void convertTrackITSExtToTrackITS(o2::its::TrackITSExt track,
     if (clid < 0) {
       continue;
     }
-    track.setClusterSize(layer, clusterSizeAt(layer, clid));
     clusterIndices.push_back(clid);
     ++nclFound;
   }

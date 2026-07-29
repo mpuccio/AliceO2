@@ -94,15 +94,20 @@ struct RefitFixture {
     params.TrackletMinAbsX = 0.f;
     params.MaxChi2NDF = 30.f;
 
-    bounded_vector<uint8_t> sizes;
-    sizes.resize(NLayers, uint8_t{1});
-    tf.setClusterSize(0, sizes);
-
     uint16_t mask = 0;
     for (int layer = 0; layer < hits; ++layer) {
       setMeasurement(layer, geometry.x[layer], geometry.y[layer], geometry.z[layer],
                      DefaultSigma2, DefaultSigma2, static_cast<uint32_t>(layer));
       tf.addClusterExternalIndexToLayer(layer, layer); // extIdx == layer, clIdx == 0
+      // Per-layer mClusterSize, indexed by the layer-local clIdx (0 here) --
+      // mirrors loadNormalizedSource()'s real per-layer layout. A single
+      // flat mClusterSize[0] sized NLayers and indexed by extIdx (this
+      // fixture's old setup) only matched the pre-fix bug's own
+      // (incorrect) convention, not TimeFrame::getClusterSize()'s actual
+      // per-layer contract.
+      bounded_vector<uint8_t> layerSizes;
+      layerSizes.resize(1, uint8_t{1});
+      tf.setClusterSize(layer, layerSizes);
       seed.getClusters()[layer] = 0;
       mask |= static_cast<uint16_t>(uint16_t(1) << layer);
     }
@@ -414,4 +419,75 @@ BOOST_AUTO_TEST_CASE(DiagonalOnlyCovarianceIgnoresOffDiagonalTerm)
   BOOST_REQUIRE(refitTrackFwd(withUv.seed, withUvTrack, withUv.tf, withUv.params, Bz, withUv.layerMeasurements));
 
   checkTrackUnchanged(referenceTrack, withUvTrack);
+}
+
+// --- Regression: local-vs-external cluster-size index domain ---------------
+
+BOOST_AUTO_TEST_CASE(ClusterSizeIsReadFromItsOwnLayerNotFromLayerZeroByExternalIndex)
+{
+  // Regression test for the bug fixed in MFTFwdTrackHelpers.cxx:
+  // refitTrackFwdImpl must read tf.getClusterSize(layer, clIdx) -- clIdx
+  // being THIS layer's own layer-local cluster identity -- and must never
+  // read tf.getClusterSize(0, extIdx) using the external/global identity:
+  // mClusterSize is a per-layer vector (see TimeFrame::loadNormalizedSource()
+  // and TimeFrame::getClusterSize()), not a flat array addressable by an
+  // external id.
+  //
+  // Every hit layer gets a real, distinctive size (10 + layer) at its own
+  // layer-local clIdx == 0, and a deliberately large, non-monotonic external
+  // cluster index (1000 + layer) -- proving the fix does not depend on
+  // external indices being small or increasing with layer. Layer 0's own
+  // cluster-size vector is then independently given poisoned entries at
+  // exactly the slots (1000 + layer) that the old buggy code would have
+  // read via tf.getClusterSize(0, 1000 + layer): under the fix that value
+  // must never leak into any other layer's published size.
+  const StraightTrackGeometry geometry(0.01f);
+  TimeFrame<NLayers> tf;
+  std::array<std::vector<SurfaceMeasurement>, NLayers> storage;
+  LayerMeasurementSpans<NLayers> layerMeasurements{};
+  TrackSeedN<NLayers> seed;
+  o2::itsmft::TrackingParameters params;
+  params.MinTrackLength = 5;
+  params.MinPt.assign(NLayers + 1, 0.f);
+  params.TrackletMinAbsX = 0.f;
+  params.MaxChi2NDF = 30.f;
+
+  uint16_t mask = 0;
+  for (int layer = 0; layer < NLayers; ++layer) {
+    SurfaceMeasurement m{};
+    m.global = {geometry.x[layer], geometry.y[layer], geometry.z[layer]};
+    m.covariance.uu = DefaultSigma2;
+    m.covariance.vv = DefaultSigma2;
+    m.cluster = ClusterRef{ClusterSourceId{0}, static_cast<uint32_t>(1000 + layer)};
+    storage[layer].assign(1, m);
+    layerMeasurements[layer] = storage[layer];
+
+    tf.addClusterExternalIndexToLayer(layer, 1000 + layer); // clIdx 0 -> large, non-monotonic extIdx
+    bounded_vector<uint8_t> sizes;
+    sizes.resize(1, static_cast<uint8_t>(10 + layer));
+    tf.setClusterSize(layer, sizes);
+
+    seed.getClusters()[layer] = 0;
+    mask |= static_cast<uint16_t>(uint16_t(1) << layer);
+  }
+  seed.setHitLayerMask(LayerMask{mask});
+
+  // Poison layer 0's own vector at every slot the old (buggy) code would
+  // have queried for another layer.
+  bounded_vector<uint8_t> poisonedLayer0;
+  poisonedLayer0.resize(1000 + NLayers, uint8_t{0});
+  poisonedLayer0[0] = uint8_t{10}; // layer 0's real value, at its own clIdx == 0
+  for (int layer = 1; layer < NLayers; ++layer) {
+    poisonedLayer0[1000 + layer] = uint8_t{250}; // distinct poison value, never a real size here
+  }
+  tf.setClusterSize(0, poisonedLayer0);
+
+  MFTCATrack track;
+  BOOST_REQUIRE(refitTrackFwd(seed, track, tf, params, Bz, layerMeasurements));
+
+  for (int layer = 0; layer < NLayers; ++layer) {
+    BOOST_CHECK(track.hasHitOnLayer(layer));
+    BOOST_CHECK_EQUAL(track.getClusterSize(layer), 10 + layer);
+    BOOST_CHECK_NE(track.getClusterSize(layer), 250);
+  }
 }

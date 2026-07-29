@@ -95,8 +95,12 @@ void fillMFTOutputs(const o2::itsmft::tracking::TimeFrameMFT& tf,
       if (extIdx < 0) {
         continue;
       }
-      const int clsSize = src.getClusterSize(layer);
-      dst.setClusterSize(layer, clsSize > 0 ? clsSize : tf.getClusterSize(0, extIdx));
+      // src's per-layer cluster size was already captured correctly by
+      // Tracker<NLayers>::rectifyClusterIndices() (CATracker.cxx) while the
+      // layer-local cluster identity was still available; `extIdx` here is
+      // already the external/global identity, and mClusterSize is a
+      // layer-local vector, so it must never be re-queried with `extIdx`.
+      dst.setClusterSize(layer, src.getClusterSize(layer));
       clusterIndices.push_back(extIdx);
       ++nPoints;
     }

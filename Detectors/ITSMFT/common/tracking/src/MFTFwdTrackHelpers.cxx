@@ -82,7 +82,7 @@ bool refitTrackFwdImpl(const TrackSeedN<o2::mft::constants::mft::LayersNumber>& 
       measurement.global.x, measurement.global.y, measurement.global.z,
       0.f, 0.f, clIdx, 0,
       measurement.covariance.uu, measurement.covariance.vv, 0};
-    ltf.setPoint(mftCluster, layer, clIdx, {}, extIdx, tf.getClusterSize(0, extIdx));
+    ltf.setPoint(mftCluster, layer, clIdx, {}, extIdx, tf.getClusterSize(layer, clIdx));
   }
 
   if (ltf.getNumberOfPoints() < params.MinTrackLength) {
@@ -143,8 +143,7 @@ bool refitTrackFwdImpl(const TrackSeedN<o2::mft::constants::mft::LayersNumber>& 
     }
     const int clIdx = seed.getCluster(layer);
     track.setClusterIndex(layer, clIdx);
-    const int extIdx = tf.getClusterExternalIndex(layer, clIdx);
-    track.setClusterSize(layer, tf.getClusterSize(0, extIdx));
+    track.setClusterSize(layer, tf.getClusterSize(layer, clIdx));
   }
   return true;
 }

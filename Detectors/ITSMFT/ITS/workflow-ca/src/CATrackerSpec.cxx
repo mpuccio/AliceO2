@@ -79,8 +79,7 @@ void fillITSOutputs(const o2::itsmft::tracking::TimeFrame<o2::itsmft::tracking::
 
   for (size_t iTrk = 0; iTrk < tracksIn.size(); ++iTrk) {
     const auto& src = tracksIn[iTrk];
-    convertTrackITSExtToTrackITS(src, clusterIndices, tracks,
-                                 [&tf](int /*layer*/, int extIdx) { return tf.getClusterSize(0, extIdx); });
+    convertTrackITSExtToTrackITS(src, clusterIndices, tracks);
 
     if (useMC && iTrk < tf.getTracksLabel().size()) {
       trackLabels.push_back(tf.getTracksLabel()[iTrk]);

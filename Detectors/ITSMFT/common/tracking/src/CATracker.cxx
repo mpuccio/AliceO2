@@ -146,6 +146,16 @@ void Tracker<NLayers>::rectifyClusterIndices()
       if (index == constants::UnusedIndex) {
         continue;
       }
+      // Capture the packed cluster size onto the track while `index` is
+      // still this layer's own local identity (the domain mClusterSize is
+      // stored in, see TimeFrame::getClusterSize()): the very next call
+      // overwrites track's cluster index in place with the external/global
+      // identity, so this is the last point at which the layer-local index
+      // needed to address mClusterSize[iCluster] is recoverable from the
+      // track. Downstream publication (TrackITSExt -> TrackITS, MFTCATrack)
+      // must read the size already stored here rather than re-deriving it
+      // from the (by-then external) cluster index.
+      track.setClusterSize(iCluster, mTimeFrame->getClusterSize(iCluster, index));
       track.setExternalClusterIndex(iCluster, mTimeFrame->getClusterExternalIndex(iCluster, index));
     }
   }
