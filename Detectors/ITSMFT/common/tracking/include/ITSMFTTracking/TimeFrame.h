@@ -32,6 +32,7 @@
 #include "ITStracking/Tracklet.h"
 
 #include "ITSMFTTracking/MFTCATrack.h"
+#include "ITSMFTTracking/CommonTrack.h"
 #include "ITSMFTTracking/Configuration.h"
 #include "ITSMFTTracking/ClusterDecoder.h"
 #include "ITSMFTTracking/IndexTableUtils.h"
@@ -39,6 +40,7 @@
 #include "ITSMFTTracking/MultiSourceFrame.h"
 #include "ITSMFTTracking/MultiSourceLoading.h"
 #include "ITSMFTTracking/SurfaceMeasurement.h"
+#include "ITSMFTTracking/SurfaceMeasurementIndex.h"
 #include "ITSMFTTracking/TrackingTopology.h"
 #ifndef GPUCA_GPUCODE
 #include <optional>
@@ -376,6 +378,29 @@ struct TimeFrame {
   const auto& getTracksLabel() const { return mTracksLabel; }
   auto& getLinesLabel(const int rofId) { return mLinesLabels[rofId]; }
 
+  // Detector-neutral common-CA result storage (Gate 4 CommonTrack
+  // foundation; ITSMFTTracking/CommonTrack.h). CommonTrack itself carries no
+  // NLayers dependency; this is a temporary bridge holding it inside
+  // TimeFrame<NLayers> alongside the legacy per-NLayers artefacts above.
+  // Unpopulated by this slice -- no production or test call site writes
+  // through these accessors from CA seeds yet -- but already event data:
+  // both containers are wiped together with every other per-event CA
+  // artefact by wipe() (see wipe()'s own doc) and are only meaningful
+  // together with the TimeFrame's normalized frame (getNormalizedFrame())
+  // that was current when a CommonTrack was built (see CommonTrack.h's own
+  // lifetime doc).
+  auto& getCommonTracks() { return mCommonTracks; }
+  const auto& getCommonTracks() const { return mCommonTracks; }
+  // Flat, TimeFrame-owned array of SurfaceMeasurementIndex; a CommonTrack's
+  // [firstClusterRef, clusterRefEnd) range (CommonTrack.h) is a half-open
+  // range of *positions* into this array, in traversal order (inner to
+  // outer). Each element is, in turn, a canonical position into the
+  // flattened SurfaceMeasurement array owned by this TimeFrame's normalized
+  // frame (getNormalizedFrame()/getNormalizedFrameView()) -- resolved via
+  // MultiSourceFrame::getMeasurement()/MultiSourceFrameView::getMeasurement().
+  auto& getTrackClusterIndices() { return mTrackClusterIndices; }
+  const auto& getTrackClusterIndices() const { return mTrackClusterIndices; }
+
   size_t getNumberOfClusters() const;
   virtual size_t getNumberOfCells() const;
   virtual size_t getNumberOfTracklets() const;
@@ -468,6 +493,13 @@ struct TimeFrame {
   std::vector<bounded_vector<int>> mCellsNeighbours;
   std::vector<bounded_vector<int>> mCellsNeighboursTopology;
   std::vector<bounded_vector<int>> mCellsLookupTable;
+
+  // Gate 4 CommonTrack foundation (ITSMFTTracking/CommonTrack.h): detector-
+  // neutral common-CA result storage. Neither element type depends on
+  // NLayers; see getCommonTracks()/getTrackClusterIndices() above for the
+  // ownership/lifetime contract.
+  bounded_vector<CommonTrack> mCommonTracks;
+  bounded_vector<SurfaceMeasurementIndex> mTrackClusterIndices;
 
   const o2::base::PropagatorImpl<float>* mPropagatorDevice = nullptr; // Needed only for GPU
   o2::detectors::DetID::ID mDetId{o2::detectors::DetID::ITS};

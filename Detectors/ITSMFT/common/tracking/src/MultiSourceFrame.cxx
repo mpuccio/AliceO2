@@ -47,6 +47,11 @@ gsl::span<const SurfaceMeasurement> MultiSourceFrame::getSurfaceMeasurements(Sur
   return {mMeasurements.data() + range.getFirstEntry(), range.getEntries()};
 }
 
+const SurfaceMeasurement* MultiSourceFrame::getMeasurement(SurfaceMeasurementIndex index) const noexcept
+{
+  return (index.isValid() && index.value() < mMeasurements.size()) ? &mMeasurements[index.value()] : nullptr;
+}
+
 gsl::span<const ROFIntervalBC> MultiSourceFrame::getSourceIntervals(ClusterSourceId source) const
 {
   if (!source.isValid() || source.value() + 1 >= mSourceROFOffsets.size()) {

@@ -963,6 +963,8 @@ void TimeFrame<NLayers>::setMemoryPool(std::shared_ptr<BoundedMemoryResource> po
   initVector(mBogusClusters);
   initContainers(mTrackletsIndexROF);
   initVector(mTracks);
+  initVector(mCommonTracks);
+  initVector(mTrackClusterIndices);
   initContainers(mTracklets);
   initContainers(mCells);
   initContainers(mCellsNeighbours);
@@ -993,6 +995,15 @@ template <int NLayers>
 void TimeFrame<NLayers>::wipe()
 {
   deepVectorClear(mTracks);
+  // Gate 4 CommonTrack foundation: common-CA result storage is per-event
+  // data like mTracks/mTracklets above, invalidated together -- a
+  // CommonTrack's cluster-reference range and every SurfaceMeasurementIndex
+  // it reaches are only meaningful alongside the normalized frame current
+  // when it was built (CommonTrack.h), so both must be cleared here,
+  // unconditionally, exactly like every other host-only per-event container
+  // in this function.
+  deepVectorClear(mCommonTracks);
+  deepVectorClear(mTrackClusterIndices);
   deepVectorClear(mTracklets);
   deepVectorClear(mCells);
   deepVectorClear(mCellsNeighbours);

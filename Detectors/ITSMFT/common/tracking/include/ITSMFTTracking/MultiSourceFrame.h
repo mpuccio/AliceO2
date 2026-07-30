@@ -13,6 +13,7 @@
 
 #include "GPUCommonDef.h"
 #include "ITSMFTTracking/SurfaceMeasurement.h"
+#include "ITSMFTTracking/SurfaceMeasurementIndex.h"
 #include "ITSMFTTracking/SurfaceTiming.h"
 
 #ifndef GPUCA_GPUCODE
@@ -63,6 +64,17 @@ struct MultiSourceFrameView {
   GPUhdi() uint32_t getSurfaceMeasurementCount(SurfaceId surface) const noexcept
   {
     return surfaceRanges[surface.value()].entries;
+  }
+  // Bounds-checked lookup of one measurement by its canonical, flattened
+  // position (SurfaceMeasurementIndex is a position in `measurements`, the
+  // single flat array every surface's span is carved from -- not a
+  // per-surface-local position). Returns nullptr for an invalid index or one
+  // at/past `nMeasurements`. This is the minimal support CommonTrack's
+  // trackClusterIndices (ITSMFTTracking/CommonTrack.h) needs to validate and
+  // dereference a stored SurfaceMeasurementIndex.
+  GPUhdi() const SurfaceMeasurement* getMeasurement(SurfaceMeasurementIndex index) const noexcept
+  {
+    return (index.isValid() && index.value() < nMeasurements) ? measurements + index.value() : nullptr;
   }
   // Returns nullptr (never a computed nullptr+0) when the source has no
   // ROF intervals.
@@ -116,6 +128,10 @@ class MultiSourceFrame
   MultiSourceFrameView getView() const noexcept;
 
   gsl::span<const SurfaceMeasurement> getSurfaceMeasurements(SurfaceId surface) const;
+  // Bounds-checked lookup by canonical flattened position -- see
+  // MultiSourceFrameView::getMeasurement()'s doc above; same contract,
+  // host-owner-side accessor.
+  const SurfaceMeasurement* getMeasurement(SurfaceMeasurementIndex index) const noexcept;
   gsl::span<const ROFIntervalBC> getSourceIntervals(ClusterSourceId source) const;
   // MC labels stay external -- never copied here -- and are resolved
   // through ClusterRef via the non-owning per-source container pointer
