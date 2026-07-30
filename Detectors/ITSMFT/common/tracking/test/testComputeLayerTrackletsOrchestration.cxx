@@ -11,7 +11,9 @@
 
 #include <array>
 #include <cmath>
+#include <functional>
 #include <memory>
+#include <utility>
 #include <vector>
 
 #include <boost/test/unit_test.hpp>
@@ -27,6 +29,7 @@
 #include "ITSMFTTracking/Configuration.h"
 #include "ITSMFTTracking/DecodedCluster.h"
 #include "ITSMFTTracking/DetectorLayout.h"
+#include "ITSMFTTracking/DetectorLayoutBuilder.h"
 #include "ITSMFTTracking/DetectorSurfaceCatalogProvider.h"
 #include "ITSMFTTracking/MFTFwdTrackHelpers.h"
 #include "ITSMFTTracking/MultiSourceLoading.h"
@@ -155,6 +158,15 @@ struct TrackletSnapshot {
   std::vector<int> lookup;
   o2::its::TimeEstBC expectedTimestamp;
   bool nonparticipatingTransitionsEmpty{false};
+  // Gate 4 Slice 0a additions: full per-(legacy-transitionId) tracklet/LUT
+  // content and (fromLayer,toLayer) identity, for multi-transition
+  // candidate-set/order/LUT parity checks that go beyond the single
+  // `transitionId` above. Indices across these three vectors correspond
+  // 1:1, in ascending legacy transitionId order.
+  std::vector<int> allTransitionFromLayer;
+  std::vector<int> allTransitionToLayer;
+  std::vector<std::vector<o2::its::Tracklet>> allTracklets;
+  std::vector<std::vector<int>> allLookups;
 };
 
 /// Independent acceptance oracle for the Gate 3 transition-preparation slice
@@ -222,7 +234,8 @@ TrackletSnapshot runFixture(o2::detectors::DetID::ID detector,
                             SurfaceKind kind,
                             TransitionPolicyTag tag,
                             std::vector<DecodedCluster> decoded,
-                            int nThreads)
+                            int nThreads,
+                            std::function<void(TrackingParameters&)> customizeParams = {})
 {
   auto pool = std::make_shared<BoundedMemoryResource>();
   TimeFrame<NLayers> tf;
@@ -234,6 +247,9 @@ TrackletSnapshot runFixture(o2::detectors::DetID::ID detector,
   params[0].CreateArtefactLabels = false;
   params[0].PassFlags.reset();
   params[0].PassFlags.set(IterationStep::FirstPass, IterationStep::RebuildClusterLUT);
+  if (customizeParams) {
+    customizeParams(params[0]);
+  }
 
   tf.setMemoryPool(pool);
   traits.setMemoryPool(pool);
@@ -367,6 +383,19 @@ TrackletSnapshot runFixture(o2::detectors::DetID::ID detector,
       break;
     }
   }
+
+  // Gate 4 Slice 0a: full per-transition snapshot, ascending legacy
+  // transitionId order, for multi-transition candidate-set/order/LUT parity
+  // checks (see e.g. ItsIdentityLayoutTrackletsSpanMultipleAdjacentTransitionsInOrder).
+  for (int id = 0; id < topology.nTransitions; ++id) {
+    const auto& transition = topology.getTransition(id);
+    result.allTransitionFromLayer.push_back(transition.fromLayer);
+    result.allTransitionToLayer.push_back(transition.toLayer);
+    const auto& idTracklets = tf.getTracklets()[id];
+    result.allTracklets.emplace_back(idTracklets.begin(), idTracklets.end());
+    const auto& idLookup = tf.getTrackletsLookupTable()[id];
+    result.allLookups.emplace_back(idLookup.begin(), idLookup.end());
+  }
   return result;
 }
 
@@ -418,6 +447,102 @@ DecodedCluster diskCluster(float x, float y, float z, int layer)
   cluster.sensor = static_cast<uint32_t>(layer);
   cluster.layer = layer;
   return cluster;
+}
+
+/// A chain of `nHops + 1` disk clusters (layers 0..nHops) consistent with a
+/// single forward trajectory: each hop's target position is computed by
+/// projecting from the previous hop's own cluster position via
+/// detail::mftTrackletProject -- the same primitive
+/// projectSearchWindow<DiskDisk> itself uses internally -- so every adjacent
+/// pair in the chain is a genuine geometric match, not just the first one.
+std::vector<DecodedCluster> buildMftChainClusters(const TrackingParameters& params, float bz, int nHops)
+{
+  std::vector<DecodedCluster> clusters;
+  float x = 1.f, y = 0.5f;
+  float z = detail::mftLayerZ(0);
+  clusters.push_back(diskCluster(x, y, z, 0));
+  for (int hop = 0; hop < nHops; ++hop) {
+    const float nextZ = detail::mftLayerZ(hop + 1);
+    float targetX = 0.f, targetY = 0.f;
+    detail::mftTrackletProject(x, y, z, params.Diamond[0], params.Diamond[1], params.Diamond[2],
+                               hop, hop + 1, bz, params.TrackletMinPt, targetX, targetY);
+    clusters.push_back(diskCluster(targetX, targetY, nextZ, hop + 1));
+    x = targetX;
+    y = targetY;
+    z = nextZ;
+  }
+  return clusters;
+}
+
+/// Gate 4 Slice 0a fail-closed coverage: TimeFrame's ensureDetectorLayouts()
+/// is the only production entry point for installing a DetectorLayoutSet,
+/// and it always builds a single-subgraph, single-policyTag layout from a
+/// duplicate-free orderedSurfaces span (DetectorLayoutBuilder already
+/// rejects a duplicate SurfaceId within one subgraph, and TimeFrame's own
+/// ensureDetectorLayouts() has no way to author a combined/mixed-policy
+/// layout at all -- see DetectorLayoutBuilder.cxx / architecture note that
+/// no cross-detector edges exist because none are authored). To directly
+/// exercise TrackerTraits::initialiseTimeFrame()'s own fail-closed checks
+/// (SurfaceLayerMappingMismatch, MixedPolicyLayout) against inputs that
+/// cannot arise through that production entry point, this test-only
+/// subclass installs an already-built DetectorLayoutSet directly, mirroring
+/// the established TraversalTestTimeFrame pattern in
+/// testTimeFrameDetectorLayouts.cxx. initialiseTimeFrame() itself remains
+/// the public method under test; only the upstream layout construction is
+/// bypassed.
+template <int NLayers>
+struct LayoutInjectingTimeFrame : TimeFrame<NLayers> {
+  void installLayout(DetectorLayoutConfigurationKey key, std::vector<SurfaceDescriptor> surfaces, std::vector<DetectorLayout> layouts)
+  {
+    this->mRequiredDetectorLayoutConfiguration = key;
+    this->mDetectorLayouts.emplace(std::move(key), std::move(surfaces), std::move(layouts));
+  }
+};
+
+/// A valid, identity-ordered chain DetectorLayout for `detector`/`kind`/`tag`
+/// (same shape ensureDetectorLayouts() would build for that detector), built
+/// directly via DetectorLayoutBuilder so it can be installed with a
+/// deliberately-corrupted DetectorLayoutConfigurationKey::orderedSurfaces
+/// afterwards.
+std::pair<DetectorLayout, std::vector<SurfaceDescriptor>> buildIdentityChainLayout(uint16_t nSurfaces, o2::detectors::DetID::ID detector, SurfaceKind kind, TransitionPolicyTag tag)
+{
+  auto surfaces = makeCatalog(nSurfaces, detector, kind);
+  DetectorLayoutBuilder builder{surfaces};
+  DetectorLayoutSubgraph subgraph;
+  subgraph.orderedSurfaces = identitySurfaces(nSurfaces);
+  subgraph.maxHoles = 0;
+  subgraph.policyTag = tag;
+  auto result = builder.addSubgraph(std::move(subgraph)).build();
+  BOOST_REQUIRE(result.ok());
+  return {std::move(*result.layout), std::move(surfaces)};
+}
+
+std::vector<SurfaceId> rangeSurfaces(uint16_t first, uint16_t count)
+{
+  std::vector<SurfaceId> ids;
+  ids.reserve(count);
+  for (uint16_t i = 0; i < count; ++i) {
+    ids.push_back(SurfaceId{static_cast<uint16_t>(first + i)});
+  }
+  return ids;
+}
+
+/// Disconnected catalog spanning [0, nCylinders) as Cylinder/ITS surfaces and
+/// [nCylinders, nCylinders + nDisks) as Disk/MFT surfaces, in one shared
+/// global SurfaceId space -- material is left default-initialized since
+/// CombinedCylinderAndDiskLayoutIsRejectedBeforeTrackletProcessing never
+/// reaches the material-validation step.
+std::vector<SurfaceDescriptor> combinedCatalog(uint16_t nCylinders, uint16_t nDisks)
+{
+  std::vector<SurfaceDescriptor> surfaces;
+  for (uint16_t s = 0; s < nCylinders; ++s) {
+    surfaces.push_back(SurfaceDescriptor{SurfaceId{s}, s, static_cast<uint8_t>(o2::detectors::DetID::ITS), SurfaceKind::Cylinder});
+  }
+  for (uint16_t s = 0; s < nDisks; ++s) {
+    const auto id = SurfaceId{static_cast<uint16_t>(nCylinders + s)};
+    surfaces.push_back(SurfaceDescriptor{id, s, static_cast<uint8_t>(o2::detectors::DetID::MFT), SurfaceKind::Disk});
+  }
+  return surfaces;
 }
 
 } // namespace
@@ -558,4 +683,254 @@ BOOST_AUTO_TEST_CASE(InitialiseTimeFrameFailureLeavesTransitionArraysZeroFilledN
     BOOST_CHECK_EQUAL(msAngles[id], 0.f);
     BOOST_CHECK_EQUAL(phiCuts[id], 0.f);
   }
+}
+
+// ---------------------------------------------------------------------------
+// Gate 4 Slice 0a (sparse-topology tracklet migration) additions below.
+// ---------------------------------------------------------------------------
+
+BOOST_AUTO_TEST_CASE(ItsIdentityLayoutTrackletsSpanMultipleAdjacentTransitionsInOrder)
+{
+  // Collinear track across 4 barrel layers (z = 0.1 * r for every cluster).
+  // Under ITS's default MaxHoles=0 only strictly-adjacent transitions exist
+  // at all, so this directly proves transition-level tracklet/LUT/order
+  // parity across three distinct transitions simultaneously -- each
+  // resolved through the migrated computeLayerTrackletsForPolicy() via a
+  // fresh mSurfaceToLegacyLayer lookup -- not just the single transition the
+  // tests above check, while every non-participating transition (touching
+  // layers 4/5/6) stays empty.
+  const std::vector<DecodedCluster> clusters{
+    cylinderCluster(3.f, 0.3f, 0),
+    cylinderCluster(4.f, 0.4f, 1),
+    cylinderCluster(5.f, 0.5f, 2),
+    cylinderCluster(6.f, 0.6f, 3)};
+  const auto snapshot = runFixture<ITSNLayers>(o2::detectors::DetID::ITS, SurfaceKind::Cylinder,
+                                               TransitionPolicyTag::CylinderCylinder, clusters, 1);
+  // Each transition's expected tanLambda is computed from its own specific
+  // (radius, z) pair rather than one shared constant: although every pair
+  // shares the same nominal slope (z = 0.1 * r), float subtraction/division
+  // of different operand pairs does not generally round to the identical
+  // bit pattern even when the mathematical result is the same value.
+  constexpr std::array<float, 4> radii{3.f, 4.f, 5.f, 6.f};
+  constexpr std::array<float, 4> zs{0.3f, 0.4f, 0.5f, 0.6f};
+  const float expectedPhi = o2::gpu::CAMath::ATan2(0.f, -1.f);
+  const std::vector<int> expectedLookup{0, 1};
+
+  BOOST_REQUIRE_EQUAL(snapshot.allTransitionFromLayer.size(), snapshot.allTracklets.size());
+  BOOST_REQUIRE_EQUAL(snapshot.allTransitionFromLayer.size(), snapshot.allLookups.size());
+  bool sawTransition01 = false, sawTransition12 = false, sawTransition23 = false;
+  for (size_t id = 0; id < snapshot.allTransitionFromLayer.size(); ++id) {
+    const int from = snapshot.allTransitionFromLayer[id];
+    const int to = snapshot.allTransitionToLayer[id];
+    const bool participates = (from == 0 && to == 1) || (from == 1 && to == 2) || (from == 2 && to == 3);
+    if (participates) {
+      BOOST_REQUIRE_EQUAL(snapshot.allTracklets[id].size(), 1u);
+      const auto& tracklet = snapshot.allTracklets[id].front();
+      BOOST_CHECK_EQUAL(tracklet.firstClusterIndex, 0);
+      BOOST_CHECK_EQUAL(tracklet.secondClusterIndex, 0);
+      const float expectedTanLambda = (zs[from] - zs[to]) / (radii[from] - radii[to]);
+      BOOST_CHECK_EQUAL(tracklet.tanLambda, expectedTanLambda);
+      BOOST_CHECK_EQUAL(tracklet.phi, expectedPhi);
+      BOOST_CHECK_EQUAL_COLLECTIONS(snapshot.allLookups[id].begin(), snapshot.allLookups[id].end(), expectedLookup.begin(), expectedLookup.end());
+      sawTransition01 |= (from == 0 && to == 1);
+      sawTransition12 |= (from == 1 && to == 2);
+      sawTransition23 |= (from == 2 && to == 3);
+    } else {
+      BOOST_CHECK(snapshot.allTracklets[id].empty());
+    }
+  }
+  BOOST_CHECK(sawTransition01);
+  BOOST_CHECK(sawTransition12);
+  BOOST_CHECK(sawTransition23);
+}
+
+BOOST_AUTO_TEST_CASE(MftIdentityLayoutTrackletsSpanMultipleAdjacentTransitionsInOrder)
+{
+  // Same multi-transition parity property for the DiskDisk/forward family:
+  // a 4-disk chain built hop-by-hop with detail::mftTrackletProject (the
+  // same primitive projectSearchWindow<DiskDisk> uses internally), proving
+  // transitions (0,1),(1,2),(2,3) each get exactly one correctly-ordered
+  // tracklet and every other transition stays empty.
+  TrackingParameters params;
+  resetDetectorDefaults(params, o2::detectors::DetID::MFT);
+  const auto clusters = buildMftChainClusters(params, Bz, 3);
+  BOOST_REQUIRE_EQUAL(clusters.size(), 4u);
+  const auto snapshot = runFixture<MFTNLayers>(o2::detectors::DetID::MFT, SurfaceKind::Disk,
+                                               TransitionPolicyTag::DiskDisk, clusters, 1);
+  const std::vector<int> expectedLookup{0, 1};
+
+  BOOST_REQUIRE_EQUAL(snapshot.allTransitionFromLayer.size(), snapshot.allTracklets.size());
+  BOOST_REQUIRE_EQUAL(snapshot.allTransitionFromLayer.size(), snapshot.allLookups.size());
+  bool sawTransition01 = false, sawTransition12 = false, sawTransition23 = false;
+  for (size_t id = 0; id < snapshot.allTransitionFromLayer.size(); ++id) {
+    const int from = snapshot.allTransitionFromLayer[id];
+    const int to = snapshot.allTransitionToLayer[id];
+    const bool participates = (from == 0 && to == 1) || (from == 1 && to == 2) || (from == 2 && to == 3);
+    if (participates) {
+      BOOST_REQUIRE_EQUAL(snapshot.allTracklets[id].size(), 1u);
+      const auto& tracklet = snapshot.allTracklets[id].front();
+      BOOST_CHECK_EQUAL(tracklet.firstClusterIndex, 0);
+      BOOST_CHECK_EQUAL(tracklet.secondClusterIndex, 0);
+      // (fromZ - toZ) / (toZ - fromZ) is exactly -1 for any two distinct
+      // z values -- the same identity DiskOnePassAndTwoPassProduceIdenticalTracklets
+      // above already relies on for its single-hop expectedTanLambda.
+      BOOST_CHECK_EQUAL(tracklet.tanLambda, -1.f);
+      BOOST_CHECK_EQUAL_COLLECTIONS(snapshot.allLookups[id].begin(), snapshot.allLookups[id].end(), expectedLookup.begin(), expectedLookup.end());
+      sawTransition01 |= (from == 0 && to == 1);
+      sawTransition12 |= (from == 1 && to == 2);
+      sawTransition23 |= (from == 2 && to == 3);
+    } else {
+      BOOST_CHECK(snapshot.allTracklets[id].empty());
+    }
+  }
+  BOOST_CHECK(sawTransition01);
+  BOOST_CHECK(sawTransition12);
+  BOOST_CHECK(sawTransition23);
+}
+
+BOOST_AUTO_TEST_CASE(ItsHoleTransitionTrackletResolvesCorrectLegacyLayerEndpoints)
+{
+  // MaxHoles=1 with layer 1 an allowed hole introduces a (0,2)-skip-1
+  // transition whose sparse SurfaceTransition endpoints are SurfaceId{0}/
+  // SurfaceId{2} -- a direct, non-adjacent exercise of mSurfaceToLegacyLayer
+  // resolving a transition's endpoints correctly, and of hole/skipped-surface
+  // behaviour staying identical to the pre-migration code (which read the
+  // same fromLayer/toLayer straight off the legacy view). No cluster is
+  // placed on layer 1 at all, so only the hole transition can produce a
+  // tracklet.
+  const std::vector<DecodedCluster> clusters{
+    cylinderCluster(3.f, 0.3f, 0),
+    cylinderCluster(5.f, 0.5f, 2)};
+  const auto snapshot = runFixture<ITSNLayers>(
+    o2::detectors::DetID::ITS, SurfaceKind::Cylinder, TransitionPolicyTag::CylinderCylinder, clusters, 1,
+    [](TrackingParameters& p) {
+      p.MaxHoles = 1;
+      p.HoleLayerMask = LayerMask{static_cast<uint16_t>(1u << 1)};
+    });
+
+  const float expectedTanLambda = (0.3f - 0.5f) / (3.f - 5.f);
+  const float expectedPhi = o2::gpu::CAMath::ATan2(0.f, -1.f);
+  bool sawHoleTransition = false;
+  BOOST_REQUIRE_EQUAL(snapshot.allTransitionFromLayer.size(), snapshot.allTracklets.size());
+  for (size_t id = 0; id < snapshot.allTransitionFromLayer.size(); ++id) {
+    const int from = snapshot.allTransitionFromLayer[id];
+    const int to = snapshot.allTransitionToLayer[id];
+    if (from == 0 && to == 2) {
+      sawHoleTransition = true;
+      BOOST_REQUIRE_EQUAL(snapshot.allTracklets[id].size(), 1u);
+      const auto& tracklet = snapshot.allTracklets[id].front();
+      BOOST_CHECK_EQUAL(tracklet.tanLambda, expectedTanLambda);
+      BOOST_CHECK_EQUAL(tracklet.phi, expectedPhi);
+      const std::vector<int> expectedLookup{0, 1};
+      BOOST_CHECK_EQUAL_COLLECTIONS(snapshot.allLookups[id].begin(), snapshot.allLookups[id].end(), expectedLookup.begin(), expectedLookup.end());
+    } else {
+      BOOST_CHECK(snapshot.allTracklets[id].empty());
+    }
+  }
+  BOOST_CHECK(sawHoleTransition);
+}
+
+BOOST_AUTO_TEST_CASE(DuplicateSurfaceIdMappingFailsClosedBeforeTrackletProcessing)
+{
+  // TimeFrame::ensureDetectorLayouts() -- the only production entry point --
+  // always builds its subgraph from the caller-supplied orderedSurfaces, and
+  // DetectorLayoutBuilder already rejects a duplicate SurfaceId within that
+  // subgraph (DuplicateSurfaceInSubgraph), so a duplicate mapping can never
+  // reach TrackerTraits::initialiseTimeFrame() through that path. This test
+  // installs an otherwise-valid, identity-topology DetectorLayoutSet
+  // directly (LayoutInjectingTimeFrame, mirroring testTimeFrameDetectorLayouts.cxx's
+  // established TraversalTestTimeFrame pattern) with a
+  // DetectorLayoutConfigurationKey::orderedSurfaces that duplicates
+  // SurfaceId{0} at legacy layers 0 and 1 -- exercising exactly (and only)
+  // the new mSurfaceToLegacyLayer bijectivity preflight in
+  // initialiseTimeFrame(), through that method's own public contract.
+  auto built = buildIdentityChainLayout(static_cast<uint16_t>(ITSNLayers), o2::detectors::DetID::ITS, SurfaceKind::Cylinder, TransitionPolicyTag::CylinderCylinder);
+
+  LayoutInjectingTimeFrame<ITSNLayers> tf;
+  DetectorLayoutConfigurationKey key;
+  key.catalogRequest = DetectorSurfaceCatalogRequest{o2::detectors::DetID::ITS, SurfaceId{0}, static_cast<uint32_t>(ITSNLayers)};
+  key.orderedSurfaces = {SurfaceId{0}, SurfaceId{0}, SurfaceId{2}, SurfaceId{3}, SurfaceId{4}, SurfaceId{5}, SurfaceId{6}};
+  key.policyTag = TransitionPolicyTag::CylinderCylinder;
+  key.iterations.push_back(DetectorLayoutIterationConfiguration{static_cast<uint32_t>(ITSNLayers), 0, LayerMask{0}, LayerMask{0}});
+  std::vector<DetectorLayout> layouts;
+  layouts.push_back(std::move(built.first));
+  tf.installLayout(key, std::move(built.second), std::move(layouts));
+
+  auto pool = std::make_shared<BoundedMemoryResource>();
+  std::shared_ptr<tbb::task_arena> arena;
+  TrackerTraits<ITSNLayers> traits;
+  std::vector<TrackingParameters> params(1);
+  resetDetectorDefaults(params[0], o2::detectors::DetID::ITS);
+  tf.setMemoryPool(pool);
+  traits.setMemoryPool(pool);
+  traits.setNThreads(1, arena);
+  traits.adoptTimeFrame(&tf);
+  traits.updateTrackingParameters(params);
+  traits.setBz(Bz);
+
+  BOOST_CHECK_EXCEPTION(traits.initialiseTimeFrame(0), TraversalException, [](const TraversalException& error) {
+    return error.getReason() == TraversalFailureReason::SurfaceLayerMappingMismatch;
+  });
+  BOOST_CHECK(!traits.hasTraversalCache());
+}
+
+BOOST_AUTO_TEST_CASE(CombinedCylinderAndDiskLayoutIsRejectedBeforeTrackletProcessing)
+{
+  // Gate 4 Slice 0a scoping note (accepted plan revision): a layout
+  // combining both TransitionPolicyTags cannot be authored through the
+  // production ensureDetectorLayouts() entry point at all -- it always
+  // builds a single-subgraph, single-policyTag layout, matching the
+  // architecture note that no cross-detector edges exist because none are
+  // authored. This test installs one directly to prove
+  // TrackerTraits::initialiseTimeFrame() still fails closed
+  // (MixedPolicyLayout) before mTraversalGrouping is committed and before
+  // computeLayerTracklets() could process anything -- i.e. that no
+  // duplicate/cross-tag candidate processing is possible even if such a
+  // layout existed. Per-tag span exactness/disjointness itself is already
+  // proven at the TransitionPolicyGrouping/dispatchTransitionPolicies level
+  // by testTransitionPolicyDispatch.cxx's
+  // CombinedDisconnectedLayoutDispatchesBothFamiliesWithoutDetectorBranching
+  // and RoadStartCellsSeparateCylinderAndDiskSpansInACombinedGrouping; this
+  // test is the TrackerTraits-level complement covering the "rejected" case.
+  const auto nCylinders = static_cast<uint16_t>(ITSNLayers);
+  const auto nDisks = static_cast<uint16_t>(MFTNLayers);
+  const auto total = static_cast<uint16_t>(nCylinders + nDisks);
+  auto surfaces = combinedCatalog(nCylinders, nDisks);
+
+  DetectorLayoutBuilder builder{surfaces};
+  DetectorLayoutSubgraph cylinderSubgraph;
+  cylinderSubgraph.orderedSurfaces = rangeSurfaces(0, nCylinders);
+  cylinderSubgraph.policyTag = TransitionPolicyTag::CylinderCylinder;
+  DetectorLayoutSubgraph diskSubgraph;
+  diskSubgraph.orderedSurfaces = rangeSurfaces(nCylinders, nDisks);
+  diskSubgraph.policyTag = TransitionPolicyTag::DiskDisk;
+  auto result = builder.addSubgraph(std::move(cylinderSubgraph)).addSubgraph(std::move(diskSubgraph)).build();
+  BOOST_REQUIRE(result.ok());
+
+  LayoutInjectingTimeFrame<ITSNLayers> tf;
+  DetectorLayoutConfigurationKey key;
+  key.catalogRequest = DetectorSurfaceCatalogRequest{o2::detectors::DetID::ITS, SurfaceId{0}, static_cast<uint32_t>(total)};
+  key.orderedSurfaces = identitySurfaces(nCylinders);
+  key.policyTag = TransitionPolicyTag::CylinderCylinder;
+  key.iterations.push_back(DetectorLayoutIterationConfiguration{static_cast<uint32_t>(ITSNLayers), 0, LayerMask{0}, LayerMask{0}});
+  std::vector<DetectorLayout> layouts;
+  layouts.push_back(std::move(*result.layout));
+  tf.installLayout(key, std::move(surfaces), std::move(layouts));
+
+  auto pool = std::make_shared<BoundedMemoryResource>();
+  std::shared_ptr<tbb::task_arena> arena;
+  TrackerTraits<ITSNLayers> traits;
+  std::vector<TrackingParameters> params(1);
+  resetDetectorDefaults(params[0], o2::detectors::DetID::ITS);
+  tf.setMemoryPool(pool);
+  traits.setMemoryPool(pool);
+  traits.setNThreads(1, arena);
+  traits.adoptTimeFrame(&tf);
+  traits.updateTrackingParameters(params);
+  traits.setBz(Bz);
+
+  BOOST_CHECK_EXCEPTION(traits.initialiseTimeFrame(0), TraversalException, [](const TraversalException& error) {
+    return error.getReason() == TraversalFailureReason::MixedPolicyLayout;
+  });
+  BOOST_CHECK(!traits.hasTraversalCache());
 }
