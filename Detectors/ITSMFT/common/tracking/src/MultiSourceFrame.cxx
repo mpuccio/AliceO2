@@ -14,21 +14,28 @@ namespace o2::itsmft::tracking
 
 void MultiSourceFrame::clear() noexcept
 {
-  mMeasurements.clear();
-  mSurfaceRanges.clear();
+  mPerSurfaceMeasurements.clear();
+  mSurfaceSpans.clear();
   mSources.clear();
   mROFIntervals.clear();
   mSourceROFOffsets.clear();
   mLabelSources.clear();
 }
 
+void MultiSourceFrame::rebuildSurfaceSpans()
+{
+  mSurfaceSpans.resize(mPerSurfaceMeasurements.size());
+  for (size_t s = 0; s < mPerSurfaceMeasurements.size(); ++s) {
+    const auto& measurements = mPerSurfaceMeasurements[s];
+    mSurfaceSpans[s] = SurfaceMeasurementSpan{measurements.data(), static_cast<uint32_t>(measurements.size())};
+  }
+}
+
 MultiSourceFrameView MultiSourceFrame::getView() const noexcept
 {
   MultiSourceFrameView view;
-  view.measurements = mMeasurements.data();
-  view.nMeasurements = static_cast<uint32_t>(mMeasurements.size());
-  view.surfaceRanges = mSurfaceRanges.data();
-  view.nSurfaces = static_cast<uint32_t>(mSurfaceRanges.size());
+  view.surfaces = mSurfaceSpans.data();
+  view.nSurfaces = static_cast<uint32_t>(mSurfaceSpans.size());
   view.rofIntervals = mROFIntervals.data();
   view.sourceROFOffsets = mSourceROFOffsets.data();
   view.nSources = static_cast<uint32_t>(mSources.size());
@@ -37,19 +44,20 @@ MultiSourceFrameView MultiSourceFrame::getView() const noexcept
 
 gsl::span<const SurfaceMeasurement> MultiSourceFrame::getSurfaceMeasurements(SurfaceId surface) const
 {
-  if (!surface.isValid() || surface.value() >= mSurfaceRanges.size()) {
+  if (!surface.isValid() || surface.value() >= mPerSurfaceMeasurements.size()) {
     return {};
   }
-  const auto& range = mSurfaceRanges[surface.value()];
-  if (range.getEntries() == 0) {
-    return {};
-  }
-  return {mMeasurements.data() + range.getFirstEntry(), range.getEntries()};
+  const auto& measurements = mPerSurfaceMeasurements[surface.value()];
+  return {measurements.data(), measurements.size()};
 }
 
-const SurfaceMeasurement* MultiSourceFrame::getMeasurement(SurfaceMeasurementIndex index) const noexcept
+const SurfaceMeasurement* MultiSourceFrame::getMeasurement(SurfaceId surface, SurfaceMeasurementIndex index) const noexcept
 {
-  return (index.isValid() && index.value() < mMeasurements.size()) ? &mMeasurements[index.value()] : nullptr;
+  if (!surface.isValid() || surface.value() >= mPerSurfaceMeasurements.size() || !index.isValid()) {
+    return nullptr;
+  }
+  const auto& measurements = mPerSurfaceMeasurements[surface.value()];
+  return index.value() < measurements.size() ? &measurements[index.value()] : nullptr;
 }
 
 gsl::span<const ROFIntervalBC> MultiSourceFrame::getSourceIntervals(ClusterSourceId source) const
@@ -77,19 +85,18 @@ gsl::span<const o2::MCCompLabel> MultiSourceFrame::getLabels(ClusterRef cluster)
   return container->getLabels(cluster.index);
 }
 
-void MultiSourceFrame::assignLoadedData(std::vector<SurfaceMeasurement>&& measurements,
-                                        std::vector<SurfaceMeasurementRange>&& surfaceRanges,
+void MultiSourceFrame::assignLoadedData(std::vector<std::vector<SurfaceMeasurement>>&& perSurfaceMeasurements,
                                         std::vector<SourceMetadata>&& sources,
                                         std::vector<ROFIntervalBC>&& rofIntervals,
                                         std::vector<uint32_t>&& sourceROFOffsets,
                                         std::vector<const o2::dataformats::MCTruthContainer<o2::MCCompLabel>*>&& labelSources)
 {
-  mMeasurements = std::move(measurements);
-  mSurfaceRanges = std::move(surfaceRanges);
+  mPerSurfaceMeasurements = std::move(perSurfaceMeasurements);
   mSources = std::move(sources);
   mROFIntervals = std::move(rofIntervals);
   mSourceROFOffsets = std::move(sourceROFOffsets);
   mLabelSources = std::move(labelSources);
+  rebuildSurfaceSpans();
 }
 
 } // namespace o2::itsmft::tracking

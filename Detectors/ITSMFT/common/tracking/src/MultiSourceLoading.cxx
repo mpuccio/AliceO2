@@ -196,20 +196,10 @@ LoadSourcesResult loadSources(MultiSourceFrame& frame,
     }
   }
 
-  // 5. Commit: flatten per-surface buckets and per-source timing into the
-  //    frame's contiguous storage in a single atomic assignment.
-  std::vector<SurfaceMeasurement> flatMeasurements;
-  std::vector<SurfaceMeasurementRange> ranges(catalog.nSurfaces);
-  size_t total = 0;
-  for (uint32_t s = 0; s < catalog.nSurfaces; ++s) {
-    total += perSurface[s].size();
-  }
-  flatMeasurements.reserve(total);
-  for (uint32_t s = 0; s < catalog.nSurfaces; ++s) {
-    ranges[s] = SurfaceMeasurementRange{static_cast<uint32_t>(flatMeasurements.size()), static_cast<uint32_t>(perSurface[s].size())};
-    flatMeasurements.insert(flatMeasurements.end(), perSurface[s].begin(), perSurface[s].end());
-  }
-
+  // 5. Commit: `perSurface` is already this frame's per-surface storage
+  //    shape (one array per SurfaceId) -- no flattening into a shared array.
+  //    Only per-source timing is flattened here, into its own per-source
+  //    offset table, unrelated to measurement storage.
   std::vector<uint32_t> sourceOffsets(nSources + 1, 0);
   for (uint32_t s = 0; s < nSources; ++s) {
     sourceOffsets[s + 1] = sourceOffsets[s] + static_cast<uint32_t>(perSourceIntervals[s].size());
@@ -220,7 +210,7 @@ LoadSourcesResult loadSources(MultiSourceFrame& frame,
     flatIntervals.insert(flatIntervals.end(), perSourceIntervals[s].begin(), perSourceIntervals[s].end());
   }
 
-  frame.assignLoadedData(std::move(flatMeasurements), std::move(ranges), std::move(sourcesMeta),
+  frame.assignLoadedData(std::move(perSurface), std::move(sourcesMeta),
                          std::move(flatIntervals), std::move(sourceOffsets), std::move(labelSources));
   return {};
 }

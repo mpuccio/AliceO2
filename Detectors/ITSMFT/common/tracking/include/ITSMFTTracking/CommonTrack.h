@@ -12,13 +12,38 @@
 #include <cstdint>
 #include <type_traits>
 
-#include "DataFormatsITS/TimeEstBC.h"
 #include "GPUCommonDef.h"
+#include "ITSMFTTracking/SurfaceId.h"
 #include "ITSMFTTracking/SurfaceKinematicState.h"
 #include "ITSMFTTracking/SurfaceMask.h"
+#include "ITSMFTTracking/SurfaceMeasurementIndex.h"
+#include "ITSMFTTracking/SurfaceTiming.h"
 
 namespace o2::itsmft::tracking
 {
+
+// Detector-neutral element of the TimeFrame-owned flat track-membership
+// array (TimeFrame::getTrackClusterIndices()). `surface` identifies which
+// surface's own measurement array `index` is a position into -- measurements
+// are owned per surface (MultiSourceFrame/MultiSourceFrameView), never as one
+// flattened global array, so a bare SurfaceMeasurementIndex alone is never a
+// complete identity: it must always be paired with the SurfaceId it is local
+// to. A reference resolves through exactly one call:
+//   normalizedFrame.getMeasurement(reference.surface, reference.index)
+// Never a detector-local raw cluster index or external cluster ID: those
+// remain ClusterRef's job (source-qualified, ITSMFTTracking/
+// SurfaceMeasurement.h), a different identity axis entirely.
+struct TrackClusterReference {
+  SurfaceId surface{};
+  SurfaceMeasurementIndex index{};
+};
+
+static_assert(std::is_standard_layout_v<TrackClusterReference>);
+static_assert(std::is_trivially_copyable_v<TrackClusterReference>);
+static_assert(sizeof(TrackClusterReference) == 8);
+static_assert(alignof(TrackClusterReference) == 4);
+static_assert(offsetof(TrackClusterReference, surface) == 0);
+static_assert(offsetof(TrackClusterReference, index) == 4);
 
 // Detector-neutral common-CA tracking result (Architecture.md Sec 12: "The
 // TimeFrame stores a generic internal result"). Owned by the common
@@ -31,54 +56,68 @@ namespace o2::itsmft::tracking
 // Cluster membership is not stored inline. firstClusterRef/clusterRefEnd is
 // a half-open [firstClusterRef, clusterRefEnd) range of *positions* into the
 // TimeFrame-owned flat trackClusterIndices array (see
-// TimeFrame::getTrackClusterIndices()); see isValidTrackRange() below for the
-// exact validity condition. Each element of that array is, in turn, a
-// SurfaceMeasurementIndex -- a canonical position into the flattened,
-// normalized SurfaceMeasurement array owned by MultiSourceFrame
-// (MultiSourceFrame::getMeasurement()/MultiSourceFrameView::getMeasurement())
-// -- never a detector-local layer index or a raw external cluster index.
-// References are stored in traversal order, inner to outer.
+// TimeFrame::getTrackClusterIndices(), an array of TrackClusterReference);
+// see isValidTrackRange() below for the exact validity condition. Each
+// referenced TrackClusterReference resolves through
+// normalizedFrame.getMeasurement(reference.surface, reference.index) -- see
+// that struct's own doc above. References are stored in traversal order,
+// inner to outer.
 //
 // innerState/outerState reuse SurfaceKinematicState directly (Barrel or
 // Forward family, selected by SurfaceKinematicState::family): this is
 // deliberately not a second five-parameter/covariance representation.
 // hitSurfaces uses the global 32-bit SurfaceMask (ITSMFTTracking/
-// SurfaceMask.h), never the legacy 16-bit per-NLayers LayerMask. For a
-// valid, completed track, hitSurfaces is the union of the SurfaceId of every
-// measurement referenced by [firstClusterRef, clusterRefEnd) -- this is a
-// consumer-side invariant (see testCommonTrack.cxx), not something this
-// struct enforces by construction, since populating a CommonTrack from CA
-// seeds is out of scope for this slice.
+// SurfaceMask.h), never the legacy 16-bit per-NLayers LayerMask. For a valid,
+// completed track: every TrackClusterReference in
+// [firstClusterRef, clusterRefEnd) resolves to an existing measurement whose
+// own SurfaceMeasurement::surface equals that reference's surface field, and
+// hitSurfaces is the union of those surfaces. This is a consumer-side
+// invariant (see testCommonTrack.cxx), not something this struct enforces by
+// construction, since populating a CommonTrack from CA seeds is out of scope
+// for this slice.
 //
-// Lifetime: track-cluster-index storage and CommonTrack storage are
-// TimeFrame event data, invalidated together by TimeFrame::wipe() (and by
-// any subsequent reload), exactly like every other per-event CA artefact
-// (mCells, mTracks, ...). A CommonTrack's firstClusterRef/clusterRefEnd
-// range, and every SurfaceMeasurementIndex it reaches through
-// trackClusterIndices, are only meaningful together with the TimeFrame's
-// normalized frame (MultiSourceFrame) that was current when the track was
-// built; none of the three are individually meaningful once any of the
-// other two has been wiped or reloaded.
+// timestamp is CommonTrackTimestamp (ITSMFTTracking/SurfaceTiming.h), the
+// common TFBC-based half-open BC interval -- not o2::its::TimeEstBC, which
+// is not standard-layout (its TimeStampWithError/TimeStamp base hierarchy
+// declares non-static data members at more than one level) and is an
+// ITS-namespaced type despite being reused elsewhere in this library.
+//
+// Lifetime: track-cluster-reference storage and CommonTrack storage are
+// TimeFrame event data. Both are cleared together with every other
+// per-event CA artefact by TimeFrame::wipe(), and are also cleared together,
+// in the same successful commit, whenever TimeFrame::loadNormalizedSource()
+// replaces the normalized frame they were built against (a stale
+// CommonTrack/trackClusterIndices pair referencing measurements from a
+// now-replaced normalized frame is not meaningful and must not survive a
+// reload). A *failed* loadNormalizedSource() call leaves the normalized
+// frame, CommonTrack storage and trackClusterIndices all completely
+// unchanged, matching that call's existing transactional contract for every
+// other TimeFrame member. A CommonTrack's range, and every
+// TrackClusterReference it reaches, are only meaningful together with the
+// TimeFrame's normalized frame that was current when the track was built;
+// none of the three is individually meaningful once any of the other two
+// has been wiped or reloaded.
 struct CommonTrack {
   SurfaceKinematicState innerState{};
   SurfaceKinematicState outerState{};
   float chi2{0.f};
-  o2::its::TimeEstBC timestamp{};
+  CommonTrackTimestamp timestamp{};
   SurfaceMask hitSurfaces{};
   uint32_t firstClusterRef{0};
   uint32_t clusterRefEnd{0};
 };
 
-// Not standard-layout: o2::its::TimeEstBC's own base hierarchy
-// (TimeStampWithError<uint32_t,uint16_t> -> TimeStamp<uint32_t>) declares
-// non-static data members at more than one level, which by itself makes any
-// aggregate containing it non-standard-layout -- regardless of CommonTrack's
-// own (single-level, non-virtual, all-public) structure. This does not
-// affect device/host compatibility in practice: CommonTrack has no virtual
-// functions or bases of its own and every member (including TimeEstBC) is
-// trivially copyable, which is what device views and bounded_vector storage
-// actually require.
-static_assert(!std::is_standard_layout_v<o2::its::TimeEstBC>);
+// Standard-layout and trivially-copyable together -- not trivial-copyability
+// alone. Trivial-copyability only guarantees CommonTrack's bytes may be
+// copied (e.g. memcpy'd to a device buffer) without invoking non-trivial
+// special member functions; it says nothing about a consistent, portable
+// field layout. Standard-layout is the property that additionally
+// guarantees a single, well-defined member order usable with `offsetof` and
+// consistent across host and device compilation -- both properties are
+// required together for the same reason every other device-facing type in
+// this library asserts both (SurfaceMeasurement, StaticSurfaceDescriptor,
+// DetectorLayoutView, ...), and neither one substitutes for the other.
+static_assert(std::is_standard_layout_v<CommonTrack>);
 static_assert(std::is_trivially_copyable_v<CommonTrack>);
 
 // A track range is valid iff 0 <= firstClusterRef <= clusterRefEnd <=

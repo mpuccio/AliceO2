@@ -631,6 +631,17 @@ LoadSourcesResult TimeFrame<NLayers>::loadNormalizedSource(
     mNTrackletsPerCluster[i].swap(stagedNTrackletsPerCluster[i]);
     mNTrackletsPerClusterSum[i].swap(stagedNTrackletsPerClusterSum[i]);
   }
+  // Gate 4 CommonTrack foundation: mNormalizedFrame above has just been
+  // replaced, so any CommonTrack/TrackClusterReference built against the
+  // previous normalized frame no longer refers to anything meaningful and
+  // must not survive this commit -- cleared here, in the same successful
+  // commit, exactly like every other member this call replaces. Both
+  // deepVectorClear() calls are the same destroy-and-placement-new-in-place
+  // operation wipe() already relies on unconditionally elsewhere in this
+  // file, so this preserves the "nothing past this point can throw"
+  // contract above.
+  deepVectorClear(mCommonTracks);
+  deepVectorClear(mTrackClusterIndices);
 
   return result;
 }

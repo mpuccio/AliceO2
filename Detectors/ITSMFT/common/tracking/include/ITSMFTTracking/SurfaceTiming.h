@@ -8,6 +8,7 @@
 #ifndef ALICEO2_ITSMFT_TRACKING_SURFACETIMING_H_
 #define ALICEO2_ITSMFT_TRACKING_SURFACETIMING_H_
 
+#include <cstddef>
 #include <cstdint>
 #include <limits>
 #include <type_traits>
@@ -58,6 +59,36 @@ struct ROFIntervalBC {
 
 static_assert(std::is_standard_layout_v<ROFIntervalBC>);
 static_assert(std::is_trivially_copyable_v<ROFIntervalBC>);
+
+// A track/cell/road-level TF-relative BC time estimate, expressed as the
+// same half-open [begin, end) convention as ROFIntervalBC, but without a
+// source-ROF identity: this represents a merged estimate potentially
+// combining several sources/ROFs, not one source's own single ROF. Standard-
+// layout and trivially-copyable (unlike o2::its::TimeEstBC, whose own
+// TimeStampWithError/TimeStamp base hierarchy declares non-static data
+// members at more than one level and is therefore not standard-layout):
+// this is the common, detector-neutral type CommonTrack
+// (ITSMFTTracking/CommonTrack.h) uses for its own timestamp field.
+struct CommonTrackTimestamp {
+  TFBC begin{0};
+  TFBC end{0};
+
+  GPUhdi() constexpr bool isValid() const noexcept { return begin < end; }
+  // Half-open interval intersection test, matching ROFIntervalBC's
+  // intersects() semantics exactly: adjacent (touching) intervals do not
+  // intersect, and an invalid interval never intersects anything.
+  GPUhdi() constexpr bool isCompatible(const CommonTrackTimestamp& other) const noexcept
+  {
+    return isValid() && other.isValid() && begin < other.end && other.begin < end;
+  }
+};
+
+static_assert(std::is_standard_layout_v<CommonTrackTimestamp>);
+static_assert(std::is_trivially_copyable_v<CommonTrackTimestamp>);
+static_assert(sizeof(CommonTrackTimestamp) == 16);
+static_assert(alignof(CommonTrackTimestamp) == alignof(TFBC));
+static_assert(offsetof(CommonTrackTimestamp, begin) == 0);
+static_assert(offsetof(CommonTrackTimestamp, end) == 8);
 
 // Per-source readout timing configuration. Field names and signs mirror
 // o2::its::LayerTiming (ITStracking/ROFLookupTables.h): the ROF start is the

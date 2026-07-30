@@ -40,7 +40,6 @@
 #include "ITSMFTTracking/MultiSourceFrame.h"
 #include "ITSMFTTracking/MultiSourceLoading.h"
 #include "ITSMFTTracking/SurfaceMeasurement.h"
-#include "ITSMFTTracking/SurfaceMeasurementIndex.h"
 #include "ITSMFTTracking/TrackingTopology.h"
 #ifndef GPUCA_GPUCODE
 #include <optional>
@@ -196,6 +195,13 @@ struct TimeFrame {
   // or an exception during staging therefore leaves both the normalized owner
   // and every legacy compatibility accessor unchanged. The final commit uses
   // only checked equal-allocator swaps and no-throw owner moves.
+  //
+  // Gate 4 CommonTrack foundation: a successful commit also clears
+  // mCommonTracks/mTrackClusterIndices, in that same commit, since any
+  // CommonTrack/TrackClusterReference built against the previous normalized
+  // frame is meaningless once this call replaces it (see CommonTrack.h's
+  // lifetime doc). A failing result leaves both completely untouched, like
+  // every other member this call may otherwise commit.
   LoadSourcesResult loadNormalizedSource(const ClusterDecoder& decoder,
                                          const o2::InteractionRecord& origin,
                                          const ROFTimingConfig& timing,
@@ -385,19 +391,22 @@ struct TimeFrame {
   // Unpopulated by this slice -- no production or test call site writes
   // through these accessors from CA seeds yet -- but already event data:
   // both containers are wiped together with every other per-event CA
-  // artefact by wipe() (see wipe()'s own doc) and are only meaningful
-  // together with the TimeFrame's normalized frame (getNormalizedFrame())
-  // that was current when a CommonTrack was built (see CommonTrack.h's own
-  // lifetime doc).
+  // artefact by wipe() (see wipe()'s own doc), and are also cleared
+  // together, in the same successful commit, whenever
+  // loadNormalizedSource() replaces the normalized frame they were built
+  // against (see that method's own doc). They are only meaningful together
+  // with the TimeFrame's normalized frame (getNormalizedFrame()) that was
+  // current when a CommonTrack was built (see CommonTrack.h's own lifetime
+  // doc).
   auto& getCommonTracks() { return mCommonTracks; }
   const auto& getCommonTracks() const { return mCommonTracks; }
-  // Flat, TimeFrame-owned array of SurfaceMeasurementIndex; a CommonTrack's
-  // [firstClusterRef, clusterRefEnd) range (CommonTrack.h) is a half-open
+  // Flat, TimeFrame-owned array of TrackClusterReference (CommonTrack.h); a
+  // CommonTrack's [firstClusterRef, clusterRefEnd) range is a half-open
   // range of *positions* into this array, in traversal order (inner to
-  // outer). Each element is, in turn, a canonical position into the
-  // flattened SurfaceMeasurement array owned by this TimeFrame's normalized
-  // frame (getNormalizedFrame()/getNormalizedFrameView()) -- resolved via
-  // MultiSourceFrame::getMeasurement()/MultiSourceFrameView::getMeasurement().
+  // outer). Each element pairs a SurfaceId with a SurfaceMeasurementIndex
+  // local to that surface's own measurement array -- resolved via
+  // getNormalizedFrame().getMeasurement(reference.surface, reference.index)
+  // -- never a global/flattened measurement position.
   auto& getTrackClusterIndices() { return mTrackClusterIndices; }
   const auto& getTrackClusterIndices() const { return mTrackClusterIndices; }
 
@@ -499,7 +508,7 @@ struct TimeFrame {
   // NLayers; see getCommonTracks()/getTrackClusterIndices() above for the
   // ownership/lifetime contract.
   bounded_vector<CommonTrack> mCommonTracks;
-  bounded_vector<SurfaceMeasurementIndex> mTrackClusterIndices;
+  bounded_vector<TrackClusterReference> mTrackClusterIndices;
 
   const o2::base::PropagatorImpl<float>* mPropagatorDevice = nullptr; // Needed only for GPU
   o2::detectors::DetID::ID mDetId{o2::detectors::DetID::ITS};

@@ -407,7 +407,6 @@ BOOST_AUTO_TEST_CASE(WipeClearsNormalizedFrameButPreservesLayoutConfigurationEpo
   BOOST_CHECK(tf.getNormalizedFrame().getSourceIntervals(ClusterSourceId{0}).empty());
   BOOST_CHECK(tf.getNormalizedFrame().getLabels(ClusterRef{ClusterSourceId{0}, 0}).empty());
   const auto freshView = tf.getNormalizedFrameView();
-  BOOST_CHECK_EQUAL(freshView.nMeasurements, 0u);
   BOOST_CHECK_EQUAL(freshView.nSurfaces, 0u);
   BOOST_CHECK_EQUAL(freshView.nSources, 0u);
 
