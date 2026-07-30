@@ -98,7 +98,16 @@ enum class TraversalFailureReason : uint8_t {
   // tracking state is touched, alongside the LegacyMaterialMismatch check
   // this mirrors; mLayerMeasurements is never partially populated as a
   // result -- see mLayerMeasurements' own doc for the commit contract.
-  NormalizedMeasurementMismatch
+  NormalizedMeasurementMismatch,
+  // Gate 4 Slice 0a (sparse-topology tracklet migration): this iteration's
+  // orderedSurfaces does not define a bijection from legacy layer index onto
+  // global SurfaceId -- i.e. two distinct legacy layers map to the same
+  // SurfaceId. Detected in the same orderedSurfaces walk that resolves
+  // mSurfaceToLegacyLayer (see that member's doc), immediately alongside the
+  // existing per-entry LegacyMaterialMismatch validity/range check, before
+  // any TimeFrame tracking state is touched; mSurfaceToLegacyLayer is never
+  // partially populated as a result.
+  SurfaceLayerMappingMismatch
 };
 
 class TraversalException final : public std::runtime_error
@@ -265,6 +274,25 @@ class TrackerTraits
   // the top of every call, and it stays that way unless the call returns
   // normally. See getLayerMaterial()'s doc for the read-side contract.
   std::array<NominalSurfaceMaterial, NLayers> mLayerMaterial{};
+  // Gate 4 Slice 0a (sparse-topology tracklet migration): temporary bridge
+  // from a global SurfaceId back to this TrackerTraits<NLayers>'s own
+  // legacy layout-local layer index, so the migrated hot loops can resolve
+  // a sparse SurfaceTransition's `from`/`to` endpoints to the legacy layer
+  // indices TimeFrame's per-layer storage (clusters, index tables,
+  // TrackingParameters::LayerRadii, mLayerMaterial, mLayerMeasurements) is
+  // still keyed by. Sized to the full global SurfaceId domain
+  // (MaxLayoutSurfaces, SurfaceId.h) -- never NLayers -- because SurfaceId
+  // numbering is global, not per-detector; only the (at most) NLayers
+  // entries this iteration's orderedSurfaces actually maps are ever valid
+  // for this bridge, every other slot stays kInvalidLegacyLayer. Same
+  // staged-then-committed contract as mLayerMaterial immediately above:
+  // resolved into a local scratch array first, alongside mLayerMaterial, in
+  // the same orderedSurfaces walk (see initialiseTimeFrame()'s step 2.5),
+  // and committed here only in the final traversal-cache commit block.
+  // resetTraversalCache() sentinel-fills every element at the top of every
+  // call, and it stays that way unless the call returns normally.
+  static constexpr uint8_t kInvalidLegacyLayer = 0xFFu;
+  std::array<uint8_t, MaxLayoutSurfaces> mSurfaceToLegacyLayer{};
   // One-time normalized-measurement binding (Stage-B normalized-CA-
   // measurements slice): non-owning per-(legacy-)layer span into the
   // TimeFrame-owned normalized frame, resolved and validated once per

@@ -19,6 +19,7 @@
 #include <cmath>
 #include <limits>
 #include <type_traits>
+#include <utility>
 
 #include <oneapi/tbb/blocked_range.h>
 #include <oneapi/tbb/enumerable_thread_specific.h>
@@ -95,6 +96,7 @@ void TrackerTraits<NLayers>::resetTraversalCache() noexcept
   mDiskLayerReferenceZ = {};
   mAttachHitConfig = {};
   mLayerMaterial.fill(NominalSurfaceMaterial{});
+  mSurfaceToLegacyLayer.fill(kInvalidLegacyLayer);
   mLayerMeasurements.fill(gsl::span<const SurfaceMeasurement>{});
   mTraversalGroupingCount = 0;
   mPolicyBindingCounts.fill(0);
@@ -254,16 +256,33 @@ void TrackerTraits<NLayers>::initialiseTimeFrame(const int iteration)
   // later failure leaves mLayerMaterial exactly as resetTraversalCache() left
   // it (reset/zero-filled), never partially populated from a failed
   // iteration.
+  //
+  // Gate 4 Slice 0a: the same walk also stages mSurfaceToLegacyLayer, the
+  // reverse SurfaceId->legacyLayer bridge the migrated tracklet loop needs
+  // (see that member's doc in TrackerTraits.h). `surfaceId.value() <
+  // layout.nSurfaces <= MaxLayoutSurfaces` is already established by the
+  // check immediately below, so indexing the MaxLayoutSurfaces-wide staged
+  // array is always in-bounds. A duplicate SurfaceId across two legacyLayer
+  // entries -- orderedSurfaces failing to be a bijection onto this
+  // iteration's legacy layers -- rejects with SurfaceLayerMappingMismatch,
+  // before any TimeFrame tracking state is touched, exactly like every
+  // other check in this block.
   const auto& orderedSurfaces = layouts->getConfigurationKey().orderedSurfaces;
   if (orderedSurfaces.size() < static_cast<size_t>(NLayers)) {
     throw TraversalException{iteration, TraversalFailureReason::LegacyMaterialMismatch};
   }
   std::array<NominalSurfaceMaterial, NLayers> stagedLayerMaterial{};
+  std::array<uint8_t, MaxLayoutSurfaces> stagedSurfaceToLegacyLayer;
+  stagedSurfaceToLegacyLayer.fill(kInvalidLegacyLayer);
   for (int legacyLayer = 0; legacyLayer < NLayers; ++legacyLayer) {
     const auto surfaceId = orderedSurfaces[legacyLayer];
     if (!surfaceId.isValid() || surfaceId.value() >= layout.nSurfaces) {
       throw TraversalException{iteration, TraversalFailureReason::LegacyMaterialMismatch};
     }
+    if (stagedSurfaceToLegacyLayer[surfaceId.value()] != kInvalidLegacyLayer) {
+      throw TraversalException{iteration, TraversalFailureReason::SurfaceLayerMappingMismatch};
+    }
+    stagedSurfaceToLegacyLayer[surfaceId.value()] = static_cast<uint8_t>(legacyLayer);
     stagedLayerMaterial[legacyLayer] = layout.getSurface(surfaceId).material;
   }
   if (mTrkParams[iteration].LayerxX0.size() != static_cast<size_t>(NLayers)) {
@@ -511,6 +530,9 @@ void TrackerTraits<NLayers>::initialiseTimeFrame(const int iteration)
   // now-populated, function-lifetime-independent mLayerMaterial member
   // before mAttachHitConfig (which outlives this call) retains it.
   mLayerMaterial = stagedLayerMaterial;
+  // Gate 4 Slice 0a: committed alongside mLayerMaterial, from the same
+  // orderedSurfaces walk above -- see mSurfaceToLegacyLayer's own doc.
+  mSurfaceToLegacyLayer = stagedSurfaceToLegacyLayer;
   attachHitConfig.layerMaterial = gsl::span<const NominalSurfaceMaterial>(mLayerMaterial.data(), mLayerMaterial.size());
   mAttachHitConfig = attachHitConfig;
   // One-time normalized-measurement binding: committed here, alongside every
@@ -583,8 +605,14 @@ void TrackerTraits<NLayers>::prepareTransitionScatteringAndBendingForPolicy(
 template <int NLayers>
 void TrackerTraits<NLayers>::computeLayerTracklets(const int iteration, int iVertex)
 {
-  const auto topology = mTimeFrame->getTrackingTopologyView();
-  for (int transitionId = 0; transitionId < topology.nTransitions; ++transitionId) {
+  // Gate 4 Slice 0a: driven by the sparse topology cached on
+  // initialiseTimeFrame() (mTraversalLayout), not a fresh legacy
+  // getTrackingTopologyView() fetch. This clear/allocation pass is
+  // tag-agnostic and runs once over the full sparse transition count,
+  // regardless of which single policy tag is active for this layout (see
+  // computeLayerTrackletsForPolicy() below for the per-tag-filtered body).
+  const auto& topology = mTraversalLayout.topology;
+  for (uint32_t transitionId = 0; transitionId < topology.nTransitions; ++transitionId) {
     mTimeFrame->getTracklets()[transitionId].clear();
     mTimeFrame->getTrackletsLabel(transitionId).clear();
     std::fill(mTimeFrame->getTrackletsLookupTable()[transitionId].begin(), mTimeFrame->getTrackletsLookupTable()[transitionId].end(), 0);
@@ -620,38 +648,53 @@ void TrackerTraits<NLayers>::computeLayerTrackletsForPolicy(
   gsl::span<const TransitionId> transitionIds,
   const typename TransitionPolicyTraits<Tag>::Params& params)
 {
-  const auto topology = mTimeFrame->getTrackingTopologyView();
+  // Gate 4 Slice 0a: sparse topology (cached, not re-fetched from the
+  // legacy view). `transitionIds` remains the caller-filtered, ascending
+  // per-tag span from TransitionPolicyGrouping -- every loop below still
+  // iterates exclusively over it (or over the tracklet storage it already
+  // populated), never over the raw sparse transition count.
+  const auto& topology = mTraversalLayout.topology;
   const Vertex diamondVert(mTrkParams[iteration].Diamond, mTrkParams[iteration].DiamondCov, 1, 1.f);
 
   mTaskArena->execute([&] {
-    auto makeTransitionState = [&](int transitionId) {
-      const auto& transition = topology.getTransition(transitionId);
+    // Resolves one sparse SurfaceTransition's endpoints to this
+    // TrackerTraits<NLayers>'s legacy layer indices through
+    // mSurfaceToLegacyLayer (built/validated once per iteration in
+    // initialiseTimeFrame(), see that member's doc). Called exactly once
+    // per transitionId, outside every candidate (ROF/cluster/vertex) loop
+    // below -- never re-derived per candidate.
+    auto resolveTransitionLayers = [&](int transitionId) -> std::pair<int, int> {
+      const auto& transition = topology.getTransition(TransitionId{static_cast<uint16_t>(transitionId)});
+      return {static_cast<int>(mSurfaceToLegacyLayer[transition.from.value()]),
+              static_cast<int>(mSurfaceToLegacyLayer[transition.to.value()])};
+    };
+
+    auto makeTransitionState = [&](int transitionId, int fromLayer, int toLayer) {
       if constexpr (Tag == TransitionPolicyTag::CylinderCylinder) {
-        return TrackletProjectionState<Tag>{transition.fromLayer,
-                                            transition.toLayer,
-                                            mTrkParams[iteration].LayerRadii[transition.toLayer] - mTrkParams[iteration].LayerRadii[transition.fromLayer],
-                                            mTimeFrame->getMinR(transition.toLayer),
-                                            mTimeFrame->getMaxR(transition.toLayer),
-                                            mTimeFrame->getPositionResolution(transition.fromLayer),
+        return TrackletProjectionState<Tag>{fromLayer,
+                                            toLayer,
+                                            mTrkParams[iteration].LayerRadii[toLayer] - mTrkParams[iteration].LayerRadii[fromLayer],
+                                            mTimeFrame->getMinR(toLayer),
+                                            mTimeFrame->getMaxR(toLayer),
+                                            mTimeFrame->getPositionResolution(fromLayer),
                                             mTimeFrame->getTransitionMSAngle(transitionId),
                                             mTimeFrame->getTransitionPhiCut(transitionId)};
       } else {
-        const float fromZ = detail::mftLayerZ(transition.fromLayer);
-        const float toZ = detail::mftLayerZ(transition.toLayer);
-        return TrackletProjectionState<Tag>{transition.fromLayer,
-                                            transition.toLayer,
+        const float fromZ = detail::mftLayerZ(fromLayer);
+        const float toZ = detail::mftLayerZ(toLayer);
+        return TrackletProjectionState<Tag>{fromLayer,
+                                            toLayer,
                                             fromZ,
                                             toZ,
                                             toZ - fromZ,
-                                            mTrkParams[iteration].LayerRadii[transition.fromLayer],
+                                            mTrkParams[iteration].LayerRadii[fromLayer],
                                             mTimeFrame->getTransitionMSAngle(transitionId),
                                             mTimeFrame->getTransitionPhiCut(transitionId)};
       }
     };
 
-    auto forTracklets = [&](auto Mode, int transitionId, const TrackletProjectionState<Tag>& transitionState, int pivotROF, int base, int& offset) -> int {
-      const auto& transition = topology.getTransition(transitionId);
-      if (!mTimeFrame->getROFMaskView().isROFEnabled(transition.fromLayer, pivotROF)) {
+    auto forTracklets = [&](auto Mode, int transitionId, int fromLayer, int toLayer, const TrackletProjectionState<Tag>& transitionState, int pivotROF, int base, int& offset) -> int {
+      if (!mTimeFrame->getROFMaskView().isROFEnabled(fromLayer, pivotROF)) {
         return 0;
       }
       // A diamond vertex valid for this specific pivotROF is derived fresh
@@ -663,10 +706,10 @@ void TrackerTraits<NLayers>::computeLayerTrackletsForPolicy(
       Vertex diamondForROF{};
       gsl::span<const Vertex> primaryVertices;
       if (mTrkParams[iteration].UseDiamond) {
-        diamondForROF = diamondVertexForROF(diamondVert, mTimeFrame->getROFOverlapTableView(), transition.fromLayer, pivotROF);
+        diamondForROF = diamondVertexForROF(diamondVert, mTimeFrame->getROFOverlapTableView(), fromLayer, pivotROF);
         primaryVertices = gsl::span<const Vertex>(&diamondForROF, 1);
       } else {
-        primaryVertices = mTimeFrame->getPrimaryVertices(transition.fromLayer, pivotROF);
+        primaryVertices = mTimeFrame->getPrimaryVertices(fromLayer, pivotROF);
       }
       if (primaryVertices.empty()) {
         return 0;
@@ -677,29 +720,29 @@ void TrackerTraits<NLayers>::computeLayerTrackletsForPolicy(
         return 0;
       }
 
-      const auto& rofOverlap = mTimeFrame->getROFOverlapTableView().getOverlap(transition.fromLayer, transition.toLayer, pivotROF);
+      const auto& rofOverlap = mTimeFrame->getROFOverlapTableView().getOverlap(fromLayer, toLayer, pivotROF);
       if (!rofOverlap.getEntries()) {
         return 0;
       }
 
       int localCount = 0;
       auto& tracklets = mTimeFrame->getTracklets()[transitionId];
-      auto layer0 = mTimeFrame->getClustersOnLayer(pivotROF, transition.fromLayer);
+      auto layer0 = mTimeFrame->getClustersOnLayer(pivotROF, fromLayer);
       if (layer0.empty()) {
         return 0;
       }
 
       for (int iCluster = 0; iCluster < int(layer0.size()); ++iCluster) {
         const Cluster& currentCluster = layer0[iCluster];
-        const int currentSortedIndex = mTimeFrame->getSortedIndex(pivotROF, transition.fromLayer, iCluster);
-        if (mTimeFrame->isClusterUsed(transition.fromLayer, currentCluster.clusterId)) {
+        const int currentSortedIndex = mTimeFrame->getSortedIndex(pivotROF, fromLayer, iCluster);
+        if (mTimeFrame->isClusterUsed(fromLayer, currentCluster.clusterId)) {
           continue;
         }
-        const auto& sourceMeasurement = mLayerMeasurements[transition.fromLayer][currentCluster.clusterId];
+        const auto& sourceMeasurement = mLayerMeasurements[fromLayer][currentCluster.clusterId];
 
         for (int iV = startVtx; iV < endVtx; ++iV) {
           const auto& pv = primaryVertices[iV];
-          if (!mTimeFrame->getROFVertexLookupTableView().isVertexCompatible(transition.fromLayer, pivotROF, pv)) {
+          if (!mTimeFrame->getROFVertexLookupTableView().isVertexCompatible(fromLayer, pivotROF, pv)) {
             continue;
           }
           if (pv.isFlagSet(Vertex::Flags::UPCMode) != mTrkParams[iteration].PassFlags[IterationStep::SelectUPCVertices]) {
@@ -718,18 +761,18 @@ void TrackerTraits<NLayers>::computeLayerTrackletsForPolicy(
           }
 
           for (int targetROF = rofOverlap.getFirstEntry(); targetROF < rofOverlap.getEntriesBound(); ++targetROF) {
-            if (!mTimeFrame->getROFMaskView().isROFEnabled(transition.toLayer, targetROF)) {
+            if (!mTimeFrame->getROFMaskView().isROFEnabled(toLayer, targetROF)) {
               continue;
             }
-            auto layer1 = mTimeFrame->getClustersOnLayer(targetROF, transition.toLayer);
+            auto layer1 = mTimeFrame->getClustersOnLayer(targetROF, toLayer);
             if (layer1.empty()) {
               continue;
             }
-            const auto ts = mTimeFrame->getROFOverlapTableView().getTimeStamp(transition.fromLayer, pivotROF, transition.toLayer, targetROF);
+            const auto ts = mTimeFrame->getROFOverlapTableView().getTimeStamp(fromLayer, pivotROF, toLayer, targetROF);
             if (!ts.isCompatible(pv.getTimeStamp())) {
               continue;
             }
-            const auto& targetIndexTable = mTimeFrame->getIndexTable(targetROF, transition.toLayer);
+            const auto& targetIndexTable = mTimeFrame->getIndexTable(targetROF, toLayer);
             const int colBinRange = (bins.z - bins.x) + 1;
             for (int iRow = 0; iRow < rowBinsNum; ++iRow) {
               int iRowBin = bins.y + iRow;
@@ -749,10 +792,10 @@ void TrackerTraits<NLayers>::computeLayerTrackletsForPolicy(
                   break;
                 }
                 const Cluster& nextCluster = layer1[iNext];
-                if (mTimeFrame->isClusterUsed(transition.toLayer, nextCluster.clusterId)) {
+                if (mTimeFrame->isClusterUsed(toLayer, nextCluster.clusterId)) {
                   continue;
                 }
-                const auto& targetMeasurement = mLayerMeasurements[transition.toLayer][nextCluster.clusterId];
+                const auto& targetMeasurement = mLayerMeasurements[toLayer][nextCluster.clusterId];
 
                 float tanL = 0.f;
                 const bool accepted = [&] {
@@ -766,12 +809,12 @@ void TrackerTraits<NLayers>::computeLayerTrackletsForPolicy(
                   const float phi{o2::gpu::GPUCommonMath::ATan2(sourceMeasurement.global.y - targetMeasurement.global.y,
                                                                 sourceMeasurement.global.x - targetMeasurement.global.x)};
                   if constexpr (decltype(Mode)::value == PassMode::OnePass::value) {
-                    tracklets.emplace_back(currentSortedIndex, mTimeFrame->getSortedIndex(targetROF, transition.toLayer, iNext), tanL, phi, ts);
+                    tracklets.emplace_back(currentSortedIndex, mTimeFrame->getSortedIndex(targetROF, toLayer, iNext), tanL, phi, ts);
                   } else if constexpr (decltype(Mode)::value == PassMode::TwoPassCount::value) {
                     ++localCount;
                   } else if constexpr (decltype(Mode)::value == PassMode::TwoPassInsert::value) {
                     const int idx = base + offset++;
-                    tracklets[idx] = Tracklet(currentSortedIndex, mTimeFrame->getSortedIndex(targetROF, transition.toLayer, iNext), tanL, phi, ts);
+                    tracklets[idx] = Tracklet(currentSortedIndex, mTimeFrame->getSortedIndex(targetROF, toLayer, iNext), tanL, phi, ts);
                   }
                 }
               }
@@ -786,22 +829,22 @@ void TrackerTraits<NLayers>::computeLayerTrackletsForPolicy(
     if (mTaskArena->max_concurrency() <= 1) {
       for (const auto typedTransitionId : transitionIds) {
         const int transitionId = typedTransitionId.value();
-        const auto transitionState = makeTransitionState(transitionId);
-        const int fromLayer = topology.getTransition(transitionId).fromLayer;
+        const auto [fromLayer, toLayer] = resolveTransitionLayers(transitionId);
+        const auto transitionState = makeTransitionState(transitionId, fromLayer, toLayer);
         const int startROF = 0, endROF = mTimeFrame->getROFOverlapTableView().getLayer(fromLayer).mNROFsTF;
         for (int pivotROF{startROF}; pivotROF < endROF; ++pivotROF) {
-          forTracklets(PassMode::OnePass{}, transitionId, transitionState, pivotROF, 0, dummy);
+          forTracklets(PassMode::OnePass{}, transitionId, fromLayer, toLayer, transitionState, pivotROF, 0, dummy);
         }
       }
     } else {
       tbb::parallel_for(0, static_cast<int>(transitionIds.size()), [&](const int transitionIndex) {
         const int transitionId = transitionIds[transitionIndex].value();
-        const auto transitionState = makeTransitionState(transitionId);
-        const int fromLayer = topology.getTransition(transitionId).fromLayer;
+        const auto [fromLayer, toLayer] = resolveTransitionLayers(transitionId);
+        const auto transitionState = makeTransitionState(transitionId, fromLayer, toLayer);
         const int startROF = 0, endROF = mTimeFrame->getROFOverlapTableView().getLayer(fromLayer).mNROFsTF;
         bounded_vector<int> perROFCount((endROF - startROF) + 1, mMemoryPool.get());
         tbb::parallel_for(startROF, endROF, [&](const int pivotROF) {
-          perROFCount[pivotROF - startROF] = forTracklets(PassMode::TwoPassCount{}, transitionId, transitionState, pivotROF, 0, dummy);
+          perROFCount[pivotROF - startROF] = forTracklets(PassMode::TwoPassCount{}, transitionId, fromLayer, toLayer, transitionState, pivotROF, 0, dummy);
         });
         std::exclusive_scan(perROFCount.begin(), perROFCount.end(), perROFCount.begin(), 0);
         const int nTracklets = perROFCount.back();
@@ -815,7 +858,7 @@ void TrackerTraits<NLayers>::computeLayerTrackletsForPolicy(
             return;
           }
           int localIdx = 0;
-          forTracklets(PassMode::TwoPassInsert{}, transitionId, transitionState, pivotROF, baseIdx, localIdx);
+          forTracklets(PassMode::TwoPassInsert{}, transitionId, fromLayer, toLayer, transitionState, pivotROF, baseIdx, localIdx);
         });
       });
     }
@@ -841,13 +884,13 @@ void TrackerTraits<NLayers>::computeLayerTrackletsForPolicy(
     if (mTimeFrame->hasMCinformation() && mTrkParams[iteration].CreateArtefactLabels) {
       tbb::parallel_for(0, static_cast<int>(transitionIds.size()), [&](const int transitionIndex) {
         const int transitionId = transitionIds[transitionIndex].value();
-        const auto& transition = topology.getTransition(transitionId);
+        const auto [fromLayer, toLayer] = resolveTransitionLayers(transitionId);
         for (auto& trk : mTimeFrame->getTracklets()[transitionId]) {
           MCCompLabel label;
-          int currentId{mTimeFrame->getClusters()[transition.fromLayer][trk.firstClusterIndex].clusterId};
-          int nextId{mTimeFrame->getClusters()[transition.toLayer][trk.secondClusterIndex].clusterId};
-          for (const auto& lab1 : mTimeFrame->getClusterLabels(transition.fromLayer, currentId)) {
-            for (const auto& lab2 : mTimeFrame->getClusterLabels(transition.toLayer, nextId)) {
+          int currentId{mTimeFrame->getClusters()[fromLayer][trk.firstClusterIndex].clusterId};
+          int nextId{mTimeFrame->getClusters()[toLayer][trk.secondClusterIndex].clusterId};
+          for (const auto& lab1 : mTimeFrame->getClusterLabels(fromLayer, currentId)) {
+            for (const auto& lab2 : mTimeFrame->getClusterLabels(toLayer, nextId)) {
               if (lab1 == lab2 && lab1.isValid()) {
                 label = lab1;
                 break;
