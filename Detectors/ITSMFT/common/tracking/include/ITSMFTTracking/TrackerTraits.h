@@ -211,7 +211,7 @@ class TrackerTraits
 
   template <TransitionPolicyTag Tag>
   void computeLayerCellsForPolicy(int iteration,
-                                  const typename TimeFrameN::TrackingTopologyN::View& topology,
+                                  gsl::span<const CellTopologyId> cellIds,
                                   const typename TransitionPolicyTraits<Tag>::Params& params);
 
   template <TransitionPolicyTag Tag>
