@@ -36,9 +36,16 @@ const char* toString(ArgParseStatus status) noexcept
 
 namespace
 {
-ArgParseResult fail(ArgParseStatus status, std::string diagnostic)
+// Carries forward whatever was already successfully parsed into `args`
+// (notably --format, which may have appeared before the option that
+// ultimately fails) rather than discarding it: main()'s --format json
+// stdout contract must hold on a validation failure too, and it can only
+// do that if a --format seen before the failing option survives into the
+// returned ArgParseResult.
+ArgParseResult fail(ValidatorArgs args, ArgParseStatus status, std::string diagnostic)
 {
   ArgParseResult result;
+  result.args = std::move(args);
   result.status = status;
   result.diagnostic = std::move(diagnostic);
   return result;
@@ -55,7 +62,7 @@ std::string toUpper(std::string value)
 ArgParseResult parseValidatorArgs(int argc, const char* const* argv)
 {
   if (argv == nullptr) {
-    return fail(ArgParseStatus::MissingRequiredArgument, "argv is null");
+    return fail(ValidatorArgs{}, ArgParseStatus::MissingRequiredArgument, "argv is null");
   }
 
   ValidatorArgs args;
@@ -65,7 +72,7 @@ ArgParseResult parseValidatorArgs(int argc, const char* const* argv)
 
   for (int i = 1; i < argc; ++i) {
     if (argv[i] == nullptr) {
-      return fail(ArgParseStatus::InvalidValue, "argv contains a null entry");
+      return fail(args, ArgParseStatus::InvalidValue, "argv contains a null entry");
     }
     const std::string option{argv[i]};
     const auto needValue = [&](const char* name) -> const char* {
@@ -79,14 +86,14 @@ ArgParseResult parseValidatorArgs(int argc, const char* const* argv)
     if (option == "--geometry") {
       const char* value = needValue("--geometry");
       if (value == nullptr) {
-        return fail(ArgParseStatus::MissingRequiredArgument, "--geometry requires a value");
+        return fail(args, ArgParseStatus::MissingRequiredArgument, "--geometry requires a value");
       }
       args.geometryPrefixOrPath = value;
       haveGeometry = true;
     } else if (option == "--detector") {
       const char* value = needValue("--detector");
       if (value == nullptr) {
-        return fail(ArgParseStatus::MissingRequiredArgument, "--detector requires a value");
+        return fail(args, ArgParseStatus::MissingRequiredArgument, "--detector requires a value");
       }
       args.detectorLabel = value;
       const auto upper = toUpper(args.detectorLabel);
@@ -95,26 +102,26 @@ ArgParseResult parseValidatorArgs(int argc, const char* const* argv)
       } else if (upper == "MFT") {
         args.detector = DetectorSelection::MFT;
       } else {
-        return fail(ArgParseStatus::UnknownDetector, "unknown --detector value: " + args.detectorLabel);
+        return fail(args, ArgParseStatus::UnknownDetector, "unknown --detector value: " + args.detectorLabel);
       }
       haveDetector = true;
     } else if (option == "--surfaces") {
       const char* value = needValue("--surfaces");
       if (value == nullptr) {
-        return fail(ArgParseStatus::MissingRequiredArgument, "--surfaces requires a value");
+        return fail(args, ArgParseStatus::MissingRequiredArgument, "--surfaces requires a value");
       }
       const std::string_view text{value};
       size_t parsed = 0;
       const auto convResult = std::from_chars(text.data(), text.data() + text.size(), parsed);
       if (convResult.ec != std::errc{} || convResult.ptr != text.data() + text.size() || parsed == 0) {
-        return fail(ArgParseStatus::InvalidValue, "--surfaces must be a positive integer, got: " + std::string{text});
+        return fail(args, ArgParseStatus::InvalidValue, "--surfaces must be a positive integer, got: " + std::string{text});
       }
       args.surfaceCount = parsed;
       haveSurfaces = true;
     } else if (option == "--format") {
       const char* value = needValue("--format");
       if (value == nullptr) {
-        return fail(ArgParseStatus::MissingRequiredArgument, "--format requires a value");
+        return fail(args, ArgParseStatus::MissingRequiredArgument, "--format requires a value");
       }
       const auto lower = std::string{value};
       if (lower == "text") {
@@ -122,21 +129,21 @@ ArgParseResult parseValidatorArgs(int argc, const char* const* argv)
       } else if (lower == "json") {
         args.format = OutputFormat::Json;
       } else {
-        return fail(ArgParseStatus::UnknownFormat, "unknown --format value: " + lower);
+        return fail(args, ArgParseStatus::UnknownFormat, "unknown --format value: " + lower);
       }
     } else {
-      return fail(ArgParseStatus::UnknownOption, "unknown option: " + option);
+      return fail(args, ArgParseStatus::UnknownOption, "unknown option: " + option);
     }
   }
 
   if (!haveGeometry) {
-    return fail(ArgParseStatus::MissingRequiredArgument, "--geometry is required");
+    return fail(args, ArgParseStatus::MissingRequiredArgument, "--geometry is required");
   }
   if (!haveDetector) {
-    return fail(ArgParseStatus::MissingRequiredArgument, "--detector is required");
+    return fail(args, ArgParseStatus::MissingRequiredArgument, "--detector is required");
   }
   if (!haveSurfaces) {
-    return fail(ArgParseStatus::MissingRequiredArgument, "--surfaces is required");
+    return fail(args, ArgParseStatus::MissingRequiredArgument, "--surfaces is required");
   }
 
   ArgParseResult result;

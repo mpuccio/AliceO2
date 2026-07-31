@@ -26,6 +26,7 @@ o2_add_library(ITSMFTNominalGeometryValidatorCore
                SOURCES src/NominalGeometryReport.cxx
                        src/ValidatorArgs.cxx
                        src/GeometryTGeoSurfaceSource.cxx
+                       src/JsonStdoutGuard.cxx
                        ../src/DetectorSurfaceCatalogAggregation.cxx
                PUBLIC_INCLUDE_DIRECTORIES ${CMAKE_CURRENT_LIST_DIR}/src
                                          ${CMAKE_CURRENT_LIST_DIR}/../src
