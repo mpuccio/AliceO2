@@ -78,15 +78,6 @@ consteval bool validateSurfaceArray(const std::array<StaticSurfaceDescriptor, N>
       return false;
     }
 
-    const auto& acceptance = surface.nominalTrackingAcceptance;
-    const bool acceptanceMatches =
-      (surface.kind == SurfaceKind::Cylinder && acceptance.kind == SurfaceAcceptanceKind::CylinderZ) ||
-      (surface.kind == SurfaceKind::Disk && acceptance.kind == SurfaceAcceptanceKind::DiskRadius);
-    if (!acceptanceMatches || !isFinite(acceptance.min) || !isFinite(acceptance.max) || acceptance.min > acceptance.max ||
-        (surface.kind == SurfaceKind::Disk && acceptance.min < 0.f)) {
-      return false;
-    }
-
     if (!isFinite(surface.material.xOverX0) || surface.material.xOverX0 < 0.f ||
         !isFinite(surface.material.arealDensityGPerCm2) || surface.material.arealDensityGPerCm2 < 0.f) {
       return false;

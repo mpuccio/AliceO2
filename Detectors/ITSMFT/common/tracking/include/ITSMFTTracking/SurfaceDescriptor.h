@@ -49,14 +49,12 @@ struct SurfaceDescriptor {
   SurfaceKind kind{SurfaceKind::Cylinder};
   uint16_t flags{0};
   float referenceCoordinate{0.f}; // nominal radius for cylinders, z for disks
-  float radialMin{0.f};
-  float radialMax{0.f};
   NominalSurfaceMaterial material{};
 };
 
 static_assert(std::is_standard_layout_v<SurfaceDescriptor>);
 static_assert(std::is_trivially_copyable_v<SurfaceDescriptor>);
-static_assert(sizeof(SurfaceDescriptor) == 28);
+static_assert(sizeof(SurfaceDescriptor) == 20);
 static_assert(alignof(SurfaceDescriptor) == 4);
 static_assert(offsetof(SurfaceDescriptor, id) == 0);
 static_assert(offsetof(SurfaceDescriptor, detectorSurfaceIndex) == 2);
@@ -64,9 +62,7 @@ static_assert(offsetof(SurfaceDescriptor, detectorId) == 4);
 static_assert(offsetof(SurfaceDescriptor, kind) == 5);
 static_assert(offsetof(SurfaceDescriptor, flags) == 6);
 static_assert(offsetof(SurfaceDescriptor, referenceCoordinate) == 8);
-static_assert(offsetof(SurfaceDescriptor, radialMin) == 12);
-static_assert(offsetof(SurfaceDescriptor, radialMax) == 16);
-static_assert(offsetof(SurfaceDescriptor, material) == 20);
+static_assert(offsetof(SurfaceDescriptor, material) == 12);
 
 } // namespace o2::itsmft::tracking
 

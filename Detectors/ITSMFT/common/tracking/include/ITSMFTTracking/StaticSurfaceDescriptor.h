@@ -31,43 +31,6 @@ struct DetectorSurfaceIdentity {
   GPUhdi() friend constexpr bool operator!=(DetectorSurfaceIdentity lhs, DetectorSurfaceIdentity rhs) noexcept { return !(lhs == rhs); }
 };
 
-struct CylinderZAcceptance {
-  float zMin{0.f};
-  float zMax{0.f};
-};
-
-struct DiskRadialAcceptance {
-  float radiusMin{0.f};
-  float radiusMax{0.f};
-};
-
-enum class SurfaceAcceptanceKind : uint8_t {
-  Invalid,
-  CylinderZ,
-  DiskRadius
-};
-
-// Tagged POD storage. Construction is typed so cylinder z bounds cannot be
-// supplied as disk radial bounds (or conversely) without an explicit choice.
-struct SurfaceAcceptance {
-  SurfaceAcceptanceKind kind{SurfaceAcceptanceKind::Invalid};
-  float min{0.f};
-  float max{0.f};
-
-  GPUhdi() static constexpr SurfaceAcceptance fromCylinder(CylinderZAcceptance acceptance) noexcept
-  {
-    return {SurfaceAcceptanceKind::CylinderZ, acceptance.zMin, acceptance.zMax};
-  }
-  GPUhdi() static constexpr SurfaceAcceptance fromDisk(DiskRadialAcceptance acceptance) noexcept
-  {
-    return {SurfaceAcceptanceKind::DiskRadius, acceptance.radiusMin, acceptance.radiusMax};
-  }
-  GPUhdi() constexpr bool isCylinder() const noexcept { return kind == SurfaceAcceptanceKind::CylinderZ; }
-  GPUhdi() constexpr bool isDisk() const noexcept { return kind == SurfaceAcceptanceKind::DiskRadius; }
-  GPUhdi() constexpr CylinderZAcceptance cylinder() const noexcept { return {min, max}; }
-  GPUhdi() constexpr DiskRadialAcceptance disk() const noexcept { return {min, max}; }
-};
-
 // NominalSurfaceMaterial itself is defined once in SurfaceDescriptor.h and
 // shared by both descriptor types; no duplicate definition here.
 
@@ -82,7 +45,6 @@ struct StaticSurfaceDescriptor {
   DetectorSurfaceIdentity identity{};
   SurfaceKind kind{SurfaceKind::Cylinder};
   float nominalReferenceCoordinate{0.f};
-  SurfaceAcceptance nominalTrackingAcceptance{};
   NominalSurfaceMaterial material{};
   SurfaceIndexingFamily indexingFamily{SurfaceIndexingFamily::Invalid};
 };
@@ -93,21 +55,13 @@ struct StaticSurfaceDescriptor {
 // do not define a second Stage-B surface catalogue.
 GPUhdi() constexpr SurfaceDescriptor toRuntimeSurfaceDescriptor(const StaticSurfaceDescriptor& source) noexcept
 {
-  SurfaceDescriptor result{source.id,
+  return SurfaceDescriptor{source.id,
                            source.identity.detectorSurfaceIndex,
                            source.identity.detectorId,
                            source.kind,
                            0,
                            source.nominalReferenceCoordinate,
-                           source.nominalReferenceCoordinate,
-                           source.nominalReferenceCoordinate,
                            source.material};
-  if (source.kind == SurfaceKind::Disk && source.nominalTrackingAcceptance.isDisk()) {
-    const auto radial = source.nominalTrackingAcceptance.disk();
-    result.radialMin = radial.radiusMin;
-    result.radialMax = radial.radiusMax;
-  }
-  return result;
 }
 
 #define O2_ITSMFT_ASSERT_STATIC_SURFACE_TYPE(Type, Size, Alignment) \
@@ -117,12 +71,9 @@ GPUhdi() constexpr SurfaceDescriptor toRuntimeSurfaceDescriptor(const StaticSurf
   static_assert(alignof(Type) == Alignment)
 
 O2_ITSMFT_ASSERT_STATIC_SURFACE_TYPE(DetectorSurfaceIdentity, 4, 2);
-O2_ITSMFT_ASSERT_STATIC_SURFACE_TYPE(CylinderZAcceptance, 8, 4);
-O2_ITSMFT_ASSERT_STATIC_SURFACE_TYPE(DiskRadialAcceptance, 8, 4);
-O2_ITSMFT_ASSERT_STATIC_SURFACE_TYPE(SurfaceAcceptance, 12, 4);
 // NominalSurfaceMaterial's own layout is asserted once, in
 // SurfaceDescriptor.h, where the shared type is defined.
-O2_ITSMFT_ASSERT_STATIC_SURFACE_TYPE(StaticSurfaceDescriptor, 36, 4);
+O2_ITSMFT_ASSERT_STATIC_SURFACE_TYPE(StaticSurfaceDescriptor, 24, 4);
 
 static_assert(offsetof(DetectorSurfaceIdentity, detectorId) == 0);
 static_assert(offsetof(DetectorSurfaceIdentity, detectorSurfaceIndex) == 2);
@@ -130,9 +81,8 @@ static_assert(offsetof(StaticSurfaceDescriptor, id) == 0);
 static_assert(offsetof(StaticSurfaceDescriptor, identity) == 2);
 static_assert(offsetof(StaticSurfaceDescriptor, kind) == 6);
 static_assert(offsetof(StaticSurfaceDescriptor, nominalReferenceCoordinate) == 8);
-static_assert(offsetof(StaticSurfaceDescriptor, nominalTrackingAcceptance) == 12);
-static_assert(offsetof(StaticSurfaceDescriptor, material) == 24);
-static_assert(offsetof(StaticSurfaceDescriptor, indexingFamily) == 32);
+static_assert(offsetof(StaticSurfaceDescriptor, material) == 12);
+static_assert(offsetof(StaticSurfaceDescriptor, indexingFamily) == 20);
 
 #undef O2_ITSMFT_ASSERT_STATIC_SURFACE_TYPE
 

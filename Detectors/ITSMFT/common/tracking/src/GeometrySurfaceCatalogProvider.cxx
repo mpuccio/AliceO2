@@ -73,9 +73,7 @@ DetectorSurfaceCatalogResult buildGeometrySurfaceCatalog(const DetectorSurfaceCa
     const auto& geometryValues = aggregation.surfaces[surface];
     SurfaceDescriptor descriptor{SurfaceId{surface}, surface,
                                  static_cast<uint8_t>(spec.detector), spec.kind, 0,
-                                 geometryValues.referenceCoordinate,
-                                 geometryValues.radialMin,
-                                 geometryValues.radialMax};
+                                 geometryValues.referenceCoordinate};
     descriptor.material.xOverX0 = spec.nominalLayerX0[surface];
     descriptor.material.arealDensityGPerCm2 = spec.nominalLayerX0[surface] *
                                               o2::its::constants::Radl *
