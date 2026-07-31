@@ -344,16 +344,6 @@ o2_add_test(ioutils-syserror-ownership
             PUBLIC_LINK_LIBRARIES O2::ITSMFTTracking
                                   O2::MFTTracking)
 
-o2_add_executable(geometry-surface-catalog-validation
-                  SOURCES validateGeometrySurfaceCatalogs.cxx
-                  COMPONENT_NAME itsmft-tracking
-                  NO_INSTALL
-                  PUBLIC_LINK_LIBRARIES
-                    O2::DetectorsBase
-                    O2::ITSBase
-                    O2::ITSMFTTracking
-                    O2::MFTBase)
-
 # The Gate 0 extractor needs generated tracker/MC dictionaries and external
 # fixture files at execution time. Keep its runnable replay in the documented
 # baseline protocol, while compiling the macro here so clean O2 configurations
@@ -431,13 +421,4 @@ o2_add_test_root_macro(cluster-attachment-validation/check_cluster_attachment_mf
                          O2::DataFormatsITSMFT
                          O2::DataFormatsMFT
                          O2::DetectorsBase
-                         O2::MFTBase)
-
-o2_add_test_root_macro(validateGeometrySurfaceCatalogs.C
-                       COMPILE_ONLY
-                       LABELS "itsmft;tracking;geometry"
-                       PUBLIC_LINK_LIBRARIES
-                         O2::DetectorsBase
-                         O2::ITSBase
-                         O2::ITSMFTTracking
                          O2::MFTBase)

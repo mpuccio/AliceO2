@@ -137,7 +137,6 @@ BOOST_AUTO_TEST_CASE(successful_its_and_mft_catalogs)
     BOOST_CHECK_EQUAL(its.catalog[i].detectorId, static_cast<uint8_t>(o2::detectors::DetID::ITS));
     BOOST_CHECK(its.catalog[i].kind == SurfaceKind::Cylinder);
     BOOST_CHECK_EQUAL(its.catalog[i].flags, 0);
-    BOOST_CHECK_LE(its.catalog[i].radialMin, its.catalog[i].radialMax);
     BOOST_CHECK_CLOSE(its.catalog[i].material.xOverX0, kNominalITSLayerX0[i], 1.e-6f);
     BOOST_CHECK_CLOSE(its.catalog[i].material.arealDensityGPerCm2,
                       kNominalITSLayerX0[i] * o2::its::constants::Radl * o2::its::constants::Rho, 1.e-6f);
