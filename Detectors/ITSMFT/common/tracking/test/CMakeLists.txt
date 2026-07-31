@@ -112,6 +112,13 @@ o2_add_test(surfacespec
             LABELS "itsmft;tracking"
             PUBLIC_LINK_LIBRARIES O2::ITSMFTTracking)
 
+# Gate 4 B1 Slice C3a: ITSSurfaceSpec/MFTSurfaceSpec candidate table tests.
+o2_add_test(its-mft-surfacespec-projection
+            SOURCES testITSMFTSurfaceSpecProjection.cxx
+            COMPONENT_NAME itsmft-tracking
+            LABELS "itsmft;tracking"
+            PUBLIC_LINK_LIBRARIES O2::ITSMFTTracking)
+
 o2_add_test(surfacekinematicstate
             SOURCES testSurfaceKinematicState.cxx
             COMPONENT_NAME itsmft-tracking
