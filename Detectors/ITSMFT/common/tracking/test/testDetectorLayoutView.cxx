@@ -27,10 +27,13 @@ SurfaceDescriptor surface(uint16_t id, SurfaceKind kind = SurfaceKind::Cylinder,
   return result;
 }
 
-DetectorLayoutSet buildSet(std::vector<SurfaceDescriptor> catalog, int nIterations)
+// DetectorLayoutSet borrows (SurfaceCatalogView): `catalog` is the caller's
+// own named local, which must outlive the returned DetectorLayoutSet -- this
+// helper never takes ownership of it.
+DetectorLayoutSet buildSet(const std::vector<SurfaceDescriptor>& catalog, int nIterations)
 {
   DetectorLayoutConfigurationKey key;
-  key.geometryEpoch = 1;
+  const SurfaceCatalogView view{catalog.data(), static_cast<uint32_t>(catalog.size())};
   std::vector<DetectorLayout> layouts;
   layouts.reserve(nIterations);
   for (int i = 0; i < nIterations; ++i) {
@@ -38,7 +41,7 @@ DetectorLayoutSet buildSet(std::vector<SurfaceDescriptor> catalog, int nIteratio
     topology.finalize();
     layouts.emplace_back(catalog, std::move(topology));
   }
-  return DetectorLayoutSet{std::move(key), std::move(catalog), std::move(layouts)};
+  return DetectorLayoutSet{std::move(key), view, std::move(layouts)};
 }
 
 // Structural proof that no per-iteration surface ownership remains:
@@ -82,7 +85,8 @@ BOOST_AUTO_TEST_CASE(DefaultConstructedViewIsTheSentinel)
 
 BOOST_AUTO_TEST_CASE(OutOfRangeIterationReturnsSentinel)
 {
-  auto set = buildSet({surface(0), surface(1)}, 1);
+  const std::vector<SurfaceDescriptor> catalog{surface(0), surface(1)};
+  auto set = buildSet(catalog, 1);
   BOOST_CHECK(set.getLayoutView(5).surfaces == nullptr);
 }
 
@@ -128,7 +132,11 @@ BOOST_AUTO_TEST_CASE(SharedCatalogAndMasksAreComputedOnceFromDetectorLayoutSet)
   auto set = buildSet(catalog, 2);
   BOOST_CHECK_EQUAL(set.getCylinderSurfaces().value(), 0x2u);
   BOOST_CHECK_EQUAL(set.getDiskSurfaces().value(), 0x1u);
-  BOOST_CHECK_EQUAL(&set.getSurfaceCatalog(), &set.getSurfaceCatalog()); // same object, not recomputed
+  // getSurfaceCatalog() returns a SurfaceCatalogView by value now (Gate 4
+  // B2 Slice 2: a borrowed view, not an owned container), so "not
+  // recomputed" is checked via the borrowed pointer's identity instead of
+  // the accessor's own (nonexistent) object identity.
+  BOOST_CHECK(set.getSurfaceCatalog().surfaces == set.getSurfaceCatalog().surfaces);
 }
 
 // -------------------------------------------------------------------------

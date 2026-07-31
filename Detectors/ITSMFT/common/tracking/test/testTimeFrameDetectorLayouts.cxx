@@ -4,6 +4,24 @@
 //
 // This software is distributed under the terms of the GNU General Public
 // License v3 (GPL Version 3), copied verbatim in the file "COPYING".
+//
+// Gate 4 B2 Slice 2 rewrote this file. Its earlier content tested
+// TimeFrame::ensureDetectorLayouts()/invalidateDetectorLayouts() and the
+// runtime-provider-backed catalog build/validate/currency/geometry-epoch
+// machinery -- all of it removed in this slice: TimeFrame owns no
+// catalog/layout/plan/epoch at all any more, and buildDetectorLayoutSet()
+// (DetectorLayoutSet.h) performs no runtime catalog validation (the static
+// catalog it borrows in production is already proven valid at compile time,
+// see SurfaceSpec.h). Every test that only existed to exercise that removed
+// machinery is gone; the tests that exercise TrackerTraits::
+// initialiseTimeFrame()'s own validation logic (legacy parity, material
+// compatibility, mixed-policy/invalid-schedule rejection, iteration bounds)
+// are kept, migrated to build a local DetectorLayoutSet via
+// buildDetectorLayoutSet() and pass it to initialiseTimeFrame() as its
+// explicit plan parameter, exactly as ITSMFTTrackingInterface does in
+// production. One new focused test (buildDetectorLayoutSetRejects...) covers
+// buildDetectorLayoutSet()'s own two failure modes, which had no other
+// coverage after the deleted tests.
 
 #define BOOST_TEST_MODULE ITSMFT TimeFrame detector layouts
 #define BOOST_TEST_MAIN
@@ -19,11 +37,10 @@
 #include <type_traits>
 #include <vector>
 
-#include "ITSMFTTracking/DetectorSurfaceCatalogProvider.h"
 #include "Field/MagneticField.h"
+#include "ITSMFTTracking/DetectorLayoutSet.h"
 #include "ITSMFTTracking/NominalSurfaceMaterialDefaults.h"
 #include "ITSMFTTracking/TimeFrame.h"
-#include "ITSMFTTracking/TrackingInterface.h"
 #include "ITSMFTTracking/TrackerTraits.h"
 #include "ITStracking/Constants.h"
 
@@ -44,29 +61,6 @@ BOOST_GLOBAL_FIXTURE(TraversalPropagatorFieldFixture);
 
 namespace
 {
-class FakeCatalogProvider final : public DetectorSurfaceCatalogProvider
-{
- public:
-  explicit FakeCatalogProvider(std::vector<SurfaceDescriptor> catalog) : mCatalog{std::move(catalog)} {}
-
-  DetectorSurfaceCatalogResult buildCatalog(const DetectorSurfaceCatalogRequest& request) const final
-  {
-    ++calls;
-    requests.push_back(request);
-    return fail ? DetectorSurfaceCatalogResult{{}, DetectorSurfaceCatalogError::GeometryUnavailable}
-                : DetectorSurfaceCatalogResult{mCatalog, DetectorSurfaceCatalogError::None};
-  }
-
-  mutable int calls{0};
-  mutable std::vector<DetectorSurfaceCatalogRequest> requests;
-  bool fail{false};
-  std::vector<SurfaceDescriptor> mCatalog;
-};
-
-struct EpochTestTimeFrame : TimeFrame<7> {
-  void setRequiredEpoch(DetectorGeometryEpoch epoch) { mRequiredDetectorGeometryEpoch = epoch; }
-  const DetectorLayoutSet* getStoredDetectorLayouts() const { return mDetectorLayouts ? &*mDetectorLayouts : nullptr; }
-};
 
 /// DetectorLayout no longer owns a surface copy (Slice 3, shared ownership):
 /// test fixtures that build one in isolation keep the surfaces alongside it.
@@ -75,26 +69,7 @@ struct BuiltLayout {
   std::vector<SurfaceDescriptor> surfaces;
 };
 
-struct TraversalTestTimeFrame : TimeFrame<10> {
-  void installLayout(BuiltLayout built)
-  {
-    DetectorLayoutConfigurationKey key;
-    key.geometryEpoch = mRequiredDetectorGeometryEpoch;
-    std::vector<DetectorLayout> layouts;
-    layouts.push_back(std::move(built.layout));
-    mRequiredDetectorLayoutConfiguration = key;
-    mDetectorLayouts.emplace(std::move(key), std::move(built.surfaces), std::move(layouts));
-  }
-};
-
 static_assert(std::is_nothrow_move_constructible_v<DetectorLayoutSet>);
-
-DetectorSurfaceCatalogRequest request(uint32_t count,
-                                      o2::detectors::DetID::ID detector = o2::detectors::DetID::ITS,
-                                      uint16_t firstSurface = 0)
-{
-  return DetectorSurfaceCatalogRequest{detector, SurfaceId{firstSurface}, count};
-}
 
 // Nominal material matching this detector's default TrackingParameters::LayerxX0
 // (o2::itsmft::resetDetectorDefaults()), so fixtures that reach
@@ -124,19 +99,6 @@ std::vector<SurfaceDescriptor> catalog(size_t count, SurfaceKind kind = SurfaceK
   return result;
 }
 
-std::vector<SurfaceDescriptor> catalog(const DetectorSurfaceCatalogRequest& catalogRequest,
-                                       SurfaceKind kind = SurfaceKind::Cylinder)
-{
-  const auto size = catalogRequest.firstSurface.value() + catalogRequest.detectorSurfaceCount;
-  auto result = catalog(size, kind, catalogRequest.detector);
-  for (uint32_t localIndex = 0; localIndex < catalogRequest.detectorSurfaceCount; ++localIndex) {
-    auto& surface = result[catalogRequest.firstSurface.value() + localIndex];
-    surface.detectorId = static_cast<uint8_t>(catalogRequest.detector);
-    surface.detectorSurfaceIndex = localIndex;
-  }
-  return result;
-}
-
 std::vector<SurfaceId> order(size_t count)
 {
   std::vector<SurfaceId> result;
@@ -144,6 +106,40 @@ std::vector<SurfaceId> order(size_t count)
     result.emplace_back(i);
   }
   return result;
+}
+
+// Owns both the catalog and the DetectorLayoutSet built from it: the plan
+// borrows a SurfaceCatalogView into `catalog` (Gate 4 B2 Slice 2), so both
+// must be moved together and the vector's underlying buffer address (which
+// std::vector's move never changes) stays valid for the plan's lifetime.
+struct BuiltPlan {
+  std::vector<SurfaceDescriptor> catalog;
+  DetectorLayoutSet plan;
+};
+
+BuiltPlan buildPlan(std::vector<SurfaceDescriptor> surfaces, gsl::span<const SurfaceId> ordered,
+                    TransitionPolicyTag tag, gsl::span<const TrackingParameters> params)
+{
+  const SurfaceCatalogView view{surfaces.data(), static_cast<uint32_t>(surfaces.size())};
+  auto result = buildDetectorLayoutSet(view, ordered, tag, params);
+  BOOST_REQUIRE(result.ok());
+  return BuiltPlan{std::move(surfaces), std::move(*result.layout)};
+}
+
+// Wraps an already-built DetectorLayout (e.g. a deliberately cyclic or
+// mixed-policy one that buildDetectorLayoutSet() itself would never produce)
+// into a one-iteration DetectorLayoutSet, so initialiseTimeFrame()'s own
+// fail-closed checks can be exercised against it directly -- no TimeFrame-
+// subclass injection needed, since the plan is an explicit parameter now.
+BuiltPlan wrapLayout(BuiltLayout built)
+{
+  DetectorLayoutConfigurationKey key;
+  key.orderedSurfaces = order(built.surfaces.size());
+  key.policyTag = TransitionPolicyTag::DiskDisk;
+  std::vector<DetectorLayout> layouts;
+  layouts.push_back(std::move(built.layout));
+  const SurfaceCatalogView view{built.surfaces.data(), static_cast<uint32_t>(built.surfaces.size())};
+  return BuiltPlan{std::move(built.surfaces), DetectorLayoutSet{std::move(key), view, std::move(layouts)}};
 }
 
 BuiltLayout cyclicDiskLayout()
@@ -210,18 +206,15 @@ std::vector<TrackingParameters> mftTraversalParameters()
 template <int NLayers>
 void checkLegacyParity(SurfaceKind kind, TransitionPolicyTag policyTag, uint16_t startMask)
 {
-  TimeFrame<NLayers> frame;
-  const auto catalogRequest = request(NLayers, kind == SurfaceKind::Disk ? o2::detectors::DetID::MFT : o2::detectors::DetID::ITS);
-  FakeCatalogProvider provider{catalog(catalogRequest, kind)};
+  const auto detector = kind == SurfaceKind::Disk ? o2::detectors::DetID::MFT : o2::detectors::DetID::ITS;
   auto ordered = order(NLayers);
   std::vector<TrackingParameters> params{parameters(NLayers, 1, uint16_t{1} << (NLayers / 2), startMask)};
-  const auto result = frame.ensureDetectorLayouts(&provider, catalogRequest, ordered, policyTag, params);
-  BOOST_REQUIRE(result.ok());
+  auto built = buildPlan(catalog(NLayers, kind, detector), ordered, policyTag, params);
 
   TrackingTopology<NLayers> legacy;
   legacy.init(NLayers, params[0].MaxHoles, params[0].HoleLayerMask);
   const auto legacyView = legacy.getView();
-  const auto layoutView = frame.getDetectorLayoutView(0);
+  const auto layoutView = built.plan.getLayoutView(0);
   const auto sparse = layoutView.topology;
   BOOST_REQUIRE_EQUAL(sparse.nTransitions, legacyView.nTransitions);
   BOOST_REQUIRE_EQUAL(sparse.nCells, legacyView.nCells);
@@ -264,253 +257,55 @@ void checkLegacyParity(SurfaceKind kind, TransitionPolicyTag policyTag, uint16_t
 }
 } // namespace
 
-BOOST_AUTO_TEST_CASE(initial_dirty_missing_provider_and_bounds)
+// buildDetectorLayoutSet()'s own two failure modes (InvalidActiveCount,
+// LayoutBuilderFailure) -- the only coverage this specific function had came
+// from tests that also exercised the now-deleted runtime-provider machinery;
+// this replaces that lost coverage narrowly.
+BOOST_AUTO_TEST_CASE(buildDetectorLayoutSetRejectsInvalidActiveCountAndLayoutBuilderFailure)
 {
-  TimeFrame<7> frame;
-  const auto catalogRequest = request(7);
-  auto ordered = order(7);
-  std::vector<TrackingParameters> params{parameters(7)};
-  BOOST_CHECK(!frame.detectorLayoutsCurrent());
-  BOOST_CHECK(!frame.hasStoredDetectorLayouts());
-  BOOST_CHECK(frame.getDetectorLayouts() == nullptr);
-  BOOST_CHECK(frame.getSurfaceCatalog() == nullptr);
-  BOOST_CHECK(frame.getSurfaceCatalogView().empty());
-  BOOST_CHECK(frame.getDetectorLayout(0) == nullptr);
-  BOOST_CHECK(frame.getDetectorLayoutView(0).surfaces == nullptr);
-  const auto missing = frame.ensureDetectorLayouts(nullptr, catalogRequest, ordered, TransitionPolicyTag::CylinderCylinder, params);
-  BOOST_CHECK(missing.error == DetectorLayoutSetBuildError::MissingProvider);
-  BOOST_CHECK(!frame.detectorLayoutsCurrent());
-}
-
-BOOST_AUTO_TEST_CASE(initial_build_current_stale_bounds_and_wipe_preservation)
-{
-  TimeFrame<7> frame;
-  const auto catalogRequest = request(7);
-  FakeCatalogProvider provider{catalog(7)};
-  auto ordered = order(7);
-  std::vector<TrackingParameters> params{parameters(7), parameters(5)};
-  const auto first = frame.ensureDetectorLayouts(&provider, catalogRequest, ordered, TransitionPolicyTag::CylinderCylinder, params);
-  BOOST_REQUIRE(first.ok());
-  BOOST_CHECK(first.rebuilt);
-  BOOST_REQUIRE_EQUAL(provider.requests.size(), 1);
-  BOOST_CHECK(provider.requests.front() == catalogRequest);
-  BOOST_CHECK(frame.detectorLayoutsCurrent());
-  BOOST_REQUIRE(frame.getSurfaceCatalog() != nullptr);
-  BOOST_CHECK_EQUAL(frame.getSurfaceCatalog()->size(), 7);
-  BOOST_CHECK_EQUAL(frame.getSurfaceCatalogView().size(), 7);
-  BOOST_REQUIRE(frame.getDetectorLayouts() != nullptr);
-  BOOST_CHECK_EQUAL(frame.getDetectorLayouts()->size(), 2);
-  BOOST_CHECK(frame.getDetectorLayout(1) != nullptr);
-  BOOST_CHECK(frame.getDetectorLayout(2) == nullptr);
-  BOOST_CHECK(frame.getDetectorLayoutView(2).surfaces == nullptr);
-  const auto current = frame.ensureDetectorLayouts(&provider, catalogRequest, ordered, TransitionPolicyTag::CylinderCylinder, params);
-  BOOST_CHECK(current.ok());
-  BOOST_CHECK(!current.rebuilt);
-  BOOST_CHECK_EQUAL(provider.calls, 1);
-  frame.wipe();
-  BOOST_CHECK(frame.detectorLayoutsCurrent());
-  BOOST_REQUIRE(frame.getSurfaceCatalog() != nullptr);
-  BOOST_CHECK_EQUAL(frame.getSurfaceCatalogView().size(), 7);
-  BOOST_CHECK(frame.getDetectorLayout(0) != nullptr);
-  frame.invalidateDetectorLayouts();
-  BOOST_CHECK(!frame.detectorLayoutsCurrent());
-  BOOST_CHECK(frame.hasStoredDetectorLayouts());
-  BOOST_CHECK(frame.getSurfaceCatalog() == nullptr);
-  BOOST_CHECK(frame.getSurfaceCatalogView().empty());
-  BOOST_CHECK(frame.getDetectorLayouts() == nullptr);
-  BOOST_CHECK(frame.getDetectorLayoutView(0).surfaces == nullptr);
-}
-
-BOOST_AUTO_TEST_CASE(epoch_wrap_contract)
-{
-  BOOST_CHECK_EQUAL(nextDetectorGeometryEpoch(InitialDetectorGeometryEpoch), InitialDetectorGeometryEpoch + 1);
-  BOOST_CHECK_EQUAL(nextDetectorGeometryEpoch(std::numeric_limits<DetectorGeometryEpoch>::max()), InitialDetectorGeometryEpoch);
-
-  EpochTestTimeFrame frame;
-  const auto catalogRequest = request(7);
-  frame.setRequiredEpoch(std::numeric_limits<DetectorGeometryEpoch>::max());
-  FakeCatalogProvider provider{catalog(7)};
-  auto ordered = order(7);
-  std::vector<TrackingParameters> params{parameters(7)};
-  BOOST_REQUIRE(frame.ensureDetectorLayouts(&provider, catalogRequest, ordered, TransitionPolicyTag::CylinderCylinder, params).ok());
-  BOOST_REQUIRE(frame.hasStoredDetectorLayouts());
-  frame.invalidateDetectorLayouts();
-  BOOST_CHECK_EQUAL(frame.getRequiredDetectorGeometryEpoch(), InitialDetectorGeometryEpoch);
-  BOOST_CHECK(!frame.hasStoredDetectorLayouts());
-  BOOST_CHECK(!frame.detectorLayoutsCurrent());
-}
-
-BOOST_AUTO_TEST_CASE(invalidation_replacement_and_provider_failure_are_transactional)
-{
-  EpochTestTimeFrame frame;
-  const auto catalogRequest = request(7);
-  FakeCatalogProvider provider{catalog(7)};
-  auto ordered = order(7);
-  std::vector<TrackingParameters> params{parameters(7)};
-  BOOST_REQUIRE(frame.ensureDetectorLayouts(&provider, catalogRequest, ordered, TransitionPolicyTag::CylinderCylinder, params).ok());
-  const auto* storedOwner = frame.getStoredDetectorLayouts();
-  BOOST_REQUIRE(storedOwner != nullptr);
-  const auto storedEpoch = storedOwner->getConfigurationKey().geometryEpoch;
-  const auto firstEpoch = frame.getRequiredDetectorGeometryEpoch();
-  BOOST_CHECK_EQUAL((*frame.getSurfaceCatalog())[0].referenceCoordinate, 1.f);
-  frame.invalidateDetectorLayouts();
-  BOOST_CHECK_EQUAL(frame.getRequiredDetectorGeometryEpoch(), firstEpoch + 1);
-  provider.fail = true;
-  const auto failed = frame.ensureDetectorLayouts(&provider, catalogRequest, ordered, TransitionPolicyTag::CylinderCylinder, params);
-  BOOST_CHECK(failed.error == DetectorLayoutSetBuildError::CatalogProviderFailure);
-  BOOST_CHECK(failed.catalogError == DetectorSurfaceCatalogError::GeometryUnavailable);
-  BOOST_CHECK(frame.hasStoredDetectorLayouts());
-  BOOST_CHECK(!frame.detectorLayoutsCurrent());
-  BOOST_CHECK(frame.getStoredDetectorLayouts() == storedOwner);
-  BOOST_CHECK_EQUAL(frame.getStoredDetectorLayouts()->getConfigurationKey().geometryEpoch, storedEpoch);
-  provider.fail = false;
-  provider.mCatalog[0].referenceCoordinate = 42.f;
-  const auto replaced = frame.ensureDetectorLayouts(&provider, catalogRequest, ordered, TransitionPolicyTag::CylinderCylinder, params);
-  BOOST_REQUIRE(replaced.ok());
-  BOOST_CHECK(replaced.rebuilt);
-  BOOST_CHECK(frame.detectorLayoutsCurrent());
-  BOOST_CHECK_EQUAL((*frame.getSurfaceCatalog())[0].referenceCoordinate, 42.f);
-}
-
-BOOST_AUTO_TEST_CASE(request_change_forces_rebuild)
-{
-  TimeFrame<7> frame;
-  auto catalogRequest = request(7);
-  FakeCatalogProvider provider{catalog(catalogRequest)};
-  auto ordered = order(7);
-  std::vector<TrackingParameters> params{parameters(7)};
-  BOOST_REQUIRE(frame.ensureDetectorLayouts(&provider, catalogRequest, ordered, TransitionPolicyTag::CylinderCylinder, params).ok());
-  BOOST_CHECK_EQUAL(provider.calls, 1);
-
-  catalogRequest = request(7, o2::detectors::DetID::MFT);
-  provider.mCatalog = catalog(catalogRequest);
-  const auto rebuilt = frame.ensureDetectorLayouts(&provider, catalogRequest, ordered, TransitionPolicyTag::CylinderCylinder, params);
-  BOOST_REQUIRE(rebuilt.ok());
-  BOOST_CHECK(rebuilt.rebuilt);
-  BOOST_CHECK_EQUAL(provider.calls, 2);
-  BOOST_CHECK(frame.getDetectorLayouts()->getConfigurationKey().catalogRequest == catalogRequest);
-  BOOST_CHECK_EQUAL(frame.getSurfaceCatalogView().size(), 7);
-}
-
-BOOST_AUTO_TEST_CASE(catalog_request_validation)
-{
-  auto checkFailure = [](const DetectorSurfaceCatalogRequest& catalogRequest,
-                         std::vector<SurfaceDescriptor> providedCatalog,
-                         DetectorSurfaceCatalogValidationError expected) {
-    TimeFrame<7> frame;
-    FakeCatalogProvider provider{std::move(providedCatalog)};
-    auto ordered = order(7);
-    std::vector<TrackingParameters> noIterations;
-    const auto result = frame.ensureDetectorLayouts(&provider, catalogRequest, ordered,
-                                                    TransitionPolicyTag::CylinderCylinder, noIterations);
-    BOOST_CHECK(result.error == DetectorLayoutSetBuildError::InvalidCatalog);
-    BOOST_CHECK(result.catalogValidationError == expected);
-    BOOST_CHECK(!frame.hasStoredDetectorLayouts());
-  };
-
-  auto wrongDetector = catalog(7, SurfaceKind::Cylinder, o2::detectors::DetID::MFT);
-  checkFailure(request(7), std::move(wrongDetector), DetectorSurfaceCatalogValidationError::DetectorMismatch);
-  checkFailure(request(6), catalog(7), DetectorSurfaceCatalogValidationError::SizeMismatch);
-  checkFailure(request(6, o2::detectors::DetID::ITS, 1), catalog(7),
-               DetectorSurfaceCatalogValidationError::DetectorSurfaceIndexOutOfRange);
-  checkFailure(request(1, o2::detectors::DetID::ITS, MaxLayoutSurfaces), {},
-               DetectorSurfaceCatalogValidationError::TooManySurfaces);
-
-  auto duplicateIndex = catalog(7);
-  duplicateIndex[6].detectorSurfaceIndex = 5;
-  checkFailure(request(7), std::move(duplicateIndex), DetectorSurfaceCatalogValidationError::DuplicateDetectorSurfaceIndex);
-
-  auto missingIndex = catalog(7);
-  missingIndex[6].detectorSurfaceIndex = std::numeric_limits<uint16_t>::max();
-  checkFailure(request(7), std::move(missingIndex), DetectorSurfaceCatalogValidationError::MissingDetectorSurfaceIndex);
-
-  auto negativeXOverX0 = catalog(7);
-  negativeXOverX0[2].material.xOverX0 = -1.f;
-  checkFailure(request(7), std::move(negativeXOverX0), DetectorSurfaceCatalogValidationError::InvalidMaterial);
-
-  auto nanXOverX0 = catalog(7);
-  nanXOverX0[2].material.xOverX0 = std::numeric_limits<float>::quiet_NaN();
-  checkFailure(request(7), std::move(nanXOverX0), DetectorSurfaceCatalogValidationError::InvalidMaterial);
-
-  auto infAreal = catalog(7);
-  infAreal[5].material.arealDensityGPerCm2 = std::numeric_limits<float>::infinity();
-  checkFailure(request(7), std::move(infAreal), DetectorSurfaceCatalogValidationError::InvalidMaterial);
-
-  auto negativeAreal = catalog(7);
-  negativeAreal[5].material.arealDensityGPerCm2 = -0.1f;
-  checkFailure(request(7), std::move(negativeAreal), DetectorSurfaceCatalogValidationError::InvalidMaterial);
-}
-
-BOOST_AUTO_TEST_CASE(malformed_catalog_rejected_with_zero_iterations)
-{
-  TimeFrame<7> frame;
-  const auto catalogRequest = request(7);
-  auto malformed = catalog(7);
-  malformed[3].id = SurfaceId{4};
-  FakeCatalogProvider provider{std::move(malformed)};
-  auto ordered = order(7);
-  std::vector<TrackingParameters> noIterations;
-  const auto result = frame.ensureDetectorLayouts(&provider, catalogRequest, ordered,
-                                                  TransitionPolicyTag::CylinderCylinder, noIterations);
-  BOOST_CHECK(result.error == DetectorLayoutSetBuildError::InvalidCatalog);
-  BOOST_CHECK(result.catalogValidationError == DetectorSurfaceCatalogValidationError::NonDenseGlobalSurfaceIds);
-  BOOST_CHECK(!frame.hasStoredDetectorLayouts());
-}
-
-BOOST_AUTO_TEST_CASE(interface_owns_provider_from_construction)
-{
-  const auto catalogRequest = request(7);
-  auto provider = std::make_unique<FakeCatalogProvider>(catalog(catalogRequest));
-  auto* providerObserver = provider.get();
-  ITSMFTTrackingInterface<7> interface{false, o2::itsmft::TrackingMode::Unset, false, std::move(provider)};
-  auto ordered = order(7);
-  const auto result = interface.configureDetectorLayouts(catalogRequest, ordered, TransitionPolicyTag::CylinderCylinder);
-  BOOST_REQUIRE(result.ok());
-  BOOST_CHECK(result.rebuilt);
-  BOOST_CHECK_EQUAL(providerObserver->calls, 1);
-  BOOST_REQUIRE(interface.getTimeFrame().getSurfaceCatalog() != nullptr);
-  BOOST_CHECK_EQUAL(interface.getTimeFrame().getSurfaceCatalogView().size(), 7);
-  BOOST_CHECK(interface.getTimeFrame().getDetectorLayout(0) == nullptr);
-}
-
-BOOST_AUTO_TEST_CASE(final_iteration_builder_failure_commits_nothing)
-{
-  TimeFrame<7> frame;
-  const auto catalogRequest = request(7);
-  FakeCatalogProvider provider{catalog(7)};
-  auto ordered = order(7);
-  std::vector<TrackingParameters> valid{parameters(7)};
-  BOOST_REQUIRE(frame.ensureDetectorLayouts(&provider, catalogRequest, ordered, TransitionPolicyTag::CylinderCylinder, valid).ok());
-  frame.invalidateDetectorLayouts();
-  std::vector<TrackingParameters> failing{parameters(7), parameters(6), parameters(5, -1)};
-  const auto result = frame.ensureDetectorLayouts(&provider, catalogRequest, ordered, TransitionPolicyTag::CylinderCylinder, failing);
-  BOOST_CHECK(result.error == DetectorLayoutSetBuildError::LayoutBuilderFailure);
-  BOOST_CHECK_EQUAL(result.failedIteration, 2);
-  BOOST_CHECK(result.layoutBuildError == DetectorLayoutBuildError::NegativeMaxHoles);
-  BOOST_CHECK(frame.hasStoredDetectorLayouts());
-  BOOST_CHECK(!frame.detectorLayoutsCurrent());
+  {
+    // NLayers exceeds orderedSurfaces.size().
+    const auto surfaces = catalog(7);
+    const SurfaceCatalogView view{surfaces.data(), static_cast<uint32_t>(surfaces.size())};
+    const auto ordered = order(7);
+    const std::vector<TrackingParameters> params{parameters(8)};
+    const auto result = buildDetectorLayoutSet(view, ordered, TransitionPolicyTag::CylinderCylinder, params);
+    BOOST_CHECK(result.error == DetectorLayoutSetBuildError::InvalidActiveCount);
+    BOOST_CHECK_EQUAL(result.failedIteration, 0u);
+    BOOST_CHECK(!result.ok());
+  }
+  {
+    // A structurally invalid subgraph (negative maxHoles) surfaces as
+    // DetectorLayoutBuilder's own LayoutBuilderFailure, propagated through
+    // buildDetectorLayoutSet() unchanged.
+    const auto surfaces = catalog(7);
+    const SurfaceCatalogView view{surfaces.data(), static_cast<uint32_t>(surfaces.size())};
+    const auto ordered = order(7);
+    const std::vector<TrackingParameters> params{parameters(7), parameters(6), parameters(5, -1)};
+    const auto result = buildDetectorLayoutSet(view, ordered, TransitionPolicyTag::CylinderCylinder, params);
+    BOOST_CHECK(result.error == DetectorLayoutSetBuildError::LayoutBuilderFailure);
+    BOOST_CHECK_EQUAL(result.failedIteration, 2u);
+    BOOST_CHECK(result.layoutBuildError == DetectorLayoutBuildError::NegativeMaxHoles);
+  }
 }
 
 BOOST_AUTO_TEST_CASE(catalog_identity_active_count_and_mask_mapping)
 {
-  TimeFrame<7> frame;
-  const auto catalogRequest = request(7);
-  FakeCatalogProvider provider{catalog(7)};
   const std::vector<SurfaceId> ordered{SurfaceId{3}, SurfaceId{0}, SurfaceId{6}, SurfaceId{2}, SurfaceId{5}, SurfaceId{1}, SurfaceId{4}};
   std::vector<TrackingParameters> params{
     parameters(7, 1, uint16_t{1} << 1, (uint16_t{1} << 0) | (uint16_t{1} << 4)),
     parameters(4, 1, uint16_t{1} << 1, (uint16_t{1} << 0) | (uint16_t{1} << 4) | (uint16_t{1} << 6))};
-  BOOST_REQUIRE(frame.ensureDetectorLayouts(&provider, catalogRequest, ordered, TransitionPolicyTag::CylinderCylinder, params).ok());
-  const auto* full = frame.getDetectorLayout(0);
-  const auto* reduced = frame.getDetectorLayout(1);
+  auto built = buildPlan(catalog(7), ordered, TransitionPolicyTag::CylinderCylinder, params);
+  const auto* full = built.plan.getLayout(0);
+  const auto* reduced = built.plan.getLayout(1);
   BOOST_REQUIRE(full != nullptr && reduced != nullptr);
-  // Slice 3: the surface catalog is now owned exactly once by
-  // DetectorLayoutSet, shared by every iteration -- there is no longer a
-  // separate per-DetectorLayout copy to compare element-by-element. Both
-  // iterations trivially observe the same single catalog by construction.
-  const auto* sharedCatalog = frame.getSurfaceCatalog();
-  BOOST_REQUIRE(sharedCatalog != nullptr);
-  BOOST_REQUIRE_EQUAL(sharedCatalog->size(), 7);
+  // Slice 3: the surface catalog is now owned exactly once (by this test's
+  // BuiltPlan, borrowed by DetectorLayoutSet as a SurfaceCatalogView) --
+  // there is no longer a separate per-DetectorLayout copy to compare
+  // element-by-element. Both iterations trivially observe the same single
+  // catalog by construction.
+  const auto sharedCatalog = built.plan.getSurfaceCatalog();
+  BOOST_REQUIRE_EQUAL(sharedCatalog.nSurfaces, 7u);
   BOOST_CHECK_LT(reduced->getTopology().getTransitions().size(), full->getTopology().getTransitions().size());
   BOOST_CHECK(full->getTopology().getView().seedingSurfaces.has(SurfaceId{3}));
   BOOST_CHECK(full->getTopology().getView().seedingSurfaces.has(SurfaceId{5}));
@@ -540,8 +335,8 @@ BOOST_AUTO_TEST_CASE(catalog_identity_active_count_and_mask_mapping)
   // positionalSurfaceMask), so iteration 1's own layout must select no road
   // starts at all -- proving each iteration's roadStartCellsForTag reflects
   // only its own layout's seedingSurfaces.
-  const auto fullView = frame.getDetectorLayoutView(0);
-  const auto reducedView = frame.getDetectorLayoutView(1);
+  const auto fullView = built.plan.getLayoutView(0);
+  const auto reducedView = built.plan.getLayoutView(1);
   TransitionPolicyGrouping fullGrouping{fullView};
   TransitionPolicyGrouping reducedGrouping{reducedView};
   BOOST_REQUIRE(fullGrouping.valid());
@@ -557,49 +352,23 @@ BOOST_AUTO_TEST_CASE(catalog_identity_active_count_and_mask_mapping)
   }
 }
 
-BOOST_AUTO_TEST_CASE(traversal_initialisation_classifies_missing_and_stale_layouts)
+// Gate 4 B2 Slice 2: initialiseTimeFrame() takes the plan as an explicit
+// `const DetectorLayoutSet&` parameter, so "missing"/"stale" plan states are
+// no longer constructible at all -- only IterationOutOfRange, from the
+// removed traversal_initialisation_classifies_missing_and_stale_layouts
+// test, still applies and is kept here under its own name.
+BOOST_AUTO_TEST_CASE(traversal_initialisation_rejects_iteration_beyond_configured_layout_set)
 {
-  auto params = mftTraversalParameters();
-  auto pool = std::make_shared<BoundedMemoryResource>();
-  TimeFrame<10> frame;
-  TrackerTraits<10> traits;
-  prepareTraversalFrame(frame, traits, pool, params);
-
-  try {
-    traits.initialiseTimeFrame(0);
-    BOOST_FAIL("missing layout must throw");
-  } catch (const TraversalException& error) {
-    BOOST_CHECK_EQUAL(error.getIteration(), 0);
-    BOOST_CHECK(error.getReason() == TraversalFailureReason::MissingLayout);
-  }
-  BOOST_CHECK(!traits.hasTraversalCache());
-
-  const auto catalogRequest = request(10, o2::detectors::DetID::MFT);
-  FakeCatalogProvider provider{catalog(catalogRequest, SurfaceKind::Disk)};
-  const auto ordered = order(10);
-  BOOST_REQUIRE(frame.ensureDetectorLayouts(&provider, catalogRequest, ordered,
-                                            TransitionPolicyTag::DiskDisk, params)
-                  .ok());
-  frame.invalidateDetectorLayouts();
-  try {
-    traits.initialiseTimeFrame(0);
-    BOOST_FAIL("stale layout must throw");
-  } catch (const TraversalException& error) {
-    BOOST_CHECK(error.getReason() == TraversalFailureReason::StaleLayout);
-  }
-  BOOST_CHECK(!traits.hasTraversalCache());
-
   auto twoIterations = mftTraversalParameters();
   twoIterations.push_back(twoIterations.front());
+  auto pool = std::make_shared<BoundedMemoryResource>();
   TimeFrame<10> shortLayoutFrame;
   TrackerTraits<10> shortLayoutTraits;
   prepareTraversalFrame(shortLayoutFrame, shortLayoutTraits, pool, twoIterations);
   std::vector<TrackingParameters> oneLayout{twoIterations.front()};
-  BOOST_REQUIRE(shortLayoutFrame.ensureDetectorLayouts(&provider, catalogRequest, ordered,
-                                                       TransitionPolicyTag::DiskDisk, oneLayout)
-                  .ok());
+  auto built = buildPlan(catalog(10, SurfaceKind::Disk, o2::detectors::DetID::MFT), order(10), TransitionPolicyTag::DiskDisk, oneLayout);
   try {
-    shortLayoutTraits.initialiseTimeFrame(1);
+    shortLayoutTraits.initialiseTimeFrame(1, built.plan);
     BOOST_FAIL("iteration beyond the configured layout set must throw");
   } catch (const TraversalException& error) {
     BOOST_CHECK_EQUAL(error.getIteration(), 1);
@@ -615,16 +384,11 @@ BOOST_AUTO_TEST_CASE(traversal_cache_groups_and_binds_once_across_repeated_neigh
   TimeFrame<10> frame;
   TrackerTraits<10> traits;
   prepareTraversalFrame(frame, traits, pool, params);
-  const auto catalogRequest = request(10, o2::detectors::DetID::MFT);
-  FakeCatalogProvider provider{catalog(catalogRequest, SurfaceKind::Disk)};
-  const auto ordered = order(10);
-  BOOST_REQUIRE(frame.ensureDetectorLayouts(&provider, catalogRequest, ordered,
-                                            TransitionPolicyTag::DiskDisk, params)
-                  .ok());
+  auto built = buildPlan(catalog(10, SurfaceKind::Disk, o2::detectors::DetID::MFT), order(10), TransitionPolicyTag::DiskDisk, params);
 
   std::shared_ptr<tbb::task_arena> arena;
   traits.setNThreads(1, arena);
-  traits.initialiseTimeFrame(0);
+  traits.initialiseTimeFrame(0, built.plan);
   BOOST_REQUIRE(traits.hasTraversalCache());
   BOOST_CHECK_EQUAL(traits.getTraversalGroupingCount(), 1);
   BOOST_CHECK_EQUAL(traits.getPolicyBindingCount(TransitionPolicyTag::CylinderCylinder), 0);
@@ -641,13 +405,9 @@ BOOST_AUTO_TEST_CASE(traversal_cache_groups_and_binds_once_across_repeated_neigh
   TimeFrame<7> itsFrame;
   TrackerTraits<7> itsTraits;
   prepareTraversalFrame(itsFrame, itsTraits, pool, itsParams);
-  const auto itsCatalogRequest = request(7, o2::detectors::DetID::ITS);
-  FakeCatalogProvider itsProvider{catalog(itsCatalogRequest, SurfaceKind::Cylinder)};
-  BOOST_REQUIRE(itsFrame.ensureDetectorLayouts(&itsProvider, itsCatalogRequest, order(7),
-                                               TransitionPolicyTag::CylinderCylinder, itsParams)
-                  .ok());
+  auto itsBuilt = buildPlan(catalog(7, SurfaceKind::Cylinder, o2::detectors::DetID::ITS), order(7), TransitionPolicyTag::CylinderCylinder, itsParams);
   itsTraits.setNThreads(1, arena);
-  itsTraits.initialiseTimeFrame(0);
+  itsTraits.initialiseTimeFrame(0, itsBuilt.plan);
   itsTraits.findRoads(0);
   itsTraits.findRoads(0);
   BOOST_CHECK_EQUAL(itsTraits.getTraversalGroupingCount(), 1);
@@ -669,16 +429,11 @@ BOOST_AUTO_TEST_CASE(traversal_empty_road_start_span_is_valid_and_produces_no_tr
   TimeFrame<10> frame;
   TrackerTraits<10> traits;
   prepareTraversalFrame(frame, traits, pool, params);
-  const auto catalogRequest = request(10, o2::detectors::DetID::MFT);
-  FakeCatalogProvider provider{catalog(catalogRequest, SurfaceKind::Disk)};
-  const auto ordered = order(10);
-  BOOST_REQUIRE(frame.ensureDetectorLayouts(&provider, catalogRequest, ordered,
-                                            TransitionPolicyTag::DiskDisk, params)
-                  .ok());
+  auto built = buildPlan(catalog(10, SurfaceKind::Disk, o2::detectors::DetID::MFT), order(10), TransitionPolicyTag::DiskDisk, params);
 
   std::shared_ptr<tbb::task_arena> arena;
   traits.setNThreads(1, arena);
-  BOOST_CHECK_NO_THROW(traits.initialiseTimeFrame(0));
+  BOOST_CHECK_NO_THROW(traits.initialiseTimeFrame(0, built.plan));
   BOOST_REQUIRE(traits.hasTraversalCache());
   BOOST_CHECK_NO_THROW(traits.findRoads(0));
   BOOST_CHECK_EQUAL(frame.getNumberOfTracks(), 0u);
@@ -697,16 +452,11 @@ BOOST_AUTO_TEST_CASE(traversal_legacy_cell_container_size_mismatch_fails_before_
   TimeFrame<10> frame;
   TrackerTraits<10> traits;
   prepareTraversalFrame(frame, traits, pool, params);
-  const auto catalogRequest = request(10, o2::detectors::DetID::MFT);
-  FakeCatalogProvider provider{catalog(catalogRequest, SurfaceKind::Disk)};
-  const auto ordered = order(10);
-  BOOST_REQUIRE(frame.ensureDetectorLayouts(&provider, catalogRequest, ordered,
-                                            TransitionPolicyTag::DiskDisk, params)
-                  .ok());
+  auto built = buildPlan(catalog(10, SurfaceKind::Disk, o2::detectors::DetID::MFT), order(10), TransitionPolicyTag::DiskDisk, params);
 
   std::shared_ptr<tbb::task_arena> arena;
   traits.setNThreads(1, arena);
-  traits.initialiseTimeFrame(0);
+  traits.initialiseTimeFrame(0, built.plan);
   BOOST_REQUIRE(traits.hasTraversalCache());
   BOOST_REQUIRE(!frame.getCells().empty());
   frame.getCells().pop_back();
@@ -730,11 +480,9 @@ BOOST_AUTO_TEST_CASE(traversal_preflight_rejects_legacy_mismatch_state_mismatch_
     TimeFrame<10> frame;
     TrackerTraits<10> traits;
     prepareTraversalFrame(frame, traits, pool, params);
-    const auto catalogRequest = request(10, o2::detectors::DetID::MFT);
-    FakeCatalogProvider provider{std::move(surfaces)};
-    BOOST_REQUIRE(frame.ensureDetectorLayouts(&provider, catalogRequest, ordered, tag, params).ok());
+    auto built = buildPlan(std::move(surfaces), ordered, tag, params);
     try {
-      traits.initialiseTimeFrame(0);
+      traits.initialiseTimeFrame(0, built.plan);
       BOOST_FAIL("invalid traversal preflight must throw");
     } catch (const TraversalException& error) {
       BOOST_CHECK(error.getReason() == expected);
@@ -781,18 +529,13 @@ BOOST_AUTO_TEST_CASE(every_iteration_resolves_identical_authoritative_material)
   TimeFrame<10> frame;
   TrackerTraits<10> traits;
   prepareTraversalFrame(frame, traits, pool, params);
-  const auto catalogRequest = request(10, o2::detectors::DetID::MFT);
-  FakeCatalogProvider provider{catalog(catalogRequest, SurfaceKind::Disk)};
-  const auto ordered = order(10);
-  BOOST_REQUIRE(frame.ensureDetectorLayouts(&provider, catalogRequest, ordered,
-                                            TransitionPolicyTag::DiskDisk, params)
-                  .ok());
+  auto built = buildPlan(catalog(10, SurfaceKind::Disk, o2::detectors::DetID::MFT), order(10), TransitionPolicyTag::DiskDisk, params);
 
-  traits.initialiseTimeFrame(0);
+  traits.initialiseTimeFrame(0, built.plan);
   const auto firstIterationMaterial = traits.getLayerMaterial();
   std::vector<NominalSurfaceMaterial> firstIteration(firstIterationMaterial.begin(), firstIterationMaterial.end());
 
-  traits.initialiseTimeFrame(1);
+  traits.initialiseTimeFrame(1, built.plan);
   const auto secondIteration = traits.getLayerMaterial();
   BOOST_REQUIRE_EQUAL(secondIteration.size(), firstIteration.size());
   for (size_t layer = 0; layer < firstIteration.size(); ++layer) {
@@ -809,22 +552,17 @@ BOOST_AUTO_TEST_CASE(rejected_initialisation_does_not_mutate_surface_descriptor_
   TimeFrame<10> frame;
   TrackerTraits<10> traits;
   prepareTraversalFrame(frame, traits, pool, params);
-  const auto catalogRequest = request(10, o2::detectors::DetID::MFT);
-  FakeCatalogProvider provider{catalog(catalogRequest, SurfaceKind::Disk)};
-  const auto ordered = order(10);
-  BOOST_REQUIRE(frame.ensureDetectorLayouts(&provider, catalogRequest, ordered,
-                                            TransitionPolicyTag::DiskDisk, params)
-                  .ok());
-  const NominalSurfaceMaterial materialBefore = frame.getSurfaceCatalog()->at(4).material;
+  auto built = buildPlan(catalog(10, SurfaceKind::Disk, o2::detectors::DetID::MFT), order(10), TransitionPolicyTag::DiskDisk, params);
+  const NominalSurfaceMaterial materialBefore = built.plan.getSurfaceCatalog().getSurface(SurfaceId{4}).material;
 
   try {
-    traits.initialiseTimeFrame(0);
+    traits.initialiseTimeFrame(0, built.plan);
     BOOST_FAIL("perturbed LayerxX0 must throw");
   } catch (const TraversalException& error) {
     BOOST_CHECK(error.getReason() == TraversalFailureReason::LegacyMaterialMismatch);
   }
 
-  const auto& materialAfter = frame.getSurfaceCatalog()->at(4).material;
+  const auto& materialAfter = built.plan.getSurfaceCatalog().getSurface(SurfaceId{4}).material;
   BOOST_CHECK_EQUAL(materialAfter.xOverX0, materialBefore.xOverX0);
   BOOST_CHECK_EQUAL(materialAfter.arealDensityGPerCm2, materialBefore.arealDensityGPerCm2);
 }
@@ -855,11 +593,7 @@ BOOST_AUTO_TEST_CASE(non_monotonic_ordered_surfaces_maps_correctly_then_resets_o
   TimeFrame<10> frame;
   TrackerTraits<10> traits;
   prepareTraversalFrame(frame, traits, pool, params);
-  const auto catalogRequest = request(10, o2::detectors::DetID::MFT);
-  FakeCatalogProvider provider{surfaces};
-  BOOST_REQUIRE(frame.ensureDetectorLayouts(&provider, catalogRequest, nonMonotonicOrder,
-                                            TransitionPolicyTag::DiskDisk, params)
-                  .ok());
+  auto built = buildPlan(std::move(surfaces), nonMonotonicOrder, TransitionPolicyTag::DiskDisk, params);
 
   // The non-identity mapping is structurally incompatible with the separate
   // legacy-topology-parity check (validateLegacyParity), so the overall call
@@ -871,7 +605,7 @@ BOOST_AUTO_TEST_CASE(non_monotonic_ordered_surfaces_maps_correctly_then_resets_o
   // (reading surfaces[legacyLayer] instead) would disagree with it at every
   // permuted position and fail earlier with LegacyMaterialMismatch instead.
   try {
-    traits.initialiseTimeFrame(0);
+    traits.initialiseTimeFrame(0, built.plan);
     BOOST_FAIL("non-monotonic ordering must fail legacy topology parity");
   } catch (const TraversalException& error) {
     BOOST_CHECK(error.getReason() == TraversalFailureReason::LegacyIndexMismatch);
@@ -898,12 +632,12 @@ BOOST_AUTO_TEST_CASE(traversal_preflight_reports_invalid_schedule_and_mixed_poli
   auto checkInstalledLayout = [](BuiltLayout layout, TraversalFailureReason expected) {
     auto params = mftTraversalParameters();
     auto pool = std::make_shared<BoundedMemoryResource>();
-    TraversalTestTimeFrame frame;
+    TimeFrame<10> frame;
     TrackerTraits<10> traits;
     prepareTraversalFrame(frame, traits, pool, params);
-    frame.installLayout(std::move(layout));
+    auto built = wrapLayout(std::move(layout));
     try {
-      traits.initialiseTimeFrame(0);
+      traits.initialiseTimeFrame(0, built.plan);
       BOOST_FAIL("invalid installed layout must throw");
     } catch (const TraversalException& error) {
       BOOST_CHECK(error.getReason() == expected);
@@ -913,23 +647,6 @@ BOOST_AUTO_TEST_CASE(traversal_preflight_reports_invalid_schedule_and_mixed_poli
 
   checkInstalledLayout(cyclicDiskLayout(), TraversalFailureReason::InvalidTraversalSchedule);
   checkInstalledLayout(mixedDisconnectedLayout(), TraversalFailureReason::MixedPolicyLayout);
-}
-
-BOOST_AUTO_TEST_CASE(malformed_catalog_failure_preserves_stale_owner)
-{
-  TimeFrame<7> frame;
-  const auto catalogRequest = request(7);
-  FakeCatalogProvider provider{catalog(7)};
-  auto ordered = order(7);
-  std::vector<TrackingParameters> params{parameters(7)};
-  BOOST_REQUIRE(frame.ensureDetectorLayouts(&provider, catalogRequest, ordered, TransitionPolicyTag::CylinderCylinder, params).ok());
-  frame.invalidateDetectorLayouts();
-  provider.mCatalog[3].id = SurfaceId{6};
-  const auto failed = frame.ensureDetectorLayouts(&provider, catalogRequest, ordered, TransitionPolicyTag::CylinderCylinder, params);
-  BOOST_CHECK(failed.error == DetectorLayoutSetBuildError::InvalidCatalog);
-  BOOST_CHECK(failed.catalogValidationError == DetectorSurfaceCatalogValidationError::NonDenseGlobalSurfaceIds);
-  BOOST_CHECK(frame.hasStoredDetectorLayouts());
-  BOOST_CHECK(!frame.detectorLayoutsCurrent());
 }
 
 BOOST_AUTO_TEST_CASE(its_legacy_topology_and_road_start_parity)

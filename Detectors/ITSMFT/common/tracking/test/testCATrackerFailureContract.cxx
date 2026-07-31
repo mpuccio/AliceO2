@@ -32,25 +32,25 @@
 // boundary to throw on demand, deterministically, without provoking real
 // host OOM or needing to reach genuine tracklet/cell/road computation.
 //
-// Every fixture below establishes a real layout (ensureDetectorLayouts())
-// and then loads a normalized source -- even the structural-failure case,
+// Every fixture below establishes a real layout/plan (buildDetectorLayoutSet())
+// and then loads a normalized source -- even the structural-failure cases,
 // and even when that source carries zero clusters/ROFs -- before running
 // tracking. This is load-bearing, not incidental: TimeFrame::initialise()
 // unconditionally calls getNrof(layer) = mROFramesClusters[layer].size()-1
-// on every layer before TrackerTraits::initialiseTimeFrame() ever reaches
-// its own hasStoredDetectorLayouts()/detectorLayoutsCurrent() checks, and a
-// never-loaded (default-constructed, size-0) mROFramesClusters underflows
-// that subtraction, corrupting memory deep inside prepareClusters() rather
-// than throwing a clean exception. loadNormalizedSource() sizes
-// mROFramesClusters[layer] to rofs.size()+1 for every layer regardless of
-// whether clusters/rofs are empty, which is what makes that call, and every
-// "iterate 0..getNrof()" loop reached afterward, safe. The structural
-// failure itself is then produced by invalidateDetectorLayouts() right
-// before running tracking (TraversalException{StaleLayout}), not by
-// skipping layout establishment altogether -- see the comment on
-// StructuralFailureViaStaleLayoutAlwaysRethrowsAndWipes for why the
-// "never establish a layout" mechanism does not work with the current
-// TimeFrame::initialise() call order.
+// on every layer, and a never-loaded (default-constructed, size-0)
+// mROFramesClusters underflows that subtraction, corrupting memory deep
+// inside prepareClusters() rather than throwing a clean exception.
+// loadNormalizedSource() sizes mROFramesClusters[layer] to rofs.size()+1 for
+// every layer regardless of whether clusters/rofs are empty, which is what
+// makes that call, and every "iterate 0..getNrof()" loop reached afterward,
+// safe. The structural-failure cases below produce their TraversalException
+// through an invalid TrackingParameters/index-table configuration, not
+// through a missing/stale plan: Gate 4 B2 Slice 2 removed the plan-currency
+// concept entirely (initialiseTimeFrame() now takes the plan as an explicit
+// `const DetectorLayoutSet&` parameter, so "no plan" is no longer a state a
+// caller can even construct) -- see the removed
+// StructuralFailureViaStaleLayoutAlwaysRethrowsAndWipes test's replacement
+// note below for what covers the "always rethrows and wipes" contract now.
 //
 // The recoverable-failure fixtures trigger BoundedMemoryResource::
 // MemoryLimitExceeded through TrackingParameters::MaxMemory (via
@@ -68,6 +68,7 @@
 
 #include <limits>
 #include <memory>
+#include <optional>
 #include <stdexcept>
 #include <vector>
 
@@ -87,7 +88,7 @@
 #include "ITSMFTTracking/Configuration.h"
 #include "ITSMFTTracking/DecodedCluster.h"
 #include "ITSMFTTracking/DetectorLayout.h"
-#include "ITSMFTTracking/DetectorSurfaceCatalogProvider.h"
+#include "ITSMFTTracking/DetectorLayoutSet.h"
 #include "ITSMFTTracking/MultiSourceFrame.h"
 #include "ITSMFTTracking/MultiSourceLoading.h"
 #include "ITSMFTTracking/NominalSurfaceMaterialDefaults.h"
@@ -229,19 +230,6 @@ std::vector<SurfaceId> identitySurfaces(uint16_t nLayers)
   return mapping;
 }
 
-class FakeCatalogProvider final : public DetectorSurfaceCatalogProvider
-{
- public:
-  explicit FakeCatalogProvider(std::vector<SurfaceDescriptor> catalog) : mCatalog{std::move(catalog)} {}
-
-  DetectorSurfaceCatalogResult buildCatalog(const DetectorSurfaceCatalogRequest&) const final
-  {
-    return {mCatalog, DetectorSurfaceCatalogError::None};
-  }
-
-  std::vector<SurfaceDescriptor> mCatalog;
-};
-
 struct Fixture {
   std::vector<CompClusterExt> clusters;
   std::vector<unsigned char> patterns;
@@ -308,8 +296,8 @@ std::vector<TrackingParameters> makeTwoIterationITSParams(bool dropTFUponFailure
 // TrackerRemainsUsableAfterADroppedTimeFrame, these cases do not need
 // ensureTrivialMagneticFieldIsSet(): findRoads() is never reached).
 enum class InjectedFailure { None,
-                              BadAlloc,
-                              UnclassifiedRuntimeError };
+                             BadAlloc,
+                             UnclassifiedRuntimeError };
 
 class InjectingTrackerTraits final : public TrackerTraits<ITSNLayers>
 {
@@ -359,15 +347,25 @@ struct RigT {
   TraitsT traits;
   Tracker<ITSNLayers> tracker;
   std::shared_ptr<tbb::task_arena> arena;
+  // Must outlive `plan` (DetectorLayoutSet borrows a SurfaceCatalogView into
+  // it, Gate 4 B2 Slice 2) -- declared before `plan` so it is constructed
+  // first and destroyed last. Owned by this Rig, not by TimeFrame: wipe()
+  // cannot touch either, by construction.
+  std::vector<SurfaceDescriptor> catalog;
+  std::optional<DetectorLayoutSet> plan;
 
-  // Establishes a real, valid detector layout + topology, without loading
-  // any clusters. Proven pattern from testTimeFrameLifecycle.cxx.
+  // Establishes a real, valid detector layout/plan + topology, without
+  // loading any clusters, and binds it into the tracker (mirroring
+  // ITSMFTTrackingInterface::runTracking()'s adoptDetectorLayoutSet() call).
   void establishValidLayout()
   {
+    catalog = makeITSTestCatalog();
     const auto orderedSurfaces = identitySurfaces(ITSNLayers);
-    FakeCatalogProvider provider{makeITSTestCatalog()};
-    const DetectorSurfaceCatalogRequest catalogRequest{o2::detectors::DetID::ITS, SurfaceId{0}, ITSNLayers};
-    BOOST_REQUIRE(tf.ensureDetectorLayouts(&provider, catalogRequest, orderedSurfaces, TransitionPolicyTag::CylinderCylinder, params).ok());
+    const SurfaceCatalogView catalogView{catalog.data(), static_cast<uint32_t>(catalog.size())};
+    auto result = buildDetectorLayoutSet(catalogView, orderedSurfaces, TransitionPolicyTag::CylinderCylinder, params);
+    BOOST_REQUIRE(result.ok());
+    plan.emplace(std::move(*result.layout));
+    tracker.adoptDetectorLayoutSet(*plan);
     tf.initTrackerTopologies(params);
   }
 
@@ -388,8 +386,10 @@ struct RigT {
     LegacyLikeDecoder decoder{o2::detectors::DetID::ITS};
     const o2::InteractionRecord origin{50, 5};
     const ROFTimingConfig timing{40, 0, 0, 0};
+    const auto& orderedSurfaces = plan->getConfigurationKey().orderedSurfaces;
     const auto result = tf.loadNormalizedSource(decoder, origin, timing, f.clusters, f.patterns, f.rofs, &dict(),
-                                                 f.labels.getIndexedSize() > 0 ? &f.labels : nullptr, o2::detectors::DetID::ITS);
+                                                f.labels.getIndexedSize() > 0 ? &f.labels : nullptr, o2::detectors::DetID::ITS,
+                                                gsl::span<const SurfaceId>{orderedSurfaces}, plan->getSurfaceCatalog());
     BOOST_REQUIRE(result.ok());
 
     // TrackerTraits::computeLayerTracklets() reads per-layer ROF counts
@@ -470,50 +470,21 @@ BOOST_AUTO_TEST_CASE(SentinelIsExactMatchNotSignCheck)
 
 // --- Structural failure: always rethrows, always wipes -------------------
 //
-// Mechanism: establish a real layout and load a (deliberately empty)
-// normalized source -- required so TimeFrame::initialise()'s unconditional
-// getNrof(layer) calls see a validly-sized ROF table instead of underflowing
-// -- then invalidate the layout right before running tracking, producing
-// TraversalException{StaleLayout} deterministically.
-//
-// A never-established layout (skipping ensureDetectorLayouts() entirely)
-// was also tried, aiming for TraversalException{MissingLayout}, but
-// TrackerTraits::initialiseTimeFrame() calls TimeFrame::initialise() BEFORE
-// its hasStoredDetectorLayouts() check, and initialise() unconditionally
-// runs prepareClusters()/getNrof() on every layer regardless of whether any
-// source was ever loaded; with mROFramesClusters never sized, getNrof()
-// underflows and prepareClusters() reads out of bounds. That crash is a
-// pre-existing precondition gap in initialise()'s call order, not part of
-// this task's bounded scope (CATracker.cxx/CATrackerSpec.cxx/declarations
-// only) -- worth a separate follow-up, not fixed here.
-
-BOOST_AUTO_TEST_CASE(StructuralFailureViaStaleLayoutAlwaysRethrowsAndWipes)
-{
-  for (const bool dropFlag : {false, true}) {
-    Rig rig{dropFlag};
-    rig.establishValidLayout();
-    rig.loadSource(emptyFixture());
-    BOOST_REQUIRE(rig.tf.hasStoredDetectorLayouts());
-    const auto epochBefore = rig.tf.getRequiredDetectorGeometryEpoch();
-
-    rig.tf.invalidateDetectorLayouts();
-    BOOST_REQUIRE(!rig.tf.detectorLayoutsCurrent());
-
-    // Seed genuine content so the assertion below proves wipe() actually
-    // ran, not merely that mTracks started out empty.
-    rig.tf.getTracks().push_back(CATrackType<ITSNLayers>{});
-    BOOST_REQUIRE(!rig.tf.getTracks().empty());
-
-    BOOST_CHECK_THROW(rig.tracker.clustersToTracks(), TraversalException);
-
-    BOOST_CHECK(rig.tf.getTracks().empty());
-    BOOST_CHECK_EQUAL(rig.tf.getNormalizedFrame().getTotalMeasurements(), 0u);
-    // The stored layout object itself survives invalidation (only the
-    // required epoch changes) -- wipe() must not additionally destroy it.
-    BOOST_CHECK(rig.tf.hasStoredDetectorLayouts());
-    BOOST_CHECK(rig.tf.getRequiredDetectorGeometryEpoch() != epochBefore);
-  }
-}
+// Gate 4 B2 Slice 2 removed this section's original mechanism
+// (StructuralFailureViaStaleLayoutAlwaysRethrowsAndWipes: establish a valid
+// layout, then TimeFrame::invalidateDetectorLayouts() right before running
+// tracking to deterministically produce TraversalException{StaleLayout}).
+// Neither invalidateDetectorLayouts() nor TraversalFailureReason::StaleLayout
+// is reachable any more: initialiseTimeFrame() now takes the plan as an
+// explicit `const DetectorLayoutSet&` parameter with no TimeFrame-owned
+// currency concept to invalidate. The "TraversalException (structural/
+// configuration failure): TimeFrame is wiped, then the exception always
+// rethrows, regardless of DropTFUponFailure" contract this test protected is
+// still covered below, through a different structural-failure reason
+// (InvalidIndexTableConfigurationAlwaysRethrowsAndWipesRegardlessOfFlag /
+// IndexTableConfigurationMismatchAlwaysRethrowsAndWipesRegardlessOfFlag): the
+// contract under test is about TraversalException as a *category*, not about
+// any one specific TraversalFailureReason value.
 
 // --- Recoverable failure: DropTFUponFailure decides, always wipes --------
 
@@ -524,9 +495,6 @@ BOOST_AUTO_TEST_CASE(RecoverableFailureDroppedReturnsExactSentinelAndWipes)
   rig.loadSource(makeFixture());
   BOOST_REQUIRE(rig.tf.getNormalizedFrame().getTotalMeasurements() > 0u);
 
-  const auto catalogSizeBefore = rig.tf.getSurfaceCatalog()->size();
-  const auto epochBefore = rig.tf.getRequiredDetectorGeometryEpoch();
-
   rig.forceMemoryLimitBelowCurrentUsage();
 
   const float result = rig.tracker.clustersToTracks();
@@ -534,11 +502,8 @@ BOOST_AUTO_TEST_CASE(RecoverableFailureDroppedReturnsExactSentinelAndWipes)
   BOOST_CHECK(isDroppedTimeFrame(result));
   BOOST_CHECK_EQUAL(rig.tf.getNormalizedFrame().getTotalMeasurements(), 0u);
   BOOST_CHECK(rig.tf.getTracks().empty());
-  // Catalog/layout configuration and geometry epoch survive the wipe.
-  BOOST_REQUIRE(rig.tf.getSurfaceCatalog() != nullptr);
-  BOOST_CHECK_EQUAL(rig.tf.getSurfaceCatalog()->size(), catalogSizeBefore);
-  BOOST_CHECK(rig.tf.detectorLayoutsCurrent());
-  BOOST_CHECK_EQUAL(rig.tf.getRequiredDetectorGeometryEpoch(), epochBefore);
+  // The plan lives on `rig`, not on TimeFrame (Gate 4 B2 Slice 2): wipe()
+  // cannot touch it, by construction -- nothing left to assert here.
 }
 
 BOOST_AUTO_TEST_CASE(RecoverableFailureNotDroppedRethrowsButStillWipesFirst)
@@ -556,8 +521,6 @@ BOOST_AUTO_TEST_CASE(RecoverableFailureNotDroppedRethrowsButStillWipesFirst)
   // "the process is going down anyway".
   BOOST_CHECK_EQUAL(rig.tf.getNormalizedFrame().getTotalMeasurements(), 0u);
   BOOST_CHECK(rig.tf.getTracks().empty());
-  BOOST_CHECK(rig.tf.hasStoredDetectorLayouts());
-  BOOST_CHECK(rig.tf.detectorLayoutsCurrent());
 }
 
 // --- std::bad_alloc: recoverable, same drop-or-rethrow policy ------------
@@ -574,19 +537,12 @@ BOOST_AUTO_TEST_CASE(BadAllocDroppedReturnsExactSentinelAndWipes)
   rig.loadSource(makeFixture());
   BOOST_REQUIRE(rig.tf.getNormalizedFrame().getTotalMeasurements() > 0u);
 
-  const auto catalogSizeBefore = rig.tf.getSurfaceCatalog()->size();
-  const auto epochBefore = rig.tf.getRequiredDetectorGeometryEpoch();
-
   rig.traits.failure = InjectedFailure::BadAlloc;
   const float result = rig.tracker.clustersToTracks();
 
   BOOST_CHECK(isDroppedTimeFrame(result));
   BOOST_CHECK_EQUAL(rig.tf.getNormalizedFrame().getTotalMeasurements(), 0u);
   BOOST_CHECK(rig.tf.getTracks().empty());
-  BOOST_REQUIRE(rig.tf.getSurfaceCatalog() != nullptr);
-  BOOST_CHECK_EQUAL(rig.tf.getSurfaceCatalog()->size(), catalogSizeBefore);
-  BOOST_CHECK(rig.tf.detectorLayoutsCurrent());
-  BOOST_CHECK_EQUAL(rig.tf.getRequiredDetectorGeometryEpoch(), epochBefore);
 }
 
 BOOST_AUTO_TEST_CASE(BadAllocNotDroppedRethrowsButStillWipesFirst)
@@ -601,8 +557,6 @@ BOOST_AUTO_TEST_CASE(BadAllocNotDroppedRethrowsButStillWipesFirst)
 
   BOOST_CHECK_EQUAL(rig.tf.getNormalizedFrame().getTotalMeasurements(), 0u);
   BOOST_CHECK(rig.tf.getTracks().empty());
-  BOOST_CHECK(rig.tf.hasStoredDetectorLayouts());
-  BOOST_CHECK(rig.tf.detectorLayoutsCurrent());
 }
 
 // --- Unclassified std::exception: always structural, never a sentinel ----
@@ -625,8 +579,6 @@ BOOST_AUTO_TEST_CASE(UnclassifiedExceptionAlwaysRethrowsAndWipesRegardlessOfFlag
 
     BOOST_CHECK_EQUAL(rig.tf.getNormalizedFrame().getTotalMeasurements(), 0u);
     BOOST_CHECK(rig.tf.getTracks().empty());
-    BOOST_CHECK(rig.tf.hasStoredDetectorLayouts());
-    BOOST_CHECK(rig.tf.detectorLayoutsCurrent());
   }
 }
 
@@ -634,9 +586,9 @@ BOOST_AUTO_TEST_CASE(UnclassifiedExceptionAlwaysRethrowsAndWipesRegardlessOfFlag
 //
 // Both new TraversalFailureReason values (InvalidIndexTableConfiguration,
 // IndexTableConfigurationMismatch; TrackerTraits.cxx::initialiseTimeFrame())
-// are TraversalException, the same structural-failure type as StaleLayout
-// above -- so they must follow the identical always-rethrow-and-wipe
-// contract, regardless of DropTFUponFailure.
+// are TraversalException, the same structural-failure category the removed
+// StaleLayout test above used to cover -- so they must follow the identical
+// always-rethrow-and-wipe contract, regardless of DropTFUponFailure.
 
 BOOST_AUTO_TEST_CASE(InvalidIndexTableConfigurationAlwaysRethrowsAndWipesRegardlessOfFlag)
 {
@@ -660,8 +612,6 @@ BOOST_AUTO_TEST_CASE(InvalidIndexTableConfigurationAlwaysRethrowsAndWipesRegardl
     BOOST_CHECK(threw);
 
     BOOST_CHECK(rig.tf.getTracks().empty());
-    BOOST_CHECK(rig.tf.hasStoredDetectorLayouts());
-    BOOST_CHECK(rig.tf.detectorLayoutsCurrent());
   }
 }
 
@@ -686,8 +636,6 @@ BOOST_AUTO_TEST_CASE(IndexTableConfigurationMismatchAlwaysRethrowsAndWipesRegard
     BOOST_CHECK(threw);
 
     BOOST_CHECK(rig.tf.getTracks().empty());
-    BOOST_CHECK(rig.tf.hasStoredDetectorLayouts());
-    BOOST_CHECK(rig.tf.detectorLayoutsCurrent());
   }
 }
 

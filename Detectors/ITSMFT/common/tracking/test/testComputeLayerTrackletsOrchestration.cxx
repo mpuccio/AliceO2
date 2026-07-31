@@ -30,7 +30,7 @@
 #include "ITSMFTTracking/DecodedCluster.h"
 #include "ITSMFTTracking/DetectorLayout.h"
 #include "ITSMFTTracking/DetectorLayoutBuilder.h"
-#include "ITSMFTTracking/DetectorSurfaceCatalogProvider.h"
+#include "ITSMFTTracking/DetectorLayoutSet.h"
 #include "ITSMFTTracking/MFTFwdTrackHelpers.h"
 #include "ITSMFTTracking/MultiSourceLoading.h"
 #include "ITSMFTTracking/NominalSurfaceMaterialDefaults.h"
@@ -69,20 +69,6 @@ std::vector<SurfaceId> identitySurfaces(uint16_t nLayers)
   }
   return mapping;
 }
-
-class FakeCatalogProvider final : public DetectorSurfaceCatalogProvider
-{
- public:
-  explicit FakeCatalogProvider(std::vector<SurfaceDescriptor> catalog) : mCatalog{std::move(catalog)} {}
-
-  DetectorSurfaceCatalogResult buildCatalog(const DetectorSurfaceCatalogRequest&) const final
-  {
-    return {mCatalog, DetectorSurfaceCatalogError::None};
-  }
-
- private:
-  std::vector<SurfaceDescriptor> mCatalog;
-};
 
 std::vector<SurfaceDescriptor> makeCatalog(uint16_t nLayers, o2::detectors::DetID::ID detector, SurfaceKind kind)
 {
@@ -259,9 +245,11 @@ TrackletSnapshot runFixture(o2::detectors::DetID::ID detector,
   traits.setBz(Bz);
 
   const auto orderedSurfaces = identitySurfaces(static_cast<uint16_t>(NLayers));
-  FakeCatalogProvider provider{makeCatalog(static_cast<uint16_t>(NLayers), detector, kind)};
-  const DetectorSurfaceCatalogRequest catalogRequest{detector, SurfaceId{0}, static_cast<uint32_t>(NLayers)};
-  BOOST_REQUIRE(tf.ensureDetectorLayouts(&provider, catalogRequest, orderedSurfaces, tag, params).ok());
+  const auto catalog = makeCatalog(static_cast<uint16_t>(NLayers), detector, kind);
+  const SurfaceCatalogView catalogView{catalog.data(), static_cast<uint32_t>(catalog.size())};
+  auto planResult = buildDetectorLayoutSet(catalogView, orderedSurfaces, tag, params);
+  BOOST_REQUIRE(planResult.ok());
+  const auto plan = std::move(*planResult.layout);
   tf.initTrackerTopologies(params);
 
   std::vector<CompClusterExt> compactClusters;
@@ -275,7 +263,8 @@ TrackletSnapshot runFixture(o2::detectors::DetID::ID detector,
   const std::vector<ROFRecord> rofs{ROFRecord{{100, 5}, 0, 0, static_cast<int>(compactClusters.size())}};
   PrescribedDecoder decoder{detector, kind, std::move(decoded)};
   const auto load = tf.loadNormalizedSource(decoder, o2::InteractionRecord{50, 5}, ROFTimingConfig{40, 0, 0, 0},
-                                            compactClusters, patterns, rofs, &dict(), nullptr, detector);
+                                            compactClusters, patterns, rofs, &dict(), nullptr, detector,
+                                            gsl::span<const SurfaceId>{plan.getConfigurationKey().orderedSurfaces}, plan.getSurfaceCatalog());
   BOOST_REQUIRE(load.ok());
 
   o2::its::LayerTiming layerTiming{};
@@ -306,7 +295,7 @@ TrackletSnapshot runFixture(o2::detectors::DetID::ID detector,
   }
   tf.setMultiplicityCutMask(std::move(mask));
 
-  traits.initialiseTimeFrame(0);
+  traits.initialiseTimeFrame(0, plan);
   BOOST_CHECK_EQUAL(traits.getTraversalGroupingCount(), 1);
   BOOST_CHECK_EQUAL(traits.getPolicyBindingCount(tag), 1);
   const auto otherTag = tag == TransitionPolicyTag::CylinderCylinder ? TransitionPolicyTag::DiskDisk : TransitionPolicyTag::CylinderCylinder;
@@ -474,40 +463,28 @@ std::vector<DecodedCluster> buildMftChainClusters(const TrackingParameters& para
   return clusters;
 }
 
-/// Gate 4 Slice 0a fail-closed coverage: TimeFrame's ensureDetectorLayouts()
-/// is the only production entry point for installing a DetectorLayoutSet,
-/// and it always builds a single-subgraph, single-policyTag layout from a
-/// duplicate-free orderedSurfaces span (DetectorLayoutBuilder already
-/// rejects a duplicate SurfaceId within one subgraph, and TimeFrame's own
-/// ensureDetectorLayouts() has no way to author a combined/mixed-policy
-/// layout at all -- see DetectorLayoutBuilder.cxx / architecture note that
-/// no cross-detector edges exist because none are authored). To directly
-/// exercise TrackerTraits::initialiseTimeFrame()'s own fail-closed checks
-/// (SurfaceLayerMappingMismatch, MixedPolicyLayout) against inputs that
-/// cannot arise through that production entry point, this test-only
-/// subclass installs an already-built DetectorLayoutSet directly, mirroring
-/// the established TraversalTestTimeFrame pattern in
-/// testTimeFrameDetectorLayouts.cxx. initialiseTimeFrame() itself remains
-/// the public method under test; only the upstream layout construction is
-/// bypassed.
-template <int NLayers>
-struct LayoutInjectingTimeFrame : TimeFrame<NLayers> {
-  void installLayout(DetectorLayoutConfigurationKey key, std::vector<SurfaceDescriptor> surfaces, std::vector<DetectorLayout> layouts)
-  {
-    this->mRequiredDetectorLayoutConfiguration = key;
-    this->mDetectorLayouts.emplace(std::move(key), std::move(surfaces), std::move(layouts));
-  }
-};
+/// Gate 4 Slice 0a fail-closed coverage, revised for Gate 4 B2 Slice 2: a
+/// production plan always builds a single-subgraph, single-policyTag layout
+/// from a duplicate-free orderedSurfaces span (DetectorLayoutBuilder already
+/// rejects a duplicate SurfaceId within one subgraph, and
+/// buildDetectorLayoutSet() has no way to author a combined/mixed-policy
+/// layout at all). To directly exercise TrackerTraits::initialiseTimeFrame()'s
+/// own fail-closed checks (SurfaceLayerMappingMismatch, MixedPolicyLayout)
+/// against inputs that cannot arise through that production path, the two
+/// tests below construct a deliberately-corrupted DetectorLayoutSet directly
+/// and pass it to initialiseTimeFrame() as its explicit plan parameter -- no
+/// TimeFrame-subclass injection hack is needed any more, since the plan is no
+/// longer TimeFrame-owned state to smuggle in.
 
 /// A valid, identity-ordered chain DetectorLayout for `detector`/`kind`/`tag`
-/// (same shape ensureDetectorLayouts() would build for that detector), built
+/// (same shape buildDetectorLayoutSet() would build for that detector), built
 /// directly via DetectorLayoutBuilder so it can be installed with a
 /// deliberately-corrupted DetectorLayoutConfigurationKey::orderedSurfaces
 /// afterwards.
 std::pair<DetectorLayout, std::vector<SurfaceDescriptor>> buildIdentityChainLayout(uint16_t nSurfaces, o2::detectors::DetID::ID detector, SurfaceKind kind, TransitionPolicyTag tag)
 {
   auto surfaces = makeCatalog(nSurfaces, detector, kind);
-  DetectorLayoutBuilder builder{surfaces};
+  DetectorLayoutBuilder builder{SurfaceCatalogView{surfaces.data(), static_cast<uint32_t>(surfaces.size())}};
   DetectorLayoutSubgraph subgraph;
   subgraph.orderedSurfaces = identitySurfaces(nSurfaces);
   subgraph.maxHoles = 0;
@@ -630,9 +607,11 @@ BOOST_AUTO_TEST_CASE(InitialiseTimeFrameFailureLeavesTransitionArraysZeroFilledN
   traits.setBz(Bz);
 
   const auto orderedSurfaces = identitySurfaces(static_cast<uint16_t>(ITSNLayers));
-  FakeCatalogProvider provider{makeCatalog(static_cast<uint16_t>(ITSNLayers), o2::detectors::DetID::ITS, SurfaceKind::Cylinder)};
-  const DetectorSurfaceCatalogRequest catalogRequest{o2::detectors::DetID::ITS, SurfaceId{0}, static_cast<uint32_t>(ITSNLayers)};
-  BOOST_REQUIRE(tf.ensureDetectorLayouts(&provider, catalogRequest, orderedSurfaces, TransitionPolicyTag::CylinderCylinder, params).ok());
+  const auto catalog = makeCatalog(static_cast<uint16_t>(ITSNLayers), o2::detectors::DetID::ITS, SurfaceKind::Cylinder);
+  const SurfaceCatalogView catalogView{catalog.data(), static_cast<uint32_t>(catalog.size())};
+  auto planResult = buildDetectorLayoutSet(catalogView, orderedSurfaces, TransitionPolicyTag::CylinderCylinder, params);
+  BOOST_REQUIRE(planResult.ok());
+  const auto plan = std::move(*planResult.layout);
   tf.initTrackerTopologies(params);
 
   // Same minimal cluster/ROF/mask setup as runFixture(): TimeFrame::initialise()
@@ -651,7 +630,8 @@ BOOST_AUTO_TEST_CASE(InitialiseTimeFrameFailureLeavesTransitionArraysZeroFilledN
   const std::vector<ROFRecord> rofs{ROFRecord{{100, 5}, 0, 0, static_cast<int>(compactClusters.size())}};
   PrescribedDecoder decoder{o2::detectors::DetID::ITS, SurfaceKind::Cylinder, decoded};
   const auto load = tf.loadNormalizedSource(decoder, o2::InteractionRecord{50, 5}, ROFTimingConfig{40, 0, 0, 0},
-                                            compactClusters, patterns, rofs, &dict(), nullptr, o2::detectors::DetID::ITS);
+                                            compactClusters, patterns, rofs, &dict(), nullptr, o2::detectors::DetID::ITS,
+                                            gsl::span<const SurfaceId>{plan.getConfigurationKey().orderedSurfaces}, plan.getSurfaceCatalog());
   BOOST_REQUIRE(load.ok());
 
   o2::its::LayerTiming layerTiming{};
@@ -670,7 +650,7 @@ BOOST_AUTO_TEST_CASE(InitialiseTimeFrameFailureLeavesTransitionArraysZeroFilledN
   }
   tf.setMultiplicityCutMask(std::move(mask));
 
-  BOOST_CHECK_EXCEPTION(traits.initialiseTimeFrame(0), TraversalException, [](const TraversalException& error) {
+  BOOST_CHECK_EXCEPTION(traits.initialiseTimeFrame(0, plan), TraversalException, [](const TraversalException& error) {
     return error.getReason() == TraversalFailureReason::InvalidPolicyParameters;
   });
 
@@ -832,30 +812,30 @@ BOOST_AUTO_TEST_CASE(ItsHoleTransitionTrackletResolvesCorrectLegacyLayerEndpoint
 
 BOOST_AUTO_TEST_CASE(DuplicateSurfaceIdMappingFailsClosedBeforeTrackletProcessing)
 {
-  // TimeFrame::ensureDetectorLayouts() -- the only production entry point --
-  // always builds its subgraph from the caller-supplied orderedSurfaces, and
-  // DetectorLayoutBuilder already rejects a duplicate SurfaceId within that
-  // subgraph (DuplicateSurfaceInSubgraph), so a duplicate mapping can never
-  // reach TrackerTraits::initialiseTimeFrame() through that path. This test
-  // installs an otherwise-valid, identity-topology DetectorLayoutSet
-  // directly (LayoutInjectingTimeFrame, mirroring testTimeFrameDetectorLayouts.cxx's
-  // established TraversalTestTimeFrame pattern) with a
-  // DetectorLayoutConfigurationKey::orderedSurfaces that duplicates
-  // SurfaceId{0} at legacy layers 0 and 1 -- exercising exactly (and only)
-  // the new mSurfaceToLegacyLayer bijectivity preflight in
-  // initialiseTimeFrame(), through that method's own public contract.
+  // buildDetectorLayoutSet() -- the production path -- always builds its
+  // subgraph from the caller-supplied orderedSurfaces, and DetectorLayoutBuilder
+  // already rejects a duplicate SurfaceId within that subgraph
+  // (DuplicateSurfaceInSubgraph), so a duplicate mapping can never reach
+  // TrackerTraits::initialiseTimeFrame() through that path. This test
+  // constructs an otherwise-valid, identity-topology DetectorLayoutSet
+  // directly, with a DetectorLayoutConfigurationKey::orderedSurfaces that
+  // duplicates SurfaceId{0} at legacy layers 0 and 1, then passes it to
+  // initialiseTimeFrame() as its explicit plan argument -- exercising
+  // exactly (and only) the mSurfaceToLegacyLayer bijectivity preflight,
+  // through that method's own public contract.
   auto built = buildIdentityChainLayout(static_cast<uint16_t>(ITSNLayers), o2::detectors::DetID::ITS, SurfaceKind::Cylinder, TransitionPolicyTag::CylinderCylinder);
+  const std::vector<SurfaceDescriptor> surfaces = std::move(built.second);
 
-  LayoutInjectingTimeFrame<ITSNLayers> tf;
   DetectorLayoutConfigurationKey key;
-  key.catalogRequest = DetectorSurfaceCatalogRequest{o2::detectors::DetID::ITS, SurfaceId{0}, static_cast<uint32_t>(ITSNLayers)};
   key.orderedSurfaces = {SurfaceId{0}, SurfaceId{0}, SurfaceId{2}, SurfaceId{3}, SurfaceId{4}, SurfaceId{5}, SurfaceId{6}};
   key.policyTag = TransitionPolicyTag::CylinderCylinder;
   key.iterations.push_back(DetectorLayoutIterationConfiguration{static_cast<uint32_t>(ITSNLayers), 0, LayerMask{0}, LayerMask{0}});
   std::vector<DetectorLayout> layouts;
   layouts.push_back(std::move(built.first));
-  tf.installLayout(key, std::move(built.second), std::move(layouts));
+  const SurfaceCatalogView catalogView{surfaces.data(), static_cast<uint32_t>(surfaces.size())};
+  const DetectorLayoutSet plan{std::move(key), catalogView, std::move(layouts)};
 
+  TimeFrame<ITSNLayers> tf;
   auto pool = std::make_shared<BoundedMemoryResource>();
   std::shared_ptr<tbb::task_arena> arena;
   TrackerTraits<ITSNLayers> traits;
@@ -868,7 +848,7 @@ BOOST_AUTO_TEST_CASE(DuplicateSurfaceIdMappingFailsClosedBeforeTrackletProcessin
   traits.updateTrackingParameters(params);
   traits.setBz(Bz);
 
-  BOOST_CHECK_EXCEPTION(traits.initialiseTimeFrame(0), TraversalException, [](const TraversalException& error) {
+  BOOST_CHECK_EXCEPTION(traits.initialiseTimeFrame(0, plan), TraversalException, [](const TraversalException& error) {
     return error.getReason() == TraversalFailureReason::SurfaceLayerMappingMismatch;
   });
   BOOST_CHECK(!traits.hasTraversalCache());
@@ -878,26 +858,25 @@ BOOST_AUTO_TEST_CASE(CombinedCylinderAndDiskLayoutIsRejectedBeforeTrackletProces
 {
   // Gate 4 Slice 0a scoping note (accepted plan revision): a layout
   // combining both TransitionPolicyTags cannot be authored through the
-  // production ensureDetectorLayouts() entry point at all -- it always
-  // builds a single-subgraph, single-policyTag layout, matching the
-  // architecture note that no cross-detector edges exist because none are
-  // authored. This test installs one directly to prove
-  // TrackerTraits::initialiseTimeFrame() still fails closed
-  // (MixedPolicyLayout) before mTraversalGrouping is committed and before
-  // computeLayerTracklets() could process anything -- i.e. that no
-  // duplicate/cross-tag candidate processing is possible even if such a
-  // layout existed. Per-tag span exactness/disjointness itself is already
-  // proven at the TransitionPolicyGrouping/dispatchTransitionPolicies level
-  // by testTransitionPolicyDispatch.cxx's
+  // production buildDetectorLayoutSet() path at all -- it always builds a
+  // single-subgraph, single-policyTag layout, matching the architecture note
+  // that no cross-detector edges exist because none are authored. This test
+  // constructs one directly to prove TrackerTraits::initialiseTimeFrame()
+  // still fails closed (MixedPolicyLayout) before mTraversalGrouping is
+  // committed and before computeLayerTracklets() could process anything --
+  // i.e. that no duplicate/cross-tag candidate processing is possible even
+  // if such a layout existed. Per-tag span exactness/disjointness itself is
+  // already proven at the TransitionPolicyGrouping/dispatchTransitionPolicies
+  // level by testTransitionPolicyDispatch.cxx's
   // CombinedDisconnectedLayoutDispatchesBothFamiliesWithoutDetectorBranching
   // and RoadStartCellsSeparateCylinderAndDiskSpansInACombinedGrouping; this
   // test is the TrackerTraits-level complement covering the "rejected" case.
   const auto nCylinders = static_cast<uint16_t>(ITSNLayers);
   const auto nDisks = static_cast<uint16_t>(MFTNLayers);
-  const auto total = static_cast<uint16_t>(nCylinders + nDisks);
-  auto surfaces = combinedCatalog(nCylinders, nDisks);
+  const std::vector<SurfaceDescriptor> surfaces = combinedCatalog(nCylinders, nDisks);
+  const SurfaceCatalogView catalogView{surfaces.data(), static_cast<uint32_t>(surfaces.size())};
 
-  DetectorLayoutBuilder builder{surfaces};
+  DetectorLayoutBuilder builder{catalogView};
   DetectorLayoutSubgraph cylinderSubgraph;
   cylinderSubgraph.orderedSurfaces = rangeSurfaces(0, nCylinders);
   cylinderSubgraph.policyTag = TransitionPolicyTag::CylinderCylinder;
@@ -907,16 +886,15 @@ BOOST_AUTO_TEST_CASE(CombinedCylinderAndDiskLayoutIsRejectedBeforeTrackletProces
   auto result = builder.addSubgraph(std::move(cylinderSubgraph)).addSubgraph(std::move(diskSubgraph)).build();
   BOOST_REQUIRE(result.ok());
 
-  LayoutInjectingTimeFrame<ITSNLayers> tf;
   DetectorLayoutConfigurationKey key;
-  key.catalogRequest = DetectorSurfaceCatalogRequest{o2::detectors::DetID::ITS, SurfaceId{0}, static_cast<uint32_t>(total)};
   key.orderedSurfaces = identitySurfaces(nCylinders);
   key.policyTag = TransitionPolicyTag::CylinderCylinder;
   key.iterations.push_back(DetectorLayoutIterationConfiguration{static_cast<uint32_t>(ITSNLayers), 0, LayerMask{0}, LayerMask{0}});
   std::vector<DetectorLayout> layouts;
   layouts.push_back(std::move(*result.layout));
-  tf.installLayout(key, std::move(surfaces), std::move(layouts));
+  const DetectorLayoutSet plan{std::move(key), catalogView, std::move(layouts)};
 
+  TimeFrame<ITSNLayers> tf;
   auto pool = std::make_shared<BoundedMemoryResource>();
   std::shared_ptr<tbb::task_arena> arena;
   TrackerTraits<ITSNLayers> traits;
@@ -929,7 +907,7 @@ BOOST_AUTO_TEST_CASE(CombinedCylinderAndDiskLayoutIsRejectedBeforeTrackletProces
   traits.updateTrackingParameters(params);
   traits.setBz(Bz);
 
-  BOOST_CHECK_EXCEPTION(traits.initialiseTimeFrame(0), TraversalException, [](const TraversalException& error) {
+  BOOST_CHECK_EXCEPTION(traits.initialiseTimeFrame(0, plan), TraversalException, [](const TraversalException& error) {
     return error.getReason() == TraversalFailureReason::MixedPolicyLayout;
   });
   BOOST_CHECK(!traits.hasTraversalCache());

@@ -207,7 +207,7 @@ BOOST_AUTO_TEST_CASE(CombinedLayoutPreservesCurrentHoleSemanticsUnderGlobalIds)
   SurfaceMask mftHoleMask;
   mftHoleMask.set(SurfaceId{ITSNLayers + 5});
 
-  DetectorLayoutBuilder builder{combined.catalog};
+  DetectorLayoutBuilder builder{SurfaceCatalogView{combined.catalog.data(), static_cast<uint32_t>(combined.catalog.size())}};
   builder.addSubgraph(DetectorLayoutSubgraph{orderedIds(0, ITSNLayers), 1, itsHoleMask, SurfaceMask{}, TransitionPolicyTag::CylinderCylinder});
   builder.addSubgraph(DetectorLayoutSubgraph{orderedIds(ITSNLayers, MFTNLayers), 1, mftHoleMask, SurfaceMask{}, TransitionPolicyTag::DiskDisk});
   const auto layoutResult = builder.build();
@@ -225,7 +225,7 @@ BOOST_AUTO_TEST_CASE(CombinedLayoutPreservesCurrentHoleSemanticsUnderGlobalIds)
   BOOST_CHECK_EQUAL(view.nTransitions, static_cast<uint32_t>(itsReference.getView().nTransitions) +
                                          static_cast<uint32_t>(mftReference.getView().nTransitions));
   BOOST_CHECK_EQUAL(view.nCells, static_cast<uint32_t>(itsReference.getView().nCells) +
-                                    static_cast<uint32_t>(mftReference.getView().nCells));
+                                   static_cast<uint32_t>(mftReference.getView().nCells));
 
   // Every ITS transition/cell reproduces the standalone reference, offset by
   // nothing (ITS is first in the allocation); every MFT one reproduces its

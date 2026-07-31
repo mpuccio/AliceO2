@@ -30,18 +30,19 @@
 //    relative to a previous iteration; that recommits and reallocates.
 //  - Layout/grouping/binding are one-shot per initialiseTimeFrame() call
 //    (mTraversalGroupingCount).
-//  - Moving TimeFrame::initialise() to run only after the layout/grouping/
-//    binding checks (rather than as the first statement) does not regress
-//    the pre-existing MissingLayout classification -- it in fact removes the
-//    documented precondition gap where an established-but-never-loaded
-//    TimeFrame used to reach TimeFrame::initialise()'s unconditional
-//    getNrof() before hasStoredDetectorLayouts() was ever checked.
+//
+// Gate 4 B2 Slice 2: initialiseTimeFrame() now takes the plan as an explicit
+// `const DetectorLayoutSet&` parameter rather than reading it off TimeFrame,
+// so TimeFrame::initialise() runs only after every structural check by
+// construction -- there is no longer a "missing layout" TimeFrame state for
+// a reordering regression to reintroduce.
 
 #define BOOST_TEST_MODULE ITSMFT IndexTableActivation
 #define BOOST_TEST_MAIN
 #define BOOST_TEST_DYN_LINK
 #include <boost/test/unit_test.hpp>
 
+#include <optional>
 #include <vector>
 
 #include <gsl/gsl>
@@ -55,7 +56,7 @@
 #include "ITSMFTTracking/Configuration.h"
 #include "ITSMFTTracking/DecodedCluster.h"
 #include "ITSMFTTracking/DetectorLayout.h"
-#include "ITSMFTTracking/DetectorSurfaceCatalogProvider.h"
+#include "ITSMFTTracking/DetectorLayoutSet.h"
 #include "ITSMFTTracking/IndexTableConfiguration.h"
 #include "ITSMFTTracking/IndexTableUtils.h"
 #include "ITSMFTTracking/NominalSurfaceMaterialDefaults.h"
@@ -170,19 +171,6 @@ std::vector<SurfaceId> identitySurfaces(uint16_t nLayers)
   return mapping;
 }
 
-class FakeCatalogProvider final : public DetectorSurfaceCatalogProvider
-{
- public:
-  explicit FakeCatalogProvider(std::vector<SurfaceDescriptor> catalog) : mCatalog{std::move(catalog)} {}
-
-  DetectorSurfaceCatalogResult buildCatalog(const DetectorSurfaceCatalogRequest&) const final
-  {
-    return {mCatalog, DetectorSurfaceCatalogError::None};
-  }
-
-  std::vector<SurfaceDescriptor> mCatalog;
-};
-
 struct Fixture {
   std::vector<CompClusterExt> clusters;
   std::vector<unsigned char> patterns;
@@ -254,13 +242,20 @@ struct Rig {
   std::shared_ptr<BoundedMemoryResource> pool;
   TimeFrame<ITSNLayers> tf;
   TrackerTraits<ITSNLayers> traits;
+  // Must outlive `plan` (DetectorLayoutSet borrows a SurfaceCatalogView into
+  // it, Gate 4 B2 Slice 2) -- declared before `plan` so it is constructed
+  // first and destroyed last.
+  std::vector<SurfaceDescriptor> catalog;
+  std::optional<DetectorLayoutSet> plan;
 
   void establishValidLayout(gsl::span<const TrackingParameters> params)
   {
+    catalog = makeITSTestCatalog();
     const auto orderedSurfaces = identitySurfaces(ITSNLayers);
-    FakeCatalogProvider provider{makeITSTestCatalog()};
-    const DetectorSurfaceCatalogRequest catalogRequest{o2::detectors::DetID::ITS, SurfaceId{0}, ITSNLayers};
-    BOOST_REQUIRE(tf.ensureDetectorLayouts(&provider, catalogRequest, orderedSurfaces, TransitionPolicyTag::CylinderCylinder, params).ok());
+    const SurfaceCatalogView catalogView{catalog.data(), static_cast<uint32_t>(catalog.size())};
+    auto result = buildDetectorLayoutSet(catalogView, orderedSurfaces, TransitionPolicyTag::CylinderCylinder, params);
+    BOOST_REQUIRE(result.ok());
+    plan.emplace(std::move(*result.layout));
     tf.initTrackerTopologies(params);
   }
 
@@ -278,8 +273,10 @@ struct Rig {
     LegacyLikeDecoder decoder{o2::detectors::DetID::ITS};
     const o2::InteractionRecord origin{50, 5};
     const ROFTimingConfig timing{40, 0, 0, 0};
+    const auto& orderedSurfaces = plan->getConfigurationKey().orderedSurfaces;
     const auto result = tf.loadNormalizedSource(decoder, origin, timing, f.clusters, f.patterns, f.rofs, &dict(),
-                                                 f.labels.getIndexedSize() > 0 ? &f.labels : nullptr, o2::detectors::DetID::ITS);
+                                                f.labels.getIndexedSize() > 0 ? &f.labels : nullptr, o2::detectors::DetID::ITS,
+                                                gsl::span<const SurfaceId>{orderedSurfaces}, plan->getSurfaceCatalog());
     BOOST_REQUIRE(result.ok());
 
     o2::its::LayerTiming timing2{};
@@ -323,7 +320,7 @@ BOOST_AUTO_TEST_CASE(FirstPassCommitsValidatedConfigurationIntoTimeFrame)
   rig.loadSource(makeFixture());
   rig.traits.updateTrackingParameters(params);
 
-  BOOST_CHECK_NO_THROW(rig.traits.initialiseTimeFrame(0));
+  BOOST_CHECK_NO_THROW(rig.traits.initialiseTimeFrame(0, *rig.plan));
 
   IndexTableUtils<ITSNLayers> expected;
   expected.setTrackingParameters(params[0]);
@@ -349,7 +346,7 @@ BOOST_AUTO_TEST_CASE(InvalidBindingLeavesTimeFrameOwnedConfigurationUnchanged)
 
   bool threw = false;
   try {
-    rig.traits.initialiseTimeFrame(0);
+    rig.traits.initialiseTimeFrame(0, *rig.plan);
   } catch (const TraversalException& e) {
     threw = true;
     BOOST_CHECK(e.getReason() == TraversalFailureReason::InvalidIndexTableConfiguration);
@@ -371,10 +368,10 @@ BOOST_AUTO_TEST_CASE(NonFirstPassMatchingReuseSucceedsWithoutRecommit)
   rig.loadSource(makeFixture());
   rig.traits.updateTrackingParameters(params);
 
-  BOOST_REQUIRE_NO_THROW(rig.traits.initialiseTimeFrame(0));
+  BOOST_REQUIRE_NO_THROW(rig.traits.initialiseTimeFrame(0, *rig.plan));
   const IndexTableUtils<ITSNLayers> committed = rig.tf.getIndexTableUtils();
 
-  BOOST_CHECK_NO_THROW(rig.traits.initialiseTimeFrame(1));
+  BOOST_CHECK_NO_THROW(rig.traits.initialiseTimeFrame(1, *rig.plan));
   BOOST_CHECK(indexTableConfigurationsMatch(rig.tf.getIndexTableUtils(), committed));
   BOOST_CHECK_EQUAL(rig.traits.getTraversalGroupingCount(), 1); // reset+incremented once per call, not accumulated
 }
@@ -388,13 +385,13 @@ BOOST_AUTO_TEST_CASE(MismatchingRowColBinsRejectedBeforeMutation)
   rig.loadSource(makeFixture());
   rig.traits.updateTrackingParameters(params);
 
-  BOOST_REQUIRE_NO_THROW(rig.traits.initialiseTimeFrame(0));
+  BOOST_REQUIRE_NO_THROW(rig.traits.initialiseTimeFrame(0, *rig.plan));
   const IndexTableUtils<ITSNLayers> committedBefore = rig.tf.getIndexTableUtils();
   const auto lutBefore = snapshotIndexTable(rig.tf, 0);
 
   bool threw = false;
   try {
-    rig.traits.initialiseTimeFrame(1);
+    rig.traits.initialiseTimeFrame(1, *rig.plan);
   } catch (const TraversalException& e) {
     threw = true;
     BOOST_CHECK(e.getReason() == TraversalFailureReason::IndexTableConfigurationMismatch);
@@ -416,12 +413,12 @@ BOOST_AUTO_TEST_CASE(MismatchingPerLayerExtentRejectedBeforeMutation)
   rig.loadSource(makeFixture());
   rig.traits.updateTrackingParameters(params);
 
-  BOOST_REQUIRE_NO_THROW(rig.traits.initialiseTimeFrame(0));
+  BOOST_REQUIRE_NO_THROW(rig.traits.initialiseTimeFrame(0, *rig.plan));
   const IndexTableUtils<ITSNLayers> committedBefore = rig.tf.getIndexTableUtils();
 
   bool threw = false;
   try {
-    rig.traits.initialiseTimeFrame(1);
+    rig.traits.initialiseTimeFrame(1, *rig.plan);
   } catch (const TraversalException& e) {
     threw = true;
     BOOST_CHECK(e.getReason() == TraversalFailureReason::IndexTableConfigurationMismatch);
@@ -442,10 +439,10 @@ BOOST_AUTO_TEST_CASE(FirstPassWithRebuildClusterLUTLegitimatelyChangesConfigurat
   rig.loadSource(makeFixture());
   rig.traits.updateTrackingParameters(params);
 
-  BOOST_REQUIRE_NO_THROW(rig.traits.initialiseTimeFrame(0));
+  BOOST_REQUIRE_NO_THROW(rig.traits.initialiseTimeFrame(0, *rig.plan));
   const int nRowBinsBefore = rig.tf.getIndexTableUtils().getNrowBins();
 
-  BOOST_CHECK_NO_THROW(rig.traits.initialiseTimeFrame(1));
+  BOOST_CHECK_NO_THROW(rig.traits.initialiseTimeFrame(1, *rig.plan));
   BOOST_CHECK_EQUAL(rig.tf.getIndexTableUtils().getNrowBins(), params[1].RowBins);
   BOOST_CHECK_NE(rig.tf.getIndexTableUtils().getNrowBins(), nRowBinsBefore);
 
@@ -454,34 +451,13 @@ BOOST_AUTO_TEST_CASE(FirstPassWithRebuildClusterLUTLegitimatelyChangesConfigurat
   BOOST_CHECK_EQUAL(static_cast<int>(rig.tf.getIndexTable(0, 0).size()), expectedTableSize);
 }
 
-// --- Reordering regression: MissingLayout is still classified correctly, and
-// --- now WITHOUT ever reaching TimeFrame::initialise() at all -------------
-//
-// Before this task, TrackerTraits::initialiseTimeFrame() called
-// TimeFrame::initialise() as its very first statement, before checking
-// hasStoredDetectorLayouts(); a never-established layout therefore crashed
-// inside initialise()'s unconditional getNrof() rather than throwing
-// TraversalException{MissingLayout} (see testCATrackerFailureContract.cxx's
-// comment on StructuralFailureViaStaleLayoutAlwaysRethrowsAndWipes). Binding
-// the index-table configuration into a local scratch value before touching
-// TimeFrame required moving that call to the end of the function, behind
-// every structural check -- which incidentally closes that gap. This test
-// exercises exactly the scenario that used to crash: no
-// ensureDetectorLayouts() call at all, no loadNormalizedSource() call at all.
-
-BOOST_AUTO_TEST_CASE(MissingLayoutClassifiedWithoutReachingTimeFrameInitialise)
-{
-  Rig rig;
-  auto params = makeOneIterationITSParams();
-  rig.traits.updateTrackingParameters(params);
-
-  bool threw = false;
-  try {
-    rig.traits.initialiseTimeFrame(0);
-  } catch (const TraversalException& e) {
-    threw = true;
-    BOOST_CHECK(e.getReason() == TraversalFailureReason::MissingLayout);
-  }
-  BOOST_CHECK(threw);
-  BOOST_CHECK_EQUAL(rig.tf.getIndexTableUtils().getNrowBins(), 0);
-}
+// Gate 4 B2 Slice 2 removed the MissingLayout reordering-regression test that
+// used to live here: initialiseTimeFrame() now takes the plan as an explicit
+// `const DetectorLayoutSet&` reference parameter, so "no layout established"
+// is no longer a state a caller can even construct -- there is no longer a
+// TimeFrame-owned "missing layout" condition for TraversalFailureReason::
+// MissingLayout to classify. The reordering property this test protected
+// (TimeFrame::initialise() runs only after every structural check, never as
+// initialiseTimeFrame()'s first statement) still holds structurally, since
+// initialiseTimeFrame()'s only remaining precondition check on `layouts` is
+// the IterationOutOfRange bounds check, still ahead of every other check.

@@ -19,6 +19,7 @@
 #include <bit>
 #include <cstdint>
 #include <memory>
+#include <optional>
 #include <vector>
 
 #include <gsl/gsl>
@@ -32,7 +33,7 @@
 #include "ITSMFTTracking/ClusterDecoder.h"
 #include "ITSMFTTracking/Configuration.h"
 #include "ITSMFTTracking/DecodedCluster.h"
-#include "ITSMFTTracking/DetectorSurfaceCatalogProvider.h"
+#include "ITSMFTTracking/DetectorLayoutSet.h"
 #include "ITSMFTTracking/NominalSurfaceMaterialDefaults.h"
 #include "ITSMFTTracking/SurfaceMeasurementAdapters.h"
 #include "ITSMFTTracking/TimeFrame.h"
@@ -132,20 +133,6 @@ class SystematicContractDecoder final : public ClusterDecoder
   float mColumnIncrement;
 };
 
-class FixedCatalogProvider final : public DetectorSurfaceCatalogProvider
-{
- public:
-  explicit FixedCatalogProvider(std::vector<SurfaceDescriptor> catalog) : mCatalog(std::move(catalog)) {}
-
-  DetectorSurfaceCatalogResult buildCatalog(const DetectorSurfaceCatalogRequest&) const final
-  {
-    return {mCatalog, DetectorSurfaceCatalogError::None};
-  }
-
- private:
-  std::vector<SurfaceDescriptor> mCatalog;
-};
-
 template <int NLayers>
 std::vector<SurfaceId> identitySurfaces()
 {
@@ -236,13 +223,15 @@ struct Rig {
 
   void configure(gsl::span<const TrackingParameters> parameters)
   {
-    FixedCatalogProvider provider{makeCatalog<NLayers>(detector, kind)};
+    catalog = makeCatalog<NLayers>(detector, kind);
     const auto orderedSurfaces = identitySurfaces<NLayers>();
-    const DetectorSurfaceCatalogRequest request{detector, SurfaceId{0}, NLayers};
+    const SurfaceCatalogView catalogView{catalog.data(), static_cast<uint32_t>(catalog.size())};
     const auto policy = kind == SurfaceKind::Disk
                           ? TransitionPolicyTag::DiskDisk
                           : TransitionPolicyTag::CylinderCylinder;
-    BOOST_REQUIRE(tf.ensureDetectorLayouts(&provider, request, orderedSurfaces, policy, parameters).ok());
+    auto result = buildDetectorLayoutSet(catalogView, orderedSurfaces, policy, parameters);
+    BOOST_REQUIRE(result.ok());
+    plan.emplace(std::move(*result.layout));
     tf.initTrackerTopologies(parameters);
   }
 
@@ -252,9 +241,11 @@ struct Rig {
       CompClusterExt{10, 20, CompCluster::InvalidPatternID, 0}};
     const std::vector<unsigned char> patterns{OnePixelPattern.begin(), OnePixelPattern.end()};
     const std::vector<ROFRecord> rofs{ROFRecord{{100, 5}, 0, 0, 1}};
+    const auto& orderedSurfaces = plan->getConfigurationKey().orderedSurfaces;
     const auto result = tf.loadNormalizedSource(
       decoder, o2::InteractionRecord{50, 5}, ROFTimingConfig{40, 0, 0, 0},
-      clusters, patterns, rofs, &dictionary(), nullptr, detector, applySysErrors);
+      clusters, patterns, rofs, &dictionary(), nullptr, detector,
+      gsl::span<const SurfaceId>{orderedSurfaces}, plan->getSurfaceCatalog(), applySysErrors);
     BOOST_REQUIRE(result.ok());
 
     o2::its::LayerTiming timing{};
@@ -281,6 +272,11 @@ struct Rig {
   std::shared_ptr<BoundedMemoryResource> pool;
   TimeFrame<NLayers> tf;
   TrackerTraits<NLayers> traits;
+  // Must outlive `plan` (DetectorLayoutSet borrows a SurfaceCatalogView into
+  // it, Gate 4 B2 Slice 2) -- declared before `plan` so it is constructed
+  // first and destroyed last.
+  std::vector<SurfaceDescriptor> catalog;
+  std::optional<DetectorLayoutSet> plan;
 };
 
 template <int NLayers>
@@ -309,7 +305,7 @@ void exerciseDisabled(o2::detectors::DetID::ID detector, SurfaceKind kind)
   checkBitIdentical(std::bit_cast<float>(before.normalized[2]), o2::itsmft::ioutils::DefClusError2Col);
   checkRepresentationsAligned(rig.tf);
 
-  BOOST_REQUIRE_NO_THROW(rig.traits.initialiseTimeFrame(0));
+  BOOST_REQUIRE_NO_THROW(rig.traits.initialiseTimeFrame(0, *rig.plan));
   BOOST_CHECK(snapshotCovariance(rig.tf) == before);
   checkRepresentationsAligned(rig.tf);
 }
@@ -334,22 +330,22 @@ void exerciseEnabledLifecycle(o2::detectors::DetID::ID detector, SurfaceKind kin
   checkRepresentationsAligned(rig.tf);
 
   // FirstPass + LUT rebuild.
-  BOOST_REQUIRE_NO_THROW(rig.traits.initialiseTimeFrame(0));
+  BOOST_REQUIRE_NO_THROW(rig.traits.initialiseTimeFrame(0, *rig.plan));
   BOOST_CHECK(snapshotCovariance(rig.tf) == loaded);
   checkPositionResolution(rig, parameters[0], ConfiguredRowIncrement, ConfiguredColumnIncrement);
 
   // Later iteration + LUT reuse.
-  BOOST_REQUIRE_NO_THROW(rig.traits.initialiseTimeFrame(1));
+  BOOST_REQUIRE_NO_THROW(rig.traits.initialiseTimeFrame(1, *rig.plan));
   BOOST_CHECK(snapshotCovariance(rig.tf) == loaded);
 
   // Later iteration + LUT rebuild.
-  BOOST_REQUIRE_NO_THROW(rig.traits.initialiseTimeFrame(2));
+  BOOST_REQUIRE_NO_THROW(rig.traits.initialiseTimeFrame(2, *rig.plan));
   BOOST_CHECK(snapshotCovariance(rig.tf) == loaded);
 
   // Repeated FirstPass initialization is bit-identical.
-  BOOST_REQUIRE_NO_THROW(rig.traits.initialiseTimeFrame(0));
+  BOOST_REQUIRE_NO_THROW(rig.traits.initialiseTimeFrame(0, *rig.plan));
   BOOST_CHECK(snapshotCovariance(rig.tf) == loaded);
-  BOOST_REQUIRE_NO_THROW(rig.traits.initialiseTimeFrame(0));
+  BOOST_REQUIRE_NO_THROW(rig.traits.initialiseTimeFrame(0, *rig.plan));
   BOOST_CHECK(snapshotCovariance(rig.tf) == loaded);
   checkRepresentationsAligned(rig.tf);
 
@@ -360,7 +356,7 @@ void exerciseEnabledLifecycle(o2::detectors::DetID::ID detector, SurfaceKind kin
   rig.traits.updateTrackingParameters(invalidParameters);
   bool rejected = false;
   try {
-    rig.traits.initialiseTimeFrame(1);
+    rig.traits.initialiseTimeFrame(1, *rig.plan);
   } catch (const TraversalException& error) {
     rejected = true;
     BOOST_CHECK(error.getReason() == TraversalFailureReason::IndexTableConfigurationMismatch);
@@ -377,7 +373,7 @@ void exerciseEnabledLifecycle(o2::detectors::DetID::ID detector, SurfaceKind kin
   rig.traits.updateTrackingParameters(parameters);
   const auto reloaded = snapshotCovariance(rig.tf);
   BOOST_CHECK(reloaded == loaded);
-  BOOST_REQUIRE_NO_THROW(rig.traits.initialiseTimeFrame(0));
+  BOOST_REQUIRE_NO_THROW(rig.traits.initialiseTimeFrame(0, *rig.plan));
   BOOST_CHECK(snapshotCovariance(rig.tf) == loaded);
   checkRepresentationsAligned(rig.tf);
 }
@@ -399,11 +395,11 @@ void exerciseExplicitFalse(o2::detectors::DetID::ID detector, SurfaceKind kind)
   checkBitIdentical(std::bit_cast<float>(loaded.normalized[2]), o2::itsmft::ioutils::DefClusError2Col);
   checkRepresentationsAligned(rig.tf);
 
-  BOOST_REQUIRE_NO_THROW(rig.traits.initialiseTimeFrame(0));
+  BOOST_REQUIRE_NO_THROW(rig.traits.initialiseTimeFrame(0, *rig.plan));
   BOOST_CHECK(snapshotCovariance(rig.tf) == loaded);
-  BOOST_REQUIRE_NO_THROW(rig.traits.initialiseTimeFrame(1));
+  BOOST_REQUIRE_NO_THROW(rig.traits.initialiseTimeFrame(1, *rig.plan));
   BOOST_CHECK(snapshotCovariance(rig.tf) == loaded);
-  BOOST_REQUIRE_NO_THROW(rig.traits.initialiseTimeFrame(2));
+  BOOST_REQUIRE_NO_THROW(rig.traits.initialiseTimeFrame(2, *rig.plan));
   BOOST_CHECK(snapshotCovariance(rig.tf) == loaded);
 
   // Position-resolution preparation intentionally still consumes configured

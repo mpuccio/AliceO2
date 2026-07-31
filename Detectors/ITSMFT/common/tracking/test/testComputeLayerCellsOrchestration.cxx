@@ -161,19 +161,6 @@ std::vector<SurfaceId> identitySurfaces(uint16_t nLayers)
   return mapping;
 }
 
-class FakeCatalogProvider final : public DetectorSurfaceCatalogProvider
-{
- public:
-  explicit FakeCatalogProvider(std::vector<SurfaceDescriptor> catalog) : mCatalog{std::move(catalog)} {}
-
-  DetectorSurfaceCatalogResult buildCatalog(const DetectorSurfaceCatalogRequest&) const final
-  {
-    return {mCatalog, DetectorSurfaceCatalogError::None};
-  }
-
-  std::vector<SurfaceDescriptor> mCatalog;
-};
-
 // `layerxX0` supplies each surface's nominal material to embed in the
 // catalog, in legacy layer order -- callers pass the exact TrackingParameters::
 // LayerxX0 values they intend to run with, so TrackerTraits::
@@ -311,11 +298,12 @@ struct Rig {
   // compatibility check, which this file does not itself exercise.
   void establishLayout()
   {
+    catalog = makeCatalog(static_cast<uint16_t>(NLayers), mDet, mKind, gsl::span<const float>(params[0].LayerxX0));
     const auto orderedSurfaces = identitySurfaces(static_cast<uint16_t>(NLayers));
-    FakeCatalogProvider provider{makeCatalog(static_cast<uint16_t>(NLayers), mDet, mKind,
-                                             gsl::span<const float>(params[0].LayerxX0))};
-    const DetectorSurfaceCatalogRequest catalogRequest{mDet, SurfaceId{0}, static_cast<uint32_t>(NLayers)};
-    BOOST_REQUIRE(tf.ensureDetectorLayouts(&provider, catalogRequest, orderedSurfaces, mTag, params).ok());
+    const SurfaceCatalogView catalogView{catalog.data(), static_cast<uint32_t>(catalog.size())};
+    auto result = buildDetectorLayoutSet(catalogView, orderedSurfaces, mTag, params);
+    BOOST_REQUIRE(result.ok());
+    plan.emplace(std::move(*result.layout));
     tf.initTrackerTopologies(params);
 
     NeverDecodedDecoder decoder{mDet};
@@ -324,8 +312,10 @@ struct Rig {
     const std::vector<CompClusterExt> noClusters;
     const std::vector<unsigned char> noPatterns;
     const std::vector<ROFRecord> noRofs;
-    const auto result = tf.loadNormalizedSource(decoder, origin, timing, noClusters, noPatterns, noRofs, &dict(), nullptr, mDet);
-    BOOST_REQUIRE(result.ok());
+    const auto& loadOrderedSurfaces = plan->getConfigurationKey().orderedSurfaces;
+    const auto loadResult = tf.loadNormalizedSource(decoder, origin, timing, noClusters, noPatterns, noRofs, &dict(), nullptr, mDet,
+                                                    gsl::span<const SurfaceId>{loadOrderedSurfaces}, plan->getSurfaceCatalog());
+    BOOST_REQUIRE(loadResult.ok());
   }
 
   o2::detectors::DetID::ID detector() const noexcept { return mDet; }
@@ -336,6 +326,11 @@ struct Rig {
   TimeFrame<NLayers> tf;
   TrackerTraits<NLayers> traits;
   std::shared_ptr<tbb::task_arena> arena;
+  // Must outlive `plan` (DetectorLayoutSet borrows a SurfaceCatalogView into
+  // it, Gate 4 B2 Slice 2) -- declared before `plan` so it is constructed
+  // first and destroyed last.
+  std::vector<SurfaceDescriptor> catalog;
+  std::optional<DetectorLayoutSet> plan;
 
  private:
   o2::detectors::DetID::ID mDet;
@@ -372,7 +367,9 @@ void loadCandidateClusters(Rig<NLayers>& rig,
   const std::vector<ROFRecord> rofs{ROFRecord{{0, 0}, 0, 0, 3}};
   const o2::InteractionRecord origin{50, 5};
   const ROFTimingConfig timing{40, 0, 0, 0};
-  const auto result = rig.tf.loadNormalizedSource(decoder, origin, timing, compClusters, noPatterns, rofs, &dict(), nullptr, rig.detector());
+  const auto& orderedSurfaces = rig.plan->getConfigurationKey().orderedSurfaces;
+  const auto result = rig.tf.loadNormalizedSource(decoder, origin, timing, compClusters, noPatterns, rofs, &dict(), nullptr, rig.detector(),
+                                                  gsl::span<const SurfaceId>{orderedSurfaces}, rig.plan->getSurfaceCatalog());
   BOOST_REQUIRE(result.ok());
 }
 
@@ -457,7 +454,9 @@ void loadCandidateClustersAtLayers(Rig<NLayers>& rig,
   const std::vector<ROFRecord> rofs{ROFRecord{{0, 0}, 0, 0, static_cast<int>(N)}};
   const o2::InteractionRecord origin{50, 5};
   const ROFTimingConfig timing{40, 0, 0, 0};
-  const auto result = rig.tf.loadNormalizedSource(decoder, origin, timing, compClusters, noPatterns, rofs, &dict(), nullptr, rig.detector());
+  const auto& orderedSurfaces = rig.plan->getConfigurationKey().orderedSurfaces;
+  const auto result = rig.tf.loadNormalizedSource(decoder, origin, timing, compClusters, noPatterns, rofs, &dict(), nullptr, rig.detector(),
+                                                  gsl::span<const SurfaceId>{orderedSurfaces}, rig.plan->getSurfaceCatalog());
   BOOST_REQUIRE(result.ok());
 }
 
@@ -529,7 +528,7 @@ BOOST_AUTO_TEST_CASE(CylinderComputeLayerCellsMatchesBuildCellSeedOracle)
                          makeBarrelHit(5.f, 0.f, 0.201f, 1.25f)});
 
   rig.traits.updateTrackingParameters(rig.params);
-  rig.traits.initialiseTimeFrame(0);
+  rig.traits.initialiseTimeFrame(0, *rig.plan);
   BOOST_REQUIRE(rig.traits.hasTraversalCache());
 
   const auto topology = rig.tf.getTrackingTopologyView();
@@ -612,7 +611,7 @@ BOOST_AUTO_TEST_CASE(DiskComputeLayerCellsMatchesBuildCellSeedOracle)
                          makeDiskHit(-0.9f, 1.7f, 0.78f)});
 
   rig.traits.updateTrackingParameters(rig.params);
-  rig.traits.initialiseTimeFrame(0);
+  rig.traits.initialiseTimeFrame(0, *rig.plan);
   BOOST_REQUIRE(rig.traits.hasTraversalCache());
 
   const auto topology = rig.tf.getTrackingTopologyView();
@@ -669,7 +668,7 @@ BOOST_AUTO_TEST_CASE(DiskComputeLayerCellsRoadPreCutRejectsBeforeBuildCellSeed)
                          makeDiskHit(-0.9f, 1.7f, 0.78f)});
 
   rig.traits.updateTrackingParameters(rig.params);
-  rig.traits.initialiseTimeFrame(0);
+  rig.traits.initialiseTimeFrame(0, *rig.plan);
 
   const auto topology = rig.tf.getTrackingTopologyView();
   const int cellTopologyId = findCellTopologyId(topology, 0, 1, 2);
@@ -712,7 +711,7 @@ BOOST_AUTO_TEST_CASE(CylinderComputeLayerCellsOnePassAndTwoPassAgree)
                            makeBarrelHit(5.f, 0.f, 0.201f, 1.25f)});
 
     rig.traits.updateTrackingParameters(rig.params);
-    rig.traits.initialiseTimeFrame(0);
+    rig.traits.initialiseTimeFrame(0, *rig.plan);
 
     const auto topology = rig.tf.getTrackingTopologyView();
     const int cellTopologyId = findCellTopologyId(topology, 0, 1, 2);
@@ -771,7 +770,7 @@ BOOST_AUTO_TEST_CASE(DiskComputeLayerCellsOnePassAndTwoPassAgree)
                            makeDiskHit(-0.9f, 1.7f, 0.78f)});
 
     rig.traits.updateTrackingParameters(rig.params);
-    rig.traits.initialiseTimeFrame(0);
+    rig.traits.initialiseTimeFrame(0, *rig.plan);
 
     const auto topology = rig.tf.getTrackingTopologyView();
     const int cellTopologyId = findCellTopologyId(topology, 0, 1, 2);
@@ -830,7 +829,7 @@ BOOST_AUTO_TEST_CASE(CylinderComputeLayerCellsSafeWithEmptyDiskReferenceSpan)
                          makeBarrelHit(5.f, 0.f, 0.201f, 1.25f)});
 
   rig.traits.updateTrackingParameters(rig.params);
-  rig.traits.initialiseTimeFrame(0);
+  rig.traits.initialiseTimeFrame(0, *rig.plan);
   BOOST_REQUIRE(rig.traits.hasTraversalCache());
 
   const auto topology = rig.tf.getTrackingTopologyView();
@@ -872,7 +871,7 @@ BOOST_AUTO_TEST_CASE(RepeatedComputeLayerCellsCallsDoNotRebindOrIncreaseCounts)
                          makeDiskHit(-0.9f, 1.7f, 0.78f)});
 
   rig.traits.updateTrackingParameters(rig.params);
-  rig.traits.initialiseTimeFrame(0);
+  rig.traits.initialiseTimeFrame(0, *rig.plan);
   BOOST_REQUIRE(rig.traits.hasTraversalCache());
 
   const int groupingCountAfterInit = rig.traits.getTraversalGroupingCount();
@@ -939,7 +938,7 @@ BOOST_AUTO_TEST_CASE(CylinderNoneCorrectionInitialisesSuccessfully)
   rig.params[0].CorrType = o2::base::PropagatorF::MatCorrType::USEMatCorrNONE;
   rig.establishLayout();
   rig.traits.updateTrackingParameters(rig.params);
-  BOOST_CHECK_NO_THROW(rig.traits.initialiseTimeFrame(0));
+  BOOST_CHECK_NO_THROW(rig.traits.initialiseTimeFrame(0, *rig.plan));
   BOOST_CHECK(rig.traits.hasTraversalCache());
 }
 
@@ -951,7 +950,7 @@ BOOST_AUTO_TEST_CASE(CylinderUnsupportedMaterialCorrectionModeThrowsBeforeTimeFr
     rig.establishLayout();
     rig.traits.updateTrackingParameters(rig.params);
 
-    BOOST_CHECK_EXCEPTION(rig.traits.initialiseTimeFrame(0), TraversalException, [](const TraversalException& e) {
+    BOOST_CHECK_EXCEPTION(rig.traits.initialiseTimeFrame(0, *rig.plan), TraversalException, [](const TraversalException& e) {
       return e.getReason() == TraversalFailureReason::UnsupportedMaterialCorrectionMode;
     });
     // Structural failure: the traversal cache stays exactly as
@@ -963,7 +962,7 @@ BOOST_AUTO_TEST_CASE(CylinderUnsupportedMaterialCorrectionModeThrowsBeforeTimeFr
 
     rig.params[0].CorrType = o2::base::PropagatorF::MatCorrType::USEMatCorrNONE;
     rig.traits.updateTrackingParameters(rig.params);
-    BOOST_CHECK_NO_THROW(rig.traits.initialiseTimeFrame(0));
+    BOOST_CHECK_NO_THROW(rig.traits.initialiseTimeFrame(0, *rig.plan));
     BOOST_CHECK(rig.traits.hasTraversalCache());
   }
 }
@@ -980,7 +979,7 @@ BOOST_AUTO_TEST_CASE(InvalidCorrTypeRetainsExistingInvalidPolicyParametersReason
   rig.establishLayout();
   rig.traits.updateTrackingParameters(rig.params);
 
-  BOOST_CHECK_EXCEPTION(rig.traits.initialiseTimeFrame(0), TraversalException, [](const TraversalException& e) {
+  BOOST_CHECK_EXCEPTION(rig.traits.initialiseTimeFrame(0, *rig.plan), TraversalException, [](const TraversalException& e) {
     return e.getReason() == TraversalFailureReason::InvalidPolicyParameters;
   });
   BOOST_CHECK(!rig.traits.hasTraversalCache());
@@ -998,7 +997,7 @@ BOOST_AUTO_TEST_CASE(DiskAcceptsAllRecognizedMaterialCorrectionModes)
     rig.params[0].CorrType = corrType;
     rig.establishLayout();
     rig.traits.updateTrackingParameters(rig.params);
-    BOOST_CHECK_NO_THROW(rig.traits.initialiseTimeFrame(0));
+    BOOST_CHECK_NO_THROW(rig.traits.initialiseTimeFrame(0, *rig.plan));
     BOOST_CHECK(rig.traits.hasTraversalCache());
   }
 }
@@ -1042,7 +1041,7 @@ BOOST_AUTO_TEST_CASE(CylinderComputeLayerCellsMultiCellChainProducesCorrectCells
   loadCandidateClustersAtLayers(rig, layers, clusters, hits);
 
   rig.traits.updateTrackingParameters(rig.params);
-  rig.traits.initialiseTimeFrame(0);
+  rig.traits.initialiseTimeFrame(0, *rig.plan);
   BOOST_REQUIRE(rig.traits.hasTraversalCache());
 
   const auto topology = rig.tf.getTrackingTopologyView();
@@ -1102,7 +1101,7 @@ BOOST_AUTO_TEST_CASE(DiskComputeLayerCellsMultiCellChainProducesCorrectCellsAndO
   loadCandidateClustersAtLayers(rig, layers, clusters, hits);
 
   rig.traits.updateTrackingParameters(rig.params);
-  rig.traits.initialiseTimeFrame(0);
+  rig.traits.initialiseTimeFrame(0, *rig.plan);
   BOOST_REQUIRE(rig.traits.hasTraversalCache());
 
   const auto topology = rig.tf.getTrackingTopologyView();
@@ -1160,7 +1159,7 @@ BOOST_AUTO_TEST_CASE(CylinderComputeLayerCellsHoleCellReconstructsCorrectLayerMa
   loadCandidateClustersAtLayers(rig, layers, clusters, hits);
 
   rig.traits.updateTrackingParameters(rig.params);
-  rig.traits.initialiseTimeFrame(0);
+  rig.traits.initialiseTimeFrame(0, *rig.plan);
   BOOST_REQUIRE(rig.traits.hasTraversalCache());
 
   const auto topology = rig.tf.getTrackingTopologyView();
@@ -1210,7 +1209,7 @@ BOOST_AUTO_TEST_CASE(ComputeLayerCellsFailsClosedOnCellStorageSizeMismatch)
                          makeBarrelHit(5.f, 0.f, 0.201f, 1.25f)});
 
   rig.traits.updateTrackingParameters(rig.params);
-  rig.traits.initialiseTimeFrame(0);
+  rig.traits.initialiseTimeFrame(0, *rig.plan);
   BOOST_REQUIRE(rig.traits.hasTraversalCache());
 
   rig.tf.getCells().pop_back();

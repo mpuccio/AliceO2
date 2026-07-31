@@ -10,11 +10,13 @@
 // A. Wipe lifecycle: TimeFrame<NLayers>::wipe() must unconditionally clear
 //    the normalized owner (mNormalizedFrame) associated by
 //    loadNormalizedSource() -- every normalized accessor obtained *after*
-//    wipe() must report empty/zero content -- while leaving catalog/layout
-//    ownership, the required layout configuration, the required geometry
-//    epoch and mDetId completely untouched. This test never dereferences a
-//    view obtained before wipe(): every post-wipe check re-obtains its
-//    accessor.
+//    wipe() must report empty/zero content -- while leaving mDetId
+//    completely untouched. This test never dereferences a view obtained
+//    before wipe(): every post-wipe check re-obtains its accessor. (Gate 4
+//    B2 Slice 2: TimeFrame owns no catalog/layout/plan/epoch at all any
+//    more -- that state lives on the plan's owner, ITSMFTTrackingInterface,
+//    entirely outside TimeFrame, so there is nothing left for wipe() to
+//    preserve or clear on that account.)
 //
 // B. Strong exception transactionality: loadNormalizedSource() stages its
 //    entire legacy backfill (unsorted clusters, TrackingFrameInfo, external
@@ -34,6 +36,7 @@
 
 #include <array>
 #include <memory>
+#include <optional>
 #include <vector>
 
 #include <gsl/gsl>
@@ -46,7 +49,7 @@
 #include "ITSMFTTracking/ClusterDecoder.h"
 #include "ITSMFTTracking/DecodedCluster.h"
 #include "ITSMFTTracking/DetectorLayout.h"
-#include "ITSMFTTracking/DetectorSurfaceCatalogProvider.h"
+#include "ITSMFTTracking/DetectorLayoutSet.h"
 #include "ITSMFTTracking/MultiSourceFrame.h"
 #include "ITSMFTTracking/MultiSourceLoading.h"
 #include "ITSMFTTracking/SurfaceDescriptor.h"
@@ -163,19 +166,6 @@ std::vector<SurfaceId> identitySurfaces(uint16_t nLayers)
   }
   return mapping;
 }
-
-class FakeCatalogProvider final : public DetectorSurfaceCatalogProvider
-{
- public:
-  explicit FakeCatalogProvider(std::vector<SurfaceDescriptor> catalog) : mCatalog{std::move(catalog)} {}
-
-  DetectorSurfaceCatalogResult buildCatalog(const DetectorSurfaceCatalogRequest&) const final
-  {
-    return {mCatalog, DetectorSurfaceCatalogError::None};
-  }
-
-  std::vector<SurfaceDescriptor> mCatalog;
-};
 
 GlobalPoint3F expectedGlobal(int sensorID, int row, int col)
 {
@@ -366,34 +356,30 @@ void verifyFixtureLoaded(TimeFrame<ITSNLayers>& tf, const Fixture& f, const o2::
 
 // --- A. Wipe lifecycle -------------------------------------------------
 
-BOOST_AUTO_TEST_CASE(WipeClearsNormalizedFrameButPreservesLayoutConfigurationEpochAndDetId)
+BOOST_AUTO_TEST_CASE(WipeClearsNormalizedFrameButPreservesDetId)
 {
+  const auto catalog = makeITSTestCatalog();
   const auto orderedSurfaces = identitySurfaces(ITSNLayers);
-  FakeCatalogProvider provider{makeITSTestCatalog()};
-  const DetectorSurfaceCatalogRequest catalogRequest{o2::detectors::DetID::ITS, SurfaceId{0}, ITSNLayers};
+  const SurfaceCatalogView catalogView{catalog.data(), static_cast<uint32_t>(catalog.size())};
   LegacyLikeDecoder decoder{o2::detectors::DetID::ITS};
   const o2::InteractionRecord origin{50, 5};
   const ROFTimingConfig timing{40, 0, 0, 0};
 
   TimeFrame<ITSNLayers> tf;
   std::vector<TrackingParameters> noIterations;
-  BOOST_REQUIRE(tf.ensureDetectorLayouts(&provider, catalogRequest, orderedSurfaces, TransitionPolicyTag::CylinderCylinder, noIterations).ok());
+  auto planResult = buildDetectorLayoutSet(catalogView, orderedSurfaces, TransitionPolicyTag::CylinderCylinder, noIterations);
+  BOOST_REQUIRE(planResult.ok());
+  const auto plan = std::move(*planResult.layout);
 
   const auto f = makeFixture();
-  const auto result = tf.loadNormalizedSource(decoder, origin, timing, f.clusters, f.patterns, f.rofs, &dict(), &f.labels, o2::detectors::DetID::ITS);
+  const auto result = tf.loadNormalizedSource(decoder, origin, timing, f.clusters, f.patterns, f.rofs, &dict(), &f.labels, o2::detectors::DetID::ITS,
+                                              gsl::span<const SurfaceId>{plan.getConfigurationKey().orderedSurfaces}, plan.getSurfaceCatalog());
   BOOST_REQUIRE(result.ok());
   // Sanity: the successful load itself has the expected content, matching
   // the accepted parity coverage in testTimeFrameNormalizedSource.cxx.
   verifyFixtureLoaded(tf, f, origin, timing);
 
-  // Record catalog/layout/configuration/epoch/mDetId *before* wipe().
-  BOOST_REQUIRE(tf.getSurfaceCatalog() != nullptr);
-  const auto catalogSizeBefore = tf.getSurfaceCatalog()->size();
-  BOOST_REQUIRE(tf.getDetectorLayouts() != nullptr);
-  const auto configKeyBefore = tf.getDetectorLayouts()->getConfigurationKey();
-  const auto epochBefore = tf.getRequiredDetectorGeometryEpoch();
   const auto detIdBefore = tf.getDetId();
-  BOOST_REQUIRE(tf.detectorLayoutsCurrent());
 
   tf.wipe();
 
@@ -410,16 +396,9 @@ BOOST_AUTO_TEST_CASE(WipeClearsNormalizedFrameButPreservesLayoutConfigurationEpo
   BOOST_CHECK_EQUAL(freshView.nSurfaces, 0u);
   BOOST_CHECK_EQUAL(freshView.nSources, 0u);
 
-  // --- catalog/layout ownership remains stored, current and unchanged ---
-  BOOST_CHECK(tf.hasStoredDetectorLayouts());
-  BOOST_CHECK(tf.detectorLayoutsCurrent());
-  BOOST_REQUIRE(tf.getSurfaceCatalog() != nullptr);
-  BOOST_CHECK_EQUAL(tf.getSurfaceCatalog()->size(), catalogSizeBefore);
-  BOOST_REQUIRE(tf.getDetectorLayouts() != nullptr);
-  BOOST_CHECK(tf.getDetectorLayouts()->getConfigurationKey() == configKeyBefore);
-
-  // --- configuration, epoch and mDetId remain unchanged ---
-  BOOST_CHECK_EQUAL(tf.getRequiredDetectorGeometryEpoch(), epochBefore);
+  // --- mDetId remains unchanged; the plan lives on `plan` above, entirely
+  // outside TimeFrame (Gate 4 B2 Slice 2), so wipe() has nothing else to
+  // preserve or clear on that account ---
   BOOST_CHECK(tf.getDetId() == detIdBefore);
 }
 
@@ -427,9 +406,9 @@ BOOST_AUTO_TEST_CASE(WipeClearsNormalizedFrameButPreservesLayoutConfigurationEpo
 
 BOOST_AUTO_TEST_CASE(BackfillAllocationFailureLeavesNormalizedAndLegacyStateAtBaseline)
 {
+  const auto catalog = makeITSTestCatalog();
   const auto orderedSurfaces = identitySurfaces(ITSNLayers);
-  FakeCatalogProvider provider{makeITSTestCatalog()};
-  const DetectorSurfaceCatalogRequest catalogRequest{o2::detectors::DetID::ITS, SurfaceId{0}, ITSNLayers};
+  const SurfaceCatalogView catalogView{catalog.data(), static_cast<uint32_t>(catalog.size())};
   LegacyLikeDecoder decoder{o2::detectors::DetID::ITS};
   const o2::InteractionRecord origin{50, 5};
   const ROFTimingConfig timing{40, 0, 0, 0};
@@ -443,14 +422,18 @@ BOOST_AUTO_TEST_CASE(BackfillAllocationFailureLeavesNormalizedAndLegacyStateAtBa
   tf.setMemoryPool(pool);
 
   std::vector<TrackingParameters> noIterations;
-  BOOST_REQUIRE(tf.ensureDetectorLayouts(&provider, catalogRequest, orderedSurfaces, TransitionPolicyTag::CylinderCylinder, noIterations).ok());
+  auto planResult = buildDetectorLayoutSet(catalogView, orderedSurfaces, TransitionPolicyTag::CylinderCylinder, noIterations);
+  BOOST_REQUIRE(planResult.ok());
+  const auto plan = std::move(*planResult.layout);
+  const gsl::span<const SurfaceId> planOrderedSurfaces{plan.getConfigurationKey().orderedSurfaces};
 
   const auto f = makeFixture();
   const auto replacement = makeReplacementFixture();
 
   // Baseline: a successful normalized load, with real content in both the
   // normalized owner and every legacy compatibility structure.
-  const auto baseline = tf.loadNormalizedSource(decoder, origin, timing, f.clusters, f.patterns, f.rofs, &dict(), &f.labels, o2::detectors::DetID::ITS);
+  const auto baseline = tf.loadNormalizedSource(decoder, origin, timing, f.clusters, f.patterns, f.rofs, &dict(), &f.labels, o2::detectors::DetID::ITS,
+                                                planOrderedSurfaces, plan.getSurfaceCatalog());
   BOOST_REQUIRE(baseline.ok());
   BOOST_CHECK_EQUAL(decoder.decodeCount, static_cast<int>(f.clusters.size()));
   verifyFixtureLoaded(tf, f, origin, timing);
@@ -468,7 +451,8 @@ BOOST_AUTO_TEST_CASE(BackfillAllocationFailureLeavesNormalizedAndLegacyStateAtBa
   // now-exhausted bounded pool.
   bool threw = false;
   try {
-    tf.loadNormalizedSource(decoder, origin, timing, replacement.clusters, replacement.patterns, replacement.rofs, &dict(), &replacement.labels, o2::detectors::DetID::ITS);
+    tf.loadNormalizedSource(decoder, origin, timing, replacement.clusters, replacement.patterns, replacement.rofs, &dict(), &replacement.labels, o2::detectors::DetID::ITS,
+                            planOrderedSurfaces, plan.getSurfaceCatalog());
   } catch (const BoundedMemoryResource::MemoryLimitExceeded&) {
     threw = true;
   }
@@ -504,26 +488,29 @@ BOOST_AUTO_TEST_CASE(BackfillAllocationFailureLeavesNormalizedAndLegacyStateAtBa
 // contract this correction depends on.
 BOOST_AUTO_TEST_CASE(TimeFrameOutlivesSoleOwnershipOfItsMemoryPool)
 {
+  const auto catalog = makeITSTestCatalog();
   const auto orderedSurfaces = identitySurfaces(ITSNLayers);
-  FakeCatalogProvider provider{makeITSTestCatalog()};
-  const DetectorSurfaceCatalogRequest catalogRequest{o2::detectors::DetID::ITS, SurfaceId{0}, ITSNLayers};
+  const SurfaceCatalogView catalogView{catalog.data(), static_cast<uint32_t>(catalog.size())};
   LegacyLikeDecoder decoder{o2::detectors::DetID::ITS};
   const o2::InteractionRecord origin{50, 5};
   const ROFTimingConfig timing{40, 0, 0, 0};
   const auto f = makeFixture();
+
+  std::vector<TrackingParameters> noIterations;
+  auto planResult = buildDetectorLayoutSet(catalogView, orderedSurfaces, TransitionPolicyTag::CylinderCylinder, noIterations);
+  BOOST_REQUIRE(planResult.ok());
+  const auto plan = std::move(*planResult.layout);
 
   {
     auto pool = std::make_shared<BoundedMemoryResource>();
     TimeFrame<ITSNLayers> tf;
     tf.setMemoryPool(pool);
 
-    std::vector<TrackingParameters> noIterations;
-    BOOST_REQUIRE(tf.ensureDetectorLayouts(&provider, catalogRequest, orderedSurfaces, TransitionPolicyTag::CylinderCylinder, noIterations).ok());
-
     // Populate every pool-backed vector (mUnsortedClusters,
     // mTrackingFrameInfo, mClusterExternalIndices, mClusterSize,
     // mROFramesClusters) with real content.
-    const auto result = tf.loadNormalizedSource(decoder, origin, timing, f.clusters, f.patterns, f.rofs, &dict(), &f.labels, o2::detectors::DetID::ITS);
+    const auto result = tf.loadNormalizedSource(decoder, origin, timing, f.clusters, f.patterns, f.rofs, &dict(), &f.labels, o2::detectors::DetID::ITS,
+                                                gsl::span<const SurfaceId>{plan.getConfigurationKey().orderedSurfaces}, plan.getSurfaceCatalog());
     BOOST_REQUIRE(result.ok());
     BOOST_REQUIRE(tf.getUnsortedClustersOnLayer(0, 0).size() + tf.getUnsortedClustersOnLayer(1, 0).size() > 0);
 

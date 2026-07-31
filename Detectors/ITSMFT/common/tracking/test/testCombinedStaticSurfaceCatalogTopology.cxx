@@ -42,12 +42,10 @@
 //    detector already uses standalone today; this test adds no new type,
 //    only a new catalog *source*.
 //
-// DetectorLayoutBuilder still owns a std::vector<SurfaceDescriptor> at this
-// slice (Gate 4 B2 Slice 2 converts it to borrow SurfaceCatalogView
-// instead); materializing one from the static catalog is this test's one
-// deliberate, temporary exception, confined to a single local variable
-// below. The borrowing proof above is independent of that and already
-// exercises the real, non-owning SurfaceCatalogView type.
+// Gate 4 B2 Slice 2 landed after this test: DetectorLayoutBuilder now
+// borrows SurfaceCatalogView directly, so the topology test below borrows
+// the static storage the same way the borrowing-proof test case already
+// does -- no materialized vector anywhere in this file.
 
 #define BOOST_TEST_MODULE ITSMFT CombinedStaticSurfaceCatalogTopology
 #define BOOST_TEST_MAIN
@@ -145,15 +143,13 @@ BOOST_AUTO_TEST_CASE(CombinedStaticCatalogPreservesCurrentTopologyWithNoBoundary
   SurfaceMask mftHoleMask;
   mftHoleMask.set(SurfaceId{ITSNLayers + 5});
 
-  // DetectorLayoutBuilder still owns a std::vector<SurfaceDescriptor> at
-  // this slice (Gate 4 B2 Slice 2 converts it to borrow SurfaceCatalogView);
-  // materializing one here from the static catalog is this test's one
-  // deliberate, temporary exception -- the borrowing proof above already
-  // exercises the real, non-owning SurfaceCatalogView type independently of
-  // this construction.
-  const std::vector<SurfaceDescriptor> materializedCatalog{kITSMFTCombinedStaticSurfaceCatalog.begin(),
-                                                           kITSMFTCombinedStaticSurfaceCatalog.end()};
-  DetectorLayoutBuilder builder{materializedCatalog};
+  // Gate 4 B2 Slice 2: DetectorLayoutBuilder now borrows SurfaceCatalogView
+  // directly -- no materialized vector needed any more (the earlier Slice 1
+  // version of this test built one as a deliberate, temporary exception;
+  // that exception is gone now that the builder itself borrows).
+  const SurfaceCatalogView catalogView{kITSMFTCombinedStaticSurfaceCatalog.data(),
+                                       static_cast<uint32_t>(kITSMFTCombinedStaticSurfaceCatalog.size())};
+  DetectorLayoutBuilder builder{catalogView};
   builder.addSubgraph(DetectorLayoutSubgraph{orderedIds(0, ITSNLayers), 1, itsHoleMask, SurfaceMask{}, TransitionPolicyTag::CylinderCylinder});
   builder.addSubgraph(DetectorLayoutSubgraph{orderedIds(ITSNLayers, MFTNLayers), 1, mftHoleMask, SurfaceMask{}, TransitionPolicyTag::DiskDisk});
   const auto layoutResult = builder.build();

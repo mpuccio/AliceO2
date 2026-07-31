@@ -61,7 +61,6 @@
 #include "Framework/InputSpec.h"
 #include "ITSMFTTracking/ClusterDecoder.h"
 #include "ITSMFTTracking/DecodedCluster.h"
-#include "ITSMFTTracking/DetectorSurfaceCatalogProvider.h"
 #include "ITSMFTTracking/IOUtils.h"
 #include "ITSMFTTracking/NominalSurfaceMaterialDefaults.h"
 #include "ITSMFTTracking/SurfaceMeasurementAdapters.h"
@@ -115,47 +114,6 @@ struct GRPECSFixture {
 BOOST_GLOBAL_FIXTURE(FieldFixture);
 BOOST_GLOBAL_FIXTURE(GRPECSFixture);
 
-// --- Fake catalog provider: same pattern as testTimeFrameDetectorLayouts.cxx. ---
-
-class FakeCatalogProvider final : public DetectorSurfaceCatalogProvider
-{
- public:
-  explicit FakeCatalogProvider(std::vector<SurfaceDescriptor> catalog) : mCatalog{std::move(catalog)} {}
-
-  DetectorSurfaceCatalogResult buildCatalog(const DetectorSurfaceCatalogRequest&) const final
-  {
-    return DetectorSurfaceCatalogResult{mCatalog, DetectorSurfaceCatalogError::None};
-  }
-
- private:
-  std::vector<SurfaceDescriptor> mCatalog;
-};
-
-std::vector<SurfaceDescriptor> identityCatalog(int nLayers, o2::detectors::DetID::ID detector, SurfaceKind kind)
-{
-  std::vector<SurfaceDescriptor> result;
-  result.reserve(nLayers);
-  for (uint16_t i = 0; i < nLayers; ++i) {
-    result.push_back(SurfaceDescriptor{SurfaceId{i}, i, static_cast<uint8_t>(detector), kind, 0, static_cast<float>(i + 1), 0.f, 100.f});
-    // Matches o2::itsmft::resetDetectorDefaults(..., DetID::MFT)'s LayerxX0
-    // default (this file is MFT-only), so TrackerTraits::initialiseTimeFrame()'s
-    // LegacyMaterialMismatch compatibility check passes for unperturbed params.
-    const float xOverX0 = kNominalMFTLayerX0[i % MFTNLayers];
-    result.back().material.xOverX0 = xOverX0;
-    result.back().material.arealDensityGPerCm2 = xOverX0 * o2::its::constants::Radl * o2::its::constants::Rho;
-  }
-  return result;
-}
-
-std::vector<SurfaceId> identityOrder(int nLayers)
-{
-  std::vector<SurfaceId> result;
-  for (uint16_t i = 0; i < nLayers; ++i) {
-    result.emplace_back(i);
-  }
-  return result;
-}
-
 // --- Fake decoder: geometry-free, deterministic single-layer mapping
 // (sensorID -> layer 0), reusing the real bounded pattern-consumption path
 // (extractClusterDataBounded) so malformed/truncated pattern bytes exercise
@@ -206,8 +164,8 @@ class OneLayerDecoder final : public ClusterDecoder
     const o2::itsmft::tracking::DetectorSensorId sensor{static_cast<uint32_t>(mDetector), decoded.sensor};
     const ClusterRef clusterRef{source, externalIndex};
     result.measurement = (mKind == SurfaceKind::Disk)
-                            ? makeDiskSurfaceMeasurement(decoded, sensor, layerToSurface[0], clusterRef, sourceROF)
-                            : makeCylinderSurfaceMeasurement(decoded, sensor, layerToSurface[0], clusterRef, sourceROF);
+                           ? makeDiskSurfaceMeasurement(decoded, sensor, layerToSurface[0], clusterRef, sourceROF)
+                           : makeCylinderSurfaceMeasurement(decoded, sensor, layerToSurface[0], clusterRef, sourceROF);
     return result;
   }
 
@@ -263,8 +221,16 @@ struct TestTraits<10> {
 };
 
 // Constructs and fully initializes an interface (real Sync-mode tracking
-// parameters, real catalog/layout construction) ready for processTimeFrame().
-// decoderOut is a non-owning observer into the interface's injected decoder.
+// parameters, real static-catalog plan construction -- Gate 4 B2 Slice 2:
+// ITSMFTTrackingInterface::initialise() builds its one immutable plan
+// unconditionally from the compile-time-selected static per-detector
+// catalog, so no separate layout-configuration call is needed or possible
+// any more) ready for processTimeFrame(). decoderOut is a non-owning
+// observer into the interface's injected decoder. The 5-arg constructor's
+// `catalogProvider` parameter is passed nullptr: it is no longer consulted
+// by plan-building at all, kept only for constructor-signature/test-fixture
+// compatibility until the provider classes themselves are removed in a
+// later slice (see TrackingInterface.h's own comment on mDetectorSurfaceCatalogProvider).
 // Returned via unique_ptr, not by value: ITSMFTTrackingInterface has
 // unique_ptr members (mTrackerTraits, mTracker, ...), so its copy
 // constructor is deleted and its implicit move constructor is not
@@ -275,7 +241,6 @@ template <int NLayers, typename DecoderT = OneLayerDecoder>
 std::unique_ptr<ITSMFTTrackingInterface<NLayers>> makeReadyInterface(DecoderT*& decoderOut)
 {
   using Traits = TestTraits<NLayers>;
-  auto provider = std::make_unique<FakeCatalogProvider>(identityCatalog(NLayers, Traits::detId, Traits::kind));
   std::unique_ptr<DecoderT> decoder;
   if constexpr (std::is_same_v<DecoderT, OneLayerDecoder>) {
     decoder = std::make_unique<OneLayerDecoder>(Traits::detId, Traits::kind);
@@ -285,15 +250,10 @@ std::unique_ptr<ITSMFTTrackingInterface<NLayers>> makeReadyInterface(DecoderT*& 
   decoderOut = decoder.get();
 
   auto interface = std::make_unique<ITSMFTTrackingInterface<NLayers>>(
-    false, o2::itsmft::TrackingMode::Sync, false, std::move(provider), std::move(decoder));
+    false, o2::itsmft::TrackingMode::Sync, false, nullptr, std::move(decoder));
   interface->initialise();
   BOOST_REQUIRE(interface->isActive());
   interface->setClusterDictionary(&dict());
-
-  const auto ordered = identityOrder(NLayers);
-  const DetectorSurfaceCatalogRequest catalogRequest{Traits::detId, SurfaceId{0}, static_cast<uint32_t>(NLayers)};
-  const auto layoutResult = interface->configureDetectorLayouts(catalogRequest, ordered, Traits::policyTag);
-  BOOST_REQUIRE_MESSAGE(layoutResult.ok(), "layout configuration failed: error=" << static_cast<int>(layoutResult.error));
   return interface;
 }
 
@@ -452,14 +412,10 @@ void checkDictionaryNotConfiguredIsStructural()
 {
   OneLayerDecoder* decoder = nullptr;
   using Traits = TestTraits<NLayers>;
-  auto provider = std::make_unique<FakeCatalogProvider>(identityCatalog(NLayers, Traits::detId, Traits::kind));
   auto decoderOwner = std::make_unique<OneLayerDecoder>(Traits::detId, Traits::kind);
   decoder = decoderOwner.get();
-  ITSMFTTrackingInterface<NLayers> interface{false, o2::itsmft::TrackingMode::Sync, false, std::move(provider), std::move(decoderOwner)};
+  ITSMFTTrackingInterface<NLayers> interface{false, o2::itsmft::TrackingMode::Sync, false, nullptr, std::move(decoderOwner)};
   interface.initialise();
-  const auto ordered = identityOrder(NLayers);
-  const DetectorSurfaceCatalogRequest catalogRequest{Traits::detId, SurfaceId{0}, static_cast<uint32_t>(NLayers)};
-  BOOST_REQUIRE(interface.configureDetectorLayouts(catalogRequest, ordered, Traits::policyTag).ok());
   // setClusterDictionary() deliberately never called.
 
   const auto rofs = oneRof();
@@ -507,34 +463,14 @@ void checkMalformedPatternWithConfiguredDictionaryIsRecoverableNotMissingDiction
 
 BOOST_AUTO_TEST_CASE(MFT_MalformedPatternWithConfiguredDictionaryIsRecoverable) { checkMalformedPatternWithConfiguredDictionaryIsRecoverableNotMissingDictionary<10>(); }
 
-// ---------------------------------------------------------------------
-// Structural: catalog/layout never configured
-// ---------------------------------------------------------------------
-
-template <int NLayers>
-void checkUnconfiguredCatalogIsStructural()
-{
-  using Traits = TestTraits<NLayers>;
-  auto provider = std::make_unique<FakeCatalogProvider>(identityCatalog(NLayers, Traits::detId, Traits::kind));
-  auto decoderOwner = std::make_unique<OneLayerDecoder>(Traits::detId, Traits::kind);
-  ITSMFTTrackingInterface<NLayers> interface{false, o2::itsmft::TrackingMode::Sync, false, std::move(provider), std::move(decoderOwner)};
-  interface.initialise();
-  interface.setClusterDictionary(&dict());
-  // configureDetectorLayouts() deliberately never called.
-
-  const auto rofs = oneRof();
-  const auto clusters = oneCluster();
-  const auto patterns = makePatternBytes(clusters.size());
-
-  const_cast<std::vector<o2::itsmft::TrackingParameters>&>(interface.getTrackingParameters())[0].DropTFUponFailure = true;
-  BOOST_CHECK_EXCEPTION(interface.processTimeFrame(rofs, clusters, patterns, nullptr), TimeFrameLoadException,
-                        [](const TimeFrameLoadException& e) {
-                          return e.reason() == TimeFrameLoadFailureReason::LoadSourcesFailure &&
-                                 e.loadResult().error == MultiSourceLoadError::SurfaceCatalogNotConfigured;
-                        });
-}
-
-BOOST_AUTO_TEST_CASE(MFT_UnconfiguredCatalogIsStructural) { checkUnconfiguredCatalogIsStructural<10>(); }
+// Gate 4 B2 Slice 2 removed the checkUnconfiguredCatalogIsStructural test
+// that used to live here (skip configureDetectorLayouts() to produce
+// MultiSourceLoadError::SurfaceCatalogNotConfigured): configureDetectorLayouts()
+// no longer exists, and ITSMFTTrackingInterface::initialise() now
+// unconditionally builds its one immutable plan from the static per-detector
+// catalog before returning -- there is no longer a way to construct a ready,
+// active interface with no plan at all. This scenario is not merely
+// untested, it is unconstructible.
 
 // ---------------------------------------------------------------------
 // Recoverable: configured memory exhaustion, restores accounting, never
@@ -619,14 +555,10 @@ template <int NLayers>
 void checkNoCallbacksPastLoadFailure()
 {
   using Traits = TestTraits<NLayers>;
-  auto provider = std::make_unique<FakeCatalogProvider>(identityCatalog(NLayers, Traits::detId, Traits::kind));
   auto decoderOwner = std::make_unique<OneLayerDecoder>(Traits::detId, Traits::kind);
-  CountingInterface<NLayers> interface{false, o2::itsmft::TrackingMode::Sync, false, std::move(provider), std::move(decoderOwner)};
+  CountingInterface<NLayers> interface{false, o2::itsmft::TrackingMode::Sync, false, nullptr, std::move(decoderOwner)};
   interface.initialise();
   interface.setClusterDictionary(&dict());
-  const auto ordered = identityOrder(NLayers);
-  const DetectorSurfaceCatalogRequest catalogRequest{Traits::detId, SurfaceId{0}, static_cast<uint32_t>(NLayers)};
-  BOOST_REQUIRE(interface.configureDetectorLayouts(catalogRequest, ordered, Traits::policyTag).ok());
 
   const auto rofs = oneRof();
   const auto clusters = oneCluster();

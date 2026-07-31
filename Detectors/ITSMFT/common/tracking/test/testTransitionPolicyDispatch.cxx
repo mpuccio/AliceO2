@@ -157,7 +157,7 @@ BuiltLayout buildIdentityLayout(uint16_t nSurfaces, SurfaceKind kind, Transition
     surfaces.push_back(surface(id, kind));
     order.push_back(SurfaceId{id});
   }
-  DetectorLayoutBuilder builder{surfaces};
+  DetectorLayoutBuilder builder{SurfaceCatalogView{surfaces.data(), static_cast<uint32_t>(surfaces.size())}};
   auto result = builder.addSubgraph(DetectorLayoutSubgraph{std::move(order), maxHoles, maxHoles ? maskOf(hole) : SurfaceMask{}, seedingSurfaces, tag}).build();
   BOOST_REQUIRE(result.ok());
   return BuiltLayout{std::move(*result.layout), std::move(surfaces)};
@@ -222,7 +222,7 @@ BOOST_AUTO_TEST_CASE(NonMonotonicSurfaceIdsFollowGraphRank)
   for (uint16_t id = 0; id < 5; ++id) {
     surfaces.push_back(surface(id, SurfaceKind::Cylinder));
   }
-  DetectorLayoutBuilder builder{surfaces};
+  DetectorLayoutBuilder builder{SurfaceCatalogView{surfaces.data(), static_cast<uint32_t>(surfaces.size())}};
   auto result = builder.addSubgraph(DetectorLayoutSubgraph{{SurfaceId{3}, SurfaceId{1}, SurfaceId{4}, SurfaceId{0}}, 0, {}, {}, TransitionPolicyTag::CylinderCylinder}).build();
   BOOST_REQUIRE(result.ok());
   const auto masks = computeSurfaceKindMasks(surfaces);
@@ -457,7 +457,7 @@ BOOST_AUTO_TEST_CASE(RoadStartEndpointWinsOverNumericHighestHitSurfaceBit)
   for (uint16_t id = 0; id < 5; ++id) {
     surfaces.push_back(surface(id, SurfaceKind::Cylinder));
   }
-  DetectorLayoutBuilder builder{surfaces};
+  DetectorLayoutBuilder builder{SurfaceCatalogView{surfaces.data(), static_cast<uint32_t>(surfaces.size())}};
   auto result = builder.addSubgraph(DetectorLayoutSubgraph{{SurfaceId{3}, SurfaceId{1}, SurfaceId{4}, SurfaceId{0}}, 0, {}, maskOf(4), TransitionPolicyTag::CylinderCylinder}).build();
   BOOST_REQUIRE(result.ok());
   const auto masks = computeSurfaceKindMasks(surfaces);
@@ -474,7 +474,7 @@ BOOST_AUTO_TEST_CASE(RoadStartEndpointWinsOverNumericHighestHitSurfaceBit)
   for (uint16_t id = 0; id < 5; ++id) {
     surfaces2.push_back(surface(id, SurfaceKind::Cylinder));
   }
-  DetectorLayoutBuilder builder2{surfaces2};
+  DetectorLayoutBuilder builder2{SurfaceCatalogView{surfaces2.data(), static_cast<uint32_t>(surfaces2.size())}};
   auto result2 = builder2.addSubgraph(DetectorLayoutSubgraph{{SurfaceId{3}, SurfaceId{1}, SurfaceId{4}, SurfaceId{0}}, 0, {}, maskOf(0), TransitionPolicyTag::CylinderCylinder}).build();
   BOOST_REQUIRE(result2.ok());
   const auto masks2 = computeSurfaceKindMasks(surfaces2);

@@ -32,6 +32,7 @@
 #include <boost/test/unit_test.hpp>
 
 #include <array>
+#include <optional>
 #include <type_traits>
 #include <vector>
 
@@ -47,7 +48,7 @@
 #include "ITSMFTTracking/CommonTrack.h"
 #include "ITSMFTTracking/DecodedCluster.h"
 #include "ITSMFTTracking/DetectorLayout.h"
-#include "ITSMFTTracking/DetectorSurfaceCatalogProvider.h"
+#include "ITSMFTTracking/DetectorLayoutSet.h"
 #include "ITSMFTTracking/MultiSourceFrame.h"
 #include "ITSMFTTracking/MultiSourceLoading.h"
 #include "ITSMFTTracking/SurfaceMeasurementAdapters.h"
@@ -586,22 +587,13 @@ std::vector<SurfaceId> identitySurfaces(uint16_t nLayers)
   return mapping;
 }
 
-class FakeCatalogProvider final : public DetectorSurfaceCatalogProvider
-{
- public:
-  explicit FakeCatalogProvider(std::vector<SurfaceDescriptor> catalog) : mCatalog{std::move(catalog)} {}
-
-  DetectorSurfaceCatalogResult buildCatalog(const DetectorSurfaceCatalogRequest&) const final
-  {
-    return {mCatalog, DetectorSurfaceCatalogError::None};
-  }
-
-  std::vector<SurfaceDescriptor> mCatalog;
-};
-
 struct TimeFrameFixture {
   TimeFrame<ITSNLayers> tf;
-  FakeCatalogProvider provider{makeITSTestCatalog()};
+  // The catalog must outlive `plan` (DetectorLayoutSet borrows a
+  // SurfaceCatalogView into it, Gate 4 B2 Slice 2) -- declared first so it
+  // is constructed before, and destroyed after, `plan`.
+  std::vector<SurfaceDescriptor> catalog{makeITSTestCatalog()};
+  std::optional<DetectorLayoutSet> plan;
   LegacyLikeDecoder decoder{o2::detectors::DetID::ITS};
   o2::InteractionRecord origin{50, 5};
   ROFTimingConfig timing{40, 0, 0, 0};
@@ -609,9 +601,11 @@ struct TimeFrameFixture {
   TimeFrameFixture()
   {
     const auto orderedSurfaces = identitySurfaces(ITSNLayers);
-    const DetectorSurfaceCatalogRequest catalogRequest{o2::detectors::DetID::ITS, SurfaceId{0}, ITSNLayers};
-    std::vector<TrackingParameters> noIterations;
-    BOOST_REQUIRE(tf.ensureDetectorLayouts(&provider, catalogRequest, orderedSurfaces, TransitionPolicyTag::CylinderCylinder, noIterations).ok());
+    const std::vector<TrackingParameters> noIterations;
+    const SurfaceCatalogView catalogView{catalog.data(), static_cast<uint32_t>(catalog.size())};
+    auto result = buildDetectorLayoutSet(catalogView, orderedSurfaces, TransitionPolicyTag::CylinderCylinder, noIterations);
+    BOOST_REQUIRE(result.ok());
+    plan.emplace(std::move(*result.layout));
   }
 
   // One cluster on layer 0, one ROF: the minimal input that succeeds.
@@ -620,7 +614,9 @@ struct TimeFrameFixture {
     const std::vector<CompClusterExt> clusters{{0, 1, CompCluster::InvalidPatternID, 0}};
     const auto patterns = makePatternBytes(clusters.size());
     const std::vector<ROFRecord> rofs{ROFRecord{{100, 5}, 0, 0, 1}};
-    return tf.loadNormalizedSource(decoder, origin, timing, clusters, patterns, rofs, &dict(), nullptr, o2::detectors::DetID::ITS);
+    const auto& orderedSurfaces = plan->getConfigurationKey().orderedSurfaces;
+    return tf.loadNormalizedSource(decoder, origin, timing, clusters, patterns, rofs, &dict(), nullptr, o2::detectors::DetID::ITS,
+                                   gsl::span<const SurfaceId>{orderedSurfaces}, plan->getSurfaceCatalog());
   }
 };
 
@@ -675,8 +671,10 @@ BOOST_AUTO_TEST_CASE(FailedLoadPreservesCommonTrackAndTrackClusterIndicesUnchang
   const std::vector<CompClusterExt> clusters{{0, 1, CompCluster::InvalidPatternID, 0}};
   const auto patterns = makePatternBytes(clusters.size());
   const std::vector<ROFRecord> rofs{ROFRecord{{200, 5}, 0, 0, 1}};
+  const auto& orderedSurfaces = fixture.plan->getConfigurationKey().orderedSurfaces;
   const auto failed = fixture.tf.loadNormalizedSource(fixture.decoder, fixture.origin, fixture.timing, clusters, patterns, rofs,
-                                                      &dict(), nullptr, o2::detectors::DetID::MFT);
+                                                      &dict(), nullptr, o2::detectors::DetID::MFT,
+                                                      gsl::span<const SurfaceId>{orderedSurfaces}, fixture.plan->getSurfaceCatalog());
   BOOST_REQUIRE(!failed.ok());
   BOOST_CHECK(failed.error == MultiSourceLoadError::UnsupportedDetector);
 
