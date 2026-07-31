@@ -79,4 +79,9 @@ o2_add_library(ITSMFTTracking
                        O2::MFTTracking
                        O2::DataFormatsITS)
 
+# Gate 4 B1 Slice 1: standalone nominal-geometry validator, deliberately not
+# an O2::ITSMFTTracking dependency and not a dependency of it -- see
+# validation/CMakeLists.txt.
+add_subdirectory(validation)
+
 add_subdirectory(test)
