@@ -63,3 +63,48 @@ detectors. It does **not** author, compare against, or imply sign-off on any
 `ITSSurfaceSpec`/`MFTSurfaceSpec` value or tolerance — that remains blocked
 on detector-geometry-owner input, unchanged from the accepted Gate 4 B1
 design.
+
+## Correction: `--format json` stdout contract (commits `2a698e9cd8`, `dff33a9341`)
+
+The original run above used a post-hoc extraction (`grep '^{'`) to produce
+clean JSON artifacts from `--format json` stdout, because
+`GeometryManager::loadGeometry()`/`GeometryTGeo`'s own `FairLogger` console
+sink wrote `[INFO]` lines to stdout interleaved around the tool's JSON
+payload (and, for MFT, a further `[INFO] ~GeometryTGeo` line *after*
+`main()` returns, during static teardown) — evidence of a bug, not an
+acceptable CLI contract. Fixed by `JsonStdoutGuard`
+(`validation/src/JsonStdoutGuard.{h,cxx}`, commit `2a698e9cd8`): redirects
+stdout to stderr at construction, for the remainder of the process's life,
+and writes the payload once through a duplicate of the true original stdout
+fd. `--format text` is unchanged. Test coverage added in `dff33a9341`
+(`testJsonStdoutContract.cxx`), capturing the complete stdout stream and
+parsing it with RapidJSON for a synthetic success case and two typed
+failures.
+
+Re-ran the exact same command as above, with `--format json`, against the
+identical checksum-verified `o2sim_geometry.root`:
+
+```bash
+FIXDIR=/Users/mpuccio/alice/run3/O2-validation-data/itsmft/fixtures/pp-20ev-run303000-seed20260716-daily20260717
+BUILD=/Users/mpuccio/alice/run3/O2-worktree-builds/gate4-s0-sparse-hotloops-design-daily20260717
+
+O2_PACKAGE=daily-20260717-0700-local1 O2_BUILD_DIR=$BUILD \
+  .agents/skills/alice-o2-environment/scripts/run-in-o2-env.zsh -- \
+  o2-itsmft-nominal-geometry-validator --geometry "$FIXDIR" --detector ITS --surfaces 7 --format json \
+  1>its-report.json 2>its-report.stderr.log
+
+O2_PACKAGE=daily-20260717-0700-local1 O2_BUILD_DIR=$BUILD \
+  .agents/skills/alice-o2-environment/scripts/run-in-o2-env.zsh -- \
+  o2-itsmft-nominal-geometry-validator --geometry "$FIXDIR" --detector MFT --surfaces 10 --format json \
+  1>mft-report.json 2>mft-report.stderr.log
+```
+
+Verified directly on the raw stdout capture (no extraction step): `wc -l`
+is `1` for both; `jq -e .` and `python3 -m json.tool` both accept both files
+as valid JSON; both processes exit `0`; content is byte-identical to the
+original run's extracted values. Full raw captures recorded under, without
+modifying anything already there:
+
+```
+/Users/mpuccio/alice/run3/O2-validation-artifacts/itsmft/gate4-b1-slice1-nominal-geometry-validation/pp-20ev-run303000-seed20260716-daily20260717/json-stdout-fix-recheck/
+```
