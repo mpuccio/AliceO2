@@ -109,19 +109,16 @@ workflows, CCDB, or alignment behavior; the detached Gate 4 B1 validator
   real GPU-compiler frontend (`!defined(GPUCA_GPUCODE)`); every surviving
   `GPUhdi()` annotation in both edited headers was manually re-verified
   intact.
-- **Not completed**: canonical ITS (203-track,
-  `ee7f7c794d60f2362fd2564258b7887e`) and MFT (70-track,
-  `24737e73b7146bf3bd35a90a2517c527`) common-CA replay re-verification.
-  Both replay attempts failed identically on a `TGrid::Connect`/AliEn-token
-  environment error (`internal-dpl-ccdb-backend`, confirmed via
-  `simulation-preflight.zsh`: no AliEn certificate configured in this
-  session) -- upstream of and unrelated to any file this decision touches,
-  and reproducible identically against the pre-decision code in the same
-  credential-less environment. Full record, including the compensating
-  evidence gathered instead, in
+- Canonical ITS (203-track, `ee7f7c794d60f2362fd2564258b7887e`) and MFT
+  (70-track, `24737e73b7146bf3bd35a90a2517c527`) common-CA replay:
+  **MATCH, confirmed**. The first attempt failed on a `TGrid::Connect`/
+  AliEn-token environment error (`internal-dpl-ccdb-backend`; no AliEn
+  certificate configured in that session) -- upstream of and unrelated to
+  any file this decision touches. Once a valid AliEn token was available
+  in the environment, the identical replay commands, from fresh output
+  directories, against the same checksum-verified fixture (43/43 OK before
+  and after), reproduced both canonical hashes exactly. Full record in
   `/Users/mpuccio/alice/run3/O2-validation-artifacts/itsmft/gate4-acceptance-cleanup-c2/README.md`.
-  Re-running both replay commands unchanged with a valid AliEn token
-  present is the only remaining step to close this gap.
 
 ## Alternatives rejected
 
