@@ -30,3 +30,12 @@ o2_add_test(nominal-geometry-json-stdout-contract
             LABELS "itsmft;validation"
             PUBLIC_LINK_LIBRARIES O2::ITSMFTNominalGeometryValidatorCore
                                   RapidJSON::RapidJSON)
+
+# Gate 4 acceptance-cleanup C1: bit-exact float round-trip proof
+# (source float32 -> JSON token -> RapidJSON-parsed float32).
+o2_add_test(nominal-geometry-lossless-float-round-trip
+            SOURCES testLosslessFloatRoundTrip.cxx
+            COMPONENT_NAME itsmft
+            LABELS "itsmft;validation"
+            PUBLIC_LINK_LIBRARIES O2::ITSMFTNominalGeometryValidatorCore
+                                  RapidJSON::RapidJSON)
