@@ -44,6 +44,7 @@ o2_add_library(ITSMFTTracking
                        src/FamilyMaterialOperations.cxx
                        src/IndexTableConfiguration.cxx
                        src/DetectorLayoutBuilder.cxx
+                       src/DetectorLayoutSet.cxx
                        src/DetectorSurfaceCatalogAggregation.cxx
                        src/CombinedSurfaceCatalogBuilder.cxx
                        src/GeometrySurfaceCatalogProvider.cxx

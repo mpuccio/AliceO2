@@ -43,11 +43,15 @@ enum class MultiSourceLoadError : uint8_t {
   // target surface's descriptor. Never inferred from surface count.
   SurfaceKindMismatch,
   TimingError,
-  // TimeFrame-owned normalized loading preflight (loadNormalizedSource()):
-  // no DetectorLayoutSet owner has ever been stored for this TimeFrame.
+  // Normalized loading preflight (loadNormalizedSource()): the caller-
+  // supplied SurfaceCatalogView is empty (no surfaces) -- TimeFrame owns no
+  // catalog of its own (Gate 4 B2 Slice 2), so this means the caller (the
+  // plan's owner) had no plan to pass.
   SurfaceCatalogNotConfigured,
-  // TimeFrame-owned normalized loading preflight: a DetectorLayoutSet owner
-  // is stored, but it is not current (see TimeFrame::detectorLayoutsCurrent()).
+  // Retained for enum-value compatibility with the pre-Slice-2 contract.
+  // Unreachable via loadNormalizedSource() itself: a caller-supplied
+  // SurfaceCatalogView has no currency concept to go stale against (there is
+  // no TimeFrame-owned epoch/rebuild-on-demand any more).
   SurfaceCatalogStale,
   // Appended to preserve the numeric values of the pre-existing contract.
   MissingDictionary,

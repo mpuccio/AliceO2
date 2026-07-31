@@ -87,170 +87,7 @@ class NormalizedBackfillAllocatorMismatch final : public std::logic_error
   }
 };
 
-SurfaceMask positionalSurfaceMask(LayerMask layerMask, gsl::span<const SurfaceId> orderedSurfaces, uint32_t activeCount)
-{
-  SurfaceMask result;
-  for (uint32_t position = 0; position < activeCount; ++position) {
-    if (layerMask.has(position)) {
-      result.set(orderedSurfaces[position]);
-    }
-  }
-  return result;
-}
-
-DetectorSurfaceCatalogValidationError validateSurfaceCatalog(const DetectorSurfaceCatalogRequest& request,
-                                                             gsl::span<const SurfaceDescriptor> catalog)
-{
-  if (request.detector < o2::detectors::DetID::First || request.detector > o2::detectors::DetID::Last) {
-    return DetectorSurfaceCatalogValidationError::InvalidDetector;
-  }
-  if (!request.firstSurface.isValid()) {
-    return DetectorSurfaceCatalogValidationError::InvalidFirstSurface;
-  }
-  if (request.detectorSurfaceCount == 0) {
-    return DetectorSurfaceCatalogValidationError::EmptyDetector;
-  }
-  const uint64_t expectedSize = static_cast<uint64_t>(request.firstSurface.value()) + request.detectorSurfaceCount;
-  if (expectedSize > MaxLayoutSurfaces) {
-    return DetectorSurfaceCatalogValidationError::TooManySurfaces;
-  }
-  if (catalog.size() != expectedSize) {
-    return DetectorSurfaceCatalogValidationError::SizeMismatch;
-  }
-  for (size_t globalIndex = 0; globalIndex < catalog.size(); ++globalIndex) {
-    if (catalog[globalIndex].id != SurfaceId{static_cast<uint16_t>(globalIndex)}) {
-      return DetectorSurfaceCatalogValidationError::NonDenseGlobalSurfaceIds;
-    }
-  }
-
-  std::vector<bool> detectorSurfaceIndices(request.detectorSurfaceCount, false);
-  for (size_t globalIndex = request.firstSurface.value(); globalIndex < expectedSize; ++globalIndex) {
-    const auto& surface = catalog[globalIndex];
-    if (surface.detectorId != static_cast<uint8_t>(request.detector)) {
-      return DetectorSurfaceCatalogValidationError::DetectorMismatch;
-    }
-    if (surface.detectorSurfaceIndex == std::numeric_limits<uint16_t>::max()) {
-      return DetectorSurfaceCatalogValidationError::MissingDetectorSurfaceIndex;
-    }
-    if (surface.detectorSurfaceIndex >= request.detectorSurfaceCount) {
-      return DetectorSurfaceCatalogValidationError::DetectorSurfaceIndexOutOfRange;
-    }
-    if (detectorSurfaceIndices[surface.detectorSurfaceIndex]) {
-      return DetectorSurfaceCatalogValidationError::DuplicateDetectorSurfaceIndex;
-    }
-    detectorSurfaceIndices[surface.detectorSurfaceIndex] = true;
-  }
-  if (std::find(detectorSurfaceIndices.begin(), detectorSurfaceIndices.end(), false) != detectorSurfaceIndices.end()) {
-    return DetectorSurfaceCatalogValidationError::MissingDetectorSurfaceIndex;
-  }
-  for (size_t globalIndex = request.firstSurface.value(); globalIndex < expectedSize; ++globalIndex) {
-    const auto& material = catalog[globalIndex].material;
-    if (!std::isfinite(material.xOverX0) || material.xOverX0 < 0.f ||
-        !std::isfinite(material.arealDensityGPerCm2) || material.arealDensityGPerCm2 < 0.f) {
-      return DetectorSurfaceCatalogValidationError::InvalidMaterial;
-    }
-  }
-  return DetectorSurfaceCatalogValidationError::None;
-}
-
 } // namespace
-
-template <int NLayers>
-bool TimeFrame<NLayers>::detectorLayoutsCurrent() const noexcept
-{
-  return mDetectorLayouts.has_value() && mRequiredDetectorLayoutConfiguration.has_value() &&
-         mDetectorLayouts->getConfigurationKey() == *mRequiredDetectorLayoutConfiguration &&
-         mDetectorLayouts->getConfigurationKey().geometryEpoch == mRequiredDetectorGeometryEpoch;
-}
-
-template <int NLayers>
-void TimeFrame<NLayers>::invalidateDetectorLayouts() noexcept
-{
-  const auto previousEpoch = mRequiredDetectorGeometryEpoch;
-  mRequiredDetectorGeometryEpoch = nextDetectorGeometryEpoch(previousEpoch);
-  if (previousEpoch == std::numeric_limits<DetectorGeometryEpoch>::max()) {
-    // Epoch one may have existed before the counter wrapped. Dropping the old
-    // owner is the only way to prevent that ancient catalog becoming current.
-    mDetectorLayouts.reset();
-  }
-  if (mRequiredDetectorLayoutConfiguration) {
-    mRequiredDetectorLayoutConfiguration->geometryEpoch = mRequiredDetectorGeometryEpoch;
-  }
-}
-
-template <int NLayers>
-DetectorLayoutSetBuildResult TimeFrame<NLayers>::ensureDetectorLayouts(const DetectorSurfaceCatalogProvider* provider,
-                                                                       const DetectorSurfaceCatalogRequest& catalogRequest,
-                                                                       gsl::span<const SurfaceId> orderedSurfaces,
-                                                                       TransitionPolicyTag policyTag,
-                                                                       gsl::span<const TrackingParameters> trackingParameters)
-{
-  DetectorLayoutConfigurationKey key;
-  key.geometryEpoch = mRequiredDetectorGeometryEpoch;
-  key.catalogRequest = catalogRequest;
-  key.orderedSurfaces.assign(orderedSurfaces.begin(), orderedSurfaces.end());
-  key.policyTag = policyTag;
-  key.iterations.reserve(trackingParameters.size());
-  for (const auto& parameters : trackingParameters) {
-    if (parameters.NLayers < 0 || static_cast<size_t>(parameters.NLayers) > orderedSurfaces.size()) {
-      const auto failedIteration = key.iterations.size();
-      mRequiredDetectorLayoutConfiguration.reset();
-      return {.error = DetectorLayoutSetBuildError::InvalidActiveCount,
-              .failedIteration = failedIteration};
-    }
-    key.iterations.push_back(DetectorLayoutIterationConfiguration{
-      static_cast<uint32_t>(parameters.NLayers), parameters.MaxHoles,
-      parameters.HoleLayerMask, parameters.StartLayerMask});
-  }
-
-  mRequiredDetectorLayoutConfiguration = key;
-  if (detectorLayoutsCurrent()) {
-    return {};
-  }
-  if (provider == nullptr) {
-    return {.error = DetectorLayoutSetBuildError::MissingProvider};
-  }
-
-  auto catalogResult = provider->buildCatalog(catalogRequest);
-  if (!catalogResult.ok()) {
-    return {.error = DetectorLayoutSetBuildError::CatalogProviderFailure,
-            .catalogError = catalogResult.error};
-  }
-  const auto catalogValidationError = validateSurfaceCatalog(catalogRequest, catalogResult.catalog);
-  if (catalogValidationError != DetectorSurfaceCatalogValidationError::None) {
-    return {.error = DetectorLayoutSetBuildError::InvalidCatalog,
-            .catalogValidationError = catalogValidationError};
-  }
-
-  std::vector<DetectorLayout> staging;
-  staging.reserve(key.iterations.size());
-  for (size_t iteration = 0; iteration < key.iterations.size(); ++iteration) {
-    const auto& configuration = key.iterations[iteration];
-    std::vector<SurfaceId> activeSurfaces(orderedSurfaces.begin(), orderedSurfaces.begin() + configuration.activeCount);
-    DetectorLayoutSubgraph subgraph;
-    subgraph.orderedSurfaces = std::move(activeSurfaces);
-    subgraph.maxHoles = configuration.maxHoles;
-    subgraph.holeSurfaces = positionalSurfaceMask(configuration.holeLayerMask, orderedSurfaces, configuration.activeCount);
-    subgraph.seedingSurfaces = positionalSurfaceMask(configuration.startLayerMask, orderedSurfaces, configuration.activeCount);
-    subgraph.policyTag = policyTag;
-
-    DetectorLayoutBuilder builder{catalogResult.catalog};
-    auto buildResult = builder.addSubgraph(std::move(subgraph)).build();
-    if (!buildResult.ok()) {
-      return {.error = DetectorLayoutSetBuildError::LayoutBuilderFailure,
-              .failedIteration = iteration,
-              .layoutBuildError = buildResult.error,
-              .topologyError = buildResult.topologyError,
-              .layoutError = buildResult.layoutError};
-    }
-    staging.push_back(std::move(*buildResult.layout));
-  }
-
-  DetectorLayoutSet stagedSet{std::move(key), std::move(catalogResult.catalog), std::move(staging)};
-  static_assert(std::is_nothrow_move_constructible_v<DetectorLayoutSet>);
-  mDetectorLayouts.emplace(std::move(stagedSet));
-  return {.rebuilt = true};
-}
 #endif
 
 using o2::its::clearResizeBoundedVector;
@@ -349,6 +186,8 @@ LoadSourcesResult TimeFrame<NLayers>::loadNormalizedSource(
   const itsmft::TopologyDictionary* dictionary,
   const dataformats::MCTruthContainer<MCCompLabel>* labels,
   o2::detectors::DetID::ID detId,
+  gsl::span<const SurfaceId> orderedSurfaces,
+  SurfaceCatalogView catalogView,
   bool applySysErrors)
 {
   // Exactly one source is ever submitted here, and loadSources() requires
@@ -360,41 +199,29 @@ LoadSourcesResult TimeFrame<NLayers>::loadNormalizedSource(
   // nLayersForDet() maps every non-MFT detector to ITSNLayers, so it alone
   // cannot distinguish ITS from an unsupported detector that happens to
   // share NLayers==7; the detector identity must be checked explicitly and
-  // first, before nLayersForDet() or any catalog-ownership inspection.
+  // first, before nLayersForDet() or the caller-supplied catalog/mapping.
   if (detId != o2::detectors::DetID::ITS && detId != o2::detectors::DetID::MFT) {
     return {MultiSourceLoadError::UnsupportedDetector, kSourceId};
   }
   if (NLayers != constants::nLayersForDet(detId)) {
     return {MultiSourceLoadError::UnsupportedDetector, kSourceId};
   }
-  if (!mDetectorLayouts.has_value()) {
+  // TimeFrame owns no catalog/plan of its own (Gate 4 B2 Slice 2): the
+  // caller (ITSMFTTrackingInterface, the plan's one owner) supplies both
+  // explicitly. An empty view means the caller has no plan at all.
+  if (catalogView.surfaces == nullptr || catalogView.nSurfaces == 0) {
     return {MultiSourceLoadError::SurfaceCatalogNotConfigured, kSourceId};
   }
-  if (!detectorLayoutsCurrent()) {
-    return {MultiSourceLoadError::SurfaceCatalogStale, kSourceId};
-  }
-
-  // One current snapshot: the canonical catalog view and the layer-to-
-  // surface mapping below are both derived from this same DetectorLayoutSet,
-  // never from a selected tracking-iteration DetectorLayout -- so a canonical
-  // catalog configured with zero tracking iterations loads normally.
-  const auto* layouts = &*mDetectorLayouts;
-  const auto& configurationKey = layouts->getConfigurationKey();
-  if (configurationKey.catalogRequest.detector != detId) {
-    return {MultiSourceLoadError::DetectorSurfaceMismatch, kSourceId};
-  }
-  const auto& orderedSurfaces = configurationKey.orderedSurfaces;
   if (orderedSurfaces.size() != static_cast<size_t>(NLayers)) {
     return {MultiSourceLoadError::InvalidLayerMapping, kSourceId};
   }
-  const auto& catalog = layouts->getSurfaceCatalog();
-  // Fixed-size, non-allocating duplicate check: the stored catalog is
-  // already guaranteed (by ensureDetectorLayouts()'s own validation) to fit
-  // within the fixed 32-bit SurfaceMask capacity, so this preflight step
-  // still performs no allocation before decoding/mutation.
+  // Fixed-size, non-allocating duplicate check: the caller-supplied catalog
+  // is already guaranteed (by construction -- see buildDetectorLayoutSet())
+  // to fit within the fixed 32-bit SurfaceMask capacity, so this preflight
+  // step still performs no allocation before decoding/mutation.
   SurfaceMask mappedSurfaceSeen{};
   for (const auto& surfaceId : orderedSurfaces) {
-    if (!surfaceId.isValid() || surfaceId.value() >= catalog.size()) {
+    if (!surfaceId.isValid() || surfaceId.value() >= catalogView.nSurfaces) {
       return {MultiSourceLoadError::InvalidLayerMapping, kSourceId};
     }
     if (mappedSurfaceSeen.has(surfaceId)) {
@@ -403,13 +230,12 @@ LoadSourcesResult TimeFrame<NLayers>::loadNormalizedSource(
     mappedSurfaceSeen.set(surfaceId);
   }
   for (const auto& surfaceId : orderedSurfaces) {
-    if (catalog[surfaceId.value()].detectorId != static_cast<uint8_t>(detId)) {
+    if (catalogView.getSurface(surfaceId).detectorId != static_cast<uint8_t>(detId)) {
       return {MultiSourceLoadError::DetectorSurfaceMismatch, kSourceId};
     }
   }
 
-  const SurfaceCatalogView catalogView{catalog.data(), static_cast<uint32_t>(catalog.size())};
-  const gsl::span<const SurfaceId> layerToSurface{orderedSurfaces.data(), orderedSurfaces.size()};
+  const gsl::span<const SurfaceId> layerToSurface = orderedSurfaces;
 
   // Stage into a scratch owner: loadSources() itself never mutates its
   // `frame` argument on failure, but staging separately also protects the
@@ -1062,11 +888,11 @@ void TimeFrame<NLayers>::wipe()
   // MultiSourceFrameView or gsl::span obtained before this call (from
   // getNormalizedFrameView(), getSurfaceMeasurements(), getSourceIntervals(),
   // getLabels()) is invalidated by it, since clear() may reallocate/free the
-  // buffers those point into. Catalog/layout/material ownership
-  // (mDetectorLayouts), the required layout configuration, the required
-  // geometry epoch, the required material catalog epoch and mDetId are
-  // semantic configuration rather than event data and must survive wipe()
-  // unchanged; this call intentionally never touches them.
+  // buffers those point into. mDetId is semantic configuration rather than
+  // event data and must survive wipe() unchanged; this call intentionally
+  // never touches it. TimeFrame owns no catalog/layout/plan at all (Gate 4
+  // B2 Slice 2 -- that lives on the owner, ITSMFTTrackingInterface), so
+  // there is nothing further to preserve here on that account.
   mNormalizedFrame.clear();
 }
 

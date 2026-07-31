@@ -43,8 +43,7 @@
 #include "ITSMFTTracking/TrackingTopology.h"
 #ifndef GPUCA_GPUCODE
 #include <optional>
-#include "ITSMFTTracking/DetectorLayoutSet.h"
-#include "ITSMFTTracking/DetectorSurfaceCatalogProvider.h"
+#include "ITSMFTTracking/SurfaceCatalogView.h"
 #endif
 #include "SimulationDataFormat/MCCompLabel.h"
 #include "SimulationDataFormat/MCTruthContainer.h"
@@ -160,16 +159,13 @@ struct TimeFrame {
   // and its production callers are unchanged, and this entry point does not
   // decode any compact cluster a second time.
   //
-  // Unlike the Gate 1 signature, this no longer accepts an externally
-  // supplied DetectorLayoutView or layer-to-surface mapping: both are
-  // derived, from a single current DetectorLayoutSet snapshot obtained once,
-  // via ensureDetectorLayouts()/getDetectorLayouts() below -- the canonical
-  // SurfaceCatalogView from that set's owned catalog, and the layer-to-
-  // surface mapping from its configurationKey.orderedSurfaces. No tracking
-  // iteration (DetectorLayout) is selected or required, so a canonical
-  // catalog configured with zero tracking iterations loads normally. Because
-  // this now touches host-only layout ownership, the declaration lives
-  // inside this GPUCA_GPUCODE guard.
+  // Gate 4 B2 Slice 2: TimeFrame owns no catalog/layout/plan of its own --
+  // the caller (ITSMFTTrackingInterface, the plan's one owner) supplies the
+  // layer-to-surface mapping and the borrowed SurfaceCatalogView explicitly,
+  // both derived once from its own immutable DetectorLayoutSet. No tracking
+  // iteration (DetectorLayout) is selected or required here, so a plan built
+  // with zero tracking iterations loads normally. Because this touches
+  // host-only types, the declaration lives inside this GPUCA_GPUCODE guard.
   //
   // Exactly one source is ever submitted here, and loadSources() requires
   // dense, zero-based source IDs, so the source ID is always
@@ -181,14 +177,13 @@ struct TimeFrame {
   // with its default applySysErrors=true.
   //
   // Preflight (in order, before any allocation/decoding/mutation) rejects:
-  // NLayers not matching detId (UnsupportedDetector); no catalog owner ever
-  // stored (SurfaceCatalogNotConfigured); a stored owner that is not current
-  // (SurfaceCatalogStale); configurationKey.catalogRequest.detector != detId
-  // (DetectorSurfaceMismatch); orderedSurfaces.size() != NLayers
-  // (InvalidLayerMapping); any mapped SurfaceId invalid, out of range, or
-  // duplicated (InvalidLayerMapping); any mapped SurfaceDescriptor.detectorId
-  // != detId (DetectorSurfaceMismatch). Every preflight failure returns
-  // source ClusterSourceId{0}, consistent with this single-source API.
+  // NLayers not matching detId (UnsupportedDetector); an empty/unconfigured
+  // `catalogView` (SurfaceCatalogNotConfigured); orderedSurfaces.size() !=
+  // NLayers (InvalidLayerMapping); any mapped SurfaceId invalid, out of
+  // range, or duplicated (InvalidLayerMapping); any mapped
+  // SurfaceDescriptor.detectorId != detId (DetectorSurfaceMismatch). Every
+  // preflight failure returns source ClusterSourceId{0}, consistent with
+  // this single-source API.
   //
   // Preflight, decoding, and the complete legacy backfill are staged before
   // either representation is committed. A returned failing (non-ok()) result
@@ -211,52 +206,9 @@ struct TimeFrame {
                                          const itsmft::TopologyDictionary* dictionary,
                                          const dataformats::MCTruthContainer<MCCompLabel>* labels,
                                          o2::detectors::DetID::ID detId,
+                                         gsl::span<const SurfaceId> orderedSurfaces,
+                                         SurfaceCatalogView catalogView,
                                          bool applySysErrors = true);
-
-  // Builds (or reuses, if already current) this TimeFrame's DetectorLayoutSet
-  // from `provider`'s resolved surface catalog. Per-surface nominal material
-  // is not a parameter here: it lives directly on each SurfaceDescriptor in
-  // the resolved catalog (SurfaceDescriptor::material) and is therefore
-  // supplied by `provider`, not threaded through this call.
-  DetectorLayoutSetBuildResult ensureDetectorLayouts(const DetectorSurfaceCatalogProvider* provider,
-                                                     const DetectorSurfaceCatalogRequest& catalogRequest,
-                                                     gsl::span<const SurfaceId> orderedSurfaces,
-                                                     TransitionPolicyTag policyTag,
-                                                     gsl::span<const TrackingParameters> trackingParameters);
-
-  // Invalidates the current DetectorLayoutSet, forcing a rebuild on the next
-  // ensureDetectorLayouts() call. A change to nominal surface material is a
-  // change to the surface description (SurfaceDescriptor::material), so it
-  // is invalidated through this same geometry path -- there is no separate
-  // material invalidation entry point.
-  void invalidateDetectorLayouts() noexcept;
-  DetectorGeometryEpoch getRequiredDetectorGeometryEpoch() const noexcept { return mRequiredDetectorGeometryEpoch; }
-  bool detectorLayoutsCurrent() const noexcept;
-  bool hasStoredDetectorLayouts() const noexcept { return mDetectorLayouts.has_value(); }
-  const std::vector<SurfaceDescriptor>* getSurfaceCatalog() const noexcept
-  {
-    const auto* layouts = getDetectorLayouts();
-    return layouts ? &layouts->getSurfaceCatalog() : nullptr;
-  }
-  gsl::span<const SurfaceDescriptor> getSurfaceCatalogView() const noexcept
-  {
-    const auto* catalog = getSurfaceCatalog();
-    return catalog ? gsl::span<const SurfaceDescriptor>{catalog->data(), catalog->size()} : gsl::span<const SurfaceDescriptor>{};
-  }
-  const DetectorLayoutSet* getDetectorLayouts() const noexcept
-  {
-    return detectorLayoutsCurrent() ? &*mDetectorLayouts : nullptr;
-  }
-  const DetectorLayout* getDetectorLayout(size_t iteration) const noexcept
-  {
-    const auto* layouts = getDetectorLayouts();
-    return layouts ? layouts->getLayout(iteration) : nullptr;
-  }
-  DetectorLayoutView getDetectorLayoutView(size_t iteration) const noexcept
-  {
-    const auto* layouts = getDetectorLayouts();
-    return layouts ? layouts->getLayoutView(iteration) : DetectorLayoutView{};
-  }
 #endif
 
   int getTotalClusters() const;
@@ -575,13 +527,6 @@ struct TimeFrame {
   // members are plain std::vector<T> with the default allocator), so it has
   // no ordering dependency on mMemoryPool/mExtMemoryPool above.
   MultiSourceFrame mNormalizedFrame;
-
-#ifndef GPUCA_GPUCODE
-  // Semantic configuration, unlike event artefacts, survives wipe().
-  std::optional<DetectorLayoutSet> mDetectorLayouts;
-  std::optional<DetectorLayoutConfigurationKey> mRequiredDetectorLayoutConfiguration;
-  DetectorGeometryEpoch mRequiredDetectorGeometryEpoch{InitialDetectorGeometryEpoch};
-#endif
 };
 
 template <int NLayers>

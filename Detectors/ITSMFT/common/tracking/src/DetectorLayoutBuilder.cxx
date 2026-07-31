@@ -34,20 +34,20 @@ DetectorLayoutBuildResult DetectorLayoutBuilder::build() const
   // before any subgraph validation below relies on mask arithmetic being
   // faithful, and report it through the same TopologyBuildError value
   // SparseTrackingTopology itself would raise for the same condition.
-  if (mCatalog.size() > MaxLayoutSurfaces) {
+  if (mCatalog.nSurfaces > MaxLayoutSurfaces) {
     result.error = DetectorLayoutBuildError::TopologyRejected;
     result.topologyError = TopologyBuildError::InvalidSurfaceCount;
     return result;
   }
 
   // The builder's own subgraph-membership checks below key off `id.value() <
-  // mCatalog.size()`, which is only meaningful if catalog entries are dense
-  // (catalog[i].id == i). DetectorLayout::validate() checks this too, but
-  // only after the topology is fully built; check it up front so a
+  // mCatalog.nSurfaces`, which is only meaningful if catalog entries are
+  // dense (catalog[i].id == i). DetectorLayout::validate() checks this too,
+  // but only after the topology is fully built; check it up front so a
   // non-dense catalog fails fast with the same diagnostic it would
   // eventually get.
-  for (size_t i = 0; i < mCatalog.size(); ++i) {
-    if (mCatalog[i].id != SurfaceId{static_cast<uint16_t>(i)}) {
+  for (uint32_t i = 0; i < mCatalog.nSurfaces; ++i) {
+    if (mCatalog.surfaces[i].id != SurfaceId{static_cast<uint16_t>(i)}) {
       result.error = DetectorLayoutBuildError::LayoutRejected;
       result.layoutError = DetectorLayoutError::NonDenseSurfaceIds;
       return result;
@@ -78,7 +78,7 @@ DetectorLayoutBuildResult DetectorLayoutBuilder::build() const
 
     SurfaceMask subgraphSurfaces{};
     for (const auto& id : subgraph.orderedSurfaces) {
-      if (!id.isValid() || id.value() >= mCatalog.size()) {
+      if (!id.isValid() || id.value() >= mCatalog.nSurfaces) {
         result.error = DetectorLayoutBuildError::InvalidSubgraphSurfaceId;
         return result;
       }
@@ -90,7 +90,7 @@ DetectorLayoutBuildResult DetectorLayoutBuilder::build() const
         result.error = DetectorLayoutBuildError::SurfaceDuplicatedAcrossSubgraphs;
         return result;
       }
-      if (!isSurfaceKindCompatible(subgraph.policyTag, mCatalog[id.value()].kind)) {
+      if (!isSurfaceKindCompatible(subgraph.policyTag, mCatalog.surfaces[id.value()].kind)) {
         result.error = DetectorLayoutBuildError::LayoutRejected;
         result.layoutError = DetectorLayoutError::PolicySurfaceKindMismatch;
         return result;
@@ -110,7 +110,7 @@ DetectorLayoutBuildResult DetectorLayoutBuilder::build() const
     combinedSeeding |= subgraph.seedingSurfaces;
   }
 
-  SparseTrackingTopology topology{static_cast<uint32_t>(mCatalog.size()), combinedSeeding};
+  SparseTrackingTopology topology{mCatalog.nSurfaces, combinedSeeding};
   if (topology.getError() != TopologyBuildError::None) {
     result.error = DetectorLayoutBuildError::TopologyRejected;
     result.topologyError = topology.getError();
@@ -169,7 +169,7 @@ DetectorLayoutBuildResult DetectorLayoutBuilder::build() const
     return result;
   }
 
-  DetectorLayout layout{mCatalog, std::move(topology)};
+  DetectorLayout layout{gsl::span<const SurfaceDescriptor>{mCatalog.surfaces, mCatalog.nSurfaces}, std::move(topology)};
   if (!layout.valid()) {
     result.error = DetectorLayoutBuildError::LayoutRejected;
     result.layoutError = layout.getError();

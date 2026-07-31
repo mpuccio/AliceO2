@@ -22,6 +22,7 @@
 #include <oneapi/tbb/task_arena.h>
 
 #include "ITSMFTTracking/Configuration.h"
+#include "ITSMFTTracking/DetectorLayoutSet.h"
 #include "ITSMFTTracking/TimeFrame.h"
 #include "ITSMFTTracking/TrackerTraits.h"
 
@@ -60,6 +61,10 @@ class Tracker
   explicit Tracker(TrackerTraitsN* traits);
 
   void adoptTimeFrame(TimeFrameN& tf);
+  // Binds the tracker's one immutable plan, owned by its caller
+  // (ITSMFTTrackingInterface) -- mirrors adoptTimeFrame()'s bind-once
+  // pattern. `plan` must outlive every subsequent clustersToTracks() call.
+  void adoptDetectorLayoutSet(const DetectorLayoutSet& plan) { mLayoutPlan = &plan; }
   void setParameters(const std::vector<TrackingParameters>& p) { mTrkParams = p; }
   void setMemoryPool(std::shared_ptr<BoundedMemoryResource> pool) { mMemoryPool = pool; }
   void setBz(float bz) { mTraits->setBz(bz); }
@@ -78,7 +83,7 @@ class Tracker
   TimeFrameN& getTimeFrame() { return *mTimeFrame; }
 
  private:
-  void initialiseTimeFrame(int iteration) { mTraits->initialiseTimeFrame(iteration); }
+  void initialiseTimeFrame(int iteration) { mTraits->initialiseTimeFrame(iteration, *mLayoutPlan); }
   void computeTracklets(int iteration, int iVertex) { mTraits->computeLayerTracklets(iteration, iVertex); }
   void computeCells(int iteration) { mTraits->computeLayerCells(iteration); }
   void findCellsNeighbours(int iteration) { mTraits->findCellsNeighbours(iteration); }
@@ -88,6 +93,7 @@ class Tracker
 
   TrackerTraitsN* mTraits = nullptr;
   TimeFrameN* mTimeFrame = nullptr;
+  const DetectorLayoutSet* mLayoutPlan = nullptr;
   std::vector<TrackingParameters> mTrkParams;
   std::shared_ptr<BoundedMemoryResource> mMemoryPool;
 };

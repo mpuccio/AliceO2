@@ -18,6 +18,7 @@
 
 #include <limits>
 #include <memory>
+#include <optional>
 #include <vector>
 
 #include <gsl/span>
@@ -31,6 +32,7 @@
 #include "ITSMFTTracking/DetectorTraits.h"
 #ifndef GPUCA_GPUCODE
 #include "ITSMFTTracking/ClusterDecoder.h"
+#include "ITSMFTTracking/DetectorLayoutSet.h"
 #include "ITSMFTTracking/DetectorSurfaceCatalogProvider.h"
 #include "ITSMFTTracking/TimeFrameLoadFailure.h"
 #endif
@@ -71,13 +73,6 @@ class ITSMFTTrackingInterface
   ITSMFTTrackingInterface(bool useMC, o2::itsmft::TrackingMode::Type mode, bool overrideBeamEst,
                           std::unique_ptr<DetectorSurfaceCatalogProvider> catalogProvider,
                           std::unique_ptr<ClusterDecoder> clusterDecoder = nullptr);
-
-  DetectorLayoutSetBuildResult configureDetectorLayouts(const DetectorSurfaceCatalogRequest& catalogRequest,
-                                                        gsl::span<const SurfaceId> orderedSurfaces,
-                                                        TransitionPolicyTag policyTag)
-  {
-    return mTimeFrame.ensureDetectorLayouts(mDetectorSurfaceCatalogProvider.get(), catalogRequest, orderedSurfaces, policyTag, mTrackParams);
-  }
 #endif
 
   void setTrackingMode(o2::itsmft::TrackingMode::Type mode) { mTrackingMode = mode; }
@@ -158,8 +153,17 @@ class ITSMFTTrackingInterface
   std::unique_ptr<TrackerTraitsN> mTrackerTraits;
   std::unique_ptr<TrackerN> mTracker;
 #ifndef GPUCA_GPUCODE
+  // No longer consulted by plan-building (Gate 4 B2 Slice 2 -- see mPlan
+  // below): kept only for constructor-signature/test-fixture compatibility
+  // until the provider classes themselves are removed in a later slice.
   std::unique_ptr<DetectorSurfaceCatalogProvider> mDetectorSurfaceCatalogProvider;
   std::unique_ptr<ClusterDecoder> mClusterDecoder;
+  // This interface's one immutable plan, built once in initialiseTracker()
+  // from the compile-time-selected static per-detector catalog
+  // (StaticDetectorCatalogs.h). Never rebuilt, invalidated, or forwarded
+  // through TimeFrame -- runTracking()/loadTimeFrame() pass it explicitly to
+  // Tracker::adoptDetectorLayoutSet()/TimeFrame::loadNormalizedSource().
+  std::optional<DetectorLayoutSet> mPlan;
 #endif
   const o2::itsmft::TopologyDictionary* mDict = nullptr;
   const o2::dataformats::MeanVertexObject* mMeanVertex = nullptr;

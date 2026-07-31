@@ -57,7 +57,8 @@ struct PassMode {
   using TwoPassInsert = std::integral_constant<int, 2>;
 };
 
-namespace {
+namespace
+{
 // A static "diamond" vertex (ITSCommonCATrackerParam.useDiamond /
 // TrackerTraits::computeLayerTrackletsForPolicy) carries no genuine
 // per-event timing: it stands in for every real primary vertex at once, so
@@ -118,9 +119,9 @@ int TrackerTraits<NLayers>::getPolicyBindingCount(TransitionPolicyTag tag) const
 
 template <int NLayers>
 void TrackerTraits<NLayers>::validateLegacyParity(int iteration,
-                                                   const DetectorLayoutView& layout,
-                                                   TransitionPolicyTag& activeTag,
-                                                   bool& mixedPolicy) const
+                                                  const DetectorLayoutView& layout,
+                                                  TransitionPolicyTag& activeTag,
+                                                  bool& mixedPolicy) const
 {
   const auto fail = [iteration]() { throw TraversalException{iteration, TraversalFailureReason::LegacyIndexMismatch}; };
   const auto sparse = layout.topology;
@@ -187,23 +188,19 @@ void TrackerTraits<NLayers>::validateLegacyParity(int iteration,
 }
 
 template <int NLayers>
-void TrackerTraits<NLayers>::initialiseTimeFrame(const int iteration)
+void TrackerTraits<NLayers>::initialiseTimeFrame(const int iteration, const DetectorLayoutSet& layouts)
 {
   resetTraversalCache();
 
-  // 1. Layout ownership/currentness/iteration bounds, checked before any
-  // index-table (or other) configuration is touched.
-  if (!mTimeFrame->hasStoredDetectorLayouts()) {
-    throw TraversalException{iteration, TraversalFailureReason::MissingLayout};
-  }
-  if (!mTimeFrame->detectorLayoutsCurrent()) {
-    throw TraversalException{iteration, TraversalFailureReason::StaleLayout};
-  }
-  const auto* layouts = mTimeFrame->getDetectorLayouts();
-  if (layouts == nullptr || iteration < 0 || static_cast<size_t>(iteration) >= layouts->size()) {
+  // 1. Iteration bounds, checked before any index-table (or other)
+  // configuration is touched. `layouts` is the caller's own immutable plan
+  // (Gate 4 B2 Slice 2): its mere presence as a valid reference here is the
+  // caller's guarantee that a plan exists, so there is no separate
+  // missing/stale-layout state left to check.
+  if (iteration < 0 || static_cast<size_t>(iteration) >= layouts.size()) {
     throw TraversalException{iteration, TraversalFailureReason::IterationOutOfRange};
   }
-  const auto layout = mTimeFrame->getDetectorLayoutView(iteration);
+  const auto layout = layouts.getLayoutView(iteration);
 
   // 2. Grouping + single active tag, resolved from `layout` alone -- no
   // dependency on TimeFrame::initialise() having run, since neither
@@ -267,7 +264,7 @@ void TrackerTraits<NLayers>::initialiseTimeFrame(const int iteration)
   // iteration's legacy layers -- rejects with SurfaceLayerMappingMismatch,
   // before any TimeFrame tracking state is touched, exactly like every
   // other check in this block.
-  const auto& orderedSurfaces = layouts->getConfigurationKey().orderedSurfaces;
+  const auto& orderedSurfaces = layouts.getConfigurationKey().orderedSurfaces;
   if (orderedSurfaces.size() < static_cast<size_t>(NLayers)) {
     throw TraversalException{iteration, TraversalFailureReason::LegacyMaterialMismatch};
   }

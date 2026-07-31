@@ -14,24 +14,20 @@
 #include <type_traits>
 
 #ifndef GPUCA_GPUCODE
+#include <gsl/span>
+#include <optional>
 #include <utility>
 #include <vector>
 
+#include "ITSMFTTracking/Configuration.h"
 #include "ITSMFTTracking/DetectorLayout.h"
 #include "ITSMFTTracking/DetectorLayoutBuilder.h"
 #include "ITSMFTTracking/DetectorSurfaceCatalogProvider.h"
 #include "ITSMFTTracking/LayerMask.h"
+#include "ITSMFTTracking/SurfaceCatalogView.h"
 
 namespace o2::itsmft::tracking
 {
-
-using DetectorGeometryEpoch = uint64_t;
-inline constexpr DetectorGeometryEpoch InitialDetectorGeometryEpoch = 1;
-
-constexpr DetectorGeometryEpoch nextDetectorGeometryEpoch(DetectorGeometryEpoch epoch) noexcept
-{
-  return epoch == std::numeric_limits<DetectorGeometryEpoch>::max() ? InitialDetectorGeometryEpoch : epoch + 1;
-}
 
 struct DetectorLayoutIterationConfiguration {
   uint32_t activeCount{0};
@@ -47,42 +43,38 @@ struct DetectorLayoutIterationConfiguration {
   }
 };
 
-// `geometryEpoch` is the single currency mechanism for the whole shared
-// surface description, nominal material included: material is a field on
-// SurfaceDescriptor (SurfaceDescriptor::material), not a separately versioned
-// catalogue, so a material-only change is a surface-description change and
-// is invalidated/rebuilt through the existing detector-layout invalidation
-// path (TimeFrame::invalidateDetectorLayouts()) exactly like any other
-// geometry change. There is no separate material epoch.
+// No geometryEpoch/catalogRequest: this key no longer identifies a runtime
+// provider query to re-issue or compare against (Gate 4 B2 Slice 2 -- the
+// catalog is now a static, process-lifetime SurfaceCatalogView with nothing
+// to invalidate; see StaticDetectorCatalogs.h). A DetectorLayoutSet is built
+// exactly once by its owner (buildDetectorLayoutSet() below) and never
+// rebuilt/compared for currency.
 struct DetectorLayoutConfigurationKey {
-  DetectorGeometryEpoch geometryEpoch{InitialDetectorGeometryEpoch};
-  DetectorSurfaceCatalogRequest catalogRequest{};
   std::vector<SurfaceId> orderedSurfaces{};
   std::vector<DetectorLayoutIterationConfiguration> iterations{};
   TransitionPolicyTag policyTag{TransitionPolicyTag::Invalid};
 
   bool operator==(const DetectorLayoutConfigurationKey& other) const noexcept
   {
-    return geometryEpoch == other.geometryEpoch && catalogRequest == other.catalogRequest &&
-           orderedSurfaces == other.orderedSurfaces && iterations == other.iterations && policyTag == other.policyTag;
+    return orderedSurfaces == other.orderedSurfaces && iterations == other.iterations && policyTag == other.policyTag;
   }
 };
 
-// Owns the complete shared detector description exactly once: the dense
-// surface catalog (each entry carrying its own nominal material, see
-// SurfaceDescriptor::material) and the full-catalogue cylinder/disk masks
-// derived from it. Iteration-specific DetectorLayout objects hold no copy of
-// either; they are validated against a borrowed view at construction and
-// combined with the shared catalog only when a DetectorLayoutView is
+// Owns only the per-iteration layouts/topology and this configuration key;
+// borrows the shared surface catalog (SurfaceCatalogView) rather than owning
+// a copy of it. The full-catalogue cylinder/disk masks are still derived and
+// cached once here. Iteration-specific DetectorLayout objects hold no copy
+// of the catalog either; they are validated against a borrowed span at
+// construction and combined with it only when a DetectorLayoutView is
 // assembled (getLayoutView() below, the sole production assembly point).
 class DetectorLayoutSet
 {
  public:
-  DetectorLayoutSet(DetectorLayoutConfigurationKey key, std::vector<SurfaceDescriptor> catalog,
+  DetectorLayoutSet(DetectorLayoutConfigurationKey key, SurfaceCatalogView catalog,
                     std::vector<DetectorLayout> layouts) noexcept
-    : mConfigurationKey{std::move(key)}, mCatalog{std::move(catalog)}, mLayouts{std::move(layouts)}
+    : mConfigurationKey{std::move(key)}, mCatalog{catalog}, mLayouts{std::move(layouts)}
   {
-    const auto masks = computeSurfaceKindMasks(mCatalog);
+    const auto masks = computeSurfaceKindMasks(gsl::span<const SurfaceDescriptor>{mCatalog.surfaces, mCatalog.nSurfaces});
     mCylinderSurfaces = masks.first;
     mDiskSurfaces = masks.second;
   }
@@ -91,7 +83,7 @@ class DetectorLayoutSet
   DetectorLayoutSet& operator=(DetectorLayoutSet&&) noexcept = default;
 
   const DetectorLayoutConfigurationKey& getConfigurationKey() const noexcept { return mConfigurationKey; }
-  const std::vector<SurfaceDescriptor>& getSurfaceCatalog() const noexcept { return mCatalog; }
+  SurfaceCatalogView getSurfaceCatalog() const noexcept { return mCatalog; }
   SurfaceMask getCylinderSurfaces() const noexcept { return mCylinderSurfaces; }
   SurfaceMask getDiskSurfaces() const noexcept { return mDiskSurfaces; }
   size_t size() const noexcept { return mLayouts.size(); }
@@ -103,12 +95,12 @@ class DetectorLayoutSet
   DetectorLayoutView getLayoutView(size_t iteration) const noexcept
   {
     const auto* layout = getLayout(iteration);
-    return layout ? layout->getView(mCatalog, mCylinderSurfaces, mDiskSurfaces) : DetectorLayoutView{};
+    return layout ? layout->getView(gsl::span<const SurfaceDescriptor>{mCatalog.surfaces, mCatalog.nSurfaces}, mCylinderSurfaces, mDiskSurfaces) : DetectorLayoutView{};
   }
 
  private:
   DetectorLayoutConfigurationKey mConfigurationKey;
-  std::vector<SurfaceDescriptor> mCatalog;
+  SurfaceCatalogView mCatalog;
   SurfaceMask mCylinderSurfaces{};
   SurfaceMask mDiskSurfaces{};
   std::vector<DetectorLayout> mLayouts;
@@ -140,6 +132,15 @@ enum class DetectorSurfaceCatalogValidationError : uint8_t {
   InvalidMaterial
 };
 
+// catalogError/catalogValidationError are diagnostics inherited from the
+// pre-Slice-2 runtime-provider build path; buildDetectorLayoutSet() below
+// never produces MissingProvider/CatalogProviderFailure/InvalidCatalog or a
+// non-None catalogValidationError (there is no provider to fail and no
+// runtime catalog to validate -- the static catalog it borrows is already
+// proven valid at compile time, see SurfaceSpec.h), so both stay at their
+// default (::None) on every real call. `rebuilt` is always true on success:
+// there is no currency concept left to make a rebuild conditional on (see
+// DetectorLayoutConfigurationKey's own doc).
 struct DetectorLayoutSetBuildResult {
   DetectorLayoutSetBuildError error{DetectorLayoutSetBuildError::None};
   DetectorSurfaceCatalogError catalogError{DetectorSurfaceCatalogError::None};
@@ -149,9 +150,28 @@ struct DetectorLayoutSetBuildResult {
   TopologyBuildError topologyError{TopologyBuildError::None};
   DetectorLayoutError layoutError{DetectorLayoutError::None};
   bool rebuilt{false};
+  // Populated iff ok(). The built product itself -- absent from earlier
+  // (TimeFrame-owned) build results, which stored it as TimeFrame state
+  // instead; this result now carries it directly since the owner
+  // (ITSMFTTrackingInterface) has nowhere else to receive it from.
+  std::optional<DetectorLayoutSet> layout{};
 
   bool ok() const noexcept { return error == DetectorLayoutSetBuildError::None; }
 };
+
+// Builds one DetectorLayoutSet, once, from a borrowed SurfaceCatalogView
+// (process-lifetime static storage, see StaticDetectorCatalogs.h) and this
+// detector's per-iteration TrackingParameters. One DetectorLayoutSubgraph
+// per iteration, built through the same (unmodified) DetectorLayoutBuilder
+// every caller already used; `orderedSurfaces` fixes the legacy-layer
+// traversal order exactly as it did for the pre-Slice-2 runtime path. Pure
+// function of its arguments: no TimeFrame, no provider, nothing to
+// invalidate or re-issue -- the intended single caller (ITSMFTTrackingInterface
+// ::initialiseTracker()) calls this exactly once per interface instance.
+DetectorLayoutSetBuildResult buildDetectorLayoutSet(SurfaceCatalogView catalog,
+                                                    gsl::span<const SurfaceId> orderedSurfaces,
+                                                    TransitionPolicyTag policyTag,
+                                                    gsl::span<const o2::itsmft::TrackingParameters> trackingParameters);
 
 } // namespace o2::itsmft::tracking
 #endif // GPUCA_GPUCODE

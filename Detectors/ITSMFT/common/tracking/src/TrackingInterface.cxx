@@ -16,6 +16,7 @@
 #include "ITSMFTTracking/DetectorTraits.h"
 #include "ITSMFTTracking/TrackingInterface.h"
 
+#include <array>
 #include <limits>
 
 #include "ITStracking/Constants.h"
@@ -32,6 +33,7 @@
 #include "DetectorsBase/Propagator.h"
 #include "Framework/Logger.h"
 #include "ITSMFTTracking/ROFTimingUniformity.h"
+#include "ITSMFTTracking/StaticDetectorCatalogs.h"
 #include "ITSMFTTracking/TimeFrameLoadFailure.h"
 #include "MFTTracking/MFTTrackingParam.h"
 
@@ -46,6 +48,21 @@ template <o2::detectors::DetID::ID detId>
 consteval const char* detName()
 {
   return detId == o2::detectors::DetID::MFT ? "MFT" : "ITS";
+}
+
+// Both kITSStaticSurfaceCatalog and kMFTStaticSurfaceCatalog are dense and
+// local to their own detector (StaticDetectorCatalogs.h / ITSSurfaceSpec.h /
+// MFTSurfaceSpec.h): surface i's id is always SurfaceId{i}. The owner's
+// legacy-layer traversal order is therefore always the trivial identity
+// sequence, for either detector -- no external/runtime value to supply.
+template <int NLayers>
+constexpr std::array<SurfaceId, NLayers> identitySurfaceOrder()
+{
+  std::array<SurfaceId, NLayers> order{};
+  for (int i = 0; i < NLayers; ++i) {
+    order[i] = SurfaceId{static_cast<uint16_t>(i)};
+  }
+  return order;
 }
 
 bool rofOverlapsIRFrames(const o2::itsmft::ROFRecord& rof, int rofLengthInBC, gsl::span<const o2::dataformats::IRFrame> irFrames)
@@ -80,8 +97,7 @@ ITSMFTTrackingInterface<NLayers>::ITSMFTTrackingInterface(bool useMC,
                                                           bool overrideBeamEst,
                                                           std::unique_ptr<DetectorSurfaceCatalogProvider> catalogProvider,
                                                           std::unique_ptr<ClusterDecoder> clusterDecoder)
-  : mUseMC(useMC), mOverrideBeamEstimation(overrideBeamEst), mTrackingMode(mode), mDetectorSurfaceCatalogProvider(std::move(catalogProvider)),
-    mClusterDecoder(clusterDecoder != nullptr ? std::move(clusterDecoder) : std::make_unique<GeometryClusterDecoder<DetId>>())
+  : mUseMC(useMC), mOverrideBeamEstimation(overrideBeamEst), mTrackingMode(mode), mDetectorSurfaceCatalogProvider(std::move(catalogProvider)), mClusterDecoder(clusterDecoder != nullptr ? std::move(clusterDecoder) : std::make_unique<GeometryClusterDecoder<DetId>>())
 {
 }
 #else
@@ -185,6 +201,30 @@ void ITSMFTTrackingInterface<NLayers>::initialiseTracker()
   }
   mTrackerTraits->setNThreads(nThreads, taskArena);
   mTracker = std::make_unique<TrackerN>(mTrackerTraits.get());
+
+  // Build this interface's one immutable plan, once, from the compile-time-
+  // selected static per-detector catalog (Gate 4 B2 Slice 2). Static,
+  // process-lifetime storage (StaticDetectorCatalogs.h), so the borrowed
+  // SurfaceCatalogView below never dangles. A build failure here is a
+  // construction-time misconfiguration (e.g. a resolved TrackingParameters
+  // iteration whose NLayers exceeds this detector's own layer count), not
+  // per-TF data, so it is fatal here, once, exactly like the nThreads
+  // misconfiguration checked above.
+  static constexpr auto kOrderedSurfaces = identitySurfaceOrder<NLayers>();
+  DetectorLayoutSetBuildResult planResult;
+  if constexpr (DetId == o2::detectors::DetID::ITS) {
+    planResult = buildDetectorLayoutSet(SurfaceCatalogView{kITSStaticSurfaceCatalog.data(), static_cast<uint32_t>(kITSStaticSurfaceCatalog.size())},
+                                        gsl::span<const SurfaceId>{kOrderedSurfaces}, TransitionPolicyTag::CylinderCylinder, mTrackParams);
+  } else {
+    planResult = buildDetectorLayoutSet(SurfaceCatalogView{kMFTStaticSurfaceCatalog.data(), static_cast<uint32_t>(kMFTStaticSurfaceCatalog.size())},
+                                        gsl::span<const SurfaceId>{kOrderedSurfaces}, TransitionPolicyTag::DiskDisk, mTrackParams);
+  }
+  if (!planResult.ok()) {
+    LOGP(fatal, "{} CA tracker failed to build its static detector layout plan (error={} failedIteration={} layoutBuildError={} topologyError={} layoutError={})",
+         detName<DetId>(), static_cast<int>(planResult.error), planResult.failedIteration,
+         static_cast<int>(planResult.layoutBuildError), static_cast<int>(planResult.topologyError), static_cast<int>(planResult.layoutError));
+  }
+  mPlan = std::move(planResult.layout);
 }
 
 template <int NLayers>
@@ -285,7 +325,9 @@ void ITSMFTTrackingInterface<NLayers>::loadTimeFrame(gsl::span<const o2::itsmft:
   // Transactional (TimeFrame::loadNormalizedSource()/loadSources()): on any
   // failure below, mTimeFrame's normalized frame and every legacy
   // compatibility container are left exactly as they were before this call.
-  const auto result = mTimeFrame.loadNormalizedSource(*mClusterDecoder, origin, timing, clusters, patterns, rofs, mDict, labels, DetId);
+  const auto& configurationKey = mPlan->getConfigurationKey();
+  const auto result = mTimeFrame.loadNormalizedSource(*mClusterDecoder, origin, timing, clusters, patterns, rofs, mDict, labels, DetId,
+                                                      gsl::span<const SurfaceId>{configurationKey.orderedSurfaces}, mPlan->getSurfaceCatalog());
   if (!result.ok()) {
     if (isRecoverableLoadError(result.error, result.timingDetail)) {
       throw RecoverableLoadFailure{result};
@@ -310,6 +352,7 @@ float ITSMFTTrackingInterface<NLayers>::runTracking()
     return 0.f;
   }
   mTracker->adoptTimeFrame(mTimeFrame);
+  mTracker->adoptDetectorLayoutSet(*mPlan);
   mTracker->setParameters(mTrackParams);
   mTracker->setMemoryPool(mMemoryPool);
   mTracker->setBz(mTimeFrame.getBz());
@@ -390,8 +433,8 @@ ROFTimingConfig ITSMFTTrackingInterface<NLayers>::configureROFLookupTables()
       .mROFDelay = static_cast<uint32_t>(par.getROFDelayInBC(iLayer)),
       .mROFBias = static_cast<uint32_t>(par.getROFBiasInBC(iLayer)),
       .mROFAddTimeErr = mTrackParams.empty()
-                         ? static_cast<uint32_t>(o2::itsmft::tracking::TrackerParamRef<DetId>::get().addTimeError[iLayer])
-                         : mTrackParams[0].AddTimeError[iLayer]};
+                          ? static_cast<uint32_t>(o2::itsmft::tracking::TrackerParamRef<DetId>::get().addTimeError[iLayer])
+                          : mTrackParams[0].AddTimeError[iLayer]};
     // A zero ROF count (rofLengthInBC > LHCMaxBunches makes nROFsPerOrbit
     // integer-divide to 0, or a misconfigured nOrbitsPerTF <= 0) leaves no
     // real ROF to anchor a diamond-vertex TF interval envelope on
@@ -443,7 +486,7 @@ ROFTimingConfig ITSMFTTrackingInterface<NLayers>::configureROFLookupTables()
 
 template <int NLayers>
 void ITSMFTTrackingInterface<NLayers>::configureROFMask(gsl::span<const o2::itsmft::ROFRecord> rofs,
-                                                          gsl::span<const o2::dataformats::IRFrame> irFrames)
+                                                        gsl::span<const o2::dataformats::IRFrame> irFrames)
 {
   ROFMaskTableN mask{mTimeFrame.getROFOverlapTable()};
   mask.resetMask();

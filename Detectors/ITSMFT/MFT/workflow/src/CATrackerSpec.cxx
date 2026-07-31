@@ -13,9 +13,6 @@
 
 #include "MFTWorkflow/CATrackerSpec.h"
 
-#include <array>
-#include <numeric>
-#include <stdexcept>
 #include <utility>
 #include <vector>
 
@@ -47,15 +44,6 @@ static_assert(o2::itsmft::tracking::ITSMFTTrackingInterfaceMFT::DetId == o2::det
 
 namespace
 {
-template <size_t... I>
-constexpr auto makeIdentitySurfaceOrder(std::index_sequence<I...>)
-{
-  return std::array{o2::itsmft::tracking::SurfaceId{static_cast<uint16_t>(I)}...};
-}
-
-constexpr auto MFTSurfaceOrder = makeIdentitySurfaceOrder(
-  std::make_index_sequence<o2::itsmft::tracking::MFTNLayers>{});
-
 template <typename TracksVec, typename ClusterIdxVec, typename ROFVec, typename LabelsVec, typename SeedPatternVec>
 void fillMFTOutputs(const o2::itsmft::tracking::TimeFrameMFT& tf,
                     gsl::span<const o2::itsmft::ROFRecord> inputROFs,
@@ -154,7 +142,7 @@ void CATrackerDPL::run(ProcessingContext& pc)
     // empty track/cluster-index/seed-pattern outputs, when the tracker is
     // not configured to run.
     pc.outputs().make<std::vector<o2::itsmft::ROFRecord>>(Output{"MFT", "MFTTrackROF", 0},
-                                                           rofsinput.begin(), rofsinput.end());
+                                                          rofsinput.begin(), rofsinput.end());
     pc.outputs().make<std::vector<o2::mft::TrackMFT>>(Output{"MFT", "TRACKS", 0});
     pc.outputs().make<std::vector<int>>(Output{"MFT", "TRACKCLSID", 0});
     pc.outputs().make<std::vector<uint16_t>>(Output{"MFT", "TRACKSEEDPAT", 0});
@@ -183,10 +171,10 @@ void CATrackerDPL::run(ProcessingContext& pc)
   // recoverable, dropped-and-wiped TimeFrame returns here as a sentinel
   // value; see CATracker.h/CATracker.cxx for the classification.
   const float trackingResult = mTracking.processTimeFrame(gsl::span<const o2::itsmft::ROFRecord>(rofsinput.data(), rofsinput.size()),
-                                                           gsl::span<const o2::itsmft::CompClusterExt>(compClusters.data(), compClusters.size()),
-                                                           patterns,
-                                                           labels,
-                                                           irFrames);
+                                                          gsl::span<const o2::itsmft::CompClusterExt>(compClusters.data(), compClusters.size()),
+                                                          patterns,
+                                                          labels,
+                                                          irFrames);
 
   if (decideCATrackerPublicationAction(mTracking.isActive(), trackingResult) == CATrackerPublicationAction::SkipDroppedTimeFrame) {
     LOGP(error, "MFT CA tracking dropped this TimeFrame ({} ROFs, {} clusters); publishing nothing and continuing with the next TimeFrame",
@@ -195,7 +183,7 @@ void CATrackerDPL::run(ProcessingContext& pc)
   }
 
   auto& trackROFs = pc.outputs().make<std::vector<o2::itsmft::ROFRecord>>(Output{"MFT", "MFTTrackROF", 0},
-                                                                           rofsinput.begin(), rofsinput.end());
+                                                                          rofsinput.begin(), rofsinput.end());
   auto& allTracksMFT = pc.outputs().make<std::vector<o2::mft::TrackMFT>>(Output{"MFT", "TRACKS", 0});
   auto& allClusIdx = pc.outputs().make<std::vector<int>>(Output{"MFT", "TRACKCLSID", 0});
   auto& allSeedPatterns = pc.outputs().make<std::vector<uint16_t>>(Output{"MFT", "TRACKSEEDPAT", 0});
@@ -235,31 +223,9 @@ void CATrackerDPL::updateTimeDependentParams(ProcessingContext& pc)
     }
     pc.inputs().get<o2::itsmft::TopologyDictionary*>("cldict");
     o2::mft::GeometryTGeo::Instance()->fillMatrixCache(o2::math_utils::bit2Mask(o2::math_utils::TransformType::T2L,
-                                                                                 o2::math_utils::TransformType::T2GRot,
-                                                                                 o2::math_utils::TransformType::T2G,
-                                                                                 o2::math_utils::TransformType::L2G));
-  }
-
-  if (mTracking.isActive()) {
-    const o2::itsmft::tracking::DetectorSurfaceCatalogRequest request{
-      o2::detectors::DetID::MFT, o2::itsmft::tracking::SurfaceId{0},
-      static_cast<uint32_t>(MFTSurfaceOrder.size())};
-    const auto result = mTracking.configureDetectorLayouts(request, MFTSurfaceOrder,
-                                                           o2::itsmft::tracking::TransitionPolicyTag::DiskDisk);
-    if (!result.ok()) {
-      LOGP(error,
-           "MFT detector layout configuration failed: error={} catalogError={} catalogValidationError={} failedIteration={} layoutBuildError={} topologyError={} layoutError={}",
-           static_cast<int>(result.error), static_cast<int>(result.catalogError),
-           static_cast<int>(result.catalogValidationError), result.failedIteration,
-           static_cast<int>(result.layoutBuildError), static_cast<int>(result.topologyError),
-           static_cast<int>(result.layoutError));
-      throw std::runtime_error{"MFT detector layout configuration failed; refusing to run legacy CA fallback"};
-    } else if (result.rebuilt) {
-      LOGP(info, "MFT detector layout configured from geometry: surfaces={} iterations={} epoch={}",
-           mTracking.getTimeFrame().getSurfaceCatalogView().size(),
-           mTracking.getTimeFrame().getDetectorLayouts()->size(),
-           mTracking.getTimeFrame().getRequiredDetectorGeometryEpoch());
-    }
+                                                                                o2::math_utils::TransformType::T2GRot,
+                                                                                o2::math_utils::TransformType::T2G,
+                                                                                o2::math_utils::TransformType::L2G));
   }
 }
 
@@ -277,14 +243,13 @@ void CATrackerDPL::finaliseCCDB(ConcreteDataMatcher& matcher, void* obj)
     LOG(info) << "MFT CA input GeometryTGeo loaded from CCDB";
     o2::mft::GeometryTGeo::adopt(static_cast<o2::mft::GeometryTGeo*>(obj));
     o2::mft::GeometryTGeo::Instance()->fillMatrixCache(o2::math_utils::bit2Mask(o2::math_utils::TransformType::T2L,
-                                                                               o2::math_utils::TransformType::T2GRot,
-                                                                               o2::math_utils::TransformType::T2G,
-                                                                               o2::math_utils::TransformType::L2G));
-    // This invalidates the observational catalog only after successful
-    // adoption/cache initialization. GeometryTGeo replacement currently
-    // fatals, and GRP-managed aligned geometry has no singleton/cache rebuild
-    // path, so genuine hot geometry reload remains outside Slice B2.
-    mTracking.getTimeFrame().invalidateDetectorLayouts();
+                                                                                o2::math_utils::TransformType::T2GRot,
+                                                                                o2::math_utils::TransformType::T2G,
+                                                                                o2::math_utils::TransformType::L2G));
+    // Gate 4 B2 Slice 2: the tracking catalog is a static, process-lifetime
+    // table (StaticDetectorCatalogs.h), immune to alignment/geometry updates
+    // by design -- there is nothing left to invalidate here. GeometryTGeo
+    // adoption above stays: raw cluster decoding still needs it.
     return;
   }
 }

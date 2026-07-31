@@ -25,6 +25,7 @@
 #include <oneapi/tbb.h>
 
 #include "ITSMFTTracking/Configuration.h"
+#include "ITSMFTTracking/DetectorLayoutSet.h"
 #include "ITSMFTTracking/SurfaceDescriptor.h"
 #include "ITSMFTTracking/SurfaceMeasurement.h"
 #include "ITSMFTTracking/TimeFrame.h"
@@ -115,7 +116,8 @@ class TraversalException final : public std::runtime_error
  public:
   TraversalException(int iteration, TraversalFailureReason reason)
     : std::runtime_error{"CA traversal initialization failed at iteration " + std::to_string(iteration) + " (reason=" + std::to_string(static_cast<int>(reason)) + ")"},
-      mIteration{iteration}, mReason{reason}
+      mIteration{iteration},
+      mReason{reason}
   {
   }
 
@@ -138,7 +140,10 @@ class TrackerTraits
 
   virtual ~TrackerTraits() = default;
   virtual void adoptTimeFrame(TimeFrameN* tf) { mTimeFrame = tf; }
-  virtual void initialiseTimeFrame(const int iteration);
+  // `layouts` is the owner's (ITSMFTTrackingInterface's) one immutable plan,
+  // supplied explicitly by the caller (Gate 4 B2 Slice 2) -- this no longer
+  // reads any layout/catalog state off TimeFrame.
+  virtual void initialiseTimeFrame(const int iteration, const DetectorLayoutSet& layouts);
 
   virtual void computeLayerTracklets(const int iteration, int iVertex);
   virtual void computeLayerCells(const int iteration);

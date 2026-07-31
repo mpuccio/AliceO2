@@ -17,6 +17,7 @@
 
 #include "ITSMFTTracking/DetectorLayout.h"
 #include "ITSMFTTracking/SparseTrackingTopology.h"
+#include "ITSMFTTracking/SurfaceCatalogView.h"
 #include "ITSMFTTracking/SurfaceDescriptor.h"
 #include "ITSMFTTracking/SurfaceId.h"
 #include "ITSMFTTracking/SurfaceMask.h"
@@ -83,10 +84,15 @@ struct DetectorLayoutBuildResult {
 /// subgraph. Multiple subgraphs may be added to build a single disconnected
 /// layout in one call (e.g. an ITS-like cylinder stack alongside an MFT-like
 /// disk stack); their surfaces must be disjoint.
+///
+/// Borrows the catalog (SurfaceCatalogView) rather than owning a copy of it
+/// (Gate 4 B2 Slice 2): the view must remain valid for the lifetime of this
+/// builder and of every DetectorLayout it produces (see DetectorLayout's own
+/// borrowed-span constructor doc).
 class DetectorLayoutBuilder
 {
  public:
-  explicit DetectorLayoutBuilder(std::vector<SurfaceDescriptor> catalog) : mCatalog{std::move(catalog)} {}
+  explicit DetectorLayoutBuilder(SurfaceCatalogView catalog) : mCatalog{catalog} {}
 
   DetectorLayoutBuilder& addSubgraph(DetectorLayoutSubgraph subgraph)
   {
@@ -97,7 +103,7 @@ class DetectorLayoutBuilder
   DetectorLayoutBuildResult build() const;
 
  private:
-  std::vector<SurfaceDescriptor> mCatalog;
+  SurfaceCatalogView mCatalog;
   std::vector<DetectorLayoutSubgraph> mSubgraphs;
 };
 
