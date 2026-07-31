@@ -299,6 +299,16 @@ o2_add_test(combined-surface-catalog-builder
             LABELS "itsmft;tracking"
             PUBLIC_LINK_LIBRARIES O2::ITSMFTTracking)
 
+# Gate 4 B2 Slice 1: replacement combined-layout test over the static,
+# compile-time-concatenated ITS+MFT catalog (StaticDetectorCatalogs.h).
+# CombinedSurfaceCatalogBuilder and its test above stay untouched until Gate
+# 4 B2 Slice 3.
+o2_add_test(combined-static-surface-catalog-topology
+            SOURCES testCombinedStaticSurfaceCatalogTopology.cxx
+            COMPONENT_NAME itsmft-tracking
+            LABELS "itsmft;tracking"
+            PUBLIC_LINK_LIBRARIES O2::ITSMFTTracking)
+
 o2_add_test(its-common-ca-tracking-mode-configuration
             SOURCES testITSCommonCATrackingModeConfiguration.cxx
             COMPONENT_NAME itsmft-tracking
