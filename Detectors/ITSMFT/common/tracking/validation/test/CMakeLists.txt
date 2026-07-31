@@ -20,3 +20,13 @@ o2_add_test(nominal-geometry-report
             COMPONENT_NAME itsmft
             LABELS "itsmft;validation"
             PUBLIC_LINK_LIBRARIES O2::ITSMFTNominalGeometryValidatorCore)
+
+# RapidJSON is test-only here (genuine JSON parsing of captured stdout, not
+# just substring inspection); neither ITSMFTNominalGeometryValidatorCore nor
+# the o2-itsmft-nominal-geometry-validator executable link it.
+o2_add_test(nominal-geometry-json-stdout-contract
+            SOURCES testJsonStdoutContract.cxx
+            COMPONENT_NAME itsmft
+            LABELS "itsmft;validation"
+            PUBLIC_LINK_LIBRARIES O2::ITSMFTNominalGeometryValidatorCore
+                                  RapidJSON::RapidJSON)
