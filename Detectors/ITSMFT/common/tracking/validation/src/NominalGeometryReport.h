@@ -94,10 +94,28 @@ ValidationReport buildValidationReport(
 // stays empty; aggregationError stays None).
 ValidationReport buildFailedReport(GeometryProvenance provenance, ValidatorStatus status);
 
-// Deterministic given identical input: no timestamps, no locale-dependent
-// formatting, no pointer/address-derived content, and float values are
-// formatted with a fixed, explicit precision so two reports built from
-// identical aggregation results always format identically.
+// The exact JSON-number token formatMachineReadable() embeds for each
+// geometry float field (Gate 4 acceptance-cleanup C1): std::to_chars'
+// shortest round-tripping representation, always valid JSON number syntax.
+// Exposed on its own -- not just exercised indirectly through a full
+// report -- so its round-trip guarantee can be proven directly against
+// std::from_chars (the exact inverse it is built on) without going through
+// a third-party JSON parser's own numeric-type classification, which is a
+// separate concern this function makes no claim about.
+std::string formatLosslessFloat(float value);
+
+// Both deterministic given identical input: no timestamps, no
+// locale-dependent formatting, no pointer/address-derived content.
+//
+// formatHumanReadable(): float values use a fixed, explicit six-decimal
+// precision -- readable, not intended as a numeric-provenance source.
+//
+// formatMachineReadable(): geometry float fields (referenceCoordinate,
+// radialMin, radialMax) use std::to_chars' shortest round-tripping
+// representation instead (Gate 4 acceptance-cleanup C1) -- the printed
+// token, re-parsed with std::from_chars, reproduces the exact source
+// float32 bit pattern. Still deterministic: to_chars' shortest-round-trip
+// output is itself a pure function of the input value.
 std::string formatHumanReadable(const ValidationReport& report);
 std::string formatMachineReadable(const ValidationReport& report);
 

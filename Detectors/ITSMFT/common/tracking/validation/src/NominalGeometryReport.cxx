@@ -7,6 +7,8 @@
 
 #include "NominalGeometryReport.h"
 
+#include <array>
+#include <charconv>
 #include <iomanip>
 #include <sstream>
 
@@ -111,7 +113,34 @@ std::string escapeJson(const std::string& value)
   }
   return escaped;
 }
+
 } // namespace
+
+// std::to_chars(float)'s default (general) format emits the shortest
+// decimal token that std::from_chars parses back to the exact same float32
+// bit pattern -- e.g. "39.310642", "-77.5111", "1e+30" -- every one already
+// valid JSON number syntax (JSON's number grammar permits a bare integer,
+// an optional fractional part, and an optional signed exponent). Gate 4
+// acceptance-cleanup C1: this replaces fixed six-decimal formatting for
+// every geometry float field emitted by formatMachineReadable() below,
+// closing the round-trip gap that formatting left open.
+//
+// aggregateSurfaceGeometry() only ever returns finite values on a
+// successful (report.ok()) aggregation -- isfinite-checked throughout
+// DetectorSurfaceCatalogAggregation.cxx -- so to_chars cannot fail for any
+// float this function is actually called with in that path. The "null"
+// fallback below exists purely so a to_chars failure -- which would mean
+// that upstream invariant broke, not a formatting bug -- still yields
+// syntactically valid single-document JSON rather than a truncated token.
+std::string formatLosslessFloat(float value)
+{
+  std::array<char, 32> buffer{};
+  const auto result = std::to_chars(buffer.data(), buffer.data() + buffer.size(), value);
+  if (result.ec != std::errc{}) {
+    return "null";
+  }
+  return std::string(buffer.data(), result.ptr);
+}
 
 std::string formatHumanReadable(const ValidationReport& report)
 {
@@ -152,8 +181,10 @@ std::string formatMachineReadable(const ValidationReport& report)
       stream << ",";
     }
     const auto& surface = report.surfaces[i];
-    stream << "{\"index\":" << surface.surfaceIndex << ",\"referenceCoordinate\":" << surface.aggregated.referenceCoordinate
-           << ",\"radialMin\":" << surface.aggregated.radialMin << ",\"radialMax\":" << surface.aggregated.radialMax << "}";
+    stream << "{\"index\":" << surface.surfaceIndex
+           << ",\"referenceCoordinate\":" << formatLosslessFloat(surface.aggregated.referenceCoordinate)
+           << ",\"radialMin\":" << formatLosslessFloat(surface.aggregated.radialMin)
+           << ",\"radialMax\":" << formatLosslessFloat(surface.aggregated.radialMax) << "}";
   }
   stream << "]}";
   return stream.str();
