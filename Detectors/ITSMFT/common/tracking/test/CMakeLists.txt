@@ -257,6 +257,12 @@ o2_add_test(timeframe-covariance-lifecycle
             LABELS "itsmft;tracking"
             PUBLIC_LINK_LIBRARIES O2::ITSMFTTracking O2::MFTTracking)
 
+o2_add_test(gate4-b31-ownership-contract
+            SOURCES testGate4B31OwnershipContract.cxx
+            COMPONENT_NAME itsmft-tracking
+            LABELS "itsmft;tracking"
+            PUBLIC_LINK_LIBRARIES O2::ITSMFTTracking O2::MFTTracking O2::DetectorsBase)
+
 o2_add_test(catracker-failure-contract
             SOURCES testCATrackerFailureContract.cxx
             COMPONENT_NAME itsmft-tracking
