@@ -45,11 +45,6 @@ o2_add_library(ITSMFTTracking
                        src/IndexTableConfiguration.cxx
                        src/DetectorLayoutBuilder.cxx
                        src/DetectorLayoutSet.cxx
-                       src/DetectorSurfaceCatalogAggregation.cxx
-                       src/CombinedSurfaceCatalogBuilder.cxx
-                       src/GeometrySurfaceCatalogProvider.cxx
-                       src/ITSSurfaceCatalogProvider.cxx
-                       src/MFTSurfaceCatalogProvider.cxx
                        src/CATracker.cxx
                        src/TrackingInterface.cxx
                        src/MFTFwdTrackHelpers.cxx

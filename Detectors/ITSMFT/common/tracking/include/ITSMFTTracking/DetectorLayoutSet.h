@@ -22,7 +22,6 @@
 #include "ITSMFTTracking/Configuration.h"
 #include "ITSMFTTracking/DetectorLayout.h"
 #include "ITSMFTTracking/DetectorLayoutBuilder.h"
-#include "ITSMFTTracking/DetectorSurfaceCatalogProvider.h"
 #include "ITSMFTTracking/LayerMask.h"
 #include "ITSMFTTracking/SurfaceCatalogView.h"
 
@@ -110,41 +109,17 @@ static_assert(std::is_nothrow_move_constructible_v<DetectorLayoutSet>);
 
 enum class DetectorLayoutSetBuildError : uint8_t {
   None,
-  MissingProvider,
-  CatalogProviderFailure,
-  InvalidCatalog,
   InvalidActiveCount,
   LayoutBuilderFailure
 };
 
-enum class DetectorSurfaceCatalogValidationError : uint8_t {
-  None,
-  InvalidDetector,
-  InvalidFirstSurface,
-  EmptyDetector,
-  TooManySurfaces,
-  SizeMismatch,
-  NonDenseGlobalSurfaceIds,
-  DetectorMismatch,
-  DetectorSurfaceIndexOutOfRange,
-  DuplicateDetectorSurfaceIndex,
-  MissingDetectorSurfaceIndex,
-  InvalidMaterial
-};
-
-// catalogError/catalogValidationError are diagnostics inherited from the
-// pre-Slice-2 runtime-provider build path; buildDetectorLayoutSet() below
-// never produces MissingProvider/CatalogProviderFailure/InvalidCatalog or a
-// non-None catalogValidationError (there is no provider to fail and no
-// runtime catalog to validate -- the static catalog it borrows is already
-// proven valid at compile time, see SurfaceSpec.h), so both stay at their
-// default (::None) on every real call. `rebuilt` is always true on success:
-// there is no currency concept left to make a rebuild conditional on (see
-// DetectorLayoutConfigurationKey's own doc).
+// `rebuilt` is always true on success: there is no currency concept left to
+// make a rebuild conditional on (see DetectorLayoutConfigurationKey's own
+// doc) -- the static catalog buildDetectorLayoutSet() borrows is already
+// proven valid at compile time (see SurfaceSpec.h), so there is nothing left
+// to validate at build time either.
 struct DetectorLayoutSetBuildResult {
   DetectorLayoutSetBuildError error{DetectorLayoutSetBuildError::None};
-  DetectorSurfaceCatalogError catalogError{DetectorSurfaceCatalogError::None};
-  DetectorSurfaceCatalogValidationError catalogValidationError{DetectorSurfaceCatalogValidationError::None};
   size_t failedIteration{std::numeric_limits<size_t>::max()};
   DetectorLayoutBuildError layoutBuildError{DetectorLayoutBuildError::None};
   TopologyBuildError topologyError{TopologyBuildError::None};

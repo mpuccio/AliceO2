@@ -6,12 +6,14 @@
 // License v3 (GPL Version 3), copied verbatim in the file "COPYING".
 //
 // Gate 4 B1 Slice 1: the only file in this validator target that touches
-// GeometryTGeo. Mirrors ITSSurfaceCatalogProvider.cxx / MFTSurfaceCatalogProvider.cxx
-// exactly -- same GeometryTGeo API calls (getNumberOfChips/getLayer/getMatrixL2G),
-// same o2::itsmft::SegmentationAlpide active-area constants already used by
-// GeometrySurfaceCatalogProvider.cxx for both detectors -- just outside
-// O2::ITSMFTTracking's link graph and without depending on any of that
-// library's catalog/provider types. No CCDB, no alignment: callers are
+// GeometryTGeo. Uses the same GeometryTGeo API calls
+// (getNumberOfChips/getLayer/getMatrixL2G) and the same
+// o2::itsmft::SegmentationAlpide active-area constants the now-deleted
+// ITSSurfaceCatalogProvider.cxx/MFTSurfaceCatalogProvider.cxx/
+// GeometrySurfaceCatalogProvider.cxx (Gate 4 B2 Slice 3) used for both
+// detectors -- just outside O2::ITSMFTTracking's link graph and without
+// depending on any of that library's catalog/provider types. No CCDB, no
+// alignment: callers are
 // required to have already loaded geometry via
 // GeometryManager::loadGeometry(prefix, /*applyMisalignment=*/false,
 // /*preferAlignedFile=*/false) and filled the selected detector's L2G matrix
@@ -54,9 +56,9 @@ struct GeometrySurfaceSourceResult {
 // MFT); does not itself load geometry or fill the matrix cache.
 GeometrySurfaceSourceResult resolveGeometrySurfaceSource(DetectorSelection detector);
 
-// The standard ALPIDE active footprint, identical to the one
-// GeometrySurfaceCatalogProvider.cxx already uses for both ITS and MFT (same
-// o2::itsmft::SegmentationAlpide constants) -- not a new or invented value.
+// The standard ALPIDE active footprint (o2::itsmft::SegmentationAlpide
+// constants), the same one the now-deleted GeometrySurfaceCatalogProvider.cxx
+// used for both ITS and MFT -- not a new or invented value.
 o2::itsmft::tracking::detail::LocalActiveArea alpideActiveArea();
 
 } // namespace o2::itsmft::validation

@@ -20,7 +20,6 @@
 #include "Framework/DataProcessorSpec.h"
 #include "Framework/Task.h"
 #include "ITSMFTTracking/Configuration.h"
-#include "ITSMFTTracking/MFTSurfaceCatalogProvider.h"
 #include "ITSMFTTracking/TrackingInterface.h"
 
 namespace o2::mft
@@ -52,7 +51,7 @@ class CATrackerDPL : public o2::framework::Task
                bool useMC,
                o2::itsmft::TrackingMode::Type trMode)
     : mGGCCDBRequest(std::move(gr)), mUseMC(useMC),
-      mTracking(useMC, trMode, false, std::make_unique<o2::itsmft::tracking::MFTSurfaceCatalogProvider>())
+      mTracking(useMC, trMode, false)
   {
   }
   ~CATrackerDPL() override = default;

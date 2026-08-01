@@ -33,7 +33,6 @@
 #ifndef GPUCA_GPUCODE
 #include "ITSMFTTracking/ClusterDecoder.h"
 #include "ITSMFTTracking/DetectorLayoutSet.h"
-#include "ITSMFTTracking/DetectorSurfaceCatalogProvider.h"
 #include "ITSMFTTracking/TimeFrameLoadFailure.h"
 #endif
 #include "ITSMFTTracking/Tracker.h"
@@ -71,8 +70,7 @@ class ITSMFTTrackingInterface
   // instead of adding a virtual factory hook to the class: explicit,
   // constructor-owned lifetime, no dispatch added to the processing path.
   ITSMFTTrackingInterface(bool useMC, o2::itsmft::TrackingMode::Type mode, bool overrideBeamEst,
-                          std::unique_ptr<DetectorSurfaceCatalogProvider> catalogProvider,
-                          std::unique_ptr<ClusterDecoder> clusterDecoder = nullptr);
+                          std::unique_ptr<ClusterDecoder> clusterDecoder);
 #endif
 
   void setTrackingMode(o2::itsmft::TrackingMode::Type mode) { mTrackingMode = mode; }
@@ -153,10 +151,6 @@ class ITSMFTTrackingInterface
   std::unique_ptr<TrackerTraitsN> mTrackerTraits;
   std::unique_ptr<TrackerN> mTracker;
 #ifndef GPUCA_GPUCODE
-  // No longer consulted by plan-building (Gate 4 B2 Slice 2 -- see mPlan
-  // below): kept only for constructor-signature/test-fixture compatibility
-  // until the provider classes themselves are removed in a later slice.
-  std::unique_ptr<DetectorSurfaceCatalogProvider> mDetectorSurfaceCatalogProvider;
   std::unique_ptr<ClusterDecoder> mClusterDecoder;
   // This interface's one immutable plan, built once in initialiseTracker()
   // from the compile-time-selected static per-detector catalog

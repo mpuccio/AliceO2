@@ -20,13 +20,15 @@
 // pointer into one of these arrays is valid for the process's entire
 // lifetime -- never dangling, never requiring a copy.
 //
-// Unwired: this header is not yet consumed by DetectorLayoutSet, TimeFrame,
-// or ITSMFTTrackingInterface. That activation is Gate 4 B2 Slice 2's job.
-// The combined catalog in particular is a proven, tested, construction-time
-// capability only -- no tracker or workflow is built from it in this slice
-// or the next; mixed-detector track publication stays rejected/diagnostic
-// (TrackerTraits::initialiseTimeFrame()'s existing MixedPolicyLayout gate
-// already covers that, unchanged).
+// kITSStaticSurfaceCatalog/kMFTStaticSurfaceCatalog are the sole plan source
+// for production tracking as of Gate 4 B2 Slice 2:
+// ITSMFTTrackingInterface::initialiseTracker() builds its one immutable
+// DetectorLayoutSet from whichever of the two matches DetId, once, via
+// buildDetectorLayoutSet() (DetectorLayoutSet.h). kITSMFTCombinedStaticSurfaceCatalog
+// remains a proven, tested, construction-time capability only -- no tracker
+// or workflow is built from it; mixed-detector track publication stays
+// rejected/diagnostic (TrackerTraits::initialiseTimeFrame()'s existing
+// MixedPolicyLayout gate already covers that, unchanged).
 
 #ifndef ALICEO2_ITSMFT_TRACKING_STATICDETECTORCATALOGS_H_
 #define ALICEO2_ITSMFT_TRACKING_STATICDETECTORCATALOGS_H_

@@ -14,22 +14,19 @@
 # Deliberately outside O2::ITSMFTTracking's link graph: this directory does
 # not link that library, and ../CMakeLists.txt's O2::ITSMFTTracking target
 # does not link anything from here either -- the one-way, zero-coupling
-# relationship the Gate 4 B1/B2 design requires. The existing
-# DetectorSurfaceCatalogAggregation.{h,cxx} (../src) is compiled a second
-# time, directly, into ITSMFTNominalGeometryValidatorCore below; it is not
-# moved or duplicated -- exactly one implementation exists, currently owned
-# by ../CMakeLists.txt's O2::ITSMFTTracking SOURCES list, until a future B2
-# slice physically moves it here once static-plan activation and replay
-# parity are confirmed (see the accepted B1/B2 aggregation-ownership delta).
+# relationship the Gate 4 B1/B2 design requires. Gate 4 B2 Slice 3 physically
+# moved DetectorSurfaceCatalogAggregation.{h,cxx} here (from ../src) now that
+# static-plan activation and replay parity are confirmed: it is compiled
+# exactly once, by ITSMFTNominalGeometryValidatorCore below, and no longer
+# exists in ../CMakeLists.txt's O2::ITSMFTTracking SOURCES list at all.
 o2_add_library(ITSMFTNominalGeometryValidatorCore
                TARGETVARNAME coreTarget
                SOURCES src/NominalGeometryReport.cxx
                        src/ValidatorArgs.cxx
                        src/GeometryTGeoSurfaceSource.cxx
                        src/JsonStdoutGuard.cxx
-                       ../src/DetectorSurfaceCatalogAggregation.cxx
+                       src/DetectorSurfaceCatalogAggregation.cxx
                PUBLIC_INCLUDE_DIRECTORIES ${CMAKE_CURRENT_LIST_DIR}/src
-                                         ${CMAKE_CURRENT_LIST_DIR}/../src
                PUBLIC_LINK_LIBRARIES O2::DetectorsBase
                                      O2::ITSBase
                                      O2::MFTBase

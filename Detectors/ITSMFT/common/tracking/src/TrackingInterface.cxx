@@ -95,9 +95,8 @@ template <int NLayers>
 ITSMFTTrackingInterface<NLayers>::ITSMFTTrackingInterface(bool useMC,
                                                           o2::itsmft::TrackingMode::Type mode,
                                                           bool overrideBeamEst,
-                                                          std::unique_ptr<DetectorSurfaceCatalogProvider> catalogProvider,
                                                           std::unique_ptr<ClusterDecoder> clusterDecoder)
-  : mUseMC(useMC), mOverrideBeamEstimation(overrideBeamEst), mTrackingMode(mode), mDetectorSurfaceCatalogProvider(std::move(catalogProvider)), mClusterDecoder(clusterDecoder != nullptr ? std::move(clusterDecoder) : std::make_unique<GeometryClusterDecoder<DetId>>())
+  : mUseMC(useMC), mOverrideBeamEstimation(overrideBeamEst), mTrackingMode(mode), mClusterDecoder(clusterDecoder != nullptr ? std::move(clusterDecoder) : std::make_unique<GeometryClusterDecoder<DetId>>())
 {
 }
 #else
