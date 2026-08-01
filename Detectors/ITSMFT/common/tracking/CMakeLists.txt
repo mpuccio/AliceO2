@@ -35,6 +35,7 @@ o2_add_library(ITSMFTTracking
                        src/DetectorTraits.cxx
                        src/Configuration.cxx
                        src/TimeFrame.cxx
+                       src/LegacyTrackerScratch.cxx
                        src/TrackerTraits.cxx
                        src/TransitionPolicyOperations.cxx
                        src/BarrelSurfaceStateOperations.cxx
