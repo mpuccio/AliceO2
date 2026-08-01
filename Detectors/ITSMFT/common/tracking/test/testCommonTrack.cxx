@@ -1129,7 +1129,7 @@ BOOST_AUTO_TEST_CASE(CommonTrackOutputAdapterStagesMFTAndRejectsMissingSidecar)
   record.track.hitSurfaces.set(SurfaceId{3});
   record.references.push_back({SurfaceId{3}, SurfaceMeasurementIndex{0}});
   MFTPublicationCompatibility sidecar;
-  MFTPublicationCompatibilityTransaction tx{sidecar, 0.25, 1.5, 0x51u};
+  MFTPublicationCompatibilityTransaction tx{sidecar, 0.25, 1.5, 0x51u, 8.f};
   BOOST_REQUIRE(publishCommonTrackShadow(frame, record, tx, [](CommonTrackShadowPublishStep) {}));
   const auto& measurement = *frame.getNormalizedFrame().getMeasurement(SurfaceId{3}, SurfaceMeasurementIndex{0});
   const std::vector<ROFRecord> rofs{ROFRecord{{7, 9}, 2, 4, 5}};
@@ -1148,6 +1148,7 @@ BOOST_AUTO_TEST_CASE(CommonTrackOutputAdapterStagesMFTAndRejectsMissingSidecar)
   BOOST_CHECK_EQUAL(output->tracks[0].getCovariances()(4, 3), record.track.innerState.covariance[packedCovarianceIndex(4, 3)]);
   BOOST_CHECK_EQUAL(output->tracks[0].getOutParam().getCovariances()(4, 3), record.track.outerState.covariance[packedCovarianceIndex(4, 3)]);
   BOOST_CHECK_EQUAL(output->tracks[0].getTrackChi2(), 8.);
+  BOOST_CHECK_EQUAL(output->tracks[0].getOutParam().getTrackChi2(), 8.);
   BOOST_CHECK_EQUAL(output->tracks[0].getInvQPtSeed(), .25);
   BOOST_CHECK_EQUAL(output->tracks[0].getChi2QPtSeed(), 1.5);
   BOOST_CHECK_EQUAL(output->seedPatterns[0], 0x51u);

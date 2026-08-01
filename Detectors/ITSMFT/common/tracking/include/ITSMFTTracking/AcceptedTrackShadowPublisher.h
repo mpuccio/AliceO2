@@ -83,7 +83,8 @@ class AcceptedTrackShadowPublisher<o2::mft::constants::mft::LayersNumber>
     if (mSidecar == nullptr) {
       return std::nullopt;
     }
-    MFTPublicationCompatibilityTransaction compatibility{*mSidecar, track.getTrack().getInvQPtSeed(), track.getTrack().getChi2QPtSeed(), track.getSeedPattern()};
+    MFTPublicationCompatibilityTransaction compatibility{*mSidecar, track.getTrack().getInvQPtSeed(), track.getTrack().getChi2QPtSeed(),
+                                                         track.getSeedPattern(), static_cast<float>(track.getTrack().getOutParam().getTrackChi2())};
     return publishCommonTrackShadow(frame, record, compatibility, [](CommonTrackShadowPublishStep) {});
   }
 

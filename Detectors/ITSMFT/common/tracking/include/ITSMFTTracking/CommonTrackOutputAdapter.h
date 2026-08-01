@@ -349,6 +349,10 @@ inline std::optional<MFTCommonTrackOutput> stageMFTCommonTrackOutput(const TimeF
       error = CommonTrackOutputAdapterError::InvalidState;
       return std::nullopt;
     }
+    // TrackMFT persists the fitted chi2 in both its base and out-parameter
+    // TrackParCovFwd objects. CommonTrack owns that one fitted value, so the
+    // output reconstruction must restore it on the exported outer state too.
+    outer.setTrackChi2(sidecar->outParamChi2);
     o2::mft::TrackMFT output;
     static_cast<o2::track::TrackParCovFwd&>(output) = inner;
     output.setOutParam(outer);
