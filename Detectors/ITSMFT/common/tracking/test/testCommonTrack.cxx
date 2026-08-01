@@ -1053,13 +1053,30 @@ BOOST_AUTO_TEST_CASE(CommonTrackOutputAdapterStagesITSAndFailsClosed)
   BOOST_CHECK(!stageITSCommonTrackOutput(fixture.tf, wrongDetectorContext, shared, false, error));
   BOOST_CHECK(error == CommonTrackOutputAdapterError::MixedDetector);
 
+  // Legacy publication retains a track even when its selected output
+  // timestamp falls outside the workflow ROF span; it simply does not
+  // increment a TrackROF entry. The adapter must preserve that behavior.
+  fixture.tf.getCommonTracks()[0].timestamp = {1000, 1001};
+  const auto outOfRangeOutput = stageITSCommonTrackOutput(fixture.tf, publicationContext, shared, false, error);
+  BOOST_REQUIRE(outOfRangeOutput);
+  BOOST_REQUIRE_EQUAL(outOfRangeOutput->tracks.size(), 1u);
+  BOOST_CHECK_EQUAL(outOfRangeOutput->trackROFs[0].getFirstEntry(), 0);
+  BOOST_CHECK_EQUAL(outOfRangeOutput->trackROFs[0].getNEntries(), 0);
+  fixture.tf.getCommonTracks()[0].timestamp = record.track.timestamp;
+
   const auto oldTracks = fixture.tf.getCommonTracks().size();
   const auto oldReferences = fixture.tf.getTrackClusterIndices().size();
-  const std::vector<ROFRecord> invalidROFs;
-  const CommonTrackOutputTimingContext invalidROF{invalidROFs, ClockTimingPublicationView{clock}};
-  BOOST_CHECK(!stageITSCommonTrackOutput(fixture.tf, measurement.cluster.source,
-                                         gsl::span<const SurfaceId>{fixture.plan->getConfigurationKey().orderedSurfaces}, invalidROF, shared, false, error));
-  BOOST_CHECK(error == CommonTrackOutputAdapterError::InvalidROF);
+  // The original workflow ROF span can have more (or fewer) entries than
+  // the LayerTiming clock. Legacy fillITSOutputs copies that span verbatim
+  // and groups only in-range clock slots, so staging must do the same.
+  const std::vector<ROFRecord> mismatchedROFs{ROFRecord{{100, 5}, 0, 1, 2}, ROFRecord{{100, 6}, 1, 2, 3}};
+  const CommonTrackOutputTimingContext mismatchedROF{mismatchedROFs, ClockTimingPublicationView{clock}};
+  const auto mismatchedOutput = stageITSCommonTrackOutput(fixture.tf, measurement.cluster.source,
+                                                          gsl::span<const SurfaceId>{fixture.plan->getConfigurationKey().orderedSurfaces}, mismatchedROF, shared, false, error);
+  BOOST_REQUIRE(mismatchedOutput);
+  BOOST_REQUIRE_EQUAL(mismatchedOutput->trackROFs.size(), mismatchedROFs.size());
+  BOOST_CHECK_EQUAL(mismatchedOutput->trackROFs[0].getNEntries(), 1);
+  BOOST_CHECK_EQUAL(mismatchedOutput->trackROFs[1].getNEntries(), 0);
   BOOST_CHECK_EQUAL(fixture.tf.getCommonTracks().size(), oldTracks);
   BOOST_CHECK_EQUAL(fixture.tf.getTrackClusterIndices().size(), oldReferences);
 }

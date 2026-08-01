@@ -143,10 +143,6 @@ inline std::optional<o2::its::TimeStamp> makeOutputTimestamp(const CommonTrackTi
 inline bool finalizeROFs(std::vector<o2::itsmft::ROFRecord>& rofs, const std::vector<o2::its::TimeStamp>& times,
                          const CommonTrackOutputTimingContext& context, CommonTrackOutputAdapterError& error)
 {
-  if (rofs.size() != context.clock.getROFCount()) {
-    error = CommonTrackOutputAdapterError::InvalidROF;
-    return false;
-  }
   for (auto& rof : rofs) {
     rof.setFirstEntry(0);
     rof.setNEntries(0);
@@ -154,8 +150,10 @@ inline bool finalizeROFs(std::vector<o2::itsmft::ROFRecord>& rofs, const std::ve
   for (const auto& time : times) {
     const int rof = context.clock.getROF(time);
     if (rof < 0 || static_cast<size_t>(rof) >= rofs.size()) {
-      error = CommonTrackOutputAdapterError::InvalidROF;
-      return false;
+      // Preserve fillITSOutputs()/fillMFTOutputs(): a legacy accepted track
+      // is still published when its reconstructed timestamp lies outside
+      // the workflow ROF span; only its TrackROF entry is omitted.
+      continue;
     }
     rofs[rof].setNEntries(rofs[rof].getNEntries() + 1);
   }
