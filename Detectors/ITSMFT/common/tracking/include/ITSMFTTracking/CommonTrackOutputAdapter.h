@@ -10,7 +10,6 @@
 
 #include <algorithm>
 #include <cstdint>
-#include <functional>
 #include <limits>
 #include <numeric>
 #include <optional>
@@ -23,6 +22,7 @@
 #include "DataFormatsMFT/TrackMFT.h"
 #include "DetectorsCommonDataFormats/DetID.h"
 #include "ITSMFTTracking/ITSSharedClusterCompatibility.h"
+#include "ITSMFTTracking/ClockTimingPublicationView.h"
 #include "ITSMFTTracking/MCLabelAccumulator.h"
 #include "ITSMFTTracking/MFTPublicationCompatibility.h"
 #include "ITSMFTTracking/SurfaceKinematicStateLegacyAdapters.h"
@@ -54,8 +54,7 @@ struct CommonTrackOutputAdapterSelection {
 // only into the returned publication product, never into TimeFrame.
 struct CommonTrackOutputTimingContext {
   gsl::span<const o2::itsmft::ROFRecord> inputROFs;
-  uint32_t timestampErrorClamp{};
-  std::function<int(const o2::its::TimeStamp&)> getROF;
+  ClockTimingPublicationView clock;
 };
 
 struct ITSCommonTrackOutput {
@@ -122,25 +121,21 @@ inline std::optional<CommonTrackOutputAdapterSelection> selectCommonTracksForSou
 }
 
 inline std::optional<o2::its::TimeStamp> makeOutputTimestamp(const CommonTrackTimestamp& timestamp,
-                                                             uint32_t clamp,
+                                                             const ClockTimingPublicationView& clock,
                                                              CommonTrackOutputAdapterError& error)
 {
-  if (!timestamp.isValid() || timestamp.begin < 0 || timestamp.end > std::numeric_limits<uint32_t>::max() ||
-      timestamp.end - timestamp.begin > std::numeric_limits<uint16_t>::max()) {
+  const auto result = clock.makeOutputTimestamp(timestamp);
+  if (!result) {
     error = CommonTrackOutputAdapterError::InvalidTimestamp;
     return std::nullopt;
   }
-  auto value = o2::its::TimeEstBC{static_cast<uint32_t>(timestamp.begin), static_cast<uint16_t>(timestamp.end - timestamp.begin)}.makeSymmetrical();
-  if (value.getTimeStampError() > clamp) {
-    value.setTimeStampError(clamp);
-  }
-  return value;
+  return result;
 }
 
 inline bool finalizeROFs(std::vector<o2::itsmft::ROFRecord>& rofs, const std::vector<o2::its::TimeStamp>& times,
                          const CommonTrackOutputTimingContext& context, CommonTrackOutputAdapterError& error)
 {
-  if (!context.getROF) {
+  if (rofs.size() != context.clock.getROFCount()) {
     error = CommonTrackOutputAdapterError::InvalidROF;
     return false;
   }
@@ -149,7 +144,7 @@ inline bool finalizeROFs(std::vector<o2::itsmft::ROFRecord>& rofs, const std::ve
     rof.setNEntries(0);
   }
   for (const auto& time : times) {
-    const int rof = context.getROF(time);
+    const int rof = context.clock.getROF(time);
     if (rof < 0 || static_cast<size_t>(rof) >= rofs.size()) {
       error = CommonTrackOutputAdapterError::InvalidROF;
       return false;
@@ -253,7 +248,7 @@ inline std::optional<ITSCommonTrackOutput> stageITSCommonTrackOutput(const TimeF
       error = CommonTrackOutputAdapterError::InvalidState;
       return std::nullopt;
     }
-    const auto time = makeOutputTimestamp(common.timestamp, context.timestampErrorClamp, error);
+    const auto time = makeOutputTimestamp(common.timestamp, context.clock, error);
     if (!time)
       return std::nullopt;
     const auto it = std::lower_bound(compatibility.entries().begin(), compatibility.entries().end(), index,
@@ -307,7 +302,7 @@ inline std::optional<MFTCommonTrackOutput> stageMFTCommonTrackOutput(const TimeF
       error = CommonTrackOutputAdapterError::InvalidState;
       return std::nullopt;
     }
-    const auto time = makeOutputTimestamp(common.timestamp, context.timestampErrorClamp, error);
+    const auto time = makeOutputTimestamp(common.timestamp, context.clock, error);
     if (!time)
       return std::nullopt;
     o2::mft::TrackMFT output;
