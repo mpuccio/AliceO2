@@ -66,3 +66,9 @@ o2_add_test(ca-tracker-publication-decision
             LABELS "mft;workflow;itsmft"
             SOURCES test/testCATrackerPublicationDecision.cxx
             PUBLIC_LINK_LIBRARIES O2::MFTWorkflow)
+
+o2_add_test(ca-tracker-dpl-contract
+            COMPONENT_NAME mft
+            LABELS "mft;workflow;itsmft"
+            SOURCES test/testMFTCATrackerDPLContract.cxx
+            PUBLIC_LINK_LIBRARIES O2::MFTWorkflow)

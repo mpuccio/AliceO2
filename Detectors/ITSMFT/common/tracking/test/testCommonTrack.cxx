@@ -1114,6 +1114,19 @@ BOOST_AUTO_TEST_CASE(CommonTrackOutputAdapterStagesMFTAndRejectsMissingSidecar)
   BOOST_CHECK_EQUAL(output->trackROFs[0].getNEntries(), 1);
   BOOST_CHECK_EQUAL(output->trackROFs[0].getFlags(), rofs[0].getFlags());
 
+  const CommonTrackPublicationContext publicationContext{
+    o2::detectors::DetID::MFT, measurement.cluster.source, rofs, ClockTimingPublicationView{clock}, surfaces};
+  const auto contextOutput = stageMFTCommonTrackOutput(frame, publicationContext, sidecar, true, error);
+  BOOST_REQUIRE(contextOutput);
+  BOOST_CHECK_EQUAL(contextOutput->tracks.size(), output->tracks.size());
+  BOOST_REQUIRE_EQUAL(contextOutput->seedPatterns.size(), output->seedPatterns.size());
+  BOOST_CHECK_EQUAL(contextOutput->seedPatterns[0], output->seedPatterns[0]);
+
+  auto wrongDetectorContext = publicationContext;
+  wrongDetectorContext.detector = o2::detectors::DetID::ITS;
+  BOOST_CHECK(!stageMFTCommonTrackOutput(frame, wrongDetectorContext, sidecar, false, error));
+  BOOST_CHECK(error == CommonTrackOutputAdapterError::MixedDetector);
+
   MFTPublicationCompatibility missing;
   BOOST_CHECK(!stageMFTCommonTrackOutput(frame, measurement.cluster.source, surfaces, timing, missing, false, error));
   BOOST_CHECK(error == CommonTrackOutputAdapterError::MissingCompatibility);

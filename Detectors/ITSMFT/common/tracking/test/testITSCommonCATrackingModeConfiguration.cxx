@@ -208,9 +208,12 @@ BOOST_AUTO_TEST_CASE(CommonTrackOutputSelectionIsDefaultFalseAndRuntimeVisible)
   auto& output = ITSMFTCommonCAOutputParam::Instance();
   BOOST_CHECK_EQUAL(output.getName(), "ITSMFTCommonCAOutputParam");
   BOOST_CHECK_EQUAL(output.useCommonTrackOutput, false);
+  BOOST_CHECK_EQUAL(isCommonTrackOutputEnabled(), false);
 
   o2::conf::ConfigurableParam::setValue<bool>("ITSMFTCommonCAOutputParam", "useCommonTrackOutput", true);
   BOOST_CHECK_EQUAL(output.useCommonTrackOutput, true);
+  BOOST_CHECK_EQUAL(isCommonTrackOutputEnabled(), true);
   o2::conf::ConfigurableParam::setValue<bool>("ITSMFTCommonCAOutputParam", "useCommonTrackOutput", false);
   BOOST_CHECK_EQUAL(output.useCommonTrackOutput, false);
+  BOOST_CHECK_EQUAL(isCommonTrackOutputEnabled(), false);
 }

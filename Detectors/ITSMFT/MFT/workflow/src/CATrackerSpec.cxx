@@ -15,6 +15,7 @@
 
 #include <utility>
 #include <vector>
+#include <stdexcept>
 
 #include <gsl/span>
 
@@ -28,7 +29,9 @@
 #include "Framework/DataProcessorSpec.h"
 #include "Framework/Logger.h"
 #include "ITSMFTTracking/CATracker.h"
+#include "ITSMFTTracking/CommonTrackOutputAdapter.h"
 #include "ITSMFTTracking/MFTCATrack.h"
+#include "ITSMFTTracking/TrackingConfigParam.h"
 #include "MFTBase/GeometryTGeo.h"
 #include "MFTTracking/Constants.h"
 #include "MFTTracking/MFTTrackingParam.h"
@@ -182,27 +185,57 @@ void CATrackerDPL::run(ProcessingContext& pc)
     return;
   }
 
-  auto& trackROFs = pc.outputs().make<std::vector<o2::itsmft::ROFRecord>>(Output{"MFT", "MFTTrackROF", 0},
-                                                                          rofsinput.begin(), rofsinput.end());
-  auto& allTracksMFT = pc.outputs().make<std::vector<o2::mft::TrackMFT>>(Output{"MFT", "TRACKS", 0});
-  auto& allClusIdx = pc.outputs().make<std::vector<int>>(Output{"MFT", "TRACKCLSID", 0});
-  auto& allSeedPatterns = pc.outputs().make<std::vector<uint16_t>>(Output{"MFT", "TRACKSEEDPAT", 0});
-  std::vector<o2::MCCompLabel> allTrackLabels;
+  if (o2::itsmft::isCommonTrackOutputEnabled()) {
+    const auto exportContext = mTracking.getCommonTrackPublicationExport();
+    const auto* compatibility = mTracking.getMFTPublicationCompatibility();
+    if (!exportContext || compatibility == nullptr) {
+      throw std::runtime_error{"MFT CommonTrack output publication context is unavailable"};
+    }
+    const o2::itsmft::tracking::CommonTrackPublicationContext context{
+      exportContext->detector, exportContext->source,
+      gsl::span<const o2::itsmft::ROFRecord>{rofsinput.data(), rofsinput.size()}, exportContext->clock, exportContext->orderedSurfaces};
+    o2::itsmft::tracking::CommonTrackOutputAdapterError error = o2::itsmft::tracking::CommonTrackOutputAdapterError::None;
+    const auto staged = o2::itsmft::tracking::stageMFTCommonTrackOutput(mTracking.getTimeFrame(), context, *compatibility, mUseMC, error);
+    if (!staged) {
+      throw std::runtime_error{"MFT CommonTrack output staging failed"};
+    }
 
-  fillMFTOutputs(mTracking.getScratch(),
-                 gsl::span<const o2::itsmft::ROFRecord>(rofsinput.data(), rofsinput.size()),
-                 allTracksMFT,
-                 allClusIdx,
-                 trackROFs,
-                 allTrackLabels,
-                 allSeedPatterns,
-                 mUseMC);
+    auto& trackROFs = pc.outputs().make<std::vector<o2::itsmft::ROFRecord>>(Output{"MFT", "MFTTrackROF", 0},
+                                                                            staged->trackROFs.begin(), staged->trackROFs.end());
+    auto& allTracksMFT = pc.outputs().make<std::vector<o2::mft::TrackMFT>>(Output{"MFT", "TRACKS", 0});
+    allTracksMFT.assign(staged->tracks.begin(), staged->tracks.end());
+    auto& allClusIdx = pc.outputs().make<std::vector<int>>(Output{"MFT", "TRACKCLSID", 0});
+    allClusIdx.assign(staged->clusterIndices.begin(), staged->clusterIndices.end());
+    auto& allSeedPatterns = pc.outputs().make<std::vector<uint16_t>>(Output{"MFT", "TRACKSEEDPAT", 0});
+    allSeedPatterns.assign(staged->seedPatterns.begin(), staged->seedPatterns.end());
+    LOGP(info, "MFT CA pushed {} tracks in {} ROFs", allTracksMFT.size(), trackROFs.size());
+    if (mUseMC) {
+      pc.outputs().snapshot(Output{"MFT", "TRACKSMCTR", 0}, staged->labels);
+      LOGP(info, "MFT CA pushed {} track MC labels", staged->labels.size());
+    }
+  } else {
+    auto& trackROFs = pc.outputs().make<std::vector<o2::itsmft::ROFRecord>>(Output{"MFT", "MFTTrackROF", 0},
+                                                                            rofsinput.begin(), rofsinput.end());
+    auto& allTracksMFT = pc.outputs().make<std::vector<o2::mft::TrackMFT>>(Output{"MFT", "TRACKS", 0});
+    auto& allClusIdx = pc.outputs().make<std::vector<int>>(Output{"MFT", "TRACKCLSID", 0});
+    auto& allSeedPatterns = pc.outputs().make<std::vector<uint16_t>>(Output{"MFT", "TRACKSEEDPAT", 0});
+    std::vector<o2::MCCompLabel> allTrackLabels;
 
-  LOGP(info, "MFT CA pushed {} tracks in {} ROFs", allTracksMFT.size(), trackROFs.size());
+    fillMFTOutputs(mTracking.getScratch(),
+                   gsl::span<const o2::itsmft::ROFRecord>(rofsinput.data(), rofsinput.size()),
+                   allTracksMFT,
+                   allClusIdx,
+                   trackROFs,
+                   allTrackLabels,
+                   allSeedPatterns,
+                   mUseMC);
 
-  if (mUseMC) {
-    pc.outputs().snapshot(Output{"MFT", "TRACKSMCTR", 0}, allTrackLabels);
-    LOGP(info, "MFT CA pushed {} track MC labels", allTrackLabels.size());
+    LOGP(info, "MFT CA pushed {} tracks in {} ROFs", allTracksMFT.size(), trackROFs.size());
+
+    if (mUseMC) {
+      pc.outputs().snapshot(Output{"MFT", "TRACKSMCTR", 0}, allTrackLabels);
+      LOGP(info, "MFT CA pushed {} track MC labels", allTrackLabels.size());
+    }
   }
 
   mTracking.resetEvent();

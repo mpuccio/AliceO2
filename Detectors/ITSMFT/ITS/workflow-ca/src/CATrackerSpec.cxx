@@ -14,6 +14,7 @@
 #include "ITSCAWorkflow/CATrackerSpec.h"
 
 #include <cassert>
+#include <stdexcept>
 #include <utility>
 #include <vector>
 
@@ -28,6 +29,8 @@
 #include "Framework/Logger.h"
 #include "ITSBase/GeometryTGeo.h"
 #include "ITSMFTTracking/CATracker.h"
+#include "ITSMFTTracking/CommonTrackOutputAdapter.h"
+#include "ITSMFTTracking/TrackingConfigParam.h"
 #include "SimulationDataFormat/MCCompLabel.h"
 #include "SimulationDataFormat/MCTruthContainer.h"
 
@@ -144,25 +147,53 @@ void CATrackerDPL::run(ProcessingContext& pc)
     return;
   }
 
-  auto& trackROFs = pc.outputs().make<std::vector<o2::itsmft::ROFRecord>>(Output{"ITS", "ITSTrackROF", 0},
-                                                                          rofsinput.begin(), rofsinput.end());
-  auto& allTracksITS = pc.outputs().make<std::vector<o2::its::TrackITS>>(Output{"ITS", "TRACKS", 0});
-  auto& allClusIdx = pc.outputs().make<std::vector<int>>(Output{"ITS", "TRACKCLSID", 0});
-  std::vector<o2::MCCompLabel> allTrackLabels;
+  if (o2::itsmft::isCommonTrackOutputEnabled()) {
+    const auto exportContext = mTracking.getCommonTrackPublicationExport();
+    const auto* compatibility = mTracking.getITSSharedClusterCompatibility();
+    if (!exportContext || compatibility == nullptr) {
+      throw std::runtime_error{"ITS CommonTrack output publication context is unavailable"};
+    }
+    const o2::itsmft::tracking::CommonTrackPublicationContext context{
+      exportContext->detector, exportContext->source,
+      gsl::span<const o2::itsmft::ROFRecord>{rofsinput.data(), rofsinput.size()}, exportContext->clock, exportContext->orderedSurfaces};
+    o2::itsmft::tracking::CommonTrackOutputAdapterError error = o2::itsmft::tracking::CommonTrackOutputAdapterError::None;
+    const auto staged = o2::itsmft::tracking::stageITSCommonTrackOutput(mTracking.getTimeFrame(), context, *compatibility, mUseMC, error);
+    if (!staged) {
+      throw std::runtime_error{"ITS CommonTrack output staging failed"};
+    }
 
-  fillITSOutputs(mTracking.getScratch(),
-                 gsl::span<const o2::itsmft::ROFRecord>(rofsinput.data(), rofsinput.size()),
-                 allTracksITS,
-                 allClusIdx,
-                 trackROFs,
-                 allTrackLabels,
-                 mUseMC);
+    auto& trackROFs = pc.outputs().make<std::vector<o2::itsmft::ROFRecord>>(Output{"ITS", "ITSTrackROF", 0},
+                                                                            staged->trackROFs.begin(), staged->trackROFs.end());
+    auto& allTracksITS = pc.outputs().make<std::vector<o2::its::TrackITS>>(Output{"ITS", "TRACKS", 0});
+    allTracksITS.assign(staged->tracks.begin(), staged->tracks.end());
+    auto& allClusIdx = pc.outputs().make<std::vector<int>>(Output{"ITS", "TRACKCLSID", 0});
+    allClusIdx.assign(staged->clusterIndices.begin(), staged->clusterIndices.end());
+    LOGP(info, "ITS CA pushed {} tracks in {} ROFs", allTracksITS.size(), trackROFs.size());
+    if (mUseMC) {
+      pc.outputs().snapshot(Output{"ITS", "TRACKSMCTR", 0}, staged->labels);
+      LOGP(info, "ITS CA pushed {} track MC labels", staged->labels.size());
+    }
+  } else {
+    auto& trackROFs = pc.outputs().make<std::vector<o2::itsmft::ROFRecord>>(Output{"ITS", "ITSTrackROF", 0},
+                                                                            rofsinput.begin(), rofsinput.end());
+    auto& allTracksITS = pc.outputs().make<std::vector<o2::its::TrackITS>>(Output{"ITS", "TRACKS", 0});
+    auto& allClusIdx = pc.outputs().make<std::vector<int>>(Output{"ITS", "TRACKCLSID", 0});
+    std::vector<o2::MCCompLabel> allTrackLabels;
 
-  LOGP(info, "ITS CA pushed {} tracks in {} ROFs", allTracksITS.size(), trackROFs.size());
+    fillITSOutputs(mTracking.getScratch(),
+                   gsl::span<const o2::itsmft::ROFRecord>(rofsinput.data(), rofsinput.size()),
+                   allTracksITS,
+                   allClusIdx,
+                   trackROFs,
+                   allTrackLabels,
+                   mUseMC);
 
-  if (mUseMC) {
-    pc.outputs().snapshot(Output{"ITS", "TRACKSMCTR", 0}, allTrackLabels);
-    LOGP(info, "ITS CA pushed {} track MC labels", allTrackLabels.size());
+    LOGP(info, "ITS CA pushed {} tracks in {} ROFs", allTracksITS.size(), trackROFs.size());
+
+    if (mUseMC) {
+      pc.outputs().snapshot(Output{"ITS", "TRACKSMCTR", 0}, allTrackLabels);
+      LOGP(info, "ITS CA pushed {} track MC labels", allTrackLabels.size());
+    }
   }
 
   mTracking.resetEvent();
