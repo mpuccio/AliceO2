@@ -634,6 +634,19 @@ struct TimeFrameFixture {
   }
 };
 
+o2::its::LayerTiming makeFixtureClockTiming()
+{
+  // TimeFrameFixture::load() deliberately passes a temporary ROF vector to
+  // the scratch loader. Its overlap-table view is therefore not a retained
+  // publication input. Build the same immutable clock timing explicitly for
+  // output-boundary tests rather than dereferencing that non-owning view.
+  o2::its::LayerTiming timing{};
+  timing.mNROFsTF = 1;
+  timing.mROFLength = 40;
+  timing.mROFDelay = 100;
+  return timing;
+}
+
 CommonTrackShadowRecord makeShadowRecord()
 {
   CommonTrackShadowRecord record;
@@ -1004,7 +1017,8 @@ BOOST_AUTO_TEST_CASE(CommonTrackOutputAdapterStagesITSAndFailsClosed)
   const auto& measurement = *fixture.tf.getNormalizedFrame().getMeasurement(SurfaceId{0}, SurfaceMeasurementIndex{0});
   const std::vector<ROFRecord> rofs{ROFRecord{{100, 5}, 0, 7, 3}};
   CommonTrackOutputAdapterError error = CommonTrackOutputAdapterError::None;
-  const CommonTrackOutputTimingContext timing{rofs, ClockTimingPublicationView{fixture.scratch.getROFOverlapTableView().getClockLayer()}};
+  const auto clock = makeFixtureClockTiming();
+  const CommonTrackOutputTimingContext timing{rofs, ClockTimingPublicationView{clock}};
   const auto output = stageITSCommonTrackOutput(fixture.tf, measurement.cluster.source,
                                                 gsl::span<const SurfaceId>{fixture.plan->getConfigurationKey().orderedSurfaces}, timing, shared,
                                                 true, error);
@@ -1021,7 +1035,7 @@ BOOST_AUTO_TEST_CASE(CommonTrackOutputAdapterStagesITSAndFailsClosed)
   const auto oldTracks = fixture.tf.getCommonTracks().size();
   const auto oldReferences = fixture.tf.getTrackClusterIndices().size();
   const std::vector<ROFRecord> invalidROFs;
-  const CommonTrackOutputTimingContext invalidROF{invalidROFs, ClockTimingPublicationView{fixture.scratch.getROFOverlapTableView().getClockLayer()}};
+  const CommonTrackOutputTimingContext invalidROF{invalidROFs, ClockTimingPublicationView{clock}};
   BOOST_CHECK(!stageITSCommonTrackOutput(fixture.tf, measurement.cluster.source,
                                          gsl::span<const SurfaceId>{fixture.plan->getConfigurationKey().orderedSurfaces}, invalidROF, shared, false, error));
   BOOST_CHECK(error == CommonTrackOutputAdapterError::InvalidROF);
@@ -1060,6 +1074,7 @@ BOOST_AUTO_TEST_CASE(CommonTrackOutputAdapterStagesMFTAndRejectsMissingSidecar)
   o2::its::LayerTiming clock{};
   clock.mNROFsTF = 1;
   clock.mROFLength = 18;
+  clock.mROFDelay = 100;
   const CommonTrackOutputTimingContext timing{rofs, ClockTimingPublicationView{clock}};
   const std::array<SurfaceId, 1> surfaces{SurfaceId{3}};
   const auto output = stageMFTCommonTrackOutput(frame, measurement.cluster.source, surfaces, timing, sidecar, true, error);
@@ -1093,7 +1108,8 @@ BOOST_AUTO_TEST_CASE(CommonTrackOutputAdapterRejectsMalformedInputsWithoutMutati
   publishCommonTrackShadow(fixture.tf, record);
   const auto& measurement = *fixture.tf.getNormalizedFrame().getMeasurement(SurfaceId{0}, SurfaceMeasurementIndex{0});
   const std::vector<ROFRecord> rofs{ROFRecord{{1, 2}, 0, 0, 1}};
-  const CommonTrackOutputTimingContext timing{rofs, ClockTimingPublicationView{fixture.scratch.getROFOverlapTableView().getClockLayer()}};
+  const auto clock = makeFixtureClockTiming();
+  const CommonTrackOutputTimingContext timing{rofs, ClockTimingPublicationView{clock}};
   const auto surfaces = gsl::span<const SurfaceId>{fixture.plan->getConfigurationKey().orderedSurfaces};
   const auto tracks = fixture.tf.getCommonTracks().size();
   const auto refs = fixture.tf.getTrackClusterIndices().size();
