@@ -50,6 +50,11 @@ struct CommonTrackOutputAdapterSelection {
   std::vector<uint32_t> globalIndices;
 };
 
+struct CommonTrackOutputOrderEntry {
+  uint32_t globalIndex{};
+  o2::its::TimeStamp timestamp{};
+};
+
 // This context is intentionally source-local.  ROFRecord payload is copied
 // only into the returned publication product, never into TimeFrame.
 struct CommonTrackOutputTimingContext {
@@ -138,6 +143,35 @@ inline std::optional<o2::its::TimeStamp> makeOutputTimestamp(const CommonTrackTi
     return std::nullopt;
   }
   return result;
+}
+
+inline std::optional<std::vector<CommonTrackOutputOrderEntry>> makeLegacyOutputOrder(
+  const TimeFrame& frame, const CommonTrackOutputAdapterSelection& selection,
+  const ClockTimingPublicationView& clock, CommonTrackOutputAdapterError& error)
+{
+  std::vector<CommonTrackOutputOrderEntry> ordered;
+  ordered.reserve(selection.globalIndices.size());
+  for (const auto index : selection.globalIndices) {
+    const auto timestamp = makeOutputTimestamp(frame.getCommonTracks()[index].timestamp, clock, error);
+    if (!timestamp) {
+      return std::nullopt;
+    }
+    ordered.push_back({index, *timestamp});
+  }
+  // Mirror Tracker<NLayers>::sortTracks(): it reorders the scratch results
+  // after all accepted CommonTrack shadows were appended, by the lower edge
+  // of the legacy symmetric/clamped timestamp and then chi2.
+  std::sort(ordered.begin(), ordered.end(), [&frame](const auto& left, const auto& right) {
+    const auto& leftTrack = frame.getCommonTracks()[left.globalIndex];
+    const auto& rightTrack = frame.getCommonTracks()[right.globalIndex];
+    const auto leftLower = left.timestamp.getTimeStamp() - left.timestamp.getTimeStampError();
+    const auto rightLower = right.timestamp.getTimeStamp() - right.timestamp.getTimeStampError();
+    if (leftLower != rightLower) {
+      return leftLower < rightLower;
+    }
+    return leftTrack.chi2 < rightTrack.chi2;
+  });
+  return ordered;
 }
 
 inline bool finalizeROFs(std::vector<o2::itsmft::ROFRecord>& rofs, const std::vector<o2::its::TimeStamp>& times,
@@ -241,22 +275,24 @@ inline std::optional<ITSCommonTrackOutput> stageITSCommonTrackOutput(const TimeF
       error = CommonTrackOutputAdapterError::MissingCompatibility;
     return std::nullopt;
   }
+  const auto ordered = makeLegacyOutputOrder(frame, *selection, context.clock, error);
+  if (!ordered) {
+    return std::nullopt;
+  }
   ITSCommonTrackOutput staged;
   staged.trackROFs.assign(context.inputROFs.begin(), context.inputROFs.end());
-  staged.tracks.reserve(selection->globalIndices.size());
-  staged.labels.reserve(withMC ? selection->globalIndices.size() : 0);
+  staged.tracks.reserve(ordered->size());
+  staged.labels.reserve(withMC ? ordered->size() : 0);
   std::vector<o2::its::TimeStamp> times;
-  times.reserve(selection->globalIndices.size());
-  for (const auto index : selection->globalIndices) {
+  times.reserve(ordered->size());
+  for (const auto& orderedTrack : *ordered) {
+    const auto index = orderedTrack.globalIndex;
     o2::track::TrackParCovF inner, outer;
     const auto& common = frame.getCommonTracks()[index];
     if (!legacy::exportBarrelTrackParCov(common.innerState, inner) || !legacy::exportBarrelTrackParCov(common.outerState, outer)) {
       error = CommonTrackOutputAdapterError::InvalidState;
       return std::nullopt;
     }
-    const auto time = makeOutputTimestamp(common.timestamp, context.clock, error);
-    if (!time)
-      return std::nullopt;
     const auto it = std::lower_bound(compatibility.entries().begin(), compatibility.entries().end(), index,
                                      [](const auto& entry, uint32_t value) { return entry.commonTrackIndex < value; });
     if (it == compatibility.entries().end() || it->commonTrackIndex != index) {
@@ -270,9 +306,9 @@ inline std::optional<ITSCommonTrackOutput> stageITSCommonTrackOutput(const TimeF
       return std::nullopt;
     output.setPattern(pattern);
     output.setSharedClusters(it->hasSharedClusters);
-    output.getTimeStamp() = *time;
+    output.getTimeStamp() = orderedTrack.timestamp;
     staged.tracks.push_back(std::move(output));
-    times.push_back(*time);
+    times.push_back(orderedTrack.timestamp);
     if (withMC)
       staged.labels.push_back(accumulator.finalize());
   }
@@ -290,13 +326,18 @@ inline std::optional<MFTCommonTrackOutput> stageMFTCommonTrackOutput(const TimeF
   const auto selection = selectCommonTracksForSource(frame, o2::detectors::DetID::MFT, source, error);
   if (!selection)
     return std::nullopt;
+  const auto ordered = makeLegacyOutputOrder(frame, *selection, context.clock, error);
+  if (!ordered) {
+    return std::nullopt;
+  }
   MFTCommonTrackOutput staged;
   staged.trackROFs.assign(context.inputROFs.begin(), context.inputROFs.end());
-  staged.tracks.reserve(selection->globalIndices.size());
-  staged.seedPatterns.reserve(selection->globalIndices.size());
+  staged.tracks.reserve(ordered->size());
+  staged.seedPatterns.reserve(ordered->size());
   std::vector<o2::its::TimeStamp> times;
-  times.reserve(selection->globalIndices.size());
-  for (const auto index : selection->globalIndices) {
+  times.reserve(ordered->size());
+  for (const auto& orderedTrack : *ordered) {
+    const auto index = orderedTrack.globalIndex;
     const auto& common = frame.getCommonTracks()[index];
     const auto* sidecar = compatibility.find(index, frame.getCommonTracks().size());
     if (sidecar == nullptr) {
@@ -308,9 +349,6 @@ inline std::optional<MFTCommonTrackOutput> stageMFTCommonTrackOutput(const TimeF
       error = CommonTrackOutputAdapterError::InvalidState;
       return std::nullopt;
     }
-    const auto time = makeOutputTimestamp(common.timestamp, context.clock, error);
-    if (!time)
-      return std::nullopt;
     o2::mft::TrackMFT output;
     static_cast<o2::track::TrackParCovFwd&>(output) = inner;
     output.setOutParam(outer);
@@ -324,7 +362,7 @@ inline std::optional<MFTCommonTrackOutput> stageMFTCommonTrackOutput(const TimeF
       return std::nullopt;
     staged.tracks.push_back(std::move(output));
     staged.seedPatterns.push_back(sidecar->seedPattern);
-    times.push_back(*time);
+    times.push_back(orderedTrack.timestamp);
     if (withMC)
       staged.labels.push_back(accumulator.finalize());
   }

@@ -968,6 +968,31 @@ BOOST_AUTO_TEST_CASE(CommonTrackOutputAdapterTimestampIsSymmetricAndClamped)
   BOOST_CHECK(error == CommonTrackOutputAdapterError::InvalidTimestamp);
 }
 
+BOOST_AUTO_TEST_CASE(CommonTrackOutputAdapterUsesLegacyPublicationOrder)
+{
+  TimeFrameFixture fixture;
+  BOOST_REQUIRE(fixture.load().ok());
+
+  auto later = makeShadowRecord();
+  later.track.timestamp = {200, 240};
+  later.track.chi2 = 1.f;
+  auto earlier = makeShadowRecord();
+  earlier.track.timestamp = {100, 140};
+  earlier.track.chi2 = 2.f;
+  BOOST_REQUIRE(publishCommonTrackShadow(fixture.tf, later));
+  BOOST_REQUIRE(publishCommonTrackShadow(fixture.tf, earlier));
+
+  o2::its::LayerTiming clock{};
+  clock.mROFLength = 40;
+  CommonTrackOutputAdapterError error = CommonTrackOutputAdapterError::None;
+  const CommonTrackOutputAdapterSelection selection{{0u, 1u}};
+  const auto ordered = makeLegacyOutputOrder(fixture.tf, selection, ClockTimingPublicationView{clock}, error);
+  BOOST_REQUIRE(ordered);
+  BOOST_REQUIRE_EQUAL(ordered->size(), 2u);
+  BOOST_CHECK_EQUAL((*ordered)[0].globalIndex, 1u);
+  BOOST_CHECK_EQUAL((*ordered)[1].globalIndex, 0u);
+}
+
 BOOST_AUTO_TEST_CASE(ClockTimingPublicationViewDelegatesLegacyClockSemantics)
 {
   for (const uint32_t length : {9u, 10u}) {
