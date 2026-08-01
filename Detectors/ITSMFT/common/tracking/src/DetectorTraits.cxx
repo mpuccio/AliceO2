@@ -77,14 +77,14 @@ bool DetectorTraits<NLayers>::refitSeed(const TrackSeedN& seed,
                                         TrackType& track,
                                         const TrackingParameters& params,
                                         float bz,
-                                        TimeFrameN& tf,
+                                        ScratchN& scratch,
                                         const o2::its::TrackingFrameInfo* const tfInfos[NLayers],
                                         const o2::its::Cluster* const unsortedClusters[NLayers],
                                         const o2::base::PropagatorImpl<float>* propagator,
                                         const LayerMeasurementSpans<NLayers>& layerMeasurements)
 {
   if constexpr (DetId == o2::detectors::DetID::MFT) {
-    return refitTrackFwd(seed, track, tf, params, bz, layerMeasurements);
+    return refitTrackFwd(seed, track, scratch, params, bz, layerMeasurements);
   } else {
     return refitSeedITS<NLayers>(seed, track, params, bz, tfInfos, unsortedClusters, propagator);
   }
@@ -117,16 +117,16 @@ bool DetectorTraits<NLayers>::haveSamePolarity(const TrackType& a, const TrackTy
 }
 
 template <o2::detectors::DetID::ID DetId, int NLayers>
-void TrackingLoadPolicy<DetId, NLayers>::configureBeamPosition(TimeFrame<NLayers>& tf,
-                                                                 const TrackingParameters& p,
-                                                                 const o2::dataformats::MeanVertexObject* meanVertex,
-                                                                 bool overrideBeamEstimation)
+void TrackingLoadPolicy<DetId, NLayers>::configureBeamPosition(TimeFrame& frame,
+                                                               const TrackingParameters& p,
+                                                               const o2::dataformats::MeanVertexObject* meanVertex,
+                                                               bool overrideBeamEstimation)
 {
   const float systErrY2 = p.SystError2Row.empty() ? 0.f : p.SystError2Row[0];
   const float layerRes = p.LayerResolution.empty() ? 0.f : p.LayerResolution[0];
 
   if constexpr (DetId == o2::detectors::DetID::MFT) {
-    tf.setBeamPosition(p.Diamond[0], p.Diamond[1], p.DiamondCov[3], layerRes, systErrY2);
+    frame.setBeamPosition(p.Diamond[0], p.Diamond[1], p.DiamondCov[3], layerRes, systErrY2);
     LOGP(info, "MFT CA vertex seed from diamond: x={:.4f} y={:.4f} z={:.4f}",
          p.Diamond[0], p.Diamond[1], p.Diamond[2]);
   } else if (overrideBeamEstimation && meanVertex != nullptr) {
@@ -135,10 +135,10 @@ void TrackingLoadPolicy<DetId, NLayers>::configureBeamPosition(TimeFrame<NLayers
     // constructor/configuration (overrideBeamEstimation, p.UseDiamond -- both
     // sourced from ITSCommonCATrackerParam via getTrackingParameters()) is
     // the sole owner of the selected static-diamond constraint.
-    tf.setBeamPosition(meanVertex->getX(), meanVertex->getY(), meanVertex->getSigmaY2(), layerRes, systErrY2);
+    frame.setBeamPosition(meanVertex->getX(), meanVertex->getY(), meanVertex->getSigmaY2(), layerRes, systErrY2);
     LOGP(info, "ITS CA beam position from MeanVertex: x={:.4f} y={:.4f}", meanVertex->getX(), meanVertex->getY());
   } else if (p.UseDiamond) {
-    tf.setBeamPosition(p.Diamond[0], p.Diamond[1], p.DiamondCov[3], layerRes, systErrY2);
+    frame.setBeamPosition(p.Diamond[0], p.Diamond[1], p.DiamondCov[3], layerRes, systErrY2);
     LOGP(info, "ITS CA beam position from diamond: x={:.4f} y={:.4f} z={:.4f}",
          p.Diamond[0], p.Diamond[1], p.Diamond[2]);
   }

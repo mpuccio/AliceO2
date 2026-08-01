@@ -23,6 +23,7 @@
 
 #include "ITSMFTTracking/Configuration.h"
 #include "ITSMFTTracking/DetectorLayoutSet.h"
+#include "ITSMFTTracking/LegacyTrackerScratch.h"
 #include "ITSMFTTracking/TimeFrame.h"
 #include "ITSMFTTracking/TrackerTraits.h"
 
@@ -55,15 +56,20 @@ template <int NLayers>
 class Tracker
 {
  public:
-  using TimeFrameN = TimeFrame<NLayers>;
+  using ScratchN = LegacyTrackerScratch<NLayers>;
   using TrackerTraitsN = TrackerTraits<NLayers>;
 
   explicit Tracker(TrackerTraitsN* traits);
 
-  void adoptTimeFrame(TimeFrameN& tf);
+  // Binds this tracker's two collaborators, each an independent bind-once
+  // pointer -- neither owns nor stores a reference to the other (see
+  // LegacyTrackerScratch.h's own lifetime-contract doc). `scratch`/`frame`
+  // must each outlive every subsequent clustersToTracks() call.
+  void adoptScratch(ScratchN& scratch);
+  void adoptFrame(TimeFrame& frame);
   // Binds the tracker's one immutable plan, owned by its caller
-  // (ITSMFTTrackingInterface) -- mirrors adoptTimeFrame()'s bind-once
-  // pattern. `plan` must outlive every subsequent clustersToTracks() call.
+  // (ITSMFTTrackingInterface) -- mirrors adoptScratch()'s bind-once pattern.
+  // `plan` must outlive every subsequent clustersToTracks() call.
   void adoptDetectorLayoutSet(const DetectorLayoutSet& plan) { mLayoutPlan = &plan; }
   void setParameters(const std::vector<TrackingParameters>& p) { mTrkParams = p; }
   void setMemoryPool(std::shared_ptr<BoundedMemoryResource> pool) { mMemoryPool = pool; }
@@ -72,15 +78,19 @@ class Tracker
 
   /// Run all configured iterations. Returns elapsed ms on success, or the
   /// exact kDroppedTimeFrameResult sentinel when a recoverable per-TF
-  /// failure was dropped (DropTFUponFailure=true); the TimeFrame is always
-  /// fully wiped before that return. Any structural or unclassified failure,
-  /// and any recoverable failure with DropTFUponFailure=false, throws
-  /// instead of returning -- the TimeFrame is fully wiped before the
-  /// exception propagates.
+  /// failure was dropped (DropTFUponFailure=true); the event is always fully
+  /// reset (see resetTimeFrameEvent(), LegacyTrackerScratch.h) before that
+  /// return. Any structural or unclassified failure, and any recoverable
+  /// failure with DropTFUponFailure=false, throws instead of returning --
+  /// the event is always fully reset before the exception propagates. This
+  /// tracker never decides *which* reset a combined future owner with
+  /// several participating scratches would want (see resetTimeFrameEvent()'s
+  /// own doc) -- for this single-detector bridge, every recoverable failure
+  /// here resets both its own scratch and the shared TimeFrame.
   float clustersToTracks();
 
-  const TimeFrameN& getTimeFrame() const { return *mTimeFrame; }
-  TimeFrameN& getTimeFrame() { return *mTimeFrame; }
+  const ScratchN& getScratch() const { return *mScratch; }
+  ScratchN& getScratch() { return *mScratch; }
 
  private:
   void initialiseTimeFrame(int iteration) { mTraits->initialiseTimeFrame(iteration, *mLayoutPlan); }
@@ -92,7 +102,8 @@ class Tracker
   void sortTracks();
 
   TrackerTraitsN* mTraits = nullptr;
-  TimeFrameN* mTimeFrame = nullptr;
+  ScratchN* mScratch = nullptr;
+  TimeFrame* mFrame = nullptr;
   const DetectorLayoutSet* mLayoutPlan = nullptr;
   std::vector<TrackingParameters> mTrkParams;
   std::shared_ptr<BoundedMemoryResource> mMemoryPool;

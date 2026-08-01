@@ -20,6 +20,7 @@
 #include "DetectorsCommonDataFormats/DetID.h"
 #include "DataFormatsCalibration/MeanVertexObject.h"
 #include "ITSMFTTracking/Configuration.h"
+#include "ITSMFTTracking/LegacyTrackerScratch.h"
 #include "ITSMFTTracking/TimeFrame.h"
 #include "ITSMFTTracking/Cell.h"
 #include "ITStracking/BoundedAllocator.h"
@@ -36,19 +37,21 @@ struct DetectorTraits {
   using TrackType = CATrackType<NLayers>;
   using TrackSeedN = o2::itsmft::tracking::TrackSeedN<NLayers>;
   using CellSeedN = o2::itsmft::tracking::CellSeedN<NLayers>;
-  using TimeFrameN = TimeFrame<NLayers>;
+  using ScratchN = LegacyTrackerScratch<NLayers>;
   static constexpr o2::detectors::DetID::ID DetId = detIdFromNLayers<NLayers>();
 
   // layerMeasurements is TrackerTraits::mLayerMeasurements: the authoritative,
   // already-validated per-layer normalized SurfaceMeasurement span resolved
   // once per initialiseTimeFrame() call (see TrackerTraits.h's own doc). The
   // MFT branch is the only consumer; the barrel/ITS branch keeps reading
-  // tfInfos/unsortedClusters and ignores this parameter unchanged.
+  // tfInfos/unsortedClusters and ignores this parameter unchanged. `scratch`
+  // is retained only for cluster external-index/size bookkeeping (output
+  // metadata, never a physical read) -- see MFTFwdTrackHelpers.h.
   static bool refitSeed(const TrackSeedN& seed,
                         TrackType& track,
                         const TrackingParameters& params,
                         float bz,
-                        TimeFrameN& tf,
+                        ScratchN& scratch,
                         const o2::its::TrackingFrameInfo* const tfInfos[NLayers],
                         const o2::its::Cluster* const unsortedClusters[NLayers],
                         const o2::base::PropagatorImpl<float>* propagator,
@@ -61,7 +64,10 @@ struct DetectorTraits {
 
 template <o2::detectors::DetID::ID DetId, int NLayers>
 struct TrackingLoadPolicy {
-  static void configureBeamPosition(TimeFrame<NLayers>& tf,
+  // Beam position is TimeFrame-owned (shared, detector-neutral) state --
+  // this takes the non-templated TimeFrame directly, not a per-detector
+  // LegacyTrackerScratch<NLayers>.
+  static void configureBeamPosition(TimeFrame& frame,
                                     const TrackingParameters& p,
                                     const o2::dataformats::MeanVertexObject* meanVertex,
                                     bool overrideBeamEstimation);

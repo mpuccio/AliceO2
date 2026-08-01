@@ -18,7 +18,7 @@
 
 #include "ITSMFTTracking/Cell.h"
 #include "ITSMFTTracking/SurfaceMeasurement.h"
-#include "ITSMFTTracking/TimeFrame.h"
+#include "ITSMFTTracking/LegacyTrackerScratch.h"
 #include "ITStracking/Constants.h"
 
 namespace o2::itsmft::tracking

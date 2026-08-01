@@ -164,7 +164,13 @@ void ITSMFTTrackingInterface<NLayers>::initialiseMemoryPool()
     maxMemory = mTrackParams[0].MaxMemory;
   }
   mMemoryPool = std::make_shared<BoundedMemoryResourceN>(maxMemory);
-  mTimeFrame.setMemoryPool(mMemoryPool);
+  // Both owners take their own copy of the same shared_ptr: safe (ordinary
+  // shared_ptr reference counting, not an ownership decision) since the
+  // underlying BoundedMemoryResource is still constructed exactly once,
+  // here. See LegacyTrackerScratch.h's own doc for why this is not the same
+  // hazard as the wipe()/resetScratch() ordering it also documents.
+  mFrame.setMemoryPool(mMemoryPool);
+  mScratch.setMemoryPool(mMemoryPool);
 }
 
 template <int NLayers>
@@ -254,7 +260,7 @@ float ITSMFTTrackingInterface<NLayers>::processTimeFrame(gsl::span<const o2::its
     // Typed, per-TF malformed loading input (see TimeFrameLoadFailure.h /
     // isRecoverableLoadError()).
     LOGP(error, "{} CA loading recoverably failed: {}", detName<DetId>(), err.what());
-    mTimeFrame.wipe();
+    resetEvent();
     if (mTrackParams[0].DropTFUponFailure) {
       return kDroppedTimeFrameResult;
     }
@@ -264,14 +270,14 @@ float ITSMFTTrackingInterface<NLayers>::processTimeFrame(gsl::span<const o2::its
     // classification/gating as the identical catch clause in
     // Tracker::clustersToTracks() (CATracker.cxx).
     LOGP(error, "{} CA loading exceeded memory limit: {}", detName<DetId>(), err.what());
-    mTimeFrame.wipe();
+    resetEvent();
     if (mTrackParams[0].DropTFUponFailure) {
       return kDroppedTimeFrameResult;
     }
     throw;
   } catch (const std::bad_alloc& err) {
     LOGP(error, "{} CA loading allocation failed: {}", detName<DetId>(), err.what());
-    mTimeFrame.wipe();
+    resetEvent();
     if (mTrackParams[0].DropTFUponFailure) {
       return kDroppedTimeFrameResult;
     }
@@ -279,14 +285,14 @@ float ITSMFTTrackingInterface<NLayers>::processTimeFrame(gsl::span<const o2::its
   } catch (const TimeFrameLoadException& err) {
     // Structural loading-boundary failure: never gated by DropTFUponFailure.
     LOGP(error, "{} CA loading hit a structural failure: {}", detName<DetId>(), err.what());
-    mTimeFrame.wipe();
+    resetEvent();
     throw;
   } catch (const std::exception& err) {
     // Unclassified: not a recognized recoverable-resource or recoverable
     // loading-data failure, so treated as structural regardless of
     // DropTFUponFailure, and rethrown by its original type (not wrapped).
     LOGP(error, "{} CA loading failed with an unclassified exception; treating as structural: {}", detName<DetId>(), err.what());
-    mTimeFrame.wipe();
+    resetEvent();
     throw;
   }
   onTimeFrameLoaded();
@@ -305,13 +311,13 @@ void ITSMFTTrackingInterface<NLayers>::loadTimeFrame(gsl::span<const o2::itsmft:
                                                      gsl::span<const o2::dataformats::IRFrame> irFrames)
 {
   // Throws TimeFrameLoadException (NonUniformROFTiming) before touching
-  // mTimeFrame if per-layer DPLAlpideParam values disagree; otherwise
-  // configures mTimeFrame's ROF overlap/vertex-lookup tables as a side
+  // mScratch if per-layer DPLAlpideParam values disagree; otherwise
+  // configures mScratch's ROF overlap/vertex-lookup tables as a side
   // effect and returns the single source-level ROFTimingConfig loadNormalizedSource() needs below.
   const ROFTimingConfig timing = configureROFLookupTables();
   validateROFInput(rofs);
 
-  mTimeFrame.setBz(o2::base::Propagator::Instance()->getNominalBz());
+  mFrame.setBz(o2::base::Propagator::Instance()->getNominalBz());
   configureBeamPosition();
 
   configureROFMask(rofs, irFrames);
@@ -321,12 +327,14 @@ void ITSMFTTrackingInterface<NLayers>::loadTimeFrame(gsl::span<const o2::itsmft:
   // the explicit default InteractionRecord{} when there are no ROFs at all.
   const o2::InteractionRecord origin = rofs.empty() ? o2::InteractionRecord{} : rofs.front().getBCData();
 
-  // Transactional (TimeFrame::loadNormalizedSource()/loadSources()): on any
-  // failure below, mTimeFrame's normalized frame and every legacy
-  // compatibility container are left exactly as they were before this call.
+  // Transactional (LegacyTrackerScratch::loadNormalizedSource(), the owner-
+  // level load operation spanning both mFrame and mScratch -- see that
+  // method's own doc): on any failure below, mFrame's normalized frame and
+  // every legacy compatibility container in mScratch are left exactly as
+  // they were before this call.
   const auto& configurationKey = mPlan->getConfigurationKey();
-  const auto result = mTimeFrame.loadNormalizedSource(*mClusterDecoder, origin, timing, clusters, patterns, rofs, mDict, labels, DetId,
-                                                      gsl::span<const SurfaceId>{configurationKey.orderedSurfaces}, mPlan->getSurfaceCatalog());
+  const auto result = mScratch.loadNormalizedSource(mFrame, *mClusterDecoder, origin, timing, clusters, patterns, rofs, mDict, labels, DetId,
+                                                    gsl::span<const SurfaceId>{configurationKey.orderedSurfaces}, mPlan->getSurfaceCatalog());
   if (!result.ok()) {
     if (isRecoverableLoadError(result.error, result.timingDetail)) {
       throw RecoverableLoadFailure{result};
@@ -337,10 +345,10 @@ void ITSMFTTrackingInterface<NLayers>::loadTimeFrame(gsl::span<const o2::itsmft:
   configureTrackingTopology();
 
   LOGP(info, "{} CA loaded {} clusters from {} ROFs into TimeFrame ({} pattern bytes, MC={})",
-       detName<DetId>(), mTimeFrame.getTotalClusters(), rofs.size(), patterns.size(), labels != nullptr);
+       detName<DetId>(), mScratch.getTotalClusters(), rofs.size(), patterns.size(), labels != nullptr);
 
   for (int iLayer = 0; iLayer < NLayers; ++iLayer) {
-    LOGP(info, "  layer {}: {} ROF slots", iLayer, mTimeFrame.getNrof(iLayer));
+    LOGP(info, "  layer {}: {} ROF slots", iLayer, mScratch.getNrof(iLayer));
   }
 }
 
@@ -350,18 +358,19 @@ float ITSMFTTrackingInterface<NLayers>::runTracking()
   if (!mTracker || mTrackParams.empty()) {
     return 0.f;
   }
-  mTracker->adoptTimeFrame(mTimeFrame);
+  mTracker->adoptScratch(mScratch);
+  mTracker->adoptFrame(mFrame);
   mTracker->adoptDetectorLayoutSet(*mPlan);
   mTracker->setParameters(mTrackParams);
   mTracker->setMemoryPool(mMemoryPool);
-  mTracker->setBz(mTimeFrame.getBz());
+  mTracker->setBz(mFrame.getBz());
   const float elapsedMs = mTracker->clustersToTracks();
   if (elapsedMs < 0.f) {
     LOGP(warn, "{} CA tracking failed for this TF", detName<DetId>());
     return elapsedMs;
   }
   LOGP(info, "{} CA tracking produced {} tracks in {:.2f} ms",
-       detName<DetId>(), mTimeFrame.getNumberOfTracks(), elapsedMs);
+       detName<DetId>(), mScratch.getNumberOfTracks(), elapsedMs);
   return elapsedMs;
 }
 
@@ -371,8 +380,8 @@ void ITSMFTTrackingInterface<NLayers>::configureTrackingTopology()
   if (mTrackParams.empty()) {
     return;
   }
-  mTimeFrame.initDefaultTrackingTopology(mTrackParams[0], NLayers);
-  mTimeFrame.initTrackerTopologies(mTrackParams);
+  mScratch.initDefaultTrackingTopology(mTrackParams[0], NLayers);
+  mScratch.initTrackerTopologies(mTrackParams);
 }
 
 template <int NLayers>
@@ -382,7 +391,7 @@ void ITSMFTTrackingInterface<NLayers>::configureBeamPosition()
     return;
   }
   const auto& p = mTrackParams[0];
-  TrackingLoadPolicyN<NLayers>::configureBeamPosition(mTimeFrame, p, mMeanVertex, mOverrideBeamEstimation);
+  TrackingLoadPolicyN<NLayers>::configureBeamPosition(mFrame, p, mMeanVertex, mOverrideBeamEstimation);
 }
 
 template <int NLayers>
@@ -405,7 +414,7 @@ ROFTimingConfig ITSMFTTrackingInterface<NLayers>::configureROFLookupTables()
 
   // Per-layer LayerTiming, and the timing-validation this whole boundary
   // exists for, are both completed before anything below constructs or
-  // commits ROFOverlapTable/ROFVertexLookupTable/mTimeFrame state -- so a
+  // commits ROFOverlapTable/ROFVertexLookupTable/mScratch state -- so a
   // rejected configuration never leaves TimeFrame partially updated (see
   // loadTimeFrame()'s mutation-inventory contract).
   //
@@ -476,9 +485,9 @@ ROFTimingConfig ITSMFTTrackingInterface<NLayers>::configureROFLookupTables()
     vtxTable.defineLayer(iLayer, layerTimings[iLayer]);
   }
   rofTable.init();
-  mTimeFrame.setROFOverlapTable(std::move(rofTable));
+  mScratch.setROFOverlapTable(std::move(rofTable));
   vtxTable.init();
-  mTimeFrame.setROFVertexLookupTable(std::move(vtxTable));
+  mScratch.setROFVertexLookupTable(std::move(vtxTable));
 
   return uniformTiming.config;
 }
@@ -487,7 +496,7 @@ template <int NLayers>
 void ITSMFTTrackingInterface<NLayers>::configureROFMask(gsl::span<const o2::itsmft::ROFRecord> rofs,
                                                         gsl::span<const o2::dataformats::IRFrame> irFrames)
 {
-  ROFMaskTableN mask{mTimeFrame.getROFOverlapTable()};
+  ROFMaskTableN mask{mScratch.getROFOverlapTable()};
   mask.resetMask();
 
   if constexpr (DetId == o2::detectors::DetID::MFT) {
@@ -502,7 +511,7 @@ void ITSMFTTrackingInterface<NLayers>::configureROFMask(gsl::span<const o2::itsm
       LOGP(info, "{} CA IRFrame filter enabled with {} ITS IR frames", detName<DetId>(), irFrames.size());
     }
 
-    const auto nROFs = mTimeFrame.getROFOverlapTableView().getLayer(0).mNROFsTF;
+    const auto nROFs = mScratch.getROFOverlapTableView().getLayer(0).mNROFsTF;
     for (int iRof = 0; iRof < static_cast<int>(nROFs); ++iRof) {
       bool accept = true;
       if (iRof < static_cast<int>(rofs.size())) {
@@ -521,17 +530,17 @@ void ITSMFTTrackingInterface<NLayers>::configureROFMask(gsl::span<const o2::itsm
     }
   } else {
     for (int iLayer = 0; iLayer < NLayers; ++iLayer) {
-      mask.setROFsEnabled(iLayer, 0, mTimeFrame.getROFOverlapTableView().getLayer(iLayer).mNROFsTF, 1);
+      mask.setROFsEnabled(iLayer, 0, mScratch.getROFOverlapTableView().getLayer(iLayer).mNROFsTF, 1);
     }
   }
 
-  mTimeFrame.setMultiplicityCutMask(std::move(mask));
+  mScratch.setMultiplicityCutMask(std::move(mask));
 }
 
 template <int NLayers>
 void ITSMFTTrackingInterface<NLayers>::validateROFInput(gsl::span<const o2::itsmft::ROFRecord> rofs) const
 {
-  const auto expectedROFsTF = mTimeFrame.getROFOverlapTableView().getLayer(0).mNROFsTF;
+  const auto expectedROFsTF = mScratch.getROFOverlapTableView().getLayer(0).mNROFsTF;
   if (rofs.size() != expectedROFsTF) {
     LOGP(warn, "{} CA ROF count differs from continuous timing expectation: received {} expected {}",
          detName<DetId>(), rofs.size(), expectedROFsTF);

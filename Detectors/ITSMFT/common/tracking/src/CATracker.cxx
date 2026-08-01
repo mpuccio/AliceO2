@@ -30,20 +30,20 @@ namespace o2::itsmft::tracking
 namespace
 {
 template <int NLayers>
-void computeTracksMClabels(TimeFrame<NLayers>& tf)
+void computeTracksMClabels(LegacyTrackerScratch<NLayers>& scratch)
 {
-  auto& trackLabels = tf.getTracksLabel();
+  auto& trackLabels = scratch.getTracksLabel();
   trackLabels.clear();
-  trackLabels.reserve(tf.getNumberOfTracks());
+  trackLabels.reserve(scratch.getNumberOfTracks());
 
-  for (auto& track : tf.getTracks()) {
+  for (auto& track : scratch.getTracks()) {
     MCLabelAccumulator labels;
     for (int iLayer = 0; iLayer < NLayers; ++iLayer) {
       const int index = track.getClusterIndex(iLayer);
       if (index == constants::UnusedIndex) {
         continue;
       }
-      labels.addCluster(tf.getClusterLabels(iLayer, index));
+      labels.addCluster(scratch.getClusterLabels(iLayer, index));
     }
     trackLabels.emplace_back(labels.finalize());
   }
@@ -56,10 +56,17 @@ Tracker<NLayers>::Tracker(TrackerTraits<NLayers>* traits) : mTraits(traits)
 }
 
 template <int NLayers>
-void Tracker<NLayers>::adoptTimeFrame(TimeFrame<NLayers>& tf)
+void Tracker<NLayers>::adoptScratch(LegacyTrackerScratch<NLayers>& scratch)
 {
-  mTimeFrame = &tf;
-  mTraits->adoptTimeFrame(&tf);
+  mScratch = &scratch;
+  mTraits->adoptScratch(&scratch);
+}
+
+template <int NLayers>
+void Tracker<NLayers>::adoptFrame(TimeFrame& frame)
+{
+  mFrame = &frame;
+  mTraits->adoptFrame(&frame);
 }
 
 template <int NLayers>
@@ -69,7 +76,7 @@ float Tracker<NLayers>::clustersToTracks()
 
   int maxNvertices{-1};
   if (mTrkParams[0].PerPrimaryVertexProcessing) {
-    maxNvertices = mTimeFrame->getROFVertexLookupTableView().getMaxVerticesPerROF();
+    maxNvertices = mScratch->getROFVertexLookupTableView().getMaxVerticesPerROF();
   }
 
   float total{0.f};
@@ -77,7 +84,7 @@ float Tracker<NLayers>::clustersToTracks()
     for (int iteration = 0; iteration < static_cast<int>(mTrkParams.size()); ++iteration) {
       mMemoryPool->setMaxMemory(mTrkParams[iteration].MaxMemory);
       if (mTrkParams[iteration].PassFlags[IterationStep::UseUPCMask]) {
-        mTimeFrame->useUPCMask();
+        mScratch->useUPCMask();
       }
 
       int iVertex = std::min(maxNvertices, 0);
@@ -92,16 +99,16 @@ float Tracker<NLayers>::clustersToTracks()
   } catch (const TraversalException& err) {
     // Structural/configuration failure (bad layout, stale layout, policy or
     // index mismatch): never a per-TF data problem, so DropTFUponFailure
-    // never applies. Always wipe before propagating -- see class-level
+    // never applies. Always reset before propagating -- see class-level
     // comment: never rely on "the process is going down anyway".
     LOGP(error, "CA tracker hit a structural traversal failure: {}", err.what());
-    mTimeFrame->wipe();
+    resetTimeFrameEvent(*mFrame, *mScratch);
     throw;
   } catch (const BoundedMemoryResource::MemoryLimitExceeded& err) {
     // Recoverable, per-TF resource failure: the bounded pool's configured
     // budget was exceeded for this TimeFrame's data volume.
     LOGP(error, "CA tracker exceeded memory limit: {}", err.what());
-    mTimeFrame->wipe();
+    resetTimeFrameEvent(*mFrame, *mScratch);
     if (mTrkParams[0].DropTFUponFailure) {
       return kDroppedTimeFrameResult;
     }
@@ -113,7 +120,7 @@ float Tracker<NLayers>::clustersToTracks()
     // the bounded pool, so genuine memory pressure surfaces here as a plain
     // bad_alloc rather than MemoryLimitExceeded. Handled identically.
     LOGP(error, "CA tracker allocation failed: {}", err.what());
-    mTimeFrame->wipe();
+    resetTimeFrameEvent(*mFrame, *mScratch);
     if (mTrkParams[0].DropTFUponFailure) {
       return kDroppedTimeFrameResult;
     }
@@ -125,12 +132,12 @@ float Tracker<NLayers>::clustersToTracks()
     // RecoverableTimeFrameException may extend the recoverable set; until
     // then, recoverability is never inferred from std::exception alone.
     LOGP(error, "CA tracker failed with an unclassified exception; treating as structural: {}", err.what());
-    mTimeFrame->wipe();
+    resetTimeFrameEvent(*mFrame, *mScratch);
     throw;
   }
 
-  if (mTimeFrame->hasMCinformation()) {
-    computeTracksMClabels(*mTimeFrame);
+  if (mScratch->hasMCinformation()) {
+    computeTracksMClabels(*mScratch);
   }
   rectifyClusterIndices();
   sortTracks();
@@ -140,7 +147,7 @@ float Tracker<NLayers>::clustersToTracks()
 template <int NLayers>
 void Tracker<NLayers>::rectifyClusterIndices()
 {
-  for (auto& track : mTimeFrame->getTracks()) {
+  for (auto& track : mScratch->getTracks()) {
     for (int iCluster = 0; iCluster < CATrackType<NLayers>::MaxClusters; ++iCluster) {
       const int index = track.getClusterIndex(iCluster);
       if (index == constants::UnusedIndex) {
@@ -148,15 +155,16 @@ void Tracker<NLayers>::rectifyClusterIndices()
       }
       // Capture the packed cluster size onto the track while `index` is
       // still this layer's own local identity (the domain mClusterSize is
-      // stored in, see TimeFrame::getClusterSize()): the very next call
-      // overwrites track's cluster index in place with the external/global
-      // identity, so this is the last point at which the layer-local index
-      // needed to address mClusterSize[iCluster] is recoverable from the
-      // track. Downstream publication (TrackITSExt -> TrackITS, MFTCATrack)
-      // must read the size already stored here rather than re-deriving it
-      // from the (by-then external) cluster index.
-      track.setClusterSize(iCluster, mTimeFrame->getClusterSize(iCluster, index));
-      track.setExternalClusterIndex(iCluster, mTimeFrame->getClusterExternalIndex(iCluster, index));
+      // stored in, see LegacyTrackerScratch::getClusterSize()): the very
+      // next call overwrites track's cluster index in place with the
+      // external/global identity, so this is the last point at which the
+      // layer-local index needed to address mClusterSize[iCluster] is
+      // recoverable from the track. Downstream publication
+      // (TrackITSExt -> TrackITS, MFTCATrack) must read the size already
+      // stored here rather than re-deriving it from the (by-then external)
+      // cluster index.
+      track.setClusterSize(iCluster, mScratch->getClusterSize(iCluster, index));
+      track.setExternalClusterIndex(iCluster, mScratch->getClusterExternalIndex(iCluster, index));
     }
   }
 }
@@ -164,7 +172,7 @@ void Tracker<NLayers>::rectifyClusterIndices()
 template <int NLayers>
 void Tracker<NLayers>::sortTracks()
 {
-  auto& tracks = mTimeFrame->getTracks();
+  auto& tracks = mScratch->getTracks();
   bounded_vector<size_t> indices(tracks.size(), mMemoryPool.get());
   std::iota(indices.begin(), indices.end(), 0);
   std::sort(indices.begin(), indices.end(), [&tracks](size_t i, size_t j) {
@@ -185,8 +193,8 @@ void Tracker<NLayers>::sortTracks()
   }
   tracks.swap(sortedTracks);
 
-  if (mTimeFrame->hasMCinformation()) {
-    auto& trackLabels = mTimeFrame->getTracksLabel();
+  if (mScratch->hasMCinformation()) {
+    auto& trackLabels = mScratch->getTracksLabel();
     bounded_vector<MCCompLabel> sortedLabels(mMemoryPool.get());
     sortedLabels.reserve(trackLabels.size());
     for (size_t idx : indices) {

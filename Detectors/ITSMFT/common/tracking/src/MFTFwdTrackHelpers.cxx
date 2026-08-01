@@ -32,7 +32,7 @@ namespace
 template <typename TrackLTFType>
 bool refitTrackFwdImpl(const TrackSeedN<o2::mft::constants::mft::LayersNumber>& seed,
                        MFTCATrack& track,
-                       const TimeFrame<o2::mft::constants::mft::LayersNumber>& tf,
+                       const LegacyTrackerScratch<o2::mft::constants::mft::LayersNumber>& tf,
                        const TrackingParameters& params,
                        float bz,
                        const LayerMeasurementSpans<o2::mft::constants::mft::LayersNumber>& layerMeasurements)
@@ -151,7 +151,7 @@ bool refitTrackFwdImpl(const TrackSeedN<o2::mft::constants::mft::LayersNumber>& 
 
 bool refitTrackFwd(const TrackSeedN<o2::mft::constants::mft::LayersNumber>& seed,
                    MFTCATrack& track,
-                   const TimeFrame<o2::mft::constants::mft::LayersNumber>& tf,
+                   const LegacyTrackerScratch<o2::mft::constants::mft::LayersNumber>& tf,
                    const TrackingParameters& params,
                    float bz,
                    const LayerMeasurementSpans<o2::mft::constants::mft::LayersNumber>& layerMeasurements)

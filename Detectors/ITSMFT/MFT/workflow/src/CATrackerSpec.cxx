@@ -45,7 +45,7 @@ static_assert(o2::itsmft::tracking::ITSMFTTrackingInterfaceMFT::DetId == o2::det
 namespace
 {
 template <typename TracksVec, typename ClusterIdxVec, typename ROFVec, typename LabelsVec, typename SeedPatternVec>
-void fillMFTOutputs(const o2::itsmft::tracking::TimeFrameMFT& tf,
+void fillMFTOutputs(const o2::itsmft::tracking::LegacyTrackerScratchMFT& tf,
                     gsl::span<const o2::itsmft::ROFRecord> inputROFs,
                     TracksVec& tracks,
                     ClusterIdxVec& clusterIndices,
@@ -189,7 +189,7 @@ void CATrackerDPL::run(ProcessingContext& pc)
   auto& allSeedPatterns = pc.outputs().make<std::vector<uint16_t>>(Output{"MFT", "TRACKSEEDPAT", 0});
   std::vector<o2::MCCompLabel> allTrackLabels;
 
-  fillMFTOutputs(mTracking.getTimeFrame(),
+  fillMFTOutputs(mTracking.getScratch(),
                  gsl::span<const o2::itsmft::ROFRecord>(rofsinput.data(), rofsinput.size()),
                  allTracksMFT,
                  allClusIdx,
@@ -205,7 +205,7 @@ void CATrackerDPL::run(ProcessingContext& pc)
     LOGP(info, "MFT CA pushed {} track MC labels", allTrackLabels.size());
   }
 
-  mTracking.clearTimeFrame();
+  mTracking.resetEvent();
 }
 
 void CATrackerDPL::updateTimeDependentParams(ProcessingContext& pc)

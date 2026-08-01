@@ -41,7 +41,7 @@ static_assert(o2::itsmft::tracking::ITSMFTTrackingInterfaceITS::DetId == o2::det
 namespace
 {
 template <typename TracksVec, typename ClusterIdxVec, typename ROFVec, typename LabelsVec>
-void fillITSOutputs(const o2::itsmft::tracking::TimeFrame<o2::itsmft::tracking::ITSNLayers>& tf,
+void fillITSOutputs(const o2::itsmft::tracking::LegacyTrackerScratch<o2::itsmft::tracking::ITSNLayers>& tf,
                     gsl::span<const o2::itsmft::ROFRecord> inputROFs,
                     TracksVec& tracks,
                     ClusterIdxVec& clusterIndices,
@@ -150,7 +150,7 @@ void CATrackerDPL::run(ProcessingContext& pc)
   auto& allClusIdx = pc.outputs().make<std::vector<int>>(Output{"ITS", "TRACKCLSID", 0});
   std::vector<o2::MCCompLabel> allTrackLabels;
 
-  fillITSOutputs(mTracking.getTimeFrame(),
+  fillITSOutputs(mTracking.getScratch(),
                  gsl::span<const o2::itsmft::ROFRecord>(rofsinput.data(), rofsinput.size()),
                  allTracksITS,
                  allClusIdx,
@@ -165,7 +165,7 @@ void CATrackerDPL::run(ProcessingContext& pc)
     LOGP(info, "ITS CA pushed {} track MC labels", allTrackLabels.size());
   }
 
-  mTracking.clearTimeFrame();
+  mTracking.resetEvent();
 }
 
 void CATrackerDPL::updateTimeDependentParams(ProcessingContext& pc)

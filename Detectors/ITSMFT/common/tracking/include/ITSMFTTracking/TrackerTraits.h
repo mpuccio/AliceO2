@@ -26,6 +26,7 @@
 
 #include "ITSMFTTracking/Configuration.h"
 #include "ITSMFTTracking/DetectorLayoutSet.h"
+#include "ITSMFTTracking/LegacyTrackerScratch.h"
 #include "ITSMFTTracking/SurfaceDescriptor.h"
 #include "ITSMFTTracking/SurfaceMeasurement.h"
 #include "ITSMFTTracking/TimeFrame.h"
@@ -133,13 +134,17 @@ template <int NLayers>
 class TrackerTraits
 {
  public:
-  using TimeFrameN = TimeFrame<NLayers>;
+  using ScratchN = LegacyTrackerScratch<NLayers>;
   using IndexTableUtilsN = o2::itsmft::IndexTableUtils<NLayers>;
-  using CellSeedN = typename TimeFrameN::CellSeedN;
-  using TrackSeedN = typename TimeFrameN::TrackSeedN;
+  using CellSeedN = typename ScratchN::CellSeedN;
+  using TrackSeedN = typename ScratchN::TrackSeedN;
 
   virtual ~TrackerTraits() = default;
-  virtual void adoptTimeFrame(TimeFrameN* tf) { mTimeFrame = tf; }
+  // Two independent bind-once pointers -- neither owns nor stores a
+  // reference to the other (see LegacyTrackerScratch.h's own lifetime-
+  // contract doc).
+  virtual void adoptScratch(ScratchN* scratch) { mScratch = scratch; }
+  virtual void adoptFrame(TimeFrame* frame) { mFrame = frame; }
   // `layouts` is the owner's (ITSMFTTrackingInterface's) one immutable plan,
   // supplied explicitly by the caller (Gate 4 B2 Slice 2) -- this no longer
   // reads any layout/catalog state off TimeFrame.
@@ -157,7 +162,7 @@ class TrackerTraits
   void markTracks(int iteration);
 
   void updateTrackingParameters(const std::vector<TrackingParameters>& trkPars) { mTrkParams = trkPars; }
-  TimeFrameN* getTimeFrame() { return mTimeFrame; }
+  ScratchN* getScratch() { return mScratch; }
 
   virtual void setBz(float bz);
   float getBz() const { return mBz; }
@@ -169,9 +174,9 @@ class TrackerTraits
   void setNThreads(int n, std::shared_ptr<tbb::task_arena>& arena);
   int getNThreads() { return mTaskArena->max_concurrency(); }
 
-  int getTFNumberOfClusters() const { return mTimeFrame->getNumberOfClusters(); }
-  int getTFNumberOfTracklets() const { return mTimeFrame->getNumberOfTracklets(); }
-  int getTFNumberOfCells() const { return mTimeFrame->getNumberOfCells(); }
+  int getTFNumberOfClusters() const { return mScratch->getNumberOfClusters(); }
+  int getTFNumberOfTracklets() const { return mScratch->getNumberOfTracklets(); }
+  int getTFNumberOfCells() const { return mScratch->getNumberOfCells(); }
 
   int getTraversalGroupingCount() const noexcept { return mTraversalGroupingCount; }
   int getPolicyBindingCount(TransitionPolicyTag tag) const noexcept;
@@ -317,7 +322,8 @@ class TrackerTraits
   std::array<int, 2> mPolicyBindingCounts{};
 
  protected:
-  TimeFrameN* mTimeFrame = nullptr;
+  ScratchN* mScratch = nullptr;
+  TimeFrame* mFrame = nullptr;
   std::vector<TrackingParameters> mTrkParams;
   float mBz{-999.f};
 };

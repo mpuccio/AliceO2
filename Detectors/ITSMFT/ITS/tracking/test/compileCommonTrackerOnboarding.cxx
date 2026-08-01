@@ -16,6 +16,7 @@
 #include "ITSCommonTracking/CommonTrackingParameters.h"
 #include "ITSMFTTracking/CATracker.h"
 #include "ITSMFTTracking/DetectorLayoutSet.h"
+#include "ITSMFTTracking/LegacyTrackerScratch.h"
 #include "ITSMFTTracking/StaticDetectorCatalogs.h"
 #include "ITSMFTTracking/SurfaceCatalogView.h"
 #include "ITSMFTTracking/TransitionPolicyBinding.h"
@@ -76,15 +77,26 @@ int initializeCommonITSTracker()
     layerMaterial[layer] = layout.getSurface(surfaceId).material;
   }
 
-  TimeFrame<ITSNLayers> frame;
-  frame.initDefaultTrackingTopology(parameters.front(), ITSNLayers);
-  frame.initTrackerTopologies(parameters);
+  // Gate 4 B3.1: the permanent, non-templated TimeFrame (event data:
+  // vertices, beam state, Bz, CommonTrack/TrackClusterReference storage,
+  // normalized measurements) and the temporary, per-detector
+  // LegacyTrackerScratch<NLayers> (legacy CA scratch/topology/result
+  // containers) are constructed here in that order, so C++'s reverse-
+  // declaration-order destruction tears the scratch down first -- see
+  // LegacyTrackerScratch.h's own lifetime-contract doc. Neither owns or
+  // stores a reference to the other; this function is what binds both.
+  TimeFrame frame;
+  LegacyTrackerScratch<ITSNLayers> scratch;
+  scratch.initDefaultTrackingTopology(parameters.front(), ITSNLayers);
+  scratch.initTrackerTopologies(parameters);
 
   auto pool = std::make_shared<BoundedMemoryResource>();
   frame.setMemoryPool(pool);
+  scratch.setMemoryPool(pool);
   TrackerTraits<ITSNLayers> traits;
   traits.setMemoryPool(pool);
-  traits.adoptTimeFrame(&frame);
+  traits.adoptScratch(&scratch);
+  traits.adoptFrame(&frame);
   traits.updateTrackingParameters(parameters);
   std::shared_ptr<tbb::task_arena> arena;
   traits.setNThreads(1, arena);
@@ -97,7 +109,8 @@ int initializeCommonITSTracker()
   }
 
   Tracker<ITSNLayers> tracker{&traits};
-  tracker.adoptTimeFrame(frame);
+  tracker.adoptScratch(scratch);
+  tracker.adoptFrame(frame);
   tracker.adoptDetectorLayoutSet(plan);
   tracker.setMemoryPool(pool);
   tracker.setParameters(parameters);

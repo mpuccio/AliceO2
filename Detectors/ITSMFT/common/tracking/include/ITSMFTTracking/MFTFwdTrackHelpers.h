@@ -22,8 +22,8 @@
 #include "CommonConstants/MathConstants.h"
 #include "ITSMFTTracking/Cell.h"
 #include "ITSMFTTracking/Configuration.h"
+#include "ITSMFTTracking/LegacyTrackerScratch.h"
 #include "ITSMFTTracking/MFTCATrack.h"
-#include "ITSMFTTracking/TimeFrame.h"
 #include "ITStracking/Cluster.h"
 #include "ITStracking/Constants.h"
 #include "MFTTracking/Constants.h"
@@ -186,7 +186,7 @@ inline bool mftFwdAttachCluster(o2::track::TrackParCovFwd& track, float z, float
 /// Build inward forward seed at the outer cluster and Kalman-fit the three cell clusters.
 template <int NLayers>
 inline bool mftFwdFitCellClusters(const int hitLayers[3], const int clusIds[3],
-                                  const TimeFrame<NLayers>& tf, const TrackingParameters& params,
+                                  const LegacyTrackerScratch<NLayers>& tf, const TrackingParameters& params,
                                   float bz, o2::track::TrackParCovFwd& track, float& chi2)
 {
   const auto& cInner = tf.getUnsortedClusters()[hitLayers[0]][clusIds[0]];
@@ -261,7 +261,7 @@ namespace o2::itsmft::tracking
 // external-index/size bookkeeping (output metadata, not physical reads).
 bool refitTrackFwd(const TrackSeedN<o2::mft::constants::mft::LayersNumber>& seed,
                    MFTCATrack& track,
-                   const TimeFrame<o2::mft::constants::mft::LayersNumber>& tf,
+                   const LegacyTrackerScratch<o2::mft::constants::mft::LayersNumber>& tf,
                    const TrackingParameters& params,
                    float bz,
                    const LayerMeasurementSpans<o2::mft::constants::mft::LayersNumber>& layerMeasurements);

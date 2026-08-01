@@ -37,6 +37,7 @@
 #endif
 #include "ITSMFTTracking/Tracker.h"
 #include "ITSMFTTracking/Configuration.h"
+#include "ITSMFTTracking/LegacyTrackerScratch.h"
 #include "ITSMFTTracking/TimeFrame.h"
 #include "ITSMFTTracking/TrackerTraits.h"
 #include "ITStracking/BoundedAllocator.h"
@@ -55,7 +56,7 @@ class ITSMFTTrackingInterface
                 "ITSMFTTrackingInterface supports ITS (7) and MFT (10) layer counts only");
   static constexpr o2::detectors::DetID::ID DetId = detIdFromNLayers<NLayers>();
 
-  using TimeFrameN = TimeFrame<NLayers>;
+  using ScratchN = LegacyTrackerScratch<NLayers>;
   using TrackerN = Tracker<NLayers>;
   using TrackerTraitsN = TrackerTraits<NLayers>;
   using ROFOverlapTableN = o2::its::ROFOverlapTable<NLayers>;
@@ -105,10 +106,16 @@ class ITSMFTTrackingInterface
                          const o2::dataformats::MCTruthContainer<o2::MCCompLabel>* labels,
                          gsl::span<const o2::dataformats::IRFrame> irFrames = {});
 
-  void clearTimeFrame() { mTimeFrame.wipe(); }
+  // Owner-level reset for this single-detector bridge (Gate 4 B3.1): resets
+  // mScratch first, then wipes mFrame, exactly once each, via the shared
+  // resetTimeFrameEvent() helper (LegacyTrackerScratch.h) -- no caller of
+  // this class ever coordinates the two independently.
+  void resetEvent() { resetTimeFrameEvent(mFrame, mScratch); }
 
-  TimeFrameN& getTimeFrame() { return mTimeFrame; }
-  const TimeFrameN& getTimeFrame() const { return mTimeFrame; }
+  TimeFrame& getTimeFrame() { return mFrame; }
+  const TimeFrame& getTimeFrame() const { return mFrame; }
+  ScratchN& getScratch() { return mScratch; }
+  const ScratchN& getScratch() const { return mScratch; }
   const std::vector<o2::itsmft::TrackingParameters>& getTrackingParameters() const { return mTrackParams; }
   bool isActive() const { return !mTrackParams.empty(); }
   // Actual tbb::task_arena concurrency the tracker was constructed with (0
@@ -161,7 +168,15 @@ class ITSMFTTrackingInterface
 #endif
   const o2::itsmft::TopologyDictionary* mDict = nullptr;
   const o2::dataformats::MeanVertexObject* mMeanVertex = nullptr;
-  TimeFrameN mTimeFrame;
+  // Gate 4 B3.1 lifetime contract: mFrame declared before mScratch, so C++'s
+  // reverse-declaration-order destruction tears the scratch down first --
+  // the permanent, non-templated TimeFrame always outlives the temporary
+  // per-detector legacy scratch. Neither owns or stores a reference to the
+  // other (see LegacyTrackerScratch.h); this owner is what binds both
+  // together, via adoptScratch()/adoptFrame() on mTracker/mTrackerTraits and
+  // explicit parameters everywhere else.
+  TimeFrame mFrame;
+  ScratchN mScratch;
   int mMFTROFrameLengthInBC = 0;
   bool mMFTTriggered = false;
 };

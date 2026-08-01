@@ -125,8 +125,8 @@ void TrackerTraits<NLayers>::validateLegacyParity(int iteration,
 {
   const auto fail = [iteration]() { throw TraversalException{iteration, TraversalFailureReason::LegacyIndexMismatch}; };
   const auto sparse = layout.topology;
-  const auto legacy = mTimeFrame->getTrackingTopologyView();
-  using LegacyId = typename TimeFrameN::TrackingTopologyN::Id;
+  const auto legacy = mScratch->getTrackingTopologyView();
+  using LegacyId = typename ScratchN::TrackingTopologyN::Id;
   if (sparse.nTransitions != legacy.nTransitions || sparse.nCells != legacy.nCells ||
       (sparse.nTransitions != 0 && (sparse.transitions == nullptr || sparse.cellsByFirstTransitionOffsets == nullptr)) ||
       (sparse.nCells != 0 && (sparse.cells == nullptr || sparse.cellsByFirstTransition == nullptr))) {
@@ -306,9 +306,9 @@ void TrackerTraits<NLayers>::initialiseTimeFrame(const int iteration, const Dete
   LayerMeasurementSpans<NLayers> stagedLayerMeasurements{};
   for (int legacyLayer = 0; legacyLayer < NLayers; ++legacyLayer) {
     const auto surfaceId = orderedSurfaces[legacyLayer];
-    const auto measurements = mTimeFrame->getNormalizedFrame().getSurfaceMeasurements(surfaceId);
-    const auto& legacyClusters = mTimeFrame->getUnsortedClusters()[legacyLayer];
-    const auto& legacyHits = mTimeFrame->getTrackingFrameInfoOnLayer(legacyLayer);
+    const auto measurements = mFrame->getNormalizedFrame().getSurfaceMeasurements(surfaceId);
+    const auto& legacyClusters = mScratch->getUnsortedClusters()[legacyLayer];
+    const auto& legacyHits = mScratch->getTrackingFrameInfoOnLayer(legacyLayer);
     if (measurements.size() != legacyClusters.size() || legacyHits.size() != legacyClusters.size() ||
         measurements.size() > static_cast<size_t>(std::numeric_limits<int>::max())) {
       throw TraversalException{iteration, TraversalFailureReason::NormalizedMeasurementMismatch};
@@ -321,12 +321,12 @@ void TrackerTraits<NLayers>::initialiseTimeFrame(const int iteration, const Dete
           legacyClusters[i].clusterId != static_cast<int>(i)) {
         throw TraversalException{iteration, TraversalFailureReason::NormalizedMeasurementMismatch};
       }
-      const int legacyExternalIndex = mTimeFrame->getClusterExternalIndex(legacyLayer, static_cast<int>(i));
+      const int legacyExternalIndex = mScratch->getClusterExternalIndex(legacyLayer, static_cast<int>(i));
       if (legacyExternalIndex < 0 || static_cast<uint32_t>(legacyExternalIndex) != measurement.cluster.index) {
         throw TraversalException{iteration, TraversalFailureReason::NormalizedMeasurementMismatch};
       }
     }
-    const auto rofBoundaries = mTimeFrame->getROFrameClusters(legacyLayer);
+    const auto rofBoundaries = mScratch->getROFrameClusters(legacyLayer);
     if (rofBoundaries.empty() || rofBoundaries.front() != 0 || rofBoundaries.back() != static_cast<int>(measurements.size())) {
       throw TraversalException{iteration, TraversalFailureReason::NormalizedMeasurementMismatch};
     }
@@ -347,9 +347,9 @@ void TrackerTraits<NLayers>::initialiseTimeFrame(const int iteration, const Dete
 
   // 3. Bind + validate index-table configuration into a local scratch value,
   // dispatched on the single active tag via dispatchTransitionPolicies --
-  // the same idiom computeLayerTracklets() uses below. TimeFrame is not
+  // the same idiom computeLayerTracklets() uses below. The scratch is not
   // touched yet, so a failure here leaves it completely unchanged.
-  typename TimeFrameN::IndexTableUtilsN stagedIndexTableConfig{};
+  typename ScratchN::IndexTableUtilsN stagedIndexTableConfig{};
   IndexTableConfigError indexTableConfigError = IndexTableConfigError::None;
   bool activePolicyTagResolved = false;
   bool stateFamilyMismatch = false;
@@ -388,14 +388,14 @@ void TrackerTraits<NLayers>::initialiseTimeFrame(const int iteration, const Dete
   // configuration for such an iteration must therefore already match the
   // owned one exactly, checked before TimeFrame is touched at all.
   if (!mTrkParams[iteration].PassFlags[IterationStep::FirstPass] &&
-      !indexTableConfigurationsMatch(stagedIndexTableConfig, mTimeFrame->getIndexTableUtils())) {
+      !indexTableConfigurationsMatch(stagedIndexTableConfig, mScratch->getIndexTableUtils())) {
     throw TraversalException{iteration, TraversalFailureReason::IndexTableConfigurationMismatch};
   }
 
-  // 5. Only now is TimeFrame touched: it receives an already-validated
+  // 5. Only now is the scratch touched: it receives an already-validated
   // configuration by value and never inspects a tag or detector ID.
-  mTimeFrame->initialise(mTrkParams[iteration], mTrkParams[iteration].NLayers, iteration,
-                         stagedIndexTableConfig, stagedLayerMeasurements);
+  mScratch->initialise(*mFrame, mTrkParams[iteration], mTrkParams[iteration].NLayers, iteration,
+                       stagedIndexTableConfig, stagedLayerMeasurements);
 
   // A sorted Cluster is a locator/navigation cache only. Validate each
   // enabled ROF that can participate in a configured transition after every
@@ -403,8 +403,8 @@ void TrackerTraits<NLayers>::initialiseTimeFrame(const int iteration, const Dete
   // The spans remain local until this check and all subsequent policy setup
   // have succeeded, so a structural failure cannot publish traversal caches.
   std::array<bool, NLayers> candidateReachableLayers{};
-  for (int transitionId = 0; transitionId < mTimeFrame->getTrackingTopologyView().nTransitions; ++transitionId) {
-    const auto& transition = mTimeFrame->getTrackingTopologyView().getTransition(transitionId);
+  for (int transitionId = 0; transitionId < mScratch->getTrackingTopologyView().nTransitions; ++transitionId) {
+    const auto& transition = mScratch->getTrackingTopologyView().getTransition(transitionId);
     candidateReachableLayers[transition.fromLayer] = true;
     candidateReachableLayers[transition.toLayer] = true;
   }
@@ -413,16 +413,16 @@ void TrackerTraits<NLayers>::initialiseTimeFrame(const int iteration, const Dete
       continue;
     }
     const auto measurements = stagedLayerMeasurements[layer];
-    const auto rofBoundaries = mTimeFrame->getROFrameClusters(layer);
-    const auto rofMask = mTimeFrame->getROFMaskView();
+    const auto rofBoundaries = mScratch->getROFrameClusters(layer);
+    const auto rofMask = mScratch->getROFMaskView();
     // Orchestration-only users can intentionally omit the mask altogether;
     // without it no ROF is candidate-reachable. Do not validate allocated
     // spans until a later configuration actually enables one.
     if (rofMask.mFlatMask == nullptr || rofMask.mLayerROFOffsets == nullptr) {
       continue;
     }
-    for (int rof = 0; rof < mTimeFrame->getNrof(layer); ++rof) {
-      const auto sorted = mTimeFrame->getClustersOnLayer(rof, layer);
+    for (int rof = 0; rof < mScratch->getNrof(layer); ++rof) {
+      const auto sorted = mScratch->getClustersOnLayer(rof, layer);
       if (sorted.empty()) {
         continue;
       }
@@ -447,7 +447,7 @@ void TrackerTraits<NLayers>::initialiseTimeFrame(const int iteration, const Dete
         }
         seen[localId] = 1;
         const auto& measurement = measurements[clusterId];
-        const int externalIndex = mTimeFrame->getClusterExternalIndex(layer, clusterId);
+        const int externalIndex = mScratch->getClusterExternalIndex(layer, clusterId);
         if (measurement.surface != orderedSurfaces[layer] || measurement.sourceROF != static_cast<uint32_t>(rof) || !measurement.cluster.isValid() ||
             measurement.cluster.source != ClusterSourceId{0} || externalIndex < 0 ||
             static_cast<uint32_t>(externalIndex) != measurement.cluster.index) {
@@ -460,7 +460,7 @@ void TrackerTraits<NLayers>::initialiseTimeFrame(const int iteration, const Dete
     }
   }
 
-  // 6. validateLegacyParity needs mTimeFrame->getTrackingTopologyView(),
+  // 6. validateLegacyParity needs mScratch->getTrackingTopologyView(),
   // which TimeFrame::initialise() just populated, so it necessarily still
   // runs after that call -- exactly as before, just with index-table
   // binding now happening ahead of it instead of buried inside it. Both
@@ -581,17 +581,17 @@ void TrackerTraits<NLayers>::prepareTransitionScatteringAndBendingForPolicy(
   // mTraversalGrouping's per-tag span, so the loop-carried oneOverR ratchet
   // is threaded in exactly the same order every time -- ordering does not
   // depend on, and is not proven against, grouping-span order.
-  const auto& topology = mTimeFrame->getTrackingTopologyView();
-  auto& transitionMSAngles = mTimeFrame->getTransitionMSAngles();
-  auto& transitionPhiCuts = mTimeFrame->getTransitionPhiCuts();
+  const auto& topology = mScratch->getTrackingTopologyView();
+  auto& transitionMSAngles = mScratch->getTransitionMSAngles();
+  auto& transitionPhiCuts = mScratch->getTransitionPhiCuts();
   float oneOverR{0.001f * 0.3f * std::abs(getBz()) / trkParam.TrackletMinPt};
   for (int transitionId{0}; transitionId < static_cast<int>(topology.nTransitions); ++transitionId) {
     const auto& transition = topology.getTransition(transitionId);
     const float r1 = trkParam.LayerRadii[transition.fromLayer];
     const float r2 = trkParam.LayerRadii[transition.toLayer];
     oneOverR = clampTransitionCurvature<Tag>(oneOverR, r2);
-    const float res1 = o2::gpu::CAMath::Hypot(trkParam.PVres, mTimeFrame->getPositionResolution(transition.fromLayer));
-    const float res2 = o2::gpu::CAMath::Hypot(trkParam.PVres, mTimeFrame->getPositionResolution(transition.toLayer));
+    const float res1 = o2::gpu::CAMath::Hypot(trkParam.PVres, mScratch->getPositionResolution(transition.fromLayer));
+    const float res2 = o2::gpu::CAMath::Hypot(trkParam.PVres, mScratch->getPositionResolution(transition.toLayer));
     const auto prep = prepareTransitionScatteringAndBending(
       gsl::span<const float>(msAngles.data(), msAngles.size()), transition.fromLayer, transition.toLayer, r1, r2, oneOverR, res1, res2);
     transitionMSAngles[transitionId] = prep.msAngle;
@@ -610,9 +610,9 @@ void TrackerTraits<NLayers>::computeLayerTracklets(const int iteration, int iVer
   // computeLayerTrackletsForPolicy() below for the per-tag-filtered body).
   const auto& topology = mTraversalLayout.topology;
   for (uint32_t transitionId = 0; transitionId < topology.nTransitions; ++transitionId) {
-    mTimeFrame->getTracklets()[transitionId].clear();
-    mTimeFrame->getTrackletsLabel(transitionId).clear();
-    std::fill(mTimeFrame->getTrackletsLookupTable()[transitionId].begin(), mTimeFrame->getTrackletsLookupTable()[transitionId].end(), 0);
+    mScratch->getTracklets()[transitionId].clear();
+    mScratch->getTrackletsLabel(transitionId).clear();
+    std::fill(mScratch->getTrackletsLookupTable()[transitionId].begin(), mScratch->getTrackletsLookupTable()[transitionId].end(), 0);
   }
 
   if (!mTraversalGrouping.has_value()) {
@@ -671,11 +671,11 @@ void TrackerTraits<NLayers>::computeLayerTrackletsForPolicy(
         return TrackletProjectionState<Tag>{fromLayer,
                                             toLayer,
                                             mTrkParams[iteration].LayerRadii[toLayer] - mTrkParams[iteration].LayerRadii[fromLayer],
-                                            mTimeFrame->getMinR(toLayer),
-                                            mTimeFrame->getMaxR(toLayer),
-                                            mTimeFrame->getPositionResolution(fromLayer),
-                                            mTimeFrame->getTransitionMSAngle(transitionId),
-                                            mTimeFrame->getTransitionPhiCut(transitionId)};
+                                            mScratch->getMinR(toLayer),
+                                            mScratch->getMaxR(toLayer),
+                                            mScratch->getPositionResolution(fromLayer),
+                                            mScratch->getTransitionMSAngle(transitionId),
+                                            mScratch->getTransitionPhiCut(transitionId)};
       } else {
         const float fromZ = detail::mftLayerZ(fromLayer);
         const float toZ = detail::mftLayerZ(toLayer);
@@ -685,13 +685,13 @@ void TrackerTraits<NLayers>::computeLayerTrackletsForPolicy(
                                             toZ,
                                             toZ - fromZ,
                                             mTrkParams[iteration].LayerRadii[fromLayer],
-                                            mTimeFrame->getTransitionMSAngle(transitionId),
-                                            mTimeFrame->getTransitionPhiCut(transitionId)};
+                                            mScratch->getTransitionMSAngle(transitionId),
+                                            mScratch->getTransitionPhiCut(transitionId)};
       }
     };
 
     auto forTracklets = [&](auto Mode, int transitionId, int fromLayer, int toLayer, const TrackletProjectionState<Tag>& transitionState, int pivotROF, int base, int& offset) -> int {
-      if (!mTimeFrame->getROFMaskView().isROFEnabled(fromLayer, pivotROF)) {
+      if (!mScratch->getROFMaskView().isROFEnabled(fromLayer, pivotROF)) {
         return 0;
       }
       // A diamond vertex valid for this specific pivotROF is derived fresh
@@ -703,10 +703,10 @@ void TrackerTraits<NLayers>::computeLayerTrackletsForPolicy(
       Vertex diamondForROF{};
       gsl::span<const Vertex> primaryVertices;
       if (mTrkParams[iteration].UseDiamond) {
-        diamondForROF = diamondVertexForROF(diamondVert, mTimeFrame->getROFOverlapTableView(), fromLayer, pivotROF);
+        diamondForROF = diamondVertexForROF(diamondVert, mScratch->getROFOverlapTableView(), fromLayer, pivotROF);
         primaryVertices = gsl::span<const Vertex>(&diamondForROF, 1);
       } else {
-        primaryVertices = mTimeFrame->getPrimaryVertices(fromLayer, pivotROF);
+        primaryVertices = mScratch->getPrimaryVertices(*mFrame, fromLayer, pivotROF);
       }
       if (primaryVertices.empty()) {
         return 0;
@@ -717,29 +717,29 @@ void TrackerTraits<NLayers>::computeLayerTrackletsForPolicy(
         return 0;
       }
 
-      const auto& rofOverlap = mTimeFrame->getROFOverlapTableView().getOverlap(fromLayer, toLayer, pivotROF);
+      const auto& rofOverlap = mScratch->getROFOverlapTableView().getOverlap(fromLayer, toLayer, pivotROF);
       if (!rofOverlap.getEntries()) {
         return 0;
       }
 
       int localCount = 0;
-      auto& tracklets = mTimeFrame->getTracklets()[transitionId];
-      auto layer0 = mTimeFrame->getClustersOnLayer(pivotROF, fromLayer);
+      auto& tracklets = mScratch->getTracklets()[transitionId];
+      auto layer0 = mScratch->getClustersOnLayer(pivotROF, fromLayer);
       if (layer0.empty()) {
         return 0;
       }
 
       for (int iCluster = 0; iCluster < int(layer0.size()); ++iCluster) {
         const Cluster& currentCluster = layer0[iCluster];
-        const int currentSortedIndex = mTimeFrame->getSortedIndex(pivotROF, fromLayer, iCluster);
-        if (mTimeFrame->isClusterUsed(fromLayer, currentCluster.clusterId)) {
+        const int currentSortedIndex = mScratch->getSortedIndex(pivotROF, fromLayer, iCluster);
+        if (mScratch->isClusterUsed(fromLayer, currentCluster.clusterId)) {
           continue;
         }
         const auto& sourceMeasurement = mLayerMeasurements[fromLayer][currentCluster.clusterId];
 
         for (int iV = startVtx; iV < endVtx; ++iV) {
           const auto& pv = primaryVertices[iV];
-          if (!mTimeFrame->getROFVertexLookupTableView().isVertexCompatible(fromLayer, pivotROF, pv)) {
+          if (!mScratch->getROFVertexLookupTableView().isVertexCompatible(fromLayer, pivotROF, pv)) {
             continue;
           }
           if (pv.isFlagSet(Vertex::Flags::UPCMode) != mTrkParams[iteration].PassFlags[IterationStep::SelectUPCVertices]) {
@@ -747,29 +747,29 @@ void TrackerTraits<NLayers>::computeLayerTrackletsForPolicy(
           }
           TrackletSearchWindow<Tag> searchWindow{};
           if (!projectSearchWindow<Tag, NLayers>(sourceMeasurement, currentCluster, pv, transitionState, getBz(),
-                                                 mTimeFrame->getIndexTableUtils(), params, searchWindow)) {
+                                                 mScratch->getIndexTableUtils(), params, searchWindow)) {
             continue;
           }
           const auto bins = searchWindow.bins;
-          const int rowBinsCount = mTimeFrame->getIndexTableUtils().getNrowBins();
+          const int rowBinsCount = mScratch->getIndexTableUtils().getNrowBins();
           int rowBinsNum = bins.w - bins.y + 1;
           if (rowBinsNum < 0) {
             rowBinsNum += rowBinsCount;
           }
 
           for (int targetROF = rofOverlap.getFirstEntry(); targetROF < rofOverlap.getEntriesBound(); ++targetROF) {
-            if (!mTimeFrame->getROFMaskView().isROFEnabled(toLayer, targetROF)) {
+            if (!mScratch->getROFMaskView().isROFEnabled(toLayer, targetROF)) {
               continue;
             }
-            auto layer1 = mTimeFrame->getClustersOnLayer(targetROF, toLayer);
+            auto layer1 = mScratch->getClustersOnLayer(targetROF, toLayer);
             if (layer1.empty()) {
               continue;
             }
-            const auto ts = mTimeFrame->getROFOverlapTableView().getTimeStamp(fromLayer, pivotROF, toLayer, targetROF);
+            const auto ts = mScratch->getROFOverlapTableView().getTimeStamp(fromLayer, pivotROF, toLayer, targetROF);
             if (!ts.isCompatible(pv.getTimeStamp())) {
               continue;
             }
-            const auto& targetIndexTable = mTimeFrame->getIndexTable(targetROF, toLayer);
+            const auto& targetIndexTable = mScratch->getIndexTable(targetROF, toLayer);
             const int colBinRange = (bins.z - bins.x) + 1;
             for (int iRow = 0; iRow < rowBinsNum; ++iRow) {
               int iRowBin = bins.y + iRow;
@@ -780,7 +780,7 @@ void TrackerTraits<NLayers>::computeLayerTrackletsForPolicy(
               } else {
                 iRowBin %= rowBinsCount;
               }
-              const int firstBinIdx = mTimeFrame->getIndexTableUtils().getBinIndex(bins.x, iRowBin);
+              const int firstBinIdx = mScratch->getIndexTableUtils().getBinIndex(bins.x, iRowBin);
               const int maxBinIdx = firstBinIdx + colBinRange;
               const int firstRow = targetIndexTable[firstBinIdx];
               const int lastRow = targetIndexTable[maxBinIdx];
@@ -789,7 +789,7 @@ void TrackerTraits<NLayers>::computeLayerTrackletsForPolicy(
                   break;
                 }
                 const Cluster& nextCluster = layer1[iNext];
-                if (mTimeFrame->isClusterUsed(toLayer, nextCluster.clusterId)) {
+                if (mScratch->isClusterUsed(toLayer, nextCluster.clusterId)) {
                   continue;
                 }
                 const auto& targetMeasurement = mLayerMeasurements[toLayer][nextCluster.clusterId];
@@ -806,12 +806,12 @@ void TrackerTraits<NLayers>::computeLayerTrackletsForPolicy(
                   const float phi{o2::gpu::GPUCommonMath::ATan2(sourceMeasurement.global.y - targetMeasurement.global.y,
                                                                 sourceMeasurement.global.x - targetMeasurement.global.x)};
                   if constexpr (decltype(Mode)::value == PassMode::OnePass::value) {
-                    tracklets.emplace_back(currentSortedIndex, mTimeFrame->getSortedIndex(targetROF, toLayer, iNext), tanL, phi, ts);
+                    tracklets.emplace_back(currentSortedIndex, mScratch->getSortedIndex(targetROF, toLayer, iNext), tanL, phi, ts);
                   } else if constexpr (decltype(Mode)::value == PassMode::TwoPassCount::value) {
                     ++localCount;
                   } else if constexpr (decltype(Mode)::value == PassMode::TwoPassInsert::value) {
                     const int idx = base + offset++;
-                    tracklets[idx] = Tracklet(currentSortedIndex, mTimeFrame->getSortedIndex(targetROF, toLayer, iNext), tanL, phi, ts);
+                    tracklets[idx] = Tracklet(currentSortedIndex, mScratch->getSortedIndex(targetROF, toLayer, iNext), tanL, phi, ts);
                   }
                 }
               }
@@ -828,7 +828,7 @@ void TrackerTraits<NLayers>::computeLayerTrackletsForPolicy(
         const int transitionId = typedTransitionId.value();
         const auto [fromLayer, toLayer] = resolveTransitionLayers(transitionId);
         const auto transitionState = makeTransitionState(transitionId, fromLayer, toLayer);
-        const int startROF = 0, endROF = mTimeFrame->getROFOverlapTableView().getLayer(fromLayer).mNROFsTF;
+        const int startROF = 0, endROF = mScratch->getROFOverlapTableView().getLayer(fromLayer).mNROFsTF;
         for (int pivotROF{startROF}; pivotROF < endROF; ++pivotROF) {
           forTracklets(PassMode::OnePass{}, transitionId, fromLayer, toLayer, transitionState, pivotROF, 0, dummy);
         }
@@ -838,14 +838,14 @@ void TrackerTraits<NLayers>::computeLayerTrackletsForPolicy(
         const int transitionId = transitionIds[transitionIndex].value();
         const auto [fromLayer, toLayer] = resolveTransitionLayers(transitionId);
         const auto transitionState = makeTransitionState(transitionId, fromLayer, toLayer);
-        const int startROF = 0, endROF = mTimeFrame->getROFOverlapTableView().getLayer(fromLayer).mNROFsTF;
+        const int startROF = 0, endROF = mScratch->getROFOverlapTableView().getLayer(fromLayer).mNROFsTF;
         bounded_vector<int> perROFCount((endROF - startROF) + 1, mMemoryPool.get());
         tbb::parallel_for(startROF, endROF, [&](const int pivotROF) {
           perROFCount[pivotROF - startROF] = forTracklets(PassMode::TwoPassCount{}, transitionId, fromLayer, toLayer, transitionState, pivotROF, 0, dummy);
         });
         std::exclusive_scan(perROFCount.begin(), perROFCount.end(), perROFCount.begin(), 0);
         const int nTracklets = perROFCount.back();
-        mTimeFrame->getTracklets()[transitionId].resize(nTracklets);
+        mScratch->getTracklets()[transitionId].resize(nTracklets);
         if (nTracklets == 0) {
           return;
         }
@@ -864,11 +864,11 @@ void TrackerTraits<NLayers>::computeLayerTrackletsForPolicy(
       const int transitionId = transitionIds[transitionIndex].value();
       /// Sort tracklets & remove duplicates
       // duplicates can exist simply since we evaluate per vertex
-      auto& trkl{mTimeFrame->getTracklets()[transitionId]};
+      auto& trkl{mScratch->getTracklets()[transitionId]};
       std::sort(trkl.begin(), trkl.end());
       trkl.erase(std::unique(trkl.begin(), trkl.end()), trkl.end());
       trkl.shrink_to_fit();
-      auto& lut{mTimeFrame->getTrackletsLookupTable()[transitionId]};
+      auto& lut{mScratch->getTrackletsLookupTable()[transitionId]};
       if (!trkl.empty()) {
         for (const auto& tkl : trkl) {
           lut[tkl.firstClusterIndex + 1]++;
@@ -878,16 +878,16 @@ void TrackerTraits<NLayers>::computeLayerTrackletsForPolicy(
     });
 
     /// Create tracklets labels
-    if (mTimeFrame->hasMCinformation() && mTrkParams[iteration].CreateArtefactLabels) {
+    if (mScratch->hasMCinformation() && mTrkParams[iteration].CreateArtefactLabels) {
       tbb::parallel_for(0, static_cast<int>(transitionIds.size()), [&](const int transitionIndex) {
         const int transitionId = transitionIds[transitionIndex].value();
         const auto [fromLayer, toLayer] = resolveTransitionLayers(transitionId);
-        for (auto& trk : mTimeFrame->getTracklets()[transitionId]) {
+        for (auto& trk : mScratch->getTracklets()[transitionId]) {
           MCCompLabel label;
-          int currentId{mTimeFrame->getClusters()[fromLayer][trk.firstClusterIndex].clusterId};
-          int nextId{mTimeFrame->getClusters()[toLayer][trk.secondClusterIndex].clusterId};
-          for (const auto& lab1 : mTimeFrame->getClusterLabels(fromLayer, currentId)) {
-            for (const auto& lab2 : mTimeFrame->getClusterLabels(toLayer, nextId)) {
+          int currentId{mScratch->getClusters()[fromLayer][trk.firstClusterIndex].clusterId};
+          int nextId{mScratch->getClusters()[toLayer][trk.secondClusterIndex].clusterId};
+          for (const auto& lab1 : mScratch->getClusterLabels(fromLayer, currentId)) {
+            for (const auto& lab2 : mScratch->getClusterLabels(toLayer, nextId)) {
               if (lab1 == lab2 && lab1.isValid()) {
                 label = lab1;
                 break;
@@ -897,7 +897,7 @@ void TrackerTraits<NLayers>::computeLayerTrackletsForPolicy(
               break;
             }
           }
-          mTimeFrame->getTrackletsLabel(transitionId).emplace_back(label);
+          mScratch->getTrackletsLabel(transitionId).emplace_back(label);
         }
       });
     }
@@ -913,12 +913,12 @@ void TrackerTraits<NLayers>::computeLayerCells(const int iteration)
   const auto& topology = mTraversalLayout.topology;
   // Defensive size-consistency check, mirroring findCellsNeighboursForPolicy's
   // own precedent: topology.nCells is no longer definitionally
-  // mTimeFrame->getCells().size() once the loop bound below is sparse-derived,
+  // mScratch->getCells().size() once the loop bound below is sparse-derived,
   // so check it explicitly, fail-closed, before the clear loop touches either
   // container -- this is the only point that can actually intercept the
   // hazard, since the clear loop itself indexes both unconditionally.
-  if (mTimeFrame->getCells().size() != topology.nCells ||
-      mTimeFrame->getCellsLookupTable().size() != topology.nCells) {
+  if (mScratch->getCells().size() != topology.nCells ||
+      mScratch->getCellsLookupTable().size() != topology.nCells) {
     throw TraversalException{iteration, TraversalFailureReason::LegacyIndexMismatch};
   }
   // This clear/allocation pass is tag-agnostic and runs once over the full
@@ -926,10 +926,10 @@ void TrackerTraits<NLayers>::computeLayerCells(const int iteration)
   // active for this layout (see computeLayerCellsForPolicy() below for the
   // per-tag-filtered body).
   for (uint32_t cellTopologyId = 0; cellTopologyId < topology.nCells; ++cellTopologyId) {
-    deepVectorClear(mTimeFrame->getCells()[cellTopologyId]);
-    deepVectorClear(mTimeFrame->getCellsLookupTable()[cellTopologyId]);
-    if (mTimeFrame->hasMCinformation() && mTrkParams[iteration].CreateArtefactLabels) {
-      deepVectorClear(mTimeFrame->getCellsLabel(cellTopologyId));
+    deepVectorClear(mScratch->getCells()[cellTopologyId]);
+    deepVectorClear(mScratch->getCellsLookupTable()[cellTopologyId]);
+    if (mScratch->hasMCinformation() && mTrkParams[iteration].CreateArtefactLabels) {
+      deepVectorClear(mScratch->getCellsLabel(cellTopologyId));
     }
   }
 
@@ -965,8 +965,8 @@ void TrackerTraits<NLayers>::computeLayerCells(const int iteration)
   });
 
   for (uint32_t transitionId = 0; transitionId < topology.nTransitions; ++transitionId) {
-    deepVectorClear(mTimeFrame->getTracklets()[transitionId]);
-    deepVectorClear(mTimeFrame->getTrackletsLabel(transitionId));
+    deepVectorClear(mScratch->getTracklets()[transitionId]);
+    deepVectorClear(mScratch->getTrackletsLabel(transitionId));
   }
 }
 
@@ -981,7 +981,7 @@ void TrackerTraits<NLayers>::computeLayerCellsForPolicy(
   // legacy view). `cellIds` remains the caller-filtered, ascending per-tag
   // span from TransitionPolicyGrouping -- the main loop below iterates
   // exclusively over it, never over the raw sparse cell count. The
-  // defensive size-consistency check for mTimeFrame's per-cellTopologyId
+  // defensive size-consistency check for mScratch's per-cellTopologyId
   // storage lives in computeLayerCells() (the caller), not here -- see that
   // function's own doc: its clear loop is the first thing to touch those
   // containers, so that is the only point that can actually intercept a
@@ -1021,13 +1021,13 @@ void TrackerTraits<NLayers>::computeLayerCellsForPolicy(
     };
 
     auto forTrackletCells = [&](auto Mode, int firstTransitionId, int secondTransitionId, const std::array<int, 3>& hitLayers, bounded_vector<CellSeedN>& layerCells, int iTracklet, int offset = 0) -> int {
-      const Tracklet& currentTracklet{mTimeFrame->getTracklets()[firstTransitionId][iTracklet]};
+      const Tracklet& currentTracklet{mScratch->getTracklets()[firstTransitionId][iTracklet]};
       const int nextLayerClusterIndex{currentTracklet.secondClusterIndex};
-      const int nextLayerFirstTrackletIndex{mTimeFrame->getTrackletsLookupTable()[secondTransitionId][nextLayerClusterIndex]};
-      const int nextLayerLastTrackletIndex{mTimeFrame->getTrackletsLookupTable()[secondTransitionId][nextLayerClusterIndex + 1]};
+      const int nextLayerFirstTrackletIndex{mScratch->getTrackletsLookupTable()[secondTransitionId][nextLayerClusterIndex]};
+      const int nextLayerLastTrackletIndex{mScratch->getTrackletsLookupTable()[secondTransitionId][nextLayerClusterIndex + 1]};
       int foundCells{0};
       for (int iNextTracklet{nextLayerFirstTrackletIndex}; iNextTracklet < nextLayerLastTrackletIndex; ++iNextTracklet) {
-        const Tracklet& nextTracklet{mTimeFrame->getTracklets()[secondTransitionId][iNextTracklet]};
+        const Tracklet& nextTracklet{mScratch->getTracklets()[secondTransitionId][iNextTracklet]};
         if (nextTracklet.firstClusterIndex != nextLayerClusterIndex) {
           break;
         }
@@ -1040,9 +1040,9 @@ void TrackerTraits<NLayers>::computeLayerCellsForPolicy(
 
           /// Track seed preparation. Clusters are numbered progressively from the innermost going outward.
           const int clusId[3]{
-            mTimeFrame->getClusters()[hitLayers[0]][currentTracklet.firstClusterIndex].clusterId,
-            mTimeFrame->getClusters()[hitLayers[1]][nextTracklet.firstClusterIndex].clusterId,
-            mTimeFrame->getClusters()[hitLayers[2]][nextTracklet.secondClusterIndex].clusterId};
+            mScratch->getClusters()[hitLayers[0]][currentTracklet.firstClusterIndex].clusterId,
+            mScratch->getClusters()[hitLayers[1]][nextTracklet.firstClusterIndex].clusterId,
+            mScratch->getClusters()[hitLayers[2]][nextTracklet.secondClusterIndex].clusterId};
 
           const auto& measurementInner = mLayerMeasurements[hitLayers[0]][clusId[0]];
           const auto& measurementMiddle = mLayerMeasurements[hitLayers[1]][clusId[1]];
@@ -1110,14 +1110,14 @@ void TrackerTraits<NLayers>::computeLayerCellsForPolicy(
       const auto& cellTopology = topology.getCell(typedCellId);
       const int firstTransitionId = cellTopology.firstTransition.value();
       const int secondTransitionId = cellTopology.secondTransition.value();
-      if (mTimeFrame->getTracklets()[firstTransitionId].empty() ||
-          mTimeFrame->getTracklets()[secondTransitionId].empty()) {
+      if (mScratch->getTracklets()[firstTransitionId].empty() ||
+          mScratch->getTracklets()[secondTransitionId].empty()) {
         continue;
       }
       const auto hitLayers = resolveCellHitLayers(cellTopology);
 
-      auto& layerCells = mTimeFrame->getCells()[cellTopologyId];
-      const int currentLayerTrackletsNum{static_cast<int>(mTimeFrame->getTracklets()[firstTransitionId].size())};
+      auto& layerCells = mScratch->getCells()[cellTopologyId];
+      const int currentLayerTrackletsNum{static_cast<int>(mScratch->getTracklets()[firstTransitionId].size())};
       bounded_vector<int> perTrackletCount(currentLayerTrackletsNum + 1, 0, mMemoryPool.get());
       if (mTaskArena->max_concurrency() <= 1) {
         for (int iTracklet{0}; iTracklet < currentLayerTrackletsNum; ++iTracklet) {
@@ -1132,7 +1132,7 @@ void TrackerTraits<NLayers>::computeLayerCellsForPolicy(
         std::exclusive_scan(perTrackletCount.begin(), perTrackletCount.end(), perTrackletCount.begin(), 0);
         auto totalCells{perTrackletCount.back()};
         if (totalCells == 0) {
-          auto& lut = mTimeFrame->getCellsLookupTable()[cellTopologyId];
+          auto& lut = mScratch->getCellsLookupTable()[cellTopologyId];
           lut.resize(currentLayerTrackletsNum + 1);
           std::fill(lut.begin(), lut.end(), 0);
           continue;
@@ -1148,16 +1148,16 @@ void TrackerTraits<NLayers>::computeLayerCellsForPolicy(
         });
       }
 
-      auto& lut = mTimeFrame->getCellsLookupTable()[cellTopologyId];
+      auto& lut = mScratch->getCellsLookupTable()[cellTopologyId];
       lut.resize(currentLayerTrackletsNum + 1);
       std::copy_n(perTrackletCount.begin(), currentLayerTrackletsNum + 1, lut.begin());
 
-      if (mTimeFrame->hasMCinformation() && mTrkParams[iteration].CreateArtefactLabels) {
-        auto& labels = mTimeFrame->getCellsLabel(cellTopologyId);
+      if (mScratch->hasMCinformation() && mTrkParams[iteration].CreateArtefactLabels) {
+        auto& labels = mScratch->getCellsLabel(cellTopologyId);
         labels.reserve(layerCells.size());
         for (const auto& cell : layerCells) {
-          MCCompLabel currentLab{mTimeFrame->getTrackletsLabel(firstTransitionId)[cell.getFirstTrackletIndex()]};
-          MCCompLabel nextLab{mTimeFrame->getTrackletsLabel(secondTransitionId)[cell.getSecondTrackletIndex()]};
+          MCCompLabel currentLab{mScratch->getTrackletsLabel(firstTransitionId)[cell.getFirstTrackletIndex()]};
+          MCCompLabel nextLab{mScratch->getTrackletsLabel(secondTransitionId)[cell.getSecondTrackletIndex()]};
           labels.emplace_back(currentLab == nextLab ? currentLab : MCCompLabel());
         }
       }
@@ -1197,31 +1197,31 @@ void TrackerTraits<NLayers>::findCellsNeighboursForPolicy(
   const typename TransitionPolicyTraits<Tag>::Params& params)
 {
   const auto topology = mTraversalLayout.topology;
-  if (mTimeFrame->getCells().size() != topology.nCells ||
-      mTimeFrame->getCellsLookupTable().size() != topology.nCells ||
-      mTimeFrame->getCellsNeighbours().size() != topology.nCells ||
-      mTimeFrame->getCellsNeighboursTopology().size() != topology.nCells ||
-      mTimeFrame->getCellsNeighboursLUT().size() != topology.nCells) {
+  if (mScratch->getCells().size() != topology.nCells ||
+      mScratch->getCellsLookupTable().size() != topology.nCells ||
+      mScratch->getCellsNeighbours().size() != topology.nCells ||
+      mScratch->getCellsNeighboursTopology().size() != topology.nCells ||
+      mScratch->getCellsNeighboursLUT().size() != topology.nCells) {
     throw TraversalException{iteration, TraversalFailureReason::LegacyIndexMismatch};
   }
   mTaskArena->execute([&] {
     std::vector<bounded_vector<CellNeighbour>> cellsNeighboursByTarget;
     cellsNeighboursByTarget.reserve(topology.nCells);
     for (uint32_t cellTopologyId = 0; cellTopologyId < topology.nCells; ++cellTopologyId) {
-      deepVectorClear(mTimeFrame->getCellsNeighbours()[cellTopologyId]);
-      deepVectorClear(mTimeFrame->getCellsNeighboursTopology()[cellTopologyId]);
-      deepVectorClear(mTimeFrame->getCellsNeighboursLUT()[cellTopologyId]);
+      deepVectorClear(mScratch->getCellsNeighbours()[cellTopologyId]);
+      deepVectorClear(mScratch->getCellsNeighboursTopology()[cellTopologyId]);
+      deepVectorClear(mScratch->getCellsNeighboursLUT()[cellTopologyId]);
       cellsNeighboursByTarget.emplace_back(mMemoryPool.get());
     }
 
     for (const auto scheduledId : scheduledCells) {
       const auto cellTopologyId = scheduledId.value();
-      if (cellTopologyId >= topology.nCells || cellTopologyId >= mTimeFrame->getCells().size() ||
-          cellTopologyId >= mTimeFrame->getCellsLookupTable().size()) {
+      if (cellTopologyId >= topology.nCells || cellTopologyId >= mScratch->getCells().size() ||
+          cellTopologyId >= mScratch->getCellsLookupTable().size()) {
         throw TraversalException{iteration, TraversalFailureReason::LegacyIndexMismatch};
       }
       const auto& cellTopology = topology.getCell(scheduledId);
-      if (mTimeFrame->getCells()[cellTopologyId].empty()) {
+      if (mScratch->getCells()[cellTopologyId].empty()) {
         continue;
       }
       const auto successors = topology.getCellsStartingWithTransition(cellTopology.secondTransition);
@@ -1230,33 +1230,33 @@ void TrackerTraits<NLayers>::findCellsNeighboursForPolicy(
       }
 
       tbb::enumerable_thread_specific<bounded_vector<CellNeighbour>> sourceNeighbours([&]() { return bounded_vector<CellNeighbour>{mMemoryPool.get()}; });
-      tbb::parallel_for(0, static_cast<int>(mTimeFrame->getCells()[cellTopologyId].size()), [&](const int iCell) {
+      tbb::parallel_for(0, static_cast<int>(mScratch->getCells()[cellTopologyId].size()), [&](const int iCell) {
         auto& localNeighbours = sourceNeighbours.local();
-        const auto& currentCellSeed{mTimeFrame->getCells()[cellTopologyId][iCell]};
+        const auto& currentCellSeed{mScratch->getCells()[cellTopologyId][iCell]};
         const int nextLayerTrackletIndex{currentCellSeed.getSecondTrackletIndex()};
         for (uint32_t iSuccessor = 0; iSuccessor < successors.getEntries(); ++iSuccessor) {
           const auto nextTopologyId = topology.cellsByFirstTransition[successors.getFirstEntry() + iSuccessor];
           const auto nextCellTopologyId = nextTopologyId.value();
-          if (nextCellTopologyId >= topology.nCells || nextCellTopologyId >= mTimeFrame->getCells().size() ||
-              nextCellTopologyId >= mTimeFrame->getCellsLookupTable().size()) {
+          if (nextCellTopologyId >= topology.nCells || nextCellTopologyId >= mScratch->getCells().size() ||
+              nextCellTopologyId >= mScratch->getCellsLookupTable().size()) {
             throw TraversalException{iteration, TraversalFailureReason::LegacyIndexMismatch};
           }
-          if (mTimeFrame->getCells()[nextCellTopologyId].empty() ||
-              mTimeFrame->getCellsLookupTable()[nextCellTopologyId].empty()) {
+          if (mScratch->getCells()[nextCellTopologyId].empty() ||
+              mScratch->getCellsLookupTable()[nextCellTopologyId].empty()) {
             continue;
           }
-          const auto& nextCellLUT = mTimeFrame->getCellsLookupTable()[nextCellTopologyId];
+          const auto& nextCellLUT = mScratch->getCellsLookupTable()[nextCellTopologyId];
           if (nextLayerTrackletIndex < 0 || nextLayerTrackletIndex + 1 >= static_cast<int>(nextCellLUT.size())) {
             continue;
           }
           const int nextLayerFirstCellIndex{nextCellLUT[nextLayerTrackletIndex]};
           const int nextLayerLastCellIndex{nextCellLUT[nextLayerTrackletIndex + 1]};
           if (nextLayerFirstCellIndex < 0 || nextLayerLastCellIndex < nextLayerFirstCellIndex ||
-              nextLayerLastCellIndex > static_cast<int>(mTimeFrame->getCells()[nextCellTopologyId].size())) {
+              nextLayerLastCellIndex > static_cast<int>(mScratch->getCells()[nextCellTopologyId].size())) {
             throw TraversalException{iteration, TraversalFailureReason::LegacyIndexMismatch};
           }
           for (int iNextCell{nextLayerFirstCellIndex}; iNextCell < nextLayerLastCellIndex; ++iNextCell) {
-            const auto& nextCellSeedRef{mTimeFrame->getCells()[nextCellTopologyId][iNextCell]};
+            const auto& nextCellSeedRef{mScratch->getCells()[nextCellTopologyId][iNextCell]};
             if (nextCellSeedRef.getFirstTrackletIndex() != nextLayerTrackletIndex || !currentCellSeed.getTimeStamp().isCompatible(nextCellSeedRef.getTimeStamp())) {
               break;
             }
@@ -1285,8 +1285,8 @@ void TrackerTraits<NLayers>::findCellsNeighboursForPolicy(
       for (const auto& localNeighbours : sourceNeighbours) {
         for (const auto& neigh : localNeighbours) {
           cellsNeighboursByTarget[neigh.nextCellTopology].emplace_back(neigh);
-          if (neigh.level > mTimeFrame->getCells()[neigh.nextCellTopology][neigh.nextCell].getLevel()) {
-            mTimeFrame->getCells()[neigh.nextCellTopology][neigh.nextCell].setLevel(neigh.level);
+          if (neigh.level > mScratch->getCells()[neigh.nextCellTopology][neigh.nextCell].getLevel()) {
+            mScratch->getCells()[neigh.nextCellTopology][neigh.nextCell].setLevel(neigh.level);
           }
         }
       }
@@ -1302,21 +1302,21 @@ void TrackerTraits<NLayers>::findCellsNeighboursForPolicy(
         return a.nextCell < b.nextCell;
       });
 
-      auto& cellsNeighbourLUT = mTimeFrame->getCellsNeighboursLUT()[cellTopologyId];
-      cellsNeighbourLUT.assign(mTimeFrame->getCells()[cellTopologyId].size(), 0);
+      auto& cellsNeighbourLUT = mScratch->getCellsNeighboursLUT()[cellTopologyId];
+      cellsNeighbourLUT.assign(mScratch->getCells()[cellTopologyId].size(), 0);
       for (const auto& neigh : cellsNeighbours) {
         ++cellsNeighbourLUT[neigh.nextCell];
       }
       std::inclusive_scan(cellsNeighbourLUT.begin(), cellsNeighbourLUT.end(), cellsNeighbourLUT.begin());
 
-      mTimeFrame->getCellsNeighbours()[cellTopologyId].reserve(cellsNeighbours.size());
-      mTimeFrame->getCellsNeighboursTopology()[cellTopologyId].reserve(cellsNeighbours.size());
-      std::ranges::transform(cellsNeighbours, std::back_inserter(mTimeFrame->getCellsNeighbours()[cellTopologyId]), [](const auto& neigh) { return neigh.cell; });
-      std::ranges::transform(cellsNeighbours, std::back_inserter(mTimeFrame->getCellsNeighboursTopology()[cellTopologyId]), [](const auto& neigh) { return neigh.cellTopology; });
+      mScratch->getCellsNeighbours()[cellTopologyId].reserve(cellsNeighbours.size());
+      mScratch->getCellsNeighboursTopology()[cellTopologyId].reserve(cellsNeighbours.size());
+      std::ranges::transform(cellsNeighbours, std::back_inserter(mScratch->getCellsNeighbours()[cellTopologyId]), [](const auto& neigh) { return neigh.cell; });
+      std::ranges::transform(cellsNeighbours, std::back_inserter(mScratch->getCellsNeighboursTopology()[cellTopologyId]), [](const auto& neigh) { return neigh.cellTopology; });
     }
 
     // clean up LUTs
-    for (auto& cellLUT : mTimeFrame->getCellsLookupTable()) {
+    for (auto& cellLUT : mScratch->getCellsLookupTable()) {
       deepVectorClear(cellLUT);
     }
   });
@@ -1340,7 +1340,7 @@ void TrackerTraits<NLayers>::processNeighbours(int iteration, int defaultCellTop
         if (currentCellId.empty()) {
           for (int layer = 0; layer < NLayers; ++layer) {
             const int clusterIndex = currentCell.getCluster(layer);
-            if (clusterIndex != constants::UnusedIndex && mTimeFrame->isClusterUsed(layer, clusterIndex)) {
+            if (clusterIndex != constants::UnusedIndex && mScratch->isClusterUsed(layer, clusterIndex)) {
               return 0; /// this we do only on the first iteration, hence the check on currentCellId
             }
           }
@@ -1348,16 +1348,16 @@ void TrackerTraits<NLayers>::processNeighbours(int iteration, int defaultCellTop
       }
 
       const int cellId = currentCellId.empty() ? iCell : currentCellId[iCell];
-      if (cellTopologyId < 0 || mTimeFrame->getCellsNeighboursLUT()[cellTopologyId].empty()) {
+      if (cellTopologyId < 0 || mScratch->getCellsNeighboursLUT()[cellTopologyId].empty()) {
         return 0;
       }
-      const int startNeighbourId{cellId ? mTimeFrame->getCellsNeighboursLUT()[cellTopologyId][cellId - 1] : 0};
-      const int endNeighbourId{mTimeFrame->getCellsNeighboursLUT()[cellTopologyId][cellId]};
+      const int startNeighbourId{cellId ? mScratch->getCellsNeighboursLUT()[cellTopologyId][cellId - 1] : 0};
+      const int endNeighbourId{mScratch->getCellsNeighboursLUT()[cellTopologyId][cellId]};
       int foundSeeds{0};
       for (int iNeighbourCell{startNeighbourId}; iNeighbourCell < endNeighbourId; ++iNeighbourCell) {
-        const int neighbourCellTopologyId = mTimeFrame->getCellsNeighboursTopology()[cellTopologyId][iNeighbourCell];
-        const int neighbourCellId = mTimeFrame->getCellsNeighbours()[cellTopologyId][iNeighbourCell];
-        const auto& neighbourCell = mTimeFrame->getCells()[neighbourCellTopologyId][neighbourCellId];
+        const int neighbourCellTopologyId = mScratch->getCellsNeighboursTopology()[cellTopologyId][iNeighbourCell];
+        const int neighbourCellId = mScratch->getCellsNeighbours()[cellTopologyId][iNeighbourCell];
+        const auto& neighbourCell = mScratch->getCells()[neighbourCellTopologyId][neighbourCellId];
         if (neighbourCell.getSecondTrackletIndex() != currentCell.getFirstTrackletIndex()) {
           continue;
         }
@@ -1369,7 +1369,7 @@ void TrackerTraits<NLayers>::processNeighbours(int iteration, int defaultCellTop
         }
         const int neighbourLayer = neighbourCell.getInnerLayer();
         const int neighbourCluster = neighbourCell.getFirstClusterIndex();
-        if (mTimeFrame->isClusterUsed(neighbourLayer, neighbourCluster)) {
+        if (mScratch->isClusterUsed(neighbourLayer, neighbourCluster)) {
           continue;
         }
 
@@ -1451,7 +1451,7 @@ void TrackerTraits<NLayers>::findRoads(const int iteration)
     throw TraversalException{iteration, TraversalFailureReason::InvalidTraversalSchedule};
   }
   // Defensive parity check (Architecture.md Sec 9 / validateLegacyParity()):
-  // findRoadsForPolicy() below indexes mTimeFrame->getCells() -- a legacy,
+  // findRoadsForPolicy() below indexes mScratch->getCells() -- a legacy,
   // per-legacy-CellTopologyId TimeFrame array -- with the .value() of sparse
   // CellTopologyIds returned by roadStartCellsForTag(). That is only safe
   // because validateLegacyParity(), run once per initialiseTimeFrame() before
@@ -1461,7 +1461,7 @@ void TrackerTraits<NLayers>::findRoads(const int iteration)
   // road-finding boundary and before any indexing, turns a future desync
   // between that cached proof and TimeFrame's own containers into an
   // explicit failure instead of an out-of-bounds/misaligned read.
-  if (mTimeFrame->getCells().size() != mTraversalLayout.topology.nCells) {
+  if (mScratch->getCells().size() != mTraversalLayout.topology.nCells) {
     throw TraversalException{iteration, TraversalFailureReason::LegacyIndexMismatch};
   }
   dispatchTransitionPolicies(*mTraversalGrouping, [&](auto traits, auto, auto) {
@@ -1492,8 +1492,8 @@ void TrackerTraits<NLayers>::findRoadsForPolicy(const int iteration, const typen
   const TrackingFrameInfo* tfInfos[NLayers]{};
   const Cluster* unsortedClusters[NLayers]{};
   for (int iLayer = 0; iLayer < NLayers; ++iLayer) {
-    tfInfos[iLayer] = mTimeFrame->getTrackingFrameInfoOnLayer(iLayer).data();
-    unsortedClusters[iLayer] = mTimeFrame->getUnsortedClusters()[iLayer].data();
+    tfInfos[iLayer] = mScratch->getTrackingFrameInfoOnLayer(iLayer).data();
+    unsortedClusters[iLayer] = mScratch->getUnsortedClusters()[iLayer].data();
   }
   // Road-start selection is topology-derived, not a StartLayerMask/LayerMask
   // runtime decision (Architecture.md Sec 10, D003): mTraversalGrouping's
@@ -1507,7 +1507,7 @@ void TrackerTraits<NLayers>::findRoadsForPolicy(const int iteration, const typen
   // positionalSurfaceMask() in TimeFrame.cxx and validateLegacyParity()) --
   // it is simply no longer read here. Each returned CellTopologyId is a
   // sparse identifier; only its numeric .value() is used, and only to index
-  // mTimeFrame->getCells(), the parity-validated legacy per-cell-topology
+  // mScratch->getCells(), the parity-validated legacy per-cell-topology
   // TimeFrame array (see the defensive count check in findRoads()). No
   // SurfaceId is used as a legacy layer/vector index anywhere in this
   // function.
@@ -1535,7 +1535,7 @@ void TrackerTraits<NLayers>::findRoadsForPolicy(const int iteration, const typen
       // Cell population is per-event/per-vertex data, never cached in
       // TransitionPolicyGrouping: this check must stay here, evaluated at
       // runtime against the current iVertex's TimeFrame content.
-      if (mTimeFrame->getCells()[startCellTopologyId].empty()) {
+      if (mScratch->getCells()[startCellTopologyId].empty()) {
         continue;
       }
 
@@ -1543,7 +1543,7 @@ void TrackerTraits<NLayers>::findRoadsForPolicy(const int iteration, const typen
       bounded_vector<int> lastCellTopologyId(mMemoryPool.get()), updatedCellTopologyId(mMemoryPool.get());
       bounded_vector<TrackSeedN> lastCellSeed(mMemoryPool.get()), updatedCellSeed(mMemoryPool.get());
 
-      processNeighbours<Tag>(iteration, startCellTopologyId, startLevel, mTimeFrame->getCells()[startCellTopologyId], lastCellId, lastCellTopologyId, updatedCellSeed, updatedCellId, updatedCellTopologyId, params);
+      processNeighbours<Tag>(iteration, startCellTopologyId, startLevel, mScratch->getCells()[startCellTopologyId], lastCellId, lastCellTopologyId, updatedCellSeed, updatedCellId, updatedCellTopologyId, params);
 
       int level = startLevel;
       while (level > 2 && !updatedCellSeed.empty()) {
@@ -1578,7 +1578,7 @@ void TrackerTraits<NLayers>::findRoadsForPolicy(const int iteration, const typen
                                                                      temporaryTrack,
                                                                      mTrkParams[iteration],
                                                                      mBz,
-                                                                     *mTimeFrame,
+                                                                     *mScratch,
                                                                      tfInfos,
                                                                      unsortedClusters,
                                                                      propagator,
@@ -1642,9 +1642,9 @@ void TrackerTraits<NLayers>::findRoadsForPolicy(const int iteration, const typen
 template <int NLayers>
 void TrackerTraits<NLayers>::acceptTracks(int iteration, bounded_vector<CATrackType<NLayers>>& tracks, bounded_vector<bounded_vector<int>>& firstClusters)
 {
-  auto& trks = mTimeFrame->getTracks();
+  auto& trks = mScratch->getTracks();
   trks.reserve(trks.size() + tracks.size());
-  const float smallestROFHalf = mTimeFrame->getROFOverlapTableView().getClockLayer().mROFLength * 0.5f;
+  const float smallestROFHalf = mScratch->getROFOverlapTableView().getClockLayer().mROFLength * 0.5f;
   for (auto& track : tracks) {
     int nShared = 0;
     bool isFirstShared{false};
@@ -1653,7 +1653,7 @@ void TrackerTraits<NLayers>::acceptTracks(int iteration, bounded_vector<CATrackT
       if (track.getClusterIndex(iLayer) == constants::UnusedIndex) {
         continue;
       }
-      bool isShared = mTimeFrame->isClusterUsed(iLayer, track.getClusterIndex(iLayer));
+      bool isShared = mScratch->isClusterUsed(iLayer, track.getClusterIndex(iLayer));
       nShared += int(isShared);
       if (firstLayer < 0) {
         firstCluster = track.getClusterIndex(iLayer);
@@ -1673,10 +1673,10 @@ void TrackerTraits<NLayers>::acceptTracks(int iteration, bounded_vector<CATrackT
       if (track.getClusterIndex(iLayer) == constants::UnusedIndex) {
         continue;
       }
-      mTimeFrame->markUsedCluster(iLayer, track.getClusterIndex(iLayer));
-      int currentROF = mTimeFrame->getClusterROF(iLayer, track.getClusterIndex(iLayer));
-      const auto nominalROFTS = mTimeFrame->getROFOverlapTableView().getLayer(iLayer).getROFTimeBounds(currentROF);
-      const auto expandedROFTS = mTimeFrame->getROFOverlapTableView().getLayer(iLayer).getROFTimeBounds(currentROF, true);
+      mScratch->markUsedCluster(iLayer, track.getClusterIndex(iLayer));
+      int currentROF = mScratch->getClusterROF(iLayer, track.getClusterIndex(iLayer));
+      const auto nominalROFTS = mScratch->getROFOverlapTableView().getLayer(iLayer).getROFTimeBounds(currentROF);
+      const auto expandedROFTS = mScratch->getROFOverlapTableView().getLayer(iLayer).getROFTimeBounds(currentROF, true);
       if (firstCls) {
         firstCls = false;
         nominalTS = nominalROFTS;
@@ -1715,7 +1715,7 @@ void TrackerTraits<NLayers>::markTracks(int iteration)
 {
   if (mTrkParams[iteration].AllowSharingFirstCluster) {
     /// Now we have to set the shared cluster flag
-    auto& tracks = mTimeFrame->getTracks();
+    auto& tracks = mScratch->getTracks();
 
     bounded_vector<int> fclusSort(tracks.size(), mMemoryPool.get());
     std::iota(fclusSort.begin(), fclusSort.end(), 0);
@@ -1728,7 +1728,7 @@ void TrackerTraits<NLayers>::markTracks(int iteration)
       if (t1FirstLayer != t2FirstLayer) {
         return false;
       }
-      if (mTimeFrame->getClusterROF(t1FirstLayer, t1.getClusterIndex(t1FirstLayer)) != mTimeFrame->getClusterROF(t2FirstLayer, t2.getClusterIndex(t2FirstLayer))) {
+      if (mScratch->getClusterROF(t1FirstLayer, t1.getClusterIndex(t1FirstLayer)) != mScratch->getClusterROF(t2FirstLayer, t2.getClusterIndex(t2FirstLayer))) {
         return false;
       }
       if (!math_utils::isPhiDifferenceBelow(t1.getPhi(), t2.getPhi(), mTrkParams[iteration].SharedClusterMaxDeltaPhi)) {
@@ -1762,7 +1762,7 @@ template <int NLayers>
 void TrackerTraits<NLayers>::setBz(float bz)
 {
   mBz = bz;
-  mTimeFrame->setBz(bz);
+  mFrame->setBz(bz);
 }
 
 template <int NLayers>
