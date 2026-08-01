@@ -993,3 +993,56 @@ BOOST_AUTO_TEST_CASE(CommonTrackOutputAdapterStagesITSAndFailsClosed)
   BOOST_CHECK_EQUAL(fixture.tf.getCommonTracks().size(), oldTracks);
   BOOST_CHECK_EQUAL(fixture.tf.getTrackClusterIndices().size(), oldReferences);
 }
+
+BOOST_AUTO_TEST_CASE(CommonTrackOutputAdapterStagesMFTAndRejectsMissingSidecar)
+{
+  const auto layout = makeCombinedLayout();
+  TimeFrame frame;
+  frame.commitNormalizedFrame(makeThreeMeasurementFrame(layout));
+  CommonTrackShadowRecord record;
+  record.track.innerState.family = StateFamily::Forward;
+  record.track.outerState.family = StateFamily::Forward;
+  record.track.innerState.referenceCoordinate = -77.f;
+  record.track.outerState.referenceCoordinate = -12.f;
+  for (uint8_t i = 0; i < 5; ++i) {
+    record.track.innerState.parameters[i] = 0.5f + i;
+    record.track.outerState.parameters[i] = 3.5f + i;
+  }
+  for (uint8_t i = 0; i < 15; ++i) {
+    record.track.innerState.covariance[i] = 0.01f * (i + 1);
+    record.track.outerState.covariance[i] = 0.02f * (i + 1);
+  }
+  record.track.chi2 = 8.f;
+  record.track.timestamp = {100, 124};
+  record.track.hitSurfaces.set(SurfaceId{3});
+  record.references.push_back({SurfaceId{3}, SurfaceMeasurementIndex{0}});
+  MFTPublicationCompatibility sidecar;
+  MFTPublicationCompatibilityTransaction tx{sidecar, 0.25, 1.5, 0x51u};
+  BOOST_REQUIRE(publishCommonTrackShadow(frame, record, tx, [](CommonTrackShadowPublishStep) {}));
+  const auto& measurement = *frame.getNormalizedFrame().getMeasurement(SurfaceId{3}, SurfaceMeasurementIndex{0});
+  const std::vector<ROFRecord> rofs{ROFRecord{{7, 9}, 2, 4, 5}};
+  CommonTrackOutputAdapterError error = CommonTrackOutputAdapterError::None;
+  const CommonTrackOutputTimingContext timing{rofs, 9, [](const o2::its::TimeStamp&) { return 0; }};
+  const std::array<SurfaceId, 1> surfaces{SurfaceId{3}};
+  const auto output = stageMFTCommonTrackOutput(frame, measurement.cluster.source, surfaces, timing, sidecar, true, error);
+  BOOST_REQUIRE(output);
+  BOOST_REQUIRE_EQUAL(output->tracks.size(), 1u);
+  BOOST_CHECK_EQUAL(output->tracks[0].getZ(), -77.);
+  BOOST_CHECK_EQUAL(output->tracks[0].getOutParam().getZ(), -12.);
+  BOOST_CHECK_EQUAL(output->tracks[0].getCovariances()(4, 3), record.track.innerState.covariance[packedCovarianceIndex(4, 3)]);
+  BOOST_CHECK_EQUAL(output->tracks[0].getOutParam().getCovariances()(4, 3), record.track.outerState.covariance[packedCovarianceIndex(4, 3)]);
+  BOOST_CHECK_EQUAL(output->tracks[0].getTrackChi2(), 8.);
+  BOOST_CHECK_EQUAL(output->tracks[0].getInvQPtSeed(), .25);
+  BOOST_CHECK_EQUAL(output->tracks[0].getChi2QPtSeed(), 1.5);
+  BOOST_CHECK_EQUAL(output->seedPatterns[0], 0x51u);
+  BOOST_CHECK_EQUAL(output->clusterIndices[0], static_cast<int>(measurement.cluster.index));
+  BOOST_CHECK_EQUAL(output->trackROFs[0].getFirstEntry(), 0);
+  BOOST_CHECK_EQUAL(output->trackROFs[0].getNEntries(), 1);
+  BOOST_CHECK_EQUAL(output->trackROFs[0].getFlags(), rofs[0].getFlags());
+
+  MFTPublicationCompatibility missing;
+  BOOST_CHECK(!stageMFTCommonTrackOutput(frame, measurement.cluster.source, surfaces, timing, missing, false, error));
+  BOOST_CHECK(error == CommonTrackOutputAdapterError::MissingCompatibility);
+  BOOST_CHECK_EQUAL(frame.getCommonTracks().size(), 1u);
+  BOOST_CHECK_EQUAL(frame.getTrackClusterIndices().size(), 1u);
+}
