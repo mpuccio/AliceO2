@@ -77,6 +77,7 @@
 #include "ITSMFTTracking/LegacyTrackerScratch.h"
 #include "ITSMFTTracking/MultiSourceFrame.h"
 #include "ITSMFTTracking/MultiSourceLoading.h"
+#include "ITSMFTTracking/MultiSourceTimeFrameLoader.h"
 #include "ITSMFTTracking/SurfaceDescriptor.h"
 #include "ITSMFTTracking/SurfaceMeasurementAdapters.h"
 #include "ITSMFTTracking/TimeFrame.h"
@@ -264,6 +265,61 @@ const std::vector<Expected> expectedClusters{
   {2, 0, 0, 12, 22, 1, 1, 1, 1},
   {3, 2, 2, 13, 23, 2, 3, 1, 3},
 };
+
+BOOST_AUTO_TEST_CASE(combined_owner_load_keeps_detector_backfills_separate)
+{
+  auto its = makeFixture(o2::detectors::DetID::ITS, false);
+  auto mft = makeFixture(o2::detectors::DetID::MFT, true);
+  std::vector<SurfaceDescriptor> catalog;
+  for (uint16_t layer = 0; layer < ITSNLayers; ++layer) {
+    catalog.push_back({SurfaceId{layer}, layer, static_cast<uint8_t>(o2::detectors::DetID::ITS), SurfaceKind::Cylinder});
+  }
+  for (uint16_t layer = 0; layer < MFTNLayers; ++layer) {
+    catalog.push_back({SurfaceId{static_cast<uint16_t>(ITSNLayers + layer)}, layer,
+                       static_cast<uint8_t>(o2::detectors::DetID::MFT), SurfaceKind::Disk});
+  }
+  const std::array<SurfaceId, ITSNLayers> itsSurfaces{SurfaceId{0}, SurfaceId{1}, SurfaceId{2}, SurfaceId{3}, SurfaceId{4}, SurfaceId{5}, SurfaceId{6}};
+  std::array<SurfaceId, MFTNLayers> mftSurfaces{};
+  for (uint16_t layer = 0; layer < MFTNLayers; ++layer) {
+    mftSurfaces[layer] = SurfaceId{static_cast<uint16_t>(ITSNLayers + layer)};
+  }
+  LegacyLikeDecoder itsDecoder{o2::detectors::DetID::ITS, false};
+  LegacyLikeDecoder mftDecoder{o2::detectors::DetID::MFT, true};
+  const ROFTimingConfig timing{40, 0, 0, 0};
+  ClusterSourceInput itsSource{ClusterSourceId{0}, o2::detectors::DetID::ITS, its.clusters, its.patterns, its.rofs, &dict(), &its.labels,
+                               itsSurfaces, timing, &itsDecoder};
+  ClusterSourceInput mftSource{ClusterSourceId{1}, o2::detectors::DetID::MFT, mft.clusters, mft.patterns, mft.rofs, &dict(), &mft.labels,
+                               mftSurfaces, timing, &mftDecoder};
+  TimeFrame frame;
+  LegacyTrackerScratchITS itsScratch;
+  LegacyTrackerScratchMFT mftScratch;
+  const SurfaceCatalogView view{catalog.data(), static_cast<uint32_t>(catalog.size())};
+  BOOST_REQUIRE(MultiSourceTimeFrameLoader::loadITSAndMFT(frame, itsScratch, mftScratch, itsSource, mftSource, view, {50, 5}).ok());
+  BOOST_CHECK_EQUAL(frame.getNormalizedFrame().getSources().size(), 2u);
+  BOOST_CHECK_EQUAL(frame.getNormalizedFrame().getSurfaceMeasurements(SurfaceId{0}).size(), 2u);
+  BOOST_CHECK_EQUAL(frame.getNormalizedFrame().getSurfaceMeasurements(SurfaceId{static_cast<uint16_t>(ITSNLayers)}).size(), 2u);
+  BOOST_CHECK_EQUAL(itsScratch.getTotalClusters(), static_cast<int>(its.clusters.size()));
+  BOOST_CHECK_EQUAL(mftScratch.getTotalClusters(), static_cast<int>(mft.clusters.size()));
+  BOOST_CHECK(frame.getNormalizedFrame().getSurfaceMeasurements(SurfaceId{0})[0].cluster.source == ClusterSourceId{0});
+  BOOST_CHECK(frame.getNormalizedFrame().getSurfaceMeasurements(SurfaceId{static_cast<uint16_t>(ITSNLayers)})[0].cluster.source == ClusterSourceId{1});
+
+  // A detector-local scratch reset cannot clear the owner or the other bridge.
+  itsScratch.resetScratch();
+  BOOST_CHECK(itsScratch.empty());
+  BOOST_CHECK(!mftScratch.empty());
+  BOOST_CHECK_EQUAL(frame.getNormalizedFrame().getSources().size(), 2u);
+
+  // A malformed replacement is rejected before the no-throw three-owner
+  // commit; the still-live MFT bridge and shared normalized owner survive.
+  auto malformedMFT = mftSource;
+  malformedMFT.patterns = {};
+  BOOST_CHECK(!MultiSourceTimeFrameLoader::loadITSAndMFT(frame, itsScratch, mftScratch, itsSource, malformedMFT, view, {50, 5}).ok());
+  BOOST_CHECK(!mftScratch.empty());
+  BOOST_CHECK_EQUAL(frame.getNormalizedFrame().getSources().size(), 2u);
+  MultiSourceTimeFrameLoader::resetITSAndMFTEvent(frame, itsScratch, mftScratch);
+  BOOST_CHECK(mftScratch.empty());
+  BOOST_CHECK(frame.getNormalizedFrame().getSources().empty());
+}
 
 template <int NLayers>
 void checkParity(std::vector<SurfaceDescriptor> catalog, TransitionPolicyTag policyTag, const Fixture& f)

@@ -97,6 +97,8 @@ class ROFRecord;
 namespace itsmft::tracking
 {
 
+class MultiSourceTimeFrameLoader;
+
 // Re-use ITS CA tracking data structures; only LegacyTrackerScratch and
 // index-table I/O are detector-aware.
 using Cluster = o2::its::Cluster;
@@ -134,6 +136,12 @@ struct LegacyTrackerScratch {
 
   LegacyTrackerScratch() = default;
   virtual ~LegacyTrackerScratch() = default;
+
+  // The dormant combined-owner loader stages a second scratch with these
+  // exact allocator owners, then exchanges only the normalized-load legacy
+  // backfill in its final no-throw commit. It is deliberately the sole
+  // friend: neither TimeFrame nor a tracker gains access to scratch state.
+  friend class MultiSourceTimeFrameLoader;
 
  protected:
   // Both host memory-pool owners below must be declared -- and therefore

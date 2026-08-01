@@ -51,6 +51,7 @@ o2_add_library(ITSMFTTracking
                        src/MFTFwdTrackHelpers.cxx
                        src/MultiSourceFrame.cxx
                        src/MultiSourceLoading.cxx
+                       src/MultiSourceTimeFrameLoader.cxx
                        src/TimeFrameLoadFailure.cxx
                PUBLIC_LINK_LIBRARIES
                        O2::ITSMFTTrackingParams
