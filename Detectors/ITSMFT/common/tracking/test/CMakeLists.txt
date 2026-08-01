@@ -299,6 +299,12 @@ o2_add_test(combined-static-surface-catalog-topology
             LABELS "itsmft;tracking"
             PUBLIC_LINK_LIBRARIES O2::ITSMFTTracking)
 
+o2_add_test(detector-traversal-binding
+            SOURCES testDetectorTraversalBinding.cxx
+            COMPONENT_NAME itsmft-tracking
+            LABELS "itsmft;tracking"
+            PUBLIC_LINK_LIBRARIES O2::ITSMFTTracking)
+
 o2_add_test(its-common-ca-tracking-mode-configuration
             SOURCES testITSCommonCATrackingModeConfiguration.cxx
             COMPONENT_NAME itsmft-tracking
