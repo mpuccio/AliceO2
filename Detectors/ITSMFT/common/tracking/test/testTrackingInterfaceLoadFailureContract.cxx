@@ -226,11 +226,9 @@ struct TestTraits<10> {
 // unconditionally from the compile-time-selected static per-detector
 // catalog, so no separate layout-configuration call is needed or possible
 // any more) ready for processTimeFrame(). decoderOut is a non-owning
-// observer into the interface's injected decoder. The 5-arg constructor's
-// `catalogProvider` parameter is passed nullptr: it is no longer consulted
-// by plan-building at all, kept only for constructor-signature/test-fixture
-// compatibility until the provider classes themselves are removed in a
-// later slice (see TrackingInterface.h's own comment on mDetectorSurfaceCatalogProvider).
+// observer into the interface's injected decoder, passed via the 4-arg
+// constructor overload (Gate 4 B2 Slice 3 removed the catalogProvider
+// parameter the 5-arg overload used to take).
 // Returned via unique_ptr, not by value: ITSMFTTrackingInterface has
 // unique_ptr members (mTrackerTraits, mTracker, ...), so its copy
 // constructor is deleted and its implicit move constructor is not
@@ -250,7 +248,7 @@ std::unique_ptr<ITSMFTTrackingInterface<NLayers>> makeReadyInterface(DecoderT*& 
   decoderOut = decoder.get();
 
   auto interface = std::make_unique<ITSMFTTrackingInterface<NLayers>>(
-    false, o2::itsmft::TrackingMode::Sync, false, nullptr, std::move(decoder));
+    false, o2::itsmft::TrackingMode::Sync, false, std::move(decoder));
   interface->initialise();
   BOOST_REQUIRE(interface->isActive());
   interface->setClusterDictionary(&dict());
@@ -414,7 +412,7 @@ void checkDictionaryNotConfiguredIsStructural()
   using Traits = TestTraits<NLayers>;
   auto decoderOwner = std::make_unique<OneLayerDecoder>(Traits::detId, Traits::kind);
   decoder = decoderOwner.get();
-  ITSMFTTrackingInterface<NLayers> interface{false, o2::itsmft::TrackingMode::Sync, false, nullptr, std::move(decoderOwner)};
+  ITSMFTTrackingInterface<NLayers> interface{false, o2::itsmft::TrackingMode::Sync, false, std::move(decoderOwner)};
   interface.initialise();
   // setClusterDictionary() deliberately never called.
 
@@ -556,7 +554,7 @@ void checkNoCallbacksPastLoadFailure()
 {
   using Traits = TestTraits<NLayers>;
   auto decoderOwner = std::make_unique<OneLayerDecoder>(Traits::detId, Traits::kind);
-  CountingInterface<NLayers> interface{false, o2::itsmft::TrackingMode::Sync, false, nullptr, std::move(decoderOwner)};
+  CountingInterface<NLayers> interface{false, o2::itsmft::TrackingMode::Sync, false, std::move(decoderOwner)};
   interface.initialise();
   interface.setClusterDictionary(&dict());
 

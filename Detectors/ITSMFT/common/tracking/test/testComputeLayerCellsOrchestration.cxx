@@ -51,7 +51,6 @@
 #include "ITSMFTTracking/Configuration.h"
 #include "ITSMFTTracking/DecodedCluster.h"
 #include "ITSMFTTracking/DetectorLayout.h"
-#include "ITSMFTTracking/DetectorSurfaceCatalogProvider.h"
 #include "ITSMFTTracking/MultiSourceLoading.h"
 #include "ITSMFTTracking/SurfaceDescriptor.h"
 #include "ITSMFTTracking/TimeFrame.h"

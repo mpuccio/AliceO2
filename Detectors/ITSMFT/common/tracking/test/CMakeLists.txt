@@ -281,28 +281,12 @@ o2_add_test(computelayertracklets-orchestration
             LABELS "itsmft;tracking"
             PUBLIC_LINK_LIBRARIES O2::ITSMFTTracking O2::MFTTracking)
 
-o2_add_test(detector-surface-catalog-aggregation
-            SOURCES testDetectorSurfaceCatalogAggregation.cxx
-            COMPONENT_NAME itsmft-tracking
-            LABELS "itsmft;tracking"
-            PUBLIC_LINK_LIBRARIES O2::ITSMFTTracking)
-
-o2_add_test(geometry-surface-catalog-providers
-            SOURCES testGeometrySurfaceCatalogProviders.cxx
-            COMPONENT_NAME itsmft-tracking
-            LABELS "itsmft;tracking"
-            PUBLIC_LINK_LIBRARIES O2::ITSMFTTracking)
-
-o2_add_test(combined-surface-catalog-builder
-            SOURCES testCombinedSurfaceCatalogBuilder.cxx
-            COMPONENT_NAME itsmft-tracking
-            LABELS "itsmft;tracking"
-            PUBLIC_LINK_LIBRARIES O2::ITSMFTTracking)
-
 # Gate 4 B2 Slice 1: replacement combined-layout test over the static,
-# compile-time-concatenated ITS+MFT catalog (StaticDetectorCatalogs.h).
-# CombinedSurfaceCatalogBuilder and its test above stay untouched until Gate
-# 4 B2 Slice 3.
+# compile-time-concatenated ITS+MFT catalog (StaticDetectorCatalogs.h). Gate
+# 4 B2 Slice 3 deleted CombinedSurfaceCatalogBuilder, its test, the runtime
+# catalog providers, and moved DetectorSurfaceCatalogAggregation into the
+# detached validator target (see ../validation/test/CMakeLists.txt) -- this
+# is now the sole combined-catalog coverage.
 o2_add_test(combined-static-surface-catalog-topology
             SOURCES testCombinedStaticSurfaceCatalogTopology.cxx
             COMPONENT_NAME itsmft-tracking

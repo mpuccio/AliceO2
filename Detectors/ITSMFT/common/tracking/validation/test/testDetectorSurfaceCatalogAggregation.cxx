@@ -14,7 +14,7 @@
 #include <cmath>
 #include <limits>
 
-#include "../src/DetectorSurfaceCatalogAggregation.h"
+#include "DetectorSurfaceCatalogAggregation.h"
 #include "ITSMFTBase/SegmentationAlpide.h"
 
 using namespace o2::itsmft::tracking::detail;

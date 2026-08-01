@@ -9,6 +9,15 @@
 # granted to it by virtue of its status as an Intergovernmental Organization
 # or submit itself to any jurisdiction.
 
+# Gate 4 B2 Slice 3: moved here (from ../../test) with
+# DetectorSurfaceCatalogAggregation.{h,cxx} itself, now that this validator
+# target is aggregateSurfaceGeometry()'s sole owner/compiler.
+o2_add_test(detector-surface-catalog-aggregation
+            SOURCES testDetectorSurfaceCatalogAggregation.cxx
+            COMPONENT_NAME itsmft
+            LABELS "itsmft;validation"
+            PUBLIC_LINK_LIBRARIES O2::ITSMFTNominalGeometryValidatorCore)
+
 o2_add_test(nominal-geometry-validator-args
             SOURCES testValidatorArgs.cxx
             COMPONENT_NAME itsmft

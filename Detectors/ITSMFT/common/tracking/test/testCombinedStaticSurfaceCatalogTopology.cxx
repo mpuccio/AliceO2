@@ -7,15 +7,14 @@
 //
 // Gate 4 B2 Slice 1: replacement combined-layout test proving the static,
 // compile-time-concatenated ITS+MFT catalog (StaticDetectorCatalogs.h)
-// reproduces the same one-global-id-space guarantees that
+// reproduces the same one-global-id-space guarantees that the now-deleted
 // testCombinedSurfaceCatalogBuilder.cxx's
 // CombinedLayoutPreservesCurrentHoleSemanticsUnderGlobalIds established for
-// the runtime CombinedSurfaceCatalogBuilder -- now from a static, borrowed
-// source instead of a per-call runtime build. This test does not replace
-// that one yet: CombinedSurfaceCatalogBuilder and its test are untouched by
-// this slice and stay exactly as they are until Gate 4 B2 Slice 3, which
-// only deletes them once this replacement is already in place and passing
-// (never independently beforehand).
+// the (also now-deleted) runtime CombinedSurfaceCatalogBuilder -- now from a
+// static, borrowed source instead of a per-call runtime build. Gate 4 B2
+// Slice 3 deleted CombinedSurfaceCatalogBuilder and its test once this
+// replacement was already in place and passing (never independently
+// beforehand): this is now the sole combined-catalog coverage.
 //
 // Proves, all at construction time, with no tracker/TimeFrame/workflow
 // involved:
