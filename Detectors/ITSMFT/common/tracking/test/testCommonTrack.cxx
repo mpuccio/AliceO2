@@ -33,6 +33,7 @@
 
 #include <array>
 #include <optional>
+#include <stdexcept>
 #include <type_traits>
 #include <vector>
 
@@ -46,6 +47,7 @@
 #include "ITSMFTTracking/ClusterDecoder.h"
 #include "ITSMFTTracking/ClusterSource.h"
 #include "ITSMFTTracking/CommonTrack.h"
+#include "ITSMFTTracking/CommonTrackShadow.h"
 #include "ITSMFTTracking/DecodedCluster.h"
 #include "ITSMFTTracking/DetectorLayout.h"
 #include "ITSMFTTracking/DetectorLayoutSet.h"
@@ -628,6 +630,17 @@ struct TimeFrameFixture {
   }
 };
 
+CommonTrackShadowRecord makeShadowRecord()
+{
+  CommonTrackShadowRecord record;
+  record.track.innerState.family = StateFamily::Barrel;
+  record.track.outerState.family = StateFamily::Barrel;
+  record.track.timestamp = {100, 140};
+  record.track.hitSurfaces.set(SurfaceId{0});
+  record.references.push_back({SurfaceId{0}, SurfaceMeasurementIndex{0}});
+  return record;
+}
+
 // Populates tf's CommonTrack/trackClusterIndices with arbitrary, self-
 // consistent content so a subsequent clear can be observed.
 void populateCommonResults(TimeFrame& tf)
@@ -659,6 +672,60 @@ BOOST_AUTO_TEST_CASE(SuccessfulReloadClearsCommonTrackAndTrackClusterIndices)
   // that same successful commit, since they are no longer meaningful once
   // the frame they referenced is gone.
   BOOST_REQUIRE(fixture.load().ok());
+  BOOST_CHECK(fixture.tf.getCommonTracks().empty());
+  BOOST_CHECK(fixture.tf.getTrackClusterIndices().empty());
+}
+
+BOOST_AUTO_TEST_CASE(CommonTrackShadowPublishesOneAtomicRange)
+{
+  TimeFrameFixture fixture;
+  BOOST_REQUIRE(fixture.load().ok());
+  const auto record = makeShadowRecord();
+
+  publishCommonTrackShadow(fixture.tf, record);
+  BOOST_REQUIRE_EQUAL(fixture.tf.getCommonTracks().size(), 1u);
+  BOOST_REQUIRE_EQUAL(fixture.tf.getTrackClusterIndices().size(), 1u);
+  const auto& track = fixture.tf.getCommonTracks().front();
+  BOOST_CHECK_EQUAL(track.firstClusterRef, 0u);
+  BOOST_CHECK_EQUAL(track.clusterRefEnd, 1u);
+  BOOST_CHECK(isValidTrackRange(track, static_cast<uint32_t>(fixture.tf.getTrackClusterIndices().size())));
+  const auto& reference = fixture.tf.getTrackClusterIndices().front();
+  const auto* measurement = fixture.tf.getNormalizedFrame().getMeasurement(reference.surface, reference.index);
+  BOOST_REQUIRE(measurement != nullptr);
+  BOOST_CHECK(measurement->surface == reference.surface);
+
+  // A second owner-thread merge is contiguous and non-overlapping.
+  publishCommonTrackShadow(fixture.tf, record);
+  BOOST_REQUIRE_EQUAL(fixture.tf.getCommonTracks().size(), 2u);
+  BOOST_REQUIRE_EQUAL(fixture.tf.getTrackClusterIndices().size(), 2u);
+  BOOST_CHECK_EQUAL(fixture.tf.getCommonTracks()[1].firstClusterRef, 1u);
+  BOOST_CHECK_EQUAL(fixture.tf.getCommonTracks()[1].clusterRefEnd, 2u);
+}
+
+BOOST_AUTO_TEST_CASE(CommonTrackShadowRollsBackEveryInjectedPublicationFailure)
+{
+  TimeFrameFixture fixture;
+  BOOST_REQUIRE(fixture.load().ok());
+  const auto record = makeShadowRecord();
+
+  const std::array steps{
+    CommonTrackShadowPublishStep::BeforeReferenceReserve,
+    CommonTrackShadowPublishStep::BeforeTrackReserve,
+    CommonTrackShadowPublishStep::BeforeReferences,
+    CommonTrackShadowPublishStep::BeforeTrack};
+  for (const auto step : steps) {
+    BOOST_CHECK_THROW(publishCommonTrackShadow(fixture.tf, record, [step](CommonTrackShadowPublishStep reached) {
+      if (reached == step) {
+        throw std::bad_alloc{};
+      }
+    }), std::bad_alloc);
+    BOOST_CHECK(fixture.tf.getCommonTracks().empty());
+    BOOST_CHECK(fixture.tf.getTrackClusterIndices().empty());
+  }
+
+  auto invalid = record;
+  invalid.references[0].surface = SurfaceId{1};
+  publishCommonTrackShadow(fixture.tf, invalid);
   BOOST_CHECK(fixture.tf.getCommonTracks().empty());
   BOOST_CHECK(fixture.tf.getTrackClusterIndices().empty());
 }

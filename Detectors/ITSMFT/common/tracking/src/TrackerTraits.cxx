@@ -29,11 +29,13 @@
 #include "GPUCommonMath.h"
 #include "ITStracking/BoundedAllocator.h"
 #include "ITSMFTTracking/Cell.h"
+#include "ITSMFTTracking/CommonTrackShadow.h"
 #include "ITStracking/Constants.h"
 #include "ITSMFTTracking/Configuration.h"
 #include "ITSMFTTracking/DetectorTraits.h"
 #include "ITSMFTTracking/IndexTableConfiguration.h"
 #include "ITSMFTTracking/MFTFwdTrackHelpers.h"
+#include "ITSMFTTracking/SurfaceKinematicStateLegacyAdapters.h"
 #include "ITSMFTTracking/IndexTableUtils.h"
 #include "ITSMFTTracking/LayerMask.h"
 #include "ITStracking/ROFLookupTables.h"
@@ -84,6 +86,46 @@ Vertex diamondVertexForROF(const Vertex& base, const ROFOverlapView& rofOverlapV
   Vertex v = base;
   v.setTimeStamp(rofOverlapView.getLayer(layer).getROFTimeBounds(rofId, true));
   return v;
+}
+
+template <int NLayers>
+bool makeAcceptedTrackShadow(const CATrackType<NLayers>& track,
+                             const LayerMeasurementSpans<NLayers>& layerMeasurements,
+                             const TimeEstBC& selectedTimestamp,
+                             CommonTrackShadowRecord& record)
+{
+  record = {};
+  if constexpr (DetectorTraits<NLayers>::DetId == o2::detectors::DetID::ITS) {
+    if (!legacy::importBarrelTrackParCov(track.getParamIn(), record.track.innerState) ||
+        !legacy::importBarrelTrackParCov(track.getParamOut(), record.track.outerState)) {
+      return false;
+    }
+  } else {
+    if (!legacy::importLegacyForwardTrackParCov(track.getTrack(), record.track.innerState) ||
+        !legacy::importLegacyForwardTrackParCov(track.getTrack().getOutParam(), record.track.outerState)) {
+      return false;
+    }
+  }
+  record.track.chi2 = track.getChi2();
+  record.track.timestamp = {static_cast<TFBC>(selectedTimestamp.lower()), static_cast<TFBC>(selectedTimestamp.upper())};
+  record.references.reserve(NLayers);
+  for (int layer = 0; layer < NLayers; ++layer) {
+    const int localIndex = track.getClusterIndex(layer);
+    if (localIndex == constants::UnusedIndex) {
+      continue;
+    }
+    if (localIndex < 0 || static_cast<size_t>(localIndex) >= layerMeasurements[layer].size()) {
+      return false;
+    }
+    const auto& measurement = layerMeasurements[layer][localIndex];
+    const TrackClusterReference reference{measurement.surface, SurfaceMeasurementIndex{static_cast<uint32_t>(localIndex)}};
+    if (!reference.surface.isValid() || measurement.surface != reference.surface || !measurement.cluster.isValid()) {
+      return false;
+    }
+    record.references.push_back(reference);
+    record.track.hitSurfaces.set(reference.surface);
+  }
+  return !record.references.empty();
 }
 } // namespace
 
@@ -1695,7 +1737,8 @@ void TrackerTraits<NLayers>::acceptTracks(int iteration, bounded_vector<CATrackT
         expandedTS += expandedROFTS;
       }
     }
-    track.getTimeStamp() = (nominalCompatible ? nominalTS : expandedTS).makeSymmetrical();
+    const auto selectedTimestamp = nominalCompatible ? nominalTS : expandedTS;
+    track.getTimeStamp() = selectedTimestamp.makeSymmetrical();
     // this is a sanity clamp
     // we cannot be worse than the clock so we clamp to this
     if (track.getTimeStamp().getTimeStampError() > smallestROFHalf) {
@@ -1703,6 +1746,16 @@ void TrackerTraits<NLayers>::acceptTracks(int iteration, bounded_vector<CATrackT
     }
     DetectorTraits<NLayers>::clearTransientLayerPattern(track);
     trks.emplace_back(track);
+
+    // Shadow-only owner-thread publication. The candidate/refit loops above
+    // may be parallel, but acceptTracks() runs after they have joined and is
+    // the one deterministic legacy accepted-track order. Do not move this
+    // into a task-arena worker or GPU path.
+    CommonTrackShadowRecord shadow;
+    if (!makeAcceptedTrackShadow<NLayers>(track, mLayerMeasurements, selectedTimestamp, shadow) ||
+        !publishCommonTrackShadow(*mFrame, shadow)) {
+      LOGP(fatal, "CommonTrack shadow construction failed for an accepted {} CA track", DetectorTraits<NLayers>::DetId == o2::detectors::DetID::ITS ? "ITS" : "MFT");
+    }
 
     if (mTrkParams[iteration].AllowSharingFirstCluster) {
       firstClusters[firstLayer].push_back(firstCluster);
