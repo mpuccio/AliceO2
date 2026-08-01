@@ -38,6 +38,7 @@
 #include "ITSMFTTracking/Tracker.h"
 #include "ITSMFTTracking/Configuration.h"
 #include "ITSMFTTracking/LegacyTrackerScratch.h"
+#include "ITSMFTTracking/MFTPublicationCompatibility.h"
 #include "ITSMFTTracking/TimeFrame.h"
 #include "ITSMFTTracking/TrackerTraits.h"
 #include "ITStracking/BoundedAllocator.h"
@@ -49,7 +50,16 @@ namespace o2::itsmft::tracking
 {
 
 template <int NLayers>
-class ITSMFTTrackingInterface
+struct MFTPublicationCompatibilityOwner {
+};
+
+template <>
+struct MFTPublicationCompatibilityOwner<o2::mft::constants::mft::LayersNumber> {
+  MFTPublicationCompatibility sidecar;
+};
+
+template <int NLayers>
+class ITSMFTTrackingInterface : private MFTPublicationCompatibilityOwner<NLayers>
 {
  public:
   static_assert(NLayers == ITSNLayers || NLayers == o2::mft::constants::mft::LayersNumber,
@@ -106,16 +116,28 @@ class ITSMFTTrackingInterface
                          const o2::dataformats::MCTruthContainer<o2::MCCompLabel>* labels,
                          gsl::span<const o2::dataformats::IRFrame> irFrames = {});
 
-  // Owner-level reset for this single-detector bridge (Gate 4 B3.1): resets
-  // mScratch first, then wipes mFrame, exactly once each, via the shared
-  // resetTimeFrameEvent() helper (LegacyTrackerScratch.h) -- no caller of
-  // this class ever coordinates the two independently.
-  void resetEvent() { resetTimeFrameEvent(mFrame, mScratch); }
+  // Owner-level reset for this single-detector bridge. The MFT-only
+  // compatibility sidecar is cleared with the shared frame, never by a
+  // scratch-only reset (which deliberately preserves CommonTrack indices).
+  void resetEvent()
+  {
+    if constexpr (DetId == o2::detectors::DetID::MFT) {
+      static_cast<MFTPublicationCompatibilityOwner<NLayers>&>(*this).sidecar.clear();
+    }
+    resetTimeFrameEvent(mFrame, mScratch);
+  }
 
   TimeFrame& getTimeFrame() { return mFrame; }
   const TimeFrame& getTimeFrame() const { return mFrame; }
   ScratchN& getScratch() { return mScratch; }
   const ScratchN& getScratch() const { return mScratch; }
+  const MFTPublicationCompatibility* getMFTPublicationCompatibility() const noexcept
+  {
+    if constexpr (DetId == o2::detectors::DetID::MFT) {
+      return &static_cast<const MFTPublicationCompatibilityOwner<NLayers>&>(*this).sidecar;
+    }
+    return nullptr;
+  }
   const std::vector<o2::itsmft::TrackingParameters>& getTrackingParameters() const { return mTrackParams; }
   bool isActive() const { return !mTrackParams.empty(); }
   // Actual tbb::task_arena concurrency the tracker was constructed with (0

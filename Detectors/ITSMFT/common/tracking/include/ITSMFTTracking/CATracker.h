@@ -24,6 +24,7 @@
 #include "ITSMFTTracking/Configuration.h"
 #include "ITSMFTTracking/DetectorLayoutSet.h"
 #include "ITSMFTTracking/LegacyTrackerScratch.h"
+#include "ITSMFTTracking/MFTPublicationCompatibility.h"
 #include "ITSMFTTracking/TimeFrame.h"
 #include "ITSMFTTracking/TrackerTraits.h"
 
@@ -67,6 +68,11 @@ class Tracker
   // must each outlive every subsequent clustersToTracks() call.
   void adoptScratch(ScratchN& scratch);
   void adoptFrame(TimeFrame& frame);
+  void adoptMFTPublicationCompatibility(MFTPublicationCompatibility& compatibility)
+  {
+    mMFTPublicationCompatibility = &compatibility;
+    mTraits->adoptMFTPublicationCompatibility(&compatibility);
+  }
   // Binds the tracker's one immutable plan, owned by its caller
   // (ITSMFTTrackingInterface) -- mirrors adoptScratch()'s bind-once pattern.
   // `plan` must outlive every subsequent clustersToTracks() call.
@@ -107,6 +113,7 @@ class Tracker
   const DetectorLayoutSet* mLayoutPlan = nullptr;
   std::vector<TrackingParameters> mTrkParams;
   std::shared_ptr<BoundedMemoryResource> mMemoryPool;
+  MFTPublicationCompatibility* mMFTPublicationCompatibility = nullptr;
 };
 
 template <int NLayers>

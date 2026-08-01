@@ -25,6 +25,7 @@
 #include <oneapi/tbb.h>
 
 #include "ITSMFTTracking/Configuration.h"
+#include "ITSMFTTracking/AcceptedTrackShadowPublisher.h"
 #include "ITSMFTTracking/DetectorLayoutSet.h"
 #include "ITSMFTTracking/LegacyTrackerScratch.h"
 #include "ITSMFTTracking/SurfaceDescriptor.h"
@@ -145,6 +146,7 @@ class TrackerTraits
   // contract doc).
   virtual void adoptScratch(ScratchN* scratch) { mScratch = scratch; }
   virtual void adoptFrame(TimeFrame* frame) { mFrame = frame; }
+  void adoptMFTPublicationCompatibility(MFTPublicationCompatibility* compatibility) noexcept { mAcceptedTrackShadowPublisher.adoptMFTPublicationCompatibility(compatibility); }
   // `layouts` is the owner's (ITSMFTTrackingInterface's) one immutable plan,
   // supplied explicitly by the caller (Gate 4 B2 Slice 2) -- this no longer
   // reads any layout/catalog state off TimeFrame.
@@ -320,6 +322,9 @@ class TrackerTraits
   std::array<gsl::span<const SurfaceMeasurement>, NLayers> mLayerMeasurements{};
   int mTraversalGroupingCount{0};
   std::array<int, 2> mPolicyBindingCounts{};
+  // A template-specialized serial accepted-track hook. Its ITS instantiation
+  // is empty and has no MFT compatibility allocation or lookup.
+  AcceptedTrackShadowPublisher<NLayers> mAcceptedTrackShadowPublisher;
 
  protected:
   ScratchN* mScratch = nullptr;

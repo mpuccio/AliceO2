@@ -1753,7 +1753,7 @@ void TrackerTraits<NLayers>::acceptTracks(int iteration, bounded_vector<CATrackT
     // into a task-arena worker or GPU path.
     CommonTrackShadowRecord shadow;
     if (!makeAcceptedTrackShadow<NLayers>(track, mLayerMeasurements, selectedTimestamp, shadow) ||
-        !publishCommonTrackShadow(*mFrame, shadow)) {
+        !mAcceptedTrackShadowPublisher.publish(*mFrame, shadow, track)) {
       LOGP(fatal, "CommonTrack shadow construction failed for an accepted {} CA track", DetectorTraits<NLayers>::DetId == o2::detectors::DetID::ITS ? "ITS" : "MFT");
     }
 

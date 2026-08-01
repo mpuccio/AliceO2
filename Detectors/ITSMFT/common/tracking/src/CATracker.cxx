@@ -102,12 +102,18 @@ float Tracker<NLayers>::clustersToTracks()
     // never applies. Always reset before propagating -- see class-level
     // comment: never rely on "the process is going down anyway".
     LOGP(error, "CA tracker hit a structural traversal failure: {}", err.what());
+    if (mMFTPublicationCompatibility != nullptr) {
+      mMFTPublicationCompatibility->clear();
+    }
     resetTimeFrameEvent(*mFrame, *mScratch);
     throw;
   } catch (const BoundedMemoryResource::MemoryLimitExceeded& err) {
     // Recoverable, per-TF resource failure: the bounded pool's configured
     // budget was exceeded for this TimeFrame's data volume.
     LOGP(error, "CA tracker exceeded memory limit: {}", err.what());
+    if (mMFTPublicationCompatibility != nullptr) {
+      mMFTPublicationCompatibility->clear();
+    }
     resetTimeFrameEvent(*mFrame, *mScratch);
     if (mTrkParams[0].DropTFUponFailure) {
       return kDroppedTimeFrameResult;
@@ -120,6 +126,9 @@ float Tracker<NLayers>::clustersToTracks()
     // the bounded pool, so genuine memory pressure surfaces here as a plain
     // bad_alloc rather than MemoryLimitExceeded. Handled identically.
     LOGP(error, "CA tracker allocation failed: {}", err.what());
+    if (mMFTPublicationCompatibility != nullptr) {
+      mMFTPublicationCompatibility->clear();
+    }
     resetTimeFrameEvent(*mFrame, *mScratch);
     if (mTrkParams[0].DropTFUponFailure) {
       return kDroppedTimeFrameResult;
@@ -132,6 +141,9 @@ float Tracker<NLayers>::clustersToTracks()
     // RecoverableTimeFrameException may extend the recoverable set; until
     // then, recoverability is never inferred from std::exception alone.
     LOGP(error, "CA tracker failed with an unclassified exception; treating as structural: {}", err.what());
+    if (mMFTPublicationCompatibility != nullptr) {
+      mMFTPublicationCompatibility->clear();
+    }
     resetTimeFrameEvent(*mFrame, *mScratch);
     throw;
   }

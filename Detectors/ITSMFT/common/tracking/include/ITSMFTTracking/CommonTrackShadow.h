@@ -11,6 +11,9 @@
 #ifndef GPUCA_GPUCODE
 
 #include <cstddef>
+#include <limits>
+#include <optional>
+#include <utility>
 #include <vector>
 
 #include "ITSMFTTracking/CommonTrack.h"
@@ -30,8 +33,25 @@ enum class CommonTrackShadowPublishStep : uint8_t {
   BeforeReferenceReserve,
   BeforeTrackReserve,
   BeforeReferences,
-  BeforeTrack
+  BeforeTrack,
+  BeforeCompatibilityReserve,
+  BeforeCompatibility
 };
+
+// Keeps the ITS publication path allocation-free while allowing a
+// detector-specific owner-thread compatibility collection to join the same
+// all-or-nothing transaction.
+struct NoCommonTrackShadowCompatibility {
+  bool validate(uint32_t) const noexcept { return true; }
+  void reserve() {}
+  void append(uint32_t) {}
+  void rollback() noexcept {}
+};
+
+inline std::optional<uint32_t> checkedCommonTrackIndex(size_t size) noexcept
+{
+  return size <= std::numeric_limits<uint32_t>::max() ? std::optional<uint32_t>{static_cast<uint32_t>(size)} : std::nullopt;
+}
 
 inline bool validateCommonTrackShadowRecord(const TimeFrame& frame, const CommonTrackShadowRecord& record) noexcept
 {
@@ -56,17 +76,27 @@ inline bool validateCommonTrackShadowRecord(const TimeFrame& frame, const Common
 // lock. Both collections retain their original content and sizes if reserve,
 // validation, or either append throws; CommonTrack is appended last so an
 // incomplete range can never become visible as a track.
-template <typename PublishHook>
-bool publishCommonTrackShadow(TimeFrame& frame, const CommonTrackShadowRecord& record, PublishHook&& hook)
+template <typename Compatibility, typename PublishHook>
+std::optional<uint32_t> publishCommonTrackShadow(TimeFrame& frame, const CommonTrackShadowRecord& record,
+                                                 Compatibility& compatibility, PublishHook&& hook)
 {
   if (!validateCommonTrackShadowRecord(frame, record)) {
-    return false;
+    return std::nullopt;
   }
 
   auto& tracks = frame.getCommonTracks();
   auto& references = frame.getTrackClusterIndices();
   const auto oldTrackSize = tracks.size();
   const auto oldReferenceSize = references.size();
+  const auto commonTrackIndex = checkedCommonTrackIndex(oldTrackSize);
+  if (!commonTrackIndex ||
+      oldReferenceSize > std::numeric_limits<uint32_t>::max() ||
+      record.references.size() > std::numeric_limits<uint32_t>::max() - oldReferenceSize) {
+    return std::nullopt;
+  }
+  if (!compatibility.validate(*commonTrackIndex)) {
+    return std::nullopt;
+  }
 
   try {
     // Both fallible allocations precede every append. A reserve failure leaves
@@ -75,6 +105,8 @@ bool publishCommonTrackShadow(TimeFrame& frame, const CommonTrackShadowRecord& r
     references.reserve(oldReferenceSize + record.references.size());
     hook(CommonTrackShadowPublishStep::BeforeTrackReserve);
     tracks.reserve(oldTrackSize + 1);
+    hook(CommonTrackShadowPublishStep::BeforeCompatibilityReserve);
+    compatibility.reserve();
     hook(CommonTrackShadowPublishStep::BeforeReferences);
     for (const auto& reference : record.references) {
       references.push_back(reference);
@@ -84,15 +116,25 @@ bool publishCommonTrackShadow(TimeFrame& frame, const CommonTrackShadowRecord& r
     committed.clusterRefEnd = static_cast<uint32_t>(references.size());
     hook(CommonTrackShadowPublishStep::BeforeTrack);
     tracks.push_back(committed);
+    hook(CommonTrackShadowPublishStep::BeforeCompatibility);
+    compatibility.append(*commonTrackIndex);
   } catch (...) {
     references.resize(oldReferenceSize);
     tracks.resize(oldTrackSize);
+    compatibility.rollback();
     throw;
   }
-  return true;
+  return commonTrackIndex;
 }
 
-inline bool publishCommonTrackShadow(TimeFrame& frame, const CommonTrackShadowRecord& record)
+template <typename PublishHook>
+std::optional<uint32_t> publishCommonTrackShadow(TimeFrame& frame, const CommonTrackShadowRecord& record, PublishHook&& hook)
+{
+  NoCommonTrackShadowCompatibility compatibility;
+  return publishCommonTrackShadow(frame, record, compatibility, std::forward<PublishHook>(hook));
+}
+
+inline std::optional<uint32_t> publishCommonTrackShadow(TimeFrame& frame, const CommonTrackShadowRecord& record)
 {
   return publishCommonTrackShadow(frame, record, [](CommonTrackShadowPublishStep) {});
 }

@@ -206,6 +206,9 @@ void ITSMFTTrackingInterface<NLayers>::initialiseTracker()
   }
   mTrackerTraits->setNThreads(nThreads, taskArena);
   mTracker = std::make_unique<TrackerN>(mTrackerTraits.get());
+  if constexpr (DetId == o2::detectors::DetID::MFT) {
+    mTracker->adoptMFTPublicationCompatibility(static_cast<MFTPublicationCompatibilityOwner<NLayers>&>(*this).sidecar);
+  }
 
   // Build this interface's one immutable plan, once, from the compile-time-
   // selected static per-detector catalog (Gate 4 B2 Slice 2). Static,
@@ -340,6 +343,12 @@ void ITSMFTTrackingInterface<NLayers>::loadTimeFrame(gsl::span<const o2::itsmft:
       throw RecoverableLoadFailure{result};
     }
     throw TimeFrameLoadException{result};
+  }
+  // A successful normalized-frame replacement invalidates every CommonTrack
+  // index, so clear the MFT-only sparse compatibility entries in the same
+  // owner-level operation. Failed loads return above without changing either.
+  if constexpr (DetId == o2::detectors::DetID::MFT) {
+    static_cast<MFTPublicationCompatibilityOwner<NLayers>&>(*this).sidecar.clear();
   }
 
   configureTrackingTopology();
