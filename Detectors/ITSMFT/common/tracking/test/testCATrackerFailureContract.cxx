@@ -93,6 +93,7 @@
 #include "ITSMFTTracking/MultiSourceLoading.h"
 #include "ITSMFTTracking/NominalSurfaceMaterialDefaults.h"
 #include "ITSMFTTracking/SurfaceDescriptor.h"
+#include "ITSMFTTracking/LegacyTrackerScratch.h"
 #include "ITSMFTTracking/SurfaceMeasurementAdapters.h"
 #include "ITSMFTTracking/TimeFrame.h"
 #include "ITSMFTTracking/TrackerTraits.h"
@@ -318,13 +319,17 @@ class InjectingTrackerTraits final : public TrackerTraits<ITSNLayers>
   }
 };
 
-// Bundles a TimeFrame<ITSNLayers>, a TraitsT/Tracker<ITSNLayers> pair, and a
+// Bundles a TimeFrame (non-templated, Gate 4 B3.1), a
+// LegacyTrackerScratch<ITSNLayers>, a TraitsT/Tracker<ITSNLayers> pair, and a
 // bounded memory pool -- the minimal wiring Tracker<N>::clustersToTracks()
 // needs to run at all (task arena included: TrackerTraits::
 // computeLayerTracklets() dereferences it unconditionally, even though the
 // structural-failure cases never reach that far). TraitsT defaults to the
 // real TrackerTraits<ITSNLayers>; RigT<InjectingTrackerTraits> (aliased
-// ThrowingRig below) is used by the injected-failure tests.
+// ThrowingRig below) is used by the injected-failure tests. `frame` is
+// declared before `tf` so it is constructed first and destroyed last (see
+// LegacyTrackerScratch.h's own lifetime-contract doc) -- neither owns or
+// stores a reference to the other; this Rig is what binds both.
 template <class TraitsT = TrackerTraits<ITSNLayers>>
 struct RigT {
   explicit RigT(bool dropTFUponFailure, size_t maxMemory = std::numeric_limits<size_t>::max())
@@ -332,10 +337,12 @@ struct RigT {
       params(makeOneIterationITSParams(dropTFUponFailure, maxMemory)),
       tracker(&traits)
   {
+    frame.setMemoryPool(pool);
     tf.setMemoryPool(pool);
     traits.setMemoryPool(pool);
     traits.setNThreads(1, arena);
-    tracker.adoptTimeFrame(tf);
+    tracker.adoptScratch(tf);
+    tracker.adoptFrame(frame);
     tracker.setParameters(params);
     tracker.setMemoryPool(pool);
     tracker.setBz(0.5f);
@@ -343,7 +350,8 @@ struct RigT {
 
   std::shared_ptr<BoundedMemoryResource> pool;
   std::vector<TrackingParameters> params;
-  TimeFrame<ITSNLayers> tf;
+  TimeFrame frame;
+  LegacyTrackerScratch<ITSNLayers> tf;
   TraitsT traits;
   Tracker<ITSNLayers> tracker;
   std::shared_ptr<tbb::task_arena> arena;
@@ -387,7 +395,7 @@ struct RigT {
     const o2::InteractionRecord origin{50, 5};
     const ROFTimingConfig timing{40, 0, 0, 0};
     const auto& orderedSurfaces = plan->getConfigurationKey().orderedSurfaces;
-    const auto result = tf.loadNormalizedSource(decoder, origin, timing, f.clusters, f.patterns, f.rofs, &dict(),
+    const auto result = tf.loadNormalizedSource(frame, decoder, origin, timing, f.clusters, f.patterns, f.rofs, &dict(),
                                                 f.labels.getIndexedSize() > 0 ? &f.labels : nullptr, o2::detectors::DetID::ITS,
                                                 gsl::span<const SurfaceId>{orderedSurfaces}, plan->getSurfaceCatalog());
     BOOST_REQUIRE(result.ok());
@@ -407,14 +415,14 @@ struct RigT {
     o2::its::LayerTiming timing2{};
     timing2.mNROFsTF = static_cast<unsigned int>(f.rofs.size());
     timing2.mROFLength = 40;
-    typename TimeFrame<ITSNLayers>::ROFOverlapTableN rofTable;
+    typename LegacyTrackerScratch<ITSNLayers>::ROFOverlapTableN rofTable;
     for (int iLayer = 0; iLayer < ITSNLayers; ++iLayer) {
       rofTable.defineLayer(iLayer, timing2);
     }
     rofTable.init();
     tf.setROFOverlapTable(rofTable);
 
-    typename TimeFrame<ITSNLayers>::ROFMaskTableN mask{rofTable};
+    typename LegacyTrackerScratch<ITSNLayers>::ROFMaskTableN mask{rofTable};
     mask.resetMask();
     for (int iLayer = 0; iLayer < ITSNLayers; ++iLayer) {
       mask.setROFsEnabled(iLayer, 0, timing2.mNROFsTF, 1);
@@ -493,14 +501,14 @@ BOOST_AUTO_TEST_CASE(RecoverableFailureDroppedReturnsExactSentinelAndWipes)
   Rig rig{/*dropTFUponFailure=*/true};
   rig.establishValidLayout();
   rig.loadSource(makeFixture());
-  BOOST_REQUIRE(rig.tf.getNormalizedFrame().getTotalMeasurements() > 0u);
+  BOOST_REQUIRE(rig.frame.getNormalizedFrame().getTotalMeasurements() > 0u);
 
   rig.forceMemoryLimitBelowCurrentUsage();
 
   const float result = rig.tracker.clustersToTracks();
 
   BOOST_CHECK(isDroppedTimeFrame(result));
-  BOOST_CHECK_EQUAL(rig.tf.getNormalizedFrame().getTotalMeasurements(), 0u);
+  BOOST_CHECK_EQUAL(rig.frame.getNormalizedFrame().getTotalMeasurements(), 0u);
   BOOST_CHECK(rig.tf.getTracks().empty());
   // The plan lives on `rig`, not on TimeFrame (Gate 4 B2 Slice 2): wipe()
   // cannot touch it, by construction -- nothing left to assert here.
@@ -511,7 +519,7 @@ BOOST_AUTO_TEST_CASE(RecoverableFailureNotDroppedRethrowsButStillWipesFirst)
   Rig rig{/*dropTFUponFailure=*/false};
   rig.establishValidLayout();
   rig.loadSource(makeFixture());
-  BOOST_REQUIRE(rig.tf.getNormalizedFrame().getTotalMeasurements() > 0u);
+  BOOST_REQUIRE(rig.frame.getNormalizedFrame().getTotalMeasurements() > 0u);
 
   rig.forceMemoryLimitBelowCurrentUsage();
 
@@ -519,7 +527,7 @@ BOOST_AUTO_TEST_CASE(RecoverableFailureNotDroppedRethrowsButStillWipesFirst)
 
   // Wipe must have already happened before the exception propagated -- not
   // "the process is going down anyway".
-  BOOST_CHECK_EQUAL(rig.tf.getNormalizedFrame().getTotalMeasurements(), 0u);
+  BOOST_CHECK_EQUAL(rig.frame.getNormalizedFrame().getTotalMeasurements(), 0u);
   BOOST_CHECK(rig.tf.getTracks().empty());
 }
 
@@ -535,13 +543,13 @@ BOOST_AUTO_TEST_CASE(BadAllocDroppedReturnsExactSentinelAndWipes)
   ThrowingRig rig{/*dropTFUponFailure=*/true};
   rig.establishValidLayout();
   rig.loadSource(makeFixture());
-  BOOST_REQUIRE(rig.tf.getNormalizedFrame().getTotalMeasurements() > 0u);
+  BOOST_REQUIRE(rig.frame.getNormalizedFrame().getTotalMeasurements() > 0u);
 
   rig.traits.failure = InjectedFailure::BadAlloc;
   const float result = rig.tracker.clustersToTracks();
 
   BOOST_CHECK(isDroppedTimeFrame(result));
-  BOOST_CHECK_EQUAL(rig.tf.getNormalizedFrame().getTotalMeasurements(), 0u);
+  BOOST_CHECK_EQUAL(rig.frame.getNormalizedFrame().getTotalMeasurements(), 0u);
   BOOST_CHECK(rig.tf.getTracks().empty());
 }
 
@@ -550,12 +558,12 @@ BOOST_AUTO_TEST_CASE(BadAllocNotDroppedRethrowsButStillWipesFirst)
   ThrowingRig rig{/*dropTFUponFailure=*/false};
   rig.establishValidLayout();
   rig.loadSource(makeFixture());
-  BOOST_REQUIRE(rig.tf.getNormalizedFrame().getTotalMeasurements() > 0u);
+  BOOST_REQUIRE(rig.frame.getNormalizedFrame().getTotalMeasurements() > 0u);
 
   rig.traits.failure = InjectedFailure::BadAlloc;
   BOOST_CHECK_THROW(rig.tracker.clustersToTracks(), std::bad_alloc);
 
-  BOOST_CHECK_EQUAL(rig.tf.getNormalizedFrame().getTotalMeasurements(), 0u);
+  BOOST_CHECK_EQUAL(rig.frame.getNormalizedFrame().getTotalMeasurements(), 0u);
   BOOST_CHECK(rig.tf.getTracks().empty());
 }
 
@@ -572,12 +580,12 @@ BOOST_AUTO_TEST_CASE(UnclassifiedExceptionAlwaysRethrowsAndWipesRegardlessOfFlag
     ThrowingRig rig{dropFlag};
     rig.establishValidLayout();
     rig.loadSource(makeFixture());
-    BOOST_REQUIRE(rig.tf.getNormalizedFrame().getTotalMeasurements() > 0u);
+    BOOST_REQUIRE(rig.frame.getNormalizedFrame().getTotalMeasurements() > 0u);
 
     rig.traits.failure = InjectedFailure::UnclassifiedRuntimeError;
     BOOST_CHECK_THROW(rig.tracker.clustersToTracks(), std::runtime_error);
 
-    BOOST_CHECK_EQUAL(rig.tf.getNormalizedFrame().getTotalMeasurements(), 0u);
+    BOOST_CHECK_EQUAL(rig.frame.getNormalizedFrame().getTotalMeasurements(), 0u);
     BOOST_CHECK(rig.tf.getTracks().empty());
   }
 }
@@ -647,7 +655,7 @@ BOOST_AUTO_TEST_CASE(ValidEmptyInputCompletesWithoutErrorAndProducesNoTracks)
   Rig rig{/*dropTFUponFailure=*/false};
   rig.establishValidLayout();
   rig.loadSource(emptyFixture());
-  BOOST_REQUIRE_EQUAL(rig.tf.getNormalizedFrame().getTotalMeasurements(), 0u);
+  BOOST_REQUIRE_EQUAL(rig.frame.getNormalizedFrame().getTotalMeasurements(), 0u);
 
   float result = std::numeric_limits<float>::quiet_NaN();
   BOOST_CHECK_NO_THROW(result = rig.tracker.clustersToTracks());

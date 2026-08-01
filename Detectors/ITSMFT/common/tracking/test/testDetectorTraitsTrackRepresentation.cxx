@@ -14,6 +14,7 @@
 #include <boost/test/unit_test.hpp>
 
 #include "ITSMFTTracking/DetectorTraits.h"
+#include "ITSMFTTracking/LegacyTrackerScratch.h"
 #include "ITSMFTTracking/TimeFrame.h"
 
 using namespace o2::itsmft::tracking;
@@ -190,7 +191,7 @@ BOOST_AUTO_TEST_CASE(RefitSeedFailsCleanlyForWrongFamilySeedState)
 
   DetectorTraits<7>::TrackType track;
   o2::itsmft::TrackingParameters params;
-  TimeFrame<7> tf;
+  LegacyTrackerScratch<7> tf;
   const o2::its::TrackingFrameInfo* const tfInfos[7] = {nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr};
   const o2::its::Cluster* const unsortedClusters[7] = {nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr};
   const LayerMeasurementSpans<7> layerMeasurements{};

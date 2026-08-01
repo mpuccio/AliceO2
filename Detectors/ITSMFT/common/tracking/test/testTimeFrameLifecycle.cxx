@@ -5,29 +5,33 @@
 // This software is distributed under the terms of the GNU General Public
 // License v3 (GPL Version 3), copied verbatim in the file "COPYING".
 
-// Gate 2 correction: TimeFrame lifecycle and transactional legacy backfill.
+// Gate 2 correction, updated for Gate 4 B3.1's TimeFrame /
+// LegacyTrackerScratch<NLayers> split: TimeFrame lifecycle and
+// transactional legacy backfill.
 //
-// A. Wipe lifecycle: TimeFrame<NLayers>::wipe() must unconditionally clear
-//    the normalized owner (mNormalizedFrame) associated by
-//    loadNormalizedSource() -- every normalized accessor obtained *after*
-//    wipe() must report empty/zero content -- while leaving mDetId
-//    completely untouched. This test never dereferences a view obtained
-//    before wipe(): every post-wipe check re-obtains its accessor. (Gate 4
-//    B2 Slice 2: TimeFrame owns no catalog/layout/plan/epoch at all any
-//    more -- that state lives on the plan's owner, ITSMFTTrackingInterface,
-//    entirely outside TimeFrame, so there is nothing left for wipe() to
-//    preserve or clear on that account.)
+// A. Wipe lifecycle: TimeFrame::wipe() must unconditionally clear the
+//    normalized owner (mNormalizedFrame) associated by
+//    LegacyTrackerScratch<NLayers>::loadNormalizedSource() -- every
+//    normalized accessor obtained *after* wipe() must report empty/zero
+//    content. This test never dereferences a view obtained before wipe():
+//    every post-wipe check re-obtains its accessor. (Gate 4 B3.1: neither
+//    TimeFrame nor LegacyTrackerScratch<NLayers> stores mDetId at all any
+//    more -- callers pass the detector explicitly to every call that needs
+//    it -- so there is nothing detector-identity-shaped left for wipe() to
+//    preserve or clear.)
 //
-// B. Strong exception transactionality: loadNormalizedSource() stages its
-//    entire legacy backfill (unsorted clusters, TrackingFrameInfo, external
-//    indices, cluster sizes, ROF boundaries, label pointers) on local
-//    owners before touching any live TimeFrame member. If a
-//    BoundedMemoryResource allocation fails while building that staged
-//    backfill -- after loadSources() has already committed a valid
-//    normalized decode into its own *local* scratch owner -- the thrown
-//    MemoryLimitExceeded must leave mDetId, the normalized owner and every
-//    legacy layer's compatibility structures exactly at their pre-call
-//    baseline.
+// B. Strong exception transactionality: the owner-level load operation
+//    LegacyTrackerScratch<NLayers>::loadNormalizedSource(TimeFrame&, ...)
+//    stages both the shared TimeFrame's normalized update and its own
+//    legacy backfill (unsorted clusters, TrackingFrameInfo, external
+//    indices, cluster sizes, ROF boundaries, label pointers) before
+//    touching either live owner. If a BoundedMemoryResource allocation
+//    fails while building the staged legacy backfill -- after loadSources()
+//    has already decoded a valid normalized frame into local, not-yet-
+//    committed storage -- the thrown MemoryLimitExceeded must leave both
+//    the TimeFrame's normalized owner and every legacy layer's
+//    compatibility structures on the scratch exactly at their pre-call
+//    baseline: a failed stage commits to neither owner.
 
 #define BOOST_TEST_MODULE ITSMFT TimeFrame lifecycle
 #define BOOST_TEST_MAIN
@@ -50,6 +54,7 @@
 #include "ITSMFTTracking/DecodedCluster.h"
 #include "ITSMFTTracking/DetectorLayout.h"
 #include "ITSMFTTracking/DetectorLayoutSet.h"
+#include "ITSMFTTracking/LegacyTrackerScratch.h"
 #include "ITSMFTTracking/MultiSourceFrame.h"
 #include "ITSMFTTracking/MultiSourceLoading.h"
 #include "ITSMFTTracking/SurfaceDescriptor.h"
@@ -249,28 +254,29 @@ const std::vector<Expected> expectedClusters{
 
 // Full parity check between the Fixture and every observable legacy/normalized
 // accessor -- reused both right after a successful load and after a later
-// call that must have left the TimeFrame untouched.
-void verifyFixtureLoaded(TimeFrame<ITSNLayers>& tf, const Fixture& f, const o2::InteractionRecord& origin, const ROFTimingConfig& timing)
+// call that must have left both owners untouched. `frame` owns the
+// normalized measurements; `tf` owns every legacy per-layer compatibility
+// structure (Gate 4 B3.1 split).
+void verifyFixtureLoaded(const TimeFrame& frame, LegacyTrackerScratch<ITSNLayers>& tf, const Fixture& f, const o2::InteractionRecord& origin, const ROFTimingConfig& timing)
 {
   constexpr ClusterSourceId kSourceId{0};
-  BOOST_CHECK(tf.getDetId() == o2::detectors::DetID::ITS);
 
-  BOOST_CHECK_EQUAL(tf.getNormalizedFrame().getSurfaceMeasurements(SurfaceId{0}).size(), 2u);
-  BOOST_CHECK_EQUAL(tf.getNormalizedFrame().getSurfaceMeasurements(SurfaceId{1}).size(), 1u);
-  BOOST_CHECK_EQUAL(tf.getNormalizedFrame().getSurfaceMeasurements(SurfaceId{2}).size(), 1u);
+  BOOST_CHECK_EQUAL(frame.getNormalizedFrame().getSurfaceMeasurements(SurfaceId{0}).size(), 2u);
+  BOOST_CHECK_EQUAL(frame.getNormalizedFrame().getSurfaceMeasurements(SurfaceId{1}).size(), 1u);
+  BOOST_CHECK_EQUAL(frame.getNormalizedFrame().getSurfaceMeasurements(SurfaceId{2}).size(), 1u);
   BOOST_CHECK_EQUAL(tf.getUnsortedClustersOnLayer(0, 0).size() + tf.getUnsortedClustersOnLayer(1, 0).size(), 2u);
   BOOST_CHECK_EQUAL(tf.getUnsortedClustersOnLayer(0, 1).size(), 1u);
   BOOST_CHECK_EQUAL(tf.getUnsortedClustersOnLayer(2, 2).size(), 1u);
   for (int l = 3; l < ITSNLayers; ++l) {
-    BOOST_CHECK_EQUAL(tf.getNormalizedFrame().getSurfaceMeasurements(SurfaceId{static_cast<uint16_t>(l)}).size(), 0u);
+    BOOST_CHECK_EQUAL(frame.getNormalizedFrame().getSurfaceMeasurements(SurfaceId{static_cast<uint16_t>(l)}).size(), 0u);
     BOOST_CHECK_EQUAL(tf.getNrof(l), static_cast<int>(f.rofs.size()));
   }
 
   BOOST_CHECK_EQUAL(tf.getNrof(0), static_cast<int>(f.rofs.size()));
-  BOOST_REQUIRE_EQUAL(tf.getNormalizedFrame().getSources().size(), 1u);
-  BOOST_CHECK(tf.getNormalizedFrame().getSources()[0].detector == o2::detectors::DetID::ITS);
-  BOOST_CHECK_EQUAL(tf.getNormalizedFrame().getSources()[0].nROFs, f.rofs.size());
-  const auto intervals = tf.getNormalizedFrame().getSourceIntervals(kSourceId);
+  BOOST_REQUIRE_EQUAL(frame.getNormalizedFrame().getSources().size(), 1u);
+  BOOST_CHECK(frame.getNormalizedFrame().getSources()[0].detector == o2::detectors::DetID::ITS);
+  BOOST_CHECK_EQUAL(frame.getNormalizedFrame().getSources()[0].nROFs, f.rofs.size());
+  const auto intervals = frame.getNormalizedFrame().getSourceIntervals(kSourceId);
   BOOST_REQUIRE_EQUAL(intervals.size(), f.rofs.size());
   for (uint32_t r = 0; r < f.rofs.size(); ++r) {
     BOOST_CHECK_EQUAL(intervals[r].sourceROF, r);
@@ -296,7 +302,7 @@ void verifyFixtureLoaded(TimeFrame<ITSNLayers>& tf, const Fixture& f, const o2::
     BOOST_REQUIRE(legacyCluster != nullptr);
 
     const SurfaceMeasurement* measurement = nullptr;
-    for (const auto& m : tf.getNormalizedFrame().getSurfaceMeasurements(SurfaceId{static_cast<uint16_t>(e.layer)})) {
+    for (const auto& m : frame.getNormalizedFrame().getSurfaceMeasurements(SurfaceId{static_cast<uint16_t>(e.layer)})) {
       if (m.cluster.index == e.externalIndex) {
         measurement = &m;
         break;
@@ -344,7 +350,7 @@ void verifyFixtureLoaded(TimeFrame<ITSNLayers>& tf, const Fixture& f, const o2::
     BOOST_CHECK_EQUAL(measurement->shape.nPixels, e.nPixels);
 
     const auto legacyLabels = tf.getClusterLabels(e.layer, clId);
-    const auto normalizedLabels = tf.getNormalizedFrame().getLabels(ClusterRef{kSourceId, e.externalIndex});
+    const auto normalizedLabels = frame.getNormalizedFrame().getLabels(ClusterRef{kSourceId, e.externalIndex});
     BOOST_REQUIRE_EQUAL(legacyLabels.size(), 1u);
     BOOST_REQUIRE_EQUAL(normalizedLabels.size(), 1u);
     BOOST_CHECK(legacyLabels[0] == normalizedLabels[0]);
@@ -365,41 +371,39 @@ BOOST_AUTO_TEST_CASE(WipeClearsNormalizedFrameButPreservesDetId)
   const o2::InteractionRecord origin{50, 5};
   const ROFTimingConfig timing{40, 0, 0, 0};
 
-  TimeFrame<ITSNLayers> tf;
+  TimeFrame frame;
+  LegacyTrackerScratch<ITSNLayers> tf;
   std::vector<TrackingParameters> noIterations;
   auto planResult = buildDetectorLayoutSet(catalogView, orderedSurfaces, TransitionPolicyTag::CylinderCylinder, noIterations);
   BOOST_REQUIRE(planResult.ok());
   const auto plan = std::move(*planResult.layout);
 
   const auto f = makeFixture();
-  const auto result = tf.loadNormalizedSource(decoder, origin, timing, f.clusters, f.patterns, f.rofs, &dict(), &f.labels, o2::detectors::DetID::ITS,
+  const auto result = tf.loadNormalizedSource(frame, decoder, origin, timing, f.clusters, f.patterns, f.rofs, &dict(), &f.labels, o2::detectors::DetID::ITS,
                                               gsl::span<const SurfaceId>{plan.getConfigurationKey().orderedSurfaces}, plan.getSurfaceCatalog());
   BOOST_REQUIRE(result.ok());
   // Sanity: the successful load itself has the expected content, matching
   // the accepted parity coverage in testTimeFrameNormalizedSource.cxx.
-  verifyFixtureLoaded(tf, f, origin, timing);
+  verifyFixtureLoaded(frame, tf, f, origin, timing);
 
-  const auto detIdBefore = tf.getDetId();
-
-  tf.wipe();
+  frame.wipe();
 
   // --- inspect only freshly obtained normalized accessors/views ---
-  BOOST_CHECK_EQUAL(tf.getNormalizedFrame().getTotalMeasurements(), 0u);
-  BOOST_CHECK(tf.getNormalizedFrame().getSources().empty());
-  BOOST_CHECK_EQUAL(tf.getNormalizedFrame().getNSurfaces(), 0u);
+  BOOST_CHECK_EQUAL(frame.getNormalizedFrame().getTotalMeasurements(), 0u);
+  BOOST_CHECK(frame.getNormalizedFrame().getSources().empty());
+  BOOST_CHECK_EQUAL(frame.getNormalizedFrame().getNSurfaces(), 0u);
   for (uint16_t s = 0; s < ITSNLayers; ++s) {
-    BOOST_CHECK(tf.getNormalizedFrame().getSurfaceMeasurements(SurfaceId{s}).empty());
+    BOOST_CHECK(frame.getNormalizedFrame().getSurfaceMeasurements(SurfaceId{s}).empty());
   }
-  BOOST_CHECK(tf.getNormalizedFrame().getSourceIntervals(ClusterSourceId{0}).empty());
-  BOOST_CHECK(tf.getNormalizedFrame().getLabels(ClusterRef{ClusterSourceId{0}, 0}).empty());
-  const auto freshView = tf.getNormalizedFrameView();
+  BOOST_CHECK(frame.getNormalizedFrame().getSourceIntervals(ClusterSourceId{0}).empty());
+  BOOST_CHECK(frame.getNormalizedFrame().getLabels(ClusterRef{ClusterSourceId{0}, 0}).empty());
+  const auto freshView = frame.getNormalizedFrameView();
   BOOST_CHECK_EQUAL(freshView.nSurfaces, 0u);
   BOOST_CHECK_EQUAL(freshView.nSources, 0u);
 
-  // --- mDetId remains unchanged; the plan lives on `plan` above, entirely
-  // outside TimeFrame (Gate 4 B2 Slice 2), so wipe() has nothing else to
-  // preserve or clear on that account ---
-  BOOST_CHECK(tf.getDetId() == detIdBefore);
+  // Gate 4 B3.1: neither owner stores mDetId any more -- the plan lives on
+  // `plan` above, entirely outside both TimeFrame and LegacyTrackerScratch,
+  // so wipe() has no detector-identity state to preserve or clear.
 }
 
 // --- B. Strong exception transactionality ------------------------------
@@ -413,12 +417,15 @@ BOOST_AUTO_TEST_CASE(BackfillAllocationFailureLeavesNormalizedAndLegacyStateAtBa
   const o2::InteractionRecord origin{50, 5};
   const ROFTimingConfig timing{40, 0, 0, 0};
 
-  // Declared before `tf`, so it is destroyed after `tf` at scope exit: local
-  // destruction order is the reverse of declaration order, and TimeFrame's
-  // pool-backed bounded_vector members must be destroyed (returning their
-  // memory to the pool) before the pool itself can safely go away.
+  // Declared before `frame`/`tf`, so it is destroyed after both at scope
+  // exit: local destruction order is the reverse of declaration order, and
+  // the pool-backed bounded_vector members on both owners must be destroyed
+  // (returning their memory to the pool) before the pool itself can safely
+  // go away.
   auto pool = std::make_shared<BoundedMemoryResource>();
-  TimeFrame<ITSNLayers> tf;
+  TimeFrame frame;
+  LegacyTrackerScratch<ITSNLayers> tf;
+  frame.setMemoryPool(pool);
   tf.setMemoryPool(pool);
 
   std::vector<TrackingParameters> noIterations;
@@ -432,11 +439,11 @@ BOOST_AUTO_TEST_CASE(BackfillAllocationFailureLeavesNormalizedAndLegacyStateAtBa
 
   // Baseline: a successful normalized load, with real content in both the
   // normalized owner and every legacy compatibility structure.
-  const auto baseline = tf.loadNormalizedSource(decoder, origin, timing, f.clusters, f.patterns, f.rofs, &dict(), &f.labels, o2::detectors::DetID::ITS,
+  const auto baseline = tf.loadNormalizedSource(frame, decoder, origin, timing, f.clusters, f.patterns, f.rofs, &dict(), &f.labels, o2::detectors::DetID::ITS,
                                                 planOrderedSurfaces, plan.getSurfaceCatalog());
   BOOST_REQUIRE(baseline.ok());
   BOOST_CHECK_EQUAL(decoder.decodeCount, static_cast<int>(f.clusters.size()));
-  verifyFixtureLoaded(tf, f, origin, timing);
+  verifyFixtureLoaded(frame, tf, f, origin, timing);
 
   // Remove all BoundedMemoryResource headroom: any further allocation from
   // this pool must now throw.
@@ -451,7 +458,7 @@ BOOST_AUTO_TEST_CASE(BackfillAllocationFailureLeavesNormalizedAndLegacyStateAtBa
   // now-exhausted bounded pool.
   bool threw = false;
   try {
-    tf.loadNormalizedSource(decoder, origin, timing, replacement.clusters, replacement.patterns, replacement.rofs, &dict(), &replacement.labels, o2::detectors::DetID::ITS,
+    tf.loadNormalizedSource(frame, decoder, origin, timing, replacement.clusters, replacement.patterns, replacement.rofs, &dict(), &replacement.labels, o2::detectors::DetID::ITS,
                             planOrderedSurfaces, plan.getSurfaceCatalog());
   } catch (const BoundedMemoryResource::MemoryLimitExceeded&) {
     threw = true;
@@ -463,30 +470,37 @@ BOOST_AUTO_TEST_CASE(BackfillAllocationFailureLeavesNormalizedAndLegacyStateAtBa
   // cluster plus once per replacement cluster, never partially.
   BOOST_CHECK_EQUAL(decoder.decodeCount, static_cast<int>(f.clusters.size() + replacement.clusters.size()));
 
-  // mDetId, every normalized measurement/source/timing/label, and every
+  // Every normalized measurement/source/timing/label on `frame`, and every
   // legacy layer's clusters/tracking information/external indices/sizes/ROF
-  // boundaries/label pointers remain exactly at their baseline state -- not
-  // even partially replaced by the distinct replacement fixture's data.
-  verifyFixtureLoaded(tf, f, origin, timing);
+  // boundaries/label pointers on `tf`, remain exactly at their baseline
+  // state -- not even partially replaced by the distinct replacement
+  // fixture's data. This is the owner-level load's all-or-nothing contract:
+  // a failed stage leaves both live owners unchanged.
+  verifyFixtureLoaded(frame, tf, f, origin, timing);
 }
 
-// --- C. TimeFrame as sole owner of its BoundedMemoryResource ------------
+// --- C. LegacyTrackerScratch as sole owner of its BoundedMemoryResource -
 //
 // Exercises the member-destruction-order contract directly (see the
-// mExtMemoryPool/mMemoryPool declaration-order comment in TimeFrame.h):
-// both pool owners are declared before every pmr/bounded_vector member, so
-// TimeFrame destroys every pool-backed vector -- returning its memory to
-// the pool -- before releasing its own shared_ptr to that pool. Here the
-// caller's shared_ptr is released first, making the TimeFrame the *sole*
-// remaining owner of the BoundedMemoryResource while its pool-backed
-// vectors are still populated; a regression in that member order would
-// have TimeFrame free the pool while those vectors still reference it,
-// then crash or corrupt memory when they are destroyed. A sanitizer build
-// (e.g. ASan) would catch such a regression far more reliably than this
-// plain host run can -- a use-after-free here is not guaranteed to crash
-// every time -- but this test still documents and exercises the ordering
-// contract this correction depends on.
-BOOST_AUTO_TEST_CASE(TimeFrameOutlivesSoleOwnershipOfItsMemoryPool)
+// mExtMemoryPool/mMemoryPool declaration-order comment in
+// LegacyTrackerScratch.h): the pool owner is declared before every
+// pmr/bounded_vector member, so LegacyTrackerScratch destroys every
+// pool-backed vector -- returning its memory to the pool -- before
+// releasing its own shared_ptr to that pool. Here the caller's shared_ptr
+// is released first, making the scratch the *sole* remaining owner of the
+// BoundedMemoryResource while its pool-backed vectors (mUnsortedClusters,
+// mTrackingFrameInfo, mClusterExternalIndices, mClusterSize,
+// mROFramesClusters) are still populated; a regression in that member order
+// would have the scratch free the pool while those vectors still reference
+// it, then crash or corrupt memory when they are destroyed. A sanitizer
+// build (e.g. ASan) would catch such a regression far more reliably than
+// this plain host run can -- a use-after-free here is not guaranteed to
+// crash every time -- but this test still documents and exercises the
+// ordering contract this correction depends on. (Gate 4 B3.1: these
+// pool-backed legacy vectors moved from TimeFrame<NLayers> to
+// LegacyTrackerScratch<NLayers>, so this test now targets the scratch's own
+// memory-pool ownership; TimeFrame itself no longer holds any of them.)
+BOOST_AUTO_TEST_CASE(ScratchOutlivesSoleOwnershipOfItsMemoryPool)
 {
   const auto catalog = makeITSTestCatalog();
   const auto orderedSurfaces = identitySurfaces(ITSNLayers);
@@ -503,18 +517,21 @@ BOOST_AUTO_TEST_CASE(TimeFrameOutlivesSoleOwnershipOfItsMemoryPool)
 
   {
     auto pool = std::make_shared<BoundedMemoryResource>();
-    TimeFrame<ITSNLayers> tf;
+    TimeFrame frame;
+    LegacyTrackerScratch<ITSNLayers> tf;
     tf.setMemoryPool(pool);
 
     // Populate every pool-backed vector (mUnsortedClusters,
     // mTrackingFrameInfo, mClusterExternalIndices, mClusterSize,
     // mROFramesClusters) with real content.
-    const auto result = tf.loadNormalizedSource(decoder, origin, timing, f.clusters, f.patterns, f.rofs, &dict(), &f.labels, o2::detectors::DetID::ITS,
+    const auto result = tf.loadNormalizedSource(frame, decoder, origin, timing, f.clusters, f.patterns, f.rofs, &dict(), &f.labels, o2::detectors::DetID::ITS,
                                                 gsl::span<const SurfaceId>{plan.getConfigurationKey().orderedSurfaces}, plan.getSurfaceCatalog());
     BOOST_REQUIRE(result.ok());
     BOOST_REQUIRE(tf.getUnsortedClustersOnLayer(0, 0).size() + tf.getUnsortedClustersOnLayer(1, 0).size() > 0);
 
-    // tf.mMemoryPool holds a second reference at this point.
+    // tf.mMemoryPool holds a second reference at this point (frame never
+    // received a copy of `pool` in this test, since the vectors under test
+    // all live on the scratch).
     BOOST_REQUIRE_EQUAL(pool.use_count(), 2);
     // Release the caller's reference: tf is now the sole owner of this
     // BoundedMemoryResource, while its pool-backed vectors above are still
@@ -523,5 +540,8 @@ BOOST_AUTO_TEST_CASE(TimeFrameOutlivesSoleOwnershipOfItsMemoryPool)
     // Falling off this scope destroys `tf` -- and, per the member-order
     // contract, every pool-backed vector before the pool's own last
     // shared_ptr -- without any of them touching already-freed memory.
+    // `frame` is declared before `tf`, so it is destroyed after `tf`, per
+    // the Gate 4 B3.1 lifetime contract (TimeFrame outlives every scratch
+    // bound to it).
   }
 }

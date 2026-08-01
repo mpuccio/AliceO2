@@ -62,6 +62,7 @@
 #include "ITSMFTTracking/NominalSurfaceMaterialDefaults.h"
 #include "ITSMFTTracking/SurfaceDescriptor.h"
 #include "ITSMFTTracking/SurfaceMeasurementAdapters.h"
+#include "ITSMFTTracking/LegacyTrackerScratch.h"
 #include "ITSMFTTracking/TimeFrame.h"
 #include "ITSMFTTracking/TrackerTraits.h"
 #include "ITStracking/Constants.h"
@@ -234,13 +235,18 @@ std::vector<TrackingParameters> makeTwoIterationITSParams()
 struct Rig {
   Rig() : pool(std::make_shared<BoundedMemoryResource>())
   {
+    frame.setMemoryPool(pool);
     tf.setMemoryPool(pool);
     traits.setMemoryPool(pool);
-    traits.adoptTimeFrame(&tf);
+    traits.adoptScratch(&tf);
+    traits.adoptFrame(&frame);
   }
 
   std::shared_ptr<BoundedMemoryResource> pool;
-  TimeFrame<ITSNLayers> tf;
+  // Gate 4 B3.1: `frame` declared before `tf` so it is constructed first and
+  // destroyed last (see LegacyTrackerScratch.h's own lifetime-contract doc).
+  TimeFrame frame;
+  LegacyTrackerScratch<ITSNLayers> tf;
   TrackerTraits<ITSNLayers> traits;
   // Must outlive `plan` (DetectorLayoutSet borrows a SurfaceCatalogView into
   // it, Gate 4 B2 Slice 2) -- declared before `plan` so it is constructed
@@ -274,7 +280,7 @@ struct Rig {
     const o2::InteractionRecord origin{50, 5};
     const ROFTimingConfig timing{40, 0, 0, 0};
     const auto& orderedSurfaces = plan->getConfigurationKey().orderedSurfaces;
-    const auto result = tf.loadNormalizedSource(decoder, origin, timing, f.clusters, f.patterns, f.rofs, &dict(),
+    const auto result = tf.loadNormalizedSource(frame, decoder, origin, timing, f.clusters, f.patterns, f.rofs, &dict(),
                                                 f.labels.getIndexedSize() > 0 ? &f.labels : nullptr, o2::detectors::DetID::ITS,
                                                 gsl::span<const SurfaceId>{orderedSurfaces}, plan->getSurfaceCatalog());
     BOOST_REQUIRE(result.ok());
@@ -282,14 +288,14 @@ struct Rig {
     o2::its::LayerTiming timing2{};
     timing2.mNROFsTF = static_cast<unsigned int>(f.rofs.size());
     timing2.mROFLength = 40;
-    typename TimeFrame<ITSNLayers>::ROFOverlapTableN rofTable;
+    typename LegacyTrackerScratch<ITSNLayers>::ROFOverlapTableN rofTable;
     for (int iLayer = 0; iLayer < ITSNLayers; ++iLayer) {
       rofTable.defineLayer(iLayer, timing2);
     }
     rofTable.init();
     tf.setROFOverlapTable(rofTable);
 
-    typename TimeFrame<ITSNLayers>::ROFMaskTableN mask{rofTable};
+    typename LegacyTrackerScratch<ITSNLayers>::ROFMaskTableN mask{rofTable};
     mask.resetMask();
     for (int iLayer = 0; iLayer < ITSNLayers; ++iLayer) {
       mask.setROFsEnabled(iLayer, 0, timing2.mNROFsTF, 1);
@@ -298,7 +304,7 @@ struct Rig {
   }
 };
 
-std::vector<int> snapshotIndexTable(TimeFrame<ITSNLayers>& tf, int layer)
+std::vector<int> snapshotIndexTable(LegacyTrackerScratch<ITSNLayers>& tf, int layer)
 {
   std::vector<int> flat;
   for (int rof = 0; rof < tf.getNrof(layer); ++rof) {

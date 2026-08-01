@@ -52,6 +52,7 @@
 #include "ITSMFTTracking/MultiSourceFrame.h"
 #include "ITSMFTTracking/MultiSourceLoading.h"
 #include "ITSMFTTracking/SurfaceMeasurementAdapters.h"
+#include "ITSMFTTracking/LegacyTrackerScratch.h"
 #include "ITSMFTTracking/TimeFrame.h"
 #include "ITSMFTTracking/TrackingConfigParam.h"
 #include "SimulationDataFormat/MCCompLabel.h"
@@ -588,7 +589,14 @@ std::vector<SurfaceId> identitySurfaces(uint16_t nLayers)
 }
 
 struct TimeFrameFixture {
-  TimeFrame<ITSNLayers> tf;
+  // Gate 4 B3.1: `tf` (the permanent, non-templated TimeFrame, owning
+  // CommonTrack/TrackClusterReference/normalized-frame state) is declared
+  // before `scratch` (the temporary LegacyTrackerScratch<ITSNLayers>) so it
+  // is constructed first and destroyed last -- see LegacyTrackerScratch.h's
+  // own lifetime-contract doc. Neither owns or stores a reference to the
+  // other; this fixture is what binds both for the load() call below.
+  TimeFrame tf;
+  LegacyTrackerScratch<ITSNLayers> scratch;
   // The catalog must outlive `plan` (DetectorLayoutSet borrows a
   // SurfaceCatalogView into it, Gate 4 B2 Slice 2) -- declared first so it
   // is constructed before, and destroyed after, `plan`.
@@ -615,14 +623,14 @@ struct TimeFrameFixture {
     const auto patterns = makePatternBytes(clusters.size());
     const std::vector<ROFRecord> rofs{ROFRecord{{100, 5}, 0, 0, 1}};
     const auto& orderedSurfaces = plan->getConfigurationKey().orderedSurfaces;
-    return tf.loadNormalizedSource(decoder, origin, timing, clusters, patterns, rofs, &dict(), nullptr, o2::detectors::DetID::ITS,
-                                   gsl::span<const SurfaceId>{orderedSurfaces}, plan->getSurfaceCatalog());
+    return scratch.loadNormalizedSource(tf, decoder, origin, timing, clusters, patterns, rofs, &dict(), nullptr, o2::detectors::DetID::ITS,
+                                        gsl::span<const SurfaceId>{orderedSurfaces}, plan->getSurfaceCatalog());
   }
 };
 
 // Populates tf's CommonTrack/trackClusterIndices with arbitrary, self-
 // consistent content so a subsequent clear can be observed.
-void populateCommonResults(TimeFrame<ITSNLayers>& tf)
+void populateCommonResults(TimeFrame& tf)
 {
   tf.getTrackClusterIndices().push_back(TrackClusterReference{SurfaceId{0}, SurfaceMeasurementIndex{0}});
   tf.getTrackClusterIndices().push_back(TrackClusterReference{SurfaceId{1}, SurfaceMeasurementIndex{0}});
@@ -666,15 +674,15 @@ BOOST_AUTO_TEST_CASE(FailedLoadPreservesCommonTrackAndTrackClusterIndicesUnchang
   const auto measurementsBefore = fixture.tf.getNormalizedFrame().getTotalMeasurements();
   BOOST_REQUIRE(measurementsBefore > 0u);
 
-  // Deliberately fail: this TimeFrame<ITSNLayers> preflight-rejects any
+  // Deliberately fail: this LegacyTrackerScratch<ITSNLayers> preflight-rejects any
   // detId other than ITS (UnsupportedDetector), before touching anything.
   const std::vector<CompClusterExt> clusters{{0, 1, CompCluster::InvalidPatternID, 0}};
   const auto patterns = makePatternBytes(clusters.size());
   const std::vector<ROFRecord> rofs{ROFRecord{{200, 5}, 0, 0, 1}};
   const auto& orderedSurfaces = fixture.plan->getConfigurationKey().orderedSurfaces;
-  const auto failed = fixture.tf.loadNormalizedSource(fixture.decoder, fixture.origin, fixture.timing, clusters, patterns, rofs,
-                                                      &dict(), nullptr, o2::detectors::DetID::MFT,
-                                                      gsl::span<const SurfaceId>{orderedSurfaces}, fixture.plan->getSurfaceCatalog());
+  const auto failed = fixture.scratch.loadNormalizedSource(fixture.tf, fixture.decoder, fixture.origin, fixture.timing, clusters, patterns, rofs,
+                                                           &dict(), nullptr, o2::detectors::DetID::MFT,
+                                                           gsl::span<const SurfaceId>{orderedSurfaces}, fixture.plan->getSurfaceCatalog());
   BOOST_REQUIRE(!failed.ok());
   BOOST_CHECK(failed.error == MultiSourceLoadError::UnsupportedDetector);
 
@@ -691,7 +699,7 @@ BOOST_AUTO_TEST_CASE(FailedLoadPreservesCommonTrackAndTrackClusterIndicesUnchang
 
 BOOST_AUTO_TEST_CASE(TimeFrameWipeInvalidatesCommonTracksAndTrackClusterIndicesTogether)
 {
-  TimeFrame<ITSNLayers> tf;
+  TimeFrame tf;
   populateCommonResults(tf);
 
   BOOST_REQUIRE_EQUAL(tf.getCommonTracks().size(), 1u);

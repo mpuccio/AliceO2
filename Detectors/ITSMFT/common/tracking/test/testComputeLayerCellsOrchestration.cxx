@@ -53,6 +53,7 @@
 #include "ITSMFTTracking/DetectorLayout.h"
 #include "ITSMFTTracking/MultiSourceLoading.h"
 #include "ITSMFTTracking/SurfaceDescriptor.h"
+#include "ITSMFTTracking/LegacyTrackerScratch.h"
 #include "ITSMFTTracking/TimeFrame.h"
 #include "ITSMFTTracking/TrackerTraits.h"
 #include "ITSMFTTracking/TrackingConfigParam.h"
@@ -281,10 +282,12 @@ struct Rig {
     // never a valid one to index once real clusters are present, unlike
     // when this file loaded zero real clusters).
     params[0].PassFlags.reset(IterationStep::RebuildClusterLUT);
+    frame.setMemoryPool(pool);
     tf.setMemoryPool(pool);
     traits.setMemoryPool(pool);
     traits.setNThreads(nThreads, arena);
-    traits.adoptTimeFrame(&tf);
+    traits.adoptScratch(&tf);
+    traits.adoptFrame(&frame);
     traits.updateTrackingParameters(params);
     traits.setBz(Bz);
   }
@@ -312,7 +315,7 @@ struct Rig {
     const std::vector<unsigned char> noPatterns;
     const std::vector<ROFRecord> noRofs;
     const auto& loadOrderedSurfaces = plan->getConfigurationKey().orderedSurfaces;
-    const auto loadResult = tf.loadNormalizedSource(decoder, origin, timing, noClusters, noPatterns, noRofs, &dict(), nullptr, mDet,
+    const auto loadResult = tf.loadNormalizedSource(frame, decoder, origin, timing, noClusters, noPatterns, noRofs, &dict(), nullptr, mDet,
                                                     gsl::span<const SurfaceId>{loadOrderedSurfaces}, plan->getSurfaceCatalog());
     BOOST_REQUIRE(loadResult.ok());
   }
@@ -322,7 +325,10 @@ struct Rig {
 
   std::shared_ptr<BoundedMemoryResource> pool;
   std::vector<TrackingParameters> params;
-  TimeFrame<NLayers> tf;
+  // Gate 4 B3.1: `frame` declared before `tf` so it is constructed first and
+  // destroyed last (see LegacyTrackerScratch.h's own lifetime-contract doc).
+  TimeFrame frame;
+  LegacyTrackerScratch<NLayers> tf;
   TrackerTraits<NLayers> traits;
   std::shared_ptr<tbb::task_arena> arena;
   // Must outlive `plan` (DetectorLayoutSet borrows a SurfaceCatalogView into
@@ -367,7 +373,7 @@ void loadCandidateClusters(Rig<NLayers>& rig,
   const o2::InteractionRecord origin{50, 5};
   const ROFTimingConfig timing{40, 0, 0, 0};
   const auto& orderedSurfaces = rig.plan->getConfigurationKey().orderedSurfaces;
-  const auto result = rig.tf.loadNormalizedSource(decoder, origin, timing, compClusters, noPatterns, rofs, &dict(), nullptr, rig.detector(),
+  const auto result = rig.tf.loadNormalizedSource(rig.frame, decoder, origin, timing, compClusters, noPatterns, rofs, &dict(), nullptr, rig.detector(),
                                                   gsl::span<const SurfaceId>{orderedSurfaces}, rig.plan->getSurfaceCatalog());
   BOOST_REQUIRE(result.ok());
 }
@@ -454,7 +460,7 @@ void loadCandidateClustersAtLayers(Rig<NLayers>& rig,
   const o2::InteractionRecord origin{50, 5};
   const ROFTimingConfig timing{40, 0, 0, 0};
   const auto& orderedSurfaces = rig.plan->getConfigurationKey().orderedSurfaces;
-  const auto result = rig.tf.loadNormalizedSource(decoder, origin, timing, compClusters, noPatterns, rofs, &dict(), nullptr, rig.detector(),
+  const auto result = rig.tf.loadNormalizedSource(rig.frame, decoder, origin, timing, compClusters, noPatterns, rofs, &dict(), nullptr, rig.detector(),
                                                   gsl::span<const SurfaceId>{orderedSurfaces}, rig.plan->getSurfaceCatalog());
   BOOST_REQUIRE(result.ok());
 }
@@ -914,9 +920,9 @@ BOOST_AUTO_TEST_CASE(RepeatedComputeLayerCellsCallsDoNotRebindOrIncreaseCounts)
 
 BOOST_AUTO_TEST_CASE(ComputeLayerCellsFailsClosedWithoutInitialiseTimeFrame)
 {
-  TimeFrame<ITSNLayers> tf;
+  LegacyTrackerScratch<ITSNLayers> tf;
   TrackerTraits<ITSNLayers> traits;
-  traits.adoptTimeFrame(&tf);
+  traits.adoptScratch(&tf);
 
   BOOST_CHECK_EXCEPTION(traits.computeLayerCells(0), TraversalException, [](const TraversalException& e) {
     return e.getReason() == TraversalFailureReason::InvalidTraversalSchedule;

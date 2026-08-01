@@ -36,6 +36,7 @@
 #include "ITSMFTTracking/NominalSurfaceMaterialDefaults.h"
 #include "ITSMFTTracking/SurfaceDescriptor.h"
 #include "ITSMFTTracking/SurfaceMeasurementAdapters.h"
+#include "ITSMFTTracking/LegacyTrackerScratch.h"
 #include "ITSMFTTracking/TimeFrame.h"
 #include "ITSMFTTracking/TrackerTraits.h"
 #include "ITSMFTTracking/TrackingConfigParam.h"
@@ -175,7 +176,7 @@ struct TrackletSnapshot {
 /// of this slice).
 template <int NLayers>
 void computeLegacyTransitionMSAndPhiCut(const TrackingParameters& trkParam, float bz, bool isDisk,
-                                        const typename TimeFrame<NLayers>::TrackingTopologyN::View& topology,
+                                        const typename LegacyTrackerScratch<NLayers>::TrackingTopologyN::View& topology,
                                         gsl::span<const float> positionResolution,
                                         std::vector<float>& msAnglesOut, std::vector<float>& phiCutsOut)
 {
@@ -224,7 +225,10 @@ TrackletSnapshot runFixture(o2::detectors::DetID::ID detector,
                             std::function<void(TrackingParameters&)> customizeParams = {})
 {
   auto pool = std::make_shared<BoundedMemoryResource>();
-  TimeFrame<NLayers> tf;
+  // Gate 4 B3.1: `frame` declared before `tf` so it is constructed first and
+  // destroyed last (see LegacyTrackerScratch.h's own lifetime-contract doc).
+  TimeFrame frame;
+  LegacyTrackerScratch<NLayers> tf;
   TrackerTraits<NLayers> traits;
   std::shared_ptr<tbb::task_arena> arena;
   std::vector<TrackingParameters> params(1);
@@ -237,10 +241,12 @@ TrackletSnapshot runFixture(o2::detectors::DetID::ID detector,
     customizeParams(params[0]);
   }
 
+  frame.setMemoryPool(pool);
   tf.setMemoryPool(pool);
   traits.setMemoryPool(pool);
   traits.setNThreads(nThreads, arena);
-  traits.adoptTimeFrame(&tf);
+  traits.adoptScratch(&tf);
+  traits.adoptFrame(&frame);
   traits.updateTrackingParameters(params);
   traits.setBz(Bz);
 
@@ -262,7 +268,7 @@ TrackletSnapshot runFixture(o2::detectors::DetID::ID detector,
   }
   const std::vector<ROFRecord> rofs{ROFRecord{{100, 5}, 0, 0, static_cast<int>(compactClusters.size())}};
   PrescribedDecoder decoder{detector, kind, std::move(decoded)};
-  const auto load = tf.loadNormalizedSource(decoder, o2::InteractionRecord{50, 5}, ROFTimingConfig{40, 0, 0, 0},
+  const auto load = tf.loadNormalizedSource(frame, decoder, o2::InteractionRecord{50, 5}, ROFTimingConfig{40, 0, 0, 0},
                                             compactClusters, patterns, rofs, &dict(), nullptr, detector,
                                             gsl::span<const SurfaceId>{plan.getConfigurationKey().orderedSurfaces}, plan.getSurfaceCatalog());
   BOOST_REQUIRE(load.ok());
@@ -270,7 +276,7 @@ TrackletSnapshot runFixture(o2::detectors::DetID::ID detector,
   o2::its::LayerTiming layerTiming{};
   layerTiming.mNROFsTF = 1;
   layerTiming.mROFLength = 40;
-  typename TimeFrame<NLayers>::ROFOverlapTableN rofTable;
+  typename LegacyTrackerScratch<NLayers>::ROFOverlapTableN rofTable;
   for (int layer = 0; layer < NLayers; ++layer) {
     rofTable.defineLayer(layer, layerTiming);
   }
@@ -282,13 +288,13 @@ TrackletSnapshot runFixture(o2::detectors::DetID::ID detector,
   // vertex derived per-ROF for tracklet finding (TrackerTraits.cxx) is
   // checked through the genuine isVertexCompatible() on this table, not a
   // useDiamond-skipped shortcut, so this fixture needs it populated too.
-  typename TimeFrame<NLayers>::ROFVertexLookupTableN vtxTable;
+  typename LegacyTrackerScratch<NLayers>::ROFVertexLookupTableN vtxTable;
   for (int layer = 0; layer < NLayers; ++layer) {
     vtxTable.defineLayer(layer, layerTiming);
   }
   vtxTable.init();
   tf.setROFVertexLookupTable(vtxTable);
-  typename TimeFrame<NLayers>::ROFMaskTableN mask{rofTable};
+  typename LegacyTrackerScratch<NLayers>::ROFMaskTableN mask{rofTable};
   mask.resetMask();
   for (int layer = 0; layer < NLayers; ++layer) {
     mask.setROFsEnabled(layer, 0, 1, 1);
@@ -565,9 +571,9 @@ BOOST_AUTO_TEST_CASE(DiskOnePassAndTwoPassProduceIdenticalTracklets)
 
 BOOST_AUTO_TEST_CASE(ComputeLayerTrackletsFailsClosedWithoutInitialiseTimeFrame)
 {
-  TimeFrame<ITSNLayers> tf;
+  LegacyTrackerScratch<ITSNLayers> tf;
   TrackerTraits<ITSNLayers> traits;
-  traits.adoptTimeFrame(&tf);
+  traits.adoptScratch(&tf);
 
   BOOST_CHECK_EXCEPTION(traits.computeLayerTracklets(0, -1), TraversalException, [](const TraversalException& error) {
     return error.getReason() == TraversalFailureReason::InvalidTraversalSchedule;
@@ -590,7 +596,10 @@ BOOST_AUTO_TEST_CASE(InitialiseTimeFrameFailureLeavesTransitionArraysZeroFilledN
   // there instead, before the arrays are ever resized -- this test wants a
   // fallible check that fires strictly after TimeFrame::initialise().
   auto pool = std::make_shared<BoundedMemoryResource>();
-  TimeFrame<ITSNLayers> tf;
+  // Gate 4 B3.1: `frame` declared before `tf` so it is constructed first and
+  // destroyed last (see LegacyTrackerScratch.h's own lifetime-contract doc).
+  TimeFrame frame;
+  LegacyTrackerScratch<ITSNLayers> tf;
   TrackerTraits<ITSNLayers> traits;
   std::shared_ptr<tbb::task_arena> arena;
   std::vector<TrackingParameters> params(1);
@@ -599,10 +608,12 @@ BOOST_AUTO_TEST_CASE(InitialiseTimeFrameFailureLeavesTransitionArraysZeroFilledN
   params[0].PassFlags.set(IterationStep::FirstPass, IterationStep::RebuildClusterLUT);
   params[0].CorrType = static_cast<o2::base::PropagatorImpl<float>::MatCorrType>(99); // invalid: AttachHitPolicyConfigView rejects it
 
+  frame.setMemoryPool(pool);
   tf.setMemoryPool(pool);
   traits.setMemoryPool(pool);
   traits.setNThreads(1, arena);
-  traits.adoptTimeFrame(&tf);
+  traits.adoptScratch(&tf);
+  traits.adoptFrame(&frame);
   traits.updateTrackingParameters(params);
   traits.setBz(Bz);
 
@@ -629,7 +640,7 @@ BOOST_AUTO_TEST_CASE(InitialiseTimeFrameFailureLeavesTransitionArraysZeroFilledN
   }
   const std::vector<ROFRecord> rofs{ROFRecord{{100, 5}, 0, 0, static_cast<int>(compactClusters.size())}};
   PrescribedDecoder decoder{o2::detectors::DetID::ITS, SurfaceKind::Cylinder, decoded};
-  const auto load = tf.loadNormalizedSource(decoder, o2::InteractionRecord{50, 5}, ROFTimingConfig{40, 0, 0, 0},
+  const auto load = tf.loadNormalizedSource(frame, decoder, o2::InteractionRecord{50, 5}, ROFTimingConfig{40, 0, 0, 0},
                                             compactClusters, patterns, rofs, &dict(), nullptr, o2::detectors::DetID::ITS,
                                             gsl::span<const SurfaceId>{plan.getConfigurationKey().orderedSurfaces}, plan.getSurfaceCatalog());
   BOOST_REQUIRE(load.ok());
@@ -637,13 +648,13 @@ BOOST_AUTO_TEST_CASE(InitialiseTimeFrameFailureLeavesTransitionArraysZeroFilledN
   o2::its::LayerTiming layerTiming{};
   layerTiming.mNROFsTF = 1;
   layerTiming.mROFLength = 40;
-  TimeFrame<ITSNLayers>::ROFOverlapTableN rofTable;
+  LegacyTrackerScratch<ITSNLayers>::ROFOverlapTableN rofTable;
   for (int layer = 0; layer < ITSNLayers; ++layer) {
     rofTable.defineLayer(layer, layerTiming);
   }
   rofTable.init();
   tf.setROFOverlapTable(rofTable);
-  TimeFrame<ITSNLayers>::ROFMaskTableN mask{rofTable};
+  LegacyTrackerScratch<ITSNLayers>::ROFMaskTableN mask{rofTable};
   mask.resetMask();
   for (int layer = 0; layer < ITSNLayers; ++layer) {
     mask.setROFsEnabled(layer, 0, 1, 1);
@@ -835,16 +846,21 @@ BOOST_AUTO_TEST_CASE(DuplicateSurfaceIdMappingFailsClosedBeforeTrackletProcessin
   const SurfaceCatalogView catalogView{surfaces.data(), static_cast<uint32_t>(surfaces.size())};
   const DetectorLayoutSet plan{std::move(key), catalogView, std::move(layouts)};
 
-  TimeFrame<ITSNLayers> tf;
+  // Gate 4 B3.1: `frame` declared before `tf` so it is constructed first and
+  // destroyed last (see LegacyTrackerScratch.h's own lifetime-contract doc).
+  TimeFrame frame;
+  LegacyTrackerScratch<ITSNLayers> tf;
   auto pool = std::make_shared<BoundedMemoryResource>();
   std::shared_ptr<tbb::task_arena> arena;
   TrackerTraits<ITSNLayers> traits;
   std::vector<TrackingParameters> params(1);
   resetDetectorDefaults(params[0], o2::detectors::DetID::ITS);
+  frame.setMemoryPool(pool);
   tf.setMemoryPool(pool);
   traits.setMemoryPool(pool);
   traits.setNThreads(1, arena);
-  traits.adoptTimeFrame(&tf);
+  traits.adoptScratch(&tf);
+  traits.adoptFrame(&frame);
   traits.updateTrackingParameters(params);
   traits.setBz(Bz);
 
@@ -894,16 +910,21 @@ BOOST_AUTO_TEST_CASE(CombinedCylinderAndDiskLayoutIsRejectedBeforeTrackletProces
   layouts.push_back(std::move(*result.layout));
   const DetectorLayoutSet plan{std::move(key), catalogView, std::move(layouts)};
 
-  TimeFrame<ITSNLayers> tf;
+  // Gate 4 B3.1: `frame` declared before `tf` so it is constructed first and
+  // destroyed last (see LegacyTrackerScratch.h's own lifetime-contract doc).
+  TimeFrame frame;
+  LegacyTrackerScratch<ITSNLayers> tf;
   auto pool = std::make_shared<BoundedMemoryResource>();
   std::shared_ptr<tbb::task_arena> arena;
   TrackerTraits<ITSNLayers> traits;
   std::vector<TrackingParameters> params(1);
   resetDetectorDefaults(params[0], o2::detectors::DetID::ITS);
+  frame.setMemoryPool(pool);
   tf.setMemoryPool(pool);
   traits.setMemoryPool(pool);
   traits.setNThreads(1, arena);
-  traits.adoptTimeFrame(&tf);
+  traits.adoptScratch(&tf);
+  traits.adoptFrame(&frame);
   traits.updateTrackingParameters(params);
   traits.setBz(Bz);
 

@@ -30,9 +30,10 @@
 // parameter/workflow onboarding ... follow[s]"), out of scope for this
 // bounded correction per binding requirement #10 ("do not start any other
 // feature"). The loading-boundary machinery this file exercises is already
-// covered for TimeFrame<7> independently of ITSMFTTrackingInterface: see
-// testTimeFrameNormalizedSource.cxx's ITSTimeFrameNormalizedSourceParity
-// (TimeFrame<7>::loadNormalizedSource() directly) and
+// covered for LegacyTrackerScratch<7> independently of
+// ITSMFTTrackingInterface: see testTimeFrameNormalizedSource.cxx's
+// ITSTimeFrameNormalizedSourceParity
+// (LegacyTrackerScratch<7>::loadNormalizedSource() directly) and
 // testTimeFrameLoadFailure.cxx's exhaustiveness/exception tests (NLayers-
 // independent). Only MFT has a real opt-in ITSMFTTrackingInterface consumer
 // today (CATrackerSpec.cxx / o2-mft-ca-tracker-workflow), so MFT-only
@@ -232,8 +233,8 @@ struct TestTraits<10> {
 // Returned via unique_ptr, not by value: ITSMFTTrackingInterface has
 // unique_ptr members (mTrackerTraits, mTracker, ...), so its copy
 // constructor is deleted and its implicit move constructor is not
-// guaranteed to be usable either (TimeFrame<NLayers> is not trivially
-// movable); returning it by value would require relying on unguaranteed
+// guaranteed to be usable either (LegacyTrackerScratch<NLayers> is not
+// trivially movable); returning it by value would require relying on unguaranteed
 // NRVO through several mutating calls in between.
 template <int NLayers, typename DecoderT = OneLayerDecoder>
 std::unique_ptr<ITSMFTTrackingInterface<NLayers>> makeReadyInterface(DecoderT*& decoderOut)
@@ -320,7 +321,7 @@ void checkBaselineSuccess()
   const float result = interface.processTimeFrame(rofs, clusters, patterns, nullptr);
   BOOST_CHECK(!isDroppedTimeFrame(result));
   BOOST_CHECK_GE(result, 0.f);
-  BOOST_CHECK_EQUAL(interface.getTimeFrame().getTotalClusters(), 1u);
+  BOOST_CHECK_EQUAL(interface.getScratch().getTotalClusters(), 1u);
 }
 
 BOOST_AUTO_TEST_CASE(MFT_BaselineSuccess) { checkBaselineSuccess<10>(); }
@@ -340,14 +341,14 @@ void checkRecoverableMalformedPatternIsGated()
   const std::vector<unsigned char> malformedPattern{0, 1}; // rowSpan==0 -> MalformedExplicitPattern
 
   BOOST_CHECK_THROW(interface.processTimeFrame(rofs, clusters, malformedPattern, nullptr), RecoverableLoadFailure);
-  BOOST_CHECK_EQUAL(interface.getTimeFrame().getTotalClusters(), 0u);
+  BOOST_CHECK_EQUAL(interface.getScratch().getTotalClusters(), 0u);
 
   // A subsequent valid load on the same interface succeeds (state was
   // preserved/restored, catalog/layout/detId untouched by the failure).
   const auto patterns = makePatternBytes(clusters.size());
   const float retried = interface.processTimeFrame(rofs, clusters, patterns, nullptr);
   BOOST_CHECK(!isDroppedTimeFrame(retried));
-  BOOST_CHECK_EQUAL(interface.getTimeFrame().getTotalClusters(), 1u);
+  BOOST_CHECK_EQUAL(interface.getScratch().getTotalClusters(), 1u);
 }
 
 BOOST_AUTO_TEST_CASE(MFT_RecoverableMalformedPatternThrowsWhenNotDropped) { checkRecoverableMalformedPatternIsGated<10>(); }
@@ -366,12 +367,12 @@ void checkRecoverableFailureIsDroppedWhenConfigured()
 
   const float result = interface.processTimeFrame(rofs, clusters, malformedPattern, nullptr);
   BOOST_CHECK(isDroppedTimeFrame(result));
-  BOOST_CHECK_EQUAL(interface.getTimeFrame().getTotalClusters(), 0u);
+  BOOST_CHECK_EQUAL(interface.getScratch().getTotalClusters(), 0u);
 
   const auto patterns = makePatternBytes(clusters.size());
   const float retried = interface.processTimeFrame(rofs, clusters, patterns, nullptr);
   BOOST_CHECK(!isDroppedTimeFrame(retried));
-  BOOST_CHECK_EQUAL(interface.getTimeFrame().getTotalClusters(), 1u);
+  BOOST_CHECK_EQUAL(interface.getScratch().getTotalClusters(), 1u);
 }
 
 BOOST_AUTO_TEST_CASE(MFT_RecoverableFailureDroppedWhenConfigured) { checkRecoverableFailureIsDroppedWhenConfigured<10>(); }
@@ -395,7 +396,7 @@ void checkInvalidROFRangeIsRecoverable()
   const auto patterns = makePatternBytes(clusters.size());
 
   BOOST_CHECK_THROW(interface.processTimeFrame(rofs, clusters, patterns, nullptr), RecoverableLoadFailure);
-  BOOST_CHECK_EQUAL(interface.getTimeFrame().getTotalClusters(), 0u);
+  BOOST_CHECK_EQUAL(interface.getScratch().getTotalClusters(), 0u);
 }
 
 BOOST_AUTO_TEST_CASE(MFT_InvalidROFRangeIsRecoverable) { checkInvalidROFRangeIsRecoverable<10>(); }
@@ -498,7 +499,7 @@ void checkMemoryLimitIsRecoverableAndRestoresAccounting()
   }
   BOOST_CHECK(threw);
   BOOST_CHECK_EQUAL(pool.getUsedMemory(), usedBeforeFailure);
-  BOOST_CHECK_EQUAL(interface.getTimeFrame().getTotalClusters(), 0u);
+  BOOST_CHECK_EQUAL(interface.getScratch().getTotalClusters(), 0u);
 
   // A subsequent valid load succeeds once the bound is restored.
   pool.setMaxMemory(std::numeric_limits<size_t>::max());
@@ -527,7 +528,7 @@ void checkDecoderExceptionPropagatesByOriginalType()
 
   BOOST_CHECK_EXCEPTION(interface.processTimeFrame(rofs, clusters, patterns, nullptr), std::runtime_error,
                         [](const std::runtime_error& e) { return std::string(e.what()).find("ThrowingDecoder") != std::string::npos; });
-  BOOST_CHECK_EQUAL(interface.getTimeFrame().getTotalClusters(), 0u);
+  BOOST_CHECK_EQUAL(interface.getScratch().getTotalClusters(), 0u);
 }
 
 BOOST_AUTO_TEST_CASE(MFT_DecoderExceptionPropagatesByOriginalType) { checkDecoderExceptionPropagatesByOriginalType<10>(); }
@@ -604,7 +605,7 @@ BOOST_AUTO_TEST_CASE(MFT_NonUniformROFTimingIsStructuralNeverDroppedAndWipes)
   // actually cleared, not merely "still empty".
   const float baseline = interface.processTimeFrame(rofs, clusters, patterns, nullptr);
   BOOST_REQUIRE(!isDroppedTimeFrame(baseline));
-  BOOST_REQUIRE_EQUAL(interface.getTimeFrame().getTotalClusters(), 1u);
+  BOOST_REQUIRE_EQUAL(interface.getScratch().getTotalClusters(), 1u);
 
   {
     // MFT default roFrameLengthInBC is LHCMaxBunches/18 = 198; overriding
@@ -627,7 +628,7 @@ BOOST_AUTO_TEST_CASE(MFT_NonUniformROFTimingIsStructuralNeverDroppedAndWipes)
     }
     BOOST_CHECK(threw);
     // Wiped: the baseline TF's clusters are gone, not merely never-replaced.
-    BOOST_CHECK_EQUAL(interface.getTimeFrame().getTotalClusters(), 0u);
+    BOOST_CHECK_EQUAL(interface.getScratch().getTotalClusters(), 0u);
   } // guard restores DPLAlpideParam<MFT>::Instance().roFrameLayerLengthInBC[3] here, even though the checks above never threw past it
 
   // Catalog/layout/detId are untouched by the failure (Slice 6/7 contract);
@@ -635,7 +636,7 @@ BOOST_AUTO_TEST_CASE(MFT_NonUniformROFTimingIsStructuralNeverDroppedAndWipes)
   // configuration is uniform again.
   const float retried = interface.processTimeFrame(rofs, clusters, patterns, nullptr);
   BOOST_CHECK(!isDroppedTimeFrame(retried));
-  BOOST_CHECK_EQUAL(interface.getTimeFrame().getTotalClusters(), 1u);
+  BOOST_CHECK_EQUAL(interface.getScratch().getTotalClusters(), 1u);
 }
 
 BOOST_AUTO_TEST_CASE(MFT_NonPositiveROFLengthIsStructuralBeforeDivision)
@@ -716,12 +717,12 @@ BOOST_AUTO_TEST_CASE(MFT_ZeroROFCountFromOversizedROFLengthIsStructural)
       BOOST_CHECK(err.reason() == TimeFrameLoadFailureReason::ZeroROFCount);
     }
     BOOST_CHECK(threw);
-    BOOST_CHECK_EQUAL(interface.getTimeFrame().getTotalClusters(), 0u);
+    BOOST_CHECK_EQUAL(interface.getScratch().getTotalClusters(), 0u);
   }
 
   const float retried = interface.processTimeFrame(rofs, clusters, patterns, nullptr);
   BOOST_CHECK(!isDroppedTimeFrame(retried));
-  BOOST_CHECK_EQUAL(interface.getTimeFrame().getTotalClusters(), 1u);
+  BOOST_CHECK_EQUAL(interface.getScratch().getTotalClusters(), 1u);
 }
 
 // ---------------------------------------------------------------------

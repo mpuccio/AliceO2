@@ -39,6 +39,7 @@
 
 #include "Field/MagneticField.h"
 #include "ITSMFTTracking/DetectorLayoutSet.h"
+#include "ITSMFTTracking/LegacyTrackerScratch.h"
 #include "ITSMFTTracking/NominalSurfaceMaterialDefaults.h"
 #include "ITSMFTTracking/TimeFrame.h"
 #include "ITSMFTTracking/TrackerTraits.h"
@@ -181,18 +182,21 @@ TrackingParameters parameters(int activeCount, int maxHoles = 0, uint16_t holes 
 }
 
 template <int NLayers>
-void prepareTraversalFrame(TimeFrame<NLayers>& frame,
+void prepareTraversalFrame(TimeFrame& frame,
+                           LegacyTrackerScratch<NLayers>& scratch,
                            TrackerTraits<NLayers>& traits,
                            const std::shared_ptr<BoundedMemoryResource>& pool,
                            const std::vector<TrackingParameters>& params)
 {
   frame.setMemoryPool(pool);
-  for (auto& rofOffsets : frame.mROFramesClusters) {
+  scratch.setMemoryPool(pool);
+  for (auto& rofOffsets : scratch.mROFramesClusters) {
     rofOffsets.resize(1, 0);
   }
-  frame.initTrackerTopologies(params);
+  scratch.initTrackerTopologies(params);
   traits.setMemoryPool(pool);
-  traits.adoptTimeFrame(&frame);
+  traits.adoptScratch(&scratch);
+  traits.adoptFrame(&frame);
   traits.updateTrackingParameters(params);
 }
 
@@ -362,9 +366,10 @@ BOOST_AUTO_TEST_CASE(traversal_initialisation_rejects_iteration_beyond_configure
   auto twoIterations = mftTraversalParameters();
   twoIterations.push_back(twoIterations.front());
   auto pool = std::make_shared<BoundedMemoryResource>();
-  TimeFrame<10> shortLayoutFrame;
+  TimeFrame shortLayoutFrame;
+  LegacyTrackerScratch<10> shortLayoutScratch;
   TrackerTraits<10> shortLayoutTraits;
-  prepareTraversalFrame(shortLayoutFrame, shortLayoutTraits, pool, twoIterations);
+  prepareTraversalFrame(shortLayoutFrame, shortLayoutScratch, shortLayoutTraits, pool, twoIterations);
   std::vector<TrackingParameters> oneLayout{twoIterations.front()};
   auto built = buildPlan(catalog(10, SurfaceKind::Disk, o2::detectors::DetID::MFT), order(10), TransitionPolicyTag::DiskDisk, oneLayout);
   try {
@@ -381,9 +386,10 @@ BOOST_AUTO_TEST_CASE(traversal_cache_groups_and_binds_once_across_repeated_neigh
 {
   auto params = mftTraversalParameters();
   auto pool = std::make_shared<BoundedMemoryResource>();
-  TimeFrame<10> frame;
+  TimeFrame frame;
+  LegacyTrackerScratch<10> scratch;
   TrackerTraits<10> traits;
-  prepareTraversalFrame(frame, traits, pool, params);
+  prepareTraversalFrame(frame, scratch, traits, pool, params);
   auto built = buildPlan(catalog(10, SurfaceKind::Disk, o2::detectors::DetID::MFT), order(10), TransitionPolicyTag::DiskDisk, params);
 
   std::shared_ptr<tbb::task_arena> arena;
@@ -402,9 +408,10 @@ BOOST_AUTO_TEST_CASE(traversal_cache_groups_and_binds_once_across_repeated_neigh
   BOOST_CHECK_EQUAL(traits.getPolicyBindingCount(TransitionPolicyTag::DiskDisk), 1);
 
   std::vector<TrackingParameters> itsParams{parameters(7, 0, 0, 0x7f)};
-  TimeFrame<7> itsFrame;
+  TimeFrame itsFrame;
+  LegacyTrackerScratch<7> itsScratch;
   TrackerTraits<7> itsTraits;
-  prepareTraversalFrame(itsFrame, itsTraits, pool, itsParams);
+  prepareTraversalFrame(itsFrame, itsScratch, itsTraits, pool, itsParams);
   auto itsBuilt = buildPlan(catalog(7, SurfaceKind::Cylinder, o2::detectors::DetID::ITS), order(7), TransitionPolicyTag::CylinderCylinder, itsParams);
   itsTraits.setNThreads(1, arena);
   itsTraits.initialiseTimeFrame(0, itsBuilt.plan);
@@ -426,9 +433,10 @@ BOOST_AUTO_TEST_CASE(traversal_empty_road_start_span_is_valid_and_produces_no_tr
   auto params = mftTraversalParameters();
   params[0].StartLayerMask = 0;
   auto pool = std::make_shared<BoundedMemoryResource>();
-  TimeFrame<10> frame;
+  TimeFrame frame;
+  LegacyTrackerScratch<10> scratch;
   TrackerTraits<10> traits;
-  prepareTraversalFrame(frame, traits, pool, params);
+  prepareTraversalFrame(frame, scratch, traits, pool, params);
   auto built = buildPlan(catalog(10, SurfaceKind::Disk, o2::detectors::DetID::MFT), order(10), TransitionPolicyTag::DiskDisk, params);
 
   std::shared_ptr<tbb::task_arena> arena;
@@ -436,30 +444,32 @@ BOOST_AUTO_TEST_CASE(traversal_empty_road_start_span_is_valid_and_produces_no_tr
   BOOST_CHECK_NO_THROW(traits.initialiseTimeFrame(0, built.plan));
   BOOST_REQUIRE(traits.hasTraversalCache());
   BOOST_CHECK_NO_THROW(traits.findRoads(0));
-  BOOST_CHECK_EQUAL(frame.getNumberOfTracks(), 0u);
+  BOOST_CHECK_EQUAL(scratch.getNumberOfTracks(), 0u);
 }
 
 BOOST_AUTO_TEST_CASE(traversal_legacy_cell_container_size_mismatch_fails_before_indexing)
 {
-  // Item 4/7: findRoads() indexes mTimeFrame->getCells() with sparse
+  // Item 4/7: findRoads() indexes mScratch->getCells() with sparse
   // CellTopologyId values; a desync between that legacy container and the
   // cached sparse layout must fail with LegacyIndexMismatch rather than
-  // index out of bounds. Reached here through TimeFrame::getCells(), the
-  // existing public, non-const production accessor (TimeFrame.h) -- no new
-  // mutation API is added for this test.
+  // index out of bounds. Reached here through
+  // LegacyTrackerScratch::getCells(), the existing public, non-const
+  // production accessor (LegacyTrackerScratch.h) -- no new mutation API is
+  // added for this test.
   auto params = mftTraversalParameters();
   auto pool = std::make_shared<BoundedMemoryResource>();
-  TimeFrame<10> frame;
+  TimeFrame frame;
+  LegacyTrackerScratch<10> scratch;
   TrackerTraits<10> traits;
-  prepareTraversalFrame(frame, traits, pool, params);
+  prepareTraversalFrame(frame, scratch, traits, pool, params);
   auto built = buildPlan(catalog(10, SurfaceKind::Disk, o2::detectors::DetID::MFT), order(10), TransitionPolicyTag::DiskDisk, params);
 
   std::shared_ptr<tbb::task_arena> arena;
   traits.setNThreads(1, arena);
   traits.initialiseTimeFrame(0, built.plan);
   BOOST_REQUIRE(traits.hasTraversalCache());
-  BOOST_REQUIRE(!frame.getCells().empty());
-  frame.getCells().pop_back();
+  BOOST_REQUIRE(!scratch.getCells().empty());
+  scratch.getCells().pop_back();
 
   try {
     traits.findRoads(0);
@@ -477,9 +487,10 @@ BOOST_AUTO_TEST_CASE(traversal_preflight_rejects_legacy_mismatch_state_mismatch_
                          TransitionPolicyTag tag,
                          TraversalFailureReason expected) {
     auto pool = std::make_shared<BoundedMemoryResource>();
-    TimeFrame<10> frame;
+    TimeFrame frame;
+    LegacyTrackerScratch<10> scratch;
     TrackerTraits<10> traits;
-    prepareTraversalFrame(frame, traits, pool, params);
+    prepareTraversalFrame(frame, scratch, traits, pool, params);
     auto built = buildPlan(std::move(surfaces), ordered, tag, params);
     try {
       traits.initialiseTimeFrame(0, built.plan);
@@ -526,9 +537,10 @@ BOOST_AUTO_TEST_CASE(every_iteration_resolves_identical_authoritative_material)
   auto params = mftTraversalParameters();
   params.push_back(params.front());
   auto pool = std::make_shared<BoundedMemoryResource>();
-  TimeFrame<10> frame;
+  TimeFrame frame;
+  LegacyTrackerScratch<10> scratch;
   TrackerTraits<10> traits;
-  prepareTraversalFrame(frame, traits, pool, params);
+  prepareTraversalFrame(frame, scratch, traits, pool, params);
   auto built = buildPlan(catalog(10, SurfaceKind::Disk, o2::detectors::DetID::MFT), order(10), TransitionPolicyTag::DiskDisk, params);
 
   traits.initialiseTimeFrame(0, built.plan);
@@ -549,9 +561,10 @@ BOOST_AUTO_TEST_CASE(rejected_initialisation_does_not_mutate_surface_descriptor_
   auto params = mftTraversalParameters();
   params[0].LayerxX0[4] = std::numeric_limits<float>::quiet_NaN();
   auto pool = std::make_shared<BoundedMemoryResource>();
-  TimeFrame<10> frame;
+  TimeFrame frame;
+  LegacyTrackerScratch<10> scratch;
   TrackerTraits<10> traits;
-  prepareTraversalFrame(frame, traits, pool, params);
+  prepareTraversalFrame(frame, scratch, traits, pool, params);
   auto built = buildPlan(catalog(10, SurfaceKind::Disk, o2::detectors::DetID::MFT), order(10), TransitionPolicyTag::DiskDisk, params);
   const NominalSurfaceMaterial materialBefore = built.plan.getSurfaceCatalog().getSurface(SurfaceId{4}).material;
 
@@ -590,9 +603,10 @@ BOOST_AUTO_TEST_CASE(non_monotonic_ordered_surfaces_maps_correctly_then_resets_o
   }
 
   auto pool = std::make_shared<BoundedMemoryResource>();
-  TimeFrame<10> frame;
+  TimeFrame frame;
+  LegacyTrackerScratch<10> scratch;
   TrackerTraits<10> traits;
-  prepareTraversalFrame(frame, traits, pool, params);
+  prepareTraversalFrame(frame, scratch, traits, pool, params);
   auto built = buildPlan(std::move(surfaces), nonMonotonicOrder, TransitionPolicyTag::DiskDisk, params);
 
   // The non-identity mapping is structurally incompatible with the separate
@@ -632,9 +646,10 @@ BOOST_AUTO_TEST_CASE(traversal_preflight_reports_invalid_schedule_and_mixed_poli
   auto checkInstalledLayout = [](BuiltLayout layout, TraversalFailureReason expected) {
     auto params = mftTraversalParameters();
     auto pool = std::make_shared<BoundedMemoryResource>();
-    TimeFrame<10> frame;
+    TimeFrame frame;
+    LegacyTrackerScratch<10> scratch;
     TrackerTraits<10> traits;
-    prepareTraversalFrame(frame, traits, pool, params);
+    prepareTraversalFrame(frame, scratch, traits, pool, params);
     auto built = wrapLayout(std::move(layout));
     try {
       traits.initialiseTimeFrame(0, built.plan);

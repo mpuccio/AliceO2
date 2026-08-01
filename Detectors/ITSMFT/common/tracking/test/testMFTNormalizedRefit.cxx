@@ -11,9 +11,10 @@
 // proving every physical hit coordinate/covariance the frozen
 // o2::mft::TrackFitter/TrackLTF consumes comes from the caller-supplied
 // LayerMeasurementSpans<NLayers> (TrackerTraits::mLayerMeasurements), never
-// from TimeFrame's legacy Cluster/TrackingFrameInfo backfill. Each test calls
-// refitTrackFwd directly with a hand-built TimeFrame/seed/measurement-span
-// fixture -- it does not exercise TrackerTraits::initialiseTimeFrame() or the
+// from LegacyTrackerScratch's legacy Cluster/TrackingFrameInfo backfill. Each
+// test calls refitTrackFwd directly with a hand-built LegacyTrackerScratch/
+// seed/measurement-span fixture -- it does not exercise
+// TrackerTraits::initialiseTimeFrame() or the
 // full CA traversal, which already have their own focused coverage
 // (testComputeLayerCellsOrchestration.cxx et al.) for the
 // NormalizedMeasurementMismatch load-time contract this file's fixtures
@@ -31,6 +32,7 @@
 
 #include <boost/test/unit_test.hpp>
 
+#include "ITSMFTTracking/LegacyTrackerScratch.h"
 #include "ITSMFTTracking/MFTFwdTrackHelpers.h"
 #include "ITSMFTTracking/TimeFrame.h"
 #include "ITStracking/Cluster.h"
@@ -73,13 +75,14 @@ struct StraightTrackGeometry {
   }
 };
 
-// Owns everything refitTrackFwd needs for one call: a TimeFrame (external-
-// index/size bookkeeping only -- never a physical-coordinate source once
-// populated), the normalized measurement spans under test, and the seed.
-// Every test builds its own fixture so mutating one layer's normalized
-// measurement or legacy backfill in one test can never leak into another.
+// Owns everything refitTrackFwd needs for one call: a LegacyTrackerScratch
+// (external-index/size bookkeeping only -- never a physical-coordinate
+// source once populated), the normalized measurement spans under test, and
+// the seed. Every test builds its own fixture so mutating one layer's
+// normalized measurement or legacy backfill in one test can never leak into
+// another.
 struct RefitFixture {
-  TimeFrame<NLayers> tf;
+  LegacyTrackerScratch<NLayers> tf;
   std::array<std::vector<SurfaceMeasurement>, NLayers> storage;
   LayerMeasurementSpans<NLayers> layerMeasurements{};
   TrackSeedN<NLayers> seed;
@@ -135,8 +138,7 @@ struct RefitFixture {
     for (int layer = 0; layer < nHitLayers; ++layer) {
       tf.addClusterToLayer(layer, PoisonCoordinate, PoisonCoordinate, PoisonCoordinate, 0);
       tf.addTrackingFrameInfoToLayer(layer, o2::its::TrackingFrameInfo{
-                                              PoisonCoordinate, PoisonCoordinate, PoisonCoordinate, PoisonCoordinate, PoisonCoordinate,
-                                              {PoisonCoordinate, PoisonCoordinate}, {1.f, 0.f, 1.f}});
+                                              PoisonCoordinate, PoisonCoordinate, PoisonCoordinate, PoisonCoordinate, PoisonCoordinate, {PoisonCoordinate, PoisonCoordinate}, {1.f, 0.f, 1.f}});
     }
   }
 };
@@ -429,9 +431,10 @@ BOOST_AUTO_TEST_CASE(ClusterSizeIsReadFromItsOwnLayerNotFromLayerZeroByExternalI
   // refitTrackFwdImpl must read tf.getClusterSize(layer, clIdx) -- clIdx
   // being THIS layer's own layer-local cluster identity -- and must never
   // read tf.getClusterSize(0, extIdx) using the external/global identity:
-  // mClusterSize is a per-layer vector (see TimeFrame::loadNormalizedSource()
-  // and TimeFrame::getClusterSize()), not a flat array addressable by an
-  // external id.
+  // mClusterSize is a per-layer vector (see
+  // LegacyTrackerScratch::loadNormalizedSource() and
+  // LegacyTrackerScratch::getClusterSize()), not a flat array addressable by
+  // an external id.
   //
   // Every hit layer gets a real, distinctive size (10 + layer) at its own
   // layer-local clIdx == 0, and a deliberately large, non-monotonic external
@@ -442,7 +445,7 @@ BOOST_AUTO_TEST_CASE(ClusterSizeIsReadFromItsOwnLayerNotFromLayerZeroByExternalI
   // read via tf.getClusterSize(0, 1000 + layer): under the fix that value
   // must never leak into any other layer's published size.
   const StraightTrackGeometry geometry(0.01f);
-  TimeFrame<NLayers> tf;
+  LegacyTrackerScratch<NLayers> tf;
   std::array<std::vector<SurfaceMeasurement>, NLayers> storage;
   LayerMeasurementSpans<NLayers> layerMeasurements{};
   TrackSeedN<NLayers> seed;

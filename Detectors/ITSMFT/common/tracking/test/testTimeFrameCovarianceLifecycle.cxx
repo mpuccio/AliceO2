@@ -34,6 +34,7 @@
 #include "ITSMFTTracking/Configuration.h"
 #include "ITSMFTTracking/DecodedCluster.h"
 #include "ITSMFTTracking/DetectorLayoutSet.h"
+#include "ITSMFTTracking/LegacyTrackerScratch.h"
 #include "ITSMFTTracking/NominalSurfaceMaterialDefaults.h"
 #include "ITSMFTTracking/SurfaceMeasurementAdapters.h"
 #include "ITSMFTTracking/TimeFrame.h"
@@ -187,9 +188,9 @@ struct CovarianceSnapshot {
 };
 
 template <int NLayers>
-CovarianceSnapshot snapshotCovariance(const TimeFrame<NLayers>& tf)
+CovarianceSnapshot snapshotCovariance(const TimeFrame& frame, const LegacyTrackerScratch<NLayers>& tf)
 {
-  const auto measurements = tf.getNormalizedFrame().getSurfaceMeasurements(SurfaceId{0});
+  const auto measurements = frame.getNormalizedFrame().getSurfaceMeasurements(SurfaceId{0});
   BOOST_REQUIRE_EQUAL(measurements.size(), 1u);
   const auto& compatibility = tf.getTrackingFrameInfoOnLayer(0);
   BOOST_REQUIRE_EQUAL(compatibility.size(), 1u);
@@ -203,9 +204,9 @@ CovarianceSnapshot snapshotCovariance(const TimeFrame<NLayers>& tf)
 }
 
 template <int NLayers>
-void checkRepresentationsAligned(const TimeFrame<NLayers>& tf)
+void checkRepresentationsAligned(const TimeFrame& frame, const LegacyTrackerScratch<NLayers>& tf)
 {
-  const auto snapshot = snapshotCovariance(tf);
+  const auto snapshot = snapshotCovariance(frame, tf);
   BOOST_CHECK(snapshot.normalized == snapshot.compatibility);
 }
 
@@ -215,9 +216,11 @@ struct Rig {
       float rowIncrement, float columnIncrement)
     : detector(detectorValue), kind(kindValue), decoder(detectorValue, kindValue, rowIncrement, columnIncrement), pool(std::make_shared<BoundedMemoryResource>())
   {
+    frame.setMemoryPool(pool);
     tf.setMemoryPool(pool);
     traits.setMemoryPool(pool);
-    traits.adoptTimeFrame(&tf);
+    traits.adoptScratch(&tf);
+    traits.adoptFrame(&frame);
     traits.setBz(5.f);
   }
 
@@ -243,7 +246,7 @@ struct Rig {
     const std::vector<ROFRecord> rofs{ROFRecord{{100, 5}, 0, 0, 1}};
     const auto& orderedSurfaces = plan->getConfigurationKey().orderedSurfaces;
     const auto result = tf.loadNormalizedSource(
-      decoder, o2::InteractionRecord{50, 5}, ROFTimingConfig{40, 0, 0, 0},
+      frame, decoder, o2::InteractionRecord{50, 5}, ROFTimingConfig{40, 0, 0, 0},
       clusters, patterns, rofs, &dictionary(), nullptr, detector,
       gsl::span<const SurfaceId>{orderedSurfaces}, plan->getSurfaceCatalog(), applySysErrors);
     BOOST_REQUIRE(result.ok());
@@ -251,14 +254,14 @@ struct Rig {
     o2::its::LayerTiming timing{};
     timing.mNROFsTF = 1;
     timing.mROFLength = 40;
-    typename TimeFrame<NLayers>::ROFOverlapTableN rofTable;
+    typename LegacyTrackerScratch<NLayers>::ROFOverlapTableN rofTable;
     for (int layer = 0; layer < NLayers; ++layer) {
       rofTable.defineLayer(layer, timing);
     }
     rofTable.init();
     tf.setROFOverlapTable(rofTable);
 
-    typename TimeFrame<NLayers>::ROFMaskTableN mask{rofTable};
+    typename LegacyTrackerScratch<NLayers>::ROFMaskTableN mask{rofTable};
     mask.resetMask();
     for (int layer = 0; layer < NLayers; ++layer) {
       mask.setROFsEnabled(layer, 0, 1, 1);
@@ -270,7 +273,10 @@ struct Rig {
   SurfaceKind kind;
   SystematicContractDecoder decoder;
   std::shared_ptr<BoundedMemoryResource> pool;
-  TimeFrame<NLayers> tf;
+  // Gate 4 B3.1: `frame` declared before `tf` so it is constructed first and
+  // destroyed last (see LegacyTrackerScratch.h's own lifetime-contract doc).
+  TimeFrame frame;
+  LegacyTrackerScratch<NLayers> tf;
   TrackerTraits<NLayers> traits;
   // Must outlive `plan` (DetectorLayoutSet borrows a SurfaceCatalogView into
   // it, Gate 4 B2 Slice 2) -- declared before `plan` so it is constructed
@@ -300,14 +306,14 @@ void exerciseDisabled(o2::detectors::DetID::ID detector, SurfaceKind kind)
   rig.load(true);
   rig.traits.updateTrackingParameters(parameters);
 
-  const auto before = snapshotCovariance(rig.tf);
+  const auto before = snapshotCovariance(rig.frame, rig.tf);
   checkBitIdentical(std::bit_cast<float>(before.normalized[0]), o2::itsmft::ioutils::DefClusError2Row);
   checkBitIdentical(std::bit_cast<float>(before.normalized[2]), o2::itsmft::ioutils::DefClusError2Col);
-  checkRepresentationsAligned(rig.tf);
+  checkRepresentationsAligned(rig.frame, rig.tf);
 
   BOOST_REQUIRE_NO_THROW(rig.traits.initialiseTimeFrame(0, *rig.plan));
-  BOOST_CHECK(snapshotCovariance(rig.tf) == before);
-  checkRepresentationsAligned(rig.tf);
+  BOOST_CHECK(snapshotCovariance(rig.frame, rig.tf) == before);
+  checkRepresentationsAligned(rig.frame, rig.tf);
 }
 
 template <int NLayers>
@@ -324,30 +330,30 @@ void exerciseEnabledLifecycle(o2::detectors::DetID::ID detector, SurfaceKind kin
 
   const float expectedRow = o2::itsmft::ioutils::DefClusError2Row + ConfiguredRowIncrement;
   const float expectedColumn = o2::itsmft::ioutils::DefClusError2Col + ConfiguredColumnIncrement;
-  const auto loaded = snapshotCovariance(rig.tf);
+  const auto loaded = snapshotCovariance(rig.frame, rig.tf);
   checkBitIdentical(std::bit_cast<float>(loaded.normalized[0]), expectedRow);
   checkBitIdentical(std::bit_cast<float>(loaded.normalized[2]), expectedColumn);
-  checkRepresentationsAligned(rig.tf);
+  checkRepresentationsAligned(rig.frame, rig.tf);
 
   // FirstPass + LUT rebuild.
   BOOST_REQUIRE_NO_THROW(rig.traits.initialiseTimeFrame(0, *rig.plan));
-  BOOST_CHECK(snapshotCovariance(rig.tf) == loaded);
+  BOOST_CHECK(snapshotCovariance(rig.frame, rig.tf) == loaded);
   checkPositionResolution(rig, parameters[0], ConfiguredRowIncrement, ConfiguredColumnIncrement);
 
   // Later iteration + LUT reuse.
   BOOST_REQUIRE_NO_THROW(rig.traits.initialiseTimeFrame(1, *rig.plan));
-  BOOST_CHECK(snapshotCovariance(rig.tf) == loaded);
+  BOOST_CHECK(snapshotCovariance(rig.frame, rig.tf) == loaded);
 
   // Later iteration + LUT rebuild.
   BOOST_REQUIRE_NO_THROW(rig.traits.initialiseTimeFrame(2, *rig.plan));
-  BOOST_CHECK(snapshotCovariance(rig.tf) == loaded);
+  BOOST_CHECK(snapshotCovariance(rig.frame, rig.tf) == loaded);
 
   // Repeated FirstPass initialization is bit-identical.
   BOOST_REQUIRE_NO_THROW(rig.traits.initialiseTimeFrame(0, *rig.plan));
-  BOOST_CHECK(snapshotCovariance(rig.tf) == loaded);
+  BOOST_CHECK(snapshotCovariance(rig.frame, rig.tf) == loaded);
   BOOST_REQUIRE_NO_THROW(rig.traits.initialiseTimeFrame(0, *rig.plan));
-  BOOST_CHECK(snapshotCovariance(rig.tf) == loaded);
-  checkRepresentationsAligned(rig.tf);
+  BOOST_CHECK(snapshotCovariance(rig.frame, rig.tf) == loaded);
+  checkRepresentationsAligned(rig.frame, rig.tf);
 
   // A rejected later iteration leaves normalized and compatibility
   // covariance untouched.
@@ -362,20 +368,21 @@ void exerciseEnabledLifecycle(o2::detectors::DetID::ID detector, SurfaceKind kin
     BOOST_CHECK(error.getReason() == TraversalFailureReason::IndexTableConfigurationMismatch);
   }
   BOOST_REQUIRE(rejected);
-  BOOST_CHECK(snapshotCovariance(rig.tf) == loaded);
-  checkRepresentationsAligned(rig.tf);
+  BOOST_CHECK(snapshotCovariance(rig.frame, rig.tf) == loaded);
+  checkRepresentationsAligned(rig.frame, rig.tf);
 
-  // wipe() clears event state but preserves the configured layout. Reloading
-  // and initializing the same event starts again from one decoded increment,
-  // never from the previous compatibility copy.
-  rig.tf.wipe();
+  // resetTimeFrameEvent() (Gate 4 B3.1's owner-level reset: resetScratch()
+  // then frame.wipe()) clears event state but preserves the configured
+  // layout. Reloading and initializing the same event starts again from one
+  // decoded increment, never from the previous compatibility copy.
+  resetTimeFrameEvent(rig.frame, rig.tf);
   rig.load(true);
   rig.traits.updateTrackingParameters(parameters);
-  const auto reloaded = snapshotCovariance(rig.tf);
+  const auto reloaded = snapshotCovariance(rig.frame, rig.tf);
   BOOST_CHECK(reloaded == loaded);
   BOOST_REQUIRE_NO_THROW(rig.traits.initialiseTimeFrame(0, *rig.plan));
-  BOOST_CHECK(snapshotCovariance(rig.tf) == loaded);
-  checkRepresentationsAligned(rig.tf);
+  BOOST_CHECK(snapshotCovariance(rig.frame, rig.tf) == loaded);
+  checkRepresentationsAligned(rig.frame, rig.tf);
 }
 
 template <int NLayers>
@@ -390,23 +397,23 @@ void exerciseExplicitFalse(o2::detectors::DetID::ID detector, SurfaceKind kind)
   BOOST_REQUIRE(!rig.decoder.lastApplySysErrors);
   rig.traits.updateTrackingParameters(parameters);
 
-  const auto loaded = snapshotCovariance(rig.tf);
+  const auto loaded = snapshotCovariance(rig.frame, rig.tf);
   checkBitIdentical(std::bit_cast<float>(loaded.normalized[0]), o2::itsmft::ioutils::DefClusError2Row);
   checkBitIdentical(std::bit_cast<float>(loaded.normalized[2]), o2::itsmft::ioutils::DefClusError2Col);
-  checkRepresentationsAligned(rig.tf);
+  checkRepresentationsAligned(rig.frame, rig.tf);
 
   BOOST_REQUIRE_NO_THROW(rig.traits.initialiseTimeFrame(0, *rig.plan));
-  BOOST_CHECK(snapshotCovariance(rig.tf) == loaded);
+  BOOST_CHECK(snapshotCovariance(rig.frame, rig.tf) == loaded);
   BOOST_REQUIRE_NO_THROW(rig.traits.initialiseTimeFrame(1, *rig.plan));
-  BOOST_CHECK(snapshotCovariance(rig.tf) == loaded);
+  BOOST_CHECK(snapshotCovariance(rig.frame, rig.tf) == loaded);
   BOOST_REQUIRE_NO_THROW(rig.traits.initialiseTimeFrame(2, *rig.plan));
-  BOOST_CHECK(snapshotCovariance(rig.tf) == loaded);
+  BOOST_CHECK(snapshotCovariance(rig.frame, rig.tf) == loaded);
 
   // Position-resolution preparation intentionally still consumes configured
   // systematic contributions even when this explicit loading override keeps
   // cluster covariance at its base value.
   checkPositionResolution(rig, parameters[2], ConfiguredRowIncrement, ConfiguredColumnIncrement);
-  checkRepresentationsAligned(rig.tf);
+  checkRepresentationsAligned(rig.frame, rig.tf);
 }
 
 // Common TimeFrame::loadROFrameData() calls this decoder API without the

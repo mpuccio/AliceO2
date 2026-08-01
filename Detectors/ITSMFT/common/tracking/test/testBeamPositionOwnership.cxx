@@ -19,7 +19,8 @@
 //
 // TrackingLoadPolicy<DetId, NLayers>::configureBeamPosition() is already a
 // public static member (DetectorTraits.h); called directly here with a bare
-// TimeFrame<NLayers>, no geometry/dictionary/GRP fixture required.
+// TimeFrame (non-templated, Gate 4 B3.1), no geometry/dictionary/GRP fixture
+// required.
 
 #define BOOST_TEST_MODULE ITSMFT BeamPositionOwnership
 #define BOOST_TEST_MAIN
@@ -84,7 +85,7 @@ BOOST_FIXTURE_TEST_CASE(LegacyOverrideBeamEstimationAloneDoesNotSelectMeanVertex
 {
   mutableLegacyITSTrackerParamConfig().overrideBeamEstimation = true;
 
-  TimeFrame<ITSNLayers> tf;
+  TimeFrame tf;
   const auto p = diamondParameters(1.f, 2.f, 3.f);
   const auto meanVertex = meanVertexAt(-9.f, -8.f);
 
@@ -105,7 +106,7 @@ BOOST_FIXTURE_TEST_CASE(ConstructorOverrideBeamEstimationStillSelectsMeanVertex,
   // must still work on its own, unassisted by the legacy field.
   BOOST_REQUIRE_EQUAL(mutableLegacyITSTrackerParamConfig().overrideBeamEstimation, false);
 
-  TimeFrame<ITSNLayers> tf;
+  TimeFrame tf;
   const auto p = diamondParameters(1.f, 2.f, 3.f);
   const auto meanVertex = meanVertexAt(-9.f, -8.f);
 
@@ -119,7 +120,7 @@ BOOST_FIXTURE_TEST_CASE(ITSFallsBackToDiamondWhenNeitherOverrideIsSet, ScopedLeg
 {
   mutableLegacyITSTrackerParamConfig().overrideBeamEstimation = false;
 
-  TimeFrame<ITSNLayers> tf;
+  TimeFrame tf;
   const auto p = diamondParameters(1.f, 2.f, 3.f);
   const auto meanVertex = meanVertexAt(-9.f, -8.f);
 
@@ -136,7 +137,7 @@ BOOST_FIXTURE_TEST_CASE(MFTAlwaysUsesDiamondRegardlessOfOverrideArguments, Scope
 {
   mutableLegacyITSTrackerParamConfig().overrideBeamEstimation = true; // must have no effect on MFT either
 
-  TimeFrame<o2::mft::constants::mft::LayersNumber> tf;
+  TimeFrame tf;
   TrackingParameters p;
   p.Diamond[0] = 4.f;
   p.Diamond[1] = 5.f;
