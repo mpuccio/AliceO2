@@ -32,6 +32,7 @@
 #include "ITSMFTTracking/DetectorTraits.h"
 #ifndef GPUCA_GPUCODE
 #include "ITSMFTTracking/ClusterDecoder.h"
+#include "ITSMFTTracking/ClockTimingPublicationView.h"
 #include "ITSMFTTracking/DetectorLayoutSet.h"
 #include "ITSMFTTracking/TimeFrameLoadFailure.h"
 #endif
@@ -49,6 +50,15 @@
 
 namespace o2::itsmft::tracking
 {
+
+// Host-only, immutable workflow boundary. Raw ROFRecord input remains owned
+// by the workflow; this export never exposes scratch or overlap-table state.
+struct CommonTrackPublicationExport {
+  o2::detectors::DetID::ID detector{};
+  ClusterSourceId source{};
+  ClockTimingPublicationView clock;
+  gsl::span<const SurfaceId> orderedSurfaces;
+};
 
 template <int NLayers>
 struct MFTPublicationCompatibilityOwner {
@@ -130,6 +140,7 @@ class ITSMFTTrackingInterface : private MFTPublicationCompatibilityOwner<NLayers
   // shared frame. Scratch-only reset deliberately does neither.
   void resetEvent()
   {
+    mPublicationClock.reset();
     if constexpr (DetId == o2::detectors::DetID::ITS) {
       static_cast<ITSSharedClusterCompatibilityOwner<NLayers>&>(*this).sidecar.clear();
     }
@@ -158,6 +169,14 @@ class ITSMFTTrackingInterface : private MFTPublicationCompatibilityOwner<NLayers
     return nullptr;
   }
   const std::vector<o2::itsmft::TrackingParameters>& getTrackingParameters() const { return mTrackParams; }
+  std::optional<CommonTrackPublicationExport> getCommonTrackPublicationExport() const
+  {
+    if (!mPublicationClock || !mPlan || !isActive()) {
+      return std::nullopt;
+    }
+    return CommonTrackPublicationExport{DetId, ClusterSourceId{0}, *mPublicationClock,
+                                        gsl::span<const SurfaceId>{mPlan->getConfigurationKey().orderedSurfaces}};
+  }
   bool isActive() const { return !mTrackParams.empty(); }
   // Actual tbb::task_arena concurrency the tracker was constructed with (0
   // if initialiseTracker() has not run yet, e.g. mTrackParams is empty).
@@ -206,6 +225,7 @@ class ITSMFTTrackingInterface : private MFTPublicationCompatibilityOwner<NLayers
   // through TimeFrame -- runTracking()/loadTimeFrame() pass it explicitly to
   // Tracker::adoptDetectorLayoutSet()/TimeFrame::loadNormalizedSource().
   std::optional<DetectorLayoutSet> mPlan;
+  std::optional<ClockTimingPublicationView> mPublicationClock;
 #endif
   const o2::itsmft::TopologyDictionary* mDict = nullptr;
   const o2::dataformats::MeanVertexObject* mMeanVertex = nullptr;

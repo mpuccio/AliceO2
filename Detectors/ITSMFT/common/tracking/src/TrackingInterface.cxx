@@ -245,6 +245,7 @@ float ITSMFTTrackingInterface<NLayers>::processTimeFrame(gsl::span<const o2::its
                                                          const o2::dataformats::MCTruthContainer<o2::MCCompLabel>* labels,
                                                          gsl::span<const o2::dataformats::IRFrame> irFrames)
 {
+  mPublicationClock.reset();
   if (mTrackParams.empty()) {
     LOGP(info, "{} CA tracking mode is off, skipping TimeFrame processing", detName<DetId>());
     return 0.f;
@@ -347,6 +348,9 @@ void ITSMFTTrackingInterface<NLayers>::loadTimeFrame(gsl::span<const o2::itsmft:
     }
     throw TimeFrameLoadException{result};
   }
+  // Copy the finalized clock layer while scratch is live. The export is a
+  // value boundary for workflows, never a retained overlap-table reference.
+  mPublicationClock.emplace(mScratch.getROFOverlapTableView().getClockLayer());
   // A successful normalized-frame replacement invalidates every CommonTrack
   // index, so clear detector-local compatibility entries in the same owner-
   // level operation. Failed loads return above without changing either.
