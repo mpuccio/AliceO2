@@ -110,6 +110,39 @@ inline bool importLegacyForwardTrackParCov(const o2::track::TrackParCovFwd& sour
   return true;
 }
 
+// Host-only inverse of importLegacyForwardTrackParCov(), retained solely for
+// output-adapter staging. It deliberately reconstructs the exact legacy
+// double-precision payload from the common float representation rather than
+// adding a second forward-state representation to CommonTrack.
+inline bool exportLegacyForwardTrackParCov(const SurfaceKinematicState& source, o2::track::TrackParCovFwd& destination) noexcept
+{
+  if (source.family != StateFamily::Forward) {
+    return false;
+  }
+  o2::track::SMatrix5 parameters{};
+  o2::track::SMatrix55Sym covariance{};
+  for (uint8_t i = 0; i < 5; ++i) {
+    if (!std::isfinite(source.parameters[i])) {
+      return false;
+    }
+    parameters[i] = source.parameters[i];
+  }
+  for (uint8_t row = 0; row < 5; ++row) {
+    for (uint8_t column = 0; column <= row; ++column) {
+      const auto value = source.covariance[packedCovarianceIndex(row, column)];
+      if (!std::isfinite(value)) {
+        return false;
+      }
+      covariance(row, column) = value;
+    }
+  }
+  if (!std::isfinite(source.referenceCoordinate)) {
+    return false;
+  }
+  destination = o2::track::TrackParCovFwd{source.referenceCoordinate, parameters, covariance, 0.};
+  return true;
+}
+
 } // namespace o2::itsmft::tracking::legacy
 
 #endif // !defined(GPUCA_GPUCODE)

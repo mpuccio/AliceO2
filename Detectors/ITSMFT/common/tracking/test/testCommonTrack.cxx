@@ -57,6 +57,7 @@
 #include "ITSMFTTracking/SurfaceMeasurementAdapters.h"
 #include "ITSMFTTracking/LegacyTrackerScratch.h"
 #include "ITSMFTTracking/ITSSharedClusterCompatibility.h"
+#include "ITSMFTTracking/CommonTrackOutputAdapter.h"
 #include "ITSMFTTracking/MFTPublicationCompatibility.h"
 #include "ITSMFTTracking/TimeFrame.h"
 #include "ITSMFTTracking/TrackingConfigParam.h"
@@ -938,4 +939,15 @@ BOOST_AUTO_TEST_CASE(TimeFrameWipeInvalidatesCommonTracksAndTrackClusterIndicesT
   tf.getCommonTracks().push_back(reloaded);
   BOOST_CHECK_EQUAL(tf.getCommonTracks().size(), 1u);
   BOOST_CHECK_EQUAL(tf.getTrackClusterIndices().size(), 1u);
+}
+
+BOOST_AUTO_TEST_CASE(CommonTrackOutputAdapterTimestampIsSymmetricAndClamped)
+{
+  CommonTrackOutputAdapterError error = CommonTrackOutputAdapterError::None;
+  const auto timestamp = makeOutputTimestamp({100, 120}, 7, error);
+  BOOST_REQUIRE(timestamp);
+  BOOST_CHECK_EQUAL(timestamp->getTimeStamp(), 110.f);
+  BOOST_CHECK_EQUAL(timestamp->getTimeStampError(), 7.f);
+  BOOST_CHECK(!makeOutputTimestamp({20, 20}, 7, error));
+  BOOST_CHECK(error == CommonTrackOutputAdapterError::InvalidTimestamp);
 }
