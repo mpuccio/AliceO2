@@ -1046,3 +1046,62 @@ BOOST_AUTO_TEST_CASE(CommonTrackOutputAdapterStagesMFTAndRejectsMissingSidecar)
   BOOST_CHECK_EQUAL(frame.getCommonTracks().size(), 1u);
   BOOST_CHECK_EQUAL(frame.getTrackClusterIndices().size(), 1u);
 }
+
+BOOST_AUTO_TEST_CASE(CommonTrackOutputAdapterRejectsMalformedInputsWithoutMutatingOwners)
+{
+  TimeFrameFixture fixture;
+  BOOST_REQUIRE(fixture.load().ok());
+  const auto record = makeShadowRecord();
+  publishCommonTrackShadow(fixture.tf, record);
+  const auto& measurement = *fixture.tf.getNormalizedFrame().getMeasurement(SurfaceId{0}, SurfaceMeasurementIndex{0});
+  const std::vector<ROFRecord> rofs{ROFRecord{{1, 2}, 0, 0, 1}};
+  const CommonTrackOutputTimingContext timing{rofs, 10, [](const o2::its::TimeStamp&) { return 0; }};
+  const auto surfaces = gsl::span<const SurfaceId>{fixture.plan->getConfigurationKey().orderedSurfaces};
+  const auto tracks = fixture.tf.getCommonTracks().size();
+  const auto refs = fixture.tf.getTrackClusterIndices().size();
+  const auto measurements = fixture.tf.getNormalizedFrame().getTotalMeasurements();
+  CommonTrackOutputAdapterError error = CommonTrackOutputAdapterError::None;
+  ITSSharedClusterCompatibility unsealed;
+  BOOST_CHECK(!stageITSCommonTrackOutput(fixture.tf, measurement.cluster.source, surfaces, timing, unsealed, false, error));
+  BOOST_CHECK(error == CommonTrackOutputAdapterError::MissingCompatibility);
+  const auto wrongSource = stageITSCommonTrackOutput(fixture.tf, ClusterSourceId{99}, surfaces, timing, unsealed, false, error);
+  BOOST_REQUIRE(wrongSource);
+  BOOST_CHECK(wrongSource->tracks.empty());
+  BOOST_CHECK_EQUAL(fixture.tf.getCommonTracks().size(), tracks);
+  BOOST_CHECK_EQUAL(fixture.tf.getTrackClusterIndices().size(), refs);
+  BOOST_CHECK_EQUAL(fixture.tf.getNormalizedFrame().getTotalMeasurements(), measurements);
+
+  fixture.tf.getCommonTracks()[0].clusterRefEnd = refs + 1;
+  BOOST_CHECK(!selectCommonTracksForSource(fixture.tf, o2::detectors::DetID::ITS, measurement.cluster.source, error));
+  BOOST_CHECK(error == CommonTrackOutputAdapterError::InvalidTrackRange);
+  fixture.tf.getCommonTracks()[0].clusterRefEnd = refs;
+  fixture.tf.getTrackClusterIndices()[0].surface = SurfaceId{99};
+  BOOST_CHECK(!selectCommonTracksForSource(fixture.tf, o2::detectors::DetID::ITS, measurement.cluster.source, error));
+  BOOST_CHECK(error == CommonTrackOutputAdapterError::UnresolvedReference);
+  fixture.tf.getTrackClusterIndices()[0].surface = SurfaceId{0};
+
+  ITSSharedClusterCompatibility sealed;
+  ITSSharedClusterCompatibilityTransaction tx{sealed};
+  BOOST_REQUIRE(publishCommonTrackShadow(fixture.tf, record, tx, [](CommonTrackShadowPublishStep) {}));
+  struct Marked { bool hasSharedClusters() const { return false; } };
+  const std::array<Marked, 0> none{};
+  BOOST_CHECK(!sealed.sealFromMarkedTracks(none)); // pending cardinality mismatch fails closed
+  BOOST_CHECK(!sealed.isSealed());
+}
+
+BOOST_AUTO_TEST_CASE(MFTPublicationCompatibilityRejectsDuplicateNonMonotonicAndOutOfRangeKeys)
+{
+  MFTPublicationCompatibility sidecar;
+  MFTPublicationCompatibilityTransaction first{sidecar, 1., 2., 3};
+  BOOST_REQUIRE(first.validate(4));
+  first.reserve();
+  first.append(4);
+  MFTPublicationCompatibilityTransaction duplicate{sidecar, 4., 5., 6};
+  BOOST_CHECK(!duplicate.validate(4));
+  MFTPublicationCompatibilityTransaction nonMonotonic{sidecar, 4., 5., 6};
+  BOOST_CHECK(!nonMonotonic.validate(3));
+  BOOST_CHECK(sidecar.find(4, 4) == nullptr); // key is outside the supplied CommonTrack owner range
+  BOOST_CHECK(sidecar.find(5, 10) == nullptr);
+  BOOST_REQUIRE(sidecar.find(4, 5));
+  BOOST_CHECK_EQUAL(sidecar.entries().size(), 1u);
+}
