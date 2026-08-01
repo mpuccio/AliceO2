@@ -326,6 +326,31 @@ void checkBaselineSuccess()
 
 BOOST_AUTO_TEST_CASE(MFT_BaselineSuccess) { checkBaselineSuccess<10>(); }
 
+template <int NLayers>
+void checkCommonTrackPublicationExportLifecycle()
+{
+  OneLayerDecoder* decoder = nullptr;
+  auto interface = makeReadyInterface<NLayers>(decoder);
+  BOOST_CHECK(!interface->getCommonTrackPublicationExport());
+  const auto rofs = oneRof();
+  const auto clusters = oneCluster();
+  const auto patterns = makePatternBytes(clusters.size());
+  BOOST_REQUIRE_GE(interface->processTimeFrame(rofs, clusters, patterns, nullptr), 0.f);
+  const auto exported = interface->getCommonTrackPublicationExport();
+  BOOST_REQUIRE(exported);
+  BOOST_CHECK(exported->detector == TestTraits<NLayers>::detId);
+  BOOST_CHECK(exported->source == ClusterSourceId{0});
+  BOOST_CHECK_EQUAL(exported->orderedSurfaces.size(), static_cast<size_t>(NLayers));
+  const auto direct = exported->clock.getLegacyClockLayer();
+  const CommonTrackTimestamp timestamp{0, 1};
+  BOOST_REQUIRE(exported->clock.makeOutputTimestamp(timestamp));
+  BOOST_CHECK_EQUAL(exported->clock.getROF(*exported->clock.makeOutputTimestamp(timestamp)), direct.getROF(*exported->clock.makeOutputTimestamp(timestamp)));
+  interface->resetEvent();
+  BOOST_CHECK(!interface->getCommonTrackPublicationExport());
+}
+
+BOOST_AUTO_TEST_CASE(MFT_CommonTrackPublicationExportLifecycle) { checkCommonTrackPublicationExportLifecycle<10>(); }
+
 // ---------------------------------------------------------------------
 // Recoverable: malformed pattern, gated by DropTFUponFailure
 // ---------------------------------------------------------------------
