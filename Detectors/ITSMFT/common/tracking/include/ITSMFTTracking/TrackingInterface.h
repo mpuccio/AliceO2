@@ -38,6 +38,7 @@
 #include "ITSMFTTracking/Tracker.h"
 #include "ITSMFTTracking/Configuration.h"
 #include "ITSMFTTracking/LegacyTrackerScratch.h"
+#include "ITSMFTTracking/ITSSharedClusterCompatibility.h"
 #include "ITSMFTTracking/MFTPublicationCompatibility.h"
 #include "ITSMFTTracking/TimeFrame.h"
 #include "ITSMFTTracking/TrackerTraits.h"
@@ -59,7 +60,16 @@ struct MFTPublicationCompatibilityOwner<o2::mft::constants::mft::LayersNumber> {
 };
 
 template <int NLayers>
-class ITSMFTTrackingInterface : private MFTPublicationCompatibilityOwner<NLayers>
+struct ITSSharedClusterCompatibilityOwner {
+};
+
+template <>
+struct ITSSharedClusterCompatibilityOwner<ITSNLayers> {
+  ITSSharedClusterCompatibility sidecar;
+};
+
+template <int NLayers>
+class ITSMFTTrackingInterface : private MFTPublicationCompatibilityOwner<NLayers>, private ITSSharedClusterCompatibilityOwner<NLayers>
 {
  public:
   static_assert(NLayers == ITSNLayers || NLayers == o2::mft::constants::mft::LayersNumber,
@@ -116,11 +126,13 @@ class ITSMFTTrackingInterface : private MFTPublicationCompatibilityOwner<NLayers
                          const o2::dataformats::MCTruthContainer<o2::MCCompLabel>* labels,
                          gsl::span<const o2::dataformats::IRFrame> irFrames = {});
 
-  // Owner-level reset for this single-detector bridge. The MFT-only
-  // compatibility sidecar is cleared with the shared frame, never by a
-  // scratch-only reset (which deliberately preserves CommonTrack indices).
+  // Owner-level reset clears detector-local compatibility state with the
+  // shared frame. Scratch-only reset deliberately does neither.
   void resetEvent()
   {
+    if constexpr (DetId == o2::detectors::DetID::ITS) {
+      static_cast<ITSSharedClusterCompatibilityOwner<NLayers>&>(*this).sidecar.clear();
+    }
     if constexpr (DetId == o2::detectors::DetID::MFT) {
       static_cast<MFTPublicationCompatibilityOwner<NLayers>&>(*this).sidecar.clear();
     }
@@ -135,6 +147,13 @@ class ITSMFTTrackingInterface : private MFTPublicationCompatibilityOwner<NLayers
   {
     if constexpr (DetId == o2::detectors::DetID::MFT) {
       return &static_cast<const MFTPublicationCompatibilityOwner<NLayers>&>(*this).sidecar;
+    }
+    return nullptr;
+  }
+  const ITSSharedClusterCompatibility* getITSSharedClusterCompatibility() const noexcept
+  {
+    if constexpr (DetId == o2::detectors::DetID::ITS) {
+      return &static_cast<const ITSSharedClusterCompatibilityOwner<NLayers>&>(*this).sidecar;
     }
     return nullptr;
   }

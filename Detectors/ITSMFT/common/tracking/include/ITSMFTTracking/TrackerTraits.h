@@ -147,6 +147,7 @@ class TrackerTraits
   virtual void adoptScratch(ScratchN* scratch) { mScratch = scratch; }
   virtual void adoptFrame(TimeFrame* frame) { mFrame = frame; }
   void adoptMFTPublicationCompatibility(MFTPublicationCompatibility* compatibility) noexcept { mAcceptedTrackShadowPublisher.adoptMFTPublicationCompatibility(compatibility); }
+  void adoptITSSharedClusterCompatibility(ITSSharedClusterCompatibility* compatibility) noexcept { mAcceptedTrackShadowPublisher.adoptITSSharedClusterCompatibility(compatibility); }
   // `layouts` is the owner's (ITSMFTTrackingInterface's) one immutable plan,
   // supplied explicitly by the caller (Gate 4 B2 Slice 2) -- this no longer
   // reads any layout/catalog state off TimeFrame.

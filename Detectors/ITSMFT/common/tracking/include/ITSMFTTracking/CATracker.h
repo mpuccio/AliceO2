@@ -73,6 +73,11 @@ class Tracker
     mMFTPublicationCompatibility = &compatibility;
     mTraits->adoptMFTPublicationCompatibility(&compatibility);
   }
+  void adoptITSSharedClusterCompatibility(ITSSharedClusterCompatibility& compatibility)
+  {
+    mITSSharedClusterCompatibility = &compatibility;
+    mTraits->adoptITSSharedClusterCompatibility(&compatibility);
+  }
   // Binds the tracker's one immutable plan, owned by its caller
   // (ITSMFTTrackingInterface) -- mirrors adoptScratch()'s bind-once pattern.
   // `plan` must outlive every subsequent clustersToTracks() call.
@@ -114,6 +119,7 @@ class Tracker
   std::vector<TrackingParameters> mTrkParams;
   std::shared_ptr<BoundedMemoryResource> mMemoryPool;
   MFTPublicationCompatibility* mMFTPublicationCompatibility = nullptr;
+  ITSSharedClusterCompatibility* mITSSharedClusterCompatibility = nullptr;
 };
 
 template <int NLayers>

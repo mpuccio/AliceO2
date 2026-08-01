@@ -28,6 +28,7 @@ struct MFTPublicationCompatibilityEntry {
   uint32_t commonTrackIndex{};
   double invQPtSeed{};
   double chi2QPtSeed{};
+  uint16_t seedPattern{};
 };
 
 class MFTPublicationCompatibility
@@ -57,8 +58,8 @@ class MFTPublicationCompatibility
 class MFTPublicationCompatibilityTransaction
 {
  public:
-  MFTPublicationCompatibilityTransaction(MFTPublicationCompatibility& sidecar, double invQPtSeed, double chi2QPtSeed)
-    : mSidecar{sidecar}, mEntry{0u, invQPtSeed, chi2QPtSeed}, mOldSize{sidecar.mEntries.size()}
+  MFTPublicationCompatibilityTransaction(MFTPublicationCompatibility& sidecar, double invQPtSeed, double chi2QPtSeed, uint16_t seedPattern)
+    : mSidecar{sidecar}, mEntry{0u, invQPtSeed, chi2QPtSeed, seedPattern}, mOldSize{sidecar.mEntries.size()}
   {
   }
 

@@ -56,6 +56,7 @@
 #include "ITSMFTTracking/MultiSourceLoading.h"
 #include "ITSMFTTracking/SurfaceMeasurementAdapters.h"
 #include "ITSMFTTracking/LegacyTrackerScratch.h"
+#include "ITSMFTTracking/ITSSharedClusterCompatibility.h"
 #include "ITSMFTTracking/MFTPublicationCompatibility.h"
 #include "ITSMFTTracking/TimeFrame.h"
 #include "ITSMFTTracking/TrackingConfigParam.h"
@@ -754,7 +755,7 @@ BOOST_AUTO_TEST_CASE(MFTPublicationCompatibilityIsSparseOrderedAndTransactional)
   const auto record = makeShadowRecord();
   MFTPublicationCompatibility sidecar;
 
-  MFTPublicationCompatibilityTransaction firstTx{sidecar, 1.25, 3.5};
+  MFTPublicationCompatibilityTransaction firstTx{sidecar, 1.25, 3.5, 0x25u};
   const auto first = publishCommonTrackShadow(fixture.tf, record, firstTx, [](CommonTrackShadowPublishStep) {});
   BOOST_REQUIRE(first);
   BOOST_CHECK_EQUAL(*first, 0u);
@@ -762,18 +763,19 @@ BOOST_AUTO_TEST_CASE(MFTPublicationCompatibilityIsSparseOrderedAndTransactional)
   BOOST_CHECK_EQUAL(sidecar.entries().front().commonTrackIndex, *first);
   BOOST_CHECK_EQUAL(sidecar.entries().front().invQPtSeed, 1.25);
   BOOST_CHECK_EQUAL(sidecar.entries().front().chi2QPtSeed, 3.5);
+  BOOST_CHECK_EQUAL(sidecar.entries().front().seedPattern, 0x25u);
   BOOST_CHECK(sidecar.find(*first, fixture.tf.getCommonTracks().size()) != nullptr);
   BOOST_CHECK(sidecar.find(1u, fixture.tf.getCommonTracks().size()) == nullptr);  // missing key
   BOOST_CHECK(sidecar.find(99u, fixture.tf.getCommonTracks().size()) == nullptr); // out of range
 
-  MFTPublicationCompatibilityTransaction duplicate{sidecar, 2., 4.};
+  MFTPublicationCompatibilityTransaction duplicate{sidecar, 2., 4., 0x12u};
   BOOST_CHECK(!duplicate.validate(0u));
 
   const std::array steps{
     CommonTrackShadowPublishStep::BeforeCompatibilityReserve,
     CommonTrackShadowPublishStep::BeforeCompatibility};
   for (const auto step : steps) {
-    MFTPublicationCompatibilityTransaction tx{sidecar, 2., 4.};
+    MFTPublicationCompatibilityTransaction tx{sidecar, 2., 4., 0x12u};
     BOOST_CHECK_THROW(publishCommonTrackShadow(fixture.tf, record, tx, [step](CommonTrackShadowPublishStep reached) {
                         if (reached == step) {
                           throw std::bad_alloc{};
@@ -791,6 +793,91 @@ BOOST_AUTO_TEST_CASE(MFTPublicationCompatibilityIsSparseOrderedAndTransactional)
   fixture.scratch.resetScratch();
   BOOST_CHECK_EQUAL(fixture.tf.getCommonTracks().size(), 1u);
   BOOST_CHECK_EQUAL(sidecar.entries().size(), 1u);
+}
+
+BOOST_AUTO_TEST_CASE(ITSSharedClusterCompatibilityUsesExplicitPreSortAssociations)
+{
+  struct MarkedTrack {
+    bool shared = false;
+    bool hasSharedClusters() const { return shared; }
+  };
+
+  TimeFrameFixture fixture;
+  BOOST_REQUIRE(fixture.load().ok());
+  const auto record = makeShadowRecord();
+  ITSSharedClusterCompatibility sidecar;
+
+  // Deliberately use a non-identity conceptual fclusSort permutation. The
+  // status is read later from the original accepted slots, not this order.
+  std::array<MarkedTrack, 3> accepted{{{false}, {true}, {false}}};
+  const std::array<int, 3> fclusSort{{2, 0, 1}};
+  BOOST_CHECK_NE(fclusSort[0], 0);
+  for (size_t i = 0; i < accepted.size(); ++i) {
+    ITSSharedClusterCompatibilityTransaction tx{sidecar};
+    const auto index = publishCommonTrackShadow(fixture.tf, record, tx, [](CommonTrackShadowPublishStep) {});
+    BOOST_REQUIRE(index);
+    BOOST_CHECK_EQUAL(*index, i);
+  }
+  BOOST_CHECK_EQUAL(sidecar.pendingSize(), accepted.size());
+  BOOST_CHECK(sidecar.sealFromMarkedTracks(accepted));
+  BOOST_CHECK(sidecar.isSealed());
+  BOOST_REQUIRE_EQUAL(sidecar.entries().size(), accepted.size());
+  BOOST_CHECK_EQUAL(sidecar.entries()[0].commonTrackIndex, 0u);
+  BOOST_CHECK(!sidecar.entries()[0].hasSharedClusters);
+  BOOST_CHECK_EQUAL(sidecar.entries()[1].commonTrackIndex, 1u);
+  BOOST_CHECK(sidecar.entries()[1].hasSharedClusters);
+
+  // A later legacy output sort cannot change the already global-index-keyed
+  // sealed result.
+  std::reverse(accepted.begin(), accepted.end());
+  BOOST_CHECK_EQUAL(sidecar.entries()[1].commonTrackIndex, 1u);
+  BOOST_CHECK(sidecar.entries()[1].hasSharedClusters);
+
+  // Scratch-only reset has no authority over TimeFrame-owned CommonTracks
+  // or the bridge-owned compatibility result they index.
+  fixture.scratch.resetScratch();
+  BOOST_CHECK_EQUAL(fixture.tf.getCommonTracks().size(), 3u);
+  BOOST_CHECK_EQUAL(sidecar.entries().size(), 3u);
+
+  ITSSharedClusterCompatibility malformed;
+  ITSSharedClusterCompatibilityTransaction tx{malformed};
+  BOOST_REQUIRE(publishCommonTrackShadow(fixture.tf, record, tx, [](CommonTrackShadowPublishStep) {}));
+  BOOST_CHECK(!malformed.sealFromMarkedTracks(accepted)); // pending/track cardinality mismatch
+  BOOST_CHECK(!malformed.isSealed());
+  BOOST_CHECK(malformed.entries().empty());
+
+  TimeFrameFixture rollbackFixture;
+  BOOST_REQUIRE(rollbackFixture.load().ok());
+  ITSSharedClusterCompatibility rollback;
+  for (const auto step : {CommonTrackShadowPublishStep::BeforeCompatibilityReserve, CommonTrackShadowPublishStep::BeforeCompatibility}) {
+    ITSSharedClusterCompatibilityTransaction rollbackTx{rollback};
+    BOOST_CHECK_THROW(publishCommonTrackShadow(rollbackFixture.tf, record, rollbackTx, [step](CommonTrackShadowPublishStep reached) {
+                        if (reached == step) {
+                          throw std::bad_alloc{};
+                        }
+                      }),
+                      std::bad_alloc);
+    BOOST_CHECK(rollbackFixture.tf.getCommonTracks().empty());
+    BOOST_CHECK(rollbackFixture.tf.getTrackClusterIndices().empty());
+    BOOST_CHECK_EQUAL(rollback.pendingSize(), 0u);
+  }
+
+  ITSSharedClusterCompatibility sealingFailure;
+  ITSSharedClusterCompatibilityTransaction sealingTx{sealingFailure};
+  BOOST_REQUIRE(publishCommonTrackShadow(rollbackFixture.tf, record, sealingTx, [](CommonTrackShadowPublishStep) {}));
+  std::array<MarkedTrack, 1> oneTrack{{{true}}};
+  BOOST_CHECK_THROW(sealingFailure.sealFromMarkedTracks(oneTrack, [](ITSSharedClusterCompatibilitySealStep) {
+    throw std::bad_alloc{};
+  }),
+                    std::bad_alloc);
+  BOOST_CHECK(!sealingFailure.isSealed());
+  BOOST_CHECK(sealingFailure.entries().empty());
+
+  sidecar.clear();
+  fixture.tf.wipe();
+  BOOST_CHECK(fixture.tf.getCommonTracks().empty());
+  BOOST_CHECK_EQUAL(sidecar.pendingSize(), 0u);
+  BOOST_CHECK(sidecar.entries().empty());
 }
 
 BOOST_AUTO_TEST_CASE(FailedLoadPreservesCommonTrackAndTrackClusterIndicesUnchanged)

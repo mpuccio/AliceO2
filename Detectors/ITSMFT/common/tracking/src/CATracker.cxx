@@ -105,6 +105,9 @@ float Tracker<NLayers>::clustersToTracks()
     if (mMFTPublicationCompatibility != nullptr) {
       mMFTPublicationCompatibility->clear();
     }
+    if (mITSSharedClusterCompatibility != nullptr) {
+      mITSSharedClusterCompatibility->clear();
+    }
     resetTimeFrameEvent(*mFrame, *mScratch);
     throw;
   } catch (const BoundedMemoryResource::MemoryLimitExceeded& err) {
@@ -113,6 +116,9 @@ float Tracker<NLayers>::clustersToTracks()
     LOGP(error, "CA tracker exceeded memory limit: {}", err.what());
     if (mMFTPublicationCompatibility != nullptr) {
       mMFTPublicationCompatibility->clear();
+    }
+    if (mITSSharedClusterCompatibility != nullptr) {
+      mITSSharedClusterCompatibility->clear();
     }
     resetTimeFrameEvent(*mFrame, *mScratch);
     if (mTrkParams[0].DropTFUponFailure) {
@@ -129,6 +135,9 @@ float Tracker<NLayers>::clustersToTracks()
     if (mMFTPublicationCompatibility != nullptr) {
       mMFTPublicationCompatibility->clear();
     }
+    if (mITSSharedClusterCompatibility != nullptr) {
+      mITSSharedClusterCompatibility->clear();
+    }
     resetTimeFrameEvent(*mFrame, *mScratch);
     if (mTrkParams[0].DropTFUponFailure) {
       return kDroppedTimeFrameResult;
@@ -143,6 +152,9 @@ float Tracker<NLayers>::clustersToTracks()
     LOGP(error, "CA tracker failed with an unclassified exception; treating as structural: {}", err.what());
     if (mMFTPublicationCompatibility != nullptr) {
       mMFTPublicationCompatibility->clear();
+    }
+    if (mITSSharedClusterCompatibility != nullptr) {
+      mITSSharedClusterCompatibility->clear();
     }
     resetTimeFrameEvent(*mFrame, *mScratch);
     throw;

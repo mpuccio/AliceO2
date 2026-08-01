@@ -18,6 +18,7 @@
 #include <iterator>
 #include <cmath>
 #include <limits>
+#include <stdexcept>
 #include <type_traits>
 #include <utility>
 
@@ -1807,6 +1808,17 @@ void TrackerTraits<NLayers>::markTracks(int iteration)
           track2.setSharedClusters();
         }
       }
+    }
+  }
+
+  // The legacy accepted-track vector has not yet been rectified or sorted:
+  // fclusSort above is only a comparison permutation. Seal the ITS-only
+  // compatibility entries from the explicit pending associations exactly at
+  // this final serial marking boundary.
+  if constexpr (DetectorTraits<NLayers>::DetId == o2::detectors::DetID::ITS) {
+    if (iteration + 1 == static_cast<int>(mTrkParams.size()) &&
+        !mAcceptedTrackShadowPublisher.sealITSSharedClusterCompatibility(mScratch->getTracks())) {
+      throw std::runtime_error{"failed to seal ITS shared-cluster compatibility"};
     }
   }
 }
