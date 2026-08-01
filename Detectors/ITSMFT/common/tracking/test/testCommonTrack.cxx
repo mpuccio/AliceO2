@@ -951,3 +951,45 @@ BOOST_AUTO_TEST_CASE(CommonTrackOutputAdapterTimestampIsSymmetricAndClamped)
   BOOST_CHECK(!makeOutputTimestamp({20, 20}, 7, error));
   BOOST_CHECK(error == CommonTrackOutputAdapterError::InvalidTimestamp);
 }
+
+BOOST_AUTO_TEST_CASE(CommonTrackOutputAdapterStagesITSAndFailsClosed)
+{
+  TimeFrameFixture fixture;
+  BOOST_REQUIRE(fixture.load().ok());
+  auto record = makeShadowRecord();
+  record.track.chi2 = 3.f;
+  ITSSharedClusterCompatibility shared;
+  ITSSharedClusterCompatibilityTransaction transaction{shared};
+  BOOST_REQUIRE(publishCommonTrackShadow(fixture.tf, record, transaction, [](CommonTrackShadowPublishStep) {}));
+  struct MarkedTrack {
+    bool shared{};
+    bool hasSharedClusters() const { return shared; }
+  };
+  const std::array<MarkedTrack, 1> marked{{{true}}};
+  BOOST_REQUIRE(shared.sealFromMarkedTracks(marked));
+  const auto& measurement = *fixture.tf.getNormalizedFrame().getMeasurement(SurfaceId{0}, SurfaceMeasurementIndex{0});
+  const std::vector<ROFRecord> rofs{ROFRecord{{100, 5}, 0, 7, 3}};
+  CommonTrackOutputAdapterError error = CommonTrackOutputAdapterError::None;
+  const CommonTrackOutputTimingContext timing{rofs, 10, [](const o2::its::TimeStamp&) { return 0; }};
+  const auto output = stageITSCommonTrackOutput(fixture.tf, measurement.cluster.source,
+                                                gsl::span<const SurfaceId>{fixture.plan->getConfigurationKey().orderedSurfaces}, timing, shared,
+                                                true, error);
+  BOOST_REQUIRE(output);
+  BOOST_CHECK_EQUAL(output->tracks.size(), 1u);
+  BOOST_CHECK_EQUAL(output->clusterIndices.size(), 1u);
+  BOOST_CHECK_EQUAL(output->clusterIndices[0], static_cast<int>(measurement.cluster.index));
+  BOOST_CHECK(output->tracks[0].hasSharedClusters());
+  BOOST_CHECK_EQUAL(output->tracks[0].getChi2(), 3.f);
+  BOOST_CHECK_EQUAL(output->trackROFs[0].getFirstEntry(), 0);
+  BOOST_CHECK_EQUAL(output->trackROFs[0].getNEntries(), 1);
+  BOOST_CHECK_EQUAL(output->trackROFs[0].getFlags(), rofs[0].getFlags());
+
+  const auto oldTracks = fixture.tf.getCommonTracks().size();
+  const auto oldReferences = fixture.tf.getTrackClusterIndices().size();
+  const CommonTrackOutputTimingContext invalidROF{rofs, 10, [](const o2::its::TimeStamp&) { return 1; }};
+  BOOST_CHECK(!stageITSCommonTrackOutput(fixture.tf, measurement.cluster.source,
+                                         gsl::span<const SurfaceId>{fixture.plan->getConfigurationKey().orderedSurfaces}, invalidROF, shared, false, error));
+  BOOST_CHECK(error == CommonTrackOutputAdapterError::InvalidROF);
+  BOOST_CHECK_EQUAL(fixture.tf.getCommonTracks().size(), oldTracks);
+  BOOST_CHECK_EQUAL(fixture.tf.getTrackClusterIndices().size(), oldReferences);
+}
