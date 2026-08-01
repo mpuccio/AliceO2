@@ -1083,7 +1083,9 @@ BOOST_AUTO_TEST_CASE(CommonTrackOutputAdapterRejectsMalformedInputsWithoutMutati
   ITSSharedClusterCompatibility sealed;
   ITSSharedClusterCompatibilityTransaction tx{sealed};
   BOOST_REQUIRE(publishCommonTrackShadow(fixture.tf, record, tx, [](CommonTrackShadowPublishStep) {}));
-  struct Marked { bool hasSharedClusters() const { return false; } };
+  struct Marked {
+    bool hasSharedClusters() const { return false; }
+  };
   const std::array<Marked, 0> none{};
   BOOST_CHECK(!sealed.sealFromMarkedTracks(none)); // pending cardinality mismatch fails closed
   BOOST_CHECK(!sealed.isSealed());

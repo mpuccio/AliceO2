@@ -122,8 +122,8 @@ inline std::optional<CommonTrackOutputAdapterSelection> selectCommonTracksForSou
 }
 
 inline std::optional<o2::its::TimeStamp> makeOutputTimestamp(const CommonTrackTimestamp& timestamp,
-                                                               uint32_t clamp,
-                                                               CommonTrackOutputAdapterError& error)
+                                                             uint32_t clamp,
+                                                             CommonTrackOutputAdapterError& error)
 {
   if (!timestamp.isValid() || timestamp.begin < 0 || timestamp.end > std::numeric_limits<uint32_t>::max() ||
       timestamp.end - timestamp.begin > std::numeric_limits<uint16_t>::max()) {
@@ -229,14 +229,15 @@ inline bool collectReferences(const TimeFrame& frame, const CommonTrack& common,
 }
 
 inline std::optional<ITSCommonTrackOutput> stageITSCommonTrackOutput(const TimeFrame& frame, ClusterSourceId source,
-                                                                       gsl::span<const SurfaceId> surfaces,
-                                                                       const CommonTrackOutputTimingContext& context,
-                                                                       const ITSSharedClusterCompatibility& compatibility,
-                                                                       bool withMC, CommonTrackOutputAdapterError& error)
+                                                                     gsl::span<const SurfaceId> surfaces,
+                                                                     const CommonTrackOutputTimingContext& context,
+                                                                     const ITSSharedClusterCompatibility& compatibility,
+                                                                     bool withMC, CommonTrackOutputAdapterError& error)
 {
   const auto selection = selectCommonTracksForSource(frame, o2::detectors::DetID::ITS, source, error);
   if (!selection || (!selection->globalIndices.empty() && !compatibility.isSealed())) {
-    if (error == CommonTrackOutputAdapterError::None) error = CommonTrackOutputAdapterError::MissingCompatibility;
+    if (error == CommonTrackOutputAdapterError::None)
+      error = CommonTrackOutputAdapterError::MissingCompatibility;
     return std::nullopt;
   }
   ITSCommonTrackOutput staged;
@@ -253,7 +254,8 @@ inline std::optional<ITSCommonTrackOutput> stageITSCommonTrackOutput(const TimeF
       return std::nullopt;
     }
     const auto time = makeOutputTimestamp(common.timestamp, context.timestampErrorClamp, error);
-    if (!time) return std::nullopt;
+    if (!time)
+      return std::nullopt;
     const auto it = std::lower_bound(compatibility.entries().begin(), compatibility.entries().end(), index,
                                      [](const auto& entry, uint32_t value) { return entry.commonTrackIndex < value; });
     if (it == compatibility.entries().end() || it->commonTrackIndex != index) {
@@ -263,26 +265,30 @@ inline std::optional<ITSCommonTrackOutput> stageITSCommonTrackOutput(const TimeF
     o2::its::TrackITS output{inner, common.chi2, outer};
     MCLabelAccumulator accumulator;
     uint32_t pattern = 0;
-    if (!collectReferences(frame, common, surfaces, 7, staged.clusterIndices, output, withMC ? &accumulator : nullptr, pattern, error)) return std::nullopt;
+    if (!collectReferences(frame, common, surfaces, 7, staged.clusterIndices, output, withMC ? &accumulator : nullptr, pattern, error))
+      return std::nullopt;
     output.setPattern(pattern);
     output.setSharedClusters(it->hasSharedClusters);
     output.getTimeStamp() = *time;
     staged.tracks.push_back(std::move(output));
     times.push_back(*time);
-    if (withMC) staged.labels.push_back(accumulator.finalize());
+    if (withMC)
+      staged.labels.push_back(accumulator.finalize());
   }
-  if (!finalizeROFs(staged.trackROFs, times, context, error)) return std::nullopt;
+  if (!finalizeROFs(staged.trackROFs, times, context, error))
+    return std::nullopt;
   return staged;
 }
 
 inline std::optional<MFTCommonTrackOutput> stageMFTCommonTrackOutput(const TimeFrame& frame, ClusterSourceId source,
-                                                                       gsl::span<const SurfaceId> surfaces,
-                                                                       const CommonTrackOutputTimingContext& context,
-                                                                       const MFTPublicationCompatibility& compatibility,
-                                                                       bool withMC, CommonTrackOutputAdapterError& error)
+                                                                     gsl::span<const SurfaceId> surfaces,
+                                                                     const CommonTrackOutputTimingContext& context,
+                                                                     const MFTPublicationCompatibility& compatibility,
+                                                                     bool withMC, CommonTrackOutputAdapterError& error)
 {
   const auto selection = selectCommonTracksForSource(frame, o2::detectors::DetID::MFT, source, error);
-  if (!selection) return std::nullopt;
+  if (!selection)
+    return std::nullopt;
   MFTCommonTrackOutput staged;
   staged.trackROFs.assign(context.inputROFs.begin(), context.inputROFs.end());
   staged.tracks.reserve(selection->globalIndices.size());
@@ -292,13 +298,18 @@ inline std::optional<MFTCommonTrackOutput> stageMFTCommonTrackOutput(const TimeF
   for (const auto index : selection->globalIndices) {
     const auto& common = frame.getCommonTracks()[index];
     const auto* sidecar = compatibility.find(index, frame.getCommonTracks().size());
-    if (sidecar == nullptr) { error = CommonTrackOutputAdapterError::MissingCompatibility; return std::nullopt; }
+    if (sidecar == nullptr) {
+      error = CommonTrackOutputAdapterError::MissingCompatibility;
+      return std::nullopt;
+    }
     o2::track::TrackParCovFwd inner, outer;
     if (!legacy::exportLegacyForwardTrackParCov(common.innerState, inner) || !legacy::exportLegacyForwardTrackParCov(common.outerState, outer)) {
-      error = CommonTrackOutputAdapterError::InvalidState; return std::nullopt;
+      error = CommonTrackOutputAdapterError::InvalidState;
+      return std::nullopt;
     }
     const auto time = makeOutputTimestamp(common.timestamp, context.timestampErrorClamp, error);
-    if (!time) return std::nullopt;
+    if (!time)
+      return std::nullopt;
     o2::mft::TrackMFT output;
     static_cast<o2::track::TrackParCovFwd&>(output) = inner;
     output.setOutParam(outer);
@@ -308,13 +319,16 @@ inline std::optional<MFTCommonTrackOutput> stageMFTCommonTrackOutput(const TimeF
     output.setChi2QPtSeed(sidecar->chi2QPtSeed);
     MCLabelAccumulator accumulator;
     uint32_t ignoredPattern = 0;
-    if (!collectReferences(frame, common, surfaces, 10, staged.clusterIndices, output, withMC ? &accumulator : nullptr, ignoredPattern, error)) return std::nullopt;
+    if (!collectReferences(frame, common, surfaces, 10, staged.clusterIndices, output, withMC ? &accumulator : nullptr, ignoredPattern, error))
+      return std::nullopt;
     staged.tracks.push_back(std::move(output));
     staged.seedPatterns.push_back(sidecar->seedPattern);
     times.push_back(*time);
-    if (withMC) staged.labels.push_back(accumulator.finalize());
+    if (withMC)
+      staged.labels.push_back(accumulator.finalize());
   }
-  if (!finalizeROFs(staged.trackROFs, times, context, error)) return std::nullopt;
+  if (!finalizeROFs(staged.trackROFs, times, context, error))
+    return std::nullopt;
   return staged;
 }
 
