@@ -57,6 +57,14 @@ struct CommonTrackOutputTimingContext {
   ClockTimingPublicationView clock;
 };
 
+struct CommonTrackPublicationContext {
+  o2::detectors::DetID::ID detector{};
+  ClusterSourceId source{};
+  gsl::span<const o2::itsmft::ROFRecord> inputROFs;
+  ClockTimingPublicationView clock;
+  gsl::span<const SurfaceId> orderedSurfaces;
+};
+
 struct ITSCommonTrackOutput {
   std::vector<o2::its::TrackITS> tracks;
   std::vector<int> clusterIndices;
@@ -325,6 +333,28 @@ inline std::optional<MFTCommonTrackOutput> stageMFTCommonTrackOutput(const TimeF
   if (!finalizeROFs(staged.trackROFs, times, context, error))
     return std::nullopt;
   return staged;
+}
+
+inline std::optional<ITSCommonTrackOutput> stageITSCommonTrackOutput(const TimeFrame& frame, const CommonTrackPublicationContext& context,
+                                                                     const ITSSharedClusterCompatibility& compatibility, bool withMC,
+                                                                     CommonTrackOutputAdapterError& error)
+{
+  if (context.detector != o2::detectors::DetID::ITS) {
+    error = CommonTrackOutputAdapterError::MixedDetector;
+    return std::nullopt;
+  }
+  return stageITSCommonTrackOutput(frame, context.source, context.orderedSurfaces, {context.inputROFs, context.clock}, compatibility, withMC, error);
+}
+
+inline std::optional<MFTCommonTrackOutput> stageMFTCommonTrackOutput(const TimeFrame& frame, const CommonTrackPublicationContext& context,
+                                                                     const MFTPublicationCompatibility& compatibility, bool withMC,
+                                                                     CommonTrackOutputAdapterError& error)
+{
+  if (context.detector != o2::detectors::DetID::MFT) {
+    error = CommonTrackOutputAdapterError::MixedDetector;
+    return std::nullopt;
+  }
+  return stageMFTCommonTrackOutput(frame, context.source, context.orderedSurfaces, {context.inputROFs, context.clock}, compatibility, withMC, error);
 }
 
 } // namespace o2::itsmft::tracking

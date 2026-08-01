@@ -27,5 +27,7 @@
 // requires this to work.
 #pragma link C++ class o2::itsmft::ITSCommonCATrackerParam + ;
 #pragma link C++ class o2::conf::ConfigurableParamHelper < o2::itsmft::ITSCommonCATrackerParam> + ;
+#pragma link C++ class o2::itsmft::ITSMFTCommonCAOutputParam + ;
+#pragma link C++ class o2::conf::ConfigurableParamHelper < o2::itsmft::ITSMFTCommonCAOutputParam> + ;
 
 #endif

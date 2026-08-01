@@ -1032,6 +1032,27 @@ BOOST_AUTO_TEST_CASE(CommonTrackOutputAdapterStagesITSAndFailsClosed)
   BOOST_CHECK_EQUAL(output->trackROFs[0].getNEntries(), 1);
   BOOST_CHECK_EQUAL(output->trackROFs[0].getFlags(), rofs[0].getFlags());
 
+  // This is the workflow-facing binding: the workflow combines its own ROF
+  // span with the immutable export returned by the tracking interface.  The
+  // adapter accepts no scratch state and keeps the source/layout binding
+  // explicit at this boundary.
+  const CommonTrackPublicationContext publicationContext{
+    o2::detectors::DetID::ITS, measurement.cluster.source, rofs, ClockTimingPublicationView{clock},
+    gsl::span<const SurfaceId>{fixture.plan->getConfigurationKey().orderedSurfaces}};
+  const auto contextOutput = stageITSCommonTrackOutput(fixture.tf, publicationContext, shared, true, error);
+  BOOST_REQUIRE(contextOutput);
+  BOOST_CHECK_EQUAL(contextOutput->tracks.size(), output->tracks.size());
+  BOOST_REQUIRE_EQUAL(contextOutput->clusterIndices.size(), output->clusterIndices.size());
+  for (size_t i = 0; i < output->clusterIndices.size(); ++i) {
+    BOOST_CHECK_EQUAL(contextOutput->clusterIndices[i], output->clusterIndices[i]);
+  }
+  BOOST_CHECK_EQUAL(contextOutput->trackROFs.size(), output->trackROFs.size());
+
+  auto wrongDetectorContext = publicationContext;
+  wrongDetectorContext.detector = o2::detectors::DetID::MFT;
+  BOOST_CHECK(!stageITSCommonTrackOutput(fixture.tf, wrongDetectorContext, shared, false, error));
+  BOOST_CHECK(error == CommonTrackOutputAdapterError::MixedDetector);
+
   const auto oldTracks = fixture.tf.getCommonTracks().size();
   const auto oldReferences = fixture.tf.getTrackClusterIndices().size();
   const std::vector<ROFRecord> invalidROFs;

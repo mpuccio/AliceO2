@@ -124,6 +124,11 @@ struct ITSCommonCATrackerParam : public o2::conf::ConfigurableParamHelper<ITSCom
   O2ParamDef(ITSCommonCATrackerParam, "ITSCommonCATrackerParam");
 };
 
+struct ITSMFTCommonCAOutputParam : public o2::conf::ConfigurableParamHelper<ITSMFTCommonCAOutputParam> {
+  bool useCommonTrackOutput = false;
+  O2ParamDef(ITSMFTCommonCAOutputParam, "ITSMFTCommonCAOutputParam");
+};
+
 template <int N>
 struct TrackerParamConfig : public o2::conf::ConfigurableParamHelper<TrackerParamConfig<N>> {
   static constexpr std::string_view getParamName()
