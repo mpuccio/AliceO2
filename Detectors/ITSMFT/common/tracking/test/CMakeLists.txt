@@ -408,6 +408,16 @@ o2_add_test_root_macro(gate3-slice3b-its-ca-thread-validation/extract_track_cont
                        PUBLIC_LINK_LIBRARIES
                          O2::DataFormatsITS)
 
+# Gate 4 B4.2b persisted-output comparator. Its runnable A/B protocol uses
+# external fixture files; compile it here to validate the ROOT and data-format
+# dependencies in normal configurations.
+o2_add_test_root_macro(gate4-b42b-validation/compare_common_ca_output.C
+                       COMPILE_ONLY
+                       LABELS "itsmft;tracking;gate4"
+                       PUBLIC_LINK_LIBRARIES
+                         O2::DataFormatsITSMFT
+                         O2::SimulationDataFormat)
+
 # Publication/CMake correction handoff: cluster-attachment identity
 # checkers (see cluster-attachment-validation/ -- proving every emitted
 # flattened cluster reference has the correct hit layer, external index,
