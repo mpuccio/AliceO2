@@ -4,6 +4,8 @@ Status: Draft RFC
 Owners: ITSMFT tracking maintainers  
 Scope: CPU tracking first, with GPU-compatible data views retained  
 
+Post-Gate-4 target: [ADR 0007](decisions/0007-generic-tracking-engine-boundary.md), plan in [GenericTrackingEngineMigration.md](GenericTrackingEngineMigration.md)
+
 ## 1. Purpose
 
 The target is one Cellular Automaton (CA) tracking implementation that can operate on a TimeFrame containing cylindrical layers, forward disks, or a mixture of both. ITS and MFT remain detector-specific at their input and output boundaries, while cluster bookkeeping, topology traversal, CA artefact construction, and track selection are shared.
@@ -341,6 +343,11 @@ surface-kind/tag mismatches, mixed-policy cells, and all cylinder-disk transitio
 until D008 is resolved. Configuration-dependent reachability and parameter-range
 checks occur when configuration is bound to a valid layout, not in the topology owner
 alone.
+
+Post Gate 4, `TransitionPolicyTag` is classified as a temporary legacy
+implementation detail to be contained behind private code — see
+[ADR 0007](decisions/0007-generic-tracking-engine-boundary.md); the dispatch
+mechanics above remain valid while it exists.
 
 ## 11. Track-state strategy
 

@@ -5,6 +5,8 @@ Integration owner: Codex architecture/integration agent
 Integration branch: `codex/itsmft-integration`  
 Architecture: [Architecture.md](Architecture.md)
 
+Post-Gate-4 migration plan: [GenericTrackingEngineMigration.md](GenericTrackingEngineMigration.md)
+
 ## 1. Objective
 
 Coordinate multiple coding agents working on the shared ITS/MFT CA tracking refactoring without duplicating work, changing incompatible interfaces, or creating unreviewable cross-cutting commits.
@@ -346,6 +348,7 @@ The integration owner records accepted decisions here or links a dedicated follo
 | D008 | Deferred | Select mixed cylinder-disk track state | Requires a dedicated RFC after common production migration | 5 |
 | D009 | Accepted | Gate 3 delivers complete ITS-only and MFT-only common-CA paths as explicit opt-in alternatives while legacy algorithms and production defaults remain unchanged | Preserves a production oracle and rollback path so both implementations can be merged to development and compared on identical real inputs before any separately approved default switch or retirement; no automatic fallback is allowed | 3+ |
 | D010 | Accepted | Gate 4 combined tracking wires `Tracker<NLayers>`/`TrackerTraits<NLayers>` to the already-integrated combined 17-surface catalog via one `DetectorTraversalBinding` per detector (bound once via `adoptDetectorTraversalBinding()`), which is the sole global-ID-to-compact-scratch-slot translation; `Tracker<NLayers>::clustersToTracks()` failure handling resets only its own `LegacyTrackerScratch<NLayers>` and returns a typed outcome instead of wiping the shared `TimeFrame` itself, leaving whole-TF wipe/drop policy to a future coordinator via the already-implemented `MultiSourceTimeFrameLoader::resetITSAndMFTEvent()`; combined loading is always one `loadITSAndMFT()` call (never sequential per-detector `loadNormalizedSource()` calls into the same frame, since `commitNormalizedFrame()` replaces content atomically) | Gate 4 C2 wiring audit (2026-08-02) traced every production site indexing `LegacyTrackerScratch` by `TransitionId`/`CellTopologyId`/road-start ID and confirmed the combined catalog, `DetectorTraversalBinding`, `loadITSAndMFT()`/`resetITSAndMFTEvent()`, and append-only `CommonTrack` publication are already committed/tested but unwired; this decision fixes the wiring contract (binding ownership, failure-outcome ownership, single combined load) before Slice 1 implementation begins. No production code changed by this decision | 4 |
+| D011 | Accepted | Post-Gate-4 generic tracking-engine boundary: permanent `TimeFrame`/`CommonTrack` ownership, one concrete `TrackingEngine::executeEvent()` over explicitly scheduled `TrackingParticipant`s, detectors as adapters; `CombinedTimeFrameCoordinator`, `TransitionPolicyTag`, and `LegacyTrackerScratch` classified as temporary | Fixes the end-state boundary before post-Gate-4 implementation slices begin; intentional behavior changes (e.g. native ITS refit) remain fenced behind separate decisions. Full record: [ADR 0007](decisions/0007-generic-tracking-engine-boundary.md); milestones: [GenericTrackingEngineMigration.md](GenericTrackingEngineMigration.md) | post-4 |
 
 Status values are `Open`, `Proposed`, `Accepted`, `Superseded`, or `Deferred`. Only the integration owner marks a decision accepted after maintainer agreement.
 
