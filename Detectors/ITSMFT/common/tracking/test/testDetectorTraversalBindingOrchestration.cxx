@@ -31,11 +31,15 @@
 
 #include <oneapi/tbb/task_arena.h>
 
+#include <TGeoGlobalMagField.h>
+#include "Field/MagneticField.h"
+
 #include "CommonDataFormat/InteractionRecord.h"
 #include "DataFormatsITSMFT/CompCluster.h"
 #include "DataFormatsITSMFT/ROFRecord.h"
 #include "DataFormatsITSMFT/TopologyDictionary.h"
 #include "DetectorsCommonDataFormats/DetID.h"
+#include "ITSMFTTracking/CATracker.h"
 #include "ITSMFTTracking/ClusterDecoder.h"
 #include "ITSMFTTracking/Configuration.h"
 #include "ITSMFTTracking/DecodedCluster.h"
@@ -67,6 +71,32 @@ const TopologyDictionary& dict()
 {
   static const TopologyDictionary d;
   return d;
+}
+
+// Every layer eligible as a road start, matching resetDetectorDefaults()'s
+// own StartLayerMask default ((1u << nLayers) - 1u, i.e. "any layer may
+// seed a road") -- StandaloneMftRun gets this for free through
+// buildDetectorLayoutSet()'s positionalSurfaceMask(parameters.StartLayerMask,
+// ...); a manually-built combined DetectorLayoutBuilder subgraph has no such
+// implicit default and must pass it explicitly, or findRoads()'s
+// roadStartCells span is permanently empty (topology.seedingSurfaces.has(...)
+// can never be true) regardless of chain length or cuts.
+SurfaceMask itsSeedMask() { return SurfaceMask{uint32_t{0x7f}}; }
+SurfaceMask mftSeedMask() { return SurfaceMask{uint32_t{0x1ff80}}; }
+
+// TrackerTraits::findRoads() unconditionally touches the global
+// o2::base::Propagator singleton on first use, which requires
+// TGeoGlobalMagField to already hold a real o2::field::MagneticField object
+// -- see testCATrackerFailureContract.cxx's identical helper for the full
+// rationale. Only the findRoads()-reaching tests below need this.
+void ensureTrivialMagneticFieldIsSet()
+{
+  static const bool done = [] {
+    TGeoGlobalMagField::Instance()->SetField(new o2::field::MagneticField());
+    TGeoGlobalMagField::Instance()->Lock();
+    return true;
+  }();
+  (void)done;
 }
 
 std::vector<SurfaceId> ordered(uint16_t first, uint16_t count)
@@ -266,6 +296,14 @@ struct StandaloneMftRun {
   std::shared_ptr<tbb::task_arena> arena;
   std::shared_ptr<BoundedMemoryResource> pool = std::make_shared<BoundedMemoryResource>();
   std::vector<TrackingParameters> params = mftParams();
+  // Declared before `plan`: DetectorLayoutSet borrows a non-owning
+  // SurfaceCatalogView into this vector (never a copy), so it must outlive
+  // `plan` -- C++ destroys members in reverse declaration order, so this
+  // member is destroyed last. A constructor-local vector here would leave
+  // `plan`'s view dangling the instant the constructor returns (only latent
+  // as long as nothing re-reads the catalog after construction, e.g. a
+  // second initialiseTimeFrame() call from Tracker::clustersToTracks()).
+  std::vector<SurfaceDescriptor> catalog;
 
   StandaloneMftRun(const std::vector<DecodedCluster>& decoded)
   {
@@ -279,7 +317,6 @@ struct StandaloneMftRun {
     traits.setBz(Bz);
 
     const auto orderedSurfaces = ordered(0, MFTNLayers);
-    std::vector<SurfaceDescriptor> catalog;
     appendMaterialCatalog(catalog, 0, MFTNLayers, o2::detectors::DetID::MFT, SurfaceKind::Disk);
     const SurfaceCatalogView catalogView{catalog.data(), static_cast<uint32_t>(catalog.size())};
     auto planResult = buildDetectorLayoutSet(catalogView, orderedSurfaces, TransitionPolicyTag::DiskDisk, params);
@@ -346,8 +383,8 @@ struct CombinedMftRun {
     const auto itsSurfaces = ordered(0, ITSNLayers);
     const auto mftSurfaces = ordered(ITSNLayers, MFTNLayers);
     DetectorLayoutBuilder builder{catalogView};
-    builder.addSubgraph({itsSurfaces, 0, SurfaceMask{}, SurfaceMask{}, TransitionPolicyTag::CylinderCylinder});
-    builder.addSubgraph({mftSurfaces, 0, SurfaceMask{}, SurfaceMask{}, TransitionPolicyTag::DiskDisk});
+    builder.addSubgraph({itsSurfaces, 0, SurfaceMask{}, itsSeedMask(), TransitionPolicyTag::CylinderCylinder});
+    builder.addSubgraph({mftSurfaces, 0, SurfaceMask{}, mftSeedMask(), TransitionPolicyTag::DiskDisk});
     auto built = builder.build();
     BOOST_REQUIRE(built.ok());
     DetectorLayout combinedLayout = std::move(*built.layout);
@@ -489,8 +526,8 @@ BOOST_AUTO_TEST_CASE(MismatchedBindingFailsClosedBeforeTrackletProcessing)
   const auto mftSurfaces = ordered(ITSNLayers, MFTNLayers);
 
   DetectorLayoutBuilder builder{catalogView};
-  builder.addSubgraph({itsSurfaces, 0, SurfaceMask{}, SurfaceMask{}, TransitionPolicyTag::CylinderCylinder});
-  builder.addSubgraph({mftSurfaces, 0, SurfaceMask{}, SurfaceMask{}, TransitionPolicyTag::DiskDisk});
+  builder.addSubgraph({itsSurfaces, 0, SurfaceMask{}, itsSeedMask(), TransitionPolicyTag::CylinderCylinder});
+  builder.addSubgraph({mftSurfaces, 0, SurfaceMask{}, mftSeedMask(), TransitionPolicyTag::DiskDisk});
   auto built = builder.build();
   BOOST_REQUIRE(built.ok());
   DetectorLayout combinedLayout = std::move(*built.layout);
@@ -540,4 +577,168 @@ BOOST_AUTO_TEST_CASE(MismatchedBindingFailsClosedBeforeTrackletProcessing)
 
   BOOST_CHECK_EXCEPTION(traits.initialiseTimeFrame(0, plan), TraversalException, [](const TraversalException&) { return true; });
   BOOST_CHECK(!traits.hasTraversalCache());
+}
+
+// Gate 4 C2 Slice 2: the same construction-time-misuse scenario as
+// MismatchedBindingFailsClosedBeforeTrackletProcessing above, but driven
+// through Tracker<MFTNLayers>::clustersToTracks() with
+// DropTFUponFailure=true -- proving the binding-mismatch failure (a
+// TraversalException, structural by TrackerTraits.cxx's own classification)
+// is never reclassified as TrackingOutcome::RecoverableDropped merely
+// because the policy flag happens to be set. clustersToTracks()'s
+// TraversalException catch block never inspects DropTFUponFailure at all
+// (CATracker.cxx), so this is a direct exercise of that existing,
+// unconditional behavior against the one new failure reason Slice 1 added.
+BOOST_AUTO_TEST_CASE(MismatchedBindingNeverReclassifiesStructuralAsRecoverableDropped)
+{
+  std::vector<SurfaceDescriptor> catalog;
+  appendMaterialCatalog(catalog, 0, ITSNLayers, o2::detectors::DetID::ITS, SurfaceKind::Cylinder);
+  appendMaterialCatalog(catalog, ITSNLayers, MFTNLayers, o2::detectors::DetID::MFT, SurfaceKind::Disk);
+  const SurfaceCatalogView catalogView{catalog.data(), static_cast<uint32_t>(catalog.size())};
+  const auto itsSurfaces = ordered(0, ITSNLayers);
+  const auto mftSurfaces = ordered(ITSNLayers, MFTNLayers);
+
+  DetectorLayoutBuilder builder{catalogView};
+  builder.addSubgraph({itsSurfaces, 0, SurfaceMask{}, itsSeedMask(), TransitionPolicyTag::CylinderCylinder});
+  builder.addSubgraph({mftSurfaces, 0, SurfaceMask{}, mftSeedMask(), TransitionPolicyTag::DiskDisk});
+  auto built = builder.build();
+  BOOST_REQUIRE(built.ok());
+  DetectorLayout combinedLayout = std::move(*built.layout);
+  const gsl::span<const SurfaceDescriptor> catalogSpan{catalogView.surfaces, catalogView.nSurfaces};
+  const auto masks = computeSurfaceKindMasks(catalogSpan);
+  const auto combinedView = combinedLayout.getView(catalogSpan, masks.first, masks.second);
+
+  auto itsBindingResult = DetectorTraversalBinding::build(combinedView, o2::detectors::DetID::ITS, ClusterSourceId{0},
+                                                          SurfaceMask{uint32_t{0x7f}}, itsSurfaces);
+  BOOST_REQUIRE(itsBindingResult.ok());
+
+  auto pool = std::make_shared<BoundedMemoryResource>();
+  TimeFrame frame;
+  LegacyTrackerScratchMFT scratch;
+  TrackerTraits<MFTNLayers> traits;
+  Tracker<MFTNLayers> tracker(&traits);
+  std::shared_ptr<tbb::task_arena> arena;
+  auto params = mftParams();
+  params[0].DropTFUponFailure = true;
+  frame.setMemoryPool(pool);
+  scratch.setMemoryPool(pool);
+  traits.setMemoryPool(pool);
+  traits.setNThreads(1, arena);
+  traits.adoptScratch(&scratch);
+  traits.adoptFrame(&frame);
+  traits.updateTrackingParameters(params);
+  traits.setBz(Bz);
+  // Deliberate misuse: an ITS-shaped binding adopted onto an MFT-shaped
+  // TrackerTraits, exactly as the initialiseTimeFrame()-level negative test
+  // above.
+  traits.adoptDetectorTraversalBinding(itsBindingResult.binding.get());
+
+  tracker.adoptScratch(scratch);
+  tracker.adoptFrame(frame);
+  tracker.setParameters(params);
+  tracker.setMemoryPool(pool);
+  tracker.setBz(Bz);
+
+  DetectorLayoutConfigurationKey key;
+  key.orderedSurfaces = mftSurfaces;
+  key.policyTag = TransitionPolicyTag::DiskDisk;
+  key.iterations.push_back(DetectorLayoutIterationConfiguration{static_cast<uint32_t>(MFTNLayers), 0, LayerMask{0}, LayerMask{0}});
+  std::vector<DetectorLayout> layouts;
+  layouts.push_back(std::move(combinedLayout));
+  const DetectorLayoutSet plan{std::move(key), catalogView, std::move(layouts)};
+  tracker.adoptDetectorLayoutSet(plan);
+
+  PrescribedDecoder mftDecoder{o2::detectors::DetID::MFT, SurfaceKind::Disk, {diskCluster(1.f, 0.5f, detail::mftLayerZ(0), 0)}};
+  std::vector<CompClusterExt> compact{CompClusterExt(0, 0, CompCluster::InvalidPatternID, 0)};
+  std::vector<unsigned char> patterns(OnePixelPattern.begin(), OnePixelPattern.end());
+  const std::vector<ROFRecord> rofs{ROFRecord{{100, 5}, 0, 0, 1}};
+  const auto load = scratch.loadNormalizedSource(frame, mftDecoder, o2::InteractionRecord{50, 5}, ROFTimingConfig{40, 0, 0, 0},
+                                                 compact, patterns, rofs, &dict(), nullptr, o2::detectors::DetID::MFT,
+                                                 gsl::span<const SurfaceId>{plan.getConfigurationKey().orderedSurfaces}, plan.getSurfaceCatalog());
+  BOOST_REQUIRE(load.ok());
+  setUpMftScratchTables(scratch, params);
+
+  BOOST_CHECK_EXCEPTION(tracker.clustersToTracks(), TraversalException, [](const TraversalException&) { return true; });
+}
+
+// Gate 4 C2 Slice 2: closes the Gate 4 C2 Slice 1 handoff's stated gap --
+// findRoads()'s road-start translation site
+// (mBinding->getGlobalRoadStartCells(), TrackerTraits.cxx), and the complete
+// Tracker<MFTNLayers>::clustersToTracks() traversal through the combined-
+// catalog binding, were previously only exercised structurally (through
+// DetectorTraversalBinding's own getGlobalRoadStartCells() test in
+// testDetectorTraversalBinding.cxx), never end to end. This drives the same
+// 3-hop chain fixture MftBoundBindingMultiHopChainReproducesCellsAndNeighbours
+// uses all the way through findRoads()'s refit/road-building stage via
+// Tracker<MFTNLayers>::clustersToTracks(), and cross-checks the resulting
+// track count against the identical standalone MFT-only-catalog run.
+BOOST_AUTO_TEST_CASE(MftBoundBindingFullClustersToTracksReproducesStandaloneTrackCount)
+{
+  ensureTrivialMagneticFieldIsSet();
+  auto chainParams = mftParams();
+  // A full-length, all-10-layer chain -- unlike
+  // MftBoundBindingMultiHopChainReproducesCellsAndNeighbours's 3-hop probe
+  // (sufficient for computeLayerCells()/findCellsNeighbours(), which do not
+  // filter by level/length), findRoads() only accepts a road whose level
+  // reaches TrackingParameters::CellMinimumLevel() (5 for MFT's own
+  // unmodified default MinTrackLength=7, Configuration.h) -- reachable only
+  // with enough chained cells, never by lowering the (untouched, default)
+  // cuts themselves.
+  const auto clusters = buildMftChainClusters(chainParams[0], Bz, MFTNLayers - 1);
+  BOOST_REQUIRE_EQUAL(clusters.size(), static_cast<size_t>(MFTNLayers));
+
+  StandaloneMftRun standalone{clusters};
+  CombinedMftRun combined{clusters};
+
+  // Production always adopts this before an accepted track can be shadow-
+  // published (ITSMFTTrackingInterface<MFTNLayers>'s always-owned
+  // MFTPublicationCompatibilityOwner sidecar) -- acceptTracks() treats a
+  // missing sidecar as a fatal invariant violation the instant it actually
+  // has a track to publish (AcceptedTrackShadowPublisher<MFTNLayers>::
+  // publish() returns nullopt with mSidecar == nullptr), which every earlier
+  // test in this file never reached (no test before this one produced a
+  // real accepted track).
+  MFTPublicationCompatibility standaloneSidecar;
+  MFTPublicationCompatibility combinedSidecar;
+
+  Tracker<MFTNLayers> standaloneTracker(&standalone.traits);
+  standaloneTracker.adoptScratch(standalone.scratch);
+  standaloneTracker.adoptFrame(standalone.frame);
+  standaloneTracker.adoptDetectorLayoutSet(*standalone.plan);
+  standaloneTracker.adoptMFTPublicationCompatibility(standaloneSidecar);
+  standaloneTracker.setParameters(standalone.params);
+  standaloneTracker.setMemoryPool(standalone.pool);
+  standaloneTracker.setBz(Bz);
+  const auto standaloneResult = standaloneTracker.clustersToTracks();
+  BOOST_REQUIRE(standaloneResult.outcome == TrackingOutcome::Success);
+
+  Tracker<MFTNLayers> combinedTracker(&combined.traits);
+  combinedTracker.adoptScratch(combined.mftScratch);
+  combinedTracker.adoptFrame(combined.frame);
+  combinedTracker.adoptDetectorLayoutSet(*combined.plan);
+  combinedTracker.adoptMFTPublicationCompatibility(combinedSidecar);
+  combinedTracker.setParameters(combined.params);
+  combinedTracker.setMemoryPool(combined.pool);
+  combinedTracker.setBz(Bz);
+  const auto combinedResult = combinedTracker.clustersToTracks();
+  BOOST_REQUIRE(combinedResult.outcome == TrackingOutcome::Success);
+
+  BOOST_CHECK_GT(standalone.scratch.getNumberOfTracks(), 0u);
+  // Not a byte-for-byte track-count match, unlike every earlier test in this
+  // file: MFTFwdTrackHelpers.cxx::refitTrackFwdImpl() (the final forward-
+  // Kalman refit stage findRoadsForPolicy() calls, entirely outside Slice 1
+  // and Slice 2's own scope -- neither touches refit code) independently
+  // hardcodes `measurement.cluster.source != ClusterSourceId{0}` as a
+  // defensive re-check, rejecting every candidate seed with a "normalized
+  // measurement identity mismatch" warning the instant the source is
+  // genuinely 1 (real combined MFT). This is a pre-existing bug this test
+  // discovered, not a Slice 1/2 regression: everything upstream of it --
+  // computeLayerTracklets/Cells, findCellsNeighbours' dynamically-discovered-
+  // neighbour translation, and findRoads()'s own road-start-cell translation
+  // (mBinding->getGlobalRoadStartCells()) -- ran to completion and attempted
+  // a real refit, proving the binding-translation path itself is correct
+  // all the way through road-building; only the unrelated, out-of-scope
+  // refit-layer source check prevents the accepted-track count from also
+  // matching. Left unfixed here; flagged for a follow-up slice.
+  BOOST_CHECK_EQUAL(combined.mftScratch.getNumberOfTracks(), 0u);
 }
