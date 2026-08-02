@@ -113,6 +113,17 @@ class CombinedTimeFrameCoordinator
   const LegacyTrackerScratchMFT& getMFTScratch() const noexcept { return mMFTScratch; }
   const TimeFrame* getFrame() const noexcept { return mFrame; }
 
+  // Exposed for testing only: the DetectorLayoutView each detector's
+  // DetectorTraversalBinding was built from. Both are passive copies of the
+  // one combined ITS+MFT DetectorLayout this coordinator builds exactly once
+  // in its constructor (see buildCombinedLayout()/ownDetectorPlan() in
+  // CombinedTimeFrameCoordinator.cxx) -- a test can use these to assert both
+  // copies carry byte-identical topology content, including global
+  // TransitionId/CellTopologyId identity, and that neither ever diverges
+  // from the other.
+  DetectorLayoutView getITSLayoutView() const noexcept { return mITSPlan->getLayoutView(0); }
+  DetectorLayoutView getMFTLayoutView() const noexcept { return mMFTPlan->getLayoutView(0); }
+
   // Immutable per-detector publication exports, populated only by a
   // successful process() call and invalidated by any subsequent reset
   // (failure or exception). ITS is always ClusterSourceId{0}, MFT always

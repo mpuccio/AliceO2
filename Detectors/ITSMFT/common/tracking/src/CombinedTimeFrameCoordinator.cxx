@@ -64,10 +64,10 @@ SurfaceMask positionalSurfaceMask(LayerMask layerMask, gsl::span<const SurfaceId
 // disjoint subgraphs in a single DetectorLayoutBuilder call, exactly as
 // testCombinedStaticSurfaceCatalogTopology.cxx /
 // testDetectorTraversalBindingOrchestration.cxx already prove -- from each
-// detector's own (single-iteration) TrackingParameters. Called twice (once
-// per detector's own DetectorLayoutSet, which owns its DetectorLayout by
-// value): a pure function of its arguments, so both calls produce
-// byte-identical topology content.
+// detector's own (single-iteration) TrackingParameters. Called exactly once
+// by the constructor: this is the coordinator's one authoritative combined-
+// topology construction; ownDetectorPlan() below only ever copies its
+// result, never rebuilds it.
 DetectorLayoutBuildResult buildCombinedLayout(gsl::span<const SurfaceId> itsSurfaces, const TrackingParameters& itsParams,
                                               gsl::span<const SurfaceId> mftSurfaces, const TrackingParameters& mftParams)
 {
@@ -91,29 +91,37 @@ DetectorLayoutBuildResult buildCombinedLayout(gsl::span<const SurfaceId> itsSurf
   return builder.build();
 }
 
-// Wraps one buildCombinedLayout() build (both detectors' subgraphs) into the
-// DetectorLayoutSet `NLayers` will actually adopt: its key's orderedSurfaces
-// is that detector's own global-id span, so TrackerTraits<NLayers>::
+// Wraps a *copy* of the coordinator's one authoritative combined
+// ITS+MFT DetectorLayout (built exactly once, by buildCombinedLayout(),
+// in the constructor -- never rebuilt here) into the DetectorLayoutSet
+// `NLayers` will actually adopt: its key's orderedSurfaces is that
+// detector's own global-id span, so TrackerTraits<NLayers>::
 // initialiseTimeFrame()'s legacy-layer/material binding (step 2.5,
 // TrackerTraits.cxx) resolves against the right detector, while the layout
 // content itself carries both detectors' topology for the adopted
-// DetectorTraversalBinding to scope. Each caller supplies its own build
-// (buildCombinedLayout() is a pure function of its arguments, so the two
-// calls this constructor makes produce byte-identical topology content).
+// DetectorTraversalBinding to scope.
+//
+// `layouts.push_back(authoritative)` is a plain copy-construction (DetectorLayout/
+// SparseTrackingTopology are ordinary copyable value types -- no owning
+// resource, no deleted/user-provided special members) of the one already-
+// built object, not a second independent construction: DetectorLayoutSet
+// has no reference/shared-ownership constructor (it always takes its
+// `std::vector<DetectorLayout>` by value), so a passive copy is the only way
+// two DetectorLayoutSets can each hold this coordinator's one authoritative
+// topology. Both copies are therefore guaranteed byte-identical, including
+// every global TransitionId/CellTopologyId's content, by construction --
+// there is no code path that could make them diverge.
 template <int NLayers>
-DetectorLayoutSet ownDetectorPlan(DetectorLayoutBuildResult built, gsl::span<const SurfaceId> ownSurfaces,
+DetectorLayoutSet ownDetectorPlan(const DetectorLayout& authoritative, gsl::span<const SurfaceId> ownSurfaces,
                                   const TrackingParameters& ownParams, TransitionPolicyTag ownPolicy)
 {
-  if (!built.ok()) {
-    throw std::runtime_error("CombinedTimeFrameCoordinator: failed to build the shared ITS+MFT DetectorLayout");
-  }
   DetectorLayoutConfigurationKey key;
   key.orderedSurfaces.assign(ownSurfaces.begin(), ownSurfaces.end());
   key.policyTag = ownPolicy;
   key.iterations.push_back(DetectorLayoutIterationConfiguration{
     static_cast<uint32_t>(NLayers), ownParams.MaxHoles, ownParams.HoleLayerMask, ownParams.StartLayerMask});
   std::vector<DetectorLayout> layouts;
-  layouts.push_back(std::move(*built.layout));
+  layouts.push_back(authoritative);
   return DetectorLayoutSet{std::move(key), combinedCatalogView(), std::move(layouts)};
 }
 
@@ -165,10 +173,18 @@ CombinedTimeFrameCoordinator::CombinedTimeFrameCoordinator(std::vector<o2::itsmf
   const auto itsSurfaces = orderedSurfaceRange(0, ITSNLayers);
   const auto mftSurfaces = orderedSurfaceRange(ITSNLayers, MFTNLayers);
 
-  mITSPlan.emplace(ownDetectorPlan<ITSNLayers>(buildCombinedLayout(itsSurfaces, mITSParams[0], mftSurfaces, mMFTParams[0]),
-                                               itsSurfaces, mITSParams[0], TransitionPolicyTag::CylinderCylinder));
-  mMFTPlan.emplace(ownDetectorPlan<MFTNLayers>(buildCombinedLayout(itsSurfaces, mITSParams[0], mftSurfaces, mMFTParams[0]),
-                                               mftSurfaces, mMFTParams[0], TransitionPolicyTag::DiskDisk));
+  // The coordinator's one authoritative combined ITS+MFT topology
+  // construction. mITSPlan/mMFTPlan below each get a passive copy of
+  // `combinedLayout` (see ownDetectorPlan()'s own doc) -- never a second,
+  // independent buildCombinedLayout() call.
+  auto combinedBuild = buildCombinedLayout(itsSurfaces, mITSParams[0], mftSurfaces, mMFTParams[0]);
+  if (!combinedBuild.ok()) {
+    throw std::runtime_error("CombinedTimeFrameCoordinator: failed to build the shared ITS+MFT DetectorLayout");
+  }
+  const DetectorLayout& combinedLayout = *combinedBuild.layout;
+
+  mITSPlan.emplace(ownDetectorPlan<ITSNLayers>(combinedLayout, itsSurfaces, mITSParams[0], TransitionPolicyTag::CylinderCylinder));
+  mMFTPlan.emplace(ownDetectorPlan<MFTNLayers>(combinedLayout, mftSurfaces, mMFTParams[0], TransitionPolicyTag::DiskDisk));
 
   auto itsBindingResult = DetectorTraversalBinding::build(mITSPlan->getLayoutView(0), o2::detectors::DetID::ITS, ClusterSourceId{0},
                                                           surfaceRangeMask(0, ITSNLayers), itsSurfaces);
