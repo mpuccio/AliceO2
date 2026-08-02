@@ -171,12 +171,12 @@ BOOST_AUTO_TEST_CASE(NormalizedAuthorityOverridesPoisonedLegacyBackfill)
 
   RefitFixture reference(geometry);
   MFTCATrack referenceTrack;
-  BOOST_REQUIRE(refitTrackFwd(reference.seed, referenceTrack, reference.tf, reference.params, Bz, reference.layerMeasurements));
+  BOOST_REQUIRE(refitTrackFwd(reference.seed, referenceTrack, reference.tf, reference.params, Bz, reference.layerMeasurements, ClusterSourceId{0}));
 
   RefitFixture poisoned(geometry);
   poisoned.poisonLegacyBackfill();
   MFTCATrack poisonedTrack;
-  BOOST_REQUIRE(refitTrackFwd(poisoned.seed, poisonedTrack, poisoned.tf, poisoned.params, Bz, poisoned.layerMeasurements));
+  BOOST_REQUIRE(refitTrackFwd(poisoned.seed, poisonedTrack, poisoned.tf, poisoned.params, Bz, poisoned.layerMeasurements, ClusterSourceId{0}));
 
   // Identical normalized input, poisoned vs. untouched legacy backfill: byte-
   // identical output proves the refit path never reads the legacy structures.
@@ -191,7 +191,7 @@ BOOST_AUTO_TEST_CASE(NormalizedGlobalCoordinateChangeAltersOutput)
 
   RefitFixture reference(geometry);
   MFTCATrack referenceTrack;
-  BOOST_REQUIRE(refitTrackFwd(reference.seed, referenceTrack, reference.tf, reference.params, Bz, reference.layerMeasurements));
+  BOOST_REQUIRE(refitTrackFwd(reference.seed, referenceTrack, reference.tf, reference.params, Bz, reference.layerMeasurements, ClusterSourceId{0}));
 
   // Perturb only the normalized global.x of one interior layer -- legacy
   // backfill is absent (never populated) in both fixtures, so this isolates
@@ -205,7 +205,7 @@ BOOST_AUTO_TEST_CASE(NormalizedGlobalCoordinateChangeAltersOutput)
   perturbed.layerMeasurements[5] = perturbed.storage[5];
 
   MFTCATrack perturbedTrack;
-  const bool perturbedOk = refitTrackFwd(perturbed.seed, perturbedTrack, perturbed.tf, perturbed.params, Bz, perturbed.layerMeasurements);
+  const bool perturbedOk = refitTrackFwd(perturbed.seed, perturbedTrack, perturbed.tf, perturbed.params, Bz, perturbed.layerMeasurements, ClusterSourceId{0});
   BOOST_CHECK(!perturbedOk);
 }
 
@@ -215,7 +215,7 @@ BOOST_AUTO_TEST_CASE(NormalizedCovarianceChangeAltersOutput)
 
   RefitFixture reference(geometry);
   MFTCATrack referenceTrack;
-  BOOST_REQUIRE(refitTrackFwd(reference.seed, referenceTrack, reference.tf, reference.params, Bz, reference.layerMeasurements));
+  BOOST_REQUIRE(refitTrackFwd(reference.seed, referenceTrack, reference.tf, reference.params, Bz, reference.layerMeasurements, ClusterSourceId{0}));
 
   // Scale up every layer's diagonal covariance uniformly (legacy backfill
   // again absent in both fixtures): with exact-colinear points the fitted
@@ -231,7 +231,7 @@ BOOST_AUTO_TEST_CASE(NormalizedCovarianceChangeAltersOutput)
     loose.layerMeasurements[layer] = loose.storage[layer];
   }
   MFTCATrack looseTrack;
-  BOOST_REQUIRE(refitTrackFwd(loose.seed, looseTrack, loose.tf, loose.params, Bz, loose.layerMeasurements));
+  BOOST_REQUIRE(refitTrackFwd(loose.seed, looseTrack, loose.tf, loose.params, Bz, loose.layerMeasurements, ClusterSourceId{0}));
 
   BOOST_CHECK_GT(looseTrack.getTrack().getSigma2X(), referenceTrack.getTrack().getSigma2X());
   BOOST_CHECK_GT(looseTrack.getTrack().getSigma2Y(), referenceTrack.getTrack().getSigma2Y());
@@ -257,7 +257,7 @@ BOOST_AUTO_TEST_CASE(TrackletMinAbsXUsesNormalizedGlobalXEvenWhenLegacyDisagrees
   }
 
   MFTCATrack track;
-  const bool ok = refitTrackFwd(fx.seed, track, fx.tf, fx.params, Bz, fx.layerMeasurements);
+  const bool ok = refitTrackFwd(fx.seed, track, fx.tf, fx.params, Bz, fx.layerMeasurements, ClusterSourceId{0});
   BOOST_CHECK(!ok);
 }
 
@@ -274,7 +274,7 @@ BOOST_AUTO_TEST_CASE(NonFiniteGlobalCoordinateFailsCleanly)
 
   MFTCATrack before;
   MFTCATrack track = before;
-  BOOST_CHECK(!refitTrackFwd(fx.seed, track, fx.tf, fx.params, Bz, fx.layerMeasurements));
+  BOOST_CHECK(!refitTrackFwd(fx.seed, track, fx.tf, fx.params, Bz, fx.layerMeasurements, ClusterSourceId{0}));
   checkTrackUnchanged(before, track);
 }
 
@@ -289,7 +289,7 @@ BOOST_AUTO_TEST_CASE(InfiniteGlobalCoordinateFailsCleanly)
 
   MFTCATrack before;
   MFTCATrack track = before;
-  BOOST_CHECK(!refitTrackFwd(fx.seed, track, fx.tf, fx.params, Bz, fx.layerMeasurements));
+  BOOST_CHECK(!refitTrackFwd(fx.seed, track, fx.tf, fx.params, Bz, fx.layerMeasurements, ClusterSourceId{0}));
   checkTrackUnchanged(before, track);
 }
 
@@ -304,7 +304,7 @@ BOOST_AUTO_TEST_CASE(NonFiniteCovarianceFailsCleanly)
 
   MFTCATrack before;
   MFTCATrack track = before;
-  BOOST_CHECK(!refitTrackFwd(fx.seed, track, fx.tf, fx.params, Bz, fx.layerMeasurements));
+  BOOST_CHECK(!refitTrackFwd(fx.seed, track, fx.tf, fx.params, Bz, fx.layerMeasurements, ClusterSourceId{0}));
   checkTrackUnchanged(before, track);
 }
 
@@ -319,7 +319,7 @@ BOOST_AUTO_TEST_CASE(NegativeCovarianceFailsCleanly)
 
   MFTCATrack before;
   MFTCATrack track = before;
-  BOOST_CHECK(!refitTrackFwd(fx.seed, track, fx.tf, fx.params, Bz, fx.layerMeasurements));
+  BOOST_CHECK(!refitTrackFwd(fx.seed, track, fx.tf, fx.params, Bz, fx.layerMeasurements, ClusterSourceId{0}));
   checkTrackUnchanged(before, track);
 }
 
@@ -331,7 +331,7 @@ BOOST_AUTO_TEST_CASE(OutOfRangeClusterIndexFailsCleanly)
 
   MFTCATrack before;
   MFTCATrack track = before;
-  BOOST_CHECK(!refitTrackFwd(fx.seed, track, fx.tf, fx.params, Bz, fx.layerMeasurements));
+  BOOST_CHECK(!refitTrackFwd(fx.seed, track, fx.tf, fx.params, Bz, fx.layerMeasurements, ClusterSourceId{0}));
   checkTrackUnchanged(before, track);
 }
 
@@ -349,7 +349,7 @@ BOOST_AUTO_TEST_CASE(IdentityMismatchFailsCleanly)
 
   MFTCATrack before;
   MFTCATrack track = before;
-  BOOST_CHECK(!refitTrackFwd(fx.seed, track, fx.tf, fx.params, Bz, fx.layerMeasurements));
+  BOOST_CHECK(!refitTrackFwd(fx.seed, track, fx.tf, fx.params, Bz, fx.layerMeasurements, ClusterSourceId{0}));
   checkTrackUnchanged(before, track);
 }
 
@@ -364,7 +364,7 @@ BOOST_AUTO_TEST_CASE(InvalidClusterRefFailsCleanly)
 
   MFTCATrack before;
   MFTCATrack track = before;
-  BOOST_CHECK(!refitTrackFwd(fx.seed, track, fx.tf, fx.params, Bz, fx.layerMeasurements));
+  BOOST_CHECK(!refitTrackFwd(fx.seed, track, fx.tf, fx.params, Bz, fx.layerMeasurements, ClusterSourceId{0}));
   checkTrackUnchanged(before, track);
 }
 
@@ -383,7 +383,7 @@ BOOST_AUTO_TEST_CASE(PreservesHitPatternClusterIndicesAndSizes)
   fx.seed.setHitLayerMask(mask);
 
   MFTCATrack track;
-  BOOST_REQUIRE(refitTrackFwd(fx.seed, track, fx.tf, fx.params, Bz, fx.layerMeasurements));
+  BOOST_REQUIRE(refitTrackFwd(fx.seed, track, fx.tf, fx.params, Bz, fx.layerMeasurements, ClusterSourceId{0}));
 
   BOOST_CHECK_EQUAL(track.getTrack().getNumberOfPoints(), NLayers - 2);
   for (int layer = 0; layer < NLayers; ++layer) {
@@ -404,7 +404,7 @@ BOOST_AUTO_TEST_CASE(DiagonalOnlyCovarianceIgnoresOffDiagonalTerm)
 
   RefitFixture reference(geometry);
   MFTCATrack referenceTrack;
-  BOOST_REQUIRE(refitTrackFwd(reference.seed, referenceTrack, reference.tf, reference.params, Bz, reference.layerMeasurements));
+  BOOST_REQUIRE(refitTrackFwd(reference.seed, referenceTrack, reference.tf, reference.params, Bz, reference.layerMeasurements, ClusterSourceId{0}));
 
   // The retained fitter is diagonal-only: measurement.covariance.uv must be
   // read by nothing on this path. A wild, physically nonsensical uv (this
@@ -418,7 +418,7 @@ BOOST_AUTO_TEST_CASE(DiagonalOnlyCovarianceIgnoresOffDiagonalTerm)
     withUv.layerMeasurements[layer] = withUv.storage[layer];
   }
   MFTCATrack withUvTrack;
-  BOOST_REQUIRE(refitTrackFwd(withUv.seed, withUvTrack, withUv.tf, withUv.params, Bz, withUv.layerMeasurements));
+  BOOST_REQUIRE(refitTrackFwd(withUv.seed, withUvTrack, withUv.tf, withUv.params, Bz, withUv.layerMeasurements, ClusterSourceId{0}));
 
   checkTrackUnchanged(referenceTrack, withUvTrack);
 }
@@ -486,7 +486,7 @@ BOOST_AUTO_TEST_CASE(ClusterSizeIsReadFromItsOwnLayerNotFromLayerZeroByExternalI
   tf.setClusterSize(0, poisonedLayer0);
 
   MFTCATrack track;
-  BOOST_REQUIRE(refitTrackFwd(seed, track, tf, params, Bz, layerMeasurements));
+  BOOST_REQUIRE(refitTrackFwd(seed, track, tf, params, Bz, layerMeasurements, ClusterSourceId{0}));
 
   for (int layer = 0; layer < NLayers; ++layer) {
     BOOST_CHECK(track.hasHitOnLayer(layer));

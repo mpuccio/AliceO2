@@ -724,21 +724,123 @@ BOOST_AUTO_TEST_CASE(MftBoundBindingFullClustersToTracksReproducesStandaloneTrac
   BOOST_REQUIRE(combinedResult.outcome == TrackingOutcome::Success);
 
   BOOST_CHECK_GT(standalone.scratch.getNumberOfTracks(), 0u);
-  // Not a byte-for-byte track-count match, unlike every earlier test in this
-  // file: MFTFwdTrackHelpers.cxx::refitTrackFwdImpl() (the final forward-
-  // Kalman refit stage findRoadsForPolicy() calls, entirely outside Slice 1
-  // and Slice 2's own scope -- neither touches refit code) independently
-  // hardcodes `measurement.cluster.source != ClusterSourceId{0}` as a
-  // defensive re-check, rejecting every candidate seed with a "normalized
-  // measurement identity mismatch" warning the instant the source is
-  // genuinely 1 (real combined MFT). This is a pre-existing bug this test
-  // discovered, not a Slice 1/2 regression: everything upstream of it --
-  // computeLayerTracklets/Cells, findCellsNeighbours' dynamically-discovered-
-  // neighbour translation, and findRoads()'s own road-start-cell translation
-  // (mBinding->getGlobalRoadStartCells()) -- ran to completion and attempted
-  // a real refit, proving the binding-translation path itself is correct
-  // all the way through road-building; only the unrelated, out-of-scope
-  // refit-layer source check prevents the accepted-track count from also
-  // matching. Left unfixed here; flagged for a follow-up slice.
-  BOOST_CHECK_EQUAL(combined.mftScratch.getNumberOfTracks(), 0u);
+  // Gate 4 C2 source-identity correction: findRoadsForPolicy() now resolves
+  // expectedSource once from mBinding->getSource() (ClusterSourceId{1} for
+  // this combined-catalog binding) and threads it through
+  // DetectorTraits::refitSeed()/refitTrackFwd() into
+  // MFTFwdTrackHelpers.cxx::refitTrackFwdImpl()'s normalized-measurement
+  // identity re-check, replacing the previous hardcoded ClusterSourceId{0}
+  // comparison that rejected every genuinely-source-1 candidate seed. With
+  // that fixed, the binding-translation path (already proven correct through
+  // road-building by every earlier test in this file) now also reproduces
+  // the standalone track count end to end.
+  BOOST_CHECK_EQUAL(standalone.scratch.getNumberOfTracks(), combined.mftScratch.getNumberOfTracks());
+}
+
+// Gate 4 C2 source-identity correction: a binding whose expected source does
+// not match the genuinely-loaded measurement source (ClusterSourceId{1} for
+// combined MFT, per MultiSourceTimeFrameLoader::loadITSAndMFT) must fail
+// closed before any track is published. In practice this is caught even
+// earlier than the refit boundary this correction touches:
+// initialiseTimeFrame()'s own normalized-measurement validation (Gate 3
+// Stage-B / Gate 4 C2 Slice 1, TrackerTraits.cxx) already compares every
+// mLayerMeasurements entry's source against this same
+// mBinding->getSource() -- since refitTrackFwdImpl()'s expectedSource
+// (this correction) is resolved from that identical binding, a mismatch
+// can never reach the refit stage undetected; it surfaces as a
+// NormalizedMeasurementMismatch TraversalException out of
+// clustersToTracks() first. That TraversalException path is structural
+// (CATracker.cxx never reclassifies it as TrackingOutcome::
+// RecoverableDropped, regardless of DropTFUponFailure), so this still
+// proves the required end-to-end property: a foreign-source binding never
+// reaches AcceptedTrackShadowPublisher, whichever validation layer catches
+// it first. Built for ClusterSourceId{2} (a source neither ITS nor MFT
+// ever legitimately uses in this fixture) instead of the correct
+// ClusterSourceId{1}.
+BOOST_AUTO_TEST_CASE(ForeignExpectedSourceBindingFailsClosedBeforePublication)
+{
+  ensureTrivialMagneticFieldIsSet();
+  auto chainParams = mftParams();
+  const auto clusters = buildMftChainClusters(chainParams[0], Bz, MFTNLayers - 1);
+  BOOST_REQUIRE_EQUAL(clusters.size(), static_cast<size_t>(MFTNLayers));
+
+  std::vector<SurfaceDescriptor> catalog;
+  appendMaterialCatalog(catalog, 0, ITSNLayers, o2::detectors::DetID::ITS, SurfaceKind::Cylinder);
+  appendMaterialCatalog(catalog, ITSNLayers, MFTNLayers, o2::detectors::DetID::MFT, SurfaceKind::Disk);
+  const SurfaceCatalogView catalogView{catalog.data(), static_cast<uint32_t>(catalog.size())};
+  const auto itsSurfaces = ordered(0, ITSNLayers);
+  const auto mftSurfaces = ordered(ITSNLayers, MFTNLayers);
+
+  DetectorLayoutBuilder builder{catalogView};
+  builder.addSubgraph({itsSurfaces, 0, SurfaceMask{}, itsSeedMask(), TransitionPolicyTag::CylinderCylinder});
+  builder.addSubgraph({mftSurfaces, 0, SurfaceMask{}, mftSeedMask(), TransitionPolicyTag::DiskDisk});
+  auto built = builder.build();
+  BOOST_REQUIRE(built.ok());
+  DetectorLayout combinedLayout = std::move(*built.layout);
+  const gsl::span<const SurfaceDescriptor> catalogSpan{catalogView.surfaces, catalogView.nSurfaces};
+  const auto masks = computeSurfaceKindMasks(catalogSpan);
+  const auto combinedView = combinedLayout.getView(catalogSpan, masks.first, masks.second);
+
+  // Deliberately foreign expected source: ClusterSourceId{2}, not the
+  // genuinely-loaded MFT source (ClusterSourceId{1}) this fixture uses below.
+  auto bindingResult = DetectorTraversalBinding::build(combinedView, o2::detectors::DetID::MFT, ClusterSourceId{2},
+                                                       SurfaceMask{uint32_t{0x1ff80}}, mftSurfaces);
+  BOOST_REQUIRE(bindingResult.ok());
+  auto binding = std::move(bindingResult.binding);
+
+  TimeFrame frame;
+  LegacyTrackerScratchITS itsScratch;
+  LegacyTrackerScratchMFT mftScratch;
+  TrackerTraits<MFTNLayers> traits;
+  std::shared_ptr<tbb::task_arena> arena;
+  auto pool = std::make_shared<BoundedMemoryResource>();
+  auto params = mftParams();
+  frame.setMemoryPool(pool);
+  itsScratch.setMemoryPool(pool);
+  mftScratch.setMemoryPool(pool);
+  traits.setMemoryPool(pool);
+  traits.setNThreads(1, arena);
+  traits.adoptScratch(&mftScratch);
+  traits.adoptFrame(&frame);
+  traits.updateTrackingParameters(params);
+  traits.setBz(Bz);
+  traits.adoptDetectorTraversalBinding(binding.get());
+
+  DetectorLayoutConfigurationKey key;
+  key.orderedSurfaces = mftSurfaces;
+  key.policyTag = TransitionPolicyTag::DiskDisk;
+  key.iterations.push_back(DetectorLayoutIterationConfiguration{static_cast<uint32_t>(MFTNLayers), 0, LayerMask{0}, LayerMask{0}});
+  std::vector<DetectorLayout> layouts;
+  layouts.push_back(std::move(combinedLayout));
+  DetectorLayoutSet plan{std::move(key), catalogView, std::move(layouts)};
+
+  PrescribedDecoder itsDecoder{o2::detectors::DetID::ITS, SurfaceKind::Cylinder, {}};
+  PrescribedDecoder mftDecoder{o2::detectors::DetID::MFT, SurfaceKind::Disk, clusters};
+  std::vector<CompClusterExt> compact;
+  std::vector<unsigned char> patterns;
+  std::vector<ROFRecord> rofs;
+  const auto itsSource = emptyITSSource(itsSurfaces, itsDecoder);
+  const auto mftSrc = mftSource(mftSurfaces, mftDecoder, compact, patterns, rofs, clusters);
+  const auto load = MultiSourceTimeFrameLoader::loadITSAndMFT(frame, itsScratch, mftScratch, itsSource, mftSrc,
+                                                              catalogView, o2::InteractionRecord{50, 5});
+  BOOST_REQUIRE(load.ok());
+
+  setUpMftScratchTables(mftScratch, params);
+
+  MFTPublicationCompatibility sidecar;
+  Tracker<MFTNLayers> tracker(&traits);
+  tracker.adoptScratch(mftScratch);
+  tracker.adoptFrame(frame);
+  tracker.adoptDetectorLayoutSet(plan);
+  tracker.adoptMFTPublicationCompatibility(sidecar);
+  tracker.setParameters(params);
+  tracker.setMemoryPool(pool);
+  tracker.setBz(Bz);
+
+  // The genuine source (1) never matches the binding's foreign expected
+  // source (2): fails closed with a structural TraversalException before
+  // any track reaches publication, never a crash or a silently accepted
+  // foreign-source track.
+  BOOST_CHECK_EXCEPTION(tracker.clustersToTracks(), TraversalException, [](const TraversalException&) { return true; });
+  BOOST_CHECK_EQUAL(mftScratch.getNumberOfTracks(), 0u);
 }
