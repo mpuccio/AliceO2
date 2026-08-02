@@ -134,6 +134,23 @@ inline bool isCommonTrackOutputEnabled()
   return ITSMFTCommonCAOutputParam::Instance().useCommonTrackOutput;
 }
 
+/// Gate 4 C4: default-false, ROOT-visible opt-in gate for the combined
+/// ITS+MFT DPL workflow (Detectors/ITSMFT/common/workflow-combined-ca/,
+/// o2-itsmft-combined-ca-tracker-workflow). A distinct struct/registered
+/// name from ITSMFTCommonCAOutputParam (which only ever toggles output
+/// *format* on the single-detector opt-in workflows): this flag instead
+/// gates whether the combined executable's own defineDataProcessing()
+/// refuses to run at all. Checked before any DataProcessorSpec is
+/// constructed -- see the combined workflow's own ConfigPreflight -- so a
+/// pipeline template that accidentally invokes this binary without
+/// explicitly setting `enabled=true` fatals immediately rather than
+/// silently replacing o2-its-ca-tracker-workflow/o2-mft-ca-tracker-workflow
+/// or either legacy workflow.
+struct ITSMFTCombinedCATrackerParam : public o2::conf::ConfigurableParamHelper<ITSMFTCombinedCATrackerParam> {
+  bool enabled = false;
+  O2ParamDef(ITSMFTCombinedCATrackerParam, "ITSMFTCombinedCATrackerParam");
+};
+
 template <int N>
 struct TrackerParamConfig : public o2::conf::ConfigurableParamHelper<TrackerParamConfig<N>> {
   static constexpr std::string_view getParamName()

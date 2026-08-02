@@ -24,3 +24,4 @@ static auto& sMFTCATrackerParam = TrackerParamConfig<o2::detectors::DetID::MFT>:
 // templated TrackerParamConfig<DetID::ITS> above.
 O2ParamImpl(o2::itsmft::ITSCommonCATrackerParam);
 O2ParamImpl(o2::itsmft::ITSMFTCommonCAOutputParam);
+O2ParamImpl(o2::itsmft::ITSMFTCombinedCATrackerParam);

@@ -30,4 +30,11 @@
 #pragma link C++ class o2::itsmft::ITSMFTCommonCAOutputParam + ;
 #pragma link C++ class o2::conf::ConfigurableParamHelper < o2::itsmft::ITSMFTCommonCAOutputParam> + ;
 
+// Gate 4 C4: opt-in gate for the combined ITS+MFT DPL workflow. Registered
+// here (not the new workflow-combined-ca library) so
+// o2::conf::ConfigurableParam::updateFromString()/setValue() can see it --
+// same fix as ITSCommonCATrackerParam above.
+#pragma link C++ class o2::itsmft::ITSMFTCombinedCATrackerParam + ;
+#pragma link C++ class o2::conf::ConfigurableParamHelper < o2::itsmft::ITSMFTCombinedCATrackerParam> + ;
+
 #endif

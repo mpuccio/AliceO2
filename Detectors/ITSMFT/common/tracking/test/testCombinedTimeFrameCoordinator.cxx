@@ -625,7 +625,10 @@ BOOST_AUTO_TEST_CASE(LoadFailureResetsWholeCombinedTFExactlyOnceAndInvalidatesPu
   mftSource.rofs = malformedMftRofs;
 
   const auto second = coordinator.process(itsSource, mftSource, o2::InteractionRecord{50, 5});
-  BOOST_CHECK(second.outcome == CombinedTimeFrameCoordinator::CombinedOutcome::Failure);
+  // MFT's own DropTFUponFailure defaults false (makeMftParams() never sets
+  // it), so this recoverable InvalidROFRange load error is still classified
+  // Structural -- see CombinedOutcome's own doc.
+  BOOST_CHECK(second.outcome == CombinedTimeFrameCoordinator::CombinedOutcome::Structural);
   BOOST_CHECK_EQUAL(second.nITSTracks, 0u);
   BOOST_CHECK_EQUAL(second.nMFTTracks, 0u);
 
@@ -672,7 +675,12 @@ BOOST_AUTO_TEST_CASE(MFTTrackingFailureAfterITSSuccessStillResetsBothScratches)
   coordinator.setNThreads(1);
 
   const auto result = coordinator.process(itsSource, mftSource, o2::InteractionRecord{50, 5});
-  BOOST_CHECK(result.outcome == CombinedTimeFrameCoordinator::CombinedOutcome::Failure);
+  // Tracker<NLayers>::clustersToTracks() already gated this resource
+  // exhaustion on MFT's own DropTFUponFailure=true internally, so it
+  // returned TrackingOutcome::RecoverableDropped rather than throwing; the
+  // coordinator's non-Success branch for a tracking-phase outcome is always
+  // RecoverableDropped (see CombinedOutcome's own doc).
+  BOOST_CHECK(result.outcome == CombinedTimeFrameCoordinator::CombinedOutcome::RecoverableDropped);
   BOOST_CHECK_EQUAL(coordinator.getITSScratch().getTotalClusters(), 0);
   BOOST_CHECK_EQUAL(coordinator.getITSScratch().getNumberOfTracks(), 0u);
   BOOST_CHECK_EQUAL(coordinator.getMFTScratch().getTotalClusters(), 0);
@@ -746,4 +754,309 @@ BOOST_AUTO_TEST_CASE(BothBindingsDeriveFromOneIdenticalGlobalTopology)
     BOOST_CHECK(itsMask.has(transition.from) == itsMask.has(transition.to));
     BOOST_CHECK(mftMask.has(transition.from) == mftMask.has(transition.to));
   }
+}
+
+// Gate 4 C4: focused coverage for CombinedOutcome's three-way classification
+// (RecoverableDropped / Structural), the always-valid ordered-surface
+// getters, the compatibility sidecar getters, and sequential-TF state
+// replacement -- the coordinator-side contract the opt-in combined DPL
+// workflow (Detectors/ITSMFT/common/workflow-combined-ca/) relies on.
+namespace
+{
+
+/// A minimal, always-valid ITS+MFT source pair sharing the two-cluster
+/// fixture already used by CombinedLoadingBackfillsIndependentCompactScratches.
+struct MinimalFixture {
+  std::vector<SurfaceId> itsSurfaces = ordered(0, ITSNLayers);
+  std::vector<SurfaceId> mftSurfaces = ordered(ITSNLayers, MFTNLayers);
+  std::vector<DecodedCluster> itsClusters{cylinderCluster(3.f, 0.2f, 0.1f, 0), cylinderCluster(4.f, 0.2f, 0.1f, 1)};
+  std::vector<DecodedCluster> mftClusters{diskCluster(1.f, 0.5f, detail::mftLayerZ(0), 0), diskCluster(1.f, 0.5f, detail::mftLayerZ(1), 1)};
+  PrescribedDecoder itsDecoder{o2::detectors::DetID::ITS, SurfaceKind::Cylinder, itsClusters};
+  PrescribedDecoder mftDecoder{o2::detectors::DetID::MFT, SurfaceKind::Disk, mftClusters};
+  std::vector<CompClusterExt> itsCompact, mftCompact;
+  std::vector<unsigned char> itsPatterns, mftPatterns;
+  std::vector<ROFRecord> itsRofs, mftRofs;
+  ClusterSourceInput itsSource;
+  ClusterSourceInput mftSource;
+
+  MinimalFixture()
+  {
+    itsSource = makeSource(ClusterSourceId{0}, o2::detectors::DetID::ITS, itsSurfaces, itsDecoder, itsCompact, itsPatterns, itsRofs, itsClusters);
+    mftSource = makeSource(ClusterSourceId{1}, o2::detectors::DetID::MFT, mftSurfaces, mftDecoder, mftCompact, mftPatterns, mftRofs, mftClusters);
+  }
+};
+
+/// A malformed (gap-before-second-cluster) ROF partition for one detector's
+/// source, reproducing MultiSourceLoadError::InvalidROFRange -- a
+/// *recoverable* per-TF data error under isRecoverableLoadError()
+/// (TimeFrameLoadFailure.cxx) -- without touching the other detector's
+/// (still valid) source.
+void makeRofGap(std::vector<ROFRecord>& rofs)
+{
+  rofs = {ROFRecord{{100, 5}, 0, 0, 1}, ROFRecord{{140, 5}, 0, 2, 1}};
+}
+
+} // namespace
+
+BOOST_AUTO_TEST_CASE(RecoverableITSLoadFailureIsDroppedOnlyWhenITSDropTFAllows)
+{
+  ensureTrivialMagneticFieldIsSet();
+
+  for (const bool itsDropTF : {true, false}) {
+    MinimalFixture fixture;
+    makeRofGap(fixture.itsRofs);
+    fixture.itsSource.rofs = fixture.itsRofs;
+
+    auto itsParams = makeItsParams();
+    itsParams.DropTFUponFailure = itsDropTF;
+    auto coordinator = makeCoordinator(itsParams, makeMftParams());
+    TimeFrame frame;
+    coordinator.adoptFrame(frame);
+    coordinator.setMemoryPool(std::make_shared<BoundedMemoryResource>());
+    coordinator.setBz(Bz);
+    coordinator.setNThreads(1);
+
+    const auto result = coordinator.process(fixture.itsSource, fixture.mftSource, o2::InteractionRecord{50, 5});
+    const auto expected = itsDropTF ? CombinedTimeFrameCoordinator::CombinedOutcome::RecoverableDropped
+                                    : CombinedTimeFrameCoordinator::CombinedOutcome::Structural;
+    BOOST_CHECK_MESSAGE(result.outcome == expected, "ITS DropTFUponFailure=" << itsDropTF);
+    // Every non-success path still performs exactly one whole reset:
+    // both scratches, the shared TimeFrame's CommonTracks, and both
+    // publication exports are empty/invalid regardless of classification.
+    BOOST_CHECK_EQUAL(coordinator.getITSScratch().getTotalClusters(), 0);
+    BOOST_CHECK_EQUAL(coordinator.getMFTScratch().getTotalClusters(), 0);
+    BOOST_CHECK(frame.getCommonTracks().empty());
+    BOOST_CHECK(!coordinator.getITSPublicationExport().has_value());
+    BOOST_CHECK(!coordinator.getMFTPublicationExport().has_value());
+  }
+}
+
+BOOST_AUTO_TEST_CASE(RecoverableMFTLoadFailureIsDroppedOnlyWhenMFTDropTFAllows)
+{
+  ensureTrivialMagneticFieldIsSet();
+
+  for (const bool mftDropTF : {true, false}) {
+    MinimalFixture fixture;
+    makeRofGap(fixture.mftRofs);
+    fixture.mftSource.rofs = fixture.mftRofs;
+
+    auto mftParams = makeMftParams();
+    mftParams.DropTFUponFailure = mftDropTF;
+    auto coordinator = makeCoordinator(makeItsParams(), mftParams);
+    TimeFrame frame;
+    coordinator.adoptFrame(frame);
+    coordinator.setMemoryPool(std::make_shared<BoundedMemoryResource>());
+    coordinator.setBz(Bz);
+    coordinator.setNThreads(1);
+
+    const auto result = coordinator.process(fixture.itsSource, fixture.mftSource, o2::InteractionRecord{50, 5});
+    const auto expected = mftDropTF ? CombinedTimeFrameCoordinator::CombinedOutcome::RecoverableDropped
+                                    : CombinedTimeFrameCoordinator::CombinedOutcome::Structural;
+    BOOST_CHECK_MESSAGE(result.outcome == expected, "MFT DropTFUponFailure=" << mftDropTF);
+    BOOST_CHECK_EQUAL(coordinator.getITSScratch().getTotalClusters(), 0);
+    BOOST_CHECK_EQUAL(coordinator.getMFTScratch().getTotalClusters(), 0);
+    BOOST_CHECK(frame.getCommonTracks().empty());
+    BOOST_CHECK(!coordinator.getITSPublicationExport().has_value());
+    BOOST_CHECK(!coordinator.getMFTPublicationExport().has_value());
+  }
+}
+
+BOOST_AUTO_TEST_CASE(StructuralLoadErrorIsAlwaysStructuralRegardlessOfDropTF)
+{
+  ensureTrivialMagneticFieldIsSet();
+
+  // A missing dictionary is MultiSourceLoadError::MissingDictionary, never
+  // recoverable under isRecoverableLoadError() -- DropTFUponFailure=true
+  // must not turn this into a dropped TF.
+  MinimalFixture fixture;
+  fixture.itsSource.dictionary = nullptr;
+
+  auto itsParams = makeItsParams();
+  itsParams.DropTFUponFailure = true;
+  auto coordinator = makeCoordinator(itsParams, makeMftParams());
+  TimeFrame frame;
+  coordinator.adoptFrame(frame);
+  coordinator.setMemoryPool(std::make_shared<BoundedMemoryResource>());
+  coordinator.setBz(Bz);
+  coordinator.setNThreads(1);
+
+  const auto result = coordinator.process(fixture.itsSource, fixture.mftSource, o2::InteractionRecord{50, 5});
+  BOOST_CHECK(result.outcome == CombinedTimeFrameCoordinator::CombinedOutcome::Structural);
+  BOOST_CHECK(frame.getCommonTracks().empty());
+  BOOST_CHECK(!coordinator.getITSPublicationExport().has_value());
+}
+
+BOOST_AUTO_TEST_CASE(UnrecognizedLoadSourceIsAlwaysStructural)
+{
+  ensureTrivialMagneticFieldIsSet();
+
+  // loadITSAndMFT() rejects any id other than its own fixed ITS=0/MFT=1
+  // contract as MultiSourceLoadError::UnsupportedDetector before ever
+  // calling loadSources() -- LoadSourcesResult::source then carries the
+  // caller's own (unrecognized) id verbatim. Even if a future loader
+  // variant ever reported a recoverable error against such an id, this
+  // boundary must still classify Structural: an unidentifiable source is
+  // never eligible for recoverable/DropTFUponFailure treatment.
+  MinimalFixture fixture;
+  fixture.itsSource.id = ClusterSourceId{5};
+
+  auto coordinator = makeCoordinator(makeItsParams(), makeMftParams());
+  TimeFrame frame;
+  coordinator.adoptFrame(frame);
+  coordinator.setMemoryPool(std::make_shared<BoundedMemoryResource>());
+  coordinator.setBz(Bz);
+  coordinator.setNThreads(1);
+
+  const auto result = coordinator.process(fixture.itsSource, fixture.mftSource, o2::InteractionRecord{50, 5});
+  BOOST_CHECK(result.outcome == CombinedTimeFrameCoordinator::CombinedOutcome::Structural);
+  BOOST_CHECK(frame.getCommonTracks().empty());
+}
+
+BOOST_AUTO_TEST_CASE(StructuralTrackingExceptionIsClassifiedStructuralAfterWholeReset)
+{
+  ensureTrivialMagneticFieldIsSet();
+
+  // MaxMemory=1 with DropTFUponFailure left at its false default: MFT's
+  // Tracker<MFTNLayers>::clustersToTracks() throws
+  // BoundedMemoryResource::MemoryLimitExceeded (a std::bad_alloc, hence a
+  // std::exception) rather than returning RecoverableDropped, since that
+  // internal gate is only "drop" when DropTFUponFailure is explicitly true
+  // (see MFTTrackingFailureAfterITSSuccessStillResetsBothScratches for the
+  // DropTFUponFailure=true counterpart).
+  MinimalFixture fixture;
+  auto mftParams = makeMftParams();
+  mftParams.MaxMemory = 1;
+
+  auto coordinator = makeCoordinator(makeItsParams(), mftParams);
+  TimeFrame frame;
+  coordinator.adoptFrame(frame);
+  coordinator.setMemoryPool(std::make_shared<BoundedMemoryResource>());
+  coordinator.setBz(Bz);
+  coordinator.setNThreads(1);
+
+  const auto result = coordinator.process(fixture.itsSource, fixture.mftSource, o2::InteractionRecord{50, 5});
+  BOOST_CHECK(result.outcome == CombinedTimeFrameCoordinator::CombinedOutcome::Structural);
+  BOOST_CHECK_EQUAL(coordinator.getITSScratch().getTotalClusters(), 0);
+  BOOST_CHECK_EQUAL(coordinator.getMFTScratch().getTotalClusters(), 0);
+  BOOST_CHECK(frame.getCommonTracks().empty());
+  BOOST_CHECK(!coordinator.getITSPublicationExport().has_value());
+  BOOST_CHECK(!coordinator.getMFTPublicationExport().has_value());
+}
+
+BOOST_AUTO_TEST_CASE(SequentialSuccessfulTFsReplaceStateWithoutStaleAccumulation)
+{
+  ensureTrivialMagneticFieldIsSet();
+  const auto itsSurfaces = ordered(0, ITSNLayers);
+  const auto mftSurfaces = ordered(ITSNLayers, MFTNLayers);
+  const auto itsParams = makeItsParams();
+  const auto mftParams = makeMftParams();
+  // A genuine nonzero-track fixture (same construction as
+  // ITSAndMFTAcceptedResultsReproduceStandaloneCountsInOneCombinedPass): if
+  // CommonTrack/TrackClusterIndices storage ever accumulated across TFs
+  // instead of being replaced, the second TF's count below would silently
+  // double rather than reproduce the same per-TF value.
+  const auto itsClusters = buildItsHelixChainClusters(itsParams.LayerRadii, Bz, 1.f, 0.4f, 0.3f);
+  BOOST_REQUIRE_EQUAL(itsClusters.size(), static_cast<size_t>(ITSNLayers));
+  const auto mftClusters = buildMftChainClusters(mftParams, Bz, MFTNLayers - 1);
+  BOOST_REQUIRE_EQUAL(mftClusters.size(), static_cast<size_t>(MFTNLayers));
+
+  PrescribedDecoder itsDecoder{o2::detectors::DetID::ITS, SurfaceKind::Cylinder, itsClusters};
+  PrescribedDecoder mftDecoder{o2::detectors::DetID::MFT, SurfaceKind::Disk, mftClusters};
+  std::vector<CompClusterExt> itsCompact, mftCompact;
+  std::vector<unsigned char> itsPatterns, mftPatterns;
+  std::vector<ROFRecord> itsRofs, mftRofs;
+  const auto itsSource = makeSource(ClusterSourceId{0}, o2::detectors::DetID::ITS, itsSurfaces, itsDecoder, itsCompact, itsPatterns, itsRofs, itsClusters);
+  const auto mftSource = makeSource(ClusterSourceId{1}, o2::detectors::DetID::MFT, mftSurfaces, mftDecoder, mftCompact, mftPatterns, mftRofs, mftClusters);
+
+  auto coordinator = makeCoordinator(itsParams, mftParams);
+  TimeFrame frame;
+  coordinator.adoptFrame(frame);
+  coordinator.setMemoryPool(std::make_shared<BoundedMemoryResource>());
+  coordinator.setBz(Bz);
+  coordinator.setNThreads(1);
+
+  const auto firstResult = coordinator.process(itsSource, mftSource, o2::InteractionRecord{50, 5});
+  BOOST_REQUIRE(firstResult.outcome == CombinedTimeFrameCoordinator::CombinedOutcome::Success);
+  BOOST_REQUIRE_GT(firstResult.nITSTracks + firstResult.nMFTTracks, 0u);
+  const auto firstCommonTrackCount = frame.getCommonTracks().size();
+  BOOST_REQUIRE_EQUAL(firstCommonTrackCount, firstResult.nITSTracks + firstResult.nMFTTracks);
+
+  // No explicit reset between successful TFs: MultiSourceTimeFrameLoader::
+  // loadITSAndMFT()'s commitNormalizedFrame() atomically replaces the
+  // normalized frame and clears mCommonTracks/mTrackClusterIndices in the
+  // same commit (TimeFrame.h), so the second process() call alone -- on the
+  // identical fixture again -- must reproduce the same per-TF count, not
+  // the first TF's count plus the second's.
+  const auto secondResult = coordinator.process(itsSource, mftSource, o2::InteractionRecord{60, 6});
+  BOOST_REQUIRE(secondResult.outcome == CombinedTimeFrameCoordinator::CombinedOutcome::Success);
+
+  BOOST_CHECK_EQUAL(secondResult.nITSTracks, firstResult.nITSTracks);
+  BOOST_CHECK_EQUAL(secondResult.nMFTTracks, firstResult.nMFTTracks);
+  BOOST_CHECK_EQUAL(frame.getCommonTracks().size(), firstCommonTrackCount);
+  BOOST_CHECK_EQUAL(coordinator.getITSScratch().getTotalClusters(), static_cast<int>(itsClusters.size()));
+  BOOST_CHECK_EQUAL(coordinator.getMFTScratch().getTotalClusters(), static_cast<int>(mftClusters.size()));
+}
+
+BOOST_AUTO_TEST_CASE(OrderedSurfaceGettersAreAlwaysValidUnlikePublicationExports)
+{
+  auto coordinator = makeCoordinator(makeItsParams(), makeMftParams());
+
+  // Valid immediately after construction -- no adoptFrame()/process() call
+  // needed, unlike getITSPublicationExport()/getMFTPublicationExport().
+  const auto itsSurfacesBefore = coordinator.getITSOrderedSurfaces();
+  const auto mftSurfacesBefore = coordinator.getMFTOrderedSurfaces();
+  BOOST_REQUIRE_EQUAL(itsSurfacesBefore.size(), static_cast<size_t>(ITSNLayers));
+  BOOST_REQUIRE_EQUAL(mftSurfacesBefore.size(), static_cast<size_t>(MFTNLayers));
+  BOOST_CHECK(itsSurfacesBefore[0] == SurfaceId{0});
+  BOOST_CHECK(mftSurfacesBefore[0] == SurfaceId{ITSNLayers});
+  BOOST_CHECK(!coordinator.getITSPublicationExport().has_value());
+  BOOST_CHECK(!coordinator.getMFTPublicationExport().has_value());
+
+  // Still identical after a failure (which invalidates the publication
+  // exports but must never move the fixed catalog-offset spans).
+  ensureTrivialMagneticFieldIsSet();
+  MinimalFixture fixture;
+  makeRofGap(fixture.mftRofs);
+  fixture.mftSource.rofs = fixture.mftRofs;
+  TimeFrame frame;
+  coordinator.adoptFrame(frame);
+  coordinator.setMemoryPool(std::make_shared<BoundedMemoryResource>());
+  coordinator.setBz(Bz);
+  coordinator.setNThreads(1);
+  const auto failed = coordinator.process(fixture.itsSource, fixture.mftSource, o2::InteractionRecord{50, 5});
+  BOOST_REQUIRE(failed.outcome != CombinedTimeFrameCoordinator::CombinedOutcome::Success);
+  BOOST_CHECK(coordinator.getITSOrderedSurfaces().data() == itsSurfacesBefore.data());
+  BOOST_CHECK(coordinator.getMFTOrderedSurfaces().data() == mftSurfacesBefore.data());
+}
+
+BOOST_AUTO_TEST_CASE(CompatibilitySidecarGettersReflectSealAndReset)
+{
+  ensureTrivialMagneticFieldIsSet();
+  MinimalFixture fixture;
+  auto coordinator = makeCoordinator(makeItsParams(), makeMftParams());
+  TimeFrame frame;
+  coordinator.adoptFrame(frame);
+  coordinator.setMemoryPool(std::make_shared<BoundedMemoryResource>());
+  coordinator.setBz(Bz);
+  coordinator.setNThreads(1);
+
+  // Not yet sealed before any process() call.
+  BOOST_CHECK(!coordinator.getITSSharedClusterCompatibility().isSealed());
+
+  const auto result = coordinator.process(fixture.itsSource, fixture.mftSource, o2::InteractionRecord{50, 5});
+  BOOST_REQUIRE(result.outcome == CombinedTimeFrameCoordinator::CombinedOutcome::Success);
+  // A successful run always seals the ITS sidecar (Tracker<ITSNLayers>::
+  // clustersToTracks() -> markTracks() -> sealFromMarkedTracks()), which is
+  // exactly what stageITSCommonTrackOutput() requires
+  // (CommonTrackOutputAdapter.h).
+  BOOST_CHECK(coordinator.getITSSharedClusterCompatibility().isSealed());
+
+  // A whole reset clears both sidecars back to their pre-process() state.
+  makeRofGap(fixture.mftRofs);
+  fixture.mftSource.rofs = fixture.mftRofs;
+  const auto failed = coordinator.process(fixture.itsSource, fixture.mftSource, o2::InteractionRecord{60, 6});
+  BOOST_REQUIRE(failed.outcome != CombinedTimeFrameCoordinator::CombinedOutcome::Success);
+  BOOST_CHECK(!coordinator.getITSSharedClusterCompatibility().isSealed());
+  BOOST_CHECK(coordinator.getITSSharedClusterCompatibility().entries().empty());
+  BOOST_CHECK(coordinator.getMFTPublicationCompatibility().find(0, 0) == nullptr);
 }

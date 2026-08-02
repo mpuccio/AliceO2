@@ -5,9 +5,10 @@
 // This software is distributed under the terms of the GNU General Public
 // License v3 (GPL Version 3), copied verbatim in the file "COPYING".
 //
-// Gate 4 C3: a plain host-only combined disconnected-tracking coordinator.
-// Test/host-core slice only -- not reachable from any workflow. Executes ITS
-// and MFT common CA against one shared TimeFrame, using the static combined
+// Gate 4 C3/C4: a host-only combined disconnected-tracking coordinator,
+// reachable in production from the opt-in Gate 4 C4 combined DPL workflow
+// (Detectors/ITSMFT/common/workflow-combined-ca/). Executes ITS and MFT
+// common CA against one shared TimeFrame, using the static combined
 // 17-surface ITS+MFT catalog (StaticDetectorCatalogs.h; global ids ITS
 // 0..6, MFT 7..16), one shared DetectorLayout built from that catalog's two
 // disjoint per-detector subgraphs, and one DetectorTraversalBinding per
@@ -16,11 +17,15 @@
 // through MultiSourceTimeFrameLoader::loadITSAndMFT() only; tracking runs
 // serially, ITS then MFT, into the same shared TimeFrame, so accepted
 // CommonTracks append in that same deterministic order (see
-// AcceptedTrackShadowPublisher.h). Any load failure, non-Success tracking
-// outcome, or exception from either leg is a whole combined-TF failure:
-// MultiSourceTimeFrameLoader::resetITSAndMFTEvent() is called exactly once,
-// and both detector compatibility sidecars are cleared, leaving both
-// scratches, CommonTracks, references, and sidecars empty.
+// AcceptedTrackShadowPublisher.h). Any non-success from either leg -- a load
+// failure, a non-Success tracking outcome, or an exception -- is a whole
+// combined-TF failure: MultiSourceTimeFrameLoader::resetITSAndMFTEvent() is
+// called exactly once, and both detector compatibility sidecars are
+// cleared, leaving both scratches, CommonTracks, references, and sidecars
+// empty. The failure is classified RecoverableDropped or Structural (see
+// CombinedOutcome's own doc); the coordinator never fatals or throws past
+// process()'s own boundary for a classified failure -- that decision belongs
+// to the caller (e.g. skip-and-continue vs. fatal in the DPL workflow).
 
 #ifndef ALICEO2_ITSMFT_TRACKING_COMBINEDTIMEFRAMECOORDINATOR_H_
 #define ALICEO2_ITSMFT_TRACKING_COMBINEDTIMEFRAMECOORDINATOR_H_
@@ -57,13 +62,22 @@ namespace o2::itsmft::tracking
 class CombinedTimeFrameCoordinator
 {
  public:
+  // Reuses TrackingOutcome's own vocabulary (CATracker.h) rather than a
+  // parallel taxonomy: RecoverableDropped means a per-TF data failure this
+  // detector's own DropTFUponFailure opted to drop; every other non-success
+  // -- an unrecognized load source, a structural MultiSourceLoadError, a
+  // recoverable load error whose owning detector has DropTFUponFailure=false,
+  // or any thrown exception (TraversalException, unclassified, or a
+  // resource-exhaustion exception that already failed its own
+  // DropTFUponFailure gate inside clustersToTracks()) -- is Structural.
   enum class CombinedOutcome : uint8_t {
     Success,
-    Failure
+    RecoverableDropped,
+    Structural
   };
 
   struct CombinedTrackingResult {
-    CombinedOutcome outcome{CombinedOutcome::Failure};
+    CombinedOutcome outcome{CombinedOutcome::Structural};
     size_t nITSTracks{0};
     size_t nMFTTracks{0};
   };
@@ -100,11 +114,13 @@ class CombinedTimeFrameCoordinator
   // Tracker<MFTNLayers>::clustersToTracks() -- serially, ITS first -- into
   // the shared TimeFrame, so accepted CommonTracks append ITS-then-MFT.
   //
-  // Any load failure (LoadSourcesResult::ok() == false), any non-Success
-  // TrackingOutcome from either tracker, or any exception from either
-  // tracker is a whole combined-TF failure: resetITSAndMFTEvent() runs
-  // exactly once, both compatibility sidecars are cleared, and this
-  // returns {Failure, 0, 0}. adoptFrame() must have been called first.
+  // Any non-success -- a load failure (LoadSourcesResult::ok() == false), a
+  // non-Success TrackingOutcome from either tracker, or any exception from
+  // either tracker -- is a whole combined-TF failure: resetITSAndMFTEvent()
+  // runs exactly once, both compatibility sidecars are cleared, and this
+  // returns {RecoverableDropped or Structural, 0, 0} (see CombinedOutcome's
+  // own doc for the exact classification). adoptFrame() must have been
+  // called first.
   CombinedTrackingResult process(const ClusterSourceInput& itsSource,
                                  const ClusterSourceInput& mftSource,
                                  const o2::InteractionRecord& origin);
@@ -112,6 +128,28 @@ class CombinedTimeFrameCoordinator
   const LegacyTrackerScratchITS& getITSScratch() const noexcept { return mITSScratch; }
   const LegacyTrackerScratchMFT& getMFTScratch() const noexcept { return mMFTScratch; }
   const TimeFrame* getFrame() const noexcept { return mFrame; }
+
+  // Detector-local compatibility sidecars, populated fresh by a successful
+  // process() call (see Tracker<NLayers>::adoptITSSharedClusterCompatibility
+  // ()/adoptMFTPublicationCompatibility() in the constructor) and cleared by
+  // resetCombinedEvent() on any non-success. A DPL caller needs these to
+  // drive stageITSCommonTrackOutput()/stageMFTCommonTrackOutput()
+  // (CommonTrackOutputAdapter.h), which take them by const reference.
+  const ITSSharedClusterCompatibility& getITSSharedClusterCompatibility() const noexcept { return mITSCompatibility; }
+  const MFTPublicationCompatibility& getMFTPublicationCompatibility() const noexcept { return mMFTCompatibility; }
+
+  // Each detector's ordered global-SurfaceId span (ITS: SurfaceId{0..6},
+  // MFT: SurfaceId{7..16} -- the same fixed combined-catalog offset
+  // buildCombinedLayout() uses in the constructor, see
+  // CombinedTimeFrameCoordinator.cxx). Unlike getITSPublicationExport()/
+  // getMFTPublicationExport(), these are valid immediately after
+  // construction and never invalidated by process()/resetCombinedEvent():
+  // mITSPlan/mMFTPlan are unconditionally engaged by the constructor and
+  // never rebuilt. A DPL caller uses these to build each detector's own
+  // ClusterSourceInput::layerToSurface before the first process() call,
+  // instead of re-deriving the ITS/MFT global-id offset by hand.
+  gsl::span<const SurfaceId> getITSOrderedSurfaces() const noexcept { return mITSPlan->getConfigurationKey().orderedSurfaces; }
+  gsl::span<const SurfaceId> getMFTOrderedSurfaces() const noexcept { return mMFTPlan->getConfigurationKey().orderedSurfaces; }
 
   // Exposed for testing only: the DetectorLayoutView each detector's
   // DetectorTraversalBinding was built from. Both are passive copies of the

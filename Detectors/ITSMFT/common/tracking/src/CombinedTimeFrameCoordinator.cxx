@@ -10,9 +10,11 @@
 #include <stdexcept>
 #include <utility>
 
+#include "Framework/Logger.h"
 #include "ITSMFTTracking/DetectorLayoutBuilder.h"
 #include "ITSMFTTracking/MultiSourceTimeFrameLoader.h"
 #include "ITSMFTTracking/StaticDetectorCatalogs.h"
+#include "ITSMFTTracking/TimeFrameLoadFailure.h"
 
 namespace o2::itsmft::tracking
 {
@@ -271,12 +273,50 @@ CombinedTimeFrameCoordinator::CombinedTrackingResult CombinedTimeFrameCoordinato
   mITSClock.reset();
   mMFTClock.reset();
 
+  // A prior successful process() call leaves both sidecars sealed
+  // (ITSSharedClusterCompatibility::sealFromMarkedTracks(),
+  // MFTPublicationCompatibility's per-TF entries): unlike
+  // TimeFrame::getCommonTracks()/getTrackClusterIndices(), which
+  // commitNormalizedFrame() clears atomically on the *next* load, neither
+  // sidecar is cleared by a successful process() itself. Left sealed, the
+  // very next TF's first accepted ITS track would fail
+  // AcceptedTrackShadowPublisher<ITSNLayers>::publish()'s already-sealed
+  // guard and fatal inside TrackerTraits<NLayers>::acceptTracks() ("CommonTrack
+  // shadow construction failed"). Clearing both unconditionally at the top
+  // of every process() call -- success or failure alike -- keeps every TF
+  // starting from the same fresh state regardless of how the previous one
+  // ended.
+  mITSCompatibility.clear();
+  mMFTCompatibility.clear();
+
   try {
     const auto loadResult = MultiSourceTimeFrameLoader::loadITSAndMFT(*mFrame, mITSScratch, mMFTScratch, itsSource, mftSource,
                                                                       combinedCatalogView(), origin);
     if (!loadResult.ok()) {
+      // Reuse isRecoverableLoadError() (TimeFrameLoadFailure.h) rather than a
+      // parallel taxonomy, then gate it by the *owning* detector's own
+      // DropTFUponFailure -- ClusterSourceId{0}/{1} is loadITSAndMFT()'s own
+      // fixed ITS/MFT position contract (MultiSourceTimeFrameLoader.h). An
+      // unrecognized/missing source, a structural MultiSourceLoadError, or a
+      // recoverable one whose owning detector has DropTFUponFailure=false is
+      // always Structural -- never silently reclassified as dropped.
+      const bool errorIsRecoverable = isRecoverableLoadError(loadResult.error, loadResult.timingDetail);
+      const bool isITS = loadResult.source == ClusterSourceId{0};
+      const bool isMFT = loadResult.source == ClusterSourceId{1};
+      const bool sourceRecognized = isITS || isMFT;
+      const bool dropAllowed = isITS ? mITSParams[0].DropTFUponFailure : isMFT ? mMFTParams[0].DropTFUponFailure
+                                                                               : false;
+      if (!sourceRecognized) {
+        LOGP(error, "Combined TF load failure reports an unrecognized source id {}; treating as structural", loadResult.source.value());
+      }
+      const auto outcome = errorIsRecoverable && sourceRecognized && dropAllowed
+                             ? CombinedOutcome::RecoverableDropped
+                             : CombinedOutcome::Structural;
+      LOGP(error, "Combined TF loading failed (source={}, error={}, recoverable={}, dropAllowed={}): outcome={}",
+           loadResult.source.value(), static_cast<int>(loadResult.error), errorIsRecoverable, dropAllowed,
+           outcome == CombinedOutcome::RecoverableDropped ? "RecoverableDropped" : "Structural");
       resetCombinedEvent();
-      return {};
+      return {outcome, 0, 0};
     }
 
     configureRofTables<ITSNLayers>(mITSScratch, itsSource.timing, static_cast<uint32_t>(itsSource.rofs.size()), mITSParams);
@@ -286,20 +326,38 @@ CombinedTimeFrameCoordinator::CombinedTrackingResult CombinedTimeFrameCoordinato
     // storage is append-only (acceptTracks() -> AcceptedTrackShadowPublisher,
     // TrackerTraits.cxx), so this call order alone is what makes accepted
     // CommonTrack publication deterministic ITS-then-MFT.
+    //
+    // clustersToTracks() itself only ever *returns* Success or
+    // RecoverableDropped (CATracker.h); Structural always escapes as a
+    // thrown TraversalException instead, caught below.
     const auto itsResult = mITSTracker.clustersToTracks();
     if (itsResult.outcome != TrackingOutcome::Success) {
+      LOGP(error, "Combined TF ITS tracking recoverably dropped");
       resetCombinedEvent();
-      return {};
+      return {CombinedOutcome::RecoverableDropped, 0, 0};
     }
 
     const auto mftResult = mMFTTracker.clustersToTracks();
     if (mftResult.outcome != TrackingOutcome::Success) {
+      LOGP(error, "Combined TF MFT tracking recoverably dropped");
       resetCombinedEvent();
-      return {};
+      return {CombinedOutcome::RecoverableDropped, 0, 0};
     }
-  } catch (...) {
+  } catch (const std::exception& err) {
+    // Everything reaching here -- TraversalException (structural binding
+    // mismatch), any other unclassified std::exception, or a
+    // MemoryLimitExceeded/std::bad_alloc that already failed its own
+    // DropTFUponFailure gate inside clustersToTracks() -- is Structural by
+    // the same reasoning as ITSMFTTrackingInterface::loadTimeFrame()/
+    // runTracking(): any recoverable-and-drop-allowed case was already
+    // converted to a non-throwing RecoverableDropped return above.
+    LOGP(error, "Combined TF tracking hit a structural/unclassified exception: {}", err.what());
     resetCombinedEvent();
-    return {};
+    return {CombinedOutcome::Structural, 0, 0};
+  } catch (...) {
+    LOGP(error, "Combined TF tracking hit a structural, non-std::exception failure");
+    resetCombinedEvent();
+    return {CombinedOutcome::Structural, 0, 0};
   }
 
   mITSClock.emplace(mITSScratch.getROFOverlapTableView().getClockLayer());
