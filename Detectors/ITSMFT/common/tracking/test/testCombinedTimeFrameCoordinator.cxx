@@ -13,9 +13,12 @@
 #define BOOST_TEST_MAIN
 #define BOOST_TEST_DYN_LINK
 
+#include <array>
 #include <cmath>
+#include <fstream>
 #include <memory>
 #include <optional>
+#include <string>
 #include <vector>
 
 #include <boost/test/unit_test.hpp>
@@ -1059,4 +1062,163 @@ BOOST_AUTO_TEST_CASE(CompatibilitySidecarGettersReflectSealAndReset)
   BOOST_CHECK(!coordinator.getITSSharedClusterCompatibility().isSealed());
   BOOST_CHECK(coordinator.getITSSharedClusterCompatibility().entries().empty());
   BOOST_CHECK(coordinator.getMFTPublicationCompatibility().find(0, 0) == nullptr);
+}
+
+// E0/M2a (GenericTrackingEngineMigration.md; ADR 0007): process() now
+// delegates its tracking phase to TrackingEngine::executeEvent() over an
+// explicit [ITS, MFT] schedule of two LegacyCATrackingParticipant<NLayers>
+// legs, and to TrackingEngine::resetEvent() directly on an atomic-load
+// failure (never executeEvent() on a partially loaded event). Every test
+// case above already exercises this new implementation unchanged -- a
+// load/tracking success or failure looks externally identical through the
+// coordinator's own untouched public API -- which is itself the primary
+// behavior-preservation proof. The cases below add coverage specific to the
+// engine seam this slice introduces.
+
+BOOST_AUTO_TEST_CASE(ExplicitScheduleDrivesITSThenMFTThroughTheDelegatedEngine)
+{
+  // Same construction as
+  // ITSAndMFTAcceptedResultsReproduceStandaloneCountsInOneCombinedPass,
+  // narrowed to the one claim this slice adds: process()'s ITS-then-MFT
+  // CommonTrack ordering and per-detector publication exports are now
+  // produced by TrackingEngine::executeEvent()'s explicit [ITS, MFT]
+  // schedule (CombinedTimeFrameCoordinator::mSchedule), not a hand-unrolled
+  // pair of clustersToTracks() calls.
+  ensureTrivialMagneticFieldIsSet();
+  const auto itsSurfaces = ordered(0, ITSNLayers);
+  const auto mftSurfaces = ordered(ITSNLayers, MFTNLayers);
+  const auto itsParams = makeItsParams();
+  const auto mftParams = makeMftParams();
+  const auto itsClusters = buildItsHelixChainClusters(itsParams.LayerRadii, Bz, 1.f, 0.4f, 0.3f);
+  BOOST_REQUIRE_EQUAL(itsClusters.size(), static_cast<size_t>(ITSNLayers));
+  const auto mftClusters = buildMftChainClusters(mftParams, Bz, MFTNLayers - 1);
+  BOOST_REQUIRE_EQUAL(mftClusters.size(), static_cast<size_t>(MFTNLayers));
+
+  PrescribedDecoder itsDecoder{o2::detectors::DetID::ITS, SurfaceKind::Cylinder, itsClusters};
+  PrescribedDecoder mftDecoder{o2::detectors::DetID::MFT, SurfaceKind::Disk, mftClusters};
+  std::vector<CompClusterExt> itsCompact, mftCompact;
+  std::vector<unsigned char> itsPatterns, mftPatterns;
+  std::vector<ROFRecord> itsRofs, mftRofs;
+  const auto itsSource = makeSource(ClusterSourceId{0}, o2::detectors::DetID::ITS, itsSurfaces, itsDecoder, itsCompact, itsPatterns, itsRofs, itsClusters);
+  const auto mftSource = makeSource(ClusterSourceId{1}, o2::detectors::DetID::MFT, mftSurfaces, mftDecoder, mftCompact, mftPatterns, mftRofs, mftClusters);
+
+  auto coordinator = makeCoordinator(itsParams, mftParams);
+  TimeFrame frame;
+  coordinator.adoptFrame(frame);
+  coordinator.setMemoryPool(std::make_shared<BoundedMemoryResource>());
+  coordinator.setBz(Bz);
+  coordinator.setNThreads(1);
+
+  const auto result = coordinator.process(itsSource, mftSource, o2::InteractionRecord{50, 5});
+  BOOST_REQUIRE(result.outcome == CombinedTimeFrameCoordinator::CombinedOutcome::Success);
+  BOOST_REQUIRE_GT(result.nITSTracks, 0u);
+  BOOST_REQUIRE_GT(result.nMFTTracks, 0u);
+
+  // CommonTrack ordering: every ITS-range entry precedes every MFT-range
+  // entry -- the observable footprint of the engine having run track() in
+  // schedule order [ITS, MFT], not some other order.
+  const auto itsMask = SurfaceMask{uint32_t{(1u << ITSNLayers) - 1u}};
+  const auto mftMask = SurfaceMask{static_cast<uint32_t>(((1u << MFTNLayers) - 1u) << ITSNLayers)};
+  const auto& commonTracks = frame.getCommonTracks();
+  BOOST_REQUIRE_EQUAL(commonTracks.size(), result.nITSTracks + result.nMFTTracks);
+  bool seenMft = false;
+  for (const auto& track : commonTracks) {
+    const bool isMft = track.hitSurfaces.isSubsetOf(mftMask) && !track.hitSurfaces.empty();
+    if (isMft) {
+      seenMft = true;
+    } else {
+      BOOST_CHECK(track.hitSurfaces.isSubsetOf(itsMask));
+      BOOST_CHECK_MESSAGE(!seenMft, "an ITS CommonTrack appeared after an MFT one: schedule order was not ITS-then-MFT");
+    }
+  }
+  BOOST_CHECK(seenMft);
+
+  // Per-detector publication exports still resolve correctly through the
+  // participant-owned scratch/plan the coordinator reads from.
+  const auto itsExport = coordinator.getITSPublicationExport();
+  const auto mftExport = coordinator.getMFTPublicationExport();
+  BOOST_REQUIRE(itsExport.has_value());
+  BOOST_REQUIRE(mftExport.has_value());
+  BOOST_CHECK(itsExport->detector == o2::detectors::DetID::ITS);
+  BOOST_CHECK(itsExport->source == ClusterSourceId{0});
+  BOOST_CHECK_EQUAL(itsExport->orderedSurfaces.size(), static_cast<size_t>(ITSNLayers));
+  BOOST_CHECK(mftExport->detector == o2::detectors::DetID::MFT);
+  BOOST_CHECK(mftExport->source == ClusterSourceId{1});
+  BOOST_CHECK_EQUAL(mftExport->orderedSurfaces.size(), static_cast<size_t>(MFTNLayers));
+}
+
+BOOST_AUTO_TEST_CASE(AtomicLoadFailureInvokesEngineResetOnlyAndLeavesNoParticipantOrSidecarState)
+{
+  // A load failure must reach TrackingEngine::resetEvent() directly --
+  // executeEvent() (and therefore either leg's track()) must never run on a
+  // partially/never-loaded event. Externally this means: zero tracks
+  // reported, both legs' scratches and both detector compatibility
+  // sidecars back to their pre-process() empty/unsealed state (never
+  // populated, since track() never ran), and both publication exports
+  // invalidated.
+  ensureTrivialMagneticFieldIsSet();
+  MinimalFixture fixture;
+  makeRofGap(fixture.itsRofs);
+  fixture.itsSource.rofs = fixture.itsRofs;
+
+  auto coordinator = makeCoordinator(makeItsParams(), makeMftParams());
+  TimeFrame frame;
+  coordinator.adoptFrame(frame);
+  coordinator.setMemoryPool(std::make_shared<BoundedMemoryResource>());
+  coordinator.setBz(Bz);
+  coordinator.setNThreads(1);
+
+  const auto result = coordinator.process(fixture.itsSource, fixture.mftSource, o2::InteractionRecord{50, 5});
+  BOOST_REQUIRE(result.outcome != CombinedTimeFrameCoordinator::CombinedOutcome::Success);
+  BOOST_CHECK_EQUAL(result.nITSTracks, 0u);
+  BOOST_CHECK_EQUAL(result.nMFTTracks, 0u);
+
+  BOOST_CHECK_EQUAL(coordinator.getITSScratch().getTotalClusters(), 0);
+  BOOST_CHECK_EQUAL(coordinator.getMFTScratch().getTotalClusters(), 0);
+  BOOST_CHECK_EQUAL(coordinator.getITSScratch().getNumberOfTracks(), 0u);
+  BOOST_CHECK_EQUAL(coordinator.getMFTScratch().getNumberOfTracks(), 0u);
+  BOOST_CHECK(frame.getCommonTracks().empty());
+  BOOST_CHECK(frame.getTrackClusterIndices().empty());
+  // Neither sidecar was ever sealed/populated by this process() call --
+  // proof that track() (and therefore the engine's executeEvent()) was
+  // never reached on this partially loaded event.
+  BOOST_CHECK(!coordinator.getITSSharedClusterCompatibility().isSealed());
+  BOOST_CHECK(coordinator.getITSSharedClusterCompatibility().entries().empty());
+  BOOST_CHECK(coordinator.getMFTPublicationCompatibility().find(0, 0) == nullptr);
+  BOOST_CHECK(!coordinator.getITSPublicationExport().has_value());
+  BOOST_CHECK(!coordinator.getMFTPublicationExport().has_value());
+}
+
+BOOST_AUTO_TEST_CASE(CoordinatorHeaderNoLongerDirectlyIncludesLegacyCATrackerHeaders)
+{
+  // Source-level guard (M2a's ownership exit criterion): this coordinator
+  // must no longer directly own Tracker<NLayers>, TrackerTraits<NLayers>,
+  // or LegacyTrackerScratch<NLayers> -- those now live inside its two
+  // LegacyCATrackingParticipant<NLayers> members instead. None of those
+  // three types can be named as a data member without including the header
+  // that declares it, so scanning CombinedTimeFrameCoordinator.h's own
+  // #include lines for the absence of CATracker.h/TrackerTraits.h/
+  // LegacyTrackerScratch.h is a structural proof, not merely a textual one
+  // -- the same #include-line-scan convention
+  // testTrackingEngineDependencyBoundary.cxx already established.
+  const std::string testFile = __FILE__;
+  const auto testDirectory = testFile.substr(0, testFile.find_last_of('/'));
+  const std::string headerFile = testDirectory + "/../include/ITSMFTTracking/CombinedTimeFrameCoordinator.h";
+
+  std::ifstream input{headerFile};
+  BOOST_REQUIRE_MESSAGE(input.good(), "cannot inspect " << headerFile);
+  const std::array<std::string, 3> forbidden = {"CATracker.h", "TrackerTraits.h", "LegacyTrackerScratch.h"};
+  std::string line;
+  while (std::getline(input, line)) {
+    const auto hashPos = line.find_first_not_of(" \t");
+    if (hashPos == std::string::npos || line[hashPos] != '#') {
+      continue;
+    }
+    if (line.find("include", hashPos + 1) == std::string::npos) {
+      continue;
+    }
+    for (const auto& token : forbidden) {
+      BOOST_CHECK_MESSAGE(line.find(token) == std::string::npos, headerFile << " includes forbidden header via: " << line);
+    }
+  }
 }
