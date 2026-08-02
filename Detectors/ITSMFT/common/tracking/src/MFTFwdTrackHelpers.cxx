@@ -35,7 +35,8 @@ bool refitTrackFwdImpl(const TrackSeedN<o2::mft::constants::mft::LayersNumber>& 
                        const LegacyTrackerScratch<o2::mft::constants::mft::LayersNumber>& tf,
                        const TrackingParameters& params,
                        float bz,
-                       const LayerMeasurementSpans<o2::mft::constants::mft::LayersNumber>& layerMeasurements)
+                       const LayerMeasurementSpans<o2::mft::constants::mft::LayersNumber>& layerMeasurements,
+                       ClusterSourceId expectedSource)
 {
   TrackLTFType ltf(true);
   const auto hitMask = seed.getHitLayerMask();
@@ -60,7 +61,7 @@ bool refitTrackFwdImpl(const TrackSeedN<o2::mft::constants::mft::LayersNumber>& 
     // again here because a failure at this final-refit boundary must fail
     // only this one seed (return false) rather than the
     // TraversalException/dropped-TF path that guards the bulk validation.
-    if (!measurement.cluster.isValid() || measurement.cluster.source != ClusterSourceId{0} ||
+    if (!measurement.cluster.isValid() || measurement.cluster.source != expectedSource ||
         extIdx < 0 || static_cast<uint32_t>(extIdx) != measurement.cluster.index) {
       LOGP(warn, "MFT CA forward refit: normalized measurement identity mismatch on layer {} clIdx {}", layer, clIdx);
       return false;
@@ -154,13 +155,14 @@ bool refitTrackFwd(const TrackSeedN<o2::mft::constants::mft::LayersNumber>& seed
                    const LegacyTrackerScratch<o2::mft::constants::mft::LayersNumber>& tf,
                    const TrackingParameters& params,
                    float bz,
-                   const LayerMeasurementSpans<o2::mft::constants::mft::LayersNumber>& layerMeasurements)
+                   const LayerMeasurementSpans<o2::mft::constants::mft::LayersNumber>& layerMeasurements,
+                   ClusterSourceId expectedSource)
 {
   const auto& mftParam = o2::mft::MFTTrackingParam::Instance();
   if (mftParam.forceZeroField || std::abs(bz) < 1e-6f) {
-    return refitTrackFwdImpl<o2::mft::TrackLTFL>(seed, track, tf, params, 0.f, layerMeasurements);
+    return refitTrackFwdImpl<o2::mft::TrackLTFL>(seed, track, tf, params, 0.f, layerMeasurements, expectedSource);
   }
-  return refitTrackFwdImpl<o2::mft::TrackLTF>(seed, track, tf, params, bz, layerMeasurements);
+  return refitTrackFwdImpl<o2::mft::TrackLTF>(seed, track, tf, params, bz, layerMeasurements, expectedSource);
 }
 
 } // namespace o2::itsmft::tracking

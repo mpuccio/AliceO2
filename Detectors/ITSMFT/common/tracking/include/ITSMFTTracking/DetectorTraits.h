@@ -47,6 +47,15 @@ struct DetectorTraits {
   // tfInfos/unsortedClusters and ignores this parameter unchanged. `scratch`
   // is retained only for cluster external-index/size bookkeeping (output
   // metadata, never a physical read) -- see MFTFwdTrackHelpers.h.
+  //
+  // expectedSource (Gate 4 C2 source-identity correction): the
+  // ClusterSourceId this call's caller (TrackerTraits::findRoadsForPolicy())
+  // resolved once for this invocation -- mBinding->getSource() when a
+  // DetectorTraversalBinding is adopted, ClusterSourceId{0} otherwise. Same
+  // MFT-only-consumer shape as layerMeasurements: forwarded to
+  // refitTrackFwd()'s final-refit identity re-check; the barrel/ITS branch
+  // (refitSeedITS) neither receives nor needs it, since it never reads a
+  // normalized SurfaceMeasurement at all.
   static bool refitSeed(const TrackSeedN& seed,
                         TrackType& track,
                         const TrackingParameters& params,
@@ -55,7 +64,8 @@ struct DetectorTraits {
                         const o2::its::TrackingFrameInfo* const tfInfos[NLayers],
                         const o2::its::Cluster* const unsortedClusters[NLayers],
                         const o2::base::PropagatorImpl<float>* propagator,
-                        const LayerMeasurementSpans<NLayers>& layerMeasurements);
+                        const LayerMeasurementSpans<NLayers>& layerMeasurements,
+                        ClusterSourceId expectedSource);
 
   static void copySeedPatternToTrack(TrackType& track, const TrackSeedN& seed) noexcept;
   static void clearTransientLayerPattern(TrackType& track) noexcept;

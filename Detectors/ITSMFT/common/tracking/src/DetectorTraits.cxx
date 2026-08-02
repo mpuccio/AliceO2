@@ -81,10 +81,11 @@ bool DetectorTraits<NLayers>::refitSeed(const TrackSeedN& seed,
                                         const o2::its::TrackingFrameInfo* const tfInfos[NLayers],
                                         const o2::its::Cluster* const unsortedClusters[NLayers],
                                         const o2::base::PropagatorImpl<float>* propagator,
-                                        const LayerMeasurementSpans<NLayers>& layerMeasurements)
+                                        const LayerMeasurementSpans<NLayers>& layerMeasurements,
+                                        ClusterSourceId expectedSource)
 {
   if constexpr (DetId == o2::detectors::DetID::MFT) {
-    return refitTrackFwd(seed, track, scratch, params, bz, layerMeasurements);
+    return refitTrackFwd(seed, track, scratch, params, bz, layerMeasurements, expectedSource);
   } else {
     return refitSeedITS<NLayers>(seed, track, params, bz, tfInfos, unsortedClusters, propagator);
   }

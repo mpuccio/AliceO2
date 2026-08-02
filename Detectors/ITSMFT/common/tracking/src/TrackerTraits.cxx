@@ -1742,6 +1742,12 @@ void TrackerTraits<NLayers>::findRoadsForPolicy(const int iteration, const typen
     tfInfos[iLayer] = mScratch->getTrackingFrameInfoOnLayer(iLayer).data();
     unsortedClusters[iLayer] = mScratch->getUnsortedClusters()[iLayer].data();
   }
+  // Gate 4 C2 source-identity correction: resolved once per findRoadsForPolicy
+  // invocation, same binding-adopted/fallback shape as roadStartCells below.
+  // mBinding->getSource() is this call's own ClusterSourceId (see
+  // DetectorTraversalBinding::build()); ClusterSourceId{0} matches the
+  // long-standing legacy single-source assumption when unbound.
+  const ClusterSourceId expectedSource = mBinding != nullptr ? mBinding->getSource() : ClusterSourceId{0};
   // Road-start selection is topology-derived, not a StartLayerMask/LayerMask
   // runtime decision (Architecture.md Sec 10, D003): mTraversalGrouping's
   // roadStartCellsForTag(Tag) (TransitionPolicyDispatch.h) is the deterministic
@@ -1835,7 +1841,8 @@ void TrackerTraits<NLayers>::findRoadsForPolicy(const int iteration, const typen
                                                                      tfInfos,
                                                                      unsortedClusters,
                                                                      propagator,
-                                                                     mLayerMeasurements);
+                                                                     mLayerMeasurements,
+                                                                     expectedSource);
         if (refitSuccess) {
           DetectorTraits<NLayers>::copySeedPatternToTrack(temporaryTrack, trackSeeds[iSeed]);
           if constexpr (decltype(Mode)::value == PassMode::OnePass::value) {

@@ -259,12 +259,19 @@ namespace o2::itsmft::tracking
 // SurfaceMeasurement span. Every physical hit coordinate/covariance consumed
 // by the retained fitter comes from it; tf is retained only for cluster
 // external-index/size bookkeeping (output metadata, not physical reads).
+//
+// expectedSource is the ClusterSourceId resolved once by the caller
+// (TrackerTraits::findRoadsForPolicy(), via DetectorTraits::refitSeed's own
+// doc): mBinding->getSource() when a DetectorTraversalBinding is adopted,
+// ClusterSourceId{0} otherwise. Used only to re-check normalized-measurement
+// identity before trusting a hit; never re-derived deeper in the fit.
 bool refitTrackFwd(const TrackSeedN<o2::mft::constants::mft::LayersNumber>& seed,
                    MFTCATrack& track,
                    const LegacyTrackerScratch<o2::mft::constants::mft::LayersNumber>& tf,
                    const TrackingParameters& params,
                    float bz,
-                   const LayerMeasurementSpans<o2::mft::constants::mft::LayersNumber>& layerMeasurements);
+                   const LayerMeasurementSpans<o2::mft::constants::mft::LayersNumber>& layerMeasurements,
+                   ClusterSourceId expectedSource);
 
 } // namespace o2::itsmft::tracking
 
