@@ -305,6 +305,15 @@ o2_add_test(detector-traversal-binding
             LABELS "itsmft;tracking"
             PUBLIC_LINK_LIBRARIES O2::ITSMFTTracking)
 
+# Gate 4 C2 Slice 1: TrackerTraits<MFTNLayers> hot-loop orchestration bound to
+# a DetectorTraversalBinding built against the combined 17-surface ITS+MFT
+# catalog (global MFT SurfaceIds 7..16, ClusterSourceId{1}).
+o2_add_test(detector-traversal-binding-orchestration
+            SOURCES testDetectorTraversalBindingOrchestration.cxx
+            COMPONENT_NAME itsmft-tracking
+            LABELS "itsmft;tracking"
+            PUBLIC_LINK_LIBRARIES O2::ITSMFTTracking O2::MFTTracking)
+
 o2_add_test(its-common-ca-tracking-mode-configuration
             SOURCES testITSCommonCATrackingModeConfiguration.cxx
             COMPONENT_NAME itsmft-tracking
