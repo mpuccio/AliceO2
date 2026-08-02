@@ -27,6 +27,7 @@
 #include "ITSMFTTracking/Configuration.h"
 #include "ITSMFTTracking/AcceptedTrackShadowPublisher.h"
 #include "ITSMFTTracking/DetectorLayoutSet.h"
+#include "ITSMFTTracking/DetectorTraversalBinding.h"
 #include "ITSMFTTracking/LegacyTrackerScratch.h"
 #include "ITSMFTTracking/SurfaceDescriptor.h"
 #include "ITSMFTTracking/SurfaceMeasurement.h"
@@ -110,7 +111,20 @@ enum class TraversalFailureReason : uint8_t {
   // existing per-entry LegacyMaterialMismatch validity/range check, before
   // any TimeFrame tracking state is touched; mSurfaceToLegacyLayer is never
   // partially populated as a result.
-  SurfaceLayerMappingMismatch
+  SurfaceLayerMappingMismatch,
+  // Gate 4 C2 Slice 1 (DetectorTraversalBinding wiring): an adopted binding
+  // (adoptDetectorTraversalBinding()) could not translate a global
+  // TransitionId/CellTopologyId encountered during traversal into a compact
+  // scratch slot -- DetectorTraversalBinding::getScratchTransitionSlot()/
+  // getScratchCellSlot() returned std::nullopt. Since a correctly-built
+  // binding structurally cannot hand a hot loop a foreign/unmapped id (see
+  // DetectorTraversalBinding.h), this can only mean the binding disagrees
+  // with the layout/topology this iteration is actually running against
+  // (e.g. a stale binding, or a binding built for the wrong DetectorLayoutSet
+  // iteration) -- always a structural/configuration failure, never a per-TF
+  // data problem, so DropTFUponFailure never applies. Raised before the
+  // offending index is ever used to address scratch storage.
+  TraversalBindingMismatch
 };
 
 class TraversalException final : public std::runtime_error
@@ -148,6 +162,18 @@ class TrackerTraits
   virtual void adoptFrame(TimeFrame* frame) { mFrame = frame; }
   void adoptMFTPublicationCompatibility(MFTPublicationCompatibility* compatibility) noexcept { mAcceptedTrackShadowPublisher.adoptMFTPublicationCompatibility(compatibility); }
   void adoptITSSharedClusterCompatibility(ITSSharedClusterCompatibility* compatibility) noexcept { mAcceptedTrackShadowPublisher.adoptITSSharedClusterCompatibility(compatibility); }
+  // Gate 4 C2 Slice 1: bind-once, same pattern as adoptScratch()/adoptFrame()
+  // -- `binding` must outlive every subsequent clustersToTracks() call. Never
+  // owned or copied. Optional: when never called (mBinding stays nullptr,
+  // the default), every hot-loop site below falls back to the identity
+  // translation (global id == compact scratch slot) that is exactly today's
+  // Gate 3 single-detector-catalog behavior -- so existing production
+  // callers that never adopt a binding are byte-for-byte unaffected. When
+  // adopted, `binding` must have been built for the same DetectorLayoutSet
+  // iteration this TrackerTraits is about to traverse; a mismatch surfaces
+  // as TraversalFailureReason::TraversalBindingMismatch, never a silent
+  // misread.
+  void adoptDetectorTraversalBinding(const DetectorTraversalBinding* binding) noexcept { mBinding = binding; }
   // `layouts` is the owner's (ITSMFTTrackingInterface's) one immutable plan,
   // supplied explicitly by the caller (Gate 4 B2 Slice 2) -- this no longer
   // reads any layout/catalog state off TimeFrame.
@@ -215,6 +241,35 @@ class TrackerTraits
  private:
   void resetTraversalCache() noexcept;
   void validateLegacyParity(int iteration, const DetectorLayoutView& layout, TransitionPolicyTag& activeTag, bool& mixedPolicy) const;
+
+  // Gate 4 C2 Slice 1: the sole global-TransitionId/CellTopologyId-to-
+  // compact-scratch-slot translation used anywhere in this class. Called
+  // exactly once per traversal loop head or per dynamically-discovered
+  // neighbour id (never inside a per-candidate inner loop -- see call sites
+  // in TrackerTraits.cxx). With no binding adopted (mBinding == nullptr),
+  // returns the id's raw .value() unchanged, i.e. an identity mapping --
+  // this is exactly today's Gate 3 behavior, where the detector-only static
+  // catalog already makes global ids dense/compact per detector. With a
+  // binding adopted, returns its checked scratch slot or throws
+  // TraversalFailureReason::TraversalBindingMismatch before the caller can
+  // use an unmapped id to index scratch.
+  int requireScratchTransitionSlot(int iteration, TransitionId id) const;
+  int requireScratchCellSlot(int iteration, CellTopologyId id) const;
+
+  // Gate 4 C2 Slice 1: outer-loop dispatch wrapper used everywhere this class
+  // previously called dispatchTransitionPolicies(grouping, visitor) directly.
+  // With no binding adopted, forwards unchanged to dispatchTransitionPolicies
+  // (identical behavior to before this slice). With a binding adopted,
+  // `grouping` (built from the possibly-multi-detector `layout`) is not used
+  // for tag selection at all: the active tag is this NLayers instantiation's
+  // own compile-time StateFamily (a binding only ever owns transitions of
+  // the matching tag, enforced by DetectorTraversalBinding::build()), so the
+  // visitor is invoked exactly once, fed `binding`'s own filtered
+  // transition/cell spans instead of `grouping`'s whole-layout ones -- this
+  // is what prevents a combined (both-tags-present) `grouping` from firing
+  // the visitor twice, once per tag, for a single-detector TrackerTraits.
+  template <typename Visitor>
+  void dispatchActivePolicy(const TransitionPolicyGrouping& grouping, Visitor&& visitor) const;
 
   template <TransitionPolicyTag Tag>
   void computeLayerTrackletsForPolicy(int iteration,
@@ -326,6 +381,10 @@ class TrackerTraits
   // A template-specialized serial accepted-track hook. Its ITS instantiation
   // is empty and has no MFT compatibility allocation or lookup.
   AcceptedTrackShadowPublisher<NLayers> mAcceptedTrackShadowPublisher;
+  // Gate 4 C2 Slice 1: optional, bind-once, non-owning (see
+  // adoptDetectorTraversalBinding() above). nullptr for every existing
+  // Gate 3 production/test caller.
+  const DetectorTraversalBinding* mBinding = nullptr;
 
  protected:
   ScratchN* mScratch = nullptr;

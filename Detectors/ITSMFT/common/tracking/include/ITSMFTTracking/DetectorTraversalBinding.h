@@ -177,6 +177,18 @@ class DetectorTraversalBinding
         result->mGlobalRoadStartCells.push_back(id);
       }
     }
+    // Same source grouping as mGlobalCells above, but in
+    // TransitionPolicyGrouping::scheduledCellsForTag()'s rank-sorted
+    // (neighbour-schedule) order rather than ascending CellTopologyId order.
+    // findCellsNeighboursForPolicy() (TrackerTraits.cxx) is the only
+    // consumer; every id here is already confirmed owned (mScratchCellSlot
+    // valid) by the mGlobalCells loop above, so this is a pure reordering of
+    // the same set, never a superset/subset of it.
+    for (const auto id : grouping.scheduledCellsForTag(expectedPolicy)) {
+      if (result->mScratchCellSlot[id.value()] >= 0) {
+        result->mGlobalScheduledCells.push_back(id);
+      }
+    }
     return {std::move(result), DetectorTraversalBindingError::None};
   }
 
@@ -189,6 +201,7 @@ class DetectorTraversalBinding
   gsl::span<const TransitionId> getGlobalTransitions() const noexcept { return mGlobalTransitions; }
   gsl::span<const CellTopologyId> getGlobalCells() const noexcept { return mGlobalCells; }
   gsl::span<const CellTopologyId> getGlobalRoadStartCells() const noexcept { return mGlobalRoadStartCells; }
+  gsl::span<const CellTopologyId> getGlobalScheduledCells() const noexcept { return mGlobalScheduledCells; }
 
  private:
   template <typename Id>
@@ -209,6 +222,7 @@ class DetectorTraversalBinding
   std::vector<TransitionId> mGlobalTransitions;
   std::vector<CellTopologyId> mGlobalCells;
   std::vector<CellTopologyId> mGlobalRoadStartCells;
+  std::vector<CellTopologyId> mGlobalScheduledCells;
 };
 
 } // namespace o2::itsmft::tracking

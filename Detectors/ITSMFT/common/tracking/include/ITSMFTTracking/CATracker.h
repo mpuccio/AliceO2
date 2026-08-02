@@ -78,6 +78,12 @@ class Tracker
     mITSSharedClusterCompatibility = &compatibility;
     mTraits->adoptITSSharedClusterCompatibility(&compatibility);
   }
+  // Gate 4 C2 Slice 1: bind-once, forwarded straight to mTraits -- see
+  // TrackerTraits<NLayers>::adoptDetectorTraversalBinding() for the full
+  // contract (optional; nullptr preserves today's Gate 3 identity-mapping
+  // behavior). `binding` must outlive every subsequent clustersToTracks()
+  // call.
+  void adoptDetectorTraversalBinding(const DetectorTraversalBinding& binding) { mTraits->adoptDetectorTraversalBinding(&binding); }
   // Binds the tracker's one immutable plan, owned by its caller
   // (ITSMFTTrackingInterface) -- mirrors adoptScratch()'s bind-once pattern.
   // `plan` must outlive every subsequent clustersToTracks() call.
