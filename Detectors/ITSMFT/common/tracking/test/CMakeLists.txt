@@ -382,6 +382,20 @@ o2_add_test(combined-timeframe-coordinator
                                   O2::DetectorsBase
                                   O2::Field)
 
+# GenericTrackingEngineMigration.md M1: the detector-neutral TrackingEngine/
+# TrackingParticipant contract (ADR 0007).
+o2_add_test(tracking-engine-contract
+            SOURCES testTrackingEngineContract.cxx
+            COMPONENT_NAME itsmft-tracking
+            LABELS "itsmft;tracking"
+            PUBLIC_LINK_LIBRARIES O2::ITSMFTTracking)
+
+o2_add_test(tracking-engine-dependency-boundary
+            SOURCES testTrackingEngineDependencyBoundary.cxx
+            COMPONENT_NAME itsmft-tracking
+            LABELS "itsmft;tracking"
+            PUBLIC_LINK_LIBRARIES O2::ITSMFTTracking)
+
 # The Gate 0 extractor needs generated tracker/MC dictionaries and external
 # fixture files at execution time. Keep its runnable replay in the documented
 # baseline protocol, while compiling the macro here so clean O2 configurations
