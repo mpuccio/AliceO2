@@ -43,21 +43,29 @@ using namespace o2::itsmft::tracking;
 BOOST_AUTO_TEST_CASE(EngineHeaderAloneNamesTheCompleteEngineContract)
 {
   // TrackingEngine.h (via TrackingParticipant.h) only forward-declares
-  // TimeFrame: naming TrackingEngine::executeEvent()'s member-function type
-  // does not require a complete TimeFrame, so this line compiles from this
-  // file's include list alone.
-  using ExecuteEventType = EventResult (TrackingEngine::*)(TimeFrame&, gsl::span<TrackingParticipant* const>, const o2::InteractionRecord&);
+  // TimeFrame: naming TrackingEngine::executeEvent()'s and ::resetEvent()'s
+  // member-function types does not require a complete TimeFrame, so this
+  // compiles from this file's include list alone. Neither signature
+  // mentions an event origin: TrackingEngine never loads anything itself
+  // (TrackingParticipant.h's file-level comment) -- both operate on an
+  // already atomically loaded/reset event.
+  using ExecuteEventType = EventResult (TrackingEngine::*)(TimeFrame&, gsl::span<TrackingParticipant* const>);
   static_assert(std::is_same_v<decltype(&TrackingEngine::executeEvent), ExecuteEventType>);
+  using ResetEventType = void (TrackingEngine::*)(TimeFrame&, gsl::span<TrackingParticipant* const>) const noexcept;
+  static_assert(std::is_same_v<decltype(&TrackingEngine::resetEvent), ResetEventType>);
 
   static_assert(std::is_default_constructible_v<TrackingEngine>);
   static_assert(std::is_default_constructible_v<ParticipantId>);
   static_assert(std::is_default_constructible_v<EventResult>);
   static_assert(std::is_default_constructible_v<ParticipantEventResult>);
-  static_assert(std::is_default_constructible_v<ParticipantLoadResult>);
   static_assert(std::is_default_constructible_v<ParticipantTrackingResult>);
   static_assert(std::is_default_constructible_v<ParticipantPublicationExport>);
   static_assert(std::is_abstract_v<TrackingParticipant>);
   static_assert(std::has_virtual_destructor_v<TrackingParticipant>);
+  // TrackingParticipant is a tracking leg only, not a loader: no member
+  // named load() exists to reference here (unlike track()/eventReset()
+  // above, which are exercised through the pointer-to-member-function
+  // static_asserts these type aliases feed).
 }
 
 // --- Grep half -----------------------------------------------------------

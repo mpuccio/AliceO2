@@ -39,20 +39,34 @@ classified as temporary. The milestone plan implementing this ADR is
    ITS, MFT, layer counts 7/10, source 0/1, or current output track types.
 
 3. **One concrete `TrackingEngine` with `executeEvent()`.** The engine executes
-   one event over an ordered collection of participants and applies the
-   whole-event all-or-nothing failure contract proven in Gate 4. There is
-   exactly one such class; a second public "TrackingExecutor" abstraction (an
-   engine interface plus a concrete executor) must not be introduced.
+   one *already atomically loaded* event over an ordered collection of
+   participants and applies the whole-event all-or-nothing failure contract
+   proven in Gate 4. There is exactly one such class; a second public
+   "TrackingExecutor" abstraction (an engine interface plus a concrete
+   executor) must not be introduced. `executeEvent()` never loads anything
+   itself: atomic event loading (every source's decoding and legacy backfill
+   staged and committed together, or the live event left completely
+   untouched -- the existing `MultiSourceTimeFrameLoader::loadITSAndMFT()`
+   contract, which M2 generalizes into a participant-count-agnostic event
+   loader) is a distinct, prior, whole-event transactional step a caller
+   completes before calling `executeEvent()`; the engine additionally exposes
+   `resetEvent()` so a caller whose own atomic load failed can reach the same
+   all-participant/shared-`TimeFrame` reset contract without duplicating it
+   or calling `executeEvent()` at all.
 
 4. **`CombinedTimeFrameCoordinator` is a temporary Gate 4 wrapper.** It is
    removed once the combined workflow runs on the engine and the parity/replay
    gates pass.
 
-5. **`TrackingParticipant` is the detector-leg boundary.** Its minimal
-   interface (identity, owned surfaces, load, track, event reset, publication
-   export) must not mention ITS, MFT, `NLayers`, `LegacyTrackerScratch`,
-   source 0/1, or current output types. All of those live inside concrete
-   participant implementations or adapters.
+5. **`TrackingParticipant` is a tracking leg, not a loader.** Its minimal
+   interface (identity, owned surfaces, `track()`, participant-local event
+   reset, publication export) carries no loading operation and no
+   event-origin knowledge, and must not mention ITS, MFT, `NLayers`,
+   `LegacyTrackerScratch`, source 0/1, or current output types. All of those
+   live inside concrete participant implementations or adapters. A
+   participant's `eventReset()` clears only that participant's own
+   scratch/compatibility state; it must never wipe or otherwise own any of
+   the shared `TimeFrame`'s storage -- see decision 3's `resetEvent()`.
 
 6. **Participant execution order is explicit plan/schedule data.** The engine
    consumes an ordered schedule supplied with the plan. Ordering is *not* an

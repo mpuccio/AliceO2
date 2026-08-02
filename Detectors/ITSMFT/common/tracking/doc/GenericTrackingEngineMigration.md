@@ -18,15 +18,37 @@ explicitly fenced behind its own decision (M5).
 ### M1 — TrackingEngine / TrackingParticipant contract
 
 - **Goal / bounded API change**: commit the detector-neutral boundary as new
-  headers plus a contract test: `TrackingEngine::executeEvent(TimeFrame&, ...)`
-  returning a generic event result; the minimal `TrackingParticipant`
-  interface (identity, owned surfaces, load, track, event reset, publication
-  export); an explicit participant schedule as plan data (ADR 0007 decisions
-  3, 5, 6). Additive only — no existing header changes.
+  headers plus a contract test: `TrackingEngine::executeEvent(TimeFrame&,
+  schedule)` running `track()` over an ordered participant schedule against
+  an event whose atomic loading has already been committed by the caller,
+  returning a generic event result; `TrackingEngine::resetEvent(TimeFrame&,
+  schedule)`, the same all-participant-reset-then-wipe-`TimeFrame`-once
+  operation `executeEvent()` applies internally on a tracking failure, public
+  so a caller whose own atomic load failed can reach it directly; the minimal
+  `TrackingParticipant` interface (identity, owned surfaces, `track()`,
+  participant-local event reset, publication export — deliberately no
+  loading operation, see below); an explicit participant schedule as plan
+  data (ADR 0007 decisions 3, 5, 6). Additive only — no existing header
+  changes.
+  - **Atomic loading vs. tracking execution**: these are two distinct,
+    ordered steps, not one. Atomic event loading — every source's decoding
+    and legacy backfill staged and committed together, or the live event
+    left completely untouched — is a stronger whole-event transactional
+    contract than a sequential per-participant `load()` inside
+    `executeEvent()` could honor (an M1 draft of this contract had exactly
+    that flaw; corrected before any M2 code depended on it). `TrackingEngine`
+    therefore never loads anything: it only runs `track()` over an
+    already-loaded event. Today's atomic loader is
+    `MultiSourceTimeFrameLoader::loadITSAndMFT()`; M2 generalizes it into a
+    participant-count-agnostic event loader that a caller runs, once, before
+    calling `executeEvent()` — see M2 below.
 - **Temporary bridge**: none (additive).
-- **Acceptance/replay gate**: contract test pins the interface; review
-  confirms the interface names none of ITS/MFT/`NLayers`/
-  `LegacyTrackerScratch`/source 0/1/output types.
+- **Acceptance/replay gate**: contract test pins the interface, including
+  that a non-Success `track()` outcome or exception resets every scheduled
+  participant and wipes the shared `TimeFrame` exactly once, and that
+  `resetEvent()` applies that same contract directly; review confirms the
+  interface names none of ITS/MFT/`NLayers`/`LegacyTrackerScratch`/
+  source 0/1/output types, and no loading/event-origin operation.
 - **Deletion/exit criterion**: M2 implements against the contract without
   amending it.
 - **Dependency**: none.
@@ -34,14 +56,18 @@ explicitly fenced behind its own decision (M5).
 
 ### M2 — Engine seam and generic participant orchestration
 
-- **Goal / bounded API change**: the concrete `TrackingEngine` executes an
-  ordered participant collection; a legacy CA participant implementation wraps
-  today's `Tracker<NLayers>`/`TrackerTraits<NLayers>`/scratch/binding/sidecar
-  composition unchanged; `CombinedTimeFrameCoordinator` builds two
-  participants and delegates `process()` to the engine.
-  `MultiSourceTimeFrameLoader` gains a participant-count-agnostic load/reset,
-  with `loadITSAndMFT()`/`resetITSAndMFTEvent()` kept as forwarding bridges.
-  No CA physics change; ITS+MFT is the first engine configuration.
+- **Goal / bounded API change**: the concrete `TrackingEngine` runs `track()`
+  over an ordered participant collection; a legacy CA participant
+  implementation wraps today's `Tracker<NLayers>`/`TrackerTraits<NLayers>`/
+  scratch/binding/sidecar composition unchanged; `CombinedTimeFrameCoordinator`
+  builds two participants and delegates to the engine.
+  `MultiSourceTimeFrameLoader` gains a participant-count-agnostic atomic
+  event loader, with `loadITSAndMFT()`/`resetITSAndMFTEvent()` kept as
+  forwarding bridges; the coordinator's `process()` runs that loader first,
+  calls `TrackingEngine::executeEvent()` only once it reports success, and
+  calls `TrackingEngine::resetEvent()` directly (never `executeEvent()`) on a
+  load failure. No CA physics change; ITS+MFT is the first engine
+  configuration.
 - **Temporary bridge**: the coordinator's public API and the C4 DPL workflow
   stay untouched; the engine runs inside the coordinator.
 - **Acceptance/replay gate**: existing coordinator and DPL contract tests
