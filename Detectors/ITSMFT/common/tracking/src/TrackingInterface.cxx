@@ -383,14 +383,22 @@ float ITSMFTTrackingInterface<NLayers>::runTracking()
   mTracker->setParameters(mTrackParams);
   mTracker->setMemoryPool(mMemoryPool);
   mTracker->setBz(mFrame.getBz());
-  const float elapsedMs = mTracker->clustersToTracks();
-  if (elapsedMs < 0.f) {
+  // Gate 4 C2 Slice 2: clustersToTracks() now returns a typed TrackingResult
+  // instead of a float+sentinel; this is the sole place that maps it back to
+  // this interface's own external float/kDroppedTimeFrameResult contract
+  // (still consumed by CATrackerSpec.cxx/its MFT counterpart via
+  // isDroppedTimeFrame()). A structural or non-dropped-recoverable failure
+  // still propagates as a thrown exception straight out of clustersToTracks()
+  // -- unchanged, never caught here -- so the only outcome this mapping ever
+  // observes is Success or RecoverableDropped.
+  const auto result = mTracker->clustersToTracks();
+  if (result.outcome == TrackingOutcome::RecoverableDropped) {
     LOGP(warn, "{} CA tracking failed for this TF", detName<DetId>());
-    return elapsedMs;
+    return kDroppedTimeFrameResult;
   }
   LOGP(info, "{} CA tracking produced {} tracks in {:.2f} ms",
-       detName<DetId>(), mScratch.getNumberOfTracks(), elapsedMs);
-  return elapsedMs;
+       detName<DetId>(), mScratch.getNumberOfTracks(), result.elapsedMs);
+  return result.elapsedMs;
 }
 
 template <int NLayers>

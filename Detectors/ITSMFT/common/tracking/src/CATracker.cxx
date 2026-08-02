@@ -70,7 +70,7 @@ void Tracker<NLayers>::adoptFrame(TimeFrame& frame)
 }
 
 template <int NLayers>
-float Tracker<NLayers>::clustersToTracks()
+TrackingResult Tracker<NLayers>::clustersToTracks()
 {
   mTraits->updateTrackingParameters(mTrkParams);
 
@@ -122,7 +122,7 @@ float Tracker<NLayers>::clustersToTracks()
     }
     resetTimeFrameEvent(*mFrame, *mScratch);
     if (mTrkParams[0].DropTFUponFailure) {
-      return kDroppedTimeFrameResult;
+      return TrackingResult{TrackingOutcome::RecoverableDropped, 0.f};
     }
     throw;
   } catch (const std::bad_alloc& err) {
@@ -140,7 +140,7 @@ float Tracker<NLayers>::clustersToTracks()
     }
     resetTimeFrameEvent(*mFrame, *mScratch);
     if (mTrkParams[0].DropTFUponFailure) {
-      return kDroppedTimeFrameResult;
+      return TrackingResult{TrackingOutcome::RecoverableDropped, 0.f};
     }
     throw;
   } catch (const std::exception& err) {
@@ -165,7 +165,7 @@ float Tracker<NLayers>::clustersToTracks()
   }
   rectifyClusterIndices();
   sortTracks();
-  return total;
+  return TrackingResult{TrackingOutcome::Success, total};
 }
 
 template <int NLayers>

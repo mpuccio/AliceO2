@@ -16,6 +16,7 @@
 #ifndef ALICEO2_ITSMFT_TRACKING_CATRACKER_H_
 #define ALICEO2_ITSMFT_TRACKING_CATRACKER_H_
 
+#include <cstdint>
 #include <memory>
 #include <vector>
 
@@ -31,18 +32,54 @@
 namespace o2::itsmft::tracking
 {
 
-/// Gate 3 common-CA compatibility sentinel: the single float value
-/// clustersToTracks() may return to mean "this TimeFrame was a recoverable
-/// per-TF failure, DropTFUponFailure was set, and the TimeFrame has already
-/// been fully wiped -- do not publish anything for it, and it is safe to
-/// continue with the next TimeFrame." isDroppedTimeFrame() tests this exact
-/// value, never a sign check, so no other negative result, NaN, or infinity
-/// can be mistaken for a drop. Every other failure (structural or
-/// unclassified) throws instead of returning a sentinel.
+/// Gate 4 C2 Slice 2: the typed outcome Tracker<NLayers>::clustersToTracks()
+/// returns in place of the old float+sentinel compatibility contract
+/// (kDroppedTimeFrameResult/isDroppedTimeFrame below, retained only because
+/// ITSMFTTrackingInterface/CATrackerSpec.cxx still externally consume that
+/// exact float contract -- see TrackingInterface.cxx::runTracking(), the
+/// sole place that now translates between the two).
 ///
-/// This is a bounded compatibility slice: a typed tracking outcome (success /
-/// dropped / structural-failure, with a reason) should replace this float
-/// sentinel before the common-CA failure contract is considered final.
+/// clustersToTracks() itself only ever *returns* Success or
+/// RecoverableDropped: a recoverable, per-TF resource failure
+/// (BoundedMemoryResource::MemoryLimitExceeded, std::bad_alloc) with
+/// DropTFUponFailure=true. Every other failure -- structural/configuration
+/// (TraversalException, any reason, including Gate 4 C2 Slice 1's
+/// TraversalBindingMismatch), unclassified (any other std::exception), or a
+/// recoverable failure with DropTFUponFailure=false -- retains its existing,
+/// already-tested contract of propagating as a thrown C++ exception past
+/// clustersToTracks()'s own boundary; this is deliberate ("retain exceptions
+/// where that is the established contract"), not an oversight: reusing the
+/// existing exception-based classification means a mismatched/invalid
+/// binding can never be silently reclassified as a dropped, recoverable
+/// result merely because DropTFUponFailure happens to be true. Structural is
+/// part of this enum's vocabulary -- a future combined coordinator that
+/// wraps clustersToTracks() in its own try/catch is expected to construct it
+/// from the caught exception -- but no code in this slice constructs it via
+/// a normal return.
+enum class TrackingOutcome : uint8_t {
+  Success,
+  RecoverableDropped,
+  Structural
+};
+
+/// clustersToTracks()'s complete return value on every path it does not
+/// throw past its own boundary. `elapsedMs` is only meaningful when
+/// `outcome == Success` (0.f otherwise, matching the old sentinel's implicit
+/// contract of never being read on a drop).
+struct TrackingResult {
+  TrackingOutcome outcome{TrackingOutcome::Success};
+  float elapsedMs{0.f};
+};
+
+/// Gate 3 common-CA compatibility sentinel, retained for
+/// ITSMFTTrackingInterface's own external float contract (CATrackerSpec.cxx
+/// and its MFT counterpart still call isDroppedTimeFrame() on
+/// processTimeFrame()'s return value) -- the single float value that means
+/// "this TimeFrame was a recoverable per-TF failure, DropTFUponFailure was
+/// set, and the TimeFrame has already been fully wiped -- do not publish
+/// anything for it, and it is safe to continue with the next TimeFrame."
+/// isDroppedTimeFrame() tests this exact value, never a sign check, so no
+/// other negative result, NaN, or infinity can be mistaken for a drop.
 inline constexpr float kDroppedTimeFrameResult = -1.f;
 
 /// Exact-match test for the drop sentinel above. Deliberately not `result <
@@ -93,18 +130,19 @@ class Tracker
   void setBz(float bz) { mTraits->setBz(bz); }
   void setNThreads(int n, std::shared_ptr<tbb::task_arena>& arena) { mTraits->setNThreads(n, arena); }
 
-  /// Run all configured iterations. Returns elapsed ms on success, or the
-  /// exact kDroppedTimeFrameResult sentinel when a recoverable per-TF
-  /// failure was dropped (DropTFUponFailure=true); the event is always fully
-  /// reset (see resetTimeFrameEvent(), LegacyTrackerScratch.h) before that
-  /// return. Any structural or unclassified failure, and any recoverable
-  /// failure with DropTFUponFailure=false, throws instead of returning --
-  /// the event is always fully reset before the exception propagates. This
-  /// tracker never decides *which* reset a combined future owner with
-  /// several participating scratches would want (see resetTimeFrameEvent()'s
-  /// own doc) -- for this single-detector bridge, every recoverable failure
-  /// here resets both its own scratch and the shared TimeFrame.
-  float clustersToTracks();
+  /// Run all configured iterations. Returns {Success, elapsed ms} on
+  /// success, or {RecoverableDropped, 0.f} when a recoverable per-TF failure
+  /// was dropped (DropTFUponFailure=true); the event is always fully reset
+  /// (see resetTimeFrameEvent(), LegacyTrackerScratch.h) before that return.
+  /// Any structural or unclassified failure, and any recoverable failure
+  /// with DropTFUponFailure=false, throws instead of returning -- see
+  /// TrackingOutcome's own doc for why this is deliberate -- the event is
+  /// always fully reset before the exception propagates. This tracker never
+  /// decides *which* reset a combined future owner with several
+  /// participating scratches would want (see resetTimeFrameEvent()'s own
+  /// doc) -- for this single-detector bridge, every recoverable failure here
+  /// resets both its own scratch and the shared TimeFrame.
+  TrackingResult clustersToTracks();
 
   const ScratchN& getScratch() const { return *mScratch; }
   ScratchN& getScratch() { return *mScratch; }
