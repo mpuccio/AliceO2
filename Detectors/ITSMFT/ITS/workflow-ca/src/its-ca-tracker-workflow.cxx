@@ -27,7 +27,7 @@
 #include "Framework/ConfigParamSpec.h"
 #include "ITSCAWorkflow/CATrackerSpec.h"
 #include "ITSCAWorkflow/ConfigPreflight.h"
-#include "ITSCAWorkflow/TrackWriterSpec.h"
+#include "ITSMFTCAWriter/ITSCATrackWriterSpec.h"
 #include "ITSMFTTracking/Configuration.h"
 
 using namespace o2::framework;

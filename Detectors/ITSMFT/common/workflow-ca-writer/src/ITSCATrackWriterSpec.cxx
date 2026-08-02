@@ -9,9 +9,13 @@
 // granted to it by virtue of its status as an Intergovernmental Organization
 // or submit itself to any jurisdiction.
 
-/// @file   TrackWriterSpec.cxx
+/// @file   ITSCATrackWriterSpec.cxx
+///
+/// Gate 4 C4: relocated unmodified from
+/// Detectors/ITSMFT/ITS/workflow-ca/src/TrackWriterSpec.cxx -- see the
+/// header's own doc comment for why.
 
-#include "ITSCAWorkflow/TrackWriterSpec.h"
+#include "ITSMFTCAWriter/ITSCATrackWriterSpec.h"
 
 #include <vector>
 

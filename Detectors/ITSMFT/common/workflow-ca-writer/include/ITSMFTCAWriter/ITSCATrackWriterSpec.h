@@ -9,13 +9,20 @@
 // granted to it by virtue of its status as an Intergovernmental Organization
 // or submit itself to any jurisdiction.
 ///
-/// \file TrackWriterSpec.h
-/// \brief Vertex-free ITS common-CA track writer (Gate 3 workflow-onboarding
-///        Slice 2), modeled on MFTWorkflow/TrackWriterSpec.h. Writes a
-///        distinct file (o2trac_its_ca.root) with no vertex branches.
+/// \file ITSCATrackWriterSpec.h
+/// \brief Vertex-free ITS common-CA track writer. Writes a distinct file
+///        (o2trac_its_ca.root) with no vertex branches.
+///
+/// Gate 4 C4: relocated unmodified from
+/// Detectors/ITSMFT/ITS/workflow-ca/include/ITSCAWorkflow/TrackWriterSpec.h
+/// (same namespace/signature, same o2::its::ca::getTrackWriterSpec symbol)
+/// into this neutral, common location so o2-its-ca-tracker-workflow (via
+/// O2::ITSCAWorkflow) and the opt-in combined ITS+MFT workflow (via
+/// O2::ITSMFTCombinedCAWorkflow) share exactly one compiled writer-spec
+/// implementation instead of each linking or duplicating it separately.
 
-#ifndef O2_ITS_CA_WORKFLOW_TRACKWRITERSPEC_H_
-#define O2_ITS_CA_WORKFLOW_TRACKWRITERSPEC_H_
+#ifndef O2_ITSMFT_CAWRITER_ITSCATRACKWRITERSPEC_H_
+#define O2_ITSMFT_CAWRITER_ITSCATRACKWRITERSPEC_H_
 
 #include "Framework/DataProcessorSpec.h"
 
@@ -29,4 +36,4 @@ o2::framework::DataProcessorSpec getTrackWriterSpec(bool useMC);
 
 } // namespace o2::its::ca
 
-#endif // O2_ITS_CA_WORKFLOW_TRACKWRITERSPEC_H_
+#endif // O2_ITSMFT_CAWRITER_ITSCATRACKWRITERSPEC_H_

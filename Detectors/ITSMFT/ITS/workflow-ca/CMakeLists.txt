@@ -19,13 +19,20 @@ o2_add_library(ITSCAWorkflow
                TARGETVARNAME targetName
                SOURCES src/ConfigPreflight.cxx
                        src/CATrackerSpec.cxx
-                       src/TrackWriterSpec.cxx
                PUBLIC_LINK_LIBRARIES O2::Framework
                                      O2::SimulationDataFormat
                                      O2::DataFormatsITS
                                      O2::DataFormatsITSMFT
                                      O2::ITSBase
                                      O2::ITSMFTTracking
+                                     # Gate 4 C4: the ITS common-CA track
+                                     # writer spec (o2::its::ca::
+                                     # getTrackWriterSpec) now lives in this
+                                     # shared library, also linked by the
+                                     # opt-in combined ITS+MFT workflow --
+                                     # see common/workflow-ca-writer's own
+                                     # CMakeLists.txt comment.
+                                     O2::ITSMFTCAWriter
                                      # ITSMFTTracking/TimeFrame.h transitively
                                      # includes MFTCATrack.h, which needs
                                      # MFTTracking/Constants.h; O2::ITSMFTTracking

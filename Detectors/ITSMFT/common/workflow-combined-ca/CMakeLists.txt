@@ -14,19 +14,15 @@
 # or MFTWorkflow, and does not link either -- same isolation rationale as
 # ITSCAWorkflow's own CMakeLists.txt comment (D009, AgentCoordination.md):
 # no link-graph overlap with either single-detector opt-in workflow or
-# either frozen legacy reco workflow. Its own ITS/MFT CommonTrack writer
-# specs (src/ITSCommonTrackWriterSpec.cxx/src/MFTCommonTrackWriterSpec.cxx)
-# are therefore small local reimplementations of ITSCAWorkflow/
-# MFTWorkflow's own TrackWriterSpec.cxx -- same DPLUtils::MakeRootTreeWriterSpec
-# utility, same default output filenames/tree/branch contract, so downstream
-# consumers of o2trac_its_ca.root/mfttracks.root are unaffected -- not a
-# link dependency on either forbidden library.
+# either frozen legacy reco workflow. It reuses the ITS/MFT common-CA track
+# writer specs via O2::ITSMFTCAWriter (common/workflow-ca-writer) instead of
+# duplicating them: that library, not either forbidden workflow library, is
+# their single source of truth, so o2trac_its_ca.root/mfttracks.root stay
+# byte-for-byte the same writer regardless of which workflow calls it.
 o2_add_library(ITSMFTCombinedCAWorkflow
                TARGETVARNAME targetName
                SOURCES src/ConfigPreflight.cxx
                        src/CombinedCATrackerSpec.cxx
-                       src/ITSCommonTrackWriterSpec.cxx
-                       src/MFTCommonTrackWriterSpec.cxx
                PUBLIC_LINK_LIBRARIES O2::Framework
                                      O2::SimulationDataFormat
                                      O2::DataFormatsITS
@@ -36,6 +32,7 @@ o2_add_library(ITSMFTCombinedCAWorkflow
                                      O2::MFTBase
                                      O2::ITSMFTTracking
                                      O2::MFTTracking
+                                     O2::ITSMFTCAWriter
                                      O2::CCDB)
 
 o2_add_executable(combined-ca-tracker-workflow

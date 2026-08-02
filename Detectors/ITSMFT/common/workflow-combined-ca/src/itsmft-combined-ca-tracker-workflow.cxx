@@ -24,10 +24,10 @@
 #include "Framework/CallbacksPolicy.h"
 #include "Framework/CompletionPolicyHelpers.h"
 #include "Framework/ConfigParamSpec.h"
+#include "ITSMFTCAWriter/ITSCATrackWriterSpec.h"
+#include "ITSMFTCAWriter/MFTCATrackWriterSpec.h"
 #include "ITSMFTCombinedCAWorkflow/CombinedCATrackerSpec.h"
 #include "ITSMFTCombinedCAWorkflow/ConfigPreflight.h"
-#include "ITSMFTCombinedCAWorkflow/ITSCommonTrackWriterSpec.h"
-#include "ITSMFTCombinedCAWorkflow/MFTCommonTrackWriterSpec.h"
 #include "ITSMFTTracking/Configuration.h"
 
 using namespace o2::framework;
@@ -77,8 +77,13 @@ WorkflowSpec defineDataProcessing(ConfigContext const& config)
   WorkflowSpec specs;
   specs.emplace_back(o2::itsmft::combined::getCombinedCATrackerSpec(useMC));
   if (!disableRootOutput) {
-    specs.emplace_back(o2::itsmft::combined::getITSCommonTrackWriterSpec(useMC));
-    specs.emplace_back(o2::itsmft::combined::getMFTCommonTrackWriterSpec(useMC));
+    // Same shared writer-spec functions o2-its-ca-tracker-workflow/
+    // o2-mft-ca-tracker-workflow call (O2::ITSMFTCAWriter) -- not a
+    // reimplementation. useCA=true for MFT matches mft-ca-tracker-workflow.cxx:
+    // the combined route always publishes through the CommonTrack/CA adapter,
+    // so the MFTTrackSeedPattern branch must always be written.
+    specs.emplace_back(o2::its::ca::getTrackWriterSpec(useMC));
+    specs.emplace_back(o2::mft::getTrackWriterSpec(useMC, true));
   }
 
   o2::raw::HBFUtilsInitializer hbfIni(config, specs);

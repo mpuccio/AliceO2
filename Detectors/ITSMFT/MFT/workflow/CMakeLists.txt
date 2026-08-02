@@ -15,7 +15,6 @@ o2_add_library(MFTWorkflow
                        src/CATrackerSpec.cxx
                        src/TrackerSpec.cxx
                        src/TrackReaderSpec.cxx
-                       src/TrackWriterSpec.cxx
                        src/MFTAssessmentSpec.cxx
                        src/TracksToRecordsSpec.cxx
                PUBLIC_LINK_LIBRARIES O2::Framework
@@ -30,7 +29,18 @@ o2_add_library(MFTWorkflow
                                      O2::ITStracking
                                      TBB::tbb
                                      O2::MFTAlignment
-                                     O2::GlobalTrackingWorkflowReaders)
+                                     O2::GlobalTrackingWorkflowReaders
+                                     # Gate 4 C4: the MFT track writer spec
+                                     # (o2::mft::getTrackWriterSpec) now
+                                     # lives in this shared library, linked
+                                     # by both the legacy o2-mft-reco-workflow
+                                     # (via RecoWorkflow.cxx) and the opt-in
+                                     # o2-mft-ca-tracker-workflow, and also
+                                     # by the opt-in combined ITS+MFT
+                                     # workflow -- see
+                                     # common/workflow-ca-writer's own
+                                     # CMakeLists.txt comment.
+                                     O2::ITSMFTCAWriter)
 o2_add_executable(reco-workflow
                   SOURCES src/mft-reco-workflow.cxx
                   COMPONENT_NAME mft

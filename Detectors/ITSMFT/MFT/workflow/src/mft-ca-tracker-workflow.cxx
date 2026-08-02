@@ -23,7 +23,7 @@
 #include "ITSMFTTracking/Configuration.h"
 #include "ITSMFTTracking/TrackingConfigParam.h"
 #include "MFTWorkflow/CATrackerSpec.h"
-#include "MFTWorkflow/TrackWriterSpec.h"
+#include "ITSMFTCAWriter/MFTCATrackWriterSpec.h"
 
 using namespace o2::framework;
 

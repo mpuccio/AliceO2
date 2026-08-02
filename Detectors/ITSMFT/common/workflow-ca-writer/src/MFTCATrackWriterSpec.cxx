@@ -9,11 +9,15 @@
 // granted to it by virtue of its status as an Intergovernmental Organization
 // or submit itself to any jurisdiction.
 
-/// @file   TrackWriterSpec.cxx
+/// @file   MFTCATrackWriterSpec.cxx
+///
+/// Gate 4 C4: relocated unmodified from
+/// Detectors/ITSMFT/MFT/workflow/src/TrackWriterSpec.cxx -- see the header's
+/// own doc comment for why.
 
 #include <vector>
 
-#include "MFTWorkflow/TrackWriterSpec.h"
+#include "ITSMFTCAWriter/MFTCATrackWriterSpec.h"
 #include "DPLUtils/MakeRootTreeWriterSpec.h"
 #include "MFTTracking/TrackCA.h"
 
@@ -54,9 +58,9 @@ DataProcessorSpec getTrackWriterSpec(bool useMC, bool useCA)
                                 BranchDefinition<std::vector<int>>{InputSpec{"trackClIdx", "MFT", "TRACKCLSID", 0},
                                                                    "MFTTrackClusIdx"},
                                 BranchDefinition<std::vector<uint16_t>>{InputSpec{"trackSeedPat", "MFT", "TRACKSEEDPAT", 0},
-                                                                       "MFTTrackSeedPattern",
-                                                                       (useCA ? 1 : 0),
-                                                                       ""},
+                                                                        "MFTTrackSeedPattern",
+                                                                        (useCA ? 1 : 0),
+                                                                        ""},
                                 BranchDefinition<std::vector<o2::itsmft::ROFRecord>>{InputSpec{"ROframes", "MFT", "MFTTrackROF", 0},
                                                                                      "MFTTracksROF",
                                                                                      logger},
