@@ -14,6 +14,10 @@
 #ifndef GPUCA_GPUCODE
 #include <fmt/format.h>
 #include <string>
+
+#include <gsl/span>
+
+#include "ITSMFTTracking/LayerMask.h"
 #endif
 
 #include "GPUCommonDef.h"
@@ -82,6 +86,25 @@ static_assert(std::is_standard_layout_v<SurfaceMask>);
 static_assert(std::is_trivially_copyable_v<SurfaceMask>);
 static_assert(sizeof(SurfaceMask) == sizeof(uint32_t));
 static_assert(alignof(SurfaceMask) == alignof(uint32_t));
+
+#ifndef GPUCA_GPUCODE
+// Converts a positional LayerMask -- each set bit is a *position* in
+// `orderedSurfaces`, never a numeric comparison against the SurfaceId values
+// it contains -- into the corresponding global SurfaceMask. Only the first
+// `activeCount` positions are considered; `activeCount` must not exceed
+// `orderedSurfaces.size()` (unchecked, as with the two call sites this
+// consolidates).
+inline SurfaceMask positionalSurfaceMask(LayerMask layerMask, gsl::span<const SurfaceId> orderedSurfaces, uint32_t activeCount) noexcept
+{
+  SurfaceMask result;
+  for (uint32_t position = 0; position < activeCount; ++position) {
+    if (layerMask.has(position)) {
+      result.set(orderedSurfaces[position]);
+    }
+  }
+  return result;
+}
+#endif
 
 } // namespace o2::itsmft::tracking
 

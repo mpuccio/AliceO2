@@ -14,20 +14,6 @@
 namespace o2::itsmft::tracking
 {
 
-namespace
-{
-SurfaceMask positionalSurfaceMask(LayerMask layerMask, gsl::span<const SurfaceId> orderedSurfaces, uint32_t activeCount)
-{
-  SurfaceMask result;
-  for (uint32_t position = 0; position < activeCount; ++position) {
-    if (layerMask.has(position)) {
-      result.set(orderedSurfaces[position]);
-    }
-  }
-  return result;
-}
-} // namespace
-
 DetectorLayoutSetBuildResult buildDetectorLayoutSet(SurfaceCatalogView catalog,
                                                     gsl::span<const SurfaceId> orderedSurfaces,
                                                     TransitionPolicyTag policyTag,

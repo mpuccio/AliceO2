@@ -47,21 +47,6 @@ SurfaceMask surfaceRangeMask(uint16_t first, uint16_t count)
   return result;
 }
 
-// Same LayerMask(legacy position)->SurfaceMask(global id) conversion
-// DetectorLayoutSet.cxx's buildDetectorLayoutSet() uses internally (private,
-// not exported): every set bit is a *position* in `orderedSurfaces`, never a
-// numeric comparison against the SurfaceId values it contains.
-SurfaceMask positionalSurfaceMask(LayerMask layerMask, gsl::span<const SurfaceId> orderedSurfaces)
-{
-  SurfaceMask result;
-  for (uint32_t position = 0; position < orderedSurfaces.size(); ++position) {
-    if (layerMask.has(position)) {
-      result.set(orderedSurfaces[position]);
-    }
-  }
-  return result;
-}
-
 // Builds the one shared ITS+MFT DetectorLayout -- both detectors' own
 // disjoint subgraphs in a single DetectorLayoutBuilder call, exactly as
 // testCombinedStaticSurfaceCatalogTopology.cxx /
@@ -76,15 +61,15 @@ DetectorLayoutBuildResult buildCombinedLayout(gsl::span<const SurfaceId> itsSurf
   DetectorLayoutSubgraph itsSubgraph;
   itsSubgraph.orderedSurfaces.assign(itsSurfaces.begin(), itsSurfaces.end());
   itsSubgraph.maxHoles = itsParams.MaxHoles;
-  itsSubgraph.holeSurfaces = positionalSurfaceMask(itsParams.HoleLayerMask, itsSurfaces);
-  itsSubgraph.seedingSurfaces = positionalSurfaceMask(itsParams.StartLayerMask, itsSurfaces);
+  itsSubgraph.holeSurfaces = positionalSurfaceMask(itsParams.HoleLayerMask, itsSurfaces, static_cast<uint32_t>(itsSurfaces.size()));
+  itsSubgraph.seedingSurfaces = positionalSurfaceMask(itsParams.StartLayerMask, itsSurfaces, static_cast<uint32_t>(itsSurfaces.size()));
   itsSubgraph.policyTag = TransitionPolicyTag::CylinderCylinder;
 
   DetectorLayoutSubgraph mftSubgraph;
   mftSubgraph.orderedSurfaces.assign(mftSurfaces.begin(), mftSurfaces.end());
   mftSubgraph.maxHoles = mftParams.MaxHoles;
-  mftSubgraph.holeSurfaces = positionalSurfaceMask(mftParams.HoleLayerMask, mftSurfaces);
-  mftSubgraph.seedingSurfaces = positionalSurfaceMask(mftParams.StartLayerMask, mftSurfaces);
+  mftSubgraph.holeSurfaces = positionalSurfaceMask(mftParams.HoleLayerMask, mftSurfaces, static_cast<uint32_t>(mftSurfaces.size()));
+  mftSubgraph.seedingSurfaces = positionalSurfaceMask(mftParams.StartLayerMask, mftSurfaces, static_cast<uint32_t>(mftSurfaces.size()));
   mftSubgraph.policyTag = TransitionPolicyTag::DiskDisk;
 
   DetectorLayoutBuilder builder{combinedCatalogView()};
