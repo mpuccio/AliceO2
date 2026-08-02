@@ -112,48 +112,13 @@ DetectorLayoutSet ownDetectorPlan(const DetectorLayout& authoritative, gsl::span
   return DetectorLayoutSet{std::move(key), combinedCatalogView(), std::move(layouts)};
 }
 
-template <int NLayers>
-void configureRofTables(LegacyTrackerScratch<NLayers>& scratch, const ROFTimingConfig& timing, uint32_t nROFsTF,
-                        const std::vector<TrackingParameters>& params)
-{
-  o2::its::LayerTiming layerTiming{};
-  layerTiming.mNROFsTF = nROFsTF;
-  layerTiming.mROFLength = timing.rofLength;
-  layerTiming.mROFDelay = timing.rofDelay;
-  layerTiming.mROFBias = timing.rofBias;
-  layerTiming.mROFAddTimeErr = timing.rofAddTimeErr;
-
-  typename LegacyTrackerScratch<NLayers>::ROFOverlapTableN rofTable;
-  for (int layer = 0; layer < NLayers; ++layer) {
-    rofTable.defineLayer(layer, layerTiming);
-  }
-  rofTable.init();
-  scratch.setROFOverlapTable(rofTable);
-
-  typename LegacyTrackerScratch<NLayers>::ROFVertexLookupTableN vtxTable;
-  for (int layer = 0; layer < NLayers; ++layer) {
-    vtxTable.defineLayer(layer, layerTiming);
-  }
-  vtxTable.init();
-  scratch.setROFVertexLookupTable(vtxTable);
-
-  typename LegacyTrackerScratch<NLayers>::ROFMaskTableN mask{rofTable};
-  mask.resetMask();
-  for (int layer = 0; layer < NLayers; ++layer) {
-    mask.setROFsEnabled(layer, 0, static_cast<int>(nROFsTF), 1);
-  }
-  scratch.setMultiplicityCutMask(std::move(mask));
-
-  scratch.initTrackerTopologies(params);
-}
-
 } // namespace
 
 CombinedTimeFrameCoordinator::CombinedTimeFrameCoordinator(std::vector<o2::itsmft::TrackingParameters> itsParams,
                                                            std::vector<o2::itsmft::TrackingParameters> mftParams)
-  : mITSParams(std::move(itsParams)), mMFTParams(std::move(mftParams)), mITSTracker(&mITSTraits), mMFTTracker(&mMFTTraits)
+  : mITSParticipant(ParticipantId{0}, itsParams), mMFTParticipant(ParticipantId{1}, mftParams)
 {
-  if (mITSParams.size() != 1 || mMFTParams.size() != 1) {
+  if (itsParams.size() != 1 || mftParams.size() != 1) {
     throw std::invalid_argument("CombinedTimeFrameCoordinator requires exactly one TrackingParameters iteration per detector");
   }
 
@@ -164,62 +129,48 @@ CombinedTimeFrameCoordinator::CombinedTimeFrameCoordinator(std::vector<o2::itsmf
   // construction. mITSPlan/mMFTPlan below each get a passive copy of
   // `combinedLayout` (see ownDetectorPlan()'s own doc) -- never a second,
   // independent buildCombinedLayout() call.
-  auto combinedBuild = buildCombinedLayout(itsSurfaces, mITSParams[0], mftSurfaces, mMFTParams[0]);
+  auto combinedBuild = buildCombinedLayout(itsSurfaces, itsParams[0], mftSurfaces, mftParams[0]);
   if (!combinedBuild.ok()) {
     throw std::runtime_error("CombinedTimeFrameCoordinator: failed to build the shared ITS+MFT DetectorLayout");
   }
   const DetectorLayout& combinedLayout = *combinedBuild.layout;
 
-  mITSPlan.emplace(ownDetectorPlan<ITSNLayers>(combinedLayout, itsSurfaces, mITSParams[0], TransitionPolicyTag::CylinderCylinder));
-  mMFTPlan.emplace(ownDetectorPlan<MFTNLayers>(combinedLayout, mftSurfaces, mMFTParams[0], TransitionPolicyTag::DiskDisk));
+  mITSPlan.emplace(ownDetectorPlan<ITSNLayers>(combinedLayout, itsSurfaces, itsParams[0], TransitionPolicyTag::CylinderCylinder));
+  mMFTPlan.emplace(ownDetectorPlan<MFTNLayers>(combinedLayout, mftSurfaces, mftParams[0], TransitionPolicyTag::DiskDisk));
 
   auto itsBindingResult = DetectorTraversalBinding::build(mITSPlan->getLayoutView(0), o2::detectors::DetID::ITS, ClusterSourceId{0},
                                                           surfaceRangeMask(0, ITSNLayers), itsSurfaces);
   if (!itsBindingResult.ok()) {
     throw std::runtime_error("CombinedTimeFrameCoordinator: failed to build the ITS DetectorTraversalBinding");
   }
-  mITSBinding = std::move(itsBindingResult.binding);
-
   auto mftBindingResult = DetectorTraversalBinding::build(mMFTPlan->getLayoutView(0), o2::detectors::DetID::MFT, ClusterSourceId{1},
                                                           surfaceRangeMask(ITSNLayers, MFTNLayers), mftSurfaces);
   if (!mftBindingResult.ok()) {
     throw std::runtime_error("CombinedTimeFrameCoordinator: failed to build the MFT DetectorTraversalBinding");
   }
-  mMFTBinding = std::move(mftBindingResult.binding);
 
-  mITSTraits.adoptDetectorTraversalBinding(mITSBinding.get());
-  mMFTTraits.adoptDetectorTraversalBinding(mMFTBinding.get());
+  mITSParticipant.adoptDetectorTraversalBinding(std::move(itsBindingResult.binding));
+  mMFTParticipant.adoptDetectorTraversalBinding(std::move(mftBindingResult.binding));
+  mITSParticipant.adoptDetectorLayoutSet(*mITSPlan);
+  mMFTParticipant.adoptDetectorLayoutSet(*mMFTPlan);
 
-  mITSTracker.adoptScratch(mITSScratch);
-  mITSTracker.adoptITSSharedClusterCompatibility(mITSCompatibility);
-  mITSTracker.adoptDetectorLayoutSet(*mITSPlan);
-  mITSTracker.setParameters(mITSParams);
-
-  mMFTTracker.adoptScratch(mMFTScratch);
-  mMFTTracker.adoptMFTPublicationCompatibility(mMFTCompatibility);
-  mMFTTracker.adoptDetectorLayoutSet(*mMFTPlan);
-  mMFTTracker.setParameters(mMFTParams);
+  mSchedule = {&mITSParticipant, &mMFTParticipant};
 }
 
 void CombinedTimeFrameCoordinator::adoptFrame(TimeFrame& frame)
 {
   mFrame = &frame;
-  mITSTracker.adoptFrame(frame);
-  mMFTTracker.adoptFrame(frame);
+  mITSParticipant.adoptFrame(frame);
+  mMFTParticipant.adoptFrame(frame);
 }
 
 void CombinedTimeFrameCoordinator::setMemoryPool(std::shared_ptr<BoundedMemoryResource> pool)
 {
-  mMemoryPool = pool;
   if (mFrame != nullptr) {
     mFrame->setMemoryPool(pool);
   }
-  mITSScratch.setMemoryPool(pool);
-  mMFTScratch.setMemoryPool(pool);
-  mITSTraits.setMemoryPool(pool);
-  mMFTTraits.setMemoryPool(pool);
-  mITSTracker.setMemoryPool(pool);
-  mMFTTracker.setMemoryPool(pool);
+  mITSParticipant.setMemoryPool(pool);
+  mMFTParticipant.setMemoryPool(pool);
 }
 
 void CombinedTimeFrameCoordinator::setBz(float bz)
@@ -227,21 +178,24 @@ void CombinedTimeFrameCoordinator::setBz(float bz)
   if (mFrame != nullptr) {
     mFrame->setBz(bz);
   }
-  mITSTracker.setBz(bz);
-  mMFTTracker.setBz(bz);
+  mITSParticipant.setBz(bz);
+  mMFTParticipant.setBz(bz);
 }
 
 void CombinedTimeFrameCoordinator::setNThreads(int n)
 {
-  mITSTraits.setNThreads(n, mITSArena);
-  mMFTTraits.setNThreads(n, mMFTArena);
+  mITSParticipant.setNThreads(n);
+  mMFTParticipant.setNThreads(n);
 }
 
 void CombinedTimeFrameCoordinator::resetCombinedEvent() noexcept
 {
-  MultiSourceTimeFrameLoader::resetITSAndMFTEvent(*mFrame, mITSScratch, mMFTScratch);
-  mITSCompatibility.clear();
-  mMFTCompatibility.clear();
+  // TrackingEngine::resetEvent() resets every scheduled participant's own
+  // scratch/sidecar (eventReset(), schedule order) and then wipes the
+  // shared TimeFrame exactly once -- the same sequencing
+  // MultiSourceTimeFrameLoader::resetITSAndMFTEvent() applied directly
+  // before this slice.
+  mEngine.resetEvent(*mFrame, schedule());
   mITSClock.reset();
   mMFTClock.reset();
   mPublicationValid = false;
@@ -271,88 +225,76 @@ CombinedTimeFrameCoordinator::CombinedTrackingResult CombinedTimeFrameCoordinato
   // of every process() call -- success or failure alike -- keeps every TF
   // starting from the same fresh state regardless of how the previous one
   // ended.
-  mITSCompatibility.clear();
-  mMFTCompatibility.clear();
+  mITSParticipant.clearPublicationSidecar();
+  mMFTParticipant.clearPublicationSidecar();
 
-  try {
-    const auto loadResult = MultiSourceTimeFrameLoader::loadITSAndMFT(*mFrame, mITSScratch, mMFTScratch, itsSource, mftSource,
-                                                                      combinedCatalogView(), origin);
-    if (!loadResult.ok()) {
-      // Reuse isRecoverableLoadError() (TimeFrameLoadFailure.h) rather than a
-      // parallel taxonomy, then gate it by the *owning* detector's own
-      // DropTFUponFailure -- ClusterSourceId{0}/{1} is loadITSAndMFT()'s own
-      // fixed ITS/MFT position contract (MultiSourceTimeFrameLoader.h). An
-      // unrecognized/missing source, a structural MultiSourceLoadError, or a
-      // recoverable one whose owning detector has DropTFUponFailure=false is
-      // always Structural -- never silently reclassified as dropped.
-      const bool errorIsRecoverable = isRecoverableLoadError(loadResult.error, loadResult.timingDetail);
-      const bool isITS = loadResult.source == ClusterSourceId{0};
-      const bool isMFT = loadResult.source == ClusterSourceId{1};
-      const bool sourceRecognized = isITS || isMFT;
-      const bool dropAllowed = isITS ? mITSParams[0].DropTFUponFailure : isMFT ? mMFTParams[0].DropTFUponFailure
-                                                                               : false;
-      if (!sourceRecognized) {
-        LOGP(error, "Combined TF load failure reports an unrecognized source id {}; treating as structural", loadResult.source.value());
-      }
-      const auto outcome = errorIsRecoverable && sourceRecognized && dropAllowed
-                             ? CombinedOutcome::RecoverableDropped
-                             : CombinedOutcome::Structural;
-      LOGP(error, "Combined TF loading failed (source={}, error={}, recoverable={}, dropAllowed={}): outcome={}",
-           loadResult.source.value(), static_cast<int>(loadResult.error), errorIsRecoverable, dropAllowed,
-           outcome == CombinedOutcome::RecoverableDropped ? "RecoverableDropped" : "Structural");
-      resetCombinedEvent();
-      return {outcome, 0, 0};
-    }
-
-    configureRofTables<ITSNLayers>(mITSScratch, itsSource.timing, static_cast<uint32_t>(itsSource.rofs.size()), mITSParams);
-    configureRofTables<MFTNLayers>(mMFTScratch, mftSource.timing, static_cast<uint32_t>(mftSource.rofs.size()), mMFTParams);
-
-    // Serial, ITS first: the shared TimeFrame's CommonTrack/TrackClusterIndices
-    // storage is append-only (acceptTracks() -> AcceptedTrackShadowPublisher,
-    // TrackerTraits.cxx), so this call order alone is what makes accepted
-    // CommonTrack publication deterministic ITS-then-MFT.
+  const auto loadResult = MultiSourceTimeFrameLoader::loadITSAndMFT(*mFrame, mITSParticipant.getScratch(), mMFTParticipant.getScratch(),
+                                                                    itsSource, mftSource, combinedCatalogView(), origin);
+  if (!loadResult.ok()) {
+    // Reuse isRecoverableLoadError() (TimeFrameLoadFailure.h) rather than a
+    // parallel taxonomy, then gate it by the *owning* detector's own
+    // DropTFUponFailure -- ClusterSourceId{0}/{1} is loadITSAndMFT()'s own
+    // fixed ITS/MFT position contract (MultiSourceTimeFrameLoader.h). An
+    // unrecognized/missing source, a structural MultiSourceLoadError, or a
+    // recoverable one whose owning detector has DropTFUponFailure=false is
+    // always Structural -- never silently reclassified as dropped.
     //
-    // clustersToTracks() itself only ever *returns* Success or
-    // RecoverableDropped (CATracker.h); Structural always escapes as a
-    // thrown TraversalException instead, caught below.
-    const auto itsResult = mITSTracker.clustersToTracks();
-    if (itsResult.outcome != TrackingOutcome::Success) {
-      LOGP(error, "Combined TF ITS tracking recoverably dropped");
-      resetCombinedEvent();
-      return {CombinedOutcome::RecoverableDropped, 0, 0};
+    // This is a *load* failure: the event was never atomically committed,
+    // so TrackingEngine::executeEvent() must never be called on it --
+    // resetEvent() alone applies the same all-participant/shared-frame
+    // reset contract without ever reaching track().
+    const bool errorIsRecoverable = isRecoverableLoadError(loadResult.error, loadResult.timingDetail);
+    const bool isITS = loadResult.source == ClusterSourceId{0};
+    const bool isMFT = loadResult.source == ClusterSourceId{1};
+    const bool sourceRecognized = isITS || isMFT;
+    const bool dropAllowed = isITS ? mITSParticipant.getDropTFUponFailure() : isMFT ? mMFTParticipant.getDropTFUponFailure()
+                                                                                    : false;
+    if (!sourceRecognized) {
+      LOGP(error, "Combined TF load failure reports an unrecognized source id {}; treating as structural", loadResult.source.value());
     }
-
-    const auto mftResult = mMFTTracker.clustersToTracks();
-    if (mftResult.outcome != TrackingOutcome::Success) {
-      LOGP(error, "Combined TF MFT tracking recoverably dropped");
-      resetCombinedEvent();
-      return {CombinedOutcome::RecoverableDropped, 0, 0};
-    }
-  } catch (const std::exception& err) {
-    // Everything reaching here -- TraversalException (structural binding
-    // mismatch), any other unclassified std::exception, or a
-    // MemoryLimitExceeded/std::bad_alloc that already failed its own
-    // DropTFUponFailure gate inside clustersToTracks() -- is Structural by
-    // the same reasoning as ITSMFTTrackingInterface::loadTimeFrame()/
-    // runTracking(): any recoverable-and-drop-allowed case was already
-    // converted to a non-throwing RecoverableDropped return above.
-    LOGP(error, "Combined TF tracking hit a structural/unclassified exception: {}", err.what());
+    const auto outcome = errorIsRecoverable && sourceRecognized && dropAllowed
+                           ? CombinedOutcome::RecoverableDropped
+                           : CombinedOutcome::Structural;
+    LOGP(error, "Combined TF loading failed (source={}, error={}, recoverable={}, dropAllowed={}): outcome={}",
+         loadResult.source.value(), static_cast<int>(loadResult.error), errorIsRecoverable, dropAllowed,
+         outcome == CombinedOutcome::RecoverableDropped ? "RecoverableDropped" : "Structural");
     resetCombinedEvent();
-    return {CombinedOutcome::Structural, 0, 0};
-  } catch (...) {
-    LOGP(error, "Combined TF tracking hit a structural, non-std::exception failure");
-    resetCombinedEvent();
-    return {CombinedOutcome::Structural, 0, 0};
+    return {outcome, 0, 0};
   }
 
-  mITSClock.emplace(mITSScratch.getROFOverlapTableView().getClockLayer());
-  mMFTClock.emplace(mMFTScratch.getROFOverlapTableView().getClockLayer());
+  mITSParticipant.configureRofTables(itsSource.timing, static_cast<uint32_t>(itsSource.rofs.size()));
+  mMFTParticipant.configureRofTables(mftSource.timing, static_cast<uint32_t>(mftSource.rofs.size()));
+
+  // The load has committed: executeEvent() may now run. It executes the
+  // explicit [ITS, MFT] schedule's track() calls in that exact order into
+  // the shared TimeFrame (accepted CommonTracks therefore append
+  // ITS-then-MFT), and on any non-Success outcome or exception already
+  // applies the same whole-event reset resetCombinedEvent() above applies
+  // for a load failure -- see TrackingEngine::executeEvent()'s own doc.
+  const auto eventResult = mEngine.executeEvent(*mFrame, schedule());
+  if (eventResult.outcome != ParticipantOutcome::Success) {
+    LOGP(error, "Combined TF tracking failed via the delegated engine (outcome={})",
+         eventResult.outcome == ParticipantOutcome::RecoverableDropped ? "RecoverableDropped" : "Structural");
+    // executeEvent() already reset every participant and wiped the shared
+    // TimeFrame; only the coordinator's own publication/timing bridge
+    // state remains to invalidate.
+    mITSClock.reset();
+    mMFTClock.reset();
+    mPublicationValid = false;
+    const auto outcome = eventResult.outcome == ParticipantOutcome::RecoverableDropped
+                           ? CombinedOutcome::RecoverableDropped
+                           : CombinedOutcome::Structural;
+    return {outcome, 0, 0};
+  }
+
+  mITSClock.emplace(mITSParticipant.getScratch().getROFOverlapTableView().getClockLayer());
+  mMFTClock.emplace(mMFTParticipant.getScratch().getROFOverlapTableView().getClockLayer());
   mPublicationValid = true;
 
   CombinedTrackingResult result;
   result.outcome = CombinedOutcome::Success;
-  result.nITSTracks = mITSScratch.getNumberOfTracks();
-  result.nMFTTracks = mMFTScratch.getNumberOfTracks();
+  result.nITSTracks = mITSParticipant.getScratch().getNumberOfTracks();
+  result.nMFTTracks = mMFTParticipant.getScratch().getNumberOfTracks();
   return result;
 }
 
