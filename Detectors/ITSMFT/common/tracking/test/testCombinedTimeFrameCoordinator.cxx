@@ -47,7 +47,9 @@
 #include "ITSMFTTracking/TimeFrame.h"
 #include "ITSMFTTracking/TrackerTraits.h"
 #include "ITSMFTTracking/TrackingConfigParam.h"
+#include "ITSMFTTracking/TransitionPolicyOperations.h"
 #include "ITStracking/Constants.h"
+#include "ReconstructionDataFormats/Track.h"
 
 using namespace o2::itsmft;
 using namespace o2::itsmft::tracking;
@@ -181,20 +183,47 @@ std::vector<DecodedCluster> buildMftChainClusters(const TrackingParameters& para
   return clusters;
 }
 
-/// A straight radial line through the origin (constant phi, constant
-/// tanLambda across every layer) is a zero-curvature ("infinite pT")
-/// trajectory: it is a valid, self-consistent solution of the CA's
-/// cylinder-cylinder tracklet/cell/refit equations for *any* Bz, since the
-/// curvature term of every one of those formulas vanishes at pT -> inf.
-/// Every ITS default cut (TrackletMinPt, CellDeltaTanLambdaSigma,
-/// MaxChi2ClusterAttachment/NDF, ...) is trivially satisfied by an exact
-/// zero-deviation chain built this way.
-std::vector<DecodedCluster> buildItsRadialChainClusters(const std::vector<float>& radii, float phi, float tanLambda)
+/// A genuine, low-but-nonzero-curvature helical ITS barrel trajectory,
+/// sampled at each nominal layer radius via the same standard O2 barrel-
+/// propagation utility production ITS/TPC-matching code already uses
+/// (o2::track::TrackPar::getXatLabR() to find the local x where the helix
+/// crosses a given lab radius, then getXYZGloAt() to read the global point
+/// there -- both const, no incremental state mutation between layers).
+///
+/// A perfectly collinear ("infinite pT" / zero-curvature) triple is a
+/// genuine, deliberate rejection of TransitionPolicyOperations.cxx's
+/// barrel::buildSeed circle fit -- see testBarrelSurfaceStateOperations.cxx's
+/// own BuildSeedDegenerateZeroFieldGeometryRejectsViaNonFiniteOutput and its
+/// "three well-separated, non-collinear points" fixture comment. A first
+/// attempt at this fixture used exactly such a collinear radial line and
+/// reproduced that same rejection (RotationFailure) on one specific
+/// three-layer cell, confirming it is not usable as an ITS road fixture;
+/// this helix construction is deliberately non-degenerate instead.
+std::vector<DecodedCluster> buildItsHelixChainClusters(const std::vector<float>& radii, float bz, float pt, float phi0, float tanl)
 {
+  const float px = pt * std::cos(phi0);
+  const float py = pt * std::sin(phi0);
+  const float pz = pt * tanl;
+  o2::track::TrackPar seed(std::array<float, 3>{0.f, 0.f, 0.f}, std::array<float, 3>{px, py, pz}, 1, true);
+
   std::vector<DecodedCluster> clusters;
   clusters.reserve(radii.size());
   for (size_t layer = 0; layer < radii.size(); ++layer) {
-    clusters.push_back(cylinderCluster(radii[layer], phi, tanLambda, static_cast<int>(layer)));
+    float xAtR = 0.f;
+    if (!seed.getXatLabR(radii[layer], xAtR, bz, o2::track::DirType::DirOutward)) {
+      return {};
+    }
+    bool ok = false;
+    const auto point = seed.getXYZGloAt(xAtR, bz, ok);
+    if (!ok) {
+      return {};
+    }
+    DecodedCluster cluster{};
+    cluster.global = {static_cast<float>(point.X()), static_cast<float>(point.Y()), static_cast<float>(point.Z())};
+    cluster.rowColumnCovariance = {1.e-2f, 0.f, 1.e-2f};
+    cluster.sensor = static_cast<uint32_t>(layer);
+    cluster.layer = static_cast<int>(layer);
+    clusters.push_back(cluster);
   }
   return clusters;
 }
@@ -460,23 +489,17 @@ BOOST_AUTO_TEST_CASE(ITSAndMFTAcceptedResultsReproduceStandaloneCountsInOneCombi
 
   const auto itsParams = makeItsParams();
   const auto mftParams = makeMftParams();
-  const auto itsClusters = buildItsRadialChainClusters(itsParams.LayerRadii, 0.4f, 0.3f);
+  const auto itsClusters = buildItsHelixChainClusters(itsParams.LayerRadii, Bz, 1.f, 0.4f, 0.3f);
   BOOST_REQUIRE_EQUAL(itsClusters.size(), static_cast<size_t>(ITSNLayers));
   const auto mftClusters = buildMftChainClusters(mftParams, Bz, MFTNLayers - 1);
   BOOST_REQUIRE_EQUAL(mftClusters.size(), static_cast<size_t>(MFTNLayers));
 
   StandaloneRun<ITSNLayers> standaloneIts{o2::detectors::DetID::ITS, SurfaceKind::Cylinder, TransitionPolicyTag::CylinderCylinder, itsParams, itsClusters};
   BOOST_REQUIRE(standaloneIts.result.outcome == TrackingOutcome::Success);
-  // This chain does not reach a full 7-layer road (MinTrackLength=7,
-  // MaxHoles=0): computeLayerCells() finds a genuine but incomplete cell
-  // chain across the real ITS Inner/Outer-barrel radial gap (layer 2 -> 3).
-  // 0 accepted tracks either side is still a meaningful parity value below:
-  // getNumberOfTracklets() is always 0 by the time clustersToTracks()
-  // returns (computeLayerCells() clears the per-transition tracklet arrays
-  // once it has consumed them, TrackerTraits.cxx); getNumberOfCells() is
-  // not, so it is the real non-degenerate evidence that no cross-detector
-  // topology element reached this tracker.
-  BOOST_REQUIRE_GT(standaloneIts.scratch.getNumberOfCells(), 0u);
+  // A genuine full 7-layer road (MinTrackLength=7, MaxHoles=0): the helix
+  // fixture above is a real, non-degenerate curved trajectory, so this is a
+  // nonzero accepted-track oracle, not a 0==0 parity check.
+  BOOST_REQUIRE_GT(standaloneIts.scratch.getNumberOfTracks(), 0u);
   StandaloneRun<MFTNLayers> standaloneMft{o2::detectors::DetID::MFT, SurfaceKind::Disk, TransitionPolicyTag::DiskDisk, mftParams, mftClusters};
   BOOST_REQUIRE(standaloneMft.result.outcome == TrackingOutcome::Success);
   BOOST_REQUIRE_GT(standaloneMft.scratch.getNumberOfTracks(), 0u);
@@ -500,20 +523,24 @@ BOOST_AUTO_TEST_CASE(ITSAndMFTAcceptedResultsReproduceStandaloneCountsInOneCombi
   BOOST_REQUIRE(result.outcome == CombinedTimeFrameCoordinator::CombinedOutcome::Success);
 
   // ITS and MFT accepted results reproduce their standalone oracle counts in
-  // one combined pass.
+  // one combined pass -- nonzero on both sides, not a 0==0 check.
+  BOOST_CHECK_GT(result.nITSTracks, 0u);
+  BOOST_CHECK_GT(result.nMFTTracks, 0u);
   BOOST_CHECK_EQUAL(result.nITSTracks, standaloneIts.scratch.getNumberOfTracks());
   BOOST_CHECK_EQUAL(result.nMFTTracks, standaloneMft.scratch.getNumberOfTracks());
 
   // No cross-detector topology element reached either tracker: had the
   // adopted bindings leaked a foreign transition/cell, the combined cell
   // counts below (the real, non-degenerate evidence -- getNumberOfTracklets()
-  // is always 0 by the time clustersToTracks() returns, see
-  // standaloneIts's own comment above) would diverge from the
-  // independently-built, single-detector-catalog standalone references.
+  // is always 0 by the time clustersToTracks() returns: computeLayerCells()
+  // clears the per-transition tracklet arrays once it has consumed them,
+  // TrackerTraits.cxx) would diverge from the independently-built,
+  // single-detector-catalog standalone references.
   BOOST_CHECK_EQUAL(coordinator.getITSScratch().getNumberOfTracklets(), standaloneIts.scratch.getNumberOfTracklets());
   BOOST_CHECK_EQUAL(coordinator.getITSScratch().getNumberOfCells(), standaloneIts.scratch.getNumberOfCells());
   BOOST_CHECK_EQUAL(coordinator.getMFTScratch().getNumberOfTracklets(), standaloneMft.scratch.getNumberOfTracklets());
   BOOST_CHECK_EQUAL(coordinator.getMFTScratch().getNumberOfCells(), standaloneMft.scratch.getNumberOfCells());
+  BOOST_CHECK_GT(coordinator.getITSScratch().getNumberOfCells(), 0u);
   BOOST_CHECK_GT(coordinator.getMFTScratch().getNumberOfCells(), 0u);
 
   // CommonTrack global references resolve correctly and ordering is ITS
@@ -659,4 +686,64 @@ BOOST_AUTO_TEST_CASE(ConstructorRejectsMultiIterationParameters)
   std::vector<TrackingParameters> twoIterations(2);
   BOOST_CHECK_THROW((CombinedTimeFrameCoordinator{twoIterations, {makeMftParams()}}), std::invalid_argument);
   BOOST_CHECK_THROW((CombinedTimeFrameCoordinator{{makeItsParams()}, twoIterations}), std::invalid_argument);
+}
+
+BOOST_AUTO_TEST_CASE(BothBindingsDeriveFromOneIdenticalGlobalTopology)
+{
+  // Single authoritative combined topology: the coordinator builds its one
+  // shared ITS+MFT DetectorLayout exactly once (CombinedTimeFrameCoordinator
+  // .cxx's buildCombinedLayout(), called once from the constructor) and both
+  // DetectorLayoutSets/DetectorTraversalBindings only ever receive a passive
+  // copy of that one built object (ownDetectorPlan()). This test proves the
+  // two copies are byte-identical in content, including global
+  // TransitionId/CellTopologyId identity, so neither can have diverged into
+  // an independent authority.
+  auto coordinator = makeCoordinator(makeItsParams(), makeMftParams());
+  const auto itsView = coordinator.getITSLayoutView();
+  const auto mftView = coordinator.getMFTLayoutView();
+
+  // Both bindings were built against the same 17-surface catalog.
+  BOOST_REQUIRE_EQUAL(itsView.nSurfaces, mftView.nSurfaces);
+  BOOST_REQUIRE_EQUAL(itsView.nSurfaces, static_cast<uint32_t>(ITSNLayers + MFTNLayers));
+  BOOST_CHECK(itsView.surfaces == mftView.surfaces); // pointer identity: same static catalog storage
+  BOOST_CHECK(itsView.cylinderSurfaces == mftView.cylinderSurfaces);
+  BOOST_CHECK(itsView.diskSurfaces == mftView.diskSurfaces);
+
+  // Both bindings were built against content-identical topologies: same
+  // transition/cell counts, and every global TransitionId/CellTopologyId
+  // resolves to the exact same (from, to, policyTag, skippedSurfaces) /
+  // (firstTransition, secondTransition, hitSurfaces) content on both sides.
+  const auto& itsTopo = itsView.topology;
+  const auto& mftTopo = mftView.topology;
+  BOOST_REQUIRE_EQUAL(itsTopo.nTransitions, mftTopo.nTransitions);
+  BOOST_REQUIRE_EQUAL(itsTopo.nCells, mftTopo.nCells);
+  for (uint32_t t = 0; t < itsTopo.nTransitions; ++t) {
+    const auto& a = itsTopo.getTransition(TransitionId{static_cast<uint16_t>(t)});
+    const auto& b = mftTopo.getTransition(TransitionId{static_cast<uint16_t>(t)});
+    BOOST_CHECK(a.from == b.from);
+    BOOST_CHECK(a.to == b.to);
+    BOOST_CHECK(a.policyTag == b.policyTag);
+    BOOST_CHECK(a.skippedSurfaces == b.skippedSurfaces);
+  }
+  for (uint32_t c = 0; c < itsTopo.nCells; ++c) {
+    const auto& a = itsTopo.getCell(CellTopologyId{static_cast<uint16_t>(c)});
+    const auto& b = mftTopo.getCell(CellTopologyId{static_cast<uint16_t>(c)});
+    BOOST_CHECK(a.firstTransition == b.firstTransition);
+    BOOST_CHECK(a.secondTransition == b.secondTransition);
+    BOOST_CHECK(a.hitSurfaces == b.hitSurfaces);
+  }
+
+  // No detector-local topology can diverge from the shared one: every
+  // surface/transition/cell either binding owns is a genuine subset of this
+  // one identical 17-surface topology, and the two owned subsets are
+  // disjoint (proving both scope into the same global space rather than
+  // each defining its own local one).
+  const auto itsMask = SurfaceMask{uint32_t{(1u << ITSNLayers) - 1u}};
+  const auto mftMask = SurfaceMask{static_cast<uint32_t>(((1u << MFTNLayers) - 1u) << ITSNLayers)};
+  BOOST_CHECK((itsMask & mftMask).empty());
+  for (uint32_t t = 0; t < itsTopo.nTransitions; ++t) {
+    const auto& transition = itsTopo.getTransition(TransitionId{static_cast<uint16_t>(t)});
+    BOOST_CHECK(itsMask.has(transition.from) == itsMask.has(transition.to));
+    BOOST_CHECK(mftMask.has(transition.from) == mftMask.has(transition.to));
+  }
 }
