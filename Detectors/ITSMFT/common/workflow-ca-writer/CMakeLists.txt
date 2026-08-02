@@ -26,3 +26,9 @@ o2_add_library(ITSMFTCAWriter
                                      O2::DataFormatsITSMFT
                                      O2::DataFormatsMFT
                                      O2::MFTTracking)
+
+o2_add_test(itsmft-ca-writer-contract
+            COMPONENT_NAME itsmft
+            LABELS "itsmft;workflow"
+            SOURCES test/testITSMFTCAWriterContract.cxx
+            PUBLIC_LINK_LIBRARIES O2::ITSMFTCAWriter)
