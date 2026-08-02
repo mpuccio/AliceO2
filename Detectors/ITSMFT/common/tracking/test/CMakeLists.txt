@@ -366,6 +366,16 @@ o2_add_test(ioutils-syserror-ownership
             PUBLIC_LINK_LIBRARIES O2::ITSMFTTracking
                                   O2::MFTTracking)
 
+# Gate 4 C3: host-only combined ITS+MFT disconnected-tracking coordinator.
+o2_add_test(combined-timeframe-coordinator
+            SOURCES testCombinedTimeFrameCoordinator.cxx
+            COMPONENT_NAME itsmft-tracking
+            LABELS "itsmft;tracking"
+            PUBLIC_LINK_LIBRARIES O2::ITSMFTTracking
+                                  O2::MFTTracking
+                                  O2::DetectorsBase
+                                  O2::Field)
+
 # The Gate 0 extractor needs generated tracker/MC dictionaries and external
 # fixture files at execution time. Keep its runnable replay in the documented
 # baseline protocol, while compiling the macro here so clean O2 configurations
