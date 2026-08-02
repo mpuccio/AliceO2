@@ -20,15 +20,23 @@
 // pointer into one of these arrays is valid for the process's entire
 // lifetime -- never dangling, never requiring a copy.
 //
-// kITSStaticSurfaceCatalog/kMFTStaticSurfaceCatalog are the sole plan source
-// for production tracking as of Gate 4 B2 Slice 2:
+// kITSStaticSurfaceCatalog/kMFTStaticSurfaceCatalog remain the sole plan
+// source for single-detector production tracking as of Gate 4 B2 Slice 2:
 // ITSMFTTrackingInterface::initialiseTracker() builds its one immutable
 // DetectorLayoutSet from whichever of the two matches DetId, once, via
-// buildDetectorLayoutSet() (DetectorLayoutSet.h). kITSMFTCombinedStaticSurfaceCatalog
-// remains a proven, tested, construction-time capability only -- no tracker
-// or workflow is built from it; mixed-detector track publication stays
-// rejected/diagnostic (TrackerTraits::initialiseTimeFrame()'s existing
-// MixedPolicyLayout gate already covers that, unchanged).
+// buildDetectorLayoutSet() (DetectorLayoutSet.h). They are adapter/
+// application data for that single-detector path, not a combined-tracking
+// input.
+//
+// kITSMFTCombinedStaticSurfaceCatalog is, as of Gate 4 C2/C3, the
+// authoritative combined-catalog source for combined disconnected tracking:
+// CombinedTimeFrameCoordinator (CombinedTimeFrameCoordinator.h) builds its
+// one 17-surface DetectorLayout directly from this catalog and derives both
+// detectors' DetectorTraversalBinding from that single build, so ITS and
+// MFT traversal always share one identical global id space. Mixed-detector
+// track publication stays rejected/diagnostic outside that coordinator
+// (TrackerTraits::initialiseTimeFrame()'s existing MixedPolicyLayout gate
+// already covers that, unchanged).
 
 #ifndef ALICEO2_ITSMFT_TRACKING_STATICDETECTORCATALOGS_H_
 #define ALICEO2_ITSMFT_TRACKING_STATICDETECTORCATALOGS_H_
