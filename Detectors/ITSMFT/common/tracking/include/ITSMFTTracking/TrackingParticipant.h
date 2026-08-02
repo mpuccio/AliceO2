@@ -10,10 +10,22 @@
 // boundary. GenericTrackingEngineMigration.md M1 commits this contract
 // additively; M2 implements a concrete legacy-CA participant against it
 // without amending it. Its minimal interface -- identity, owned surfaces,
-// load, track, event reset, publication export -- must not mention ITS,
-// MFT, NLayers, LegacyTrackerScratch, source 0/1, or any current output
-// type (decision 5); every one of those stays inside concrete participant
-// implementations and their own adapters.
+// track, participant-local event reset, publication export -- must not
+// mention ITS, MFT, NLayers, LegacyTrackerScratch, source 0/1, or any
+// current output type (decision 5); every one of those stays inside
+// concrete participant implementations and their own adapters.
+//
+// A TrackingParticipant is a tracking leg only, not a loader: it carries no
+// event-origin or source-loading operation. Atomic multi-source loading
+// (MultiSourceFrame plus every participant's own legacy backfill staging
+// and committing together, or the live event staying completely untouched)
+// is a stronger, whole-event transactional contract than anything a
+// sequential per-participant load() could honor -- see
+// MultiSourceTimeFrameLoader.h's existing loadITSAndMFT()/
+// resetITSAndMFTEvent() pair, which M2 generalizes into a
+// participant-count-agnostic event loader. TrackingEngine::executeEvent()
+// therefore only ever runs track() against an already atomically loaded
+// TimeFrame; it never loads anything itself.
 
 #ifndef ALICEO2_ITSMFT_TRACKING_TRACKINGPARTICIPANT_H_
 #define ALICEO2_ITSMFT_TRACKING_TRACKINGPARTICIPANT_H_
@@ -26,7 +38,6 @@
 
 #include <gsl/gsl>
 
-#include "CommonDataFormat/InteractionRecord.h"
 #include "ITSMFTTracking/ParticipantId.h"
 #include "ITSMFTTracking/SurfaceId.h"
 
@@ -58,10 +69,6 @@ enum class ParticipantOutcome : uint8_t {
   Structural
 };
 
-struct ParticipantLoadResult {
-  ParticipantOutcome outcome{ParticipantOutcome::Structural};
-};
-
 struct ParticipantTrackingResult {
   ParticipantOutcome outcome{ParticipantOutcome::Structural};
   std::size_t trackCount{0};
@@ -89,8 +96,9 @@ struct ParticipantPublicationExport {
 // over today's two detectors) cannot represent "one more concrete kind
 // added later without recompiling the engine or widening a closed set".
 // This is the only abstraction this slice introduces beyond plain data, and
-// it is deliberately minimal: six operations, no shared state, no
-// registry, no factory.
+// it is deliberately minimal: four operations, no shared state, no
+// registry, no factory, and (unlike an earlier draft of this contract) no
+// loading operation -- see the file-level comment above for why.
 class TrackingParticipant
 {
  public:
@@ -99,23 +107,19 @@ class TrackingParticipant
   virtual ParticipantId id() const noexcept = 0;
   virtual gsl::span<const SurfaceId> ownedSurfaces() const noexcept = 0;
 
-  // Loads this participant's own per-event input into `frame` for the
-  // event at `origin`. How the participant obtains that input -- which
-  // cluster source(s), which decoder -- is entirely the concrete adapter's
-  // own business, never a fixed source index or DPL input shape mentioned
-  // by this contract.
-  virtual ParticipantLoadResult load(TimeFrame& frame, const o2::InteractionRecord& origin) = 0;
-
   // Tracks this participant's own owned surfaces against `frame`'s current
   // normalized content, appending accepted results to `frame`'s shared
-  // CommonTrack/TrackClusterReference storage.
+  // CommonTrack/TrackClusterReference storage. Precondition: `frame` already
+  // holds this participant's atomically loaded and committed input -- see
+  // the file-level comment above.
   virtual ParticipantTrackingResult track(TimeFrame& frame) = 0;
 
-  // Clears this participant's own per-event state. Never responsible for
-  // any other participant's state, or for any of `frame`'s shared storage
-  // beyond this participant's own contribution -- applying the whole-event
-  // all-or-nothing contract across an entire schedule is
-  // TrackingEngine::executeEvent()'s job, not this method's.
+  // Clears this participant's own per-event scratch/compatibility state
+  // only. Must never wipe, clear, or otherwise take ownership of any of
+  // `frame`'s shared storage (CommonTrack/TrackClusterReference/normalized
+  // frame/vertices) -- wiping the shared TimeFrame exactly once, across an
+  // entire schedule, is TrackingEngine::executeEvent()/resetEvent()'s job,
+  // never each participant's own.
   virtual void eventReset(TimeFrame& frame) noexcept = 0;
 
   // Engaged only after this participant's own successful track(); disengaged

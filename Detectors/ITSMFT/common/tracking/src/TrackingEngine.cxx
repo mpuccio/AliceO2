@@ -9,39 +9,30 @@
 
 #include <exception>
 
+#include "ITSMFTTracking/TimeFrame.h"
+
 namespace o2::itsmft::tracking
 {
 
-namespace
+void TrackingEngine::resetEvent(TimeFrame& frame, gsl::span<TrackingParticipant* const> schedule) const noexcept
 {
-// `frame` is forwarded through unread by this function itself -- every
-// participant's own eventReset() is what actually touches it. Taking it
-// here (rather than each caller passing it individually) keeps
-// executeEvent()'s two failure-handling branches identical.
-void resetAll(gsl::span<TrackingParticipant* const> schedule, TimeFrame& frame) noexcept
-{
+  // Every participant releases its own per-event references first; only
+  // then is the shared storage those references pointed into cleared.
   for (auto* participant : schedule) {
     participant->eventReset(frame);
   }
+  frame.wipe();
 }
-} // namespace
 
-EventResult TrackingEngine::executeEvent(TimeFrame& frame, gsl::span<TrackingParticipant* const> schedule, const o2::InteractionRecord& origin)
+EventResult TrackingEngine::executeEvent(TimeFrame& frame, gsl::span<TrackingParticipant* const> schedule)
 {
   EventResult result;
   try {
     result.participants.reserve(schedule.size());
     for (auto* participant : schedule) {
-      const auto loadResult = participant->load(frame, origin);
-      if (loadResult.outcome != ParticipantOutcome::Success) {
-        resetAll(schedule, frame);
-        result.outcome = loadResult.outcome;
-        result.participants.clear();
-        return result;
-      }
       const auto trackingResult = participant->track(frame);
       if (trackingResult.outcome != ParticipantOutcome::Success) {
-        resetAll(schedule, frame);
+        resetEvent(frame, schedule);
         result.outcome = trackingResult.outcome;
         result.participants.clear();
         return result;
@@ -49,12 +40,12 @@ EventResult TrackingEngine::executeEvent(TimeFrame& frame, gsl::span<TrackingPar
       result.participants.push_back({participant->id(), trackingResult.outcome, trackingResult.trackCount});
     }
   } catch (const std::exception&) {
-    resetAll(schedule, frame);
+    resetEvent(frame, schedule);
     result.outcome = ParticipantOutcome::Structural;
     result.participants.clear();
     return result;
   } catch (...) {
-    resetAll(schedule, frame);
+    resetEvent(frame, schedule);
     result.outcome = ParticipantOutcome::Structural;
     result.participants.clear();
     return result;

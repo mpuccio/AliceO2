@@ -8,11 +8,23 @@
 // ADR 0007 (Detectors/ITSMFT/common/tracking/doc/decisions/
 // 0007-generic-tracking-engine-boundary.md) decisions 3, 6:
 // GenericTrackingEngineMigration.md M1's engine contract. One concrete
-// TrackingEngine executes one event over an explicitly ordered
-// TrackingParticipant (TrackingParticipant.h) schedule and applies the
-// whole-event all-or-nothing failure contract Gate 4's
+// TrackingEngine executes one already atomically loaded event over an
+// explicitly ordered TrackingParticipant (TrackingParticipant.h) schedule
+// and applies the whole-event all-or-nothing failure contract Gate 4's
 // CombinedTimeFrameCoordinator::process() already proved for the fixed
 // ITS+MFT case, generalized here to an arbitrary participant collection.
+//
+// TrackingEngine never loads anything itself. Atomic multi-source loading
+// (every source's decoding and legacy backfill staged and committed
+// together, or the live TimeFrame left completely untouched) is a distinct,
+// stronger contract than executeEvent()'s own per-participant track() loop
+// could honor if it also drove loading -- see
+// TrackingParticipant.h's file-level comment. Today that atomic load is
+// MultiSourceTimeFrameLoader::loadITSAndMFT(); M2 generalizes it into a
+// participant-count-agnostic event loader and calls executeEvent() only
+// after that loader reports success. This header does not change when that
+// happens.
+//
 // M1 is a contract/seam slice only: this engine is exercised in this slice
 // by the focused contract test's fake participants, not yet by any
 // production caller -- M2 wraps today's Tracker<NLayers>/TrackerTraits
@@ -30,7 +42,6 @@
 
 #include <gsl/gsl>
 
-#include "CommonDataFormat/InteractionRecord.h"
 #include "ITSMFTTracking/ParticipantId.h"
 #include "ITSMFTTracking/TrackingParticipant.h"
 
@@ -47,8 +58,8 @@ struct ParticipantEventResult {
 // generalized from CombinedTimeFrameCoordinator::CombinedTrackingResult's
 // fixed nITSTracks/nMFTTracks pair to an arbitrary ordered participant
 // collection). `outcome` classifies the event as a whole: Success only if
-// every scheduled participant's load() and track() both returned Success;
-// otherwise the classification of whichever call first did not (see
+// every scheduled participant's track() returned Success; otherwise the
+// classification of whichever call first did not (see
 // TrackingEngine::executeEvent()). `participants` carries one entry per
 // scheduled participant, in schedule order, populated only on a fully
 // successful event -- left empty on any failure, matching
@@ -64,17 +75,36 @@ struct EventResult {
 class TrackingEngine
 {
  public:
-  // Executes one event over `schedule` against the one shared `frame`.
-  // `schedule`'s order is the caller-supplied execution order (decision 6)
-  // -- read as given, never sorted, deduplicated, or otherwise reordered by
-  // this call, and never inferred from any static per-detector catalog or
-  // from participant construction order. Every participant is loaded then
-  // tracked, in that order; on any non-Success outcome, or any exception
-  // thrown by either call, execution stops there, every participant in
-  // `schedule` -- not only the one that failed -- has eventReset() called
-  // on it exactly once, and this returns a zero-participant EventResult
-  // carrying that failure's classification.
-  EventResult executeEvent(TimeFrame& frame, gsl::span<TrackingParticipant* const> schedule, const o2::InteractionRecord& origin);
+  // Executes one already atomically loaded event: every scheduled
+  // participant's decoding and legacy backfill must already be committed
+  // into `frame` before this is called -- executeEvent() itself performs no
+  // loading (see the file-level comment above). `schedule`'s order is the
+  // caller-supplied execution order (decision 6) -- read as given, never
+  // sorted, deduplicated, or otherwise reordered by this call, and never
+  // inferred from any static per-detector catalog or from participant
+  // construction order.
+  //
+  // Every participant's track() runs in that order. On any non-Success
+  // outcome, or any exception thrown by track(), execution stops there,
+  // resetEvent(frame, schedule) is called exactly once (resetting every
+  // participant in `schedule` -- not only the one that failed -- and then
+  // wiping `frame`'s shared storage), and this returns a zero-participant
+  // EventResult carrying that failure's classification.
+  EventResult executeEvent(TimeFrame& frame, gsl::span<TrackingParticipant* const> schedule);
+
+  // Resets every participant in `schedule` (each participant's own
+  // eventReset(), which by TrackingParticipant's contract touches only that
+  // participant's own scratch/compatibility state) and then wipes `frame`'s
+  // shared storage exactly once (TimeFrame::wipe()) -- always in that
+  // order, so every participant has released its own per-event references
+  // before the shared storage they pointed into is cleared.
+  //
+  // Public so a caller whose atomic event load itself failed -- before
+  // executeEvent() was ever called, so no TrackingEngine call has touched
+  // `frame` yet -- can reach the same all-participant/shared-frame reset
+  // contract executeEvent() applies internally on a tracking failure,
+  // without duplicating it.
+  void resetEvent(TimeFrame& frame, gsl::span<TrackingParticipant* const> schedule) const noexcept;
 };
 
 } // namespace o2::itsmft::tracking
