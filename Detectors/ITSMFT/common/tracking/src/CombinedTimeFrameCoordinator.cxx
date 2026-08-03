@@ -228,16 +228,32 @@ CombinedTimeFrameCoordinator::CombinedTrackingResult CombinedTimeFrameCoordinato
   mITSParticipant.clearPublicationSidecar();
   mMFTParticipant.clearPublicationSidecar();
 
-  const auto loadResult = MultiSourceTimeFrameLoader::loadITSAndMFT(*mFrame, mITSParticipant.getScratch(), mMFTParticipant.getScratch(),
-                                                                    itsSource, mftSource, combinedCatalogView(), origin);
+  // M2b: the fixed ITS=0/MFT=1 source contract lives only here now, not in
+  // the generic loadEvent() transaction below -- see this coordinator's own
+  // file-level doc. A mismatch is synthesized as the exact same
+  // LoadSourcesResult loadITSAndMFT()'s equivalent guard used to return, so
+  // the generic error-handling block right below classifies it identically.
+  LoadSourcesResult loadResult;
+  if (itsSource.id != ClusterSourceId{0} || itsSource.detector != o2::detectors::DetID::ITS) {
+    loadResult = {MultiSourceLoadError::UnsupportedDetector, itsSource.id};
+  } else if (mftSource.id != ClusterSourceId{1} || mftSource.detector != o2::detectors::DetID::MFT) {
+    loadResult = {MultiSourceLoadError::UnsupportedDetector, mftSource.id};
+  } else {
+    const std::array<MultiSourceTimeFrameLoader::AtomicLoadBinding, 2> bindings{
+      MultiSourceTimeFrameLoader::AtomicLoadBinding{itsSource, mITSParticipant.loadTarget()},
+      MultiSourceTimeFrameLoader::AtomicLoadBinding{mftSource, mMFTParticipant.loadTarget()}};
+    loadResult = MultiSourceTimeFrameLoader::loadEvent(*mFrame, gsl::span<const MultiSourceTimeFrameLoader::AtomicLoadBinding>{bindings},
+                                                       combinedCatalogView(), origin);
+  }
   if (!loadResult.ok()) {
     // Reuse isRecoverableLoadError() (TimeFrameLoadFailure.h) rather than a
     // parallel taxonomy, then gate it by the *owning* detector's own
-    // DropTFUponFailure -- ClusterSourceId{0}/{1} is loadITSAndMFT()'s own
-    // fixed ITS/MFT position contract (MultiSourceTimeFrameLoader.h). An
-    // unrecognized/missing source, a structural MultiSourceLoadError, or a
-    // recoverable one whose owning detector has DropTFUponFailure=false is
-    // always Structural -- never silently reclassified as dropped.
+    // DropTFUponFailure -- ClusterSourceId{0}/{1} is this coordinator's own
+    // fixed ITS/MFT position contract (enforced by the guard above, not by
+    // loadEvent() itself). An unrecognized/missing source, a structural
+    // MultiSourceLoadError, or a recoverable one whose owning detector has
+    // DropTFUponFailure=false is always Structural -- never silently
+    // reclassified as dropped.
     //
     // This is a *load* failure: the event was never atomically committed,
     // so TrackingEngine::executeEvent() must never be called on it --

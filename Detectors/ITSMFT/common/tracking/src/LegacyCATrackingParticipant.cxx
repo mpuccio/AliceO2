@@ -14,7 +14,7 @@ namespace o2::itsmft::tracking
 
 template <int NLayers>
 LegacyCATrackingParticipant<NLayers>::LegacyCATrackingParticipant(ParticipantId id, std::vector<TrackingParameters> params)
-  : mId{id}, mParams(std::move(params)), mTracker(&mTraits)
+  : mId{id}, mParams(std::move(params)), mTracker(&mTraits), mLoadTarget(mScratch)
 {
   mTracker.adoptScratch(mScratch);
   if constexpr (DetId == o2::detectors::DetID::ITS) {

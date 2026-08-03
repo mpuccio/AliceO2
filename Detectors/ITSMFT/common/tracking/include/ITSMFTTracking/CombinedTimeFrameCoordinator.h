@@ -21,11 +21,17 @@
 // LegacyCATrackingParticipant<ITSNLayers>/<MFTNLayers>
 // (LegacyCATrackingParticipant.h), and process() delegates their execution
 // to TrackingEngine::executeEvent() over an explicit [ITS, MFT] schedule
-// instead of hand-unrolling two clustersToTracks() calls. The atomic
-// two-source loading boundary is untouched: MultiSourceTimeFrameLoader::
-// loadITSAndMFT() remains the sole load path, called directly by this
-// coordinator exactly as before, and TrackingEngine::executeEvent() is only
-// ever called once that load has already committed. Any non-success --
+// instead of hand-unrolling two clustersToTracks() calls.
+//
+// M2b replaces the atomic load path: process() now builds an explicit
+// [ITS, MFT] AtomicLoadBinding list from the two participants' own
+// loadTarget()s and calls MultiSourceTimeFrameLoader::loadEvent() (the
+// participant-count-generic atomic transaction) directly, instead of the
+// fixed-position loadITSAndMFT() wrapper. The fixed ITS=0/MFT=1 source
+// contract now lives only in this coordinator's own guard at the top of
+// process() -- loadEvent() itself knows neither ITS/MFT nor any fixed
+// source position. TrackingEngine::executeEvent() is only ever called once
+// that load has already committed. Any non-success --
 // a load failure, a non-Success tracking outcome, or an exception -- is a
 // whole combined-TF failure: on a load failure, TrackingEngine::
 // resetEvent() is called directly (executeEvent() is never reached on a
@@ -130,9 +136,11 @@ class CombinedTimeFrameCoordinator
   void setNThreads(int n);
 
   // Phase 2+3 for both detectors against one shared TimeFrame: load via
-  // MultiSourceTimeFrameLoader::loadITSAndMFT() (source 0 == ITS, source 1
-  // == MFT, per that loader's own fixed-position contract) -- unchanged,
-  // the sole atomic load path -- then, once that load has committed,
+  // MultiSourceTimeFrameLoader::loadEvent() (M2b's participant-count-generic
+  // atomic transaction), over an explicit [ITS, MFT] AtomicLoadBinding list
+  // built from mITSParticipant.loadTarget()/mMFTParticipant.loadTarget();
+  // this coordinator's own guard, not loadEvent() itself, enforces source 0
+  // == ITS, source 1 == MFT -- then, once that load has committed,
   // TrackingEngine::executeEvent() runs the explicit [ITS, MFT] schedule:
   // ITS's track() followed by MFT's, serially, into the shared TimeFrame,
   // so accepted CommonTracks append ITS-then-MFT.
@@ -190,8 +198,9 @@ class CombinedTimeFrameCoordinator
   // Immutable per-detector publication exports, populated only by a
   // successful process() call and invalidated by any subsequent reset
   // (failure or exception). ITS is always ClusterSourceId{0}, MFT always
-  // ClusterSourceId{1} -- fixed positions, never the caller's choice, same
-  // contract as MultiSourceTimeFrameLoader::loadITSAndMFT().
+  // ClusterSourceId{1} -- fixed positions, never the caller's choice, the
+  // same contract this coordinator's own process() guard enforces before
+  // ever calling MultiSourceTimeFrameLoader::loadEvent().
   std::optional<CommonTrackPublicationExport> getITSPublicationExport() const;
   std::optional<CommonTrackPublicationExport> getMFTPublicationExport() const;
 

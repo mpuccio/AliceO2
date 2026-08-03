@@ -45,6 +45,7 @@
 #include "ITSMFTTracking/ITSSharedClusterCompatibility.h"
 #include "ITSMFTTracking/LegacyTrackerScratch.h"
 #include "ITSMFTTracking/MFTPublicationCompatibility.h"
+#include "ITSMFTTracking/MultiSourceTimeFrameLoader.h"
 #include "ITSMFTTracking/ParticipantId.h"
 #include "ITSMFTTracking/TrackerTraits.h"
 // Reused only for the ITSSharedClusterCompatibilityOwner<NLayers>/
@@ -97,6 +98,14 @@ class LegacyCATrackingParticipant final : public TrackingParticipant,
   void setNThreads(int n);
   void configureRofTables(const ROFTimingConfig& timing, uint32_t nROFsTF);
 
+  // This leg's own load target for MultiSourceTimeFrameLoader::loadEvent()
+  // (M2b): bound once, at construction, to mScratch -- see mLoadTarget's
+  // own doc below. Not part of the generic TrackingParticipant interface;
+  // the coordinator (or any other adapter driving the generic atomic
+  // loading transaction) reaches this only through the concrete
+  // participant type.
+  MultiSourceTimeFrameLoader::LoadTarget& loadTarget() noexcept { return mLoadTarget; }
+
   // Clears just this participant's publication sidecar -- the same
   // unconditional top-of-process() step CombinedTimeFrameCoordinator::
   // process() itself already documented before this slice: a prior
@@ -141,6 +150,11 @@ class LegacyCATrackingParticipant final : public TrackingParticipant,
   const DetectorLayoutSet* mPlan = nullptr;
   TrackerTraits<NLayers> mTraits;
   Tracker<NLayers> mTracker;
+  // Bound to mScratch above at construction (M2b) -- see
+  // MultiSourceTimeFrameLoader::LoadTargetImpl<NLayers>'s own doc. Declared
+  // after mScratch so it is constructed after (and therefore only ever
+  // binds an already-existing) mScratch.
+  MultiSourceTimeFrameLoader::LoadTargetImpl<NLayers> mLoadTarget;
   std::shared_ptr<tbb::task_arena> mArena;
   // Engaged only between a successful track() and the next eventReset()
   // (or construction) -- gates publicationExport(), matching
