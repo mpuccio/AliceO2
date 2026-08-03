@@ -221,6 +221,15 @@ o2_add_test(multisourceloading
             LABELS "itsmft;tracking"
             PUBLIC_LINK_LIBRARIES O2::ITSMFTTracking)
 
+# M2b: MultiSourceTimeFrameLoader's participant-count-generic atomic loading
+# transaction (loadEvent()) and its loadITSAndMFT() compatibility wrapper.
+o2_add_test(multisource-timeframe-loader
+            SOURCES testMultiSourceTimeFrameLoader.cxx
+            COMPONENT_NAME itsmft-tracking
+            LABELS "itsmft;tracking"
+            PUBLIC_LINK_LIBRARIES O2::ITSMFTTracking
+                                  O2::MFTTracking)
+
 o2_add_test(timeframenormalizedsource
             SOURCES testTimeFrameNormalizedSource.cxx
             COMPONENT_NAME itsmft-tracking
