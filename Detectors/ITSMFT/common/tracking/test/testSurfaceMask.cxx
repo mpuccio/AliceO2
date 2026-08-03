@@ -28,7 +28,7 @@ using o2::itsmft::tracking::SurfaceMask;
 
 /// Gate 4 C5: focused coverage for the shared positionalSurfaceMask() helper
 /// that replaced the equivalent private copies formerly duplicated in
-/// DetectorLayoutSet.cxx and CombinedTimeFrameCoordinator.cxx. Each set bit
+/// DetectorLayoutSet.cxx and ITSMFTLegacyParticipantSet.cxx. Each set bit
 /// in `layerMask` is a *position* in `orderedSurfaces`, never a numeric
 /// comparison against the SurfaceId values it holds.
 

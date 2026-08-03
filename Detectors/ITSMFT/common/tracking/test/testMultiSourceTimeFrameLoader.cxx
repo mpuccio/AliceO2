@@ -14,8 +14,8 @@
 //    with three fake LoadTargets that know nothing about ITS/MFT);
 //  - a failure in the *last* participant's staged backfill leaves the
 //    normalized frame and every earlier participant's target completely
-//    uncommitted -- the loader-level foundation the coordinator/participant
-//    level tests (testCombinedTimeFrameCoordinator.cxx) already build their
+//    uncommitted -- the loader-level foundation the composition/participant
+//    level tests (testCombinedTrackingComposition.cxx) already build their
 //    own sidecar/scratch/publication-state proofs on top of;
 //  - loadITSAndMFT() still reproduces source-qualified per-surface storage
 //    and correct compact per-layer backfill on both real scratches;
@@ -277,8 +277,8 @@ BOOST_AUTO_TEST_CASE(FailureInLastParticipantsStagedBackfillLeavesEverythingAtBa
   // returned ok(), nothing must be committed at all: not the normalized
   // frame, and not targetA/targetB even though their own stage() calls
   // individually succeeded before the transaction as a whole failed. This
-  // is the loader-level foundation the coordinator-level tests
-  // (testCombinedTimeFrameCoordinator.cxx's LoadFailureResetsWholeCombined
+  // is the loader-level foundation the composition-level tests
+  // (testCombinedTrackingComposition.cxx's LoadFailureResetsWholeCombined
   // TFExactlyOnceAndInvalidatesPublication/CompatibilitySidecarGettersReflec
   // tSealAndReset) build their own real-sidecar/real-scratch/publication-
   // state proofs on top of: a participant's scratch/sidecar can only change
@@ -370,8 +370,8 @@ ClusterSourceInput makeSingleClusterInput(ClusterSourceId id, o2::detectors::Det
 
 BOOST_AUTO_TEST_CASE(TwoParticipantITSMFTWrapperReproducesSourceQualificationAndCompactBackfills)
 {
-  // loadITSAndMFT() itself, directly -- not through CombinedTimeFrameCoordinator
-  // -- still backfills both real scratches (the actual production
+  // loadITSAndMFT() itself, directly -- not through any application-layer
+  // composition -- still backfills both real scratches (the actual production
   // combined 17-surface ITS+MFT static catalog, ITS global ids 0..6, MFT
   // 7..16) and preserves source-qualified per-surface storage, now that it
   // is a thin wrapper over loadEvent().

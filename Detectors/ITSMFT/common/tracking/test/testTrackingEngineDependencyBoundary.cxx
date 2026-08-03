@@ -86,7 +86,7 @@ BOOST_AUTO_TEST_CASE(EngineAndParticipantHeadersExcludeForbiddenDependencies)
     "TransitionPolicyDispatch.h", "TransitionPolicyOperations.h",
     "TransitionPolicyBinding.h", "TransitionPolicyState.h", "TransitionPolicyTag",
     // Detector identity / current-output-type / workflow-facing headers:
-    "DetID.h", "TrackingInterface.h", "CombinedTimeFrameCoordinator.h",
+    "DetID.h", "TrackingInterface.h", "ITSMFTLegacyParticipantSet.h",
     "CommonTrackOutputAdapter.h",
     // DPL/workflow headers:
     "DataProcessorSpec.h", "WorkflowSpec.h", "ConfigParamSpec.h", "DeviceSpec.h",

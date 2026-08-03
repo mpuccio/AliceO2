@@ -381,16 +381,6 @@ o2_add_test(ioutils-syserror-ownership
             PUBLIC_LINK_LIBRARIES O2::ITSMFTTracking
                                   O2::MFTTracking)
 
-# Gate 4 C3: host-only combined ITS+MFT disconnected-tracking coordinator.
-o2_add_test(combined-timeframe-coordinator
-            SOURCES testCombinedTimeFrameCoordinator.cxx
-            COMPONENT_NAME itsmft-tracking
-            LABELS "itsmft;tracking"
-            PUBLIC_LINK_LIBRARIES O2::ITSMFTTracking
-                                  O2::MFTTracking
-                                  O2::DetectorsBase
-                                  O2::Field)
-
 # GenericTrackingEngineMigration.md M1: the detector-neutral TrackingEngine/
 # TrackingParticipant contract (ADR 0007).
 o2_add_test(tracking-engine-contract
@@ -406,14 +396,25 @@ o2_add_test(tracking-engine-dependency-boundary
             PUBLIC_LINK_LIBRARIES O2::ITSMFTTracking)
 
 # M2c: the one explicit ITS/MFT-named application-layer participant set
-# (ITSMFTLegacyParticipantSet) CombinedTimeFrameCoordinator now delegates
-# construction/configuration to.
+# (ITSMFTLegacyParticipantSet) the combined DPL task composes construction/
+# configuration through.
 o2_add_test(itsmft-legacy-participant-set
             SOURCES testITSMFTLegacyParticipantSet.cxx
             COMPONENT_NAME itsmft-tracking
             LABELS "itsmft;tracking"
             PUBLIC_LINK_LIBRARIES O2::ITSMFTTracking
                                   O2::MFTTracking)
+
+# M3: the combined ITS+MFT load/track/publish composition, ported from the
+# deleted host-only combined coordinator's own test suite.
+o2_add_test(combined-tracking-composition
+            SOURCES testCombinedTrackingComposition.cxx
+            COMPONENT_NAME itsmft-tracking
+            LABELS "itsmft;tracking"
+            PUBLIC_LINK_LIBRARIES O2::ITSMFTTracking
+                                  O2::MFTTracking
+                                  O2::DetectorsBase
+                                  O2::Field)
 
 # The Gate 0 extractor needs generated tracker/MC dictionaries and external
 # fixture files at execution time. Keep its runnable replay in the documented

@@ -96,7 +96,7 @@ BOOST_AUTO_TEST_CASE(GeometryIsAlwaysRequestedExplicitlyNeverAligned)
 
 BOOST_AUTO_TEST_CASE(NoIRFrameInputIsEverDeclared)
 {
-  // CombinedTimeFrameCoordinator has no IR-frame/trigger-window masking;
+  // The combined ITS+MFT common-CA tracking flow has no IR-frame/trigger-window masking;
   // this workflow must never declare an IRFramesITS input regardless of MC
   // -- see ConfigPreflight.h's requireNoMFTIRFrameConfigOrFatal()/
   // requireContinuousMFTReadoutOrFatal() for the two runtime-enforced halves

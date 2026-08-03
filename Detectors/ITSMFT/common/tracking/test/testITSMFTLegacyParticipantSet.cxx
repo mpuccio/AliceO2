@@ -19,15 +19,18 @@
 ///    getMFTPublicationExport() are engaged only between
 ///    markPublicationValid() and the next invalidatePublication().
 ///
-/// These exercise ITSMFTLegacyParticipantSet directly, not through
-/// CombinedTimeFrameCoordinator -- testCombinedTimeFrameCoordinator.cxx
-/// keeps the full load/track/publish coordinator-level coverage unchanged.
+/// These exercise ITSMFTLegacyParticipantSet directly, not through a
+/// composed load/track/publish pipeline -- testCombinedTrackingComposition
+/// .cxx keeps the full load/track/publish composition-level coverage
+/// (ported from the pre-M3 combined-coordinator test suite this milestone
+/// deleted).
 
 #define BOOST_TEST_MODULE ITSMFT ITSMFTLegacyParticipantSet
 #define BOOST_TEST_MAIN
 #define BOOST_TEST_DYN_LINK
 #include <boost/test/unit_test.hpp>
 
+#include <stdexcept>
 #include <vector>
 
 #include "CommonDataFormat/InteractionRecord.h"
@@ -85,9 +88,8 @@ ClusterSourceInput minimalSource(ClusterSourceId id, o2::detectors::DetID::ID de
 BOOST_AUTO_TEST_CASE(GlobalPlanAuthorityBothDetectorLayoutsAreByteIdentical)
 {
   // Single authoritative combined topology (M2c carries forward the same
-  // proof testCombinedTimeFrameCoordinator.cxx's
-  // BothBindingsDeriveFromOneIdenticalGlobalTopology already established at
-  // the coordinator level): the set builds its one shared ITS+MFT
+  // proof the pre-M3 combined-coordinator test suite already established at
+  // the composition level): the set builds its one shared ITS+MFT
   // DetectorLayout exactly once in its constructor, and both
   // DetectorLayoutSets/DetectorTraversalBindings only ever receive a
   // passive copy of that one built object.
@@ -217,8 +219,8 @@ BOOST_AUTO_TEST_CASE(PublicationExportLifetimesEngagedOnlyBetweenMarkAndInvalida
   BOOST_CHECK_EQUAL(mftExport->orderedSurfaces.size(), static_cast<size_t>(MFTNLayers));
 
   // invalidatePublication() disengages both, without needing another
-  // eventReset()/wipe() -- the same narrow scope
-  // CombinedTimeFrameCoordinator::process()/resetCombinedEvent() rely on.
+  // eventReset()/wipe() -- the same narrow scope the combined DPL task's
+  // own trackFrame() composition relies on (CombinedCATrackerSpec.cxx).
   participants.invalidatePublication();
   BOOST_CHECK(!participants.getITSPublicationExport().has_value());
   BOOST_CHECK(!participants.getMFTPublicationExport().has_value());
@@ -230,4 +232,15 @@ BOOST_AUTO_TEST_CASE(PublicationExportLifetimesEngagedOnlyBetweenMarkAndInvalida
   BOOST_REQUIRE(participants.getITSPublicationExport().has_value());
   participants.clearPublicationSidecars();
   BOOST_CHECK(participants.getITSPublicationExport().has_value());
+}
+
+BOOST_AUTO_TEST_CASE(ConstructorRejectsMultiIterationParameters)
+{
+  // The only shape this set's single shared combined layout can represent
+  // is exactly one TrackingParameters iteration per detector -- ported from
+  // the pre-M3 combined-coordinator test suite this milestone deleted,
+  // since this constructor validation now lives only here.
+  std::vector<TrackingParameters> twoIterations(2);
+  BOOST_CHECK_THROW((ITSMFTLegacyParticipantSet{twoIterations, {makeMftParams()}}), std::invalid_argument);
+  BOOST_CHECK_THROW((ITSMFTLegacyParticipantSet{{makeItsParams()}, twoIterations}), std::invalid_argument);
 }
