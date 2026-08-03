@@ -56,6 +56,7 @@ o2_add_library(ITSMFTTracking
                        src/CombinedTimeFrameCoordinator.cxx
                        src/TrackingEngine.cxx
                        src/LegacyCATrackingParticipant.cxx
+                       src/ITSMFTLegacyParticipantSet.cxx
                PUBLIC_LINK_LIBRARIES
                        O2::ITSMFTTrackingParams
                        O2::ITStracking
