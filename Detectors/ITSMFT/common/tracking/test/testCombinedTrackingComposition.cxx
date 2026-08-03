@@ -65,7 +65,7 @@
 #include "ITSMFTTracking/TrackerTraits.h"
 #include "ITSMFTTracking/TrackingConfigParam.h"
 #include "ITSMFTTracking/TrackingEngine.h"
-#include "ITSMFTTracking/TransitionPolicyOperations.h"
+#include "ITSMFTTracking/detail/TransitionPolicyOperations.h"
 #include "ITStracking/Constants.h"
 #include "ReconstructionDataFormats/Track.h"
 
@@ -336,7 +336,7 @@ struct StandaloneRun {
   MFTPublicationCompatibility mftSidecar;
   TrackingResult result;
 
-  StandaloneRun(o2::detectors::DetID::ID det, SurfaceKind kind, TransitionPolicyTag policy,
+  StandaloneRun(o2::detectors::DetID::ID det, SurfaceKind kind,
                 const TrackingParameters& singleParams, const std::vector<DecodedCluster>& decoded)
     : params{singleParams}
   {
@@ -359,7 +359,7 @@ struct StandaloneRun {
       catalog.push_back(surface);
     }
     const SurfaceCatalogView catalogView{catalog.data(), static_cast<uint32_t>(catalog.size())};
-    auto planResult = buildDetectorLayoutSet(catalogView, orderedSurfaces, policy, params);
+    auto planResult = buildDetectorLayoutSet(catalogView, orderedSurfaces, params);
     BOOST_REQUIRE(planResult.ok());
     plan.emplace(std::move(*planResult.layout));
 
@@ -548,7 +548,7 @@ BOOST_AUTO_TEST_CASE(MftGlobalIdsWorkEndToEndThroughRefitAndReproducesStandalone
   const auto mftClusters = buildMftChainClusters(mftParams, Bz, MFTNLayers - 1);
   BOOST_REQUIRE_EQUAL(mftClusters.size(), static_cast<size_t>(MFTNLayers));
 
-  StandaloneRun<MFTNLayers> standalone{o2::detectors::DetID::MFT, SurfaceKind::Disk, TransitionPolicyTag::DiskDisk, mftParams, mftClusters};
+  StandaloneRun<MFTNLayers> standalone{o2::detectors::DetID::MFT, SurfaceKind::Disk, mftParams, mftClusters};
   BOOST_REQUIRE(standalone.result.outcome == TrackingOutcome::Success);
   BOOST_REQUIRE_GT(standalone.scratch.getNumberOfTracks(), 0u);
 
@@ -590,13 +590,13 @@ BOOST_AUTO_TEST_CASE(ITSAndMFTAcceptedResultsReproduceStandaloneCountsInOneCombi
   const auto mftClusters = buildMftChainClusters(mftParams, Bz, MFTNLayers - 1);
   BOOST_REQUIRE_EQUAL(mftClusters.size(), static_cast<size_t>(MFTNLayers));
 
-  StandaloneRun<ITSNLayers> standaloneIts{o2::detectors::DetID::ITS, SurfaceKind::Cylinder, TransitionPolicyTag::CylinderCylinder, itsParams, itsClusters};
+  StandaloneRun<ITSNLayers> standaloneIts{o2::detectors::DetID::ITS, SurfaceKind::Cylinder, itsParams, itsClusters};
   BOOST_REQUIRE(standaloneIts.result.outcome == TrackingOutcome::Success);
   // A genuine full 7-layer road (MinTrackLength=7, MaxHoles=0): the helix
   // fixture above is a real, non-degenerate curved trajectory, so this is a
   // nonzero accepted-track oracle, not a 0==0 parity check.
   BOOST_REQUIRE_GT(standaloneIts.scratch.getNumberOfTracks(), 0u);
-  StandaloneRun<MFTNLayers> standaloneMft{o2::detectors::DetID::MFT, SurfaceKind::Disk, TransitionPolicyTag::DiskDisk, mftParams, mftClusters};
+  StandaloneRun<MFTNLayers> standaloneMft{o2::detectors::DetID::MFT, SurfaceKind::Disk, mftParams, mftClusters};
   BOOST_REQUIRE(standaloneMft.result.outcome == TrackingOutcome::Success);
   BOOST_REQUIRE_GT(standaloneMft.scratch.getNumberOfTracks(), 0u);
 

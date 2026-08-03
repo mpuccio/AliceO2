@@ -374,7 +374,7 @@ BOOST_AUTO_TEST_CASE(WipeClearsNormalizedFrameButPreservesDetId)
   TimeFrame frame;
   LegacyTrackerScratch<ITSNLayers> tf;
   std::vector<TrackingParameters> noIterations;
-  auto planResult = buildDetectorLayoutSet(catalogView, orderedSurfaces, TransitionPolicyTag::CylinderCylinder, noIterations);
+  auto planResult = buildDetectorLayoutSet(catalogView, orderedSurfaces, noIterations);
   BOOST_REQUIRE(planResult.ok());
   const auto plan = std::move(*planResult.layout);
 
@@ -429,7 +429,7 @@ BOOST_AUTO_TEST_CASE(BackfillAllocationFailureLeavesNormalizedAndLegacyStateAtBa
   tf.setMemoryPool(pool);
 
   std::vector<TrackingParameters> noIterations;
-  auto planResult = buildDetectorLayoutSet(catalogView, orderedSurfaces, TransitionPolicyTag::CylinderCylinder, noIterations);
+  auto planResult = buildDetectorLayoutSet(catalogView, orderedSurfaces, noIterations);
   BOOST_REQUIRE(planResult.ok());
   const auto plan = std::move(*planResult.layout);
   const gsl::span<const SurfaceId> planOrderedSurfaces{plan.getConfigurationKey().orderedSurfaces};
@@ -511,7 +511,7 @@ BOOST_AUTO_TEST_CASE(ScratchOutlivesSoleOwnershipOfItsMemoryPool)
   const auto f = makeFixture();
 
   std::vector<TrackingParameters> noIterations;
-  auto planResult = buildDetectorLayoutSet(catalogView, orderedSurfaces, TransitionPolicyTag::CylinderCylinder, noIterations);
+  auto planResult = buildDetectorLayoutSet(catalogView, orderedSurfaces, noIterations);
   BOOST_REQUIRE(planResult.ok());
   const auto plan = std::move(*planResult.layout);
 

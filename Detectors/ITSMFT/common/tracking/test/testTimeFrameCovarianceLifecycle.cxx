@@ -229,10 +229,7 @@ struct Rig {
     catalog = makeCatalog<NLayers>(detector, kind);
     const auto orderedSurfaces = identitySurfaces<NLayers>();
     const SurfaceCatalogView catalogView{catalog.data(), static_cast<uint32_t>(catalog.size())};
-    const auto policy = kind == SurfaceKind::Disk
-                          ? TransitionPolicyTag::DiskDisk
-                          : TransitionPolicyTag::CylinderCylinder;
-    auto result = buildDetectorLayoutSet(catalogView, orderedSurfaces, policy, parameters);
+    auto result = buildDetectorLayoutSet(catalogView, orderedSurfaces, parameters);
     BOOST_REQUIRE(result.ok());
     plan.emplace(std::move(*result.layout));
     tf.initTrackerTopologies(parameters);

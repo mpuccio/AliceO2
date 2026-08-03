@@ -46,7 +46,7 @@
 #include "ITSMFTTracking/DetectorLayout.h"
 #include "ITSMFTTracking/DetectorLayoutBuilder.h"
 #include "ITSMFTTracking/DetectorLayoutSet.h"
-#include "ITSMFTTracking/DetectorTraversalBinding.h"
+#include "ITSMFTTracking/detail/DetectorTraversalBinding.h"
 #include "ITSMFTTracking/MFTFwdTrackHelpers.h"
 #include "ITSMFTTracking/MultiSourceTimeFrameLoader.h"
 #include "ITSMFTTracking/NominalSurfaceMaterialDefaults.h"
@@ -319,7 +319,7 @@ struct StandaloneMftRun {
     const auto orderedSurfaces = ordered(0, MFTNLayers);
     appendMaterialCatalog(catalog, 0, MFTNLayers, o2::detectors::DetID::MFT, SurfaceKind::Disk);
     const SurfaceCatalogView catalogView{catalog.data(), static_cast<uint32_t>(catalog.size())};
-    auto planResult = buildDetectorLayoutSet(catalogView, orderedSurfaces, TransitionPolicyTag::DiskDisk, params);
+    auto planResult = buildDetectorLayoutSet(catalogView, orderedSurfaces, params);
     BOOST_REQUIRE(planResult.ok());
     plan.emplace(std::move(*planResult.layout));
 
@@ -383,8 +383,8 @@ struct CombinedMftRun {
     const auto itsSurfaces = ordered(0, ITSNLayers);
     const auto mftSurfaces = ordered(ITSNLayers, MFTNLayers);
     DetectorLayoutBuilder builder{catalogView};
-    builder.addSubgraph({itsSurfaces, 0, SurfaceMask{}, itsSeedMask(), TransitionPolicyTag::CylinderCylinder});
-    builder.addSubgraph({mftSurfaces, 0, SurfaceMask{}, mftSeedMask(), TransitionPolicyTag::DiskDisk});
+    builder.addSubgraph({itsSurfaces, 0, SurfaceMask{}, itsSeedMask()});
+    builder.addSubgraph({mftSurfaces, 0, SurfaceMask{}, mftSeedMask()});
     auto built = builder.build();
     BOOST_REQUIRE(built.ok());
     DetectorLayout combinedLayout = std::move(*built.layout);
@@ -400,7 +400,6 @@ struct CombinedMftRun {
 
     DetectorLayoutConfigurationKey key;
     key.orderedSurfaces = mftSurfaces;
-    key.policyTag = TransitionPolicyTag::DiskDisk;
     key.iterations.push_back(DetectorLayoutIterationConfiguration{static_cast<uint32_t>(MFTNLayers), 0, LayerMask{0}, LayerMask{0}});
     std::vector<DetectorLayout> layouts;
     layouts.push_back(std::move(combinedLayout));
@@ -526,8 +525,8 @@ BOOST_AUTO_TEST_CASE(MismatchedBindingFailsClosedBeforeTrackletProcessing)
   const auto mftSurfaces = ordered(ITSNLayers, MFTNLayers);
 
   DetectorLayoutBuilder builder{catalogView};
-  builder.addSubgraph({itsSurfaces, 0, SurfaceMask{}, itsSeedMask(), TransitionPolicyTag::CylinderCylinder});
-  builder.addSubgraph({mftSurfaces, 0, SurfaceMask{}, mftSeedMask(), TransitionPolicyTag::DiskDisk});
+  builder.addSubgraph({itsSurfaces, 0, SurfaceMask{}, itsSeedMask()});
+  builder.addSubgraph({mftSurfaces, 0, SurfaceMask{}, mftSeedMask()});
   auto built = builder.build();
   BOOST_REQUIRE(built.ok());
   DetectorLayout combinedLayout = std::move(*built.layout);
@@ -559,7 +558,6 @@ BOOST_AUTO_TEST_CASE(MismatchedBindingFailsClosedBeforeTrackletProcessing)
 
   DetectorLayoutConfigurationKey key;
   key.orderedSurfaces = mftSurfaces;
-  key.policyTag = TransitionPolicyTag::DiskDisk;
   key.iterations.push_back(DetectorLayoutIterationConfiguration{static_cast<uint32_t>(MFTNLayers), 0, LayerMask{0}, LayerMask{0}});
   std::vector<DetectorLayout> layouts;
   layouts.push_back(std::move(combinedLayout));
@@ -599,8 +597,8 @@ BOOST_AUTO_TEST_CASE(MismatchedBindingNeverReclassifiesStructuralAsRecoverableDr
   const auto mftSurfaces = ordered(ITSNLayers, MFTNLayers);
 
   DetectorLayoutBuilder builder{catalogView};
-  builder.addSubgraph({itsSurfaces, 0, SurfaceMask{}, itsSeedMask(), TransitionPolicyTag::CylinderCylinder});
-  builder.addSubgraph({mftSurfaces, 0, SurfaceMask{}, mftSeedMask(), TransitionPolicyTag::DiskDisk});
+  builder.addSubgraph({itsSurfaces, 0, SurfaceMask{}, itsSeedMask()});
+  builder.addSubgraph({mftSurfaces, 0, SurfaceMask{}, mftSeedMask()});
   auto built = builder.build();
   BOOST_REQUIRE(built.ok());
   DetectorLayout combinedLayout = std::move(*built.layout);
@@ -641,7 +639,6 @@ BOOST_AUTO_TEST_CASE(MismatchedBindingNeverReclassifiesStructuralAsRecoverableDr
 
   DetectorLayoutConfigurationKey key;
   key.orderedSurfaces = mftSurfaces;
-  key.policyTag = TransitionPolicyTag::DiskDisk;
   key.iterations.push_back(DetectorLayoutIterationConfiguration{static_cast<uint32_t>(MFTNLayers), 0, LayerMask{0}, LayerMask{0}});
   std::vector<DetectorLayout> layouts;
   layouts.push_back(std::move(combinedLayout));
@@ -772,8 +769,8 @@ BOOST_AUTO_TEST_CASE(ForeignExpectedSourceBindingFailsClosedBeforePublication)
   const auto mftSurfaces = ordered(ITSNLayers, MFTNLayers);
 
   DetectorLayoutBuilder builder{catalogView};
-  builder.addSubgraph({itsSurfaces, 0, SurfaceMask{}, itsSeedMask(), TransitionPolicyTag::CylinderCylinder});
-  builder.addSubgraph({mftSurfaces, 0, SurfaceMask{}, mftSeedMask(), TransitionPolicyTag::DiskDisk});
+  builder.addSubgraph({itsSurfaces, 0, SurfaceMask{}, itsSeedMask()});
+  builder.addSubgraph({mftSurfaces, 0, SurfaceMask{}, mftSeedMask()});
   auto built = builder.build();
   BOOST_REQUIRE(built.ok());
   DetectorLayout combinedLayout = std::move(*built.layout);
@@ -808,7 +805,6 @@ BOOST_AUTO_TEST_CASE(ForeignExpectedSourceBindingFailsClosedBeforePublication)
 
   DetectorLayoutConfigurationKey key;
   key.orderedSurfaces = mftSurfaces;
-  key.policyTag = TransitionPolicyTag::DiskDisk;
   key.iterations.push_back(DetectorLayoutIterationConfiguration{static_cast<uint32_t>(MFTNLayers), 0, LayerMask{0}, LayerMask{0}});
   std::vector<DetectorLayout> layouts;
   layouts.push_back(std::move(combinedLayout));

@@ -15,7 +15,7 @@
 
 #include <boost/test/unit_test.hpp>
 
-#include "ITSMFTTracking/TransitionPolicyState.h"
+#include "ITSMFTTracking/detail/TransitionPolicyState.h"
 
 using namespace o2::itsmft::tracking;
 

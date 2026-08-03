@@ -19,7 +19,7 @@
 #include "ITSMFTTracking/BarrelSurfaceStateOperations.h"
 #include "ITSMFTTracking/SurfaceKinematicStateLegacyAdapters.h"
 #include "ITSMFTTracking/SurfaceLinearizationReference.h"
-#include "ITSMFTTracking/TransitionPolicy.h"
+#include "ITSMFTTracking/detail/TransitionPolicy.h"
 // buildTrackSeed is the retained legacy oracle for the SeedAnchor::Inner
 // buildSeed coverage below only -- production never calls it or constructs
 // the legacy barrel track-parametrization-with-error type it returns.

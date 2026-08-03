@@ -19,7 +19,7 @@
 #include "ITSMFTTracking/LegacyTrackerScratch.h"
 #include "ITSMFTTracking/StaticDetectorCatalogs.h"
 #include "ITSMFTTracking/SurfaceCatalogView.h"
-#include "ITSMFTTracking/TransitionPolicyBinding.h"
+#include "ITSMFTTracking/detail/TransitionPolicyBinding.h"
 
 namespace
 {
@@ -48,7 +48,7 @@ int initializeCommonITSTracker()
   static constexpr auto kOrderedSurfaces = identityOrder();
   auto planResult = buildDetectorLayoutSet(
     SurfaceCatalogView{kITSStaticSurfaceCatalog.data(), static_cast<uint32_t>(kITSStaticSurfaceCatalog.size())},
-    gsl::span<const SurfaceId>{kOrderedSurfaces}, TransitionPolicyTag::CylinderCylinder, parameters);
+    gsl::span<const SurfaceId>{kOrderedSurfaces}, parameters);
   if (!planResult.ok()) {
     return 2;
   }

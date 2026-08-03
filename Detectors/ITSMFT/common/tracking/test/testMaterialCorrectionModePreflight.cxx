@@ -24,7 +24,7 @@
 
 #include "DetectorsBase/Propagator.h"
 #include "ITSMFTTracking/TrackerTraits.h"
-#include "ITSMFTTracking/TransitionPolicyBinding.h"
+#include "ITSMFTTracking/detail/TransitionPolicyBinding.h"
 
 using namespace o2::itsmft::tracking;
 using MatCorrType = o2::base::PropagatorF::MatCorrType;

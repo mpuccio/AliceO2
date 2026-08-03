@@ -19,7 +19,7 @@
 #include "ITSMFTTracking/BarrelSurfaceStateOperations.h"
 #include "ITSMFTTracking/ForwardSurfaceStateOperations.h"
 #include "ITSMFTTracking/MaterialPhysics.h"
-#include "ITSMFTTracking/TransitionPolicyOperations.h"
+#include "ITSMFTTracking/detail/TransitionPolicyOperations.h"
 
 /// Stage-B refit-primitive slice: focused coverage for refitHit<Tag>
 /// (TransitionPolicyOperations.h/.cxx). This is deliberately unwired: there

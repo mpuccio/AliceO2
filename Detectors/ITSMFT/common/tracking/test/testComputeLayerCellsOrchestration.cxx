@@ -57,7 +57,7 @@
 #include "ITSMFTTracking/TimeFrame.h"
 #include "ITSMFTTracking/TrackerTraits.h"
 #include "ITSMFTTracking/TrackingConfigParam.h"
-#include "ITSMFTTracking/TransitionPolicyOperations.h"
+#include "ITSMFTTracking/detail/TransitionPolicyOperations.h"
 #include "ITStracking/Cluster.h"
 #include "ITStracking/Constants.h"
 #include "ITStracking/Tracklet.h"
@@ -263,12 +263,11 @@ void checkSurfaceKinematicStateEqual(const SurfaceKinematicState& lhs, const Sur
 // safely, even for zero clusters).
 template <int NLayers>
 struct Rig {
-  Rig(o2::detectors::DetID::ID det, SurfaceKind kind, TransitionPolicyTag tag, int nThreads = 1)
+  Rig(o2::detectors::DetID::ID det, SurfaceKind kind, int nThreads = 1)
     : pool(std::make_shared<BoundedMemoryResource>()),
       params(1),
       mDet(det),
-      mKind(kind),
-      mTag(tag)
+      mKind(kind)
   {
     resetDetectorDefaults(params[0], det);
     // This file bypasses computeLayerTracklets()'s phi/z/index-table cuts
@@ -303,7 +302,7 @@ struct Rig {
     catalog = makeCatalog(static_cast<uint16_t>(NLayers), mDet, mKind, gsl::span<const float>(params[0].LayerxX0));
     const auto orderedSurfaces = identitySurfaces(static_cast<uint16_t>(NLayers));
     const SurfaceCatalogView catalogView{catalog.data(), static_cast<uint32_t>(catalog.size())};
-    auto result = buildDetectorLayoutSet(catalogView, orderedSurfaces, mTag, params);
+    auto result = buildDetectorLayoutSet(catalogView, orderedSurfaces, params);
     BOOST_REQUIRE(result.ok());
     plan.emplace(std::move(*result.layout));
     tf.initTrackerTopologies(params);
@@ -340,7 +339,6 @@ struct Rig {
  private:
   o2::detectors::DetID::ID mDet;
   SurfaceKind mKind;
-  TransitionPolicyTag mTag;
 };
 
 // Loads exactly the three supplied {cluster, hit} candidates at legacy
@@ -517,7 +515,7 @@ void injectChainCandidateTracklets(Rig<NLayers>& rig, const std::array<int, N>& 
 
 BOOST_AUTO_TEST_CASE(CylinderComputeLayerCellsMatchesBuildCellSeedOracle)
 {
-  Rig<ITSNLayers> rig{o2::detectors::DetID::ITS, SurfaceKind::Cylinder, TransitionPolicyTag::CylinderCylinder};
+  Rig<ITSNLayers> rig{o2::detectors::DetID::ITS, SurfaceKind::Cylinder};
   rig.params[0].MaxChi2ClusterAttachment = 1.e6f;
   rig.params[0].LayerxX0[0] = 0.005f; // inner
   rig.params[0].LayerxX0[1] = 0.005f; // middle
@@ -598,7 +596,7 @@ BOOST_AUTO_TEST_CASE(CylinderComputeLayerCellsMatchesBuildCellSeedOracle)
 
 BOOST_AUTO_TEST_CASE(DiskComputeLayerCellsMatchesBuildCellSeedOracle)
 {
-  Rig<MFTNLayers> rig{o2::detectors::DetID::MFT, SurfaceKind::Disk, TransitionPolicyTag::DiskDisk};
+  Rig<MFTNLayers> rig{o2::detectors::DetID::MFT, SurfaceKind::Disk};
   rig.params[0].MaxChi2ClusterAttachment = 1.e6f;
   rig.params[0].TrackletMinPt = 0.3f;
   rig.params[0].CellRoadRCut = 1000.f; // generous: road pre-cut must pass here
@@ -654,7 +652,7 @@ BOOST_AUTO_TEST_CASE(DiskComputeLayerCellsMatchesBuildCellSeedOracle)
 
 BOOST_AUTO_TEST_CASE(DiskComputeLayerCellsRoadPreCutRejectsBeforeBuildCellSeed)
 {
-  Rig<MFTNLayers> rig{o2::detectors::DetID::MFT, SurfaceKind::Disk, TransitionPolicyTag::DiskDisk};
+  Rig<MFTNLayers> rig{o2::detectors::DetID::MFT, SurfaceKind::Disk};
   rig.params[0].MaxChi2ClusterAttachment = 1.e6f;
   rig.params[0].TrackletMinPt = 0.3f;
   // Same geometry as DiskComputeLayerCellsMatchesBuildCellSeedOracle, but a
@@ -701,7 +699,7 @@ BOOST_AUTO_TEST_CASE(CylinderComputeLayerCellsOnePassAndTwoPassAgree)
   };
 
   auto run = [](int nThreads) {
-    Rig<ITSNLayers> rig{o2::detectors::DetID::ITS, SurfaceKind::Cylinder, TransitionPolicyTag::CylinderCylinder, nThreads};
+    Rig<ITSNLayers> rig{o2::detectors::DetID::ITS, SurfaceKind::Cylinder, nThreads};
     rig.params[0].MaxChi2ClusterAttachment = 1.e6f;
     rig.params[0].LayerxX0[0] = 0.005f;
     rig.params[0].LayerxX0[1] = 0.005f;
@@ -760,7 +758,7 @@ BOOST_AUTO_TEST_CASE(DiskComputeLayerCellsOnePassAndTwoPassAgree)
   };
 
   auto run = [](int nThreads) {
-    Rig<MFTNLayers> rig{o2::detectors::DetID::MFT, SurfaceKind::Disk, TransitionPolicyTag::DiskDisk, nThreads};
+    Rig<MFTNLayers> rig{o2::detectors::DetID::MFT, SurfaceKind::Disk, nThreads};
     rig.params[0].MaxChi2ClusterAttachment = 1.e6f;
     rig.params[0].TrackletMinPt = 0.3f;
     rig.params[0].CellRoadRCut = 1000.f; // generous: road pre-cut must pass here
@@ -819,7 +817,7 @@ BOOST_AUTO_TEST_CASE(CylinderComputeLayerCellsSafeWithEmptyDiskReferenceSpan)
   // CylinderCylinder> is still called unconditionally by the shared candidate
   // loop and must never read it. This is already incidentally exercised by
   // every Cylinder test above; this case documents and asserts it explicitly.
-  Rig<ITSNLayers> rig{o2::detectors::DetID::ITS, SurfaceKind::Cylinder, TransitionPolicyTag::CylinderCylinder};
+  Rig<ITSNLayers> rig{o2::detectors::DetID::ITS, SurfaceKind::Cylinder};
   rig.params[0].MaxChi2ClusterAttachment = 1.e6f;
   rig.params[0].LayerxX0[0] = 0.005f;
   rig.params[0].LayerxX0[1] = 0.005f;
@@ -861,7 +859,7 @@ BOOST_AUTO_TEST_CASE(RepeatedComputeLayerCellsCallsDoNotRebindOrIncreaseCounts)
   // and consumes tracklets as an existing, unrelated post-step, so a second
   // call with no freshly injected tracklets legitimately produces zero cells
   // -- that is not what this test checks.)
-  Rig<MFTNLayers> rig{o2::detectors::DetID::MFT, SurfaceKind::Disk, TransitionPolicyTag::DiskDisk};
+  Rig<MFTNLayers> rig{o2::detectors::DetID::MFT, SurfaceKind::Disk};
   rig.params[0].MaxChi2ClusterAttachment = 1.e6f;
   rig.params[0].TrackletMinPt = 0.3f;
   rig.params[0].CellRoadRCut = 1000.f;
@@ -880,8 +878,8 @@ BOOST_AUTO_TEST_CASE(RepeatedComputeLayerCellsCallsDoNotRebindOrIncreaseCounts)
   BOOST_REQUIRE(rig.traits.hasTraversalCache());
 
   const int groupingCountAfterInit = rig.traits.getTraversalGroupingCount();
-  const int diskBindingCountAfterInit = rig.traits.getPolicyBindingCount(TransitionPolicyTag::DiskDisk);
-  const int cylinderBindingCountAfterInit = rig.traits.getPolicyBindingCount(TransitionPolicyTag::CylinderCylinder);
+  const int diskBindingCountAfterInit = rig.traits.getPolicyBindingCount(StateFamily::Forward);
+  const int cylinderBindingCountAfterInit = rig.traits.getPolicyBindingCount(StateFamily::Barrel);
 
   const auto topology = rig.tf.getTrackingTopologyView();
   const int cellTopologyId = findCellTopologyId(topology, 0, 1, 2);
@@ -897,8 +895,8 @@ BOOST_AUTO_TEST_CASE(RepeatedComputeLayerCellsCallsDoNotRebindOrIncreaseCounts)
   rig.traits.computeLayerCells(0);
 
   BOOST_CHECK_EQUAL(rig.traits.getTraversalGroupingCount(), groupingCountAfterInit);
-  BOOST_CHECK_EQUAL(rig.traits.getPolicyBindingCount(TransitionPolicyTag::DiskDisk), diskBindingCountAfterInit);
-  BOOST_CHECK_EQUAL(rig.traits.getPolicyBindingCount(TransitionPolicyTag::CylinderCylinder), cylinderBindingCountAfterInit);
+  BOOST_CHECK_EQUAL(rig.traits.getPolicyBindingCount(StateFamily::Forward), diskBindingCountAfterInit);
+  BOOST_CHECK_EQUAL(rig.traits.getPolicyBindingCount(StateFamily::Barrel), cylinderBindingCountAfterInit);
 
   // Re-inject tracklets and recompute (the underlying candidate clusters/
   // measurements loaded above are untouched -- reloading them here would
@@ -911,7 +909,7 @@ BOOST_AUTO_TEST_CASE(RepeatedComputeLayerCellsCallsDoNotRebindOrIncreaseCounts)
   rig.traits.computeLayerCells(0);
 
   BOOST_CHECK_EQUAL(rig.traits.getTraversalGroupingCount(), groupingCountAfterInit);
-  BOOST_CHECK_EQUAL(rig.traits.getPolicyBindingCount(TransitionPolicyTag::DiskDisk), diskBindingCountAfterInit);
+  BOOST_CHECK_EQUAL(rig.traits.getPolicyBindingCount(StateFamily::Forward), diskBindingCountAfterInit);
   BOOST_REQUIRE_EQUAL(rig.tf.getCells()[cellTopologyId].size(), 1u);
   BOOST_CHECK_EQUAL(rig.tf.getCells()[cellTopologyId][0].getChi2(), firstChi2);
 }
@@ -939,7 +937,7 @@ BOOST_AUTO_TEST_CASE(ComputeLayerCellsFailsClosedWithoutInitialiseTimeFrame)
 
 BOOST_AUTO_TEST_CASE(CylinderNoneCorrectionInitialisesSuccessfully)
 {
-  Rig<ITSNLayers> rig{o2::detectors::DetID::ITS, SurfaceKind::Cylinder, TransitionPolicyTag::CylinderCylinder};
+  Rig<ITSNLayers> rig{o2::detectors::DetID::ITS, SurfaceKind::Cylinder};
   rig.params[0].CorrType = o2::base::PropagatorF::MatCorrType::USEMatCorrNONE;
   rig.establishLayout();
   rig.traits.updateTrackingParameters(rig.params);
@@ -950,7 +948,7 @@ BOOST_AUTO_TEST_CASE(CylinderNoneCorrectionInitialisesSuccessfully)
 BOOST_AUTO_TEST_CASE(CylinderUnsupportedMaterialCorrectionModeThrowsBeforeTimeFrameMutation)
 {
   for (const auto corrType : {o2::base::PropagatorF::MatCorrType::USEMatCorrLUT, o2::base::PropagatorF::MatCorrType::USEMatCorrTGeo}) {
-    Rig<ITSNLayers> rig{o2::detectors::DetID::ITS, SurfaceKind::Cylinder, TransitionPolicyTag::CylinderCylinder};
+    Rig<ITSNLayers> rig{o2::detectors::DetID::ITS, SurfaceKind::Cylinder};
     rig.params[0].CorrType = corrType;
     rig.establishLayout();
     rig.traits.updateTrackingParameters(rig.params);
@@ -963,7 +961,7 @@ BOOST_AUTO_TEST_CASE(CylinderUnsupportedMaterialCorrectionModeThrowsBeforeTimeFr
     // later call with a supported mode still succeeds, proving no lingering
     // corrupted state from the rejected attempt.
     BOOST_CHECK(!rig.traits.hasTraversalCache());
-    BOOST_CHECK_EQUAL(rig.traits.getPolicyBindingCount(TransitionPolicyTag::CylinderCylinder), 0);
+    BOOST_CHECK_EQUAL(rig.traits.getPolicyBindingCount(StateFamily::Barrel), 0);
 
     rig.params[0].CorrType = o2::base::PropagatorF::MatCorrType::USEMatCorrNONE;
     rig.traits.updateTrackingParameters(rig.params);
@@ -979,7 +977,7 @@ BOOST_AUTO_TEST_CASE(InvalidCorrTypeRetainsExistingInvalidPolicyParametersReason
   // AttachHitPolicyConfigView::isValid()), never as
   // UnsupportedMaterialCorrectionMode -- the preflight explicitly defers to
   // that established classification for this case.
-  Rig<ITSNLayers> rig{o2::detectors::DetID::ITS, SurfaceKind::Cylinder, TransitionPolicyTag::CylinderCylinder};
+  Rig<ITSNLayers> rig{o2::detectors::DetID::ITS, SurfaceKind::Cylinder};
   rig.params[0].CorrType = static_cast<o2::base::PropagatorF::MatCorrType>(99);
   rig.establishLayout();
   rig.traits.updateTrackingParameters(rig.params);
@@ -998,7 +996,7 @@ BOOST_AUTO_TEST_CASE(DiskAcceptsAllRecognizedMaterialCorrectionModes)
   for (const auto corrType : {o2::base::PropagatorF::MatCorrType::USEMatCorrNONE,
                               o2::base::PropagatorF::MatCorrType::USEMatCorrLUT,
                               o2::base::PropagatorF::MatCorrType::USEMatCorrTGeo}) {
-    Rig<MFTNLayers> rig{o2::detectors::DetID::MFT, SurfaceKind::Disk, TransitionPolicyTag::DiskDisk};
+    Rig<MFTNLayers> rig{o2::detectors::DetID::MFT, SurfaceKind::Disk};
     rig.params[0].CorrType = corrType;
     rig.establishLayout();
     rig.traits.updateTrackingParameters(rig.params);
@@ -1020,7 +1018,7 @@ BOOST_AUTO_TEST_CASE(CylinderComputeLayerCellsMultiCellChainProducesCorrectCells
   // computeLayerCellsForPolicy() via a fresh mSurfaceToLegacyLayer lookup
   // per CellTopologyId -- not just the single cell the tests above check,
   // while every non-participating cellTopologyId stays empty.
-  Rig<ITSNLayers> rig{o2::detectors::DetID::ITS, SurfaceKind::Cylinder, TransitionPolicyTag::CylinderCylinder};
+  Rig<ITSNLayers> rig{o2::detectors::DetID::ITS, SurfaceKind::Cylinder};
   rig.params[0].MaxChi2ClusterAttachment = 1.e6f;
   for (int layer = 0; layer < ITSNLayers; ++layer) {
     rig.params[0].LayerxX0[layer] = 0.005f;
@@ -1087,7 +1085,7 @@ BOOST_AUTO_TEST_CASE(DiskComputeLayerCellsMultiCellChainProducesCorrectCellsAndO
   // reads [1] then [0]; DiskDisk reads [2],[1],[0] -- see the comment on
   // that call in computeLayerCellsForPolicy()), so multi-transition
   // cell-chaining for DiskDisk is real, otherwise-unproven coverage.
-  Rig<MFTNLayers> rig{o2::detectors::DetID::MFT, SurfaceKind::Disk, TransitionPolicyTag::DiskDisk};
+  Rig<MFTNLayers> rig{o2::detectors::DetID::MFT, SurfaceKind::Disk};
   rig.params[0].MaxChi2ClusterAttachment = 1.e6f;
   rig.params[0].TrackletMinPt = 0.3f;
   rig.params[0].CellRoadRCut = 1000.f; // generous: road pre-cut must pass here
@@ -1146,7 +1144,7 @@ BOOST_AUTO_TEST_CASE(CylinderComputeLayerCellsHoleCellReconstructsCorrectLayerMa
   // hole/skipped-surface behaviour staying identical to the pre-migration
   // code (which read the same fromLayer/toLayer straight off the legacy
   // view). No cluster is placed on layer 1 at all.
-  Rig<ITSNLayers> rig{o2::detectors::DetID::ITS, SurfaceKind::Cylinder, TransitionPolicyTag::CylinderCylinder};
+  Rig<ITSNLayers> rig{o2::detectors::DetID::ITS, SurfaceKind::Cylinder};
   rig.params[0].MaxChi2ClusterAttachment = 1.e6f;
   rig.params[0].MaxHoles = 1;
   rig.params[0].HoleLayerMask = LayerMask{static_cast<uint16_t>(1u << 1)};
@@ -1201,7 +1199,7 @@ BOOST_AUTO_TEST_CASE(ComputeLayerCellsFailsClosedOnCellStorageSizeMismatch)
   // established legacy-cell-container-size-mismatch seam -- exercises this
   // exactly, through computeLayerCells()'s own public contract, with no
   // private-state bypass.
-  Rig<ITSNLayers> rig{o2::detectors::DetID::ITS, SurfaceKind::Cylinder, TransitionPolicyTag::CylinderCylinder};
+  Rig<ITSNLayers> rig{o2::detectors::DetID::ITS, SurfaceKind::Cylinder};
   rig.params[0].MaxChi2ClusterAttachment = 1.e6f;
   rig.establishLayout();
 

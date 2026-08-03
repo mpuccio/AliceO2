@@ -322,7 +322,7 @@ BOOST_AUTO_TEST_CASE(combined_owner_load_keeps_detector_backfills_separate)
 }
 
 template <int NLayers>
-void checkParity(std::vector<SurfaceDescriptor> catalog, TransitionPolicyTag policyTag, const Fixture& f)
+void checkParity(std::vector<SurfaceDescriptor> catalog, const Fixture& f)
 {
   const auto orderedSurfaces = identitySurfaces(static_cast<uint16_t>(NLayers));
   const SurfaceCatalogView catalogView{catalog.data(), static_cast<uint32_t>(catalog.size())};
@@ -341,7 +341,7 @@ void checkParity(std::vector<SurfaceDescriptor> catalog, TransitionPolicyTag pol
 
   LegacyTrackerScratch<NLayers> tf;
   std::vector<TrackingParameters> noIterations;
-  auto planResult = buildDetectorLayoutSet(catalogView, orderedSurfaces, policyTag, noIterations);
+  auto planResult = buildDetectorLayoutSet(catalogView, orderedSurfaces, noIterations);
   BOOST_REQUIRE(planResult.ok());
   const auto plan = std::move(*planResult.layout);
 
@@ -509,12 +509,12 @@ static_assert(!std::is_invocable_v<decltype(&LegacyTrackerScratch<ITSNLayers>::l
 
 BOOST_AUTO_TEST_CASE(ITSTimeFrameNormalizedSourceParity)
 {
-  checkParity<ITSNLayers>(makeITSTestCatalog(), TransitionPolicyTag::CylinderCylinder, makeFixture(o2::detectors::DetID::ITS, false));
+  checkParity<ITSNLayers>(makeITSTestCatalog(), makeFixture(o2::detectors::DetID::ITS, false));
 }
 
 BOOST_AUTO_TEST_CASE(MFTTimeFrameNormalizedSourceParity)
 {
-  checkParity<MFTNLayers>(makeMFTTestCatalog(), TransitionPolicyTag::DiskDisk, makeFixture(o2::detectors::DetID::MFT, true));
+  checkParity<MFTNLayers>(makeMFTTestCatalog(), makeFixture(o2::detectors::DetID::MFT, true));
 }
 
 BOOST_AUTO_TEST_CASE(EmptyInputsAreLegalForBothDetectors)
@@ -527,7 +527,7 @@ BOOST_AUTO_TEST_CASE(EmptyInputsAreLegalForBothDetectors)
     TimeFrame frame;
     LegacyTrackerScratch<ITSNLayers> tf;
     std::vector<TrackingParameters> noIterations;
-    auto planResult = buildDetectorLayoutSet(catalogView, orderedSurfaces, TransitionPolicyTag::CylinderCylinder, noIterations);
+    auto planResult = buildDetectorLayoutSet(catalogView, orderedSurfaces, noIterations);
     BOOST_REQUIRE(planResult.ok());
     const auto plan = std::move(*planResult.layout);
     const auto result = tf.loadNormalizedSource(frame, decoder, {0, 0},
@@ -547,7 +547,7 @@ BOOST_AUTO_TEST_CASE(EmptyInputsAreLegalForBothDetectors)
     TimeFrame frame;
     LegacyTrackerScratch<MFTNLayers> tf;
     std::vector<TrackingParameters> noIterations;
-    auto planResult = buildDetectorLayoutSet(catalogView, orderedSurfaces, TransitionPolicyTag::DiskDisk, noIterations);
+    auto planResult = buildDetectorLayoutSet(catalogView, orderedSurfaces, noIterations);
     BOOST_REQUIRE(planResult.ok());
     const auto plan = std::move(*planResult.layout);
     const auto result = tf.loadNormalizedSource(frame, decoder, {0, 0},
@@ -573,7 +573,7 @@ BOOST_AUTO_TEST_CASE(ZeroIterationCatalogOnlyLoadingSucceeds)
 
   LegacyTrackerScratch<ITSNLayers> tf;
   std::vector<TrackingParameters> noIterations;
-  auto planResult = buildDetectorLayoutSet(catalogView, orderedSurfaces, TransitionPolicyTag::CylinderCylinder, noIterations);
+  auto planResult = buildDetectorLayoutSet(catalogView, orderedSurfaces, noIterations);
   BOOST_REQUIRE(planResult.ok());
   const auto plan = std::move(*planResult.layout);
   BOOST_REQUIRE_EQUAL(plan.size(), 0u);
@@ -645,7 +645,7 @@ BOOST_AUTO_TEST_CASE(CatalogRequestDetectorMismatchIsRejected)
 
   LegacyTrackerScratch<ITSNLayers> tf;
   std::vector<TrackingParameters> noIterations;
-  auto planResult = buildDetectorLayoutSet(catalogView, orderedSurfaces, TransitionPolicyTag::CylinderCylinder, noIterations);
+  auto planResult = buildDetectorLayoutSet(catalogView, orderedSurfaces, noIterations);
   BOOST_REQUIRE(planResult.ok());
   const auto plan = std::move(*planResult.layout);
 
@@ -721,7 +721,7 @@ BOOST_AUTO_TEST_CASE(WrongMappingCardinalityIsRejected)
 
   LegacyTrackerScratch<ITSNLayers> tf;
   std::vector<TrackingParameters> noIterations;
-  auto planResult = buildDetectorLayoutSet(catalogView, shortOrderedSurfaces, TransitionPolicyTag::CylinderCylinder, noIterations);
+  auto planResult = buildDetectorLayoutSet(catalogView, shortOrderedSurfaces, noIterations);
   BOOST_REQUIRE(planResult.ok());
   const auto plan = std::move(*planResult.layout);
 
@@ -748,7 +748,7 @@ BOOST_AUTO_TEST_CASE(InvalidOrOutOfRangeMappedSurfaceIsRejected)
     TimeFrame frame;
     LegacyTrackerScratch<ITSNLayers> tf;
     std::vector<TrackingParameters> noIterations;
-    auto planResult = buildDetectorLayoutSet(catalogView, orderedSurfaces, TransitionPolicyTag::CylinderCylinder, noIterations);
+    auto planResult = buildDetectorLayoutSet(catalogView, orderedSurfaces, noIterations);
     BOOST_REQUIRE(planResult.ok());
     const auto plan = std::move(*planResult.layout);
 
@@ -771,7 +771,7 @@ BOOST_AUTO_TEST_CASE(InvalidOrOutOfRangeMappedSurfaceIsRejected)
     TimeFrame frame;
     LegacyTrackerScratch<ITSNLayers> tf;
     std::vector<TrackingParameters> noIterations;
-    auto planResult = buildDetectorLayoutSet(catalogView, orderedSurfaces, TransitionPolicyTag::CylinderCylinder, noIterations);
+    auto planResult = buildDetectorLayoutSet(catalogView, orderedSurfaces, noIterations);
     BOOST_REQUIRE(planResult.ok());
     const auto plan = std::move(*planResult.layout);
 
@@ -798,7 +798,7 @@ BOOST_AUTO_TEST_CASE(DuplicateMappedSurfaceIsRejected)
 
   LegacyTrackerScratch<ITSNLayers> tf;
   std::vector<TrackingParameters> noIterations;
-  auto planResult = buildDetectorLayoutSet(catalogView, orderedSurfaces, TransitionPolicyTag::CylinderCylinder, noIterations);
+  auto planResult = buildDetectorLayoutSet(catalogView, orderedSurfaces, noIterations);
   BOOST_REQUIRE(planResult.ok());
   const auto plan = std::move(*planResult.layout);
 
@@ -844,7 +844,7 @@ BOOST_AUTO_TEST_CASE(MappedDescriptorDetectorMismatchIsRejected)
 
   LegacyTrackerScratch<ITSNLayers> tf;
   std::vector<TrackingParameters> noIterations;
-  auto planResult = buildDetectorLayoutSet(catalogView, orderedSurfaces, TransitionPolicyTag::CylinderCylinder, noIterations);
+  auto planResult = buildDetectorLayoutSet(catalogView, orderedSurfaces, noIterations);
   BOOST_REQUIRE(planResult.ok());
   const auto plan = std::move(*planResult.layout);
 
@@ -872,7 +872,7 @@ BOOST_AUTO_TEST_CASE(FailedNormalizedLoadLeavesBothRepresentationsUnchanged)
 
   LegacyTrackerScratch<ITSNLayers> tf;
   std::vector<TrackingParameters> noIterations;
-  auto planResult = buildDetectorLayoutSet(catalogView, orderedSurfaces, TransitionPolicyTag::CylinderCylinder, noIterations);
+  auto planResult = buildDetectorLayoutSet(catalogView, orderedSurfaces, noIterations);
   BOOST_REQUIRE(planResult.ok());
   const auto plan = std::move(*planResult.layout);
   const gsl::span<const SurfaceId> planOrderedSurfaces{plan.getConfigurationKey().orderedSurfaces};
@@ -936,7 +936,7 @@ BOOST_AUTO_TEST_CASE(PreflightFailureAfterBaselineLoadPreservesState)
 
   LegacyTrackerScratch<ITSNLayers> tf;
   std::vector<TrackingParameters> noIterations;
-  auto planResult = buildDetectorLayoutSet(catalogView, orderedSurfaces, TransitionPolicyTag::CylinderCylinder, noIterations);
+  auto planResult = buildDetectorLayoutSet(catalogView, orderedSurfaces, noIterations);
   BOOST_REQUIRE(planResult.ok());
   const auto plan = std::move(*planResult.layout);
 
@@ -984,7 +984,7 @@ BOOST_AUTO_TEST_CASE(ApplySysErrorsDefaultsTrueAndPropagatesToTheDecoder)
     TimeFrame frame;
     LegacyTrackerScratch<ITSNLayers> tf;
     std::vector<TrackingParameters> noIterations;
-    auto planResult = buildDetectorLayoutSet(catalogView, orderedSurfaces, TransitionPolicyTag::CylinderCylinder, noIterations);
+    auto planResult = buildDetectorLayoutSet(catalogView, orderedSurfaces, noIterations);
     BOOST_REQUIRE(planResult.ok());
     const auto plan = std::move(*planResult.layout);
     const auto result = tf.loadNormalizedSource(frame, decoder, {0, 0}, timing,
@@ -1001,7 +1001,7 @@ BOOST_AUTO_TEST_CASE(ApplySysErrorsDefaultsTrueAndPropagatesToTheDecoder)
     TimeFrame frame;
     LegacyTrackerScratch<ITSNLayers> tf;
     std::vector<TrackingParameters> noIterations;
-    auto planResult = buildDetectorLayoutSet(catalogView, orderedSurfaces, TransitionPolicyTag::CylinderCylinder, noIterations);
+    auto planResult = buildDetectorLayoutSet(catalogView, orderedSurfaces, noIterations);
     BOOST_REQUIRE(planResult.ok());
     const auto plan = std::move(*planResult.layout);
     const auto result = tf.loadNormalizedSource(frame, decoder, {0, 0}, timing,

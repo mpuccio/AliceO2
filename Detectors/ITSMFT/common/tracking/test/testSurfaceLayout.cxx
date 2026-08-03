@@ -11,14 +11,15 @@
 #include <boost/test/unit_test.hpp>
 
 #include "ITSMFTTracking/DetectorLayout.h"
+#include "ITSMFTTracking/detail/TransitionPolicy.h"
 
 namespace
 {
 using namespace o2::itsmft::tracking;
 
-SurfaceTransition adjacent(uint16_t from, uint16_t to, TransitionPolicyTag policyTag = TransitionPolicyTag::CylinderCylinder)
+SurfaceTransition adjacent(uint16_t from, uint16_t to)
 {
-  return SurfaceTransition{SurfaceId{from}, SurfaceId{to}, SurfaceMask{}, policyTag, 0};
+  return SurfaceTransition{SurfaceId{from}, SurfaceId{to}, SurfaceMask{}, 0};
 }
 
 SurfaceDescriptor surface(uint16_t id, SurfaceKind kind)
@@ -79,17 +80,6 @@ BOOST_AUTO_TEST_CASE(ParallelTransitionsAreRejected)
   BOOST_CHECK(!topology.finalize());
 }
 
-BOOST_AUTO_TEST_CASE(InvalidAndUnknownPolicyTagsAreRejected)
-{
-  SparseTrackingTopology invalid{2};
-  BOOST_CHECK(!invalid.addTransition(adjacent(0, 1, TransitionPolicyTag::Invalid)).isValid());
-  BOOST_CHECK(invalid.getError() == TopologyBuildError::InvalidPolicyTag);
-
-  SparseTrackingTopology unknown{2};
-  BOOST_CHECK(!unknown.addTransition(adjacent(0, 1, static_cast<TransitionPolicyTag>(0xffff))).isValid());
-  BOOST_CHECK(unknown.getError() == TopologyBuildError::InvalidPolicyTag);
-}
-
 BOOST_AUTO_TEST_CASE(LayoutLimitsAndDenseIdsAreValidated)
 {
   SparseTrackingTopology tooLarge{33};
@@ -117,16 +107,23 @@ BOOST_AUTO_TEST_CASE(CellCannotReturnToItsFirstSurface)
   BOOST_CHECK(topology.getError() == TopologyBuildError::RepeatedSurface);
 }
 
-BOOST_AUTO_TEST_CASE(CellCannotMixPolicies)
+BOOST_AUTO_TEST_CASE(CellCannotConnectTransitionsOfDifferentSurfaceKinds)
 {
+  // M4 (ADR 0007 decision 8): SurfaceTransition no longer carries a policy
+  // tag a caller could set inconsistently with the endpoint surfaces, so a
+  // "mixed policy" cell is no longer even expressible at this layer -- a
+  // cell's own precondition (firstTransition.to == secondTransition.from,
+  // DisconnectedTransitions below) already forces both transitions to share
+  // the same pivot SurfaceId, and therefore the same SurfaceDescriptor::kind,
+  // at the layout layer that actually owns the surface catalog. This proves
+  // that structural guarantee still holds for two same-family chains sharing
+  // a pivot surface.
   SparseTrackingTopology topology{3};
-  const auto barrel = topology.addTransition(adjacent(0, 1, TransitionPolicyTag::CylinderCylinder));
-  const auto forward = topology.addTransition(adjacent(1, 2, TransitionPolicyTag::DiskDisk));
-  BOOST_REQUIRE(barrel.isValid());
-  BOOST_REQUIRE(forward.isValid());
-
-  BOOST_CHECK(!topology.addCell(barrel, forward).isValid());
-  BOOST_CHECK(topology.getError() == TopologyBuildError::MixedPolicyCell);
+  const auto first = topology.addTransition(adjacent(0, 1));
+  const auto second = topology.addTransition(adjacent(1, 2));
+  BOOST_REQUIRE(first.isValid());
+  BOOST_REQUIRE(second.isValid());
+  BOOST_CHECK(topology.addCell(first, second).isValid());
 }
 
 BOOST_AUTO_TEST_CASE(DisconnectedCombinedTopologyIsSparse)
@@ -138,7 +135,7 @@ BOOST_AUTO_TEST_CASE(DisconnectedCombinedTopologyIsSparse)
     transitions.push_back(topology.addTransition(adjacent(surface, surface + 1)));
   }
   for (uint16_t surface = 7; surface < 16; ++surface) {
-    transitions.push_back(topology.addTransition(adjacent(surface, surface + 1, TransitionPolicyTag::DiskDisk)));
+    transitions.push_back(topology.addTransition(adjacent(surface, surface + 1)));
   }
   BOOST_REQUIRE_EQUAL(transitions.size(), 15u);
 
@@ -164,28 +161,28 @@ BOOST_AUTO_TEST_CASE(DisconnectedCombinedTopologyIsSparse)
   BOOST_CHECK_EQUAL(view.getCellsStartingWithTransition(transitions[5]).getEntries(), 0u);
 }
 
-BOOST_AUTO_TEST_CASE(CylinderAndDiskLayoutsAcceptMatchingPolicies)
+BOOST_AUTO_TEST_CASE(CylinderAndDiskLayoutsAreBothAccepted)
 {
   SparseTrackingTopology cylinderTopology{2};
-  BOOST_REQUIRE(cylinderTopology.addTransition(adjacent(0, 1, TransitionPolicyTag::CylinderCylinder)).isValid());
+  BOOST_REQUIRE(cylinderTopology.addTransition(adjacent(0, 1)).isValid());
   BOOST_REQUIRE(cylinderTopology.finalize());
   const std::vector<SurfaceDescriptor> cylinderSurfaces{surface(0, SurfaceKind::Cylinder), surface(1, SurfaceKind::Cylinder)};
   DetectorLayout cylinderLayout{cylinderSurfaces, std::move(cylinderTopology)};
   BOOST_CHECK(cylinderLayout.valid());
 
   SparseTrackingTopology diskTopology{2};
-  BOOST_REQUIRE(diskTopology.addTransition(adjacent(0, 1, TransitionPolicyTag::DiskDisk)).isValid());
+  BOOST_REQUIRE(diskTopology.addTransition(adjacent(0, 1)).isValid());
   BOOST_REQUIRE(diskTopology.finalize());
   const std::vector<SurfaceDescriptor> diskSurfaces{surface(0, SurfaceKind::Disk), surface(1, SurfaceKind::Disk)};
   DetectorLayout diskLayout{diskSurfaces, std::move(diskTopology)};
   BOOST_CHECK(diskLayout.valid());
 }
 
-BOOST_AUTO_TEST_CASE(DisconnectedCombinedLayoutAcceptsBothPolicies)
+BOOST_AUTO_TEST_CASE(DisconnectedCombinedLayoutAcceptsBothKinds)
 {
   SparseTrackingTopology topology{4};
-  BOOST_REQUIRE(topology.addTransition(adjacent(0, 1, TransitionPolicyTag::CylinderCylinder)).isValid());
-  BOOST_REQUIRE(topology.addTransition(adjacent(2, 3, TransitionPolicyTag::DiskDisk)).isValid());
+  BOOST_REQUIRE(topology.addTransition(adjacent(0, 1)).isValid());
+  BOOST_REQUIRE(topology.addTransition(adjacent(2, 3)).isValid());
   BOOST_REQUIRE(topology.finalize());
 
   const std::vector<SurfaceDescriptor> surfaces{surface(0, SurfaceKind::Cylinder), surface(1, SurfaceKind::Cylinder),
@@ -194,31 +191,10 @@ BOOST_AUTO_TEST_CASE(DisconnectedCombinedLayoutAcceptsBothPolicies)
   BOOST_CHECK(layout.valid());
 }
 
-BOOST_AUTO_TEST_CASE(LayoutRejectsPolicySurfaceKindMismatch)
-{
-  SparseTrackingTopology diskPolicy{2};
-  BOOST_REQUIRE(diskPolicy.addTransition(adjacent(0, 1, TransitionPolicyTag::DiskDisk)).isValid());
-  BOOST_REQUIRE(diskPolicy.finalize());
-
-  const std::vector<SurfaceDescriptor> cylinderSurfaces{surface(0, SurfaceKind::Cylinder), surface(1, SurfaceKind::Cylinder)};
-  DetectorLayout cylinders{cylinderSurfaces, std::move(diskPolicy)};
-  BOOST_CHECK(!cylinders.valid());
-  BOOST_CHECK(cylinders.getError() == DetectorLayoutError::PolicySurfaceKindMismatch);
-
-  SparseTrackingTopology cylinderPolicy{2};
-  BOOST_REQUIRE(cylinderPolicy.addTransition(adjacent(0, 1, TransitionPolicyTag::CylinderCylinder)).isValid());
-  BOOST_REQUIRE(cylinderPolicy.finalize());
-
-  const std::vector<SurfaceDescriptor> diskSurfaces{surface(0, SurfaceKind::Disk), surface(1, SurfaceKind::Disk)};
-  DetectorLayout disks{diskSurfaces, std::move(cylinderPolicy)};
-  BOOST_CHECK(!disks.valid());
-  BOOST_CHECK(disks.getError() == DetectorLayoutError::PolicySurfaceKindMismatch);
-}
-
 BOOST_AUTO_TEST_CASE(LayoutRejectsCylinderDiskTransitions)
 {
   SparseTrackingTopology cylinderToDisk{2};
-  BOOST_REQUIRE(cylinderToDisk.addTransition(adjacent(0, 1, TransitionPolicyTag::CylinderCylinder)).isValid());
+  BOOST_REQUIRE(cylinderToDisk.addTransition(adjacent(0, 1)).isValid());
   BOOST_REQUIRE(cylinderToDisk.finalize());
   const std::vector<SurfaceDescriptor> outwardSurfaces{surface(0, SurfaceKind::Cylinder), surface(1, SurfaceKind::Disk)};
   DetectorLayout outward{outwardSurfaces, std::move(cylinderToDisk)};
@@ -226,7 +202,7 @@ BOOST_AUTO_TEST_CASE(LayoutRejectsCylinderDiskTransitions)
   BOOST_CHECK(outward.getError() == DetectorLayoutError::MixedSurfaceTransition);
 
   SparseTrackingTopology diskToCylinder{2};
-  BOOST_REQUIRE(diskToCylinder.addTransition(adjacent(0, 1, TransitionPolicyTag::DiskDisk)).isValid());
+  BOOST_REQUIRE(diskToCylinder.addTransition(adjacent(0, 1)).isValid());
   BOOST_REQUIRE(diskToCylinder.finalize());
   const std::vector<SurfaceDescriptor> inwardSurfaces{surface(0, SurfaceKind::Disk), surface(1, SurfaceKind::Cylinder)};
   DetectorLayout inward{inwardSurfaces, std::move(diskToCylinder)};

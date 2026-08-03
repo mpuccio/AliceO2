@@ -11,7 +11,7 @@
 #include <vector>
 
 #include "ITSMFTTracking/DetectorLayoutBuilder.h"
-#include "ITSMFTTracking/DetectorTraversalBinding.h"
+#include "ITSMFTTracking/detail/DetectorTraversalBinding.h"
 #include "ITSMFTTracking/StaticDetectorCatalogs.h"
 #include "ITSMFTTracking/TrackingTopology.h"
 
@@ -56,8 +56,8 @@ struct CombinedLayout {
     seeds.set(SurfaceId{16});
     const SurfaceCatalogView catalog{kITSMFTCombinedStaticSurfaceCatalog.data(), static_cast<uint32_t>(kITSMFTCombinedStaticSurfaceCatalog.size())};
     DetectorLayoutBuilder builder{catalog};
-    builder.addSubgraph({ordered(0, ITSNLayers), 1, itsHoles, seeds & SurfaceMask{uint32_t{0x7f}}, TransitionPolicyTag::CylinderCylinder});
-    builder.addSubgraph({ordered(ITSNLayers, MFTNLayers), 1, mftHoles, seeds & ~SurfaceMask{uint32_t{0x7f}}, TransitionPolicyTag::DiskDisk});
+    builder.addSubgraph({ordered(0, ITSNLayers), 1, itsHoles, seeds & SurfaceMask{uint32_t{0x7f}}});
+    builder.addSubgraph({ordered(ITSNLayers, MFTNLayers), 1, mftHoles, seeds & ~SurfaceMask{uint32_t{0x7f}}});
     auto built = builder.build();
     BOOST_REQUIRE(built.ok());
     return std::move(*built.layout);

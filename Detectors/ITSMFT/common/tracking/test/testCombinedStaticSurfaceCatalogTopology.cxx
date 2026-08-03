@@ -149,11 +149,12 @@ BOOST_AUTO_TEST_CASE(CombinedStaticCatalogPreservesCurrentTopologyWithNoBoundary
   const SurfaceCatalogView catalogView{kITSMFTCombinedStaticSurfaceCatalog.data(),
                                        static_cast<uint32_t>(kITSMFTCombinedStaticSurfaceCatalog.size())};
   DetectorLayoutBuilder builder{catalogView};
-  builder.addSubgraph(DetectorLayoutSubgraph{orderedIds(0, ITSNLayers), 1, itsHoleMask, SurfaceMask{}, TransitionPolicyTag::CylinderCylinder});
-  builder.addSubgraph(DetectorLayoutSubgraph{orderedIds(ITSNLayers, MFTNLayers), 1, mftHoleMask, SurfaceMask{}, TransitionPolicyTag::DiskDisk});
+  builder.addSubgraph(DetectorLayoutSubgraph{orderedIds(0, ITSNLayers), 1, itsHoleMask, SurfaceMask{}});
+  builder.addSubgraph(DetectorLayoutSubgraph{orderedIds(ITSNLayers, MFTNLayers), 1, mftHoleMask, SurfaceMask{}});
   const auto layoutResult = builder.build();
   BOOST_REQUIRE(layoutResult.ok());
   const auto view = layoutResult.layout->getTopology().getView();
+  const auto masks = computeSurfaceKindMasks(kITSMFTCombinedStaticSurfaceCatalog);
 
   // Independent standalone references, exactly as production configures
   // each detector today (local 0-based ids), unrelated to the combined
@@ -178,7 +179,7 @@ BOOST_AUTO_TEST_CASE(CombinedStaticCatalogPreservesCurrentTopologyWithNoBoundary
     const auto& ref = itsRefView.getTransition(t);
     BOOST_CHECK_EQUAL(built.from.value(), ref.fromLayer);
     BOOST_CHECK_EQUAL(built.to.value(), ref.toLayer);
-    BOOST_CHECK(built.policyTag == TransitionPolicyTag::CylinderCylinder);
+    BOOST_CHECK(masks.first.has(built.from) && masks.first.has(built.to));
   }
   const auto& mftRefView = mftReference.getView();
   for (uint32_t t = 0; t < mftRefView.nTransitions; ++t) {
@@ -186,12 +187,11 @@ BOOST_AUTO_TEST_CASE(CombinedStaticCatalogPreservesCurrentTopologyWithNoBoundary
     const auto& ref = mftRefView.getTransition(t);
     BOOST_CHECK_EQUAL(built.from.value(), ref.fromLayer + ITSNLayers);
     BOOST_CHECK_EQUAL(built.to.value(), ref.toLayer + ITSNLayers);
-    BOOST_CHECK(built.policyTag == TransitionPolicyTag::DiskDisk);
+    BOOST_CHECK(masks.second.has(built.from) && masks.second.has(built.to));
   }
 
   // No declared edge crosses the ITS/MFT boundary: every transition and
   // every cell's hit-surface mask stays within one detector's global range.
-  const auto masks = computeSurfaceKindMasks(kITSMFTCombinedStaticSurfaceCatalog);
   for (uint32_t t = 0; t < view.nTransitions; ++t) {
     const auto& transition = view.getTransition(TransitionId{static_cast<uint16_t>(t)});
     const bool bothCylinder = masks.first.has(transition.from) && masks.first.has(transition.to);

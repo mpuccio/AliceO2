@@ -17,16 +17,16 @@
 #include <boost/test/unit_test.hpp>
 
 #include "ITSMFTTracking/DetectorLayoutBuilder.h"
-#include "ITSMFTTracking/TransitionPolicyDispatch.h"
+#include "ITSMFTTracking/detail/TransitionPolicyDispatch.h"
 
 using namespace o2::itsmft::tracking;
 
 namespace
 {
 
-SurfaceTransition adjacent(uint16_t from, uint16_t to, TransitionPolicyTag policyTag)
+SurfaceTransition adjacent(uint16_t from, uint16_t to)
 {
-  return SurfaceTransition{SurfaceId{from}, SurfaceId{to}, SurfaceMask{}, policyTag, 0};
+  return SurfaceTransition{SurfaceId{from}, SurfaceId{to}, SurfaceMask{}, 0};
 }
 
 SurfaceDescriptor surface(uint16_t id, SurfaceKind kind)
@@ -70,7 +70,7 @@ BuiltLayout buildChainLayout(uint16_t nSurfaces, SurfaceKind kind, TransitionPol
   SparseTrackingTopology topology{nSurfaces, seedingSurfaces};
   std::vector<TransitionId> transitions;
   for (uint16_t s = 0; s + 1 < nSurfaces; ++s) {
-    transitions.push_back(topology.addTransition(adjacent(s, s + 1, tag)));
+    transitions.push_back(topology.addTransition(adjacent(s, s + 1)));
   }
   for (size_t t = 0; t + 1 < transitions.size(); ++t) {
     topology.addCell(transitions[t], transitions[t + 1]);
@@ -95,10 +95,10 @@ BuiltLayout buildTwoChainsSameTag(uint16_t nA, uint16_t nB, SurfaceKind kind, Tr
   SparseTrackingTopology topology{total, seedingSurfaces};
   std::vector<TransitionId> transitionsA, transitionsB;
   for (uint16_t s = 0; s + 1 < nA; ++s) {
-    transitionsA.push_back(topology.addTransition(adjacent(s, s + 1, tag)));
+    transitionsA.push_back(topology.addTransition(adjacent(s, s + 1)));
   }
   for (uint16_t s = nA; s + 1 < total; ++s) {
-    transitionsB.push_back(topology.addTransition(adjacent(s, s + 1, tag)));
+    transitionsB.push_back(topology.addTransition(adjacent(s, s + 1)));
   }
   for (size_t t = 0; t + 1 < transitionsA.size(); ++t) {
     topology.addCell(transitionsA[t], transitionsA[t + 1]);
@@ -126,10 +126,10 @@ BuiltLayout buildCombinedDisconnectedLayout(uint16_t nCylinders, uint16_t nDisks
   std::vector<TransitionId> cylinderTransitions;
   std::vector<TransitionId> diskTransitions;
   for (uint16_t s = 0; s + 1 < nCylinders; ++s) {
-    cylinderTransitions.push_back(topology.addTransition(adjacent(s, s + 1, TransitionPolicyTag::CylinderCylinder)));
+    cylinderTransitions.push_back(topology.addTransition(adjacent(s, s + 1)));
   }
   for (uint16_t s = nCylinders; s + 1 < total; ++s) {
-    diskTransitions.push_back(topology.addTransition(adjacent(s, s + 1, TransitionPolicyTag::DiskDisk)));
+    diskTransitions.push_back(topology.addTransition(adjacent(s, s + 1)));
   }
   for (size_t t = 0; t + 1 < cylinderTransitions.size(); ++t) {
     topology.addCell(cylinderTransitions[t], cylinderTransitions[t + 1]);
@@ -158,7 +158,7 @@ BuiltLayout buildIdentityLayout(uint16_t nSurfaces, SurfaceKind kind, Transition
     order.push_back(SurfaceId{id});
   }
   DetectorLayoutBuilder builder{SurfaceCatalogView{surfaces.data(), static_cast<uint32_t>(surfaces.size())}};
-  auto result = builder.addSubgraph(DetectorLayoutSubgraph{std::move(order), maxHoles, maxHoles ? maskOf(hole) : SurfaceMask{}, seedingSurfaces, tag}).build();
+  auto result = builder.addSubgraph(DetectorLayoutSubgraph{std::move(order), maxHoles, maxHoles ? maskOf(hole) : SurfaceMask{}, seedingSurfaces}).build();
   BOOST_REQUIRE(result.ok());
   return BuiltLayout{std::move(*result.layout), std::move(surfaces)};
 }
@@ -223,7 +223,7 @@ BOOST_AUTO_TEST_CASE(NonMonotonicSurfaceIdsFollowGraphRank)
     surfaces.push_back(surface(id, SurfaceKind::Cylinder));
   }
   DetectorLayoutBuilder builder{SurfaceCatalogView{surfaces.data(), static_cast<uint32_t>(surfaces.size())}};
-  auto result = builder.addSubgraph(DetectorLayoutSubgraph{{SurfaceId{3}, SurfaceId{1}, SurfaceId{4}, SurfaceId{0}}, 0, {}, {}, TransitionPolicyTag::CylinderCylinder}).build();
+  auto result = builder.addSubgraph(DetectorLayoutSubgraph{{SurfaceId{3}, SurfaceId{1}, SurfaceId{4}, SurfaceId{0}}, 0, {}, {}}).build();
   BOOST_REQUIRE(result.ok());
   const auto masks = computeSurfaceKindMasks(surfaces);
   TransitionPolicyGrouping grouping{result.layout->getView(surfaces, masks.first, masks.second)};
@@ -256,9 +256,9 @@ BOOST_AUTO_TEST_CASE(DisconnectedComponentsAreScheduledDeterministically)
 BOOST_AUTO_TEST_CASE(CyclicTopologyIsRejectedExplicitly)
 {
   SparseTrackingTopology topology{3};
-  BOOST_REQUIRE(topology.addTransition(adjacent(0, 1, TransitionPolicyTag::CylinderCylinder)).isValid());
-  BOOST_REQUIRE(topology.addTransition(adjacent(1, 2, TransitionPolicyTag::CylinderCylinder)).isValid());
-  BOOST_REQUIRE(topology.addTransition(adjacent(2, 0, TransitionPolicyTag::CylinderCylinder)).isValid());
+  BOOST_REQUIRE(topology.addTransition(adjacent(0, 1)).isValid());
+  BOOST_REQUIRE(topology.addTransition(adjacent(1, 2)).isValid());
+  BOOST_REQUIRE(topology.addTransition(adjacent(2, 0)).isValid());
   BOOST_REQUIRE(topology.finalize());
   const std::vector<SurfaceDescriptor> surfaces{surface(0, SurfaceKind::Cylinder), surface(1, SurfaceKind::Cylinder), surface(2, SurfaceKind::Cylinder)};
   DetectorLayout layout{surfaces, std::move(topology)};
@@ -362,6 +362,45 @@ BOOST_AUTO_TEST_CASE(GroupedTransitionsOnlyConnectSurfacesOfTheExpectedKind)
   }
 }
 
+BOOST_AUTO_TEST_CASE(PolicyTagDerivationMatchesEndpointSurfaceKindForEveryItsAndMftTransition)
+{
+  // M4 (GenericTrackingEngineMigration.md; ADR 0007 decision 8): SurfaceTransition
+  // no longer stores a policy tag -- TransitionPolicyGrouping derives it from
+  // each transition's endpoint SurfaceDescriptor::kind instead
+  // (transitionPolicyTagForSurfaceKind(), detail/TransitionPolicy.h). This
+  // proves that derivation is byte-for-byte equivalent to the removed stored
+  // field for every transition in an ITS-shaped (7 Cylinder layers) plus
+  // MFT-shaped (10 Disk layers) combined layout -- the current production
+  // topology shape -- and that the grouping built from it places every
+  // transition/cell in exactly the tag bucket the endpoint kind implies.
+  constexpr uint16_t kItsLikeLayers = 7;  // ITSNLayers
+  constexpr uint16_t kMftLikeLayers = 10; // o2::mft::constants::mft::LayersNumber
+  const auto combined = buildCombinedDisconnectedLayout(kItsLikeLayers, kMftLikeLayers);
+  BOOST_REQUIRE(combined.valid());
+  const auto view = combined.getView();
+  TransitionPolicyGrouping grouping{view};
+  BOOST_REQUIRE(grouping.valid());
+
+  size_t checkedTransitions = 0;
+  for (uint32_t id = 0; id < view.topology.nTransitions; ++id) {
+    const auto transitionId = TransitionId{static_cast<uint16_t>(id)};
+    const auto& transition = view.topology.getTransition(transitionId);
+    const auto fromTag = transitionPolicyTagForSurfaceKind(view.getSurface(transition.from).kind);
+    const auto toTag = transitionPolicyTagForSurfaceKind(view.getSurface(transition.to).kind);
+    // Same-family-only topology (ADR 0007 decision 8): both endpoints must
+    // derive the same tag -- DetectorLayout::validate()'s MixedSurfaceTransition
+    // check already guarantees fromKind == toKind for every valid layout.
+    BOOST_CHECK(fromTag == toTag);
+    BOOST_CHECK(fromTag != TransitionPolicyTag::Invalid);
+    const auto ownGroup = grouping.transitionsForTag(fromTag);
+    BOOST_CHECK(std::find(ownGroup.begin(), ownGroup.end(), transitionId) != ownGroup.end());
+    ++checkedTransitions;
+  }
+  BOOST_CHECK_EQUAL(checkedTransitions, view.topology.nTransitions);
+  BOOST_CHECK_EQUAL(grouping.transitionsForTag(TransitionPolicyTag::CylinderCylinder).size(), kItsLikeLayers - 1u);
+  BOOST_CHECK_EQUAL(grouping.transitionsForTag(TransitionPolicyTag::DiskDisk).size(), kMftLikeLayers - 1u);
+}
+
 BOOST_AUTO_TEST_CASE(DispatchIsANoOpForALayoutWithNoActiveWork)
 {
   SparseTrackingTopology topology{2};
@@ -458,7 +497,7 @@ BOOST_AUTO_TEST_CASE(RoadStartEndpointWinsOverNumericHighestHitSurfaceBit)
     surfaces.push_back(surface(id, SurfaceKind::Cylinder));
   }
   DetectorLayoutBuilder builder{SurfaceCatalogView{surfaces.data(), static_cast<uint32_t>(surfaces.size())}};
-  auto result = builder.addSubgraph(DetectorLayoutSubgraph{{SurfaceId{3}, SurfaceId{1}, SurfaceId{4}, SurfaceId{0}}, 0, {}, maskOf(4), TransitionPolicyTag::CylinderCylinder}).build();
+  auto result = builder.addSubgraph(DetectorLayoutSubgraph{{SurfaceId{3}, SurfaceId{1}, SurfaceId{4}, SurfaceId{0}}, 0, {}, maskOf(4)}).build();
   BOOST_REQUIRE(result.ok());
   const auto masks = computeSurfaceKindMasks(surfaces);
   TransitionPolicyGrouping grouping{result.layout->getView(surfaces, masks.first, masks.second)};
@@ -475,7 +514,7 @@ BOOST_AUTO_TEST_CASE(RoadStartEndpointWinsOverNumericHighestHitSurfaceBit)
     surfaces2.push_back(surface(id, SurfaceKind::Cylinder));
   }
   DetectorLayoutBuilder builder2{SurfaceCatalogView{surfaces2.data(), static_cast<uint32_t>(surfaces2.size())}};
-  auto result2 = builder2.addSubgraph(DetectorLayoutSubgraph{{SurfaceId{3}, SurfaceId{1}, SurfaceId{4}, SurfaceId{0}}, 0, {}, maskOf(0), TransitionPolicyTag::CylinderCylinder}).build();
+  auto result2 = builder2.addSubgraph(DetectorLayoutSubgraph{{SurfaceId{3}, SurfaceId{1}, SurfaceId{4}, SurfaceId{0}}, 0, {}, maskOf(0)}).build();
   BOOST_REQUIRE(result2.ok());
   const auto masks2 = computeSurfaceKindMasks(surfaces2);
   TransitionPolicyGrouping grouping2{result2.layout->getView(surfaces2, masks2.first, masks2.second)};
@@ -619,8 +658,8 @@ BOOST_AUTO_TEST_CASE(ConstructorFailureClearsRoadStartCellsAlongsideAllGroups)
   std::array<SurfaceDescriptor, 3> surfaces{
     surface(0, SurfaceKind::Cylinder), surface(1, SurfaceKind::Cylinder), surface(2, SurfaceKind::Cylinder)};
   std::array<SurfaceTransition, 2> transitions{
-    adjacent(0, 1, TransitionPolicyTag::CylinderCylinder),
-    adjacent(1, 2, TransitionPolicyTag::CylinderCylinder)};
+    adjacent(0, 1),
+    adjacent(1, 2)};
   std::array<SurfaceCellTopology, 2> cells{
     SurfaceCellTopology{TransitionId{0}, TransitionId{1}, SurfaceMask{}},   // valid: endpoint surface 2, seeded
     SurfaceCellTopology{TransitionId{0}, TransitionId{99}, SurfaceMask{}}}; // invalid: out-of-range secondTransition

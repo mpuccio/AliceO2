@@ -259,7 +259,7 @@ struct Rig {
     catalog = makeITSTestCatalog();
     const auto orderedSurfaces = identitySurfaces(ITSNLayers);
     const SurfaceCatalogView catalogView{catalog.data(), static_cast<uint32_t>(catalog.size())};
-    auto result = buildDetectorLayoutSet(catalogView, orderedSurfaces, TransitionPolicyTag::CylinderCylinder, params);
+    auto result = buildDetectorLayoutSet(catalogView, orderedSurfaces, params);
     BOOST_REQUIRE(result.ok());
     plan.emplace(std::move(*result.layout));
     tf.initTrackerTopologies(params);

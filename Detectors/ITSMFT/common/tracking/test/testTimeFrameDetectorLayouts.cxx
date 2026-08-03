@@ -122,7 +122,7 @@ BuiltPlan buildPlan(std::vector<SurfaceDescriptor> surfaces, gsl::span<const Sur
                     TransitionPolicyTag tag, gsl::span<const TrackingParameters> params)
 {
   const SurfaceCatalogView view{surfaces.data(), static_cast<uint32_t>(surfaces.size())};
-  auto result = buildDetectorLayoutSet(view, ordered, tag, params);
+  auto result = buildDetectorLayoutSet(view, ordered, params);
   BOOST_REQUIRE(result.ok());
   return BuiltPlan{std::move(surfaces), std::move(*result.layout)};
 }
@@ -136,7 +136,6 @@ BuiltPlan wrapLayout(BuiltLayout built)
 {
   DetectorLayoutConfigurationKey key;
   key.orderedSurfaces = order(built.surfaces.size());
-  key.policyTag = TransitionPolicyTag::DiskDisk;
   std::vector<DetectorLayout> layouts;
   layouts.push_back(std::move(built.layout));
   const SurfaceCatalogView view{built.surfaces.data(), static_cast<uint32_t>(built.surfaces.size())};
@@ -146,9 +145,9 @@ BuiltPlan wrapLayout(BuiltLayout built)
 BuiltLayout cyclicDiskLayout()
 {
   SparseTrackingTopology topology{10};
-  BOOST_REQUIRE(topology.addTransition(SurfaceTransition{SurfaceId{0}, SurfaceId{1}, {}, TransitionPolicyTag::DiskDisk, 0}).isValid());
-  BOOST_REQUIRE(topology.addTransition(SurfaceTransition{SurfaceId{1}, SurfaceId{2}, {}, TransitionPolicyTag::DiskDisk, 0}).isValid());
-  BOOST_REQUIRE(topology.addTransition(SurfaceTransition{SurfaceId{2}, SurfaceId{0}, {}, TransitionPolicyTag::DiskDisk, 0}).isValid());
+  BOOST_REQUIRE(topology.addTransition(SurfaceTransition{SurfaceId{0}, SurfaceId{1}, {}, 0}).isValid());
+  BOOST_REQUIRE(topology.addTransition(SurfaceTransition{SurfaceId{1}, SurfaceId{2}, {}, 0}).isValid());
+  BOOST_REQUIRE(topology.addTransition(SurfaceTransition{SurfaceId{2}, SurfaceId{0}, {}, 0}).isValid());
   BOOST_REQUIRE(topology.finalize());
   auto surfaces = catalog(10, SurfaceKind::Disk, o2::detectors::DetID::MFT);
   return BuiltLayout{DetectorLayout{surfaces, std::move(topology)}, std::move(surfaces)};
@@ -158,10 +157,10 @@ BuiltLayout mixedDisconnectedLayout()
 {
   SparseTrackingTopology topology{10};
   for (uint16_t id = 0; id < 4; ++id) {
-    BOOST_REQUIRE(topology.addTransition(SurfaceTransition{SurfaceId{id}, SurfaceId{static_cast<uint16_t>(id + 1)}, {}, TransitionPolicyTag::CylinderCylinder, 0}).isValid());
+    BOOST_REQUIRE(topology.addTransition(SurfaceTransition{SurfaceId{id}, SurfaceId{static_cast<uint16_t>(id + 1)}, {}, 0}).isValid());
   }
   for (uint16_t id = 5; id < 9; ++id) {
-    BOOST_REQUIRE(topology.addTransition(SurfaceTransition{SurfaceId{id}, SurfaceId{static_cast<uint16_t>(id + 1)}, {}, TransitionPolicyTag::DiskDisk, 0}).isValid());
+    BOOST_REQUIRE(topology.addTransition(SurfaceTransition{SurfaceId{id}, SurfaceId{static_cast<uint16_t>(id + 1)}, {}, 0}).isValid());
   }
   BOOST_REQUIRE(topology.finalize());
   auto surfaces = catalog(10, SurfaceKind::Disk, o2::detectors::DetID::MFT);
@@ -273,7 +272,7 @@ BOOST_AUTO_TEST_CASE(buildDetectorLayoutSetRejectsInvalidActiveCountAndLayoutBui
     const SurfaceCatalogView view{surfaces.data(), static_cast<uint32_t>(surfaces.size())};
     const auto ordered = order(7);
     const std::vector<TrackingParameters> params{parameters(8)};
-    const auto result = buildDetectorLayoutSet(view, ordered, TransitionPolicyTag::CylinderCylinder, params);
+    const auto result = buildDetectorLayoutSet(view, ordered, params);
     BOOST_CHECK(result.error == DetectorLayoutSetBuildError::InvalidActiveCount);
     BOOST_CHECK_EQUAL(result.failedIteration, 0u);
     BOOST_CHECK(!result.ok());
@@ -286,7 +285,7 @@ BOOST_AUTO_TEST_CASE(buildDetectorLayoutSetRejectsInvalidActiveCountAndLayoutBui
     const SurfaceCatalogView view{surfaces.data(), static_cast<uint32_t>(surfaces.size())};
     const auto ordered = order(7);
     const std::vector<TrackingParameters> params{parameters(7), parameters(6), parameters(5, -1)};
-    const auto result = buildDetectorLayoutSet(view, ordered, TransitionPolicyTag::CylinderCylinder, params);
+    const auto result = buildDetectorLayoutSet(view, ordered, params);
     BOOST_CHECK(result.error == DetectorLayoutSetBuildError::LayoutBuilderFailure);
     BOOST_CHECK_EQUAL(result.failedIteration, 2u);
     BOOST_CHECK(result.layoutBuildError == DetectorLayoutBuildError::NegativeMaxHoles);
@@ -397,15 +396,15 @@ BOOST_AUTO_TEST_CASE(traversal_cache_groups_and_binds_once_across_repeated_neigh
   traits.initialiseTimeFrame(0, built.plan);
   BOOST_REQUIRE(traits.hasTraversalCache());
   BOOST_CHECK_EQUAL(traits.getTraversalGroupingCount(), 1);
-  BOOST_CHECK_EQUAL(traits.getPolicyBindingCount(TransitionPolicyTag::CylinderCylinder), 0);
-  BOOST_CHECK_EQUAL(traits.getPolicyBindingCount(TransitionPolicyTag::DiskDisk), 1);
+  BOOST_CHECK_EQUAL(traits.getPolicyBindingCount(StateFamily::Barrel), 0);
+  BOOST_CHECK_EQUAL(traits.getPolicyBindingCount(StateFamily::Forward), 1);
 
   traits.findCellsNeighbours(0);
   traits.findCellsNeighbours(0);
   traits.findRoads(0);
   traits.findRoads(0);
   BOOST_CHECK_EQUAL(traits.getTraversalGroupingCount(), 1);
-  BOOST_CHECK_EQUAL(traits.getPolicyBindingCount(TransitionPolicyTag::DiskDisk), 1);
+  BOOST_CHECK_EQUAL(traits.getPolicyBindingCount(StateFamily::Forward), 1);
 
   std::vector<TrackingParameters> itsParams{parameters(7, 0, 0, 0x7f)};
   TimeFrame itsFrame;
@@ -418,8 +417,8 @@ BOOST_AUTO_TEST_CASE(traversal_cache_groups_and_binds_once_across_repeated_neigh
   itsTraits.findRoads(0);
   itsTraits.findRoads(0);
   BOOST_CHECK_EQUAL(itsTraits.getTraversalGroupingCount(), 1);
-  BOOST_CHECK_EQUAL(itsTraits.getPolicyBindingCount(TransitionPolicyTag::CylinderCylinder), 1);
-  BOOST_CHECK_EQUAL(itsTraits.getPolicyBindingCount(TransitionPolicyTag::DiskDisk), 0);
+  BOOST_CHECK_EQUAL(itsTraits.getPolicyBindingCount(StateFamily::Barrel), 1);
+  BOOST_CHECK_EQUAL(itsTraits.getPolicyBindingCount(StateFamily::Forward), 0);
 }
 
 BOOST_AUTO_TEST_CASE(traversal_empty_road_start_span_is_valid_and_produces_no_tracks)

@@ -112,7 +112,7 @@ BOOST_AUTO_TEST_CASE(TraversalFollowsSuppliedOrderNotNumericSurfaceId)
   // in the catalog but not activated by this subgraph.
   const auto catalog = denseCatalog(5);
   DetectorLayoutBuilder builder{asView(catalog)};
-  builder.addSubgraph(DetectorLayoutSubgraph{orderedIds({3, 1, 4, 0}), 0, SurfaceMask{}, SurfaceMask{}, TransitionPolicyTag::CylinderCylinder});
+  builder.addSubgraph(DetectorLayoutSubgraph{orderedIds({3, 1, 4, 0}), 0, SurfaceMask{}, SurfaceMask{}});
 
   const auto result = builder.build();
   BOOST_REQUIRE(result.ok());
@@ -146,7 +146,7 @@ BOOST_AUTO_TEST_CASE(ExactParityWithTrackingTopologySevenNoHoles)
 {
   const auto catalog = denseCatalog(7);
   DetectorLayoutBuilder builder{asView(catalog)};
-  builder.addSubgraph(DetectorLayoutSubgraph{orderedIds({0, 1, 2, 3, 4, 5, 6}), 0, SurfaceMask{}, SurfaceMask{}, TransitionPolicyTag::CylinderCylinder});
+  builder.addSubgraph(DetectorLayoutSubgraph{orderedIds({0, 1, 2, 3, 4, 5, 6}), 0, SurfaceMask{}, SurfaceMask{}});
   const auto result = builder.build();
   BOOST_REQUIRE(result.ok());
 
@@ -162,7 +162,7 @@ BOOST_AUTO_TEST_CASE(ExactParityWithTrackingTopologySevenSingleAllowedHole)
   // testTrackingTopology.cxx: MaxHoles=1, HoleLayerMask=1<<3.
   const auto catalog = denseCatalog(7);
   DetectorLayoutBuilder builder{asView(catalog)};
-  builder.addSubgraph(DetectorLayoutSubgraph{orderedIds({0, 1, 2, 3, 4, 5, 6}), 1, maskOf({3}), SurfaceMask{}, TransitionPolicyTag::CylinderCylinder});
+  builder.addSubgraph(DetectorLayoutSubgraph{orderedIds({0, 1, 2, 3, 4, 5, 6}), 1, maskOf({3}), SurfaceMask{}});
   const auto result = builder.build();
   BOOST_REQUIRE(result.ok());
 
@@ -176,7 +176,7 @@ BOOST_AUTO_TEST_CASE(ExactParityWithTrackingTopologyTenNoHoles)
 {
   const auto catalog = denseCatalog(10, SurfaceKind::Disk);
   DetectorLayoutBuilder builder{asView(catalog)};
-  builder.addSubgraph(DetectorLayoutSubgraph{orderedIds({0, 1, 2, 3, 4, 5, 6, 7, 8, 9}), 0, SurfaceMask{}, SurfaceMask{}, TransitionPolicyTag::DiskDisk});
+  builder.addSubgraph(DetectorLayoutSubgraph{orderedIds({0, 1, 2, 3, 4, 5, 6, 7, 8, 9}), 0, SurfaceMask{}, SurfaceMask{}});
   const auto result = builder.build();
   BOOST_REQUIRE(result.ok());
 
@@ -192,7 +192,7 @@ BOOST_AUTO_TEST_CASE(ExactParityWithTrackingTopologyTenSingleAllowedHole)
   // testTrackingTopology.cxx: MaxHoles=1, HoleLayerMask=1<<5.
   const auto catalog = denseCatalog(10, SurfaceKind::Disk);
   DetectorLayoutBuilder builder{asView(catalog)};
-  builder.addSubgraph(DetectorLayoutSubgraph{orderedIds({0, 1, 2, 3, 4, 5, 6, 7, 8, 9}), 1, maskOf({5}), SurfaceMask{}, TransitionPolicyTag::DiskDisk});
+  builder.addSubgraph(DetectorLayoutSubgraph{orderedIds({0, 1, 2, 3, 4, 5, 6, 7, 8, 9}), 1, maskOf({5}), SurfaceMask{}});
   const auto result = builder.build();
   BOOST_REQUIRE(result.ok());
 
@@ -213,8 +213,8 @@ BOOST_AUTO_TEST_CASE(SingleCallDisconnectedCylinderAndDiskLayout)
   }
 
   DetectorLayoutBuilder builder{asView(catalog)};
-  builder.addSubgraph(DetectorLayoutSubgraph{orderedIds({0, 1, 2, 3, 4, 5, 6}), 0, SurfaceMask{}, maskOf({0}), TransitionPolicyTag::CylinderCylinder});
-  builder.addSubgraph(DetectorLayoutSubgraph{orderedIds({7, 8, 9, 10, 11, 12, 13, 14, 15, 16}), 0, SurfaceMask{}, maskOf({7}), TransitionPolicyTag::DiskDisk});
+  builder.addSubgraph(DetectorLayoutSubgraph{orderedIds({0, 1, 2, 3, 4, 5, 6}), 0, SurfaceMask{}, maskOf({0})});
+  builder.addSubgraph(DetectorLayoutSubgraph{orderedIds({7, 8, 9, 10, 11, 12, 13, 14, 15, 16}), 0, SurfaceMask{}, maskOf({7})});
 
   const auto result = builder.build();
   BOOST_REQUIRE(result.ok());
@@ -272,7 +272,7 @@ BOOST_AUTO_TEST_CASE(InvalidSubgraphSurfaceIdsAreRejected)
     // Out-of-range id.
     const auto catalog = denseCatalog(3);
     DetectorLayoutBuilder builder{asView(catalog)};
-    builder.addSubgraph(DetectorLayoutSubgraph{orderedIds({0, 5}), 0, SurfaceMask{}, SurfaceMask{}, TransitionPolicyTag::CylinderCylinder});
+    builder.addSubgraph(DetectorLayoutSubgraph{orderedIds({0, 5}), 0, SurfaceMask{}, SurfaceMask{}});
     const auto result = builder.build();
     BOOST_CHECK(!result.ok());
     BOOST_CHECK(result.error == DetectorLayoutBuildError::InvalidSubgraphSurfaceId);
@@ -282,7 +282,7 @@ BOOST_AUTO_TEST_CASE(InvalidSubgraphSurfaceIdsAreRejected)
     const auto catalog = denseCatalog(3);
     DetectorLayoutBuilder builder{asView(catalog)};
     std::vector<SurfaceId> ordered{SurfaceId{0}, SurfaceId::invalid()};
-    builder.addSubgraph(DetectorLayoutSubgraph{std::move(ordered), 0, SurfaceMask{}, SurfaceMask{}, TransitionPolicyTag::CylinderCylinder});
+    builder.addSubgraph(DetectorLayoutSubgraph{std::move(ordered), 0, SurfaceMask{}, SurfaceMask{}});
     const auto result = builder.build();
     BOOST_CHECK(!result.ok());
     BOOST_CHECK(result.error == DetectorLayoutBuildError::InvalidSubgraphSurfaceId);
@@ -293,7 +293,7 @@ BOOST_AUTO_TEST_CASE(DuplicateSurfaceWithinSubgraphIsRejected)
 {
   const auto catalog = denseCatalog(3);
   DetectorLayoutBuilder builder{asView(catalog)};
-  builder.addSubgraph(DetectorLayoutSubgraph{orderedIds({0, 1, 0}), 0, SurfaceMask{}, SurfaceMask{}, TransitionPolicyTag::CylinderCylinder});
+  builder.addSubgraph(DetectorLayoutSubgraph{orderedIds({0, 1, 0}), 0, SurfaceMask{}, SurfaceMask{}});
 
   const auto result = builder.build();
   BOOST_CHECK(!result.ok());
@@ -304,32 +304,24 @@ BOOST_AUTO_TEST_CASE(SurfaceDuplicatedAcrossSubgraphsIsRejected)
 {
   const auto catalog = denseCatalog(4);
   DetectorLayoutBuilder builder{asView(catalog)};
-  builder.addSubgraph(DetectorLayoutSubgraph{orderedIds({0, 1}), 0, SurfaceMask{}, SurfaceMask{}, TransitionPolicyTag::CylinderCylinder});
-  builder.addSubgraph(DetectorLayoutSubgraph{orderedIds({1, 2}), 0, SurfaceMask{}, SurfaceMask{}, TransitionPolicyTag::CylinderCylinder});
+  builder.addSubgraph(DetectorLayoutSubgraph{orderedIds({0, 1}), 0, SurfaceMask{}, SurfaceMask{}});
+  builder.addSubgraph(DetectorLayoutSubgraph{orderedIds({1, 2}), 0, SurfaceMask{}, SurfaceMask{}});
 
   const auto result = builder.build();
   BOOST_CHECK(!result.ok());
   BOOST_CHECK(result.error == DetectorLayoutBuildError::SurfaceDuplicatedAcrossSubgraphs);
 }
 
-BOOST_AUTO_TEST_CASE(InvalidPolicyTagIsRejected)
+BOOST_AUTO_TEST_CASE(SubgraphMixingSurfaceKindsIsRejected)
 {
-  const auto catalog = denseCatalog(2);
+  // M4 (ADR 0007 decision 8): a subgraph no longer asserts an external policy
+  // tag the builder validates against the catalog -- its expected SurfaceKind
+  // is derived from its own first surface, and every other surface in the
+  // subgraph must match it. Catalog surface 0 is Cylinder, surface 1 is Disk;
+  // a subgraph spanning both is rejected on that basis alone.
+  std::vector<SurfaceDescriptor> catalog{surface(0, SurfaceKind::Cylinder), surface(1, SurfaceKind::Disk)};
   DetectorLayoutBuilder builder{asView(catalog)};
-  builder.addSubgraph(DetectorLayoutSubgraph{orderedIds({0, 1}), 0, SurfaceMask{}, SurfaceMask{}, TransitionPolicyTag::Invalid});
-
-  const auto result = builder.build();
-  BOOST_CHECK(!result.ok());
-  BOOST_CHECK(result.error == DetectorLayoutBuildError::TopologyRejected);
-  BOOST_CHECK(result.topologyError == TopologyBuildError::InvalidPolicyTag);
-}
-
-BOOST_AUTO_TEST_CASE(PolicySurfaceKindMismatchIsRejected)
-{
-  // Both surfaces are disks, but the subgraph is tagged for cylinders.
-  const auto catalog = denseCatalog(2, SurfaceKind::Disk);
-  DetectorLayoutBuilder builder{asView(catalog)};
-  builder.addSubgraph(DetectorLayoutSubgraph{orderedIds({0, 1}), 0, SurfaceMask{}, SurfaceMask{}, TransitionPolicyTag::CylinderCylinder});
+  builder.addSubgraph(DetectorLayoutSubgraph{orderedIds({0, 1}), 0, SurfaceMask{}, SurfaceMask{}});
 
   const auto result = builder.build();
   BOOST_CHECK(!result.ok());
@@ -337,43 +329,24 @@ BOOST_AUTO_TEST_CASE(PolicySurfaceKindMismatchIsRejected)
   BOOST_CHECK(result.layoutError == DetectorLayoutError::PolicySurfaceKindMismatch);
 }
 
-BOOST_AUTO_TEST_CASE(SingletonSubgraphInvalidPolicyTagIsRejected)
+BOOST_AUTO_TEST_CASE(SingletonSubgraphsOfEitherKindAreAccepted)
 {
-  // A singleton subgraph never calls addTransition, so this must be caught
-  // by explicit up-front validation rather than falling out of transition
-  // enumeration.
-  const auto catalog = denseCatalog(1);
-  DetectorLayoutBuilder builder{asView(catalog)};
-  builder.addSubgraph(DetectorLayoutSubgraph{orderedIds({0}), 0, SurfaceMask{}, SurfaceMask{}, TransitionPolicyTag::Invalid});
-
-  const auto result = builder.build();
-  BOOST_CHECK(!result.ok());
-  BOOST_CHECK(result.error == DetectorLayoutBuildError::TopologyRejected);
-  BOOST_CHECK(result.topologyError == TopologyBuildError::InvalidPolicyTag);
-}
-
-BOOST_AUTO_TEST_CASE(SingletonDiskSurfaceTaggedCylinderCylinderIsRejected)
-{
-  const auto catalog = denseCatalog(1, SurfaceKind::Disk);
-  DetectorLayoutBuilder builder{asView(catalog)};
-  builder.addSubgraph(DetectorLayoutSubgraph{orderedIds({0}), 0, SurfaceMask{}, SurfaceMask{}, TransitionPolicyTag::CylinderCylinder});
-
-  const auto result = builder.build();
-  BOOST_CHECK(!result.ok());
-  BOOST_CHECK(result.error == DetectorLayoutBuildError::LayoutRejected);
-  BOOST_CHECK(result.layoutError == DetectorLayoutError::PolicySurfaceKindMismatch);
-}
-
-BOOST_AUTO_TEST_CASE(SingletonCylinderSurfaceTaggedDiskDiskIsRejected)
-{
-  const auto catalog = denseCatalog(1, SurfaceKind::Cylinder);
-  DetectorLayoutBuilder builder{asView(catalog)};
-  builder.addSubgraph(DetectorLayoutSubgraph{orderedIds({0}), 0, SurfaceMask{}, SurfaceMask{}, TransitionPolicyTag::DiskDisk});
-
-  const auto result = builder.build();
-  BOOST_CHECK(!result.ok());
-  BOOST_CHECK(result.error == DetectorLayoutBuildError::LayoutRejected);
-  BOOST_CHECK(result.layoutError == DetectorLayoutError::PolicySurfaceKindMismatch);
+  // A singleton subgraph never calls addTransition, so the (former) tag
+  // validation this used to exercise up front no longer has anything to
+  // check -- a single surface's own kind is trivially internally consistent
+  // with itself, for either SurfaceKind.
+  {
+    const auto catalog = denseCatalog(1, SurfaceKind::Disk);
+    DetectorLayoutBuilder builder{asView(catalog)};
+    builder.addSubgraph(DetectorLayoutSubgraph{orderedIds({0}), 0, SurfaceMask{}, SurfaceMask{}});
+    BOOST_CHECK(builder.build().ok());
+  }
+  {
+    const auto catalog = denseCatalog(1, SurfaceKind::Cylinder);
+    DetectorLayoutBuilder builder{asView(catalog)};
+    builder.addSubgraph(DetectorLayoutSubgraph{orderedIds({0}), 0, SurfaceMask{}, SurfaceMask{}});
+    BOOST_CHECK(builder.build().ok());
+  }
 }
 
 BOOST_AUTO_TEST_CASE(NegativeMaxHolesIsRejected)
@@ -382,7 +355,7 @@ BOOST_AUTO_TEST_CASE(NegativeMaxHolesIsRejected)
   // silently normalized to zero.
   const auto catalog = denseCatalog(2);
   DetectorLayoutBuilder builder{asView(catalog)};
-  builder.addSubgraph(DetectorLayoutSubgraph{orderedIds({0, 1}), -1, SurfaceMask{}, SurfaceMask{}, TransitionPolicyTag::CylinderCylinder});
+  builder.addSubgraph(DetectorLayoutSubgraph{orderedIds({0, 1}), -1, SurfaceMask{}, SurfaceMask{}});
 
   const auto result = builder.build();
   BOOST_CHECK(!result.ok());
@@ -393,7 +366,7 @@ BOOST_AUTO_TEST_CASE(HoleSurfacesOutsideSubgraphAreRejected)
 {
   const auto catalog = denseCatalog(3);
   DetectorLayoutBuilder builder{asView(catalog)};
-  builder.addSubgraph(DetectorLayoutSubgraph{orderedIds({0, 1}), 1, maskOf({2}), SurfaceMask{}, TransitionPolicyTag::CylinderCylinder});
+  builder.addSubgraph(DetectorLayoutSubgraph{orderedIds({0, 1}), 1, maskOf({2}), SurfaceMask{}});
 
   const auto result = builder.build();
   BOOST_CHECK(!result.ok());
@@ -404,7 +377,7 @@ BOOST_AUTO_TEST_CASE(SeedingSurfacesOutsideSubgraphAreRejected)
 {
   const auto catalog = denseCatalog(3);
   DetectorLayoutBuilder builder{asView(catalog)};
-  builder.addSubgraph(DetectorLayoutSubgraph{orderedIds({0, 1}), 0, SurfaceMask{}, maskOf({2}), TransitionPolicyTag::CylinderCylinder});
+  builder.addSubgraph(DetectorLayoutSubgraph{orderedIds({0, 1}), 0, SurfaceMask{}, maskOf({2})});
 
   const auto result = builder.build();
   BOOST_CHECK(!result.ok());
@@ -424,7 +397,7 @@ BOOST_AUTO_TEST_CASE(EmptySubgraphIsRejected)
 {
   const auto catalog = denseCatalog(2);
   DetectorLayoutBuilder builder{asView(catalog)};
-  builder.addSubgraph(DetectorLayoutSubgraph{{}, 0, SurfaceMask{}, SurfaceMask{}, TransitionPolicyTag::CylinderCylinder});
+  builder.addSubgraph(DetectorLayoutSubgraph{{}, 0, SurfaceMask{}, SurfaceMask{}});
 
   const auto result = builder.build();
   BOOST_CHECK(!result.ok());
@@ -434,7 +407,7 @@ BOOST_AUTO_TEST_CASE(EmptySubgraphIsRejected)
 BOOST_AUTO_TEST_CASE(EmptyCatalogWithNonEmptySubgraphIsRejected)
 {
   DetectorLayoutBuilder builder{SurfaceCatalogView{}};
-  builder.addSubgraph(DetectorLayoutSubgraph{orderedIds({0}), 0, SurfaceMask{}, SurfaceMask{}, TransitionPolicyTag::CylinderCylinder});
+  builder.addSubgraph(DetectorLayoutSubgraph{orderedIds({0}), 0, SurfaceMask{}, SurfaceMask{}});
 
   const auto result = builder.build();
   BOOST_CHECK(!result.ok());

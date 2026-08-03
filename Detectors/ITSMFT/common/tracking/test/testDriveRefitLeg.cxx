@@ -19,7 +19,7 @@
 #include "ITSMFTTracking/BarrelSurfaceStateOperations.h"
 #include "ITSMFTTracking/ForwardSurfaceStateOperations.h"
 #include "ITSMFTTracking/MaterialPhysics.h"
-#include "ITSMFTTracking/TransitionPolicyOperations.h"
+#include "ITSMFTTracking/detail/TransitionPolicyOperations.h"
 
 /// Stage-B refit-leg orchestration slice: focused coverage for
 /// driveRefitLeg<Tag> (TransitionPolicyOperations.h), unwired like refitHit

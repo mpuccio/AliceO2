@@ -23,8 +23,8 @@
 #include "Field/MagneticField.h"
 #include "GPUCommonMath.h"
 #include "ITSMFTTracking/MFTFwdTrackHelpers.h"
-#include "ITSMFTTracking/TransitionPolicyBinding.h"
-#include "ITSMFTTracking/TransitionPolicyOperations.h"
+#include "ITSMFTTracking/detail/TransitionPolicyBinding.h"
+#include "ITSMFTTracking/detail/TransitionPolicyOperations.h"
 #include "ITStracking/TrackHelpers.h"
 
 using namespace o2::itsmft;

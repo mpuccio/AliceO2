@@ -112,7 +112,6 @@ BOOST_AUTO_TEST_CASE(GlobalPlanAuthorityBothDetectorLayoutsAreByteIdentical)
     const auto& b = mftTopo.getTransition(TransitionId{static_cast<uint16_t>(t)});
     BOOST_CHECK(a.from == b.from);
     BOOST_CHECK(a.to == b.to);
-    BOOST_CHECK(a.policyTag == b.policyTag);
     BOOST_CHECK(a.skippedSurfaces == b.skippedSurfaces);
   }
 

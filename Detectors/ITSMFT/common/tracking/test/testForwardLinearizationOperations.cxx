@@ -18,7 +18,7 @@
 #include "CommonConstants/MathConstants.h"
 #include "ITSMFTTracking/ForwardSurfaceStateOperations.h"
 #include "ITSMFTTracking/SurfaceLinearizationReference.h"
-#include "ITSMFTTracking/TransitionPolicy.h"
+#include "ITSMFTTracking/detail/TransitionPolicy.h"
 
 namespace
 {
