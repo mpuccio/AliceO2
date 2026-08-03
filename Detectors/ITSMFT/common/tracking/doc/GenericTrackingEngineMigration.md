@@ -127,17 +127,21 @@ explicitly fenced behind its own decision (M5).
   `driveRefitLeg`/`nativeRefitTrackCylinderCylinder` path on the canonical
   fixtures, reporting per-track parameter/chi2 deltas against declared
   tolerances.
-- **Temporary bridge**: production refit stays on the legacy path behind
-  `DetectorTraits::refitSeed` until a separate activation decision.
+- **Temporary bridge**: production refit stayed on the legacy path behind
+  `DetectorTraits::refitSeed` until the separate activation decision below.
 - **Acceptance/replay gate**: approved design note plus a recorded harness
   report; production replays untouched by construction.
 - **Deletion/exit criterion**: a separate ADR records the native-refit
   activation decision (with its A/B evidence); only then may descriptor-driven
-  implementation slices change production physics.
+  implementation slices change production physics. Satisfied by [ADR
+  0008](decisions/0008-native-refit-activation.md) (M5d): both
+  `DetectorTraits::refitSeed` branches now call the shared `Propagator`
+  (`Propagator.h`/`NativeRefitDriver.h`); see that ADR for the exact legacy
+  dependencies removed and the validation record.
 - **Dependency**: M4.
-- **Classification**: the design and harness are behavior-preserving;
-  activating native refit (or any unified-flow output delta) is an
-  **intentional behavior change** requiring that separate decision.
+- **Classification**: the design and harness (this milestone) are
+  behavior-preserving; M5d's activation is the **intentional behavior
+  change** ADR 0008 records.
 
 ### M6 — SurfaceTrackingScratch and legacy container removal
 

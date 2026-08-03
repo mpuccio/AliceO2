@@ -99,7 +99,12 @@ classified as temporary. The milestone plan implementing this ADR is
     physics/output behavior change — in particular activating the native
     cylinder-cylinder refit in place of the frozen legacy ITS refit — requires
     its own recorded decision backed by A/B validation. Migration slices under
-    this ADR are otherwise replay-gated and behavior-preserving.
+    this ADR are otherwise replay-gated and behavior-preserving. [ADR
+    0008](0008-native-refit-activation.md) is that decision: it activates the
+    shared, descriptor-driven `Propagator` (`Propagator.h`) for both the
+    cylinder/ITS and disk/MFT final-refit branches of
+    `DetectorTraits::refitSeed`, retiring both frozen legacy fitting engines
+    from the new common tracker.
 
 ## Non-goals
 
