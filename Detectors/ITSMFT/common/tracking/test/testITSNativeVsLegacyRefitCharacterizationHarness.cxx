@@ -54,6 +54,20 @@
 // cell/tracklet/refit formula, does not reintroduce TransitionPolicyTag
 // publicly, does not replace LegacyTrackerScratch, and does not touch any
 // workflow/default/output contract.
+//
+// M5d extension (doc/decisions/0008-native-refit-activation.md): this
+// harness's own scenario table now also runs fitTrackSeedLegs<NLayers>
+// (NativeRefitDriver.h), the shared, descriptor-driven driver
+// DetectorTraits::refitSeed's barrel/ITS branch now actually calls in
+// production, alongside the two engines above. Propagator::propagateToMeasurement's
+// Barrel routing composes the identical barrel:: primitive sequence, in the
+// identical order, with the identical covariance-reset constants, as
+// driveRefitLeg<CylinderCylinder>/refitHit<CylinderCylinder> -- so unlike the
+// legacy-vs-native comparison (independently implemented, characterized as
+// non-equal), fitTrackSeedLegs is asserted bit-for-bit equal to
+// nativeRefitTrackCylinderCylinder for every scenario: this is the evidence
+// that removing the compile-time Tag in favor of runtime descriptor-kind
+// dispatch did not change barrel refit numerics at all.
 
 #define BOOST_TEST_MODULE ITSMFTNativeVsLegacyRefitCharacterizationHarness
 #define BOOST_TEST_MAIN
@@ -62,6 +76,7 @@
 
 #include <array>
 #include <cmath>
+#include <cstring>
 #include <fstream>
 #include <sstream>
 #include <string>
@@ -69,12 +84,22 @@
 
 #include "DetectorsBase/Propagator.h"
 #include "ITSMFTTracking/NativeCylinderCylinderRefitDriver.h"
+#include "ITSMFTTracking/NativeRefitDriver.h"
 #include "ITStracking/Cell.h"
 #include "ITStracking/Cluster.h"
 #include "ITStracking/TrackHelpers.h"
 #include "ITStracking/TrackITSInternal.h"
 
 using namespace o2::itsmft::tracking;
+
+namespace
+{
+template <typename T>
+bool bitEqual(const T& lhs, const T& rhs)
+{
+  return std::memcmp(&lhs, &rhs, sizeof(T)) == 0;
+}
+} // namespace
 
 namespace
 {
@@ -249,6 +274,9 @@ struct ScenarioResult {
   bool legacyOk{false};
   bool nativeOk{false};
   std::string nativeFailureReason;
+  bool productionOk{false};
+  std::string productionFailureReason;
+  bool productionMatchesNativeExactly{false};
   bool patternMatches{false};
   bool timestampMatches{false};
   bool numericComparable{false};
@@ -313,6 +341,40 @@ ScenarioResult runScenario(const Scenario& scenario)
     BOOST_CHECK_EQUAL(paramIn.parameters[0], -777.f);
     BOOST_CHECK_EQUAL(paramOut.parameters[0], -888.f);
     BOOST_CHECK_EQUAL(chi2, -999.f);
+  }
+
+  // --- M5d production driver: fitTrackSeedLegs<NLayers> (NativeRefitDriver.h),
+  // the shared descriptor-driven driver DetectorTraits::refitSeed's barrel/ITS
+  // branch now actually calls. ---
+  const auto productionSeed = makeNativeSeed(scenario.nHitLayers);
+  SurfaceKinematicState productionParamIn{};
+  productionParamIn.parameters[0] = -777.f;
+  SurfaceKinematicState productionParamOut{};
+  productionParamOut.parameters[0] = -888.f;
+  float productionChi2 = -999.f;
+  OperationFailureReason productionReason{};
+  result.productionOk = fitTrackSeedLegs<NLayers>(
+    productionSeed, fixture.layerMeasurements, fixture.catalog, Bz, scenario.shiftRefToCluster,
+    scenario.maxChi2ClusterAttachment, scenario.maxChi2NDF, scenario.repeatRefitOut,
+    gsl::span<const float>(minPt), productionParamIn, productionParamOut, productionChi2, productionReason);
+  result.productionFailureReason = result.productionOk ? "" : failureReasonName(productionReason);
+
+  BOOST_CHECK_MESSAGE(result.productionOk == result.nativeOk,
+                      scenario.name << ": fitTrackSeedLegs vs nativeRefitTrackCylinderCylinder success/failure differs (production="
+                                    << result.productionOk << " native=" << result.nativeOk << ")");
+  if (result.productionOk && result.nativeOk) {
+    result.productionMatchesNativeExactly =
+      bitEqual(productionParamIn, paramIn) && bitEqual(productionParamOut, paramOut) && productionChi2 == chi2;
+    BOOST_CHECK_MESSAGE(result.productionMatchesNativeExactly,
+                        scenario.name << ": fitTrackSeedLegs must reproduce nativeRefitTrackCylinderCylinder bit-for-bit for the Barrel family");
+  } else if (!result.productionOk && !result.nativeOk) {
+    result.productionMatchesNativeExactly = (productionReason == reason);
+    BOOST_CHECK_MESSAGE(result.productionMatchesNativeExactly,
+                        scenario.name << ": failure reason differs: production=" << failureReasonName(productionReason)
+                                      << " native=" << failureReasonName(reason));
+    BOOST_CHECK_EQUAL(productionParamIn.parameters[0], -777.f);
+    BOOST_CHECK_EQUAL(productionParamOut.parameters[0], -888.f);
+    BOOST_CHECK_EQUAL(productionChi2, -999.f);
   }
 
   // --- Structural invariants: asserted exactly. ---
@@ -383,6 +445,9 @@ void writeJsonReport()
     out << "      \"legacyOk\": " << (r.legacyOk ? "true" : "false") << ",\n";
     out << "      \"nativeOk\": " << (r.nativeOk ? "true" : "false") << ",\n";
     out << "      \"nativeFailureReason\": \"" << r.nativeFailureReason << "\",\n";
+    out << "      \"productionOk\": " << (r.productionOk ? "true" : "false") << ",\n";
+    out << "      \"productionFailureReason\": \"" << r.productionFailureReason << "\",\n";
+    out << "      \"productionMatchesNativeExactly\": " << (r.productionMatchesNativeExactly ? "true" : "false") << ",\n";
     out << "      \"numericComparable\": " << (r.numericComparable ? "true" : "false") << ",\n";
     if (r.numericComparable) {
       out << "      \"patternMatches\": " << (r.patternMatches ? "true" : "false") << ",\n";

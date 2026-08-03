@@ -191,6 +191,18 @@ o2_add_test(refit-leg-assembly
             LABELS "itsmft;tracking"
             PUBLIC_LINK_LIBRARIES O2::ITSMFTTracking O2::MFTTracking)
 
+o2_add_test(no-legacy-fitting-dependency
+            SOURCES testNoLegacyFittingDependency.cxx
+            COMPONENT_NAME itsmft-tracking
+            LABELS "itsmft;tracking"
+            PUBLIC_LINK_LIBRARIES O2::ITSMFTTracking)
+
+o2_add_test(propagator
+            SOURCES testPropagator.cxx
+            COMPONENT_NAME itsmft-tracking
+            LABELS "itsmft;tracking"
+            PUBLIC_LINK_LIBRARIES O2::ITSMFTTracking)
+
 o2_add_test(native-cylindercylinder-refit-driver
             SOURCES testNativeCylinderCylinderRefitDriver.cxx
             COMPONENT_NAME itsmft-tracking

@@ -97,6 +97,14 @@ const std::set<std::string>& stateFamilyAllowlist()
     // by construction); no code-level reference. Already allowlisted above
     // for TransitionPolicyTag as an unwired, zero-external-consumer driver.
     "NativeCylinderCylinderRefitDriver.h",
+    // M5d: Propagator::convertFamily/propagateToMeasurement route on the
+    // target SurfaceDescriptor::kind-derived StateFamily and, on mismatch,
+    // perform a real state-representation conversion between families --
+    // exactly the same "operate on the state's own family classification"
+    // role BarrelSurfaceStateOperations.h/ForwardSurfaceStateOperations.h
+    // already have below, never a topology/scheduling/dispatch key.
+    "Propagator.h",
+    "NativeRefitDriver.h",
   };
   return files;
 }

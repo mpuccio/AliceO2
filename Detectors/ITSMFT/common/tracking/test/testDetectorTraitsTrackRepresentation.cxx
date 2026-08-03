@@ -170,32 +170,33 @@ BOOST_AUTO_TEST_CASE(have_same_polarity)
   BOOST_CHECK(!DetectorTraits<10>::haveSamePolarity(mftPositive, mftOpposite));
 }
 
-// --- Stage-B activation: single-shot barrel refitter boundary --------------
+// --- M5d: single-shot barrel refitter boundary ------------------------------
 //
-// refitSeedITS (DetectorTraits.cxx) no longer casts the common seed's
-// inherited TrackParCovF; it goes through the one accepted
-// legacy::exportBarrelTrackParCov() boundary instead. exportBarrelTrackParCov's
-// own field-level round-trip parity and family rejection are already proven
-// in testSurfaceKinematicState.cxx; this test proves the boundary as
-// DetectorTraits<7>::refitSeed itself actually uses it: a wrong-family seed
-// state must make the whole refit fail cleanly (return false) without ever
-// reaching the refit machinery -- exercised through tfInfos/unsortedClusters/
-// propagator inputs that would be invalid to dereference, proving they are
-// never touched.
-BOOST_AUTO_TEST_CASE(RefitSeedFailsCleanlyForWrongFamilySeedState)
+// DetectorTraits<7>::refitSeed's barrel/ITS branch (refitSeedITS,
+// DetectorTraits.cxx) now goes through the shared native driver
+// (fitTrackSeedLegs, NativeRefitDriver.h) instead of the frozen legacy
+// o2::its::track::refitTrackSeed chain -- see
+// doc/decisions/0008-native-refit-activation.md. This test proves that an
+// invalid (StateFamily::Invalid) seed state -- a genuinely corrupted/
+// caller-bug state, distinct from a merely cross-family-convertible Forward
+// state, which Propagator::convertFamily now legitimately supports -- makes
+// the whole refit fail cleanly (return false, track untouched) via
+// makeLinearizationReference's own hasRecognizedFamily() check, before any
+// per-layer measurement is ever indexed (so an intentionally empty
+// layerMeasurements/surfaceCatalog is safe to pass here).
+BOOST_AUTO_TEST_CASE(RefitSeedFailsCleanlyForInvalidFamilySeedState)
 {
   DetectorTraits<7>::TrackSeedN seed;
-  seed.state().family = StateFamily::Forward; // wrong family for the ITS barrel refitter
+  seed.state().family = StateFamily::Invalid; // corrupted/unrecognized family
   seed.state().parameters[4] = 0.2f;
   seed.setHitLayerMask(LayerMask{0x007f});
 
   DetectorTraits<7>::TrackType track;
   o2::itsmft::TrackingParameters params;
   LegacyTrackerScratch<7> tf;
-  const o2::its::TrackingFrameInfo* const tfInfos[7] = {nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr};
-  const o2::its::Cluster* const unsortedClusters[7] = {nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr};
   const LayerMeasurementSpans<7> layerMeasurements{};
+  const SurfaceCatalogView surfaceCatalog{};
 
-  const bool refitSuccess = DetectorTraits<7>::refitSeed(seed, track, params, 0.5f, tf, tfInfos, unsortedClusters, nullptr, layerMeasurements, ClusterSourceId{0});
+  const bool refitSuccess = DetectorTraits<7>::refitSeed(seed, track, params, 0.5f, tf, layerMeasurements, surfaceCatalog, ClusterSourceId{0});
   BOOST_CHECK(!refitSuccess);
 }
