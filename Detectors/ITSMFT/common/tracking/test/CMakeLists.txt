@@ -314,6 +314,12 @@ o2_add_test(computelayertracklets-orchestration
             LABELS "itsmft;tracking"
             PUBLIC_LINK_LIBRARIES O2::ITSMFTTracking O2::MFTTracking)
 
+o2_add_test(traversaloperationbinding-containment
+            SOURCES testTraversalOperationBindingContainment.cxx
+            COMPONENT_NAME itsmft-tracking
+            LABELS "itsmft;tracking"
+            PUBLIC_LINK_LIBRARIES O2::ITSMFTTracking)
+
 # Gate 4 B2 Slice 1: replacement combined-layout test over the static,
 # compile-time-concatenated ITS+MFT catalog (StaticDetectorCatalogs.h). Gate
 # 4 B2 Slice 3 deleted CombinedSurfaceCatalogBuilder, its test, the runtime
