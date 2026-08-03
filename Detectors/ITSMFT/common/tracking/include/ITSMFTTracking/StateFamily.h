@@ -14,12 +14,24 @@
 #include "GPUCommonDef.h"
 #include "ITSMFTTracking/SurfaceDescriptor.h"
 
-// ADR 0007 decisions 7-8 / M4: StateFamily and SurfaceKind are the permanent
-// public generic-core concepts; the legacy hot-loop-dispatch tag those
-// decisions confine behind the detail/ boundary is a temporary
+// ADR 0007 decisions 7-8 / M4-M4b: StateFamily and SurfaceKind are the
+// permanent public generic-core concepts; the legacy hot-loop-dispatch tag
+// those decisions confine behind the detail/ boundary is a temporary
 // implementation detail, not a future public/core abstraction. This header
-// lets any generic/adapter-facing code classify a surface's family without
-// naming that legacy tag at all.
+// lets state-representation types (SurfaceKinematicState,
+// SurfaceLinearizationReference) and the barrel::/forward:: operations that
+// consume them classify a surface's family without naming that legacy tag at
+// all.
+//
+// M4b correction: StateFamily is a state-representation-local concept only.
+// It must never be used as a substitute transition-policy/dispatch key by
+// public topology, traversal, scheduling, binding-count, or adapter-facing
+// observability APIs -- those must use SurfaceDescriptor/SurfaceKind
+// directly, or (for anything still dispatched by the legacy hot-loop tag)
+// stay confined behind the same detail/ boundary as that tag. See
+// detail::stateFamilyFromNLayers() (detail/TransitionPolicyState.h) for the
+// one legacy NLayers-to-family dispatch bridge this correction moved out of
+// the public Cell.h.
 namespace o2::itsmft::tracking
 {
 
@@ -28,32 +40,6 @@ enum class StateFamily : uint8_t {
   Barrel,
   Forward
 };
-
-// Selects which of the three hits in a {inner, middle, outer} candidate
-// supplies the anchor/reference frame for seed construction (Stage-B
-// refit-primitive slice, design report Sec 5). Explicit values are locked
-// (never renumbered) because they may be threaded through device-facing
-// call sites in a later slice. Outer is the current accepted
-// buildCellSeed/buildSeed anchor (referenceCoordinate/alpha/covariance
-// come from the outer measurement's own tracking frame). Inner is the
-// frozen ITS `reverse=true` anchor
-// (o2::its::track::buildTrackSeed/seedTrackForRefit,
-// ITStracking/TrackHelpers.h): referenceCoordinate/alpha/covariance come
-// from the inner measurement's own tracking frame instead, with the
-// legacy sign flip applied to snp/q2pt/tgl so the local direction
-// convention stays consistent with the swapped anchor. This is a plain
-// selector, not a reverse-traversal flag: it never encodes propagation
-// direction, material-correction direction, or fit-leg order by itself.
-enum class SeedAnchor : uint8_t {
-  Inner = 0,
-  Outer = 1
-};
-
-static_assert(std::is_standard_layout_v<SeedAnchor> && std::is_trivially_copyable_v<SeedAnchor>);
-static_assert(std::is_same_v<std::underlying_type_t<SeedAnchor>, uint8_t>);
-static_assert(sizeof(SeedAnchor) == sizeof(uint8_t));
-static_assert(static_cast<uint8_t>(SeedAnchor::Inner) == 0);
-static_assert(static_cast<uint8_t>(SeedAnchor::Outer) == 1);
 
 /// The state family every surface of `kind` belongs to. This is the public,
 /// tag-free bridge between SurfaceKind and StateFamily (ADR 0007 decision 8):

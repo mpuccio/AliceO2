@@ -143,7 +143,6 @@ void TrackerTraits<NLayers>::resetTraversalCache() noexcept
   mSurfaceToLegacyLayer.fill(kInvalidLegacyLayer);
   mLayerMeasurements.fill(gsl::span<const SurfaceMeasurement>{});
   mTraversalGroupingCount = 0;
-  mPolicyBindingCounts.fill(0);
 }
 
 template <int NLayers>
@@ -185,20 +184,6 @@ void TrackerTraits<NLayers>::dispatchActivePolicy(const TransitionPolicyGrouping
   } else {
     visitor(TransitionPolicyTraits<TransitionPolicyTag::DiskDisk>{}, mBinding->getGlobalTransitions(), mBinding->getGlobalCells());
   }
-}
-
-template <int NLayers>
-int TrackerTraits<NLayers>::getPolicyBindingCount(StateFamily family) const noexcept
-{
-  switch (family) {
-    case StateFamily::Barrel:
-      return mPolicyBindingCounts[0];
-    case StateFamily::Forward:
-      return mPolicyBindingCounts[1];
-    case StateFamily::Invalid:
-      return 0;
-  }
-  return 0;
 }
 
 template <int NLayers>
@@ -704,13 +689,11 @@ void TrackerTraits<NLayers>::initialiseTimeFrame(const int iteration, const Dete
   }
   if (activeTag == TransitionPolicyTag::CylinderCylinder) {
     cylinderParams = bindTransitionPolicyParams<TransitionPolicyTag::CylinderCylinder>(mTrkParams[iteration]);
-    ++mPolicyBindingCounts[0];
     if (!cylinderParams->isValid()) {
       throw TraversalException{iteration, TraversalFailureReason::InvalidPolicyParameters};
     }
   } else if (activeTag == TransitionPolicyTag::DiskDisk) {
     diskParams = bindTransitionPolicyParams<TransitionPolicyTag::DiskDisk>(mTrkParams[iteration]);
-    ++mPolicyBindingCounts[1];
     if (!diskParams->isValid()) {
       throw TraversalException{iteration, TraversalFailureReason::InvalidPolicyParameters};
     }

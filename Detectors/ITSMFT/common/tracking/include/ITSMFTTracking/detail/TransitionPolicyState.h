@@ -11,8 +11,10 @@
 #include <cstddef>
 #include <type_traits>
 
+#include "DetectorsCommonDataFormats/DetID.h"
 #include "GPUCommonDef.h"
 #include "GPUCommonMath.h"
+#include "ITSMFTTracking/Configuration.h"
 #include "ITSMFTTracking/SurfaceDescriptor.h"
 #include "ITSMFTTracking/SurfaceKinematicState.h"
 #include "ITSMFTTracking/detail/TransitionPolicy.h"
@@ -154,6 +156,25 @@ static_assert(isSurfaceKindCompatible(TransitionPolicyTag::DiskDisk,
                                       TransitionPolicyTraits<TransitionPolicyTag::DiskDisk>::ExpectedSurfaceKind));
 static_assert(!isSurfaceKindCompatible(TransitionPolicyTag::CylinderCylinder, SurfaceKind::Disk));
 static_assert(!isSurfaceKindCompatible(TransitionPolicyTag::DiskDisk, SurfaceKind::Cylinder));
+
+/// M4b: moved here from the public Cell.h, where this NLayers->StateFamily
+/// legacy compatibility bridge (Architecture.md Sec 10.1) did not belong --
+/// StateFamily must not be used as a topology/traversal/dispatch key
+/// substitute by public headers. The common Cell/TrackSeed representation
+/// does not encode family in its C++ type, so this class's only consumer,
+/// TrackerTraits<NLayers>'s legacy hot-loop dispatch (TrackerTraits.cxx),
+/// compares this against TransitionPolicyTraits<Tag>::Family directly to
+/// validate "this TrackerTraits<NLayers> instantiation may process this
+/// tag's family", instead of comparing Cell/TrackSeed types. ITSNLayers maps
+/// to Barrel, MFTNLayers (o2::mft::constants::mft::LayersNumber) maps to
+/// Forward. This inference is temporary (confined to this detail/ boundary
+/// alongside TransitionPolicyTag) and must not be expanded into a new
+/// durable detector abstraction.
+template <int NLayers>
+GPUhdi() constexpr StateFamily stateFamilyFromNLayers() noexcept
+{
+  return detIdFromNLayers<NLayers>() == o2::detectors::DetID::MFT ? StateFamily::Forward : StateFamily::Barrel;
+}
 
 } // namespace o2::itsmft::tracking
 

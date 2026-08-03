@@ -25,7 +25,6 @@
 #include "ITSMFTTracking/Configuration.h"
 #include "ITSMFTTracking/LayerMask.h"
 #include "ITSMFTTracking/SurfaceKinematicState.h"
-#include "ITSMFTTracking/StateFamily.h"
 #include "ITStracking/Constants.h"
 #include "GPUCommonDef.h"
 
@@ -209,21 +208,6 @@ struct CATrackTypeHelper {
 
 template <int NLayers>
 using CATrackType = typename CATrackTypeHelper<NLayers>::type;
-
-/// Temporary NLayers -> StateFamily compatibility boundary (Architecture.md
-/// Sec 10.1): the common Cell/TrackSeed representation no longer encodes
-/// family in its C++ type, so orchestration boundaries that need to validate
-/// "this TrackerTraits<NLayers> instantiation may process this
-/// TransitionPolicyTraits<Tag>::Family" compare this against Traits::Family
-/// directly, instead of comparing Cell/TrackSeed types. ITSNLayers maps to
-/// Barrel, MFTNLayers (o2::mft::constants::mft::LayersNumber) maps to
-/// Forward. This inference is temporary and must not be expanded into a new
-/// durable detector abstraction.
-template <int NLayers>
-GPUhdi() constexpr StateFamily stateFamilyFromNLayers() noexcept
-{
-  return detIdFromNLayers<NLayers>() == o2::detectors::DetID::MFT ? StateFamily::Forward : StateFamily::Barrel;
-}
 
 } // namespace o2::itsmft::tracking
 

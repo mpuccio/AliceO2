@@ -13,6 +13,7 @@
 #include "ITSMFTTracking/SurfaceLinearizationReference.h"
 #include "ITSMFTTracking/SurfaceMeasurement.h"
 #include "ITSMFTTracking/SurfaceStateOperationResult.h"
+#include "ITSMFTTracking/SeedAnchor.h"
 #include "ITSMFTTracking/StateFamily.h"
 
 namespace o2::itsmft::tracking::barrel

@@ -28,7 +28,6 @@
 #include "ITSMFTTracking/AcceptedTrackShadowPublisher.h"
 #include "ITSMFTTracking/DetectorLayoutSet.h"
 #include "ITSMFTTracking/LegacyTrackerScratch.h"
-#include "ITSMFTTracking/StateFamily.h"
 #include "ITSMFTTracking/SurfaceDescriptor.h"
 #include "ITSMFTTracking/SurfaceMeasurement.h"
 #include "ITSMFTTracking/TimeFrame.h"
@@ -206,12 +205,6 @@ class TrackerTraits
   int getTFNumberOfCells() const { return mScratch->getNumberOfCells(); }
 
   int getTraversalGroupingCount() const noexcept { return mTraversalGroupingCount; }
-  // Family-keyed observability accessor (M4; replaces the removed
-  // getPolicyBindingCount(TransitionPolicyTag) that this same test/inspection
-  // accessor used to take): StateFamily is the permanent public
-  // classification (ITSMFTTracking/StateFamily.h), never the legacy
-  // TransitionPolicyTag.
-  int getPolicyBindingCount(StateFamily family) const noexcept;
   bool hasTraversalCache() const noexcept { return mTraversalGrouping.has_value(); }
   // Authoritative per-(legacy-)layer nominal material resolved once by the
   // most recent successful initialiseTimeFrame() call, from
@@ -265,7 +258,7 @@ class TrackerTraits
   // (identical behavior to before this slice). With a binding adopted,
   // `grouping` (built from the possibly-multi-detector `layout`) is not used
   // for tag selection at all: the active tag is this NLayers instantiation's
-  // own compile-time StateFamily (a binding only ever owns transitions of
+  // own compile-time family (a binding only ever owns transitions of
   // the matching tag, enforced by DetectorTraversalBinding::build()), so the
   // visitor is invoked exactly once, fed `binding`'s own filtered
   // transition/cell spans instead of `grouping`'s whole-layout ones -- this
@@ -389,7 +382,6 @@ class TrackerTraits
   // unless the call returns normally.
   std::array<gsl::span<const SurfaceMeasurement>, NLayers> mLayerMeasurements{};
   int mTraversalGroupingCount{0};
-  std::array<int, 2> mPolicyBindingCounts{};
   // A template-specialized serial accepted-track hook. Its ITS instantiation
   // is empty and has no MFT compatibility allocation or lookup.
   AcceptedTrackShadowPublisher<NLayers> mAcceptedTrackShadowPublisher;
