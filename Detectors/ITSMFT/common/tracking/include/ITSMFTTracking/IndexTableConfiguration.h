@@ -27,7 +27,7 @@
 
 #include "ITSMFTTracking/Configuration.h"
 #include "ITSMFTTracking/IndexTableUtils.h"
-#include "ITSMFTTracking/TransitionPolicy.h"
+#include "ITSMFTTracking/detail/TransitionPolicy.h"
 
 namespace o2::itsmft::tracking
 {

@@ -16,12 +16,10 @@ namespace o2::itsmft::tracking
 
 DetectorLayoutSetBuildResult buildDetectorLayoutSet(SurfaceCatalogView catalog,
                                                     gsl::span<const SurfaceId> orderedSurfaces,
-                                                    TransitionPolicyTag policyTag,
                                                     gsl::span<const o2::itsmft::TrackingParameters> trackingParameters)
 {
   DetectorLayoutConfigurationKey key;
   key.orderedSurfaces.assign(orderedSurfaces.begin(), orderedSurfaces.end());
-  key.policyTag = policyTag;
   key.iterations.reserve(trackingParameters.size());
   for (const auto& parameters : trackingParameters) {
     if (parameters.NLayers < 0 || static_cast<size_t>(parameters.NLayers) > orderedSurfaces.size()) {
@@ -43,7 +41,6 @@ DetectorLayoutSetBuildResult buildDetectorLayoutSet(SurfaceCatalogView catalog,
     subgraph.maxHoles = configuration.maxHoles;
     subgraph.holeSurfaces = positionalSurfaceMask(configuration.holeLayerMask, orderedSurfaces, configuration.activeCount);
     subgraph.seedingSurfaces = positionalSurfaceMask(configuration.startLayerMask, orderedSurfaces, configuration.activeCount);
-    subgraph.policyTag = policyTag;
 
     DetectorLayoutBuilder builder{catalog};
     auto buildResult = builder.addSubgraph(std::move(subgraph)).build();

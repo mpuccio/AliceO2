@@ -60,14 +60,12 @@ DetectorLayoutBuildResult buildCombinedLayout(gsl::span<const SurfaceId> itsSurf
   itsSubgraph.maxHoles = itsParams.MaxHoles;
   itsSubgraph.holeSurfaces = positionalSurfaceMask(itsParams.HoleLayerMask, itsSurfaces, static_cast<uint32_t>(itsSurfaces.size()));
   itsSubgraph.seedingSurfaces = positionalSurfaceMask(itsParams.StartLayerMask, itsSurfaces, static_cast<uint32_t>(itsSurfaces.size()));
-  itsSubgraph.policyTag = TransitionPolicyTag::CylinderCylinder;
 
   DetectorLayoutSubgraph mftSubgraph;
   mftSubgraph.orderedSurfaces.assign(mftSurfaces.begin(), mftSurfaces.end());
   mftSubgraph.maxHoles = mftParams.MaxHoles;
   mftSubgraph.holeSurfaces = positionalSurfaceMask(mftParams.HoleLayerMask, mftSurfaces, static_cast<uint32_t>(mftSurfaces.size()));
   mftSubgraph.seedingSurfaces = positionalSurfaceMask(mftParams.StartLayerMask, mftSurfaces, static_cast<uint32_t>(mftSurfaces.size()));
-  mftSubgraph.policyTag = TransitionPolicyTag::DiskDisk;
 
   DetectorLayoutBuilder builder{combinedCatalogView()};
   builder.addSubgraph(std::move(itsSubgraph));
@@ -96,11 +94,10 @@ DetectorLayoutBuildResult buildCombinedLayout(gsl::span<const SurfaceId> itsSurf
 // there is no code path that could make them diverge.
 template <int NLayers>
 DetectorLayoutSet ownDetectorPlan(const DetectorLayout& authoritative, gsl::span<const SurfaceId> ownSurfaces,
-                                  const TrackingParameters& ownParams, TransitionPolicyTag ownPolicy)
+                                  const TrackingParameters& ownParams)
 {
   DetectorLayoutConfigurationKey key;
   key.orderedSurfaces.assign(ownSurfaces.begin(), ownSurfaces.end());
-  key.policyTag = ownPolicy;
   key.iterations.push_back(DetectorLayoutIterationConfiguration{
     static_cast<uint32_t>(NLayers), ownParams.MaxHoles, ownParams.HoleLayerMask, ownParams.StartLayerMask});
   std::vector<DetectorLayout> layouts;
@@ -131,8 +128,8 @@ ITSMFTLegacyParticipantSet::ITSMFTLegacyParticipantSet(std::vector<o2::itsmft::T
   }
   const DetectorLayout& combinedLayout = *combinedBuild.layout;
 
-  mITSPlan.emplace(ownDetectorPlan<ITSNLayers>(combinedLayout, itsSurfaces, itsParams[0], TransitionPolicyTag::CylinderCylinder));
-  mMFTPlan.emplace(ownDetectorPlan<MFTNLayers>(combinedLayout, mftSurfaces, mftParams[0], TransitionPolicyTag::DiskDisk));
+  mITSPlan.emplace(ownDetectorPlan<ITSNLayers>(combinedLayout, itsSurfaces, itsParams[0]));
+  mMFTPlan.emplace(ownDetectorPlan<MFTNLayers>(combinedLayout, mftSurfaces, mftParams[0]));
 
   auto itsBindingResult = DetectorTraversalBinding::build(mITSPlan->getLayoutView(0), o2::detectors::DetID::ITS, ClusterSourceId{0},
                                                           surfaceRangeMask(0, ITSNLayers), itsSurfaces);

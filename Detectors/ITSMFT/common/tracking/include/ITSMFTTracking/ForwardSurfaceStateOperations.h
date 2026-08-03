@@ -15,7 +15,7 @@
 #include "ITSMFTTracking/SurfaceLinearizationReference.h"
 #include "ITSMFTTracking/SurfaceMeasurement.h"
 #include "ITSMFTTracking/SurfaceStateOperationResult.h"
-#include "ITSMFTTracking/TransitionPolicy.h"
+#include "ITSMFTTracking/StateFamily.h"
 
 namespace o2::itsmft::tracking::forward
 {

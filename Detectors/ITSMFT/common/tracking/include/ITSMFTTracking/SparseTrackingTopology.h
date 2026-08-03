@@ -20,16 +20,20 @@
 #include "GPUCommonDef.h"
 #include "ITSMFTTracking/SurfaceId.h"
 #include "ITSMFTTracking/SurfaceMask.h"
-#include "ITSMFTTracking/TransitionPolicy.h"
 
 namespace o2::itsmft::tracking
 {
 
+// No policy/family tag: this generic sparse graph is detector- and policy-
+// agnostic (ADR 0007 decision 8). A transition's family is always derivable
+// from its endpoint SurfaceDescriptor::kind at the layout layer, which owns
+// the surface catalog this topology does not; see
+// DetectorLayout::validate()/detail::TransitionPolicyGrouping for that
+// derivation.
 struct SurfaceTransition {
   SurfaceId from{};
   SurfaceId to{};
   SurfaceMask skippedSurfaces{};
-  TransitionPolicyTag policyTag{TransitionPolicyTag::Invalid};
   uint16_t flags{0};
 };
 
@@ -75,8 +79,7 @@ static_assert(sizeof(SurfaceCellTopology) == 8);
 static_assert(offsetof(SurfaceTransition, from) == 0);
 static_assert(offsetof(SurfaceTransition, to) == 2);
 static_assert(offsetof(SurfaceTransition, skippedSurfaces) == 4);
-static_assert(offsetof(SurfaceTransition, policyTag) == 8);
-static_assert(offsetof(SurfaceTransition, flags) == 10);
+static_assert(offsetof(SurfaceTransition, flags) == 8);
 
 #ifndef GPUCA_GPUCODE
 
@@ -84,12 +87,10 @@ enum class TopologyBuildError : uint8_t {
   None,
   InvalidSurfaceCount,
   InvalidSurface,
-  InvalidPolicyTag,
   SelfTransition,
   DuplicateTransition,
   TooManyTransitions,
   InvalidTransition,
-  MixedPolicyCell,
   DisconnectedTransitions,
   RepeatedSurface,
   DuplicateCell,
@@ -114,10 +115,6 @@ class SparseTrackingTopology
   TransitionId addTransition(SurfaceTransition transition)
   {
     if (!canModify()) {
-      return TransitionId::invalid();
-    }
-    if (!isStageATransitionPolicyTagEnabled(transition.policyTag)) {
-      mError = TopologyBuildError::InvalidPolicyTag;
       return TransitionId::invalid();
     }
     if (!isSurfaceInLayout(transition.from) || !isSurfaceInLayout(transition.to) ||
@@ -157,10 +154,6 @@ class SparseTrackingTopology
     }
     const auto& firstTransition = mTransitions[first.value()];
     const auto& secondTransition = mTransitions[second.value()];
-    if (firstTransition.policyTag != secondTransition.policyTag) {
-      mError = TopologyBuildError::MixedPolicyCell;
-      return CellTopologyId::invalid();
-    }
     if (firstTransition.to != secondTransition.from) {
       mError = TopologyBuildError::DisconnectedTransitions;
       return CellTopologyId::invalid();

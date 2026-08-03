@@ -25,7 +25,7 @@
 #include "ITSMFTTracking/Configuration.h"
 #include "ITSMFTTracking/LayerMask.h"
 #include "ITSMFTTracking/SurfaceKinematicState.h"
-#include "ITSMFTTracking/TransitionPolicy.h"
+#include "ITSMFTTracking/StateFamily.h"
 #include "ITStracking/Constants.h"
 #include "GPUCommonDef.h"
 

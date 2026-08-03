@@ -22,7 +22,6 @@
 #include "ITSMFTTracking/SparseTrackingTopology.h"
 #include "ITSMFTTracking/SurfaceCatalogView.h"
 #include "ITSMFTTracking/SurfaceDescriptor.h"
-#include "ITSMFTTracking/TransitionPolicy.h"
 
 namespace o2::itsmft::tracking
 {
@@ -160,10 +159,6 @@ class DetectorLayout
       const auto toKind = surfaces[transition.to.value()].kind;
       if (fromKind != toKind) {
         mError = DetectorLayoutError::MixedSurfaceTransition;
-        return;
-      }
-      if (!isSurfaceKindCompatible(transition.policyTag, fromKind)) {
-        mError = DetectorLayoutError::PolicySurfaceKindMismatch;
         return;
       }
     }

@@ -45,7 +45,7 @@
 #include "ITSMFTTracking/CATracker.h"
 #include "ITSMFTTracking/Configuration.h"
 #include "ITSMFTTracking/DetectorLayoutSet.h"
-#include "ITSMFTTracking/DetectorTraversalBinding.h"
+#include "ITSMFTTracking/detail/DetectorTraversalBinding.h"
 #include "ITSMFTTracking/ITSSharedClusterCompatibility.h"
 #include "ITSMFTTracking/LegacyTrackerScratch.h"
 #include "ITSMFTTracking/MFTPublicationCompatibility.h"

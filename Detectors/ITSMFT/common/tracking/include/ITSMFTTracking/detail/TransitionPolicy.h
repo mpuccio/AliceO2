@@ -5,49 +5,25 @@
 // This software is distributed under the terms of the GNU General Public
 // License v3 (GPL Version 3), copied verbatim in the file "COPYING".
 
-#ifndef ALICEO2_ITSMFT_TRACKING_TRANSITIONPOLICY_H_
-#define ALICEO2_ITSMFT_TRACKING_TRANSITIONPOLICY_H_
+#ifndef ALICEO2_ITSMFT_TRACKING_DETAIL_TRANSITIONPOLICY_H_
+#define ALICEO2_ITSMFT_TRACKING_DETAIL_TRANSITIONPOLICY_H_
+
+// M4 (GenericTrackingEngineMigration.md; ADR 0007 decisions 7-8): this header
+// -- and every other header under ITSMFTTracking/detail/ -- is a temporary
+// legacy hot-loop-dispatch implementation detail, not a public/adapter-facing
+// API. TransitionPolicyTag must never be nameable outside this detail
+// boundary; the permanent public concepts (SurfaceKind, StateFamily) live in
+// ITSMFTTracking/SurfaceDescriptor.h / ITSMFTTracking/StateFamily.h.
 
 #include <cstdint>
 #include <type_traits>
 
 #include "GPUCommonDef.h"
+#include "ITSMFTTracking/StateFamily.h"
 #include "ITSMFTTracking/SurfaceDescriptor.h"
 
 namespace o2::itsmft::tracking
 {
-
-enum class StateFamily : uint8_t {
-  Invalid,
-  Barrel,
-  Forward
-};
-
-// Selects which of the three hits in a {inner, middle, outer} candidate
-// supplies the anchor/reference frame for seed construction (Stage-B
-// refit-primitive slice, design report Sec 5). Explicit values are locked
-// (never renumbered) because they may be threaded through device-facing
-// call sites in a later slice. Outer is the current accepted
-// buildCellSeed/buildSeed anchor (referenceCoordinate/alpha/covariance
-// come from the outer measurement's own tracking frame). Inner is the
-// frozen ITS `reverse=true` anchor
-// (o2::its::track::buildTrackSeed/seedTrackForRefit,
-// ITStracking/TrackHelpers.h): referenceCoordinate/alpha/covariance come
-// from the inner measurement's own tracking frame instead, with the
-// legacy sign flip applied to snp/q2pt/tgl so the local direction
-// convention stays consistent with the swapped anchor. This is a plain
-// selector, not a reverse-traversal flag: it never encodes propagation
-// direction, material-correction direction, or fit-leg order by itself.
-enum class SeedAnchor : uint8_t {
-  Inner = 0,
-  Outer = 1
-};
-
-static_assert(std::is_standard_layout_v<SeedAnchor> && std::is_trivially_copyable_v<SeedAnchor>);
-static_assert(std::is_same_v<std::underlying_type_t<SeedAnchor>, uint8_t>);
-static_assert(sizeof(SeedAnchor) == sizeof(uint8_t));
-static_assert(static_cast<uint8_t>(SeedAnchor::Inner) == 0);
-static_assert(static_cast<uint8_t>(SeedAnchor::Outer) == 1);
 
 enum class TransitionPolicyTag : uint16_t {
   Invalid,
@@ -101,11 +77,32 @@ GPUhdi() constexpr bool isSurfaceKindCompatible(TransitionPolicyTag tag, Surface
   return false;
 }
 
-static_assert(std::is_same_v<std::underlying_type_t<StateFamily>, uint8_t>);
+/// The unique TransitionPolicyTag whose isSurfaceKindCompatible() accepts
+/// `kind` (current same-family-only topology, ADR 0007 decision 8): the
+/// inverse of isSurfaceKindCompatible, used to derive a transition's tag from
+/// its endpoint SurfaceDescriptor::kind now that SurfaceTransition no longer
+/// stores the tag itself (M4). Every current production transition's kind
+/// and tag were already consistent by construction (DetectorLayoutBuilder
+/// only ever built same-kind subgraphs), so this derivation reproduces
+/// exactly the value the removed stored field always held.
+GPUhdi() constexpr TransitionPolicyTag transitionPolicyTagForSurfaceKind(SurfaceKind kind) noexcept
+{
+  switch (kind) {
+    case SurfaceKind::Cylinder:
+      return TransitionPolicyTag::CylinderCylinder;
+    case SurfaceKind::Disk:
+      return TransitionPolicyTag::DiskDisk;
+  }
+  return TransitionPolicyTag::Invalid;
+}
+
 static_assert(std::is_same_v<std::underlying_type_t<TransitionPolicyTag>, uint16_t>);
-static_assert(sizeof(StateFamily) == sizeof(uint8_t));
 static_assert(sizeof(TransitionPolicyTag) == sizeof(uint16_t));
+static_assert(transitionPolicyTagForSurfaceKind(SurfaceKind::Cylinder) == TransitionPolicyTag::CylinderCylinder);
+static_assert(transitionPolicyTagForSurfaceKind(SurfaceKind::Disk) == TransitionPolicyTag::DiskDisk);
+static_assert(isSurfaceKindCompatible(transitionPolicyTagForSurfaceKind(SurfaceKind::Cylinder), SurfaceKind::Cylinder));
+static_assert(isSurfaceKindCompatible(transitionPolicyTagForSurfaceKind(SurfaceKind::Disk), SurfaceKind::Disk));
 
 } // namespace o2::itsmft::tracking
 
-#endif /* ALICEO2_ITSMFT_TRACKING_TRANSITIONPOLICY_H_ */
+#endif /* ALICEO2_ITSMFT_TRACKING_DETAIL_TRANSITIONPOLICY_H_ */

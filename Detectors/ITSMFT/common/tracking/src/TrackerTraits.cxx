@@ -41,8 +41,8 @@
 #include "ITSMFTTracking/LayerMask.h"
 #include "ITStracking/ROFLookupTables.h"
 #include "ITSMFTTracking/TrackerTraits.h"
-#include "ITSMFTTracking/TransitionPolicyBinding.h"
-#include "ITSMFTTracking/TransitionPolicyOperations.h"
+#include "ITSMFTTracking/detail/TransitionPolicyBinding.h"
+#include "ITSMFTTracking/detail/TransitionPolicyOperations.h"
 #include "ITStracking/TrackHelpers.h"
 #include "ITStracking/Tracklet.h"
 #include "SimulationDataFormat/MCCompLabel.h"
@@ -188,14 +188,14 @@ void TrackerTraits<NLayers>::dispatchActivePolicy(const TransitionPolicyGrouping
 }
 
 template <int NLayers>
-int TrackerTraits<NLayers>::getPolicyBindingCount(TransitionPolicyTag tag) const noexcept
+int TrackerTraits<NLayers>::getPolicyBindingCount(StateFamily family) const noexcept
 {
-  switch (tag) {
-    case TransitionPolicyTag::CylinderCylinder:
+  switch (family) {
+    case StateFamily::Barrel:
       return mPolicyBindingCounts[0];
-    case TransitionPolicyTag::DiskDisk:
+    case StateFamily::Forward:
       return mPolicyBindingCounts[1];
-    case TransitionPolicyTag::Invalid:
+    case StateFamily::Invalid:
       return 0;
   }
   return 0;
@@ -211,6 +211,11 @@ void TrackerTraits<NLayers>::validateLegacyParity(int iteration,
   const auto sparse = layout.topology;
   const auto legacy = mScratch->getTrackingTopologyView();
   using LegacyId = typename ScratchN::TrackingTopologyN::Id;
+  // M4: SurfaceTransition no longer stores a policy tag (ADR 0007 decision
+  // 8); every transition's tag is derived from its `from` endpoint's
+  // SurfaceDescriptor::kind instead -- byte-identical to the removed stored
+  // field, since DetectorLayoutBuilder only ever built same-kind subgraphs.
+  const auto tagOf = [&layout](SurfaceId surface) { return transitionPolicyTagForSurfaceKind(layout.getSurface(surface).kind); };
 
   activeTag = TransitionPolicyTag::Invalid;
   mixedPolicy = false;
@@ -261,8 +266,8 @@ void TrackerTraits<NLayers>::validateLegacyParity(int iteration,
         fail();
       }
       if (activeTag == TransitionPolicyTag::Invalid) {
-        activeTag = current.policyTag;
-      } else if (current.policyTag != activeTag) {
+        activeTag = tagOf(current.from);
+      } else if (tagOf(current.from) != activeTag) {
         mixedPolicy = true;
       }
     }
@@ -291,8 +296,8 @@ void TrackerTraits<NLayers>::validateLegacyParity(int iteration,
           !hitTranslatesCleanly || hitLegacy.value() != reference.hitLayerMask.value()) {
         fail();
       }
-      const auto firstTag = sparse.getTransition(current.firstTransition).policyTag;
-      const auto secondTag = sparse.getTransition(current.secondTransition).policyTag;
+      const auto firstTag = tagOf(sparse.getTransition(current.firstTransition).from);
+      const auto secondTag = tagOf(sparse.getTransition(current.secondTransition).from);
       if (firstTag != secondTag || (activeTag != TransitionPolicyTag::Invalid && firstTag != activeTag)) {
         mixedPolicy = true;
       }
@@ -332,8 +337,8 @@ void TrackerTraits<NLayers>::validateLegacyParity(int iteration,
       fail();
     }
     if (activeTag == TransitionPolicyTag::Invalid) {
-      activeTag = current.policyTag;
-    } else if (current.policyTag != activeTag) {
+      activeTag = tagOf(current.from);
+    } else if (tagOf(current.from) != activeTag) {
       mixedPolicy = true;
     }
   }
@@ -347,8 +352,8 @@ void TrackerTraits<NLayers>::validateLegacyParity(int iteration,
         current.hitSurfaces.value() != reference.hitLayerMask.value()) {
       fail();
     }
-    const auto firstTag = sparse.getTransition(current.firstTransition).policyTag;
-    const auto secondTag = sparse.getTransition(current.secondTransition).policyTag;
+    const auto firstTag = tagOf(sparse.getTransition(current.firstTransition).from);
+    const auto secondTag = tagOf(sparse.getTransition(current.secondTransition).from);
     if (firstTag != secondTag || (activeTag != TransitionPolicyTag::Invalid && firstTag != activeTag)) {
       mixedPolicy = true;
     }

@@ -51,11 +51,10 @@ struct DetectorLayoutIterationConfiguration {
 struct DetectorLayoutConfigurationKey {
   std::vector<SurfaceId> orderedSurfaces{};
   std::vector<DetectorLayoutIterationConfiguration> iterations{};
-  TransitionPolicyTag policyTag{TransitionPolicyTag::Invalid};
 
   bool operator==(const DetectorLayoutConfigurationKey& other) const noexcept
   {
-    return orderedSurfaces == other.orderedSurfaces && iterations == other.iterations && policyTag == other.policyTag;
+    return orderedSurfaces == other.orderedSurfaces && iterations == other.iterations;
   }
 };
 
@@ -145,7 +144,6 @@ struct DetectorLayoutSetBuildResult {
 // ::initialiseTracker()) calls this exactly once per interface instance.
 DetectorLayoutSetBuildResult buildDetectorLayoutSet(SurfaceCatalogView catalog,
                                                     gsl::span<const SurfaceId> orderedSurfaces,
-                                                    TransitionPolicyTag policyTag,
                                                     gsl::span<const o2::itsmft::TrackingParameters> trackingParameters);
 
 } // namespace o2::itsmft::tracking

@@ -21,7 +21,6 @@
 #include "ITSMFTTracking/SurfaceDescriptor.h"
 #include "ITSMFTTracking/SurfaceId.h"
 #include "ITSMFTTracking/SurfaceMask.h"
-#include "ITSMFTTracking/TransitionPolicy.h"
 
 namespace o2::itsmft::tracking
 {
@@ -34,12 +33,17 @@ namespace o2::itsmft::tracking
 /// contains. A catalog is free to assign global ids in an order that does not
 /// follow the physical traversal (see testDetectorLayoutBuilder.cxx's
 /// non-monotonic chain case).
+///
+/// No policy tag: a subgraph's expected SurfaceKind is derived directly from
+/// its own first surface's catalog entry (ADR 0007 decision 8) and every
+/// other surface in the subgraph is required to share it -- the caller never
+/// asserts a family/policy classification the catalog does not already
+/// carry.
 struct DetectorLayoutSubgraph {
   std::vector<SurfaceId> orderedSurfaces;
   int maxHoles{0};
   SurfaceMask holeSurfaces{};    // subset of orderedSurfaces allowed to be skipped as a hole
   SurfaceMask seedingSurfaces{}; // subset of orderedSurfaces usable as a seed
-  TransitionPolicyTag policyTag{TransitionPolicyTag::Invalid};
 };
 
 /// Failures the builder itself detects before (or instead of) delegating to

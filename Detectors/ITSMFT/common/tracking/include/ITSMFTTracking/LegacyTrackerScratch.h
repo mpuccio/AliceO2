@@ -310,7 +310,7 @@ struct LegacyTrackerScratch {
   void initTrackerTopologies(gsl::span<const TrackingParameters> trkParams, const int maxLayers = NLayers);
   // `indexTableConfig` must already be validated by the caller (see
   // ITSMFTTracking/IndexTableConfiguration.h::bindIndexTableConfiguration);
-  // LegacyTrackerScratch never inspects a TransitionPolicyTag or DetID to
+  // LegacyTrackerScratch never inspects a transition policy or DetID to
   // derive it, and never fails to configure/allocate on this account -- it
   // simply commits an already-valid value. `frame`'s beam position feeds
   // prepareClusters()'s XY binning below. The only call site

@@ -20,7 +20,7 @@
 
 #include "DetectorsCommonDataFormats/DetID.h"
 #include "ITSMFTTracking/DetectorLayout.h"
-#include "ITSMFTTracking/TransitionPolicyDispatch.h"
+#include "ITSMFTTracking/detail/TransitionPolicyDispatch.h"
 
 namespace o2::itsmft::tracking
 {
@@ -93,6 +93,7 @@ class DetectorTraversalBinding
       }
     }
 
+    const auto expectedKind = detector == o2::detectors::DetID::ITS ? SurfaceKind::Cylinder : SurfaceKind::Disk;
     const auto expectedPolicy = detector == o2::detectors::DetID::ITS ? TransitionPolicyTag::CylinderCylinder : TransitionPolicyTag::DiskDisk;
     const TransitionPolicyGrouping grouping{globalLayout};
     if (!grouping.valid()) {
@@ -117,9 +118,8 @@ class DetectorTraversalBinding
       if (!transition.skippedSurfaces.isSubsetOf(ownedSurfaces)) {
         return {{}, DetectorTraversalBindingError::CrossBoundaryTransition};
       }
-      if (transition.policyTag != expectedPolicy ||
-          !isSurfaceKindCompatible(transition.policyTag, globalLayout.getSurface(transition.from).kind) ||
-          !isSurfaceKindCompatible(transition.policyTag, globalLayout.getSurface(transition.to).kind)) {
+      if (globalLayout.getSurface(transition.from).kind != expectedKind ||
+          globalLayout.getSurface(transition.to).kind != expectedKind) {
         return {{}, DetectorTraversalBindingError::InvalidPolicySurface};
       }
     }

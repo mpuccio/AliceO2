@@ -13,7 +13,7 @@
 #include <type_traits>
 
 #include "GPUCommonDef.h"
-#include "ITSMFTTracking/TransitionPolicy.h"
+#include "ITSMFTTracking/StateFamily.h"
 #include "ReconstructionDataFormats/PID.h"
 
 namespace o2::itsmft::tracking

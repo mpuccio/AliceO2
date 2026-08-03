@@ -8,7 +8,7 @@
 #ifndef ALICEO2_ITSMFT_TRACKING_TRANSITIONPOLICYBINDING_H_
 #define ALICEO2_ITSMFT_TRACKING_TRANSITIONPOLICYBINDING_H_
 
-#include "ITSMFTTracking/TransitionPolicyState.h"
+#include "ITSMFTTracking/detail/TransitionPolicyState.h"
 
 // Host-only: TrackingParameters (Configuration.h) owns std::vector members
 // and is not itself device-compatible; only the bound Params struct crosses

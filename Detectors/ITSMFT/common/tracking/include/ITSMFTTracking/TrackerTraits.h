@@ -27,14 +27,15 @@
 #include "ITSMFTTracking/Configuration.h"
 #include "ITSMFTTracking/AcceptedTrackShadowPublisher.h"
 #include "ITSMFTTracking/DetectorLayoutSet.h"
-#include "ITSMFTTracking/DetectorTraversalBinding.h"
 #include "ITSMFTTracking/LegacyTrackerScratch.h"
+#include "ITSMFTTracking/StateFamily.h"
 #include "ITSMFTTracking/SurfaceDescriptor.h"
 #include "ITSMFTTracking/SurfaceMeasurement.h"
 #include "ITSMFTTracking/TimeFrame.h"
-#include "ITSMFTTracking/TransitionPolicyBinding.h"
-#include "ITSMFTTracking/TransitionPolicyDispatch.h"
-#include "ITSMFTTracking/TransitionPolicyState.h"
+#include "ITSMFTTracking/detail/DetectorTraversalBinding.h"
+#include "ITSMFTTracking/detail/TransitionPolicyBinding.h"
+#include "ITSMFTTracking/detail/TransitionPolicyDispatch.h"
+#include "ITSMFTTracking/detail/TransitionPolicyState.h"
 #include "ITStracking/BoundedAllocator.h"
 
 namespace o2::itsmft::tracking
@@ -184,9 +185,6 @@ class TrackerTraits
   virtual void findCellsNeighbours(const int iteration);
   virtual void findRoads(const int iteration);
 
-  template <TransitionPolicyTag Tag, typename InputSeed>
-  void processNeighbours(int iteration, int defaultCellTopologyId, int iLevel, const bounded_vector<InputSeed>& currentCellSeed, const bounded_vector<int>& currentCellId, const bounded_vector<int>& currentCellTopologyId, bounded_vector<TrackSeedN>& updatedCellSeed, bounded_vector<int>& updatedCellId, bounded_vector<int>& updatedCellTopologyId, const typename TransitionPolicyTraits<Tag>::Params& params);
-
   void acceptTracks(int iteration, bounded_vector<CATrackType<NLayers>>& tracks, bounded_vector<bounded_vector<int>>& firstClusters);
   void markTracks(int iteration);
 
@@ -208,7 +206,12 @@ class TrackerTraits
   int getTFNumberOfCells() const { return mScratch->getNumberOfCells(); }
 
   int getTraversalGroupingCount() const noexcept { return mTraversalGroupingCount; }
-  int getPolicyBindingCount(TransitionPolicyTag tag) const noexcept;
+  // Family-keyed observability accessor (M4; replaces the removed
+  // getPolicyBindingCount(TransitionPolicyTag) that this same test/inspection
+  // accessor used to take): StateFamily is the permanent public
+  // classification (ITSMFTTracking/StateFamily.h), never the legacy
+  // TransitionPolicyTag.
+  int getPolicyBindingCount(StateFamily family) const noexcept;
   bool hasTraversalCache() const noexcept { return mTraversalGrouping.has_value(); }
   // Authoritative per-(legacy-)layer nominal material resolved once by the
   // most recent successful initialiseTimeFrame() call, from
@@ -289,6 +292,15 @@ class TrackerTraits
 
   template <TransitionPolicyTag Tag>
   void findRoadsForPolicy(int iteration, const typename TransitionPolicyTraits<Tag>::Params& params);
+
+  // M4 (GenericTrackingEngineMigration.md; ADR 0007 decision 7): moved from
+  // public to private -- findRoadsForPolicy() is this method's only caller
+  // (TrackerTraits.cxx), recursively, so there was never an external need
+  // for it to be publicly callable. Explicit template instantiation of a
+  // private member is unaffected by access control (TrackerTraits.cxx still
+  // instantiates it for every (NLayers, Tag) pair it needs).
+  template <TransitionPolicyTag Tag, typename InputSeed>
+  void processNeighbours(int iteration, int defaultCellTopologyId, int iLevel, const bounded_vector<InputSeed>& currentCellSeed, const bounded_vector<int>& currentCellId, const bounded_vector<int>& currentCellTopologyId, bounded_vector<TrackSeedN>& updatedCellSeed, bounded_vector<int>& updatedCellId, bounded_vector<int>& updatedCellTopologyId, const typename TransitionPolicyTraits<Tag>::Params& params);
 
   // Gate 3 transition-preparation slice: relocated from TimeFrame::initialise()
   // (Architecture.md Sec 10/10.1). Called from initialiseTimeFrame() only

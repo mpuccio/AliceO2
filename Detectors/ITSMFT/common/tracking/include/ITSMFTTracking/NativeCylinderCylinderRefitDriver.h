@@ -23,7 +23,7 @@
 #include "ITSMFTTracking/SurfaceCatalogView.h"
 #include "ITSMFTTracking/SurfaceKinematicStateLegacyAdapters.h"
 #include "ITSMFTTracking/SurfaceStateOperationResult.h"
-#include "ITSMFTTracking/TransitionPolicyOperations.h"
+#include "ITSMFTTracking/detail/TransitionPolicyOperations.h"
 #include "ReconstructionDataFormats/TrackParametrization.h"
 
 namespace o2::itsmft::tracking

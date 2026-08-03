@@ -11,8 +11,8 @@
 #include <cstdint>
 
 #include "ITSMFTTracking/DetectorLayout.h"
-#include "ITSMFTTracking/TransitionPolicy.h"
-#include "ITSMFTTracking/TransitionPolicyState.h"
+#include "ITSMFTTracking/detail/TransitionPolicy.h"
+#include "ITSMFTTracking/detail/TransitionPolicyState.h"
 
 // Host-only: this is the outer-loop dispatch boundary itself, never a
 // candidate/hot-loop body, so it has no device-side counterpart (D007/
@@ -71,7 +71,7 @@ class TransitionPolicyGrouping
         return;
       }
       ++indegree[transition.to.value()];
-      auto* group = groupFor(transition.policyTag);
+      auto* group = groupFor(transitionPolicyTagForSurfaceKind(layout.getSurface(transition.from).kind));
       if (group != nullptr) {
         group->transitions.push_back(id);
       }
@@ -115,7 +115,7 @@ class TransitionPolicyGrouping
         clear();
         return;
       }
-      auto* group = groupFor(topology.getTransition(cell.firstTransition).policyTag);
+      auto* group = groupFor(transitionPolicyTagForSurfaceKind(layout.getSurface(topology.getTransition(cell.firstTransition).from).kind));
       if (group != nullptr) {
         group->cells.push_back(id);
         group->scheduledCells.push_back(id);

@@ -225,10 +225,10 @@ void ITSMFTTrackingInterface<NLayers>::initialiseTracker()
   DetectorLayoutSetBuildResult planResult;
   if constexpr (DetId == o2::detectors::DetID::ITS) {
     planResult = buildDetectorLayoutSet(SurfaceCatalogView{kITSStaticSurfaceCatalog.data(), static_cast<uint32_t>(kITSStaticSurfaceCatalog.size())},
-                                        gsl::span<const SurfaceId>{kOrderedSurfaces}, TransitionPolicyTag::CylinderCylinder, mTrackParams);
+                                        gsl::span<const SurfaceId>{kOrderedSurfaces}, mTrackParams);
   } else {
     planResult = buildDetectorLayoutSet(SurfaceCatalogView{kMFTStaticSurfaceCatalog.data(), static_cast<uint32_t>(kMFTStaticSurfaceCatalog.size())},
-                                        gsl::span<const SurfaceId>{kOrderedSurfaces}, TransitionPolicyTag::DiskDisk, mTrackParams);
+                                        gsl::span<const SurfaceId>{kOrderedSurfaces}, mTrackParams);
   }
   if (!planResult.ok()) {
     LOGP(fatal, "{} CA tracker failed to build its static detector layout plan (error={} failedIteration={} layoutBuildError={} topologyError={} layoutError={})",

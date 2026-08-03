@@ -66,17 +66,17 @@ DetectorLayoutBuildResult DetectorLayoutBuilder::build() const
       return result;
     }
 
-    // Checked explicitly rather than left to fall out of addTransition():
-    // a singleton subgraph never calls addTransition at all, so an Invalid
-    // policy tag or a policy/surface-kind mismatch would otherwise pass
-    // through unreported.
-    if (!isStageATransitionPolicyTagEnabled(subgraph.policyTag)) {
-      result.error = DetectorLayoutBuildError::TopologyRejected;
-      result.topologyError = TopologyBuildError::InvalidPolicyTag;
-      return result;
-    }
-
+    // Every surface in a subgraph must share one SurfaceKind (ADR 0007
+    // decision 8: the subgraph's family is derived from its own catalog
+    // entries, never asserted by the caller as a separate policy tag).
+    // Checked explicitly rather than left to fall out of addTransition(): a
+    // singleton subgraph never calls addTransition at all, so this would
+    // otherwise go unreported. `expectedKind` is taken from the first
+    // surface once its id has been validated below -- never read before
+    // that, since an out-of-range first id must fail
+    // InvalidSubgraphSurfaceId, not an out-of-bounds catalog access.
     SurfaceMask subgraphSurfaces{};
+    std::optional<SurfaceKind> expectedKind{};
     for (const auto& id : subgraph.orderedSurfaces) {
       if (!id.isValid() || id.value() >= mCatalog.nSurfaces) {
         result.error = DetectorLayoutBuildError::InvalidSubgraphSurfaceId;
@@ -90,7 +90,10 @@ DetectorLayoutBuildResult DetectorLayoutBuilder::build() const
         result.error = DetectorLayoutBuildError::SurfaceDuplicatedAcrossSubgraphs;
         return result;
       }
-      if (!isSurfaceKindCompatible(subgraph.policyTag, mCatalog.surfaces[id.value()].kind)) {
+      const auto kind = mCatalog.surfaces[id.value()].kind;
+      if (!expectedKind.has_value()) {
+        expectedKind = kind;
+      } else if (kind != *expectedKind) {
         result.error = DetectorLayoutBuildError::LayoutRejected;
         result.layoutError = DetectorLayoutError::PolicySurfaceKindMismatch;
         return result;
@@ -134,7 +137,7 @@ DetectorLayoutBuildResult DetectorLayoutBuilder::build() const
         if (skipped.count() > subgraph.maxHoles || !skipped.isSubsetOf(subgraph.holeSurfaces)) {
           continue;
         }
-        const auto id = topology.addTransition(SurfaceTransition{ordered[posFrom], ordered[posTo], skipped, subgraph.policyTag, 0});
+        const auto id = topology.addTransition(SurfaceTransition{ordered[posFrom], ordered[posTo], skipped, 0});
         if (!id.isValid()) {
           result.error = DetectorLayoutBuildError::TopologyRejected;
           result.topologyError = topology.getError();

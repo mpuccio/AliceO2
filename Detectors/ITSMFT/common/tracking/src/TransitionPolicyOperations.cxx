@@ -12,7 +12,7 @@
 /// the D007 policy operation boundary, so the common public policy header
 /// stays free of MFT-specific constants/TimeFrame/MFTCATrack dependencies.
 
-#include "ITSMFTTracking/TransitionPolicyOperations.h"
+#include "ITSMFTTracking/detail/TransitionPolicyOperations.h"
 
 #include <algorithm>
 #include <array>

@@ -10,7 +10,7 @@
 
 #include <array>
 
-#include "ITSMFTTracking/TransitionPolicyState.h"
+#include "ITSMFTTracking/detail/TransitionPolicyState.h"
 
 #ifndef GPUCA_GPUCODE
 #include <cmath>

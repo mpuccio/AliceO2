@@ -13,7 +13,7 @@
 
 #include "GPUCommonDef.h"
 #include "ITSMFTTracking/SurfaceKinematicState.h"
-#include "ITSMFTTracking/TransitionPolicy.h"
+#include "ITSMFTTracking/StateFamily.h"
 
 namespace o2::itsmft::tracking
 {
