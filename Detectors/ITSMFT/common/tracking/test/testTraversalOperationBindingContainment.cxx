@@ -43,16 +43,27 @@
 namespace
 {
 
-std::string readTrackerTraitsSource()
+std::string readFile(const std::string& path)
 {
-  const std::string testFile = __FILE__;
-  const auto testDirectory = testFile.substr(0, testFile.find_last_of('/'));
-  const auto path = testDirectory + "/../src/TrackerTraits.cxx";
   std::ifstream input{path};
   BOOST_REQUIRE_MESSAGE(input.good(), "cannot inspect " << path);
   std::ostringstream buffer;
   buffer << input.rdbuf();
   return buffer.str();
+}
+
+std::string readTrackerTraitsSource()
+{
+  const std::string testFile = __FILE__;
+  const auto testDirectory = testFile.substr(0, testFile.find_last_of('/'));
+  return readFile(testDirectory + "/../src/TrackerTraits.cxx");
+}
+
+std::string readTrackerTraitsHeader()
+{
+  const std::string testFile = __FILE__;
+  const auto testDirectory = testFile.substr(0, testFile.find_last_of('/'));
+  return readFile(testDirectory + "/../include/ITSMFTTracking/TrackerTraits.h");
 }
 
 /// Extracts the body (inclusive of the opening/closing braces) of the first
@@ -166,4 +177,55 @@ BOOST_AUTO_TEST_CASE(BindTraversalOperationIsTheSoleProducerOfTheBoundOperation)
   // bindTraversalOperation()'s own `if constexpr`, which is explicitly
   // allowed -- see that method's own doc).
   BOOST_CHECK_EQUAL(count, 8u);
+}
+
+BOOST_AUTO_TEST_CASE(TraversalOperationBindingUsesNonAllocatingMemberFunctionPointers)
+{
+  // M5c corrective slice: TraversalOperationBinding's four members must be
+  // plain pointers-to-member (TrackerTraits::*), never std::function or any
+  // other type-erasing/potentially-heap-allocating callable wrapper. Proven
+  // two ways: the header never mentions std::function/<functional> at all
+  // (a coarse but sufficient guard, since nothing else in this header has a
+  // legitimate reason to need either), and each of the four member
+  // declarations is spelled as a pointer-to-member-function type.
+  const auto header = readTrackerTraitsHeader();
+  BOOST_CHECK_MESSAGE(header.find("std::function") == std::string::npos,
+                      "TrackerTraits.h mentions std::function -- TraversalOperationBinding must use "
+                      "non-allocating member-function pointers instead");
+  BOOST_CHECK_MESSAGE(header.find("<functional>") == std::string::npos,
+                      "TrackerTraits.h includes <functional> -- no longer needed once "
+                      "TraversalOperationBinding uses member-function pointers");
+
+  const std::regex trackerTraitsMemberPointer{"\\(TrackerTraits::\\*\\)"};
+  auto matches = std::distance(std::sregex_iterator(header.begin(), header.end(), trackerTraitsMemberPointer), std::sregex_iterator());
+  // ComputeTrackletsFn/ComputeCellsFn/FindNeighboursFn/FindRoadsFn: one
+  // pointer-to-member-function type alias each, inside TraversalOperationBinding.
+  BOOST_CHECK_EQUAL(matches, 4);
+}
+
+BOOST_AUTO_TEST_CASE(EightNonTemplateWrapperTargetsForwardToTheExistingTagTemplatedLeafImplementations)
+{
+  // The eight (operation, TransitionPolicyTag) wrapper targets a bound
+  // pointer-to-member may point to (TrackerTraits.h) must each be a thin,
+  // non-template forwarder to the corresponding pre-existing *ForPolicy<Tag>
+  // leaf implementation -- never a reimplementation, and never itself
+  // templated (a template member function cannot be the unique target of a
+  // plain, non-template pointer-to-member-function type).
+  const auto source = readTrackerTraitsSource();
+  const std::array<std::pair<std::string, std::string>, 8> wrapperToLeaf{{
+    {"computeLayerTrackletsCylinderCylinder", "computeLayerTrackletsForPolicy<TransitionPolicyTag::CylinderCylinder>"},
+    {"computeLayerTrackletsDiskDisk", "computeLayerTrackletsForPolicy<TransitionPolicyTag::DiskDisk>"},
+    {"computeLayerCellsCylinderCylinder", "computeLayerCellsForPolicy<TransitionPolicyTag::CylinderCylinder>"},
+    {"computeLayerCellsDiskDisk", "computeLayerCellsForPolicy<TransitionPolicyTag::DiskDisk>"},
+    {"findCellsNeighboursCylinderCylinder", "findCellsNeighboursForPolicy<TransitionPolicyTag::CylinderCylinder>"},
+    {"findCellsNeighboursDiskDisk", "findCellsNeighboursForPolicy<TransitionPolicyTag::DiskDisk>"},
+    {"findRoadsCylinderCylinder", "findRoadsForPolicy<TransitionPolicyTag::CylinderCylinder>"},
+    {"findRoadsDiskDisk", "findRoadsForPolicy<TransitionPolicyTag::DiskDisk>"},
+  }};
+  for (const auto& [wrapper, leafCall] : wrapperToLeaf) {
+    const auto body = extractMethodBody(source, wrapper);
+    BOOST_REQUIRE_GT(body.size(), 0u);
+    BOOST_CHECK_MESSAGE(body.find(leafCall) != std::string::npos,
+                        "TrackerTraits<NLayers>::" << wrapper << "() does not forward to " << leafCall);
+  }
 }
