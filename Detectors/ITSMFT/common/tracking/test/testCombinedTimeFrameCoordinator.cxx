@@ -1222,3 +1222,65 @@ BOOST_AUTO_TEST_CASE(CoordinatorHeaderNoLongerDirectlyIncludesLegacyCATrackerHea
     }
   }
 }
+
+namespace
+{
+
+bool isFullLineComment(const std::string& line)
+{
+  const auto pos = line.find_first_not_of(" \t");
+  return pos != std::string::npos && line.compare(pos, 2, "//") == 0;
+}
+
+} // namespace
+
+// M2c (GenericTrackingEngineMigration.md; ADR 0007) exit criterion: this
+// coordinator now delegates every static catalog/binding/tracker/scratch
+// construction and every fixed ITS=0/MFT=1 source-position literal to
+// ITSMFTLegacyParticipantSet -- it must contain no direct construction of
+// (or member of) any of those types, and no fixed-source-position literal,
+// of its own. Complements CoordinatorHeaderNoLongerDirectlyIncludesLegacy
+// CATrackerHeaders above (which only proved the *header's own #include*
+// lines): this scans both the header and the source file's actual code
+// (full-line comments skipped -- this is a code scan, not a prose scan) for
+// the concrete construction/literal tokens themselves, so a transitively
+// available alias (e.g. this coordinator's own public
+// LegacyTrackerScratchITS/MFT-returning getters, forwarded from
+// ITSMFTLegacyParticipantSet, which legitimately keep those alias names) is
+// not confused with direct ownership (DetectorLayoutSet/
+// DetectorTraversalBinding/raw Tracker<>/TrackerTraits<>/
+// LegacyTrackerScratch<> construction, or a ClusterSourceId{0}/{1}/
+// ITSNLayers/MFTNLayers/static-catalog literal).
+BOOST_AUTO_TEST_CASE(CoordinatorContainsNoDirectDetectorConstructionOrFixedSourceLiterals)
+{
+  const std::string testFile = __FILE__;
+  const auto testDirectory = testFile.substr(0, testFile.find_last_of('/'));
+  const std::array<std::string, 2> files = {
+    testDirectory + "/../include/ITSMFTTracking/CombinedTimeFrameCoordinator.h",
+    testDirectory + "/../src/CombinedTimeFrameCoordinator.cxx"};
+
+  // "LegacyTrackerScratch<"/"Tracker<"/"TrackerTraits<" (raw template
+  // construction) are deliberately distinct from the alias names
+  // "LegacyTrackerScratchITS"/"MFT" this coordinator's public API still
+  // returns -- those aliases carry no "<" and are exempt by construction.
+  const std::array<std::string, 10> forbidden = {
+    "DetectorLayoutSet", "DetectorTraversalBinding", "Tracker<", "TrackerTraits<", "LegacyTrackerScratch<",
+    "ClusterSourceId{0}", "ClusterSourceId{1}", "ITSNLayers", "MFTNLayers", "StaticDetectorCatalogs"};
+
+  for (const auto& file : files) {
+    std::ifstream input{file};
+    BOOST_REQUIRE_MESSAGE(input.good(), "cannot inspect " << file);
+    std::string line;
+    size_t lineNumber = 0;
+    while (std::getline(input, line)) {
+      ++lineNumber;
+      if (isFullLineComment(line)) {
+        continue;
+      }
+      for (const auto& token : forbidden) {
+        BOOST_CHECK_MESSAGE(line.find(token) == std::string::npos,
+                            file << ":" << lineNumber << " contains forbidden token '" << token << "': " << line);
+      }
+    }
+  }
+}

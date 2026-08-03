@@ -405,6 +405,16 @@ o2_add_test(tracking-engine-dependency-boundary
             LABELS "itsmft;tracking"
             PUBLIC_LINK_LIBRARIES O2::ITSMFTTracking)
 
+# M2c: the one explicit ITS/MFT-named application-layer participant set
+# (ITSMFTLegacyParticipantSet) CombinedTimeFrameCoordinator now delegates
+# construction/configuration to.
+o2_add_test(itsmft-legacy-participant-set
+            SOURCES testITSMFTLegacyParticipantSet.cxx
+            COMPONENT_NAME itsmft-tracking
+            LABELS "itsmft;tracking"
+            PUBLIC_LINK_LIBRARIES O2::ITSMFTTracking
+                                  O2::MFTTracking)
+
 # The Gate 0 extractor needs generated tracker/MC dictionaries and external
 # fixture files at execution time. Keep its runnable replay in the documented
 # baseline protocol, while compiling the macro here so clean O2 configurations
