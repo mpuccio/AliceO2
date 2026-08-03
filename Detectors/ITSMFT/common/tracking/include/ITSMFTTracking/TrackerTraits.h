@@ -17,7 +17,6 @@
 #define ALICEO2_ITSMFT_TRACKING_TRACKERTRAITS_H_
 
 #include <array>
-#include <functional>
 #include <optional>
 #include <stdexcept>
 #include <string>
@@ -272,12 +271,21 @@ class TrackerTraits
   // detector-family/TransitionPolicyTag runtime branches that used to live
   // directly in computeLayerTracklets()/computeLayerCells()/
   // findCellsNeighbours()/findRoads() (one dispatchActivePolicy() call each,
-  // every call). Holds only already-bound callables -- never the
-  // TransitionPolicyTag (or the family it maps to) that selected them -- so
-  // those four shared hot-loop entry points below consume it with no Tag/
-  // family branch of their own. bindTraversalOperation()
+  // every call). Holds only already-bound member-function pointers -- never
+  // the TransitionPolicyTag (or the family it maps to) that selected them --
+  // so those four shared hot-loop entry points below consume it with no Tag/
+  // family branch of their own. Plain pointers-to-member, deliberately not a
+  // type-erasing callable wrapper: each callable's target is one of the
+  // eight non-template wrapper methods below (two per operation, one per
+  // TransitionPolicyTag), whose signature is fixed and identical for both
+  // tags -- so a plain pointer-to-member suffices, with no type erasure, no
+  // capture storage, and no possibility of a heap allocation. The wrapper it
+  // points to forwards to the existing
+  // Tag-templated *ForPolicy leaf implementation, unchanged, using the ids
+  // this same binding stores below and the corresponding
+  // mCylinderPolicyParams/mDiskPolicyParams. bindTraversalOperation()
   // (TrackerTraits.cxx) is this struct's only producer: it fills every
-  // callable exactly once per successful initialiseTimeFrame() call, from
+  // member exactly once per successful initialiseTimeFrame() call, from
   // that call's already-validated activeTag/params/grouping (activeTag itself
   // derived earlier in the same call from actual endpoint SurfaceDescriptor
   // kinds via validateLegacyParity()'s tagOf(), never from NLayers or
@@ -285,10 +293,26 @@ class TrackerTraits
   // alongside every other traversal cache, so a hot loop can never observe a
   // binding left over from a failed or unrelated iteration.
   struct TraversalOperationBinding {
-    std::function<void(int iteration, int iVertex)> computeTracklets;
-    std::function<void(int iteration)> computeCells;
-    std::function<void(int iteration)> findNeighbours;
-    std::function<void(int iteration)> findRoads;
+    using ComputeTrackletsFn = void (TrackerTraits::*)(int iteration, int iVertex);
+    using ComputeCellsFn = void (TrackerTraits::*)(int iteration);
+    using FindNeighboursFn = void (TrackerTraits::*)(int iteration);
+    using FindRoadsFn = void (TrackerTraits::*)(int iteration);
+
+    ComputeTrackletsFn computeTracklets = nullptr;
+    ComputeCellsFn computeCells = nullptr;
+    FindNeighboursFn findNeighbours = nullptr;
+    FindRoadsFn findRoads = nullptr;
+    // The ids computeTracklets/computeCells/findNeighbours were bound
+    // against -- resolved once by bindTraversalOperation(), from the same
+    // grouping/binding lookup the removed per-call dispatch used to redo on
+    // every call. Not a tag/family/detector-id/SurfaceKindPair: plain sparse
+    // topology ids, non-owning, valid for exactly the traversal cache's own
+    // lifetime (see resetTraversalCache()). findRoads needs none: its target
+    // wrapper reads mTraversalGrouping/mBinding's road-start cells directly,
+    // exactly as findRoadsForPolicy<Tag> already did before this slice.
+    gsl::span<const TransitionId> boundTransitionIds{};
+    gsl::span<const CellTopologyId> boundCellIds{};
+    gsl::span<const CellTopologyId> boundScheduledCellIds{};
     bool bound = false;
   };
 
@@ -297,6 +321,23 @@ class TrackerTraits
   // traversal-cache commit in that call has already succeeded -- see that
   // method and TraversalOperationBinding's own doc above.
   void bindTraversalOperation(int iteration);
+
+  // The eight non-template targets TraversalOperationBinding's member-
+  // function pointers may point to -- one per (operation, TransitionPolicyTag)
+  // pair, selected only inside bindTraversalOperation(). Each is a thin,
+  // non-template forwarder to the corresponding *ForPolicy<Tag> leaf
+  // implementation below, reading mTraversalOperation's bound ids and the
+  // matching mCylinderPolicyParams/mDiskPolicyParams. Never called directly
+  // from the four public hot-loop entry points -- only through
+  // mTraversalOperation's bound pointer.
+  void computeLayerTrackletsCylinderCylinder(int iteration, int iVertex);
+  void computeLayerTrackletsDiskDisk(int iteration, int iVertex);
+  void computeLayerCellsCylinderCylinder(int iteration);
+  void computeLayerCellsDiskDisk(int iteration);
+  void findCellsNeighboursCylinderCylinder(int iteration);
+  void findCellsNeighboursDiskDisk(int iteration);
+  void findRoadsCylinderCylinder(int iteration);
+  void findRoadsDiskDisk(int iteration);
 
   template <TransitionPolicyTag Tag>
   void computeLayerTrackletsForPolicy(int iteration,

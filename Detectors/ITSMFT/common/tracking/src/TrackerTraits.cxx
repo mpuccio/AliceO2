@@ -194,6 +194,64 @@ void TrackerTraits<NLayers>::dispatchActivePolicy(const TransitionPolicyGrouping
   }
 }
 
+// M5c: the eight non-template wrapper targets TraversalOperationBinding's
+// member-function pointers may point to -- see that struct's own doc
+// (TrackerTraits.h) for why plain pointers-to-member, not a type-erasing
+// callable wrapper.
+// Each simply forwards to the existing Tag-templated *ForPolicy leaf
+// implementation, unchanged, using mTraversalOperation's own bound ids
+// (resolved once by bindTraversalOperation() below) and the corresponding
+// mCylinderPolicyParams/mDiskPolicyParams (committed earlier in the same
+// initialiseTimeFrame() call). Never called except through
+// mTraversalOperation's bound pointer.
+template <int NLayers>
+void TrackerTraits<NLayers>::computeLayerTrackletsCylinderCylinder(int iteration, int iVertex)
+{
+  computeLayerTrackletsForPolicy<TransitionPolicyTag::CylinderCylinder>(iteration, iVertex, mTraversalOperation.boundTransitionIds, *mCylinderPolicyParams);
+}
+
+template <int NLayers>
+void TrackerTraits<NLayers>::computeLayerTrackletsDiskDisk(int iteration, int iVertex)
+{
+  computeLayerTrackletsForPolicy<TransitionPolicyTag::DiskDisk>(iteration, iVertex, mTraversalOperation.boundTransitionIds, *mDiskPolicyParams);
+}
+
+template <int NLayers>
+void TrackerTraits<NLayers>::computeLayerCellsCylinderCylinder(int iteration)
+{
+  computeLayerCellsForPolicy<TransitionPolicyTag::CylinderCylinder>(iteration, mTraversalOperation.boundCellIds, *mCylinderPolicyParams);
+}
+
+template <int NLayers>
+void TrackerTraits<NLayers>::computeLayerCellsDiskDisk(int iteration)
+{
+  computeLayerCellsForPolicy<TransitionPolicyTag::DiskDisk>(iteration, mTraversalOperation.boundCellIds, *mDiskPolicyParams);
+}
+
+template <int NLayers>
+void TrackerTraits<NLayers>::findCellsNeighboursCylinderCylinder(int iteration)
+{
+  findCellsNeighboursForPolicy<TransitionPolicyTag::CylinderCylinder>(iteration, mTraversalOperation.boundScheduledCellIds, *mCylinderPolicyParams);
+}
+
+template <int NLayers>
+void TrackerTraits<NLayers>::findCellsNeighboursDiskDisk(int iteration)
+{
+  findCellsNeighboursForPolicy<TransitionPolicyTag::DiskDisk>(iteration, mTraversalOperation.boundScheduledCellIds, *mDiskPolicyParams);
+}
+
+template <int NLayers>
+void TrackerTraits<NLayers>::findRoadsCylinderCylinder(int iteration)
+{
+  findRoadsForPolicy<TransitionPolicyTag::CylinderCylinder>(iteration, *mCylinderPolicyParams);
+}
+
+template <int NLayers>
+void TrackerTraits<NLayers>::findRoadsDiskDisk(int iteration)
+{
+  findRoadsForPolicy<TransitionPolicyTag::DiskDisk>(iteration, *mDiskPolicyParams);
+}
+
 // M5c: the single producer of mTraversalOperation (TraversalOperationBinding,
 // TrackerTraits.h). Called exactly once per successful initialiseTimeFrame()
 // call, after that call's activeTag/cylinderParams|diskParams/mTraversalGrouping
@@ -201,33 +259,27 @@ void TrackerTraits<NLayers>::dispatchActivePolicy(const TransitionPolicyGrouping
 // call below is guaranteed to invoke its visitor for exactly the tag that
 // validateLegacyParity() already derived from this iteration's actual endpoint
 // SurfaceDescriptor kinds (never from NLayers or detector identity), and the
-// `if constexpr` below only ever selects the matching Tag-templated leaf
-// implementations to bind -- it does not itself decide which tag is active.
-// Every bound callable closes over the already-resolved transitionIds/cellIds/
-// scheduledCellIds spans and the corresponding *mCylinderPolicyParams/
-// *mDiskPolicyParams, so the four shared hot-loop entry points below
-// (computeLayerTracklets/computeLayerCells/findCellsNeighbours/findRoads) can
-// invoke them directly with no Tag/StateFamily branch of their own.
+// `if constexpr` below only ever selects the matching pair of non-template
+// wrapper targets (and the ids/params they close over via mTraversalOperation's
+// own members and mCylinderPolicyParams/mDiskPolicyParams) -- it does not
+// itself decide which tag is active. The four shared hot-loop entry points
+// below (computeLayerTracklets/computeLayerCells/findCellsNeighbours/
+// findRoads) invoke the bound pointer directly, with no Tag/StateFamily
+// branch of their own.
 template <int NLayers>
 void TrackerTraits<NLayers>::bindTraversalOperation(int iteration)
 {
   mTraversalOperation = TraversalOperationBinding{};
   dispatchActivePolicy(*mTraversalGrouping, [&](auto traits, auto transitionIds, auto cellIds) {
     using Traits = decltype(traits);
-    const auto scheduledCellIds = mBinding != nullptr ? mBinding->getGlobalScheduledCells() : mTraversalGrouping->scheduledCellsForTag(Traits::Tag);
+    mTraversalOperation.boundTransitionIds = transitionIds;
+    mTraversalOperation.boundCellIds = cellIds;
+    mTraversalOperation.boundScheduledCellIds = mBinding != nullptr ? mBinding->getGlobalScheduledCells() : mTraversalGrouping->scheduledCellsForTag(Traits::Tag);
     if constexpr (Traits::Tag == TransitionPolicyTag::CylinderCylinder) {
-      mTraversalOperation.computeTracklets = [this, transitionIds](int it, int iv) {
-        computeLayerTrackletsForPolicy<TransitionPolicyTag::CylinderCylinder>(it, iv, transitionIds, *mCylinderPolicyParams);
-      };
-      mTraversalOperation.computeCells = [this, cellIds](int it) {
-        computeLayerCellsForPolicy<TransitionPolicyTag::CylinderCylinder>(it, cellIds, *mCylinderPolicyParams);
-      };
-      mTraversalOperation.findNeighbours = [this, scheduledCellIds](int it) {
-        findCellsNeighboursForPolicy<TransitionPolicyTag::CylinderCylinder>(it, scheduledCellIds, *mCylinderPolicyParams);
-      };
-      mTraversalOperation.findRoads = [this](int it) {
-        findRoadsForPolicy<TransitionPolicyTag::CylinderCylinder>(it, *mCylinderPolicyParams);
-      };
+      mTraversalOperation.computeTracklets = &TrackerTraits::computeLayerTrackletsCylinderCylinder;
+      mTraversalOperation.computeCells = &TrackerTraits::computeLayerCellsCylinderCylinder;
+      mTraversalOperation.findNeighbours = &TrackerTraits::findCellsNeighboursCylinderCylinder;
+      mTraversalOperation.findRoads = &TrackerTraits::findRoadsCylinderCylinder;
     } else if constexpr (Traits::Tag == TransitionPolicyTag::DiskDisk) {
       // Defensive invariant carried over from the pre-M5c per-call check:
       // mDiskLayerReferenceZ and mDiskPolicyParams are always committed
@@ -239,18 +291,10 @@ void TrackerTraits<NLayers>::bindTraversalOperation(int iteration)
       if (mDiskLayerReferenceZ.size() < static_cast<size_t>(NLayers)) {
         throw TraversalException{iteration, TraversalFailureReason::InvalidPolicyParameters};
       }
-      mTraversalOperation.computeTracklets = [this, transitionIds](int it, int iv) {
-        computeLayerTrackletsForPolicy<TransitionPolicyTag::DiskDisk>(it, iv, transitionIds, *mDiskPolicyParams);
-      };
-      mTraversalOperation.computeCells = [this, cellIds](int it) {
-        computeLayerCellsForPolicy<TransitionPolicyTag::DiskDisk>(it, cellIds, *mDiskPolicyParams);
-      };
-      mTraversalOperation.findNeighbours = [this, scheduledCellIds](int it) {
-        findCellsNeighboursForPolicy<TransitionPolicyTag::DiskDisk>(it, scheduledCellIds, *mDiskPolicyParams);
-      };
-      mTraversalOperation.findRoads = [this](int it) {
-        findRoadsForPolicy<TransitionPolicyTag::DiskDisk>(it, *mDiskPolicyParams);
-      };
+      mTraversalOperation.computeTracklets = &TrackerTraits::computeLayerTrackletsDiskDisk;
+      mTraversalOperation.computeCells = &TrackerTraits::computeLayerCellsDiskDisk;
+      mTraversalOperation.findNeighbours = &TrackerTraits::findCellsNeighboursDiskDisk;
+      mTraversalOperation.findRoads = &TrackerTraits::findRoadsDiskDisk;
     }
     mTraversalOperation.bound = true;
   });
@@ -906,7 +950,7 @@ void TrackerTraits<NLayers>::computeLayerTracklets(const int iteration, int iVer
   if (!mTraversalOperation.bound) {
     throw TraversalException{iteration, TraversalFailureReason::InvalidTraversalSchedule};
   }
-  mTraversalOperation.computeTracklets(iteration, iVertex);
+  (this->*mTraversalOperation.computeTracklets)(iteration, iVertex);
 }
 
 template <int NLayers>
@@ -1222,7 +1266,7 @@ void TrackerTraits<NLayers>::computeLayerCells(const int iteration)
   if (!mTraversalOperation.bound) {
     throw TraversalException{iteration, TraversalFailureReason::InvalidTraversalSchedule};
   }
-  mTraversalOperation.computeCells(iteration);
+  (this->*mTraversalOperation.computeCells)(iteration);
 
   const auto scratchTransitionCount = mScratch->getTracklets().size();
   for (size_t transitionId = 0; transitionId < scratchTransitionCount; ++transitionId) {
@@ -1446,7 +1490,7 @@ void TrackerTraits<NLayers>::findCellsNeighbours(const int iteration)
   if (!mTraversalOperation.bound) {
     throw TraversalException{iteration, TraversalFailureReason::InvalidTraversalSchedule};
   }
-  mTraversalOperation.findNeighbours(iteration);
+  (this->*mTraversalOperation.findNeighbours)(iteration);
 }
 
 template <int NLayers>
@@ -1745,7 +1789,7 @@ void TrackerTraits<NLayers>::findRoads(const int iteration)
   if (!mTraversalOperation.bound) {
     throw TraversalException{iteration, TraversalFailureReason::InvalidTraversalSchedule};
   }
-  mTraversalOperation.findRoads(iteration);
+  (this->*mTraversalOperation.findRoads)(iteration);
 }
 
 template <int NLayers>
