@@ -11,8 +11,8 @@
 // TrackingEngine executes one already atomically loaded event over an
 // explicitly ordered TrackingParticipant (TrackingParticipant.h) schedule
 // and applies the whole-event all-or-nothing failure contract Gate 4's
-// CombinedTimeFrameCoordinator::process() already proved for the fixed
-// ITS+MFT case, generalized here to an arbitrary participant collection.
+// combined ITS+MFT tracking flow already proved for the fixed ITS+MFT case,
+// generalized here to an arbitrary participant collection.
 //
 // TrackingEngine never loads anything itself. Atomic multi-source loading
 // (every source's decoding and legacy backfill staged and committed
@@ -29,8 +29,10 @@
 // by the focused contract test's fake participants, not yet by any
 // production caller -- M2 wraps today's Tracker<NLayers>/TrackerTraits
 // <NLayers>/LegacyTrackerScratch<NLayers> composition in a concrete
-// TrackingParticipant and has CombinedTimeFrameCoordinator delegate to this
-// engine without amending this header.
+// TrackingParticipant; M3 has the combined DPL task
+// (CombinedCATrackerSpec.cxx) compose loader + engine + the
+// ITSMFTLegacyParticipantSet participant set directly, all without amending
+// this header.
 
 #ifndef ALICEO2_ITSMFT_TRACKING_TRACKINGENGINE_H_
 #define ALICEO2_ITSMFT_TRACKING_TRACKINGENGINE_H_
@@ -55,15 +57,15 @@ struct ParticipantEventResult {
 };
 
 // Whole-event result (ADR 0007 decision 3's all-or-nothing contract,
-// generalized from CombinedTimeFrameCoordinator::CombinedTrackingResult's
-// fixed nITSTracks/nMFTTracks pair to an arbitrary ordered participant
+// generalized from the combined ITS+MFT tracking flow's own fixed
+// nITSTracks/nMFTTracks pair to an arbitrary ordered participant
 // collection). `outcome` classifies the event as a whole: Success only if
 // every scheduled participant's track() returned Success; otherwise the
 // classification of whichever call first did not (see
 // TrackingEngine::executeEvent()). `participants` carries one entry per
 // scheduled participant, in schedule order, populated only on a fully
-// successful event -- left empty on any failure, matching
-// CombinedTrackingResult's existing zeroed-count convention.
+// successful event -- left empty on any failure, matching that same
+// zeroed-count convention.
 struct EventResult {
   ParticipantOutcome outcome{ParticipantOutcome::Structural};
   std::vector<ParticipantEventResult> participants;

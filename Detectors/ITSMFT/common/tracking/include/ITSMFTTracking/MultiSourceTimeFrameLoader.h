@@ -6,11 +6,13 @@
 // atomic loading transaction, participant-count-generic. It never names
 // ITS, MFT, a layer count, or a fixed source position -- that knowledge
 // lives only in loadITSAndMFT()'s own thin wrapper below and in whatever
-// adapter builds an AtomicLoadBinding list (today,
-// CombinedTimeFrameCoordinator, through its two participants'
-// LegacyCATrackingParticipant<NLayers>::loadTarget()). TrackingEngine::
-// executeEvent() must only ever be called once loadEvent() (or
-// loadITSAndMFT()) reports success -- this loading boundary calls neither.
+// adapter builds an AtomicLoadBinding list (today, ITSMFTLegacyParticipantSet
+// ::loadBindings(), through its two participants'
+// LegacyCATrackingParticipant<NLayers>::loadTarget(), called directly by
+// the combined DPL task's own trackFrame() composition, M3).
+// TrackingEngine::executeEvent() must only ever be called once loadEvent()
+// (or loadITSAndMFT()) reports success -- this loading boundary calls
+// neither.
 
 #ifndef ALICEO2_ITSMFT_TRACKING_MULTISOURCETIMEFRAMELOADER_H_
 #define ALICEO2_ITSMFT_TRACKING_MULTISOURCETIMEFRAMELOADER_H_

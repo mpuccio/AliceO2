@@ -50,7 +50,7 @@ void requireNoMFTIRFrameConfigOrFatal()
   if (o2::mft::MFTTrackingParam::Instance().irFramesOnly) {
     LOGP(fatal,
          "Combined ITS+MFT common-CA tracker workflow does not support MFTTrackingParam.irFramesOnly=true: "
-         "CombinedTimeFrameCoordinator::process() has no IR-frame parameter and always enables every MFT "
+         "the combined ITS+MFT common-CA tracking flow has no IR-frame parameter and always enables every MFT "
          "ROF unmasked, so an IR-frame-filtered configuration would silently run unmasked triggered MFT "
          "data instead of failing loudly. Run the single-detector o2-mft-ca-tracker-workflow for "
          "IR-frame/triggered MFT data instead");
@@ -62,7 +62,7 @@ void requireContinuousMFTReadoutOrFatal(bool continuousReadout)
   if (!continuousReadout) {
     LOGP(fatal,
          "Combined ITS+MFT common-CA tracker workflow does not support triggered MFT readout: GRPECS "
-         "reports MFT is not in continuous readout for this run, but CombinedTimeFrameCoordinator::process() "
+         "reports MFT is not in continuous readout for this run, but the combined ITS+MFT common-CA tracking flow "
          "always enables every MFT ROF unmasked (no IR-frame/trigger-window filtering). Run the "
          "single-detector o2-mft-ca-tracker-workflow for triggered MFT data instead");
   }

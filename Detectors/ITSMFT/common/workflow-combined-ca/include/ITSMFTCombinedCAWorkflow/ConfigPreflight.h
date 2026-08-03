@@ -16,7 +16,7 @@
 /// isolation rationale this whole library exists for). The *observable*
 /// fatal conditions and messages match ITS's own opt-in route where the
 /// same condition applies (Sync-only, ITSCommonCATrackerParam.useDiamond),
-/// since CombinedTimeFrameCoordinator's constructor inherits exactly the
+/// since ITSMFTLegacyParticipantSet's constructor inherits exactly the
 /// same single-shared-layout, no-real-vertexer constraint ITS's own opt-in
 /// workflow already documents.
 ///
@@ -51,7 +51,7 @@ namespace o2::itsmft::combined
 void requireCombinedTrackingEnabledOrFatal();
 
 /// Fatals unless mode == Sync, naming the rejected mode explicitly.
-/// CombinedTimeFrameCoordinator's constructor only ever accepts exactly one
+/// ITSMFTLegacyParticipantSet's constructor only ever accepts exactly one
 /// TrackingParameters iteration per detector (the shape both
 /// TrackingMode::getTrackingParameters(ITS, Sync) and (MFT, Sync) produce);
 /// every other mode either produces a different iteration count or fatals
@@ -69,7 +69,7 @@ void requireSyncTrackingModeOrFatal(o2::itsmft::TrackingMode::Type mode);
 void requireDiamondVertexConstraintOrFatal();
 
 /// Fatals if o2::mft::MFTTrackingParam::Instance().irFramesOnly is set.
-/// CombinedTimeFrameCoordinator::process() has no IR-frame parameter and
+/// The combined ITS+MFT common-CA tracking flow has no IR-frame parameter and
 /// its ROF mask is always "every ROF enabled" -- unlike the single-detector
 /// MFT opt-in workflow's own configureROFMask(), it never applies IR-frame
 /// or multiplicity-cut filtering. This workflow deliberately declares no

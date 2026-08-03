@@ -6,24 +6,25 @@
 // License v3 (GPL Version 3), copied verbatim in the file "COPYING".
 //
 // M2c (GenericTrackingEngineMigration.md; ADR 0007): the one explicitly
-// ITS/MFT-named application-layer factory/set. It owns everything
-// CombinedTimeFrameCoordinator used to construct and hold directly for its
-// two legacy detector legs -- the two concrete LegacyCATrackingParticipant
-// instances (each already owning its own Tracker<NLayers>/TrackerTraits
-// <NLayers>/LegacyTrackerScratch<NLayers>/DetectorTraversalBinding/detector
-// compatibility sidecar), the static combined ITS+MFT plan/binding
-// configuration (StaticDetectorCatalogs.h; global ids ITS 0..6, MFT 7..16),
-// the explicit [ITS, MFT] tracking schedule, the fixed ITS=0/MFT=1 atomic
-// load-binding contract, and the temporary detector-specific publication/
-// timing bridge (ClockTimingPublicationView, publication validity).
+// ITS/MFT-named application-layer factory/set. It owns the two concrete
+// LegacyCATrackingParticipant instances (each already owning its own
+// Tracker<NLayers>/TrackerTraits<NLayers>/LegacyTrackerScratch<NLayers>/
+// DetectorTraversalBinding/detector compatibility sidecar), the static
+// combined ITS+MFT plan/binding configuration (StaticDetectorCatalogs.h;
+// global ids ITS 0..6, MFT 7..16), the explicit [ITS, MFT] tracking
+// schedule, the fixed ITS=0/MFT=1 atomic load-binding contract, and the
+// temporary detector-specific publication/timing bridge
+// (ClockTimingPublicationView, publication validity).
 //
-// This is the sole owner of the current ITS/MFT source/layout facts: the
-// coordinator no longer needs to know source 0/1, ITS/MFT layer counts, or
-// any static catalog/binding/tracker/scratch type to delegate construction,
-// atomic loading, tracking, and publication export to this set instead. None
-// of that knowledge is pushed down into TrackingEngine.h/TrackingParticipant
-// .h/TimeFrame.h/CommonTrack.h/MultiSourceTimeFrameLoader.h, which stay
-// exactly as detector-neutral as ADR 0007 requires.
+// This is the sole owner of the current ITS/MFT source/layout facts: its
+// caller -- the combined DPL task (CombinedCATrackerSpec.cxx) directly,
+// as of M3 -- never needs to know source 0/1, ITS/MFT layer counts, or any
+// static catalog/binding/tracker/scratch type to delegate construction,
+// atomic loading, tracking, and publication export to this set instead.
+// None of that knowledge is pushed down into
+// TrackingEngine.h/TrackingParticipant.h/TimeFrame.h/CommonTrack.h/
+// MultiSourceTimeFrameLoader.h, which stay exactly as detector-neutral as
+// ADR 0007 requires.
 
 #ifndef ALICEO2_ITSMFT_TRACKING_ITSMFTLEGACYPARTICIPANTSET_H_
 #define ALICEO2_ITSMFT_TRACKING_ITSMFTLEGACYPARTICIPANTSET_H_
@@ -56,11 +57,10 @@ namespace o2::itsmft::tracking
 {
 
 // The one explicit ITS/MFT-named application-layer factory/set (M2c). Owns
-// every current ITS/MFT construction/configuration fact
-// CombinedTimeFrameCoordinator used to hold directly; exposes only the
-// minimal operations the coordinator needs: the tracking schedule, atomic
-// load bindings, a reset-compatible participant list, and ITS/MFT adapter
-// publication exports.
+// every current ITS/MFT construction/configuration fact; exposes only the
+// minimal operations its caller (the combined DPL task, M3) needs: the
+// tracking schedule, atomic load bindings, a reset-compatible participant
+// list, and ITS/MFT adapter publication exports.
 class ITSMFTLegacyParticipantSet
 {
  public:
@@ -76,7 +76,7 @@ class ITSMFTLegacyParticipantSet
   // address at construction time; relocating this object would silently
   // dangle every one of those bound pointers. Never copyable or movable --
   // construct once, use by reference (the same non-relocatable contract
-  // CombinedTimeFrameCoordinator itself documented before this slice).
+  // this set's own predecessor owner documented before M3).
   ITSMFTLegacyParticipantSet(const ITSMFTLegacyParticipantSet&) = delete;
   ITSMFTLegacyParticipantSet& operator=(const ITSMFTLegacyParticipantSet&) = delete;
   ITSMFTLegacyParticipantSet(ITSMFTLegacyParticipantSet&&) = delete;
@@ -118,8 +118,8 @@ class ITSMFTLegacyParticipantSet
 
   // --- Reset-compatible participant list ---
   // Clears just both participants' publication sidecars -- the unconditional
-  // top-of-process() step CombinedTimeFrameCoordinator::process() itself
-  // documented before this slice.
+  // top-of-trackFrame() step the combined DPL task's own composition
+  // documents (CombinedCATrackerSpec.cxx).
   void clearPublicationSidecars() noexcept;
   // Invalidates the publication/timing bridge only (never touches either
   // participant's scratch or the shared TimeFrame) -- called on every
@@ -137,9 +137,8 @@ class ITSMFTLegacyParticipantSet
   std::optional<CommonTrackPublicationExport> getITSPublicationExport() const;
   std::optional<CommonTrackPublicationExport> getMFTPublicationExport() const;
 
-  // --- Coordinator readback: forwards CombinedTimeFrameCoordinator's
-  // existing public API without that class needing to name any of these
-  // concrete types itself. ---
+  // --- Caller readback: forwards this API to the combined DPL task
+  // without that task needing to name any of these concrete types itself. ---
   const LegacyTrackerScratchITS& getITSScratch() const noexcept { return mITSParticipant.getScratch(); }
   const LegacyTrackerScratchMFT& getMFTScratch() const noexcept { return mMFTParticipant.getScratch(); }
   const ITSSharedClusterCompatibility& getITSSharedClusterCompatibility() const noexcept { return *mITSParticipant.getITSSharedClusterCompatibility(); }

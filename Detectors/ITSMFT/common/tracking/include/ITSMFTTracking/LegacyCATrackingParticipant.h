@@ -5,12 +5,12 @@
 // This software is distributed under the terms of the GNU General Public
 // License v3 (GPL Version 3), copied verbatim in the file "COPYING".
 //
-// E0/M2a (GenericTrackingEngineMigration.md; ADR 0007): the temporary
-// concrete TrackingParticipant implementation CombinedTimeFrameCoordinator
-// uses for each of its two legacy detector legs (ITS: NLayers=7, MFT:
-// NLayers=10). Owns everything ADR 0007 still classifies as temporary
-// per-detector legacy state -- LegacyTrackerScratch<NLayers>,
-// TrackerTraits<NLayers>, Tracker<NLayers>, this leg's own
+// E0/M2a-M2c (GenericTrackingEngineMigration.md; ADR 0007): the temporary
+// concrete TrackingParticipant implementation ITSMFTLegacyParticipantSet
+// (ITSMFTLegacyParticipantSet.h) uses for each of its two legacy detector
+// legs (ITS: NLayers=7, MFT: NLayers=10). Owns everything ADR 0007 still
+// classifies as temporary per-detector legacy state -- LegacyTrackerScratch
+// <NLayers>, TrackerTraits<NLayers>, Tracker<NLayers>, this leg's own
 // DetectorTraversalBinding, its TrackingParameters, and its detector
 // compatibility sidecar (ITSSharedClusterCompatibility for ITS,
 // MFTPublicationCompatibility for MFT) -- entirely behind the generic
@@ -20,11 +20,15 @@
 // never edits.
 //
 // This class never loads input itself, matching TrackingParticipant.h's own
-// contract: the coordinator drives MultiSourceTimeFrameLoader::
-// loadITSAndMFT() directly, unchanged, and only calls
-// TrackingEngine::executeEvent()/resetEvent() once that atomic load has
-// already committed -- or, on a load failure, without ever calling
-// executeEvent() at all. track()/eventReset() below both assume that
+// contract: it only exposes its own loadTarget() (MultiSourceTimeFrameLoader
+// ::LoadTargetImpl<NLayers>, bound to its own scratch) for its owning
+// ITSMFTLegacyParticipantSet to build an AtomicLoadBinding from; the actual
+// MultiSourceTimeFrameLoader::loadEvent() call, and the subsequent
+// TrackingEngine::executeEvent()/resetEvent() call once that atomic load has
+// committed (or resetEvent() alone, without ever calling executeEvent(), on
+// a load failure), both happen one level up, in the application adapter that
+// owns the participant set (M3: the combined DPL task,
+// CombinedCATrackerSpec.cxx). track()/eventReset() below both assume that
 // precondition; see TrackingParticipant.h for the exact contract.
 
 #ifndef ALICEO2_ITSMFT_TRACKING_LEGACYCATRACKINGPARTICIPANT_H_
@@ -80,16 +84,16 @@ class LegacyCATrackingParticipant final : public TrackingParticipant,
   // adoptDetectorTraversalBinding()/adoptDetectorLayoutSet() bind
   // immediately afterward; relocating this object would silently dangle
   // every one of those bound pointers -- the same non-relocatable contract
-  // CombinedTimeFrameCoordinator itself already documents.
+  // ITSMFTLegacyParticipantSet itself already documents.
   LegacyCATrackingParticipant(const LegacyCATrackingParticipant&) = delete;
   LegacyCATrackingParticipant& operator=(const LegacyCATrackingParticipant&) = delete;
   LegacyCATrackingParticipant(LegacyCATrackingParticipant&&) = delete;
   LegacyCATrackingParticipant& operator=(LegacyCATrackingParticipant&&) = delete;
 
-  // --- Coordinator-only setup, called once before the first track() call.
-  // Not part of the generic TrackingParticipant interface: the coordinator
-  // holds this concrete type directly (never only a TrackingParticipant*)
-  // specifically to reach these. ---
+  // --- Owning-set-only setup, called once before the first track() call.
+  // Not part of the generic TrackingParticipant interface: the owning
+  // ITSMFTLegacyParticipantSet holds this concrete type directly (never
+  // only a TrackingParticipant*) specifically to reach these. ---
   void adoptDetectorTraversalBinding(std::unique_ptr<DetectorTraversalBinding> binding);
   void adoptDetectorLayoutSet(const DetectorLayoutSet& plan);
   void adoptFrame(TimeFrame& frame);
@@ -101,22 +105,23 @@ class LegacyCATrackingParticipant final : public TrackingParticipant,
   // This leg's own load target for MultiSourceTimeFrameLoader::loadEvent()
   // (M2b): bound once, at construction, to mScratch -- see mLoadTarget's
   // own doc below. Not part of the generic TrackingParticipant interface;
-  // the coordinator (or any other adapter driving the generic atomic
-  // loading transaction) reaches this only through the concrete
-  // participant type.
+  // the owning ITSMFTLegacyParticipantSet (or any other adapter driving the
+  // generic atomic loading transaction) reaches this only through the
+  // concrete participant type.
   MultiSourceTimeFrameLoader::LoadTarget& loadTarget() noexcept { return mLoadTarget; }
 
   // Clears just this participant's publication sidecar -- the same
-  // unconditional top-of-process() step CombinedTimeFrameCoordinator::
-  // process() itself already documented before this slice: a prior
-  // successful run leaves the sidecar sealed, and the very next TF's first
-  // accepted track would otherwise fail the already-sealed guard.
-  // Deliberately narrower than eventReset(): it never touches the scratch.
+  // unconditional top-of-trackFrame() step the owning ITSMFTLegacyParticipantSet
+  // 's application adapter already documents: a prior successful run leaves
+  // the sidecar sealed, and the very next TF's first accepted track would
+  // otherwise fail the already-sealed guard. Deliberately narrower than
+  // eventReset(): it never touches the scratch.
   void clearPublicationSidecar() noexcept;
 
-  // This leg's own DropTFUponFailure, needed by the coordinator to classify
-  // an atomic *load* failure (a decision made before track() is ever
-  // reachable, so it cannot come from a ParticipantTrackingResult).
+  // This leg's own DropTFUponFailure, needed by the owning
+  // ITSMFTLegacyParticipantSet to classify an atomic *load* failure (a
+  // decision made before track() is ever reachable, so it cannot come from
+  // a ParticipantTrackingResult).
   bool getDropTFUponFailure() const noexcept { return mParams[0].DropTFUponFailure; }
 
   // --- TrackingParticipant (ADR 0007 decision 5) ---
@@ -126,14 +131,15 @@ class LegacyCATrackingParticipant final : public TrackingParticipant,
   void eventReset(TimeFrame& frame) noexcept override;
   std::optional<ParticipantPublicationExport> publicationExport() const override;
 
-  // --- Coordinator-only readback, concrete type only: never exposed
+  // --- Owning-set-only readback, concrete type only: never exposed
   // through TrackingParticipant's own public contract. ---
   ScratchN& getScratch() noexcept { return mScratch; }
   const ScratchN& getScratch() const noexcept { return mScratch; }
   // Returns nullptr for the "wrong" NLayers instantiation (mirrors
   // ITSMFTTrackingInterface<NLayers>'s own getITSSharedClusterCompatibility
-  // ()/getMFTPublicationCompatibility() exactly) -- the coordinator only
-  // ever calls the accessor matching this leg's own DetId.
+  // ()/getMFTPublicationCompatibility() exactly) -- the owning
+  // ITSMFTLegacyParticipantSet only ever calls the accessor matching this
+  // leg's own DetId.
   const ITSSharedClusterCompatibility* getITSSharedClusterCompatibility() const noexcept;
   const MFTPublicationCompatibility* getMFTPublicationCompatibility() const noexcept;
 
@@ -144,9 +150,9 @@ class LegacyCATrackingParticipant final : public TrackingParticipant,
   std::vector<TrackingParameters> mParams;
   ScratchN mScratch;
   std::unique_ptr<DetectorTraversalBinding> mBinding;
-  // Non-owning: the coordinator's own static combined plan data
-  // (DetectorLayoutSet) outlives every participant -- see
-  // CombinedTimeFrameCoordinator.h's own ownership doc.
+  // Non-owning: the owning ITSMFTLegacyParticipantSet's own static combined
+  // plan data (DetectorLayoutSet) outlives every participant -- see
+  // ITSMFTLegacyParticipantSet.h's own ownership doc.
   const DetectorLayoutSet* mPlan = nullptr;
   TrackerTraits<NLayers> mTraits;
   Tracker<NLayers> mTracker;

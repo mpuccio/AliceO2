@@ -24,7 +24,9 @@
 #include "ITSMFTCombinedCAWorkflow/ConfigPreflight.h"
 #include "ITSMFTTracking/ClusterSource.h"
 #include "ITSMFTTracking/CommonTrackOutputAdapter.h"
+#include "ITSMFTTracking/MultiSourceTimeFrameLoader.h"
 #include "ITSMFTTracking/ROFTimingUniformity.h"
+#include "ITSMFTTracking/TimeFrameLoadFailure.h"
 #include "ITSMFTTracking/TrackingConfigParam.h"
 #include "MFTBase/GeometryTGeo.h"
 #include "MFTTracking/MFTTrackingParam.h"
@@ -41,6 +43,9 @@ namespace
 
 using o2::itsmft::tracking::ClusterSourceId;
 using o2::itsmft::tracking::ClusterSourceInput;
+using o2::itsmft::tracking::LoadSourcesResult;
+using o2::itsmft::tracking::MultiSourceTimeFrameLoader;
+using o2::itsmft::tracking::ParticipantOutcome;
 
 // Per-layer DPLAlpideParam<DetId> -> one source-level ROFTimingConfig,
 // fatal on non-positive ROF length or non-uniform per-layer staggering --
@@ -48,10 +53,9 @@ using o2::itsmft::tracking::ClusterSourceInput;
 // applies (TrackingInterface.cxx), reused via the same shared
 // deriveUniformROFTimingConfig() (ROFTimingUniformity.h). Unlike that
 // single-detector path, this workflow does not need to derive nROFsTF here:
-// CombinedTimeFrameCoordinator's own configureRofTables() (
-// CombinedTimeFrameCoordinator.cxx) takes it directly as the workflow's own
-// ClusterSourceInput::rofs.size(), the actual ROF count this TF's DPL
-// input already carries.
+// ITSMFTLegacyParticipantSet's own configureRofTables() (LegacyCATrackingParticipant
+// .cxx) takes it directly as the workflow's own ClusterSourceInput::rofs
+// .size(), the actual ROF count this TF's DPL input already carries.
 template <o2::detectors::DetID::ID DetId, int NLayers>
 o2::itsmft::tracking::ROFTimingConfig deriveRofTimingConfigOrFatal(const o2::itsmft::TrackingParameters& params)
 {
@@ -105,12 +109,12 @@ void CombinedCATrackerDPL::init(InitContext&)
   o2::base::GRPGeomHelper::instance().setRequest(mGGCCDBRequest);
 }
 
-void CombinedCATrackerDPL::buildCoordinatorOnce()
+void CombinedCATrackerDPL::buildParticipantsOnce()
 {
-  if (mCoordinatorBuilt) {
+  if (mParticipantsBuilt) {
     return;
   }
-  mCoordinatorBuilt = true;
+  mParticipantsBuilt = true;
 
   // Sync-only, single iteration per detector -- enforced already by
   // TrackingMode::getTrackingParameters(ITS, Sync) (fatal on any other
@@ -123,23 +127,102 @@ void CombinedCATrackerDPL::buildCoordinatorOnce()
   mITSTrackingParams = itsParams[0];
   mMFTTrackingParams = mftParams[0];
 
-  mCoordinator = std::make_unique<o2::itsmft::tracking::CombinedTimeFrameCoordinator>(itsParams, mftParams);
+  mParticipants = std::make_unique<o2::itsmft::tracking::ITSMFTLegacyParticipantSet>(itsParams, mftParams);
 
   const size_t maxMemory = std::min(itsParams[0].MaxMemory, mftParams[0].MaxMemory);
   mFrame.setMemoryPool(std::make_shared<o2::itsmft::tracking::BoundedMemoryResource>(maxMemory));
-  mCoordinator->adoptFrame(mFrame);
-  mCoordinator->setMemoryPool(mFrame.getMemoryPool());
-  mCoordinator->setBz(o2::base::Propagator::Instance()->getNominalBz());
+  mParticipants->adoptFrame(mFrame);
+  mParticipants->setMemoryPool(mFrame.getMemoryPool());
+  mParticipants->setBz(o2::base::Propagator::Instance()->getNominalBz());
 
   const int itsNThreads = o2::itsmft::ITSCommonCATrackerParam::Instance().nThreads;
   const int mftNThreads = o2::itsmft::tracking::TrackerParamRef<o2::detectors::DetID::MFT>::get().nThreads;
-  mCoordinator->setNThreads(std::max({1, itsNThreads, mftNThreads}));
+  mParticipants->setNThreads(std::max({1, itsNThreads, mftNThreads}));
+}
+
+ParticipantOutcome CombinedCATrackerDPL::trackFrame(const ClusterSourceInput& itsSource, const ClusterSourceInput& mftSource,
+                                                    const o2::InteractionRecord& origin)
+{
+  mParticipants->invalidatePublication();
+  // A prior successful trackFrame() call leaves both sidecars sealed
+  // (ITSSharedClusterCompatibility::sealFromMarkedTracks(),
+  // MFTPublicationCompatibility's per-TF entries): unlike
+  // TimeFrame::getCommonTracks()/getTrackClusterIndices(), which
+  // commitNormalizedFrame() clears atomically on the *next* load, neither
+  // sidecar is cleared by a successful trackFrame() itself. Left sealed,
+  // the very next TF's first accepted ITS track would fail
+  // AcceptedTrackShadowPublisher<ITSNLayers>::publish()'s already-sealed
+  // guard and fatal inside TrackerTraits<NLayers>::acceptTracks() ("CommonTrack
+  // shadow construction failed"). Clearing both unconditionally at the top
+  // of every trackFrame() call -- success or failure alike -- keeps every
+  // TF starting from the same fresh state regardless of how the previous
+  // one ended.
+  mParticipants->clearPublicationSidecars();
+
+  // The fixed ITS=0/MFT=1 source contract lives only inside
+  // mParticipants->validateSources() -- this method never inspects
+  // itsSource/mftSource's id/detector itself.
+  LoadSourcesResult loadResult;
+  if (const auto rejected = mParticipants->validateSources(itsSource, mftSource)) {
+    loadResult = *rejected;
+  } else {
+    const auto bindings = mParticipants->loadBindings(itsSource, mftSource);
+    loadResult = MultiSourceTimeFrameLoader::loadEvent(mFrame, gsl::span<const MultiSourceTimeFrameLoader::AtomicLoadBinding>{bindings},
+                                                       mParticipants->catalogView(), origin);
+  }
+  if (!loadResult.ok()) {
+    // Reuse isRecoverableLoadError() (TimeFrameLoadFailure.h) rather than a
+    // parallel taxonomy, then gate it by the *owning* detector's own
+    // DropTFUponFailure -- mParticipants->dropTFUponFailureFor() carries
+    // the fixed ITS/MFT source-position contract. This is a *load*
+    // failure: the event was never atomically committed, so
+    // TrackingEngine::executeEvent() must never be called on it --
+    // resetEvent() alone applies the same all-participant/shared-frame
+    // reset contract without ever reaching track().
+    const bool errorIsRecoverable = o2::itsmft::tracking::isRecoverableLoadError(loadResult.error, loadResult.timingDetail);
+    const auto dropAllowed = mParticipants->dropTFUponFailureFor(loadResult.source);
+    const bool sourceRecognized = dropAllowed.has_value();
+    if (!sourceRecognized) {
+      LOGP(error, "Combined TF load failure reports an unrecognized source id {}; treating as structural", loadResult.source.value());
+    }
+    const auto outcome = errorIsRecoverable && sourceRecognized && dropAllowed.value_or(false)
+                           ? ParticipantOutcome::RecoverableDropped
+                           : ParticipantOutcome::Structural;
+    LOGP(error, "Combined TF loading failed (source={}, error={}, recoverable={}, dropAllowed={}): outcome={}",
+         loadResult.source.value(), static_cast<int>(loadResult.error), errorIsRecoverable, dropAllowed.value_or(false),
+         outcome == ParticipantOutcome::RecoverableDropped ? "RecoverableDropped" : "Structural");
+    mEngine.resetEvent(mFrame, mParticipants->schedule());
+    mParticipants->invalidatePublication();
+    return outcome;
+  }
+
+  mParticipants->configureRofTables(itsSource, mftSource);
+
+  // The load has committed: executeEvent() may now run. It executes the
+  // explicit [ITS, MFT] schedule's track() calls in that exact order into
+  // the shared TimeFrame (accepted CommonTracks therefore append
+  // ITS-then-MFT), and on any non-Success outcome or exception already
+  // applies the same whole-event reset the load-failure branch above
+  // applies -- see TrackingEngine::executeEvent()'s own doc.
+  const auto eventResult = mEngine.executeEvent(mFrame, mParticipants->schedule());
+  if (eventResult.outcome != ParticipantOutcome::Success) {
+    LOGP(error, "Combined TF tracking failed via the delegated engine (outcome={})",
+         eventResult.outcome == ParticipantOutcome::RecoverableDropped ? "RecoverableDropped" : "Structural");
+    // executeEvent() already reset every participant and wiped the shared
+    // TimeFrame; only the publication/timing bridge state remains to
+    // invalidate.
+    mParticipants->invalidatePublication();
+    return eventResult.outcome;
+  }
+
+  mParticipants->markPublicationValid();
+  return ParticipantOutcome::Success;
 }
 
 void CombinedCATrackerDPL::run(ProcessingContext& pc)
 {
   updateTimeDependentParams(pc);
-  buildCoordinatorOnce();
+  buildParticipantsOnce();
 
   auto itsRofsInput = pc.inputs().get<const std::vector<o2::itsmft::ROFRecord>>("ROframesITS");
   auto mftRofsInput = pc.inputs().get<const std::vector<o2::itsmft::ROFRecord>>("ROframesMFT");
@@ -165,9 +248,9 @@ void CombinedCATrackerDPL::run(ProcessingContext& pc)
   const gsl::span<const o2::itsmft::ROFRecord> itsRofs(itsRofsInput.data(), itsRofsInput.size());
   const gsl::span<const o2::itsmft::ROFRecord> mftRofs(mftRofsInput.data(), mftRofsInput.size());
 
-  // Direct field-by-field construction (not the coordinator's own ClusterSourceInput
-  // -- there is no shared owner for these two, each is workflow-owned and built
-  // fresh per TF).
+  // Direct field-by-field construction (not mParticipants' own
+  // ClusterSourceInput -- there is no shared owner for these two, each is
+  // workflow-owned and built fresh per TF).
   ClusterSourceInput itsSource{};
   itsSource.id = ClusterSourceId{0};
   itsSource.detector = o2::detectors::DetID::ITS;
@@ -176,11 +259,11 @@ void CombinedCATrackerDPL::run(ProcessingContext& pc)
   itsSource.rofs = itsRofs;
   itsSource.dictionary = mITSDict;
   itsSource.labels = itsLabels;
-  // layerToSurface built directly from the coordinator's own always-valid
+  // layerToSurface built directly from mParticipants' own always-valid
   // ordered-surface getter -- never re-derived by hand as a literal
-  // ITS=0..6/MFT=7..16 offset (see CombinedTimeFrameCoordinator.h's own
-  // doc on getITSOrderedSurfaces()/getMFTOrderedSurfaces()).
-  itsSource.layerToSurface = mCoordinator->getITSOrderedSurfaces();
+  // ITS=0..6/MFT=7..16 offset (see ITSMFTLegacyParticipantSet.h's own doc
+  // on getITSOrderedSurfaces()/getMFTOrderedSurfaces()).
+  itsSource.layerToSurface = mParticipants->getITSOrderedSurfaces();
   itsSource.timing = deriveRofTimingConfigOrFatal<o2::detectors::DetID::ITS, o2::itsmft::tracking::ITSNLayers>(mITSTrackingParams);
   itsSource.decoder = mITSDecoder.get();
 
@@ -192,29 +275,28 @@ void CombinedCATrackerDPL::run(ProcessingContext& pc)
   mftSource.rofs = mftRofs;
   mftSource.dictionary = mMFTDict;
   mftSource.labels = mftLabels;
-  mftSource.layerToSurface = mCoordinator->getMFTOrderedSurfaces();
+  mftSource.layerToSurface = mParticipants->getMFTOrderedSurfaces();
   mftSource.timing = deriveRofTimingConfigOrFatal<o2::detectors::DetID::MFT, o2::itsmft::tracking::MFTNLayers>(mMFTTrackingParams);
   mftSource.decoder = mMFTDecoder.get();
 
   const auto origin = chooseOrigin(itsRofs, mftRofs);
-  const auto result = mCoordinator->process(itsSource, mftSource, origin);
+  const auto outcome = trackFrame(itsSource, mftSource, origin);
 
-  using CombinedOutcome = o2::itsmft::tracking::CombinedTimeFrameCoordinator::CombinedOutcome;
-  if (result.outcome == CombinedOutcome::RecoverableDropped) {
+  if (outcome == ParticipantOutcome::RecoverableDropped) {
     LOGP(error,
          "Combined ITS+MFT CA tracking recoverably dropped this TF ({} ITS ROFs/{} ITS clusters, {} MFT "
          "ROFs/{} MFT clusters); publishing nothing and continuing with the next TimeFrame",
          itsRofs.size(), itsCompClusters.size(), mftRofs.size(), mftCompClusters.size());
     return;
   }
-  if (result.outcome == CombinedOutcome::Structural) {
+  if (outcome == ParticipantOutcome::Structural) {
     throw std::runtime_error{"Combined ITS+MFT CA tracking hit a structural failure"};
   }
 
-  const auto itsExport = mCoordinator->getITSPublicationExport();
-  const auto mftExport = mCoordinator->getMFTPublicationExport();
+  const auto itsExport = mParticipants->getITSPublicationExport();
+  const auto mftExport = mParticipants->getMFTPublicationExport();
   if (!itsExport || !mftExport) {
-    throw std::runtime_error{"Combined ITS+MFT CommonTrack output publication context is unavailable after a successful process()"};
+    throw std::runtime_error{"Combined ITS+MFT CommonTrack output publication context is unavailable after a successful trackFrame()"};
   }
   const o2::itsmft::tracking::CommonTrackPublicationContext itsContext{
     itsExport->detector, itsExport->source, itsRofs, itsExport->clock, itsExport->orderedSurfaces};
@@ -225,10 +307,10 @@ void CombinedCATrackerDPL::run(ProcessingContext& pc)
   // if either staging fails, neither stream is ever requested.
   o2::itsmft::tracking::CommonTrackOutputAdapterError itsError = o2::itsmft::tracking::CommonTrackOutputAdapterError::None;
   const auto stagedITS = o2::itsmft::tracking::stageITSCommonTrackOutput(
-    *mCoordinator->getFrame(), itsContext, mCoordinator->getITSSharedClusterCompatibility(), mUseMC, itsError);
+    mFrame, itsContext, mParticipants->getITSSharedClusterCompatibility(), mUseMC, itsError);
   o2::itsmft::tracking::CommonTrackOutputAdapterError mftError = o2::itsmft::tracking::CommonTrackOutputAdapterError::None;
   const auto stagedMFT = o2::itsmft::tracking::stageMFTCommonTrackOutput(
-    *mCoordinator->getFrame(), mftContext, mCoordinator->getMFTPublicationCompatibility(), mUseMC, mftError);
+    mFrame, mftContext, mParticipants->getMFTPublicationCompatibility(), mUseMC, mftError);
   if (!stagedITS || !stagedMFT) {
     throw std::runtime_error{"Combined ITS+MFT CommonTrack output staging failed"};
   }

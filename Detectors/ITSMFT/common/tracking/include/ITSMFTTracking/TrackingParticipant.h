@@ -59,7 +59,7 @@ struct TimeFrame;
 // policy opted to drop; Structural, everything else, including any
 // exception (see TrackingEngine::executeEvent()) -- but redeclares it here
 // rather than including either CATracker.h or
-// CombinedTimeFrameCoordinator.h: both transitively pull in
+// ITSMFTLegacyParticipantSet.h: both transitively pull in
 // LegacyTrackerScratch.h/TrackerTraits.h/TimeFrame.h/
 // DetectorTraversalBinding.h, exactly the headers this public contract must
 // stay free of.

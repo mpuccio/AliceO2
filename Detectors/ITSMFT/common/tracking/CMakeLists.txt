@@ -53,7 +53,6 @@ o2_add_library(ITSMFTTracking
                        src/MultiSourceLoading.cxx
                        src/MultiSourceTimeFrameLoader.cxx
                        src/TimeFrameLoadFailure.cxx
-                       src/CombinedTimeFrameCoordinator.cxx
                        src/TrackingEngine.cxx
                        src/LegacyCATrackingParticipant.cxx
                        src/ITSMFTLegacyParticipantSet.cxx
