@@ -179,7 +179,14 @@ void TrackerTraits<NLayers>::dispatchActivePolicy(const TransitionPolicyGrouping
     dispatchTransitionPolicies(grouping, std::forward<Visitor>(visitor));
     return;
   }
-  if constexpr (stateFamilyFromNLayers<NLayers>() == StateFamily::Barrel) {
+  // Gate 4 M5b: this NLayers instantiation's own expected family
+  // (stateFamilyFromNLayers<NLayers>()) is read as a plain runtime value, not
+  // an `if constexpr` selector -- both TransitionPolicyTraits<Tag> visitor
+  // calls below are equally compiled/instantiated regardless of NLayers, so
+  // NLayers no longer gates which Tag's orchestration body this class can
+  // even contain. The visitor itself still runs for exactly one tag, chosen
+  // here from this instantiation's expected family, unchanged from before.
+  if (stateFamilyFromNLayers<NLayers>() == StateFamily::Barrel) {
     visitor(TransitionPolicyTraits<TransitionPolicyTag::CylinderCylinder>{}, mBinding->getGlobalTransitions(), mBinding->getGlobalCells());
   } else {
     visitor(TransitionPolicyTraits<TransitionPolicyTag::DiskDisk>{}, mBinding->getGlobalTransitions(), mBinding->getGlobalCells());
@@ -552,7 +559,11 @@ void TrackerTraits<NLayers>::initialiseTimeFrame(const int iteration, const Dete
     // active transitions do not belong to this NLayers/state family), not a
     // NLayers-to-Tag policy selection: the active Tag itself still comes
     // exclusively from `grouping`/`layout` above.
-    if constexpr (stateFamilyFromNLayers<NLayers>() != Traits::Family) {
+    // Gate 4 M5b: runtime value, not an `if constexpr` gate -- see
+    // dispatchActivePolicy()'s own doc above for why both Traits::Tag
+    // instantiations of bindIndexTableConfiguration below are equally
+    // compiled for every NLayers now.
+    if (stateFamilyFromNLayers<NLayers>() != Traits::Family) {
       stateFamilyMismatch = true;
     } else {
       indexTableConfigError = bindIndexTableConfiguration<Traits::Tag, NLayers>(stagedIndexTableConfig, mTrkParams[iteration]);
@@ -816,7 +827,12 @@ void TrackerTraits<NLayers>::computeLayerTracklets(const int iteration, int iVer
 
   dispatchActivePolicy(*mTraversalGrouping, [&](auto traits, auto transitionIds, auto) {
     using Traits = decltype(traits);
-    if constexpr (stateFamilyFromNLayers<NLayers>() != Traits::Family) {
+    // Gate 4 M5b: runtime value, not an `if constexpr` gate -- see
+    // dispatchActivePolicy()'s own doc for why both Traits::Tag
+    // instantiations of computeLayerTrackletsForPolicy below are equally
+    // compiled for every NLayers now, decoupling which family's orchestration
+    // body this class contains from NLayers itself.
+    if (stateFamilyFromNLayers<NLayers>() != Traits::Family) {
       throw TraversalException{iteration, TraversalFailureReason::StateFamilyMismatch};
     } else if constexpr (Traits::Tag == TransitionPolicyTag::CylinderCylinder) {
       if (!mCylinderPolicyParams.has_value()) {
@@ -1143,7 +1159,9 @@ void TrackerTraits<NLayers>::computeLayerCells(const int iteration)
 
   dispatchActivePolicy(*mTraversalGrouping, [&](auto traits, auto, auto cellIds) {
     using Traits = decltype(traits);
-    if constexpr (stateFamilyFromNLayers<NLayers>() != Traits::Family) {
+    // Gate 4 M5b: runtime value, not an `if constexpr` gate -- see
+    // computeLayerTracklets()'s identical conversion above for the rationale.
+    if (stateFamilyFromNLayers<NLayers>() != Traits::Family) {
       throw TraversalException{iteration, TraversalFailureReason::StateFamilyMismatch};
     } else if constexpr (Traits::Tag == TransitionPolicyTag::CylinderCylinder) {
       if (!mCylinderPolicyParams.has_value()) {
@@ -1391,7 +1409,9 @@ void TrackerTraits<NLayers>::findCellsNeighbours(const int iteration)
   };
   dispatchActivePolicy(*mTraversalGrouping, [&](auto traits, auto, auto) {
     using Traits = decltype(traits);
-    if constexpr (stateFamilyFromNLayers<NLayers>() != Traits::Family) {
+    // Gate 4 M5b: runtime value, not an `if constexpr` gate -- see
+    // computeLayerTracklets()'s identical conversion above for the rationale.
+    if (stateFamilyFromNLayers<NLayers>() != Traits::Family) {
       throw TraversalException{iteration, TraversalFailureReason::StateFamilyMismatch};
     } else if constexpr (Traits::Tag == TransitionPolicyTag::CylinderCylinder) {
       if (!mCylinderPolicyParams.has_value()) {
@@ -1701,7 +1721,9 @@ void TrackerTraits<NLayers>::findRoads(const int iteration)
   }
   dispatchActivePolicy(*mTraversalGrouping, [&](auto traits, auto, auto) {
     using Traits = decltype(traits);
-    if constexpr (stateFamilyFromNLayers<NLayers>() != Traits::Family) {
+    // Gate 4 M5b: runtime value, not an `if constexpr` gate -- see
+    // computeLayerTracklets()'s identical conversion above for the rationale.
+    if (stateFamilyFromNLayers<NLayers>() != Traits::Family) {
       throw TraversalException{iteration, TraversalFailureReason::StateFamilyMismatch};
     } else if constexpr (Traits::Tag == TransitionPolicyTag::CylinderCylinder) {
       if (!mCylinderPolicyParams.has_value()) {
@@ -2056,5 +2078,15 @@ template void TrackerTraits<7>::processNeighbours<TransitionPolicyTag::CylinderC
 template void TrackerTraits<7>::processNeighbours<TransitionPolicyTag::CylinderCylinder, typename TrackerTraits<7>::TrackSeedN>(int, int, int, const bounded_vector<typename TrackerTraits<7>::TrackSeedN>&, const bounded_vector<int>&, const bounded_vector<int>&, bounded_vector<typename TrackerTraits<7>::TrackSeedN>&, bounded_vector<int>&, bounded_vector<int>&, const CylinderCylinderPolicyParams&);
 template void TrackerTraits<10>::processNeighbours<TransitionPolicyTag::DiskDisk, typename TrackerTraits<10>::CellSeedN>(int, int, int, const bounded_vector<typename TrackerTraits<10>::CellSeedN>&, const bounded_vector<int>&, const bounded_vector<int>&, bounded_vector<typename TrackerTraits<10>::TrackSeedN>&, bounded_vector<int>&, bounded_vector<int>&, const DiskDiskPolicyParams&);
 template void TrackerTraits<10>::processNeighbours<TransitionPolicyTag::DiskDisk, typename TrackerTraits<10>::TrackSeedN>(int, int, int, const bounded_vector<typename TrackerTraits<10>::TrackSeedN>&, const bounded_vector<int>&, const bounded_vector<int>&, bounded_vector<typename TrackerTraits<10>::TrackSeedN>&, bounded_vector<int>&, bounded_vector<int>&, const DiskDiskPolicyParams&);
+// Gate 4 M5b: the cross (NLayers, Tag) combinations below now become
+// reachable (dispatchActivePolicy()'s runtime family check no longer keeps
+// NLayers from ever selecting the "other" family's Tag at compile time) --
+// explicit instantiations added here for the same reason the four above
+// already existed (this is a private member; see TrackerTraits.h's own doc
+// on this method).
+template void TrackerTraits<7>::processNeighbours<TransitionPolicyTag::DiskDisk, typename TrackerTraits<7>::CellSeedN>(int, int, int, const bounded_vector<typename TrackerTraits<7>::CellSeedN>&, const bounded_vector<int>&, const bounded_vector<int>&, bounded_vector<typename TrackerTraits<7>::TrackSeedN>&, bounded_vector<int>&, bounded_vector<int>&, const DiskDiskPolicyParams&);
+template void TrackerTraits<7>::processNeighbours<TransitionPolicyTag::DiskDisk, typename TrackerTraits<7>::TrackSeedN>(int, int, int, const bounded_vector<typename TrackerTraits<7>::TrackSeedN>&, const bounded_vector<int>&, const bounded_vector<int>&, bounded_vector<typename TrackerTraits<7>::TrackSeedN>&, bounded_vector<int>&, bounded_vector<int>&, const DiskDiskPolicyParams&);
+template void TrackerTraits<10>::processNeighbours<TransitionPolicyTag::CylinderCylinder, typename TrackerTraits<10>::CellSeedN>(int, int, int, const bounded_vector<typename TrackerTraits<10>::CellSeedN>&, const bounded_vector<int>&, const bounded_vector<int>&, bounded_vector<typename TrackerTraits<10>::TrackSeedN>&, bounded_vector<int>&, bounded_vector<int>&, const CylinderCylinderPolicyParams&);
+template void TrackerTraits<10>::processNeighbours<TransitionPolicyTag::CylinderCylinder, typename TrackerTraits<10>::TrackSeedN>(int, int, int, const bounded_vector<typename TrackerTraits<10>::TrackSeedN>&, const bounded_vector<int>&, const bounded_vector<int>&, bounded_vector<typename TrackerTraits<10>::TrackSeedN>&, bounded_vector<int>&, bounded_vector<int>&, const CylinderCylinderPolicyParams&);
 
 } // namespace o2::itsmft::tracking

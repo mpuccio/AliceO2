@@ -90,5 +90,13 @@ template IndexTableConfigError bindIndexTableConfiguration<TransitionPolicyTag::
   o2::itsmft::IndexTableUtils<7>&, const TrackingParameters&);
 template IndexTableConfigError bindIndexTableConfiguration<TransitionPolicyTag::DiskDisk, 10>(
   o2::itsmft::IndexTableUtils<10>&, const TrackingParameters&);
+// Gate 4 M5b: TrackerTraits::initialiseTimeFrame() no longer gates Tag
+// selection on NLayers at compile time (see TrackerTraits.cxx's
+// dispatchActivePolicy() doc), so both cross combinations below are now
+// reachable from that call site too.
+template IndexTableConfigError bindIndexTableConfiguration<TransitionPolicyTag::DiskDisk, 7>(
+  o2::itsmft::IndexTableUtils<7>&, const TrackingParameters&);
+template IndexTableConfigError bindIndexTableConfiguration<TransitionPolicyTag::CylinderCylinder, 10>(
+  o2::itsmft::IndexTableUtils<10>&, const TrackingParameters&);
 
 } // namespace o2::itsmft::tracking

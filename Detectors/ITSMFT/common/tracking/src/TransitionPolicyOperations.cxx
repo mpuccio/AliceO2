@@ -157,6 +157,22 @@ template bool projectSearchWindow<TransitionPolicyTag::DiskDisk, 10>(
   const o2::itsmft::IndexTableUtils<10>&, const DiskDiskPolicyParams&,
   TrackletSearchWindow<TransitionPolicyTag::DiskDisk>&);
 
+// Gate 4 M5b: TrackerTraits::computeLayerTracklets() no longer gates Tag
+// selection on NLayers at compile time (see TrackerTraits.cxx's
+// dispatchActivePolicy() doc), so both cross combinations below are now
+// reachable from that call site too.
+template bool projectSearchWindow<TransitionPolicyTag::DiskDisk, 7>(
+  const SurfaceMeasurement&, const o2::its::Cluster&, const o2::its::Vertex&,
+  const TrackletProjectionState<TransitionPolicyTag::DiskDisk>&, float,
+  const o2::itsmft::IndexTableUtils<7>&, const DiskDiskPolicyParams&,
+  TrackletSearchWindow<TransitionPolicyTag::DiskDisk>&);
+
+template bool projectSearchWindow<TransitionPolicyTag::CylinderCylinder, 10>(
+  const SurfaceMeasurement&, const o2::its::Cluster&, const o2::its::Vertex&,
+  const TrackletProjectionState<TransitionPolicyTag::CylinderCylinder>&, float,
+  const o2::itsmft::IndexTableUtils<10>&, const CylinderCylinderPolicyParams&,
+  TrackletSearchWindow<TransitionPolicyTag::CylinderCylinder>&);
+
 // --- Stage-B activation: native SurfaceKinematicState policy operations ---
 //
 // Now the sole production buildCellSeed/attachHit/cellsAreCompatible

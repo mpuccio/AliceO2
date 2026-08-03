@@ -170,6 +170,16 @@ static_assert(!isSurfaceKindCompatible(TransitionPolicyTag::DiskDisk, SurfaceKin
 /// Forward. This inference is temporary (confined to this detail/ boundary
 /// alongside TransitionPolicyTag) and must not be expanded into a new
 /// durable detector abstraction.
+///
+/// Gate 4 M5b: every call site now reads this as a plain runtime value (a
+/// normal `if`, never `if constexpr`) -- it validates the active tag's
+/// family at runtime instead of compile-time-gating which Tag's
+/// orchestration body TrackerTraits<NLayers> even contains. Both
+/// TransitionPolicyTraits<Tag> orchestration bodies are therefore compiled
+/// for every NLayers now; only the runtime value below (unchanged) still
+/// decides which one may actually run for a given NLayers instantiation, so
+/// the observable pass/fail behavior for any given (NLayers, tag) pair is
+/// exactly what it was before this slice.
 template <int NLayers>
 GPUhdi() constexpr StateFamily stateFamilyFromNLayers() noexcept
 {
