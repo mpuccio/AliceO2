@@ -16,17 +16,26 @@
 // used to live in the single pre-M4 TransitionPolicy.h). It has nothing to
 // do with the legacy hot-loop-dispatch tag's containment or with
 // state-family/SurfaceKind classification: it never names a surface kind, a
-// state family, or that tag. It is a temporary
-// Stage-B refit-primitive-slice selector, needed only because
-// barrel::/forward::buildSeed's `Inner` case exists solely to reproduce the
-// frozen legacy ITS refit's reverse anchor convention (see the enum doc
-// below); its own anchor-taking overload has no live production caller today
-// (the production path always uses the anchor-less overload, which
-// internally defaults to `Outer`). Classify as temporary legacy detail: keep
-// it only as long as barrel::/forward::buildSeed's legacy-refit-compatible
-// `Inner` case is needed, and revisit at M5 if a genuine unified
-// descriptor-driven refit contract demonstrably needs it in a different
-// shape.
+// state family, or that tag.
+//
+// M5a classification (reviewed, not moved): SeedAnchor is retained in this
+// public, non-detail header only because it is the parameter type of a
+// public generic leaf operation's own declared signature --
+// barrel::/forward::buildSeed(SeedAnchor, ...), Sec 4 of
+// doc/design/0001-descriptor-driven-operation-boundary.md. It is not itself
+// a true generic operation *concept* the way SurfaceDescriptor/SurfaceKind
+// are: it is a temporary Stage-B refit-primitive-slice selector, needed only
+// because buildSeed's `Inner` case exists solely to reproduce the frozen
+// legacy ITS refit's reverse anchor convention (see the enum doc below); its
+// own anchor-taking overload has no live production caller today (the
+// production path always uses the anchor-less overload, which internally
+// defaults to `Outer`). It stays here, unmoved, because no correctness issue
+// requires relocating it now and the M5a design note above classifies the
+// operation it parametrizes as an irreducible family-local leaf, not
+// duplicated orchestration. If a later containment slice determines
+// buildSeed's `Inner` case itself is legacy-only (i.e. no descriptor-driven
+// contract ever calls it with `Inner`), relocate SeedAnchor to detail/ at
+// that point instead of leaving it here as a false generic-concept signal.
 namespace o2::itsmft::tracking
 {
 
