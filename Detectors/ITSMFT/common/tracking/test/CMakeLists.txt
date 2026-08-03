@@ -197,6 +197,12 @@ o2_add_test(native-cylindercylinder-refit-driver
             LABELS "itsmft;tracking"
             PUBLIC_LINK_LIBRARIES O2::ITSMFTTracking O2::MFTTracking O2::ITStracking)
 
+o2_add_test(its-native-vs-legacy-refit-characterization-harness
+            SOURCES testITSNativeVsLegacyRefitCharacterizationHarness.cxx
+            COMPONENT_NAME itsmft-tracking
+            LABELS "itsmft;tracking"
+            PUBLIC_LINK_LIBRARIES O2::ITSMFTTracking O2::MFTTracking O2::ITStracking)
+
 o2_add_test(material-physics
             SOURCES testMaterialPhysics.cxx
             COMPONENT_NAME itsmft-tracking
