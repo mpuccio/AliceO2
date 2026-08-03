@@ -32,6 +32,7 @@ o2_target_root_dictionary(ITSMFTTrackingParams
 o2_add_library(ITSMFTTracking
                TARGETVARNAME targetName
                SOURCES src/IOUtils.cxx
+                       src/Propagator.cxx
                        src/DetectorTraits.cxx
                        src/Configuration.cxx
                        src/TimeFrame.cxx

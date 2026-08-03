@@ -24,6 +24,7 @@
 #include "ITSMFTTracking/Configuration.h"
 #include "ITSMFTTracking/LegacyTrackerScratch.h"
 #include "ITSMFTTracking/MFTCATrack.h"
+#include "ITSMFTTracking/SurfaceCatalogView.h"
 #include "ITStracking/Cluster.h"
 #include "ITStracking/Constants.h"
 #include "MFTTracking/Constants.h"
@@ -125,129 +126,17 @@ inline void mftTrackletSigmaXY(float x0, float y0, float pvX, float pvY, float p
   }
 }
 
-inline void mftFwdPropagateToZ(o2::track::TrackParCovFwd& track, float z, float bz)
-{
-  if (std::abs(bz) > 0.01f) {
-    track.propagateToZhelix(z, bz);
-  } else {
-    track.propagateToZlinear(z);
-  }
-}
-
-inline float mftFwdPredictedChi2(const o2::track::TrackParCovFwd& track, float x, float y, float sigma2X, float sigma2Y)
-{
-  const float dx = x - static_cast<float>(track.getX());
-  const float dy = y - static_cast<float>(track.getY());
-  const float vx = static_cast<float>(track.getSigma2X()) + sigma2X;
-  const float vy = static_cast<float>(track.getSigma2Y()) + sigma2Y;
-  if (vx <= 0.f || vy <= 0.f) {
-    return o2::constants::math::VeryBig;
-  }
-  return dx * dx / vx + dy * dy / vy;
-}
-
-inline float mftFwdStateChi2(const o2::track::TrackParCovFwd& current, const o2::track::TrackParCovFwd& rhs)
-{
-  ROOT::Math::SVector<double, 5> diff{
-    rhs.getX() - current.getX(),
-    rhs.getY() - current.getY(),
-    rhs.getPhi() - current.getPhi(),
-    rhs.getTanl() - current.getTanl(),
-    rhs.getInvQPt() - current.getInvQPt()};
-  auto cov = current.getCovariances();
-  cov += rhs.getCovariances();
-  if (!cov.Invert()) {
-    return o2::constants::math::VeryBig;
-  }
-  return static_cast<float>(ROOT::Math::Similarity(cov, diff));
-}
-
-inline bool mftFwdAttachCluster(o2::track::TrackParCovFwd& track, float z, float x, float y,
-                                float sigma2X, float sigma2Y, float xOverX0, float bz, float maxChi2,
-                                float& chi2, bool checkChi2OnLast = false)
-{
-  mftFwdPropagateToZ(track, z, bz);
-  if (xOverX0 > 0.f) {
-    track.addMCSEffect(xOverX0);
-  }
-  const float predChi2 = mftFwdPredictedChi2(track, x, y, sigma2X, sigma2Y);
-  if (checkChi2OnLast && predChi2 > maxChi2) {
-    return false;
-  }
-  const std::array<float, 2> p{x, y};
-  const std::array<float, 2> cov{sigma2X, sigma2Y};
-  if (!track.update(p, cov)) {
-    return false;
-  }
-  chi2 += predChi2;
-  return true;
-}
-
-/// Build inward forward seed at the outer cluster and Kalman-fit the three cell clusters.
-template <int NLayers>
-inline bool mftFwdFitCellClusters(const int hitLayers[3], const int clusIds[3],
-                                  const LegacyTrackerScratch<NLayers>& tf, const TrackingParameters& params,
-                                  float bz, o2::track::TrackParCovFwd& track, float& chi2)
-{
-  const auto& cInner = tf.getUnsortedClusters()[hitLayers[0]][clusIds[0]];
-  const auto& cMid = tf.getUnsortedClusters()[hitLayers[1]][clusIds[1]];
-  const auto& cOuter = tf.getUnsortedClusters()[hitLayers[2]][clusIds[2]];
-  if (cInner.zCoordinate <= cOuter.zCoordinate + 1.e-6f) {
-    return false;
-  }
-
-  const float dxTan = cMid.xCoordinate - cInner.xCoordinate;
-  const float dyTan = cMid.yCoordinate - cInner.yCoordinate;
-  const float dzTan = cMid.zCoordinate - cInner.zCoordinate;
-  const float drTan = std::sqrt(dxTan * dxTan + dyTan * dyTan);
-  const float dxPhi = cOuter.xCoordinate - cInner.xCoordinate;
-  const float dyPhi = cOuter.yCoordinate - cInner.yCoordinate;
-  const float dzPhi = cOuter.zCoordinate - cInner.zCoordinate;
-  const float drPhi = std::sqrt(dxPhi * dxPhi + dyPhi * dyPhi);
-  if (drTan < 1.e-6f || std::abs(dzTan) < 1.e-6f || drPhi < 1.e-6f || std::abs(dzPhi) < 1.e-6f) {
-    return false;
-  }
-
-  const float minPt = params.TrackletMinPt;
-  const float invQPt = (minPt > 0.f) ? 1.f / minPt : 0.f;
-  float tanl{0.f};
-  float phi{0.f};
-  if (std::abs(bz) > 0.01f) {
-    tanl = -std::abs(dzTan) / drTan;
-    phi = std::atan2(dyPhi, dxPhi);
-    if (std::abs(tanl) > 1.e-6f) {
-      const float k = std::abs(o2::constants::math::B2C * bz);
-      const float hz = (bz > 0.f) ? 1.f : -1.f;
-      phi -= 0.5f * hz * invQPt * dzPhi * k / tanl;
-    }
-  } else {
-    tanl = -std::abs(dzPhi) / drPhi;
-    phi = std::atan2(dyPhi, dxPhi);
-  }
-
-  const auto& tfOuter = tf.getTrackingFrameInfoOnLayer(hitLayers[2])[clusIds[2]];
-  ROOT::Math::SVector<double, 5> seedParams{cOuter.xCoordinate, cOuter.yCoordinate, phi, tanl, invQPt};
-  ROOT::Math::SMatrix<double, 5, 5, ROOT::Math::MatRepSym<double, 5>> seedCov{};
-  seedCov(0, 0) = tfOuter.covarianceTrackingFrame[0] > 0.f ? tfOuter.covarianceTrackingFrame[0] : 1.f;
-  seedCov(1, 1) = tfOuter.covarianceTrackingFrame[2] > 0.f ? tfOuter.covarianceTrackingFrame[2] : 1.f;
-  seedCov(2, 2) = seedCov(3, 3) = 1.;
-  const double qptSigma = std::clamp(static_cast<double>(std::abs(invQPt)), 1., 10.);
-  seedCov(4, 4) = qptSigma * qptSigma;
-  track = {cOuter.zCoordinate, seedParams, seedCov, 0.};
-
-  chi2 = 0.f;
-  for (int iC{2}; iC >= 0; --iC) {
-    const int layer = hitLayers[iC];
-    const int clIdx = clusIds[iC];
-    const auto& tfInfo = tf.getTrackingFrameInfoOnLayer(layer)[clIdx];
-    if (!mftFwdAttachCluster(track, tfInfo.zCoordinate, tfInfo.xCoordinate, tfInfo.yCoordinate,
-                             tfInfo.covarianceTrackingFrame[0], tfInfo.covarianceTrackingFrame[2],
-                             params.LayerxX0[layer], bz, params.MaxChi2ClusterAttachment, chi2, iC == 0)) {
-      return false;
-    }
-  }
-  return true;
-}
+// M5d: the frozen-legacy MFT final-track Kalman fit primitives that used to
+// live here (mftFwdPropagateToZ/mftFwdPredictedChi2/mftFwdStateChi2/
+// mftFwdAttachCluster/mftFwdFitCellClusters, all o2::track::TrackParCovFwd-
+// based, driving o2::mft::TrackFitter<TrackLTF>) have been removed: they had
+// no remaining production call site (Stage-B already migrated CA cell/hit
+// construction to forward::buildSeed/attachHit, and refitTrackFwd below now
+// uses the shared native driver) and no test referenced them directly. See
+// doc/decisions/0008-native-refit-activation.md. mftLayerZ/mftLayerMSAngle/
+// mftTrackletProject/mftTrackletSigmaXY above are untouched: they remain the
+// live tracklet-projection primitives TransitionPolicyOperations.cxx and
+// TrackerTraits.cxx call every iteration, a distinct stage from final refit.
 
 } // namespace o2::itsmft::tracking::detail
 
@@ -257,8 +146,10 @@ namespace o2::itsmft::tracking
 // layerMeasurements is TrackerTraits::mLayerMeasurements (see DetectorTraits::
 // refitSeed's doc): the authoritative, already-validated per-layer normalized
 // SurfaceMeasurement span. Every physical hit coordinate/covariance consumed
-// by the retained fitter comes from it; tf is retained only for cluster
-// external-index/size bookkeeping (output metadata, not physical reads).
+// by the fit comes from it; tf is retained only for cluster external-index/
+// size bookkeeping (output metadata, not physical reads). surfaceCatalog is
+// this iteration's TrackerTraits::mTraversalLayout.getSurfaceCatalogView()
+// (ADR 0001 nominal material).
 //
 // expectedSource is the ClusterSourceId resolved once by the caller
 // (TrackerTraits::findRoadsForPolicy(), via DetectorTraits::refitSeed's own
@@ -271,6 +162,7 @@ bool refitTrackFwd(const TrackSeedN<o2::mft::constants::mft::LayersNumber>& seed
                    const TrackingParameters& params,
                    float bz,
                    const LayerMeasurementSpans<o2::mft::constants::mft::LayersNumber>& layerMeasurements,
+                   SurfaceCatalogView surfaceCatalog,
                    ClusterSourceId expectedSource);
 
 } // namespace o2::itsmft::tracking

@@ -25,7 +25,6 @@
 #include <oneapi/tbb/blocked_range.h>
 #include <oneapi/tbb/enumerable_thread_specific.h>
 
-#include "DetectorsBase/Propagator.h"
 #include "Framework/Logger.h"
 #include "GPUCommonMath.h"
 #include "ITStracking/BoundedAllocator.h"
@@ -43,7 +42,6 @@
 #include "ITSMFTTracking/TrackerTraits.h"
 #include "ITSMFTTracking/detail/TransitionPolicyBinding.h"
 #include "ITSMFTTracking/detail/TransitionPolicyOperations.h"
-#include "ITStracking/TrackHelpers.h"
 #include "ITStracking/Tracklet.h"
 #include "SimulationDataFormat/MCCompLabel.h"
 
@@ -1798,13 +1796,10 @@ void TrackerTraits<NLayers>::findRoadsForPolicy(const int iteration, const typen
 {
   bounded_vector<bounded_vector<int>> firstClusters(mTrkParams[iteration].NLayers, bounded_vector<int>(mMemoryPool.get()), mMemoryPool.get());
   firstClusters.resize(mTrkParams[iteration].NLayers);
-  const auto propagator = o2::base::Propagator::Instance();
-  const TrackingFrameInfo* tfInfos[NLayers]{};
-  const Cluster* unsortedClusters[NLayers]{};
-  for (int iLayer = 0; iLayer < NLayers; ++iLayer) {
-    tfInfos[iLayer] = mScratch->getTrackingFrameInfoOnLayer(iLayer).data();
-    unsortedClusters[iLayer] = mScratch->getUnsortedClusters()[iLayer].data();
-  }
+  // M5d: DetectorTraits::refitSeed's own (both-branch) native refit reads
+  // layerMeasurements/mTraversalLayout's surface catalog, not a raw
+  // TrackingFrameInfo/Cluster array or an o2::base::Propagator instance --
+  // see doc/decisions/0008-native-refit-activation.md.
   // Gate 4 C2 source-identity correction: resolved once per findRoadsForPolicy
   // invocation, same binding-adopted/fallback shape as roadStartCells below.
   // mBinding->getSource() is this call's own ClusterSourceId (see
@@ -1901,10 +1896,8 @@ void TrackerTraits<NLayers>::findRoadsForPolicy(const int iteration, const typen
                                                                      mTrkParams[iteration],
                                                                      mBz,
                                                                      *mScratch,
-                                                                     tfInfos,
-                                                                     unsortedClusters,
-                                                                     propagator,
                                                                      mLayerMeasurements,
+                                                                     mTraversalLayout.getSurfaceCatalogView(),
                                                                      expectedSource);
         if (refitSuccess) {
           DetectorTraits<NLayers>::copySeedPatternToTrack(temporaryTrack, trackSeeds[iSeed]);

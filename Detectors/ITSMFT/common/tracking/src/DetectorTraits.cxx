@@ -17,57 +17,61 @@
 
 #include "Framework/Logger.h"
 #include "ITSMFTTracking/MFTFwdTrackHelpers.h"
+#include "ITSMFTTracking/NativeRefitDriver.h"
 #include "ITSMFTTracking/SurfaceKinematicStateLegacyAdapters.h"
-#include "ITStracking/TrackHelpers.h"
 
 namespace o2::itsmft::tracking
 {
 
 namespace
 {
+// M5d: the barrel/ITS branch of DetectorTraits::refitSeed. Replaces the
+// frozen o2::its::track::fitTrack/refitTrack/refitTrackSeed chain
+// (ITStracking/TrackHelpers.h) with the shared, descriptor-driven native
+// driver (fitTrackSeedLegs, NativeRefitDriver.h) that also serves the
+// forward/MFT branch below -- this is the intentional, approved physics
+// departure recorded in doc/decisions/0008-native-refit-activation.md.
+// legacy::exportBarrelTrackParCov is retained: it is a plain data-format
+// adapter into TrackITSExt's own TrackParCovF-based storage, not a fitting
+// algorithm, and every detector output type in this library is still
+// exported this way.
 template <int NLayers>
 bool refitSeedITS(const typename DetectorTraits<NLayers>::TrackSeedN& seed,
                   o2::its::TrackITSExt& track,
                   const TrackingParameters& params,
                   float bz,
-                  const o2::its::TrackingFrameInfo* const tfInfos[NLayers],
-                  const o2::its::Cluster* const unsortedClusters[NLayers],
-                  const o2::base::PropagatorImpl<float>* propagator)
+                  const LayerMeasurementSpans<NLayers>& layerMeasurements,
+                  SurfaceCatalogView surfaceCatalog)
 {
-  o2::its::TrackSeed<NLayers> itsSeed;
-  // Stage-B activation boundary (Architecture.md Sec 12 / this class's own
-  // doc): the common seed no longer inherits TrackParCovF, so the frozen ITS
-  // refit is fed through the single explicit legacy export adapter instead of
-  // an inheritance cast. A wrong-family/invalid state fails the refit cleanly.
-  o2::track::TrackParCovF barrelState{};
-  if (!o2::itsmft::tracking::legacy::exportBarrelTrackParCov(seed.state(), barrelState)) {
+  SurfaceKinematicState paramIn{};
+  SurfaceKinematicState paramOut{};
+  float chi2 = 0.f;
+  OperationFailureReason reason{};
+  if (!fitTrackSeedLegs<NLayers>(seed, layerMeasurements, surfaceCatalog, bz,
+                                 params.ShiftRefToCluster, params.MaxChi2ClusterAttachment, params.MaxChi2NDF,
+                                 params.RepeatRefitOut, gsl::span<const float>(params.MinPt),
+                                 paramIn, paramOut, chi2, reason)) {
     return false;
   }
-  static_cast<o2::track::TrackParCovF&>(itsSeed) = barrelState;
-  itsSeed.setHitLayerMask(o2::its::LayerMask{seed.getHitLayerMask().value()});
-  itsSeed.setFirstTrackletIndex(seed.getFirstTrackletIndex());
-  itsSeed.setSecondTrackletIndex(seed.getSecondTrackletIndex());
-  itsSeed.setChi2(seed.getChi2());
-  itsSeed.setLevel(seed.getLevel());
-  itsSeed.getTimeStamp() = seed.getTimeStamp();
-  for (int iLayer{0}; iLayer < NLayers; ++iLayer) {
-    itsSeed.getClusters()[iLayer] = seed.getCluster(iLayer);
-  }
-  const o2::its::track::TrackFitContext<NLayers> fitCtx{
-    tfInfos, params.LayerxX0.data(), params.NLayers, bz,
-    params.MaxChi2ClusterAttachment, params.MaxChi2NDF,
-    propagator, params.CorrType, params.ShiftRefToCluster, params.RepeatRefitOut};
-  o2::its::TrackITSInternal<NLayers> internalTrack;
-  if (!o2::its::track::refitTrackSeed<NLayers>(itsSeed,
-                                               internalTrack,
-                                               fitCtx,
-                                               unsortedClusters,
-                                               params.LayerRadii.data(),
-                                               params.MinPt.data(),
-                                               params.ReseedIfShorter)) {
+
+  o2::track::TrackParCovF legacyParamIn{};
+  o2::track::TrackParCovF legacyParamOut{};
+  if (!legacy::exportBarrelTrackParCov(paramIn, legacyParamIn) ||
+      !legacy::exportBarrelTrackParCov(paramOut, legacyParamOut)) {
     return false;
   }
-  track = o2::its::makeTrackITSExt(internalTrack);
+  o2::its::TrackITSExt scratch{};
+  scratch.getParamIn() = legacyParamIn;
+  scratch.getParamOut() = legacyParamOut;
+  scratch.setChi2(chi2);
+  scratch.getTimeStamp() = seed.getTimeStamp().makeSymmetrical();
+  for (int layer = 0; layer < NLayers; ++layer) {
+    const int clsIdx = seed.getCluster(layer);
+    if (clsIdx != o2::its::constants::UnusedIndex) {
+      scratch.setExternalClusterIndex(layer, clsIdx, true);
+    }
+  }
+  track = scratch;
   return true;
 }
 } // namespace
@@ -78,16 +82,14 @@ bool DetectorTraits<NLayers>::refitSeed(const TrackSeedN& seed,
                                         const TrackingParameters& params,
                                         float bz,
                                         ScratchN& scratch,
-                                        const o2::its::TrackingFrameInfo* const tfInfos[NLayers],
-                                        const o2::its::Cluster* const unsortedClusters[NLayers],
-                                        const o2::base::PropagatorImpl<float>* propagator,
                                         const LayerMeasurementSpans<NLayers>& layerMeasurements,
+                                        SurfaceCatalogView surfaceCatalog,
                                         ClusterSourceId expectedSource)
 {
   if constexpr (DetId == o2::detectors::DetID::MFT) {
-    return refitTrackFwd(seed, track, scratch, params, bz, layerMeasurements, expectedSource);
+    return refitTrackFwd(seed, track, scratch, params, bz, layerMeasurements, surfaceCatalog, expectedSource);
   } else {
-    return refitSeedITS<NLayers>(seed, track, params, bz, tfInfos, unsortedClusters, propagator);
+    return refitSeedITS<NLayers>(seed, track, params, bz, layerMeasurements, surfaceCatalog);
   }
 }
 

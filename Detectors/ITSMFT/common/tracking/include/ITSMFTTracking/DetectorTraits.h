@@ -16,11 +16,11 @@
 #ifndef ALICEO2_ITSMFT_TRACKING_DETECTOR_TRAITS_H_
 #define ALICEO2_ITSMFT_TRACKING_DETECTOR_TRAITS_H_
 
-#include "DetectorsBase/Propagator.h"
 #include "DetectorsCommonDataFormats/DetID.h"
 #include "DataFormatsCalibration/MeanVertexObject.h"
 #include "ITSMFTTracking/Configuration.h"
 #include "ITSMFTTracking/LegacyTrackerScratch.h"
+#include "ITSMFTTracking/SurfaceCatalogView.h"
 #include "ITSMFTTracking/TimeFrame.h"
 #include "ITSMFTTracking/Cell.h"
 #include "ITStracking/BoundedAllocator.h"
@@ -40,13 +40,17 @@ struct DetectorTraits {
   using ScratchN = LegacyTrackerScratch<NLayers>;
   static constexpr o2::detectors::DetID::ID DetId = detIdFromNLayers<NLayers>();
 
-  // layerMeasurements is TrackerTraits::mLayerMeasurements: the authoritative,
-  // already-validated per-layer normalized SurfaceMeasurement span resolved
-  // once per initialiseTimeFrame() call (see TrackerTraits.h's own doc). The
-  // MFT branch is the only consumer; the barrel/ITS branch keeps reading
-  // tfInfos/unsortedClusters and ignores this parameter unchanged. `scratch`
-  // is retained only for cluster external-index/size bookkeeping (output
-  // metadata, never a physical read) -- see MFTFwdTrackHelpers.h.
+  // M5d: both branches now go through the shared, descriptor-driven native
+  // refit (Propagator.h / NativeRefitDriver.h) instead of a frozen legacy
+  // Kalman fitter -- see doc/decisions/0008-native-refit-activation.md. Both
+  // branches read layerMeasurements/surfaceCatalog; neither reads a raw
+  // o2::its::TrackingFrameInfo/Cluster array or an o2::base::Propagator
+  // instance any longer. `scratch` is retained only for cluster
+  // external-index/size bookkeeping (output metadata, never a physical
+  // read) -- see MFTFwdTrackHelpers.h. `surfaceCatalog` is this iteration's
+  // TrackerTraits::mTraversalLayout.getSurfaceCatalogView() (ADR 0001
+  // nominal material, resolved the same way every other native operation in
+  // this library already resolves it).
   //
   // expectedSource (Gate 4 C2 source-identity correction): the
   // ClusterSourceId this call's caller (TrackerTraits::findRoadsForPolicy())
@@ -61,10 +65,8 @@ struct DetectorTraits {
                         const TrackingParameters& params,
                         float bz,
                         ScratchN& scratch,
-                        const o2::its::TrackingFrameInfo* const tfInfos[NLayers],
-                        const o2::its::Cluster* const unsortedClusters[NLayers],
-                        const o2::base::PropagatorImpl<float>* propagator,
                         const LayerMeasurementSpans<NLayers>& layerMeasurements,
+                        SurfaceCatalogView surfaceCatalog,
                         ClusterSourceId expectedSource);
 
   static void copySeedPatternToTrack(TrackType& track, const TrackSeedN& seed) noexcept;

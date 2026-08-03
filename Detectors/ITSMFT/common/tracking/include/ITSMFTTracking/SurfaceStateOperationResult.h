@@ -82,7 +82,16 @@ enum class OperationFailureReason : uint8_t {
   // for a configuration where legacy could have taken a different starting
   // point. Distinct from every reason above: no rotate/propagate/material/
   // chi2 arithmetic has been attempted for any leg.
-  ReseedNotSupported = 17
+  ReseedNotSupported = 17,
+  // M5d Propagator: state-representation-family conversion
+  // (Propagator::convertFamily, Propagator.h) could not produce a valid
+  // target-family state -- an unrecognized target family, a source
+  // Snp/direction too close to the +-1 boundary for the Barrel->Forward
+  // asin() step, or a non-finite converted parameter/covariance entry.
+  // Distinct from SourceFamilyMismatch
+  // (that reason means "no conversion was attempted and the families simply
+  // differ"; this one means "a conversion was attempted and failed").
+  FamilyConversionFailure = 18
 };
 
 static_assert(sizeof(OperationFailureReason) == sizeof(uint8_t));

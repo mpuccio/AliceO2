@@ -10,7 +10,8 @@
 // or submit itself to any jurisdiction.
 ///
 /// \file MFTFwdTrackHelpers.cxx
-/// \brief MFT CA final forward Kalman refit (legacy TrackFitter)
+/// \brief MFT CA final forward refit -- M5d: shared native driver, no frozen
+/// legacy o2::mft::TrackFitter/TrackLTF Kalman engine.
 ///
 
 #include "ITSMFTTracking/MFTFwdTrackHelpers.h"
@@ -18,30 +19,45 @@
 #include <cmath>
 
 #include "Framework/Logger.h"
+#include "ITSMFTTracking/NativeRefitDriver.h"
+#include "ITSMFTTracking/SurfaceKinematicStateLegacyAdapters.h"
 #include "ITStracking/Constants.h"
-#include "MFTTracking/Cluster.h"
-#include "MFTTracking/Constants.h"
-#include "MFTTracking/MFTTrackingParam.h"
-#include "MFTTracking/TrackFitter.h"
 
 namespace o2::itsmft::tracking
 {
 
 namespace
 {
-template <typename TrackLTFType>
-bool refitTrackFwdImpl(const TrackSeedN<o2::mft::constants::mft::LayersNumber>& seed,
-                       MFTCATrack& track,
-                       const LegacyTrackerScratch<o2::mft::constants::mft::LayersNumber>& tf,
-                       const TrackingParameters& params,
-                       float bz,
-                       const LayerMeasurementSpans<o2::mft::constants::mft::LayersNumber>& layerMeasurements,
-                       ClusterSourceId expectedSource)
+constexpr int kMFTLayers = o2::mft::constants::mft::LayersNumber;
+}
+
+// M5d: replaces the frozen o2::mft::TrackFitter<TrackLTF>/TrackLTFL Kalman
+// engine (MFTTracking/TrackFitter.h) with fitTrackSeedLegs (NativeRefitDriver.h),
+// the same shared, descriptor-driven driver the barrel/ITS branch
+// (DetectorTraits.cxx's refitSeedITS) now uses -- the intentional, approved
+// physics departure recorded in doc/decisions/0008-native-refit-activation.md.
+// The leg structure this milestone activates (inward/outward/optional-repeat,
+// Section "Required migration") is not a port of TrackLTF's own two-direction
+// linear-track-finder algorithm; it is the same three-leg Kalman sequencing
+// the barrel branch already uses, applied here to a Forward-family
+// SurfaceKinematicState. Numerical output is expected to differ from the
+// retired engine; see the design note for characterization evidence.
+bool refitTrackFwd(const TrackSeedN<kMFTLayers>& seed,
+                   MFTCATrack& track,
+                   const LegacyTrackerScratch<kMFTLayers>& tf,
+                   const TrackingParameters& params,
+                   float bz,
+                   const LayerMeasurementSpans<kMFTLayers>& layerMeasurements,
+                   SurfaceCatalogView surfaceCatalog,
+                   ClusterSourceId expectedSource)
 {
-  TrackLTFType ltf(true);
   const auto hitMask = seed.getHitLayerMask();
 
-  for (int layer = 0; layer < o2::mft::constants::mft::LayersNumber; ++layer) {
+  // Defensive re-check of the ClusterRef identity contract that
+  // TrackerTraits::initialiseTimeFrame() already established for every entry
+  // of mLayerMeasurements (NormalizedMeasurementMismatch) -- unchanged from
+  // the pre-M5d implementation, see MFTFwdTrackHelpers.h's own doc.
+  for (int layer = 0; layer < kMFTLayers; ++layer) {
     if (!hitMask.has(layer)) {
       continue;
     }
@@ -55,12 +71,6 @@ bool refitTrackFwdImpl(const TrackSeedN<o2::mft::constants::mft::LayersNumber>& 
     }
     const auto& measurement = layerMeasurements[layer][clIdx];
     const int extIdx = tf.getClusterExternalIndex(layer, clIdx);
-    // Defensive re-check of the ClusterRef identity contract that
-    // TrackerTraits::initialiseTimeFrame() already established for every
-    // entry of mLayerMeasurements (NormalizedMeasurementMismatch). Checked
-    // again here because a failure at this final-refit boundary must fail
-    // only this one seed (return false) rather than the
-    // TraversalException/dropped-TF path that guards the bulk validation.
     if (!measurement.cluster.isValid() || measurement.cluster.source != expectedSource ||
         extIdx < 0 || static_cast<uint32_t>(extIdx) != measurement.cluster.index) {
       LOGP(warn, "MFT CA forward refit: normalized measurement identity mismatch on layer {} clIdx {}", layer, clIdx);
@@ -72,55 +82,25 @@ bool refitTrackFwdImpl(const TrackSeedN<o2::mft::constants::mft::LayersNumber>& 
       LOGP(warn, "MFT CA forward refit: invalid normalized measurement on layer {} clIdx {}", layer, clIdx);
       return false;
     }
-    // o2::mft::Cluster's phi/radius constructor arguments are not read by
-    // TrackLTF::setPoint (MFTTracking/TrackCA.h), which only consumes
-    // x/y/z and sigmaX2/sigmaY2 (via BaseCluster); pass deterministic
-    // neutral values rather than reading legacy Cluster::phi/radius or
-    // recomputing them from the normalized coordinates. This fitter is
-    // diagonal-only: measurement.covariance.uv is intentionally unused,
-    // and no off-diagonal approximation is substituted for it.
-    o2::mft::Cluster mftCluster{
-      measurement.global.x, measurement.global.y, measurement.global.z,
-      0.f, 0.f, clIdx, 0,
-      measurement.covariance.uu, measurement.covariance.vv, 0};
-    ltf.setPoint(mftCluster, layer, clIdx, {}, extIdx, tf.getClusterSize(layer, clIdx));
   }
 
-  if (ltf.getNumberOfPoints() < params.MinTrackLength) {
-    return false;
-  }
-  ltf.sort();
-
-  const auto& mftParam = o2::mft::MFTTrackingParam::Instance();
-  o2::mft::TrackFitter<TrackLTFType> fitter;
-  fitter.setBz(bz);
-  fitter.setMFTRadLength(mftParam.MFTRadLength);
-  fitter.setTrackModel(mftParam.trackmodel);
-  fitter.setAlignResiduals(mftParam.alignResidual);
-
-  TrackLTFType outward = ltf;
-  if (!fitter.initTrack(ltf) || !fitter.fit(ltf) ||
-      !fitter.initTrack(outward, true) || !fitter.fit(outward, true)) {
-    return false;
-  }
-  ltf.setOutParam(outward);
-
-  const int nCl = ltf.getNumberOfPoints();
-  if (nCl < params.MinTrackLength) {
-    return false;
-  }
-  if (ltf.getPt() < params.MinPt[o2::mft::constants::mft::LayersNumber - nCl]) {
-    return false;
-  }
-  if (static_cast<float>(ltf.getTrackChi2() / std::max(1, 2 * nCl - 5)) > params.MaxChi2NDF) {
+  SurfaceKinematicState paramIn{};
+  SurfaceKinematicState paramOut{};
+  float chi2 = 0.f;
+  OperationFailureReason reason{};
+  if (!fitTrackSeedLegs<kMFTLayers>(seed, layerMeasurements, surfaceCatalog, bz,
+                                    params.ShiftRefToCluster, params.MaxChi2ClusterAttachment, params.MaxChi2NDF,
+                                    params.RepeatRefitOut, gsl::span<const float>(params.MinPt),
+                                    paramIn, paramOut, chi2, reason)) {
+    LOGP(warn, "MFT CA forward refit: fitTrackSeedLegs failed, reason={}", static_cast<int>(reason));
     return false;
   }
 
   if (params.TrackletMinAbsX > 0.f) {
-    if (std::abs(ltf.getX()) < params.TrackletMinAbsX) {
+    if (std::abs(paramOut.parameters[0]) < params.TrackletMinAbsX) {
       return false;
     }
-    for (int layer = 0; layer < o2::mft::constants::mft::LayersNumber; ++layer) {
+    for (int layer = 0; layer < kMFTLayers; ++layer) {
       if (!hitMask.has(layer)) {
         continue;
       }
@@ -132,12 +112,22 @@ bool refitTrackFwdImpl(const TrackSeedN<o2::mft::constants::mft::LayersNumber>& 
     }
   }
 
+  o2::track::TrackParCovFwd inFwd{};
+  o2::track::TrackParCovFwd outFwd{};
+  if (!legacy::exportLegacyForwardTrackParCov(paramIn, inFwd) ||
+      !legacy::exportLegacyForwardTrackParCov(paramOut, outFwd)) {
+    return false;
+  }
+  inFwd.setTrackChi2(chi2);
+
   auto& mftTr = track.getTrack();
-  mftTr = static_cast<const o2::mft::TrackMFT&>(ltf);
+  static_cast<o2::track::TrackParCovFwd&>(mftTr) = inFwd;
+  mftTr.setOutParam(outFwd);
   mftTr.setCA(true);
+  mftTr.setNumberOfPoints(hitMask.count());
 
   track.setPattern(0);
-  for (int layer = 0; layer < o2::mft::constants::mft::LayersNumber; ++layer) {
+  for (int layer = 0; layer < kMFTLayers; ++layer) {
     if (!hitMask.has(layer)) {
       track.setClusterIndex(layer, o2::its::constants::UnusedIndex);
       continue;
@@ -147,22 +137,6 @@ bool refitTrackFwdImpl(const TrackSeedN<o2::mft::constants::mft::LayersNumber>& 
     track.setClusterSize(layer, tf.getClusterSize(layer, clIdx));
   }
   return true;
-}
-} // namespace
-
-bool refitTrackFwd(const TrackSeedN<o2::mft::constants::mft::LayersNumber>& seed,
-                   MFTCATrack& track,
-                   const LegacyTrackerScratch<o2::mft::constants::mft::LayersNumber>& tf,
-                   const TrackingParameters& params,
-                   float bz,
-                   const LayerMeasurementSpans<o2::mft::constants::mft::LayersNumber>& layerMeasurements,
-                   ClusterSourceId expectedSource)
-{
-  const auto& mftParam = o2::mft::MFTTrackingParam::Instance();
-  if (mftParam.forceZeroField || std::abs(bz) < 1e-6f) {
-    return refitTrackFwdImpl<o2::mft::TrackLTFL>(seed, track, tf, params, 0.f, layerMeasurements, expectedSource);
-  }
-  return refitTrackFwdImpl<o2::mft::TrackLTF>(seed, track, tf, params, bz, layerMeasurements, expectedSource);
 }
 
 } // namespace o2::itsmft::tracking
