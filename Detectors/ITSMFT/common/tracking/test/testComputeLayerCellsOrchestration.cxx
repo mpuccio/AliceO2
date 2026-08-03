@@ -848,17 +848,23 @@ BOOST_AUTO_TEST_CASE(CylinderComputeLayerCellsSafeWithEmptyDiskReferenceSpan)
 
 BOOST_AUTO_TEST_CASE(RepeatedComputeLayerCellsCallsDoNotRebindOrIncreaseCounts)
 {
-  // getTraversalGroupingCount()/getPolicyBindingCount() only increment inside
-  // initialiseTimeFrame() (Gate 2 counters, unchanged by this slice).
-  // computeLayerCells() has no code path that rebinds mDiskLayerReferenceZ or
-  // any other cached policy/geometry state -- calling it repeatedly for the
-  // same iteration must leave both counters exactly as they were after the
-  // single initialiseTimeFrame() call, the closest observable proxy, through
-  // the public API alone, for "the legacy reference-z span is bound once per
-  // iteration, not once per candidate". (computeLayerCells() itself clears
-  // and consumes tracklets as an existing, unrelated post-step, so a second
-  // call with no freshly injected tracklets legitimately produces zero cells
-  // -- that is not what this test checks.)
+  // getTraversalGroupingCount() only increments inside initialiseTimeFrame()
+  // (Gate 2 counter, unchanged by this slice). computeLayerCells() has no
+  // code path that rebinds mDiskLayerReferenceZ or any other cached
+  // policy/geometry state -- calling it repeatedly for the same iteration
+  // must leave the counter exactly as it was after the single
+  // initialiseTimeFrame() call, and must keep reproducing the identical
+  // cell chi2 through the same, never-rebound mDiskLayerReferenceZ/
+  // mDiskPolicyParams cache -- the closest observable proxy, through the
+  // public API alone, for "the legacy reference-z span is bound once per
+  // iteration, not once per candidate". (M4b removed the
+  // TrackerTraits::getPolicyBindingCount(StateFamily) test-only
+  // introspection seam this test previously also checked; the grouping
+  // count plus the reproduced chi2 below remain sufficient public-API
+  // evidence for the same claim. computeLayerCells() itself clears and
+  // consumes tracklets as an existing, unrelated post-step, so a second call
+  // with no freshly injected tracklets legitimately produces zero cells --
+  // that is not what this test checks.)
   Rig<MFTNLayers> rig{o2::detectors::DetID::MFT, SurfaceKind::Disk};
   rig.params[0].MaxChi2ClusterAttachment = 1.e6f;
   rig.params[0].TrackletMinPt = 0.3f;
@@ -878,8 +884,6 @@ BOOST_AUTO_TEST_CASE(RepeatedComputeLayerCellsCallsDoNotRebindOrIncreaseCounts)
   BOOST_REQUIRE(rig.traits.hasTraversalCache());
 
   const int groupingCountAfterInit = rig.traits.getTraversalGroupingCount();
-  const int diskBindingCountAfterInit = rig.traits.getPolicyBindingCount(StateFamily::Forward);
-  const int cylinderBindingCountAfterInit = rig.traits.getPolicyBindingCount(StateFamily::Barrel);
 
   const auto topology = rig.tf.getTrackingTopologyView();
   const int cellTopologyId = findCellTopologyId(topology, 0, 1, 2);
@@ -895,8 +899,6 @@ BOOST_AUTO_TEST_CASE(RepeatedComputeLayerCellsCallsDoNotRebindOrIncreaseCounts)
   rig.traits.computeLayerCells(0);
 
   BOOST_CHECK_EQUAL(rig.traits.getTraversalGroupingCount(), groupingCountAfterInit);
-  BOOST_CHECK_EQUAL(rig.traits.getPolicyBindingCount(StateFamily::Forward), diskBindingCountAfterInit);
-  BOOST_CHECK_EQUAL(rig.traits.getPolicyBindingCount(StateFamily::Barrel), cylinderBindingCountAfterInit);
 
   // Re-inject tracklets and recompute (the underlying candidate clusters/
   // measurements loaded above are untouched -- reloading them here would
@@ -909,7 +911,6 @@ BOOST_AUTO_TEST_CASE(RepeatedComputeLayerCellsCallsDoNotRebindOrIncreaseCounts)
   rig.traits.computeLayerCells(0);
 
   BOOST_CHECK_EQUAL(rig.traits.getTraversalGroupingCount(), groupingCountAfterInit);
-  BOOST_CHECK_EQUAL(rig.traits.getPolicyBindingCount(StateFamily::Forward), diskBindingCountAfterInit);
   BOOST_REQUIRE_EQUAL(rig.tf.getCells()[cellTopologyId].size(), 1u);
   BOOST_CHECK_EQUAL(rig.tf.getCells()[cellTopologyId][0].getChi2(), firstChi2);
 }
@@ -961,7 +962,6 @@ BOOST_AUTO_TEST_CASE(CylinderUnsupportedMaterialCorrectionModeThrowsBeforeTimeFr
     // later call with a supported mode still succeeds, proving no lingering
     // corrupted state from the rejected attempt.
     BOOST_CHECK(!rig.traits.hasTraversalCache());
-    BOOST_CHECK_EQUAL(rig.traits.getPolicyBindingCount(StateFamily::Barrel), 0);
 
     rig.params[0].CorrType = o2::base::PropagatorF::MatCorrType::USEMatCorrNONE;
     rig.traits.updateTrackingParameters(rig.params);

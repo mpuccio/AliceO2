@@ -303,9 +303,6 @@ TrackletSnapshot runFixture(o2::detectors::DetID::ID detector,
 
   traits.initialiseTimeFrame(0, plan);
   BOOST_CHECK_EQUAL(traits.getTraversalGroupingCount(), 1);
-  BOOST_CHECK_EQUAL(traits.getPolicyBindingCount(stateFamilyOf(tag)), 1);
-  const auto otherFamily = stateFamilyOf(tag) == StateFamily::Barrel ? StateFamily::Forward : StateFamily::Barrel;
-  BOOST_CHECK_EQUAL(traits.getPolicyBindingCount(otherFamily), 0);
 
   // Gate 3 transition-preparation slice: successful initialisation must fill
   // every transition entry (relocated from TimeFrame::initialise() into
@@ -359,10 +356,8 @@ TrackletSnapshot runFixture(o2::detectors::DetID::ID detector,
   // traversal grouping and typed parameter binding.
   traits.computeLayerTracklets(0, 0);
   BOOST_CHECK_EQUAL(traits.getTraversalGroupingCount(), 1);
-  BOOST_CHECK_EQUAL(traits.getPolicyBindingCount(stateFamilyOf(tag)), 1);
   traits.computeLayerTracklets(0, 0);
   BOOST_CHECK_EQUAL(traits.getTraversalGroupingCount(), 1);
-  BOOST_CHECK_EQUAL(traits.getPolicyBindingCount(stateFamilyOf(tag)), 1);
 
   TrackletSnapshot result;
   result.transitionId = transitionId;
