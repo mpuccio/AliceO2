@@ -142,6 +142,7 @@ void TrackerTraits<NLayers>::resetTraversalCache() noexcept
   mLayerMaterial.fill(NominalSurfaceMaterial{});
   mSurfaceToLegacyLayer.fill(kInvalidLegacyLayer);
   mLayerMeasurements.fill(gsl::span<const SurfaceMeasurement>{});
+  mTraversalOperation = TraversalOperationBinding{};
   mTraversalGroupingCount = 0;
 }
 
@@ -190,6 +191,71 @@ void TrackerTraits<NLayers>::dispatchActivePolicy(const TransitionPolicyGrouping
     visitor(TransitionPolicyTraits<TransitionPolicyTag::CylinderCylinder>{}, mBinding->getGlobalTransitions(), mBinding->getGlobalCells());
   } else {
     visitor(TransitionPolicyTraits<TransitionPolicyTag::DiskDisk>{}, mBinding->getGlobalTransitions(), mBinding->getGlobalCells());
+  }
+}
+
+// M5c: the single producer of mTraversalOperation (TraversalOperationBinding,
+// TrackerTraits.h). Called exactly once per successful initialiseTimeFrame()
+// call, after that call's activeTag/cylinderParams|diskParams/mTraversalGrouping
+// have all already been validated and committed -- so the one dispatchActivePolicy()
+// call below is guaranteed to invoke its visitor for exactly the tag that
+// validateLegacyParity() already derived from this iteration's actual endpoint
+// SurfaceDescriptor kinds (never from NLayers or detector identity), and the
+// `if constexpr` below only ever selects the matching Tag-templated leaf
+// implementations to bind -- it does not itself decide which tag is active.
+// Every bound callable closes over the already-resolved transitionIds/cellIds/
+// scheduledCellIds spans and the corresponding *mCylinderPolicyParams/
+// *mDiskPolicyParams, so the four shared hot-loop entry points below
+// (computeLayerTracklets/computeLayerCells/findCellsNeighbours/findRoads) can
+// invoke them directly with no Tag/StateFamily branch of their own.
+template <int NLayers>
+void TrackerTraits<NLayers>::bindTraversalOperation(int iteration)
+{
+  mTraversalOperation = TraversalOperationBinding{};
+  dispatchActivePolicy(*mTraversalGrouping, [&](auto traits, auto transitionIds, auto cellIds) {
+    using Traits = decltype(traits);
+    const auto scheduledCellIds = mBinding != nullptr ? mBinding->getGlobalScheduledCells() : mTraversalGrouping->scheduledCellsForTag(Traits::Tag);
+    if constexpr (Traits::Tag == TransitionPolicyTag::CylinderCylinder) {
+      mTraversalOperation.computeTracklets = [this, transitionIds](int it, int iv) {
+        computeLayerTrackletsForPolicy<TransitionPolicyTag::CylinderCylinder>(it, iv, transitionIds, *mCylinderPolicyParams);
+      };
+      mTraversalOperation.computeCells = [this, cellIds](int it) {
+        computeLayerCellsForPolicy<TransitionPolicyTag::CylinderCylinder>(it, cellIds, *mCylinderPolicyParams);
+      };
+      mTraversalOperation.findNeighbours = [this, scheduledCellIds](int it) {
+        findCellsNeighboursForPolicy<TransitionPolicyTag::CylinderCylinder>(it, scheduledCellIds, *mCylinderPolicyParams);
+      };
+      mTraversalOperation.findRoads = [this](int it) {
+        findRoadsForPolicy<TransitionPolicyTag::CylinderCylinder>(it, *mCylinderPolicyParams);
+      };
+    } else if constexpr (Traits::Tag == TransitionPolicyTag::DiskDisk) {
+      // Defensive invariant carried over from the pre-M5c per-call check:
+      // mDiskLayerReferenceZ and mDiskPolicyParams are always committed
+      // together, at the same point in initialiseTimeFrame(), gated by the
+      // same activeTag validation -- so this is not independently reachable
+      // through the public API today. Guards against a future refactor
+      // accidentally decoupling the two commits, checked once here instead
+      // of once per computeLayerCells() call.
+      if (mDiskLayerReferenceZ.size() < static_cast<size_t>(NLayers)) {
+        throw TraversalException{iteration, TraversalFailureReason::InvalidPolicyParameters};
+      }
+      mTraversalOperation.computeTracklets = [this, transitionIds](int it, int iv) {
+        computeLayerTrackletsForPolicy<TransitionPolicyTag::DiskDisk>(it, iv, transitionIds, *mDiskPolicyParams);
+      };
+      mTraversalOperation.computeCells = [this, cellIds](int it) {
+        computeLayerCellsForPolicy<TransitionPolicyTag::DiskDisk>(it, cellIds, *mDiskPolicyParams);
+      };
+      mTraversalOperation.findNeighbours = [this, scheduledCellIds](int it) {
+        findCellsNeighboursForPolicy<TransitionPolicyTag::DiskDisk>(it, scheduledCellIds, *mDiskPolicyParams);
+      };
+      mTraversalOperation.findRoads = [this](int it) {
+        findRoadsForPolicy<TransitionPolicyTag::DiskDisk>(it, *mDiskPolicyParams);
+      };
+    }
+    mTraversalOperation.bound = true;
+  });
+  if (!mTraversalOperation.bound) {
+    throw TraversalException{iteration, TraversalFailureReason::StateFamilyMismatch};
   }
 }
 
@@ -541,8 +607,9 @@ void TrackerTraits<NLayers>::initialiseTimeFrame(const int iteration, const Dete
 
   // 3. Bind + validate index-table configuration into a local scratch value,
   // dispatched on the single active tag via dispatchTransitionPolicies --
-  // the same idiom computeLayerTracklets() uses below. The scratch is not
-  // touched yet, so a failure here leaves it completely unchanged.
+  // the same idiom bindTraversalOperation() uses below (M5c) to bind the
+  // shared hot loops' own operation. The scratch is not touched yet, so a
+  // failure here leaves it completely unchanged.
   typename ScratchN::IndexTableUtilsN stagedIndexTableConfig{};
   IndexTableConfigError indexTableConfigError = IndexTableConfigError::None;
   bool activePolicyTagResolved = false;
@@ -553,12 +620,13 @@ void TrackerTraits<NLayers>::initialiseTimeFrame(const int iteration, const Dete
     // Discards the call (and therefore the need for a
     // bindIndexTableConfiguration<Traits::Tag, NLayers> instantiation)
     // whenever this policy family's seed state cannot possibly match this
-    // TrackerTraits<NLayers> instantiation's own CellSeedN -- the identical
-    // compile-time compatibility guard computeLayerTracklets() already uses
-    // below. A mismatch here is a genuine misconfiguration (this layout's
-    // active transitions do not belong to this NLayers/state family), not a
-    // NLayers-to-Tag policy selection: the active Tag itself still comes
-    // exclusively from `grouping`/`layout` above.
+    // TrackerTraits<NLayers> instantiation's own CellSeedN -- the same family
+    // check step 6 below (stateFamilyOf(activeTag) != cellStateFamily) later
+    // re-establishes for the whole rest of the call, including
+    // bindTraversalOperation(). A mismatch here is a genuine misconfiguration
+    // (this layout's active transitions do not belong to this NLayers/state
+    // family), not a NLayers-to-Tag policy selection: the active Tag itself
+    // still comes exclusively from `grouping`/`layout` above.
     // Gate 4 M5b: runtime value, not an `if constexpr` gate -- see
     // dispatchActivePolicy()'s own doc above for why both Traits::Tag
     // instantiations of bindIndexTableConfiguration below are equally
@@ -743,6 +811,12 @@ void TrackerTraits<NLayers>::initialiseTimeFrame(const int iteration, const Dete
   } else {
     prepareTransitionScatteringAndBendingForPolicy<TransitionPolicyTag::DiskDisk>(iteration, geometryConfig, referenceCoordinateView);
   }
+
+  // M5c: the operation-local binding every shared hot-loop entry point below
+  // (computeLayerTracklets/computeLayerCells/findCellsNeighbours/findRoads)
+  // consumes directly, with no Tag/StateFamily branch of their own. Bound
+  // last, once every other traversal cache above has already committed.
+  bindTraversalOperation(iteration);
 }
 
 template <int NLayers>
@@ -825,27 +899,14 @@ void TrackerTraits<NLayers>::computeLayerTracklets(const int iteration, int iVer
     throw TraversalException{iteration, TraversalFailureReason::InvalidTraversalSchedule};
   }
 
-  dispatchActivePolicy(*mTraversalGrouping, [&](auto traits, auto transitionIds, auto) {
-    using Traits = decltype(traits);
-    // Gate 4 M5b: runtime value, not an `if constexpr` gate -- see
-    // dispatchActivePolicy()'s own doc for why both Traits::Tag
-    // instantiations of computeLayerTrackletsForPolicy below are equally
-    // compiled for every NLayers now, decoupling which family's orchestration
-    // body this class contains from NLayers itself.
-    if (stateFamilyFromNLayers<NLayers>() != Traits::Family) {
-      throw TraversalException{iteration, TraversalFailureReason::StateFamilyMismatch};
-    } else if constexpr (Traits::Tag == TransitionPolicyTag::CylinderCylinder) {
-      if (!mCylinderPolicyParams.has_value()) {
-        throw TraversalException{iteration, TraversalFailureReason::InvalidPolicyParameters};
-      }
-      computeLayerTrackletsForPolicy<Traits::Tag>(iteration, iVertex, transitionIds, *mCylinderPolicyParams);
-    } else if constexpr (Traits::Tag == TransitionPolicyTag::DiskDisk) {
-      if (!mDiskPolicyParams.has_value()) {
-        throw TraversalException{iteration, TraversalFailureReason::InvalidPolicyParameters};
-      }
-      computeLayerTrackletsForPolicy<Traits::Tag>(iteration, iVertex, transitionIds, *mDiskPolicyParams);
-    }
-  });
+  // M5c: the Tag/StateFamily selection this call used to perform itself, on
+  // every call, is now resolved exactly once per iteration by
+  // bindTraversalOperation() (initialiseTimeFrame()) -- see
+  // TraversalOperationBinding's own doc (TrackerTraits.h).
+  if (!mTraversalOperation.bound) {
+    throw TraversalException{iteration, TraversalFailureReason::InvalidTraversalSchedule};
+  }
+  mTraversalOperation.computeTracklets(iteration, iVertex);
 }
 
 template <int NLayers>
@@ -1157,31 +1218,11 @@ void TrackerTraits<NLayers>::computeLayerCells(const int iteration)
     throw TraversalException{iteration, TraversalFailureReason::InvalidPolicyParameters};
   }
 
-  dispatchActivePolicy(*mTraversalGrouping, [&](auto traits, auto, auto cellIds) {
-    using Traits = decltype(traits);
-    // Gate 4 M5b: runtime value, not an `if constexpr` gate -- see
-    // computeLayerTracklets()'s identical conversion above for the rationale.
-    if (stateFamilyFromNLayers<NLayers>() != Traits::Family) {
-      throw TraversalException{iteration, TraversalFailureReason::StateFamilyMismatch};
-    } else if constexpr (Traits::Tag == TransitionPolicyTag::CylinderCylinder) {
-      if (!mCylinderPolicyParams.has_value()) {
-        throw TraversalException{iteration, TraversalFailureReason::InvalidPolicyParameters};
-      }
-      computeLayerCellsForPolicy<Traits::Tag>(iteration, cellIds, *mCylinderPolicyParams);
-    } else if constexpr (Traits::Tag == TransitionPolicyTag::DiskDisk) {
-      // The size check is a defensive invariant, not independently reachable
-      // through the public API today: mDiskLayerReferenceZ and
-      // mDiskPolicyParams are always committed together, at the same point,
-      // gated by the same activeTag validation in initialiseTimeFrame() (see
-      // that method). It guards against a future refactor accidentally
-      // decoupling the two commits, not a state this call site can currently
-      // observe on its own.
-      if (!mDiskPolicyParams.has_value() || mDiskLayerReferenceZ.size() < static_cast<size_t>(NLayers)) {
-        throw TraversalException{iteration, TraversalFailureReason::InvalidPolicyParameters};
-      }
-      computeLayerCellsForPolicy<Traits::Tag>(iteration, cellIds, *mDiskPolicyParams);
-    }
-  });
+  // M5c: see computeLayerTracklets()'s identical conversion above.
+  if (!mTraversalOperation.bound) {
+    throw TraversalException{iteration, TraversalFailureReason::InvalidTraversalSchedule};
+  }
+  mTraversalOperation.computeCells(iteration);
 
   const auto scratchTransitionCount = mScratch->getTracklets().size();
   for (size_t transitionId = 0; transitionId < scratchTransitionCount; ++transitionId) {
@@ -1397,34 +1438,15 @@ void TrackerTraits<NLayers>::findCellsNeighbours(const int iteration)
   if (!mTraversalGrouping.has_value()) {
     throw TraversalException{iteration, TraversalFailureReason::InvalidTraversalSchedule};
   }
-  // Gate 4 C2 Slice 1: with no binding adopted, mTraversalGrouping's own
-  // rank-sorted scheduledCellsForTag() is unchanged (today's Gate 3
-  // behavior); with a binding adopted, the equivalent, ownership-filtered,
-  // identically rank-sorted sequence is mBinding->getGlobalScheduledCells()
-  // (DetectorTraversalBinding.h) -- built from the same
-  // TransitionPolicyGrouping::scheduledCellsForTag() call, just additionally
-  // restricted to this binding's own owned cells.
-  const auto scheduledCellsForTag = [&](TransitionPolicyTag tag) -> gsl::span<const CellTopologyId> {
-    return mBinding != nullptr ? mBinding->getGlobalScheduledCells() : mTraversalGrouping->scheduledCellsForTag(tag);
-  };
-  dispatchActivePolicy(*mTraversalGrouping, [&](auto traits, auto, auto) {
-    using Traits = decltype(traits);
-    // Gate 4 M5b: runtime value, not an `if constexpr` gate -- see
-    // computeLayerTracklets()'s identical conversion above for the rationale.
-    if (stateFamilyFromNLayers<NLayers>() != Traits::Family) {
-      throw TraversalException{iteration, TraversalFailureReason::StateFamilyMismatch};
-    } else if constexpr (Traits::Tag == TransitionPolicyTag::CylinderCylinder) {
-      if (!mCylinderPolicyParams.has_value()) {
-        throw TraversalException{iteration, TraversalFailureReason::InvalidPolicyParameters};
-      }
-      findCellsNeighboursForPolicy<Traits::Tag>(iteration, scheduledCellsForTag(Traits::Tag), *mCylinderPolicyParams);
-    } else if constexpr (Traits::Tag == TransitionPolicyTag::DiskDisk) {
-      if (!mDiskPolicyParams.has_value()) {
-        throw TraversalException{iteration, TraversalFailureReason::InvalidPolicyParameters};
-      }
-      findCellsNeighboursForPolicy<Traits::Tag>(iteration, scheduledCellsForTag(Traits::Tag), *mDiskPolicyParams);
-    }
-  });
+  // M5c: the once-per-active-tag scheduledCellsForTag() resolution this call
+  // used to redo on every call (Gate 4 C2 Slice 1's binding-vs-grouping
+  // choice, documented at bindTraversalOperation()) is now folded into the
+  // bound findNeighbours callable itself -- see computeLayerTracklets()'s
+  // identical conversion above.
+  if (!mTraversalOperation.bound) {
+    throw TraversalException{iteration, TraversalFailureReason::InvalidTraversalSchedule};
+  }
+  mTraversalOperation.findNeighbours(iteration);
 }
 
 template <int NLayers>
@@ -1719,24 +1741,11 @@ void TrackerTraits<NLayers>::findRoads(const int iteration)
                           : mScratch->getCells().size() != mTraversalLayout.topology.nCells) {
     throw TraversalException{iteration, TraversalFailureReason::LegacyIndexMismatch};
   }
-  dispatchActivePolicy(*mTraversalGrouping, [&](auto traits, auto, auto) {
-    using Traits = decltype(traits);
-    // Gate 4 M5b: runtime value, not an `if constexpr` gate -- see
-    // computeLayerTracklets()'s identical conversion above for the rationale.
-    if (stateFamilyFromNLayers<NLayers>() != Traits::Family) {
-      throw TraversalException{iteration, TraversalFailureReason::StateFamilyMismatch};
-    } else if constexpr (Traits::Tag == TransitionPolicyTag::CylinderCylinder) {
-      if (!mCylinderPolicyParams.has_value()) {
-        throw TraversalException{iteration, TraversalFailureReason::InvalidPolicyParameters};
-      }
-      findRoadsForPolicy<Traits::Tag>(iteration, *mCylinderPolicyParams);
-    } else if constexpr (Traits::Tag == TransitionPolicyTag::DiskDisk) {
-      if (!mDiskPolicyParams.has_value()) {
-        throw TraversalException{iteration, TraversalFailureReason::InvalidPolicyParameters};
-      }
-      findRoadsForPolicy<Traits::Tag>(iteration, *mDiskPolicyParams);
-    }
-  });
+  // M5c: see computeLayerTracklets()'s identical conversion above.
+  if (!mTraversalOperation.bound) {
+    throw TraversalException{iteration, TraversalFailureReason::InvalidTraversalSchedule};
+  }
+  mTraversalOperation.findRoads(iteration);
 }
 
 template <int NLayers>

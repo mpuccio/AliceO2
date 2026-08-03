@@ -17,6 +17,7 @@
 #define ALICEO2_ITSMFT_TRACKING_TRACKERTRAITS_H_
 
 #include <array>
+#include <functional>
 #include <optional>
 #include <stdexcept>
 #include <string>
@@ -267,6 +268,36 @@ class TrackerTraits
   template <typename Visitor>
   void dispatchActivePolicy(const TransitionPolicyGrouping& grouping, Visitor&& visitor) const;
 
+  // M5c: the compact, operation-local replacement for the four
+  // detector-family/TransitionPolicyTag runtime branches that used to live
+  // directly in computeLayerTracklets()/computeLayerCells()/
+  // findCellsNeighbours()/findRoads() (one dispatchActivePolicy() call each,
+  // every call). Holds only already-bound callables -- never the
+  // TransitionPolicyTag (or the family it maps to) that selected them -- so
+  // those four shared hot-loop entry points below consume it with no Tag/
+  // family branch of their own. bindTraversalOperation()
+  // (TrackerTraits.cxx) is this struct's only producer: it fills every
+  // callable exactly once per successful initialiseTimeFrame() call, from
+  // that call's already-validated activeTag/params/grouping (activeTag itself
+  // derived earlier in the same call from actual endpoint SurfaceDescriptor
+  // kinds via validateLegacyParity()'s tagOf(), never from NLayers or
+  // detector identity). resetTraversalCache() clears it back to unbound,
+  // alongside every other traversal cache, so a hot loop can never observe a
+  // binding left over from a failed or unrelated iteration.
+  struct TraversalOperationBinding {
+    std::function<void(int iteration, int iVertex)> computeTracklets;
+    std::function<void(int iteration)> computeCells;
+    std::function<void(int iteration)> findNeighbours;
+    std::function<void(int iteration)> findRoads;
+    bool bound = false;
+  };
+
+  // Builds mTraversalOperation for this iteration. Called once, at the very
+  // end of initialiseTimeFrame(), after every other fallible validation and
+  // traversal-cache commit in that call has already succeeded -- see that
+  // method and TraversalOperationBinding's own doc above.
+  void bindTraversalOperation(int iteration);
+
   template <TransitionPolicyTag Tag>
   void computeLayerTrackletsForPolicy(int iteration,
                                       int iVertex,
@@ -319,6 +350,8 @@ class TrackerTraits
   std::optional<TransitionPolicyGrouping> mTraversalGrouping;
   std::optional<CylinderCylinderPolicyParams> mCylinderPolicyParams;
   std::optional<DiskDiskPolicyParams> mDiskPolicyParams;
+  // M5c: see TraversalOperationBinding's own doc above.
+  TraversalOperationBinding mTraversalOperation;
   // Gate 3 cell-road pre-cut slice: the legacy MFT reference-z span bound
   // once per iteration by bindLegacyMFTReferenceCoordinates() (static-storage
   // duration, never dangles), reused by passesCellRoadPrecut<DiskDisk> across
