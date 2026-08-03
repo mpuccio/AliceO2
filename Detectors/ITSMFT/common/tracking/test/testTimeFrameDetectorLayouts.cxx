@@ -206,6 +206,13 @@ std::vector<TrackingParameters> mftTraversalParameters()
   return params;
 }
 
+std::vector<TrackingParameters> itsTraversalParameters()
+{
+  std::vector<TrackingParameters> params(1);
+  o2::itsmft::resetDetectorDefaults(params.front(), o2::detectors::DetID::ITS);
+  return params;
+}
+
 template <int NLayers>
 void checkLegacyParity(SurfaceKind kind, TransitionPolicyTag policyTag, uint16_t startMask)
 {
@@ -673,4 +680,33 @@ BOOST_AUTO_TEST_CASE(mft_legacy_topology_and_road_start_parity)
 {
   checkLegacyParity<10>(SurfaceKind::Disk, TransitionPolicyTag::DiskDisk,
                         (uint16_t{1} << 9) | (uint16_t{1} << 5));
+}
+
+// Gate 4 M5b: TrackerTraits<NLayers>'s dispatchActivePolicy()/computeLayerTracklets()
+// et al. no longer gate which TransitionPolicyTraits<Tag> orchestration body
+// is even compiled on NLayers -- both are now compiled for every NLayers (see
+// TrackerTraits.cxx's dispatchActivePolicy() doc). This is a compile-time
+// instantiation-footprint change only: the runtime StateFamilyMismatch gate
+// in initialiseTimeFrame() is unchanged, so an ITS-shaped (NLayers=7)
+// instantiation fed a Disk-kind catalog must still fail exactly like an
+// MFT-shaped one fed a Cylinder-kind catalog does above
+// (traversal_preflight_rejects_legacy_mismatch_state_mismatch_and_bad_parameters).
+// This is the missing symmetric direction of that existing coverage.
+BOOST_AUTO_TEST_CASE(its_family_rejects_disk_kind_catalog_after_m5b_dispatch_removal)
+{
+  auto pool = std::make_shared<BoundedMemoryResource>();
+  TimeFrame frame;
+  LegacyTrackerScratch<7> scratch;
+  TrackerTraits<7> traits;
+  auto params = itsTraversalParameters();
+  prepareTraversalFrame(frame, scratch, traits, pool, params);
+  auto built = buildPlan(catalog(7, SurfaceKind::Disk, o2::detectors::DetID::ITS), order(7),
+                         TransitionPolicyTag::DiskDisk, params);
+  try {
+    traits.initialiseTimeFrame(0, built.plan);
+    BOOST_FAIL("invalid traversal preflight must throw");
+  } catch (const TraversalException& error) {
+    BOOST_CHECK(error.getReason() == TraversalFailureReason::StateFamilyMismatch);
+  }
+  BOOST_CHECK(!traits.hasTraversalCache());
 }
