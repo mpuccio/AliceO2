@@ -434,6 +434,11 @@ class SurfaceTrackingScratch
   IndexTableUtilsN mIndexTableUtils;
   std::vector<TrackingTopologyN> mTrackerTopologies;
   typename TrackingTopologyN::View mTrackingTopologyView;
+  // M6e1: default-constructed unless initDefaultTrackingTopology()/
+  // initVertexingTopology() is called; see those methods' own doc for why
+  // the former is no longer dead code (initVertexingTopology() still is).
+  TrackingTopologyN mDefaultTrackingTopology;
+  TrackingTopologyN mVertexingTopology;
 
   // ---- Group C (M6d): legacy per-detector result staging ----
   o2::its::bounded_vector<CATrackType<MFTNLayers>> mTracks;
@@ -467,16 +472,30 @@ class SurfaceTrackingScratch
   uint32_t getTotalTrackletsTF(const int iLayer) { return mTotalTracklets[iLayer]; }
   int getTotalClustersPerROFrange(int rofMin, int range, int layerId) const;
 
-  /// initTrackerTopologies() (M6d): the sole production caller of these
-  /// topology-init methods (LegacyCATrackingParticipant<...>::
-  /// configureRofTables(), unchanged body, generic via ScratchN). Mirrors
+  /// initTrackerTopologies() (M6d): production caller is
+  /// LegacyCATrackingParticipant<...>::configureRofTables() (combined MFT),
+  /// unchanged body, generic via ScratchN. Mirrors
   /// LegacyTrackerScratch<NLayers>::initTrackerTopologies() exactly.
-  /// initVertexingTopology()/initDefaultTrackingTopology() are deliberately
-  /// not ported: grep-confirmed zero production callers (this milestone's
-  /// own audit), matching the ternary's dead false-branch in initialise()
-  /// below, which is ported faithfully but never actually taken in
-  /// practice.
   void initTrackerTopologies(gsl::span<const TrackingParameters> trkParams, int maxLayers = MFTNLayers);
+  /// M6e1 correction: M6d's own claim that initVertexingTopology()/
+  /// initDefaultTrackingTopology() have "zero production callers" was scoped
+  /// only to the combined-participant-path files that milestone's own audit
+  /// read (TrackerTraits.cxx/CATracker.cxx/LegacyCATrackingParticipant.cxx)
+  /// -- never TrackingInterface.cxx, which was out of M6d's scope entirely.
+  /// ITSMFTTrackingInterface<NLayers>::configureTrackingTopology() (the
+  /// standalone-path owner M6e1 migrates) calls
+  /// initDefaultTrackingTopology() unconditionally once per event, for both
+  /// ITS and MFT -- so this scratch type needs it too, now that it backs the
+  /// standalone MFT interface. Mirrors
+  /// LegacyTrackerScratch<NLayers>::initDefaultTrackingTopology() exactly.
+  void initDefaultTrackingTopology(const TrackingParameters& trkParam, int maxLayers);
+  /// initVertexingTopology() still has zero production callers even after
+  /// M6e1 (grep-confirmed across TrackingInterface.cxx too) -- ported anyway
+  /// for structural parity with LegacyTrackerScratch's own three-method
+  /// topology-init group, since leaving only its sibling ported would be a
+  /// more confusing asymmetry than one extra dead one-line mirror. Mirrors
+  /// LegacyTrackerScratch<NLayers>::initVertexingTopology() exactly.
+  void initVertexingTopology(const TrackingParameters& trkParam);
 
  private:
   void prepareClusters(const TimeFrame& frame, const TrackingParameters& trkParam, int maxLayers,

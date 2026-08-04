@@ -41,8 +41,10 @@
 #include "ITSMFTTracking/LegacyTrackerScratch.h"
 #include "ITSMFTTracking/ITSSharedClusterCompatibility.h"
 #include "ITSMFTTracking/MFTPublicationCompatibility.h"
+#include "ITSMFTTracking/SurfaceTrackingScratch.h"
 #include "ITSMFTTracking/TimeFrame.h"
 #include "ITSMFTTracking/TrackerTraits.h"
+#include "ITSMFTTracking/detail/SurfacePlanBinding.h"
 #include "ITStracking/BoundedAllocator.h"
 #include "ITStracking/ROFLookupTables.h"
 #include "SimulationDataFormat/MCCompLabel.h"
@@ -78,7 +80,14 @@ struct ITSSharedClusterCompatibilityOwner<ITSNLayers> {
   ITSSharedClusterCompatibility sidecar;
 };
 
-template <int NLayers>
+// M6e1 (doc/design/0002-m6-generic-workspace-migration.md): the same
+// compile-time-defaulted scratch/binding seam M6d added to
+// Tracker<NLayers,...>/TrackerTraits<NLayers,...>/LegacyCATrackingParticipant
+// <NLayers,...>, applied here so this class's own standalone-MFT
+// instantiation can own SurfaceTrackingScratch/SurfacePlanBinding while its
+// ITS instantiation (default template arguments) stays byte-for-byte on
+// LegacyTrackerScratch<7>/DetectorTraversalBinding, unchanged.
+template <int NLayers, typename ScratchT = LegacyTrackerScratch<NLayers>, typename BindingT = DetectorTraversalBinding>
 class ITSMFTTrackingInterface : private MFTPublicationCompatibilityOwner<NLayers>, private ITSSharedClusterCompatibilityOwner<NLayers>
 {
  public:
@@ -86,12 +95,18 @@ class ITSMFTTrackingInterface : private MFTPublicationCompatibilityOwner<NLayers
                 "ITSMFTTrackingInterface supports ITS (7) and MFT (10) layer counts only");
   static constexpr o2::detectors::DetID::ID DetId = detIdFromNLayers<NLayers>();
 
-  using ScratchN = LegacyTrackerScratch<NLayers>;
-  using TrackerN = Tracker<NLayers>;
-  using TrackerTraitsN = TrackerTraits<NLayers>;
-  using ROFOverlapTableN = o2::its::ROFOverlapTable<NLayers>;
-  using ROFVertexLookupTableN = o2::its::ROFVertexLookupTable<NLayers>;
-  using ROFMaskTableN = o2::its::ROFMaskTable<NLayers>;
+  using ScratchN = ScratchT;
+  using TrackerN = Tracker<NLayers, ScratchT, BindingT>;
+  using TrackerTraitsN = TrackerTraits<NLayers, ScratchT, BindingT>;
+  // Derived via ScratchN, not named directly: both LegacyTrackerScratch<NLayers>
+  // and SurfaceTrackingScratch already expose these three nested aliases
+  // (LegacyTrackerScratch<NLayers>'s own o2::its::ROFOverlapTable<NLayers>/
+  // ROFVertexLookupTable<NLayers>/ROFMaskTable<NLayers>; SurfaceTrackingScratch's
+  // own hardcoded-to-MFTNLayers equivalents) -- so this line needs no
+  // NLayers-vs-ScratchT branch and is unchanged in effect for ITS.
+  using ROFOverlapTableN = typename ScratchN::ROFOverlapTableN;
+  using ROFVertexLookupTableN = typename ScratchN::ROFVertexLookupTableN;
+  using ROFMaskTableN = typename ScratchN::ROFMaskTableN;
   using BoundedMemoryResourceN = BoundedMemoryResource;
 
   ITSMFTTrackingInterface(bool useMC, o2::itsmft::TrackingMode::Type mode, bool overrideBeamEst);
@@ -226,6 +241,14 @@ class ITSMFTTrackingInterface : private MFTPublicationCompatibilityOwner<NLayers
   // Tracker::adoptDetectorLayoutSet()/TimeFrame::loadNormalizedSource().
   std::optional<DetectorLayoutSet> mPlan;
   std::optional<ClockTimingPublicationView> mPublicationClock;
+  // M6e1: bind-once, built in initialiseTracker() alongside mPlan, adopted
+  // onto mTracker immediately after. Only ever populated for the MFT
+  // instantiation (if constexpr (DetId == MFT), see TrackingInterface.cxx) --
+  // stays null for ITS, exactly today's existing behavior of never adopting
+  // a binding at all (TrackerTraits<NLayers,...>::adoptDetectorTraversalBinding()
+  // is optional; null means the identity-mapping fallback its own doc
+  // comment already documents, unaffected by this slice for ITS).
+  std::unique_ptr<BindingT> mBinding;
 #endif
   const o2::itsmft::TopologyDictionary* mDict = nullptr;
   const o2::dataformats::MeanVertexObject* mMeanVertex = nullptr;
@@ -243,7 +266,11 @@ class ITSMFTTrackingInterface : private MFTPublicationCompatibilityOwner<NLayers
 };
 
 using ITSMFTTrackingInterfaceITS = ITSMFTTrackingInterface<ITSNLayers>;
-using ITSMFTTrackingInterfaceMFT = ITSMFTTrackingInterface<o2::mft::constants::mft::LayersNumber>;
+// M6e1: the standalone MFT common-CA workflow's own interface (o2-mft-ca-
+// tracker-workflow, CATrackerSpec.cxx) now owns SurfaceTrackingScratch/
+// SurfacePlanBinding instead of LegacyTrackerScratch<10>/
+// DetectorTraversalBinding, mirroring M6d's combined-participant migration.
+using ITSMFTTrackingInterfaceMFT = ITSMFTTrackingInterface<o2::mft::constants::mft::LayersNumber, SurfaceTrackingScratch, SurfacePlanBinding>;
 
 } // namespace o2::itsmft::tracking
 

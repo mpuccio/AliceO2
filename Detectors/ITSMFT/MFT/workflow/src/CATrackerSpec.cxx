@@ -31,6 +31,7 @@
 #include "ITSMFTTracking/CATracker.h"
 #include "ITSMFTTracking/CommonTrackOutputAdapter.h"
 #include "ITSMFTTracking/MFTCATrack.h"
+#include "ITSMFTTracking/SurfaceTrackingScratch.h"
 #include "ITSMFTTracking/TrackingConfigParam.h"
 #include "MFTBase/GeometryTGeo.h"
 #include "MFTTracking/Constants.h"
@@ -48,7 +49,7 @@ static_assert(o2::itsmft::tracking::ITSMFTTrackingInterfaceMFT::DetId == o2::det
 namespace
 {
 template <typename TracksVec, typename ClusterIdxVec, typename ROFVec, typename LabelsVec, typename SeedPatternVec>
-void fillMFTOutputs(const o2::itsmft::tracking::LegacyTrackerScratchMFT& tf,
+void fillMFTOutputs(const o2::itsmft::tracking::SurfaceTrackingScratch& tf,
                     gsl::span<const o2::itsmft::ROFRecord> inputROFs,
                     TracksVec& tracks,
                     ClusterIdxVec& clusterIndices,

@@ -529,6 +529,16 @@ void SurfaceTrackingScratch::initTrackerTopologies(gsl::span<const TrackingParam
   }
 }
 
+void SurfaceTrackingScratch::initDefaultTrackingTopology(const TrackingParameters& trkParam, int maxLayers)
+{
+  mDefaultTrackingTopology.init(maxLayers, trkParam.MaxHoles, LayerMask{trkParam.HoleLayerMask});
+}
+
+void SurfaceTrackingScratch::initVertexingTopology(const TrackingParameters& trkParam)
+{
+  mVertexingTopology.init(3, trkParam.MaxHoles, LayerMask{trkParam.HoleLayerMask});
+}
+
 void SurfaceTrackingScratch::prepareClusters(const TimeFrame& frame, const TrackingParameters& trkParam, const int maxLayers,
                                              const LayerMeasurementSpansMFT& layerMeasurements)
 {
@@ -612,7 +622,14 @@ void SurfaceTrackingScratch::initialise(const TimeFrame& frame, const TrackingPa
                                         const IndexTableUtilsN& indexTableConfig,
                                         const LayerMeasurementSpansMFT& layerMeasurements)
 {
-  mTrackingTopologyView = iteration != constants::UnusedIndex ? mTrackerTopologies[iteration].getView() : typename TrackingTopologyN::View{};
+  // M6e1: restored to the full three-way ternary LegacyTrackerScratch<NLayers>::
+  // initialise() itself uses -- iteration is always a concrete value on every
+  // production call path (TrackerTraits<NLayers,...>::initialiseTimeFrame()
+  // never passes UnusedIndex), so the false branch below is still never
+  // actually taken; this is fidelity restoration, not a behavior change (see
+  // initDefaultTrackingTopology()'s own doc for why it is no longer dead code
+  // even though this branch remains unreachable).
+  mTrackingTopologyView = iteration != constants::UnusedIndex ? mTrackerTopologies[iteration].getView() : (maxLayers == 3 ? mVertexingTopology.getView() : mDefaultTrackingTopology.getView());
 
   if (trkParam.PassFlags[IterationStep::FirstPass]) {
     deepVectorClear(mTracks);
