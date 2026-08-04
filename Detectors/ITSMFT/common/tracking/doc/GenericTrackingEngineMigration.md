@@ -145,34 +145,77 @@ explicitly fenced behind its own decision (M5).
 
 ### M6 — SurfaceTrackingScratch and legacy container removal
 
-- **Goal / bounded API change**: introduce the native, runtime-sized,
-  non-templated `SurfaceTrackingScratch` (sized from the plan/binding compact
-  slot counts; transients keyed by `SurfaceId`/compact transition and cell
-  slots; results published to `TimeFrame::getCommonTracks()`). Participants
-  migrate one at a time (MFT first — its refit is already fully normalized);
-  legacy output conversion moves entirely into detector adapters reading
-  `CommonTrack` plus the publication export. Then delete
-  `LegacyTrackerScratch<NLayers>` and the remaining `NLayers`-templated legacy
-  CA containers in the core.
-- **Temporary bridge**: an accessor seam both scratch types implement during
-  the per-participant switch.
-- **Acceptance/replay gate**: per-detector and combined replays byte-identical
-  (or matching separately approved M5 deltas, whichever decision stands);
-  lifecycle/pool-destruction-order contracts re-pinned on the native scratch;
-  memory/runtime changes recorded.
+Split into a design/audit slice (M6a) plus five bounded, replay-gated
+implementation slices (M6b–M6f), mirroring M5's a/b/c/d granularity. Full
+field-by-field ownership audit, generic-workspace design, deletion order, and
+per-slice acceptance gates are in [design note
+0002](design/0002-m6-generic-workspace-migration.md); this section is the
+summary anchor other milestones link against.
+
+- **M6a — design/audit** (closed): read every `LegacyTrackerScratch<NLayers>`
+  field, `DetectorTraversalBinding` responsibility, `LegacyCATrackingParticipant`
+  responsibility, and `ITSMFTLegacyParticipantSet` responsibility in full;
+  classified each as generic CA working state, `TimeFrame`-owned, adapter-private
+  compatibility state, temporary migration bridge, or dead/redundant (design
+  note 0002 §3). No production code change. Verdict: GO on the staged sequence
+  below.
+- **M6b — `SurfacePlanBinding`** (first bounded implementation slice): add the
+  detector-neutral successor to `DetectorTraversalBinding` alongside it, unused
+  by production — drops the two detector-switched lines
+  (ITS/MFT allow-list; `expectedKind`/`expectedPolicy` derived by the caller
+  instead of a `build()`-internal switch), keeps every other check unchanged
+  (design note 0002 §3.2, §7, §9).
+- **M6c — `SurfaceTrackingScratch`/`TrackSeed`**: add the non-templated,
+  plan-sized workspace (sized from `ownedSurfaces().size()` and the topology's
+  own `nTransitions`/`nCells`, per design note 0002 §4) and the fixed-capacity,
+  GPU-portable `TrackSeed` replacement for `TrackSeedTpl<NLayers>`, unused by
+  production.
+- **M6d — wire MFT** onto `SurfaceTrackingScratch`/`SurfacePlanBinding` (MFT
+  first — its refit is already fully normalized). Temporary bridge: an
+  accessor seam both scratch types implement while ITS stays on the legacy
+  type.
+- **M6e — wire ITS** onto `SurfaceTrackingScratch`/`SurfacePlanBinding`;
+  retire the legacy `mTracks`/`mTracksLabel` per-detector result staging so
+  detector adapters build output from `TimeFrame::getCommonTracks()` plus the
+  publication export alone (already populated in parallel today via
+  `AcceptedTrackShadowPublisher` — this slice removes the now-redundant
+  legacy-typed copy, not new publication logic). Writer-level output
+  verification required, not only internal track-count/hash, since this
+  slice changes an output-construction path.
+- **M6f — delete** `LegacyTrackerScratch<NLayers>`, `DetectorTraversalBinding`,
+  the `NLayers`-templated `TrackSeedTpl`/`SeedMetadataBase` instantiation, and
+  any other now-unreferenced `NLayers`-templated legacy CA container.
+  `LegacyCATrackingParticipant<NLayers>` and `ITSMFTLegacyParticipantSet`
+  themselves are **not** deleted — they are ADR 0007 decision 2's permanent
+  ITS/MFT adapter layer; only their internal member types changed in M6d/M6e
+  (design note 0002 §8).
+- **Acceptance/replay gate** (M6d–M6f, cumulative): per-detector and combined
+  replays byte-identical to the M5d-era candidate baseline (or matching
+  separately approved deltas); lifecycle/pool-destruction-order contracts
+  re-pinned on the native scratch; memory/runtime changes recorded; a
+  grep-guard test at M6f asserts zero remaining references to
+  `LegacyTrackerScratch`/`DetectorTraversalBinding`.
 - **Deletion/exit criterion**: no production instantiation of
   `LegacyTrackerScratch<NLayers>` (grep-verified); native scratch has executed
-  production traffic (ADR 0007 decision 9).
+  production traffic for both participants (ADR 0007 decision 9).
 - **Dependency**: M5 implementation.
-- **Classification**: behavior-preserving cleanup (replay-gated); any residual
-  output delta requires separate approval under M5's decision.
+- **Classification**: M6a is a documentation-only audit; M6b/M6c are additive
+  and behavior-preserving; M6d–M6f are behavior-preserving cleanup
+  (replay-gated) — any residual output delta requires separate approval under
+  M5's decision.
+- **Flagged separately, not mandatory M6 scope** (design note 0002 §11): the
+  already-dead `loadROFrameData()`/`resetROFrameData()`/`prepareROFrameData()`
+  family (zero production callers today, independent of M6); the
+  double-`TimeFrame::wipe()` on a single participant's recoverable-drop path
+  (idempotent, not a correctness bug); verifying whether
+  `mNTotalLowPtVertices` has any remaining reader.
 
 ## Not safe to delete yet
 
 | Artifact | Why it must stay | Removal gate |
 |---|---|---|
-| `LegacyTrackerScratch<NLayers>` (and its `NLayers` container family) | Sole production owner of CA transients and legacy result staging | M6, after `SurfaceTrackingScratch` executes production traffic |
-| `DetectorTraversalBinding` (`include/ITSMFTTracking/detail/DetectorTraversalBinding.h`) | Not participant-count-generic today: `build()` itself hardcodes the accepted detector to ITS/MFT only (`UnsupportedDetector` for anything else) and derives its internal transition/cell filtering from `TransitionPolicyGrouping`'s tag-keyed grouping (ITS→CylinderCylinder, MFT→DiskDisk); its sole production caller (`ITSMFTLegacyParticipantSet.cxx`) additionally pairs it with the fixed `ClusterSourceId{0}`/`{1}` two-detector combined-load contract. Hot loops still index compact legacy scratch slots by global id through it. | M6, when a participant-count-generic replacement lands alongside `SurfaceTrackingScratch` (the plan-sizing role may survive that rewrite; the legacy-slot translation and the two-detector/tag-keyed internals are the temporary part). Confined to `detail/` since M4 -- private legacy implementation, not an adapter-facing contract in the meantime. |
+| `LegacyTrackerScratch<NLayers>` (and its `NLayers` container family) | Sole production owner of CA transients and legacy result staging, for both ITS and MFT, until each is migrated in turn | M6f, after M6d (MFT) and M6e (ITS) each independently replay-gated `SurfaceTrackingScratch` into production — see [design note 0002](design/0002-m6-generic-workspace-migration.md) §9–§10 for the refined, per-slice breakdown (supersedes this row's prior single-milestone framing) |
+| `DetectorTraversalBinding` (`include/ITSMFTTracking/detail/DetectorTraversalBinding.h`) | Not participant-count-generic today: `build()` itself hardcodes the accepted detector to ITS/MFT only (`UnsupportedDetector` for anything else) and derives its internal transition/cell filtering from `TransitionPolicyGrouping`'s tag-keyed grouping (ITS→CylinderCylinder, MFT→DiskDisk); its sole production caller (`ITSMFTLegacyParticipantSet.cxx`) additionally pairs it with the fixed `ClusterSourceId{0}`/`{1}` two-detector combined-load contract. Hot loops still index compact legacy scratch slots by global id through it. | M6f, once `SurfacePlanBinding` (M6b) is wired into both participants (M6d/M6e) — the plan-sizing/scratch-slot-assignment role survives unchanged in the successor; only the two detector-switched lines identified in [design note 0002](design/0002-m6-generic-workspace-migration.md) §3.2 are the temporary part. Confined to `detail/` since M4 -- private legacy implementation, not an adapter-facing contract in the meantime. |
 | `loadITSAndMFT()`/`resetITSAndMFTEvent()` fixed source-0/1 mapping | Current combined load/reset contract of the C4 workflow | M2 generalizes, M3 deletes the fixed-position entry points |
 | `TransitionPolicyTag` machinery (dispatch, grouping, templated operations) | Only existing hot-loop implementation of the CA stages | contained at M4, replaced by M5 implementation |
 | Policy/legacy compatibility code (`kDroppedTimeFrameResult` sentinel, `mLayerMaterial`/`LegacyMaterialMismatch`, `mSurfaceToLegacyLayer`, `DiskDiskReferenceCoordinateView`, `passesCellRoadPrecut<DiskDisk>`) | Pins byte-identical replay parity against the frozen legacy implementations | respective M4–M6 slices, each under its replay gate |
