@@ -365,6 +365,22 @@ o2_add_test(detector-traversal-binding-orchestration
             LABELS "itsmft;tracking"
             PUBLIC_LINK_LIBRARIES O2::ITSMFTTracking O2::MFTTracking)
 
+# M6b (doc/design/0002-m6-generic-workspace-migration.md Sec 9): the additive,
+# detector-neutral successor to DetectorTraversalBinding. Zero production
+# callers -- these are the only two things that build against
+# detail/SurfacePlanBinding.h today.
+o2_add_test(surface-plan-binding
+            SOURCES testSurfacePlanBinding.cxx
+            COMPONENT_NAME itsmft-tracking
+            LABELS "itsmft;tracking"
+            PUBLIC_LINK_LIBRARIES O2::ITSMFTTracking)
+
+o2_add_test(surface-plan-binding-no-detector-dependency
+            SOURCES testSurfacePlanBindingNoDetectorDependency.cxx
+            COMPONENT_NAME itsmft-tracking
+            LABELS "itsmft;tracking"
+            PUBLIC_LINK_LIBRARIES O2::ITSMFTTracking)
+
 o2_add_test(its-common-ca-tracking-mode-configuration
             SOURCES testITSCommonCATrackingModeConfiguration.cxx
             COMPONENT_NAME itsmft-tracking
