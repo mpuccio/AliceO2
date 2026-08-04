@@ -32,21 +32,20 @@
 //    library already uses as its single shared policy/surface-kind
 //    compatibility rule (TransitionPolicy.h).
 //
-// One further generalization the design note's "only two lines" framing did
-// not separately enumerate: DetectorTraversalBinding::build() also used
-// `detector` a third time, checking every legacy-ordered surface's
-// SurfaceDescriptor::detectorId against the caller-supplied `detector`
-// (SurfaceDetectorMismatch). That comparison needs a detector-identity
-// parameter this type deliberately does not accept. The detector-neutral
-// replacement enforces the same real invariant -- every owned surface must
-// belong to one consistent owner -- against the *first* owned surface's own
-// detectorId instead of an externally supplied one
-// (InconsistentSurfaceOwner below): strictly more general (a future
-// adapter's surfaces are still checked for internal consistency without
-// this type ever learning what a "detector" is) and never behaviorally
-// weaker for today's ITS/MFT case, since a correctly-constructed plan's
-// `detector` argument always equaled every one of its own surfaces'
-// detectorId already.
+// A third `detector` use the design note's "only two lines" framing did not
+// separately enumerate -- DetectorTraversalBinding::build() also checked
+// every legacy-ordered surface's SurfaceDescriptor::detectorId against the
+// caller-supplied `detector` (SurfaceDetectorMismatch) -- is deliberately
+// dropped, not replaced. An earlier revision of this type reintroduced an
+// equivalent check (every owned surface sharing one consistent detectorId)
+// without an external parameter; that was itself a hidden constraint this
+// type must not carry: SurfacePlanBinding is generic over its own
+// SurfaceId set and must not assume "one binding, one detector" at all, so
+// a future participant whose owned surfaces legitimately span more than one
+// detectorId (e.g. a merged/aggregate plan) is not artificially rejected.
+// detectorId-based ownership bookkeeping, if a caller ever needs it, belongs
+// in that caller (which already knows its own semantics for "owner"), never
+// in this detector-neutral type.
 
 #ifndef GPUCA_GPUCODE
 
@@ -69,7 +68,6 @@ enum class SurfacePlanBindingError : uint8_t {
   IncompatibleExpectedPolicyKind,
   InvalidSurfaceMask,
   InvalidLegacySurfaceOrder,
-  InconsistentSurfaceOwner,
   InvalidTopology,
   InvalidPolicySurface,
   CrossBoundaryTransition,
@@ -119,23 +117,11 @@ class SurfacePlanBinding
     result->mSource = source;
     result->mOwnedSurfaces = ownedSurfaces;
     result->mOwnedSurfaceIndexBySurface.assign(globalLayout.nSurfaces, -1);
-    // Detector-neutral replacement for DetectorTraversalBinding's
-    // caller-supplied-`detector` comparison (file-level doc above): every
-    // owned surface must share one consistent SurfaceDescriptor::detectorId,
-    // derived from the first surface encountered rather than an external
-    // parameter this type does not accept.
-    std::optional<uint8_t> ownerDetectorId;
     for (uint16_t position = 0; position < orderedSurfaces.size(); ++position) {
       const auto surface = orderedSurfaces[position];
       if (!surface.isValid() || surface.value() >= globalLayout.nSurfaces || !ownedSurfaces.has(surface) ||
           result->mOwnedSurfaceIndexBySurface[surface.value()] >= 0) {
         return {{}, SurfacePlanBindingError::InvalidLegacySurfaceOrder};
-      }
-      const auto surfaceDetectorId = globalLayout.getSurface(surface).detectorId;
-      if (!ownerDetectorId.has_value()) {
-        ownerDetectorId = surfaceDetectorId;
-      } else if (surfaceDetectorId != *ownerDetectorId) {
-        return {{}, SurfacePlanBindingError::InconsistentSurfaceOwner};
       }
       result->mOwnedSurfaceIndexBySurface[surface.value()] = static_cast<int16_t>(position);
     }
