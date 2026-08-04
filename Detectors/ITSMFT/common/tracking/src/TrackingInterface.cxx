@@ -86,25 +86,25 @@ bool rofOverlapsIRFrames(const o2::itsmft::ROFRecord& rof, int rofLengthInBC, gs
 #ifndef GPUCA_GPUCODE
 template <int NLayers, typename ScratchT, typename BindingT>
 ITSMFTTrackingInterface<NLayers, ScratchT, BindingT>::ITSMFTTrackingInterface(bool useMC,
-                                                          o2::itsmft::TrackingMode::Type mode,
-                                                          bool overrideBeamEst)
+                                                                              o2::itsmft::TrackingMode::Type mode,
+                                                                              bool overrideBeamEst)
   : ITSMFTTrackingInterface(useMC, mode, overrideBeamEst, nullptr)
 {
 }
 
 template <int NLayers, typename ScratchT, typename BindingT>
 ITSMFTTrackingInterface<NLayers, ScratchT, BindingT>::ITSMFTTrackingInterface(bool useMC,
-                                                          o2::itsmft::TrackingMode::Type mode,
-                                                          bool overrideBeamEst,
-                                                          std::unique_ptr<ClusterDecoder> clusterDecoder)
+                                                                              o2::itsmft::TrackingMode::Type mode,
+                                                                              bool overrideBeamEst,
+                                                                              std::unique_ptr<ClusterDecoder> clusterDecoder)
   : mUseMC(useMC), mOverrideBeamEstimation(overrideBeamEst), mTrackingMode(mode), mClusterDecoder(clusterDecoder != nullptr ? std::move(clusterDecoder) : std::make_unique<GeometryClusterDecoder<DetId>>())
 {
 }
 #else
 template <int NLayers, typename ScratchT, typename BindingT>
 ITSMFTTrackingInterface<NLayers, ScratchT, BindingT>::ITSMFTTrackingInterface(bool useMC,
-                                                          o2::itsmft::TrackingMode::Type mode,
-                                                          bool overrideBeamEst)
+                                                                              o2::itsmft::TrackingMode::Type mode,
+                                                                              bool overrideBeamEst)
   : mUseMC(useMC), mOverrideBeamEstimation(overrideBeamEst), mTrackingMode(mode)
 {
 }
@@ -295,10 +295,10 @@ void ITSMFTTrackingInterface<NLayers, ScratchT, BindingT>::initialiseTracker()
 
 template <int NLayers, typename ScratchT, typename BindingT>
 float ITSMFTTrackingInterface<NLayers, ScratchT, BindingT>::processTimeFrame(gsl::span<const o2::itsmft::ROFRecord> rofs,
-                                                         gsl::span<const o2::itsmft::CompClusterExt> clusters,
-                                                         gsl::span<const unsigned char> patterns,
-                                                         const o2::dataformats::MCTruthContainer<o2::MCCompLabel>* labels,
-                                                         gsl::span<const o2::dataformats::IRFrame> irFrames)
+                                                                             gsl::span<const o2::itsmft::CompClusterExt> clusters,
+                                                                             gsl::span<const unsigned char> patterns,
+                                                                             const o2::dataformats::MCTruthContainer<o2::MCCompLabel>* labels,
+                                                                             gsl::span<const o2::dataformats::IRFrame> irFrames)
 {
   mPublicationClock.reset();
   if (mTrackParams.empty()) {
@@ -367,10 +367,10 @@ float ITSMFTTrackingInterface<NLayers, ScratchT, BindingT>::processTimeFrame(gsl
 
 template <int NLayers, typename ScratchT, typename BindingT>
 void ITSMFTTrackingInterface<NLayers, ScratchT, BindingT>::loadTimeFrame(gsl::span<const o2::itsmft::ROFRecord> rofs,
-                                                     gsl::span<const o2::itsmft::CompClusterExt> clusters,
-                                                     gsl::span<const unsigned char> patterns,
-                                                     const o2::dataformats::MCTruthContainer<o2::MCCompLabel>* labels,
-                                                     gsl::span<const o2::dataformats::IRFrame> irFrames)
+                                                                         gsl::span<const o2::itsmft::CompClusterExt> clusters,
+                                                                         gsl::span<const unsigned char> patterns,
+                                                                         const o2::dataformats::MCTruthContainer<o2::MCCompLabel>* labels,
+                                                                         gsl::span<const o2::dataformats::IRFrame> irFrames)
 {
   // Throws TimeFrameLoadException (NonUniformROFTiming) before touching
   // mScratch if per-layer DPLAlpideParam values disagree; otherwise
@@ -576,7 +576,7 @@ ROFTimingConfig ITSMFTTrackingInterface<NLayers, ScratchT, BindingT>::configureR
 
 template <int NLayers, typename ScratchT, typename BindingT>
 void ITSMFTTrackingInterface<NLayers, ScratchT, BindingT>::configureROFMask(gsl::span<const o2::itsmft::ROFRecord> rofs,
-                                                        gsl::span<const o2::dataformats::IRFrame> irFrames)
+                                                                            gsl::span<const o2::dataformats::IRFrame> irFrames)
 {
   ROFMaskTableN mask{mScratch.getROFOverlapTable()};
   mask.resetMask();
