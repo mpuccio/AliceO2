@@ -15,6 +15,16 @@
 #include "GPUROOTSMatrixFwd.h"
 #include <Math/SMatrix.h>
 
+// TrackParametrization.h is included solely to reuse its public
+// kCY2max/kCTgl2max/kC1Pt2max constants for sanitizeCovariance()'s
+// (SurfaceKinematicState.h) upper range -- the same reuse pattern already
+// established by BarrelSurfaceStateOperations.cxx/FamilyMaterialOperations.cxx
+// for their own constants. Not part of this translation unit's public
+// interface, and nothing here constructs or references a
+// TrackParametrization/TrackParCov object, let alone any frozen legacy MFT
+// fitting engine.
+#include "ReconstructionDataFormats/TrackParametrization.h"
+
 namespace o2::itsmft::tracking::forward
 {
 namespace
@@ -30,6 +40,20 @@ using Matrix5 = float[5][5];
 using CombinedCovariance = o2::math_utils::SMatrix<float, 5, 5, o2::math_utils::MatRepSym<float, 5>>;
 static_assert(o2::math_utils::MatRepSym<float, 5>::kSize == 15, "packed symmetric 5x5 representation must hold exactly 15 floats");
 static_assert(sizeof(CombinedCovariance) == 15 * sizeof(float), "combined covariance must occupy exactly 15 floats");
+
+// Upper bound for sanitizeCovariance() (SurfaceKinematicState.h), in (X, Y,
+// Phi, Tanl, Q2Pt) slot order. Forward has no legacy analogue to port (the
+// frozen legacy MFT Kalman fitting engine this module supersedes never
+// exposed a comparable covariance-range ceiling), so this reuses the exact
+// ceiling constants NativeRefitDriver.h's resetCovarianceForRefit() already
+// established for a freshly-reset forward state, by the same rationale:
+// X/Y reuse the barrel position ceiling (same physical quantity, same
+// units); Phi is a full angle (unlike barrel's bounded Snp), so its own
+// ceiling is (pi)^2; Tanl/Q2Pt reuse the barrel slope/curvature ceilings
+// directly.
+constexpr float kForwardPhiMaxDiagonal = o2::constants::math::PI * o2::constants::math::PI;
+constexpr float kForwardMaxDiagonal[5] = {o2::track::kCY2max, o2::track::kCY2max, kForwardPhiMaxDiagonal,
+                                          o2::track::kCTgl2max, o2::track::kC1Pt2max};
 
 bool finiteState(const SurfaceKinematicState& state) noexcept
 {
@@ -117,6 +141,10 @@ bool validateSource(const SurfaceKinematicState& state, OperationFailureReason& 
   return true;
 }
 
+// Shared commit point for every propagateBound<Model> instantiation above
+// (Linear/Quadratic/Helix/Optimized): sanitizing the covariance-validity
+// invariant (ADR 0008) unconditionally here -- once -- covers all four
+// models' exit paths without relying on each to remember it.
 bool commitPropagation(SurfaceKinematicState& destination, SurfaceKinematicState& scratch,
                        OperationFailureReason& reason) noexcept
 {
@@ -124,6 +152,7 @@ bool commitPropagation(SurfaceKinematicState& destination, SurfaceKinematicState
     reason = OperationFailureReason::NonFiniteOutput;
     return false;
   }
+  sanitizeCovariance(scratch, kForwardMaxDiagonal);
   destination = scratch;
   return true;
 }
@@ -448,6 +477,11 @@ bool update(SurfaceKinematicState& state, const SurfaceMeasurement& measurement,
     reason = OperationFailureReason::NonFiniteOutput;
     return false;
   }
+  // ADR 0008: the naive/non-Joseph-form Kalman covariance subtraction above
+  // can reveal an already out-of-bounds correlation (introduced upstream by
+  // a large-step propagate) as a small negative diagonal; sanitize
+  // unconditionally before committing so no caller ever observes it.
+  sanitizeCovariance(scratch, kForwardMaxDiagonal);
   state = scratch;
   chi2 = scratchChi2;
   return true;
@@ -878,6 +912,12 @@ bool propagateWithLinRefImpl(SurfaceKinematicState& state, SurfaceLinearizationR
     reason = OperationFailureReason::NonFiniteOutput;
     return false;
   }
+  // ADR 0008: a large single-step Jacobian transport can produce an
+  // off-diagonal term large enough that the matrix is no longer
+  // positive-semi-definite even though every individual diagonal still
+  // looks valid; sanitize unconditionally so the next operation (typically
+  // a measurement update) never receives an already-invalid covariance.
+  sanitizeCovariance(scratchState, kForwardMaxDiagonal);
   state = scratchState;
   linRef = scratchRef;
   return true;

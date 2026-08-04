@@ -24,7 +24,6 @@
 #include "ITSMFTTracking/ForwardSurfaceStateOperations.h"
 #include "ITSMFTTracking/MaterialPhysics.h"
 
-#include <algorithm>
 #include <cmath>
 #include <cstdint>
 
@@ -114,36 +113,25 @@ material::MaterialOperationResult makeProjectionFailure(const material::Material
   return result;
 }
 
-// Translation-unit-private packed-array reproduction of the retained
-// TrackParametrizationWithError<float>::checkCovariance() range handling: for
-// each diagonal, take its absolute value, and if it exceeds the retained
-// maximum, clamp it and scale every off-diagonal entry involving that
-// parameter by sqrt(max/diagonal). Diagonals are processed in the retained
-// (Y, Z, Snp, Tgl, Q2Pt) order so cumulative scaling of shared off-diagonal
-// entries (e.g. the Tgl/Q2Pt cross term) matches the retained sequential
-// behavior bit-for-bit. No legacy track object is constructed; this operates
-// directly on the packed float covariance array. This is a faithful
-// reproduction with no intentional difference from the retained
-// implementation.
+// Barrel covariance-range upper bound, in (Y, Z, Snp, Tgl, Q2Pt) slot order:
+// the retained TrackParametrizationWithError<float>::checkCovariance()
+// range-clamp values, and the same five constants
+// BarrelSurfaceStateOperations.cxx's post-propagate/rotate/update
+// sanitization (ADR 0008) enforces.
+constexpr float kBarrelMaxDiagonal[5] = {o2::track::kCY2max, o2::track::kCZ2max, o2::track::kCSnp2max,
+                                         o2::track::kCTgl2max, o2::track::kC1Pt2max};
+
+// Thin wrapper over the shared, detector-neutral sanitizeCovariance()
+// (SurfaceKinematicState.h): abs()'s each diagonal and, if it still exceeds
+// the retained maximum, clamps it and rescales every off-diagonal entry
+// involving that parameter by sqrt(max/diagonal). No legacy track object is
+// constructed; this operates directly on the packed float covariance array.
+// Formerly a private reimplementation of this exact policy; now delegates to
+// the one shared implementation also used by the barrel state operations'
+// own post-propagate/rotate/update sanitization, with no behavioral change.
 void limitBarrelCovariance(SurfaceKinematicState& scratch) noexcept
 {
-  constexpr float kMaxValues[5] = {o2::track::kCY2max, o2::track::kCZ2max, o2::track::kCSnp2max,
-                                   o2::track::kCTgl2max, o2::track::kC1Pt2max};
-  auto& c = scratch.covariance;
-  for (uint8_t i = 0; i < 5; ++i) {
-    const uint8_t diagIndex = packedCovarianceIndex(i, i);
-    c[diagIndex] = std::abs(c[diagIndex]);
-    if (c[diagIndex] > kMaxValues[i]) {
-      const float scale = std::sqrt(kMaxValues[i] / c[diagIndex]);
-      c[diagIndex] = kMaxValues[i];
-      for (uint8_t j = 0; j < 5; ++j) {
-        if (j == i) {
-          continue;
-        }
-        c[packedCovarianceIndex(std::max(i, j), std::min(i, j))] *= scale;
-      }
-    }
-  }
+  sanitizeCovariance(scratch, kBarrelMaxDiagonal);
 }
 
 // Shared preflight validation, steps 1-6 of the required order. Step 3's

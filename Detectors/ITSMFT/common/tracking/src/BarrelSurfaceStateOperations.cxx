@@ -15,16 +15,21 @@
 #include "GPUROOTSMatrixFwd.h"
 #include <Math/SMatrix.h>
 
-#ifndef GPUCA_GPUCODE
 // TrackParametrization.h is included solely to reuse its public
-// kCSnp2max/kCTgl2max/kC1Pt2max/kMostProbablePt constants, matching the
-// exact covariance/curvature conventions o2::its::track::buildTrackSeed
-// (ITStracking/TrackHelpers.h) uses -- no narrower public header declares
-// them (the same reuse pattern MaterialPhysics.cxx already uses for its own
-// constants). Not part of this translation unit's public interface, and
-// nothing here constructs or references a TrackParametrization/TrackParCov
-// object.
+// kCY2max/kCZ2max/kCSnp2max/kCTgl2max/kC1Pt2max/kMostProbablePt constants,
+// matching the exact covariance/curvature conventions
+// o2::its::track::buildTrackSeed (ITStracking/TrackHelpers.h) uses and the
+// covariance-validity upper range sanitizeCovariance() (SurfaceKinematicState.h)
+// enforces below -- no narrower public header declares them (the same reuse
+// pattern MaterialPhysics.cxx already uses for its own constants). Not part
+// of this translation unit's public interface, and nothing here constructs
+// or references a TrackParametrization/TrackParCov object. Unconditional
+// (not GPUCA_GPUCODE-guarded): unlike ITStracking/MathUtils.h below (needed
+// only by the host-only buildSeed), these constants are also needed by the
+// device-visible rotate/propagate/update operations' sanitization call.
 #include "ReconstructionDataFormats/TrackParametrization.h"
+
+#ifndef GPUCA_GPUCODE
 #include "ITStracking/MathUtils.h"
 #endif
 
@@ -43,6 +48,14 @@ using Matrix5 = float[5][5];
 using CombinedCovariance = o2::math_utils::SMatrix<float, 5, 5, o2::math_utils::MatRepSym<float, 5>>;
 static_assert(o2::math_utils::MatRepSym<float, 5>::kSize == 15, "packed symmetric 5x5 representation must hold exactly 15 floats");
 static_assert(sizeof(CombinedCovariance) == 15 * sizeof(float), "combined covariance must occupy exactly 15 floats");
+
+// Upper bound for sanitizeCovariance() (SurfaceKinematicState.h), in (Y, Z,
+// Snp, Tgl, Q2Pt) slot order -- the exact five constants
+// FamilyMaterialOperations.cxx's barrel covariance-range limiting already
+// uses, so post-propagate/rotate/update sanitization and the material-step
+// range clamp enforce the identical upper bound.
+constexpr float kBarrelMaxDiagonal[5] = {o2::track::kCY2max, o2::track::kCZ2max, o2::track::kCSnp2max,
+                                         o2::track::kCTgl2max, o2::track::kC1Pt2max};
 
 bool finiteState(const SurfaceKinematicState& state) noexcept
 {
@@ -130,12 +143,19 @@ void transportCovariance(SurfaceKinematicState& state, const Matrix5& jacobian) 
   packCovariance(transported, state);
 }
 
-bool commit(SurfaceKinematicState& destination, const SurfaceKinematicState& scratch, OperationFailureReason& reason) noexcept
+// Shared commit point for rotate() and propagate() (non-linRef) above: every
+// exit from either function funnels through here, so sanitizing the
+// covariance-validity invariant (ADR 0008) unconditionally here -- once --
+// covers both operations and every one of their exit paths (including the
+// dx==0 trivial-step early return, where covariance is unchanged and
+// sanitization is a no-op) without relying on each call site to remember it.
+bool commit(SurfaceKinematicState& destination, SurfaceKinematicState& scratch, OperationFailureReason& reason) noexcept
 {
   if (!finiteState(scratch)) {
     reason = OperationFailureReason::NonFiniteOutput;
     return false;
   }
+  sanitizeCovariance(scratch, kBarrelMaxDiagonal);
   destination = scratch;
   return true;
 }
@@ -340,6 +360,11 @@ bool update(SurfaceKinematicState& state, const SurfaceMeasurement& measurement,
     reason = OperationFailureReason::NonFiniteOutput;
     return false;
   }
+  // ADR 0008: the naive/non-Joseph-form Kalman covariance subtraction above
+  // can reveal an already out-of-bounds correlation (introduced upstream by
+  // a large-step propagate) as a small negative diagonal; sanitize
+  // unconditionally before committing so no caller ever observes it.
+  sanitizeCovariance(scratch, kBarrelMaxDiagonal);
   state = scratch;
   chi2 = scratchChi2;
   return true;
@@ -738,6 +763,7 @@ bool rotate(SurfaceKinematicState& state, SurfaceLinearizationReference& linRef,
     reason = OperationFailureReason::NonFiniteOutput;
     return false;
   }
+  sanitizeCovariance(scratchState, kBarrelMaxDiagonal);
   state = scratchState;
   linRef = scratchRef;
   return true;
@@ -890,6 +916,12 @@ bool propagate(SurfaceKinematicState& state, SurfaceLinearizationReference& linR
     reason = OperationFailureReason::NonFiniteOutput;
     return false;
   }
+  // ADR 0008: a large single-step Jacobian transport can produce an
+  // off-diagonal term large enough that the matrix is no longer
+  // positive-semi-definite even though every individual diagonal still
+  // looks valid; sanitize unconditionally so the next operation (typically
+  // a measurement update) never receives an already-invalid covariance.
+  sanitizeCovariance(scratchState, kBarrelMaxDiagonal);
   state = scratchState;
   linRef = scratchRef;
   return true;

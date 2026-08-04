@@ -8,6 +8,7 @@
 #ifndef ALICEO2_ITSMFT_TRACKING_SURFACEKINEMATICSTATE_H_
 #define ALICEO2_ITSMFT_TRACKING_SURFACEKINEMATICSTATE_H_
 
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <type_traits>
@@ -53,6 +54,48 @@ static_assert(offsetof(SurfaceKinematicState, pid) == 91);
 GPUhdi() constexpr uint8_t packedCovarianceIndex(uint8_t row, uint8_t column) noexcept
 {
   return row >= column ? row * (row + 1) / 2 + column : column * (column + 1) / 2 + row;
+}
+
+// Detector-neutral covariance-validity invariant, applied unconditionally
+// after every successful covariance-mutating state operation (propagate,
+// rotate, measurement update -- barrel and forward alike). It knows nothing
+// about materials, detectors, or families beyond the five per-slot upper
+// bounds the caller supplies: for each diagonal, take its absolute value
+// (a diagonal must be non-negative; this also repairs the specific failure
+// mode of a naive/non-Joseph-form Kalman covariance update revealing an
+// already-invalid off-diagonal correlation -- see ADR 0008 -- as a small
+// negative diagonal), and if it still exceeds maxDiagonal[i], clamp it to
+// that bound and rescale every off-diagonal entry sharing that row/column by
+// sqrt(maxDiagonal[i]/diagonal). Diagonals are processed in slot order
+// (0..4) so cumulative rescaling of an entry shared by two out-of-range
+// diagonals is deterministic. Operates directly on the packed
+// lower-triangular storage, so symmetry is preserved by construction; it
+// never constructs or depends on any legacy track-parametrization type.
+//
+// This is the single implementation behind both barrel's and forward's
+// post-propagate/rotate/update sanitization and behind
+// FamilyMaterialOperations.cxx's barrel covariance-range limiting inside
+// correctForMaterial (a faithful reproduction of
+// o2::track::TrackParametrizationWithError<float>::checkCovariance()'s
+// diagonal-abs/range-clamp policy, ported once instead of duplicated per
+// call site).
+GPUhdi() void sanitizeCovariance(SurfaceKinematicState& state, const float (&maxDiagonal)[5]) noexcept
+{
+  auto& c = state.covariance;
+  for (uint8_t i = 0; i < 5; ++i) {
+    const uint8_t diagIndex = packedCovarianceIndex(i, i);
+    c[diagIndex] = c[diagIndex] < 0.f ? -c[diagIndex] : c[diagIndex];
+    if (c[diagIndex] > maxDiagonal[i]) {
+      const float scale = std::sqrt(maxDiagonal[i] / c[diagIndex]);
+      c[diagIndex] = maxDiagonal[i];
+      for (uint8_t j = 0; j < 5; ++j) {
+        if (j == i) {
+          continue;
+        }
+        c[packedCovarianceIndex(i, j)] *= scale;
+      }
+    }
+  }
 }
 
 class BarrelStateView;
