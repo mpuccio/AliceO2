@@ -277,14 +277,20 @@ BOOST_AUTO_TEST_CASE(RejectsUnownedSurfaceInOrder)
   BOOST_CHECK(result.error == SurfacePlanBindingError::InvalidLegacySurfaceOrder);
 }
 
-BOOST_AUTO_TEST_CASE(RejectsInconsistentSurfaceOwner)
+BOOST_AUTO_TEST_CASE(SurfacePlanBindingBuildsAcrossMultipleDistinctDetectorIdentitiesInOneOwnedSet)
 {
+  // SurfacePlanBinding must be generic over its own owned SurfaceId set: it
+  // must not assume "one binding, one detector". Three compatible (Cylinder)
+  // surfaces spanning two distinct synthetic detectorIds (250, 251), one
+  // valid source, consistent expected kind/policy, and an internally valid
+  // chain topology -- this must build successfully, unlike
+  // DetectorTraversalBinding's own single-detector-scoped contract.
   std::vector<SurfaceDescriptor> surfaces{
     surfaceWithOwner(0, SurfaceKind::Cylinder, 250),
     surfaceWithOwner(1, SurfaceKind::Cylinder, 250),
-    surfaceWithOwner(2, SurfaceKind::Cylinder, 251)}; // owner mismatch
+    surfaceWithOwner(2, SurfaceKind::Cylinder, 251)}; // second detectorId, still owned by the same binding
   DetectorLayoutBuilder builder{SurfaceCatalogView{surfaces.data(), static_cast<uint32_t>(surfaces.size())}};
-  auto built = builder.addSubgraph({ordered(0, 3), 0, SurfaceMask{}, SurfaceMask{}}).build();
+  auto built = builder.addSubgraph({ordered(0, 3), 0, SurfaceMask{}, maskOf(2)}).build();
   BOOST_REQUIRE(built.ok());
   const auto masks = computeSurfaceKindMasks(surfaces);
   const auto view = built.layout->getView(surfaces, masks.first, masks.second);
@@ -292,8 +298,13 @@ BOOST_AUTO_TEST_CASE(RejectsInconsistentSurfaceOwner)
   SurfaceMask owned = maskOf(0) | maskOf(1) | maskOf(2);
   const auto result = SurfacePlanBinding::build(view, ClusterSourceId{0}, owned, ordered(0, 3),
                                                 SurfaceKind::Cylinder, TransitionPolicyTag::CylinderCylinder);
-  BOOST_REQUIRE(!result.ok());
-  BOOST_CHECK(result.error == SurfacePlanBindingError::InconsistentSurfaceOwner);
+  BOOST_REQUIRE(result.ok());
+  BOOST_CHECK_EQUAL(result.binding->getGlobalTransitions().size(), 2u);
+  BOOST_CHECK_EQUAL(result.binding->getGlobalCells().size(), 1u);
+  for (uint16_t id = 0; id < 3; ++id) {
+    BOOST_REQUIRE(result.binding->getOwnedSurfaceIndex(SurfaceId{id}));
+    BOOST_CHECK_EQUAL(*result.binding->getOwnedSurfaceIndex(SurfaceId{id}), id);
+  }
 }
 
 BOOST_AUTO_TEST_CASE(RejectsPolicySurfaceKindMismatch)
