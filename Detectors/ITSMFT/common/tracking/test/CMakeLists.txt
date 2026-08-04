@@ -388,7 +388,12 @@ o2_add_test(surface-tracking-scratch
             SOURCES testSurfaceTrackingScratch.cxx
             COMPONENT_NAME itsmft-tracking
             LABELS "itsmft;tracking"
-            PUBLIC_LINK_LIBRARIES O2::ITSMFTTracking)
+            # M6d: SurfaceTrackingScratch.h now pulls in MFTCATrack.h/
+            # IndexTableUtils.h's own MFTTracking/Constants.h dependency
+            # directly (the file-doc's own narrow MFTNLayers exception) --
+            # O2::ITSMFTTracking links O2::MFTTracking only PRIVATE_LINK_LIBRARIES,
+            # so consumers of this now-MFT-aware public header need it too.
+            PUBLIC_LINK_LIBRARIES O2::ITSMFTTracking O2::MFTTracking)
 
 # M6c: the additive, GPU-portable, non-templated successor to
 # TrackSeedTpl<NLayers>. Zero production callers.
@@ -478,6 +483,19 @@ o2_add_test(itsmft-legacy-participant-set
 # deleted host-only combined coordinator's own test suite.
 o2_add_test(combined-tracking-composition
             SOURCES testCombinedTrackingComposition.cxx
+            COMPONENT_NAME itsmft-tracking
+            LABELS "itsmft;tracking"
+            PUBLIC_LINK_LIBRARIES O2::ITSMFTTracking
+                                  O2::MFTTracking
+                                  O2::DetectorsBase
+                                  O2::Field)
+
+# M6d (doc/design/0002-m6-generic-workspace-migration.md Sec 9): focused
+# coverage for the MFT common-CA participant's migration onto
+# SurfaceTrackingScratch/SurfacePlanBinding, exercised through the real
+# production ITSMFTLegacyParticipantSet wiring.
+o2_add_test(m6d-mft-migration
+            SOURCES testM6dMFTMigration.cxx
             COMPONENT_NAME itsmft-tracking
             LABELS "itsmft;tracking"
             PUBLIC_LINK_LIBRARIES O2::ITSMFTTracking

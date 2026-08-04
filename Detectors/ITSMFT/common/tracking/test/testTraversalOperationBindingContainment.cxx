@@ -74,7 +74,12 @@ std::string readTrackerTraitsHeader()
 /// `computeLayerTracklets` never matches `computeLayerTrackletsForPolicy`.
 std::string extractMethodBody(const std::string& source, const std::string& methodName)
 {
-  const std::string signature = "TrackerTraits<NLayers>::" + methodName + "(";
+  // M6d: TrackerTraits's out-of-line qualified name gained the ScratchT/
+  // BindingT seam parameters (doc/design/0002-m6-generic-workspace-migration.md
+  // Sec 9) -- every out-of-line definition's signature changed textually,
+  // hence this literal, even though the class's own logic this test
+  // actually verifies (no Tag/StateFamily dispatch in the hot loop) did not.
+  const std::string signature = "TrackerTraits<NLayers, ScratchT, BindingT>::" + methodName + "(";
   const auto signaturePos = source.find(signature);
   BOOST_REQUIRE_MESSAGE(signaturePos != std::string::npos, "cannot find " << signature << " in TrackerTraits.cxx");
   const auto openBrace = source.find('{', signaturePos);
@@ -155,7 +160,7 @@ BOOST_AUTO_TEST_CASE(BindTraversalOperationIsTheSoleProducerOfTheBoundOperation)
   // once per iteration" contract (TraversalOperationBinding's own doc) would
   // not actually hold.
   const auto source = readTrackerTraitsSource();
-  const std::string signature = "TrackerTraits<NLayers>::bindTraversalOperation(";
+  const std::string signature = "TrackerTraits<NLayers, ScratchT, BindingT>::bindTraversalOperation(";
   const auto signaturePos = source.find(signature);
   BOOST_REQUIRE_MESSAGE(signaturePos != std::string::npos, "cannot find " << signature);
   const auto bindBody = extractMethodBody(source, "bindTraversalOperation");

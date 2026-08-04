@@ -484,7 +484,10 @@ struct CombinedTrackingComposer {
   }
 
   const LegacyTrackerScratchITS& getITSScratch() const noexcept { return participants.getITSScratch(); }
-  const LegacyTrackerScratchMFT& getMFTScratch() const noexcept { return participants.getMFTScratch(); }
+  // M6d: MFT's own participant now owns SurfaceTrackingScratch, not
+  // LegacyTrackerScratch<MFTNLayers> -- see ITSMFTLegacyParticipantSet.h's
+  // own getMFTScratch().
+  const SurfaceTrackingScratch& getMFTScratch() const noexcept { return participants.getMFTScratch(); }
   const ITSSharedClusterCompatibility& getITSSharedClusterCompatibility() const noexcept { return participants.getITSSharedClusterCompatibility(); }
   const MFTPublicationCompatibility& getMFTPublicationCompatibility() const noexcept { return participants.getMFTPublicationCompatibility(); }
   gsl::span<const SurfaceId> getITSOrderedSurfaces() const noexcept { return participants.getITSOrderedSurfaces(); }
