@@ -381,6 +381,23 @@ o2_add_test(surface-plan-binding-no-detector-dependency
             LABELS "itsmft;tracking"
             PUBLIC_LINK_LIBRARIES O2::ITSMFTTracking)
 
+# M6c (doc/design/0002-m6-generic-workspace-migration.md Sec 4, 9): the
+# additive, detector-neutral successor to the generic portions of
+# LegacyTrackerScratch<NLayers>. Zero production callers.
+o2_add_test(surface-tracking-scratch
+            SOURCES testSurfaceTrackingScratch.cxx
+            COMPONENT_NAME itsmft-tracking
+            LABELS "itsmft;tracking"
+            PUBLIC_LINK_LIBRARIES O2::ITSMFTTracking)
+
+# M6c: the additive, GPU-portable, non-templated successor to
+# TrackSeedTpl<NLayers>. Zero production callers.
+o2_add_test(track-seed
+            SOURCES testTrackSeed.cxx
+            COMPONENT_NAME itsmft-tracking
+            LABELS "itsmft;tracking"
+            PUBLIC_LINK_LIBRARIES O2::ITSMFTTracking)
+
 o2_add_test(its-common-ca-tracking-mode-configuration
             SOURCES testITSCommonCATrackingModeConfiguration.cxx
             COMPONENT_NAME itsmft-tracking
