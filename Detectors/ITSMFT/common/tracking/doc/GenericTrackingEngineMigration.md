@@ -145,12 +145,29 @@ explicitly fenced behind its own decision (M5).
 
 ### M6 — SurfaceTrackingScratch and legacy container removal
 
-Split into a design/audit slice (M6a) plus five bounded, replay-gated
-implementation slices (M6b–M6f), mirroring M5's a/b/c/d granularity. Full
+Split into a design/audit slice (M6a) plus six bounded, replay-gated
+implementation slices (M6b–M6g), mirroring M5's a/b/c/d granularity. Full
 field-by-field ownership audit, generic-workspace design, deletion order, and
 per-slice acceptance gates are in [design note
 0002](design/0002-m6-generic-workspace-migration.md); this section is the
 summary anchor other milestones link against.
+
+**Permanence rule** (design note 0002 §2, corrected): the ITS/MFT
+*application-adapter role* survives M6 permanently (ADR 0007 decision 2); no
+`Legacy…`-named *class* does. `LegacyCATrackingParticipant` is renamed once its
+`LegacyTrackerScratch`/`DetectorTraversalBinding` internals are gone (M6f).
+`ITSMFTLegacyParticipantSet` survives only if, at M6 completion, it is
+demonstrably an immutable application-plan/configuration builder — no
+`loadEvent`/`process`/`execute`/`reset` behavior, no event-owned mutable
+state, no coordinator role, no detector-tracking-algorithm ownership beyond
+constructing participant adapters; audited against those four conditions as
+currently shaped, it **fails** today (its publication/timing bridge —
+`mITSClock`/`mMFTClock`/`mPublicationValid` plus
+`invalidatePublication()`/`markPublicationValid()`/`clearPublicationSidecars()`
+— is concrete event-owned mutable state and coordinator-shaped behavior). It
+is renamed only if M6g's relocation of that state to the workflow adapter
+leaves a class that passes the four conditions; deleted and inlined into
+`CombinedCATrackerSpec.cxx`'s composition otherwise.
 
 - **M6a — design/audit** (closed): read every `LegacyTrackerScratch<NLayers>`
   field, `DetectorTraversalBinding` responsibility, `LegacyCATrackingParticipant`
@@ -185,30 +202,47 @@ summary anchor other milestones link against.
 - **M6f — delete** `LegacyTrackerScratch<NLayers>`, `DetectorTraversalBinding`,
   the `NLayers`-templated `TrackSeedTpl`/`SeedMetadataBase` instantiation, and
   any other now-unreferenced `NLayers`-templated legacy CA container.
-  `LegacyCATrackingParticipant<NLayers>` and `ITSMFTLegacyParticipantSet`
-  themselves are **not** deleted — they are ADR 0007 decision 2's permanent
-  ITS/MFT adapter layer; only their internal member types changed in M6d/M6e
-  (design note 0002 §8).
-- **Acceptance/replay gate** (M6d–M6f, cumulative): per-detector and combined
+  **Rename** `LegacyCATrackingParticipant<NLayers>` (and its ITS/MFT aliases
+  and extern-template instantiations) to a narrowly-scoped, non-`Legacy`
+  ITS/MFT participant name — its own reason for the old name no longer applies
+  once those deletions land (design note 0002 §3.3, §9). `ITSMFTLegacyParticipantSet`
+  is **not** in this slice's scope; it is disposed of separately at M6g.
+- **M6g — evaluate, relocate, and dispose of `ITSMFTLegacyParticipantSet`**:
+  relocate its event-owned publication/timing bridge and per-event
+  `clearPublicationSidecars()`/`configureRofTables()` calls into
+  `CombinedCATrackerSpec.cxx`'s own per-event `process()`, which already owns
+  the event loop and already receives the combined `EventResult` that bridge
+  currently derives internally; re-audit what remains against the four
+  conditions above. Rename (dropping `Legacy`) if it now qualifies as an
+  immutable plan/config builder; delete and inline into
+  `CombinedCATrackerSpec.cxx`'s composition otherwise (design note 0002 §3.4,
+  §9). No third outcome is acceptable.
+- **Acceptance/replay gate** (M6d–M6g, cumulative): per-detector and combined
   replays byte-identical to the M5d-era candidate baseline (or matching
   separately approved deltas); lifecycle/pool-destruction-order contracts
   re-pinned on the native scratch; memory/runtime changes recorded; a
-  grep-guard test at M6f asserts zero remaining references to
-  `LegacyTrackerScratch`/`DetectorTraversalBinding`.
+  grep-guard test extended through M6f/M6g (design note 0002 §11) asserts zero
+  remaining production references to `LegacyTrackerScratch`,
+  `DetectorTraversalBinding`, `LegacyCATrackingParticipant`, and (if deleted
+  rather than renamed) `ITSMFTLegacyParticipantSet`.
 - **Deletion/exit criterion**: no production instantiation of
   `LegacyTrackerScratch<NLayers>` (grep-verified); native scratch has executed
-  production traffic for both participants (ADR 0007 decision 9).
+  production traffic for both participants (ADR 0007 decision 9); no
+  `Legacy…`-named production class remains under
+  `Detectors/ITSMFT/common/tracking` (grep-verified).
 - **Dependency**: M5 implementation.
 - **Classification**: M6a is a documentation-only audit; M6b/M6c are additive
-  and behavior-preserving; M6d–M6f are behavior-preserving cleanup
+  and behavior-preserving; M6d–M6g are behavior-preserving cleanup
   (replay-gated) — any residual output delta requires separate approval under
   M5's decision.
-- **Flagged separately, not mandatory M6 scope** (design note 0002 §11): the
-  already-dead `loadROFrameData()`/`resetROFrameData()`/`prepareROFrameData()`
-  family (zero production callers today, independent of M6); the
+- **Flagged separately, not mandatory M6 scope, ranked by confidence** (design
+  note 0002 §12): Rank 1, the already-dead
+  `loadROFrameData()`/`resetROFrameData()`/`prepareROFrameData()` family (zero
+  production callers today, independent of M6); Rank 2, the
   double-`TimeFrame::wipe()` on a single participant's recoverable-drop path
-  (idempotent, not a correctness bug); verifying whether
-  `mNTotalLowPtVertices` has any remaining reader.
+  (idempotent, not a correctness bug); Rank 3, verifying whether
+  `mNTotalLowPtVertices` has any remaining reader (needs a wider grep than
+  this audit performed).
 
 ## Not safe to delete yet
 
@@ -220,6 +254,8 @@ summary anchor other milestones link against.
 | `TransitionPolicyTag` machinery (dispatch, grouping, templated operations) | Only existing hot-loop implementation of the CA stages | contained at M4, replaced by M5 implementation |
 | Policy/legacy compatibility code (`kDroppedTimeFrameResult` sentinel, `mLayerMaterial`/`LegacyMaterialMismatch`, `mSurfaceToLegacyLayer`, `DiskDiskReferenceCoordinateView`, `passesCellRoadPrecut<DiskDisk>`) | Pins byte-identical replay parity against the frozen legacy implementations | respective M4–M6 slices, each under its replay gate |
 | Output sidecars (`ITSSharedClusterCompatibility`, `MFTPublicationCompatibility`) | Legacy output conversion still requires per-detector compatibility state | M6, when adapters convert from `CommonTrack` alone |
+| `LegacyCATrackingParticipant<NLayers>` (current name) | Sole production ITS/MFT participant type until its scratch/binding internals are generic | M6f — **renamed**, not deleted outright; the concrete-per-detector-participant role persists under a new, non-`Legacy` name (design note 0002 §3.3) |
+| `ITSMFTLegacyParticipantSet` (current name/shape) | Currently owns event-owned mutable state and coordinator-shaped behavior (the publication/timing bridge — `mITSClock`/`mMFTClock`/`mPublicationValid` and their three mutating methods) that fails the four-condition immutable-config-builder test as shaped today | M6g — renamed under a new, non-`Legacy` name only if relocating that state to `CombinedCATrackerSpec.cxx` leaves a class that demonstrably passes all four conditions (design note 0002 §3.4); deleted and inlined into `CombinedCATrackerSpec.cxx`'s composition otherwise |
 
 ## Validation baseline
 
