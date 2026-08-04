@@ -956,16 +956,41 @@ BOOST_AUTO_TEST_CASE(RefitHitDiskNonMutationOnChi2GateFailure)
 // differs from RefitHitDiskRejectsAccumulationOverflow (which overflows
 // the chi2 *accumulator*, not a state parameter, via a tiny (0,0)
 // variance instead of a huge (4,0) cross term).
-BOOST_AUTO_TEST_CASE(RefitHitDiskNonMutationOnUpdateFailure)
+BOOST_AUTO_TEST_CASE(RefitHitDiskNonMutationOnPredictedChi2Failure)
 {
+  // ADR 0008 covariance-validity correction: this case previously poisoned
+  // state covariance (an extreme off-diagonal entry, chosen to survive
+  // untouched all the way to update()'s own arithmetic and only fail there
+  // with NonFiniteOutput) to prove refitHit<DiskDisk> leaves state
+  // untouched on a late-pipeline failure. sanitizeCovariance()
+  // (SurfaceKinematicState.h) now runs unconditionally after every
+  // propagate -- including the trivial dz==0 step this scenario's own
+  // frame.q setup takes -- and correctly repairs exactly that kind of
+  // extreme, correlation-violating entry before update() ever sees it (that
+  // repair is the whole point of the correction), so the old covariance
+  // trigger no longer reproduces any failure here at all.
+  //
+  // Renamed and re-targeted, not merely re-tuned: forward::predictedChi2()
+  // is called unconditionally by refitHit<DiskDisk> (regardless of
+  // chi2GateEnabled) strictly before update(), and shares update()'s own
+  // residualInverse()-derived inverse00/01/11 terms; predictedChi2's chi2
+  // is quadratic in the position residual while update()'s own parameter
+  // delta is only linear in it (gain * residual), so for any residual large
+  // enough to threaten a float32 overflow in update(), predictedChi2's own
+  // `!std::isfinite(predChi2)` check -- an earlier, unconditional,
+  // structurally-guaranteed-to-fire-first gate -- rejects the candidate
+  // first, with OperationFailureReason::PredictedChi2Failure. This is not a
+  // weaker substitute for the original scenario's intent: it still proves
+  // refitHit<DiskDisk> leaves state completely untouched (transactional)
+  // when a late-pipeline numeric failure occurs, using a trigger that is
+  // deliberately independent of covariance/sanitizeCovariance() entirely
+  // (a huge but individually-finite position residual, squared in chi2).
   auto state = diskState();
-  state.covariance[packedCovarianceIndex(4, 0)] = 1.e35f;
-  state.covariance[packedCovarianceIndex(1, 0)] = 0.f;
   auto linRef = diskLinRef(state);
 
   SurfaceMeasurement measurement{};
   measurement.frame.q = state.referenceCoordinate; // exact no-op propagation (dz == 0)
-  measurement.global.x = state.parameters[0] + 100.f;
+  measurement.global.x = state.parameters[0] + 1.e20f;
   measurement.global.y = state.parameters[1]; // residual == 0 exactly
   measurement.covariance = {0.f, 0.f, 1.f};
 
@@ -979,7 +1004,7 @@ BOOST_AUTO_TEST_CASE(RefitHitDiskNonMutationOnUpdateFailure)
   BOOST_CHECK(!refitHit<TransitionPolicyTag::DiskDisk>(
     stateResult, linRefResult, measurement, noMaterial, DiskBz, material::MaterialTraversalDirection::OppositeMomentum,
     /*gateEnabled=*/false, 0.f, chi2, false, reason));
-  BOOST_CHECK(reason == OperationFailureReason::NonFiniteOutput);
+  BOOST_CHECK(reason == OperationFailureReason::PredictedChi2Failure);
   BOOST_CHECK(bitEqual(stateResult, state));
   BOOST_CHECK(bitEqual(linRefResult, linRef));
   BOOST_CHECK_EQUAL(chi2, chi2Before);

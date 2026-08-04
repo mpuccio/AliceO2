@@ -22,6 +22,7 @@
 #define BOOST_TEST_DYN_LINK
 #include <boost/test/unit_test.hpp>
 
+#include <algorithm>
 #include <cmath>
 #include <cstdint>
 #include <cstring>
@@ -45,6 +46,41 @@ bool allDiagonalsNonNegative(const SurfaceKinematicState& state)
     }
   }
   return true;
+}
+
+// Returns the magnitude of the worst pairwise-correlation violation found
+// (0 if none), i.e. max(0, |c_ij|/sqrt(c_ii*c_jj) - 1) over every off-diagonal
+// pair. Callers with a non-negative diagonal already established can compare
+// this against a small float tolerance.
+float maxCorrelationViolation(const SurfaceKinematicState& state)
+{
+  float worst = 0.f;
+  for (uint8_t i = 0; i < 5; ++i) {
+    for (uint8_t j = 0; j < i; ++j) {
+      const float dii = state.covariance[packedCovarianceIndex(i, i)];
+      const float djj = state.covariance[packedCovarianceIndex(j, j)];
+      if (dii <= 0.f || djj <= 0.f) {
+        continue;
+      }
+      const float rho = state.covariance[packedCovarianceIndex(i, j)] / std::sqrt(dii * djj);
+      worst = std::max(worst, std::abs(rho) - 1.f);
+    }
+  }
+  return worst;
+}
+
+// The DECLARED invariant sanitizeCovariance() (SurfaceKinematicState.h)
+// establishes -- non-negative diagonals and no individual pairwise
+// correlation exceeding unity -- and nothing more. This is deliberately NOT
+// a full positive-semi-definite check (that would additionally require,
+// e.g., every leading principal minor non-negative / every eigenvalue
+// non-negative): the doc comment on sanitizeCovariance() proves with a real
+// captured counter-example that pairwise-valid does not imply full PSD, and
+// this codebase does not claim otherwise. A test asserting full PSD here
+// would be testing an invariant the production code does not establish.
+bool covarianceSatisfiesDeclaredInvariant(const SurfaceKinematicState& state, float tolerance = 1.e-3f)
+{
+  return allDiagonalsNonNegative(state) && maxCorrelationViolation(state) <= tolerance;
 }
 
 bool closeTo(float a, float b, float absTol = 5.e-4f, float relTol = 2.e-3f)
@@ -78,10 +114,18 @@ BOOST_AUTO_TEST_CASE(SanitizeCovarianceAbsNegativeDiagonal)
 
 BOOST_AUTO_TEST_CASE(SanitizeCovarianceClampsOverRangeAndRescalesOffDiagonal)
 {
+  // Pass 2 (pairwise correlation clamp) runs after pass 1 and would itself
+  // touch an off-diagonal whose implied correlation, computed from the
+  // POST-pass-1 (already range-clamped) diagonals, still exceeds 1 -- so
+  // this fixture is deliberately chosen so pass 1's own rescale already
+  // brings every off-diagonal within pass 2's bound too, isolating pass 1
+  // in observable behavior (SanitizeCovarianceClampsOverRangeToCauchySchwarzBound
+  // below exercises pass 2 specifically, including its interaction with an
+  // already-pass-1-clamped diagonal).
   SurfaceKinematicState state{};
   state.covariance[packedCovarianceIndex(0, 0)] = 4.f; // 4x the max below.
   state.covariance[packedCovarianceIndex(1, 0)] = 1.f; // Shares row/column 0.
-  state.covariance[packedCovarianceIndex(2, 0)] = 2.f;
+  state.covariance[packedCovarianceIndex(2, 0)] = 0.4f;
   state.covariance[packedCovarianceIndex(1, 1)] = 0.3f;
   state.covariance[packedCovarianceIndex(2, 2)] = 0.3f;
   state.covariance[packedCovarianceIndex(3, 3)] = 0.3f;
@@ -91,9 +135,33 @@ BOOST_AUTO_TEST_CASE(SanitizeCovarianceClampsOverRangeAndRescalesOffDiagonal)
   // scale = sqrt(max/old) = sqrt(1/4) = 0.5.
   BOOST_CHECK_CLOSE(state.covariance[packedCovarianceIndex(0, 0)], 1.f, 1e-4f);
   BOOST_CHECK_CLOSE(state.covariance[packedCovarianceIndex(1, 0)], 0.5f, 1e-4f);
-  BOOST_CHECK_CLOSE(state.covariance[packedCovarianceIndex(2, 0)], 1.f, 1e-4f);
+  BOOST_CHECK_CLOSE(state.covariance[packedCovarianceIndex(2, 0)], 0.2f, 1e-4f);
   // Untouched entries not sharing the clamped row/column.
   BOOST_CHECK_CLOSE(state.covariance[packedCovarianceIndex(1, 1)], 0.3f, 1e-4f);
+  // Confirms pass 2 really was a no-op for this fixture, not merely unlucky
+  // arithmetic: every pairwise correlation is within bound.
+  BOOST_CHECK_LE(maxCorrelationViolation(state), 1.e-4f);
+}
+
+BOOST_AUTO_TEST_CASE(SanitizeCovarianceClampsOverRangeToCauchySchwarzBound)
+{
+  // Pass 2 in isolation (diagonals already within maxDiagonal, so pass 1 is
+  // a no-op here): an off-diagonal whose magnitude implies |correlation|>1
+  // is clamped to exactly sqrt(c_ii*c_jj), sign preserved; a pair already
+  // within bound is untouched.
+  SurfaceKinematicState state{};
+  state.covariance[packedCovarianceIndex(0, 0)] = 4.f;
+  state.covariance[packedCovarianceIndex(1, 1)] = 9.f;
+  state.covariance[packedCovarianceIndex(1, 0)] = -100.f; // |rho| = 100/sqrt(4*9) = 16.67, deliberately over 1.
+  state.covariance[packedCovarianceIndex(2, 2)] = 4.f;
+  state.covariance[packedCovarianceIndex(2, 0)] = 3.f; // |rho| = 3/sqrt(4*4) = 0.75, already within bound.
+  state.covariance[packedCovarianceIndex(3, 3)] = 1.f;
+  state.covariance[packedCovarianceIndex(4, 4)] = 1.f;
+  const float maxDiagonal[5] = {1.e30f, 1.e30f, 1.e30f, 1.e30f, 1.e30f}; // Effectively unreachable: isolates pass 2.
+  sanitizeCovariance(state, maxDiagonal);
+  BOOST_CHECK_CLOSE(state.covariance[packedCovarianceIndex(1, 0)], -6.f, 1e-4f); // -sqrt(4*9) = -6.
+  BOOST_CHECK_CLOSE(state.covariance[packedCovarianceIndex(2, 0)], 3.f, 1e-4f);  // Untouched: already within bound.
+  BOOST_CHECK_LE(maxCorrelationViolation(state), 1.e-4f);
 }
 
 BOOST_AUTO_TEST_CASE(SanitizeCovariancePreservesSymmetryByConstruction)
@@ -101,10 +169,15 @@ BOOST_AUTO_TEST_CASE(SanitizeCovariancePreservesSymmetryByConstruction)
   // Packed lower-triangular storage: only one entry exists per (row,column)
   // pair, so "symmetry" is a representation invariant, not a check --
   // packedCovarianceIndex(i,j) == packedCovarianceIndex(j,i) is exercised
-  // directly by every read/write sanitizeCovariance performs.
+  // directly by every read/write sanitizeCovariance performs. Diagonals are
+  // set generously large (relative to the off-diagonal under test) so pass
+  // 2's correlation clamp is a no-op here and does not confound the
+  // symmetry check with a legitimate clamp.
   SurfaceKinematicState state{};
+  state.covariance[packedCovarianceIndex(1, 1)] = 100.f;
+  state.covariance[packedCovarianceIndex(3, 3)] = 100.f;
   state.covariance[packedCovarianceIndex(3, 1)] = 5.f;
-  const float maxDiagonal[5] = {1.f, 1.f, 1.f, 1.f, 1.f};
+  const float maxDiagonal[5] = {1.e30f, 1.e30f, 1.e30f, 1.e30f, 1.e30f};
   sanitizeCovariance(state, maxDiagonal);
   BOOST_CHECK_EQUAL(packedCovarianceIndex(1, 3), packedCovarianceIndex(3, 1));
   BOOST_CHECK_CLOSE(state.covariance[packedCovarianceIndex(1, 3)], 5.f, 1e-4f);
@@ -199,13 +272,26 @@ BOOST_AUTO_TEST_CASE(MFTReproducerNowSanitizesToValidCovariance)
 // --- 4. Large-step propagation invariant: barrel::propagate(state, linRef, --
 // ...) on the exact captured real inputs that fed the ITS legB reproducer
 // above (the immediately preceding hit) must itself leave the covariance
-// invariant satisfied before the next update() ever runs, even though the
-// raw off-diagonal transport for this large (~-15.5cm) step is what first
-// makes the matrix's Y-Q2Pt correlation exceed 1 (the precondition
-// update() then reveals as a negative diagonal -- see the
-// covariance-fault-localization investigation, ADR 0008).
-
-BOOST_AUTO_TEST_CASE(LargeStepPropagationPreservesInvariantBeforeUpdate)
+// invariant satisfied before the next update() ever runs. The raw off-
+// diagonal transport for this large (~-15.5cm) step makes THREE pairwise
+// correlations simultaneously exceed 1 in magnitude -- (Y,Snp), (Y,Q2Pt),
+// (Snp,Q2Pt) -- confirmed against the real captured (pre-correction)
+// production values: c(Y,Y)=0.0615117364, c(Y,Q2Pt)=-0.22814776,
+// c(Q2Pt,Q2Pt)=0.822642863 give rho(Y,Q2Pt) = -0.22814776 /
+// sqrt(0.0615117364*0.822642863) = -1.0142..., i.e. |rho|>1 while every
+// diagonal individually stays positive and unremarkable -- exactly the
+// precondition the covariance-fault-localization investigation traced.
+// sanitizeCovariance()'s pass 2 must repair all three before this function
+// returns, and the immediately following measurement update (same real
+// captured measurement) must then observe the DECLARED invariant on its
+// own committed output too -- not merely "not obviously wrong": pass 2
+// alone measurably shrinks (from -0.0328 to a much smaller magnitude) but
+// does not eliminate the negative diagonal the update's own naive Kalman
+// subtraction still produces from an otherwise-repaired input (see
+// sanitizeCovariance()'s own doc comment for the full empirical accounting
+// of this), so pass 1 (diagonal abs) remains load-bearing for the
+// observable, committed result even with pass 2 active.
+BOOST_AUTO_TEST_CASE(LargeStepPropagationRepairsCorrelationBeforeUpdate)
 {
   SurfaceKinematicState state{};
   state.family = StateFamily::Barrel;
@@ -242,14 +328,30 @@ BOOST_AUTO_TEST_CASE(LargeStepPropagationPreservesInvariantBeforeUpdate)
   const bool ok = barrel::propagate(state, linRef, targetX, bz, reason);
 
   BOOST_REQUIRE(ok);
-  BOOST_CHECK(allDiagonalsNonNegative(state));
-  // Cross-check against the real captured production post-propagate values
-  // (also independently hand-rederived in the investigation, float32 and
-  // float64, agreeing to 7 significant digits -- confirming this large-dx
-  // Jacobian transport is precision-independent, not a rounding artifact).
+  BOOST_CHECK(covarianceSatisfiesDeclaredInvariant(state));
+  // Diagonals themselves are untouched by pass 2 (only off-diagonals move):
+  // still match the real captured production values exactly.
   BOOST_CHECK(closeTo(state.covariance[packedCovarianceIndex(0, 0)], 0.0615117364f));
-  BOOST_CHECK(closeTo(state.covariance[packedCovarianceIndex(4, 0)], -0.22814776f));
   BOOST_CHECK(closeTo(state.covariance[packedCovarianceIndex(4, 4)], 0.822642863f));
+  // The (Y,Q2Pt) pair is now repaired to exactly touch (not exceed) the
+  // Cauchy-Schwarz bound, rather than the real pre-correction production
+  // value of -0.22814776 (|rho|=1.0142).
+  const float expectedC40 = -std::sqrt(state.covariance[packedCovarianceIndex(0, 0)] * state.covariance[packedCovarianceIndex(4, 4)]);
+  BOOST_CHECK(closeTo(state.covariance[packedCovarianceIndex(4, 0)], expectedC40));
+  BOOST_CHECK_LE(maxCorrelationViolation(state), 1.e-3f);
+
+  // The following update (same real captured measurement) must observe the
+  // declared invariant on its own committed output.
+  SurfaceMeasurement meas{};
+  meas.frame.u = 0.633100867f;
+  meas.frame.v = -6.10807085f;
+  meas.covariance.uu = 1.18710993e-07f;
+  meas.covariance.uv = 0.f;
+  meas.covariance.vv = 3.60069805e-07f;
+  float chi2 = 0.f;
+  OperationFailureReason updateReason{};
+  BOOST_REQUIRE(barrel::update(state, meas, chi2, updateReason));
+  BOOST_CHECK(covarianceSatisfiesDeclaredInvariant(state));
 }
 
 // --- 5. Every rotate/propagate/update independently sanitizes, both -------
@@ -387,7 +489,15 @@ BOOST_AUTO_TEST_CASE(BarrelLinRefPropagateSanitizesLargeStep)
   BOOST_CHECK(allDiagonalsNonNegative(state));
 }
 
-SurfaceKinematicState makeOverRangeForwardState()
+// Forward has no established diagonal-range validity policy (see
+// kForwardMaxDiagonal's own doc comment, ForwardSurfaceStateOperations.cxx:
+// legacy MFT's fitting engine has no covariance-sanitization mechanism at
+// all, so forward's range-clamp sub-pass is deliberately disabled pending a
+// separate design decision), so an over-range diagonal is no longer a valid
+// forward wiring probe. A deliberately over-correlated off-diagonal pair is:
+// the pairwise correlation bound is mathematically universal (Cauchy-
+// Schwarz), not a detector-specific policy, and is fully active for forward.
+SurfaceKinematicState makeOverCorrelatedForwardState()
 {
   SurfaceKinematicState state{};
   state.family = StateFamily::Forward;
@@ -400,8 +510,9 @@ SurfaceKinematicState makeOverRangeForwardState()
   state.parameters[4] = 0.05f;
   state.absCharge = 1;
   state.pid = o2::track::PID::Pion;
-  state.covariance[packedCovarianceIndex(0, 0)] = 50.f * o2::track::kCY2max; // Deliberately over range.
-  state.covariance[packedCovarianceIndex(1, 1)] = 0.01f;
+  state.covariance[packedCovarianceIndex(0, 0)] = 4.f;
+  state.covariance[packedCovarianceIndex(1, 0)] = 100.f; // |rho(X,Y)| = 100/sqrt(4*1) = 50, deliberately over 1.
+  state.covariance[packedCovarianceIndex(1, 1)] = 1.f;
   state.covariance[packedCovarianceIndex(2, 2)] = 0.01f;
   state.covariance[packedCovarianceIndex(3, 3)] = 0.01f;
   state.covariance[packedCovarianceIndex(4, 4)] = 0.01f;
@@ -410,16 +521,17 @@ SurfaceKinematicState makeOverRangeForwardState()
 
 BOOST_AUTO_TEST_CASE(ForwardPropagateSanitizesOnZeroDzTrivialStep)
 {
-  SurfaceKinematicState state = makeOverRangeForwardState();
+  SurfaceKinematicState state = makeOverCorrelatedForwardState();
   OperationFailureReason reason{};
   const bool ok = forward::propagate<forward::PropagationModel::Linear>(state, state.referenceCoordinate, 0.5f, reason);
   BOOST_REQUIRE(ok);
-  BOOST_CHECK_CLOSE(state.covariance[packedCovarianceIndex(0, 0)], o2::track::kCY2max, 1e-3f);
+  BOOST_CHECK(covarianceSatisfiesDeclaredInvariant(state));
+  BOOST_CHECK_CLOSE(state.covariance[packedCovarianceIndex(1, 0)], 2.f, 1e-3f); // sqrt(4*1) = 2, sign-preserved.
 }
 
 BOOST_AUTO_TEST_CASE(ForwardLinRefPropagateSanitizesOnZeroDzTrivialStep)
 {
-  SurfaceKinematicState state = makeOverRangeForwardState();
+  SurfaceKinematicState state = makeOverCorrelatedForwardState();
   SurfaceLinearizationReference linRef{};
   linRef.family = StateFamily::Forward;
   linRef.referenceCoordinate = state.referenceCoordinate;
@@ -429,7 +541,8 @@ BOOST_AUTO_TEST_CASE(ForwardLinRefPropagateSanitizesOnZeroDzTrivialStep)
   OperationFailureReason reason{};
   const bool ok = forward::propagate<forward::PropagationModel::Linear>(state, linRef, state.referenceCoordinate, 0.5f, reason);
   BOOST_REQUIRE(ok);
-  BOOST_CHECK_CLOSE(state.covariance[packedCovarianceIndex(0, 0)], o2::track::kCY2max, 1e-3f);
+  BOOST_CHECK(covarianceSatisfiesDeclaredInvariant(state));
+  BOOST_CHECK_CLOSE(state.covariance[packedCovarianceIndex(1, 0)], 2.f, 1e-3f); // sqrt(4*1) = 2, sign-preserved.
 }
 
 BOOST_AUTO_TEST_CASE(ForwardUpdateSanitizesReproducer)
