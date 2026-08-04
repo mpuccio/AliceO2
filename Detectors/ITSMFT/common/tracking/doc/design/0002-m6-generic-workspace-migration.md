@@ -457,11 +457,13 @@ there was no accessor surface to retarget without also retargeting these types t
 The actual mechanism: `TrackerTraits`, `Tracker`, `LegacyCATrackingParticipant`,
 `DetectorTraits`, and `refitTrackFwd` each gained two **defaulted** extra template
 parameters, `ScratchT = LegacyTrackerScratch<NLayers>` and (where a binding is held)
-`BindingT = DetectorTraversalBinding`. Every pre-existing instantiation (ITS; the
-standalone MFT workflow's own `ITSMFTTrackingInterface<MFTNLayers>`, which is untouched and
-still uses `TrackerTraits<10>`/`Tracker<10>` by their default args) is therefore bit-for-bit
-unaffected by the new parameters' existence, while the combined-workflow MFT participant
-explicitly instantiates `TrackerTraits<10, SurfaceTrackingScratch, SurfacePlanBinding>` and
+`BindingT = DetectorTraversalBinding`. Every pre-existing instantiation (ITS; at the time of
+this M6d correction, also the standalone MFT workflow's own
+`ITSMFTTrackingInterface<MFTNLayers>`, untouched by M6d itself and still using
+`TrackerTraits<10>`/`Tracker<10>` by their default args — **see M6e1 below, which migrates
+this exact class next**) is therefore bit-for-bit unaffected by the new parameters'
+existence, while the combined-workflow MFT participant explicitly instantiates
+`TrackerTraits<10, SurfaceTrackingScratch, SurfacePlanBinding>` and
 `Tracker<10, SurfaceTrackingScratch, SurfacePlanBinding>`. This preserves the milestone's own
 intent (MFT switches, ITS/standalone-MFT stay on the legacy types, no per-call dispatch cost
 in the hot loop) through a type-level rather than accessor-level seam. The temporary-bridge,
@@ -470,6 +472,69 @@ only the *mechanism* description needed correcting. Actual replay results: MFT s
 68 tracks/hash `8106b08571ca593c6b76ff72b761a680`; ITS standalone 212 tracks/hash
 `46913a67a7e2fe7462e29df0db264fa8`; combined workflow's ITS and MFT legs each bit-identical
 to their own standalone replay — all four exactly matching [ADR 0008] addendum 2.
+
+### M6e1 — Wire the standalone MFT interface onto `SurfaceTrackingScratch`/`SurfacePlanBinding`
+
+Inserted after M6d and before the original M6e (renamed in no way — M6e below remains exactly
+what it always was, the ITS switch plus Group-C legacy-result-staging retirement; M6e1 is a
+new, narrower slice this note did not originally anticipate). Reason for the insertion: M6d's
+own scope was explicitly the *combined-workflow* MFT participant
+(`LegacyCATrackingParticipant<MFTNLayers>`, driven by `ITSMFTLegacyParticipantSet`); M6d's own
+audit never read `TrackingInterface.cxx` at all, since that file backs a structurally
+different, independent owner — `ITSMFTTrackingInterface<MFTNLayers>`, which drives the
+*standalone* MFT common-CA workflow (`o2-mft-ca-tracker-workflow`) and owns its own
+`LegacyTrackerScratch<MFTNLayers>` directly, sharing only the `Tracker<10>`/`TrackerTraits<10>`
+class templates with the combined participant (via the M6d seam's default template
+arguments). After M6d, this second, independent live-production MFT path was still entirely
+on the legacy types — a real gap, not a design omission this note had already scoped out.
+
+- **Scope**: apply the identical M6d seam to `ITSMFTTrackingInterface<NLayers, ScratchT,
+  BindingT>` (two new defaulted template parameters, same defaults). `ITSMFTTrackingInterfaceMFT`
+  becomes the explicit `<MFTNLayers, SurfaceTrackingScratch, SurfacePlanBinding>` instantiation;
+  `ITSMFTTrackingInterfaceITS` keeps the defaults, unaffected. `initialiseTracker()` builds and
+  adopts a `SurfacePlanBinding` for MFT only (`ClusterSourceId{0}`, `SurfaceKind::Disk`/
+  `TransitionPolicyTag::DiskDisk` as literal adapter constants — the identical
+  adapter-derives-kind/policy pattern M6d already established, no detector switch added to
+  `SurfacePlanBinding` itself) and calls `SurfaceTrackingScratch::adoptPlan()` (mirroring
+  `LegacyCATrackingParticipant::adoptDetectorLayoutSet()`'s own identical step). `fillMFTOutputs()`
+  (`CATrackerSpec.cxx`, MFT workflow) retargets from `LegacyTrackerScratchMFT` to
+  `SurfaceTrackingScratch`.
+- **Real gap in `SurfaceTrackingScratch` found and closed**: M6d's own claim that
+  `initVertexingTopology()`/`initDefaultTrackingTopology()` have "zero production callers" was
+  correct only for the files M6d's own audit actually read
+  (`TrackerTraits.cxx`/`CATracker.cxx`/`LegacyCATrackingParticipant.cxx`) — never
+  `TrackingInterface.cxx`, which calls `initDefaultTrackingTopology()` unconditionally once per
+  event, for both ITS and MFT. `SurfaceTrackingScratch` gained this method (plus
+  `initVertexingTopology()`, ported for structural parity even though it remains genuinely
+  unreferenced) and the corresponding `mDefaultTrackingTopology`/`mVertexingTopology` members
+  before this slice could work at all. General lesson for future slices: a prior milestone's
+  "zero callers" claim is scoped to the files that milestone actually read, not to the whole
+  codebase, unless it says so explicitly.
+- **Temporary bridge**: none additive beyond what M6d already introduced — the same
+  `ScratchT`/`BindingT` seam, now also instantiated by this second owner. The bare,
+  default-argument `ITSMFTTrackingInterface<10>` stays explicitly instantiated in
+  `TrackingInterface.cxx` solely because `testTrackingInterfaceLoadFailureContract.cxx`'s own
+  pre-existing `NLayers`-generic load-failure-contract coverage links against it; this is not a
+  second production abstraction layer, and no production caller reaches it any more.
+- **Acceptance/replay gate**: standalone MFT (`o2-mft-ca-tracker-workflow`, MFT
+  CommonTrack-output route enabled) replays exactly 68 tracks, hash
+  `8106b08571ca593c6b76ff72b761a680`; standalone ITS (unaffected) exactly 212 tracks, hash
+  `46913a67a7e2fe7462e29df0db264fa8`; combined workflow's MFT and ITS legs each bit-identical
+  to their own standalone replay — all four exactly matching [ADR 0008] addendum 2 and M6d's
+  own recorded numbers. `ctest -L itsmft`: 95/95 (up from M6d's 94). Fixture's 43 checksums
+  unchanged before and after every replay.
+- **Deletion/exit criterion**: `ITSMFTTrackingInterfaceMFT` holds no `LegacyTrackerScratch<MFTNLayers>`/
+  `DetectorTraversalBinding` (grep-verified); combined MFT participant unaffected by this slice
+  (already migrated in M6d).
+- **Dependency**: M6d.
+- **Classification**: behavior-preserving cleanup (replay-gated).
+
+**State after M6e1**: combined MFT and standalone MFT both use `SurfaceTrackingScratch`/
+`SurfacePlanBinding`; ITS (standalone and combined) still uses `LegacyTrackerScratch<7>`/
+`DetectorTraversalBinding` entirely unchanged. Both storage models now coexist purely along
+the ITS/MFT axis, not along any combined/standalone axis — the state M6e (next) inherits.
+`mTracks`/`mTracksLabel` (Group C) were not retired by this slice; that remains M6e's own
+scope, unstarted here.
 
 ### M6e — Wire ITS onto `SurfaceTrackingScratch`/`SurfacePlanBinding`; retire legacy result staging
 
