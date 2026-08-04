@@ -60,25 +60,64 @@ GPUhdi() constexpr uint8_t packedCovarianceIndex(uint8_t row, uint8_t column) no
 // after every successful covariance-mutating state operation (propagate,
 // rotate, measurement update -- barrel and forward alike). It knows nothing
 // about materials, detectors, or families beyond the five per-slot upper
-// bounds the caller supplies: for each diagonal, take its absolute value
-// (a diagonal must be non-negative; this also repairs the specific failure
-// mode of a naive/non-Joseph-form Kalman covariance update revealing an
-// already-invalid off-diagonal correlation -- see ADR 0008 -- as a small
-// negative diagonal), and if it still exceeds maxDiagonal[i], clamp it to
-// that bound and rescale every off-diagonal entry sharing that row/column by
-// sqrt(maxDiagonal[i]/diagonal). Diagonals are processed in slot order
-// (0..4) so cumulative rescaling of an entry shared by two out-of-range
-// diagonals is deterministic. Operates directly on the packed
+// bounds the caller supplies. Operates directly on the packed
 // lower-triangular storage, so symmetry is preserved by construction; it
 // never constructs or depends on any legacy track-parametrization type.
 //
-// This is the single implementation behind both barrel's and forward's
-// post-propagate/rotate/update sanitization and behind
-// FamilyMaterialOperations.cxx's barrel covariance-range limiting inside
-// correctForMaterial (a faithful reproduction of
-// o2::track::TrackParametrizationWithError<float>::checkCovariance()'s
-// diagonal-abs/range-clamp policy, ported once instead of duplicated per
-// call site).
+// DECLARED INVARIANT (audited against o2::track::TrackParametrizationWithError
+// <float>::checkCovariance(), TrackParametrizationWithError.cxx -- read in
+// full, not excerpted): every diagonal is non-negative, no diagonal exceeds
+// maxDiagonal[i], and no individual off-diagonal pair's Pearson correlation
+// exceeds 1 in magnitude. This is the same three-part invariant legacy's own
+// checkCovariance() doc comment claims ("forces the diagonal elements... to
+// be positive and abs of correlation coefficients to be <1. In case the
+// diagonal element is bigger than the maximal allowed value, it is set to
+// the limit...").
+//
+// PASS 1 (diagonal abs + range clamp): byte-faithful to legacy's actual
+// code. For each diagonal, take its absolute value, and if it still exceeds
+// maxDiagonal[i], clamp it to that bound and rescale every off-diagonal
+// entry sharing that row/column by sqrt(maxDiagonal[i]/diagonal). Diagonals
+// are processed in slot order (0..4), matching legacy's own sequential
+// order, so cumulative rescaling of an entry shared by two out-of-range
+// diagonals is deterministic.
+//
+// PASS 2 (pairwise correlation clamp): legacy's own comment claims this
+// ("abs of correlation coefficients to be <1") but legacy's own CODE does
+// NOT implement it as a general check -- only pass 1 exists there, so a
+// pair whose correlation exceeds 1 while BOTH diagonals remain within range
+// is never touched by legacy's real implementation (confirmed by reading
+// the complete function body: there is no separate correlation-coefficient
+// pass at all). This is exactly the failure mode ADR 0008's covariance-
+// fault-localization investigation traced: a large-step propagate can leave
+// |correlation(Y,Q2Pt)| > 1 (Cauchy-Schwarz violated) while c(Y,Y) and
+// c(Q2Pt,Q2Pt) both stay well inside their maxDiagonal ceilings, so pass 1
+// alone never repairs it. Pass 2 completes legacy's own DOCUMENTED (not
+// coded) intent using the value that intent already names -- 1, the
+// mathematical Cauchy-Schwarz bound every valid covariance matrix must
+// satisfy, not a chosen/invented threshold -- by clamping each off-diagonal
+// entry's magnitude to sqrt(diagonal_i * diagonal_j) (using the
+// already-pass-1-clamped diagonals), independently per pair, in a single
+// non-iterative sweep.
+//
+// EXPLICIT LIMITATION, not silently omitted: pairwise correlation bounds
+// are necessary but NOT sufficient for the matrix to be positive
+// semi-definite (a joint/multivariate property of 3 or more parameters
+// simultaneously, e.g. a valid 3x3 correlation submatrix additionally
+// requires 1 + 2*rho01*rho02*rho12 - rho01^2 - rho02^2 - rho12^2 >= 0).
+// Verified empirically against the real captured ITS legB reproducer state
+// (candidate "13,6,6,5,4,9,5", hit 5): clamping every one of that state's
+// three simultaneously-violated pairs ((Y,Snp), (Y,Q2Pt), (Snp,Q2Pt)) to
+// exactly touch their pairwise Cauchy-Schwarz bound measurably shrinks the
+// magnitude of the negative diagonal the subsequent measurement update's
+// naive Kalman subtraction still manufactures (Q2Pt-Q2Pt: -0.0328 -> only
+// -0.0067), but does not eliminate it -- proving pass 1+2 together are not
+// a full PSD guarantee. The diagonal-abs step (pass 1) remains necessary
+// AND, for the non-negative-diagonal part of the declared invariant,
+// sufficient; achieving true full-matrix PSD validity would require an
+// eigenvalue-based projection this function deliberately does not attempt
+// -- that is a separate physics/model decision, not implemented here or
+// anywhere in the frozen legacy code this migration reproduces.
 GPUhdi() void sanitizeCovariance(SurfaceKinematicState& state, const float (&maxDiagonal)[5]) noexcept
 {
   auto& c = state.covariance;
@@ -93,6 +132,17 @@ GPUhdi() void sanitizeCovariance(SurfaceKinematicState& state, const float (&max
           continue;
         }
         c[packedCovarianceIndex(i, j)] *= scale;
+      }
+    }
+  }
+  for (uint8_t i = 0; i < 5; ++i) {
+    for (uint8_t j = 0; j < i; ++j) {
+      const float bound = std::sqrt(c[packedCovarianceIndex(i, i)] * c[packedCovarianceIndex(j, j)]);
+      const uint8_t offIndex = packedCovarianceIndex(i, j);
+      if (c[offIndex] > bound) {
+        c[offIndex] = bound;
+      } else if (c[offIndex] < -bound) {
+        c[offIndex] = -bound;
       }
     }
   }

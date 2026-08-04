@@ -10,20 +10,11 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <limits>
 
 #include "CommonConstants/MathConstants.h"
 #include "GPUROOTSMatrixFwd.h"
 #include <Math/SMatrix.h>
-
-// TrackParametrization.h is included solely to reuse its public
-// kCY2max/kCTgl2max/kC1Pt2max constants for sanitizeCovariance()'s
-// (SurfaceKinematicState.h) upper range -- the same reuse pattern already
-// established by BarrelSurfaceStateOperations.cxx/FamilyMaterialOperations.cxx
-// for their own constants. Not part of this translation unit's public
-// interface, and nothing here constructs or references a
-// TrackParametrization/TrackParCov object, let alone any frozen legacy MFT
-// fitting engine.
-#include "ReconstructionDataFormats/TrackParametrization.h"
 
 namespace o2::itsmft::tracking::forward
 {
@@ -41,19 +32,40 @@ using CombinedCovariance = o2::math_utils::SMatrix<float, 5, 5, o2::math_utils::
 static_assert(o2::math_utils::MatRepSym<float, 5>::kSize == 15, "packed symmetric 5x5 representation must hold exactly 15 floats");
 static_assert(sizeof(CombinedCovariance) == 15 * sizeof(float), "combined covariance must occupy exactly 15 floats");
 
-// Upper bound for sanitizeCovariance() (SurfaceKinematicState.h), in (X, Y,
-// Phi, Tanl, Q2Pt) slot order. Forward has no legacy analogue to port (the
-// frozen legacy MFT Kalman fitting engine this module supersedes never
-// exposed a comparable covariance-range ceiling), so this reuses the exact
-// ceiling constants NativeRefitDriver.h's resetCovarianceForRefit() already
-// established for a freshly-reset forward state, by the same rationale:
-// X/Y reuse the barrel position ceiling (same physical quantity, same
-// units); Phi is a full angle (unlike barrel's bounded Snp), so its own
-// ceiling is (pi)^2; Tanl/Q2Pt reuse the barrel slope/curvature ceilings
-// directly.
-constexpr float kForwardPhiMaxDiagonal = o2::constants::math::PI * o2::constants::math::PI;
-constexpr float kForwardMaxDiagonal[5] = {o2::track::kCY2max, o2::track::kCY2max, kForwardPhiMaxDiagonal,
-                                          o2::track::kCTgl2max, o2::track::kC1Pt2max};
+// Upper bound for sanitizeCovariance()'s (SurfaceKinematicState.h) diagonal
+// range-clamp pass, in (X, Y, Phi, Tanl, Q2Pt) slot order.
+//
+// AUDIT FINDING, not a design choice made lightly: the frozen legacy MFT
+// Kalman fitting engine this module supersedes (MFTTracking/TrackFitter.h,
+// operating on the legacy forward track-parametrization-with-error type)
+// has NO covariance-sanitization mechanism at all -- confirmed by
+// inspection: that legacy forward type does not inherit from
+// TrackParametrizationWithError (a separate, independent class hierarchy)
+// and TrackFitter.cxx never calls anything resembling checkCovariance();
+// grepping the entire Detectors/ITSMFT/MFT/tracking tree for a
+// diagonal-range ceiling of any kind finds nothing. There is therefore no
+// established, proven forward-family diagonal-range validity
+// policy in the frozen legacy code this migration reproduces, unlike barrel
+// (kCY2max/kCZ2max/kCSnp2max/kCTgl2max/kC1Pt2max, TrackParametrizationWithError
+// ::checkCovariance(), a real, exercised, in-production legacy contract).
+// NativeRefitDriver.h's resetCovarianceForRefit() reuses the barrel-scale
+// constants for forward's *initial* covariance ceiling, but that function's
+// own doc comment already discloses these are "new native ceiling constants"
+// invented for that purpose, not a ported legacy policy -- reusing them here
+// too would launder a self-described non-legacy value as if it were an
+// established validity bound, which is exactly what this milestone's own
+// instruction (derive every sanitizer policy/value from an existing proven
+// contract; do not invent one) prohibits.
+//
+// Pending a separate, explicit design decision on a real forward diagonal-
+// range ceiling, this disables the range-clamp sub-pass for forward
+// (maxDiagonal effectively unreachable) while leaving the mathematically
+// necessary, detector-neutral parts of sanitizeCovariance() -- diagonal
+// non-negativity and the pairwise correlation bound -- fully active for
+// forward exactly as for barrel.
+constexpr float kForwardNoRangeLimit = std::numeric_limits<float>::max();
+constexpr float kForwardMaxDiagonal[5] = {kForwardNoRangeLimit, kForwardNoRangeLimit, kForwardNoRangeLimit,
+                                          kForwardNoRangeLimit, kForwardNoRangeLimit};
 
 bool finiteState(const SurfaceKinematicState& state) noexcept
 {
