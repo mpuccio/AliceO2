@@ -140,7 +140,10 @@ class ITSMFTLegacyParticipantSet
   // --- Caller readback: forwards this API to the combined DPL task
   // without that task needing to name any of these concrete types itself. ---
   const LegacyTrackerScratchITS& getITSScratch() const noexcept { return mITSParticipant.getScratch(); }
-  const LegacyTrackerScratchMFT& getMFTScratch() const noexcept { return mMFTParticipant.getScratch(); }
+  // M6d: MFT's own participant now owns SurfaceTrackingScratch, not
+  // LegacyTrackerScratch<MFTNLayers> -- see LegacyCATrackingParticipant.h's
+  // LegacyCATrackingParticipantMFT alias.
+  const SurfaceTrackingScratch& getMFTScratch() const noexcept { return mMFTParticipant.getScratch(); }
   const ITSSharedClusterCompatibility& getITSSharedClusterCompatibility() const noexcept { return *mITSParticipant.getITSSharedClusterCompatibility(); }
   const MFTPublicationCompatibility& getMFTPublicationCompatibility() const noexcept { return *mMFTParticipant.getMFTPublicationCompatibility(); }
   gsl::span<const SurfaceId> getITSOrderedSurfaces() const noexcept { return mITSPlan->getConfigurationKey().orderedSurfaces; }

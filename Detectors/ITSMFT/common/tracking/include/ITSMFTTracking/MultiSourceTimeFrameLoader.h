@@ -21,6 +21,7 @@
 
 #include "ITSMFTTracking/ClusterSource.h"
 #include "ITSMFTTracking/LegacyTrackerScratch.h"
+#include "ITSMFTTracking/SurfaceTrackingScratch.h"
 #include "ITSMFTTracking/TrackingConfigParam.h"
 
 namespace o2::itsmft::tracking
@@ -78,6 +79,34 @@ class MultiSourceTimeFrameLoader
    private:
     LegacyTrackerScratch<NLayers>& mLive;
     LegacyTrackerScratch<NLayers> mStaged;
+  };
+
+  // M6d: concrete LoadTarget bound to one live SurfaceTrackingScratch& --
+  // the MFT-only sibling of LoadTargetImpl<NLayers> above, mirroring its
+  // stage()/commit() contract exactly (same allocator-identity-preservation
+  // pattern, same stage-then-commit discipline), just over
+  // SurfaceTrackingScratch::loadNormalizedSource()'s runtime-sized
+  // orderedSurfaces loop instead of a fixed NLayers one.
+  // LegacyCATrackingParticipant<MFTNLayers, SurfaceTrackingScratch,
+  // SurfacePlanBinding> owns one of these, bound to its own scratch, exactly
+  // as the NLayers-templated participant owns a LoadTargetImpl<NLayers>.
+  class LoadTargetImplSurface final : public LoadTarget
+  {
+   public:
+    explicit LoadTargetImplSurface(SurfaceTrackingScratch& live) noexcept : mLive(live) {}
+
+    LoadTargetImplSurface(const LoadTargetImplSurface&) = delete;
+    LoadTargetImplSurface& operator=(const LoadTargetImplSurface&) = delete;
+    LoadTargetImplSurface(LoadTargetImplSurface&&) = delete;
+    LoadTargetImplSurface& operator=(LoadTargetImplSurface&&) = delete;
+
+    LoadSourcesResult stage(const ClusterSourceInput& source, SurfaceCatalogView catalog,
+                            const o2::InteractionRecord& origin) override;
+    void commit() noexcept override;
+
+   private:
+    SurfaceTrackingScratch& mLive;
+    SurfaceTrackingScratch mStaged;
   };
 
   // One caller-supplied element of the ordered atomic-load transaction:

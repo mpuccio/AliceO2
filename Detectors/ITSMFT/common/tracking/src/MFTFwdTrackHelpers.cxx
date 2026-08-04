@@ -21,6 +21,7 @@
 #include "Framework/Logger.h"
 #include "ITSMFTTracking/NativeRefitDriver.h"
 #include "ITSMFTTracking/SurfaceKinematicStateLegacyAdapters.h"
+#include "ITSMFTTracking/SurfaceTrackingScratch.h"
 #include "ITStracking/Constants.h"
 
 namespace o2::itsmft::tracking
@@ -42,9 +43,10 @@ constexpr int kMFTLayers = o2::mft::constants::mft::LayersNumber;
 // the barrel branch already uses, applied here to a Forward-family
 // SurfaceKinematicState. Numerical output is expected to differ from the
 // retired engine; see the design note for characterization evidence.
+template <typename ScratchT>
 bool refitTrackFwd(const TrackSeedN<kMFTLayers>& seed,
                    MFTCATrack& track,
-                   const LegacyTrackerScratch<kMFTLayers>& tf,
+                   const ScratchT& tf,
                    const TrackingParameters& params,
                    float bz,
                    const LayerMeasurementSpans<kMFTLayers>& layerMeasurements,
@@ -138,5 +140,14 @@ bool refitTrackFwd(const TrackSeedN<kMFTLayers>& seed,
   }
   return true;
 }
+
+// M6d: explicit instantiations for both scratch types this function is
+// ever called with -- the standalone-MFT-workflow's own
+// ITSMFTTrackingInterface<MFTNLayers> path (unaffected,
+// LegacyTrackerScratch<MFTNLayers>), and the combined workflow's
+// LegacyCATrackingParticipant<MFTNLayers, SurfaceTrackingScratch,
+// SurfacePlanBinding> (the new one this milestone adds).
+template bool refitTrackFwd<LegacyTrackerScratch<kMFTLayers>>(const TrackSeedN<kMFTLayers>&, MFTCATrack&, const LegacyTrackerScratch<kMFTLayers>&, const TrackingParameters&, float, const LayerMeasurementSpans<kMFTLayers>&, SurfaceCatalogView, ClusterSourceId);
+template bool refitTrackFwd<SurfaceTrackingScratch>(const TrackSeedN<kMFTLayers>&, MFTCATrack&, const SurfaceTrackingScratch&, const TrackingParameters&, float, const LayerMeasurementSpans<kMFTLayers>&, SurfaceCatalogView, ClusterSourceId);
 
 } // namespace o2::itsmft::tracking

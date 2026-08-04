@@ -19,6 +19,7 @@
 #include "ITSMFTTracking/MFTFwdTrackHelpers.h"
 #include "ITSMFTTracking/NativeRefitDriver.h"
 #include "ITSMFTTracking/SurfaceKinematicStateLegacyAdapters.h"
+#include "ITSMFTTracking/SurfaceTrackingScratch.h"
 
 namespace o2::itsmft::tracking
 {
@@ -76,15 +77,15 @@ bool refitSeedITS(const typename DetectorTraits<NLayers>::TrackSeedN& seed,
 }
 } // namespace
 
-template <int NLayers>
-bool DetectorTraits<NLayers>::refitSeed(const TrackSeedN& seed,
-                                        TrackType& track,
-                                        const TrackingParameters& params,
-                                        float bz,
-                                        ScratchN& scratch,
-                                        const LayerMeasurementSpans<NLayers>& layerMeasurements,
-                                        SurfaceCatalogView surfaceCatalog,
-                                        ClusterSourceId expectedSource)
+template <int NLayers, typename ScratchT>
+bool DetectorTraits<NLayers, ScratchT>::refitSeed(const TrackSeedN& seed,
+                                                  TrackType& track,
+                                                  const TrackingParameters& params,
+                                                  float bz,
+                                                  ScratchN& scratch,
+                                                  const LayerMeasurementSpans<NLayers>& layerMeasurements,
+                                                  SurfaceCatalogView surfaceCatalog,
+                                                  ClusterSourceId expectedSource)
 {
   if constexpr (DetId == o2::detectors::DetID::MFT) {
     return refitTrackFwd(seed, track, scratch, params, bz, layerMeasurements, surfaceCatalog, expectedSource);
@@ -93,24 +94,24 @@ bool DetectorTraits<NLayers>::refitSeed(const TrackSeedN& seed,
   }
 }
 
-template <int NLayers>
-void DetectorTraits<NLayers>::copySeedPatternToTrack(TrackType& track, const TrackSeedN& seed) noexcept
+template <int NLayers, typename ScratchT>
+void DetectorTraits<NLayers, ScratchT>::copySeedPatternToTrack(TrackType& track, const TrackSeedN& seed) noexcept
 {
   if constexpr (DetId == o2::detectors::DetID::MFT) {
     track.setSeedPattern(seed.getHitLayerMask().value());
   }
 }
 
-template <int NLayers>
-void DetectorTraits<NLayers>::clearTransientLayerPattern(TrackType& track) noexcept
+template <int NLayers, typename ScratchT>
+void DetectorTraits<NLayers, ScratchT>::clearTransientLayerPattern(TrackType& track) noexcept
 {
   if constexpr (DetId == o2::detectors::DetID::ITS) {
     track.clearExtendedLayerPattern();
   }
 }
 
-template <int NLayers>
-bool DetectorTraits<NLayers>::haveSamePolarity(const TrackType& a, const TrackType& b) noexcept
+template <int NLayers, typename ScratchT>
+bool DetectorTraits<NLayers, ScratchT>::haveSamePolarity(const TrackType& a, const TrackType& b) noexcept
 {
   if constexpr (DetId == o2::detectors::DetID::MFT) {
     return a.getCharge() == b.getCharge();
@@ -147,8 +148,14 @@ void TrackingLoadPolicy<DetId, NLayers>::configureBeamPosition(TimeFrame& frame,
   }
 }
 
+// M6d: DetectorTraits<10> (default ScratchT) is still used by the
+// standalone-MFT-workflow's own ITSMFTTrackingInterface<MFTNLayers> path
+// (unaffected); DetectorTraits<10, SurfaceTrackingScratch> is the new
+// instantiation TrackerTraits<10, SurfaceTrackingScratch, SurfacePlanBinding>
+// ::acceptTracks() (via findRoadsForPolicy()) needs.
 template struct DetectorTraits<7>;
 template struct DetectorTraits<10>;
+template struct DetectorTraits<10, SurfaceTrackingScratch>;
 template struct TrackingLoadPolicy<o2::detectors::DetID::ITS, 7>;
 template struct TrackingLoadPolicy<o2::detectors::DetID::MFT, 10>;
 

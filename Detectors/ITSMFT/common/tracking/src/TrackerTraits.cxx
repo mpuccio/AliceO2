@@ -39,7 +39,9 @@
 #include "ITSMFTTracking/IndexTableUtils.h"
 #include "ITSMFTTracking/LayerMask.h"
 #include "ITStracking/ROFLookupTables.h"
+#include "ITSMFTTracking/SurfaceTrackingScratch.h"
 #include "ITSMFTTracking/TrackerTraits.h"
+#include "ITSMFTTracking/detail/SurfacePlanBinding.h"
 #include "ITSMFTTracking/detail/TransitionPolicyBinding.h"
 #include "ITSMFTTracking/detail/TransitionPolicyOperations.h"
 #include "ITStracking/Tracklet.h"
@@ -51,6 +53,30 @@ namespace o2::itsmft::tracking
 namespace math_utils = o2::its::math_utils;
 using o2::its::deepVectorClear;
 using o2::its::TimeEstBC;
+
+namespace detail
+{
+// M6d (doc/design/0002-m6-generic-workspace-migration.md Sec 9): the one
+// accessor-naming bridge the TrackerTraits<NLayers, ScratchT, BindingT> seam
+// needs. DetectorTraversalBinding::getLegacyLayer() and
+// SurfacePlanBinding::getOwnedSurfaceIndex() are the identical operation
+// (proven byte-identical in testSurfacePlanBinding.cxx) under two
+// intentionally different names -- SurfacePlanBinding deliberately dropped
+// "legacy" from its own naming (M6b design doc), so neither production type
+// is renamed to match the other. Resolved entirely at compile time via
+// overload resolution on BindingT; never a virtual call, and this hot-loop
+// hook is on the traversal-cache path (initialiseTimeFrame() only), not the
+// per-candidate hot loop itself.
+template <typename BindingT>
+inline std::optional<uint16_t> ownedSurfacePosition(const BindingT& binding, SurfaceId id) noexcept
+{
+  return binding.getLegacyLayer(id);
+}
+inline std::optional<uint16_t> ownedSurfacePosition(const SurfacePlanBinding& binding, SurfaceId id) noexcept
+{
+  return binding.getOwnedSurfaceIndex(id);
+}
+} // namespace detail
 
 struct PassMode {
   using OnePass = std::integral_constant<int, 0>;
@@ -128,8 +154,8 @@ bool makeAcceptedTrackShadow(const CATrackType<NLayers>& track,
 }
 } // namespace
 
-template <int NLayers>
-void TrackerTraits<NLayers>::resetTraversalCache() noexcept
+template <int NLayers, typename ScratchT, typename BindingT>
+void TrackerTraits<NLayers, ScratchT, BindingT>::resetTraversalCache() noexcept
 {
   mTraversalLayout = {};
   mTraversalGrouping.reset();
@@ -144,8 +170,8 @@ void TrackerTraits<NLayers>::resetTraversalCache() noexcept
   mTraversalGroupingCount = 0;
 }
 
-template <int NLayers>
-int TrackerTraits<NLayers>::requireScratchTransitionSlot(int iteration, TransitionId id) const
+template <int NLayers, typename ScratchT, typename BindingT>
+int TrackerTraits<NLayers, ScratchT, BindingT>::requireScratchTransitionSlot(int iteration, TransitionId id) const
 {
   if (mBinding == nullptr) {
     return static_cast<int>(id.value());
@@ -157,8 +183,8 @@ int TrackerTraits<NLayers>::requireScratchTransitionSlot(int iteration, Transiti
   return static_cast<int>(*slot);
 }
 
-template <int NLayers>
-int TrackerTraits<NLayers>::requireScratchCellSlot(int iteration, CellTopologyId id) const
+template <int NLayers, typename ScratchT, typename BindingT>
+int TrackerTraits<NLayers, ScratchT, BindingT>::requireScratchCellSlot(int iteration, CellTopologyId id) const
 {
   if (mBinding == nullptr) {
     return static_cast<int>(id.value());
@@ -170,9 +196,9 @@ int TrackerTraits<NLayers>::requireScratchCellSlot(int iteration, CellTopologyId
   return static_cast<int>(*slot);
 }
 
-template <int NLayers>
+template <int NLayers, typename ScratchT, typename BindingT>
 template <typename Visitor>
-void TrackerTraits<NLayers>::dispatchActivePolicy(const TransitionPolicyGrouping& grouping, Visitor&& visitor) const
+void TrackerTraits<NLayers, ScratchT, BindingT>::dispatchActivePolicy(const TransitionPolicyGrouping& grouping, Visitor&& visitor) const
 {
   if (mBinding == nullptr) {
     dispatchTransitionPolicies(grouping, std::forward<Visitor>(visitor));
@@ -202,50 +228,50 @@ void TrackerTraits<NLayers>::dispatchActivePolicy(const TransitionPolicyGrouping
 // mCylinderPolicyParams/mDiskPolicyParams (committed earlier in the same
 // initialiseTimeFrame() call). Never called except through
 // mTraversalOperation's bound pointer.
-template <int NLayers>
-void TrackerTraits<NLayers>::computeLayerTrackletsCylinderCylinder(int iteration, int iVertex)
+template <int NLayers, typename ScratchT, typename BindingT>
+void TrackerTraits<NLayers, ScratchT, BindingT>::computeLayerTrackletsCylinderCylinder(int iteration, int iVertex)
 {
   computeLayerTrackletsForPolicy<TransitionPolicyTag::CylinderCylinder>(iteration, iVertex, mTraversalOperation.boundTransitionIds, *mCylinderPolicyParams);
 }
 
-template <int NLayers>
-void TrackerTraits<NLayers>::computeLayerTrackletsDiskDisk(int iteration, int iVertex)
+template <int NLayers, typename ScratchT, typename BindingT>
+void TrackerTraits<NLayers, ScratchT, BindingT>::computeLayerTrackletsDiskDisk(int iteration, int iVertex)
 {
   computeLayerTrackletsForPolicy<TransitionPolicyTag::DiskDisk>(iteration, iVertex, mTraversalOperation.boundTransitionIds, *mDiskPolicyParams);
 }
 
-template <int NLayers>
-void TrackerTraits<NLayers>::computeLayerCellsCylinderCylinder(int iteration)
+template <int NLayers, typename ScratchT, typename BindingT>
+void TrackerTraits<NLayers, ScratchT, BindingT>::computeLayerCellsCylinderCylinder(int iteration)
 {
   computeLayerCellsForPolicy<TransitionPolicyTag::CylinderCylinder>(iteration, mTraversalOperation.boundCellIds, *mCylinderPolicyParams);
 }
 
-template <int NLayers>
-void TrackerTraits<NLayers>::computeLayerCellsDiskDisk(int iteration)
+template <int NLayers, typename ScratchT, typename BindingT>
+void TrackerTraits<NLayers, ScratchT, BindingT>::computeLayerCellsDiskDisk(int iteration)
 {
   computeLayerCellsForPolicy<TransitionPolicyTag::DiskDisk>(iteration, mTraversalOperation.boundCellIds, *mDiskPolicyParams);
 }
 
-template <int NLayers>
-void TrackerTraits<NLayers>::findCellsNeighboursCylinderCylinder(int iteration)
+template <int NLayers, typename ScratchT, typename BindingT>
+void TrackerTraits<NLayers, ScratchT, BindingT>::findCellsNeighboursCylinderCylinder(int iteration)
 {
   findCellsNeighboursForPolicy<TransitionPolicyTag::CylinderCylinder>(iteration, mTraversalOperation.boundScheduledCellIds, *mCylinderPolicyParams);
 }
 
-template <int NLayers>
-void TrackerTraits<NLayers>::findCellsNeighboursDiskDisk(int iteration)
+template <int NLayers, typename ScratchT, typename BindingT>
+void TrackerTraits<NLayers, ScratchT, BindingT>::findCellsNeighboursDiskDisk(int iteration)
 {
   findCellsNeighboursForPolicy<TransitionPolicyTag::DiskDisk>(iteration, mTraversalOperation.boundScheduledCellIds, *mDiskPolicyParams);
 }
 
-template <int NLayers>
-void TrackerTraits<NLayers>::findRoadsCylinderCylinder(int iteration)
+template <int NLayers, typename ScratchT, typename BindingT>
+void TrackerTraits<NLayers, ScratchT, BindingT>::findRoadsCylinderCylinder(int iteration)
 {
   findRoadsForPolicy<TransitionPolicyTag::CylinderCylinder>(iteration, *mCylinderPolicyParams);
 }
 
-template <int NLayers>
-void TrackerTraits<NLayers>::findRoadsDiskDisk(int iteration)
+template <int NLayers, typename ScratchT, typename BindingT>
+void TrackerTraits<NLayers, ScratchT, BindingT>::findRoadsDiskDisk(int iteration)
 {
   findRoadsForPolicy<TransitionPolicyTag::DiskDisk>(iteration, *mDiskPolicyParams);
 }
@@ -264,8 +290,8 @@ void TrackerTraits<NLayers>::findRoadsDiskDisk(int iteration)
 // below (computeLayerTracklets/computeLayerCells/findCellsNeighbours/
 // findRoads) invoke the bound pointer directly, with no Tag/StateFamily
 // branch of their own.
-template <int NLayers>
-void TrackerTraits<NLayers>::bindTraversalOperation(int iteration)
+template <int NLayers, typename ScratchT, typename BindingT>
+void TrackerTraits<NLayers, ScratchT, BindingT>::bindTraversalOperation(int iteration)
 {
   mTraversalOperation = TraversalOperationBinding{};
   dispatchActivePolicy(*mTraversalGrouping, [&](auto traits, auto transitionIds, auto cellIds) {
@@ -301,11 +327,11 @@ void TrackerTraits<NLayers>::bindTraversalOperation(int iteration)
   }
 }
 
-template <int NLayers>
-void TrackerTraits<NLayers>::validateLegacyParity(int iteration,
-                                                  const DetectorLayoutView& layout,
-                                                  TransitionPolicyTag& activeTag,
-                                                  bool& mixedPolicy) const
+template <int NLayers, typename ScratchT, typename BindingT>
+void TrackerTraits<NLayers, ScratchT, BindingT>::validateLegacyParity(int iteration,
+                                                                      const DetectorLayoutView& layout,
+                                                                      TransitionPolicyTag& activeTag,
+                                                                      bool& mixedPolicy) const
 {
   const auto fail = [iteration]() { throw TraversalException{iteration, TraversalFailureReason::LegacyIndexMismatch}; };
   const auto sparse = layout.topology;
@@ -345,15 +371,15 @@ void TrackerTraits<NLayers>::validateLegacyParity(int iteration,
       // oracle's fromLayer/toLayer/skipped() are always this binding's own
       // compact legacy layer indices -- every comparison below goes through
       // getLegacyLayer(), never a raw global .value().
-      const auto fromLayer = mBinding->getLegacyLayer(current.from);
-      const auto toLayer = mBinding->getLegacyLayer(current.to);
+      const auto fromLayer = detail::ownedSurfacePosition(*mBinding, current.from);
+      const auto toLayer = detail::ownedSurfacePosition(*mBinding, current.to);
       LayerMask skippedLegacy{};
       bool skippedTranslatesCleanly = true;
       for (uint16_t surface = 0; surface < MaxLayoutSurfaces; ++surface) {
         if (!current.skippedSurfaces.has(SurfaceId{surface})) {
           continue;
         }
-        const auto skippedLayer = mBinding->getLegacyLayer(SurfaceId{surface});
+        const auto skippedLayer = detail::ownedSurfacePosition(*mBinding, SurfaceId{surface});
         if (!skippedLayer) {
           skippedTranslatesCleanly = false;
           break;
@@ -385,7 +411,7 @@ void TrackerTraits<NLayers>::validateLegacyParity(int iteration,
         if (!current.hitSurfaces.has(SurfaceId{surface})) {
           continue;
         }
-        const auto hitLayer = mBinding->getLegacyLayer(SurfaceId{surface});
+        const auto hitLayer = detail::ownedSurfacePosition(*mBinding, SurfaceId{surface});
         if (!hitLayer) {
           hitTranslatesCleanly = false;
           break;
@@ -480,8 +506,8 @@ void TrackerTraits<NLayers>::validateLegacyParity(int iteration,
   }
 }
 
-template <int NLayers>
-void TrackerTraits<NLayers>::initialiseTimeFrame(const int iteration, const DetectorLayoutSet& layouts)
+template <int NLayers, typename ScratchT, typename BindingT>
+void TrackerTraits<NLayers, ScratchT, BindingT>::initialiseTimeFrame(const int iteration, const DetectorLayoutSet& layouts)
 {
   resetTraversalCache();
 
@@ -861,9 +887,9 @@ void TrackerTraits<NLayers>::initialiseTimeFrame(const int iteration, const Dete
   bindTraversalOperation(iteration);
 }
 
-template <int NLayers>
+template <int NLayers, typename ScratchT, typename BindingT>
 template <TransitionPolicyTag Tag>
-void TrackerTraits<NLayers>::prepareTransitionScatteringAndBendingForPolicy(
+void TrackerTraits<NLayers, ScratchT, BindingT>::prepareTransitionScatteringAndBendingForPolicy(
   int iteration,
   const LayerGeometryConfigView& geometryConfig,
   const DiskDiskReferenceCoordinateView& referenceCoordinateView)
@@ -911,8 +937,8 @@ void TrackerTraits<NLayers>::prepareTransitionScatteringAndBendingForPolicy(
   }
 }
 
-template <int NLayers>
-void TrackerTraits<NLayers>::computeLayerTracklets(const int iteration, int iVertex)
+template <int NLayers, typename ScratchT, typename BindingT>
+void TrackerTraits<NLayers, ScratchT, BindingT>::computeLayerTracklets(const int iteration, int iVertex)
 {
   // Gate 4 Slice 0a: driven by the sparse topology cached on
   // initialiseTimeFrame() (mTraversalLayout), not a fresh legacy
@@ -951,9 +977,9 @@ void TrackerTraits<NLayers>::computeLayerTracklets(const int iteration, int iVer
   (this->*mTraversalOperation.computeTracklets)(iteration, iVertex);
 }
 
-template <int NLayers>
+template <int NLayers, typename ScratchT, typename BindingT>
 template <TransitionPolicyTag Tag>
-void TrackerTraits<NLayers>::computeLayerTrackletsForPolicy(
+void TrackerTraits<NLayers, ScratchT, BindingT>::computeLayerTrackletsForPolicy(
   const int iteration,
   const int iVertex,
   gsl::span<const TransitionId> transitionIds,
@@ -1223,8 +1249,8 @@ void TrackerTraits<NLayers>::computeLayerTrackletsForPolicy(
   });
 }
 
-template <int NLayers>
-void TrackerTraits<NLayers>::computeLayerCells(const int iteration)
+template <int NLayers, typename ScratchT, typename BindingT>
+void TrackerTraits<NLayers, ScratchT, BindingT>::computeLayerCells(const int iteration)
 {
   // Gate 4 Slice 0b: driven by the sparse topology cached on
   // initialiseTimeFrame() (mTraversalLayout), not a fresh legacy
@@ -1273,9 +1299,9 @@ void TrackerTraits<NLayers>::computeLayerCells(const int iteration)
   }
 }
 
-template <int NLayers>
+template <int NLayers, typename ScratchT, typename BindingT>
 template <TransitionPolicyTag Tag>
-void TrackerTraits<NLayers>::computeLayerCellsForPolicy(
+void TrackerTraits<NLayers, ScratchT, BindingT>::computeLayerCellsForPolicy(
   const int iteration,
   gsl::span<const CellTopologyId> cellIds,
   const typename TransitionPolicyTraits<Tag>::Params& params)
@@ -1474,8 +1500,8 @@ void TrackerTraits<NLayers>::computeLayerCellsForPolicy(
   });
 }
 
-template <int NLayers>
-void TrackerTraits<NLayers>::findCellsNeighbours(const int iteration)
+template <int NLayers, typename ScratchT, typename BindingT>
+void TrackerTraits<NLayers, ScratchT, BindingT>::findCellsNeighbours(const int iteration)
 {
   if (!mTraversalGrouping.has_value()) {
     throw TraversalException{iteration, TraversalFailureReason::InvalidTraversalSchedule};
@@ -1491,9 +1517,9 @@ void TrackerTraits<NLayers>::findCellsNeighbours(const int iteration)
   (this->*mTraversalOperation.findNeighbours)(iteration);
 }
 
-template <int NLayers>
+template <int NLayers, typename ScratchT, typename BindingT>
 template <TransitionPolicyTag Tag>
-void TrackerTraits<NLayers>::findCellsNeighboursForPolicy(
+void TrackerTraits<NLayers, ScratchT, BindingT>::findCellsNeighboursForPolicy(
   int iteration,
   gsl::span<const CellTopologyId> scheduledCells,
   const typename TransitionPolicyTraits<Tag>::Params& params)
@@ -1636,9 +1662,9 @@ void TrackerTraits<NLayers>::findCellsNeighboursForPolicy(
   });
 }
 
-template <int NLayers>
+template <int NLayers, typename ScratchT, typename BindingT>
 template <TransitionPolicyTag Tag, typename InputSeed>
-void TrackerTraits<NLayers>::processNeighbours(int iteration, int defaultCellTopologyId, int iLevel, const bounded_vector<InputSeed>& currentCellSeed, const bounded_vector<int>& currentCellId, const bounded_vector<int>& currentCellTopologyId, bounded_vector<TrackSeedN>& updatedCellSeeds, bounded_vector<int>& updatedCellsIds, bounded_vector<int>& updatedCellsTopologyIds, const typename TransitionPolicyTraits<Tag>::Params& params)
+void TrackerTraits<NLayers, ScratchT, BindingT>::processNeighbours(int iteration, int defaultCellTopologyId, int iLevel, const bounded_vector<InputSeed>& currentCellSeed, const bounded_vector<int>& currentCellId, const bounded_vector<int>& currentCellTopologyId, bounded_vector<TrackSeedN>& updatedCellSeeds, bounded_vector<int>& updatedCellsIds, bounded_vector<int>& updatedCellsTopologyIds, const typename TransitionPolicyTraits<Tag>::Params& params)
 {
   const auto layerMaterial = mAttachHitConfig.layerMaterial;
 
@@ -1758,8 +1784,8 @@ void TrackerTraits<NLayers>::processNeighbours(int iteration, int defaultCellTop
   });
 }
 
-template <int NLayers>
-void TrackerTraits<NLayers>::findRoads(const int iteration)
+template <int NLayers, typename ScratchT, typename BindingT>
+void TrackerTraits<NLayers, ScratchT, BindingT>::findRoads(const int iteration)
 {
   if (!mTraversalGrouping.has_value()) {
     throw TraversalException{iteration, TraversalFailureReason::InvalidTraversalSchedule};
@@ -1790,9 +1816,9 @@ void TrackerTraits<NLayers>::findRoads(const int iteration)
   (this->*mTraversalOperation.findRoads)(iteration);
 }
 
-template <int NLayers>
+template <int NLayers, typename ScratchT, typename BindingT>
 template <TransitionPolicyTag Tag>
-void TrackerTraits<NLayers>::findRoadsForPolicy(const int iteration, const typename TransitionPolicyTraits<Tag>::Params& params)
+void TrackerTraits<NLayers, ScratchT, BindingT>::findRoadsForPolicy(const int iteration, const typename TransitionPolicyTraits<Tag>::Params& params)
 {
   bounded_vector<bounded_vector<int>> firstClusters(mTrkParams[iteration].NLayers, bounded_vector<int>(mMemoryPool.get()), mMemoryPool.get());
   firstClusters.resize(mTrkParams[iteration].NLayers);
@@ -1891,14 +1917,14 @@ void TrackerTraits<NLayers>::findRoadsForPolicy(const int iteration, const typen
     mTaskArena->execute([&] {
       auto forSeed = [&](auto Mode, int iSeed, int offset = 0) {
         TrackT temporaryTrack;
-        const bool refitSuccess = DetectorTraits<NLayers>::refitSeed(trackSeeds[iSeed],
-                                                                     temporaryTrack,
-                                                                     mTrkParams[iteration],
-                                                                     mBz,
-                                                                     *mScratch,
-                                                                     mLayerMeasurements,
-                                                                     mTraversalLayout.getSurfaceCatalogView(),
-                                                                     expectedSource);
+        const bool refitSuccess = DetectorTraits<NLayers, ScratchT>::refitSeed(trackSeeds[iSeed],
+                                                                               temporaryTrack,
+                                                                               mTrkParams[iteration],
+                                                                               mBz,
+                                                                               *mScratch,
+                                                                               mLayerMeasurements,
+                                                                               mTraversalLayout.getSurfaceCatalogView(),
+                                                                               expectedSource);
         if (refitSuccess) {
           DetectorTraits<NLayers>::copySeedPatternToTrack(temporaryTrack, trackSeeds[iSeed]);
           if constexpr (decltype(Mode)::value == PassMode::OnePass::value) {
@@ -1955,8 +1981,8 @@ void TrackerTraits<NLayers>::findRoadsForPolicy(const int iteration, const typen
   markTracks(iteration);
 }
 
-template <int NLayers>
-void TrackerTraits<NLayers>::acceptTracks(int iteration, bounded_vector<CATrackType<NLayers>>& tracks, bounded_vector<bounded_vector<int>>& firstClusters)
+template <int NLayers, typename ScratchT, typename BindingT>
+void TrackerTraits<NLayers, ScratchT, BindingT>::acceptTracks(int iteration, bounded_vector<CATrackType<NLayers>>& tracks, bounded_vector<bounded_vector<int>>& firstClusters)
 {
   auto& trks = mScratch->getTracks();
   trks.reserve(trks.size() + tracks.size());
@@ -2037,8 +2063,8 @@ void TrackerTraits<NLayers>::acceptTracks(int iteration, bounded_vector<CATrackT
   }
 }
 
-template <int NLayers>
-void TrackerTraits<NLayers>::markTracks(int iteration)
+template <int NLayers, typename ScratchT, typename BindingT>
+void TrackerTraits<NLayers, ScratchT, BindingT>::markTracks(int iteration)
 {
   if (mTrkParams[iteration].AllowSharingFirstCluster) {
     /// Now we have to set the shared cluster flag
@@ -2096,15 +2122,15 @@ void TrackerTraits<NLayers>::markTracks(int iteration)
   }
 }
 
-template <int NLayers>
-void TrackerTraits<NLayers>::setBz(float bz)
+template <int NLayers, typename ScratchT, typename BindingT>
+void TrackerTraits<NLayers, ScratchT, BindingT>::setBz(float bz)
 {
   mBz = bz;
   mFrame->setBz(bz);
 }
 
-template <int NLayers>
-void TrackerTraits<NLayers>::setNThreads(int n, std::shared_ptr<tbb::task_arena>& arena)
+template <int NLayers, typename ScratchT, typename BindingT>
+void TrackerTraits<NLayers, ScratchT, BindingT>::setNThreads(int n, std::shared_ptr<tbb::task_arena>& arena)
 {
 #if defined(OPTIMISATION_OUTPUT)
   mTaskArena = std::make_shared<tbb::task_arena>(1);
@@ -2118,21 +2144,30 @@ void TrackerTraits<NLayers>::setNThreads(int n, std::shared_ptr<tbb::task_arena>
 #endif
 }
 
-template class TrackerTraits<7>;
-template class TrackerTraits<10>;
-template void TrackerTraits<7>::processNeighbours<TransitionPolicyTag::CylinderCylinder, typename TrackerTraits<7>::CellSeedN>(int, int, int, const bounded_vector<typename TrackerTraits<7>::CellSeedN>&, const bounded_vector<int>&, const bounded_vector<int>&, bounded_vector<typename TrackerTraits<7>::TrackSeedN>&, bounded_vector<int>&, bounded_vector<int>&, const CylinderCylinderPolicyParams&);
-template void TrackerTraits<7>::processNeighbours<TransitionPolicyTag::CylinderCylinder, typename TrackerTraits<7>::TrackSeedN>(int, int, int, const bounded_vector<typename TrackerTraits<7>::TrackSeedN>&, const bounded_vector<int>&, const bounded_vector<int>&, bounded_vector<typename TrackerTraits<7>::TrackSeedN>&, bounded_vector<int>&, bounded_vector<int>&, const CylinderCylinderPolicyParams&);
-template void TrackerTraits<10>::processNeighbours<TransitionPolicyTag::DiskDisk, typename TrackerTraits<10>::CellSeedN>(int, int, int, const bounded_vector<typename TrackerTraits<10>::CellSeedN>&, const bounded_vector<int>&, const bounded_vector<int>&, bounded_vector<typename TrackerTraits<10>::TrackSeedN>&, bounded_vector<int>&, bounded_vector<int>&, const DiskDiskPolicyParams&);
-template void TrackerTraits<10>::processNeighbours<TransitionPolicyTag::DiskDisk, typename TrackerTraits<10>::TrackSeedN>(int, int, int, const bounded_vector<typename TrackerTraits<10>::TrackSeedN>&, const bounded_vector<int>&, const bounded_vector<int>&, bounded_vector<typename TrackerTraits<10>::TrackSeedN>&, bounded_vector<int>&, bounded_vector<int>&, const DiskDiskPolicyParams&);
-// Gate 4 M5b: the cross (NLayers, Tag) combinations below now become
-// reachable (dispatchActivePolicy()'s runtime family check no longer keeps
-// NLayers from ever selecting the "other" family's Tag at compile time) --
-// explicit instantiations added here for the same reason the four above
-// already existed (this is a private member; see TrackerTraits.h's own doc
-// on this method).
-template void TrackerTraits<7>::processNeighbours<TransitionPolicyTag::DiskDisk, typename TrackerTraits<7>::CellSeedN>(int, int, int, const bounded_vector<typename TrackerTraits<7>::CellSeedN>&, const bounded_vector<int>&, const bounded_vector<int>&, bounded_vector<typename TrackerTraits<7>::TrackSeedN>&, bounded_vector<int>&, bounded_vector<int>&, const DiskDiskPolicyParams&);
-template void TrackerTraits<7>::processNeighbours<TransitionPolicyTag::DiskDisk, typename TrackerTraits<7>::TrackSeedN>(int, int, int, const bounded_vector<typename TrackerTraits<7>::TrackSeedN>&, const bounded_vector<int>&, const bounded_vector<int>&, bounded_vector<typename TrackerTraits<7>::TrackSeedN>&, bounded_vector<int>&, bounded_vector<int>&, const DiskDiskPolicyParams&);
-template void TrackerTraits<10>::processNeighbours<TransitionPolicyTag::CylinderCylinder, typename TrackerTraits<10>::CellSeedN>(int, int, int, const bounded_vector<typename TrackerTraits<10>::CellSeedN>&, const bounded_vector<int>&, const bounded_vector<int>&, bounded_vector<typename TrackerTraits<10>::TrackSeedN>&, bounded_vector<int>&, bounded_vector<int>&, const CylinderCylinderPolicyParams&);
-template void TrackerTraits<10>::processNeighbours<TransitionPolicyTag::CylinderCylinder, typename TrackerTraits<10>::TrackSeedN>(int, int, int, const bounded_vector<typename TrackerTraits<10>::TrackSeedN>&, const bounded_vector<int>&, const bounded_vector<int>&, bounded_vector<typename TrackerTraits<10>::TrackSeedN>&, bounded_vector<int>&, bounded_vector<int>&, const CylinderCylinderPolicyParams&);
+// M6d (doc/design/0002-m6-generic-workspace-migration.md Sec 9): three
+// explicit instantiations now, not two -- ITS (unchanged), the standalone
+// MFT workflow's own ITSMFTTrackingInterface<MFTNLayers> (still
+// LegacyTrackerScratch<10>/DetectorTraversalBinding, completely unaffected
+// by this migration), and the combined workflow's
+// LegacyCATrackingParticipant<MFTNLayers> (the new SurfaceTrackingScratch/
+// SurfacePlanBinding instantiation this milestone adds).
+template class TrackerTraits<7, LegacyTrackerScratch<7>, DetectorTraversalBinding>;
+template void TrackerTraits<7, LegacyTrackerScratch<7>, DetectorTraversalBinding>::processNeighbours<TransitionPolicyTag::CylinderCylinder, typename TrackerTraits<7, LegacyTrackerScratch<7>, DetectorTraversalBinding>::CellSeedN>(int, int, int, const bounded_vector<typename TrackerTraits<7, LegacyTrackerScratch<7>, DetectorTraversalBinding>::CellSeedN>&, const bounded_vector<int>&, const bounded_vector<int>&, bounded_vector<typename TrackerTraits<7, LegacyTrackerScratch<7>, DetectorTraversalBinding>::TrackSeedN>&, bounded_vector<int>&, bounded_vector<int>&, const CylinderCylinderPolicyParams&);
+template void TrackerTraits<7, LegacyTrackerScratch<7>, DetectorTraversalBinding>::processNeighbours<TransitionPolicyTag::CylinderCylinder, typename TrackerTraits<7, LegacyTrackerScratch<7>, DetectorTraversalBinding>::TrackSeedN>(int, int, int, const bounded_vector<typename TrackerTraits<7, LegacyTrackerScratch<7>, DetectorTraversalBinding>::TrackSeedN>&, const bounded_vector<int>&, const bounded_vector<int>&, bounded_vector<typename TrackerTraits<7, LegacyTrackerScratch<7>, DetectorTraversalBinding>::TrackSeedN>&, bounded_vector<int>&, bounded_vector<int>&, const CylinderCylinderPolicyParams&);
+template void TrackerTraits<7, LegacyTrackerScratch<7>, DetectorTraversalBinding>::processNeighbours<TransitionPolicyTag::DiskDisk, typename TrackerTraits<7, LegacyTrackerScratch<7>, DetectorTraversalBinding>::CellSeedN>(int, int, int, const bounded_vector<typename TrackerTraits<7, LegacyTrackerScratch<7>, DetectorTraversalBinding>::CellSeedN>&, const bounded_vector<int>&, const bounded_vector<int>&, bounded_vector<typename TrackerTraits<7, LegacyTrackerScratch<7>, DetectorTraversalBinding>::TrackSeedN>&, bounded_vector<int>&, bounded_vector<int>&, const DiskDiskPolicyParams&);
+template void TrackerTraits<7, LegacyTrackerScratch<7>, DetectorTraversalBinding>::processNeighbours<TransitionPolicyTag::DiskDisk, typename TrackerTraits<7, LegacyTrackerScratch<7>, DetectorTraversalBinding>::TrackSeedN>(int, int, int, const bounded_vector<typename TrackerTraits<7, LegacyTrackerScratch<7>, DetectorTraversalBinding>::TrackSeedN>&, const bounded_vector<int>&, const bounded_vector<int>&, bounded_vector<typename TrackerTraits<7, LegacyTrackerScratch<7>, DetectorTraversalBinding>::TrackSeedN>&, bounded_vector<int>&, bounded_vector<int>&, const DiskDiskPolicyParams&);
+
+template class TrackerTraits<10, LegacyTrackerScratch<10>, DetectorTraversalBinding>;
+template void TrackerTraits<10, LegacyTrackerScratch<10>, DetectorTraversalBinding>::processNeighbours<TransitionPolicyTag::CylinderCylinder, typename TrackerTraits<10, LegacyTrackerScratch<10>, DetectorTraversalBinding>::CellSeedN>(int, int, int, const bounded_vector<typename TrackerTraits<10, LegacyTrackerScratch<10>, DetectorTraversalBinding>::CellSeedN>&, const bounded_vector<int>&, const bounded_vector<int>&, bounded_vector<typename TrackerTraits<10, LegacyTrackerScratch<10>, DetectorTraversalBinding>::TrackSeedN>&, bounded_vector<int>&, bounded_vector<int>&, const CylinderCylinderPolicyParams&);
+template void TrackerTraits<10, LegacyTrackerScratch<10>, DetectorTraversalBinding>::processNeighbours<TransitionPolicyTag::CylinderCylinder, typename TrackerTraits<10, LegacyTrackerScratch<10>, DetectorTraversalBinding>::TrackSeedN>(int, int, int, const bounded_vector<typename TrackerTraits<10, LegacyTrackerScratch<10>, DetectorTraversalBinding>::TrackSeedN>&, const bounded_vector<int>&, const bounded_vector<int>&, bounded_vector<typename TrackerTraits<10, LegacyTrackerScratch<10>, DetectorTraversalBinding>::TrackSeedN>&, bounded_vector<int>&, bounded_vector<int>&, const CylinderCylinderPolicyParams&);
+template void TrackerTraits<10, LegacyTrackerScratch<10>, DetectorTraversalBinding>::processNeighbours<TransitionPolicyTag::DiskDisk, typename TrackerTraits<10, LegacyTrackerScratch<10>, DetectorTraversalBinding>::CellSeedN>(int, int, int, const bounded_vector<typename TrackerTraits<10, LegacyTrackerScratch<10>, DetectorTraversalBinding>::CellSeedN>&, const bounded_vector<int>&, const bounded_vector<int>&, bounded_vector<typename TrackerTraits<10, LegacyTrackerScratch<10>, DetectorTraversalBinding>::TrackSeedN>&, bounded_vector<int>&, bounded_vector<int>&, const DiskDiskPolicyParams&);
+template void TrackerTraits<10, LegacyTrackerScratch<10>, DetectorTraversalBinding>::processNeighbours<TransitionPolicyTag::DiskDisk, typename TrackerTraits<10, LegacyTrackerScratch<10>, DetectorTraversalBinding>::TrackSeedN>(int, int, int, const bounded_vector<typename TrackerTraits<10, LegacyTrackerScratch<10>, DetectorTraversalBinding>::TrackSeedN>&, const bounded_vector<int>&, const bounded_vector<int>&, bounded_vector<typename TrackerTraits<10, LegacyTrackerScratch<10>, DetectorTraversalBinding>::TrackSeedN>&, bounded_vector<int>&, bounded_vector<int>&, const DiskDiskPolicyParams&);
+
+// The new M6d MFT instantiation: both tags, matching the same M5b rationale.
+template class TrackerTraits<10, SurfaceTrackingScratch, SurfacePlanBinding>;
+template void TrackerTraits<10, SurfaceTrackingScratch, SurfacePlanBinding>::processNeighbours<TransitionPolicyTag::CylinderCylinder, typename TrackerTraits<10, SurfaceTrackingScratch, SurfacePlanBinding>::CellSeedN>(int, int, int, const bounded_vector<typename TrackerTraits<10, SurfaceTrackingScratch, SurfacePlanBinding>::CellSeedN>&, const bounded_vector<int>&, const bounded_vector<int>&, bounded_vector<typename TrackerTraits<10, SurfaceTrackingScratch, SurfacePlanBinding>::TrackSeedN>&, bounded_vector<int>&, bounded_vector<int>&, const CylinderCylinderPolicyParams&);
+template void TrackerTraits<10, SurfaceTrackingScratch, SurfacePlanBinding>::processNeighbours<TransitionPolicyTag::CylinderCylinder, typename TrackerTraits<10, SurfaceTrackingScratch, SurfacePlanBinding>::TrackSeedN>(int, int, int, const bounded_vector<typename TrackerTraits<10, SurfaceTrackingScratch, SurfacePlanBinding>::TrackSeedN>&, const bounded_vector<int>&, const bounded_vector<int>&, bounded_vector<typename TrackerTraits<10, SurfaceTrackingScratch, SurfacePlanBinding>::TrackSeedN>&, bounded_vector<int>&, bounded_vector<int>&, const CylinderCylinderPolicyParams&);
+template void TrackerTraits<10, SurfaceTrackingScratch, SurfacePlanBinding>::processNeighbours<TransitionPolicyTag::DiskDisk, typename TrackerTraits<10, SurfaceTrackingScratch, SurfacePlanBinding>::CellSeedN>(int, int, int, const bounded_vector<typename TrackerTraits<10, SurfaceTrackingScratch, SurfacePlanBinding>::CellSeedN>&, const bounded_vector<int>&, const bounded_vector<int>&, bounded_vector<typename TrackerTraits<10, SurfaceTrackingScratch, SurfacePlanBinding>::TrackSeedN>&, bounded_vector<int>&, bounded_vector<int>&, const DiskDiskPolicyParams&);
+template void TrackerTraits<10, SurfaceTrackingScratch, SurfacePlanBinding>::processNeighbours<TransitionPolicyTag::DiskDisk, typename TrackerTraits<10, SurfaceTrackingScratch, SurfacePlanBinding>::TrackSeedN>(int, int, int, const bounded_vector<typename TrackerTraits<10, SurfaceTrackingScratch, SurfacePlanBinding>::TrackSeedN>&, const bounded_vector<int>&, const bounded_vector<int>&, bounded_vector<typename TrackerTraits<10, SurfaceTrackingScratch, SurfacePlanBinding>::TrackSeedN>&, bounded_vector<int>&, bounded_vector<int>&, const DiskDiskPolicyParams&);
 
 } // namespace o2::itsmft::tracking

@@ -90,12 +90,16 @@ inline bool isDroppedTimeFrame(float result) noexcept
   return result == kDroppedTimeFrameResult;
 }
 
-template <int NLayers>
+// M6d: ScratchT/BindingT mirror TrackerTraits<NLayers, ScratchT, BindingT>'s
+// own seam exactly (see that class's doc) -- defaulted so every existing
+// instantiation (Tracker<7>, and Tracker<10> as used by
+// ITSMFTTrackingInterface<10>) is unaffected.
+template <int NLayers, typename ScratchT = LegacyTrackerScratch<NLayers>, typename BindingT = DetectorTraversalBinding>
 class Tracker
 {
  public:
-  using ScratchN = LegacyTrackerScratch<NLayers>;
-  using TrackerTraitsN = TrackerTraits<NLayers>;
+  using ScratchN = ScratchT;
+  using TrackerTraitsN = TrackerTraits<NLayers, ScratchT, BindingT>;
 
   explicit Tracker(TrackerTraitsN* traits);
 
@@ -116,11 +120,11 @@ class Tracker
     mTraits->adoptITSSharedClusterCompatibility(&compatibility);
   }
   // Gate 4 C2 Slice 1: bind-once, forwarded straight to mTraits -- see
-  // TrackerTraits<NLayers>::adoptDetectorTraversalBinding() for the full
-  // contract (optional; nullptr preserves today's Gate 3 identity-mapping
-  // behavior). `binding` must outlive every subsequent clustersToTracks()
-  // call.
-  void adoptDetectorTraversalBinding(const DetectorTraversalBinding& binding) { mTraits->adoptDetectorTraversalBinding(&binding); }
+  // TrackerTraits<NLayers, ScratchT, BindingT>::adoptDetectorTraversalBinding()
+  // for the full contract (optional; nullptr preserves today's Gate 3
+  // identity-mapping behavior). `binding` must outlive every subsequent
+  // clustersToTracks() call.
+  void adoptDetectorTraversalBinding(const BindingT& binding) { mTraits->adoptDetectorTraversalBinding(&binding); }
   // Binds the tracker's one immutable plan, owned by its caller
   // (ITSMFTTrackingInterface) -- mirrors adoptScratch()'s bind-once pattern.
   // `plan` must outlive every subsequent clustersToTracks() call.

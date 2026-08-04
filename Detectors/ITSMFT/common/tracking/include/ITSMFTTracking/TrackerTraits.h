@@ -145,11 +145,24 @@ class TraversalException final : public std::runtime_error
   TraversalFailureReason mReason{TraversalFailureReason::MissingLayout};
 };
 
-template <int NLayers>
+// M6d (doc/design/0002-m6-generic-workspace-migration.md Sec 9): ScratchT/
+// BindingT are the smallest shared accessor seam letting TrackerTraits
+// support both LegacyTrackerScratch<NLayers>/DetectorTraversalBinding (ITS,
+// and the standalone-MFT-workflow ITSMFTTrackingInterface<MFTNLayers>, both
+// unaffected -- see below) and SurfaceTrackingScratch/SurfacePlanBinding
+// (the combined workflow's LegacyCATrackingParticipant<MFTNLayers>) during
+// M6d-M6e coexistence. Defaulted to the legacy types so every existing
+// instantiation (TrackerTraits<7>, and TrackerTraits<10> as used by
+// ITSMFTTrackingInterface<10>) resolves to the exact same type it always
+// has -- zero source or behavior change there. Resolved entirely at compile
+// time (ordinary template-argument substitution): every mScratch->/
+// mBinding-> call below binds directly to the concrete ScratchT/BindingT
+// chosen per instantiation, never a virtual call or type-erased wrapper.
+template <int NLayers, typename ScratchT = LegacyTrackerScratch<NLayers>, typename BindingT = DetectorTraversalBinding>
 class TrackerTraits
 {
  public:
-  using ScratchN = LegacyTrackerScratch<NLayers>;
+  using ScratchN = ScratchT;
   using IndexTableUtilsN = o2::itsmft::IndexTableUtils<NLayers>;
   using CellSeedN = typename ScratchN::CellSeedN;
   using TrackSeedN = typename ScratchN::TrackSeedN;
@@ -173,7 +186,7 @@ class TrackerTraits
   // iteration this TrackerTraits is about to traverse; a mismatch surfaces
   // as TraversalFailureReason::TraversalBindingMismatch, never a silent
   // misread.
-  void adoptDetectorTraversalBinding(const DetectorTraversalBinding* binding) noexcept { mBinding = binding; }
+  void adoptDetectorTraversalBinding(const BindingT* binding) noexcept { mBinding = binding; }
   // `layouts` is the owner's (ITSMFTTrackingInterface's) one immutable plan,
   // supplied explicitly by the caller (Gate 4 B2 Slice 2) -- this no longer
   // reads any layout/catalog state off TimeFrame.
@@ -462,7 +475,7 @@ class TrackerTraits
   // Gate 4 C2 Slice 1: optional, bind-once, non-owning (see
   // adoptDetectorTraversalBinding() above). nullptr for every existing
   // Gate 3 production/test caller.
-  const DetectorTraversalBinding* mBinding = nullptr;
+  const BindingT* mBinding = nullptr;
 
  protected:
   ScratchN* mScratch = nullptr;

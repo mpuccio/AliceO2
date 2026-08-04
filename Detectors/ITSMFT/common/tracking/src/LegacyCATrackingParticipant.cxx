@@ -7,13 +7,14 @@
 
 #include "ITSMFTTracking/LegacyCATrackingParticipant.h"
 
+#include <type_traits>
 #include <utility>
 
 namespace o2::itsmft::tracking
 {
 
-template <int NLayers>
-LegacyCATrackingParticipant<NLayers>::LegacyCATrackingParticipant(ParticipantId id, std::vector<TrackingParameters> params)
+template <int NLayers, typename ScratchT, typename BindingT>
+LegacyCATrackingParticipant<NLayers, ScratchT, BindingT>::LegacyCATrackingParticipant(ParticipantId id, std::vector<TrackingParameters> params)
   : mId{id}, mParams(std::move(params)), mTracker(&mTraits), mLoadTarget(mScratch)
 {
   mTracker.adoptScratch(mScratch);
@@ -26,48 +27,62 @@ LegacyCATrackingParticipant<NLayers>::LegacyCATrackingParticipant(ParticipantId 
   mTracker.setParameters(mParams);
 }
 
-template <int NLayers>
-void LegacyCATrackingParticipant<NLayers>::adoptDetectorTraversalBinding(std::unique_ptr<DetectorTraversalBinding> binding)
+template <int NLayers, typename ScratchT, typename BindingT>
+void LegacyCATrackingParticipant<NLayers, ScratchT, BindingT>::adoptDetectorTraversalBinding(std::unique_ptr<BindingT> binding)
 {
   mBinding = std::move(binding);
   mTraits.adoptDetectorTraversalBinding(mBinding.get());
 }
 
-template <int NLayers>
-void LegacyCATrackingParticipant<NLayers>::adoptDetectorLayoutSet(const DetectorLayoutSet& plan)
+template <int NLayers, typename ScratchT, typename BindingT>
+void LegacyCATrackingParticipant<NLayers, ScratchT, BindingT>::adoptDetectorLayoutSet(const DetectorLayoutSet& plan)
 {
   mPlan = &plan;
+  // M6d: SurfaceTrackingScratch (unlike LegacyTrackerScratch<NLayers>, whose
+  // Group A member is a fixed-size std::array<T, NLayers> valid at every
+  // index from default construction) needs an explicit plan-adoption step
+  // before its own runtime-sized containers are indexable. Both the plan
+  // (just adopted above) and the binding (already adopted --
+  // ITSMFTLegacyParticipantSet's constructor calls
+  // adoptDetectorTraversalBinding() before adoptDetectorLayoutSet(), a
+  // precondition for this call, not re-derived here) supply adoptPlan()'s
+  // three runtime counts.
+  if constexpr (std::is_same_v<ScratchT, SurfaceTrackingScratch>) {
+    mScratch.adoptPlan(static_cast<std::size_t>(ownedSurfaces().size()),
+                       mBinding->getGlobalTransitions().size(),
+                       mBinding->getGlobalCells().size());
+  }
   mTracker.adoptDetectorLayoutSet(plan);
 }
 
-template <int NLayers>
-void LegacyCATrackingParticipant<NLayers>::adoptFrame(TimeFrame& frame)
+template <int NLayers, typename ScratchT, typename BindingT>
+void LegacyCATrackingParticipant<NLayers, ScratchT, BindingT>::adoptFrame(TimeFrame& frame)
 {
   mTracker.adoptFrame(frame);
 }
 
-template <int NLayers>
-void LegacyCATrackingParticipant<NLayers>::setMemoryPool(std::shared_ptr<BoundedMemoryResource> pool)
+template <int NLayers, typename ScratchT, typename BindingT>
+void LegacyCATrackingParticipant<NLayers, ScratchT, BindingT>::setMemoryPool(std::shared_ptr<BoundedMemoryResource> pool)
 {
   mScratch.setMemoryPool(pool);
   mTraits.setMemoryPool(pool);
   mTracker.setMemoryPool(pool);
 }
 
-template <int NLayers>
-void LegacyCATrackingParticipant<NLayers>::setBz(float bz)
+template <int NLayers, typename ScratchT, typename BindingT>
+void LegacyCATrackingParticipant<NLayers, ScratchT, BindingT>::setBz(float bz)
 {
   mTracker.setBz(bz);
 }
 
-template <int NLayers>
-void LegacyCATrackingParticipant<NLayers>::setNThreads(int n)
+template <int NLayers, typename ScratchT, typename BindingT>
+void LegacyCATrackingParticipant<NLayers, ScratchT, BindingT>::setNThreads(int n)
 {
   mTraits.setNThreads(n, mArena);
 }
 
-template <int NLayers>
-void LegacyCATrackingParticipant<NLayers>::configureRofTables(const ROFTimingConfig& timing, uint32_t nROFsTF)
+template <int NLayers, typename ScratchT, typename BindingT>
+void LegacyCATrackingParticipant<NLayers, ScratchT, BindingT>::configureRofTables(const ROFTimingConfig& timing, uint32_t nROFsTF)
 {
   o2::its::LayerTiming layerTiming{};
   layerTiming.mNROFsTF = nROFsTF;
@@ -100,8 +115,8 @@ void LegacyCATrackingParticipant<NLayers>::configureRofTables(const ROFTimingCon
   mScratch.initTrackerTopologies(mParams);
 }
 
-template <int NLayers>
-void LegacyCATrackingParticipant<NLayers>::clearCompatibility() noexcept
+template <int NLayers, typename ScratchT, typename BindingT>
+void LegacyCATrackingParticipant<NLayers, ScratchT, BindingT>::clearCompatibility() noexcept
 {
   if constexpr (DetId == o2::detectors::DetID::ITS) {
     static_cast<ITSSharedClusterCompatibilityOwner<NLayers>&>(*this).sidecar.clear();
@@ -111,14 +126,14 @@ void LegacyCATrackingParticipant<NLayers>::clearCompatibility() noexcept
   }
 }
 
-template <int NLayers>
-void LegacyCATrackingParticipant<NLayers>::clearPublicationSidecar() noexcept
+template <int NLayers, typename ScratchT, typename BindingT>
+void LegacyCATrackingParticipant<NLayers, ScratchT, BindingT>::clearPublicationSidecar() noexcept
 {
   clearCompatibility();
 }
 
-template <int NLayers>
-gsl::span<const SurfaceId> LegacyCATrackingParticipant<NLayers>::ownedSurfaces() const noexcept
+template <int NLayers, typename ScratchT, typename BindingT>
+gsl::span<const SurfaceId> LegacyCATrackingParticipant<NLayers, ScratchT, BindingT>::ownedSurfaces() const noexcept
 {
   if (mPlan == nullptr) {
     return {};
@@ -126,8 +141,8 @@ gsl::span<const SurfaceId> LegacyCATrackingParticipant<NLayers>::ownedSurfaces()
   return gsl::span<const SurfaceId>{mPlan->getConfigurationKey().orderedSurfaces};
 }
 
-template <int NLayers>
-ParticipantTrackingResult LegacyCATrackingParticipant<NLayers>::track(TimeFrame&)
+template <int NLayers, typename ScratchT, typename BindingT>
+ParticipantTrackingResult LegacyCATrackingParticipant<NLayers, ScratchT, BindingT>::track(TimeFrame&)
 {
   // clustersToTracks() itself only ever *returns* Success or
   // RecoverableDropped (CATracker.h); Structural always escapes as a thrown
@@ -143,8 +158,8 @@ ParticipantTrackingResult LegacyCATrackingParticipant<NLayers>::track(TimeFrame&
   return {ParticipantOutcome::Success, mScratch.getNumberOfTracks()};
 }
 
-template <int NLayers>
-void LegacyCATrackingParticipant<NLayers>::eventReset(TimeFrame&) noexcept
+template <int NLayers, typename ScratchT, typename BindingT>
+void LegacyCATrackingParticipant<NLayers, ScratchT, BindingT>::eventReset(TimeFrame&) noexcept
 {
   // Scratch/sidecar only -- never `frame` itself, see TrackingParticipant.h.
   // resetScratch()+the engine's own single TimeFrame::wipe() together
@@ -158,8 +173,8 @@ void LegacyCATrackingParticipant<NLayers>::eventReset(TimeFrame&) noexcept
   clearCompatibility();
 }
 
-template <int NLayers>
-std::optional<ParticipantPublicationExport> LegacyCATrackingParticipant<NLayers>::publicationExport() const
+template <int NLayers, typename ScratchT, typename BindingT>
+std::optional<ParticipantPublicationExport> LegacyCATrackingParticipant<NLayers, ScratchT, BindingT>::publicationExport() const
 {
   if (!mTracked || mPlan == nullptr) {
     return std::nullopt;
@@ -167,8 +182,8 @@ std::optional<ParticipantPublicationExport> LegacyCATrackingParticipant<NLayers>
   return ParticipantPublicationExport{mId, gsl::span<const SurfaceId>{mPlan->getConfigurationKey().orderedSurfaces}};
 }
 
-template <int NLayers>
-const ITSSharedClusterCompatibility* LegacyCATrackingParticipant<NLayers>::getITSSharedClusterCompatibility() const noexcept
+template <int NLayers, typename ScratchT, typename BindingT>
+const ITSSharedClusterCompatibility* LegacyCATrackingParticipant<NLayers, ScratchT, BindingT>::getITSSharedClusterCompatibility() const noexcept
 {
   if constexpr (DetId == o2::detectors::DetID::ITS) {
     return &static_cast<const ITSSharedClusterCompatibilityOwner<NLayers>&>(*this).sidecar;
@@ -176,8 +191,8 @@ const ITSSharedClusterCompatibility* LegacyCATrackingParticipant<NLayers>::getIT
   return nullptr;
 }
 
-template <int NLayers>
-const MFTPublicationCompatibility* LegacyCATrackingParticipant<NLayers>::getMFTPublicationCompatibility() const noexcept
+template <int NLayers, typename ScratchT, typename BindingT>
+const MFTPublicationCompatibility* LegacyCATrackingParticipant<NLayers, ScratchT, BindingT>::getMFTPublicationCompatibility() const noexcept
 {
   if constexpr (DetId == o2::detectors::DetID::MFT) {
     return &static_cast<const MFTPublicationCompatibilityOwner<NLayers>&>(*this).sidecar;
@@ -185,7 +200,13 @@ const MFTPublicationCompatibility* LegacyCATrackingParticipant<NLayers>::getMFTP
   return nullptr;
 }
 
+// M6d: ITS unchanged; MFT's sole production instantiation now owns
+// SurfaceTrackingScratch/SurfacePlanBinding (LegacyCATrackingParticipant.h's
+// own LegacyCATrackingParticipantMFT alias). No default-arg
+// LegacyCATrackingParticipant<MFTNLayers> instantiation is needed: nothing
+// in production uses it (ITSMFTTrackingInterface<MFTNLayers>, the
+// standalone-MFT-workflow's own path, never used this class at all).
 template class LegacyCATrackingParticipant<ITSNLayers>;
-template class LegacyCATrackingParticipant<MFTNLayers>;
+template class LegacyCATrackingParticipant<MFTNLayers, SurfaceTrackingScratch, SurfacePlanBinding>;
 
 } // namespace o2::itsmft::tracking

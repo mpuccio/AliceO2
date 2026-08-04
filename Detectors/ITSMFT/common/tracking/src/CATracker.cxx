@@ -22,6 +22,8 @@
 #include "ITStracking/Constants.h"
 #include "ITStracking/BoundedAllocator.h"
 #include "ITSMFTTracking/MCLabelAccumulator.h"
+#include "ITSMFTTracking/SurfaceTrackingScratch.h"
+#include "ITSMFTTracking/detail/SurfacePlanBinding.h"
 #include "SimulationDataFormat/MCCompLabel.h"
 
 namespace o2::itsmft::tracking
@@ -29,8 +31,8 @@ namespace o2::itsmft::tracking
 
 namespace
 {
-template <int NLayers>
-void computeTracksMClabels(LegacyTrackerScratch<NLayers>& scratch)
+template <int NLayers, typename ScratchT>
+void computeTracksMClabels(ScratchT& scratch)
 {
   auto& trackLabels = scratch.getTracksLabel();
   trackLabels.clear();
@@ -50,27 +52,27 @@ void computeTracksMClabels(LegacyTrackerScratch<NLayers>& scratch)
 }
 } // namespace
 
-template <int NLayers>
-Tracker<NLayers>::Tracker(TrackerTraits<NLayers>* traits) : mTraits(traits)
+template <int NLayers, typename ScratchT, typename BindingT>
+Tracker<NLayers, ScratchT, BindingT>::Tracker(TrackerTraitsN* traits) : mTraits(traits)
 {
 }
 
-template <int NLayers>
-void Tracker<NLayers>::adoptScratch(LegacyTrackerScratch<NLayers>& scratch)
+template <int NLayers, typename ScratchT, typename BindingT>
+void Tracker<NLayers, ScratchT, BindingT>::adoptScratch(ScratchT& scratch)
 {
   mScratch = &scratch;
   mTraits->adoptScratch(&scratch);
 }
 
-template <int NLayers>
-void Tracker<NLayers>::adoptFrame(TimeFrame& frame)
+template <int NLayers, typename ScratchT, typename BindingT>
+void Tracker<NLayers, ScratchT, BindingT>::adoptFrame(TimeFrame& frame)
 {
   mFrame = &frame;
   mTraits->adoptFrame(&frame);
 }
 
-template <int NLayers>
-TrackingResult Tracker<NLayers>::clustersToTracks()
+template <int NLayers, typename ScratchT, typename BindingT>
+TrackingResult Tracker<NLayers, ScratchT, BindingT>::clustersToTracks()
 {
   mTraits->updateTrackingParameters(mTrkParams);
 
@@ -161,15 +163,15 @@ TrackingResult Tracker<NLayers>::clustersToTracks()
   }
 
   if (mScratch->hasMCinformation()) {
-    computeTracksMClabels(*mScratch);
+    computeTracksMClabels<NLayers>(*mScratch);
   }
   rectifyClusterIndices();
   sortTracks();
   return TrackingResult{TrackingOutcome::Success, total};
 }
 
-template <int NLayers>
-void Tracker<NLayers>::rectifyClusterIndices()
+template <int NLayers, typename ScratchT, typename BindingT>
+void Tracker<NLayers, ScratchT, BindingT>::rectifyClusterIndices()
 {
   for (auto& track : mScratch->getTracks()) {
     for (int iCluster = 0; iCluster < CATrackType<NLayers>::MaxClusters; ++iCluster) {
@@ -193,8 +195,8 @@ void Tracker<NLayers>::rectifyClusterIndices()
   }
 }
 
-template <int NLayers>
-void Tracker<NLayers>::sortTracks()
+template <int NLayers, typename ScratchT, typename BindingT>
+void Tracker<NLayers, ScratchT, BindingT>::sortTracks()
 {
   auto& tracks = mScratch->getTracks();
   bounded_vector<size_t> indices(tracks.size(), mMemoryPool.get());
@@ -228,7 +230,16 @@ void Tracker<NLayers>::sortTracks()
   }
 }
 
-template class Tracker<7>;
-template class Tracker<10>;
+// M6d: three explicit instantiations -- ITS, the standalone-MFT-workflow's
+// own ITSMFTTrackingInterface<MFTNLayers> path (unchanged
+// LegacyTrackerScratch<10>/DetectorTraversalBinding), and the combined
+// workflow's new SurfaceTrackingScratch/SurfacePlanBinding instantiation.
+// The two anonymous-namespace computeTracksMClabels<NLayers, ScratchT>
+// instantiations these need are triggered implicitly by each Tracker<...>
+// explicit instantiation below (via clustersToTracks()'s own call), not
+// declared separately.
+template class Tracker<7, LegacyTrackerScratch<7>, DetectorTraversalBinding>;
+template class Tracker<10, LegacyTrackerScratch<10>, DetectorTraversalBinding>;
+template class Tracker<10, SurfaceTrackingScratch, SurfacePlanBinding>;
 
 } // namespace o2::itsmft::tracking

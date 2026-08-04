@@ -156,9 +156,16 @@ namespace o2::itsmft::tracking
 // doc): mBinding->getSource() when a DetectorTraversalBinding is adopted,
 // ClusterSourceId{0} otherwise. Used only to re-check normalized-measurement
 // identity before trusting a hit; never re-derived deeper in the fit.
+// M6d: templated on ScratchT (defaulted to LegacyTrackerScratch<MFTNLayers>,
+// unaffected for every existing caller) -- `tf`'s only two uses here are
+// getClusterExternalIndex()/getClusterSize() cluster-metadata bookkeeping
+// (this function's own doc above), never a physical/refit read, so this is
+// the same container-generalization seam as everywhere else in M6d, not a
+// refit-math change.
+template <typename ScratchT = LegacyTrackerScratch<o2::mft::constants::mft::LayersNumber>>
 bool refitTrackFwd(const TrackSeedN<o2::mft::constants::mft::LayersNumber>& seed,
                    MFTCATrack& track,
-                   const LegacyTrackerScratch<o2::mft::constants::mft::LayersNumber>& tf,
+                   const ScratchT& tf,
                    const TrackingParameters& params,
                    float bz,
                    const LayerMeasurementSpans<o2::mft::constants::mft::LayersNumber>& layerMeasurements,

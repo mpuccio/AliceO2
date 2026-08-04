@@ -32,12 +32,19 @@ namespace o2::itsmft::tracking
 
 /// Per-detector differences in refit, track acceptance, and index-table setup.
 /// Everything else stays in TrackerTraits and matches ITS line-for-line.
-template <int NLayers>
+///
+/// M6d: ScratchT (defaulted to LegacyTrackerScratch<NLayers>, unaffected for
+/// every existing caller) mirrors TrackerTraits<NLayers, ScratchT, BindingT>'s
+/// own seam -- refitSeed()'s only use of `scratch` (via refitTrackFwd(), MFT
+/// branch only) is cluster external-index/size bookkeeping metadata, never a
+/// physical/refit read (see refitSeed()'s own doc below), so this is a pure
+/// container-generalization, not a refit-math change.
+template <int NLayers, typename ScratchT = LegacyTrackerScratch<NLayers>>
 struct DetectorTraits {
   using TrackType = CATrackType<NLayers>;
   using TrackSeedN = o2::itsmft::tracking::TrackSeedN<NLayers>;
   using CellSeedN = o2::itsmft::tracking::CellSeedN<NLayers>;
-  using ScratchN = LegacyTrackerScratch<NLayers>;
+  using ScratchN = ScratchT;
   static constexpr o2::detectors::DetID::ID DetId = detIdFromNLayers<NLayers>();
 
   // M5d: both branches now go through the shared, descriptor-driven native

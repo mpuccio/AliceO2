@@ -12,6 +12,7 @@
 
 #include "ITSMFTTracking/DetectorLayoutBuilder.h"
 #include "ITSMFTTracking/StaticDetectorCatalogs.h"
+#include "ITSMFTTracking/detail/SurfacePlanBinding.h"
 
 namespace o2::itsmft::tracking
 {
@@ -136,10 +137,17 @@ ITSMFTLegacyParticipantSet::ITSMFTLegacyParticipantSet(std::vector<o2::itsmft::T
   if (!itsBindingResult.ok()) {
     throw std::runtime_error("ITSMFTLegacyParticipantSet: failed to build the ITS DetectorTraversalBinding");
   }
-  auto mftBindingResult = DetectorTraversalBinding::build(mMFTPlan->getLayoutView(0), o2::detectors::DetID::MFT, ClusterSourceId{1},
-                                                          surfaceRangeMask(ITSNLayers, MFTNLayers), mftSurfaces);
+  // M6d: MFT's own binding is now the detector-neutral SurfacePlanBinding
+  // (M6b), built with the adapter-derived expectedKind/expectedPolicy MFT
+  // always uses (Disk/DiskDisk) -- literal compile-time constants at this
+  // one call site, never a detector switch inside SurfacePlanBinding::build()
+  // itself (M6b design doc; requirement 5 of the M6d migration spec). ITS's
+  // own DetectorTraversalBinding construction above is untouched.
+  auto mftBindingResult = SurfacePlanBinding::build(mMFTPlan->getLayoutView(0), ClusterSourceId{1},
+                                                    surfaceRangeMask(ITSNLayers, MFTNLayers), mftSurfaces,
+                                                    SurfaceKind::Disk, TransitionPolicyTag::DiskDisk);
   if (!mftBindingResult.ok()) {
-    throw std::runtime_error("ITSMFTLegacyParticipantSet: failed to build the MFT DetectorTraversalBinding");
+    throw std::runtime_error("ITSMFTLegacyParticipantSet: failed to build the MFT SurfacePlanBinding");
   }
 
   mITSParticipant.adoptDetectorTraversalBinding(std::move(itsBindingResult.binding));
