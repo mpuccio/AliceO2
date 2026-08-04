@@ -448,6 +448,29 @@ No production code change. Deliverables: this note, plus the M6 section rewrite 
 - **Dependency**: M6c.
 - **Classification**: behavior-preserving cleanup (replay-gated).
 
+**As-built correction (M6d implementation)**: the scope bullet's premise — that
+`Tracker<MFTNLayers>`/`TrackerTraits<MFTNLayers>` stay "unchanged templates" and adapt via
+some accessor-level seam alone — did not hold. Both class templates store `ScratchN`
+(`= LegacyTrackerScratch<NLayers>`) and, for `TrackerTraits`, `const DetectorTraversalBinding*`
+as their own internal type aliases/members, not as a caller-supplied, duck-typed parameter;
+there was no accessor surface to retarget without also retargeting these types themselves.
+The actual mechanism: `TrackerTraits`, `Tracker`, `LegacyCATrackingParticipant`,
+`DetectorTraits`, and `refitTrackFwd` each gained two **defaulted** extra template
+parameters, `ScratchT = LegacyTrackerScratch<NLayers>` and (where a binding is held)
+`BindingT = DetectorTraversalBinding`. Every pre-existing instantiation (ITS; the
+standalone MFT workflow's own `ITSMFTTrackingInterface<MFTNLayers>`, which is untouched and
+still uses `TrackerTraits<10>`/`Tracker<10>` by their default args) is therefore bit-for-bit
+unaffected by the new parameters' existence, while the combined-workflow MFT participant
+explicitly instantiates `TrackerTraits<10, SurfaceTrackingScratch, SurfacePlanBinding>` and
+`Tracker<10, SurfaceTrackingScratch, SurfacePlanBinding>`. This preserves the milestone's own
+intent (MFT switches, ITS/standalone-MFT stay on the legacy types, no per-call dispatch cost
+in the hot loop) through a type-level rather than accessor-level seam. The temporary-bridge,
+acceptance/replay-gate, and deletion/exit-criterion bullets above were all met as stated;
+only the *mechanism* description needed correcting. Actual replay results: MFT standalone
+68 tracks/hash `8106b08571ca593c6b76ff72b761a680`; ITS standalone 212 tracks/hash
+`46913a67a7e2fe7462e29df0db264fa8`; combined workflow's ITS and MFT legs each bit-identical
+to their own standalone replay — all four exactly matching [ADR 0008] addendum 2.
+
 ### M6e — Wire ITS onto `SurfaceTrackingScratch`/`SurfacePlanBinding`; retire legacy result staging
 
 - **Scope**: same switch as M6d for `LegacyCATrackingParticipant<ITSNLayers>`. Additionally
