@@ -403,6 +403,22 @@ No production code change. Deliverables: this note, plus the M6 section rewrite 
   and `ownedSurfaces().size()`. Focused tests only (construction/sizing, reset, the
   allocator-swap discipline Group A's commit already requires) — mirrors M5a's "build the
   harness, don't wire it" pattern.
+- **Implementation refinement (this milestone)**: `adoptPlan()` takes three plain runtime
+  counts (`nOwnedSurfaces`, `nTransitions`, `nCells`) rather than a `SurfacePlanBinding`
+  reference or including its (`detail/`-confined) header at all — the caller extracts
+  `getOwnedSurfaces().count()`/`getGlobalTransitions().size()`/`getGlobalCells().size()`
+  and passes them in. This is a stronger form of the decoupling `LegacyTrackerScratch<NLayers>`
+  already has from `DetectorTraversalBinding` (neither type's header references the
+  other's), not a deviation from it. Two further sizing inputs this section did not
+  separately call out turned out to need their own scope decision, deferred rather than
+  silently included: `IndexTableUtils<NLayers>` (Group A's index-table *binning
+  configuration*, itself an `NLayers`-templated type with its own per-layer fixed arrays —
+  genericizing it is out of this slice's authorized scope) and the `TrackingTopology<NLayers>`
+  view objects (`mTrackerTopologies`/`mDefaultTrackingTopology`/`mVertexingTopology`/
+  `mTrackingTopologyView`, also `NLayers`-templated) — Group B's `nTransitions`/`nCells`
+  sizing is taken directly from the caller-supplied counts instead, which already
+  supersedes needing an owned topology-view object for sizing purposes. Both are left for
+  a later milestone to pick up explicitly, not silently dropped.
 - **Temporary bridge**: none additive.
 - **Acceptance/replay gate**: focused tests green; no production replay affected.
 - **Deletion/exit criterion**: none yet.
