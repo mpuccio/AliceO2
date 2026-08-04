@@ -225,3 +225,110 @@ reference (208 vs. 203; 67 vs. 70) is an ordinary chi2/whole-leg-acceptance/mate
 physics gate outcome or a dedup-competition effect between two independently-implemented
 Kalman engines -- candidate physics, consistent with this ADR's own decision 2 and 8,
 not evidence of a remaining defect.
+
+## Addendum (2026-08-04, second pass): pairwise-correlation-bound correction
+
+The 2026-08-04 correction above was itself incomplete, caught before acceptance: it
+enforced non-negative diagonals and a diagonal-range ceiling, but the original ITS
+failure state had *positive, in-range* diagonals (`c(Y,Y)=0.0615`, `c(Q2Pt,Q2Pt)=0.823`)
+with `correlation(Y,Q2Pt) = -1.014` -- `|rho|>1`, invisible to a diagonal-only check.
+
+**Audit** of the complete `checkCovariance()` body (not excerpted): its own doc comment
+claims "abs of correlation coefficients to be <1", but the code implements only the
+diagonal-abs/range-clamp pass -- there is no separate correlation-coefficient pass at
+all. A pair whose correlation exceeds 1 while both diagonals stay within range is never
+touched by legacy's real implementation. This is a gap between legacy's *documented*
+and *coded* contract, not a policy this migration should silently narrow to match the
+weaker of the two: the correction below completes the documented intent using the value
+the comment already names (1, the Cauchy-Schwarz bound every valid covariance matrix
+must satisfy), not an invented threshold.
+
+**Correction**: `sanitizeCovariance()` adds a second, non-iterative pass clamping every
+off-diagonal pair to `sqrt(diagonal_i * diagonal_j)`, sign preserved.
+
+**Empirical limitation, proven not asserted**: pairwise clamping does not guarantee full
+matrix positive-semi-definiteness. Verified against the real captured ITS reproducer:
+even after every one of that state's three simultaneously-violated pairs (`(Y,Snp)`,
+`(Y,Q2Pt)`, `(Snp,Q2Pt)`) is repaired to exactly touch its own bound, the following
+measurement update's naive Kalman subtraction still manufactures a negative diagonal --
+smaller (`-0.0328` -> `-0.0067` for `Q2Pt-Q2Pt`) but not zero. The diagonal-abs pass
+remains necessary, and remains sufficient for the non-negative-diagonal part of the
+declared invariant; a true full-PSD guarantee would need eigenvalue-based projection,
+deliberately not implemented -- a separate physics/model decision this correction does
+not make or imply.
+
+**Forward diagonal-range bound, corrected**: audited the legacy MFT fitting engine and
+found it has no covariance-sanitization mechanism of any kind (confirmed by inspection:
+its track-parametrization type does not inherit from `TrackParametrizationWithError`;
+its fitter never calls anything resembling `checkCovariance()`). Reusing
+`NativeRefitDriver.h`'s `resetCovarianceForRefit` ceilings as a forward sanitizer
+diagonal bound (as the first correction pass did) had no legacy-derived rationale --
+that function's own doc comment already discloses those are new, invented ceiling
+constants, not a ported policy. Forward's diagonal-range-clamp sub-pass is now disabled
+(bound effectively unreachable) pending a separate, explicit design decision; the
+mathematically universal diagonal-non-negativity and pairwise-correlation parts remain
+fully active for forward, exactly as for barrel.
+
+### Validation gates (re-run after this second correction)
+
+- `ctest --test-dir <build> -L itsmft --output-on-failure -j1`: **89/89 passed** (0
+  failed) -- the correlation-bound pass required retuning three pre-existing fixtures
+  whose numeric trigger the correction itself now legitimately repairs earlier in the
+  pipeline (documented in the test file itself, not silently loosened):
+  `testCovarianceSanitization.cxx`'s own pass-1/pass-2 isolation cases, and
+  `testRefitHit.cxx`'s `RefitHitDiskNonMutationOnUpdateFailure` (renamed
+  `RefitHitDiskNonMutationOnPredictedChi2Failure`: `forward::predictedChi2()` is called
+  unconditionally before `update()` and is structurally guaranteed to catch any residual
+  large enough to threaten a float32 overflow first, so the original covariance-only
+  trigger no longer reaches `update()` at all -- the fix working as intended, not a
+  weakened test).
+- `git diff --check`/`git clang-format --diff` against the M5d base: clean.
+- 43/43 fixture checksums verified identical before and after every replay, including
+  the disposable diagnostic-worktree replays below.
+
+### Candidate replay record (2026-08-04, second pass, same fixture/package)
+
+| Leg | After first correction | After correlation-bound correction |
+|---|---|---|
+| ITS common-CA | 208 tracks, hash `fd155fde67409d6e330f69e179041a1e`; eff. 94.4%, fake 8.65% | **212 tracks**, hash `46913a67a7e2fe7462e29df0db264fa8`; MC eff. 95.1% (135/142), fake rate 7.55% (16/212), 0 clones |
+| MFT common-CA | 67 tracks, hash `f3f988d25bdb6b423d69ffff01fb7dcc`; eff. 52.3%, fake 1.49% | **68 tracks**, hash `8106b08571ca593c6b76ff72b761a680`; MC eff. 53.2% (58/109), fake rate 1.47% (1/68), 0 clones; max chi2 dropped 7.98 -> 1.60 |
+| Combined | ITS leg 208 / MFT leg 67 (bit-identical to standalone) | ITS leg 212 (hash `46913a67a7e2fe7462e29df0db264fa8`) / MFT leg 68 (hash `8106b08571ca593c6b76ff72b761a680`), each bit-identical to its standalone replay |
+
+Both efficiency and fake rate improved together in both detectors (not merely more
+tracks) -- consistent with recovering genuine previously-lost candidates, not admitting
+noise.
+
+**Candidate-level reconciliation, re-run** (fresh disposable diagnostic worktree/build,
+same instrumentation methodology as the first pass): `InvalidCovariance` remains
+eliminated (0 occurrences, both detectors) with the correlation-bound correction active.
+
+ITS: 414 candidates reach refit (down from 512 pre-fix / 425 after the first correction
+pass alone -- the correlation fix changes which lower-level candidates the CA cascade
+even constructs, same cross-level mechanism the original investigation documented), 336
+succeed, 78 fail: 1 `PropagationFailure`, 1 `MaterialFailure` (sub-reason
+`MomentumBelowMinimum`, not `InvalidCovariance`), 2 `RotationFailure`, 74
+`PredictedChi2Failure`. Ground-truth `acceptTracks` reports 212 accepted, exactly
+matching the replay's own output. The 74 `PredictedChi2Failure` cases (down from 116
+after the first correction pass, i.e. 42 of those were themselves inflated-chi2 symptoms
+of the correlation defect and now succeed) are characterized, not merely counted: all 74
+are ordinary positive-finite gate rejections (`predChi2` ranging 61.4 to 7.3e9, median
+230, gate threshold 60; zero are the `predChi2<0`-or-non-finite failure mode that would
+indicate a residual covariance-validity problem) -- proving none of the *remaining* 74
+are symptoms of an invalid (negative-diagonal or over-correlated) covariance, since
+`sanitizeCovariance()` runs immediately before `predictedChi2` is ever computed. The
+magnitude distribution itself, from marginal (just over 60) to extreme outliers (into
+the billions), is not further characterized against the legacy chi2 population here --
+that comparison is deferred to the later unified physics sign-off campaign, per this
+ADR's own decision 8, not resolved by this correction.
+
+MFT: 84 candidates reach refit, 80 succeed, all 4 failures are `LegAcceptanceFailure` --
+zero `MaterialFailure`, zero `PredictedChi2Failure` (both were present, at 1 each,
+before this correlation-bound pass). Ground-truth `acceptTracks` reports 68 accepted,
+exactly matching the replay's own output -- MFT accounting remains exact.
+
+Every remaining ITS/MFT delta versus the legacy reference (212 vs. 203; 68 vs. 70) is
+now traced to an ordinary chi2/whole-leg-acceptance gate outcome, a
+`MomentumBelowMinimum` material rejection, or a dedup-competition effect -- candidate
+physics between two independently-implemented Kalman engines, consistent with this
+ADR's own decision 2 and 8. This is characterization, not acceptance: still not claimed
+as an accepted physics baseline, and no physics sign-off has been sought or performed.
