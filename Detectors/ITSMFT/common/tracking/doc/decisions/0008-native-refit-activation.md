@@ -147,4 +147,81 @@ engines; MFT's mean chi2 dropped from the legacy fitter's own scale to 0.20 (med
 0.083), consistent with a well-converged fit, not a degenerate one. No numerical
 tolerance was invented to declare native and frozen values equal, per this milestone's
 own instruction.
-  after every replay (this milestone touches no fixture, only tracking code).
+
+## Addendum (2026-08-04): covariance-validity correction
+
+A dedicated read-only investigation (never committed; disposable diagnostic worktrees
+only) traced the ITS/MFT track-count drop recorded above to a proven root cause, not
+"the Kalman implementations differ": `barrel::`/`forward::` `propagate()`/`rotate()`/
+`update()` never sanitized their covariance output, unlike the retained
+`o2::track::TrackParametrizationWithError<value_T>`, which calls `checkCovariance()`
+(`abs()` every diagonal; clamp+rescale any over range) unconditionally after every one
+of those three calls. A large single-step `propagate()` can leave the covariance matrix
+non-positive-semi-definite (an off-diagonal correlation exceeding the Cauchy-Schwarz
+bound) while every individual diagonal still looks valid; the very next `update()`'s
+naive Kalman covariance subtraction then reveals this, mathematically and unavoidably
+(reproduced with a Joseph-form, full-double-precision recomputation of the exact same
+real captured inputs), as a negative diagonal -- which `FamilyMaterialOperations::
+preflightValidate` correctly, but too late, rejects as `InvalidCovariance`. Confirmed
+precision-independent (float32 and float64 hand-rederivations of the real captured
+propagate step agree to 7 significant digits) and formula-correct (the hand-rederivation
+matches real production output exactly): this is a missing operation, not a wrong one.
+
+**Correction**: `sanitizeCovariance(state, maxDiagonal)` (`SurfaceKinematicState.h`) is
+one detector-neutral, GPU-portable primitive implementing exactly `checkCovariance()`'s
+policy (reusing, not duplicating, the abs/clamp/rescale logic `limitBarrelCovariance`
+already had), invoked unconditionally after every successful `barrel::rotate`/
+`propagate` (both overloads)/`update` and `forward::propagate<Model>` (both overloads,
+all four models)/`update`. `FamilyMaterialOperations::preflightValidate` itself is
+unchanged and unweakened: it still rejects a deliberately malformed *externally
+supplied* state (`testCovarianceSanitization.cxx`), it just no longer sees one from the
+Propagator's own normal operation. Conversion, propagation formulas/Jacobians, the
+material model, chi2/min-pT gates, rollback, and acceptance/dedup are untouched.
+
+### Validation gates (re-run after the correction)
+
+- `ctest --test-dir <build> -L itsmft --output-on-failure -j1`: **89/89 passed** (0
+  failed) -- the 88 gates above plus the 18 new focused
+  `testCovarianceSanitization.cxx` cases (the sanitizer in isolation; both ITS and MFT
+  real-data reproducers now sanitize instead of rejecting; the preceding large-step
+  propagate preserves the invariant; every one of the eight call sites independently
+  sanitizes; a deliberately malformed external state is still rejected; failure remains
+  transactional). `testNoLegacyFittingDependency.cxx` still passes unmodified.
+- `git diff --check <base> HEAD`: clean. `git clang-format --diff <base> HEAD`: clean.
+- The durable fixture's 43 checksums verified identical before and after every replay
+  below, including the disposable diagnostic-worktree replays used to confirm the
+  reconciliation (this correction touches no fixture, only tracking code).
+
+### Candidate replay record (2026-08-04, `daily-20260717-0700-local1`, same fixture)
+
+Still not an accepted physics baseline, for the same reason as the original candidate
+replay record above. Wall time was measured with a different methodology this session
+(`/usr/bin/time -l` wrapping the whole reader|tracker pipe) than the original entries
+above, so wall-time is not directly comparable across the two rows; peak RSS (dominated
+by the fixed-size fixture/geometry/cluster load, not by this correction) lands within
+noise of the original figures.
+
+| Leg | M5d before this fix | M5d after this fix | Wall time | Peak RSS |
+|---|---|---|---|---|
+| ITS common-CA | 160 tracks, hash `4ee3e10ae920736e6b29ef35a5af4fe1`; eff. 78.9%, fake 8.75% | **208 tracks**, hash `fd155fde67409d6e330f69e179041a1e`; MC eff. 94.4% (134/142), fake rate 8.65% (18/208), 0 clones | 3.73 s | 2.65 GB |
+| MFT common-CA | 65 tracks, hash `f67de427ccf53a33354055d4fd8a1307`; eff. 50.5%, fake 1.5% | **67 tracks**, hash `f3f988d25bdb6b423d69ffff01fb7dcc`; MC eff. 52.3% (57/109), fake rate 1.49% (1/67), 0 clones | 2.68 s | 1.29 GB |
+| Combined | ITS leg 160 / MFT leg 65 (both bit-identical to standalone) | ITS leg 208 (hash `fd155fde67409d6e330f69e179041a1e`) / MFT leg 67 (hash `f3f988d25bdb6b423d69ffff01fb7dcc`), each bit-identical to its standalone single-detector replay | 4.00 s | 3.42 GB |
+
+Legacy reference (unchanged, pre-M5d): ITS 203 tracks; MFT 70 tracks (same table,
+top of this document).
+
+**Candidate-level reconciliation** (disposable diagnostic instrumentation of the real
+refit driver and the real, shared `TrackerTraits::acceptTracks`; never committed):
+`InvalidCovariance` is *eliminated*, not merely reduced, in both detectors. ITS: 0/117
+remaining refit failures are `MaterialFailure` (was the dominant failure category before
+this fix, ~211/301); every remaining failure is an ordinary `PredictedChi2Failure` (116)
+or `PropagationFailure` (1). MFT: 1/4 remaining refit failures is `MaterialFailure`, but
+its `MaterialFailureReason` is `MomentumBelowMinimum`, not `InvalidCovariance` -- a
+genuine, unrelated physics rejection; the other 3 are `PredictedChi2Failure` (1) and
+`LegAcceptanceFailure` (2). MFT accounting verified exact: ground-truth
+`TrackerTraits::acceptTracks` instrumentation reports 67 accepted, bit-identical to the
+production track-writer's own output. Every remaining ITS/MFT delta versus the legacy
+reference (208 vs. 203; 67 vs. 70) is an ordinary chi2/whole-leg-acceptance/material-
+physics gate outcome or a dedup-competition effect between two independently-implemented
+Kalman engines -- candidate physics, consistent with this ADR's own decision 2 and 8,
+not evidence of a remaining defect.
