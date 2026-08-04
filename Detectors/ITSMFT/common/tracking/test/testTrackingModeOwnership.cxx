@@ -209,7 +209,7 @@ BOOST_FIXTURE_TEST_CASE(MFTStillConsultsItsOwnLiveTrackingModeConfig, ScopedPara
 {
   mutableMFTTrackerParamConfig().trackingMode = static_cast<int>(o2::itsmft::TrackingMode::Cosmics);
 
-  ITSMFTTrackingInterface<o2::mft::constants::mft::LayersNumber> interface{
+  ITSMFTTrackingInterfaceMFT interface{
     false, o2::itsmft::TrackingMode::Unset, false};
   BOOST_CHECK_NO_THROW(interface.initialise());
   BOOST_REQUIRE(interface.isActive());
@@ -224,7 +224,7 @@ BOOST_FIXTURE_TEST_CASE(MFTExplicitModeStillOverridesLegacyDefaultUnset, ScopedP
   // legacy has nothing to add" path the MFT branch has always had.
   BOOST_REQUIRE_EQUAL(mutableMFTTrackerParamConfig().trackingMode, -1);
 
-  ITSMFTTrackingInterface<o2::mft::constants::mft::LayersNumber> interface{
+  ITSMFTTrackingInterfaceMFT interface{
     false, o2::itsmft::TrackingMode::Sync, false};
   BOOST_CHECK_NO_THROW(interface.initialise());
   BOOST_REQUIRE(interface.isActive());

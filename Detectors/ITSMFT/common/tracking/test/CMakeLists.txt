@@ -503,6 +503,18 @@ o2_add_test(m6d-mft-migration
                                   O2::DetectorsBase
                                   O2::Field)
 
+# M6e1 (doc/design/0002-m6-generic-workspace-migration.md): the standalone
+# MFT common-CA interface (ITSMFTTrackingInterfaceMFT, o2-mft-ca-tracker-workflow)
+# migrated onto SurfaceTrackingScratch/SurfacePlanBinding.
+o2_add_test(m6e1-standalone-mft-migration
+            SOURCES testM6e1StandaloneMFTMigration.cxx
+            COMPONENT_NAME itsmft-tracking
+            LABELS "itsmft;tracking"
+            PUBLIC_LINK_LIBRARIES O2::ITSMFTTracking
+                                  O2::MFTTracking
+                                  O2::DetectorsBase
+                                  O2::Field)
+
 # The Gate 0 extractor needs generated tracker/MC dictionaries and external
 # fixture files at execution time. Keep its runnable replay in the documented
 # baseline protocol, while compiling the macro here so clean O2 configurations
