@@ -178,26 +178,26 @@ void Tracker<NLayers, ScratchT, BindingT>::rectifyClusterIndices()
   if constexpr (std::is_same_v<ScratchT, SurfaceTrackingScratch>) {
     return;
   } else {
-  for (auto& track : scratchTracks<NLayers>(*mScratch)) {
-    for (int iCluster = 0; iCluster < CATrackType<NLayers>::MaxClusters; ++iCluster) {
-      const int index = track.getClusterIndex(iCluster);
-      if (index == constants::UnusedIndex) {
-        continue;
+    for (auto& track : scratchTracks<NLayers>(*mScratch)) {
+      for (int iCluster = 0; iCluster < CATrackType<NLayers>::MaxClusters; ++iCluster) {
+        const int index = track.getClusterIndex(iCluster);
+        if (index == constants::UnusedIndex) {
+          continue;
+        }
+        // Capture the packed cluster size onto the track while `index` is
+        // still this layer's own local identity (the domain mClusterSize is
+        // stored in, see LegacyTrackerScratch::getClusterSize()): the very
+        // next call overwrites track's cluster index in place with the
+        // external/global identity, so this is the last point at which the
+        // layer-local index needed to address mClusterSize[iCluster] is
+        // recoverable from the track. Downstream publication
+        // (TrackITSExt -> TrackITS, MFTCATrack) must read the size already
+        // stored here rather than re-deriving it from the (by-then external)
+        // cluster index.
+        track.setClusterSize(iCluster, mScratch->getClusterSize(iCluster, index));
+        track.setExternalClusterIndex(iCluster, mScratch->getClusterExternalIndex(iCluster, index));
       }
-      // Capture the packed cluster size onto the track while `index` is
-      // still this layer's own local identity (the domain mClusterSize is
-      // stored in, see LegacyTrackerScratch::getClusterSize()): the very
-      // next call overwrites track's cluster index in place with the
-      // external/global identity, so this is the last point at which the
-      // layer-local index needed to address mClusterSize[iCluster] is
-      // recoverable from the track. Downstream publication
-      // (TrackITSExt -> TrackITS, MFTCATrack) must read the size already
-      // stored here rather than re-deriving it from the (by-then external)
-      // cluster index.
-      track.setClusterSize(iCluster, mScratch->getClusterSize(iCluster, index));
-      track.setExternalClusterIndex(iCluster, mScratch->getClusterExternalIndex(iCluster, index));
     }
-  }
   }
 }
 
@@ -207,36 +207,36 @@ void Tracker<NLayers, ScratchT, BindingT>::sortTracks()
   if constexpr (std::is_same_v<ScratchT, SurfaceTrackingScratch>) {
     return;
   } else {
-  auto& tracks = scratchTracks<NLayers>(*mScratch);
-  bounded_vector<size_t> indices(tracks.size(), mMemoryPool.get());
-  std::iota(indices.begin(), indices.end(), 0);
-  std::sort(indices.begin(), indices.end(), [&tracks](size_t i, size_t j) {
-    const auto& a = tracks[i];
-    const auto& b = tracks[j];
-    const auto aLower = a.getTimeStamp().getTimeStamp() - a.getTimeStamp().getTimeStampError();
-    const auto bLower = b.getTimeStamp().getTimeStamp() - b.getTimeStamp().getTimeStampError();
-    if (aLower != bLower) {
-      return aLower < bLower;
-    }
-    return a.getChi2() < b.getChi2();
-  });
+    auto& tracks = scratchTracks<NLayers>(*mScratch);
+    bounded_vector<size_t> indices(tracks.size(), mMemoryPool.get());
+    std::iota(indices.begin(), indices.end(), 0);
+    std::sort(indices.begin(), indices.end(), [&tracks](size_t i, size_t j) {
+      const auto& a = tracks[i];
+      const auto& b = tracks[j];
+      const auto aLower = a.getTimeStamp().getTimeStamp() - a.getTimeStamp().getTimeStampError();
+      const auto bLower = b.getTimeStamp().getTimeStamp() - b.getTimeStamp().getTimeStampError();
+      if (aLower != bLower) {
+        return aLower < bLower;
+      }
+      return a.getChi2() < b.getChi2();
+    });
 
-  bounded_vector<CATrackType<NLayers>> sortedTracks(mMemoryPool.get());
-  sortedTracks.reserve(tracks.size());
-  for (size_t idx : indices) {
-    sortedTracks.push_back(tracks[idx]);
-  }
-  tracks.swap(sortedTracks);
-
-  if (mScratch->hasMCinformation()) {
-    auto& trackLabels = mScratch->getTracksLabel();
-    bounded_vector<MCCompLabel> sortedLabels(mMemoryPool.get());
-    sortedLabels.reserve(trackLabels.size());
+    bounded_vector<CATrackType<NLayers>> sortedTracks(mMemoryPool.get());
+    sortedTracks.reserve(tracks.size());
     for (size_t idx : indices) {
-      sortedLabels.push_back(trackLabels[idx]);
+      sortedTracks.push_back(tracks[idx]);
     }
-    trackLabels.swap(sortedLabels);
-  }
+    tracks.swap(sortedTracks);
+
+    if (mScratch->hasMCinformation()) {
+      auto& trackLabels = mScratch->getTracksLabel();
+      bounded_vector<MCCompLabel> sortedLabels(mMemoryPool.get());
+      sortedLabels.reserve(trackLabels.size());
+      for (size_t idx : indices) {
+        sortedLabels.push_back(trackLabels[idx]);
+      }
+      trackLabels.swap(sortedLabels);
+    }
   }
 }
 
