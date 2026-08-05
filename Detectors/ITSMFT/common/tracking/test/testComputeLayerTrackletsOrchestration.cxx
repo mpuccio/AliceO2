@@ -232,7 +232,7 @@ TrackletSnapshot runFixture(o2::detectors::DetID::ID detector,
   // destroyed last (see SurfaceTrackingScratch's own lifetime-contract doc).
   TimeFrame frame;
   SurfaceTrackingScratch tf;
-  TrackerTraits<NLayers> traits;
+  TrackerTraits traits;
   std::shared_ptr<tbb::task_arena> arena;
   std::vector<TrackingParameters> params(1);
   resetDetectorDefaults(params[0], detector);
@@ -568,7 +568,7 @@ BOOST_AUTO_TEST_CASE(DiskOnePassAndTwoPassProduceIdenticalTracklets)
 BOOST_AUTO_TEST_CASE(ComputeLayerTrackletsFailsClosedWithoutInitialiseTimeFrame)
 {
   SurfaceTrackingScratch tf;
-  TrackerTraits<ITSNLayers> traits;
+  TrackerTraits traits;
   traits.adoptScratch(&tf);
 
   BOOST_CHECK_EXCEPTION(traits.computeLayerTracklets(0, -1), TraversalException, [](const TraversalException& error) {
@@ -596,7 +596,7 @@ BOOST_AUTO_TEST_CASE(InitialiseTimeFrameFailureLeavesTransitionArraysZeroFilledN
   // destroyed last (see SurfaceTrackingScratch's own lifetime-contract doc).
   TimeFrame frame;
   SurfaceTrackingScratch tf;
-  TrackerTraits<ITSNLayers> traits;
+  TrackerTraits traits;
   std::shared_ptr<tbb::task_arena> arena;
   std::vector<TrackingParameters> params(1);
   resetDetectorDefaults(params[0], o2::detectors::DetID::ITS);
@@ -852,7 +852,7 @@ BOOST_AUTO_TEST_CASE(DuplicateSurfaceIdMappingFailsClosedBeforeTrackletProcessin
   SurfaceTrackingScratch tf;
   auto pool = std::make_shared<BoundedMemoryResource>();
   std::shared_ptr<tbb::task_arena> arena;
-  TrackerTraits<ITSNLayers> traits;
+  TrackerTraits traits;
   std::vector<TrackingParameters> params(1);
   resetDetectorDefaults(params[0], o2::detectors::DetID::ITS);
   frame.setMemoryPool(pool);
@@ -916,7 +916,7 @@ BOOST_AUTO_TEST_CASE(CombinedCylinderAndDiskLayoutIsRejectedBeforeTrackletProces
   SurfaceTrackingScratch tf;
   auto pool = std::make_shared<BoundedMemoryResource>();
   std::shared_ptr<tbb::task_arena> arena;
-  TrackerTraits<ITSNLayers> traits;
+  TrackerTraits traits;
   std::vector<TrackingParameters> params(1);
   resetDetectorDefaults(params[0], o2::detectors::DetID::ITS);
   frame.setMemoryPool(pool);

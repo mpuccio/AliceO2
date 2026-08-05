@@ -248,7 +248,7 @@ struct Rig {
   // destroyed last (see SurfaceTrackingScratch's own lifetime-contract doc).
   TimeFrame frame;
   SurfaceTrackingScratch tf;
-  TrackerTraits<ITSNLayers> traits;
+  TrackerTraits traits;
   // Scratch carries non-owning runtime ROF views. Keep these adapter-edge
   // builders alive across every load/initialise call on this fixture.
   std::optional<o2::its::ROFOverlapTable<ITSNLayers>> rofTable;

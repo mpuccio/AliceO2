@@ -63,6 +63,36 @@ BOOST_GLOBAL_FIXTURE(TraversalPropagatorFieldFixture);
 namespace
 {
 
+class NoopTrackingOperationAdapter final : public TrackingOperationAdapter
+{
+ public:
+  bool refitSeed(const TrackSeed&,
+                 const TrackingParameters&,
+                 float,
+                 SurfaceTrackingScratch&,
+                 gsl::span<const gsl::span<const SurfaceMeasurement>>,
+                 SurfaceCatalogView,
+                 ClusterSourceId,
+                 TrackingCandidate&) override
+  {
+    return false;
+  }
+
+  bool publishAccepted(TimeFrame&,
+                       const TrackingCandidate&,
+                       gsl::span<const gsl::span<const SurfaceMeasurement>>,
+                       SurfaceCatalogView) override
+  {
+    return true;
+  }
+
+  bool haveSamePolarity(const TrackingCandidate&, const TrackingCandidate&) const noexcept override { return false; }
+  bool sealAccepted(gsl::span<const TrackingCandidate>) override { return true; }
+  void clearPublicationState() noexcept override {}
+};
+
+NoopTrackingOperationAdapter gNoopOperationAdapter;
+
 /// DetectorLayout no longer owns a surface copy (Slice 3, shared ownership):
 /// test fixtures that build one in isolation keep the surfaces alongside it.
 struct BuiltLayout {
@@ -180,10 +210,9 @@ TrackingParameters parameters(int activeCount, int maxHoles = 0, uint16_t holes 
   return result;
 }
 
-template <int NLayers>
 void prepareTraversalFrame(TimeFrame& frame,
                            SurfaceTrackingScratch& scratch,
-                           TrackerTraits<NLayers>& traits,
+                           TrackerTraits& traits,
                            const std::shared_ptr<BoundedMemoryResource>& pool,
                            const std::vector<TrackingParameters>& params)
 {
@@ -192,7 +221,9 @@ void prepareTraversalFrame(TimeFrame& frame,
   // The fixtures using this helper build the identity, no-hole plan below.
   // Seed the workspace with that plan's sparse runtime extents rather than
   // leaving the transition/cell vectors at the old zero placeholder.
-  scratch.adoptPlan(NLayers, NLayers > 0 ? NLayers - 1 : 0, NLayers > 1 ? NLayers - 2 : 0);
+  const int activeCount = params.empty() ? 0 : params.front().NLayers;
+  scratch.adoptPlan(activeCount, activeCount > 0 ? activeCount - 1 : 0,
+                    activeCount > 1 ? activeCount - 2 : 0);
   for (auto& rofOffsets : scratch.mROFramesClusters) {
     rofOffsets.resize(1, 0);
   }
@@ -325,7 +356,7 @@ BOOST_AUTO_TEST_CASE(traversal_initialisation_rejects_iteration_beyond_configure
   auto pool = std::make_shared<BoundedMemoryResource>();
   TimeFrame shortLayoutFrame;
   SurfaceTrackingScratch shortLayoutScratch;
-  TrackerTraits<10> shortLayoutTraits;
+  TrackerTraits shortLayoutTraits;
   prepareTraversalFrame(shortLayoutFrame, shortLayoutScratch, shortLayoutTraits, pool, twoIterations);
   std::vector<TrackingParameters> oneLayout{twoIterations.front()};
   auto built = buildPlan(catalog(10, SurfaceKind::Disk, o2::detectors::DetID::MFT), order(10), TransitionPolicyTag::DiskDisk, oneLayout);
@@ -350,7 +381,7 @@ BOOST_AUTO_TEST_CASE(traversal_cache_groups_once_across_repeated_neighbour_and_r
   auto pool = std::make_shared<BoundedMemoryResource>();
   TimeFrame frame;
   SurfaceTrackingScratch scratch;
-  TrackerTraits<10> traits;
+  TrackerTraits traits;
   prepareTraversalFrame(frame, scratch, traits, pool, params);
   auto built = buildPlan(catalog(10, SurfaceKind::Disk, o2::detectors::DetID::MFT), order(10), TransitionPolicyTag::DiskDisk, params);
 
@@ -362,20 +393,20 @@ BOOST_AUTO_TEST_CASE(traversal_cache_groups_once_across_repeated_neighbour_and_r
 
   traits.findCellsNeighbours(0);
   traits.findCellsNeighbours(0);
-  traits.findRoads(0);
-  traits.findRoads(0);
+  traits.findRoads(0, gNoopOperationAdapter);
+  traits.findRoads(0, gNoopOperationAdapter);
   BOOST_CHECK_EQUAL(traits.getTraversalGroupingCount(), 1);
 
   std::vector<TrackingParameters> itsParams{parameters(7, 0, 0, 0x7f)};
   TimeFrame itsFrame;
   SurfaceTrackingScratch itsScratch;
-  TrackerTraits<7> itsTraits;
+  TrackerTraits itsTraits;
   prepareTraversalFrame(itsFrame, itsScratch, itsTraits, pool, itsParams);
   auto itsBuilt = buildPlan(catalog(7, SurfaceKind::Cylinder, o2::detectors::DetID::ITS), order(7), TransitionPolicyTag::CylinderCylinder, itsParams);
   itsTraits.setNThreads(1, arena);
   itsTraits.initialiseTimeFrame(0, itsBuilt.plan);
-  itsTraits.findRoads(0);
-  itsTraits.findRoads(0);
+  itsTraits.findRoads(0, gNoopOperationAdapter);
+  itsTraits.findRoads(0, gNoopOperationAdapter);
   BOOST_CHECK_EQUAL(itsTraits.getTraversalGroupingCount(), 1);
 }
 
@@ -392,7 +423,7 @@ BOOST_AUTO_TEST_CASE(traversal_empty_road_start_span_is_valid_and_produces_no_tr
   auto pool = std::make_shared<BoundedMemoryResource>();
   TimeFrame frame;
   SurfaceTrackingScratch scratch;
-  TrackerTraits<10> traits;
+  TrackerTraits traits;
   prepareTraversalFrame(frame, scratch, traits, pool, params);
   auto built = buildPlan(catalog(10, SurfaceKind::Disk, o2::detectors::DetID::MFT), order(10), TransitionPolicyTag::DiskDisk, params);
 
@@ -400,7 +431,7 @@ BOOST_AUTO_TEST_CASE(traversal_empty_road_start_span_is_valid_and_produces_no_tr
   traits.setNThreads(1, arena);
   BOOST_CHECK_NO_THROW(traits.initialiseTimeFrame(0, built.plan));
   BOOST_REQUIRE(traits.hasTraversalCache());
-  BOOST_CHECK_NO_THROW(traits.findRoads(0));
+  BOOST_CHECK_NO_THROW(traits.findRoads(0, gNoopOperationAdapter));
   BOOST_CHECK_EQUAL(frame.getCommonTracks().size(), 0u);
 }
 
@@ -417,7 +448,7 @@ BOOST_AUTO_TEST_CASE(traversal_legacy_cell_container_size_mismatch_fails_before_
   auto pool = std::make_shared<BoundedMemoryResource>();
   TimeFrame frame;
   SurfaceTrackingScratch scratch;
-  TrackerTraits<10> traits;
+  TrackerTraits traits;
   prepareTraversalFrame(frame, scratch, traits, pool, params);
   auto built = buildPlan(catalog(10, SurfaceKind::Disk, o2::detectors::DetID::MFT), order(10), TransitionPolicyTag::DiskDisk, params);
 
@@ -429,14 +460,14 @@ BOOST_AUTO_TEST_CASE(traversal_legacy_cell_container_size_mismatch_fails_before_
   scratch.getCells().pop_back();
 
   try {
-    traits.findRoads(0);
+    traits.findRoads(0, gNoopOperationAdapter);
     BOOST_FAIL("legacy cell-container size mismatch must throw before indexing");
   } catch (const TraversalException& error) {
     BOOST_CHECK(error.getReason() == TraversalFailureReason::SparseTopologyMismatch);
   }
 }
 
-BOOST_AUTO_TEST_CASE(traversal_preflight_rejects_legacy_mismatch_state_mismatch_and_bad_parameters)
+BOOST_AUTO_TEST_CASE(traversal_preflight_rejects_bad_parameters_but_not_detector_shape)
 {
   auto checkFailure = [](std::vector<TrackingParameters> params,
                          std::vector<SurfaceDescriptor> surfaces,
@@ -446,7 +477,7 @@ BOOST_AUTO_TEST_CASE(traversal_preflight_rejects_legacy_mismatch_state_mismatch_
     auto pool = std::make_shared<BoundedMemoryResource>();
     TimeFrame frame;
     SurfaceTrackingScratch scratch;
-    TrackerTraits<10> traits;
+    TrackerTraits traits;
     prepareTraversalFrame(frame, scratch, traits, pool, params);
     auto built = buildPlan(std::move(surfaces), ordered, tag, params);
     try {
@@ -459,8 +490,20 @@ BOOST_AUTO_TEST_CASE(traversal_preflight_rejects_legacy_mismatch_state_mismatch_
   };
 
   auto params = mftTraversalParameters();
-  checkFailure(params, catalog(10, SurfaceKind::Cylinder, o2::detectors::DetID::MFT), order(10),
-               TransitionPolicyTag::CylinderCylinder, TraversalFailureReason::StateFamilyMismatch);
+  // The runtime-plan core no longer infers a state family from detector
+  // identity or layer count. A valid cylinder policy is therefore accepted
+  // even when this adapter-shaped fixture carries the MFT detector label.
+  {
+    auto pool = std::make_shared<BoundedMemoryResource>();
+    TimeFrame frame;
+    SurfaceTrackingScratch scratch;
+    TrackerTraits traits;
+    prepareTraversalFrame(frame, scratch, traits, pool, params);
+    auto built = buildPlan(catalog(10, SurfaceKind::Cylinder, o2::detectors::DetID::MFT), order(10),
+                           TransitionPolicyTag::CylinderCylinder, params);
+    BOOST_CHECK_NO_THROW(traits.initialiseTimeFrame(0, built.plan));
+    BOOST_CHECK(traits.hasTraversalCache());
+  }
   params[0].MaxChi2ClusterAttachment = -1.f;
   checkFailure(params, catalog(10, SurfaceKind::Disk, o2::detectors::DetID::MFT), order(10), TransitionPolicyTag::DiskDisk,
                TraversalFailureReason::InvalidPolicyParameters);
@@ -493,7 +536,7 @@ BOOST_AUTO_TEST_CASE(every_iteration_resolves_identical_authoritative_material)
   auto pool = std::make_shared<BoundedMemoryResource>();
   TimeFrame frame;
   SurfaceTrackingScratch scratch;
-  TrackerTraits<10> traits;
+  TrackerTraits traits;
   prepareTraversalFrame(frame, scratch, traits, pool, params);
   auto built = buildPlan(catalog(10, SurfaceKind::Disk, o2::detectors::DetID::MFT), order(10), TransitionPolicyTag::DiskDisk, params);
 
@@ -517,7 +560,7 @@ BOOST_AUTO_TEST_CASE(rejected_initialisation_does_not_mutate_surface_descriptor_
   auto pool = std::make_shared<BoundedMemoryResource>();
   TimeFrame frame;
   SurfaceTrackingScratch scratch;
-  TrackerTraits<10> traits;
+  TrackerTraits traits;
   prepareTraversalFrame(frame, scratch, traits, pool, params);
   auto built = buildPlan(catalog(10, SurfaceKind::Disk, o2::detectors::DetID::MFT), order(10), TransitionPolicyTag::DiskDisk, params);
   const NominalSurfaceMaterial materialBefore = built.plan.getSurfaceCatalog().getSurface(SurfaceId{4}).material;
@@ -559,7 +602,7 @@ BOOST_AUTO_TEST_CASE(non_monotonic_ordered_surfaces_maps_material_and_traversal_
   auto pool = std::make_shared<BoundedMemoryResource>();
   TimeFrame frame;
   SurfaceTrackingScratch scratch;
-  TrackerTraits<10> traits;
+  TrackerTraits traits;
   prepareTraversalFrame(frame, scratch, traits, pool, params);
   auto built = buildPlan(std::move(surfaces), nonMonotonicOrder, TransitionPolicyTag::DiskDisk, params);
 
@@ -582,7 +625,7 @@ BOOST_AUTO_TEST_CASE(traversal_preflight_reports_invalid_schedule_and_mixed_poli
     auto pool = std::make_shared<BoundedMemoryResource>();
     TimeFrame frame;
     SurfaceTrackingScratch scratch;
-    TrackerTraits<10> traits;
+    TrackerTraits traits;
     prepareTraversalFrame(frame, scratch, traits, pool, params);
     auto built = wrapLayout(std::move(layout));
     try {
@@ -598,31 +641,18 @@ BOOST_AUTO_TEST_CASE(traversal_preflight_reports_invalid_schedule_and_mixed_poli
   checkInstalledLayout(mixedDisconnectedLayout(), TraversalFailureReason::MixedPolicyLayout);
 }
 
-// Gate 4 M5b: TrackerTraits<NLayers>'s dispatchActivePolicy()/computeLayerTracklets()
-// et al. no longer gate which TransitionPolicyTraits<Tag> orchestration body
-// is even compiled on NLayers -- both are now compiled for every NLayers (see
-// TrackerTraits.cxx's dispatchActivePolicy() doc). This is a compile-time
-// instantiation-footprint change only: the runtime StateFamilyMismatch gate
-// in initialiseTimeFrame() is unchanged, so an ITS-shaped (NLayers=7)
-// instantiation fed a Disk-kind catalog must still fail exactly like an
-// MFT-shaped one fed a Cylinder-kind catalog does above
-// (traversal_preflight_rejects_legacy_mismatch_state_mismatch_and_bad_parameters).
-// This is the missing symmetric direction of that existing coverage.
-BOOST_AUTO_TEST_CASE(its_family_rejects_disk_kind_catalog_after_m5b_dispatch_removal)
+// The runtime-plan core accepts a valid policy independently of the
+// detector-labelled adapter that supplied the descriptors.
+BOOST_AUTO_TEST_CASE(runtime_plan_accepts_disk_policy_without_detector_family_dispatch)
 {
   auto pool = std::make_shared<BoundedMemoryResource>();
   TimeFrame frame;
   SurfaceTrackingScratch scratch;
-  TrackerTraits<7> traits;
+  TrackerTraits traits;
   auto params = itsTraversalParameters();
   prepareTraversalFrame(frame, scratch, traits, pool, params);
   auto built = buildPlan(catalog(7, SurfaceKind::Disk, o2::detectors::DetID::ITS), order(7),
                          TransitionPolicyTag::DiskDisk, params);
-  try {
-    traits.initialiseTimeFrame(0, built.plan);
-    BOOST_FAIL("invalid traversal preflight must throw");
-  } catch (const TraversalException& error) {
-    BOOST_CHECK(error.getReason() == TraversalFailureReason::StateFamilyMismatch);
-  }
-  BOOST_CHECK(!traits.hasTraversalCache());
+  BOOST_CHECK_NO_THROW(traits.initialiseTimeFrame(0, built.plan));
+  BOOST_CHECK(traits.hasTraversalCache());
 }

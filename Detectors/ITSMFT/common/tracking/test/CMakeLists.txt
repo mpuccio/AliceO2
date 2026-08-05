@@ -369,6 +369,14 @@ o2_add_test(m7c-runtime-topology-rof-guard
             LABELS "itsmft;tracking"
             PUBLIC_LINK_LIBRARIES O2::ITSMFTTracking O2::MFTTracking)
 
+# Gate 4 M7d: one non-templated runtime-plan Tracker/TrackerTraits core, with
+# adapter-only fixed-capacity and typed-output boundaries kept outside it.
+o2_add_test(m7d-nontemplated-tracker-guard
+            SOURCES testM7dNontemplatedTrackerGuard.cxx
+            COMPONENT_NAME itsmft-tracking
+            LABELS "itsmft;tracking"
+            PUBLIC_LINK_LIBRARIES O2::ITSMFTTracking O2::MFTTracking)
+
 o2_add_test(surface-plan-binding-no-detector-dependency
             SOURCES testSurfacePlanBindingNoDetectorDependency.cxx
             COMPONENT_NAME itsmft-tracking

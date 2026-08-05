@@ -5,7 +5,7 @@
 // This software is distributed under the terms of the GNU General Public
 // License v3 (GPL Version 3), copied verbatim in the file "COPYING".
 
-// Gate 3 common-CA failure contract: Tracker<NLayers>::clustersToTracks()
+// Gate 3 common-CA failure contract: Tracker::clustersToTracks()
 // exception classification, wipe-on-every-failure, and the exact drop
 // sentinel.
 //
@@ -27,7 +27,7 @@
 //    following one successfully.
 //
 // The std::bad_alloc and unclassified-std::exception cases are exercised
-// through InjectingTrackerTraits, a test-only TrackerTraits<ITSNLayers>
+// through InjectingTrackerTraits, a test-only TrackerTraits
 // subclass that overrides the virtual computeLayerTracklets() traversal-stage
 // boundary to throw on demand, deterministically, without provoking real
 // host OOM or needing to reach genuine tracklet/cell/road computation.
@@ -302,7 +302,7 @@ enum class InjectedFailure { None,
                              BadAlloc,
                              UnclassifiedRuntimeError };
 
-class InjectingTrackerTraits final : public TrackerTraits<ITSNLayers>
+class InjectingTrackerTraits final : public TrackerTraits
 {
  public:
   InjectedFailure failure = InjectedFailure::None;
@@ -317,22 +317,51 @@ class InjectingTrackerTraits final : public TrackerTraits<ITSNLayers>
       case InjectedFailure::None:
         break;
     }
-    TrackerTraits<ITSNLayers>::computeLayerTracklets(iteration, iVertex);
+    TrackerTraits::computeLayerTracklets(iteration, iVertex);
   }
 };
 
+// The core's typed refit/publication work is deliberately not part of this
+// failure-contract fixture. This narrow test adapter supplies the M7e seam
+// and clears the one compatibility sidecar when the core resets an event.
+class TestTrackingOperationAdapter final : public TrackingOperationAdapter
+{
+ public:
+  explicit TestTrackingOperationAdapter(ITSSharedClusterCompatibility& sidecar) : mSidecar{&sidecar} {}
+
+  bool refitSeed(const TrackSeed&, const TrackingParameters&, float, SurfaceTrackingScratch&,
+                 gsl::span<const gsl::span<const SurfaceMeasurement>>, SurfaceCatalogView,
+                 ClusterSourceId, TrackingCandidate&) override
+  {
+    return false;
+  }
+
+  bool publishAccepted(TimeFrame&, const TrackingCandidate&, gsl::span<const gsl::span<const SurfaceMeasurement>>,
+                       SurfaceCatalogView) override
+  {
+    return true;
+  }
+
+  bool haveSamePolarity(const TrackingCandidate&, const TrackingCandidate&) const noexcept override { return true; }
+  bool sealAccepted(gsl::span<const TrackingCandidate>) override { return true; }
+  void clearPublicationState() noexcept override { mSidecar->clear(); }
+
+ private:
+  ITSSharedClusterCompatibility* mSidecar;
+};
+
 // Bundles a TimeFrame (non-templated, Gate 4 B3.1), a
-// SurfaceTrackingScratch, a TraitsT/Tracker<ITSNLayers> pair, and a
-// bounded memory pool -- the minimal wiring Tracker<N>::clustersToTracks()
+// SurfaceTrackingScratch, a TraitsT/Tracker pair, and a bounded memory pool
+// -- the minimal wiring Tracker::clustersToTracks()
 // needs to run at all (task arena included: TrackerTraits::
 // computeLayerTracklets() dereferences it unconditionally, even though the
 // structural-failure cases never reach that far). TraitsT defaults to the
-// real TrackerTraits<ITSNLayers>; RigT<InjectingTrackerTraits> (aliased
+// real TrackerTraits; RigT<InjectingTrackerTraits> (aliased
 // ThrowingRig below) is used by the injected-failure tests. `frame` is
 // declared before `tf` so it is constructed first and destroyed last (see
 // SurfaceTrackingScratch's own lifetime-contract doc) -- neither owns or
 // stores a reference to the other; this Rig is what binds both.
-template <class TraitsT = TrackerTraits<ITSNLayers>>
+template <class TraitsT = TrackerTraits>
 struct RigT {
   explicit RigT(bool dropTFUponFailure, size_t maxMemory = std::numeric_limits<size_t>::max())
     : pool(std::make_shared<BoundedMemoryResource>()),
@@ -348,14 +377,8 @@ struct RigT {
     tracker.setParameters(params);
     tracker.setMemoryPool(pool);
     tracker.setBz(0.5f);
-    // Gate 4 C2 Slice 2: adopted unconditionally (mirroring
-    // ITSMFTTrackingInterface<ITSNLayers>'s own always-adopted sidecar), so
-    // the no-stale-state tests below can stage a pending entry and prove
-    // clustersToTracks()'s existing `mITSSharedClusterCompatibility->clear()`
-    // call on every failure path actually clears it -- every other test in
-    // this file never stages an entry, so this sidecar stays empty and its
-    // adoption is a no-op for them.
-    tracker.adoptITSSharedClusterCompatibility(sidecar);
+    // The operation adapter is passed to each tracking invocation. It is
+    // deliberately not retained by the non-templated core.
   }
 
   // Stages one pending sidecar entry via the same transactional API
@@ -385,8 +408,9 @@ struct RigT {
   TimeFrame frame;
   SurfaceTrackingScratch tf;
   TraitsT traits;
-  Tracker<ITSNLayers> tracker;
+  Tracker tracker;
   ITSSharedClusterCompatibility sidecar;
+  TestTrackingOperationAdapter operationAdapter{sidecar};
   // Scratch carries non-owning runtime ROF views. Keep these adapter-edge
   // builders alive across load, initialise, and failure/replacement calls.
   std::optional<o2::its::ROFOverlapTable<ITSNLayers>> rofTable;
@@ -548,7 +572,7 @@ BOOST_AUTO_TEST_CASE(RecoverableFailureDroppedReturnsExactSentinelAndWipes)
 
   rig.forceMemoryLimitBelowCurrentUsage();
 
-  const auto result = rig.tracker.clustersToTracks();
+  const auto result = rig.tracker.clustersToTracks(rig.operationAdapter);
 
   BOOST_CHECK(result.outcome == TrackingOutcome::RecoverableDropped);
   BOOST_CHECK_EQUAL(rig.frame.getNormalizedFrame().getTotalMeasurements(), 0u);
@@ -566,7 +590,7 @@ BOOST_AUTO_TEST_CASE(RecoverableFailureNotDroppedRethrowsButStillWipesFirst)
 
   rig.forceMemoryLimitBelowCurrentUsage();
 
-  BOOST_CHECK_THROW(rig.tracker.clustersToTracks(), BoundedMemoryResource::MemoryLimitExceeded);
+  BOOST_CHECK_THROW(rig.tracker.clustersToTracks(rig.operationAdapter), BoundedMemoryResource::MemoryLimitExceeded);
 
   // Wipe must have already happened before the exception propagated -- not
   // "the process is going down anyway".
@@ -589,7 +613,7 @@ BOOST_AUTO_TEST_CASE(BadAllocDroppedReturnsExactSentinelAndWipes)
   BOOST_REQUIRE(rig.frame.getNormalizedFrame().getTotalMeasurements() > 0u);
 
   rig.traits.failure = InjectedFailure::BadAlloc;
-  const auto result = rig.tracker.clustersToTracks();
+  const auto result = rig.tracker.clustersToTracks(rig.operationAdapter);
 
   BOOST_CHECK(result.outcome == TrackingOutcome::RecoverableDropped);
   BOOST_CHECK_EQUAL(rig.frame.getNormalizedFrame().getTotalMeasurements(), 0u);
@@ -604,7 +628,7 @@ BOOST_AUTO_TEST_CASE(BadAllocNotDroppedRethrowsButStillWipesFirst)
   BOOST_REQUIRE(rig.frame.getNormalizedFrame().getTotalMeasurements() > 0u);
 
   rig.traits.failure = InjectedFailure::BadAlloc;
-  BOOST_CHECK_THROW(rig.tracker.clustersToTracks(), std::bad_alloc);
+  BOOST_CHECK_THROW(rig.tracker.clustersToTracks(rig.operationAdapter), std::bad_alloc);
 
   BOOST_CHECK_EQUAL(rig.frame.getNormalizedFrame().getTotalMeasurements(), 0u);
   BOOST_CHECK(rig.frame.getCommonTracks().empty());
@@ -626,7 +650,7 @@ BOOST_AUTO_TEST_CASE(UnclassifiedExceptionAlwaysRethrowsAndWipesRegardlessOfFlag
     BOOST_REQUIRE(rig.frame.getNormalizedFrame().getTotalMeasurements() > 0u);
 
     rig.traits.failure = InjectedFailure::UnclassifiedRuntimeError;
-    BOOST_CHECK_THROW(rig.tracker.clustersToTracks(), std::runtime_error);
+    BOOST_CHECK_THROW(rig.tracker.clustersToTracks(rig.operationAdapter), std::runtime_error);
 
     BOOST_CHECK_EQUAL(rig.frame.getNormalizedFrame().getTotalMeasurements(), 0u);
     BOOST_CHECK(rig.frame.getCommonTracks().empty());
@@ -655,7 +679,7 @@ BOOST_AUTO_TEST_CASE(InvalidIndexTableConfigurationAlwaysRethrowsAndWipesRegardl
 
     bool threw = false;
     try {
-      rig.tracker.clustersToTracks();
+      rig.tracker.clustersToTracks(rig.operationAdapter);
     } catch (const TraversalException& e) {
       threw = true;
       BOOST_CHECK(e.getReason() == TraversalFailureReason::InvalidIndexTableConfiguration);
@@ -679,7 +703,7 @@ BOOST_AUTO_TEST_CASE(IndexTableConfigurationMismatchAlwaysRethrowsAndWipesRegard
 
     bool threw = false;
     try {
-      rig.tracker.clustersToTracks();
+      rig.tracker.clustersToTracks(rig.operationAdapter);
     } catch (const TraversalException& e) {
       threw = true;
       BOOST_CHECK(e.getReason() == TraversalFailureReason::IndexTableConfigurationMismatch);
@@ -701,7 +725,7 @@ BOOST_AUTO_TEST_CASE(ValidEmptyInputCompletesWithoutErrorAndProducesNoTracks)
   BOOST_REQUIRE_EQUAL(rig.frame.getNormalizedFrame().getTotalMeasurements(), 0u);
 
   TrackingResult result{TrackingOutcome::Structural, std::numeric_limits<float>::quiet_NaN()};
-  BOOST_CHECK_NO_THROW(result = rig.tracker.clustersToTracks());
+  BOOST_CHECK_NO_THROW(result = rig.tracker.clustersToTracks(rig.operationAdapter));
 
   BOOST_CHECK(result.outcome == TrackingOutcome::Success);
   BOOST_CHECK(result.elapsedMs >= 0.f);
@@ -751,7 +775,7 @@ BOOST_AUTO_TEST_CASE(RecoverableDroppedLeavesNoStaleCommonTrackOrSidecarState)
   rig.stageStaleState();
 
   rig.forceMemoryLimitBelowCurrentUsage();
-  const auto result = rig.tracker.clustersToTracks();
+  const auto result = rig.tracker.clustersToTracks(rig.operationAdapter);
 
   BOOST_CHECK(result.outcome == TrackingOutcome::RecoverableDropped);
   BOOST_CHECK(rig.frame.getCommonTracks().empty());
@@ -768,7 +792,7 @@ BOOST_AUTO_TEST_CASE(StructuralFailureLeavesNoStaleCommonTrackOrSidecarState)
     rig.stageStaleState();
 
     rig.traits.failure = InjectedFailure::UnclassifiedRuntimeError;
-    BOOST_CHECK_THROW(rig.tracker.clustersToTracks(), std::runtime_error);
+    BOOST_CHECK_THROW(rig.tracker.clustersToTracks(rig.operationAdapter), std::runtime_error);
 
     BOOST_CHECK(rig.frame.getCommonTracks().empty());
     BOOST_CHECK(rig.frame.getTrackClusterIndices().empty());
@@ -786,7 +810,7 @@ BOOST_AUTO_TEST_CASE(TrackerRemainsUsableAfterADroppedTimeFrame)
   rig.loadSource(makeFixture());
 
   rig.forceMemoryLimitBelowCurrentUsage();
-  const auto dropped = rig.tracker.clustersToTracks();
+  const auto dropped = rig.tracker.clustersToTracks(rig.operationAdapter);
   BOOST_REQUIRE(dropped.outcome == TrackingOutcome::RecoverableDropped);
 
   // Restore headroom and process a fresh (here, empty) TimeFrame on the
@@ -796,7 +820,7 @@ BOOST_AUTO_TEST_CASE(TrackerRemainsUsableAfterADroppedTimeFrame)
   rig.loadSource(emptyFixture());
 
   TrackingResult result{TrackingOutcome::Structural, std::numeric_limits<float>::quiet_NaN()};
-  BOOST_CHECK_NO_THROW(result = rig.tracker.clustersToTracks());
+  BOOST_CHECK_NO_THROW(result = rig.tracker.clustersToTracks(rig.operationAdapter));
   BOOST_CHECK(result.outcome == TrackingOutcome::Success);
   BOOST_CHECK(result.elapsedMs >= 0.f);
 }

@@ -6,7 +6,7 @@
 // License v3 (GPL Version 3), copied verbatim in the file "COPYING".
 
 // M5c source-level guard: the four shared tracklet/cell/neighbour/road
-// hot-loop entry points (TrackerTraits<NLayers>::computeLayerTracklets/
+// hot-loop entry points (TrackerTraits::computeLayerTracklets/
 // computeLayerCells/findCellsNeighbours/findRoads, TrackerTraits.cxx) used to
 // each re-run their own runtime StateFamily/TransitionPolicyTag dispatch
 // (one dispatchActivePolicy() call per method, every call) to pick which
@@ -16,7 +16,7 @@
 // bindTraversalOperation() -- see TrackerTraits.h/.cxx). This test proves
 // that conversion by construction, not just by behavior: it extracts each of
 // the four methods' own source text (from its `void
-// TrackerTraits<NLayers>::<name>(...)` signature to the matching closing
+// TrackerTraits::<name>(...)` signature to the matching closing
 // brace, via simple brace counting -- these four bodies contain no nested
 // class/lambda braces that would confuse that count), strips `//` line
 // comments (so explanatory prose about what these methods *used to* do,
@@ -67,14 +67,14 @@ std::string readTrackerTraitsHeader()
 }
 
 /// Extracts the body (inclusive of the opening/closing braces) of the first
-/// `void TrackerTraits<NLayers>::<methodName>(` definition found in `source`,
+/// `void TrackerTraits::<methodName>(` definition found in `source`,
 /// by counting braces from that signature's opening `{` to its matching
 /// closing `}`. `methodName` must be immediately followed by `(` in the
 /// match (a plain string search on the qualified name, not a regex), so
 /// `computeLayerTracklets` never matches `computeLayerTrackletsForPolicy`.
 std::string extractMethodBody(const std::string& source, const std::string& methodName)
 {
-  const std::string signature = "TrackerTraits<NLayers>::" + methodName + "(";
+  const std::string signature = "TrackerTraits::" + methodName + "(";
   const auto signaturePos = source.find(signature);
   BOOST_REQUIRE_MESSAGE(signaturePos != std::string::npos, "cannot find " << signature << " in TrackerTraits.cxx");
   const auto openBrace = source.find('{', signaturePos);
@@ -134,16 +134,16 @@ BOOST_AUTO_TEST_CASE(SharedHotLoopEntryPointsContainNoTagOrFamilyDispatchBranch)
     const auto code = stripLineComments(body);
     for (const auto& token : forbiddenTokens) {
       BOOST_CHECK_MESSAGE(!mentionsToken(code, token),
-                          "TrackerTraits<NLayers>::" << method << "() still mentions " << token
-                                                     << " in code -- a Tag/StateFamily dispatch branch leaked back"
-                                                     << " into the shared hot loop instead of staying inside"
-                                                     << " bindTraversalOperation()");
+                          "TrackerTraits::" << method << "() still mentions " << token
+                                            << " in code -- a Tag/StateFamily dispatch branch leaked back"
+                                            << " into the shared hot loop instead of staying inside"
+                                            << " bindTraversalOperation()");
     }
     // Every one of these methods must instead route through the bound
     // operation (TraversalOperationBinding, TrackerTraits.h) established by
     // bindTraversalOperation() in initialiseTimeFrame().
     BOOST_CHECK_MESSAGE(code.find("mTraversalOperation") != std::string::npos,
-                        "TrackerTraits<NLayers>::" << method << "() no longer invokes mTraversalOperation");
+                        "TrackerTraits::" << method << "() no longer invokes mTraversalOperation");
   }
 }
 
@@ -155,7 +155,7 @@ BOOST_AUTO_TEST_CASE(BindTraversalOperationIsTheSoleProducerOfTheBoundOperation)
   // once per iteration" contract (TraversalOperationBinding's own doc) would
   // not actually hold.
   const auto source = readTrackerTraitsSource();
-  const std::string signature = "TrackerTraits<NLayers>::bindTraversalOperation(";
+  const std::string signature = "TrackerTraits::bindTraversalOperation(";
   const auto signaturePos = source.find(signature);
   BOOST_REQUIRE_MESSAGE(signaturePos != std::string::npos, "cannot find " << signature);
   const auto bindBody = extractMethodBody(source, "bindTraversalOperation");
@@ -226,6 +226,6 @@ BOOST_AUTO_TEST_CASE(EightNonTemplateWrapperTargetsForwardToTheExistingTagTempla
     const auto body = extractMethodBody(source, wrapper);
     BOOST_REQUIRE_GT(body.size(), 0u);
     BOOST_CHECK_MESSAGE(body.find(leafCall) != std::string::npos,
-                        "TrackerTraits<NLayers>::" << wrapper << "() does not forward to " << leafCall);
+                        "TrackerTraits::" << wrapper << "() does not forward to " << leafCall);
   }
 }

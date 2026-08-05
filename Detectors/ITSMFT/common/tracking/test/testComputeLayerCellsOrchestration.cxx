@@ -329,7 +329,7 @@ struct Rig {
   // destroyed last (see SurfaceTrackingScratch's own lifetime-contract doc).
   TimeFrame frame;
   SurfaceTrackingScratch tf;
-  TrackerTraits<NLayers> traits;
+  TrackerTraits traits;
   std::shared_ptr<tbb::task_arena> arena;
   // Must outlive `plan` (DetectorLayoutSet borrows a SurfaceCatalogView into
   // it, Gate 4 B2 Slice 2) -- declared before `plan` so it is constructed
@@ -921,7 +921,7 @@ BOOST_AUTO_TEST_CASE(RepeatedComputeLayerCellsCallsDoNotRebindOrIncreaseCounts)
 BOOST_AUTO_TEST_CASE(ComputeLayerCellsFailsClosedWithoutInitialiseTimeFrame)
 {
   SurfaceTrackingScratch tf;
-  TrackerTraits<ITSNLayers> traits;
+  TrackerTraits traits;
   traits.adoptScratch(&tf);
 
   BOOST_CHECK_EXCEPTION(traits.computeLayerCells(0), TraversalException, [](const TraversalException& e) {

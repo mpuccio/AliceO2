@@ -325,30 +325,23 @@ ClusterSourceInput makeEmptySource(ClusterSourceId id, o2::detectors::DetID::ID 
 template <int NLayers>
 struct StandaloneRun {
   TimeFrame frame;
-  SurfaceTrackingScratch scratch;
-  TrackerTraits<NLayers> traits;
-  Tracker<NLayers> tracker{&traits};
-  std::shared_ptr<tbb::task_arena> arena;
-  std::shared_ptr<BoundedMemoryResource> pool = std::make_shared<BoundedMemoryResource>();
   std::vector<TrackingParameters> params;
+  std::shared_ptr<BoundedMemoryResource> pool = std::make_shared<BoundedMemoryResource>();
+  SurfacePlanTrackingParticipant<NLayers> participant{ParticipantId{0}, params};
+  SurfaceTrackingScratch& scratch;
   std::vector<SurfaceDescriptor> catalog;
   std::optional<DetectorLayoutSet> plan;
-  ITSSharedClusterCompatibility itsSidecar;
-  MFTPublicationCompatibility mftSidecar;
   TrackingResult result;
 
   StandaloneRun(o2::detectors::DetID::ID det, SurfaceKind kind,
                 const TrackingParameters& singleParams, const std::vector<DecodedCluster>& decoded)
-    : params{singleParams}
+    : params{singleParams}, scratch(participant.getScratch())
   {
     frame.setMemoryPool(pool);
-    scratch.setMemoryPool(pool);
-    traits.setMemoryPool(pool);
-    traits.setNThreads(1, arena);
-    traits.adoptScratch(&scratch);
-    traits.adoptFrame(&frame);
-    traits.updateTrackingParameters(params);
-    traits.setBz(Bz);
+    participant.setMemoryPool(pool);
+    participant.setNThreads(1);
+    participant.adoptFrame(frame);
+    participant.setBz(Bz);
 
     const auto orderedSurfaces = ordered(0, NLayers);
     catalog.reserve(NLayers);
@@ -365,6 +358,15 @@ struct StandaloneRun {
     plan.emplace(std::move(*planResult.layout));
     const auto layoutView = plan->getLayoutView(0);
     scratch.adoptPlan(orderedSurfaces.size(), layoutView.topology.nTransitions, layoutView.topology.nCells);
+    SurfaceMask ownedSurfaces;
+    for (const auto surface : orderedSurfaces) {
+      ownedSurfaces.set(surface);
+    }
+    auto binding = SurfacePlanBinding::build(layoutView, ClusterSourceId{0}, ownedSurfaces, orderedSurfaces,
+                                             kind, kind == SurfaceKind::Cylinder ? TransitionPolicyTag::CylinderCylinder : TransitionPolicyTag::DiskDisk);
+    BOOST_REQUIRE(binding.ok());
+    participant.adoptSurfacePlanBinding(std::make_unique<SurfacePlanBinding>(std::move(*binding.binding)));
+    participant.adoptDetectorLayoutSet(*plan);
 
     std::vector<CompClusterExt> compact;
     std::vector<unsigned char> patterns;
@@ -399,19 +401,9 @@ struct StandaloneRun {
       mask.setROFsEnabled(layer, 0, 1, 1);
     }
     scratch.setROFViews(RuntimeROFViews{rofTable.getView(), vtxTable.getView(), mask.getView(), {}});
-
-    if (det == o2::detectors::DetID::ITS) {
-      tracker.adoptITSSharedClusterCompatibility(itsSidecar);
-    } else {
-      tracker.adoptMFTPublicationCompatibility(mftSidecar);
-    }
-    tracker.adoptScratch(scratch);
-    tracker.adoptFrame(frame);
-    tracker.adoptDetectorLayoutSet(*plan);
-    tracker.setParameters(params);
-    tracker.setMemoryPool(pool);
-    tracker.setBz(Bz);
-    result = tracker.clustersToTracks();
+    participant.configureRofTables(ROFTimingConfig{40, 0, 0, 0}, 1);
+    const auto tracking = participant.track(frame);
+    result.outcome = tracking.outcome == ParticipantOutcome::Success ? TrackingOutcome::Success : TrackingOutcome::RecoverableDropped;
   }
 };
 

@@ -1,13 +1,11 @@
 // Gate 4 M7b source/dependency guard.
 //
-// NLayers is still present at the explicitly deferred Tracker/TrackerTraits
-// template boundary. This guard makes that list reviewable and rejects a new
-// semantically runtime-sized generic-core use.
+// This guard makes the remaining adapter/device boundaries reviewable and
+// rejects a new semantically runtime-sized generic-core use.
 // The categories are deliberately narrow:
 //   fixed-device-abi      fixed value capacity/representation;
 //   private-operation     a temporary typed operation boundary;
 //   adapter-edge          detector/output/configuration compatibility;
-//   deferred-m7d          the retained Tracker/TrackerTraits template bridge.
 // It scans common production include/src only.  Tests and documentation are
 // not authority sources and are intentionally outside this dependency guard.
 
@@ -31,8 +29,7 @@ namespace
 {
 enum class CountBoundary { FixedDeviceABI,
                            PrivateOperation,
-                           AdapterEdge,
-                           DeferredM7d };
+                           AdapterEdge };
 
 const char* boundaryName(CountBoundary boundary)
 {
@@ -43,8 +40,6 @@ const char* boundaryName(CountBoundary boundary)
       return "temporary private operation implementation";
     case CountBoundary::AdapterEdge:
       return "adapter edge";
-    case CountBoundary::DeferredM7d:
-      return "explicitly deferred M7d Tracker/TrackerTraits boundary";
   }
   return "unclassified";
 }
@@ -107,12 +102,6 @@ std::optional<CountBoundary> classify(const fs::path& path, std::string_view cod
   if (name == "TrackerTraits.cxx" && codeLine.find(".NLayers") != std::string_view::npos) {
     return CountBoundary::AdapterEdge;
   }
-  if (name == "Tracker.h" || name == "TrackerTraits.h" || name == "TrackerTraits.cxx" || name == "CATracker.h" || name == "CATracker.cxx" ||
-      name == "SurfaceTrackingScratch.h" || name == "SurfaceTrackingScratch.cxx" ||
-      name == "IndexTableUtils.h" ||
-      name == "TransitionPolicyState.h") {
-    return CountBoundary::DeferredM7d;
-  }
   if (name == "IndexTableConfiguration.h" || name == "IndexTableConfiguration.cxx" ||
       name == "NativeRefitDriver.h" || name == "NativeCylinderCylinderRefitDriver.h" ||
       name == "RefitLegAssembly.h" || name == "TransitionPolicyOperations.h" ||
@@ -132,6 +121,7 @@ std::optional<CountBoundary> classify(const fs::path& path, std::string_view cod
       name == "DetectorTraits.cxx" || name == "DetectorLayoutSet.cxx" || name == "MFTFwdTrackHelpers.h" ||
       name == "MFTFwdTrackHelpers.cxx" || name == "SurfaceMeasurement.h" ||
       name == "SurfacePlanTrackingParticipant.h" || name == "SurfacePlanTrackingParticipant.cxx" ||
+      name == "DetectorTrackingOperationAdapterSupport.h" ||
       name == "TrackingInterface.h" || name == "TrackingInterface.cxx" || name == "Configuration.cxx" ||
       name == "ITSSurfaceSpec.h" || name == "MFTSurfaceSpec.h" || name == "StaticDetectorCatalogs.h" ||
       name == "TrackingConfigParam.h" || name == "NominalSurfaceMaterialDefaults.h") {

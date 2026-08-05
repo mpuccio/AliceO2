@@ -91,7 +91,7 @@ int initializeCommonITSTracker()
   frame.setMemoryPool(pool);
   scratch.setMemoryPool(pool);
   scratch.adoptPlan(orderedSurfaces.size(), layout.topology.nTransitions, layout.topology.nCells);
-  TrackerTraits<ITSNLayers> traits;
+  TrackerTraits traits;
   traits.setMemoryPool(pool);
   traits.adoptScratch(&scratch);
   traits.adoptFrame(&frame);
@@ -106,7 +106,7 @@ int initializeCommonITSTracker()
     return 3;
   }
 
-  Tracker<ITSNLayers> tracker{&traits};
+  Tracker tracker{&traits};
   tracker.adoptScratch(scratch);
   tracker.adoptFrame(frame);
   tracker.adoptDetectorLayoutSet(plan);
