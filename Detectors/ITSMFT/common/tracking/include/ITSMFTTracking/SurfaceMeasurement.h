@@ -8,7 +8,6 @@
 #ifndef ALICEO2_ITSMFT_TRACKING_SURFACEMEASUREMENT_H_
 #define ALICEO2_ITSMFT_TRACKING_SURFACEMEASUREMENT_H_
 
-#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <limits>
@@ -91,13 +90,6 @@ struct SurfaceMeasurement {
   SurfaceId surface{};
   uint16_t flags{0};
 };
-
-// Non-owning, per-layer view of normalized measurements used by the common
-// CA and native refit helpers. The TimeFrame owns the storage; the alias
-// preserves NLayers-templated operation signatures until the post-M6g
-// tracker de-templating slice.
-template <int NLayers>
-using LayerMeasurementSpans = std::array<gsl::span<const SurfaceMeasurement>, NLayers>;
 
 #define O2_ITSMFT_ASSERT_DEVICE_TYPE(Type, Size)     \
   static_assert(std::is_standard_layout_v<Type>);    \

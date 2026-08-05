@@ -161,7 +161,7 @@ bool refitTrackFwd(const TrackSeed& seed,
                    const SurfaceTrackingScratch& tf,
                    const TrackingParameters& params,
                    float bz,
-                   const LayerMeasurementSpans<o2::mft::constants::mft::LayersNumber>& layerMeasurements,
+                   gsl::span<const gsl::span<const SurfaceMeasurement>> layerMeasurements,
                    SurfaceCatalogView surfaceCatalog,
                    ClusterSourceId expectedSource);
 

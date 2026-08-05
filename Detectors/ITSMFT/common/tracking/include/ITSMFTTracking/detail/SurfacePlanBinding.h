@@ -115,6 +115,12 @@ class SurfacePlanBinding
 
     result->mSource = source;
     result->mOwnedSurfaces = ownedSurfaces;
+    // Retain the validated positional order itself.  The inverse map below
+    // is useful for sparse global ids, but it cannot answer the hot-loop
+    // question "which surface is position i?" without reconstructing an
+    // order from a numeric SurfaceId.  The plan's ordered positions are the
+    // runtime traversal authority; the vector is immutable after build().
+    result->mOrderedSurfaces.assign(orderedSurfaces.begin(), orderedSurfaces.end());
     result->mOwnedSurfaceIndexBySurface.assign(globalLayout.nSurfaces, -1);
     for (uint16_t position = 0; position < orderedSurfaces.size(); ++position) {
       const auto surface = orderedSurfaces[position];
@@ -229,6 +235,7 @@ class SurfacePlanBinding
 
   ClusterSourceId getSource() const noexcept { return mSource; }
   SurfaceMask getOwnedSurfaces() const noexcept { return mOwnedSurfaces; }
+  gsl::span<const SurfaceId> getOrderedSurfaces() const noexcept { return mOrderedSurfaces; }
   std::optional<uint16_t> getOwnedSurfaceIndex(SurfaceId id) const noexcept { return getSlot(mOwnedSurfaceIndexBySurface, id); }
   std::optional<uint16_t> getScratchTransitionSlot(TransitionId id) const noexcept { return getSlot(mScratchTransitionSlot, id); }
   std::optional<uint16_t> getScratchCellSlot(CellTopologyId id) const noexcept { return getSlot(mScratchCellSlot, id); }
@@ -249,6 +256,7 @@ class SurfacePlanBinding
 
   ClusterSourceId mSource{};
   SurfaceMask mOwnedSurfaces{};
+  std::vector<SurfaceId> mOrderedSurfaces;
   std::vector<int16_t> mOwnedSurfaceIndexBySurface;
   std::vector<int16_t> mScratchTransitionSlot;
   std::vector<int16_t> mScratchCellSlot;

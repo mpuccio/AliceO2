@@ -37,8 +37,8 @@ enum class IndexTableConfigError : uint8_t {
   NonPositiveRowBins,
   NonPositiveColBins,
   RowColBinCountExceedsIndexRange, // RowBins*ColBins would exceed int, the type used for bin indices in the unchanged hot loop
-  InvalidActiveLayerCount,         // !(0 < params.NLayers <= NLayers)
-  InsufficientLayerColHalfExtent,  // selected extent source shorter than the template NLayers
+  InvalidActiveLayerCount,         // !(0 < activeSurfaceCount <= MaxLayoutSurfaces) or params.NLayers != activeSurfaceCount
+  InsufficientLayerColHalfExtent,  // selected extent source shorter than activeSurfaceCount
   NonFiniteColHalfExtent,          // NaN or +/-Inf
   NonPositiveColHalfExtent,        // finite but <= 0
   NonFiniteRowRange,               // XY only: rowMin or rowMax non-finite
@@ -54,7 +54,8 @@ enum class IndexTableConfigError : uint8_t {
 /// per iteration, outside any candidate/neighbour/road loop.
 template <TransitionPolicyTag Tag, int NLayers>
 IndexTableConfigError bindIndexTableConfiguration(o2::itsmft::IndexTableUtils<NLayers>& staged,
-                                                  const TrackingParameters& params) noexcept;
+                                                  const TrackingParameters& params,
+                                                  int activeSurfaceCount) noexcept;
 
 /// True iff every field setIndexTableParams stores agrees exactly between
 /// `a` and `b`. Used to enforce that a non-FirstPass iteration's freshly
@@ -62,7 +63,8 @@ IndexTableConfigError bindIndexTableConfiguration(o2::itsmft::IndexTableUtils<NL
 /// content it intends to reuse or resort, before that TimeFrame is touched.
 template <int NLayers>
 bool indexTableConfigurationsMatch(const o2::itsmft::IndexTableUtils<NLayers>& a,
-                                   const o2::itsmft::IndexTableUtils<NLayers>& b) noexcept
+                                   const o2::itsmft::IndexTableUtils<NLayers>& b,
+                                   int activeSurfaceCount) noexcept
 {
   if (a.getCoordType() != b.getCoordType() ||
       a.getNrowBins() != b.getNrowBins() ||
@@ -71,7 +73,10 @@ bool indexTableConfigurationsMatch(const o2::itsmft::IndexTableUtils<NLayers>& a
       a.getRowCoordinateSpan() != b.getRowCoordinateSpan()) {
     return false;
   }
-  for (int iLayer = 0; iLayer < NLayers; ++iLayer) {
+  if (activeSurfaceCount <= 0 || activeSurfaceCount > o2::itsmft::IndexTableUtilsCore::MaxLayers) {
+    return false;
+  }
+  for (int iLayer = 0; iLayer < activeSurfaceCount; ++iLayer) {
     if (a.getLayerColHalfExtent(iLayer) != b.getLayerColHalfExtent(iLayer)) {
       return false;
     }

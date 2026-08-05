@@ -20,6 +20,7 @@
 #include <optional>
 #include <stdexcept>
 #include <string>
+#include <vector>
 
 #include <gsl/span>
 #include <oneapi/tbb.h>
@@ -420,7 +421,10 @@ class TrackerTraits
   // iteration that ultimately failed; resetTraversalCache() zero-fills it at
   // the top of every call, and it stays that way unless the call returns
   // normally. See getLayerMaterial()'s doc for the read-side contract.
-  std::array<NominalSurfaceMaterial, NLayers> mLayerMaterial{};
+  // Host-only plan-sized cache.  The legacy layer index remains an adapter
+  // coordinate until M7c, but its extent is supplied by the adopted plan,
+  // never by the TrackerTraits template argument.
+  std::vector<NominalSurfaceMaterial> mLayerMaterial;
   // Gate 4 Slice 0a (sparse-topology tracklet migration): temporary bridge
   // from a global SurfaceId back to this TrackerTraits<NLayers>'s own
   // legacy layout-local layer index, so the migrated hot loops can resolve
@@ -454,7 +458,8 @@ class TrackerTraits
   // iteration that ultimately failed. resetTraversalCache() resets every
   // element to an empty span at the top of every call, and it stays that way
   // unless the call returns normally.
-  std::array<gsl::span<const SurfaceMeasurement>, NLayers> mLayerMeasurements{};
+  // Host-only non-owning view, sized to the adopted ordered surface span.
+  std::vector<gsl::span<const SurfaceMeasurement>> mLayerMeasurements;
   int mTraversalGroupingCount{0};
   // A template-specialized serial accepted-track hook. Its ITS instantiation
   // is empty and has no MFT compatibility allocation or lookup.

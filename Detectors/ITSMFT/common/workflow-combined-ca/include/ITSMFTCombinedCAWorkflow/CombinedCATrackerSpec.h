@@ -122,11 +122,11 @@ class CombinedCATrackerDPL : public o2::framework::Task
   }
   gsl::span<const o2::itsmft::tracking::SurfaceId> getITSOrderedSurfaces() const noexcept
   {
-    return mITSPlan->getConfigurationKey().orderedSurfaces;
+    return mITSParticipant->ownedSurfaces();
   }
   gsl::span<const o2::itsmft::tracking::SurfaceId> getMFTOrderedSurfaces() const noexcept
   {
-    return mMFTPlan->getConfigurationKey().orderedSurfaces;
+    return mMFTParticipant->ownedSurfaces();
   }
 
   std::shared_ptr<o2::base::GRPGeomRequest> mGGCCDBRequest;

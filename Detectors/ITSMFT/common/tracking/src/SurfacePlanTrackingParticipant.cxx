@@ -111,7 +111,7 @@ void SurfacePlanTrackingParticipant<NLayers>::configureRofTables(const ROFTiming
   }
   mScratch.setMultiplicityCutMask(std::move(mask));
 
-  scratchInitTrackerTopologies<NLayers>(mScratch, mParams);
+  scratchInitTrackerTopologies<NLayers>(mScratch, mParams, static_cast<int>(mScratch.getNOwnedSurfaces()));
 }
 
 template <int NLayers>
@@ -134,10 +134,10 @@ void SurfacePlanTrackingParticipant<NLayers>::clearPublicationSidecar() noexcept
 template <int NLayers>
 gsl::span<const SurfaceId> SurfacePlanTrackingParticipant<NLayers>::ownedSurfaces() const noexcept
 {
-  if (mPlan == nullptr) {
+  if (mBinding == nullptr) {
     return {};
   }
-  return gsl::span<const SurfaceId>{mPlan->getConfigurationKey().orderedSurfaces};
+  return mBinding->getOrderedSurfaces();
 }
 
 template <int NLayers>
@@ -175,7 +175,7 @@ std::optional<ParticipantPublicationExport> SurfacePlanTrackingParticipant<NLaye
   if (!mTracked || mPlan == nullptr) {
     return std::nullopt;
   }
-  return ParticipantPublicationExport{mId, gsl::span<const SurfaceId>{mPlan->getConfigurationKey().orderedSurfaces}};
+  return ParticipantPublicationExport{mId, ownedSurfaces()};
 }
 
 template <int NLayers>

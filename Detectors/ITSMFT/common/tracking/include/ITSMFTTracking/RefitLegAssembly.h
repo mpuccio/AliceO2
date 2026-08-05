@@ -12,8 +12,6 @@
 
 #ifndef GPUCA_GPUCODE
 
-#include <array>
-
 #include <gsl/span>
 
 #include "ITSMFTTracking/Cell.h"
@@ -67,12 +65,12 @@ namespace o2::itsmft::tracking
 template <int NLayers>
 gsl::span<const SurfaceMeasurement> assembleRefitLegSlots(
   const TrackSeed& seed,
-  const LayerMeasurementSpans<NLayers>& layerMeasurements,
+  gsl::span<const gsl::span<const SurfaceMeasurement>> layerMeasurements,
   int start, int end, int step,
-  std::array<SurfaceMeasurement, NLayers>& out) noexcept
+  gsl::span<SurfaceMeasurement> out) noexcept
 {
   int position = 0;
-  for (int legacyLayer = start; legacyLayer != end; legacyLayer += step) {
+  for (int legacyLayer = start; legacyLayer != end && position < static_cast<int>(out.size()); legacyLayer += step) {
     const int clsIdx = seed.getCluster(legacyLayer);
     out[position++] = (clsIdx == o2::its::constants::UnusedIndex)
                         ? SurfaceMeasurement{}

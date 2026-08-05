@@ -528,13 +528,13 @@ void SurfaceTrackingScratch::initTrackerTopologies(gsl::span<const TrackingParam
   if constexpr (NLayers == ITSNLayers) {
     mTrackerTopologiesITS.resize(trkParams.size());
     for (size_t iteration = 0; iteration < trkParams.size(); ++iteration) {
-      const int iterationMaxLayers = std::min(maxLayers, trkParams[iteration].NLayers);
+      const int iterationMaxLayers = std::min(maxLayers, static_cast<int>(mNOwnedSurfaces));
       mTrackerTopologiesITS[iteration].init(iterationMaxLayers, trkParams[iteration].MaxHoles, LayerMask{trkParams[iteration].HoleLayerMask});
     }
   } else {
     mTrackerTopologiesMFT.resize(trkParams.size());
     for (size_t iteration = 0; iteration < trkParams.size(); ++iteration) {
-      const int iterationMaxLayers = std::min(maxLayers, trkParams[iteration].NLayers);
+      const int iterationMaxLayers = std::min(maxLayers, static_cast<int>(mNOwnedSurfaces));
       mTrackerTopologiesMFT[iteration].init(iterationMaxLayers, trkParams[iteration].MaxHoles, LayerMask{trkParams[iteration].HoleLayerMask});
     }
   }
@@ -591,7 +591,8 @@ void SurfaceTrackingScratch::prepareClusters(const TimeFrame& frame, const Track
   bounded_vector<int> lutPerBin(numBins, 0, mMemoryPool.get());
   const std::array<float, 2> beamXY{frame.getBeamX(), frame.getBeamY()};
   const auto& maskView = getROFMaskView<NLayers>();
-  for (int iLayer{0}, stopLayer = std::min(trkParam.NLayers, maxLayers); iLayer < stopLayer; ++iLayer) {
+  const int stopLayer = std::min(maxLayers, static_cast<int>(mNOwnedSurfaces));
+  for (int iLayer{0}; iLayer < stopLayer; ++iLayer) {
     for (int rof{0}; rof < getNrof(iLayer); ++rof) {
       if (!maskView.isROFEnabled(iLayer, rof)) {
         continue;
@@ -676,8 +677,8 @@ void SurfaceTrackingScratch::initialise(const TimeFrame& frame, const TrackingPa
     deepVectorClear(mLinesLabels);
     clearResizeBoundedVector(mLinesLabels, getNrof(1), mMemoryPool.get());
     mIndexTableUtils = indexTableConfig;
-    clearResizeBoundedVector(mPositionResolution, trkParam.NLayers, mMemoryPool.get());
-    clearResizeBoundedVector(mBogusClusters, trkParam.NLayers, mMemoryPool.get());
+    clearResizeBoundedVector(mPositionResolution, maxLayers, mMemoryPool.get());
+    clearResizeBoundedVector(mBogusClusters, maxLayers, mMemoryPool.get());
     deepVectorClear(mTrackletClusters);
     for (unsigned int iLayer{0}; iLayer < std::min(static_cast<int>(mClusters.size()), maxLayers); ++iLayer) {
       clearResizeBoundedVector(mClusters[iLayer], mUnsortedClusters[iLayer].size(), getMaybeFrameworkHostResource(maxLayers != static_cast<int>(mNOwnedSurfaces)));
@@ -724,7 +725,7 @@ void SurfaceTrackingScratch::initialise(const TimeFrame& frame, const TrackingPa
     prepareClusters<NLayers>(frame, trkParam, maxLayers, layerMeasurements);
   }
   mTotalTracklets = {0, 0};
-  if (maxLayers < trkParam.NLayers) { // Vertexer only, but in both iterations
+  if (maxLayers < static_cast<int>(mNOwnedSurfaces)) { // Vertexer only, but in both iterations
     for (int iLayer{0}; iLayer < maxLayers; ++iLayer) {
       deepVectorClear(mUsedClusters[iLayer]);
       clearResizeBoundedVector(mUsedClusters[iLayer], mUnsortedClusters[iLayer].size(), mMemoryPool.get());

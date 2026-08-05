@@ -371,9 +371,9 @@ void ITSMFTTrackingInterface<NLayers>::loadTimeFrame(gsl::span<const o2::itsmft:
   // on any failure below, mFrame's normalized frame and every scratch
   // compatibility container are left exactly as
   // they were before this call.
-  const auto& configurationKey = mPlan->getConfigurationKey();
+  const auto orderedSurfaces = mBinding->getOrderedSurfaces();
   const auto result = mScratch.loadNormalizedSource(mFrame, *mClusterDecoder, origin, timing, clusters, patterns, rofs, mDict, labels, DetId,
-                                                    gsl::span<const SurfaceId>{configurationKey.orderedSurfaces}, mPlan->getSurfaceCatalog());
+                                                    orderedSurfaces, mPlan->getSurfaceCatalog());
   if (!result.ok()) {
     if (isRecoverableLoadError(result.error, result.timingDetail)) {
       throw RecoverableLoadFailure{result};
@@ -398,7 +398,7 @@ void ITSMFTTrackingInterface<NLayers>::loadTimeFrame(gsl::span<const o2::itsmft:
   LOGP(info, "{} CA loaded {} clusters from {} ROFs into TimeFrame ({} pattern bytes, MC={})",
        detName<DetId>(), mScratch.getTotalClusters(), rofs.size(), patterns.size(), labels != nullptr);
 
-  for (int iLayer = 0; iLayer < NLayers; ++iLayer) {
+  for (std::size_t iLayer = 0; iLayer < orderedSurfaces.size(); ++iLayer) {
     LOGP(info, "  layer {}: {} ROF slots", iLayer, mScratch.getNrof(iLayer));
   }
 }
@@ -439,8 +439,9 @@ void ITSMFTTrackingInterface<NLayers>::configureTrackingTopology()
   if (mTrackParams.empty()) {
     return;
   }
-  scratchInitDefaultTrackingTopology<NLayers>(mScratch, mTrackParams[0], NLayers);
-  scratchInitTrackerTopologies<NLayers>(mScratch, mTrackParams);
+  const auto activeSurfaceCount = static_cast<int>(mScratch.getNOwnedSurfaces());
+  scratchInitDefaultTrackingTopology<NLayers>(mScratch, mTrackParams[0], activeSurfaceCount);
+  scratchInitTrackerTopologies<NLayers>(mScratch, mTrackParams, activeSurfaceCount);
 }
 
 template <int NLayers>

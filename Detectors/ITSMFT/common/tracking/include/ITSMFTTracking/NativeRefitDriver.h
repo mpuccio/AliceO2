@@ -12,8 +12,8 @@
 
 #ifndef GPUCA_GPUCODE
 
-#include <array>
 #include <cmath>
+#include <vector>
 
 #include <gsl/span>
 
@@ -112,7 +112,7 @@ GPUhdi() float ptFromQOverPt(float q2pt, uint8_t absCharge) noexcept
 template <int NLayers>
 bool fitTrackSeedLegs(
   const TrackSeed& seed,
-  const LayerMeasurementSpans<NLayers>& layerMeasurements,
+  gsl::span<const gsl::span<const SurfaceMeasurement>> layerMeasurements,
   SurfaceCatalogView surfaceCatalog,
   float bz,
   bool shiftReferenceToMeasurement,
@@ -143,8 +143,9 @@ bool fitTrackSeedLegs(
   resetCovarianceForRefit(stateA);
   float chi2A = 0.f;
   uint32_t acceptedA = 0;
-  std::array<SurfaceMeasurement, NLayers> slotsBufferA{};
-  const auto slotsA = assembleRefitLegSlots<NLayers>(seed, layerMeasurements, 0, NLayers, 1, slotsBufferA);
+  const int activeSurfaceCount = static_cast<int>(layerMeasurements.size());
+  std::vector<SurfaceMeasurement> slotsBufferA(static_cast<std::size_t>(activeSurfaceCount));
+  const auto slotsA = assembleRefitLegSlots<NLayers>(seed, layerMeasurements, 0, activeSurfaceCount, 1, slotsBufferA);
   if (!Propagator::driveRefitLeg(stateA, linRefA, chi2A, acceptedA, slotsA, surfaceCatalog, bz,
                                  material::MaterialTraversalDirection::AlongMomentum, shiftReferenceToMeasurement,
                                  maxChi2ClusterAttachment, reason)) {
@@ -166,8 +167,8 @@ bool fitTrackSeedLegs(
   resetCovarianceForRefit(stateB);
   float chi2B = 0.f;
   uint32_t acceptedB = 0;
-  std::array<SurfaceMeasurement, NLayers> slotsBufferB{};
-  const auto slotsB = assembleRefitLegSlots<NLayers>(seed, layerMeasurements, NLayers - 1, -1, -1, slotsBufferB);
+  std::vector<SurfaceMeasurement> slotsBufferB(static_cast<std::size_t>(activeSurfaceCount));
+  const auto slotsB = assembleRefitLegSlots<NLayers>(seed, layerMeasurements, activeSurfaceCount - 1, -1, -1, slotsBufferB);
   if (!Propagator::driveRefitLeg(stateB, linRefB, chi2B, acceptedB, slotsB, surfaceCatalog, bz,
                                  material::MaterialTraversalDirection::OppositeMomentum, shiftReferenceToMeasurement,
                                  maxChi2ClusterAttachment, reason)) {
@@ -180,7 +181,7 @@ bool fitTrackSeedLegs(
 
   // --- MinPt check, keyed on the seed's own attached-cluster count. ---
   const int nClAttached = seed.getHitLayerMask().count();
-  const int minPtSlot = NLayers - nClAttached;
+  const int minPtSlot = activeSurfaceCount - nClAttached;
   if (minPtSlot >= 0 && minPtSlot < static_cast<int>(minPt.size())) {
     const float minPtThreshold = minPt[minPtSlot];
     if (minPtThreshold > 0.f && ptFromQOverPt(stateB.parameters[4], stateB.absCharge) < minPtThreshold) {
@@ -201,8 +202,8 @@ bool fitTrackSeedLegs(
     resetCovarianceForRefit(stateC);
     float chi2C = 0.f;
     uint32_t acceptedC = 0;
-    std::array<SurfaceMeasurement, NLayers> slotsBufferC{};
-    const auto slotsC = assembleRefitLegSlots<NLayers>(seed, layerMeasurements, 0, NLayers, 1, slotsBufferC);
+    std::vector<SurfaceMeasurement> slotsBufferC(static_cast<std::size_t>(activeSurfaceCount));
+    const auto slotsC = assembleRefitLegSlots<NLayers>(seed, layerMeasurements, 0, activeSurfaceCount, 1, slotsBufferC);
     if (!Propagator::driveRefitLeg(stateC, linRefC, chi2C, acceptedC, slotsC, surfaceCatalog, bz,
                                    material::MaterialTraversalDirection::AlongMomentum, shiftReferenceToMeasurement,
                                    maxChi2ClusterAttachment, reason)) {

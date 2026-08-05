@@ -7,7 +7,6 @@
 
 #include "ITSMFTTracking/IndexTableConfiguration.h"
 
-#include <array>
 #include <cmath>
 #include <cstdint>
 #include <limits>
@@ -21,9 +20,11 @@ using o2::itsmft::IndexTableCoordType;
 
 template <TransitionPolicyTag Tag, int NLayers>
 IndexTableConfigError bindIndexTableConfiguration(o2::itsmft::IndexTableUtils<NLayers>& staged,
-                                                  const TrackingParameters& params) noexcept
+                                                  const TrackingParameters& params,
+                                                  int activeSurfaceCount) noexcept
 {
-  if (!(params.NLayers > 0 && params.NLayers <= NLayers)) {
+  if (!(activeSurfaceCount > 0 && activeSurfaceCount <= o2::itsmft::IndexTableUtilsCore::MaxLayers) ||
+      params.NLayers != activeSurfaceCount) {
     return IndexTableConfigError::InvalidActiveLayerCount;
   }
   if (params.RowBins <= 0) {
@@ -56,12 +57,11 @@ IndexTableConfigError bindIndexTableConfiguration(o2::itsmft::IndexTableUtils<NL
 
   const bool useColHalfExtent = !params.LayerColHalfExtent.empty();
   const auto& source = useColHalfExtent ? params.LayerColHalfExtent : params.LayerZ;
-  if (source.size() < static_cast<std::size_t>(NLayers)) {
+  if (source.size() < static_cast<std::size_t>(activeSurfaceCount)) {
     return IndexTableConfigError::InsufficientLayerColHalfExtent;
   }
 
-  std::array<float, NLayers> extents{};
-  for (int iLayer = 0; iLayer < NLayers; ++iLayer) {
+  for (int iLayer = 0; iLayer < activeSurfaceCount; ++iLayer) {
     const float extent = source[iLayer];
     if (!std::isfinite(extent)) {
       return IndexTableConfigError::NonFiniteColHalfExtent;
@@ -69,7 +69,6 @@ IndexTableConfigError bindIndexTableConfiguration(o2::itsmft::IndexTableUtils<NL
     if (!(extent > 0.f)) {
       return IndexTableConfigError::NonPositiveColHalfExtent;
     }
-    extents[iLayer] = extent;
   }
 
   // Only now, after every check has passed, is `staged` mutated. Calling the
@@ -80,23 +79,24 @@ IndexTableConfigError bindIndexTableConfiguration(o2::itsmft::IndexTableUtils<NL
   // zero-fills any shortfall instead of rejecting it. `extents` here is
   // byte-identical to what that fallback would have produced for every input
   // that reaches this point, since `source` has already been proven to cover
-  // NLayers.
+  // the runtime plan extent.
   staged.setIndexTableParams(Tag == TransitionPolicyTag::DiskDisk ? IndexTableCoordType::XY : IndexTableCoordType::PhiZ,
-                             params.RowBins, params.ColBins, rowMin, rowMax, extents);
+                             params.RowBins, params.ColBins, rowMin, rowMax,
+                             gsl::span<const float>{source.data(), static_cast<std::size_t>(activeSurfaceCount)});
   return IndexTableConfigError::None;
 }
 
 template IndexTableConfigError bindIndexTableConfiguration<TransitionPolicyTag::CylinderCylinder, 7>(
-  o2::itsmft::IndexTableUtils<7>&, const TrackingParameters&);
+  o2::itsmft::IndexTableUtils<7>&, const TrackingParameters&, int);
 template IndexTableConfigError bindIndexTableConfiguration<TransitionPolicyTag::DiskDisk, 10>(
-  o2::itsmft::IndexTableUtils<10>&, const TrackingParameters&);
+  o2::itsmft::IndexTableUtils<10>&, const TrackingParameters&, int);
 // Gate 4 M5b: TrackerTraits::initialiseTimeFrame() no longer gates Tag
 // selection on NLayers at compile time (see TrackerTraits.cxx's
 // dispatchActivePolicy() doc), so both cross combinations below are now
 // reachable from that call site too.
 template IndexTableConfigError bindIndexTableConfiguration<TransitionPolicyTag::DiskDisk, 7>(
-  o2::itsmft::IndexTableUtils<7>&, const TrackingParameters&);
+  o2::itsmft::IndexTableUtils<7>&, const TrackingParameters&, int);
 template IndexTableConfigError bindIndexTableConfiguration<TransitionPolicyTag::CylinderCylinder, 10>(
-  o2::itsmft::IndexTableUtils<10>&, const TrackingParameters&);
+  o2::itsmft::IndexTableUtils<10>&, const TrackingParameters&, int);
 
 } // namespace o2::itsmft::tracking

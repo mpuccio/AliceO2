@@ -477,9 +477,9 @@ class SurfaceTrackingScratch
   /// existing call site already builds it -- see SurfaceTrackingScratch::IndexTableUtilsN.
   /// M6e2: reads/writes the dual ROF-mask/topology members above, so this is
   /// now a template on NLayers too; `layerMeasurements` takes a runtime-sized
-  /// span-of-spans (not a fixed-width LayerMeasurementSpans<N> array) since
+  /// span-of-spans (not a fixed-width per-layer array) since
   /// nothing in its body needs a compile-time width, only a runtime layer
-  /// index bounded by `maxLayers` -- both LayerMeasurementSpans<7> and <10>
+  /// index bounded by `maxLayers` -- both former 7- and 10-layer callers
   /// std::arrays convert to it implicitly via gsl::span's array constructor.
   template <int NLayers>
   void initialise(const TimeFrame& frame, const TrackingParameters& trkParam, int maxLayers, int iteration,

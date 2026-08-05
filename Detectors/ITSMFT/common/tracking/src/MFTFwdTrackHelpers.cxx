@@ -48,7 +48,7 @@ bool refitTrackFwd(const TrackSeed& seed,
                    const SurfaceTrackingScratch& tf,
                    const TrackingParameters& params,
                    float bz,
-                   const LayerMeasurementSpans<kMFTLayers>& layerMeasurements,
+                   gsl::span<const gsl::span<const SurfaceMeasurement>> layerMeasurements,
                    SurfaceCatalogView surfaceCatalog,
                    ClusterSourceId expectedSource)
 {
@@ -58,7 +58,7 @@ bool refitTrackFwd(const TrackSeed& seed,
   // TrackerTraits::initialiseTimeFrame() already established for every entry
   // of mLayerMeasurements (NormalizedMeasurementMismatch) -- unchanged from
   // the pre-M5d implementation, see MFTFwdTrackHelpers.h's own doc.
-  for (int layer = 0; layer < kMFTLayers; ++layer) {
+  for (int layer = 0; layer < static_cast<int>(layerMeasurements.size()); ++layer) {
     if (!hitMask.has(layer)) {
       continue;
     }
@@ -101,7 +101,7 @@ bool refitTrackFwd(const TrackSeed& seed,
     if (std::abs(paramOut.parameters[0]) < params.TrackletMinAbsX) {
       return false;
     }
-    for (int layer = 0; layer < kMFTLayers; ++layer) {
+    for (int layer = 0; layer < static_cast<int>(layerMeasurements.size()); ++layer) {
       if (!hitMask.has(layer)) {
         continue;
       }

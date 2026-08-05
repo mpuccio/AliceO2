@@ -101,7 +101,7 @@ Vertex diamondVertexForROF(const Vertex& base, const ROFOverlapView& rofOverlapV
 
 template <int NLayers>
 bool makeAcceptedTrackShadow(const CATrackType<NLayers>& track,
-                             const LayerMeasurementSpans<NLayers>& layerMeasurements,
+                             gsl::span<const gsl::span<const SurfaceMeasurement>> layerMeasurements,
                              const TimeEstBC& selectedTimestamp,
                              CommonTrackShadowRecord& record)
 {
@@ -119,8 +119,8 @@ bool makeAcceptedTrackShadow(const CATrackType<NLayers>& track,
   }
   record.track.chi2 = track.getChi2();
   record.track.timestamp = {static_cast<TFBC>(selectedTimestamp.lower()), static_cast<TFBC>(selectedTimestamp.upper())};
-  record.references.reserve(NLayers);
-  for (int layer = 0; layer < NLayers; ++layer) {
+  record.references.reserve(layerMeasurements.size());
+  for (std::size_t layer = 0; layer < layerMeasurements.size(); ++layer) {
     const int localIndex = track.getClusterIndex(layer);
     if (localIndex == o2::its::constants::UnusedIndex) {
       continue;
@@ -149,9 +149,10 @@ void TrackerTraits<NLayers>::resetTraversalCache() noexcept
   mDiskPolicyParams.reset();
   mDiskLayerReferenceZ = {};
   mAttachHitConfig = {};
-  mLayerMaterial.fill(NominalSurfaceMaterial{});
+  const auto resetSurfaceCount = mScratch == nullptr ? std::size_t{0} : mScratch->getNOwnedSurfaces();
+  mLayerMaterial.assign(resetSurfaceCount, NominalSurfaceMaterial{});
   mSurfaceToLegacyLayer.fill(kInvalidLegacyLayer);
-  mLayerMeasurements.fill(gsl::span<const SurfaceMeasurement>{});
+  mLayerMeasurements.assign(resetSurfaceCount, gsl::span<const SurfaceMeasurement>{});
   mTraversalOperation = TraversalOperationBinding{};
   mTraversalGroupingCount = 0;
 }
@@ -298,7 +299,7 @@ void TrackerTraits<NLayers>::bindTraversalOperation(int iteration)
       // through the public API today. Guards against a future refactor
       // accidentally decoupling the two commits, checked once here instead
       // of once per computeLayerCells() call.
-      if (mDiskLayerReferenceZ.size() < static_cast<size_t>(NLayers)) {
+      if (mDiskLayerReferenceZ.size() < mScratch->getNOwnedSurfaces()) {
         throw TraversalException{iteration, TraversalFailureReason::InvalidPolicyParameters};
       }
       mTraversalOperation.computeTracklets = &TrackerTraits::computeLayerTrackletsDiskDisk;
@@ -581,14 +582,23 @@ void TrackerTraits<NLayers>::initialiseTimeFrame(const int iteration, const Dete
   // iteration's legacy layers -- rejects with SurfaceLayerMappingMismatch,
   // before any TimeFrame tracking state is touched, exactly like every
   // other check in this block.
-  const auto& orderedSurfaces = layouts.getConfigurationKey().orderedSurfaces;
-  if (orderedSurfaces.size() < static_cast<size_t>(NLayers)) {
+  const auto orderedSurfaces = mBinding != nullptr
+                                 ? mBinding->getOrderedSurfaces()
+                                 : gsl::span<const SurfaceId>{layouts.getConfigurationKey().orderedSurfaces};
+  const int activeSurfaceCount = static_cast<int>(mScratch->getNOwnedSurfaces());
+  // This is the remaining adapter-edge compatibility check: until M7c the
+  // legacy ROF/topology objects still require the instantiated application
+  // width, but the value being checked is the adopted plan count. No shared
+  // traversal loop below uses NLayers as its extent.
+  if (activeSurfaceCount <= 0 || activeSurfaceCount > MaxLayoutSurfaces ||
+      orderedSurfaces.size() != static_cast<std::size_t>(activeSurfaceCount) ||
+      activeSurfaceCount != NLayers || mTrkParams[iteration].NLayers != activeSurfaceCount) {
     throw TraversalException{iteration, TraversalFailureReason::LegacyMaterialMismatch};
   }
-  std::array<NominalSurfaceMaterial, NLayers> stagedLayerMaterial{};
+  std::vector<NominalSurfaceMaterial> stagedLayerMaterial(static_cast<std::size_t>(activeSurfaceCount));
   std::array<uint8_t, MaxLayoutSurfaces> stagedSurfaceToLegacyLayer;
   stagedSurfaceToLegacyLayer.fill(kInvalidLegacyLayer);
-  for (int legacyLayer = 0; legacyLayer < NLayers; ++legacyLayer) {
+  for (int legacyLayer = 0; legacyLayer < activeSurfaceCount; ++legacyLayer) {
     const auto surfaceId = orderedSurfaces[legacyLayer];
     if (!surfaceId.isValid() || surfaceId.value() >= layout.nSurfaces) {
       throw TraversalException{iteration, TraversalFailureReason::LegacyMaterialMismatch};
@@ -599,10 +609,10 @@ void TrackerTraits<NLayers>::initialiseTimeFrame(const int iteration, const Dete
     stagedSurfaceToLegacyLayer[surfaceId.value()] = static_cast<uint8_t>(legacyLayer);
     stagedLayerMaterial[legacyLayer] = layout.getSurface(surfaceId).material;
   }
-  if (mTrkParams[iteration].LayerxX0.size() != static_cast<size_t>(NLayers)) {
+  if (mTrkParams[iteration].LayerxX0.size() != static_cast<size_t>(activeSurfaceCount)) {
     throw TraversalException{iteration, TraversalFailureReason::LegacyMaterialMismatch};
   }
-  for (int legacyLayer = 0; legacyLayer < NLayers; ++legacyLayer) {
+  for (int legacyLayer = 0; legacyLayer < activeSurfaceCount; ++legacyLayer) {
     if (mTrkParams[iteration].LayerxX0[legacyLayer] != stagedLayerMaterial[legacyLayer].xOverX0) {
       throw TraversalException{iteration, TraversalFailureReason::LegacyMaterialMismatch};
     }
@@ -620,8 +630,8 @@ void TrackerTraits<NLayers>::initialiseTimeFrame(const int iteration, const Dete
   // later failure leaves mLayerMeasurements exactly as resetTraversalCache()
   // left it (reset/empty spans), never partially populated from a failed
   // iteration.
-  LayerMeasurementSpans<NLayers> stagedLayerMeasurements{};
-  for (int legacyLayer = 0; legacyLayer < NLayers; ++legacyLayer) {
+  std::vector<gsl::span<const SurfaceMeasurement>> stagedLayerMeasurements(static_cast<std::size_t>(activeSurfaceCount));
+  for (int legacyLayer = 0; legacyLayer < activeSurfaceCount; ++legacyLayer) {
     const auto surfaceId = orderedSurfaces[legacyLayer];
     const auto measurements = mFrame->getNormalizedFrame().getSurfaceMeasurements(surfaceId);
     const auto& legacyClusters = mScratch->getUnsortedClusters()[legacyLayer];
@@ -691,7 +701,7 @@ void TrackerTraits<NLayers>::initialiseTimeFrame(const int iteration, const Dete
     if (stateFamilyFromNLayers<NLayers>() != Traits::Family) {
       stateFamilyMismatch = true;
     } else {
-      indexTableConfigError = bindIndexTableConfiguration<Traits::Tag, NLayers>(stagedIndexTableConfig, mTrkParams[iteration]);
+      indexTableConfigError = bindIndexTableConfiguration<Traits::Tag, NLayers>(stagedIndexTableConfig, mTrkParams[iteration], activeSurfaceCount);
     }
   });
   if (!activePolicyTagResolved || stateFamilyMismatch) {
@@ -711,13 +721,13 @@ void TrackerTraits<NLayers>::initialiseTimeFrame(const int iteration, const Dete
   // configuration for such an iteration must therefore already match the
   // owned one exactly, checked before TimeFrame is touched at all.
   if (!mTrkParams[iteration].PassFlags[IterationStep::FirstPass] &&
-      !indexTableConfigurationsMatch<NLayers>(stagedIndexTableConfig, mScratch->getIndexTableUtils())) {
+      !indexTableConfigurationsMatch<NLayers>(stagedIndexTableConfig, mScratch->getIndexTableUtils(), activeSurfaceCount)) {
     throw TraversalException{iteration, TraversalFailureReason::IndexTableConfigurationMismatch};
   }
 
   // 5. Only now is the scratch touched: it receives an already-validated
   // configuration by value and never inspects a tag or detector ID.
-  scratchInitialise<NLayers>(*mScratch, *mFrame, mTrkParams[iteration], mTrkParams[iteration].NLayers, iteration,
+  scratchInitialise<NLayers>(*mScratch, *mFrame, mTrkParams[iteration], activeSurfaceCount, iteration,
                              stagedIndexTableConfig, stagedLayerMeasurements);
 
   // A sorted Cluster is a locator/navigation cache only. Validate each
@@ -725,13 +735,13 @@ void TrackerTraits<NLayers>::initialiseTimeFrame(const int iteration, const Dete
   // TimeFrame initialisation, including LUT reuse and non-FirstPass paths.
   // The spans remain local until this check and all subsequent policy setup
   // have succeeded, so a structural failure cannot publish traversal caches.
-  std::array<bool, NLayers> candidateReachableLayers{};
+  std::vector<bool> candidateReachableLayers(static_cast<std::size_t>(activeSurfaceCount), false);
   for (int transitionId = 0; transitionId < scratchTrackingTopologyView<NLayers>(*mScratch).nTransitions; ++transitionId) {
     const auto& transition = scratchTrackingTopologyView<NLayers>(*mScratch).getTransition(transitionId);
     candidateReachableLayers[transition.fromLayer] = true;
     candidateReachableLayers[transition.toLayer] = true;
   }
-  for (int layer = 0; layer < NLayers; ++layer) {
+  for (int layer = 0; layer < activeSurfaceCount; ++layer) {
     if (!candidateReachableLayers[layer]) {
       continue;
     }
@@ -809,17 +819,17 @@ void TrackerTraits<NLayers>::initialiseTimeFrame(const int iteration, const Dete
   // final commit below, before it escapes into mAttachHitConfig.
   auto attachHitConfig = bindAttachHitPolicyConfig(
     gsl::span<const NominalSurfaceMaterial>(stagedLayerMaterial.data(), stagedLayerMaterial.size()), mTrkParams[iteration]);
-  if (!attachHitConfig.isValid(NLayers)) {
+  if (!attachHitConfig.isValid(activeSurfaceCount)) {
     throw TraversalException{iteration, TraversalFailureReason::InvalidPolicyParameters};
   }
   const auto geometryConfig = bindLayerGeometryConfig(mTrkParams[iteration], attachHitConfig);
-  if (!geometryConfig.isValid(NLayers)) {
+  if (!geometryConfig.isValid(activeSurfaceCount)) {
     throw TraversalException{iteration, TraversalFailureReason::InvalidPolicyParameters};
   }
   DiskDiskReferenceCoordinateView referenceCoordinateView{};
   if (activeTag == TransitionPolicyTag::DiskDisk) {
     referenceCoordinateView = bindLegacyMFTReferenceCoordinates();
-    if (!referenceCoordinateView.isValid(NLayers)) {
+    if (!referenceCoordinateView.isValid(activeSurfaceCount)) {
       throw TraversalException{iteration, TraversalFailureReason::InvalidPolicyParameters};
     }
   }
@@ -847,7 +857,7 @@ void TrackerTraits<NLayers>::initialiseTimeFrame(const int iteration, const Dete
   // about-to-be-destroyed local stagedLayerMaterial and onto the
   // now-populated, function-lifetime-independent mLayerMaterial member
   // before mAttachHitConfig (which outlives this call) retains it.
-  mLayerMaterial = stagedLayerMaterial;
+  mLayerMaterial = std::move(stagedLayerMaterial);
   // Gate 4 Slice 0a: committed alongside mLayerMaterial, from the same
   // orderedSurfaces walk above -- see mSurfaceToLegacyLayer's own doc.
   mSurfaceToLegacyLayer = stagedSurfaceToLegacyLayer;
@@ -856,7 +866,7 @@ void TrackerTraits<NLayers>::initialiseTimeFrame(const int iteration, const Dete
   // One-time normalized-measurement binding: committed here, alongside every
   // other successfully staged traversal cache -- see mLayerMeasurements' own
   // doc for the commit contract.
-  mLayerMeasurements = stagedLayerMeasurements;
+  mLayerMeasurements = std::move(stagedLayerMeasurements);
 
   // All fallible validation for this iteration (layout/grouping, legacy
   // parity, state-family, and every policy/geometry binding above) has now
@@ -885,11 +895,11 @@ void TrackerTraits<NLayers>::prepareTransitionScatteringAndBendingForPolicy(
 {
   const auto& trkParam = mTrkParams[iteration];
 
-  // Per-layer step: genuinely policy-specific (typed operation), preserving
-  // the exact legacy loop bound (compile-time NLayers, not trkParam.NLayers --
-  // matches TimeFrame.cxx's original "estimate MS per layer" loop verbatim).
-  std::array<float, NLayers> msAngles{};
-  for (unsigned int iLayer{0}; iLayer < NLayers; ++iLayer) {
+  // Per-layer step: genuinely policy-specific (typed operation), but the
+  // extent is the adopted plan, not the TrackerTraits compatibility width.
+  const int activeSurfaceCount = static_cast<int>(mScratch->getNOwnedSurfaces());
+  std::vector<float> msAngles(static_cast<std::size_t>(activeSurfaceCount));
+  for (int iLayer{0}; iLayer < activeSurfaceCount; ++iLayer) {
     if constexpr (Tag == TransitionPolicyTag::CylinderCylinder) {
       msAngles[iLayer] = layerMultipleScatteringAngle<Tag>(
         LayerScatteringInputs<Tag>{geometryConfig.layerMaterial[iLayer].xOverX0}, trkParam.TrackletMinPt);
@@ -1271,7 +1281,7 @@ void TrackerTraits<NLayers>::computeLayerCells(const int iteration)
   if (!mTraversalGrouping.has_value()) {
     throw TraversalException{iteration, TraversalFailureReason::InvalidTraversalSchedule};
   }
-  if (!mAttachHitConfig.isValid(NLayers)) {
+  if (!mAttachHitConfig.isValid(static_cast<int>(mScratch->getNOwnedSurfaces()))) {
     throw TraversalException{iteration, TraversalFailureReason::InvalidPolicyParameters};
   }
 
@@ -1656,6 +1666,7 @@ template <TransitionPolicyTag Tag, typename InputSeed>
 void TrackerTraits<NLayers>::processNeighbours(int iteration, int defaultCellTopologyId, int iLevel, const bounded_vector<InputSeed>& currentCellSeed, const bounded_vector<int>& currentCellId, const bounded_vector<int>& currentCellTopologyId, bounded_vector<TrackSeed>& updatedCellSeeds, bounded_vector<int>& updatedCellsIds, bounded_vector<int>& updatedCellsTopologyIds, const typename TransitionPolicyTraits<Tag>::Params& params)
 {
   const auto layerMaterial = mAttachHitConfig.layerMaterial;
+  const int activeSurfaceCount = static_cast<int>(mScratch->getNOwnedSurfaces());
 
   mTaskArena->execute([&] {
     auto forCellNeighbours = [&](auto Mode, int iCell, int offset = 0) -> int {
@@ -1667,7 +1678,7 @@ void TrackerTraits<NLayers>::processNeighbours(int iteration, int defaultCellTop
           return 0;
         }
         if (currentCellId.empty()) {
-          for (int layer = 0; layer < NLayers; ++layer) {
+          for (int layer = 0; layer < activeSurfaceCount; ++layer) {
             const int clusterIndex = currentCell.getCluster(layer);
             if (clusterIndex != o2::its::constants::UnusedIndex && mScratch->isClusterUsed(layer, clusterIndex)) {
               return 0; /// this we do only on the first iteration, hence the check on currentCellId
@@ -1809,8 +1820,9 @@ template <int NLayers>
 template <TransitionPolicyTag Tag>
 void TrackerTraits<NLayers>::findRoadsForPolicy(const int iteration, const typename TransitionPolicyTraits<Tag>::Params& params)
 {
-  bounded_vector<bounded_vector<int>> firstClusters(mTrkParams[iteration].NLayers, bounded_vector<int>(mMemoryPool.get()), mMemoryPool.get());
-  firstClusters.resize(mTrkParams[iteration].NLayers);
+  const int activeSurfaceCount = static_cast<int>(mScratch->getNOwnedSurfaces());
+  bounded_vector<bounded_vector<int>> firstClusters(activeSurfaceCount, bounded_vector<int>(mMemoryPool.get()), mMemoryPool.get());
+  firstClusters.resize(activeSurfaceCount);
   // M5d: DetectorTraits::refitSeed's own (both-branch) native refit reads
   // layerMeasurements/mTraversalLayout's surface catalog, not a raw
   // TrackingFrameInfo/Cluster array or an o2::base::Propagator instance --
@@ -1976,11 +1988,12 @@ void TrackerTraits<NLayers>::acceptTracks(int iteration, bounded_vector<CATrackT
   auto& trks = acceptedTracksForSharedStatus();
   trks.reserve(trks.size() + tracks.size());
   const float smallestROFHalf = scratchROFOverlapTableView<NLayers>(*mScratch).getClockLayer().mROFLength * 0.5f;
+  const int activeSurfaceCount = static_cast<int>(mScratch->getNOwnedSurfaces());
   for (auto& track : tracks) {
     int nShared = 0;
     bool isFirstShared{false};
     int firstLayer{-1}, firstCluster{-1};
-    for (int iLayer{0}; iLayer < mTrkParams[iteration].NLayers; ++iLayer) {
+    for (int iLayer{0}; iLayer < activeSurfaceCount; ++iLayer) {
       if (track.getClusterIndex(iLayer) == o2::its::constants::UnusedIndex) {
         continue;
       }
@@ -2000,7 +2013,7 @@ void TrackerTraits<NLayers>::acceptTracks(int iteration, bounded_vector<CATrackT
 
     bool firstCls{true}, nominalCompatible{true};
     TimeEstBC nominalTS, expandedTS;
-    for (int iLayer{0}; iLayer < mTrkParams[iteration].NLayers; ++iLayer) {
+    for (int iLayer{0}; iLayer < activeSurfaceCount; ++iLayer) {
       if (track.getClusterIndex(iLayer) == o2::its::constants::UnusedIndex) {
         continue;
       }

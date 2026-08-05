@@ -66,7 +66,7 @@ struct DetectorTraits {
                         const TrackingParameters& params,
                         float bz,
                         SurfaceTrackingScratch& scratch,
-                        const LayerMeasurementSpans<NLayers>& layerMeasurements,
+                        gsl::span<const gsl::span<const SurfaceMeasurement>> layerMeasurements,
                         SurfaceCatalogView surfaceCatalog,
                         ClusterSourceId expectedSource);
 

@@ -41,7 +41,7 @@ bool refitSeedITS(const TrackSeed& seed,
                   o2::its::TrackITSExt& track,
                   const TrackingParameters& params,
                   float bz,
-                  const LayerMeasurementSpans<NLayers>& layerMeasurements,
+                  gsl::span<const gsl::span<const SurfaceMeasurement>> layerMeasurements,
                   SurfaceCatalogView surfaceCatalog)
 {
   SurfaceKinematicState paramIn{};
@@ -66,7 +66,7 @@ bool refitSeedITS(const TrackSeed& seed,
   scratch.getParamOut() = legacyParamOut;
   scratch.setChi2(chi2);
   scratch.getTimeStamp() = seed.getTimeStamp().makeSymmetrical();
-  for (int layer = 0; layer < NLayers; ++layer) {
+  for (int layer = 0; layer < static_cast<int>(layerMeasurements.size()); ++layer) {
     const int clsIdx = seed.getCluster(layer);
     if (clsIdx != o2::its::constants::UnusedIndex) {
       scratch.setExternalClusterIndex(layer, clsIdx, true);
@@ -83,7 +83,7 @@ bool DetectorTraits<NLayers>::refitSeed(const TrackSeed& seed,
                                         const TrackingParameters& params,
                                         float bz,
                                         SurfaceTrackingScratch& scratch,
-                                        const LayerMeasurementSpans<NLayers>& layerMeasurements,
+                                        gsl::span<const gsl::span<const SurfaceMeasurement>> layerMeasurements,
                                         SurfaceCatalogView surfaceCatalog,
                                         ClusterSourceId expectedSource)
 {
