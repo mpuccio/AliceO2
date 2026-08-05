@@ -475,9 +475,12 @@ to their own standalone replay — all four exactly matching [ADR 0008] addendum
 
 ### M6e1 — Wire the standalone MFT interface onto `SurfaceTrackingScratch`/`SurfacePlanBinding`
 
-Inserted after M6d and before the original M6e (renamed in no way — M6e below remains exactly
-what it always was, the ITS switch plus Group-C legacy-result-staging retirement; M6e1 is a
-new, narrower slice this note did not originally anticipate). Reason for the insertion: M6d's
+Inserted after M6d and before the original M6e (renamed in no way at the time — M6e below
+remains exactly what it always was, the ITS switch plus Group-C legacy-result-staging
+retirement; M6e1 is a new, narrower slice this note did not originally anticipate). M6e itself
+was later split in two (M6e2/M6e3, see M6e2's own note) once the ITS switch alone turned out to
+need its own gated milestone; that split happened after this section was written and does not
+change anything stated here. Reason for the insertion: M6d's
 own scope was explicitly the *combined-workflow* MFT participant
 (`LegacyCATrackingParticipant<MFTNLayers>`, driven by `ITSMFTLegacyParticipantSet`); M6d's own
 audit never read `TrackingInterface.cxx` at all, since that file backs a structurally
@@ -536,28 +539,143 @@ the ITS/MFT axis, not along any combined/standalone axis — the state M6e (next
 `mTracks`/`mTracksLabel` (Group C) were not retired by this slice; that remains M6e's own
 scope, unstarted here.
 
-### M6e — Wire ITS onto `SurfaceTrackingScratch`/`SurfacePlanBinding`; retire legacy result staging
+### M6e2 — Wire both live ITS common-CA paths onto `SurfaceTrackingScratch`/`SurfacePlanBinding`
 
-- **Scope**: same switch as M6d for `LegacyCATrackingParticipant<ITSNLayers>`. Additionally
-  (§3.1 Group C): both participants' `mTracks`/`mTracksLabel` legacy result staging is
+Inserted after M6e1, splitting the original M6e milestone in two — exactly the same kind of
+insertion M6e1 itself performed on M6d/M6e (see that section's own note). Reason: M6e1's own
+"State after M6e1" summary explicitly deferred the ITS switch and the Group C
+(`mTracks`/`mTracksLabel`) retirement to "M6e (next)" as one combined slice; in practice the
+ITS switch alone required enough new architectural work (below) to justify treating it as its
+own gated milestone, leaving Group C retirement as a narrower follow-up (renamed M6e3, next
+section) that starts from an already-fully-migrated ITS/MFT storage baseline instead of doing
+both at once.
+
+- **Scope**: apply the identical M6d/M6e1 seam to both remaining live ITS paths —
+  `LegacyCATrackingParticipant<ITSNLayers>` (combined workflow) and
+  `ITSMFTTrackingInterface<ITSNLayers, ScratchT, BindingT>` (standalone
+  `o2-its-ca-tracker-workflow`). `LegacyCATrackingParticipantITS`/`ITSMFTTrackingInterfaceITS`
+  become the explicit `<ITSNLayers, SurfaceTrackingScratch, SurfacePlanBinding>`
+  instantiation; both bare, default-argument templates stay explicitly instantiated solely
+  for `testTrackingInterfaceLoadFailureContract.cxx`'s own `NLayers`-generic coverage,
+  unchanged from M6e1's own precedent. Each ITS participant/interface builds and adopts its
+  own `SurfacePlanBinding` (`ClusterSourceId{0}`, `SurfaceKind::Cylinder`/
+  `TransitionPolicyTag::CylinderCylinder` as literal adapter constants — no detector switch
+  added to `SurfacePlanBinding` itself) and calls `SurfaceTrackingScratch::adoptPlan()` before
+  any load attempt, mirroring M6d/M6e1's own identical step. `fillITSOutputs()`
+  (`CATrackerSpec.cxx`, ITS workflow) retargets from `LegacyTrackerScratch<ITSNLayers>` to
+  `SurfaceTrackingScratch`. `mTracks`/`mTracksLabel` (Group C) legacy result staging is
+  **not** retired by this slice — both participants keep populating it in parallel with
+  `AcceptedTrackShadowPublisher`/CommonTrack, exactly as M6d/M6e1 left MFT; that retirement is
+  M6e3 (next section), unstarted here.
+- **Three architectural gaps found and closed, all stemming from the same root cause**:
+  `SurfaceTrackingScratch` had only ever actually served MFT in production (M6d/M6e1), so
+  several of its members were still hardcoded to MFT's own shape in ways nothing had
+  exercised for a second, differently-sized detector until this slice's ITS(7) instantiation
+  actually compiled and ran:
+  1. **`IndexTableUtils<nLayers>`** (§4.1's already-flagged deferred item) was a genuine class
+     template — `IndexTableUtils<7>` and `IndexTableUtils<10>` were different C++ types, so a
+     single `SurfaceTrackingScratch::IndexTableUtilsN` member could not serve both detectors
+     at once, and neither could the (then-forward-declared) `IndexTableUtils<NLayers>` used
+     by `detail/TransitionPolicyOperations.h`. Fixed by de-templating `IndexTableUtils<nLayers>`
+     into a template *alias* for one shared, non-templated `IndexTableUtilsCore` class using
+     `MaxLayoutSurfaces`-bounded (`SurfaceId.h`) fixed-capacity storage — the same established,
+     reused GPU-portable-storage precedent `TrackSeed` (M6c, §4.2) already set, not a new one.
+     `LegacyTrackerScratch<NLayers>::IndexTableUtilsN`'s own source line is unchanged and still
+     compiles identically (now resolving to the same shared `IndexTableUtilsCore`, invisibly).
+     `detail/TransitionPolicyOperations.h`'s stale forward declaration (`template <int NLayers>
+     class IndexTableUtils;`, invalid once `IndexTableUtils<N>` became an alias template — alias
+     templates cannot be forward-declared) was replaced with a real include.
+  2. **Group C (`getTracks()`/`getNumberOfTracks()`)** is genuinely detector-output-typed
+     (`CATrackType<7>` = `TrackITSExt`, `CATrackType<10>` = `MFTCATrack`) and could not be
+     alias-erased the way IndexTableUtils was. Fixed with the same dual-storage pattern this
+     note already anticipated in principle (§3.1): `SurfaceTrackingScratch` now stores both
+     `mTracksITS`/`mTracksMFT` (exactly one ever populated per instance) and exposes them via a
+     compile-time-selecting *template* accessor `getTracks<NLayers>()` — never virtual/
+     type-erased. Because `LegacyTrackerScratch<NLayers>::getTracks()` is, and must remain, a
+     plain non-template method, the temporary `ScratchT` seam's own Group-C call sites inside
+     the shared `Tracker<NLayers,ScratchT,BindingT>`/`TrackerTraits<NLayers,ScratchT,BindingT>`
+     bodies (reachable with either scratch type) cannot use the same call-site text for both —
+     resolved via small free dispatcher functions (`scratchTracks<NLayers>()`/
+     `scratchNumberOfTracks<NLayers>()`) doing a narrow `if constexpr` on `ScratchT`'s identity.
+     This selects on *scratch representation*, exactly what the seam already exists to select,
+     never on ITS-vs-MFT identity, and collapses to a plain forwarding call once M6f removes
+     `LegacyTrackerScratch<NLayers>` as anyone's `ScratchT`.
+  3. **The ROF-overlap/ROF-vertex-lookup/ROF-mask/tracking-topology auxiliaries**
+     (`ROFOverlapTable<N>`, `ROFVertexLookupTable<N>`, `ROFMaskTable<N>`,
+     `TrackingTopology<N>` — §4.1's same deferred item) were not caught by M6d/M6e1's own
+     "narrow, deliberate exception... this scratch is, for now, only ever used by MFT" framing
+     being re-verified against ITS, because that framing's premise (MFT-only) was true at the
+     time it was written and nothing had yet exercised the ITS(7) case. These types are
+     genuinely `N`-sized (fixed-capacity internal storage — e.g.
+     `TrackingTopology<N>::MaxTransitions = N*(N-1)/2` is 21 for ITS vs. 45 for MFT), so a
+     single MFT(10)-shaped instance of any of them is wrong for ITS(7): not just a compile-time
+     mismatch (which is what actually surfaced first, once the ITS(7) instantiation was
+     compiled) but a real correctness bug had it compiled silently — wrong transition/cell
+     counts, wrong ROF-layer array width. Fixed with the identical Group C dual-storage +
+     template-accessor + free-dispatcher pattern, extended to these four groups (dual
+     `mROFOverlapTableITS`/`MFT`, `mROFVertexLookupTableITS`/`MFT`,
+     `mMultiplicityCutMaskITS`/`MFT` + `mUPCCutMaskITS`/`MFT` + their own active-pointer
+     selectors, `mTrackerTopologiesITS`/`MFT` + `mDefaultTrackingTopologyITS`/`MFT` +
+     `mVertexingTopologyITS`/`MFT`); `initialise()`/`prepareClusters()` (which read/write
+     several of these) became templates on `NLayers` too, and `loadNormalizedSource()`'s own
+     detector preflight (previously narrowed to MFT-only, matching the same now-outdated
+     premise) was widened back to ITS-or-MFT, matching `LegacyTrackerScratch<NLayers>`'s own
+     long-standing check — including restoring the ITS branch of its synthetic
+     `TrackingFrameInfo` backfill (`m.frame.q/frameAngle/u/v`, ported byte-for-byte from
+     `LegacyTrackerScratch::loadNormalizedSource()`), which the MFT-only version had never
+     needed. Setters taking an `NLayers`-typed argument (`setROFOverlapTable()`, etc.) needed
+     no dispatcher shim: ordinary template-argument deduction from the argument works
+     identically whether the callee resolves to `SurfaceTrackingScratch`'s template method or
+     `LegacyTrackerScratch<NLayers>`'s plain one, with no explicit `<>` and therefore no
+     `.template` disambiguator at the call site.
+- **Temporary bridge**: none additive beyond M6d/M6e1's own `ScratchT`/`BindingT` seam, now
+  instantiated by ITS's two remaining owners too.
+- **Acceptance/replay gate**: standalone ITS (`useDiamond=true`, diamond `(0,0,0)`,
+  `pvRes=0.05`) replays exactly 212 tracks, hash `46913a67a7e2fe7462e29df0db264fa8`; standalone
+  MFT (CommonTrack-output route) exactly 68 tracks, hash `8106b08571ca593c6b76ff72b761a680`;
+  combined workflow's ITS and MFT legs each bit-identical to their own standalone replay — all
+  four exactly matching [ADR 0008] addendum 2 and M6d/M6e1's own recorded numbers.
+  `ctest -L itsmft`: 96/96 (up from M6e1's 95). Fixture checksums unchanged before and after
+  every replay. `LegacyTrackerScratch.h`/`.cxx` and `detail/DetectorTraversalBinding.h`
+  remain byte-for-byte zero-diff against the M6e1 base.
+- **Deletion/exit criterion**: neither `LegacyCATrackingParticipantITS` nor
+  `ITSMFTTrackingInterfaceITS` holds `LegacyTrackerScratch<ITSNLayers>`/
+  `DetectorTraversalBinding` (grep/type-verified); no detector-specific switch reintroduced
+  into `SurfacePlanBinding` (grep-verified, `testSurfacePlanBindingNoDetectorDependency.cxx`).
+- **Dependency**: M6e1.
+- **Classification**: behavior-preserving cleanup (replay-gated).
+
+**State after M6e2**: standalone ITS, combined ITS, standalone MFT, and combined MFT all use
+`SurfaceTrackingScratch`/`SurfacePlanBinding` — every live common-CA path is on the new storage
+now, along both axes (detector and standalone/combined). `mTracks`/`mTracksLabel` (Group C)
+were not retired by this slice; that remains M6e3's own scope, unstarted here. The temporary
+`ScratchT`/`BindingT` seam itself also remains, unremoved until M6f.
+
+### M6e3 — Retire legacy result staging (Group C)
+
+Renamed from the original "M6e" (see M6e2's own note above for why): the ITS-switch half of
+that milestone's original scope is now M6e2, already integrated; this section covers only
+what remains.
+
+- **Scope**: both participants' `mTracks`/`mTracksLabel` legacy result staging is
   retired — detector adapters (`ITSMFTLegacyParticipantSet`'s caller,
   `CombinedCATrackerSpec.cxx`, and the standalone `CATrackerSpec.cxx` workflows) build
   detector-typed output from `TimeFrame::getCommonTracks()`/`getTrackClusterIndices()` plus
   `ParticipantPublicationExport`/`CommonTrackPublicationExport` alone (already populated in
   parallel today via `AcceptedTrackShadowPublisher`, per §3.1 Group C — this slice removes
   the now-redundant legacy-typed copy, not adds new publication logic).
-- **Temporary bridge**: none — this milestone removes M6d's bridge (both participants now
-  on the same scratch type).
-- **Acceptance/replay gate**: ITS standalone and combined replays byte-identical to the
-  M5d-era candidate baseline (ITS 212 tracks, hash `46913a67a7e2fe7462e29df0db264fa8` —
-  [ADR 0008] addendum 2); **writer-level** output (not just internal track-count/hash)
-  verified identical before/after the `mTracks`/`mTracksLabel` retirement, since this is
-  the one part of this slice that changes an output-construction code path rather than
-  only a container type.
+- **Temporary bridge**: none — this milestone does not touch the `ScratchT`/`BindingT` seam
+  itself (that is M6f's own scope).
+- **Acceptance/replay gate**: ITS and MFT standalone and combined replays byte-identical to
+  the M6e2-era baseline (ITS 212 tracks, hash `46913a67a7e2fe7462e29df0db264fa8`; MFT 68
+  tracks, hash `8106b08571ca593c6b76ff72b761a680` — [ADR 0008] addendum 2); **writer-level**
+  output (not just internal track-count/hash) verified identical before/after the
+  `mTracks`/`mTracksLabel` retirement, since this is the one part of this slice that changes
+  an output-construction code path rather than only a container type.
 - **Deletion/exit criterion**: no production reference to `CATrackType<NLayers>` inside
   `LegacyTrackerScratch`/its successor (the type itself survives, owned only by adapters
   building final output, per §4.3).
-- **Dependency**: M6d.
+- **Dependency**: M6e2.
 - **Classification**: behavior-preserving cleanup (replay-gated); output-construction path
   changes, so the writer-level check above is load-bearing, not optional.
 
@@ -586,7 +704,7 @@ scope, unstarted here.
   criterion; `SurfaceTrackingScratch` has executed production traffic (proven by M6d/M6e's
   own replay gates, already satisfied by the time M6f runs); zero production references to
   `LegacyCATrackingParticipant` under its old name (grep-verified).
-- **Dependency**: M6e.
+- **Dependency**: M6e3.
 - **Classification**: behavior-preserving cleanup (replay-gated) for the deletions; the
   participant rename is mechanical (type identity only, no behavior change) but still
   replay-gated to prove nothing else moved. Any residual output delta requires separate
