@@ -7,6 +7,7 @@ Status/decision log: [AgentCoordination.md](AgentCoordination.md)
 M7a design/audit: [runtime-plan Tracker/TrackerTraits migration](design/0003-m7-runtime-plan-tracker-migration.md)
 M7b count authority: [runtime-count authority](design/0004-m7b-runtime-count-authority.md)
 M7c topology/ROF ownership: [runtime topology and ROF ownership](design/0005-m7c-runtime-topology-rof.md)
+M7d non-templated core: [runtime-plan Tracker/TrackerTraits implementation](design/0006-m7d-nontemplated-tracker-core.md)
 
 This plan turns the accepted Gate 4 implementation into the ADR 0007 end
 state: one concrete `TrackingEngine::executeEvent()` over ordered
@@ -402,13 +403,34 @@ claimed because the pinned environment has no `nvcc`, `hipcc`, `nvidia-smi`, or
 
 ### M7d — make Tracker and TrackerTraits non-templated
 
-**Next bounded slice.** M7d starts from the M7c sparse-topology/runtime-ROF
-boundary and removes the common `Tracker<NLayers>`/`TrackerTraits<NLayers>`/
-`CATracker` template composition and their 7/10 core instantiations. It must
-use the existing plan/binding/workspace directly, with no wrapper around the
-old templates, and must leave adapter-only templates, frozen ITS workflows,
-raw ROFs, TransitionPolicyTag containment, physics, and output semantics under
-their existing gates.
+**Status: complete (2026-08-05).** The production migration, focused tests,
+source/dependency guards, and validation record are in [design note
+0006](design/0006-m7d-nontemplated-tracker-core.md). `TrackerTraits` and
+`Tracker` are now single non-templated runtime-plan classes. Their loop and
+workspace authorities remain the M7b/M7c plan, binding, sparse-topology, and
+scratch composition; no hidden 7/10 implementation or compatibility alias
+remains in common production code.
+
+`SurfacePlanTrackingParticipant<7/10>` and
+`ITSMFTTrackingInterface<7/10>` remain application-edge templates with plain
+core members. Typed refit/output conversion and sidecar operations cross the
+core only through a call-scoped operation reference and remain the exact
+narrow M7e boundary. The common core still contains no detector identity,
+source convention, DPL/workflow/writer dependency, or public policy taxonomy.
+
+The M7d implementation is behavior-preserving by construction; it does not
+alter Propagator/refit arithmetic, covariance policy, CA choices, holes,
+ordering, output semantics, raw-ROF ownership, or workflow defaults.
+
+### M7e — move typed refit/output hooks to application adapters
+
+**Next bounded slice.** M7e removes the call-scoped typed-operation seam and
+moves `DetectorTraits<N>` refit/export calls, candidate conversion, and
+sidecar sealing fully into the ITS/MFT application adapters. The shared body
+may retain only runtime spans, `SurfaceKinematicState`, `TrackSeed`, and
+`CommonTrack` data. It must not introduce a second core implementation or a
+new coordinator. The exact boundary and deletion inventory are recorded in
+[design note 0006](design/0006-m7d-nontemplated-tracker-core.md) §2 and §5.
 
 ## Not safe to delete yet
 
@@ -420,10 +442,11 @@ their existing gates.
 | `TransitionPolicyTag` machinery (dispatch, grouping, templated operations) | Only existing hot-loop implementation of the CA stages | contained at M4, replaced by M5 implementation |
 | Policy/legacy compatibility code (`kDroppedTimeFrameResult` sentinel, `mLayerMaterial`/`LegacyMaterialMismatch`, `mSurfaceToLegacyLayer`, `DiskDiskReferenceCoordinateView`, `passesCellRoadPrecut<DiskDisk>`) | Pins byte-identical replay parity against the frozen legacy implementations | respective M4–M6 slices, each under its replay gate |
 | Output sidecars (`ITSSharedClusterCompatibility`, `MFTPublicationCompatibility`) | Legacy output conversion still requires per-detector compatibility state | M6, when adapters convert from `CommonTrack` alone |
-| `SurfacePlanTrackingParticipant<NLayers>` | Narrow plan-driven ITS/MFT participant adapter; it owns detector/output sidecars but no retired workspace/binding bridge or combined event loop | M7a classifies the template as adapter compatibility; it may remain only until it embeds the non-templated core and its sidecar/configuration setup is moved to application edges |
+| `SurfacePlanTrackingParticipant<NLayers>` | Narrow plan-driven ITS/MFT participant adapter; it owns detector/output sidecars but no retired workspace/binding bridge or combined event loop | **M7d:** it now embeds plain `Tracker`/`TrackerTraits`; **M7e:** move typed refit/output and sidecar conversion fully to the application edge before reducing this remaining adapter template |
 | `ITSMFTLegacyParticipantSet` | Coordinator-shaped holder of combined application construction and event-owned publication/reset state | **Deleted M6g**; construction is inlined into the combined DPL task and publication/timing ownership remains workflow-local |
 | Common `TrackingTopology<NLayers>` | The common layer-indexed topology duplicated the sparse plan topology | **Deleted M7c**; frozen legacy ITS topology is outside the common-CA guard and remains unchanged |
 | Common `ROF*Table<NLayers>` scratch ownership | The core now receives non-owning runtime timing/overlap/mask views | **Deleted M7c**; fixed-capacity builders remain only at explicitly named adapter edges until their own template seam is reduced |
+| Call-scoped typed operation seam | M7d keeps refit/export/publish operations at the adapter edge while the shared body becomes non-templated | **M7e:** remove `TrackingOperationAdapter`, typed candidate conversion, and adapter-support helpers after writer/refit parity |
 
 ## Validation baseline
 

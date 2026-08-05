@@ -1,7 +1,7 @@
 # Design note 0003: runtime-plan Tracker/TrackerTraits migration
 
-Status: M7a design and ownership audit; M7b count-authority implementation
-recorded in [design note 0004](0004-m7b-runtime-count-authority.md)
+Status: M7a design and M7b/M7c/M7d implementation records; M7d validation
+recorded in [design note 0006](0006-m7d-nontemplated-tracker-core.md)
 Date: 2026-08-05
 Scope: `Detectors/ITSMFT/common/tracking`
 Companion plan: [GenericTrackingEngineMigration.md](../GenericTrackingEngineMigration.md)
@@ -319,28 +319,32 @@ deleted.
 
 ### M7d — make `TrackerTraits` and `Tracker` non-templated
 
+**Status: complete (2026-08-05);** production, tests/guards, and the
+validation record are in [design note 0006](0006-m7d-nontemplated-tracker-core.md).
+
 **Target API and ownership:** one non-templated `TrackerTraits` owns the shared
-CA orchestration and one non-templated `Tracker` owns the iteration execution.
-They accept the existing runtime plan/workspace composition and fixed
-`TrackSeed`; they contain no `DetID`, source, writer, DPL, or typed output
-track. `CATracker`, `TrackerITS`, and `TrackerMFT` aliases are removed.
+CA orchestration and one non-templated `Tracker` owns iteration execution.
+They consume the existing runtime plan/workspace composition and fixed
+`TrackSeed`; they contain no detector identity, source convention, writer,
+DPL, workflow, or typed output track. `CATracker`, `TrackerITS`, and
+`TrackerMFT` aliases and the 7/10 core instantiations are deleted.
 
-**Temporary bridge:** the application participant may still be
-`SurfacePlanTrackingParticipant<7/10>` while it owns sidecars and adapter
-configuration, but its members are plain `TrackerTraits` and `Tracker`. A
-temporary function-level adapter conversion is permitted only at the edge and
-must be removed before the slice is accepted. No compatibility class and no
-second algorithm implementation is permitted.
+The application participant may remain `SurfacePlanTrackingParticipant<7/10>`
+while it owns sidecars and adapter configuration, but its members are plain
+`TrackerTraits` and `Tracker`. Typed refit/output work crosses the core only
+through a call-scoped operation reference; it is not stored by the core and is
+the exact M7e deletion boundary. No compatibility class or second algorithm
+implementation was introduced.
 
-**Deletion criterion:** the declarations and explicit instantiations of
-`Tracker<NLayers>` and `TrackerTraits<NLayers>` are gone; a common-tree search
-finds no `Tracker<7>`, `Tracker<10>`, `TrackerTraits<7>`, or `TrackerTraits<10>`.
-This is the first deletion that proves the migration is real rather than a
-wrapper around the old tracker.
+**Deletion criterion:** satisfied. The common production tree has no
+`Tracker<7>`, `Tracker<10>`, `TrackerTraits<7>`, or `TrackerTraits<10>`
+declaration, definition, or instantiation, and the source guard rejects the
+retired template/alias spellings. This is the first deletion proving the
+migration is real rather than a wrapper around the old tracker.
 
-**Validation:** R, plus compile-only dependency guards for the non-templated
-core headers and an execution-order test with a plan whose active count is
-neither 7 nor 10. Behavior-preserving.
+**Validation:** the M7d record applies R, the non-templated-core dependency
+guard, the non-7/non-10 sparse-plan execution test, adapter participant
+coverage, and failure/reset tests. The slice is behavior-preserving.
 
 ### M7e — move refit/output hooks to application adapters
 
@@ -475,12 +479,13 @@ Focused tests required by the implementation slices are:
 - schedule/order tests proving combined ITS/MFT source-qualified exports stay
   unchanged while the core sees only an explicit participant schedule.
 
-## 9. M7a/M7b exit record
+## 9. M7a/M7b/M7c/M7d exit record
 
 M7a was complete when this note and the migration-plan navigation were
-committed as documentation only. M7b is complete when design note 0004, the
-production migration, the tests/guard, and the final validation record are
-committed. M7b does not de-template the core or remove the M7c layer-topology/
-ROF boundary. The accepted physics anchors remain ITS 212 /
-`46913a67a7e2fe7462e29df0db264fa8` and MFT 68 /
-`8106b08571ca593c6b76ff72b761a680`.
+committed as documentation only. M7b, M7c, and M7d are complete only with
+their corresponding production/test/documentation commits and replay gates.
+M7d's remaining boundary is deliberately narrow: M7e must remove the
+call-scoped typed refit/output operation seam and relocate `DetectorTraits<N>`
+conversion and sidecar sealing to the application adapters. The accepted
+physics anchors remain ITS 212 / `46913a67a7e2fe7462e29df0db264fa8` and MFT
+68 / `8106b08571ca593c6b76ff72b761a680`.
