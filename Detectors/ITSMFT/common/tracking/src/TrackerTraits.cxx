@@ -38,7 +38,6 @@
 #include "ITSMFTTracking/SurfaceKinematicStateLegacyAdapters.h"
 #include "ITSMFTTracking/IndexTableUtils.h"
 #include "ITSMFTTracking/LayerMask.h"
-#include "ITStracking/ROFLookupTables.h"
 #include "ITSMFTTracking/SurfaceTrackingScratch.h"
 #include "ITSMFTTracking/TrackerTraits.h"
 #include "ITSMFTTracking/detail/SurfacePlanBinding.h"
@@ -83,7 +82,7 @@ namespace
 // cannot overlap every ROF in a real TimeFrame at once; the correct
 // full-TimeFrame envelope has to be re-derived at each (layer, rofId) this
 // vertex is actually tested against, from that ROF's own real interval
-// (ROFOverlapTableView::getLayer(layer).getROFTimeBounds(rofId, true) -- the
+// (RuntimeROFOverlapView::getLayer(layer).getROFTimeBounds(rofId, true) -- the
 // exact same, already-configured per-TF bounds every real-vertex ROF
 // compatibility check in this file already uses; not an independently
 // invented arithmetic formula). A vertex timestamp built this way is
@@ -151,7 +150,8 @@ void TrackerTraits<NLayers>::resetTraversalCache() noexcept
   mAttachHitConfig = {};
   const auto resetSurfaceCount = mScratch == nullptr ? std::size_t{0} : mScratch->getNOwnedSurfaces();
   mLayerMaterial.assign(resetSurfaceCount, NominalSurfaceMaterial{});
-  mSurfaceToLegacyLayer.fill(kInvalidLegacyLayer);
+  mSurfaceToSlot.fill(kInvalidSurfaceSlot);
+  mActiveTag = TransitionPolicyTag::Invalid;
   mLayerMeasurements.assign(resetSurfaceCount, gsl::span<const SurfaceMeasurement>{});
   mTraversalOperation = TraversalOperationBinding{};
   mTraversalGroupingCount = 0;
@@ -191,16 +191,9 @@ void TrackerTraits<NLayers>::dispatchActivePolicy(const TransitionPolicyGrouping
     dispatchTransitionPolicies(grouping, std::forward<Visitor>(visitor));
     return;
   }
-  // Gate 4 M5b: this NLayers instantiation's own expected family
-  // (stateFamilyFromNLayers<NLayers>()) is read as a plain runtime value, not
-  // an `if constexpr` selector -- both TransitionPolicyTraits<Tag> visitor
-  // calls below are equally compiled/instantiated regardless of NLayers, so
-  // NLayers no longer gates which Tag's orchestration body this class can
-  // even contain. The visitor itself still runs for exactly one tag, chosen
-  // here from this instantiation's expected family, unchanged from before.
-  if (stateFamilyFromNLayers<NLayers>() == StateFamily::Barrel) {
+  if (mActiveTag == TransitionPolicyTag::CylinderCylinder) {
     visitor(TransitionPolicyTraits<TransitionPolicyTag::CylinderCylinder>{}, mBinding->getGlobalTransitions(), mBinding->getGlobalCells());
-  } else {
+  } else if (mActiveTag == TransitionPolicyTag::DiskDisk) {
     visitor(TransitionPolicyTraits<TransitionPolicyTag::DiskDisk>{}, mBinding->getGlobalTransitions(), mBinding->getGlobalCells());
   }
 }
@@ -268,7 +261,7 @@ void TrackerTraits<NLayers>::findRoadsDiskDisk(int iteration)
 // call, after that call's activeTag/cylinderParams|diskParams/mTraversalGrouping
 // have all already been validated and committed -- so the one dispatchActivePolicy()
 // call below is guaranteed to invoke its visitor for exactly the tag that
-// validateLegacyParity() already derived from this iteration's actual endpoint
+// validateSparsePlan() already derives the policy from this iteration's actual endpoint
 // SurfaceDescriptor kinds (never from NLayers or detector identity), and the
 // `if constexpr` below only ever selects the matching pair of non-template
 // wrapper targets (and the ids/params they close over via mTraversalOperation's
@@ -315,182 +308,104 @@ void TrackerTraits<NLayers>::bindTraversalOperation(int iteration)
 }
 
 template <int NLayers>
-void TrackerTraits<NLayers>::validateLegacyParity(int iteration,
-                                                  const DetectorLayoutView& layout,
-                                                  TransitionPolicyTag& activeTag,
-                                                  bool& mixedPolicy) const
+void TrackerTraits<NLayers>::validateSparsePlan(int iteration,
+                                                const DetectorLayoutView& layout,
+                                                TransitionPolicyTag& activeTag,
+                                                bool& mixedPolicy) const
 {
-  const auto fail = [iteration]() { throw TraversalException{iteration, TraversalFailureReason::LegacyIndexMismatch}; };
-  const auto sparse = layout.topology;
-  const auto legacy = scratchTrackingTopologyView<NLayers>(*mScratch);
-  using LegacyId = typename o2::itsmft::tracking::TrackingTopology<NLayers>::Id;
-  // M4: SurfaceTransition no longer stores a policy tag (ADR 0007 decision
-  // 8); every transition's tag is derived from its `from` endpoint's
-  // SurfaceDescriptor::kind instead -- byte-identical to the removed stored
-  // field, since DetectorLayoutBuilder only ever built same-kind subgraphs.
-  const auto tagOf = [&layout](SurfaceId surface) { return transitionPolicyTagForSurfaceKind(layout.getSurface(surface).kind); };
-
-  activeTag = TransitionPolicyTag::Invalid;
-  mixedPolicy = false;
-
-  if (mBinding != nullptr) {
-    // Binding-scoped parity (Gate 4 C2 Slice 1): `layout`/`sparse` may
-    // legitimately describe a multi-detector combined topology, so the raw
-    // sparse.nTransitions/nCells counts and cellsByFirstTransitionOffsets
-    // positions are never compared against the legacy oracle directly (they
-    // live in different numbering spaces). Instead, every one of this
-    // binding's own owned global transitions/cells is looked up in `sparse`
-    // by its true global id, translated to its compact scratch slot, and
-    // compared against the legacy oracle at that same slot -- the identical
-    // per-field checks the unscoped path below performs, just addressed
-    // through the binding's translation instead of raw sparse indices.
-    const auto globalTransitions = mBinding->getGlobalTransitions();
-    const auto globalCells = mBinding->getGlobalCells();
-    if (globalTransitions.size() != legacy.nTransitions || globalCells.size() != legacy.nCells ||
-        (sparse.nTransitions != 0 && (sparse.transitions == nullptr || sparse.cellsByFirstTransitionOffsets == nullptr)) ||
-        (sparse.nCells != 0 && (sparse.cells == nullptr || sparse.cellsByFirstTransition == nullptr))) {
-      fail();
-    }
-    for (size_t slot = 0; slot < globalTransitions.size(); ++slot) {
-      const auto& current = sparse.getTransition(globalTransitions[slot]);
-      const auto& reference = legacy.getTransition(static_cast<LegacyId>(slot));
-      // current.from/to/skippedSurfaces are global SurfaceIds; the legacy
-      // oracle's fromLayer/toLayer/skipped() are always this binding's own
-      // compact legacy layer indices -- every comparison below goes through
-      // getLegacyLayer(), never a raw global .value().
-      const auto fromLayer = detail::ownedSurfacePosition(*mBinding, current.from);
-      const auto toLayer = detail::ownedSurfacePosition(*mBinding, current.to);
-      LayerMask skippedLegacy{};
-      bool skippedTranslatesCleanly = true;
-      for (uint16_t surface = 0; surface < MaxLayoutSurfaces; ++surface) {
-        if (!current.skippedSurfaces.has(SurfaceId{surface})) {
-          continue;
-        }
-        const auto skippedLayer = detail::ownedSurfacePosition(*mBinding, SurfaceId{surface});
-        if (!skippedLayer) {
-          skippedTranslatesCleanly = false;
-          break;
-        }
-        skippedLegacy.set(*skippedLayer);
-      }
-      if (!fromLayer || !toLayer || *fromLayer != reference.fromLayer || *toLayer != reference.toLayer ||
-          !skippedTranslatesCleanly ||
-          skippedLegacy.value() != LayerMask::skipped(reference.fromLayer, reference.toLayer).value()) {
-        fail();
-      }
-      if (activeTag == TransitionPolicyTag::Invalid) {
-        activeTag = tagOf(current.from);
-      } else if (tagOf(current.from) != activeTag) {
-        mixedPolicy = true;
-      }
-    }
-    for (size_t slot = 0; slot < globalCells.size(); ++slot) {
-      const auto& current = sparse.getCell(globalCells[slot]);
-      const auto& reference = legacy.getCell(static_cast<LegacyId>(slot));
-      const int firstSlot = requireScratchTransitionSlot(iteration, current.firstTransition);
-      const int secondSlot = requireScratchTransitionSlot(iteration, current.secondTransition);
-      // current.hitSurfaces is a global SurfaceMask; reference.hitLayerMask
-      // is always this binding's own compact legacy LayerMask -- same
-      // global-to-legacy-layer translation as skippedSurfaces above.
-      LayerMask hitLegacy{};
-      bool hitTranslatesCleanly = true;
-      for (uint16_t surface = 0; surface < MaxLayoutSurfaces; ++surface) {
-        if (!current.hitSurfaces.has(SurfaceId{surface})) {
-          continue;
-        }
-        const auto hitLayer = detail::ownedSurfacePosition(*mBinding, SurfaceId{surface});
-        if (!hitLayer) {
-          hitTranslatesCleanly = false;
-          break;
-        }
-        hitLegacy.set(*hitLayer);
-      }
-      if (firstSlot != reference.firstTransition || secondSlot != reference.secondTransition ||
-          !hitTranslatesCleanly || hitLegacy.value() != reference.hitLayerMask.value()) {
-        fail();
-      }
-      const auto firstTag = tagOf(sparse.getTransition(current.firstTransition).from);
-      const auto secondTag = tagOf(sparse.getTransition(current.secondTransition).from);
-      if (firstTag != secondTag || (activeTag != TransitionPolicyTag::Invalid && firstTag != activeTag)) {
-        mixedPolicy = true;
-      }
-    }
-    if (globalCells.size() != legacy.nCellsByFirstTransition) {
-      fail();
-    }
-    for (size_t slot = 0; slot < globalTransitions.size(); ++slot) {
-      const auto sparseRange = sparse.getCellsStartingWithTransition(globalTransitions[slot]);
-      const auto legacyRange = legacy.getCellsStartingWithTransition(static_cast<LegacyId>(slot));
-      if (sparseRange.getEntries() != legacyRange.getEntries()) {
-        fail();
-      }
-      for (uint32_t entry = 0; entry < sparseRange.getEntries(); ++entry) {
-        const auto cellId = sparse.cellsByFirstTransition[sparseRange.getFirstEntry() + entry];
-        const int cellSlot = requireScratchCellSlot(iteration, cellId);
-        if (static_cast<uint32_t>(cellSlot) != legacy.cellsByFirstTransition[legacyRange.getFirstEntry() + entry]) {
-          fail();
-        }
-      }
-    }
-    return;
-  }
-
-  if (sparse.nTransitions != legacy.nTransitions || sparse.nCells != legacy.nCells ||
-      (sparse.nTransitions != 0 && (sparse.transitions == nullptr || sparse.cellsByFirstTransitionOffsets == nullptr)) ||
-      (sparse.nCells != 0 && (sparse.cells == nullptr || sparse.cellsByFirstTransition == nullptr))) {
+  const auto fail = [iteration]() { throw TraversalException{iteration, TraversalFailureReason::SparseTopologyMismatch}; };
+  const auto& topology = layout.topology;
+  if (layout.surfaces == nullptr || layout.nSurfaces == 0 ||
+      (topology.nTransitions != 0 && (topology.transitions == nullptr || topology.cellsByFirstTransitionOffsets == nullptr)) ||
+      (topology.nCells != 0 && (topology.cells == nullptr || topology.cellsByFirstTransition == nullptr))) {
     fail();
   }
 
-  for (uint32_t id = 0; id < sparse.nTransitions; ++id) {
-    const auto sparseId = TransitionId{static_cast<uint16_t>(id)};
-    const auto& current = sparse.getTransition(sparseId);
-    const auto& reference = legacy.getTransition(static_cast<LegacyId>(id));
-    if (current.from.value() != reference.fromLayer || current.to.value() != reference.toLayer ||
-        current.skippedSurfaces.value() != LayerMask::skipped(reference.fromLayer, reference.toLayer).value()) {
+  const auto tagOf = [&layout](SurfaceId surface) {
+    if (!surface.isValid() || surface.value() >= layout.nSurfaces) {
+      return TransitionPolicyTag::Invalid;
+    }
+    return transitionPolicyTagForSurfaceKind(layout.getSurface(surface).kind);
+  };
+  const auto observeTag = [&](TransitionPolicyTag tag) {
+    if (tag == TransitionPolicyTag::Invalid) {
       fail();
     }
     if (activeTag == TransitionPolicyTag::Invalid) {
-      activeTag = tagOf(current.from);
-    } else if (tagOf(current.from) != activeTag) {
+      activeTag = tag;
+    } else if (activeTag != tag) {
       mixedPolicy = true;
     }
-  }
+  };
 
-  for (uint32_t id = 0; id < sparse.nCells; ++id) {
-    const auto sparseId = CellTopologyId{static_cast<uint16_t>(id)};
-    const auto& current = sparse.getCell(sparseId);
-    const auto& reference = legacy.getCell(static_cast<LegacyId>(id));
-    if (current.firstTransition.value() != reference.firstTransition ||
-        current.secondTransition.value() != reference.secondTransition ||
-        current.hitSurfaces.value() != reference.hitLayerMask.value()) {
+  activeTag = TransitionPolicyTag::Invalid;
+  mixedPolicy = false;
+  if (mBinding != nullptr) {
+    const auto transitions = mBinding->getGlobalTransitions();
+    const auto cells = mBinding->getGlobalCells();
+    if (transitions.empty() || transitions.size() > topology.nTransitions || cells.size() > topology.nCells) {
       fail();
     }
-    const auto firstTag = tagOf(sparse.getTransition(current.firstTransition).from);
-    const auto secondTag = tagOf(sparse.getTransition(current.secondTransition).from);
-    if (firstTag != secondTag || (activeTag != TransitionPolicyTag::Invalid && firstTag != activeTag)) {
-      mixedPolicy = true;
+    for (const auto id : transitions) {
+      if (!id.isValid() || id.value() >= topology.nTransitions || !mBinding->getScratchTransitionSlot(id)) {
+        fail();
+      }
+      const auto& transition = topology.getTransition(id);
+      if (!mBinding->getOwnedSurfaceIndex(transition.from) || !mBinding->getOwnedSurfaceIndex(transition.to) ||
+          !transition.skippedSurfaces.isSubsetOf(mBinding->getOwnedSurfaces())) {
+        fail();
+      }
+      observeTag(tagOf(transition.from));
+      if (tagOf(transition.to) != activeTag) {
+        mixedPolicy = true;
+      }
+    }
+    for (const auto id : cells) {
+      if (!id.isValid() || id.value() >= topology.nCells || !mBinding->getScratchCellSlot(id)) {
+        fail();
+      }
+      const auto& cell = topology.getCell(id);
+      if (!mBinding->getScratchTransitionSlot(cell.firstTransition) ||
+          !mBinding->getScratchTransitionSlot(cell.secondTransition) ||
+          !cell.hitSurfaces.isSubsetOf(mBinding->getOwnedSurfaces())) {
+        fail();
+      }
+      const auto firstTag = tagOf(topology.getTransition(cell.firstTransition).from);
+      const auto secondTag = tagOf(topology.getTransition(cell.secondTransition).from);
+      observeTag(firstTag);
+      if (secondTag != firstTag) {
+        mixedPolicy = true;
+      }
+    }
+    for (const auto id : mBinding->getGlobalScheduledCells()) {
+      if (!mBinding->getScratchCellSlot(id)) {
+        fail();
+      }
+    }
+    for (const auto id : mBinding->getGlobalRoadStartCells()) {
+      if (!mBinding->getScratchCellSlot(id)) {
+        fail();
+      }
+    }
+  } else {
+    for (uint32_t id = 0; id < topology.nTransitions; ++id) {
+      observeTag(tagOf(topology.getTransition(TransitionId{static_cast<uint16_t>(id)}).from));
+    }
+    for (uint32_t id = 0; id < topology.nCells; ++id) {
+      const auto& cell = topology.getCell(CellTopologyId{static_cast<uint16_t>(id)});
+      if (!cell.firstTransition.isValid() || !cell.secondTransition.isValid() ||
+          cell.firstTransition.value() >= topology.nTransitions || cell.secondTransition.value() >= topology.nTransitions) {
+        fail();
+      }
+      const auto firstTag = tagOf(topology.getTransition(cell.firstTransition).from);
+      const auto secondTag = tagOf(topology.getTransition(cell.secondTransition).from);
+      observeTag(firstTag);
+      if (secondTag != firstTag) {
+        mixedPolicy = true;
+      }
     }
   }
-
-  if (sparse.seedingSurfaces.value() != mTrkParams[iteration].StartLayerMask.value() ||
-      sparse.nCells != legacy.nCellsByFirstTransition) {
-    fail();
-  }
-  for (uint32_t transition = 0; transition < sparse.nTransitions; ++transition) {
-    const auto sparseRange = sparse.getCellsStartingWithTransition(TransitionId{static_cast<uint16_t>(transition)});
-    const auto legacyRange = legacy.getCellsStartingWithTransition(static_cast<LegacyId>(transition));
-    if (sparse.cellsByFirstTransitionOffsets[transition] != sparseRange.getFirstEntry() ||
-        sparse.cellsByFirstTransitionOffsets[transition + 1] != sparseRange.getEntriesBound() ||
-        sparseRange.getFirstEntry() != legacyRange.getFirstEntry() ||
-        sparseRange.getEntries() != legacyRange.getEntries()) {
-      fail();
-    }
-  }
-  for (uint32_t entry = 0; entry < sparse.nCells; ++entry) {
-    if (sparse.cellsByFirstTransition[entry].value() != legacy.cellsByFirstTransition[entry]) {
-      fail();
-    }
-  }
+  (void)mTrkParams[iteration];
 }
 
 template <int NLayers>
@@ -533,11 +448,27 @@ void TrackerTraits<NLayers>::initialiseTimeFrame(const int iteration, const Dete
     throw TraversalException{iteration, TraversalFailureReason::MixedPolicyLayout};
   }
 
+  // Resolve the policy family from the actual sparse-plan endpoint before
+  // any policy-specific binding runs. A combined layout may contain both
+  // families, so a participant binding supplies the one family this tracker
+  // owns; no NLayers-to-policy selection is used here.
+  if (mBinding != nullptr) {
+    const auto boundTransitions = mBinding->getGlobalTransitions();
+    if (boundTransitions.empty() || boundTransitions.front().value() >= layout.topology.nTransitions) {
+      throw TraversalException{iteration, TraversalFailureReason::SparseTopologyMismatch};
+    }
+    mActiveTag = transitionPolicyTagForSurfaceKind(layout.getSurface(layout.topology.getTransition(boundTransitions.front()).from).kind);
+  } else if (grouping.hasTag(TransitionPolicyTag::CylinderCylinder)) {
+    mActiveTag = TransitionPolicyTag::CylinderCylinder;
+  } else if (grouping.hasTag(TransitionPolicyTag::DiskDisk)) {
+    mActiveTag = TransitionPolicyTag::DiskDisk;
+  }
+
   // 2.1 (Stage-B activation, Architecture.md Sec 11): material-correction-mode
   // preflight for the active policy, once per iteration -- after layout/
   // grouping validation and mixed-policy resolution, before any material
   // staging, index-table binding, or TimeFrame tracking-state mutation.
-  // `grouping` alone (not yet `activeTag`, which validateLegacyParity() only
+  // `grouping` alone (not yet `activeTag`, which validateSparsePlan() also
   // resolves later) already tells us which single tag is active, exactly
   // like step 3's index-table dispatch below. An `Unsupported` result is a
   // structural/configuration failure (TraversalFailureReason doc); an
@@ -572,7 +503,7 @@ void TrackerTraits<NLayers>::initialiseTimeFrame(const int iteration, const Dete
   // it (reset/zero-filled), never partially populated from a failed
   // iteration.
   //
-  // Gate 4 Slice 0a: the same walk also stages mSurfaceToLegacyLayer, the
+  // Gate 4 Slice 0a: the same walk also stages mSurfaceToSlot, the
   // reverse SurfaceId->legacyLayer bridge the migrated tracklet loop needs
   // (see that member's doc in TrackerTraits.h). `surfaceId.value() <
   // layout.nSurfaces <= MaxLayoutSurfaces` is already established by the
@@ -596,17 +527,17 @@ void TrackerTraits<NLayers>::initialiseTimeFrame(const int iteration, const Dete
     throw TraversalException{iteration, TraversalFailureReason::LegacyMaterialMismatch};
   }
   std::vector<NominalSurfaceMaterial> stagedLayerMaterial(static_cast<std::size_t>(activeSurfaceCount));
-  std::array<uint8_t, MaxLayoutSurfaces> stagedSurfaceToLegacyLayer;
-  stagedSurfaceToLegacyLayer.fill(kInvalidLegacyLayer);
+  std::array<uint8_t, MaxLayoutSurfaces> stagedSurfaceToSlot;
+  stagedSurfaceToSlot.fill(kInvalidSurfaceSlot);
   for (int legacyLayer = 0; legacyLayer < activeSurfaceCount; ++legacyLayer) {
     const auto surfaceId = orderedSurfaces[legacyLayer];
     if (!surfaceId.isValid() || surfaceId.value() >= layout.nSurfaces) {
       throw TraversalException{iteration, TraversalFailureReason::LegacyMaterialMismatch};
     }
-    if (stagedSurfaceToLegacyLayer[surfaceId.value()] != kInvalidLegacyLayer) {
+    if (stagedSurfaceToSlot[surfaceId.value()] != kInvalidSurfaceSlot) {
       throw TraversalException{iteration, TraversalFailureReason::SurfaceLayerMappingMismatch};
     }
-    stagedSurfaceToLegacyLayer[surfaceId.value()] = static_cast<uint8_t>(legacyLayer);
+    stagedSurfaceToSlot[surfaceId.value()] = static_cast<uint8_t>(legacyLayer);
     stagedLayerMaterial[legacyLayer] = layout.getSurface(surfaceId).material;
   }
   if (mTrkParams[iteration].LayerxX0.size() != static_cast<size_t>(activeSurfaceCount)) {
@@ -701,7 +632,7 @@ void TrackerTraits<NLayers>::initialiseTimeFrame(const int iteration, const Dete
     if (stateFamilyFromNLayers<NLayers>() != Traits::Family) {
       stateFamilyMismatch = true;
     } else {
-      indexTableConfigError = bindIndexTableConfiguration<Traits::Tag, NLayers>(stagedIndexTableConfig, mTrkParams[iteration], activeSurfaceCount);
+      indexTableConfigError = bindIndexTableConfiguration<Traits::Tag>(stagedIndexTableConfig, mTrkParams[iteration], activeSurfaceCount);
     }
   });
   if (!activePolicyTagResolved || stateFamilyMismatch) {
@@ -721,14 +652,18 @@ void TrackerTraits<NLayers>::initialiseTimeFrame(const int iteration, const Dete
   // configuration for such an iteration must therefore already match the
   // owned one exactly, checked before TimeFrame is touched at all.
   if (!mTrkParams[iteration].PassFlags[IterationStep::FirstPass] &&
-      !indexTableConfigurationsMatch<NLayers>(stagedIndexTableConfig, mScratch->getIndexTableUtils(), activeSurfaceCount)) {
+      !indexTableConfigurationsMatch(stagedIndexTableConfig, mScratch->getIndexTableUtils(), activeSurfaceCount)) {
     throw TraversalException{iteration, TraversalFailureReason::IndexTableConfigurationMismatch};
   }
 
   // 5. Only now is the scratch touched: it receives an already-validated
-  // configuration by value and never inspects a tag or detector ID.
-  scratchInitialise<NLayers>(*mScratch, *mFrame, mTrkParams[iteration], activeSurfaceCount, iteration,
-                             stagedIndexTableConfig, stagedLayerMeasurements);
+  // configuration and the sparse plan's actual ordered ids. It never inspects
+  // a tag or detector ID.
+  const auto transitionIds = mBinding != nullptr ? mBinding->getGlobalTransitions() : grouping.transitionsForTag(mActiveTag);
+  const auto cellIds = mBinding != nullptr ? mBinding->getGlobalCells() : grouping.cellsForTag(mActiveTag);
+  mScratch->initialise(*mFrame, mTrkParams[iteration], activeSurfaceCount, iteration,
+                       stagedIndexTableConfig, layout.topology, transitionIds, cellIds,
+                       orderedSurfaces, stagedLayerMeasurements);
 
   // A sorted Cluster is a locator/navigation cache only. Validate each
   // enabled ROF that can participate in a configured transition after every
@@ -736,10 +671,15 @@ void TrackerTraits<NLayers>::initialiseTimeFrame(const int iteration, const Dete
   // The spans remain local until this check and all subsequent policy setup
   // have succeeded, so a structural failure cannot publish traversal caches.
   std::vector<bool> candidateReachableLayers(static_cast<std::size_t>(activeSurfaceCount), false);
-  for (int transitionId = 0; transitionId < scratchTrackingTopologyView<NLayers>(*mScratch).nTransitions; ++transitionId) {
-    const auto& transition = scratchTrackingTopologyView<NLayers>(*mScratch).getTransition(transitionId);
-    candidateReachableLayers[transition.fromLayer] = true;
-    candidateReachableLayers[transition.toLayer] = true;
+  for (const auto transitionId : transitionIds) {
+    const auto& transition = layout.topology.getTransition(transitionId);
+    const auto fromSlot = mBinding != nullptr ? mBinding->getOwnedSurfaceIndex(transition.from) : std::optional<uint16_t>{static_cast<uint16_t>(std::distance(orderedSurfaces.begin(), std::find(orderedSurfaces.begin(), orderedSurfaces.end(), transition.from)))};
+    const auto toSlot = mBinding != nullptr ? mBinding->getOwnedSurfaceIndex(transition.to) : std::optional<uint16_t>{static_cast<uint16_t>(std::distance(orderedSurfaces.begin(), std::find(orderedSurfaces.begin(), orderedSurfaces.end(), transition.to)))};
+    if (!fromSlot || !toSlot || *fromSlot >= candidateReachableLayers.size() || *toSlot >= candidateReachableLayers.size()) {
+      throw TraversalException{iteration, TraversalFailureReason::SparseTopologyMismatch};
+    }
+    candidateReachableLayers[*fromSlot] = true;
+    candidateReachableLayers[*toSlot] = true;
   }
   for (int layer = 0; layer < activeSurfaceCount; ++layer) {
     if (!candidateReachableLayers[layer]) {
@@ -747,7 +687,7 @@ void TrackerTraits<NLayers>::initialiseTimeFrame(const int iteration, const Dete
     }
     const auto measurements = stagedLayerMeasurements[layer];
     const auto rofBoundaries = mScratch->getROFrameClusters(layer);
-    const auto rofMask = scratchROFMaskView<NLayers>(*mScratch);
+    const auto rofMask = mScratch->getROFMaskView();
     // Orchestration-only users can intentionally omit the mask altogether;
     // without it no ROF is candidate-reachable. Do not validate allocated
     // spans until a later configuration actually enables one.
@@ -793,15 +733,11 @@ void TrackerTraits<NLayers>::initialiseTimeFrame(const int iteration, const Dete
     }
   }
 
-  // 6. validateLegacyParity needs mScratch->getTrackingTopologyView(),
-  // which TimeFrame::initialise() just populated, so it necessarily still
-  // runs after that call -- exactly as before, just with index-table
-  // binding now happening ahead of it instead of buried inside it. Both
-  // this resolution and step 2/3's are pure functions of the identical
-  // `layout` value, so they agree by construction.
+  // 6. Validate the sparse plan/binding after scratch initialization and before
+  // committing traversal state. No layer-indexed topology oracle is consulted.
   TransitionPolicyTag activeTag = TransitionPolicyTag::Invalid;
   bool mixedPolicy = false;
-  validateLegacyParity(iteration, layout, activeTag, mixedPolicy);
+  validateSparsePlan(iteration, layout, activeTag, mixedPolicy);
   if (mixedPolicy) {
     throw TraversalException{iteration, TraversalFailureReason::MixedPolicyLayout};
   }
@@ -859,8 +795,8 @@ void TrackerTraits<NLayers>::initialiseTimeFrame(const int iteration, const Dete
   // before mAttachHitConfig (which outlives this call) retains it.
   mLayerMaterial = std::move(stagedLayerMaterial);
   // Gate 4 Slice 0a: committed alongside mLayerMaterial, from the same
-  // orderedSurfaces walk above -- see mSurfaceToLegacyLayer's own doc.
-  mSurfaceToLegacyLayer = stagedSurfaceToLegacyLayer;
+  // orderedSurfaces walk above -- see mSurfaceToSlot's own doc.
+  mSurfaceToSlot = stagedSurfaceToSlot;
   attachHitConfig.layerMaterial = gsl::span<const NominalSurfaceMaterial>(mLayerMaterial.data(), mLayerMaterial.size());
   mAttachHitConfig = attachHitConfig;
   // One-time normalized-measurement binding: committed here, alongside every
@@ -912,27 +848,40 @@ void TrackerTraits<NLayers>::prepareTransitionScatteringAndBendingForPolicy(
   }
 
   // Per-transition step: shared/Tag-independent post-clamp arithmetic behind
-  // a Tag-specific curvature clamp. Iterates legacy transitionIds
-  // 0..nTransitions-1 directly off the legacy-shaped TrackingTopology view (in
-  // increasing order, matching the frozen code) rather than through
-  // mTraversalGrouping's per-tag span, so the loop-carried oneOverR ratchet
-  // is threaded in exactly the same order every time -- ordering does not
-  // depend on, and is not proven against, grouping-span order.
-  const auto& topology = scratchTrackingTopologyView<NLayers>(*mScratch);
+  // a Tag-specific curvature clamp. Iterate the binding's validated sparse
+  // transition order, which is the compact scratch order and preserves the
+  // existing global topology ordering without consulting a layer topology.
+  const auto& topology = mTraversalLayout.topology;
+  // The operation binding is installed after this preparation step. Resolve
+  // the already-validated plan/binding span directly here; using the
+  // not-yet-bound operation cache would silently leave every transition
+  // preparation entry at its reset value.
+  const auto transitionIds = mBinding != nullptr ? mBinding->getGlobalTransitions() : mTraversalGrouping->transitionsForTag(mActiveTag);
   auto& transitionMSAngles = mScratch->getTransitionMSAngles();
   auto& transitionPhiCuts = mScratch->getTransitionPhiCuts();
   float oneOverR{0.001f * 0.3f * std::abs(getBz()) / trkParam.TrackletMinPt};
-  for (int transitionId{0}; transitionId < static_cast<int>(topology.nTransitions); ++transitionId) {
-    const auto& transition = topology.getTransition(transitionId);
-    const float r1 = trkParam.LayerRadii[transition.fromLayer];
-    const float r2 = trkParam.LayerRadii[transition.toLayer];
+  for (int transitionSlot{0}; transitionSlot < static_cast<int>(transitionIds.size()); ++transitionSlot) {
+    const auto& transition = topology.getTransition(transitionIds[transitionSlot]);
+    const auto from = transition.from.isValid() && transition.from.value() < MaxLayoutSurfaces && mSurfaceToSlot[transition.from.value()] != kInvalidSurfaceSlot
+                        ? std::optional<uint16_t>{mSurfaceToSlot[transition.from.value()]}
+                        : std::nullopt;
+    const auto to = transition.to.isValid() && transition.to.value() < MaxLayoutSurfaces && mSurfaceToSlot[transition.to.value()] != kInvalidSurfaceSlot
+                      ? std::optional<uint16_t>{mSurfaceToSlot[transition.to.value()]}
+                      : std::nullopt;
+    if (!from || !to) {
+      throw TraversalException{iteration, TraversalFailureReason::SparseTopologyMismatch};
+    }
+    const int fromLayer = static_cast<int>(*from);
+    const int toLayer = static_cast<int>(*to);
+    const float r1 = trkParam.LayerRadii[fromLayer];
+    const float r2 = trkParam.LayerRadii[toLayer];
     oneOverR = clampTransitionCurvature<Tag>(oneOverR, r2);
-    const float res1 = o2::gpu::CAMath::Hypot(trkParam.PVres, mScratch->getPositionResolution(transition.fromLayer));
-    const float res2 = o2::gpu::CAMath::Hypot(trkParam.PVres, mScratch->getPositionResolution(transition.toLayer));
+    const float res1 = o2::gpu::CAMath::Hypot(trkParam.PVres, mScratch->getPositionResolution(fromLayer));
+    const float res2 = o2::gpu::CAMath::Hypot(trkParam.PVres, mScratch->getPositionResolution(toLayer));
     const auto prep = prepareTransitionScatteringAndBending(
-      gsl::span<const float>(msAngles.data(), msAngles.size()), transition.fromLayer, transition.toLayer, r1, r2, oneOverR, res1, res2);
-    transitionMSAngles[transitionId] = prep.msAngle;
-    transitionPhiCuts[transitionId] = prep.phiCut;
+      gsl::span<const float>(msAngles.data(), msAngles.size()), fromLayer, toLayer, r1, r2, oneOverR, res1, res2);
+    transitionMSAngles[transitionSlot] = prep.msAngle;
+    transitionPhiCuts[transitionSlot] = prep.phiCut;
   }
 }
 
@@ -940,8 +889,8 @@ template <int NLayers>
 void TrackerTraits<NLayers>::computeLayerTracklets(const int iteration, int iVertex)
 {
   // Gate 4 Slice 0a: driven by the sparse topology cached on
-  // initialiseTimeFrame() (mTraversalLayout), not a fresh legacy
-  // getTrackingTopologyView() fetch. This clear/allocation pass is
+  // initialiseTimeFrame() (mTraversalLayout), not a detector-specific
+  // topology fetch. This clear/allocation pass is
   // tag-agnostic and runs once over the full sparse transition count,
   // regardless of which single policy tag is active for this layout (see
   // computeLayerTrackletsForPolicy() below for the per-tag-filtered body).
@@ -994,15 +943,15 @@ void TrackerTraits<NLayers>::computeLayerTrackletsForPolicy(
 
   mTaskArena->execute([&] {
     // Resolves one sparse SurfaceTransition's endpoints to this
-    // TrackerTraits<NLayers>'s legacy layer indices through
-    // mSurfaceToLegacyLayer (built/validated once per iteration in
+    // TrackerTraits<NLayers>'s runtime-plan slots through
+    // mSurfaceToSlot (built/validated once per iteration in
     // initialiseTimeFrame(), see that member's doc). Called exactly once
     // per transitionId, outside every candidate (ROF/cluster/vertex) loop
     // below -- never re-derived per candidate.
     auto resolveTransitionLayers = [&](int transitionId) -> std::pair<int, int> {
       const auto& transition = topology.getTransition(TransitionId{static_cast<uint16_t>(transitionId)});
-      return {static_cast<int>(mSurfaceToLegacyLayer[transition.from.value()]),
-              static_cast<int>(mSurfaceToLegacyLayer[transition.to.value()])};
+      return {static_cast<int>(mSurfaceToSlot[transition.from.value()]),
+              static_cast<int>(mSurfaceToSlot[transition.to.value()])};
     };
 
     auto makeTransitionState = [&](int transitionId, int fromLayer, int toLayer) {
@@ -1030,7 +979,7 @@ void TrackerTraits<NLayers>::computeLayerTrackletsForPolicy(
     };
 
     auto forTracklets = [&](auto Mode, int transitionId, int fromLayer, int toLayer, const TrackletProjectionState<Tag>& transitionState, int pivotROF, int base, int& offset) -> int {
-      if (!scratchROFMaskView<NLayers>(*mScratch).isROFEnabled(fromLayer, pivotROF)) {
+      if (!mScratch->getROFMaskView().isROFEnabled(fromLayer, pivotROF)) {
         return 0;
       }
       // A diamond vertex valid for this specific pivotROF is derived fresh
@@ -1042,10 +991,10 @@ void TrackerTraits<NLayers>::computeLayerTrackletsForPolicy(
       Vertex diamondForROF{};
       gsl::span<const Vertex> primaryVertices;
       if (mTrkParams[iteration].UseDiamond) {
-        diamondForROF = diamondVertexForROF(diamondVert, scratchROFOverlapTableView<NLayers>(*mScratch), fromLayer, pivotROF);
+        diamondForROF = diamondVertexForROF(diamondVert, mScratch->getROFOverlapView(), fromLayer, pivotROF);
         primaryVertices = gsl::span<const Vertex>(&diamondForROF, 1);
       } else {
-        primaryVertices = scratchGetPrimaryVertices<NLayers>(*mScratch, *mFrame, fromLayer, pivotROF);
+        primaryVertices = mScratch->getPrimaryVertices(*mFrame, fromLayer, pivotROF);
       }
       if (primaryVertices.empty()) {
         return 0;
@@ -1056,7 +1005,7 @@ void TrackerTraits<NLayers>::computeLayerTrackletsForPolicy(
         return 0;
       }
 
-      const auto& rofOverlap = scratchROFOverlapTableView<NLayers>(*mScratch).getOverlap(fromLayer, toLayer, pivotROF);
+      const auto& rofOverlap = mScratch->getROFOverlapView().getOverlap(fromLayer, toLayer, pivotROF);
       if (!rofOverlap.getEntries()) {
         return 0;
       }
@@ -1078,15 +1027,15 @@ void TrackerTraits<NLayers>::computeLayerTrackletsForPolicy(
 
         for (int iV = startVtx; iV < endVtx; ++iV) {
           const auto& pv = primaryVertices[iV];
-          if (!scratchROFVertexLookupTableView<NLayers>(*mScratch).isVertexCompatible(fromLayer, pivotROF, pv)) {
+          if (!mScratch->getROFVertexLookupView().isVertexCompatible(fromLayer, pivotROF, pv)) {
             continue;
           }
           if (pv.isFlagSet(Vertex::Flags::UPCMode) != mTrkParams[iteration].PassFlags[IterationStep::SelectUPCVertices]) {
             continue;
           }
           TrackletSearchWindow<Tag> searchWindow{};
-          if (!projectSearchWindow<Tag, NLayers>(sourceMeasurement, currentCluster, pv, transitionState, getBz(),
-                                                 mScratch->getIndexTableUtils(), params, searchWindow)) {
+          if (!projectSearchWindow<Tag>(sourceMeasurement, currentCluster, pv, transitionState, getBz(),
+                                        mScratch->getIndexTableUtils(), params, searchWindow)) {
             continue;
           }
           const auto bins = searchWindow.bins;
@@ -1097,14 +1046,14 @@ void TrackerTraits<NLayers>::computeLayerTrackletsForPolicy(
           }
 
           for (int targetROF = rofOverlap.getFirstEntry(); targetROF < rofOverlap.getEntriesBound(); ++targetROF) {
-            if (!scratchROFMaskView<NLayers>(*mScratch).isROFEnabled(toLayer, targetROF)) {
+            if (!mScratch->getROFMaskView().isROFEnabled(toLayer, targetROF)) {
               continue;
             }
             auto layer1 = mScratch->getClustersOnLayer(targetROF, toLayer);
             if (layer1.empty()) {
               continue;
             }
-            const auto ts = scratchROFOverlapTableView<NLayers>(*mScratch).getTimeStamp(fromLayer, pivotROF, toLayer, targetROF);
+            const auto ts = mScratch->getROFOverlapView().getTimeStamp(fromLayer, pivotROF, toLayer, targetROF);
             if (!ts.isCompatible(pv.getTimeStamp())) {
               continue;
             }
@@ -1168,7 +1117,7 @@ void TrackerTraits<NLayers>::computeLayerTrackletsForPolicy(
         const int scratchTransitionId = requireScratchTransitionSlot(iteration, typedTransitionId);
         const auto [fromLayer, toLayer] = resolveTransitionLayers(transitionId);
         const auto transitionState = makeTransitionState(scratchTransitionId, fromLayer, toLayer);
-        const int startROF = 0, endROF = scratchROFOverlapTableView<NLayers>(*mScratch).getLayer(fromLayer).mNROFsTF;
+        const int startROF = 0, endROF = mScratch->getROFOverlapView().getLayer(fromLayer).mNROFsTF;
         for (int pivotROF{startROF}; pivotROF < endROF; ++pivotROF) {
           forTracklets(PassMode::OnePass{}, scratchTransitionId, fromLayer, toLayer, transitionState, pivotROF, 0, dummy);
         }
@@ -1180,7 +1129,7 @@ void TrackerTraits<NLayers>::computeLayerTrackletsForPolicy(
         const int scratchTransitionId = requireScratchTransitionSlot(iteration, typedTransitionId);
         const auto [fromLayer, toLayer] = resolveTransitionLayers(transitionId);
         const auto transitionState = makeTransitionState(scratchTransitionId, fromLayer, toLayer);
-        const int startROF = 0, endROF = scratchROFOverlapTableView<NLayers>(*mScratch).getLayer(fromLayer).mNROFsTF;
+        const int startROF = 0, endROF = mScratch->getROFOverlapView().getLayer(fromLayer).mNROFsTF;
         bounded_vector<int> perROFCount((endROF - startROF) + 1, mMemoryPool.get());
         tbb::parallel_for(startROF, endROF, [&](const int pivotROF) {
           perROFCount[pivotROF - startROF] = forTracklets(PassMode::TwoPassCount{}, scratchTransitionId, fromLayer, toLayer, transitionState, pivotROF, 0, dummy);
@@ -1252,8 +1201,8 @@ template <int NLayers>
 void TrackerTraits<NLayers>::computeLayerCells(const int iteration)
 {
   // Gate 4 Slice 0b: driven by the sparse topology cached on
-  // initialiseTimeFrame() (mTraversalLayout), not a fresh legacy
-  // getTrackingTopologyView() fetch.
+  // initialiseTimeFrame() (mTraversalLayout), not a detector-specific
+  // topology fetch.
   const auto& topology = mTraversalLayout.topology;
   // Defensive size-consistency check, mirroring findCellsNeighboursForPolicy's
   // own precedent. Gate 4 C2 Slice 1: checked against this scratch's own
@@ -1264,7 +1213,7 @@ void TrackerTraits<NLayers>::computeLayerCells(const int iteration)
   // touches either.
   const auto scratchCellCount = mScratch->getCells().size();
   if (mScratch->getCellsLookupTable().size() != scratchCellCount) {
-    throw TraversalException{iteration, TraversalFailureReason::LegacyIndexMismatch};
+    throw TraversalException{iteration, TraversalFailureReason::SparseTopologyMismatch};
   }
   // This clear/allocation pass is tag-agnostic and runs once over the full
   // sparse cell/transition count, regardless of which single policy tag is
@@ -1318,15 +1267,15 @@ void TrackerTraits<NLayers>::computeLayerCellsForPolicy(
 
   mTaskArena->execute([&] {
     // Resolves one sparse SurfaceCellTopology's three hit surfaces to this
-    // TrackerTraits<NLayers>'s legacy layer indices through
-    // mSurfaceToLegacyLayer (built/validated once per iteration in
+    // TrackerTraits<NLayers>'s runtime-plan slots through
+    // mSurfaceToSlot (built/validated once per iteration in
     // initialiseTimeFrame(), see that member's doc). Called exactly once
     // per CellTopologyId, outside the per-tracklet candidate loop below --
     // never re-derived per candidate. Every endpoint SurfaceId is checked
     // valid and in-range before it is ever used to index
-    // mSurfaceToLegacyLayer, and the mapped entry itself is checked against
-    // the invalid sentinel before use as a legacy-layer index -- fails
-    // closed with the same LegacyIndexMismatch reason
+    // mSurfaceToSlot, and the mapped entry itself is checked against
+    // the invalid sentinel before use as a layer-local index -- fails
+    // closed with the same SparseTopologyMismatch reason
     // findCellsNeighboursForPolicy already uses for its own analogous
     // sparse-derived-index defensive checks.
     auto resolveCellHitLayers = [&](const auto& cellTopology) -> std::array<int, 3> {
@@ -1337,11 +1286,11 @@ void TrackerTraits<NLayers>::computeLayerCellsForPolicy(
       for (int i = 0; i < 3; ++i) {
         const auto surfaceId = surfaces[i];
         if (!surfaceId.isValid() || surfaceId.value() >= MaxLayoutSurfaces) {
-          throw TraversalException{iteration, TraversalFailureReason::LegacyIndexMismatch};
+          throw TraversalException{iteration, TraversalFailureReason::SparseTopologyMismatch};
         }
-        const auto mapped = mSurfaceToLegacyLayer[surfaceId.value()];
-        if (mapped == kInvalidLegacyLayer) {
-          throw TraversalException{iteration, TraversalFailureReason::LegacyIndexMismatch};
+        const auto mapped = mSurfaceToSlot[surfaceId.value()];
+        if (mapped == kInvalidSurfaceSlot) {
+          throw TraversalException{iteration, TraversalFailureReason::SparseTopologyMismatch};
         }
         layers[i] = static_cast<int>(mapped);
       }
@@ -1408,13 +1357,10 @@ void TrackerTraits<NLayers>::computeLayerCellsForPolicy(
             TimeEstBC ts = currentTracklet.getTimeStamp();
             ts += nextTracklet.getTimeStamp();
             // Gate 4 Slice 0b: reconstructed directly from the three
-            // already-resolved legacy layer indices via LayerMask's
-            // existing 3-int constructor -- mirrors legacy
-            // TrackingTopology::init()'s own hitLayerMask construction
-            // (Mask{first.fromLayer, first.toLayer, second.toLayer}), and
-            // is provably identical to it under validateLegacyParity's
-            // existing hitSurfaces==hitLayerMask cross-check. No generic
-            // SurfaceMask->LayerMask converter is introduced.
+            // already-resolved plan positions via LayerMask's existing
+            // 3-int constructor. The positions are validated against the
+            // sparse cell's hit-surface mask during plan validation, so no
+            // generic SurfaceMask->LayerMask converter is needed.
             const LayerMask hitLayerMask{hitLayers[0], hitLayers[1], hitLayers[2]};
             if constexpr (decltype(Mode)::value == PassMode::OnePass::value) {
               layerCells.emplace_back(hitLayerMask, clusId[0], clusId[1], clusId[2], iTracklet, iNextTracklet, state, chi2, ts);
@@ -1532,7 +1478,7 @@ void TrackerTraits<NLayers>::findCellsNeighboursForPolicy(
       mScratch->getCellsNeighbours().size() != scratchCellCount ||
       mScratch->getCellsNeighboursTopology().size() != scratchCellCount ||
       mScratch->getCellsNeighboursLUT().size() != scratchCellCount) {
-    throw TraversalException{iteration, TraversalFailureReason::LegacyIndexMismatch};
+    throw TraversalException{iteration, TraversalFailureReason::SparseTopologyMismatch};
   }
   mTaskArena->execute([&] {
     std::vector<bounded_vector<CellNeighbour>> cellsNeighboursByTarget;
@@ -1551,7 +1497,7 @@ void TrackerTraits<NLayers>::findCellsNeighboursForPolicy(
       const int cellTopologyId = requireScratchCellSlot(iteration, scheduledId);
       if (static_cast<size_t>(cellTopologyId) >= scratchCellCount ||
           static_cast<size_t>(cellTopologyId) >= mScratch->getCellsLookupTable().size()) {
-        throw TraversalException{iteration, TraversalFailureReason::LegacyIndexMismatch};
+        throw TraversalException{iteration, TraversalFailureReason::SparseTopologyMismatch};
       }
       const auto& cellTopology = topology.getCell(scheduledId);
       if (mScratch->getCells()[cellTopologyId].empty()) {
@@ -1578,7 +1524,7 @@ void TrackerTraits<NLayers>::findCellsNeighboursForPolicy(
           const int nextCellTopologyId = requireScratchCellSlot(iteration, nextTopologyId);
           if (static_cast<size_t>(nextCellTopologyId) >= mScratch->getCells().size() ||
               static_cast<size_t>(nextCellTopologyId) >= mScratch->getCellsLookupTable().size()) {
-            throw TraversalException{iteration, TraversalFailureReason::LegacyIndexMismatch};
+            throw TraversalException{iteration, TraversalFailureReason::SparseTopologyMismatch};
           }
           if (mScratch->getCells()[nextCellTopologyId].empty() ||
               mScratch->getCellsLookupTable()[nextCellTopologyId].empty()) {
@@ -1592,7 +1538,7 @@ void TrackerTraits<NLayers>::findCellsNeighboursForPolicy(
           const int nextLayerLastCellIndex{nextCellLUT[nextLayerTrackletIndex + 1]};
           if (nextLayerFirstCellIndex < 0 || nextLayerLastCellIndex < nextLayerFirstCellIndex ||
               nextLayerLastCellIndex > static_cast<int>(mScratch->getCells()[nextCellTopologyId].size())) {
-            throw TraversalException{iteration, TraversalFailureReason::LegacyIndexMismatch};
+            throw TraversalException{iteration, TraversalFailureReason::SparseTopologyMismatch};
           }
           for (int iNextCell{nextLayerFirstCellIndex}; iNextCell < nextLayerLastCellIndex; ++iNextCell) {
             const auto& nextCellSeedRef{mScratch->getCells()[nextCellTopologyId][iNextCell]};
@@ -1728,6 +1674,15 @@ void TrackerTraits<NLayers>::processNeighbours(int iteration, int defaultCellTop
 
         if constexpr (decltype(Mode)::value != PassMode::TwoPassCount::value) {
           seed.setCluster(neighbourLayer, neighbourCluster);
+          if (neighbourLayer < 0 || neighbourLayer >= activeSurfaceCount) {
+            throw TraversalException{iteration, TraversalFailureReason::SparseTopologyMismatch};
+          }
+          // TrackSeed::SurfaceMask is the fixed-capacity compact plan
+          // position space used by the CA acceptance/refit loops. Global
+          // SurfaceIds stay on normalized measurements and CommonTrack
+          // references; mixing them into this local mask would make a
+          // combined sparse binding look like extra holes. The binding's
+          // ordered position is already `neighbourLayer` here.
           auto surfaceMask = seed.getSurfaceMask();
           surfaceMask.set(SurfaceId{static_cast<uint16_t>(neighbourLayer)});
           seed.setSurfaceMask(surfaceMask);
@@ -1790,24 +1745,19 @@ void TrackerTraits<NLayers>::findRoads(const int iteration)
   if (!mTraversalGrouping.has_value()) {
     throw TraversalException{iteration, TraversalFailureReason::InvalidTraversalSchedule};
   }
-  // Defensive parity check (Architecture.md Sec 9 / validateLegacyParity()):
-  // findRoadsForPolicy() below indexes mScratch->getCells() -- a legacy,
-  // per-legacy-CellTopologyId TimeFrame array -- with the .value() of sparse
-  // CellTopologyIds returned by roadStartCellsForTag(). That is only safe
-  // because validateLegacyParity(), run once per initialiseTimeFrame() before
-  // mTraversalLayout/mTraversalGrouping are committed, already proves the
-  // sparse and legacy topologies have identical cell count and per-index
-  // correspondence for this iteration. Re-checking the count here, at the
-  // road-finding boundary and before any indexing, turns a future desync
-  // between that cached proof and TimeFrame's own containers into an
-  // explicit failure instead of an out-of-bounds/misaligned read.
+  // Defensive sparse-plan check:
+  // findRoadsForPolicy() below indexes the scratch cell vectors with the
+  // compact slots returned by the bound sparse plan. The count is checked
+  // before indexing so a future plan/storage desync becomes an explicit
+  // failure instead of an out-of-bounds read; no legacy topology parity is
+  // required by this path.
   // Gate 4 C2 Slice 1: with a binding adopted, the equivalent expected count
   // is this binding's own owned cell count -- mTraversalLayout.topology.nCells
   // is the possibly-multi-detector global cell count once a binding scopes
   // this instance to one detector.
   if (mBinding != nullptr ? mScratch->getCells().size() != mBinding->getGlobalCells().size()
                           : mScratch->getCells().size() != mTraversalLayout.topology.nCells) {
-    throw TraversalException{iteration, TraversalFailureReason::LegacyIndexMismatch};
+    throw TraversalException{iteration, TraversalFailureReason::SparseTopologyMismatch};
   }
   // M5c: see computeLayerTracklets()'s identical conversion above.
   if (!mTraversalOperation.bound) {
@@ -1836,19 +1786,16 @@ void TrackerTraits<NLayers>::findRoadsForPolicy(const int iteration, const typen
   // Road-start selection is topology-derived, not a StartLayerMask/LayerMask
   // runtime decision (Architecture.md Sec 10, D003): mTraversalGrouping's
   // roadStartCellsForTag(Tag) (TransitionPolicyDispatch.h) is the deterministic
-  // ascending-CellTopologyId subsequence of the sparse layout's cells whose
-  // traversal endpoint is a seeding SurfaceId, cached once per
+  // sparse-plan subsequence of cells whose traversal endpoint is a seeding
+  // SurfaceId, cached once per
   // initialiseTimeFrame() call and reused unchanged across every startLevel
   // pass below and across every repeated findRoads() call in the
   // PerPrimaryVertexProcessing loop (CATracker.cxx). StartLayerMask itself
-  // remains a legacy configuration/layout-construction input (see
-  // positionalSurfaceMask() in TimeFrame.cxx and validateLegacyParity()) --
+  // remains an adapter configuration/layout-construction input (see
+  // positionalSurfaceMask() in TimeFrame.cxx and validateSparsePlan()) --
   // it is simply no longer read here. Each returned CellTopologyId is a
-  // sparse identifier; only its numeric .value() is used, and only to index
-  // mScratch->getCells(), the parity-validated legacy per-cell-topology
-  // TimeFrame array (see the defensive count check in findRoads()). No
-  // SurfaceId is used as a legacy layer/vector index anywhere in this
-  // function.
+  // sparse identifier resolved through the binding's compact cell slot. No
+  // SurfaceId is used as a layer/vector index anywhere in this function.
   // Road-length filter bound: maximum absolute q/pT, in the same (GeV/c)^-1
   // units as SurfaceKinematicState::parameters[4]. Applied identically to
   // both families via getQOverPt() (raw signed value, never squared); no
@@ -1987,7 +1934,7 @@ void TrackerTraits<NLayers>::acceptTracks(int iteration, bounded_vector<CATrackT
 {
   auto& trks = acceptedTracksForSharedStatus();
   trks.reserve(trks.size() + tracks.size());
-  const float smallestROFHalf = scratchROFOverlapTableView<NLayers>(*mScratch).getClockLayer().mROFLength * 0.5f;
+  const float smallestROFHalf = mScratch->getROFOverlapView().getClockLayer().mROFLength * 0.5f;
   const int activeSurfaceCount = static_cast<int>(mScratch->getNOwnedSurfaces());
   for (auto& track : tracks) {
     int nShared = 0;
@@ -2019,8 +1966,8 @@ void TrackerTraits<NLayers>::acceptTracks(int iteration, bounded_vector<CATrackT
       }
       mScratch->markUsedCluster(iLayer, track.getClusterIndex(iLayer));
       int currentROF = mScratch->getClusterROF(iLayer, track.getClusterIndex(iLayer));
-      const auto nominalROFTS = scratchROFOverlapTableView<NLayers>(*mScratch).getLayer(iLayer).getROFTimeBounds(currentROF);
-      const auto expandedROFTS = scratchROFOverlapTableView<NLayers>(*mScratch).getLayer(iLayer).getROFTimeBounds(currentROF, true);
+      const auto nominalROFTS = mScratch->getROFOverlapView().getLayer(iLayer).getROFTimeBounds(currentROF);
+      const auto expandedROFTS = mScratch->getROFOverlapView().getLayer(iLayer).getROFTimeBounds(currentROF, true);
       if (firstCls) {
         firstCls = false;
         nominalTS = nominalROFTS;

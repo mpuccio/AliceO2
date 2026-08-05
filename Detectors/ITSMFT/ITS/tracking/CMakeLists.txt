@@ -38,6 +38,14 @@ o2_add_library(ITStracking
                PRIVATE_LINK_LIBRARIES
                        O2::Steer
                        TBB::tbb)
+
+# ROFLookupTables is an adapter-edge table builder; its view type is shared
+# with the detector-neutral tracking core without linking the two libraries.
+# The header is public, so consumers of the frozen table types (including the
+# GPU/frozen ITS targets) must also see the header-only common view boundary.
+target_include_directories(${targetName} PUBLIC
+                           $<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}/Detectors/ITSMFT/common/tracking/include>
+                           $<INSTALL_INTERFACE:include>)
 # target_compile_options(${targetName} PRIVATE -O0 -g -fPIC -fno-omit-frame-pointer)
 
 # ITS-owned, explicit opt-in translation boundary between the production ITS

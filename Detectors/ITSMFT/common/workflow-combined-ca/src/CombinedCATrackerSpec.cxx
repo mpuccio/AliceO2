@@ -308,8 +308,8 @@ void CombinedCATrackerDPL::invalidatePublication() noexcept
 
 void CombinedCATrackerDPL::markPublicationValid() noexcept
 {
-  mITSClock.emplace(mITSParticipant->getScratch().getROFOverlapTableView<o2::itsmft::tracking::ITSNLayers>().getClockLayer());
-  mMFTClock.emplace(mMFTParticipant->getScratch().getROFOverlapTableView<o2::itsmft::tracking::MFTNLayers>().getClockLayer());
+  mITSClock.emplace(mITSParticipant->getScratch().getROFOverlapView().getClockLayer());
+  mMFTClock.emplace(mMFTParticipant->getScratch().getROFOverlapView().getClockLayer());
   mPublicationValid = true;
 }
 

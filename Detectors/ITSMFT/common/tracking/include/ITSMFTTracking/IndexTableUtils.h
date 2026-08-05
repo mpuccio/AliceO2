@@ -45,13 +45,9 @@ GPUhdi() float getNormalizedPhi(float phi)
 }
 } // namespace index_table_utils
 
-/// Row/column LUT helper (ITS: row=phi, col=z; MFT: row=y, col=x). M6e2: no
-/// longer templated on a detector layer count -- ITS(7) and MFT(10) common-CA
-/// participants both now share one SurfaceTrackingScratch instance type, so
-/// this type (owned generically as SurfaceTrackingScratch::IndexTableUtilsN,
-/// and still owned per-NLayers as the former fixed-layer scratch<NLayers>::IndexTableUtilsN
-/// via the IndexTableUtils<nLayers> alias below, unchanged source text) can no
-/// longer carry a fixed nLayers in its own type. Per-layer storage is
+/// Row/column LUT helper (ITS: row=phi, col=z; MFT: row=y, col=x). This
+/// type is not templated on a detector layer count: ITS(7), MFT(10), and
+/// future applications share one runtime-plan-owned helper. Per-layer storage is
 /// therefore capacity-bound by MaxLayoutSurfaces (SurfaceId.h) -- the same
 /// established, reused (never invented) bound TrackSeed (Cell.h) already uses
 /// for the identical reason: getColBinIndex()/getInverseColCoordinate() are
@@ -59,7 +55,7 @@ GPUhdi() float getNormalizedPhi(float phi)
 /// std::vector is not an option. A caller that populates fewer than
 /// MaxLayoutSurfaces layers (every real caller today: NLayers=7 or 10) simply
 /// never queries the unpopulated tail -- every read site indexes by an
-/// explicit layerIndex the caller's own (still NLayers-templated)
+/// explicit layerIndex from the caller's runtime plan slot
 /// TrackerTraits<NLayers,...>/the former fixed-layer scratch<NLayers> already bounds
 /// correctly, exactly as before this change.
 class IndexTableUtilsCore
@@ -202,20 +198,8 @@ inline void IndexTableUtilsCore::print() const
   }
 }
 
-/// Backward-compatible alias: every existing textual reference
-/// `o2::itsmft::IndexTableUtils<N>` (any N) keeps compiling unchanged and now
-/// resolves to the same shared, non-templated core above. This is the load-
-/// bearing reason the former fixed-layer scratch<NLayers>'s own
-/// `using IndexTableUtilsN = o2::itsmft::IndexTableUtils<NLayers>;` (untouched
-/// by M6e2) needs no source change at all, for either NLayers value.
-template <int nLayers>
-using IndexTableUtils = IndexTableUtilsCore;
-
-/// ITS: row = phi, col = z. M6e2: no longer templated on nLayers -- see
-/// IndexTableUtilsCore's own doc; every caller that previously supplied an
-/// explicit <nLayers> (or relied on deducing it from the `utils` parameter,
-/// which stopped working once IndexTableUtils<N> became an alias to one
-/// shared type) drops it.
+/// ITS: row = phi, col = z. The operation is not templated on nLayers -- see
+/// IndexTableUtilsCore's own doc; callers supply the runtime plan slot.
 GPUhdi() int4 getBinsPhiZ(float phi, const int layerIndex,
                           float z1, float z2, float maxDeltaCol, float maxDeltaRow,
                           const IndexTableUtilsCore& utils)

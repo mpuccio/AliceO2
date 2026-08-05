@@ -39,11 +39,7 @@ class TimeEstBC;
 using Vertex = o2::dataformats::Vertex<TimeEstBC>;
 struct Cluster;
 } // namespace o2::its
-// M6e2: o2::itsmft::IndexTableUtils<NLayers> is now an alias template (see
-// IndexTableUtils.h's own doc) rather than a real class template, so it can
-// no longer be forward-declared separately from its target -- the previous
-// `template <int NLayers> class IndexTableUtils;` forward declaration here
-// is replaced by the real (lightweight) include above.
+// The operation consumes the one non-templated IndexTableUtilsCore helper.
 #endif
 
 namespace o2::itsmft::tracking
@@ -119,13 +115,13 @@ struct TrackletSearchWindow<TransitionPolicyTag::DiskDisk> {
 /// window. Implemented and explicitly instantiated in the host translation
 /// unit: DiskDisk reuses MFTFwdTrackHelpers, which must not leak into this
 /// declarations-only header. On rejection `out` is left unchanged.
-template <TransitionPolicyTag Tag, int NLayers>
+template <TransitionPolicyTag Tag>
 bool projectSearchWindow(const SurfaceMeasurement& sourceMeasurement,
                          const o2::its::Cluster& sourceLocator,
                          const o2::its::Vertex& vertex,
                          const TrackletProjectionState<Tag>& transitionState,
                          float bz,
-                         const o2::itsmft::IndexTableUtils<NLayers>& indexUtils,
+                         const o2::itsmft::IndexTableUtilsCore& indexUtils,
                          const typename TransitionPolicyTraits<Tag>::Params& params,
                          TrackletSearchWindow<Tag>& out);
 
@@ -892,10 +888,10 @@ struct TransitionScatteringBendingPrep {
 /// caller-supplied indices/ranges):
 ///  - `perLayerMSAngle` must have a valid element at every index in
 ///    `[fromLayer, toLayer)`; it is indexed without a bounds check.
-///  - `fromLayer` and `toLayer` must be validated legacy layout-local layer
-///    indices for the active topology (the same index space
+///  - `fromLayer` and `toLayer` must be validated plan-local positions for
+///    the active topology (the same index space
 ///    TrackletProjectionState<Tag>/TrackerTraits already document and
-///    validate elsewhere via TrackingTopology/DetectorLayoutView), not
+///    validate elsewhere via SparseTrackingTopologyView/DetectorLayoutView), not
 ///    arbitrary integers or global SurfaceIds.
 ///  - `fromLayer <= toLayer`; the accumulation loop is a no-op (`ms2 == 0`)
 ///    for `fromLayer == toLayer` and undefined for `fromLayer > toLayer`

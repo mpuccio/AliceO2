@@ -18,8 +18,8 @@ namespace o2::itsmft::tracking
 
 using o2::itsmft::IndexTableCoordType;
 
-template <TransitionPolicyTag Tag, int NLayers>
-IndexTableConfigError bindIndexTableConfiguration(o2::itsmft::IndexTableUtils<NLayers>& staged,
+template <TransitionPolicyTag Tag>
+IndexTableConfigError bindIndexTableConfiguration(o2::itsmft::IndexTableUtilsCore& staged,
                                                   const TrackingParameters& params,
                                                   int activeSurfaceCount) noexcept
 {
@@ -86,17 +86,9 @@ IndexTableConfigError bindIndexTableConfiguration(o2::itsmft::IndexTableUtils<NL
   return IndexTableConfigError::None;
 }
 
-template IndexTableConfigError bindIndexTableConfiguration<TransitionPolicyTag::CylinderCylinder, 7>(
-  o2::itsmft::IndexTableUtils<7>&, const TrackingParameters&, int);
-template IndexTableConfigError bindIndexTableConfiguration<TransitionPolicyTag::DiskDisk, 10>(
-  o2::itsmft::IndexTableUtils<10>&, const TrackingParameters&, int);
-// Gate 4 M5b: TrackerTraits::initialiseTimeFrame() no longer gates Tag
-// selection on NLayers at compile time (see TrackerTraits.cxx's
-// dispatchActivePolicy() doc), so both cross combinations below are now
-// reachable from that call site too.
-template IndexTableConfigError bindIndexTableConfiguration<TransitionPolicyTag::DiskDisk, 7>(
-  o2::itsmft::IndexTableUtils<7>&, const TrackingParameters&, int);
-template IndexTableConfigError bindIndexTableConfiguration<TransitionPolicyTag::CylinderCylinder, 10>(
-  o2::itsmft::IndexTableUtils<10>&, const TrackingParameters&, int);
+template IndexTableConfigError bindIndexTableConfiguration<TransitionPolicyTag::CylinderCylinder>(
+  o2::itsmft::IndexTableUtilsCore&, const TrackingParameters&, int);
+template IndexTableConfigError bindIndexTableConfiguration<TransitionPolicyTag::DiskDisk>(
+  o2::itsmft::IndexTableUtilsCore&, const TrackingParameters&, int);
 
 } // namespace o2::itsmft::tracking

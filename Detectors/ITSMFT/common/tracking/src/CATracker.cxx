@@ -49,7 +49,7 @@ TrackingResult Tracker<NLayers>::clustersToTracks()
 
   int maxNvertices{-1};
   if (mTrkParams[0].PerPrimaryVertexProcessing) {
-    maxNvertices = scratchROFVertexLookupTableView<NLayers>(*mScratch).getMaxVerticesPerROF();
+    maxNvertices = mScratch->getROFVertexLookupView().getMaxVerticesPerROF();
   }
 
   float total{0.f};
@@ -57,7 +57,7 @@ TrackingResult Tracker<NLayers>::clustersToTracks()
     for (int iteration = 0; iteration < static_cast<int>(mTrkParams.size()); ++iteration) {
       mMemoryPool->setMaxMemory(mTrkParams[iteration].MaxMemory);
       if (mTrkParams[iteration].PassFlags[IterationStep::UseUPCMask]) {
-        scratchUseUPCMask<NLayers>(*mScratch);
+        mScratch->useUPCMask();
       }
 
       int iVertex = std::min(maxNvertices, 0);

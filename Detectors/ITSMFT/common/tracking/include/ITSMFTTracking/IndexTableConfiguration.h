@@ -52,8 +52,8 @@ enum class IndexTableConfigError : uint8_t {
 /// DetId. Every field of `params` is validated before `staged` is mutated;
 /// on any error `staged` is left completely untouched. Must be called once
 /// per iteration, outside any candidate/neighbour/road loop.
-template <TransitionPolicyTag Tag, int NLayers>
-IndexTableConfigError bindIndexTableConfiguration(o2::itsmft::IndexTableUtils<NLayers>& staged,
+template <TransitionPolicyTag Tag>
+IndexTableConfigError bindIndexTableConfiguration(o2::itsmft::IndexTableUtilsCore& staged,
                                                   const TrackingParameters& params,
                                                   int activeSurfaceCount) noexcept;
 
@@ -61,10 +61,9 @@ IndexTableConfigError bindIndexTableConfiguration(o2::itsmft::IndexTableUtils<NL
 /// `a` and `b`. Used to enforce that a non-FirstPass iteration's freshly
 /// bound configuration matches the TimeFrame-owned configuration and LUT
 /// content it intends to reuse or resort, before that TimeFrame is touched.
-template <int NLayers>
-bool indexTableConfigurationsMatch(const o2::itsmft::IndexTableUtils<NLayers>& a,
-                                   const o2::itsmft::IndexTableUtils<NLayers>& b,
-                                   int activeSurfaceCount) noexcept
+inline bool indexTableConfigurationsMatch(const o2::itsmft::IndexTableUtilsCore& a,
+                                          const o2::itsmft::IndexTableUtilsCore& b,
+                                          int activeSurfaceCount) noexcept
 {
   if (a.getCoordType() != b.getCoordType() ||
       a.getNrowBins() != b.getNrowBins() ||

@@ -382,7 +382,7 @@ void ITSMFTTrackingInterface<NLayers>::loadTimeFrame(gsl::span<const o2::itsmft:
   }
   // Copy the finalized clock layer while scratch is live. The export is a
   // value boundary for workflows, never a retained overlap-table reference.
-  mPublicationClock.emplace(scratchROFOverlapTableView<NLayers>(mScratch).getClockLayer());
+  mPublicationClock.emplace(mScratch.getROFOverlapView().getClockLayer());
   // A successful normalized-frame replacement invalidates every CommonTrack
   // index, so clear detector-local compatibility entries in the same owner-
   // level operation. Failed loads return above without changing either.
@@ -392,8 +392,6 @@ void ITSMFTTrackingInterface<NLayers>::loadTimeFrame(gsl::span<const o2::itsmft:
   if constexpr (DetId == o2::detectors::DetID::MFT) {
     static_cast<MFTPublicationCompatibilityOwner<NLayers>&>(*this).sidecar.clear();
   }
-
-  configureTrackingTopology();
 
   LOGP(info, "{} CA loaded {} clusters from {} ROFs into TimeFrame ({} pattern bytes, MC={})",
        detName<DetId>(), mScratch.getTotalClusters(), rofs.size(), patterns.size(), labels != nullptr);
@@ -431,17 +429,6 @@ float ITSMFTTrackingInterface<NLayers>::runTracking()
   const auto nTracks = mFrame.getCommonTracks().size();
   LOGP(info, "{} CA tracking produced {} tracks in {:.2f} ms", detName<DetId>(), nTracks, result.elapsedMs);
   return result.elapsedMs;
-}
-
-template <int NLayers>
-void ITSMFTTrackingInterface<NLayers>::configureTrackingTopology()
-{
-  if (mTrackParams.empty()) {
-    return;
-  }
-  const auto activeSurfaceCount = static_cast<int>(mScratch.getNOwnedSurfaces());
-  scratchInitDefaultTrackingTopology<NLayers>(mScratch, mTrackParams[0], activeSurfaceCount);
-  scratchInitTrackerTopologies<NLayers>(mScratch, mTrackParams, activeSurfaceCount);
 }
 
 template <int NLayers>
@@ -545,9 +532,10 @@ ROFTimingConfig ITSMFTTrackingInterface<NLayers>::configureROFLookupTables()
     vtxTable.defineLayer(iLayer, layerTimings[iLayer]);
   }
   rofTable.init();
-  mScratch.setROFOverlapTable(std::move(rofTable));
   vtxTable.init();
-  mScratch.setROFVertexLookupTable(std::move(vtxTable));
+  mROFOverlapTable = std::move(rofTable);
+  mROFVertexLookupTable = std::move(vtxTable);
+  mScratch.setROFViews(RuntimeROFViews{mROFOverlapTable.getView(), mROFVertexLookupTable.getView(), {}, {}});
 
   return uniformTiming.config;
 }
@@ -556,7 +544,7 @@ template <int NLayers>
 void ITSMFTTrackingInterface<NLayers>::configureROFMask(gsl::span<const o2::itsmft::ROFRecord> rofs,
                                                         gsl::span<const o2::dataformats::IRFrame> irFrames)
 {
-  ROFMaskTableN mask{scratchROFOverlapTable<NLayers>(mScratch)};
+  ROFMaskTableN mask{mROFOverlapTable};
   mask.resetMask();
 
   if constexpr (DetId == o2::detectors::DetID::MFT) {
@@ -571,7 +559,7 @@ void ITSMFTTrackingInterface<NLayers>::configureROFMask(gsl::span<const o2::itsm
       LOGP(info, "{} CA IRFrame filter enabled with {} ITS IR frames", detName<DetId>(), irFrames.size());
     }
 
-    const auto nROFs = scratchROFOverlapTableView<NLayers>(mScratch).getLayer(0).mNROFsTF;
+    const auto nROFs = mScratch.getROFOverlapView().getLayer(0).mNROFsTF;
     for (int iRof = 0; iRof < static_cast<int>(nROFs); ++iRof) {
       bool accept = true;
       if (iRof < static_cast<int>(rofs.size())) {
@@ -590,17 +578,18 @@ void ITSMFTTrackingInterface<NLayers>::configureROFMask(gsl::span<const o2::itsm
     }
   } else {
     for (int iLayer = 0; iLayer < NLayers; ++iLayer) {
-      mask.setROFsEnabled(iLayer, 0, scratchROFOverlapTableView<NLayers>(mScratch).getLayer(iLayer).mNROFsTF, 1);
+      mask.setROFsEnabled(iLayer, 0, mScratch.getROFOverlapView().getLayer(iLayer).mNROFsTF, 1);
     }
   }
 
-  mScratch.setMultiplicityCutMask(std::move(mask));
+  mMultiplicityMask = std::move(mask);
+  mScratch.setROFViews(RuntimeROFViews{mROFOverlapTable.getView(), mROFVertexLookupTable.getView(), mMultiplicityMask.getView(), mUPCMask.getView()});
 }
 
 template <int NLayers>
 void ITSMFTTrackingInterface<NLayers>::validateROFInput(gsl::span<const o2::itsmft::ROFRecord> rofs) const
 {
-  const auto expectedROFsTF = scratchROFOverlapTableView<NLayers>(mScratch).getLayer(0).mNROFsTF;
+  const auto expectedROFsTF = mScratch.getROFOverlapView().getLayer(0).mNROFsTF;
   if (rofs.size() != expectedROFsTF) {
     LOGP(warn, "{} CA ROF count differs from continuous timing expectation: received {} expected {}",
          detName<DetId>(), rofs.size(), expectedROFsTF);

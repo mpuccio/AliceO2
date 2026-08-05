@@ -143,6 +143,12 @@ class SurfacePlanTrackingParticipant final : public TrackingParticipant,
   const DetectorLayoutSet* mPlan = nullptr;
   TrackerTraits<NLayers> mTraits;
   Tracker<NLayers> mTracker;
+  // Adapter-edge ownership for this leg's fixed-capacity timing/mask tables.
+  // SurfaceTrackingScratch receives only non-owning runtime views.
+  o2::its::ROFOverlapTable<NLayers> mROFOverlapTable;
+  o2::its::ROFVertexLookupTable<NLayers> mROFVertexLookupTable;
+  o2::its::ROFMaskTable<NLayers> mMultiplicityMask;
+  o2::its::ROFMaskTable<NLayers> mUPCMask;
   // Bound to mScratch above at construction (M2b) -- see
   // MultiSourceTimeFrameLoader::LoadTargetImplSurface's own doc. Declared
   // after mScratch so it is constructed after (and therefore only ever

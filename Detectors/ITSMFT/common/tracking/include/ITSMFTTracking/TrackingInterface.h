@@ -81,7 +81,7 @@ struct ITSSharedClusterCompatibilityOwner<ITSNLayers> {
 
 // Host-facing standalone workflow interface over the same
 // SurfaceTrackingScratch/SurfacePlanBinding model used by the combined
-// participant. NLayers remains an algorithm/storage parameter until M6g.
+// participant. NLayers remains an algorithm/storage parameter until M7d.
 template <int NLayers>
 class ITSMFTTrackingInterface : private MFTPublicationCompatibilityOwner<NLayers>, private ITSSharedClusterCompatibilityOwner<NLayers>
 {
@@ -90,13 +90,9 @@ class ITSMFTTrackingInterface : private MFTPublicationCompatibilityOwner<NLayers
                 "ITSMFTTrackingInterface supports ITS (7) and MFT (10) layer counts only");
   static constexpr o2::detectors::DetID::ID DetId = detIdFromNLayers<NLayers>();
 
-  // M6e2: bound directly on this class's own NLayers, not via the scratch --
-  // SurfaceTrackingScratch's own ROFOverlapTable/ROFVertexLookupTable/
-  // ROFMaskTable storage became dual-typed (ITS(7)+MFT(10)) once this
-  // scratch started backing ITS too, so it no longer exposes a single
-  // ROFOverlapTableN/ROFVertexLookupTableN/ROFMaskTableN nested alias (see
-  // SurfaceTrackingScratch.h). Exactly the same "bypass the scratch, bind on
-  // our own NLayers fix already applied to TrackerTraits.h.
+  // The standalone detector adapter retains its own fixed-capacity table
+  // builders. Their non-owning views are passed to SurfaceTrackingScratch;
+  // the scratch has no detector-shaped table members or template dispatchers.
   using ROFOverlapTableN = o2::its::ROFOverlapTable<NLayers>;
   using ROFVertexLookupTableN = o2::its::ROFVertexLookupTable<NLayers>;
   using ROFMaskTableN = o2::its::ROFMaskTable<NLayers>;
@@ -213,7 +209,6 @@ class ITSMFTTrackingInterface : private MFTPublicationCompatibilityOwner<NLayers
   // mTimeFrame's ROF overlap/vertex-lookup tables as a side effect, as before.
   ROFTimingConfig configureROFLookupTables();
   void configureBeamPosition();
-  void configureTrackingTopology();
   void configureROFMask(gsl::span<const o2::itsmft::ROFRecord> rofs,
                         gsl::span<const o2::dataformats::IRFrame> irFrames);
   void validateROFInput(gsl::span<const o2::itsmft::ROFRecord> rofs) const;
@@ -237,6 +232,12 @@ class ITSMFTTrackingInterface : private MFTPublicationCompatibilityOwner<NLayers
   // Bind-once plan, built in initialiseTracker() alongside mPlan and adopted
   // onto mTracker immediately after.
   std::unique_ptr<SurfacePlanBinding> mBinding;
+  // Adapter-edge ownership for the frozen fixed-capacity timing/mask builders.
+  // The common scratch receives only their non-owning RuntimeROFViews.
+  ROFOverlapTableN mROFOverlapTable;
+  ROFVertexLookupTableN mROFVertexLookupTable;
+  ROFMaskTableN mMultiplicityMask;
+  ROFMaskTableN mUPCMask;
 #endif
   const o2::itsmft::TopologyDictionary* mDict = nullptr;
   const o2::dataformats::MeanVertexObject* mMeanVertex = nullptr;

@@ -81,37 +81,30 @@ void SurfacePlanTrackingParticipant<NLayers>::configureRofTables(const ROFTiming
   layerTiming.mROFBias = timing.rofBias;
   layerTiming.mROFAddTimeErr = timing.rofAddTimeErr;
 
-  // M6e2: bound directly on this class's own NLayers, not via a scratch alias:
-  // ROFOverlapTableN/etc -- SurfaceTrackingScratch's own storage is now
-  // dual-typed (ITS(7)+MFT(10)), so it no longer exposes a single nested
-  // alias for these (see SurfaceTrackingScratch.h, TrackingInterface.h's
-  // identical fix). setROFOverlapTable()/setROFVertexLookupTable()/
-  // setMultiplicityCutMask() are template methods on SurfaceTrackingScratch
-  // now, but deduce NLayers from this locally-typed argument with no
-  // explicit `<>` at the call site, so no `.template` disambiguator or
-  // dispatcher is needed here (unlike the argument-less getters elsewhere).
+  // Build the frozen fixed-capacity tables at this application-adapter edge.
+  // Only their non-owning runtime views cross into the common scratch; no
+  // detector-shaped table or layer-count dispatcher is retained there.
   o2::its::ROFOverlapTable<NLayers> rofTable;
   for (int layer = 0; layer < NLayers; ++layer) {
     rofTable.defineLayer(layer, layerTiming);
   }
   rofTable.init();
-  mScratch.setROFOverlapTable(rofTable);
 
   o2::its::ROFVertexLookupTable<NLayers> vtxTable;
   for (int layer = 0; layer < NLayers; ++layer) {
     vtxTable.defineLayer(layer, layerTiming);
   }
   vtxTable.init();
-  mScratch.setROFVertexLookupTable(vtxTable);
 
   o2::its::ROFMaskTable<NLayers> mask{rofTable};
   mask.resetMask();
   for (int layer = 0; layer < NLayers; ++layer) {
     mask.setROFsEnabled(layer, 0, static_cast<int>(nROFsTF), 1);
   }
-  mScratch.setMultiplicityCutMask(std::move(mask));
-
-  scratchInitTrackerTopologies<NLayers>(mScratch, mParams, static_cast<int>(mScratch.getNOwnedSurfaces()));
+  mROFOverlapTable = std::move(rofTable);
+  mROFVertexLookupTable = std::move(vtxTable);
+  mMultiplicityMask = std::move(mask);
+  mScratch.setROFViews(RuntimeROFViews{mROFOverlapTable.getView(), mROFVertexLookupTable.getView(), mMultiplicityMask.getView(), mUPCMask.getView()});
 }
 
 template <int NLayers>

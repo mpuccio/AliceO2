@@ -69,13 +69,13 @@ bool TrackletSearchWindow<TransitionPolicyTag::DiskDisk>::acceptCandidate(
   return false;
 }
 
-template <TransitionPolicyTag Tag, int NLayers>
+template <TransitionPolicyTag Tag>
 bool projectSearchWindow(const SurfaceMeasurement& sourceMeasurement,
                          const o2::its::Cluster& sourceLocator,
                          const o2::its::Vertex& vertex,
                          const TrackletProjectionState<Tag>& transitionState,
                          float bz,
-                         const o2::itsmft::IndexTableUtils<NLayers>& indexUtils,
+                         const o2::itsmft::IndexTableUtilsCore& indexUtils,
                          const typename TransitionPolicyTraits<Tag>::Params& params,
                          TrackletSearchWindow<Tag>& out)
 {
@@ -145,33 +145,17 @@ bool projectSearchWindow(const SurfaceMeasurement& sourceMeasurement,
   }
 }
 
-template bool projectSearchWindow<TransitionPolicyTag::CylinderCylinder, 7>(
+template bool projectSearchWindow<TransitionPolicyTag::CylinderCylinder>(
   const SurfaceMeasurement&, const o2::its::Cluster&, const o2::its::Vertex&,
   const TrackletProjectionState<TransitionPolicyTag::CylinderCylinder>&, float,
-  const o2::itsmft::IndexTableUtils<7>&, const CylinderCylinderPolicyParams&,
+  const o2::itsmft::IndexTableUtilsCore&, const CylinderCylinderPolicyParams&,
   TrackletSearchWindow<TransitionPolicyTag::CylinderCylinder>&);
 
-template bool projectSearchWindow<TransitionPolicyTag::DiskDisk, 10>(
+template bool projectSearchWindow<TransitionPolicyTag::DiskDisk>(
   const SurfaceMeasurement&, const o2::its::Cluster&, const o2::its::Vertex&,
   const TrackletProjectionState<TransitionPolicyTag::DiskDisk>&, float,
-  const o2::itsmft::IndexTableUtils<10>&, const DiskDiskPolicyParams&,
+  const o2::itsmft::IndexTableUtilsCore&, const DiskDiskPolicyParams&,
   TrackletSearchWindow<TransitionPolicyTag::DiskDisk>&);
-
-// Gate 4 M5b: TrackerTraits::computeLayerTracklets() no longer gates Tag
-// selection on NLayers at compile time (see TrackerTraits.cxx's
-// dispatchActivePolicy() doc), so both cross combinations below are now
-// reachable from that call site too.
-template bool projectSearchWindow<TransitionPolicyTag::DiskDisk, 7>(
-  const SurfaceMeasurement&, const o2::its::Cluster&, const o2::its::Vertex&,
-  const TrackletProjectionState<TransitionPolicyTag::DiskDisk>&, float,
-  const o2::itsmft::IndexTableUtils<7>&, const DiskDiskPolicyParams&,
-  TrackletSearchWindow<TransitionPolicyTag::DiskDisk>&);
-
-template bool projectSearchWindow<TransitionPolicyTag::CylinderCylinder, 10>(
-  const SurfaceMeasurement&, const o2::its::Cluster&, const o2::its::Vertex&,
-  const TrackletProjectionState<TransitionPolicyTag::CylinderCylinder>&, float,
-  const o2::itsmft::IndexTableUtils<10>&, const CylinderCylinderPolicyParams&,
-  TrackletSearchWindow<TransitionPolicyTag::CylinderCylinder>&);
 
 // --- Stage-B activation: native SurfaceKinematicState policy operations ---
 //

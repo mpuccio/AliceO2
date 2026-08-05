@@ -52,7 +52,7 @@ enum class TraversalFailureReason : uint8_t {
   MissingLayout,
   StaleLayout,
   IterationOutOfRange,
-  LegacyIndexMismatch,
+  SparseTopologyMismatch,
   InvalidTraversalSchedule,
   MixedPolicyLayout,
   StateFamilyMismatch,
@@ -105,12 +105,12 @@ enum class TraversalFailureReason : uint8_t {
   // result -- see mLayerMeasurements' own doc for the commit contract.
   NormalizedMeasurementMismatch,
   // Gate 4 Slice 0a (sparse-topology tracklet migration): this iteration's
-  // orderedSurfaces does not define a bijection from legacy layer index onto
+  // orderedSurfaces does not define a bijection from runtime plan position onto
   // global SurfaceId -- i.e. two distinct legacy layers map to the same
   // SurfaceId. Detected in the same orderedSurfaces walk that resolves
-  // mSurfaceToLegacyLayer (see that member's doc), immediately alongside the
+  // mSurfaceToSlot (see that member's doc), immediately alongside the
   // existing per-entry LegacyMaterialMismatch validity/range check, before
-  // any TimeFrame tracking state is touched; mSurfaceToLegacyLayer is never
+  // any TimeFrame tracking state is touched; mSurfaceToSlot is never
   // partially populated as a result.
   SurfaceLayerMappingMismatch,
   // Gate 4 C2 Slice 1: an adopted SurfacePlanBinding could not translate a
@@ -146,12 +146,12 @@ class TraversalException final : public std::runtime_error
 };
 
 // The generic tracker owns one detector-neutral workspace and one immutable
-// plan binding. NLayers remains an algorithm/storage parameter until M6g.
+// plan binding. NLayers remains an algorithm/storage parameter until M7d.
 template <int NLayers>
 class TrackerTraits
 {
  public:
-  using IndexTableUtilsN = o2::itsmft::IndexTableUtils<NLayers>;
+  using IndexTableUtilsN = o2::itsmft::IndexTableUtilsCore;
 
   virtual ~TrackerTraits() = default;
   // Two independent bind-once pointers -- neither owns nor stores a
@@ -237,7 +237,7 @@ class TrackerTraits
 
  private:
   void resetTraversalCache() noexcept;
-  void validateLegacyParity(int iteration, const DetectorLayoutView& layout, TransitionPolicyTag& activeTag, bool& mixedPolicy) const;
+  void validateSparsePlan(int iteration, const DetectorLayoutView& layout, TransitionPolicyTag& activeTag, bool& mixedPolicy) const;
 
   // Gate 4 C2 Slice 1: the sole global-TransitionId/CellTopologyId-to-
   // compact-scratch-slot translation used anywhere in this class. Called
@@ -258,13 +258,10 @@ class TrackerTraits
   // With no binding adopted, forwards unchanged to dispatchTransitionPolicies
   // (identical behavior to before this slice). With a binding adopted,
   // `grouping` (built from the possibly-multi-detector `layout`) is not used
-  // for tag selection at all: the active tag is this NLayers instantiation's
-  // own compile-time family (a binding only ever owns transitions of
-  // the matching tag, enforced by SurfacePlanBinding::build()), so the
-  // visitor is invoked exactly once, fed `binding`'s own filtered
-  // transition/cell spans instead of `grouping`'s whole-layout ones -- this
-  // is what prevents a combined (both-tags-present) `grouping` from firing
-  // the visitor twice, once per tag, for a single-detector TrackerTraits.
+  // for tag selection at all: the active tag is derived from the bound sparse
+  // transitions and cached in mActiveTag, so the visitor is invoked exactly
+  // once with the binding's filtered transition/cell spans. This prevents a
+  // combined (both-tags-present) grouping from firing the visitor twice.
   template <typename Visitor>
   void dispatchActivePolicy(const TransitionPolicyGrouping& grouping, Visitor&& visitor) const;
 
@@ -289,7 +286,7 @@ class TrackerTraits
   // member exactly once per successful initialiseTimeFrame() call, from
   // that call's already-validated activeTag/params/grouping (activeTag itself
   // derived earlier in the same call from actual endpoint SurfaceDescriptor
-  // kinds via validateLegacyParity()'s tagOf(), never from NLayers or
+  // kinds via validateSparsePlan()'s tagOf(), never from NLayers or
   // detector identity). resetTraversalCache() clears it back to unbound,
   // alongside every other traversal cache, so a hot loop can never observe a
   // binding left over from a failed or unrelated iteration.
@@ -373,14 +370,10 @@ class TrackerTraits
   // after all existing and new fallible validation for this iteration has
   // already succeeded (activeTag, cylinder/disk params, attachHitConfig,
   // geometryConfig, and -- for DiskDisk -- referenceCoordinateView); this
-  // method itself never throws. Fills TimeFrame's already-sized
-  // mTransitionMSAngles/mTransitionPhiCuts (container sizing stays in
-  // TimeFrame::initialise(), unchanged) by iterating legacy transitionIds
-  // 0..nTransitions-1 in increasing order directly off
-  // TimeFrame::getTrackingTopologyView() -- not through mTraversalGrouping's
-  // per-tag span -- so the loop-carried oneOverR ratchet threads in exactly
-  // the same order the frozen legacy code used, with no dependency on
-  // grouping-span ordering.
+  // method itself never throws. Fills the scratch-owned transition arrays by
+  // iterating the binding's ordered sparse transition ids, so the
+  // loop-carried oneOverR ratchet follows plan order rather than a numeric
+  // SurfaceId or a detector-specific topology.
   template <TransitionPolicyTag Tag>
   void prepareTransitionScatteringAndBendingForPolicy(int iteration,
                                                       const LayerGeometryConfigView& geometryConfig,
@@ -427,23 +420,24 @@ class TrackerTraits
   std::vector<NominalSurfaceMaterial> mLayerMaterial;
   // Gate 4 Slice 0a (sparse-topology tracklet migration): temporary bridge
   // from a global SurfaceId back to this TrackerTraits<NLayers>'s own
-  // legacy layout-local layer index, so the migrated hot loops can resolve
-  // a sparse SurfaceTransition's `from`/`to` endpoints to the legacy layer
+  // runtime-plan slot, so the migrated hot loops can resolve a sparse
+  // SurfaceTransition's `from`/`to` endpoints to layer-local storage
   // indices TimeFrame's per-layer storage (clusters, index tables,
   // TrackingParameters::LayerRadii, mLayerMaterial, mLayerMeasurements) is
   // still keyed by. Sized to the full global SurfaceId domain
   // (MaxLayoutSurfaces, SurfaceId.h) -- never NLayers -- because SurfaceId
   // numbering is global, not per-detector; only the (at most) NLayers
   // entries this iteration's orderedSurfaces actually maps are ever valid
-  // for this bridge, every other slot stays kInvalidLegacyLayer. Same
+  // for this bridge, every other slot stays kInvalidSurfaceSlot. Same
   // staged-then-committed contract as mLayerMaterial immediately above:
   // resolved into a local scratch array first, alongside mLayerMaterial, in
   // the same orderedSurfaces walk (see initialiseTimeFrame()'s step 2.5),
   // and committed here only in the final traversal-cache commit block.
   // resetTraversalCache() sentinel-fills every element at the top of every
   // call, and it stays that way unless the call returns normally.
-  static constexpr uint8_t kInvalidLegacyLayer = 0xFFu;
-  std::array<uint8_t, MaxLayoutSurfaces> mSurfaceToLegacyLayer{};
+  static constexpr uint8_t kInvalidSurfaceSlot = 0xFFu;
+  std::array<uint8_t, MaxLayoutSurfaces> mSurfaceToSlot{};
+  TransitionPolicyTag mActiveTag{TransitionPolicyTag::Invalid};
   // One-time normalized-measurement binding (Stage-B normalized-CA-
   // measurements slice): non-owning per-(legacy-)layer span into the
   // TimeFrame-owned normalized frame, resolved and validated once per

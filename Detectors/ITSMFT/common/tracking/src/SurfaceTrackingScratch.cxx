@@ -78,6 +78,11 @@ void SurfaceTrackingScratch::adoptPlan(std::size_t nOwnedSurfaces, std::size_t n
 
 void SurfaceTrackingScratch::reset()
 {
+  // The adapter-owned timing/mask storage may outlive this scratch, but its
+  // non-owning event view must never cross an event boundary.
+  mROFViews = {};
+  mUseUPC = false;
+
   // Group B.
   deepVectorClear(mTracklets);
   deepVectorClear(mTrackletsLookupTable);
@@ -490,24 +495,20 @@ const o2::its::TrackingFrameInfo& SurfaceTrackingScratch::getClusterTrackingFram
   return mTrackingFrameInfo[layerId][cl.clusterId];
 }
 
-template <int NLayers>
 gsl::span<const Vertex> SurfaceTrackingScratch::getPrimaryVertices(const TimeFrame& frame, int layer, int rofId) const
 {
   if (rofId < 0 || rofId >= getNrof(layer)) {
     return {};
   }
-  const auto& view = getROFVertexLookupTableView<NLayers>();
+  const auto& view = getROFVertexLookupView();
   const auto& entry = view.getVertices(layer, rofId);
   const auto& vertices = frame.getPrimaryVertices();
   return {&vertices[entry.getFirstEntry()], static_cast<gsl::span<const Vertex>::size_type>(entry.getEntries())};
 }
-template gsl::span<const Vertex> SurfaceTrackingScratch::getPrimaryVertices<ITSNLayers>(const TimeFrame&, int, int) const;
-template gsl::span<const Vertex> SurfaceTrackingScratch::getPrimaryVertices<SurfaceTrackingScratch::MFTNLayers>(const TimeFrame&, int, int) const;
 
-template <int NLayers>
 void SurfaceTrackingScratch::computeTrackletsPerROFScans()
 {
-  const auto& maskView = getROFMaskView<NLayers>();
+  const auto& maskView = getROFMaskView();
   for (int iLayer = 0; iLayer < 2; ++iLayer) {
     for (unsigned int iRof{0}; iRof < static_cast<unsigned int>(getNrof(1)); ++iRof) {
       if (maskView.isROFEnabled(1, iRof)) {
@@ -518,57 +519,6 @@ void SurfaceTrackingScratch::computeTrackletsPerROFScans()
     std::exclusive_scan(mNTrackletsPerCluster[iLayer].begin(), mNTrackletsPerCluster[iLayer].end(), mNTrackletsPerClusterSum[iLayer].begin(), 0);
   }
 }
-template void SurfaceTrackingScratch::computeTrackletsPerROFScans<ITSNLayers>();
-template void SurfaceTrackingScratch::computeTrackletsPerROFScans<SurfaceTrackingScratch::MFTNLayers>();
-
-template <int NLayers>
-void SurfaceTrackingScratch::initTrackerTopologies(gsl::span<const TrackingParameters> trkParams, int maxLayers)
-{
-  checkSupportedNLayers<NLayers>();
-  if constexpr (NLayers == ITSNLayers) {
-    mTrackerTopologiesITS.resize(trkParams.size());
-    for (size_t iteration = 0; iteration < trkParams.size(); ++iteration) {
-      const int iterationMaxLayers = std::min(maxLayers, static_cast<int>(mNOwnedSurfaces));
-      mTrackerTopologiesITS[iteration].init(iterationMaxLayers, trkParams[iteration].MaxHoles, LayerMask{trkParams[iteration].HoleLayerMask});
-    }
-  } else {
-    mTrackerTopologiesMFT.resize(trkParams.size());
-    for (size_t iteration = 0; iteration < trkParams.size(); ++iteration) {
-      const int iterationMaxLayers = std::min(maxLayers, static_cast<int>(mNOwnedSurfaces));
-      mTrackerTopologiesMFT[iteration].init(iterationMaxLayers, trkParams[iteration].MaxHoles, LayerMask{trkParams[iteration].HoleLayerMask});
-    }
-  }
-}
-template void SurfaceTrackingScratch::initTrackerTopologies<ITSNLayers>(gsl::span<const TrackingParameters>, int);
-template void SurfaceTrackingScratch::initTrackerTopologies<SurfaceTrackingScratch::MFTNLayers>(gsl::span<const TrackingParameters>, int);
-
-template <int NLayers>
-void SurfaceTrackingScratch::initDefaultTrackingTopology(const TrackingParameters& trkParam, int maxLayers)
-{
-  checkSupportedNLayers<NLayers>();
-  if constexpr (NLayers == ITSNLayers) {
-    mDefaultTrackingTopologyITS.init(maxLayers, trkParam.MaxHoles, LayerMask{trkParam.HoleLayerMask});
-  } else {
-    mDefaultTrackingTopologyMFT.init(maxLayers, trkParam.MaxHoles, LayerMask{trkParam.HoleLayerMask});
-  }
-}
-template void SurfaceTrackingScratch::initDefaultTrackingTopology<ITSNLayers>(const TrackingParameters&, int);
-template void SurfaceTrackingScratch::initDefaultTrackingTopology<SurfaceTrackingScratch::MFTNLayers>(const TrackingParameters&, int);
-
-template <int NLayers>
-void SurfaceTrackingScratch::initVertexingTopology(const TrackingParameters& trkParam)
-{
-  checkSupportedNLayers<NLayers>();
-  if constexpr (NLayers == ITSNLayers) {
-    mVertexingTopologyITS.init(3, trkParam.MaxHoles, LayerMask{trkParam.HoleLayerMask});
-  } else {
-    mVertexingTopologyMFT.init(3, trkParam.MaxHoles, LayerMask{trkParam.HoleLayerMask});
-  }
-}
-template void SurfaceTrackingScratch::initVertexingTopology<ITSNLayers>(const TrackingParameters&);
-template void SurfaceTrackingScratch::initVertexingTopology<SurfaceTrackingScratch::MFTNLayers>(const TrackingParameters&);
-
-template <int NLayers>
 void SurfaceTrackingScratch::prepareClusters(const TimeFrame& frame, const TrackingParameters& trkParam, const int maxLayers,
                                              gsl::span<const gsl::span<const SurfaceMeasurement>> layerMeasurements)
 {
@@ -590,7 +540,7 @@ void SurfaceTrackingScratch::prepareClusters(const TimeFrame& frame, const Track
   bounded_vector<int> clsPerBin(numBins, 0, mMemoryPool.get());
   bounded_vector<int> lutPerBin(numBins, 0, mMemoryPool.get());
   const std::array<float, 2> beamXY{frame.getBeamX(), frame.getBeamY()};
-  const auto& maskView = getROFMaskView<NLayers>();
+  const auto& maskView = getROFMaskView();
   const int stopLayer = std::min(maxLayers, static_cast<int>(mNOwnedSurfaces));
   for (int iLayer{0}; iLayer < stopLayer; ++iLayer) {
     for (int rof{0}; rof < getNrof(iLayer); ++rof) {
@@ -649,27 +599,44 @@ void SurfaceTrackingScratch::prepareClusters(const TimeFrame& frame, const Track
     }
   }
 }
-template void SurfaceTrackingScratch::prepareClusters<ITSNLayers>(const TimeFrame&, const TrackingParameters&, int, gsl::span<const gsl::span<const SurfaceMeasurement>>);
-template void SurfaceTrackingScratch::prepareClusters<SurfaceTrackingScratch::MFTNLayers>(const TimeFrame&, const TrackingParameters&, int, gsl::span<const gsl::span<const SurfaceMeasurement>>);
-
-template <int NLayers>
 void SurfaceTrackingScratch::initialise(const TimeFrame& frame, const TrackingParameters& trkParam, const int maxLayers, const int iteration,
-                                        const IndexTableUtilsN& indexTableConfig,
+                                        const IndexTableUtilsN& indexTableConfig, SparseTrackingTopologyView topology,
+                                        gsl::span<const TransitionId> transitionIds, gsl::span<const CellTopologyId> cellIds,
+                                        gsl::span<const SurfaceId> orderedSurfaces,
                                         gsl::span<const gsl::span<const SurfaceMeasurement>> layerMeasurements)
 {
-  checkSupportedNLayers<NLayers>();
-  // M6e1: restored to the full three-way ternary the former fixed-layer scratch<NLayers>::
-  // initialise() itself uses -- iteration is always a concrete value on every
-  // production call path (TrackerTraits<NLayers>::initialiseTimeFrame()
-  // never passes UnusedIndex), so the false branch below is still never
-  // actually taken; this is fidelity restoration, not a behavior change (see
-  // initDefaultTrackingTopology()'s own doc for why it is no longer dead code
-  // even though this branch remains unreachable).
-  auto& trackingTopologyView = getTrackingTopologyViewMutable<NLayers>();
-  if constexpr (NLayers == ITSNLayers) {
-    trackingTopologyView = iteration != constants::UnusedIndex ? mTrackerTopologiesITS[iteration].getView() : (maxLayers == 3 ? mVertexingTopologyITS.getView() : mDefaultTrackingTopologyITS.getView());
-  } else {
-    trackingTopologyView = iteration != constants::UnusedIndex ? mTrackerTopologiesMFT[iteration].getView() : (maxLayers == 3 ? mVertexingTopologyMFT.getView() : mDefaultTrackingTopologyMFT.getView());
+  (void)iteration;
+  if (orderedSurfaces.size() != mNOwnedSurfaces || transitionIds.size() != mNTransitions || cellIds.size() != mNCells ||
+      transitionIds.size() > topology.nTransitions || cellIds.size() > topology.nCells ||
+      (topology.nTransitions != 0 && (topology.transitions == nullptr || topology.cellsByFirstTransitionOffsets == nullptr)) ||
+      (topology.nCells != 0 && (topology.cells == nullptr || topology.cellsByFirstTransition == nullptr))) {
+    throw std::logic_error{"SurfaceTrackingScratch::initialise(): plan/sparse-topology extent mismatch"};
+  }
+  const auto surfaceSlot = [&](SurfaceId surface) {
+    const auto it = std::find(orderedSurfaces.begin(), orderedSurfaces.end(), surface);
+    if (it == orderedSurfaces.end()) {
+      throw std::logic_error{"SurfaceTrackingScratch::initialise(): sparse topology surface is not bound"};
+    }
+    return static_cast<std::size_t>(std::distance(orderedSurfaces.begin(), it));
+  };
+
+  for (const auto transitionId : transitionIds) {
+    if (!transitionId.isValid() || transitionId.value() >= topology.nTransitions) {
+      throw std::logic_error{"SurfaceTrackingScratch::initialise(): invalid sparse transition binding"};
+    }
+    const auto& transition = topology.getTransition(transitionId);
+    (void)surfaceSlot(transition.from);
+    (void)surfaceSlot(transition.to);
+  }
+  for (const auto cellId : cellIds) {
+    if (!cellId.isValid() || cellId.value() >= topology.nCells) {
+      throw std::logic_error{"SurfaceTrackingScratch::initialise(): invalid sparse cell binding"};
+    }
+    const auto& cell = topology.getCell(cellId);
+    if (!cell.firstTransition.isValid() || !cell.secondTransition.isValid() ||
+        cell.firstTransition.value() >= topology.nTransitions || cell.secondTransition.value() >= topology.nTransitions) {
+      throw std::logic_error{"SurfaceTrackingScratch::initialise(): sparse cell references an invalid transition"};
+    }
   }
 
   if (trkParam.PassFlags[IterationStep::FirstPass]) {
@@ -706,23 +673,23 @@ void SurfaceTrackingScratch::initialise(const TimeFrame& frame, const TrackingPa
     std::fill(mMinR.begin(), mMinR.end(), std::numeric_limits<float>::max());
     std::fill(mMaxR.begin(), mMaxR.end(), std::numeric_limits<float>::lowest());
   }
-  clearResizeBoundedVector(mCells, trackingTopologyView.nCells, mMemoryPool.get());
-  clearResizeBoundedVector(mCellsLookupTable, trackingTopologyView.nCells, mMemoryPool.get());
-  clearResizeBoundedVector(mCellsNeighbours, trackingTopologyView.nCells, mMemoryPool.get());
-  clearResizeBoundedVector(mCellsNeighboursTopology, trackingTopologyView.nCells, mMemoryPool.get());
-  clearResizeBoundedVector(mCellsNeighboursLUT, trackingTopologyView.nCells, mMemoryPool.get());
-  clearResizeBoundedVector(mCellLabels, trackingTopologyView.nCells, mMemoryPool.get());
-  clearResizeBoundedVector(mTracklets, trackingTopologyView.nTransitions, mMemoryPool.get());
-  clearResizeBoundedVector(mTrackletLabels, trackingTopologyView.nTransitions, mMemoryPool.get());
-  clearResizeBoundedVector(mTrackletsLookupTable, trackingTopologyView.nTransitions, mMemoryPool.get());
-  clearResizeBoundedVector(mTransitionPhiCuts, trackingTopologyView.nTransitions, mMemoryPool.get());
-  clearResizeBoundedVector(mTransitionMSAngles, trackingTopologyView.nTransitions, mMemoryPool.get());
+  clearResizeBoundedVector(mCells, mNCells, mMemoryPool.get());
+  clearResizeBoundedVector(mCellsLookupTable, mNCells, mMemoryPool.get());
+  clearResizeBoundedVector(mCellsNeighbours, mNCells, mMemoryPool.get());
+  clearResizeBoundedVector(mCellsNeighboursTopology, mNCells, mMemoryPool.get());
+  clearResizeBoundedVector(mCellsNeighboursLUT, mNCells, mMemoryPool.get());
+  clearResizeBoundedVector(mCellLabels, mNCells, mMemoryPool.get());
+  clearResizeBoundedVector(mTracklets, mNTransitions, mMemoryPool.get());
+  clearResizeBoundedVector(mTrackletLabels, mNTransitions, mMemoryPool.get());
+  clearResizeBoundedVector(mTrackletsLookupTable, mNTransitions, mMemoryPool.get());
+  clearResizeBoundedVector(mTransitionPhiCuts, mNTransitions, mMemoryPool.get());
+  clearResizeBoundedVector(mTransitionMSAngles, mNTransitions, mMemoryPool.get());
   mNTrackletsPerROF.resize(2);
   for (auto& v : mNTrackletsPerROF) {
     v = bounded_vector<int>(getNrof(1) + 1, 0, mMemoryPool.get());
   }
   if (trkParam.PassFlags[IterationStep::RebuildClusterLUT]) {
-    prepareClusters<NLayers>(frame, trkParam, maxLayers, layerMeasurements);
+    prepareClusters(frame, trkParam, maxLayers, layerMeasurements);
   }
   mTotalTracklets = {0, 0};
   if (maxLayers < static_cast<int>(mNOwnedSurfaces)) { // Vertexer only, but in both iterations
@@ -737,11 +704,12 @@ void SurfaceTrackingScratch::initialise(const TimeFrame& frame, const TrackingPa
   }
 
   for (int transitionId{0}; transitionId < static_cast<int>(mTracklets.size()); ++transitionId) {
-    const auto& transition = trackingTopologyView.getTransition(transitionId);
+    const auto& transition = topology.getTransition(transitionIds[transitionId]);
+    const auto fromSlot = surfaceSlot(transition.from);
     deepVectorClear(mTracklets[transitionId]);
     deepVectorClear(mTrackletLabels[transitionId]);
     deepVectorClear(mTrackletsLookupTable[transitionId]);
-    mTrackletsLookupTable[transitionId].resize(mClusters[transition.fromLayer].size() + 1, 0);
+    mTrackletsLookupTable[transitionId].resize(mClusters[fromSlot].size() + 1, 0);
   }
 
   for (int cellId{0}; cellId < static_cast<int>(mCells.size()); ++cellId) {
@@ -753,8 +721,6 @@ void SurfaceTrackingScratch::initialise(const TimeFrame& frame, const TrackingPa
     deepVectorClear(mCellLabels[cellId]);
   }
 }
-template void SurfaceTrackingScratch::initialise<ITSNLayers>(const TimeFrame&, const TrackingParameters&, int, int, const IndexTableUtilsN&, gsl::span<const gsl::span<const SurfaceMeasurement>>);
-template void SurfaceTrackingScratch::initialise<SurfaceTrackingScratch::MFTNLayers>(const TimeFrame&, const TrackingParameters&, int, int, const IndexTableUtilsN&, gsl::span<const gsl::span<const SurfaceMeasurement>>);
 
 #ifndef GPUCA_GPUCODE
 namespace

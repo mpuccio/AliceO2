@@ -90,7 +90,7 @@ inline bool isDroppedTimeFrame(float result) noexcept
   return result == kDroppedTimeFrameResult;
 }
 
-// NLayers remains the only generic algorithm/storage parameter until M6g.
+// NLayers remains the only generic algorithm/storage parameter until M7d.
 template <int NLayers>
 class Tracker
 {
