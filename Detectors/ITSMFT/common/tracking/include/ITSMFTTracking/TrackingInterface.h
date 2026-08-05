@@ -38,7 +38,6 @@
 #endif
 #include "ITSMFTTracking/Tracker.h"
 #include "ITSMFTTracking/Configuration.h"
-#include "ITSMFTTracking/LegacyTrackerScratch.h"
 #include "ITSMFTTracking/ITSSharedClusterCompatibility.h"
 #include "ITSMFTTracking/MFTPublicationCompatibility.h"
 #include "ITSMFTTracking/SurfaceTrackingScratch.h"
@@ -80,14 +79,10 @@ struct ITSSharedClusterCompatibilityOwner<ITSNLayers> {
   ITSSharedClusterCompatibility sidecar;
 };
 
-// M6e1 (doc/design/0002-m6-generic-workspace-migration.md): the same
-// compile-time-defaulted scratch/binding seam M6d added to
-// Tracker<NLayers,...>/TrackerTraits<NLayers,...>/LegacyCATrackingParticipant
-// <NLayers,...>, applied here so this class's own standalone-MFT
-// instantiation can own SurfaceTrackingScratch/SurfacePlanBinding while its
-// ITS instantiation (default template arguments) stays byte-for-byte on
-// LegacyTrackerScratch<7>/DetectorTraversalBinding, unchanged.
-template <int NLayers, typename ScratchT = LegacyTrackerScratch<NLayers>, typename BindingT = DetectorTraversalBinding>
+// Host-facing standalone workflow interface over the same
+// SurfaceTrackingScratch/SurfacePlanBinding model used by the combined
+// participant. NLayers remains an algorithm/storage parameter until M6g.
+template <int NLayers>
 class ITSMFTTrackingInterface : private MFTPublicationCompatibilityOwner<NLayers>, private ITSSharedClusterCompatibilityOwner<NLayers>
 {
  public:
@@ -95,20 +90,13 @@ class ITSMFTTrackingInterface : private MFTPublicationCompatibilityOwner<NLayers
                 "ITSMFTTrackingInterface supports ITS (7) and MFT (10) layer counts only");
   static constexpr o2::detectors::DetID::ID DetId = detIdFromNLayers<NLayers>();
 
-  using ScratchN = ScratchT;
-  using TrackerN = Tracker<NLayers, ScratchT, BindingT>;
-  using TrackerTraitsN = TrackerTraits<NLayers, ScratchT, BindingT>;
-  // M6e2: bound directly on this class's own NLayers, not via ScratchN --
+  // M6e2: bound directly on this class's own NLayers, not via the scratch --
   // SurfaceTrackingScratch's own ROFOverlapTable/ROFVertexLookupTable/
   // ROFMaskTable storage became dual-typed (ITS(7)+MFT(10)) once this
   // scratch started backing ITS too, so it no longer exposes a single
   // ROFOverlapTableN/ROFVertexLookupTableN/ROFMaskTableN nested alias (see
-  // SurfaceTrackingScratch.h). Exactly the same "bypass ScratchN, bind on
-  // our own NLayers" fix already applied to TrackerTraits.h's CellSeedN/
-  // TrackSeedN. LegacyTrackerScratch<NLayers>'s own o2::its::ROFOverlapTable
-  // <NLayers>/etc. are unaffected either way -- these three aliases equal
-  // exactly what ScratchN::ROFOverlapTableN used to resolve to for that
-  // scratch type.
+  // SurfaceTrackingScratch.h). Exactly the same "bypass the scratch, bind on
+  // our own NLayers fix already applied to TrackerTraits.h.
   using ROFOverlapTableN = o2::its::ROFOverlapTable<NLayers>;
   using ROFVertexLookupTableN = o2::its::ROFVertexLookupTable<NLayers>;
   using ROFMaskTableN = o2::its::ROFMaskTable<NLayers>;
@@ -172,8 +160,8 @@ class ITSMFTTrackingInterface : private MFTPublicationCompatibilityOwner<NLayers
 
   TimeFrame& getTimeFrame() { return mFrame; }
   const TimeFrame& getTimeFrame() const { return mFrame; }
-  ScratchN& getScratch() { return mScratch; }
-  const ScratchN& getScratch() const { return mScratch; }
+  SurfaceTrackingScratch& getScratch() { return mScratch; }
+  const SurfaceTrackingScratch& getScratch() const { return mScratch; }
   const MFTPublicationCompatibility* getMFTPublicationCompatibility() const noexcept
   {
     if constexpr (DetId == o2::detectors::DetID::MFT) {
@@ -235,8 +223,8 @@ class ITSMFTTrackingInterface : private MFTPublicationCompatibilityOwner<NLayers
   o2::itsmft::TrackingMode::Type mTrackingMode = o2::itsmft::TrackingMode::Unset;
   std::vector<o2::itsmft::TrackingParameters> mTrackParams;
   std::shared_ptr<BoundedMemoryResourceN> mMemoryPool;
-  std::unique_ptr<TrackerTraitsN> mTrackerTraits;
-  std::unique_ptr<TrackerN> mTracker;
+  std::unique_ptr<TrackerTraits<NLayers>> mTrackerTraits;
+  std::unique_ptr<Tracker<NLayers>> mTracker;
 #ifndef GPUCA_GPUCODE
   std::unique_ptr<ClusterDecoder> mClusterDecoder;
   // This interface's one immutable plan, built once in initialiseTracker()
@@ -246,30 +234,21 @@ class ITSMFTTrackingInterface : private MFTPublicationCompatibilityOwner<NLayers
   // Tracker::adoptDetectorLayoutSet()/TimeFrame::loadNormalizedSource().
   std::optional<DetectorLayoutSet> mPlan;
   std::optional<ClockTimingPublicationView> mPublicationClock;
-  // M6e1/M6e2: bind-once, built in initialiseTracker() alongside mPlan,
-  // adopted onto mTracker immediately after. Populated whenever BindingT is
-  // the new SurfacePlanBinding (both ITS and MFT, since M6e2 -- see
-  // TrackingInterface.cxx's own if constexpr (std::is_same_v<BindingT,
-  // SurfacePlanBinding>) gate); stays null for the bare, default-argument
-  // BindingT=DetectorTraversalBinding instantiations
-  // testTrackingInterfaceLoadFailureContract.cxx still exercises, exactly
-  // today's pre-M6e1 behavior of never adopting a binding at all for those
-  // (TrackerTraits<NLayers,...>::adoptDetectorTraversalBinding() is
-  // optional; null means the identity-mapping fallback its own doc comment
-  // already documents).
-  std::unique_ptr<BindingT> mBinding;
+  // Bind-once plan, built in initialiseTracker() alongside mPlan and adopted
+  // onto mTracker immediately after.
+  std::unique_ptr<SurfacePlanBinding> mBinding;
 #endif
   const o2::itsmft::TopologyDictionary* mDict = nullptr;
   const o2::dataformats::MeanVertexObject* mMeanVertex = nullptr;
   // Gate 4 B3.1 lifetime contract: mFrame declared before mScratch, so C++'s
   // reverse-declaration-order destruction tears the scratch down first --
   // the permanent, non-templated TimeFrame always outlives the temporary
-  // per-detector legacy scratch. Neither owns or stores a reference to the
-  // other (see LegacyTrackerScratch.h); this owner is what binds both
+  // shared scratch. Neither owns or stores a reference to the
+  // other; this owner is what binds both
   // together, via adoptScratch()/adoptFrame() on mTracker/mTrackerTraits and
   // explicit parameters everywhere else.
   TimeFrame mFrame;
-  ScratchN mScratch;
+  SurfaceTrackingScratch mScratch;
   int mMFTROFrameLengthInBC = 0;
   bool mMFTTriggered = false;
 };
@@ -278,12 +257,11 @@ class ITSMFTTrackingInterface : private MFTPublicationCompatibilityOwner<NLayers
 // tracker-workflow, CATrackerSpec.cxx) now owns SurfaceTrackingScratch/
 // SurfacePlanBinding too, completing the same migration M6e1 already did for
 // standalone MFT.
-using ITSMFTTrackingInterfaceITS = ITSMFTTrackingInterface<ITSNLayers, SurfaceTrackingScratch, SurfacePlanBinding>;
+using ITSMFTTrackingInterfaceITS = ITSMFTTrackingInterface<ITSNLayers>;
 // M6e1: the standalone MFT common-CA workflow's own interface (o2-mft-ca-
 // tracker-workflow, CATrackerSpec.cxx) now owns SurfaceTrackingScratch/
-// SurfacePlanBinding instead of LegacyTrackerScratch<10>/
-// DetectorTraversalBinding, mirroring M6d's combined-participant migration.
-using ITSMFTTrackingInterfaceMFT = ITSMFTTrackingInterface<o2::mft::constants::mft::LayersNumber, SurfaceTrackingScratch, SurfacePlanBinding>;
+// SurfacePlanBinding, mirroring the combined participant.
+using ITSMFTTrackingInterfaceMFT = ITSMFTTrackingInterface<o2::mft::constants::mft::LayersNumber>;
 
 } // namespace o2::itsmft::tracking
 

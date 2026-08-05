@@ -111,7 +111,7 @@ void SurfaceTrackingScratch::reset()
 
   // If we use the external host allocator, the assumption is that we don't
   // clear that memory ourselves -- mirrors
-  // LegacyTrackerScratch<NLayers>::resetScratch() exactly.
+  // the former fixed-layer scratch<NLayers>::resetScratch() exactly.
   if (!hasFrameworkAllocator()) {
     deepVectorClear(mClusters);
     deepVectorClear(mUsedClusters);
@@ -130,7 +130,7 @@ void SurfaceTrackingScratch::reset()
 
   // mClusterLabels holds non-owning pointers into caller-supplied MC label
   // containers, not owned storage -- reset to nullptr, not deepVectorClear'd,
-  // and the vector is not resized (mirrors LegacyTrackerScratch<NLayers>'s
+  // and the vector is not resized (mirrors the former fixed-layer scratch<NLayers>'s
   // own std::array::fill(nullptr), which cannot resize).
   std::fill(mClusterLabels.begin(), mClusterLabels.end(), nullptr);
 }
@@ -149,7 +149,7 @@ void SurfaceTrackingScratch::setMemoryPool(std::shared_ptr<o2::its::BoundedMemor
     }
   };
 
-  // Host-only, mirrors LegacyTrackerScratch<NLayers>::setMemoryPool().
+  // Host-only, mirrors the former fixed-layer scratch<NLayers>::setMemoryPool().
   initContainers(mClusterExternalIndices);
   initContainers(mNTrackletsPerCluster);
   initContainers(mNTrackletsPerClusterSum);
@@ -281,10 +281,9 @@ void SurfaceTrackingScratch::swap(SurfaceTrackingScratch& other) noexcept
 }
 
 // ---------------------------------------------------------------------------
-// M6d: the remaining accessor surface TrackerTraits<NLayers, ScratchT,
-// BindingT>/Tracker<NLayers, ScratchT, BindingT>/LegacyCATrackingParticipant
-// <MFTNLayers, SurfaceTrackingScratch, SurfacePlanBinding> need, ported
-// mechanically from LegacyTrackerScratch<NLayers> (LegacyTrackerScratch.cxx)
+// M6d: the remaining accessor surface TrackerTraits<NLayers>/Tracker<NLayers>/
+// SurfacePlanTrackingParticipant needs, ported mechanically from the former
+// fixed-layer scratch with
 // with every NLayers-bound array index replaced by the equivalent runtime
 // vector index -- no algorithm/formula change anywhere in this section.
 // ---------------------------------------------------------------------------
@@ -658,9 +657,9 @@ void SurfaceTrackingScratch::initialise(const TimeFrame& frame, const TrackingPa
                                         gsl::span<const gsl::span<const SurfaceMeasurement>> layerMeasurements)
 {
   checkSupportedNLayers<NLayers>();
-  // M6e1: restored to the full three-way ternary LegacyTrackerScratch<NLayers>::
+  // M6e1: restored to the full three-way ternary the former fixed-layer scratch<NLayers>::
   // initialise() itself uses -- iteration is always a concrete value on every
-  // production call path (TrackerTraits<NLayers,...>::initialiseTimeFrame()
+  // production call path (TrackerTraits<NLayers>::initialiseTimeFrame()
   // never passes UnusedIndex), so the false branch below is still never
   // actually taken; this is fidelity restoration, not a behavior change (see
   // initDefaultTrackingTopology()'s own doc for why it is no longer dead code
@@ -785,7 +784,7 @@ LoadSourcesResult SurfaceTrackingScratch::loadNormalizedSource(
   bool applySysErrors)
 {
   // M6e2: this scratch is now shared by ITS too (previously MFT-only) --
-  // matches LegacyTrackerScratch<NLayers>'s own ITS-or-MFT preflight.
+  // matches the former fixed-layer scratch<NLayers>'s own ITS-or-MFT preflight.
   constexpr ClusterSourceId kSourceId{0};
   if (detId != o2::detectors::DetID::MFT && detId != o2::detectors::DetID::ITS) {
     return {MultiSourceLoadError::UnsupportedDetector, kSourceId};
@@ -873,8 +872,8 @@ LoadSourcesResult SurfaceTrackingScratch::loadNormalizedSource(
         // Recreate the established synthetic legacy MFT representation
         // (TrackingFrameInfoAdapters.h::makeTrackingFrameInfo<MFT>) from the
         // normalized global position and row/column covariance -- ported
-        // byte-for-byte from LegacyTrackerScratch<NLayers>::
-        // loadNormalizedSource() (LegacyTrackerScratch.cxx).
+        // byte-for-byte from the former fixed-layer scratch<NLayers>::
+        // loadNormalizedSource() (the former fixed-layer scratch.cxx).
         tfInfo = o2::its::TrackingFrameInfo{
           m.global.x, m.global.y, m.global.z,
           m.global.x, 0.f,
@@ -882,7 +881,7 @@ LoadSourcesResult SurfaceTrackingScratch::loadNormalizedSource(
           std::array<float, 3>{m.covariance.uu, m.covariance.uv, m.covariance.vv}};
       } else {
         // ITS: as above, ported byte-for-byte from
-        // LegacyTrackerScratch<NLayers>::loadNormalizedSource().
+        // the former fixed-layer scratch<NLayers>::loadNormalizedSource().
         tfInfo = o2::its::TrackingFrameInfo{
           m.global.x, m.global.y, m.global.z,
           m.frame.q, m.frame.frameAngle,

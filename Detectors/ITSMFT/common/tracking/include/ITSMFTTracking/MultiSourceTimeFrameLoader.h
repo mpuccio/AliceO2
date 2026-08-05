@@ -7,8 +7,8 @@
 // ITS, MFT, a layer count, or a fixed source position -- that knowledge
 // lives only in loadITSAndMFT()'s own thin wrapper below and in whatever
 // adapter builds an AtomicLoadBinding list (today, ITSMFTLegacyParticipantSet
-// ::loadBindings(), through its two participants'
-// LegacyCATrackingParticipant<NLayers>::loadTarget(), called directly by
+// ::loadBindings(), through its two plan-driven participants' loadTarget(),
+// called directly by
 // the combined DPL task's own trackFrame() composition, M3).
 // TrackingEngine::executeEvent() must only ever be called once loadEvent()
 // (or loadITSAndMFT()) reports success -- this loading boundary calls
@@ -20,7 +20,6 @@
 #include <gsl/gsl>
 
 #include "ITSMFTTracking/ClusterSource.h"
-#include "ITSMFTTracking/LegacyTrackerScratch.h"
 #include "ITSMFTTracking/SurfaceTrackingScratch.h"
 #include "ITSMFTTracking/TrackingConfigParam.h"
 
@@ -56,40 +55,11 @@ class MultiSourceTimeFrameLoader
     virtual void commit() noexcept = 0;
   };
 
-  // Concrete LoadTarget bound to one live LegacyTrackerScratch<NLayers>&.
-  // A concrete TrackingParticipant (e.g. LegacyCATrackingParticipant
-  // <NLayers>) owns one of these, bound to its own scratch, and exposes it
-  // as its own load target; loadITSAndMFT()'s wrapper below constructs two
-  // directly around its raw scratch references instead.
-  template <int NLayers>
-  class LoadTargetImpl final : public LoadTarget
-  {
-   public:
-    explicit LoadTargetImpl(LegacyTrackerScratch<NLayers>& live) noexcept : mLive(live) {}
-
-    LoadTargetImpl(const LoadTargetImpl&) = delete;
-    LoadTargetImpl& operator=(const LoadTargetImpl&) = delete;
-    LoadTargetImpl(LoadTargetImpl&&) = delete;
-    LoadTargetImpl& operator=(LoadTargetImpl&&) = delete;
-
-    LoadSourcesResult stage(const ClusterSourceInput& source, SurfaceCatalogView catalog,
-                            const o2::InteractionRecord& origin) override;
-    void commit() noexcept override;
-
-   private:
-    LegacyTrackerScratch<NLayers>& mLive;
-    LegacyTrackerScratch<NLayers> mStaged;
-  };
-
-  // M6d: concrete LoadTarget bound to one live SurfaceTrackingScratch& --
-  // the MFT-only sibling of LoadTargetImpl<NLayers> above, mirroring its
-  // stage()/commit() contract exactly (same allocator-identity-preservation
-  // pattern, same stage-then-commit discipline), just over
+  // Concrete LoadTarget bound to one live SurfaceTrackingScratch&, mirroring
+  // the stage()/commit() contract over
   // SurfaceTrackingScratch::loadNormalizedSource()'s runtime-sized
   // orderedSurfaces loop instead of a fixed NLayers one.
-  // LegacyCATrackingParticipant<MFTNLayers, SurfaceTrackingScratch,
-  // SurfacePlanBinding> owns one of these, bound to its own scratch, exactly
-  // as the NLayers-templated participant owns a LoadTargetImpl<NLayers>.
+  // Each plan-driven participant owns one of these, bound to its own scratch.
   class LoadTargetImplSurface final : public LoadTarget
   {
    public:
@@ -137,13 +107,12 @@ class MultiSourceTimeFrameLoader
   static LoadSourcesResult loadEvent(TimeFrame& frame, gsl::span<const AtomicLoadBinding> bindings,
                                      SurfaceCatalogView catalog, const o2::InteractionRecord& origin);
 
-  // Thin compatibility wrapper over loadEvent(), kept only for callers that
-  // still need the fixed ITS=0/MFT=1 two-source entry point. That fixed
-  // position contract lives only here now, never inside loadEvent() or
-  // LoadTarget/LoadTargetImpl themselves.
+  // Thin application-adapter wrapper over loadEvent(). The fixed ITS=0/MFT=1
+  // position contract lives only here, never inside the generic transaction
+  // or its target interface.
   static LoadSourcesResult loadITSAndMFT(TimeFrame& frame,
-                                         LegacyTrackerScratchITS& itsScratch,
-                                         LegacyTrackerScratchMFT& mftScratch,
+                                         SurfaceTrackingScratch& itsScratch,
+                                         SurfaceTrackingScratch& mftScratch,
                                          const ClusterSourceInput& itsSource,
                                          const ClusterSourceInput& mftSource,
                                          SurfaceCatalogView catalog,
@@ -152,12 +121,9 @@ class MultiSourceTimeFrameLoader
   // Full shared-event reset: scratch state first (so no legacy cache can
   // outlive normalized measurements), then the common owner exactly once.
   static void resetITSAndMFTEvent(TimeFrame& frame,
-                                  LegacyTrackerScratchITS& itsScratch,
-                                  LegacyTrackerScratchMFT& mftScratch) noexcept;
+                                  SurfaceTrackingScratch& itsScratch,
+                                  SurfaceTrackingScratch& mftScratch) noexcept;
 };
-
-extern template class MultiSourceTimeFrameLoader::LoadTargetImpl<ITSNLayers>;
-extern template class MultiSourceTimeFrameLoader::LoadTargetImpl<MFTNLayers>;
 
 } // namespace o2::itsmft::tracking
 

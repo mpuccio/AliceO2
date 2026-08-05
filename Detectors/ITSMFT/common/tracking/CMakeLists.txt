@@ -36,7 +36,6 @@ o2_add_library(ITSMFTTracking
                        src/DetectorTraits.cxx
                        src/Configuration.cxx
                        src/TimeFrame.cxx
-                       src/LegacyTrackerScratch.cxx
                        src/SurfaceTrackingScratch.cxx
                        src/TrackerTraits.cxx
                        src/TransitionPolicyOperations.cxx
@@ -56,7 +55,7 @@ o2_add_library(ITSMFTTracking
                        src/MultiSourceTimeFrameLoader.cxx
                        src/TimeFrameLoadFailure.cxx
                        src/TrackingEngine.cxx
-                       src/LegacyCATrackingParticipant.cxx
+                       src/SurfacePlanTrackingParticipant.cxx
                        src/ITSMFTLegacyParticipantSet.cxx
                PUBLIC_LINK_LIBRARIES
                        O2::ITSMFTTrackingParams

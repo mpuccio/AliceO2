@@ -19,7 +19,7 @@
 #include "DetectorsCommonDataFormats/DetID.h"
 #include "DataFormatsCalibration/MeanVertexObject.h"
 #include "ITSMFTTracking/Configuration.h"
-#include "ITSMFTTracking/LegacyTrackerScratch.h"
+#include "ITSMFTTracking/SurfaceTrackingScratch.h"
 #include "ITSMFTTracking/SurfaceCatalogView.h"
 #include "ITSMFTTracking/TimeFrame.h"
 #include "ITSMFTTracking/Cell.h"
@@ -33,18 +33,12 @@ namespace o2::itsmft::tracking
 /// Per-detector differences in refit, track acceptance, and index-table setup.
 /// Everything else stays in TrackerTraits and matches ITS line-for-line.
 ///
-/// M6d: ScratchT (defaulted to LegacyTrackerScratch<NLayers>, unaffected for
-/// every existing caller) mirrors TrackerTraits<NLayers, ScratchT, BindingT>'s
-/// own seam -- refitSeed()'s only use of `scratch` (via refitTrackFwd(), MFT
-/// branch only) is cluster external-index/size bookkeeping metadata, never a
-/// physical/refit read (see refitSeed()'s own doc below), so this is a pure
-/// container-generalization, not a refit-math change.
-template <int NLayers, typename ScratchT = LegacyTrackerScratch<NLayers>>
+/// refitSeed()'s only use of `scratch` (via refitTrackFwd(), MFT branch only)
+/// is cluster external-index/size bookkeeping metadata, never a
+/// physical/refit read (see refitSeed()'s own doc below).
+template <int NLayers>
 struct DetectorTraits {
   using TrackType = CATrackType<NLayers>;
-  using TrackSeedN = o2::itsmft::tracking::TrackSeedN<NLayers>;
-  using CellSeedN = o2::itsmft::tracking::CellSeedN<NLayers>;
-  using ScratchN = ScratchT;
   static constexpr o2::detectors::DetID::ID DetId = detIdFromNLayers<NLayers>();
 
   // M5d: both branches now go through the shared, descriptor-driven native
@@ -62,21 +56,21 @@ struct DetectorTraits {
   // expectedSource (Gate 4 C2 source-identity correction): the
   // ClusterSourceId this call's caller (TrackerTraits::findRoadsForPolicy())
   // resolved once for this invocation -- mBinding->getSource() when a
-  // DetectorTraversalBinding is adopted, ClusterSourceId{0} otherwise. Same
+  // SurfacePlanBinding is adopted, ClusterSourceId{0} otherwise. Same
   // MFT-only-consumer shape as layerMeasurements: forwarded to
   // refitTrackFwd()'s final-refit identity re-check; the barrel/ITS branch
   // (refitSeedITS) neither receives nor needs it, since it never reads a
   // normalized SurfaceMeasurement at all.
-  static bool refitSeed(const TrackSeedN& seed,
+  static bool refitSeed(const TrackSeed& seed,
                         TrackType& track,
                         const TrackingParameters& params,
                         float bz,
-                        ScratchN& scratch,
+                        SurfaceTrackingScratch& scratch,
                         const LayerMeasurementSpans<NLayers>& layerMeasurements,
                         SurfaceCatalogView surfaceCatalog,
                         ClusterSourceId expectedSource);
 
-  static void copySeedPatternToTrack(TrackType& track, const TrackSeedN& seed) noexcept;
+  static void copySeedPatternToTrack(TrackType& track, const TrackSeed& seed) noexcept;
   static void clearTransientLayerPattern(TrackType& track) noexcept;
   static bool haveSamePolarity(const TrackType& a, const TrackType& b) noexcept;
 };
@@ -85,7 +79,7 @@ template <o2::detectors::DetID::ID DetId, int NLayers>
 struct TrackingLoadPolicy {
   // Beam position is TimeFrame-owned (shared, detector-neutral) state --
   // this takes the non-templated TimeFrame directly, not a per-detector
-  // LegacyTrackerScratch<NLayers>.
+  // shared SurfaceTrackingScratch.
   static void configureBeamPosition(TimeFrame& frame,
                                     const TrackingParameters& p,
                                     const o2::dataformats::MeanVertexObject* meanVertex,

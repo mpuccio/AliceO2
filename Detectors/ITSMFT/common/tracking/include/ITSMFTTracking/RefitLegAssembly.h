@@ -18,7 +18,6 @@
 
 #include "ITSMFTTracking/Cell.h"
 #include "ITSMFTTracking/SurfaceMeasurement.h"
-#include "ITSMFTTracking/LegacyTrackerScratch.h"
 #include "ITStracking/Constants.h"
 
 namespace o2::itsmft::tracking
@@ -26,7 +25,7 @@ namespace o2::itsmft::tracking
 
 /// Gate 3 Slice A (native ITS refit driver prerequisite): builds one
 /// traversal-ordered leg of `SurfaceMeasurement` slots for `driveRefitLeg<Tag>`
-/// from a `TrackSeedN<NLayers>`'s already-attached, legacy-layer-indexed
+/// from a `TrackSeed`'s already-attached, layer-indexed
 /// cluster bookkeeping -- exactly the mapping `computeLayerCellsForPolicy`/
 /// `processNeighbours` already use per candidate (TrackerTraits.cxx), walked
 /// once here across a whole seed's leg instead of once per candidate.
@@ -67,7 +66,7 @@ namespace o2::itsmft::tracking
 /// Unwired: no production call site uses this in this slice.
 template <int NLayers>
 gsl::span<const SurfaceMeasurement> assembleRefitLegSlots(
-  const TrackSeedN<NLayers>& seed,
+  const TrackSeed& seed,
   const LayerMeasurementSpans<NLayers>& layerMeasurements,
   int start, int end, int step,
   std::array<SurfaceMeasurement, NLayers>& out) noexcept

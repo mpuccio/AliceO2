@@ -24,7 +24,7 @@
 
 #include "ITSMFTTracking/Configuration.h"
 #include "ITSMFTTracking/DetectorLayoutSet.h"
-#include "ITSMFTTracking/LegacyTrackerScratch.h"
+#include "ITSMFTTracking/SurfaceTrackingScratch.h"
 #include "ITSMFTTracking/MFTPublicationCompatibility.h"
 #include "ITSMFTTracking/TimeFrame.h"
 #include "ITSMFTTracking/TrackerTraits.h"
@@ -90,24 +90,18 @@ inline bool isDroppedTimeFrame(float result) noexcept
   return result == kDroppedTimeFrameResult;
 }
 
-// M6d: ScratchT/BindingT mirror TrackerTraits<NLayers, ScratchT, BindingT>'s
-// own seam exactly (see that class's doc) -- defaulted so every existing
-// instantiation (Tracker<7>, and Tracker<10> as used by
-// ITSMFTTrackingInterface<10>) is unaffected.
-template <int NLayers, typename ScratchT = LegacyTrackerScratch<NLayers>, typename BindingT = DetectorTraversalBinding>
+// NLayers remains the only generic algorithm/storage parameter until M6g.
+template <int NLayers>
 class Tracker
 {
  public:
-  using ScratchN = ScratchT;
-  using TrackerTraitsN = TrackerTraits<NLayers, ScratchT, BindingT>;
-
-  explicit Tracker(TrackerTraitsN* traits);
+  explicit Tracker(TrackerTraits<NLayers>* traits);
 
   // Binds this tracker's two collaborators, each an independent bind-once
-  // pointer -- neither owns nor stores a reference to the other (see
-  // LegacyTrackerScratch.h's own lifetime-contract doc). `scratch`/`frame`
-  // must each outlive every subsequent clustersToTracks() call.
-  void adoptScratch(ScratchN& scratch);
+  // pointer -- neither owns nor stores a reference to the other.
+  // `scratch`/`frame` must each outlive every subsequent clustersToTracks()
+  // call.
+  void adoptScratch(SurfaceTrackingScratch& scratch);
   void adoptFrame(TimeFrame& frame);
   void adoptMFTPublicationCompatibility(MFTPublicationCompatibility& compatibility)
   {
@@ -120,11 +114,11 @@ class Tracker
     mTraits->adoptITSSharedClusterCompatibility(&compatibility);
   }
   // Gate 4 C2 Slice 1: bind-once, forwarded straight to mTraits -- see
-  // TrackerTraits<NLayers, ScratchT, BindingT>::adoptDetectorTraversalBinding()
+  // TrackerTraits<NLayers>::adoptSurfacePlanBinding()
   // for the full contract (optional; nullptr preserves today's Gate 3
   // identity-mapping behavior). `binding` must outlive every subsequent
   // clustersToTracks() call.
-  void adoptDetectorTraversalBinding(const BindingT& binding) { mTraits->adoptDetectorTraversalBinding(&binding); }
+  void adoptSurfacePlanBinding(const SurfacePlanBinding& binding) { mTraits->adoptSurfacePlanBinding(&binding); }
   // Binds the tracker's one immutable plan, owned by its caller
   // (ITSMFTTrackingInterface) -- mirrors adoptScratch()'s bind-once pattern.
   // `plan` must outlive every subsequent clustersToTracks() call.
@@ -137,7 +131,7 @@ class Tracker
   /// Run all configured iterations. Returns {Success, elapsed ms} on
   /// success, or {RecoverableDropped, 0.f} when a recoverable per-TF failure
   /// was dropped (DropTFUponFailure=true); the event is always fully reset
-  /// (see resetTimeFrameEvent(), LegacyTrackerScratch.h) before that return.
+  /// before that return.
   /// Any structural or unclassified failure, and any recoverable failure
   /// with DropTFUponFailure=false, throws instead of returning -- see
   /// TrackingOutcome's own doc for why this is deliberate -- the event is
@@ -148,8 +142,8 @@ class Tracker
   /// resets both its own scratch and the shared TimeFrame.
   TrackingResult clustersToTracks();
 
-  const ScratchN& getScratch() const { return *mScratch; }
-  ScratchN& getScratch() { return *mScratch; }
+  const SurfaceTrackingScratch& getScratch() const { return *mScratch; }
+  SurfaceTrackingScratch& getScratch() { return *mScratch; }
 
  private:
   void initialiseTimeFrame(int iteration) { mTraits->initialiseTimeFrame(iteration, *mLayoutPlan); }
@@ -157,11 +151,8 @@ class Tracker
   void computeCells(int iteration) { mTraits->computeLayerCells(iteration); }
   void findCellsNeighbours(int iteration) { mTraits->findCellsNeighbours(iteration); }
   void findRoads(int iteration) { mTraits->findRoads(iteration); }
-  void rectifyClusterIndices();
-  void sortTracks();
-
-  TrackerTraitsN* mTraits = nullptr;
-  ScratchN* mScratch = nullptr;
+  TrackerTraits<NLayers>* mTraits = nullptr;
+  SurfaceTrackingScratch* mScratch = nullptr;
   TimeFrame* mFrame = nullptr;
   const DetectorLayoutSet* mLayoutPlan = nullptr;
   std::vector<TrackingParameters> mTrkParams;

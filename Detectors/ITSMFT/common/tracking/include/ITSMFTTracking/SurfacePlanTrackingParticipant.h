@@ -5,23 +5,16 @@
 // This software is distributed under the terms of the GNU General Public
 // License v3 (GPL Version 3), copied verbatim in the file "COPYING".
 //
-// E0/M2a-M2c (GenericTrackingEngineMigration.md; ADR 0007): the temporary
-// concrete TrackingParticipant implementation ITSMFTLegacyParticipantSet
-// (ITSMFTLegacyParticipantSet.h) uses for each of its two legacy detector
-// legs (ITS: NLayers=7, MFT: NLayers=10). Owns everything ADR 0007 still
-// classifies as temporary per-detector legacy state -- LegacyTrackerScratch
-// <NLayers>, TrackerTraits<NLayers>, Tracker<NLayers>, this leg's own
-// DetectorTraversalBinding, its TrackingParameters, and its detector
-// compatibility sidecar (ITSSharedClusterCompatibility for ITS,
-// MFTPublicationCompatibility for MFT) -- entirely behind the generic
-// TrackingParticipant boundary (TrackingParticipant.h): none of that state,
-// or ITS/MFT/NLayers themselves, is nameable from TrackingEngine.h/
-// TrackingParticipant.h's own public headers, which this class includes but
-// never edits.
+// E0/M2a-M2c (GenericTrackingEngineMigration.md; ADR 0007): this is the
+// concrete plan-driven TrackingParticipant used by the ITS/MFT application
+// adapter. It owns one SurfaceTrackingScratch, one SurfacePlanBinding, the
+// layer-count-specific Tracker/TrackerTraits pair, the tracking parameters,
+// and its detector compatibility sidecar entirely behind the generic
+// TrackingParticipant boundary.
 //
 // This class never loads input itself, matching TrackingParticipant.h's own
-// contract: it only exposes its own loadTarget() (MultiSourceTimeFrameLoader
-// ::LoadTargetImpl<NLayers>, bound to its own scratch) for its owning
+// contract: it only exposes its own loadTarget() (the loader's surface-backed
+// target, bound to its own scratch) for its owning
 // ITSMFTLegacyParticipantSet to build an AtomicLoadBinding from; the actual
 // MultiSourceTimeFrameLoader::loadEvent() call, and the subsequent
 // TrackingEngine::executeEvent()/resetEvent() call once that atomic load has
@@ -31,8 +24,8 @@
 // CombinedCATrackerSpec.cxx). track()/eventReset() below both assume that
 // precondition; see TrackingParticipant.h for the exact contract.
 
-#ifndef ALICEO2_ITSMFT_TRACKING_LEGACYCATRACKINGPARTICIPANT_H_
-#define ALICEO2_ITSMFT_TRACKING_LEGACYCATRACKINGPARTICIPANT_H_
+#ifndef ALICEO2_ITSMFT_TRACKING_SURFACEPLANTRACKINGPARTICIPANT_H_
+#define ALICEO2_ITSMFT_TRACKING_SURFACEPLANTRACKINGPARTICIPANT_H_
 
 #ifndef GPUCA_GPUCODE
 
@@ -45,9 +38,7 @@
 #include "ITSMFTTracking/CATracker.h"
 #include "ITSMFTTracking/Configuration.h"
 #include "ITSMFTTracking/DetectorLayoutSet.h"
-#include "ITSMFTTracking/detail/DetectorTraversalBinding.h"
 #include "ITSMFTTracking/ITSSharedClusterCompatibility.h"
-#include "ITSMFTTracking/LegacyTrackerScratch.h"
 #include "ITSMFTTracking/MFTPublicationCompatibility.h"
 #include "ITSMFTTracking/MultiSourceTimeFrameLoader.h"
 #include "ITSMFTTracking/ParticipantId.h"
@@ -66,61 +57,35 @@
 namespace o2::itsmft::tracking
 {
 
-namespace detail
-{
-// M6d: selects which MultiSourceTimeFrameLoader::LoadTarget implementation
-// a given scratch type stages through -- mirrors TrackerTraits/Tracker's own
-// ScratchT seam (compile-time only, no virtual dispatch in this selection
-// itself; LoadTarget::stage()/commit() are already virtual by design, at the
-// once-per-event load boundary, not the tracking hot loop -- see
-// MultiSourceTimeFrameLoader.h's own doc).
-template <typename ScratchT, int NLayers>
-struct LoadTargetImplFor {
-  using type = MultiSourceTimeFrameLoader::LoadTargetImpl<NLayers>;
-};
 template <int NLayers>
-struct LoadTargetImplFor<SurfaceTrackingScratch, NLayers> {
-  using type = MultiSourceTimeFrameLoader::LoadTargetImplSurface;
-};
-} // namespace detail
-
-// M6d (doc/design/0002-m6-generic-workspace-migration.md Sec 9): ScratchT/
-// BindingT mirror TrackerTraits<NLayers, ScratchT, BindingT>'s own seam
-// exactly -- defaulted to the legacy types so the ITS instantiation is
-// completely unaffected. LegacyCATrackingParticipantMFT below is the one
-// non-default instantiation this milestone adds.
-template <int NLayers, typename ScratchT = LegacyTrackerScratch<NLayers>, typename BindingT = DetectorTraversalBinding>
-class LegacyCATrackingParticipant final : public TrackingParticipant,
-                                          private ITSSharedClusterCompatibilityOwner<NLayers>,
-                                          private MFTPublicationCompatibilityOwner<NLayers>
+class SurfacePlanTrackingParticipant final : public TrackingParticipant,
+                                             private ITSSharedClusterCompatibilityOwner<NLayers>,
+                                             private MFTPublicationCompatibilityOwner<NLayers>
 {
  public:
   static_assert(NLayers == ITSNLayers || NLayers == MFTNLayers,
-                "LegacyCATrackingParticipant supports ITS (7) and MFT (10) layer counts only");
+                "SurfacePlanTrackingParticipant supports ITS (7) and MFT (10) layer counts only");
   static constexpr o2::detectors::DetID::ID DetId = detIdFromNLayers<NLayers>();
 
-  using ScratchN = ScratchT;
-  using LoadTargetImplN = typename detail::LoadTargetImplFor<ScratchT, NLayers>::type;
-
-  LegacyCATrackingParticipant(ParticipantId id, std::vector<TrackingParameters> params);
+  SurfacePlanTrackingParticipant(ParticipantId id, std::vector<TrackingParameters> params);
 
   // Tracker<NLayers>/TrackerTraits<NLayers> bind to sibling addresses at
   // construction (adoptScratch()/adoptITSSharedClusterCompatibility()/
   // adoptMFTPublicationCompatibility()) and to the addresses
-  // adoptDetectorTraversalBinding()/adoptDetectorLayoutSet() bind
+  // adoptSurfacePlanBinding()/adoptDetectorLayoutSet() bind
   // immediately afterward; relocating this object would silently dangle
   // every one of those bound pointers -- the same non-relocatable contract
   // ITSMFTLegacyParticipantSet itself already documents.
-  LegacyCATrackingParticipant(const LegacyCATrackingParticipant&) = delete;
-  LegacyCATrackingParticipant& operator=(const LegacyCATrackingParticipant&) = delete;
-  LegacyCATrackingParticipant(LegacyCATrackingParticipant&&) = delete;
-  LegacyCATrackingParticipant& operator=(LegacyCATrackingParticipant&&) = delete;
+  SurfacePlanTrackingParticipant(const SurfacePlanTrackingParticipant&) = delete;
+  SurfacePlanTrackingParticipant& operator=(const SurfacePlanTrackingParticipant&) = delete;
+  SurfacePlanTrackingParticipant(SurfacePlanTrackingParticipant&&) = delete;
+  SurfacePlanTrackingParticipant& operator=(SurfacePlanTrackingParticipant&&) = delete;
 
   // --- Owning-set-only setup, called once before the first track() call.
   // Not part of the generic TrackingParticipant interface: the owning
   // ITSMFTLegacyParticipantSet holds this concrete type directly (never
   // only a TrackingParticipant*) specifically to reach these. ---
-  void adoptDetectorTraversalBinding(std::unique_ptr<BindingT> binding);
+  void adoptSurfacePlanBinding(std::unique_ptr<SurfacePlanBinding> binding);
   void adoptDetectorLayoutSet(const DetectorLayoutSet& plan);
   void adoptFrame(TimeFrame& frame);
   void setMemoryPool(std::shared_ptr<BoundedMemoryResource> pool);
@@ -159,8 +124,8 @@ class LegacyCATrackingParticipant final : public TrackingParticipant,
 
   // --- Owning-set-only readback, concrete type only: never exposed
   // through TrackingParticipant's own public contract. ---
-  ScratchN& getScratch() noexcept { return mScratch; }
-  const ScratchN& getScratch() const noexcept { return mScratch; }
+  SurfaceTrackingScratch& getScratch() noexcept { return mScratch; }
+  const SurfaceTrackingScratch& getScratch() const noexcept { return mScratch; }
   // Returns nullptr for the "wrong" NLayers instantiation (mirrors
   // ITSMFTTrackingInterface<NLayers>'s own getITSSharedClusterCompatibility
   // ()/getMFTPublicationCompatibility() exactly) -- the owning
@@ -174,19 +139,19 @@ class LegacyCATrackingParticipant final : public TrackingParticipant,
 
   ParticipantId mId;
   std::vector<TrackingParameters> mParams;
-  ScratchN mScratch;
-  std::unique_ptr<BindingT> mBinding;
+  SurfaceTrackingScratch mScratch;
+  std::unique_ptr<SurfacePlanBinding> mBinding;
   // Non-owning: the owning ITSMFTLegacyParticipantSet's own static combined
   // plan data (DetectorLayoutSet) outlives every participant -- see
   // ITSMFTLegacyParticipantSet.h's own ownership doc.
   const DetectorLayoutSet* mPlan = nullptr;
-  TrackerTraits<NLayers, ScratchT, BindingT> mTraits;
-  Tracker<NLayers, ScratchT, BindingT> mTracker;
+  TrackerTraits<NLayers> mTraits;
+  Tracker<NLayers> mTracker;
   // Bound to mScratch above at construction (M2b) -- see
-  // MultiSourceTimeFrameLoader::LoadTargetImpl<NLayers>'s own doc. Declared
+  // MultiSourceTimeFrameLoader::LoadTargetImplSurface's own doc. Declared
   // after mScratch so it is constructed after (and therefore only ever
   // binds an already-existing) mScratch.
-  LoadTargetImplN mLoadTarget;
+  MultiSourceTimeFrameLoader::LoadTargetImplSurface mLoadTarget;
   std::shared_ptr<tbb::task_arena> mArena;
   // Engaged only between a successful track() and the next eventReset()
   // (or construction) -- gates publicationExport(), matching
@@ -195,25 +160,13 @@ class LegacyCATrackingParticipant final : public TrackingParticipant,
   bool mTracked = false;
 };
 
-// M6e2: the sole production ITS instantiation of "the concrete participant"
-// now owns SurfaceTrackingScratch/SurfacePlanBinding too, completing the
-// same migration M6d already did for MFT -- see the design note's M6e2
-// section. ITSMFTTrackingInterface<ITSNLayers> (the standalone-ITS-workflow's
-// own, separate ownership path) is migrated independently, in that class
-// itself, not through this alias.
-using LegacyCATrackingParticipantITS = LegacyCATrackingParticipant<ITSNLayers, SurfaceTrackingScratch, SurfacePlanBinding>;
-// M6d: the sole production MFT instantiation of "the concrete participant"
-// now owns SurfaceTrackingScratch/SurfacePlanBinding instead of
-// LegacyTrackerScratch<MFTNLayers>/DetectorTraversalBinding -- see the
-// design note's M6d section. ITSMFTTrackingInterface<MFTNLayers> (the
-// standalone-MFT-workflow's own, separate ownership path) is unaffected: it
-// never used LegacyCATrackingParticipant at all.
-using LegacyCATrackingParticipantMFT = LegacyCATrackingParticipant<MFTNLayers, SurfaceTrackingScratch, SurfacePlanBinding>;
+using SurfacePlanTrackingParticipantITS = SurfacePlanTrackingParticipant<ITSNLayers>;
+using SurfacePlanTrackingParticipantMFT = SurfacePlanTrackingParticipant<MFTNLayers>;
 
-extern template class LegacyCATrackingParticipant<ITSNLayers, SurfaceTrackingScratch, SurfacePlanBinding>;
-extern template class LegacyCATrackingParticipant<MFTNLayers, SurfaceTrackingScratch, SurfacePlanBinding>;
+extern template class SurfacePlanTrackingParticipant<ITSNLayers>;
+extern template class SurfacePlanTrackingParticipant<MFTNLayers>;
 
 } // namespace o2::itsmft::tracking
 
 #endif // GPUCA_GPUCODE
-#endif /* ALICEO2_ITSMFT_TRACKING_LEGACYCATRACKINGPARTICIPANT_H_ */
+#endif /* ALICEO2_ITSMFT_TRACKING_SURFACEPLANTRACKINGPARTICIPANT_H_ */

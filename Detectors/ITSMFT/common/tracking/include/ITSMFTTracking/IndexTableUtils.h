@@ -33,7 +33,8 @@
 namespace o2::itsmft
 {
 
-enum class IndexTableCoordType : uint8_t { PhiZ, XY };
+enum class IndexTableCoordType : uint8_t { PhiZ,
+                                           XY };
 
 namespace index_table_utils
 {
@@ -48,7 +49,7 @@ GPUhdi() float getNormalizedPhi(float phi)
 /// longer templated on a detector layer count -- ITS(7) and MFT(10) common-CA
 /// participants both now share one SurfaceTrackingScratch instance type, so
 /// this type (owned generically as SurfaceTrackingScratch::IndexTableUtilsN,
-/// and still owned per-NLayers as LegacyTrackerScratch<NLayers>::IndexTableUtilsN
+/// and still owned per-NLayers as the former fixed-layer scratch<NLayers>::IndexTableUtilsN
 /// via the IndexTableUtils<nLayers> alias below, unchanged source text) can no
 /// longer carry a fixed nLayers in its own type. Per-layer storage is
 /// therefore capacity-bound by MaxLayoutSurfaces (SurfaceId.h) -- the same
@@ -59,7 +60,7 @@ GPUhdi() float getNormalizedPhi(float phi)
 /// MaxLayoutSurfaces layers (every real caller today: NLayers=7 or 10) simply
 /// never queries the unpopulated tail -- every read site indexes by an
 /// explicit layerIndex the caller's own (still NLayers-templated)
-/// TrackerTraits<NLayers,...>/LegacyTrackerScratch<NLayers> already bounds
+/// TrackerTraits<NLayers,...>/the former fixed-layer scratch<NLayers> already bounds
 /// correctly, exactly as before this change.
 class IndexTableUtilsCore
 {
@@ -204,7 +205,7 @@ inline void IndexTableUtilsCore::print() const
 /// Backward-compatible alias: every existing textual reference
 /// `o2::itsmft::IndexTableUtils<N>` (any N) keeps compiling unchanged and now
 /// resolves to the same shared, non-templated core above. This is the load-
-/// bearing reason LegacyTrackerScratch<NLayers>'s own
+/// bearing reason the former fixed-layer scratch<NLayers>'s own
 /// `using IndexTableUtilsN = o2::itsmft::IndexTableUtils<NLayers>;` (untouched
 /// by M6e2) needs no source change at all, for either NLayers value.
 template <int nLayers>

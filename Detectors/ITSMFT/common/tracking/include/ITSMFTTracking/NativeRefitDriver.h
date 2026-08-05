@@ -111,7 +111,7 @@ GPUhdi() float ptFromQOverPt(float q2pt, uint8_t absCharge) noexcept
 // outParamOut/outChi2 are committed only on complete success.
 template <int NLayers>
 bool fitTrackSeedLegs(
-  const TrackSeedN<NLayers>& seed,
+  const TrackSeed& seed,
   const LayerMeasurementSpans<NLayers>& layerMeasurements,
   SurfaceCatalogView surfaceCatalog,
   float bz,

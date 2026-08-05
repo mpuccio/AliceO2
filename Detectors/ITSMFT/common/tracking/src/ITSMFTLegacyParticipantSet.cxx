@@ -48,7 +48,7 @@ SurfaceMask surfaceRangeMask(uint16_t first, uint16_t count)
 // Builds the one shared ITS+MFT DetectorLayout -- both detectors' own
 // disjoint subgraphs in a single DetectorLayoutBuilder call, exactly as
 // testCombinedStaticSurfaceCatalogTopology.cxx /
-// testDetectorTraversalBindingOrchestration.cxx already prove -- from each
+// testthe retired traversal bindingOrchestration.cxx already prove -- from each
 // detector's own (single-iteration) TrackingParameters. Called exactly once
 // by the constructor: this is this set's one authoritative combined-topology
 // construction; ownDetectorPlan() below only ever copies its result, never
@@ -81,7 +81,7 @@ DetectorLayoutBuildResult buildCombinedLayout(gsl::span<const SurfaceId> itsSurf
 // global-id span, so TrackerTraits<NLayers>::initialiseTimeFrame()'s
 // legacy-layer/material binding (step 2.5, TrackerTraits.cxx) resolves
 // against the right detector, while the layout content itself carries both
-// detectors' topology for the adopted DetectorTraversalBinding to scope.
+// detectors' topology for the adopted the retired traversal binding to scope.
 //
 // `layouts.push_back(authoritative)` is a plain copy-construction (DetectorLayout/
 // SparseTrackingTopology are ordinary copyable value types -- no owning
@@ -158,8 +158,8 @@ ITSMFTLegacyParticipantSet::ITSMFTLegacyParticipantSet(std::vector<o2::itsmft::T
     throw std::runtime_error("ITSMFTLegacyParticipantSet: failed to build the MFT SurfacePlanBinding");
   }
 
-  mITSParticipant.adoptDetectorTraversalBinding(std::move(itsBindingResult.binding));
-  mMFTParticipant.adoptDetectorTraversalBinding(std::move(mftBindingResult.binding));
+  mITSParticipant.adoptSurfacePlanBinding(std::move(itsBindingResult.binding));
+  mMFTParticipant.adoptSurfacePlanBinding(std::move(mftBindingResult.binding));
   mITSParticipant.adoptDetectorLayoutSet(*mITSPlan);
   mMFTParticipant.adoptDetectorLayoutSet(*mMFTPlan);
 

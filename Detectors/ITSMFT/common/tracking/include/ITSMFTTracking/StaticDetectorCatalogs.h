@@ -32,7 +32,7 @@
 // authoritative combined-catalog source for combined disconnected tracking:
 // ITSMFTLegacyParticipantSet (ITSMFTLegacyParticipantSet.h) builds its one
 // 17-surface DetectorLayout directly from this catalog and derives both
-// detectors' DetectorTraversalBinding from that single build, so ITS and
+// detectors' the retired traversal binding from that single build, so ITS and
 // MFT traversal always share one identical global id space. Mixed-detector
 // track publication stays rejected/diagnostic outside that set
 // (TrackerTraits::initialiseTimeFrame()'s existing MixedPolicyLayout gate

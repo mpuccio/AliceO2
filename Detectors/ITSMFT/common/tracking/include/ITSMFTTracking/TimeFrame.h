@@ -21,9 +21,8 @@
 /// need "which detector" pass it explicitly, since it was always fully
 /// determined by the caller's own compile-time NLayers). Every legacy
 /// per-detector CA scratch array/topology/result container that used to live
-/// alongside these lives in LegacyTrackerScratch<NLayers>
-/// (ITSMFTTracking/LegacyTrackerScratch.h) instead -- see that header for the
-/// full ownership rationale and the reset/load contracts spanning both
+/// alongside these lives in SurfaceTrackingScratch instead -- see that header
+/// for the full ownership rationale and the reset/load contracts spanning both
 /// types.
 
 #ifndef ALICEO2_ITSMFT_TRACKING_TIMEFRAME_H_
@@ -77,7 +76,7 @@ struct TimeFrame {
 
   // Non-owning, read-only access to the normalized owner/view associated
   // with this TimeFrame by the most recent successful commitNormalizedFrame()
-  // call (see LegacyTrackerScratch<NLayers>::loadNormalizedSource(), the
+  // call (see SurfaceTrackingScratch::loadNormalizedSource(), the
   // owner-level load operation this is the TimeFrame-side half of). Empty/
   // default until that first succeeds, and after wipe() (see below): wipe()
   // unconditionally clears this owner in place. The `const MultiSourceFrame&`
@@ -93,7 +92,7 @@ struct TimeFrame {
   MultiSourceFrameView getNormalizedFrameView() const noexcept { return mNormalizedFrame.getView(); }
 
   // Internal commit primitive for the owner-level load operation
-  // (LegacyTrackerScratch<NLayers>::loadNormalizedSource(), which stages both
+  // (SurfaceTrackingScratch::loadNormalizedSource(), which stages both
   // this TimeFrame's normalized update and its own legacy backfill before
   // calling this) -- not general API, and never throws: `staged` must
   // already be the fully-built replacement frame. Swaps it in and clears
@@ -145,8 +144,8 @@ struct TimeFrame {
   // already released it back. TimeFrame's own containers never use the
   // framework/GPU allocator: that mechanism (mExtMemoryPool,
   // hasFrameworkAllocator(), getMaybeFrameworkHostResource()) is used
-  // exclusively by LegacyTrackerScratch<NLayers>'s per-layer legacy
-  // containers and lives there instead (LegacyTrackerScratch.h).
+  // exclusively by SurfaceTrackingScratch's per-layer compatibility
+  // containers and lives there instead.
   std::shared_ptr<BoundedMemoryResource> mMemoryPool;
 
   virtual void wipe();
@@ -170,7 +169,7 @@ struct TimeFrame {
   // Detector-neutral common-CA result storage (Gate 4 CommonTrack
   // foundation; ITSMFTTracking/CommonTrack.h). Unpopulated by B3.1 -- no
   // production or test call site writes through these accessors from CA
-  // seeds yet (see CommonTrack.h/LegacyTrackerScratch.h for the shadow-
+  // seeds yet (see CommonTrack.h/SurfaceTrackingScratch.h for the shadow-
   // population contract a later slice adds).
   bounded_vector<CommonTrack> mCommonTracks;
   bounded_vector<TrackClusterReference> mTrackClusterIndices;
@@ -178,7 +177,7 @@ struct TimeFrame {
   const o2::base::PropagatorImpl<float>* mPropagatorDevice = nullptr; // Needed only for GPU; see doc above -- currently unused.
 
   // Normalized owner associated by the owner-level load operation
-  // (LegacyTrackerScratch<NLayers>::loadNormalizedSource()); host-only,
+  // (SurfaceTrackingScratch::loadNormalizedSource()); host-only,
   // never GPU-managed or dictionary-serialized (see getNormalizedFrame()).
   // Does not itself hold pmr/bounded-vector allocations (MultiSourceFrame's
   // own members are plain std::vector<T> with the default allocator), so it

@@ -53,7 +53,7 @@ using o2::itsmft::tracking::ParticipantOutcome;
 // applies (TrackingInterface.cxx), reused via the same shared
 // deriveUniformROFTimingConfig() (ROFTimingUniformity.h). Unlike that
 // single-detector path, this workflow does not need to derive nROFsTF here:
-// ITSMFTLegacyParticipantSet's own configureRofTables() (LegacyCATrackingParticipant
+// ITSMFTLegacyParticipantSet's own configureRofTables() (SurfacePlanTrackingParticipant
 // .cxx) takes it directly as the workflow's own ClusterSourceInput::rofs
 // .size(), the actual ROF count this TF's DPL input already carries.
 template <o2::detectors::DetID::ID DetId, int NLayers>

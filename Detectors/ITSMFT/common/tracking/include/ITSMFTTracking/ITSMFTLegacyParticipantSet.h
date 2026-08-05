@@ -7,9 +7,9 @@
 //
 // M2c (GenericTrackingEngineMigration.md; ADR 0007): the one explicitly
 // ITS/MFT-named application-layer factory/set. It owns the two concrete
-// LegacyCATrackingParticipant instances (each already owning its own
-// Tracker<NLayers>/TrackerTraits<NLayers>/LegacyTrackerScratch<NLayers>/
-// DetectorTraversalBinding/detector compatibility sidecar), the static
+// SurfacePlanTrackingParticipant instances (each already owning its own
+// Tracker<NLayers>/TrackerTraits<NLayers>/the former fixed-layer scratch<NLayers>/
+// the retired traversal binding/detector compatibility sidecar), the static
 // combined ITS+MFT plan/binding configuration (StaticDetectorCatalogs.h;
 // global ids ITS 0..6, MFT 7..16), the explicit [ITS, MFT] tracking
 // schedule, the fixed ITS=0/MFT=1 atomic load-binding contract, and the
@@ -19,7 +19,7 @@
 // This is the sole owner of the current ITS/MFT source/layout facts: its
 // caller -- the combined DPL task (CombinedCATrackerSpec.cxx) directly,
 // as of M3 -- never needs to know source 0/1, ITS/MFT layer counts, or any
-// static catalog/binding/tracker/scratch type to delegate construction,
+// static catalog/binding/tracker/scratch state to delegate construction,
 // atomic loading, tracking, and publication export to this set instead.
 // None of that knowledge is pushed down into
 // TrackingEngine.h/TrackingParticipant.h/TimeFrame.h/CommonTrack.h/
@@ -41,7 +41,7 @@
 #include "ITSMFTTracking/Configuration.h"
 #include "ITSMFTTracking/DetectorLayoutSet.h"
 #include "ITSMFTTracking/ITSSharedClusterCompatibility.h"
-#include "ITSMFTTracking/LegacyCATrackingParticipant.h"
+#include "ITSMFTTracking/SurfacePlanTrackingParticipant.h"
 #include "ITSMFTTracking/MFTPublicationCompatibility.h"
 #include "ITSMFTTracking/MultiSourceTimeFrameLoader.h"
 #include "ITSMFTTracking/TimeFrame.h"
@@ -140,12 +140,12 @@ class ITSMFTLegacyParticipantSet
   // --- Caller readback: forwards this API to the combined DPL task
   // without that task needing to name any of these concrete types itself. ---
   // M6e2: ITS's own participant now owns SurfaceTrackingScratch, not
-  // LegacyTrackerScratch<ITSNLayers> -- see LegacyCATrackingParticipant.h's
-  // LegacyCATrackingParticipantITS alias.
+  // the former fixed-layer scratch<ITSNLayers> -- see SurfacePlanTrackingParticipant.h's
+  // SurfacePlanTrackingParticipantITS alias.
   const SurfaceTrackingScratch& getITSScratch() const noexcept { return mITSParticipant.getScratch(); }
   // M6d: MFT's own participant now owns SurfaceTrackingScratch, not
-  // LegacyTrackerScratch<MFTNLayers> -- see LegacyCATrackingParticipant.h's
-  // LegacyCATrackingParticipantMFT alias.
+  // the former fixed-layer scratch<MFTNLayers> -- see SurfacePlanTrackingParticipant.h's
+  // SurfacePlanTrackingParticipantMFT alias.
   const SurfaceTrackingScratch& getMFTScratch() const noexcept { return mMFTParticipant.getScratch(); }
   const ITSSharedClusterCompatibility& getITSSharedClusterCompatibility() const noexcept { return *mITSParticipant.getITSSharedClusterCompatibility(); }
   const MFTPublicationCompatibility& getMFTPublicationCompatibility() const noexcept { return *mMFTParticipant.getMFTPublicationCompatibility(); }
@@ -158,8 +158,8 @@ class ITSMFTLegacyParticipantSet
   std::optional<DetectorLayoutSet> mITSPlan;
   std::optional<DetectorLayoutSet> mMFTPlan;
 
-  LegacyCATrackingParticipantITS mITSParticipant;
-  LegacyCATrackingParticipantMFT mMFTParticipant;
+  SurfacePlanTrackingParticipantITS mITSParticipant;
+  SurfacePlanTrackingParticipantMFT mMFTParticipant;
 
   std::array<TrackingParticipant*, 2> mSchedule{};
 

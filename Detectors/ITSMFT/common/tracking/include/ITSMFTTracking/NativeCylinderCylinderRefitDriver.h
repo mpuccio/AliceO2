@@ -140,7 +140,7 @@ GPUhdi() float getPtFromQOverPt(float q2pt, uint8_t absCharge) noexcept
 /// above, whose contracts this driver inherits unchanged.
 template <int NLayers>
 bool nativeRefitTrackCylinderCylinder(
-  const TrackSeedN<NLayers>& seed,
+  const TrackSeed& seed,
   const LayerMeasurementSpans<NLayers>& layerMeasurements,
   SurfaceCatalogView surfaceCatalog,
   float bz,
@@ -278,7 +278,7 @@ bool nativeRefitTrackCylinderCylinder(
 /// Unwired: no production call site uses this in this slice.
 template <int NLayers>
 bool exportNativeRefitToTrackITSExt(
-  const TrackSeedN<NLayers>& seed,
+  const TrackSeed& seed,
   const SurfaceKinematicState& paramIn,
   const SurfaceKinematicState& paramOut,
   float chi2,

@@ -37,7 +37,7 @@ namespace
 // algorithm, and every detector output type in this library is still
 // exported this way.
 template <int NLayers>
-bool refitSeedITS(const typename DetectorTraits<NLayers>::TrackSeedN& seed,
+bool refitSeedITS(const TrackSeed& seed,
                   o2::its::TrackITSExt& track,
                   const TrackingParameters& params,
                   float bz,
@@ -77,15 +77,15 @@ bool refitSeedITS(const typename DetectorTraits<NLayers>::TrackSeedN& seed,
 }
 } // namespace
 
-template <int NLayers, typename ScratchT>
-bool DetectorTraits<NLayers, ScratchT>::refitSeed(const TrackSeedN& seed,
-                                                  TrackType& track,
-                                                  const TrackingParameters& params,
-                                                  float bz,
-                                                  ScratchN& scratch,
-                                                  const LayerMeasurementSpans<NLayers>& layerMeasurements,
-                                                  SurfaceCatalogView surfaceCatalog,
-                                                  ClusterSourceId expectedSource)
+template <int NLayers>
+bool DetectorTraits<NLayers>::refitSeed(const TrackSeed& seed,
+                                        TrackType& track,
+                                        const TrackingParameters& params,
+                                        float bz,
+                                        SurfaceTrackingScratch& scratch,
+                                        const LayerMeasurementSpans<NLayers>& layerMeasurements,
+                                        SurfaceCatalogView surfaceCatalog,
+                                        ClusterSourceId expectedSource)
 {
   if constexpr (DetId == o2::detectors::DetID::MFT) {
     return refitTrackFwd(seed, track, scratch, params, bz, layerMeasurements, surfaceCatalog, expectedSource);
@@ -94,24 +94,24 @@ bool DetectorTraits<NLayers, ScratchT>::refitSeed(const TrackSeedN& seed,
   }
 }
 
-template <int NLayers, typename ScratchT>
-void DetectorTraits<NLayers, ScratchT>::copySeedPatternToTrack(TrackType& track, const TrackSeedN& seed) noexcept
+template <int NLayers>
+void DetectorTraits<NLayers>::copySeedPatternToTrack(TrackType& track, const TrackSeed& seed) noexcept
 {
   if constexpr (DetId == o2::detectors::DetID::MFT) {
     track.setSeedPattern(seed.getHitLayerMask().value());
   }
 }
 
-template <int NLayers, typename ScratchT>
-void DetectorTraits<NLayers, ScratchT>::clearTransientLayerPattern(TrackType& track) noexcept
+template <int NLayers>
+void DetectorTraits<NLayers>::clearTransientLayerPattern(TrackType& track) noexcept
 {
   if constexpr (DetId == o2::detectors::DetID::ITS) {
     track.clearExtendedLayerPattern();
   }
 }
 
-template <int NLayers, typename ScratchT>
-bool DetectorTraits<NLayers, ScratchT>::haveSamePolarity(const TrackType& a, const TrackType& b) noexcept
+template <int NLayers>
+bool DetectorTraits<NLayers>::haveSamePolarity(const TrackType& a, const TrackType& b) noexcept
 {
   if constexpr (DetId == o2::detectors::DetID::MFT) {
     return a.getCharge() == b.getCharge();
@@ -148,18 +148,11 @@ void TrackingLoadPolicy<DetId, NLayers>::configureBeamPosition(TimeFrame& frame,
   }
 }
 
-// M6d/M6e2: DetectorTraits<7>/<10> (default ScratchT) are still used by any
-// remaining bare-default LegacyTrackerScratch<NLayers>-backed callers (e.g.
-// testTrackingInterfaceLoadFailureContract); DetectorTraits<10,
-// SurfaceTrackingScratch> (M6d) and DetectorTraits<7, SurfaceTrackingScratch>
-// (M6e2) are what TrackerTraits<NLayers, SurfaceTrackingScratch,
-// SurfacePlanBinding>::acceptTracks() (via findRoadsForPolicy()) needs for
-// MFT and ITS respectively, now that both live common-CA paths use
-// SurfaceTrackingScratch.
+// M6d/M6e2: DetectorTraits<7>/<10> are used by both live common-CA paths
+// through the one fixed SurfaceTrackingScratch model. TrackerTraits selects
+// the appropriate layer-count specialization for ITS and MFT.
 template struct DetectorTraits<7>;
 template struct DetectorTraits<10>;
-template struct DetectorTraits<7, SurfaceTrackingScratch>;
-template struct DetectorTraits<10, SurfaceTrackingScratch>;
 template struct TrackingLoadPolicy<o2::detectors::DetID::ITS, 7>;
 template struct TrackingLoadPolicy<o2::detectors::DetID::MFT, 10>;
 

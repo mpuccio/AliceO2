@@ -11,7 +11,7 @@
 // additively; M2 implements a concrete legacy-CA participant against it
 // without amending it. Its minimal interface -- identity, owned surfaces,
 // track, participant-local event reset, publication export -- must not
-// mention ITS, MFT, NLayers, LegacyTrackerScratch, source 0/1, or any
+// mention ITS, MFT, NLayers, SurfaceTrackingScratch, source 0/1, or any
 // current output type (decision 5); every one of those stays inside
 // concrete participant implementations and their own adapters.
 //
@@ -60,8 +60,8 @@ struct TimeFrame;
 // exception (see TrackingEngine::executeEvent()) -- but redeclares it here
 // rather than including either CATracker.h or
 // ITSMFTLegacyParticipantSet.h: both transitively pull in
-// LegacyTrackerScratch.h/TrackerTraits.h/TimeFrame.h/
-// DetectorTraversalBinding.h, exactly the headers this public contract must
+// the implementation workspace/TrackerTraits.h/TimeFrame.h/
+// SurfacePlanBinding.h, exactly the headers this public contract must
 // stay free of.
 enum class ParticipantOutcome : uint8_t {
   Success,

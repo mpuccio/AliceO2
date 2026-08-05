@@ -11,11 +11,11 @@
 ///
 /// \file SurfaceTrackingScratch.h
 /// \brief M6c/M6d: the non-templated, detector-neutral successor to the
-/// generic portions of LegacyTrackerScratch<NLayers>
+/// generic portions of the former fixed-layer scratch<NLayers>
 /// (doc/design/0002-m6-generic-workspace-migration.md Sec 4, 9).
 ///
 /// SurfaceTrackingScratch owns the M6a audit's Groups A, B, D, and E
-/// (LegacyTrackerScratch's per-owned-surface cluster/index-table cache,
+/// (the former fixed-layer scratch's per-owned-surface cluster/index-table cache,
 /// plan-sized CA construction/result transients, vertexer working scratch,
 /// and memory/allocator/device plumbing) with every std::array<T, NLayers>
 /// bound replaced by a runtime count supplied at plan-adoption time
@@ -47,18 +47,18 @@
 /// genuinely detector/layer-count-agnostic, sized only from adoptPlan()'s
 /// runtime counts.
 ///
-/// Like LegacyTrackerScratch, this type never owns or references a plan/
+/// Like the former fixed-layer scratch, this type never owns or references a plan/
 /// binding object -- adoptPlan() takes plain runtime counts (nOwnedSurfaces,
 /// nTransitions, nCells), the exact three numbers a detector-neutral
 /// surface-plan binding's own owned-surface count and global-transition/
 /// -cell span sizes already expose, without this header including that
 /// binding's own (detail/-confined) header at all. It does now reference
 /// TimeFrame (initialise()/loadNormalizedSource()/updateROFVertexLookupTable()/
-/// getPrimaryVertices() all take one, mirroring LegacyTrackerScratch's own
+/// getPrimaryVertices() all take one, mirroring the former fixed-layer scratch's own
 /// signatures exactly) -- M6c's original "never touches TimeFrame" framing
 /// applied to that milestone's unwired scope only; M6d's whole point is
 /// wiring this type into the same TimeFrame-cooperating role
-/// LegacyTrackerScratch already has for ITS.
+/// the former fixed-layer scratch already has for ITS.
 #ifndef ALICEO2_ITSMFT_TRACKING_SURFACETRACKINGSCRATCH_H_
 #define ALICEO2_ITSMFT_TRACKING_SURFACETRACKINGSCRATCH_H_
 
@@ -119,7 +119,7 @@ class SurfaceTrackingScratch
 {
  private:
   // ---- Group E: memory/allocator/device plumbing ----
-  // Declared first, exactly like LegacyTrackerScratch<NLayers>'s equivalent
+  // Declared first, exactly like the former fixed-layer scratch<NLayers>'s equivalent
   // members and for the identical reason (see that class's own doc comment):
   // C++ destroys non-static data members in reverse declaration order, so
   // declaring these two pool owners first guarantees they are destroyed
@@ -131,7 +131,7 @@ class SurfaceTrackingScratch
   // this type's own focused tests do), and declaring them last caused a
   // real reproducible segfault in ~SurfaceTrackingScratch() when the pool's
   // last reference was released before the vectors allocated through it
-  // were destroyed. Fixed by matching LegacyTrackerScratch<NLayers>'s
+  // were destroyed. Fixed by matching the former fixed-layer scratch<NLayers>'s
   // ordering exactly, not by asserting an ownership guarantee this type
   // cannot actually enforce.
   std::shared_ptr<o2::its::BoundedMemoryResource> mExtMemoryPool;
@@ -147,17 +147,16 @@ class SurfaceTrackingScratch
   // M6d: LoadTargetImpl-equivalent staging code (MultiSourceTimeFrameLoader.cxx)
   // needs direct access to mExternalAllocator/mExtMemoryPool to preserve
   // allocator identity across stage()/commit(), exactly mirroring
-  // LegacyTrackerScratch<NLayers>'s own sole-friend contract.
+  // the former fixed-layer scratch<NLayers>'s own sole-friend contract.
   friend class MultiSourceTimeFrameLoader;
 
   static constexpr int MFTNLayers = o2::mft::constants::mft::LayersNumber;
   // IndexTableUtils is alias-erased (IndexTableUtils.h) to one shared,
   // non-templated IndexTableUtilsCore regardless of N -- a single member
   // (mIndexTableUtils below) already serves both detectors, no duplication
-  // needed. CellSeedN/TrackSeedN are likewise never actually detector-typed
-  // (Cell.h's own free `CellSeedN<N>`/`TrackSeedN<N>` aliases, used directly
-  // by TrackerTraits<NLayers,...>/DetectorTraits<NLayers> without going
-  // through this scratch at all) -- not declared as scratch members.
+  // needed. CellSeed and TrackSeed are likewise not detector-typed and are
+  // used directly by TrackerTraits/DetectorTraits, not stored as scratch
+  // members.
   using IndexTableUtilsN = o2::itsmft::IndexTableUtils<MFTNLayers>;
 
   SurfaceTrackingScratch() = default;
@@ -168,10 +167,10 @@ class SurfaceTrackingScratch
   SurfaceTrackingScratch& operator=(SurfaceTrackingScratch&&) = delete;
 
   /// Sizes every Group A container to `nOwnedSurfaces` (one slot per owned
-  /// surface, replacing every LegacyTrackerScratch<NLayers>
+  /// surface, replacing every the former fixed-layer scratch<NLayers>
   /// std::array<T, NLayers>) and every Group B container to `nTransitions`/
   /// `nCells` (already-runtime sparse-topology counts). Precondition, exactly
-  /// as LegacyTrackerScratch<NLayers>::initialise(): setMemoryPool() has
+  /// as the former fixed-layer scratch<NLayers>::initialise(): setMemoryPool() has
   /// already been called -- this never allocates through a null resource
   /// silently, it inherits whichever resource the owner already configured.
   /// Group D is not sized here (never plan-sized -- see the file doc); Group
@@ -184,7 +183,7 @@ class SurfaceTrackingScratch
   std::size_t getNCells() const noexcept { return mNCells; }
 
   /// Clears scratch-owned working state in place -- mirrors
-  /// LegacyTrackerScratch<NLayers>::resetScratch() member-for-member (same
+  /// the former fixed-layer scratch<NLayers>::resetScratch() member-for-member (same
   /// deep-clear-vs-framework-allocator-skip, same MC-info-conditional
   /// clearing, same non-owning mClusterLabels re-nulling instead of
   /// deep-clear). Never touches a TimeFrame, even implicitly, and never
@@ -197,7 +196,7 @@ class SurfaceTrackingScratch
   void resetScratch() { reset(); }
 
   /// memory management -- Group E. Doc mirrors
-  /// LegacyTrackerScratch<NLayers>::setMemoryPool(): reseats every
+  /// the former fixed-layer scratch<NLayers>::setMemoryPool(): reseats every
   /// allocator-backed container onto the new resource via a deep clear, so
   /// every subsequent allocation happens through the caller's pool.
   void setMemoryPool(std::shared_ptr<o2::its::BoundedMemoryResource> pool);
@@ -216,7 +215,7 @@ class SurfaceTrackingScratch
   bool hasMCinformation() const noexcept { return !mClusterLabels.empty() && mClusterLabels[0] != nullptr; }
 
   /// Staging/swap support for M6d's atomic loader migration -- mirrors the
-  /// stage-then-commit discipline LegacyTrackerScratch<NLayers>::
+  /// stage-then-commit discipline the former fixed-layer scratch<NLayers>::
   /// loadNormalizedSource() already implements for Group A, generalized to
   /// every plan-sized container here.
   ///
@@ -242,10 +241,10 @@ class SurfaceTrackingScratch
   void swap(SurfaceTrackingScratch& other) noexcept;
 
   // ---- read-in data (M6d): mirrors
-  // LegacyTrackerScratch<NLayers>::loadNormalizedSource() exactly, except
+  // the former fixed-layer scratch<NLayers>::loadNormalizedSource() exactly, except
   // every NLayers-bound loop becomes a runtime orderedSurfaces.size() (==
-  // getNOwnedSurfaces()) loop. detId preflight is narrowed to MFT only,
-  // since this scratch type is MFT-only. See LegacyTrackerScratch.cxx for
+  // getNOwnedSurfaces()) loop. detId preflight accepts both common-CA
+  // detectors. See the former fixed-layer scratch.cxx for
   // the byte-for-byte original this was ported from.
 #ifndef GPUCA_GPUCODE
   LoadSourcesResult loadNormalizedSource(TimeFrame& frame,
@@ -299,11 +298,9 @@ class SurfaceTrackingScratch
   // pattern exactly, for the same reason (ROFOverlapTable<N>/
   // ROFVertexLookupTable<N>/ROFMaskTable<N>/TrackingTopology<N> are
   // genuinely N-sized production types, not detector-neutral). Every
-  // Group-C-style call site inside the shared Tracker<NLayers,ScratchT,
-  // BindingT>/TrackerTraits<NLayers,ScratchT,BindingT> bodies that is still
-  // reachable with ScratchT=LegacyTrackerScratch<NLayers> goes through the
-  // scratchXxx<NLayers>() free dispatcher functions below instead of calling
-  // these template accessors directly, exactly like scratchTracks<NLayers>().
+  // Group-C-style call sites inside the shared Tracker<NLayers>/
+  // TrackerTraits<NLayers> bodies go through the scratchXxx<NLayers>() free
+  // dispatcher functions below instead of calling these accessors directly.
   const auto& getIndexTableUtils() const { return mIndexTableUtils; }
 
   template <int NLayers>
@@ -475,9 +472,9 @@ class SurfaceTrackingScratch
   auto& getTrackletsLabel(int layer) { return mTrackletLabels[layer]; }
   auto& getCellsLabel(int layer) { return mCellLabels[layer]; }
 
-  /// M6d: TrackerTraits<NLayers, ScratchT, BindingT>::initialiseTimeFrame()'s
+  /// M6d: TrackerTraits<NLayers>::initialiseTimeFrame()'s
   /// step 3-5 needs this typed the same way `mScratch->initialise()`'s
-  /// existing call site already builds it -- see ScratchN::IndexTableUtilsN.
+  /// existing call site already builds it -- see SurfaceTrackingScratch::IndexTableUtilsN.
   /// M6e2: reads/writes the dual ROF-mask/topology members above, so this is
   /// now a template on NLayers too; `layerMeasurements` takes a runtime-sized
   /// span-of-spans (not a fixed-width LayerMeasurementSpans<N> array) since
@@ -545,7 +542,7 @@ class SurfaceTrackingScratch
   o2::its::bounded_vector<float> mPositionResolution;
   // Not per-owned-surface: fixed at the two tracklet combinations (layers
   // 0-1, 1-2), sized from cluster count at load time, exactly as in
-  // LegacyTrackerScratch<NLayers>.
+  // the former fixed-layer scratch<NLayers>.
   std::array<o2::its::bounded_vector<int>, 2> mNTrackletsPerCluster;
   std::array<o2::its::bounded_vector<int>, 2> mNTrackletsPerClusterSum;
 
@@ -579,7 +576,7 @@ class SurfaceTrackingScratch
   o2::itsmft::tracking::TrackingTopology<MFTNLayers> mVertexingTopologyMFT;
 
   // ---- Group D: vertexer working scratch ----
-  // Never actually NLayers-sized in LegacyTrackerScratch<NLayers> either
+  // Never actually NLayers-sized in the former fixed-layer scratch<NLayers> either
   // (bound by ROF count and the fixed layer-pair index of 2); carries over
   // unchanged in shape. Not resized by adoptPlan() -- ROF count is not known
   // at plan-adoption time, exactly as it was never known at NLayers-scratch
@@ -608,9 +605,9 @@ class SurfaceTrackingScratch
   int getTotalClustersPerROFrange(int rofMin, int range, int layerId) const;
 
   /// initTrackerTopologies() (M6d): production caller is
-  /// LegacyCATrackingParticipant<...>::configureRofTables() (combined MFT),
-  /// unchanged body, generic via ScratchN. Mirrors
-  /// LegacyTrackerScratch<NLayers>::initTrackerTopologies() exactly.
+  /// SurfacePlanTrackingParticipant<...>::configureRofTables() (combined MFT),
+  /// unchanged body, generic via the fixed scratch type. Mirrors
+  /// the former fixed-layer scratch<NLayers>::initTrackerTopologies() exactly.
   /// M6e2: writes the dual mTrackerTopologiesITS/MFT member, so this is now
   /// a template on NLayers too (see the file doc's Group-C-style rationale).
   template <int NLayers>
@@ -618,22 +615,21 @@ class SurfaceTrackingScratch
   /// M6e1 correction: M6d's own claim that initVertexingTopology()/
   /// initDefaultTrackingTopology() have "zero production callers" was scoped
   /// only to the combined-participant-path files that milestone's own audit
-  /// read (TrackerTraits.cxx/CATracker.cxx/LegacyCATrackingParticipant.cxx)
+  /// read (TrackerTraits.cxx/CATracker.cxx/SurfacePlanTrackingParticipant.cxx)
   /// -- never TrackingInterface.cxx, which was out of M6d's scope entirely.
-  /// ITSMFTTrackingInterface<NLayers>::configureTrackingTopology() (the
-  /// standalone-path owner M6e1 migrates) calls
+  /// ITSMFTTrackingInterface<NLayers>::configureTrackingTopology() calls
   /// initDefaultTrackingTopology() unconditionally once per event, for both
-  /// ITS and MFT -- so this scratch type needs it too, now that it backs the
+  /// ITS and MFT -- so this scratch needs it too, now that it backs the
   /// standalone MFT interface. Mirrors
-  /// LegacyTrackerScratch<NLayers>::initDefaultTrackingTopology() exactly.
+  /// the former fixed-layer scratch<NLayers>::initDefaultTrackingTopology() exactly.
   template <int NLayers>
   void initDefaultTrackingTopology(const TrackingParameters& trkParam, int maxLayers);
   /// initVertexingTopology() still has zero production callers even after
   /// M6e1 (grep-confirmed across TrackingInterface.cxx too) -- ported anyway
-  /// for structural parity with LegacyTrackerScratch's own three-method
+  /// for structural parity with the former fixed-layer scratch's own three-method
   /// topology-init group, since leaving only its sibling ported would be a
   /// more confusing asymmetry than one extra dead one-line mirror. Mirrors
-  /// LegacyTrackerScratch<NLayers>::initVertexingTopology() exactly.
+  /// the former fixed-layer scratch<NLayers>::initVertexingTopology() exactly.
   template <int NLayers>
   void initVertexingTopology(const TrackingParameters& trkParam);
 
@@ -678,11 +674,9 @@ class SurfaceTrackingScratch
   std::size_t mNCells{0};
 };
 
-// M6d: the SurfaceTrackingScratch overload of the original per-detector
-// legacy scratch type's own resetTimeFrameEvent() free function --
-// Tracker<NLayers, ScratchT, BindingT>::clustersToTracks()'s recoverable-
-// failure path calls this unqualified (ADL), so an overload matching
-// whichever ScratchT is in play must exist in this namespace. Same
+// M6d: the SurfaceTrackingScratch overload of resetTimeFrameEvent() --
+// Tracker<NLayers>::clustersToTracks()'s recoverable-failure path calls this
+// unqualified (ADL). Same
 // reset-scratch-then-wipe-frame sequencing, same "not the future combined-
 // owner policy" caveat as the original.
 inline void resetTimeFrameEvent(TimeFrame& frame, SurfaceTrackingScratch& scratch) noexcept
@@ -691,168 +685,84 @@ inline void resetTimeFrameEvent(TimeFrame& frame, SurfaceTrackingScratch& scratc
   frame.wipe();
 }
 
-// Legacy-only Group C forwarding remains until LegacyTrackerScratch itself is
-// deleted in M6f. SurfaceTrackingScratch no longer participates.
-template <int NLayers, typename ScratchT>
-inline auto& scratchTracks(ScratchT& scratch) noexcept
+template <int NLayers>
+inline auto& scratchROFOverlapTable(SurfaceTrackingScratch& scratch) noexcept
 {
-  return scratch.getTracks();
+  return scratch.template getROFOverlapTable<NLayers>();
 }
 
-template <int NLayers, typename ScratchT>
-inline std::size_t scratchNumberOfTracks(const ScratchT& scratch) noexcept
+template <int NLayers>
+inline auto& scratchROFOverlapTableView(SurfaceTrackingScratch& scratch) noexcept
 {
-  return scratch.getNumberOfTracks();
+  return scratch.template getROFOverlapTableView<NLayers>();
 }
 
-// M6e2: the same shim, extended to the newly dual-typed ROF-overlap/
-// ROF-vertex-lookup/ROF-mask/tracking-topology auxiliaries (see the file
-// doc's Group-C-style rationale). Each of these is an argument-less getter
-// (or, for getPrimaryVertices()/scratchUseUPCMask(), takes no NLayers-typed
-// argument to deduce from), so -- exactly like scratchTracks<NLayers>()
-// above -- the shared Tracker<NLayers,ScratchT,BindingT>/TrackerTraits<
-// NLayers,ScratchT,BindingT> bodies (still reachable with
-// ScratchT=LegacyTrackerScratch<NLayers>) cannot call
-// `scratch.getXxxView<NLayers>()` directly on a dependent ScratchT. Setters
-// that DO take an NLayers-typed argument (setROFOverlapTable(), etc.) need
-// no such shim: ordinary template-argument deduction from the argument
-// works identically whether the callee turns out to be
-// SurfaceTrackingScratch's template method or LegacyTrackerScratch<NLayers>'s
-// plain one, with no explicit `<>` and therefore no `.template` disambiguator
-// at the call site -- see LegacyCATrackingParticipant.cxx/TrackingInterface.cxx
-// for those call sites, unchanged except for the local variable's own type
-// binding directly on the caller's NLayers (bypassing ScratchN, exactly like
-// TrackerTraits.h's CellSeedN/TrackSeedN fix).
-template <int NLayers, typename ScratchT>
-inline auto& scratchROFOverlapTable(ScratchT& scratch) noexcept
+template <int NLayers>
+inline const auto& scratchROFOverlapTableView(const SurfaceTrackingScratch& scratch) noexcept
 {
-  if constexpr (std::is_same_v<std::remove_cv_t<ScratchT>, SurfaceTrackingScratch>) {
-    return scratch.template getROFOverlapTable<NLayers>();
-  } else {
-    return scratch.getROFOverlapTable();
-  }
+  return scratch.template getROFOverlapTableView<NLayers>();
 }
 
-template <int NLayers, typename ScratchT>
-inline auto& scratchROFOverlapTableView(ScratchT& scratch) noexcept
+template <int NLayers>
+inline auto& scratchROFVertexLookupTableView(SurfaceTrackingScratch& scratch) noexcept
 {
-  if constexpr (std::is_same_v<std::remove_cv_t<ScratchT>, SurfaceTrackingScratch>) {
-    return scratch.template getROFOverlapTableView<NLayers>();
-  } else {
-    return scratch.getROFOverlapTableView();
-  }
+  return scratch.template getROFVertexLookupTableView<NLayers>();
 }
 
-template <int NLayers, typename ScratchT>
-inline auto& scratchROFVertexLookupTableView(ScratchT& scratch) noexcept
+template <int NLayers>
+inline auto& scratchROFMaskView(SurfaceTrackingScratch& scratch) noexcept
 {
-  if constexpr (std::is_same_v<std::remove_cv_t<ScratchT>, SurfaceTrackingScratch>) {
-    return scratch.template getROFVertexLookupTableView<NLayers>();
-  } else {
-    return scratch.getROFVertexLookupTableView();
-  }
+  return scratch.template getROFMaskView<NLayers>();
 }
 
-template <int NLayers, typename ScratchT>
-inline auto& scratchROFMaskView(ScratchT& scratch) noexcept
+template <int NLayers>
+inline auto& scratchTrackerTopologies(SurfaceTrackingScratch& scratch) noexcept
 {
-  if constexpr (std::is_same_v<std::remove_cv_t<ScratchT>, SurfaceTrackingScratch>) {
-    return scratch.template getROFMaskView<NLayers>();
-  } else {
-    return scratch.getROFMaskView();
-  }
+  return scratch.template getTrackerTopologies<NLayers>();
 }
 
-template <int NLayers, typename ScratchT>
-inline auto& scratchTrackerTopologies(ScratchT& scratch) noexcept
+template <int NLayers>
+inline auto& scratchTrackingTopologyView(SurfaceTrackingScratch& scratch) noexcept
 {
-  if constexpr (std::is_same_v<std::remove_cv_t<ScratchT>, SurfaceTrackingScratch>) {
-    return scratch.template getTrackerTopologies<NLayers>();
-  } else {
-    return scratch.getTrackerTopologies();
-  }
+  return scratch.template getTrackingTopologyView<NLayers>();
 }
 
-template <int NLayers, typename ScratchT>
-inline auto& scratchTrackingTopologyView(ScratchT& scratch) noexcept
+template <int NLayers>
+inline void scratchUseUPCMask(SurfaceTrackingScratch& scratch) noexcept
 {
-  if constexpr (std::is_same_v<std::remove_cv_t<ScratchT>, SurfaceTrackingScratch>) {
-    return scratch.template getTrackingTopologyView<NLayers>();
-  } else {
-    return scratch.getTrackingTopologyView();
-  }
+  scratch.template useUPCMask<NLayers>();
 }
 
-template <int NLayers, typename ScratchT>
-inline void scratchUseUPCMask(ScratchT& scratch) noexcept
+template <int NLayers>
+inline gsl::span<const Vertex> scratchGetPrimaryVertices(SurfaceTrackingScratch& scratch, const TimeFrame& frame, int layer, int rofId)
 {
-  if constexpr (std::is_same_v<std::remove_cv_t<ScratchT>, SurfaceTrackingScratch>) {
-    scratch.template useUPCMask<NLayers>();
-  } else {
-    scratch.useUPCMask();
-  }
+  return scratch.template getPrimaryVertices<NLayers>(frame, layer, rofId);
 }
 
-template <int NLayers, typename ScratchT>
-inline gsl::span<const Vertex> scratchGetPrimaryVertices(ScratchT& scratch, const TimeFrame& frame, int layer, int rofId)
-{
-  if constexpr (std::is_same_v<std::remove_cv_t<ScratchT>, SurfaceTrackingScratch>) {
-    return scratch.template getPrimaryVertices<NLayers>(frame, layer, rofId);
-  } else {
-    return scratch.getPrimaryVertices(frame, layer, rofId);
-  }
-}
-
-template <int NLayers, typename ScratchT>
-inline void scratchInitialise(ScratchT& scratch, const TimeFrame& frame, const TrackingParameters& trkParam, int maxLayers, int iteration,
+template <int NLayers>
+inline void scratchInitialise(SurfaceTrackingScratch& scratch, const TimeFrame& frame, const TrackingParameters& trkParam, int maxLayers, int iteration,
                               const typename SurfaceTrackingScratch::IndexTableUtilsN& indexTableConfig,
                               gsl::span<const gsl::span<const SurfaceMeasurement>> layerMeasurements)
 {
-  if constexpr (std::is_same_v<std::remove_cv_t<ScratchT>, SurfaceTrackingScratch>) {
-    scratch.template initialise<NLayers>(frame, trkParam, maxLayers, iteration, indexTableConfig, layerMeasurements);
-  } else {
-    // The legacy per-NLayers scratch type's own initialise() still takes a
-    // fixed-width LayerMeasurementSpans<NLayers>& (== std::array<gsl::span<
-    // const SurfaceMeasurement>, NLayers>), not a runtime span-of-spans --
-    // rebuild it locally from the runtime-sized span this dispatcher
-    // receives. Named by its underlying array type, not that scratch
-    // header's own alias, so this header need not include it.
-    std::array<gsl::span<const SurfaceMeasurement>, NLayers> legacySpans{};
-    for (int i = 0; i < NLayers; ++i) {
-      legacySpans[i] = layerMeasurements[i];
-    }
-    scratch.initialise(frame, trkParam, maxLayers, iteration, indexTableConfig, legacySpans);
-  }
+  scratch.template initialise<NLayers>(frame, trkParam, maxLayers, iteration, indexTableConfig, layerMeasurements);
 }
 
-template <int NLayers, typename ScratchT>
-inline void scratchInitTrackerTopologies(ScratchT& scratch, gsl::span<const TrackingParameters> trkParams, int maxLayers = NLayers)
+template <int NLayers>
+inline void scratchInitTrackerTopologies(SurfaceTrackingScratch& scratch, gsl::span<const TrackingParameters> trkParams, int maxLayers = NLayers)
 {
-  if constexpr (std::is_same_v<std::remove_cv_t<ScratchT>, SurfaceTrackingScratch>) {
-    scratch.template initTrackerTopologies<NLayers>(trkParams, maxLayers);
-  } else {
-    scratch.initTrackerTopologies(trkParams, maxLayers);
-  }
+  scratch.template initTrackerTopologies<NLayers>(trkParams, maxLayers);
 }
 
-template <int NLayers, typename ScratchT>
-inline void scratchInitDefaultTrackingTopology(ScratchT& scratch, const TrackingParameters& trkParam, int maxLayers)
+template <int NLayers>
+inline void scratchInitDefaultTrackingTopology(SurfaceTrackingScratch& scratch, const TrackingParameters& trkParam, int maxLayers)
 {
-  if constexpr (std::is_same_v<std::remove_cv_t<ScratchT>, SurfaceTrackingScratch>) {
-    scratch.template initDefaultTrackingTopology<NLayers>(trkParam, maxLayers);
-  } else {
-    scratch.initDefaultTrackingTopology(trkParam, maxLayers);
-  }
+  scratch.template initDefaultTrackingTopology<NLayers>(trkParam, maxLayers);
 }
 
-template <int NLayers, typename ScratchT>
-inline void scratchInitVertexingTopology(ScratchT& scratch, const TrackingParameters& trkParam)
+template <int NLayers>
+inline void scratchInitVertexingTopology(SurfaceTrackingScratch& scratch, const TrackingParameters& trkParam)
 {
-  if constexpr (std::is_same_v<std::remove_cv_t<ScratchT>, SurfaceTrackingScratch>) {
-    scratch.template initVertexingTopology<NLayers>(trkParam);
-  } else {
-    scratch.initVertexingTopology(trkParam);
-  }
+  scratch.template initVertexingTopology<NLayers>(trkParam);
 }
 
 } // namespace o2::itsmft::tracking

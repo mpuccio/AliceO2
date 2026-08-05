@@ -138,76 +138,11 @@ class CellSeed final : public SeedMetadataBase<o2::its::constants::ClustersPerCe
   }
 };
 
-/// Compatibility alias: resolves to the same common CellSeed type regardless
-/// of NLayers (kept only so existing ITSNLayers/MFTNLayers call sites do not
-/// need to change to the bare name).
-template <int NLayers>
-using CellSeedN = CellSeed;
-
-/// TrackSeed remains templated only by NLayers: its cluster-index array width
-/// is a temporary legacy boundary (raw int indices, LayerMask), not a
-/// detector-selected state family.
-template <int NLayers>
-class TrackSeedTpl final : public SeedMetadataBase<NLayers>
-{
-  using Base = SeedMetadataBase<NLayers>;
-
- public:
-  GPUhdDefault() TrackSeedTpl() = default;
-  GPUhd() TrackSeedTpl(const CellSeed& cs)
-    : Base(cs.state(), cs.getChi2(), cs.getLevel(), cs.getTimeStamp())
-  {
-    this->setHitLayerMask(cs.getHitLayerMask());
-    this->setFirstTrackletIndex(cs.getFirstTrackletIndex());
-    this->setSecondTrackletIndex(cs.getSecondTrackletIndex());
-    auto& clusters = this->clustersRaw();
-    int slot = 0;
-    const auto hitMask = cs.getHitLayerMask();
-    for (int layer = 0; layer < NLayers; ++layer) {
-      if (hitMask.has(layer)) {
-        clusters[layer] = cs.getClusters()[slot++];
-      }
-    }
-  }
-  GPUhdDefault() TrackSeedTpl(const TrackSeedTpl&) = default;
-  GPUhdDefault() ~TrackSeedTpl() = default;
-  GPUhdDefault() TrackSeedTpl(TrackSeedTpl&&) = default;
-  GPUhdDefault() TrackSeedTpl& operator=(const TrackSeedTpl&) = default;
-  GPUhdDefault() TrackSeedTpl& operator=(TrackSeedTpl&&) = default;
-
-  GPUhd() int getFirstClusterIndex() const { return getClusterBySlot(0); }
-  GPUhd() int getSecondClusterIndex() const { return getClusterBySlot(1); }
-  GPUhd() int getThirdClusterIndex() const { return getClusterBySlot(2); }
-  GPUhd() auto& getClusters() { return this->clustersRaw(); }
-  GPUhd() const auto& getClusters() const { return this->clustersRaw(); }
-  GPUhd() int getCluster(int layer) const { return this->clustersRaw()[layer]; }
-
- private:
-  GPUhd() int getClusterBySlot(int requestedSlot) const
-  {
-    int slot = 0;
-    const auto hitMask = this->getHitLayerMask();
-    for (int layer = 0; layer < NLayers; ++layer) {
-      if (hitMask.has(layer)) {
-        if (slot++ == requestedSlot) {
-          return this->clustersRaw()[layer];
-        }
-      }
-    }
-    return o2::its::constants::UnusedIndex;
-  }
-};
-
-/// Compatibility alias: TrackSeedN<NLayers> resolves to TrackSeedTpl<NLayers>,
-/// differing between families only by cluster-array width.
-template <int NLayers>
-using TrackSeedN = TrackSeedTpl<NLayers>;
-
 /// M6c (doc/design/0002-m6-generic-workspace-migration.md Sec 4.2, 9):
 /// GPU-portable, non-templated whole-track seed -- the generic successor to
-/// TrackSeedTpl<NLayers>. Its per-surface cluster-index array is indexed
+/// the former layer-count-specific seed. Its per-surface cluster-index array is indexed
 /// positionally, one slot per position in the adopted plan's ownedSurfaces()
-/// order, exactly like TrackSeedTpl<NLayers>'s own per-layer indexing -- but
+/// order, exactly like the former seed's per-layer indexing -- but
 /// fixed at MaxLayoutSurfaces (SurfaceId.h) capacity rather than templated
 /// on NLayers, since this type must remain usable on device (GPUhd()),
 /// where heap allocation is unavailable. MaxLayoutSurfaces already bounds
@@ -216,23 +151,21 @@ using TrackSeedN = TrackSeedTpl<NLayers>;
 /// can validly build can ever exceed this capacity -- no new bound is
 /// invented here.
 ///
-/// Deliberately does not derive from SeedMetadataBase<N> (unlike CellSeed
-/// and TrackSeedTpl<NLayers>): SeedMetadataBase's own hit-mask field is a
+/// Deliberately does not derive from SeedMetadataBase<N> (unlike CellSeed):
+/// SeedMetadataBase's own hit-mask field is a
 /// 16-bit LayerMask, which cannot mark all MaxLayoutSurfaces=32 positions
 /// active. Reusing it here would either silently truncate at 16 active
 /// positions or require widening SeedMetadataBase itself -- a shared base
-/// CellSeed and TrackSeedTpl<NLayers> both still use in production ("Keep
-/// TrackSeedTpl<NLayers> production-live and untouched" rules that out).
-/// TrackSeed instead duplicates SeedMetadataBase's small metadata surface
+/// CellSeed still uses in production. TrackSeed instead duplicates
+/// SeedMetadataBase's small metadata surface
 /// directly and uses SurfaceMask (already 32-bit, and already reused
 /// positionally elsewhere in this library -- see SurfaceMask.h's own
 /// positionalSurfaceMask()) as its active-surface mask: each set bit is a
 /// *position* in this seed's own fixed array, never a numeric comparison
 /// against a real global SurfaceId.
 ///
-/// M6c only: unused by production. TrackSeedTpl<NLayers> remains the sole
-/// production whole-track-seed representation until a future milestone
-/// wires this in.
+/// This fixed-capacity value is the sole common-CA whole-track seed
+/// representation.
 class TrackSeed final
 {
  public:
@@ -248,9 +181,9 @@ class TrackSeed final
   // CellSeed's own hit mask is a 16-bit LayerMask (SeedMetadataBase<N>'s
   // stored width, independent of N): every set bit already lies in
   // [0, 15], well within MaxSurfaces, so this conversion never needs to
-  // know NLayers -- mirrors TrackSeedTpl<NLayers>'s own
-  // TrackSeedTpl(const CellSeed&) constructor, generalized from a
-  // NLayers-wide loop to a fixed 16-wide one (CellSeed's mask can never set
+  // know NLayers -- this fixed-capacity conversion uses the same positional
+  // mapping as the former layer-count-specific constructor, generalized from
+  // an NLayers-wide loop to a fixed 16-wide one (CellSeed's mask can never set
   // a bit beyond position 15 in the first place).
   GPUhd() explicit TrackSeed(const CellSeed& cs)
     : mState(cs.state()), mChi2(cs.getChi2()), mLevel(cs.getLevel()), mTracklets{cs.getFirstTrackletIndex(), cs.getSecondTrackletIndex()}, mTime(cs.getTimeStamp())
@@ -274,12 +207,19 @@ class TrackSeed final
     return position >= 0 && position < MaxSurfaces && mSurfaceMask.has(SurfaceId{static_cast<uint16_t>(position)});
   }
 
-  // Bounds-checked, unlike TrackSeedTpl<NLayers>::getCluster()'s direct
-  // unchecked array index: an out-of-[0, MaxSurfaces) position safely
+  // Bounds-checked: an out-of-[0, MaxSurfaces) position safely
   // returns UnusedIndex instead of indexing out of bounds.
   GPUhd() int getCluster(int position) const noexcept
   {
     return (position >= 0 && position < MaxSurfaces) ? mClusters[position] : o2::its::constants::UnusedIndex;
+  }
+
+  // The active common-CA layer range is at most ten positions today. Keep a
+  // LayerMask view for the hole/acceptance code while SurfaceMask remains the
+  // authoritative fixed-capacity representation.
+  GPUhd() LayerMask getHitLayerMask() const noexcept
+  {
+    return LayerMask{static_cast<uint16_t>(mSurfaceMask.value())};
   }
   GPUhd() void setCluster(int position, int clusterIndex) noexcept
   {
@@ -338,14 +278,14 @@ class TrackSeed final
 };
 
 // TrackSeed is a GPU value type (GPUhd() throughout, exactly like CellSeed/
-// TrackSeedTpl<NLayers> above), so the applicable property is copyability by
+// CellSeed above), so the applicable property is copyability by
 // value across the host/device boundary, not standard-layout: compiled and
 // checked here, TrackSeed is *not* standard-layout, because its embedded
 // o2::its::TimeEstBC (o2::dataformats::TimeStampWithError<uint32_t,
 // uint16_t> deriving from TimeStamp<uint32_t>) has non-static data members
 // declared in more than one class of its own hierarchy -- a property of
 // TimeEstBC itself, unrelated to anything TrackSeed adds. This is not a
-// TrackSeed-specific problem: CellSeed and TrackSeedTpl<NLayers> embed the
+// TrackSeed-specific problem: CellSeed embeds the
 // exact same mTime member via SeedMetadataBase and carry no
 // standard-layout/trivially-copyable static_assert either. is_trivially_copyable
 // is the property this codebase's own device-value-type convention actually

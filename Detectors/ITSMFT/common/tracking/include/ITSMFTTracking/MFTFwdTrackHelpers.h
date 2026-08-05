@@ -22,8 +22,8 @@
 #include "CommonConstants/MathConstants.h"
 #include "ITSMFTTracking/Cell.h"
 #include "ITSMFTTracking/Configuration.h"
-#include "ITSMFTTracking/LegacyTrackerScratch.h"
 #include "ITSMFTTracking/MFTCATrack.h"
+#include "ITSMFTTracking/SurfaceTrackingScratch.h"
 #include "ITSMFTTracking/SurfaceCatalogView.h"
 #include "ITStracking/Cluster.h"
 #include "ITStracking/Constants.h"
@@ -153,19 +153,12 @@ namespace o2::itsmft::tracking
 //
 // expectedSource is the ClusterSourceId resolved once by the caller
 // (TrackerTraits::findRoadsForPolicy(), via DetectorTraits::refitSeed's own
-// doc): mBinding->getSource() when a DetectorTraversalBinding is adopted,
+// doc): mBinding->getSource() when a SurfacePlanBinding is adopted,
 // ClusterSourceId{0} otherwise. Used only to re-check normalized-measurement
 // identity before trusting a hit; never re-derived deeper in the fit.
-// M6d: templated on ScratchT (defaulted to LegacyTrackerScratch<MFTNLayers>,
-// unaffected for every existing caller) -- `tf`'s only two uses here are
-// getClusterExternalIndex()/getClusterSize() cluster-metadata bookkeeping
-// (this function's own doc above), never a physical/refit read, so this is
-// the same container-generalization seam as everywhere else in M6d, not a
-// refit-math change.
-template <typename ScratchT = LegacyTrackerScratch<o2::mft::constants::mft::LayersNumber>>
-bool refitTrackFwd(const TrackSeedN<o2::mft::constants::mft::LayersNumber>& seed,
+bool refitTrackFwd(const TrackSeed& seed,
                    MFTCATrack& track,
-                   const ScratchT& tf,
+                   const SurfaceTrackingScratch& tf,
                    const TrackingParameters& params,
                    float bz,
                    const LayerMeasurementSpans<o2::mft::constants::mft::LayersNumber>& layerMeasurements,

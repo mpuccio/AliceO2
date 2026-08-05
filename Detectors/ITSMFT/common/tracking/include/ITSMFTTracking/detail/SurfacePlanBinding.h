@@ -8,19 +8,18 @@
 #ifndef ALICEO2_ITSMFT_TRACKING_SURFACEPLANBINDING_H_
 #define ALICEO2_ITSMFT_TRACKING_SURFACEPLANBINDING_H_
 
-// M6b (Detectors/ITSMFT/common/tracking/doc/design/0002-m6-generic-workspace-migration.md
-// Sec 3.2, 7, 9; GenericTrackingEngineMigration.md M6): the detector-neutral
-// successor to DetectorTraversalBinding (this directory). Additive only --
-// DetectorTraversalBinding stays production-live and unmodified; nothing in
-// the common tracker constructs a SurfacePlanBinding yet (M6d/M6e wire it
-// in; M6f deletes DetectorTraversalBinding). Confined to detail/ -- private
-// legacy-hot-loop-dispatch implementation, never a public/adapter-facing
-// contract, exactly like DetectorTraversalBinding and every other header
-// under this directory (see TransitionPolicy.h's own file-level doc):
+// M6f (Detectors/ITSMFT/common/tracking/doc/design/0002-m6-generic-workspace-
+// migration.md Sec 3.2, 7, 9; GenericTrackingEngineMigration.md M6): the one
+// detector-neutral plan binding used by the common tracker. It replaced the
+// temporary traversal bridge when M6d/M6e wiring completed; no second binding
+// implementation remains in common production code. Confined to detail/ --
+// private hot-loop-dispatch implementation, never a public/adapter-facing
+// contract, like every other header under this directory (see
+// TransitionPolicy.h's own file-level doc):
 // TransitionPolicyTag must never be nameable outside this boundary.
 //
-// The two behavioral changes from DetectorTraversalBinding::build() the
-// design note specifies:
+// The two behavioral changes from the former traversal binding::build() that
+// the design note specifies:
 // 1. no detector-identity allow-list (the old `detector != ITS && detector
 //    != MFT` gate is gone -- ownership/topology validation below already
 //    fully determines correctness without it);
@@ -33,7 +32,7 @@
 //    compatibility rule (TransitionPolicy.h).
 //
 // A third `detector` use the design note's "only two lines" framing did not
-// separately enumerate -- DetectorTraversalBinding::build() also checked
+// separately enumerate -- the retired traversal binding::build() also checked
 // every legacy-ordered surface's SurfaceDescriptor::detectorId against the
 // caller-supplied `detector` (SurfaceDetectorMismatch) -- is deliberately
 // dropped, not replaced. An earlier revision of this type reintroduced an
@@ -88,7 +87,7 @@ class SurfacePlanBinding
 
   // `orderedSurfaces` maps position i to a global SurfaceId -- the only
   // global-to-positional projection here, exactly as
-  // DetectorTraversalBinding::build()'s own `legacySurfaceOrder` parameter.
+  // the retired traversal binding::build()'s own `legacySurfaceOrder` parameter.
   // `expectedKind`/`expectedPolicy` are the caller's own already-derived
   // family selection (e.g. from its own plan's surface kinds, mirroring
   // M4b's stateFamilyOf(SurfaceKind)/decision 8's
