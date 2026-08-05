@@ -1,13 +1,13 @@
 // Gate 4 M7b source/dependency guard.
 //
 // NLayers is still present at the explicitly deferred Tracker/TrackerTraits
-// and ROF/topology compatibility boundaries.  This guard makes that list
-// reviewable and rejects a new semantically runtime-sized generic-core use.
+// template boundary. This guard makes that list reviewable and rejects a new
+// semantically runtime-sized generic-core use.
 // The categories are deliberately narrow:
 //   fixed-device-abi      fixed value capacity/representation;
 //   private-operation     a temporary typed operation boundary;
 //   adapter-edge          detector/output/configuration compatibility;
-//   deferred-m7c          the retained Tracker/ROF/topology bridge.
+//   deferred-m7d          the retained Tracker/TrackerTraits template bridge.
 // It scans common production include/src only.  Tests and documentation are
 // not authority sources and are intentionally outside this dependency guard.
 
@@ -32,7 +32,7 @@ namespace
 enum class CountBoundary { FixedDeviceABI,
                            PrivateOperation,
                            AdapterEdge,
-                           DeferredM7c };
+                           DeferredM7d };
 
 const char* boundaryName(CountBoundary boundary)
 {
@@ -43,8 +43,8 @@ const char* boundaryName(CountBoundary boundary)
       return "temporary private operation implementation";
     case CountBoundary::AdapterEdge:
       return "adapter edge";
-    case CountBoundary::DeferredM7c:
-      return "explicitly deferred M7c compatibility boundary";
+    case CountBoundary::DeferredM7d:
+      return "explicitly deferred M7d Tracker/TrackerTraits boundary";
   }
   return "unclassified";
 }
@@ -108,10 +108,10 @@ std::optional<CountBoundary> classify(const fs::path& path, std::string_view cod
     return CountBoundary::AdapterEdge;
   }
   if (name == "Tracker.h" || name == "TrackerTraits.h" || name == "TrackerTraits.cxx" || name == "CATracker.h" || name == "CATracker.cxx" ||
-      name == "SurfaceTrackingScratch.h" || name == "SurfaceTrackingScratch.cxx" || name == "TrackingTopology.h" ||
+      name == "SurfaceTrackingScratch.h" || name == "SurfaceTrackingScratch.cxx" ||
       name == "IndexTableUtils.h" ||
       name == "TransitionPolicyState.h") {
-    return CountBoundary::DeferredM7c;
+    return CountBoundary::DeferredM7d;
   }
   if (name == "IndexTableConfiguration.h" || name == "IndexTableConfiguration.cxx" ||
       name == "NativeRefitDriver.h" || name == "NativeCylinderCylinderRefitDriver.h" ||

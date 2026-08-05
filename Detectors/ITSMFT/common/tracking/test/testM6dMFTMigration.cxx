@@ -407,7 +407,7 @@ BOOST_AUTO_TEST_CASE(MFTSidecarAndPublicationExportRemainValidAfterMigration)
   // the application-plan fixture.
   std::optional<ClockTimingPublicationView> mftClock;
   bool publicationValid = false;
-  mftClock.emplace(participants.getMFTScratch().getROFOverlapTableView<MFTNLayers>().getClockLayer());
+  mftClock.emplace(participants.getMFTScratch().getROFOverlapView().getClockLayer());
   publicationValid = true;
   std::optional<CommonTrackPublicationExport> mftExport;
   if (publicationValid && mftClock) {

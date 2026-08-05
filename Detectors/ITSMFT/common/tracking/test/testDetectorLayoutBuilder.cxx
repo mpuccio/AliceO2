@@ -13,7 +13,6 @@
 #include <vector>
 
 #include "ITSMFTTracking/DetectorLayoutBuilder.h"
-#include "ITSMFTTracking/TrackingTopology.h"
 
 namespace
 {
@@ -77,31 +76,24 @@ void checkCsrConsistency(const SparseTrackingTopologyView& view)
   BOOST_CHECK_EQUAL(total, view.nCells);
 }
 
-// Compares a built SparseTrackingTopologyView against the legacy templated
-// TrackingTopology<NLayers>::View it should be exactly equivalent to, under
-// the identity mapping SurfaceId{i} <-> layer i (i.e. a monotonic,
-// hole-free-in-position orderedSurfaces = {0, 1, ..., NLayers-1}).
-template <int NLayers>
-void checkParity(const SparseTrackingTopologyView& built, const typename TrackingTopology<NLayers>::View& reference)
+void checkSparseTopology(const SparseTrackingTopologyView& view)
 {
-  BOOST_REQUIRE_EQUAL(built.nTransitions, static_cast<uint32_t>(reference.nTransitions));
-  for (uint32_t t = 0; t < built.nTransitions; ++t) {
-    const auto& builtTransition = built.getTransition(TransitionId{static_cast<uint16_t>(t)});
-    const auto& refTransition = reference.getTransition(t);
-    BOOST_CHECK_EQUAL(builtTransition.from.value(), refTransition.fromLayer);
-    BOOST_CHECK_EQUAL(builtTransition.to.value(), refTransition.toLayer);
+  BOOST_REQUIRE_GT(view.nTransitions, 0u);
+  BOOST_REQUIRE_GT(view.nCells, 0u);
+  for (uint32_t t = 0; t < view.nTransitions; ++t) {
+    const auto& transition = view.getTransition(TransitionId{static_cast<uint16_t>(t)});
+    BOOST_CHECK(transition.from.isValid());
+    BOOST_CHECK(transition.to.isValid());
+    BOOST_CHECK(transition.from != transition.to);
+  }
+  for (uint32_t c = 0; c < view.nCells; ++c) {
+    const auto& cell = view.getCell(CellTopologyId{static_cast<uint16_t>(c)});
+    BOOST_CHECK(cell.firstTransition.value() < view.nTransitions);
+    BOOST_CHECK(cell.secondTransition.value() < view.nTransitions);
+    BOOST_CHECK_EQUAL(cell.hitSurfaces.count(), 3);
   }
 
-  BOOST_REQUIRE_EQUAL(built.nCells, static_cast<uint32_t>(reference.nCells));
-  for (uint32_t c = 0; c < built.nCells; ++c) {
-    const auto& builtCell = built.getCell(CellTopologyId{static_cast<uint16_t>(c)});
-    const auto& refCell = reference.getCell(c);
-    BOOST_CHECK_EQUAL(builtCell.firstTransition.value(), refCell.firstTransition);
-    BOOST_CHECK_EQUAL(builtCell.secondTransition.value(), refCell.secondTransition);
-    BOOST_CHECK_EQUAL(builtCell.hitSurfaces.value(), static_cast<uint32_t>(refCell.hitLayerMask.value()));
-  }
-
-  checkCsrConsistency(built);
+  checkCsrConsistency(view);
 }
 } // namespace
 
@@ -142,7 +134,7 @@ BOOST_AUTO_TEST_CASE(TraversalFollowsSuppliedOrderNotNumericSurfaceId)
   checkCsrConsistency(view);
 }
 
-BOOST_AUTO_TEST_CASE(ExactParityWithTrackingTopologySevenNoHoles)
+BOOST_AUTO_TEST_CASE(SparseTopologySevenNoHoles)
 {
   const auto catalog = denseCatalog(7);
   DetectorLayoutBuilder builder{asView(catalog)};
@@ -150,56 +142,45 @@ BOOST_AUTO_TEST_CASE(ExactParityWithTrackingTopologySevenNoHoles)
   const auto result = builder.build();
   BOOST_REQUIRE(result.ok());
 
-  TrackingTopology<7> reference;
-  reference.init(7, 0, LayerMask{0});
-
-  checkParity<7>(result.layout->getTopology().getView(), reference.getView());
+  checkSparseTopology(result.layout->getTopology().getView());
 }
 
-BOOST_AUTO_TEST_CASE(ExactParityWithTrackingTopologySevenSingleAllowedHole)
+BOOST_AUTO_TEST_CASE(SparseTopologySevenSingleAllowedHole)
 {
-  // Mirrors the production ITS iteration shape exercised in
-  // testTrackingTopology.cxx: MaxHoles=1, HoleLayerMask=1<<3.
   const auto catalog = denseCatalog(7);
   DetectorLayoutBuilder builder{asView(catalog)};
   builder.addSubgraph(DetectorLayoutSubgraph{orderedIds({0, 1, 2, 3, 4, 5, 6}), 1, maskOf({3}), SurfaceMask{}});
   const auto result = builder.build();
   BOOST_REQUIRE(result.ok());
 
-  TrackingTopology<7> reference;
-  reference.init(7, 1, LayerMask{static_cast<uint16_t>(1 << 3)});
-
-  checkParity<7>(result.layout->getTopology().getView(), reference.getView());
+  const auto view = result.layout->getTopology().getView();
+  checkSparseTopology(view);
+  BOOST_CHECK_EQUAL(view.nTransitions, 7u);
+  BOOST_CHECK_EQUAL(view.nCells, 7u);
 }
 
-BOOST_AUTO_TEST_CASE(ExactParityWithTrackingTopologyTenNoHoles)
+BOOST_AUTO_TEST_CASE(SparseTopologyTenNoHoles)
 {
   const auto catalog = denseCatalog(10, SurfaceKind::Disk);
   DetectorLayoutBuilder builder{asView(catalog)};
   builder.addSubgraph(DetectorLayoutSubgraph{orderedIds({0, 1, 2, 3, 4, 5, 6, 7, 8, 9}), 0, SurfaceMask{}, SurfaceMask{}});
   const auto result = builder.build();
   BOOST_REQUIRE(result.ok());
-
-  TrackingTopology<10> reference;
-  reference.init(10, 0, LayerMask{0});
-
-  checkParity<10>(result.layout->getTopology().getView(), reference.getView());
+  checkSparseTopology(result.layout->getTopology().getView());
 }
 
-BOOST_AUTO_TEST_CASE(ExactParityWithTrackingTopologyTenSingleAllowedHole)
+BOOST_AUTO_TEST_CASE(SparseTopologyTenSingleAllowedHole)
 {
-  // Mirrors the production MFT iteration shape exercised in
-  // testTrackingTopology.cxx: MaxHoles=1, HoleLayerMask=1<<5.
   const auto catalog = denseCatalog(10, SurfaceKind::Disk);
   DetectorLayoutBuilder builder{asView(catalog)};
   builder.addSubgraph(DetectorLayoutSubgraph{orderedIds({0, 1, 2, 3, 4, 5, 6, 7, 8, 9}), 1, maskOf({5}), SurfaceMask{}});
   const auto result = builder.build();
   BOOST_REQUIRE(result.ok());
 
-  TrackingTopology<10> reference;
-  reference.init(10, 1, LayerMask{static_cast<uint16_t>(1 << 5)});
-
-  checkParity<10>(result.layout->getTopology().getView(), reference.getView());
+  const auto view = result.layout->getTopology().getView();
+  checkSparseTopology(view);
+  BOOST_CHECK_EQUAL(view.nTransitions, 10u);
+  BOOST_CHECK_EQUAL(view.nCells, 10u);
 }
 
 BOOST_AUTO_TEST_CASE(SingleCallDisconnectedCylinderAndDiskLayout)

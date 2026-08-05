@@ -388,20 +388,17 @@ struct StandaloneRun {
       rofTable.defineLayer(layer, layerTiming);
     }
     rofTable.init();
-    scratch.setROFOverlapTable(rofTable);
     o2::its::ROFVertexLookupTable<NLayers> vtxTable;
     for (int layer = 0; layer < NLayers; ++layer) {
       vtxTable.defineLayer(layer, layerTiming);
     }
     vtxTable.init();
-    scratch.setROFVertexLookupTable(vtxTable);
     o2::its::ROFMaskTable<NLayers> mask{rofTable};
     mask.resetMask();
     for (int layer = 0; layer < NLayers; ++layer) {
       mask.setROFsEnabled(layer, 0, 1, 1);
     }
-    scratch.setMultiplicityCutMask(std::move(mask));
-    scratch.initTrackerTopologies<NLayers>(params);
+    scratch.setROFViews(RuntimeROFViews{rofTable.getView(), vtxTable.getView(), mask.getView(), {}});
 
     if (det == o2::detectors::DetID::ITS) {
       tracker.adoptITSSharedClusterCompatibility(itsSidecar);
@@ -465,8 +462,8 @@ struct CombinedTrackingComposer {
   }
   void markPublicationValid() noexcept
   {
-    itsClock.emplace(participants.getITSScratch().getROFOverlapTableView<ITSNLayers>().getClockLayer());
-    mftClock.emplace(participants.getMFTScratch().getROFOverlapTableView<MFTNLayers>().getClockLayer());
+    itsClock.emplace(participants.getITSScratch().getROFOverlapView().getClockLayer());
+    mftClock.emplace(participants.getMFTScratch().getROFOverlapView().getClockLayer());
     publicationValid = true;
   }
   std::optional<CommonTrackPublicationExport> getITSPublicationExport() const

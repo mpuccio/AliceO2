@@ -91,8 +91,6 @@ int initializeCommonITSTracker()
   frame.setMemoryPool(pool);
   scratch.setMemoryPool(pool);
   scratch.adoptPlan(orderedSurfaces.size(), layout.topology.nTransitions, layout.topology.nCells);
-  scratch.initDefaultTrackingTopology<ITSNLayers>(parameters.front(), ITSNLayers);
-  scratch.initTrackerTopologies<ITSNLayers>(parameters);
   TrackerTraits<ITSNLayers> traits;
   traits.setMemoryPool(pool);
   traits.adoptScratch(&scratch);

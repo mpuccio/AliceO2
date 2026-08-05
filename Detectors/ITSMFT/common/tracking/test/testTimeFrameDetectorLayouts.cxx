@@ -189,11 +189,13 @@ void prepareTraversalFrame(TimeFrame& frame,
 {
   frame.setMemoryPool(pool);
   scratch.setMemoryPool(pool);
-  scratch.adoptPlan(NLayers, 0, 0);
+  // The fixtures using this helper build the identity, no-hole plan below.
+  // Seed the workspace with that plan's sparse runtime extents rather than
+  // leaving the transition/cell vectors at the old zero placeholder.
+  scratch.adoptPlan(NLayers, NLayers > 0 ? NLayers - 1 : 0, NLayers > 1 ? NLayers - 2 : 0);
   for (auto& rofOffsets : scratch.mROFramesClusters) {
     rofOffsets.resize(1, 0);
   }
-  scratch.initTrackerTopologies<NLayers>(params);
   traits.setMemoryPool(pool);
   traits.adoptScratch(&scratch);
   traits.adoptFrame(&frame);
@@ -214,58 +216,6 @@ std::vector<TrackingParameters> itsTraversalParameters()
   return params;
 }
 
-template <int NLayers>
-void checkLegacyParity(SurfaceKind kind, TransitionPolicyTag policyTag, uint16_t startMask)
-{
-  const auto detector = kind == SurfaceKind::Disk ? o2::detectors::DetID::MFT : o2::detectors::DetID::ITS;
-  auto ordered = order(NLayers);
-  std::vector<TrackingParameters> params{parameters(NLayers, 1, uint16_t{1} << (NLayers / 2), startMask)};
-  auto built = buildPlan(catalog(NLayers, kind, detector), ordered, policyTag, params);
-
-  TrackingTopology<NLayers> legacy;
-  legacy.init(NLayers, params[0].MaxHoles, params[0].HoleLayerMask);
-  const auto legacyView = legacy.getView();
-  const auto layoutView = built.plan.getLayoutView(0);
-  const auto sparse = layoutView.topology;
-  BOOST_REQUIRE_EQUAL(sparse.nTransitions, legacyView.nTransitions);
-  BOOST_REQUIRE_EQUAL(sparse.nCells, legacyView.nCells);
-  for (uint32_t i = 0; i < sparse.nTransitions; ++i) {
-    BOOST_CHECK_EQUAL(sparse.transitions[i].from.value(), legacyView.transitions[i].fromLayer);
-    BOOST_CHECK_EQUAL(sparse.transitions[i].to.value(), legacyView.transitions[i].toLayer);
-  }
-  // Independent legacy oracle for which CellTopologyIds the *former*
-  // findRoadsForPolicy predicate (hitLayerMask.last() + StartLayerMask.has())
-  // would have selected as road starts, recomputed here from the frozen
-  // legacy TrackingTopology<NLayers> view -- not by calling into any
-  // TransitionPolicyGrouping/TrackerTraits production code.
-  std::vector<CellTopologyId> legacyOracleStarts;
-  for (uint32_t i = 0; i < sparse.nCells; ++i) {
-    const auto& sparseCell = sparse.cells[i];
-    const auto& legacyCell = legacyView.cells[i];
-    BOOST_CHECK_EQUAL(sparseCell.firstTransition.value(), legacyCell.firstTransition);
-    BOOST_CHECK_EQUAL(sparseCell.secondTransition.value(), legacyCell.secondTransition);
-    BOOST_CHECK_EQUAL(sparseCell.hitSurfaces.value(), static_cast<uint16_t>(legacyCell.hitLayerMask));
-    const auto legacyStartLayer = legacyCell.hitLayerMask.last();
-    const auto sparseStartSurface = SurfaceId{static_cast<uint16_t>(sparseCell.hitSurfaces.last())};
-    BOOST_CHECK_EQUAL(sparse.seedingSurfaces.has(sparseStartSurface), params[0].StartLayerMask.has(legacyStartLayer));
-    if (params[0].StartLayerMask.has(legacyStartLayer)) {
-      legacyOracleStarts.push_back(CellTopologyId{static_cast<uint16_t>(i)});
-    }
-  }
-
-  // Item 7: exact identity-layout parity between roadStartCellsForTag() and
-  // the former StartLayerMask/hitLayerMask.last() selection, for both
-  // TrackerTraits<7> (ITS-like) and TrackerTraits<10> (MFT-like) call sites
-  // of this helper.
-  TransitionPolicyGrouping grouping{layoutView};
-  BOOST_REQUIRE(grouping.valid());
-  const auto starts = grouping.roadStartCellsForTag(policyTag);
-  BOOST_CHECK(std::is_sorted(starts.begin(), starts.end()));
-  BOOST_REQUIRE_EQUAL(starts.size(), legacyOracleStarts.size());
-  for (size_t i = 0; i < starts.size(); ++i) {
-    BOOST_CHECK(starts[i] == legacyOracleStarts[i]);
-  }
-}
 } // namespace
 
 // buildDetectorLayoutSet()'s own two failure modes (InvalidActiveCount,
@@ -458,7 +408,7 @@ BOOST_AUTO_TEST_CASE(traversal_legacy_cell_container_size_mismatch_fails_before_
 {
   // Item 4/7: findRoads() indexes mScratch->getCells() with sparse
   // CellTopologyId values; a desync between that legacy container and the
-  // cached sparse layout must fail with LegacyIndexMismatch rather than
+  // cached sparse layout must fail with SparseTopologyMismatch rather than
   // index out of bounds. Reached here through
   // LegacyTrackerScratch::getCells(), the existing public, non-const
   // production scratch accessor -- no new mutation API is
@@ -482,7 +432,7 @@ BOOST_AUTO_TEST_CASE(traversal_legacy_cell_container_size_mismatch_fails_before_
     traits.findRoads(0);
     BOOST_FAIL("legacy cell-container size mismatch must throw before indexing");
   } catch (const TraversalException& error) {
-    BOOST_CHECK(error.getReason() == TraversalFailureReason::LegacyIndexMismatch);
+    BOOST_CHECK(error.getReason() == TraversalFailureReason::SparseTopologyMismatch);
   }
 }
 
@@ -509,9 +459,6 @@ BOOST_AUTO_TEST_CASE(traversal_preflight_rejects_legacy_mismatch_state_mismatch_
   };
 
   auto params = mftTraversalParameters();
-  checkFailure(params, catalog(10, SurfaceKind::Disk, o2::detectors::DetID::MFT),
-               {SurfaceId{3}, SurfaceId{0}, SurfaceId{6}, SurfaceId{2}, SurfaceId{9}, SurfaceId{5}, SurfaceId{1}, SurfaceId{8}, SurfaceId{4}, SurfaceId{7}},
-               TransitionPolicyTag::DiskDisk, TraversalFailureReason::LegacyIndexMismatch);
   checkFailure(params, catalog(10, SurfaceKind::Cylinder, o2::detectors::DetID::MFT), order(10),
                TransitionPolicyTag::CylinderCylinder, TraversalFailureReason::StateFamilyMismatch);
   params[0].MaxChi2ClusterAttachment = -1.f;
@@ -587,7 +534,7 @@ BOOST_AUTO_TEST_CASE(rejected_initialisation_does_not_mutate_surface_descriptor_
   BOOST_CHECK_EQUAL(materialAfter.arealDensityGPerCm2, materialBefore.arealDensityGPerCm2);
 }
 
-BOOST_AUTO_TEST_CASE(non_monotonic_ordered_surfaces_maps_correctly_then_resets_on_later_failure)
+BOOST_AUTO_TEST_CASE(non_monotonic_ordered_surfaces_maps_material_and_traversal_slots)
 {
   // Distinct-per-surface material (not the uniform MFT nominal default) so an
   // identity-assuming mapping bug (mLayerMaterial[legacyLayer] read from
@@ -616,35 +563,15 @@ BOOST_AUTO_TEST_CASE(non_monotonic_ordered_surfaces_maps_correctly_then_resets_o
   prepareTraversalFrame(frame, scratch, traits, pool, params);
   auto built = buildPlan(std::move(surfaces), nonMonotonicOrder, TransitionPolicyTag::DiskDisk, params);
 
-  // The non-identity mapping is structurally incompatible with the separate
-  // legacy-topology-parity check (validateLegacyParity), so the overall call
-  // still fails -- with LegacyIndexMismatch, not a material reason. Getting
-  // LegacyIndexMismatch here (rather than LegacyMaterialMismatch) is itself
-  // the proof that the material-compatibility check used the correct
-  // (non-identity) orderedSurfaces mapping: params.LayerxX0 above was built
-  // from surfaces[nonMonotonicOrder[legacyLayer]], so an identity-mapping bug
-  // (reading surfaces[legacyLayer] instead) would disagree with it at every
-  // permuted position and fail earlier with LegacyMaterialMismatch instead.
-  try {
-    traits.initialiseTimeFrame(0, built.plan);
-    BOOST_FAIL("non-monotonic ordering must fail legacy topology parity");
-  } catch (const TraversalException& error) {
-    BOOST_CHECK(error.getReason() == TraversalFailureReason::LegacyIndexMismatch);
-  }
-
-  // Material validation passing is not the same as initialisation succeeding:
-  // this later (unrelated) failure must still leave mLayerMaterial exactly at
-  // its resetTraversalCache() state, never partially populated from the
-  // staged-but-never-committed resolution above. hasTraversalCache() is the
-  // existing single source of truth that the call did not succeed, and
-  // mAttachHitConfig (material-dependent, committed in the same final block
-  // as mTraversalGrouping) is therefore equally not in effect.
-  BOOST_CHECK(!traits.hasTraversalCache());
+  BOOST_CHECK_NO_THROW(traits.initialiseTimeFrame(0, built.plan));
+  BOOST_REQUIRE(traits.hasTraversalCache());
   const auto resolvedMaterial = traits.getLayerMaterial();
   BOOST_REQUIRE_EQUAL(resolvedMaterial.size(), nonMonotonicOrder.size());
-  for (const auto& material : resolvedMaterial) {
-    BOOST_CHECK_EQUAL(material.xOverX0, 0.f);
-    BOOST_CHECK_EQUAL(material.arealDensityGPerCm2, 0.f);
+  for (size_t slot = 0; slot < resolvedMaterial.size(); ++slot) {
+    const auto& material = resolvedMaterial[slot];
+    const auto expected = built.plan.getSurfaceCatalog().getSurface(nonMonotonicOrder[slot]).material;
+    BOOST_CHECK_EQUAL(material.xOverX0, expected.xOverX0);
+    BOOST_CHECK_EQUAL(material.arealDensityGPerCm2, expected.arealDensityGPerCm2);
   }
 }
 
@@ -669,18 +596,6 @@ BOOST_AUTO_TEST_CASE(traversal_preflight_reports_invalid_schedule_and_mixed_poli
 
   checkInstalledLayout(cyclicDiskLayout(), TraversalFailureReason::InvalidTraversalSchedule);
   checkInstalledLayout(mixedDisconnectedLayout(), TraversalFailureReason::MixedPolicyLayout);
-}
-
-BOOST_AUTO_TEST_CASE(its_legacy_topology_and_road_start_parity)
-{
-  checkLegacyParity<7>(SurfaceKind::Cylinder, TransitionPolicyTag::CylinderCylinder,
-                       (uint16_t{1} << 6) | (uint16_t{1} << 3));
-}
-
-BOOST_AUTO_TEST_CASE(mft_legacy_topology_and_road_start_parity)
-{
-  checkLegacyParity<10>(SurfaceKind::Disk, TransitionPolicyTag::DiskDisk,
-                        (uint16_t{1} << 9) | (uint16_t{1} << 5));
 }
 
 // Gate 4 M5b: TrackerTraits<NLayers>'s dispatchActivePolicy()/computeLayerTracklets()

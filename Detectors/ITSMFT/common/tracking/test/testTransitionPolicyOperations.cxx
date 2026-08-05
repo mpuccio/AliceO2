@@ -234,7 +234,7 @@ BOOST_AUTO_TEST_CASE(CylinderProjectSearchWindowMatchesInlineFormulaAndDirectPhi
   const auto params = bindTransitionPolicyParams<TransitionPolicyTag::CylinderCylinder>(legacy);
   BOOST_REQUIRE(params.isValid());
 
-  IndexTableUtils<7> indexUtils;
+  IndexTableUtilsCore indexUtils;
   indexUtils.setTrackingParameters(legacy);
 
   const auto source = makeGlobalCluster(2.f, 0.f, 0.5f);
@@ -244,7 +244,7 @@ BOOST_AUTO_TEST_CASE(CylinderProjectSearchWindowMatchesInlineFormulaAndDirectPhi
     0, 3, 2.f, 3.8f, 4.2f, 5.e-4f, 2.e-3f, 0.08f};
 
   TrackletSearchWindow<TransitionPolicyTag::CylinderCylinder> window{};
-  BOOST_REQUIRE((projectSearchWindow<TransitionPolicyTag::CylinderCylinder, 7>(
+  BOOST_REQUIRE((projectSearchWindow<TransitionPolicyTag::CylinderCylinder>(
     sourceMeasurement, source, vertex, state, Bz, indexUtils, params, window)));
 
   const float inverseR0 = 1.f / source.radius;
@@ -271,7 +271,7 @@ BOOST_AUTO_TEST_CASE(CylinderProjectSearchWindowMatchesInlineFormulaAndDirectPhi
   const auto positivePVParams = bindTransitionPolicyParams<TransitionPolicyTag::CylinderCylinder>(legacy);
   BOOST_REQUIRE(positivePVParams.isValid());
   TrackletSearchWindow<TransitionPolicyTag::CylinderCylinder> positivePVWindow{};
-  BOOST_REQUIRE((projectSearchWindow<TransitionPolicyTag::CylinderCylinder, 7>(
+  BOOST_REQUIRE((projectSearchWindow<TransitionPolicyTag::CylinderCylinder>(
     sourceMeasurement, source, vertex, state, Bz, indexUtils, positivePVParams, positivePVWindow)));
   const float positivePVResolution = o2::gpu::CAMath::Sqrt(o2::its::math_utils::Sq(state.sourcePositionResolution) +
                                                            o2::its::math_utils::Sq(positivePVParams.pvResolution) / float(vertex.getNContributors()));
@@ -302,7 +302,7 @@ BOOST_AUTO_TEST_CASE(DiskProjectSearchWindowReusesHelpersAndDirectProjectedXYBin
   const auto params = bindTransitionPolicyParams<TransitionPolicyTag::DiskDisk>(legacy);
   BOOST_REQUIRE(params.isValid());
 
-  IndexTableUtils<10> indexUtils;
+  IndexTableUtilsCore indexUtils;
   std::array<float, 10> halfExtents{};
   halfExtents.fill(20.f);
   indexUtils.setIndexTableParams(IndexTableCoordType::XY, legacy.RowBins, legacy.ColBins, -20.f, 20.f, halfExtents);
@@ -318,7 +318,7 @@ BOOST_AUTO_TEST_CASE(DiskProjectSearchWindowReusesHelpersAndDirectProjectedXYBin
     fromLayer, toLayer, fromZ, toZ, toZ - fromZ, 2.f, 3.e-3f, 0.04f};
 
   TrackletSearchWindow<TransitionPolicyTag::DiskDisk> window{};
-  BOOST_REQUIRE((projectSearchWindow<TransitionPolicyTag::DiskDisk, 10>(
+  BOOST_REQUIRE((projectSearchWindow<TransitionPolicyTag::DiskDisk>(
     sourceMeasurement, source, vertex, state, Bz, indexUtils, params, window)));
 
   float expectedX = 0.f;
@@ -380,7 +380,7 @@ BOOST_AUTO_TEST_CASE(ProjectSearchWindowInvalidBinsLeaveEveryOutputFieldUnchange
 {
   TrackingParameters legacy;
 
-  IndexTableUtils<7> cylinderIndexUtils;
+  IndexTableUtilsCore cylinderIndexUtils;
   cylinderIndexUtils.setTrackingParameters(legacy);
   const auto cylinderParams = bindTransitionPolicyParams<TransitionPolicyTag::CylinderCylinder>(legacy);
   const auto cylinderSource = makeGlobalCluster(2.f, 0.f, 100.f);
@@ -391,11 +391,11 @@ BOOST_AUTO_TEST_CASE(ProjectSearchWindowInvalidBinsLeaveEveryOutputFieldUnchange
   const TrackletSearchWindow<TransitionPolicyTag::CylinderCylinder> cylinderSentinel{
     {101, 102, 103, 104}, 105.f, 106.f, 107.f, 108.f};
   auto cylinderOut = cylinderSentinel;
-  BOOST_CHECK(!(projectSearchWindow<TransitionPolicyTag::CylinderCylinder, 7>(
+  BOOST_CHECK(!(projectSearchWindow<TransitionPolicyTag::CylinderCylinder>(
     cylinderMeasurement, cylinderSource, cylinderVertex, cylinderState, Bz, cylinderIndexUtils, cylinderParams, cylinderOut)));
   checkSearchWindowEqual(cylinderOut, cylinderSentinel);
 
-  IndexTableUtils<10> diskIndexUtils;
+  IndexTableUtilsCore diskIndexUtils;
   std::array<float, 10> tinyHalfExtents{};
   tinyHalfExtents.fill(0.01f);
   diskIndexUtils.setIndexTableParams(IndexTableCoordType::XY, legacy.RowBins, legacy.ColBins, -0.01f, 0.01f, tinyHalfExtents);
@@ -412,7 +412,7 @@ BOOST_AUTO_TEST_CASE(ProjectSearchWindowInvalidBinsLeaveEveryOutputFieldUnchange
   const TrackletSearchWindow<TransitionPolicyTag::DiskDisk> diskSentinel{
     {201, 202, 203, 204}, 205.f, 206.f, 207.f, 208.f, 209.f, 210.f};
   auto diskOut = diskSentinel;
-  BOOST_CHECK(!(projectSearchWindow<TransitionPolicyTag::DiskDisk, 10>(
+  BOOST_CHECK(!(projectSearchWindow<TransitionPolicyTag::DiskDisk>(
     diskMeasurement, diskSource, diskVertex, diskState, Bz, diskIndexUtils, diskParams, diskOut)));
   checkSearchWindowEqual(diskOut, diskSentinel);
 }
@@ -460,14 +460,14 @@ BOOST_AUTO_TEST_CASE(DiskProjectionCoversStraightLineNearZeroDenominatorAndRadia
   const TrackletProjectionState<TransitionPolicyTag::DiskDisk> state{
     fromLayer, toLayer, fromZ, toZ, toZ - fromZ, 2.f, 3.e-3f, 0.04f};
 
-  IndexTableUtils<10> indexUtils;
+  IndexTableUtilsCore indexUtils;
   std::array<float, 10> halfExtents{};
   halfExtents.fill(200.f);
   indexUtils.setIndexTableParams(IndexTableCoordType::XY, legacy.RowBins, legacy.ColBins, -200.f, 200.f, halfExtents);
 
   const auto straightVertex = makeVertex(0.1f, -0.2f, 0.3f, 4.e-4f, 5.e-4f, 0.04f);
   TrackletSearchWindow<TransitionPolicyTag::DiskDisk> straightWindow{};
-  BOOST_REQUIRE((projectSearchWindow<TransitionPolicyTag::DiskDisk, 10>(
+  BOOST_REQUIRE((projectSearchWindow<TransitionPolicyTag::DiskDisk>(
     sourceMeasurement, source, straightVertex, state, 0.f, indexUtils, params, straightWindow)));
   float expectedX = 0.f;
   float expectedY = 0.f;
@@ -479,7 +479,7 @@ BOOST_AUTO_TEST_CASE(DiskProjectionCoversStraightLineNearZeroDenominatorAndRadia
 
   const auto fallbackVertex = makeVertex(0.1f, -0.2f, fromZ, 4.e-4f, 5.e-4f, 0.f);
   TrackletSearchWindow<TransitionPolicyTag::DiskDisk> fallbackWindow{};
-  BOOST_REQUIRE((projectSearchWindow<TransitionPolicyTag::DiskDisk, 10>(
+  BOOST_REQUIRE((projectSearchWindow<TransitionPolicyTag::DiskDisk>(
     sourceMeasurement, source, fallbackVertex, state, 0.f, indexUtils, params, fallbackWindow)));
   expectedX = expectedY = 0.f;
   detail::mftTrackletProject(source.xCoordinate, source.yCoordinate, source.zCoordinate,
@@ -500,7 +500,7 @@ BOOST_AUTO_TEST_CASE(DiskProjectionCoversStraightLineNearZeroDenominatorAndRadia
   const float rawRadialMax = source.radius * (absZTo + zVtxMin) / (absZFrom + zVtxMin);
   BOOST_REQUIRE_GT(rawRadialMin, rawRadialMax);
   TrackletSearchWindow<TransitionPolicyTag::DiskDisk> swapWindow{};
-  BOOST_REQUIRE((projectSearchWindow<TransitionPolicyTag::DiskDisk, 10>(
+  BOOST_REQUIRE((projectSearchWindow<TransitionPolicyTag::DiskDisk>(
     sourceMeasurement, source, swapVertex, state, 0.f, indexUtils, params, swapWindow)));
   expectedX = expectedY = 0.f;
   detail::mftTrackletProject(source.xCoordinate, source.yCoordinate, source.zCoordinate,
@@ -561,7 +561,7 @@ BOOST_AUTO_TEST_CASE(NormalizedMeasurementsRemainAuthoritativeOverPoisonedLocato
   TrackingParameters cylinderParameters;
   cylinderParameters.PVres = 0.f;
   const auto cylinderPolicy = bindTransitionPolicyParams<TransitionPolicyTag::CylinderCylinder>(cylinderParameters);
-  IndexTableUtils<7> cylinderIndex;
+  IndexTableUtilsCore cylinderIndex;
   cylinderIndex.setTrackingParameters(cylinderParameters);
   const auto vertex = makeVertex(0.f, 0.f, 0.f, 1.e-4f, 1.e-4f, 4.e-4f, 4);
   const TrackletProjectionState<TransitionPolicyTag::CylinderCylinder> cylinderState{
@@ -572,7 +572,7 @@ BOOST_AUTO_TEST_CASE(NormalizedMeasurementsRemainAuthoritativeOverPoisonedLocato
   const auto target = makeGlobalCluster(4.f, 0.f, 1.f);
 
   TrackletSearchWindow<TransitionPolicyTag::CylinderCylinder> baseline{};
-  BOOST_REQUIRE((projectSearchWindow<TransitionPolicyTag::CylinderCylinder, 7>(
+  BOOST_REQUIRE((projectSearchWindow<TransitionPolicyTag::CylinderCylinder>(
     sourceMeasurement, source, vertex, cylinderState, Bz, cylinderIndex, cylinderPolicy, baseline)));
   float baselineTanLambda = -1.f;
   BOOST_REQUIRE(baseline.acceptCandidate(sourceMeasurement, source, targetMeasurement, target, baselineTanLambda));
@@ -588,7 +588,7 @@ BOOST_AUTO_TEST_CASE(NormalizedMeasurementsRemainAuthoritativeOverPoisonedLocato
   poisonedTarget.yCoordinate = -555.f;
   poisonedTarget.zCoordinate = 444.f;
   TrackletSearchWindow<TransitionPolicyTag::CylinderCylinder> poisonedWindow{};
-  BOOST_REQUIRE((projectSearchWindow<TransitionPolicyTag::CylinderCylinder, 7>(
+  BOOST_REQUIRE((projectSearchWindow<TransitionPolicyTag::CylinderCylinder>(
     sourceMeasurement, poisonedSource, vertex, cylinderState, Bz, cylinderIndex, cylinderPolicy, poisonedWindow)));
   checkSearchWindowEqual(poisonedWindow, baseline);
   float poisonedTanLambda = -2.f;
@@ -601,13 +601,13 @@ BOOST_AUTO_TEST_CASE(NormalizedMeasurementsRemainAuthoritativeOverPoisonedLocato
   auto poisonedNavigationCache = source;
   poisonedNavigationCache.radius = 4.f;
   TrackletSearchWindow<TransitionPolicyTag::CylinderCylinder> cachePoisonedWindow{};
-  BOOST_REQUIRE((projectSearchWindow<TransitionPolicyTag::CylinderCylinder, 7>(
+  BOOST_REQUIRE((projectSearchWindow<TransitionPolicyTag::CylinderCylinder>(
     sourceMeasurement, poisonedNavigationCache, vertex, cylinderState, Bz, cylinderIndex, cylinderPolicy, cachePoisonedWindow)));
   BOOST_CHECK_NE(cachePoisonedWindow.tanLambda, baseline.tanLambda);
 
   TrackingParameters diskParameters;
   const auto diskPolicy = bindTransitionPolicyParams<TransitionPolicyTag::DiskDisk>(diskParameters);
-  IndexTableUtils<10> diskIndex;
+  IndexTableUtilsCore diskIndex;
   std::array<float, 10> halfExtents{};
   halfExtents.fill(20.f);
   diskIndex.setIndexTableParams(IndexTableCoordType::XY, diskParameters.RowBins, diskParameters.ColBins, -20.f, 20.f, halfExtents);
@@ -617,7 +617,7 @@ BOOST_AUTO_TEST_CASE(NormalizedMeasurementsRemainAuthoritativeOverPoisonedLocato
   auto diskLocator = makeGlobalCluster(1.f, 0.5f, fromZ);
   const TrackletProjectionState<TransitionPolicyTag::DiskDisk> diskState{0, 1, fromZ, toZ, toZ - fromZ, 2.f, 3.e-3f, 0.04f};
   TrackletSearchWindow<TransitionPolicyTag::DiskDisk> diskBaseline{};
-  BOOST_REQUIRE((projectSearchWindow<TransitionPolicyTag::DiskDisk, 10>(
+  BOOST_REQUIRE((projectSearchWindow<TransitionPolicyTag::DiskDisk>(
     diskMeasurement, diskLocator, vertex, diskState, Bz, diskIndex, diskPolicy, diskBaseline)));
   diskLocator.xCoordinate = 123.f;
   diskLocator.yCoordinate = -321.f;
@@ -625,7 +625,7 @@ BOOST_AUTO_TEST_CASE(NormalizedMeasurementsRemainAuthoritativeOverPoisonedLocato
   auto uvPoisoned = diskMeasurement;
   uvPoisoned.covariance.uv = -12345.f;
   TrackletSearchWindow<TransitionPolicyTag::DiskDisk> diskPoisoned{};
-  BOOST_REQUIRE((projectSearchWindow<TransitionPolicyTag::DiskDisk, 10>(
+  BOOST_REQUIRE((projectSearchWindow<TransitionPolicyTag::DiskDisk>(
     uvPoisoned, diskLocator, vertex, diskState, Bz, diskIndex, diskPolicy, diskPoisoned)));
   checkSearchWindowEqual(diskPoisoned, diskBaseline);
 }

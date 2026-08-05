@@ -27,13 +27,6 @@ o2_add_test(mclabelaccumulator
             LABELS "itsmft;tracking"
             PUBLIC_LINK_LIBRARIES O2::ITSMFTTracking)
 
-o2_add_test(trackingtopology
-            SOURCES testTrackingTopology.cxx
-
-            COMPONENT_NAME itsmft-tracking
-            LABELS "itsmft;tracking"
-            PUBLIC_LINK_LIBRARIES O2::ITSMFTTracking)
-
 o2_add_test(surfacelayout
             SOURCES testSurfaceLayout.cxx
             COMPONENT_NAME itsmft-tracking
@@ -366,6 +359,15 @@ o2_add_test(m7b-runtime-count-authority-guard
             COMPONENT_NAME itsmft-tracking
             LABELS "itsmft;tracking"
             PUBLIC_LINK_LIBRARIES O2::ITSMFTTracking)
+
+# Gate 4 M7c: the common production path is sparse-topology/runtime-ROF
+# only; frozen fixed-capacity ROF builders are permitted only at named
+# application-adapter edges.
+o2_add_test(m7c-runtime-topology-rof-guard
+            SOURCES testM7cRuntimeTopologyRofGuard.cxx
+            COMPONENT_NAME itsmft-tracking
+            LABELS "itsmft;tracking"
+            PUBLIC_LINK_LIBRARIES O2::ITSMFTTracking O2::MFTTracking)
 
 o2_add_test(surface-plan-binding-no-detector-dependency
             SOURCES testSurfacePlanBindingNoDetectorDependency.cxx

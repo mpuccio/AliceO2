@@ -37,7 +37,7 @@ using MatCorrType = o2::base::PropagatorF::MatCorrType;
 static_assert(static_cast<uint8_t>(TraversalFailureReason::MissingLayout) == 0);
 static_assert(static_cast<uint8_t>(TraversalFailureReason::StaleLayout) == 1);
 static_assert(static_cast<uint8_t>(TraversalFailureReason::IterationOutOfRange) == 2);
-static_assert(static_cast<uint8_t>(TraversalFailureReason::LegacyIndexMismatch) == 3);
+static_assert(static_cast<uint8_t>(TraversalFailureReason::SparseTopologyMismatch) == 3);
 static_assert(static_cast<uint8_t>(TraversalFailureReason::InvalidTraversalSchedule) == 4);
 static_assert(static_cast<uint8_t>(TraversalFailureReason::MixedPolicyLayout) == 5);
 static_assert(static_cast<uint8_t>(TraversalFailureReason::StateFamilyMismatch) == 6);

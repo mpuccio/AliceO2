@@ -42,6 +42,7 @@
 #include "ITSMFTTracking/TrackingConfigParam.h"
 #include "ITStracking/Constants.h"
 #include "ITStracking/MathUtils.h"
+#include "ITStracking/ROFLookupTables.h"
 #include "ITStracking/Tracklet.h"
 #include "MFTTracking/Constants.h"
 #include "CommonConstants/MathConstants.h"
@@ -176,7 +177,7 @@ struct TrackletSnapshot {
 /// of this slice).
 template <int NLayers>
 void computeLegacyTransitionMSAndPhiCut(const TrackingParameters& trkParam, float bz, bool isDisk,
-                                        const typename TrackingTopology<NLayers>::View& topology,
+                                        const SparseTrackingTopologyView& topology,
                                         gsl::span<const float> positionResolution,
                                         std::vector<float>& msAnglesOut, std::vector<float>& phiCutsOut)
 {
@@ -190,21 +191,23 @@ void computeLegacyTransitionMSAndPhiCut(const TrackingParameters& trkParam, floa
   phiCutsOut.assign(topology.nTransitions, 0.f);
   float oneOverR{0.001f * 0.3f * std::abs(bz) / trkParam.TrackletMinPt};
   for (int transitionId{0}; transitionId < static_cast<int>(topology.nTransitions); ++transitionId) {
-    const auto& transition = topology.getTransition(transitionId);
+    const auto& transition = topology.getTransition(TransitionId{static_cast<uint16_t>(transitionId)});
+    const int from = transition.from.value();
+    const int to = transition.to.value();
     float ms2 = 0.f;
-    for (int layer = transition.fromLayer; layer < transition.toLayer; ++layer) {
+    for (int layer = from; layer < to; ++layer) {
       ms2 += o2::its::math_utils::Sq(msAngles[layer]);
     }
     const float msAngle = o2::gpu::CAMath::Sqrt(ms2);
-    const float r1 = trkParam.LayerRadii[transition.fromLayer];
-    const float r2 = trkParam.LayerRadii[transition.toLayer];
+    const float r1 = trkParam.LayerRadii[from];
+    const float r2 = trkParam.LayerRadii[to];
     if (isDisk) {
       oneOverR = (0.5f * oneOverR >= 1.f / r2) ? (2.f / r2) - o2::constants::math::Almost0 : oneOverR;
     } else {
       oneOverR = (0.5 * oneOverR >= 1.f / r2) ? (2.f / r2) - o2::constants::math::Almost0 : oneOverR;
     }
-    const float res1 = o2::gpu::CAMath::Hypot(trkParam.PVres, positionResolution[transition.fromLayer]);
-    const float res2 = o2::gpu::CAMath::Hypot(trkParam.PVres, positionResolution[transition.toLayer]);
+    const float res1 = o2::gpu::CAMath::Hypot(trkParam.PVres, positionResolution[from]);
+    const float res2 = o2::gpu::CAMath::Hypot(trkParam.PVres, positionResolution[to]);
     const float cosTheta1half = o2::gpu::CAMath::Sqrt(1.f - o2::its::math_utils::Sq(0.5f * r1 * oneOverR));
     const float cosTheta2half = o2::gpu::CAMath::Sqrt(1.f - o2::its::math_utils::Sq(0.5f * r2 * oneOverR));
     const float x = (r2 * cosTheta1half) - (r1 * cosTheta2half);
@@ -258,7 +261,6 @@ TrackletSnapshot runFixture(o2::detectors::DetID::ID detector,
   const auto plan = std::move(*planResult.layout);
   const auto layoutView = plan.getLayoutView(0);
   tf.adoptPlan(orderedSurfaces.size(), layoutView.topology.nTransitions, layoutView.topology.nCells);
-  tf.initTrackerTopologies<NLayers>(params);
 
   std::vector<CompClusterExt> compactClusters;
   std::vector<unsigned char> patterns;
@@ -283,7 +285,6 @@ TrackletSnapshot runFixture(o2::detectors::DetID::ID detector,
     rofTable.defineLayer(layer, layerTiming);
   }
   rofTable.init();
-  tf.setROFOverlapTable(rofTable);
   // Real production (ITSMFTTrackingInterface::configureROFLookupTables())
   // always builds and sets this alongside the ROFOverlapTable above, from
   // the same per-layer LayerTiming, regardless of UseDiamond -- the diamond
@@ -295,13 +296,12 @@ TrackletSnapshot runFixture(o2::detectors::DetID::ID detector,
     vtxTable.defineLayer(layer, layerTiming);
   }
   vtxTable.init();
-  tf.setROFVertexLookupTable(vtxTable);
   o2::its::ROFMaskTable<NLayers> mask{rofTable};
   mask.resetMask();
   for (int layer = 0; layer < NLayers; ++layer) {
     mask.setROFsEnabled(layer, 0, 1, 1);
   }
-  tf.setMultiplicityCutMask(std::move(mask));
+  tf.setROFViews(RuntimeROFViews{rofTable.getView(), vtxTable.getView(), mask.getView(), {}});
 
   traits.initialiseTimeFrame(0, plan);
   BOOST_CHECK_EQUAL(traits.getTraversalGroupingCount(), 1);
@@ -316,7 +316,7 @@ TrackletSnapshot runFixture(o2::detectors::DetID::ID detector,
   // common CylinderCylinder path, since no real-geometry common-CA ITS
   // replay exists yet.
   {
-    const auto preparedTopology = tf.getTrackingTopologyView<NLayers>();
+    const auto preparedTopology = layoutView.topology;
     const auto& msAngles = tf.getTransitionMSAngles();
     const auto& phiCuts = tf.getTransitionPhiCuts();
     BOOST_REQUIRE_EQUAL(msAngles.size(), static_cast<size_t>(preparedTopology.nTransitions));
@@ -343,11 +343,11 @@ TrackletSnapshot runFixture(o2::detectors::DetID::ID detector,
     }
   }
 
-  const auto topology = tf.getTrackingTopologyView<NLayers>();
+  const auto topology = layoutView.topology;
   int transitionId = -1;
   for (int id = 0; id < topology.nTransitions; ++id) {
-    const auto& transition = topology.getTransition(id);
-    if (transition.fromLayer == 0 && transition.toLayer == 1) {
+    const auto& transition = topology.getTransition(TransitionId{static_cast<uint16_t>(id)});
+    if (transition.from.value() == 0 && transition.to.value() == 1) {
       transitionId = id;
       break;
     }
@@ -363,7 +363,7 @@ TrackletSnapshot runFixture(o2::detectors::DetID::ID detector,
 
   TrackletSnapshot result;
   result.transitionId = transitionId;
-  result.expectedTimestamp = tf.getROFOverlapTableView<NLayers>().getTimeStamp(0, 0, 1, 0);
+  result.expectedTimestamp = tf.getROFOverlapView().getTimeStamp(0, 0, 1, 0);
   const auto& tracklets = tf.getTracklets()[transitionId];
   result.tracklets.assign(tracklets.begin(), tracklets.end());
   const auto& lookup = tf.getTrackletsLookupTable()[transitionId];
@@ -380,9 +380,9 @@ TrackletSnapshot runFixture(o2::detectors::DetID::ID detector,
   // transitionId order, for multi-transition candidate-set/order/LUT parity
   // checks (see e.g. ItsIdentityLayoutTrackletsSpanMultipleAdjacentTransitionsInOrder).
   for (int id = 0; id < topology.nTransitions; ++id) {
-    const auto& transition = topology.getTransition(id);
-    result.allTransitionFromLayer.push_back(transition.fromLayer);
-    result.allTransitionToLayer.push_back(transition.toLayer);
+    const auto& transition = topology.getTransition(TransitionId{static_cast<uint16_t>(id)});
+    result.allTransitionFromLayer.push_back(transition.from.value());
+    result.allTransitionToLayer.push_back(transition.to.value());
     const auto& idTracklets = tf.getTracklets()[id];
     result.allTracklets.emplace_back(idTracklets.begin(), idTracklets.end());
     const auto& idLookup = tf.getTrackletsLookupTable()[id];
@@ -621,7 +621,6 @@ BOOST_AUTO_TEST_CASE(InitialiseTimeFrameFailureLeavesTransitionArraysZeroFilledN
   const auto plan = std::move(*planResult.layout);
   const auto layoutView = plan.getLayoutView(0);
   tf.adoptPlan(orderedSurfaces.size(), layoutView.topology.nTransitions, layoutView.topology.nCells);
-  tf.initTrackerTopologies<ITSNLayers>(params);
 
   // Same minimal cluster/ROF/mask setup as runFixture(): TimeFrame::initialise()
   // (called unconditionally, before any of this test's induced failure) needs
@@ -651,19 +650,23 @@ BOOST_AUTO_TEST_CASE(InitialiseTimeFrameFailureLeavesTransitionArraysZeroFilledN
     rofTable.defineLayer(layer, layerTiming);
   }
   rofTable.init();
-  tf.setROFOverlapTable(rofTable);
+  o2::its::ROFVertexLookupTable<ITSNLayers> vtxTable;
+  for (int layer = 0; layer < ITSNLayers; ++layer) {
+    vtxTable.defineLayer(layer, layerTiming);
+  }
+  vtxTable.init();
   o2::its::ROFMaskTable<ITSNLayers> mask{rofTable};
   mask.resetMask();
   for (int layer = 0; layer < ITSNLayers; ++layer) {
     mask.setROFsEnabled(layer, 0, 1, 1);
   }
-  tf.setMultiplicityCutMask(std::move(mask));
+  tf.setROFViews(RuntimeROFViews{rofTable.getView(), vtxTable.getView(), mask.getView(), {}});
 
   BOOST_CHECK_EXCEPTION(traits.initialiseTimeFrame(0, plan), TraversalException, [](const TraversalException& error) {
     return error.getReason() == TraversalFailureReason::InvalidPolicyParameters;
   });
 
-  const auto topology = tf.getTrackingTopologyView<ITSNLayers>();
+  const auto topology = layoutView.topology;
   const auto& msAngles = tf.getTransitionMSAngles();
   const auto& phiCuts = tf.getTransitionPhiCuts();
   BOOST_REQUIRE_EQUAL(msAngles.size(), static_cast<size_t>(topology.nTransitions));

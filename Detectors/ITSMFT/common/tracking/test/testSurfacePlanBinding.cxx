@@ -22,7 +22,6 @@
 #include "ITSMFTTracking/StaticDetectorCatalogs.h"
 #include "ITSMFTTracking/Cell.h"
 #include "ITSMFTTracking/SurfaceTrackingScratch.h"
-#include "ITSMFTTracking/TrackingTopology.h"
 #include "ITSMFTTracking/detail/SurfacePlanBinding.h"
 
 namespace

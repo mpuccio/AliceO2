@@ -40,6 +40,7 @@
 #include "ITSMFTTracking/TimeFrame.h"
 #include "ITSMFTTracking/TrackerTraits.h"
 #include "ITStracking/Constants.h"
+#include "ITStracking/ROFLookupTables.h"
 
 using namespace o2::itsmft;
 using namespace o2::itsmft::tracking;
@@ -230,8 +231,8 @@ struct Rig {
     auto result = buildDetectorLayoutSet(catalogView, orderedSurfaces, parameters);
     BOOST_REQUIRE(result.ok());
     plan.emplace(std::move(*result.layout));
-    tf.adoptPlan(plan->getConfigurationKey().orderedSurfaces.size(), 0, 0);
-    tf.initTrackerTopologies<NLayers>(parameters);
+    const auto layoutView = plan->getLayoutView(0);
+    tf.adoptPlan(plan->getConfigurationKey().orderedSurfaces.size(), layoutView.topology.nTransitions, layoutView.topology.nCells);
   }
 
   void load(bool applySysErrors)
@@ -250,19 +251,23 @@ struct Rig {
     o2::its::LayerTiming timing{};
     timing.mNROFsTF = 1;
     timing.mROFLength = 40;
-    o2::its::ROFOverlapTable<NLayers> rofTable;
+    rofTable.emplace();
     for (int layer = 0; layer < NLayers; ++layer) {
-      rofTable.defineLayer(layer, timing);
+      rofTable->defineLayer(layer, timing);
     }
-    rofTable.init();
-    tf.setROFOverlapTable(rofTable);
+    rofTable->init();
+    vertexTable.emplace();
+    for (int layer = 0; layer < NLayers; ++layer) {
+      vertexTable->defineLayer(layer, timing);
+    }
+    vertexTable->init();
 
-    o2::its::ROFMaskTable<NLayers> mask{rofTable};
-    mask.resetMask();
+    mask.emplace(*rofTable);
+    mask->resetMask();
     for (int layer = 0; layer < NLayers; ++layer) {
-      mask.setROFsEnabled(layer, 0, 1, 1);
+      mask->setROFsEnabled(layer, 0, 1, 1);
     }
-    tf.setMultiplicityCutMask(std::move(mask));
+    tf.setROFViews(RuntimeROFViews{rofTable->getView(), vertexTable->getView(), mask->getView(), {}});
   }
 
   o2::detectors::DetID::ID detector;
@@ -274,6 +279,11 @@ struct Rig {
   TimeFrame frame;
   SurfaceTrackingScratch tf;
   TrackerTraits<NLayers> traits;
+  // Scratch carries non-owning runtime ROF views. Keep these adapter-edge
+  // builders alive for every subsequent tracking call.
+  std::optional<o2::its::ROFOverlapTable<NLayers>> rofTable;
+  std::optional<o2::its::ROFVertexLookupTable<NLayers>> vertexTable;
+  std::optional<o2::its::ROFMaskTable<NLayers>> mask;
   // Must outlive `plan` (DetectorLayoutSet borrows a SurfaceCatalogView into
   // it, Gate 4 B2 Slice 2) -- declared before `plan` so it is constructed
   // first and destroyed last.

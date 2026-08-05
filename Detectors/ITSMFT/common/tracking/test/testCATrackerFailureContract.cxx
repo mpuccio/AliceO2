@@ -100,6 +100,7 @@
 #include "ITSMFTTracking/TrackerTraits.h"
 #include "ITSMFTTracking/TrackingConfigParam.h"
 #include "ITStracking/Constants.h"
+#include "ITStracking/ROFLookupTables.h"
 #include "SimulationDataFormat/MCCompLabel.h"
 #include "SimulationDataFormat/MCTruthContainer.h"
 
@@ -386,6 +387,11 @@ struct RigT {
   TraitsT traits;
   Tracker<ITSNLayers> tracker;
   ITSSharedClusterCompatibility sidecar;
+  // Scratch carries non-owning runtime ROF views. Keep these adapter-edge
+  // builders alive across load, initialise, and failure/replacement calls.
+  std::optional<o2::its::ROFOverlapTable<ITSNLayers>> rofTable;
+  std::optional<o2::its::ROFVertexLookupTable<ITSNLayers>> vertexTable;
+  std::optional<o2::its::ROFMaskTable<ITSNLayers>> mask;
   std::shared_ptr<tbb::task_arena> arena;
   // Must outlive `plan` (DetectorLayoutSet borrows a SurfaceCatalogView into
   // it, Gate 4 B2 Slice 2) -- declared before `plan` so it is constructed
@@ -406,8 +412,8 @@ struct RigT {
     BOOST_REQUIRE(result.ok());
     plan.emplace(std::move(*result.layout));
     tracker.adoptDetectorLayoutSet(*plan);
-    tf.adoptPlan(plan->getConfigurationKey().orderedSurfaces.size(), 0, 0);
-    tf.initTrackerTopologies<ITSNLayers>(params);
+    const auto layoutView = plan->getLayoutView(0);
+    tf.adoptPlan(plan->getConfigurationKey().orderedSurfaces.size(), layoutView.topology.nTransitions, layoutView.topology.nCells);
   }
 
   // Loads clusters (or, with an empty Fixture, zero clusters -- still a
@@ -448,19 +454,23 @@ struct RigT {
     o2::its::LayerTiming timing2{};
     timing2.mNROFsTF = static_cast<unsigned int>(f.rofs.size());
     timing2.mROFLength = 40;
-    o2::its::ROFOverlapTable<ITSNLayers> rofTable;
+    rofTable.emplace();
     for (int iLayer = 0; iLayer < ITSNLayers; ++iLayer) {
-      rofTable.defineLayer(iLayer, timing2);
+      rofTable->defineLayer(iLayer, timing2);
     }
-    rofTable.init();
-    tf.setROFOverlapTable(rofTable);
+    rofTable->init();
+    vertexTable.emplace();
+    for (int iLayer = 0; iLayer < ITSNLayers; ++iLayer) {
+      vertexTable->defineLayer(iLayer, timing2);
+    }
+    vertexTable->init();
 
-    o2::its::ROFMaskTable<ITSNLayers> mask{rofTable};
-    mask.resetMask();
+    mask.emplace(*rofTable);
+    mask->resetMask();
     for (int iLayer = 0; iLayer < ITSNLayers; ++iLayer) {
-      mask.setROFsEnabled(iLayer, 0, timing2.mNROFsTF, 1);
+      mask->setROFsEnabled(iLayer, 0, timing2.mNROFsTF, 1);
     }
-    tf.setMultiplicityCutMask(std::move(mask));
+    tf.setROFViews(RuntimeROFViews{rofTable->getView(), vertexTable->getView(), mask->getView(), {}});
   }
 
   // Tracker<N>::clustersToTracks() calls mMemoryPool->setMaxMemory(params[0].
