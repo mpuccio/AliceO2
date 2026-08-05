@@ -40,6 +40,8 @@
 namespace o2::itsmft::tracking
 {
 
+class SurfaceTrackingScratch;
+
 // Full definition lives in TransitionPolicyOperations.h (included by
 // TrackerTraits.cxx, where the operation itself is called). Only used here
 // by const reference in a private method declaration, so a forward
@@ -207,6 +209,13 @@ class TrackerTraits
 
   void acceptTracks(int iteration, bounded_vector<CATrackType<NLayers>>& tracks, bounded_vector<bounded_vector<int>>& firstClusters);
   void markTracks(int iteration);
+
+  // The Surface path keeps accepted tracks only until ITS shared-cluster
+  // compatibility is sealed. This is not publication staging: writers read
+  // TimeFrame CommonTrack data exclusively. Legacy scratch users retain
+  // their existing Group-C members until M6f.
+  bounded_vector<CATrackType<NLayers>>& acceptedTracksForSharedStatus();
+  void clearAcceptedTracksForSharedStatus();
 
   void updateTrackingParameters(const std::vector<TrackingParameters>& trkPars) { mTrkParams = trkPars; }
   ScratchN* getScratch() { return mScratch; }
@@ -480,6 +489,7 @@ class TrackerTraits
   // A template-specialized serial accepted-track hook. Its ITS instantiation
   // is empty and has no MFT compatibility allocation or lookup.
   AcceptedTrackShadowPublisher<NLayers> mAcceptedTrackShadowPublisher;
+  bounded_vector<CATrackType<NLayers>> mAcceptedTracksForSharedStatus;
   // Gate 4 C2 Slice 1: optional, bind-once, non-owning (see
   // adoptDetectorTraversalBinding() above). nullptr for every existing
   // Gate 3 production/test caller.

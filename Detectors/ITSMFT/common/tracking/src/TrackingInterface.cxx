@@ -452,8 +452,14 @@ float ITSMFTTrackingInterface<NLayers, ScratchT, BindingT>::runTracking()
     LOGP(warn, "{} CA tracking failed for this TF", detName<DetId>());
     return kDroppedTimeFrameResult;
   }
-  LOGP(info, "{} CA tracking produced {} tracks in {:.2f} ms",
-       detName<DetId>(), scratchNumberOfTracks<NLayers>(mScratch), result.elapsedMs);
+  const auto nTracks = [&] {
+    if constexpr (std::is_same_v<ScratchT, SurfaceTrackingScratch>) {
+      return mFrame.getCommonTracks().size();
+    } else {
+      return scratchNumberOfTracks<NLayers>(mScratch);
+    }
+  }();
+  LOGP(info, "{} CA tracking produced {} tracks in {:.2f} ms", detName<DetId>(), nTracks, result.elapsedMs);
   return result.elapsedMs;
 }
 

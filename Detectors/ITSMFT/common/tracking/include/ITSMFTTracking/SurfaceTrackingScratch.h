@@ -507,60 +507,12 @@ class SurfaceTrackingScratch
   auto& getCellsNeighbours() { return mCellsNeighbours; }
   auto& getCellsNeighboursTopology() { return mCellsNeighboursTopology; }
   auto& getCellsNeighboursLUT() { return mCellsNeighboursLUT; }
-  // ---- Group C (M6d, dual-typed since M6e2): legacy per-detector result
-  // staging. Still the sole production source of detector-typed output
-  // today (M6a Group C classification -- CommonTrack is already populated
-  // in parallel via AcceptedTrackShadowPublisher, but the legacy-typed copy
-  // here is not retired until M6e). CATrackType<NLayers> is genuinely
-  // detector-output-typed (TrackITSExt for ITS, MFTCATrack for MFT via
-  // MFTCATrack.h's own CATrackTypeHelper<MFTNLayers> specialization) -- a
-  // single SurfaceTrackingScratch member cannot hold both at once, so this
-  // type stores both (one always empty per instance -- an empty
-  // bounded_vector is a few bytes, not a real cost) and selects between them
-  // at compile time via the NLayers template argument below. This is
-  // deliberately a *template* accessor (compile-time selection, never
-  // virtual/type-erased), which is why the temporary M6d ScratchT seam's own
-  // handful of Group-C call sites in CATracker.cxx/TrackerTraits.cxx need a
-  // narrow if-constexpr on ScratchN's identity (LegacyTrackerScratch<NLayers>
-  // ::getTracks() is, and must remain, a plain non-template method, so the
-  // same call-site text cannot address both scratch types) -- see those
-  // files' own doc comments at each such site. ----
-  template <int NLayers>
-  o2::its::bounded_vector<CATrackType<NLayers>>& getTracks() noexcept
-  {
-    static_assert(NLayers == ITSNLayers || NLayers == MFTNLayers, "SurfaceTrackingScratch::getTracks<NLayers>() supports ITS (7) and MFT (10) only");
-    if constexpr (NLayers == ITSNLayers) {
-      return mTracksITS;
-    } else {
-      return mTracksMFT;
-    }
-  }
-  template <int NLayers>
-  const o2::its::bounded_vector<CATrackType<NLayers>>& getTracks() const noexcept
-  {
-    static_assert(NLayers == ITSNLayers || NLayers == MFTNLayers, "SurfaceTrackingScratch::getTracks<NLayers>() supports ITS (7) and MFT (10) only");
-    if constexpr (NLayers == ITSNLayers) {
-      return mTracksITS;
-    } else {
-      return mTracksMFT;
-    }
-  }
-  // MCCompLabel is detector-neutral (both CATrackType<7> and CATrackType<10>
-  // pair with the same plain o2::MCCompLabel) -- one shared label vector
-  // suffices, no dual storage needed here.
-  auto& getTracksLabel() { return mTracksLabel; }
-  const auto& getTracksLabel() const { return mTracksLabel; }
   auto& getLinesLabel(const int rofId) { return mLinesLabels[rofId]; }
 
   size_t getNumberOfClusters() const;
   size_t getNumberOfCells() const;
   size_t getNumberOfTracklets() const;
   size_t getNumberOfNeighbours() const;
-  template <int NLayers>
-  size_t getNumberOfTracks() const noexcept
-  {
-    return getTracks<NLayers>().size();
-  }
   size_t getNumberOfUsedClusters() const;
 
   int hasBogusClusters() const { return std::accumulate(mBogusClusters.begin(), mBogusClusters.end(), 0); }
@@ -626,17 +578,6 @@ class SurfaceTrackingScratch
   o2::itsmft::tracking::TrackingTopology<ITSNLayers> mVertexingTopologyITS;
   o2::itsmft::tracking::TrackingTopology<MFTNLayers> mDefaultTrackingTopologyMFT;
   o2::itsmft::tracking::TrackingTopology<MFTNLayers> mVertexingTopologyMFT;
-
-  // ---- Group C (M6d, dual-typed since M6e2): legacy per-detector result
-  // staging. See getTracks<NLayers>()'s own doc above for why this is two
-  // separately-typed members (CATrackType<7>=TrackITSExt,
-  // CATrackType<10>=MFTCATrack) instead of one -- exactly one of the two is
-  // ever populated per SurfaceTrackingScratch instance (each participant
-  // owns its own instance, for exactly one detector), the other stays
-  // permanently empty (a few bytes, not a real cost). ----
-  o2::its::bounded_vector<CATrackType<ITSNLayers>> mTracksITS;
-  o2::its::bounded_vector<CATrackType<MFTNLayers>> mTracksMFT;
-  o2::its::bounded_vector<o2::MCCompLabel> mTracksLabel;
 
   // ---- Group D: vertexer working scratch ----
   // Never actually NLayers-sized in LegacyTrackerScratch<NLayers> either
@@ -773,21 +714,13 @@ inline void resetTimeFrameEvent(TimeFrame& frame, SurfaceTrackingScratch& scratc
 template <int NLayers, typename ScratchT>
 inline auto& scratchTracks(ScratchT& scratch) noexcept
 {
-  if constexpr (std::is_same_v<ScratchT, SurfaceTrackingScratch>) {
-    return scratch.template getTracks<NLayers>();
-  } else {
-    return scratch.getTracks();
-  }
+  return scratch.getTracks();
 }
 
 template <int NLayers, typename ScratchT>
 inline std::size_t scratchNumberOfTracks(const ScratchT& scratch) noexcept
 {
-  if constexpr (std::is_same_v<ScratchT, SurfaceTrackingScratch>) {
-    return scratch.template getNumberOfTracks<NLayers>();
-  } else {
-    return scratch.getNumberOfTracks();
-  }
+  return scratch.getNumberOfTracks();
 }
 
 // M6e2: the same shim, extended to the newly dual-typed ROF-overlap/

@@ -151,7 +151,7 @@ gsl::span<const SurfaceId> LegacyCATrackingParticipant<NLayers, ScratchT, Bindin
 }
 
 template <int NLayers, typename ScratchT, typename BindingT>
-ParticipantTrackingResult LegacyCATrackingParticipant<NLayers, ScratchT, BindingT>::track(TimeFrame&)
+ParticipantTrackingResult LegacyCATrackingParticipant<NLayers, ScratchT, BindingT>::track(TimeFrame& frame)
 {
   // clustersToTracks() itself only ever *returns* Success or
   // RecoverableDropped (CATracker.h); Structural always escapes as a thrown
@@ -164,7 +164,11 @@ ParticipantTrackingResult LegacyCATrackingParticipant<NLayers, ScratchT, Binding
     return {ParticipantOutcome::RecoverableDropped, 0};
   }
   mTracked = true;
-  return {ParticipantOutcome::Success, scratchNumberOfTracks<NLayers>(mScratch)};
+  if constexpr (std::is_same_v<ScratchT, SurfaceTrackingScratch>) {
+    return {ParticipantOutcome::Success, frame.getCommonTracks().size()};
+  } else {
+    return {ParticipantOutcome::Success, scratchNumberOfTracks<NLayers>(mScratch)};
+  }
 }
 
 template <int NLayers, typename ScratchT, typename BindingT>

@@ -162,17 +162,22 @@ TrackingResult Tracker<NLayers, ScratchT, BindingT>::clustersToTracks()
     throw;
   }
 
-  if (mScratch->hasMCinformation()) {
-    computeTracksMClabels<NLayers>(*mScratch);
+  if constexpr (!std::is_same_v<ScratchT, SurfaceTrackingScratch>) {
+    if (mScratch->hasMCinformation()) {
+      computeTracksMClabels<NLayers>(*mScratch);
+    }
+    rectifyClusterIndices();
+    sortTracks();
   }
-  rectifyClusterIndices();
-  sortTracks();
   return TrackingResult{TrackingOutcome::Success, total};
 }
 
 template <int NLayers, typename ScratchT, typename BindingT>
 void Tracker<NLayers, ScratchT, BindingT>::rectifyClusterIndices()
 {
+  if constexpr (std::is_same_v<ScratchT, SurfaceTrackingScratch>) {
+    return;
+  } else {
   for (auto& track : scratchTracks<NLayers>(*mScratch)) {
     for (int iCluster = 0; iCluster < CATrackType<NLayers>::MaxClusters; ++iCluster) {
       const int index = track.getClusterIndex(iCluster);
@@ -193,11 +198,15 @@ void Tracker<NLayers, ScratchT, BindingT>::rectifyClusterIndices()
       track.setExternalClusterIndex(iCluster, mScratch->getClusterExternalIndex(iCluster, index));
     }
   }
+  }
 }
 
 template <int NLayers, typename ScratchT, typename BindingT>
 void Tracker<NLayers, ScratchT, BindingT>::sortTracks()
 {
+  if constexpr (std::is_same_v<ScratchT, SurfaceTrackingScratch>) {
+    return;
+  } else {
   auto& tracks = scratchTracks<NLayers>(*mScratch);
   bounded_vector<size_t> indices(tracks.size(), mMemoryPool.get());
   std::iota(indices.begin(), indices.end(), 0);
@@ -227,6 +236,7 @@ void Tracker<NLayers, ScratchT, BindingT>::sortTracks()
       sortedLabels.push_back(trackLabels[idx]);
     }
     trackLabels.swap(sortedLabels);
+  }
   }
 }
 

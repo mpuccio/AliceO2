@@ -520,6 +520,9 @@ void TrackerTraits<NLayers, ScratchT, BindingT>::initialiseTimeFrame(const int i
     throw TraversalException{iteration, TraversalFailureReason::IterationOutOfRange};
   }
   const auto layout = layouts.getLayoutView(iteration);
+  if (mTrkParams[iteration].PassFlags[IterationStep::FirstPass]) {
+    clearAcceptedTracksForSharedStatus();
+  }
 
   // 2. Grouping + single active tag, resolved from `layout` alone -- no
   // dependency on TimeFrame::initialise() having run, since neither
@@ -1984,7 +1987,7 @@ void TrackerTraits<NLayers, ScratchT, BindingT>::findRoadsForPolicy(const int it
 template <int NLayers, typename ScratchT, typename BindingT>
 void TrackerTraits<NLayers, ScratchT, BindingT>::acceptTracks(int iteration, bounded_vector<CATrackType<NLayers>>& tracks, bounded_vector<bounded_vector<int>>& firstClusters)
 {
-  auto& trks = scratchTracks<NLayers>(*mScratch);
+  auto& trks = acceptedTracksForSharedStatus();
   trks.reserve(trks.size() + tracks.size());
   const float smallestROFHalf = scratchROFOverlapTableView<NLayers>(*mScratch).getClockLayer().mROFLength * 0.5f;
   for (auto& track : tracks) {
@@ -2068,7 +2071,7 @@ void TrackerTraits<NLayers, ScratchT, BindingT>::markTracks(int iteration)
 {
   if (mTrkParams[iteration].AllowSharingFirstCluster) {
     /// Now we have to set the shared cluster flag
-    auto& tracks = scratchTracks<NLayers>(*mScratch);
+    auto& tracks = acceptedTracksForSharedStatus();
 
     bounded_vector<int> fclusSort(tracks.size(), mMemoryPool.get());
     std::iota(fclusSort.begin(), fclusSort.end(), 0);
@@ -2116,9 +2119,27 @@ void TrackerTraits<NLayers, ScratchT, BindingT>::markTracks(int iteration)
   // this final serial marking boundary.
   if constexpr (DetectorTraits<NLayers>::DetId == o2::detectors::DetID::ITS) {
     if (iteration + 1 == static_cast<int>(mTrkParams.size()) &&
-        !mAcceptedTrackShadowPublisher.sealITSSharedClusterCompatibility(scratchTracks<NLayers>(*mScratch))) {
+        !mAcceptedTrackShadowPublisher.sealITSSharedClusterCompatibility(acceptedTracksForSharedStatus())) {
       throw std::runtime_error{"failed to seal ITS shared-cluster compatibility"};
     }
+  }
+}
+
+template <int NLayers, typename ScratchT, typename BindingT>
+bounded_vector<CATrackType<NLayers>>& TrackerTraits<NLayers, ScratchT, BindingT>::acceptedTracksForSharedStatus()
+{
+  if constexpr (std::is_same_v<ScratchT, SurfaceTrackingScratch>) {
+    return mAcceptedTracksForSharedStatus;
+  } else {
+    return mScratch->getTracks();
+  }
+}
+
+template <int NLayers, typename ScratchT, typename BindingT>
+void TrackerTraits<NLayers, ScratchT, BindingT>::clearAcceptedTracksForSharedStatus()
+{
+  if constexpr (std::is_same_v<ScratchT, SurfaceTrackingScratch>) {
+    deepVectorClear(mAcceptedTracksForSharedStatus, mMemoryPool.get());
   }
 }
 

@@ -78,13 +78,6 @@ void SurfaceTrackingScratch::adoptPlan(std::size_t nOwnedSurfaces, std::size_t n
 
 void SurfaceTrackingScratch::reset()
 {
-  // Group C (M6d, dual-typed since M6e2) -- mirrors resetScratch()'s own
-  // deepVectorClear(mTracks); applied to both ITS/MFT members unconditionally
-  // (the unused one for this instance is already empty, so this is a no-op
-  // on it, not a behavior change).
-  deepVectorClear(mTracksITS);
-  deepVectorClear(mTracksMFT);
-
   // Group B.
   deepVectorClear(mTracklets);
   deepVectorClear(mTrackletsLookupTable);
@@ -133,7 +126,6 @@ void SurfaceTrackingScratch::reset()
     deepVectorClear(mLinesLabels);
     deepVectorClear(mTrackletLabels);
     deepVectorClear(mCellLabels);
-    deepVectorClear(mTracksLabel);
   }
 
   // mClusterLabels holds non-owning pointers into caller-supplied MC label
@@ -169,8 +161,6 @@ void SurfaceTrackingScratch::setMemoryPool(std::shared_ptr<o2::its::BoundedMemor
   initVector(mPValphaX);
   initVector(mBogusClusters);
   initContainers(mTrackletsIndexROF);
-  initVector(mTracksITS);
-  initVector(mTracksMFT);
   initContainers(mTracklets);
   initContainers(mCells);
   initContainers(mCellsNeighbours);
@@ -179,7 +169,6 @@ void SurfaceTrackingScratch::setMemoryPool(std::shared_ptr<o2::its::BoundedMemor
   initContainers(mLinesLabels);
   initContainers(mTrackletLabels);
   initContainers(mCellLabels);
-  initVector(mTracksLabel);
   // May use an externally provided allocator.
   initContainers(mClusters, hasFrameworkAllocator());
   initContainers(mUsedClusters, hasFrameworkAllocator());
@@ -684,9 +673,6 @@ void SurfaceTrackingScratch::initialise(const TimeFrame& frame, const TrackingPa
   }
 
   if (trkParam.PassFlags[IterationStep::FirstPass]) {
-    deepVectorClear(mTracksITS);
-    deepVectorClear(mTracksMFT);
-    deepVectorClear(mTracksLabel);
     deepVectorClear(mLines);
     deepVectorClear(mLinesLabels);
     clearResizeBoundedVector(mLinesLabels, getNrof(1), mMemoryPool.get());
