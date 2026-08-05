@@ -4,6 +4,7 @@ Status: Living plan
 Decision anchor: [ADR 0007](decisions/0007-generic-tracking-engine-boundary.md)
 Architecture: [Architecture.md](Architecture.md)
 Status/decision log: [AgentCoordination.md](AgentCoordination.md)
+M7a design/audit: [runtime-plan Tracker/TrackerTraits migration](design/0003-m7-runtime-plan-tracker-migration.md)
 
 This plan turns the accepted Gate 4 implementation into the ADR 0007 end
 state: one concrete `TrackingEngine::executeEvent()` over ordered
@@ -305,6 +306,29 @@ as do output sidecars and workflow-owned timing/publication state. No raw-ROF
 workflow ownership or compatibility state was removed. `nvcc` and `hipcc` were
 absent from the pinned environment, so no device build or GPU replay was claimed.
 
+### M7a — runtime-plan `Tracker`/`TrackerTraits` design and ownership audit
+
+**Status: closed as a documentation-only slice (2026-08-05).** The complete
+remaining `NLayers` audit, ownership classification, runtime-plan contract,
+cylinder/disk operation boundary, staged implementation plan, and ranked
+deletion inventory are in [design note 0003](design/0003-m7-runtime-plan-tracker-migration.md).
+
+The design selects the existing `DetectorLayoutSet`/`DetectorLayoutView`,
+`SurfacePlanBinding`, and `SurfaceTrackingScratch` composition as the runtime
+plan. It introduces no wrapper around `Tracker<NLayers>` and no new dispatch
+taxonomy. The first implementation proof is the deletion of the
+`Tracker<NLayers>`/`TrackerTraits<NLayers>` declarations, their 7/10 core
+instantiations, and the `CATracker` aliases; adapter-only templates may remain
+temporarily under their stated exit criteria.
+
+M7a changed documentation only. It did not run replay, CTest, or a device
+build. The next bounded implementation slice is M7b: make the existing plan
+and workspace counts the only common-core loop/capacity authority, with the
+full R replay/dependency gate specified in design note 0003. Frozen
+`Detectors/ITSMFT/ITS/tracking` code remains outside the narrow common-CA
+guard, and no production `ITSMFTLegacyParticipantSet` exemption is carried
+forward from M6g.
+
 ## Not safe to delete yet
 
 | Artifact | Why it must stay | Removal gate |
@@ -315,7 +339,7 @@ absent from the pinned environment, so no device build or GPU replay was claimed
 | `TransitionPolicyTag` machinery (dispatch, grouping, templated operations) | Only existing hot-loop implementation of the CA stages | contained at M4, replaced by M5 implementation |
 | Policy/legacy compatibility code (`kDroppedTimeFrameResult` sentinel, `mLayerMaterial`/`LegacyMaterialMismatch`, `mSurfaceToLegacyLayer`, `DiskDiskReferenceCoordinateView`, `passesCellRoadPrecut<DiskDisk>`) | Pins byte-identical replay parity against the frozen legacy implementations | respective M4–M6 slices, each under its replay gate |
 | Output sidecars (`ITSSharedClusterCompatibility`, `MFTPublicationCompatibility`) | Legacy output conversion still requires per-detector compatibility state | M6, when adapters convert from `CommonTrack` alone |
-| `SurfacePlanTrackingParticipant<NLayers>` | Narrow plan-driven ITS/MFT participant adapter; it owns detector/output sidecars but no retired workspace/binding bridge | Remains through M6 and owns no event-loop coordination |
+| `SurfacePlanTrackingParticipant<NLayers>` | Narrow plan-driven ITS/MFT participant adapter; it owns detector/output sidecars but no retired workspace/binding bridge or combined event loop | M7a classifies the template as adapter compatibility; it may remain only until it embeds the non-templated core and its sidecar/configuration setup is moved to application edges |
 | `ITSMFTLegacyParticipantSet` | Coordinator-shaped holder of combined application construction and event-owned publication/reset state | **Deleted M6g**; construction is inlined into the combined DPL task and publication/timing ownership remains workflow-local |
 
 ## Validation baseline
