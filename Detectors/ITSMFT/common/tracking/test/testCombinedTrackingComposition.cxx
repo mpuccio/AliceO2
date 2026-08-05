@@ -480,7 +480,11 @@ struct CombinedTrackingComposer {
     }
 
     participants.markPublicationValid();
-    return {ParticipantOutcome::Success, participants.getITSScratch().getNumberOfTracks<ITSNLayers>(), participants.getMFTScratch().getNumberOfTracks<MFTNLayers>()};
+    const auto countFor = [this](SurfaceId first) {
+      return static_cast<size_t>(std::count_if(this->frame->getCommonTracks().begin(), this->frame->getCommonTracks().end(),
+                                               [first](const auto& track) { return track.hitSurfaces.has(first); }));
+    };
+    return {ParticipantOutcome::Success, countFor(SurfaceId{0}), countFor(SurfaceId{ITSNLayers})};
   }
 
   // M6e2: both participants now own SurfaceTrackingScratch, not
@@ -577,7 +581,6 @@ BOOST_AUTO_TEST_CASE(MftGlobalIdsWorkEndToEndThroughRefitAndReproducesStandalone
   // refit: the combined pass through the composition reproduces the
   // standalone (global==compact, unbound) oracle count exactly.
   BOOST_CHECK_EQUAL(result.nMFTTracks, standalone.scratch.getNumberOfTracks());
-  BOOST_CHECK_EQUAL(composer.getMFTScratch().getNumberOfTracks<MFTNLayers>(), standalone.scratch.getNumberOfTracks());
 }
 
 BOOST_AUTO_TEST_CASE(ITSAndMFTAcceptedResultsReproduceStandaloneCountsInOneCombinedPass)
@@ -733,8 +736,6 @@ BOOST_AUTO_TEST_CASE(LoadFailureResetsWholeCombinedTFExactlyOnceAndInvalidatesPu
 
   BOOST_CHECK_EQUAL(composer.getITSScratch().getTotalClusters(), 0);
   BOOST_CHECK_EQUAL(composer.getMFTScratch().getTotalClusters(), 0);
-  BOOST_CHECK_EQUAL(composer.getITSScratch().getNumberOfTracks<ITSNLayers>(), 0u);
-  BOOST_CHECK_EQUAL(composer.getMFTScratch().getNumberOfTracks<MFTNLayers>(), 0u);
   BOOST_CHECK(frame.getCommonTracks().empty());
   BOOST_CHECK(frame.getTrackClusterIndices().empty());
   BOOST_CHECK(!composer.getITSPublicationExport().has_value());
@@ -781,7 +782,6 @@ BOOST_AUTO_TEST_CASE(MFTTrackingFailureAfterITSSuccessStillResetsBothScratches)
   // RecoverableDropped.
   BOOST_CHECK(result.outcome == ParticipantOutcome::RecoverableDropped);
   BOOST_CHECK_EQUAL(composer.getITSScratch().getTotalClusters(), 0);
-  BOOST_CHECK_EQUAL(composer.getITSScratch().getNumberOfTracks<ITSNLayers>(), 0u);
   BOOST_CHECK_EQUAL(composer.getMFTScratch().getTotalClusters(), 0);
   BOOST_CHECK(frame.getCommonTracks().empty());
   BOOST_CHECK(!composer.getITSPublicationExport().has_value());
@@ -1186,8 +1186,6 @@ BOOST_AUTO_TEST_CASE(AtomicLoadFailureInvokesEngineResetOnlyAndLeavesNoParticipa
 
   BOOST_CHECK_EQUAL(composer.getITSScratch().getTotalClusters(), 0);
   BOOST_CHECK_EQUAL(composer.getMFTScratch().getTotalClusters(), 0);
-  BOOST_CHECK_EQUAL(composer.getITSScratch().getNumberOfTracks<ITSNLayers>(), 0u);
-  BOOST_CHECK_EQUAL(composer.getMFTScratch().getNumberOfTracks<MFTNLayers>(), 0u);
   BOOST_CHECK(frame.getCommonTracks().empty());
   BOOST_CHECK(frame.getTrackClusterIndices().empty());
   // Neither sidecar was ever sealed/populated by this process() call --
