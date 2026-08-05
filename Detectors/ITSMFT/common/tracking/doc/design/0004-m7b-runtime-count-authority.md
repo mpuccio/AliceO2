@@ -8,9 +8,10 @@ Preceding design: [M7 runtime-plan Tracker/TrackerTraits migration](0003-m7-runt
 Architecture decision: [ADR 0007](../decisions/0007-generic-tracking-engine-boundary.md)
 
 This note closes the count-authority slice of Gate 4 M7. It does not
-de-template `Tracker` or `TrackerTraits`, remove the layer-topology/ROF
-compatibility objects, or change tracking physics. Those are the separately
-gated M7c and M7d slices described in design note 0003.
+de-template `Tracker` or `TrackerTraits`, or change tracking physics. The
+layer-topology/ROF compatibility removal is recorded in [design note
+0005](0005-m7c-runtime-topology-rof.md); Tracker/TrackerTraits de-templating
+remains the separately gated M7d slice described in design note 0003.
 
 ## 1. Decision and scope
 
@@ -44,10 +45,12 @@ The shared implementation was converted in place:
 - `TrackerTraits` material, measurement, reachable-surface, scattering-angle,
   first-cluster, and accepted-track working state now uses runtime-sized
   vectors/spans or scratch counts. The existing `TrackerTraits<NLayers>` type
-  and its ROF/topology compatibility dispatch remain unchanged for M7c.
+  remains the explicitly deferred M7d boundary; its common topology/ROF
+  dispatch has since been removed by M7c.
 - `SurfaceTrackingScratch` derives initialization, cluster preparation, and
-  vertexing extents from the adopted plan count. Typed ROF and topology views
-  remain the explicitly deferred compatibility boundary.
+  vertexing extents from the adopted plan count. It now receives one
+  non-owning runtime ROF view group and the sparse topology directly; fixed
+  table builders remain at named application edges.
 - `SurfacePlanBinding` exposes its validated ordered positions. The tracking
   interface, participant publication export, and combined workflow access that
   order rather than the layout's numeric identity.
@@ -77,7 +80,7 @@ fall into exactly one of these categories:
 | Fixed device ABI/capacity | `Cell.h`'s fixed cell/metadata representation | A CA cell has three measurement slots and the value type must remain GPU-portable. | Retain; do not turn `CellSeed` into a dynamic object. |
 | Temporary private operation implementation | `IndexTableConfiguration`, `TransitionPolicyOperations`, `NativeRefitDriver`, `NativeCylinderCylinderRefitDriver`, and `RefitLegAssembly` typed operation signatures | These are private typed operation/template boundaries. Their host traversal extents now come from runtime spans; the tag and operation templates are not public scheduling policy. | Reduce after M7d/M7e when one runtime core and adapter edge exist. |
 | Adapter edge | `TrackingParameters::NLayers` validation, `DetectorTraits`, configuration/load policy, detector surface specs/catalogs, publication/refit output hooks, and the native-cylinder typed output loop | These objects still construct detector-specific typed output, ROF/configuration compatibility, or frozen adapter data. They are outside generic orchestration. | M7e and later adapter cleanup; no core routing is allowed here. |
-| Explicitly deferred M7c compatibility boundary | `Tracker`, `TrackerTraits`, `CATracker`, `SurfaceTrackingScratch`, `TrackingTopology`, `IndexTableUtils`, `TransitionPolicyState`, and retained ROF/topology forwarding | The existing layer-indexed topology, ROF tables, state-family bridge, and template declarations are still required by current semantics. M7b removes their use as runtime count authority but does not redesign them. | M7c removes the layer-topology/ROF bridge; M7d removes core Tracker/TrackerTraits templates. |
+| Explicitly deferred M7d compatibility boundary | `Tracker`, `TrackerTraits`, `CATracker`, `TransitionPolicyState`, and the remaining typed core bridge | The runtime-plan migration has removed common layer topology, ROF-table scratch ownership, and the `IndexTableUtils<N>` alias. The remaining boundary is the Tracker/TrackerTraits template/state-family composition. | M7d removes the common Tracker/TrackerTraits templates; adapter-only templates remain separately owned. |
 
 The guard fails if a new production file or an unlisted line introduces an
 unclassified `NLayers` use. It also rejects the plan-sized host arrays and
@@ -127,12 +130,14 @@ failure behavior.
 - Index-table configuration now accepts explicit active counts and validates
   the populated prefix.
 
-### Blocked until M7c/M7d/M7e
+### Blocked until M7d/M7e
 
-- Dual `ROF*Table<N>` storage and templated scratch accessors: blocked on
-  runtime ROF views and stale-state lifecycle tests in M7c.
+- Dual `ROF*Table<N>` storage and templated scratch accessors: completed in
+  M7c. Fixed-capacity table builders remain only at named adapter edges until
+  their application template seam is reduced.
 - `TrackingTopology<N>` layer graph and `IndexTableUtils<N>` compatibility
-  alias: blocked on sparse topology/device-view parity in M7c.
+  alias: deleted from the common path in M7c; frozen legacy ITS compatibility
+  remains outside the common-CA guard.
 - `Tracker<NLayers>`, `TrackerTraits<NLayers>`, `CATracker` aliases, and
   their explicit core instantiations: blocked until M7b's count proof is
   followed by the single-body de-templating in M7d.
