@@ -52,6 +52,7 @@
 #include <TGeoGlobalMagField.h>
 
 #include "CommonDataFormat/InteractionRecord.h"
+#include "CombinedTrackingTestSupport.h"
 #include "DataFormatsITSMFT/CompCluster.h"
 #include "DataFormatsITSMFT/ROFRecord.h"
 #include "DataFormatsITSMFT/TopologyDictionary.h"
@@ -67,7 +68,6 @@
 #include "ITSMFTTracking/DecodedCluster.h"
 #include "ITSMFTTracking/DetectorLayoutBuilder.h"
 #include "ITSMFTTracking/IOUtils.h"
-#include "ITSMFTTracking/ITSMFTLegacyParticipantSet.h"
 #include "ITSMFTTracking/SurfacePlanTrackingParticipant.h"
 #include "ITSMFTTracking/MultiSourceTimeFrameLoader.h"
 #include "ITSMFTTracking/StaticDetectorCatalogs.h"
@@ -165,10 +165,10 @@ TrackingParameters makeMftParams()
   return p;
 }
 
-ITSMFTLegacyParticipantSet makeSet()
+test::CombinedTrackingParticipantPlan makeSet()
 {
-  return ITSMFTLegacyParticipantSet{std::vector<TrackingParameters>{makeItsParams()},
-                                    std::vector<TrackingParameters>{makeMftParams()}};
+  return test::CombinedTrackingParticipantPlan{std::vector<TrackingParameters>{makeItsParams()},
+                                               std::vector<TrackingParameters>{makeMftParams()}};
 }
 
 std::vector<SurfaceId> orderedRange(uint16_t first, uint16_t count)
@@ -363,8 +363,8 @@ BOOST_AUTO_TEST_CASE(ProductionITSSurfacePlanBindingMatchesConfiguredTopologyAtR
     BOOST_CHECK_EQUAL(*slot, s);
   }
 
-  // The real ITSMFTLegacyParticipantSet construction (production code path)
-  // adopts a plan whose sizing agrees with this direct comparison -- the
+  // The real workflow application composition adopts a plan whose sizing
+  // agrees with this direct comparison -- the
   // concrete "compact ITS transition/cell slots match the prior binding
   // exactly" proof, not just the generic synthetic fixture
   // testSurfacePlanBinding.cxx already covers.
@@ -391,7 +391,8 @@ BOOST_AUTO_TEST_CASE(ITSSharedClusterCompatibilitySidecarRemainsFunctionalAfterM
   BOOST_CHECK(!sidecar.isSealed());
   BOOST_CHECK_EQUAL(sidecar.pendingSize(), 0u);
 
-  participants.clearPublicationSidecars();
+  participants.itsParticipant().clearPublicationSidecar();
+  participants.mftParticipant().clearPublicationSidecar();
   BOOST_CHECK_EQUAL(sidecar.entries().size(), 0u);
   BOOST_CHECK(!sidecar.isSealed());
 }

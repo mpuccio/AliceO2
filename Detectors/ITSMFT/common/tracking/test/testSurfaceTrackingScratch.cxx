@@ -367,7 +367,6 @@ BOOST_AUTO_TEST_CASE(NewHeadersPullNoITSWorkflowOutputOrTransitionPolicyTagDepen
   const std::vector<std::string> forbiddenIncludes = {
     "SurfacePlanBinding.h",
     "DetectorTraversalBinding.h",
-    "ITSMFTLegacyParticipantSet.h",
     "MultiSourceTimeFrameLoader.h",
     "LegacyTrackerScratch.h",
     "SurfacePlanTrackingParticipant.h"};

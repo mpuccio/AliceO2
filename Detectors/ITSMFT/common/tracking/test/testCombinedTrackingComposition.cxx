@@ -13,13 +13,13 @@
 /// `CombinedTrackingComposer` below is a test-only helper (never shipped)
 /// that reproduces the exact same whole-event composition the combined DPL
 /// task's own trackFrame() applies (CombinedCATrackerSpec.cxx) --
-/// ITSMFTLegacyParticipantSet::validateSources()/loadBindings(),
+/// the workflow-owned source validation/bindings,
 /// MultiSourceTimeFrameLoader::loadEvent(), TrackingEngine::executeEvent()/
 /// resetEvent() -- directly over the real production classes, so this file
 /// exercises the same behavior the DPL task exercises without needing a DPL
 /// ProcessingContext. ParticipantOutcome (TrackingParticipant.h) is reused
-/// as the whole-event outcome type rather than inventing a parallel
-/// enum, matching what the DPL task itself does.
+/// as the whole-event outcome type rather than inventing a parallel enum,
+/// matching what the DPL task itself does.
 
 #define BOOST_TEST_MODULE ITSMFT CombinedTrackingComposition
 #define BOOST_TEST_MAIN
@@ -41,6 +41,7 @@
 #include "Field/MagneticField.h"
 
 #include "CommonDataFormat/InteractionRecord.h"
+#include "CombinedTrackingTestSupport.h"
 #include "DataFormatsITSMFT/CompCluster.h"
 #include "DataFormatsITSMFT/ROFRecord.h"
 #include "DataFormatsITSMFT/TopologyDictionary.h"
@@ -51,7 +52,6 @@
 #include "ITSMFTTracking/Configuration.h"
 #include "ITSMFTTracking/DecodedCluster.h"
 #include "ITSMFTTracking/DetectorLayoutSet.h"
-#include "ITSMFTTracking/ITSMFTLegacyParticipantSet.h"
 #include "ITSMFTTracking/ITSSharedClusterCompatibility.h"
 #include "ITSMFTTracking/SurfaceTrackingScratch.h"
 #include "ITSMFTTracking/MFTFwdTrackHelpers.h"
@@ -65,6 +65,7 @@
 #include "ITSMFTTracking/TrackerTraits.h"
 #include "ITSMFTTracking/TrackingConfigParam.h"
 #include "ITSMFTTracking/TrackingEngine.h"
+#include "ITSMFTTracking/TrackingInterface.h"
 #include "ITSMFTTracking/detail/TransitionPolicyOperations.h"
 #include "ITStracking/Constants.h"
 #include "ReconstructionDataFormats/Track.h"
@@ -420,8 +421,8 @@ struct StandaloneRun {
 /// Test-only reproduction of the whole-event load/track/publish composition
 /// the combined DPL task's own trackFrame() applies -- not a shipped
 /// coordinator class (M3 deleted the last one of those), just this file's
-/// own driver so these tests can exercise ITSMFTLegacyParticipantSet +
-/// TrackingEngine + MultiSourceTimeFrameLoader::loadEvent() together the
+/// own driver so these tests can exercise the workflow-owned application plan
+/// plus TrackingEngine + MultiSourceTimeFrameLoader::loadEvent() together the
 /// same way the DPL task does, without a DPL ProcessingContext.
 struct CombinedTrackingComposer {
   struct Result {
@@ -430,9 +431,12 @@ struct CombinedTrackingComposer {
     size_t nMFTTracks{0};
   };
 
-  ITSMFTLegacyParticipantSet participants;
+  test::CombinedTrackingParticipantPlan participants;
   TrackingEngine engine;
   TimeFrame* frame = nullptr;
+  std::optional<ClockTimingPublicationView> itsClock;
+  std::optional<ClockTimingPublicationView> mftClock;
+  bool publicationValid = false;
 
   CombinedTrackingComposer(std::vector<TrackingParameters> itsParams, std::vector<TrackingParameters> mftParams)
     : participants(std::move(itsParams), std::move(mftParams))
@@ -448,10 +452,44 @@ struct CombinedTrackingComposer {
   void setBz(float bz) { participants.setBz(bz); }
   void setNThreads(int n) { participants.setNThreads(n); }
 
+  void clearPublicationSidecars() noexcept
+  {
+    participants.itsParticipant().clearPublicationSidecar();
+    participants.mftParticipant().clearPublicationSidecar();
+  }
+  void invalidatePublication() noexcept
+  {
+    itsClock.reset();
+    mftClock.reset();
+    publicationValid = false;
+  }
+  void markPublicationValid() noexcept
+  {
+    itsClock.emplace(participants.getITSScratch().getROFOverlapTableView<ITSNLayers>().getClockLayer());
+    mftClock.emplace(participants.getMFTScratch().getROFOverlapTableView<MFTNLayers>().getClockLayer());
+    publicationValid = true;
+  }
+  std::optional<CommonTrackPublicationExport> getITSPublicationExport() const
+  {
+    if (!publicationValid || !itsClock) {
+      return std::nullopt;
+    }
+    return CommonTrackPublicationExport{o2::detectors::DetID::ITS, ClusterSourceId{0}, *itsClock,
+                                        participants.getITSOrderedSurfaces()};
+  }
+  std::optional<CommonTrackPublicationExport> getMFTPublicationExport() const
+  {
+    if (!publicationValid || !mftClock) {
+      return std::nullopt;
+    }
+    return CommonTrackPublicationExport{o2::detectors::DetID::MFT, ClusterSourceId{1}, *mftClock,
+                                        participants.getMFTOrderedSurfaces()};
+  }
+
   Result process(const ClusterSourceInput& itsSource, const ClusterSourceInput& mftSource, const o2::InteractionRecord& origin)
   {
-    participants.invalidatePublication();
-    participants.clearPublicationSidecars();
+    invalidatePublication();
+    clearPublicationSidecars();
 
     LoadSourcesResult loadResult;
     if (const auto rejected = participants.validateSources(itsSource, mftSource)) {
@@ -469,7 +507,7 @@ struct CombinedTrackingComposer {
                              ? ParticipantOutcome::RecoverableDropped
                              : ParticipantOutcome::Structural;
       engine.resetEvent(*frame, participants.schedule());
-      participants.invalidatePublication();
+      invalidatePublication();
       return {outcome, 0, 0};
     }
 
@@ -477,11 +515,11 @@ struct CombinedTrackingComposer {
 
     const auto eventResult = engine.executeEvent(*frame, participants.schedule());
     if (eventResult.outcome != ParticipantOutcome::Success) {
-      participants.invalidatePublication();
+      invalidatePublication();
       return {eventResult.outcome, 0, 0};
     }
 
-    participants.markPublicationValid();
+    markPublicationValid();
     const auto countFor = [this](SurfaceId first) {
       return static_cast<size_t>(std::count_if(this->frame->getCommonTracks().begin(), this->frame->getCommonTracks().end(),
                                                [first](const auto& track) { return track.hitSurfaces.has(first); }));
@@ -489,17 +527,14 @@ struct CombinedTrackingComposer {
     return {ParticipantOutcome::Success, countFor(SurfaceId{0}), countFor(SurfaceId{ITSNLayers})};
   }
 
-  // M6e2: both participants now own SurfaceTrackingScratch, not
-  // SurfaceTrackingScratch -- see ITSMFTLegacyParticipantSet.h's own
-  // getITSScratch()/getMFTScratch().
+  // Both participants own SurfaceTrackingScratch directly; this is the same
+  // application composition used by the workflow task.
   const SurfaceTrackingScratch& getITSScratch() const noexcept { return participants.getITSScratch(); }
   const SurfaceTrackingScratch& getMFTScratch() const noexcept { return participants.getMFTScratch(); }
   const ITSSharedClusterCompatibility& getITSSharedClusterCompatibility() const noexcept { return participants.getITSSharedClusterCompatibility(); }
   const MFTPublicationCompatibility& getMFTPublicationCompatibility() const noexcept { return participants.getMFTPublicationCompatibility(); }
   gsl::span<const SurfaceId> getITSOrderedSurfaces() const noexcept { return participants.getITSOrderedSurfaces(); }
   gsl::span<const SurfaceId> getMFTOrderedSurfaces() const noexcept { return participants.getMFTOrderedSurfaces(); }
-  std::optional<CommonTrackPublicationExport> getITSPublicationExport() const { return participants.getITSPublicationExport(); }
-  std::optional<CommonTrackPublicationExport> getMFTPublicationExport() const { return participants.getMFTPublicationExport(); }
 };
 
 CombinedTrackingComposer makeComposer(const TrackingParameters& itsParams, const TrackingParameters& mftParams)
@@ -1095,7 +1130,7 @@ BOOST_AUTO_TEST_CASE(ExplicitScheduleDrivesITSThenMFTThroughTheDelegatedEngine)
   // narrowed to the one claim this test adds: process()'s ITS-then-MFT
   // CommonTrack ordering and per-detector publication exports are produced
   // by TrackingEngine::executeEvent()'s explicit [ITS, MFT] schedule
-  // (ITSMFTLegacyParticipantSet::schedule()), not a hand-unrolled pair of
+  // (the workflow-owned explicit schedule), not a hand-unrolled pair of
   // clustersToTracks() calls.
   ensureTrivialMagneticFieldIsSet();
   const auto itsSurfaces = ordered(0, ITSNLayers);
@@ -1198,70 +1233,4 @@ BOOST_AUTO_TEST_CASE(AtomicLoadFailureInvokesEngineResetOnlyAndLeavesNoParticipa
   BOOST_CHECK(composer.getMFTPublicationCompatibility().find(0, 0) == nullptr);
   BOOST_CHECK(!composer.getITSPublicationExport().has_value());
   BOOST_CHECK(!composer.getMFTPublicationExport().has_value());
-}
-
-BOOST_AUTO_TEST_CASE(NoProductionSourceReferencesCombinedTimeFrameCoordinator)
-{
-  // M3 (GenericTrackingEngineMigration.md; ADR 0007) deletion criterion:
-  // "no reference to CombinedTimeFrameCoordinator remains (grep-verified)".
-  // Scans this repository's known ITS/MFT common tracking/workflow
-  // production and test sources -- the header/source pair themselves must
-  // no longer exist, and every other file that historically named the
-  // deleted class in comments or code must no longer do so.
-  const std::string testFile = __FILE__;
-  const auto testDirectory = testFile.substr(0, testFile.find_last_of('/'));
-
-  const std::array<std::string, 2> mustNotExist = {
-    testDirectory + "/../include/ITSMFTTracking/CombinedTimeFrameCoordinator.h",
-    testDirectory + "/../src/CombinedTimeFrameCoordinator.cxx"};
-  for (const auto& file : mustNotExist) {
-    std::ifstream input{file};
-    BOOST_CHECK_MESSAGE(!input.good(), file << " still exists; M3 must delete it");
-  }
-
-  const std::array<std::string, 15> mustNotMention = {
-    testDirectory + "/../include/ITSMFTTracking/TrackingEngine.h",
-    testDirectory + "/../include/ITSMFTTracking/TrackingParticipant.h",
-    testDirectory + "/../include/ITSMFTTracking/SurfacePlanTrackingParticipant.h",
-    testDirectory + "/../include/ITSMFTTracking/MultiSourceTimeFrameLoader.h",
-    testDirectory + "/../include/ITSMFTTracking/ITSMFTLegacyParticipantSet.h",
-    testDirectory + "/../include/ITSMFTTracking/StaticDetectorCatalogs.h",
-    testDirectory + "/../src/TrackingEngine.cxx",
-    testDirectory + "/../src/SurfacePlanTrackingParticipant.cxx",
-    testDirectory + "/../src/MultiSourceTimeFrameLoader.cxx",
-    testDirectory + "/../src/ITSMFTLegacyParticipantSet.cxx",
-    testDirectory + "/../CMakeLists.txt",
-    testDirectory + "/testITSMFTLegacyParticipantSet.cxx",
-    testDirectory + "/testTrackingEngineDependencyBoundary.cxx",
-    testDirectory + "/testSurfaceMask.cxx",
-    testDirectory + "/testMultiSourceTimeFrameLoader.cxx"};
-  for (const auto& file : mustNotMention) {
-    std::ifstream input{file};
-    BOOST_REQUIRE_MESSAGE(input.good(), "cannot inspect " << file);
-    std::string line;
-    size_t lineNumber = 0;
-    while (std::getline(input, line)) {
-      ++lineNumber;
-      BOOST_CHECK_MESSAGE(line.find("CombinedTimeFrameCoordinator") == std::string::npos,
-                          file << ":" << lineNumber << " still mentions CombinedTimeFrameCoordinator: " << line);
-    }
-  }
-
-  const std::array<std::string, 5> combinedCaFiles = {
-    testDirectory + "/../../workflow-combined-ca/include/ITSMFTCombinedCAWorkflow/CombinedCATrackerSpec.h",
-    testDirectory + "/../../workflow-combined-ca/include/ITSMFTCombinedCAWorkflow/ConfigPreflight.h",
-    testDirectory + "/../../workflow-combined-ca/src/CombinedCATrackerSpec.cxx",
-    testDirectory + "/../../workflow-combined-ca/src/ConfigPreflight.cxx",
-    testDirectory + "/../../workflow-combined-ca/test/testITSMFTCombinedCATrackerDPLContract.cxx"};
-  for (const auto& file : combinedCaFiles) {
-    std::ifstream input{file};
-    BOOST_REQUIRE_MESSAGE(input.good(), "cannot inspect " << file);
-    std::string line;
-    size_t lineNumber = 0;
-    while (std::getline(input, line)) {
-      ++lineNumber;
-      BOOST_CHECK_MESSAGE(line.find("CombinedTimeFrameCoordinator") == std::string::npos,
-                          file << ":" << lineNumber << " still mentions CombinedTimeFrameCoordinator: " << line);
-    }
-  }
 }

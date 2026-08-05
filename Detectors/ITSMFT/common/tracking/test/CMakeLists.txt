@@ -384,10 +384,11 @@ o2_add_test(track-seed
             LABELS "itsmft;tracking"
             PUBLIC_LINK_LIBRARIES O2::ITSMFTTracking)
 
-# Gate 4 M6f: production common-CA include/src must not grow the retired
-# workspace, binding, participant, or whole-track seed spellings again.
-o2_add_test(m6f-legacy-bridge-guard
-            SOURCES testM6fLegacyBridgeGuard.cxx
+# Gate 4 M6g: common-CA production and combined-workflow trees must not retain
+# the retired bridge or coordinator; publication/timing state must be visibly
+# owned by the combined DPL task.
+o2_add_test(m6g-participant-ownership-guard
+            SOURCES testM6gParticipantOwnershipGuard.cxx
             COMPONENT_NAME itsmft-tracking
             LABELS "itsmft;tracking"
             PUBLIC_LINK_LIBRARIES O2::ITSMFTTracking)
@@ -458,16 +459,6 @@ o2_add_test(tracking-engine-dependency-boundary
             LABELS "itsmft;tracking"
             PUBLIC_LINK_LIBRARIES O2::ITSMFTTracking)
 
-# M2c: the one explicit ITS/MFT-named application-layer participant set
-# (ITSMFTLegacyParticipantSet) the combined DPL task composes construction/
-# configuration through.
-o2_add_test(itsmft-legacy-participant-set
-            SOURCES testITSMFTLegacyParticipantSet.cxx
-            COMPONENT_NAME itsmft-tracking
-            LABELS "itsmft;tracking"
-            PUBLIC_LINK_LIBRARIES O2::ITSMFTTracking
-                                  O2::MFTTracking)
-
 # M3: the combined ITS+MFT load/track/publish composition, ported from the
 # deleted host-only combined coordinator's own test suite.
 o2_add_test(combined-tracking-composition
@@ -481,8 +472,8 @@ o2_add_test(combined-tracking-composition
 
 # M6d (doc/design/0002-m6-generic-workspace-migration.md Sec 9): focused
 # coverage for the MFT common-CA participant's migration onto
-# SurfaceTrackingScratch/SurfacePlanBinding, exercised through the real
-# production ITSMFTLegacyParticipantSet wiring.
+# SurfaceTrackingScratch/SurfacePlanBinding, exercised through the same
+# workflow-owned application plan used by production.
 o2_add_test(m6d-mft-migration
             SOURCES testM6dMFTMigration.cxx
             COMPONENT_NAME itsmft-tracking

@@ -379,7 +379,7 @@ BOOST_AUTO_TEST_CASE(StandaloneAndCombinedMFTBindingsAgreeOnCompactSlotsByRelati
   BOOST_REQUIRE(standaloneBindingResult.ok());
 
   // Combined: real ITS+MFT combined static catalog, MFT half only -- mirrors
-  // ITSMFTLegacyParticipantSet.cxx's own real production construction
+  // The combined workflow's own real production application construction
   // (ClusterSourceId{1}, surfaces ITSNLayers..ITSNLayers+MFTNLayers-1).
   const auto combinedParams = standaloneParams; // MFT's own TrackingParameters do not depend on which catalog they size against
   const auto combinedOrder = combinedMftOrder();

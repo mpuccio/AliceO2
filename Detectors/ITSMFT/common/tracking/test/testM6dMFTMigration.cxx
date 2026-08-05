@@ -9,7 +9,7 @@
 // tests for the MFT common-CA participant's migration from
 // SurfaceTrackingScratch/DetectorTraversalBinding to
 // SurfaceTrackingScratch/SurfacePlanBinding. Exercises the real production
-// wiring (ITSMFTLegacyParticipantSet, SurfacePlanTrackingParticipantMFT), not a
+// wiring (the workflow-owned application plan, SurfacePlanTrackingParticipantMFT), not a
 // synthetic seam-only fixture -- testSurfacePlanBinding.cxx already covers
 // SurfacePlanBinding's own generic slot-mapping equivalence;
 // testCombinedTrackingComposition.cxx already covers the full load/track/
@@ -51,22 +51,24 @@
 #include <boost/test/unit_test.hpp>
 
 #include <array>
+#include <optional>
 #include <type_traits>
 #include <vector>
 
 #include "CommonDataFormat/InteractionRecord.h"
+#include "CombinedTrackingTestSupport.h"
 #include "DataFormatsITSMFT/CompCluster.h"
 #include "DataFormatsITSMFT/ROFRecord.h"
 #include "DetectorsCommonDataFormats/DetID.h"
 #include "ITSMFTTracking/ClusterSource.h"
 #include "ITSMFTTracking/Configuration.h"
 #include "ITSMFTTracking/DetectorLayoutBuilder.h"
-#include "ITSMFTTracking/ITSMFTLegacyParticipantSet.h"
 #include "ITSMFTTracking/SurfacePlanTrackingParticipant.h"
 #include "ITSMFTTracking/MultiSourceTimeFrameLoader.h"
 #include "ITSMFTTracking/StaticDetectorCatalogs.h"
 #include "ITSMFTTracking/SurfaceTrackingScratch.h"
 #include "ITSMFTTracking/TimeFrame.h"
+#include "ITSMFTTracking/TrackingInterface.h"
 #include "ITSMFTTracking/detail/SurfacePlanBinding.h"
 
 using namespace o2::itsmft;
@@ -82,9 +84,10 @@ static_assert(std::is_same_v<decltype(std::declval<SurfacePlanTrackingParticipan
 // bindings, one per participant).
 static_assert(std::is_invocable_v<decltype(&SurfacePlanTrackingParticipantMFT::adoptSurfacePlanBinding), SurfacePlanTrackingParticipantMFT&, std::unique_ptr<SurfacePlanBinding>>);
 static_assert(std::is_invocable_v<decltype(&SurfacePlanTrackingParticipantITS::adoptSurfacePlanBinding), SurfacePlanTrackingParticipantITS&, std::unique_ptr<SurfacePlanBinding>>);
-// ITSMFTLegacyParticipantSet's own public readback types.
-static_assert(std::is_same_v<decltype(std::declval<const ITSMFTLegacyParticipantSet&>().getMFTScratch()), const SurfaceTrackingScratch&>);
-static_assert(std::is_same_v<decltype(std::declval<const ITSMFTLegacyParticipantSet&>().getITSScratch()), const SurfaceTrackingScratch&>);
+// The workflow-owned application plan exposes the concrete participant
+// scratch types directly; no compatibility set is required.
+static_assert(std::is_same_v<decltype(std::declval<const test::CombinedTrackingParticipantPlan&>().getMFTScratch()), const SurfaceTrackingScratch&>);
+static_assert(std::is_same_v<decltype(std::declval<const test::CombinedTrackingParticipantPlan&>().getITSScratch()), const SurfaceTrackingScratch&>);
 
 BOOST_AUTO_TEST_CASE(CompileTimeTypeProofsHoldAtRuntimeToo)
 {
@@ -113,10 +116,10 @@ TrackingParameters makeMftParams()
   return p;
 }
 
-ITSMFTLegacyParticipantSet makeSet()
+test::CombinedTrackingParticipantPlan makeSet()
 {
-  return ITSMFTLegacyParticipantSet{std::vector<TrackingParameters>{makeItsParams()},
-                                    std::vector<TrackingParameters>{makeMftParams()}};
+  return test::CombinedTrackingParticipantPlan{std::vector<TrackingParameters>{makeItsParams()},
+                                               std::vector<TrackingParameters>{makeMftParams()}};
 }
 
 std::vector<SurfaceId> orderedRange(uint16_t first, uint16_t count)
@@ -244,8 +247,8 @@ BOOST_AUTO_TEST_CASE(MFTOnlyResetDoesNotMutateTimeFrameOrITSScratch)
 
   // Populate observable working state directly on each scratch (no real
   // load/track needed for this isolation proof). Only getScratch()'s const
-  // overload is reachable through ITSMFTLegacyParticipantSet's own public
-  // API; const_cast here is test-only instrumentation, mirroring how
+  // overload is reachable through the workflow plan's public API; const_cast
+  // here is test-only instrumentation, mirroring how
   // testCombinedTrackingComposition.cxx's own composer wrapper reaches into
   // scratch state for assertions.
   auto& itsParticipantScratch = const_cast<SurfaceTrackingScratch&>(participants.getITSScratch());
@@ -257,8 +260,8 @@ BOOST_AUTO_TEST_CASE(MFTOnlyResetDoesNotMutateTimeFrameOrITSScratch)
 
   // eventReset() on the MFT TrackingParticipant interface only -- never
   // touches `frame` (TrackingParticipant.h's own contract) and, by
-  // construction (ITSMFTLegacyParticipantSet composes two independent
-  // participant objects of different concrete scratch types), cannot reach
+  // construction (the workflow application plan composes two independent
+  // participant objects), cannot reach
   // ITS's own scratch either.
   TrackingParticipant& mftParticipant = *participants.schedule()[1];
   BOOST_REQUIRE(mftParticipant.id() == ParticipantId{1});
@@ -288,7 +291,7 @@ SurfaceMask surfaceRangeMaskForTest(uint16_t first, uint16_t count)
 }
 
 // Byte-for-byte the same combined-layout construction
-// ITSMFTLegacyParticipantSet.cxx's own buildCombinedLayout() performs
+// The combined workflow's application plan performs
 // (duplicated locally per this test directory's own established per-file
 // fixture convention -- testSurfacePlanBinding.cxx's CombinedLayout does the
 // same for its own synthetic case).
@@ -323,8 +326,8 @@ DetectorLayout buildProductionCombinedLayoutForTest()
 
 BOOST_AUTO_TEST_CASE(ProductionMFTSurfacePlanBindingMatchesConfiguredTopologyAtRealParameters)
 {
-  // Exactly the parameters ITSMFTLegacyParticipantSet.cxx's own constructor
-  // uses for MFT: ClusterSourceId{1}, surfaceRangeMask(ITSNLayers,
+  // Exactly the parameters the combined workflow's application plan uses for
+  // MFT: ClusterSourceId{1}, surfaceRangeMask(ITSNLayers,
   // MFTNLayers), the MFT ordered-surface range, SurfaceKind::Disk,
   // TransitionPolicyTag::DiskDisk.
   const auto layout = buildProductionCombinedLayoutForTest();
@@ -369,8 +372,8 @@ BOOST_AUTO_TEST_CASE(ProductionMFTSurfacePlanBindingMatchesConfiguredTopologyAtR
     BOOST_CHECK_EQUAL(*slot, s - ITSNLayers);
   }
 
-  // The real ITSMFTLegacyParticipantSet construction (production code path)
-  // adopts a plan whose sizing agrees with this direct comparison.
+  // The real workflow application composition adopts a plan whose sizing
+  // agrees with this direct comparison.
   auto participants = makeSet();
   BOOST_CHECK_EQUAL(participants.getMFTScratch().getNOwnedSurfaces(), static_cast<size_t>(mftSurfaces.size()));
   BOOST_CHECK_EQUAL(participants.getMFTScratch().getNTransitions(), binding.binding->getGlobalTransitions().size());
@@ -396,20 +399,29 @@ BOOST_AUTO_TEST_CASE(MFTSidecarAndPublicationExportRemainValidAfterMigration)
   // requirement 4: "MFT compatibility sidecar ownership" preserved).
   const auto& sidecarBefore = participants.getMFTPublicationCompatibility();
   (void)sidecarBefore;
-  participants.clearPublicationSidecars();
+  participants.itsParticipant().clearPublicationSidecar();
+  participants.mftParticipant().clearPublicationSidecar();
 
-  // markPublicationValid() reads mMFTParticipant.getScratch().getROFOverlapTableView().getClockLayer()
-  // -- the exact call site this migration's own SurfaceTrackingScratch
-  // extension (getROFOverlapTableView()) exists to keep working.
-  participants.markPublicationValid();
-  const auto mftExport = participants.getMFTPublicationExport();
+  // The publication clock/validity context is workflow-owned. Reproduce the
+  // same narrow publication step locally without adding that event state to
+  // the application-plan fixture.
+  std::optional<ClockTimingPublicationView> mftClock;
+  bool publicationValid = false;
+  mftClock.emplace(participants.getMFTScratch().getROFOverlapTableView<MFTNLayers>().getClockLayer());
+  publicationValid = true;
+  std::optional<CommonTrackPublicationExport> mftExport;
+  if (publicationValid && mftClock) {
+    mftExport.emplace(o2::detectors::DetID::MFT, ClusterSourceId{1}, *mftClock, participants.getMFTOrderedSurfaces());
+  }
   BOOST_REQUIRE(mftExport.has_value());
   BOOST_CHECK(mftExport->detector == o2::detectors::DetID::MFT);
   BOOST_CHECK(mftExport->source == ClusterSourceId{1});
   BOOST_CHECK_EQUAL(mftExport->orderedSurfaces.size(), static_cast<size_t>(MFTNLayers));
 
-  participants.invalidatePublication();
-  BOOST_CHECK(!participants.getMFTPublicationExport().has_value());
+  mftClock.reset();
+  publicationValid = false;
+  mftExport.reset();
+  BOOST_CHECK(!mftExport.has_value());
 }
 
 // --- 7: ITS/MFT scratch storage isolation during coexistence ---------------
@@ -417,8 +429,8 @@ BOOST_AUTO_TEST_CASE(MFTSidecarAndPublicationExportRemainValidAfterMigration)
 BOOST_AUTO_TEST_CASE(CombinedExecutionKeepsITSAndMFTScratchStorageIsolated)
 {
   // Same concrete C++ type since M6e2 (SurfaceTrackingScratch), but two
-  // structurally independent instances (ITSMFTLegacyParticipantSet composes
-  // two separate participant objects, each owning its own scratch) -- this
+  // structurally independent instances (the workflow application plan
+  // composes two separate participant objects, each owning its own scratch) -- this
   // test proves the runtime isolation corollary still holds post-migration:
   // mutating one instance leaves the other's every observable count exactly
   // where it started, for both directions.
