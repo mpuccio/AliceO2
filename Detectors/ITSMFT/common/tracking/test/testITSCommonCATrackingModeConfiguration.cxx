@@ -199,21 +199,3 @@ BOOST_AUTO_TEST_CASE(DiamondPosAndPVresAreWiredIntoITSSyncTrackingParameters)
   BOOST_CHECK_EQUAL(p.Diamond[2], 3.5f);
   BOOST_CHECK_EQUAL(p.PVres, 0.25f);
 }
-
-// The shared ITS/MFT common-CA output route is explicitly opt-in.  Keep this
-// mutation last and restore the default so a future in-process workflow test
-// cannot inherit a route selection from this configuration test.
-BOOST_AUTO_TEST_CASE(CommonTrackOutputSelectionIsDefaultFalseAndRuntimeVisible)
-{
-  auto& output = ITSMFTCommonCAOutputParam::Instance();
-  BOOST_CHECK_EQUAL(output.getName(), "ITSMFTCommonCAOutputParam");
-  BOOST_CHECK_EQUAL(output.useCommonTrackOutput, false);
-  BOOST_CHECK_EQUAL(isCommonTrackOutputEnabled(), false);
-
-  o2::conf::ConfigurableParam::setValue<bool>("ITSMFTCommonCAOutputParam", "useCommonTrackOutput", true);
-  BOOST_CHECK_EQUAL(output.useCommonTrackOutput, true);
-  BOOST_CHECK_EQUAL(isCommonTrackOutputEnabled(), true);
-  o2::conf::ConfigurableParam::setValue<bool>("ITSMFTCommonCAOutputParam", "useCommonTrackOutput", false);
-  BOOST_CHECK_EQUAL(output.useCommonTrackOutput, false);
-  BOOST_CHECK_EQUAL(isCommonTrackOutputEnabled(), false);
-}

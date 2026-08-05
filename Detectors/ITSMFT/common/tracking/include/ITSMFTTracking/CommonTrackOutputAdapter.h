@@ -184,8 +184,7 @@ inline bool finalizeROFs(std::vector<o2::itsmft::ROFRecord>& rofs, const std::ve
   for (const auto& time : times) {
     const int rof = context.clock.getROF(time);
     if (rof < 0 || static_cast<size_t>(rof) >= rofs.size()) {
-      // Preserve fillITSOutputs()/fillMFTOutputs(): a legacy accepted track
-      // is still published when its reconstructed timestamp lies outside
+      // A track is still published when its reconstructed timestamp lies outside
       // the workflow ROF span; only its TrackROF entry is omitted.
       continue;
     }

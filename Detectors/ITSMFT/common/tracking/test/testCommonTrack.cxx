@@ -1092,8 +1092,8 @@ BOOST_AUTO_TEST_CASE(CommonTrackOutputAdapterStagesITSAndFailsClosed)
   const auto oldTracks = fixture.tf.getCommonTracks().size();
   const auto oldReferences = fixture.tf.getTrackClusterIndices().size();
   // The original workflow ROF span can have more (or fewer) entries than
-  // the LayerTiming clock. Legacy fillITSOutputs copies that span verbatim
-  // and groups only in-range clock slots, so staging must do the same.
+  // the LayerTiming clock. The CommonTrack adapter preserves that span
+  // verbatim and groups only in-range clock slots.
   const std::vector<ROFRecord> mismatchedROFs{ROFRecord{{100, 5}, 0, 1, 2}, ROFRecord{{100, 6}, 1, 2, 3}};
   const CommonTrackOutputTimingContext mismatchedROF{mismatchedROFs, ClockTimingPublicationView{clock}};
   const auto mismatchedOutput = stageITSCommonTrackOutput(fixture.tf, measurement.cluster.source,
