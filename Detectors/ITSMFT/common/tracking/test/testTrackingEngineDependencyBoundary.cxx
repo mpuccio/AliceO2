@@ -30,6 +30,7 @@
 
 #include <array>
 #include <fstream>
+#include <iterator>
 #include <string>
 #include <type_traits>
 #include <vector>
@@ -114,4 +115,31 @@ BOOST_AUTO_TEST_CASE(EngineAndParticipantHeadersExcludeForbiddenDependencies)
       }
     }
   }
+}
+
+BOOST_AUTO_TEST_CASE(SurfaceScratchHasNoGroupCOutputStaging)
+{
+  const std::string testFile = __FILE__;
+  const auto root = testFile.substr(0, testFile.find("/Detectors/ITSMFT/common/tracking/test/"));
+  const std::array<std::string, 5> productionFiles = {
+    root + "/Detectors/ITSMFT/common/tracking/include/ITSMFTTracking/SurfaceTrackingScratch.h",
+    root + "/Detectors/ITSMFT/common/tracking/src/SurfaceTrackingScratch.cxx",
+    root + "/Detectors/ITSMFT/common/tracking/src/CATracker.cxx",
+    root + "/Detectors/ITSMFT/common/tracking/src/TrackerTraits.cxx",
+    root + "/Detectors/ITSMFT/common/tracking/src/TrackingInterface.cxx"};
+  const std::array<std::string, 3> forbidden = {"mTracksITS", "mTracksMFT", "mTracksLabel"};
+  for (const auto& file : productionFiles) {
+    std::ifstream input{file};
+    BOOST_REQUIRE_MESSAGE(input.good(), "cannot inspect " << file);
+    const std::string text{std::istreambuf_iterator<char>{input}, {}};
+    for (const auto& token : forbidden) {
+      BOOST_CHECK_MESSAGE(text.find(token) == std::string::npos, file << " retains retired Surface Group C token " << token);
+    }
+  }
+
+  const auto legacy = root + "/Detectors/ITSMFT/common/tracking/include/ITSMFTTracking/LegacyTrackerScratch.h";
+  std::ifstream input{legacy};
+  BOOST_REQUIRE_MESSAGE(input.good(), "cannot inspect " << legacy);
+  const std::string text{std::istreambuf_iterator<char>{input}, {}};
+  BOOST_CHECK(text.find("mTracksLabel") != std::string::npos);
 }

@@ -25,8 +25,7 @@
 /// over unchanged in shape, still resized later from ROF count, not here.
 ///
 /// M6d (production wiring for MFT, see the design note's own M6c-section
-/// addendum) adds Group C (mTracks/mTracksLabel -- still the sole production
-/// detector-typed output staging path until M6e retires it) and a small set
+/// addendum) added the now-retired Group C output staging and a small set
 /// of auxiliary NLayers-templated types (ROFOverlapTable, ROFVertexLookupTable,
 /// ROFMaskTable, TrackingTopology) this scratch owns. IndexTableUtils is a
 /// true exception: since M6e2 it is alias-erased to one shared, non-templated
@@ -692,25 +691,8 @@ inline void resetTimeFrameEvent(TimeFrame& frame, SurfaceTrackingScratch& scratc
   frame.wipe();
 }
 
-// M6e2: temporary Group-C call-site shim for the M6d ScratchT seam. Group C
-// (mTracks/mTracksLabel) is genuinely detector-output-typed
-// (CATrackType<NLayers>), so SurfaceTrackingScratch::getTracks()/
-// getNumberOfTracks() -- shared by both ITS and MFT since this milestone --
-// must be *template* methods (compile-time selection between its own dual
-// ITS/MFT storage, never virtual/type-erased), while
-// LegacyTrackerScratch<NLayers>::getTracks()/getNumberOfTracks() are, and
-// must remain, plain non-template methods (that file is untouched by this
-// milestone). A template and a non-template member cannot be called with the
-// same source text on a dependent (ScratchT) type, so every Group-C call
-// site inside the shared Tracker<NLayers,ScratchT,BindingT>/
-// TrackerTraits<NLayers,ScratchT,BindingT> bodies goes through these two
-// small free functions instead of calling scratch.getTracks() directly. This
-// is not a detector switch (it selects on *scratch representation*, exactly
-// what the seam itself already exists to select, never on ITS-vs-MFT
-// identity) and it is temporary: once LegacyTrackerScratch<NLayers> stops
-// being anyone's ScratchT (M6f), the `else` arm below becomes unreachable and
-// this whole pair collapses to a plain forwarding call, removable in the same
-// slice that removes the seam itself.
+// Legacy-only Group C forwarding remains until LegacyTrackerScratch itself is
+// deleted in M6f. SurfaceTrackingScratch no longer participates.
 template <int NLayers, typename ScratchT>
 inline auto& scratchTracks(ScratchT& scratch) noexcept
 {
