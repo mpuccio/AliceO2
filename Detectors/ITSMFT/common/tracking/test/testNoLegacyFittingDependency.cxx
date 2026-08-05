@@ -6,7 +6,7 @@
 // License v3 (GPL Version 3), copied verbatim in the file "COPYING".
 
 // M5d (doc/decisions/0008-native-refit-activation.md) source-level/include
-// guard: DetectorTraits::refitSeed's two production branches (ITS/barrel and
+// guard: the adapter refit operation's two production branches (ITS/barrel and
 // MFT/forward) no longer depend on either frozen legacy fitting engine --
 // o2::its::track::fitTrack/refitTrack/refitTrackSeed (ITStracking/TrackHelpers.h)
 // or o2::mft::TrackFitter<TrackLTF>/TrackLTFL (MFTTracking/TrackFitter.h). Both
@@ -56,14 +56,14 @@ struct TokenCheck {
 //    SurfaceStateOperationResult.h: doc comments describing the legacy
 //    fitTrack/refitTrack formula an operation reproduces or a failure reason
 //    mirrors -- prose, not a dependency.
-//  - DetectorTraits.cxx, MFTFwdTrackHelpers.h, MFTFwdTrackHelpers.cxx: this
-//    milestone's own doc comments naming the two engines it removed.
+//  - MFTFwdTrackHelpers.h, MFTFwdTrackHelpers.cxx: this milestone's own doc
+//    comments naming the two engines it removed.
 const std::vector<TokenCheck>& forbiddenTokens()
 {
   static const std::vector<TokenCheck> checks = {
     {"refitTrackSeed",
      "frozen ITS refit entry point (ITStracking/TrackHelpers.h)",
-     {"NativeCylinderCylinderRefitDriver.h", "SurfaceStateOperationResult.h", "DetectorTraits.cxx"}},
+     {"NativeCylinderCylinderRefitDriver.h", "SurfaceStateOperationResult.h"}},
     {"TrackFitContext",
      "frozen ITS refit context type (ITStracking/TrackHelpers.h)",
      {}},

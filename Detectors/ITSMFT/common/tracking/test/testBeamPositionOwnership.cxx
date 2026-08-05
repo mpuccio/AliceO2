@@ -5,8 +5,8 @@
 // This software is distributed under the terms of the GNU General Public
 // License v3 (GPL Version 3), copied verbatim in the file "COPYING".
 
-// Gate 3 ITS common-CA config-ownership correction: DetectorTraits.cxx's
-// TrackingLoadPolicy<ITS, NLayers>::configureBeamPosition() must not consult
+// Gate 4 M7e adapter-ownership correction: the adapter-edge beam-position
+// operation must not consult
 // TrackerParamRef<ITS>::get() (o2::its::TrackerParamConfig, the frozen legacy
 // "ITSCATrackerParam" namespace) for overrideBeamEstimation -- the common
 // workflow constructor/configuration (the overrideBeamEstimation argument
@@ -17,10 +17,8 @@
 // the diamond), so it needs no isolation and this file only re-confirms that
 // with a no-regression check.
 //
-// TrackingLoadPolicy<DetId, NLayers>::configureBeamPosition() is already a
-// public static member (DetectorTraits.h); called directly here with a bare
-// TimeFrame (non-templated, Gate 4 B3.1), no geometry/dictionary/GRP fixture
-// required.
+// It is called directly here with a bare TimeFrame, with no
+// geometry/dictionary/GRP fixture required.
 
 #define BOOST_TEST_MODULE ITSMFT BeamPositionOwnership
 #define BOOST_TEST_MAIN
@@ -29,7 +27,7 @@
 
 #include "DataFormatsCalibration/MeanVertexObject.h"
 #include "DetectorsCommonDataFormats/DetID.h"
-#include "ITSMFTTracking/DetectorTraits.h"
+#include "ITSMFTTracking/DetectorTrackingOperationAdapterSupport.h"
 #include "ITSMFTTracking/TimeFrame.h"
 #include "ITStracking/TrackingConfigParam.h"
 
@@ -93,7 +91,7 @@ BOOST_FIXTURE_TEST_CASE(LegacyOverrideBeamEstimationAloneDoesNotSelectMeanVertex
   // above still leaked in (the pre-fix "overrideBeamEstimation || tc.overrideBeamEstimation"
   // condition), the beam position would come from meanVertex (-9, -8)
   // instead of the diamond (1, 2).
-  TrackingLoadPolicyN<ITSNLayers>::configureBeamPosition(tf, p, &meanVertex, /*overrideBeamEstimation=*/false);
+  detail::configureAdapterBeamPosition<o2::detectors::DetID::ITS>(tf, p, &meanVertex, /*overrideBeamEstimation=*/false);
 
   BOOST_CHECK_CLOSE(tf.getBeamX(), 1.f, 1e-4);
   BOOST_CHECK_CLOSE(tf.getBeamY(), 2.f, 1e-4);
@@ -110,7 +108,7 @@ BOOST_FIXTURE_TEST_CASE(ConstructorOverrideBeamEstimationStillSelectsMeanVertex,
   const auto p = diamondParameters(1.f, 2.f, 3.f);
   const auto meanVertex = meanVertexAt(-9.f, -8.f);
 
-  TrackingLoadPolicyN<ITSNLayers>::configureBeamPosition(tf, p, &meanVertex, /*overrideBeamEstimation=*/true);
+  detail::configureAdapterBeamPosition<o2::detectors::DetID::ITS>(tf, p, &meanVertex, /*overrideBeamEstimation=*/true);
 
   BOOST_CHECK_CLOSE(tf.getBeamX(), -9.f, 1e-4);
   BOOST_CHECK_CLOSE(tf.getBeamY(), -8.f, 1e-4);
@@ -124,7 +122,7 @@ BOOST_FIXTURE_TEST_CASE(ITSFallsBackToDiamondWhenNeitherOverrideIsSet, ScopedLeg
   const auto p = diamondParameters(1.f, 2.f, 3.f);
   const auto meanVertex = meanVertexAt(-9.f, -8.f);
 
-  TrackingLoadPolicyN<ITSNLayers>::configureBeamPosition(tf, p, &meanVertex, /*overrideBeamEstimation=*/false);
+  detail::configureAdapterBeamPosition<o2::detectors::DetID::ITS>(tf, p, &meanVertex, /*overrideBeamEstimation=*/false);
 
   BOOST_CHECK_CLOSE(tf.getBeamX(), 1.f, 1e-4);
   BOOST_CHECK_CLOSE(tf.getBeamY(), 2.f, 1e-4);
@@ -144,7 +142,7 @@ BOOST_FIXTURE_TEST_CASE(MFTAlwaysUsesDiamondRegardlessOfOverrideArguments, Scope
   p.Diamond[2] = 6.f;
   const auto meanVertex = meanVertexAt(-9.f, -8.f);
 
-  TrackingLoadPolicyN<o2::mft::constants::mft::LayersNumber>::configureBeamPosition(tf, p, &meanVertex, /*overrideBeamEstimation=*/true);
+  detail::configureAdapterBeamPosition<o2::detectors::DetID::MFT>(tf, p, &meanVertex, /*overrideBeamEstimation=*/true);
 
   BOOST_CHECK_CLOSE(tf.getBeamX(), 4.f, 1e-4);
   BOOST_CHECK_CLOSE(tf.getBeamY(), 5.f, 1e-4);

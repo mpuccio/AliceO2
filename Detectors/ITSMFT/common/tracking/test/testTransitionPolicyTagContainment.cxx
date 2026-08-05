@@ -97,6 +97,9 @@ const std::set<std::string>& stateFamilyAllowlist()
     // by construction); no code-level reference. Already allowlisted above
     // for TransitionPolicyTag as an unwired, zero-external-consumer driver.
     "NativeCylinderCylinderRefitDriver.h",
+    // Adapter-edge refit conversion inspects the representation family of
+    // the generic state before exporting detector compatibility data.
+    "DetectorTrackingOperationAdapterSupport.h",
     // M5d: Propagator::convertFamily/propagateToMeasurement route on the
     // target SurfaceDescriptor::kind-derived StateFamily and, on mismatch,
     // perform a real state-representation conversion between families --

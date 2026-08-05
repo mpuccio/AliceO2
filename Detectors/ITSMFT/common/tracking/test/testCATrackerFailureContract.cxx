@@ -55,7 +55,7 @@
 // The recoverable-failure fixtures trigger BoundedMemoryResource::
 // MemoryLimitExceeded through TrackingParameters::MaxMemory (via
 // Rig::forceMemoryLimitBelowCurrentUsage()), not by calling
-// BoundedMemoryResource::setMaxMemory() directly on the pool: Tracker<N>::
+// BoundedMemoryResource::setMaxMemory() directly on the pool: Tracker::
 // clustersToTracks() itself calls mMemoryPool->setMaxMemory(mTrkParams[
 // iteration].MaxMemory) as the first statement in its try block on every
 // call, which would silently undo a limit set directly on the pool object
@@ -290,7 +290,7 @@ std::vector<TrackingParameters> makeTwoIterationITSParams(bool dropTFUponFailure
 
 // Deterministic injection seam for the std::bad_alloc and
 // unclassified-std::exception cases: TrackerTraits::computeLayerTracklets()
-// is virtual and is the first traversal stage Tracker<N>::clustersToTracks()
+// is virtual and is the first traversal stage Tracker::clustersToTracks()
 // calls after initialiseTimeFrame() succeeds (see CATracker.cxx's do/while
 // loop), so overriding it to throw immediately exercises CATracker.cxx's
 // catch chain deterministically -- without provoking real host OOM, and
@@ -336,15 +336,8 @@ class TestTrackingOperationAdapter final : public TrackingOperationAdapter
     return false;
   }
 
-  bool publishAccepted(TimeFrame&, const TrackingCandidate&, gsl::span<const gsl::span<const SurfaceMeasurement>>,
-                       SurfaceCatalogView) override
-  {
-    return true;
-  }
-
-  bool haveSamePolarity(const TrackingCandidate&, const TrackingCandidate&) const noexcept override { return true; }
-  bool sealAccepted(gsl::span<const TrackingCandidate>) override { return true; }
-  void clearPublicationState() noexcept override { mSidecar->clear(); }
+  bool completeAccepted(gsl::span<const TrackingCandidate>, const TrackingParameters&, const SurfaceTrackingScratch&, bool) override { return true; }
+  void resetAdapterState() noexcept override { mSidecar->clear(); }
 
  private:
   ITSSharedClusterCompatibility* mSidecar;
@@ -497,7 +490,7 @@ struct RigT {
     tf.setROFViews(RuntimeROFViews{rofTable->getView(), vertexTable->getView(), mask->getView(), {}});
   }
 
-  // Tracker<N>::clustersToTracks() calls mMemoryPool->setMaxMemory(params[0].
+  // Tracker::clustersToTracks() calls mMemoryPool->setMaxMemory(params[0].
   // MaxMemory) as the very first statement in its try block, on every call
   // -- so a memory pool limit tightened directly on the pool object (rather
   // than through TrackingParameters::MaxMemory) is silently undone the
@@ -505,7 +498,7 @@ struct RigT {
   // pool's current usage makes that same setMaxMemory() call throw
   // BoundedMemoryResource::MemoryLimitExceeded immediately, before
   // initialiseTimeFrame()/prepareClusters() or any traversal code runs.
-  // Tracker<N> keeps its own copy of the parameters vector (setParameters()
+  // Tracker keeps its own copy of the parameters vector (setParameters()
   // copies by value), so it must be re-applied after this mutation.
   void forceMemoryLimitBelowCurrentUsage()
   {

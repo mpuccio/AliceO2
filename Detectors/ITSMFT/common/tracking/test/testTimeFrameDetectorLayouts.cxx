@@ -78,17 +78,8 @@ class NoopTrackingOperationAdapter final : public TrackingOperationAdapter
     return false;
   }
 
-  bool publishAccepted(TimeFrame&,
-                       const TrackingCandidate&,
-                       gsl::span<const gsl::span<const SurfaceMeasurement>>,
-                       SurfaceCatalogView) override
-  {
-    return true;
-  }
-
-  bool haveSamePolarity(const TrackingCandidate&, const TrackingCandidate&) const noexcept override { return false; }
-  bool sealAccepted(gsl::span<const TrackingCandidate>) override { return true; }
-  void clearPublicationState() noexcept override {}
+  bool completeAccepted(gsl::span<const TrackingCandidate>, const TrackingParameters&, const SurfaceTrackingScratch&, bool) override { return true; }
+  void resetAdapterState() noexcept override {}
 };
 
 NoopTrackingOperationAdapter gNoopOperationAdapter;
@@ -441,7 +432,7 @@ BOOST_AUTO_TEST_CASE(traversal_legacy_cell_container_size_mismatch_fails_before_
   // CellTopologyId values; a desync between that legacy container and the
   // cached sparse layout must fail with SparseTopologyMismatch rather than
   // index out of bounds. Reached here through
-  // LegacyTrackerScratch::getCells(), the existing public, non-const
+  // SurfaceTrackingScratch::getCells(), the existing public, non-const
   // production scratch accessor -- no new mutation API is
   // added for this test.
   auto params = mftTraversalParameters();

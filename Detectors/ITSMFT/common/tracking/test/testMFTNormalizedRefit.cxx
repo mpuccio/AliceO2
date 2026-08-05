@@ -11,9 +11,9 @@
 // proving every physical hit coordinate/covariance the shared native driver
 // (fitTrackSeedLegs, NativeRefitDriver.h) consumes comes from the
 // caller-supplied runtime span-of-spans (TrackerTraits::
-// mLayerMeasurements) and SurfaceCatalogView, never from LegacyTrackerScratch's
+// mLayerMeasurements) and SurfaceCatalogView, never from detector-legacy
 // legacy Cluster/TrackingFrameInfo backfill. Each test calls refitTrackFwd
-// directly with a hand-built LegacyTrackerScratch/seed/measurement-span/
+// directly with a hand-built SurfaceTrackingScratch/seed/measurement-span/
 // catalog fixture -- it does not exercise TrackerTraits::initialiseTimeFrame()
 // or the full CA traversal, which already have their own focused coverage
 // (testComputeLayerCellsOrchestration.cxx et al.) for the
@@ -47,7 +47,7 @@
 
 #include "ITSMFTTracking/ForwardSurfaceStateOperations.h"
 #include "ITSMFTTracking/SurfaceTrackingScratch.h"
-#include "ITSMFTTracking/MFTFwdTrackHelpers.h"
+#include "ITSMFTTracking/MFTAdapterRefit.h"
 #include "ITSMFTTracking/SurfaceCatalogView.h"
 #include "ITSMFTTracking/SurfaceDescriptor.h"
 #include "ITSMFTTracking/TimeFrame.h"
@@ -91,7 +91,7 @@ struct StraightTrackGeometry {
   }
 };
 
-// Owns everything refitTrackFwd needs for one call: a LegacyTrackerScratch
+// Owns everything refitTrackFwd needs for one call: a SurfaceTrackingScratch
 // (external-index/size bookkeeping only -- never a physical-coordinate
 // source once populated), the normalized measurement spans under test, a
 // matching zero-material Disk surface catalog (one SurfaceDescriptor per
@@ -503,8 +503,8 @@ BOOST_AUTO_TEST_CASE(ClusterSizeIsReadFromItsOwnLayerNotFromLayerZeroByExternalI
   // being THIS layer's own layer-local cluster identity -- and must never
   // read tf.getClusterSize(0, extIdx) using the external/global identity:
   // mClusterSize is a per-layer vector (see
-  // LegacyTrackerScratch::loadNormalizedSource() and
-  // LegacyTrackerScratch::getClusterSize()), not a flat array addressable by
+  // SurfaceTrackingScratch::loadNormalizedSource() and
+  // SurfaceTrackingScratch::getClusterSize()), not a flat array addressable by
   // an external id.
   //
   // Every hit layer gets a real, distinctive size (10 + layer) at its own

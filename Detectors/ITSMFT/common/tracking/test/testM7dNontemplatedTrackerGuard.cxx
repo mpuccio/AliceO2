@@ -102,17 +102,8 @@ class NoopTrackingOperationAdapter final : public TrackingOperationAdapter
     return false;
   }
 
-  bool publishAccepted(TimeFrame&,
-                       const TrackingCandidate&,
-                       gsl::span<const gsl::span<const SurfaceMeasurement>>,
-                       SurfaceCatalogView) override
-  {
-    return true;
-  }
-
-  bool haveSamePolarity(const TrackingCandidate&, const TrackingCandidate&) const noexcept override { return false; }
-  bool sealAccepted(gsl::span<const TrackingCandidate>) override { return true; }
-  void clearPublicationState() noexcept override {}
+  bool completeAccepted(gsl::span<const TrackingCandidate>, const o2::itsmft::TrackingParameters&, const SurfaceTrackingScratch&, bool) override { return true; }
+  void resetAdapterState() noexcept override {}
 };
 
 BOOST_AUTO_TEST_CASE(CommonProductionHasOneNonTemplatedTrackerCore)

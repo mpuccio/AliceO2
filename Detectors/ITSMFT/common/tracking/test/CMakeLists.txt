@@ -93,8 +93,8 @@ o2_add_test(transitionpolicyoperations-native
             LABELS "itsmft;tracking"
             PUBLIC_LINK_LIBRARIES O2::ITSMFTTracking O2::MFTTracking)
 
-o2_add_test(detectortraits-track-representation
-            SOURCES testDetectorTraitsTrackRepresentation.cxx
+o2_add_test(detector-adapter-compatibility
+            SOURCES testDetectorAdapterCompatibility.cxx
             COMPONENT_NAME itsmft-tracking
             LABELS "itsmft;tracking"
             PUBLIC_LINK_LIBRARIES O2::ITSMFTTracking O2::MFTTracking)
@@ -373,6 +373,14 @@ o2_add_test(m7c-runtime-topology-rof-guard
 # adapter-only fixed-capacity and typed-output boundaries kept outside it.
 o2_add_test(m7d-nontemplated-tracker-guard
             SOURCES testM7dNontemplatedTrackerGuard.cxx
+            COMPONENT_NAME itsmft-tracking
+            LABELS "itsmft;tracking"
+            PUBLIC_LINK_LIBRARIES O2::ITSMFTTracking O2::MFTTracking)
+
+# Gate 4 M7e: typed refit/output hooks are adapter-owned and absent from the
+# generic Tracker/TrackerTraits core.
+o2_add_test(m7e-adapter-boundary-guard
+            SOURCES testM7eAdapterBoundaryGuard.cxx
             COMPONENT_NAME itsmft-tracking
             LABELS "itsmft;tracking"
             PUBLIC_LINK_LIBRARIES O2::ITSMFTTracking O2::MFTTracking)
