@@ -8,6 +8,7 @@ M7a design/audit: [runtime-plan Tracker/TrackerTraits migration](design/0003-m7-
 M7b count authority: [runtime-count authority](design/0004-m7b-runtime-count-authority.md)
 M7c topology/ROF ownership: [runtime topology and ROF ownership](design/0005-m7c-runtime-topology-rof.md)
 M7d non-templated core: [runtime-plan Tracker/TrackerTraits implementation](design/0006-m7d-nontemplated-tracker-core.md)
+M7e adapter refit/output: [typed refit and output at the adapter boundary](design/0007-m7e-adapter-refit-output.md)
 
 This plan turns the accepted Gate 4 implementation into the ADR 0007 end
 state: one concrete `TrackingEngine::executeEvent()` over ordered
@@ -424,13 +425,24 @@ ordering, output semantics, raw-ROF ownership, or workflow defaults.
 
 ### M7e — move typed refit/output hooks to application adapters
 
-**Next bounded slice.** M7e removes the call-scoped typed-operation seam and
-moves `DetectorTraits<N>` refit/export calls, candidate conversion, and
-sidecar sealing fully into the ITS/MFT application adapters. The shared body
-may retain only runtime spans, `SurfaceKinematicState`, `TrackSeed`, and
-`CommonTrack` data. It must not introduce a second core implementation or a
-new coordinator. The exact boundary and deletion inventory are recorded in
-[design note 0006](design/0006-m7d-nontemplated-tracker-core.md) §2 and §5.
+**Status: complete (2026-08-05).** The production migration, adapter tests,
+ownership guards, and validation record are in [design note 0007](design/0007-m7e-adapter-refit-output.md).
+`DetectorTraits<NLayers>`, `CATrackType<NLayers>`,
+`LayerMeasurementSpans<NLayers>`, `AcceptedTrackShadowPublisher`, and the
+typed MFT helper hook are deleted from generic-core ownership. One narrow
+`TrackingOperationAdapter` remains temporarily for generic seed refit and
+accepted-result sidecar completion; it carries no typed track, shared-cluster
+flag, or workflow state. ITS/MFT adapters consume the same
+`TrackSeed`/`CommonTrack` result path, with ITS shared-status staging owned by
+the ITS publication adapter.
+
+The durable build passed all 97 registered serial ITS/MFT tests. Fixture
+checksums passed 43/43 before and after. Standalone and combined replay legs
+produced ITS 212 / `46913a67a7e2fe7462e29df0db264fa8` and MFT 68 /
+`8106b08571ca593c6b76ff72b761a680`; combined legs matched standalone products
+and the M7d parent matched in all initialized content. Only the undefined
+`MFTTrack.mInvQPtSeed` byte artifact remains excluded. No GPU result is
+claimed because the pinned environment has no CUDA/HIP/device tools.
 
 ## Not safe to delete yet
 
@@ -446,7 +458,7 @@ new coordinator. The exact boundary and deletion inventory are recorded in
 | `ITSMFTLegacyParticipantSet` | Coordinator-shaped holder of combined application construction and event-owned publication/reset state | **Deleted M6g**; construction is inlined into the combined DPL task and publication/timing ownership remains workflow-local |
 | Common `TrackingTopology<NLayers>` | The common layer-indexed topology duplicated the sparse plan topology | **Deleted M7c**; frozen legacy ITS topology is outside the common-CA guard and remains unchanged |
 | Common `ROF*Table<NLayers>` scratch ownership | The core now receives non-owning runtime timing/overlap/mask views | **Deleted M7c**; fixed-capacity builders remain only at explicitly named adapter edges until their own template seam is reduced |
-| Call-scoped typed operation seam | M7d keeps refit/export/publish operations at the adapter edge while the shared body becomes non-templated | **M7e:** remove `TrackingOperationAdapter`, typed candidate conversion, and adapter-support helpers after writer/refit parity |
+| Call-scoped operation seam | The generic core still needs one operation-local refit/completion boundary while typed MFT refit and sidecars are adapter-owned | **M7f:** remove or reduce it after a stable generic accepted-result completion owner and a replay-gated sidecar migration; see [design note 0007](design/0007-m7e-adapter-refit-output.md) |
 
 ## Validation baseline
 
