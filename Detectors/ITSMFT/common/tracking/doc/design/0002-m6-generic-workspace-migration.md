@@ -67,9 +67,11 @@ that class; everything else in it is already detector-neutral.
 permanent *classes*.** An earlier draft of this note conflated the two and declared both
 classes "not deletion targets"; that was wrong, and is corrected throughout §3.3, §3.4,
 §8–§10 below. The rule this revision applies instead: **the ITS/MFT application-adapter
-responsibility survives M6 permanently (ADR 0007 decision 2); no `Legacy…`-named class
-does.** `LegacyCATrackingParticipant` is deleted or renamed to a narrowly-scoped, non-
-`Legacy` ITS/MFT participant type once its `LegacyTrackerScratch`/`DetectorTraversalBinding`
+responsibility survives M6 permanently (ADR 0007 decision 2).** M6f removes the old
+workspace/binding participant name and leaves only the explicitly deferred
+`ITSMFTLegacyParticipantSet` exception; no other `Legacy…`-named common-CA production class
+may survive. `LegacyCATrackingParticipant` is deleted or renamed to a narrowly-scoped,
+non-`Legacy` ITS/MFT participant type once its `LegacyTrackerScratch`/`DetectorTraversalBinding`
 internals are gone (§3.3, §9 M6f). `ITSMFTLegacyParticipantSet` survives M6 **only if**,
 at M6 completion, it is demonstrably an immutable application-plan/configuration builder —
 no `loadEvent`/`process`/`execute`/`reset` behavior, no event-owned mutable state, no
@@ -699,37 +701,59 @@ removal is intentional rather than a retained dead toggle.  M6e3 deletes
 only live `SurfaceTrackingScratch` Group C staging; `LegacyTrackerScratch`
 and its Group C members remain intentionally untouched for M6f.
 
-### M6f — Delete `LegacyTrackerScratch<NLayers>`/`DetectorTraversalBinding`; rename `LegacyCATrackingParticipant`
+### M6f — Retire the temporary workspace/binding bridge
 
-- **Scope**: delete `LegacyTrackerScratch<NLayers>` (header + source), `DetectorTraversalBinding`
-  (`detail/DetectorTraversalBinding.h`), the dead `loadROFrameData`/`resetROFrameData`/
-  `prepareROFrameData` family if not already removed as a flagged opportunity (§12),
-  `TrackSeedTpl<NLayers>`/`SeedMetadataBase<NLayers>`'s `NLayers`-templated instantiation
-  (superseded by `TrackSeed`, §4.2), and any other now-unreferenced `NLayers`-templated
-  legacy CA container found by the grep sweep below. **Rename**
-  `LegacyCATrackingParticipant<NLayers>` (and its `ITS`/`MFT` aliases and extern-template
-  instantiations) to a narrowly-scoped, non-`Legacy` name (§3.3) — its own reason for the
-  old name (wrapping `LegacyTrackerScratch`/`DetectorTraversalBinding`) no longer applies
-  once the deletions above land. `ITSMFTLegacyParticipantSet` is **not** in this slice's
-  scope — it is evaluated and disposed of separately at M6g, since its own disqualifying
-  state (§3.4) is unrelated to the scratch/binding deletion this slice performs.
+- **Scope**: delete `LegacyTrackerScratch<NLayers>` (header + source),
+  `DetectorTraversalBinding` (`detail/DetectorTraversalBinding.h`), and the
+  `TrackSeedTpl<NLayers>` whole-track representation. Retain `SeedMetadataBase<N>`
+  because live `CellSeed` still requires it; do not delete that shared base merely
+  because its former `TrackSeedTpl` user is gone. Rename
+  `LegacyCATrackingParticipant<NLayers>` (and its `ITS`/`MFT` aliases and
+  extern-template instantiations) to `SurfacePlanTrackingParticipant<NLayers>`.
+  `ITSMFTLegacyParticipantSet` is **not** in this slice's scope — it is evaluated
+  and disposed of separately at M6g.
 - **Temporary bridge**: none — this milestone removes M6d/M6e's accessor-seam bridge.
-- **Acceptance/replay gate**: every replay from M6d/M6e re-verified byte-identical;
-  `ctest -L itsmft` green; a dedicated grep-guard test (mirroring ADR 0008's
-  `testNoLegacyFittingDependency.cxx` pattern; see §11) asserts zero remaining references
-  to `LegacyTrackerScratch`, `DetectorTraversalBinding`, or `LegacyCATrackingParticipant`
-  under `Detectors/ITSMFT/common/tracking`.
-- **Deletion/exit criterion**: no production instantiation of `LegacyTrackerScratch<NLayers>`
-  (grep-verified) — satisfies ADR 0007 decision 9 and the migration plan's own M6 exit
-  criterion; `SurfaceTrackingScratch` has executed production traffic (proven by M6d/M6e's
-  own replay gates, already satisfied by the time M6f runs); zero production references to
-  `LegacyCATrackingParticipant` under its old name (grep-verified).
+- **Acceptance/replay gate**: every replay from M6d/M6e re-verified; `ctest -L itsmft`
+  green; a dedicated guard (mirroring ADR 0008's `testNoLegacyFittingDependency.cxx`
+  pattern; see §11) asserts zero occurrences of the retired workspace, binding,
+  participant, whole-track seed, and compatibility-template spellings in
+  `common/tracking/{include,src}`. The guard narrowly excludes frozen legacy ITS code
+  outside that tree and permits only the unchanged `ITSMFTLegacyParticipantSet` M6g
+  adapter name.
+- **Deletion/exit criterion**: no production instantiation of
+  `LegacyTrackerScratch<NLayers>` (grep-verified) — satisfies ADR 0007 decision 9 and
+  the migration plan's own M6 exit criterion; `SurfaceTrackingScratch` has executed
+  production traffic for both participants; zero old M6f bridge names remain in the
+  common production include/src surface.
 - **Dependency**: M6e3.
 - **Classification**: behavior-preserving cleanup (replay-gated) for the deletions; the
   participant rename is mechanical (type identity only, no behavior change) but still
   replay-gated to prove nothing else moved. Any residual output delta requires separate
   approval under M5's decision (ADR 0007 decision 11/ADR 0008), same as the pre-existing
   migration-plan text for M6.
+
+**M6f completion record (2026-08-05)**: the implementation used the integrated M6e3
+head `ebcf6fc7608f2eb7562c248da008d799e3975515` on
+`codex/itsmft-m6f-retire-legacy-workspace`. `SurfacePlanTrackingParticipant` is now
+the narrow plan-driven participant name. The old workspace/binding headers, sources,
+explicit instantiations, CMake entries, and binding-only tests are gone; useful
+coverage was migrated to `SurfaceTrackingScratch`, `SurfacePlanBinding`, and
+`TrackSeed`. The common-CA production guard covers only `include` and `src`, with
+the frozen-ITS and M6g adapter exclusions stated above. `loadROFrameData`,
+`resetROFrameData`, and `prepareROFrameData` had zero common production callers and
+were removed with the old scratch; detector-specific raw-ROF workflow ownership and
+compatibility state remain outside this deletion.
+
+The durable build rebuilt the affected library, tests, and workflows. All 95
+registered serial ITS/MFT tests passed. The fixture checksum manifest passed 43/43
+before and after. Standalone and combined replays were mutually field-identical and
+produced the accepted candidates: ITS 212 / `46913a67a7e2fe7462e29df0db264fa8`,
+MFT 68 / `8106b08571ca593c6b76ff72b761a680`. Parent-output comparison matched all
+initialized leaves and the approved MFT float-projected leaves; its sole mismatch
+was the pre-existing uninitialized `TrackMFT::mInvQPtSeed` member (the parent and
+M6f processes contained different run-dependent bytes). M6f did not rewrite that
+compatibility field or alter the CommonTrack staging path, so the undefined legacy
+value is recorded as a validation limitation rather than claimed byte equality.
 
 ### M6g — Evaluate, relocate, and dispose of `ITSMFTLegacyParticipantSet`
 
@@ -775,12 +799,12 @@ unchanged by this note and not repeated here.
 
 | Artifact | Why it must stay | Removal gate |
 |---|---|---|
-| `LegacyTrackerScratch<NLayers>` | Sole production owner of Group A/B/C/D state (§3.1) until `SurfaceTrackingScratch` executes production traffic for **both** participants | M6f, after M6d (MFT) and M6e (ITS) both replay-gated green |
-| `DetectorTraversalBinding` | Sole production binding type until `SurfacePlanBinding` (M6b) is wired into both participants (M6d/M6e) | M6f |
-| `TrackSeedTpl<NLayers>`/`SeedMetadataBase<NLayers>` (the `NLayers`-templated instantiation) | Sole production whole-track-seed representation until `TrackSeed` (§4.2) is wired in | M6d/M6e (per-participant), fully removable at M6f |
-| `mTracks`/`mTracksLabel` (`CATrackType<NLayers>` legacy result staging) | Removed from live `SurfaceTrackingScratch` at M6e3; the retained `LegacyTrackerScratch` members are frozen-workflow compatibility scheduled for M6f | M6f for the retained legacy type |
-| `loadROFrameData()`/`resetROFrameData()`/`prepareROFrameData()` | Not currently blocking anything — zero production callers already (§3.1 Group A′) | Not gated by M6 at all; flagged as an independent, optional deletion (§12) |
-| `LegacyCATrackingParticipant<NLayers>` (current name) | Sole production ITS/MFT participant type until its scratch/binding internals are generic (§3.3) | M6f — renamed, not simply deleted; the concrete-per-detector-participant role persists under a new, non-`Legacy` name |
+| `LegacyTrackerScratch<NLayers>` | Retired after `SurfaceTrackingScratch` executed production traffic for **both** participants | **Deleted M6f** |
+| `DetectorTraversalBinding` | Its plan-sizing/slot-assignment role is carried by `SurfacePlanBinding` for both participants | **Deleted M6f** |
+| `TrackSeedTpl<NLayers>` | Retired whole-track representation; `TrackSeed` is now the sole common-CA whole-track seed | **Deleted M6f**; `SeedMetadataBase<N>` remains for `CellSeed` |
+| `mTracks`/`mTracksLabel` (`CATrackType<NLayers>` legacy result staging) | Removed from live `SurfaceTrackingScratch` at M6e3 | **Already deleted M6e3** |
+| `loadROFrameData()`/`resetROFrameData()`/`prepareROFrameData()` | Zero common production callers; detector-specific raw-ROF workflow APIs are a separate ownership path | **Deleted from common scratch M6f**; raw-ROF APIs remain outside common CA |
+| `SurfacePlanTrackingParticipant<NLayers>` | Narrow plan-driven ITS/MFT participant adapter; no retired bridge ownership | **Remains**; only `ITSMFTLegacyParticipantSet` is deferred to M6g |
 | `ITSMFTLegacyParticipantSet` (current name/shape) | Currently owns event-owned mutable state and coordinator-shaped behavior (the publication/timing bridge — §3.4) that must be relocated before this class can even be considered for retention; **fails** the four-condition survival test as shaped today | M6g — retained under a new, non-`Legacy` name only if relocation leaves a class that demonstrably passes all four conditions in §3.4; deleted/inlined into `CombinedCATrackerSpec.cxx` otherwise |
 
 ## 11. Grep/deletion criteria for `Legacy`-prefixed names
@@ -797,17 +821,16 @@ Every `Legacy`-containing production type identifier under
 | `LegacyId`, `LegacyIndexMismatch` (`TrackerTraits.h`/`.cxx`) | Internal to `TrackerTraits<NLayers>`'s own hot-loop/topology-consistency machinery — a topology-ID type alias and a `TraversalFailureReason` enumerator, not a scratch/binding/participant-set artifact | **Yes** — `TrackerTraits<NLayers>`/`Tracker<NLayers>` stay `NLayers`-templated algorithm orchestration, explicitly out of M6's scope (§3.3, §4.3); renaming these belongs to whatever future milestone, if any, revisits `TrackerTraits`/`Tracker` naming, not M6 |
 | `LegacyMaterialMismatch` (`mLayerMaterial`/`LegacyMaterialMismatch` et al.) | Already tracked in `GenericTrackingEngineMigration.md`'s own "Policy/legacy compatibility code" row, gated by its own M4–M6 slice | **Yes** — tracked there, not duplicated in this note's guard to avoid two sources of truth for the same item |
 
-**Guard test**: M6f's acceptance gate adds a dedicated grep-guard test (in the style of ADR
-0008's `testNoLegacyFittingDependency.cxx`) asserting zero occurrences of
-`LegacyTrackerScratch`, `DetectorTraversalBinding`, and `LegacyCATrackingParticipant` in
-every file under `Detectors/ITSMFT/common/tracking/{include,src}`; M6g extends the same
-test to also assert zero occurrences of `ITSMFTLegacyParticipantSet` under its old name.
-Test files, this design note, and other historical-record documentation (ADRs,
-`AgentCoordination.md`) are explicitly exempt — the guard's purpose is production-surface
-hygiene, not erasing the migration's own record. **M6 is not complete while any of these
-four identifiers (excluding the two explicitly-excluded rows above) remains in production
-code** — this is the concrete, checkable form of "no `Legacy…` class may survive the
-completed M6 migration."
+**Guard test**: M6f's acceptance gate adds a dedicated source/dependency guard (in the
+style of ADR 0008's `testNoLegacyFittingDependency.cxx`) asserting zero occurrences of
+`LegacyTrackerScratch`, `DetectorTraversalBinding`, `LegacyCATrackingParticipant`,
+`TrackSeedTpl`, `ScratchT`, or `BindingT` in every production header/source under
+`Detectors/ITSMFT/common/tracking/{include,src}`. Frozen legacy ITS code outside that
+common tree is explicitly out of scope, and the unchanged `ITSMFTLegacyParticipantSet`
+is the only permitted remaining `Legacy` class in this M6f slice; M6g owns its final
+disposition. Test files and historical documentation are not scanned. This is the
+concrete, checkable form of the M6f bridge-retirement requirement without erasing the
+migration record.
 
 ## 12. Deletion/simplification opportunities flagged separately (not mandatory M6 scope)
 
@@ -815,10 +838,10 @@ Per the task's own instruction to flag these separately rather than silently bro
 scope. Ranked by how confidently actionable each is from this audit alone (Rank 1 =
 grep-verified and mechanical; Rank 3 = needs more evidence before any action):
 
-1. **Rank 1 — `loadROFrameData()`/`resetROFrameData()`/`prepareROFrameData()`**
-   (§3.1 Group A′): zero production call sites in the new common tracker today,
-   independent of M6. Could be deleted now, in its own small commit, without waiting for
-   M6b–M6g — flagged, not actioned by this note.
+1. **Rank 1 — detector-specific raw-ROF APIs**: the common scratch methods
+   `loadROFrameData()`/`resetROFrameData()`/`prepareROFrameData()` had zero common
+   production callers and were deleted in M6f. The similarly named ITS/MFT raw-ROF
+   workflow ownership APIs remain live and are intentionally outside this deletion.
 2. **Rank 2 — `Tracker<NLayers>`'s own `TimeFrame::wipe()` call inside its
    recoverable-drop path** (§6): currently double-wipes `TimeFrame` on a recoverable
    single-participant failure (once inside `Tracker<NLayers>::clustersToTracks()`, once
@@ -829,25 +852,23 @@ grep-verified and mechanical; Rank 3 = needs more evidence before any action):
    M6g successor) are the only production callers of `Tracker<NLayers>::clustersToTracks()`
    (already true today, per §3.3) — not actioned here. Ranked below item 1 because it
    requires reasoning about call-site ordering, not just a dead-code grep.
-3. **Rank 3 — `mNTotalLowPtVertices`** (`LegacyTrackerScratch` protected member):
-   declared and zero-initialized; no production read/write site found in this audit's
+3. **Rank 3 — `mNTotalLowPtVertices`** (former scratch protected member): declared
+   and zero-initialized; no production read/write site found in this audit's
    grep pass. Flag for verification (not asserted dead — a wider grep across
    `ITStracking`/vertexer call sites than this audit performed would be needed before
    deleting it). Ranked last because, unlike items 1–2, this audit did not perform the
    wider grep that would confirm it.
 
-None of these three block M6a's GO verdict or any M6b–M6g slice; none are included in
+None of these three block M6a's GO verdict or the M6f slice; none are included in
 §9's acceptance gates.
 
 ## 13. Explicit non-actions (recap)
 
-This note does not: implement any production replacement code; modify the `Propagator`
-or its covariance sanitizer; change candidate physics or run fixture generation; redefine
-any baseline; redesign any tracklet/cell/road/refit algorithm or formula; move detector
-sidecars, raw ROFs, or workflow output adaptation into `TimeFrame`; introduce a generic
-catalog copy, persisted `SurfaceKindPair`, or public transition-policy API; rename or
-delete any class in production code (M6f's participant rename and M6g's
-`ITSMFTLegacyParticipantSet` disposition are staged, replay-gated future slices this note
-specifies the criteria for, not actions this note performs); or touch vertexing
+This note does not: modify the `Propagator` or its covariance sanitizer; change candidate
+physics or run fixture generation; redefine any baseline; redesign any
+tracklet/cell/road/refit algorithm or formula; move detector sidecars, raw ROFs, or
+workflow output adaptation into `TimeFrame`; introduce a generic catalog copy, persisted
+`SurfaceKindPair`, or public transition-policy API; begin M6g's
+`ITSMFTLegacyParticipantSet` disposition; or touch vertexing
 algorithms. `ctest -L itsmft` and the existing accepted/candidate replay baselines are
 therefore unaffected by this milestone; no new replay was required or run.
