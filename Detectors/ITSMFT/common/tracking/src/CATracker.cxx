@@ -36,9 +36,9 @@ void computeTracksMClabels(ScratchT& scratch)
 {
   auto& trackLabels = scratch.getTracksLabel();
   trackLabels.clear();
-  trackLabels.reserve(scratch.getNumberOfTracks());
+  trackLabels.reserve(scratchNumberOfTracks<NLayers>(scratch));
 
-  for (auto& track : scratch.getTracks()) {
+  for (auto& track : scratchTracks<NLayers>(scratch)) {
     MCLabelAccumulator labels;
     for (int iLayer = 0; iLayer < NLayers; ++iLayer) {
       const int index = track.getClusterIndex(iLayer);
@@ -78,7 +78,7 @@ TrackingResult Tracker<NLayers, ScratchT, BindingT>::clustersToTracks()
 
   int maxNvertices{-1};
   if (mTrkParams[0].PerPrimaryVertexProcessing) {
-    maxNvertices = mScratch->getROFVertexLookupTableView().getMaxVerticesPerROF();
+    maxNvertices = scratchROFVertexLookupTableView<NLayers>(*mScratch).getMaxVerticesPerROF();
   }
 
   float total{0.f};
@@ -86,7 +86,7 @@ TrackingResult Tracker<NLayers, ScratchT, BindingT>::clustersToTracks()
     for (int iteration = 0; iteration < static_cast<int>(mTrkParams.size()); ++iteration) {
       mMemoryPool->setMaxMemory(mTrkParams[iteration].MaxMemory);
       if (mTrkParams[iteration].PassFlags[IterationStep::UseUPCMask]) {
-        mScratch->useUPCMask();
+        scratchUseUPCMask<NLayers>(*mScratch);
       }
 
       int iVertex = std::min(maxNvertices, 0);
@@ -173,7 +173,7 @@ TrackingResult Tracker<NLayers, ScratchT, BindingT>::clustersToTracks()
 template <int NLayers, typename ScratchT, typename BindingT>
 void Tracker<NLayers, ScratchT, BindingT>::rectifyClusterIndices()
 {
-  for (auto& track : mScratch->getTracks()) {
+  for (auto& track : scratchTracks<NLayers>(*mScratch)) {
     for (int iCluster = 0; iCluster < CATrackType<NLayers>::MaxClusters; ++iCluster) {
       const int index = track.getClusterIndex(iCluster);
       if (index == constants::UnusedIndex) {
@@ -198,7 +198,7 @@ void Tracker<NLayers, ScratchT, BindingT>::rectifyClusterIndices()
 template <int NLayers, typename ScratchT, typename BindingT>
 void Tracker<NLayers, ScratchT, BindingT>::sortTracks()
 {
-  auto& tracks = mScratch->getTracks();
+  auto& tracks = scratchTracks<NLayers>(*mScratch);
   bounded_vector<size_t> indices(tracks.size(), mMemoryPool.get());
   std::iota(indices.begin(), indices.end(), 0);
   std::sort(indices.begin(), indices.end(), [&tracks](size_t i, size_t j) {
@@ -230,16 +230,18 @@ void Tracker<NLayers, ScratchT, BindingT>::sortTracks()
   }
 }
 
-// M6d: three explicit instantiations -- ITS, the standalone-MFT-workflow's
-// own ITSMFTTrackingInterface<MFTNLayers> path (unchanged
-// LegacyTrackerScratch<10>/DetectorTraversalBinding), and the combined
-// workflow's new SurfaceTrackingScratch/SurfacePlanBinding instantiation.
+// M6e2: four explicit instantiations -- the legacy ITS/MFT
+// LegacyTrackerScratch<N>/DetectorTraversalBinding paths (kept for any
+// remaining bare-default callers, e.g. testTrackingInterfaceLoadFailureContract),
+// and the SurfaceTrackingScratch/SurfacePlanBinding paths now used by both
+// live ITS and MFT common-CA paths (standalone and combined).
 // The two anonymous-namespace computeTracksMClabels<NLayers, ScratchT>
 // instantiations these need are triggered implicitly by each Tracker<...>
 // explicit instantiation below (via clustersToTracks()'s own call), not
 // declared separately.
 template class Tracker<7, LegacyTrackerScratch<7>, DetectorTraversalBinding>;
 template class Tracker<10, LegacyTrackerScratch<10>, DetectorTraversalBinding>;
+template class Tracker<7, SurfaceTrackingScratch, SurfacePlanBinding>;
 template class Tracker<10, SurfaceTrackingScratch, SurfacePlanBinding>;
 
 } // namespace o2::itsmft::tracking

@@ -335,8 +335,8 @@ void TrackerTraits<NLayers, ScratchT, BindingT>::validateLegacyParity(int iterat
 {
   const auto fail = [iteration]() { throw TraversalException{iteration, TraversalFailureReason::LegacyIndexMismatch}; };
   const auto sparse = layout.topology;
-  const auto legacy = mScratch->getTrackingTopologyView();
-  using LegacyId = typename ScratchN::TrackingTopologyN::Id;
+  const auto legacy = scratchTrackingTopologyView<NLayers>(*mScratch);
+  using LegacyId = typename o2::itsmft::tracking::TrackingTopology<NLayers>::Id;
   // M4: SurfaceTransition no longer stores a policy tag (ADR 0007 decision
   // 8); every transition's tag is derived from its `from` endpoint's
   // SurfaceDescriptor::kind instead -- byte-identical to the removed stored
@@ -722,14 +722,14 @@ void TrackerTraits<NLayers, ScratchT, BindingT>::initialiseTimeFrame(const int i
   // configuration for such an iteration must therefore already match the
   // owned one exactly, checked before TimeFrame is touched at all.
   if (!mTrkParams[iteration].PassFlags[IterationStep::FirstPass] &&
-      !indexTableConfigurationsMatch(stagedIndexTableConfig, mScratch->getIndexTableUtils())) {
+      !indexTableConfigurationsMatch<NLayers>(stagedIndexTableConfig, mScratch->getIndexTableUtils())) {
     throw TraversalException{iteration, TraversalFailureReason::IndexTableConfigurationMismatch};
   }
 
   // 5. Only now is the scratch touched: it receives an already-validated
   // configuration by value and never inspects a tag or detector ID.
-  mScratch->initialise(*mFrame, mTrkParams[iteration], mTrkParams[iteration].NLayers, iteration,
-                       stagedIndexTableConfig, stagedLayerMeasurements);
+  scratchInitialise<NLayers>(*mScratch, *mFrame, mTrkParams[iteration], mTrkParams[iteration].NLayers, iteration,
+                             stagedIndexTableConfig, stagedLayerMeasurements);
 
   // A sorted Cluster is a locator/navigation cache only. Validate each
   // enabled ROF that can participate in a configured transition after every
@@ -737,8 +737,8 @@ void TrackerTraits<NLayers, ScratchT, BindingT>::initialiseTimeFrame(const int i
   // The spans remain local until this check and all subsequent policy setup
   // have succeeded, so a structural failure cannot publish traversal caches.
   std::array<bool, NLayers> candidateReachableLayers{};
-  for (int transitionId = 0; transitionId < mScratch->getTrackingTopologyView().nTransitions; ++transitionId) {
-    const auto& transition = mScratch->getTrackingTopologyView().getTransition(transitionId);
+  for (int transitionId = 0; transitionId < scratchTrackingTopologyView<NLayers>(*mScratch).nTransitions; ++transitionId) {
+    const auto& transition = scratchTrackingTopologyView<NLayers>(*mScratch).getTransition(transitionId);
     candidateReachableLayers[transition.fromLayer] = true;
     candidateReachableLayers[transition.toLayer] = true;
   }
@@ -748,7 +748,7 @@ void TrackerTraits<NLayers, ScratchT, BindingT>::initialiseTimeFrame(const int i
     }
     const auto measurements = stagedLayerMeasurements[layer];
     const auto rofBoundaries = mScratch->getROFrameClusters(layer);
-    const auto rofMask = mScratch->getROFMaskView();
+    const auto rofMask = scratchROFMaskView<NLayers>(*mScratch);
     // Orchestration-only users can intentionally omit the mask altogether;
     // without it no ROF is candidate-reachable. Do not validate allocated
     // spans until a later configuration actually enables one.
@@ -919,7 +919,7 @@ void TrackerTraits<NLayers, ScratchT, BindingT>::prepareTransitionScatteringAndB
   // mTraversalGrouping's per-tag span, so the loop-carried oneOverR ratchet
   // is threaded in exactly the same order every time -- ordering does not
   // depend on, and is not proven against, grouping-span order.
-  const auto& topology = mScratch->getTrackingTopologyView();
+  const auto& topology = scratchTrackingTopologyView<NLayers>(*mScratch);
   auto& transitionMSAngles = mScratch->getTransitionMSAngles();
   auto& transitionPhiCuts = mScratch->getTransitionPhiCuts();
   float oneOverR{0.001f * 0.3f * std::abs(getBz()) / trkParam.TrackletMinPt};
@@ -1031,7 +1031,7 @@ void TrackerTraits<NLayers, ScratchT, BindingT>::computeLayerTrackletsForPolicy(
     };
 
     auto forTracklets = [&](auto Mode, int transitionId, int fromLayer, int toLayer, const TrackletProjectionState<Tag>& transitionState, int pivotROF, int base, int& offset) -> int {
-      if (!mScratch->getROFMaskView().isROFEnabled(fromLayer, pivotROF)) {
+      if (!scratchROFMaskView<NLayers>(*mScratch).isROFEnabled(fromLayer, pivotROF)) {
         return 0;
       }
       // A diamond vertex valid for this specific pivotROF is derived fresh
@@ -1043,10 +1043,10 @@ void TrackerTraits<NLayers, ScratchT, BindingT>::computeLayerTrackletsForPolicy(
       Vertex diamondForROF{};
       gsl::span<const Vertex> primaryVertices;
       if (mTrkParams[iteration].UseDiamond) {
-        diamondForROF = diamondVertexForROF(diamondVert, mScratch->getROFOverlapTableView(), fromLayer, pivotROF);
+        diamondForROF = diamondVertexForROF(diamondVert, scratchROFOverlapTableView<NLayers>(*mScratch), fromLayer, pivotROF);
         primaryVertices = gsl::span<const Vertex>(&diamondForROF, 1);
       } else {
-        primaryVertices = mScratch->getPrimaryVertices(*mFrame, fromLayer, pivotROF);
+        primaryVertices = scratchGetPrimaryVertices<NLayers>(*mScratch, *mFrame, fromLayer, pivotROF);
       }
       if (primaryVertices.empty()) {
         return 0;
@@ -1057,7 +1057,7 @@ void TrackerTraits<NLayers, ScratchT, BindingT>::computeLayerTrackletsForPolicy(
         return 0;
       }
 
-      const auto& rofOverlap = mScratch->getROFOverlapTableView().getOverlap(fromLayer, toLayer, pivotROF);
+      const auto& rofOverlap = scratchROFOverlapTableView<NLayers>(*mScratch).getOverlap(fromLayer, toLayer, pivotROF);
       if (!rofOverlap.getEntries()) {
         return 0;
       }
@@ -1079,7 +1079,7 @@ void TrackerTraits<NLayers, ScratchT, BindingT>::computeLayerTrackletsForPolicy(
 
         for (int iV = startVtx; iV < endVtx; ++iV) {
           const auto& pv = primaryVertices[iV];
-          if (!mScratch->getROFVertexLookupTableView().isVertexCompatible(fromLayer, pivotROF, pv)) {
+          if (!scratchROFVertexLookupTableView<NLayers>(*mScratch).isVertexCompatible(fromLayer, pivotROF, pv)) {
             continue;
           }
           if (pv.isFlagSet(Vertex::Flags::UPCMode) != mTrkParams[iteration].PassFlags[IterationStep::SelectUPCVertices]) {
@@ -1098,14 +1098,14 @@ void TrackerTraits<NLayers, ScratchT, BindingT>::computeLayerTrackletsForPolicy(
           }
 
           for (int targetROF = rofOverlap.getFirstEntry(); targetROF < rofOverlap.getEntriesBound(); ++targetROF) {
-            if (!mScratch->getROFMaskView().isROFEnabled(toLayer, targetROF)) {
+            if (!scratchROFMaskView<NLayers>(*mScratch).isROFEnabled(toLayer, targetROF)) {
               continue;
             }
             auto layer1 = mScratch->getClustersOnLayer(targetROF, toLayer);
             if (layer1.empty()) {
               continue;
             }
-            const auto ts = mScratch->getROFOverlapTableView().getTimeStamp(fromLayer, pivotROF, toLayer, targetROF);
+            const auto ts = scratchROFOverlapTableView<NLayers>(*mScratch).getTimeStamp(fromLayer, pivotROF, toLayer, targetROF);
             if (!ts.isCompatible(pv.getTimeStamp())) {
               continue;
             }
@@ -1169,7 +1169,7 @@ void TrackerTraits<NLayers, ScratchT, BindingT>::computeLayerTrackletsForPolicy(
         const int scratchTransitionId = requireScratchTransitionSlot(iteration, typedTransitionId);
         const auto [fromLayer, toLayer] = resolveTransitionLayers(transitionId);
         const auto transitionState = makeTransitionState(scratchTransitionId, fromLayer, toLayer);
-        const int startROF = 0, endROF = mScratch->getROFOverlapTableView().getLayer(fromLayer).mNROFsTF;
+        const int startROF = 0, endROF = scratchROFOverlapTableView<NLayers>(*mScratch).getLayer(fromLayer).mNROFsTF;
         for (int pivotROF{startROF}; pivotROF < endROF; ++pivotROF) {
           forTracklets(PassMode::OnePass{}, scratchTransitionId, fromLayer, toLayer, transitionState, pivotROF, 0, dummy);
         }
@@ -1181,7 +1181,7 @@ void TrackerTraits<NLayers, ScratchT, BindingT>::computeLayerTrackletsForPolicy(
         const int scratchTransitionId = requireScratchTransitionSlot(iteration, typedTransitionId);
         const auto [fromLayer, toLayer] = resolveTransitionLayers(transitionId);
         const auto transitionState = makeTransitionState(scratchTransitionId, fromLayer, toLayer);
-        const int startROF = 0, endROF = mScratch->getROFOverlapTableView().getLayer(fromLayer).mNROFsTF;
+        const int startROF = 0, endROF = scratchROFOverlapTableView<NLayers>(*mScratch).getLayer(fromLayer).mNROFsTF;
         bounded_vector<int> perROFCount((endROF - startROF) + 1, mMemoryPool.get());
         tbb::parallel_for(startROF, endROF, [&](const int pivotROF) {
           perROFCount[pivotROF - startROF] = forTracklets(PassMode::TwoPassCount{}, scratchTransitionId, fromLayer, toLayer, transitionState, pivotROF, 0, dummy);
@@ -1984,9 +1984,9 @@ void TrackerTraits<NLayers, ScratchT, BindingT>::findRoadsForPolicy(const int it
 template <int NLayers, typename ScratchT, typename BindingT>
 void TrackerTraits<NLayers, ScratchT, BindingT>::acceptTracks(int iteration, bounded_vector<CATrackType<NLayers>>& tracks, bounded_vector<bounded_vector<int>>& firstClusters)
 {
-  auto& trks = mScratch->getTracks();
+  auto& trks = scratchTracks<NLayers>(*mScratch);
   trks.reserve(trks.size() + tracks.size());
-  const float smallestROFHalf = mScratch->getROFOverlapTableView().getClockLayer().mROFLength * 0.5f;
+  const float smallestROFHalf = scratchROFOverlapTableView<NLayers>(*mScratch).getClockLayer().mROFLength * 0.5f;
   for (auto& track : tracks) {
     int nShared = 0;
     bool isFirstShared{false};
@@ -2017,8 +2017,8 @@ void TrackerTraits<NLayers, ScratchT, BindingT>::acceptTracks(int iteration, bou
       }
       mScratch->markUsedCluster(iLayer, track.getClusterIndex(iLayer));
       int currentROF = mScratch->getClusterROF(iLayer, track.getClusterIndex(iLayer));
-      const auto nominalROFTS = mScratch->getROFOverlapTableView().getLayer(iLayer).getROFTimeBounds(currentROF);
-      const auto expandedROFTS = mScratch->getROFOverlapTableView().getLayer(iLayer).getROFTimeBounds(currentROF, true);
+      const auto nominalROFTS = scratchROFOverlapTableView<NLayers>(*mScratch).getLayer(iLayer).getROFTimeBounds(currentROF);
+      const auto expandedROFTS = scratchROFOverlapTableView<NLayers>(*mScratch).getLayer(iLayer).getROFTimeBounds(currentROF, true);
       if (firstCls) {
         firstCls = false;
         nominalTS = nominalROFTS;
@@ -2068,7 +2068,7 @@ void TrackerTraits<NLayers, ScratchT, BindingT>::markTracks(int iteration)
 {
   if (mTrkParams[iteration].AllowSharingFirstCluster) {
     /// Now we have to set the shared cluster flag
-    auto& tracks = mScratch->getTracks();
+    auto& tracks = scratchTracks<NLayers>(*mScratch);
 
     bounded_vector<int> fclusSort(tracks.size(), mMemoryPool.get());
     std::iota(fclusSort.begin(), fclusSort.end(), 0);
@@ -2116,7 +2116,7 @@ void TrackerTraits<NLayers, ScratchT, BindingT>::markTracks(int iteration)
   // this final serial marking boundary.
   if constexpr (DetectorTraits<NLayers>::DetId == o2::detectors::DetID::ITS) {
     if (iteration + 1 == static_cast<int>(mTrkParams.size()) &&
-        !mAcceptedTrackShadowPublisher.sealITSSharedClusterCompatibility(mScratch->getTracks())) {
+        !mAcceptedTrackShadowPublisher.sealITSSharedClusterCompatibility(scratchTracks<NLayers>(*mScratch))) {
       throw std::runtime_error{"failed to seal ITS shared-cluster compatibility"};
     }
   }
@@ -2169,5 +2169,16 @@ template void TrackerTraits<10, SurfaceTrackingScratch, SurfacePlanBinding>::pro
 template void TrackerTraits<10, SurfaceTrackingScratch, SurfacePlanBinding>::processNeighbours<TransitionPolicyTag::CylinderCylinder, typename TrackerTraits<10, SurfaceTrackingScratch, SurfacePlanBinding>::TrackSeedN>(int, int, int, const bounded_vector<typename TrackerTraits<10, SurfaceTrackingScratch, SurfacePlanBinding>::TrackSeedN>&, const bounded_vector<int>&, const bounded_vector<int>&, bounded_vector<typename TrackerTraits<10, SurfaceTrackingScratch, SurfacePlanBinding>::TrackSeedN>&, bounded_vector<int>&, bounded_vector<int>&, const CylinderCylinderPolicyParams&);
 template void TrackerTraits<10, SurfaceTrackingScratch, SurfacePlanBinding>::processNeighbours<TransitionPolicyTag::DiskDisk, typename TrackerTraits<10, SurfaceTrackingScratch, SurfacePlanBinding>::CellSeedN>(int, int, int, const bounded_vector<typename TrackerTraits<10, SurfaceTrackingScratch, SurfacePlanBinding>::CellSeedN>&, const bounded_vector<int>&, const bounded_vector<int>&, bounded_vector<typename TrackerTraits<10, SurfaceTrackingScratch, SurfacePlanBinding>::TrackSeedN>&, bounded_vector<int>&, bounded_vector<int>&, const DiskDiskPolicyParams&);
 template void TrackerTraits<10, SurfaceTrackingScratch, SurfacePlanBinding>::processNeighbours<TransitionPolicyTag::DiskDisk, typename TrackerTraits<10, SurfaceTrackingScratch, SurfacePlanBinding>::TrackSeedN>(int, int, int, const bounded_vector<typename TrackerTraits<10, SurfaceTrackingScratch, SurfacePlanBinding>::TrackSeedN>&, const bounded_vector<int>&, const bounded_vector<int>&, bounded_vector<typename TrackerTraits<10, SurfaceTrackingScratch, SurfacePlanBinding>::TrackSeedN>&, bounded_vector<int>&, bounded_vector<int>&, const DiskDiskPolicyParams&);
+
+// M6e2: the new ITS instantiation, matching the same M5b/M6d rationale --
+// both live ITS common-CA paths (standalone ITSMFTTrackingInterface<7> and
+// the combined workflow's LegacyCATrackingParticipant<7>) now bind to
+// SurfaceTrackingScratch/SurfacePlanBinding instead of
+// LegacyTrackerScratch<7>/DetectorTraversalBinding.
+template class TrackerTraits<7, SurfaceTrackingScratch, SurfacePlanBinding>;
+template void TrackerTraits<7, SurfaceTrackingScratch, SurfacePlanBinding>::processNeighbours<TransitionPolicyTag::CylinderCylinder, typename TrackerTraits<7, SurfaceTrackingScratch, SurfacePlanBinding>::CellSeedN>(int, int, int, const bounded_vector<typename TrackerTraits<7, SurfaceTrackingScratch, SurfacePlanBinding>::CellSeedN>&, const bounded_vector<int>&, const bounded_vector<int>&, bounded_vector<typename TrackerTraits<7, SurfaceTrackingScratch, SurfacePlanBinding>::TrackSeedN>&, bounded_vector<int>&, bounded_vector<int>&, const CylinderCylinderPolicyParams&);
+template void TrackerTraits<7, SurfaceTrackingScratch, SurfacePlanBinding>::processNeighbours<TransitionPolicyTag::CylinderCylinder, typename TrackerTraits<7, SurfaceTrackingScratch, SurfacePlanBinding>::TrackSeedN>(int, int, int, const bounded_vector<typename TrackerTraits<7, SurfaceTrackingScratch, SurfacePlanBinding>::TrackSeedN>&, const bounded_vector<int>&, const bounded_vector<int>&, bounded_vector<typename TrackerTraits<7, SurfaceTrackingScratch, SurfacePlanBinding>::TrackSeedN>&, bounded_vector<int>&, bounded_vector<int>&, const CylinderCylinderPolicyParams&);
+template void TrackerTraits<7, SurfaceTrackingScratch, SurfacePlanBinding>::processNeighbours<TransitionPolicyTag::DiskDisk, typename TrackerTraits<7, SurfaceTrackingScratch, SurfacePlanBinding>::CellSeedN>(int, int, int, const bounded_vector<typename TrackerTraits<7, SurfaceTrackingScratch, SurfacePlanBinding>::CellSeedN>&, const bounded_vector<int>&, const bounded_vector<int>&, bounded_vector<typename TrackerTraits<7, SurfaceTrackingScratch, SurfacePlanBinding>::TrackSeedN>&, bounded_vector<int>&, bounded_vector<int>&, const DiskDiskPolicyParams&);
+template void TrackerTraits<7, SurfaceTrackingScratch, SurfacePlanBinding>::processNeighbours<TransitionPolicyTag::DiskDisk, typename TrackerTraits<7, SurfaceTrackingScratch, SurfacePlanBinding>::TrackSeedN>(int, int, int, const bounded_vector<typename TrackerTraits<7, SurfaceTrackingScratch, SurfacePlanBinding>::TrackSeedN>&, const bounded_vector<int>&, const bounded_vector<int>&, bounded_vector<typename TrackerTraits<7, SurfaceTrackingScratch, SurfacePlanBinding>::TrackSeedN>&, bounded_vector<int>&, bounded_vector<int>&, const DiskDiskPolicyParams&);
 
 } // namespace o2::itsmft::tracking

@@ -238,39 +238,40 @@ void ITSMFTTrackingInterface<NLayers, ScratchT, BindingT>::initialiseTracker()
   }
   mPlan = std::move(planResult.layout);
 
-  // M6e1: adapter-derived expected kind/policy, mirroring the combined-MFT
-  // participant's own SurfacePlanBinding construction in
-  // ITSMFTLegacyParticipantSet.cxx exactly (SurfaceKind::Disk/
-  // TransitionPolicyTag::DiskDisk are literal, adapter-owned constants at
-  // this one call site -- no detector switch inside SurfacePlanBinding
-  // itself). ClusterSourceId{0}, not {1}: this interface's own single-source
-  // static catalog has no competing ITS source at position 0, unlike the
-  // combined participant's fixed ITS=0/MFT=1 contract.
+  // M6e1/M6e2: adapter-derived expected kind/policy, mirroring the combined
+  // participants' own SurfacePlanBinding construction in
+  // ITSMFTLegacyParticipantSet.cxx exactly (SurfaceKind/TransitionPolicyTag
+  // are literal, adapter-owned constants selected right here from this
+  // interface's own compile-time DetId -- no detector switch inside
+  // SurfacePlanBinding itself, which still takes them as plain parameters).
+  // ClusterSourceId{0}, not {1}: this interface's own single-source static
+  // catalog has no competing source at position 0 for either detector,
+  // unlike the combined participant set's fixed ITS=0/MFT=1 contract.
   //
-  // Gated on BindingT == SurfacePlanBinding, not merely DetId == MFT: DetId
-  // depends only on NLayers, so it is true for *both* the real MFT
+  // Gated on BindingT == SurfacePlanBinding, not merely "is this ITS or
+  // MFT": DetId depends only on NLayers, so it is true for *both* a real
   // production instantiation (BindingT = SurfacePlanBinding) and the bare,
-  // default-argument ITSMFTTrackingInterface<10> (BindingT =
+  // default-argument ITSMFTTrackingInterface<NLayers> (BindingT =
   // DetectorTraversalBinding) that testTrackingInterfaceLoadFailureContract.cxx
-  // still explicitly instantiates -- SurfacePlanBinding::build()'s six-
-  // argument signature is not source-compatible with
+  // still explicitly instantiates for either NLayers -- SurfacePlanBinding::
+  // build()'s six-argument signature is not source-compatible with
   // DetectorTraversalBinding::build()'s five-argument one, so instantiating
   // this block for the latter is a hard compile error, not just an unwanted
-  // behavior. For ITS's own default BindingT (DetectorTraversalBinding, any
-  // NLayers) and for the bare NLayers=10/DetectorTraversalBinding
-  // combination alike, this whole block is unreachable dead code by
-  // construction, so mBinding stays null and Tracker<...> never gets
-  // adoptDetectorTraversalBinding() called -- exactly today's existing,
-  // unaffected behavior (the identity-mapping fallback
-  // TrackerTraits<NLayers,...>::adoptDetectorTraversalBinding()'s own doc
-  // comment already documents).
-  if constexpr (DetId == o2::detectors::DetID::MFT && std::is_same_v<BindingT, SurfacePlanBinding>) {
+  // behavior. For every bare default-BindingT instantiation, this whole
+  // block is unreachable dead code by construction, so mBinding stays null
+  // and Tracker<...> never gets adoptDetectorTraversalBinding() called --
+  // exactly today's existing, unaffected behavior (the identity-mapping
+  // fallback TrackerTraits<NLayers,...>::adoptDetectorTraversalBinding()'s
+  // own doc comment already documents).
+  if constexpr (std::is_same_v<BindingT, SurfacePlanBinding>) {
     SurfaceMask owned;
     for (uint16_t i = 0; i < NLayers; ++i) {
       owned.set(SurfaceId{i});
     }
+    constexpr SurfaceKind expectedKind = (DetId == o2::detectors::DetID::ITS) ? SurfaceKind::Cylinder : SurfaceKind::Disk;
+    constexpr TransitionPolicyTag expectedPolicy = (DetId == o2::detectors::DetID::ITS) ? TransitionPolicyTag::CylinderCylinder : TransitionPolicyTag::DiskDisk;
     auto bindingResult = BindingT::build(mPlan->getLayoutView(0), ClusterSourceId{0}, owned,
-                                         gsl::span<const SurfaceId>{kOrderedSurfaces}, SurfaceKind::Disk, TransitionPolicyTag::DiskDisk);
+                                         gsl::span<const SurfaceId>{kOrderedSurfaces}, expectedKind, expectedPolicy);
     if (!bindingResult.ok()) {
       LOGP(fatal, "{} CA tracker failed to build its SurfacePlanBinding (error={})", detName<DetId>(), static_cast<int>(bindingResult.error));
     }
@@ -405,7 +406,7 @@ void ITSMFTTrackingInterface<NLayers, ScratchT, BindingT>::loadTimeFrame(gsl::sp
   }
   // Copy the finalized clock layer while scratch is live. The export is a
   // value boundary for workflows, never a retained overlap-table reference.
-  mPublicationClock.emplace(mScratch.getROFOverlapTableView().getClockLayer());
+  mPublicationClock.emplace(scratchROFOverlapTableView<NLayers>(mScratch).getClockLayer());
   // A successful normalized-frame replacement invalidates every CommonTrack
   // index, so clear detector-local compatibility entries in the same owner-
   // level operation. Failed loads return above without changing either.
@@ -452,7 +453,7 @@ float ITSMFTTrackingInterface<NLayers, ScratchT, BindingT>::runTracking()
     return kDroppedTimeFrameResult;
   }
   LOGP(info, "{} CA tracking produced {} tracks in {:.2f} ms",
-       detName<DetId>(), mScratch.getNumberOfTracks(), result.elapsedMs);
+       detName<DetId>(), scratchNumberOfTracks<NLayers>(mScratch), result.elapsedMs);
   return result.elapsedMs;
 }
 
@@ -462,8 +463,8 @@ void ITSMFTTrackingInterface<NLayers, ScratchT, BindingT>::configureTrackingTopo
   if (mTrackParams.empty()) {
     return;
   }
-  mScratch.initDefaultTrackingTopology(mTrackParams[0], NLayers);
-  mScratch.initTrackerTopologies(mTrackParams);
+  scratchInitDefaultTrackingTopology<NLayers>(mScratch, mTrackParams[0], NLayers);
+  scratchInitTrackerTopologies<NLayers>(mScratch, mTrackParams);
 }
 
 template <int NLayers, typename ScratchT, typename BindingT>
@@ -578,7 +579,7 @@ template <int NLayers, typename ScratchT, typename BindingT>
 void ITSMFTTrackingInterface<NLayers, ScratchT, BindingT>::configureROFMask(gsl::span<const o2::itsmft::ROFRecord> rofs,
                                                                             gsl::span<const o2::dataformats::IRFrame> irFrames)
 {
-  ROFMaskTableN mask{mScratch.getROFOverlapTable()};
+  ROFMaskTableN mask{scratchROFOverlapTable<NLayers>(mScratch)};
   mask.resetMask();
 
   if constexpr (DetId == o2::detectors::DetID::MFT) {
@@ -593,7 +594,7 @@ void ITSMFTTrackingInterface<NLayers, ScratchT, BindingT>::configureROFMask(gsl:
       LOGP(info, "{} CA IRFrame filter enabled with {} ITS IR frames", detName<DetId>(), irFrames.size());
     }
 
-    const auto nROFs = mScratch.getROFOverlapTableView().getLayer(0).mNROFsTF;
+    const auto nROFs = scratchROFOverlapTableView<NLayers>(mScratch).getLayer(0).mNROFsTF;
     for (int iRof = 0; iRof < static_cast<int>(nROFs); ++iRof) {
       bool accept = true;
       if (iRof < static_cast<int>(rofs.size())) {
@@ -612,7 +613,7 @@ void ITSMFTTrackingInterface<NLayers, ScratchT, BindingT>::configureROFMask(gsl:
     }
   } else {
     for (int iLayer = 0; iLayer < NLayers; ++iLayer) {
-      mask.setROFsEnabled(iLayer, 0, mScratch.getROFOverlapTableView().getLayer(iLayer).mNROFsTF, 1);
+      mask.setROFsEnabled(iLayer, 0, scratchROFOverlapTableView<NLayers>(mScratch).getLayer(iLayer).mNROFsTF, 1);
     }
   }
 
@@ -622,25 +623,26 @@ void ITSMFTTrackingInterface<NLayers, ScratchT, BindingT>::configureROFMask(gsl:
 template <int NLayers, typename ScratchT, typename BindingT>
 void ITSMFTTrackingInterface<NLayers, ScratchT, BindingT>::validateROFInput(gsl::span<const o2::itsmft::ROFRecord> rofs) const
 {
-  const auto expectedROFsTF = mScratch.getROFOverlapTableView().getLayer(0).mNROFsTF;
+  const auto expectedROFsTF = scratchROFOverlapTableView<NLayers>(mScratch).getLayer(0).mNROFsTF;
   if (rofs.size() != expectedROFsTF) {
     LOGP(warn, "{} CA ROF count differs from continuous timing expectation: received {} expected {}",
          detName<DetId>(), rofs.size(), expectedROFsTF);
   }
 }
 
-template class ITSMFTTrackingInterface<7>;
-// M6e1: ITSMFTTrackingInterfaceMFT (the standalone MFT common-CA workflow's
-// real production instantiation) now owns SurfaceTrackingScratch/
-// SurfacePlanBinding. The bare, default-argument ITSMFTTrackingInterface<10>
-// (LegacyTrackerScratch<10>/DetectorTraversalBinding) is kept explicitly
-// instantiated too, unused by production, solely because
+// M6e1/M6e2: ITSMFTTrackingInterfaceITS/MFT (both standalone common-CA
+// workflows' real production instantiations) now own SurfaceTrackingScratch/
+// SurfacePlanBinding. The bare, default-argument ITSMFTTrackingInterface<7>/
+// <10> (LegacyTrackerScratch<NLayers>/DetectorTraversalBinding) are kept
+// explicitly instantiated too, unused by production, solely because
 // testTrackingInterfaceLoadFailureContract.cxx's own NLayers-generic
 // load-failure-contract coverage (a legitimate thing to keep testing on the
 // bare default type, since that contract's behavior does not depend on
-// which concrete ScratchT/BindingT backs it) links against it -- not a
-// second production abstraction layer, just this one test file's existing
+// which concrete ScratchT/BindingT backs it) links against both -- not a
+// second production abstraction layer, just that one test file's existing
 // explicit-instantiation dependency, unchanged by this milestone.
+template class ITSMFTTrackingInterface<7>;
+template class ITSMFTTrackingInterface<7, SurfaceTrackingScratch, SurfacePlanBinding>;
 template class ITSMFTTrackingInterface<10>;
 template class ITSMFTTrackingInterface<10, SurfaceTrackingScratch, SurfacePlanBinding>;
 

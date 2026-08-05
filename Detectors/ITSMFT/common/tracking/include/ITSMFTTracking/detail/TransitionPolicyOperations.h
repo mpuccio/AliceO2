@@ -18,6 +18,7 @@
 
 #include <gsl/span>
 
+#include "ITSMFTTracking/IndexTableUtils.h"
 #include "ITSMFTTracking/MaterialPhysics.h"
 #include "ITSMFTTracking/SurfaceCatalogView.h"
 #include "ITSMFTTracking/SurfaceDescriptor.h"
@@ -38,12 +39,11 @@ class TimeEstBC;
 using Vertex = o2::dataformats::Vertex<TimeEstBC>;
 struct Cluster;
 } // namespace o2::its
-
-namespace o2::itsmft
-{
-template <int NLayers>
-class IndexTableUtils;
-}
+// M6e2: o2::itsmft::IndexTableUtils<NLayers> is now an alias template (see
+// IndexTableUtils.h's own doc) rather than a real class template, so it can
+// no longer be forward-declared separately from its target -- the previous
+// `template <int NLayers> class IndexTableUtils;` forward declaration here
+// is replaced by the real (lightweight) include above.
 #endif
 
 namespace o2::itsmft::tracking

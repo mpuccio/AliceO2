@@ -148,13 +148,17 @@ void TrackingLoadPolicy<DetId, NLayers>::configureBeamPosition(TimeFrame& frame,
   }
 }
 
-// M6d: DetectorTraits<10> (default ScratchT) is still used by the
-// standalone-MFT-workflow's own ITSMFTTrackingInterface<MFTNLayers> path
-// (unaffected); DetectorTraits<10, SurfaceTrackingScratch> is the new
-// instantiation TrackerTraits<10, SurfaceTrackingScratch, SurfacePlanBinding>
-// ::acceptTracks() (via findRoadsForPolicy()) needs.
+// M6d/M6e2: DetectorTraits<7>/<10> (default ScratchT) are still used by any
+// remaining bare-default LegacyTrackerScratch<NLayers>-backed callers (e.g.
+// testTrackingInterfaceLoadFailureContract); DetectorTraits<10,
+// SurfaceTrackingScratch> (M6d) and DetectorTraits<7, SurfaceTrackingScratch>
+// (M6e2) are what TrackerTraits<NLayers, SurfaceTrackingScratch,
+// SurfacePlanBinding>::acceptTracks() (via findRoadsForPolicy()) needs for
+// MFT and ITS respectively, now that both live common-CA paths use
+// SurfaceTrackingScratch.
 template struct DetectorTraits<7>;
 template struct DetectorTraits<10>;
+template struct DetectorTraits<7, SurfaceTrackingScratch>;
 template struct DetectorTraits<10, SurfaceTrackingScratch>;
 template struct TrackingLoadPolicy<o2::detectors::DetID::ITS, 7>;
 template struct TrackingLoadPolicy<o2::detectors::DetID::MFT, 10>;

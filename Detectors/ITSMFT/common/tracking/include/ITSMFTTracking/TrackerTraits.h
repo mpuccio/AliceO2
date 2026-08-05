@@ -164,8 +164,16 @@ class TrackerTraits
  public:
   using ScratchN = ScratchT;
   using IndexTableUtilsN = o2::itsmft::IndexTableUtils<NLayers>;
-  using CellSeedN = typename ScratchN::CellSeedN;
-  using TrackSeedN = typename ScratchN::TrackSeedN;
+  // M6e2: CellSeedN/TrackSeedN never actually depend on ScratchN -- they are
+  // free template aliases keyed only on NLayers (Cell.h). Resolving them
+  // through ScratchN::CellSeedN/TrackSeedN broke once SurfaceTrackingScratch
+  // became shared by both ITS(7) and MFT(10): that class's own CellSeedN/
+  // TrackSeedN are hardcoded to MFTNLayers (see SurfaceTrackingScratch.h),
+  // so TrackerTraits<7, SurfaceTrackingScratch, ...> would silently get
+  // TrackSeedTpl<10> instead of TrackSeedTpl<7>. Bind directly on this
+  // class's own NLayers instead, exactly like IndexTableUtilsN above.
+  using CellSeedN = o2::itsmft::tracking::CellSeedN<NLayers>;
+  using TrackSeedN = o2::itsmft::tracking::TrackSeedN<NLayers>;
 
   virtual ~TrackerTraits() = default;
   // Two independent bind-once pointers -- neither owns nor stores a

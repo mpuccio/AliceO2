@@ -195,7 +195,13 @@ class LegacyCATrackingParticipant final : public TrackingParticipant,
   bool mTracked = false;
 };
 
-using LegacyCATrackingParticipantITS = LegacyCATrackingParticipant<ITSNLayers>;
+// M6e2: the sole production ITS instantiation of "the concrete participant"
+// now owns SurfaceTrackingScratch/SurfacePlanBinding too, completing the
+// same migration M6d already did for MFT -- see the design note's M6e2
+// section. ITSMFTTrackingInterface<ITSNLayers> (the standalone-ITS-workflow's
+// own, separate ownership path) is migrated independently, in that class
+// itself, not through this alias.
+using LegacyCATrackingParticipantITS = LegacyCATrackingParticipant<ITSNLayers, SurfaceTrackingScratch, SurfacePlanBinding>;
 // M6d: the sole production MFT instantiation of "the concrete participant"
 // now owns SurfaceTrackingScratch/SurfacePlanBinding instead of
 // LegacyTrackerScratch<MFTNLayers>/DetectorTraversalBinding -- see the
@@ -204,7 +210,7 @@ using LegacyCATrackingParticipantITS = LegacyCATrackingParticipant<ITSNLayers>;
 // never used LegacyCATrackingParticipant at all.
 using LegacyCATrackingParticipantMFT = LegacyCATrackingParticipant<MFTNLayers, SurfaceTrackingScratch, SurfacePlanBinding>;
 
-extern template class LegacyCATrackingParticipant<ITSNLayers>;
+extern template class LegacyCATrackingParticipant<ITSNLayers, SurfaceTrackingScratch, SurfacePlanBinding>;
 extern template class LegacyCATrackingParticipant<MFTNLayers, SurfaceTrackingScratch, SurfacePlanBinding>;
 
 } // namespace o2::itsmft::tracking

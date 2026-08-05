@@ -64,14 +64,14 @@ void fillMFTOutputs(const o2::itsmft::tracking::SurfaceTrackingScratch& tf,
     rof.setNEntries(0);
   }
 
-  const auto& tracksIn = tf.getTracks();
+  const auto& tracksIn = tf.getTracks<o2::mft::constants::mft::LayersNumber>();
   tracks.reserve(tracksIn.size());
   seedPatterns.reserve(tracksIn.size());
   if (useMC) {
     trackLabels.reserve(tracksIn.size());
   }
 
-  const auto& clockLayer = tf.getROFOverlapTableView().getClockLayer();
+  const auto& clockLayer = tf.getROFOverlapTableView<o2::mft::constants::mft::LayersNumber>().getClockLayer();
   std::vector<int> rofEntries(trackROFs.size() + 1, 0);
 
   for (size_t iTrk = 0; iTrk < tracksIn.size(); ++iTrk) {

@@ -91,28 +91,37 @@ void LegacyCATrackingParticipant<NLayers, ScratchT, BindingT>::configureRofTable
   layerTiming.mROFBias = timing.rofBias;
   layerTiming.mROFAddTimeErr = timing.rofAddTimeErr;
 
-  typename ScratchN::ROFOverlapTableN rofTable;
+  // M6e2: bound directly on this class's own NLayers, not via ScratchN::
+  // ROFOverlapTableN/etc -- SurfaceTrackingScratch's own storage is now
+  // dual-typed (ITS(7)+MFT(10)), so it no longer exposes a single nested
+  // alias for these (see SurfaceTrackingScratch.h, TrackingInterface.h's
+  // identical fix). setROFOverlapTable()/setROFVertexLookupTable()/
+  // setMultiplicityCutMask() are template methods on SurfaceTrackingScratch
+  // now, but deduce NLayers from this locally-typed argument with no
+  // explicit `<>` at the call site, so no `.template` disambiguator or
+  // dispatcher is needed here (unlike the argument-less getters elsewhere).
+  o2::its::ROFOverlapTable<NLayers> rofTable;
   for (int layer = 0; layer < NLayers; ++layer) {
     rofTable.defineLayer(layer, layerTiming);
   }
   rofTable.init();
   mScratch.setROFOverlapTable(rofTable);
 
-  typename ScratchN::ROFVertexLookupTableN vtxTable;
+  o2::its::ROFVertexLookupTable<NLayers> vtxTable;
   for (int layer = 0; layer < NLayers; ++layer) {
     vtxTable.defineLayer(layer, layerTiming);
   }
   vtxTable.init();
   mScratch.setROFVertexLookupTable(vtxTable);
 
-  typename ScratchN::ROFMaskTableN mask{rofTable};
+  o2::its::ROFMaskTable<NLayers> mask{rofTable};
   mask.resetMask();
   for (int layer = 0; layer < NLayers; ++layer) {
     mask.setROFsEnabled(layer, 0, static_cast<int>(nROFsTF), 1);
   }
   mScratch.setMultiplicityCutMask(std::move(mask));
 
-  mScratch.initTrackerTopologies(mParams);
+  scratchInitTrackerTopologies<NLayers>(mScratch, mParams);
 }
 
 template <int NLayers, typename ScratchT, typename BindingT>
@@ -155,7 +164,7 @@ ParticipantTrackingResult LegacyCATrackingParticipant<NLayers, ScratchT, Binding
     return {ParticipantOutcome::RecoverableDropped, 0};
   }
   mTracked = true;
-  return {ParticipantOutcome::Success, mScratch.getNumberOfTracks()};
+  return {ParticipantOutcome::Success, scratchNumberOfTracks<NLayers>(mScratch)};
 }
 
 template <int NLayers, typename ScratchT, typename BindingT>
@@ -200,13 +209,17 @@ const MFTPublicationCompatibility* LegacyCATrackingParticipant<NLayers, ScratchT
   return nullptr;
 }
 
-// M6d: ITS unchanged; MFT's sole production instantiation now owns
-// SurfaceTrackingScratch/SurfacePlanBinding (LegacyCATrackingParticipant.h's
-// own LegacyCATrackingParticipantMFT alias). No default-arg
-// LegacyCATrackingParticipant<MFTNLayers> instantiation is needed: nothing
-// in production uses it (ITSMFTTrackingInterface<MFTNLayers>, the
-// standalone-MFT-workflow's own path, never used this class at all).
-template class LegacyCATrackingParticipant<ITSNLayers>;
+// M6e2: both production instantiations now own SurfaceTrackingScratch/
+// SurfacePlanBinding (LegacyCATrackingParticipant.h's own
+// LegacyCATrackingParticipantITS/MFT aliases) -- every method above that
+// needed to differ per scratch representation (adoptDetectorLayoutSet()'s
+// adoptPlan() call) already gated on ScratchT identity, not DetId, since
+// M6d, so no change was needed here beyond this explicit-instantiation pair.
+// No default-arg LegacyCATrackingParticipant<NLayers> instantiation is
+// needed for either detector: nothing in production uses it
+// (ITSMFTTrackingInterface<NLayers>, the standalone-workflow ownership path,
+// never used this class at all).
+template class LegacyCATrackingParticipant<ITSNLayers, SurfaceTrackingScratch, SurfacePlanBinding>;
 template class LegacyCATrackingParticipant<MFTNLayers, SurfaceTrackingScratch, SurfacePlanBinding>;
 
 } // namespace o2::itsmft::tracking

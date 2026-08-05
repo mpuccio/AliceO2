@@ -43,8 +43,14 @@ static_assert(o2::itsmft::tracking::ITSMFTTrackingInterfaceITS::DetId == o2::det
 
 namespace
 {
+// M6e2: tf's type follows ITSMFTTrackingInterfaceITS::ScratchN, now
+// SurfaceTrackingScratch -- getTracks()/getROFOverlapTableView() became
+// template accessors on that type (dual ITS/MFT storage, see
+// SurfaceTrackingScratch.h), so this non-template, ITS-only call site binds
+// <ITSNLayers> explicitly (no dispatcher needed: tf's type here is concrete,
+// not a dependent ScratchT).
 template <typename TracksVec, typename ClusterIdxVec, typename ROFVec, typename LabelsVec>
-void fillITSOutputs(const o2::itsmft::tracking::LegacyTrackerScratch<o2::itsmft::tracking::ITSNLayers>& tf,
+void fillITSOutputs(const o2::itsmft::tracking::SurfaceTrackingScratch& tf,
                     gsl::span<const o2::itsmft::ROFRecord> inputROFs,
                     TracksVec& tracks,
                     ClusterIdxVec& clusterIndices,
@@ -58,14 +64,14 @@ void fillITSOutputs(const o2::itsmft::tracking::LegacyTrackerScratch<o2::itsmft:
     rof.setNEntries(0);
   }
 
-  const auto& tracksIn = tf.getTracks();
+  const auto& tracksIn = tf.getTracks<o2::itsmft::tracking::ITSNLayers>();
   tracks.reserve(tracksIn.size());
   clusterIndices.reserve(tf.getNumberOfUsedClusters());
   if (useMC) {
     trackLabels.reserve(tracksIn.size());
   }
 
-  const auto& clockLayer = tf.getROFOverlapTableView().getClockLayer();
+  const auto& clockLayer = tf.getROFOverlapTableView<o2::itsmft::tracking::ITSNLayers>().getClockLayer();
   std::vector<int> rofEntries(trackROFs.size() + 1, 0);
 
   for (size_t iTrk = 0; iTrk < tracksIn.size(); ++iTrk) {

@@ -27,18 +27,26 @@
 /// M6d (production wiring for MFT, see the design note's own M6c-section
 /// addendum) adds Group C (mTracks/mTracksLabel -- still the sole production
 /// detector-typed output staging path until M6e retires it) and a small set
-/// of auxiliary NLayers-templated types (IndexTableUtils, ROFOverlapTable,
-/// ROFVertexLookupTable, ROFMaskTable, TrackingTopology) this scratch owns
-/// hardcoded to o2::mft::constants::mft::LayersNumber (=10). This is a
-/// deliberate, narrow exception to "must not know 7/10 layers": these
-/// specific auxiliary types are themselves still NLayers-templated
-/// production types this milestone does not redesign (that redesign is its
-/// own future scope, exactly like M6c's own IndexTableUtils/topology-view
-/// deferral note already flagged), and SurfaceTrackingScratch is, for now,
-/// only ever used by MFT (LegacyCATrackingParticipant<MFTNLayers,
-/// SurfaceTrackingScratch, SurfacePlanBinding>) -- every other member of
-/// this class remains genuinely detector/layer-count-agnostic, sized only
-/// from adoptPlan()'s runtime counts.
+/// of auxiliary NLayers-templated types (ROFOverlapTable, ROFVertexLookupTable,
+/// ROFMaskTable, TrackingTopology) this scratch owns. IndexTableUtils is a
+/// true exception: since M6e2 it is alias-erased to one shared, non-templated
+/// IndexTableUtilsCore (IndexTableUtils.h), so a single member serves both
+/// detectors and needs no duplication.
+///
+/// M6e2 (this scratch becomes shared by ITS(7) too, not MFT(10)-only) found
+/// that ROFOverlapTable<N>/ROFVertexLookupTable<N>/ROFMaskTable<N>/
+/// TrackingTopology<N> are genuinely N-sized (fixed-capacity internal
+/// storage, e.g. TrackingTopology<N>::MaxTransitions = N*(N-1)/2), so a
+/// single MFT(10)-shaped instance of any of them is wrong for ITS(7) --
+/// not just a compile-time mismatch but a real correctness bug (wrong
+/// transition/cell counts, wrong ROF-layer array width). This scratch
+/// therefore stores these four groups exactly like Group C: two
+/// separately-typed members (one ITS(7)-shaped, one MFT(10)-shaped, always
+/// exactly one populated per instance -- each participant owns its own
+/// instance, for exactly one detector), selected at compile time via a
+/// template accessor `<NLayers>`. Every other member of this class remains
+/// genuinely detector/layer-count-agnostic, sized only from adoptPlan()'s
+/// runtime counts.
 ///
 /// Like LegacyTrackerScratch, this type never owns or references a plan/
 /// binding object -- adoptPlan() takes plain runtime counts (nOwnedSurfaces,
@@ -59,6 +67,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <memory>
+#include <type_traits>
 #include <vector>
 
 #include <gsl/gsl>
@@ -103,16 +112,10 @@ namespace o2::itsmft::tracking
 class MultiSourceTimeFrameLoader;
 class ClusterDecoder;
 
-/// One slot per legacy-layer-equivalent (owned-surface) position -- mirrors
-/// the original per-detector legacy scratch type's own
-/// LayerMeasurementSpans<NLayers> shape, hardcoded to MFT's own NLayers (see
-/// file doc for why this one type stays NLayers-templated at MFT's own
-/// value).
-using LayerMeasurementSpansMFT = std::array<gsl::span<const SurfaceMeasurement>, o2::mft::constants::mft::LayersNumber>;
-
-/// Non-templated, detector-neutral CA working state, plus (M6d) MFT's own
-/// hardcoded auxiliary types. See the file-level doc above for exactly what
-/// this does and does not own.
+/// Non-templated, detector-neutral CA working state, plus (M6d/M6e2) a set of
+/// still-NLayers-templated auxiliary types this scratch owns dual-typed
+/// (ITS(7)+MFT(10)). See the file-level doc above for exactly what this does
+/// and does not own.
 class SurfaceTrackingScratch
 {
  private:
@@ -149,13 +152,14 @@ class SurfaceTrackingScratch
   friend class MultiSourceTimeFrameLoader;
 
   static constexpr int MFTNLayers = o2::mft::constants::mft::LayersNumber;
+  // IndexTableUtils is alias-erased (IndexTableUtils.h) to one shared,
+  // non-templated IndexTableUtilsCore regardless of N -- a single member
+  // (mIndexTableUtils below) already serves both detectors, no duplication
+  // needed. CellSeedN/TrackSeedN are likewise never actually detector-typed
+  // (Cell.h's own free `CellSeedN<N>`/`TrackSeedN<N>` aliases, used directly
+  // by TrackerTraits<NLayers,...>/DetectorTraits<NLayers> without going
+  // through this scratch at all) -- not declared as scratch members.
   using IndexTableUtilsN = o2::itsmft::IndexTableUtils<MFTNLayers>;
-  using ROFOverlapTableN = o2::its::ROFOverlapTable<MFTNLayers>;
-  using ROFVertexLookupTableN = o2::its::ROFVertexLookupTable<MFTNLayers>;
-  using ROFMaskTableN = o2::its::ROFMaskTable<MFTNLayers>;
-  using TrackingTopologyN = o2::itsmft::tracking::TrackingTopology<MFTNLayers>;
-  using CellSeedN = CellSeed;
-  using TrackSeedN = TrackSeedTpl<MFTNLayers>;
 
   SurfaceTrackingScratch() = default;
   ~SurfaceTrackingScratch() = default;
@@ -289,45 +293,178 @@ class SurfaceTrackingScratch
   gsl::span<int> getIndexTable(int rofId, int layerId);
   const auto& getTrackingFrameInfoOnLayer(int layerId) const { return mTrackingFrameInfo[layerId]; }
 
-  // navigation tables (M6d): mirror LegacyTrackerScratch's own accessor
-  // names exactly (the compile-time seam TrackerTraits<NLayers, ScratchT,
-  // BindingT> relies on) -- hardcoded to MFTNLayers, see file doc.
+  // navigation tables. getIndexTableUtils() is a single shared member (see
+  // the type-alias comment above). Everything else here is dual-typed
+  // (M6e2, see file doc) and selected at compile time via an explicit
+  // `<NLayers>` template accessor -- mirrors Group C's getTracks<NLayers>()
+  // pattern exactly, for the same reason (ROFOverlapTable<N>/
+  // ROFVertexLookupTable<N>/ROFMaskTable<N>/TrackingTopology<N> are
+  // genuinely N-sized production types, not detector-neutral). Every
+  // Group-C-style call site inside the shared Tracker<NLayers,ScratchT,
+  // BindingT>/TrackerTraits<NLayers,ScratchT,BindingT> bodies that is still
+  // reachable with ScratchT=LegacyTrackerScratch<NLayers> goes through the
+  // scratchXxx<NLayers>() free dispatcher functions below instead of calling
+  // these template accessors directly, exactly like scratchTracks<NLayers>().
   const auto& getIndexTableUtils() const { return mIndexTableUtils; }
-  const auto& getROFOverlapTable() const { return mROFOverlapTable; }
-  const auto& getROFOverlapTableView() const { return mROFOverlapTableView; }
-  const auto& getTrackerTopologies() const { return mTrackerTopologies; }
-  const auto& getTrackingTopologyView() const { return mTrackingTopologyView; }
-  void setROFOverlapTable(ROFOverlapTableN table)
+
+  template <int NLayers>
+  static constexpr void checkSupportedNLayers() noexcept
   {
-    mROFOverlapTable = std::move(table);
-    mROFOverlapTableView = mROFOverlapTable.getView();
+    static_assert(NLayers == ITSNLayers || NLayers == MFTNLayers, "SurfaceTrackingScratch's per-detector accessors support ITS (7) and MFT (10) only");
   }
-  const auto& getROFVertexLookupTable() const { return mROFVertexLookupTable; }
-  const auto& getROFVertexLookupTableView() const { return mROFVertexLookupTableView; }
-  void setROFVertexLookupTable(ROFVertexLookupTableN table)
+
+  template <int NLayers>
+  const auto& getROFOverlapTable() const noexcept
   {
-    mROFVertexLookupTable = std::move(table);
-    mROFVertexLookupTableView = mROFVertexLookupTable.getView();
+    checkSupportedNLayers<NLayers>();
+    if constexpr (NLayers == ITSNLayers) {
+      return mROFOverlapTableITS;
+    } else {
+      return mROFOverlapTableMFT;
+    }
   }
+  template <int NLayers>
+  const auto& getROFOverlapTableView() const noexcept
+  {
+    checkSupportedNLayers<NLayers>();
+    if constexpr (NLayers == ITSNLayers) {
+      return mROFOverlapTableViewITS;
+    } else {
+      return mROFOverlapTableViewMFT;
+    }
+  }
+  template <int NLayers>
+  const auto& getTrackerTopologies() const noexcept
+  {
+    checkSupportedNLayers<NLayers>();
+    if constexpr (NLayers == ITSNLayers) {
+      return mTrackerTopologiesITS;
+    } else {
+      return mTrackerTopologiesMFT;
+    }
+  }
+  template <int NLayers>
+  const auto& getTrackingTopologyView() const noexcept
+  {
+    checkSupportedNLayers<NLayers>();
+    if constexpr (NLayers == ITSNLayers) {
+      return mTrackingTopologyViewITS;
+    } else {
+      return mTrackingTopologyViewMFT;
+    }
+  }
+  template <int NLayers>
+  void setROFOverlapTable(o2::its::ROFOverlapTable<NLayers> table) noexcept
+  {
+    checkSupportedNLayers<NLayers>();
+    if constexpr (NLayers == ITSNLayers) {
+      mROFOverlapTableITS = std::move(table);
+      mROFOverlapTableViewITS = mROFOverlapTableITS.getView();
+    } else {
+      mROFOverlapTableMFT = std::move(table);
+      mROFOverlapTableViewMFT = mROFOverlapTableMFT.getView();
+    }
+  }
+  template <int NLayers>
+  const auto& getROFVertexLookupTable() const noexcept
+  {
+    checkSupportedNLayers<NLayers>();
+    if constexpr (NLayers == ITSNLayers) {
+      return mROFVertexLookupTableITS;
+    } else {
+      return mROFVertexLookupTableMFT;
+    }
+  }
+  template <int NLayers>
+  const auto& getROFVertexLookupTableView() const noexcept
+  {
+    checkSupportedNLayers<NLayers>();
+    if constexpr (NLayers == ITSNLayers) {
+      return mROFVertexLookupTableViewITS;
+    } else {
+      return mROFVertexLookupTableViewMFT;
+    }
+  }
+  template <int NLayers>
+  void setROFVertexLookupTable(o2::its::ROFVertexLookupTable<NLayers> table) noexcept
+  {
+    checkSupportedNLayers<NLayers>();
+    if constexpr (NLayers == ITSNLayers) {
+      mROFVertexLookupTableITS = std::move(table);
+      mROFVertexLookupTableViewITS = mROFVertexLookupTableITS.getView();
+    } else {
+      mROFVertexLookupTableMFT = std::move(table);
+      mROFVertexLookupTableViewMFT = mROFVertexLookupTableMFT.getView();
+    }
+  }
+  template <int NLayers>
   gsl::span<const Vertex> getPrimaryVertices(const TimeFrame& frame, int layer, int rofId) const;
-  void updateROFVertexLookupTable(const TimeFrame& frame) { mROFVertexLookupTable.update(frame.getPrimaryVertices().data(), frame.getPrimaryVertices().size()); }
-  void setMultiplicityCutMask(ROFMaskTableN cutMask)
+  template <int NLayers>
+  void updateROFVertexLookupTable(const TimeFrame& frame) noexcept
   {
-    mMultiplicityCutMask = std::move(cutMask);
-    mROFMaskView = mROFMask->getView();
+    checkSupportedNLayers<NLayers>();
+    if constexpr (NLayers == ITSNLayers) {
+      mROFVertexLookupTableITS.update(frame.getPrimaryVertices().data(), frame.getPrimaryVertices().size());
+    } else {
+      mROFVertexLookupTableMFT.update(frame.getPrimaryVertices().data(), frame.getPrimaryVertices().size());
+    }
   }
+  template <int NLayers>
+  void setMultiplicityCutMask(o2::its::ROFMaskTable<NLayers> cutMask) noexcept
+  {
+    checkSupportedNLayers<NLayers>();
+    if constexpr (NLayers == ITSNLayers) {
+      mMultiplicityCutMaskITS = std::move(cutMask);
+      mROFMaskViewITS = mROFMaskITS->getView();
+    } else {
+      mMultiplicityCutMaskMFT = std::move(cutMask);
+      mROFMaskViewMFT = mROFMaskMFT->getView();
+    }
+  }
+  template <int NLayers>
   void useMultiplictyMask() noexcept
   {
-    mROFMask = &mMultiplicityCutMask;
-    mROFMaskView = mROFMask->getView();
+    checkSupportedNLayers<NLayers>();
+    if constexpr (NLayers == ITSNLayers) {
+      mROFMaskITS = &mMultiplicityCutMaskITS;
+      mROFMaskViewITS = mROFMaskITS->getView();
+    } else {
+      mROFMaskMFT = &mMultiplicityCutMaskMFT;
+      mROFMaskViewMFT = mROFMaskMFT->getView();
+    }
   }
-  void setUPCCutMask(ROFMaskTableN cutMask) { mUPCCutMask = std::move(cutMask); }
+  template <int NLayers>
+  void setUPCCutMask(o2::its::ROFMaskTable<NLayers> cutMask) noexcept
+  {
+    checkSupportedNLayers<NLayers>();
+    if constexpr (NLayers == ITSNLayers) {
+      mUPCCutMaskITS = std::move(cutMask);
+    } else {
+      mUPCCutMaskMFT = std::move(cutMask);
+    }
+  }
+  template <int NLayers>
   void useUPCMask() noexcept
   {
-    mROFMask = &mUPCCutMask;
-    mROFMaskView = mROFMask->getView();
+    checkSupportedNLayers<NLayers>();
+    if constexpr (NLayers == ITSNLayers) {
+      mROFMaskITS = &mUPCCutMaskITS;
+      mROFMaskViewITS = mROFMaskITS->getView();
+    } else {
+      mROFMaskMFT = &mUPCCutMaskMFT;
+      mROFMaskViewMFT = mROFMaskMFT->getView();
+    }
   }
-  const auto& getROFMaskView() const { return mROFMaskView; }
+  template <int NLayers>
+  const auto& getROFMaskView() const noexcept
+  {
+    checkSupportedNLayers<NLayers>();
+    if constexpr (NLayers == ITSNLayers) {
+      return mROFMaskViewITS;
+    } else {
+      return mROFMaskViewMFT;
+    }
+  }
 
   const o2::its::TrackingFrameInfo& getClusterTrackingFrameInfo(int layerId, const o2::its::Cluster& cl) const;
   gsl::span<const MCCompLabel> getClusterLabels(int layerId, const o2::its::Cluster& cl) const { return getClusterLabels(layerId, cl.clusterId); }
@@ -342,9 +479,16 @@ class SurfaceTrackingScratch
   /// M6d: TrackerTraits<NLayers, ScratchT, BindingT>::initialiseTimeFrame()'s
   /// step 3-5 needs this typed the same way `mScratch->initialise()`'s
   /// existing call site already builds it -- see ScratchN::IndexTableUtilsN.
+  /// M6e2: reads/writes the dual ROF-mask/topology members above, so this is
+  /// now a template on NLayers too; `layerMeasurements` takes a runtime-sized
+  /// span-of-spans (not a fixed-width LayerMeasurementSpans<N> array) since
+  /// nothing in its body needs a compile-time width, only a runtime layer
+  /// index bounded by `maxLayers` -- both LayerMeasurementSpans<7> and <10>
+  /// std::arrays convert to it implicitly via gsl::span's array constructor.
+  template <int NLayers>
   void initialise(const TimeFrame& frame, const TrackingParameters& trkParam, int maxLayers, int iteration,
                   const IndexTableUtilsN& indexTableConfig,
-                  const LayerMeasurementSpansMFT& layerMeasurements);
+                  gsl::span<const gsl::span<const SurfaceMeasurement>> layerMeasurements);
 
   bool isClusterUsed(int layer, int clusterId) const { return mUsedClusters[layer][clusterId]; }
   void markUsedCluster(int layer, int clusterId) { mUsedClusters[layer][clusterId] = true; }
@@ -363,14 +507,47 @@ class SurfaceTrackingScratch
   auto& getCellsNeighbours() { return mCellsNeighbours; }
   auto& getCellsNeighboursTopology() { return mCellsNeighboursTopology; }
   auto& getCellsNeighboursLUT() { return mCellsNeighboursLUT; }
-  // ---- Group C (M6d): legacy per-detector result staging. Still the sole
-  // production source of detector-typed output today (M6a Group C
-  // classification -- CommonTrack is already populated in parallel via
-  // AcceptedTrackShadowPublisher, but the legacy-typed copy here is not
-  // retired until M6e). CATrackType<MFTNLayers> resolves to MFTCATrack via
-  // MFTCATrack.h's own CATrackTypeHelper<MFTNLayers> specialization. ----
-  auto& getTracks() { return mTracks; }
-  const auto& getTracks() const { return mTracks; }
+  // ---- Group C (M6d, dual-typed since M6e2): legacy per-detector result
+  // staging. Still the sole production source of detector-typed output
+  // today (M6a Group C classification -- CommonTrack is already populated
+  // in parallel via AcceptedTrackShadowPublisher, but the legacy-typed copy
+  // here is not retired until M6e). CATrackType<NLayers> is genuinely
+  // detector-output-typed (TrackITSExt for ITS, MFTCATrack for MFT via
+  // MFTCATrack.h's own CATrackTypeHelper<MFTNLayers> specialization) -- a
+  // single SurfaceTrackingScratch member cannot hold both at once, so this
+  // type stores both (one always empty per instance -- an empty
+  // bounded_vector is a few bytes, not a real cost) and selects between them
+  // at compile time via the NLayers template argument below. This is
+  // deliberately a *template* accessor (compile-time selection, never
+  // virtual/type-erased), which is why the temporary M6d ScratchT seam's own
+  // handful of Group-C call sites in CATracker.cxx/TrackerTraits.cxx need a
+  // narrow if-constexpr on ScratchN's identity (LegacyTrackerScratch<NLayers>
+  // ::getTracks() is, and must remain, a plain non-template method, so the
+  // same call-site text cannot address both scratch types) -- see those
+  // files' own doc comments at each such site. ----
+  template <int NLayers>
+  o2::its::bounded_vector<CATrackType<NLayers>>& getTracks() noexcept
+  {
+    static_assert(NLayers == ITSNLayers || NLayers == MFTNLayers, "SurfaceTrackingScratch::getTracks<NLayers>() supports ITS (7) and MFT (10) only");
+    if constexpr (NLayers == ITSNLayers) {
+      return mTracksITS;
+    } else {
+      return mTracksMFT;
+    }
+  }
+  template <int NLayers>
+  const o2::its::bounded_vector<CATrackType<NLayers>>& getTracks() const noexcept
+  {
+    static_assert(NLayers == ITSNLayers || NLayers == MFTNLayers, "SurfaceTrackingScratch::getTracks<NLayers>() supports ITS (7) and MFT (10) only");
+    if constexpr (NLayers == ITSNLayers) {
+      return mTracksITS;
+    } else {
+      return mTracksMFT;
+    }
+  }
+  // MCCompLabel is detector-neutral (both CATrackType<7> and CATrackType<10>
+  // pair with the same plain o2::MCCompLabel) -- one shared label vector
+  // suffices, no dual storage needed here.
   auto& getTracksLabel() { return mTracksLabel; }
   const auto& getTracksLabel() const { return mTracksLabel; }
   auto& getLinesLabel(const int rofId) { return mLinesLabels[rofId]; }
@@ -379,7 +556,11 @@ class SurfaceTrackingScratch
   size_t getNumberOfCells() const;
   size_t getNumberOfTracklets() const;
   size_t getNumberOfNeighbours() const;
-  size_t getNumberOfTracks() const { return mTracks.size(); }
+  template <int NLayers>
+  size_t getNumberOfTracks() const noexcept
+  {
+    return getTracks<NLayers>().size();
+  }
   size_t getNumberOfUsedClusters() const;
 
   int hasBogusClusters() const { return std::accumulate(mBogusClusters.begin(), mBogusClusters.end(), 0); }
@@ -429,19 +610,32 @@ class SurfaceTrackingScratch
   std::vector<o2::its::bounded_vector<int>> mCellsNeighboursTopology;
   std::vector<o2::its::bounded_vector<int>> mCellsNeighboursLUT;
   std::vector<o2::its::bounded_vector<o2::MCCompLabel>> mCellLabels;
-  // M6d: the three NLayers-templated navigation/topology auxiliaries
-  // (§4.1's deferred item), hardcoded to MFTNLayers -- see file doc.
+  // The one truly shared navigation auxiliary (see the type-alias comment
+  // above).
   IndexTableUtilsN mIndexTableUtils;
-  std::vector<TrackingTopologyN> mTrackerTopologies;
-  typename TrackingTopologyN::View mTrackingTopologyView;
+  // M6d/M6e2: the NLayers-templated topology auxiliary (§4.1's deferred
+  // item), dual-typed since M6e2 -- see file doc.
+  std::vector<o2::itsmft::tracking::TrackingTopology<ITSNLayers>> mTrackerTopologiesITS;
+  typename o2::itsmft::tracking::TrackingTopology<ITSNLayers>::View mTrackingTopologyViewITS;
+  std::vector<o2::itsmft::tracking::TrackingTopology<MFTNLayers>> mTrackerTopologiesMFT;
+  typename o2::itsmft::tracking::TrackingTopology<MFTNLayers>::View mTrackingTopologyViewMFT;
   // M6e1: default-constructed unless initDefaultTrackingTopology()/
   // initVertexingTopology() is called; see those methods' own doc for why
   // the former is no longer dead code (initVertexingTopology() still is).
-  TrackingTopologyN mDefaultTrackingTopology;
-  TrackingTopologyN mVertexingTopology;
+  o2::itsmft::tracking::TrackingTopology<ITSNLayers> mDefaultTrackingTopologyITS;
+  o2::itsmft::tracking::TrackingTopology<ITSNLayers> mVertexingTopologyITS;
+  o2::itsmft::tracking::TrackingTopology<MFTNLayers> mDefaultTrackingTopologyMFT;
+  o2::itsmft::tracking::TrackingTopology<MFTNLayers> mVertexingTopologyMFT;
 
-  // ---- Group C (M6d): legacy per-detector result staging ----
-  o2::its::bounded_vector<CATrackType<MFTNLayers>> mTracks;
+  // ---- Group C (M6d, dual-typed since M6e2): legacy per-detector result
+  // staging. See getTracks<NLayers>()'s own doc above for why this is two
+  // separately-typed members (CATrackType<7>=TrackITSExt,
+  // CATrackType<10>=MFTCATrack) instead of one -- exactly one of the two is
+  // ever populated per SurfaceTrackingScratch instance (each participant
+  // owns its own instance, for exactly one detector), the other stays
+  // permanently empty (a few bytes, not a real cost). ----
+  o2::its::bounded_vector<CATrackType<ITSNLayers>> mTracksITS;
+  o2::its::bounded_vector<CATrackType<MFTNLayers>> mTracksMFT;
   o2::its::bounded_vector<o2::MCCompLabel> mTracksLabel;
 
   // ---- Group D: vertexer working scratch ----
@@ -458,6 +652,7 @@ class SurfaceTrackingScratch
   std::array<uint32_t, 2> mTotalTracklets{0, 0};
   uint32_t mTotalLines{0};
   unsigned int mNTotalLowPtVertices{0};
+  template <int NLayers>
   void computeTrackletsPerROFScans();
   int& getNTrackletsROF(int rofId, int combId) { return mNTrackletsPerROF[combId][rofId]; }
   auto& getLines(int rofId) { return mLines[rofId]; }
@@ -476,7 +671,10 @@ class SurfaceTrackingScratch
   /// LegacyCATrackingParticipant<...>::configureRofTables() (combined MFT),
   /// unchanged body, generic via ScratchN. Mirrors
   /// LegacyTrackerScratch<NLayers>::initTrackerTopologies() exactly.
-  void initTrackerTopologies(gsl::span<const TrackingParameters> trkParams, int maxLayers = MFTNLayers);
+  /// M6e2: writes the dual mTrackerTopologiesITS/MFT member, so this is now
+  /// a template on NLayers too (see the file doc's Group-C-style rationale).
+  template <int NLayers>
+  void initTrackerTopologies(gsl::span<const TrackingParameters> trkParams, int maxLayers = NLayers);
   /// M6e1 correction: M6d's own claim that initVertexingTopology()/
   /// initDefaultTrackingTopology() have "zero production callers" was scoped
   /// only to the combined-participant-path files that milestone's own audit
@@ -488,6 +686,7 @@ class SurfaceTrackingScratch
   /// ITS and MFT -- so this scratch type needs it too, now that it backs the
   /// standalone MFT interface. Mirrors
   /// LegacyTrackerScratch<NLayers>::initDefaultTrackingTopology() exactly.
+  template <int NLayers>
   void initDefaultTrackingTopology(const TrackingParameters& trkParam, int maxLayers);
   /// initVertexingTopology() still has zero production callers even after
   /// M6e1 (grep-confirmed across TrackingInterface.cxx too) -- ported anyway
@@ -495,20 +694,44 @@ class SurfaceTrackingScratch
   /// topology-init group, since leaving only its sibling ported would be a
   /// more confusing asymmetry than one extra dead one-line mirror. Mirrors
   /// LegacyTrackerScratch<NLayers>::initVertexingTopology() exactly.
+  template <int NLayers>
   void initVertexingTopology(const TrackingParameters& trkParam);
 
  private:
+  template <int NLayers>
   void prepareClusters(const TimeFrame& frame, const TrackingParameters& trkParam, int maxLayers,
-                       const LayerMeasurementSpansMFT& layerMeasurements);
+                       gsl::span<const gsl::span<const SurfaceMeasurement>> layerMeasurements);
 
-  ROFOverlapTableN mROFOverlapTable;
-  typename ROFOverlapTableN::View mROFOverlapTableView;
-  ROFVertexLookupTableN mROFVertexLookupTable;
-  typename ROFVertexLookupTableN::View mROFVertexLookupTableView;
-  ROFMaskTableN mMultiplicityCutMask;
-  ROFMaskTableN mUPCCutMask;
-  ROFMaskTableN* mROFMask = &mMultiplicityCutMask;
-  typename ROFMaskTableN::View mROFMaskView;
+  // initialise() assigns mTrackingTopologyView{ITS,MFT} itself (not just
+  // reads it), so it needs a mutable counterpart to the public const
+  // getTrackingTopologyView<NLayers>() accessor above.
+  template <int NLayers>
+  auto& getTrackingTopologyViewMutable() noexcept
+  {
+    checkSupportedNLayers<NLayers>();
+    if constexpr (NLayers == ITSNLayers) {
+      return mTrackingTopologyViewITS;
+    } else {
+      return mTrackingTopologyViewMFT;
+    }
+  }
+
+  o2::its::ROFOverlapTable<ITSNLayers> mROFOverlapTableITS;
+  typename o2::its::ROFOverlapTable<ITSNLayers>::View mROFOverlapTableViewITS;
+  o2::its::ROFOverlapTable<MFTNLayers> mROFOverlapTableMFT;
+  typename o2::its::ROFOverlapTable<MFTNLayers>::View mROFOverlapTableViewMFT;
+  o2::its::ROFVertexLookupTable<ITSNLayers> mROFVertexLookupTableITS;
+  typename o2::its::ROFVertexLookupTable<ITSNLayers>::View mROFVertexLookupTableViewITS;
+  o2::its::ROFVertexLookupTable<MFTNLayers> mROFVertexLookupTableMFT;
+  typename o2::its::ROFVertexLookupTable<MFTNLayers>::View mROFVertexLookupTableViewMFT;
+  o2::its::ROFMaskTable<ITSNLayers> mMultiplicityCutMaskITS;
+  o2::its::ROFMaskTable<ITSNLayers> mUPCCutMaskITS;
+  o2::its::ROFMaskTable<ITSNLayers>* mROFMaskITS = &mMultiplicityCutMaskITS;
+  typename o2::its::ROFMaskTable<ITSNLayers>::View mROFMaskViewITS;
+  o2::its::ROFMaskTable<MFTNLayers> mMultiplicityCutMaskMFT;
+  o2::its::ROFMaskTable<MFTNLayers> mUPCCutMaskMFT;
+  o2::its::ROFMaskTable<MFTNLayers>* mROFMaskMFT = &mMultiplicityCutMaskMFT;
+  typename o2::its::ROFMaskTable<MFTNLayers>::View mROFMaskViewMFT;
 
   std::size_t mNOwnedSurfaces{0};
   std::size_t mNTransitions{0};
@@ -526,6 +749,195 @@ inline void resetTimeFrameEvent(TimeFrame& frame, SurfaceTrackingScratch& scratc
 {
   scratch.reset();
   frame.wipe();
+}
+
+// M6e2: temporary Group-C call-site shim for the M6d ScratchT seam. Group C
+// (mTracks/mTracksLabel) is genuinely detector-output-typed
+// (CATrackType<NLayers>), so SurfaceTrackingScratch::getTracks()/
+// getNumberOfTracks() -- shared by both ITS and MFT since this milestone --
+// must be *template* methods (compile-time selection between its own dual
+// ITS/MFT storage, never virtual/type-erased), while
+// LegacyTrackerScratch<NLayers>::getTracks()/getNumberOfTracks() are, and
+// must remain, plain non-template methods (that file is untouched by this
+// milestone). A template and a non-template member cannot be called with the
+// same source text on a dependent (ScratchT) type, so every Group-C call
+// site inside the shared Tracker<NLayers,ScratchT,BindingT>/
+// TrackerTraits<NLayers,ScratchT,BindingT> bodies goes through these two
+// small free functions instead of calling scratch.getTracks() directly. This
+// is not a detector switch (it selects on *scratch representation*, exactly
+// what the seam itself already exists to select, never on ITS-vs-MFT
+// identity) and it is temporary: once LegacyTrackerScratch<NLayers> stops
+// being anyone's ScratchT (M6f), the `else` arm below becomes unreachable and
+// this whole pair collapses to a plain forwarding call, removable in the same
+// slice that removes the seam itself.
+template <int NLayers, typename ScratchT>
+inline auto& scratchTracks(ScratchT& scratch) noexcept
+{
+  if constexpr (std::is_same_v<ScratchT, SurfaceTrackingScratch>) {
+    return scratch.template getTracks<NLayers>();
+  } else {
+    return scratch.getTracks();
+  }
+}
+
+template <int NLayers, typename ScratchT>
+inline std::size_t scratchNumberOfTracks(const ScratchT& scratch) noexcept
+{
+  if constexpr (std::is_same_v<ScratchT, SurfaceTrackingScratch>) {
+    return scratch.template getNumberOfTracks<NLayers>();
+  } else {
+    return scratch.getNumberOfTracks();
+  }
+}
+
+// M6e2: the same shim, extended to the newly dual-typed ROF-overlap/
+// ROF-vertex-lookup/ROF-mask/tracking-topology auxiliaries (see the file
+// doc's Group-C-style rationale). Each of these is an argument-less getter
+// (or, for getPrimaryVertices()/scratchUseUPCMask(), takes no NLayers-typed
+// argument to deduce from), so -- exactly like scratchTracks<NLayers>()
+// above -- the shared Tracker<NLayers,ScratchT,BindingT>/TrackerTraits<
+// NLayers,ScratchT,BindingT> bodies (still reachable with
+// ScratchT=LegacyTrackerScratch<NLayers>) cannot call
+// `scratch.getXxxView<NLayers>()` directly on a dependent ScratchT. Setters
+// that DO take an NLayers-typed argument (setROFOverlapTable(), etc.) need
+// no such shim: ordinary template-argument deduction from the argument
+// works identically whether the callee turns out to be
+// SurfaceTrackingScratch's template method or LegacyTrackerScratch<NLayers>'s
+// plain one, with no explicit `<>` and therefore no `.template` disambiguator
+// at the call site -- see LegacyCATrackingParticipant.cxx/TrackingInterface.cxx
+// for those call sites, unchanged except for the local variable's own type
+// binding directly on the caller's NLayers (bypassing ScratchN, exactly like
+// TrackerTraits.h's CellSeedN/TrackSeedN fix).
+template <int NLayers, typename ScratchT>
+inline auto& scratchROFOverlapTable(ScratchT& scratch) noexcept
+{
+  if constexpr (std::is_same_v<std::remove_cv_t<ScratchT>, SurfaceTrackingScratch>) {
+    return scratch.template getROFOverlapTable<NLayers>();
+  } else {
+    return scratch.getROFOverlapTable();
+  }
+}
+
+template <int NLayers, typename ScratchT>
+inline auto& scratchROFOverlapTableView(ScratchT& scratch) noexcept
+{
+  if constexpr (std::is_same_v<std::remove_cv_t<ScratchT>, SurfaceTrackingScratch>) {
+    return scratch.template getROFOverlapTableView<NLayers>();
+  } else {
+    return scratch.getROFOverlapTableView();
+  }
+}
+
+template <int NLayers, typename ScratchT>
+inline auto& scratchROFVertexLookupTableView(ScratchT& scratch) noexcept
+{
+  if constexpr (std::is_same_v<std::remove_cv_t<ScratchT>, SurfaceTrackingScratch>) {
+    return scratch.template getROFVertexLookupTableView<NLayers>();
+  } else {
+    return scratch.getROFVertexLookupTableView();
+  }
+}
+
+template <int NLayers, typename ScratchT>
+inline auto& scratchROFMaskView(ScratchT& scratch) noexcept
+{
+  if constexpr (std::is_same_v<std::remove_cv_t<ScratchT>, SurfaceTrackingScratch>) {
+    return scratch.template getROFMaskView<NLayers>();
+  } else {
+    return scratch.getROFMaskView();
+  }
+}
+
+template <int NLayers, typename ScratchT>
+inline auto& scratchTrackerTopologies(ScratchT& scratch) noexcept
+{
+  if constexpr (std::is_same_v<std::remove_cv_t<ScratchT>, SurfaceTrackingScratch>) {
+    return scratch.template getTrackerTopologies<NLayers>();
+  } else {
+    return scratch.getTrackerTopologies();
+  }
+}
+
+template <int NLayers, typename ScratchT>
+inline auto& scratchTrackingTopologyView(ScratchT& scratch) noexcept
+{
+  if constexpr (std::is_same_v<std::remove_cv_t<ScratchT>, SurfaceTrackingScratch>) {
+    return scratch.template getTrackingTopologyView<NLayers>();
+  } else {
+    return scratch.getTrackingTopologyView();
+  }
+}
+
+template <int NLayers, typename ScratchT>
+inline void scratchUseUPCMask(ScratchT& scratch) noexcept
+{
+  if constexpr (std::is_same_v<std::remove_cv_t<ScratchT>, SurfaceTrackingScratch>) {
+    scratch.template useUPCMask<NLayers>();
+  } else {
+    scratch.useUPCMask();
+  }
+}
+
+template <int NLayers, typename ScratchT>
+inline gsl::span<const Vertex> scratchGetPrimaryVertices(ScratchT& scratch, const TimeFrame& frame, int layer, int rofId)
+{
+  if constexpr (std::is_same_v<std::remove_cv_t<ScratchT>, SurfaceTrackingScratch>) {
+    return scratch.template getPrimaryVertices<NLayers>(frame, layer, rofId);
+  } else {
+    return scratch.getPrimaryVertices(frame, layer, rofId);
+  }
+}
+
+template <int NLayers, typename ScratchT>
+inline void scratchInitialise(ScratchT& scratch, const TimeFrame& frame, const TrackingParameters& trkParam, int maxLayers, int iteration,
+                              const typename SurfaceTrackingScratch::IndexTableUtilsN& indexTableConfig,
+                              gsl::span<const gsl::span<const SurfaceMeasurement>> layerMeasurements)
+{
+  if constexpr (std::is_same_v<std::remove_cv_t<ScratchT>, SurfaceTrackingScratch>) {
+    scratch.template initialise<NLayers>(frame, trkParam, maxLayers, iteration, indexTableConfig, layerMeasurements);
+  } else {
+    // The legacy per-NLayers scratch type's own initialise() still takes a
+    // fixed-width LayerMeasurementSpans<NLayers>& (== std::array<gsl::span<
+    // const SurfaceMeasurement>, NLayers>), not a runtime span-of-spans --
+    // rebuild it locally from the runtime-sized span this dispatcher
+    // receives. Named by its underlying array type, not that scratch
+    // header's own alias, so this header need not include it.
+    std::array<gsl::span<const SurfaceMeasurement>, NLayers> legacySpans{};
+    for (int i = 0; i < NLayers; ++i) {
+      legacySpans[i] = layerMeasurements[i];
+    }
+    scratch.initialise(frame, trkParam, maxLayers, iteration, indexTableConfig, legacySpans);
+  }
+}
+
+template <int NLayers, typename ScratchT>
+inline void scratchInitTrackerTopologies(ScratchT& scratch, gsl::span<const TrackingParameters> trkParams, int maxLayers = NLayers)
+{
+  if constexpr (std::is_same_v<std::remove_cv_t<ScratchT>, SurfaceTrackingScratch>) {
+    scratch.template initTrackerTopologies<NLayers>(trkParams, maxLayers);
+  } else {
+    scratch.initTrackerTopologies(trkParams, maxLayers);
+  }
+}
+
+template <int NLayers, typename ScratchT>
+inline void scratchInitDefaultTrackingTopology(ScratchT& scratch, const TrackingParameters& trkParam, int maxLayers)
+{
+  if constexpr (std::is_same_v<std::remove_cv_t<ScratchT>, SurfaceTrackingScratch>) {
+    scratch.template initDefaultTrackingTopology<NLayers>(trkParam, maxLayers);
+  } else {
+    scratch.initDefaultTrackingTopology(trkParam, maxLayers);
+  }
+}
+
+template <int NLayers, typename ScratchT>
+inline void scratchInitVertexingTopology(ScratchT& scratch, const TrackingParameters& trkParam)
+{
+  if constexpr (std::is_same_v<std::remove_cv_t<ScratchT>, SurfaceTrackingScratch>) {
+    scratch.template initVertexingTopology<NLayers>(trkParam);
+  } else {
+    scratch.initVertexingTopology(trkParam);
+  }
 }
 
 } // namespace o2::itsmft::tracking

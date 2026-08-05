@@ -132,17 +132,25 @@ ITSMFTLegacyParticipantSet::ITSMFTLegacyParticipantSet(std::vector<o2::itsmft::T
   mITSPlan.emplace(ownDetectorPlan<ITSNLayers>(combinedLayout, itsSurfaces, itsParams[0]));
   mMFTPlan.emplace(ownDetectorPlan<MFTNLayers>(combinedLayout, mftSurfaces, mftParams[0]));
 
-  auto itsBindingResult = DetectorTraversalBinding::build(mITSPlan->getLayoutView(0), o2::detectors::DetID::ITS, ClusterSourceId{0},
-                                                          surfaceRangeMask(0, ITSNLayers), itsSurfaces);
+  // M6e2: ITS's own binding is now also the detector-neutral SurfacePlanBinding
+  // (M6b), mirroring M6d's MFT treatment exactly -- built with the adapter-
+  // derived expectedKind/expectedPolicy ITS always uses (Cylinder/
+  // CylinderCylinder), literal compile-time constants at this one call site,
+  // never a detector switch inside SurfacePlanBinding::build() itself (M6b
+  // design doc; requirement of the M6e2 migration spec). ClusterSourceId{0}
+  // unchanged (ITS's fixed position in this set's own ITS=0/MFT=1 contract,
+  // validateSources()).
+  auto itsBindingResult = SurfacePlanBinding::build(mITSPlan->getLayoutView(0), ClusterSourceId{0},
+                                                    surfaceRangeMask(0, ITSNLayers), itsSurfaces,
+                                                    SurfaceKind::Cylinder, TransitionPolicyTag::CylinderCylinder);
   if (!itsBindingResult.ok()) {
-    throw std::runtime_error("ITSMFTLegacyParticipantSet: failed to build the ITS DetectorTraversalBinding");
+    throw std::runtime_error("ITSMFTLegacyParticipantSet: failed to build the ITS SurfacePlanBinding");
   }
-  // M6d: MFT's own binding is now the detector-neutral SurfacePlanBinding
-  // (M6b), built with the adapter-derived expectedKind/expectedPolicy MFT
-  // always uses (Disk/DiskDisk) -- literal compile-time constants at this
-  // one call site, never a detector switch inside SurfacePlanBinding::build()
-  // itself (M6b design doc; requirement 5 of the M6d migration spec). ITS's
-  // own DetectorTraversalBinding construction above is untouched.
+  // M6d: MFT's own binding is the detector-neutral SurfacePlanBinding (M6b),
+  // built with the adapter-derived expectedKind/expectedPolicy MFT always
+  // uses (Disk/DiskDisk) -- literal compile-time constants at this one call
+  // site, never a detector switch inside SurfacePlanBinding::build() itself
+  // (M6b design doc; requirement 5 of the M6d migration spec).
   auto mftBindingResult = SurfacePlanBinding::build(mMFTPlan->getLayoutView(0), ClusterSourceId{1},
                                                     surfaceRangeMask(ITSNLayers, MFTNLayers), mftSurfaces,
                                                     SurfaceKind::Disk, TransitionPolicyTag::DiskDisk);
@@ -243,8 +251,8 @@ void ITSMFTLegacyParticipantSet::invalidatePublication() noexcept
 
 void ITSMFTLegacyParticipantSet::markPublicationValid() noexcept
 {
-  mITSClock.emplace(mITSParticipant.getScratch().getROFOverlapTableView().getClockLayer());
-  mMFTClock.emplace(mMFTParticipant.getScratch().getROFOverlapTableView().getClockLayer());
+  mITSClock.emplace(mITSParticipant.getScratch().getROFOverlapTableView<ITSNLayers>().getClockLayer());
+  mMFTClock.emplace(mMFTParticipant.getScratch().getROFOverlapTableView<MFTNLayers>().getClockLayer());
   mPublicationValid = true;
 }
 

@@ -16,12 +16,17 @@
 #ifndef ALICEO2_ITSMFT_TRACKING_INDEXTABLEUTILS_H_
 #define ALICEO2_ITSMFT_TRACKING_INDEXTABLEUTILS_H_
 
+#include <algorithm>
 #include <array>
+#include <cstddef>
+
+#include <gsl/span>
 
 #include "CommonConstants/MathConstants.h"
 #include "GPUCommonMath.h"
 #include "GPUCommonDef.h"
 #include "ITSMFTTracking/Configuration.h"
+#include "ITSMFTTracking/SurfaceId.h"
 #include "ITStracking/Cluster.h"
 #include "MFTTracking/Constants.h"
 
@@ -39,15 +44,36 @@ GPUhdi() float getNormalizedPhi(float phi)
 }
 } // namespace index_table_utils
 
-/// Row/column LUT helper (ITS: row=phi, col=z; MFT: row=y, col=x).
-template <int nLayers>
-class IndexTableUtils
+/// Row/column LUT helper (ITS: row=phi, col=z; MFT: row=y, col=x). M6e2: no
+/// longer templated on a detector layer count -- ITS(7) and MFT(10) common-CA
+/// participants both now share one SurfaceTrackingScratch instance type, so
+/// this type (owned generically as SurfaceTrackingScratch::IndexTableUtilsN,
+/// and still owned per-NLayers as LegacyTrackerScratch<NLayers>::IndexTableUtilsN
+/// via the IndexTableUtils<nLayers> alias below, unchanged source text) can no
+/// longer carry a fixed nLayers in its own type. Per-layer storage is
+/// therefore capacity-bound by MaxLayoutSurfaces (SurfaceId.h) -- the same
+/// established, reused (never invented) bound TrackSeed (Cell.h) already uses
+/// for the identical reason: getColBinIndex()/getInverseColCoordinate() are
+/// GPUhdi(), so device-portable fixed-capacity storage is required here,
+/// std::vector is not an option. A caller that populates fewer than
+/// MaxLayoutSurfaces layers (every real caller today: NLayers=7 or 10) simply
+/// never queries the unpopulated tail -- every read site indexes by an
+/// explicit layerIndex the caller's own (still NLayers-templated)
+/// TrackerTraits<NLayers,...>/LegacyTrackerScratch<NLayers> already bounds
+/// correctly, exactly as before this change.
+class IndexTableUtilsCore
 {
  public:
+  static constexpr int MaxLayers = static_cast<int>(o2::itsmft::tracking::MaxLayoutSurfaces);
+
   /// Configure LUT geometry. ITS (PhiZ): row = phi [0, TwoPI), col = z; MFT (XY): row = y, col = x.
+  /// `layerColHalfExtent` may be shorter than MaxLayers (the common case --
+  /// real detectors have far fewer than 32 layers); anything beyond its size
+  /// is left at its previous value, exactly as it would be untouched by a
+  /// caller that never re-populates it.
   void setIndexTableParams(IndexTableCoordType coordType, int nRowBins, int nColBins,
                            float rowMin, float rowMax,
-                           const std::array<float, nLayers>& layerColHalfExtent)
+                           gsl::span<const float> layerColHalfExtent)
   {
     mCoordType = coordType;
     mRowOrigin = (coordType == IndexTableCoordType::PhiZ) ? 0.f : rowMin;
@@ -55,6 +81,7 @@ class IndexTableUtils
     mInverseRowBinSize = (mRowCoordinateSpan > 0.f) ? static_cast<float>(nRowBins) / mRowCoordinateSpan : 0.f;
     mNcolBins = nColBins;
     mNrowBins = nRowBins;
+    const int nLayers = std::min(static_cast<int>(layerColHalfExtent.size()), MaxLayers);
     for (int iLayer{0}; iLayer < nLayers; ++iLayer) {
       mLayerColHalfExtent[iLayer] = layerColHalfExtent[iLayer];
       mInverseColBinSize[iLayer] = 0.5f * nColBins / layerColHalfExtent[iLayer];
@@ -65,16 +92,18 @@ class IndexTableUtils
   template <class T>
   void setTrackingParameters(const T& params)
   {
+    const auto extents = layerColHalfExtentFrom(params);
     setIndexTableParams(IndexTableCoordType::PhiZ, params.RowBins, params.ColBins,
-                        0.f, o2::constants::math::TwoPI, layerColHalfExtentFrom(params));
+                        0.f, o2::constants::math::TwoPI, gsl::span<const float>{extents.data(), static_cast<std::size_t>(extents.count)});
   }
 
   /// Fill LUT geometry for MFT (row = global y, col = global x).
   template <class T>
   void setTrackingParametersXY(const T& params, float rowMin, float rowMax)
   {
+    const auto extents = layerColHalfExtentFrom(params);
     setIndexTableParams(IndexTableCoordType::XY, params.RowBins, params.ColBins,
-                        rowMin, rowMax, layerColHalfExtentFrom(params));
+                        rowMin, rowMax, gsl::span<const float>{extents.data(), static_cast<std::size_t>(extents.count)});
   }
 
   GPUhdi() float getInverseColCoordinate(const int layerIndex) const
@@ -124,18 +153,31 @@ class IndexTableUtils
   GPUhdi() float getRowCoordinateSpan() const { return mRowCoordinateSpan; }
 
  private:
+  /// Fixed-capacity result of layerColHalfExtentFrom(): `count` (never above
+  /// MaxLayers) is however many of `params`' own layer-extent entries were
+  /// actually available, exactly mirroring the pre-M6e2 array-fill loop's own
+  /// `iLayer < nLayers && iLayer < colExtents.size()` bound, minus the
+  /// compile-time nLayers half of that bound (no longer available here).
+  struct LayerExtents {
+    std::array<float, MaxLayers> values{};
+    int count{0};
+    const float* data() const noexcept { return values.data(); }
+  };
+
   template <class T>
-  static std::array<float, nLayers> layerColHalfExtentFrom(const T& params)
+  static LayerExtents layerColHalfExtentFrom(const T& params)
   {
-    std::array<float, nLayers> extents{};
+    LayerExtents extents;
     if constexpr (requires { params.LayerColHalfExtent; }) {
       const auto& colExtents = params.LayerColHalfExtent.empty() ? params.LayerZ : params.LayerColHalfExtent;
-      for (int iLayer{0}; iLayer < nLayers && iLayer < static_cast<int>(colExtents.size()); ++iLayer) {
-        extents[iLayer] = colExtents[iLayer];
+      extents.count = std::min(static_cast<int>(colExtents.size()), MaxLayers);
+      for (int iLayer{0}; iLayer < extents.count; ++iLayer) {
+        extents.values[iLayer] = colExtents[iLayer];
       }
     } else {
-      for (int iLayer{0}; iLayer < nLayers && iLayer < static_cast<int>(params.LayerZ.size()); ++iLayer) {
-        extents[iLayer] = params.LayerZ[iLayer];
+      extents.count = std::min(static_cast<int>(params.LayerZ.size()), MaxLayers);
+      for (int iLayer{0}; iLayer < extents.count; ++iLayer) {
+        extents.values[iLayer] = params.LayerZ[iLayer];
       }
     }
     return extents;
@@ -147,24 +189,35 @@ class IndexTableUtils
   float mRowOrigin = 0.f;
   float mRowCoordinateSpan = o2::constants::math::TwoPI;
   IndexTableCoordType mCoordType{IndexTableCoordType::PhiZ};
-  std::array<float, nLayers> mLayerColHalfExtent{};
-  std::array<float, nLayers> mInverseColBinSize{};
+  std::array<float, MaxLayers> mLayerColHalfExtent{};
+  std::array<float, MaxLayers> mInverseColBinSize{};
 };
 
-template <int nLayers>
-void IndexTableUtils<nLayers>::print() const
+inline void IndexTableUtilsCore::print() const
 {
   printf("NcolBins: %d, NrowBins: %d, InverseRowBinSize: %f\n", mNcolBins, mNrowBins, mInverseRowBinSize);
-  for (int iLayer{0}; iLayer < nLayers; ++iLayer) {
+  for (int iLayer{0}; iLayer < MaxLayers; ++iLayer) {
     printf("Layer %d: ColHalfExtent: %f, InverseColBinSize: %f\n", iLayer, mLayerColHalfExtent[iLayer], mInverseColBinSize[iLayer]);
   }
 }
 
-/// ITS: row = phi, col = z.
+/// Backward-compatible alias: every existing textual reference
+/// `o2::itsmft::IndexTableUtils<N>` (any N) keeps compiling unchanged and now
+/// resolves to the same shared, non-templated core above. This is the load-
+/// bearing reason LegacyTrackerScratch<NLayers>'s own
+/// `using IndexTableUtilsN = o2::itsmft::IndexTableUtils<NLayers>;` (untouched
+/// by M6e2) needs no source change at all, for either NLayers value.
 template <int nLayers>
+using IndexTableUtils = IndexTableUtilsCore;
+
+/// ITS: row = phi, col = z. M6e2: no longer templated on nLayers -- see
+/// IndexTableUtilsCore's own doc; every caller that previously supplied an
+/// explicit <nLayers> (or relied on deducing it from the `utils` parameter,
+/// which stopped working once IndexTableUtils<N> became an alias to one
+/// shared type) drops it.
 GPUhdi() int4 getBinsPhiZ(float phi, const int layerIndex,
                           float z1, float z2, float maxDeltaCol, float maxDeltaRow,
-                          const IndexTableUtils<nLayers>& utils)
+                          const IndexTableUtilsCore& utils)
 {
   const float colRangeMin = o2::gpu::GPUCommonMath::Min(z1, z2) - maxDeltaCol;
   const float rowRangeMin = (maxDeltaRow > o2::constants::math::PI) ? 0.f : phi - maxDeltaRow;
@@ -183,11 +236,10 @@ GPUhdi() int4 getBinsPhiZ(float phi, const int layerIndex,
 }
 
 /// MFT: row = y, col = x.
-template <int nLayers>
 GPUhdi() int4 getBinsXY(float x, float y, const int layerIndex,
                         float x1, float x2, float y1, float y2,
                         float maxDeltaCol, float maxDeltaRow,
-                        const IndexTableUtils<nLayers>& utils)
+                        const IndexTableUtilsCore& utils)
 {
   const float colRangeMin = o2::gpu::GPUCommonMath::Min(x1, x2) - maxDeltaCol;
   const float rowRangeMin = o2::gpu::GPUCommonMath::Min(y1, y2) - maxDeltaRow;
@@ -206,7 +258,6 @@ GPUhdi() int4 getBinsXY(float x, float y, const int layerIndex,
 }
 
 /// MFT: extrapolate cluster to toLayer on the line through the primary vertex.
-template <int nLayers>
 GPUhdi() void mftConeProject(const o2::its::Cluster& cluster, int fromLayer, int toLayer,
                              float pvX, float pvY, float pvZ, float& xProj, float& yProj)
 {
@@ -225,10 +276,9 @@ GPUhdi() void mftConeProject(const o2::its::Cluster& cluster, int fromLayer, int
 }
 
 /// MFT LUT window around a precomputed (x, y) projection on toLayer.
-template <int nLayers>
 GPUhdi() int4 getBinsRectClusterAtProj(float xProj, float yProj, int toLayer,
                                        float colRangeMin, float colRangeMax, float maxDeltaCol, float maxDeltaRow,
-                                       const IndexTableUtils<nLayers>& utils)
+                                       const IndexTableUtilsCore& utils)
 {
   const float rProj = o2::gpu::GPUCommonMath::Hypot(xProj, yProj);
   float x1 = xProj;
@@ -247,17 +297,16 @@ GPUhdi() int4 getBinsRectClusterAtProj(float xProj, float yProj, int toLayer,
 
 /// Cluster-driven LUT window: phi-z for ITS, projected x-y for MFT.
 /// ITS: colRangeMin/Max = z window; MFT: colRangeMin/Max = rMin/rMax at toLayer from diamond z spread.
-template <int nLayers>
 GPUhdi() int4 getBinsRectCluster(const o2::its::Cluster& cluster, int fromLayer, int toLayer,
                                  float colRangeMin, float colRangeMax, float maxDeltaCol, float maxDeltaRow,
-                                 const IndexTableUtils<nLayers>& utils,
+                                 const IndexTableUtilsCore& utils,
                                  float pvX = 0.f, float pvY = 0.f, float pvZ = 0.f)
 {
   if (utils.getCoordType() == IndexTableCoordType::XY) {
     float xProj = 0.f;
     float yProj = 0.f;
-    mftConeProject<nLayers>(cluster, fromLayer, toLayer, pvX, pvY, pvZ, xProj, yProj);
-    return getBinsRectClusterAtProj<nLayers>(xProj, yProj, toLayer, colRangeMin, colRangeMax, maxDeltaCol, maxDeltaRow, utils);
+    mftConeProject(cluster, fromLayer, toLayer, pvX, pvY, pvZ, xProj, yProj);
+    return getBinsRectClusterAtProj(xProj, yProj, toLayer, colRangeMin, colRangeMax, maxDeltaCol, maxDeltaRow, utils);
   }
   return getBinsPhiZ(cluster.phi, toLayer, colRangeMin, colRangeMax, maxDeltaCol, maxDeltaRow, utils);
 }

@@ -131,10 +131,10 @@ bool projectSearchWindow(const SurfaceMeasurement& sourceMeasurement,
       radialRangeMin = radialRangeMax;
       radialRangeMax = tmp;
     }
-    const auto bins = o2::itsmft::getBinsRectClusterAtProj<NLayers>(xProj, yProj, transitionState.toLayer,
-                                                                    radialRangeMin, radialRangeMax,
-                                                                    sigmaX * params.nSigmaCut, sigmaY * params.nSigmaCut,
-                                                                    indexUtils);
+    const auto bins = o2::itsmft::getBinsRectClusterAtProj(xProj, yProj, transitionState.toLayer,
+                                                           radialRangeMin, radialRangeMax,
+                                                           sigmaX * params.nSigmaCut, sigmaY * params.nSigmaCut,
+                                                           indexUtils);
     if (bins.x < 0) {
       return false;
     }
