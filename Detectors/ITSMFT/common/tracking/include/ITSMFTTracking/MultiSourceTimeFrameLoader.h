@@ -6,10 +6,9 @@
 // atomic loading transaction, participant-count-generic. It never names
 // ITS, MFT, a layer count, or a fixed source position -- that knowledge
 // lives only in loadITSAndMFT()'s own thin wrapper below and in whatever
-// adapter builds an AtomicLoadBinding list (today, ITSMFTLegacyParticipantSet
-// ::loadBindings(), through its two plan-driven participants' loadTarget(),
-// called directly by
-// the combined DPL task's own trackFrame() composition, M3).
+// adapter builds an AtomicLoadBinding list (today, the combined DPL task's
+// workflow-owned application composition through its two plan-driven
+// participants' loadTarget(), called directly by trackFrame()).
 // TrackingEngine::executeEvent() must only ever be called once loadEvent()
 // (or loadITSAndMFT()) reports success -- this loading boundary calls
 // neither.

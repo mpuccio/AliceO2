@@ -30,9 +30,8 @@
 // production caller -- M2 wraps today's Tracker<NLayers>/TrackerTraits
 // <NLayers>/SurfaceTrackingScratch composition in a concrete
 // TrackingParticipant; M3 has the combined DPL task
-// (CombinedCATrackerSpec.cxx) compose loader + engine + the
-// ITSMFTLegacyParticipantSet participant set directly, all without amending
-// this header.
+// (CombinedCATrackerSpec.cxx) compose loader + engine + the two concrete
+// participants directly, all without amending this header.
 
 #ifndef ALICEO2_ITSMFT_TRACKING_TRACKINGENGINE_H_
 #define ALICEO2_ITSMFT_TRACKING_TRACKINGENGINE_H_

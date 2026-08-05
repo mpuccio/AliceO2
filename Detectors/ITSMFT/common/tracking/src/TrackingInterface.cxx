@@ -239,8 +239,8 @@ void ITSMFTTrackingInterface<NLayers>::initialiseTracker()
   mPlan = std::move(planResult.layout);
 
   // M6e1/M6e2: adapter-derived expected kind/policy, mirroring the combined
-  // participants' own SurfacePlanBinding construction in
-  // ITSMFTLegacyParticipantSet.cxx exactly (SurfaceKind/TransitionPolicyTag
+  // participants' own SurfacePlanBinding construction in the combined
+  // workflow exactly (SurfaceKind/TransitionPolicyTag
   // are literal, adapter-owned constants selected right here from this
   // interface's own compile-time DetId -- no detector switch inside
   // SurfacePlanBinding itself, which still takes them as plain parameters).

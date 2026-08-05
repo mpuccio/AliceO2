@@ -16,9 +16,9 @@
 /// isolation rationale this whole library exists for). The *observable*
 /// fatal conditions and messages match ITS's own opt-in route where the
 /// same condition applies (Sync-only, ITSCommonCATrackerParam.useDiamond),
-/// since ITSMFTLegacyParticipantSet's constructor inherits exactly the
-/// same single-shared-layout, no-real-vertexer constraint ITS's own opt-in
-/// workflow already documents.
+/// since the combined workflow's application plan inherits exactly the same
+/// single-shared-layout, no-real-vertexer constraint ITS's own opt-in workflow
+/// already documents.
 ///
 /// Called, in order, from defineDataProcessing() -- before any
 /// DataProcessorSpec/device is constructed -- so a rejected configuration
@@ -51,7 +51,7 @@ namespace o2::itsmft::combined
 void requireCombinedTrackingEnabledOrFatal();
 
 /// Fatals unless mode == Sync, naming the rejected mode explicitly.
-/// ITSMFTLegacyParticipantSet's constructor only ever accepts exactly one
+/// The combined workflow's application plan accepts exactly one
 /// TrackingParameters iteration per detector (the shape both
 /// TrackingMode::getTrackingParameters(ITS, Sync) and (MFT, Sync) produce);
 /// every other mode either produces a different iteration count or fatals
@@ -62,7 +62,7 @@ void requireSyncTrackingModeOrFatal(o2::itsmft::TrackingMode::Type mode);
 /// Fatals unless o2::itsmft::ITSCommonCATrackerParam::Instance().useDiamond
 /// is set -- identical condition and rationale to
 /// o2::its::ca::requireDiamondVertexConstraintOrFatal(): the combined
-/// coordinator's ITS leg has no real per-event vertexing capability either,
+/// workflow's ITS leg has no real per-event vertexing capability either,
 /// so a non-diamond configuration would otherwise silently run
 /// tracklet/cell finding against an always-empty per-ROF primary vertex
 /// table instead of failing loudly.

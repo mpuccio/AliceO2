@@ -24,8 +24,11 @@
 #include "ITSMFTCombinedCAWorkflow/ConfigPreflight.h"
 #include "ITSMFTTracking/ClusterSource.h"
 #include "ITSMFTTracking/CommonTrackOutputAdapter.h"
+#include "ITSMFTTracking/DetectorLayoutBuilder.h"
 #include "ITSMFTTracking/MultiSourceTimeFrameLoader.h"
 #include "ITSMFTTracking/ROFTimingUniformity.h"
+#include "ITSMFTTracking/StaticDetectorCatalogs.h"
+#include "ITSMFTTracking/detail/SurfacePlanBinding.h"
 #include "ITSMFTTracking/TimeFrameLoadFailure.h"
 #include "ITSMFTTracking/TrackingConfigParam.h"
 #include "MFTBase/GeometryTGeo.h"
@@ -53,7 +56,7 @@ using o2::itsmft::tracking::ParticipantOutcome;
 // applies (TrackingInterface.cxx), reused via the same shared
 // deriveUniformROFTimingConfig() (ROFTimingUniformity.h). Unlike that
 // single-detector path, this workflow does not need to derive nROFsTF here:
-// ITSMFTLegacyParticipantSet's own configureRofTables() (SurfacePlanTrackingParticipant
+// The workflow-owned configureRofTables() (SurfacePlanTrackingParticipant
 // .cxx) takes it directly as the workflow's own ClusterSourceInput::rofs
 // .size(), the actual ROF count this TF's DPL input already carries.
 template <o2::detectors::DetID::ID DetId, int NLayers>
@@ -95,6 +98,77 @@ o2::InteractionRecord chooseOrigin(gsl::span<const o2::itsmft::ROFRecord> itsRof
   return o2::InteractionRecord{};
 }
 
+// The combined ITS/MFT application plan is workflow-owned. It is deliberately
+// built here, beside the DPL task that owns its source positions and schedule,
+// rather than hidden behind a library-level coordinator.
+o2::itsmft::tracking::SurfaceCatalogView combinedCatalogView()
+{
+  return {o2::itsmft::tracking::kITSMFTCombinedStaticSurfaceCatalog.data(),
+          static_cast<uint32_t>(o2::itsmft::tracking::kITSMFTCombinedStaticSurfaceCatalog.size())};
+}
+
+std::vector<o2::itsmft::tracking::SurfaceId> orderedSurfaceRange(uint16_t first, uint16_t count)
+{
+  std::vector<o2::itsmft::tracking::SurfaceId> result;
+  result.reserve(count);
+  for (uint16_t i = 0; i < count; ++i) {
+    result.push_back(o2::itsmft::tracking::SurfaceId{static_cast<uint16_t>(first + i)});
+  }
+  return result;
+}
+
+o2::itsmft::tracking::SurfaceMask surfaceRangeMask(uint16_t first, uint16_t count)
+{
+  o2::itsmft::tracking::SurfaceMask result;
+  for (uint16_t i = 0; i < count; ++i) {
+    result.set(o2::itsmft::tracking::SurfaceId{static_cast<uint16_t>(first + i)});
+  }
+  return result;
+}
+
+o2::itsmft::tracking::DetectorLayoutBuildResult buildCombinedLayout(
+  gsl::span<const o2::itsmft::tracking::SurfaceId> itsSurfaces,
+  const o2::itsmft::TrackingParameters& itsParams,
+  gsl::span<const o2::itsmft::tracking::SurfaceId> mftSurfaces,
+  const o2::itsmft::TrackingParameters& mftParams)
+{
+  o2::itsmft::tracking::DetectorLayoutSubgraph itsSubgraph;
+  itsSubgraph.orderedSurfaces.assign(itsSurfaces.begin(), itsSurfaces.end());
+  itsSubgraph.maxHoles = itsParams.MaxHoles;
+  itsSubgraph.holeSurfaces = o2::itsmft::tracking::positionalSurfaceMask(
+    itsParams.HoleLayerMask, itsSurfaces, static_cast<uint32_t>(itsSurfaces.size()));
+  itsSubgraph.seedingSurfaces = o2::itsmft::tracking::positionalSurfaceMask(
+    itsParams.StartLayerMask, itsSurfaces, static_cast<uint32_t>(itsSurfaces.size()));
+
+  o2::itsmft::tracking::DetectorLayoutSubgraph mftSubgraph;
+  mftSubgraph.orderedSurfaces.assign(mftSurfaces.begin(), mftSurfaces.end());
+  mftSubgraph.maxHoles = mftParams.MaxHoles;
+  mftSubgraph.holeSurfaces = o2::itsmft::tracking::positionalSurfaceMask(
+    mftParams.HoleLayerMask, mftSurfaces, static_cast<uint32_t>(mftSurfaces.size()));
+  mftSubgraph.seedingSurfaces = o2::itsmft::tracking::positionalSurfaceMask(
+    mftParams.StartLayerMask, mftSurfaces, static_cast<uint32_t>(mftSurfaces.size()));
+
+  o2::itsmft::tracking::DetectorLayoutBuilder builder{combinedCatalogView()};
+  builder.addSubgraph(std::move(itsSubgraph));
+  builder.addSubgraph(std::move(mftSubgraph));
+  return builder.build();
+}
+
+template <int NLayers>
+o2::itsmft::tracking::DetectorLayoutSet ownDetectorPlan(
+  const o2::itsmft::tracking::DetectorLayout& authoritative,
+  gsl::span<const o2::itsmft::tracking::SurfaceId> ownSurfaces,
+  const o2::itsmft::TrackingParameters& params)
+{
+  o2::itsmft::tracking::DetectorLayoutConfigurationKey key;
+  key.orderedSurfaces.assign(ownSurfaces.begin(), ownSurfaces.end());
+  key.iterations.push_back(o2::itsmft::tracking::DetectorLayoutIterationConfiguration{
+    static_cast<uint32_t>(NLayers), params.MaxHoles, params.HoleLayerMask, params.StartLayerMask});
+  std::vector<o2::itsmft::tracking::DetectorLayout> layouts;
+  layouts.push_back(authoritative);
+  return o2::itsmft::tracking::DetectorLayoutSet{std::move(key), combinedCatalogView(), std::move(layouts)};
+}
+
 } // namespace
 
 CombinedCATrackerDPL::CombinedCATrackerDPL(std::shared_ptr<o2::base::GRPGeomRequest> gr, bool useMC)
@@ -126,24 +200,141 @@ void CombinedCATrackerDPL::buildParticipantsOnce()
   auto mftParams = o2::itsmft::TrackingMode::getTrackingParameters(o2::detectors::DetID::MFT, o2::itsmft::TrackingMode::Sync);
   mITSTrackingParams = itsParams[0];
   mMFTTrackingParams = mftParams[0];
-
-  mParticipants = std::make_unique<o2::itsmft::tracking::ITSMFTLegacyParticipantSet>(itsParams, mftParams);
-
   const size_t maxMemory = std::min(itsParams[0].MaxMemory, mftParams[0].MaxMemory);
+
+  const auto itsSurfaces = orderedSurfaceRange(0, o2::itsmft::tracking::ITSNLayers);
+  const auto mftSurfaces = orderedSurfaceRange(o2::itsmft::tracking::ITSNLayers, o2::itsmft::tracking::MFTNLayers);
+  const auto combinedBuild = buildCombinedLayout(itsSurfaces, itsParams[0], mftSurfaces, mftParams[0]);
+  if (!combinedBuild.ok()) {
+    throw std::runtime_error{"Combined ITS+MFT tracker: failed to build the application detector layout"};
+  }
+  const auto& combinedLayout = *combinedBuild.layout;
+  mITSPlan.emplace(ownDetectorPlan<o2::itsmft::tracking::ITSNLayers>(combinedLayout, itsSurfaces, itsParams[0]));
+  mMFTPlan.emplace(ownDetectorPlan<o2::itsmft::tracking::MFTNLayers>(combinedLayout, mftSurfaces, mftParams[0]));
+
+  mITSParticipant = std::make_unique<o2::itsmft::tracking::SurfacePlanTrackingParticipantITS>(
+    o2::itsmft::tracking::ParticipantId{0}, std::move(itsParams));
+  mMFTParticipant = std::make_unique<o2::itsmft::tracking::SurfacePlanTrackingParticipantMFT>(
+    o2::itsmft::tracking::ParticipantId{1}, std::move(mftParams));
+
+  auto itsBindingResult = o2::itsmft::tracking::SurfacePlanBinding::build(
+    mITSPlan->getLayoutView(0), o2::itsmft::tracking::ClusterSourceId{0},
+    surfaceRangeMask(0, o2::itsmft::tracking::ITSNLayers), itsSurfaces,
+    o2::itsmft::tracking::SurfaceKind::Cylinder, o2::itsmft::tracking::TransitionPolicyTag::CylinderCylinder);
+  if (!itsBindingResult.ok()) {
+    throw std::runtime_error{"Combined ITS+MFT tracker: failed to build the ITS surface binding"};
+  }
+  auto mftBindingResult = o2::itsmft::tracking::SurfacePlanBinding::build(
+    mMFTPlan->getLayoutView(0), o2::itsmft::tracking::ClusterSourceId{1},
+    surfaceRangeMask(o2::itsmft::tracking::ITSNLayers, o2::itsmft::tracking::MFTNLayers), mftSurfaces,
+    o2::itsmft::tracking::SurfaceKind::Disk, o2::itsmft::tracking::TransitionPolicyTag::DiskDisk);
+  if (!mftBindingResult.ok()) {
+    throw std::runtime_error{"Combined ITS+MFT tracker: failed to build the MFT surface binding"};
+  }
+  mITSParticipant->adoptSurfacePlanBinding(std::move(itsBindingResult.binding));
+  mMFTParticipant->adoptSurfacePlanBinding(std::move(mftBindingResult.binding));
+  mITSParticipant->adoptDetectorLayoutSet(*mITSPlan);
+  mMFTParticipant->adoptDetectorLayoutSet(*mMFTPlan);
+  mSchedule = {mITSParticipant.get(), mMFTParticipant.get()};
+
   mFrame.setMemoryPool(std::make_shared<o2::itsmft::tracking::BoundedMemoryResource>(maxMemory));
-  mParticipants->adoptFrame(mFrame);
-  mParticipants->setMemoryPool(mFrame.getMemoryPool());
-  mParticipants->setBz(o2::base::Propagator::Instance()->getNominalBz());
+  mITSParticipant->adoptFrame(mFrame);
+  mMFTParticipant->adoptFrame(mFrame);
+  mITSParticipant->setMemoryPool(mFrame.getMemoryPool());
+  mMFTParticipant->setMemoryPool(mFrame.getMemoryPool());
+  mITSParticipant->setBz(o2::base::Propagator::Instance()->getNominalBz());
+  mMFTParticipant->setBz(o2::base::Propagator::Instance()->getNominalBz());
 
   const int itsNThreads = o2::itsmft::ITSCommonCATrackerParam::Instance().nThreads;
   const int mftNThreads = o2::itsmft::tracking::TrackerParamRef<o2::detectors::DetID::MFT>::get().nThreads;
-  mParticipants->setNThreads(std::max({1, itsNThreads, mftNThreads}));
+  const int nThreads = std::max({1, itsNThreads, mftNThreads});
+  mITSParticipant->setNThreads(nThreads);
+  mMFTParticipant->setNThreads(nThreads);
+}
+
+std::optional<LoadSourcesResult> CombinedCATrackerDPL::validateSources(const ClusterSourceInput& itsSource,
+                                                                        const ClusterSourceInput& mftSource) const noexcept
+{
+  if (itsSource.id != ClusterSourceId{0} || itsSource.detector != o2::detectors::DetID::ITS) {
+    return LoadSourcesResult{o2::itsmft::tracking::MultiSourceLoadError::UnsupportedDetector, itsSource.id};
+  }
+  if (mftSource.id != ClusterSourceId{1} || mftSource.detector != o2::detectors::DetID::MFT) {
+    return LoadSourcesResult{o2::itsmft::tracking::MultiSourceLoadError::UnsupportedDetector, mftSource.id};
+  }
+  return std::nullopt;
+}
+
+std::array<MultiSourceTimeFrameLoader::AtomicLoadBinding, 2> CombinedCATrackerDPL::loadBindings(
+  const ClusterSourceInput& itsSource, const ClusterSourceInput& mftSource) noexcept
+{
+  return {MultiSourceTimeFrameLoader::AtomicLoadBinding{itsSource, mITSParticipant->loadTarget()},
+          MultiSourceTimeFrameLoader::AtomicLoadBinding{mftSource, mMFTParticipant->loadTarget()}};
+}
+
+o2::itsmft::tracking::SurfaceCatalogView CombinedCATrackerDPL::catalogView() const noexcept
+{
+  return combinedCatalogView();
+}
+
+std::optional<bool> CombinedCATrackerDPL::dropTFUponFailureFor(ClusterSourceId source) const noexcept
+{
+  if (source == ClusterSourceId{0}) {
+    return mITSParticipant->getDropTFUponFailure();
+  }
+  if (source == ClusterSourceId{1}) {
+    return mMFTParticipant->getDropTFUponFailure();
+  }
+  return std::nullopt;
+}
+
+void CombinedCATrackerDPL::configureRofTables(const ClusterSourceInput& itsSource, const ClusterSourceInput& mftSource)
+{
+  mITSParticipant->configureRofTables(itsSource.timing, static_cast<uint32_t>(itsSource.rofs.size()));
+  mMFTParticipant->configureRofTables(mftSource.timing, static_cast<uint32_t>(mftSource.rofs.size()));
+}
+
+void CombinedCATrackerDPL::clearPublicationSidecars() noexcept
+{
+  mITSParticipant->clearPublicationSidecar();
+  mMFTParticipant->clearPublicationSidecar();
+}
+
+void CombinedCATrackerDPL::invalidatePublication() noexcept
+{
+  mITSClock.reset();
+  mMFTClock.reset();
+  mPublicationValid = false;
+}
+
+void CombinedCATrackerDPL::markPublicationValid() noexcept
+{
+  mITSClock.emplace(mITSParticipant->getScratch().getROFOverlapTableView<o2::itsmft::tracking::ITSNLayers>().getClockLayer());
+  mMFTClock.emplace(mMFTParticipant->getScratch().getROFOverlapTableView<o2::itsmft::tracking::MFTNLayers>().getClockLayer());
+  mPublicationValid = true;
+}
+
+std::optional<o2::itsmft::tracking::CommonTrackPublicationExport> CombinedCATrackerDPL::getITSPublicationExport() const
+{
+  if (!mPublicationValid || !mITSClock) {
+    return std::nullopt;
+  }
+  return o2::itsmft::tracking::CommonTrackPublicationExport{o2::detectors::DetID::ITS, ClusterSourceId{0}, *mITSClock,
+                                                            getITSOrderedSurfaces()};
+}
+
+std::optional<o2::itsmft::tracking::CommonTrackPublicationExport> CombinedCATrackerDPL::getMFTPublicationExport() const
+{
+  if (!mPublicationValid || !mMFTClock) {
+    return std::nullopt;
+  }
+  return o2::itsmft::tracking::CommonTrackPublicationExport{o2::detectors::DetID::MFT, ClusterSourceId{1}, *mMFTClock,
+                                                            getMFTOrderedSurfaces()};
 }
 
 ParticipantOutcome CombinedCATrackerDPL::trackFrame(const ClusterSourceInput& itsSource, const ClusterSourceInput& mftSource,
                                                     const o2::InteractionRecord& origin)
 {
-  mParticipants->invalidatePublication();
+  invalidatePublication();
   // A prior successful trackFrame() call leaves both sidecars sealed
   // (ITSSharedClusterCompatibility::sealFromMarkedTracks(),
   // MFTPublicationCompatibility's per-TF entries): unlike
@@ -157,30 +348,29 @@ ParticipantOutcome CombinedCATrackerDPL::trackFrame(const ClusterSourceInput& it
   // of every trackFrame() call -- success or failure alike -- keeps every
   // TF starting from the same fresh state regardless of how the previous
   // one ended.
-  mParticipants->clearPublicationSidecars();
+  clearPublicationSidecars();
 
-  // The fixed ITS=0/MFT=1 source contract lives only inside
-  // mParticipants->validateSources() -- this method never inspects
-  // itsSource/mftSource's id/detector itself.
+  // The fixed ITS=0/MFT=1 source contract lives in this workflow-owned
+  // application composition, never in the generic loader.
   LoadSourcesResult loadResult;
-  if (const auto rejected = mParticipants->validateSources(itsSource, mftSource)) {
+  if (const auto rejected = validateSources(itsSource, mftSource)) {
     loadResult = *rejected;
   } else {
-    const auto bindings = mParticipants->loadBindings(itsSource, mftSource);
+    const auto bindings = loadBindings(itsSource, mftSource);
     loadResult = MultiSourceTimeFrameLoader::loadEvent(mFrame, gsl::span<const MultiSourceTimeFrameLoader::AtomicLoadBinding>{bindings},
-                                                       mParticipants->catalogView(), origin);
+                                                       catalogView(), origin);
   }
   if (!loadResult.ok()) {
     // Reuse isRecoverableLoadError() (TimeFrameLoadFailure.h) rather than a
     // parallel taxonomy, then gate it by the *owning* detector's own
-    // DropTFUponFailure -- mParticipants->dropTFUponFailureFor() carries
+    // DropTFUponFailure -- the workflow-owned source mapping carries
     // the fixed ITS/MFT source-position contract. This is a *load*
     // failure: the event was never atomically committed, so
     // TrackingEngine::executeEvent() must never be called on it --
     // resetEvent() alone applies the same all-participant/shared-frame
     // reset contract without ever reaching track().
     const bool errorIsRecoverable = o2::itsmft::tracking::isRecoverableLoadError(loadResult.error, loadResult.timingDetail);
-    const auto dropAllowed = mParticipants->dropTFUponFailureFor(loadResult.source);
+    const auto dropAllowed = dropTFUponFailureFor(loadResult.source);
     const bool sourceRecognized = dropAllowed.has_value();
     if (!sourceRecognized) {
       LOGP(error, "Combined TF load failure reports an unrecognized source id {}; treating as structural", loadResult.source.value());
@@ -191,12 +381,12 @@ ParticipantOutcome CombinedCATrackerDPL::trackFrame(const ClusterSourceInput& it
     LOGP(error, "Combined TF loading failed (source={}, error={}, recoverable={}, dropAllowed={}): outcome={}",
          loadResult.source.value(), static_cast<int>(loadResult.error), errorIsRecoverable, dropAllowed.value_or(false),
          outcome == ParticipantOutcome::RecoverableDropped ? "RecoverableDropped" : "Structural");
-    mEngine.resetEvent(mFrame, mParticipants->schedule());
-    mParticipants->invalidatePublication();
+    mEngine.resetEvent(mFrame, schedule());
+    invalidatePublication();
     return outcome;
   }
 
-  mParticipants->configureRofTables(itsSource, mftSource);
+  configureRofTables(itsSource, mftSource);
 
   // The load has committed: executeEvent() may now run. It executes the
   // explicit [ITS, MFT] schedule's track() calls in that exact order into
@@ -204,18 +394,18 @@ ParticipantOutcome CombinedCATrackerDPL::trackFrame(const ClusterSourceInput& it
   // ITS-then-MFT), and on any non-Success outcome or exception already
   // applies the same whole-event reset the load-failure branch above
   // applies -- see TrackingEngine::executeEvent()'s own doc.
-  const auto eventResult = mEngine.executeEvent(mFrame, mParticipants->schedule());
+  const auto eventResult = mEngine.executeEvent(mFrame, schedule());
   if (eventResult.outcome != ParticipantOutcome::Success) {
     LOGP(error, "Combined TF tracking failed via the delegated engine (outcome={})",
          eventResult.outcome == ParticipantOutcome::RecoverableDropped ? "RecoverableDropped" : "Structural");
     // executeEvent() already reset every participant and wiped the shared
     // TimeFrame; only the publication/timing bridge state remains to
     // invalidate.
-    mParticipants->invalidatePublication();
+    invalidatePublication();
     return eventResult.outcome;
   }
 
-  mParticipants->markPublicationValid();
+  markPublicationValid();
   return ParticipantOutcome::Success;
 }
 
@@ -248,9 +438,8 @@ void CombinedCATrackerDPL::run(ProcessingContext& pc)
   const gsl::span<const o2::itsmft::ROFRecord> itsRofs(itsRofsInput.data(), itsRofsInput.size());
   const gsl::span<const o2::itsmft::ROFRecord> mftRofs(mftRofsInput.data(), mftRofsInput.size());
 
-  // Direct field-by-field construction (not mParticipants' own
-  // ClusterSourceInput -- there is no shared owner for these two, each is
-  // workflow-owned and built fresh per TF).
+  // Direct field-by-field construction: each source input is workflow-owned
+  // and built fresh for this TF.
   ClusterSourceInput itsSource{};
   itsSource.id = ClusterSourceId{0};
   itsSource.detector = o2::detectors::DetID::ITS;
@@ -259,11 +448,10 @@ void CombinedCATrackerDPL::run(ProcessingContext& pc)
   itsSource.rofs = itsRofs;
   itsSource.dictionary = mITSDict;
   itsSource.labels = itsLabels;
-  // layerToSurface built directly from mParticipants' own always-valid
+  // layerToSurface built directly from the workflow-owned plan's always-valid
   // ordered-surface getter -- never re-derived by hand as a literal
-  // ITS=0..6/MFT=7..16 offset (see ITSMFTLegacyParticipantSet.h's own doc
-  // on getITSOrderedSurfaces()/getMFTOrderedSurfaces()).
-  itsSource.layerToSurface = mParticipants->getITSOrderedSurfaces();
+  // ITS=0..6/MFT=7..16 offset.
+  itsSource.layerToSurface = getITSOrderedSurfaces();
   itsSource.timing = deriveRofTimingConfigOrFatal<o2::detectors::DetID::ITS, o2::itsmft::tracking::ITSNLayers>(mITSTrackingParams);
   itsSource.decoder = mITSDecoder.get();
 
@@ -275,7 +463,7 @@ void CombinedCATrackerDPL::run(ProcessingContext& pc)
   mftSource.rofs = mftRofs;
   mftSource.dictionary = mMFTDict;
   mftSource.labels = mftLabels;
-  mftSource.layerToSurface = mParticipants->getMFTOrderedSurfaces();
+  mftSource.layerToSurface = getMFTOrderedSurfaces();
   mftSource.timing = deriveRofTimingConfigOrFatal<o2::detectors::DetID::MFT, o2::itsmft::tracking::MFTNLayers>(mMFTTrackingParams);
   mftSource.decoder = mMFTDecoder.get();
 
@@ -293,8 +481,8 @@ void CombinedCATrackerDPL::run(ProcessingContext& pc)
     throw std::runtime_error{"Combined ITS+MFT CA tracking hit a structural failure"};
   }
 
-  const auto itsExport = mParticipants->getITSPublicationExport();
-  const auto mftExport = mParticipants->getMFTPublicationExport();
+  const auto itsExport = getITSPublicationExport();
+  const auto mftExport = getMFTPublicationExport();
   if (!itsExport || !mftExport) {
     throw std::runtime_error{"Combined ITS+MFT CommonTrack output publication context is unavailable after a successful trackFrame()"};
   }
@@ -307,10 +495,10 @@ void CombinedCATrackerDPL::run(ProcessingContext& pc)
   // if either staging fails, neither stream is ever requested.
   o2::itsmft::tracking::CommonTrackOutputAdapterError itsError = o2::itsmft::tracking::CommonTrackOutputAdapterError::None;
   const auto stagedITS = o2::itsmft::tracking::stageITSCommonTrackOutput(
-    mFrame, itsContext, mParticipants->getITSSharedClusterCompatibility(), mUseMC, itsError);
+    mFrame, itsContext, getITSSharedClusterCompatibility(), mUseMC, itsError);
   o2::itsmft::tracking::CommonTrackOutputAdapterError mftError = o2::itsmft::tracking::CommonTrackOutputAdapterError::None;
   const auto stagedMFT = o2::itsmft::tracking::stageMFTCommonTrackOutput(
-    mFrame, mftContext, mParticipants->getMFTPublicationCompatibility(), mUseMC, mftError);
+    mFrame, mftContext, getMFTPublicationCompatibility(), mUseMC, mftError);
   if (!stagedITS || !stagedMFT) {
     throw std::runtime_error{"Combined ITS+MFT CommonTrack output staging failed"};
   }

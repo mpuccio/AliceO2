@@ -16,44 +16,53 @@
 ///        ITSCAWorkflow, MFTWorkflow, or either frozen legacy reco workflow
 ///        (see this directory's CMakeLists.txt).
 ///
-/// M3 (GenericTrackingEngineMigration.md; ADR 0007) deletes the temporary
-/// combined coordinator that used to stand between this device and its
-/// owners: this device is now the sole owner of the one shared TimeFrame,
-/// the one ITSMFTLegacyParticipantSet (the ITS/MFT application-layer
-/// factory M2c introduced), and the one TrackingEngine.
-/// run()'s own trackFrame() composes, in order: the set's atomic load
-/// bindings, MultiSourceTimeFrameLoader::loadEvent(), TrackingEngine::
-/// executeEvent(), and the set's publication exports/sidecars -- there is no
-/// coordinator class standing between this device and those three owners.
+/// M6g: this DPL task is the application owner of the shared TimeFrame, the
+/// two concrete plan-driven participants, their combined application plan,
+/// the event publication context, and the TrackingEngine. The common tracking
+/// library contains no ITS+MFT coordinator or event-loop state. run()'s own
+/// trackFrame() composes, in order: the workflow-owned atomic load bindings,
+/// MultiSourceTimeFrameLoader::loadEvent(), TrackingEngine::executeEvent(),
+/// and publication staging.
 
 #ifndef ALICEO2_ITSMFT_COMBINEDCAWORKFLOW_COMBINEDCATRACKERSPEC_H_
 #define ALICEO2_ITSMFT_COMBINEDCAWORKFLOW_COMBINEDCATRACKERSPEC_H_
 
+#include <array>
 #include <memory>
-
+#include <optional>
 #include <vector>
 
+#include <gsl/span>
+
+#include "CommonDataFormat/InteractionRecord.h"
 #include "DataFormatsITSMFT/TopologyDictionary.h"
 #include "DetectorsBase/GRPGeomHelper.h"
 #include "Framework/DataProcessorSpec.h"
 #include "Framework/Task.h"
 #include "ITSMFTTracking/ClusterDecoder.h"
+#include "ITSMFTTracking/ClockTimingPublicationView.h"
 #include "ITSMFTTracking/Configuration.h"
-#include "ITSMFTTracking/ITSMFTLegacyParticipantSet.h"
+#include "ITSMFTTracking/ClusterSource.h"
+#include "ITSMFTTracking/DetectorLayoutSet.h"
+#include "ITSMFTTracking/ITSSharedClusterCompatibility.h"
+#include "ITSMFTTracking/MFTPublicationCompatibility.h"
+#include "ITSMFTTracking/MultiSourceTimeFrameLoader.h"
+#include "ITSMFTTracking/SurfacePlanTrackingParticipant.h"
 #include "ITSMFTTracking/TimeFrame.h"
 #include "ITSMFTTracking/TrackingEngine.h"
+#include "ITSMFTTracking/TrackingInterface.h"
 #include "ITSMFTTracking/TrackingParticipant.h"
 
 namespace o2::itsmft::combined
 {
 
 /// Combined ITS+MFT opt-in common-CA tracker DPL task. Owns the one shared
-/// TimeFrame, the one ITSMFTLegacyParticipantSet both detectors' tracking
-/// runs against, and the one TrackingEngine; delegates all CommonTrack->
-/// detector-track output staging to CommonTrackOutputAdapter.h. ITS/MFT
-/// source-position and failure-classification knowledge lives here (this
-/// application adapter) and inside ITSMFTLegacyParticipantSet -- never
-/// inside TrackingEngine/TrackingParticipant/TimeFrame/
+/// TimeFrame, both concrete plan-driven participants, the combined application
+/// plan, the event publication context, and the one TrackingEngine; delegates
+/// all CommonTrack->detector-track output staging to
+/// CommonTrackOutputAdapter.h. ITS/MFT source-position, schedule, failure-
+/// classification, and publication state live here in this workflow task --
+/// never inside TrackingEngine/TrackingParticipant/TimeFrame/
 /// MultiSourceTimeFrameLoader, which stay detector-neutral.
 class CombinedCATrackerDPL : public o2::framework::Task
 {
@@ -73,24 +82,52 @@ class CombinedCATrackerDPL : public o2::framework::Task
   // ordering constraint ITSMFTTrackingInterface::initialise() already has).
   void buildParticipantsOnce();
 
-  // Composes the atomic load (via mParticipants' own source-qualified
-  // bindings and MultiSourceTimeFrameLoader::loadEvent()) and, once that has
-  // committed, the tracking phase (TrackingEngine::executeEvent() over
-  // mParticipants.schedule()) into the same whole-event all-or-nothing
-  // contract this workflow's pre-M3 combined coordinator used to apply: any
-  // non-success -- a load failure, a non-Success tracking outcome, or an
-  // exception from either leg's track() -- performs exactly one whole
-  // reset (TrackingEngine::resetEvent() on a load failure; executeEvent()
-  // already applies it internally on a tracking failure) and leaves the
-  // publication/timing bridge invalidated. A successful return leaves
-  // mParticipants' publication exports/sidecars populated for run() to
-  // stage. This is application-adapter composition, not a new core owner:
-  // the fixed ITS=0/MFT=1 source-position mapping and per-detector
-  // DropTFUponFailure classification both still live only inside
-  // mParticipants, never here or in TrackingEngine.
+  // Composes the atomic load and, once that has committed, the tracking phase
+  // into a whole-event all-or-nothing contract. Any non-success -- a load
+  // failure, a non-Success tracking outcome, or an exception from either
+  // leg's track() -- performs exactly one whole reset and leaves the
+  // workflow-owned publication/timing state invalidated. A successful return
+  // leaves the two participant sidecars and publication exports populated for
+  // run() to stage.
   o2::itsmft::tracking::ParticipantOutcome trackFrame(const o2::itsmft::tracking::ClusterSourceInput& itsSource,
                                                       const o2::itsmft::tracking::ClusterSourceInput& mftSource,
                                                       const o2::InteractionRecord& origin);
+
+  gsl::span<o2::itsmft::tracking::TrackingParticipant* const> schedule() noexcept { return mSchedule; }
+  std::optional<o2::itsmft::tracking::LoadSourcesResult> validateSources(
+    const o2::itsmft::tracking::ClusterSourceInput& itsSource,
+    const o2::itsmft::tracking::ClusterSourceInput& mftSource) const noexcept;
+  std::array<o2::itsmft::tracking::MultiSourceTimeFrameLoader::AtomicLoadBinding, 2> loadBindings(
+    const o2::itsmft::tracking::ClusterSourceInput& itsSource,
+    const o2::itsmft::tracking::ClusterSourceInput& mftSource) noexcept;
+  o2::itsmft::tracking::SurfaceCatalogView catalogView() const noexcept;
+  std::optional<bool> dropTFUponFailureFor(o2::itsmft::tracking::ClusterSourceId source) const noexcept;
+  void configureRofTables(const o2::itsmft::tracking::ClusterSourceInput& itsSource,
+                          const o2::itsmft::tracking::ClusterSourceInput& mftSource);
+  void clearPublicationSidecars() noexcept;
+  void invalidatePublication() noexcept;
+  void markPublicationValid() noexcept;
+  std::optional<o2::itsmft::tracking::CommonTrackPublicationExport> getITSPublicationExport() const;
+  std::optional<o2::itsmft::tracking::CommonTrackPublicationExport> getMFTPublicationExport() const;
+
+  const o2::itsmft::tracking::SurfaceTrackingScratch& getITSScratch() const noexcept { return mITSParticipant->getScratch(); }
+  const o2::itsmft::tracking::SurfaceTrackingScratch& getMFTScratch() const noexcept { return mMFTParticipant->getScratch(); }
+  const o2::itsmft::tracking::ITSSharedClusterCompatibility& getITSSharedClusterCompatibility() const noexcept
+  {
+    return *mITSParticipant->getITSSharedClusterCompatibility();
+  }
+  const o2::itsmft::tracking::MFTPublicationCompatibility& getMFTPublicationCompatibility() const noexcept
+  {
+    return *mMFTParticipant->getMFTPublicationCompatibility();
+  }
+  gsl::span<const o2::itsmft::tracking::SurfaceId> getITSOrderedSurfaces() const noexcept
+  {
+    return mITSPlan->getConfigurationKey().orderedSurfaces;
+  }
+  gsl::span<const o2::itsmft::tracking::SurfaceId> getMFTOrderedSurfaces() const noexcept
+  {
+    return mMFTPlan->getConfigurationKey().orderedSurfaces;
+  }
 
   std::shared_ptr<o2::base::GRPGeomRequest> mGGCCDBRequest;
   bool mUseMC = false;
@@ -101,9 +138,16 @@ class CombinedCATrackerDPL : public o2::framework::Task
   std::unique_ptr<o2::itsmft::tracking::ClusterDecoder> mITSDecoder;
   std::unique_ptr<o2::itsmft::tracking::ClusterDecoder> mMFTDecoder;
   o2::itsmft::tracking::TimeFrame mFrame;
-  std::unique_ptr<o2::itsmft::tracking::ITSMFTLegacyParticipantSet> mParticipants;
+  std::optional<o2::itsmft::tracking::DetectorLayoutSet> mITSPlan;
+  std::optional<o2::itsmft::tracking::DetectorLayoutSet> mMFTPlan;
+  std::unique_ptr<o2::itsmft::tracking::SurfacePlanTrackingParticipantITS> mITSParticipant;
+  std::unique_ptr<o2::itsmft::tracking::SurfacePlanTrackingParticipantMFT> mMFTParticipant;
+  std::array<o2::itsmft::tracking::TrackingParticipant*, 2> mSchedule{};
+  std::optional<o2::itsmft::tracking::ClockTimingPublicationView> mITSClock;
+  std::optional<o2::itsmft::tracking::ClockTimingPublicationView> mMFTClock;
+  bool mPublicationValid = false;
   o2::itsmft::tracking::TrackingEngine mEngine;
-  // The single-iteration TrackingParameters mParticipants was built with,
+  // The single-iteration TrackingParameters the workflow participants were built with,
   // retained so run() can derive each detector's per-TF ROFTimingConfig
   // from TrackingParameters::AddTimeError without asking the set for its
   // own construction-time arguments back.

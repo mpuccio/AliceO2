@@ -14,15 +14,14 @@
 //
 // This class never loads input itself, matching TrackingParticipant.h's own
 // contract: it only exposes its own loadTarget() (the loader's surface-backed
-// target, bound to its own scratch) for its owning
-// ITSMFTLegacyParticipantSet to build an AtomicLoadBinding from; the actual
+// target, bound to its own scratch) for the owning workflow application to
+// build an AtomicLoadBinding from; the actual
 // MultiSourceTimeFrameLoader::loadEvent() call, and the subsequent
 // TrackingEngine::executeEvent()/resetEvent() call once that atomic load has
 // committed (or resetEvent() alone, without ever calling executeEvent(), on
-// a load failure), both happen one level up, in the application adapter that
-// owns the participant set (M3: the combined DPL task,
-// CombinedCATrackerSpec.cxx). track()/eventReset() below both assume that
-// precondition; see TrackingParticipant.h for the exact contract.
+// a load failure), both happen in the combined DPL task. track()/eventReset()
+// below assume that precondition; see TrackingParticipant.h for the exact
+// contract.
 
 #ifndef ALICEO2_ITSMFT_TRACKING_SURFACEPLANTRACKINGPARTICIPANT_H_
 #define ALICEO2_ITSMFT_TRACKING_SURFACEPLANTRACKINGPARTICIPANT_H_
@@ -74,17 +73,17 @@ class SurfacePlanTrackingParticipant final : public TrackingParticipant,
   // adoptMFTPublicationCompatibility()) and to the addresses
   // adoptSurfacePlanBinding()/adoptDetectorLayoutSet() bind
   // immediately afterward; relocating this object would silently dangle
-  // every one of those bound pointers -- the same non-relocatable contract
-  // ITSMFTLegacyParticipantSet itself already documents.
+  // every one of those bound pointers -- the non-relocatable contract
+  // required by the owning workflow application.
   SurfacePlanTrackingParticipant(const SurfacePlanTrackingParticipant&) = delete;
   SurfacePlanTrackingParticipant& operator=(const SurfacePlanTrackingParticipant&) = delete;
   SurfacePlanTrackingParticipant(SurfacePlanTrackingParticipant&&) = delete;
   SurfacePlanTrackingParticipant& operator=(SurfacePlanTrackingParticipant&&) = delete;
 
-  // --- Owning-set-only setup, called once before the first track() call.
+  // --- Owning-application setup, called once before the first track() call.
   // Not part of the generic TrackingParticipant interface: the owning
-  // ITSMFTLegacyParticipantSet holds this concrete type directly (never
-  // only a TrackingParticipant*) specifically to reach these. ---
+  // workflow holds this concrete type directly (never only a
+  // TrackingParticipant*) specifically to reach these. ---
   void adoptSurfacePlanBinding(std::unique_ptr<SurfacePlanBinding> binding);
   void adoptDetectorLayoutSet(const DetectorLayoutSet& plan);
   void adoptFrame(TimeFrame& frame);
@@ -96,23 +95,21 @@ class SurfacePlanTrackingParticipant final : public TrackingParticipant,
   // This leg's own load target for MultiSourceTimeFrameLoader::loadEvent()
   // (M2b): bound once, at construction, to mScratch -- see mLoadTarget's
   // own doc below. Not part of the generic TrackingParticipant interface;
-  // the owning ITSMFTLegacyParticipantSet (or any other adapter driving the
-  // generic atomic loading transaction) reaches this only through the
-  // concrete participant type.
+  // the owning workflow (or any other adapter driving the generic atomic
+  // loading transaction) reaches this only through the concrete participant
+  // type.
   MultiSourceTimeFrameLoader::LoadTarget& loadTarget() noexcept { return mLoadTarget; }
 
-  // Clears just this participant's publication sidecar -- the same
-  // unconditional top-of-trackFrame() step the owning ITSMFTLegacyParticipantSet
-  // 's application adapter already documents: a prior successful run leaves
-  // the sidecar sealed, and the very next TF's first accepted track would
-  // otherwise fail the already-sealed guard. Deliberately narrower than
+  // Clears just this participant's publication sidecar. The workflow calls
+  // this unconditionally at the top of each trackFrame(): a prior successful
+  // run leaves the sidecar sealed, and the next TF's first accepted track
+  // would otherwise fail the already-sealed guard. Deliberately narrower than
   // eventReset(): it never touches the scratch.
   void clearPublicationSidecar() noexcept;
 
-  // This leg's own DropTFUponFailure, needed by the owning
-  // ITSMFTLegacyParticipantSet to classify an atomic *load* failure (a
-  // decision made before track() is ever reachable, so it cannot come from
-  // a ParticipantTrackingResult).
+  // This leg's own DropTFUponFailure, needed by the owning workflow to
+  // classify an atomic *load* failure (a decision made before track() is ever
+  // reachable, so it cannot come from a ParticipantTrackingResult).
   bool getDropTFUponFailure() const noexcept { return mParams[0].DropTFUponFailure; }
 
   // --- TrackingParticipant (ADR 0007 decision 5) ---
@@ -122,15 +119,15 @@ class SurfacePlanTrackingParticipant final : public TrackingParticipant,
   void eventReset(TimeFrame& frame) noexcept override;
   std::optional<ParticipantPublicationExport> publicationExport() const override;
 
-  // --- Owning-set-only readback, concrete type only: never exposed
+  // --- Owning-application readback, concrete type only: never exposed
   // through TrackingParticipant's own public contract. ---
   SurfaceTrackingScratch& getScratch() noexcept { return mScratch; }
   const SurfaceTrackingScratch& getScratch() const noexcept { return mScratch; }
   // Returns nullptr for the "wrong" NLayers instantiation (mirrors
   // ITSMFTTrackingInterface<NLayers>'s own getITSSharedClusterCompatibility
   // ()/getMFTPublicationCompatibility() exactly) -- the owning
-  // ITSMFTLegacyParticipantSet only ever calls the accessor matching this
-  // leg's own DetId.
+  // the owning workflow only ever calls the accessor matching this leg's own
+  // DetId.
   const ITSSharedClusterCompatibility* getITSSharedClusterCompatibility() const noexcept;
   const MFTPublicationCompatibility* getMFTPublicationCompatibility() const noexcept;
 
@@ -141,9 +138,8 @@ class SurfacePlanTrackingParticipant final : public TrackingParticipant,
   std::vector<TrackingParameters> mParams;
   SurfaceTrackingScratch mScratch;
   std::unique_ptr<SurfacePlanBinding> mBinding;
-  // Non-owning: the owning ITSMFTLegacyParticipantSet's own static combined
-  // plan data (DetectorLayoutSet) outlives every participant -- see
-  // ITSMFTLegacyParticipantSet.h's own ownership doc.
+  // Non-owning: the owning workflow's static combined plan data
+  // (DetectorLayoutSet) outlives every participant.
   const DetectorLayoutSet* mPlan = nullptr;
   TrackerTraits<NLayers> mTraits;
   Tracker<NLayers> mTracker;

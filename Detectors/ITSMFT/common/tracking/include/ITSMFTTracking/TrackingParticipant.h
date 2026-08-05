@@ -58,8 +58,8 @@ struct TimeFrame;
 // Success; RecoverableDropped, a per-TF data failure a participant's own
 // policy opted to drop; Structural, everything else, including any
 // exception (see TrackingEngine::executeEvent()) -- but redeclares it here
-// rather than including either CATracker.h or
-// ITSMFTLegacyParticipantSet.h: both transitively pull in
+// rather than including either CATracker.h or a concrete application
+// participant: both transitively pull in
 // the implementation workspace/TrackerTraits.h/TimeFrame.h/
 // SurfacePlanBinding.h, exactly the headers this public contract must
 // stay free of.

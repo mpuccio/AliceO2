@@ -30,11 +30,11 @@
 //
 // kITSMFTCombinedStaticSurfaceCatalog is, as of Gate 4 C2/C3, the
 // authoritative combined-catalog source for combined disconnected tracking:
-// ITSMFTLegacyParticipantSet (ITSMFTLegacyParticipantSet.h) builds its one
-// 17-surface DetectorLayout directly from this catalog and derives both
-// detectors' the retired traversal binding from that single build, so ITS and
-// MFT traversal always share one identical global id space. Mixed-detector
-// track publication stays rejected/diagnostic outside that set
+// the combined DPL application composition builds its one 17-surface
+// DetectorLayout directly from this catalog and derives both detectors'
+// SurfacePlanBinding objects from that single build, so ITS and MFT traversal
+// always share one identical global id space. Mixed-detector track publication
+// stays rejected/diagnostic outside that application composition
 // (TrackerTraits::initialiseTimeFrame()'s existing MixedPolicyLayout gate
 // already covers that, unchanged).
 
