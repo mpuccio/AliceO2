@@ -679,6 +679,26 @@ what remains.
 - **Classification**: behavior-preserving cleanup (replay-gated); output-construction path
   changes, so the writer-level check above is load-bearing, not optional.
 
+**M6e3 validation record (2026-08-05)**: completed on
+`codex/itsmft-m6e3-commontrack-output-retirement` with the pinned
+`daily-20260717-0700-local1` environment.  A detached parent at
+`1c277d2fda^` (`8b39ac8cfd`, already on the CommonTrack writer route) and
+the M6e3 feature build both ran fresh standalone ITS and MFT replays.  The
+field-level writer comparator reported exact ITS equality and exact MFT
+non-projected equality; all 2,992 MFT forward-state/covariance/chi2 values
+met the approved float-projection contract (observed max absolute and
+relative deltas: zero).  The feature combined replay was field-equivalent to
+each feature standalone leg.  ITS produced 212 tracks with
+`46913a67a7e2fe7462e29df0db264fa8`; MFT produced 68 tracks with
+`8106b08571ca593c6b76ff72b761a680`.  The read-only 43-file fixture checksum
+manifest passed both before and after the campaign, and serial
+`ctest -L itsmft --output-on-failure -j1` executed and passed all 96
+registered tests.  The former output-selector parameter had no remaining
+production, runtime-registration, or documentation reference, so its
+removal is intentional rather than a retained dead toggle.  M6e3 deletes
+only live `SurfaceTrackingScratch` Group C staging; `LegacyTrackerScratch`
+and its Group C members remain intentionally untouched for M6f.
+
 ### M6f — Delete `LegacyTrackerScratch<NLayers>`/`DetectorTraversalBinding`; rename `LegacyCATrackingParticipant`
 
 - **Scope**: delete `LegacyTrackerScratch<NLayers>` (header + source), `DetectorTraversalBinding`
@@ -758,7 +778,7 @@ unchanged by this note and not repeated here.
 | `LegacyTrackerScratch<NLayers>` | Sole production owner of Group A/B/C/D state (§3.1) until `SurfaceTrackingScratch` executes production traffic for **both** participants | M6f, after M6d (MFT) and M6e (ITS) both replay-gated green |
 | `DetectorTraversalBinding` | Sole production binding type until `SurfacePlanBinding` (M6b) is wired into both participants (M6d/M6e) | M6f |
 | `TrackSeedTpl<NLayers>`/`SeedMetadataBase<NLayers>` (the `NLayers`-templated instantiation) | Sole production whole-track-seed representation until `TrackSeed` (§4.2) is wired in | M6d/M6e (per-participant), fully removable at M6f |
-| `mTracks`/`mTracksLabel` (`CATrackType<NLayers>` legacy result staging) | Sole production source of detector-typed output today, even though `CommonTrack` is already populated in parallel (§3.1 Group C) | M6e, once adapters build output from `CommonTrack`+publication export alone, writer-level-verified |
+| `mTracks`/`mTracksLabel` (`CATrackType<NLayers>` legacy result staging) | Removed from live `SurfaceTrackingScratch` at M6e3; the retained `LegacyTrackerScratch` members are frozen-workflow compatibility scheduled for M6f | M6f for the retained legacy type |
 | `loadROFrameData()`/`resetROFrameData()`/`prepareROFrameData()` | Not currently blocking anything — zero production callers already (§3.1 Group A′) | Not gated by M6 at all; flagged as an independent, optional deletion (§12) |
 | `LegacyCATrackingParticipant<NLayers>` (current name) | Sole production ITS/MFT participant type until its scratch/binding internals are generic (§3.3) | M6f — renamed, not simply deleted; the concrete-per-detector-participant role persists under a new, non-`Legacy` name |
 | `ITSMFTLegacyParticipantSet` (current name/shape) | Currently owns event-owned mutable state and coordinator-shaped behavior (the publication/timing bridge — §3.4) that must be relocated before this class can even be considered for retention; **fails** the four-condition survival test as shaped today | M6g — retained under a new, non-`Legacy` name only if relocation leaves a class that demonstrably passes all four conditions in §3.4; deleted/inlined into `CombinedCATrackerSpec.cxx` otherwise |
