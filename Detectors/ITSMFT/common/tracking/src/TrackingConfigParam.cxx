@@ -23,5 +23,4 @@ static auto& sMFTCATrackerParam = TrackerParamConfig<o2::detectors::DetID::MFT>:
 // macro -- does not touch, instantiate, or rename the still-dormant
 // templated TrackerParamConfig<DetID::ITS> above.
 O2ParamImpl(o2::itsmft::ITSCommonCATrackerParam);
-O2ParamImpl(o2::itsmft::ITSMFTCommonCAOutputParam);
 O2ParamImpl(o2::itsmft::ITSMFTCombinedCATrackerParam);

@@ -30,9 +30,6 @@
 #include "Framework/Logger.h"
 #include "ITSMFTTracking/CATracker.h"
 #include "ITSMFTTracking/CommonTrackOutputAdapter.h"
-#include "ITSMFTTracking/MFTCATrack.h"
-#include "ITSMFTTracking/SurfaceTrackingScratch.h"
-#include "ITSMFTTracking/TrackingConfigParam.h"
 #include "MFTBase/GeometryTGeo.h"
 #include "MFTTracking/Constants.h"
 #include "MFTTracking/MFTTrackingParam.h"
@@ -45,78 +42,6 @@ namespace o2::mft
 {
 
 static_assert(o2::itsmft::tracking::ITSMFTTrackingInterfaceMFT::DetId == o2::detectors::DetID::MFT);
-
-namespace
-{
-template <typename TracksVec, typename ClusterIdxVec, typename ROFVec, typename LabelsVec, typename SeedPatternVec>
-void fillMFTOutputs(const o2::itsmft::tracking::SurfaceTrackingScratch& tf,
-                    gsl::span<const o2::itsmft::ROFRecord> inputROFs,
-                    TracksVec& tracks,
-                    ClusterIdxVec& clusterIndices,
-                    ROFVec& trackROFs,
-                    LabelsVec& trackLabels,
-                    SeedPatternVec& seedPatterns,
-                    bool useMC)
-{
-  trackROFs.assign(inputROFs.begin(), inputROFs.end());
-  for (auto& rof : trackROFs) {
-    rof.setFirstEntry(0);
-    rof.setNEntries(0);
-  }
-
-  const auto& tracksIn = tf.getTracks<o2::mft::constants::mft::LayersNumber>();
-  tracks.reserve(tracksIn.size());
-  seedPatterns.reserve(tracksIn.size());
-  if (useMC) {
-    trackLabels.reserve(tracksIn.size());
-  }
-
-  const auto& clockLayer = tf.getROFOverlapTableView<o2::mft::constants::mft::LayersNumber>().getClockLayer();
-  std::vector<int> rofEntries(trackROFs.size() + 1, 0);
-
-  for (size_t iTrk = 0; iTrk < tracksIn.size(); ++iTrk) {
-    const auto& src = tracksIn[iTrk];
-    auto dst = src.getTrack();
-    dst.setExternalClusterIndexOffset(clusterIndices.size());
-    int nPoints = 0;
-    for (int layer = o2::itsmft::tracking::MFTCATrack::MaxClusters; layer--;) {
-      if (!src.hasHitOnLayer(layer)) {
-        continue;
-      }
-      const int extIdx = src.getClusterIndex(layer);
-      if (extIdx < 0) {
-        continue;
-      }
-      // src's per-layer cluster size was already captured correctly by
-      // Tracker<NLayers>::rectifyClusterIndices() (CATracker.cxx) while the
-      // layer-local cluster identity was still available; `extIdx` here is
-      // already the external/global identity, and mClusterSize is a
-      // layer-local vector, so it must never be re-queried with `extIdx`.
-      dst.setClusterSize(layer, src.getClusterSize(layer));
-      clusterIndices.push_back(extIdx);
-      ++nPoints;
-    }
-    dst.setNumberOfPoints(nPoints);
-    tracks.push_back(dst);
-    seedPatterns.push_back(src.getSeedPattern());
-
-    if (useMC && iTrk < tf.getTracksLabel().size()) {
-      trackLabels.push_back(tf.getTracksLabel()[iTrk]);
-    }
-
-    const auto rof = clockLayer.getROF(src.getTimeStamp());
-    if (rof >= 0 && rof < static_cast<int>(trackROFs.size())) {
-      ++rofEntries[rof];
-    }
-  }
-
-  std::exclusive_scan(rofEntries.begin(), rofEntries.end(), rofEntries.begin(), 0);
-  for (size_t iROF = 0; iROF < trackROFs.size(); ++iROF) {
-    trackROFs[iROF].setFirstEntry(rofEntries[iROF]);
-    trackROFs[iROF].setNEntries(rofEntries[iROF + 1] - rofEntries[iROF]);
-  }
-}
-} // namespace
 
 CATrackerPublicationAction decideCATrackerPublicationAction(bool trackerActive, float trackingResult) noexcept
 {
@@ -186,7 +111,7 @@ void CATrackerDPL::run(ProcessingContext& pc)
     return;
   }
 
-  if (o2::itsmft::isCommonTrackOutputEnabled()) {
+  {
     const auto exportContext = mTracking.getCommonTrackPublicationExport();
     const auto* compatibility = mTracking.getMFTPublicationCompatibility();
     if (!exportContext || compatibility == nullptr) {
@@ -213,29 +138,6 @@ void CATrackerDPL::run(ProcessingContext& pc)
     if (mUseMC) {
       pc.outputs().snapshot(Output{"MFT", "TRACKSMCTR", 0}, staged->labels);
       LOGP(info, "MFT CA pushed {} track MC labels", staged->labels.size());
-    }
-  } else {
-    auto& trackROFs = pc.outputs().make<std::vector<o2::itsmft::ROFRecord>>(Output{"MFT", "MFTTrackROF", 0},
-                                                                            rofsinput.begin(), rofsinput.end());
-    auto& allTracksMFT = pc.outputs().make<std::vector<o2::mft::TrackMFT>>(Output{"MFT", "TRACKS", 0});
-    auto& allClusIdx = pc.outputs().make<std::vector<int>>(Output{"MFT", "TRACKCLSID", 0});
-    auto& allSeedPatterns = pc.outputs().make<std::vector<uint16_t>>(Output{"MFT", "TRACKSEEDPAT", 0});
-    std::vector<o2::MCCompLabel> allTrackLabels;
-
-    fillMFTOutputs(mTracking.getScratch(),
-                   gsl::span<const o2::itsmft::ROFRecord>(rofsinput.data(), rofsinput.size()),
-                   allTracksMFT,
-                   allClusIdx,
-                   trackROFs,
-                   allTrackLabels,
-                   allSeedPatterns,
-                   mUseMC);
-
-    LOGP(info, "MFT CA pushed {} tracks in {} ROFs", allTracksMFT.size(), trackROFs.size());
-
-    if (mUseMC) {
-      pc.outputs().snapshot(Output{"MFT", "TRACKSMCTR", 0}, allTrackLabels);
-      LOGP(info, "MFT CA pushed {} track MC labels", allTrackLabels.size());
     }
   }
 

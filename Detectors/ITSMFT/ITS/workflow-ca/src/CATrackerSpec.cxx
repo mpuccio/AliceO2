@@ -13,7 +13,6 @@
 
 #include "ITSCAWorkflow/CATrackerSpec.h"
 
-#include <cassert>
 #include <stdexcept>
 #include <utility>
 #include <vector>
@@ -30,7 +29,6 @@
 #include "ITSBase/GeometryTGeo.h"
 #include "ITSMFTTracking/CATracker.h"
 #include "ITSMFTTracking/CommonTrackOutputAdapter.h"
-#include "ITSMFTTracking/TrackingConfigParam.h"
 #include "SimulationDataFormat/MCCompLabel.h"
 #include "SimulationDataFormat/MCTruthContainer.h"
 
@@ -40,61 +38,6 @@ namespace o2::its::ca
 {
 
 static_assert(o2::itsmft::tracking::ITSMFTTrackingInterfaceITS::DetId == o2::detectors::DetID::ITS);
-
-namespace
-{
-// M6e2: tf's type follows ITSMFTTrackingInterfaceITS::ScratchN, now
-// SurfaceTrackingScratch -- getTracks()/getROFOverlapTableView() became
-// template accessors on that type (dual ITS/MFT storage, see
-// SurfaceTrackingScratch.h), so this non-template, ITS-only call site binds
-// <ITSNLayers> explicitly (no dispatcher needed: tf's type here is concrete,
-// not a dependent ScratchT).
-template <typename TracksVec, typename ClusterIdxVec, typename ROFVec, typename LabelsVec>
-void fillITSOutputs(const o2::itsmft::tracking::SurfaceTrackingScratch& tf,
-                    gsl::span<const o2::itsmft::ROFRecord> inputROFs,
-                    TracksVec& tracks,
-                    ClusterIdxVec& clusterIndices,
-                    ROFVec& trackROFs,
-                    LabelsVec& trackLabels,
-                    bool useMC)
-{
-  trackROFs.assign(inputROFs.begin(), inputROFs.end());
-  for (auto& rof : trackROFs) {
-    rof.setFirstEntry(0);
-    rof.setNEntries(0);
-  }
-
-  const auto& tracksIn = tf.getTracks<o2::itsmft::tracking::ITSNLayers>();
-  tracks.reserve(tracksIn.size());
-  clusterIndices.reserve(tf.getNumberOfUsedClusters());
-  if (useMC) {
-    trackLabels.reserve(tracksIn.size());
-  }
-
-  const auto& clockLayer = tf.getROFOverlapTableView<o2::itsmft::tracking::ITSNLayers>().getClockLayer();
-  std::vector<int> rofEntries(trackROFs.size() + 1, 0);
-
-  for (size_t iTrk = 0; iTrk < tracksIn.size(); ++iTrk) {
-    const auto& src = tracksIn[iTrk];
-    convertTrackITSExtToTrackITS(src, clusterIndices, tracks);
-
-    if (useMC && iTrk < tf.getTracksLabel().size()) {
-      trackLabels.push_back(tf.getTracksLabel()[iTrk]);
-    }
-
-    const auto rof = clockLayer.getROF(src.getTimeStamp());
-    if (rof >= 0 && rof < static_cast<int>(trackROFs.size())) {
-      ++rofEntries[rof];
-    }
-  }
-
-  std::exclusive_scan(rofEntries.begin(), rofEntries.end(), rofEntries.begin(), 0);
-  for (size_t iROF = 0; iROF < trackROFs.size(); ++iROF) {
-    trackROFs[iROF].setFirstEntry(rofEntries[iROF]);
-    trackROFs[iROF].setNEntries(rofEntries[iROF + 1] - rofEntries[iROF]);
-  }
-}
-} // namespace
 
 CATrackerPublicationAction decideCATrackerPublicationAction(bool trackerActive, float trackingResult) noexcept
 {
@@ -153,7 +96,7 @@ void CATrackerDPL::run(ProcessingContext& pc)
     return;
   }
 
-  if (o2::itsmft::isCommonTrackOutputEnabled()) {
+  {
     const auto exportContext = mTracking.getCommonTrackPublicationExport();
     const auto* compatibility = mTracking.getITSSharedClusterCompatibility();
     if (!exportContext || compatibility == nullptr) {
@@ -178,27 +121,6 @@ void CATrackerDPL::run(ProcessingContext& pc)
     if (mUseMC) {
       pc.outputs().snapshot(Output{"ITS", "TRACKSMCTR", 0}, staged->labels);
       LOGP(info, "ITS CA pushed {} track MC labels", staged->labels.size());
-    }
-  } else {
-    auto& trackROFs = pc.outputs().make<std::vector<o2::itsmft::ROFRecord>>(Output{"ITS", "ITSTrackROF", 0},
-                                                                            rofsinput.begin(), rofsinput.end());
-    auto& allTracksITS = pc.outputs().make<std::vector<o2::its::TrackITS>>(Output{"ITS", "TRACKS", 0});
-    auto& allClusIdx = pc.outputs().make<std::vector<int>>(Output{"ITS", "TRACKCLSID", 0});
-    std::vector<o2::MCCompLabel> allTrackLabels;
-
-    fillITSOutputs(mTracking.getScratch(),
-                   gsl::span<const o2::itsmft::ROFRecord>(rofsinput.data(), rofsinput.size()),
-                   allTracksITS,
-                   allClusIdx,
-                   trackROFs,
-                   allTrackLabels,
-                   mUseMC);
-
-    LOGP(info, "ITS CA pushed {} tracks in {} ROFs", allTracksITS.size(), trackROFs.size());
-
-    if (mUseMC) {
-      pc.outputs().snapshot(Output{"ITS", "TRACKSMCTR", 0}, allTrackLabels);
-      LOGP(info, "ITS CA pushed {} track MC labels", allTrackLabels.size());
     }
   }
 

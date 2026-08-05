@@ -124,21 +124,10 @@ struct ITSCommonCATrackerParam : public o2::conf::ConfigurableParamHelper<ITSCom
   O2ParamDef(ITSCommonCATrackerParam, "ITSCommonCATrackerParam");
 };
 
-struct ITSMFTCommonCAOutputParam : public o2::conf::ConfigurableParamHelper<ITSMFTCommonCAOutputParam> {
-  bool useCommonTrackOutput = false;
-  O2ParamDef(ITSMFTCommonCAOutputParam, "ITSMFTCommonCAOutputParam");
-};
-
-inline bool isCommonTrackOutputEnabled()
-{
-  return ITSMFTCommonCAOutputParam::Instance().useCommonTrackOutput;
-}
-
 /// Gate 4 C4: default-false, ROOT-visible opt-in gate for the combined
 /// ITS+MFT DPL workflow (Detectors/ITSMFT/common/workflow-combined-ca/,
 /// o2-itsmft-combined-ca-tracker-workflow). A distinct struct/registered
-/// name from ITSMFTCommonCAOutputParam (which only ever toggles output
-/// *format* on the single-detector opt-in workflows): this flag instead
+/// name from the retired single-detector output selector: this flag instead
 /// gates whether the combined executable's own defineDataProcessing()
 /// refuses to run at all. Checked before any DataProcessorSpec is
 /// constructed -- see the combined workflow's own ConfigPreflight -- so a
