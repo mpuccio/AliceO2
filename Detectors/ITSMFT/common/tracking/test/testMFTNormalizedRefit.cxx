@@ -10,7 +10,7 @@
 // coverage for refitTrackFwd/refitTrackFwdImpl (MFTFwdTrackHelpers.cxx),
 // proving every physical hit coordinate/covariance the shared native driver
 // (fitTrackSeedLegs, NativeRefitDriver.h) consumes comes from the
-// caller-supplied LayerMeasurementSpans<NLayers> (TrackerTraits::
+// caller-supplied runtime span-of-spans (TrackerTraits::
 // mLayerMeasurements) and SurfaceCatalogView, never from LegacyTrackerScratch's
 // legacy Cluster/TrackingFrameInfo backfill. Each test calls refitTrackFwd
 // directly with a hand-built LegacyTrackerScratch/seed/measurement-span/
@@ -102,7 +102,7 @@ struct StraightTrackGeometry {
 struct RefitFixture {
   SurfaceTrackingScratch tf;
   std::array<std::vector<SurfaceMeasurement>, NLayers> storage;
-  LayerMeasurementSpans<NLayers> layerMeasurements{};
+  std::vector<gsl::span<const SurfaceMeasurement>> layerMeasurements = std::vector<gsl::span<const SurfaceMeasurement>>(NLayers);
   std::vector<SurfaceDescriptor> catalogSurfaces;
   SurfaceCatalogView catalog{};
   TrackSeed seed;
@@ -518,7 +518,7 @@ BOOST_AUTO_TEST_CASE(ClusterSizeIsReadFromItsOwnLayerNotFromLayerZeroByExternalI
   const StraightTrackGeometry geometry(0.3f);
   SurfaceTrackingScratch tf;
   std::array<std::vector<SurfaceMeasurement>, NLayers> storage;
-  LayerMeasurementSpans<NLayers> layerMeasurements{};
+  std::vector<gsl::span<const SurfaceMeasurement>> layerMeasurements = std::vector<gsl::span<const SurfaceMeasurement>>(NLayers);
   std::vector<SurfaceDescriptor> catalogSurfaces(NLayers);
   for (int layer = 0; layer < NLayers; ++layer) {
     catalogSurfaces[layer].id = SurfaceId{static_cast<uint16_t>(layer)};

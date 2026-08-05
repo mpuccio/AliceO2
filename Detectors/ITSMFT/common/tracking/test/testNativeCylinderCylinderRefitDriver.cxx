@@ -108,7 +108,7 @@ struct LegacyFixtureLayer {
 struct SharedFixture {
   std::array<LegacyFixtureLayer, NLayers> legacyLayers{};
   std::array<std::vector<SurfaceMeasurement>, NLayers> nativeStorage{};
-  LayerMeasurementSpans<NLayers> layerMeasurements{};
+  std::vector<gsl::span<const SurfaceMeasurement>> layerMeasurements = std::vector<gsl::span<const SurfaceMeasurement>>(NLayers);
   std::vector<SurfaceDescriptor> catalogSurfaces;
   SurfaceCatalogView catalog{};
   float xOverX0{0.f};

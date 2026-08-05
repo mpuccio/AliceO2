@@ -154,7 +154,7 @@ struct SharedFixture {
   };
   std::array<LegacyLayer, NLayers> legacyLayers{};
   std::array<std::vector<SurfaceMeasurement>, NLayers> nativeStorage{};
-  LayerMeasurementSpans<NLayers> layerMeasurements{};
+  std::vector<gsl::span<const SurfaceMeasurement>> layerMeasurements = std::vector<gsl::span<const SurfaceMeasurement>>(NLayers);
   std::vector<SurfaceDescriptor> catalogSurfaces;
   SurfaceCatalogView catalog{};
   const o2::its::TrackingFrameInfo* tfInfoPtrs[NLayers];

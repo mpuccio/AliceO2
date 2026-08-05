@@ -12,6 +12,7 @@
 #define BOOST_TEST_DYN_LINK
 #include <boost/test/unit_test.hpp>
 
+#include <algorithm>
 #include <array>
 #include <type_traits>
 #include <utility>
@@ -19,6 +20,8 @@
 
 #include "ITSMFTTracking/DetectorLayoutBuilder.h"
 #include "ITSMFTTracking/StaticDetectorCatalogs.h"
+#include "ITSMFTTracking/Cell.h"
+#include "ITSMFTTracking/SurfaceTrackingScratch.h"
 #include "ITSMFTTracking/TrackingTopology.h"
 #include "ITSMFTTracking/detail/SurfacePlanBinding.h"
 
@@ -176,6 +179,84 @@ BOOST_AUTO_TEST_CASE(SurfacePlanBindingBuildsForASyntheticNonItsMftDetector)
     BOOST_REQUIRE(result.binding->getOwnedSurfaceIndex(SurfaceId{id}));
     BOOST_CHECK_EQUAL(*result.binding->getOwnedSurfaceIndex(SurfaceId{id}), id);
   }
+}
+
+BOOST_AUTO_TEST_CASE(SparsePlanPositionsAreTheOnlyRuntimeCountAndOrderAuthority)
+{
+  // The catalog remains dense because DetectorLayout deliberately uses dense
+  // global ids, while the application plan owns a sparse, non-identity order.
+  // This is the shape that catches accidental numeric-SurfaceId traversal.
+  std::vector<SurfaceDescriptor> surfaces;
+  for (uint16_t id = 0; id < 8; ++id) {
+    surfaces.push_back(surfaceWithOwner(id, SurfaceKind::Cylinder, 250));
+  }
+  const std::vector<SurfaceId> planOrder{SurfaceId{5}, SurfaceId{2}, SurfaceId{7}, SurfaceId{1}};
+  SurfaceMask owned;
+  for (const auto id : planOrder) {
+    owned.set(id);
+  }
+  DetectorLayoutBuilder builder{SurfaceCatalogView{surfaces.data(), static_cast<uint32_t>(surfaces.size())}};
+  auto built = builder.addSubgraph({planOrder, 0, SurfaceMask{}, maskOf(5)}).build();
+  BOOST_REQUIRE(built.ok());
+  const auto masks = computeSurfaceKindMasks(surfaces);
+  const auto view = built.layout->getView(surfaces, masks.first, masks.second);
+  const auto bindingResult = SurfacePlanBinding::build(view, ClusterSourceId{7}, owned, planOrder,
+                                                       SurfaceKind::Cylinder, TransitionPolicyTag::CylinderCylinder);
+  BOOST_REQUIRE(bindingResult.ok());
+  const auto& binding = *bindingResult.binding;
+
+  BOOST_CHECK(std::equal(binding.getOrderedSurfaces().begin(), binding.getOrderedSurfaces().end(), planOrder.begin(), planOrder.end()));
+  for (std::size_t position = 0; position < planOrder.size(); ++position) {
+    BOOST_REQUIRE(binding.getOwnedSurfaceIndex(planOrder[position]));
+    BOOST_CHECK_EQUAL(*binding.getOwnedSurfaceIndex(planOrder[position]), position);
+  }
+
+  SurfaceTrackingScratch scratch;
+  scratch.adoptPlan(binding.getOrderedSurfaces().size(), binding.getGlobalTransitions().size(), binding.getGlobalCells().size());
+  BOOST_CHECK_EQUAL(scratch.getNOwnedSurfaces(), planOrder.size());
+  BOOST_CHECK_EQUAL(scratch.getNTransitions(), binding.getGlobalTransitions().size());
+  BOOST_CHECK_EQUAL(scratch.getNCells(), binding.getGlobalCells().size());
+  for (std::size_t slot = 0; slot < binding.getGlobalTransitions().size(); ++slot) {
+    BOOST_REQUIRE(binding.getScratchTransitionSlot(binding.getGlobalTransitions()[slot]));
+    BOOST_CHECK_EQUAL(*binding.getScratchTransitionSlot(binding.getGlobalTransitions()[slot]), slot);
+  }
+  for (std::size_t slot = 0; slot < binding.getGlobalCells().size(); ++slot) {
+    BOOST_REQUIRE(binding.getScratchCellSlot(binding.getGlobalCells()[slot]));
+    BOOST_CHECK_EQUAL(*binding.getScratchCellSlot(binding.getGlobalCells()[slot]), slot);
+  }
+
+  std::vector<std::vector<SurfaceMeasurement>> measurements(planOrder.size());
+  std::vector<gsl::span<const SurfaceMeasurement>> measurementViews;
+  measurementViews.reserve(planOrder.size());
+  for (std::size_t position = 0; position < planOrder.size(); ++position) {
+    SurfaceMeasurement measurement;
+    measurement.surface = binding.getOrderedSurfaces()[position];
+    measurement.cluster = ClusterRef{binding.getSource(), static_cast<uint32_t>(100 + position)};
+    measurements[position].push_back(measurement);
+    measurementViews.emplace_back(measurements[position]);
+  }
+  for (std::size_t position = 0; position < measurementViews.size(); ++position) {
+    BOOST_CHECK_EQUAL(measurementViews[position][0].surface.value(), planOrder[position].value());
+    BOOST_CHECK(measurementViews[position][0].cluster.source == binding.getSource());
+  }
+
+  TrackSeed seed;
+  SurfaceMask activePositions;
+  for (std::size_t position = 0; position < planOrder.size(); ++position) {
+    seed.setCluster(static_cast<int>(position), static_cast<int>(100 + position));
+    activePositions.set(SurfaceId{static_cast<uint16_t>(position)});
+  }
+  seed.setSurfaceMask(activePositions);
+  BOOST_CHECK_EQUAL(seed.getActiveSurfaceCount(), planOrder.size());
+  BOOST_CHECK(seed.getSurfaceMask() == SurfaceMask{uint32_t{0x0f}});
+  for (std::size_t position = 0; position < planOrder.size(); ++position) {
+    BOOST_CHECK(seed.hasCluster(static_cast<int>(position)));
+    BOOST_CHECK_EQUAL(seed.getCluster(static_cast<int>(position)), 100 + position);
+  }
+  // The first plan position is global SurfaceId 5, but the TrackSeed bit is
+  // position 0.  This assertion makes a global-id-as-layer-index regression
+  // fail even though all four positions are active.
+  BOOST_CHECK(!seed.getSurfaceMask().has(planOrder.front()));
 }
 
 BOOST_AUTO_TEST_CASE(RejectsInvalidSource)

@@ -194,7 +194,7 @@ BOOST_AUTO_TEST_CASE(RefitSeedFailsCleanlyForInvalidFamilySeedState)
   DetectorTraits<7>::TrackType track;
   o2::itsmft::TrackingParameters params;
   SurfaceTrackingScratch tf;
-  const LayerMeasurementSpans<7> layerMeasurements{};
+  const std::vector<gsl::span<const SurfaceMeasurement>> layerMeasurements(7);
   const SurfaceCatalogView surfaceCatalog{};
 
   const bool refitSuccess = DetectorTraits<7>::refitSeed(seed, track, params, 0.5f, tf, layerMeasurements, surfaceCatalog, ClusterSourceId{0});

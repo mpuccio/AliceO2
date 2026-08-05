@@ -331,7 +331,7 @@ BOOST_AUTO_TEST_CASE(FirstPassCommitsValidatedConfigurationIntoTimeFrame)
 
   IndexTableUtils<ITSNLayers> expected;
   expected.setTrackingParameters(params[0]);
-  BOOST_CHECK(indexTableConfigurationsMatch<ITSNLayers>(rig.tf.getIndexTableUtils(), expected));
+  BOOST_CHECK(indexTableConfigurationsMatch<ITSNLayers>(rig.tf.getIndexTableUtils(), expected, ITSNLayers));
   BOOST_CHECK_GT(rig.tf.getIndexTableUtils().getNrowBins(), 0);
   BOOST_CHECK_EQUAL(rig.traits.getTraversalGroupingCount(), 1);
 }
@@ -379,7 +379,7 @@ BOOST_AUTO_TEST_CASE(NonFirstPassMatchingReuseSucceedsWithoutRecommit)
   const IndexTableUtils<ITSNLayers> committed = rig.tf.getIndexTableUtils();
 
   BOOST_CHECK_NO_THROW(rig.traits.initialiseTimeFrame(1, *rig.plan));
-  BOOST_CHECK(indexTableConfigurationsMatch<ITSNLayers>(rig.tf.getIndexTableUtils(), committed));
+  BOOST_CHECK(indexTableConfigurationsMatch<ITSNLayers>(rig.tf.getIndexTableUtils(), committed, ITSNLayers));
   BOOST_CHECK_EQUAL(rig.traits.getTraversalGroupingCount(), 1); // reset+incremented once per call, not accumulated
 }
 
@@ -406,7 +406,7 @@ BOOST_AUTO_TEST_CASE(MismatchingRowColBinsRejectedBeforeMutation)
   BOOST_CHECK(threw);
 
   // Neither the owned configuration nor the already-populated LUT were touched.
-  BOOST_CHECK(indexTableConfigurationsMatch<ITSNLayers>(rig.tf.getIndexTableUtils(), committedBefore));
+  BOOST_CHECK(indexTableConfigurationsMatch<ITSNLayers>(rig.tf.getIndexTableUtils(), committedBefore, ITSNLayers));
   BOOST_CHECK(snapshotIndexTable(rig.tf, 0) == lutBefore);
 }
 
@@ -431,7 +431,7 @@ BOOST_AUTO_TEST_CASE(MismatchingPerLayerExtentRejectedBeforeMutation)
     BOOST_CHECK(e.getReason() == TraversalFailureReason::IndexTableConfigurationMismatch);
   }
   BOOST_CHECK(threw);
-  BOOST_CHECK(indexTableConfigurationsMatch<ITSNLayers>(rig.tf.getIndexTableUtils(), committedBefore));
+  BOOST_CHECK(indexTableConfigurationsMatch<ITSNLayers>(rig.tf.getIndexTableUtils(), committedBefore, ITSNLayers));
 }
 
 // --- FirstPass may legitimately change configuration ------------------------

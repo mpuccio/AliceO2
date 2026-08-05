@@ -54,7 +54,7 @@ bool bitEqual(const SurfaceMeasurement& lhs, const SurfaceMeasurement& rhs)
 // layer-index/cluster-index transposition bug would also be caught.
 struct Fixture {
   std::array<std::vector<SurfaceMeasurement>, NLayers> storage;
-  LayerMeasurementSpans<NLayers> layerMeasurements{};
+  std::vector<gsl::span<const SurfaceMeasurement>> layerMeasurements = std::vector<gsl::span<const SurfaceMeasurement>>(NLayers);
   TrackSeed seed{};
 
   Fixture()

@@ -48,7 +48,7 @@ BOOST_AUTO_TEST_CASE(CylinderCylinderBindingMatchesSetTrackingParameters)
   resetDetectorDefaults(params, o2::detectors::DetID::ITS);
 
   IndexTableUtils<ITSN> staged;
-  const auto error = bindIndexTableConfiguration<TransitionPolicyTag::CylinderCylinder, ITSN>(staged, params);
+  const auto error = bindIndexTableConfiguration<TransitionPolicyTag::CylinderCylinder, ITSN>(staged, params, ITSN);
   BOOST_REQUIRE(error == IndexTableConfigError::None);
 
   IndexTableUtils<ITSN> reference;
@@ -74,7 +74,7 @@ BOOST_AUTO_TEST_CASE(DiskDiskBindingMatchesDefaultRowRangeFallback)
   params.IndexRowMax = 0.f; // force the "no explicit range" fallback path
 
   IndexTableUtils<MFTN> staged;
-  const auto error = bindIndexTableConfiguration<TransitionPolicyTag::DiskDisk, MFTN>(staged, params);
+  const auto error = bindIndexTableConfiguration<TransitionPolicyTag::DiskDisk, MFTN>(staged, params, MFTN);
   BOOST_REQUIRE(error == IndexTableConfigError::None);
 
   IndexTableUtils<MFTN> reference;
@@ -99,7 +99,7 @@ BOOST_AUTO_TEST_CASE(DiskDiskBindingMatchesExplicitRowRangeOverride)
   params.IndexRowMax = 15.f;
 
   IndexTableUtils<MFTN> staged;
-  const auto error = bindIndexTableConfiguration<TransitionPolicyTag::DiskDisk, MFTN>(staged, params);
+  const auto error = bindIndexTableConfiguration<TransitionPolicyTag::DiskDisk, MFTN>(staged, params, MFTN);
   BOOST_REQUIRE(error == IndexTableConfigError::None);
 
   IndexTableUtils<MFTN> reference;
@@ -119,10 +119,11 @@ BOOST_AUTO_TEST_CASE(ActiveLayerCountSmallerThanTemplateIsAccepted)
   params.NLayers = 5;
 
   IndexTableUtils<ITSN> staged;
-  const auto error = bindIndexTableConfiguration<TransitionPolicyTag::CylinderCylinder, ITSN>(staged, params);
+  const auto error = bindIndexTableConfiguration<TransitionPolicyTag::CylinderCylinder, ITSN>(staged, params, 5);
   BOOST_CHECK(error == IndexTableConfigError::None);
-  // Every template slot is still filled, regardless of the active prefix.
-  for (int iLayer = 0; iLayer < ITSN; ++iLayer) {
+  // The fixed device arrays retain their capacity, but only the runtime
+  // active prefix is populated by the binder.
+  for (int iLayer = 0; iLayer < 5; ++iLayer) {
     BOOST_CHECK_GT(staged.getLayerColHalfExtent(iLayer), 0.f);
   }
 }
@@ -135,7 +136,7 @@ BOOST_AUTO_TEST_CASE(InvalidActiveLayerCountRejectedAndStagedUntouched)
   for (int n : {0, -1, ITSN + 1}) {
     params.NLayers = n;
     IndexTableUtils<ITSN> staged;
-    const auto error = bindIndexTableConfiguration<TransitionPolicyTag::CylinderCylinder, ITSN>(staged, params);
+    const auto error = bindIndexTableConfiguration<TransitionPolicyTag::CylinderCylinder, ITSN>(staged, params, ITSN);
     BOOST_CHECK(error == IndexTableConfigError::InvalidActiveLayerCount);
     BOOST_CHECK(isUntouched(staged));
   }
@@ -149,14 +150,14 @@ BOOST_AUTO_TEST_CASE(NonPositiveBinsRejectedAndStagedUntouched)
   params.RowBins = 0;
   {
     IndexTableUtils<ITSN> staged;
-    BOOST_CHECK((bindIndexTableConfiguration<TransitionPolicyTag::CylinderCylinder, ITSN>(staged, params) == IndexTableConfigError::NonPositiveRowBins));
+    BOOST_CHECK((bindIndexTableConfiguration<TransitionPolicyTag::CylinderCylinder, ITSN>(staged, params, ITSN) == IndexTableConfigError::NonPositiveRowBins));
     BOOST_CHECK(isUntouched(staged));
   }
   params.RowBins = 128;
   params.ColBins = -5;
   {
     IndexTableUtils<ITSN> staged;
-    BOOST_CHECK((bindIndexTableConfiguration<TransitionPolicyTag::CylinderCylinder, ITSN>(staged, params) == IndexTableConfigError::NonPositiveColBins));
+    BOOST_CHECK((bindIndexTableConfiguration<TransitionPolicyTag::CylinderCylinder, ITSN>(staged, params, ITSN) == IndexTableConfigError::NonPositiveColBins));
     BOOST_CHECK(isUntouched(staged));
   }
 }
@@ -172,14 +173,14 @@ BOOST_AUTO_TEST_CASE(RowColBinCountExceedsIndexRangeBoundary)
   params.ColBins = 46341;
   {
     IndexTableUtils<ITSN> staged;
-    BOOST_CHECK((bindIndexTableConfiguration<TransitionPolicyTag::CylinderCylinder, ITSN>(staged, params) == IndexTableConfigError::RowColBinCountExceedsIndexRange));
+    BOOST_CHECK((bindIndexTableConfiguration<TransitionPolicyTag::CylinderCylinder, ITSN>(staged, params, ITSN) == IndexTableConfigError::RowColBinCountExceedsIndexRange));
     BOOST_CHECK(isUntouched(staged));
   }
   params.RowBins = 46340;
   params.ColBins = 46340;
   {
     IndexTableUtils<ITSN> staged;
-    BOOST_CHECK((bindIndexTableConfiguration<TransitionPolicyTag::CylinderCylinder, ITSN>(staged, params) == IndexTableConfigError::None));
+    BOOST_CHECK((bindIndexTableConfiguration<TransitionPolicyTag::CylinderCylinder, ITSN>(staged, params, ITSN) == IndexTableConfigError::None));
   }
 }
 
@@ -196,7 +197,7 @@ BOOST_AUTO_TEST_CASE(InsufficientExtentSourceRejectedAndStagedUntouched)
   params.LayerColHalfExtent.assign(ITSN - 1, 1.f);
   {
     IndexTableUtils<ITSN> staged;
-    BOOST_CHECK((bindIndexTableConfiguration<TransitionPolicyTag::CylinderCylinder, ITSN>(staged, params) == IndexTableConfigError::InsufficientLayerColHalfExtent));
+    BOOST_CHECK((bindIndexTableConfiguration<TransitionPolicyTag::CylinderCylinder, ITSN>(staged, params, ITSN) == IndexTableConfigError::InsufficientLayerColHalfExtent));
     BOOST_CHECK(isUntouched(staged));
   }
 
@@ -205,7 +206,7 @@ BOOST_AUTO_TEST_CASE(InsufficientExtentSourceRejectedAndStagedUntouched)
   params.LayerZ.resize(ITSN - 1);
   {
     IndexTableUtils<ITSN> staged;
-    BOOST_CHECK((bindIndexTableConfiguration<TransitionPolicyTag::CylinderCylinder, ITSN>(staged, params) == IndexTableConfigError::InsufficientLayerColHalfExtent));
+    BOOST_CHECK((bindIndexTableConfiguration<TransitionPolicyTag::CylinderCylinder, ITSN>(staged, params, ITSN) == IndexTableConfigError::InsufficientLayerColHalfExtent));
     BOOST_CHECK(isUntouched(staged));
   }
 }
@@ -221,28 +222,28 @@ BOOST_AUTO_TEST_CASE(NonFiniteColHalfExtentRejectsNaNAndInfSeparatelyFromNonPosi
   params.LayerZ[2] = std::numeric_limits<float>::infinity();
   {
     IndexTableUtils<ITSN> staged;
-    BOOST_CHECK((bindIndexTableConfiguration<TransitionPolicyTag::CylinderCylinder, ITSN>(staged, params) == IndexTableConfigError::NonFiniteColHalfExtent));
+    BOOST_CHECK((bindIndexTableConfiguration<TransitionPolicyTag::CylinderCylinder, ITSN>(staged, params, ITSN) == IndexTableConfigError::NonFiniteColHalfExtent));
     BOOST_CHECK(isUntouched(staged));
   }
 
   params.LayerZ[2] = std::numeric_limits<float>::quiet_NaN();
   {
     IndexTableUtils<ITSN> staged;
-    BOOST_CHECK((bindIndexTableConfiguration<TransitionPolicyTag::CylinderCylinder, ITSN>(staged, params) == IndexTableConfigError::NonFiniteColHalfExtent));
+    BOOST_CHECK((bindIndexTableConfiguration<TransitionPolicyTag::CylinderCylinder, ITSN>(staged, params, ITSN) == IndexTableConfigError::NonFiniteColHalfExtent));
     BOOST_CHECK(isUntouched(staged));
   }
 
   params.LayerZ[2] = 0.f;
   {
     IndexTableUtils<ITSN> staged;
-    BOOST_CHECK((bindIndexTableConfiguration<TransitionPolicyTag::CylinderCylinder, ITSN>(staged, params) == IndexTableConfigError::NonPositiveColHalfExtent));
+    BOOST_CHECK((bindIndexTableConfiguration<TransitionPolicyTag::CylinderCylinder, ITSN>(staged, params, ITSN) == IndexTableConfigError::NonPositiveColHalfExtent));
     BOOST_CHECK(isUntouched(staged));
   }
 
   params.LayerZ[2] = -3.f;
   {
     IndexTableUtils<ITSN> staged;
-    BOOST_CHECK((bindIndexTableConfiguration<TransitionPolicyTag::CylinderCylinder, ITSN>(staged, params) == IndexTableConfigError::NonPositiveColHalfExtent));
+    BOOST_CHECK((bindIndexTableConfiguration<TransitionPolicyTag::CylinderCylinder, ITSN>(staged, params, ITSN) == IndexTableConfigError::NonPositiveColHalfExtent));
     BOOST_CHECK(isUntouched(staged));
   }
 }
@@ -256,7 +257,7 @@ BOOST_AUTO_TEST_CASE(RowRangeValidationIsXYOnly)
   params.IndexRowMax = 1.f;
   {
     IndexTableUtils<MFTN> staged;
-    BOOST_CHECK((bindIndexTableConfiguration<TransitionPolicyTag::DiskDisk, MFTN>(staged, params) == IndexTableConfigError::NonFiniteRowRange));
+    BOOST_CHECK((bindIndexTableConfiguration<TransitionPolicyTag::DiskDisk, MFTN>(staged, params, MFTN) == IndexTableConfigError::NonFiniteRowRange));
     BOOST_CHECK(isUntouched(staged));
   }
 
@@ -264,7 +265,7 @@ BOOST_AUTO_TEST_CASE(RowRangeValidationIsXYOnly)
   params.IndexRowMax = 5.f; // rowMax <= rowMin
   {
     IndexTableUtils<MFTN> staged;
-    BOOST_CHECK((bindIndexTableConfiguration<TransitionPolicyTag::DiskDisk, MFTN>(staged, params) == IndexTableConfigError::DegenerateRowRange));
+    BOOST_CHECK((bindIndexTableConfiguration<TransitionPolicyTag::DiskDisk, MFTN>(staged, params, MFTN) == IndexTableConfigError::DegenerateRowRange));
     BOOST_CHECK(isUntouched(staged));
   }
 }
@@ -275,33 +276,33 @@ BOOST_AUTO_TEST_CASE(ConfigurationsMatchIdentifiesEveryStoredField)
   resetDetectorDefaults(params, o2::detectors::DetID::MFT);
 
   IndexTableUtils<MFTN> a;
-  BOOST_REQUIRE((bindIndexTableConfiguration<TransitionPolicyTag::DiskDisk, MFTN>(a, params) == IndexTableConfigError::None));
+  BOOST_REQUIRE((bindIndexTableConfiguration<TransitionPolicyTag::DiskDisk, MFTN>(a, params, MFTN) == IndexTableConfigError::None));
 
   IndexTableUtils<MFTN> b;
-  BOOST_REQUIRE((bindIndexTableConfiguration<TransitionPolicyTag::DiskDisk, MFTN>(b, params) == IndexTableConfigError::None));
-  BOOST_CHECK(indexTableConfigurationsMatch<MFTN>(a, b));
+  BOOST_REQUIRE((bindIndexTableConfiguration<TransitionPolicyTag::DiskDisk, MFTN>(b, params, MFTN) == IndexTableConfigError::None));
+  BOOST_CHECK(indexTableConfigurationsMatch<MFTN>(a, b, MFTN));
 
   // Different RowBins/ColBins.
   auto diffBins = params;
   diffBins.RowBins = params.RowBins + 1;
   IndexTableUtils<MFTN> c;
-  BOOST_REQUIRE((bindIndexTableConfiguration<TransitionPolicyTag::DiskDisk, MFTN>(c, diffBins) == IndexTableConfigError::None));
-  BOOST_CHECK(!indexTableConfigurationsMatch<MFTN>(a, c));
+  BOOST_REQUIRE((bindIndexTableConfiguration<TransitionPolicyTag::DiskDisk, MFTN>(c, diffBins, MFTN) == IndexTableConfigError::None));
+  BOOST_CHECK(!indexTableConfigurationsMatch<MFTN>(a, c, MFTN));
 
   // Different row range.
   auto diffRange = params;
   diffRange.IndexRowMin = -15.f;
   diffRange.IndexRowMax = 15.f;
   IndexTableUtils<MFTN> d;
-  BOOST_REQUIRE((bindIndexTableConfiguration<TransitionPolicyTag::DiskDisk, MFTN>(d, diffRange) == IndexTableConfigError::None));
-  BOOST_CHECK(!indexTableConfigurationsMatch<MFTN>(a, d));
+  BOOST_REQUIRE((bindIndexTableConfiguration<TransitionPolicyTag::DiskDisk, MFTN>(d, diffRange, MFTN) == IndexTableConfigError::None));
+  BOOST_CHECK(!indexTableConfigurationsMatch<MFTN>(a, d, MFTN));
 
   // Different per-layer extent.
   auto diffExtent = params;
   diffExtent.LayerColHalfExtent[0] += 1.f;
   IndexTableUtils<MFTN> e;
-  BOOST_REQUIRE((bindIndexTableConfiguration<TransitionPolicyTag::DiskDisk, MFTN>(e, diffExtent) == IndexTableConfigError::None));
-  BOOST_CHECK(!indexTableConfigurationsMatch<MFTN>(a, e));
+  BOOST_REQUIRE((bindIndexTableConfiguration<TransitionPolicyTag::DiskDisk, MFTN>(e, diffExtent, MFTN) == IndexTableConfigError::None));
+  BOOST_CHECK(!indexTableConfigurationsMatch<MFTN>(a, e, MFTN));
 }
 
 BOOST_AUTO_TEST_CASE(CheckedIndexTableSizeProductBoundaries)

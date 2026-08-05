@@ -356,6 +356,15 @@ o2_add_test(surface-plan-binding
             SOURCES testSurfacePlanBinding.cxx
             COMPONENT_NAME itsmft-tracking
             LABELS "itsmft;tracking"
+            PUBLIC_LINK_LIBRARIES O2::ITSMFTTracking O2::MFTTracking)
+
+# Gate 4 M7b: every remaining NLayers use is classified, while generic-core
+# hot loops and host-only plan-sized refit buffers are forced to runtime plan
+# counts.
+o2_add_test(m7b-runtime-count-authority-guard
+            SOURCES testM7bRuntimeCountAuthorityGuard.cxx
+            COMPONENT_NAME itsmft-tracking
+            LABELS "itsmft;tracking"
             PUBLIC_LINK_LIBRARIES O2::ITSMFTTracking)
 
 o2_add_test(surface-plan-binding-no-detector-dependency

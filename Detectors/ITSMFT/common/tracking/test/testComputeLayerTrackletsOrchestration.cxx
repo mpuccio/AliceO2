@@ -860,6 +860,8 @@ BOOST_AUTO_TEST_CASE(DuplicateSurfaceIdMappingFailsClosedBeforeTrackletProcessin
   traits.adoptFrame(&frame);
   traits.updateTrackingParameters(params);
   traits.setBz(Bz);
+  const auto layoutView = plan.getLayoutView(0);
+  tf.adoptPlan(plan.getConfigurationKey().orderedSurfaces.size(), layoutView.topology.nTransitions, layoutView.topology.nCells);
 
   BOOST_CHECK_EXCEPTION(traits.initialiseTimeFrame(0, plan), TraversalException, [](const TraversalException& error) {
     return error.getReason() == TraversalFailureReason::SurfaceLayerMappingMismatch;
