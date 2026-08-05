@@ -22,7 +22,7 @@
 #include "CommonConstants/MathConstants.h"
 #include "ITSMFTTracking/Cell.h"
 #include "ITSMFTTracking/Configuration.h"
-#include "ITSMFTTracking/MFTCATrack.h"
+#include "ITSMFTTracking/SurfaceKinematicState.h"
 #include "ITSMFTTracking/SurfaceTrackingScratch.h"
 #include "ITSMFTTracking/SurfaceCatalogView.h"
 #include "ITStracking/Cluster.h"
@@ -143,27 +143,25 @@ inline void mftTrackletSigmaXY(float x0, float y0, float pvX, float pvY, float p
 namespace o2::itsmft::tracking
 {
 
-// layerMeasurements is TrackerTraits::mLayerMeasurements (see DetectorTraits::
-// refitSeed's doc): the authoritative, already-validated per-layer normalized
-// SurfaceMeasurement span. Every physical hit coordinate/covariance consumed
-// by the fit comes from it; tf is retained only for cluster external-index/
-// size bookkeeping (output metadata, not physical reads). surfaceCatalog is
-// this iteration's TrackerTraits::mTraversalLayout.getSurfaceCatalogView()
-// (ADR 0001 nominal material).
+// layerMeasurements is TrackerTraits::mLayerMeasurements: the authoritative,
+// already-validated per-surface normalized SurfaceMeasurement span. Every
+// physical hit coordinate/covariance consumed by the fit comes from it; tf is
+// used only for the normalized identity re-check. surfaceCatalog is this
+// iteration's descriptor catalog (ADR 0001 nominal material).
 //
-// expectedSource is the ClusterSourceId resolved once by the caller
-// (TrackerTraits::findRoadsForPolicy(), via DetectorTraits::refitSeed's own
-// doc): mBinding->getSource() when a SurfacePlanBinding is adopted,
-// ClusterSourceId{0} otherwise. Used only to re-check normalized-measurement
-// identity before trusting a hit; never re-derived deeper in the fit.
+// expectedSource is the ClusterSourceId resolved once by the caller. It is
+// used only to re-check normalized-measurement identity before trusting a
+// hit; it is never re-derived deeper in the fit.
 bool refitTrackFwd(const TrackSeed& seed,
-                   MFTCATrack& track,
                    const SurfaceTrackingScratch& tf,
                    const TrackingParameters& params,
                    float bz,
                    gsl::span<const gsl::span<const SurfaceMeasurement>> layerMeasurements,
                    SurfaceCatalogView surfaceCatalog,
-                   ClusterSourceId expectedSource);
+                   ClusterSourceId expectedSource,
+                   SurfaceKinematicState& paramIn,
+                   SurfaceKinematicState& paramOut,
+                   float& chi2);
 
 } // namespace o2::itsmft::tracking
 

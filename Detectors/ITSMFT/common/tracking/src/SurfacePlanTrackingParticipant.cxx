@@ -9,8 +9,6 @@
 
 #include "ITSMFTTracking/CommonTrackShadow.h"
 #include "ITSMFTTracking/DetectorTrackingOperationAdapterSupport.h"
-#include "ITSMFTTracking/DetectorTraits.h"
-#include "ITSMFTTracking/SurfaceKinematicStateLegacyAdapters.h"
 #include "ITStracking/Constants.h"
 
 #include <utility>
@@ -24,10 +22,10 @@ SurfacePlanTrackingParticipant<NLayers>::SurfacePlanTrackingParticipant(Particip
 {
   mTracker.adoptScratch(mScratch);
   if constexpr (DetId == o2::detectors::DetID::ITS) {
-    mAcceptedTrackShadowPublisher.adoptITSSharedClusterCompatibility(&static_cast<ITSSharedClusterCompatibilityOwner<NLayers>&>(*this).sidecar);
+    mDetectorPublicationAdapter.adoptITSSharedClusterCompatibility(&static_cast<ITSSharedClusterCompatibilityOwner<NLayers>&>(*this).sidecar);
   }
   if constexpr (DetId == o2::detectors::DetID::MFT) {
-    mAcceptedTrackShadowPublisher.adoptMFTPublicationCompatibility(&static_cast<MFTPublicationCompatibilityOwner<NLayers>&>(*this).sidecar);
+    mDetectorPublicationAdapter.adoptMFTPublicationCompatibility(&static_cast<MFTPublicationCompatibilityOwner<NLayers>&>(*this).sidecar);
   }
   mTracker.setParameters(mParams);
 }
@@ -116,6 +114,7 @@ void SurfacePlanTrackingParticipant<NLayers>::configureRofTables(const ROFTiming
 template <int NLayers>
 void SurfacePlanTrackingParticipant<NLayers>::clearCompatibility() noexcept
 {
+  mDetectorPublicationAdapter.reset();
   if constexpr (DetId == o2::detectors::DetID::ITS) {
     static_cast<ITSSharedClusterCompatibilityOwner<NLayers>&>(*this).sidecar.clear();
   }
@@ -134,55 +133,16 @@ bool SurfacePlanTrackingParticipant<NLayers>::refitSeed(const TrackSeed& seed,
                                                         ClusterSourceId expectedSource,
                                                         TrackingCandidate& candidate)
 {
-  typename DetectorTraits<NLayers>::TrackType track;
-  if (!DetectorTraits<NLayers>::refitSeed(seed, track, params, bz, scratch, layerMeasurements, surfaceCatalog, expectedSource)) {
-    return false;
-  }
-  candidate.seed = seed;
-  return detail::importCandidateStates<NLayers>(track, candidate);
+  return detail::refitDetectorSeed<DetId, NLayers>(seed, params, bz, scratch, layerMeasurements, surfaceCatalog, expectedSource, candidate);
 }
 
 template <int NLayers>
-bool SurfacePlanTrackingParticipant<NLayers>::publishAccepted(TimeFrame& frame,
-                                                              const TrackingCandidate& candidate,
-                                                              gsl::span<const gsl::span<const SurfaceMeasurement>> layerMeasurements,
-                                                              SurfaceCatalogView surfaceCatalog)
+bool SurfacePlanTrackingParticipant<NLayers>::completeAccepted(gsl::span<const TrackingCandidate> candidates,
+                                                               const TrackingParameters& params,
+                                                               const SurfaceTrackingScratch& scratch,
+                                                               bool final)
 {
-  typename DetectorTraits<NLayers>::TrackType track;
-  if (!detail::exportCandidateTrack<NLayers>(candidate, mScratch, track)) {
-    return false;
-  }
-  DetectorTraits<NLayers>::clearTransientLayerPattern(track);
-  CommonTrackShadowRecord shadow;
-  if (!detail::makeCandidateShadow<NLayers>(candidate, layerMeasurements, shadow)) {
-    return false;
-  }
-  return mAcceptedTrackShadowPublisher.publish(frame, shadow, track).has_value();
-}
-
-template <int NLayers>
-bool SurfacePlanTrackingParticipant<NLayers>::haveSamePolarity(const TrackingCandidate& first,
-                                                               const TrackingCandidate& second) const noexcept
-{
-  return first.charge == second.charge;
-}
-
-template <int NLayers>
-bool SurfacePlanTrackingParticipant<NLayers>::sealAccepted(gsl::span<const TrackingCandidate> candidates)
-{
-  using TrackType = typename DetectorTraits<NLayers>::TrackType;
-  std::vector<TrackType> tracks;
-  tracks.reserve(candidates.size());
-  for (const auto& candidate : candidates) {
-    tracks.emplace_back();
-    if (!detail::exportCandidateTrack<NLayers>(candidate, mScratch, tracks.back())) {
-      return false;
-    }
-    if (candidate.sharedClusters) {
-      tracks.back().setSharedClusters();
-    }
-  }
-  return mAcceptedTrackShadowPublisher.sealITSSharedClusterCompatibility(tracks);
+  return mDetectorPublicationAdapter.completeAccepted(candidates, params, scratch, final);
 }
 
 template <int NLayers>

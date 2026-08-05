@@ -147,8 +147,8 @@ class TraversalException final : public std::runtime_error
 
 // The generic tracker owns one detector-neutral workspace and one immutable
 // plan binding. All plan-sized bounds come from the adopted runtime plan and
-// scratch; application-specific refit/publication is a narrow operation
-// adapter at the participant edge.
+// scratch; application-specific refit and compatibility completion are narrow
+// operation calls at the participant edge.
 class TrackerTraits
 {
  public:
@@ -179,14 +179,12 @@ class TrackerTraits
 
   void acceptTracks(int iteration,
                     bounded_vector<TrackingCandidate>& tracks,
-                    bounded_vector<bounded_vector<int>>& firstClusters,
-                    TrackingOperationAdapter& operationAdapter);
+                    bounded_vector<bounded_vector<int>>& firstClusters);
   void markTracks(int iteration, TrackingOperationAdapter& operationAdapter);
 
-  // The Surface path keeps accepted tracks only until ITS shared-cluster
-  // compatibility is sealed. This is not publication staging: writers read
-  // TimeFrame CommonTrack data exclusively. Legacy scratch users retain
-  // their existing Group-C members until M6f.
+  // The generic result path keeps accepted CommonTrack/TrackSeed pairs until
+  // the final adapter-edge compatibility completion. It contains no typed
+  // accepted-track vector.
   bounded_vector<TrackingCandidate>& acceptedTracksForSharedStatus();
   void clearAcceptedTracksForSharedStatus();
 

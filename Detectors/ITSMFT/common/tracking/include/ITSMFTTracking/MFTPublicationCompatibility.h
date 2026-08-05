@@ -13,6 +13,7 @@
 #include <algorithm>
 #include <cstddef>
 #include <cstdint>
+#include <limits>
 #include <stdexcept>
 #include <vector>
 
@@ -37,6 +38,33 @@ class MFTPublicationCompatibility
  public:
   const std::vector<MFTPublicationCompatibilityEntry>& entries() const noexcept { return mEntries; }
   void clear() noexcept { mEntries.clear(); }
+
+  // Adapter-edge completion from the generic accepted-result sequence. The
+  // result supplies only detector-neutral TrackSeed/CommonTrack data; no
+  // MFT typed track is required merely to preserve the compatibility fields.
+  template <typename Results>
+  bool replaceFromAcceptedResults(const Results& results)
+  {
+    std::vector<MFTPublicationCompatibilityEntry> staged;
+    staged.reserve(results.size());
+    uint32_t previous = 0;
+    bool havePrevious = false;
+    for (const auto& result : results) {
+      const auto index = result.commonTrackIndex;
+      if ((havePrevious && previous >= index) || index == std::numeric_limits<uint32_t>::max()) {
+        return false;
+      }
+      staged.push_back({index,
+                        static_cast<double>(result.seed.getQOverPt()),
+                        0.,
+                        0.f,
+                        result.seed.getHitLayerMask().value()});
+      previous = index;
+      havePrevious = true;
+    }
+    mEntries.swap(staged);
+    return true;
+  }
 
   const MFTPublicationCompatibilityEntry* find(uint32_t commonTrackIndex, size_t commonTrackCount) const noexcept
   {

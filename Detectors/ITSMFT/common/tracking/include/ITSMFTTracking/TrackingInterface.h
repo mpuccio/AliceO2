@@ -29,9 +29,8 @@
 #include "DataFormatsITSMFT/ROFRecord.h"
 #include "DataFormatsITSMFT/TopologyDictionary.h"
 #include "DetectorsCommonDataFormats/DetID.h"
-#include "ITSMFTTracking/DetectorTraits.h"
 #ifndef GPUCA_GPUCODE
-#include "ITSMFTTracking/AcceptedTrackShadowPublisher.h"
+#include "ITSMFTTracking/DetectorPublicationAdapter.h"
 #include "ITSMFTTracking/ClusterDecoder.h"
 #include "ITSMFTTracking/ClockTimingPublicationView.h"
 #include "ITSMFTTracking/DetectorLayoutSet.h"
@@ -228,14 +227,11 @@ class ITSMFTTrackingInterface : private MFTPublicationCompatibilityOwner<NLayers
                  SurfaceCatalogView surfaceCatalog,
                  ClusterSourceId expectedSource,
                  TrackingCandidate& candidate) override;
-  bool publishAccepted(TimeFrame& frame,
-                       const TrackingCandidate& candidate,
-                       gsl::span<const gsl::span<const SurfaceMeasurement>> layerMeasurements,
-                       SurfaceCatalogView surfaceCatalog) override;
-  bool haveSamePolarity(const TrackingCandidate& first,
-                        const TrackingCandidate& second) const noexcept override;
-  bool sealAccepted(gsl::span<const TrackingCandidate> candidates) override;
-  void clearPublicationState() noexcept override;
+  bool completeAccepted(gsl::span<const TrackingCandidate> candidates,
+                        const TrackingParameters& params,
+                        const SurfaceTrackingScratch& scratch,
+                        bool final) override;
+  void resetAdapterState() noexcept override;
 #endif
 
   bool mUseMC = false;
@@ -246,7 +242,7 @@ class ITSMFTTrackingInterface : private MFTPublicationCompatibilityOwner<NLayers
   std::unique_ptr<TrackerTraits> mTrackerTraits;
   std::unique_ptr<Tracker> mTracker;
 #ifndef GPUCA_GPUCODE
-  AcceptedTrackShadowPublisher<NLayers> mAcceptedTrackShadowPublisher;
+  DetectorPublicationAdapter<NLayers> mDetectorPublicationAdapter;
   std::unique_ptr<ClusterDecoder> mClusterDecoder;
   // This interface's one immutable plan, built once in initialiseTracker()
   // from the compile-time-selected static per-detector catalog

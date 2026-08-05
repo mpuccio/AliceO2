@@ -8,10 +8,12 @@
 #ifndef GPUCA_GPUCODE
 
 #include <cstdint>
+#include <limits>
 
 #include <gsl/span>
 
 #include "ITSMFTTracking/Cell.h"
+#include "ITSMFTTracking/CommonTrack.h"
 #include "ITSMFTTracking/SurfaceCatalogView.h"
 #include "ITSMFTTracking/SurfaceMeasurement.h"
 #include "ITSMFTTracking/SurfaceTrackingScratch.h"
@@ -26,14 +28,11 @@ namespace o2::itsmft::tracking
 // remain outside the common tracker.
 struct TrackingCandidate {
   TrackSeed seed;
-  SurfaceKinematicState innerState{};
-  SurfaceKinematicState outerState{};
-  o2::its::TimeStamp timestamp{};
-  float chi2{0.f};
+  CommonTrack track{};
   float phi{0.f};
   float eta{0.f};
   double charge{0.};
-  bool sharedClusters{false};
+  uint32_t commonTrackIndex{std::numeric_limits<uint32_t>::max()};
 
   int getNumberOfClusters() const noexcept { return seed.getActiveSurfaceCount(); }
   int getClusterIndex(int position) const noexcept { return seed.getCluster(position); }
@@ -59,17 +58,19 @@ class TrackingOperationAdapter
                          ClusterSourceId expectedSource,
                          TrackingCandidate& candidate) = 0;
 
-  virtual bool publishAccepted(TimeFrame& frame,
-                               const TrackingCandidate& candidate,
-                               gsl::span<const gsl::span<const SurfaceMeasurement>> layerMeasurements,
-                               SurfaceCatalogView surfaceCatalog) = 0;
+  // Called at each serial accepted-result boundary. The adapter may consume
+  // the generic candidates and operation-local policy/scratch views to stage
+  // detector compatibility state; only the final call may publish sidecars.
+  // No typed track or compatibility flag is supplied by the core.
+  virtual bool completeAccepted(gsl::span<const TrackingCandidate> candidates,
+                                const TrackingParameters& params,
+                                const SurfaceTrackingScratch& scratch,
+                                bool final) = 0;
 
-  virtual bool haveSamePolarity(const TrackingCandidate& first,
-                                const TrackingCandidate& second) const noexcept = 0;
-
-  virtual bool sealAccepted(gsl::span<const TrackingCandidate> candidates) = 0;
-
-  virtual void clearPublicationState() noexcept = 0;
+  // Lifecycle reset is deliberately an adapter-edge operation. It clears
+  // only detector compatibility state; TimeFrame and scratch reset remain
+  // owned by the generic tracker.
+  virtual void resetAdapterState() noexcept = 0;
 };
 
 } // namespace o2::itsmft::tracking

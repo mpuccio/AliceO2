@@ -29,6 +29,7 @@
 #include "GPUCommonMath.h"
 #include "ITStracking/BoundedAllocator.h"
 #include "ITSMFTTracking/Cell.h"
+#include "ITSMFTTracking/CommonTrackShadow.h"
 #include "ITStracking/Constants.h"
 #include "ITSMFTTracking/Configuration.h"
 #include "ITSMFTTracking/IndexTableConfiguration.h"
@@ -68,6 +69,33 @@ struct PassMode {
 
 namespace
 {
+bool makeCandidateShadow(const TrackingCandidate& candidate,
+                         gsl::span<const gsl::span<const SurfaceMeasurement>> layerMeasurements,
+                         CommonTrackShadowRecord& record) noexcept
+{
+  record = {};
+  record.track = candidate.track;
+  record.track.hitSurfaces = {};
+  record.references.reserve(layerMeasurements.size());
+  for (std::size_t position = 0; position < layerMeasurements.size(); ++position) {
+    const int localIndex = candidate.getClusterIndex(static_cast<int>(position));
+    if (localIndex == o2::its::constants::UnusedIndex) {
+      continue;
+    }
+    if (localIndex < 0 || static_cast<std::size_t>(localIndex) >= layerMeasurements[position].size()) {
+      return false;
+    }
+    const auto& measurement = layerMeasurements[position][localIndex];
+    const TrackClusterReference reference{measurement.surface, SurfaceMeasurementIndex{static_cast<uint32_t>(localIndex)}};
+    if (!reference.surface.isValid() || measurement.surface != reference.surface || !measurement.cluster.isValid()) {
+      return false;
+    }
+    record.references.push_back(reference);
+    record.track.hitSurfaces.set(reference.surface);
+  }
+  return !record.references.empty();
+}
+
 // A static "diamond" vertex (ITSCommonCATrackerParam.useDiamond /
 // TrackerTraits::computeLayerTrackletsForPolicy) carries no genuine
 // per-event timing: it stands in for every real primary vertex at once, so
@@ -1689,7 +1717,7 @@ void TrackerTraits::findRoadsForPolicy(const int iteration,
   const int activeSurfaceCount = static_cast<int>(mScratch->getNOwnedSurfaces());
   bounded_vector<bounded_vector<int>> firstClusters(activeSurfaceCount, bounded_vector<int>(mMemoryPool.get()), mMemoryPool.get());
   firstClusters.resize(activeSurfaceCount);
-  // M5d: DetectorTraits::refitSeed's own (both-branch) native refit reads
+  // M5d: the adapter's native refit operation reads
   // layerMeasurements/mTraversalLayout's surface catalog, not a raw
   // TrackingFrameInfo/Cluster array or an o2::base::Propagator instance --
   // see doc/decisions/0008-native-refit-activation.md.
@@ -1715,7 +1743,7 @@ void TrackerTraits::findRoadsForPolicy(const int iteration,
   // Road-length filter bound: maximum absolute q/pT, in the same (GeV/c)^-1
   // units as SurfaceKinematicState::parameters[4]. Applied identically to
   // both families via getQOverPt() (raw signed value, never squared); no
-  // NLayers/DetID/state-family branch. std::abs() of a NaN/+-Inf q/pT is
+  // layer-count/family branch. std::abs() of a NaN/+-Inf q/pT is
   // never <= this finite bound (standard IEEE-754 comparison semantics), so
   // non-finite seeds are rejected deterministically without extra checks --
   // see testCellRepresentation.cxx's dedicated road-filter tests for focused
@@ -1837,17 +1865,16 @@ void TrackerTraits::findRoadsForPolicy(const int iteration,
     std::sort(tracks.begin(), tracks.end(), [](const TrackingCandidate& a, const TrackingCandidate& b) {
       const auto ncla = a.getNumberOfClusters();
       const auto nclb = b.getNumberOfClusters();
-      return (ncla == nclb) ? (a.chi2 < b.chi2) : ncla > nclb;
+      return (ncla == nclb) ? (a.track.chi2 < b.track.chi2) : ncla > nclb;
     });
-    acceptTracks(iteration, tracks, firstClusters, operationAdapter);
+    acceptTracks(iteration, tracks, firstClusters);
   }
   markTracks(iteration, operationAdapter);
 }
 
 void TrackerTraits::acceptTracks(int iteration,
                                  bounded_vector<TrackingCandidate>& tracks,
-                                 bounded_vector<bounded_vector<int>>& firstClusters,
-                                 TrackingOperationAdapter& operationAdapter)
+                                 bounded_vector<bounded_vector<int>>& firstClusters)
 {
   auto& trks = acceptedTracksForSharedStatus();
   trks.reserve(trks.size() + tracks.size());
@@ -1904,21 +1931,27 @@ void TrackerTraits::acceptTracks(int iteration,
       }
     }
     const auto selectedTimestamp = nominalCompatible ? nominalTS : expandedTS;
-    track.timestamp = selectedTimestamp.makeSymmetrical();
-    // this is a sanity clamp
-    // we cannot be worse than the clock so we clamp to this
-    if (track.timestamp.getTimeStampError() > smallestROFHalf) {
-      track.timestamp.setTimeStampError(smallestROFHalf);
-    }
+    const auto selectedTimestampSymmetric = selectedTimestamp.makeSymmetrical();
+    // This is the same sanity clamp as the legacy symmetric timestamp, but
+    // committed directly to the detector-neutral CommonTrack interval.
+    const float selectedTimestampError = std::min(selectedTimestampSymmetric.getTimeStampError(), smallestROFHalf);
+    track.track.timestamp = {static_cast<TFBC>(selectedTimestampSymmetric.getTimeStamp() - selectedTimestampError),
+                             static_cast<TFBC>(selectedTimestampSymmetric.getTimeStamp() + selectedTimestampError)};
     trks.emplace_back(track);
 
-    // Shadow-only owner-thread publication. The candidate/refit loops above
-    // may be parallel, but acceptTracks() runs after they have joined and is
-    // the one deterministic legacy accepted-track order. Do not move this
-    // into a task-arena worker or GPU path.
-    if (!operationAdapter.publishAccepted(*mFrame, track, mLayerMeasurements, mTraversalLayout.getSurfaceCatalogView())) {
+    // Generic owner-thread publication. The candidate/refit loops above may
+    // be parallel, but acceptTracks() runs after they have joined and is the
+    // one deterministic accepted-result order. Typed sidecars are completed
+    // later by the application adapter from the same generic results.
+    CommonTrackShadowRecord shadow;
+    if (!makeCandidateShadow(track, mLayerMeasurements, shadow)) {
       LOGP(fatal, "CommonTrack publication failed for an accepted CA track");
     }
+    const auto commonTrackIndex = publishCommonTrackShadow(*mFrame, shadow);
+    if (!commonTrackIndex) {
+      LOGP(fatal, "CommonTrack publication failed for an accepted CA track");
+    }
+    trks.back().commonTrackIndex = *commonTrackIndex;
 
     if (mTrkParams[iteration].AllowSharingFirstCluster) {
       firstClusters[firstLayer].push_back(firstCluster);
@@ -1928,56 +1961,14 @@ void TrackerTraits::acceptTracks(int iteration,
 
 void TrackerTraits::markTracks(int iteration, TrackingOperationAdapter& operationAdapter)
 {
-  if (mTrkParams[iteration].AllowSharingFirstCluster) {
-    /// Now we have to set the shared cluster flag
-    auto& tracks = acceptedTracksForSharedStatus();
-
-    bounded_vector<int> fclusSort(tracks.size(), mMemoryPool.get());
-    std::iota(fclusSort.begin(), fclusSort.end(), 0);
-    std::sort(fclusSort.begin(), fclusSort.end(), [&tracks](int a, int b) {
-      return tracks[a].getClusterIndex(tracks[a].getFirstClusterLayer()) < tracks[b].getClusterIndex(tracks[b].getFirstClusterLayer());
-    });
-
-    auto areTracksSelected = [this, iteration, &operationAdapter](const auto& t1, const auto& t2) {
-      const auto t1FirstLayer{t1.getFirstClusterLayer()}, t2FirstLayer{t2.getFirstClusterLayer()};
-      if (t1FirstLayer != t2FirstLayer) {
-        return false;
-      }
-      if (mScratch->getClusterROF(t1FirstLayer, t1.getClusterIndex(t1FirstLayer)) != mScratch->getClusterROF(t2FirstLayer, t2.getClusterIndex(t2FirstLayer))) {
-        return false;
-      }
-      if (!math_utils::isPhiDifferenceBelow(t1.phi, t2.phi, mTrkParams[iteration].SharedClusterMaxDeltaPhi)) {
-        return false;
-      }
-      if (std::abs(t1.eta - t2.eta) > mTrkParams[iteration].SharedClusterMaxDeltaEta) {
-        return false;
-      }
-      if (mTrkParams[iteration].SharedClusterOppositeSign) {
-        if (operationAdapter.haveSamePolarity(t1, t2)) {
-          return false;
-        }
-      }
-      return true;
-    };
-
-    for (int i{0}; i < static_cast<int>(fclusSort.size()); ++i) {
-      auto& track = tracks[fclusSort[i]];
-      for (int j{i + 1}; j < static_cast<int>(fclusSort.size()) && tracks[fclusSort[j]].getClusterIndex(tracks[fclusSort[j]].getFirstClusterLayer()) == track.getClusterIndex(track.getFirstClusterLayer()); ++j) {
-        auto& track2 = tracks[fclusSort[j]];
-        if (areTracksSelected(track, track2)) {
-          track.sharedClusters = true;
-          track2.sharedClusters = true;
-        }
-      }
-    }
-  }
-
-  // The legacy accepted-track vector has not yet been rectified or sorted:
-  // fclusSort above is only a comparison permutation. Seal the ITS-only
-  // compatibility entries from the explicit pending associations exactly at
-  // this final serial marking boundary.
-  if (iteration + 1 == static_cast<int>(mTrkParams.size()) &&
-      !operationAdapter.sealAccepted(acceptedTracksForSharedStatus())) {
+  // Adapter-owned compatibility state is staged from the deterministic
+  // accepted-result sequence. The core supplies only generic kinematics and
+  // the operation-local policy/scratch views; typed output flags remain at
+  // the adapter edge.
+  if (!operationAdapter.completeAccepted(acceptedTracksForSharedStatus(),
+                                         mTrkParams[iteration],
+                                         *mScratch,
+                                         iteration + 1 == static_cast<int>(mTrkParams.size()))) {
     throw std::runtime_error{"failed to seal tracking compatibility"};
   }
 }

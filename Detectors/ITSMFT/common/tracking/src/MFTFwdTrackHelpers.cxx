@@ -20,8 +20,6 @@
 
 #include "Framework/Logger.h"
 #include "ITSMFTTracking/NativeRefitDriver.h"
-#include "ITSMFTTracking/SurfaceKinematicStateLegacyAdapters.h"
-#include "ITSMFTTracking/SurfaceTrackingScratch.h"
 #include "ITStracking/Constants.h"
 
 namespace o2::itsmft::tracking
@@ -35,7 +33,7 @@ constexpr int kMFTLayers = o2::mft::constants::mft::LayersNumber;
 // M5d: replaces the frozen o2::mft::TrackFitter<TrackLTF>/TrackLTFL Kalman
 // engine (MFTTracking/TrackFitter.h) with fitTrackSeedLegs (NativeRefitDriver.h),
 // the same shared, descriptor-driven driver the barrel/ITS branch
-// (DetectorTraits.cxx's refitSeedITS) now uses -- the intentional, approved
+// (the ITS adapter's native refit operation) now uses -- the intentional, approved
 // physics departure recorded in doc/decisions/0008-native-refit-activation.md.
 // The leg structure this milestone activates (inward/outward/optional-repeat,
 // Section "Required migration") is not a port of TrackLTF's own two-direction
@@ -44,13 +42,15 @@ constexpr int kMFTLayers = o2::mft::constants::mft::LayersNumber;
 // SurfaceKinematicState. Numerical output is expected to differ from the
 // retired engine; see the design note for characterization evidence.
 bool refitTrackFwd(const TrackSeed& seed,
-                   MFTCATrack& track,
                    const SurfaceTrackingScratch& tf,
                    const TrackingParameters& params,
                    float bz,
                    gsl::span<const gsl::span<const SurfaceMeasurement>> layerMeasurements,
                    SurfaceCatalogView surfaceCatalog,
-                   ClusterSourceId expectedSource)
+                   ClusterSourceId expectedSource,
+                   SurfaceKinematicState& paramIn,
+                   SurfaceKinematicState& paramOut,
+                   float& chi2)
 {
   const auto hitMask = seed.getHitLayerMask();
 
@@ -85,9 +85,9 @@ bool refitTrackFwd(const TrackSeed& seed,
     }
   }
 
-  SurfaceKinematicState paramIn{};
-  SurfaceKinematicState paramOut{};
-  float chi2 = 0.f;
+  paramIn = {};
+  paramOut = {};
+  chi2 = 0.f;
   OperationFailureReason reason{};
   if (!fitTrackSeedLegs<kMFTLayers>(seed, layerMeasurements, surfaceCatalog, bz,
                                     params.ShiftRefToCluster, params.MaxChi2ClusterAttachment, params.MaxChi2NDF,
@@ -113,30 +113,6 @@ bool refitTrackFwd(const TrackSeed& seed,
     }
   }
 
-  o2::track::TrackParCovFwd inFwd{};
-  o2::track::TrackParCovFwd outFwd{};
-  if (!legacy::exportLegacyForwardTrackParCov(paramIn, inFwd) ||
-      !legacy::exportLegacyForwardTrackParCov(paramOut, outFwd)) {
-    return false;
-  }
-  inFwd.setTrackChi2(chi2);
-
-  auto& mftTr = track.getTrack();
-  static_cast<o2::track::TrackParCovFwd&>(mftTr) = inFwd;
-  mftTr.setOutParam(outFwd);
-  mftTr.setCA(true);
-  mftTr.setNumberOfPoints(hitMask.count());
-
-  track.setPattern(0);
-  for (int layer = 0; layer < kMFTLayers; ++layer) {
-    if (!hitMask.has(layer)) {
-      track.setClusterIndex(layer, o2::its::constants::UnusedIndex);
-      continue;
-    }
-    const int clIdx = seed.getCluster(layer);
-    track.setClusterIndex(layer, clIdx);
-    track.setClusterSize(layer, tf.getClusterSize(layer, clIdx));
-  }
   return true;
 }
 

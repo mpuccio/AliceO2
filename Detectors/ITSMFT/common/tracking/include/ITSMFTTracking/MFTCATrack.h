@@ -147,11 +147,6 @@ class MFTCATrack
   uint64_t mClusterSizes = 0;
 };
 
-template <>
-struct CATrackTypeHelper<o2::mft::constants::mft::LayersNumber> {
-  using type = MFTCATrack;
-};
-
 } // namespace o2::itsmft::tracking
 
 #endif /* ALICEO2_ITSMFT_TRACKING_MFTCATRACK_H_ */

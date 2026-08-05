@@ -7,123 +7,128 @@
 
 #ifndef GPUCA_GPUCODE
 
-#include "ITSMFTTracking/CommonTrackShadow.h"
-#include "ITSMFTTracking/DetectorTraits.h"
+#include <cmath>
+
+#include "DetectorsCommonDataFormats/DetID.h"
+#include "DataFormatsCalibration/MeanVertexObject.h"
+#include "ITSMFTTracking/NativeRefitDriver.h"
 #include "ITSMFTTracking/SurfaceKinematicStateLegacyAdapters.h"
 #include "ITSMFTTracking/TrackingOperationAdapter.h"
+#include "ITSMFTTracking/MFTFwdTrackHelpers.h"
 #include "ITStracking/Constants.h"
 
 namespace o2::itsmft::tracking::detail
 {
 
-// These helpers are deliberately kept at the ITS/MFT adapter edge. They
-// translate between typed legacy refit/output values and the detector-neutral
-// TrackingCandidate consumed by TrackerTraits; the generic core never sees
-// DetectorTraits, typed output tracks, or publication sidecars.
-template <int NLayers>
-bool importCandidateStates(const typename DetectorTraits<NLayers>::TrackType& track,
-                           TrackingCandidate& candidate) noexcept
+template <o2::detectors::DetID::ID DetId>
+void configureAdapterBeamPosition(TimeFrame& frame,
+                                  const TrackingParameters& params,
+                                  const o2::dataformats::MeanVertexObject* meanVertex,
+                                  bool overrideBeamEstimation)
 {
-  if constexpr (DetectorTraits<NLayers>::DetId == o2::detectors::DetID::ITS) {
-    if (!legacy::importBarrelTrackParCov(track.getParamIn(), candidate.innerState) ||
-        !legacy::importBarrelTrackParCov(track.getParamOut(), candidate.outerState)) {
+  const float systErrY2 = params.SystError2Row.empty() ? 0.f : params.SystError2Row[0];
+  const float layerRes = params.LayerResolution.empty() ? 0.f : params.LayerResolution[0];
+  if constexpr (DetId == o2::detectors::DetID::MFT) {
+    frame.setBeamPosition(params.Diamond[0], params.Diamond[1], params.DiamondCov[3], layerRes, systErrY2);
+  } else if (overrideBeamEstimation && meanVertex != nullptr) {
+    frame.setBeamPosition(meanVertex->getX(), meanVertex->getY(), meanVertex->getSigmaY2(), layerRes, systErrY2);
+  } else if (params.UseDiamond) {
+    frame.setBeamPosition(params.Diamond[0], params.Diamond[1], params.DiamondCov[3], layerRes, systErrY2);
+  }
+}
+
+// These helpers are the only detector-specific operation code used by the
+// two application adapters. They produce the same detector-neutral
+// TrackingCandidate consumed by TrackerTraits; no typed accepted track or
+// detector traits object crosses into the generic core.
+inline bool fillCandidateKinematics(TrackingCandidate& candidate) noexcept
+{
+  if (candidate.track.innerState.family == StateFamily::Barrel) {
+    o2::track::TrackParCovF param{};
+    if (!legacy::exportBarrelTrackParCov(candidate.track.innerState, param)) {
       return false;
     }
-  } else {
-    if (!legacy::importLegacyForwardTrackParCov(track.getTrack(), candidate.innerState) ||
-        !legacy::importLegacyForwardTrackParCov(track.getTrack().getOutParam(), candidate.outerState)) {
+    candidate.phi = param.getPhi();
+    candidate.eta = param.getEta();
+    candidate.charge = param.getSign();
+    return true;
+  }
+  if (candidate.track.innerState.family == StateFamily::Forward) {
+    o2::track::TrackParCovFwd param{};
+    if (!legacy::exportLegacyForwardTrackParCov(candidate.track.innerState, param)) {
       return false;
     }
+    candidate.phi = static_cast<float>(param.getPhi());
+    candidate.eta = static_cast<float>(param.getEta());
+    candidate.charge = param.getCharge();
+    return true;
   }
-  candidate.chi2 = track.getChi2();
-  candidate.phi = track.getPhi();
-  candidate.eta = track.getEta();
-  if constexpr (DetectorTraits<NLayers>::DetId == o2::detectors::DetID::ITS) {
-    candidate.charge = track.getSign();
-  } else {
-    candidate.charge = track.getCharge();
-  }
-  return true;
+  return false;
 }
 
 template <int NLayers>
-bool exportCandidateTrack(const TrackingCandidate& candidate,
-                          SurfaceTrackingScratch& scratch,
-                          typename DetectorTraits<NLayers>::TrackType& track) noexcept
+bool refitITSSeed(const TrackSeed& seed,
+                  const TrackingParameters& params,
+                  float bz,
+                  gsl::span<const gsl::span<const SurfaceMeasurement>> layerMeasurements,
+                  SurfaceCatalogView surfaceCatalog,
+                  TrackingCandidate& candidate)
 {
-  if constexpr (DetectorTraits<NLayers>::DetId == o2::detectors::DetID::ITS) {
-    o2::track::TrackParCovF paramIn{};
-    o2::track::TrackParCovF paramOut{};
-    if (!legacy::exportBarrelTrackParCov(candidate.innerState, paramIn) ||
-        !legacy::exportBarrelTrackParCov(candidate.outerState, paramOut)) {
-      return false;
-    }
-    track.getParamIn() = paramIn;
-    track.getParamOut() = paramOut;
-    track.setChi2(candidate.chi2);
-    track.getTimeStamp() = candidate.timestamp;
-    for (int layer = 0; layer < static_cast<int>(candidate.seed.getSurfaceMask().count()); ++layer) {
-      const int cluster = candidate.seed.getCluster(layer);
-      if (cluster != o2::its::constants::UnusedIndex) {
-        track.setExternalClusterIndex(layer, cluster, true);
-      }
-    }
-  } else {
-    o2::track::TrackParCovFwd paramIn{};
-    o2::track::TrackParCovFwd paramOut{};
-    if (!legacy::exportLegacyForwardTrackParCov(candidate.innerState, paramIn) ||
-        !legacy::exportLegacyForwardTrackParCov(candidate.outerState, paramOut)) {
-      return false;
-    }
-    static_cast<o2::track::TrackParCovFwd&>(track.getTrack()) = paramIn;
-    track.getTrack().setOutParam(paramOut);
-    track.getTrack().setTrackChi2(candidate.chi2);
-    track.getTrack().setCA(true);
-    track.getTrack().setNumberOfPoints(candidate.seed.getSurfaceMask().count());
-    track.setPattern(0);
-    for (int layer = 0; layer < static_cast<int>(candidate.seed.getSurfaceMask().count()); ++layer) {
-      const int cluster = candidate.seed.getCluster(layer);
-      track.setClusterIndex(layer, cluster);
-      if (cluster != o2::its::constants::UnusedIndex) {
-        track.setClusterSize(layer, scratch.getClusterSize(layer, cluster));
-      }
-    }
-    track.setSeedPattern(candidate.seed.getHitLayerMask().value());
-    track.getTimeStamp() = candidate.timestamp;
+  SurfaceKinematicState paramIn{};
+  SurfaceKinematicState paramOut{};
+  float chi2 = 0.f;
+  OperationFailureReason reason{};
+  if (!fitTrackSeedLegs<NLayers>(seed, layerMeasurements, surfaceCatalog, bz,
+                                 params.ShiftRefToCluster, params.MaxChi2ClusterAttachment, params.MaxChi2NDF,
+                                 params.RepeatRefitOut, gsl::span<const float>(params.MinPt),
+                                 paramIn, paramOut, chi2, reason)) {
+    return false;
   }
-  return true;
+  candidate.seed = seed;
+  candidate.track.innerState = paramIn;
+  candidate.track.outerState = paramOut;
+  candidate.track.chi2 = chi2;
+  return fillCandidateKinematics(candidate);
 }
 
 template <int NLayers>
-bool makeCandidateShadow(const TrackingCandidate& candidate,
-                         gsl::span<const gsl::span<const SurfaceMeasurement>> layerMeasurements,
-                         CommonTrackShadowRecord& record) noexcept
+bool refitMFTSeed(const TrackSeed& seed,
+                  const TrackingParameters& params,
+                  float bz,
+                  const SurfaceTrackingScratch& scratch,
+                  gsl::span<const gsl::span<const SurfaceMeasurement>> layerMeasurements,
+                  SurfaceCatalogView surfaceCatalog,
+                  ClusterSourceId expectedSource,
+                  TrackingCandidate& candidate)
 {
-  record = {};
-  record.track.innerState = candidate.innerState;
-  record.track.outerState = candidate.outerState;
-  record.track.chi2 = candidate.chi2;
-  const auto timestamp = candidate.timestamp.getTimeStamp();
-  const auto timestampError = candidate.timestamp.getTimeStampError();
-  record.track.timestamp = {static_cast<TFBC>(timestamp - timestampError), static_cast<TFBC>(timestamp + timestampError)};
-  record.references.reserve(layerMeasurements.size());
-  for (std::size_t layer = 0; layer < layerMeasurements.size(); ++layer) {
-    const int localIndex = candidate.getClusterIndex(static_cast<int>(layer));
-    if (localIndex == o2::its::constants::UnusedIndex) {
-      continue;
-    }
-    if (localIndex < 0 || static_cast<size_t>(localIndex) >= layerMeasurements[layer].size()) {
-      return false;
-    }
-    const auto& measurement = layerMeasurements[layer][localIndex];
-    const TrackClusterReference reference{measurement.surface, SurfaceMeasurementIndex{static_cast<uint32_t>(localIndex)}};
-    if (!reference.surface.isValid() || measurement.surface != reference.surface || !measurement.cluster.isValid()) {
-      return false;
-    }
-    record.references.push_back(reference);
-    record.track.hitSurfaces.set(reference.surface);
+  SurfaceKinematicState paramIn{};
+  SurfaceKinematicState paramOut{};
+  float chi2 = 0.f;
+  if (!refitTrackFwd(seed, scratch, params, bz, layerMeasurements, surfaceCatalog, expectedSource, paramIn, paramOut, chi2)) {
+    return false;
   }
-  return !record.references.empty();
+  candidate.seed = seed;
+  candidate.track.innerState = paramIn;
+  candidate.track.outerState = paramOut;
+  candidate.track.chi2 = chi2;
+  return fillCandidateKinematics(candidate);
+}
+
+template <o2::detectors::DetID::ID DetId, int NLayers>
+bool refitDetectorSeed(const TrackSeed& seed,
+                       const TrackingParameters& params,
+                       float bz,
+                       SurfaceTrackingScratch& scratch,
+                       gsl::span<const gsl::span<const SurfaceMeasurement>> layerMeasurements,
+                       SurfaceCatalogView surfaceCatalog,
+                       ClusterSourceId expectedSource,
+                       TrackingCandidate& candidate)
+{
+  if constexpr (DetId == o2::detectors::DetID::MFT) {
+    return refitMFTSeed<NLayers>(seed, params, bz, scratch, layerMeasurements, surfaceCatalog, expectedSource, candidate);
+  } else {
+    return refitITSSeed<NLayers>(seed, params, bz, layerMeasurements, surfaceCatalog, candidate);
+  }
 }
 
 } // namespace o2::itsmft::tracking::detail

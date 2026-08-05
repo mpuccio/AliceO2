@@ -19,8 +19,6 @@
 #include <array>
 #include <cstdint>
 
-#include "DetectorsCommonDataFormats/DetID.h"
-#include "DataFormatsITS/TrackITS.h"
 #include "DataFormatsITS/TimeEstBC.h"
 #include "ITSMFTTracking/Configuration.h"
 #include "ITSMFTTracking/LayerMask.h"
@@ -292,14 +290,6 @@ class TrackSeed final
 // needs (byte-for-byte copyable, no user-defined copy/move/destructor
 // logic) and the one TrackSeed does satisfy, checked below.
 static_assert(std::is_trivially_copyable_v<TrackSeed>);
-
-template <int NLayers>
-struct CATrackTypeHelper {
-  using type = o2::its::TrackITSExt;
-};
-
-template <int NLayers>
-using CATrackType = typename CATrackTypeHelper<NLayers>::type;
 
 } // namespace o2::itsmft::tracking
 

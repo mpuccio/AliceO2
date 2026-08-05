@@ -32,7 +32,7 @@
 // already confined inside Propagator::propagateToMeasurement's own
 // descriptor-driven dispatch. It supersedes NativeCylinderCylinderRefitDriver.h's
 // nativeRefitTrackCylinderCylinder as the production refit entry point (see
-// DetectorTraits::refitSeed); that earlier, Barrel-only, Tag-templated driver
+// the adapter refit operation); that earlier, Barrel-only, Tag-templated driver
 // is left completely unmodified as the still-valid oracle the M5a A/B
 // characterization harness (testITSNativeVsLegacyRefitCharacterizationHarness.cxx)
 // continues to exercise.
@@ -105,7 +105,7 @@ GPUhdi() float ptFromQOverPt(float q2pt, uint8_t absCharge) noexcept
 // function body serves a Barrel seed (ITS) or a Forward seed (MFT) with no
 // specialization. `reseedIfShorter` is not carried over: this is a new
 // production entry point, not a byte-for-byte port, and no caller of this
-// function threads a nonzero value through it (see DetectorTraits.cxx).
+// function threads a nonzero value through it (see the adapter refit helper).
 //
 // Transactional exactly like nativeRefitTrackCylinderCylinder: outParamIn/
 // outParamOut/outChi2 are committed only on complete success.

@@ -47,7 +47,6 @@
 #include "ITSMFTTracking/Cell.h"
 #include "ITSMFTTracking/Configuration.h"
 #include "ITSMFTTracking/IndexTableUtils.h"
-#include "ITSMFTTracking/MFTCATrack.h"
 #include "ITSMFTTracking/MultiSourceFrame.h"
 #include "ITSMFTTracking/MultiSourceLoading.h"
 #include "ITSMFTTracking/SurfaceMeasurement.h"
@@ -295,7 +294,7 @@ class SurfaceTrackingScratch
   auto& getClusters() { return mClusters; }
   auto& getUnsortedClusters() { return mUnsortedClusters; }
   const auto& getUnsortedClusters() const { return mUnsortedClusters; }
-  int getClusterROF(int iLayer, int iCluster);
+  int getClusterROF(int iLayer, int iCluster) const;
   auto& getCells() { return mCells; }
 
   auto& getCellsLookupTable() { return mCellsLookupTable; }

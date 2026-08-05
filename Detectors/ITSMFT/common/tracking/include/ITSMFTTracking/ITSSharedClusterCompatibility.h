@@ -9,6 +9,8 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <gsl/span>
+#include <limits>
 #include <stdexcept>
 #include <utility>
 #include <vector>
@@ -44,9 +46,59 @@ class ITSSharedClusterCompatibility
     mSealed = false;
   }
 
+  // Adapter-edge completion from the generic accepted-result sequence. The
+  // common tracker has already committed CommonTracks; this operation only
+  // materializes the ITS compatibility sidecar atomically.
+  template <typename Results>
+  bool replaceFromAcceptedResults(const Results& results)
+  {
+    std::vector<ITSSharedClusterCompatibilityEntry> staged;
+    staged.reserve(results.size());
+    uint32_t previous = 0;
+    bool havePrevious = false;
+    for (const auto& result : results) {
+      const auto index = result.commonTrackIndex;
+      if ((havePrevious && previous >= index) || index == std::numeric_limits<uint32_t>::max()) {
+        return false;
+      }
+      staged.push_back({index, result.hasSharedClusters()});
+      previous = index;
+      havePrevious = true;
+    }
+    mPendingIndices.clear();
+    mEntries.swap(staged);
+    mSealed = true;
+    return true;
+  }
+
+  template <typename Results>
+  bool replaceFromAcceptedResults(const Results& results, gsl::span<const uint8_t> sharedFlags)
+  {
+    std::vector<ITSSharedClusterCompatibilityEntry> staged;
+    staged.reserve(results.size());
+    uint32_t previous = 0;
+    bool havePrevious = false;
+    for (const auto& result : results) {
+      const auto index = result.commonTrackIndex;
+      if ((havePrevious && previous >= index) || index == std::numeric_limits<uint32_t>::max() || index >= sharedFlags.size()) {
+        return false;
+      }
+      staged.push_back({index, sharedFlags[index] != 0});
+      previous = index;
+      havePrevious = true;
+    }
+    mPendingIndices.clear();
+    mEntries.swap(staged);
+    mSealed = true;
+    return true;
+  }
+
   // Called only after the final serial markTracks() pass and before legacy
   // rectify/sort. `tracks` is deliberately supplied here, while the explicit
   // pending indices are still aligned with its un-reordered accepted slots.
+  // Both the adapter's historical TrackITSExt view and the generic accepted
+  // result expose the same `hasSharedClusters()` operation; no typed accepted
+  // vector is required by the common core.
   template <typename Tracks, typename Hook>
   bool sealFromMarkedTracks(const Tracks& tracks, Hook&& hook)
   {

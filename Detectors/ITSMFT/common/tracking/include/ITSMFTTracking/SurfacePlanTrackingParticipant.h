@@ -34,7 +34,7 @@
 
 #include <oneapi/tbb/task_arena.h>
 
-#include "ITSMFTTracking/AcceptedTrackShadowPublisher.h"
+#include "ITSMFTTracking/DetectorPublicationAdapter.h"
 #include "ITSMFTTracking/CATracker.h"
 #include "ITSMFTTracking/Configuration.h"
 #include "ITSMFTTracking/DetectorLayoutSet.h"
@@ -145,14 +145,11 @@ class SurfacePlanTrackingParticipant final : public TrackingParticipant,
                  SurfaceCatalogView surfaceCatalog,
                  ClusterSourceId expectedSource,
                  TrackingCandidate& candidate) override;
-  bool publishAccepted(TimeFrame& frame,
-                       const TrackingCandidate& candidate,
-                       gsl::span<const gsl::span<const SurfaceMeasurement>> layerMeasurements,
-                       SurfaceCatalogView surfaceCatalog) override;
-  bool haveSamePolarity(const TrackingCandidate& first,
-                        const TrackingCandidate& second) const noexcept override;
-  bool sealAccepted(gsl::span<const TrackingCandidate> candidates) override;
-  void clearPublicationState() noexcept override { clearCompatibility(); }
+  bool completeAccepted(gsl::span<const TrackingCandidate> candidates,
+                        const TrackingParameters& params,
+                        const SurfaceTrackingScratch& scratch,
+                        bool final) override;
+  void resetAdapterState() noexcept override { clearCompatibility(); }
 
   ParticipantId mId;
   std::vector<TrackingParameters> mParams;
@@ -163,7 +160,7 @@ class SurfacePlanTrackingParticipant final : public TrackingParticipant,
   const DetectorLayoutSet* mPlan = nullptr;
   TrackerTraits mTraits;
   Tracker mTracker;
-  AcceptedTrackShadowPublisher<NLayers> mAcceptedTrackShadowPublisher;
+  DetectorPublicationAdapter<NLayers> mDetectorPublicationAdapter;
   // Adapter-edge ownership for this leg's fixed-capacity timing/mask tables.
   // SurfaceTrackingScratch receives only non-owning runtime views.
   o2::its::ROFOverlapTable<NLayers> mROFOverlapTable;

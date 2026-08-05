@@ -13,7 +13,6 @@
 /// \brief
 ///
 
-#include "ITSMFTTracking/DetectorTraits.h"
 #include "ITSMFTTracking/DetectorTrackingOperationAdapterSupport.h"
 #include "ITSMFTTracking/TrackingInterface.h"
 
@@ -209,11 +208,11 @@ void ITSMFTTrackingInterface<NLayers>::initialiseTracker()
   mTrackerTraits->setNThreads(nThreads, taskArena);
   mTracker = std::make_unique<Tracker>(mTrackerTraits.get());
   if constexpr (DetId == o2::detectors::DetID::ITS) {
-    mAcceptedTrackShadowPublisher.adoptITSSharedClusterCompatibility(
+    mDetectorPublicationAdapter.adoptITSSharedClusterCompatibility(
       &static_cast<ITSSharedClusterCompatibilityOwner<NLayers>&>(*this).sidecar);
   }
   if constexpr (DetId == o2::detectors::DetID::MFT) {
-    mAcceptedTrackShadowPublisher.adoptMFTPublicationCompatibility(
+    mDetectorPublicationAdapter.adoptMFTPublicationCompatibility(
       &static_cast<MFTPublicationCompatibilityOwner<NLayers>&>(*this).sidecar);
   }
 
@@ -444,60 +443,22 @@ bool ITSMFTTrackingInterface<NLayers>::refitSeed(const TrackSeed& seed,
                                                  ClusterSourceId expectedSource,
                                                  TrackingCandidate& candidate)
 {
-  typename DetectorTraits<NLayers>::TrackType track;
-  if (!DetectorTraits<NLayers>::refitSeed(seed, track, params, bz, scratch, layerMeasurements, surfaceCatalog, expectedSource)) {
-    return false;
-  }
-  candidate.seed = seed;
-  return detail::importCandidateStates<NLayers>(track, candidate);
+  return detail::refitDetectorSeed<DetId, NLayers>(seed, params, bz, scratch, layerMeasurements, surfaceCatalog, expectedSource, candidate);
 }
 
 template <int NLayers>
-bool ITSMFTTrackingInterface<NLayers>::publishAccepted(TimeFrame& frame,
-                                                       const TrackingCandidate& candidate,
-                                                       gsl::span<const gsl::span<const SurfaceMeasurement>> layerMeasurements,
-                                                       SurfaceCatalogView surfaceCatalog)
+bool ITSMFTTrackingInterface<NLayers>::completeAccepted(gsl::span<const TrackingCandidate> candidates,
+                                                        const TrackingParameters& params,
+                                                        const SurfaceTrackingScratch& scratch,
+                                                        bool final)
 {
-  typename DetectorTraits<NLayers>::TrackType track;
-  if (!detail::exportCandidateTrack<NLayers>(candidate, mScratch, track)) {
-    return false;
-  }
-  DetectorTraits<NLayers>::clearTransientLayerPattern(track);
-  CommonTrackShadowRecord shadow;
-  if (!detail::makeCandidateShadow<NLayers>(candidate, layerMeasurements, shadow)) {
-    return false;
-  }
-  return mAcceptedTrackShadowPublisher.publish(frame, shadow, track).has_value();
+  return mDetectorPublicationAdapter.completeAccepted(candidates, params, scratch, final);
 }
 
 template <int NLayers>
-bool ITSMFTTrackingInterface<NLayers>::haveSamePolarity(const TrackingCandidate& first,
-                                                        const TrackingCandidate& second) const noexcept
+void ITSMFTTrackingInterface<NLayers>::resetAdapterState() noexcept
 {
-  return first.charge == second.charge;
-}
-
-template <int NLayers>
-bool ITSMFTTrackingInterface<NLayers>::sealAccepted(gsl::span<const TrackingCandidate> candidates)
-{
-  using TrackType = typename DetectorTraits<NLayers>::TrackType;
-  std::vector<TrackType> tracks;
-  tracks.reserve(candidates.size());
-  for (const auto& candidate : candidates) {
-    tracks.emplace_back();
-    if (!detail::exportCandidateTrack<NLayers>(candidate, mScratch, tracks.back())) {
-      return false;
-    }
-    if (candidate.sharedClusters) {
-      tracks.back().setSharedClusters();
-    }
-  }
-  return mAcceptedTrackShadowPublisher.sealITSSharedClusterCompatibility(tracks);
-}
-
-template <int NLayers>
-void ITSMFTTrackingInterface<NLayers>::clearPublicationState() noexcept
-{
+  mDetectorPublicationAdapter.reset();
   if constexpr (DetId == o2::detectors::DetID::ITS) {
     static_cast<ITSSharedClusterCompatibilityOwner<NLayers>&>(*this).sidecar.clear();
   }
@@ -513,7 +474,7 @@ void ITSMFTTrackingInterface<NLayers>::configureBeamPosition()
     return;
   }
   const auto& p = mTrackParams[0];
-  TrackingLoadPolicyN<NLayers>::configureBeamPosition(mFrame, p, mMeanVertex, mOverrideBeamEstimation);
+  detail::configureAdapterBeamPosition<DetId>(mFrame, p, mMeanVertex, mOverrideBeamEstimation);
 }
 
 template <int NLayers>

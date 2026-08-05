@@ -363,7 +363,7 @@ int SurfaceTrackingScratch::getTotalClustersPerROFrange(int rofMin, int range, i
   return mROFramesClusters[layerId][endIdx] - mROFramesClusters[layerId][startIdx];
 }
 
-int SurfaceTrackingScratch::getClusterROF(int iLayer, int iCluster)
+int SurfaceTrackingScratch::getClusterROF(int iLayer, int iCluster) const
 {
   return static_cast<int>(std::lower_bound(mROFramesClusters[iLayer].begin(), mROFramesClusters[iLayer].end(), iCluster + 1) - mROFramesClusters[iLayer].begin() - 1);
 }

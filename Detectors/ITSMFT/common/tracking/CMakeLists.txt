@@ -33,7 +33,6 @@ o2_add_library(ITSMFTTracking
                TARGETVARNAME targetName
                SOURCES src/IOUtils.cxx
                        src/Propagator.cxx
-                       src/DetectorTraits.cxx
                        src/Configuration.cxx
                        src/TimeFrame.cxx
                        src/SurfaceTrackingScratch.cxx
@@ -50,6 +49,7 @@ o2_add_library(ITSMFTTracking
                        src/CATracker.cxx
                        src/TrackingInterface.cxx
                        src/MFTFwdTrackHelpers.cxx
+                       src/MFTAdapterRefit.cxx
                        src/MultiSourceFrame.cxx
                        src/MultiSourceLoading.cxx
                        src/MultiSourceTimeFrameLoader.cxx
