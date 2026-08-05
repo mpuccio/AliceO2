@@ -1,6 +1,6 @@
 # Design note 0002: M6 generic workspace — audit and deletion-oriented migration design
 
-Status: M6a design/audit, no production behavior change
+Status: M6g complete; design/audit and implementation record
 Date: 2026-08-04
 Scope: `Detectors/ITSMFT/common/tracking` (`o2::itsmft::tracking`)
 Companion: [ADR 0007](../decisions/0007-generic-tracking-engine-boundary.md) decisions 2, 9, 10;
@@ -11,8 +11,9 @@ Companion design note: [design note 0001](0001-descriptor-driven-operation-bound
 (the tracklet/cell/refit *algorithm* boundary; this note is the *container/ownership*
 boundary one layer below it and does not revisit any of its conclusions).
 
-This is a read-only documentation and code-ownership audit. **No production code,
-Propagator, candidate physics, or fixture changes are authorized or made by this note.**
+The source inventory in §1 is the M6a audit snapshot. The implementation records
+below document the subsequent behavior-preserving M6b–M6g cleanup. **No Propagator,
+candidate physics, or fixture changes are authorized or made by this note.**
 M5d's current candidate results (ITS 212, MFT 68 — [ADR 0008](../decisions/0008-native-refit-activation.md))
 are read here only as context; they are not touched, re-derived, or re-approved by this
 work, and remain not-yet-physics-approved.
@@ -67,10 +68,10 @@ that class; everything else in it is already detector-neutral.
 permanent *classes*.** An earlier draft of this note conflated the two and declared both
 classes "not deletion targets"; that was wrong, and is corrected throughout §3.3, §3.4,
 §8–§10 below. The rule this revision applies instead: **the ITS/MFT application-adapter
-responsibility survives M6 permanently (ADR 0007 decision 2).** M6f removes the old
-workspace/binding participant name and leaves only the explicitly deferred
-`ITSMFTLegacyParticipantSet` exception; no other `Legacy…`-named common-CA production class
-may survive. `LegacyCATrackingParticipant` is deleted or renamed to a narrowly-scoped,
+responsibility survives M6 permanently (ADR 0007 decision 2).** M6f removed the old
+workspace/binding participant name. M6g removed the remaining participant-set exception;
+no `Legacy…`-named common-CA production class may survive. `LegacyCATrackingParticipant`
+is deleted or renamed to a narrowly-scoped,
 non-`Legacy` ITS/MFT participant type once its `LegacyTrackerScratch`/`DetectorTraversalBinding`
 internals are gone (§3.3, §9 M6f). `ITSMFTLegacyParticipantSet` survives M6 **only if**,
 at M6 completion, it is demonstrably an immutable application-plan/configuration builder —
@@ -79,7 +80,9 @@ coordinator role, no detector-tracking-algorithm ownership beyond constructing p
 adapters (§3.4). Audited against those four conditions as currently shaped, it **fails**
 today (§3.4); it is retained under a new, non-`Legacy` name only if a further slice (M6g)
 relocates its disqualifying state to the workflow adapter, and deleted/inlined into
-`CombinedCATrackerSpec.cxx`'s composition otherwise.
+`CombinedCATrackerSpec.cxx`'s composition otherwise. M6g took the latter path: the
+publication/timing and per-event reset state moved to the combined DPL task, and no
+coherent immutable holder remained after that relocation.
 
 ## 3. Ownership/classification table
 
@@ -757,38 +760,26 @@ value is recorded as a validation limitation rather than claimed byte equality.
 
 ### M6g — Evaluate, relocate, and dispose of `ITSMFTLegacyParticipantSet`
 
-- **Scope**: audit every production call site of `ITSMFTLegacyParticipantSet::adoptFrame`/
-  `setMemoryPool`/`setBz`/`setNThreads`/`configureRofTables`/`loadBindings` in
-  `CombinedCATrackerSpec.cxx` to confirm which are genuinely once-per-run setup versus
-  per-event calls (§3.4). Relocate the publication/timing bridge
-  (`ClockTimingPublicationView`, `mITSClock`/`mMFTClock`, `mPublicationValid`,
-  `invalidatePublication()`/`markPublicationValid()`/`getITSPublicationExport()`/
-  `getMFTPublicationExport()`) and the per-event `clearPublicationSidecars()`/
-  `configureRofTables()` calls into `CombinedCATrackerSpec.cxx`'s own per-event
-  `process()`, which already owns the event loop and already receives
-  `TrackingEngine::executeEvent()`'s combined `EventResult` this bridge currently derives
-  independently. Re-audit what remains of `ITSMFTLegacyParticipantSet` against the four
-  conditions in §3.4. **If it now qualifies** as an immutable application-plan/
-  configuration builder, rename it to drop `Legacy` (e.g. `ITSMFTCombinedApplicationPlan`
-  or equivalent — exact name is an implementation-slice decision). **If it does not** —
-  for example because `loadBindings()`'s per-event marshaling role (§3.4, flagged
-  "marginal") cannot be cleanly separated from construction-time state — delete it and
-  inline its remaining construction logic (the combined-layout build, the two participant
-  constructions, the schedule) directly into `CombinedCATrackerSpec.cxx`'s own composition.
-- **Temporary bridge**: none — this is the final disposition, not an intermediate step.
-- **Acceptance/replay gate**: combined workflow (`o2-itsmft-combined-ca-tracker-workflow`)
-  replay byte-identical to the post-M6f baseline; DPL contract test green; the grep-guard
-  test (§11) extended to assert zero references to `ITSMFTLegacyParticipantSet` under its
-  old name (whether renamed or deleted).
-- **Deletion/exit criterion**: either (a) a renamed, non-`Legacy` class demonstrably
-  satisfies all four §3.4 conditions — documented in the rename commit with a
-  responsibility-by-responsibility re-check mirroring §3.4's table — or (b) the class is
-  gone and `CombinedCATrackerSpec.cxx` owns its former construction logic directly. No
-  third outcome (e.g. "renamed but still fails the four conditions") is acceptable.
+- **Scope/result**: the audit confirmed that the set's clocks, publication-validity
+  flag, sidecar invalidation/clearing, ROF-table configuration, and combined-event
+  publication bridge were event-owned behavior. They now live in
+  `CombinedCATrackerDPL`/`CombinedCATrackerSpec.cxx`, which owns the DPL event lifecycle.
+  The remaining combined layout, bindings, concrete ITS/MFT participants, and explicit
+  `[ITS, MFT]` schedule were inlined into that task's construction path. No immutable
+  plan holder remained that justified retaining or renaming the set.
+- **Temporary bridge**: none — this was the final disposition, not an intermediate step.
+- **Acceptance/replay gate**: the combined workflow was rebuilt against the post-M6f
+  baseline; direct participant-composition tests cover load failure, dropped TF,
+  structural tracking failure, successful replacement, publication invalidation, and
+  source-qualified exports. The M6g guard asserts zero references to
+  `ITSMFTLegacyParticipantSet` and the other retired bridge names in common production
+  include/src and combined workflow include/src.
+- **Deletion/exit criterion**: satisfied — the class/header/source/CMake entry are gone,
+  and `CombinedCATrackerDPL` owns its former application composition directly. The
+  generic tracking library retains no event-loop, timing/publication, or DPL source-order
+  coordinator.
 - **Dependency**: M6f.
-- **Classification**: behavior-preserving cleanup (replay-gated); this is the slice that
-  actually resolves the permanence question §2's corrected verdict raises — M6 is not
-  complete until M6g's grep-guard passes.
+- **Classification**: behavior-preserving cleanup (replay-gated).
 
 ## 10. "Not safe to delete yet" (M6-era refinement)
 
@@ -804,8 +795,8 @@ unchanged by this note and not repeated here.
 | `TrackSeedTpl<NLayers>` | Retired whole-track representation; `TrackSeed` is now the sole common-CA whole-track seed | **Deleted M6f**; `SeedMetadataBase<N>` remains for `CellSeed` |
 | `mTracks`/`mTracksLabel` (`CATrackType<NLayers>` legacy result staging) | Removed from live `SurfaceTrackingScratch` at M6e3 | **Already deleted M6e3** |
 | `loadROFrameData()`/`resetROFrameData()`/`prepareROFrameData()` | Zero common production callers; detector-specific raw-ROF workflow APIs are a separate ownership path | **Deleted from common scratch M6f**; raw-ROF APIs remain outside common CA |
-| `SurfacePlanTrackingParticipant<NLayers>` | Narrow plan-driven ITS/MFT participant adapter; no retired bridge ownership | **Remains**; only `ITSMFTLegacyParticipantSet` is deferred to M6g |
-| `ITSMFTLegacyParticipantSet` (current name/shape) | Currently owns event-owned mutable state and coordinator-shaped behavior (the publication/timing bridge — §3.4) that must be relocated before this class can even be considered for retention; **fails** the four-condition survival test as shaped today | M6g — retained under a new, non-`Legacy` name only if relocation leaves a class that demonstrably passes all four conditions in §3.4; deleted/inlined into `CombinedCATrackerSpec.cxx` otherwise |
+| `SurfacePlanTrackingParticipant<NLayers>` | Narrow plan-driven ITS/MFT participant adapter; no retired bridge ownership | **Remains**; it owns participant-local scratch/sidecars, not event-loop state |
+| `ITSMFTLegacyParticipantSet` | Coordinator-shaped holder of combined application construction and event-owned publication/reset state | **Deleted M6g**; construction is inlined into the combined DPL task |
 
 ## 11. Grep/deletion criteria for `Legacy`-prefixed names
 
@@ -817,20 +808,19 @@ Every `Legacy`-containing production type identifier under
 |---|---|---|
 | `LegacyTrackerScratch`, `LegacyTrackerScratchITS`, `LegacyTrackerScratchMFT` | Deleted at M6f, replaced by `SurfaceTrackingScratch` | No — covered |
 | `LegacyCATrackingParticipant`, `LegacyCATrackingParticipantITS`, `LegacyCATrackingParticipantMFT`, and the two `extern template class LegacyCATrackingParticipant<...>` instantiations | Renamed at M6f (§3.3, §9) | No — covered |
-| `ITSMFTLegacyParticipantSet` | Renamed at M6g if it passes the four-condition test after relocation, deleted otherwise (§3.4, §9) | No — covered |
+| `ITSMFTLegacyParticipantSet` | Deleted and inlined at M6g after the four-condition audit (§3.4, §9) | No — covered |
 | `LegacyId`, `LegacyIndexMismatch` (`TrackerTraits.h`/`.cxx`) | Internal to `TrackerTraits<NLayers>`'s own hot-loop/topology-consistency machinery — a topology-ID type alias and a `TraversalFailureReason` enumerator, not a scratch/binding/participant-set artifact | **Yes** — `TrackerTraits<NLayers>`/`Tracker<NLayers>` stay `NLayers`-templated algorithm orchestration, explicitly out of M6's scope (§3.3, §4.3); renaming these belongs to whatever future milestone, if any, revisits `TrackerTraits`/`Tracker` naming, not M6 |
 | `LegacyMaterialMismatch` (`mLayerMaterial`/`LegacyMaterialMismatch` et al.) | Already tracked in `GenericTrackingEngineMigration.md`'s own "Policy/legacy compatibility code" row, gated by its own M4–M6 slice | **Yes** — tracked there, not duplicated in this note's guard to avoid two sources of truth for the same item |
 
-**Guard test**: M6f's acceptance gate adds a dedicated source/dependency guard (in the
+**Guard test**: M6g's acceptance gate adds a dedicated source/dependency guard (in the
 style of ADR 0008's `testNoLegacyFittingDependency.cxx`) asserting zero occurrences of
 `LegacyTrackerScratch`, `DetectorTraversalBinding`, `LegacyCATrackingParticipant`,
-`TrackSeedTpl`, `ScratchT`, or `BindingT` in every production header/source under
-`Detectors/ITSMFT/common/tracking/{include,src}`. Frozen legacy ITS code outside that
-common tree is explicitly out of scope, and the unchanged `ITSMFTLegacyParticipantSet`
-is the only permitted remaining `Legacy` class in this M6f slice; M6g owns its final
-disposition. Test files and historical documentation are not scanned. This is the
-concrete, checkable form of the M6f bridge-retirement requirement without erasing the
-migration record.
+`TrackSeedTpl`, `ScratchT`, `BindingT`, or `ITSMFTLegacyParticipantSet` in every
+production header/source under `Detectors/ITSMFT/common/tracking/{include,src}` and
+the combined workflow include/src. Frozen legacy ITS code outside that common tree is
+explicitly out of scope. Test files and historical documentation are not scanned. The
+guard also checks that publication/timing state is declared in the workflow owner and
+not in the generic tracking core.
 
 ## 12. Deletion/simplification opportunities flagged separately (not mandatory M6 scope)
 

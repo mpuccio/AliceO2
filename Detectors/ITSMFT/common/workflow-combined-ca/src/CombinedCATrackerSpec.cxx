@@ -253,7 +253,7 @@ void CombinedCATrackerDPL::buildParticipantsOnce()
 }
 
 std::optional<LoadSourcesResult> CombinedCATrackerDPL::validateSources(const ClusterSourceInput& itsSource,
-                                                                        const ClusterSourceInput& mftSource) const noexcept
+                                                                       const ClusterSourceInput& mftSource) const noexcept
 {
   if (itsSource.id != ClusterSourceId{0} || itsSource.detector != o2::detectors::DetID::ITS) {
     return LoadSourcesResult{o2::itsmft::tracking::MultiSourceLoadError::UnsupportedDetector, itsSource.id};

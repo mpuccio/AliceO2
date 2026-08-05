@@ -154,23 +154,13 @@ summary anchor other milestones link against.
 
 **Permanence rule** (design note 0002 §2, corrected): the ITS/MFT
 *application-adapter role* survives M6 permanently (ADR 0007 decision 2).
-`LegacyCATrackingParticipant` is renamed once its
-`LegacyTrackerScratch`/`DetectorTraversalBinding` internals are gone (M6f).
-The sole narrowly-scoped exception in this M6f slice is
-`ITSMFTLegacyParticipantSet`, which remains unchanged for M6g's separate
-disposition; no other `Legacy…`-named class may remain in common-CA production
-code. `ITSMFTLegacyParticipantSet` survives only if, at M6 completion, it is
-demonstrably an immutable application-plan/configuration builder — no
-`loadEvent`/`process`/`execute`/`reset` behavior, no event-owned mutable
-state, no coordinator role, no detector-tracking-algorithm ownership beyond
-constructing participant adapters; audited against those four conditions as
-currently shaped, it **fails** today (its publication/timing bridge —
-`mITSClock`/`mMFTClock`/`mPublicationValid` plus
-`invalidatePublication()`/`markPublicationValid()`/`clearPublicationSidecars()`
-— is concrete event-owned mutable state and coordinator-shaped behavior). It
-is renamed only if M6g's relocation of that state to the workflow adapter
-leaves a class that passes the four conditions; deleted and inlined into
-`CombinedCATrackerSpec.cxx`'s composition otherwise.
+`LegacyCATrackingParticipant` was renamed at M6f once its
+`LegacyTrackerScratch`/`DetectorTraversalBinding` internals were gone. M6g
+completed the remaining disposition: `ITSMFTLegacyParticipantSet` failed the
+immutable-plan-builder test because it owned publication/timing state and
+per-event reset/coordinator behavior, so it was deleted and its construction
+logic was inlined into the combined DPL task. No `Legacy…`-named participant
+set or coordinator remains in common-CA production code.
 
 - **M6a — design/audit** (closed): read every `LegacyTrackerScratch<NLayers>`
   field, `DetectorTraversalBinding` responsibility, `LegacyCATrackingParticipant`
@@ -211,17 +201,14 @@ leaves a class that passes the four conditions; deleted and inlined into
   and extern-template instantiations) to a narrowly-scoped, non-`Legacy`
   ITS/MFT participant name — its own reason for the old name no longer applies
   once those deletions land (design note 0002 §3.3, §9). `ITSMFTLegacyParticipantSet`
-  is **not** in this slice's scope; it is disposed of separately at M6g.
+  was disposed of at M6g by inlining its remaining application composition
+  into the combined DPL task.
 - **M6g — evaluate, relocate, and dispose of `ITSMFTLegacyParticipantSet`**:
   relocate its event-owned publication/timing bridge and per-event
-  `clearPublicationSidecars()`/`configureRofTables()` calls into
-  `CombinedCATrackerSpec.cxx`'s own per-event `process()`, which already owns
-  the event loop and already receives the combined `EventResult` that bridge
-  currently derives internally; re-audit what remains against the four
-  conditions above. Rename (dropping `Legacy`) if it now qualifies as an
-  immutable plan/config builder; delete and inline into
-  `CombinedCATrackerSpec.cxx`'s composition otherwise (design note 0002 §3.4,
-  §9). No third outcome is acceptable.
+  `clearPublicationSidecars()`/`configureRofTables()` calls into the
+  combined DPL task's `process()`; the remaining layout, bindings,
+  participants, and explicit schedule were then inlined into the task's
+  application composition. No renamed holder was retained.
 - **Acceptance/replay gate** (M6d–M6g, cumulative): per-detector and combined
   replays byte-identical to the M5d-era candidate baseline (or matching
   separately approved deltas); lifecycle/pool-destruction-order contracts
@@ -229,15 +216,14 @@ leaves a class that passes the four conditions; deleted and inlined into
   grep-guard test extended through M6f/M6g (design note 0002 §11) asserts zero
   remaining references in common-CA production include/src to
   `LegacyTrackerScratch`, `DetectorTraversalBinding`,
-  `LegacyCATrackingParticipant`, and `TrackSeedTpl`. The M6f guard narrowly
-  excludes frozen legacy ITS code outside the common tree and the unchanged
-  `ITSMFTLegacyParticipantSet` M6g adapter; M6g owns the latter's disposition.
+  `LegacyCATrackingParticipant`, `TrackSeedTpl`, and
+  `ITSMFTLegacyParticipantSet`. The guard excludes only frozen legacy ITS code
+  outside the common tree; no M6g participant-set exemption remains.
 - **Deletion/exit criterion**: no production instantiation of
   `LegacyTrackerScratch<NLayers>` (grep-verified); native scratch has executed
   production traffic for both participants (ADR 0007 decision 9); no old M6f
   bridge name remains under `Detectors/ITSMFT/common/tracking/{include,src}`
-  (grep-verified), with only `ITSMFTLegacyParticipantSet` explicitly deferred
-  to M6g.
+  (grep-verified), including the deleted `ITSMFTLegacyParticipantSet`.
 - **Dependency**: M5 implementation.
 - **Classification**: M6a is a documentation-only audit; M6b/M6c are additive
   and behavior-preserving; M6d–M6g are behavior-preserving cleanup
@@ -287,6 +273,38 @@ physics or CommonTrack value and was not rewritten or normalized in M6f, so
 the writer/sidecar path remains unchanged; the discrepancy is recorded rather
 than misreported as byte equality.
 
+**M6g validation record (2026-08-05)**: completed on
+`codex/itsmft-m6g-retire-participant-set`, based on accepted M6f commit
+`65c0202650ad7d156cbade06b4a517483383d0bd`, with
+`daily-20260717-0700-local1` and the same durable build. The affected libraries,
+combined DPL workflow/executable, and changed tests rebuilt successfully. The
+serial selector executed all 94 registered ITS/MFT tests: **94/94 passed**, with
+no `Not Run` tests.
+
+The 43-file fixture checksum manifest passed **43/43 before and after** the
+replays. Standalone and combined common-CA replays both produced the accepted
+candidates: ITS 212 / `46913a67a7e2fe7462e29df0db264fa8`, MFT 68 /
+`8106b08571ca593c6b76ff72b761a680`. The combined ITS and MFT writer products
+matched their standalone counterparts field-by-field; the MFT comparison covered
+all 2,992 approved float-projected values with zero absolute/relative delta.
+The combined output also matched the retained accepted pre-M6f M6e3 parent
+artifact for all initialized ITS/MFT writer leaves, ROFs, labels, cluster
+references, and sidecars. As in M6f, the only excluded parent difference was the
+single uninitialized `MFTTrack.mInvQPtSeed` leaf; no defined writer or CommonTrack
+content differed.
+
+The M6g ownership guard and direct-composition tests cover load failure, dropped
+TF, structural tracking failure, successful replacement, publication invalidation,
+sidecar clearing, schedule order, and source-qualified exports. The common ROF
+method audit found zero production definitions or callers for
+`loadROFrameData()`, `resetROFrameData()`, or `prepareROFrameData()` in the common
+tracking/workflow paths; those dead common methods remain deleted. The retained
+exception is deliberately narrow: frozen ITS detector-specific `TimeFrame` raw-ROF
+methods and MFT raw-ROF `IOUtils`/workflow ownership remain live outside common CA,
+as do output sidecars and workflow-owned timing/publication state. No raw-ROF
+workflow ownership or compatibility state was removed. `nvcc` and `hipcc` were
+absent from the pinned environment, so no device build or GPU replay was claimed.
+
 ## Not safe to delete yet
 
 | Artifact | Why it must stay | Removal gate |
@@ -297,8 +315,8 @@ than misreported as byte equality.
 | `TransitionPolicyTag` machinery (dispatch, grouping, templated operations) | Only existing hot-loop implementation of the CA stages | contained at M4, replaced by M5 implementation |
 | Policy/legacy compatibility code (`kDroppedTimeFrameResult` sentinel, `mLayerMaterial`/`LegacyMaterialMismatch`, `mSurfaceToLegacyLayer`, `DiskDiskReferenceCoordinateView`, `passesCellRoadPrecut<DiskDisk>`) | Pins byte-identical replay parity against the frozen legacy implementations | respective M4–M6 slices, each under its replay gate |
 | Output sidecars (`ITSSharedClusterCompatibility`, `MFTPublicationCompatibility`) | Legacy output conversion still requires per-detector compatibility state | M6, when adapters convert from `CommonTrack` alone |
-| `SurfacePlanTrackingParticipant<NLayers>` | Narrow plan-driven ITS/MFT participant adapter; it owns detector/output sidecars but no retired workspace/binding bridge | Remains through M6; `ITSMFTLegacyParticipantSet` is the separate M6g question |
-| `ITSMFTLegacyParticipantSet` (current name/shape) | Currently owns event-owned mutable state and coordinator-shaped behavior (the publication/timing bridge — `mITSClock`/`mMFTClock`/`mPublicationValid` and their three mutating methods) that fails the four-condition immutable-config-builder test as shaped today | M6g — renamed under a new, non-`Legacy` name only if relocating that state to `CombinedCATrackerSpec.cxx` leaves a class that demonstrably passes all four conditions (design note 0002 §3.4); deleted and inlined into `CombinedCATrackerSpec.cxx`'s composition otherwise |
+| `SurfacePlanTrackingParticipant<NLayers>` | Narrow plan-driven ITS/MFT participant adapter; it owns detector/output sidecars but no retired workspace/binding bridge | Remains through M6 and owns no event-loop coordination |
+| `ITSMFTLegacyParticipantSet` | Coordinator-shaped holder of combined application construction and event-owned publication/reset state | **Deleted M6g**; construction is inlined into the combined DPL task and publication/timing ownership remains workflow-local |
 
 ## Validation baseline
 

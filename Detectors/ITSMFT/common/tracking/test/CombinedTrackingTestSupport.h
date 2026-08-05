@@ -62,9 +62,9 @@ inline SurfaceMask surfaceRangeMask(uint16_t first, uint16_t count)
 }
 
 inline DetectorLayoutBuildResult buildCombinedLayout(gsl::span<const SurfaceId> itsSurfaces,
-                                                      const TrackingParameters& itsParams,
-                                                      gsl::span<const SurfaceId> mftSurfaces,
-                                                      const TrackingParameters& mftParams)
+                                                     const TrackingParameters& itsParams,
+                                                     gsl::span<const SurfaceId> mftSurfaces,
+                                                     const TrackingParameters& mftParams)
 {
   DetectorLayoutSubgraph itsSubgraph;
   itsSubgraph.orderedSurfaces.assign(itsSurfaces.begin(), itsSurfaces.end());
@@ -75,7 +75,7 @@ inline DetectorLayoutBuildResult buildCombinedLayout(gsl::span<const SurfaceId> 
   DetectorLayoutSubgraph mftSubgraph;
   mftSubgraph.orderedSurfaces.assign(mftSurfaces.begin(), mftSurfaces.end());
   mftSubgraph.maxHoles = mftParams.MaxHoles;
-  mftSubgraph.holeSurfaces = positionalSurfaceMask( mftParams.HoleLayerMask, mftSurfaces, static_cast<uint32_t>(mftSurfaces.size()));
+  mftSubgraph.holeSurfaces = positionalSurfaceMask(mftParams.HoleLayerMask, mftSurfaces, static_cast<uint32_t>(mftSurfaces.size()));
   mftSubgraph.seedingSurfaces = positionalSurfaceMask(mftParams.StartLayerMask, mftSurfaces, static_cast<uint32_t>(mftSurfaces.size()));
 
   DetectorLayoutBuilder builder{combinedCatalogView()};
@@ -181,7 +181,7 @@ class CombinedTrackingParticipantPlan
   }
 
   std::array<MultiSourceTimeFrameLoader::AtomicLoadBinding, 2> loadBindings(const ClusterSourceInput& itsSource,
-                                                                             const ClusterSourceInput& mftSource) noexcept
+                                                                            const ClusterSourceInput& mftSource) noexcept
   {
     return {MultiSourceTimeFrameLoader::AtomicLoadBinding{itsSource, mITSParticipant->loadTarget()},
             MultiSourceTimeFrameLoader::AtomicLoadBinding{mftSource, mMFTParticipant->loadTarget()}};
