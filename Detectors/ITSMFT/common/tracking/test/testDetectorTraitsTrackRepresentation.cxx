@@ -14,7 +14,7 @@
 #include <boost/test/unit_test.hpp>
 
 #include "ITSMFTTracking/DetectorTraits.h"
-#include "ITSMFTTracking/LegacyTrackerScratch.h"
+#include "ITSMFTTracking/SurfaceTrackingScratch.h"
 #include "ITSMFTTracking/TimeFrame.h"
 
 using namespace o2::itsmft::tracking;
@@ -107,14 +107,14 @@ void checkMFTTrackEqual(const MFTCATrack& lhs, const MFTCATrack& rhs)
 
 BOOST_AUTO_TEST_CASE(copy_seed_pattern_to_track)
 {
-  DetectorTraits<10>::TrackSeedN mftSeed;
-  mftSeed.setHitLayerMask(LayerMask{0x02a5});
+  TrackSeed mftSeed;
+  mftSeed.setSurfaceMask(SurfaceMask{0x02a5});
   DetectorTraits<10>::TrackType mftTrack;
   DetectorTraits<10>::copySeedPatternToTrack(mftTrack, mftSeed);
   BOOST_CHECK_EQUAL(mftTrack.getSeedPattern(), 0x02a5);
 
-  DetectorTraits<7>::TrackSeedN itsSeed;
-  itsSeed.setHitLayerMask(LayerMask{0x007f});
+  TrackSeed itsSeed;
+  itsSeed.setSurfaceMask(SurfaceMask{0x007f});
   DetectorTraits<7>::TrackType itsTrack{makeBarrelState(0.5f)};
   itsTrack.getParamOut() = makeBarrelState(-0.25f);
   itsTrack.setChi2(7.f);
@@ -186,14 +186,14 @@ BOOST_AUTO_TEST_CASE(have_same_polarity)
 // layerMeasurements/surfaceCatalog is safe to pass here).
 BOOST_AUTO_TEST_CASE(RefitSeedFailsCleanlyForInvalidFamilySeedState)
 {
-  DetectorTraits<7>::TrackSeedN seed;
+  TrackSeed seed;
   seed.state().family = StateFamily::Invalid; // corrupted/unrecognized family
   seed.state().parameters[4] = 0.2f;
-  seed.setHitLayerMask(LayerMask{0x007f});
+  seed.setSurfaceMask(SurfaceMask{0x007f});
 
   DetectorTraits<7>::TrackType track;
   o2::itsmft::TrackingParameters params;
-  LegacyTrackerScratch<7> tf;
+  SurfaceTrackingScratch tf;
   const LayerMeasurementSpans<7> layerMeasurements{};
   const SurfaceCatalogView surfaceCatalog{};
 

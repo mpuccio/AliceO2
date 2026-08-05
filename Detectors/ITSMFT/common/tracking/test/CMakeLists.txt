@@ -350,25 +350,8 @@ o2_add_test(combined-static-surface-catalog-topology
             LABELS "itsmft;tracking"
             PUBLIC_LINK_LIBRARIES O2::ITSMFTTracking)
 
-o2_add_test(detector-traversal-binding
-            SOURCES testDetectorTraversalBinding.cxx
-            COMPONENT_NAME itsmft-tracking
-            LABELS "itsmft;tracking"
-            PUBLIC_LINK_LIBRARIES O2::ITSMFTTracking)
-
-# Gate 4 C2 Slice 1: TrackerTraits<MFTNLayers> hot-loop orchestration bound to
-# a DetectorTraversalBinding built against the combined 17-surface ITS+MFT
-# catalog (global MFT SurfaceIds 7..16, ClusterSourceId{1}).
-o2_add_test(detector-traversal-binding-orchestration
-            SOURCES testDetectorTraversalBindingOrchestration.cxx
-            COMPONENT_NAME itsmft-tracking
-            LABELS "itsmft;tracking"
-            PUBLIC_LINK_LIBRARIES O2::ITSMFTTracking O2::MFTTracking)
-
-# M6b (doc/design/0002-m6-generic-workspace-migration.md Sec 9): the additive,
-# detector-neutral successor to DetectorTraversalBinding. Zero production
-# callers -- these are the only two things that build against
-# detail/SurfacePlanBinding.h today.
+# Gate 4 M6f: the sole detector-neutral plan/binding model. This test locks
+# down its compact mapping contract and constructor transactionality.
 o2_add_test(surface-plan-binding
             SOURCES testSurfacePlanBinding.cxx
             COMPONENT_NAME itsmft-tracking
@@ -381,9 +364,8 @@ o2_add_test(surface-plan-binding-no-detector-dependency
             LABELS "itsmft;tracking"
             PUBLIC_LINK_LIBRARIES O2::ITSMFTTracking)
 
-# M6c (doc/design/0002-m6-generic-workspace-migration.md Sec 4, 9): the
-# additive, detector-neutral successor to the generic portions of
-# LegacyTrackerScratch<NLayers>. Zero production callers.
+# Gate 4 M6f: focused runtime ownership and sizing coverage for the sole
+# SurfaceTrackingScratch workspace.
 o2_add_test(surface-tracking-scratch
             SOURCES testSurfaceTrackingScratch.cxx
             COMPONENT_NAME itsmft-tracking
@@ -395,10 +377,17 @@ o2_add_test(surface-tracking-scratch
             # so consumers of this now-MFT-aware public header need it too.
             PUBLIC_LINK_LIBRARIES O2::ITSMFTTracking O2::MFTTracking)
 
-# M6c: the additive, GPU-portable, non-templated successor to
-# TrackSeedTpl<NLayers>. Zero production callers.
+# Gate 4 M6f: fixed-capacity GPU-portable whole-track seed coverage.
 o2_add_test(track-seed
             SOURCES testTrackSeed.cxx
+            COMPONENT_NAME itsmft-tracking
+            LABELS "itsmft;tracking"
+            PUBLIC_LINK_LIBRARIES O2::ITSMFTTracking)
+
+# Gate 4 M6f: production common-CA include/src must not grow the retired
+# workspace, binding, participant, or whole-track seed spellings again.
+o2_add_test(m6f-legacy-bridge-guard
+            SOURCES testM6fLegacyBridgeGuard.cxx
             COMPONENT_NAME itsmft-tracking
             LABELS "itsmft;tracking"
             PUBLIC_LINK_LIBRARIES O2::ITSMFTTracking)
@@ -517,7 +506,7 @@ o2_add_test(m6e1-standalone-mft-migration
 
 # M6e2 (doc/design/0002-m6-generic-workspace-migration.md): both live ITS
 # common-CA paths (standalone ITSMFTTrackingInterfaceITS,
-# o2-its-ca-tracker-workflow; combined LegacyCATrackingParticipantITS)
+# o2-its-ca-tracker-workflow; combined SurfacePlanTrackingParticipantITS)
 # migrated onto SurfaceTrackingScratch/SurfacePlanBinding.
 o2_add_test(m6e2-its-workspace-migration
             SOURCES testM6e2ITSWorkspaceMigration.cxx

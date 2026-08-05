@@ -195,16 +195,16 @@ o2::track::TrackParCovF makeInitialTrackParCovF()
   return o2::track::TrackParCovF{state.referenceCoordinate, state.alpha, parameters, covariance, state.absCharge, state.pid};
 }
 
-TrackSeedN<NLayers> makeNativeSeed(int nHitLayers = NLayers)
+TrackSeed makeNativeSeed(int nHitLayers = NLayers)
 {
-  TrackSeedN<NLayers> seed{};
+  TrackSeed seed{};
   seed.state() = makeInitialState();
   uint16_t mask = 0;
   for (int layer = 0; layer < nHitLayers; ++layer) {
     seed.getClusters()[layer] = 0;
     mask |= static_cast<uint16_t>(uint16_t(1) << layer);
   }
-  seed.setHitLayerMask(LayerMask{mask});
+  seed.setSurfaceMask(SurfaceMask{mask});
   return seed;
 }
 
@@ -502,7 +502,7 @@ BOOST_AUTO_TEST_CASE(ZeroReseedIfShorterKeepsTheCharacterizedPath)
 
 BOOST_AUTO_TEST_CASE(ExportFailsClosedForWrongFamilyStateAndLeavesOutputUntouched)
 {
-  TrackSeedN<NLayers> seed{};
+  TrackSeed seed{};
   SurfaceKinematicState wrongFamily{};
   wrongFamily.family = StateFamily::Forward; // never produced by this driver; precondition violation
   o2::its::TrackITSExt sentinel{};

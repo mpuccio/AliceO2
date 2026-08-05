@@ -55,7 +55,7 @@ bool bitEqual(const SurfaceMeasurement& lhs, const SurfaceMeasurement& rhs)
 struct Fixture {
   std::array<std::vector<SurfaceMeasurement>, NLayers> storage;
   LayerMeasurementSpans<NLayers> layerMeasurements{};
-  TrackSeedN<NLayers> seed{};
+  TrackSeed seed{};
 
   Fixture()
   {
@@ -137,7 +137,7 @@ BOOST_AUTO_TEST_CASE(ForwardAndReverseOrdersAreNotEqual)
 BOOST_AUTO_TEST_CASE(AllHoleLegProducesAllInvalidSlots)
 {
   Fixture fx;
-  TrackSeedN<NLayers> allHoleSeed{}; // every layer left at UnusedIndex
+  TrackSeed allHoleSeed{}; // every layer left at UnusedIndex
   std::array<SurfaceMeasurement, NLayers> out{};
   const auto slots = assembleRefitLegSlots<NLayers>(allHoleSeed, fx.layerMeasurements, 0, NLayers, 1, out);
 

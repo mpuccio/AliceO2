@@ -8,8 +8,8 @@
 // M6e2 (doc/design/0002-m6-generic-workspace-migration.md): focused coverage
 // for both live ITS common-CA paths -- the standalone interface
 // (ITSMFTTrackingInterfaceITS, o2-its-ca-tracker-workflow) and the
-// combined-workflow participant (LegacyCATrackingParticipantITS) -- migrated
-// from LegacyTrackerScratch<ITSNLayers>/DetectorTraversalBinding onto
+// combined-workflow participant (SurfacePlanTrackingParticipantITS) -- migrated
+// from SurfaceTrackingScratch/DetectorTraversalBinding onto
 // SurfaceTrackingScratch/SurfacePlanBinding, mirroring the exact technique
 // testM6dMFTMigration.cxx (combined) and testM6e1StandaloneMFTMigration.cxx
 // (standalone) already proved for MFT. This file proves specifically:
@@ -68,14 +68,13 @@
 #include "ITSMFTTracking/DetectorLayoutBuilder.h"
 #include "ITSMFTTracking/IOUtils.h"
 #include "ITSMFTTracking/ITSMFTLegacyParticipantSet.h"
-#include "ITSMFTTracking/LegacyCATrackingParticipant.h"
+#include "ITSMFTTracking/SurfacePlanTrackingParticipant.h"
 #include "ITSMFTTracking/MultiSourceTimeFrameLoader.h"
 #include "ITSMFTTracking/StaticDetectorCatalogs.h"
 #include "ITSMFTTracking/SurfaceMeasurementAdapters.h"
 #include "ITSMFTTracking/SurfaceTrackingScratch.h"
 #include "ITSMFTTracking/TimeFrame.h"
 #include "ITSMFTTracking/TrackingInterface.h"
-#include "ITSMFTTracking/detail/DetectorTraversalBinding.h"
 #include "ITSMFTTracking/detail/SurfacePlanBinding.h"
 
 using namespace o2::itsmft;
@@ -83,14 +82,9 @@ using namespace o2::itsmft::tracking;
 
 // --- 1: compile-time type proof ----------------------------------------------
 
-static_assert(std::is_same_v<LegacyCATrackingParticipantITS::ScratchN, SurfaceTrackingScratch>);
-static_assert(!std::is_same_v<LegacyCATrackingParticipantITS::ScratchN, LegacyTrackerScratch<ITSNLayers>>);
-static_assert(std::is_same_v<decltype(std::declval<LegacyCATrackingParticipantITS&>().getScratch()), SurfaceTrackingScratch&>);
-static_assert(std::is_invocable_v<decltype(&LegacyCATrackingParticipantITS::adoptDetectorTraversalBinding), LegacyCATrackingParticipantITS&, std::unique_ptr<SurfacePlanBinding>>);
+static_assert(std::is_same_v<decltype(std::declval<SurfacePlanTrackingParticipantITS&>().getScratch()), SurfaceTrackingScratch&>);
+static_assert(std::is_invocable_v<decltype(&SurfacePlanTrackingParticipantITS::adoptSurfacePlanBinding), SurfacePlanTrackingParticipantITS&, std::unique_ptr<SurfacePlanBinding>>);
 
-static_assert(std::is_same_v<ITSMFTTrackingInterfaceITS::ScratchN, SurfaceTrackingScratch>);
-static_assert(std::is_same_v<ITSMFTTrackingInterfaceITS::TrackerN, Tracker<ITSNLayers, SurfaceTrackingScratch, SurfacePlanBinding>>);
-static_assert(std::is_same_v<ITSMFTTrackingInterfaceITS::TrackerTraitsN, TrackerTraits<ITSNLayers, SurfaceTrackingScratch, SurfacePlanBinding>>);
 static_assert(std::is_same_v<decltype(std::declval<ITSMFTTrackingInterfaceITS&>().getScratch()), SurfaceTrackingScratch&>);
 
 // SurfacePlanBinding::build() itself gained no new parameter for this
@@ -332,7 +326,7 @@ DetectorLayout buildProductionCombinedLayoutForTest()
 }
 } // namespace
 
-BOOST_AUTO_TEST_CASE(ProductionITSSurfacePlanBindingMatchesDetectorTraversalBindingAtRealParameters)
+BOOST_AUTO_TEST_CASE(ProductionITSSurfacePlanBindingMatchesConfiguredTopologyAtRealParameters)
 {
   const auto layout = buildProductionCombinedLayoutForTest();
   const auto masks = computeSurfaceKindMasks(kITSMFTCombinedStaticSurfaceCatalog);
@@ -340,28 +334,33 @@ BOOST_AUTO_TEST_CASE(ProductionITSSurfacePlanBindingMatchesDetectorTraversalBind
   const auto itsSurfaces = orderedRange(0, ITSNLayers);
   const auto itsMask = surfaceRangeMaskForTest(0, ITSNLayers);
 
-  const auto oldBinding = DetectorTraversalBinding::build(view, o2::detectors::DetID::ITS, ClusterSourceId{0}, itsMask, itsSurfaces);
-  const auto newBinding = SurfacePlanBinding::build(view, ClusterSourceId{0}, itsMask, itsSurfaces, SurfaceKind::Cylinder, TransitionPolicyTag::CylinderCylinder);
-  BOOST_REQUIRE(oldBinding.ok());
-  BOOST_REQUIRE(newBinding.ok());
-
-  BOOST_CHECK_EQUAL(newBinding.binding->getOwnedSurfaces().count(), static_cast<int>(itsSurfaces.size()));
-  BOOST_CHECK_EQUAL(newBinding.binding->getGlobalTransitions().size(), oldBinding.binding->getGlobalTransitions().size());
-  BOOST_CHECK_EQUAL(newBinding.binding->getGlobalCells().size(), oldBinding.binding->getGlobalCells().size());
-
-  for (uint16_t s = 0; s < ITSNLayers; ++s) {
-    const auto oldSlot = oldBinding.binding->getLegacyLayer(SurfaceId{s});
-    const auto newSlot = newBinding.binding->getOwnedSurfaceIndex(SurfaceId{s});
-    BOOST_REQUIRE_EQUAL(oldSlot.has_value(), newSlot.has_value());
-    if (oldSlot.has_value()) {
-      BOOST_CHECK_EQUAL(*oldSlot, *newSlot);
+  const auto binding = SurfacePlanBinding::build(view, ClusterSourceId{0}, itsMask, itsSurfaces,
+                                                 SurfaceKind::Cylinder, TransitionPolicyTag::CylinderCylinder);
+  BOOST_REQUIRE(binding.ok());
+  size_t ownedTransitions = 0;
+  for (uint32_t id = 0; id < view.topology.nTransitions; ++id) {
+    const auto& transition = view.topology.getTransition(TransitionId{static_cast<uint16_t>(id)});
+    if (itsMask.has(transition.from) && itsMask.has(transition.to)) {
+      ++ownedTransitions;
     }
   }
-  for (size_t t = 0; t < oldBinding.binding->getGlobalTransitions().size(); ++t) {
-    BOOST_CHECK(oldBinding.binding->getGlobalTransitions()[t] == newBinding.binding->getGlobalTransitions()[t]);
+  size_t ownedCells = 0;
+  for (uint32_t id = 0; id < view.topology.nCells; ++id) {
+    const auto cellId = CellTopologyId{static_cast<uint16_t>(id)};
+    const auto& cell = view.topology.getCell(cellId);
+    if (binding.binding->getScratchTransitionSlot(cell.firstTransition)) {
+      ++ownedCells;
+    }
   }
-  for (size_t c = 0; c < oldBinding.binding->getGlobalCells().size(); ++c) {
-    BOOST_CHECK(oldBinding.binding->getGlobalCells()[c] == newBinding.binding->getGlobalCells()[c]);
+
+  BOOST_CHECK_EQUAL(binding.binding->getOwnedSurfaces().count(), static_cast<int>(itsSurfaces.size()));
+  BOOST_CHECK_EQUAL(binding.binding->getGlobalTransitions().size(), ownedTransitions);
+  BOOST_CHECK_EQUAL(binding.binding->getGlobalCells().size(), ownedCells);
+
+  for (uint16_t s = 0; s < ITSNLayers; ++s) {
+    const auto slot = binding.binding->getOwnedSurfaceIndex(SurfaceId{s});
+    BOOST_REQUIRE(slot);
+    BOOST_CHECK_EQUAL(*slot, s);
   }
 
   // The real ITSMFTLegacyParticipantSet construction (production code path)
@@ -371,8 +370,8 @@ BOOST_AUTO_TEST_CASE(ProductionITSSurfacePlanBindingMatchesDetectorTraversalBind
   // testSurfacePlanBinding.cxx already covers.
   auto participants = makeSet();
   BOOST_CHECK_EQUAL(participants.getITSScratch().getNOwnedSurfaces(), static_cast<size_t>(itsSurfaces.size()));
-  BOOST_CHECK_EQUAL(participants.getITSScratch().getNTransitions(), newBinding.binding->getGlobalTransitions().size());
-  BOOST_CHECK_EQUAL(participants.getITSScratch().getNCells(), newBinding.binding->getGlobalCells().size());
+  BOOST_CHECK_EQUAL(participants.getITSScratch().getNTransitions(), binding.binding->getGlobalTransitions().size());
+  BOOST_CHECK_EQUAL(participants.getITSScratch().getNCells(), binding.binding->getGlobalCells().size());
 }
 
 // --- 6: ITS shared-cluster compatibility sidecar remains correct -----------

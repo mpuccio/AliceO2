@@ -30,10 +30,10 @@
 // parameter/workflow onboarding ... follow[s]"), out of scope for this
 // bounded correction per binding requirement #10 ("do not start any other
 // feature"). The loading-boundary machinery this file exercises is already
-// covered for LegacyTrackerScratch<7> independently of
+// covered for SurfaceTrackingScratch independently of
 // ITSMFTTrackingInterface: see testTimeFrameNormalizedSource.cxx's
 // ITSTimeFrameNormalizedSourceParity
-// (LegacyTrackerScratch<7>::loadNormalizedSource() directly) and
+// (SurfaceTrackingScratch::loadNormalizedSource() directly) and
 // testTimeFrameLoadFailure.cxx's exhaustiveness/exception tests (NLayers-
 // independent). Only MFT has a real opt-in ITSMFTTrackingInterface consumer
 // today (CATrackerSpec.cxx / o2-mft-ca-tracker-workflow), so MFT-only
@@ -233,7 +233,7 @@ struct TestTraits<10> {
 // Returned via unique_ptr, not by value: ITSMFTTrackingInterface has
 // unique_ptr members (mTrackerTraits, mTracker, ...), so its copy
 // constructor is deleted and its implicit move constructor is not
-// guaranteed to be usable either (LegacyTrackerScratch<NLayers> is not
+// guaranteed to be usable either (SurfaceTrackingScratch is not
 // trivially movable); returning it by value would require relying on unguaranteed
 // NRVO through several mutating calls in between.
 template <int NLayers, typename DecoderT = OneLayerDecoder>
@@ -508,8 +508,15 @@ void checkMemoryLimitIsRecoverableAndRestoresAccounting()
   auto interfacePtr = makeReadyInterface<NLayers>(decoder);
   auto& interface = *interfacePtr;
   auto& pool = *interface.getTimeFrame().getMemoryPool();
+  // Release plan-adoption allocations so the test starts at the same empty
+  // per-event baseline as the load attempt being bounded. The adopted plan's
+  // runtime count remains attached to the scratch for the retry.
+  interface.resetEvent();
   const size_t usedBeforeFailure = pool.getUsedMemory();
-  pool.setMaxMemory(1); // far below what even one cluster's backfill needs
+  // Plan adoption reserves the fixed scratch topology before event loading.
+  // Cap at the already-accounted baseline so the first event allocation is
+  // still rejected without attempting to set a maximum below current use.
+  pool.setMaxMemory(usedBeforeFailure);
 
   const auto rofs = oneRof();
   const auto clusters = oneCluster();

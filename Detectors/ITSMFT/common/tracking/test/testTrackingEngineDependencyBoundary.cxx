@@ -82,7 +82,7 @@ BOOST_AUTO_TEST_CASE(EngineAndParticipantHeadersExcludeForbiddenDependencies)
 
   // ITS/MFT tracking implementation headers:
   const std::vector<std::string> forbidden = {
-    "CATracker.h", "LegacyTrackerScratch.h", "TrackerTraits.h",
+    "CATracker.h", "SurfaceTrackingScratch.h", "TrackerTraits.h",
     // TransitionPolicyTag machinery (ADR 0007 decision 7):
     "TransitionPolicyDispatch.h", "TransitionPolicyOperations.h",
     "TransitionPolicyBinding.h", "TransitionPolicyState.h", "TransitionPolicyTag",
@@ -137,9 +137,9 @@ BOOST_AUTO_TEST_CASE(SurfaceScratchHasNoGroupCOutputStaging)
     }
   }
 
-  const auto legacy = root + "/Detectors/ITSMFT/common/tracking/include/ITSMFTTracking/LegacyTrackerScratch.h";
-  std::ifstream input{legacy};
-  BOOST_REQUIRE_MESSAGE(input.good(), "cannot inspect " << legacy);
+  const auto scratchFile = root + "/Detectors/ITSMFT/common/tracking/include/ITSMFTTracking/SurfaceTrackingScratch.h";
+  std::ifstream input{scratchFile};
+  BOOST_REQUIRE_MESSAGE(input.good(), "cannot inspect " << scratchFile);
   const std::string text{std::istreambuf_iterator<char>{input}, {}};
-  BOOST_CHECK(text.find("mTracksLabel") != std::string::npos);
+  BOOST_CHECK(text.find("mTracksLabel") == std::string::npos);
 }

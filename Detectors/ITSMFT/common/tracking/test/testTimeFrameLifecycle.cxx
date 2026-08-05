@@ -6,22 +6,22 @@
 // License v3 (GPL Version 3), copied verbatim in the file "COPYING".
 
 // Gate 2 correction, updated for Gate 4 B3.1's TimeFrame /
-// LegacyTrackerScratch<NLayers> split: TimeFrame lifecycle and
+// SurfaceTrackingScratch split: TimeFrame lifecycle and
 // transactional legacy backfill.
 //
 // A. Wipe lifecycle: TimeFrame::wipe() must unconditionally clear the
 //    normalized owner (mNormalizedFrame) associated by
-//    LegacyTrackerScratch<NLayers>::loadNormalizedSource() -- every
+//    SurfaceTrackingScratch::loadNormalizedSource() -- every
 //    normalized accessor obtained *after* wipe() must report empty/zero
 //    content. This test never dereferences a view obtained before wipe():
 //    every post-wipe check re-obtains its accessor. (Gate 4 B3.1: neither
-//    TimeFrame nor LegacyTrackerScratch<NLayers> stores mDetId at all any
+//    TimeFrame nor SurfaceTrackingScratch stores mDetId at all any
 //    more -- callers pass the detector explicitly to every call that needs
 //    it -- so there is nothing detector-identity-shaped left for wipe() to
 //    preserve or clear.)
 //
 // B. Strong exception transactionality: the owner-level load operation
-//    LegacyTrackerScratch<NLayers>::loadNormalizedSource(TimeFrame&, ...)
+//    SurfaceTrackingScratch::loadNormalizedSource(TimeFrame&, ...)
 //    stages both the shared TimeFrame's normalized update and its own
 //    legacy backfill (unsorted clusters, TrackingFrameInfo, external
 //    indices, cluster sizes, ROF boundaries, label pointers) before
@@ -54,7 +54,7 @@
 #include "ITSMFTTracking/DecodedCluster.h"
 #include "ITSMFTTracking/DetectorLayout.h"
 #include "ITSMFTTracking/DetectorLayoutSet.h"
-#include "ITSMFTTracking/LegacyTrackerScratch.h"
+#include "ITSMFTTracking/SurfaceTrackingScratch.h"
 #include "ITSMFTTracking/MultiSourceFrame.h"
 #include "ITSMFTTracking/MultiSourceLoading.h"
 #include "ITSMFTTracking/SurfaceDescriptor.h"
@@ -257,7 +257,7 @@ const std::vector<Expected> expectedClusters{
 // call that must have left both owners untouched. `frame` owns the
 // normalized measurements; `tf` owns every legacy per-layer compatibility
 // structure (Gate 4 B3.1 split).
-void verifyFixtureLoaded(const TimeFrame& frame, LegacyTrackerScratch<ITSNLayers>& tf, const Fixture& f, const o2::InteractionRecord& origin, const ROFTimingConfig& timing)
+void verifyFixtureLoaded(const TimeFrame& frame, SurfaceTrackingScratch& tf, const Fixture& f, const o2::InteractionRecord& origin, const ROFTimingConfig& timing)
 {
   constexpr ClusterSourceId kSourceId{0};
 
@@ -285,7 +285,7 @@ void verifyFixtureLoaded(const TimeFrame& frame, LegacyTrackerScratch<ITSNLayers
   }
 
   for (const auto& e : expectedClusters) {
-    const tracking::Cluster* legacyCluster = nullptr;
+    const o2::its::Cluster* legacyCluster = nullptr;
     int clId = -1;
     for (int rof = 0; rof < tf.getNrof(e.layer); ++rof) {
       for (const auto& c : tf.getUnsortedClustersOnLayer(rof, e.layer)) {
@@ -372,11 +372,13 @@ BOOST_AUTO_TEST_CASE(WipeClearsNormalizedFrameButPreservesDetId)
   const ROFTimingConfig timing{40, 0, 0, 0};
 
   TimeFrame frame;
-  LegacyTrackerScratch<ITSNLayers> tf;
+  SurfaceTrackingScratch tf;
   std::vector<TrackingParameters> noIterations;
   auto planResult = buildDetectorLayoutSet(catalogView, orderedSurfaces, noIterations);
   BOOST_REQUIRE(planResult.ok());
   const auto plan = std::move(*planResult.layout);
+  tf.setMemoryPool(std::make_shared<BoundedMemoryResource>());
+  tf.adoptPlan(plan.getConfigurationKey().orderedSurfaces.size(), 0, 0);
 
   const auto f = makeFixture();
   const auto result = tf.loadNormalizedSource(frame, decoder, origin, timing, f.clusters, f.patterns, f.rofs, &dict(), &f.labels, o2::detectors::DetID::ITS,
@@ -424,7 +426,7 @@ BOOST_AUTO_TEST_CASE(BackfillAllocationFailureLeavesNormalizedAndLegacyStateAtBa
   // go away.
   auto pool = std::make_shared<BoundedMemoryResource>();
   TimeFrame frame;
-  LegacyTrackerScratch<ITSNLayers> tf;
+  SurfaceTrackingScratch tf;
   frame.setMemoryPool(pool);
   tf.setMemoryPool(pool);
 
@@ -432,6 +434,7 @@ BOOST_AUTO_TEST_CASE(BackfillAllocationFailureLeavesNormalizedAndLegacyStateAtBa
   auto planResult = buildDetectorLayoutSet(catalogView, orderedSurfaces, noIterations);
   BOOST_REQUIRE(planResult.ok());
   const auto plan = std::move(*planResult.layout);
+  tf.adoptPlan(plan.getConfigurationKey().orderedSurfaces.size(), 0, 0);
   const gsl::span<const SurfaceId> planOrderedSurfaces{plan.getConfigurationKey().orderedSurfaces};
 
   const auto f = makeFixture();
@@ -479,11 +482,11 @@ BOOST_AUTO_TEST_CASE(BackfillAllocationFailureLeavesNormalizedAndLegacyStateAtBa
   verifyFixtureLoaded(frame, tf, f, origin, timing);
 }
 
-// --- C. LegacyTrackerScratch as sole owner of its BoundedMemoryResource -
+// --- C. SurfaceTrackingScratch as sole owner of its BoundedMemoryResource -
 //
 // Exercises the member-destruction-order contract directly (see the
 // mExtMemoryPool/mMemoryPool declaration-order comment in
-// LegacyTrackerScratch.h): the pool owner is declared before every
+// SurfaceTrackingScratch.h): the pool owner is declared before every
 // pmr/bounded_vector member, so LegacyTrackerScratch destroys every
 // pool-backed vector -- returning its memory to the pool -- before
 // releasing its own shared_ptr to that pool. Here the caller's shared_ptr
@@ -497,8 +500,8 @@ BOOST_AUTO_TEST_CASE(BackfillAllocationFailureLeavesNormalizedAndLegacyStateAtBa
 // this plain host run can -- a use-after-free here is not guaranteed to
 // crash every time -- but this test still documents and exercises the
 // ordering contract this correction depends on. (Gate 4 B3.1: these
-// pool-backed legacy vectors moved from TimeFrame<NLayers> to
-// LegacyTrackerScratch<NLayers>, so this test now targets the scratch's own
+// pool-backed vectors moved from the old split owner to
+// SurfaceTrackingScratch, so this test now targets the scratch's own
 // memory-pool ownership; TimeFrame itself no longer holds any of them.)
 BOOST_AUTO_TEST_CASE(ScratchOutlivesSoleOwnershipOfItsMemoryPool)
 {
@@ -518,8 +521,9 @@ BOOST_AUTO_TEST_CASE(ScratchOutlivesSoleOwnershipOfItsMemoryPool)
   {
     auto pool = std::make_shared<BoundedMemoryResource>();
     TimeFrame frame;
-    LegacyTrackerScratch<ITSNLayers> tf;
+    SurfaceTrackingScratch tf;
     tf.setMemoryPool(pool);
+    tf.adoptPlan(plan.getConfigurationKey().orderedSurfaces.size(), 0, 0);
 
     // Populate every pool-backed vector (mUnsortedClusters,
     // mTrackingFrameInfo, mClusterExternalIndices, mClusterSize,

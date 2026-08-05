@@ -91,7 +91,7 @@ BOOST_AUTO_TEST_CASE(GlobalPlanAuthorityBothDetectorLayoutsAreByteIdentical)
   // proof the pre-M3 combined-coordinator test suite already established at
   // the composition level): the set builds its one shared ITS+MFT
   // DetectorLayout exactly once in its constructor, and both
-  // DetectorLayoutSets/DetectorTraversalBindings only ever receive a
+  // DetectorLayoutSets/SurfacePlanBindings only ever receive a
   // passive copy of that one built object.
   auto participants = makeSet();
   const auto itsView = participants.getITSLayoutView();

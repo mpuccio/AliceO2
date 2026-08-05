@@ -46,7 +46,7 @@
 #include <boost/test/unit_test.hpp>
 
 #include "ITSMFTTracking/ForwardSurfaceStateOperations.h"
-#include "ITSMFTTracking/LegacyTrackerScratch.h"
+#include "ITSMFTTracking/SurfaceTrackingScratch.h"
 #include "ITSMFTTracking/MFTFwdTrackHelpers.h"
 #include "ITSMFTTracking/SurfaceCatalogView.h"
 #include "ITSMFTTracking/SurfaceDescriptor.h"
@@ -100,12 +100,12 @@ struct StraightTrackGeometry {
 // normalized measurement or legacy backfill in one test can never leak into
 // another.
 struct RefitFixture {
-  LegacyTrackerScratch<NLayers> tf;
+  SurfaceTrackingScratch tf;
   std::array<std::vector<SurfaceMeasurement>, NLayers> storage;
   LayerMeasurementSpans<NLayers> layerMeasurements{};
   std::vector<SurfaceDescriptor> catalogSurfaces;
   SurfaceCatalogView catalog{};
-  TrackSeedN<NLayers> seed;
+  TrackSeed seed;
   o2::itsmft::TrackingParameters params;
   int nHitLayers{0};
 
@@ -125,6 +125,8 @@ struct RefitFixture {
       catalogSurfaces[layer].material = NominalSurfaceMaterial{0.f, 0.f};
     }
     catalog = SurfaceCatalogView{catalogSurfaces.data(), static_cast<uint32_t>(catalogSurfaces.size())};
+    tf.setMemoryPool(std::make_shared<o2::its::BoundedMemoryResource>());
+    tf.adoptPlan(NLayers, 0, 0);
 
     uint16_t mask = 0;
     for (int layer = 0; layer < hits; ++layer) {
@@ -143,7 +145,7 @@ struct RefitFixture {
       seed.getClusters()[layer] = 0;
       mask |= static_cast<uint16_t>(uint16_t(1) << layer);
     }
-    seed.setHitLayerMask(LayerMask{mask});
+    seed.setSurfaceMask(SurfaceMask{mask});
 
     // M5d: fitTrackSeedLegs (unlike the retired TrackLTF engine, which
     // computed its own seed internally from the attached points) starts Leg
@@ -434,10 +436,10 @@ BOOST_AUTO_TEST_CASE(PreservesHitPatternClusterIndicesAndSizes)
   RefitFixture fx(geometry);
   fx.seed.getClusters()[2] = o2::its::constants::UnusedIndex;
   fx.seed.getClusters()[7] = o2::its::constants::UnusedIndex;
-  LayerMask mask = fx.seed.getHitLayerMask();
-  mask &= ~LayerMask{static_cast<uint16_t>(uint16_t(1) << 2)};
-  mask &= ~LayerMask{static_cast<uint16_t>(uint16_t(1) << 7)};
-  fx.seed.setHitLayerMask(mask);
+  SurfaceMask mask = fx.seed.getSurfaceMask();
+  mask.reset(SurfaceId{2});
+  mask.reset(SurfaceId{7});
+  fx.seed.setSurfaceMask(mask);
 
   MFTCATrack track;
   BOOST_REQUIRE(refitTrackFwd(fx.seed, track, fx.tf, fx.params, Bz, fx.layerMeasurements, fx.catalog, ClusterSourceId{0}));
@@ -514,7 +516,7 @@ BOOST_AUTO_TEST_CASE(ClusterSizeIsReadFromItsOwnLayerNotFromLayerZeroByExternalI
   // read via tf.getClusterSize(0, 1000 + layer): under the fix that value
   // must never leak into any other layer's published size.
   const StraightTrackGeometry geometry(0.3f);
-  LegacyTrackerScratch<NLayers> tf;
+  SurfaceTrackingScratch tf;
   std::array<std::vector<SurfaceMeasurement>, NLayers> storage;
   LayerMeasurementSpans<NLayers> layerMeasurements{};
   std::vector<SurfaceDescriptor> catalogSurfaces(NLayers);
@@ -524,7 +526,9 @@ BOOST_AUTO_TEST_CASE(ClusterSizeIsReadFromItsOwnLayerNotFromLayerZeroByExternalI
     catalogSurfaces[layer].material = NominalSurfaceMaterial{0.f, 0.f};
   }
   SurfaceCatalogView catalog{catalogSurfaces.data(), static_cast<uint32_t>(catalogSurfaces.size())};
-  TrackSeedN<NLayers> seed;
+  tf.setMemoryPool(std::make_shared<o2::its::BoundedMemoryResource>());
+  tf.adoptPlan(NLayers, 0, 0);
+  TrackSeed seed;
   o2::itsmft::TrackingParameters params;
   params.MinTrackLength = 5;
   params.MinPt.assign(NLayers + 1, 0.f);
@@ -551,7 +555,7 @@ BOOST_AUTO_TEST_CASE(ClusterSizeIsReadFromItsOwnLayerNotFromLayerZeroByExternalI
     seed.getClusters()[layer] = 0;
     mask |= static_cast<uint16_t>(uint16_t(1) << layer);
   }
-  seed.setHitLayerMask(LayerMask{mask});
+  seed.setSurfaceMask(SurfaceMask{mask});
 
   // M5d: see RefitFixture's identical seed.state() construction above.
   OperationFailureReason seedReason{};

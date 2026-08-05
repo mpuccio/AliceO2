@@ -33,6 +33,7 @@
 
 #include <array>
 #include <limits>
+#include <memory>
 #include <optional>
 #include <stdexcept>
 #include <type_traits>
@@ -55,7 +56,7 @@
 #include "ITSMFTTracking/MultiSourceFrame.h"
 #include "ITSMFTTracking/MultiSourceLoading.h"
 #include "ITSMFTTracking/SurfaceMeasurementAdapters.h"
-#include "ITSMFTTracking/LegacyTrackerScratch.h"
+#include "ITSMFTTracking/SurfaceTrackingScratch.h"
 #include "ITSMFTTracking/ITSSharedClusterCompatibility.h"
 #include "ITSMFTTracking/CommonTrackOutputAdapter.h"
 #include "ITSMFTTracking/MFTPublicationCompatibility.h"
@@ -597,12 +598,12 @@ std::vector<SurfaceId> identitySurfaces(uint16_t nLayers)
 struct TimeFrameFixture {
   // Gate 4 B3.1: `tf` (the permanent, non-templated TimeFrame, owning
   // CommonTrack/TrackClusterReference/normalized-frame state) is declared
-  // before `scratch` (the temporary LegacyTrackerScratch<ITSNLayers>) so it
-  // is constructed first and destroyed last -- see LegacyTrackerScratch.h's
+  // before `scratch` (the temporary SurfaceTrackingScratch) so it
+  // is constructed first and destroyed last -- see SurfaceTrackingScratch's
   // own lifetime-contract doc. Neither owns or stores a reference to the
   // other; this fixture is what binds both for the load() call below.
   TimeFrame tf;
-  LegacyTrackerScratch<ITSNLayers> scratch;
+  SurfaceTrackingScratch scratch;
   // The catalog must outlive `plan` (DetectorLayoutSet borrows a
   // SurfaceCatalogView into it, Gate 4 B2 Slice 2) -- declared first so it
   // is constructed before, and destroyed after, `plan`.
@@ -620,6 +621,8 @@ struct TimeFrameFixture {
     auto result = buildDetectorLayoutSet(catalogView, orderedSurfaces, noIterations);
     BOOST_REQUIRE(result.ok());
     plan.emplace(std::move(*result.layout));
+    scratch.setMemoryPool(std::make_shared<BoundedMemoryResource>());
+    scratch.adoptPlan(plan->getConfigurationKey().orderedSurfaces.size(), 0, 0);
   }
 
   // One cluster on layer 0, one ROF: the minimal input that succeeds.
@@ -732,10 +735,11 @@ BOOST_AUTO_TEST_CASE(CommonTrackShadowRollsBackEveryInjectedPublicationFailure)
     CommonTrackShadowPublishStep::BeforeTrack};
   for (const auto step : steps) {
     BOOST_CHECK_THROW(publishCommonTrackShadow(fixture.tf, record, [step](CommonTrackShadowPublishStep reached) {
-      if (reached == step) {
-        throw std::bad_alloc{};
-      }
-    }), std::bad_alloc);
+                        if (reached == step) {
+                          throw std::bad_alloc{};
+                        }
+                      }),
+                      std::bad_alloc);
     BOOST_CHECK(fixture.tf.getCommonTracks().empty());
     BOOST_CHECK(fixture.tf.getTrackClusterIndices().empty());
   }
@@ -905,14 +909,14 @@ BOOST_AUTO_TEST_CASE(FailedLoadPreservesCommonTrackAndTrackClusterIndicesUnchang
   const auto measurementsBefore = fixture.tf.getNormalizedFrame().getTotalMeasurements();
   BOOST_REQUIRE(measurementsBefore > 0u);
 
-  // Deliberately fail: this LegacyTrackerScratch<ITSNLayers> preflight-rejects any
-  // detId other than ITS (UnsupportedDetector), before touching anything.
+  // Deliberately fail: this SurfaceTrackingScratch preflight-rejects an
+  // unsupported detector before touching anything.
   const std::vector<CompClusterExt> clusters{{0, 1, CompCluster::InvalidPatternID, 0}};
   const auto patterns = makePatternBytes(clusters.size());
   const std::vector<ROFRecord> rofs{ROFRecord{{200, 5}, 0, 0, 1}};
   const auto& orderedSurfaces = fixture.plan->getConfigurationKey().orderedSurfaces;
   const auto failed = fixture.scratch.loadNormalizedSource(fixture.tf, fixture.decoder, fixture.origin, fixture.timing, clusters, patterns, rofs,
-                                                           &dict(), nullptr, o2::detectors::DetID::MFT,
+                                                           &dict(), nullptr, o2::detectors::DetID::TPC,
                                                            gsl::span<const SurfaceId>{orderedSurfaces}, fixture.plan->getSurfaceCatalog());
   BOOST_REQUIRE(!failed.ok());
   BOOST_CHECK(failed.error == MultiSourceLoadError::UnsupportedDetector);

@@ -8,8 +8,8 @@
 // Gate 4 B3.1 acceptance tests: the accepted revised design's ownership,
 // reset, and transactional-load contracts for the split between the
 // permanent, non-templated TimeFrame (ITSMFTTracking/TimeFrame.h) and the
-// temporary, per-detector LegacyTrackerScratch<NLayers>
-// (ITSMFTTracking/LegacyTrackerScratch.h). This file covers exactly the
+// temporary, per-detector SurfaceTrackingScratch
+// (ITSMFTTracking/SurfaceTrackingScratch.h). This file covers exactly the
 // acceptance tests the implementation request enumerated that are not
 // already, incidentally, covered by the pre-existing suite migrated onto
 // the new split (testTimeFrameLifecycle.cxx, testTimeFrameNormalizedSource.cxx,
@@ -56,7 +56,7 @@
 #include "ITSMFTTracking/CommonTrack.h"
 #include "ITSMFTTracking/DecodedCluster.h"
 #include "ITSMFTTracking/DetectorLayoutSet.h"
-#include "ITSMFTTracking/LegacyTrackerScratch.h"
+#include "ITSMFTTracking/SurfaceTrackingScratch.h"
 #include "ITSMFTTracking/SurfaceDescriptor.h"
 #include "ITSMFTTracking/SurfaceMeasurementAdapters.h"
 #include "ITSMFTTracking/TimeFrame.h"
@@ -86,7 +86,7 @@ struct FieldFixture {
 BOOST_GLOBAL_FIXTURE(FieldFixture);
 
 // --- Compile-time proof (test 5): TimeFrame is a plain, non-templated
-// type; LegacyTrackerScratch<NLayers> remains the templated legacy scratch
+// type; SurfaceTrackingScratch remains the plan-sized scratch
 // owner. If a `template <int NLayers> struct TimeFrame` regression were
 // ever reintroduced, a bare `TimeFrame` (used here and by every migrated
 // production/test call site, e.g. testTimeFrameLifecycle.cxx) would no
@@ -99,18 +99,19 @@ BOOST_GLOBAL_FIXTURE(FieldFixture);
 // validation sweep and is recorded in its handoff notes.
 static_assert(std::is_default_constructible_v<TimeFrame>,
               "TimeFrame must be a plain, non-templated, default-constructible type (Gate 4 B3.1)");
-static_assert(std::is_default_constructible_v<LegacyTrackerScratch<ITSNLayers>>,
-              "LegacyTrackerScratch<NLayers> must remain the templated legacy scratch owner");
-static_assert(!std::is_same_v<TimeFrame, LegacyTrackerScratch<ITSNLayers>>,
-              "TimeFrame and LegacyTrackerScratch<NLayers> must remain two distinct owner types");
+static_assert(std::is_default_constructible_v<SurfaceTrackingScratch>,
+              "SurfaceTrackingScratch must remain the plan-sized scratch owner");
+static_assert(!std::is_same_v<TimeFrame, SurfaceTrackingScratch>,
+              "TimeFrame and SurfaceTrackingScratch must remain two distinct owner types");
 
 // Cheap, direct scratch population for tests 1-3: writes one cluster's worth
 // of scratch-owned legacy state on layer 0 via the same public append API
 // testMFTNormalizedRefit.cxx's fixtures use, without needing a full decoder/
 // catalog/loadNormalizedSource() round trip.
-template <int NLayers>
-void populateScratch(LegacyTrackerScratch<NLayers>& scratch, float tag)
+void populateScratch(SurfaceTrackingScratch& scratch, float tag)
 {
+  scratch.setMemoryPool(std::make_shared<BoundedMemoryResource>());
+  scratch.adoptPlan(ITSNLayers, 0, 0);
   scratch.addClusterToLayer(0, tag, tag, tag, 0);
   scratch.addTrackingFrameInfoToLayer(0, o2::its::TrackingFrameInfo{
                                            tag, tag, tag, tag, tag, {tag, tag}, {1.f, 0.f, 1.f}});
@@ -219,7 +220,7 @@ std::vector<SurfaceId> identitySurfaces()
 BOOST_AUTO_TEST_CASE(ResetScratchClearsScratchOnlyTimeFrameContentSurvives)
 {
   TimeFrame frame;
-  LegacyTrackerScratch<ITSNLayers> scratch;
+  SurfaceTrackingScratch scratch;
   populateFrame(frame);
   populateScratch(scratch, 1.f);
 
@@ -244,7 +245,7 @@ BOOST_AUTO_TEST_CASE(ResetScratchClearsScratchOnlyTimeFrameContentSurvives)
 BOOST_AUTO_TEST_CASE(ResetTimeFrameEventClearsBothOwners)
 {
   TimeFrame frame;
-  LegacyTrackerScratch<ITSNLayers> scratch;
+  SurfaceTrackingScratch scratch;
   populateFrame(frame);
   populateScratch(scratch, 2.f);
 
@@ -275,8 +276,8 @@ BOOST_AUTO_TEST_CASE(ResetTimeFrameEventClearsBothOwners)
 BOOST_AUTO_TEST_CASE(TwoScratchesOneFrameResettingOneLeavesTheOtherAndTheFrameUntouched)
 {
   TimeFrame frame;
-  LegacyTrackerScratchITS itsScratch;
-  LegacyTrackerScratchMFT mftScratch;
+  SurfaceTrackingScratch itsScratch;
+  SurfaceTrackingScratch mftScratch;
   populateFrame(frame);
   populateScratch(itsScratch, 3.f);
   populateScratch(mftScratch, 4.f);
@@ -313,7 +314,7 @@ BOOST_AUTO_TEST_CASE(InjectedScratchBackfillFailureAfterNormalizedStagingLeavesB
 
   auto pool = std::make_shared<BoundedMemoryResource>();
   TimeFrame frame;
-  LegacyTrackerScratch<ITSNLayers> scratch;
+  SurfaceTrackingScratch scratch;
   frame.setMemoryPool(pool);
   scratch.setMemoryPool(pool);
 
@@ -321,6 +322,7 @@ BOOST_AUTO_TEST_CASE(InjectedScratchBackfillFailureAfterNormalizedStagingLeavesB
   auto planResult = buildDetectorLayoutSet(catalogView, orderedSurfaces, noIterations);
   BOOST_REQUIRE(planResult.ok());
   const auto plan = std::move(*planResult.layout);
+  scratch.adoptPlan(plan.getConfigurationKey().orderedSurfaces.size(), 0, 0);
   const gsl::span<const SurfaceId> planOrderedSurfaces{plan.getConfigurationKey().orderedSurfaces};
 
   const std::vector<CompClusterExt> clusters{CompClusterExt{10, 20, CompCluster::InvalidPatternID, 0}};
@@ -357,7 +359,7 @@ BOOST_AUTO_TEST_CASE(InjectedScratchBackfillFailureAfterNormalizedStagingLeavesB
 
   // Both owners retain exactly their pre-load (baseline) state: the
   // owner-level load's all-or-nothing contract. See
-  // LegacyTrackerScratch<NLayers>::loadNormalizedSource()'s own doc comment
+  // SurfaceTrackingScratch::loadNormalizedSource()'s own doc comment
   // and testTimeFrameLifecycle.cxx's
   // BackfillAllocationFailureLeavesNormalizedAndLegacyStateAtBaseline for
   // the equivalent proof exercised through a larger, multi-cluster fixture.

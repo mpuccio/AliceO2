@@ -3,12 +3,9 @@
 // All rights not expressly granted are reserved.
 
 // M6b (Detectors/ITSMFT/common/tracking/doc/design/0002-m6-generic-workspace-migration.md
-// Sec 3.2, 7, 9): focused coverage for the additive, detector-neutral
-// SurfacePlanBinding, the successor to DetectorTraversalBinding. Narrowly
-// scoped to binding equivalence and detector-neutrality, per that milestone's
-// own instruction -- no mixed-detector tracking success case, no wiring of
-// any production participant. DetectorTraversalBinding itself is exercised
-// here only for parity comparison, never modified.
+// Sec 3.2, 7, 9): focused coverage for the detector-neutral SurfacePlanBinding
+// slot and topology contract. Production-participant wiring is covered by the
+// migration tests.
 
 #define BOOST_TEST_MODULE ITSMFT SurfacePlanBinding
 #define BOOST_TEST_MAIN
@@ -23,7 +20,6 @@
 #include "ITSMFTTracking/DetectorLayoutBuilder.h"
 #include "ITSMFTTracking/StaticDetectorCatalogs.h"
 #include "ITSMFTTracking/TrackingTopology.h"
-#include "ITSMFTTracking/detail/DetectorTraversalBinding.h"
 #include "ITSMFTTracking/detail/SurfacePlanBinding.h"
 
 namespace
@@ -52,12 +48,8 @@ SurfaceDescriptor surfaceWithOwner(uint16_t id, SurfaceKind kind, uint8_t detect
   return SurfaceDescriptor{SurfaceId{id}, id, detectorId, kind};
 }
 
-// --- Shared ITS+MFT combined-catalog fixture, duplicated (not shared via a
-// new header) from testDetectorTraversalBinding.cxx's own CombinedLayout:
-// that file stays completely unmodified (Confirm DetectorTraversalBinding
-// remains unchanged), and per-file-local fixtures are this test directory's
-// existing convention (testTransitionPolicyDispatch.cxx, testDetectorTraversalBinding.cxx
-// each define their own). ---
+// --- Shared ITS+MFT combined-catalog fixture. Per-file-local fixtures are
+// this test directory's existing convention. ---
 struct CombinedLayout {
   DetectorLayout layout;
   DetectorLayoutView view;
@@ -96,75 +88,50 @@ struct CombinedLayout {
 SurfaceMask itsMask() { return SurfaceMask{uint32_t{0x7f}}; }
 SurfaceMask mftMask() { return SurfaceMask{uint32_t{0x1ff80}}; }
 
-template <typename SpanA, typename SpanB>
-void checkSpanEqual(SpanA a, SpanB b)
+void checkBindingCoversOwnedTopology(const SurfacePlanBinding& binding, const DetectorLayoutView& global)
 {
-  BOOST_REQUIRE_EQUAL(a.size(), b.size());
-  for (size_t i = 0; i < a.size(); ++i) {
-    BOOST_CHECK(a[i] == b[i]);
-  }
-}
-
-// Byte-identical-map equivalence, requirement 1: every accessor of the old
-// and new binding types must agree, given the same source, ordered/owned
-// surfaces, and (for the new type) the expected kind/policy the old type
-// used to derive internally from `detector`.
-void checkBindingsEquivalent(const DetectorTraversalBinding& oldBinding, const SurfacePlanBinding& newBinding, const DetectorLayoutView& global)
-{
-  BOOST_CHECK_EQUAL(oldBinding.getSource().value(), newBinding.getSource().value());
-  BOOST_CHECK(oldBinding.getOwnedSurfaces() == newBinding.getOwnedSurfaces());
+  BOOST_CHECK(binding.getSource().isValid());
   for (uint16_t s = 0; s < global.nSurfaces; ++s) {
-    const auto oldLayer = oldBinding.getLegacyLayer(SurfaceId{s});
-    const auto newIndex = newBinding.getOwnedSurfaceIndex(SurfaceId{s});
-    BOOST_REQUIRE_EQUAL(oldLayer.has_value(), newIndex.has_value());
-    if (oldLayer.has_value()) {
-      BOOST_CHECK_EQUAL(*oldLayer, *newIndex);
+    if (binding.getOwnedSurfaces().has(SurfaceId{s})) {
+      BOOST_REQUIRE(binding.getOwnedSurfaceIndex(SurfaceId{s}));
     }
   }
   for (uint32_t t = 0; t < global.topology.nTransitions; ++t) {
     const auto id = TransitionId{static_cast<uint16_t>(t)};
-    const auto oldSlot = oldBinding.getScratchTransitionSlot(id);
-    const auto newSlot = newBinding.getScratchTransitionSlot(id);
-    BOOST_REQUIRE_EQUAL(oldSlot.has_value(), newSlot.has_value());
-    if (oldSlot.has_value()) {
-      BOOST_CHECK_EQUAL(*oldSlot, *newSlot);
+    const auto& transition = global.topology.getTransition(id);
+    if (binding.getOwnedSurfaces().has(transition.from)) {
+      BOOST_REQUIRE(binding.getOwnedSurfaces().has(transition.to));
+      BOOST_REQUIRE(binding.getScratchTransitionSlot(id));
     }
   }
   for (uint32_t c = 0; c < global.topology.nCells; ++c) {
     const auto id = CellTopologyId{static_cast<uint16_t>(c)};
-    const auto oldSlot = oldBinding.getScratchCellSlot(id);
-    const auto newSlot = newBinding.getScratchCellSlot(id);
-    BOOST_REQUIRE_EQUAL(oldSlot.has_value(), newSlot.has_value());
-    if (oldSlot.has_value()) {
-      BOOST_CHECK_EQUAL(*oldSlot, *newSlot);
+    const auto& cell = global.topology.getCell(id);
+    const bool ownedTransition = binding.getScratchTransitionSlot(cell.firstTransition).has_value() ||
+                                 binding.getScratchTransitionSlot(cell.secondTransition).has_value();
+    if (ownedTransition) {
+      BOOST_REQUIRE(binding.getScratchCellSlot(id));
     }
   }
-  checkSpanEqual(oldBinding.getGlobalTransitions(), newBinding.getGlobalTransitions());
-  checkSpanEqual(oldBinding.getGlobalCells(), newBinding.getGlobalCells());
-  checkSpanEqual(oldBinding.getGlobalRoadStartCells(), newBinding.getGlobalRoadStartCells());
-  checkSpanEqual(oldBinding.getGlobalScheduledCells(), newBinding.getGlobalScheduledCells());
 }
 
 } // namespace
 
-BOOST_AUTO_TEST_CASE(SurfacePlanBindingMatchesDetectorTraversalBindingForCombinedItsAndMft)
+BOOST_AUTO_TEST_CASE(SurfacePlanBindingMapsCombinedItsAndMftPlans)
 {
   CombinedLayout combined;
 
-  const auto oldIts = DetectorTraversalBinding::build(combined.view, o2::detectors::DetID::ITS, ClusterSourceId{0}, itsMask(), ordered(0, ITSNLayers));
-  const auto oldMft = DetectorTraversalBinding::build(combined.view, o2::detectors::DetID::MFT, ClusterSourceId{1}, mftMask(), ordered(ITSNLayers, MFTNLayers));
-  BOOST_REQUIRE(oldIts.ok());
-  BOOST_REQUIRE(oldMft.ok());
+  const auto its = SurfacePlanBinding::build(combined.view, ClusterSourceId{0}, itsMask(), ordered(0, ITSNLayers),
+                                             SurfaceKind::Cylinder, TransitionPolicyTag::CylinderCylinder);
+  const auto mft = SurfacePlanBinding::build(combined.view, ClusterSourceId{1}, mftMask(), ordered(ITSNLayers, MFTNLayers),
+                                             SurfaceKind::Disk, TransitionPolicyTag::DiskDisk);
+  BOOST_REQUIRE(its.ok());
+  BOOST_REQUIRE(mft.ok());
 
-  const auto newIts = SurfacePlanBinding::build(combined.view, ClusterSourceId{0}, itsMask(), ordered(0, ITSNLayers),
-                                                SurfaceKind::Cylinder, TransitionPolicyTag::CylinderCylinder);
-  const auto newMft = SurfacePlanBinding::build(combined.view, ClusterSourceId{1}, mftMask(), ordered(ITSNLayers, MFTNLayers),
-                                                SurfaceKind::Disk, TransitionPolicyTag::DiskDisk);
-  BOOST_REQUIRE(newIts.ok());
-  BOOST_REQUIRE(newMft.ok());
-
-  checkBindingsEquivalent(*oldIts.binding, *newIts.binding, combined.view);
-  checkBindingsEquivalent(*oldMft.binding, *newMft.binding, combined.view);
+  BOOST_CHECK(its.binding->getOwnedSurfaces() == itsMask());
+  BOOST_CHECK(mft.binding->getOwnedSurfaces() == mftMask());
+  checkBindingCoversOwnedTopology(*its.binding, combined.view);
+  checkBindingCoversOwnedTopology(*mft.binding, combined.view);
 }
 
 // Requirement 2a: the new build API has no detector-ID parameter. Checked at
@@ -284,7 +251,7 @@ BOOST_AUTO_TEST_CASE(SurfacePlanBindingBuildsAcrossMultipleDistinctDetectorIdent
   // surfaces spanning two distinct synthetic detectorIds (250, 251), one
   // valid source, consistent expected kind/policy, and an internally valid
   // chain topology -- this must build successfully, unlike
-  // DetectorTraversalBinding's own single-detector-scoped contract.
+  // The former binding's own single-detector-scoped contract.
   std::vector<SurfaceDescriptor> surfaces{
     surfaceWithOwner(0, SurfaceKind::Cylinder, 250),
     surfaceWithOwner(1, SurfaceKind::Cylinder, 250),

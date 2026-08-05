@@ -53,7 +53,7 @@
 #include "ITSMFTTracking/DetectorLayoutSet.h"
 #include "ITSMFTTracking/ITSMFTLegacyParticipantSet.h"
 #include "ITSMFTTracking/ITSSharedClusterCompatibility.h"
-#include "ITSMFTTracking/LegacyTrackerScratch.h"
+#include "ITSMFTTracking/SurfaceTrackingScratch.h"
 #include "ITSMFTTracking/MFTFwdTrackHelpers.h"
 #include "ITSMFTTracking/MFTPublicationCompatibility.h"
 #include "ITSMFTTracking/MultiSourceTimeFrameLoader.h"
@@ -178,7 +178,7 @@ DecodedCluster cylinderCluster(float radius, float phi, float tanLambda, int lay
 
 /// Same chained-projection construction as
 /// testComputeLayerTrackletsOrchestration.cxx's buildMftChainClusters() /
-/// testDetectorTraversalBindingOrchestration.cxx's identically-named helper:
+/// the former traversal-binding orchestration test's identically-named helper:
 /// each hop's target is a genuine geometric match via
 /// detail::mftTrackletProject, so every adjacent pair in the chain produces
 /// a real tracklet, and a full-length chain reaches acceptance.
@@ -317,14 +317,14 @@ ClusterSourceInput makeEmptySource(ClusterSourceId id, o2::detectors::DetID::ID 
 }
 
 /// Independent, non-combined, single-detector reference run: the same shape
-/// ITSMFTTrackingInterface<NLayers>/testDetectorTraversalBindingOrchestration
-/// .cxx's StandaloneMftRun already use -- global SurfaceIds equal compact
-/// scratch slots, no DetectorTraversalBinding adopted. Used as the "reproduce
-/// the standalone oracle count" reference for the combined composition.
+/// ITSMFTTrackingInterface<NLayers>'s standalone path already uses -- global
+/// SurfaceIds equal compact scratch slots, with the same plan-driven binding
+/// model as the combined path. Used as the "reproduce the standalone oracle
+/// count" reference for the combined composition.
 template <int NLayers>
 struct StandaloneRun {
   TimeFrame frame;
-  LegacyTrackerScratch<NLayers> scratch;
+  SurfaceTrackingScratch scratch;
   TrackerTraits<NLayers> traits;
   Tracker<NLayers> tracker{&traits};
   std::shared_ptr<tbb::task_arena> arena;
@@ -362,6 +362,8 @@ struct StandaloneRun {
     auto planResult = buildDetectorLayoutSet(catalogView, orderedSurfaces, params);
     BOOST_REQUIRE(planResult.ok());
     plan.emplace(std::move(*planResult.layout));
+    const auto layoutView = plan->getLayoutView(0);
+    scratch.adoptPlan(orderedSurfaces.size(), layoutView.topology.nTransitions, layoutView.topology.nCells);
 
     std::vector<CompClusterExt> compact;
     std::vector<unsigned char> patterns;
@@ -380,25 +382,25 @@ struct StandaloneRun {
     o2::its::LayerTiming layerTiming{};
     layerTiming.mNROFsTF = 1;
     layerTiming.mROFLength = 40;
-    typename LegacyTrackerScratch<NLayers>::ROFOverlapTableN rofTable;
+    o2::its::ROFOverlapTable<NLayers> rofTable;
     for (int layer = 0; layer < NLayers; ++layer) {
       rofTable.defineLayer(layer, layerTiming);
     }
     rofTable.init();
     scratch.setROFOverlapTable(rofTable);
-    typename LegacyTrackerScratch<NLayers>::ROFVertexLookupTableN vtxTable;
+    o2::its::ROFVertexLookupTable<NLayers> vtxTable;
     for (int layer = 0; layer < NLayers; ++layer) {
       vtxTable.defineLayer(layer, layerTiming);
     }
     vtxTable.init();
     scratch.setROFVertexLookupTable(vtxTable);
-    typename LegacyTrackerScratch<NLayers>::ROFMaskTableN mask{rofTable};
+    o2::its::ROFMaskTable<NLayers> mask{rofTable};
     mask.resetMask();
     for (int layer = 0; layer < NLayers; ++layer) {
       mask.setROFsEnabled(layer, 0, 1, 1);
     }
     scratch.setMultiplicityCutMask(std::move(mask));
-    scratch.initTrackerTopologies(params);
+    scratch.initTrackerTopologies<NLayers>(params);
 
     if (det == o2::detectors::DetID::ITS) {
       tracker.adoptITSSharedClusterCompatibility(itsSidecar);
@@ -488,7 +490,7 @@ struct CombinedTrackingComposer {
   }
 
   // M6e2: both participants now own SurfaceTrackingScratch, not
-  // LegacyTrackerScratch<NLayers> -- see ITSMFTLegacyParticipantSet.h's own
+  // SurfaceTrackingScratch -- see ITSMFTLegacyParticipantSet.h's own
   // getITSScratch()/getMFTScratch().
   const SurfaceTrackingScratch& getITSScratch() const noexcept { return participants.getITSScratch(); }
   const SurfaceTrackingScratch& getMFTScratch() const noexcept { return participants.getMFTScratch(); }
@@ -557,7 +559,7 @@ BOOST_AUTO_TEST_CASE(MftGlobalIdsWorkEndToEndThroughRefitAndReproducesStandalone
 
   StandaloneRun<MFTNLayers> standalone{o2::detectors::DetID::MFT, SurfaceKind::Disk, mftParams, mftClusters};
   BOOST_REQUIRE(standalone.result.outcome == TrackingOutcome::Success);
-  BOOST_REQUIRE_GT(standalone.scratch.getNumberOfTracks(), 0u);
+  BOOST_REQUIRE_GT(standalone.frame.getCommonTracks().size(), 0u);
 
   PrescribedDecoder itsDecoder{o2::detectors::DetID::ITS, SurfaceKind::Cylinder, {}};
   PrescribedDecoder mftDecoder{o2::detectors::DetID::MFT, SurfaceKind::Disk, mftClusters};
@@ -580,7 +582,7 @@ BOOST_AUTO_TEST_CASE(MftGlobalIdsWorkEndToEndThroughRefitAndReproducesStandalone
   // Global MFT SurfaceIds 7..16 plus source 1 worked end to end through
   // refit: the combined pass through the composition reproduces the
   // standalone (global==compact, unbound) oracle count exactly.
-  BOOST_CHECK_EQUAL(result.nMFTTracks, standalone.scratch.getNumberOfTracks());
+  BOOST_CHECK_EQUAL(result.nMFTTracks, standalone.frame.getCommonTracks().size());
 }
 
 BOOST_AUTO_TEST_CASE(ITSAndMFTAcceptedResultsReproduceStandaloneCountsInOneCombinedPass)
@@ -601,10 +603,10 @@ BOOST_AUTO_TEST_CASE(ITSAndMFTAcceptedResultsReproduceStandaloneCountsInOneCombi
   // A genuine full 7-layer road (MinTrackLength=7, MaxHoles=0): the helix
   // fixture above is a real, non-degenerate curved trajectory, so this is a
   // nonzero accepted-track oracle, not a 0==0 parity check.
-  BOOST_REQUIRE_GT(standaloneIts.scratch.getNumberOfTracks(), 0u);
+  BOOST_REQUIRE_GT(standaloneIts.frame.getCommonTracks().size(), 0u);
   StandaloneRun<MFTNLayers> standaloneMft{o2::detectors::DetID::MFT, SurfaceKind::Disk, mftParams, mftClusters};
   BOOST_REQUIRE(standaloneMft.result.outcome == TrackingOutcome::Success);
-  BOOST_REQUIRE_GT(standaloneMft.scratch.getNumberOfTracks(), 0u);
+  BOOST_REQUIRE_GT(standaloneMft.frame.getCommonTracks().size(), 0u);
 
   PrescribedDecoder itsDecoder{o2::detectors::DetID::ITS, SurfaceKind::Cylinder, itsClusters};
   PrescribedDecoder mftDecoder{o2::detectors::DetID::MFT, SurfaceKind::Disk, mftClusters};
@@ -628,8 +630,8 @@ BOOST_AUTO_TEST_CASE(ITSAndMFTAcceptedResultsReproduceStandaloneCountsInOneCombi
   // one combined pass -- nonzero on both sides, not a 0==0 check.
   BOOST_CHECK_GT(result.nITSTracks, 0u);
   BOOST_CHECK_GT(result.nMFTTracks, 0u);
-  BOOST_CHECK_EQUAL(result.nITSTracks, standaloneIts.scratch.getNumberOfTracks());
-  BOOST_CHECK_EQUAL(result.nMFTTracks, standaloneMft.scratch.getNumberOfTracks());
+  BOOST_CHECK_EQUAL(result.nITSTracks, standaloneIts.frame.getCommonTracks().size());
+  BOOST_CHECK_EQUAL(result.nMFTTracks, standaloneMft.frame.getCommonTracks().size());
 
   // No cross-detector topology element reached either tracker: had the
   // adopted bindings leaked a foreign transition/cell, the combined cell
@@ -1220,12 +1222,12 @@ BOOST_AUTO_TEST_CASE(NoProductionSourceReferencesCombinedTimeFrameCoordinator)
   const std::array<std::string, 15> mustNotMention = {
     testDirectory + "/../include/ITSMFTTracking/TrackingEngine.h",
     testDirectory + "/../include/ITSMFTTracking/TrackingParticipant.h",
-    testDirectory + "/../include/ITSMFTTracking/LegacyCATrackingParticipant.h",
+    testDirectory + "/../include/ITSMFTTracking/SurfacePlanTrackingParticipant.h",
     testDirectory + "/../include/ITSMFTTracking/MultiSourceTimeFrameLoader.h",
     testDirectory + "/../include/ITSMFTTracking/ITSMFTLegacyParticipantSet.h",
     testDirectory + "/../include/ITSMFTTracking/StaticDetectorCatalogs.h",
     testDirectory + "/../src/TrackingEngine.cxx",
-    testDirectory + "/../src/LegacyCATrackingParticipant.cxx",
+    testDirectory + "/../src/SurfacePlanTrackingParticipant.cxx",
     testDirectory + "/../src/MultiSourceTimeFrameLoader.cxx",
     testDirectory + "/../src/ITSMFTLegacyParticipantSet.cxx",
     testDirectory + "/../CMakeLists.txt",

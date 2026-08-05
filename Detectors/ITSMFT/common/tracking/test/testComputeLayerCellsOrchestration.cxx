@@ -53,7 +53,7 @@
 #include "ITSMFTTracking/DetectorLayout.h"
 #include "ITSMFTTracking/MultiSourceLoading.h"
 #include "ITSMFTTracking/SurfaceDescriptor.h"
-#include "ITSMFTTracking/LegacyTrackerScratch.h"
+#include "ITSMFTTracking/SurfaceTrackingScratch.h"
 #include "ITSMFTTracking/TimeFrame.h"
 #include "ITSMFTTracking/TrackerTraits.h"
 #include "ITSMFTTracking/TrackingConfigParam.h"
@@ -305,7 +305,9 @@ struct Rig {
     auto result = buildDetectorLayoutSet(catalogView, orderedSurfaces, params);
     BOOST_REQUIRE(result.ok());
     plan.emplace(std::move(*result.layout));
-    tf.initTrackerTopologies(params);
+    const auto layoutView = plan->getLayoutView(0);
+    tf.adoptPlan(orderedSurfaces.size(), layoutView.topology.nTransitions, layoutView.topology.nCells);
+    tf.initTrackerTopologies<NLayers>(params);
 
     NeverDecodedDecoder decoder{mDet};
     const o2::InteractionRecord origin{50, 5};
@@ -325,9 +327,9 @@ struct Rig {
   std::shared_ptr<BoundedMemoryResource> pool;
   std::vector<TrackingParameters> params;
   // Gate 4 B3.1: `frame` declared before `tf` so it is constructed first and
-  // destroyed last (see LegacyTrackerScratch.h's own lifetime-contract doc).
+  // destroyed last (see SurfaceTrackingScratch's own lifetime-contract doc).
   TimeFrame frame;
-  LegacyTrackerScratch<NLayers> tf;
+  SurfaceTrackingScratch tf;
   TrackerTraits<NLayers> traits;
   std::shared_ptr<tbb::task_arena> arena;
   // Must outlive `plan` (DetectorLayoutSet borrows a SurfaceCatalogView into
@@ -407,7 +409,7 @@ int findCellTopologyId(const TopologyView& topology, int inner, int middle, int 
 template <int NLayers>
 void injectCandidateTracklets(Rig<NLayers>& rig, int cellTopologyId, const std::array<o2::its::Cluster, 3>& clusters)
 {
-  const auto topology = rig.tf.getTrackingTopologyView();
+  const auto topology = rig.tf.template getTrackingTopologyView<NLayers>();
   const auto& cell = topology.getCell(cellTopologyId);
   const auto& first = topology.getTransition(cell.firstTransition);
   const auto& second = topology.getTransition(cell.secondTransition);
@@ -491,7 +493,7 @@ template <int NLayers, size_t N>
 void injectChainCandidateTracklets(Rig<NLayers>& rig, const std::array<int, N>& layers, const std::array<o2::its::Cluster, N>& clusters)
 {
   static_assert(N >= 3, "a chain needs at least 3 layers to form one cell");
-  const auto topology = rig.tf.getTrackingTopologyView();
+  const auto topology = rig.tf.template getTrackingTopologyView<NLayers>();
   for (size_t i = 0; i < N; ++i) {
     BOOST_REQUIRE_EQUAL(rig.tf.getClusters()[layers[i]].size(), 1u);
     rig.tf.getClusters()[layers[i]][0] = clusters[i];
@@ -534,7 +536,7 @@ BOOST_AUTO_TEST_CASE(CylinderComputeLayerCellsMatchesBuildCellSeedOracle)
   rig.traits.initialiseTimeFrame(0, *rig.plan);
   BOOST_REQUIRE(rig.traits.hasTraversalCache());
 
-  const auto topology = rig.tf.getTrackingTopologyView();
+  const auto topology = rig.tf.getTrackingTopologyView<ITSNLayers>();
   const int cellTopologyId = findCellTopologyId(topology, 0, 1, 2);
   BOOST_REQUIRE_GE(cellTopologyId, 0);
 
@@ -617,7 +619,7 @@ BOOST_AUTO_TEST_CASE(DiskComputeLayerCellsMatchesBuildCellSeedOracle)
   rig.traits.initialiseTimeFrame(0, *rig.plan);
   BOOST_REQUIRE(rig.traits.hasTraversalCache());
 
-  const auto topology = rig.tf.getTrackingTopologyView();
+  const auto topology = rig.tf.getTrackingTopologyView<MFTNLayers>();
   const int cellTopologyId = findCellTopologyId(topology, 0, 1, 2);
   BOOST_REQUIRE_GE(cellTopologyId, 0);
 
@@ -673,7 +675,7 @@ BOOST_AUTO_TEST_CASE(DiskComputeLayerCellsRoadPreCutRejectsBeforeBuildCellSeed)
   rig.traits.updateTrackingParameters(rig.params);
   rig.traits.initialiseTimeFrame(0, *rig.plan);
 
-  const auto topology = rig.tf.getTrackingTopologyView();
+  const auto topology = rig.tf.getTrackingTopologyView<MFTNLayers>();
   const int cellTopologyId = findCellTopologyId(topology, 0, 1, 2);
   BOOST_REQUIRE_GE(cellTopologyId, 0);
 
@@ -716,7 +718,7 @@ BOOST_AUTO_TEST_CASE(CylinderComputeLayerCellsOnePassAndTwoPassAgree)
     rig.traits.updateTrackingParameters(rig.params);
     rig.traits.initialiseTimeFrame(0, *rig.plan);
 
-    const auto topology = rig.tf.getTrackingTopologyView();
+    const auto topology = rig.tf.getTrackingTopologyView<ITSNLayers>();
     const int cellTopologyId = findCellTopologyId(topology, 0, 1, 2);
     BOOST_REQUIRE_GE(cellTopologyId, 0);
 
@@ -775,7 +777,7 @@ BOOST_AUTO_TEST_CASE(DiskComputeLayerCellsOnePassAndTwoPassAgree)
     rig.traits.updateTrackingParameters(rig.params);
     rig.traits.initialiseTimeFrame(0, *rig.plan);
 
-    const auto topology = rig.tf.getTrackingTopologyView();
+    const auto topology = rig.tf.getTrackingTopologyView<MFTNLayers>();
     const int cellTopologyId = findCellTopologyId(topology, 0, 1, 2);
     BOOST_REQUIRE_GE(cellTopologyId, 0);
 
@@ -835,7 +837,7 @@ BOOST_AUTO_TEST_CASE(CylinderComputeLayerCellsSafeWithEmptyDiskReferenceSpan)
   rig.traits.initialiseTimeFrame(0, *rig.plan);
   BOOST_REQUIRE(rig.traits.hasTraversalCache());
 
-  const auto topology = rig.tf.getTrackingTopologyView();
+  const auto topology = rig.tf.getTrackingTopologyView<ITSNLayers>();
   const int cellTopologyId = findCellTopologyId(topology, 0, 1, 2);
   BOOST_REQUIRE_GE(cellTopologyId, 0);
 
@@ -885,7 +887,7 @@ BOOST_AUTO_TEST_CASE(RepeatedComputeLayerCellsCallsDoNotRebindOrIncreaseCounts)
 
   const int groupingCountAfterInit = rig.traits.getTraversalGroupingCount();
 
-  const auto topology = rig.tf.getTrackingTopologyView();
+  const auto topology = rig.tf.getTrackingTopologyView<MFTNLayers>();
   const int cellTopologyId = findCellTopologyId(topology, 0, 1, 2);
   BOOST_REQUIRE_GE(cellTopologyId, 0);
 
@@ -919,7 +921,7 @@ BOOST_AUTO_TEST_CASE(RepeatedComputeLayerCellsCallsDoNotRebindOrIncreaseCounts)
 
 BOOST_AUTO_TEST_CASE(ComputeLayerCellsFailsClosedWithoutInitialiseTimeFrame)
 {
-  LegacyTrackerScratch<ITSNLayers> tf;
+  SurfaceTrackingScratch tf;
   TrackerTraits<ITSNLayers> traits;
   traits.adoptScratch(&tf);
 
@@ -1047,7 +1049,7 @@ BOOST_AUTO_TEST_CASE(CylinderComputeLayerCellsMultiCellChainProducesCorrectCells
   rig.traits.initialiseTimeFrame(0, *rig.plan);
   BOOST_REQUIRE(rig.traits.hasTraversalCache());
 
-  const auto topology = rig.tf.getTrackingTopologyView();
+  const auto topology = rig.tf.getTrackingTopologyView<ITSNLayers>();
   injectChainCandidateTracklets(rig, layers, clusters);
 
   rig.traits.computeLayerCells(0);
@@ -1107,7 +1109,7 @@ BOOST_AUTO_TEST_CASE(DiskComputeLayerCellsMultiCellChainProducesCorrectCellsAndO
   rig.traits.initialiseTimeFrame(0, *rig.plan);
   BOOST_REQUIRE(rig.traits.hasTraversalCache());
 
-  const auto topology = rig.tf.getTrackingTopologyView();
+  const auto topology = rig.tf.getTrackingTopologyView<MFTNLayers>();
   injectChainCandidateTracklets(rig, layers, clusters);
 
   rig.traits.computeLayerCells(0);
@@ -1165,7 +1167,7 @@ BOOST_AUTO_TEST_CASE(CylinderComputeLayerCellsHoleCellReconstructsCorrectLayerMa
   rig.traits.initialiseTimeFrame(0, *rig.plan);
   BOOST_REQUIRE(rig.traits.hasTraversalCache());
 
-  const auto topology = rig.tf.getTrackingTopologyView();
+  const auto topology = rig.tf.getTrackingTopologyView<ITSNLayers>();
   injectChainCandidateTracklets(rig, layers, clusters);
 
   rig.traits.computeLayerCells(0);

@@ -62,7 +62,7 @@
 #include "ITSMFTTracking/NominalSurfaceMaterialDefaults.h"
 #include "ITSMFTTracking/SurfaceDescriptor.h"
 #include "ITSMFTTracking/SurfaceMeasurementAdapters.h"
-#include "ITSMFTTracking/LegacyTrackerScratch.h"
+#include "ITSMFTTracking/SurfaceTrackingScratch.h"
 #include "ITSMFTTracking/TimeFrame.h"
 #include "ITSMFTTracking/TrackerTraits.h"
 #include "ITStracking/Constants.h"
@@ -244,9 +244,9 @@ struct Rig {
 
   std::shared_ptr<BoundedMemoryResource> pool;
   // Gate 4 B3.1: `frame` declared before `tf` so it is constructed first and
-  // destroyed last (see LegacyTrackerScratch.h's own lifetime-contract doc).
+  // destroyed last (see SurfaceTrackingScratch's own lifetime-contract doc).
   TimeFrame frame;
-  LegacyTrackerScratch<ITSNLayers> tf;
+  SurfaceTrackingScratch tf;
   TrackerTraits<ITSNLayers> traits;
   // Must outlive `plan` (DetectorLayoutSet borrows a SurfaceCatalogView into
   // it, Gate 4 B2 Slice 2) -- declared before `plan` so it is constructed
@@ -262,7 +262,8 @@ struct Rig {
     auto result = buildDetectorLayoutSet(catalogView, orderedSurfaces, params);
     BOOST_REQUIRE(result.ok());
     plan.emplace(std::move(*result.layout));
-    tf.initTrackerTopologies(params);
+    tf.adoptPlan(plan->getConfigurationKey().orderedSurfaces.size(), 0, 0);
+    tf.initTrackerTopologies<ITSNLayers>(params);
   }
 
   // See testCATrackerFailureContract.cxx's identical helper for why loading a
@@ -288,14 +289,14 @@ struct Rig {
     o2::its::LayerTiming timing2{};
     timing2.mNROFsTF = static_cast<unsigned int>(f.rofs.size());
     timing2.mROFLength = 40;
-    typename LegacyTrackerScratch<ITSNLayers>::ROFOverlapTableN rofTable;
+    o2::its::ROFOverlapTable<ITSNLayers> rofTable;
     for (int iLayer = 0; iLayer < ITSNLayers; ++iLayer) {
       rofTable.defineLayer(iLayer, timing2);
     }
     rofTable.init();
     tf.setROFOverlapTable(rofTable);
 
-    typename LegacyTrackerScratch<ITSNLayers>::ROFMaskTableN mask{rofTable};
+    o2::its::ROFMaskTable<ITSNLayers> mask{rofTable};
     mask.resetMask();
     for (int iLayer = 0; iLayer < ITSNLayers; ++iLayer) {
       mask.setROFsEnabled(iLayer, 0, timing2.mNROFsTF, 1);
@@ -304,7 +305,7 @@ struct Rig {
   }
 };
 
-std::vector<int> snapshotIndexTable(LegacyTrackerScratch<ITSNLayers>& tf, int layer)
+std::vector<int> snapshotIndexTable(SurfaceTrackingScratch& tf, int layer)
 {
   std::vector<int> flat;
   for (int rof = 0; rof < tf.getNrof(layer); ++rof) {

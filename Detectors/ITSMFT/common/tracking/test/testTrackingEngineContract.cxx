@@ -40,7 +40,7 @@
 // in for a real atomic load -- ADR 0007 decision 1 classifies both as
 // permanent/detector-neutral core, not migration artifacts this slice must
 // avoid), and ordinary standard/Boost.Test headers -- no CATracker.h,
-// LegacyTrackerScratch.h, TrackerTraits.h, TransitionPolicy*, DPL/workflow,
+// SurfaceTrackingScratch.h, TrackerTraits.h, TransitionPolicy*, DPL/workflow,
 // or output-writer header. testTrackingEngineDependencyBoundary.cxx
 // additionally scans the production headers themselves for those exact
 // tokens.

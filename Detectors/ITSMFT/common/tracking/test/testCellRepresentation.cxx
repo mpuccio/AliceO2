@@ -6,10 +6,10 @@
 // License v3 (GPL Version 3), copied verbatim in the file "COPYING".
 
 // Stage-B cell-state activation: focused coverage for the composition-based
-// common CellSeed/TrackSeedTpl<NLayers> representation (Cell.h). Proves the
+// common CellSeed/TrackSeed representation (Cell.h). Proves the
 // activation slice's structural claims -- composition rather than
-// inheritance, one common CellSeed type regardless of NLayers, TrackSeed
-// differing only by cluster-array width, complete Cell->TrackSeed transfer,
+// inheritance, one common CellSeed representation across the ITS/MFT layer
+// ranges, fixed-capacity TrackSeed storage, complete Cell->TrackSeed transfer,
 // and one common raw-q/pT getQOverPt() accessor plus the family-agnostic
 // road-filter bound built on it -- without imposing a durable byte-offset
 // ABI lock (only SurfaceKinematicState.h itself carries that lock).
@@ -60,8 +60,8 @@ BOOST_AUTO_TEST_CASE(CellSeedComposesSurfaceKinematicStateAndDoesNotInheritLegac
 {
   BOOST_CHECK(!(std::is_base_of_v<o2::track::TrackParCovF, CellSeed>));
   BOOST_CHECK(!(std::is_base_of_v<o2::track::TrackParCovFwd, CellSeed>));
-  BOOST_CHECK(!(std::is_base_of_v<o2::track::TrackParCovF, TrackSeedTpl<ITSNLayers>>));
-  BOOST_CHECK(!(std::is_base_of_v<o2::track::TrackParCovFwd, TrackSeedTpl<MFTNLayers>>));
+  BOOST_CHECK(!(std::is_base_of_v<o2::track::TrackParCovF, TrackSeed>));
+  BOOST_CHECK(!(std::is_base_of_v<o2::track::TrackParCovFwd, TrackSeed>));
 
   CellSeed cell{};
   const auto state = makeDistinctState(StateFamily::Barrel);
@@ -73,30 +73,40 @@ BOOST_AUTO_TEST_CASE(CellSeedComposesSurfaceKinematicStateAndDoesNotInheritLegac
   BOOST_CHECK_EQUAL(cell.state().parameters[4], 99.f);
 }
 
-// --- One common CellSeed type regardless of NLayers -------------------------
+// --- One common CellSeed representation -------------------------------------
 
-BOOST_AUTO_TEST_CASE(CellSeedNResolvesToTheSameTypeForEveryNLayers)
+BOOST_AUTO_TEST_CASE(CellSeedUsesOneCommonRepresentationAcrossLayerRanges)
 {
-  static_assert(std::is_same_v<CellSeedN<ITSNLayers>, CellSeed>);
-  static_assert(std::is_same_v<CellSeedN<MFTNLayers>, CellSeed>);
-  static_assert(std::is_same_v<CellSeedN<ITSNLayers>, CellSeedN<MFTNLayers>>);
-  BOOST_CHECK(true); // compile-time proof above; this case exists so it appears in test output.
+  const auto state = makeDistinctState(StateFamily::Barrel);
+  const o2::its::TimeEstBC time{};
+  CellSeed itsSeed{LayerMask{0x007f}, 10, 11, 12, 1, 2, state, 0.f, time};
+  CellSeed mftSeed{LayerMask{0x03ff}, 20, 21, 22, 3, 4, state, 0.f, time};
+
+  BOOST_CHECK_EQUAL(itsSeed.getHitLayerMask().value(), 0x007f);
+  BOOST_CHECK_EQUAL(mftSeed.getHitLayerMask().value(), 0x03ff);
+  BOOST_CHECK_EQUAL(itsSeed.getCluster(6), o2::its::constants::UnusedIndex);
+  BOOST_CHECK_EQUAL(mftSeed.getCluster(9), o2::its::constants::UnusedIndex);
 }
 
-// --- TrackSeed differs only by NLayers cluster-array width ------------------
+// --- TrackSeed has one fixed capacity independent of NLayers ----------------
 
-BOOST_AUTO_TEST_CASE(TrackSeedNDiffersOnlyByClusterArrayWidth)
+BOOST_AUTO_TEST_CASE(TrackSeedUsesOneFixedCapacity)
 {
-  static_assert(!std::is_same_v<TrackSeedN<ITSNLayers>, TrackSeedN<MFTNLayers>>);
-  static_assert(std::is_same_v<TrackSeedN<ITSNLayers>, TrackSeedTpl<ITSNLayers>>);
-  static_assert(std::is_same_v<TrackSeedN<MFTNLayers>, TrackSeedTpl<MFTNLayers>>);
+  static_assert(TrackSeed::MaxSurfaces == static_cast<int>(MaxLayoutSurfaces));
 
-  // Both wrap the identical SeedMetadataBase<NLayers> shape apart from the
-  // NLayers-sized raw int cluster array; the only expected size delta is
-  // exactly that many extra ints (no other family-dependent storage).
-  constexpr size_t expectedDelta = static_cast<size_t>(MFTNLayers - ITSNLayers) * sizeof(int);
-  const size_t actualDelta = sizeof(TrackSeedN<MFTNLayers>) - sizeof(TrackSeedN<ITSNLayers>);
-  BOOST_CHECK_EQUAL(actualDelta, expectedDelta);
+  TrackSeed seed;
+  SurfaceMask mask;
+  mask.set(SurfaceId{static_cast<uint16_t>(TrackSeed::MaxSurfaces - 1)});
+  seed.setSurfaceMask(mask);
+  seed.setCluster(TrackSeed::MaxSurfaces - 1, 42);
+
+  BOOST_CHECK(seed.hasCluster(TrackSeed::MaxSurfaces - 1));
+  BOOST_CHECK_EQUAL(seed.getCluster(TrackSeed::MaxSurfaces - 1), 42);
+  BOOST_CHECK_EQUAL(seed.getActiveSurfaceCount(), 1);
+  BOOST_CHECK_EQUAL(seed.getCluster(TrackSeed::MaxSurfaces), o2::its::constants::UnusedIndex);
+
+  seed.setCluster(TrackSeed::MaxSurfaces, 99);
+  BOOST_CHECK_EQUAL(seed.getCluster(TrackSeed::MaxSurfaces), o2::its::constants::UnusedIndex);
 }
 
 // --- Cell -> TrackSeed copies every state byte and every metadata field -----
@@ -108,7 +118,7 @@ BOOST_AUTO_TEST_CASE(TrackSeedConstructionFromCellCopiesStateAndMetadataComplete
   const o2::its::TimeEstBC time{static_cast<uint32_t>(123), static_cast<uint16_t>(4)};
   CellSeed cell{innerLayer, 10, 20, 30, 5, 6, state, 7.5f, time};
 
-  TrackSeedN<ITSNLayers> seed{cell};
+  TrackSeed seed{cell};
 
   BOOST_CHECK_EQUAL(std::memcmp(&seed.state(), &cell.state(), sizeof(SurfaceKinematicState)), 0);
   BOOST_CHECK_EQUAL(seed.getChi2(), cell.getChi2());
@@ -261,13 +271,10 @@ BOOST_AUTO_TEST_CASE(CellSeedAndTrackSeedSizeAlignmentCharacterization)
   // loudly, without pinning an exact byte count here.
   BOOST_TEST_MESSAGE("sizeof(SurfaceKinematicState) = " << sizeof(SurfaceKinematicState));
   BOOST_TEST_MESSAGE("sizeof(CellSeed) = " << sizeof(CellSeed) << ", alignof(CellSeed) = " << alignof(CellSeed));
-  BOOST_TEST_MESSAGE("sizeof(TrackSeedN<ITSNLayers>) = " << sizeof(TrackSeedN<ITSNLayers>)
-                                                         << ", alignof = " << alignof(TrackSeedN<ITSNLayers>));
-  BOOST_TEST_MESSAGE("sizeof(TrackSeedN<MFTNLayers>) = " << sizeof(TrackSeedN<MFTNLayers>)
-                                                         << ", alignof = " << alignof(TrackSeedN<MFTNLayers>));
+  BOOST_TEST_MESSAGE("sizeof(TrackSeed) = " << sizeof(TrackSeed)
+                                            << ", alignof = " << alignof(TrackSeed));
 
   BOOST_CHECK_GE(sizeof(CellSeed), sizeof(SurfaceKinematicState));
-  BOOST_CHECK_GE(sizeof(TrackSeedN<ITSNLayers>), sizeof(SurfaceKinematicState));
-  BOOST_CHECK_GE(sizeof(TrackSeedN<MFTNLayers>), sizeof(TrackSeedN<ITSNLayers>));
+  BOOST_CHECK_GE(sizeof(TrackSeed), sizeof(SurfaceKinematicState));
   BOOST_CHECK_EQUAL(alignof(CellSeed), alignof(SurfaceKinematicState));
 }

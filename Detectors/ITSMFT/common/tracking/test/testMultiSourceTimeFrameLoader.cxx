@@ -31,6 +31,7 @@
 
 #include <array>
 #include <fstream>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -46,7 +47,7 @@
 #include "ITSMFTTracking/DecodedCluster.h"
 #include "ITSMFTTracking/DetectorLayout.h"
 #include "ITSMFTTracking/IOUtils.h"
-#include "ITSMFTTracking/LegacyTrackerScratch.h"
+#include "ITSMFTTracking/SurfaceTrackingScratch.h"
 #include "ITSMFTTracking/MultiSourceFrame.h"
 #include "ITSMFTTracking/MultiSourceTimeFrameLoader.h"
 #include "ITSMFTTracking/StaticDetectorCatalogs.h"
@@ -165,6 +166,12 @@ const TopologyDictionary& dict()
   return d;
 }
 
+void configureScratch(SurfaceTrackingScratch& scratch, std::size_t nOwnedSurfaces)
+{
+  scratch.setMemoryPool(std::make_shared<o2::its::BoundedMemoryResource>());
+  scratch.adoptPlan(nOwnedSurfaces, 0, 0);
+}
+
 // One single-cluster, single-ROF, single-surface source, `surfaceIndex`
 // selecting which of the layout's own SurfaceIds it targets. `detector`/
 // `kind` must agree with that SurfaceId's own catalog tag.
@@ -202,7 +209,7 @@ struct OneClusterSource {
 // scratch: stage()/commit() are pure call/outcome recorders. Proves
 // loadEvent()'s own generic machinery (staging order, all-succeed-then-
 // commit-all, stop-and-leave-everything-untouched-on-first-failure) without
-// needing a real LegacyTrackerScratch<NLayers> behind every binding.
+// needing a real SurfaceTrackingScratch behind every binding.
 class FakeLoadTarget final : public MultiSourceTimeFrameLoader::LoadTarget
 {
  public:
@@ -340,10 +347,10 @@ std::vector<SurfaceId> orderedRange(uint16_t first, uint16_t count)
 
 // One cluster on layer 0 only; `layerToSurface` still spans every one of
 // this detector's NLayers surfaces (layers 1..NLayers-1 stay empty) --
-// LegacyTrackerScratch<NLayers>::loadNormalizedSource() sizes its own
+// SurfaceTrackingScratch::loadNormalizedSource() sizes its own
 // legacy per-layer containers from layerToSurface.size(), so it must match
 // NLayers exactly, unlike the single-surface synthetic sources above (which
-// never touch a real LegacyTrackerScratch<NLayers> at all).
+// never touch a real SurfaceTrackingScratch at all).
 ClusterSourceInput makeSingleClusterInput(ClusterSourceId id, o2::detectors::DetID::ID det, SurfaceKind kind,
                                           const std::vector<SurfaceId>& layerToSurface,
                                           std::vector<CompClusterExt>& clustersOut, std::vector<unsigned char>& patternsOut,
@@ -381,8 +388,10 @@ BOOST_AUTO_TEST_CASE(TwoParticipantITSMFTWrapperReproducesSourceQualificationAnd
   const auto mftLayerToSurface = orderedRange(ITSNLayers, MFTNLayers);
 
   TimeFrame frame;
-  LegacyTrackerScratchITS itsScratch;
-  LegacyTrackerScratchMFT mftScratch;
+  SurfaceTrackingScratch itsScratch;
+  SurfaceTrackingScratch mftScratch;
+  configureScratch(itsScratch, itsLayerToSurface.size());
+  configureScratch(mftScratch, mftLayerToSurface.size());
 
   FakeClusterDecoder itsDecoder{o2::detectors::DetID::ITS, SurfaceKind::Cylinder};
   FakeClusterDecoder mftDecoder{o2::detectors::DetID::MFT, SurfaceKind::Disk};
@@ -417,8 +426,8 @@ BOOST_AUTO_TEST_CASE(TwoParticipantITSMFTWrapperReproducesSourceQualificationAnd
   // The fixed-position guard itself: a mismatched id/detector pairing is
   // rejected before any staging happens, exactly as before this milestone.
   TimeFrame rejectedFrame;
-  LegacyTrackerScratchITS rejectedItsScratch;
-  LegacyTrackerScratchMFT rejectedMftScratch;
+  SurfaceTrackingScratch rejectedItsScratch;
+  SurfaceTrackingScratch rejectedMftScratch;
   auto wrongIdInput = itsInput;
   wrongIdInput.id = ClusterSourceId{5};
   const auto rejected = MultiSourceTimeFrameLoader::loadITSAndMFT(rejectedFrame, rejectedItsScratch, rejectedMftScratch, wrongIdInput, mftInput,
@@ -516,8 +525,7 @@ BOOST_AUTO_TEST_CASE(GenericLoaderHeaderAndSourceHaveNoITSMFTOrFixedSourceSpecia
   // disposable-TimeFrame source as 0 (any value would do -- there is only
   // ever one source in that throwaway container), unrelated to this
   // transaction's real, externally supplied source ids.
-  const std::vector<std::string> forbidden = {"DetID::ITS", "DetID::MFT", "LegacyTrackerScratchITS", "LegacyTrackerScratchMFT",
-                                              "ITSNLayers", "MFTNLayers"};
+  const std::vector<std::string> forbidden = {"DetID::ITS", "DetID::MFT", "ITSNLayers", "MFTNLayers"};
 
   {
     auto lines = readLines(headerFile);

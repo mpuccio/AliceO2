@@ -227,16 +227,16 @@ o2::track::TrackParCovF makeInitialTrackParCovF()
   return o2::track::TrackParCovF{state.referenceCoordinate, state.alpha, parameters, covariance, state.absCharge, state.pid};
 }
 
-TrackSeedN<NLayers> makeNativeSeed(int nHitLayers)
+TrackSeed makeNativeSeed(int nHitLayers)
 {
-  TrackSeedN<NLayers> seed{};
+  TrackSeed seed{};
   seed.state() = makeInitialState();
   uint16_t mask = 0;
   for (int layer = 0; layer < nHitLayers; ++layer) {
     seed.getClusters()[layer] = 0;
     mask |= static_cast<uint16_t>(uint16_t(1) << layer);
   }
-  seed.setHitLayerMask(LayerMask{mask});
+  seed.setSurfaceMask(SurfaceMask{mask});
   return seed;
 }
 

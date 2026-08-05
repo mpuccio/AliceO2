@@ -2,12 +2,12 @@
 // See https://alice-o2.web.cern.ch/copyright for details of the copyright holders.
 // All rights not expressly granted are reserved.
 
-// M6c (Detectors/ITSMFT/common/tracking/doc/design/0002-m6-generic-workspace-migration.md
-// Sec 4, 9): focused coverage for the additive, detector-neutral
-// SurfaceTrackingScratch. Container validation only, per that milestone's
-// own instruction -- no mixed-detector tracking success case, no wiring of
-// any production participant, no fixture/replay. LegacyTrackerScratch<NLayers>
-// itself is never touched or exercised here.
+// M6f (Detectors/ITSMFT/common/tracking/doc/design/0002-m6-generic-workspace-migration.md
+// Sec 9, 10): focused coverage for the sole detector-neutral
+// SurfaceTrackingScratch after the temporary workspace/binding bridge was
+// retired. This file keeps container, dependency-boundary, and deleted-file
+// assertions; production traffic and replay coverage live in the participant,
+// workflow, and validation tests.
 
 #define BOOST_TEST_MODULE ITSMFT SurfaceTrackingScratch
 #define BOOST_TEST_MAIN
@@ -227,7 +227,7 @@ BOOST_AUTO_TEST_CASE(ResetClearsWorkingStateWithoutMutatingAPopulatedTimeFrameOr
 
   // Vector-of-bounded_vector (Group A/B outer) containers: outer element
   // count -- the adopted plan size -- survives reset(); only each element's
-  // *contents* are cleared. Mirrors LegacyTrackerScratch<NLayers>::resetScratch()
+  // *contents* are cleared. Mirrors SurfaceTrackingScratch::resetScratch()
   // exactly (it never shrinks its own NLayers-wide outer arrays either).
   BOOST_CHECK_EQUAL(scratch.mClusters.size(), chain.nOwnedSurfaces());
   BOOST_CHECK(scratch.mClusters[0].empty());
@@ -316,7 +316,7 @@ void checkNoForbiddenToken(const fs::path& path, const std::string& token, const
 } // namespace
 
 // M6d revision: SurfaceTrackingScratch is now wired into production for
-// MFT specifically (LegacyCATrackingParticipantMFT), so it legitimately
+// MFT specifically (SurfacePlanTrackingParticipantMFT), so it legitimately
 // knows a handful of things M6c's own additive-only version could not yet:
 // o2::detectors::DetID::MFT (loadNormalizedSource()'s own detector
 // preflight), the literal "MFT" token (MFTNLayers, MFTCATrack.h,
@@ -370,7 +370,7 @@ BOOST_AUTO_TEST_CASE(NewHeadersPullNoITSWorkflowOutputOrTransitionPolicyTagDepen
     "ITSMFTLegacyParticipantSet.h",
     "MultiSourceTimeFrameLoader.h",
     "LegacyTrackerScratch.h",
-    "LegacyCATrackingParticipant.h"};
+    "SurfacePlanTrackingParticipant.h"};
   for (const auto& path : newFiles) {
     std::ifstream input{path};
     BOOST_REQUIRE_MESSAGE(input.good(), "cannot inspect " << path.string());
@@ -386,19 +386,18 @@ BOOST_AUTO_TEST_CASE(NewHeadersPullNoITSWorkflowOutputOrTransitionPolicyTagDepen
   }
 }
 
-BOOST_AUTO_TEST_CASE(LegacyTrackerScratchRemainsUntouchedByThisMilestone)
+BOOST_AUTO_TEST_CASE(RetiredLegacyWorkspaceFilesAreAbsentAfterMigration)
 {
-  // Sole production owner of Group A/B/C/D state until M6d/M6e wire the new
-  // type in -- this milestone must not modify it. Grep-verified here rather
-  // than merely asserted: the file must still exist and must not mention
-  // SurfaceTrackingScratch anywhere.
+  // M6f removes the temporary workspace/binding bridge once every production
+  // participant uses the plan-driven model. Keep the filesystem assertion
+  // here alongside the source guard so an accidental reintroduction is
+  // caught by both the focused scratch test and the migration guard.
   const std::string testFile = __FILE__;
   const auto testDirectory = testFile.substr(0, testFile.find_last_of('/'));
   const fs::path trackingRoot = fs::path(testDirectory) / "..";
-  const fs::path legacyHeader = trackingRoot / "include/ITSMFTTracking/LegacyTrackerScratch.h";
-  const fs::path legacySource = trackingRoot / "src/LegacyTrackerScratch.cxx";
-  BOOST_REQUIRE(fs::is_regular_file(legacyHeader));
-  BOOST_REQUIRE(fs::is_regular_file(legacySource));
-  checkNoForbiddenToken(legacyHeader, "SurfaceTrackingScratch", "M6c's new generic scratch type");
-  checkNoForbiddenToken(legacySource, "SurfaceTrackingScratch", "M6c's new generic scratch type");
+  BOOST_CHECK(!fs::exists(trackingRoot / "include/ITSMFTTracking/LegacyTrackerScratch.h"));
+  BOOST_CHECK(!fs::exists(trackingRoot / "include/ITSMFTTracking/detail/DetectorTraversalBinding.h"));
+  BOOST_CHECK(!fs::exists(trackingRoot / "src/LegacyTrackerScratch.cxx"));
+  BOOST_CHECK(fs::is_regular_file(trackingRoot / "include/ITSMFTTracking/SurfaceTrackingScratch.h"));
+  BOOST_CHECK(fs::is_regular_file(trackingRoot / "include/ITSMFTTracking/detail/SurfacePlanBinding.h"));
 }

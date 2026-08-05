@@ -16,8 +16,8 @@
 #include "ITSCommonTracking/CommonTrackingParameters.h"
 #include "ITSMFTTracking/CATracker.h"
 #include "ITSMFTTracking/DetectorLayoutSet.h"
-#include "ITSMFTTracking/LegacyTrackerScratch.h"
 #include "ITSMFTTracking/StaticDetectorCatalogs.h"
+#include "ITSMFTTracking/SurfaceTrackingScratch.h"
 #include "ITSMFTTracking/SurfaceCatalogView.h"
 #include "ITSMFTTracking/detail/TransitionPolicyBinding.h"
 
@@ -80,19 +80,19 @@ int initializeCommonITSTracker()
   // Gate 4 B3.1: the permanent, non-templated TimeFrame (event data:
   // vertices, beam state, Bz, CommonTrack/TrackClusterReference storage,
   // normalized measurements) and the temporary, per-detector
-  // LegacyTrackerScratch<NLayers> (legacy CA scratch/topology/result
-  // containers) are constructed here in that order, so C++'s reverse-
-  // declaration-order destruction tears the scratch down first -- see
-  // LegacyTrackerScratch.h's own lifetime-contract doc. Neither owns or
-  // stores a reference to the other; this function is what binds both.
+  // SurfaceTrackingScratch (the common CA scratch/topology containers) is
+  // constructed after the permanent TimeFrame so C++'s reverse declaration
+  // order tears the scratch down first. Neither owner stores a reference to
+  // the other; this function is what binds both.
   TimeFrame frame;
-  LegacyTrackerScratch<ITSNLayers> scratch;
-  scratch.initDefaultTrackingTopology(parameters.front(), ITSNLayers);
-  scratch.initTrackerTopologies(parameters);
+  SurfaceTrackingScratch scratch;
 
   auto pool = std::make_shared<BoundedMemoryResource>();
   frame.setMemoryPool(pool);
   scratch.setMemoryPool(pool);
+  scratch.adoptPlan(orderedSurfaces.size(), layout.topology.nTransitions, layout.topology.nCells);
+  scratch.initDefaultTrackingTopology<ITSNLayers>(parameters.front(), ITSNLayers);
+  scratch.initTrackerTopologies<ITSNLayers>(parameters);
   TrackerTraits<ITSNLayers> traits;
   traits.setMemoryPool(pool);
   traits.adoptScratch(&scratch);

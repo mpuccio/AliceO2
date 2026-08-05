@@ -6,11 +6,11 @@
 // Sec 3.2, 7, 9) source-level/include guard: SurfacePlanBinding.h itself must
 // never reference ITS/MFT detector identity, the fixed 7/10 layer counts, or
 // the fixed ClusterSourceId{0}/{1} combined-load positions -- all of that
-// stays inside DetectorTraversalBinding (unmodified) and, further up the
+// stayed inside the former DetectorTraversalBinding and, further up the
 // stack, inside whatever adapter eventually calls SurfacePlanBinding::build()
 // (M6d/M6e; today, nothing). Scans only detail/SurfacePlanBinding.h itself
 // (the "new binding implementation" the task names), not the whole
-// production tree -- DetectorTraversalBinding.h and TrackerTraits.cxx
+// production tree -- the deleted binding header and TrackerTraits.cxx
 // legitimately still use every one of these tokens and are unaffected by
 // this guard. Mirrors the scan/allowlist idiom of
 // testNoLegacyFittingDependency.cxx (ADR 0008) and

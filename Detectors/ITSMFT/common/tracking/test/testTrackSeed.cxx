@@ -2,13 +2,9 @@
 // See https://alice-o2.web.cern.ch/copyright for details of the copyright holders.
 // All rights not expressly granted are reserved.
 
-// M6c (Detectors/ITSMFT/common/tracking/doc/design/0002-m6-generic-workspace-migration.md
-// Sec 4.2, 9): focused coverage for the additive, GPU-portable, non-templated
-// TrackSeed -- the generic successor to TrackSeedTpl<NLayers>. Container/
-// value-type validation only, mirroring testCellRepresentation.cxx's own
-// style for the existing Cell.h types. TrackSeedTpl<NLayers> itself is never
-// modified or touched here -- only used as a comparison oracle, exactly like
-// testSurfacePlanBinding.cxx uses DetectorTraversalBinding.
+// Gate 4 M6f: focused coverage for the fixed-capacity, GPU-portable,
+// non-templated TrackSeed. Container/value-type validation mirrors
+// testCellRepresentation.cxx's style for the live Cell.h types.
 
 #define BOOST_TEST_MODULE ITSMFT TrackSeed
 #define BOOST_TEST_MAIN
@@ -60,9 +56,8 @@ BOOST_AUTO_TEST_CASE(CapacityIsExactlyMaxLayoutSurfaces)
 
 BOOST_AUTO_TEST_CASE(TrackSeedIsAConcreteNonTemplatedType)
 {
-  static_assert(!std::is_same_v<TrackSeed, TrackSeedN<ITSNLayers>>);
-  static_assert(!std::is_same_v<TrackSeed, TrackSeedN<MFTNLayers>>);
-  static_assert(!std::is_same_v<TrackSeed, TrackSeedTpl<ITSNLayers>>);
+  static_assert(std::is_final_v<TrackSeed>);
+  static_assert(std::is_same_v<decltype(TrackSeed{}), TrackSeed>);
   BOOST_CHECK(true);
 }
 
@@ -188,7 +183,7 @@ BOOST_AUTO_TEST_CASE(SlotAccessorsReturnUnusedIndexBeyondActiveCount)
   BOOST_CHECK_EQUAL(empty.getActiveSurfaceCount(), 0);
 }
 
-// --- getQOverPt: same raw-signed-value convention as CellSeed/TrackSeedTpl ---
+// --- getQOverPt: same raw-signed-value convention as CellSeed -------------
 
 BOOST_AUTO_TEST_CASE(GetQOverPtReturnsTheExactRawValueWithoutSquaringOrAbs)
 {
@@ -205,8 +200,8 @@ BOOST_AUTO_TEST_CASE(GetQOverPtReturnsTheExactRawValueWithoutSquaringOrAbs)
 
 BOOST_AUTO_TEST_CASE(TrackSeedIsTriviallyCopyableButNotStandardLayout)
 {
-  // TrackSeed is GPUhd()-annotated throughout, exactly like CellSeed/
-  // TrackSeedTpl<NLayers>, and must remain copyable by value across the
+  // TrackSeed is GPUhd()-annotated throughout, exactly like CellSeed, and
+  // must remain copyable by value across the
   // host/device boundary: is_trivially_copyable is the property this
   // actually requires (byte-for-byte copyable, no user-provided copy/move/
   // destructor logic) and the one it satisfies -- already static_assert'd
@@ -218,8 +213,8 @@ BOOST_AUTO_TEST_CASE(TrackSeedIsTriviallyCopyableButNotStandardLayout)
   // (o2::dataformats::TimeStampWithError<uint32_t, uint16_t>, deriving from
   // TimeStamp<uint32_t>) declares non-static data members in more than one
   // class of its own hierarchy. This is a property of TimeEstBC itself, not
-  // anything TrackSeed adds -- CellSeed/TrackSeedTpl<NLayers> embed the same
-  // member via SeedMetadataBase and are not standard-layout either (neither
+  // anything TrackSeed adds -- CellSeed embeds the same member via
+  // SeedMetadataBase and is not standard-layout either (it
   // carries a standard-layout static_assert in this codebase). Asserted
   // here explicitly, not merely omitted, so this is a stated fact rather
   // than an untested assumption.

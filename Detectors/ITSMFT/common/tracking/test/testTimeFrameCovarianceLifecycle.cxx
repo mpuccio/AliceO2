@@ -34,7 +34,7 @@
 #include "ITSMFTTracking/Configuration.h"
 #include "ITSMFTTracking/DecodedCluster.h"
 #include "ITSMFTTracking/DetectorLayoutSet.h"
-#include "ITSMFTTracking/LegacyTrackerScratch.h"
+#include "ITSMFTTracking/SurfaceTrackingScratch.h"
 #include "ITSMFTTracking/NominalSurfaceMaterialDefaults.h"
 #include "ITSMFTTracking/SurfaceMeasurementAdapters.h"
 #include "ITSMFTTracking/TimeFrame.h"
@@ -187,8 +187,7 @@ struct CovarianceSnapshot {
   friend bool operator==(const CovarianceSnapshot&, const CovarianceSnapshot&) = default;
 };
 
-template <int NLayers>
-CovarianceSnapshot snapshotCovariance(const TimeFrame& frame, const LegacyTrackerScratch<NLayers>& tf)
+CovarianceSnapshot snapshotCovariance(const TimeFrame& frame, const SurfaceTrackingScratch& tf)
 {
   const auto measurements = frame.getNormalizedFrame().getSurfaceMeasurements(SurfaceId{0});
   BOOST_REQUIRE_EQUAL(measurements.size(), 1u);
@@ -203,8 +202,7 @@ CovarianceSnapshot snapshotCovariance(const TimeFrame& frame, const LegacyTracke
      floatBits(compatibility[0].covarianceTrackingFrame[2])}};
 }
 
-template <int NLayers>
-void checkRepresentationsAligned(const TimeFrame& frame, const LegacyTrackerScratch<NLayers>& tf)
+void checkRepresentationsAligned(const TimeFrame& frame, const SurfaceTrackingScratch& tf)
 {
   const auto snapshot = snapshotCovariance(frame, tf);
   BOOST_CHECK(snapshot.normalized == snapshot.compatibility);
@@ -232,7 +230,8 @@ struct Rig {
     auto result = buildDetectorLayoutSet(catalogView, orderedSurfaces, parameters);
     BOOST_REQUIRE(result.ok());
     plan.emplace(std::move(*result.layout));
-    tf.initTrackerTopologies(parameters);
+    tf.adoptPlan(plan->getConfigurationKey().orderedSurfaces.size(), 0, 0);
+    tf.initTrackerTopologies<NLayers>(parameters);
   }
 
   void load(bool applySysErrors)
@@ -251,14 +250,14 @@ struct Rig {
     o2::its::LayerTiming timing{};
     timing.mNROFsTF = 1;
     timing.mROFLength = 40;
-    typename LegacyTrackerScratch<NLayers>::ROFOverlapTableN rofTable;
+    o2::its::ROFOverlapTable<NLayers> rofTable;
     for (int layer = 0; layer < NLayers; ++layer) {
       rofTable.defineLayer(layer, timing);
     }
     rofTable.init();
     tf.setROFOverlapTable(rofTable);
 
-    typename LegacyTrackerScratch<NLayers>::ROFMaskTableN mask{rofTable};
+    o2::its::ROFMaskTable<NLayers> mask{rofTable};
     mask.resetMask();
     for (int layer = 0; layer < NLayers; ++layer) {
       mask.setROFsEnabled(layer, 0, 1, 1);
@@ -271,9 +270,9 @@ struct Rig {
   SystematicContractDecoder decoder;
   std::shared_ptr<BoundedMemoryResource> pool;
   // Gate 4 B3.1: `frame` declared before `tf` so it is constructed first and
-  // destroyed last (see LegacyTrackerScratch.h's own lifetime-contract doc).
+  // destroyed last (see SurfaceTrackingScratch's own lifetime-contract doc).
   TimeFrame frame;
-  LegacyTrackerScratch<NLayers> tf;
+  SurfaceTrackingScratch tf;
   TrackerTraits<NLayers> traits;
   // Must outlive `plan` (DetectorLayoutSet borrows a SurfaceCatalogView into
   // it, Gate 4 B2 Slice 2) -- declared before `plan` so it is constructed
