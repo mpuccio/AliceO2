@@ -480,13 +480,13 @@ struct CombinedTrackingComposer {
     }
 
     participants.markPublicationValid();
-    return {ParticipantOutcome::Success, participants.getITSScratch().getNumberOfTracks(), participants.getMFTScratch().getNumberOfTracks()};
+    return {ParticipantOutcome::Success, participants.getITSScratch().getNumberOfTracks<ITSNLayers>(), participants.getMFTScratch().getNumberOfTracks<MFTNLayers>()};
   }
 
-  const LegacyTrackerScratchITS& getITSScratch() const noexcept { return participants.getITSScratch(); }
-  // M6d: MFT's own participant now owns SurfaceTrackingScratch, not
-  // LegacyTrackerScratch<MFTNLayers> -- see ITSMFTLegacyParticipantSet.h's
-  // own getMFTScratch().
+  // M6e2: both participants now own SurfaceTrackingScratch, not
+  // LegacyTrackerScratch<NLayers> -- see ITSMFTLegacyParticipantSet.h's own
+  // getITSScratch()/getMFTScratch().
+  const SurfaceTrackingScratch& getITSScratch() const noexcept { return participants.getITSScratch(); }
   const SurfaceTrackingScratch& getMFTScratch() const noexcept { return participants.getMFTScratch(); }
   const ITSSharedClusterCompatibility& getITSSharedClusterCompatibility() const noexcept { return participants.getITSSharedClusterCompatibility(); }
   const MFTPublicationCompatibility& getMFTPublicationCompatibility() const noexcept { return participants.getMFTPublicationCompatibility(); }
@@ -577,7 +577,7 @@ BOOST_AUTO_TEST_CASE(MftGlobalIdsWorkEndToEndThroughRefitAndReproducesStandalone
   // refit: the combined pass through the composition reproduces the
   // standalone (global==compact, unbound) oracle count exactly.
   BOOST_CHECK_EQUAL(result.nMFTTracks, standalone.scratch.getNumberOfTracks());
-  BOOST_CHECK_EQUAL(composer.getMFTScratch().getNumberOfTracks(), standalone.scratch.getNumberOfTracks());
+  BOOST_CHECK_EQUAL(composer.getMFTScratch().getNumberOfTracks<MFTNLayers>(), standalone.scratch.getNumberOfTracks());
 }
 
 BOOST_AUTO_TEST_CASE(ITSAndMFTAcceptedResultsReproduceStandaloneCountsInOneCombinedPass)
@@ -733,8 +733,8 @@ BOOST_AUTO_TEST_CASE(LoadFailureResetsWholeCombinedTFExactlyOnceAndInvalidatesPu
 
   BOOST_CHECK_EQUAL(composer.getITSScratch().getTotalClusters(), 0);
   BOOST_CHECK_EQUAL(composer.getMFTScratch().getTotalClusters(), 0);
-  BOOST_CHECK_EQUAL(composer.getITSScratch().getNumberOfTracks(), 0u);
-  BOOST_CHECK_EQUAL(composer.getMFTScratch().getNumberOfTracks(), 0u);
+  BOOST_CHECK_EQUAL(composer.getITSScratch().getNumberOfTracks<ITSNLayers>(), 0u);
+  BOOST_CHECK_EQUAL(composer.getMFTScratch().getNumberOfTracks<MFTNLayers>(), 0u);
   BOOST_CHECK(frame.getCommonTracks().empty());
   BOOST_CHECK(frame.getTrackClusterIndices().empty());
   BOOST_CHECK(!composer.getITSPublicationExport().has_value());
@@ -781,7 +781,7 @@ BOOST_AUTO_TEST_CASE(MFTTrackingFailureAfterITSSuccessStillResetsBothScratches)
   // RecoverableDropped.
   BOOST_CHECK(result.outcome == ParticipantOutcome::RecoverableDropped);
   BOOST_CHECK_EQUAL(composer.getITSScratch().getTotalClusters(), 0);
-  BOOST_CHECK_EQUAL(composer.getITSScratch().getNumberOfTracks(), 0u);
+  BOOST_CHECK_EQUAL(composer.getITSScratch().getNumberOfTracks<ITSNLayers>(), 0u);
   BOOST_CHECK_EQUAL(composer.getMFTScratch().getTotalClusters(), 0);
   BOOST_CHECK(frame.getCommonTracks().empty());
   BOOST_CHECK(!composer.getITSPublicationExport().has_value());
@@ -1186,8 +1186,8 @@ BOOST_AUTO_TEST_CASE(AtomicLoadFailureInvokesEngineResetOnlyAndLeavesNoParticipa
 
   BOOST_CHECK_EQUAL(composer.getITSScratch().getTotalClusters(), 0);
   BOOST_CHECK_EQUAL(composer.getMFTScratch().getTotalClusters(), 0);
-  BOOST_CHECK_EQUAL(composer.getITSScratch().getNumberOfTracks(), 0u);
-  BOOST_CHECK_EQUAL(composer.getMFTScratch().getNumberOfTracks(), 0u);
+  BOOST_CHECK_EQUAL(composer.getITSScratch().getNumberOfTracks<ITSNLayers>(), 0u);
+  BOOST_CHECK_EQUAL(composer.getMFTScratch().getNumberOfTracks<MFTNLayers>(), 0u);
   BOOST_CHECK(frame.getCommonTracks().empty());
   BOOST_CHECK(frame.getTrackClusterIndices().empty());
   // Neither sidecar was ever sealed/populated by this process() call --

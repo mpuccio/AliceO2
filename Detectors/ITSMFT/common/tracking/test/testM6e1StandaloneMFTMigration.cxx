@@ -7,9 +7,12 @@
 // (ITSMFTTrackingInterfaceMFT, o2-mft-ca-tracker-workflow) migrated onto
 // SurfaceTrackingScratch/SurfacePlanBinding via the same M6d compile-time
 // scratch/binding seam already proven for the combined MFT participant
-// (testM6dMFTMigration.cxx). This is the second, and last, MFT-only slice --
-// ITS (standalone and combined) is untouched, still on
-// LegacyTrackerScratch<7>/DetectorTraversalBinding.
+// (testM6dMFTMigration.cxx). At M6e1 time this was the second, and last,
+// MFT-only slice -- ITS (standalone and combined) was untouched, still on
+// LegacyTrackerScratch<7>/DetectorTraversalBinding. M6e2 migrated both live
+// ITS common-CA paths too (see testM6e2ITSWorkspaceMigration.cxx); this
+// file's own type-proof section below was updated to match, its behavioral
+// coverage remains MFT-only and otherwise unchanged.
 //
 // Fixture technique (FieldFixture/GRPECSFixture/OneLayerDecoder/
 // makePatternBytes/oneRof/oneCluster) duplicated from
@@ -231,20 +234,26 @@ SurfaceMask combinedMftMask()
 } // namespace
 
 // --- Type proofs: ITSMFTTrackingInterfaceMFT uses SurfaceTrackingScratch/
-// SurfacePlanBinding; ITSMFTTrackingInterfaceITS stays on
-// LegacyTrackerScratch<7>/DetectorTraversalBinding. TrackerN carries both
-// ScratchT and BindingT as template arguments, so one static_assert per
-// alias proves both types at once. Compile-time only -- BOOST_CHECK(true)
-// exists so this appears in test output, matching testM6dMFTMigration.cxx's
-// own style for this exact kind of proof. ---
+// SurfacePlanBinding. TrackerN carries both ScratchT and BindingT as
+// template arguments, so one static_assert per alias proves both types at
+// once. Compile-time only -- BOOST_CHECK(true) exists so this appears in
+// test output, matching testM6dMFTMigration.cxx's own style for this exact
+// kind of proof.
+//
+// M6e2 correction: at M6e1 time, ITSMFTTrackingInterfaceITS was still
+// LegacyTrackerScratch<7>/DetectorTraversalBinding-backed ("ITS (standalone
+// and combined) is untouched" per this file's own header comment above,
+// accurate then). M6e2 migrated the standalone ITS interface too (see
+// testM6e2ITSWorkspaceMigration.cxx), so ITSMFTTrackingInterfaceITS now
+// shares MFT's ScratchN/BindingT (two independent instances). ---
 
 static_assert(std::is_same_v<ITSMFTTrackingInterfaceMFT::ScratchN, SurfaceTrackingScratch>);
 static_assert(std::is_same_v<ITSMFTTrackingInterfaceMFT::TrackerN, Tracker<MFTNLayers, SurfaceTrackingScratch, SurfacePlanBinding>>);
 static_assert(std::is_same_v<ITSMFTTrackingInterfaceMFT::TrackerTraitsN, TrackerTraits<MFTNLayers, SurfaceTrackingScratch, SurfacePlanBinding>>);
 
-static_assert(std::is_same_v<ITSMFTTrackingInterfaceITS::ScratchN, LegacyTrackerScratch<ITSNLayers>>);
-static_assert(std::is_same_v<ITSMFTTrackingInterfaceITS::TrackerN, Tracker<ITSNLayers, LegacyTrackerScratch<ITSNLayers>, DetectorTraversalBinding>>);
-static_assert(std::is_same_v<ITSMFTTrackingInterfaceITS::TrackerTraitsN, TrackerTraits<ITSNLayers, LegacyTrackerScratch<ITSNLayers>, DetectorTraversalBinding>>);
+static_assert(std::is_same_v<ITSMFTTrackingInterfaceITS::ScratchN, SurfaceTrackingScratch>);
+static_assert(std::is_same_v<ITSMFTTrackingInterfaceITS::TrackerN, Tracker<ITSNLayers, SurfaceTrackingScratch, SurfacePlanBinding>>);
+static_assert(std::is_same_v<ITSMFTTrackingInterfaceITS::TrackerTraitsN, TrackerTraits<ITSNLayers, SurfaceTrackingScratch, SurfacePlanBinding>>);
 
 // SurfacePlanBinding::build() itself gained no new parameter for this
 // milestone -- still the same six detector-neutral arguments M6b fixed and

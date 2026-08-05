@@ -98,7 +98,7 @@ o2_add_test(transitionpolicyoperations-native
             SOURCES testTransitionPolicyOperationsNative.cxx
             COMPONENT_NAME itsmft-tracking
             LABELS "itsmft;tracking"
-            PUBLIC_LINK_LIBRARIES O2::ITSMFTTracking)
+            PUBLIC_LINK_LIBRARIES O2::ITSMFTTracking O2::MFTTracking)
 
 o2_add_test(detectortraits-track-representation
             SOURCES testDetectorTraitsTrackRepresentation.cxx
@@ -177,13 +177,13 @@ o2_add_test(refithit
             SOURCES testRefitHit.cxx
             COMPONENT_NAME itsmft-tracking
             LABELS "itsmft;tracking"
-            PUBLIC_LINK_LIBRARIES O2::ITSMFTTracking)
+            PUBLIC_LINK_LIBRARIES O2::ITSMFTTracking O2::MFTTracking)
 
 o2_add_test(drive-refit-leg
             SOURCES testDriveRefitLeg.cxx
             COMPONENT_NAME itsmft-tracking
             LABELS "itsmft;tracking"
-            PUBLIC_LINK_LIBRARIES O2::ITSMFTTracking)
+            PUBLIC_LINK_LIBRARIES O2::ITSMFTTracking O2::MFTTracking)
 
 o2_add_test(refit-leg-assembly
             SOURCES testRefitLegAssembly.cxx
@@ -508,6 +508,19 @@ o2_add_test(m6d-mft-migration
 # migrated onto SurfaceTrackingScratch/SurfacePlanBinding.
 o2_add_test(m6e1-standalone-mft-migration
             SOURCES testM6e1StandaloneMFTMigration.cxx
+            COMPONENT_NAME itsmft-tracking
+            LABELS "itsmft;tracking"
+            PUBLIC_LINK_LIBRARIES O2::ITSMFTTracking
+                                  O2::MFTTracking
+                                  O2::DetectorsBase
+                                  O2::Field)
+
+# M6e2 (doc/design/0002-m6-generic-workspace-migration.md): both live ITS
+# common-CA paths (standalone ITSMFTTrackingInterfaceITS,
+# o2-its-ca-tracker-workflow; combined LegacyCATrackingParticipantITS)
+# migrated onto SurfaceTrackingScratch/SurfacePlanBinding.
+o2_add_test(m6e2-its-workspace-migration
+            SOURCES testM6e2ITSWorkspaceMigration.cxx
             COMPONENT_NAME itsmft-tracking
             LABELS "itsmft;tracking"
             PUBLIC_LINK_LIBRARIES O2::ITSMFTTracking

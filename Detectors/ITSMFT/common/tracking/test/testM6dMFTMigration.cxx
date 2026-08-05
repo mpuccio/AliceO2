@@ -16,10 +16,9 @@
 // publish composition. This file proves specifically:
 //  - the MFT participant's concrete scratch/binding types actually changed
 //    (compile-time type proof, not just behavior);
-//  - ITS's own types did not (byte-for-byte, same instantiation);
-//  - MFT load failure remains atomic across the mixed-storage-type pair;
+//  - MFT load failure remains atomic across the ITS/MFT participant pair;
 //  - resetting only MFT's scratch never mutates TimeFrame or ITS's own
-//    (differently-typed) scratch;
+//    scratch (two independent instances, same concrete type since M6e2);
 //  - the production MFT SurfacePlanBinding construction (real combined
 //    catalog, real ClusterSourceId{1}/SurfaceKind::Disk/
 //    TransitionPolicyTag::DiskDisk parameters) resolves to the same
@@ -29,7 +28,21 @@
 //  - the MFT publication/sidecar export path still works with the new
 //    scratch type backing tracking;
 //  - ITS and MFT scratch storage stay isolated during the coexistence
-//    phase (different concrete types, never cross-referenced).
+//    phase (two independent SurfaceTrackingScratch instances, never
+//    cross-referenced).
+//
+// M6e2 correction: at M6d/M6e1 time, ITS was still LegacyTrackerScratch<7>/
+// DetectorTraversalBinding-backed, so this file's original "1/2: compile-time
+// type proof" section asserted ITS's types stayed byte-for-byte unchanged --
+// a genuine invariant at the time. M6e2 (doc/design/0002-m6-generic-workspace-
+// migration.md, M6e2 section) migrated the combined-workflow ITS participant
+// to SurfaceTrackingScratch/SurfacePlanBinding too, so that specific claim is
+// now obsolete and the assertions below were updated to match: both
+// participants share the ScratchN/BindingT type today (two independent
+// instances -- see testM6e2ITSWorkspaceMigration.cxx for the dedicated ITS
+// coexistence/isolation coverage this milestone adds), and only the MFT-
+// specific behavioral coverage in this file's remaining test cases is still
+// this file's own scope.
 
 #define BOOST_TEST_MODULE ITSMFT M6dMFTMigration
 #define BOOST_TEST_MAIN
@@ -62,19 +75,22 @@ using namespace o2::itsmft::tracking;
 // --- 1/2: compile-time type proof -------------------------------------------
 
 static_assert(std::is_same_v<LegacyCATrackingParticipantMFT::ScratchN, SurfaceTrackingScratch>);
-static_assert(std::is_same_v<LegacyCATrackingParticipantITS::ScratchN, LegacyTrackerScratchITS>);
-static_assert(std::is_same_v<LegacyCATrackingParticipantITS::ScratchN, LegacyTrackerScratch<ITSNLayers>>);
-static_assert(!std::is_same_v<LegacyCATrackingParticipantMFT::ScratchN, LegacyTrackerScratch<MFTNLayers>>);
+// M6e2: ITS now shares the same ScratchN/BindingT as MFT (two independent
+// instances, see testM6e2ITSWorkspaceMigration.cxx for the dedicated ITS
+// coexistence proof) -- this is no longer "still LegacyTrackerScratch<7>".
+static_assert(std::is_same_v<LegacyCATrackingParticipantITS::ScratchN, SurfaceTrackingScratch>);
+static_assert(!std::is_same_v<LegacyCATrackingParticipantITS::ScratchN, LegacyTrackerScratch<ITSNLayers>>);
 // getScratch() itself, not just the nested alias -- proves the actual member
 // type, not merely a type-level artifact nothing reads.
 static_assert(std::is_same_v<decltype(std::declval<LegacyCATrackingParticipantMFT&>().getScratch()), SurfaceTrackingScratch&>);
-static_assert(std::is_same_v<decltype(std::declval<LegacyCATrackingParticipantITS&>().getScratch()), LegacyTrackerScratchITS&>);
-// The binding parameter type LegacyCATrackingParticipantMFT actually adopts.
+static_assert(std::is_same_v<decltype(std::declval<LegacyCATrackingParticipantITS&>().getScratch()), SurfaceTrackingScratch&>);
+// The binding parameter type both participants actually adopt (M6e2: same
+// SurfacePlanBinding type for both, two independent bindings).
 static_assert(std::is_invocable_v<decltype(&LegacyCATrackingParticipantMFT::adoptDetectorTraversalBinding), LegacyCATrackingParticipantMFT&, std::unique_ptr<SurfacePlanBinding>>);
-static_assert(std::is_invocable_v<decltype(&LegacyCATrackingParticipantITS::adoptDetectorTraversalBinding), LegacyCATrackingParticipantITS&, std::unique_ptr<DetectorTraversalBinding>>);
+static_assert(std::is_invocable_v<decltype(&LegacyCATrackingParticipantITS::adoptDetectorTraversalBinding), LegacyCATrackingParticipantITS&, std::unique_ptr<SurfacePlanBinding>>);
 // ITSMFTLegacyParticipantSet's own public readback types.
 static_assert(std::is_same_v<decltype(std::declval<const ITSMFTLegacyParticipantSet&>().getMFTScratch()), const SurfaceTrackingScratch&>);
-static_assert(std::is_same_v<decltype(std::declval<const ITSMFTLegacyParticipantSet&>().getITSScratch()), const LegacyTrackerScratchITS&>);
+static_assert(std::is_same_v<decltype(std::declval<const ITSMFTLegacyParticipantSet&>().getITSScratch()), const SurfaceTrackingScratch&>);
 
 BOOST_AUTO_TEST_CASE(CompileTimeTypeProofsHoldAtRuntimeToo)
 {
@@ -168,6 +184,17 @@ ClusterSourceInput makeEmptySource(ClusterSourceId id, o2::detectors::DetID::ID 
 BOOST_AUTO_TEST_CASE(AtomicMFTLoadFailureLeavesSharedTimeFrameAndBothParticipantScratchesUntouched)
 {
   auto participants = makeSet();
+  // M6e2: needed now that ITS's own stage() (source 0, structurally valid,
+  // staged before MFT's malformed source 1 is even reached) really
+  // allocates through SurfaceTrackingScratch -- adoptPlan() (already called
+  // by the constructor via adoptDetectorLayoutSet()) explicitly rebinds
+  // every Group A container's allocator to mMemoryPool.get(), which is null
+  // until this call, exactly as adoptPlan()'s own documented precondition
+  // says (SurfaceTrackingScratch.h). At M6d time this was unneeded: ITS was
+  // still LegacyTrackerScratch<7>-backed, whose fixed-size std::array
+  // members are always default-constructed with a valid (non-null) resource
+  // regardless of setMemoryPool(), so the gap was silently masked.
+  participants.setMemoryPool(std::make_shared<o2::its::BoundedMemoryResource>());
   TimeFrame frame;
   participants.adoptFrame(frame);
 
@@ -227,7 +254,7 @@ BOOST_AUTO_TEST_CASE(MFTOnlyResetDoesNotMutateTimeFrameOrITSScratch)
   // API; const_cast here is test-only instrumentation, mirroring how
   // testCombinedTrackingComposition.cxx's own composer wrapper reaches into
   // scratch state for assertions.
-  auto& itsParticipantScratch = const_cast<LegacyTrackerScratchITS&>(participants.getITSScratch());
+  auto& itsParticipantScratch = const_cast<SurfaceTrackingScratch&>(participants.getITSScratch());
   auto& mftParticipantScratch = const_cast<SurfaceTrackingScratch&>(participants.getMFTScratch());
   itsParticipantScratch.getUnsortedClusters()[0].emplace_back(1.f, 2.f, 3.f, 0);
   BOOST_REQUIRE(!mftParticipantScratch.getUnsortedClusters().empty());
@@ -390,17 +417,18 @@ BOOST_AUTO_TEST_CASE(MFTSidecarAndPublicationExportRemainValidAfterMigration)
 
 BOOST_AUTO_TEST_CASE(CombinedExecutionKeepsITSAndMFTScratchStorageIsolated)
 {
-  // Different concrete C++ types (LegacyTrackerScratch<ITSNLayers> vs
-  // SurfaceTrackingScratch) structurally cannot alias or be confused for one
-  // another -- this test proves the runtime corollary: mutating one leaves
-  // the other's every observable count exactly where it started, for both
-  // directions.
+  // Same concrete C++ type since M6e2 (SurfaceTrackingScratch), but two
+  // structurally independent instances (ITSMFTLegacyParticipantSet composes
+  // two separate participant objects, each owning its own scratch) -- this
+  // test proves the runtime isolation corollary still holds post-migration:
+  // mutating one instance leaves the other's every observable count exactly
+  // where it started, for both directions.
   auto participants = makeSet();
   participants.setMemoryPool(std::make_shared<o2::its::BoundedMemoryResource>());
   TimeFrame frame;
   participants.adoptFrame(frame);
 
-  auto& itsScratch = const_cast<LegacyTrackerScratchITS&>(participants.getITSScratch());
+  auto& itsScratch = const_cast<SurfaceTrackingScratch&>(participants.getITSScratch());
   auto& mftScratch = const_cast<SurfaceTrackingScratch&>(participants.getMFTScratch());
 
   const auto mftClustersBefore = mftScratch.getTotalClusters();

@@ -348,11 +348,11 @@ BOOST_AUTO_TEST_CASE(DiskProjectSearchWindowReusesHelpersAndDirectProjectedXYBin
   if (radialRangeMin > radialRangeMax) {
     std::swap(radialRangeMin, radialRangeMax);
   }
-  const auto directBins = getBinsRectClusterAtProj<10>(expectedX, expectedY, toLayer,
-                                                       radialRangeMin, radialRangeMax,
-                                                       expectedSigmaX * params.nSigmaCut,
-                                                       expectedSigmaY * params.nSigmaCut,
-                                                       indexUtils);
+  const auto directBins = getBinsRectClusterAtProj(expectedX, expectedY, toLayer,
+                                                   radialRangeMin, radialRangeMax,
+                                                   expectedSigmaX * params.nSigmaCut,
+                                                   expectedSigmaY * params.nSigmaCut,
+                                                   indexUtils);
 
   BOOST_CHECK_EQUAL(window.bins.x, directBins.x);
   BOOST_CHECK_EQUAL(window.bins.y, directBins.y);
@@ -515,11 +515,11 @@ BOOST_AUTO_TEST_CASE(DiskProjectionCoversStraightLineNearZeroDenominatorAndRadia
                              fromLayer, toLayer, state.sourceReferenceRadius, state.meanDeltaZ,
                              state.transitionMSAngle, state.transitionBendingAngle,
                              expectedX, expectedY, expectedSigmaX, expectedSigmaY);
-  const auto directBins = getBinsRectClusterAtProj<10>(expectedX, expectedY, toLayer,
-                                                       rawRadialMax, rawRadialMin,
-                                                       expectedSigmaX * params.nSigmaCut,
-                                                       expectedSigmaY * params.nSigmaCut,
-                                                       indexUtils);
+  const auto directBins = getBinsRectClusterAtProj(expectedX, expectedY, toLayer,
+                                                   rawRadialMax, rawRadialMin,
+                                                   expectedSigmaX * params.nSigmaCut,
+                                                   expectedSigmaY * params.nSigmaCut,
+                                                   indexUtils);
   BOOST_CHECK_EQUAL(swapWindow.bins.x, directBins.x);
   BOOST_CHECK_EQUAL(swapWindow.bins.y, directBins.y);
   BOOST_CHECK_EQUAL(swapWindow.bins.z, directBins.z);

@@ -28,14 +28,13 @@ namespace
 constexpr int ITSN = 7;
 constexpr int MFTN = 10;
 
+// M6e2: IndexTableUtils<N> is now an alias for the same non-templated
+// IndexTableUtilsCore regardless of N (IndexTableUtils.h), so the ITS(7)/
+// MFT(10) overloads that used to be genuinely distinct types collapsed into
+// a single redefinition -- one shared overload now serves both.
 bool isUntouched(const IndexTableUtils<ITSN>& utils)
 {
   // Default-constructed sentinel state (IndexTableUtils.h): never mutated.
-  return utils.getNrowBins() == 0 && utils.getNcolBins() == 0 && utils.getCoordType() == IndexTableCoordType::PhiZ;
-}
-
-bool isUntouched(const IndexTableUtils<MFTN>& utils)
-{
   return utils.getNrowBins() == 0 && utils.getNcolBins() == 0 && utils.getCoordType() == IndexTableCoordType::PhiZ;
 }
 } // namespace
@@ -280,14 +279,14 @@ BOOST_AUTO_TEST_CASE(ConfigurationsMatchIdentifiesEveryStoredField)
 
   IndexTableUtils<MFTN> b;
   BOOST_REQUIRE((bindIndexTableConfiguration<TransitionPolicyTag::DiskDisk, MFTN>(b, params) == IndexTableConfigError::None));
-  BOOST_CHECK(indexTableConfigurationsMatch(a, b));
+  BOOST_CHECK(indexTableConfigurationsMatch<MFTN>(a, b));
 
   // Different RowBins/ColBins.
   auto diffBins = params;
   diffBins.RowBins = params.RowBins + 1;
   IndexTableUtils<MFTN> c;
   BOOST_REQUIRE((bindIndexTableConfiguration<TransitionPolicyTag::DiskDisk, MFTN>(c, diffBins) == IndexTableConfigError::None));
-  BOOST_CHECK(!indexTableConfigurationsMatch(a, c));
+  BOOST_CHECK(!indexTableConfigurationsMatch<MFTN>(a, c));
 
   // Different row range.
   auto diffRange = params;
@@ -295,14 +294,14 @@ BOOST_AUTO_TEST_CASE(ConfigurationsMatchIdentifiesEveryStoredField)
   diffRange.IndexRowMax = 15.f;
   IndexTableUtils<MFTN> d;
   BOOST_REQUIRE((bindIndexTableConfiguration<TransitionPolicyTag::DiskDisk, MFTN>(d, diffRange) == IndexTableConfigError::None));
-  BOOST_CHECK(!indexTableConfigurationsMatch(a, d));
+  BOOST_CHECK(!indexTableConfigurationsMatch<MFTN>(a, d));
 
   // Different per-layer extent.
   auto diffExtent = params;
   diffExtent.LayerColHalfExtent[0] += 1.f;
   IndexTableUtils<MFTN> e;
   BOOST_REQUIRE((bindIndexTableConfiguration<TransitionPolicyTag::DiskDisk, MFTN>(e, diffExtent) == IndexTableConfigError::None));
-  BOOST_CHECK(!indexTableConfigurationsMatch(a, e));
+  BOOST_CHECK(!indexTableConfigurationsMatch<MFTN>(a, e));
 }
 
 BOOST_AUTO_TEST_CASE(CheckedIndexTableSizeProductBoundaries)

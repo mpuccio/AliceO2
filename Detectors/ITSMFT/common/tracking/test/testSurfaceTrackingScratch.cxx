@@ -319,20 +319,25 @@ void checkNoForbiddenToken(const fs::path& path, const std::string& token, const
 // MFT specifically (LegacyCATrackingParticipantMFT), so it legitimately
 // knows a handful of things M6c's own additive-only version could not yet:
 // o2::detectors::DetID::MFT (loadNormalizedSource()'s own detector
-// preflight, narrower than LegacyTrackerScratch<NLayers>'s ITS-or-MFT
-// check -- this scratch type is MFT-only), the literal "MFT" token
-// (MFTNLayers, MFTCATrack.h, o2::mft::constants::mft::LayersNumber -- the
-// M6c design note's own explicitly-flagged narrow exception for the
-// auxiliary NLayers-templated types this milestone hardcodes at MFT's own
-// NLayers, see the header's file-level doc), and TimeFrame.h (initialise()/
-// loadNormalizedSource()/getPrimaryVertices()/updateROFVertexLookupTable()
-// all cooperate with TimeFrame directly now, mirroring
-// LegacyTrackerScratch<NLayers>'s own long-standing contract -- M6c's
-// "never touches TimeFrame" framing applied only to that milestone's
-// unwired scope). What remains genuinely forbidden: ITS (this scratch type
-// is MFT-only, never dual-detector), workflow/DPL/output-layer naming, and
-// the detail/-confined TransitionPolicyTag/StateFamily policy-key types --
-// SurfaceTrackingScratch itself must still never reintroduce those.
+// preflight), the literal "MFT" token (MFTNLayers, MFTCATrack.h,
+// o2::mft::constants::mft::LayersNumber -- the M6c design note's own
+// explicitly-flagged narrow exception for the auxiliary NLayers-templated
+// types this milestone hardcodes, see the header's file-level doc), and
+// TimeFrame.h (initialise()/loadNormalizedSource()/getPrimaryVertices()/
+// updateROFVertexLookupTable() all cooperate with TimeFrame directly now --
+// M6c's "never touches TimeFrame" framing applied only to that milestone's
+// unwired scope).
+//
+// M6e2 revision: this scratch type became shared by ITS too (the combined
+// and standalone ITS common-CA participants now both back onto
+// SurfaceTrackingScratch, not just MFT's), so o2::detectors::DetID::ITS is
+// now a legitimate mention too (loadNormalizedSource()'s preflight accepts
+// both), removed from the forbidden list below. What remains genuinely
+// forbidden: workflow/DPL/output-layer naming, and the detail/-confined
+// TransitionPolicyTag/StateFamily policy-key types -- SurfaceTrackingScratch
+// itself must still never reintroduce those, and no detector-specific
+// *switch* (as opposed to a DetID::ITS/DetID::MFT preflight/comparison) may
+// appear here.
 BOOST_AUTO_TEST_CASE(NewHeadersPullNoITSWorkflowOutputOrTransitionPolicyTagDependency)
 {
   const std::string testFile = __FILE__;
@@ -352,11 +357,6 @@ BOOST_AUTO_TEST_CASE(NewHeadersPullNoITSWorkflowOutputOrTransitionPolicyTagDepen
     {"DPL", "DPL workflow machinery"},
     {"Workflow", "workflow-layer naming"},
     {"workflow", "workflow-layer naming"},
-    // "DetID::ITS" (not a bare "ITS" word-boundary check -- every file here
-    // legitimately says "ITSMFTTracking"/"ITSMFT" throughout, an unrelated
-    // namespace/header-prefix token): the concrete ITS-detector-identity
-    // leak this scratch type (MFT-only) must never contain.
-    {"DetID::ITS\\b", "ITS detector-ID enum value"},
   };
   for (const auto& path : newFiles) {
     for (const auto& [token, description] : forbidden) {
