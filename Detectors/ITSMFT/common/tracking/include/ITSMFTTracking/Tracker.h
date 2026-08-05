@@ -10,7 +10,7 @@
 // or submit itself to any jurisdiction.
 ///
 /// \file Tracker.h
-/// \brief ITS-style alias for the shared CA tracker orchestrator
+/// \brief Forwarding header for the shared runtime-plan tracker orchestrator
 ///
 
 #ifndef ALICEO2_ITSMFT_TRACKING_TRACKER_H_

@@ -27,8 +27,8 @@
 //
 // M1 is a contract/seam slice only: this engine is exercised in this slice
 // by the focused contract test's fake participants, not yet by any
-// production caller -- M2 wraps today's Tracker<NLayers>/TrackerTraits
-// <NLayers>/SurfaceTrackingScratch composition in a concrete
+// production caller -- M2 wraps today's runtime-plan Tracker/TrackerTraits/
+// SurfaceTrackingScratch composition in a concrete
 // TrackingParticipant; M3 has the combined DPL task
 // (CombinedCATrackerSpec.cxx) compose loader + engine + the two concrete
 // participants directly, all without amending this header.

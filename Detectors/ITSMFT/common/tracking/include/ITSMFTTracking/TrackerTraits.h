@@ -26,12 +26,12 @@
 #include <oneapi/tbb.h>
 
 #include "ITSMFTTracking/Configuration.h"
-#include "ITSMFTTracking/AcceptedTrackShadowPublisher.h"
 #include "ITSMFTTracking/DetectorLayoutSet.h"
 #include "ITSMFTTracking/SurfaceTrackingScratch.h"
 #include "ITSMFTTracking/SurfaceDescriptor.h"
 #include "ITSMFTTracking/SurfaceMeasurement.h"
 #include "ITSMFTTracking/TimeFrame.h"
+#include "ITSMFTTracking/TrackingOperationAdapter.h"
 #include "ITSMFTTracking/detail/SurfacePlanBinding.h"
 #include "ITSMFTTracking/detail/TransitionPolicyBinding.h"
 #include "ITSMFTTracking/detail/TransitionPolicyDispatch.h"
@@ -146,8 +146,9 @@ class TraversalException final : public std::runtime_error
 };
 
 // The generic tracker owns one detector-neutral workspace and one immutable
-// plan binding. NLayers remains an algorithm/storage parameter until M7d.
-template <int NLayers>
+// plan binding. All plan-sized bounds come from the adopted runtime plan and
+// scratch; application-specific refit/publication is a narrow operation
+// adapter at the participant edge.
 class TrackerTraits
 {
  public:
@@ -158,8 +159,6 @@ class TrackerTraits
   // reference to the other.
   virtual void adoptScratch(SurfaceTrackingScratch* scratch) { mScratch = scratch; }
   virtual void adoptFrame(TimeFrame* frame) { mFrame = frame; }
-  void adoptMFTPublicationCompatibility(MFTPublicationCompatibility* compatibility) noexcept { mAcceptedTrackShadowPublisher.adoptMFTPublicationCompatibility(compatibility); }
-  void adoptITSSharedClusterCompatibility(ITSSharedClusterCompatibility* compatibility) noexcept { mAcceptedTrackShadowPublisher.adoptITSSharedClusterCompatibility(compatibility); }
   // M6f: bind the one SurfacePlanBinding used by the common-CA hot loops.
   // `binding` must outlive every subsequent clustersToTracks() call and is
   // never owned or copied. Direct algorithm tests may omit it when their
@@ -176,16 +175,19 @@ class TrackerTraits
   virtual void computeLayerTracklets(const int iteration, int iVertex);
   virtual void computeLayerCells(const int iteration);
   virtual void findCellsNeighbours(const int iteration);
-  virtual void findRoads(const int iteration);
+  virtual void findRoads(const int iteration, TrackingOperationAdapter& operationAdapter);
 
-  void acceptTracks(int iteration, bounded_vector<CATrackType<NLayers>>& tracks, bounded_vector<bounded_vector<int>>& firstClusters);
-  void markTracks(int iteration);
+  void acceptTracks(int iteration,
+                    bounded_vector<TrackingCandidate>& tracks,
+                    bounded_vector<bounded_vector<int>>& firstClusters,
+                    TrackingOperationAdapter& operationAdapter);
+  void markTracks(int iteration, TrackingOperationAdapter& operationAdapter);
 
   // The Surface path keeps accepted tracks only until ITS shared-cluster
   // compatibility is sealed. This is not publication staging: writers read
   // TimeFrame CommonTrack data exclusively. Legacy scratch users retain
   // their existing Group-C members until M6f.
-  bounded_vector<CATrackType<NLayers>>& acceptedTracksForSharedStatus();
+  bounded_vector<TrackingCandidate>& acceptedTracksForSharedStatus();
   void clearAcceptedTracksForSharedStatus();
 
   void updateTrackingParameters(const std::vector<TrackingParameters>& trkPars) { mTrkParams = trkPars; }
@@ -294,7 +296,7 @@ class TrackerTraits
     using ComputeTrackletsFn = void (TrackerTraits::*)(int iteration, int iVertex);
     using ComputeCellsFn = void (TrackerTraits::*)(int iteration);
     using FindNeighboursFn = void (TrackerTraits::*)(int iteration);
-    using FindRoadsFn = void (TrackerTraits::*)(int iteration);
+    using FindRoadsFn = void (TrackerTraits::*)(int iteration, TrackingOperationAdapter& operationAdapter);
 
     ComputeTrackletsFn computeTracklets = nullptr;
     ComputeCellsFn computeCells = nullptr;
@@ -334,8 +336,8 @@ class TrackerTraits
   void computeLayerCellsDiskDisk(int iteration);
   void findCellsNeighboursCylinderCylinder(int iteration);
   void findCellsNeighboursDiskDisk(int iteration);
-  void findRoadsCylinderCylinder(int iteration);
-  void findRoadsDiskDisk(int iteration);
+  void findRoadsCylinderCylinder(int iteration, TrackingOperationAdapter& operationAdapter);
+  void findRoadsDiskDisk(int iteration, TrackingOperationAdapter& operationAdapter);
 
   template <TransitionPolicyTag Tag>
   void computeLayerTrackletsForPolicy(int iteration,
@@ -354,7 +356,9 @@ class TrackerTraits
                                     const typename TransitionPolicyTraits<Tag>::Params& params);
 
   template <TransitionPolicyTag Tag>
-  void findRoadsForPolicy(int iteration, const typename TransitionPolicyTraits<Tag>::Params& params);
+  void findRoadsForPolicy(int iteration,
+                          const typename TransitionPolicyTraits<Tag>::Params& params,
+                          TrackingOperationAdapter& operationAdapter);
 
   // M4 (GenericTrackingEngineMigration.md; ADR 0007 decision 7): moved from
   // public to private -- findRoadsForPolicy() is this method's only caller
@@ -419,7 +423,7 @@ class TrackerTraits
   // never by the TrackerTraits template argument.
   std::vector<NominalSurfaceMaterial> mLayerMaterial;
   // Gate 4 Slice 0a (sparse-topology tracklet migration): temporary bridge
-  // from a global SurfaceId back to this TrackerTraits<NLayers>'s own
+  // from a global SurfaceId back to this tracker's own
   // runtime-plan slot, so the migrated hot loops can resolve a sparse
   // SurfaceTransition's `from`/`to` endpoints to layer-local storage
   // indices TimeFrame's per-layer storage (clusters, index tables,
@@ -455,10 +459,9 @@ class TrackerTraits
   // Host-only non-owning view, sized to the adopted ordered surface span.
   std::vector<gsl::span<const SurfaceMeasurement>> mLayerMeasurements;
   int mTraversalGroupingCount{0};
-  // A template-specialized serial accepted-track hook. Its ITS instantiation
-  // is empty and has no MFT compatibility allocation or lookup.
-  AcceptedTrackShadowPublisher<NLayers> mAcceptedTrackShadowPublisher;
-  bounded_vector<CATrackType<NLayers>> mAcceptedTracksForSharedStatus;
+  // Generic accepted candidates are retained only until shared-cluster
+  // marking and the final adapter-owned publication seal complete.
+  bounded_vector<TrackingCandidate> mAcceptedTracksForSharedStatus;
   // M6f: non-owning pointer to the adopted common-CA plan binding. It is
   // populated by production adapters before traversal; nullptr is retained
   // only for identity-indexed direct algorithm tests (see above).
@@ -470,9 +473,6 @@ class TrackerTraits
   std::vector<TrackingParameters> mTrkParams;
   float mBz{-999.f};
 };
-
-using TrackerTraitsITS = TrackerTraits<ITSNLayers>;
-using TrackerTraitsMFT = TrackerTraits<o2::mft::constants::mft::LayersNumber>;
 
 } // namespace o2::itsmft::tracking
 

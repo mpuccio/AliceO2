@@ -31,10 +31,12 @@
 #include "DetectorsCommonDataFormats/DetID.h"
 #include "ITSMFTTracking/DetectorTraits.h"
 #ifndef GPUCA_GPUCODE
+#include "ITSMFTTracking/AcceptedTrackShadowPublisher.h"
 #include "ITSMFTTracking/ClusterDecoder.h"
 #include "ITSMFTTracking/ClockTimingPublicationView.h"
 #include "ITSMFTTracking/DetectorLayoutSet.h"
 #include "ITSMFTTracking/TimeFrameLoadFailure.h"
+#include "ITSMFTTracking/TrackingOperationAdapter.h"
 #endif
 #include "ITSMFTTracking/Tracker.h"
 #include "ITSMFTTracking/Configuration.h"
@@ -84,6 +86,10 @@ struct ITSSharedClusterCompatibilityOwner<ITSNLayers> {
 // participant. NLayers remains an algorithm/storage parameter until M7d.
 template <int NLayers>
 class ITSMFTTrackingInterface : private MFTPublicationCompatibilityOwner<NLayers>, private ITSSharedClusterCompatibilityOwner<NLayers>
+#ifndef GPUCA_GPUCODE
+  ,
+                                private TrackingOperationAdapter
+#endif
 {
  public:
   static_assert(NLayers == ITSNLayers || NLayers == o2::mft::constants::mft::LayersNumber,
@@ -213,14 +219,34 @@ class ITSMFTTrackingInterface : private MFTPublicationCompatibilityOwner<NLayers
                         gsl::span<const o2::dataformats::IRFrame> irFrames);
   void validateROFInput(gsl::span<const o2::itsmft::ROFRecord> rofs) const;
 
+#ifndef GPUCA_GPUCODE
+  bool refitSeed(const TrackSeed& seed,
+                 const TrackingParameters& params,
+                 float bz,
+                 SurfaceTrackingScratch& scratch,
+                 gsl::span<const gsl::span<const SurfaceMeasurement>> layerMeasurements,
+                 SurfaceCatalogView surfaceCatalog,
+                 ClusterSourceId expectedSource,
+                 TrackingCandidate& candidate) override;
+  bool publishAccepted(TimeFrame& frame,
+                       const TrackingCandidate& candidate,
+                       gsl::span<const gsl::span<const SurfaceMeasurement>> layerMeasurements,
+                       SurfaceCatalogView surfaceCatalog) override;
+  bool haveSamePolarity(const TrackingCandidate& first,
+                        const TrackingCandidate& second) const noexcept override;
+  bool sealAccepted(gsl::span<const TrackingCandidate> candidates) override;
+  void clearPublicationState() noexcept override;
+#endif
+
   bool mUseMC = false;
   bool mOverrideBeamEstimation = false;
   o2::itsmft::TrackingMode::Type mTrackingMode = o2::itsmft::TrackingMode::Unset;
   std::vector<o2::itsmft::TrackingParameters> mTrackParams;
   std::shared_ptr<BoundedMemoryResourceN> mMemoryPool;
-  std::unique_ptr<TrackerTraits<NLayers>> mTrackerTraits;
-  std::unique_ptr<Tracker<NLayers>> mTracker;
+  std::unique_ptr<TrackerTraits> mTrackerTraits;
+  std::unique_ptr<Tracker> mTracker;
 #ifndef GPUCA_GPUCODE
+  AcceptedTrackShadowPublisher<NLayers> mAcceptedTrackShadowPublisher;
   std::unique_ptr<ClusterDecoder> mClusterDecoder;
   // This interface's one immutable plan, built once in initialiseTracker()
   // from the compile-time-selected static per-detector catalog

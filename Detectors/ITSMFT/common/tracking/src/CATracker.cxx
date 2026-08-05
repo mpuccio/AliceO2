@@ -23,27 +23,23 @@
 namespace o2::itsmft::tracking
 {
 
-template <int NLayers>
-Tracker<NLayers>::Tracker(TrackerTraits<NLayers>* traits) : mTraits(traits)
+Tracker::Tracker(TrackerTraits* traits) : mTraits(traits)
 {
 }
 
-template <int NLayers>
-void Tracker<NLayers>::adoptScratch(SurfaceTrackingScratch& scratch)
+void Tracker::adoptScratch(SurfaceTrackingScratch& scratch)
 {
   mScratch = &scratch;
   mTraits->adoptScratch(&scratch);
 }
 
-template <int NLayers>
-void Tracker<NLayers>::adoptFrame(TimeFrame& frame)
+void Tracker::adoptFrame(TimeFrame& frame)
 {
   mFrame = &frame;
   mTraits->adoptFrame(&frame);
 }
 
-template <int NLayers>
-TrackingResult Tracker<NLayers>::clustersToTracks()
+TrackingResult Tracker::clustersToTracks(TrackingOperationAdapter& operationAdapter)
 {
   mTraits->updateTrackingParameters(mTrkParams);
 
@@ -66,7 +62,7 @@ TrackingResult Tracker<NLayers>::clustersToTracks()
         computeTracklets(iteration, iVertex);
         computeCells(iteration);
         findCellsNeighbours(iteration);
-        findRoads(iteration);
+        findRoads(iteration, operationAdapter);
       } while (++iVertex < maxNvertices);
     }
   } catch (const TraversalException& err) {
@@ -75,24 +71,14 @@ TrackingResult Tracker<NLayers>::clustersToTracks()
     // never applies. Always reset before propagating -- see class-level
     // comment: never rely on "the process is going down anyway".
     LOGP(error, "CA tracker hit a structural traversal failure: {}", err.what());
-    if (mMFTPublicationCompatibility != nullptr) {
-      mMFTPublicationCompatibility->clear();
-    }
-    if (mITSSharedClusterCompatibility != nullptr) {
-      mITSSharedClusterCompatibility->clear();
-    }
+    operationAdapter.clearPublicationState();
     resetTimeFrameEvent(*mFrame, *mScratch);
     throw;
   } catch (const BoundedMemoryResource::MemoryLimitExceeded& err) {
     // Recoverable, per-TF resource failure: the bounded pool's configured
     // budget was exceeded for this TimeFrame's data volume.
     LOGP(error, "CA tracker exceeded memory limit: {}", err.what());
-    if (mMFTPublicationCompatibility != nullptr) {
-      mMFTPublicationCompatibility->clear();
-    }
-    if (mITSSharedClusterCompatibility != nullptr) {
-      mITSSharedClusterCompatibility->clear();
-    }
+    operationAdapter.clearPublicationState();
     resetTimeFrameEvent(*mFrame, *mScratch);
     if (mTrkParams[0].DropTFUponFailure) {
       return TrackingResult{TrackingOutcome::RecoverableDropped, 0.f};
@@ -105,12 +91,7 @@ TrackingResult Tracker<NLayers>::clustersToTracks()
     // the bounded pool, so genuine memory pressure surfaces here as a plain
     // bad_alloc rather than MemoryLimitExceeded. Handled identically.
     LOGP(error, "CA tracker allocation failed: {}", err.what());
-    if (mMFTPublicationCompatibility != nullptr) {
-      mMFTPublicationCompatibility->clear();
-    }
-    if (mITSSharedClusterCompatibility != nullptr) {
-      mITSSharedClusterCompatibility->clear();
-    }
+    operationAdapter.clearPublicationState();
     resetTimeFrameEvent(*mFrame, *mScratch);
     if (mTrkParams[0].DropTFUponFailure) {
       return TrackingResult{TrackingOutcome::RecoverableDropped, 0.f};
@@ -123,20 +104,12 @@ TrackingResult Tracker<NLayers>::clustersToTracks()
     // RecoverableTimeFrameException may extend the recoverable set; until
     // then, recoverability is never inferred from std::exception alone.
     LOGP(error, "CA tracker failed with an unclassified exception; treating as structural: {}", err.what());
-    if (mMFTPublicationCompatibility != nullptr) {
-      mMFTPublicationCompatibility->clear();
-    }
-    if (mITSSharedClusterCompatibility != nullptr) {
-      mITSSharedClusterCompatibility->clear();
-    }
+    operationAdapter.clearPublicationState();
     resetTimeFrameEvent(*mFrame, *mScratch);
     throw;
   }
 
   return TrackingResult{TrackingOutcome::Success, total};
 }
-
-template class Tracker<7>;
-template class Tracker<10>;
 
 } // namespace o2::itsmft::tracking

@@ -158,7 +158,7 @@ inline std::optional<std::vector<CommonTrackOutputOrderEntry>> makeLegacyOutputO
     }
     ordered.push_back({index, *timestamp});
   }
-  // Mirror Tracker<NLayers>::sortTracks(): it reorders the scratch results
+  // Mirror Tracker::sortTracks(): it reorders the scratch results
   // after all accepted CommonTrack shadows were appended, by the lower edge
   // of the legacy symmetric/clamped timestamp and then chi2.
   std::sort(ordered.begin(), ordered.end(), [&frame](const auto& left, const auto& right) {

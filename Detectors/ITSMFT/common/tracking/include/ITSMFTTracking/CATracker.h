@@ -25,14 +25,13 @@
 #include "ITSMFTTracking/Configuration.h"
 #include "ITSMFTTracking/DetectorLayoutSet.h"
 #include "ITSMFTTracking/SurfaceTrackingScratch.h"
-#include "ITSMFTTracking/MFTPublicationCompatibility.h"
 #include "ITSMFTTracking/TimeFrame.h"
 #include "ITSMFTTracking/TrackerTraits.h"
 
 namespace o2::itsmft::tracking
 {
 
-/// Gate 4 C2 Slice 2: the typed outcome Tracker<NLayers>::clustersToTracks()
+/// Gate 4 C2 Slice 2: the typed outcome Tracker::clustersToTracks()
 /// returns in place of the old float+sentinel compatibility contract
 /// (kDroppedTimeFrameResult/isDroppedTimeFrame below, retained only because
 /// ITSMFTTrackingInterface/CATrackerSpec.cxx still externally consume that
@@ -90,12 +89,10 @@ inline bool isDroppedTimeFrame(float result) noexcept
   return result == kDroppedTimeFrameResult;
 }
 
-// NLayers remains the only generic algorithm/storage parameter until M7d.
-template <int NLayers>
 class Tracker
 {
  public:
-  explicit Tracker(TrackerTraits<NLayers>* traits);
+  explicit Tracker(TrackerTraits* traits);
 
   // Binds this tracker's two collaborators, each an independent bind-once
   // pointer -- neither owns nor stores a reference to the other.
@@ -103,18 +100,8 @@ class Tracker
   // call.
   void adoptScratch(SurfaceTrackingScratch& scratch);
   void adoptFrame(TimeFrame& frame);
-  void adoptMFTPublicationCompatibility(MFTPublicationCompatibility& compatibility)
-  {
-    mMFTPublicationCompatibility = &compatibility;
-    mTraits->adoptMFTPublicationCompatibility(&compatibility);
-  }
-  void adoptITSSharedClusterCompatibility(ITSSharedClusterCompatibility& compatibility)
-  {
-    mITSSharedClusterCompatibility = &compatibility;
-    mTraits->adoptITSSharedClusterCompatibility(&compatibility);
-  }
   // Gate 4 C2 Slice 1: bind-once, forwarded straight to mTraits -- see
-  // TrackerTraits<NLayers>::adoptSurfacePlanBinding()
+  // TrackerTraits::adoptSurfacePlanBinding()
   // for the full contract (optional; nullptr preserves today's Gate 3
   // identity-mapping behavior). `binding` must outlive every subsequent
   // clustersToTracks() call.
@@ -140,7 +127,7 @@ class Tracker
   /// participating scratches would want (see resetTimeFrameEvent()'s own
   /// doc) -- for this single-detector bridge, every recoverable failure here
   /// resets both its own scratch and the shared TimeFrame.
-  TrackingResult clustersToTracks();
+  TrackingResult clustersToTracks(TrackingOperationAdapter& operationAdapter);
 
   const SurfaceTrackingScratch& getScratch() const { return *mScratch; }
   SurfaceTrackingScratch& getScratch() { return *mScratch; }
@@ -150,25 +137,14 @@ class Tracker
   void computeTracklets(int iteration, int iVertex) { mTraits->computeLayerTracklets(iteration, iVertex); }
   void computeCells(int iteration) { mTraits->computeLayerCells(iteration); }
   void findCellsNeighbours(int iteration) { mTraits->findCellsNeighbours(iteration); }
-  void findRoads(int iteration) { mTraits->findRoads(iteration); }
-  TrackerTraits<NLayers>* mTraits = nullptr;
+  void findRoads(int iteration, TrackingOperationAdapter& operationAdapter) { mTraits->findRoads(iteration, operationAdapter); }
+  TrackerTraits* mTraits = nullptr;
   SurfaceTrackingScratch* mScratch = nullptr;
   TimeFrame* mFrame = nullptr;
   const DetectorLayoutSet* mLayoutPlan = nullptr;
   std::vector<TrackingParameters> mTrkParams;
   std::shared_ptr<BoundedMemoryResource> mMemoryPool;
-  MFTPublicationCompatibility* mMFTPublicationCompatibility = nullptr;
-  ITSSharedClusterCompatibility* mITSSharedClusterCompatibility = nullptr;
 };
-
-template <int NLayers>
-using CATracker = Tracker<NLayers>;
-
-using TrackerITS = Tracker<ITSNLayers>;
-using TrackerMFT = Tracker<o2::mft::constants::mft::LayersNumber>;
-using CATrackerITS = TrackerITS;
-using CATrackerMFT = TrackerMFT;
-
 } // namespace o2::itsmft::tracking
 
 #endif /* ALICEO2_ITSMFT_TRACKING_CATRACKER_H_ */

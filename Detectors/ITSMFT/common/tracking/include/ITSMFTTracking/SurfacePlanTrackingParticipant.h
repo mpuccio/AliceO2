@@ -34,6 +34,7 @@
 
 #include <oneapi/tbb/task_arena.h>
 
+#include "ITSMFTTracking/AcceptedTrackShadowPublisher.h"
 #include "ITSMFTTracking/CATracker.h"
 #include "ITSMFTTracking/Configuration.h"
 #include "ITSMFTTracking/DetectorLayoutSet.h"
@@ -43,6 +44,7 @@
 #include "ITSMFTTracking/ParticipantId.h"
 #include "ITSMFTTracking/SurfaceTrackingScratch.h"
 #include "ITSMFTTracking/TrackerTraits.h"
+#include "ITSMFTTracking/TrackingOperationAdapter.h"
 #include "ITSMFTTracking/detail/SurfacePlanBinding.h"
 // Reused only for the ITSSharedClusterCompatibilityOwner<NLayers>/
 // MFTPublicationCompatibilityOwner<NLayers> template-specialized mixins
@@ -58,6 +60,7 @@ namespace o2::itsmft::tracking
 
 template <int NLayers>
 class SurfacePlanTrackingParticipant final : public TrackingParticipant,
+                                             private TrackingOperationAdapter,
                                              private ITSSharedClusterCompatibilityOwner<NLayers>,
                                              private MFTPublicationCompatibilityOwner<NLayers>
 {
@@ -68,7 +71,7 @@ class SurfacePlanTrackingParticipant final : public TrackingParticipant,
 
   SurfacePlanTrackingParticipant(ParticipantId id, std::vector<TrackingParameters> params);
 
-  // Tracker<NLayers>/TrackerTraits<NLayers> bind to sibling addresses at
+  // Tracker/TrackerTraits bind to sibling addresses at
   // construction (adoptScratch()/adoptITSSharedClusterCompatibility()/
   // adoptMFTPublicationCompatibility()) and to the addresses
   // adoptSurfacePlanBinding()/adoptDetectorLayoutSet() bind
@@ -134,6 +137,23 @@ class SurfacePlanTrackingParticipant final : public TrackingParticipant,
  private:
   void clearCompatibility() noexcept;
 
+  bool refitSeed(const TrackSeed& seed,
+                 const TrackingParameters& params,
+                 float bz,
+                 SurfaceTrackingScratch& scratch,
+                 gsl::span<const gsl::span<const SurfaceMeasurement>> layerMeasurements,
+                 SurfaceCatalogView surfaceCatalog,
+                 ClusterSourceId expectedSource,
+                 TrackingCandidate& candidate) override;
+  bool publishAccepted(TimeFrame& frame,
+                       const TrackingCandidate& candidate,
+                       gsl::span<const gsl::span<const SurfaceMeasurement>> layerMeasurements,
+                       SurfaceCatalogView surfaceCatalog) override;
+  bool haveSamePolarity(const TrackingCandidate& first,
+                        const TrackingCandidate& second) const noexcept override;
+  bool sealAccepted(gsl::span<const TrackingCandidate> candidates) override;
+  void clearPublicationState() noexcept override { clearCompatibility(); }
+
   ParticipantId mId;
   std::vector<TrackingParameters> mParams;
   SurfaceTrackingScratch mScratch;
@@ -141,8 +161,9 @@ class SurfacePlanTrackingParticipant final : public TrackingParticipant,
   // Non-owning: the owning workflow's static combined plan data
   // (DetectorLayoutSet) outlives every participant.
   const DetectorLayoutSet* mPlan = nullptr;
-  TrackerTraits<NLayers> mTraits;
-  Tracker<NLayers> mTracker;
+  TrackerTraits mTraits;
+  Tracker mTracker;
+  AcceptedTrackShadowPublisher<NLayers> mAcceptedTrackShadowPublisher;
   // Adapter-edge ownership for this leg's fixed-capacity timing/mask tables.
   // SurfaceTrackingScratch receives only non-owning runtime views.
   o2::its::ROFOverlapTable<NLayers> mROFOverlapTable;

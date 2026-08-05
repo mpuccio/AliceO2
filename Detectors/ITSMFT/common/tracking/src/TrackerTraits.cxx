@@ -29,13 +29,10 @@
 #include "GPUCommonMath.h"
 #include "ITStracking/BoundedAllocator.h"
 #include "ITSMFTTracking/Cell.h"
-#include "ITSMFTTracking/CommonTrackShadow.h"
 #include "ITStracking/Constants.h"
 #include "ITSMFTTracking/Configuration.h"
-#include "ITSMFTTracking/DetectorTraits.h"
 #include "ITSMFTTracking/IndexTableConfiguration.h"
 #include "ITSMFTTracking/MFTFwdTrackHelpers.h"
-#include "ITSMFTTracking/SurfaceKinematicStateLegacyAdapters.h"
 #include "ITSMFTTracking/IndexTableUtils.h"
 #include "ITSMFTTracking/LayerMask.h"
 #include "ITSMFTTracking/SurfaceTrackingScratch.h"
@@ -98,49 +95,9 @@ Vertex diamondVertexForROF(const Vertex& base, const ROFOverlapView& rofOverlapV
   return v;
 }
 
-template <int NLayers>
-bool makeAcceptedTrackShadow(const CATrackType<NLayers>& track,
-                             gsl::span<const gsl::span<const SurfaceMeasurement>> layerMeasurements,
-                             const TimeEstBC& selectedTimestamp,
-                             CommonTrackShadowRecord& record)
-{
-  record = {};
-  if constexpr (DetectorTraits<NLayers>::DetId == o2::detectors::DetID::ITS) {
-    if (!legacy::importBarrelTrackParCov(track.getParamIn(), record.track.innerState) ||
-        !legacy::importBarrelTrackParCov(track.getParamOut(), record.track.outerState)) {
-      return false;
-    }
-  } else {
-    if (!legacy::importLegacyForwardTrackParCov(track.getTrack(), record.track.innerState) ||
-        !legacy::importLegacyForwardTrackParCov(track.getTrack().getOutParam(), record.track.outerState)) {
-      return false;
-    }
-  }
-  record.track.chi2 = track.getChi2();
-  record.track.timestamp = {static_cast<TFBC>(selectedTimestamp.lower()), static_cast<TFBC>(selectedTimestamp.upper())};
-  record.references.reserve(layerMeasurements.size());
-  for (std::size_t layer = 0; layer < layerMeasurements.size(); ++layer) {
-    const int localIndex = track.getClusterIndex(layer);
-    if (localIndex == o2::its::constants::UnusedIndex) {
-      continue;
-    }
-    if (localIndex < 0 || static_cast<size_t>(localIndex) >= layerMeasurements[layer].size()) {
-      return false;
-    }
-    const auto& measurement = layerMeasurements[layer][localIndex];
-    const TrackClusterReference reference{measurement.surface, SurfaceMeasurementIndex{static_cast<uint32_t>(localIndex)}};
-    if (!reference.surface.isValid() || measurement.surface != reference.surface || !measurement.cluster.isValid()) {
-      return false;
-    }
-    record.references.push_back(reference);
-    record.track.hitSurfaces.set(reference.surface);
-  }
-  return !record.references.empty();
-}
 } // namespace
 
-template <int NLayers>
-void TrackerTraits<NLayers>::resetTraversalCache() noexcept
+void TrackerTraits::resetTraversalCache() noexcept
 {
   mTraversalLayout = {};
   mTraversalGrouping.reset();
@@ -157,8 +114,7 @@ void TrackerTraits<NLayers>::resetTraversalCache() noexcept
   mTraversalGroupingCount = 0;
 }
 
-template <int NLayers>
-int TrackerTraits<NLayers>::requireScratchTransitionSlot(int iteration, TransitionId id) const
+int TrackerTraits::requireScratchTransitionSlot(int iteration, TransitionId id) const
 {
   if (mBinding == nullptr) {
     return static_cast<int>(id.value());
@@ -170,8 +126,7 @@ int TrackerTraits<NLayers>::requireScratchTransitionSlot(int iteration, Transiti
   return static_cast<int>(*slot);
 }
 
-template <int NLayers>
-int TrackerTraits<NLayers>::requireScratchCellSlot(int iteration, CellTopologyId id) const
+int TrackerTraits::requireScratchCellSlot(int iteration, CellTopologyId id) const
 {
   if (mBinding == nullptr) {
     return static_cast<int>(id.value());
@@ -183,9 +138,8 @@ int TrackerTraits<NLayers>::requireScratchCellSlot(int iteration, CellTopologyId
   return static_cast<int>(*slot);
 }
 
-template <int NLayers>
 template <typename Visitor>
-void TrackerTraits<NLayers>::dispatchActivePolicy(const TransitionPolicyGrouping& grouping, Visitor&& visitor) const
+void TrackerTraits::dispatchActivePolicy(const TransitionPolicyGrouping& grouping, Visitor&& visitor) const
 {
   if (mBinding == nullptr) {
     dispatchTransitionPolicies(grouping, std::forward<Visitor>(visitor));
@@ -208,52 +162,44 @@ void TrackerTraits<NLayers>::dispatchActivePolicy(const TransitionPolicyGrouping
 // mCylinderPolicyParams/mDiskPolicyParams (committed earlier in the same
 // initialiseTimeFrame() call). Never called except through
 // mTraversalOperation's bound pointer.
-template <int NLayers>
-void TrackerTraits<NLayers>::computeLayerTrackletsCylinderCylinder(int iteration, int iVertex)
+void TrackerTraits::computeLayerTrackletsCylinderCylinder(int iteration, int iVertex)
 {
   computeLayerTrackletsForPolicy<TransitionPolicyTag::CylinderCylinder>(iteration, iVertex, mTraversalOperation.boundTransitionIds, *mCylinderPolicyParams);
 }
 
-template <int NLayers>
-void TrackerTraits<NLayers>::computeLayerTrackletsDiskDisk(int iteration, int iVertex)
+void TrackerTraits::computeLayerTrackletsDiskDisk(int iteration, int iVertex)
 {
   computeLayerTrackletsForPolicy<TransitionPolicyTag::DiskDisk>(iteration, iVertex, mTraversalOperation.boundTransitionIds, *mDiskPolicyParams);
 }
 
-template <int NLayers>
-void TrackerTraits<NLayers>::computeLayerCellsCylinderCylinder(int iteration)
+void TrackerTraits::computeLayerCellsCylinderCylinder(int iteration)
 {
   computeLayerCellsForPolicy<TransitionPolicyTag::CylinderCylinder>(iteration, mTraversalOperation.boundCellIds, *mCylinderPolicyParams);
 }
 
-template <int NLayers>
-void TrackerTraits<NLayers>::computeLayerCellsDiskDisk(int iteration)
+void TrackerTraits::computeLayerCellsDiskDisk(int iteration)
 {
   computeLayerCellsForPolicy<TransitionPolicyTag::DiskDisk>(iteration, mTraversalOperation.boundCellIds, *mDiskPolicyParams);
 }
 
-template <int NLayers>
-void TrackerTraits<NLayers>::findCellsNeighboursCylinderCylinder(int iteration)
+void TrackerTraits::findCellsNeighboursCylinderCylinder(int iteration)
 {
   findCellsNeighboursForPolicy<TransitionPolicyTag::CylinderCylinder>(iteration, mTraversalOperation.boundScheduledCellIds, *mCylinderPolicyParams);
 }
 
-template <int NLayers>
-void TrackerTraits<NLayers>::findCellsNeighboursDiskDisk(int iteration)
+void TrackerTraits::findCellsNeighboursDiskDisk(int iteration)
 {
   findCellsNeighboursForPolicy<TransitionPolicyTag::DiskDisk>(iteration, mTraversalOperation.boundScheduledCellIds, *mDiskPolicyParams);
 }
 
-template <int NLayers>
-void TrackerTraits<NLayers>::findRoadsCylinderCylinder(int iteration)
+void TrackerTraits::findRoadsCylinderCylinder(int iteration, TrackingOperationAdapter& operationAdapter)
 {
-  findRoadsForPolicy<TransitionPolicyTag::CylinderCylinder>(iteration, *mCylinderPolicyParams);
+  findRoadsForPolicy<TransitionPolicyTag::CylinderCylinder>(iteration, *mCylinderPolicyParams, operationAdapter);
 }
 
-template <int NLayers>
-void TrackerTraits<NLayers>::findRoadsDiskDisk(int iteration)
+void TrackerTraits::findRoadsDiskDisk(int iteration, TrackingOperationAdapter& operationAdapter)
 {
-  findRoadsForPolicy<TransitionPolicyTag::DiskDisk>(iteration, *mDiskPolicyParams);
+  findRoadsForPolicy<TransitionPolicyTag::DiskDisk>(iteration, *mDiskPolicyParams, operationAdapter);
 }
 
 // M5c: the single producer of mTraversalOperation (TraversalOperationBinding,
@@ -270,8 +216,7 @@ void TrackerTraits<NLayers>::findRoadsDiskDisk(int iteration)
 // below (computeLayerTracklets/computeLayerCells/findCellsNeighbours/
 // findRoads) invoke the bound pointer directly, with no Tag/StateFamily
 // branch of their own.
-template <int NLayers>
-void TrackerTraits<NLayers>::bindTraversalOperation(int iteration)
+void TrackerTraits::bindTraversalOperation(int iteration)
 {
   mTraversalOperation = TraversalOperationBinding{};
   dispatchActivePolicy(*mTraversalGrouping, [&](auto traits, auto transitionIds, auto cellIds) {
@@ -307,11 +252,10 @@ void TrackerTraits<NLayers>::bindTraversalOperation(int iteration)
   }
 }
 
-template <int NLayers>
-void TrackerTraits<NLayers>::validateSparsePlan(int iteration,
-                                                const DetectorLayoutView& layout,
-                                                TransitionPolicyTag& activeTag,
-                                                bool& mixedPolicy) const
+void TrackerTraits::validateSparsePlan(int iteration,
+                                       const DetectorLayoutView& layout,
+                                       TransitionPolicyTag& activeTag,
+                                       bool& mixedPolicy) const
 {
   const auto fail = [iteration]() { throw TraversalException{iteration, TraversalFailureReason::SparseTopologyMismatch}; };
   const auto& topology = layout.topology;
@@ -408,8 +352,7 @@ void TrackerTraits<NLayers>::validateSparsePlan(int iteration,
   (void)mTrkParams[iteration];
 }
 
-template <int NLayers>
-void TrackerTraits<NLayers>::initialiseTimeFrame(const int iteration, const DetectorLayoutSet& layouts)
+void TrackerTraits::initialiseTimeFrame(const int iteration, const DetectorLayoutSet& layouts)
 {
   resetTraversalCache();
 
@@ -435,7 +378,7 @@ void TrackerTraits<NLayers>::initialiseTimeFrame(const int iteration, const Dete
   if (!grouping.valid()) {
     throw TraversalException{iteration, TraversalFailureReason::InvalidTraversalSchedule};
   }
-  // With no binding adopted, `layout` is this NLayers instantiation's own
+  // With no binding adopted, `layout` is this application's own
   // single-detector plan (Gate 3 behavior, unchanged): both tags active at
   // once is always a genuine misconfiguration. With a binding adopted,
   // `layout` may legitimately be a combined multi-detector layout whose
@@ -451,7 +394,7 @@ void TrackerTraits<NLayers>::initialiseTimeFrame(const int iteration, const Dete
   // Resolve the policy family from the actual sparse-plan endpoint before
   // any policy-specific binding runs. A combined layout may contain both
   // families, so a participant binding supplies the one family this tracker
-  // owns; no NLayers-to-policy selection is used here.
+  // owns; no layer-count-to-policy selection is used here.
   if (mBinding != nullptr) {
     const auto boundTransitions = mBinding->getGlobalTransitions();
     if (boundTransitions.empty() || boundTransitions.front().value() >= layout.topology.nTransitions) {
@@ -517,13 +460,12 @@ void TrackerTraits<NLayers>::initialiseTimeFrame(const int iteration, const Dete
                                  ? mBinding->getOrderedSurfaces()
                                  : gsl::span<const SurfaceId>{layouts.getConfigurationKey().orderedSurfaces};
   const int activeSurfaceCount = static_cast<int>(mScratch->getNOwnedSurfaces());
-  // This is the remaining adapter-edge compatibility check: until M7c the
-  // legacy ROF/topology objects still require the instantiated application
-  // width, but the value being checked is the adopted plan count. No shared
-  // traversal loop below uses NLayers as its extent.
+  // This is the remaining adapter-edge compatibility check: the application
+  // configuration must agree with the adopted plan count. No shared
+  // traversal loop uses the compatibility field as its extent.
   if (activeSurfaceCount <= 0 || activeSurfaceCount > MaxLayoutSurfaces ||
       orderedSurfaces.size() != static_cast<std::size_t>(activeSurfaceCount) ||
-      activeSurfaceCount != NLayers || mTrkParams[iteration].NLayers != activeSurfaceCount) {
+      mTrkParams[iteration].NLayers != activeSurfaceCount) {
     throw TraversalException{iteration, TraversalFailureReason::LegacyMaterialMismatch};
   }
   std::vector<NominalSurfaceMaterial> stagedLayerMaterial(static_cast<std::size_t>(activeSurfaceCount));
@@ -611,31 +553,18 @@ void TrackerTraits<NLayers>::initialiseTimeFrame(const int iteration, const Dete
   IndexTableUtilsN stagedIndexTableConfig{};
   IndexTableConfigError indexTableConfigError = IndexTableConfigError::None;
   bool activePolicyTagResolved = false;
-  bool stateFamilyMismatch = false;
+  bool activePolicyFamilyResolved = false;
   dispatchActivePolicy(grouping, [&](auto traits, auto /*transitionIds*/, auto /*cellIds*/) {
     using Traits = decltype(traits);
     activePolicyTagResolved = true;
-    // Discards the call (and therefore the need for a
-    // bindIndexTableConfiguration<Traits::Tag, NLayers> instantiation)
-    // whenever this policy family's seed state cannot possibly match this
-    // TrackerTraits<NLayers> instantiation's own CellSeed -- the same family
-    // check step 6 below (stateFamilyOf(activeTag) != cellStateFamily) later
-    // re-establishes for the whole rest of the call, including
-    // bindTraversalOperation(). A mismatch here is a genuine misconfiguration
-    // (this layout's active transitions do not belong to this NLayers/state
-    // family), not a NLayers-to-Tag policy selection: the active Tag itself
-    // still comes exclusively from `grouping`/`layout` above.
-    // Gate 4 M5b: runtime value, not an `if constexpr` gate -- see
-    // dispatchActivePolicy()'s own doc above for why both Traits::Tag
-    // instantiations of bindIndexTableConfiguration below are equally
-    // compiled for every NLayers now.
-    if (stateFamilyFromNLayers<NLayers>() != Traits::Family) {
-      stateFamilyMismatch = true;
-    } else {
-      indexTableConfigError = bindIndexTableConfiguration<Traits::Tag>(stagedIndexTableConfig, mTrkParams[iteration], activeSurfaceCount);
-    }
+    activePolicyFamilyResolved = true;
+    // The policy tag is resolved from actual sparse endpoint descriptors and
+    // is used only to bind the private operation-local configuration. There
+    // is no TrackerTraits layer-count/state-family specialization left to
+    // compare against.
+    indexTableConfigError = bindIndexTableConfiguration<Traits::Tag>(stagedIndexTableConfig, mTrkParams[iteration], activeSurfaceCount);
   });
-  if (!activePolicyTagResolved || stateFamilyMismatch) {
+  if (!activePolicyTagResolved || !activePolicyFamilyResolved) {
     throw TraversalException{iteration, TraversalFailureReason::StateFamilyMismatch};
   }
   if (indexTableConfigError != IndexTableConfigError::None) {
@@ -742,11 +671,6 @@ void TrackerTraits<NLayers>::initialiseTimeFrame(const int iteration, const Dete
     throw TraversalException{iteration, TraversalFailureReason::MixedPolicyLayout};
   }
 
-  constexpr StateFamily cellStateFamily = stateFamilyFromNLayers<NLayers>();
-  if (stateFamilyOf(activeTag) != cellStateFamily) {
-    throw TraversalException{iteration, TraversalFailureReason::StateFamilyMismatch};
-  }
-
   std::optional<CylinderCylinderPolicyParams> cylinderParams;
   std::optional<DiskDiskPolicyParams> diskParams;
   // Bound from the still-local stagedLayerMaterial, not the mLayerMaterial
@@ -822,9 +746,8 @@ void TrackerTraits<NLayers>::initialiseTimeFrame(const int iteration, const Dete
   bindTraversalOperation(iteration);
 }
 
-template <int NLayers>
 template <TransitionPolicyTag Tag>
-void TrackerTraits<NLayers>::prepareTransitionScatteringAndBendingForPolicy(
+void TrackerTraits::prepareTransitionScatteringAndBendingForPolicy(
   int iteration,
   const LayerGeometryConfigView& geometryConfig,
   const DiskDiskReferenceCoordinateView& referenceCoordinateView)
@@ -885,8 +808,7 @@ void TrackerTraits<NLayers>::prepareTransitionScatteringAndBendingForPolicy(
   }
 }
 
-template <int NLayers>
-void TrackerTraits<NLayers>::computeLayerTracklets(const int iteration, int iVertex)
+void TrackerTraits::computeLayerTracklets(const int iteration, int iVertex)
 {
   // Gate 4 Slice 0a: driven by the sparse topology cached on
   // initialiseTimeFrame() (mTraversalLayout), not a detector-specific
@@ -925,9 +847,8 @@ void TrackerTraits<NLayers>::computeLayerTracklets(const int iteration, int iVer
   (this->*mTraversalOperation.computeTracklets)(iteration, iVertex);
 }
 
-template <int NLayers>
 template <TransitionPolicyTag Tag>
-void TrackerTraits<NLayers>::computeLayerTrackletsForPolicy(
+void TrackerTraits::computeLayerTrackletsForPolicy(
   const int iteration,
   const int iVertex,
   gsl::span<const TransitionId> transitionIds,
@@ -943,7 +864,7 @@ void TrackerTraits<NLayers>::computeLayerTrackletsForPolicy(
 
   mTaskArena->execute([&] {
     // Resolves one sparse SurfaceTransition's endpoints to this
-    // TrackerTraits<NLayers>'s runtime-plan slots through
+    // the runtime-plan slots through
     // mSurfaceToSlot (built/validated once per iteration in
     // initialiseTimeFrame(), see that member's doc). Called exactly once
     // per transitionId, outside every candidate (ROF/cluster/vertex) loop
@@ -1197,8 +1118,7 @@ void TrackerTraits<NLayers>::computeLayerTrackletsForPolicy(
   });
 }
 
-template <int NLayers>
-void TrackerTraits<NLayers>::computeLayerCells(const int iteration)
+void TrackerTraits::computeLayerCells(const int iteration)
 {
   // Gate 4 Slice 0b: driven by the sparse topology cached on
   // initialiseTimeFrame() (mTraversalLayout), not a detector-specific
@@ -1247,9 +1167,8 @@ void TrackerTraits<NLayers>::computeLayerCells(const int iteration)
   }
 }
 
-template <int NLayers>
 template <TransitionPolicyTag Tag>
-void TrackerTraits<NLayers>::computeLayerCellsForPolicy(
+void TrackerTraits::computeLayerCellsForPolicy(
   const int iteration,
   gsl::span<const CellTopologyId> cellIds,
   const typename TransitionPolicyTraits<Tag>::Params& params)
@@ -1267,7 +1186,7 @@ void TrackerTraits<NLayers>::computeLayerCellsForPolicy(
 
   mTaskArena->execute([&] {
     // Resolves one sparse SurfaceCellTopology's three hit surfaces to this
-    // TrackerTraits<NLayers>'s runtime-plan slots through
+    // the runtime-plan slots through
     // mSurfaceToSlot (built/validated once per iteration in
     // initialiseTimeFrame(), see that member's doc). Called exactly once
     // per CellTopologyId, outside the per-tracklet candidate loop below --
@@ -1445,8 +1364,7 @@ void TrackerTraits<NLayers>::computeLayerCellsForPolicy(
   });
 }
 
-template <int NLayers>
-void TrackerTraits<NLayers>::findCellsNeighbours(const int iteration)
+void TrackerTraits::findCellsNeighbours(const int iteration)
 {
   if (!mTraversalGrouping.has_value()) {
     throw TraversalException{iteration, TraversalFailureReason::InvalidTraversalSchedule};
@@ -1462,9 +1380,8 @@ void TrackerTraits<NLayers>::findCellsNeighbours(const int iteration)
   (this->*mTraversalOperation.findNeighbours)(iteration);
 }
 
-template <int NLayers>
 template <TransitionPolicyTag Tag>
-void TrackerTraits<NLayers>::findCellsNeighboursForPolicy(
+void TrackerTraits::findCellsNeighboursForPolicy(
   int iteration,
   gsl::span<const CellTopologyId> scheduledCells,
   const typename TransitionPolicyTraits<Tag>::Params& params)
@@ -1607,9 +1524,8 @@ void TrackerTraits<NLayers>::findCellsNeighboursForPolicy(
   });
 }
 
-template <int NLayers>
 template <TransitionPolicyTag Tag, typename InputSeed>
-void TrackerTraits<NLayers>::processNeighbours(int iteration, int defaultCellTopologyId, int iLevel, const bounded_vector<InputSeed>& currentCellSeed, const bounded_vector<int>& currentCellId, const bounded_vector<int>& currentCellTopologyId, bounded_vector<TrackSeed>& updatedCellSeeds, bounded_vector<int>& updatedCellsIds, bounded_vector<int>& updatedCellsTopologyIds, const typename TransitionPolicyTraits<Tag>::Params& params)
+void TrackerTraits::processNeighbours(int iteration, int defaultCellTopologyId, int iLevel, const bounded_vector<InputSeed>& currentCellSeed, const bounded_vector<int>& currentCellId, const bounded_vector<int>& currentCellTopologyId, bounded_vector<TrackSeed>& updatedCellSeeds, bounded_vector<int>& updatedCellsIds, bounded_vector<int>& updatedCellsTopologyIds, const typename TransitionPolicyTraits<Tag>::Params& params)
 {
   const auto layerMaterial = mAttachHitConfig.layerMaterial;
   const int activeSurfaceCount = static_cast<int>(mScratch->getNOwnedSurfaces());
@@ -1739,8 +1655,7 @@ void TrackerTraits<NLayers>::processNeighbours(int iteration, int defaultCellTop
   });
 }
 
-template <int NLayers>
-void TrackerTraits<NLayers>::findRoads(const int iteration)
+void TrackerTraits::findRoads(const int iteration, TrackingOperationAdapter& operationAdapter)
 {
   if (!mTraversalGrouping.has_value()) {
     throw TraversalException{iteration, TraversalFailureReason::InvalidTraversalSchedule};
@@ -1763,12 +1678,13 @@ void TrackerTraits<NLayers>::findRoads(const int iteration)
   if (!mTraversalOperation.bound) {
     throw TraversalException{iteration, TraversalFailureReason::InvalidTraversalSchedule};
   }
-  (this->*mTraversalOperation.findRoads)(iteration);
+  (this->*mTraversalOperation.findRoads)(iteration, operationAdapter);
 }
 
-template <int NLayers>
 template <TransitionPolicyTag Tag>
-void TrackerTraits<NLayers>::findRoadsForPolicy(const int iteration, const typename TransitionPolicyTraits<Tag>::Params& params)
+void TrackerTraits::findRoadsForPolicy(const int iteration,
+                                       const typename TransitionPolicyTraits<Tag>::Params& params,
+                                       TrackingOperationAdapter& operationAdapter)
 {
   const int activeSurfaceCount = static_cast<int>(mScratch->getNOwnedSurfaces());
   bounded_vector<bounded_vector<int>> firstClusters(activeSurfaceCount, bounded_vector<int>(mMemoryPool.get()), mMemoryPool.get());
@@ -1860,21 +1776,20 @@ void TrackerTraits<NLayers>::findRoadsForPolicy(const int iteration, const typen
       continue;
     }
 
-    using TrackT = typename DetectorTraits<NLayers>::TrackType;
-    bounded_vector<TrackT> tracks(mMemoryPool.get());
+    bounded_vector<TrackingCandidate> tracks(mMemoryPool.get());
     mTaskArena->execute([&] {
       auto forSeed = [&](auto Mode, int iSeed, int offset = 0) {
-        TrackT temporaryTrack;
-        const bool refitSuccess = DetectorTraits<NLayers>::refitSeed(trackSeeds[iSeed],
-                                                                     temporaryTrack,
-                                                                     mTrkParams[iteration],
-                                                                     mBz,
-                                                                     *mScratch,
-                                                                     mLayerMeasurements,
-                                                                     mTraversalLayout.getSurfaceCatalogView(),
-                                                                     expectedSource);
+        TrackingCandidate temporaryTrack;
+        temporaryTrack.seed = trackSeeds[iSeed];
+        const bool refitSuccess = operationAdapter.refitSeed(trackSeeds[iSeed],
+                                                             mTrkParams[iteration],
+                                                             mBz,
+                                                             *mScratch,
+                                                             mLayerMeasurements,
+                                                             mTraversalLayout.getSurfaceCatalogView(),
+                                                             expectedSource,
+                                                             temporaryTrack);
         if (refitSuccess) {
-          DetectorTraits<NLayers>::copySeedPatternToTrack(temporaryTrack, trackSeeds[iSeed]);
           if constexpr (decltype(Mode)::value == PassMode::OnePass::value) {
             tracks.push_back(temporaryTrack);
           } else if constexpr (decltype(Mode)::value == PassMode::TwoPassCount::value) {
@@ -1919,18 +1834,20 @@ void TrackerTraits<NLayers>::findRoadsForPolicy(const int iteration, const typen
     });
 
     // Same ordering as o2::its::track::isBetter (longer track, then lower chi2).
-    std::sort(tracks.begin(), tracks.end(), [](const TrackT& a, const TrackT& b) {
+    std::sort(tracks.begin(), tracks.end(), [](const TrackingCandidate& a, const TrackingCandidate& b) {
       const auto ncla = a.getNumberOfClusters();
       const auto nclb = b.getNumberOfClusters();
-      return (ncla == nclb) ? (a.getChi2() < b.getChi2()) : ncla > nclb;
+      return (ncla == nclb) ? (a.chi2 < b.chi2) : ncla > nclb;
     });
-    acceptTracks(iteration, tracks, firstClusters);
+    acceptTracks(iteration, tracks, firstClusters, operationAdapter);
   }
-  markTracks(iteration);
+  markTracks(iteration, operationAdapter);
 }
 
-template <int NLayers>
-void TrackerTraits<NLayers>::acceptTracks(int iteration, bounded_vector<CATrackType<NLayers>>& tracks, bounded_vector<bounded_vector<int>>& firstClusters)
+void TrackerTraits::acceptTracks(int iteration,
+                                 bounded_vector<TrackingCandidate>& tracks,
+                                 bounded_vector<bounded_vector<int>>& firstClusters,
+                                 TrackingOperationAdapter& operationAdapter)
 {
   auto& trks = acceptedTracksForSharedStatus();
   trks.reserve(trks.size() + tracks.size());
@@ -1987,23 +1904,20 @@ void TrackerTraits<NLayers>::acceptTracks(int iteration, bounded_vector<CATrackT
       }
     }
     const auto selectedTimestamp = nominalCompatible ? nominalTS : expandedTS;
-    track.getTimeStamp() = selectedTimestamp.makeSymmetrical();
+    track.timestamp = selectedTimestamp.makeSymmetrical();
     // this is a sanity clamp
     // we cannot be worse than the clock so we clamp to this
-    if (track.getTimeStamp().getTimeStampError() > smallestROFHalf) {
-      track.getTimeStamp().setTimeStampError(smallestROFHalf);
+    if (track.timestamp.getTimeStampError() > smallestROFHalf) {
+      track.timestamp.setTimeStampError(smallestROFHalf);
     }
-    DetectorTraits<NLayers>::clearTransientLayerPattern(track);
     trks.emplace_back(track);
 
     // Shadow-only owner-thread publication. The candidate/refit loops above
     // may be parallel, but acceptTracks() runs after they have joined and is
     // the one deterministic legacy accepted-track order. Do not move this
     // into a task-arena worker or GPU path.
-    CommonTrackShadowRecord shadow;
-    if (!makeAcceptedTrackShadow<NLayers>(track, mLayerMeasurements, selectedTimestamp, shadow) ||
-        !mAcceptedTrackShadowPublisher.publish(*mFrame, shadow, track)) {
-      LOGP(fatal, "CommonTrack shadow construction failed for an accepted {} CA track", DetectorTraits<NLayers>::DetId == o2::detectors::DetID::ITS ? "ITS" : "MFT");
+    if (!operationAdapter.publishAccepted(*mFrame, track, mLayerMeasurements, mTraversalLayout.getSurfaceCatalogView())) {
+      LOGP(fatal, "CommonTrack publication failed for an accepted CA track");
     }
 
     if (mTrkParams[iteration].AllowSharingFirstCluster) {
@@ -2012,8 +1926,7 @@ void TrackerTraits<NLayers>::acceptTracks(int iteration, bounded_vector<CATrackT
   }
 }
 
-template <int NLayers>
-void TrackerTraits<NLayers>::markTracks(int iteration)
+void TrackerTraits::markTracks(int iteration, TrackingOperationAdapter& operationAdapter)
 {
   if (mTrkParams[iteration].AllowSharingFirstCluster) {
     /// Now we have to set the shared cluster flag
@@ -2025,7 +1938,7 @@ void TrackerTraits<NLayers>::markTracks(int iteration)
       return tracks[a].getClusterIndex(tracks[a].getFirstClusterLayer()) < tracks[b].getClusterIndex(tracks[b].getFirstClusterLayer());
     });
 
-    auto areTracksSelected = [this, iteration](const auto& t1, const auto& t2) {
+    auto areTracksSelected = [this, iteration, &operationAdapter](const auto& t1, const auto& t2) {
       const auto t1FirstLayer{t1.getFirstClusterLayer()}, t2FirstLayer{t2.getFirstClusterLayer()};
       if (t1FirstLayer != t2FirstLayer) {
         return false;
@@ -2033,14 +1946,14 @@ void TrackerTraits<NLayers>::markTracks(int iteration)
       if (mScratch->getClusterROF(t1FirstLayer, t1.getClusterIndex(t1FirstLayer)) != mScratch->getClusterROF(t2FirstLayer, t2.getClusterIndex(t2FirstLayer))) {
         return false;
       }
-      if (!math_utils::isPhiDifferenceBelow(t1.getPhi(), t2.getPhi(), mTrkParams[iteration].SharedClusterMaxDeltaPhi)) {
+      if (!math_utils::isPhiDifferenceBelow(t1.phi, t2.phi, mTrkParams[iteration].SharedClusterMaxDeltaPhi)) {
         return false;
       }
-      if (std::abs(t1.getEta() - t2.getEta()) > mTrkParams[iteration].SharedClusterMaxDeltaEta) {
+      if (std::abs(t1.eta - t2.eta) > mTrkParams[iteration].SharedClusterMaxDeltaEta) {
         return false;
       }
       if (mTrkParams[iteration].SharedClusterOppositeSign) {
-        if (DetectorTraits<NLayers>::haveSamePolarity(t1, t2)) {
+        if (operationAdapter.haveSamePolarity(t1, t2)) {
           return false;
         }
       }
@@ -2052,8 +1965,8 @@ void TrackerTraits<NLayers>::markTracks(int iteration)
       for (int j{i + 1}; j < static_cast<int>(fclusSort.size()) && tracks[fclusSort[j]].getClusterIndex(tracks[fclusSort[j]].getFirstClusterLayer()) == track.getClusterIndex(track.getFirstClusterLayer()); ++j) {
         auto& track2 = tracks[fclusSort[j]];
         if (areTracksSelected(track, track2)) {
-          track.setSharedClusters();
-          track2.setSharedClusters();
+          track.sharedClusters = true;
+          track2.sharedClusters = true;
         }
       }
     }
@@ -2063,35 +1976,29 @@ void TrackerTraits<NLayers>::markTracks(int iteration)
   // fclusSort above is only a comparison permutation. Seal the ITS-only
   // compatibility entries from the explicit pending associations exactly at
   // this final serial marking boundary.
-  if constexpr (DetectorTraits<NLayers>::DetId == o2::detectors::DetID::ITS) {
-    if (iteration + 1 == static_cast<int>(mTrkParams.size()) &&
-        !mAcceptedTrackShadowPublisher.sealITSSharedClusterCompatibility(acceptedTracksForSharedStatus())) {
-      throw std::runtime_error{"failed to seal ITS shared-cluster compatibility"};
-    }
+  if (iteration + 1 == static_cast<int>(mTrkParams.size()) &&
+      !operationAdapter.sealAccepted(acceptedTracksForSharedStatus())) {
+    throw std::runtime_error{"failed to seal tracking compatibility"};
   }
 }
 
-template <int NLayers>
-bounded_vector<CATrackType<NLayers>>& TrackerTraits<NLayers>::acceptedTracksForSharedStatus()
+bounded_vector<TrackingCandidate>& TrackerTraits::acceptedTracksForSharedStatus()
 {
   return mAcceptedTracksForSharedStatus;
 }
 
-template <int NLayers>
-void TrackerTraits<NLayers>::clearAcceptedTracksForSharedStatus()
+void TrackerTraits::clearAcceptedTracksForSharedStatus()
 {
   deepVectorClear(mAcceptedTracksForSharedStatus, mMemoryPool.get());
 }
 
-template <int NLayers>
-void TrackerTraits<NLayers>::setBz(float bz)
+void TrackerTraits::setBz(float bz)
 {
   mBz = bz;
   mFrame->setBz(bz);
 }
 
-template <int NLayers>
-void TrackerTraits<NLayers>::setNThreads(int n, std::shared_ptr<tbb::task_arena>& arena)
+void TrackerTraits::setNThreads(int n, std::shared_ptr<tbb::task_arena>& arena)
 {
 #if defined(OPTIMISATION_OUTPUT)
   mTaskArena = std::make_shared<tbb::task_arena>(1);
@@ -2104,19 +2011,5 @@ void TrackerTraits<NLayers>::setNThreads(int n, std::shared_ptr<tbb::task_arena>
   }
 #endif
 }
-
-template class TrackerTraits<7>;
-template class TrackerTraits<10>;
-
-// Explicitly materialize the two live seed-input forms used by both policy
-// families. The whole-track seed itself is the fixed-capacity TrackSeed.
-template void TrackerTraits<7>::processNeighbours<TransitionPolicyTag::CylinderCylinder, CellSeed>(int, int, int, const bounded_vector<CellSeed>&, const bounded_vector<int>&, const bounded_vector<int>&, bounded_vector<TrackSeed>&, bounded_vector<int>&, bounded_vector<int>&, const CylinderCylinderPolicyParams&);
-template void TrackerTraits<7>::processNeighbours<TransitionPolicyTag::CylinderCylinder, TrackSeed>(int, int, int, const bounded_vector<TrackSeed>&, const bounded_vector<int>&, const bounded_vector<int>&, bounded_vector<TrackSeed>&, bounded_vector<int>&, bounded_vector<int>&, const CylinderCylinderPolicyParams&);
-template void TrackerTraits<7>::processNeighbours<TransitionPolicyTag::DiskDisk, CellSeed>(int, int, int, const bounded_vector<CellSeed>&, const bounded_vector<int>&, const bounded_vector<int>&, bounded_vector<TrackSeed>&, bounded_vector<int>&, bounded_vector<int>&, const DiskDiskPolicyParams&);
-template void TrackerTraits<7>::processNeighbours<TransitionPolicyTag::DiskDisk, TrackSeed>(int, int, int, const bounded_vector<TrackSeed>&, const bounded_vector<int>&, const bounded_vector<int>&, bounded_vector<TrackSeed>&, bounded_vector<int>&, bounded_vector<int>&, const DiskDiskPolicyParams&);
-template void TrackerTraits<10>::processNeighbours<TransitionPolicyTag::CylinderCylinder, CellSeed>(int, int, int, const bounded_vector<CellSeed>&, const bounded_vector<int>&, const bounded_vector<int>&, bounded_vector<TrackSeed>&, bounded_vector<int>&, bounded_vector<int>&, const CylinderCylinderPolicyParams&);
-template void TrackerTraits<10>::processNeighbours<TransitionPolicyTag::CylinderCylinder, TrackSeed>(int, int, int, const bounded_vector<TrackSeed>&, const bounded_vector<int>&, const bounded_vector<int>&, bounded_vector<TrackSeed>&, bounded_vector<int>&, bounded_vector<int>&, const CylinderCylinderPolicyParams&);
-template void TrackerTraits<10>::processNeighbours<TransitionPolicyTag::DiskDisk, CellSeed>(int, int, int, const bounded_vector<CellSeed>&, const bounded_vector<int>&, const bounded_vector<int>&, bounded_vector<TrackSeed>&, bounded_vector<int>&, bounded_vector<int>&, const DiskDiskPolicyParams&);
-template void TrackerTraits<10>::processNeighbours<TransitionPolicyTag::DiskDisk, TrackSeed>(int, int, int, const bounded_vector<TrackSeed>&, const bounded_vector<int>&, const bounded_vector<int>&, bounded_vector<TrackSeed>&, bounded_vector<int>&, bounded_vector<int>&, const DiskDiskPolicyParams&);
 
 } // namespace o2::itsmft::tracking

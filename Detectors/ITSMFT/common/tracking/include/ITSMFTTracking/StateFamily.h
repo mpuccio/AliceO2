@@ -28,10 +28,8 @@
 // public topology, traversal, scheduling, binding-count, or adapter-facing
 // observability APIs -- those must use SurfaceDescriptor/SurfaceKind
 // directly, or (for anything still dispatched by the legacy hot-loop tag)
-// stay confined behind the same detail/ boundary as that tag. See
-// detail::stateFamilyFromNLayers() (detail/TransitionPolicyState.h) for the
-// one legacy NLayers-to-family dispatch bridge this correction moved out of
-// the public Cell.h.
+// stay confined behind the same detail/ boundary as that tag. No layer-count
+// or detector-identity-to-family bridge remains in the common core.
 namespace o2::itsmft::tracking
 {
 

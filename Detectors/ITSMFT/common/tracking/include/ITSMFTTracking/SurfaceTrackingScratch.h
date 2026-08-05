@@ -401,7 +401,7 @@ class SurfaceTrackingScratch
 };
 
 // M6d: the SurfaceTrackingScratch overload of resetTimeFrameEvent() --
-// Tracker<NLayers>::clustersToTracks()'s recoverable-failure path calls this
+// Tracker::clustersToTracks()'s recoverable-failure path calls this
 // unqualified (ADL). Same
 // reset-scratch-then-wipe-frame sequencing, same "not the future combined-
 // owner policy" caveat as the original.
