@@ -5,6 +5,7 @@ Decision anchor: [ADR 0007](decisions/0007-generic-tracking-engine-boundary.md)
 Architecture: [Architecture.md](Architecture.md)
 Status/decision log: [AgentCoordination.md](AgentCoordination.md)
 M7a design/audit: [runtime-plan Tracker/TrackerTraits migration](design/0003-m7-runtime-plan-tracker-migration.md)
+M7b count authority: [runtime-count authority](design/0004-m7b-runtime-count-authority.md)
 
 This plan turns the accepted Gate 4 implementation into the ADR 0007 end
 state: one concrete `TrackingEngine::executeEvent()` over ordered
@@ -328,6 +329,38 @@ full R replay/dependency gate specified in design note 0003. Frozen
 `Detectors/ITSMFT/ITS/tracking` code remains outside the narrow common-CA
 guard, and no production `ITSMFTLegacyParticipantSet` exemption is carried
 forward from M6g.
+
+### M7b — make the existing runtime plan the only count authority
+
+**Status: complete (2026-08-05).** The production migration, focused guard,
+and validation record are in
+[design note 0004](design/0004-m7b-runtime-count-authority.md). The existing
+`DetectorLayoutSet`/`SurfacePlanBinding`/`SurfaceTrackingScratch` composition
+is now the source of ordered traversal, active-surface, transition/cell,
+measurement, seed-mask, and index-table-prefix counts. No runtime-plan wrapper
+or parallel implementation was added.
+
+The M7b source guard classifies every remaining common production `NLayers`
+use as fixed device ABI/capacity, temporary private operation implementation,
+adapter edge, or explicitly deferred M7c compatibility. It rejects new
+plan-sized host arrays and shared-core `.NLayers` count authorities. The
+sparse/non-identity plan test proves binding order, source-qualified
+measurements, compact transition/cell slots, and positional `TrackSeed`
+masks. `Tracker`/`TrackerTraits` de-templating, layer-topology/ROF removal,
+and detector-adapter extraction remain M7c–M7e work; no implementation from
+those slices is included here.
+
+The durable build reused package `daily-20260717-0700-local1`; the complete
+serial selector executed all 95 registered ITS/MFT tests and passed 95/95 with
+no `Not Run` entries. The 43-file fixture checksum manifest passed 43/43
+before and after replay. Standalone and combined common-CA replays produced
+ITS 212 / `46913a67a7e2fe7462e29df0db264fa8` and MFT 68 /
+`8106b08571ca593c6b76ff72b761a680`; the combined legs matched their
+standalone products field-by-field. The MFT comparison covered 2,992
+float-projected values with zero maximum absolute/relative delta. Parent
+writer comparison preserved all initialized content and excluded only the
+known undefined `MFTTrack.mInvQPtSeed` leaf. No GPU result is claimed because
+the pinned Darwin host has no `nvcc`/`hipcc` toolchain or device.
 
 ## Not safe to delete yet
 

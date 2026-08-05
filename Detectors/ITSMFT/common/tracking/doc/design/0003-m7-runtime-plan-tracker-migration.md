@@ -1,6 +1,7 @@
 # Design note 0003: runtime-plan Tracker/TrackerTraits migration
 
-Status: M7a design and ownership audit; no production change
+Status: M7a design and ownership audit; M7b count-authority implementation
+recorded in [design note 0004](0004-m7b-runtime-count-authority.md)
 Date: 2026-08-05
 Scope: `Detectors/ITSMFT/common/tracking`
 Companion plan: [GenericTrackingEngineMigration.md](../GenericTrackingEngineMigration.md)
@@ -269,25 +270,30 @@ The current M7a slice is documentation-only and therefore runs none of R.
 
 ### M7b — make the existing runtime plan the only count authority
 
+**Status: complete; implementation details and final validation are recorded
+in [design note 0004](0004-m7b-runtime-count-authority.md).**
+
 **Target API and ownership:** retain the existing `DetectorLayoutSet`,
 `SurfacePlanBinding`, and `SurfaceTrackingScratch` APIs; add focused contract
 coverage rather than a wrapper. Convert common hot-loop bounds and temporary
 array sizes that are semantically plan-sized to the binding ordered span,
 layout active count, or scratch capacity.
 
-**Temporary bridge:** `Tracker<NLayers>`, `TrackerTraits<NLayers>`, dual ROF
-tables, and `LayerMeasurementSpans<NLayers>` may still exist at this boundary,
-but no new caller may use `NLayers` as a loop bound when a plan count is
-available. `params.NLayers` is checked only at the adapter edge.
+**Temporary bridge:** `Tracker<NLayers>`, `TrackerTraits<NLayers>`, and dual
+ROF/topology tables remain only at the explicitly classified M7c/M7d
+compatibility boundary. The former `LayerMeasurementSpans<NLayers>` host alias
+has been removed. No caller may use `NLayers` as a loop bound when a plan count
+is available; `params.NLayers` is checked only at the adapter edge.
 
 **Deletion criterion:** a source guard can identify every remaining
 `NLayers` use in common production as either a type/ABI boundary, a fixed
 device capacity, a private operation implementation, or an adapter seam; no
 unclassified hot-loop bound remains.
 
-**Validation:** R, plus a sparse/non-identity plan test that proves loop order,
-source-qualified measurements, transition/cell slots, and seed masks use
-binding positions rather than numeric surface IDs. Behavior-preserving.
+**Validation:** R, plus the sparse/non-identity plan test and classified
+source guard in design note 0004. The implementation is behavior-preserving;
+the accepted candidate anchors and the known undefined
+`MFTTrack.mInvQPtSeed` comparison exception remain unchanged.
 
 ### M7c — remove the layer-topology/ROF compatibility from the core path
 
@@ -469,12 +475,12 @@ Focused tests required by the implementation slices are:
 - schedule/order tests proving combined ITS/MFT source-qualified exports stay
   unchanged while the core sees only an explicit participant schedule.
 
-## 9. M7a exit record
+## 9. M7a/M7b exit record
 
-M7a is complete when this note and the migration-plan navigation are committed,
-the worktree contains documentation only, and the next implementation slice
-is M7b as specified above. No replay, CTest, GPU build, or production
-de-templating is required for this documentation slice. The accepted physics
-anchors remain ITS 212 /
+M7a was complete when this note and the migration-plan navigation were
+committed as documentation only. M7b is complete when design note 0004, the
+production migration, the tests/guard, and the final validation record are
+committed. M7b does not de-template the core or remove the M7c layer-topology/
+ROF boundary. The accepted physics anchors remain ITS 212 /
 `46913a67a7e2fe7462e29df0db264fa8` and MFT 68 /
 `8106b08571ca593c6b76ff72b761a680`.
