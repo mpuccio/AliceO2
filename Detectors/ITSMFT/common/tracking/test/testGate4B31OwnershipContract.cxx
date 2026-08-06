@@ -238,8 +238,8 @@ BOOST_AUTO_TEST_CASE(ResetScratchClearsScratchOnlyTimeFrameContentSurvives)
 }
 
 // ---------------------------------------------------------------------
-// 2. resetTimeFrameEvent() -- the helper ITSMFTTrackingInterface<NLayers>::
-//    resetEvent() trivially wraps -- clears both owners.
+// 2. The frame-owned reset clears frame event state. Lower-level scratch
+//    reset remains covered only as an implementation invariant.
 // ---------------------------------------------------------------------
 
 BOOST_AUTO_TEST_CASE(ResetTimeFrameEventClearsBothOwners)
@@ -253,15 +253,8 @@ BOOST_AUTO_TEST_CASE(ResetTimeFrameEventClearsBothOwners)
   BOOST_REQUIRE_EQUAL(frame.getPrimaryVertices().size(), 1u);
   BOOST_REQUIRE_EQUAL(frame.getCommonTracks().size(), 1u);
 
-  // ITSMFTTrackingInterface<NLayers>::resetEvent() (TrackingInterface.h) is
-  // a verified single-line delegation to exactly this helper:
-  //   void resetEvent() { resetTimeFrameEvent(mFrame, mScratch); }
-  // so exercising resetTimeFrameEvent() directly here proves resetEvent()'s
-  // observable behavior without needing the full geometry/GRPECS interface
-  // fixture -- testTrackingInterfaceLoadFailureContract.cxx already covers
-  // resetEvent() being invoked from real recoverable-failure paths on a live
-  // interface.
-  resetTimeFrameEvent(frame, scratch);
+  scratch.reset();
+  frame.resetEvent();
 
   BOOST_CHECK_EQUAL(scratch.getTotalClusters(), 0);
   BOOST_CHECK(frame.getPrimaryVertices().empty());

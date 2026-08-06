@@ -890,7 +890,7 @@ BOOST_AUTO_TEST_CASE(ITSSharedClusterCompatibilityUsesExplicitPreSortAssociation
   BOOST_CHECK(sealingFailure.entries().empty());
 
   sidecar.clear();
-  fixture.tf.wipe();
+  fixture.tf.resetEvent();
   BOOST_CHECK(fixture.tf.getCommonTracks().empty());
   BOOST_CHECK_EQUAL(sidecar.pendingSize(), 0u);
   BOOST_CHECK(sidecar.entries().empty());
@@ -939,7 +939,7 @@ BOOST_AUTO_TEST_CASE(TimeFrameWipeInvalidatesCommonTracksAndTrackClusterIndicesT
   BOOST_REQUIRE_EQUAL(tf.getTrackClusterIndices().size(), 2u);
   BOOST_REQUIRE(isValidTrackRange(tf.getCommonTracks()[0], static_cast<uint32_t>(tf.getTrackClusterIndices().size())));
 
-  tf.wipe();
+  tf.resetEvent();
 
   BOOST_CHECK(tf.getCommonTracks().empty());
   BOOST_CHECK(tf.getTrackClusterIndices().empty());

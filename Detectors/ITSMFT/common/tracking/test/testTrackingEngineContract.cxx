@@ -253,6 +253,7 @@ BOOST_AUTO_TEST_CASE(RecoverableDroppedTrackingResultResetsEveryScheduledPartici
   BOOST_CHECK_EQUAL(first.resetCalls(), 1);
   BOOST_CHECK_EQUAL(second.resetCalls(), 1);
   BOOST_CHECK_EQUAL(third.resetCalls(), 1);
+  BOOST_CHECK_EQUAL(frame.getEventResetCount(), 1u);
 }
 
 BOOST_AUTO_TEST_CASE(StructuralTrackOutcomeResetsEveryScheduledParticipantAndWipesFrame)
@@ -274,6 +275,7 @@ BOOST_AUTO_TEST_CASE(StructuralTrackOutcomeResetsEveryScheduledParticipantAndWip
   BOOST_CHECK_EQUAL(second.trackCalls(), 0); // never reached
   BOOST_CHECK_EQUAL(first.resetCalls(), 1);
   BOOST_CHECK_EQUAL(second.resetCalls(), 1);
+  BOOST_CHECK_EQUAL(frame.getEventResetCount(), 1u);
 }
 
 BOOST_AUTO_TEST_CASE(ExceptionFromAParticipantIsStructuralAndResetsEveryScheduledParticipantAndWipesFrame)
@@ -298,6 +300,7 @@ BOOST_AUTO_TEST_CASE(ExceptionFromAParticipantIsStructuralAndResetsEverySchedule
   BOOST_CHECK_EQUAL(first.resetCalls(), 1);
   BOOST_CHECK_EQUAL(second.resetCalls(), 1);
   BOOST_CHECK_EQUAL(third.resetCalls(), 1);
+  BOOST_CHECK_EQUAL(frame.getEventResetCount(), 1u);
 }
 
 // --- Direct resetEvent() (used after an atomic load failure) ---------------
@@ -323,6 +326,7 @@ BOOST_AUTO_TEST_CASE(DirectResetEventAppliesTheSameAllParticipantAndSharedFrameC
   BOOST_CHECK_EQUAL(second.trackCalls(), 0);
   BOOST_CHECK_EQUAL(first.resetCalls(), 1);
   BOOST_CHECK_EQUAL(second.resetCalls(), 1);
+  BOOST_CHECK_EQUAL(frame.getEventResetCount(), 1u);
 
   const std::vector<std::string> expectedLog{"reset:0", "reset:1"};
   BOOST_CHECK_EQUAL_COLLECTIONS(log.begin(), log.end(), expectedLog.begin(), expectedLog.end());

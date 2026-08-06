@@ -393,7 +393,7 @@ BOOST_AUTO_TEST_CASE(WipeClearsNormalizedFrameButPreservesDetId)
   // the accepted parity coverage in testTimeFrameNormalizedSource.cxx.
   verifyFixtureLoaded(frame, tf, f, origin, timing);
 
-  frame.wipe();
+  frame.resetEvent();
 
   // --- inspect only freshly obtained normalized accessors/views ---
   BOOST_CHECK_EQUAL(frame.getNormalizedFrame().getTotalMeasurements(), 0u);

@@ -347,7 +347,7 @@ BOOST_AUTO_TEST_CASE(combined_owner_load_keeps_detector_backfills_separate)
   BOOST_CHECK_EQUAL(frame.getNormalizedFrame().getSources().size(), 2u);
   itsScratch.reset();
   mftScratch.reset();
-  frame.wipe();
+  frame.resetEvent();
   BOOST_CHECK(mftScratch.empty());
   BOOST_CHECK(frame.getNormalizedFrame().getSources().empty());
 }

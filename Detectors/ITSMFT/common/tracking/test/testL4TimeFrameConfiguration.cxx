@@ -120,7 +120,7 @@ BOOST_AUTO_TEST_CASE(ResetPreservesStaticConfigurationAndCapacity)
   const auto* binding = frame.getBinding(0, ClusterSourceId{3});
   const auto capacity = *frame.getWorkspaceCapacity(0, ClusterSourceId{3});
   frame.getCommonTracks().push_back(CommonTrack{});
-  frame.wipe();
+  frame.resetEvent();
   BOOST_CHECK(frame.isConfigured());
   BOOST_CHECK(frame.getBinding(0, ClusterSourceId{3}) == binding);
   BOOST_CHECK_EQUAL(frame.getWorkspaceCapacity(0, ClusterSourceId{3})->cells, capacity.cells);

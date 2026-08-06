@@ -337,17 +337,15 @@ class TestTrackingOperationAdapter final : public TrackingOperationAdapter
   ITSSharedClusterCompatibility* mSidecar;
 };
 
-// Bundles a TimeFrame (non-templated, Gate 4 B3.1), a
-// SurfaceTrackingScratch, a TraitsT/Tracker pair, and a bounded memory pool
+// Bundles a TimeFrame (non-templated), a TraitsT/Tracker pair, and a bounded
+// memory pool
 // -- the minimal wiring Tracker::clustersToTracks()
 // needs to run at all (task arena included: TrackerTraits::
-// computeLayerTracklets() dereferences it unconditionally, even though the
+// computeLayerTracklets() dereferences the frame-owned workspace, even though
 // structural-failure cases never reach that far). TraitsT defaults to the
 // real TrackerTraits; RigT<InjectingTrackerTraits> (aliased
 // ThrowingRig below) is used by the injected-failure tests. `frame` is
-// declared before `tf` so it is constructed first and destroyed last (see
-// SurfaceTrackingScratch's own lifetime-contract doc) -- neither owns or
-// stores a reference to the other; this Rig is what binds both.
+// the tracker binds its traits to the workspace installed in the frame.
 template <class TraitsT = TrackerTraits>
 struct RigT {
   explicit RigT(bool dropTFUponFailure, size_t maxMemory = std::numeric_limits<size_t>::max())
@@ -355,10 +353,8 @@ struct RigT {
       params(makeOneIterationITSParams(dropTFUponFailure, maxMemory)),
       tracker(&traits)
   {
-    tf.setMemoryPool(pool);
     traits.setMemoryPool(pool);
     traits.setNThreads(1, arena);
-    tracker.adoptScratch(tf);
     tracker.adoptFrame(frame);
     tracker.setBz(0.5f);
     // The operation adapter is passed to each tracking invocation. It is
@@ -390,7 +386,6 @@ struct RigT {
   std::shared_ptr<BoundedMemoryResource> pool;
   std::vector<TrackingParameters> params;
   TimeFrame frame;
-  SurfaceTrackingScratch tf;
   TraitsT traits;
   Tracker tracker;
   ITSSharedClusterCompatibility sidecar;
@@ -434,15 +429,7 @@ struct RigT {
     const auto result = tracker.initialize(frame, configuration);
     BOOST_REQUIRE(result.ok());
     traits.setMemoryPool(frame.getMemoryPool());
-    std::size_t transitions = 0;
-    std::size_t cells = 0;
-    for (std::size_t iteration = 0; iteration < frame.getNIterations(); ++iteration) {
-      const auto* capacity = frame.getWorkspaceCapacity(iteration, ClusterSourceId{0});
-      BOOST_REQUIRE(capacity != nullptr);
-      transitions = std::max(transitions, capacity->transitions);
-      cells = std::max(cells, capacity->cells);
-    }
-    tf.adoptPlan(orderedSurfaces.size(), transitions, cells);
+    BOOST_REQUIRE_EQUAL(frame.getWorkspace(ClusterSourceId{0}).getNOwnedSurfaces(), orderedSurfaces.size());
   }
 
   // Loads clusters (or, with an empty Fixture, zero clusters -- still a
@@ -464,7 +451,8 @@ struct RigT {
     const ROFTimingConfig timing{40, 0, 0, 0};
     const auto& graph = frame.getGraph(0);
     const auto& orderedSurfaces = graph.getOrderedSurfaces();
-    const auto result = tf.loadNormalizedSource(frame, decoder, origin, timing, f.clusters, f.patterns, f.rofs, &dict(),
+    auto& workspace = frame.getWorkspace(ClusterSourceId{0});
+    const auto result = workspace.loadNormalizedSource(frame, decoder, origin, timing, f.clusters, f.patterns, f.rofs, &dict(),
                                                 f.labels.getIndexedSize() > 0 ? &f.labels : nullptr, o2::detectors::DetID::ITS,
                                                 gsl::span<const SurfaceId>{orderedSurfaces}, graph.getSurfaceCatalog());
     BOOST_REQUIRE(result.ok());
@@ -500,7 +488,7 @@ struct RigT {
     for (int iLayer = 0; iLayer < ITSNLayers; ++iLayer) {
       mask->setROFsEnabled(iLayer, 0, timing2.mNROFsTF, 1);
     }
-    tf.setROFViews(RuntimeROFViews{rofTable->getView(), vertexTable->getView(), mask->getView(), {}});
+    workspace.setROFViews(RuntimeROFViews{rofTable->getView(), vertexTable->getView(), mask->getView(), {}});
   }
 
   // Set the event-local budget at the current usage; the next allocation is
@@ -573,8 +561,7 @@ BOOST_AUTO_TEST_CASE(RecoverableFailureDroppedReturnsExactSentinelAndWipes)
   BOOST_CHECK(result.outcome == TrackingOutcome::RecoverableDropped);
   BOOST_CHECK_EQUAL(rig.frame.getNormalizedFrame().getTotalMeasurements(), 0u);
   BOOST_CHECK(rig.frame.getCommonTracks().empty());
-  // The plan lives on `rig`, not on TimeFrame (Gate 4 B2 Slice 2): wipe()
-  // cannot touch it, by construction -- nothing left to assert here.
+  BOOST_CHECK_EQUAL(rig.frame.getEventResetCount(), 2u);
 }
 
 BOOST_AUTO_TEST_CASE(RecoverableFailureNotDroppedRethrowsButStillWipesFirst)
@@ -592,6 +579,7 @@ BOOST_AUTO_TEST_CASE(RecoverableFailureNotDroppedRethrowsButStillWipesFirst)
   // "the process is going down anyway".
   BOOST_CHECK_EQUAL(rig.frame.getNormalizedFrame().getTotalMeasurements(), 0u);
   BOOST_CHECK(rig.frame.getCommonTracks().empty());
+  BOOST_CHECK_EQUAL(rig.frame.getEventResetCount(), 2u);
 }
 
 // --- std::bad_alloc: recoverable, same drop-or-rethrow policy ------------

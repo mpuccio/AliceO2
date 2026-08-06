@@ -57,6 +57,12 @@ o2_add_test(l4-timeframe-configuration
             LABELS "itsmft;tracking"
             PUBLIC_LINK_LIBRARIES O2::ITSMFTTracking O2::MFTTracking)
 
+o2_add_test(l5-timeframe-workspace
+            SOURCES testL5TimeFrameWorkspace.cxx
+            COMPONENT_NAME itsmft-tracking
+            LABELS "itsmft;tracking"
+            PUBLIC_LINK_LIBRARIES O2::ITSMFTTracking O2::MFTTracking)
+
 o2_add_test(transitionpolicytag-containment
             SOURCES testTransitionPolicyTagContainment.cxx
             COMPONENT_NAME itsmft-tracking
