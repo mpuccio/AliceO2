@@ -1,6 +1,6 @@
 # Post-M7 cleanup implementation plan
 
-- Status: L2 complete; L3 remains the next authorized slice
+- Status: L3 implementation complete; L4 remains the next authorized slice
 - Date: 2026-08-06
 - Architecture source: [post-M7 intentionality audit](0009-post-m7-intentionality-cleanup-audit.md)
 - Implementation owner: Luna agents under maintainer review
@@ -39,6 +39,12 @@ target-architecture implementations of the kernels invoked by `Tracker`.
 There is no public `TrackingPlan` class: vector order is iteration order, and
 private TimeFrame records may keep each graph paired with its parameters and
 partitions without creating another public abstraction.
+
+The graph ownership rule is strict: `TimeFrame` is passive reusable storage.
+`Tracker` builds and validates declarations locally, then atomically installs
+configuration into `TimeFrame`; `Loader` atomically installs event-derived
+input only. No TimeFrame method constructs, selects, or validates graph
+topology.
 
 ## 2. Non-negotiable boundaries
 
@@ -286,6 +292,14 @@ names and no second graph representation may survive L3.
 
 **Gate:** R plus non-contiguous `SurfaceId`, sparse adjacency, holes/seeding,
 graph validation, combined partition, and device-view layout tests.
+
+**Status: complete (2026-08-06).** `SurfaceGraph` and `SurfaceGraphView` are
+the only common public graph owner/view. The graph builder returns one owning
+graph, the combined composition shares one graph across its bindings, and the
+focused source guard finds no deleted layout/topology ownership in common
+production include/src. See [the L3 validation record](../validation/l3-surface-graph.md).
+The passive `TimeFrame`/active `Tracker::initialize` boundary above is the
+exact L4 constraint; L4 must not turn TimeFrame into a graph builder.
 
 ### L4 — move static tracking configuration into `TimeFrame`
 
