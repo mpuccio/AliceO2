@@ -477,4 +477,3 @@ The first assignment is L0 only. Its copy-ready intent is:
 > validation record separately, and leave the named user stash untouched.
 
 L1 must not begin until L0 is integrated and its replay evidence is accepted.
-
