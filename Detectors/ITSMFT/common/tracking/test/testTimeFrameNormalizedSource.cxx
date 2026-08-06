@@ -312,7 +312,7 @@ BOOST_AUTO_TEST_CASE(combined_owner_load_keeps_detector_backfills_separate)
   std::vector<TrackingParameters> parameters;
   std::vector<TrackingWorkspaceCapacity> capacities;
   for (const auto [source, ordered, kind] : {std::tuple{ClusterSourceId{0}, gsl::span<const SurfaceId>{itsSurfaces}, SurfaceKind::Cylinder},
-                                              std::tuple{ClusterSourceId{1}, gsl::span<const SurfaceId>{mftSurfaces}, SurfaceKind::Disk}}) {
+                                             std::tuple{ClusterSourceId{1}, gsl::span<const SurfaceId>{mftSurfaces}, SurfaceKind::Disk}}) {
     SurfaceMask owned;
     for (const auto surface : ordered) {
       owned.set(surface);

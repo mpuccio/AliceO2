@@ -241,8 +241,18 @@ BOOST_AUTO_TEST_CASE(DirectLoaderHierarchyGuard)
   const std::string testFile = __FILE__;
   const auto testDirectory = testFile.substr(0, testFile.find_last_of('/'));
   const std::string root = testDirectory + "/..";
-  const std::vector<std::string> forbidden = {"Load" "Target", "load" "Target(", "Atomic" "LoadBinding", "m" "Load" "Target",
-                                              "friend class Multi" "SourceTimeFrameLoader"};
+  const std::vector<std::string> forbidden = {
+    "Load"
+    "Target",
+    "load"
+    "Target(",
+    "Atomic"
+    "LoadBinding",
+    "m"
+    "Load"
+    "Target",
+    "friend class Multi"
+    "SourceTimeFrameLoader"};
   for (const auto& directory : {root + "/include", root + "/src", root + "/test"}) {
     for (const auto& entry : std::filesystem::recursive_directory_iterator{directory}) {
       if (!entry.is_regular_file()) {
