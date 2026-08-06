@@ -9,6 +9,7 @@ M7b count authority: [runtime-count authority](design/0004-m7b-runtime-count-aut
 M7c topology/ROF ownership: [runtime topology and ROF ownership](design/0005-m7c-runtime-topology-rof.md)
 M7d non-templated core: [runtime-plan Tracker/TrackerTraits implementation](design/0006-m7d-nontemplated-tracker-core.md)
 M7e adapter refit/output: [typed refit and output at the adapter boundary](design/0007-m7e-adapter-refit-output.md)
+M7f final cleanup: [redundant runtime-core bridge retirement](design/0008-m7f-final-runtime-core-cleanup.md)
 
 This plan turns the accepted Gate 4 implementation into the ADR 0007 end
 state: one concrete `TrackingEngine::executeEvent()` over ordered
@@ -444,6 +445,33 @@ and the M7d parent matched in all initialized content. Only the undefined
 `MFTTrack.mInvQPtSeed` byte artifact remains excluded. No GPU result is
 claimed because the pinned environment has no CUDA/HIP/device tools.
 
+### M7f — delete redundant compile-time bridges and close the runtime-core guard
+
+**Status: complete (2026-08-06).** The production deletion, focused test
+migrations, authoritative source/dependency guard, and validation record are
+in [design note 0008](design/0008-m7f-final-runtime-core-cleanup.md). The
+common road-start loop now derives its extent from
+`SurfaceTrackingScratch::getNOwnedSurfaces()`, and sparse transition/cell
+endpoints resolve through `SurfacePlanBinding` positions. The persistent
+SurfaceId-to-slot bridge, `IndexTableUtilsN`, redundant `<NLayers>` refit
+helpers, and dead typed native-output export helper are deleted.
+
+The guard classifies every live layer-count token in common production
+include/src by exact file and role. Only named adapter-edge configuration,
+static descriptor, participant/interface, publication, and frozen-compatibility
+uses remain; fixed device capacities retain their maximum storage with runtime
+counts/masks. The frozen legacy ITS tree is excluded only by its explicit
+`Detectors/ITSMFT/ITS/tracking` path and is unchanged.
+
+M7f is behavior-preserving by construction. The full durable build passed, the
+serial ITS/MFT selector passed 98/98 with no `Not Run` entries, fixture checksums
+passed 43/43 before and after, and standalone/combined replay anchors remained
+ITS 212 / `46913a67a7e2fe7462e29df0db264fa8` and MFT 68 /
+`8106b08571ca593c6b76ff72b761a680`. Combined legs matched standalone writer
+content and M7e initialized output matched, excluding only the known undefined
+`MFTTrack.mInvQPtSeed` byte. No GPU result is claimed because the pinned host
+has no CUDA/HIP/device tools.
+
 ## Not safe to delete yet
 
 | Artifact | Why it must stay | Removal gate |
@@ -452,13 +480,13 @@ claimed because the pinned environment has no CUDA/HIP/device tools.
 | `DetectorTraversalBinding` (`include/ITSMFTTracking/detail/DetectorTraversalBinding.h`) | Its plan-sizing/slot-assignment role is now carried by `SurfacePlanBinding` for both participants | **Deleted M6f** after M6d/M6e wiring and replay gates |
 | `loadITSAndMFT()`/`resetITSAndMFTEvent()` fixed source-0/1 mapping | Current combined load/reset contract of the C4 workflow | M2 generalizes, M3 deletes the fixed-position entry points |
 | `TransitionPolicyTag` machinery (dispatch, grouping, templated operations) | Only existing hot-loop implementation of the CA stages | contained at M4, replaced by M5 implementation |
-| Policy/legacy compatibility code (`kDroppedTimeFrameResult` sentinel, `mLayerMaterial`/`LegacyMaterialMismatch`, `mSurfaceToLegacyLayer`, `DiskDiskReferenceCoordinateView`, `passesCellRoadPrecut<DiskDisk>`) | Pins byte-identical replay parity against the frozen legacy implementations | respective M4–M6 slices, each under its replay gate |
+| Policy/legacy compatibility code (`kDroppedTimeFrameResult` sentinel, `mLayerMaterial`/`LegacyMaterialMismatch`, `DiskDiskReferenceCoordinateView`, `passesCellRoadPrecut<DiskDisk>`) | Pins byte-identical replay parity against the frozen legacy implementations | respective M4–M6 slices, each under its replay gate |
 | Output sidecars (`ITSSharedClusterCompatibility`, `MFTPublicationCompatibility`) | Legacy output conversion still requires per-detector compatibility state | M6, when adapters convert from `CommonTrack` alone |
-| `SurfacePlanTrackingParticipant<NLayers>` | Narrow plan-driven ITS/MFT participant adapter; it owns detector/output sidecars but no retired workspace/binding bridge or combined event loop | **M7d:** it now embeds plain `Tracker`/`TrackerTraits`; **M7e:** move typed refit/output and sidecar conversion fully to the application edge before reducing this remaining adapter template |
+| `SurfacePlanTrackingParticipant<NLayers>` | Narrow plan-driven ITS/MFT participant adapter; it owns detector/output sidecars but no retired workspace/binding bridge or combined event loop | **M7f:** retained only as the named application-edge compatibility seam; reduce it after workflow-edge ROF/configuration consumers are independently runtime-view based |
 | `ITSMFTLegacyParticipantSet` | Coordinator-shaped holder of combined application construction and event-owned publication/reset state | **Deleted M6g**; construction is inlined into the combined DPL task and publication/timing ownership remains workflow-local |
 | Common `TrackingTopology<NLayers>` | The common layer-indexed topology duplicated the sparse plan topology | **Deleted M7c**; frozen legacy ITS topology is outside the common-CA guard and remains unchanged |
 | Common `ROF*Table<NLayers>` scratch ownership | The core now receives non-owning runtime timing/overlap/mask views | **Deleted M7c**; fixed-capacity builders remain only at explicitly named adapter edges until their own template seam is reduced |
-| Call-scoped operation seam | The generic core still needs one operation-local refit/completion boundary while typed MFT refit and sidecars are adapter-owned | **M7f:** remove or reduce it after a stable generic accepted-result completion owner and a replay-gated sidecar migration; see [design note 0007](design/0007-m7e-adapter-refit-output.md) |
+| Call-scoped operation seam | The generic core still needs one operation-local refit/completion boundary while typed MFT refit and sidecars are adapter-owned | Deferred post-M7 ownership decision; do not remove without a stable generic accepted-result owner and replay-gated sidecar migration, see [design note 0007](design/0007-m7e-adapter-refit-output.md) |
 
 ## Validation baseline
 

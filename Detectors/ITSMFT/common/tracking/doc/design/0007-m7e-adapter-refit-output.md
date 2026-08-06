@@ -140,19 +140,24 @@ parent mismatch was `MFTTrack.mInvQPtSeed`, the known undefined byte artifact.
 The pinned environment contained no `nvcc`, `hipcc`, `nvidia-smi`, or
 `rocminfo`; no GPU/device validation is claimed.
 
-## M7f deletion and simplification inventory
+## M7f follow-up and final cleanup
 
-These are the next bounded deletions, deliberately not performed in M7e:
+M7f completed the safe compile-time bridge deletions and guard closure. The
+exact residual exception table, validation record, and remaining post-M7
+decisions are in [design note 0008](0008-m7f-final-runtime-core-cleanup.md).
+The following items remain intentionally outside that behavior-preserving
+cleanup:
 
 | Rank | Item | Gate |
 |---:|---|---|
-| 1 | Remove or reduce `TrackingOperationAdapter` once the generic accepted-result collection has a stable completion owner; delete the call-scoped seam only after the same sidecar/failure contract is expressed without a callback. | Safe after M7e replay parity; M7f behavior-preserving |
+| 1 | Remove or reduce `TrackingOperationAdapter` once the generic accepted-result collection has a stable completion owner; delete the call-scoped seam only after the same sidecar/failure contract is expressed without a callback. | Deferred post-M7 ownership decision |
 | 2 | Revisit `TrackingCandidate`'s adapter-only kinematics (`phi`, `eta`, `charge`) and any staging that remains after a stable generic accepted-result owner exists. | Safe structurally, but requires a separately reviewed ownership change |
-| 3 | Delete `MFTAdapterRefit`'s typed `MFTCATrack` overload and remaining legacy state-export adapters once MFT typed refit/output is fully represented by the generic result path. | Blocked until M7f typed-output completion |
+| 3 | Delete `MFTAdapterRefit`'s typed `MFTCATrack` overload and remaining legacy state-export adapters once MFT typed refit/output is fully represented by the generic result path. | Blocked until a separately approved typed-output decision |
 | 4 | Reduce `DetectorTrackingOperationAdapterSupport.h`, `MFTAdapterRefit.cxx`, and the adapter-side `NLayers` mixins after all typed leaf calls are removed. | Blocked until item 3 |
-| 5 | Reduce `SurfacePlanTrackingParticipant<NLayers>` and `ITSMFTTrackingInterface<NLayers>` only after application-edge configuration/ROF parity is separately proven. | Blocked until M7f edge audit |
+| 5 | Reduce `SurfacePlanTrackingParticipant<NLayers>` and `ITSMFTTrackingInterface<NLayers>` only after application-edge configuration/ROF parity is separately proven. | Deferred post-M7 adapter decision; M7f records the exact owner |
 | 6 | Revisit remaining adapter-edge `NLayers` builders and fixed-capacity ROF compatibility objects. | Deferred compatibility decision |
 | 7 | Revisit MFT leaf-helper and native cylinder test-oracle simplifications only if they change operation selection or numerical behavior. | Deferred physics/algorithm sign-off |
 
-No M7f deletion is hidden in this slice, and no Tracker/TrackerTraits
-de-templating or workflow relocation is started here.
+M7f did not remove the operation seam or de-template the remaining
+workflow-facing adapter participants. It did not start a new Tracker/
+TrackerTraits milestone or relocate workflow ownership.
