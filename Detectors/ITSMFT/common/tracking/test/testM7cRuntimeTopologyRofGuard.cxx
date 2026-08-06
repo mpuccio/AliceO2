@@ -22,7 +22,7 @@
 #include <boost/test/unit_test.hpp>
 
 #include "ITSMFTTracking/ROFViews.h"
-#include "ITSMFTTracking/SparseTrackingTopology.h"
+#include "ITSMFTTracking/SurfaceGraph.h"
 #include "ITSMFTTracking/SurfaceTrackingScratch.h"
 #include "ITStracking/ROFLookupTables.h"
 
@@ -185,7 +185,7 @@ BOOST_AUTO_TEST_CASE(CommonProductionUsesOnlySparseTopologyAndRuntimeROFViews)
 
 BOOST_AUTO_TEST_CASE(SparseTopologyViewRetainsExplicitNonIdentityOrder)
 {
-  SparseTrackingTopology topology{8};
+  SurfaceGraph topology{8};
   const auto first = topology.addTransition(SurfaceTransition{SurfaceId{5}, SurfaceId{2}, {}, 0});
   const auto second = topology.addTransition(SurfaceTransition{SurfaceId{2}, SurfaceId{7}, {}, 0});
   BOOST_REQUIRE(first.isValid());

@@ -18,8 +18,7 @@
 
 #include "ITSMFTTracking/ClusterSource.h"
 #include "ITSMFTTracking/Configuration.h"
-#include "ITSMFTTracking/DetectorLayoutBuilder.h"
-#include "ITSMFTTracking/DetectorLayoutSet.h"
+#include "ITSMFTTracking/SurfaceGraphBuilder.h"
 #include "ITSMFTTracking/ITSSharedClusterCompatibility.h"
 #include "ITSMFTTracking/MFTPublicationCompatibility.h"
 #include "ITSMFTTracking/MultiSourceTimeFrameLoader.h"
@@ -61,40 +60,27 @@ inline SurfaceMask surfaceRangeMask(uint16_t first, uint16_t count)
   return result;
 }
 
-inline DetectorLayoutBuildResult buildCombinedLayout(gsl::span<const SurfaceId> itsSurfaces,
-                                                     const TrackingParameters& itsParams,
-                                                     gsl::span<const SurfaceId> mftSurfaces,
-                                                     const TrackingParameters& mftParams)
+inline SurfaceGraphBuildResult buildCombinedLayout(gsl::span<const SurfaceId> itsSurfaces,
+                                                   const TrackingParameters& itsParams,
+                                                   gsl::span<const SurfaceId> mftSurfaces,
+                                                   const TrackingParameters& mftParams)
 {
-  DetectorLayoutSubgraph itsSubgraph;
+  SurfaceGraphSubgraph itsSubgraph;
   itsSubgraph.orderedSurfaces.assign(itsSurfaces.begin(), itsSurfaces.end());
   itsSubgraph.maxHoles = itsParams.MaxHoles;
   itsSubgraph.holeSurfaces = positionalSurfaceMask(itsParams.HoleLayerMask, itsSurfaces, static_cast<uint32_t>(itsSurfaces.size()));
   itsSubgraph.seedingSurfaces = positionalSurfaceMask(itsParams.StartLayerMask, itsSurfaces, static_cast<uint32_t>(itsSurfaces.size()));
 
-  DetectorLayoutSubgraph mftSubgraph;
+  SurfaceGraphSubgraph mftSubgraph;
   mftSubgraph.orderedSurfaces.assign(mftSurfaces.begin(), mftSurfaces.end());
   mftSubgraph.maxHoles = mftParams.MaxHoles;
   mftSubgraph.holeSurfaces = positionalSurfaceMask(mftParams.HoleLayerMask, mftSurfaces, static_cast<uint32_t>(mftSurfaces.size()));
   mftSubgraph.seedingSurfaces = positionalSurfaceMask(mftParams.StartLayerMask, mftSurfaces, static_cast<uint32_t>(mftSurfaces.size()));
 
-  DetectorLayoutBuilder builder{combinedCatalogView()};
+  SurfaceGraphBuilder builder{combinedCatalogView()};
   builder.addSubgraph(std::move(itsSubgraph));
   builder.addSubgraph(std::move(mftSubgraph));
   return builder.build();
-}
-
-template <int NLayers>
-inline DetectorLayoutSet ownDetectorPlan(const DetectorLayout& authoritative, gsl::span<const SurfaceId> ownSurfaces,
-                                         const TrackingParameters& params)
-{
-  DetectorLayoutConfigurationKey key;
-  key.orderedSurfaces.assign(ownSurfaces.begin(), ownSurfaces.end());
-  key.iterations.push_back(DetectorLayoutIterationConfiguration{
-    static_cast<uint32_t>(NLayers), params.MaxHoles, params.HoleLayerMask, params.StartLayerMask});
-  std::vector<DetectorLayout> layouts;
-  layouts.push_back(authoritative);
-  return DetectorLayoutSet{std::move(key), combinedCatalogView(), std::move(layouts)};
 }
 
 class CombinedTrackingParticipantPlan
@@ -112,20 +98,18 @@ class CombinedTrackingParticipantPlan
     if (!combinedBuild.ok()) {
       throw std::runtime_error{"combined test application plan failed to build the detector layout"};
     }
-    const auto& combinedLayout = *combinedBuild.layout;
-    mITSPlan.emplace(ownDetectorPlan<ITSNLayers>(combinedLayout, itsSurfaces, itsParams[0]));
-    mMFTPlan.emplace(ownDetectorPlan<MFTNLayers>(combinedLayout, mftSurfaces, mftParams[0]));
+    mGraphs.push_back(std::move(*combinedBuild.graph));
 
     mITSParticipant = std::make_unique<SurfacePlanTrackingParticipantITS>(ParticipantId{0}, std::move(itsParams));
     mMFTParticipant = std::make_unique<SurfacePlanTrackingParticipantMFT>(ParticipantId{1}, std::move(mftParams));
 
-    auto itsBinding = SurfacePlanBinding::build(mITSPlan->getLayoutView(0), ClusterSourceId{0},
+    auto itsBinding = SurfacePlanBinding::build(mGraphs.front().getView(), ClusterSourceId{0},
                                                 surfaceRangeMask(0, ITSNLayers), itsSurfaces,
                                                 SurfaceKind::Cylinder, TransitionPolicyTag::CylinderCylinder);
     if (!itsBinding.ok()) {
       throw std::runtime_error{"combined test application plan failed to build the ITS binding"};
     }
-    auto mftBinding = SurfacePlanBinding::build(mMFTPlan->getLayoutView(0), ClusterSourceId{1},
+    auto mftBinding = SurfacePlanBinding::build(mGraphs.front().getView(), ClusterSourceId{1},
                                                 surfaceRangeMask(ITSNLayers, MFTNLayers), mftSurfaces,
                                                 SurfaceKind::Disk, TransitionPolicyTag::DiskDisk);
     if (!mftBinding.ok()) {
@@ -133,8 +117,8 @@ class CombinedTrackingParticipantPlan
     }
     mITSParticipant->adoptSurfacePlanBinding(std::move(itsBinding.binding));
     mMFTParticipant->adoptSurfacePlanBinding(std::move(mftBinding.binding));
-    mITSParticipant->adoptDetectorLayoutSet(*mITSPlan);
-    mMFTParticipant->adoptDetectorLayoutSet(*mMFTPlan);
+    mITSParticipant->adoptSurfaceGraphs(mGraphs);
+    mMFTParticipant->adoptSurfaceGraphs(mGraphs);
     mSchedule = {mITSParticipant.get(), mMFTParticipant.get()};
   }
 
@@ -206,8 +190,8 @@ class CombinedTrackingParticipantPlan
 
   const SurfaceTrackingScratch& getITSScratch() const noexcept { return mITSParticipant->getScratch(); }
   const SurfaceTrackingScratch& getMFTScratch() const noexcept { return mMFTParticipant->getScratch(); }
-  gsl::span<const SurfaceId> getITSOrderedSurfaces() const noexcept { return mITSPlan->getConfigurationKey().orderedSurfaces; }
-  gsl::span<const SurfaceId> getMFTOrderedSurfaces() const noexcept { return mMFTPlan->getConfigurationKey().orderedSurfaces; }
+  gsl::span<const SurfaceId> getITSOrderedSurfaces() const noexcept { return mITSParticipant->ownedSurfaces(); }
+  gsl::span<const SurfaceId> getMFTOrderedSurfaces() const noexcept { return mMFTParticipant->ownedSurfaces(); }
   const ITSSharedClusterCompatibility& getITSSharedClusterCompatibility() const noexcept
   {
     return *mITSParticipant->getITSSharedClusterCompatibility();
@@ -216,12 +200,11 @@ class CombinedTrackingParticipantPlan
   {
     return *mMFTParticipant->getMFTPublicationCompatibility();
   }
-  DetectorLayoutView getITSLayoutView() const noexcept { return mITSPlan->getLayoutView(0); }
-  DetectorLayoutView getMFTLayoutView() const noexcept { return mMFTPlan->getLayoutView(0); }
+  SurfaceGraphView getITSLayoutView() const noexcept { return mGraphs.front().getView(); }
+  SurfaceGraphView getMFTLayoutView() const noexcept { return mGraphs.front().getView(); }
 
  private:
-  std::optional<DetectorLayoutSet> mITSPlan;
-  std::optional<DetectorLayoutSet> mMFTPlan;
+  std::vector<SurfaceGraph> mGraphs;
   std::unique_ptr<SurfacePlanTrackingParticipantITS> mITSParticipant;
   std::unique_ptr<SurfacePlanTrackingParticipantMFT> mMFTParticipant;
   std::array<TrackingParticipant*, 2> mSchedule{};

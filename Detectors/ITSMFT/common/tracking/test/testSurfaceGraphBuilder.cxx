@@ -5,14 +5,14 @@
 // This software is distributed under the terms of the GNU General Public
 // License v3 (GPL Version 3), copied verbatim in the file "COPYING".
 
-#define BOOST_TEST_MODULE ITSMFT DetectorLayoutBuilder
+#define BOOST_TEST_MODULE ITSMFT SurfaceGraphBuilder
 #define BOOST_TEST_MAIN
 #define BOOST_TEST_DYN_LINK
 #include <boost/test/unit_test.hpp>
 
 #include <vector>
 
-#include "ITSMFTTracking/DetectorLayoutBuilder.h"
+#include "ITSMFTTracking/SurfaceGraphBuilder.h"
 
 namespace
 {
@@ -33,10 +33,10 @@ std::vector<SurfaceDescriptor> denseCatalog(uint16_t count, SurfaceKind kind = S
   return catalog;
 }
 
-// DetectorLayoutBuilder borrows (SurfaceCatalogView), so every call site
+// SurfaceGraphBuilder borrows (SurfaceCatalogView), so every call site
 // below binds its catalog to a named local first -- the view must not
 // outlive the vector it points into, but only needs to survive the single
-// build() call (DetectorLayout's own borrowed-span constructor never
+// build() call (SurfaceGraph's own borrowed-span constructor never
 // retains it past construction).
 SurfaceCatalogView asView(const std::vector<SurfaceDescriptor>& catalog)
 {
@@ -62,7 +62,7 @@ SurfaceMask maskOf(std::initializer_list<uint16_t> ids)
   return mask;
 }
 
-void checkCsrConsistency(const SparseTrackingTopologyView& view)
+void checkCsrConsistency(const SurfaceGraphView& view)
 {
   uint32_t total = 0;
   for (uint32_t t = 0; t < view.nTransitions; ++t) {
@@ -76,7 +76,7 @@ void checkCsrConsistency(const SparseTrackingTopologyView& view)
   BOOST_CHECK_EQUAL(total, view.nCells);
 }
 
-void checkSparseTopology(const SparseTrackingTopologyView& view)
+void checkSparseTopology(const SurfaceGraphView& view)
 {
   BOOST_REQUIRE_GT(view.nTransitions, 0u);
   BOOST_REQUIRE_GT(view.nCells, 0u);
@@ -103,12 +103,12 @@ BOOST_AUTO_TEST_CASE(TraversalFollowsSuppliedOrderNotNumericSurfaceId)
   // deliberately non-monotonic chain 3 -> 1 -> 4 -> 0; surface 2 is present
   // in the catalog but not activated by this subgraph.
   const auto catalog = denseCatalog(5);
-  DetectorLayoutBuilder builder{asView(catalog)};
-  builder.addSubgraph(DetectorLayoutSubgraph{orderedIds({3, 1, 4, 0}), 0, SurfaceMask{}, SurfaceMask{}});
+  SurfaceGraphBuilder builder{asView(catalog)};
+  builder.addSubgraph(SurfaceGraphSubgraph{orderedIds({3, 1, 4, 0}), 0, SurfaceMask{}, SurfaceMask{}});
 
   const auto result = builder.build();
   BOOST_REQUIRE(result.ok());
-  const auto view = result.layout->getTopology().getView();
+  const auto view = result.graph->getView();
 
   BOOST_CHECK_EQUAL(view.nTransitions, 3u);
   BOOST_CHECK(view.getTransition(TransitionId{0}).from == SurfaceId{3});
@@ -137,23 +137,23 @@ BOOST_AUTO_TEST_CASE(TraversalFollowsSuppliedOrderNotNumericSurfaceId)
 BOOST_AUTO_TEST_CASE(SparseTopologySevenNoHoles)
 {
   const auto catalog = denseCatalog(7);
-  DetectorLayoutBuilder builder{asView(catalog)};
-  builder.addSubgraph(DetectorLayoutSubgraph{orderedIds({0, 1, 2, 3, 4, 5, 6}), 0, SurfaceMask{}, SurfaceMask{}});
+  SurfaceGraphBuilder builder{asView(catalog)};
+  builder.addSubgraph(SurfaceGraphSubgraph{orderedIds({0, 1, 2, 3, 4, 5, 6}), 0, SurfaceMask{}, SurfaceMask{}});
   const auto result = builder.build();
   BOOST_REQUIRE(result.ok());
 
-  checkSparseTopology(result.layout->getTopology().getView());
+  checkSparseTopology(result.graph->getView());
 }
 
 BOOST_AUTO_TEST_CASE(SparseTopologySevenSingleAllowedHole)
 {
   const auto catalog = denseCatalog(7);
-  DetectorLayoutBuilder builder{asView(catalog)};
-  builder.addSubgraph(DetectorLayoutSubgraph{orderedIds({0, 1, 2, 3, 4, 5, 6}), 1, maskOf({3}), SurfaceMask{}});
+  SurfaceGraphBuilder builder{asView(catalog)};
+  builder.addSubgraph(SurfaceGraphSubgraph{orderedIds({0, 1, 2, 3, 4, 5, 6}), 1, maskOf({3}), SurfaceMask{}});
   const auto result = builder.build();
   BOOST_REQUIRE(result.ok());
 
-  const auto view = result.layout->getTopology().getView();
+  const auto view = result.graph->getView();
   checkSparseTopology(view);
   BOOST_CHECK_EQUAL(view.nTransitions, 7u);
   BOOST_CHECK_EQUAL(view.nCells, 7u);
@@ -162,22 +162,22 @@ BOOST_AUTO_TEST_CASE(SparseTopologySevenSingleAllowedHole)
 BOOST_AUTO_TEST_CASE(SparseTopologyTenNoHoles)
 {
   const auto catalog = denseCatalog(10, SurfaceKind::Disk);
-  DetectorLayoutBuilder builder{asView(catalog)};
-  builder.addSubgraph(DetectorLayoutSubgraph{orderedIds({0, 1, 2, 3, 4, 5, 6, 7, 8, 9}), 0, SurfaceMask{}, SurfaceMask{}});
+  SurfaceGraphBuilder builder{asView(catalog)};
+  builder.addSubgraph(SurfaceGraphSubgraph{orderedIds({0, 1, 2, 3, 4, 5, 6, 7, 8, 9}), 0, SurfaceMask{}, SurfaceMask{}});
   const auto result = builder.build();
   BOOST_REQUIRE(result.ok());
-  checkSparseTopology(result.layout->getTopology().getView());
+  checkSparseTopology(result.graph->getView());
 }
 
 BOOST_AUTO_TEST_CASE(SparseTopologyTenSingleAllowedHole)
 {
   const auto catalog = denseCatalog(10, SurfaceKind::Disk);
-  DetectorLayoutBuilder builder{asView(catalog)};
-  builder.addSubgraph(DetectorLayoutSubgraph{orderedIds({0, 1, 2, 3, 4, 5, 6, 7, 8, 9}), 1, maskOf({5}), SurfaceMask{}});
+  SurfaceGraphBuilder builder{asView(catalog)};
+  builder.addSubgraph(SurfaceGraphSubgraph{orderedIds({0, 1, 2, 3, 4, 5, 6, 7, 8, 9}), 1, maskOf({5}), SurfaceMask{}});
   const auto result = builder.build();
   BOOST_REQUIRE(result.ok());
 
-  const auto view = result.layout->getTopology().getView();
+  const auto view = result.graph->getView();
   checkSparseTopology(view);
   BOOST_CHECK_EQUAL(view.nTransitions, 10u);
   BOOST_CHECK_EQUAL(view.nCells, 10u);
@@ -193,21 +193,21 @@ BOOST_AUTO_TEST_CASE(SingleCallDisconnectedCylinderAndDiskLayout)
     catalog.push_back(surface(id, SurfaceKind::Disk));
   }
 
-  DetectorLayoutBuilder builder{asView(catalog)};
-  builder.addSubgraph(DetectorLayoutSubgraph{orderedIds({0, 1, 2, 3, 4, 5, 6}), 0, SurfaceMask{}, maskOf({0})});
-  builder.addSubgraph(DetectorLayoutSubgraph{orderedIds({7, 8, 9, 10, 11, 12, 13, 14, 15, 16}), 0, SurfaceMask{}, maskOf({7})});
+  SurfaceGraphBuilder builder{asView(catalog)};
+  builder.addSubgraph(SurfaceGraphSubgraph{orderedIds({0, 1, 2, 3, 4, 5, 6}), 0, SurfaceMask{}, maskOf({0})});
+  builder.addSubgraph(SurfaceGraphSubgraph{orderedIds({7, 8, 9, 10, 11, 12, 13, 14, 15, 16}), 0, SurfaceMask{}, maskOf({7})});
 
   const auto result = builder.build();
   BOOST_REQUIRE(result.ok());
-  BOOST_CHECK(result.layout->valid());
+  BOOST_CHECK(result.graph->valid());
 
   const auto masks = computeSurfaceKindMasks(catalog);
-  const auto layoutView = result.layout->getView(catalog, masks.first, masks.second);
+  const auto layoutView = result.graph->getView();
   BOOST_CHECK_EQUAL(layoutView.nSurfaces, 17u);
   BOOST_CHECK_EQUAL(layoutView.cylinderSurfaces.value(), 0x7fu); // bits 0-6
   BOOST_CHECK_EQUAL(layoutView.diskSurfaces.value(), 0x1ff80u);  // bits 7-16
 
-  const auto view = layoutView.topology;
+  const auto view = layoutView;
   BOOST_CHECK_EQUAL(view.nTransitions, 15u); // 6 + 9
   BOOST_CHECK_EQUAL(view.nCells, 13u);       // 5 + 8
 
@@ -227,24 +227,25 @@ BOOST_AUTO_TEST_CASE(SingleCallDisconnectedCylinderAndDiskLayout)
 BOOST_AUTO_TEST_CASE(CatalogAboveThirtyTwoSurfacesIsRejected)
 {
   const auto catalog = denseCatalog(33);
-  DetectorLayoutBuilder builder{asView(catalog)};
+  SurfaceGraphBuilder builder{asView(catalog)};
   const auto result = builder.build();
   BOOST_CHECK(!result.ok());
-  BOOST_CHECK(result.error == DetectorLayoutBuildError::TopologyRejected);
-  BOOST_CHECK(result.topologyError == TopologyBuildError::InvalidSurfaceCount);
+  BOOST_CHECK(result.error == SurfaceGraphBuildError::TopologyRejected);
+  BOOST_CHECK(result.topologyError == SurfaceGraphTopologyError::InvalidSurfaceCount);
 }
 
-BOOST_AUTO_TEST_CASE(NonDenseCatalogSurfaceIdsAreRejected)
+BOOST_AUTO_TEST_CASE(NonContiguousCatalogSurfaceIdsAreSupported)
 {
   std::vector<SurfaceDescriptor> catalog;
   catalog.push_back(surface(0));
-  catalog.push_back(surface(2)); // should be 1 to stay dense
-  DetectorLayoutBuilder builder{asView(catalog)};
+  catalog.push_back(surface(2));
+  SurfaceGraphBuilder builder{asView(catalog)};
+  builder.addSubgraph(SurfaceGraphSubgraph{orderedIds({0, 2}), 0, SurfaceMask{}, maskOf({2})});
 
   const auto result = builder.build();
-  BOOST_CHECK(!result.ok());
-  BOOST_CHECK(result.error == DetectorLayoutBuildError::LayoutRejected);
-  BOOST_CHECK(result.layoutError == DetectorLayoutError::NonDenseSurfaceIds);
+  BOOST_REQUIRE(result.ok());
+  BOOST_CHECK_EQUAL(result.graph->getView().nSurfaces, 2u);
+  BOOST_CHECK(result.graph->getView().getSurface(SurfaceId{2}).id == SurfaceId{2});
 }
 
 BOOST_AUTO_TEST_CASE(InvalidSubgraphSurfaceIdsAreRejected)
@@ -252,45 +253,45 @@ BOOST_AUTO_TEST_CASE(InvalidSubgraphSurfaceIdsAreRejected)
   {
     // Out-of-range id.
     const auto catalog = denseCatalog(3);
-    DetectorLayoutBuilder builder{asView(catalog)};
-    builder.addSubgraph(DetectorLayoutSubgraph{orderedIds({0, 5}), 0, SurfaceMask{}, SurfaceMask{}});
+    SurfaceGraphBuilder builder{asView(catalog)};
+    builder.addSubgraph(SurfaceGraphSubgraph{orderedIds({0, 5}), 0, SurfaceMask{}, SurfaceMask{}});
     const auto result = builder.build();
     BOOST_CHECK(!result.ok());
-    BOOST_CHECK(result.error == DetectorLayoutBuildError::InvalidSubgraphSurfaceId);
+    BOOST_CHECK(result.error == SurfaceGraphBuildError::InvalidSubgraphSurfaceId);
   }
   {
     // The invalid-sentinel id.
     const auto catalog = denseCatalog(3);
-    DetectorLayoutBuilder builder{asView(catalog)};
+    SurfaceGraphBuilder builder{asView(catalog)};
     std::vector<SurfaceId> ordered{SurfaceId{0}, SurfaceId::invalid()};
-    builder.addSubgraph(DetectorLayoutSubgraph{std::move(ordered), 0, SurfaceMask{}, SurfaceMask{}});
+    builder.addSubgraph(SurfaceGraphSubgraph{std::move(ordered), 0, SurfaceMask{}, SurfaceMask{}});
     const auto result = builder.build();
     BOOST_CHECK(!result.ok());
-    BOOST_CHECK(result.error == DetectorLayoutBuildError::InvalidSubgraphSurfaceId);
+    BOOST_CHECK(result.error == SurfaceGraphBuildError::InvalidSubgraphSurfaceId);
   }
 }
 
 BOOST_AUTO_TEST_CASE(DuplicateSurfaceWithinSubgraphIsRejected)
 {
   const auto catalog = denseCatalog(3);
-  DetectorLayoutBuilder builder{asView(catalog)};
-  builder.addSubgraph(DetectorLayoutSubgraph{orderedIds({0, 1, 0}), 0, SurfaceMask{}, SurfaceMask{}});
+  SurfaceGraphBuilder builder{asView(catalog)};
+  builder.addSubgraph(SurfaceGraphSubgraph{orderedIds({0, 1, 0}), 0, SurfaceMask{}, SurfaceMask{}});
 
   const auto result = builder.build();
   BOOST_CHECK(!result.ok());
-  BOOST_CHECK(result.error == DetectorLayoutBuildError::DuplicateSurfaceInSubgraph);
+  BOOST_CHECK(result.error == SurfaceGraphBuildError::DuplicateSurfaceInSubgraph);
 }
 
 BOOST_AUTO_TEST_CASE(SurfaceDuplicatedAcrossSubgraphsIsRejected)
 {
   const auto catalog = denseCatalog(4);
-  DetectorLayoutBuilder builder{asView(catalog)};
-  builder.addSubgraph(DetectorLayoutSubgraph{orderedIds({0, 1}), 0, SurfaceMask{}, SurfaceMask{}});
-  builder.addSubgraph(DetectorLayoutSubgraph{orderedIds({1, 2}), 0, SurfaceMask{}, SurfaceMask{}});
+  SurfaceGraphBuilder builder{asView(catalog)};
+  builder.addSubgraph(SurfaceGraphSubgraph{orderedIds({0, 1}), 0, SurfaceMask{}, SurfaceMask{}});
+  builder.addSubgraph(SurfaceGraphSubgraph{orderedIds({1, 2}), 0, SurfaceMask{}, SurfaceMask{}});
 
   const auto result = builder.build();
   BOOST_CHECK(!result.ok());
-  BOOST_CHECK(result.error == DetectorLayoutBuildError::SurfaceDuplicatedAcrossSubgraphs);
+  BOOST_CHECK(result.error == SurfaceGraphBuildError::SurfaceDuplicatedAcrossSubgraphs);
 }
 
 BOOST_AUTO_TEST_CASE(SubgraphMixingSurfaceKindsIsRejected)
@@ -301,13 +302,13 @@ BOOST_AUTO_TEST_CASE(SubgraphMixingSurfaceKindsIsRejected)
   // subgraph must match it. Catalog surface 0 is Cylinder, surface 1 is Disk;
   // a subgraph spanning both is rejected on that basis alone.
   std::vector<SurfaceDescriptor> catalog{surface(0, SurfaceKind::Cylinder), surface(1, SurfaceKind::Disk)};
-  DetectorLayoutBuilder builder{asView(catalog)};
-  builder.addSubgraph(DetectorLayoutSubgraph{orderedIds({0, 1}), 0, SurfaceMask{}, SurfaceMask{}});
+  SurfaceGraphBuilder builder{asView(catalog)};
+  builder.addSubgraph(SurfaceGraphSubgraph{orderedIds({0, 1}), 0, SurfaceMask{}, SurfaceMask{}});
 
   const auto result = builder.build();
   BOOST_CHECK(!result.ok());
-  BOOST_CHECK(result.error == DetectorLayoutBuildError::LayoutRejected);
-  BOOST_CHECK(result.layoutError == DetectorLayoutError::PolicySurfaceKindMismatch);
+  BOOST_CHECK(result.error == SurfaceGraphBuildError::GraphRejected);
+  BOOST_CHECK(result.graphError == SurfaceGraphError::PolicySurfaceKindMismatch);
 }
 
 BOOST_AUTO_TEST_CASE(SingletonSubgraphsOfEitherKindAreAccepted)
@@ -318,14 +319,14 @@ BOOST_AUTO_TEST_CASE(SingletonSubgraphsOfEitherKindAreAccepted)
   // with itself, for either SurfaceKind.
   {
     const auto catalog = denseCatalog(1, SurfaceKind::Disk);
-    DetectorLayoutBuilder builder{asView(catalog)};
-    builder.addSubgraph(DetectorLayoutSubgraph{orderedIds({0}), 0, SurfaceMask{}, SurfaceMask{}});
+    SurfaceGraphBuilder builder{asView(catalog)};
+    builder.addSubgraph(SurfaceGraphSubgraph{orderedIds({0}), 0, SurfaceMask{}, SurfaceMask{}});
     BOOST_CHECK(builder.build().ok());
   }
   {
     const auto catalog = denseCatalog(1, SurfaceKind::Cylinder);
-    DetectorLayoutBuilder builder{asView(catalog)};
-    builder.addSubgraph(DetectorLayoutSubgraph{orderedIds({0}), 0, SurfaceMask{}, SurfaceMask{}});
+    SurfaceGraphBuilder builder{asView(catalog)};
+    builder.addSubgraph(SurfaceGraphSubgraph{orderedIds({0}), 0, SurfaceMask{}, SurfaceMask{}});
     BOOST_CHECK(builder.build().ok());
   }
 }
@@ -335,62 +336,62 @@ BOOST_AUTO_TEST_CASE(NegativeMaxHolesIsRejected)
   // Explicit contract: a negative maxHoles is rejected outright rather than
   // silently normalized to zero.
   const auto catalog = denseCatalog(2);
-  DetectorLayoutBuilder builder{asView(catalog)};
-  builder.addSubgraph(DetectorLayoutSubgraph{orderedIds({0, 1}), -1, SurfaceMask{}, SurfaceMask{}});
+  SurfaceGraphBuilder builder{asView(catalog)};
+  builder.addSubgraph(SurfaceGraphSubgraph{orderedIds({0, 1}), -1, SurfaceMask{}, SurfaceMask{}});
 
   const auto result = builder.build();
   BOOST_CHECK(!result.ok());
-  BOOST_CHECK(result.error == DetectorLayoutBuildError::NegativeMaxHoles);
+  BOOST_CHECK(result.error == SurfaceGraphBuildError::NegativeMaxHoles);
 }
 
 BOOST_AUTO_TEST_CASE(HoleSurfacesOutsideSubgraphAreRejected)
 {
   const auto catalog = denseCatalog(3);
-  DetectorLayoutBuilder builder{asView(catalog)};
-  builder.addSubgraph(DetectorLayoutSubgraph{orderedIds({0, 1}), 1, maskOf({2}), SurfaceMask{}});
+  SurfaceGraphBuilder builder{asView(catalog)};
+  builder.addSubgraph(SurfaceGraphSubgraph{orderedIds({0, 1}), 1, maskOf({2}), SurfaceMask{}});
 
   const auto result = builder.build();
   BOOST_CHECK(!result.ok());
-  BOOST_CHECK(result.error == DetectorLayoutBuildError::HoleSurfacesOutsideSubgraph);
+  BOOST_CHECK(result.error == SurfaceGraphBuildError::HoleSurfacesOutsideSubgraph);
 }
 
 BOOST_AUTO_TEST_CASE(SeedingSurfacesOutsideSubgraphAreRejected)
 {
   const auto catalog = denseCatalog(3);
-  DetectorLayoutBuilder builder{asView(catalog)};
-  builder.addSubgraph(DetectorLayoutSubgraph{orderedIds({0, 1}), 0, SurfaceMask{}, maskOf({2})});
+  SurfaceGraphBuilder builder{asView(catalog)};
+  builder.addSubgraph(SurfaceGraphSubgraph{orderedIds({0, 1}), 0, SurfaceMask{}, maskOf({2})});
 
   const auto result = builder.build();
   BOOST_CHECK(!result.ok());
-  BOOST_CHECK(result.error == DetectorLayoutBuildError::SeedingSurfacesOutsideSubgraph);
+  BOOST_CHECK(result.error == SurfaceGraphBuildError::SeedingSurfacesOutsideSubgraph);
 }
 
 BOOST_AUTO_TEST_CASE(EmptyCatalogWithNoSubgraphsIsATrivialValidLayout)
 {
-  DetectorLayoutBuilder builder{SurfaceCatalogView{}};
+  SurfaceGraphBuilder builder{SurfaceCatalogView{}};
   const auto result = builder.build();
   BOOST_REQUIRE(result.ok());
-  BOOST_CHECK_EQUAL(result.layout->getView({}, {}, {}).nSurfaces, 0u);
-  BOOST_CHECK_EQUAL(result.layout->getTopology().getView().nTransitions, 0u);
+  BOOST_CHECK_EQUAL(result.graph->getView().nSurfaces, 0u);
+  BOOST_CHECK_EQUAL(result.graph->getView().nTransitions, 0u);
 }
 
 BOOST_AUTO_TEST_CASE(EmptySubgraphIsRejected)
 {
   const auto catalog = denseCatalog(2);
-  DetectorLayoutBuilder builder{asView(catalog)};
-  builder.addSubgraph(DetectorLayoutSubgraph{{}, 0, SurfaceMask{}, SurfaceMask{}});
+  SurfaceGraphBuilder builder{asView(catalog)};
+  builder.addSubgraph(SurfaceGraphSubgraph{{}, 0, SurfaceMask{}, SurfaceMask{}});
 
   const auto result = builder.build();
   BOOST_CHECK(!result.ok());
-  BOOST_CHECK(result.error == DetectorLayoutBuildError::EmptySubgraph);
+  BOOST_CHECK(result.error == SurfaceGraphBuildError::EmptySubgraph);
 }
 
 BOOST_AUTO_TEST_CASE(EmptyCatalogWithNonEmptySubgraphIsRejected)
 {
-  DetectorLayoutBuilder builder{SurfaceCatalogView{}};
-  builder.addSubgraph(DetectorLayoutSubgraph{orderedIds({0}), 0, SurfaceMask{}, SurfaceMask{}});
+  SurfaceGraphBuilder builder{SurfaceCatalogView{}};
+  builder.addSubgraph(SurfaceGraphSubgraph{orderedIds({0}), 0, SurfaceMask{}, SurfaceMask{}});
 
   const auto result = builder.build();
   BOOST_CHECK(!result.ok());
-  BOOST_CHECK(result.error == DetectorLayoutBuildError::InvalidSubgraphSurfaceId);
+  BOOST_CHECK(result.error == SurfaceGraphBuildError::InvalidSubgraphSurfaceId);
 }

@@ -32,7 +32,7 @@
 //    (mTraversalGroupingCount).
 //
 // Gate 4 B2 Slice 2: initialiseTimeFrame() now takes the plan as an explicit
-// `const DetectorLayoutSet&` parameter rather than reading it off TimeFrame,
+// `const std::vector<SurfaceGraph>&` parameter rather than reading it off TimeFrame,
 // so TimeFrame::initialise() runs only after every structural check by
 // construction -- there is no longer a "missing layout" TimeFrame state for
 // a reordering regression to reintroduce.
@@ -55,8 +55,7 @@
 #include "ITSMFTTracking/ClusterDecoder.h"
 #include "ITSMFTTracking/Configuration.h"
 #include "ITSMFTTracking/DecodedCluster.h"
-#include "ITSMFTTracking/DetectorLayout.h"
-#include "ITSMFTTracking/DetectorLayoutSet.h"
+#include "ITSMFTTracking/SurfaceGraphBuilder.h"
 #include "ITSMFTTracking/IndexTableConfiguration.h"
 #include "ITSMFTTracking/IndexTableUtils.h"
 #include "ITSMFTTracking/NominalSurfaceMaterialDefaults.h"
@@ -254,22 +253,22 @@ struct Rig {
   std::optional<o2::its::ROFOverlapTable<ITSNLayers>> rofTable;
   std::optional<o2::its::ROFVertexLookupTable<ITSNLayers>> vertexTable;
   std::optional<o2::its::ROFMaskTable<ITSNLayers>> mask;
-  // Must outlive `plan` (DetectorLayoutSet borrows a SurfaceCatalogView into
+  // Must outlive `plan` (std::vector<SurfaceGraph> borrows a SurfaceCatalogView into
   // it, Gate 4 B2 Slice 2) -- declared before `plan` so it is constructed
   // first and destroyed last.
   std::vector<SurfaceDescriptor> catalog;
-  std::optional<DetectorLayoutSet> plan;
+  std::optional<std::vector<SurfaceGraph>> plan;
 
   void establishValidLayout(gsl::span<const TrackingParameters> params)
   {
     catalog = makeITSTestCatalog();
     const auto orderedSurfaces = identitySurfaces(ITSNLayers);
     const SurfaceCatalogView catalogView{catalog.data(), static_cast<uint32_t>(catalog.size())};
-    auto result = buildDetectorLayoutSet(catalogView, orderedSurfaces, params);
+    auto result = buildSurfaceGraphs(catalogView, orderedSurfaces, params);
     BOOST_REQUIRE(result.ok());
-    plan.emplace(std::move(*result.layout));
-    const auto layoutView = plan->getLayoutView(0);
-    tf.adoptPlan(plan->getConfigurationKey().orderedSurfaces.size(), layoutView.topology.nTransitions, layoutView.topology.nCells);
+    plan.emplace(std::move(result.graphs));
+    const auto layoutView = plan->front().getView();
+    tf.adoptPlan(plan->front().getOrderedSurfaces().size(), layoutView.nTransitions, layoutView.nCells);
   }
 
   // See testTrackerFailureContract.cxx's identical helper for why loading a
@@ -286,10 +285,10 @@ struct Rig {
     LegacyLikeDecoder decoder{o2::detectors::DetID::ITS};
     const o2::InteractionRecord origin{50, 5};
     const ROFTimingConfig timing{40, 0, 0, 0};
-    const auto& orderedSurfaces = plan->getConfigurationKey().orderedSurfaces;
+    const auto& orderedSurfaces = plan->front().getOrderedSurfaces();
     const auto result = tf.loadNormalizedSource(frame, decoder, origin, timing, f.clusters, f.patterns, f.rofs, &dict(),
                                                 f.labels.getIndexedSize() > 0 ? &f.labels : nullptr, o2::detectors::DetID::ITS,
-                                                gsl::span<const SurfaceId>{orderedSurfaces}, plan->getSurfaceCatalog());
+                                                gsl::span<const SurfaceId>{orderedSurfaces}, plan->front().getSurfaceCatalog());
     BOOST_REQUIRE(result.ok());
 
     o2::its::LayerTiming timing2{};
@@ -470,7 +469,7 @@ BOOST_AUTO_TEST_CASE(FirstPassWithRebuildClusterLUTLegitimatelyChangesConfigurat
 
 // Gate 4 B2 Slice 2 removed the MissingLayout reordering-regression test that
 // used to live here: initialiseTimeFrame() now takes the plan as an explicit
-// `const DetectorLayoutSet&` reference parameter, so "no layout established"
+// `const std::vector<SurfaceGraph>&` reference parameter, so "no layout established"
 // is no longer a state a caller can even construct -- there is no longer a
 // TimeFrame-owned "missing layout" condition for TraversalFailureReason::
 // MissingLayout to classify. The reordering property this test protected

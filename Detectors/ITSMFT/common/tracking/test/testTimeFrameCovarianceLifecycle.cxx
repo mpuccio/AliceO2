@@ -33,7 +33,7 @@
 #include "ITSMFTTracking/ClusterDecoder.h"
 #include "ITSMFTTracking/Configuration.h"
 #include "ITSMFTTracking/DecodedCluster.h"
-#include "ITSMFTTracking/DetectorLayoutSet.h"
+#include "ITSMFTTracking/SurfaceGraphBuilder.h"
 #include "ITSMFTTracking/SurfaceTrackingScratch.h"
 #include "ITSMFTTracking/NominalSurfaceMaterialDefaults.h"
 #include "ITSMFTTracking/SurfaceMeasurementAdapters.h"
@@ -228,11 +228,11 @@ struct Rig {
     catalog = makeCatalog<NLayers>(detector, kind);
     const auto orderedSurfaces = identitySurfaces<NLayers>();
     const SurfaceCatalogView catalogView{catalog.data(), static_cast<uint32_t>(catalog.size())};
-    auto result = buildDetectorLayoutSet(catalogView, orderedSurfaces, parameters);
+    auto result = buildSurfaceGraphs(catalogView, orderedSurfaces, parameters);
     BOOST_REQUIRE(result.ok());
-    plan.emplace(std::move(*result.layout));
-    const auto layoutView = plan->getLayoutView(0);
-    tf.adoptPlan(plan->getConfigurationKey().orderedSurfaces.size(), layoutView.topology.nTransitions, layoutView.topology.nCells);
+    plan.emplace(std::move(result.graphs));
+    const auto layoutView = plan->front().getView();
+    tf.adoptPlan(plan->front().getOrderedSurfaces().size(), layoutView.nTransitions, layoutView.nCells);
   }
 
   void load(bool applySysErrors)
@@ -241,11 +241,11 @@ struct Rig {
       CompClusterExt{10, 20, CompCluster::InvalidPatternID, 0}};
     const std::vector<unsigned char> patterns{OnePixelPattern.begin(), OnePixelPattern.end()};
     const std::vector<ROFRecord> rofs{ROFRecord{{100, 5}, 0, 0, 1}};
-    const auto& orderedSurfaces = plan->getConfigurationKey().orderedSurfaces;
+    const auto& orderedSurfaces = plan->front().getOrderedSurfaces();
     const auto result = tf.loadNormalizedSource(
       frame, decoder, o2::InteractionRecord{50, 5}, ROFTimingConfig{40, 0, 0, 0},
       clusters, patterns, rofs, &dictionary(), nullptr, detector,
-      gsl::span<const SurfaceId>{orderedSurfaces}, plan->getSurfaceCatalog(), applySysErrors);
+      gsl::span<const SurfaceId>{orderedSurfaces}, plan->front().getSurfaceCatalog(), applySysErrors);
     BOOST_REQUIRE(result.ok());
 
     o2::its::LayerTiming timing{};
@@ -284,11 +284,11 @@ struct Rig {
   std::optional<o2::its::ROFOverlapTable<NLayers>> rofTable;
   std::optional<o2::its::ROFVertexLookupTable<NLayers>> vertexTable;
   std::optional<o2::its::ROFMaskTable<NLayers>> mask;
-  // Must outlive `plan` (DetectorLayoutSet borrows a SurfaceCatalogView into
+  // Must outlive `plan` (std::vector<SurfaceGraph> borrows a SurfaceCatalogView into
   // it, Gate 4 B2 Slice 2) -- declared before `plan` so it is constructed
   // first and destroyed last.
   std::vector<SurfaceDescriptor> catalog;
-  std::optional<DetectorLayoutSet> plan;
+  std::optional<std::vector<SurfaceGraph>> plan;
 };
 
 template <int NLayers>

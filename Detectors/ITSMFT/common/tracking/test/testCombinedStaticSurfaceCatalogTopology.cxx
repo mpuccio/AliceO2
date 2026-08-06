@@ -26,18 +26,18 @@
 //    (pointer identity to the inline constexpr array's own .data()/element
 //    addresses), proving no copy is required to view it;
 //  - built under the shared global numbering, via the SAME (unmodified)
-//    DetectorLayoutBuilder used today, each detector's own current
+//    SurfaceGraphBuilder used today, each detector's own current
 //    production-shaped sparse hole/transition topology (MaxHoles=1,
 //    HoleLayerMask=1<<3 for ITS; MaxHoles=1, HoleLayerMask=1<<5 for MFT)
 //    remains isolated under each detector's ordered-surface subgraph;
 //  - zero transitions or cells cross the ITS/MFT boundary;
 //  - CSR (transition -> cell) consistency holds;
-//  - no runtime component/subgraph concept is introduced: DetectorLayoutBuilder
-//    and DetectorLayoutSubgraph are the same pre-existing types every
+//  - no runtime component/subgraph concept is introduced: SurfaceGraphBuilder
+//    and SurfaceGraphSubgraph are the same pre-existing types every
 //    detector already uses standalone today; this test adds no new type,
 //    only a new catalog *source*.
 //
-// Gate 4 B2 Slice 2 landed after this test: DetectorLayoutBuilder now
+// Gate 4 B2 Slice 2 landed after this test: SurfaceGraphBuilder now
 // borrows SurfaceCatalogView directly, so the topology test below borrows
 // the static storage the same way the borrowing-proof test case already
 // does -- no materialized vector anywhere in this file.
@@ -50,7 +50,7 @@
 #include <vector>
 
 #include "DetectorsCommonDataFormats/DetID.h"
-#include "ITSMFTTracking/DetectorLayoutBuilder.h"
+#include "ITSMFTTracking/SurfaceGraphBuilder.h"
 #include "ITSMFTTracking/StaticDetectorCatalogs.h"
 #include "ITSMFTTracking/SurfaceCatalogView.h"
 #include "ITSMFTTracking/TrackingConfigParam.h"
@@ -69,7 +69,7 @@ std::vector<SurfaceId> orderedIds(uint16_t first, uint16_t count)
   return out;
 }
 
-void checkCsrConsistency(const SparseTrackingTopologyView& view)
+void checkCsrConsistency(const SurfaceGraphView& view)
 {
   uint32_t total = 0;
   for (uint32_t t = 0; t < view.nTransitions; ++t) {
@@ -127,7 +127,7 @@ BOOST_AUTO_TEST_CASE(SurfaceCatalogViewBorrowsTheStaticStorageWithoutCopying)
 
 // The central regression this test exists to establish -- the static,
 // compile-time-concatenated catalog's global-id offset, fed through the SAME
-// (unmodified) DetectorLayoutBuilder used today, reproduces each detector's
+// (unmodified) SurfaceGraphBuilder used today, reproduces each detector's
 // own current production-shaped hole/transition topology exactly, with zero
 // transitions or cells crossing the ITS/MFT boundary.
 BOOST_AUTO_TEST_CASE(CombinedStaticCatalogPreservesCurrentTopologyWithNoBoundaryCrossing)
@@ -137,18 +137,18 @@ BOOST_AUTO_TEST_CASE(CombinedStaticCatalogPreservesCurrentTopologyWithNoBoundary
   SurfaceMask mftHoleMask;
   mftHoleMask.set(SurfaceId{ITSNLayers + 5});
 
-  // Gate 4 B2 Slice 2: DetectorLayoutBuilder now borrows SurfaceCatalogView
+  // Gate 4 B2 Slice 2: SurfaceGraphBuilder now borrows SurfaceCatalogView
   // directly -- no materialized vector needed any more (the earlier Slice 1
   // version of this test built one as a deliberate, temporary exception;
   // that exception is gone now that the builder itself borrows).
   const SurfaceCatalogView catalogView{kITSMFTCombinedStaticSurfaceCatalog.data(),
                                        static_cast<uint32_t>(kITSMFTCombinedStaticSurfaceCatalog.size())};
-  DetectorLayoutBuilder builder{catalogView};
-  builder.addSubgraph(DetectorLayoutSubgraph{orderedIds(0, ITSNLayers), 1, itsHoleMask, SurfaceMask{}});
-  builder.addSubgraph(DetectorLayoutSubgraph{orderedIds(ITSNLayers, MFTNLayers), 1, mftHoleMask, SurfaceMask{}});
+  SurfaceGraphBuilder builder{catalogView};
+  builder.addSubgraph(SurfaceGraphSubgraph{orderedIds(0, ITSNLayers), 1, itsHoleMask, SurfaceMask{}});
+  builder.addSubgraph(SurfaceGraphSubgraph{orderedIds(ITSNLayers, MFTNLayers), 1, mftHoleMask, SurfaceMask{}});
   const auto layoutResult = builder.build();
   BOOST_REQUIRE(layoutResult.ok());
-  const auto view = layoutResult.layout->getTopology().getView();
+  const auto view = layoutResult.graph->getView();
   const auto masks = computeSurfaceKindMasks(kITSMFTCombinedStaticSurfaceCatalog);
 
   // For each detector, the direct ordered pairs are augmented only by pairs

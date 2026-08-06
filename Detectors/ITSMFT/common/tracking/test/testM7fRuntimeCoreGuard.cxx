@@ -123,7 +123,7 @@ std::optional<ResidualClassification> classifyNLayers(std::string_view relative)
   if (relative == "src/Configuration.cxx") {
     return ResidualClassification{ResidualKind::AdapterCompatibility, "configuration serialization/default construction"};
   }
-  if (relative == "src/DetectorLayoutSet.cxx") {
+  if (relative == "src/SurfaceGraphBuilder.cxx") {
     return ResidualClassification{ResidualKind::AdapterCompatibility, "adapter plan validation against TrackingParameters"};
   }
   if (relative == "src/IndexTableConfiguration.cxx") {
@@ -235,7 +235,7 @@ void scanCoreBoundary(const fs::path& root)
     "include/ITSMFTTracking/TrackingParticipant.h",
     "include/ITSMFTTracking/TrackingOperationAdapter.h",
     "include/ITSMFTTracking/detail/SurfacePlanBinding.h",
-    "include/ITSMFTTracking/SparseTrackingTopology.h",
+    "include/ITSMFTTracking/SurfaceGraph.h",
     "include/ITSMFTTracking/IndexTableUtils.h",
     "src/TrackerTraits.cxx",
   };

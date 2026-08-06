@@ -50,7 +50,7 @@
 #include "ITSMFTTracking/ClusterDecoder.h"
 #include "ITSMFTTracking/Configuration.h"
 #include "ITSMFTTracking/DecodedCluster.h"
-#include "ITSMFTTracking/DetectorLayout.h"
+#include "ITSMFTTracking/SurfaceGraphBuilder.h"
 #include "ITSMFTTracking/MultiSourceLoading.h"
 #include "ITSMFTTracking/SurfaceDescriptor.h"
 #include "ITSMFTTracking/SurfaceTrackingScratch.h"
@@ -302,11 +302,11 @@ struct Rig {
     catalog = makeCatalog(static_cast<uint16_t>(NLayers), mDet, mKind, gsl::span<const float>(params[0].LayerxX0));
     const auto orderedSurfaces = identitySurfaces(static_cast<uint16_t>(NLayers));
     const SurfaceCatalogView catalogView{catalog.data(), static_cast<uint32_t>(catalog.size())};
-    auto result = buildDetectorLayoutSet(catalogView, orderedSurfaces, params);
+    auto result = buildSurfaceGraphs(catalogView, orderedSurfaces, params);
     BOOST_REQUIRE(result.ok());
-    plan.emplace(std::move(*result.layout));
-    const auto layoutView = plan->getLayoutView(0);
-    tf.adoptPlan(orderedSurfaces.size(), layoutView.topology.nTransitions, layoutView.topology.nCells);
+    plan.emplace(std::move(result.graphs));
+    const auto layoutView = plan->front().getView();
+    tf.adoptPlan(orderedSurfaces.size(), layoutView.nTransitions, layoutView.nCells);
 
     NeverDecodedDecoder decoder{mDet};
     const o2::InteractionRecord origin{50, 5};
@@ -314,9 +314,9 @@ struct Rig {
     const std::vector<CompClusterExt> noClusters;
     const std::vector<unsigned char> noPatterns;
     const std::vector<ROFRecord> noRofs;
-    const auto& loadOrderedSurfaces = plan->getConfigurationKey().orderedSurfaces;
+    const auto& loadOrderedSurfaces = plan->front().getOrderedSurfaces();
     const auto loadResult = tf.loadNormalizedSource(frame, decoder, origin, timing, noClusters, noPatterns, noRofs, &dict(), nullptr, mDet,
-                                                    gsl::span<const SurfaceId>{loadOrderedSurfaces}, plan->getSurfaceCatalog());
+                                                    gsl::span<const SurfaceId>{loadOrderedSurfaces}, plan->front().getSurfaceCatalog());
     BOOST_REQUIRE(loadResult.ok());
   }
 
@@ -331,11 +331,11 @@ struct Rig {
   SurfaceTrackingScratch tf;
   TrackerTraits traits;
   std::shared_ptr<tbb::task_arena> arena;
-  // Must outlive `plan` (DetectorLayoutSet borrows a SurfaceCatalogView into
+  // Must outlive `plan` (std::vector<SurfaceGraph> borrows a SurfaceCatalogView into
   // it, Gate 4 B2 Slice 2) -- declared before `plan` so it is constructed
   // first and destroyed last.
   std::vector<SurfaceDescriptor> catalog;
-  std::optional<DetectorLayoutSet> plan;
+  std::optional<std::vector<SurfaceGraph>> plan;
 
  private:
   o2::detectors::DetID::ID mDet;
@@ -371,9 +371,9 @@ void loadCandidateClusters(Rig<NLayers>& rig,
   const std::vector<ROFRecord> rofs{ROFRecord{{0, 0}, 0, 0, 3}};
   const o2::InteractionRecord origin{50, 5};
   const ROFTimingConfig timing{40, 0, 0, 0};
-  const auto& orderedSurfaces = rig.plan->getConfigurationKey().orderedSurfaces;
+  const auto& orderedSurfaces = rig.plan->front().getOrderedSurfaces();
   const auto result = rig.tf.loadNormalizedSource(rig.frame, decoder, origin, timing, compClusters, noPatterns, rofs, &dict(), nullptr, rig.detector(),
-                                                  gsl::span<const SurfaceId>{orderedSurfaces}, rig.plan->getSurfaceCatalog());
+                                                  gsl::span<const SurfaceId>{orderedSurfaces}, rig.plan->front().getSurfaceCatalog());
   BOOST_REQUIRE(result.ok());
 }
 
@@ -408,7 +408,7 @@ int findCellTopologyId(const TopologyView& topology, int inner, int middle, int 
 template <int NLayers>
 void injectCandidateTracklets(Rig<NLayers>& rig, int cellTopologyId, const std::array<o2::its::Cluster, 3>& clusters)
 {
-  const auto topology = rig.plan->getLayoutView(0).topology;
+  const auto topology = rig.plan->front().getView();
   const auto& cell = topology.getCell(CellTopologyId{static_cast<uint16_t>(cellTopologyId)});
   const auto& first = topology.getTransition(cell.firstTransition);
   const auto& second = topology.getTransition(cell.secondTransition);
@@ -458,9 +458,9 @@ void loadCandidateClustersAtLayers(Rig<NLayers>& rig,
   const std::vector<ROFRecord> rofs{ROFRecord{{0, 0}, 0, 0, static_cast<int>(N)}};
   const o2::InteractionRecord origin{50, 5};
   const ROFTimingConfig timing{40, 0, 0, 0};
-  const auto& orderedSurfaces = rig.plan->getConfigurationKey().orderedSurfaces;
+  const auto& orderedSurfaces = rig.plan->front().getOrderedSurfaces();
   const auto result = rig.tf.loadNormalizedSource(rig.frame, decoder, origin, timing, compClusters, noPatterns, rofs, &dict(), nullptr, rig.detector(),
-                                                  gsl::span<const SurfaceId>{orderedSurfaces}, rig.plan->getSurfaceCatalog());
+                                                  gsl::span<const SurfaceId>{orderedSurfaces}, rig.plan->front().getSurfaceCatalog());
   BOOST_REQUIRE(result.ok());
 }
 
@@ -492,7 +492,7 @@ template <int NLayers, size_t N>
 void injectChainCandidateTracklets(Rig<NLayers>& rig, const std::array<int, N>& layers, const std::array<o2::its::Cluster, N>& clusters)
 {
   static_assert(N >= 3, "a chain needs at least 3 layers to form one cell");
-  const auto topology = rig.plan->getLayoutView(0).topology;
+  const auto topology = rig.plan->front().getView();
   for (size_t i = 0; i < N; ++i) {
     BOOST_REQUIRE_EQUAL(rig.tf.getClusters()[layers[i]].size(), 1u);
     rig.tf.getClusters()[layers[i]][0] = clusters[i];
@@ -535,7 +535,7 @@ BOOST_AUTO_TEST_CASE(CylinderComputeLayerCellsMatchesBuildCellSeedOracle)
   rig.traits.initialiseTimeFrame(0, *rig.plan);
   BOOST_REQUIRE(rig.traits.hasTraversalCache());
 
-  const auto topology = rig.plan->getLayoutView(0).topology;
+  const auto topology = rig.plan->front().getView();
   const int cellTopologyId = findCellTopologyId(topology, 0, 1, 2);
   BOOST_REQUIRE_GE(cellTopologyId, 0);
 
@@ -618,7 +618,7 @@ BOOST_AUTO_TEST_CASE(DiskComputeLayerCellsMatchesBuildCellSeedOracle)
   rig.traits.initialiseTimeFrame(0, *rig.plan);
   BOOST_REQUIRE(rig.traits.hasTraversalCache());
 
-  const auto topology = rig.plan->getLayoutView(0).topology;
+  const auto topology = rig.plan->front().getView();
   const int cellTopologyId = findCellTopologyId(topology, 0, 1, 2);
   BOOST_REQUIRE_GE(cellTopologyId, 0);
 
@@ -674,7 +674,7 @@ BOOST_AUTO_TEST_CASE(DiskComputeLayerCellsRoadPreCutRejectsBeforeBuildCellSeed)
   rig.traits.updateTrackingParameters(rig.params);
   rig.traits.initialiseTimeFrame(0, *rig.plan);
 
-  const auto topology = rig.plan->getLayoutView(0).topology;
+  const auto topology = rig.plan->front().getView();
   const int cellTopologyId = findCellTopologyId(topology, 0, 1, 2);
   BOOST_REQUIRE_GE(cellTopologyId, 0);
 
@@ -717,7 +717,7 @@ BOOST_AUTO_TEST_CASE(CylinderComputeLayerCellsOnePassAndTwoPassAgree)
     rig.traits.updateTrackingParameters(rig.params);
     rig.traits.initialiseTimeFrame(0, *rig.plan);
 
-    const auto topology = rig.plan->getLayoutView(0).topology;
+    const auto topology = rig.plan->front().getView();
     const int cellTopologyId = findCellTopologyId(topology, 0, 1, 2);
     BOOST_REQUIRE_GE(cellTopologyId, 0);
 
@@ -776,7 +776,7 @@ BOOST_AUTO_TEST_CASE(DiskComputeLayerCellsOnePassAndTwoPassAgree)
     rig.traits.updateTrackingParameters(rig.params);
     rig.traits.initialiseTimeFrame(0, *rig.plan);
 
-    const auto topology = rig.plan->getLayoutView(0).topology;
+    const auto topology = rig.plan->front().getView();
     const int cellTopologyId = findCellTopologyId(topology, 0, 1, 2);
     BOOST_REQUIRE_GE(cellTopologyId, 0);
 
@@ -836,7 +836,7 @@ BOOST_AUTO_TEST_CASE(CylinderComputeLayerCellsSafeWithEmptyDiskReferenceSpan)
   rig.traits.initialiseTimeFrame(0, *rig.plan);
   BOOST_REQUIRE(rig.traits.hasTraversalCache());
 
-  const auto topology = rig.plan->getLayoutView(0).topology;
+  const auto topology = rig.plan->front().getView();
   const int cellTopologyId = findCellTopologyId(topology, 0, 1, 2);
   BOOST_REQUIRE_GE(cellTopologyId, 0);
 
@@ -886,7 +886,7 @@ BOOST_AUTO_TEST_CASE(RepeatedComputeLayerCellsCallsDoNotRebindOrIncreaseCounts)
 
   const int groupingCountAfterInit = rig.traits.getTraversalGroupingCount();
 
-  const auto topology = rig.plan->getLayoutView(0).topology;
+  const auto topology = rig.plan->front().getView();
   const int cellTopologyId = findCellTopologyId(topology, 0, 1, 2);
   BOOST_REQUIRE_GE(cellTopologyId, 0);
 
@@ -1048,7 +1048,7 @@ BOOST_AUTO_TEST_CASE(CylinderComputeLayerCellsMultiCellChainProducesCorrectCells
   rig.traits.initialiseTimeFrame(0, *rig.plan);
   BOOST_REQUIRE(rig.traits.hasTraversalCache());
 
-  const auto topology = rig.plan->getLayoutView(0).topology;
+  const auto topology = rig.plan->front().getView();
   injectChainCandidateTracklets(rig, layers, clusters);
 
   rig.traits.computeLayerCells(0);
@@ -1108,7 +1108,7 @@ BOOST_AUTO_TEST_CASE(DiskComputeLayerCellsMultiCellChainProducesCorrectCellsAndO
   rig.traits.initialiseTimeFrame(0, *rig.plan);
   BOOST_REQUIRE(rig.traits.hasTraversalCache());
 
-  const auto topology = rig.plan->getLayoutView(0).topology;
+  const auto topology = rig.plan->front().getView();
   injectChainCandidateTracklets(rig, layers, clusters);
 
   rig.traits.computeLayerCells(0);
@@ -1166,7 +1166,7 @@ BOOST_AUTO_TEST_CASE(CylinderComputeLayerCellsHoleCellReconstructsCorrectLayerMa
   rig.traits.initialiseTimeFrame(0, *rig.plan);
   BOOST_REQUIRE(rig.traits.hasTraversalCache());
 
-  const auto topology = rig.plan->getLayoutView(0).topology;
+  const auto topology = rig.plan->front().getView();
   injectChainCandidateTracklets(rig, layers, clusters);
 
   rig.traits.computeLayerCells(0);
@@ -1196,7 +1196,7 @@ BOOST_AUTO_TEST_CASE(ComputeLayerCellsFailsClosedOnCellStorageSizeMismatch)
   // (that loop is no longer definitionally safe once its bound is
   // sparse-derived rather than mTimeFrame's own legacy-shaped storage size).
   // Desyncing a public container after a genuinely successful
-  // initialiseTimeFrame() -- mirroring testTimeFrameDetectorLayouts.cxx's
+  // initialiseTimeFrame() -- mirroring testTimeFrameSurfaceGraphs.cxx's
   // established legacy-cell-container-size-mismatch seam -- exercises this
   // exactly, through computeLayerCells()'s own public contract, with no
   // private-state bypass.

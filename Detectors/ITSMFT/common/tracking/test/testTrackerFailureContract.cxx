@@ -32,7 +32,7 @@
 // boundary to throw on demand, deterministically, without provoking real
 // host OOM or needing to reach genuine tracklet/cell/road computation.
 //
-// Every fixture below establishes a real layout/plan (buildDetectorLayoutSet())
+// Every fixture below establishes a real layout/plan (buildSurfaceGraphs())
 // and then loads a normalized source -- even the structural-failure cases,
 // and even when that source carries zero clusters/ROFs -- before running
 // tracking. This is load-bearing, not incidental: TimeFrame::initialise()
@@ -47,7 +47,7 @@
 // through an invalid TrackingParameters/index-table configuration, not
 // through a missing/stale plan: Gate 4 B2 Slice 2 removed the plan-currency
 // concept entirely (initialiseTimeFrame() now takes the plan as an explicit
-// `const DetectorLayoutSet&` parameter, so "no plan" is no longer a state a
+// `const std::vector<SurfaceGraph>&` parameter, so "no plan" is no longer a state a
 // caller can even construct) -- see the removed
 // StructuralFailureViaStaleLayoutAlwaysRethrowsAndWipes test's replacement
 // note below for what covers the "always rethrows and wipes" contract now.
@@ -87,8 +87,7 @@
 #include "ITSMFTTracking/ClusterDecoder.h"
 #include "ITSMFTTracking/Configuration.h"
 #include "ITSMFTTracking/DecodedCluster.h"
-#include "ITSMFTTracking/DetectorLayout.h"
-#include "ITSMFTTracking/DetectorLayoutSet.h"
+#include "ITSMFTTracking/SurfaceGraphBuilder.h"
 #include "ITSMFTTracking/ITSSharedClusterCompatibility.h"
 #include "ITSMFTTracking/MultiSourceFrame.h"
 #include "ITSMFTTracking/MultiSourceLoading.h"
@@ -410,27 +409,24 @@ struct RigT {
   std::optional<o2::its::ROFVertexLookupTable<ITSNLayers>> vertexTable;
   std::optional<o2::its::ROFMaskTable<ITSNLayers>> mask;
   std::shared_ptr<tbb::task_arena> arena;
-  // Must outlive `plan` (DetectorLayoutSet borrows a SurfaceCatalogView into
-  // it, Gate 4 B2 Slice 2) -- declared before `plan` so it is constructed
-  // first and destroyed last. Owned by this Rig, not by TimeFrame: wipe()
-  // cannot touch either, by construction.
+  // Kept with the graph vector so this fixture owns all initialization inputs.
   std::vector<SurfaceDescriptor> catalog;
-  std::optional<DetectorLayoutSet> plan;
+  std::optional<std::vector<SurfaceGraph>> plan;
 
   // Establishes a real, valid detector layout/plan + topology, without
   // loading any clusters, and binds it into the tracker (mirroring
-  // ITSMFTTrackingInterface::runTracking()'s adoptDetectorLayoutSet() call).
+  // ITSMFTTrackingInterface::runTracking()'s adoptSurfaceGraphs() call).
   void establishValidLayout()
   {
     catalog = makeITSTestCatalog();
     const auto orderedSurfaces = identitySurfaces(ITSNLayers);
     const SurfaceCatalogView catalogView{catalog.data(), static_cast<uint32_t>(catalog.size())};
-    auto result = buildDetectorLayoutSet(catalogView, orderedSurfaces, params);
+    auto result = buildSurfaceGraphs(catalogView, orderedSurfaces, params);
     BOOST_REQUIRE(result.ok());
-    plan.emplace(std::move(*result.layout));
-    tracker.adoptDetectorLayoutSet(*plan);
-    const auto layoutView = plan->getLayoutView(0);
-    tf.adoptPlan(plan->getConfigurationKey().orderedSurfaces.size(), layoutView.topology.nTransitions, layoutView.topology.nCells);
+    plan.emplace(std::move(result.graphs));
+    tracker.adoptSurfaceGraphs(*plan);
+    const auto layoutView = plan->front().getView();
+    tf.adoptPlan(plan->front().getOrderedSurfaces().size(), layoutView.nTransitions, layoutView.nCells);
   }
 
   // Loads clusters (or, with an empty Fixture, zero clusters -- still a
@@ -450,10 +446,10 @@ struct RigT {
     LegacyLikeDecoder decoder{o2::detectors::DetID::ITS};
     const o2::InteractionRecord origin{50, 5};
     const ROFTimingConfig timing{40, 0, 0, 0};
-    const auto& orderedSurfaces = plan->getConfigurationKey().orderedSurfaces;
+    const auto& orderedSurfaces = plan->front().getOrderedSurfaces();
     const auto result = tf.loadNormalizedSource(frame, decoder, origin, timing, f.clusters, f.patterns, f.rofs, &dict(),
                                                 f.labels.getIndexedSize() > 0 ? &f.labels : nullptr, o2::detectors::DetID::ITS,
-                                                gsl::span<const SurfaceId>{orderedSurfaces}, plan->getSurfaceCatalog());
+                                                gsl::span<const SurfaceId>{orderedSurfaces}, plan->front().getSurfaceCatalog());
     BOOST_REQUIRE(result.ok());
 
     // TrackerTraits::computeLayerTracklets() reads per-layer ROF counts
@@ -540,11 +536,11 @@ BOOST_AUTO_TEST_CASE(SentinelIsExactMatchNotSignCheck)
 //
 // Gate 4 B2 Slice 2 removed this section's original mechanism
 // (StructuralFailureViaStaleLayoutAlwaysRethrowsAndWipes: establish a valid
-// layout, then TimeFrame::invalidateDetectorLayouts() right before running
+// layout, then TimeFrame::invalidateSurfaceGraphs() right before running
 // tracking to deterministically produce TraversalException{StaleLayout}).
-// Neither invalidateDetectorLayouts() nor TraversalFailureReason::StaleLayout
+// Neither invalidateSurfaceGraphs() nor TraversalFailureReason::StaleLayout
 // is reachable any more: initialiseTimeFrame() now takes the plan as an
-// explicit `const DetectorLayoutSet&` parameter with no TimeFrame-owned
+// explicit `const std::vector<SurfaceGraph>&` parameter with no TimeFrame-owned
 // currency concept to invalidate. The "TraversalException (structural/
 // configuration failure): TimeFrame is wiped, then the exception always
 // rethrows, regardless of DropTFUponFailure" contract this test protected is

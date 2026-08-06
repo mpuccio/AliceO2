@@ -253,11 +253,11 @@ static_assert(std::is_same_v<decltype(std::declval<ITSMFTTrackingInterfaceITS&>(
 // milestone -- still the same six detector-neutral arguments M6b fixed and
 // M6d already reused unchanged; no detector-ID parameter was reintroduced.
 static_assert(std::is_invocable_r_v<SurfacePlanBinding::BuildResult, decltype(SurfacePlanBinding::build),
-                                    const DetectorLayoutView&, ClusterSourceId, SurfaceMask,
+                                    const SurfaceGraphView&, ClusterSourceId, SurfaceMask,
                                     gsl::span<const SurfaceId>, SurfaceKind, TransitionPolicyTag>,
               "SurfacePlanBinding::build must still accept exactly these six detector-neutral parameters after M6e1");
 static_assert(!std::is_invocable_v<decltype(SurfacePlanBinding::build),
-                                   const DetectorLayoutView&, o2::detectors::DetID::ID, ClusterSourceId, SurfaceMask,
+                                   const SurfaceGraphView&, o2::detectors::DetID::ID, ClusterSourceId, SurfaceMask,
                                    gsl::span<const SurfaceId>, SurfaceKind, TransitionPolicyTag>,
               "SurfacePlanBinding::build must still not accept a detector-ID parameter after M6e1");
 
@@ -369,12 +369,12 @@ BOOST_AUTO_TEST_CASE(StandaloneAndCombinedMFTBindingsAgreeOnCompactSlotsByRelati
   // own initialiseTracker() construction (Sync mode, real TrackingParameters).
   const auto standaloneParams = o2::itsmft::TrackingMode::getTrackingParameters(o2::detectors::DetID::MFT, o2::itsmft::TrackingMode::Sync);
   const auto standaloneOrder = mftIdentityOrder();
-  const auto standaloneResult = buildDetectorLayoutSet(
+  const auto standaloneResult = buildSurfaceGraphs(
     SurfaceCatalogView{kMFTStaticSurfaceCatalog.data(), static_cast<uint32_t>(kMFTStaticSurfaceCatalog.size())},
     gsl::span<const SurfaceId>{standaloneOrder}, standaloneParams);
   BOOST_REQUIRE(standaloneResult.ok());
   const auto standaloneBindingResult = SurfacePlanBinding::build(
-    standaloneResult.layout->getLayoutView(0), ClusterSourceId{0}, mftFullMask(),
+    standaloneResult.graphs.front().getView(), ClusterSourceId{0}, mftFullMask(),
     gsl::span<const SurfaceId>{standaloneOrder}, SurfaceKind::Disk, TransitionPolicyTag::DiskDisk);
   BOOST_REQUIRE(standaloneBindingResult.ok());
 
@@ -383,12 +383,12 @@ BOOST_AUTO_TEST_CASE(StandaloneAndCombinedMFTBindingsAgreeOnCompactSlotsByRelati
   // (ClusterSourceId{1}, surfaces ITSNLayers..ITSNLayers+MFTNLayers-1).
   const auto combinedParams = standaloneParams; // MFT's own TrackingParameters do not depend on which catalog they size against
   const auto combinedOrder = combinedMftOrder();
-  const auto combinedResult = buildDetectorLayoutSet(
+  const auto combinedResult = buildSurfaceGraphs(
     SurfaceCatalogView{kITSMFTCombinedStaticSurfaceCatalog.data(), static_cast<uint32_t>(kITSMFTCombinedStaticSurfaceCatalog.size())},
     gsl::span<const SurfaceId>{combinedOrder}, combinedParams);
   BOOST_REQUIRE(combinedResult.ok());
   const auto combinedBindingResult = SurfacePlanBinding::build(
-    combinedResult.layout->getLayoutView(0), ClusterSourceId{1}, combinedMftMask(),
+    combinedResult.graphs.front().getView(), ClusterSourceId{1}, combinedMftMask(),
     gsl::span<const SurfaceId>{combinedOrder}, SurfaceKind::Disk, TransitionPolicyTag::DiskDisk);
   BOOST_REQUIRE(combinedBindingResult.ok());
 

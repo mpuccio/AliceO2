@@ -33,14 +33,20 @@ o2_add_test(surfacelayout
             LABELS "itsmft;tracking"
             PUBLIC_LINK_LIBRARIES O2::ITSMFTTracking)
 
-o2_add_test(detectorlayoutbuilder
-            SOURCES testDetectorLayoutBuilder.cxx
+o2_add_test(surfacegraphbuilder
+            SOURCES testSurfaceGraphBuilder.cxx
             COMPONENT_NAME itsmft-tracking
             LABELS "itsmft;tracking"
             PUBLIC_LINK_LIBRARIES O2::ITSMFTTracking)
 
-o2_add_test(detectorlayoutview
-            SOURCES testDetectorLayoutView.cxx
+o2_add_test(surfacegraph
+            SOURCES testSurfaceGraph.cxx
+            COMPONENT_NAME itsmft-tracking
+            LABELS "itsmft;tracking"
+            PUBLIC_LINK_LIBRARIES O2::ITSMFTTracking)
+
+o2_add_test(l3-surface-graph-guard
+            SOURCES testL3SurfaceGraphGuard.cxx
             COMPONENT_NAME itsmft-tracking
             LABELS "itsmft;tracking"
             PUBLIC_LINK_LIBRARIES O2::ITSMFTTracking)

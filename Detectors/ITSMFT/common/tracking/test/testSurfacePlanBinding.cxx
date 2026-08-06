@@ -18,7 +18,7 @@
 #include <utility>
 #include <vector>
 
-#include "ITSMFTTracking/DetectorLayoutBuilder.h"
+#include "ITSMFTTracking/SurfaceGraphBuilder.h"
 #include "ITSMFTTracking/StaticDetectorCatalogs.h"
 #include "ITSMFTTracking/Cell.h"
 #include "ITSMFTTracking/SurfaceTrackingScratch.h"
@@ -53,11 +53,11 @@ SurfaceDescriptor surfaceWithOwner(uint16_t id, SurfaceKind kind, uint8_t detect
 // --- Shared ITS+MFT combined-catalog fixture. Per-file-local fixtures are
 // this test directory's existing convention. ---
 struct CombinedLayout {
-  DetectorLayout layout;
-  DetectorLayoutView view;
+  SurfaceGraph layout;
+  SurfaceGraphView view;
 
   CombinedLayout()
-    : layout{build()}, view{layout.getView(kITSMFTCombinedStaticSurfaceCatalog, cylinderMask(), diskMask())}
+    : layout{build()}, view{layout.getView()}
   {
   }
 
@@ -68,7 +68,7 @@ struct CombinedLayout {
   }
   static SurfaceMask cylinderMask() { return masks().first; }
   static SurfaceMask diskMask() { return masks().second; }
-  static DetectorLayout build()
+  static SurfaceGraph build()
   {
     SurfaceMask itsHoles;
     itsHoles.set(SurfaceId{3});
@@ -78,19 +78,19 @@ struct CombinedLayout {
     seeds.set(SurfaceId{6});
     seeds.set(SurfaceId{16});
     const SurfaceCatalogView catalog{kITSMFTCombinedStaticSurfaceCatalog.data(), static_cast<uint32_t>(kITSMFTCombinedStaticSurfaceCatalog.size())};
-    DetectorLayoutBuilder builder{catalog};
+    SurfaceGraphBuilder builder{catalog};
     builder.addSubgraph({ordered(0, ITSNLayers), 1, itsHoles, seeds & SurfaceMask{uint32_t{0x7f}}});
     builder.addSubgraph({ordered(ITSNLayers, MFTNLayers), 1, mftHoles, seeds & ~SurfaceMask{uint32_t{0x7f}}});
     auto built = builder.build();
     BOOST_REQUIRE(built.ok());
-    return std::move(*built.layout);
+    return std::move(*built.graph);
   }
 };
 
 SurfaceMask itsMask() { return SurfaceMask{uint32_t{0x7f}}; }
 SurfaceMask mftMask() { return SurfaceMask{uint32_t{0x1ff80}}; }
 
-void checkBindingCoversOwnedTopology(const SurfacePlanBinding& binding, const DetectorLayoutView& global)
+void checkBindingCoversOwnedTopology(const SurfacePlanBinding& binding, const SurfaceGraphView& global)
 {
   BOOST_CHECK(binding.getSource().isValid());
   for (uint16_t s = 0; s < global.nSurfaces; ++s) {
@@ -98,17 +98,17 @@ void checkBindingCoversOwnedTopology(const SurfacePlanBinding& binding, const De
       BOOST_REQUIRE(binding.getOwnedSurfaceIndex(SurfaceId{s}));
     }
   }
-  for (uint32_t t = 0; t < global.topology.nTransitions; ++t) {
+  for (uint32_t t = 0; t < global.nTransitions; ++t) {
     const auto id = TransitionId{static_cast<uint16_t>(t)};
-    const auto& transition = global.topology.getTransition(id);
+    const auto& transition = global.getTransition(id);
     if (binding.getOwnedSurfaces().has(transition.from)) {
       BOOST_REQUIRE(binding.getOwnedSurfaces().has(transition.to));
       BOOST_REQUIRE(binding.getScratchTransitionSlot(id));
     }
   }
-  for (uint32_t c = 0; c < global.topology.nCells; ++c) {
+  for (uint32_t c = 0; c < global.nCells; ++c) {
     const auto id = CellTopologyId{static_cast<uint16_t>(c)};
-    const auto& cell = global.topology.getCell(id);
+    const auto& cell = global.getCell(id);
     const bool ownedTransition = binding.getScratchTransitionSlot(cell.firstTransition).has_value() ||
                                  binding.getScratchTransitionSlot(cell.secondTransition).has_value();
     if (ownedTransition) {
@@ -141,11 +141,11 @@ BOOST_AUTO_TEST_CASE(SurfacePlanBindingMapsCombinedItsAndMftPlans)
 // accidental reintroduction of a detector-identity parameter fails the build
 // itself, not just a test run.
 static_assert(std::is_invocable_r_v<SurfacePlanBinding::BuildResult, decltype(SurfacePlanBinding::build),
-                                    const DetectorLayoutView&, ClusterSourceId, SurfaceMask,
+                                    const SurfaceGraphView&, ClusterSourceId, SurfaceMask,
                                     gsl::span<const SurfaceId>, SurfaceKind, TransitionPolicyTag>,
               "SurfacePlanBinding::build must accept exactly these six detector-neutral parameters");
 static_assert(!std::is_invocable_v<decltype(SurfacePlanBinding::build),
-                                   const DetectorLayoutView&, o2::detectors::DetID::ID, ClusterSourceId, SurfaceMask,
+                                   const SurfaceGraphView&, o2::detectors::DetID::ID, ClusterSourceId, SurfaceMask,
                                    gsl::span<const SurfaceId>, SurfaceKind, TransitionPolicyTag>,
               "SurfacePlanBinding::build must not accept a detector-ID parameter");
 
@@ -159,11 +159,11 @@ BOOST_AUTO_TEST_CASE(SurfacePlanBindingBuildsForASyntheticNonItsMftDetector)
   for (uint16_t id = 0; id < 4; ++id) {
     surfaces.push_back(surfaceWithOwner(id, SurfaceKind::Cylinder, kSyntheticDetectorId));
   }
-  DetectorLayoutBuilder builder{SurfaceCatalogView{surfaces.data(), static_cast<uint32_t>(surfaces.size())}};
+  SurfaceGraphBuilder builder{SurfaceCatalogView{surfaces.data(), static_cast<uint32_t>(surfaces.size())}};
   auto built = builder.addSubgraph({ordered(0, 4), 0, SurfaceMask{}, maskOf(3)}).build();
   BOOST_REQUIRE(built.ok());
   const auto masks = computeSurfaceKindMasks(surfaces);
-  const auto view = built.layout->getView(surfaces, masks.first, masks.second);
+  const auto view = built.graph->getView();
 
   SurfaceMask owned;
   for (uint16_t id = 0; id < 4; ++id) {
@@ -182,7 +182,7 @@ BOOST_AUTO_TEST_CASE(SurfacePlanBindingBuildsForASyntheticNonItsMftDetector)
 
 BOOST_AUTO_TEST_CASE(SparsePlanPositionsAreTheOnlyRuntimeCountAndOrderAuthority)
 {
-  // The catalog remains dense because DetectorLayout deliberately uses dense
+  // The catalog remains dense because SurfaceGraph deliberately uses dense
   // global ids, while the application plan owns a sparse, non-identity order.
   // This is the shape that catches accidental numeric-SurfaceId traversal.
   std::vector<SurfaceDescriptor> surfaces;
@@ -194,11 +194,11 @@ BOOST_AUTO_TEST_CASE(SparsePlanPositionsAreTheOnlyRuntimeCountAndOrderAuthority)
   for (const auto id : planOrder) {
     owned.set(id);
   }
-  DetectorLayoutBuilder builder{SurfaceCatalogView{surfaces.data(), static_cast<uint32_t>(surfaces.size())}};
+  SurfaceGraphBuilder builder{SurfaceCatalogView{surfaces.data(), static_cast<uint32_t>(surfaces.size())}};
   auto built = builder.addSubgraph({planOrder, 0, SurfaceMask{}, maskOf(5)}).build();
   BOOST_REQUIRE(built.ok());
   const auto masks = computeSurfaceKindMasks(surfaces);
-  const auto view = built.layout->getView(surfaces, masks.first, masks.second);
+  const auto view = built.graph->getView();
   const auto bindingResult = SurfacePlanBinding::build(view, ClusterSourceId{7}, owned, planOrder,
                                                        SurfaceKind::Cylinder, TransitionPolicyTag::CylinderCylinder);
   BOOST_REQUIRE(bindingResult.ok());
@@ -288,11 +288,11 @@ BOOST_AUTO_TEST_CASE(RejectsSurfaceMaskSizeMismatch)
 BOOST_AUTO_TEST_CASE(RejectsSurfaceMaskNotASubsetOfLayout)
 {
   std::vector<SurfaceDescriptor> surfaces{surfaceWithOwner(0, SurfaceKind::Cylinder, 250), surfaceWithOwner(1, SurfaceKind::Cylinder, 250)};
-  DetectorLayoutBuilder builder{SurfaceCatalogView{surfaces.data(), static_cast<uint32_t>(surfaces.size())}};
+  SurfaceGraphBuilder builder{SurfaceCatalogView{surfaces.data(), static_cast<uint32_t>(surfaces.size())}};
   auto built = builder.addSubgraph({ordered(0, 2), 0, SurfaceMask{}, SurfaceMask{}}).build();
   BOOST_REQUIRE(built.ok());
   const auto masks = computeSurfaceKindMasks(surfaces);
-  const auto view = built.layout->getView(surfaces, masks.first, masks.second);
+  const auto view = built.graph->getView();
 
   SurfaceMask outOfRange = maskOf(0) | maskOf(1) | maskOf(5); // surface 5 does not exist in this 2-surface layout
   const std::vector<SurfaceId> order{SurfaceId{0}, SurfaceId{1}, SurfaceId{5}};
@@ -336,11 +336,11 @@ BOOST_AUTO_TEST_CASE(SurfacePlanBindingBuildsAcrossMultipleDistinctDetectorIdent
     surfaceWithOwner(0, SurfaceKind::Cylinder, 250),
     surfaceWithOwner(1, SurfaceKind::Cylinder, 250),
     surfaceWithOwner(2, SurfaceKind::Cylinder, 251)}; // second detectorId, still owned by the same binding
-  DetectorLayoutBuilder builder{SurfaceCatalogView{surfaces.data(), static_cast<uint32_t>(surfaces.size())}};
+  SurfaceGraphBuilder builder{SurfaceCatalogView{surfaces.data(), static_cast<uint32_t>(surfaces.size())}};
   auto built = builder.addSubgraph({ordered(0, 3), 0, SurfaceMask{}, maskOf(2)}).build();
   BOOST_REQUIRE(built.ok());
   const auto masks = computeSurfaceKindMasks(surfaces);
-  const auto view = built.layout->getView(surfaces, masks.first, masks.second);
+  const auto view = built.graph->getView();
 
   SurfaceMask owned = maskOf(0) | maskOf(1) | maskOf(2);
   const auto result = SurfacePlanBinding::build(view, ClusterSourceId{0}, owned, ordered(0, 3),
@@ -357,11 +357,11 @@ BOOST_AUTO_TEST_CASE(SurfacePlanBindingBuildsAcrossMultipleDistinctDetectorIdent
 BOOST_AUTO_TEST_CASE(RejectsPolicySurfaceKindMismatch)
 {
   std::vector<SurfaceDescriptor> surfaces{surfaceWithOwner(0, SurfaceKind::Disk, 250), surfaceWithOwner(1, SurfaceKind::Disk, 250)};
-  DetectorLayoutBuilder builder{SurfaceCatalogView{surfaces.data(), static_cast<uint32_t>(surfaces.size())}};
+  SurfaceGraphBuilder builder{SurfaceCatalogView{surfaces.data(), static_cast<uint32_t>(surfaces.size())}};
   auto built = builder.addSubgraph({ordered(0, 2), 0, SurfaceMask{}, SurfaceMask{}}).build();
   BOOST_REQUIRE(built.ok());
   const auto masks = computeSurfaceKindMasks(surfaces);
-  const auto view = built.layout->getView(surfaces, masks.first, masks.second);
+  const auto view = built.graph->getView();
 
   SurfaceMask owned = maskOf(0) | maskOf(1);
   // expectedKind/expectedPolicy are self-consistent (Cylinder/CylinderCylinder)
@@ -375,11 +375,11 @@ BOOST_AUTO_TEST_CASE(RejectsPolicySurfaceKindMismatch)
 BOOST_AUTO_TEST_CASE(RejectsCrossBoundaryTransition)
 {
   std::vector<SurfaceDescriptor> surfaces{surfaceWithOwner(0, SurfaceKind::Cylinder, 250), surfaceWithOwner(1, SurfaceKind::Cylinder, 250)};
-  DetectorLayoutBuilder builder{SurfaceCatalogView{surfaces.data(), static_cast<uint32_t>(surfaces.size())}};
+  SurfaceGraphBuilder builder{SurfaceCatalogView{surfaces.data(), static_cast<uint32_t>(surfaces.size())}};
   auto built = builder.addSubgraph({ordered(0, 2), 0, SurfaceMask{}, SurfaceMask{}}).build();
   BOOST_REQUIRE(built.ok());
   const auto masks = computeSurfaceKindMasks(surfaces);
-  const auto view = built.layout->getView(surfaces, masks.first, masks.second);
+  const auto view = built.graph->getView();
 
   // Own only surface 0: the 0->1 transition has fromOwned=true, toOwned=false.
   SurfaceMask owned = maskOf(0);
@@ -392,7 +392,7 @@ BOOST_AUTO_TEST_CASE(RejectsCrossBoundaryTransition)
 
 BOOST_AUTO_TEST_CASE(RejectsCrossBoundaryCell)
 {
-  // Hand-built raw view (SparseTrackingTopologyView/DetectorLayoutView are
+  // Hand-built raw view (SurfaceGraphView/SurfaceGraphView are
   // trivially-copyable PODs -- same technique testTransitionPolicyDispatch.cxx's
   // ConstructorFailureClearsRoadStartCellsAlongsideAllGroups already uses):
   // every transition individually satisfies the from/to ownership-parity
@@ -412,9 +412,11 @@ BOOST_AUTO_TEST_CASE(RejectsCrossBoundaryCell)
   std::array<uint32_t, 3> offsets{0, 1, 1};
   std::array<CellTopologyId, 1> byFirstTransition{CellTopologyId{0}};
 
-  SparseTrackingTopologyView topologyView{transitions.data(), cells.data(), offsets.data(), byFirstTransition.data(),
-                                          SurfaceMask{}, static_cast<uint32_t>(transitions.size()), static_cast<uint32_t>(cells.size())};
-  DetectorLayoutView layoutView{surfaces.data(), static_cast<uint32_t>(surfaces.size()), SurfaceMask{}, SurfaceMask{}, topologyView};
+  SurfaceMask cylinderSurfaces;
+  for (const auto& descriptor : surfaces) {
+    cylinderSurfaces.set(descriptor.id);
+  }
+  SurfaceGraphView layoutView{surfaces.data(), static_cast<uint32_t>(surfaces.size()), nullptr, 0, cylinderSurfaces, {}, transitions.data(), cells.data(), offsets.data(), byFirstTransition.data(), {}, static_cast<uint32_t>(transitions.size()), static_cast<uint32_t>(cells.size())};
 
   SurfaceMask owned = maskOf(0) | maskOf(1) | maskOf(2); // surface 3 not owned
   const std::vector<SurfaceId> order{SurfaceId{0}, SurfaceId{1}, SurfaceId{2}};
@@ -442,9 +444,11 @@ BOOST_AUTO_TEST_CASE(RejectsInvalidTopology)
   std::array<uint32_t, 3> offsets{0, 2, 2};
   std::array<CellTopologyId, 2> byFirstTransition{CellTopologyId{0}, CellTopologyId{1}};
 
-  SparseTrackingTopologyView topologyView{transitions.data(), cells.data(), offsets.data(), byFirstTransition.data(),
-                                          SurfaceMask{}, static_cast<uint32_t>(transitions.size()), static_cast<uint32_t>(cells.size())};
-  DetectorLayoutView layoutView{surfaces.data(), static_cast<uint32_t>(surfaces.size()), SurfaceMask{}, SurfaceMask{}, topologyView};
+  SurfaceMask cylinderSurfaces;
+  for (const auto& descriptor : surfaces) {
+    cylinderSurfaces.set(descriptor.id);
+  }
+  SurfaceGraphView layoutView{surfaces.data(), static_cast<uint32_t>(surfaces.size()), nullptr, 0, cylinderSurfaces, {}, transitions.data(), cells.data(), offsets.data(), byFirstTransition.data(), {}, static_cast<uint32_t>(transitions.size()), static_cast<uint32_t>(cells.size())};
 
   SurfaceMask owned = maskOf(0) | maskOf(1) | maskOf(2);
   const auto result = SurfacePlanBinding::build(layoutView, ClusterSourceId{0}, owned, ordered(0, 3),

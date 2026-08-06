@@ -488,8 +488,8 @@ void checkMalformedPatternWithConfiguredDictionaryIsRecoverableNotMissingDiction
 BOOST_AUTO_TEST_CASE(MFT_MalformedPatternWithConfiguredDictionaryIsRecoverable) { checkMalformedPatternWithConfiguredDictionaryIsRecoverableNotMissingDictionary<10>(); }
 
 // Gate 4 B2 Slice 2 removed the checkUnconfiguredCatalogIsStructural test
-// that used to live here (skip configureDetectorLayouts() to produce
-// MultiSourceLoadError::SurfaceCatalogNotConfigured): configureDetectorLayouts()
+// that used to live here (skip configureSurfaceGraphs() to produce
+// MultiSourceLoadError::SurfaceCatalogNotConfigured): configureSurfaceGraphs()
 // no longer exists, and ITSMFTTrackingInterface::initialise() now
 // unconditionally builds its one immutable plan from the static per-detector
 // catalog before returning -- there is no longer a way to construct a ready,

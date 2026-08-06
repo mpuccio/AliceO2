@@ -6,21 +6,21 @@
 // License v3 (GPL Version 3), copied verbatim in the file "COPYING".
 //
 // Gate 4 B2 Slice 2 rewrote this file. Its earlier content tested
-// TimeFrame::ensureDetectorLayouts()/invalidateDetectorLayouts() and the
+// TimeFrame::ensureSurfaceGraphs()/invalidateSurfaceGraphs() and the
 // runtime-provider-backed catalog build/validate/currency/geometry-epoch
 // machinery -- all of it removed in this slice: TimeFrame owns no
-// catalog/layout/plan/epoch at all any more, and buildDetectorLayoutSet()
-// (DetectorLayoutSet.h) performs no runtime catalog validation (the static
+// catalog/layout/plan/epoch at all any more, and buildSurfaceGraphs()
+// (std::vector<SurfaceGraph>.h) performs no runtime catalog validation (the static
 // catalog it borrows in production is already proven valid at compile time,
 // see SurfaceSpec.h). Every test that only existed to exercise that removed
 // machinery is gone; the tests that exercise TrackerTraits::
 // initialiseTimeFrame()'s own validation logic (legacy parity, material
 // compatibility, mixed-policy/invalid-schedule rejection, iteration bounds)
-// are kept, migrated to build a local DetectorLayoutSet via
-// buildDetectorLayoutSet() and pass it to initialiseTimeFrame() as its
+// are kept, migrated to build a local std::vector<SurfaceGraph> via
+// buildSurfaceGraphs() and pass it to initialiseTimeFrame() as its
 // explicit plan parameter, exactly as ITSMFTTrackingInterface does in
-// production. One new focused test (buildDetectorLayoutSetRejects...) covers
-// buildDetectorLayoutSet()'s own two failure modes, which had no other
+// production. One new focused test (buildSurfaceGraphsRejects...) covers
+// buildSurfaceGraphs()'s own two failure modes, which had no other
 // coverage after the deleted tests.
 
 #define BOOST_TEST_MODULE ITSMFT TimeFrame detector layouts
@@ -38,7 +38,7 @@
 #include <vector>
 
 #include "Field/MagneticField.h"
-#include "ITSMFTTracking/DetectorLayoutSet.h"
+#include "ITSMFTTracking/SurfaceGraphBuilder.h"
 #include "ITSMFTTracking/SurfaceTrackingScratch.h"
 #include "ITSMFTTracking/NominalSurfaceMaterialDefaults.h"
 #include "ITSMFTTracking/TimeFrame.h"
@@ -84,14 +84,14 @@ class NoopTrackingOperationAdapter final : public TrackingOperationAdapter
 
 NoopTrackingOperationAdapter gNoopOperationAdapter;
 
-/// DetectorLayout no longer owns a surface copy (Slice 3, shared ownership):
+/// SurfaceGraph no longer owns a surface copy (Slice 3, shared ownership):
 /// test fixtures that build one in isolation keep the surfaces alongside it.
 struct BuiltLayout {
-  DetectorLayout layout;
+  SurfaceGraph layout;
   std::vector<SurfaceDescriptor> surfaces;
 };
 
-static_assert(std::is_nothrow_move_constructible_v<DetectorLayoutSet>);
+static_assert(std::is_nothrow_move_constructible_v<std::vector<SurfaceGraph>>);
 
 // Nominal material matching this detector's default TrackingParameters::LayerxX0
 // (o2::itsmft::resetDetectorDefaults()), so fixtures that reach
@@ -130,53 +130,49 @@ std::vector<SurfaceId> order(size_t count)
   return result;
 }
 
-// Owns both the catalog and the DetectorLayoutSet built from it: the plan
-// borrows a SurfaceCatalogView into `catalog` (Gate 4 B2 Slice 2), so both
-// must be moved together and the vector's underlying buffer address (which
-// std::vector's move never changes) stays valid for the plan's lifetime.
+// Owns both the catalog and the std::vector<SurfaceGraph> built from it: the plan
+// keeps the catalog and graph vector together as one fixture so callers can
+// exercise graph construction and runtime-plan installation as one unit.
 struct BuiltPlan {
   std::vector<SurfaceDescriptor> catalog;
-  DetectorLayoutSet plan;
+  std::vector<SurfaceGraph> plan;
 };
 
 BuiltPlan buildPlan(std::vector<SurfaceDescriptor> surfaces, gsl::span<const SurfaceId> ordered,
                     TransitionPolicyTag tag, gsl::span<const TrackingParameters> params)
 {
   const SurfaceCatalogView view{surfaces.data(), static_cast<uint32_t>(surfaces.size())};
-  auto result = buildDetectorLayoutSet(view, ordered, params);
+  auto result = buildSurfaceGraphs(view, ordered, params);
   BOOST_REQUIRE(result.ok());
-  return BuiltPlan{std::move(surfaces), std::move(*result.layout)};
+  return BuiltPlan{std::move(surfaces), std::move(result.graphs)};
 }
 
-// Wraps an already-built DetectorLayout (e.g. a deliberately cyclic or
-// mixed-policy one that buildDetectorLayoutSet() itself would never produce)
-// into a one-iteration DetectorLayoutSet, so initialiseTimeFrame()'s own
+// Wraps an already-built SurfaceGraph (e.g. a deliberately cyclic or
+// mixed-policy one that buildSurfaceGraphs() itself would never produce)
+// into a one-iteration std::vector<SurfaceGraph>, so initialiseTimeFrame()'s own
 // fail-closed checks can be exercised against it directly -- no TimeFrame-
 // subclass injection needed, since the plan is an explicit parameter now.
 BuiltPlan wrapLayout(BuiltLayout built)
 {
-  DetectorLayoutConfigurationKey key;
-  key.orderedSurfaces = order(built.surfaces.size());
-  std::vector<DetectorLayout> layouts;
+  std::vector<SurfaceGraph> layouts;
   layouts.push_back(std::move(built.layout));
-  const SurfaceCatalogView view{built.surfaces.data(), static_cast<uint32_t>(built.surfaces.size())};
-  return BuiltPlan{std::move(built.surfaces), DetectorLayoutSet{std::move(key), view, std::move(layouts)}};
+  return BuiltPlan{std::move(built.surfaces), std::move(layouts)};
 }
 
 BuiltLayout cyclicDiskLayout()
 {
-  SparseTrackingTopology topology{10};
+  SurfaceGraph topology{10};
   BOOST_REQUIRE(topology.addTransition(SurfaceTransition{SurfaceId{0}, SurfaceId{1}, {}, 0}).isValid());
   BOOST_REQUIRE(topology.addTransition(SurfaceTransition{SurfaceId{1}, SurfaceId{2}, {}, 0}).isValid());
   BOOST_REQUIRE(topology.addTransition(SurfaceTransition{SurfaceId{2}, SurfaceId{0}, {}, 0}).isValid());
   BOOST_REQUIRE(topology.finalize());
   auto surfaces = catalog(10, SurfaceKind::Disk, o2::detectors::DetID::MFT);
-  return BuiltLayout{DetectorLayout{surfaces, std::move(topology)}, std::move(surfaces)};
+  return BuiltLayout{SurfaceGraph{surfaces, std::move(topology)}, std::move(surfaces)};
 }
 
 BuiltLayout mixedDisconnectedLayout()
 {
-  SparseTrackingTopology topology{10};
+  SurfaceGraph topology{10};
   for (uint16_t id = 0; id < 4; ++id) {
     BOOST_REQUIRE(topology.addTransition(SurfaceTransition{SurfaceId{id}, SurfaceId{static_cast<uint16_t>(id + 1)}, {}, 0}).isValid());
   }
@@ -188,7 +184,7 @@ BuiltLayout mixedDisconnectedLayout()
   for (uint16_t id = 0; id < 5; ++id) {
     surfaces[id].kind = SurfaceKind::Cylinder;
   }
-  return BuiltLayout{DetectorLayout{surfaces, std::move(topology)}, std::move(surfaces)};
+  return BuiltLayout{SurfaceGraph{surfaces, std::move(topology)}, std::move(surfaces)};
 }
 
 TrackingParameters parameters(int activeCount, int maxHoles = 0, uint16_t holes = 0, uint16_t starts = 0xffff)
@@ -240,11 +236,11 @@ std::vector<TrackingParameters> itsTraversalParameters()
 
 } // namespace
 
-// buildDetectorLayoutSet()'s own two failure modes (InvalidActiveCount,
-// LayoutBuilderFailure) -- the only coverage this specific function had came
+// buildSurfaceGraphs()'s own two failure modes (GraphRejected,
+// GraphRejected) -- the only coverage this specific function had came
 // from tests that also exercised the now-deleted runtime-provider machinery;
 // this replaces that lost coverage narrowly.
-BOOST_AUTO_TEST_CASE(buildDetectorLayoutSetRejectsInvalidActiveCountAndLayoutBuilderFailure)
+BOOST_AUTO_TEST_CASE(buildSurfaceGraphsRejectsGraphRejectedAndGraphRejected)
 {
   {
     // NLayers exceeds orderedSurfaces.size().
@@ -252,23 +248,23 @@ BOOST_AUTO_TEST_CASE(buildDetectorLayoutSetRejectsInvalidActiveCountAndLayoutBui
     const SurfaceCatalogView view{surfaces.data(), static_cast<uint32_t>(surfaces.size())};
     const auto ordered = order(7);
     const std::vector<TrackingParameters> params{parameters(8)};
-    const auto result = buildDetectorLayoutSet(view, ordered, params);
-    BOOST_CHECK(result.error == DetectorLayoutSetBuildError::InvalidActiveCount);
+    const auto result = buildSurfaceGraphs(view, ordered, params);
+    BOOST_CHECK(result.error == SurfaceGraphBuildError::GraphRejected);
     BOOST_CHECK_EQUAL(result.failedIteration, 0u);
     BOOST_CHECK(!result.ok());
   }
   {
     // A structurally invalid subgraph (negative maxHoles) surfaces as
-    // DetectorLayoutBuilder's own LayoutBuilderFailure, propagated through
-    // buildDetectorLayoutSet() unchanged.
+    // SurfaceGraphBuilder's own GraphRejected, propagated through
+    // buildSurfaceGraphs() unchanged.
     const auto surfaces = catalog(7);
     const SurfaceCatalogView view{surfaces.data(), static_cast<uint32_t>(surfaces.size())};
     const auto ordered = order(7);
     const std::vector<TrackingParameters> params{parameters(7), parameters(6), parameters(5, -1)};
-    const auto result = buildDetectorLayoutSet(view, ordered, params);
-    BOOST_CHECK(result.error == DetectorLayoutSetBuildError::LayoutBuilderFailure);
+    const auto result = buildSurfaceGraphs(view, ordered, params);
+    BOOST_CHECK(result.error == SurfaceGraphBuildError::GraphRejected);
     BOOST_CHECK_EQUAL(result.failedIteration, 2u);
-    BOOST_CHECK(result.layoutBuildError == DetectorLayoutBuildError::NegativeMaxHoles);
+    BOOST_CHECK(result.detail == SurfaceGraphBuildError::NegativeMaxHoles);
   }
 }
 
@@ -279,23 +275,23 @@ BOOST_AUTO_TEST_CASE(catalog_identity_active_count_and_mask_mapping)
     parameters(7, 1, uint16_t{1} << 1, (uint16_t{1} << 0) | (uint16_t{1} << 4)),
     parameters(4, 1, uint16_t{1} << 1, (uint16_t{1} << 0) | (uint16_t{1} << 4) | (uint16_t{1} << 6))};
   auto built = buildPlan(catalog(7), ordered, TransitionPolicyTag::CylinderCylinder, params);
-  const auto* full = built.plan.getLayout(0);
-  const auto* reduced = built.plan.getLayout(1);
-  BOOST_REQUIRE(full != nullptr && reduced != nullptr);
+  BOOST_REQUIRE_EQUAL(built.plan.size(), 2u);
+  const auto& full = built.plan[0];
+  const auto& reduced = built.plan[1];
   // Slice 3: the surface catalog is now owned exactly once (by this test's
-  // BuiltPlan, borrowed by DetectorLayoutSet as a SurfaceCatalogView) --
-  // there is no longer a separate per-DetectorLayout copy to compare
+  // BuiltPlan, borrowed by std::vector<SurfaceGraph> as a SurfaceCatalogView) --
+  // there is no longer a separate per-SurfaceGraph copy to compare
   // element-by-element. Both iterations trivially observe the same single
   // catalog by construction.
-  const auto sharedCatalog = built.plan.getSurfaceCatalog();
+  const auto sharedCatalog = full.getSurfaceCatalog();
   BOOST_REQUIRE_EQUAL(sharedCatalog.nSurfaces, 7u);
-  BOOST_CHECK_LT(reduced->getTopology().getTransitions().size(), full->getTopology().getTransitions().size());
-  BOOST_CHECK(full->getTopology().getView().seedingSurfaces.has(SurfaceId{3}));
-  BOOST_CHECK(full->getTopology().getView().seedingSurfaces.has(SurfaceId{5}));
-  BOOST_CHECK(!full->getTopology().getView().seedingSurfaces.has(SurfaceId{0}));
-  BOOST_CHECK(reduced->getTopology().getView().seedingSurfaces.has(SurfaceId{3}));
-  BOOST_CHECK_EQUAL(reduced->getTopology().getView().seedingSurfaces.count(), 1);
-  const auto& reducedTransitions = reduced->getTopology().getTransitions();
+  BOOST_CHECK_LT(reduced.getTransitions().size(), full.getTransitions().size());
+  BOOST_CHECK(full.getView().seedingSurfaces.has(SurfaceId{3}));
+  BOOST_CHECK(full.getView().seedingSurfaces.has(SurfaceId{5}));
+  BOOST_CHECK(!full.getView().seedingSurfaces.has(SurfaceId{0}));
+  BOOST_CHECK(reduced.getView().seedingSurfaces.has(SurfaceId{3}));
+  BOOST_CHECK_EQUAL(reduced.getView().seedingSurfaces.count(), 1);
+  const auto& reducedTransitions = reduced.getTransitions();
   BOOST_REQUIRE(!reducedTransitions.empty());
   BOOST_CHECK(reducedTransitions.front().from == SurfaceId{3});
   BOOST_CHECK(reducedTransitions.front().to == SurfaceId{0});
@@ -318,8 +314,8 @@ BOOST_AUTO_TEST_CASE(catalog_identity_active_count_and_mask_mapping)
   // positionalSurfaceMask), so iteration 1's own layout must select no road
   // starts at all -- proving each iteration's roadStartCellsForTag reflects
   // only its own layout's seedingSurfaces.
-  const auto fullView = built.plan.getLayoutView(0);
-  const auto reducedView = built.plan.getLayoutView(1);
+  const auto fullView = full.getView();
+  const auto reducedView = reduced.getView();
   TransitionPolicyGrouping fullGrouping{fullView};
   TransitionPolicyGrouping reducedGrouping{reducedView};
   BOOST_REQUIRE(fullGrouping.valid());
@@ -330,13 +326,13 @@ BOOST_AUTO_TEST_CASE(catalog_identity_active_count_and_mask_mapping)
   BOOST_CHECK(reducedStarts.empty());
   BOOST_REQUIRE_GT(fullStarts.size(), 0u);
   for (const auto id : fullStarts) {
-    const auto endpoint = fullView.topology.getTransition(fullView.topology.getCell(id).secondTransition).to;
+    const auto endpoint = fullView.getTransition(fullView.getCell(id).secondTransition).to;
     BOOST_CHECK(endpoint == SurfaceId{5});
   }
 }
 
 // Gate 4 B2 Slice 2: initialiseTimeFrame() takes the plan as an explicit
-// `const DetectorLayoutSet&` parameter, so "missing"/"stale" plan states are
+// `const std::vector<SurfaceGraph>&` parameter, so "missing"/"stale" plan states are
 // no longer constructible at all -- only IterationOutOfRange, from the
 // removed traversal_initialisation_classifies_missing_and_stale_layouts
 // test, still applies and is kept here under its own name.
@@ -554,7 +550,7 @@ BOOST_AUTO_TEST_CASE(rejected_initialisation_does_not_mutate_surface_descriptor_
   TrackerTraits traits;
   prepareTraversalFrame(frame, scratch, traits, pool, params);
   auto built = buildPlan(catalog(10, SurfaceKind::Disk, o2::detectors::DetID::MFT), order(10), TransitionPolicyTag::DiskDisk, params);
-  const NominalSurfaceMaterial materialBefore = built.plan.getSurfaceCatalog().getSurface(SurfaceId{4}).material;
+  const NominalSurfaceMaterial materialBefore = built.plan.front().getSurfaceCatalog().getSurface(SurfaceId{4}).material;
 
   try {
     traits.initialiseTimeFrame(0, built.plan);
@@ -563,7 +559,7 @@ BOOST_AUTO_TEST_CASE(rejected_initialisation_does_not_mutate_surface_descriptor_
     BOOST_CHECK(error.getReason() == TraversalFailureReason::LegacyMaterialMismatch);
   }
 
-  const auto& materialAfter = built.plan.getSurfaceCatalog().getSurface(SurfaceId{4}).material;
+  const auto& materialAfter = built.plan.front().getSurfaceCatalog().getSurface(SurfaceId{4}).material;
   BOOST_CHECK_EQUAL(materialAfter.xOverX0, materialBefore.xOverX0);
   BOOST_CHECK_EQUAL(materialAfter.arealDensityGPerCm2, materialBefore.arealDensityGPerCm2);
 }
@@ -603,7 +599,7 @@ BOOST_AUTO_TEST_CASE(non_monotonic_ordered_surfaces_maps_material_and_traversal_
   BOOST_REQUIRE_EQUAL(resolvedMaterial.size(), nonMonotonicOrder.size());
   for (size_t slot = 0; slot < resolvedMaterial.size(); ++slot) {
     const auto& material = resolvedMaterial[slot];
-    const auto expected = built.plan.getSurfaceCatalog().getSurface(nonMonotonicOrder[slot]).material;
+    const auto expected = built.plan.front().getSurfaceCatalog().getSurface(nonMonotonicOrder[slot]).material;
     BOOST_CHECK_EQUAL(material.xOverX0, expected.xOverX0);
     BOOST_CHECK_EQUAL(material.arealDensityGPerCm2, expected.arealDensityGPerCm2);
   }

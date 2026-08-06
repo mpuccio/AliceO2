@@ -66,7 +66,7 @@
 #include "ITSMFTTracking/ClusterSource.h"
 #include "ITSMFTTracking/Configuration.h"
 #include "ITSMFTTracking/DecodedCluster.h"
-#include "ITSMFTTracking/DetectorLayoutBuilder.h"
+#include "ITSMFTTracking/SurfaceGraphBuilder.h"
 #include "ITSMFTTracking/IOUtils.h"
 #include "ITSMFTTracking/SurfacePlanTrackingParticipant.h"
 #include "ITSMFTTracking/MultiSourceTimeFrameLoader.h"
@@ -92,11 +92,11 @@ static_assert(std::is_same_v<decltype(std::declval<ITSMFTTrackingInterfaceITS&>(
 // M6d/M6e1 already reused unchanged; no detector-ID parameter was
 // reintroduced by wiring ITS onto it too.
 static_assert(std::is_invocable_r_v<SurfacePlanBinding::BuildResult, decltype(SurfacePlanBinding::build),
-                                    const DetectorLayoutView&, ClusterSourceId, SurfaceMask,
+                                    const SurfaceGraphView&, ClusterSourceId, SurfaceMask,
                                     gsl::span<const SurfaceId>, SurfaceKind, TransitionPolicyTag>,
               "SurfacePlanBinding::build must still accept exactly these six detector-neutral parameters after M6e2");
 static_assert(!std::is_invocable_v<decltype(SurfacePlanBinding::build),
-                                   const DetectorLayoutView&, o2::detectors::DetID::ID, ClusterSourceId, SurfaceMask,
+                                   const SurfaceGraphView&, o2::detectors::DetID::ID, ClusterSourceId, SurfaceMask,
                                    gsl::span<const SurfaceId>, SurfaceKind, TransitionPolicyTag>,
               "SurfacePlanBinding::build must still not accept a detector-ID parameter after M6e2");
 
@@ -297,32 +297,32 @@ SurfaceMask surfaceRangeMaskForTest(uint16_t first, uint16_t count)
   return result;
 }
 
-DetectorLayout buildProductionCombinedLayoutForTest()
+SurfaceGraph buildProductionCombinedLayoutForTest()
 {
   const auto itsSurfaces = orderedRange(0, ITSNLayers);
   const auto mftSurfaces = orderedRange(ITSNLayers, MFTNLayers);
   const auto itsParams = makeItsParams();
   const auto mftParams = makeMftParams();
 
-  DetectorLayoutSubgraph itsSubgraph;
+  SurfaceGraphSubgraph itsSubgraph;
   itsSubgraph.orderedSurfaces.assign(itsSurfaces.begin(), itsSurfaces.end());
   itsSubgraph.maxHoles = itsParams.MaxHoles;
   itsSubgraph.holeSurfaces = positionalSurfaceMask(itsParams.HoleLayerMask, itsSurfaces, static_cast<uint32_t>(itsSurfaces.size()));
   itsSubgraph.seedingSurfaces = positionalSurfaceMask(itsParams.StartLayerMask, itsSurfaces, static_cast<uint32_t>(itsSurfaces.size()));
 
-  DetectorLayoutSubgraph mftSubgraph;
+  SurfaceGraphSubgraph mftSubgraph;
   mftSubgraph.orderedSurfaces.assign(mftSurfaces.begin(), mftSurfaces.end());
   mftSubgraph.maxHoles = mftParams.MaxHoles;
   mftSubgraph.holeSurfaces = positionalSurfaceMask(mftParams.HoleLayerMask, mftSurfaces, static_cast<uint32_t>(mftSurfaces.size()));
   mftSubgraph.seedingSurfaces = positionalSurfaceMask(mftParams.StartLayerMask, mftSurfaces, static_cast<uint32_t>(mftSurfaces.size()));
 
   const SurfaceCatalogView catalog{kITSMFTCombinedStaticSurfaceCatalog.data(), static_cast<uint32_t>(kITSMFTCombinedStaticSurfaceCatalog.size())};
-  DetectorLayoutBuilder builder{catalog};
+  SurfaceGraphBuilder builder{catalog};
   builder.addSubgraph(std::move(itsSubgraph));
   builder.addSubgraph(std::move(mftSubgraph));
   auto built = builder.build();
   BOOST_REQUIRE(built.ok());
-  return std::move(*built.layout);
+  return std::move(*built.graph);
 }
 } // namespace
 
@@ -330,7 +330,7 @@ BOOST_AUTO_TEST_CASE(ProductionITSSurfacePlanBindingMatchesConfiguredTopologyAtR
 {
   const auto layout = buildProductionCombinedLayoutForTest();
   const auto masks = computeSurfaceKindMasks(kITSMFTCombinedStaticSurfaceCatalog);
-  const auto view = layout.getView(kITSMFTCombinedStaticSurfaceCatalog, masks.first, masks.second);
+  const auto view = layout.getView();
   const auto itsSurfaces = orderedRange(0, ITSNLayers);
   const auto itsMask = surfaceRangeMaskForTest(0, ITSNLayers);
 
@@ -338,16 +338,16 @@ BOOST_AUTO_TEST_CASE(ProductionITSSurfacePlanBindingMatchesConfiguredTopologyAtR
                                                  SurfaceKind::Cylinder, TransitionPolicyTag::CylinderCylinder);
   BOOST_REQUIRE(binding.ok());
   size_t ownedTransitions = 0;
-  for (uint32_t id = 0; id < view.topology.nTransitions; ++id) {
-    const auto& transition = view.topology.getTransition(TransitionId{static_cast<uint16_t>(id)});
+  for (uint32_t id = 0; id < view.nTransitions; ++id) {
+    const auto& transition = view.getTransition(TransitionId{static_cast<uint16_t>(id)});
     if (itsMask.has(transition.from) && itsMask.has(transition.to)) {
       ++ownedTransitions;
     }
   }
   size_t ownedCells = 0;
-  for (uint32_t id = 0; id < view.topology.nCells; ++id) {
+  for (uint32_t id = 0; id < view.nCells; ++id) {
     const auto cellId = CellTopologyId{static_cast<uint16_t>(id)};
-    const auto& cell = view.topology.getCell(cellId);
+    const auto& cell = view.getCell(cellId);
     if (binding.binding->getScratchTransitionSlot(cell.firstTransition)) {
       ++ownedCells;
     }
@@ -408,7 +408,7 @@ BOOST_AUTO_TEST_CASE(StandaloneAndCombinedITSBindingsAgreeOnCompactSlotsByRelati
   for (uint16_t i = 0; i < ITSNLayers; ++i) {
     standaloneOrder.push_back(SurfaceId{i});
   }
-  const auto standaloneResult = buildDetectorLayoutSet(
+  const auto standaloneResult = buildSurfaceGraphs(
     SurfaceCatalogView{kITSStaticSurfaceCatalog.data(), static_cast<uint32_t>(kITSStaticSurfaceCatalog.size())},
     gsl::span<const SurfaceId>{standaloneOrder}, standaloneParams);
   BOOST_REQUIRE(standaloneResult.ok());
@@ -417,20 +417,20 @@ BOOST_AUTO_TEST_CASE(StandaloneAndCombinedITSBindingsAgreeOnCompactSlotsByRelati
     standaloneMask.set(s);
   }
   const auto standaloneBindingResult = SurfacePlanBinding::build(
-    standaloneResult.layout->getLayoutView(0), ClusterSourceId{0}, standaloneMask,
+    standaloneResult.graphs.front().getView(), ClusterSourceId{0}, standaloneMask,
     gsl::span<const SurfaceId>{standaloneOrder}, SurfaceKind::Cylinder, TransitionPolicyTag::CylinderCylinder);
   BOOST_REQUIRE(standaloneBindingResult.ok());
 
   // Combined: real ITS+MFT combined static catalog, ITS half only.
   const auto combinedParams = standaloneParams;
   const auto combinedOrder = orderedRange(0, ITSNLayers);
-  const auto combinedResult = buildDetectorLayoutSet(
+  const auto combinedResult = buildSurfaceGraphs(
     SurfaceCatalogView{kITSMFTCombinedStaticSurfaceCatalog.data(), static_cast<uint32_t>(kITSMFTCombinedStaticSurfaceCatalog.size())},
     gsl::span<const SurfaceId>{combinedOrder}, combinedParams);
   BOOST_REQUIRE(combinedResult.ok());
   const auto combinedMask = surfaceRangeMaskForTest(0, ITSNLayers);
   const auto combinedBindingResult = SurfacePlanBinding::build(
-    combinedResult.layout->getLayoutView(0), ClusterSourceId{0}, combinedMask,
+    combinedResult.graphs.front().getView(), ClusterSourceId{0}, combinedMask,
     gsl::span<const SurfaceId>{combinedOrder}, SurfaceKind::Cylinder, TransitionPolicyTag::CylinderCylinder);
   BOOST_REQUIRE(combinedBindingResult.ok());
 

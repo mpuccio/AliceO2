@@ -117,7 +117,7 @@ std::optional<CountBoundary> classify(const fs::path& path, std::string_view cod
     }
     return CountBoundary::PrivateOperation;
   }
-  if (name == "Configuration.h" || name == "DetectorLayoutSet.cxx" || name == "MFTFwdTrackHelpers.h" ||
+  if (name == "Configuration.h" || name == "SurfaceGraphBuilder.cxx" || name == "MFTFwdTrackHelpers.h" ||
       name == "MFTFwdTrackHelpers.cxx" || name == "SurfaceMeasurement.h" ||
       name == "SurfacePlanTrackingParticipant.h" || name == "SurfacePlanTrackingParticipant.cxx" ||
       name == "DetectorPublicationAdapter.h" ||

@@ -51,7 +51,7 @@
 #include "ITSMFTTracking/ClusterSource.h"
 #include "ITSMFTTracking/Configuration.h"
 #include "ITSMFTTracking/DecodedCluster.h"
-#include "ITSMFTTracking/DetectorLayoutSet.h"
+#include "ITSMFTTracking/SurfaceGraphBuilder.h"
 #include "ITSMFTTracking/ITSSharedClusterCompatibility.h"
 #include "ITSMFTTracking/SurfaceTrackingScratch.h"
 #include "ITSMFTTracking/MFTFwdTrackHelpers.h"
@@ -330,7 +330,7 @@ struct StandaloneRun {
   SurfacePlanTrackingParticipant<NLayers> participant{ParticipantId{0}, params};
   SurfaceTrackingScratch& scratch;
   std::vector<SurfaceDescriptor> catalog;
-  std::optional<DetectorLayoutSet> plan;
+  std::optional<std::vector<SurfaceGraph>> plan;
   TrackingResult result;
 
   StandaloneRun(o2::detectors::DetID::ID det, SurfaceKind kind,
@@ -353,11 +353,11 @@ struct StandaloneRun {
       catalog.push_back(surface);
     }
     const SurfaceCatalogView catalogView{catalog.data(), static_cast<uint32_t>(catalog.size())};
-    auto planResult = buildDetectorLayoutSet(catalogView, orderedSurfaces, params);
+    auto planResult = buildSurfaceGraphs(catalogView, orderedSurfaces, params);
     BOOST_REQUIRE(planResult.ok());
-    plan.emplace(std::move(*planResult.layout));
-    const auto layoutView = plan->getLayoutView(0);
-    scratch.adoptPlan(orderedSurfaces.size(), layoutView.topology.nTransitions, layoutView.topology.nCells);
+    plan.emplace(std::move(planResult.graphs));
+    const auto layoutView = plan->front().getView();
+    scratch.adoptPlan(orderedSurfaces.size(), layoutView.nTransitions, layoutView.nCells);
     SurfaceMask ownedSurfaces;
     for (const auto surface : orderedSurfaces) {
       ownedSurfaces.set(surface);
@@ -366,7 +366,7 @@ struct StandaloneRun {
                                              kind, kind == SurfaceKind::Cylinder ? TransitionPolicyTag::CylinderCylinder : TransitionPolicyTag::DiskDisk);
     BOOST_REQUIRE(binding.ok());
     participant.adoptSurfacePlanBinding(std::make_unique<SurfacePlanBinding>(std::move(*binding.binding)));
-    participant.adoptDetectorLayoutSet(*plan);
+    participant.adoptSurfaceGraphs(*plan);
 
     std::vector<CompClusterExt> compact;
     std::vector<unsigned char> patterns;
@@ -378,8 +378,8 @@ struct StandaloneRun {
     PrescribedDecoder decoder{det, kind, decoded};
     const auto load = scratch.loadNormalizedSource(frame, decoder, o2::InteractionRecord{50, 5}, ROFTimingConfig{40, 0, 0, 0},
                                                    compact, patterns, rofs, &dict(), nullptr, det,
-                                                   gsl::span<const SurfaceId>{plan->getConfigurationKey().orderedSurfaces},
-                                                   plan->getSurfaceCatalog());
+                                                   gsl::span<const SurfaceId>{plan->front().getOrderedSurfaces()},
+                                                   plan->front().getSurfaceCatalog());
     BOOST_REQUIRE(load.ok());
 
     o2::its::LayerTiming layerTiming{};

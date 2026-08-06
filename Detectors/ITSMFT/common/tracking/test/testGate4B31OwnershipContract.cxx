@@ -55,7 +55,7 @@
 #include "ITSMFTTracking/ClusterDecoder.h"
 #include "ITSMFTTracking/CommonTrack.h"
 #include "ITSMFTTracking/DecodedCluster.h"
-#include "ITSMFTTracking/DetectorLayoutSet.h"
+#include "ITSMFTTracking/SurfaceGraphBuilder.h"
 #include "ITSMFTTracking/SurfaceTrackingScratch.h"
 #include "ITSMFTTracking/SurfaceDescriptor.h"
 #include "ITSMFTTracking/SurfaceMeasurementAdapters.h"
@@ -319,11 +319,10 @@ BOOST_AUTO_TEST_CASE(InjectedScratchBackfillFailureAfterNormalizedStagingLeavesB
   scratch.setMemoryPool(pool);
 
   std::vector<TrackingParameters> noIterations;
-  auto planResult = buildDetectorLayoutSet(catalogView, orderedSurfaces, noIterations);
+  auto planResult = buildSurfaceGraphs(catalogView, orderedSurfaces, noIterations);
   BOOST_REQUIRE(planResult.ok());
-  const auto plan = std::move(*planResult.layout);
-  scratch.adoptPlan(plan.getConfigurationKey().orderedSurfaces.size(), 0, 0);
-  const gsl::span<const SurfaceId> planOrderedSurfaces{plan.getConfigurationKey().orderedSurfaces};
+  scratch.adoptPlan(orderedSurfaces.size(), 0, 0);
+  const gsl::span<const SurfaceId> planOrderedSurfaces{orderedSurfaces};
 
   const std::vector<CompClusterExt> clusters{CompClusterExt{10, 20, CompCluster::InvalidPatternID, 0}};
   const auto patterns = std::vector<unsigned char>(onePixelPattern.begin(), onePixelPattern.end());
@@ -333,7 +332,7 @@ BOOST_AUTO_TEST_CASE(InjectedScratchBackfillFailureAfterNormalizedStagingLeavesB
   // genuine content to check "unchanged" against below.
   const auto baseline = scratch.loadNormalizedSource(frame, decoder, origin, timing, clusters, patterns, rofs,
                                                      &dict(), nullptr, o2::detectors::DetID::ITS,
-                                                     planOrderedSurfaces, plan.getSurfaceCatalog());
+                                                     planOrderedSurfaces, catalogView);
   BOOST_REQUIRE(baseline.ok());
   const auto baselineMeasurements = frame.getNormalizedFrame().getTotalMeasurements();
   const auto baselineClusters = scratch.getTotalClusters();
@@ -351,7 +350,7 @@ BOOST_AUTO_TEST_CASE(InjectedScratchBackfillFailureAfterNormalizedStagingLeavesB
   try {
     scratch.loadNormalizedSource(frame, decoder, origin, timing, clusters, patterns, rofs,
                                  &dict(), nullptr, o2::detectors::DetID::ITS,
-                                 planOrderedSurfaces, plan.getSurfaceCatalog());
+                                 planOrderedSurfaces, catalogView);
   } catch (const BoundedMemoryResource::MemoryLimitExceeded&) {
     threw = true;
   }

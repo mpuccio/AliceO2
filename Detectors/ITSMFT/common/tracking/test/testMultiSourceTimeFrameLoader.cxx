@@ -42,7 +42,7 @@
 #include "ITSMFTTracking/ClusterDecoder.h"
 #include "ITSMFTTracking/ClusterSource.h"
 #include "ITSMFTTracking/DecodedCluster.h"
-#include "ITSMFTTracking/DetectorLayout.h"
+#include "ITSMFTTracking/SurfaceGraph.h"
 #include "ITSMFTTracking/IOUtils.h"
 #include "ITSMFTTracking/SurfaceTrackingScratch.h"
 #include "ITSMFTTracking/MultiSourceFrame.h"
@@ -121,13 +121,13 @@ class FakeClusterDecoder final : public ClusterDecoder
 };
 
 struct BuiltLayout {
-  DetectorLayout layout;
+  SurfaceGraph layout;
   std::vector<SurfaceDescriptor> surfaces;
 
-  DetectorLayoutView getView() const noexcept
+  SurfaceGraphView getView() const noexcept
   {
     const auto masks = computeSurfaceKindMasks(surfaces);
-    return layout.getView(surfaces, masks.first, masks.second);
+    return layout.getView();
   }
 };
 
@@ -136,13 +136,13 @@ struct BuiltLayout {
 // single tag keeps every source's own decoder/catalog consistent).
 BuiltLayout makeThreeSurfaceLayout()
 {
-  SparseTrackingTopology topology{3};
+  SurfaceGraph topology{3};
   topology.finalize();
   std::vector<SurfaceDescriptor> surfaces;
   surfaces.push_back(SurfaceDescriptor{SurfaceId{0}, 0, static_cast<uint8_t>(o2::detectors::DetID::ITS), SurfaceKind::Cylinder});
   surfaces.push_back(SurfaceDescriptor{SurfaceId{1}, 0, static_cast<uint8_t>(o2::detectors::DetID::ITS), SurfaceKind::Cylinder});
   surfaces.push_back(SurfaceDescriptor{SurfaceId{2}, 0, static_cast<uint8_t>(o2::detectors::DetID::ITS), SurfaceKind::Cylinder});
-  return BuiltLayout{DetectorLayout{surfaces, std::move(topology)}, std::move(surfaces)};
+  return BuiltLayout{SurfaceGraph{surfaces, std::move(topology)}, std::move(surfaces)};
 }
 
 constexpr std::array<unsigned char, 3> onePixelPattern{1, 1, 0x80};

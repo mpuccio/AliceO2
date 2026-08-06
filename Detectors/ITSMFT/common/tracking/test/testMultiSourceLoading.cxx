@@ -22,7 +22,7 @@
 #include "ITSMFTTracking/ClusterDecoder.h"
 #include "ITSMFTTracking/ClusterSource.h"
 #include "ITSMFTTracking/DecodedCluster.h"
-#include "ITSMFTTracking/DetectorLayout.h"
+#include "ITSMFTTracking/SurfaceGraph.h"
 #include "ITSMFTTracking/IOUtils.h"
 #include "ITSMFTTracking/MultiSourceFrame.h"
 #include "ITSMFTTracking/MultiSourceLoading.h"
@@ -220,19 +220,19 @@ class PatternContractDecoder final : public ClusterDecoder
   }
 };
 
-/// DetectorLayout no longer owns a surface copy (Slice 3, shared ownership):
+/// SurfaceGraph no longer owns a surface copy (Slice 3, shared ownership):
 /// it borrows a caller-supplied catalog span only for construction/view
 /// assembly. This fixture keeps its own catalog alongside it so `.getView()`
 /// keeps working as a zero-argument call at every existing call site below.
 struct BuiltLayout {
-  DetectorLayout layout;
+  SurfaceGraph layout;
   std::vector<SurfaceDescriptor> surfaces;
 
   bool valid() const noexcept { return layout.valid(); }
-  DetectorLayoutView getView() const noexcept
+  SurfaceGraphView getView() const noexcept
   {
     const auto masks = computeSurfaceKindMasks(surfaces);
-    return layout.getView(surfaces, masks.first, masks.second);
+    return layout.getView();
   }
 };
 
@@ -241,14 +241,14 @@ struct BuiltLayout {
 // needed to exercise loading.
 BuiltLayout makeCombinedLayout()
 {
-  SparseTrackingTopology topology{4};
+  SurfaceGraph topology{4};
   topology.finalize();
   std::vector<SurfaceDescriptor> surfaces;
   surfaces.push_back(SurfaceDescriptor{SurfaceId{0}, 0, static_cast<uint8_t>(o2::detectors::DetID::ITS), SurfaceKind::Cylinder});
   surfaces.push_back(SurfaceDescriptor{SurfaceId{1}, 1, static_cast<uint8_t>(o2::detectors::DetID::ITS), SurfaceKind::Cylinder});
   surfaces.push_back(SurfaceDescriptor{SurfaceId{2}, 0, static_cast<uint8_t>(o2::detectors::DetID::MFT), SurfaceKind::Disk});
   surfaces.push_back(SurfaceDescriptor{SurfaceId{3}, 1, static_cast<uint8_t>(o2::detectors::DetID::MFT), SurfaceKind::Disk});
-  return BuiltLayout{DetectorLayout{surfaces, std::move(topology)}, std::move(surfaces)};
+  return BuiltLayout{SurfaceGraph{surfaces, std::move(topology)}, std::move(surfaces)};
 }
 
 // One explicit (non-grouped) 1-pixel pattern: rowSpan=1, colSpan=1, one
@@ -1563,14 +1563,14 @@ BOOST_AUTO_TEST_CASE(EmptyLayoutWithZeroSourcesLoadsSuccessfully)
   // A layout with no surfaces at all, combined with zero sources, is the
   // most degenerate legal input: nothing to validate, nothing to decode,
   // nothing to commit.
-  SparseTrackingTopology emptyTopology{0};
+  SurfaceGraph emptyTopology{0};
   emptyTopology.finalize();
-  DetectorLayout emptyLayout{{}, std::move(emptyTopology)};
+  SurfaceGraph emptyLayout{{}, std::move(emptyTopology)};
   BOOST_REQUIRE(emptyLayout.valid());
-  BOOST_CHECK_EQUAL(emptyLayout.getView({}, {}, {}).nSurfaces, 0u);
+  BOOST_CHECK_EQUAL(emptyLayout.getView().nSurfaces, 0u);
 
   MultiSourceFrame frame;
-  const auto result = loadSources(frame, emptyLayout.getView({}, {}, {}).getSurfaceCatalogView(), gsl::span<const ClusterSourceInput>{}, {0, 0});
+  const auto result = loadSources(frame, emptyLayout.getView().getSurfaceCatalogView(), gsl::span<const ClusterSourceInput>{}, {0, 0});
   BOOST_CHECK(result.ok());
   BOOST_CHECK_EQUAL(frame.getTotalMeasurements(), 0u);
   BOOST_CHECK_EQUAL(frame.getNSurfaces(), 0u);

@@ -52,8 +52,7 @@
 #include "DetectorsCommonDataFormats/DetID.h"
 #include "ITSMFTTracking/ClusterDecoder.h"
 #include "ITSMFTTracking/DecodedCluster.h"
-#include "ITSMFTTracking/DetectorLayout.h"
-#include "ITSMFTTracking/DetectorLayoutSet.h"
+#include "ITSMFTTracking/SurfaceGraphBuilder.h"
 #include "ITSMFTTracking/SurfaceTrackingScratch.h"
 #include "ITSMFTTracking/MultiSourceFrame.h"
 #include "ITSMFTTracking/MultiSourceLoading.h"
@@ -170,6 +169,14 @@ std::vector<SurfaceId> identitySurfaces(uint16_t nLayers)
     mapping.push_back(SurfaceId{i});
   }
   return mapping;
+}
+
+SurfaceGraph catalogGraph(SurfaceCatalogView catalog, gsl::span<const SurfaceId> ordered)
+{
+  SurfaceGraph topology{catalog.nSurfaces};
+  topology.setOrderedSurfaces({ordered.begin(), ordered.end()});
+  BOOST_REQUIRE(topology.finalize());
+  return SurfaceGraph{gsl::span<const SurfaceDescriptor>{catalog.surfaces, catalog.nSurfaces}, std::move(topology)};
 }
 
 GlobalPoint3F expectedGlobal(int sensorID, int row, int col)
@@ -374,15 +381,13 @@ BOOST_AUTO_TEST_CASE(WipeClearsNormalizedFrameButPreservesDetId)
   TimeFrame frame;
   SurfaceTrackingScratch tf;
   std::vector<TrackingParameters> noIterations;
-  auto planResult = buildDetectorLayoutSet(catalogView, orderedSurfaces, noIterations);
-  BOOST_REQUIRE(planResult.ok());
-  const auto plan = std::move(*planResult.layout);
+  const auto plan = catalogGraph(catalogView, orderedSurfaces);
   tf.setMemoryPool(std::make_shared<BoundedMemoryResource>());
-  tf.adoptPlan(plan.getConfigurationKey().orderedSurfaces.size(), 0, 0);
+  tf.adoptPlan(plan.getOrderedSurfaces().size(), 0, 0);
 
   const auto f = makeFixture();
   const auto result = tf.loadNormalizedSource(frame, decoder, origin, timing, f.clusters, f.patterns, f.rofs, &dict(), &f.labels, o2::detectors::DetID::ITS,
-                                              gsl::span<const SurfaceId>{plan.getConfigurationKey().orderedSurfaces}, plan.getSurfaceCatalog());
+                                              gsl::span<const SurfaceId>{plan.getOrderedSurfaces()}, plan.getSurfaceCatalog());
   BOOST_REQUIRE(result.ok());
   // Sanity: the successful load itself has the expected content, matching
   // the accepted parity coverage in testTimeFrameNormalizedSource.cxx.
@@ -431,11 +436,9 @@ BOOST_AUTO_TEST_CASE(BackfillAllocationFailureLeavesNormalizedAndLegacyStateAtBa
   tf.setMemoryPool(pool);
 
   std::vector<TrackingParameters> noIterations;
-  auto planResult = buildDetectorLayoutSet(catalogView, orderedSurfaces, noIterations);
-  BOOST_REQUIRE(planResult.ok());
-  const auto plan = std::move(*planResult.layout);
-  tf.adoptPlan(plan.getConfigurationKey().orderedSurfaces.size(), 0, 0);
-  const gsl::span<const SurfaceId> planOrderedSurfaces{plan.getConfigurationKey().orderedSurfaces};
+  const auto plan = catalogGraph(catalogView, orderedSurfaces);
+  tf.adoptPlan(plan.getOrderedSurfaces().size(), 0, 0);
+  const gsl::span<const SurfaceId> planOrderedSurfaces{plan.getOrderedSurfaces()};
 
   const auto f = makeFixture();
   const auto replacement = makeReplacementFixture();
@@ -514,22 +517,20 @@ BOOST_AUTO_TEST_CASE(ScratchOutlivesSoleOwnershipOfItsMemoryPool)
   const auto f = makeFixture();
 
   std::vector<TrackingParameters> noIterations;
-  auto planResult = buildDetectorLayoutSet(catalogView, orderedSurfaces, noIterations);
-  BOOST_REQUIRE(planResult.ok());
-  const auto plan = std::move(*planResult.layout);
+  const auto plan = catalogGraph(catalogView, orderedSurfaces);
 
   {
     auto pool = std::make_shared<BoundedMemoryResource>();
     TimeFrame frame;
     SurfaceTrackingScratch tf;
     tf.setMemoryPool(pool);
-    tf.adoptPlan(plan.getConfigurationKey().orderedSurfaces.size(), 0, 0);
+    tf.adoptPlan(plan.getOrderedSurfaces().size(), 0, 0);
 
     // Populate every pool-backed vector (mUnsortedClusters,
     // mTrackingFrameInfo, mClusterExternalIndices, mClusterSize,
     // mROFramesClusters) with real content.
     const auto result = tf.loadNormalizedSource(frame, decoder, origin, timing, f.clusters, f.patterns, f.rofs, &dict(), &f.labels, o2::detectors::DetID::ITS,
-                                                gsl::span<const SurfaceId>{plan.getConfigurationKey().orderedSurfaces}, plan.getSurfaceCatalog());
+                                                gsl::span<const SurfaceId>{plan.getOrderedSurfaces()}, plan.getSurfaceCatalog());
     BOOST_REQUIRE(result.ok());
     BOOST_REQUIRE(tf.getUnsortedClustersOnLayer(0, 0).size() + tf.getUnsortedClustersOnLayer(1, 0).size() > 0);
 

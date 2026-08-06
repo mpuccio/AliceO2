@@ -22,7 +22,7 @@
 #include <string>
 #include <vector>
 
-#include "ITSMFTTracking/DetectorLayoutBuilder.h"
+#include "ITSMFTTracking/SurfaceGraphBuilder.h"
 #include "ITSMFTTracking/SurfaceTrackingScratch.h"
 #include "ITSMFTTracking/TimeFrame.h"
 #include "ITSMFTTracking/detail/SurfacePlanBinding.h"
@@ -59,12 +59,12 @@ SurfaceDescriptor surfaceWithOwner(uint16_t id, SurfaceKind kind, uint8_t detect
 // counts a SurfacePlanBinding already exposes.
 struct SyntheticChain {
   std::vector<SurfaceDescriptor> surfaces;
-  DetectorLayout layout;
-  DetectorLayoutView view;
+  SurfaceGraph layout;
+  SurfaceGraphView view;
   SurfacePlanBinding::BuildResult binding;
 
   explicit SyntheticChain(uint16_t n)
-    : surfaces{makeSurfaces(n)}, layout{build(surfaces)}, view{layout.getView(surfaces, allCylinder(n), SurfaceMask{})}, binding{buildBinding(view, n)}
+    : surfaces{makeSurfaces(n)}, layout{build(surfaces)}, view{layout.getView()}, binding{buildBinding(view, n)}
   {
     BOOST_REQUIRE(binding.ok());
   }
@@ -91,16 +91,16 @@ struct SyntheticChain {
     }
     return mask;
   }
-  static DetectorLayout build(const std::vector<SurfaceDescriptor>& surfaces)
+  static SurfaceGraph build(const std::vector<SurfaceDescriptor>& surfaces)
   {
-    DetectorLayoutBuilder builder{SurfaceCatalogView{surfaces.data(), static_cast<uint32_t>(surfaces.size())}};
+    SurfaceGraphBuilder builder{SurfaceCatalogView{surfaces.data(), static_cast<uint32_t>(surfaces.size())}};
     SurfaceMask seed;
     seed.set(SurfaceId{static_cast<uint16_t>(surfaces.size() - 1)});
     auto built = builder.addSubgraph({ordered(0, static_cast<uint16_t>(surfaces.size())), 0, SurfaceMask{}, seed}).build();
     BOOST_REQUIRE(built.ok());
-    return std::move(*built.layout);
+    return std::move(*built.graph);
   }
-  static SurfacePlanBinding::BuildResult buildBinding(const DetectorLayoutView& view, uint16_t n)
+  static SurfacePlanBinding::BuildResult buildBinding(const SurfaceGraphView& view, uint16_t n)
   {
     SurfaceMask owned;
     for (uint16_t id = 0; id < n; ++id) {

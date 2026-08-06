@@ -26,7 +26,7 @@
 
 #include "ITSMFTTracking/Cell.h"
 #include "ITSMFTTracking/Configuration.h"
-#include "ITSMFTTracking/DetectorLayoutSet.h"
+#include "ITSMFTTracking/SurfaceGraphBuilder.h"
 #include "ITSMFTTracking/IndexTableConfiguration.h"
 #include "ITSMFTTracking/NominalSurfaceMaterialDefaults.h"
 #include "ITSMFTTracking/detail/SurfacePlanBinding.h"
@@ -173,10 +173,10 @@ BOOST_AUTO_TEST_CASE(NonSevenOrTenPlanExecutesTheNonTemplatedCore)
   const std::vector<SurfaceId> ordered{SurfaceId{1}, SurfaceId{4}, SurfaceId{7}, SurfaceId{10}};
   const SurfaceCatalogView catalogView{catalog.data(), static_cast<uint32_t>(catalog.size())};
   const std::vector<o2::itsmft::TrackingParameters> params{parameters};
-  auto planResult = buildDetectorLayoutSet(catalogView, ordered, params);
+  auto planResult = buildSurfaceGraphs(catalogView, ordered, params);
   BOOST_REQUIRE(planResult.ok());
-  auto plan = std::move(*planResult.layout);
-  const auto layout = plan.getLayoutView(0);
+  auto plan = std::move(planResult.graphs);
+  const auto layout = plan.front().getView();
   SurfaceMask owned;
   for (const auto surface : ordered) {
     owned.set(surface);
@@ -190,7 +190,7 @@ BOOST_AUTO_TEST_CASE(NonSevenOrTenPlanExecutesTheNonTemplatedCore)
   SurfaceTrackingScratch scratch;
   frame.setMemoryPool(pool);
   scratch.setMemoryPool(pool);
-  scratch.adoptPlan(ordered.size(), layout.topology.nTransitions, layout.topology.nCells);
+  scratch.adoptPlan(ordered.size(), layout.nTransitions, layout.nCells);
   for (auto& rofOffsets : scratch.mROFramesClusters) {
     rofOffsets.resize(1, 0);
   }
@@ -216,7 +216,7 @@ BOOST_AUTO_TEST_CASE(NonSevenOrTenPlanExecutesTheNonTemplatedCore)
     BOOST_FAIL("four-surface runtime-plan initialization failed: " << error.what());
   }
   BOOST_REQUIRE_EQUAL(scratch.getNOwnedSurfaces(), 4u);
-  BOOST_CHECK(bindingResult.binding->getOrderedSurfaces()[0] == SurfaceId{1});
+  BOOST_CHECK_EQUAL(bindingResult.binding->getOwnedSurfaceIndex(SurfaceId{1}).value(), 0u);
   BOOST_CHECK_EQUAL(bindingResult.binding->getOwnedSurfaceIndex(SurfaceId{7}).value(), 2u);
 
   TrackSeed seed;

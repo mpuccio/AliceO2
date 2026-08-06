@@ -62,7 +62,7 @@
 #include "DetectorsCommonDataFormats/DetID.h"
 #include "ITSMFTTracking/ClusterSource.h"
 #include "ITSMFTTracking/Configuration.h"
-#include "ITSMFTTracking/DetectorLayoutBuilder.h"
+#include "ITSMFTTracking/SurfaceGraphBuilder.h"
 #include "ITSMFTTracking/SurfacePlanTrackingParticipant.h"
 #include "ITSMFTTracking/MultiSourceTimeFrameLoader.h"
 #include "ITSMFTTracking/StaticDetectorCatalogs.h"
@@ -184,7 +184,7 @@ BOOST_AUTO_TEST_CASE(AtomicMFTLoadFailureLeavesSharedTimeFrameAndBothParticipant
   // M6e2: needed now that ITS's own stage() (source 0, structurally valid,
   // staged before MFT's malformed source 1 is even reached) really
   // allocates through SurfaceTrackingScratch -- adoptPlan() (already called
-  // by the constructor via adoptDetectorLayoutSet()) explicitly rebinds
+  // by the constructor via adoptSurfaceGraphs()) explicitly rebinds
   // every Group A container's allocator to mMemoryPool.get(), which is null
   // until this call, exactly as adoptPlan()'s own documented precondition
   // says (SurfaceTrackingScratch.h). At M6d time this was unneeded: ITS was
@@ -295,32 +295,32 @@ SurfaceMask surfaceRangeMaskForTest(uint16_t first, uint16_t count)
 // (duplicated locally per this test directory's own established per-file
 // fixture convention -- testSurfacePlanBinding.cxx's CombinedLayout does the
 // same for its own synthetic case).
-DetectorLayout buildProductionCombinedLayoutForTest()
+SurfaceGraph buildProductionCombinedLayoutForTest()
 {
   const auto itsSurfaces = orderedRange(0, ITSNLayers);
   const auto mftSurfaces = orderedRange(ITSNLayers, MFTNLayers);
   const auto itsParams = makeItsParams();
   const auto mftParams = makeMftParams();
 
-  DetectorLayoutSubgraph itsSubgraph;
+  SurfaceGraphSubgraph itsSubgraph;
   itsSubgraph.orderedSurfaces.assign(itsSurfaces.begin(), itsSurfaces.end());
   itsSubgraph.maxHoles = itsParams.MaxHoles;
   itsSubgraph.holeSurfaces = positionalSurfaceMask(itsParams.HoleLayerMask, itsSurfaces, static_cast<uint32_t>(itsSurfaces.size()));
   itsSubgraph.seedingSurfaces = positionalSurfaceMask(itsParams.StartLayerMask, itsSurfaces, static_cast<uint32_t>(itsSurfaces.size()));
 
-  DetectorLayoutSubgraph mftSubgraph;
+  SurfaceGraphSubgraph mftSubgraph;
   mftSubgraph.orderedSurfaces.assign(mftSurfaces.begin(), mftSurfaces.end());
   mftSubgraph.maxHoles = mftParams.MaxHoles;
   mftSubgraph.holeSurfaces = positionalSurfaceMask(mftParams.HoleLayerMask, mftSurfaces, static_cast<uint32_t>(mftSurfaces.size()));
   mftSubgraph.seedingSurfaces = positionalSurfaceMask(mftParams.StartLayerMask, mftSurfaces, static_cast<uint32_t>(mftSurfaces.size()));
 
   const SurfaceCatalogView catalog{kITSMFTCombinedStaticSurfaceCatalog.data(), static_cast<uint32_t>(kITSMFTCombinedStaticSurfaceCatalog.size())};
-  DetectorLayoutBuilder builder{catalog};
+  SurfaceGraphBuilder builder{catalog};
   builder.addSubgraph(std::move(itsSubgraph));
   builder.addSubgraph(std::move(mftSubgraph));
   auto built = builder.build();
   BOOST_REQUIRE(built.ok());
-  return std::move(*built.layout);
+  return std::move(*built.graph);
 }
 } // namespace
 
@@ -332,7 +332,7 @@ BOOST_AUTO_TEST_CASE(ProductionMFTSurfacePlanBindingMatchesConfiguredTopologyAtR
   // TransitionPolicyTag::DiskDisk.
   const auto layout = buildProductionCombinedLayoutForTest();
   const auto masks = computeSurfaceKindMasks(kITSMFTCombinedStaticSurfaceCatalog);
-  const auto view = layout.getView(kITSMFTCombinedStaticSurfaceCatalog, masks.first, masks.second);
+  const auto view = layout.getView();
   const auto mftSurfaces = orderedRange(ITSNLayers, MFTNLayers);
   const auto mftMask = surfaceRangeMaskForTest(ITSNLayers, MFTNLayers);
 
@@ -340,16 +340,16 @@ BOOST_AUTO_TEST_CASE(ProductionMFTSurfacePlanBindingMatchesConfiguredTopologyAtR
                                                  SurfaceKind::Disk, TransitionPolicyTag::DiskDisk);
   BOOST_REQUIRE(binding.ok());
   size_t ownedTransitions = 0;
-  for (uint32_t id = 0; id < view.topology.nTransitions; ++id) {
-    const auto& transition = view.topology.getTransition(TransitionId{static_cast<uint16_t>(id)});
+  for (uint32_t id = 0; id < view.nTransitions; ++id) {
+    const auto& transition = view.getTransition(TransitionId{static_cast<uint16_t>(id)});
     if (mftMask.has(transition.from) && mftMask.has(transition.to)) {
       ++ownedTransitions;
     }
   }
   size_t ownedCells = 0;
-  for (uint32_t id = 0; id < view.topology.nCells; ++id) {
+  for (uint32_t id = 0; id < view.nCells; ++id) {
     const auto cellId = CellTopologyId{static_cast<uint16_t>(id)};
-    const auto& cell = view.topology.getCell(cellId);
+    const auto& cell = view.getCell(cellId);
     if (binding.binding->getScratchTransitionSlot(cell.firstTransition)) {
       ++ownedCells;
     }
@@ -358,7 +358,7 @@ BOOST_AUTO_TEST_CASE(ProductionMFTSurfacePlanBindingMatchesConfiguredTopologyAtR
   // Owned-surface count feeds SurfaceTrackingScratch::adoptPlan()'s Group A
   // sizing; transition/cell counts feed its Group B sizing -- these three
   // runtime numbers are exactly what production wiring
-  // (SurfacePlanTrackingParticipant<...>::adoptDetectorLayoutSet()) passes
+  // (SurfacePlanTrackingParticipant<...>::adoptSurfaceGraphs()) passes
   // through, so agreement here is the concrete "resolves to the same
   // compact slots" proof at real parameters, not just the generic synthetic
   // fixture testSurfacePlanBinding.cxx already covers.

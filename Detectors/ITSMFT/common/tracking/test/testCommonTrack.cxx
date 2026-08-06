@@ -51,8 +51,7 @@
 #include "ITSMFTTracking/CommonTrack.h"
 #include "ITSMFTTracking/CommonTrackShadow.h"
 #include "ITSMFTTracking/DecodedCluster.h"
-#include "ITSMFTTracking/DetectorLayout.h"
-#include "ITSMFTTracking/DetectorLayoutSet.h"
+#include "ITSMFTTracking/SurfaceGraphBuilder.h"
 #include "ITSMFTTracking/MultiSourceFrame.h"
 #include "ITSMFTTracking/MultiSourceLoading.h"
 #include "ITSMFTTracking/SurfaceMeasurementAdapters.h"
@@ -114,7 +113,7 @@ BOOST_AUTO_TEST_CASE(CommonTrackLayoutAndDeviceCompatibilityTraits)
   // that is consistent across host/device compilation. Both properties are
   // asserted, on all three types, matching every other device-facing type
   // in this library (SurfaceMeasurement, StaticSurfaceDescriptor,
-  // DetectorLayoutView, ...).
+  // SurfaceGraphView, ...).
   static_assert(std::is_standard_layout_v<CommonTrack>);
   static_assert(std::is_trivially_copyable_v<CommonTrack>);
   static_assert(std::is_standard_layout_v<TrackClusterReference>);
@@ -268,13 +267,13 @@ class FakeClusterDecoder final : public ClusterDecoder
 };
 
 struct BuiltLayout {
-  DetectorLayout layout;
+  SurfaceGraph layout;
   std::vector<SurfaceDescriptor> surfaces;
 
-  DetectorLayoutView getView() const noexcept
+  SurfaceGraphView getView() const noexcept
   {
     const auto masks = computeSurfaceKindMasks(surfaces);
-    return layout.getView(surfaces, masks.first, masks.second);
+    return layout.getView();
   }
 };
 
@@ -282,14 +281,14 @@ struct BuiltLayout {
 // this file's fixtures below.
 BuiltLayout makeCombinedLayout()
 {
-  SparseTrackingTopology topology{4};
+  SurfaceGraph topology{4};
   topology.finalize();
   std::vector<SurfaceDescriptor> surfaces;
   surfaces.push_back(SurfaceDescriptor{SurfaceId{0}, 0, static_cast<uint8_t>(o2::detectors::DetID::ITS), SurfaceKind::Cylinder});
   surfaces.push_back(SurfaceDescriptor{SurfaceId{1}, 1, static_cast<uint8_t>(o2::detectors::DetID::ITS), SurfaceKind::Cylinder});
   surfaces.push_back(SurfaceDescriptor{SurfaceId{2}, 2, static_cast<uint8_t>(o2::detectors::DetID::ITS), SurfaceKind::Cylinder});
   surfaces.push_back(SurfaceDescriptor{SurfaceId{3}, 0, static_cast<uint8_t>(o2::detectors::DetID::MFT), SurfaceKind::Disk});
-  return BuiltLayout{DetectorLayout{surfaces, std::move(topology)}, std::move(surfaces)};
+  return BuiltLayout{SurfaceGraph{surfaces, std::move(topology)}, std::move(surfaces)};
 }
 
 constexpr std::array<unsigned char, 3> onePixelPattern{1, 1, 0x80};
@@ -604,11 +603,10 @@ struct TimeFrameFixture {
   // other; this fixture is what binds both for the load() call below.
   TimeFrame tf;
   SurfaceTrackingScratch scratch;
-  // The catalog must outlive `plan` (DetectorLayoutSet borrows a
-  // SurfaceCatalogView into it, Gate 4 B2 Slice 2) -- declared first so it
-  // is constructed before, and destroyed after, `plan`.
+  // Keep the catalog with the graph fixture so initialization inputs have one
+  // explicit owner.
   std::vector<SurfaceDescriptor> catalog{makeITSTestCatalog()};
-  std::optional<DetectorLayoutSet> plan;
+  std::optional<std::vector<SurfaceGraph>> plan;
   LegacyLikeDecoder decoder{o2::detectors::DetID::ITS};
   o2::InteractionRecord origin{50, 5};
   ROFTimingConfig timing{40, 0, 0, 0};
@@ -616,13 +614,13 @@ struct TimeFrameFixture {
   TimeFrameFixture()
   {
     const auto orderedSurfaces = identitySurfaces(ITSNLayers);
-    const std::vector<TrackingParameters> noIterations;
-    const SurfaceCatalogView catalogView{catalog.data(), static_cast<uint32_t>(catalog.size())};
-    auto result = buildDetectorLayoutSet(catalogView, orderedSurfaces, noIterations);
-    BOOST_REQUIRE(result.ok());
-    plan.emplace(std::move(*result.layout));
+    SurfaceGraph graph{gsl::span<const SurfaceDescriptor>{catalog}};
+    graph.setOrderedSurfaces(orderedSurfaces);
+    BOOST_REQUIRE(graph.finalize());
+    plan.emplace();
+    plan->push_back(std::move(graph));
     scratch.setMemoryPool(std::make_shared<BoundedMemoryResource>());
-    scratch.adoptPlan(plan->getConfigurationKey().orderedSurfaces.size(), 0, 0);
+    scratch.adoptPlan(plan->front().getOrderedSurfaces().size(), 0, 0);
   }
 
   // One cluster on layer 0, one ROF: the minimal input that succeeds.
@@ -631,9 +629,9 @@ struct TimeFrameFixture {
     const std::vector<CompClusterExt> clusters{{0, 1, CompCluster::InvalidPatternID, 0}};
     const auto patterns = makePatternBytes(clusters.size());
     const std::vector<ROFRecord> rofs{ROFRecord{{100, 5}, 0, 0, 1}};
-    const auto& orderedSurfaces = plan->getConfigurationKey().orderedSurfaces;
+    const auto& orderedSurfaces = plan->front().getOrderedSurfaces();
     return scratch.loadNormalizedSource(tf, decoder, origin, timing, clusters, patterns, rofs, &dict(), nullptr, o2::detectors::DetID::ITS,
-                                        gsl::span<const SurfaceId>{orderedSurfaces}, plan->getSurfaceCatalog());
+                                        gsl::span<const SurfaceId>{orderedSurfaces}, plan->front().getSurfaceCatalog());
   }
 };
 
@@ -914,10 +912,10 @@ BOOST_AUTO_TEST_CASE(FailedLoadPreservesCommonTrackAndTrackClusterIndicesUnchang
   const std::vector<CompClusterExt> clusters{{0, 1, CompCluster::InvalidPatternID, 0}};
   const auto patterns = makePatternBytes(clusters.size());
   const std::vector<ROFRecord> rofs{ROFRecord{{200, 5}, 0, 0, 1}};
-  const auto& orderedSurfaces = fixture.plan->getConfigurationKey().orderedSurfaces;
+  const auto& orderedSurfaces = fixture.plan->front().getOrderedSurfaces();
   const auto failed = fixture.scratch.loadNormalizedSource(fixture.tf, fixture.decoder, fixture.origin, fixture.timing, clusters, patterns, rofs,
                                                            &dict(), nullptr, o2::detectors::DetID::TPC,
-                                                           gsl::span<const SurfaceId>{orderedSurfaces}, fixture.plan->getSurfaceCatalog());
+                                                           gsl::span<const SurfaceId>{orderedSurfaces}, fixture.plan->front().getSurfaceCatalog());
   BOOST_REQUIRE(!failed.ok());
   BOOST_CHECK(failed.error == MultiSourceLoadError::UnsupportedDetector);
 
@@ -1049,7 +1047,7 @@ BOOST_AUTO_TEST_CASE(CommonTrackOutputAdapterStagesITSAndFailsClosed)
   const auto clock = makeFixtureClockTiming();
   const CommonTrackOutputTimingContext timing{rofs, ClockTimingPublicationView{clock}};
   const auto output = stageITSCommonTrackOutput(fixture.tf, measurement.cluster.source,
-                                                gsl::span<const SurfaceId>{fixture.plan->getConfigurationKey().orderedSurfaces}, timing, shared,
+                                                gsl::span<const SurfaceId>{fixture.plan->front().getOrderedSurfaces()}, timing, shared,
                                                 true, error);
   BOOST_REQUIRE(output);
   BOOST_CHECK_EQUAL(output->tracks.size(), 1u);
@@ -1067,7 +1065,7 @@ BOOST_AUTO_TEST_CASE(CommonTrackOutputAdapterStagesITSAndFailsClosed)
   // explicit at this boundary.
   const CommonTrackPublicationContext publicationContext{
     o2::detectors::DetID::ITS, measurement.cluster.source, rofs, ClockTimingPublicationView{clock},
-    gsl::span<const SurfaceId>{fixture.plan->getConfigurationKey().orderedSurfaces}};
+    gsl::span<const SurfaceId>{fixture.plan->front().getOrderedSurfaces()}};
   const auto contextOutput = stageITSCommonTrackOutput(fixture.tf, publicationContext, shared, true, error);
   BOOST_REQUIRE(contextOutput);
   BOOST_CHECK_EQUAL(contextOutput->tracks.size(), output->tracks.size());
@@ -1101,7 +1099,7 @@ BOOST_AUTO_TEST_CASE(CommonTrackOutputAdapterStagesITSAndFailsClosed)
   const std::vector<ROFRecord> mismatchedROFs{ROFRecord{{100, 5}, 0, 1, 2}, ROFRecord{{100, 6}, 1, 2, 3}};
   const CommonTrackOutputTimingContext mismatchedROF{mismatchedROFs, ClockTimingPublicationView{clock}};
   const auto mismatchedOutput = stageITSCommonTrackOutput(fixture.tf, measurement.cluster.source,
-                                                          gsl::span<const SurfaceId>{fixture.plan->getConfigurationKey().orderedSurfaces}, mismatchedROF, shared, false, error);
+                                                          gsl::span<const SurfaceId>{fixture.plan->front().getOrderedSurfaces()}, mismatchedROF, shared, false, error);
   BOOST_REQUIRE(mismatchedOutput);
   BOOST_REQUIRE_EQUAL(mismatchedOutput->trackROFs.size(), mismatchedROFs.size());
   BOOST_CHECK_EQUAL(mismatchedOutput->trackROFs[0].getNEntries(), 1);
@@ -1191,7 +1189,7 @@ BOOST_AUTO_TEST_CASE(CommonTrackOutputAdapterRejectsMalformedInputsWithoutMutati
   const std::vector<ROFRecord> rofs{ROFRecord{{1, 2}, 0, 0, 1}};
   const auto clock = makeFixtureClockTiming();
   const CommonTrackOutputTimingContext timing{rofs, ClockTimingPublicationView{clock}};
-  const auto surfaces = gsl::span<const SurfaceId>{fixture.plan->getConfigurationKey().orderedSurfaces};
+  const auto surfaces = gsl::span<const SurfaceId>{fixture.plan->front().getOrderedSurfaces()};
   const auto tracks = fixture.tf.getCommonTracks().size();
   const auto refs = fixture.tf.getTrackClusterIndices().size();
   const auto measurements = fixture.tf.getNormalizedFrame().getTotalMeasurements();
