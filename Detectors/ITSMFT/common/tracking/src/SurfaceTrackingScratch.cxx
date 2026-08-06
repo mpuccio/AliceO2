@@ -895,7 +895,13 @@ LoadSourcesResult SurfaceTrackingScratch::loadNormalizedSource(
   static_assert(noexcept(std::declval<bounded_vector<o2::its::Cluster>&>().swap(std::declval<bounded_vector<o2::its::Cluster>&>())));
   static_assert(noexcept(std::declval<bounded_vector<int>&>().swap(std::declval<bounded_vector<int>&>())));
 
+  // The view was constructed by the adapter for this staged event. The
+  // frame commit resets the previous event, including its non-owning ROF
+  // context, so reinstall this already-validated view only after the new
+  // normalized frame is atomically live.
+  const auto stagedROFViews = mROFViews;
   frame.commitNormalizedFrame(std::move(staged));
+  setROFViews(stagedROFViews);
   for (std::size_t layer = 0; layer < nOwnedSurfaces; ++layer) {
     mUnsortedClusters[layer].swap(stagedUnsortedClusters[layer]);
     mTrackingFrameInfo[layer].swap(stagedTrackingFrameInfo[layer]);
