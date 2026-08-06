@@ -19,11 +19,10 @@
 /// vectors allocate from. It stores no NLayers-templated type, no per-layer
 /// array, and no single-detector identity (mDetId is gone -- callers that
 /// need "which detector" pass it explicitly, since it was always fully
-/// determined by the caller's own compile-time NLayers). Every legacy
-/// per-detector CA scratch array/topology/result container that used to live
-/// alongside these lives in SurfaceTrackingScratch instead -- see that header
-/// for the full ownership rationale and the reset/load contracts spanning both
-/// types.
+/// determined by the caller's own compile-time NLayers). Generic CA workspace
+/// is owned here as source-qualified private implementation state. Raw ROFs,
+/// timing-table storage, publication state, and typed sidecars remain outside
+/// this entity.
 
 #ifndef ALICEO2_ITSMFT_TRACKING_TIMEFRAME_H_
 #define ALICEO2_ITSMFT_TRACKING_TIMEFRAME_H_
@@ -47,6 +46,8 @@
 namespace o2::itsmft::tracking
 {
 
+class SurfaceTrackingScratch;
+
 using BoundedMemoryResource = o2::its::BoundedMemoryResource;
 using Vertex = o2::its::Vertex;
 using VertexLabel = o2::its::VertexLabel;
@@ -63,7 +64,7 @@ struct TimeFrame {
   using BindingSet = std::vector<std::unique_ptr<SurfacePlanBinding>>;
 
   TimeFrame() = default;
-  virtual ~TimeFrame() = default;
+  virtual ~TimeFrame();
 
   const Vertex& getPrimaryVertex(const int ivtx) const { return mPrimaryVertices[ivtx]; }
   auto& getPrimaryVertices() { return mPrimaryVertices; };
@@ -91,14 +92,14 @@ struct TimeFrame {
   // with this TimeFrame by the most recent successful commitNormalizedFrame()
   // call (see SurfaceTrackingScratch::loadNormalizedSource(), the
   // owner-level load operation this is the TimeFrame-side half of). Empty/
-  // default until that first succeeds, and after wipe() (see below): wipe()
+  // default until that first succeeds, and after resetEvent(): resetEvent()
   // unconditionally clears this owner in place. The `const MultiSourceFrame&`
   // returned by getNormalizedFrame() is a reference to that same long-lived
   // member object -- it remains valid and safe to dereference across a
-  // wipe() call, it simply then observes the owner's newly cleared (empty)
-  // state. What wipe() does invalidate is any MultiSourceFrameView or
+  // resetEvent() call, it simply then observes the owner's newly cleared
+  // (empty) state. What resetEvent() does invalidate is any MultiSourceFrameView or
   // gsl::span (getSurfaceMeasurements(), getSourceIntervals(), getLabels(),
-  // getView()) obtained *before* the wipe() call: those hold pointers into
+  // getView()) obtained *before* the resetEvent() call: those hold pointers into
   // the owner's internal buffers, which clear() may reallocate/free, so they
   // must be re-obtained afterwards rather than reused.
   const MultiSourceFrame& getNormalizedFrame() const noexcept { return mNormalizedFrame; }
@@ -114,6 +115,15 @@ struct TimeFrame {
   // frame is meaningless once this replaces it (see CommonTrack.h's own
   // lifetime doc).
   void commitNormalizedFrame(MultiSourceFrame&& staged) noexcept;
+
+  // One generic event-state reset. It preserves static configuration and
+  // allocator/capacity identity while clearing every source workspace and
+  // event result. External owners call this once for a whole event.
+  void resetEvent() noexcept;
+  std::size_t getEventResetCount() const noexcept { return mEventResetCount; }
+
+  SurfaceTrackingScratch& getWorkspace(ClusterSourceId source);
+  const SurfaceTrackingScratch& getWorkspace(ClusterSourceId source) const;
 
   bool commitConfiguration(std::vector<SurfaceGraph>&& graphs,
                            std::vector<std::vector<TrackingParameters>>&& parameters,
@@ -176,8 +186,6 @@ struct TimeFrame {
   // containers and lives there instead.
   std::shared_ptr<BoundedMemoryResource> mMemoryPool;
 
-  virtual void wipe();
-
   // interface (dead GPU-chain scaffolding, same story as mPropagatorDevice
   // above: zero overrides anywhere in this library, kept unchanged/unused,
   // not deleted).
@@ -221,6 +229,17 @@ struct TimeFrame {
   std::vector<SourceParameters> mTrackingParameters;
   std::vector<BindingSet> mBindings;
   std::vector<std::vector<TrackingWorkspaceCapacity>> mWorkspaceCapacities;
+  struct WorkspaceDeleter {
+    void operator()(SurfaceTrackingScratch* workspace) const noexcept;
+  };
+  struct WorkspaceEntry {
+    ClusterSourceId source{};
+    std::unique_ptr<SurfaceTrackingScratch, WorkspaceDeleter> workspace;
+  };
+  std::vector<WorkspaceEntry> mWorkspaces;
+  std::size_t mEventResetCount{0};
+
+  void clearEventData() noexcept;
 };
 
 } // namespace o2::itsmft::tracking

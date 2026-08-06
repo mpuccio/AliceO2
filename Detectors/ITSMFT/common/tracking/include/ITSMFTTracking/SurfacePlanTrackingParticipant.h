@@ -6,13 +6,12 @@
 // License v3 (GPL Version 3), copied verbatim in the file "COPYING".
 //
 // Concrete plan-driven TrackingParticipant used by the ITS/MFT application
-// adapter. Static graph configuration is borrowed from its reusable TimeFrame;
-// this object retains only its physical event scratch and adapter sidecars
-// until the later workspace-ownership slice.
+// adapter. Static graph configuration and generic event workspace are borrowed
+// from its reusable TimeFrame; this object retains only adapter sidecars.
 //
 // This class never loads input itself, matching TrackingParticipant.h's own
 // contract: it only exposes its own loadTarget() (the loader's surface-backed
-// target, bound to its own scratch) for the owning workflow application to
+// target, bound to the frame-owned workspace) for the owning workflow application to
 // build an AtomicLoadBinding from; the actual
 // MultiSourceTimeFrameLoader::loadEvent() call, and the subsequent
 // TrackingEngine::executeEvent()/resetEvent() call once that atomic load has
@@ -87,12 +86,9 @@ class SurfacePlanTrackingParticipant final : public TrackingParticipant,
   void configureRofTables(const ROFTimingConfig& timing, uint32_t nROFsTF);
 
   // This leg's own load target for MultiSourceTimeFrameLoader::loadEvent()
-  // (M2b): bound once, at construction, to mScratch -- see mLoadTarget's
-  // own doc below. Not part of the generic TrackingParticipant interface;
-  // the owning workflow (or any other adapter driving the generic atomic
-  // loading transaction) reaches this only through the concrete participant
-  // type.
-  MultiSourceTimeFrameLoader::LoadTarget& loadTarget() noexcept { return mLoadTarget; }
+  // Created after frame configuration, when the frame-owned workspace exists.
+  // Not part of the generic TrackingParticipant interface.
+  MultiSourceTimeFrameLoader::LoadTarget& loadTarget() noexcept { return *mLoadTarget; }
 
   // Clears just this participant's publication sidecar. The workflow calls
   // this unconditionally at the top of each trackFrame(): a prior successful
@@ -119,8 +115,8 @@ class SurfacePlanTrackingParticipant final : public TrackingParticipant,
 
   // --- Owning-application readback, concrete type only: never exposed
   // through TrackingParticipant's own public contract. ---
-  SurfaceTrackingScratch& getScratch() noexcept { return mScratch; }
-  const SurfaceTrackingScratch& getScratch() const noexcept { return mScratch; }
+  SurfaceTrackingScratch& getScratch() { return mFrame->getWorkspace(mSource); }
+  const SurfaceTrackingScratch& getScratch() const { return mFrame->getWorkspace(mSource); }
   // Returns nullptr for the "wrong" NLayers instantiation (mirrors
   // ITSMFTTrackingInterface<NLayers>'s own getITSSharedClusterCompatibility
   // ()/getMFTPublicationCompatibility() exactly) -- the owning
@@ -148,7 +144,6 @@ class SurfacePlanTrackingParticipant final : public TrackingParticipant,
 
   ParticipantId mId;
   ClusterSourceId mSource;
-  SurfaceTrackingScratch mScratch;
   TimeFrame* mFrame = nullptr;
   TrackerTraits mTraits;
   Tracker mTracker;
@@ -159,11 +154,7 @@ class SurfacePlanTrackingParticipant final : public TrackingParticipant,
   o2::its::ROFVertexLookupTable<NLayers> mROFVertexLookupTable;
   o2::its::ROFMaskTable<NLayers> mMultiplicityMask;
   o2::its::ROFMaskTable<NLayers> mUPCMask;
-  // Bound to mScratch above at construction (M2b) -- see
-  // MultiSourceTimeFrameLoader::LoadTargetImplSurface's own doc. Declared
-  // after mScratch so it is constructed after (and therefore only ever
-  // binds an already-existing) mScratch.
-  MultiSourceTimeFrameLoader::LoadTargetImplSurface mLoadTarget;
+  std::unique_ptr<MultiSourceTimeFrameLoader::LoadTargetImplSurface> mLoadTarget;
   std::shared_ptr<tbb::task_arena> mArena;
   // Engaged only between a successful track() and the next eventReset()
   // (or construction) -- gates publicationExport(), matching

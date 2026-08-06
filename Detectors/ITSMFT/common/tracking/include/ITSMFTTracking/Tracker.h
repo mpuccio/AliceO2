@@ -132,11 +132,7 @@ class Tracker
 
   TrackerInitializationResult initialize(TimeFrame& frame, const TrackerInitialization& configuration);
 
-  // Binds this tracker's two collaborators, each an independent bind-once
-  // pointer -- neither owns nor stores a reference to the other.
-  // `scratch`/`frame` must each outlive every subsequent clustersToTracks()
-  // call.
-  void adoptScratch(SurfaceTrackingScratch& scratch);
+  // Binds the non-owning kernel seam to the frame-owned workspace.
   void adoptFrame(TimeFrame& frame);
   void setSource(ClusterSourceId source) noexcept { mSource = source; }
   void setBz(float bz) { mTraits->setBz(bz); }
@@ -149,15 +145,11 @@ class Tracker
   /// Any structural or unclassified failure, and any recoverable failure
   /// with DropTFUponFailure=false, throws instead of returning -- see
   /// TrackingOutcome's own doc for why this is deliberate -- the event is
-  /// always fully reset before the exception propagates. This tracker never
-  /// decides *which* reset a combined future owner with several
-  /// participating scratches would want (see resetTimeFrameEvent()'s own
-  /// doc) -- for this single-detector bridge, every recoverable failure here
-  /// resets both its own scratch and the shared TimeFrame.
+  /// always fully reset before the exception propagates.
   TrackingResult clustersToTracks(TrackingOperationAdapter& operationAdapter);
 
-  const SurfaceTrackingScratch& getScratch() const { return *mScratch; }
-  SurfaceTrackingScratch& getScratch() { return *mScratch; }
+  const SurfaceTrackingScratch& getScratch() const { return mFrame->getWorkspace(mSource); }
+  SurfaceTrackingScratch& getScratch() { return mFrame->getWorkspace(mSource); }
 
  private:
   void initialiseTimeFrame(int iteration)
@@ -170,7 +162,6 @@ class Tracker
   void findCellsNeighbours(int iteration) { mTraits->findCellsNeighbours(iteration); }
   void findRoads(int iteration, TrackingOperationAdapter& operationAdapter) { mTraits->findRoads(iteration, operationAdapter); }
   TrackerTraits* mTraits = nullptr;
-  SurfaceTrackingScratch* mScratch = nullptr;
   TimeFrame* mFrame = nullptr;
   ClusterSourceId mSource{};
 };

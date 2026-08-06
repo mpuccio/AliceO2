@@ -145,8 +145,8 @@ class ITSMFTTrackingInterface : private MFTPublicationCompatibilityOwner<NLayers
                          const o2::dataformats::MCTruthContainer<o2::MCCompLabel>* labels,
                          gsl::span<const o2::dataformats::IRFrame> irFrames = {});
 
-  // Owner-level reset clears detector-local compatibility state with the
-  // shared frame. Scratch-only reset deliberately does neither.
+  // Owner-level reset clears adapter state and invokes the frame-owned generic
+  // event reset exactly once.
   void resetEvent()
   {
     mPublicationClock.reset();
@@ -156,13 +156,13 @@ class ITSMFTTrackingInterface : private MFTPublicationCompatibilityOwner<NLayers
     if constexpr (DetId == o2::detectors::DetID::MFT) {
       static_cast<MFTPublicationCompatibilityOwner<NLayers>&>(*this).sidecar.clear();
     }
-    resetTimeFrameEvent(mFrame, mScratch);
+    mFrame.resetEvent();
   }
 
   TimeFrame& getTimeFrame() { return mFrame; }
   const TimeFrame& getTimeFrame() const { return mFrame; }
-  SurfaceTrackingScratch& getScratch() { return mScratch; }
-  const SurfaceTrackingScratch& getScratch() const { return mScratch; }
+  SurfaceTrackingScratch& getScratch() { return mFrame.getWorkspace(ClusterSourceId{0}); }
+  const SurfaceTrackingScratch& getScratch() const { return mFrame.getWorkspace(ClusterSourceId{0}); }
   const MFTPublicationCompatibility* getMFTPublicationCompatibility() const noexcept
   {
     if constexpr (DetId == o2::detectors::DetID::MFT) {
@@ -251,15 +251,7 @@ class ITSMFTTrackingInterface : private MFTPublicationCompatibilityOwner<NLayers
 #endif
   const o2::itsmft::TopologyDictionary* mDict = nullptr;
   const o2::dataformats::MeanVertexObject* mMeanVertex = nullptr;
-  // Gate 4 B3.1 lifetime contract: mFrame declared before mScratch, so C++'s
-  // reverse-declaration-order destruction tears the scratch down first --
-  // the permanent, non-templated TimeFrame always outlives the temporary
-  // shared scratch. Neither owns or stores a reference to the
-  // other; this owner is what binds both
-  // together, via adoptScratch()/adoptFrame() on mTracker/mTrackerTraits and
-  // explicit parameters everywhere else.
   TimeFrame mFrame;
-  SurfaceTrackingScratch mScratch;
   int mMFTROFrameLengthInBC = 0;
   bool mMFTTriggered = false;
 };

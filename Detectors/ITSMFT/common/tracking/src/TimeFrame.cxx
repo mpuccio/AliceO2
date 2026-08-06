@@ -14,13 +14,22 @@
 ///
 
 #include "ITSMFTTracking/TimeFrame.h"
+#include "ITSMFTTracking/SurfaceTrackingScratch.h"
 
 #include <algorithm>
+#include <stdexcept>
 
 namespace o2::itsmft::tracking
 {
 
 using o2::its::deepVectorClear;
+
+TimeFrame::~TimeFrame() = default;
+
+void TimeFrame::WorkspaceDeleter::operator()(SurfaceTrackingScratch* workspace) const noexcept
+{
+  delete workspace;
+}
 
 void TimeFrame::addPrimaryVertex(const Vertex& vert)
 {
@@ -42,15 +51,8 @@ void TimeFrame::resetBeamXY(const float x, const float y, const float w)
 
 void TimeFrame::commitNormalizedFrame(MultiSourceFrame&& staged) noexcept
 {
+  resetEvent();
   mNormalizedFrame = std::move(staged);
-  // Gate 4 CommonTrack foundation: mNormalizedFrame above has just been
-  // replaced, so any CommonTrack/TrackClusterReference built against the
-  // previous normalized frame no longer refers to anything meaningful and
-  // must not survive this commit -- cleared here, in the same successful
-  // commit, exactly like every other member the owner-level load operation
-  // replaces.
-  deepVectorClear(mCommonTracks);
-  deepVectorClear(mTrackClusterIndices);
 }
 
 bool TimeFrame::commitConfiguration(std::vector<SurfaceGraph>&& graphs,
@@ -99,15 +101,72 @@ bool TimeFrame::commitConfiguration(std::vector<SurfaceGraph>&& graphs,
     }
   }
 
+  std::vector<WorkspaceEntry> workspaces;
+  workspaces.reserve(sourceParameters.size());
+  try {
+    for (const auto& sourceParametersEntry : sourceParameters) {
+      TrackingWorkspaceCapacity capacity{};
+      for (std::size_t iteration = 0; iteration < bindings.size(); ++iteration) {
+        for (std::size_t binding = 0; binding < bindings[iteration].size(); ++binding) {
+          if (bindings[iteration][binding]->getSource() == sourceParametersEntry.source) {
+            capacity.ownedSurfaces = std::max(capacity.ownedSurfaces, capacities[iteration][binding].ownedSurfaces);
+            capacity.transitions = std::max(capacity.transitions, capacities[iteration][binding].transitions);
+            capacity.cells = std::max(capacity.cells, capacities[iteration][binding].cells);
+          }
+        }
+      }
+      std::unique_ptr<SurfaceTrackingScratch, WorkspaceDeleter> workspace{new SurfaceTrackingScratch};
+      workspace->setMemoryPool(memoryPool);
+      workspace->adoptPlan(capacity.ownedSurfaces, capacity.transitions, capacity.cells);
+      workspaces.push_back(WorkspaceEntry{sourceParametersEntry.source, std::move(workspace)});
+    }
+  } catch (const std::exception&) {
+    return false;
+  }
+
   // All validation is complete before any static or event state is replaced.
-  // The swaps themselves are non-throwing, so a valid replacement is coherent.
+  // The prepared workspaces make the final replacement coherent as well.
   setMemoryPool(memoryPool);
   mGraphs = std::move(graphs);
   mTrackingParameters = std::move(sourceParameters);
   mBindings = std::move(bindings);
   mWorkspaceCapacities = std::move(capacities);
+  mWorkspaces = std::move(workspaces);
   mConfigurationValid = true;
   return true;
+}
+
+SurfaceTrackingScratch& TimeFrame::getWorkspace(ClusterSourceId source)
+{
+  const auto it = std::find_if(mWorkspaces.begin(), mWorkspaces.end(), [source](const auto& entry) {
+    return entry.source == source && entry.workspace != nullptr;
+  });
+  if (it == mWorkspaces.end()) {
+    throw std::logic_error{"TimeFrame workspace is not configured for the requested source"};
+  }
+  return *it->workspace;
+}
+
+const SurfaceTrackingScratch& TimeFrame::getWorkspace(ClusterSourceId source) const
+{
+  const auto it = std::find_if(mWorkspaces.begin(), mWorkspaces.end(), [source](const auto& entry) {
+    return entry.source == source && entry.workspace != nullptr;
+  });
+  if (it == mWorkspaces.end()) {
+    throw std::logic_error{"TimeFrame workspace is not configured for the requested source"};
+  }
+  return *it->workspace;
+}
+
+void TimeFrame::resetEvent() noexcept
+{
+  for (auto& entry : mWorkspaces) {
+    if (entry.workspace != nullptr) {
+      entry.workspace->reset();
+    }
+  }
+  clearEventData();
+  ++mEventResetCount;
 }
 
 const std::vector<TrackingParameters>& TimeFrame::getTrackingParameters() const noexcept
@@ -172,7 +231,7 @@ void TimeFrame::setMemoryPool(std::shared_ptr<BoundedMemoryResource> pool)
   initVector(mTrackClusterIndices);
 }
 
-void TimeFrame::wipe()
+void TimeFrame::clearEventData() noexcept
 {
   deepVectorClear(mPrimaryVertices);
   deepVectorClear(mPrimaryVerticesLabels);

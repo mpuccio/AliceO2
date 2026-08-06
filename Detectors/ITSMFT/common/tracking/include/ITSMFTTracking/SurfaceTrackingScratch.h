@@ -28,7 +28,8 @@
 ///
 /// This type never owns a graph or binding. It borrows the caller's
 /// SurfaceGraphView and runtime ROF context for the current event;
-/// the event owner/adapter owns raw ROFs and the event lifecycle.
+/// TimeFrame owns generic event reset; the adapter owns raw ROFs and workflow
+/// lifecycle.
 #ifndef ALICEO2_ITSMFT_TRACKING_SURFACETRACKINGSCRATCH_H_
 #define ALICEO2_ITSMFT_TRACKING_SURFACETRACKINGSCRATCH_H_
 
@@ -376,17 +377,6 @@ class SurfaceTrackingScratch
   std::size_t mNTransitions{0};
   std::size_t mNCells{0};
 };
-
-// M6d: the SurfaceTrackingScratch overload of resetTimeFrameEvent() --
-// Tracker::clustersToTracks()'s recoverable-failure path calls this
-// unqualified (ADL). Same
-// reset-scratch-then-wipe-frame sequencing, same "not the future combined-
-// owner policy" caveat as the original.
-inline void resetTimeFrameEvent(TimeFrame& frame, SurfaceTrackingScratch& scratch) noexcept
-{
-  scratch.reset();
-  frame.wipe();
-}
 
 } // namespace o2::itsmft::tracking
 

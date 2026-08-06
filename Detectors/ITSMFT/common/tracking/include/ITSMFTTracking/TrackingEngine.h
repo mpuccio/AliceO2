@@ -96,7 +96,7 @@ class TrackingEngine
   // Resets every participant in `schedule` (each participant's own
   // eventReset(), which by TrackingParticipant's contract touches only that
   // participant's own scratch/compatibility state) and then wipes `frame`'s
-  // shared storage exactly once (TimeFrame::wipe()) -- always in that
+  // shared storage exactly once (TimeFrame::resetEvent()) -- always in that
   // order, so every participant has released its own per-event references
   // before the shared storage they pointed into is cleared.
   //

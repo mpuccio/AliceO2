@@ -16,23 +16,29 @@ namespace o2::itsmft::tracking
 
 void TrackingEngine::resetEvent(TimeFrame& frame, gsl::span<TrackingParticipant* const> schedule) const noexcept
 {
-  // Every participant releases its own per-event references first; only
-  // then is the shared storage those references pointed into cleared.
+  // Participants release adapter-local references before the frame clears
+  // the generic event storage they borrow.
   for (auto* participant : schedule) {
     participant->eventReset(frame);
   }
-  frame.wipe();
+  frame.resetEvent();
 }
 
 EventResult TrackingEngine::executeEvent(TimeFrame& frame, gsl::span<TrackingParticipant* const> schedule)
 {
   EventResult result;
+  const auto resetCount = frame.getEventResetCount();
+  const auto resetIfNeeded = [&]() noexcept {
+    if (frame.getEventResetCount() == resetCount) {
+      resetEvent(frame, schedule);
+    }
+  };
   try {
     result.participants.reserve(schedule.size());
     for (auto* participant : schedule) {
       const auto trackingResult = participant->track(frame);
       if (trackingResult.outcome != ParticipantOutcome::Success) {
-        resetEvent(frame, schedule);
+        resetIfNeeded();
         result.outcome = trackingResult.outcome;
         result.participants.clear();
         return result;
@@ -40,12 +46,12 @@ EventResult TrackingEngine::executeEvent(TimeFrame& frame, gsl::span<TrackingPar
       result.participants.push_back({participant->id(), trackingResult.outcome, trackingResult.trackCount});
     }
   } catch (const std::exception&) {
-    resetEvent(frame, schedule);
+    resetIfNeeded();
     result.outcome = ParticipantOutcome::Structural;
     result.participants.clear();
     return result;
   } catch (...) {
-    resetEvent(frame, schedule);
+    resetIfNeeded();
     result.outcome = ParticipantOutcome::Structural;
     result.participants.clear();
     return result;

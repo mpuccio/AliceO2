@@ -53,11 +53,11 @@ class MultiSourceTimeFrameLoader
     virtual void commit() noexcept = 0;
   };
 
-  // Concrete LoadTarget bound to one live SurfaceTrackingScratch&, mirroring
+  // Concrete LoadTarget bound to one TimeFrame-owned workspace, mirroring
   // the stage()/commit() contract over
   // SurfaceTrackingScratch::loadNormalizedSource()'s runtime-sized
   // orderedSurfaces loop instead of a fixed NLayers one.
-  // Each plan-driven participant owns one of these, bound to its own scratch.
+  // Each plan-driven participant creates one after frame configuration.
   class LoadTargetImplSurface final : public LoadTarget
   {
    public:

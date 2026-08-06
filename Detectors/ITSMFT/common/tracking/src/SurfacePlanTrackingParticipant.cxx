@@ -20,9 +20,8 @@ namespace o2::itsmft::tracking
 
 template <int NLayers>
 SurfacePlanTrackingParticipant<NLayers>::SurfacePlanTrackingParticipant(ParticipantId id, ClusterSourceId source)
-  : mId{id}, mSource{source}, mTracker(&mTraits), mLoadTarget(mScratch)
+  : mId{id}, mSource{source}, mTracker(&mTraits)
 {
-  mTracker.adoptScratch(mScratch);
   if constexpr (DetId == o2::detectors::DetID::ITS) {
     mDetectorPublicationAdapter.adoptITSSharedClusterCompatibility(&static_cast<ITSSharedClusterCompatibilityOwner<NLayers>&>(*this).sidecar);
   }
@@ -50,18 +49,10 @@ void SurfacePlanTrackingParticipant<NLayers>::adoptConfiguredFrame(TimeFrame& fr
   mTracker.setSource(mSource);
   mTracker.adoptFrame(frame);
   mTraits.setMemoryPool(frame.getMemoryPool());
-  mScratch.setMemoryPool(frame.getMemoryPool());
-  TrackingWorkspaceCapacity capacity{};
-  for (std::size_t iteration = 0; iteration < frame.getNIterations(); ++iteration) {
-    const auto* current = frame.getWorkspaceCapacity(iteration, mSource);
-    if (current == nullptr) {
-      throw std::runtime_error{"SurfacePlanTrackingParticipant: missing configured source binding"};
-    }
-    capacity.ownedSurfaces = std::max(capacity.ownedSurfaces, current->ownedSurfaces);
-    capacity.transitions = std::max(capacity.transitions, current->transitions);
-    capacity.cells = std::max(capacity.cells, current->cells);
+  if (!frame.isConfigured()) {
+    throw std::runtime_error{"SurfacePlanTrackingParticipant: frame is not configured"};
   }
-  mScratch.adoptPlan(capacity.ownedSurfaces, capacity.transitions, capacity.cells);
+  mLoadTarget = std::make_unique<MultiSourceTimeFrameLoader::LoadTargetImplSurface>(frame.getWorkspace(mSource));
 }
 
 template <int NLayers>
@@ -109,7 +100,7 @@ void SurfacePlanTrackingParticipant<NLayers>::configureRofTables(const ROFTiming
   mROFOverlapTable = std::move(rofTable);
   mROFVertexLookupTable = std::move(vtxTable);
   mMultiplicityMask = std::move(mask);
-  mScratch.setROFViews(RuntimeROFViews{mROFOverlapTable.getView(), mROFVertexLookupTable.getView(), mMultiplicityMask.getView(), mUPCMask.getView()});
+  getScratch().setROFViews(RuntimeROFViews{mROFOverlapTable.getView(), mROFVertexLookupTable.getView(), mMultiplicityMask.getView(), mUPCMask.getView()});
 }
 
 template <int NLayers>
@@ -182,12 +173,9 @@ ParticipantTrackingResult SurfacePlanTrackingParticipant<NLayers>::track(TimeFra
 template <int NLayers>
 void SurfacePlanTrackingParticipant<NLayers>::eventReset(TimeFrame&) noexcept
 {
-  // Scratch/sidecar only -- never `frame` itself, see TrackingParticipant.h.
-  // reset()+the engine's own single TimeFrame::wipe() together
-  // reproduce the loader's reset sequencing: every participating scratch
-  // is cleared before the one shared TimeFrame is wiped.
+  // Generic event data is reset once by the owning TimeFrame. This hook only
+  // clears adapter publication state.
   mTracked = false;
-  mScratch.reset();
   clearCompatibility();
 }
 

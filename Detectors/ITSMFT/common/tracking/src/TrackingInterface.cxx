@@ -242,16 +242,6 @@ void ITSMFTTrackingInterface<NLayers>::initialiseTracker(const std::vector<o2::i
          static_cast<int>(result.graphError), static_cast<int>(result.bindingError));
   }
   mTrackerTraits->setMemoryPool(mFrame.getMemoryPool());
-  mScratch.setMemoryPool(mFrame.getMemoryPool());
-  std::size_t nTransitions = 0;
-  std::size_t nCells = 0;
-  for (std::size_t iteration = 0; iteration < mFrame.getNIterations(); ++iteration) {
-    const auto* capacity = mFrame.getWorkspaceCapacity(iteration, ClusterSourceId{0});
-    nTransitions = std::max(nTransitions, capacity->transitions);
-    nCells = std::max(nCells, capacity->cells);
-  }
-  mScratch.adoptPlan(kOrderedSurfaces.size(), nTransitions, nCells);
-  mTracker->adoptScratch(mScratch);
 }
 
 template <int NLayers>
@@ -334,8 +324,8 @@ void ITSMFTTrackingInterface<NLayers>::loadTimeFrame(gsl::span<const o2::itsmft:
                                                      gsl::span<const o2::dataformats::IRFrame> irFrames)
 {
   // Throws TimeFrameLoadException (NonUniformROFTiming) before touching
-  // mScratch if per-layer DPLAlpideParam values disagree; otherwise
-  // configures mScratch's ROF overlap/vertex-lookup tables as a side
+  // the frame workspace if per-layer DPLAlpideParam values disagree; otherwise
+  // configures its ROF overlap/vertex-lookup views as a side
   // effect and returns the single source-level ROFTimingConfig loadNormalizedSource() needs below.
   const ROFTimingConfig timing = configureROFLookupTables();
   validateROFInput(rofs);
@@ -350,8 +340,8 @@ void ITSMFTTrackingInterface<NLayers>::loadTimeFrame(gsl::span<const o2::itsmft:
   // the explicit default InteractionRecord{} when there are no ROFs at all.
   const o2::InteractionRecord origin = rofs.empty() ? o2::InteractionRecord{} : rofs.front().getBCData();
 
-  // Transactional normalized-source loading spans both mFrame and mScratch:
-  // on any failure below, mFrame's normalized frame and every scratch
+  // Transactional normalized-source loading spans both mFrame and its
+  // frame-owned workspace: on any failure below, mFrame's normalized frame and every workspace
   // compatibility container are left exactly as
   // they were before this call.
   const auto* binding = mFrame.getBinding(0, ClusterSourceId{0});
@@ -360,7 +350,8 @@ void ITSMFTTrackingInterface<NLayers>::loadTimeFrame(gsl::span<const o2::itsmft:
                                  "CA tracker has no configured source binding"};
   }
   const auto orderedSurfaces = binding->getOrderedSurfaces();
-  const auto result = mScratch.loadNormalizedSource(mFrame, *mClusterDecoder, origin, timing, clusters, patterns, rofs, mDict, labels, DetId,
+  auto& scratch = mFrame.getWorkspace(ClusterSourceId{0});
+  const auto result = scratch.loadNormalizedSource(mFrame, *mClusterDecoder, origin, timing, clusters, patterns, rofs, mDict, labels, DetId,
                                                     orderedSurfaces, mFrame.getGraph(0).getSurfaceCatalog());
   if (!result.ok()) {
     if (isRecoverableLoadError(result.error, result.timingDetail)) {
@@ -370,7 +361,7 @@ void ITSMFTTrackingInterface<NLayers>::loadTimeFrame(gsl::span<const o2::itsmft:
   }
   // Copy the finalized clock layer while scratch is live. The export is a
   // value boundary for workflows, never a retained overlap-table reference.
-  mPublicationClock.emplace(mScratch.getROFOverlapView().getClockLayer());
+  mPublicationClock.emplace(scratch.getROFOverlapView().getClockLayer());
   // A successful normalized-frame replacement invalidates every CommonTrack
   // index, so clear detector-local compatibility entries in the same owner-
   // level operation. Failed loads return above without changing either.
@@ -382,10 +373,10 @@ void ITSMFTTrackingInterface<NLayers>::loadTimeFrame(gsl::span<const o2::itsmft:
   }
 
   LOGP(info, "{} CA loaded {} clusters from {} ROFs into TimeFrame ({} pattern bytes, MC={})",
-       detName<DetId>(), mScratch.getTotalClusters(), rofs.size(), patterns.size(), labels != nullptr);
+       detName<DetId>(), scratch.getTotalClusters(), rofs.size(), patterns.size(), labels != nullptr);
 
   for (std::size_t iLayer = 0; iLayer < orderedSurfaces.size(); ++iLayer) {
-    LOGP(info, "  layer {}: {} ROF slots", iLayer, mScratch.getNrof(iLayer));
+    LOGP(info, "  layer {}: {} ROF slots", iLayer, scratch.getNrof(iLayer));
   }
 }
 
@@ -478,7 +469,7 @@ ROFTimingConfig ITSMFTTrackingInterface<NLayers>::configureROFLookupTables()
 
   // Per-layer LayerTiming, and the timing-validation this whole boundary
   // exists for, are both completed before anything below constructs or
-  // commits ROFOverlapTable/ROFVertexLookupTable/mScratch state -- so a
+  // commits ROFOverlapTable/ROFVertexLookupTable and frame-workspace views -- so a
   // rejected configuration never leaves TimeFrame partially updated (see
   // loadTimeFrame()'s mutation-inventory contract).
   //
@@ -552,7 +543,7 @@ ROFTimingConfig ITSMFTTrackingInterface<NLayers>::configureROFLookupTables()
   vtxTable.init();
   mROFOverlapTable = std::move(rofTable);
   mROFVertexLookupTable = std::move(vtxTable);
-  mScratch.setROFViews(RuntimeROFViews{mROFOverlapTable.getView(), mROFVertexLookupTable.getView(), {}, {}});
+  getScratch().setROFViews(RuntimeROFViews{mROFOverlapTable.getView(), mROFVertexLookupTable.getView(), {}, {}});
 
   return uniformTiming.config;
 }
@@ -576,7 +567,7 @@ void ITSMFTTrackingInterface<NLayers>::configureROFMask(gsl::span<const o2::itsm
       LOGP(info, "{} CA IRFrame filter enabled with {} ITS IR frames", detName<DetId>(), irFrames.size());
     }
 
-    const auto nROFs = mScratch.getROFOverlapView().getLayer(0).mNROFsTF;
+    const auto nROFs = getScratch().getROFOverlapView().getLayer(0).mNROFsTF;
     for (int iRof = 0; iRof < static_cast<int>(nROFs); ++iRof) {
       bool accept = true;
       if (iRof < static_cast<int>(rofs.size())) {
@@ -595,18 +586,18 @@ void ITSMFTTrackingInterface<NLayers>::configureROFMask(gsl::span<const o2::itsm
     }
   } else {
     for (int iLayer = 0; iLayer < NLayers; ++iLayer) {
-      mask.setROFsEnabled(iLayer, 0, mScratch.getROFOverlapView().getLayer(iLayer).mNROFsTF, 1);
+      mask.setROFsEnabled(iLayer, 0, getScratch().getROFOverlapView().getLayer(iLayer).mNROFsTF, 1);
     }
   }
 
   mMultiplicityMask = std::move(mask);
-  mScratch.setROFViews(RuntimeROFViews{mROFOverlapTable.getView(), mROFVertexLookupTable.getView(), mMultiplicityMask.getView(), mUPCMask.getView()});
+  getScratch().setROFViews(RuntimeROFViews{mROFOverlapTable.getView(), mROFVertexLookupTable.getView(), mMultiplicityMask.getView(), mUPCMask.getView()});
 }
 
 template <int NLayers>
 void ITSMFTTrackingInterface<NLayers>::validateROFInput(gsl::span<const o2::itsmft::ROFRecord> rofs) const
 {
-  const auto expectedROFsTF = mScratch.getROFOverlapView().getLayer(0).mNROFsTF;
+  const auto expectedROFsTF = getScratch().getROFOverlapView().getLayer(0).mNROFsTF;
   if (rofs.size() != expectedROFsTF) {
     LOGP(warn, "{} CA ROF count differs from continuous timing expectation: received {} expected {}",
          detName<DetId>(), rofs.size(), expectedROFsTF);

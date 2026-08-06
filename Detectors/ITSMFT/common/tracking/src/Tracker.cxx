@@ -126,31 +126,29 @@ TrackerInitializationResult Tracker::initialize(TimeFrame& frame, const TrackerI
   return result;
 }
 
-void Tracker::adoptScratch(SurfaceTrackingScratch& scratch)
-{
-  mScratch = &scratch;
-  mTraits->adoptScratch(&scratch);
-}
-
 void Tracker::adoptFrame(TimeFrame& frame)
 {
   mFrame = &frame;
   mTraits->adoptFrame(&frame);
+  if (frame.isConfigured()) {
+    mTraits->adoptScratch(&frame.getWorkspace(mSource));
+  }
 }
 
 TrackingResult Tracker::clustersToTracks(TrackingOperationAdapter& operationAdapter)
 {
-  if (mFrame == nullptr || !mFrame->isConfigured() || mScratch == nullptr ||
+  if (mFrame == nullptr || !mFrame->isConfigured() ||
       mFrame->getNIterations() == 0 || mFrame->getBinding(0, mSource) == nullptr) {
     throw TraversalException{-1, TraversalFailureReason::MissingLayout};
   }
+  auto& scratch = mFrame->getWorkspace(mSource);
   const auto& trkParams = mFrame->getTrackingParameters(mSource);
   const auto& memoryPool = mFrame->getMemoryPool();
   mTraits->updateTrackingParameters(trkParams);
 
   int maxNvertices{-1};
   if (trkParams[0].PerPrimaryVertexProcessing) {
-    maxNvertices = mScratch->getROFVertexLookupView().getMaxVerticesPerROF();
+    maxNvertices = scratch.getROFVertexLookupView().getMaxVerticesPerROF();
   }
 
   float total{0.f};
@@ -164,7 +162,7 @@ TrackingResult Tracker::clustersToTracks(TrackingOperationAdapter& operationAdap
         memoryPool->setMaxMemory(trkParams[iteration].MaxMemory);
       }
       if (trkParams[iteration].PassFlags[IterationStep::UseUPCMask]) {
-        mScratch->useUPCMask();
+        scratch.useUPCMask();
       }
 
       int iVertex = std::min(maxNvertices, 0);
@@ -183,14 +181,14 @@ TrackingResult Tracker::clustersToTracks(TrackingOperationAdapter& operationAdap
     // comment: never rely on "the process is going down anyway".
     LOGP(error, "CA tracker hit a structural traversal failure: {}", err.what());
     operationAdapter.resetAdapterState();
-    resetTimeFrameEvent(*mFrame, *mScratch);
+    mFrame->resetEvent();
     throw;
   } catch (const BoundedMemoryResource::MemoryLimitExceeded& err) {
     // Recoverable, per-TF resource failure: the bounded pool's configured
     // budget was exceeded for this TimeFrame's data volume.
     LOGP(error, "CA tracker exceeded memory limit: {}", err.what());
     operationAdapter.resetAdapterState();
-    resetTimeFrameEvent(*mFrame, *mScratch);
+    mFrame->resetEvent();
     if (trkParams[0].DropTFUponFailure) {
       return TrackingResult{TrackingOutcome::RecoverableDropped, 0.f};
     }
@@ -203,7 +201,7 @@ TrackingResult Tracker::clustersToTracks(TrackingOperationAdapter& operationAdap
     // bad_alloc rather than MemoryLimitExceeded. Handled identically.
     LOGP(error, "CA tracker allocation failed: {}", err.what());
     operationAdapter.resetAdapterState();
-    resetTimeFrameEvent(*mFrame, *mScratch);
+    mFrame->resetEvent();
     if (trkParams[0].DropTFUponFailure) {
       return TrackingResult{TrackingOutcome::RecoverableDropped, 0.f};
     }
@@ -216,7 +214,7 @@ TrackingResult Tracker::clustersToTracks(TrackingOperationAdapter& operationAdap
     // then, recoverability is never inferred from std::exception alone.
     LOGP(error, "CA tracker failed with an unclassified exception; treating as structural: {}", err.what());
     operationAdapter.resetAdapterState();
-    resetTimeFrameEvent(*mFrame, *mScratch);
+    mFrame->resetEvent();
     throw;
   }
 
