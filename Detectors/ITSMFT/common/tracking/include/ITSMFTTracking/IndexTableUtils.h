@@ -53,8 +53,8 @@ GPUhdi() float getNormalizedPhi(float phi)
 /// for the identical reason: getColBinIndex()/getInverseColCoordinate() are
 /// GPUhdi(), so device-portable fixed-capacity storage is required here,
 /// std::vector is not an option. A caller that populates fewer than
-  /// MaxLayoutSurfaces positions simply never query the unpopulated tail --
-  /// every read site indexes by an explicit runtime plan position.
+/// MaxLayoutSurfaces positions simply never query the unpopulated tail --
+/// every read site indexes by an explicit runtime plan position.
 class IndexTableUtilsCore
 {
  public:

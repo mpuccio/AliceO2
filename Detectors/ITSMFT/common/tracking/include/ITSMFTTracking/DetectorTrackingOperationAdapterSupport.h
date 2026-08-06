@@ -67,20 +67,20 @@ inline bool fillCandidateKinematics(TrackingCandidate& candidate) noexcept
 }
 
 inline bool refitITSSeed(const TrackSeed& seed,
-                  const TrackingParameters& params,
-                  float bz,
-                  gsl::span<const gsl::span<const SurfaceMeasurement>> layerMeasurements,
-                  SurfaceCatalogView surfaceCatalog,
-                  TrackingCandidate& candidate)
+                         const TrackingParameters& params,
+                         float bz,
+                         gsl::span<const gsl::span<const SurfaceMeasurement>> layerMeasurements,
+                         SurfaceCatalogView surfaceCatalog,
+                         TrackingCandidate& candidate)
 {
   SurfaceKinematicState paramIn{};
   SurfaceKinematicState paramOut{};
   float chi2 = 0.f;
   OperationFailureReason reason{};
   if (!fitTrackSeedLegs(seed, layerMeasurements, surfaceCatalog, bz,
-                                 params.ShiftRefToCluster, params.MaxChi2ClusterAttachment, params.MaxChi2NDF,
-                                 params.RepeatRefitOut, gsl::span<const float>(params.MinPt),
-                                 paramIn, paramOut, chi2, reason)) {
+                        params.ShiftRefToCluster, params.MaxChi2ClusterAttachment, params.MaxChi2NDF,
+                        params.RepeatRefitOut, gsl::span<const float>(params.MinPt),
+                        paramIn, paramOut, chi2, reason)) {
     return false;
   }
   candidate.seed = seed;
@@ -91,13 +91,13 @@ inline bool refitITSSeed(const TrackSeed& seed,
 }
 
 inline bool refitMFTSeed(const TrackSeed& seed,
-                  const TrackingParameters& params,
-                  float bz,
-                  const SurfaceTrackingScratch& scratch,
-                  gsl::span<const gsl::span<const SurfaceMeasurement>> layerMeasurements,
-                  SurfaceCatalogView surfaceCatalog,
-                  ClusterSourceId expectedSource,
-                  TrackingCandidate& candidate)
+                         const TrackingParameters& params,
+                         float bz,
+                         const SurfaceTrackingScratch& scratch,
+                         gsl::span<const gsl::span<const SurfaceMeasurement>> layerMeasurements,
+                         SurfaceCatalogView surfaceCatalog,
+                         ClusterSourceId expectedSource,
+                         TrackingCandidate& candidate)
 {
   SurfaceKinematicState paramIn{};
   SurfaceKinematicState paramOut{};

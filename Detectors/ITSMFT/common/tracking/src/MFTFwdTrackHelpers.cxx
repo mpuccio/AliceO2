@@ -90,9 +90,9 @@ bool refitTrackFwd(const TrackSeed& seed,
   chi2 = 0.f;
   OperationFailureReason reason{};
   if (!fitTrackSeedLegs(seed, layerMeasurements, surfaceCatalog, bz,
-                                    params.ShiftRefToCluster, params.MaxChi2ClusterAttachment, params.MaxChi2NDF,
-                                    params.RepeatRefitOut, gsl::span<const float>(params.MinPt),
-                                    paramIn, paramOut, chi2, reason)) {
+                        params.ShiftRefToCluster, params.MaxChi2ClusterAttachment, params.MaxChi2NDF,
+                        params.RepeatRefitOut, gsl::span<const float>(params.MinPt),
+                        paramIn, paramOut, chi2, reason)) {
     LOGP(warn, "MFT CA forward refit: fitTrackSeedLegs failed, reason={}", static_cast<int>(reason));
     return false;
   }

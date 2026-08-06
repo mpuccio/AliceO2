@@ -20,7 +20,8 @@ namespace fs = std::filesystem;
 namespace
 {
 
-enum class ResidualKind { FixedDeviceCapacity, AdapterCompatibility };
+enum class ResidualKind { FixedDeviceCapacity,
+                          AdapterCompatibility };
 
 struct ResidualClassification {
   ResidualKind kind;
