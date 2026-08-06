@@ -1,6 +1,6 @@
 # Post-M7 cleanup implementation plan
 
-- Status: L3 implementation complete; L4 remains the next authorized slice
+- Status: L4 implementation complete; L5 remains the next authorized slice
 - Date: 2026-08-06
 - Architecture source: [post-M7 intentionality audit](0009-post-m7-intentionality-cleanup-audit.md)
 - Implementation owner: Luna agents under maintainer review
@@ -328,6 +328,30 @@ second graph/parameter/partition/pool authority.
 **Gate:** R plus construction failure/retry, allocator identity, graph-count
 mismatch, per-iteration differing-hole/start-mask, non-identity partition,
 and partial-configuration rejection tests.
+
+**L4 result (2026-08-06):** `Tracker::initialize(TimeFrame&, const
+TrackerInitialization&)` now builds and validates each graph locally, builds
+one source-qualified binding per graph subgraph, and commits graphs,
+source-qualified parameters/bindings, workspace capacities, and the allocator
+identity to `TimeFrame` in one fallible operation. `TimeFrame::wipe()` retains
+that configuration while clearing event-derived data. The combined workflow
+supplies declarations and uses one frame configuration; it does not build an
+operational graph. Participants retain only physical scratch and adapter
+state until L5 and derive their sizing from the frame.
+
+The focused L4 test covers failed configuration preserving an existing valid
+configuration, source-qualified non-identity ordering, per-iteration seed
+masks, successful replacement, reset preservation, and the ownership guard.
+The existing compact graph binding contract does not accept sparse global IDs
+whose numeric values exceed the view's compact surface count; this pre-existing
+limitation is not expanded by L4.
+
+The final L4 validation ran all 100 registered ITS/MFT tests serially with no
+`Not Run` entries. Fresh fixture replay preserved the 43/43 checksum manifest,
+the native ITS/MFT candidate hashes, standalone/combined field equality, and
+initialized-content equality with the accepted L3 parent; see the [L4
+validation record](../validation/l4-timeframe-configuration.md). No CUDA/HIP
+device build was claimed because neither pinned compiler was available.
 
 ### L5 — internalize workspace and generic reset in `TimeFrame`
 
