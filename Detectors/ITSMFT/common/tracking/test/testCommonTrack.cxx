@@ -808,7 +808,7 @@ BOOST_AUTO_TEST_CASE(MFTPublicationCompatibilityIsSparseOrderedAndTransactional)
   // Scratch-only reset has no authority over the shared TimeFrame or this
   // MFT bridge-owned sidecar; a future combined owner decides detector-local
   // CommonTrack removal/marking separately.
-  fixture.scratch.resetScratch();
+  fixture.scratch.reset();
   BOOST_CHECK_EQUAL(fixture.tf.getCommonTracks().size(), 1u);
   BOOST_CHECK_EQUAL(sidecar.entries().size(), 1u);
 }
@@ -853,7 +853,7 @@ BOOST_AUTO_TEST_CASE(ITSSharedClusterCompatibilityUsesExplicitPreSortAssociation
 
   // Scratch-only reset has no authority over TimeFrame-owned CommonTracks
   // or the bridge-owned compatibility result they index.
-  fixture.scratch.resetScratch();
+  fixture.scratch.reset();
   BOOST_CHECK_EQUAL(fixture.tf.getCommonTracks().size(), 3u);
   BOOST_CHECK_EQUAL(sidecar.entries().size(), 3u);
 

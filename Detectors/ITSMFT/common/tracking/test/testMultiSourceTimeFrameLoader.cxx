@@ -5,10 +5,8 @@
 // This software is distributed under the terms of the GNU General Public
 // License v3 (GPL Version 3), copied verbatim in the file "COPYING".
 
-// M2b (GenericTrackingEngineMigration.md; ADR 0007) focused tests for
-// MultiSourceTimeFrameLoader's participant-count-generic atomic loading
-// transaction (loadEvent()) and its fixed-position ITS/MFT compatibility
-// wrapper (loadITSAndMFT()). Covers:
+// Focused tests for MultiSourceTimeFrameLoader's participant-count-generic
+// atomic loading transaction (loadEvent()). Covers:
 //  - a synthetic three-participant transaction, proving loadEvent() has no
 //    hidden two-source limit and no source-0/1 branch (it is exercised here
 //    with three fake LoadTargets that know nothing about ITS/MFT);
@@ -17,12 +15,10 @@
 //    uncommitted -- the loader-level foundation the composition/participant
 //    level tests (testCombinedTrackingComposition.cxx) already build their
 //    own sidecar/scratch/publication-state proofs on top of;
-//  - loadITSAndMFT() still reproduces source-qualified per-surface storage
-//    and correct compact per-layer backfill on both real scratches;
-//  - a source-level guard: MultiSourceTimeFrameLoader's own generic parts
-//    (LoadTarget, LoadTargetImpl, AtomicLoadBinding, loadEvent()) contain no
-//    ITS/MFT/fixed-source-0-or-1 code, only loadITSAndMFT()/
-//    resetITSAndMFTEvent() (explicitly exempted) do.
+//  - the generic transaction still reproduces source-qualified per-surface
+//    storage and correct compact backfill on both real scratches;
+//  - a source-level guard proves the deleted fixed-source wrappers and dead
+//    scratch state/reset spelling do not return.
 
 #define BOOST_TEST_MODULE ITSMFT MultiSourceTimeFrameLoader
 #define BOOST_TEST_MAIN
@@ -30,6 +26,7 @@
 #include <boost/test/unit_test.hpp>
 
 #include <array>
+#include <filesystem>
 #include <fstream>
 #include <memory>
 #include <string>
@@ -375,13 +372,10 @@ ClusterSourceInput makeSingleClusterInput(ClusterSourceId id, o2::detectors::Det
 
 } // namespace
 
-BOOST_AUTO_TEST_CASE(TwoParticipantITSMFTWrapperReproducesSourceQualificationAndCompactBackfills)
+BOOST_AUTO_TEST_CASE(TwoParticipantGenericTransactionReproducesSourceQualificationAndCompactBackfills)
 {
-  // loadITSAndMFT() itself, directly -- not through any application-layer
-  // composition -- still backfills both real scratches (the actual production
-  // combined 17-surface ITS+MFT static catalog, ITS global ids 0..6, MFT
-  // 7..16) and preserves source-qualified per-surface storage, now that it
-  // is a thin wrapper over loadEvent().
+  // The generic transaction backfills both real scratches (the production
+  // combined 17-surface catalog) and preserves source-qualified storage.
   const auto catalogView = SurfaceCatalogView{kITSMFTCombinedStaticSurfaceCatalog.data(),
                                               static_cast<uint32_t>(kITSMFTCombinedStaticSurfaceCatalog.size())};
   const auto itsLayerToSurface = orderedRange(0, ITSNLayers);
@@ -403,7 +397,13 @@ BOOST_AUTO_TEST_CASE(TwoParticipantITSMFTWrapperReproducesSourceQualificationAnd
   const auto mftInput = makeSingleClusterInput(ClusterSourceId{1}, o2::detectors::DetID::MFT, SurfaceKind::Disk,
                                                mftLayerToSurface, mftClusters, mftPatterns, mftRofs, mftDecoder);
 
-  const auto result = MultiSourceTimeFrameLoader::loadITSAndMFT(frame, itsScratch, mftScratch, itsInput, mftInput, catalogView, {50, 5});
+  MultiSourceTimeFrameLoader::LoadTargetImplSurface itsTarget{itsScratch};
+  MultiSourceTimeFrameLoader::LoadTargetImplSurface mftTarget{mftScratch};
+  const std::array<MultiSourceTimeFrameLoader::AtomicLoadBinding, 2> bindings{
+    MultiSourceTimeFrameLoader::AtomicLoadBinding{itsInput, itsTarget},
+    MultiSourceTimeFrameLoader::AtomicLoadBinding{mftInput, mftTarget}};
+  const auto result = MultiSourceTimeFrameLoader::loadEvent(
+    frame, gsl::span<const MultiSourceTimeFrameLoader::AtomicLoadBinding>{bindings}, catalogView, {50, 5});
   BOOST_REQUIRE(result.ok());
 
   // Compact per-layer backfill landed independently on each scratch.
@@ -423,16 +423,20 @@ BOOST_AUTO_TEST_CASE(TwoParticipantITSMFTWrapperReproducesSourceQualificationAnd
   BOOST_CHECK(onMft[0].sensor.detector == static_cast<uint32_t>(o2::detectors::DetID::MFT));
   BOOST_CHECK(onMft[0].cluster.source == ClusterSourceId{1});
 
-  // The fixed-position guard itself: a mismatched id/detector pairing is
-  // rejected before any staging happens, exactly as before this milestone.
+  // Generic loading rejects non-dense source ids before any staging happens.
   TimeFrame rejectedFrame;
   SurfaceTrackingScratch rejectedItsScratch;
   SurfaceTrackingScratch rejectedMftScratch;
   auto wrongIdInput = itsInput;
   wrongIdInput.id = ClusterSourceId{5};
-  const auto rejected = MultiSourceTimeFrameLoader::loadITSAndMFT(rejectedFrame, rejectedItsScratch, rejectedMftScratch, wrongIdInput, mftInput,
-                                                                  catalogView, {50, 5});
-  BOOST_CHECK(rejected.error == MultiSourceLoadError::UnsupportedDetector);
+  MultiSourceTimeFrameLoader::LoadTargetImplSurface rejectedItsTarget{rejectedItsScratch};
+  MultiSourceTimeFrameLoader::LoadTargetImplSurface rejectedMftTarget{rejectedMftScratch};
+  const std::array<MultiSourceTimeFrameLoader::AtomicLoadBinding, 2> rejectedBindings{
+    MultiSourceTimeFrameLoader::AtomicLoadBinding{wrongIdInput, rejectedItsTarget},
+    MultiSourceTimeFrameLoader::AtomicLoadBinding{mftInput, rejectedMftTarget}};
+  const auto rejected = MultiSourceTimeFrameLoader::loadEvent(
+    rejectedFrame, gsl::span<const MultiSourceTimeFrameLoader::AtomicLoadBinding>{rejectedBindings}, catalogView, {50, 5});
+  BOOST_CHECK(rejected.error == MultiSourceLoadError::NonDenseSourceIds);
   BOOST_CHECK(rejected.source == ClusterSourceId{5});
   BOOST_CHECK_EQUAL(rejectedItsScratch.getTotalClusters(), 0);
   BOOST_CHECK_EQUAL(rejectedFrame.getNormalizedFrame().getTotalMeasurements(), 0u);
@@ -453,113 +457,40 @@ std::vector<std::string> readLines(const std::string& path)
   return lines;
 }
 
-bool isFullLineComment(const std::string& line)
-{
-  const auto pos = line.find_first_not_of(" \t");
-  return pos != std::string::npos && line.compare(pos, 2, "//") == 0;
-}
-
-// Marks every line from the first occurrence of `marker` through the line
-// where a running `openChar`/`closeChar` depth (counted from that same
-// line onward) returns to zero as exempt -- robust to the exact multi-line
-// formatting of the one ITS/MFT-specific declaration/definition each call
-// below is used to skip, without needing to hand-maintain a line range.
-void markExempt(const std::vector<std::string>& lines, const std::string& marker,
-                char openChar, char closeChar, std::vector<bool>& exempt)
-{
-  for (size_t i = 0; i < lines.size(); ++i) {
-    if (lines[i].find(marker) == std::string::npos) {
-      continue;
-    }
-    int depth = 0;
-    bool opened = false;
-    for (size_t j = i; j < lines.size(); ++j) {
-      exempt[j] = true;
-      for (char c : lines[j]) {
-        if (c == openChar) {
-          ++depth;
-          opened = true;
-        } else if (c == closeChar) {
-          --depth;
-        }
-      }
-      if (opened && depth <= 0) {
-        break;
-      }
-    }
-  }
-}
-
 } // namespace
 
-BOOST_AUTO_TEST_CASE(GenericLoaderHeaderAndSourceHaveNoITSMFTOrFixedSourceSpecialization)
+BOOST_AUTO_TEST_CASE(L2DeadScratchAndFixedSourceForwarderGuard)
 {
-  // Source-level guard: MultiSourceTimeFrameLoader's generic parts --
-  // LoadTarget, LoadTargetImpl, AtomicLoadBinding, loadEvent() -- must
-  // contain no ITS/MFT-specific code and no ClusterSourceId{0}/{1} literal.
-  // The one ITS/MFT-specific compatibility wrapper (loadITSAndMFT()/
-  // resetITSAndMFTEvent(), plus the two explicit LoadTargetImpl<ITSNLayers>/
-  // <MFTNLayers> instantiations they need) is explicitly exempted below --
-  // it is expected, documented legacy-position knowledge, not a leak. Full-
-  // line comments (this file's own doc comments above, and every doc
-  // comment inside the production files, freely explain *why* ITS/MFT are
-  // avoided) are skipped entirely: this is a code scan, not a prose scan.
+  // Keep this scan in the focused loader test so the deletion is checked by
+  // every normal build; split literals keep the guard from exempting itself.
   const std::string testFile = __FILE__;
   const auto testDirectory = testFile.substr(0, testFile.find_last_of('/'));
-  const std::string headerFile = testDirectory + "/../include/ITSMFTTracking/MultiSourceTimeFrameLoader.h";
-  const std::string sourceFile = testDirectory + "/../src/MultiSourceTimeFrameLoader.cxx";
+  const std::string root = testDirectory + "/..";
+  const std::vector<std::string> forbidden = {
+    "mPV"
+    "alphaX",
+    "reset"
+    "Scratch",
+    "loadITS"
+    "AndMFT",
+    "resetITS"
+    "AndMFTEvent"};
 
-  // Precise identifiers for real detector/layer-count/fixed-source
-  // specialization -- not the bare substrings "ITS"/"MFT", which would
-  // also match this library's own always-present namespace/header-guard/
-  // include-path boilerplate ("ITSMFTTracking", "o2::itsmft::tracking",
-  // "ALICEO2_ITSMFT_...") on every line of every file in this library.
-  // "Source 0/1 specialization" in this codebase's own established
-  // vocabulary (loadITSAndMFT()'s doc) means "ITS is always assigned
-  // ClusterSourceId 0, MFT is always assigned ClusterSourceId 1" -- a
-  // detector-position mapping, fully captured by scanning for the DetID
-  // tokens below (loadITSAndMFT()'s own guard combines a source-id check
-  // with a DetID check). A bare ClusterSourceId{0}/{1} alone is not
-  // inherently detector-position specialization: LoadTargetImpl<NLayers>::
-  // stage() legitimately numbers its own internal, single-element,
-  // disposable-TimeFrame source as 0 (any value would do -- there is only
-  // ever one source in that throwaway container), unrelated to this
-  // transaction's real, externally supplied source ids.
-  const std::vector<std::string> forbidden = {"DetID::ITS", "DetID::MFT", "ITSNLayers", "MFTNLayers"};
-
-  {
-    auto lines = readLines(headerFile);
-    std::vector<bool> exempt(lines.size(), false);
-    markExempt(lines, "loadITSAndMFT(", '(', ')', exempt);
-    markExempt(lines, "resetITSAndMFTEvent(", '(', ')', exempt);
-    for (size_t i = 0; i < lines.size(); ++i) {
-      if (exempt[i] || isFullLineComment(lines[i])) {
+  for (const auto& directory : {root + "/include", root + "/src", root + "/test"}) {
+    for (const auto& entry : std::filesystem::recursive_directory_iterator{directory}) {
+      if (!entry.is_regular_file()) {
         continue;
       }
-      if (lines[i].find("extern template class") != std::string::npos) {
-        continue; // LoadTargetImpl<ITSNLayers>/<MFTNLayers> explicit declarations
-      }
-      for (const auto& token : forbidden) {
-        BOOST_CHECK_MESSAGE(lines[i].find(token) == std::string::npos,
-                            headerFile << ":" << (i + 1) << " contains forbidden token '" << token << "': " << lines[i]);
-      }
-    }
-  }
-  {
-    auto lines = readLines(sourceFile);
-    std::vector<bool> exempt(lines.size(), false);
-    markExempt(lines, "MultiSourceTimeFrameLoader::loadITSAndMFT(", '{', '}', exempt);
-    markExempt(lines, "MultiSourceTimeFrameLoader::resetITSAndMFTEvent(", '{', '}', exempt);
-    for (size_t i = 0; i < lines.size(); ++i) {
-      if (exempt[i] || isFullLineComment(lines[i])) {
+      const auto extension = entry.path().extension();
+      if (extension != ".h" && extension != ".cxx" && extension != ".cmake") {
         continue;
       }
-      if (lines[i].find("template class MultiSourceTimeFrameLoader::LoadTargetImpl") != std::string::npos) {
-        continue; // LoadTargetImpl<ITSNLayers>/<MFTNLayers> explicit instantiations
-      }
-      for (const auto& token : forbidden) {
-        BOOST_CHECK_MESSAGE(lines[i].find(token) == std::string::npos,
-                            sourceFile << ":" << (i + 1) << " contains forbidden token '" << token << "': " << lines[i]);
+      const auto file = entry.path().string();
+      for (const auto& line : readLines(file)) {
+        for (const auto& token : forbidden) {
+          BOOST_CHECK_MESSAGE(line.find(token) == std::string::npos,
+                              file << " contains deleted L2 token '" << token << "': " << line);
+        }
       }
     }
   }

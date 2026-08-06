@@ -15,7 +15,7 @@
 // the new split (testTimeFrameLifecycle.cxx, testTimeFrameNormalizedSource.cxx,
 // testTimeFrameCovarianceLifecycle.cxx, testTimeFrameDetectorLayouts.cxx,
 // testTrackingInterfaceLoadFailureContract.cxx, testMFTNormalizedRefit.cxx):
-//   1. resetScratch() clears scratch-owned state only; TimeFrame content
+//   1. reset() clears scratch-owned state only; TimeFrame content
 //      (CommonTracks, vertices) is untouched.
 //   2. The owner-level reset helper resetTimeFrameEvent() -- what
 //      ITSMFTTrackingInterface<NLayers>::resetEvent() trivially wraps, see
@@ -214,7 +214,7 @@ std::vector<SurfaceId> identitySurfaces()
 } // namespace
 
 // ---------------------------------------------------------------------
-// 1. resetScratch() clears scratch-owned state only.
+// 1. reset() clears scratch-owned state only.
 // ---------------------------------------------------------------------
 
 BOOST_AUTO_TEST_CASE(ResetScratchClearsScratchOnlyTimeFrameContentSurvives)
@@ -228,10 +228,10 @@ BOOST_AUTO_TEST_CASE(ResetScratchClearsScratchOnlyTimeFrameContentSurvives)
   BOOST_REQUIRE_EQUAL(frame.getPrimaryVertices().size(), 1u);
   BOOST_REQUIRE_EQUAL(frame.getCommonTracks().size(), 1u);
 
-  scratch.resetScratch();
+  scratch.reset();
 
   BOOST_CHECK_EQUAL(scratch.getTotalClusters(), 0);
-  // resetScratch() must never wipe or mutate TimeFrame: its populated
+  // reset() must never wipe or mutate TimeFrame: its populated
   // content survives exactly, byte for byte.
   BOOST_CHECK_EQUAL(frame.getPrimaryVertices().size(), 1u);
   BOOST_CHECK_EQUAL(frame.getCommonTracks().size(), 1u);
@@ -285,7 +285,7 @@ BOOST_AUTO_TEST_CASE(TwoScratchesOneFrameResettingOneLeavesTheOtherAndTheFrameUn
   BOOST_REQUIRE_GT(itsScratch.getTotalClusters(), 0);
   BOOST_REQUIRE_GT(mftScratch.getTotalClusters(), 0);
 
-  itsScratch.resetScratch();
+  itsScratch.reset();
 
   BOOST_CHECK_EQUAL(itsScratch.getTotalClusters(), 0);
   // The MFT scratch, bound to the SAME shared TimeFrame, is completely

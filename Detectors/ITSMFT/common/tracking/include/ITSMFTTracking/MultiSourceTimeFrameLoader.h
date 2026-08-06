@@ -104,7 +104,6 @@ class MultiSourceTimeFrameLoader
   // a layer count, or a fixed source position.
   static LoadSourcesResult loadEvent(TimeFrame& frame, gsl::span<const AtomicLoadBinding> bindings,
                                      SurfaceCatalogView catalog, const o2::InteractionRecord& origin);
-
 };
 
 } // namespace o2::itsmft::tracking

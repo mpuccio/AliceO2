@@ -377,7 +377,7 @@ void exerciseEnabledLifecycle(o2::detectors::DetID::ID detector, SurfaceKind kin
   BOOST_CHECK(snapshotCovariance(rig.frame, rig.tf) == loaded);
   checkRepresentationsAligned(rig.frame, rig.tf);
 
-  // resetTimeFrameEvent() (Gate 4 B3.1's owner-level reset: resetScratch()
+  // resetTimeFrameEvent() (Gate 4 B3.1's owner-level reset: reset()
   // then frame.wipe()) clears event state but preserves the configured
   // layout. Reloading and initializing the same event starts again from one
   // decoded increment, never from the previous compatibility copy.

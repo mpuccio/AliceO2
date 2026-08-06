@@ -303,7 +303,14 @@ BOOST_AUTO_TEST_CASE(combined_owner_load_keeps_detector_backfills_separate)
   configureScratchFromPlan(itsScratch, itsSurfaces.size());
   configureScratchFromPlan(mftScratch, mftSurfaces.size());
   const SurfaceCatalogView view{catalog.data(), static_cast<uint32_t>(catalog.size())};
-  BOOST_REQUIRE(MultiSourceTimeFrameLoader::loadITSAndMFT(frame, itsScratch, mftScratch, itsSource, mftSource, view, {50, 5}).ok());
+  MultiSourceTimeFrameLoader::LoadTargetImplSurface itsTarget{itsScratch};
+  MultiSourceTimeFrameLoader::LoadTargetImplSurface mftTarget{mftScratch};
+  const std::array<MultiSourceTimeFrameLoader::AtomicLoadBinding, 2> bindings{
+    MultiSourceTimeFrameLoader::AtomicLoadBinding{itsSource, itsTarget},
+    MultiSourceTimeFrameLoader::AtomicLoadBinding{mftSource, mftTarget}};
+  BOOST_REQUIRE(MultiSourceTimeFrameLoader::loadEvent(
+                  frame, gsl::span<const MultiSourceTimeFrameLoader::AtomicLoadBinding>{bindings}, view, {50, 5})
+                  .ok());
   BOOST_CHECK_EQUAL(frame.getNormalizedFrame().getSources().size(), 2u);
   BOOST_CHECK_EQUAL(frame.getNormalizedFrame().getSurfaceMeasurements(SurfaceId{0}).size(), 2u);
   BOOST_CHECK_EQUAL(frame.getNormalizedFrame().getSurfaceMeasurements(SurfaceId{static_cast<uint16_t>(ITSNLayers)}).size(), 2u);
@@ -312,20 +319,29 @@ BOOST_AUTO_TEST_CASE(combined_owner_load_keeps_detector_backfills_separate)
   BOOST_CHECK(frame.getNormalizedFrame().getSurfaceMeasurements(SurfaceId{0})[0].cluster.source == ClusterSourceId{0});
   BOOST_CHECK(frame.getNormalizedFrame().getSurfaceMeasurements(SurfaceId{static_cast<uint16_t>(ITSNLayers)})[0].cluster.source == ClusterSourceId{1});
 
-  // A detector-local scratch reset cannot clear the owner or the other bridge.
-  itsScratch.resetScratch();
+  // A detector-local scratch reset cannot clear the owner or the other scratch.
+  itsScratch.reset();
   BOOST_CHECK(itsScratch.empty());
   BOOST_CHECK(!mftScratch.empty());
   BOOST_CHECK_EQUAL(frame.getNormalizedFrame().getSources().size(), 2u);
 
   // A malformed replacement is rejected before the no-throw three-owner
-  // commit; the still-live MFT bridge and shared normalized owner survive.
+  // commit; the still-live MFT scratch and shared normalized owner survive.
   auto malformedMFT = mftSource;
   malformedMFT.patterns = {};
-  BOOST_CHECK(!MultiSourceTimeFrameLoader::loadITSAndMFT(frame, itsScratch, mftScratch, itsSource, malformedMFT, view, {50, 5}).ok());
+  MultiSourceTimeFrameLoader::LoadTargetImplSurface retryItsTarget{itsScratch};
+  MultiSourceTimeFrameLoader::LoadTargetImplSurface retryMftTarget{mftScratch};
+  const std::array<MultiSourceTimeFrameLoader::AtomicLoadBinding, 2> retryBindings{
+    MultiSourceTimeFrameLoader::AtomicLoadBinding{itsSource, retryItsTarget},
+    MultiSourceTimeFrameLoader::AtomicLoadBinding{malformedMFT, retryMftTarget}};
+  BOOST_CHECK(!MultiSourceTimeFrameLoader::loadEvent(
+                 frame, gsl::span<const MultiSourceTimeFrameLoader::AtomicLoadBinding>{retryBindings}, view, {50, 5})
+                 .ok());
   BOOST_CHECK(!mftScratch.empty());
   BOOST_CHECK_EQUAL(frame.getNormalizedFrame().getSources().size(), 2u);
-  MultiSourceTimeFrameLoader::resetITSAndMFTEvent(frame, itsScratch, mftScratch);
+  itsScratch.reset();
+  mftScratch.reset();
+  frame.wipe();
   BOOST_CHECK(mftScratch.empty());
   BOOST_CHECK(frame.getNormalizedFrame().getSources().empty());
 }

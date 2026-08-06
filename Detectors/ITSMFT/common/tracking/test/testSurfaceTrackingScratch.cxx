@@ -227,7 +227,7 @@ BOOST_AUTO_TEST_CASE(ResetClearsWorkingStateWithoutMutatingAPopulatedTimeFrameOr
 
   // Vector-of-bounded_vector (Group A/B outer) containers: outer element
   // count -- the adopted plan size -- survives reset(); only each element's
-  // *contents* are cleared. Mirrors SurfaceTrackingScratch::resetScratch()
+  // *contents* are cleared. Mirrors SurfaceTrackingScratch::reset()
   // exactly (it never shrinks its own NLayers-wide outer arrays either).
   BOOST_CHECK_EQUAL(scratch.mClusters.size(), chain.nOwnedSurfaces());
   BOOST_CHECK(scratch.mClusters[0].empty());
@@ -238,7 +238,7 @@ BOOST_AUTO_TEST_CASE(ResetClearsWorkingStateWithoutMutatingAPopulatedTimeFrameOr
   BOOST_CHECK_EQUAL(scratch.getNCells(), chain.nCells());
 
   // Flat bounded_vector (Group A) containers: fully cleared to empty, not
-  // preserved at the adopted plan size -- mirrors resetScratch()'s own
+  // preserved at the adopted plan size -- mirrors reset()'s
   // deepVectorClear(mBogusClusters) exactly.
   BOOST_CHECK_EQUAL(scratch.mBogusClusters.size(), 0u);
   BOOST_CHECK_EQUAL(scratch.mPositionResolution.size(), 0u);
