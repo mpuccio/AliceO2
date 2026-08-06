@@ -453,8 +453,8 @@ struct RigT {
     const auto& orderedSurfaces = graph.getOrderedSurfaces();
     auto& workspace = frame.getWorkspace(ClusterSourceId{0});
     const auto result = workspace.loadNormalizedSource(frame, decoder, origin, timing, f.clusters, f.patterns, f.rofs, &dict(),
-                                                f.labels.getIndexedSize() > 0 ? &f.labels : nullptr, o2::detectors::DetID::ITS,
-                                                gsl::span<const SurfaceId>{orderedSurfaces}, graph.getSurfaceCatalog());
+                                                       f.labels.getIndexedSize() > 0 ? &f.labels : nullptr, o2::detectors::DetID::ITS,
+                                                       gsl::span<const SurfaceId>{orderedSurfaces}, graph.getSurfaceCatalog());
     BOOST_REQUIRE(result.ok());
 
     // TrackerTraits::computeLayerTracklets() reads per-layer ROF counts

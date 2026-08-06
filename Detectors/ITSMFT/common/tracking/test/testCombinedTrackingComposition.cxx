@@ -379,9 +379,9 @@ struct StandaloneRun {
     const std::vector<ROFRecord> rofs{ROFRecord{{100, 5}, 0, 0, static_cast<int>(compact.size())}};
     PrescribedDecoder decoder{det, kind, decoded};
     const auto load = scratch->loadNormalizedSource(frame, decoder, o2::InteractionRecord{50, 5}, ROFTimingConfig{40, 0, 0, 0},
-                                                   compact, patterns, rofs, &dict(), nullptr, det,
-                                                   gsl::span<const SurfaceId>{frame.getGraph(0).getOrderedSurfaces()},
-                                                   frame.getGraph(0).getSurfaceCatalog());
+                                                    compact, patterns, rofs, &dict(), nullptr, det,
+                                                    gsl::span<const SurfaceId>{frame.getGraph(0).getOrderedSurfaces()},
+                                                    frame.getGraph(0).getSurfaceCatalog());
     BOOST_REQUIRE(load.ok());
 
     o2::its::LayerTiming layerTiming{};

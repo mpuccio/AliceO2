@@ -352,7 +352,7 @@ void ITSMFTTrackingInterface<NLayers>::loadTimeFrame(gsl::span<const o2::itsmft:
   const auto orderedSurfaces = binding->getOrderedSurfaces();
   auto& scratch = mFrame.getWorkspace(ClusterSourceId{0});
   const auto result = scratch.loadNormalizedSource(mFrame, *mClusterDecoder, origin, timing, clusters, patterns, rofs, mDict, labels, DetId,
-                                                    orderedSurfaces, mFrame.getGraph(0).getSurfaceCatalog());
+                                                     orderedSurfaces, mFrame.getGraph(0).getSurfaceCatalog());
   if (!result.ok()) {
     if (isRecoverableLoadError(result.error, result.timingDetail)) {
       throw RecoverableLoadFailure{result};
