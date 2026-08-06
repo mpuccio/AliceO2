@@ -48,7 +48,14 @@
   },
 
   "replay": {
-    "replayDirs": ["warmup", "canonical-1", "canonical-2", "canonical-3", "canonical-4", "parallel-1"],
+    "replayDirs": [
+      "warmup",
+      "canonical-1",
+      "canonical-2",
+      "canonical-3",
+      "canonical-4",
+      "parallel-1"
+    ],
     "replayDirsPath": "/private/tmp/o2-itsmft-gate0/replay-common-ca/ (external, not committed; separate directory tree from the legacy baseline's fixture-20ev/replay/ -- never wrote into that directory)",
     "metricsPath": "/private/tmp/o2-itsmft-gate0/metrics-common-ca/*.json (external, not committed; separate directory tree from the legacy baseline's metrics/ -- never wrote into that directory)",
     "script": "Detectors/ITSMFT/common/tracking/test/gate0-baseline/replay_tracking_common_ca.sh",

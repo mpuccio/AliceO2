@@ -1,6 +1,6 @@
 # Post-M7 cleanup implementation plan
 
-- Status: L0 complete; L1 remains the next authorized slice
+- Status: L1 complete; L2 remains the next authorized slice
 - Date: 2026-08-06
 - Architecture source: [post-M7 intentionality audit](0009-post-m7-intentionality-cleanup-audit.md)
 - Implementation owner: Luna agents under maintainer review
@@ -216,6 +216,13 @@ filename, include, alias, declaration, or CMake entry remains in common
 tracking.
 
 **Gate:** R plus a public-header compile/dependency guard.
+
+**Status: complete (2026-08-06).** `Tracker.h` and `Tracker.cxx` are now the
+single implementation pair. Direct ITS/MFT adapter includes, CMake sources,
+dependency guards, and the failure-contract fixture use the canonical names;
+the old files and forwarding relationship are deleted. The focused guard
+checks the old filenames, includes, standalone identifier, and CMake entries.
+The validation record is [L1 canonical Tracker validation](../validation/l1-canonical-tracker.md).
 
 ### L2 — remove dead scratch and fixed-source forwarding residue
 
