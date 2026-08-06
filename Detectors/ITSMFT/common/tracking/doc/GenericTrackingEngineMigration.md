@@ -10,6 +10,7 @@ M7c topology/ROF ownership: [runtime topology and ROF ownership](design/0005-m7c
 M7d non-templated core: [runtime-plan Tracker/TrackerTraits implementation](design/0006-m7d-nontemplated-tracker-core.md)
 M7e adapter refit/output: [typed refit and output at the adapter boundary](design/0007-m7e-adapter-refit-output.md)
 M7f final cleanup: [redundant runtime-core bridge retirement](design/0008-m7f-final-runtime-core-cleanup.md)
+Post-M7 cleanup audit: [intentionality, ownership, and duplication audit](design/0009-post-m7-intentionality-cleanup-audit.md) — complete; bounded first slice is dead typed-MFT refit/export retirement.
 
 This plan turns the accepted Gate 4 implementation into the ADR 0007 end
 state: one concrete `TrackingEngine::executeEvent()` over ordered
