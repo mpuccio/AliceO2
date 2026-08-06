@@ -180,18 +180,19 @@ BOOST_AUTO_TEST_CASE(AtomicMFTLoadFailureLeavesSharedTimeFrameAndBothParticipant
   const auto mftSource = makeEmptySource(ClusterSourceId{1}, o2::detectors::DetID::MFT, ITSNLayers, MFTNLayers, mftLayerToSurfaceStorage, MFTNLayers - 1);
 
   BOOST_REQUIRE(!participants.validateSources(itsSource, mftSource).has_value());
-  const auto bindings = participants.loadBindings(itsSource, mftSource);
-  const auto result = MultiSourceTimeFrameLoader::loadEvent(
-    frame, gsl::span<const MultiSourceTimeFrameLoader::AtomicLoadBinding>{bindings}, participants.catalogView(), o2::InteractionRecord{50, 5});
+  participants.configureRofTables(itsSource, mftSource);
+  auto itsInput = itsSource;
+  auto mftInput = mftSource;
+  itsInput.rofViews = participants.itsParticipant().getROFViews();
+  mftInput.rofViews = participants.mftParticipant().getROFViews();
+  const std::array<ClusterSourceInput, 2> sources{itsInput, mftInput};
+  const auto result = MultiSourceTimeFrameLoader::load(
+    frame, gsl::span<const ClusterSourceInput>{sources}, participants.catalogView(), o2::InteractionRecord{50, 5});
 
   BOOST_REQUIRE(!result.ok());
-  // Both SurfaceTrackingScratch::loadNormalizedSource() and
-  // SurfaceTrackingScratch::loadNormalizedSource() re-stage every source
-  // under a fixed ClusterSourceId{0} (each stage() call rewrites `one.id`
-  // before delegating, mirroring the single-source dense-ID contract), so
-  // the failing stage's reported source is always 0, not the caller-facing
-  // MFT binding position (1).
-  BOOST_CHECK(result.source == ClusterSourceId{0});
+  // The direct loader reports the caller-facing source whose staged decode
+  // failed; the low-level dense-ID adaptation is not part of this result.
+  BOOST_CHECK(result.source == ClusterSourceId{1});
   BOOST_CHECK(result.error == MultiSourceLoadError::InvalidLayerMapping);
 
   // Nothing committed anywhere: not the shared normalized frame, not the
@@ -361,7 +362,6 @@ BOOST_AUTO_TEST_CASE(MFTSidecarAndPublicationExportRemainValidAfterMigration)
   std::vector<SurfaceId> mftLayerToSurfaceStorage;
   const auto itsSource = makeEmptySource(ClusterSourceId{0}, o2::detectors::DetID::ITS, 0, ITSNLayers, itsLayerToSurfaceStorage);
   const auto mftSource = makeEmptySource(ClusterSourceId{1}, o2::detectors::DetID::MFT, ITSNLayers, MFTNLayers, mftLayerToSurfaceStorage);
-  participants.configureRofTables(itsSource, mftSource);
 
   // The MFT compatibility sidecar itself is still reachable and clearable --
   // ownership/lifetime unaffected by the scratch/binding type swap (M6d

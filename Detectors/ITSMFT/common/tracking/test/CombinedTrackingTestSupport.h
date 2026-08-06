@@ -150,13 +150,6 @@ class CombinedTrackingParticipantPlan
     return std::nullopt;
   }
 
-  std::array<MultiSourceTimeFrameLoader::AtomicLoadBinding, 2> loadBindings(const ClusterSourceInput& itsSource,
-                                                                            const ClusterSourceInput& mftSource) noexcept
-  {
-    return {MultiSourceTimeFrameLoader::AtomicLoadBinding{itsSource, mITSParticipant->loadTarget()},
-            MultiSourceTimeFrameLoader::AtomicLoadBinding{mftSource, mMFTParticipant->loadTarget()}};
-  }
-
   SurfaceCatalogView catalogView() const noexcept { return combinedCatalogView(); }
   std::optional<bool> dropTFUponFailureFor(ClusterSourceId source) const noexcept
   {

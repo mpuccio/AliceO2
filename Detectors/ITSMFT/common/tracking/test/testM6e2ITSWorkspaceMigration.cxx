@@ -212,9 +212,14 @@ BOOST_AUTO_TEST_CASE(AtomicITSLoadFailureLeavesSharedTimeFrameAndBothParticipant
   const auto mftSource = makeEmptySource(ClusterSourceId{1}, o2::detectors::DetID::MFT, ITSNLayers, MFTNLayers, mftLayerToSurfaceStorage);
 
   BOOST_REQUIRE(!participants.validateSources(itsSource, mftSource).has_value());
-  const auto bindings = participants.loadBindings(itsSource, mftSource);
-  const auto result = MultiSourceTimeFrameLoader::loadEvent(
-    frame, gsl::span<const MultiSourceTimeFrameLoader::AtomicLoadBinding>{bindings}, participants.catalogView(), o2::InteractionRecord{50, 5});
+  participants.configureRofTables(itsSource, mftSource);
+  auto itsInput = itsSource;
+  auto mftInput = mftSource;
+  itsInput.rofViews = participants.itsParticipant().getROFViews();
+  mftInput.rofViews = participants.mftParticipant().getROFViews();
+  const std::array<ClusterSourceInput, 2> sources{itsInput, mftInput};
+  const auto result = MultiSourceTimeFrameLoader::load(
+    frame, gsl::span<const ClusterSourceInput>{sources}, participants.catalogView(), o2::InteractionRecord{50, 5});
 
   BOOST_REQUIRE(!result.ok());
   BOOST_CHECK(result.source == ClusterSourceId{0});

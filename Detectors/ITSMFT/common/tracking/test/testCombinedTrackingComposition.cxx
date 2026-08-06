@@ -14,7 +14,7 @@
 /// that reproduces the exact same whole-event composition the combined DPL
 /// task's own trackFrame() applies (CombinedCATrackerSpec.cxx) --
 /// the workflow-owned source validation/bindings,
-/// MultiSourceTimeFrameLoader::loadEvent(), TrackingEngine::executeEvent()/
+/// MultiSourceTimeFrameLoader::load(), TrackingEngine::executeEvent()/
 /// resetEvent() -- directly over the real production classes, so this file
 /// exercises the same behavior the DPL task exercises without needing a DPL
 /// ProcessingContext. ParticipantOutcome (TrackingParticipant.h) is reused
@@ -413,7 +413,7 @@ struct StandaloneRun {
 /// the combined DPL task's own trackFrame() applies -- not a shipped
 /// coordinator class (M3 deleted the last one of those), just this file's
 /// own driver so these tests can exercise the workflow-owned application plan
-/// plus TrackingEngine + MultiSourceTimeFrameLoader::loadEvent() together the
+/// plus TrackingEngine + MultiSourceTimeFrameLoader::load() together the
 /// same way the DPL task does, without a DPL ProcessingContext.
 struct CombinedTrackingComposer {
   struct Result {
@@ -482,13 +482,17 @@ struct CombinedTrackingComposer {
     invalidatePublication();
     clearPublicationSidecars();
 
+    participants.configureRofTables(itsSource, mftSource);
+    auto itsInput = itsSource;
+    auto mftInput = mftSource;
+    itsInput.rofViews = participants.itsParticipant().getROFViews();
+    mftInput.rofViews = participants.mftParticipant().getROFViews();
     LoadSourcesResult loadResult;
     if (const auto rejected = participants.validateSources(itsSource, mftSource)) {
       loadResult = *rejected;
     } else {
-      const auto bindings = participants.loadBindings(itsSource, mftSource);
-      loadResult = MultiSourceTimeFrameLoader::loadEvent(
-        *frame, gsl::span<const MultiSourceTimeFrameLoader::AtomicLoadBinding>{bindings}, participants.catalogView(), origin);
+      const std::array<ClusterSourceInput, 2> sources{itsInput, mftInput};
+      loadResult = MultiSourceTimeFrameLoader::load(*frame, gsl::span<const ClusterSourceInput>{sources}, participants.catalogView(), origin);
     }
     if (!loadResult.ok()) {
       const bool errorIsRecoverable = isRecoverableLoadError(loadResult.error, loadResult.timingDetail);
@@ -501,8 +505,6 @@ struct CombinedTrackingComposer {
       invalidatePublication();
       return {outcome, 0, 0};
     }
-
-    participants.configureRofTables(itsSource, mftSource);
 
     const auto eventResult = engine.executeEvent(*frame, participants.schedule());
     if (eventResult.outcome != ParticipantOutcome::Success) {
@@ -749,7 +751,7 @@ BOOST_AUTO_TEST_CASE(LoadFailureResetsWholeCombinedTFExactlyOnceAndInvalidatesPu
   BOOST_REQUIRE(composer.getMFTPublicationExport().has_value());
 
   // Malformed MFT ROF partition (a gap before the second cluster): a
-  // structural load failure MultiSourceTimeFrameLoader::loadEvent() must
+  // structural load failure MultiSourceTimeFrameLoader::load() must
   // reject before touching either scratch or the shared TimeFrame.
   std::vector<ROFRecord> malformedMftRofs{ROFRecord{{100, 5}, 0, 0, 1}, ROFRecord{{140, 5}, 0, 2, 1}};
   mftSource.rofs = malformedMftRofs;
@@ -1033,7 +1035,7 @@ BOOST_AUTO_TEST_CASE(SequentialSuccessfulTFsReplaceStateWithoutStaleAccumulation
   BOOST_REQUIRE_EQUAL(firstCommonTrackCount, firstResult.nITSTracks + firstResult.nMFTTracks);
 
   // No explicit reset between successful TFs: MultiSourceTimeFrameLoader::
-  // loadEvent()'s commitNormalizedFrame() atomically replaces the
+  // load()'s frame commit atomically replaces the
   // normalized frame and clears mCommonTracks/mTrackClusterIndices in the
   // same commit (TimeFrame.h), so the second process() call alone -- on the
   // identical fixture again -- must reproduce the same per-TF count, not

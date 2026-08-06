@@ -61,6 +61,7 @@
 #include <array>
 #include <memory>
 #include <optional>
+#include <tuple>
 #include <type_traits>
 #include <vector>
 
@@ -82,6 +83,7 @@
 #include "ITSMFTTracking/SurfaceMeasurementAdapters.h"
 #include "ITSMFTTracking/TimeFrame.h"
 #include "ITSMFTTracking/TrackingConfigParam.h"
+#include "ITSMFTTracking/detail/SurfacePlanBinding.h"
 #include "SimulationDataFormat/MCCompLabel.h"
 #include "SimulationDataFormat/MCTruthContainer.h"
 
@@ -304,51 +306,60 @@ BOOST_AUTO_TEST_CASE(combined_owner_load_keeps_detector_backfills_separate)
   ClusterSourceInput mftSource{ClusterSourceId{1}, o2::detectors::DetID::MFT, mft.clusters, mft.patterns, mft.rofs, &dict(), &mft.labels,
                                mftSurfaces, timing, &mftDecoder};
   TimeFrame frame;
-  SurfaceTrackingScratch itsScratch;
-  SurfaceTrackingScratch mftScratch;
-  configureScratchFromPlan(itsScratch, itsSurfaces.size());
-  configureScratchFromPlan(mftScratch, mftSurfaces.size());
   const SurfaceCatalogView view{catalog.data(), static_cast<uint32_t>(catalog.size())};
-  MultiSourceTimeFrameLoader::LoadTargetImplSurface itsTarget{itsScratch};
-  MultiSourceTimeFrameLoader::LoadTargetImplSurface mftTarget{mftScratch};
-  const std::array<MultiSourceTimeFrameLoader::AtomicLoadBinding, 2> bindings{
-    MultiSourceTimeFrameLoader::AtomicLoadBinding{itsSource, itsTarget},
-    MultiSourceTimeFrameLoader::AtomicLoadBinding{mftSource, mftTarget}};
-  BOOST_REQUIRE(MultiSourceTimeFrameLoader::loadEvent(
-                  frame, gsl::span<const MultiSourceTimeFrameLoader::AtomicLoadBinding>{bindings}, view, {50, 5})
-                  .ok());
+  auto graph = catalogGraph(view, itsSurfaces);
+  TimeFrame::BindingSet bindings;
+  std::vector<TrackingParameters> parameters;
+  std::vector<TrackingWorkspaceCapacity> capacities;
+  for (const auto [source, ordered, kind] : {std::tuple{ClusterSourceId{0}, gsl::span<const SurfaceId>{itsSurfaces}, SurfaceKind::Cylinder},
+                                              std::tuple{ClusterSourceId{1}, gsl::span<const SurfaceId>{mftSurfaces}, SurfaceKind::Disk}}) {
+    SurfaceMask owned;
+    for (const auto surface : ordered) {
+      owned.set(surface);
+    }
+    auto built = SurfacePlanBinding::build(graph.getView(), source, owned, ordered, kind,
+                                           kind == SurfaceKind::Cylinder ? TransitionPolicyTag::CylinderCylinder : TransitionPolicyTag::DiskDisk);
+    BOOST_REQUIRE(built.ok());
+    capacities.push_back({built.binding->getOrderedSurfaces().size(), built.binding->getGlobalTransitions().size(), built.binding->getGlobalCells().size()});
+    bindings.push_back(std::move(built.binding));
+    parameters.emplace_back();
+  }
+  std::vector<SurfaceGraph> graphs;
+  graphs.push_back(std::move(graph));
+  std::vector<std::vector<TrackingParameters>> allParameters;
+  allParameters.push_back(std::move(parameters));
+  std::vector<TimeFrame::BindingSet> allBindings;
+  allBindings.push_back(std::move(bindings));
+  std::vector<std::vector<TrackingWorkspaceCapacity>> allCapacities;
+  allCapacities.push_back(std::move(capacities));
+  BOOST_REQUIRE(frame.commitConfiguration(std::move(graphs), std::move(allParameters), std::move(allBindings),
+                                          std::move(allCapacities), std::make_shared<BoundedMemoryResource>()));
+  const std::array<ClusterSourceInput, 2> sources{itsSource, mftSource};
+  BOOST_REQUIRE(MultiSourceTimeFrameLoader::load(frame, gsl::span<const ClusterSourceInput>{sources}, view, {50, 5}).ok());
   BOOST_CHECK_EQUAL(frame.getNormalizedFrame().getSources().size(), 2u);
   BOOST_CHECK_EQUAL(frame.getNormalizedFrame().getSurfaceMeasurements(SurfaceId{0}).size(), 2u);
   BOOST_CHECK_EQUAL(frame.getNormalizedFrame().getSurfaceMeasurements(SurfaceId{static_cast<uint16_t>(ITSNLayers)}).size(), 2u);
-  BOOST_CHECK_EQUAL(itsScratch.getTotalClusters(), static_cast<int>(its.clusters.size()));
-  BOOST_CHECK_EQUAL(mftScratch.getTotalClusters(), static_cast<int>(mft.clusters.size()));
+  BOOST_CHECK_EQUAL(frame.getWorkspace(ClusterSourceId{0}).getTotalClusters(), static_cast<int>(its.clusters.size()));
+  BOOST_CHECK_EQUAL(frame.getWorkspace(ClusterSourceId{1}).getTotalClusters(), static_cast<int>(mft.clusters.size()));
   BOOST_CHECK(frame.getNormalizedFrame().getSurfaceMeasurements(SurfaceId{0})[0].cluster.source == ClusterSourceId{0});
   BOOST_CHECK(frame.getNormalizedFrame().getSurfaceMeasurements(SurfaceId{static_cast<uint16_t>(ITSNLayers)})[0].cluster.source == ClusterSourceId{1});
 
-  // A detector-local scratch reset cannot clear the owner or the other scratch.
-  itsScratch.reset();
-  BOOST_CHECK(itsScratch.empty());
-  BOOST_CHECK(!mftScratch.empty());
-  BOOST_CHECK_EQUAL(frame.getNormalizedFrame().getSources().size(), 2u);
+  // Frame reset clears both workspaces and normalized ownership together.
+  frame.resetEvent();
+  BOOST_CHECK(frame.getWorkspace(ClusterSourceId{0}).empty());
+  BOOST_CHECK(frame.getWorkspace(ClusterSourceId{1}).empty());
+  BOOST_CHECK_EQUAL(frame.getNormalizedFrame().getSources().size(), 0u);
 
   // A malformed replacement is rejected before the no-throw three-owner
   // commit; the still-live MFT scratch and shared normalized owner survive.
   auto malformedMFT = mftSource;
   malformedMFT.patterns = {};
-  MultiSourceTimeFrameLoader::LoadTargetImplSurface retryItsTarget{itsScratch};
-  MultiSourceTimeFrameLoader::LoadTargetImplSurface retryMftTarget{mftScratch};
-  const std::array<MultiSourceTimeFrameLoader::AtomicLoadBinding, 2> retryBindings{
-    MultiSourceTimeFrameLoader::AtomicLoadBinding{itsSource, retryItsTarget},
-    MultiSourceTimeFrameLoader::AtomicLoadBinding{malformedMFT, retryMftTarget}};
-  BOOST_CHECK(!MultiSourceTimeFrameLoader::loadEvent(
-                 frame, gsl::span<const MultiSourceTimeFrameLoader::AtomicLoadBinding>{retryBindings}, view, {50, 5})
-                 .ok());
-  BOOST_CHECK(!mftScratch.empty());
-  BOOST_CHECK_EQUAL(frame.getNormalizedFrame().getSources().size(), 2u);
-  itsScratch.reset();
-  mftScratch.reset();
+  const std::array<ClusterSourceInput, 2> retrySources{itsSource, malformedMFT};
+  BOOST_CHECK(!MultiSourceTimeFrameLoader::load(frame, gsl::span<const ClusterSourceInput>{retrySources}, view, {50, 5}).ok());
+  BOOST_CHECK(frame.getWorkspace(ClusterSourceId{1}).empty());
+  BOOST_CHECK_EQUAL(frame.getNormalizedFrame().getSources().size(), 0u);
   frame.resetEvent();
-  BOOST_CHECK(mftScratch.empty());
+  BOOST_CHECK(frame.getWorkspace(ClusterSourceId{1}).empty());
   BOOST_CHECK(frame.getNormalizedFrame().getSources().empty());
 }
 
