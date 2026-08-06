@@ -310,7 +310,7 @@ float ITSMFTTrackingInterface<NLayers>::processTimeFrame(gsl::span<const o2::its
   } catch (const BoundedMemoryResourceN::MemoryLimitExceeded& err) {
     // Recoverable, per-TF resource failure during loading -- same
     // classification/gating as the identical catch clause in
-    // Tracker::clustersToTracks() (CATracker.cxx).
+    // Tracker::clustersToTracks() (Tracker.cxx).
     LOGP(error, "{} CA loading exceeded memory limit: {}", detName<DetId>(), err.what());
     resetEvent();
     if (mTrackParams[0].DropTFUponFailure) {

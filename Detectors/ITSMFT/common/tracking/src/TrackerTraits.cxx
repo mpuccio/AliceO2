@@ -1707,7 +1707,7 @@ void TrackerTraits::findRoadsForPolicy(const int iteration,
   // SurfaceId, cached once per
   // initialiseTimeFrame() call and reused unchanged across every startLevel
   // pass below and across every repeated findRoads() call in the
-  // PerPrimaryVertexProcessing loop (CATracker.cxx). StartLayerMask itself
+  // PerPrimaryVertexProcessing loop (Tracker.cxx). StartLayerMask itself
   // remains an adapter configuration/layout-construction input (see
   // positionalSurfaceMask() in TimeFrame.cxx and validateSparsePlan()) --
   // it is simply no longer read here. Each returned CellTopologyId is a

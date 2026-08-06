@@ -35,7 +35,7 @@
 #include <oneapi/tbb/task_arena.h>
 
 #include "ITSMFTTracking/DetectorPublicationAdapter.h"
-#include "ITSMFTTracking/CATracker.h"
+#include "ITSMFTTracking/Tracker.h"
 #include "ITSMFTTracking/Configuration.h"
 #include "ITSMFTTracking/DetectorLayoutSet.h"
 #include "ITSMFTTracking/ITSSharedClusterCompatibility.h"

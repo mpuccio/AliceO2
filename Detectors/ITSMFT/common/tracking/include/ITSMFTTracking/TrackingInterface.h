@@ -127,7 +127,7 @@ class ITSMFTTrackingInterface : private MFTPublicationCompatibilityOwner<NLayers
   /// - Recoverable failure (malformed per-TF loading input, or a per-TF
   ///   resource-exhaustion exception) with DropTFUponFailure=true: the
   ///   TimeFrame is fully wiped first, then this returns exactly
-  ///   kDroppedTimeFrameResult (see CATracker.h); nothing was published for
+  ///   kDroppedTimeFrameResult (see Tracker.h); nothing was published for
   ///   this TF. onTrackingFinished()/onTimeFrameLoaded() are not both
   ///   called in this case -- see loadTimeFrame()/runTracking() for which
   ///   ran.
@@ -137,7 +137,7 @@ class ITSMFTTrackingInterface : private MFTPublicationCompatibilityOwner<NLayers
   ///   failure with DropTFUponFailure=false: the TimeFrame is fully wiped,
   ///   then the failure is rethrown (by its original type for an
   ///   unclassified exception; see TimeFrameLoadFailure.h for the loading
-  ///   boundary's typed exceptions and CATracker.h for the CA-tracking
+  ///   boundary's typed exceptions and Tracker.h for the CA-tracking
   ///   ones). No output is created on this path.
   float processTimeFrame(gsl::span<const o2::itsmft::ROFRecord> rofs,
                          gsl::span<const o2::itsmft::CompClusterExt> clusters,

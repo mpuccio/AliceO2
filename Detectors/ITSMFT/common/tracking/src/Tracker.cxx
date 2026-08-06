@@ -9,11 +9,11 @@
 // granted to it by virtue of its status as an Intergovernmental Organization
 // or submit itself to any jurisdiction.
 ///
-/// \file CATracker.cxx
+/// \file Tracker.cxx
 /// \brief
 ///
 
-#include "ITSMFTTracking/CATracker.h"
+#include "ITSMFTTracking/Tracker.h"
 
 #include <algorithm>
 

@@ -54,11 +54,11 @@ namespace o2::itsmft::tracking
 // needed.
 struct TimeFrame;
 
-// Reuses TrackingOutcome's (CATracker.h) three-value vocabulary --
+// Reuses TrackingOutcome's three-value vocabulary from Tracker.h --
 // Success; RecoverableDropped, a per-TF data failure a participant's own
 // policy opted to drop; Structural, everything else, including any
 // exception (see TrackingEngine::executeEvent()) -- but redeclares it here
-// rather than including either CATracker.h or a concrete application
+// rather than including Tracker.h or a concrete application
 // participant: both transitively pull in
 // the implementation workspace/TrackerTraits.h/TimeFrame.h/
 // SurfacePlanBinding.h, exactly the headers this public contract must

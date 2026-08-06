@@ -46,7 +46,7 @@ o2_add_library(ITSMFTTracking
                        src/IndexTableConfiguration.cxx
                        src/DetectorLayoutBuilder.cxx
                        src/DetectorLayoutSet.cxx
-                       src/CATracker.cxx
+                       src/Tracker.cxx
                        src/TrackingInterface.cxx
                        src/MFTFwdTrackHelpers.cxx
                        src/MultiSourceFrame.cxx

@@ -164,7 +164,7 @@ template <int NLayers>
 ParticipantTrackingResult SurfacePlanTrackingParticipant<NLayers>::track(TimeFrame& frame)
 {
   // clustersToTracks() itself only ever *returns* Success or
-  // RecoverableDropped (CATracker.h); Structural always escapes as a thrown
+  // RecoverableDropped (Tracker.h); Structural always escapes as a thrown
   // exception instead, left uncaught here for TrackingEngine::executeEvent
   // ()'s own try/catch to classify -- same division of responsibility the
   // coordinator's process() already relied on before this slice.
