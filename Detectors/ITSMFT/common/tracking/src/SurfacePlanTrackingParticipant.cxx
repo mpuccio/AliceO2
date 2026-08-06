@@ -22,12 +22,6 @@ template <int NLayers>
 SurfacePlanTrackingParticipant<NLayers>::SurfacePlanTrackingParticipant(ParticipantId id, ClusterSourceId source)
   : mId{id}, mSource{source}, mTracker(&mTraits)
 {
-  if constexpr (DetId == o2::detectors::DetID::ITS) {
-    mDetectorPublicationAdapter.adoptITSSharedClusterCompatibility(&static_cast<ITSSharedClusterCompatibilityOwner<NLayers>&>(*this).sidecar);
-  }
-  if constexpr (DetId == o2::detectors::DetID::MFT) {
-    mDetectorPublicationAdapter.adoptMFTPublicationCompatibility(&static_cast<MFTPublicationCompatibilityOwner<NLayers>&>(*this).sidecar);
-  }
 }
 
 template <int NLayers>
@@ -67,50 +61,26 @@ void SurfacePlanTrackingParticipant<NLayers>::setNThreads(int n)
 }
 
 template <int NLayers>
-void SurfacePlanTrackingParticipant<NLayers>::configureRofTables(const ROFTimingConfig& timing, uint32_t nROFsTF)
+void SurfacePlanTrackingParticipant<NLayers>::setROFViews(RuntimeROFViews views) noexcept
 {
-  o2::its::LayerTiming layerTiming{};
-  layerTiming.mNROFsTF = nROFsTF;
-  layerTiming.mROFLength = timing.rofLength;
-  layerTiming.mROFDelay = timing.rofDelay;
-  layerTiming.mROFBias = timing.rofBias;
-  layerTiming.mROFAddTimeErr = timing.rofAddTimeErr;
-
-  // Build the frozen fixed-capacity tables at this application-adapter edge.
-  // Only their non-owning runtime views cross into the common scratch; no
-  // detector-shaped table or layer-count dispatcher is retained there.
-  o2::its::ROFOverlapTable<NLayers> rofTable;
-  for (int layer = 0; layer < NLayers; ++layer) {
-    rofTable.defineLayer(layer, layerTiming);
+  if (mFrame != nullptr) {
+    getScratch().setROFViews(views);
   }
-  rofTable.init();
+}
 
-  o2::its::ROFVertexLookupTable<NLayers> vtxTable;
-  for (int layer = 0; layer < NLayers; ++layer) {
-    vtxTable.defineLayer(layer, layerTiming);
+template <int NLayers>
+void SurfacePlanTrackingParticipant<NLayers>::clearROFViews() noexcept
+{
+  if (mFrame != nullptr) {
+    getScratch().setROFViews({});
   }
-  vtxTable.init();
-
-  o2::its::ROFMaskTable<NLayers> mask{rofTable};
-  mask.resetMask();
-  for (int layer = 0; layer < NLayers; ++layer) {
-    mask.setROFsEnabled(layer, 0, static_cast<int>(nROFsTF), 1);
-  }
-  mROFOverlapTable = std::move(rofTable);
-  mROFVertexLookupTable = std::move(vtxTable);
-  mMultiplicityMask = std::move(mask);
-  getScratch().setROFViews(RuntimeROFViews{mROFOverlapTable.getView(), mROFVertexLookupTable.getView(), mMultiplicityMask.getView(), mUPCMask.getView()});
 }
 
 template <int NLayers>
 void SurfacePlanTrackingParticipant<NLayers>::clearCompatibility() noexcept
 {
-  mDetectorPublicationAdapter.reset();
-  if constexpr (DetId == o2::detectors::DetID::ITS) {
-    static_cast<ITSSharedClusterCompatibilityOwner<NLayers>&>(*this).sidecar.clear();
-  }
-  if constexpr (DetId == o2::detectors::DetID::MFT) {
-    static_cast<MFTPublicationCompatibilityOwner<NLayers>&>(*this).sidecar.clear();
+  if (mDetectorPublicationAdapter != nullptr) {
+    mDetectorPublicationAdapter->reset();
   }
 }
 
@@ -133,7 +103,10 @@ bool SurfacePlanTrackingParticipant<NLayers>::completeAccepted(gsl::span<const T
                                                                const SurfaceTrackingScratch& scratch,
                                                                bool final)
 {
-  return mDetectorPublicationAdapter.completeAccepted(candidates, params, scratch, final);
+  if (mDetectorPublicationAdapter == nullptr) {
+    return true;
+  }
+  return mDetectorPublicationAdapter->completeAccepted(candidates, params, scratch, final);
 }
 
 template <int NLayers>
@@ -190,19 +163,13 @@ std::optional<ParticipantPublicationExport> SurfacePlanTrackingParticipant<NLaye
 template <int NLayers>
 const ITSSharedClusterCompatibility* SurfacePlanTrackingParticipant<NLayers>::getITSSharedClusterCompatibility() const noexcept
 {
-  if constexpr (DetId == o2::detectors::DetID::ITS) {
-    return &static_cast<const ITSSharedClusterCompatibilityOwner<NLayers>&>(*this).sidecar;
-  }
-  return nullptr;
+  return mDetectorPublicationAdapter == nullptr ? nullptr : mDetectorPublicationAdapter->getITSSharedClusterCompatibility();
 }
 
 template <int NLayers>
 const MFTPublicationCompatibility* SurfacePlanTrackingParticipant<NLayers>::getMFTPublicationCompatibility() const noexcept
 {
-  if constexpr (DetId == o2::detectors::DetID::MFT) {
-    return &static_cast<const MFTPublicationCompatibilityOwner<NLayers>&>(*this).sidecar;
-  }
-  return nullptr;
+  return mDetectorPublicationAdapter == nullptr ? nullptr : mDetectorPublicationAdapter->getMFTPublicationCompatibility();
 }
 
 template class SurfacePlanTrackingParticipant<ITSNLayers>;

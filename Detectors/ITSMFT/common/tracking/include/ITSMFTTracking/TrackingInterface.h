@@ -40,14 +40,11 @@
 #endif
 #include "ITSMFTTracking/Tracker.h"
 #include "ITSMFTTracking/Configuration.h"
-#include "ITSMFTTracking/ITSSharedClusterCompatibility.h"
-#include "ITSMFTTracking/MFTPublicationCompatibility.h"
 #include "ITSMFTTracking/SurfaceTrackingScratch.h"
 #include "ITSMFTTracking/TimeFrame.h"
 #include "ITSMFTTracking/TrackerTraits.h"
 #include "ITSMFTTracking/detail/SurfacePlanBinding.h"
 #include "ITStracking/BoundedAllocator.h"
-#include "ITStracking/ROFLookupTables.h"
 #include "SimulationDataFormat/MCCompLabel.h"
 #include "SimulationDataFormat/MCTruthContainer.h"
 
@@ -63,32 +60,13 @@ struct CommonTrackPublicationExport {
   gsl::span<const SurfaceId> orderedSurfaces;
 };
 
-template <int NLayers>
-struct MFTPublicationCompatibilityOwner {
-};
-
-template <>
-struct MFTPublicationCompatibilityOwner<o2::mft::constants::mft::LayersNumber> {
-  MFTPublicationCompatibility sidecar;
-};
-
-template <int NLayers>
-struct ITSSharedClusterCompatibilityOwner {
-};
-
-template <>
-struct ITSSharedClusterCompatibilityOwner<ITSNLayers> {
-  ITSSharedClusterCompatibility sidecar;
-};
-
 // Host-facing standalone workflow interface over the same
 // SurfaceTrackingScratch/SurfacePlanBinding model used by the combined
 // participant. NLayers remains an algorithm/storage parameter until M7d.
 template <int NLayers>
-class ITSMFTTrackingInterface : private MFTPublicationCompatibilityOwner<NLayers>, private ITSSharedClusterCompatibilityOwner<NLayers>
+class ITSMFTTrackingInterface
 #ifndef GPUCA_GPUCODE
-  ,
-                                private TrackingOperationAdapter
+  : private TrackingOperationAdapter
 #endif
 {
  public:
@@ -96,12 +74,6 @@ class ITSMFTTrackingInterface : private MFTPublicationCompatibilityOwner<NLayers
                 "ITSMFTTrackingInterface supports ITS (7) and MFT (10) layer counts only");
   static constexpr o2::detectors::DetID::ID DetId = detIdFromNLayers<NLayers>();
 
-  // The standalone detector adapter retains its own fixed-capacity table
-  // builders. Their non-owning views are passed to SurfaceTrackingScratch;
-  // the scratch has no detector-shaped table members or template dispatchers.
-  using ROFOverlapTableN = o2::its::ROFOverlapTable<NLayers>;
-  using ROFVertexLookupTableN = o2::its::ROFVertexLookupTable<NLayers>;
-  using ROFMaskTableN = o2::its::ROFMaskTable<NLayers>;
   using BoundedMemoryResourceN = BoundedMemoryResource;
 
   ITSMFTTrackingInterface(bool useMC, o2::itsmft::TrackingMode::Type mode, bool overrideBeamEst);
@@ -117,6 +89,15 @@ class ITSMFTTrackingInterface : private MFTPublicationCompatibilityOwner<NLayers
   void setTrackingMode(o2::itsmft::TrackingMode::Type mode) { mTrackingMode = mode; }
   void setClusterDictionary(const o2::itsmft::TopologyDictionary* dict) { mDict = dict; }
   void setMeanVertex(const o2::dataformats::MeanVertexObject* v) { mMeanVertex = v; }
+
+#ifndef GPUCA_GPUCODE
+  // The workflow owns the detector timing tables and compatibility sidecar.
+  // The interface borrows this adapter for the lifetime of the workflow task.
+  void bindPublicationAdapter(DetectorPublicationAdapter<NLayers>& adapter) noexcept { mDetectorPublicationAdapter = &adapter; }
+  // Optional borrowed view source for callers that reuse one workflow context
+  // across event resets. No table or timing storage is retained here.
+  void bindROFViews(const RuntimeROFViews& views) noexcept { mBoundROFViews = &views; }
+#endif
 
   void initialise();
 
@@ -144,18 +125,15 @@ class ITSMFTTrackingInterface : private MFTPublicationCompatibilityOwner<NLayers
                          gsl::span<const o2::itsmft::CompClusterExt> clusters,
                          gsl::span<const unsigned char> patterns,
                          const o2::dataformats::MCTruthContainer<o2::MCCompLabel>* labels,
-                         gsl::span<const o2::dataformats::IRFrame> irFrames = {});
+                         gsl::span<const o2::dataformats::IRFrame> irFrames = {},
+                         RuntimeROFViews rofViews = {});
 
   // Owner-level reset clears adapter state and invokes the frame-owned generic
   // event reset exactly once.
   void resetEvent()
   {
-    mPublicationClock.reset();
-    if constexpr (DetId == o2::detectors::DetID::ITS) {
-      static_cast<ITSSharedClusterCompatibilityOwner<NLayers>&>(*this).sidecar.clear();
-    }
-    if constexpr (DetId == o2::detectors::DetID::MFT) {
-      static_cast<MFTPublicationCompatibilityOwner<NLayers>&>(*this).sidecar.clear();
+    if (mDetectorPublicationAdapter != nullptr) {
+      mDetectorPublicationAdapter->reset();
     }
     mFrame.resetEvent();
   }
@@ -166,26 +144,34 @@ class ITSMFTTrackingInterface : private MFTPublicationCompatibilityOwner<NLayers
   const SurfaceTrackingScratch& getScratch() const { return mFrame.getWorkspace(ClusterSourceId{0}); }
   const MFTPublicationCompatibility* getMFTPublicationCompatibility() const noexcept
   {
-    if constexpr (DetId == o2::detectors::DetID::MFT) {
-      return &static_cast<const MFTPublicationCompatibilityOwner<NLayers>&>(*this).sidecar;
-    }
-    return nullptr;
+    return mDetectorPublicationAdapter == nullptr ? nullptr : mDetectorPublicationAdapter->getMFTPublicationCompatibility();
   }
   const ITSSharedClusterCompatibility* getITSSharedClusterCompatibility() const noexcept
   {
-    if constexpr (DetId == o2::detectors::DetID::ITS) {
-      return &static_cast<const ITSSharedClusterCompatibilityOwner<NLayers>&>(*this).sidecar;
-    }
-    return nullptr;
+    return mDetectorPublicationAdapter == nullptr ? nullptr : mDetectorPublicationAdapter->getITSSharedClusterCompatibility();
   }
   const std::vector<o2::itsmft::TrackingParameters>& getTrackingParameters() const { return mFrame.getTrackingParameters(); }
-  std::optional<CommonTrackPublicationExport> getCommonTrackPublicationExport() const
+  std::optional<CommonTrackPublicationExport> getCommonTrackPublicationExport(const ClockTimingPublicationView& clock) const
   {
-    if (!mPublicationClock || !mFrame.isConfigured() || !isActive()) {
+    if (!mFrame.isConfigured() || !isActive()) {
       return std::nullopt;
     }
-    return CommonTrackPublicationExport{DetId, ClusterSourceId{0}, *mPublicationClock,
+    return CommonTrackPublicationExport{DetId, ClusterSourceId{0}, clock,
                                         gsl::span<const SurfaceId>{mFrame.getGraph(0).getOrderedSurfaces()}};
+  }
+  // Test and adapter convenience: derive a value export from the currently
+  // borrowed runtime view. The interface still owns neither the tables nor
+  // the clock state.
+  std::optional<CommonTrackPublicationExport> getCommonTrackPublicationExport() const
+  {
+    if (getScratch().getTotalClusters() == 0) {
+      return std::nullopt;
+    }
+    const auto views = getScratch().getROFViews();
+    if (views.overlap.mLayerCount <= 0) {
+      return std::nullopt;
+    }
+    return getCommonTrackPublicationExport(ClockTimingPublicationView{views.overlap.getClockLayer()});
   }
   bool isActive() const { return mFrame.isConfigured() && !mFrame.getTrackingParameters().empty(); }
   // Actual tbb::task_arena concurrency the tracker was constructed with (0
@@ -206,16 +192,10 @@ class ITSMFTTrackingInterface : private MFTPublicationCompatibilityOwner<NLayers
                      gsl::span<const o2::itsmft::CompClusterExt> clusters,
                      gsl::span<const unsigned char> patterns,
                      const o2::dataformats::MCTruthContainer<o2::MCCompLabel>* labels,
-                     gsl::span<const o2::dataformats::IRFrame> irFrames);
+                     gsl::span<const o2::dataformats::IRFrame> irFrames,
+                     RuntimeROFViews rofViews);
   float runTracking();
-  // Returns the single source-level ROFTimingConfig derived from per-layer
-  // DPLAlpideParam values; throws TimeFrameLoadException if those values are
-  // not uniform across layers (see ROFTimingUniformity.h). Also configures
-  // mTimeFrame's ROF overlap/vertex-lookup tables as a side effect, as before.
-  ROFTimingConfig configureROFLookupTables();
   void configureBeamPosition();
-  void configureROFMask(gsl::span<const o2::itsmft::ROFRecord> rofs,
-                        gsl::span<const o2::dataformats::IRFrame> irFrames);
   void validateROFInput(gsl::span<const o2::itsmft::ROFRecord> rofs) const;
 
 #ifndef GPUCA_GPUCODE
@@ -240,21 +220,13 @@ class ITSMFTTrackingInterface : private MFTPublicationCompatibilityOwner<NLayers
   std::unique_ptr<TrackerTraits> mTrackerTraits;
   std::unique_ptr<Tracker> mTracker;
 #ifndef GPUCA_GPUCODE
-  DetectorPublicationAdapter<NLayers> mDetectorPublicationAdapter;
+  DetectorPublicationAdapter<NLayers>* mDetectorPublicationAdapter = nullptr;
+  const RuntimeROFViews* mBoundROFViews = nullptr;
   std::unique_ptr<ClusterDecoder> mClusterDecoder;
-  std::optional<ClockTimingPublicationView> mPublicationClock;
-  // Adapter-edge ownership for the frozen fixed-capacity timing/mask builders.
-  // The common scratch receives only their non-owning RuntimeROFViews.
-  ROFOverlapTableN mROFOverlapTable;
-  ROFVertexLookupTableN mROFVertexLookupTable;
-  ROFMaskTableN mMultiplicityMask;
-  ROFMaskTableN mUPCMask;
 #endif
   const o2::itsmft::TopologyDictionary* mDict = nullptr;
   const o2::dataformats::MeanVertexObject* mMeanVertex = nullptr;
   TimeFrame mFrame;
-  int mMFTROFrameLengthInBC = 0;
-  bool mMFTTriggered = false;
 };
 
 // M6e2: the standalone ITS common-CA workflow's own interface (o2-its-ca-

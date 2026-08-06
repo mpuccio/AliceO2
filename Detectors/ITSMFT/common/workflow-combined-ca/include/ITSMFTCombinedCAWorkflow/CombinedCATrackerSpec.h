@@ -41,6 +41,7 @@
 #include "Framework/Task.h"
 #include "ITSMFTTracking/ClusterDecoder.h"
 #include "ITSMFTTracking/ClockTimingPublicationView.h"
+#include "ITSMFTTracking/DetectorPublicationAdapter.h"
 #include "ITSMFTTracking/Configuration.h"
 #include "ITSMFTTracking/ClusterSource.h"
 #include "ITSMFTTracking/SurfaceGraph.h"
@@ -52,6 +53,7 @@
 #include "ITSMFTTracking/TrackingEngine.h"
 #include "ITSMFTTracking/TrackingInterface.h"
 #include "ITSMFTTracking/TrackingParticipant.h"
+#include "ITStracking/ROFLookupTables.h"
 
 namespace o2::itsmft::combined
 {
@@ -101,6 +103,7 @@ class CombinedCATrackerDPL : public o2::framework::Task
   std::optional<bool> dropTFUponFailureFor(o2::itsmft::tracking::ClusterSourceId source) const noexcept;
   void configureRofTables(const o2::itsmft::tracking::ClusterSourceInput& itsSource,
                           const o2::itsmft::tracking::ClusterSourceInput& mftSource);
+  void clearRofViews() noexcept;
   void clearPublicationSidecars() noexcept;
   void invalidatePublication() noexcept;
   void markPublicationValid() noexcept;
@@ -111,11 +114,11 @@ class CombinedCATrackerDPL : public o2::framework::Task
   const o2::itsmft::tracking::SurfaceTrackingScratch& getMFTScratch() const noexcept { return mMFTParticipant->getScratch(); }
   const o2::itsmft::tracking::ITSSharedClusterCompatibility& getITSSharedClusterCompatibility() const noexcept
   {
-    return *mITSParticipant->getITSSharedClusterCompatibility();
+    return mITSCompatibility;
   }
   const o2::itsmft::tracking::MFTPublicationCompatibility& getMFTPublicationCompatibility() const noexcept
   {
-    return *mMFTParticipant->getMFTPublicationCompatibility();
+    return mMFTCompatibility;
   }
   gsl::span<const o2::itsmft::tracking::SurfaceId> getITSOrderedSurfaces() const noexcept
   {
@@ -137,6 +140,18 @@ class CombinedCATrackerDPL : public o2::framework::Task
   o2::itsmft::tracking::TimeFrame mFrame;
   std::unique_ptr<o2::itsmft::tracking::SurfacePlanTrackingParticipantITS> mITSParticipant;
   std::unique_ptr<o2::itsmft::tracking::SurfacePlanTrackingParticipantMFT> mMFTParticipant;
+  o2::itsmft::tracking::DetectorPublicationAdapter<o2::itsmft::tracking::ITSNLayers> mITSPublicationAdapter;
+  o2::itsmft::tracking::DetectorPublicationAdapter<o2::itsmft::tracking::MFTNLayers> mMFTPublicationAdapter;
+  o2::itsmft::tracking::ITSSharedClusterCompatibility mITSCompatibility;
+  o2::itsmft::tracking::MFTPublicationCompatibility mMFTCompatibility;
+  o2::its::ROFOverlapTable<o2::itsmft::tracking::ITSNLayers> mITSROFOverlapTable;
+  o2::its::ROFVertexLookupTable<o2::itsmft::tracking::ITSNLayers> mITSROFVertexLookupTable;
+  o2::its::ROFMaskTable<o2::itsmft::tracking::ITSNLayers> mITSMultiplicityMask;
+  o2::its::ROFMaskTable<o2::itsmft::tracking::ITSNLayers> mITSUPCMask;
+  o2::its::ROFOverlapTable<o2::itsmft::tracking::MFTNLayers> mMFTROFOverlapTable;
+  o2::its::ROFVertexLookupTable<o2::itsmft::tracking::MFTNLayers> mMFTROFVertexLookupTable;
+  o2::its::ROFMaskTable<o2::itsmft::tracking::MFTNLayers> mMFTMultiplicityMask;
+  o2::its::ROFMaskTable<o2::itsmft::tracking::MFTNLayers> mMFTUPCMask;
   std::array<o2::itsmft::tracking::TrackingParticipant*, 2> mSchedule{};
   std::optional<o2::itsmft::tracking::ClockTimingPublicationView> mITSClock;
   std::optional<o2::itsmft::tracking::ClockTimingPublicationView> mMFTClock;

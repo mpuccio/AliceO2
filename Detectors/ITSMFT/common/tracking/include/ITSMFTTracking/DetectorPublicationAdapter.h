@@ -32,6 +32,8 @@ class DetectorPublicationAdapter
  public:
   void adoptMFTPublicationCompatibility(MFTPublicationCompatibility*) noexcept {}
   void adoptITSSharedClusterCompatibility(ITSSharedClusterCompatibility*) noexcept {}
+  ITSSharedClusterCompatibility* getITSSharedClusterCompatibility() const noexcept { return nullptr; }
+  MFTPublicationCompatibility* getMFTPublicationCompatibility() const noexcept { return nullptr; }
 
   bool completeAccepted(gsl::span<const TrackingCandidate>,
                         const TrackingParameters&,
@@ -49,6 +51,8 @@ class DetectorPublicationAdapter<ITSNLayers>
  public:
   void adoptMFTPublicationCompatibility(MFTPublicationCompatibility*) noexcept {}
   void adoptITSSharedClusterCompatibility(ITSSharedClusterCompatibility* sidecar) noexcept { mSidecar = sidecar; }
+  ITSSharedClusterCompatibility* getITSSharedClusterCompatibility() const noexcept { return mSidecar; }
+  MFTPublicationCompatibility* getMFTPublicationCompatibility() const noexcept { return nullptr; }
 
   bool completeAccepted(gsl::span<const TrackingCandidate> candidates,
                         const TrackingParameters& params,
@@ -64,7 +68,13 @@ class DetectorPublicationAdapter<ITSNLayers>
     return !final || mSidecar->replaceFromAcceptedResults(candidates, mSharedClusterFlags);
   }
 
-  void reset() noexcept { mSharedClusterFlags.clear(); }
+  void reset() noexcept
+  {
+    mSharedClusterFlags.clear();
+    if (mSidecar != nullptr) {
+      mSidecar->clear();
+    }
+  }
 
  private:
   bool stageSharedClusterFlags(gsl::span<const TrackingCandidate> candidates,
@@ -126,6 +136,8 @@ class DetectorPublicationAdapter<o2::mft::constants::mft::LayersNumber>
  public:
   void adoptMFTPublicationCompatibility(MFTPublicationCompatibility* sidecar) noexcept { mSidecar = sidecar; }
   void adoptITSSharedClusterCompatibility(ITSSharedClusterCompatibility*) noexcept {}
+  ITSSharedClusterCompatibility* getITSSharedClusterCompatibility() const noexcept { return nullptr; }
+  MFTPublicationCompatibility* getMFTPublicationCompatibility() const noexcept { return mSidecar; }
 
   bool completeAccepted(gsl::span<const TrackingCandidate> candidates,
                         const TrackingParameters&,
@@ -143,7 +155,12 @@ class DetectorPublicationAdapter<o2::mft::constants::mft::LayersNumber>
     return mSidecar->replaceFromAcceptedResults(candidates);
   }
 
-  void reset() noexcept {}
+  void reset() noexcept
+  {
+    if (mSidecar != nullptr) {
+      mSidecar->clear();
+    }
+  }
 
  private:
   MFTPublicationCompatibility* mSidecar = nullptr;

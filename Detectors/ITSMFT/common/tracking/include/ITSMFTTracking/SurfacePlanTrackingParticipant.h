@@ -27,20 +27,11 @@
 #include "ITSMFTTracking/Tracker.h"
 #include "ITSMFTTracking/Configuration.h"
 #include "ITSMFTTracking/SurfaceGraph.h"
-#include "ITSMFTTracking/ITSSharedClusterCompatibility.h"
-#include "ITSMFTTracking/MFTPublicationCompatibility.h"
 #include "ITSMFTTracking/ParticipantId.h"
 #include "ITSMFTTracking/SurfaceTrackingScratch.h"
 #include "ITSMFTTracking/TrackerTraits.h"
 #include "ITSMFTTracking/TrackingOperationAdapter.h"
 #include "ITSMFTTracking/detail/SurfacePlanBinding.h"
-// Reused only for the ITSSharedClusterCompatibilityOwner<NLayers>/
-// MFTPublicationCompatibilityOwner<NLayers> template-specialized mixins
-// (empty for the "wrong" NLayers, one real sidecar member for the "right"
-// one) -- the exact same per-NLayers sidecar-ownership mechanism
-// ITSMFTTrackingInterface<NLayers> already uses, reused rather than
-// reinvented.
-#include "ITSMFTTracking/TrackingInterface.h"
 #include "ITSMFTTracking/TrackingParticipant.h"
 
 namespace o2::itsmft::tracking
@@ -48,9 +39,7 @@ namespace o2::itsmft::tracking
 
 template <int NLayers>
 class SurfacePlanTrackingParticipant final : public TrackingParticipant,
-                                             private TrackingOperationAdapter,
-                                             private ITSSharedClusterCompatibilityOwner<NLayers>,
-                                             private MFTPublicationCompatibilityOwner<NLayers>
+                                             private TrackingOperationAdapter
 {
  public:
   static_assert(NLayers == ITSNLayers || NLayers == MFTNLayers,
@@ -74,7 +63,9 @@ class SurfacePlanTrackingParticipant final : public TrackingParticipant,
   void adoptConfiguredFrame(TimeFrame& frame);
   void setBz(float bz);
   void setNThreads(int n);
-  void configureRofTables(const ROFTimingConfig& timing, uint32_t nROFsTF);
+  void bindPublicationAdapter(DetectorPublicationAdapter<NLayers>& adapter) noexcept { mDetectorPublicationAdapter = &adapter; }
+  void setROFViews(RuntimeROFViews views) noexcept;
+  void clearROFViews() noexcept;
 
   // Clears just this participant's publication sidecar. The workflow calls
   // this unconditionally at the top of each trackFrame(): a prior successful
@@ -104,11 +95,6 @@ class SurfacePlanTrackingParticipant final : public TrackingParticipant,
   SurfaceTrackingScratch& getScratch() { return mFrame->getWorkspace(mSource); }
   const SurfaceTrackingScratch& getScratch() const { return mFrame->getWorkspace(mSource); }
   RuntimeROFViews getROFViews() const noexcept { return mFrame == nullptr ? RuntimeROFViews{} : getScratch().getROFViews(); }
-  // Returns nullptr for the "wrong" NLayers instantiation (mirrors
-  // ITSMFTTrackingInterface<NLayers>'s own getITSSharedClusterCompatibility
-  // ()/getMFTPublicationCompatibility() exactly) -- the owning
-  // the owning workflow only ever calls the accessor matching this leg's own
-  // DetId.
   const ITSSharedClusterCompatibility* getITSSharedClusterCompatibility() const noexcept;
   const MFTPublicationCompatibility* getMFTPublicationCompatibility() const noexcept;
 
@@ -134,13 +120,7 @@ class SurfacePlanTrackingParticipant final : public TrackingParticipant,
   TimeFrame* mFrame = nullptr;
   TrackerTraits mTraits;
   Tracker mTracker;
-  DetectorPublicationAdapter<NLayers> mDetectorPublicationAdapter;
-  // Adapter-edge ownership for this leg's fixed-capacity timing/mask tables.
-  // SurfaceTrackingScratch receives only non-owning runtime views.
-  o2::its::ROFOverlapTable<NLayers> mROFOverlapTable;
-  o2::its::ROFVertexLookupTable<NLayers> mROFVertexLookupTable;
-  o2::its::ROFMaskTable<NLayers> mMultiplicityMask;
-  o2::its::ROFMaskTable<NLayers> mUPCMask;
+  DetectorPublicationAdapter<NLayers>* mDetectorPublicationAdapter = nullptr;
   std::shared_ptr<tbb::task_arena> mArena;
   // Engaged only between a successful track() and the next eventReset()
   // (or construction) -- gates publicationExport(), matching

@@ -207,6 +207,10 @@ void CombinedCATrackerDPL::buildParticipantsOnce()
   if (!initialization.ok()) {
     throw std::runtime_error{"Combined ITS+MFT tracker: failed to commit static TimeFrame configuration"};
   }
+  mITSPublicationAdapter.adoptITSSharedClusterCompatibility(&mITSCompatibility);
+  mMFTPublicationAdapter.adoptMFTPublicationCompatibility(&mMFTCompatibility);
+  mITSParticipant->bindPublicationAdapter(mITSPublicationAdapter);
+  mMFTParticipant->bindPublicationAdapter(mMFTPublicationAdapter);
   mMFTParticipant->adoptConfiguredFrame(mFrame);
   mSchedule = {mITSParticipant.get(), mMFTParticipant.get()};
   mITSParticipant->setBz(o2::base::Propagator::Instance()->getNominalBz());
@@ -249,14 +253,46 @@ std::optional<bool> CombinedCATrackerDPL::dropTFUponFailureFor(ClusterSourceId s
 
 void CombinedCATrackerDPL::configureRofTables(const ClusterSourceInput& itsSource, const ClusterSourceInput& mftSource)
 {
-  mITSParticipant->configureRofTables(itsSource.timing, static_cast<uint32_t>(itsSource.rofs.size()));
-  mMFTParticipant->configureRofTables(mftSource.timing, static_cast<uint32_t>(mftSource.rofs.size()));
+  auto configure = [](auto& overlap, auto& vertex, auto& mask, const auto& timing, uint32_t nROFs, int layers) {
+    using LayerTiming = o2::its::LayerTiming;
+    LayerTiming layerTiming{};
+    layerTiming.mNROFsTF = nROFs;
+    layerTiming.mROFLength = timing.rofLength;
+    layerTiming.mROFDelay = timing.rofDelay;
+    layerTiming.mROFBias = timing.rofBias;
+    layerTiming.mROFAddTimeErr = timing.rofAddTimeErr;
+    for (int layer = 0; layer < layers; ++layer) {
+      overlap.defineLayer(layer, layerTiming);
+      vertex.defineLayer(layer, layerTiming);
+    }
+    overlap.init();
+    vertex.init();
+    mask = std::remove_cvref_t<decltype(mask)>{overlap};
+    mask.resetMask();
+    for (int layer = 0; layer < layers; ++layer) {
+      mask.setROFsEnabled(layer, 0, static_cast<int>(nROFs), 1);
+    }
+  };
+  configure(mITSROFOverlapTable, mITSROFVertexLookupTable, mITSMultiplicityMask, itsSource.timing, static_cast<uint32_t>(itsSource.rofs.size()), o2::itsmft::tracking::ITSNLayers);
+  configure(mMFTROFOverlapTable, mMFTROFVertexLookupTable, mMFTMultiplicityMask, mftSource.timing, static_cast<uint32_t>(mftSource.rofs.size()), o2::itsmft::tracking::MFTNLayers);
+  mITSParticipant->setROFViews({mITSROFOverlapTable.getView(), mITSROFVertexLookupTable.getView(), mITSMultiplicityMask.getView(), mITSUPCMask.getView()});
+  mMFTParticipant->setROFViews({mMFTROFOverlapTable.getView(), mMFTROFVertexLookupTable.getView(), mMFTMultiplicityMask.getView(), mMFTUPCMask.getView()});
 }
 
 void CombinedCATrackerDPL::clearPublicationSidecars() noexcept
 {
-  mITSParticipant->clearPublicationSidecar();
-  mMFTParticipant->clearPublicationSidecar();
+  mITSPublicationAdapter.reset();
+  mMFTPublicationAdapter.reset();
+}
+
+void CombinedCATrackerDPL::clearRofViews() noexcept
+{
+  if (mITSParticipant != nullptr) {
+    mITSParticipant->clearROFViews();
+  }
+  if (mMFTParticipant != nullptr) {
+    mMFTParticipant->clearROFViews();
+  }
 }
 
 void CombinedCATrackerDPL::invalidatePublication() noexcept
@@ -264,12 +300,13 @@ void CombinedCATrackerDPL::invalidatePublication() noexcept
   mITSClock.reset();
   mMFTClock.reset();
   mPublicationValid = false;
+  clearRofViews();
 }
 
 void CombinedCATrackerDPL::markPublicationValid() noexcept
 {
-  mITSClock.emplace(mITSParticipant->getScratch().getROFOverlapView().getClockLayer());
-  mMFTClock.emplace(mMFTParticipant->getScratch().getROFOverlapView().getClockLayer());
+  mITSClock.emplace(mITSROFOverlapTable.getView().getClockLayer());
+  mMFTClock.emplace(mMFTROFOverlapTable.getView().getClockLayer());
   mPublicationValid = true;
 }
 
@@ -433,63 +470,74 @@ void CombinedCATrackerDPL::run(ProcessingContext& pc)
   mftSource.decoder = mMFTDecoder.get();
 
   const auto origin = chooseOrigin(itsRofs, mftRofs);
-  const auto outcome = trackFrame(itsSource, mftSource, origin);
+  const auto resetCount = mFrame.getEventResetCount();
+  try {
+    const auto outcome = trackFrame(itsSource, mftSource, origin);
 
-  if (outcome == ParticipantOutcome::RecoverableDropped) {
-    LOGP(error,
-         "Combined ITS+MFT CA tracking recoverably dropped this TF ({} ITS ROFs/{} ITS clusters, {} MFT "
-         "ROFs/{} MFT clusters); publishing nothing and continuing with the next TimeFrame",
-         itsRofs.size(), itsCompClusters.size(), mftRofs.size(), mftCompClusters.size());
-    return;
-  }
-  if (outcome == ParticipantOutcome::Structural) {
-    throw std::runtime_error{"Combined ITS+MFT CA tracking hit a structural failure"};
-  }
+    if (outcome == ParticipantOutcome::RecoverableDropped) {
+      LOGP(error,
+           "Combined ITS+MFT CA tracking recoverably dropped this TF ({} ITS ROFs/{} ITS clusters, {} MFT "
+           "ROFs/{} MFT clusters); publishing nothing and continuing with the next TimeFrame",
+           itsRofs.size(), itsCompClusters.size(), mftRofs.size(), mftCompClusters.size());
+      return;
+    }
+    if (outcome == ParticipantOutcome::Structural) {
+      throw std::runtime_error{"Combined ITS+MFT CA tracking hit a structural failure"};
+    }
 
-  const auto itsExport = getITSPublicationExport();
-  const auto mftExport = getMFTPublicationExport();
-  if (!itsExport || !mftExport) {
-    throw std::runtime_error{"Combined ITS+MFT CommonTrack output publication context is unavailable after a successful trackFrame()"};
-  }
-  const o2::itsmft::tracking::CommonTrackPublicationContext itsContext{
-    itsExport->detector, itsExport->source, itsRofs, itsExport->clock, itsExport->orderedSurfaces};
-  const o2::itsmft::tracking::CommonTrackPublicationContext mftContext{
-    mftExport->detector, mftExport->source, mftRofs, mftExport->clock, mftExport->orderedSurfaces};
+    const auto itsExport = getITSPublicationExport();
+    const auto mftExport = getMFTPublicationExport();
+    if (!itsExport || !mftExport) {
+      throw std::runtime_error{"Combined ITS+MFT CommonTrack output publication context is unavailable after a successful trackFrame()"};
+    }
+    const o2::itsmft::tracking::CommonTrackPublicationContext itsContext{
+      itsExport->detector, itsExport->source, itsRofs, itsExport->clock, itsExport->orderedSurfaces};
+    const o2::itsmft::tracking::CommonTrackPublicationContext mftContext{
+      mftExport->detector, mftExport->source, mftRofs, mftExport->clock, mftExport->orderedSurfaces};
 
-  // Stage both detectors' outputs completely before any pc.outputs() call:
-  // if either staging fails, neither stream is ever requested.
-  o2::itsmft::tracking::CommonTrackOutputAdapterError itsError = o2::itsmft::tracking::CommonTrackOutputAdapterError::None;
-  const auto stagedITS = o2::itsmft::tracking::stageITSCommonTrackOutput(
-    mFrame, itsContext, getITSSharedClusterCompatibility(), mUseMC, itsError);
-  o2::itsmft::tracking::CommonTrackOutputAdapterError mftError = o2::itsmft::tracking::CommonTrackOutputAdapterError::None;
-  const auto stagedMFT = o2::itsmft::tracking::stageMFTCommonTrackOutput(
-    mFrame, mftContext, getMFTPublicationCompatibility(), mUseMC, mftError);
-  if (!stagedITS || !stagedMFT) {
-    throw std::runtime_error{"Combined ITS+MFT CommonTrack output staging failed"};
-  }
+    // Stage both detectors' outputs completely before any pc.outputs() call:
+    // if either staging fails, neither stream is ever requested.
+    o2::itsmft::tracking::CommonTrackOutputAdapterError itsError = o2::itsmft::tracking::CommonTrackOutputAdapterError::None;
+    const auto stagedITS = o2::itsmft::tracking::stageITSCommonTrackOutput(
+      mFrame, itsContext, getITSSharedClusterCompatibility(), mUseMC, itsError);
+    o2::itsmft::tracking::CommonTrackOutputAdapterError mftError = o2::itsmft::tracking::CommonTrackOutputAdapterError::None;
+    const auto stagedMFT = o2::itsmft::tracking::stageMFTCommonTrackOutput(
+      mFrame, mftContext, getMFTPublicationCompatibility(), mUseMC, mftError);
+    if (!stagedITS || !stagedMFT) {
+      throw std::runtime_error{"Combined ITS+MFT CommonTrack output staging failed"};
+    }
 
-  auto& itsTrackROFs = pc.outputs().make<std::vector<o2::itsmft::ROFRecord>>(Output{"ITS", "ITSTrackROF", 0},
-                                                                             stagedITS->trackROFs.begin(), stagedITS->trackROFs.end());
-  auto& itsTracks = pc.outputs().make<std::vector<o2::its::TrackITS>>(Output{"ITS", "TRACKS", 0});
-  itsTracks.assign(stagedITS->tracks.begin(), stagedITS->tracks.end());
-  auto& itsClusIdx = pc.outputs().make<std::vector<int>>(Output{"ITS", "TRACKCLSID", 0});
-  itsClusIdx.assign(stagedITS->clusterIndices.begin(), stagedITS->clusterIndices.end());
-  LOGP(info, "Combined ITS+MFT CA pushed {} ITS tracks in {} ROFs", itsTracks.size(), itsTrackROFs.size());
-  if (mUseMC) {
-    pc.outputs().snapshot(Output{"ITS", "TRACKSMCTR", 0}, stagedITS->labels);
-  }
+    auto& itsTrackROFs = pc.outputs().make<std::vector<o2::itsmft::ROFRecord>>(Output{"ITS", "ITSTrackROF", 0},
+                                                                               stagedITS->trackROFs.begin(), stagedITS->trackROFs.end());
+    auto& itsTracks = pc.outputs().make<std::vector<o2::its::TrackITS>>(Output{"ITS", "TRACKS", 0});
+    itsTracks.assign(stagedITS->tracks.begin(), stagedITS->tracks.end());
+    auto& itsClusIdx = pc.outputs().make<std::vector<int>>(Output{"ITS", "TRACKCLSID", 0});
+    itsClusIdx.assign(stagedITS->clusterIndices.begin(), stagedITS->clusterIndices.end());
+    LOGP(info, "Combined ITS+MFT CA pushed {} ITS tracks in {} ROFs", itsTracks.size(), itsTrackROFs.size());
+    if (mUseMC) {
+      pc.outputs().snapshot(Output{"ITS", "TRACKSMCTR", 0}, stagedITS->labels);
+    }
 
-  auto& mftTrackROFs = pc.outputs().make<std::vector<o2::itsmft::ROFRecord>>(Output{"MFT", "MFTTrackROF", 0},
-                                                                             stagedMFT->trackROFs.begin(), stagedMFT->trackROFs.end());
-  auto& mftTracks = pc.outputs().make<std::vector<o2::mft::TrackMFT>>(Output{"MFT", "TRACKS", 0});
-  mftTracks.assign(stagedMFT->tracks.begin(), stagedMFT->tracks.end());
-  auto& mftClusIdx = pc.outputs().make<std::vector<int>>(Output{"MFT", "TRACKCLSID", 0});
-  mftClusIdx.assign(stagedMFT->clusterIndices.begin(), stagedMFT->clusterIndices.end());
-  auto& mftSeedPatterns = pc.outputs().make<std::vector<uint16_t>>(Output{"MFT", "TRACKSEEDPAT", 0});
-  mftSeedPatterns.assign(stagedMFT->seedPatterns.begin(), stagedMFT->seedPatterns.end());
-  LOGP(info, "Combined ITS+MFT CA pushed {} MFT tracks in {} ROFs", mftTracks.size(), mftTrackROFs.size());
-  if (mUseMC) {
-    pc.outputs().snapshot(Output{"MFT", "TRACKSMCTR", 0}, stagedMFT->labels);
+    auto& mftTrackROFs = pc.outputs().make<std::vector<o2::itsmft::ROFRecord>>(Output{"MFT", "MFTTrackROF", 0},
+                                                                               stagedMFT->trackROFs.begin(), stagedMFT->trackROFs.end());
+    auto& mftTracks = pc.outputs().make<std::vector<o2::mft::TrackMFT>>(Output{"MFT", "TRACKS", 0});
+    mftTracks.assign(stagedMFT->tracks.begin(), stagedMFT->tracks.end());
+    auto& mftClusIdx = pc.outputs().make<std::vector<int>>(Output{"MFT", "TRACKCLSID", 0});
+    mftClusIdx.assign(stagedMFT->clusterIndices.begin(), stagedMFT->clusterIndices.end());
+    auto& mftSeedPatterns = pc.outputs().make<std::vector<uint16_t>>(Output{"MFT", "TRACKSEEDPAT", 0});
+    mftSeedPatterns.assign(stagedMFT->seedPatterns.begin(), stagedMFT->seedPatterns.end());
+    LOGP(info, "Combined ITS+MFT CA pushed {} MFT tracks in {} ROFs", mftTracks.size(), mftTrackROFs.size());
+    if (mUseMC) {
+      pc.outputs().snapshot(Output{"MFT", "TRACKSMCTR", 0}, stagedMFT->labels);
+    }
+    mEngine.resetEvent(mFrame, schedule());
+    invalidatePublication();
+  } catch (...) {
+    if (mFrame.getEventResetCount() == resetCount) {
+      mEngine.resetEvent(mFrame, schedule());
+    }
+    invalidatePublication();
+    throw;
   }
 }
 

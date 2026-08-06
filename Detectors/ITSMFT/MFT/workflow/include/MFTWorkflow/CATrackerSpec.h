@@ -15,12 +15,17 @@
 #define O2_MFT_CATRACKERSPEC_H_
 
 #include <memory>
+#include <optional>
 
 #include "DetectorsBase/GRPGeomHelper.h"
 #include "Framework/DataProcessorSpec.h"
 #include "Framework/Task.h"
 #include "ITSMFTTracking/Configuration.h"
+#include "ITSMFTTracking/ClockTimingPublicationView.h"
+#include "ITSMFTTracking/DetectorPublicationAdapter.h"
+#include "ITSMFTTracking/ROFViews.h"
 #include "ITSMFTTracking/TrackingInterface.h"
+#include "ITStracking/ROFLookupTables.h"
 
 namespace o2::mft
 {
@@ -53,6 +58,8 @@ class CATrackerDPL : public o2::framework::Task
     : mGGCCDBRequest(std::move(gr)), mUseMC(useMC),
       mTracking(useMC, trMode, false)
   {
+    mTracking.bindPublicationAdapter(mPublicationAdapter);
+    mPublicationAdapter.adoptMFTPublicationCompatibility(&mCompatibility);
   }
   ~CATrackerDPL() override = default;
 
@@ -62,11 +69,22 @@ class CATrackerDPL : public o2::framework::Task
 
  private:
   void updateTimeDependentParams(framework::ProcessingContext& pc);
+  void configureROFViews(gsl::span<const o2::itsmft::ROFRecord> rofs,
+                         gsl::span<const o2::dataformats::IRFrame> irFrames);
+  void invalidatePublication() noexcept;
 
   std::shared_ptr<o2::base::GRPGeomRequest> mGGCCDBRequest;
   bool mUseMC = false;
   bool mTrackingInitialised = false;
   o2::itsmft::tracking::ITSMFTTrackingInterfaceMFT mTracking;
+  o2::itsmft::tracking::DetectorPublicationAdapter<o2::itsmft::tracking::MFTNLayers> mPublicationAdapter;
+  o2::itsmft::tracking::MFTPublicationCompatibility mCompatibility;
+  o2::its::ROFOverlapTable<o2::itsmft::tracking::MFTNLayers> mROFOverlapTable;
+  o2::its::ROFVertexLookupTable<o2::itsmft::tracking::MFTNLayers> mROFVertexLookupTable;
+  o2::its::ROFMaskTable<o2::itsmft::tracking::MFTNLayers> mMultiplicityMask;
+  o2::its::ROFMaskTable<o2::itsmft::tracking::MFTNLayers> mUPCMask;
+  std::optional<o2::itsmft::tracking::ClockTimingPublicationView> mPublicationClock;
+  int mMFTROFrameLengthInBC = 0;
 };
 
 o2::framework::DataProcessorSpec getCATrackerSpec(bool useMC, bool useGeom, bool useIRFrames,

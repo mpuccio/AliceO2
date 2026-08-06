@@ -19,6 +19,7 @@
 
 #include <cassert>
 #include <memory>
+#include <optional>
 #include <vector>
 
 #include <gsl/span>
@@ -29,7 +30,11 @@
 #include "Framework/DataProcessorSpec.h"
 #include "Framework/Task.h"
 #include "ITSMFTTracking/Configuration.h"
+#include "ITSMFTTracking/ClockTimingPublicationView.h"
+#include "ITSMFTTracking/DetectorPublicationAdapter.h"
+#include "ITSMFTTracking/ROFViews.h"
 #include "ITSMFTTracking/TrackingInterface.h"
+#include "ITStracking/ROFLookupTables.h"
 #include "SimulationDataFormat/MCCompLabel.h"
 
 namespace o2::its::ca
@@ -126,6 +131,8 @@ class CATrackerDPL : public o2::framework::Task
     : mGGCCDBRequest(std::move(gr)), mUseMC(useMC),
       mTracking(useMC, trMode, false)
   {
+    mTracking.bindPublicationAdapter(mPublicationAdapter);
+    mPublicationAdapter.adoptITSSharedClusterCompatibility(&mCompatibility);
   }
   ~CATrackerDPL() override = default;
 
@@ -135,11 +142,20 @@ class CATrackerDPL : public o2::framework::Task
 
  private:
   void updateTimeDependentParams(framework::ProcessingContext& pc);
+  void configureROFViews(gsl::span<const o2::itsmft::ROFRecord> rofs);
+  void invalidatePublication() noexcept;
 
   std::shared_ptr<o2::base::GRPGeomRequest> mGGCCDBRequest;
   bool mUseMC = false;
   bool mTrackingInitialised = false;
   o2::itsmft::tracking::ITSMFTTrackingInterfaceITS mTracking;
+  o2::itsmft::tracking::DetectorPublicationAdapter<o2::itsmft::tracking::ITSNLayers> mPublicationAdapter;
+  o2::itsmft::tracking::ITSSharedClusterCompatibility mCompatibility;
+  o2::its::ROFOverlapTable<o2::itsmft::tracking::ITSNLayers> mROFOverlapTable;
+  o2::its::ROFVertexLookupTable<o2::itsmft::tracking::ITSNLayers> mROFVertexLookupTable;
+  o2::its::ROFMaskTable<o2::itsmft::tracking::ITSNLayers> mMultiplicityMask;
+  o2::its::ROFMaskTable<o2::itsmft::tracking::ITSNLayers> mUPCMask;
+  std::optional<o2::itsmft::tracking::ClockTimingPublicationView> mPublicationClock;
 };
 
 o2::framework::DataProcessorSpec getCATrackerSpec(bool useMC, bool useGeom, o2::itsmft::TrackingMode::Type trMode);

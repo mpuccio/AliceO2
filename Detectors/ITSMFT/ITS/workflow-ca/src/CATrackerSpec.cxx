@@ -14,12 +14,14 @@
 #include "ITSCAWorkflow/CATrackerSpec.h"
 
 #include <stdexcept>
+#include <array>
 #include <utility>
 #include <vector>
 
 #include <gsl/span>
 
 #include "DataFormatsITSMFT/CompCluster.h"
+#include "DataFormatsITSMFT/DPLAlpideParam.h"
 #include "DataFormatsITSMFT/ROFRecord.h"
 #include "DataFormatsITSMFT/TopologyDictionary.h"
 #include "DetectorsBase/GeometryManager.h"
@@ -29,6 +31,9 @@
 #include "ITSBase/GeometryTGeo.h"
 #include "ITSMFTTracking/Tracker.h"
 #include "ITSMFTTracking/CommonTrackOutputAdapter.h"
+#include "ITSMFTTracking/ROFTimingUniformity.h"
+#include "ITSMFTTracking/TimeFrameLoadFailure.h"
+#include "CommonConstants/LHCConstants.h"
 #include "SimulationDataFormat/MCCompLabel.h"
 #include "SimulationDataFormat/MCTruthContainer.h"
 
@@ -36,6 +41,67 @@ using namespace o2::framework;
 
 namespace o2::its::ca
 {
+
+void CATrackerDPL::configureROFViews(gsl::span<const o2::itsmft::ROFRecord> rofs)
+{
+  const auto& params = mTracking.getTrackingParameters().at(0);
+  const auto& alpParams = o2::itsmft::DPLAlpideParam<o2::detectors::DetID::ITS>::Instance();
+  const int nOrbitsPerTF = o2::base::GRPGeomHelper::getNHBFPerTF();
+  std::array<o2::its::LayerTiming, o2::itsmft::tracking::ITSNLayers> layerTimings{};
+  for (int layer = 0; layer < o2::itsmft::tracking::ITSNLayers; ++layer) {
+    const auto length = alpParams.getROFLengthInBC(layer);
+    if (length <= 0) {
+      throw o2::itsmft::tracking::TimeFrameLoadException{
+        o2::itsmft::tracking::TimeFrameLoadFailureReason::NonUniformROFTiming,
+        "ITS CA per-layer ROF timing has a non-positive ROF length"};
+    }
+    const auto nROFsPerOrbit = o2::constants::lhc::LHCMaxBunches / static_cast<unsigned int>(length);
+    layerTimings[layer] = o2::its::LayerTiming{
+      .mNROFsTF = nROFsPerOrbit * static_cast<unsigned int>(nOrbitsPerTF),
+      .mROFLength = static_cast<uint32_t>(length),
+      .mROFDelay = static_cast<uint32_t>(alpParams.getROFDelayInBC(layer)),
+      .mROFBias = static_cast<uint32_t>(alpParams.getROFBiasInBC(layer)),
+      .mROFAddTimeErr = static_cast<uint32_t>(params.AddTimeError[layer])};
+    if (layerTimings[layer].mNROFsTF == 0) {
+      throw o2::itsmft::tracking::TimeFrameLoadException{
+        o2::itsmft::tracking::TimeFrameLoadFailureReason::ZeroROFCount,
+        "ITS CA per-layer ROF timing yields zero ROFs per TimeFrame"};
+    }
+  }
+  const auto uniform = o2::itsmft::tracking::deriveUniformROFTimingConfig(layerTimings);
+  if (!uniform.uniform) {
+    throw o2::itsmft::tracking::TimeFrameLoadException{
+      o2::itsmft::tracking::TimeFrameLoadFailureReason::NonUniformROFTiming,
+      "ITS CA per-layer ROF timing configuration is not uniform"};
+  }
+
+  o2::its::ROFOverlapTable<o2::itsmft::tracking::ITSNLayers> overlap;
+  o2::its::ROFVertexLookupTable<o2::itsmft::tracking::ITSNLayers> vertex;
+  for (int layer = 0; layer < o2::itsmft::tracking::ITSNLayers; ++layer) {
+    overlap.defineLayer(layer, layerTimings[layer]);
+    vertex.defineLayer(layer, layerTimings[layer]);
+  }
+  overlap.init();
+  vertex.init();
+  o2::its::ROFMaskTable<o2::itsmft::tracking::ITSNLayers> mask{overlap};
+  mask.resetMask();
+  for (int layer = 0; layer < o2::itsmft::tracking::ITSNLayers; ++layer) {
+    mask.setROFsEnabled(layer, 0, static_cast<int>(layerTimings[layer].mNROFsTF), 1);
+  }
+  mROFOverlapTable = std::move(overlap);
+  mROFVertexLookupTable = std::move(vertex);
+  mMultiplicityMask = std::move(mask);
+  mPublicationAdapter.reset();
+  mTracking.getScratch().setROFViews({mROFOverlapTable.getView(), mROFVertexLookupTable.getView(), mMultiplicityMask.getView(), mUPCMask.getView()});
+  (void)rofs;
+}
+
+void CATrackerDPL::invalidatePublication() noexcept
+{
+  mPublicationAdapter.reset();
+  mPublicationClock.reset();
+  mTracking.getScratch().setROFViews({});
+}
 
 static_assert(o2::itsmft::tracking::ITSMFTTrackingInterfaceITS::DetId == o2::detectors::DetID::ITS);
 
@@ -85,46 +151,61 @@ void CATrackerDPL::run(ProcessingContext& pc)
   // DPL treats the escaping exception as fatal for this device. Only a
   // recoverable, dropped-and-wiped TimeFrame returns here as a sentinel
   // value; see Tracker.h/Tracker.cxx for the classification.
-  const float trackingResult = mTracking.processTimeFrame(gsl::span<const o2::itsmft::ROFRecord>(rofsinput.data(), rofsinput.size()),
-                                                          gsl::span<const o2::itsmft::CompClusterExt>(compClusters.data(), compClusters.size()),
-                                                          patterns,
-                                                          labels);
+  const auto resetCount = mTracking.getTimeFrame().getEventResetCount();
+  try {
+    configureROFViews(gsl::span<const o2::itsmft::ROFRecord>(rofsinput.data(), rofsinput.size()));
+    const float trackingResult = mTracking.processTimeFrame(gsl::span<const o2::itsmft::ROFRecord>(rofsinput.data(), rofsinput.size()),
+                                                            gsl::span<const o2::itsmft::CompClusterExt>(compClusters.data(), compClusters.size()),
+                                                            patterns,
+                                                            labels,
+                                                            {},
+                                                            mTracking.getScratch().getROFViews());
 
-  if (decideCATrackerPublicationAction(mTracking.isActive(), trackingResult) == CATrackerPublicationAction::SkipDroppedTimeFrame) {
-    LOGP(error, "ITS CA tracking dropped this TimeFrame ({} ROFs, {} clusters); publishing nothing and continuing with the next TimeFrame",
-         rofsinput.size(), compClusters.size());
-    return;
-  }
-
-  {
-    const auto exportContext = mTracking.getCommonTrackPublicationExport();
-    const auto* compatibility = mTracking.getITSSharedClusterCompatibility();
-    if (!exportContext || compatibility == nullptr) {
-      throw std::runtime_error{"ITS CommonTrack output publication context is unavailable"};
-    }
-    const o2::itsmft::tracking::CommonTrackPublicationContext context{
-      exportContext->detector, exportContext->source,
-      gsl::span<const o2::itsmft::ROFRecord>{rofsinput.data(), rofsinput.size()}, exportContext->clock, exportContext->orderedSurfaces};
-    o2::itsmft::tracking::CommonTrackOutputAdapterError error = o2::itsmft::tracking::CommonTrackOutputAdapterError::None;
-    const auto staged = o2::itsmft::tracking::stageITSCommonTrackOutput(mTracking.getTimeFrame(), context, *compatibility, mUseMC, error);
-    if (!staged) {
-      throw std::runtime_error{"ITS CommonTrack output staging failed"};
+    if (decideCATrackerPublicationAction(mTracking.isActive(), trackingResult) == CATrackerPublicationAction::SkipDroppedTimeFrame) {
+      LOGP(error, "ITS CA tracking dropped this TimeFrame ({} ROFs, {} clusters); publishing nothing and continuing with the next TimeFrame",
+           rofsinput.size(), compClusters.size());
+      invalidatePublication();
+      return;
     }
 
-    auto& trackROFs = pc.outputs().make<std::vector<o2::itsmft::ROFRecord>>(Output{"ITS", "ITSTrackROF", 0},
-                                                                            staged->trackROFs.begin(), staged->trackROFs.end());
-    auto& allTracksITS = pc.outputs().make<std::vector<o2::its::TrackITS>>(Output{"ITS", "TRACKS", 0});
-    allTracksITS.assign(staged->tracks.begin(), staged->tracks.end());
-    auto& allClusIdx = pc.outputs().make<std::vector<int>>(Output{"ITS", "TRACKCLSID", 0});
-    allClusIdx.assign(staged->clusterIndices.begin(), staged->clusterIndices.end());
-    LOGP(info, "ITS CA pushed {} tracks in {} ROFs", allTracksITS.size(), trackROFs.size());
-    if (mUseMC) {
-      pc.outputs().snapshot(Output{"ITS", "TRACKSMCTR", 0}, staged->labels);
-      LOGP(info, "ITS CA pushed {} track MC labels", staged->labels.size());
+    {
+      mPublicationClock.emplace(mROFOverlapTable.getView().getClockLayer());
+      const auto exportContext = mTracking.getCommonTrackPublicationExport(*mPublicationClock);
+      const auto* compatibility = &mCompatibility;
+      if (!exportContext || compatibility == nullptr) {
+        throw std::runtime_error{"ITS CommonTrack output publication context is unavailable"};
+      }
+      const o2::itsmft::tracking::CommonTrackPublicationContext context{
+        exportContext->detector, exportContext->source,
+        gsl::span<const o2::itsmft::ROFRecord>{rofsinput.data(), rofsinput.size()}, exportContext->clock, exportContext->orderedSurfaces};
+      o2::itsmft::tracking::CommonTrackOutputAdapterError error = o2::itsmft::tracking::CommonTrackOutputAdapterError::None;
+      const auto staged = o2::itsmft::tracking::stageITSCommonTrackOutput(mTracking.getTimeFrame(), context, *compatibility, mUseMC, error);
+      if (!staged) {
+        throw std::runtime_error{"ITS CommonTrack output staging failed"};
+      }
+
+      auto& trackROFs = pc.outputs().make<std::vector<o2::itsmft::ROFRecord>>(Output{"ITS", "ITSTrackROF", 0},
+                                                                              staged->trackROFs.begin(), staged->trackROFs.end());
+      auto& allTracksITS = pc.outputs().make<std::vector<o2::its::TrackITS>>(Output{"ITS", "TRACKS", 0});
+      allTracksITS.assign(staged->tracks.begin(), staged->tracks.end());
+      auto& allClusIdx = pc.outputs().make<std::vector<int>>(Output{"ITS", "TRACKCLSID", 0});
+      allClusIdx.assign(staged->clusterIndices.begin(), staged->clusterIndices.end());
+      LOGP(info, "ITS CA pushed {} tracks in {} ROFs", allTracksITS.size(), trackROFs.size());
+      if (mUseMC) {
+        pc.outputs().snapshot(Output{"ITS", "TRACKSMCTR", 0}, staged->labels);
+        LOGP(info, "ITS CA pushed {} track MC labels", staged->labels.size());
+      }
     }
+  } catch (...) {
+    if (mTracking.getTimeFrame().getEventResetCount() == resetCount) {
+      mTracking.resetEvent();
+    }
+    invalidatePublication();
+    throw;
   }
 
   mTracking.resetEvent();
+  invalidatePublication();
 }
 
 void CATrackerDPL::updateTimeDependentParams(ProcessingContext& pc)
