@@ -3,6 +3,7 @@
 - Status: audit complete; implementation not started
 - Date: 2026-08-06
 - Audited revision: `51a49e5d4a` (`codex/itsmft-integration`, after M7f and P1)
+- Follow-up: revised after CPU/GPU traits and graph-initialization review
 - Scope: `Detectors/ITSMFT/common/tracking/` production headers and sources,
   their production construction sites, and tests that constrain their shape
 
@@ -33,25 +34,56 @@ adapter composition, and compatibility ownership:
 - several public headers and APIs now have no production caller and survive
   only because migration-era tests name them.
 
+The initial version of this audit incorrectly recommended merging
+`TrackerTraits` into `Tracker`. The follow-up CPU/GPU review disproves that
+recommendation. The frozen-but-live ITS architecture has a CPU
+`TrackerTraits<NLayers>` implementation and a `TrackerTraitsGPU<NLayers>`
+override of the same kernel entry points. The common class deliberately
+retains the corresponding virtual kernel methods, `getName()`, and `isGPU()`.
+No common GPU backend has been ported yet, but the seam is intentional, not
+residue:
+
+- `Tracker` is the target-independent algorithm orchestrator;
+- `TrackerTraits` is the target-architecture kernel implementation; and
+- a future common GPU traits implementation must be able to replace the CPU
+  traits without replacing the orchestration.
+
 The intended end state does not need a new wrapper or manager. It should:
 
 1. delete demonstrably dead typed/refit and forwarding residue;
 2. make the existing loader directly target `SurfaceTrackingScratch` and
    remove fixed ITS+MFT wrapper entry points;
-3. move reset ownership entirely to the event owner;
-4. evolve the existing participant in place into the one plan-bound
-   application composition used by standalone and combined workflows;
-5. delete `TrackingInterface`;
+3. give `Tracker` one fully constructed immutable surface-graph plan and one
+   selected traits backend, avoiding today's partially initialized setter
+   sequence;
+4. move generic tracking execution and failure orchestration from
+   `TrackingEngine`/`TrackingInterface` into that one `Tracker` contract,
+   while leaving raw-ROF and publication lifecycle in the DPL owner;
+5. delete `TrackingEngine`, `TrackingInterface`, and the participant
+   coordinator vocabulary once `Tracker` directly consumes the explicit
+   graph partitions/schedule;
 6. narrow the operation seam to refit only and move publication compatibility
    fully to application/workflow code; and
-7. merge the implementation currently named `TrackerTraits` into `Tracker`
-   once tests no longer construct it independently.
+7. preserve `TrackerTraits` as the CPU/GPU kernel strategy seam, making its
+   backend contract more explicit rather than merging it away.
 
-`TrackingEngine` and `Tracker` should remain distinct. The former owns an
-ordered multi-participant event transaction; the latter owns one
-participant's CA algorithm. `TrackingInterface` should be deleted, not merged
-into either. `TrackerTraits` has no traits role after M7d and should not remain
-a public peer indefinitely.
+`TrackingEngine` and `TrackingInterface` should be retired. The engine is a
+short schedule/reset loop around participant-owned `Tracker` instances; the
+interface is a standalone composition and lifecycle holder. Their useful
+tracking responsibilities belong in `Tracker`, but workflow responsibilities
+do not: raw input ownership, timing construction, publication validity, and
+writer adaptation remain at the DPL edge. `TrackerTraits` remains distinct as
+the kernel backend.
+
+The follow-up initialization audit also found a real model simplification
+opportunity. `DetectorLayout` owns only a `SparseTrackingTopology`,
+`DetectorLayoutSet` is the actual iteration plan, and
+`DetectorLayoutConfigurationKey` is no longer a key. In combined tracking,
+one authoritative topology is copied into separate ITS and MFT
+`DetectorLayoutSet`s. The recommended vocabulary is `SurfaceGraph`, not
+`DetectorGraph`: the graph connects surface nodes and may span detector
+identities. Section 6.5 defines the proposed graph/plan model without
+authorizing a rename implementation.
 
 The first implementation slice is unambiguous: remove the unused typed MFT
 refit/export path (`MFTAdapterRefit.{h,cxx}` and `MFTCATrack.h`) and migrate its
@@ -72,7 +104,8 @@ Recommendations preserve these invariants:
   DPL/workflow/writer type, or typed detector output;
 - `TransitionPolicyTag` stays a private compatibility implementation detail;
 - `StateFamily` remains representation metadata, never schedule or topology;
-- `DetectorLayoutView`, sparse topology, `SurfacePlanBinding`, and
+- the future `SurfaceGraphView` (today `DetectorLayoutView`), sparse topology,
+  `SurfacePlanBinding`, and
   `SurfaceTrackingScratch` remain the runtime authorities;
 - raw ROFs and publication lifecycle remain workflow-owned;
 - fixed capacities remain only where device-safe value representation needs
@@ -145,17 +178,25 @@ whole-event state before the engine applies its all-or-nothing policy.
 DPL task (standalone or combined)
   owns raw ROFs, timing construction, publication validity and event policy
   |
-  +-- atomic loader -> TimeFrame + participant scratches
-  +-- one or more plan-bound participants in explicit schedule
-  +-- TrackingEngine -> whole-event success/failure/reset
+  +-- atomic loader -> TimeFrame + graph-partition workspaces
+  +-- Tracker
+        owns one immutable plan + explicit partition order
+        borrows one CPU/GPU TrackerTraits backend
+        orchestrates initialise -> tracklets -> cells -> neighbours -> roads
+        owns generic tracking success/failure/reset transaction
         |
-        +-- Tracker -> one participant's CA/refit/CommonTrack algorithm
         +-- application publication adapter consumes successful generic result
 ```
 
-Only the schedule cardinality differs between standalone and combined. A
-standalone task uses one participant; it does not need a second orchestration
-class or a float sentinel.
+Only the number of graph partitions differs between standalone and combined.
+A standalone task supplies one; combined ITS+MFT supplies two explicit,
+source-qualified partitions of one graph plan. Neither needs an engine,
+participant coordinator, interface, or float sentinel around `Tracker`.
+
+This does not pull workflow ownership into `Tracker`. Raw compact clusters,
+raw ROFs, CCDB-derived timing construction, publication clocks/validity,
+typed output conversion, and writers remain outside. The tracker consumes
+normalized event input and runtime timing/mask views.
 
 ## 4. Dependency map of the central cluster
 
@@ -163,28 +204,32 @@ Solid arrows below mean construction/ownership or a required call. “Adapter”
 arrows are detector compatibility dependencies that should move outward.
 
 ```text
-Combined DPL task ---------------------> TrackingEngine
-       |                                      |
-       |                                      v
-       +--> MultiSourceTimeFrameLoader   TrackingParticipant
-       |          |                           ^
-       |          v                           |
-       |   SurfaceTrackingScratch <--- SurfacePlanTrackingParticipant<7/10>
-       |                                      |
-       |                                      +--> Tracker --> TrackerTraits
-       |                                      |      |            |
-       |                                      |      +------------+
-       |                                      |       TimeFrame / binding /
-       |                                      |       scratch / sparse layout
-       |                                      |
-       |                                      +--adapter--> ROF fixed tables
-       |                                      +--adapter--> DetectorPublicationAdapter
+Combined DPL task -----------> TrackingEngine -----> TrackingParticipant
+       |                                                |
+       +--> MultiSourceTimeFrameLoader                  v
+       |                                    SurfacePlanTrackingParticipant<7/10>
+       |                                                |
+       |                                                +--> Tracker
+       |                                                       |
+       |                                                       v
+       |                                                  TrackerTraits
        |
-Standalone DPL task --> TrackingInterface<7/10>
-                              |
-                              +--> same Tracker + TrackerTraits + scratch
-                              +--> same ROF tables + publication adapter
-                              +--> loading/reset/clock/sentinel policy
+Standalone DPL task --------> TrackingInterface<7/10>
+                                  |
+                                  +--> another Tracker + TrackerTraits composition
+
+Target:
+
+Standalone/combined DPL task -> MultiSourceTimeFrameLoader
+       |                                  |
+       |                                  v
+       +-------------------------------> TimeFrame / workspaces
+       |
+       +--> Tracker --------------------> immutable surface-graph plan
+              |
+              +--> TrackerTraitsCPU or TrackerTraitsGPU kernel backend
+              +--> ordered graph partitions and generic event transaction
+              +--successful result--> application publication adapter
 
 TimeFrame <----- normalized measurements and CommonTrack results
 SurfacePlanBinding <----- immutable plan/source/compact-slot mapping
@@ -192,7 +237,8 @@ ROFViews <----- borrowed by core; built and owned at adapter edge
 TrackingOperationAdapter <----- refit + accepted compatibility + reset seam
 ```
 
-The highest-cost dependencies are not algorithmic. They are the inclusion of
+The highest-cost dependencies are not algorithmic. They are the extra
+engine/participant/interface composition around `Tracker`, the inclusion of
 `TrackingInterface.h` by `SurfacePlanTrackingParticipant.h` solely to reuse
 sidecar-owner mixins, and the public detector-specialized
 `DetectorPublicationAdapter.h` beneath the nominally common include root.
@@ -201,18 +247,18 @@ sidecar-owner mixins, and the public detector-specialized
 
 | Module | Actual single responsibility and data relationship | Classification | Duplication and disposition | Risk |
 |---|---|---|---|---|
-| `Tracker.h` | Includes `CATracker.h`; owns and implements nothing. | Compatibility residue | Delete and include `CATracker.h` directly at its sole production consumer. | Safe include cleanup; compile all public-header users. |
-| `CATracker.h` / `Tracker` | Orchestrates configured CA iterations for one bound plan. Borrows traits, scratch, frame, binding/layout; owns parameter copies and a shared pool handle. | Generic core | Keep the one-participant algorithm role. Remove float sentinel after standalone migration. Move event reset out. Eventually absorb `TrackerTraits`. | Reset migration is exception-sensitive and needs failure-contract tests plus replay. |
-| `TrackerTraits` | Implements tracklet, cell, neighbour, road, refit/acceptance, traversal caches, and operation binding. Borrows plan/binding/scratch/frame; owns iteration caches and accepted-candidate staging. | Generic core implementation | Unique algorithm body, but not “traits” and not an independent production strategy. Narrow, then merge into `Tracker`; do not replace it with another interface. | Broad build/test surface; physics replay required even for mechanical merge. |
-| `TrackingEngine` | Executes an explicit heterogeneous participant schedule and owns whole-event failure reset. It owns no event data. | Generic event core | Keep distinct and stateless. Its responsibility is unique and above one-leg tracking. Shorten migration-era comments. | Low if API unchanged. |
-| `TrackingParticipant` | Minimal dynamic seam for a plan-bound application leg: identity, owned surfaces, track/reset/export. Borrows the shared frame. | Generic application seam | Keep while combined scheduling is heterogeneous. Narrow publication export if its surface list remains unused. | ABI/caller audit; combined contract tests. |
-| `TrackingInterface<7/10>` | Standalone application composition and event coordinator. Owns frame, scratch, tracker, plan/binding, decoder, ROF state, clocks, sidecars, and publication adapters. | Application adapter plus compatibility residue | Duplicates participant composition and workflow lifecycle. Migrate standalone tasks to one participant plus loader/engine, then delete; do not merge into `Tracker` or `TrackingEngine`. | High lifecycle/output compatibility risk; stage under standalone and combined replay gates. |
-| `SurfacePlanTrackingParticipant<7/10>` | Combined plan-bound leg. Owns scratch/binding/tracker composition, fixed ROF compatibility tables, load target, sidecars, and tracked flag; borrows plan/frame. | Application adapter | Coherent participant role, but detector count, loading target, timing tables, and publication compatibility make it too broad. Evolve in place into one runtime-plan participant used by standalone and combined; do not add a parallel participant. | Bounded adapter migration; exact writer/sidecar replay required. |
+| `Tracker.h` | Currently a forwarding include for `CATracker.h`, despite `Tracker` being the intended public class name. | Canonical API name obscured by residue | Move the actual declaration here, then delete the forwarding relationship. | Behavior-preserving header migration; compile all public-header users. |
+| `CATracker.h` / `Tracker` | Target-independent orchestrator for configured iterations and CA stages. Borrows a selected traits backend and event data; currently borrows one binding/layout/scratch and owns parameter copies/pool handle. | Generic core orchestrator in a stale file name | Keep and strengthen the class role, but move it to canonical `Tracker.{h,cxx}` and delete `CATracker.{h,cxx}` names. It should consume the complete immutable graph plan and explicit partition order, then subsume generic engine/interface behavior without absorbing raw-ROF or publication ownership. | Construction, reset, and multi-partition migration are exception/order-sensitive and need full failure/replay gates. |
+| `TrackerTraits` | CPU kernel implementation and architecture strategy seam for initialisation, tracklets, cells, neighbours, roads, and associated backend caches. Its virtual API mirrors the live frozen ITS `TrackerTraitsGPU` override pattern. | Generic kernel backend | Keep distinct from `Tracker`. Make the CPU/GPU substitution contract explicit; do not merge kernels into the orchestrator. Reduce only non-kernel compatibility state. | A future common GPU port requires real device ABI/build validation; CPU behavior remains replay-gated. |
+| `TrackingEngine` | Executes an explicit participant schedule and repeats whole-event reset policy around participant-owned trackers. It owns no data or kernel behavior. | Migration-era orchestration layer | Retire after `Tracker` accepts the explicit graph-partition order and owns the generic tracking transaction. Do not rename it or move DPL concerns into Tracker. | Combined ordering, failure classification, all-or-nothing reset, and output isolation must be pinned before deletion. |
+| `TrackingParticipant` | Dynamic wrapper around one plan-bound tracker composition: identity, surfaces, track/reset/export. | Migration-era application seam | Retire with the engine once partitions are immutable plan data consumed directly by `Tracker`. Preserve source-qualified partition order as data, not polymorphic coordinator objects. | Combined heterogeneous schedule and future-backend tests; avoid closing the plan over ITS/MFT types. |
+| `TrackingInterface<7/10>` | Standalone application composition and event coordinator. Owns frame, scratch, tracker, plan/binding, decoder, ROF state, clocks, sidecars, and publication adapters. | Application adapter plus compatibility residue | Delete. Move generic configuration/run/failure responsibilities into `Tracker`; move raw loading/timing/publication responsibilities outward to the workflow. Do not recreate an interface facade. | High lifecycle/output compatibility risk; stage under standalone and combined replay gates. |
+| `SurfacePlanTrackingParticipant<7/10>` | Combined plan-bound leg. Owns scratch/binding/tracker composition, fixed ROF compatibility tables, load target, sidecars, and tracked flag; borrows plan/frame. | Migration-era application wrapper | Delete after its immutable source/order/binding data is consumed by `Tracker` and timing/publication ownership moves to workflows. It need not become a non-templated permanent participant. | Bounded adapter migration; exact schedule, writer, and sidecar replay required. |
 | `TrackingOperationAdapter` | Supplies seed refit, accepted-result completion, and adapter reset. It borrows generic candidate/scratch/measurement views. | Mixed core/adapter seam | Three responsibilities. Narrow to the one operation the algorithm needs (refit); run publication conversion/reset after generic success at participant/workflow edge. Delete if refit can be directly owned without detector dispatch. | Call order and rejection classification are physics-sensitive; preserve exact boundaries. |
 | `DetectorPublicationAdapter<7/10>` | Specializes accepted-result publication compatibility for ITS shared-cluster flags and MFT sidecars. | Detector application adapter | Responsibility is real but location/visibility is wrong. Move to ITS/MFT application code and give each workflow direct ownership. No generic dispatcher. | Writer/sidecar compatibility gate. |
 | `TimeFrame` | Owns normalized multi-source event data, vertices/labels, beam/Bz, and generic `CommonTrack` results. | Generic event data owner | Keep distinct from scratch. Audit and remove inert device-propagator virtual hook separately. | Public ABI/device tests for hook removal. |
 | `SurfaceTrackingScratch` | Owns runtime-sized mutable CA workspace and per-source legacy-compatible measurement backfill. Borrows allocator/pool. | Generic participant workspace | Keep distinct from `TimeFrame`. Delete dead `mPValphaX`; collapse `resetScratch()` alias; make binding mandatory before removing fallback mappings. | Allocator identity, reset, and sparse-plan tests. |
-| `SurfacePlanBinding` | Immutable source-qualified projection from layout topology to one participant's ordered surfaces and compact transition/cell slots. | Generic plan binding | Keep. Apparent copied IDs are the participant-scoped mapping, not a duplicate topology. | Low; sparse/non-identity tests remain mandatory. |
+| `SurfacePlanBinding` | Immutable source-qualified projection from a global topology to one graph partition's ordered surfaces and compact transition/cell slots. | Generic graph-partition data | Keep the information, not necessarily the class/name. Bindings must be per graph iteration when topology differs; current construction from iteration 0 is not a general plan contract. Prefer `SurfaceGraphBinding` or direct partition data owned by the plan. | Sparse/non-identity and multi-iteration topology tests are mandatory. |
 | `MultiSourceTimeFrameLoader` | Provides atomic normalized-frame plus scratch-backfill staging/commit. | Generic load transaction | Keep transaction, remove virtual `LoadTarget` hierarchy and fixed `loadITSAndMFT`/reset wrappers. Bind source directly to scratch. | Atomicity/allocator/failure-retry tests and combined replay. |
 | `ROFViews` | Defines non-owning runtime timing, overlap, vertex-lookup, and mask views consumed by common tracking. | Generic runtime input view | Keep. Fixed detector tables belong at adapter/workflow edge and should not migrate into scratch/frame. | Timing/diamond/mask parity tests. |
 
@@ -223,14 +269,26 @@ sidecar-owner mixins, and the public detector-specialized
 `TrackingInterface` and `SurfacePlanTrackingParticipant` each build the same
 `TrackerTraits`/`Tracker`/scratch/binding/pool composition. Both also select
 ITS/MFT fixed timing tables and publication compatibility through `NLayers`.
-The combined participant should become the single composition, configured by
-an application-supplied plan and explicit adapter-owned timing/publication
-objects. Standalone workflows can schedule one instance.
+The single composition should become `Tracker` plus its selected
+`TrackerTraits` backend, configured by one immutable graph plan and explicit
+partition data. Adapter-owned timing/publication objects stay outside.
 
-No duplicate runtime topology was found. `DetectorLayoutView` owns global
-sparse topology; `SurfacePlanBinding` owns the necessary participant-scoped
-projection; scratch owns mutable compact-slot data. These should not be
-merged.
+The follow-up found duplicate runtime topology ownership in the combined
+path. `buildCombinedLayout()` creates one authoritative combined
+`DetectorLayout`; `ownDetectorPlan()` then copies that layout, including the
+owning sparse-topology vectors, into both `mITSPlan` and `mMFTPlan`. The two
+plans differ only in their configuration keys while presenting the same
+global graph. This should become one owned graph plan with two borrowed
+partitions.
+
+There is also a plan/binding lifetime mismatch hidden by current one-iteration
+acceptance workflows. `DetectorLayoutSet` can own a different topology per
+iteration, but standalone and combined construction build one
+`SurfacePlanBinding` from `getLayoutView(0)` and reuse its transition/cell IDs
+and schedules for every iteration. MFT async parameters can vary start masks
+and holes by iteration. A general multi-iteration contract must therefore
+either prove graph topology invariant or own a binding/partition per
+iteration. The latter matches the data model and avoids a hidden restriction.
 
 ### 6.2 Loading
 
@@ -261,12 +319,13 @@ Reset is currently implemented at four levels:
   reset;
 - `TrackingEngine::resetEvent()` plus participant `eventReset()`.
 
-The semantic owner should be the DPL event path via `TrackingEngine`.
-Participant reset clears participant-local scratch and adapter state;
-`TrackingEngine` wipes shared `TimeFrame` exactly once. `Tracker` should
-report typed failure without clearing either. This cannot be a casual
-cleanup: exception paths, dropped-TF classification, retryability, and
-publication invalidation must be pinned first.
+The semantic owner of the generic tracking transaction should be `Tracker`,
+after it owns the complete partition order. It clears all tracker-owned
+workspaces and shared generic `TimeFrame` state exactly once. The DPL owner
+then invalidates workflow publication state; it does not duplicate generic
+tracking reset. This cannot be a casual cleanup: exception paths, dropped-TF
+classification, retryability, and publication invalidation must be pinned
+first.
 
 ### 6.4 Tracking and publication
 
@@ -284,6 +343,82 @@ Adapter publication must never be called from a failed generic transaction.
 Moving it outward requires preserving serial accepted-result order and the
 current “final” boundary.
 
+### 6.5 Surface graph model and naming
+
+The current names obscure a simpler structure:
+
+| Current type | What it actually represents | Finding |
+|---|---|---|
+| `StaticSurfaceDescriptor` / `SurfaceDescriptor` | Compile-time and runtime payload for a graph node. | Two representations are justified by constexpr authoring versus device/runtime ABI. Projection should remain one-way and construction-time. |
+| `SparseTrackingTopology` | The actual graph: surface-to-surface transitions, three-surface cells, seeding nodes, and adjacency offsets. | This is the object whose public concept should be “surface graph.” |
+| `DetectorLayout` | One owning sparse topology plus validation error; it does not own surface layout/geometry. | Forwarding wrapper. Merge with/rename the owning graph rather than retain both names. |
+| `DetectorLayoutView` | Device-facing descriptors, kind masks, and sparse-topology view for one iteration. | This is naturally `SurfaceGraphView`. |
+| `DetectorLayoutSet` | Shared catalog/masks plus a vector of iteration layouts and a stale configuration-key record. | This is the immutable tracking plan, not a set of detector layouts. |
+| `DetectorLayoutConfigurationKey` | Original ordered surfaces and build inputs. It is never used as a currency/cache key; production reads only `orderedSurfaces`. | Delete the “key” abstraction. Store live traversal data directly in the plan/graph. Do not retain build inputs solely for equality. |
+| `SurfacePlanBinding` | Source-qualified ordered graph partition plus global-to-compact mappings and precomputed transition/cell schedules. | Necessary information for partitioned tracking, but it must be associated with each iteration graph and can be named as graph partition/binding data. |
+
+The recommended vocabulary is:
+
+- **`SurfaceGraph`**, not `DetectorGraph`, for one iteration's immutable
+  surface nodes and edges. `DetectorGraph` would reintroduce the false “one
+  detector, one graph” assumption and is awkward for combined or future
+  systems;
+- **`SurfaceGraphView`** for the device-facing POD view;
+- **`TrackingPlan`** for the ordered per-iteration `SurfaceGraph`s and their
+  operation parameters; and
+- **`SurfaceGraphPartition`** (or, if the mapping action remains central,
+  `SurfaceGraphBinding`) for one source-qualified ordered subset and compact
+  slot map.
+
+This is a consolidation, not four new wrappers. The implementation target
+deletes `DetectorLayout`, `DetectorLayoutSet`, and
+`DetectorLayoutConfigurationKey` vocabulary as their responsibilities move
+into the three irreducible concepts: graph, iteration plan, and partition.
+`SparseTrackingTopology` may remain a private storage component inside
+`SurfaceGraph`; it should not remain a competing public graph model.
+
+### 6.6 Initialization audit and target phases
+
+Current construction permits many partially valid states:
+
+1. resolve parameters;
+2. construct and distribute a pool separately to `TimeFrame`, scratch,
+   traits, and tracker;
+3. construct traits, then tracker, then bind scratch/frame;
+4. project a static catalog and build a layout set;
+5. build one binding from iteration 0;
+6. size scratch from that binding; and
+7. separately set field, thread arena, ROF views, and publication adapters.
+
+The order differs by path. Standalone installs the pool before
+`scratch.adoptPlan()`. Combined calls `adoptPlan()` first, creating/resizing
+containers with the scratch's current allocator state, and only later calls
+`setMemoryPool()`, which clears and rebinds those containers. This is at least
+redundant initialization and makes allocator correctness dependent on setter
+order.
+
+`TrackerTraits::initialiseTimeFrame()` then repeats both static and event work
+for every event/iteration: graph grouping and policy selection, binding and
+material validation, operation-function binding, event measurement-span/ROF
+validation, index-table configuration, workspace clearing/allocation, and
+cluster LUT preparation. Static graph/partition validation and operation
+selection need not be redone per event; normalized measurement, ROF, LUT, and
+workspace work genuinely does.
+
+The target has three explicit phases:
+
+| Phase | Owner | Work allowed |
+|---|---|---|
+| Configure once | `Tracker` with selected `TrackerTraits` backend | Consume parameters and one immutable `TrackingPlan`; validate every iteration graph/partition; prebind architecture kernel schedule; establish one allocator/pool; size workspaces from maximum required graph extents. No event data. |
+| Load event | Workflow adapter through the atomic loader | Decode normalized source-qualified measurements, construct timing/mask views, and atomically commit `TimeFrame` plus partition backfills. Raw ROFs remain workflow-owned. |
+| Execute event/iteration | `Tracker` orchestrating `TrackerTraits` | Bind event measurement/ROF views, clear/reuse event workspace, build/reuse LUTs according to pass flags, execute kernels in plan order, and commit generic results or perform one generic reset. |
+
+A constructor or one fallible `configure()` operation should establish the
+configure-once phase atomically; the present sequence of `adopt*` and `set*`
+calls should not be replaced by a different setter sequence. Backend
+selection remains explicit: the tracker borrows/owns one CPU or GPU traits
+implementation whose lifetime covers execution.
+
 ## 7. Rest-of-public-include-tree audit
 
 Every public common-tracking header is covered below. Grouping means the
@@ -298,7 +433,7 @@ listed files share one disposition; it does not imply a new module.
 | `ClusterSource.h`, `DecodedCluster.h`, `ClusterDecoding.h`, `ClusterDecoder.h`, `MultiSourceFrame.h`, `MultiSourceLoading.h`, `TimeFrameLoadFailure.h` | Generic normalized multi-source input and transactional decoding. Retain. Narrow includes where implementation-only decoder dependencies leak into public headers. |
 | `ClockTimingPublicationView.h`, `SurfaceTiming.h`, `ROFTimingUniformity.h`, `ROFViews.h` | Runtime timing views and validation. Retain generic views; timing construction and publication clocks stay workflows/adapters. |
 | `Configuration.h`, `TrackingConfigParam.h`, `ConfigKeyValuesPreflight.h`, `IndexTableConfiguration.h`, `IndexTableUtils.h` | Algorithm parameters/configuration and fixed-capacity index tables. Retain live runtime-prefix storage. Detector-named configuration registration is adapter compatibility, not a core routing authority; move only under a separately gated configuration migration. |
-| `DetectorLayout.h`, `DetectorLayoutBuilder.h`, `DetectorLayoutSet.h`, `SparseTrackingTopology.h`, `SurfaceCatalogView.h`, `SurfaceDescriptor.h`, `SurfaceId.h`, `StaticSurfaceDescriptor.h`, `StaticDetectorCatalogs.h`, `SurfaceSpec.h` | Authoritative generic descriptors and sparse plan/topology. Retain. `StaticDetectorCatalogs` is application plan data under a common namespace; consider moving ITS/MFT tables outward, but do not duplicate the builder. |
+| `DetectorLayout.h`, `DetectorLayoutBuilder.h`, `DetectorLayoutSet.h`, `SparseTrackingTopology.h`, `SurfaceCatalogView.h`, `SurfaceDescriptor.h`, `SurfaceId.h`, `StaticSurfaceDescriptor.h`, `StaticDetectorCatalogs.h`, `SurfaceSpec.h` | Authoritative descriptors and graph data, but too many public ownership names. Consolidate `DetectorLayout` plus public sparse topology into `SurfaceGraph`/`SurfaceGraphView`; narrow `DetectorLayoutSet` into `TrackingPlan`; delete the stale configuration-key concept. `StaticDetectorCatalogs` remains application plan data and should move outward without duplicating graph construction. |
 | `ITSSurfaceSpec.h`, `MFTSurfaceSpec.h`, `NominalSurfaceMaterialDefaults.h` | ITS/MFT application data. Valid compatibility owners, but not generic core concepts. Move to detector application include locations in a bounded include/API migration. |
 | `SurfaceKinematicState.h`, `StateFamily.h` | Generic state representation. Retain; `StateFamily` must not become dispatch policy. |
 | `SurfaceMeasurement.h` | Generic normalized measurement. Retain. |
@@ -306,10 +441,10 @@ listed files share one disposition; it does not imply a new module.
 | `IOUtils.h` | Mixed decoder covariance/systematic helpers plus obsolete public conversions. Split only by deleting proven-dead declarations; avoid a new utility namespace hierarchy. Common `convertCompactClusters` needs a whole-repository/public-API check before deletion despite no current common production caller. |
 | `ITSSharedClusterCompatibility.h`, `MFTPublicationCompatibility.h`, `DetectorPublicationAdapter.h`, `DetectorTrackingOperationAdapterSupport.h`, `MFTFwdTrackHelpers.h` | Detector application/refit/publication compatibility. Responsibilities can remain, but ownership should move outside generic core headers as participant/interface consolidation proceeds. Do not replace with a central detector dispatcher. |
 | `MFTAdapterRefit.h`, `MFTCATrack.h` | Typed MFT compatibility path with no production consumer; only `testMFTNormalizedRefit` and guards retain it. Delete first. |
-| `ParticipantId.h`, `TrackingParticipant.h`, `TrackingEngine.h` | Generic heterogeneous schedule contract. Retain, narrow comments and any unused export fields after caller audit. |
-| `SurfacePlanTrackingParticipant.h`, `TrackingInterface.h`, `TrackingOperationAdapter.h` | Application-composition cluster described in Sections 5–6. Consolidate by evolving the participant, deleting the interface, and narrowing the operation seam. |
-| `TimeFrame.h`, `SurfaceTrackingScratch.h`, `detail/SurfacePlanBinding.h`, `MultiSourceTimeFrameLoader.h` | Distinct event owner, participant workspace, immutable participant projection, and atomic loader. Retain responsibilities; simplify dead fields, forwarding aliases, and loader type erasure. |
-| `CATracker.h`, `TrackerTraits.h`, `Tracker.h` | One CA implementation plus forwarding residue. Delete `Tracker.h`; eventually merge traits implementation into `Tracker`. |
+| `ParticipantId.h`, `TrackingParticipant.h`, `TrackingEngine.h` | Migration-era heterogeneous schedule contract around tracker instances. Retire after source-qualified graph partitions and schedule order become immutable `Tracker` input data. |
+| `SurfacePlanTrackingParticipant.h`, `TrackingInterface.h`, `TrackingOperationAdapter.h` | Application-composition cluster described in Sections 5–6. Delete participant/interface after `Tracker` consolidation; narrow the operation seam to architecture/refit work only. |
+| `TimeFrame.h`, `SurfaceTrackingScratch.h`, `detail/SurfacePlanBinding.h`, `MultiSourceTimeFrameLoader.h` | Distinct event owner, mutable workspace, immutable graph partition, and atomic loader. Retain the responsibilities; simplify naming, initialization, dead fields, forwarding aliases, and loader type erasure. |
+| `CATracker.h`, `TrackerTraits.h`, `Tracker.h` | Orchestrator plus CPU/GPU kernel-backend seam and one reversed forwarding relationship. Make `Tracker.h` canonical, delete the stale `CATracker` file name, and retain `TrackerTraits` distinctly. |
 | `detail/TransitionPolicy.h`, `detail/TransitionPolicyBinding.h`, `detail/TransitionPolicyDispatch.h`, `detail/TransitionPolicyOperations.h`, `detail/TransitionPolicyState.h` | Private compatibility implementation for descriptor-family leaf selection. Keep private. Structural collapse is not safe if it changes operation order or arithmetic. |
 
 ## 8. Ranked cleanup inventory
@@ -321,10 +456,10 @@ listed files share one disposition; it does not imply a new module.
 | Rank | Exact files/action | Current callers | Replacement owner | Required gate | Deletion criterion |
 |---:|---|---|---|---|---|
 | 1 | Delete `include/ITSMFTTracking/MFTAdapterRefit.h`, `include/ITSMFTTracking/MFTCATrack.h`, `src/MFTAdapterRefit.cxx`, and its CMake entry. Migrate `testMFTNormalizedRefit.cxx` away from typed export. | No production caller; only `testMFTNormalizedRefit`, M7 guards, and stale CMake comments. | Existing generic `MFTFwdTrackHelpers`/`NativeRefitDriver` result path; MFT workflow publication already consumes `CommonTrack`/adapter compatibility. | Focused native-refit and MFT publication tests, full serial `itsmft` suite, 43/43 fixture checks, 212/68 hashes, combined-leg and writer parity. | Repository search finds no common `MFTCATrack` type or `MFTAdapterRefit`; no production target loses a symbol. |
-| 2 | Delete forwarding-only `Tracker.h`; include `CATracker.h` directly and remove stale references. | `TrackingInterface.h` is the sole production include found. | `CATracker.h`. | Build all common/ITS/MFT/combined targets; header dependency guard. | No include/reference to `ITSMFTTracking/Tracker.h`. |
+| 2 | Move the `Tracker` declaration/definition from `CATracker.{h,cxx}` to canonical `Tracker.{h,cxx}` and delete the forwarding/stale file names. | Common tracker users include either name; `TrackingInterface.h` is the forwarding header's production consumer found. | `Tracker.{h,cxx}`. | Build all common/ITS/MFT/combined targets; public-header dependency guard. | One canonical Tracker header/source and no `CATracker` implementation filename. |
 | 3 | Delete scratch member `mPValphaX` and allocator/reset/swap bookkeeping. | No read or semantic write found; only initialization, clearing, allocator-match, and swap. | None. | Scratch allocator/swap/reset tests, sanitizer-capable focused tests, full suite and replay. | No field/reference remains and staged/live allocator matching still passes. |
 | 4 | Use one scratch reset name; delete forwarding `resetScratch()` after changing direct callers to `reset()`. | Participant, loader wrapper, and migration-era tests. | `SurfaceTrackingScratch::reset()`. | Reset ordering, retry, dropped/structural failure tests. | One public scratch reset method and no semantic change in ordering. |
-| 5 | Delete `loadITSAndMFT()` and `resetITSAndMFTEvent()` after migrating their tests to `loadEvent()` plus engine reset. | No production caller found; fixed-source behavior is test-only. | Generic `loadEvent()` and `TrackingEngine::resetEvent()`. | Atomic load success/failure/retry and combined isolation tests. | No fixed ITS=0/MFT=1 loader API under common tracking. |
+| 5 | Delete `loadITSAndMFT()` and `resetITSAndMFTEvent()` after migrating their tests to `loadEvent()` plus the current generic reset path. | No production caller found; fixed-source behavior is test-only. | Generic `loadEvent()`; reset ultimately belongs to consolidated `Tracker`. | Atomic load success/failure/retry and combined isolation tests. | No fixed ITS=0/MFT=1 loader API under common tracking. |
 | 6 | Correct migration-era comments and test names that claim templated `Tracker`/`TrackerTraits`, M2/M6 temporary ownership, or an unfinished M7e seam. | Documentation and source comments/tests only. | Current responsibility wording. | Source guard plus documentation link/headings validation. | No stale architectural claim; behavioral assertions retained under intent-based names. |
 
 The first cleanup slice is rank 1 only. Combining later ranks would make
@@ -335,16 +470,17 @@ review and regression localization worse.
 | Rank | Exact files/action | Current callers | Replacement owner | Required gate | Deletion criterion |
 |---:|---|---|---|---|---|
 | 1 | Replace `MultiSourceTimeFrameLoader::{LoadTarget,LoadTargetImplSurface}` and participant `mLoadTarget` with atomic bindings that borrow `SurfaceTrackingScratch&`. | Combined workflow, participant, loader tests. | `MultiSourceTimeFrameLoader::loadEvent()` directly stages one scratch per binding. | Allocator identity, partial-stage failure, retry, dropped TF, combined source isolation, full replay. | No virtual load target, friendship-only forwarding, or participant load-target member. |
-| 2 | Make `SurfacePlanBinding` mandatory in `TrackerTraits`; delete identity/source-0 fallback mapping. | Direct unit fixtures and tracker construction; production already binds. | Caller-owned validated binding. | Non-identity/sparse plan tests, invalid-binding failure tests, full replay. | No nullable binding branch or synthesized numeric-surface traversal in core. |
-| 3 | Remove reset from `Tracker::clustersToTracks()` and make it return/throw typed failure without mutating event ownership. | `TrackingInterface`, participant, engine. | `TrackingEngine` as whole-event reset owner; participant clears only local state. | Exact success/recoverable/structural/exception reset-count tests, stale sidecar tests, standalone and combined replay. | Each failure path clears participant state once and shared frame once; tracker contains no `wipe`/event reset. |
-| 4 | Move fixed ROF tables, masks, and publication helpers out of `SurfacePlanTrackingParticipant` and `TrackingInterface`. | Standalone and combined workflows. | ITS/MFT workflow/application setup; core continues borrowing `ROFViews`. | Empty/first/last/diamond timing, mask, load-failure replacement, writer and sidecar parity. | Participant owns no fixed detector table or detector publication sidecar. |
-| 5 | Evolve `SurfacePlanTrackingParticipant<7/10>` in place into one runtime-plan participant; remove detector-count static assertion, aliases, mixins, and explicit instantiations. | Combined workflow; future standalone after next rank. | Existing participant configured by runtime plan and a narrow application refit operation. | Valid neither-7-nor-10 plan test, ITS/MFT schedule/isolation, all failure classes, full replay. | One non-templated participant with no detector identity or sidecar ownership. |
-| 6 | Migrate standalone ITS/MFT DPL tasks from `TrackingInterface<7/10>` to loader + one participant + `TrackingEngine`; delete `TrackingInterface.{h,cxx}` and float drop sentinel. | ITS and MFT CA workflow tasks and interface-heavy tests. | Workflow owns raw ROFs/clocks/publication; shared participant/engine own tracking. | Standalone lifecycle/config/output contract tests, dropped-TF behavior, combined parity, exact writer/replay baseline. | No `TrackingInterface`, duplicate composition, or float-sentinel translation remains. |
-| 7 | Narrow `TrackingOperationAdapter`: move `completeAccepted()` and `resetAdapterState()` to application publication handling; retain only the exact refit operation if still needed. | `TrackerTraits`, interface, participant. | Tracker owns generic acceptance; application adapter consumes only successful ordered generic results. | Candidate ordering, holes, all refit rejection paths, shared/pattern compatibility, failure-stale-state and replay gates. | Core operation seam neither stages publication nor owns lifecycle; delete seam entirely if one generic refit implementation remains. |
-| 8 | Merge `TrackerTraits` implementation into `Tracker`, or make it translation-unit-private as an intermediate step; remove virtual methods and public header. | Tracker and many direct unit fixtures; no alternate production implementation. | `Tracker` as the sole one-participant CA algorithm class. | Migrate tests to public runtime-plan behavior, build CPU/device configurations, full suite and replay. | One public algorithm class, no `TrackerTraits` type, no second implementation body. |
-| 9 | Remove `TimeFrame`'s no-op virtual device-propagator hook/member if full build configurations confirm no common-derived device frame. | A migration-era ownership test; frozen ITS has a separate live override in a different class. | None in common CPU runtime; a future device owner must be explicit. | Whole-repository inheritance/API audit and actual device build when pinned toolchain exists. | Common `TimeFrame` is non-polymorphic and contains no unused device pointer. |
-| 10 | Delete common `TrackingFrameInfoAdapters` and `loadClusterTrackingFrameInfo`; separately decide common `convertCompactClusters`. | Tests only for the former; no current common production caller found. Public API risk remains. | `SurfaceMeasurement` decoder path for production; detector-local frozen utilities remain untouched. | Whole-repository symbol/header audit, downstream build, covariance/systematics tests. | No downstream consumer and no lost compatibility contract. |
-| 11 | Retire `NativeCylinderCylinderRefitDriver.h` after preserving the comparison evidence it uniquely supplies. | Dedicated test, guard, and historical design/P1 harness. | Live `NativeRefitDriver`; durable validation docs/artifacts for historical evidence. | Demonstrate all production numerical/refit properties remain covered; no replay delta. | No production or active validation need for the unwired driver. |
+| 2 | Consolidate `DetectorLayout`, `DetectorLayoutView`, `SparseTrackingTopology`, and `DetectorLayoutSet` into the `SurfaceGraph`/`SurfaceGraphView` plus `TrackingPlan` vocabulary; delete `DetectorLayoutConfigurationKey` and always-true `rebuilt`. | Tracker/traits, standalone/combined construction, many graph fixtures. | One immutable plan owns each iteration graph once; sparse adjacency may remain private storage. | Structural graph parity, non-contiguous order, holes/seeding, CPU/device POD layout, full suite/replay. | No duplicate public layout/topology model, no retained fake key, and combined owns one graph rather than two copies. |
+| 3 | Replace the partial `adopt*`/`set*` construction sequence with one fallible Tracker configuration boundary that establishes plan, partitions, backend, pool, threads, and workspace capacities in order. | Interface, participant, combined workflow, construction tests. | `Tracker` configure-once state; workflow still supplies adapter timing/publication inputs. | Allocator identity, construction failure, retry, destruction order, memory-limit, CPU/device backend tests. | Tracker cannot be executed partially configured; plan sizing never precedes allocator establishment. |
+| 4 | Make graph partition/binding mandatory and per iteration; delete identity/source-0 fallback mapping and iteration-0 binding reuse. | Direct unit fixtures, standalone and combined construction. | `TrackingPlan` owns or indexes one validated `SurfaceGraphPartition` per iteration/source. | Multi-iteration differing-hole/start-mask fixture, non-identity/sparse plan, invalid-partition failures, full replay. | No nullable binding, synthesized numeric traversal, or topology IDs borrowed from the wrong iteration. |
+| 5 | Move fixed ROF tables, masks, and publication helpers out of participant/interface wrappers. | Standalone and combined workflows. | ITS/MFT workflow/application setup; core continues borrowing `ROFViews`. | Empty/first/last/diamond timing, mask, load-failure replacement, writer and sidecar parity. | Tracker/traits/plan own no fixed detector table or detector publication sidecar. |
+| 6 | Extend `Tracker` to orchestrate the explicit ordered graph partitions and generic all-or-nothing result/reset transaction; delete `TrackingEngine.{h,cxx}`, `TrackingParticipant.h`, and `ParticipantId.h`. | Combined workflow and engine/participant tests. | `Tracker` plus immutable partition order; no dynamic coordinator wrapper. | Exact partition order, source isolation, success/recoverable/structural/exception reset-count tests, combined replay. | No engine/participant class and no equivalent renamed schedule executor; tracker remains detector-neutral. |
+| 7 | Migrate standalone and combined wrappers to the consolidated Tracker; delete `TrackingInterface.{h,cxx}`, `SurfacePlanTrackingParticipant.{h,cxx}`, aliases, mixins, and float sentinel. | ITS/MFT/combined CA workflow tasks and wrapper-heavy tests. | Workflow owns raw ROFs/clocks/publication; Tracker owns generic configuration/execution. | Standalone lifecycle/config/output tests, dropped-TF behavior, combined parity, exact writer/replay baseline. | One Tracker composition path and no interface/participant wrapper remains. |
+| 8 | Narrow `TrackingOperationAdapter`: move `completeAccepted()` and `resetAdapterState()` to application publication handling; retain only the exact refit operation if still needed. | `TrackerTraits`, interface, participant. | Tracker owns generic acceptance; application adapter consumes only successful ordered generic results. | Candidate ordering, holes, all refit rejection paths, shared/pattern compatibility, failure-stale-state and replay gates. | Core operation seam neither stages publication nor owns lifecycle; delete seam entirely if one generic refit implementation remains. |
+| 9 | Make the `TrackerTraits` architecture contract explicit and port tests away from assuming CPU is the only backend; retain virtual kernel entry points. | Tracker, direct kernel fixtures, future common GPU integration. | `Tracker` selects/borrows CPU or GPU traits; traits own backend kernels and backend-local caches. | CPU replay plus a real pinned CUDA/HIP build when a common GPU traits backend exists. | Backend substitution changes no plan/orchestrator API and introduces no detector/layer specialization. |
+| 10 | Remove `TimeFrame`'s no-op virtual device-propagator hook/member if full build configurations confirm no common-derived device frame. | A migration-era ownership test; frozen ITS has a separate live override in a different class. | None in common CPU runtime; common GPU traits must declare its actual device state ownership. | Whole-repository inheritance/API audit and actual device build when pinned toolchain exists. | Common `TimeFrame` contains no placeholder device pointer; GPU ownership is explicit. |
+| 11 | Delete common `TrackingFrameInfoAdapters` and `loadClusterTrackingFrameInfo`; separately decide common `convertCompactClusters`. | Tests only for the former; no current common production caller found. Public API risk remains. | `SurfaceMeasurement` decoder path for production; detector-local frozen utilities remain untouched. | Whole-repository symbol/header audit, downstream build, covariance/systematics tests. | No downstream consumer and no lost compatibility contract. |
+| 12 | Retire `NativeCylinderCylinderRefitDriver.h` after preserving the comparison evidence it uniquely supplies. | Dedicated test, guard, and historical design/P1 harness. | Live `NativeRefitDriver`; durable validation docs/artifacts for historical evidence. | Demonstrate all production numerical/refit properties remain covered; no replay delta. | No production or active validation need for the unwired driver. |
 
 ### 8.3 Requires explicit physics or algorithm approval
 
@@ -396,24 +532,25 @@ deleted migration bridges.
 
 Public include cost can be reduced without a new pimpl/service layer:
 
-- delete `Tracker.h`;
+- make `Tracker.h` canonical and delete the stale `CATracker` file name;
 - stop including `TrackingInterface.h` from the participant merely for
   sidecar-owner mixins;
 - move detector-specific specs/publication helpers out of generic public
   includes as their callers migrate;
 - keep private transition-policy headers private to implementation-facing
   headers; and
-- merge `TrackerTraits` only after direct test construction is removed.
+- keep `TrackerTraits` public only to the degree needed by CPU/GPU backend
+  substitution; move non-kernel compatibility details out of its header.
 
 ## 10. Explicit class recommendation
 
 | Class | Recommendation | Reason |
 |---|---|---|
-| `TrackingEngine` | **Remain distinct and narrow.** | It is the stateless whole-event schedule/failure boundary. Merging it into a participant algorithm would reintroduce coordinator-shaped detector/application concerns. |
-| `Tracker` | **Remain as the single one-participant CA algorithm class; narrow its lifecycle role.** | It uniquely sequences iterations and CA stages. It should not wipe whole-event state or translate workflow sentinels. |
-| `TrackerTraits` | **Merge into `Tracker` after a bounded fixture migration.** | It is neither a traits policy nor an alternate implementation; it is the bulk of the same algorithm. Keeping it public creates two apparent core trackers and heavy private-policy exposure. |
-| `TrackingInterface` | **Delete after standalone migration.** | It duplicates participant composition and owns workflow lifecycle that belongs to the DPL task. Merging it into the engine would contaminate the generic boundary. |
-| `SurfacePlanTrackingParticipant` | **Retain the role, evolve the existing class in place, and make it runtime-plan/non-templated.** | A plan-bound leg is the necessary bridge between an application and `TrackingParticipant`; its detector timing/publication/load-target holdings are not necessary. |
+| `TrackingEngine` | **Delete after its generic schedule/result/reset behavior moves into `Tracker`.** | It is a stateless loop around participant-owned trackers, not an independent kernel or data owner. Retaining it creates two orchestrators. |
+| `Tracker` | **Remain and become the sole generic tracking orchestrator.** | It sequences iterations and CA stages and should consume the complete immutable graph plan/partition order. It may own generic tracking reset, but never raw ROFs, publication clocks, writers, or detector dispatch. |
+| `TrackerTraits` | **Remain distinct as the architecture kernel backend.** | CPU and GPU implementations need the same orchestration with different kernels/storage. The virtual kernel seam is intentional and mirrors the live ITS CPU/GPU architecture. |
+| `TrackingInterface` | **Delete after workflow and Tracker ownership are separated.** | Generic configure/execute behavior belongs in Tracker; raw loading/timing/publication behavior belongs in DPL/application adapters. No replacement interface facade is justified. |
+| `SurfacePlanTrackingParticipant` | **Delete with `TrackingParticipant`.** | Its useful content is immutable graph-partition data plus workspace; Tracker can consume that directly. Its timing/publication/load-target composition belongs elsewhere. |
 | `TrackingOperationAdapter` | **Narrow to refit-only, then reassess deletion.** | Refit is an algorithm operation; publication completion and reset are application lifecycle. Do not replace it with a callback framework. |
 
 ## 11. Ordered cleanup slices
@@ -423,24 +560,35 @@ implementation is proposed.
 
 1. **C0 — dead typed-MFT refit/export retirement.** Delete the three rank-1
    files and migrate the typed fixture to generic native-refit assertions.
-2. **C1 — zero-risk residue.** Delete `Tracker.h`, `mPValphaX`, and the
-   duplicate scratch reset name in separate reviewable commits.
+2. **C1 — zero-risk residue.** Canonicalize `Tracker.{h,cxx}`, then delete
+   the `CATracker` file name; delete `mPValphaX` and the duplicate scratch
+   reset name in separate reviewable commits.
 3. **C2 — loader simplification.** Replace the one-implementation virtual
    load target with direct scratch bindings; remove fixed ITS+MFT wrappers.
-4. **C3 — binding and reset authority.** Make binding mandatory, then move
-   reset out of `Tracker` under exact failure-count tests.
-5. **C4 — application ownership.** Move ROF fixed tables and detector
+4. **C3 — surface-graph consolidation.** Introduce the `SurfaceGraph` name by
+   replacing, not wrapping, `DetectorLayout`/public sparse-topology ownership;
+   narrow `DetectorLayoutSet` to the iteration `TrackingPlan`; delete the
+   stale key and combined duplicate graph copies.
+5. **C4 — atomic Tracker configuration.** Establish plan, per-iteration
+   partitions, backend, allocator, and workspace capacities in one fallible
+   configure-once operation; eliminate partial setter ordering.
+6. **C5 — binding correctness.** Make partition data mandatory and
+   per-iteration; remove identity/source-0 and iteration-0 reuse fallbacks.
+7. **C6 — application ownership.** Move ROF fixed tables and detector
    publication compatibility out of the participant/interface, preserving
    runtime `ROFViews` in core.
-6. **C5 — one participant composition.** De-template the existing
-   participant in place and use it for both combined and standalone tasks.
-7. **C6 — standalone interface retirement.** Delete `TrackingInterface` and
-   float sentinel once one-participant engine execution is live.
-8. **C7 — operation seam narrowing.** Move accepted-result compatibility and
+8. **C7 — one orchestrator.** Move explicit partition execution and generic
+   all-or-nothing reset into Tracker; delete `TrackingEngine` and
+   `TrackingParticipant` without adding a renamed executor.
+9. **C8 — wrapper retirement.** Migrate standalone/combined workflows to the
+   consolidated Tracker; delete `TrackingInterface`,
+   `SurfacePlanTrackingParticipant`, and the float sentinel.
+10. **C9 — operation seam narrowing.** Move accepted-result compatibility and
    reset outward; retain only a necessary refit operation.
-9. **C8 — one visible tracker.** Merge `TrackerTraits` into `Tracker` and
-   remove direct traits fixtures/public header.
-10. **C9 — public compatibility tail.** Resolve dead common IO adapters,
+11. **C10 — backend contract.** Keep CPU/GPU TrackerTraits substitution
+   explicit while moving non-kernel compatibility state out of the backend
+   seam; run a real device build only when the common backend exists.
+12. **C11 — public compatibility tail.** Resolve dead common IO adapters,
     inert device hooks, old comparison driver, and detector-spec header
     placement one item at a time.
 
@@ -495,18 +643,30 @@ Measured structure:
 - there are two application compositions;
 - reset policy is duplicated across tracker and event owners;
 - the load target is one-implementation type erasure;
-- `TrackerTraits` has one production implementation and no current traits
-  selection role;
+- common `TrackerTraits` currently has one CPU implementation, but its virtual
+  kernel API intentionally mirrors the live frozen ITS CPU/GPU backend seam;
+- combined tracking copies one authoritative graph into two layout-set
+  owners;
+- a single binding built from iteration 0 is reused with a plan that can own
+  different per-iteration graphs;
+- `DetectorLayoutConfigurationKey` is not used as a key and retains build
+  inputs primarily to recover ordered surfaces;
+- standalone and combined initialize allocator/plan/workspace in different
+  orders, with combined sizing scratch before rebinding its pool;
 - typed MFT refit/export files have no production caller.
 
 Inference:
 
 - deleting dead typed compatibility first is lower risk than beginning with
   lifecycle consolidation;
-- converging standalone onto the existing participant/engine path removes
-  more complexity than a new facade would;
-- retaining `TrackingEngine` separately protects the generic event boundary;
-- eventually merging `TrackerTraits` into `Tracker` makes the core easier to
-  understand without changing its algorithm.
+- preserving `Tracker` as orchestrator and `TrackerTraits` as CPU/GPU kernel
+  backend is the intentional architecture;
+- retiring engine, participant, and interface wrappers removes more
+  complexity than narrowing them, provided Tracker consumes explicit
+  detector-neutral graph partitions and workflow state stays outside;
+- `SurfaceGraph` is more accurate than `DetectorGraph` because graph nodes
+  are surfaces and one graph may span multiple detector identities;
+- consolidating layout/topology names and configure-once initialization is a
+  bounded structural migration, not safe textual cleanup.
 
 No physics inference or acceptance decision is made by this audit.
