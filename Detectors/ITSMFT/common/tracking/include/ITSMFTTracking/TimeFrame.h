@@ -30,10 +30,15 @@
 
 #include <memory>
 #include <array>
+#include <cstddef>
+#include <vector>
 
 #include "DataFormatsITS/Vertex.h"
 #include "ITSMFTTracking/CommonTrack.h"
+#include "ITSMFTTracking/Configuration.h"
 #include "ITSMFTTracking/MultiSourceFrame.h"
+#include "ITSMFTTracking/SurfaceGraph.h"
+#include "ITSMFTTracking/detail/SurfacePlanBinding.h"
 #include "ITStracking/BoundedAllocator.h"
 #include "ITStracking/Cluster.h"
 
@@ -48,7 +53,15 @@ using VertexLabel = o2::its::VertexLabel;
 template <typename T>
 using bounded_vector = o2::its::bounded_vector<T>;
 
+struct TrackingWorkspaceCapacity {
+  std::size_t ownedSurfaces = 0;
+  std::size_t transitions = 0;
+  std::size_t cells = 0;
+};
+
 struct TimeFrame {
+  using BindingSet = std::vector<std::unique_ptr<SurfacePlanBinding>>;
+
   TimeFrame() = default;
   virtual ~TimeFrame() = default;
 
@@ -101,6 +114,21 @@ struct TimeFrame {
   // frame is meaningless once this replaces it (see CommonTrack.h's own
   // lifetime doc).
   void commitNormalizedFrame(MultiSourceFrame&& staged) noexcept;
+
+  bool commitConfiguration(std::vector<SurfaceGraph>&& graphs,
+                           std::vector<std::vector<TrackingParameters>>&& parameters,
+                           std::vector<BindingSet>&& bindings,
+                           std::vector<std::vector<TrackingWorkspaceCapacity>>&& capacities,
+                           std::shared_ptr<BoundedMemoryResource> memoryPool);
+  bool isConfigured() const noexcept { return mConfigurationValid; }
+  std::size_t getNIterations() const noexcept { return mGraphs.size(); }
+  const std::vector<SurfaceGraph>& getGraphs() const noexcept { return mGraphs; }
+  const std::vector<TrackingParameters>& getTrackingParameters() const noexcept;
+  const std::vector<TrackingParameters>& getTrackingParameters(ClusterSourceId source) const noexcept;
+  const SurfaceGraph& getGraph(std::size_t iteration) const { return mGraphs.at(iteration); }
+  const TrackingParameters* getTrackingParameters(std::size_t iteration, ClusterSourceId source) const noexcept;
+  const SurfacePlanBinding* getBinding(std::size_t iteration, ClusterSourceId source) const noexcept;
+  const TrackingWorkspaceCapacity* getWorkspaceCapacity(std::size_t iteration, ClusterSourceId source) const noexcept;
 
   // Detector-neutral common-CA result storage (ITSMFTTracking/CommonTrack.h).
   // CommonTrack itself carries no NLayers dependency. Only meaningful
@@ -183,6 +211,16 @@ struct TimeFrame {
   // own members are plain std::vector<T> with the default allocator), so it
   // has no ordering dependency on mMemoryPool above.
   MultiSourceFrame mNormalizedFrame;
+
+  bool mConfigurationValid = false;
+  std::vector<SurfaceGraph> mGraphs;
+  struct SourceParameters {
+    ClusterSourceId source{};
+    std::vector<TrackingParameters> values;
+  };
+  std::vector<SourceParameters> mTrackingParameters;
+  std::vector<BindingSet> mBindings;
+  std::vector<std::vector<TrackingWorkspaceCapacity>> mWorkspaceCapacities;
 };
 
 } // namespace o2::itsmft::tracking

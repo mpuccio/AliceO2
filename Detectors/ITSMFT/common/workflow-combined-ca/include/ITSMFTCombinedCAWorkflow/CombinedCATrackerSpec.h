@@ -138,7 +138,6 @@ class CombinedCATrackerDPL : public o2::framework::Task
   std::unique_ptr<o2::itsmft::tracking::ClusterDecoder> mITSDecoder;
   std::unique_ptr<o2::itsmft::tracking::ClusterDecoder> mMFTDecoder;
   o2::itsmft::tracking::TimeFrame mFrame;
-  std::vector<o2::itsmft::tracking::SurfaceGraph> mGraphs;
   std::unique_ptr<o2::itsmft::tracking::SurfacePlanTrackingParticipantITS> mITSParticipant;
   std::unique_ptr<o2::itsmft::tracking::SurfacePlanTrackingParticipantMFT> mMFTParticipant;
   std::array<o2::itsmft::tracking::TrackingParticipant*, 2> mSchedule{};
@@ -146,12 +145,6 @@ class CombinedCATrackerDPL : public o2::framework::Task
   std::optional<o2::itsmft::tracking::ClockTimingPublicationView> mMFTClock;
   bool mPublicationValid = false;
   o2::itsmft::tracking::TrackingEngine mEngine;
-  // The single-iteration TrackingParameters the workflow participants were built with,
-  // retained so run() can derive each detector's per-TF ROFTimingConfig
-  // from TrackingParameters::AddTimeError without asking the set for its
-  // own construction-time arguments back.
-  o2::itsmft::TrackingParameters mITSTrackingParams;
-  o2::itsmft::TrackingParameters mMFTTrackingParams;
 };
 
 /// useGeom is deliberately not a parameter: clusters entering this tracker

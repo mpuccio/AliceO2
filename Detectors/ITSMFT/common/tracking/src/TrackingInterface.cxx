@@ -17,6 +17,7 @@
 #include "ITSMFTTracking/TrackingInterface.h"
 
 #include <array>
+#include <algorithm>
 #include <limits>
 #include <type_traits>
 
@@ -113,13 +114,12 @@ ITSMFTTrackingInterface<NLayers>::ITSMFTTrackingInterface(bool useMC,
 template <int NLayers>
 void ITSMFTTrackingInterface<NLayers>::initialise()
 {
-  resolveTrackingParameters();
-  initialiseMemoryPool();
-  initialiseTracker();
+  const auto parameters = resolveTrackingParameters();
+  initialiseTracker(parameters);
 }
 
 template <int NLayers>
-void ITSMFTTrackingInterface<NLayers>::resolveTrackingParameters()
+std::vector<o2::itsmft::TrackingParameters> ITSMFTTrackingInterface<NLayers>::resolveTrackingParameters()
 {
   auto mode = mTrackingMode;
   if constexpr (DetId == o2::detectors::DetID::ITS) {
@@ -149,39 +149,22 @@ void ITSMFTTrackingInterface<NLayers>::resolveTrackingParameters()
     }
   }
   mTrackingMode = mode;
-  mTrackParams = o2::itsmft::TrackingMode::getTrackingParameters(DetId, mode);
+  auto trackParams = o2::itsmft::TrackingMode::getTrackingParameters(DetId, mode);
   LOGP(info, "{} CA tracker initialized in {} mode with {} iteration(s)",
-       detName<DetId>(), o2::itsmft::TrackingMode::toString(mode), mTrackParams.size());
-  for (size_t i = 0; i < mTrackParams.size(); ++i) {
-    LOGP(info, "  iteration {}: {}", i, mTrackParams[i].asString());
+       detName<DetId>(), o2::itsmft::TrackingMode::toString(mode), trackParams.size());
+  for (size_t i = 0; i < trackParams.size(); ++i) {
+    LOGP(info, "  iteration {}: {}", i, trackParams[i].asString());
   }
+  return trackParams;
 }
 
 template <int NLayers>
-void ITSMFTTrackingInterface<NLayers>::initialiseMemoryPool()
+void ITSMFTTrackingInterface<NLayers>::initialiseTracker(const std::vector<o2::itsmft::TrackingParameters>& trackParams)
 {
-  size_t maxMemory = std::numeric_limits<size_t>::max();
-  if (!mTrackParams.empty() && mTrackParams[0].MaxMemory != maxMemory) {
-    maxMemory = mTrackParams[0].MaxMemory;
-  }
-  mMemoryPool = std::make_shared<BoundedMemoryResourceN>(maxMemory);
-  // Both owners take their own copy of the same shared_ptr: safe (ordinary
-  // shared_ptr reference counting, not an ownership decision) since the
-  // underlying BoundedMemoryResource is still constructed exactly once,
-  // here. See the former fixed-layer scratch.h's own doc for why this is not the same
-  // hazard as the wipe()/scratch-reset ordering it also documents.
-  mFrame.setMemoryPool(mMemoryPool);
-  mScratch.setMemoryPool(mMemoryPool);
-}
-
-template <int NLayers>
-void ITSMFTTrackingInterface<NLayers>::initialiseTracker()
-{
-  if (mTrackParams.empty()) {
+  if (trackParams.empty()) {
     return;
   }
   mTrackerTraits = std::make_unique<TrackerTraits>();
-  mTrackerTraits->setMemoryPool(mMemoryPool);
   std::shared_ptr<tbb::task_arena> taskArena;
 
   int nThreads;
@@ -216,61 +199,59 @@ void ITSMFTTrackingInterface<NLayers>::initialiseTracker()
       &static_cast<MFTPublicationCompatibilityOwner<NLayers>&>(*this).sidecar);
   }
 
-  // Build this interface's one immutable plan, once, from the compile-time-
-  // selected static per-detector catalog (Gate 4 B2 Slice 2). Static,
-  // process-lifetime storage (StaticDetectorCatalogs.h), so the borrowed
-  // SurfaceCatalogView below never dangles. A build failure here is a
-  // construction-time misconfiguration (e.g. a resolved TrackingParameters
-  // iteration whose NLayers exceeds this detector's own layer count), not
-  // per-TF data, so it is fatal here, once, exactly like the nThreads
-  // misconfiguration checked above.
   static constexpr auto kOrderedSurfaces = identitySurfaceOrder<NLayers>();
-  SurfaceGraphBatchResult planResult;
+  TrackerInitialization configuration;
+  std::shared_ptr<BoundedMemoryResourceN> memoryPool;
+  size_t maxMemory = std::numeric_limits<size_t>::max();
+  if (trackParams[0].MaxMemory != maxMemory) {
+    maxMemory = trackParams[0].MaxMemory;
+  }
+  memoryPool = std::make_shared<BoundedMemoryResourceN>(maxMemory);
+  configuration.memoryPool = memoryPool;
   if constexpr (DetId == o2::detectors::DetID::ITS) {
-    planResult = buildSurfaceGraphs(SurfaceCatalogView{kITSStaticSurfaceCatalog.data(), static_cast<uint32_t>(kITSStaticSurfaceCatalog.size())},
-                                    gsl::span<const SurfaceId>{kOrderedSurfaces}, mTrackParams);
+    configuration.catalog = SurfaceCatalogView{kITSStaticSurfaceCatalog.data(), static_cast<uint32_t>(kITSStaticSurfaceCatalog.size())};
   } else {
-    planResult = buildSurfaceGraphs(SurfaceCatalogView{kMFTStaticSurfaceCatalog.data(), static_cast<uint32_t>(kMFTStaticSurfaceCatalog.size())},
-                                    gsl::span<const SurfaceId>{kOrderedSurfaces}, mTrackParams);
+    configuration.catalog = SurfaceCatalogView{kMFTStaticSurfaceCatalog.data(), static_cast<uint32_t>(kMFTStaticSurfaceCatalog.size())};
   }
-  if (!planResult.ok()) {
-    LOGP(fatal, "{} CA tracker failed to build its static detector layout plan (error={} failedIteration={} layoutBuildError={} topologyError={} layoutError={})",
-         detName<DetId>(), static_cast<int>(planResult.error), planResult.failedIteration,
-         static_cast<int>(planResult.error), static_cast<int>(planResult.topologyError), static_cast<int>(planResult.graphError));
-  }
-  mGraphs = std::move(planResult.graphs);
-
-  // M6e1/M6e2: adapter-derived expected kind/policy, mirroring the combined
-  // participants' own SurfacePlanBinding construction in the combined
-  // workflow exactly (SurfaceKind/TransitionPolicyTag
-  // are literal, adapter-owned constants selected right here from this
-  // interface's own compile-time DetId -- no detector switch inside
-  // SurfacePlanBinding itself, which still takes them as plain parameters).
-  // ClusterSourceId{0}, not {1}: this interface's own single-source static
-  // catalog has no competing source at position 0 for either detector,
-  // unlike the combined participant set's fixed ITS=0/MFT=1 contract.
-  //
-  {
+  configuration.iterations.reserve(trackParams.size());
+  for (const auto& params : trackParams) {
+    TrackerIterationConfiguration iteration;
+    iteration.parameters = {params};
+    SurfaceGraphSubgraph subgraph;
+    subgraph.orderedSurfaces.assign(kOrderedSurfaces.begin(), kOrderedSurfaces.end());
+    subgraph.maxHoles = params.MaxHoles;
+    subgraph.holeSurfaces = positionalSurfaceMask(params.HoleLayerMask, kOrderedSurfaces, NLayers);
+    subgraph.seedingSurfaces = positionalSurfaceMask(params.StartLayerMask, kOrderedSurfaces, NLayers);
+    iteration.graphSubgraphs.push_back(subgraph);
     SurfaceMask owned;
     for (uint16_t i = 0; i < NLayers; ++i) {
       owned.set(SurfaceId{i});
     }
     constexpr SurfaceKind expectedKind = (DetId == o2::detectors::DetID::ITS) ? SurfaceKind::Cylinder : SurfaceKind::Disk;
     constexpr TransitionPolicyTag expectedPolicy = (DetId == o2::detectors::DetID::ITS) ? TransitionPolicyTag::CylinderCylinder : TransitionPolicyTag::DiskDisk;
-    auto bindingResult = SurfacePlanBinding::build(mGraphs.front().getView(), ClusterSourceId{0}, owned,
-                                                   gsl::span<const SurfaceId>{kOrderedSurfaces}, expectedKind, expectedPolicy);
-    if (!bindingResult.ok()) {
-      LOGP(fatal, "{} CA tracker failed to build its SurfacePlanBinding (error={})", detName<DetId>(), static_cast<int>(bindingResult.error));
-    }
-    mBinding = std::move(bindingResult.binding);
-    mTracker->adoptSurfacePlanBinding(*mBinding);
+    iteration.bindings.push_back(SurfacePlanBinding::Declaration{ClusterSourceId{0}, owned,
+                                                                 std::vector<SurfaceId>{kOrderedSurfaces.begin(), kOrderedSurfaces.end()},
+                                                                 expectedKind, expectedPolicy});
+    configuration.iterations.push_back(std::move(iteration));
   }
-
-  // Runtime-sized scratch storage is sized from the adopted plan before the
-  // first load or traversal access.
-  mScratch.adoptPlan(static_cast<std::size_t>(kOrderedSurfaces.size()),
-                     mBinding->getGlobalTransitions().size(),
-                     mBinding->getGlobalCells().size());
+  mTracker->setSource(ClusterSourceId{0});
+  const auto result = mTracker->initialize(mFrame, configuration);
+  if (!result.ok()) {
+    LOGP(fatal, "{} CA tracker failed to initialize static configuration (error={} iteration={} graph={} binding={})",
+         detName<DetId>(), static_cast<int>(result.error), result.failedIteration,
+         static_cast<int>(result.graphError), static_cast<int>(result.bindingError));
+  }
+  mTrackerTraits->setMemoryPool(mFrame.getMemoryPool());
+  mScratch.setMemoryPool(mFrame.getMemoryPool());
+  std::size_t nTransitions = 0;
+  std::size_t nCells = 0;
+  for (std::size_t iteration = 0; iteration < mFrame.getNIterations(); ++iteration) {
+    const auto* capacity = mFrame.getWorkspaceCapacity(iteration, ClusterSourceId{0});
+    nTransitions = std::max(nTransitions, capacity->transitions);
+    nCells = std::max(nCells, capacity->cells);
+  }
+  mScratch.adoptPlan(kOrderedSurfaces.size(), nTransitions, nCells);
+  mTracker->adoptScratch(mScratch);
 }
 
 template <int NLayers>
@@ -281,7 +262,7 @@ float ITSMFTTrackingInterface<NLayers>::processTimeFrame(gsl::span<const o2::its
                                                          gsl::span<const o2::dataformats::IRFrame> irFrames)
 {
   mPublicationClock.reset();
-  if (mTrackParams.empty()) {
+  if (mFrame.getTrackingParameters().empty()) {
     LOGP(info, "{} CA tracking mode is off, skipping TimeFrame processing", detName<DetId>());
     return 0.f;
   }
@@ -303,7 +284,7 @@ float ITSMFTTrackingInterface<NLayers>::processTimeFrame(gsl::span<const o2::its
     // isRecoverableLoadError()).
     LOGP(error, "{} CA loading recoverably failed: {}", detName<DetId>(), err.what());
     resetEvent();
-    if (mTrackParams[0].DropTFUponFailure) {
+    if (mFrame.getTrackingParameters()[0].DropTFUponFailure) {
       return kDroppedTimeFrameResult;
     }
     throw;
@@ -313,14 +294,14 @@ float ITSMFTTrackingInterface<NLayers>::processTimeFrame(gsl::span<const o2::its
     // Tracker::clustersToTracks() (Tracker.cxx).
     LOGP(error, "{} CA loading exceeded memory limit: {}", detName<DetId>(), err.what());
     resetEvent();
-    if (mTrackParams[0].DropTFUponFailure) {
+    if (mFrame.getTrackingParameters()[0].DropTFUponFailure) {
       return kDroppedTimeFrameResult;
     }
     throw;
   } catch (const std::bad_alloc& err) {
     LOGP(error, "{} CA loading allocation failed: {}", detName<DetId>(), err.what());
     resetEvent();
-    if (mTrackParams[0].DropTFUponFailure) {
+    if (mFrame.getTrackingParameters()[0].DropTFUponFailure) {
       return kDroppedTimeFrameResult;
     }
     throw;
@@ -373,9 +354,14 @@ void ITSMFTTrackingInterface<NLayers>::loadTimeFrame(gsl::span<const o2::itsmft:
   // on any failure below, mFrame's normalized frame and every scratch
   // compatibility container are left exactly as
   // they were before this call.
-  const auto orderedSurfaces = mBinding->getOrderedSurfaces();
+  const auto* binding = mFrame.getBinding(0, ClusterSourceId{0});
+  if (binding == nullptr) {
+    throw TimeFrameLoadException{TimeFrameLoadFailureReason::DictionaryNotConfigured,
+                                 "CA tracker has no configured source binding"};
+  }
+  const auto orderedSurfaces = binding->getOrderedSurfaces();
   const auto result = mScratch.loadNormalizedSource(mFrame, *mClusterDecoder, origin, timing, clusters, patterns, rofs, mDict, labels, DetId,
-                                                    orderedSurfaces, mGraphs.front().getSurfaceCatalog());
+                                                    orderedSurfaces, mFrame.getGraph(0).getSurfaceCatalog());
   if (!result.ok()) {
     if (isRecoverableLoadError(result.error, result.timingDetail)) {
       throw RecoverableLoadFailure{result};
@@ -406,14 +392,9 @@ void ITSMFTTrackingInterface<NLayers>::loadTimeFrame(gsl::span<const o2::itsmft:
 template <int NLayers>
 float ITSMFTTrackingInterface<NLayers>::runTracking()
 {
-  if (!mTracker || mTrackParams.empty()) {
+  if (!mTracker || !mFrame.isConfigured() || mFrame.getTrackingParameters().empty()) {
     return 0.f;
   }
-  mTracker->adoptScratch(mScratch);
-  mTracker->adoptFrame(mFrame);
-  mTracker->adoptSurfaceGraphs(mGraphs);
-  mTracker->setParameters(mTrackParams);
-  mTracker->setMemoryPool(mMemoryPool);
   mTracker->setBz(mFrame.getBz());
   // Gate 4 C2 Slice 2: clustersToTracks() now returns a typed TrackingResult
   // instead of a float+sentinel; this is the sole place that maps it back to
@@ -470,10 +451,10 @@ void ITSMFTTrackingInterface<NLayers>::resetAdapterState() noexcept
 template <int NLayers>
 void ITSMFTTrackingInterface<NLayers>::configureBeamPosition()
 {
-  if (mTrackParams.empty()) {
+  if (mFrame.getTrackingParameters().empty()) {
     return;
   }
-  const auto& p = mTrackParams[0];
+  const auto& p = mFrame.getTrackingParameters()[0];
   detail::configureAdapterBeamPosition<DetId>(mFrame, p, mMeanVertex, mOverrideBeamEstimation);
 }
 
@@ -523,9 +504,9 @@ ROFTimingConfig ITSMFTTrackingInterface<NLayers>::configureROFLookupTables()
       .mROFLength = static_cast<uint32_t>(rofLengthInBC),
       .mROFDelay = static_cast<uint32_t>(par.getROFDelayInBC(iLayer)),
       .mROFBias = static_cast<uint32_t>(par.getROFBiasInBC(iLayer)),
-      .mROFAddTimeErr = mTrackParams.empty()
+      .mROFAddTimeErr = mFrame.getTrackingParameters().empty()
                           ? static_cast<uint32_t>(o2::itsmft::tracking::TrackerParamRef<DetId>::get().addTimeError[iLayer])
-                          : mTrackParams[0].AddTimeError[iLayer]};
+                          : mFrame.getTrackingParameters()[0].AddTimeError[iLayer]};
     // A zero ROF count (rofLengthInBC > LHCMaxBunches makes nROFsPerOrbit
     // integer-divide to 0, or a misconfigured nOrbitsPerTF <= 0) leaves no
     // real ROF to anchor a diamond-vertex TF interval envelope on

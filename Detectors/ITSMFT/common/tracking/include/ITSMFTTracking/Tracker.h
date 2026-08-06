@@ -20,13 +20,17 @@
 #include <memory>
 #include <vector>
 
+#include <gsl/span>
+
 #include <oneapi/tbb/task_arena.h>
 
 #include "ITSMFTTracking/Configuration.h"
 #include "ITSMFTTracking/SurfaceGraph.h"
+#include "ITSMFTTracking/SurfaceGraphBuilder.h"
 #include "ITSMFTTracking/SurfaceTrackingScratch.h"
 #include "ITSMFTTracking/TimeFrame.h"
 #include "ITSMFTTracking/TrackerTraits.h"
+#include "ITSMFTTracking/detail/SurfacePlanBinding.h"
 
 namespace o2::itsmft::tracking
 {
@@ -70,6 +74,38 @@ struct TrackingResult {
   float elapsedMs{0.f};
 };
 
+struct TrackerIterationConfiguration {
+  std::vector<SurfaceGraphSubgraph> graphSubgraphs;
+  std::vector<SurfacePlanBinding::Declaration> bindings;
+  std::vector<TrackingParameters> parameters;
+};
+
+struct TrackerInitialization {
+  SurfaceCatalogView catalog;
+  std::vector<TrackerIterationConfiguration> iterations;
+  std::shared_ptr<BoundedMemoryResource> memoryPool;
+};
+
+enum class TrackerInitializationError : uint8_t {
+  None,
+  EmptyConfiguration,
+  MissingCatalog,
+  MissingMemoryPool,
+  GraphBuildFailed,
+  BindingCountMismatch,
+  BindingBuildFailed,
+  DuplicateSource,
+  CapacityMismatch
+};
+
+struct TrackerInitializationResult {
+  TrackerInitializationError error{TrackerInitializationError::None};
+  std::size_t failedIteration{static_cast<std::size_t>(-1)};
+  SurfaceGraphBuildError graphError{SurfaceGraphBuildError::None};
+  SurfacePlanBindingError bindingError{SurfacePlanBindingError::None};
+  bool ok() const noexcept { return error == TrackerInitializationError::None; }
+};
+
 /// Gate 3 common-CA compatibility sentinel, retained for
 /// ITSMFTTrackingInterface's own external float contract (the ITS/MFT
 /// workflow adapters still call isDroppedTimeFrame() on
@@ -94,24 +130,15 @@ class Tracker
  public:
   explicit Tracker(TrackerTraits* traits);
 
+  TrackerInitializationResult initialize(TimeFrame& frame, const TrackerInitialization& configuration);
+
   // Binds this tracker's two collaborators, each an independent bind-once
   // pointer -- neither owns nor stores a reference to the other.
   // `scratch`/`frame` must each outlive every subsequent clustersToTracks()
   // call.
   void adoptScratch(SurfaceTrackingScratch& scratch);
   void adoptFrame(TimeFrame& frame);
-  // Gate 4 C2 Slice 1: bind-once, forwarded straight to mTraits -- see
-  // TrackerTraits::adoptSurfacePlanBinding()
-  // for the full contract (optional; nullptr preserves today's Gate 3
-  // identity-mapping behavior). `binding` must outlive every subsequent
-  // clustersToTracks() call.
-  void adoptSurfacePlanBinding(const SurfacePlanBinding& binding) { mTraits->adoptSurfacePlanBinding(&binding); }
-  // Binds the tracker's one immutable plan, owned by its caller
-  // (ITSMFTTrackingInterface) -- mirrors adoptScratch()'s bind-once pattern.
-  // `plan` must outlive every subsequent clustersToTracks() call.
-  void adoptSurfaceGraphs(const std::vector<SurfaceGraph>& graphs) { mGraphs = &graphs; }
-  void setParameters(const std::vector<TrackingParameters>& p) { mTrkParams = p; }
-  void setMemoryPool(std::shared_ptr<BoundedMemoryResource> pool) { mMemoryPool = pool; }
+  void setSource(ClusterSourceId source) noexcept { mSource = source; }
   void setBz(float bz) { mTraits->setBz(bz); }
   void setNThreads(int n, std::shared_ptr<tbb::task_arena>& arena) { mTraits->setNThreads(n, arena); }
 
@@ -133,7 +160,11 @@ class Tracker
   SurfaceTrackingScratch& getScratch() { return *mScratch; }
 
  private:
-  void initialiseTimeFrame(int iteration) { mTraits->initialiseTimeFrame(iteration, *mGraphs); }
+  void initialiseTimeFrame(int iteration)
+  {
+    mTraits->adoptSurfacePlanBinding(mFrame->getBinding(iteration, mSource));
+    mTraits->initialiseTimeFrame(iteration, mFrame->getGraphs());
+  }
   void computeTracklets(int iteration, int iVertex) { mTraits->computeLayerTracklets(iteration, iVertex); }
   void computeCells(int iteration) { mTraits->computeLayerCells(iteration); }
   void findCellsNeighbours(int iteration) { mTraits->findCellsNeighbours(iteration); }
@@ -141,9 +172,7 @@ class Tracker
   TrackerTraits* mTraits = nullptr;
   SurfaceTrackingScratch* mScratch = nullptr;
   TimeFrame* mFrame = nullptr;
-  const std::vector<SurfaceGraph>* mGraphs = nullptr;
-  std::vector<TrackingParameters> mTrkParams;
-  std::shared_ptr<BoundedMemoryResource> mMemoryPool;
+  ClusterSourceId mSource{};
 };
 } // namespace o2::itsmft::tracking
 

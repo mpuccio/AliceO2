@@ -5,12 +5,10 @@
 // This software is distributed under the terms of the GNU General Public
 // License v3 (GPL Version 3), copied verbatim in the file "COPYING".
 //
-// E0/M2a-M2c (GenericTrackingEngineMigration.md; ADR 0007): this is the
-// concrete plan-driven TrackingParticipant used by the ITS/MFT application
-// adapter. It owns one SurfaceTrackingScratch, one SurfacePlanBinding, the
-// layer-count-specific Tracker/TrackerTraits pair, the tracking parameters,
-// and its detector compatibility sidecar entirely behind the generic
-// TrackingParticipant boundary.
+// Concrete plan-driven TrackingParticipant used by the ITS/MFT application
+// adapter. Static graph configuration is borrowed from its reusable TimeFrame;
+// this object retains only its physical event scratch and adapter sidecars
+// until the later workspace-ownership slice.
 //
 // This class never loads input itself, matching TrackingParticipant.h's own
 // contract: it only exposes its own loadTarget() (the loader's surface-backed
@@ -69,15 +67,10 @@ class SurfacePlanTrackingParticipant final : public TrackingParticipant,
                 "SurfacePlanTrackingParticipant supports ITS (7) and MFT (10) layer counts only");
   static constexpr o2::detectors::DetID::ID DetId = detIdFromNLayers<NLayers>();
 
-  SurfacePlanTrackingParticipant(ParticipantId id, std::vector<TrackingParameters> params);
+  SurfacePlanTrackingParticipant(ParticipantId id, ClusterSourceId source);
 
-  // Tracker/TrackerTraits bind to sibling addresses at
-  // construction (adoptScratch()/adoptITSSharedClusterCompatibility()/
-  // adoptMFTPublicationCompatibility()) and to the addresses
-  // adoptSurfacePlanBinding()/adoptSurfaceGraphs() bind
-  // immediately afterward; relocating this object would silently dangle
-  // every one of those bound pointers -- the non-relocatable contract
-  // required by the owning workflow application.
+  // Tracker/TrackerTraits bind to sibling addresses at construction;
+  // relocating this object would silently dangle those pointers.
   SurfacePlanTrackingParticipant(const SurfacePlanTrackingParticipant&) = delete;
   SurfacePlanTrackingParticipant& operator=(const SurfacePlanTrackingParticipant&) = delete;
   SurfacePlanTrackingParticipant(SurfacePlanTrackingParticipant&&) = delete;
@@ -87,10 +80,8 @@ class SurfacePlanTrackingParticipant final : public TrackingParticipant,
   // Not part of the generic TrackingParticipant interface: the owning
   // workflow holds this concrete type directly (never only a
   // TrackingParticipant*) specifically to reach these. ---
-  void adoptSurfacePlanBinding(std::unique_ptr<SurfacePlanBinding> binding);
-  void adoptSurfaceGraphs(const std::vector<SurfaceGraph>& graphs);
-  void adoptFrame(TimeFrame& frame);
-  void setMemoryPool(std::shared_ptr<BoundedMemoryResource> pool);
+  TrackerInitializationResult initialize(TimeFrame& frame, const TrackerInitialization& configuration);
+  void adoptConfiguredFrame(TimeFrame& frame);
   void setBz(float bz);
   void setNThreads(int n);
   void configureRofTables(const ROFTimingConfig& timing, uint32_t nROFsTF);
@@ -113,7 +104,11 @@ class SurfacePlanTrackingParticipant final : public TrackingParticipant,
   // This leg's own DropTFUponFailure, needed by the owning workflow to
   // classify an atomic *load* failure (a decision made before track() is ever
   // reachable, so it cannot come from a ParticipantTrackingResult).
-  bool getDropTFUponFailure() const noexcept { return mParams[0].DropTFUponFailure; }
+  bool getDropTFUponFailure() const noexcept
+  {
+    const auto parameters = mFrame != nullptr && mFrame->isConfigured() ? mFrame->getTrackingParameters(mSource) : gsl::span<const TrackingParameters>{};
+    return !parameters.empty() && parameters[0].DropTFUponFailure;
+  }
 
   // --- TrackingParticipant (ADR 0007 decision 5) ---
   ParticipantId id() const noexcept override { return mId; }
@@ -152,11 +147,9 @@ class SurfacePlanTrackingParticipant final : public TrackingParticipant,
   void resetAdapterState() noexcept override { clearCompatibility(); }
 
   ParticipantId mId;
-  std::vector<TrackingParameters> mParams;
+  ClusterSourceId mSource;
   SurfaceTrackingScratch mScratch;
-  std::unique_ptr<SurfacePlanBinding> mBinding;
-  // Non-owning graph configuration owned by the workflow.
-  const std::vector<SurfaceGraph>* mGraphs = nullptr;
+  TimeFrame* mFrame = nullptr;
   TrackerTraits mTraits;
   Tracker mTracker;
   DetectorPublicationAdapter<NLayers> mDetectorPublicationAdapter;

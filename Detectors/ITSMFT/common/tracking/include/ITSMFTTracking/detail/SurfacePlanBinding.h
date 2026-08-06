@@ -79,6 +79,14 @@ enum class SurfacePlanBindingError : uint8_t {
 class SurfacePlanBinding
 {
  public:
+  struct Declaration {
+    ClusterSourceId source{};
+    SurfaceMask ownedSurfaces{};
+    std::vector<SurfaceId> orderedSurfaces;
+    SurfaceKind expectedKind{SurfaceKind::Cylinder};
+    TransitionPolicyTag expectedPolicy{TransitionPolicyTag::Invalid};
+  };
+
   struct BuildResult {
     std::unique_ptr<SurfacePlanBinding> binding{};
     SurfacePlanBindingError error{SurfacePlanBindingError::None};
@@ -231,6 +239,13 @@ class SurfacePlanBinding
       }
     }
     return {std::move(result), SurfacePlanBindingError::None};
+  }
+
+  static BuildResult build(const SurfaceGraphView& globalLayout, const Declaration& declaration)
+  {
+    return build(globalLayout, declaration.source, declaration.ownedSurfaces,
+                 declaration.orderedSurfaces, declaration.expectedKind,
+                 declaration.expectedPolicy);
   }
 
   ClusterSourceId getSource() const noexcept { return mSource; }

@@ -11,14 +11,16 @@
 #include "ITSMFTTracking/DetectorTrackingOperationAdapterSupport.h"
 #include "ITStracking/Constants.h"
 
+#include <algorithm>
+#include <stdexcept>
 #include <utility>
 
 namespace o2::itsmft::tracking
 {
 
 template <int NLayers>
-SurfacePlanTrackingParticipant<NLayers>::SurfacePlanTrackingParticipant(ParticipantId id, std::vector<TrackingParameters> params)
-  : mId{id}, mParams(std::move(params)), mTracker(&mTraits), mLoadTarget(mScratch)
+SurfacePlanTrackingParticipant<NLayers>::SurfacePlanTrackingParticipant(ParticipantId id, ClusterSourceId source)
+  : mId{id}, mSource{source}, mTracker(&mTraits), mLoadTarget(mScratch)
 {
   mTracker.adoptScratch(mScratch);
   if constexpr (DetId == o2::detectors::DetID::ITS) {
@@ -27,40 +29,39 @@ SurfacePlanTrackingParticipant<NLayers>::SurfacePlanTrackingParticipant(Particip
   if constexpr (DetId == o2::detectors::DetID::MFT) {
     mDetectorPublicationAdapter.adoptMFTPublicationCompatibility(&static_cast<MFTPublicationCompatibilityOwner<NLayers>&>(*this).sidecar);
   }
-  mTracker.setParameters(mParams);
 }
 
 template <int NLayers>
-void SurfacePlanTrackingParticipant<NLayers>::adoptSurfacePlanBinding(std::unique_ptr<SurfacePlanBinding> binding)
+TrackerInitializationResult SurfacePlanTrackingParticipant<NLayers>::initialize(TimeFrame& frame, const TrackerInitialization& configuration)
 {
-  mBinding = std::move(binding);
-  mTraits.adoptSurfacePlanBinding(mBinding.get());
+  mTracker.setSource(mSource);
+  const auto result = mTracker.initialize(frame, configuration);
+  if (!result.ok()) {
+    return result;
+  }
+  adoptConfiguredFrame(frame);
+  return result;
 }
 
 template <int NLayers>
-void SurfacePlanTrackingParticipant<NLayers>::adoptSurfaceGraphs(const std::vector<SurfaceGraph>& graphs)
+void SurfacePlanTrackingParticipant<NLayers>::adoptConfiguredFrame(TimeFrame& frame)
 {
-  mGraphs = &graphs;
-  // The plan and binding are adopted before this call, so their compact
-  // topology counts size the scratch before any loader or tracker access.
-  mScratch.adoptPlan(static_cast<std::size_t>(ownedSurfaces().size()),
-                     mBinding->getGlobalTransitions().size(),
-                     mBinding->getGlobalCells().size());
-  mTracker.adoptSurfaceGraphs(graphs);
-}
-
-template <int NLayers>
-void SurfacePlanTrackingParticipant<NLayers>::adoptFrame(TimeFrame& frame)
-{
+  mFrame = &frame;
+  mTracker.setSource(mSource);
   mTracker.adoptFrame(frame);
-}
-
-template <int NLayers>
-void SurfacePlanTrackingParticipant<NLayers>::setMemoryPool(std::shared_ptr<BoundedMemoryResource> pool)
-{
-  mScratch.setMemoryPool(pool);
-  mTraits.setMemoryPool(pool);
-  mTracker.setMemoryPool(pool);
+  mTraits.setMemoryPool(frame.getMemoryPool());
+  mScratch.setMemoryPool(frame.getMemoryPool());
+  TrackingWorkspaceCapacity capacity{};
+  for (std::size_t iteration = 0; iteration < frame.getNIterations(); ++iteration) {
+    const auto* current = frame.getWorkspaceCapacity(iteration, mSource);
+    if (current == nullptr) {
+      throw std::runtime_error{"SurfacePlanTrackingParticipant: missing configured source binding"};
+    }
+    capacity.ownedSurfaces = std::max(capacity.ownedSurfaces, current->ownedSurfaces);
+    capacity.transitions = std::max(capacity.transitions, current->transitions);
+    capacity.cells = std::max(capacity.cells, current->cells);
+  }
+  mScratch.adoptPlan(capacity.ownedSurfaces, capacity.transitions, capacity.cells);
 }
 
 template <int NLayers>
@@ -154,10 +155,11 @@ void SurfacePlanTrackingParticipant<NLayers>::clearPublicationSidecar() noexcept
 template <int NLayers>
 gsl::span<const SurfaceId> SurfacePlanTrackingParticipant<NLayers>::ownedSurfaces() const noexcept
 {
-  if (mBinding == nullptr) {
+  if (mFrame == nullptr) {
     return {};
   }
-  return mBinding->getOrderedSurfaces();
+  const auto* binding = mFrame->getBinding(0, mSource);
+  return binding == nullptr ? gsl::span<const SurfaceId>{} : binding->getOrderedSurfaces();
 }
 
 template <int NLayers>
@@ -192,7 +194,7 @@ void SurfacePlanTrackingParticipant<NLayers>::eventReset(TimeFrame&) noexcept
 template <int NLayers>
 std::optional<ParticipantPublicationExport> SurfacePlanTrackingParticipant<NLayers>::publicationExport() const
 {
-  if (!mTracked || mGraphs == nullptr) {
+  if (!mTracked || mFrame == nullptr || !mFrame->isConfigured()) {
     return std::nullopt;
   }
   return ParticipantPublicationExport{mId, ownedSurfaces()};

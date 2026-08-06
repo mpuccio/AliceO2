@@ -126,7 +126,7 @@ o2::itsmft::tracking::SurfaceMask surfaceRangeMask(uint16_t first, uint16_t coun
   return result;
 }
 
-o2::itsmft::tracking::SurfaceGraphBuildResult buildCombinedGraph(
+std::vector<o2::itsmft::tracking::SurfaceGraphSubgraph> combinedGraphSubgraphs(
   gsl::span<const o2::itsmft::tracking::SurfaceId> itsSurfaces,
   const o2::itsmft::TrackingParameters& itsParams,
   gsl::span<const o2::itsmft::tracking::SurfaceId> mftSurfaces,
@@ -148,10 +148,7 @@ o2::itsmft::tracking::SurfaceGraphBuildResult buildCombinedGraph(
   mftSubgraph.seedingSurfaces = o2::itsmft::tracking::positionalSurfaceMask(
     mftParams.StartLayerMask, mftSurfaces, static_cast<uint32_t>(mftSurfaces.size()));
 
-  o2::itsmft::tracking::SurfaceGraphBuilder builder{combinedCatalogView()};
-  builder.addSubgraph(std::move(itsSubgraph));
-  builder.addSubgraph(std::move(mftSubgraph));
-  return builder.build();
+  return {std::move(itsSubgraph), std::move(mftSubgraph)};
 }
 
 } // namespace
@@ -183,49 +180,35 @@ void CombinedCATrackerDPL::buildParticipantsOnce()
   // constructed.
   auto itsParams = o2::itsmft::TrackingMode::getTrackingParameters(o2::detectors::DetID::ITS, o2::itsmft::TrackingMode::Sync);
   auto mftParams = o2::itsmft::TrackingMode::getTrackingParameters(o2::detectors::DetID::MFT, o2::itsmft::TrackingMode::Sync);
-  mITSTrackingParams = itsParams[0];
-  mMFTTrackingParams = mftParams[0];
-  const size_t maxMemory = std::min(itsParams[0].MaxMemory, mftParams[0].MaxMemory);
-
   const auto itsSurfaces = orderedSurfaceRange(0, o2::itsmft::tracking::ITSNLayers);
   const auto mftSurfaces = orderedSurfaceRange(o2::itsmft::tracking::ITSNLayers, o2::itsmft::tracking::MFTNLayers);
-  const auto combinedBuild = buildCombinedGraph(itsSurfaces, itsParams[0], mftSurfaces, mftParams[0]);
-  if (!combinedBuild.ok()) {
-    throw std::runtime_error{"Combined ITS+MFT tracker: failed to build the application detector layout"};
-  }
-  mGraphs.clear();
-  mGraphs.push_back(std::move(*combinedBuild.graph));
 
   mITSParticipant = std::make_unique<o2::itsmft::tracking::SurfacePlanTrackingParticipantITS>(
-    o2::itsmft::tracking::ParticipantId{0}, std::move(itsParams));
+    o2::itsmft::tracking::ParticipantId{0}, o2::itsmft::tracking::ClusterSourceId{0});
   mMFTParticipant = std::make_unique<o2::itsmft::tracking::SurfacePlanTrackingParticipantMFT>(
-    o2::itsmft::tracking::ParticipantId{1}, std::move(mftParams));
+    o2::itsmft::tracking::ParticipantId{1}, o2::itsmft::tracking::ClusterSourceId{1});
 
-  auto itsBindingResult = o2::itsmft::tracking::SurfacePlanBinding::build(
-    mGraphs.front().getView(), o2::itsmft::tracking::ClusterSourceId{0},
-    surfaceRangeMask(0, o2::itsmft::tracking::ITSNLayers), itsSurfaces,
-    o2::itsmft::tracking::SurfaceKind::Cylinder, o2::itsmft::tracking::TransitionPolicyTag::CylinderCylinder);
-  if (!itsBindingResult.ok()) {
-    throw std::runtime_error{"Combined ITS+MFT tracker: failed to build the ITS surface binding"};
+  o2::itsmft::tracking::TrackerInitialization configuration;
+  configuration.catalog = combinedCatalogView();
+  configuration.memoryPool = std::make_shared<o2::itsmft::tracking::BoundedMemoryResource>(
+    std::min(itsParams[0].MaxMemory, mftParams[0].MaxMemory));
+  o2::itsmft::tracking::TrackerIterationConfiguration iteration;
+  iteration.graphSubgraphs = combinedGraphSubgraphs(itsSurfaces, itsParams[0], mftSurfaces, mftParams[0]);
+  iteration.bindings = {
+    o2::itsmft::tracking::SurfacePlanBinding::Declaration{
+      o2::itsmft::tracking::ClusterSourceId{0}, surfaceRangeMask(0, o2::itsmft::tracking::ITSNLayers), itsSurfaces,
+      o2::itsmft::tracking::SurfaceKind::Cylinder, o2::itsmft::tracking::TransitionPolicyTag::CylinderCylinder},
+    o2::itsmft::tracking::SurfacePlanBinding::Declaration{
+      o2::itsmft::tracking::ClusterSourceId{1}, surfaceRangeMask(o2::itsmft::tracking::ITSNLayers, o2::itsmft::tracking::MFTNLayers), mftSurfaces,
+      o2::itsmft::tracking::SurfaceKind::Disk, o2::itsmft::tracking::TransitionPolicyTag::DiskDisk}};
+  iteration.parameters = {itsParams[0], mftParams[0]};
+  configuration.iterations.push_back(std::move(iteration));
+  const auto initialization = mITSParticipant->initialize(mFrame, configuration);
+  if (!initialization.ok()) {
+    throw std::runtime_error{"Combined ITS+MFT tracker: failed to commit static TimeFrame configuration"};
   }
-  auto mftBindingResult = o2::itsmft::tracking::SurfacePlanBinding::build(
-    mGraphs.front().getView(), o2::itsmft::tracking::ClusterSourceId{1},
-    surfaceRangeMask(o2::itsmft::tracking::ITSNLayers, o2::itsmft::tracking::MFTNLayers), mftSurfaces,
-    o2::itsmft::tracking::SurfaceKind::Disk, o2::itsmft::tracking::TransitionPolicyTag::DiskDisk);
-  if (!mftBindingResult.ok()) {
-    throw std::runtime_error{"Combined ITS+MFT tracker: failed to build the MFT surface binding"};
-  }
-  mITSParticipant->adoptSurfacePlanBinding(std::move(itsBindingResult.binding));
-  mMFTParticipant->adoptSurfacePlanBinding(std::move(mftBindingResult.binding));
-  mITSParticipant->adoptSurfaceGraphs(mGraphs);
-  mMFTParticipant->adoptSurfaceGraphs(mGraphs);
+  mMFTParticipant->adoptConfiguredFrame(mFrame);
   mSchedule = {mITSParticipant.get(), mMFTParticipant.get()};
-
-  mFrame.setMemoryPool(std::make_shared<o2::itsmft::tracking::BoundedMemoryResource>(maxMemory));
-  mITSParticipant->adoptFrame(mFrame);
-  mMFTParticipant->adoptFrame(mFrame);
-  mITSParticipant->setMemoryPool(mFrame.getMemoryPool());
-  mMFTParticipant->setMemoryPool(mFrame.getMemoryPool());
   mITSParticipant->setBz(o2::base::Propagator::Instance()->getNominalBz());
   mMFTParticipant->setBz(o2::base::Propagator::Instance()->getNominalBz());
 
@@ -436,7 +419,8 @@ void CombinedCATrackerDPL::run(ProcessingContext& pc)
   // ordered-surface getter -- never re-derived by hand as a literal
   // ITS=0..6/MFT=7..16 offset.
   itsSource.layerToSurface = getITSOrderedSurfaces();
-  itsSource.timing = deriveRofTimingConfigOrFatal<o2::detectors::DetID::ITS, o2::itsmft::tracking::ITSNLayers>(mITSTrackingParams);
+  itsSource.timing = deriveRofTimingConfigOrFatal<o2::detectors::DetID::ITS, o2::itsmft::tracking::ITSNLayers>(
+    *mFrame.getTrackingParameters(0, ClusterSourceId{0}));
   itsSource.decoder = mITSDecoder.get();
 
   ClusterSourceInput mftSource{};
@@ -448,7 +432,8 @@ void CombinedCATrackerDPL::run(ProcessingContext& pc)
   mftSource.dictionary = mMFTDict;
   mftSource.labels = mftLabels;
   mftSource.layerToSurface = getMFTOrderedSurfaces();
-  mftSource.timing = deriveRofTimingConfigOrFatal<o2::detectors::DetID::MFT, o2::itsmft::tracking::MFTNLayers>(mMFTTrackingParams);
+  mftSource.timing = deriveRofTimingConfigOrFatal<o2::detectors::DetID::MFT, o2::itsmft::tracking::MFTNLayers>(
+    *mFrame.getTrackingParameters(0, ClusterSourceId{1}));
   mftSource.decoder = mMFTDecoder.get();
 
   const auto origin = chooseOrigin(itsRofs, mftRofs);

@@ -27,6 +27,105 @@ Tracker::Tracker(TrackerTraits* traits) : mTraits(traits)
 {
 }
 
+TrackerInitializationResult Tracker::initialize(TimeFrame& frame, const TrackerInitialization& configuration)
+{
+  TrackerInitializationResult result;
+  if (configuration.iterations.empty()) {
+    result.error = TrackerInitializationError::EmptyConfiguration;
+    return result;
+  }
+  if (configuration.catalog.surfaces == nullptr || configuration.catalog.nSurfaces == 0) {
+    result.error = TrackerInitializationError::MissingCatalog;
+    return result;
+  }
+  if (!configuration.memoryPool) {
+    result.error = TrackerInitializationError::MissingMemoryPool;
+    return result;
+  }
+
+  std::vector<SurfaceGraph> graphs;
+  std::vector<std::vector<TrackingParameters>> parameters;
+  std::vector<TimeFrame::BindingSet> bindings;
+  std::vector<std::vector<TrackingWorkspaceCapacity>> capacities;
+  graphs.reserve(configuration.iterations.size());
+  parameters.reserve(configuration.iterations.size());
+  bindings.reserve(configuration.iterations.size());
+  capacities.reserve(configuration.iterations.size());
+
+  for (std::size_t iteration = 0; iteration < configuration.iterations.size(); ++iteration) {
+    const auto& input = configuration.iterations[iteration];
+    SurfaceGraphBuilder builder{configuration.catalog};
+    for (const auto& subgraph : input.graphSubgraphs) {
+      builder.addSubgraph(subgraph);
+    }
+    const auto graphResult = builder.build();
+    if (!graphResult.ok()) {
+      result.error = TrackerInitializationError::GraphBuildFailed;
+      result.failedIteration = iteration;
+      result.graphError = graphResult.error;
+      return result;
+    }
+
+    TimeFrame::BindingSet iterationBindings;
+    std::vector<TrackingWorkspaceCapacity> iterationCapacities;
+    if (input.bindings.empty() || input.bindings.size() != input.graphSubgraphs.size() ||
+        input.parameters.size() != input.bindings.size()) {
+      result.error = TrackerInitializationError::BindingCountMismatch;
+      result.failedIteration = iteration;
+      return result;
+    }
+    for (const auto& declaration : input.bindings) {
+      if (std::any_of(iterationBindings.begin(), iterationBindings.end(), [&](const auto& binding) {
+            return binding && binding->getSource() == declaration.source;
+          })) {
+        result.error = TrackerInitializationError::DuplicateSource;
+        result.failedIteration = iteration;
+        return result;
+      }
+      auto bindingResult = SurfacePlanBinding::build(graphResult.graph->getView(), declaration);
+      if (!bindingResult.ok()) {
+        result.error = TrackerInitializationError::BindingBuildFailed;
+        result.failedIteration = iteration;
+        result.bindingError = bindingResult.error;
+        return result;
+      }
+      if (input.parameters[iterationBindings.size()].NLayers != 0 &&
+          input.parameters[iterationBindings.size()].NLayers != declaration.orderedSurfaces.size()) {
+        result.error = TrackerInitializationError::CapacityMismatch;
+        result.failedIteration = iteration;
+        return result;
+      }
+      iterationCapacities.push_back(TrackingWorkspaceCapacity{
+        declaration.orderedSurfaces.size(), bindingResult.binding->getGlobalTransitions().size(),
+        bindingResult.binding->getGlobalCells().size()});
+      iterationBindings.push_back(std::move(bindingResult.binding));
+    }
+    graphs.push_back(*graphResult.graph);
+    parameters.push_back(input.parameters);
+    bindings.push_back(std::move(iterationBindings));
+    capacities.push_back(std::move(iterationCapacities));
+  }
+
+  for (const auto& iterationBindings : bindings) {
+    if (std::none_of(iterationBindings.begin(), iterationBindings.end(), [&](const auto& binding) {
+          return binding && binding->getSource() == mSource;
+        })) {
+      result.error = TrackerInitializationError::BindingCountMismatch;
+      return result;
+    }
+  }
+
+  if (!frame.commitConfiguration(std::move(graphs), std::move(parameters), std::move(bindings),
+                                 std::move(capacities), configuration.memoryPool)) {
+    result.error = TrackerInitializationError::CapacityMismatch;
+    return result;
+  }
+  adoptFrame(frame);
+  const auto& sourceParameters = frame.getTrackingParameters(mSource);
+  mTraits->updateTrackingParameters(sourceParameters);
+  return result;
+}
+
 void Tracker::adoptScratch(SurfaceTrackingScratch& scratch)
 {
   mScratch = &scratch;
@@ -41,18 +140,30 @@ void Tracker::adoptFrame(TimeFrame& frame)
 
 TrackingResult Tracker::clustersToTracks(TrackingOperationAdapter& operationAdapter)
 {
-  mTraits->updateTrackingParameters(mTrkParams);
+  if (mFrame == nullptr || !mFrame->isConfigured() || mScratch == nullptr ||
+      mFrame->getNIterations() == 0 || mFrame->getBinding(0, mSource) == nullptr) {
+    throw TraversalException{-1, TraversalFailureReason::MissingLayout};
+  }
+  const auto& trkParams = mFrame->getTrackingParameters(mSource);
+  const auto& memoryPool = mFrame->getMemoryPool();
+  mTraits->updateTrackingParameters(trkParams);
 
   int maxNvertices{-1};
-  if (mTrkParams[0].PerPrimaryVertexProcessing) {
+  if (trkParams[0].PerPrimaryVertexProcessing) {
     maxNvertices = mScratch->getROFVertexLookupView().getMaxVerticesPerROF();
   }
 
   float total{0.f};
   try {
-    for (int iteration = 0; iteration < static_cast<int>(mTrkParams.size()); ++iteration) {
-      mMemoryPool->setMaxMemory(mTrkParams[iteration].MaxMemory);
-      if (mTrkParams[iteration].PassFlags[IterationStep::UseUPCMask]) {
+    for (int iteration = 0; iteration < static_cast<int>(trkParams.size()); ++iteration) {
+      // Keep a deliberately tightened event-local bound. This is also the
+      // only way a workflow/test can inject a resource failure after loading;
+      // configuration still supplies the normal upper bound.
+      if (trkParams[iteration].MaxMemory != std::numeric_limits<size_t>::max() &&
+          memoryPool->getMaxMemory() > trkParams[iteration].MaxMemory) {
+        memoryPool->setMaxMemory(trkParams[iteration].MaxMemory);
+      }
+      if (trkParams[iteration].PassFlags[IterationStep::UseUPCMask]) {
         mScratch->useUPCMask();
       }
 
@@ -80,7 +191,7 @@ TrackingResult Tracker::clustersToTracks(TrackingOperationAdapter& operationAdap
     LOGP(error, "CA tracker exceeded memory limit: {}", err.what());
     operationAdapter.resetAdapterState();
     resetTimeFrameEvent(*mFrame, *mScratch);
-    if (mTrkParams[0].DropTFUponFailure) {
+    if (trkParams[0].DropTFUponFailure) {
       return TrackingResult{TrackingOutcome::RecoverableDropped, 0.f};
     }
     throw;
@@ -93,7 +204,7 @@ TrackingResult Tracker::clustersToTracks(TrackingOperationAdapter& operationAdap
     LOGP(error, "CA tracker allocation failed: {}", err.what());
     operationAdapter.resetAdapterState();
     resetTimeFrameEvent(*mFrame, *mScratch);
-    if (mTrkParams[0].DropTFUponFailure) {
+    if (trkParams[0].DropTFUponFailure) {
       return TrackingResult{TrackingOutcome::RecoverableDropped, 0.f};
     }
     throw;

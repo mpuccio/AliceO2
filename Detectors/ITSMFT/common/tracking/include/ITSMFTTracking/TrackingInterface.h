@@ -177,16 +177,16 @@ class ITSMFTTrackingInterface : private MFTPublicationCompatibilityOwner<NLayers
     }
     return nullptr;
   }
-  const std::vector<o2::itsmft::TrackingParameters>& getTrackingParameters() const { return mTrackParams; }
+  const std::vector<o2::itsmft::TrackingParameters>& getTrackingParameters() const { return mFrame.getTrackingParameters(); }
   std::optional<CommonTrackPublicationExport> getCommonTrackPublicationExport() const
   {
-    if (!mPublicationClock || mGraphs.empty() || !isActive()) {
+    if (!mPublicationClock || !mFrame.isConfigured() || !isActive()) {
       return std::nullopt;
     }
     return CommonTrackPublicationExport{DetId, ClusterSourceId{0}, *mPublicationClock,
-                                        gsl::span<const SurfaceId>{mGraphs.front().getOrderedSurfaces()}};
+                                        gsl::span<const SurfaceId>{mFrame.getGraph(0).getOrderedSurfaces()}};
   }
-  bool isActive() const { return !mTrackParams.empty(); }
+  bool isActive() const { return mFrame.isConfigured() && !mFrame.getTrackingParameters().empty(); }
   // Actual tbb::task_arena concurrency the tracker was constructed with (0
   // if initialiseTracker() has not run yet, e.g. mTrackParams is empty).
   // Exposed for testing initialiseTracker()'s DetId-dependent nThreads
@@ -199,9 +199,8 @@ class ITSMFTTrackingInterface : private MFTPublicationCompatibilityOwner<NLayers
   virtual void onTrackingFinished(float elapsedMs) {}
 
  private:
-  void resolveTrackingParameters();
-  void initialiseMemoryPool();
-  void initialiseTracker();
+  std::vector<o2::itsmft::TrackingParameters> resolveTrackingParameters();
+  void initialiseTracker(const std::vector<o2::itsmft::TrackingParameters>& parameters);
   void loadTimeFrame(gsl::span<const o2::itsmft::ROFRecord> rofs,
                      gsl::span<const o2::itsmft::CompClusterExt> clusters,
                      gsl::span<const unsigned char> patterns,
@@ -237,20 +236,12 @@ class ITSMFTTrackingInterface : private MFTPublicationCompatibilityOwner<NLayers
   bool mUseMC = false;
   bool mOverrideBeamEstimation = false;
   o2::itsmft::TrackingMode::Type mTrackingMode = o2::itsmft::TrackingMode::Unset;
-  std::vector<o2::itsmft::TrackingParameters> mTrackParams;
-  std::shared_ptr<BoundedMemoryResourceN> mMemoryPool;
   std::unique_ptr<TrackerTraits> mTrackerTraits;
   std::unique_ptr<Tracker> mTracker;
 #ifndef GPUCA_GPUCODE
   DetectorPublicationAdapter<NLayers> mDetectorPublicationAdapter;
   std::unique_ptr<ClusterDecoder> mClusterDecoder;
-  // Built once by the adapter and borrowed by Tracker/TrackerTraits. Graph
-  // storage remains configuration state across event resets.
-  std::vector<SurfaceGraph> mGraphs;
   std::optional<ClockTimingPublicationView> mPublicationClock;
-  // Bind-once binding, built in initialiseTracker() alongside mGraphs and adopted
-  // onto mTracker immediately after.
-  std::unique_ptr<SurfacePlanBinding> mBinding;
   // Adapter-edge ownership for the frozen fixed-capacity timing/mask builders.
   // The common scratch receives only their non-owning RuntimeROFViews.
   ROFOverlapTableN mROFOverlapTable;

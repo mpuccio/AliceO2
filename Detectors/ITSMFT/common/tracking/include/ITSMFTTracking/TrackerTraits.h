@@ -182,7 +182,7 @@ class TrackerTraits
   bounded_vector<TrackingCandidate>& acceptedTracksForSharedStatus();
   void clearAcceptedTracksForSharedStatus();
 
-  void updateTrackingParameters(const std::vector<TrackingParameters>& trkPars) { mTrkParams = trkPars; }
+  void updateTrackingParameters(gsl::span<const TrackingParameters> trkPars) { mTrkParams = trkPars; }
   SurfaceTrackingScratch* getScratch() { return mScratch; }
 
   virtual void setBz(float bz);
@@ -443,7 +443,7 @@ class TrackerTraits
  protected:
   SurfaceTrackingScratch* mScratch = nullptr;
   TimeFrame* mFrame = nullptr;
-  std::vector<TrackingParameters> mTrkParams;
+  gsl::span<const TrackingParameters> mTrkParams;
   float mBz{-999.f};
 };
 
