@@ -10,7 +10,8 @@
 ///
 /// Only this translation unit may include MFTFwdTrackHelpers.h on behalf of
 /// the D007 policy operation boundary, so the common public policy header
-/// stays free of MFT-specific constants/TimeFrame/MFTCATrack dependencies.
+/// stays free of MFT-specific constants, TimeFrame, and typed-output
+/// dependencies.
 
 #include "ITSMFTTracking/detail/TransitionPolicyOperations.h"
 

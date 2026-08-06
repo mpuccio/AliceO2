@@ -33,14 +33,11 @@ o2_add_library(ITSCAWorkflow
                                      # see common/workflow-ca-writer's own
                                      # CMakeLists.txt comment.
                                      O2::ITSMFTCAWriter
-                                     # ITSMFTTracking/TimeFrame.h transitively
-                                     # includes MFTCATrack.h, which needs
-                                     # MFTTracking/Constants.h; O2::ITSMFTTracking
-                                     # links O2::MFTTracking only PRIVATE-ly
-                                     # (Detectors/ITSMFT/common/tracking/CMakeLists.txt),
-                                     # so an ITS-only consumer must still add it
-                                     # directly to see that public header's own
-                                     # include path (same as O2::MFTWorkflow does).
+                                     # ITSMFTTracking/IndexTableUtils.h retains
+                                     # a public MFTTracking/Constants.h include;
+                                     # the shared tracking library keeps
+                                     # MFTTracking private, so this consumer
+                                     # names the public dependency directly.
                                      O2::MFTTracking
                                      O2::CCDB)
 

@@ -49,7 +49,6 @@ o2_add_library(ITSMFTTracking
                        src/CATracker.cxx
                        src/TrackingInterface.cxx
                        src/MFTFwdTrackHelpers.cxx
-                       src/MFTAdapterRefit.cxx
                        src/MultiSourceFrame.cxx
                        src/MultiSourceLoading.cxx
                        src/MultiSourceTimeFrameLoader.cxx
