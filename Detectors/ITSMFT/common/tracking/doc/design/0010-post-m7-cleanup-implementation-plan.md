@@ -1,6 +1,6 @@
 # Post-M7 cleanup implementation plan
 
-- Status: L7 implementation complete; L8/L9 remain the next authorized slices
+- Status: L8 implementation complete; L9 remains the next authorized slice
 - Date: 2026-08-06
 - Architecture source: [post-M7 intentionality audit](0009-post-m7-intentionality-cleanup-audit.md)
 - Implementation owner: Luna agents under maintainer review
@@ -394,10 +394,9 @@ the replay preserved the 43/43 fixture manifest, accepted ITS/MFT hashes,
 standalone/combined field equality, and L6-parent initialized-content equality.
 See the [L7 validation record](../validation/l7-adapter-ownership.md).
 
-The exact remaining L8/L9 boundary is the deletion of the borrowed
-participant/interface composition and direct workflow composition of Loader
-plus Tracker. Raw ROFs, timing backing storage, publication sidecars, and
-writers remain workflow/adapter-owned; L8/L9 must not move them into
+The exact remaining L8/L9 boundary is the deletion of the borrowed standalone
+`TrackingInterface` composition. Raw ROFs, timing backing storage, publication
+sidecars, and writers remain workflow/adapter-owned; L9 must not move them into
 `TimeFrame`.
 
 ### L5 — internalize workspace and generic reset in `TimeFrame`
@@ -495,6 +494,15 @@ order; TimeFrame supplies the only generic reset mechanics.
 **Gate:** R plus exact schedule order, non-identity partition order, combined
 source isolation, CPU traits substitution, success/recoverable/structural/
 exception outcomes, and single-reset tests.
+
+**Status: complete (2026-08-06).** `Tracker` is the sole generic
+non-owning orchestrator. `TrackingEngine`, `TrackingParticipant`,
+`ParticipantId`, and `SurfacePlanTrackingParticipant` are deleted; the
+combined DPL task composes workflow-owned inputs, the atomic loader, direct
+`Tracker::run()` calls, and publication adapters. The standalone
+`TrackingInterface` is intentionally retained only as the L9 bridge. The
+100-test serial ITS/MFT suite passed with no Not Run entries, and the replay
+and field-comparison evidence is recorded in [the L8 validation record](../validation/l8-retire-engine.md).
 
 ### L9 — retire `TrackingInterface` and complete component composition
 

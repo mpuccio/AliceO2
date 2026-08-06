@@ -11,7 +11,7 @@ M7d non-templated core: [runtime-plan Tracker/TrackerTraits implementation](desi
 M7e adapter refit/output: [typed refit and output at the adapter boundary](design/0007-m7e-adapter-refit-output.md)
 M7f final cleanup: [redundant runtime-core bridge retirement](design/0008-m7f-final-runtime-core-cleanup.md)
 Post-M7 cleanup audit: [intentionality, ownership, and duplication audit](design/0009-post-m7-intentionality-cleanup-audit.md) — complete; bounded first slice is dead typed-MFT refit/export retirement.
-Post-M7 cleanup implementation: [sequential Luna execution plan](design/0010-post-m7-cleanup-implementation-plan.md) — L7 complete; L8/L9 are the next authorized slices. [L7 adapter-ownership validation](validation/l7-adapter-ownership.md) records the workflow-owned timing/publication boundary.
+Post-M7 cleanup implementation: [sequential Luna execution plan](design/0010-post-m7-cleanup-implementation-plan.md) — L8 complete; L9 is the next authorized slice. [L8 Tracker-orchestration validation](validation/l8-retire-engine.md) records engine/participant retirement and direct combined composition; [L7 adapter-ownership validation](validation/l7-adapter-ownership.md) records the workflow-owned timing/publication boundary.
 
 L6 makes `TimeFrame` the sole live owner of generic configuration, workspace,
 and event data, with `MultiSourceTimeFrameLoader` as the non-owning atomic load
@@ -21,13 +21,12 @@ sidecars, and writers remain outside the frame. L7 relocated those remaining
 compatibility owners to workflow edges; L8/L9 are limited to retiring the
 borrowed participant/interface composition.
 
-This plan turns the accepted Gate 4 implementation into the ADR 0007 end
-state: one concrete `TrackingEngine::executeEvent()` over ordered
-`TrackingParticipant`s, permanent `TimeFrame`/`CommonTrack` ownership,
-detector adapters at the edges, and one algorithmic flow over
-`SurfaceDescriptor`/`SurfaceKinematicState`. Every milestone below is
-replay-gated; the only intentional behavior change (native ITS refit) is
-explicitly fenced behind its own decision (M5).
+The post-M7 implementation now supersedes the original engine/participant
+composition: `TimeFrame` owns reusable generic state, `Loader` and `Tracker`
+act on it, `TrackerTraits` supplies the CPU/GPU kernels, and detector adapters
+remain at the edges. Every milestone below is replay-gated; the only
+intentional behavior change (native ITS refit) is explicitly fenced behind
+its own decision (M5).
 
 ## Milestones
 
