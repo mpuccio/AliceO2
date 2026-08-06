@@ -103,9 +103,6 @@ void SurfaceTrackingScratch::reset()
   deepVectorClear(mNTrackletsPerCluster);
   deepVectorClear(mNTrackletsPerClusterSum);
 
-  // Group E.
-  deepVectorClear(mPValphaX);
-
   // Group D.
   deepVectorClear(mTrackletsIndexROF);
   deepVectorClear(mTrackletClusters);
@@ -116,7 +113,7 @@ void SurfaceTrackingScratch::reset()
 
   // If we use the external host allocator, the assumption is that we don't
   // clear that memory ourselves -- mirrors
-  // the former fixed-layer scratch<NLayers>::resetScratch() exactly.
+  // the former fixed-layer scratch<NLayers>::reset() exactly.
   if (!hasFrameworkAllocator()) {
     deepVectorClear(mClusters);
     deepVectorClear(mUsedClusters);
@@ -126,7 +123,7 @@ void SurfaceTrackingScratch::reset()
     deepVectorClear(mROFramesClusters);
   }
 
-  // Only needed to clear if we have MC info -- mirrors resetScratch() exactly.
+  // Only needed to clear if we have MC info -- mirrors the prior scratch reset exactly.
   if (hasMCinformation()) {
     deepVectorClear(mLinesLabels);
     deepVectorClear(mTrackletLabels);
@@ -163,7 +160,6 @@ void SurfaceTrackingScratch::setMemoryPool(std::shared_ptr<o2::its::BoundedMemor
   initVector(mTransitionMSAngles);
   initVector(mPositionResolution);
   initContainers(mClusterSize);
-  initVector(mPValphaX);
   initVector(mBogusClusters);
   initContainers(mTrackletsIndexROF);
   initContainers(mTracklets);
@@ -220,7 +216,6 @@ bool SurfaceTrackingScratch::allocatorsMatch(const SurfaceTrackingScratch& stage
          flatAllocatorMatches(mPositionResolution, staged.mPositionResolution) &&
          flatAllocatorMatches(mTransitionPhiCuts, staged.mTransitionPhiCuts) &&
          flatAllocatorMatches(mTransitionMSAngles, staged.mTransitionMSAngles) &&
-         flatAllocatorMatches(mPValphaX, staged.mPValphaX) &&
          flatArrayAllocatorMatches(mNTrackletsPerCluster, staged.mNTrackletsPerCluster) &&
          flatArrayAllocatorMatches(mNTrackletsPerClusterSum, staged.mNTrackletsPerClusterSum) &&
          flatArrayAllocatorMatches(mTrackletsIndexROF, staged.mTrackletsIndexROF);
@@ -230,7 +225,6 @@ void SurfaceTrackingScratch::swap(SurfaceTrackingScratch& other) noexcept
 {
   static_assert(noexcept(std::declval<bounded_vector<float>&>().swap(std::declval<bounded_vector<float>&>())));
   static_assert(noexcept(std::declval<bounded_vector<int>&>().swap(std::declval<bounded_vector<int>&>())));
-  static_assert(noexcept(std::declval<bounded_vector<std::array<float, 2>>&>().swap(std::declval<bounded_vector<std::array<float, 2>>&>())));
 
   std::swap(mNOwnedSurfaces, other.mNOwnedSurfaces);
   std::swap(mNTransitions, other.mNTransitions);
@@ -269,7 +263,6 @@ void SurfaceTrackingScratch::swap(SurfaceTrackingScratch& other) noexcept
   mPositionResolution.swap(other.mPositionResolution);
   mTransitionPhiCuts.swap(other.mTransitionPhiCuts);
   mTransitionMSAngles.swap(other.mTransitionMSAngles);
-  mPValphaX.swap(other.mPValphaX);
   for (std::size_t i = 0; i < mNTrackletsPerCluster.size(); ++i) {
     mNTrackletsPerCluster[i].swap(other.mNTrackletsPerCluster[i]);
     mNTrackletsPerClusterSum[i].swap(other.mNTrackletsPerClusterSum[i]);

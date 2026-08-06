@@ -98,41 +98,4 @@ LoadSourcesResult MultiSourceTimeFrameLoader::loadEvent(TimeFrame& frame, gsl::s
   return normalizedResult;
 }
 
-LoadSourcesResult MultiSourceTimeFrameLoader::loadITSAndMFT(TimeFrame& frame,
-                                                            SurfaceTrackingScratch& itsScratch,
-                                                            SurfaceTrackingScratch& mftScratch,
-                                                            const ClusterSourceInput& itsSource,
-                                                            const ClusterSourceInput& mftSource,
-                                                            SurfaceCatalogView catalog,
-                                                            const o2::InteractionRecord& origin)
-{
-  // Thin compatibility wrapper (M2b): the fixed ITS=0/MFT=1 position
-  // contract lives only here, not in the generic loadEvent() transaction
-  // this forwards to. Keeping the source positions fixed makes source
-  // metadata and every ClusterRef stable and makes it impossible to
-  // accidentally backfill a detector into the other scratch.
-  if (itsSource.id != ClusterSourceId{0} || itsSource.detector != o2::detectors::DetID::ITS) {
-    return {MultiSourceLoadError::UnsupportedDetector, itsSource.id};
-  }
-  if (mftSource.id != ClusterSourceId{1} || mftSource.detector != o2::detectors::DetID::MFT) {
-    return {MultiSourceLoadError::UnsupportedDetector, mftSource.id};
-  }
-
-  LoadTargetImplSurface itsTarget{itsScratch};
-  LoadTargetImplSurface mftTarget{mftScratch};
-  const std::array<AtomicLoadBinding, 2> bindings{
-    AtomicLoadBinding{itsSource, itsTarget},
-    AtomicLoadBinding{mftSource, mftTarget}};
-  return loadEvent(frame, gsl::span<const AtomicLoadBinding>{bindings}, catalog, origin);
-}
-
-void MultiSourceTimeFrameLoader::resetITSAndMFTEvent(TimeFrame& frame,
-                                                     SurfaceTrackingScratch& itsScratch,
-                                                     SurfaceTrackingScratch& mftScratch) noexcept
-{
-  itsScratch.resetScratch();
-  mftScratch.resetScratch();
-  frame.wipe();
-}
-
 } // namespace o2::itsmft::tracking

@@ -104,10 +104,6 @@ class SurfaceTrackingScratch
   std::shared_ptr<o2::its::BoundedMemoryResource> mMemoryPool;
   o2::its::ExternalAllocator* mExternalAllocator{nullptr};
   bool mIsStaggered{false};
-  // Flagged in the M6 design note as possibly dead (no production
-  // read/write site found by that audit); carried over structurally rather
-  // than dropped, since this milestone does not re-run that verification.
-  o2::its::bounded_vector<std::array<float, 2>> mPValphaX;
 
  public:
   // M6d: LoadTargetImpl-equivalent staging code (MultiSourceTimeFrameLoader.cxx)
@@ -145,10 +141,8 @@ class SurfaceTrackingScratch
   /// changes the adopted plan sizing (getNOwnedSurfaces()/getNTransitions()/
   /// getNCells() are unaffected -- only each container's *contents* are
   /// cleared; the operation never shrinks the plan-sized outer
-  /// arrays either). Matches resetScratch()'s own name too now (M6d wires
-  /// this in where production code calls it).
+  /// arrays either).
   void reset();
-  void resetScratch() { reset(); }
 
   /// memory management -- Group E: reseat every
   /// allocator-backed container onto the new resource via a deep clear, so

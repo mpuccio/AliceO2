@@ -21,9 +21,9 @@
 // and committing together, or the live event staying completely untouched)
 // is a stronger, whole-event transactional contract than anything a
 // sequential per-participant load() could honor -- see
-// MultiSourceTimeFrameLoader.h's existing loadITSAndMFT()/
-// resetITSAndMFTEvent() pair, which M2 generalizes into a
-// participant-count-agnostic event loader. TrackingEngine::executeEvent()
+// MultiSourceTimeFrameLoader.h's event-load/reset ownership, which M2
+// generalizes into a participant-count-agnostic event loader.
+// TrackingEngine::executeEvent()
 // therefore only ever runs track() against an already atomically loaded
 // TimeFrame; it never loads anything itself.
 

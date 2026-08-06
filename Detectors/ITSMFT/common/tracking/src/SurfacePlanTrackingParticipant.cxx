@@ -181,11 +181,11 @@ template <int NLayers>
 void SurfacePlanTrackingParticipant<NLayers>::eventReset(TimeFrame&) noexcept
 {
   // Scratch/sidecar only -- never `frame` itself, see TrackingParticipant.h.
-  // resetScratch()+the engine's own single TimeFrame::wipe() together
+  // reset()+the engine's own single TimeFrame::wipe() together
   // reproduce the loader's reset sequencing: every participating scratch
   // is cleared before the one shared TimeFrame is wiped.
   mTracked = false;
-  mScratch.resetScratch();
+  mScratch.reset();
   clearCompatibility();
 }
 

@@ -20,7 +20,7 @@
 // stronger contract than executeEvent()'s own per-participant track() loop
 // could honor if it also drove loading -- see
 // TrackingParticipant.h's file-level comment. Today that atomic load is
-// MultiSourceTimeFrameLoader::loadITSAndMFT(); M2 generalizes it into a
+// MultiSourceTimeFrameLoader::loadEvent(); M2 generalizes it into a
 // participant-count-agnostic event loader and calls executeEvent() only
 // after that loader reports success. This header does not change when that
 // happens.

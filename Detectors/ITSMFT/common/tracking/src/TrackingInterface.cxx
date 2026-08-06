@@ -169,7 +169,7 @@ void ITSMFTTrackingInterface<NLayers>::initialiseMemoryPool()
   // shared_ptr reference counting, not an ownership decision) since the
   // underlying BoundedMemoryResource is still constructed exactly once,
   // here. See the former fixed-layer scratch.h's own doc for why this is not the same
-  // hazard as the wipe()/resetScratch() ordering it also documents.
+  // hazard as the wipe()/scratch-reset ordering it also documents.
   mFrame.setMemoryPool(mMemoryPool);
   mScratch.setMemoryPool(mMemoryPool);
 }

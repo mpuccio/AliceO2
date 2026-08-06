@@ -5,12 +5,11 @@
 // M2b (GenericTrackingEngineMigration.md; ADR 0007): loadEvent() is the one
 // atomic loading transaction, participant-count-generic. It never names
 // ITS, MFT, a layer count, or a fixed source position -- that knowledge
-// lives only in loadITSAndMFT()'s own thin wrapper below and in whatever
-// adapter builds an AtomicLoadBinding list (today, the combined DPL task's
-// workflow-owned application composition through its two plan-driven
-// participants' loadTarget(), called directly by trackFrame()).
+// lives only in whatever adapter builds an AtomicLoadBinding list (today, the
+// combined DPL task's workflow-owned application composition through its
+// plan-driven participants' loadTarget(), called directly by trackFrame()).
 // TrackingEngine::executeEvent() must only ever be called once loadEvent()
-// (or loadITSAndMFT()) reports success -- this loading boundary calls
+// reports success -- this loading boundary calls
 // neither.
 
 #ifndef ALICEO2_ITSMFT_TRACKING_MULTISOURCETIMEFRAMELOADER_H_
@@ -106,22 +105,6 @@ class MultiSourceTimeFrameLoader
   static LoadSourcesResult loadEvent(TimeFrame& frame, gsl::span<const AtomicLoadBinding> bindings,
                                      SurfaceCatalogView catalog, const o2::InteractionRecord& origin);
 
-  // Thin application-adapter wrapper over loadEvent(). The fixed ITS=0/MFT=1
-  // position contract lives only here, never inside the generic transaction
-  // or its target interface.
-  static LoadSourcesResult loadITSAndMFT(TimeFrame& frame,
-                                         SurfaceTrackingScratch& itsScratch,
-                                         SurfaceTrackingScratch& mftScratch,
-                                         const ClusterSourceInput& itsSource,
-                                         const ClusterSourceInput& mftSource,
-                                         SurfaceCatalogView catalog,
-                                         const o2::InteractionRecord& origin);
-
-  // Full shared-event reset: scratch state first (so no legacy cache can
-  // outlive normalized measurements), then the common owner exactly once.
-  static void resetITSAndMFTEvent(TimeFrame& frame,
-                                  SurfaceTrackingScratch& itsScratch,
-                                  SurfaceTrackingScratch& mftScratch) noexcept;
 };
 
 } // namespace o2::itsmft::tracking
