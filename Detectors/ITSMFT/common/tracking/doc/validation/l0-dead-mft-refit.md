@@ -1,6 +1,6 @@
 # L0 dead common typed-MFT refit/export validation
 
-Status: **implemented; validation blocked by three pre-existing integration-test failures**
+Status: **implemented; the three reported failures were stale-build/environment issues, not L0 regressions**
 
 L0 deletes the unused common typed-MFT refit/export path and migrates
 `testMFTNormalizedRefit.cxx` to the live generic native-refit result path. No
@@ -64,9 +64,8 @@ ninja -C /Users/mpuccio/alice/run3/O2-worktree-builds/m6e3-commontrack-output-re
 Focused tests passed: the migrated generic MFT refit test and both source
 guards passed 3/3.
 
-The required serial suite executed all 98 registered ITS/MFT tests. 95 passed;
-the following three failed on the integration base's existing runtime tests,
-outside the L0 diff:
+The initial required serial suite executed all 98 registered ITS/MFT tests. 95
+passed; the following three reported failures:
 
 | Test | Observed failure |
 | --- | --- |
@@ -74,9 +73,55 @@ outside the L0 diff:
 | `testCATrackerFailureContract.cxx` | subprocess abort: `CA tracker exceeded memory limit: New set maximum below current used (newMax: 531, used: 532)` |
 | `testM7dNontemplatedTrackerGuard.cxx` | segmentation violation at the unchanged `TrackerTraits::initialiseTimeFrame` line 409 |
 
+Those results were not a valid parent/feature classification because the exact
+test binaries had not been rebuilt after the feature build state changed. The
+exact feature targets were then rebuilt with:
+
+```sh
+O2_BUILD_DIR=/Users/mpuccio/alice/run3/O2-worktree-builds/m6e3-commontrack-output-retirement \
+O2_PACKAGE=daily-20260717-0700-local1 \
+run-in-o2-env.zsh -- ninja -C /Users/mpuccio/alice/run3/O2-worktree-builds/m6e3-commontrack-output-retirement -j4 \
+  O2test-itsmft-tracking-timeframe-detector-layouts \
+  O2test-itsmft-tracking-catracker-failure-contract \
+  O2test-itsmft-tracking-m7d-nontemplated-tracker-guard
+```
+
+The same target command was run in the independently configured parent build,
+replacing both build paths with
+`/Users/mpuccio/alice/run3/O2-worktree-builds/m6e3-commontrack-output-retirement-l0-parent`.
+Each rebuilt executable was then run directly with detailed output:
+
+```sh
+O2_BUILD_DIR=<feature-build> O2_PACKAGE=daily-20260717-0700-local1 \
+run-in-o2-env.zsh -- <absolute-test-executable> \
+  --log_level=all --report_level=detailed --catch_system_errors=yes
+```
+
+All three feature executables returned exit status 0. The detached parent at
+`10a0dcd1c9^ = 8f033406dd075628c2d2a4e381b6a7243ef9a552` was independently
+configured and built with the same package, build type, macro-audit cache
+exclusion, executable arguments, and environment. All three parent
+executables also returned exit status 0.
+
+| Test | Initial full-suite symptom | Rebuilt feature | Rebuilt parent | Classification |
+| --- | --- | ---: | ---: | --- |
+| `testTimeFrameDetectorLayouts` | segfault at `TrackerTraits::initialiseTimeFrame:409` | 0 | 0 | stale-build/environment issue |
+| `testCATrackerFailureContract` | memory-limit abort (`newMax: 531, used: 532`) | 0 | 0 | stale-build/environment issue |
+| `testM7dNontemplatedTrackerGuard` | segfault at `TrackerTraits::initialiseTimeFrame:409` | 0 | 0 | stale-build/environment issue |
+
+The identical targeted CTest filter passed 3/3 in both builds after the exact
+rebuild. Detailed feature and parent logs are retained at:
+
+`/Users/mpuccio/alice/run3/O2-validation-artifacts/itsmft/l0-dead-mft-parent-validation-20260806/`
+
+The parent evidence therefore rules out an L0 regression and no production
+correction is warranted. The complete 98-test suite was not rerun after this
+targeted rebuild, so this record still does not claim that the full CTest gate
+passed.
+
 No L0 production source changed in `TrackerTraits`, `Tracker`, or CA runtime
-code. These failures prevent claiming a green full-suite gate and require a
-separate baseline/runtime investigation; they were not corrected in L0.
+code. The initial full-suite result remains non-green, but the three reported
+tests do not require an L0 production correction.
 
 The durable build was configured with this cache-only exclusion because the
 repository already contains an unregistered P1 diagnostic macro that makes the
@@ -136,6 +181,7 @@ parent output. ROOT file bytes themselves were not compared because ROOT file
 metadata is non-semantic; the known undefined `MFTTrack.mInvQPtSeed` artifact
 was not observed as an initialized-content difference.
 
-The replay evidence supports unchanged MFT publication behavior, but the full
-L0 validation remains blocked until the three unrelated baseline tests are
-resolved or explicitly waived by review.
+The replay evidence supports unchanged MFT publication behavior. The targeted
+failure investigation is resolved as a stale-build/environment issue; the
+full-suite result remains explicitly unclaimed pending a later complete serial
+run.
