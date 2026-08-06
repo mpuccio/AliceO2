@@ -340,19 +340,26 @@ void ITSMFTTrackingInterface<NLayers>::loadTimeFrame(gsl::span<const o2::itsmft:
   // the explicit default InteractionRecord{} when there are no ROFs at all.
   const o2::InteractionRecord origin = rofs.empty() ? o2::InteractionRecord{} : rofs.front().getBCData();
 
-  // Transactional normalized-source loading spans both mFrame and its
-  // frame-owned workspace: on any failure below, mFrame's normalized frame and every workspace
-  // compatibility container are left exactly as
-  // they were before this call.
   const auto* binding = mFrame.getBinding(0, ClusterSourceId{0});
   if (binding == nullptr) {
     throw TimeFrameLoadException{TimeFrameLoadFailureReason::DictionaryNotConfigured,
                                  "CA tracker has no configured source binding"};
   }
   const auto orderedSurfaces = binding->getOrderedSurfaces();
-  auto& scratch = mFrame.getWorkspace(ClusterSourceId{0});
-  const auto result = scratch.loadNormalizedSource(mFrame, *mClusterDecoder, origin, timing, clusters, patterns, rofs, mDict, labels, DetId,
-                                                   orderedSurfaces, mFrame.getGraph(0).getSurfaceCatalog());
+  ClusterSourceInput source;
+  source.id = ClusterSourceId{0};
+  source.detector = DetId;
+  source.clusters = clusters;
+  source.patterns = patterns;
+  source.rofs = rofs;
+  source.dictionary = mDict;
+  source.labels = labels;
+  source.layerToSurface = orderedSurfaces;
+  source.timing = timing;
+  source.decoder = mClusterDecoder.get();
+  source.rofViews = mFrame.getWorkspace(ClusterSourceId{0}).getROFViews();
+  const auto result = MultiSourceTimeFrameLoader::load(
+    mFrame, gsl::span<const ClusterSourceInput>{&source, 1}, mFrame.getGraph(0).getSurfaceCatalog(), origin);
   if (!result.ok()) {
     if (isRecoverableLoadError(result.error, result.timingDetail)) {
       throw RecoverableLoadFailure{result};
@@ -361,6 +368,7 @@ void ITSMFTTrackingInterface<NLayers>::loadTimeFrame(gsl::span<const o2::itsmft:
   }
   // Copy the finalized clock layer while scratch is live. The export is a
   // value boundary for workflows, never a retained overlap-table reference.
+  const auto& scratch = mFrame.getWorkspace(ClusterSourceId{0});
   mPublicationClock.emplace(scratch.getROFOverlapView().getClockLayer());
   // A successful normalized-frame replacement invalidates every CommonTrack
   // index, so clear detector-local compatibility entries in the same owner-

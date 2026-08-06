@@ -71,6 +71,7 @@ bool isRecoverableLoadError(MultiSourceLoadError error, TimingBuildError timingD
     case MultiSourceLoadError::SurfaceCatalogStale:
     case MultiSourceLoadError::MissingDictionary:
     case MultiSourceLoadError::GeometryUnavailable:
+    case MultiSourceLoadError::FrameNotConfigured:
       return false;
   }
   return false; // unreachable for any enumerator listed above

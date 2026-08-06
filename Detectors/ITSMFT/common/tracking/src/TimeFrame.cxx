@@ -55,6 +55,34 @@ void TimeFrame::commitNormalizedFrame(MultiSourceFrame&& staged) noexcept
   mNormalizedFrame = std::move(staged);
 }
 
+bool TimeFrame::commitLoadedEvent(MultiSourceFrame&& staged, gsl::span<const ClusterSourceId> sources,
+                                  std::vector<std::unique_ptr<SurfaceTrackingScratch>>&& stagedWorkspaces) noexcept
+{
+  if (!mConfigurationValid || sources.size() != mWorkspaces.size() || stagedWorkspaces.size() != mWorkspaces.size()) {
+    return false;
+  }
+  for (std::size_t i = 0; i < mWorkspaces.size(); ++i) {
+    const auto workspaceIt = std::find_if(mWorkspaces.begin(), mWorkspaces.end(), [source = sources[i]](const auto& entry) {
+      return entry.source == source && entry.workspace != nullptr;
+    });
+    if (workspaceIt == mWorkspaces.end() || !stagedWorkspaces[i] ||
+        stagedWorkspaces[i]->getNOwnedSurfaces() != workspaceIt->workspace->getNOwnedSurfaces() ||
+        stagedWorkspaces[i]->getMemoryPool() != mMemoryPool || !workspaceIt->workspace->allocatorsMatch(*stagedWorkspaces[i])) {
+      return false;
+    }
+  }
+
+  resetEvent();
+  mNormalizedFrame = std::move(staged);
+  for (std::size_t i = 0; i < mWorkspaces.size(); ++i) {
+    const auto workspaceIt = std::find_if(mWorkspaces.begin(), mWorkspaces.end(), [source = sources[i]](const auto& entry) {
+      return entry.source == source;
+    });
+    workspaceIt->workspace->swapLoadedEvent(*stagedWorkspaces[i]);
+  }
+  return true;
+}
+
 bool TimeFrame::commitConfiguration(std::vector<SurfaceGraph>&& graphs,
                                     std::vector<std::vector<TrackingParameters>>&& parameters,
                                     std::vector<BindingSet>&& bindings,

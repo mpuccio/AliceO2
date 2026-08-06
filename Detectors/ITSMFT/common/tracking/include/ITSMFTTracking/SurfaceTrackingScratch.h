@@ -107,12 +107,6 @@ class SurfaceTrackingScratch
   bool mIsStaggered{false};
 
  public:
-  // M6d: LoadTargetImpl-equivalent staging code (MultiSourceTimeFrameLoader.cxx)
-  // needs direct access to mExternalAllocator/mExtMemoryPool to preserve
-  // allocator identity across stage()/commit(), exactly mirroring
-  // the workspace's allocator ownership contract.
-  friend class MultiSourceTimeFrameLoader;
-
   SurfaceTrackingScratch() = default;
   ~SurfaceTrackingScratch() = default;
   SurfaceTrackingScratch(const SurfaceTrackingScratch&) = delete;
@@ -367,6 +361,10 @@ class SurfaceTrackingScratch
   int getTotalClustersPerROFrange(int rofMin, int range, int layerId) const;
 
  private:
+  friend struct TimeFrame;
+
+  void swapLoadedEvent(SurfaceTrackingScratch& other) noexcept;
+
   void prepareClusters(const TimeFrame& frame, const TrackingParameters& trkParam, int maxLayers,
                        gsl::span<const gsl::span<const SurfaceMeasurement>> layerMeasurements);
 

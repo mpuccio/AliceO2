@@ -52,7 +52,6 @@ void SurfacePlanTrackingParticipant<NLayers>::adoptConfiguredFrame(TimeFrame& fr
   if (!frame.isConfigured()) {
     throw std::runtime_error{"SurfacePlanTrackingParticipant: frame is not configured"};
   }
-  mLoadTarget = std::make_unique<MultiSourceTimeFrameLoader::LoadTargetImplSurface>(frame.getWorkspace(mSource));
 }
 
 template <int NLayers>

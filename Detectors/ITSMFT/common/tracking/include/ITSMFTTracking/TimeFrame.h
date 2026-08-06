@@ -32,6 +32,8 @@
 #include <cstddef>
 #include <vector>
 
+#include <gsl/gsl>
+
 #include "DataFormatsITS/Vertex.h"
 #include "ITSMFTTracking/CommonTrack.h"
 #include "ITSMFTTracking/Configuration.h"
@@ -116,6 +118,12 @@ struct TimeFrame {
   // lifetime doc).
   void commitNormalizedFrame(MultiSourceFrame&& staged) noexcept;
 
+  // Commits a complete multi-source event after loader preflight. The
+  // operation resets the prior event exactly once before installing all
+  // normalized data and staged source workspaces.
+  bool commitLoadedEvent(MultiSourceFrame&& staged, gsl::span<const ClusterSourceId> sources,
+                         std::vector<std::unique_ptr<SurfaceTrackingScratch>>&& stagedWorkspaces) noexcept;
+
   // One generic event-state reset. It preserves static configuration and
   // allocator/capacity identity while clearing every source workspace and
   // event result. External owners call this once for a whole event.
@@ -132,6 +140,7 @@ struct TimeFrame {
                            std::shared_ptr<BoundedMemoryResource> memoryPool);
   bool isConfigured() const noexcept { return mConfigurationValid; }
   std::size_t getNIterations() const noexcept { return mGraphs.size(); }
+  std::size_t getNConfiguredSources() const noexcept { return mBindings.empty() ? 0 : mBindings.front().size(); }
   const std::vector<SurfaceGraph>& getGraphs() const noexcept { return mGraphs; }
   const std::vector<TrackingParameters>& getTrackingParameters() const noexcept;
   const std::vector<TrackingParameters>& getTrackingParameters(ClusterSourceId source) const noexcept;

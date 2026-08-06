@@ -62,7 +62,8 @@ enum class MultiSourceLoadError : uint8_t {
   InvalidDecodedLayer,
   GeometryUnavailable,
   OtherMalformedInput,
-  TrailingPatternData
+  TrailingPatternData,
+  FrameNotConfigured
 };
 
 struct LoadSourcesResult {

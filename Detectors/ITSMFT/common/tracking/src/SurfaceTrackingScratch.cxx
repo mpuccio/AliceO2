@@ -221,6 +221,25 @@ bool SurfaceTrackingScratch::allocatorsMatch(const SurfaceTrackingScratch& stage
          flatArrayAllocatorMatches(mTrackletsIndexROF, staged.mTrackletsIndexROF);
 }
 
+void SurfaceTrackingScratch::swapLoadedEvent(SurfaceTrackingScratch& other) noexcept
+{
+  // Exchange only data produced by loadNormalizedSource(). Plan sizes,
+  // allocator identity, and transition/cell capacity stay with the live
+  // frame-owned workspace.
+  mUnsortedClusters.swap(other.mUnsortedClusters);
+  mTrackingFrameInfo.swap(other.mTrackingFrameInfo);
+  mClusterExternalIndices.swap(other.mClusterExternalIndices);
+  mClusterSize.swap(other.mClusterSize);
+  mROFramesClusters.swap(other.mROFramesClusters);
+  mClusterLabels.swap(other.mClusterLabels);
+  for (int i = 0; i < 2; ++i) {
+    mNTrackletsPerCluster[i].swap(other.mNTrackletsPerCluster[i]);
+    mNTrackletsPerClusterSum[i].swap(other.mNTrackletsPerClusterSum[i]);
+  }
+  std::swap(mROFViews, other.mROFViews);
+  std::swap(mUseUPC, other.mUseUPC);
+}
+
 void SurfaceTrackingScratch::swap(SurfaceTrackingScratch& other) noexcept
 {
   static_assert(noexcept(std::declval<bounded_vector<float>&>().swap(std::declval<bounded_vector<float>&>())));

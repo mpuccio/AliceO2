@@ -231,13 +231,6 @@ std::optional<LoadSourcesResult> CombinedCATrackerDPL::validateSources(const Clu
   return std::nullopt;
 }
 
-std::array<MultiSourceTimeFrameLoader::AtomicLoadBinding, 2> CombinedCATrackerDPL::loadBindings(
-  const ClusterSourceInput& itsSource, const ClusterSourceInput& mftSource) noexcept
-{
-  return {MultiSourceTimeFrameLoader::AtomicLoadBinding{itsSource, mITSParticipant->loadTarget()},
-          MultiSourceTimeFrameLoader::AtomicLoadBinding{mftSource, mMFTParticipant->loadTarget()}};
-}
-
 o2::itsmft::tracking::SurfaceCatalogView CombinedCATrackerDPL::catalogView() const noexcept
 {
   return combinedCatalogView();
@@ -317,15 +310,20 @@ ParticipantOutcome CombinedCATrackerDPL::trackFrame(const ClusterSourceInput& it
   // one ended.
   clearPublicationSidecars();
 
+  configureRofTables(itsSource, mftSource);
+  auto itsInput = itsSource;
+  auto mftInput = mftSource;
+  itsInput.rofViews = mITSParticipant->getROFViews();
+  mftInput.rofViews = mMFTParticipant->getROFViews();
+
   // The fixed ITS=0/MFT=1 source contract lives in this workflow-owned
   // application composition, never in the generic loader.
   LoadSourcesResult loadResult;
   if (const auto rejected = validateSources(itsSource, mftSource)) {
     loadResult = *rejected;
   } else {
-    const auto bindings = loadBindings(itsSource, mftSource);
-    loadResult = MultiSourceTimeFrameLoader::loadEvent(mFrame, gsl::span<const MultiSourceTimeFrameLoader::AtomicLoadBinding>{bindings},
-                                                       catalogView(), origin);
+    const std::array<ClusterSourceInput, 2> sources{itsInput, mftInput};
+    loadResult = MultiSourceTimeFrameLoader::load(mFrame, gsl::span<const ClusterSourceInput>{sources}, catalogView(), origin);
   }
   if (!loadResult.ok()) {
     // Reuse isRecoverableLoadError() (TimeFrameLoadFailure.h) rather than a
@@ -352,8 +350,6 @@ ParticipantOutcome CombinedCATrackerDPL::trackFrame(const ClusterSourceInput& it
     invalidatePublication();
     return outcome;
   }
-
-  configureRofTables(itsSource, mftSource);
 
   // The load has committed: executeEvent() may now run. It executes the
   // explicit [ITS, MFT] schedule's track() calls in that exact order into

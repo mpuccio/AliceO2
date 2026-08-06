@@ -17,6 +17,7 @@
 #include "ITSMFTTracking/ClusterDecoder.h"
 #include "ITSMFTTracking/SurfaceId.h"
 #include "ITSMFTTracking/SurfaceTiming.h"
+#include "ITSMFTTracking/ROFViews.h"
 #include "SimulationDataFormat/MCCompLabel.h"
 #include "SimulationDataFormat/MCTruthContainer.h"
 
@@ -56,6 +57,10 @@ struct ClusterSourceInput {
   ROFTimingConfig timing{};
   const ClusterDecoder* decoder{nullptr};
   bool applySysErrors{true};
+  // Non-owning timing/mask context assembled by the adapter for this event.
+  // The loader copies the view into staged frame workspace; it never owns the
+  // fixed-capacity table storage behind these pointers.
+  RuntimeROFViews rofViews{};
 };
 
 } // namespace o2::itsmft::tracking

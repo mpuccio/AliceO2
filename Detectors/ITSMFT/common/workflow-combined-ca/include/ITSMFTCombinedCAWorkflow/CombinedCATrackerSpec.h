@@ -20,8 +20,8 @@
 /// two concrete plan-driven participants, their combined application plan,
 /// the event publication context, and the TrackingEngine. The common tracking
 /// library contains no ITS+MFT coordinator or event-loop state. run()'s own
-/// trackFrame() composes, in order: the workflow-owned atomic load bindings,
-/// MultiSourceTimeFrameLoader::loadEvent(), TrackingEngine::executeEvent(),
+/// trackFrame() composes, in order: the workflow-owned source inputs,
+/// MultiSourceTimeFrameLoader::load(), TrackingEngine::executeEvent(),
 /// and publication staging.
 
 #ifndef ALICEO2_ITSMFT_COMBINEDCAWORKFLOW_COMBINEDCATRACKERSPEC_H_
@@ -97,9 +97,6 @@ class CombinedCATrackerDPL : public o2::framework::Task
   std::optional<o2::itsmft::tracking::LoadSourcesResult> validateSources(
     const o2::itsmft::tracking::ClusterSourceInput& itsSource,
     const o2::itsmft::tracking::ClusterSourceInput& mftSource) const noexcept;
-  std::array<o2::itsmft::tracking::MultiSourceTimeFrameLoader::AtomicLoadBinding, 2> loadBindings(
-    const o2::itsmft::tracking::ClusterSourceInput& itsSource,
-    const o2::itsmft::tracking::ClusterSourceInput& mftSource) noexcept;
   o2::itsmft::tracking::SurfaceCatalogView catalogView() const noexcept;
   std::optional<bool> dropTFUponFailureFor(o2::itsmft::tracking::ClusterSourceId source) const noexcept;
   void configureRofTables(const o2::itsmft::tracking::ClusterSourceInput& itsSource,

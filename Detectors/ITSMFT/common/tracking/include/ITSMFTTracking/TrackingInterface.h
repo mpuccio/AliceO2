@@ -33,6 +33,7 @@
 #include "ITSMFTTracking/DetectorPublicationAdapter.h"
 #include "ITSMFTTracking/ClusterDecoder.h"
 #include "ITSMFTTracking/ClockTimingPublicationView.h"
+#include "ITSMFTTracking/MultiSourceTimeFrameLoader.h"
 #include "ITSMFTTracking/SurfaceGraphBuilder.h"
 #include "ITSMFTTracking/TimeFrameLoadFailure.h"
 #include "ITSMFTTracking/TrackingOperationAdapter.h"

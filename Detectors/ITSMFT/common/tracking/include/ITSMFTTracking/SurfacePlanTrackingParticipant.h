@@ -9,16 +9,8 @@
 // adapter. Static graph configuration and generic event workspace are borrowed
 // from its reusable TimeFrame; this object retains only adapter sidecars.
 //
-// This class never loads input itself, matching TrackingParticipant.h's own
-// contract: it only exposes its own loadTarget() (the loader's surface-backed
-// target, bound to the frame-owned workspace) for the owning workflow application to
-// build an AtomicLoadBinding from; the actual
-// MultiSourceTimeFrameLoader::loadEvent() call, and the subsequent
-// TrackingEngine::executeEvent()/resetEvent() call once that atomic load has
-// committed (or resetEvent() alone, without ever calling executeEvent(), on
-// a load failure), both happen in the combined DPL task. track()/eventReset()
-// below assume that precondition; see TrackingParticipant.h for the exact
-// contract.
+// This class never loads input itself. The workflow owns the direct loading
+// composition and invokes tracking only after a successful frame commit.
 
 #ifndef ALICEO2_ITSMFT_TRACKING_SURFACEPLANTRACKINGPARTICIPANT_H_
 #define ALICEO2_ITSMFT_TRACKING_SURFACEPLANTRACKINGPARTICIPANT_H_
@@ -37,7 +29,6 @@
 #include "ITSMFTTracking/SurfaceGraph.h"
 #include "ITSMFTTracking/ITSSharedClusterCompatibility.h"
 #include "ITSMFTTracking/MFTPublicationCompatibility.h"
-#include "ITSMFTTracking/MultiSourceTimeFrameLoader.h"
 #include "ITSMFTTracking/ParticipantId.h"
 #include "ITSMFTTracking/SurfaceTrackingScratch.h"
 #include "ITSMFTTracking/TrackerTraits.h"
@@ -85,11 +76,6 @@ class SurfacePlanTrackingParticipant final : public TrackingParticipant,
   void setNThreads(int n);
   void configureRofTables(const ROFTimingConfig& timing, uint32_t nROFsTF);
 
-  // This leg's own load target for MultiSourceTimeFrameLoader::loadEvent()
-  // Created after frame configuration, when the frame-owned workspace exists.
-  // Not part of the generic TrackingParticipant interface.
-  MultiSourceTimeFrameLoader::LoadTarget& loadTarget() noexcept { return *mLoadTarget; }
-
   // Clears just this participant's publication sidecar. The workflow calls
   // this unconditionally at the top of each trackFrame(): a prior successful
   // run leaves the sidecar sealed, and the next TF's first accepted track
@@ -117,6 +103,7 @@ class SurfacePlanTrackingParticipant final : public TrackingParticipant,
   // through TrackingParticipant's own public contract. ---
   SurfaceTrackingScratch& getScratch() { return mFrame->getWorkspace(mSource); }
   const SurfaceTrackingScratch& getScratch() const { return mFrame->getWorkspace(mSource); }
+  RuntimeROFViews getROFViews() const noexcept { return mFrame == nullptr ? RuntimeROFViews{} : getScratch().getROFViews(); }
   // Returns nullptr for the "wrong" NLayers instantiation (mirrors
   // ITSMFTTrackingInterface<NLayers>'s own getITSSharedClusterCompatibility
   // ()/getMFTPublicationCompatibility() exactly) -- the owning
@@ -154,7 +141,6 @@ class SurfacePlanTrackingParticipant final : public TrackingParticipant,
   o2::its::ROFVertexLookupTable<NLayers> mROFVertexLookupTable;
   o2::its::ROFMaskTable<NLayers> mMultiplicityMask;
   o2::its::ROFMaskTable<NLayers> mUPCMask;
-  std::unique_ptr<MultiSourceTimeFrameLoader::LoadTargetImplSurface> mLoadTarget;
   std::shared_ptr<tbb::task_arena> mArena;
   // Engaged only between a successful track() and the next eventReset()
   // (or construction) -- gates publicationExport(), matching
