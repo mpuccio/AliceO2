@@ -5,39 +5,14 @@
 // This software is distributed under the terms of the GNU General Public
 // License v3 (GPL Version 3), copied verbatim in the file "COPYING".
 
-// Interface-level (ITSMFTTrackingInterface::processTimeFrame()) loading
-// failure-contract tests. No real ITS/MFT geometry singleton is required: a
-// ClusterDecoder is injected via the Slice 5 constructor overload instead of
-// the production GeometryClusterDecoder<DetId>. A minimal, self-contained
-// GRPECSObject is injected through GRPGeomHelper::finaliseCCDB() (the same
-// entry point a real DPL device uses from its own finaliseCCDB() method) so
-// that MFT's configureROFLookupTables() -- the only per-detector code path
-// that dereferences GRPGeomHelper::instance().getGRPECS() -- does not need a
-// running DPL topology or CCDB access.
+// Interface-level loading failure-contract tests. No real ITS/MFT geometry
+// singleton is required: a ClusterDecoder and workflow-owned runtime ROF
+// context are injected, while GRPECS is supplied through the same CCDB hook
+// used by a DPL device.
 //
-// MFT only, not ITS: every check function below is templated over NLayers
-// and works unchanged for NLayers=7, but ITSMFTTrackingInterface<7>::
-// initialise() cannot succeed on this branch (or on main) for anyone, test
-// or production. o2::itsmft::TrackingMode::getTrackingParameters() --
-// Configuration.cxx, pre-existing, unrelated to this loading-boundary
-// correction -- unconditionally LOGP(fatal, ...)s for
-// detId==o2::detectors::DetID::ITS ("ITS CA tracking via O2::ITSMFTTracking
-// is not enabled yet; use O2::ITStracking"), regardless of tracking mode.
-// This is confirmed empirically: instantiating every check<7>() here (kept
-// in an earlier revision of this file) reliably hit that fatal through
-// resolveTrackingParameters(). ITS opt-in onboarding is a separate,
-// not-yet-started piece of work (AgentCoordination.md Gate 3 status: "ITS
-// parameter/workflow onboarding ... follow[s]"), out of scope for this
-// bounded correction per binding requirement #10 ("do not start any other
-// feature"). The loading-boundary machinery this file exercises is already
-// covered for SurfaceTrackingScratch independently of
-// ITSMFTTrackingInterface: see testTimeFrameNormalizedSource.cxx's
-// ITSTimeFrameNormalizedSourceParity
-// (SurfaceTrackingScratch::loadNormalizedSource() directly) and
-// testTimeFrameLoadFailure.cxx's exhaustiveness/exception tests (NLayers-
-// independent). Only MFT has a real opt-in ITSMFTTrackingInterface consumer
-// today (CATrackerSpec.cxx / o2-mft-ca-tracker-workflow), so MFT-only
-// coverage here matches this design's actual current deployment scope.
+// The fixture is exercised with the live MFT interface instantiation. Generic
+// loader and frame failure contracts are covered independently by the
+// NLayers-neutral TimeFrame tests.
 
 #define BOOST_TEST_MODULE ITSMFT TrackingInterfaceLoadFailureContract
 #define BOOST_TEST_MAIN
@@ -68,6 +43,7 @@
 #include "ITSMFTTracking/TimeFrameLoadFailure.h"
 #include "ITSMFTTracking/TrackingInterface.h"
 #include "ITStracking/Constants.h"
+#include "ITStracking/ROFLookupTables.h"
 
 using namespace o2::itsmft;
 using namespace o2::itsmft::tracking;
@@ -100,7 +76,7 @@ struct GRPECSFixture {
   GRPECSFixture()
   {
     auto& obj = grpEcs();
-    obj.addDetContinuousReadOut(o2::detectors::DetID::MFT); // configureROFLookupTables()'s MFT-only continuous-readout branch
+    obj.addDetContinuousReadOut(o2::detectors::DetID::MFT); // MFT runtime timing context uses this condition.
     obj.setNHBFPerTF(128);
 
     std::vector<o2::framework::InputSpec> inputs;
@@ -236,6 +212,44 @@ struct TestTraits<10> {
 // guaranteed to be usable either (SurfaceTrackingScratch is not
 // trivially movable); returning it by value would require relying on unguaranteed
 // NRVO through several mutating calls in between.
+template <int NLayers>
+struct TestAdapterContext {
+  DetectorPublicationAdapter<NLayers> adapter;
+  ITSSharedClusterCompatibility itsSidecar;
+  MFTPublicationCompatibility mftSidecar;
+  o2::its::ROFOverlapTable<NLayers> overlap;
+  o2::its::ROFVertexLookupTable<NLayers> vertex;
+  o2::its::ROFMaskTable<NLayers> mask;
+  RuntimeROFViews views{};
+
+  RuntimeROFViews configure()
+  {
+    o2::its::LayerTiming timing{};
+    timing.mNROFsTF = 1;
+    timing.mROFLength = 40;
+    for (int layer = 0; layer < NLayers; ++layer) {
+      overlap.defineLayer(layer, timing);
+      vertex.defineLayer(layer, timing);
+    }
+    overlap.init();
+    vertex.init();
+    mask = o2::its::ROFMaskTable<NLayers>{overlap};
+    mask.resetMask();
+    for (int layer = 0; layer < NLayers; ++layer) {
+      mask.setROFsEnabled(layer, 0, 1, 1);
+    }
+    views = {overlap.getView(), vertex.getView(), mask.getView(), {}};
+    return views;
+  }
+};
+
+template <int NLayers>
+TestAdapterContext<NLayers>& testAdapterContext()
+{
+  static TestAdapterContext<NLayers> context;
+  return context;
+}
+
 template <int NLayers, typename DecoderT = OneLayerDecoder>
 std::unique_ptr<ITSMFTTrackingInterface<NLayers>> makeReadyInterface(DecoderT*& decoderOut)
 {
@@ -253,6 +267,16 @@ std::unique_ptr<ITSMFTTrackingInterface<NLayers>> makeReadyInterface(DecoderT*& 
   interface->initialise();
   BOOST_REQUIRE(interface->isActive());
   interface->setClusterDictionary(&dict());
+  auto& context = testAdapterContext<NLayers>();
+  if constexpr (NLayers == ITSNLayers) {
+    context.adapter.adoptITSSharedClusterCompatibility(&context.itsSidecar);
+  } else {
+    context.adapter.adoptMFTPublicationCompatibility(&context.mftSidecar);
+  }
+  interface->bindPublicationAdapter(context.adapter);
+  context.configure();
+  interface->bindROFViews(context.views);
+  interface->getScratch().setROFViews(context.views);
   return interface;
 }
 
@@ -440,6 +464,16 @@ void checkDictionaryNotConfiguredIsStructural()
   decoder = decoderOwner.get();
   ITSMFTTrackingInterface<NLayers> interface{false, o2::itsmft::TrackingMode::Sync, false, std::move(decoderOwner)};
   interface.initialise();
+  auto& context = testAdapterContext<NLayers>();
+  if constexpr (NLayers == ITSNLayers) {
+    context.adapter.adoptITSSharedClusterCompatibility(&context.itsSidecar);
+  } else {
+    context.adapter.adoptMFTPublicationCompatibility(&context.mftSidecar);
+  }
+  interface.bindPublicationAdapter(context.adapter);
+  context.configure();
+  interface.bindROFViews(context.views);
+  interface.getScratch().setROFViews(context.views);
   // setClusterDictionary() deliberately never called.
 
   const auto rofs = oneRof();
@@ -590,6 +624,16 @@ void checkNoCallbacksPastLoadFailure()
   CountingInterface<NLayers> interface{false, o2::itsmft::TrackingMode::Sync, false, std::move(decoderOwner)};
   interface.initialise();
   interface.setClusterDictionary(&dict());
+  auto& context = testAdapterContext<NLayers>();
+  if constexpr (NLayers == ITSNLayers) {
+    context.adapter.adoptITSSharedClusterCompatibility(&context.itsSidecar);
+  } else {
+    context.adapter.adoptMFTPublicationCompatibility(&context.mftSidecar);
+  }
+  interface.bindPublicationAdapter(context.adapter);
+  context.configure();
+  interface.bindROFViews(context.views);
+  interface.getScratch().setROFViews(context.views);
 
   const auto rofs = oneRof();
   const auto clusters = oneCluster();
@@ -607,155 +651,6 @@ void checkNoCallbacksPastLoadFailure()
 }
 
 BOOST_AUTO_TEST_CASE(MFT_NoCallbacksPastLoadFailure) { checkNoCallbacksPastLoadFailure<10>(); }
-
-// ---------------------------------------------------------------------
-// Non-uniform per-layer ROF timing (configureROFLookupTables()) is
-// structural: it must throw TimeFrameLoadException{NonUniformROFTiming},
-// never a dropped-TF sentinel, even with DropTFUponFailure=true; it must
-// wipe existing TimeFrame event state; and a subsequent valid load must
-// succeed once the configuration is restored. ITS is not covered here (see
-// this file's header comment): only MFT has a real opt-in
-// ITSMFTTrackingInterface consumer today, and DPLAlpideParam<MFT> is the
-// singleton this test perturbs.
-// ---------------------------------------------------------------------
-
-BOOST_AUTO_TEST_CASE(MFT_NonUniformROFTimingIsStructuralNeverDroppedAndWipes)
-{
-  OneLayerDecoder* decoder = nullptr;
-  auto interfacePtr = makeReadyInterface<10>(decoder);
-  auto& interface = *interfacePtr;
-  // Structural failures are never gated by DropTFUponFailure: set it so a
-  // dropped-sentinel return (rather than a thrown exception) would be an
-  // observable, wrong outcome if this were misclassified as recoverable.
-  const_cast<std::vector<o2::itsmft::TrackingParameters>&>(interface.getTrackingParameters())[0].DropTFUponFailure = true;
-
-  const auto rofs = oneRof();
-  const auto clusters = oneCluster();
-  const auto patterns = makePatternBytes(clusters.size());
-
-  // Baseline valid load first, so the later wipe check proves state was
-  // actually cleared, not merely "still empty".
-  const float baseline = interface.processTimeFrame(rofs, clusters, patterns, nullptr);
-  BOOST_REQUIRE(!isDroppedTimeFrame(baseline));
-  BOOST_REQUIRE_EQUAL(interface.getScratch().getTotalClusters(), 1u);
-
-  {
-    // MFT default roFrameLengthInBC is LHCMaxBunches/18 = 198; overriding
-    // one layer to 202 changes that layer's own nROFsPerOrbit (3564/202=17)
-    // away from every other layer's (3564/198=18), so mNROFsTF -- not only
-    // mROFLength -- differs across layers, exactly the case the removed
-    // per-layer mNROFsTF fatal check used to catch, now reachable only
-    // through deriveUniformROFTimingConfig()'s mROFLength comparison.
-    constexpr int overriddenLayer = 3;
-    constexpr int overrideROFLengthInBC = 202;
-    ScopedMFTLayerROFLengthOverride guard{overriddenLayer, overrideROFLengthInBC};
-
-    bool threw = false;
-    try {
-      interface.processTimeFrame(rofs, clusters, patterns, nullptr);
-      BOOST_FAIL("expected TimeFrameLoadException{NonUniformROFTiming}");
-    } catch (const TimeFrameLoadException& err) {
-      threw = true;
-      BOOST_CHECK(err.reason() == TimeFrameLoadFailureReason::NonUniformROFTiming);
-    }
-    BOOST_CHECK(threw);
-    // Wiped: the baseline TF's clusters are gone, not merely never-replaced.
-    BOOST_CHECK_EQUAL(interface.getScratch().getTotalClusters(), 0u);
-  } // guard restores DPLAlpideParam<MFT>::Instance().roFrameLayerLengthInBC[3] here, even though the checks above never threw past it
-
-  // Catalog/layout/detId are untouched by the failure (Slice 6/7 contract);
-  // a subsequent valid load succeeds on the same interface once the
-  // configuration is uniform again.
-  const float retried = interface.processTimeFrame(rofs, clusters, patterns, nullptr);
-  BOOST_CHECK(!isDroppedTimeFrame(retried));
-  BOOST_CHECK_EQUAL(interface.getScratch().getTotalClusters(), 1u);
-}
-
-BOOST_AUTO_TEST_CASE(MFT_NonPositiveROFLengthIsStructuralBeforeDivision)
-{
-  OneLayerDecoder* decoder = nullptr;
-  auto interfacePtr = makeReadyInterface<10>(decoder);
-  auto& interface = *interfacePtr;
-
-  const auto rofs = oneRof();
-  const auto clusters = oneCluster();
-  const auto patterns = makePatternBytes(clusters.size());
-
-  {
-    // roFrameLayerLengthInBC[layer] == 0 makes getROFLengthInBC(layer) fall
-    // back to the shared default (it is a "use the global value" sentinel,
-    // not literally zero), so a non-positive *effective* ROF length can
-    // only be reached by overriding the shared default itself. This proves
-    // configureROFLookupTables() checks positivity before ever computing
-    // LHCMaxBunches/rofLengthInBC (a division that would otherwise be
-    // undefined behavior for a zero divisor) rather than crashing.
-    auto& par = mutableMFTAlpideParam();
-    const int originalShared = par.roFrameLengthInBC;
-    struct RestoreShared {
-      int& field;
-      int original;
-      ~RestoreShared() { field = original; }
-    } restoreGuard{par.roFrameLengthInBC, originalShared};
-    par.roFrameLengthInBC = 0;
-
-    bool threw = false;
-    try {
-      interface.processTimeFrame(rofs, clusters, patterns, nullptr);
-      BOOST_FAIL("expected TimeFrameLoadException{NonUniformROFTiming}");
-    } catch (const TimeFrameLoadException& err) {
-      threw = true;
-      BOOST_CHECK(err.reason() == TimeFrameLoadFailureReason::NonUniformROFTiming);
-    }
-    BOOST_CHECK(threw);
-  }
-
-  const float retried = interface.processTimeFrame(rofs, clusters, patterns, nullptr);
-  BOOST_CHECK(!isDroppedTimeFrame(retried));
-}
-
-// ---------------------------------------------------------------------
-// A per-layer ROF length exceeding LHCMaxBunches (3564) makes
-// nROFsPerOrbit (== LHCMaxBunches / rofLengthInBC) integer-divide to 0,
-// so mNROFsTF == 0: a real, malformed per-TF timing configuration with no
-// ROF at all to anchor a diamond-vertex TF interval envelope on (see
-// TrackerTraits::computeLayerTrackletsForPolicy). This must fail
-// structurally (TimeFrameLoadException{ZeroROFCount}) before any
-// tracklet/cell code ever indexes ROF 0 or ROF mNROFsTF-1, exactly like
-// every other malformed per-layer timing case above -- never silently
-// treated as "0 ROFs to track", and never a crash.
-// ---------------------------------------------------------------------
-
-BOOST_AUTO_TEST_CASE(MFT_ZeroROFCountFromOversizedROFLengthIsStructural)
-{
-  OneLayerDecoder* decoder = nullptr;
-  auto interfacePtr = makeReadyInterface<10>(decoder);
-  auto& interface = *interfacePtr;
-
-  const auto rofs = oneRof();
-  const auto clusters = oneCluster();
-  const auto patterns = makePatternBytes(clusters.size());
-
-  {
-    constexpr int overriddenLayer = 0;
-    constexpr int oversizedROFLengthInBC = 4000; // > LHCMaxBunches (3564)
-    ScopedMFTLayerROFLengthOverride guard{overriddenLayer, oversizedROFLengthInBC};
-
-    bool threw = false;
-    try {
-      interface.processTimeFrame(rofs, clusters, patterns, nullptr);
-      BOOST_FAIL("expected TimeFrameLoadException{ZeroROFCount}");
-    } catch (const TimeFrameLoadException& err) {
-      threw = true;
-      BOOST_CHECK(err.reason() == TimeFrameLoadFailureReason::ZeroROFCount);
-    }
-    BOOST_CHECK(threw);
-    BOOST_CHECK_EQUAL(interface.getScratch().getTotalClusters(), 0u);
-  }
-
-  const float retried = interface.processTimeFrame(rofs, clusters, patterns, nullptr);
-  BOOST_CHECK(!isDroppedTimeFrame(retried));
-  BOOST_CHECK_EQUAL(interface.getScratch().getTotalClusters(), 1u);
-}
 
 // ---------------------------------------------------------------------
 // MFT thread configuration is unaffected by ITS's dedicated nThreads.

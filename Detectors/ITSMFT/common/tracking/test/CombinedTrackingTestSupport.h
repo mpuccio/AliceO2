@@ -18,6 +18,7 @@
 
 #include "ITSMFTTracking/ClusterSource.h"
 #include "ITSMFTTracking/Configuration.h"
+#include "ITSMFTTracking/DetectorPublicationAdapter.h"
 #include "ITSMFTTracking/SurfaceGraphBuilder.h"
 #include "ITSMFTTracking/ITSSharedClusterCompatibility.h"
 #include "ITSMFTTracking/MFTPublicationCompatibility.h"
@@ -27,6 +28,7 @@
 #include "ITSMFTTracking/TimeFrame.h"
 #include "ITSMFTTracking/TrackingParticipant.h"
 #include "ITSMFTTracking/detail/SurfacePlanBinding.h"
+#include "ITStracking/ROFLookupTables.h"
 
 namespace o2::itsmft::tracking::test
 {
@@ -105,6 +107,10 @@ class CombinedTrackingParticipantPlan
     mConfiguration = makeCombinedConfiguration(itsParams[0], mftParams[0]);
     mITSParticipant = std::make_unique<SurfacePlanTrackingParticipantITS>(ParticipantId{0}, ClusterSourceId{0});
     mMFTParticipant = std::make_unique<SurfacePlanTrackingParticipantMFT>(ParticipantId{1}, ClusterSourceId{1});
+    mITSPublicationAdapter.adoptITSSharedClusterCompatibility(&mITSCompatibility);
+    mMFTPublicationAdapter.adoptMFTPublicationCompatibility(&mMFTCompatibility);
+    mITSParticipant->bindPublicationAdapter(mITSPublicationAdapter);
+    mMFTParticipant->bindPublicationAdapter(mMFTPublicationAdapter);
     mSchedule = {mITSParticipant.get(), mMFTParticipant.get()};
   }
 
@@ -163,8 +169,29 @@ class CombinedTrackingParticipantPlan
   }
   void configureRofTables(const ClusterSourceInput& itsSource, const ClusterSourceInput& mftSource)
   {
-    mITSParticipant->configureRofTables(itsSource.timing, static_cast<uint32_t>(itsSource.rofs.size()));
-    mMFTParticipant->configureRofTables(mftSource.timing, static_cast<uint32_t>(mftSource.rofs.size()));
+    auto configure = [](auto& overlap, auto& vertex, auto& mask, const auto& timing, uint32_t nROFs, int layers) {
+      o2::its::LayerTiming layerTiming{};
+      layerTiming.mNROFsTF = nROFs;
+      layerTiming.mROFLength = timing.rofLength;
+      layerTiming.mROFDelay = timing.rofDelay;
+      layerTiming.mROFBias = timing.rofBias;
+      layerTiming.mROFAddTimeErr = timing.rofAddTimeErr;
+      for (int layer = 0; layer < layers; ++layer) {
+        overlap.defineLayer(layer, layerTiming);
+        vertex.defineLayer(layer, layerTiming);
+      }
+      overlap.init();
+      vertex.init();
+      mask = std::remove_cvref_t<decltype(mask)>{overlap};
+      mask.resetMask();
+      for (int layer = 0; layer < layers; ++layer) {
+        mask.setROFsEnabled(layer, 0, static_cast<int>(nROFs), 1);
+      }
+    };
+    configure(mITSROFOverlapTable, mITSROFVertexLookupTable, mITSMultiplicityMask, itsSource.timing, static_cast<uint32_t>(itsSource.rofs.size()), ITSNLayers);
+    configure(mMFTROFOverlapTable, mMFTROFVertexLookupTable, mMFTMultiplicityMask, mftSource.timing, static_cast<uint32_t>(mftSource.rofs.size()), MFTNLayers);
+    mITSParticipant->setROFViews({mITSROFOverlapTable.getView(), mITSROFVertexLookupTable.getView(), mITSMultiplicityMask.getView(), mITSUPCMask.getView()});
+    mMFTParticipant->setROFViews({mMFTROFOverlapTable.getView(), mMFTROFVertexLookupTable.getView(), mMFTMultiplicityMask.getView(), mMFTUPCMask.getView()});
   }
 
   const SurfaceTrackingScratch& getITSScratch() const noexcept { return mITSParticipant->getScratch(); }
@@ -173,11 +200,11 @@ class CombinedTrackingParticipantPlan
   gsl::span<const SurfaceId> getMFTOrderedSurfaces() const noexcept { return mMFTParticipant->ownedSurfaces(); }
   const ITSSharedClusterCompatibility& getITSSharedClusterCompatibility() const noexcept
   {
-    return *mITSParticipant->getITSSharedClusterCompatibility();
+    return mITSCompatibility;
   }
   const MFTPublicationCompatibility& getMFTPublicationCompatibility() const noexcept
   {
-    return *mMFTParticipant->getMFTPublicationCompatibility();
+    return mMFTCompatibility;
   }
   SurfaceGraphView getITSLayoutView() const noexcept { return mFrame != nullptr && mFrame->isConfigured() ? mFrame->getGraph(0).getView() : SurfaceGraphView{}; }
   SurfaceGraphView getMFTLayoutView() const noexcept { return getITSLayoutView(); }
@@ -187,6 +214,18 @@ class CombinedTrackingParticipantPlan
   TimeFrame* mFrame = nullptr;
   std::unique_ptr<SurfacePlanTrackingParticipantITS> mITSParticipant;
   std::unique_ptr<SurfacePlanTrackingParticipantMFT> mMFTParticipant;
+  DetectorPublicationAdapter<ITSNLayers> mITSPublicationAdapter;
+  DetectorPublicationAdapter<MFTNLayers> mMFTPublicationAdapter;
+  ITSSharedClusterCompatibility mITSCompatibility;
+  MFTPublicationCompatibility mMFTCompatibility;
+  o2::its::ROFOverlapTable<ITSNLayers> mITSROFOverlapTable;
+  o2::its::ROFVertexLookupTable<ITSNLayers> mITSROFVertexLookupTable;
+  o2::its::ROFMaskTable<ITSNLayers> mITSMultiplicityMask;
+  o2::its::ROFMaskTable<ITSNLayers> mITSUPCMask;
+  o2::its::ROFOverlapTable<MFTNLayers> mMFTROFOverlapTable;
+  o2::its::ROFVertexLookupTable<MFTNLayers> mMFTROFVertexLookupTable;
+  o2::its::ROFMaskTable<MFTNLayers> mMFTMultiplicityMask;
+  o2::its::ROFMaskTable<MFTNLayers> mMFTUPCMask;
   std::array<TrackingParticipant*, 2> mSchedule{};
 };
 

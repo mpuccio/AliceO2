@@ -2,17 +2,9 @@
 // See https://alice-o2.web.cern.ch/copyright for details of the copyright holders.
 // All rights not expressly granted are reserved.
 
-// M6e1 (Detectors/ITSMFT/common/tracking/doc/design/0002-m6-generic-workspace-migration.md):
-// focused coverage for the standalone MFT common-CA interface
-// (ITSMFTTrackingInterfaceMFT, o2-mft-ca-tracker-workflow) migrated onto
-// SurfaceTrackingScratch/SurfacePlanBinding via the same M6d compile-time
-// scratch/binding seam already proven for the combined MFT participant
-// (testM6dMFTMigration.cxx). At M6e1 time this was the second, and last,
-// MFT-only slice -- ITS (standalone and combined) was untouched, still on
-// SurfaceTrackingScratch/DetectorTraversalBinding. M6e2 migrated both live
-// ITS common-CA paths too (see testM6e2ITSWorkspaceMigration.cxx); this
-// file's own type-proof section below was updated to match, its behavioral
-// coverage remains MFT-only and otherwise unchanged.
+// M6e1 coverage for the standalone MFT interface. The fixture supplies the
+// workflow-owned publication adapter and runtime ROF views used by the live
+// interface; the generic frame remains the only event-state owner.
 //
 // Fixture technique (FieldFixture/GRPECSFixture/OneLayerDecoder/
 // makePatternBytes/oneRof/oneCluster) duplicated from
@@ -50,6 +42,8 @@
 #include "ITSMFTTracking/StaticDetectorCatalogs.h"
 #include "ITSMFTTracking/SurfaceMeasurementAdapters.h"
 #include "ITSMFTTracking/TrackingInterface.h"
+#include "ITSMFTTracking/DetectorPublicationAdapter.h"
+#include "ITStracking/ROFLookupTables.h"
 #include "ITSMFTTracking/detail/SurfacePlanBinding.h"
 
 using namespace o2::itsmft;
@@ -161,6 +155,41 @@ const TopologyDictionary& dict()
   return d;
 }
 
+struct MFTAdapterContext {
+  DetectorPublicationAdapter<MFTNLayers> adapter;
+  MFTPublicationCompatibility sidecar;
+  o2::its::ROFOverlapTable<MFTNLayers> overlap;
+  o2::its::ROFVertexLookupTable<MFTNLayers> vertex;
+  o2::its::ROFMaskTable<MFTNLayers> mask;
+  RuntimeROFViews views{};
+
+  RuntimeROFViews configure()
+  {
+    o2::its::LayerTiming timing{};
+    timing.mNROFsTF = 1;
+    timing.mROFLength = 40;
+    for (int layer = 0; layer < MFTNLayers; ++layer) {
+      overlap.defineLayer(layer, timing);
+      vertex.defineLayer(layer, timing);
+    }
+    overlap.init();
+    vertex.init();
+    mask = o2::its::ROFMaskTable<MFTNLayers>{overlap};
+    mask.resetMask();
+    for (int layer = 0; layer < MFTNLayers; ++layer) {
+      mask.setROFsEnabled(layer, 0, 1, 1);
+    }
+    views = {overlap.getView(), vertex.getView(), mask.getView(), {}};
+    return views;
+  }
+};
+
+MFTAdapterContext& mftAdapterContext()
+{
+  static MFTAdapterContext context;
+  return context;
+}
+
 std::vector<ROFRecord> oneRof(int nEntries = 1)
 {
   return {ROFRecord{{0, 0}, 0, 0, nEntries}};
@@ -182,6 +211,12 @@ std::unique_ptr<ITSMFTTrackingInterfaceMFT> makeReadyInterface()
   interface->initialise();
   BOOST_REQUIRE(interface->isActive());
   interface->setClusterDictionary(&dict());
+  auto& context = mftAdapterContext();
+  context.adapter.adoptMFTPublicationCompatibility(&context.sidecar);
+  interface->bindPublicationAdapter(context.adapter);
+  context.configure();
+  interface->bindROFViews(context.views);
+  interface->getScratch().setROFViews(context.views);
   return interface;
 }
 
@@ -232,19 +267,8 @@ SurfaceMask combinedMftMask()
 
 } // namespace
 
-// --- Type proofs: ITSMFTTrackingInterfaceMFT uses the single
-// SurfaceTrackingScratch/SurfacePlanBinding model. Compile-time only --
-// BOOST_CHECK(true) exists so this appears in
-// test output, matching testM6dMFTMigration.cxx's own style for this exact
-// kind of proof.
-//
-// M6e2 correction: at M6e1 time, ITSMFTTrackingInterfaceITS was still
-// SurfaceTrackingScratch/DetectorTraversalBinding-backed ("ITS (standalone
-// and combined) is untouched" per this file's own header comment above,
-// accurate then). M6e2 migrated the standalone ITS interface too (see
-// testM6e2ITSWorkspaceMigration.cxx), so ITSMFTTrackingInterfaceITS now
-// shares MFT's direct SurfaceTrackingScratch/SurfacePlanBinding types (two
-// independent instances). ---
+// --- Type proofs: both standalone interfaces expose the same generic scratch
+// entity; the MFT fixture below additionally supplies adapter-owned views. ---
 
 static_assert(std::is_same_v<decltype(std::declval<ITSMFTTrackingInterfaceMFT&>().getScratch()), SurfaceTrackingScratch&>);
 static_assert(std::is_same_v<decltype(std::declval<ITSMFTTrackingInterfaceITS&>().getScratch()), SurfaceTrackingScratch&>);

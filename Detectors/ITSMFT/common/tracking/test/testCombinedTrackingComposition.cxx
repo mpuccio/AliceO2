@@ -403,7 +403,6 @@ struct StandaloneRun {
       mask.setROFsEnabled(layer, 0, 1, 1);
     }
     scratch->setROFViews(RuntimeROFViews{rofTable.getView(), vtxTable.getView(), mask.getView(), {}});
-    participant.configureRofTables(ROFTimingConfig{40, 0, 0, 0}, 1);
     const auto tracking = participant.track(frame);
     result.outcome = tracking.outcome == ParticipantOutcome::Success ? TrackingOutcome::Success : TrackingOutcome::RecoverableDropped;
   }
