@@ -498,12 +498,12 @@ struct CombinedTrackingComposer {
 
     try {
       const auto itsResult = plan.runITS();
-    if (itsResult.outcome != TrackingOutcome::Success) {
-      plan.clearPublicationSidecars();
-      frame->resetEvent();
-      invalidatePublication();
-      return {itsResult.outcome, 0, 0};
-    }
+      if (itsResult.outcome != TrackingOutcome::Success) {
+        plan.clearPublicationSidecars();
+        frame->resetEvent();
+        invalidatePublication();
+        return {itsResult.outcome, 0, 0};
+      }
       const auto mftResult = plan.runMFT();
       if (mftResult.outcome != TrackingOutcome::Success) {
         plan.clearPublicationSidecars();

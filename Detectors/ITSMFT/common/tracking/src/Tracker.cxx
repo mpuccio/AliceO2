@@ -121,6 +121,7 @@ TrackingResult Tracker::run(TimeFrame& frame, TrackerTraits& traits)
   const auto& memoryPool = frame.getMemoryPool();
   traits.adoptFrame(&frame);
   traits.adoptScratch(&scratch);
+  traits.setBz(frame.getBz());
   traits.updateTrackingParameters(trkParams);
 
   int maxNvertices{-1};
