@@ -102,10 +102,10 @@ one authoritative topology is copied into separate ITS and MFT
 identities. Section 6.5 defines the proposed graph/plan model without
 authorizing a rename implementation.
 
-The first implementation slice is unambiguous: remove the unused typed MFT
-refit/export path (`MFTAdapterRefit.{h,cxx}` and `MFTCATrack.h`) and migrate its
-fixture to the already-live generic native-refit result path. Section 8.1
-defines the exact boundary and exit criterion.
+The first implementation slice was unambiguous: remove the unused common
+typed-MFT refit/export path and migrate its fixture to the already-live
+generic native-refit result path. L0 now records that deletion and its absence
+guard; Section 8.1 remains the exact boundary and exit criterion.
 
 ## 2. Audit method and invariants
 
@@ -479,7 +479,7 @@ listed files share one disposition; it does not imply a new module.
 | `SurfaceKinematicStateLegacyAdapters.h`, `SurfaceMeasurementAdapters.h`, `TrackingFrameInfoAdapters.h` | Compatibility conversions. The first two remain live at adapter/decoder leaves. `TrackingFrameInfoAdapters` and common `loadClusterTrackingFrameInfo` have no production caller found and are test-preserved deletion candidates. |
 | `IOUtils.h` | Mixed decoder covariance/systematic helpers plus obsolete public conversions. Split only by deleting proven-dead declarations; avoid a new utility namespace hierarchy. Common `convertCompactClusters` needs a whole-repository/public-API check before deletion despite no current common production caller. |
 | `ITSSharedClusterCompatibility.h`, `MFTPublicationCompatibility.h`, `DetectorPublicationAdapter.h`, `DetectorTrackingOperationAdapterSupport.h`, `MFTFwdTrackHelpers.h` | Detector application/refit/publication compatibility. Responsibilities can remain, but ownership should move outside generic core headers as participant/interface consolidation proceeds. Do not replace with a central detector dispatcher. |
-| `MFTAdapterRefit.h`, `MFTCATrack.h` | Typed MFT compatibility path with no production consumer; only `testMFTNormalizedRefit` and guards retain it. Delete first. |
+| Former common typed-MFT refit/export files | Typed MFT compatibility path with no production consumer; only `testMFTNormalizedRefit` and guards retained it. **Deleted by L0.** |
 | `ParticipantId.h`, `TrackingParticipant.h`, `TrackingEngine.h` | Migration-era heterogeneous schedule contract around tracker instances. Retire after source-qualified graph partitions and schedule order become immutable TimeFrame data consumed by `Tracker`. |
 | `SurfacePlanTrackingParticipant.h`, `TrackingInterface.h`, `TrackingOperationAdapter.h` | Application-composition cluster described in Sections 5–6. Delete participant/interface after the TimeFrame/Loader/Tracker composition is established; narrow the operation seam to architecture/refit work only. |
 | `TimeFrame.h`, `SurfaceTrackingScratch.h`, `detail/SurfacePlanBinding.h`, `MultiSourceTimeFrameLoader.h` | One intended entity, currently split workspace, immutable graph partition, and atomic loader component. Fold scratch/partition ownership behind TimeFrame; keep Loader separate and acting on the entity. |
@@ -494,7 +494,7 @@ listed files share one disposition; it does not imply a new module.
 
 | Rank | Exact files/action | Current callers | Replacement owner | Required gate | Deletion criterion |
 |---:|---|---|---|---|---|
-| 1 | Delete `include/ITSMFTTracking/MFTAdapterRefit.h`, `include/ITSMFTTracking/MFTCATrack.h`, `src/MFTAdapterRefit.cxx`, and its CMake entry. Migrate `testMFTNormalizedRefit.cxx` away from typed export. | No production caller; only `testMFTNormalizedRefit`, M7 guards, and stale CMake comments. | Existing generic `MFTFwdTrackHelpers`/`NativeRefitDriver` result path; MFT workflow publication already consumes `CommonTrack`/adapter compatibility. | Focused native-refit and MFT publication tests, full serial `itsmft` suite, 43/43 fixture checks, 212/68 hashes, combined-leg and writer parity. | Repository search finds no common `MFTCATrack` type or `MFTAdapterRefit`; no production target loses a symbol. |
+| 1 | Delete the three unused common typed-MFT refit/export files and their CMake entry. Migrate `testMFTNormalizedRefit.cxx` away from typed export. | No production caller; only `testMFTNormalizedRefit`, M7 guards, and stale CMake comments. | Existing generic `MFTFwdTrackHelpers`/`NativeRefitDriver` result path; MFT workflow publication already consumes `CommonTrack`/adapter compatibility. | Focused native-refit and MFT publication tests, full serial `itsmft` suite, 43/43 fixture checks, 212/68 hashes, combined-leg and writer parity. | **Completed by L0:** repository search finds no common typed-MFT refit/export symbol or CMake entry; no production target loses a symbol. |
 | 2 | Move the `Tracker` declaration/definition from `CATracker.{h,cxx}` to canonical `Tracker.{h,cxx}` and delete the forwarding/stale file names. | Common tracker users include either name; `TrackingInterface.h` is the forwarding header's production consumer found. | `Tracker.{h,cxx}`. | Build all common/ITS/MFT/combined targets; public-header dependency guard. | One canonical Tracker header/source and no `CATracker` implementation filename. |
 | 3 | Delete scratch member `mPValphaX` and allocator/reset/swap bookkeeping. | No read or semantic write found; only initialization, clearing, allocator-match, and swap. | None. | Scratch allocator/swap/reset tests, sanitizer-capable focused tests, full suite and replay. | No field/reference remains and staged/live allocator matching still passes. |
 | 4 | Use one scratch reset name; delete forwarding `resetScratch()` after changing direct callers to `reset()`. | Participant, loader wrapper, and migration-era tests. | `SurfaceTrackingScratch::reset()`. | Reset ordering, retry, dropped/structural failure tests. | One public scratch reset method and no semantic change in ordering. |
@@ -560,8 +560,8 @@ Several tests instead pin temporary type shape or names:
 - `testMultiSourceTimeFrameLoader` preserves fixed `loadITSAndMFT()` and
   `resetITSAndMFTEvent()` exemptions; migrate the same atomicity assertions to
   generic bindings rather than weakening coverage;
-- `testM7eAdapterBoundaryGuard` currently proves typed MFT compatibility is
-  isolated in `MFTAdapterRefit`; after rank 1 it should prove absence;
+- `testM7eAdapterBoundaryGuard` now proves the dead typed-MFT compatibility
+  path is absent;
 - `testNativeCylinderCylinderRefitDriver` is a historical comparison harness,
   not production-path coverage; preserve its evidence before retirement.
 
@@ -644,9 +644,7 @@ The next task can be bounded exactly as follows:
 
 **Input scope**
 
-- `include/ITSMFTTracking/MFTAdapterRefit.h`
-- `include/ITSMFTTracking/MFTCATrack.h`
-- `src/MFTAdapterRefit.cxx`
+- the three deleted common typed-MFT refit/export files
 - common tracking CMake source list and stale comments
 - `testMFTNormalizedRefit.cxx`
 - M7 boundary/guard tests that currently whitelist the typed path
@@ -656,7 +654,7 @@ The next task can be bounded exactly as follows:
 - no production or test target includes or links the typed MFT refit/export;
 - meaningful refit tests assert the existing generic
   `SurfaceKinematicState`/`TrackingCandidate` result and unchanged failure
-  behavior rather than recreating `MFTCATrack`;
+  behavior rather than recreating a typed MFT output record;
 - detector publication/output code is unchanged;
 - repository guards change from “typed path isolated” to “typed path absent.”
 
@@ -673,10 +671,10 @@ The next task can be bounded exactly as follows:
 
 **Exit criterion**
 
-A repository search finds no `MFTAdapterRefit`, common `MFTCATrack` class, or
-typed refit overload, and no replacement compatibility wrapper has been
-introduced. This deletion is independent of reset, participant, interface,
-or physics changes.
+A repository search finds no common typed-MFT refit/export symbol or typed
+refit overload, and no replacement compatibility wrapper has been introduced.
+This deletion is independent of reset, participant, interface, or physics
+changes. L0 satisfies this criterion.
 
 ## 13. Decision record
 

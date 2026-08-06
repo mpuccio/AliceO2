@@ -104,7 +104,7 @@ struct CommonTrack {
   `CommonTrack` enforces by construction -- no code populates it from real
   seeds in this slice.
 - `CommonTrack`/`TrackClusterReference` carry no `DetID`, no `NLayers`, and no
-  reference to `TrackITS`/`TrackITSExt`/`MFTCATrack`/`GeometryTGeo`/any
+  reference to typed detector output/`GeometryTGeo`/any
   workflow header.
 
 `TimeFrame<NLayers>` gains two new members, `mCommonTracks` (`bounded_vector<
@@ -202,7 +202,7 @@ scope for this decision (see "Non-goals").
 
 Populating `CommonTrack` from `TrackerTraits`/`CATracker` seeds or completed
 roads; any change to `TrackerTraits`, `CATracker` candidate/road/refit logic,
-`TrackITS`, `MFTCATrack`, legacy workflows, or current output publication;
+typed detector output, legacy workflows, or current output publication;
 real `ITSSurfaceSpec`/`MFTSurfaceSpec` constants; any change to topology
 authority, hole enforcement, `TransitionPolicyTag`, or detector layout logic;
 an ALICE-3 adapter. The existing detector-specific tracks remain the only
@@ -241,7 +241,8 @@ storage they will later be adapted from.
   three together and each accepts independent reload afterward
   (`testCommonTrack.cxx`).
 - `CommonTrack.h`'s own include list contains no `DetID.h`, `TrackITS.h`/
-  `TrackITSExt.h`, `MFTCATrack.h`, `GeometryTGeo.h`, or workflow header.
+  `TrackITSExt.h`, a typed MFT output header, `GeometryTGeo.h`, or workflow
+  header.
 
 ## Alternatives rejected
 

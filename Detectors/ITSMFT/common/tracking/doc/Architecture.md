@@ -392,7 +392,9 @@ Detector output adapters perform:
 - MC-label creation or transfer.
 - Detector-specific cluster ordering and ROF grouping.
 
-The legacy MFT fitter may remain behind the disk final-refit adapter during migration. `MFTCATrack` should disappear once the internal track carries all required bookkeeping.
+The native forward refit now returns the generic `SurfaceKinematicState`/
+`TrackingCandidate` result directly; no typed common-MFT refit/export record is
+retained. MFT publication compatibility remains at its application edge.
 
 ## 13. Configuration
 

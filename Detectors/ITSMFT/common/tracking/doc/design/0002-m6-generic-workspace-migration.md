@@ -591,7 +591,7 @@ both at once.
      class IndexTableUtils;`, invalid once `IndexTableUtils<N>` became an alias template — alias
      templates cannot be forward-declared) was replaced with a real include.
   2. **Group C (`getTracks()`/`getNumberOfTracks()`)** is genuinely detector-output-typed
-     (`CATrackType<7>` = `TrackITSExt`, `CATrackType<10>` = `MFTCATrack`) and could not be
+     (`CATrackType<7>` = `TrackITSExt`, `CATrackType<10>` = typed MFT output) and could not be
      alias-erased the way IndexTableUtils was. Fixed with the same dual-storage pattern this
      note already anticipated in principle (§3.1): `SurfaceTrackingScratch` now stores both
      `mTracksITS`/`mTracksMFT` (exactly one ever populated per instance) and exposes them via a

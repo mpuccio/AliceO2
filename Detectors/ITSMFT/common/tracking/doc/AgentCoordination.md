@@ -38,7 +38,7 @@ Names are stable role identifiers. The concrete tool or human assigned to a role
 | TimeFrame/input | `codex/itsmft-timeframe-input` | Multi-source loading, cluster references, timing, normalized measurements | Wave 1 |
 | CA policies | `codex/itsmft-ca-policies` | Policy boundary, barrel/disk operations, detector-free orchestration | Wave 2 |
 | ITS migration | `codex/itsmft-its-migration` | ITS production adapter, CPU parity, duplicate removal, GPU impact report | Wave 2/3 |
-| MFT adapter | `codex/itsmft-mft-adapter` | MFT output/refit adapter, workflow migration, `MFTCATrack` removal | Wave 3 |
+| MFT adapter | `codex/itsmft-mft-adapter` | MFT output/refit adapter and workflow migration; common typed-refit deletion is complete in L0 | Wave 3 |
 
 The architecture/integration role should remain lightly loaded with direct implementation so it can review and unblock other roles.
 

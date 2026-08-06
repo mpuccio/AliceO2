@@ -25,9 +25,9 @@ call-scoped adapter operation, not a coordinator or a second tracker:
 
 The adapter boundary is intentionally operation-oriented. It carries no
 `TrackITSExt`, MFT legacy track, detector pattern, writer, DPL, workflow, or
-detector-ID type into `Tracker` or `TrackerTraits`. The MFT typed normalized
-refit overload is isolated in `MFTAdapterRefit`; the generic forward leaf
-operations remain in `MFTFwdTrackHelpers`. ITS native refit remains the shared
+detector-ID type into `Tracker` or `TrackerTraits`. The former typed normalized
+refit overload has been deleted by L0; the generic forward leaf operations
+remain in `MFTFwdTrackHelpers`. ITS native refit remains the shared
 `Propagator` path, selected by the ITS adapter.
 
 ## Deleted compatibility ownership
@@ -40,11 +40,10 @@ The following completed bridges are deleted rather than renamed:
 | `CATrackType<NLayers>` and typed accepted aliases | `TrackingCandidate` plus `TimeFrame::getCommonTracks()` |
 | `LayerMeasurementSpans<NLayers>` | non-owning runtime measurement spans resolved by `TrackerTraits` |
 | `AcceptedTrackShadowPublisher` | owner-thread generic `CommonTrack` publication followed by adapter sidecar completion |
-| typed MFT refit in the generic forward helper | `MFTAdapterRefit.{h,cxx}` |
+| typed MFT refit/export bridge | generic `SurfaceKinematicState`/`TrackingCandidate` result path |
 
-`MFTCATrack` remains only where the MFT adapter must preserve its typed
-normalized-refit compatibility contract. It is not included by
-`TrackerTraits`, `Tracker`, or the generic forward helper. `SeedMetadataBase<N>`
+No typed common-MFT refit/export record remains. `TrackerTraits`, `Tracker`,
+and the generic forward helper use only the generic result path. `SeedMetadataBase<N>`
 also remains because live `CellSeed` still uses it; it is not whole-track
 compatibility state.
 
@@ -152,8 +151,8 @@ cleanup:
 |---:|---|---|
 | 1 | Remove or reduce `TrackingOperationAdapter` once the generic accepted-result collection has a stable completion owner; delete the call-scoped seam only after the same sidecar/failure contract is expressed without a callback. | Deferred post-M7 ownership decision |
 | 2 | Revisit `TrackingCandidate`'s adapter-only kinematics (`phi`, `eta`, `charge`) and any staging that remains after a stable generic accepted-result owner exists. | Safe structurally, but requires a separately reviewed ownership change |
-| 3 | Delete `MFTAdapterRefit`'s typed `MFTCATrack` overload and remaining legacy state-export adapters once MFT typed refit/output is fully represented by the generic result path. | Blocked until a separately approved typed-output decision |
-| 4 | Reduce `DetectorTrackingOperationAdapterSupport.h`, `MFTAdapterRefit.cxx`, and the adapter-side `NLayers` mixins after all typed leaf calls are removed. | Blocked until item 3 |
+| 3 | Delete the former typed MFT refit/export overload and remaining legacy state-export residue once MFT typed refit/output is fully represented by the generic result path. | **Completed by L0.** |
+| 4 | Reduce `DetectorTrackingOperationAdapterSupport.h` and adapter-side `NLayers` mixins after all typed leaf calls are removed. | **The deleted typed source file is complete in L0; remaining support reduction is deferred to a later bounded slice.** |
 | 5 | Reduce `SurfacePlanTrackingParticipant<NLayers>` and `ITSMFTTrackingInterface<NLayers>` only after application-edge configuration/ROF parity is separately proven. | Deferred post-M7 adapter decision; M7f records the exact owner |
 | 6 | Revisit remaining adapter-edge `NLayers` builders and fixed-capacity ROF compatibility objects. | Deferred compatibility decision |
 | 7 | Revisit MFT leaf-helper and native cylinder test-oracle simplifications only if they change operation selection or numerical behavior. | Deferred physics/algorithm sign-off |

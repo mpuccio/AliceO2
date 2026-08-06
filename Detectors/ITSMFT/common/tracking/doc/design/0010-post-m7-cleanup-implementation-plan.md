@@ -1,6 +1,6 @@
 # Post-M7 cleanup implementation plan
 
-- Status: ready for sequential implementation
+- Status: L0 complete; L1 remains the next authorized slice
 - Date: 2026-08-06
 - Architecture source: [post-M7 intentionality audit](0009-post-m7-intentionality-cleanup-audit.md)
 - Implementation owner: Luna agents under maintainer review
@@ -176,23 +176,22 @@ before the entity/component lifecycle is stable would create another bridge.
 
 **Suggested branch:** `luna/itsmft-postm7-l0-dead-mft-refit`
 
-**Outcome:** delete `MFTAdapterRefit` and common `MFTCATrack`; migrate the
-meaningful fixture to the already-live generic native-refit result path.
+**Outcome:** delete the unused common typed-MFT refit/export files; migrate
+the meaningful fixture to the already-live generic native-refit result path.
 
 **Primary scope:**
 
-- `include/ITSMFTTracking/MFTAdapterRefit.h`
-- `include/ITSMFTTracking/MFTCATrack.h`
-- `src/MFTAdapterRefit.cxx`
+- the three unused common typed-MFT refit/export files
 - common tracking CMake source lists
 - `testMFTNormalizedRefit.cxx`
 - source guards and stale comments that whitelist these types
 
 **Temporary bridge:** none.
 
-**Deletion criterion:** repository production/tests contain no common
-`MFTAdapterRefit`, `MFTCATrack`, typed refit overload, CMake entry, or
-replacement wrapper. MFT publication remains unchanged.
+**Deletion criterion:** repository production/tests contain no common typed
+MFT refit/export symbol, typed refit overload, CMake entry, or replacement
+wrapper. MFT publication remains unchanged. **Completed in L0:** the focused
+guard and repository search prove this absence.
 
 **Gate:** R plus focused native-refit failure/result tests. This is the first
 Luna implementation task and must not include any lifecycle cleanup.
