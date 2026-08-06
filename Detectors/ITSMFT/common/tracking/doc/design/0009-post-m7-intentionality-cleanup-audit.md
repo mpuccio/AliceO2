@@ -53,9 +53,9 @@ The intended end state does not need a new wrapper or manager. It should:
 1. delete demonstrably dead typed/refit and forwarding residue;
 2. make the existing loader directly target `SurfaceTrackingScratch` and
    remove fixed ITS+MFT wrapper entry points;
-3. give `Tracker` one fully constructed immutable surface-graph plan and one
-   selected traits backend, avoiding today's partially initialized setter
-   sequence;
+3. give `Tracker` one fully constructed immutable
+   `std::vector<SurfaceGraph>` and one selected traits backend, avoiding
+   today's partially initialized setter sequence;
 4. move generic tracking execution and failure orchestration from
    `TrackingEngine`/`TrackingInterface` into that one `Tracker` contract,
    while leaving raw-ROF and publication lifecycle in the DPL owner;
@@ -77,7 +77,7 @@ the kernel backend.
 
 The follow-up initialization audit also found a real model simplification
 opportunity. `DetectorLayout` owns only a `SparseTrackingTopology`,
-`DetectorLayoutSet` is the actual iteration plan, and
+`DetectorLayoutSet` is mostly an iteration-vector wrapper, and
 `DetectorLayoutConfigurationKey` is no longer a key. In combined tracking,
 one authoritative topology is copied into separate ITS and MFT
 `DetectorLayoutSet`s. The recommended vocabulary is `SurfaceGraph`, not
@@ -180,7 +180,7 @@ DPL task (standalone or combined)
   |
   +-- atomic loader -> TimeFrame + graph-partition workspaces
   +-- Tracker
-        owns one immutable plan + explicit partition order
+        owns one immutable vector of iteration graphs + partition order
         borrows one CPU/GPU TrackerTraits backend
         orchestrates initialise -> tracklets -> cells -> neighbours -> roads
         owns generic tracking success/failure/reset transaction
@@ -190,7 +190,7 @@ DPL task (standalone or combined)
 
 Only the number of graph partitions differs between standalone and combined.
 A standalone task supplies one; combined ITS+MFT supplies two explicit,
-source-qualified partitions of one graph plan. Neither needs an engine,
+source-qualified partitions of one graph vector. Neither needs an engine,
 participant coordinator, interface, or float sentinel around `Tracker`.
 
 This does not pull workflow ownership into `Tracker`. Raw compact clusters,
@@ -225,7 +225,7 @@ Standalone/combined DPL task -> MultiSourceTimeFrameLoader
        |                                  v
        +-------------------------------> TimeFrame / workspaces
        |
-       +--> Tracker --------------------> immutable surface-graph plan
+       +--> Tracker --------------------> immutable vector<SurfaceGraph>
               |
               +--> TrackerTraitsCPU or TrackerTraitsGPU kernel backend
               +--> ordered graph partitions and generic event transaction
@@ -248,7 +248,7 @@ sidecar-owner mixins, and the public detector-specialized
 | Module | Actual single responsibility and data relationship | Classification | Duplication and disposition | Risk |
 |---|---|---|---|---|
 | `Tracker.h` | Currently a forwarding include for `CATracker.h`, despite `Tracker` being the intended public class name. | Canonical API name obscured by residue | Move the actual declaration here, then delete the forwarding relationship. | Behavior-preserving header migration; compile all public-header users. |
-| `CATracker.h` / `Tracker` | Target-independent orchestrator for configured iterations and CA stages. Borrows a selected traits backend and event data; currently borrows one binding/layout/scratch and owns parameter copies/pool handle. | Generic core orchestrator in a stale file name | Keep and strengthen the class role, but move it to canonical `Tracker.{h,cxx}` and delete `CATracker.{h,cxx}` names. It should consume the complete immutable graph plan and explicit partition order, then subsume generic engine/interface behavior without absorbing raw-ROF or publication ownership. | Construction, reset, and multi-partition migration are exception/order-sensitive and need full failure/replay gates. |
+| `CATracker.h` / `Tracker` | Target-independent orchestrator for configured iterations and CA stages. Borrows a selected traits backend and event data; currently borrows one binding/layout/scratch and owns parameter copies/pool handle. | Generic core orchestrator in a stale file name | Keep and strengthen the class role, but move it to canonical `Tracker.{h,cxx}` and delete `CATracker.{h,cxx}` names. It should consume the immutable graph vector and explicit per-iteration partition order, then subsume generic engine/interface behavior without absorbing raw-ROF or publication ownership. | Construction, reset, and multi-partition migration are exception/order-sensitive and need full failure/replay gates. |
 | `TrackerTraits` | CPU kernel implementation and architecture strategy seam for initialisation, tracklets, cells, neighbours, roads, and associated backend caches. Its virtual API mirrors the live frozen ITS `TrackerTraitsGPU` override pattern. | Generic kernel backend | Keep distinct from `Tracker`. Make the CPU/GPU substitution contract explicit; do not merge kernels into the orchestrator. Reduce only non-kernel compatibility state. | A future common GPU port requires real device ABI/build validation; CPU behavior remains replay-gated. |
 | `TrackingEngine` | Executes an explicit participant schedule and repeats whole-event reset policy around participant-owned trackers. It owns no data or kernel behavior. | Migration-era orchestration layer | Retire after `Tracker` accepts the explicit graph-partition order and owns the generic tracking transaction. Do not rename it or move DPL concerns into Tracker. | Combined ordering, failure classification, all-or-nothing reset, and output isolation must be pinned before deletion. |
 | `TrackingParticipant` | Dynamic wrapper around one plan-bound tracker composition: identity, surfaces, track/reset/export. | Migration-era application seam | Retire with the engine once partitions are immutable plan data consumed directly by `Tracker`. Preserve source-qualified partition order as data, not polymorphic coordinator objects. | Combined heterogeneous schedule and future-backend tests; avoid closing the plan over ITS/MFT types. |
@@ -270,15 +270,16 @@ sidecar-owner mixins, and the public detector-specialized
 `TrackerTraits`/`Tracker`/scratch/binding/pool composition. Both also select
 ITS/MFT fixed timing tables and publication compatibility through `NLayers`.
 The single composition should become `Tracker` plus its selected
-`TrackerTraits` backend, configured by one immutable graph plan and explicit
-partition data. Adapter-owned timing/publication objects stay outside.
+`TrackerTraits` backend, configured by one immutable vector of iteration
+graphs and explicit per-iteration partition data. Adapter-owned
+timing/publication objects stay outside.
 
 The follow-up found duplicate runtime topology ownership in the combined
 path. `buildCombinedLayout()` creates one authoritative combined
 `DetectorLayout`; `ownDetectorPlan()` then copies that layout, including the
 owning sparse-topology vectors, into both `mITSPlan` and `mMFTPlan`. The two
 plans differ only in their configuration keys while presenting the same
-global graph. This should become one owned graph plan with two borrowed
+global graph. This should become one owned graph with two borrowed
 partitions.
 
 There is also a plan/binding lifetime mismatch hidden by current one-iteration
@@ -353,7 +354,7 @@ The current names obscure a simpler structure:
 | `SparseTrackingTopology` | The actual graph: surface-to-surface transitions, three-surface cells, seeding nodes, and adjacency offsets. | This is the object whose public concept should be “surface graph.” |
 | `DetectorLayout` | One owning sparse topology plus validation error; it does not own surface layout/geometry. | Forwarding wrapper. Merge with/rename the owning graph rather than retain both names. |
 | `DetectorLayoutView` | Device-facing descriptors, kind masks, and sparse-topology view for one iteration. | This is naturally `SurfaceGraphView`. |
-| `DetectorLayoutSet` | Shared catalog/masks plus a vector of iteration layouts and a stale configuration-key record. | This is the immutable tracking plan, not a set of detector layouts. |
+| `DetectorLayoutSet` | Shared catalog/masks plus a vector of iteration layouts and a stale configuration-key record. | After graph ownership is consolidated, its only live role is vector ownership; that does not justify a public plan class. |
 | `DetectorLayoutConfigurationKey` | Original ordered surfaces and build inputs. It is never used as a currency/cache key; production reads only `orderedSurfaces`. | Delete the “key” abstraction. Store live traversal data directly in the plan/graph. Do not retain build inputs solely for equality. |
 | `SurfacePlanBinding` | Source-qualified ordered graph partition plus global-to-compact mappings and precomputed transition/cell schedules. | Necessary information for partitioned tracking, but it must be associated with each iteration graph and can be named as graph partition/binding data. |
 
@@ -364,18 +365,25 @@ The recommended vocabulary is:
   detector, one graph” assumption and is awkward for combined or future
   systems;
 - **`SurfaceGraphView`** for the device-facing POD view;
-- **`TrackingPlan`** for the ordered per-iteration `SurfaceGraph`s and their
-  operation parameters; and
+- **`std::vector<SurfaceGraph>`** for the ordered iteration graphs, owned
+  directly by `Tracker`; no public `TrackingPlan` wrapper; and
 - **`SurfaceGraphPartition`** (or, if the mapping action remains central,
   `SurfaceGraphBinding`) for one source-qualified ordered subset and compact
   slot map.
 
-This is a consolidation, not four new wrappers. The implementation target
+This is a consolidation, not a new wrapper hierarchy. The implementation target
 deletes `DetectorLayout`, `DetectorLayoutSet`, and
 `DetectorLayoutConfigurationKey` vocabulary as their responsibilities move
-into the three irreducible concepts: graph, iteration plan, and partition.
+into the irreducible graph and partition concepts, with iteration order
+represented by the vector itself.
 `SparseTrackingTopology` may remain a private storage component inside
 `SurfaceGraph`; it should not remain a competing public graph model.
+
+Parameters and partitions still have to be paired with the correct graph.
+That invariant belongs to `Tracker::configure()`, which can validate the
+caller-supplied spans and store a private per-iteration record containing a
+graph reference/view, parameters, and ordered partitions. Such a private
+record is implementation storage, not a public `TrackingPlan` abstraction.
 
 ### 6.6 Initialization audit and target phases
 
@@ -409,7 +417,7 @@ The target has three explicit phases:
 
 | Phase | Owner | Work allowed |
 |---|---|---|
-| Configure once | `Tracker` with selected `TrackerTraits` backend | Consume parameters and one immutable `TrackingPlan`; validate every iteration graph/partition; prebind architecture kernel schedule; establish one allocator/pool; size workspaces from maximum required graph extents. No event data. |
+| Configure once | `Tracker` with selected `TrackerTraits` backend | Consume parameters and one immutable `std::vector<SurfaceGraph>`; validate graph/parameter counts and every iteration partition; prebind architecture kernel schedule; establish one allocator/pool; size workspaces from maximum required graph extents. No event data. |
 | Load event | Workflow adapter through the atomic loader | Decode normalized source-qualified measurements, construct timing/mask views, and atomically commit `TimeFrame` plus partition backfills. Raw ROFs remain workflow-owned. |
 | Execute event/iteration | `Tracker` orchestrating `TrackerTraits` | Bind event measurement/ROF views, clear/reuse event workspace, build/reuse LUTs according to pass flags, execute kernels in plan order, and commit generic results or perform one generic reset. |
 
@@ -433,7 +441,7 @@ listed files share one disposition; it does not imply a new module.
 | `ClusterSource.h`, `DecodedCluster.h`, `ClusterDecoding.h`, `ClusterDecoder.h`, `MultiSourceFrame.h`, `MultiSourceLoading.h`, `TimeFrameLoadFailure.h` | Generic normalized multi-source input and transactional decoding. Retain. Narrow includes where implementation-only decoder dependencies leak into public headers. |
 | `ClockTimingPublicationView.h`, `SurfaceTiming.h`, `ROFTimingUniformity.h`, `ROFViews.h` | Runtime timing views and validation. Retain generic views; timing construction and publication clocks stay workflows/adapters. |
 | `Configuration.h`, `TrackingConfigParam.h`, `ConfigKeyValuesPreflight.h`, `IndexTableConfiguration.h`, `IndexTableUtils.h` | Algorithm parameters/configuration and fixed-capacity index tables. Retain live runtime-prefix storage. Detector-named configuration registration is adapter compatibility, not a core routing authority; move only under a separately gated configuration migration. |
-| `DetectorLayout.h`, `DetectorLayoutBuilder.h`, `DetectorLayoutSet.h`, `SparseTrackingTopology.h`, `SurfaceCatalogView.h`, `SurfaceDescriptor.h`, `SurfaceId.h`, `StaticSurfaceDescriptor.h`, `StaticDetectorCatalogs.h`, `SurfaceSpec.h` | Authoritative descriptors and graph data, but too many public ownership names. Consolidate `DetectorLayout` plus public sparse topology into `SurfaceGraph`/`SurfaceGraphView`; narrow `DetectorLayoutSet` into `TrackingPlan`; delete the stale configuration-key concept. `StaticDetectorCatalogs` remains application plan data and should move outward without duplicating graph construction. |
+| `DetectorLayout.h`, `DetectorLayoutBuilder.h`, `DetectorLayoutSet.h`, `SparseTrackingTopology.h`, `SurfaceCatalogView.h`, `SurfaceDescriptor.h`, `SurfaceId.h`, `StaticSurfaceDescriptor.h`, `StaticDetectorCatalogs.h`, `SurfaceSpec.h` | Authoritative descriptors and graph data, but too many public ownership names. Consolidate `DetectorLayout` plus public sparse topology into `SurfaceGraph`/`SurfaceGraphView`; replace `DetectorLayoutSet` with a Tracker-owned `std::vector<SurfaceGraph>`; delete the stale configuration-key concept. `StaticDetectorCatalogs` remains application data and should move outward without duplicating graph construction. |
 | `ITSSurfaceSpec.h`, `MFTSurfaceSpec.h`, `NominalSurfaceMaterialDefaults.h` | ITS/MFT application data. Valid compatibility owners, but not generic core concepts. Move to detector application include locations in a bounded include/API migration. |
 | `SurfaceKinematicState.h`, `StateFamily.h` | Generic state representation. Retain; `StateFamily` must not become dispatch policy. |
 | `SurfaceMeasurement.h` | Generic normalized measurement. Retain. |
@@ -470,9 +478,9 @@ review and regression localization worse.
 | Rank | Exact files/action | Current callers | Replacement owner | Required gate | Deletion criterion |
 |---:|---|---|---|---|---|
 | 1 | Replace `MultiSourceTimeFrameLoader::{LoadTarget,LoadTargetImplSurface}` and participant `mLoadTarget` with atomic bindings that borrow `SurfaceTrackingScratch&`. | Combined workflow, participant, loader tests. | `MultiSourceTimeFrameLoader::loadEvent()` directly stages one scratch per binding. | Allocator identity, partial-stage failure, retry, dropped TF, combined source isolation, full replay. | No virtual load target, friendship-only forwarding, or participant load-target member. |
-| 2 | Consolidate `DetectorLayout`, `DetectorLayoutView`, `SparseTrackingTopology`, and `DetectorLayoutSet` into the `SurfaceGraph`/`SurfaceGraphView` plus `TrackingPlan` vocabulary; delete `DetectorLayoutConfigurationKey` and always-true `rebuilt`. | Tracker/traits, standalone/combined construction, many graph fixtures. | One immutable plan owns each iteration graph once; sparse adjacency may remain private storage. | Structural graph parity, non-contiguous order, holes/seeding, CPU/device POD layout, full suite/replay. | No duplicate public layout/topology model, no retained fake key, and combined owns one graph rather than two copies. |
+| 2 | Consolidate `DetectorLayout`, `DetectorLayoutView`, `SparseTrackingTopology`, and `DetectorLayoutSet` into `SurfaceGraph`/`SurfaceGraphView` plus a Tracker-owned `std::vector<SurfaceGraph>`; delete `DetectorLayoutConfigurationKey` and always-true `rebuilt`. | Tracker/traits, standalone/combined construction, many graph fixtures. | The vector owns each iteration graph once; sparse adjacency may remain private graph storage. | Structural graph parity, non-contiguous order, holes/seeding, CPU/device POD layout, full suite/replay. | No duplicate public layout/topology model, no retained fake key or plan wrapper, and combined owns one graph rather than two copies. |
 | 3 | Replace the partial `adopt*`/`set*` construction sequence with one fallible Tracker configuration boundary that establishes plan, partitions, backend, pool, threads, and workspace capacities in order. | Interface, participant, combined workflow, construction tests. | `Tracker` configure-once state; workflow still supplies adapter timing/publication inputs. | Allocator identity, construction failure, retry, destruction order, memory-limit, CPU/device backend tests. | Tracker cannot be executed partially configured; plan sizing never precedes allocator establishment. |
-| 4 | Make graph partition/binding mandatory and per iteration; delete identity/source-0 fallback mapping and iteration-0 binding reuse. | Direct unit fixtures, standalone and combined construction. | `TrackingPlan` owns or indexes one validated `SurfaceGraphPartition` per iteration/source. | Multi-iteration differing-hole/start-mask fixture, non-identity/sparse plan, invalid-partition failures, full replay. | No nullable binding, synthesized numeric traversal, or topology IDs borrowed from the wrong iteration. |
+| 4 | Make graph partition/binding mandatory and per iteration; delete identity/source-0 fallback mapping and iteration-0 binding reuse. | Direct unit fixtures, standalone and combined construction. | `Tracker` stores one validated ordered `SurfaceGraphPartition` list per graph iteration. | Multi-iteration differing-hole/start-mask fixture, non-identity/sparse plan, invalid-partition failures, full replay. | No nullable binding, synthesized numeric traversal, or topology IDs borrowed from the wrong iteration. |
 | 5 | Move fixed ROF tables, masks, and publication helpers out of participant/interface wrappers. | Standalone and combined workflows. | ITS/MFT workflow/application setup; core continues borrowing `ROFViews`. | Empty/first/last/diamond timing, mask, load-failure replacement, writer and sidecar parity. | Tracker/traits/plan own no fixed detector table or detector publication sidecar. |
 | 6 | Extend `Tracker` to orchestrate the explicit ordered graph partitions and generic all-or-nothing result/reset transaction; delete `TrackingEngine.{h,cxx}`, `TrackingParticipant.h`, and `ParticipantId.h`. | Combined workflow and engine/participant tests. | `Tracker` plus immutable partition order; no dynamic coordinator wrapper. | Exact partition order, source isolation, success/recoverable/structural/exception reset-count tests, combined replay. | No engine/participant class and no equivalent renamed schedule executor; tracker remains detector-neutral. |
 | 7 | Migrate standalone and combined wrappers to the consolidated Tracker; delete `TrackingInterface.{h,cxx}`, `SurfacePlanTrackingParticipant.{h,cxx}`, aliases, mixins, and float sentinel. | ITS/MFT/combined CA workflow tasks and wrapper-heavy tests. | Workflow owns raw ROFs/clocks/publication; Tracker owns generic configuration/execution. | Standalone lifecycle/config/output tests, dropped-TF behavior, combined parity, exact writer/replay baseline. | One Tracker composition path and no interface/participant wrapper remains. |
@@ -547,7 +555,7 @@ Public include cost can be reduced without a new pimpl/service layer:
 | Class | Recommendation | Reason |
 |---|---|---|
 | `TrackingEngine` | **Delete after its generic schedule/result/reset behavior moves into `Tracker`.** | It is a stateless loop around participant-owned trackers, not an independent kernel or data owner. Retaining it creates two orchestrators. |
-| `Tracker` | **Remain and become the sole generic tracking orchestrator.** | It sequences iterations and CA stages and should consume the complete immutable graph plan/partition order. It may own generic tracking reset, but never raw ROFs, publication clocks, writers, or detector dispatch. |
+| `Tracker` | **Remain and become the sole generic tracking orchestrator.** | It sequences iterations and CA stages and should directly own the immutable `std::vector<SurfaceGraph>` plus validated per-iteration partition order. It may own generic tracking reset, but never raw ROFs, publication clocks, writers, or detector dispatch. |
 | `TrackerTraits` | **Remain distinct as the architecture kernel backend.** | CPU and GPU implementations need the same orchestration with different kernels/storage. The virtual kernel seam is intentional and mirrors the live ITS CPU/GPU architecture. |
 | `TrackingInterface` | **Delete after workflow and Tracker ownership are separated.** | Generic configure/execute behavior belongs in Tracker; raw loading/timing/publication behavior belongs in DPL/application adapters. No replacement interface facade is justified. |
 | `SurfacePlanTrackingParticipant` | **Delete with `TrackingParticipant`.** | Its useful content is immutable graph-partition data plus workspace; Tracker can consume that directly. Its timing/publication/load-target composition belongs elsewhere. |
@@ -567,8 +575,8 @@ implementation is proposed.
    load target with direct scratch bindings; remove fixed ITS+MFT wrappers.
 4. **C3 — surface-graph consolidation.** Introduce the `SurfaceGraph` name by
    replacing, not wrapping, `DetectorLayout`/public sparse-topology ownership;
-   narrow `DetectorLayoutSet` to the iteration `TrackingPlan`; delete the
-   stale key and combined duplicate graph copies.
+   replace `DetectorLayoutSet` with a Tracker-owned graph vector; delete the
+   stale key, plan wrapper, and combined duplicate graph copies.
 5. **C4 — atomic Tracker configuration.** Establish plan, per-iteration
    partitions, backend, allocator, and workspace capacities in one fallible
    configure-once operation; eliminate partial setter ordering.
