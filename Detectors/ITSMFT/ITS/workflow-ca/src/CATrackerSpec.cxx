@@ -27,7 +27,7 @@
 #include "Framework/DataProcessorSpec.h"
 #include "Framework/Logger.h"
 #include "ITSBase/GeometryTGeo.h"
-#include "ITSMFTTracking/CATracker.h"
+#include "ITSMFTTracking/Tracker.h"
 #include "ITSMFTTracking/CommonTrackOutputAdapter.h"
 #include "SimulationDataFormat/MCCompLabel.h"
 #include "SimulationDataFormat/MCTruthContainer.h"
@@ -84,7 +84,7 @@ void CATrackerDPL::run(ProcessingContext& pc)
   // uncaught out of this function -- no output is created on that path, and
   // DPL treats the escaping exception as fatal for this device. Only a
   // recoverable, dropped-and-wiped TimeFrame returns here as a sentinel
-  // value; see CATracker.h/CATracker.cxx for the classification.
+  // value; see Tracker.h/Tracker.cxx for the classification.
   const float trackingResult = mTracking.processTimeFrame(gsl::span<const o2::itsmft::ROFRecord>(rofsinput.data(), rofsinput.size()),
                                                           gsl::span<const o2::itsmft::CompClusterExt>(compClusters.data(), compClusters.size()),
                                                           patterns,

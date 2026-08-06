@@ -53,6 +53,22 @@ std::string readFile(const fs::path& path)
   return {std::istreambuf_iterator<char>{input}, {}};
 }
 
+bool containsIdentifier(std::string_view source, std::string_view identifier)
+{
+  const auto isIdentifierCharacter = [](char c) {
+    return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_';
+  };
+  for (std::size_t offset = source.find(identifier); offset != std::string_view::npos; offset = source.find(identifier, offset + 1)) {
+    const bool startsIdentifier = offset == 0 || !isIdentifierCharacter(source[offset - 1]);
+    const auto end = offset + identifier.size();
+    const bool endsIdentifier = end == source.size() || !isIdentifierCharacter(source[end]);
+    if (startsIdentifier && endsIdentifier) {
+      return true;
+    }
+  }
+  return false;
+}
+
 // Migration comments deliberately document the deleted bridges. They are not
 // production dependencies, so remove them before classifying the remaining
 // code-level NLayers uses.
@@ -212,10 +228,9 @@ void scanForbiddenProductionVocabulary(const fs::path& root)
 
 void scanCoreBoundary(const fs::path& root)
 {
-  static constexpr std::array<std::string_view, 10> coreFiles{
+  static constexpr std::array<std::string_view, 9> coreFiles{
     "include/ITSMFTTracking/Tracker.h",
     "include/ITSMFTTracking/TrackerTraits.h",
-    "include/ITSMFTTracking/CATracker.h",
     "include/ITSMFTTracking/TrackingEngine.h",
     "include/ITSMFTTracking/TrackingParticipant.h",
     "include/ITSMFTTracking/TrackingOperationAdapter.h",
@@ -253,6 +268,42 @@ void scanCoreBoundary(const fs::path& root)
   }
 }
 
+void scanCanonicalTrackerFiles(const fs::path& root)
+{
+  const auto trackerHeader = root / "include/ITSMFTTracking/Tracker.h";
+  const auto trackerSource = root / "src/Tracker.cxx";
+  BOOST_REQUIRE(fs::exists(trackerHeader));
+  BOOST_REQUIRE(fs::exists(trackerSource));
+  BOOST_CHECK(!fs::exists(root / "include/ITSMFTTracking/CATracker.h"));
+  BOOST_CHECK(!fs::exists(root / "src/CATracker.cxx"));
+
+  const auto trackingCMake = readFile(root / "CMakeLists.txt");
+  BOOST_CHECK(trackingCMake.find("src/Tracker.cxx") != std::string::npos);
+  BOOST_CHECK(trackingCMake.find("CATracker.h") == std::string::npos);
+  BOOST_CHECK(trackingCMake.find("CATracker.cxx") == std::string::npos);
+
+  for (const auto& directory : {root / "include", root / "src"}) {
+    for (const auto& entry : fs::recursive_directory_iterator(directory)) {
+      if (!entry.is_regular_file()) {
+        continue;
+      }
+      BOOST_CHECK_MESSAGE(entry.path().filename().string().find("CATracker") == std::string::npos,
+                          "obsolete CATracker filename remains: " << entry.path().string());
+      const auto extension = entry.path().extension().string();
+      if (extension != ".h" && extension != ".hpp" && extension != ".c" && extension != ".cc" && extension != ".cxx") {
+        continue;
+      }
+      const auto code = withoutComments(readFile(entry.path()));
+      BOOST_CHECK_MESSAGE(code.find("CATracker.h") == std::string::npos,
+                          entry.path().string() << " retains the deleted CATracker header include/name");
+      BOOST_CHECK_MESSAGE(code.find("CATracker.cxx") == std::string::npos,
+                          entry.path().string() << " retains the deleted CATracker source name");
+      BOOST_CHECK_MESSAGE(!containsIdentifier(code, "CATracker"),
+                          entry.path().string() << " retains the obsolete CATracker identifier");
+    }
+  }
+}
+
 } // namespace
 
 BOOST_AUTO_TEST_CASE(AllResidualNLayersUsesHaveAnExactNamedException)
@@ -270,6 +321,11 @@ BOOST_AUTO_TEST_CASE(DeletedBridgesAndOldCoreVocabularyAreAbsent)
 BOOST_AUTO_TEST_CASE(GenericCoreHasNoDetectorLayerOrROFCompatibilityAuthority)
 {
   scanCoreBoundary(trackingRoot());
+}
+
+BOOST_AUTO_TEST_CASE(TrackerFilesAreCanonicalAndCATrackerIsDeleted)
+{
+  scanCanonicalTrackerFiles(trackingRoot());
 }
 
 BOOST_AUTO_TEST_CASE(RuntimePlanAndFixedCapacityAuthoritiesRemainExplicit)

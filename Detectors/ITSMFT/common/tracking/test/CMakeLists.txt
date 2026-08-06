@@ -301,8 +301,8 @@ o2_add_test(gate4-b31-ownership-contract
             LABELS "itsmft;tracking"
             PUBLIC_LINK_LIBRARIES O2::ITSMFTTracking O2::MFTTracking O2::DetectorsBase)
 
-o2_add_test(catracker-failure-contract
-            SOURCES testCATrackerFailureContract.cxx
+o2_add_test(tracker-failure-contract
+            SOURCES testTrackerFailureContract.cxx
             COMPONENT_NAME itsmft-tracking
             LABELS "itsmft;tracking"
             PUBLIC_LINK_LIBRARIES O2::ITSMFTTracking O2::MFTTracking O2::Field)

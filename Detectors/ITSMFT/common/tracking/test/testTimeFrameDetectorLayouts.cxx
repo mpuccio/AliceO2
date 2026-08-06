@@ -405,7 +405,7 @@ BOOST_AUTO_TEST_CASE(traversal_empty_road_start_span_is_valid_and_produces_no_tr
 {
   // StartLayerMask=0 -> an empty seeding mask -> an empty roadStartCellsForTag
   // span (Architecture.md Sec 10, item 7: "empty road-start span is valid").
-  // Unlike testCATrackerFailureContract.cxx's
+  // Unlike testTrackerFailureContract.cxx's
   // ValidEmptyInputCompletesWithoutErrorAndProducesNoTracks (full StartLayerMask,
   // no cluster data), this exercises the *topologically empty* road-start case
   // through the same initialiseTimeFrame()/findRoads() pair.

@@ -9,7 +9,7 @@
 // exception classification, wipe-on-every-failure, and the exact drop
 // sentinel.
 //
-// Contract under test (see CATracker.h/CATracker.cxx):
+// Contract under test (see Tracker.h/Tracker.cxx):
 //  - TraversalException (structural/configuration failure): TimeFrame is
 //    wiped, then the exception always rethrows, regardless of
 //    DropTFUponFailure.
@@ -61,7 +61,7 @@
 // call, which would silently undo a limit set directly on the pool object
 // beforehand.
 
-#define BOOST_TEST_MODULE ITSMFT CATracker failure contract
+#define BOOST_TEST_MODULE ITSMFT Tracker failure contract
 #define BOOST_TEST_MAIN
 #define BOOST_TEST_DYN_LINK
 #include <boost/test/unit_test.hpp>
@@ -83,7 +83,7 @@
 #include "DataFormatsITSMFT/ROFRecord.h"
 #include "DataFormatsITSMFT/TopologyDictionary.h"
 #include "DetectorsCommonDataFormats/DetID.h"
-#include "ITSMFTTracking/CATracker.h"
+#include "ITSMFTTracking/Tracker.h"
 #include "ITSMFTTracking/ClusterDecoder.h"
 #include "ITSMFTTracking/Configuration.h"
 #include "ITSMFTTracking/DecodedCluster.h"
@@ -291,8 +291,8 @@ std::vector<TrackingParameters> makeTwoIterationITSParams(bool dropTFUponFailure
 // Deterministic injection seam for the std::bad_alloc and
 // unclassified-std::exception cases: TrackerTraits::computeLayerTracklets()
 // is virtual and is the first traversal stage Tracker::clustersToTracks()
-// calls after initialiseTimeFrame() succeeds (see CATracker.cxx's do/while
-// loop), so overriding it to throw immediately exercises CATracker.cxx's
+// calls after initialiseTimeFrame() succeeds (see Tracker.cxx's do/while
+// loop), so overriding it to throw immediately exercises Tracker.cxx's
 // catch chain deterministically -- without provoking real host OOM, and
 // without ever reaching genuine tracklet/cell/road computation (so, unlike
 // ValidEmptyInputCompletesWithoutErrorAndProducesNoTracks /

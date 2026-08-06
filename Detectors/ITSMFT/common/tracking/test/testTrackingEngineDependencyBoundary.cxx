@@ -82,7 +82,7 @@ BOOST_AUTO_TEST_CASE(EngineAndParticipantHeadersExcludeForbiddenDependencies)
 
   // ITS/MFT tracking implementation headers:
   const std::vector<std::string> forbidden = {
-    "CATracker.h", "SurfaceTrackingScratch.h", "TrackerTraits.h",
+    "Tracker.h", "SurfaceTrackingScratch.h", "TrackerTraits.h",
     // TransitionPolicyTag machinery (ADR 0007 decision 7):
     "TransitionPolicyDispatch.h", "TransitionPolicyOperations.h",
     "TransitionPolicyBinding.h", "TransitionPolicyState.h", "TransitionPolicyTag",
@@ -124,7 +124,7 @@ BOOST_AUTO_TEST_CASE(SurfaceScratchHasNoGroupCOutputStaging)
   const std::array<std::string, 5> productionFiles = {
     root + "/Detectors/ITSMFT/common/tracking/include/ITSMFTTracking/SurfaceTrackingScratch.h",
     root + "/Detectors/ITSMFT/common/tracking/src/SurfaceTrackingScratch.cxx",
-    root + "/Detectors/ITSMFT/common/tracking/src/CATracker.cxx",
+    root + "/Detectors/ITSMFT/common/tracking/src/Tracker.cxx",
     root + "/Detectors/ITSMFT/common/tracking/src/TrackerTraits.cxx",
     root + "/Detectors/ITSMFT/common/tracking/src/TrackingInterface.cxx"};
   const std::array<std::string, 3> forbidden = {"mTracksITS", "mTracksMFT", "mTracksLabel"};

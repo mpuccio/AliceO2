@@ -33,7 +33,7 @@
 
 #include <limits>
 
-#include "ITSMFTTracking/CATracker.h"
+#include "ITSMFTTracking/Tracker.h"
 #include "MFTWorkflow/CATrackerSpec.h"
 
 using namespace o2::mft;

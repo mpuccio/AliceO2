@@ -50,12 +50,11 @@ bool containsIdentifier(std::string_view source, std::string_view identifier)
 BOOST_AUTO_TEST_CASE(core_headers_and_sources_have_no_typed_output_dependency)
 {
   const auto root = trackingRoot();
-  static constexpr std::array<std::string_view, 6> coreFiles{
+  static constexpr std::array<std::string_view, 5> coreFiles{
     "include/ITSMFTTracking/Tracker.h",
     "include/ITSMFTTracking/TrackerTraits.h",
-    "include/ITSMFTTracking/CATracker.h",
     "include/ITSMFTTracking/TrackingOperationAdapter.h",
-    "src/CATracker.cxx",
+    "src/Tracker.cxx",
     "src/TrackerTraits.cxx",
   };
   static constexpr std::array<std::string_view, 13> forbidden{

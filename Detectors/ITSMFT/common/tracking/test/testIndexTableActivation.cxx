@@ -10,7 +10,7 @@
 // arena, no magnetic field -- initialiseTimeFrame() never reaches
 // computeLayerTracklets()/findRoads()). The DropTFUponFailure/wipe gating
 // contract for the new TraversalFailureReason values is covered separately
-// in testCATrackerFailureContract.cxx, which needs the full Tracker<N>::
+// in testTrackerFailureContract.cxx, which needs the full Tracker<N>::
 // clustersToTracks() path.
 //
 // Contract under test (IndexTableConfiguration.h, TrackerTraits.cxx,
@@ -77,7 +77,7 @@ namespace
 {
 
 // Deterministic, geometry-free stand-in for GeometryClusterDecoder<DetId>;
-// identical construction to testTimeFrameLifecycle.cxx / testCATrackerFailureContract.cxx.
+// identical construction to testTimeFrameLifecycle.cxx / testTrackerFailureContract.cxx.
 class LegacyLikeDecoder final : public ClusterDecoder
 {
  public:
@@ -186,7 +186,7 @@ Fixture emptyFixture()
 }
 
 // 4 clusters on layers {0,1,0,2}, partitioned into 3 ROFs -- same shape as
-// testCATrackerFailureContract.cxx's fixture.
+// testTrackerFailureContract.cxx's fixture.
 Fixture makeFixture()
 {
   Fixture f;
@@ -230,7 +230,7 @@ std::vector<TrackingParameters> makeTwoIterationITSParams()
 
 // Minimal wiring for TrackerTraits<ITSNLayers>::initialiseTimeFrame(): a
 // TimeFrame and a TrackerTraits sharing a bounded memory pool. Unlike
-// testCATrackerFailureContract.cxx's Rig, no Tracker<N>, task arena, or
+// testTrackerFailureContract.cxx's Rig, no Tracker<N>, task arena, or
 // magnetic field is needed -- initialiseTimeFrame() never reaches
 // computeLayerTracklets()/findRoads().
 struct Rig {
@@ -272,7 +272,7 @@ struct Rig {
     tf.adoptPlan(plan->getConfigurationKey().orderedSurfaces.size(), layoutView.topology.nTransitions, layoutView.topology.nCells);
   }
 
-  // See testCATrackerFailureContract.cxx's identical helper for why loading a
+  // See testTrackerFailureContract.cxx's identical helper for why loading a
   // (possibly empty) normalized source is load-bearing before initialise()
   // is allowed to run at all: it sizes every per-layer ROF boundary table
   // that getNrof() unconditionally reads. The ROF overlap table and

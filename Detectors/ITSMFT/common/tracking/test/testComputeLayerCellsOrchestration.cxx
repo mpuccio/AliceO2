@@ -74,7 +74,7 @@ constexpr float Bz = 0.5f;
 // Preflight-only fixtures (Rig::establishLayout()) load zero real clusters --
 // this decoder's decode() is never actually invoked there. It exists only to
 // satisfy loadNormalizedSource()'s interface, mirroring
-// testCATrackerFailureContract.cxx's LegacyLikeDecoder.
+// testTrackerFailureContract.cxx's LegacyLikeDecoder.
 class NeverDecodedDecoder final : public ClusterDecoder
 {
  public:
@@ -258,7 +258,7 @@ void checkSurfaceKinematicStateEqual(const SurfaceKinematicState& lhs, const Sur
 // mTraversalGrouping/mCylinderPolicyParams|mDiskPolicyParams/mAttachHitConfig
 // -- computeLayerCells()'s own private caches, never poked directly), and a
 // validly-sized-but-empty normalized load (proven pattern from
-// testCATrackerFailureContract.cxx: TimeFrame::initialise() unconditionally
+// testTrackerFailureContract.cxx: TimeFrame::initialise() unconditionally
 // reads mROFramesClusters sizes, which only loadNormalizedSource() sets up
 // safely, even for zero clusters).
 template <int NLayers>

@@ -383,7 +383,7 @@ BOOST_AUTO_TEST_CASE(CommonCoreTimeFrameTemplateSpellingIsGone)
   // anywhere in the common core. The grep half of this proof (zero
   // remaining occurrences of those old spellings across
   // Detectors/ITSMFT/common/tracking's headers/sources/tests and every
-  // production call site -- CATracker, TrackerTraits, DetectorTraits,
+  // production call site -- Tracker, TrackerTraits, DetectorTraits,
   // MFTFwdTrackHelpers, TrackingInterface, the ITS/MFT workflow specs, the
   // ITS onboarding compile target) is not repeatable inside a unit test
   // binary; it was run as part of this slice's validation sweep and is

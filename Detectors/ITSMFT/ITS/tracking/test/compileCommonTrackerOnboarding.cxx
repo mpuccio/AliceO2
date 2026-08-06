@@ -14,7 +14,7 @@
 #include <oneapi/tbb/task_arena.h>
 
 #include "ITSCommonTracking/CommonTrackingParameters.h"
-#include "ITSMFTTracking/CATracker.h"
+#include "ITSMFTTracking/Tracker.h"
 #include "ITSMFTTracking/DetectorLayoutSet.h"
 #include "ITSMFTTracking/StaticDetectorCatalogs.h"
 #include "ITSMFTTracking/SurfaceTrackingScratch.h"
