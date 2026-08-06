@@ -77,7 +77,7 @@ BOOST_AUTO_TEST_CASE(ForwardLegProducesIncreasingLayerOrder)
 {
   Fixture fx;
   std::array<SurfaceMeasurement, NLayers> out{};
-  const auto slots = assembleRefitLegSlots<NLayers>(fx.seed, fx.layerMeasurements, 0, NLayers, 1, out);
+  const auto slots = assembleRefitLegSlots(fx.seed, fx.layerMeasurements, 0, NLayers, 1, out);
 
   BOOST_REQUIRE_EQUAL(slots.size(), NLayers);
   BOOST_CHECK(bitEqual(slots[0], fx.storage[0][0])); // layer 0, cluster 0
@@ -93,7 +93,7 @@ BOOST_AUTO_TEST_CASE(ReverseLegProducesDecreasingLayerOrder)
 {
   Fixture fx;
   std::array<SurfaceMeasurement, NLayers> out{};
-  const auto slots = assembleRefitLegSlots<NLayers>(fx.seed, fx.layerMeasurements, NLayers - 1, -1, -1, out);
+  const auto slots = assembleRefitLegSlots(fx.seed, fx.layerMeasurements, NLayers - 1, -1, -1, out);
 
   BOOST_REQUIRE_EQUAL(slots.size(), NLayers);
   // Exact mirror of the forward-leg order: position 0 is legacy layer 6,
@@ -120,8 +120,8 @@ BOOST_AUTO_TEST_CASE(ForwardAndReverseOrdersAreNotEqual)
   Fixture fx;
   std::array<SurfaceMeasurement, NLayers> outFwd{};
   std::array<SurfaceMeasurement, NLayers> outRev{};
-  const auto fwd = assembleRefitLegSlots<NLayers>(fx.seed, fx.layerMeasurements, 0, NLayers, 1, outFwd);
-  const auto rev = assembleRefitLegSlots<NLayers>(fx.seed, fx.layerMeasurements, NLayers - 1, -1, -1, outRev);
+  const auto fwd = assembleRefitLegSlots(fx.seed, fx.layerMeasurements, 0, NLayers, 1, outFwd);
+  const auto rev = assembleRefitLegSlots(fx.seed, fx.layerMeasurements, NLayers - 1, -1, -1, outRev);
 
   BOOST_REQUIRE_EQUAL(fwd.size(), rev.size());
   bool anyDifferent = false;
@@ -139,7 +139,7 @@ BOOST_AUTO_TEST_CASE(AllHoleLegProducesAllInvalidSlots)
   Fixture fx;
   TrackSeed allHoleSeed{}; // every layer left at UnusedIndex
   std::array<SurfaceMeasurement, NLayers> out{};
-  const auto slots = assembleRefitLegSlots<NLayers>(allHoleSeed, fx.layerMeasurements, 0, NLayers, 1, out);
+  const auto slots = assembleRefitLegSlots(allHoleSeed, fx.layerMeasurements, 0, NLayers, 1, out);
 
   BOOST_REQUIRE_EQUAL(slots.size(), NLayers);
   for (const auto& slot : slots) {
@@ -155,7 +155,7 @@ BOOST_AUTO_TEST_CASE(PartialRangeReturnsOnlyThePopulatedPrefix)
   // returned span has NLayers elements.
   Fixture fx;
   std::array<SurfaceMeasurement, NLayers> out{};
-  const auto slots = assembleRefitLegSlots<NLayers>(fx.seed, fx.layerMeasurements, 2, 5, 1, out);
+  const auto slots = assembleRefitLegSlots(fx.seed, fx.layerMeasurements, 2, 5, 1, out);
 
   BOOST_REQUIRE_EQUAL(slots.size(), 3);
   BOOST_CHECK(bitEqual(slots[0], fx.storage[2][1])); // layer 2

@@ -385,6 +385,14 @@ o2_add_test(m7e-adapter-boundary-guard
             LABELS "itsmft;tracking"
             PUBLIC_LINK_LIBRARIES O2::ITSMFTTracking O2::MFTTracking)
 
+# Gate 4 M7f: one authoritative guard for residual layer-count exceptions and
+# deletion of the redundant common-core bridges.
+o2_add_test(m7f-runtime-core-guard
+            SOURCES testM7fRuntimeCoreGuard.cxx
+            COMPONENT_NAME itsmft-tracking
+            LABELS "itsmft;tracking"
+            PUBLIC_LINK_LIBRARIES O2::ITSMFTTracking O2::MFTTracking)
+
 o2_add_test(surface-plan-binding-no-detector-dependency
             SOURCES testSurfacePlanBindingNoDetectorDependency.cxx
             COMPONENT_NAME itsmft-tracking

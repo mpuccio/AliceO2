@@ -56,7 +56,7 @@
 // workflow/default/output contract.
 //
 // M5d extension (doc/decisions/0008-native-refit-activation.md): this
-// harness's own scenario table now also runs fitTrackSeedLegs<NLayers>
+// harness's own scenario table now also runs fitTrackSeedLegs
 // (NativeRefitDriver.h), the shared, descriptor-driven driver
 // DetectorTraits::refitSeed's barrel/ITS branch now actually calls in
 // production, alongside the two engines above. Propagator::propagateToMeasurement's
@@ -327,23 +327,20 @@ ScenarioResult runScenario(const Scenario& scenario)
   paramOut.parameters[0] = -888.f;
   float chi2 = -999.f;
   OperationFailureReason reason{};
-  result.nativeOk = nativeRefitTrackCylinderCylinder<NLayers>(
+  result.nativeOk = nativeRefitTrackCylinderCylinder(
     nativeSeed, fixture.layerMeasurements, fixture.catalog, Bz, scenario.shiftRefToCluster,
     scenario.maxChi2ClusterAttachment, scenario.maxChi2NDF, scenario.repeatRefitOut,
     gsl::span<const float>(minPt), /*reseedIfShorter=*/0, paramIn, paramOut, chi2, reason);
   result.nativeFailureReason = result.nativeOk ? "" : failureReasonName(reason);
 
-  o2::its::TrackITSExt nativeTrack{};
-  if (result.nativeOk) {
-    BOOST_REQUIRE(exportNativeRefitToTrackITSExt<NLayers>(nativeSeed, paramIn, paramOut, chi2, nativeTrack));
-  } else {
+  if (!result.nativeOk) {
     // Native's own transactionality contract: untouched on any failure.
     BOOST_CHECK_EQUAL(paramIn.parameters[0], -777.f);
     BOOST_CHECK_EQUAL(paramOut.parameters[0], -888.f);
     BOOST_CHECK_EQUAL(chi2, -999.f);
   }
 
-  // --- M5d production driver: fitTrackSeedLegs<NLayers> (NativeRefitDriver.h),
+  // --- M5d production driver: fitTrackSeedLegs (NativeRefitDriver.h),
   // the shared descriptor-driven driver DetectorTraits::refitSeed's barrel/ITS
   // branch now actually calls. ---
   const auto productionSeed = makeNativeSeed(scenario.nHitLayers);
@@ -353,7 +350,7 @@ ScenarioResult runScenario(const Scenario& scenario)
   productionParamOut.parameters[0] = -888.f;
   float productionChi2 = -999.f;
   OperationFailureReason productionReason{};
-  result.productionOk = fitTrackSeedLegs<NLayers>(
+  result.productionOk = fitTrackSeedLegs(
     productionSeed, fixture.layerMeasurements, fixture.catalog, Bz, scenario.shiftRefToCluster,
     scenario.maxChi2ClusterAttachment, scenario.maxChi2NDF, scenario.repeatRefitOut,
     gsl::span<const float>(minPt), productionParamIn, productionParamOut, productionChi2, productionReason);
@@ -384,17 +381,18 @@ ScenarioResult runScenario(const Scenario& scenario)
   BOOST_CHECK_EQUAL(result.legacyOk, scenario.expectBothSucceed);
 
   if (result.legacyOk && result.nativeOk) {
-    result.patternMatches = (legacyTrack.getPattern() == nativeTrack.getPattern());
-    result.timestampMatches = (legacyTrack.getTimeStamp().getTimeStamp() == nativeTrack.getTimeStamp().getTimeStamp());
+    const auto nativeTimestamp = nativeSeed.getTimeStamp().makeSymmetrical();
+    result.patternMatches = (legacyTrack.getPattern() == nativeSeed.getSurfaceMask().value());
+    result.timestampMatches = (legacyTrack.getTimeStamp().getTimeStamp() == nativeTimestamp.getTimeStamp());
     BOOST_CHECK_MESSAGE(result.patternMatches, scenario.name << ": cluster/hit-mask pattern differs");
     BOOST_CHECK_MESSAGE(result.timestampMatches, scenario.name << ": timestamp differs");
 
     result.numericComparable = true;
     result.legacyQ2Pt = legacyTrack.getParamIn().getQ2Pt();
-    result.nativeQ2Pt = nativeTrack.getParamIn().getQ2Pt();
+    result.nativeQ2Pt = paramIn.parameters[4];
     result.deltaQ2Pt = std::abs(result.legacyQ2Pt - result.nativeQ2Pt);
     result.legacyChi2 = legacyTrack.getChi2();
-    result.nativeChi2 = nativeTrack.getChi2();
+    result.nativeChi2 = chi2;
     result.deltaChi2 = std::abs(result.legacyChi2 - result.nativeChi2);
     BOOST_TEST_MESSAGE(scenario.name << ": legacy Q2Pt=" << result.legacyQ2Pt << " native Q2Pt=" << result.nativeQ2Pt
                                      << " |delta|=" << result.deltaQ2Pt << "; legacy chi2=" << result.legacyChi2

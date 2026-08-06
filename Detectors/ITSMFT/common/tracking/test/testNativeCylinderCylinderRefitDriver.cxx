@@ -6,14 +6,14 @@
 // License v3 (GPL Version 3), copied verbatim in the file "COPYING".
 
 // Gate 3 Slice B: independent legacy-oracle coverage for
-// nativeRefitTrackCylinderCylinder/exportNativeRefitToTrackITSExt
+// nativeRefitTrackCylinderCylinder
 // (NativeCylinderCylinderRefitDriver.h), comparing the new unwired native
 // driver directly against the frozen o2::its::track::refitTrackSeed/
 // refitTrack/fitTrack chain (ITStracking/TrackHelpers.h) it is designed to
 // replace. Both fixtures are built independently (not one derived from the
 // other via the same export adapter under test), from the same numeric
-// values, so a bug in legacy::exportBarrelTrackParCov itself would still be
-// caught by a parity mismatch.
+// values. Typed output conversion is adapter-owned and is covered by the
+// adapter tests; this test keeps the native driver oracle generic.
 //
 // Every parity fixture uses reseedIfShorter = 0 (never triggers legacy's
 // seedTrackForRefit mid-track geometric reseed) since the native driver
@@ -253,7 +253,11 @@ LegacyOracleResult runLegacyOracle(SharedFixture& fixture, int nHitLayers, float
 struct NativeDriverResult {
   bool ok{false};
   OperationFailureReason reason{};
-  o2::its::TrackITSExt track{};
+  SurfaceKinematicState paramIn{};
+  SurfaceKinematicState paramOut{};
+  float chi2{0.f};
+  uint64_t pattern{0};
+  float timestamp{0.f};
 };
 
 NativeDriverResult runNativeDriver(SharedFixture& fixture, int nHitLayers, float maxChi2ClusterAttachment,
@@ -262,14 +266,13 @@ NativeDriverResult runNativeDriver(SharedFixture& fixture, int nHitLayers, float
 {
   const auto nativeSeed = makeNativeSeed(nHitLayers);
   NativeDriverResult result{};
-  SurfaceKinematicState paramIn{}, paramOut{};
-  float chi2{0.f};
-  result.ok = nativeRefitTrackCylinderCylinder<NLayers>(
+  result.ok = nativeRefitTrackCylinderCylinder(
     nativeSeed, fixture.layerMeasurements, fixture.catalog, Bz, shiftRefToCluster, maxChi2ClusterAttachment,
-    maxChi2NDF, repeatRefitOut, gsl::span<const float>(minPt), reseedIfShorter, paramIn, paramOut, chi2,
+    maxChi2NDF, repeatRefitOut, gsl::span<const float>(minPt), reseedIfShorter, result.paramIn, result.paramOut, result.chi2,
     result.reason);
   if (result.ok) {
-    BOOST_REQUIRE(exportNativeRefitToTrackITSExt<NLayers>(nativeSeed, paramIn, paramOut, chi2, result.track));
+    result.pattern = nativeSeed.getSurfaceMask().value();
+    result.timestamp = nativeSeed.getTimeStamp().makeSymmetrical().getTimeStamp();
   }
   return result;
 }
@@ -292,13 +295,13 @@ void expectStructuralParityAndReportNumericDifferences(SharedFixture& fixture, i
 
   BOOST_REQUIRE(legacy.ok);
   BOOST_REQUIRE(native.ok);
-  BOOST_CHECK_EQUAL(legacy.track.getPattern(), native.track.getPattern());
-  BOOST_CHECK_EQUAL(legacy.track.getTimeStamp().getTimeStamp(), native.track.getTimeStamp().getTimeStamp());
+  BOOST_CHECK_EQUAL(legacy.track.getPattern(), native.pattern);
+  BOOST_CHECK_EQUAL(legacy.track.getTimeStamp().getTimeStamp(), native.timestamp);
 
   const float legacyQ2Pt = legacy.track.getParamIn().getQ2Pt();
-  const float nativeQ2Pt = native.track.getParamIn().getQ2Pt();
+  const float nativeQ2Pt = native.paramIn.parameters[4];
   const float legacyChi2 = legacy.track.getChi2();
-  const float nativeChi2 = native.track.getChi2();
+  const float nativeChi2 = native.chi2;
   BOOST_TEST_MESSAGE("Zero-material numeric characterization: legacy paramIn.Q2Pt=" << legacyQ2Pt
                                                                                     << " native paramIn.Q2Pt=" << nativeQ2Pt << " |delta|=" << std::abs(legacyQ2Pt - nativeQ2Pt)
                                                                                     << "; legacy chi2=" << legacyChi2 << " native chi2=" << nativeChi2
@@ -355,7 +358,7 @@ BOOST_AUTO_TEST_CASE(SingleHitZeroMaterialCovarianceDivergenceCharacterization)
   float chi2A = 0.f;
   uint32_t acceptedA = 0;
   std::array<SurfaceMeasurement, NLayers> slotsBufferA{};
-  const auto slotsA = assembleRefitLegSlots<NLayers>(nativeSeed, fixture.layerMeasurements, 0, 1, 1, slotsBufferA);
+  const auto slotsA = assembleRefitLegSlots(nativeSeed, fixture.layerMeasurements, 0, 1, 1, slotsBufferA);
   OperationFailureReason reason{};
   BOOST_REQUIRE(driveRefitLeg<TransitionPolicyTag::CylinderCylinder>(
     stateA, linRefA, chi2A, acceptedA, slotsA, fixture.catalog, Bz,
@@ -457,7 +460,7 @@ BOOST_AUTO_TEST_CASE(NonzeroReseedIfShorterIsRejectedBeforeAnyMutation)
   float chi2 = -999.f;
   OperationFailureReason reason{};
 
-  const bool ok = nativeRefitTrackCylinderCylinder<NLayers>(
+  const bool ok = nativeRefitTrackCylinderCylinder(
     nativeSeed, fixture.layerMeasurements, fixture.catalog, Bz, false, 60.f, 30.f, false,
     gsl::span<const float>(std::vector<float>(NLayers + 1, 0.f)), /*reseedIfShorter=*/4, paramIn, paramOut, chi2,
     reason);
@@ -495,23 +498,7 @@ BOOST_AUTO_TEST_CASE(ZeroReseedIfShorterKeepsTheCharacterizedPath)
                                       /*reseedIfShorter=*/0);
   BOOST_REQUIRE(legacy.ok);
   BOOST_REQUIRE(native.ok);
-  BOOST_CHECK_EQUAL(legacy.track.getPattern(), native.track.getPattern());
-}
-
-// --- Export-failure handling (native driver's own contract, no legacy side) ---
-
-BOOST_AUTO_TEST_CASE(ExportFailsClosedForWrongFamilyStateAndLeavesOutputUntouched)
-{
-  TrackSeed seed{};
-  SurfaceKinematicState wrongFamily{};
-  wrongFamily.family = StateFamily::Forward; // never produced by this driver; precondition violation
-  o2::its::TrackITSExt sentinel{};
-  sentinel.setChi2(-999.f); // recognizable poison value
-  auto outTrack = sentinel;
-
-  const bool ok = exportNativeRefitToTrackITSExt<NLayers>(seed, wrongFamily, wrongFamily, 0.f, outTrack);
-  BOOST_CHECK(!ok);
-  BOOST_CHECK_EQUAL(outTrack.getChi2(), -999.f); // untouched on failure
+  BOOST_CHECK_EQUAL(legacy.track.getPattern(), native.pattern);
 }
 
 // --- Nonzero-material characterization (NOT a parity claim) -----------------
@@ -538,9 +525,9 @@ BOOST_AUTO_TEST_CASE(NonzeroMaterialCharacterizationRecorded)
   BOOST_REQUIRE(native.ok);
 
   const float legacyQ2Pt = legacy.track.getParamIn().getQ2Pt();
-  const float nativeQ2Pt = native.track.getParamIn().getQ2Pt();
+  const float nativeQ2Pt = native.paramIn.parameters[4];
   const float legacyChi2 = legacy.track.getChi2();
-  const float nativeChi2 = native.track.getChi2();
+  const float nativeChi2 = native.chi2;
   BOOST_TEST_MESSAGE("Nonzero-material characterization (xOverX0=0.01, arealDensityGPerCm2=0.001): "
                      << "legacy paramIn.Q2Pt=" << legacyQ2Pt << " native paramIn.Q2Pt=" << nativeQ2Pt
                      << " |delta|=" << std::abs(legacyQ2Pt - nativeQ2Pt) << "; legacy chi2=" << legacyChi2
