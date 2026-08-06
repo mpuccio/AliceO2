@@ -15,7 +15,7 @@
 
 #include "ITSCommonTracking/CommonTrackingParameters.h"
 #include "ITSMFTTracking/Tracker.h"
-#include "ITSMFTTracking/DetectorLayoutSet.h"
+#include "ITSMFTTracking/SurfaceGraphBuilder.h"
 #include "ITSMFTTracking/StaticDetectorCatalogs.h"
 #include "ITSMFTTracking/SurfaceTrackingScratch.h"
 #include "ITSMFTTracking/SurfaceCatalogView.h"
@@ -46,35 +46,14 @@ int initializeCommonITSTracker()
   }
 
   static constexpr auto kOrderedSurfaces = identityOrder();
-  auto planResult = buildDetectorLayoutSet(
-    SurfaceCatalogView{kITSStaticSurfaceCatalog.data(), static_cast<uint32_t>(kITSStaticSurfaceCatalog.size())},
-    gsl::span<const SurfaceId>{kOrderedSurfaces}, parameters);
-  if (!planResult.ok()) {
-    return 2;
-  }
-  const auto& plan = *planResult.layout;
-
-  // Resolve the authoritative per-surface nominal material from the built
-  // plan, mirroring TrackerTraits<NLayers>::initialiseTimeFrame()'s own
-  // accessor chain (TrackerTraits.cxx): DetectorLayoutSet::getConfigurationKey()
-  // for the ordered SurfaceId mapping, DetectorLayoutSet::getLayoutView() for
-  // the resolved per-iteration view, and SurfaceDescriptor::material off each
-  // ordered surface -- never a hardcoded or duplicated material value.
-  // `layerMaterial` must outlive the borrowed span handed to
-  // bindAttachHitPolicyConfig() below, so it stays alive in this same scope
-  // through that call.
-  const auto layout = plan.getLayoutView(0);
-  const auto& orderedSurfaces = plan.getConfigurationKey().orderedSurfaces;
-  if (orderedSurfaces.size() < ITSNLayers) {
-    return 4;
-  }
+  const auto& orderedSurfaces = kOrderedSurfaces;
   std::array<NominalSurfaceMaterial, ITSNLayers> layerMaterial{};
   for (int layer = 0; layer < ITSNLayers; ++layer) {
     const auto surfaceId = orderedSurfaces[layer];
-    if (!surfaceId.isValid() || surfaceId.value() >= layout.nSurfaces) {
+    if (!surfaceId.isValid()) {
       return 4;
     }
-    layerMaterial[layer] = layout.getSurface(surfaceId).material;
+    layerMaterial[layer] = kITSStaticSurfaceCatalog[layer].material;
   }
 
   // Gate 4 B3.1: the permanent, non-templated TimeFrame (event data:
@@ -88,9 +67,7 @@ int initializeCommonITSTracker()
   SurfaceTrackingScratch scratch;
 
   auto pool = std::make_shared<BoundedMemoryResource>();
-  frame.setMemoryPool(pool);
   scratch.setMemoryPool(pool);
-  scratch.adoptPlan(orderedSurfaces.size(), layout.topology.nTransitions, layout.topology.nCells);
   TrackerTraits traits;
   traits.setMemoryPool(pool);
   traits.adoptScratch(&scratch);
@@ -108,10 +85,36 @@ int initializeCommonITSTracker()
 
   Tracker tracker{&traits};
   tracker.adoptScratch(scratch);
-  tracker.adoptFrame(frame);
-  tracker.adoptDetectorLayoutSet(plan);
-  tracker.setMemoryPool(pool);
-  tracker.setParameters(parameters);
+  tracker.setSource(ClusterSourceId{0});
+  TrackerInitialization configuration;
+  configuration.catalog = SurfaceCatalogView{kITSStaticSurfaceCatalog.data(), static_cast<uint32_t>(kITSStaticSurfaceCatalog.size())};
+  configuration.memoryPool = pool;
+  TrackerIterationConfiguration iteration;
+  SurfaceGraphSubgraph subgraph;
+  subgraph.orderedSurfaces.assign(orderedSurfaces.begin(), orderedSurfaces.end());
+  subgraph.maxHoles = parameters.front().MaxHoles;
+  subgraph.holeSurfaces = positionalSurfaceMask(parameters.front().HoleLayerMask, orderedSurfaces, ITSNLayers);
+  subgraph.seedingSurfaces = positionalSurfaceMask(parameters.front().StartLayerMask, orderedSurfaces, ITSNLayers);
+  iteration.graphSubgraphs.push_back(std::move(subgraph));
+  iteration.parameters.push_back(parameters.front());
+  SurfaceMask owned;
+  for (const auto surface : orderedSurfaces) {
+    owned.set(surface);
+  }
+  iteration.bindings.push_back(SurfacePlanBinding::Declaration{ClusterSourceId{0}, owned,
+                                                               std::vector<SurfaceId>{orderedSurfaces.begin(), orderedSurfaces.end()},
+                                                               SurfaceKind::Cylinder, TransitionPolicyTag::CylinderCylinder});
+  configuration.iterations.push_back(std::move(iteration));
+  const auto result = tracker.initialize(frame, configuration);
+  if (!result.ok()) {
+    return 5;
+  }
+  traits.setMemoryPool(frame.getMemoryPool());
+  const auto* capacity = frame.getWorkspaceCapacity(0, ClusterSourceId{0});
+  if (capacity == nullptr) {
+    return 6;
+  }
+  scratch.adoptPlan(capacity->ownedSurfaces, capacity->transitions, capacity->cells);
   return 0;
 }
 } // namespace

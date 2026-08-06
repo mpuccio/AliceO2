@@ -52,14 +52,9 @@
 // StructuralFailureViaStaleLayoutAlwaysRethrowsAndWipes test's replacement
 // note below for what covers the "always rethrows and wipes" contract now.
 //
-// The recoverable-failure fixtures trigger BoundedMemoryResource::
-// MemoryLimitExceeded through TrackingParameters::MaxMemory (via
-// Rig::forceMemoryLimitBelowCurrentUsage()), not by calling
-// BoundedMemoryResource::setMaxMemory() directly on the pool: Tracker::
-// clustersToTracks() itself calls mMemoryPool->setMaxMemory(mTrkParams[
-// iteration].MaxMemory) as the first statement in its try block on every
-// call, which would silently undo a limit set directly on the pool object
-// beforehand.
+// The recoverable-failure fixtures tighten the already-used frame allocator
+// to its current usage. The next tracking allocation then exercises the
+// normal bounded-resource failure/reset contract without changing config.
 
 #define BOOST_TEST_MODULE ITSMFT Tracker failure contract
 #define BOOST_TEST_MAIN
@@ -360,14 +355,11 @@ struct RigT {
       params(makeOneIterationITSParams(dropTFUponFailure, maxMemory)),
       tracker(&traits)
   {
-    frame.setMemoryPool(pool);
     tf.setMemoryPool(pool);
     traits.setMemoryPool(pool);
     traits.setNThreads(1, arena);
     tracker.adoptScratch(tf);
     tracker.adoptFrame(frame);
-    tracker.setParameters(params);
-    tracker.setMemoryPool(pool);
     tracker.setBz(0.5f);
     // The operation adapter is passed to each tracking invocation. It is
     // deliberately not retained by the non-templated core.
@@ -409,24 +401,48 @@ struct RigT {
   std::optional<o2::its::ROFVertexLookupTable<ITSNLayers>> vertexTable;
   std::optional<o2::its::ROFMaskTable<ITSNLayers>> mask;
   std::shared_ptr<tbb::task_arena> arena;
-  // Kept with the graph vector so this fixture owns all initialization inputs.
   std::vector<SurfaceDescriptor> catalog;
-  std::optional<std::vector<SurfaceGraph>> plan;
 
-  // Establishes a real, valid detector layout/plan + topology, without
-  // loading any clusters, and binds it into the tracker (mirroring
-  // ITSMFTTrackingInterface::runTracking()'s adoptSurfaceGraphs() call).
+  // Builds and atomically installs the complete static configuration.
   void establishValidLayout()
   {
     catalog = makeITSTestCatalog();
-    const auto orderedSurfaces = identitySurfaces(ITSNLayers);
     const SurfaceCatalogView catalogView{catalog.data(), static_cast<uint32_t>(catalog.size())};
-    auto result = buildSurfaceGraphs(catalogView, orderedSurfaces, params);
+    TrackerInitialization configuration;
+    configuration.catalog = catalogView;
+    configuration.memoryPool = pool;
+    const auto orderedSurfaces = identitySurfaces(ITSNLayers);
+    configuration.iterations.reserve(params.size());
+    for (const auto& parameter : params) {
+      TrackerIterationConfiguration iteration;
+      SurfaceGraphSubgraph subgraph;
+      subgraph.orderedSurfaces.assign(orderedSurfaces.begin(), orderedSurfaces.end());
+      subgraph.maxHoles = parameter.MaxHoles;
+      subgraph.holeSurfaces = positionalSurfaceMask(parameter.HoleLayerMask, orderedSurfaces, ITSNLayers);
+      subgraph.seedingSurfaces = positionalSurfaceMask(parameter.StartLayerMask, orderedSurfaces, ITSNLayers);
+      iteration.graphSubgraphs.push_back(std::move(subgraph));
+      iteration.parameters.push_back(parameter);
+      SurfaceMask owned;
+      for (const auto surface : orderedSurfaces) {
+        owned.set(surface);
+      }
+      iteration.bindings.push_back(SurfacePlanBinding::Declaration{ClusterSourceId{0}, owned, orderedSurfaces,
+                                                                   SurfaceKind::Cylinder, TransitionPolicyTag::CylinderCylinder});
+      configuration.iterations.push_back(std::move(iteration));
+    }
+    tracker.setSource(ClusterSourceId{0});
+    const auto result = tracker.initialize(frame, configuration);
     BOOST_REQUIRE(result.ok());
-    plan.emplace(std::move(result.graphs));
-    tracker.adoptSurfaceGraphs(*plan);
-    const auto layoutView = plan->front().getView();
-    tf.adoptPlan(plan->front().getOrderedSurfaces().size(), layoutView.nTransitions, layoutView.nCells);
+    traits.setMemoryPool(frame.getMemoryPool());
+    std::size_t transitions = 0;
+    std::size_t cells = 0;
+    for (std::size_t iteration = 0; iteration < frame.getNIterations(); ++iteration) {
+      const auto* capacity = frame.getWorkspaceCapacity(iteration, ClusterSourceId{0});
+      BOOST_REQUIRE(capacity != nullptr);
+      transitions = std::max(transitions, capacity->transitions);
+      cells = std::max(cells, capacity->cells);
+    }
+    tf.adoptPlan(orderedSurfaces.size(), transitions, cells);
   }
 
   // Loads clusters (or, with an empty Fixture, zero clusters -- still a
@@ -446,10 +462,11 @@ struct RigT {
     LegacyLikeDecoder decoder{o2::detectors::DetID::ITS};
     const o2::InteractionRecord origin{50, 5};
     const ROFTimingConfig timing{40, 0, 0, 0};
-    const auto& orderedSurfaces = plan->front().getOrderedSurfaces();
+    const auto& graph = frame.getGraph(0);
+    const auto& orderedSurfaces = graph.getOrderedSurfaces();
     const auto result = tf.loadNormalizedSource(frame, decoder, origin, timing, f.clusters, f.patterns, f.rofs, &dict(),
                                                 f.labels.getIndexedSize() > 0 ? &f.labels : nullptr, o2::detectors::DetID::ITS,
-                                                gsl::span<const SurfaceId>{orderedSurfaces}, plan->front().getSurfaceCatalog());
+                                                gsl::span<const SurfaceId>{orderedSurfaces}, graph.getSurfaceCatalog());
     BOOST_REQUIRE(result.ok());
 
     // TrackerTraits::computeLayerTracklets() reads per-layer ROF counts
@@ -486,27 +503,17 @@ struct RigT {
     tf.setROFViews(RuntimeROFViews{rofTable->getView(), vertexTable->getView(), mask->getView(), {}});
   }
 
-  // Tracker::clustersToTracks() calls mMemoryPool->setMaxMemory(params[0].
-  // MaxMemory) as the very first statement in its try block, on every call
-  // -- so a memory pool limit tightened directly on the pool object (rather
-  // than through TrackingParameters::MaxMemory) is silently undone the
-  // instant clustersToTracks() runs. Setting MaxMemory here below the
-  // pool's current usage makes that same setMaxMemory() call throw
-  // BoundedMemoryResource::MemoryLimitExceeded immediately, before
-  // initialiseTimeFrame()/prepareClusters() or any traversal code runs.
-  // Tracker keeps its own copy of the parameters vector (setParameters()
-  // copies by value), so it must be re-applied after this mutation.
-  void forceMemoryLimitBelowCurrentUsage()
+  // Set the event-local budget at the current usage; the next allocation is
+  // the controlled recoverable failure.
+  void forceMemoryLimitAtCurrentUsage()
   {
     const auto used = pool->getUsedMemory();
-    params[0].MaxMemory = used > 0 ? used - 1 : 0;
-    tracker.setParameters(params);
+    pool->setMaxMemory(used);
   }
 
   void restoreUnboundedMemory()
   {
-    params[0].MaxMemory = std::numeric_limits<size_t>::max();
-    tracker.setParameters(params);
+    pool->setMaxMemory(std::numeric_limits<size_t>::max());
   }
 };
 
@@ -559,7 +566,7 @@ BOOST_AUTO_TEST_CASE(RecoverableFailureDroppedReturnsExactSentinelAndWipes)
   rig.loadSource(makeFixture());
   BOOST_REQUIRE(rig.frame.getNormalizedFrame().getTotalMeasurements() > 0u);
 
-  rig.forceMemoryLimitBelowCurrentUsage();
+  rig.forceMemoryLimitAtCurrentUsage();
 
   const auto result = rig.tracker.clustersToTracks(rig.operationAdapter);
 
@@ -577,7 +584,7 @@ BOOST_AUTO_TEST_CASE(RecoverableFailureNotDroppedRethrowsButStillWipesFirst)
   rig.loadSource(makeFixture());
   BOOST_REQUIRE(rig.frame.getNormalizedFrame().getTotalMeasurements() > 0u);
 
-  rig.forceMemoryLimitBelowCurrentUsage();
+  rig.forceMemoryLimitAtCurrentUsage();
 
   BOOST_CHECK_THROW(rig.tracker.clustersToTracks(rig.operationAdapter), BoundedMemoryResource::MemoryLimitExceeded);
 
@@ -659,7 +666,6 @@ BOOST_AUTO_TEST_CASE(InvalidIndexTableConfigurationAlwaysRethrowsAndWipesRegardl
   for (const bool dropFlag : {false, true}) {
     Rig rig{dropFlag};
     rig.params[0].RowBins = 0; // structurally invalid
-    rig.tracker.setParameters(rig.params);
     rig.establishValidLayout();
     rig.loadSource(emptyFixture());
 
@@ -686,7 +692,6 @@ BOOST_AUTO_TEST_CASE(IndexTableConfigurationMismatchAlwaysRethrowsAndWipesRegard
     Rig rig{dropFlag};
     rig.params = makeTwoIterationITSParams(dropFlag);
     rig.params[1].RowBins = rig.params[0].RowBins + 1; // mismatched against what iteration 0 will commit
-    rig.tracker.setParameters(rig.params);
     rig.establishValidLayout();
     rig.loadSource(emptyFixture());
 
@@ -763,7 +768,7 @@ BOOST_AUTO_TEST_CASE(RecoverableDroppedLeavesNoStaleCommonTrackOrSidecarState)
   rig.loadSource(makeFixture());
   rig.stageStaleState();
 
-  rig.forceMemoryLimitBelowCurrentUsage();
+  rig.forceMemoryLimitAtCurrentUsage();
   const auto result = rig.tracker.clustersToTracks(rig.operationAdapter);
 
   BOOST_CHECK(result.outcome == TrackingOutcome::RecoverableDropped);
@@ -798,7 +803,7 @@ BOOST_AUTO_TEST_CASE(TrackerRemainsUsableAfterADroppedTimeFrame)
   rig.establishValidLayout();
   rig.loadSource(makeFixture());
 
-  rig.forceMemoryLimitBelowCurrentUsage();
+  rig.forceMemoryLimitAtCurrentUsage();
   const auto dropped = rig.tracker.clustersToTracks(rig.operationAdapter);
   BOOST_REQUIRE(dropped.outcome == TrackingOutcome::RecoverableDropped);
 

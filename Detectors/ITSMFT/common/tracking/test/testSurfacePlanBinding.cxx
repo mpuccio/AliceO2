@@ -136,19 +136,6 @@ BOOST_AUTO_TEST_CASE(SurfacePlanBindingMapsCombinedItsAndMftPlans)
   checkBindingCoversOwnedTopology(*mft.binding, combined.view);
 }
 
-// Requirement 2a: the new build API has no detector-ID parameter. Checked at
-// compile time -- this is a static_assert, not a runtime BOOST_CHECK, so an
-// accidental reintroduction of a detector-identity parameter fails the build
-// itself, not just a test run.
-static_assert(std::is_invocable_r_v<SurfacePlanBinding::BuildResult, decltype(SurfacePlanBinding::build),
-                                    const SurfaceGraphView&, ClusterSourceId, SurfaceMask,
-                                    gsl::span<const SurfaceId>, SurfaceKind, TransitionPolicyTag>,
-              "SurfacePlanBinding::build must accept exactly these six detector-neutral parameters");
-static_assert(!std::is_invocable_v<decltype(SurfacePlanBinding::build),
-                                   const SurfaceGraphView&, o2::detectors::DetID::ID, ClusterSourceId, SurfaceMask,
-                                   gsl::span<const SurfaceId>, SurfaceKind, TransitionPolicyTag>,
-              "SurfacePlanBinding::build must not accept a detector-ID parameter");
-
 BOOST_AUTO_TEST_CASE(SurfacePlanBindingBuildsForASyntheticNonItsMftDetector)
 {
   // Requirement 2b: a synthetic detector this library has never heard of

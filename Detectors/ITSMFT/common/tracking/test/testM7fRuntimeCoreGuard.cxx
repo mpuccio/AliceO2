@@ -132,6 +132,9 @@ std::optional<ResidualClassification> classifyNLayers(std::string_view relative)
   if (relative == "src/TrackerTraits.cxx") {
     return ResidualClassification{ResidualKind::AdapterCompatibility, "one adapter-edge NLayers/active-surface validation"};
   }
+  if (relative == "src/Tracker.cxx") {
+    return ResidualClassification{ResidualKind::AdapterCompatibility, "adapter-edge NLayers/active-surface validation"};
+  }
   if (relative == "include/ITSMFTTracking/DetectorPublicationAdapter.h") {
     return ResidualClassification{ResidualKind::AdapterCompatibility, "typed publication sidecar adapter"};
   }

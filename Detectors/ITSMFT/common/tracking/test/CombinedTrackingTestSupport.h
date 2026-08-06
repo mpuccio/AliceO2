@@ -60,11 +60,15 @@ inline SurfaceMask surfaceRangeMask(uint16_t first, uint16_t count)
   return result;
 }
 
-inline SurfaceGraphBuildResult buildCombinedLayout(gsl::span<const SurfaceId> itsSurfaces,
-                                                   const TrackingParameters& itsParams,
-                                                   gsl::span<const SurfaceId> mftSurfaces,
-                                                   const TrackingParameters& mftParams)
+inline TrackerInitialization makeCombinedConfiguration(const TrackingParameters& itsParams,
+                                                       const TrackingParameters& mftParams)
 {
+  TrackerInitialization configuration;
+  configuration.catalog = combinedCatalogView();
+  configuration.memoryPool = std::make_shared<BoundedMemoryResource>();
+  TrackerIterationConfiguration iteration;
+  const auto itsSurfaces = orderedSurfaceRange(0, ITSNLayers);
+  const auto mftSurfaces = orderedSurfaceRange(ITSNLayers, MFTNLayers);
   SurfaceGraphSubgraph itsSubgraph;
   itsSubgraph.orderedSurfaces.assign(itsSurfaces.begin(), itsSurfaces.end());
   itsSubgraph.maxHoles = itsParams.MaxHoles;
@@ -77,10 +81,16 @@ inline SurfaceGraphBuildResult buildCombinedLayout(gsl::span<const SurfaceId> it
   mftSubgraph.holeSurfaces = positionalSurfaceMask(mftParams.HoleLayerMask, mftSurfaces, static_cast<uint32_t>(mftSurfaces.size()));
   mftSubgraph.seedingSurfaces = positionalSurfaceMask(mftParams.StartLayerMask, mftSurfaces, static_cast<uint32_t>(mftSurfaces.size()));
 
-  SurfaceGraphBuilder builder{combinedCatalogView()};
-  builder.addSubgraph(std::move(itsSubgraph));
-  builder.addSubgraph(std::move(mftSubgraph));
-  return builder.build();
+  iteration.graphSubgraphs = {std::move(itsSubgraph), std::move(mftSubgraph)};
+  iteration.parameters = {itsParams, mftParams};
+  iteration.bindings.push_back(SurfacePlanBinding::Declaration{ClusterSourceId{0},
+                                                               surfaceRangeMask(0, ITSNLayers), itsSurfaces,
+                                                               SurfaceKind::Cylinder, TransitionPolicyTag::CylinderCylinder});
+  iteration.bindings.push_back(SurfacePlanBinding::Declaration{ClusterSourceId{1},
+                                                               surfaceRangeMask(ITSNLayers, MFTNLayers), mftSurfaces,
+                                                               SurfaceKind::Disk, TransitionPolicyTag::DiskDisk});
+  configuration.iterations.push_back(std::move(iteration));
+  return configuration;
 }
 
 class CombinedTrackingParticipantPlan
@@ -92,33 +102,9 @@ class CombinedTrackingParticipantPlan
       throw std::invalid_argument{"combined test application plan requires one iteration per detector"};
     }
 
-    const auto itsSurfaces = orderedSurfaceRange(0, ITSNLayers);
-    const auto mftSurfaces = orderedSurfaceRange(ITSNLayers, MFTNLayers);
-    const auto combinedBuild = buildCombinedLayout(itsSurfaces, itsParams[0], mftSurfaces, mftParams[0]);
-    if (!combinedBuild.ok()) {
-      throw std::runtime_error{"combined test application plan failed to build the detector layout"};
-    }
-    mGraphs.push_back(std::move(*combinedBuild.graph));
-
-    mITSParticipant = std::make_unique<SurfacePlanTrackingParticipantITS>(ParticipantId{0}, std::move(itsParams));
-    mMFTParticipant = std::make_unique<SurfacePlanTrackingParticipantMFT>(ParticipantId{1}, std::move(mftParams));
-
-    auto itsBinding = SurfacePlanBinding::build(mGraphs.front().getView(), ClusterSourceId{0},
-                                                surfaceRangeMask(0, ITSNLayers), itsSurfaces,
-                                                SurfaceKind::Cylinder, TransitionPolicyTag::CylinderCylinder);
-    if (!itsBinding.ok()) {
-      throw std::runtime_error{"combined test application plan failed to build the ITS binding"};
-    }
-    auto mftBinding = SurfacePlanBinding::build(mGraphs.front().getView(), ClusterSourceId{1},
-                                                surfaceRangeMask(ITSNLayers, MFTNLayers), mftSurfaces,
-                                                SurfaceKind::Disk, TransitionPolicyTag::DiskDisk);
-    if (!mftBinding.ok()) {
-      throw std::runtime_error{"combined test application plan failed to build the MFT binding"};
-    }
-    mITSParticipant->adoptSurfacePlanBinding(std::move(itsBinding.binding));
-    mMFTParticipant->adoptSurfacePlanBinding(std::move(mftBinding.binding));
-    mITSParticipant->adoptSurfaceGraphs(mGraphs);
-    mMFTParticipant->adoptSurfaceGraphs(mGraphs);
+    mConfiguration = makeCombinedConfiguration(itsParams[0], mftParams[0]);
+    mITSParticipant = std::make_unique<SurfacePlanTrackingParticipantITS>(ParticipantId{0}, ClusterSourceId{0});
+    mMFTParticipant = std::make_unique<SurfacePlanTrackingParticipantMFT>(ParticipantId{1}, ClusterSourceId{1});
     mSchedule = {mITSParticipant.get(), mMFTParticipant.get()};
   }
 
@@ -127,14 +113,14 @@ class CombinedTrackingParticipantPlan
 
   void adoptFrame(TimeFrame& frame)
   {
-    mITSParticipant->adoptFrame(frame);
-    mMFTParticipant->adoptFrame(frame);
+    mFrame = &frame;
+    const auto result = mITSParticipant->initialize(frame, mConfiguration);
+    if (!result.ok()) {
+      throw std::runtime_error{"combined test application plan failed to configure the TimeFrame"};
+    }
+    mMFTParticipant->adoptConfiguredFrame(frame);
   }
-  void setMemoryPool(std::shared_ptr<BoundedMemoryResource> pool)
-  {
-    mITSParticipant->setMemoryPool(pool);
-    mMFTParticipant->setMemoryPool(pool);
-  }
+  void setMemoryPool(std::shared_ptr<BoundedMemoryResource>) {}
   void setBz(float bz)
   {
     mITSParticipant->setBz(bz);
@@ -200,11 +186,12 @@ class CombinedTrackingParticipantPlan
   {
     return *mMFTParticipant->getMFTPublicationCompatibility();
   }
-  SurfaceGraphView getITSLayoutView() const noexcept { return mGraphs.front().getView(); }
-  SurfaceGraphView getMFTLayoutView() const noexcept { return mGraphs.front().getView(); }
+  SurfaceGraphView getITSLayoutView() const noexcept { return mFrame != nullptr && mFrame->isConfigured() ? mFrame->getGraph(0).getView() : SurfaceGraphView{}; }
+  SurfaceGraphView getMFTLayoutView() const noexcept { return getITSLayoutView(); }
 
  private:
-  std::vector<SurfaceGraph> mGraphs;
+  TrackerInitialization mConfiguration;
+  TimeFrame* mFrame = nullptr;
   std::unique_ptr<SurfacePlanTrackingParticipantITS> mITSParticipant;
   std::unique_ptr<SurfacePlanTrackingParticipantMFT> mMFTParticipant;
   std::array<TrackingParticipant*, 2> mSchedule{};

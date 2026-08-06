@@ -51,6 +51,12 @@ o2_add_test(l3-surface-graph-guard
             LABELS "itsmft;tracking"
             PUBLIC_LINK_LIBRARIES O2::ITSMFTTracking)
 
+o2_add_test(l4-timeframe-configuration
+            SOURCES testL4TimeFrameConfiguration.cxx
+            COMPONENT_NAME itsmft-tracking
+            LABELS "itsmft;tracking"
+            PUBLIC_LINK_LIBRARIES O2::ITSMFTTracking O2::MFTTracking)
+
 o2_add_test(transitionpolicytag-containment
             SOURCES testTransitionPolicyTagContainment.cxx
             COMPONENT_NAME itsmft-tracking

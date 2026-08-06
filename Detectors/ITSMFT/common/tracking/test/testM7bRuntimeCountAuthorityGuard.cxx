@@ -99,7 +99,7 @@ std::optional<CountBoundary> classify(const fs::path& path, std::string_view cod
   if (name == "Cell.h") {
     return CountBoundary::FixedDeviceABI;
   }
-  if (name == "TrackerTraits.cxx" && codeLine.find(".NLayers") != std::string_view::npos) {
+  if ((name == "TrackerTraits.cxx" || name == "Tracker.cxx") && codeLine.find(".NLayers") != std::string_view::npos) {
     return CountBoundary::AdapterEdge;
   }
   if (name == "IndexTableConfiguration.h" || name == "IndexTableConfiguration.cxx" ||

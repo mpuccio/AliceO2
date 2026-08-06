@@ -80,10 +80,8 @@ using namespace o2::itsmft::tracking;
 // class free of a compatibility alias.
 static_assert(std::is_same_v<decltype(std::declval<SurfacePlanTrackingParticipantMFT&>().getScratch()), SurfaceTrackingScratch&>);
 static_assert(std::is_same_v<decltype(std::declval<SurfacePlanTrackingParticipantITS&>().getScratch()), SurfaceTrackingScratch&>);
-// The binding type both participants actually adopt (two independent
-// bindings, one per participant).
-static_assert(std::is_invocable_v<decltype(&SurfacePlanTrackingParticipantMFT::adoptSurfacePlanBinding), SurfacePlanTrackingParticipantMFT&, std::unique_ptr<SurfacePlanBinding>>);
-static_assert(std::is_invocable_v<decltype(&SurfacePlanTrackingParticipantITS::adoptSurfacePlanBinding), SurfacePlanTrackingParticipantITS&, std::unique_ptr<SurfacePlanBinding>>);
+static_assert(std::is_invocable_v<decltype(&SurfacePlanTrackingParticipantMFT::initialize), SurfacePlanTrackingParticipantMFT&, TimeFrame&, const TrackerInitialization&>);
+static_assert(std::is_invocable_v<decltype(&SurfacePlanTrackingParticipantITS::initialize), SurfacePlanTrackingParticipantITS&, TimeFrame&, const TrackerInitialization&>);
 // The workflow-owned application plan exposes the concrete participant
 // scratch types directly; no compatibility set is required.
 static_assert(std::is_same_v<decltype(std::declval<const test::CombinedTrackingParticipantPlan&>().getMFTScratch()), const SurfaceTrackingScratch&>);
@@ -375,6 +373,8 @@ BOOST_AUTO_TEST_CASE(ProductionMFTSurfacePlanBindingMatchesConfiguredTopologyAtR
   // The real workflow application composition adopts a plan whose sizing
   // agrees with this direct comparison.
   auto participants = makeSet();
+  TimeFrame frame;
+  participants.adoptFrame(frame);
   BOOST_CHECK_EQUAL(participants.getMFTScratch().getNOwnedSurfaces(), static_cast<size_t>(mftSurfaces.size()));
   BOOST_CHECK_EQUAL(participants.getMFTScratch().getNTransitions(), binding.binding->getGlobalTransitions().size());
   BOOST_CHECK_EQUAL(participants.getMFTScratch().getNCells(), binding.binding->getGlobalCells().size());

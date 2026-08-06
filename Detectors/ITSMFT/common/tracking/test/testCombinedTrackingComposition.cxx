@@ -327,22 +327,15 @@ struct StandaloneRun {
   TimeFrame frame;
   std::vector<TrackingParameters> params;
   std::shared_ptr<BoundedMemoryResource> pool = std::make_shared<BoundedMemoryResource>();
-  SurfacePlanTrackingParticipant<NLayers> participant{ParticipantId{0}, params};
+  SurfacePlanTrackingParticipant<NLayers> participant{ParticipantId{0}, ClusterSourceId{0}};
   SurfaceTrackingScratch& scratch;
   std::vector<SurfaceDescriptor> catalog;
-  std::optional<std::vector<SurfaceGraph>> plan;
   TrackingResult result;
 
   StandaloneRun(o2::detectors::DetID::ID det, SurfaceKind kind,
                 const TrackingParameters& singleParams, const std::vector<DecodedCluster>& decoded)
     : params{singleParams}, scratch(participant.getScratch())
   {
-    frame.setMemoryPool(pool);
-    participant.setMemoryPool(pool);
-    participant.setNThreads(1);
-    participant.adoptFrame(frame);
-    participant.setBz(Bz);
-
     const auto orderedSurfaces = ordered(0, NLayers);
     catalog.reserve(NLayers);
     for (uint16_t i = 0; i < NLayers; ++i) {
@@ -353,20 +346,28 @@ struct StandaloneRun {
       catalog.push_back(surface);
     }
     const SurfaceCatalogView catalogView{catalog.data(), static_cast<uint32_t>(catalog.size())};
-    auto planResult = buildSurfaceGraphs(catalogView, orderedSurfaces, params);
-    BOOST_REQUIRE(planResult.ok());
-    plan.emplace(std::move(planResult.graphs));
-    const auto layoutView = plan->front().getView();
-    scratch.adoptPlan(orderedSurfaces.size(), layoutView.nTransitions, layoutView.nCells);
+    TrackerInitialization configuration;
+    configuration.catalog = catalogView;
+    configuration.memoryPool = pool;
+    TrackerIterationConfiguration iteration;
+    SurfaceGraphSubgraph subgraph;
+    subgraph.orderedSurfaces.assign(orderedSurfaces.begin(), orderedSurfaces.end());
+    subgraph.maxHoles = singleParams.MaxHoles;
+    subgraph.holeSurfaces = positionalSurfaceMask(singleParams.HoleLayerMask, orderedSurfaces, NLayers);
+    subgraph.seedingSurfaces = positionalSurfaceMask(singleParams.StartLayerMask, orderedSurfaces, NLayers);
+    iteration.graphSubgraphs.push_back(std::move(subgraph));
+    iteration.parameters = {singleParams};
     SurfaceMask ownedSurfaces;
     for (const auto surface : orderedSurfaces) {
       ownedSurfaces.set(surface);
     }
-    auto binding = SurfacePlanBinding::build(layoutView, ClusterSourceId{0}, ownedSurfaces, orderedSurfaces,
-                                             kind, kind == SurfaceKind::Cylinder ? TransitionPolicyTag::CylinderCylinder : TransitionPolicyTag::DiskDisk);
-    BOOST_REQUIRE(binding.ok());
-    participant.adoptSurfacePlanBinding(std::make_unique<SurfacePlanBinding>(std::move(*binding.binding)));
-    participant.adoptSurfaceGraphs(*plan);
+    iteration.bindings.push_back(SurfacePlanBinding::Declaration{ClusterSourceId{0}, ownedSurfaces, orderedSurfaces,
+                                                                 kind, kind == SurfaceKind::Cylinder ? TransitionPolicyTag::CylinderCylinder : TransitionPolicyTag::DiskDisk});
+    configuration.iterations.push_back(std::move(iteration));
+    const auto configured = participant.initialize(frame, configuration);
+    BOOST_REQUIRE(configured.ok());
+    participant.setNThreads(1);
+    participant.setBz(Bz);
 
     std::vector<CompClusterExt> compact;
     std::vector<unsigned char> patterns;
@@ -378,8 +379,8 @@ struct StandaloneRun {
     PrescribedDecoder decoder{det, kind, decoded};
     const auto load = scratch.loadNormalizedSource(frame, decoder, o2::InteractionRecord{50, 5}, ROFTimingConfig{40, 0, 0, 0},
                                                    compact, patterns, rofs, &dict(), nullptr, det,
-                                                   gsl::span<const SurfaceId>{plan->front().getOrderedSurfaces()},
-                                                   plan->front().getSurfaceCatalog());
+                                                   gsl::span<const SurfaceId>{frame.getGraph(0).getOrderedSurfaces()},
+                                                   frame.getGraph(0).getSurfaceCatalog());
     BOOST_REQUIRE(load.ok());
 
     o2::its::LayerTiming layerTiming{};
@@ -1051,9 +1052,11 @@ BOOST_AUTO_TEST_CASE(SequentialSuccessfulTFsReplaceStateWithoutStaleAccumulation
 BOOST_AUTO_TEST_CASE(OrderedSurfaceGettersAreAlwaysValidUnlikePublicationExports)
 {
   auto composer = makeComposer(makeItsParams(), makeMftParams());
+  TimeFrame frame;
+  composer.adoptFrame(frame);
 
-  // Valid immediately after construction -- no adoptFrame()/process() call
-  // needed, unlike getITSPublicationExport()/getMFTPublicationExport().
+  // Configuration is installed before ordered-surface access; publication
+  // exports remain unavailable until an event is processed.
   const auto itsSurfacesBefore = composer.getITSOrderedSurfaces();
   const auto mftSurfacesBefore = composer.getMFTOrderedSurfaces();
   BOOST_REQUIRE_EQUAL(itsSurfacesBefore.size(), static_cast<size_t>(ITSNLayers));
@@ -1069,8 +1072,6 @@ BOOST_AUTO_TEST_CASE(OrderedSurfaceGettersAreAlwaysValidUnlikePublicationExports
   MinimalFixture fixture;
   makeRofGap(fixture.mftRofs);
   fixture.mftSource.rofs = fixture.mftRofs;
-  TimeFrame frame;
-  composer.adoptFrame(frame);
   composer.setMemoryPool(std::make_shared<BoundedMemoryResource>());
   composer.setBz(Bz);
   composer.setNThreads(1);

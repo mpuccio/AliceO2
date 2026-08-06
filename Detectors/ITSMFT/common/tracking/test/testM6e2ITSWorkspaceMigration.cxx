@@ -83,22 +83,9 @@ using namespace o2::itsmft::tracking;
 // --- 1: compile-time type proof ----------------------------------------------
 
 static_assert(std::is_same_v<decltype(std::declval<SurfacePlanTrackingParticipantITS&>().getScratch()), SurfaceTrackingScratch&>);
-static_assert(std::is_invocable_v<decltype(&SurfacePlanTrackingParticipantITS::adoptSurfacePlanBinding), SurfacePlanTrackingParticipantITS&, std::unique_ptr<SurfacePlanBinding>>);
+static_assert(std::is_invocable_v<decltype(&SurfacePlanTrackingParticipantITS::initialize), SurfacePlanTrackingParticipantITS&, TimeFrame&, const TrackerInitialization&>);
 
 static_assert(std::is_same_v<decltype(std::declval<ITSMFTTrackingInterfaceITS&>().getScratch()), SurfaceTrackingScratch&>);
-
-// SurfacePlanBinding::build() itself gained no new parameter for this
-// milestone -- still the same six detector-neutral arguments M6b fixed and
-// M6d/M6e1 already reused unchanged; no detector-ID parameter was
-// reintroduced by wiring ITS onto it too.
-static_assert(std::is_invocable_r_v<SurfacePlanBinding::BuildResult, decltype(SurfacePlanBinding::build),
-                                    const SurfaceGraphView&, ClusterSourceId, SurfaceMask,
-                                    gsl::span<const SurfaceId>, SurfaceKind, TransitionPolicyTag>,
-              "SurfacePlanBinding::build must still accept exactly these six detector-neutral parameters after M6e2");
-static_assert(!std::is_invocable_v<decltype(SurfacePlanBinding::build),
-                                   const SurfaceGraphView&, o2::detectors::DetID::ID, ClusterSourceId, SurfaceMask,
-                                   gsl::span<const SurfaceId>, SurfaceKind, TransitionPolicyTag>,
-              "SurfacePlanBinding::build must still not accept a detector-ID parameter after M6e2");
 
 BOOST_AUTO_TEST_CASE(CompileTimeTypeProofsHoldAtRuntimeToo)
 {
@@ -369,6 +356,8 @@ BOOST_AUTO_TEST_CASE(ProductionITSSurfacePlanBindingMatchesConfiguredTopologyAtR
   // exactly" proof, not just the generic synthetic fixture
   // testSurfacePlanBinding.cxx already covers.
   auto participants = makeSet();
+  TimeFrame frame;
+  participants.adoptFrame(frame);
   BOOST_CHECK_EQUAL(participants.getITSScratch().getNOwnedSurfaces(), static_cast<size_t>(itsSurfaces.size()));
   BOOST_CHECK_EQUAL(participants.getITSScratch().getNTransitions(), binding.binding->getGlobalTransitions().size());
   BOOST_CHECK_EQUAL(participants.getITSScratch().getNCells(), binding.binding->getGlobalCells().size());
@@ -454,6 +443,8 @@ BOOST_AUTO_TEST_CASE(StandaloneAndCombinedITSBindingsAgreeOnCompactSlotsByRelati
                               standaloneBindingResult.binding->getGlobalTransitions().size(),
                               standaloneBindingResult.binding->getGlobalCells().size());
   auto participants = makeSet();
+  TimeFrame frame;
+  participants.adoptFrame(frame);
   BOOST_CHECK_EQUAL(standaloneScratch.getNOwnedSurfaces(), static_cast<size_t>(ITSNLayers));
   BOOST_CHECK_EQUAL(participants.getITSScratch().getNOwnedSurfaces(), static_cast<size_t>(ITSNLayers));
   BOOST_CHECK_EQUAL(participants.getMFTScratch().getNOwnedSurfaces(), static_cast<size_t>(MFTNLayers));

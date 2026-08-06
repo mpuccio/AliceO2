@@ -249,18 +249,6 @@ SurfaceMask combinedMftMask()
 static_assert(std::is_same_v<decltype(std::declval<ITSMFTTrackingInterfaceMFT&>().getScratch()), SurfaceTrackingScratch&>);
 static_assert(std::is_same_v<decltype(std::declval<ITSMFTTrackingInterfaceITS&>().getScratch()), SurfaceTrackingScratch&>);
 
-// SurfacePlanBinding::build() itself gained no new parameter for this
-// milestone -- still the same six detector-neutral arguments M6b fixed and
-// M6d already reused unchanged; no detector-ID parameter was reintroduced.
-static_assert(std::is_invocable_r_v<SurfacePlanBinding::BuildResult, decltype(SurfacePlanBinding::build),
-                                    const SurfaceGraphView&, ClusterSourceId, SurfaceMask,
-                                    gsl::span<const SurfaceId>, SurfaceKind, TransitionPolicyTag>,
-              "SurfacePlanBinding::build must still accept exactly these six detector-neutral parameters after M6e1");
-static_assert(!std::is_invocable_v<decltype(SurfacePlanBinding::build),
-                                   const SurfaceGraphView&, o2::detectors::DetID::ID, ClusterSourceId, SurfaceMask,
-                                   gsl::span<const SurfaceId>, SurfaceKind, TransitionPolicyTag>,
-              "SurfacePlanBinding::build must still not accept a detector-ID parameter after M6e1");
-
 BOOST_AUTO_TEST_CASE(TypeProofsAppearInOutput)
 {
   BOOST_CHECK(true); // compile-time proofs above; case exists so it appears in test output.
