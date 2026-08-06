@@ -23,10 +23,6 @@
 namespace o2::itsmft::tracking
 {
 
-Tracker::Tracker(TrackerTraits* traits) : mTraits(traits)
-{
-}
-
 TrackerInitializationResult Tracker::initialize(TimeFrame& frame, const TrackerInitialization& configuration)
 {
   TrackerInitializationResult result;
@@ -106,45 +102,26 @@ TrackerInitializationResult Tracker::initialize(TimeFrame& frame, const TrackerI
     capacities.push_back(std::move(iterationCapacities));
   }
 
-  for (const auto& iterationBindings : bindings) {
-    if (std::none_of(iterationBindings.begin(), iterationBindings.end(), [&](const auto& binding) {
-          return binding && binding->getSource() == mSource;
-        })) {
-      result.error = TrackerInitializationError::BindingCountMismatch;
-      return result;
-    }
-  }
-
   if (!frame.commitConfiguration(std::move(graphs), std::move(parameters), std::move(bindings),
                                  std::move(capacities), configuration.memoryPool)) {
     result.error = TrackerInitializationError::CapacityMismatch;
     return result;
   }
-  adoptFrame(frame);
-  const auto& sourceParameters = frame.getTrackingParameters(mSource);
-  mTraits->updateTrackingParameters(sourceParameters);
   return result;
 }
 
-void Tracker::adoptFrame(TimeFrame& frame)
+TrackingResult Tracker::run(TimeFrame& frame, TrackerTraits& traits)
 {
-  mFrame = &frame;
-  mTraits->adoptFrame(&frame);
-  if (frame.isConfigured()) {
-    mTraits->adoptScratch(&frame.getWorkspace(mSource));
-  }
-}
-
-TrackingResult Tracker::clustersToTracks(TrackingOperationAdapter& operationAdapter)
-{
-  if (mFrame == nullptr || !mFrame->isConfigured() ||
-      mFrame->getNIterations() == 0 || mFrame->getBinding(0, mSource) == nullptr) {
+  if (mOperationAdapter == nullptr || !frame.isConfigured() ||
+      frame.getNIterations() == 0 || frame.getBinding(0, mSource) == nullptr) {
     throw TraversalException{-1, TraversalFailureReason::MissingLayout};
   }
-  auto& scratch = mFrame->getWorkspace(mSource);
-  const auto& trkParams = mFrame->getTrackingParameters(mSource);
-  const auto& memoryPool = mFrame->getMemoryPool();
-  mTraits->updateTrackingParameters(trkParams);
+  auto& scratch = frame.getWorkspace(mSource);
+  const auto trkParams = frame.getTrackingParameters(mSource);
+  const auto& memoryPool = frame.getMemoryPool();
+  traits.adoptFrame(&frame);
+  traits.adoptScratch(&scratch);
+  traits.updateTrackingParameters(trkParams);
 
   int maxNvertices{-1};
   if (trkParams[0].PerPrimaryVertexProcessing) {
@@ -166,12 +143,13 @@ TrackingResult Tracker::clustersToTracks(TrackingOperationAdapter& operationAdap
       }
 
       int iVertex = std::min(maxNvertices, 0);
-      initialiseTimeFrame(iteration);
+      traits.adoptSurfacePlanBinding(frame.getBinding(iteration, mSource));
+      traits.initialiseTimeFrame(iteration, frame.getGraphs());
       do {
-        computeTracklets(iteration, iVertex);
-        computeCells(iteration);
-        findCellsNeighbours(iteration);
-        findRoads(iteration, operationAdapter);
+        traits.computeLayerTracklets(iteration, iVertex);
+        traits.computeLayerCells(iteration);
+        traits.findCellsNeighbours(iteration);
+        traits.findRoads(iteration, *mOperationAdapter);
       } while (++iVertex < maxNvertices);
     }
   } catch (const TraversalException& err) {
@@ -180,15 +158,15 @@ TrackingResult Tracker::clustersToTracks(TrackingOperationAdapter& operationAdap
     // never applies. Always reset before propagating -- see class-level
     // comment: never rely on "the process is going down anyway".
     LOGP(error, "CA tracker hit a structural traversal failure: {}", err.what());
-    operationAdapter.resetAdapterState();
-    mFrame->resetEvent();
+    mOperationAdapter->resetAdapterState();
+    frame.resetEvent();
     throw;
   } catch (const BoundedMemoryResource::MemoryLimitExceeded& err) {
     // Recoverable, per-TF resource failure: the bounded pool's configured
     // budget was exceeded for this TimeFrame's data volume.
     LOGP(error, "CA tracker exceeded memory limit: {}", err.what());
-    operationAdapter.resetAdapterState();
-    mFrame->resetEvent();
+    mOperationAdapter->resetAdapterState();
+    frame.resetEvent();
     if (trkParams[0].DropTFUponFailure) {
       return TrackingResult{TrackingOutcome::RecoverableDropped, 0.f};
     }
@@ -200,8 +178,8 @@ TrackingResult Tracker::clustersToTracks(TrackingOperationAdapter& operationAdap
     // the bounded pool, so genuine memory pressure surfaces here as a plain
     // bad_alloc rather than MemoryLimitExceeded. Handled identically.
     LOGP(error, "CA tracker allocation failed: {}", err.what());
-    operationAdapter.resetAdapterState();
-    mFrame->resetEvent();
+    mOperationAdapter->resetAdapterState();
+    frame.resetEvent();
     if (trkParams[0].DropTFUponFailure) {
       return TrackingResult{TrackingOutcome::RecoverableDropped, 0.f};
     }
@@ -213,8 +191,8 @@ TrackingResult Tracker::clustersToTracks(TrackingOperationAdapter& operationAdap
     // RecoverableTimeFrameException may extend the recoverable set; until
     // then, recoverability is never inferred from std::exception alone.
     LOGP(error, "CA tracker failed with an unclassified exception; treating as structural: {}", err.what());
-    operationAdapter.resetAdapterState();
-    mFrame->resetEvent();
+    mOperationAdapter->resetAdapterState();
+    frame.resetEvent();
     throw;
   }
 

@@ -16,13 +16,10 @@
 ///        ITSCAWorkflow, MFTWorkflow, or either frozen legacy reco workflow
 ///        (see this directory's CMakeLists.txt).
 ///
-/// M6g: this DPL task is the application owner of the shared TimeFrame, the
-/// two concrete plan-driven participants, their combined application plan,
-/// the event publication context, and the TrackingEngine. The common tracking
-/// library contains no ITS+MFT coordinator or event-loop state. run()'s own
-/// trackFrame() composes, in order: the workflow-owned source inputs,
-/// MultiSourceTimeFrameLoader::load(), TrackingEngine::executeEvent(),
-/// and publication staging.
+/// This DPL task owns the shared TimeFrame, the two non-owning Tracker
+/// components, their application configuration, and the event publication
+/// context. trackFrame() composes the workflow-owned source inputs,
+/// MultiSourceTimeFrameLoader::load(), Tracker::run(), and publication.
 
 #ifndef ALICEO2_ITSMFT_COMBINEDCAWORKFLOW_COMBINEDCATRACKERSPEC_H_
 #define ALICEO2_ITSMFT_COMBINEDCAWORKFLOW_COMBINEDCATRACKERSPEC_H_
@@ -48,24 +45,24 @@
 #include "ITSMFTTracking/ITSSharedClusterCompatibility.h"
 #include "ITSMFTTracking/MFTPublicationCompatibility.h"
 #include "ITSMFTTracking/MultiSourceTimeFrameLoader.h"
-#include "ITSMFTTracking/SurfacePlanTrackingParticipant.h"
+#include "ITSMFTTracking/Tracker.h"
+#include "ITSMFTTracking/TrackerTraits.h"
 #include "ITSMFTTracking/TimeFrame.h"
-#include "ITSMFTTracking/TrackingEngine.h"
+#include "ITSMFTTracking/TrackingOperationAdapter.h"
 #include "ITSMFTTracking/TrackingInterface.h"
-#include "ITSMFTTracking/TrackingParticipant.h"
 #include "ITStracking/ROFLookupTables.h"
 
 namespace o2::itsmft::combined
 {
 
 /// Combined ITS+MFT opt-in common-CA tracker DPL task. Owns the one shared
-/// TimeFrame, both concrete plan-driven participants, the combined application
-/// plan, the event publication context, and the one TrackingEngine; delegates
+/// TimeFrame, the two Tracker components, the combined application plan, and
+/// the event publication context; delegates
 /// all CommonTrack->detector-track output staging to
-/// CommonTrackOutputAdapter.h. ITS/MFT source-position, schedule, failure-
+/// CommonTrackOutputAdapter.h. ITS/MFT source-position, invocation order, failure-
 /// classification, and publication state live here in this workflow task --
-/// never inside TrackingEngine/TrackingParticipant/TimeFrame/
-/// MultiSourceTimeFrameLoader, which stay detector-neutral.
+/// never inside Tracker/TimeFrame/MultiSourceTimeFrameLoader, which stay
+/// detector-neutral.
 class CombinedCATrackerDPL : public o2::framework::Task
 {
  public:
@@ -91,11 +88,9 @@ class CombinedCATrackerDPL : public o2::framework::Task
   // workflow-owned publication/timing state invalidated. A successful return
   // leaves the two participant sidecars and publication exports populated for
   // run() to stage.
-  o2::itsmft::tracking::ParticipantOutcome trackFrame(const o2::itsmft::tracking::ClusterSourceInput& itsSource,
-                                                      const o2::itsmft::tracking::ClusterSourceInput& mftSource,
-                                                      const o2::InteractionRecord& origin);
-
-  gsl::span<o2::itsmft::tracking::TrackingParticipant* const> schedule() noexcept { return mSchedule; }
+  o2::itsmft::tracking::TrackingOutcome trackFrame(const o2::itsmft::tracking::ClusterSourceInput& itsSource,
+                                                   const o2::itsmft::tracking::ClusterSourceInput& mftSource,
+                                                   const o2::InteractionRecord& origin);
   std::optional<o2::itsmft::tracking::LoadSourcesResult> validateSources(
     const o2::itsmft::tracking::ClusterSourceInput& itsSource,
     const o2::itsmft::tracking::ClusterSourceInput& mftSource) const noexcept;
@@ -110,8 +105,8 @@ class CombinedCATrackerDPL : public o2::framework::Task
   std::optional<o2::itsmft::tracking::CommonTrackPublicationExport> getITSPublicationExport() const;
   std::optional<o2::itsmft::tracking::CommonTrackPublicationExport> getMFTPublicationExport() const;
 
-  const o2::itsmft::tracking::SurfaceTrackingScratch& getITSScratch() const noexcept { return mITSParticipant->getScratch(); }
-  const o2::itsmft::tracking::SurfaceTrackingScratch& getMFTScratch() const noexcept { return mMFTParticipant->getScratch(); }
+  const o2::itsmft::tracking::SurfaceTrackingScratch& getITSScratch() const noexcept { return mFrame.getWorkspace(o2::itsmft::tracking::ClusterSourceId{0}); }
+  const o2::itsmft::tracking::SurfaceTrackingScratch& getMFTScratch() const noexcept { return mFrame.getWorkspace(o2::itsmft::tracking::ClusterSourceId{1}); }
   const o2::itsmft::tracking::ITSSharedClusterCompatibility& getITSSharedClusterCompatibility() const noexcept
   {
     return mITSCompatibility;
@@ -122,11 +117,13 @@ class CombinedCATrackerDPL : public o2::framework::Task
   }
   gsl::span<const o2::itsmft::tracking::SurfaceId> getITSOrderedSurfaces() const noexcept
   {
-    return mITSParticipant->ownedSurfaces();
+    const auto* binding = mFrame.getBinding(0, o2::itsmft::tracking::ClusterSourceId{0});
+    return binding == nullptr ? gsl::span<const o2::itsmft::tracking::SurfaceId>{} : binding->getOrderedSurfaces();
   }
   gsl::span<const o2::itsmft::tracking::SurfaceId> getMFTOrderedSurfaces() const noexcept
   {
-    return mMFTParticipant->ownedSurfaces();
+    const auto* binding = mFrame.getBinding(0, o2::itsmft::tracking::ClusterSourceId{1});
+    return binding == nullptr ? gsl::span<const o2::itsmft::tracking::SurfaceId>{} : binding->getOrderedSurfaces();
   }
 
   std::shared_ptr<o2::base::GRPGeomRequest> mGGCCDBRequest;
@@ -138,8 +135,12 @@ class CombinedCATrackerDPL : public o2::framework::Task
   std::unique_ptr<o2::itsmft::tracking::ClusterDecoder> mITSDecoder;
   std::unique_ptr<o2::itsmft::tracking::ClusterDecoder> mMFTDecoder;
   o2::itsmft::tracking::TimeFrame mFrame;
-  std::unique_ptr<o2::itsmft::tracking::SurfacePlanTrackingParticipantITS> mITSParticipant;
-  std::unique_ptr<o2::itsmft::tracking::SurfacePlanTrackingParticipantMFT> mMFTParticipant;
+  std::unique_ptr<o2::itsmft::tracking::Tracker> mITSTracker;
+  std::unique_ptr<o2::itsmft::tracking::Tracker> mMFTTracker;
+  std::unique_ptr<o2::itsmft::tracking::TrackerTraits> mITSTraits;
+  std::unique_ptr<o2::itsmft::tracking::TrackerTraits> mMFTTraits;
+  std::unique_ptr<o2::itsmft::tracking::TrackingOperationAdapter> mITSOperationAdapter;
+  std::unique_ptr<o2::itsmft::tracking::TrackingOperationAdapter> mMFTOperationAdapter;
   o2::itsmft::tracking::DetectorPublicationAdapter<o2::itsmft::tracking::ITSNLayers> mITSPublicationAdapter;
   o2::itsmft::tracking::DetectorPublicationAdapter<o2::itsmft::tracking::MFTNLayers> mMFTPublicationAdapter;
   o2::itsmft::tracking::ITSSharedClusterCompatibility mITSCompatibility;
@@ -152,11 +153,9 @@ class CombinedCATrackerDPL : public o2::framework::Task
   o2::its::ROFVertexLookupTable<o2::itsmft::tracking::MFTNLayers> mMFTROFVertexLookupTable;
   o2::its::ROFMaskTable<o2::itsmft::tracking::MFTNLayers> mMFTMultiplicityMask;
   o2::its::ROFMaskTable<o2::itsmft::tracking::MFTNLayers> mMFTUPCMask;
-  std::array<o2::itsmft::tracking::TrackingParticipant*, 2> mSchedule{};
   std::optional<o2::itsmft::tracking::ClockTimingPublicationView> mITSClock;
   std::optional<o2::itsmft::tracking::ClockTimingPublicationView> mMFTClock;
   bool mPublicationValid = false;
-  o2::itsmft::tracking::TrackingEngine mEngine;
 };
 
 /// useGeom is deliberately not a parameter: clusters entering this tracker

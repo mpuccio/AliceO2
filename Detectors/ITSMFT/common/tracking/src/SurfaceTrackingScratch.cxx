@@ -298,8 +298,8 @@ void SurfaceTrackingScratch::swap(SurfaceTrackingScratch& other) noexcept
 }
 
 // ---------------------------------------------------------------------------
-// M6d: the remaining accessor surface TrackerTraits/Tracker/
-// SurfacePlanTrackingParticipant needs, ported mechanically from the former
+// M6d: the remaining accessor surface TrackerTraits/Tracker needs, ported
+// mechanically from the former
 // fixed-layer scratch with
 // with every NLayers-bound array index replaced by the equivalent runtime
 // vector index -- no algorithm/formula change anywhere in this section.

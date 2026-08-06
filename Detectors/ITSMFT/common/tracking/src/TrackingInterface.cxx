@@ -171,7 +171,7 @@ void ITSMFTTrackingInterface<NLayers>::initialiseTracker(const std::vector<o2::i
     nThreads = o2::itsmft::tracking::TrackerParamRef<DetId>::get().nThreads;
   }
   mTrackerTraits->setNThreads(nThreads, taskArena);
-  mTracker = std::make_unique<Tracker>(mTrackerTraits.get());
+  mTracker = std::make_unique<Tracker>(static_cast<TrackingOperationAdapter*>(this), ClusterSourceId{0});
   static constexpr auto kOrderedSurfaces = identitySurfaceOrder<NLayers>();
   TrackerInitialization configuration;
   std::shared_ptr<BoundedMemoryResourceN> memoryPool;
@@ -207,7 +207,6 @@ void ITSMFTTrackingInterface<NLayers>::initialiseTracker(const std::vector<o2::i
                                                                  expectedKind, expectedPolicy});
     configuration.iterations.push_back(std::move(iteration));
   }
-  mTracker->setSource(ClusterSourceId{0});
   const auto result = mTracker->initialize(mFrame, configuration);
   if (!result.ok()) {
     LOGP(fatal, "{} CA tracker failed to initialize static configuration (error={} iteration={} graph={} binding={})",
@@ -257,7 +256,7 @@ float ITSMFTTrackingInterface<NLayers>::processTimeFrame(gsl::span<const o2::its
   } catch (const BoundedMemoryResourceN::MemoryLimitExceeded& err) {
     // Recoverable, per-TF resource failure during loading -- same
     // classification/gating as the identical catch clause in
-    // Tracker::clustersToTracks() (Tracker.cxx).
+    // Tracker::run() (Tracker.cxx).
     LOGP(error, "{} CA loading exceeded memory limit: {}", detName<DetId>(), err.what());
     resetEvent();
     if (mFrame.getTrackingParameters()[0].DropTFUponFailure) {
@@ -360,16 +359,15 @@ float ITSMFTTrackingInterface<NLayers>::runTracking()
   if (!mTracker || !mFrame.isConfigured() || mFrame.getTrackingParameters().empty()) {
     return 0.f;
   }
-  mTracker->setBz(mFrame.getBz());
-  // Gate 4 C2 Slice 2: clustersToTracks() now returns a typed TrackingResult
+  // Gate 4 C2 Slice 2: run() now returns a typed TrackingResult
   // instead of a float+sentinel; this is the sole place that maps it back to
   // this interface's own external float/kDroppedTimeFrameResult contract
   // (still consumed by CATrackerSpec.cxx/its MFT counterpart via
   // isDroppedTimeFrame()). A structural or non-dropped-recoverable failure
-  // still propagates as a thrown exception straight out of clustersToTracks()
+  // still propagates as a thrown exception straight out of Tracker::run()
   // -- unchanged, never caught here -- so the only outcome this mapping ever
   // observes is Success or RecoverableDropped.
-  const auto result = mTracker->clustersToTracks(*this);
+  const auto result = mTracker->run(mFrame, *mTrackerTraits);
   if (result.outcome == TrackingOutcome::RecoverableDropped) {
     LOGP(warn, "{} CA tracking failed for this TF", detName<DetId>());
     return kDroppedTimeFrameResult;

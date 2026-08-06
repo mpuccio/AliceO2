@@ -35,14 +35,10 @@
 namespace o2::itsmft::tracking
 {
 
-/// Gate 4 C2 Slice 2: the typed outcome Tracker::clustersToTracks()
-/// returns in place of the old float+sentinel compatibility contract
-/// (kDroppedTimeFrameResult/isDroppedTimeFrame below, retained only because
-/// ITSMFTTrackingInterface/CATrackerSpec.cxx still externally consume that
-/// exact float contract -- see TrackingInterface.cxx::runTracking(), the
-/// sole place that now translates between the two).
+/// Tracker::run() returns a typed outcome while the standalone interface keeps
+/// its existing float publication contract at the adapter edge.
 ///
-/// clustersToTracks() itself only ever *returns* Success or
+/// run() itself only ever *returns* Success or
 /// RecoverableDropped: a recoverable, per-TF resource failure
 /// (BoundedMemoryResource::MemoryLimitExceeded, std::bad_alloc) with
 /// DropTFUponFailure=true. Every other failure -- structural/configuration
@@ -50,22 +46,20 @@ namespace o2::itsmft::tracking
 /// TraversalBindingMismatch), unclassified (any other std::exception), or a
 /// recoverable failure with DropTFUponFailure=false -- retains its existing,
 /// already-tested contract of propagating as a thrown C++ exception past
-/// clustersToTracks()'s own boundary; this is deliberate ("retain exceptions
+/// run()'s own boundary; this is deliberate ("retain exceptions
 /// where that is the established contract"), not an oversight: reusing the
 /// existing exception-based classification means a mismatched/invalid
 /// binding can never be silently reclassified as a dropped, recoverable
 /// result merely because DropTFUponFailure happens to be true. Structural is
-/// part of this enum's vocabulary -- a future combined coordinator that
-/// wraps clustersToTracks() in its own try/catch is expected to construct it
-/// from the caught exception -- but no code in this slice constructs it via
-/// a normal return.
+/// part of this enum's vocabulary; workflow/adapter callers convert propagated
+/// failures at their own boundary.
 enum class TrackingOutcome : uint8_t {
   Success,
   RecoverableDropped,
   Structural
 };
 
-/// clustersToTracks()'s complete return value on every path it does not
+/// run()'s complete return value on every path it does not
 /// throw past its own boundary. `elapsedMs` is only meaningful when
 /// `outcome == Success` (0.f otherwise, matching the old sentinel's implicit
 /// contract of never being read on a drop).
@@ -128,15 +122,17 @@ inline bool isDroppedTimeFrame(float result) noexcept
 class Tracker
 {
  public:
-  explicit Tracker(TrackerTraits* traits);
+  explicit Tracker(TrackingOperationAdapter* operationAdapter = nullptr, ClusterSourceId source = {})
+    : mOperationAdapter(operationAdapter), mSource(source)
+  {
+  }
 
   TrackerInitializationResult initialize(TimeFrame& frame, const TrackerInitialization& configuration);
 
-  // Binds the non-owning kernel seam to the frame-owned workspace.
-  void adoptFrame(TimeFrame& frame);
+  // The workflow/application owns this adapter and keeps it alive for every
+  // run. Tracker stores no frame, graph, workspace, or event state.
+  void setOperationAdapter(TrackingOperationAdapter* operationAdapter) noexcept { mOperationAdapter = operationAdapter; }
   void setSource(ClusterSourceId source) noexcept { mSource = source; }
-  void setBz(float bz) { mTraits->setBz(bz); }
-  void setNThreads(int n, std::shared_ptr<tbb::task_arena>& arena) { mTraits->setNThreads(n, arena); }
 
   /// Run all configured iterations. Returns {Success, elapsed ms} on
   /// success, or {RecoverableDropped, 0.f} when a recoverable per-TF failure
@@ -146,23 +142,10 @@ class Tracker
   /// with DropTFUponFailure=false, throws instead of returning -- see
   /// TrackingOutcome's own doc for why this is deliberate -- the event is
   /// always fully reset before the exception propagates.
-  TrackingResult clustersToTracks(TrackingOperationAdapter& operationAdapter);
-
-  const SurfaceTrackingScratch& getScratch() const { return mFrame->getWorkspace(mSource); }
-  SurfaceTrackingScratch& getScratch() { return mFrame->getWorkspace(mSource); }
+  TrackingResult run(TimeFrame& frame, TrackerTraits& traits);
 
  private:
-  void initialiseTimeFrame(int iteration)
-  {
-    mTraits->adoptSurfacePlanBinding(mFrame->getBinding(iteration, mSource));
-    mTraits->initialiseTimeFrame(iteration, mFrame->getGraphs());
-  }
-  void computeTracklets(int iteration, int iVertex) { mTraits->computeLayerTracklets(iteration, iVertex); }
-  void computeCells(int iteration) { mTraits->computeLayerCells(iteration); }
-  void findCellsNeighbours(int iteration) { mTraits->findCellsNeighbours(iteration); }
-  void findRoads(int iteration, TrackingOperationAdapter& operationAdapter) { mTraits->findRoads(iteration, operationAdapter); }
-  TrackerTraits* mTraits = nullptr;
-  TimeFrame* mFrame = nullptr;
+  TrackingOperationAdapter* mOperationAdapter = nullptr;
   ClusterSourceId mSource{};
 };
 } // namespace o2::itsmft::tracking

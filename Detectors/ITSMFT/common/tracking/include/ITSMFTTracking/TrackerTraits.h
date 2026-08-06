@@ -155,7 +155,7 @@ class TrackerTraits
   virtual void adoptScratch(SurfaceTrackingScratch* scratch) { mScratch = scratch; }
   virtual void adoptFrame(TimeFrame* frame) { mFrame = frame; }
   // M6f: bind the one SurfacePlanBinding used by the common-CA hot loops.
-  // `binding` must outlive every subsequent clustersToTracks() call and is
+  // `binding` must outlive every subsequent Tracker::run() call and is
   // never owned or copied. Direct algorithm tests may omit it when their
   // topology is already identity-indexed; production adapters always adopt
   // the binding built for the same graph iteration. A non-identity
