@@ -48,17 +48,34 @@ residue:
 - a future common GPU traits implementation must be able to replace the CPU
   traits without replacing the orchestration.
 
+The next follow-up also corrects graph/workspace ownership. `Tracker` should
+not become a new aggregate root merely because engine/interface wrappers are
+deleted. `TimeFrame` is the reusable tracking entity. It owns persistent
+tracking configuration and allocator-backed state together with current-event
+measurements/results; `Loader` and `Tracker` are components that act on a
+borrowed `TimeFrame&`. `TrackerTraits` supplies the borrowed architecture
+backend used by `Tracker`.
+
+This recommendation depends on an observed lifecycle fact, not on the name
+alone: standalone `TrackingInterface` and the combined DPL task each retain a
+`TimeFrame` member across `run()` calls. Therefore graph/configuration can be
+installed once and preserved while an event reset clears only measurements,
+workspace contents, and results. If an implementation instead reconstructed
+or recopied the graph for every event, it would fail this ownership target;
+that would be a regression, not an alternative interpretation of the design.
+
 The intended end state does not need a new wrapper or manager. It should:
 
 1. delete demonstrably dead typed/refit and forwarding residue;
-2. make the existing loader directly target `SurfaceTrackingScratch` and
-   remove fixed ITS+MFT wrapper entry points;
-3. give `Tracker` one fully constructed immutable
-   `std::vector<SurfaceGraph>` and one selected traits backend, avoiding
-   today's partially initialized setter sequence;
+2. make the existing loader directly target `TimeFrame` and remove fixed
+   ITS+MFT wrapper entry points and public scratch-target plumbing;
+3. give `TimeFrame` one fully constructed immutable
+   `std::vector<SurfaceGraph>`, parameters, partitions, allocator-backed
+   workspaces, normalized input, and generic results;
 4. move generic tracking execution and failure orchestration from
-   `TrackingEngine`/`TrackingInterface` into that one `Tracker` contract,
-   while leaving raw-ROF and publication lifecycle in the DPL owner;
+   `TrackingEngine`/`TrackingInterface` into `Tracker`, which borrows the
+   configured `TimeFrame` and a selected traits backend, while leaving raw-ROF
+   and publication lifecycle in the DPL owner;
 5. delete `TrackingEngine`, `TrackingInterface`, and the participant
    coordinator vocabulary once `Tracker` directly consumes the explicit
    graph partitions/schedule;
@@ -73,7 +90,7 @@ interface is a standalone composition and lifecycle holder. Their useful
 tracking responsibilities belong in `Tracker`, but workflow responsibilities
 do not: raw input ownership, timing construction, publication validity, and
 writer adaptation remain at the DPL edge. `TrackerTraits` remains distinct as
-the kernel backend.
+the kernel backend. Neither Loader nor Tracker owns `TimeFrame` data.
 
 The follow-up initialization audit also found a real model simplification
 opportunity. `DetectorLayout` owns only a `SparseTrackingTopology`,
@@ -104,9 +121,9 @@ Recommendations preserve these invariants:
   DPL/workflow/writer type, or typed detector output;
 - `TransitionPolicyTag` stays a private compatibility implementation detail;
 - `StateFamily` remains representation metadata, never schedule or topology;
-- the future `SurfaceGraphView` (today `DetectorLayoutView`), sparse topology,
-  `SurfacePlanBinding`, and
-  `SurfaceTrackingScratch` remain the runtime authorities;
+- the future `SurfaceGraphView` (today `DetectorLayoutView`), graph
+  partitions, and TimeFrame-internal workspace remain the runtime
+  authorities;
 - raw ROFs and publication lifecycle remain workflow-owned;
 - fixed capacities remain only where device-safe value representation needs
   them;
@@ -178,20 +195,25 @@ whole-event state before the engine applies its all-or-nothing policy.
 DPL task (standalone or combined)
   owns raw ROFs, timing construction, publication validity and event policy
   |
-  +-- atomic loader -> TimeFrame + graph-partition workspaces
-  +-- Tracker
-        owns one immutable vector of iteration graphs + partition order
-        borrows one CPU/GPU TrackerTraits backend
+  +-- TimeFrame entity
+  |     owns vector<SurfaceGraph> + per-iteration partitions/parameters
+  |     owns allocator-backed workspaces
+  |     owns normalized measurements + CommonTrack results
+  |
+  +-- Loader::load(TimeFrame&, normalized source inputs/views)
+  |
+  +-- Tracker::run(TimeFrame&, TrackerTraits&)
         orchestrates initialise -> tracklets -> cells -> neighbours -> roads
-        owns generic tracking success/failure/reset transaction
+        sequences the generic tracking transaction
+        invokes TimeFrame's event reset on tracking failure
         |
         +-- application publication adapter consumes successful generic result
 ```
 
-Only the number of graph partitions differs between standalone and combined.
-A standalone task supplies one; combined ITS+MFT supplies two explicit,
-source-qualified partitions of one graph vector. Neither needs an engine,
-participant coordinator, interface, or float sentinel around `Tracker`.
+Only the number of graph partitions stored by `TimeFrame` differs between
+standalone and combined. A standalone frame has one; combined ITS+MFT has two
+explicit source-qualified partitions. Neither needs an engine, participant
+coordinator, interface, or float sentinel around `Tracker`.
 
 This does not pull workflow ownership into `Tracker`. Raw compact clusters,
 raw ROFs, CCDB-derived timing construction, publication clocks/validity,
@@ -220,19 +242,22 @@ Standalone DPL task --------> TrackingInterface<7/10>
 
 Target:
 
-Standalone/combined DPL task -> MultiSourceTimeFrameLoader
-       |                                  |
-       |                                  v
-       +-------------------------------> TimeFrame / workspaces
+Standalone/combined DPL task
        |
-       +--> Tracker --------------------> immutable vector<SurfaceGraph>
-              |
-              +--> TrackerTraitsCPU or TrackerTraitsGPU kernel backend
-              +--> ordered graph partitions and generic event transaction
+       +--> TimeFrame
+       |      owns vector<SurfaceGraph>, partitions, parameters, pool,
+       |      workspaces, normalized event data, and CommonTrack results
+       |
+       +--> MultiSourceTimeFrameLoader::load(TimeFrame&, inputs)
+       |
+       +--> Tracker::run(TimeFrame&, TrackerTraits&)
+              +--> CPU or GPU kernel backend
+              +--> graph/partition order read from TimeFrame
+              +--> generic event transaction over borrowed frame state
               +--successful result--> application publication adapter
 
-TimeFrame <----- normalized measurements and CommonTrack results
-SurfacePlanBinding <----- immutable plan/source/compact-slot mapping
+TimeFrame <----- normalized measurements, CommonTrack results, and
+                TimeFrame-owned graph partitions/bindings
 ROFViews <----- borrowed by core; built and owned at adapter edge
 TrackingOperationAdapter <----- refit + accepted compatibility + reset seam
 ```
@@ -248,18 +273,18 @@ sidecar-owner mixins, and the public detector-specialized
 | Module | Actual single responsibility and data relationship | Classification | Duplication and disposition | Risk |
 |---|---|---|---|---|
 | `Tracker.h` | Currently a forwarding include for `CATracker.h`, despite `Tracker` being the intended public class name. | Canonical API name obscured by residue | Move the actual declaration here, then delete the forwarding relationship. | Behavior-preserving header migration; compile all public-header users. |
-| `CATracker.h` / `Tracker` | Target-independent orchestrator for configured iterations and CA stages. Borrows a selected traits backend and event data; currently borrows one binding/layout/scratch and owns parameter copies/pool handle. | Generic core orchestrator in a stale file name | Keep and strengthen the class role, but move it to canonical `Tracker.{h,cxx}` and delete `CATracker.{h,cxx}` names. It should consume the immutable graph vector and explicit per-iteration partition order, then subsume generic engine/interface behavior without absorbing raw-ROF or publication ownership. | Construction, reset, and multi-partition migration are exception/order-sensitive and need full failure/replay gates. |
+| `CATracker.h` / `Tracker` | Target-independent orchestrator for configured iterations and CA stages. It currently borrows traits/frame/scratch/layout but also owns parameter and pool handles. | Generic core component in a stale file name | Move it to canonical `Tracker.{h,cxx}` and make it act on `TimeFrame&` plus `TrackerTraits&`. Parameters, graphs, partitions, pool, workspace, and event data move to TimeFrame; Tracker retains no persistent tracking entity. | Reset and multi-partition migration are exception/order-sensitive and need full failure/replay gates. |
 | `TrackerTraits` | CPU kernel implementation and architecture strategy seam for initialisation, tracklets, cells, neighbours, roads, and associated backend caches. Its virtual API mirrors the live frozen ITS `TrackerTraitsGPU` override pattern. | Generic kernel backend | Keep distinct from `Tracker`. Make the CPU/GPU substitution contract explicit; do not merge kernels into the orchestrator. Reduce only non-kernel compatibility state. | A future common GPU port requires real device ABI/build validation; CPU behavior remains replay-gated. |
-| `TrackingEngine` | Executes an explicit participant schedule and repeats whole-event reset policy around participant-owned trackers. It owns no data or kernel behavior. | Migration-era orchestration layer | Retire after `Tracker` accepts the explicit graph-partition order and owns the generic tracking transaction. Do not rename it or move DPL concerns into Tracker. | Combined ordering, failure classification, all-or-nothing reset, and output isolation must be pinned before deletion. |
+| `TrackingEngine` | Executes an explicit participant schedule and repeats whole-event reset policy around participant-owned trackers. It owns no data or kernel behavior. | Migration-era orchestration layer | Retire after `Tracker` reads the explicit graph-partition order from TimeFrame and applies the generic transaction. Do not rename it or move DPL concerns into Tracker. | Combined ordering, failure classification, all-or-nothing reset, and output isolation must be pinned before deletion. |
 | `TrackingParticipant` | Dynamic wrapper around one plan-bound tracker composition: identity, surfaces, track/reset/export. | Migration-era application seam | Retire with the engine once partitions are immutable plan data consumed directly by `Tracker`. Preserve source-qualified partition order as data, not polymorphic coordinator objects. | Combined heterogeneous schedule and future-backend tests; avoid closing the plan over ITS/MFT types. |
-| `TrackingInterface<7/10>` | Standalone application composition and event coordinator. Owns frame, scratch, tracker, plan/binding, decoder, ROF state, clocks, sidecars, and publication adapters. | Application adapter plus compatibility residue | Delete. Move generic configuration/run/failure responsibilities into `Tracker`; move raw loading/timing/publication responsibilities outward to the workflow. Do not recreate an interface facade. | High lifecycle/output compatibility risk; stage under standalone and combined replay gates. |
-| `SurfacePlanTrackingParticipant<7/10>` | Combined plan-bound leg. Owns scratch/binding/tracker composition, fixed ROF compatibility tables, load target, sidecars, and tracked flag; borrows plan/frame. | Migration-era application wrapper | Delete after its immutable source/order/binding data is consumed by `Tracker` and timing/publication ownership moves to workflows. It need not become a non-templated permanent participant. | Bounded adapter migration; exact schedule, writer, and sidecar replay required. |
+| `TrackingInterface<7/10>` | Standalone application composition and event coordinator. Owns frame, scratch, tracker, plan/binding, decoder, ROF state, clocks, sidecars, and publication adapters. | Application adapter plus compatibility residue | Delete. Move generic configuration/state/reset mechanics into `TimeFrame`, orchestration into `Tracker`, and raw loading/timing/publication responsibilities outward to the workflow. Do not recreate an interface facade. | High lifecycle/output compatibility risk; stage under standalone and combined replay gates. |
+| `SurfacePlanTrackingParticipant<7/10>` | Combined plan-bound leg. Owns scratch/binding/tracker composition, fixed ROF compatibility tables, load target, sidecars, and tracked flag; borrows plan/frame. | Migration-era application wrapper | Delete after graph/partition/workspace data moves into TimeFrame and timing/publication ownership moves to workflows. It need not become a non-templated permanent participant. | Bounded adapter migration; exact schedule, writer, and sidecar replay required. |
 | `TrackingOperationAdapter` | Supplies seed refit, accepted-result completion, and adapter reset. It borrows generic candidate/scratch/measurement views. | Mixed core/adapter seam | Three responsibilities. Narrow to the one operation the algorithm needs (refit); run publication conversion/reset after generic success at participant/workflow edge. Delete if refit can be directly owned without detector dispatch. | Call order and rejection classification are physics-sensitive; preserve exact boundaries. |
 | `DetectorPublicationAdapter<7/10>` | Specializes accepted-result publication compatibility for ITS shared-cluster flags and MFT sidecars. | Detector application adapter | Responsibility is real but location/visibility is wrong. Move to ITS/MFT application code and give each workflow direct ownership. No generic dispatcher. | Writer/sidecar compatibility gate. |
-| `TimeFrame` | Owns normalized multi-source event data, vertices/labels, beam/Bz, and generic `CommonTrack` results. | Generic event data owner | Keep distinct from scratch. Audit and remove inert device-propagator virtual hook separately. | Public ABI/device tests for hook removal. |
-| `SurfaceTrackingScratch` | Owns runtime-sized mutable CA workspace and per-source legacy-compatible measurement backfill. Borrows allocator/pool. | Generic participant workspace | Keep distinct from `TimeFrame`. Delete dead `mPValphaX`; collapse `resetScratch()` alias; make binding mandatory before removing fallback mappings. | Allocator identity, reset, and sparse-plan tests. |
-| `SurfacePlanBinding` | Immutable source-qualified projection from a global topology to one graph partition's ordered surfaces and compact transition/cell slots. | Generic graph-partition data | Keep the information, not necessarily the class/name. Bindings must be per graph iteration when topology differs; current construction from iteration 0 is not a general plan contract. Prefer `SurfaceGraphBinding` or direct partition data owned by the plan. | Sparse/non-identity and multi-iteration topology tests are mandatory. |
-| `MultiSourceTimeFrameLoader` | Provides atomic normalized-frame plus scratch-backfill staging/commit. | Generic load transaction | Keep transaction, remove virtual `LoadTarget` hierarchy and fixed `loadITSAndMFT`/reset wrappers. Bind source directly to scratch. | Atomicity/allocator/failure-retry tests and combined replay. |
+| `TimeFrame` | Reusable tracking entity. It currently owns normalized multi-source event data, vertices/labels, beam/Bz, pool, and generic results while scratch/graphs/parameters are owned elsewhere. | Generic aggregate root | Expand intentionally to own immutable graph vector, per-iteration parameters/partitions, allocator-backed workspaces, normalized inputs, and generic outputs. One reset primitive clears event state but preserves configuration/capacity. | Broad ownership migration; allocator, reset, CPU/GPU, and replay gates. |
+| `SurfaceTrackingScratch` | Owns runtime-sized mutable CA workspace and per-source legacy-compatible measurement backfill. Borrows allocator/pool. | Split state container created for participant composition | Move its storage behind TimeFrame, either merged directly or retained as a private partition-workspace implementation detail. It should not remain a separately configured public entity. | Allocator identity, reset, atomic load, and sparse-plan tests. |
+| `SurfacePlanBinding` | Immutable source-qualified projection from a global topology to one graph partition's ordered surfaces and compact transition/cell slots. | Generic graph-partition data | Keep the information, not necessarily the class/name. Make it per iteration and TimeFrame-owned; prefer `SurfaceGraphPartition` or `SurfaceGraphBinding`. | Sparse/non-identity and multi-iteration topology tests are mandatory. |
+| `MultiSourceTimeFrameLoader` | Provides atomic normalized-frame plus scratch-backfill staging/commit. | Generic component acting on TimeFrame | Keep the transaction, remove virtual scratch-target hierarchy and fixed wrappers, and expose a direct `load(TimeFrame&, inputs)` boundary. | Atomicity/allocator/failure-retry tests and combined replay. |
 | `ROFViews` | Defines non-owning runtime timing, overlap, vertex-lookup, and mask views consumed by common tracking. | Generic runtime input view | Keep. Fixed detector tables belong at adapter/workflow edge and should not migrate into scratch/frame. | Timing/diamond/mask parity tests. |
 
 ## 6. Duplicate lifecycle and representation findings
@@ -269,10 +294,10 @@ sidecar-owner mixins, and the public detector-specialized
 `TrackingInterface` and `SurfacePlanTrackingParticipant` each build the same
 `TrackerTraits`/`Tracker`/scratch/binding/pool composition. Both also select
 ITS/MFT fixed timing tables and publication compatibility through `NLayers`.
-The single composition should become `Tracker` plus its selected
-`TrackerTraits` backend, configured by one immutable vector of iteration
-graphs and explicit per-iteration partition data. Adapter-owned
-timing/publication objects stay outside.
+The single state composition should become `TimeFrame`, configured with one
+immutable vector of iteration graphs, parameters, partitions, allocator, and
+workspaces. `Loader` and `Tracker` act on it; `TrackerTraits` supplies the
+selected backend. Adapter-owned timing/publication objects stay outside.
 
 The follow-up found duplicate runtime topology ownership in the combined
 path. `buildCombinedLayout()` creates one authoritative combined
@@ -303,11 +328,13 @@ Three loading shapes remain:
    with `resetITSAndMFTEvent()`.
 
 The nested virtual `LoadTarget` hierarchy has one implementation and every
-production target is a `SurfaceTrackingScratch`. Replacing
-`AtomicLoadBinding::{source, LoadTarget&}` with
-`{source, SurfaceTrackingScratch&}` preserves the transaction while deleting
-virtual dispatch, participant `mLoadTarget`, friendship-driven forwarding,
-and one lifetime constraint.
+production target ultimately mutates TimeFrame plus a
+`SurfaceTrackingScratch`. Once scratch is internal entity storage,
+`Loader::load(TimeFrame&, inputs)` can resolve source-qualified partitions
+from the configured frame, stage all normalized/workspace state privately,
+and commit atomically. This deletes virtual dispatch, participant
+`mLoadTarget`, public scratch targeting, friendship-driven forwarding, and
+one lifetime constraint.
 
 ### 6.3 Reset and failure handling
 
@@ -320,13 +347,13 @@ Reset is currently implemented at four levels:
   reset;
 - `TrackingEngine::resetEvent()` plus participant `eventReset()`.
 
-The semantic owner of the generic tracking transaction should be `Tracker`,
-after it owns the complete partition order. It clears all tracker-owned
-workspaces and shared generic `TimeFrame` state exactly once. The DPL owner
-then invalidates workflow publication state; it does not duplicate generic
-tracking reset. This cannot be a casual cleanup: exception paths, dropped-TF
-classification, retryability, and publication invalidation must be pinned
-first.
+`TimeFrame` should own the reset operation because it owns all generic state.
+`Tracker` decides that a tracking failure requires reset and invokes that
+single entity operation; Loader staging failure remains non-mutating by
+contract. The DPL owner then invalidates workflow publication state; it does
+not duplicate generic tracking reset. This cannot be a casual cleanup:
+exception paths, dropped-TF classification, retryability, and publication
+invalidation must be pinned first.
 
 ### 6.4 Tracking and publication
 
@@ -366,7 +393,7 @@ The recommended vocabulary is:
   systems;
 - **`SurfaceGraphView`** for the device-facing POD view;
 - **`std::vector<SurfaceGraph>`** for the ordered iteration graphs, owned
-  directly by `Tracker`; no public `TrackingPlan` wrapper; and
+  directly by `TimeFrame`; no public `TrackingPlan` wrapper; and
 - **`SurfaceGraphPartition`** (or, if the mapping action remains central,
   `SurfaceGraphBinding`) for one source-qualified ordered subset and compact
   slot map.
@@ -380,10 +407,10 @@ represented by the vector itself.
 `SurfaceGraph`; it should not remain a competing public graph model.
 
 Parameters and partitions still have to be paired with the correct graph.
-That invariant belongs to `Tracker::configure()`, which can validate the
-caller-supplied spans and store a private per-iteration record containing a
-graph reference/view, parameters, and ordered partitions. Such a private
-record is implementation storage, not a public `TrackingPlan` abstraction.
+That invariant belongs to `TimeFrame` construction/configuration, which can
+validate the caller-supplied spans and store a private per-iteration record
+containing a graph, parameters, and ordered partitions. Such a private record
+is entity storage, not a public `TrackingPlan` abstraction.
 
 ### 6.6 Initialization audit and target phases
 
@@ -417,15 +444,19 @@ The target has three explicit phases:
 
 | Phase | Owner | Work allowed |
 |---|---|---|
-| Configure once | `Tracker` with selected `TrackerTraits` backend | Consume parameters and one immutable `std::vector<SurfaceGraph>`; validate graph/parameter counts and every iteration partition; prebind architecture kernel schedule; establish one allocator/pool; size workspaces from maximum required graph extents. No event data. |
-| Load event | Workflow adapter through the atomic loader | Decode normalized source-qualified measurements, construct timing/mask views, and atomically commit `TimeFrame` plus partition backfills. Raw ROFs remain workflow-owned. |
-| Execute event/iteration | `Tracker` orchestrating `TrackerTraits` | Bind event measurement/ROF views, clear/reuse event workspace, build/reuse LUTs according to pass flags, execute kernels in plan order, and commit generic results or perform one generic reset. |
+| Configure once | `TimeFrame` | Consume parameters and one immutable `std::vector<SurfaceGraph>`; validate graph/parameter counts and every iteration partition; establish one allocator/pool; size internal workspaces from maximum required graph extents. No event data. |
+| Load event | `MultiSourceTimeFrameLoader` acting on `TimeFrame&` | Decode normalized source-qualified measurements, consume workflow/adapter-built runtime timing and mask views, and atomically commit normalized input plus internal partition backfills. Raw ROFs and timing construction remain workflow-owned. |
+| Execute event/iteration | `Tracker` acting on `TimeFrame&` through `TrackerTraits&` | Select the configured graph/partition, bind event measurement/ROF views, clear/reuse internal workspace, build/reuse LUTs according to pass flags, execute kernels in graph order, and commit generic results or invoke the frame's one reset operation. |
 
-A constructor or one fallible `configure()` operation should establish the
-configure-once phase atomically; the present sequence of `adopt*` and `set*`
-calls should not be replaced by a different setter sequence. Backend
-selection remains explicit: the tracker borrows/owns one CPU or GPU traits
-implementation whose lifetime covers execution.
+A `TimeFrame` constructor or one fallible `configure()` operation should
+establish entity configuration atomically; the present sequence of `adopt*`
+and `set*` calls should not be replaced by a different setter sequence.
+The configured frame is then reused across DPL `run()` calls. Its event reset
+must retain graphs, parameters, partitions, allocator identity, and reserved
+capacity while clearing all event-derived state.
+Backend selection remains explicit at execution: Tracker borrows one CPU or
+GPU traits implementation whose lifetime covers the call; neither component
+owns the frame.
 
 ## 7. Rest-of-public-include-tree audit
 
@@ -441,7 +472,7 @@ listed files share one disposition; it does not imply a new module.
 | `ClusterSource.h`, `DecodedCluster.h`, `ClusterDecoding.h`, `ClusterDecoder.h`, `MultiSourceFrame.h`, `MultiSourceLoading.h`, `TimeFrameLoadFailure.h` | Generic normalized multi-source input and transactional decoding. Retain. Narrow includes where implementation-only decoder dependencies leak into public headers. |
 | `ClockTimingPublicationView.h`, `SurfaceTiming.h`, `ROFTimingUniformity.h`, `ROFViews.h` | Runtime timing views and validation. Retain generic views; timing construction and publication clocks stay workflows/adapters. |
 | `Configuration.h`, `TrackingConfigParam.h`, `ConfigKeyValuesPreflight.h`, `IndexTableConfiguration.h`, `IndexTableUtils.h` | Algorithm parameters/configuration and fixed-capacity index tables. Retain live runtime-prefix storage. Detector-named configuration registration is adapter compatibility, not a core routing authority; move only under a separately gated configuration migration. |
-| `DetectorLayout.h`, `DetectorLayoutBuilder.h`, `DetectorLayoutSet.h`, `SparseTrackingTopology.h`, `SurfaceCatalogView.h`, `SurfaceDescriptor.h`, `SurfaceId.h`, `StaticSurfaceDescriptor.h`, `StaticDetectorCatalogs.h`, `SurfaceSpec.h` | Authoritative descriptors and graph data, but too many public ownership names. Consolidate `DetectorLayout` plus public sparse topology into `SurfaceGraph`/`SurfaceGraphView`; replace `DetectorLayoutSet` with a Tracker-owned `std::vector<SurfaceGraph>`; delete the stale configuration-key concept. `StaticDetectorCatalogs` remains application data and should move outward without duplicating graph construction. |
+| `DetectorLayout.h`, `DetectorLayoutBuilder.h`, `DetectorLayoutSet.h`, `SparseTrackingTopology.h`, `SurfaceCatalogView.h`, `SurfaceDescriptor.h`, `SurfaceId.h`, `StaticSurfaceDescriptor.h`, `StaticDetectorCatalogs.h`, `SurfaceSpec.h` | Authoritative descriptors and graph data, but too many public ownership names. Consolidate `DetectorLayout` plus public sparse topology into `SurfaceGraph`/`SurfaceGraphView`; replace `DetectorLayoutSet` with a TimeFrame-owned `std::vector<SurfaceGraph>`; delete the stale configuration-key concept. `StaticDetectorCatalogs` remains application data and should move outward without duplicating graph construction. |
 | `ITSSurfaceSpec.h`, `MFTSurfaceSpec.h`, `NominalSurfaceMaterialDefaults.h` | ITS/MFT application data. Valid compatibility owners, but not generic core concepts. Move to detector application include locations in a bounded include/API migration. |
 | `SurfaceKinematicState.h`, `StateFamily.h` | Generic state representation. Retain; `StateFamily` must not become dispatch policy. |
 | `SurfaceMeasurement.h` | Generic normalized measurement. Retain. |
@@ -449,9 +480,9 @@ listed files share one disposition; it does not imply a new module.
 | `IOUtils.h` | Mixed decoder covariance/systematic helpers plus obsolete public conversions. Split only by deleting proven-dead declarations; avoid a new utility namespace hierarchy. Common `convertCompactClusters` needs a whole-repository/public-API check before deletion despite no current common production caller. |
 | `ITSSharedClusterCompatibility.h`, `MFTPublicationCompatibility.h`, `DetectorPublicationAdapter.h`, `DetectorTrackingOperationAdapterSupport.h`, `MFTFwdTrackHelpers.h` | Detector application/refit/publication compatibility. Responsibilities can remain, but ownership should move outside generic core headers as participant/interface consolidation proceeds. Do not replace with a central detector dispatcher. |
 | `MFTAdapterRefit.h`, `MFTCATrack.h` | Typed MFT compatibility path with no production consumer; only `testMFTNormalizedRefit` and guards retain it. Delete first. |
-| `ParticipantId.h`, `TrackingParticipant.h`, `TrackingEngine.h` | Migration-era heterogeneous schedule contract around tracker instances. Retire after source-qualified graph partitions and schedule order become immutable `Tracker` input data. |
-| `SurfacePlanTrackingParticipant.h`, `TrackingInterface.h`, `TrackingOperationAdapter.h` | Application-composition cluster described in Sections 5–6. Delete participant/interface after `Tracker` consolidation; narrow the operation seam to architecture/refit work only. |
-| `TimeFrame.h`, `SurfaceTrackingScratch.h`, `detail/SurfacePlanBinding.h`, `MultiSourceTimeFrameLoader.h` | Distinct event owner, mutable workspace, immutable graph partition, and atomic loader. Retain the responsibilities; simplify naming, initialization, dead fields, forwarding aliases, and loader type erasure. |
+| `ParticipantId.h`, `TrackingParticipant.h`, `TrackingEngine.h` | Migration-era heterogeneous schedule contract around tracker instances. Retire after source-qualified graph partitions and schedule order become immutable TimeFrame data consumed by `Tracker`. |
+| `SurfacePlanTrackingParticipant.h`, `TrackingInterface.h`, `TrackingOperationAdapter.h` | Application-composition cluster described in Sections 5–6. Delete participant/interface after the TimeFrame/Loader/Tracker composition is established; narrow the operation seam to architecture/refit work only. |
+| `TimeFrame.h`, `SurfaceTrackingScratch.h`, `detail/SurfacePlanBinding.h`, `MultiSourceTimeFrameLoader.h` | One intended entity, currently split workspace, immutable graph partition, and atomic loader component. Fold scratch/partition ownership behind TimeFrame; keep Loader separate and acting on the entity. |
 | `CATracker.h`, `TrackerTraits.h`, `Tracker.h` | Orchestrator plus CPU/GPU kernel-backend seam and one reversed forwarding relationship. Make `Tracker.h` canonical, delete the stale `CATracker` file name, and retain `TrackerTraits` distinctly. |
 | `detail/TransitionPolicy.h`, `detail/TransitionPolicyBinding.h`, `detail/TransitionPolicyDispatch.h`, `detail/TransitionPolicyOperations.h`, `detail/TransitionPolicyState.h` | Private compatibility implementation for descriptor-family leaf selection. Keep private. Structural collapse is not safe if it changes operation order or arithmetic. |
 
@@ -467,7 +498,7 @@ listed files share one disposition; it does not imply a new module.
 | 2 | Move the `Tracker` declaration/definition from `CATracker.{h,cxx}` to canonical `Tracker.{h,cxx}` and delete the forwarding/stale file names. | Common tracker users include either name; `TrackingInterface.h` is the forwarding header's production consumer found. | `Tracker.{h,cxx}`. | Build all common/ITS/MFT/combined targets; public-header dependency guard. | One canonical Tracker header/source and no `CATracker` implementation filename. |
 | 3 | Delete scratch member `mPValphaX` and allocator/reset/swap bookkeeping. | No read or semantic write found; only initialization, clearing, allocator-match, and swap. | None. | Scratch allocator/swap/reset tests, sanitizer-capable focused tests, full suite and replay. | No field/reference remains and staged/live allocator matching still passes. |
 | 4 | Use one scratch reset name; delete forwarding `resetScratch()` after changing direct callers to `reset()`. | Participant, loader wrapper, and migration-era tests. | `SurfaceTrackingScratch::reset()`. | Reset ordering, retry, dropped/structural failure tests. | One public scratch reset method and no semantic change in ordering. |
-| 5 | Delete `loadITSAndMFT()` and `resetITSAndMFTEvent()` after migrating their tests to `loadEvent()` plus the current generic reset path. | No production caller found; fixed-source behavior is test-only. | Generic `loadEvent()`; reset ultimately belongs to consolidated `Tracker`. | Atomic load success/failure/retry and combined isolation tests. | No fixed ITS=0/MFT=1 loader API under common tracking. |
+| 5 | Delete `loadITSAndMFT()` and `resetITSAndMFTEvent()` after migrating their tests to `loadEvent()` plus the current generic reset path. | No production caller found; fixed-source behavior is test-only. | Generic `loadEvent()`; reset ultimately belongs to `TimeFrame`. | Atomic load success/failure/retry and combined isolation tests. | No fixed ITS=0/MFT=1 loader API under common tracking. |
 | 6 | Correct migration-era comments and test names that claim templated `Tracker`/`TrackerTraits`, M2/M6 temporary ownership, or an unfinished M7e seam. | Documentation and source comments/tests only. | Current responsibility wording. | Source guard plus documentation link/headings validation. | No stale architectural claim; behavioral assertions retained under intent-based names. |
 
 The first cleanup slice is rank 1 only. Combining later ranks would make
@@ -477,15 +508,15 @@ review and regression localization worse.
 
 | Rank | Exact files/action | Current callers | Replacement owner | Required gate | Deletion criterion |
 |---:|---|---|---|---|---|
-| 1 | Replace `MultiSourceTimeFrameLoader::{LoadTarget,LoadTargetImplSurface}` and participant `mLoadTarget` with atomic bindings that borrow `SurfaceTrackingScratch&`. | Combined workflow, participant, loader tests. | `MultiSourceTimeFrameLoader::loadEvent()` directly stages one scratch per binding. | Allocator identity, partial-stage failure, retry, dropped TF, combined source isolation, full replay. | No virtual load target, friendship-only forwarding, or participant load-target member. |
-| 2 | Consolidate `DetectorLayout`, `DetectorLayoutView`, `SparseTrackingTopology`, and `DetectorLayoutSet` into `SurfaceGraph`/`SurfaceGraphView` plus a Tracker-owned `std::vector<SurfaceGraph>`; delete `DetectorLayoutConfigurationKey` and always-true `rebuilt`. | Tracker/traits, standalone/combined construction, many graph fixtures. | The vector owns each iteration graph once; sparse adjacency may remain private graph storage. | Structural graph parity, non-contiguous order, holes/seeding, CPU/device POD layout, full suite/replay. | No duplicate public layout/topology model, no retained fake key or plan wrapper, and combined owns one graph rather than two copies. |
-| 3 | Replace the partial `adopt*`/`set*` construction sequence with one fallible Tracker configuration boundary that establishes plan, partitions, backend, pool, threads, and workspace capacities in order. | Interface, participant, combined workflow, construction tests. | `Tracker` configure-once state; workflow still supplies adapter timing/publication inputs. | Allocator identity, construction failure, retry, destruction order, memory-limit, CPU/device backend tests. | Tracker cannot be executed partially configured; plan sizing never precedes allocator establishment. |
-| 4 | Make graph partition/binding mandatory and per iteration; delete identity/source-0 fallback mapping and iteration-0 binding reuse. | Direct unit fixtures, standalone and combined construction. | `Tracker` stores one validated ordered `SurfaceGraphPartition` list per graph iteration. | Multi-iteration differing-hole/start-mask fixture, non-identity/sparse plan, invalid-partition failures, full replay. | No nullable binding, synthesized numeric traversal, or topology IDs borrowed from the wrong iteration. |
-| 5 | Move fixed ROF tables, masks, and publication helpers out of participant/interface wrappers. | Standalone and combined workflows. | ITS/MFT workflow/application setup; core continues borrowing `ROFViews`. | Empty/first/last/diamond timing, mask, load-failure replacement, writer and sidecar parity. | Tracker/traits/plan own no fixed detector table or detector publication sidecar. |
-| 6 | Extend `Tracker` to orchestrate the explicit ordered graph partitions and generic all-or-nothing result/reset transaction; delete `TrackingEngine.{h,cxx}`, `TrackingParticipant.h`, and `ParticipantId.h`. | Combined workflow and engine/participant tests. | `Tracker` plus immutable partition order; no dynamic coordinator wrapper. | Exact partition order, source isolation, success/recoverable/structural/exception reset-count tests, combined replay. | No engine/participant class and no equivalent renamed schedule executor; tracker remains detector-neutral. |
-| 7 | Migrate standalone and combined wrappers to the consolidated Tracker; delete `TrackingInterface.{h,cxx}`, `SurfacePlanTrackingParticipant.{h,cxx}`, aliases, mixins, and float sentinel. | ITS/MFT/combined CA workflow tasks and wrapper-heavy tests. | Workflow owns raw ROFs/clocks/publication; Tracker owns generic configuration/execution. | Standalone lifecycle/config/output tests, dropped-TF behavior, combined parity, exact writer/replay baseline. | One Tracker composition path and no interface/participant wrapper remains. |
-| 8 | Narrow `TrackingOperationAdapter`: move `completeAccepted()` and `resetAdapterState()` to application publication handling; retain only the exact refit operation if still needed. | `TrackerTraits`, interface, participant. | Tracker owns generic acceptance; application adapter consumes only successful ordered generic results. | Candidate ordering, holes, all refit rejection paths, shared/pattern compatibility, failure-stale-state and replay gates. | Core operation seam neither stages publication nor owns lifecycle; delete seam entirely if one generic refit implementation remains. |
-| 9 | Make the `TrackerTraits` architecture contract explicit and port tests away from assuming CPU is the only backend; retain virtual kernel entry points. | Tracker, direct kernel fixtures, future common GPU integration. | `Tracker` selects/borrows CPU or GPU traits; traits own backend kernels and backend-local caches. | CPU replay plus a real pinned CUDA/HIP build when a common GPU traits backend exists. | Backend substitution changes no plan/orchestrator API and introduces no detector/layer specialization. |
+| 1 | Replace `MultiSourceTimeFrameLoader::{LoadTarget,LoadTargetImplSurface}` and participant `mLoadTarget` with direct atomic `load(TimeFrame&, inputs)` staging. | Combined workflow, participant, loader tests. | Loader stages a temporary TimeFrame-compatible event state and commits through TimeFrame's private/entity boundary. | Allocator identity, partial-stage failure, retry, dropped TF, combined source isolation, full replay. | No virtual scratch target, friendship-only public forwarding, or participant load-target member. |
+| 2 | Consolidate `DetectorLayout`, `DetectorLayoutView`, `SparseTrackingTopology`, and `DetectorLayoutSet` into `SurfaceGraph`/`SurfaceGraphView` plus a TimeFrame-owned `std::vector<SurfaceGraph>`; delete `DetectorLayoutConfigurationKey` and always-true `rebuilt`. | Tracker/traits, standalone/combined construction, many graph fixtures. | TimeFrame owns each iteration graph once; sparse adjacency may remain private graph storage. | Structural graph parity, non-contiguous order, holes/seeding, CPU/device POD layout, full suite/replay. | No duplicate public layout/topology model, no retained fake key or plan wrapper, and combined owns one graph rather than two copies. |
+| 3 | Replace the partial `adopt*`/`set*` construction sequence with one fallible TimeFrame entity-configuration boundary establishing graphs, parameters, partitions, pool, and workspace capacities in order. | Interface, participant, combined workflow, construction tests. | `TimeFrame` configure-once state; workflow still supplies adapter timing/publication inputs per event. | Allocator identity, construction failure, retry, destruction order, memory-limit, CPU/device backend tests. | TimeFrame cannot be loaded/executed partially configured; graph sizing never precedes allocator establishment. |
+| 4 | Make graph partition/binding mandatory and per iteration; delete identity/source-0 fallback mapping and iteration-0 binding reuse. | Direct unit fixtures, standalone and combined construction. | `TimeFrame` stores one validated ordered `SurfaceGraphPartition` list per graph iteration. | Multi-iteration differing-hole/start-mask fixture, non-identity/sparse plan, invalid-partition failures, full replay. | No nullable binding, synthesized numeric traversal, or topology IDs borrowed from the wrong iteration. |
+| 5 | Move fixed ROF tables, masks, and publication helpers out of participant/interface wrappers. | Standalone and combined workflows. | ITS/MFT workflow/application setup; TimeFrame/core continues borrowing runtime `ROFViews` only for the event. | Empty/first/last/diamond timing, mask, load-failure replacement, writer and sidecar parity. | TimeFrame/Tracker/traits own no fixed detector table or detector publication sidecar. |
+| 6 | Make `Tracker::run(TimeFrame&, TrackerTraits&)` orchestrate TimeFrame's explicit ordered graph partitions and invoke its all-or-nothing generic reset; delete `TrackingEngine.{h,cxx}`, `TrackingParticipant.h`, and `ParticipantId.h`. | Combined workflow and engine/participant tests. | Tracker is a component; TimeFrame owns state and partition order; no dynamic coordinator wrapper. | Exact partition order, source isolation, success/recoverable/structural/exception reset-count tests, combined replay. | No engine/participant class and no equivalent renamed schedule executor; Tracker owns no frame state. |
+| 7 | Migrate standalone and combined wrappers to Loader + TimeFrame + Tracker; delete `TrackingInterface.{h,cxx}`, `SurfacePlanTrackingParticipant.{h,cxx}`, aliases, mixins, and float sentinel. | ITS/MFT/combined CA workflow tasks and wrapper-heavy tests. | TimeFrame owns generic state; Loader/Tracker act on it; workflow owns raw ROFs/clocks/publication. | Standalone lifecycle/config/output tests, dropped-TF behavior, combined parity, exact writer/replay baseline. | One entity/component composition path and no interface/participant wrapper remains. |
+| 8 | Narrow `TrackingOperationAdapter`: move `completeAccepted()` and `resetAdapterState()` to application publication handling; retain only the exact refit operation if still needed. | `TrackerTraits`, interface, participant. | TimeFrame owns generic accepted state; application adapter consumes only successful ordered results. | Candidate ordering, holes, all refit rejection paths, shared/pattern compatibility, failure-stale-state and replay gates. | Core operation seam neither stages publication nor owns lifecycle; delete seam entirely if one generic refit implementation remains. |
+| 9 | Make the `TrackerTraits` architecture contract explicit and port tests away from assuming CPU is the only backend; retain virtual kernel entry points. | Tracker, direct kernel fixtures, future common GPU integration. | Tracker borrows CPU or GPU traits; traits implement backend kernels and act on TimeFrame/backend-local views without owning the entity. | CPU replay plus a real pinned CUDA/HIP build when a common GPU traits backend exists. | Backend substitution changes no TimeFrame/Tracker API and introduces no detector/layer specialization. |
 | 10 | Remove `TimeFrame`'s no-op virtual device-propagator hook/member if full build configurations confirm no common-derived device frame. | A migration-era ownership test; frozen ITS has a separate live override in a different class. | None in common CPU runtime; common GPU traits must declare its actual device state ownership. | Whole-repository inheritance/API audit and actual device build when pinned toolchain exists. | Common `TimeFrame` contains no placeholder device pointer; GPU ownership is explicit. |
 | 11 | Delete common `TrackingFrameInfoAdapters` and `loadClusterTrackingFrameInfo`; separately decide common `convertCompactClusters`. | Tests only for the former; no current common production caller found. Public API risk remains. | `SurfaceMeasurement` decoder path for production; detector-local frozen utilities remain untouched. | Whole-repository symbol/header audit, downstream build, covariance/systematics tests. | No downstream consumer and no lost compatibility contract. |
 | 12 | Retire `NativeCylinderCylinderRefitDriver.h` after preserving the comparison evidence it uniquely supplies. | Dedicated test, guard, and historical design/P1 harness. | Live `NativeRefitDriver`; durable validation docs/artifacts for historical evidence. | Demonstrate all production numerical/refit properties remain covered; no replay delta. | No production or active validation need for the unwired driver. |
@@ -554,11 +585,12 @@ Public include cost can be reduced without a new pimpl/service layer:
 
 | Class | Recommendation | Reason |
 |---|---|---|
-| `TrackingEngine` | **Delete after its generic schedule/result/reset behavior moves into `Tracker`.** | It is a stateless loop around participant-owned trackers, not an independent kernel or data owner. Retaining it creates two orchestrators. |
-| `Tracker` | **Remain and become the sole generic tracking orchestrator.** | It sequences iterations and CA stages and should directly own the immutable `std::vector<SurfaceGraph>` plus validated per-iteration partition order. It may own generic tracking reset, but never raw ROFs, publication clocks, writers, or detector dispatch. |
+| `TrackingEngine` | **Delete after schedule/result sequencing moves into `Tracker` and reset mechanics into `TimeFrame`.** | It is a stateless loop around participant-owned trackers, not an independent kernel or data owner. Retaining it creates two orchestrators. |
+| `TimeFrame` | **Become the sole generic tracking entity.** | It owns configuration, allocator-backed workspace, normalized event input, and generic results. Graphs, parameters, partitions, and scratch state should not be spread across wrappers or Tracker. |
+| `Tracker` | **Remain as a non-owning generic tracking component.** | It sequences iterations and CA stages by reading TimeFrame's graphs/partitions and invoking a borrowed traits backend. It retains no graph, parameter, workspace, pool, event, publication, or detector state. |
 | `TrackerTraits` | **Remain distinct as the architecture kernel backend.** | CPU and GPU implementations need the same orchestration with different kernels/storage. The virtual kernel seam is intentional and mirrors the live ITS CPU/GPU architecture. |
-| `TrackingInterface` | **Delete after workflow and Tracker ownership are separated.** | Generic configure/execute behavior belongs in Tracker; raw loading/timing/publication behavior belongs in DPL/application adapters. No replacement interface facade is justified. |
-| `SurfacePlanTrackingParticipant` | **Delete with `TrackingParticipant`.** | Its useful content is immutable graph-partition data plus workspace; Tracker can consume that directly. Its timing/publication/load-target composition belongs elsewhere. |
+| `TrackingInterface` | **Delete after entity/component ownership is established.** | Generic data/configuration belongs in TimeFrame, loading in Loader, execution in Tracker, and raw timing/publication in DPL/application adapters. No replacement interface facade is justified. |
+| `SurfacePlanTrackingParticipant` | **Delete with `TrackingParticipant`.** | Its useful graph-partition/workspace content moves into TimeFrame. Its timing/publication/load-target composition belongs elsewhere. |
 | `TrackingOperationAdapter` | **Narrow to refit-only, then reassess deletion.** | Refit is an algorithm operation; publication completion and reset are application lifecycle. Do not replace it with a callback framework. |
 
 ## 11. Ordered cleanup slices
@@ -572,24 +604,27 @@ implementation is proposed.
    the `CATracker` file name; delete `mPValphaX` and the duplicate scratch
    reset name in separate reviewable commits.
 3. **C2 — loader simplification.** Replace the one-implementation virtual
-   load target with direct scratch bindings; remove fixed ITS+MFT wrappers.
+   load target with direct `load(TimeFrame&, inputs)` staging; remove fixed
+   ITS+MFT wrappers and public scratch-target plumbing.
 4. **C3 — surface-graph consolidation.** Introduce the `SurfaceGraph` name by
    replacing, not wrapping, `DetectorLayout`/public sparse-topology ownership;
-   replace `DetectorLayoutSet` with a Tracker-owned graph vector; delete the
+   replace `DetectorLayoutSet` with a TimeFrame-owned graph vector; delete the
    stale key, plan wrapper, and combined duplicate graph copies.
-5. **C4 — atomic Tracker configuration.** Establish plan, per-iteration
-   partitions, backend, allocator, and workspace capacities in one fallible
-   configure-once operation; eliminate partial setter ordering.
+5. **C4 — one TimeFrame entity.** Move parameters, per-iteration partitions,
+   allocator, and scratch/workspace capacities behind one fallible TimeFrame
+   configuration boundary; eliminate partial setter ordering and public
+   scratch ownership.
 6. **C5 — binding correctness.** Make partition data mandatory and
    per-iteration; remove identity/source-0 and iteration-0 reuse fallbacks.
 7. **C6 — application ownership.** Move ROF fixed tables and detector
    publication compatibility out of the participant/interface, preserving
    runtime `ROFViews` in core.
-8. **C7 — one orchestrator.** Move explicit partition execution and generic
-   all-or-nothing reset into Tracker; delete `TrackingEngine` and
-   `TrackingParticipant` without adding a renamed executor.
-9. **C8 — wrapper retirement.** Migrate standalone/combined workflows to the
-   consolidated Tracker; delete `TrackingInterface`,
+8. **C7 — one tracking component.** Make Tracker act on `TimeFrame&` through
+   `TrackerTraits&`, reading frame-owned partition order and invoking the
+   frame's generic reset; delete `TrackingEngine` and `TrackingParticipant`
+   without adding a renamed executor.
+9. **C8 — wrapper retirement.** Migrate standalone/combined workflows to
+   Loader + TimeFrame + Tracker; delete `TrackingInterface`,
    `SurfacePlanTrackingParticipant`, and the float sentinel.
 10. **C9 — operation seam narrowing.** Move accepted-result compatibility and
    reset outward; retain only a necessary refit operation.
@@ -661,6 +696,9 @@ Measured structure:
   inputs primarily to recover ordered surfaces;
 - standalone and combined initialize allocator/plan/workspace in different
   orders, with combined sizing scratch before rebinding its pool;
+- current generic state is split between `TimeFrame`, participant-owned
+  scratch, layout-set owners, bindings, and Tracker-owned parameter/pool
+  handles;
 - typed MFT refit/export files have no production caller.
 
 Inference:
@@ -669,9 +707,13 @@ Inference:
   lifecycle consolidation;
 - preserving `Tracker` as orchestrator and `TrackerTraits` as CPU/GPU kernel
   backend is the intentional architecture;
+- making `TimeFrame` the sole reusable tracking entity removes split state
+  ownership; Loader and Tracker can remain non-owning components acting on
+  it;
 - retiring engine, participant, and interface wrappers removes more
-  complexity than narrowing them, provided Tracker consumes explicit
-  detector-neutral graph partitions and workflow state stays outside;
+  complexity than narrowing them, provided TimeFrame stores explicit
+  detector-neutral graph partitions and workflow publication state stays
+  outside;
 - `SurfaceGraph` is more accurate than `DetectorGraph` because graph nodes
   are surfaces and one graph may span multiple detector identities;
 - consolidating layout/topology names and configure-once initialization is a
