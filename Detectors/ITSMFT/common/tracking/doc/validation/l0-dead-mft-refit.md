@@ -1,6 +1,6 @@
 # L0 dead common typed-MFT refit/export validation
 
-Status: **implemented; the three reported failures were stale-build/environment issues, not L0 regressions**
+Status: **implemented and fully validated; 98/98 ITS/MFT tests passed**
 
 L0 deletes the unused common typed-MFT refit/export path and migrates
 `testMFTNormalizedRefit.cxx` to the live generic native-refit result path. No
@@ -64,8 +64,8 @@ ninja -C /Users/mpuccio/alice/run3/O2-worktree-builds/m6e3-commontrack-output-re
 Focused tests passed: the migrated generic MFT refit test and both source
 guards passed 3/3.
 
-The initial required serial suite executed all 98 registered ITS/MFT tests. 95
-passed; the following three reported failures:
+An initial serial run executed all 98 registered ITS/MFT tests with 95 passes
+and the following three reported failures:
 
 | Test | Observed failure |
 | --- | --- |
@@ -115,13 +115,28 @@ rebuild. Detailed feature and parent logs are retained at:
 `/Users/mpuccio/alice/run3/O2-validation-artifacts/itsmft/l0-dead-mft-parent-validation-20260806/`
 
 The parent evidence therefore rules out an L0 regression and no production
-correction is warranted. The complete 98-test suite was not rerun after this
-targeted rebuild, so this record still does not claim that the full CTest gate
-passed.
+correction is warranted. After the exact feature binaries were rebuilt, the
+complete required command was rerun:
+
+```sh
+O2_BUILD_DIR=/Users/mpuccio/alice/run3/O2-worktree-builds/m6e3-commontrack-output-retirement \
+O2_PACKAGE=daily-20260717-0700-local1 \
+run-in-o2-env.zsh -- ctest \
+  --test-dir /Users/mpuccio/alice/run3/O2-worktree-builds/m6e3-commontrack-output-retirement \
+  -L itsmft --output-on-failure -j1
+```
+
+Final result: **100% tests passed, 0 tests failed out of 98**. Every registered
+test executed; there were no `Not Run` entries.
+
+The exact parent/reference direct-run logs and the feature logs used for the
+failure classification remain at:
+
+`/Users/mpuccio/alice/run3/O2-validation-artifacts/itsmft/l0-dead-mft-parent-validation-20260806/`
 
 No L0 production source changed in `TrackerTraits`, `Tracker`, or CA runtime
-code. The initial full-suite result remains non-green, but the three reported
-tests do not require an L0 production correction.
+code. The three reported failures were stale-build/environment issues, not L0
+regressions.
 
 The durable build was configured with this cache-only exclusion because the
 repository already contains an unregistered P1 diagnostic macro that makes the
@@ -182,6 +197,5 @@ metadata is non-semantic; the known undefined `MFTTrack.mInvQPtSeed` artifact
 was not observed as an initialized-content difference.
 
 The replay evidence supports unchanged MFT publication behavior. The targeted
-failure investigation is resolved as a stale-build/environment issue; the
-full-suite result remains explicitly unclaimed pending a later complete serial
-run.
+failure investigation is resolved as a stale-build/environment issue, and the
+complete serial L0 test gate is now green.
