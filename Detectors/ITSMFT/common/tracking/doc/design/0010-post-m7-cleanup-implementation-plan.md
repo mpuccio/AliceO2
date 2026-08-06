@@ -1,6 +1,6 @@
 # Post-M7 cleanup implementation plan
 
-- Status: L4 implementation complete; L5 remains the next authorized slice
+- Status: L5 implementation complete; L6 remains the next authorized slice
 - Date: 2026-08-06
 - Architecture source: [post-M7 intentionality audit](0009-post-m7-intentionality-cleanup-audit.md)
 - Implementation owner: Luna agents under maintainer review
@@ -333,7 +333,7 @@ and partial-configuration rejection tests.
 TrackerInitialization&)` now builds and validates each graph locally, builds
 one source-qualified binding per graph subgraph, and commits graphs,
 source-qualified parameters/bindings, workspace capacities, and the allocator
-identity to `TimeFrame` in one fallible operation. `TimeFrame::wipe()` retains
+identity to `TimeFrame` in one fallible operation. `TimeFrame::resetEvent()` retains
 that configuration while clearing event-derived data. The combined workflow
 supplies declarations and uses one frame configuration; it does not build an
 operational graph. Participants retain only physical scratch and adapter
@@ -352,6 +352,22 @@ the native ITS/MFT candidate hashes, standalone/combined field equality, and
 initialized-content equality with the accepted L3 parent; see the [L4
 validation record](../validation/l4-timeframe-configuration.md). No CUDA/HIP
 device build was claimed because neither pinned compiler was available.
+
+**L5 result (2026-08-06):** `TimeFrame` now creates and owns one private,
+source-qualified workspace entry for each configured binding during the atomic
+configuration commit. `Tracker`, `TrackingInterface`, participants, and the
+loader target borrow those workspaces; none owns an independent generic
+workspace or reset authority. `TimeFrame::resetEvent()` is the single generic
+event reset: it clears normalized measurements, runtime ROF views, CA working
+storage, results, labels, and other event-derived state while preserving the
+complete static configuration, allocator identity, and reserved capacities.
+
+Successful normalized-frame commit resets the previous event once and then
+installs the already validated new runtime ROF view. Staging remains private to
+the current loader target and is still the next L6 boundary. Raw ROFs, timing
+backing storage, publication validity, sidecars, and writers remain outside the
+frame. The focused and full-suite evidence is recorded in the [L5 validation
+record](../validation/l5-timeframe-workspace.md).
 
 ### L5 — internalize workspace and generic reset in `TimeFrame`
 
