@@ -1,6 +1,6 @@
 # L5 TimeFrame workspace and event-reset validation
 
-Status: implementation complete; L6 is the next authorized slice.
+Status: historical validation record; L5 complete and L6 subsequently completed.
 
 L5 makes `TimeFrame` the sole owner of generic mutable event state and CA
 workspace. The frame remains passive: graph construction and configuration are
@@ -35,11 +35,11 @@ The validation artifact directory is:
 
 During atomic configuration, `TimeFrame` creates one private workspace entry
 for each source-qualified binding. `Tracker`, `TrackingInterface`,
-`SurfacePlanTrackingParticipant`, and the loader target borrow the corresponding
+`SurfacePlanTrackingParticipant`, and the direct loader borrow the corresponding
 workspace. No participant or interface owns a second generic workspace,
 configuration, or reset authority. `SurfaceTrackingScratch` remains an
-implementation type for kernels and staging, but its live configured instances
-are frame-owned.
+implementation type for kernels and loader staging, but its live configured
+instances are frame-owned. L6 removed the loader-target indirection.
 
 `TimeFrame::resetEvent()` is the single generic event reset. It clears
 normalized measurements, runtime ROF views, CA working storage, CommonTracks,

@@ -11,13 +11,14 @@ M7d non-templated core: [runtime-plan Tracker/TrackerTraits implementation](desi
 M7e adapter refit/output: [typed refit and output at the adapter boundary](design/0007-m7e-adapter-refit-output.md)
 M7f final cleanup: [redundant runtime-core bridge retirement](design/0008-m7f-final-runtime-core-cleanup.md)
 Post-M7 cleanup audit: [intentionality, ownership, and duplication audit](design/0009-post-m7-intentionality-cleanup-audit.md) — complete; bounded first slice is dead typed-MFT refit/export retirement.
-Post-M7 cleanup implementation: [sequential Luna execution plan](design/0010-post-m7-cleanup-implementation-plan.md) — L5 complete; L6 is the only next authorized slice. [L5 TimeFrame workspace validation](validation/l5-timeframe-workspace.md) records the passive-frame workspace/reset boundary.
+Post-M7 cleanup implementation: [sequential Luna execution plan](design/0010-post-m7-cleanup-implementation-plan.md) — L6 complete; L7 is the only next authorized slice. [L6 direct-loader validation](validation/l6-direct-loader.md) records the atomic `MultiSourceTimeFrameLoader::load(TimeFrame&, ...)` boundary.
 
-L5 makes `TimeFrame` the sole owner of generic mutable workspace and event
-reset. Tracker, Loader, and adapters borrow frame-owned state; loader staging
-remains the current private boundary. L6 may simplify the direct loading path,
-but must not move raw ROFs, timing backing storage, publication validity,
-sidecars, or writers into the frame.
+L6 makes `TimeFrame` the sole live owner of generic configuration, workspace,
+and event data, with `MultiSourceTimeFrameLoader` as the non-owning atomic load
+component. Standalone and combined adapters provide normalized inputs and
+runtime ROF views; raw ROFs, timing backing storage, publication validity,
+sidecars, and writers remain outside the frame. L7 is limited to relocating
+those remaining compatibility owners to workflow edges.
 
 This plan turns the accepted Gate 4 implementation into the ADR 0007 end
 state: one concrete `TrackingEngine::executeEvent()` over ordered

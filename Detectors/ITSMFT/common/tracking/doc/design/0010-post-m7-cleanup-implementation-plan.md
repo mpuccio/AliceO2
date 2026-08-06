@@ -1,6 +1,6 @@
 # Post-M7 cleanup implementation plan
 
-- Status: L5 implementation complete; L6 remains the next authorized slice
+- Status: L6 implementation complete; L7 remains the next authorized slice
 - Date: 2026-08-06
 - Architecture source: [post-M7 intentionality audit](0009-post-m7-intentionality-cleanup-audit.md)
 - Implementation owner: Luna agents under maintainer review
@@ -258,8 +258,9 @@ combined-source-isolation tests.
 
 **Status: complete (2026-08-06).** `mPValphaX`, the `resetScratch()` forwarding
 spelling, and the fixed-source `loadITSAndMFT()`/`resetITSAndMFTEvent()` test
-wrappers are deleted. Tests now compose `loadEvent()` with explicit bindings
-and reset each scratch plus the owning `TimeFrame` directly. The recursive L2
+wrappers are deleted. Tests now compose direct
+`MultiSourceTimeFrameLoader::load()` with explicit source inputs and reset the
+owning `TimeFrame` directly. The recursive L2
 guard scans common tracking include/src/test/CMake files for all four deleted
 names. The 98-test suite and the standalone/combined replay gate passed; see
 [L2 dead-forwarders validation](../validation/l2-dead-forwarders.md).
@@ -368,6 +369,17 @@ the current loader target and is still the next L6 boundary. Raw ROFs, timing
 backing storage, publication validity, sidecars, and writers remain outside the
 frame. The focused and full-suite evidence is recorded in the [L5 validation
 record](../validation/l5-timeframe-workspace.md).
+
+**L6 result (2026-08-06):** `MultiSourceTimeFrameLoader::load(TimeFrame&, ...)`
+is now the only production multi-source loading composition. It stages decoded
+normalized input and frame-owned workspace data locally, validates source
+qualified bindings, allocator identity, and capacities, and commits the event
+through one `TimeFrame` operation. Standalone ITS/MFT interfaces and the
+combined workflow use the same direct loader; the `LoadTarget` hierarchy,
+participant load-target members, and friendship-only load forwarding are gone.
+Adapter-built runtime ROF views are copied into frame-owned event state, while
+their table backing storage and raw ROFs remain outside the frame. Replay and
+full-suite evidence is in the [L6 validation record](../validation/l6-direct-loader.md).
 
 ### L5 — internalize workspace and generic reset in `TimeFrame`
 
