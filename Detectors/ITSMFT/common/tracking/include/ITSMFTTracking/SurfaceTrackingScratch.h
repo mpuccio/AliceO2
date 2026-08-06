@@ -28,7 +28,7 @@
 ///
 /// This type never owns a graph or binding. It borrows the caller's
 /// SurfaceGraphView and runtime ROF context for the current event;
-/// TimeFrame owns generic event reset; the adapter owns raw ROFs and workflow
+/// TimeFrame owns generic event reset; adapters own raw ROFs and event-loop
 /// lifecycle.
 #ifndef ALICEO2_ITSMFT_TRACKING_SURFACETRACKINGSCRATCH_H_
 #define ALICEO2_ITSMFT_TRACKING_SURFACETRACKINGSCRATCH_H_

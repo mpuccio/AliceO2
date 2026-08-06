@@ -17,7 +17,6 @@
 #include "ITSMFTTracking/Tracker.h"
 #include "ITSMFTTracking/SurfaceGraphBuilder.h"
 #include "ITSMFTTracking/StaticDetectorCatalogs.h"
-#include "ITSMFTTracking/SurfaceTrackingScratch.h"
 #include "ITSMFTTracking/SurfaceCatalogView.h"
 #include "ITSMFTTracking/detail/TransitionPolicyBinding.h"
 
@@ -56,21 +55,14 @@ int initializeCommonITSTracker()
     layerMaterial[layer] = kITSStaticSurfaceCatalog[layer].material;
   }
 
-  // Gate 4 B3.1: the permanent, non-templated TimeFrame (event data:
-  // vertices, beam state, Bz, CommonTrack/TrackClusterReference storage,
-  // normalized measurements) and the temporary, per-detector
-  // SurfaceTrackingScratch (the common CA scratch/topology containers) is
-  // constructed after the permanent TimeFrame so C++'s reverse declaration
-  // order tears the scratch down first. Neither owner stores a reference to
-  // the other; this function is what binds both.
+  // TimeFrame is the reusable owner of event data and configured workspace;
+  // Tracker initialization installs that workspace before the kernel seam is
+  // used.
   TimeFrame frame;
-  SurfaceTrackingScratch scratch;
 
   auto pool = std::make_shared<BoundedMemoryResource>();
-  scratch.setMemoryPool(pool);
   TrackerTraits traits;
   traits.setMemoryPool(pool);
-  traits.adoptScratch(&scratch);
   traits.adoptFrame(&frame);
   traits.updateTrackingParameters(parameters);
   std::shared_ptr<tbb::task_arena> arena;
@@ -84,7 +76,6 @@ int initializeCommonITSTracker()
   }
 
   Tracker tracker{&traits};
-  tracker.adoptScratch(scratch);
   tracker.setSource(ClusterSourceId{0});
   TrackerInitialization configuration;
   configuration.catalog = SurfaceCatalogView{kITSStaticSurfaceCatalog.data(), static_cast<uint32_t>(kITSStaticSurfaceCatalog.size())};
@@ -114,7 +105,6 @@ int initializeCommonITSTracker()
   if (capacity == nullptr) {
     return 6;
   }
-  scratch.adoptPlan(capacity->ownedSurfaces, capacity->transitions, capacity->cells);
   return 0;
 }
 } // namespace

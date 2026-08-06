@@ -5,22 +5,13 @@
 // This software is distributed under the terms of the GNU General Public
 // License v3 (GPL Version 3), copied verbatim in the file "COPYING".
 
-// M6e2 (doc/design/0002-m6-generic-workspace-migration.md): focused coverage
-// for both live ITS common-CA paths -- the standalone interface
-// (ITSMFTTrackingInterfaceITS, o2-its-ca-tracker-workflow) and the
-// combined-workflow participant (SurfacePlanTrackingParticipantITS) -- migrated
-// from SurfaceTrackingScratch/DetectorTraversalBinding onto
-// SurfaceTrackingScratch/SurfacePlanBinding, mirroring the exact technique
-// testM6dMFTMigration.cxx (combined) and testM6e1StandaloneMFTMigration.cxx
-// (standalone) already proved for MFT. This file proves specifically:
-//  - both ITS participants' concrete scratch/binding types actually changed
-//    (compile-time type proof);
-//  - SurfaceTrackingScratch::adoptPlan() is called before any load attempt,
-//    and a scratch that never adopted a plan fails closed (a structured
-//    MultiSourceLoadError, never UB) rather than silently misbehaving;
-//  - ITS load failure, dropped-TF handling, scratch-only reset, and
-//    interface-level resetEvent() all preserve the CommonTrack/sidecar/
-//    scratch contracts already proven for MFT;
+// Focused ITS adapter coverage retained across the workspace ownership move.
+// It proves:
+//  - both ITS adapter participants expose the same borrowed kernel workspace
+//    and binding types (compile-time type proof);
+//  - an unconfigured workspace fails closed before loading;
+//  - ITS load failure, dropped-TF handling, and TimeFrame::resetEvent() all
+//    preserve the CommonTrack/sidecar/workspace contracts;
 //  - the ITS shared-cluster compatibility sidecar (pending/sealed) still
 //    works correctly backed by the new scratch storage;
 //  - the production ITS SurfacePlanBinding construction (real combined
@@ -29,9 +20,8 @@
 //    transition/cell slot counts and owned-surface indices the old
 //    DetectorTraversalBinding construction would have, both for the
 //    combined leg and for standalone-vs-combined compact-slot agreement;
-//  - standalone ITS, combined ITS, standalone MFT, and combined MFT each own
-//    an independent SurfaceTrackingScratch instance with no cross-leg state
-//    leakage;
+//  - source-qualified workspaces remain isolated while grouped under their
+//    owning TimeFrame;
 //  - no detector-specific switch was reintroduced into SurfacePlanBinding
 //    (testSurfacePlanBindingNoDetectorDependency.cxx already grep-verifies
 //    this generically; this file adds one direct compile-time proof that
@@ -237,7 +227,7 @@ BOOST_AUTO_TEST_CASE(AtomicITSLoadFailureLeavesSharedTimeFrameAndBothParticipant
 
 // --- 4: ITS-only reset isolation ----------------------------------------------
 
-BOOST_AUTO_TEST_CASE(ITSOnlyResetDoesNotMutateTimeFrameOrMFTScratch)
+BOOST_AUTO_TEST_CASE(TimeFrameResetClearsConfiguredWorkspacesAndPreservesFrameState)
 {
   auto participants = makeSet();
   participants.setMemoryPool(std::make_shared<o2::its::BoundedMemoryResource>());
@@ -253,20 +243,14 @@ BOOST_AUTO_TEST_CASE(ITSOnlyResetDoesNotMutateTimeFrameOrMFTScratch)
   mftParticipantScratch.getUnsortedClusters()[0].emplace_back(4.f, 5.f, 6.f, 0);
   const auto itsPlanSurfaces = itsParticipantScratch.getNOwnedSurfaces();
 
-  // eventReset() on the ITS TrackingParticipant interface only -- never
-  // touches `frame` and, by construction (two independent participant
-  // objects, each owning its own scratch instance), cannot reach MFT's own
-  // scratch either.
-  TrackingParticipant& itsParticipant = *participants.schedule()[0];
-  BOOST_REQUIRE(itsParticipant.id() == ParticipantId{0});
-  itsParticipant.eventReset(frame);
+  const auto resetCount = frame.getEventResetCount();
+  frame.resetEvent();
 
+  BOOST_CHECK_EQUAL(frame.getEventResetCount(), resetCount + 1);
   BOOST_CHECK(itsParticipantScratch.getUnsortedClusters()[0].empty());
-  BOOST_CHECK_EQUAL(itsParticipantScratch.getNOwnedSurfaces(), itsPlanSurfaces); // reset() never un-adopts the plan
+  BOOST_CHECK_EQUAL(itsParticipantScratch.getNOwnedSurfaces(), itsPlanSurfaces); // resetEvent() preserves configured capacity
 
-  // MFT's own scratch and the shared TimeFrame are both completely
-  // unaffected.
-  BOOST_CHECK_EQUAL(mftParticipantScratch.getUnsortedClusters()[0].size(), 1u);
+  BOOST_CHECK(mftParticipantScratch.getUnsortedClusters()[0].empty());
   BOOST_CHECK_EQUAL(frame.getBz(), 5.f);
   BOOST_CHECK_EQUAL(frame.getBeamX(), 1.f);
 }

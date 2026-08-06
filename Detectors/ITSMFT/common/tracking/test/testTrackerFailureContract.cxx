@@ -364,7 +364,7 @@ struct RigT {
   // Stages one pending sidecar entry via the same transactional API
   // publishCommonTrackShadow() uses, and one CommonTrack/TrackClusterReference
   // pair directly on `frame` -- deliberately not through a real CA seed (out
-  // of scope here): only frame.wipe()'s unconditional clear of these two
+  // of scope here): only frame.resetEvent()'s unconditional clear of these two
   // containers, and clustersToTracks()'s existing sidecar `.clear()` call,
   // are under test.
   void stageStaleState()

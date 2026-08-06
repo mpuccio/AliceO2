@@ -84,7 +84,7 @@ static_assert(offsetof(TrackClusterReference, index) == 4);
 //
 // Lifetime: track-cluster-reference storage and CommonTrack storage are
 // TimeFrame event data. Both are cleared together with every other
-// per-event CA artefact by TimeFrame::wipe(), and are also cleared together,
+// per-event CA artefact by TimeFrame::resetEvent(), and are also cleared together,
 // in the same successful commit, whenever TimeFrame::loadNormalizedSource()
 // replaces the normalized frame they were built against (a stale
 // CommonTrack/trackClusterIndices pair referencing measurements from a

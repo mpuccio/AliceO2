@@ -328,13 +328,13 @@ struct StandaloneRun {
   std::vector<TrackingParameters> params;
   std::shared_ptr<BoundedMemoryResource> pool = std::make_shared<BoundedMemoryResource>();
   SurfacePlanTrackingParticipant<NLayers> participant{ParticipantId{0}, ClusterSourceId{0}};
-  SurfaceTrackingScratch& scratch;
+  SurfaceTrackingScratch* scratch = nullptr;
   std::vector<SurfaceDescriptor> catalog;
   TrackingResult result;
 
   StandaloneRun(o2::detectors::DetID::ID det, SurfaceKind kind,
                 const TrackingParameters& singleParams, const std::vector<DecodedCluster>& decoded)
-    : params{singleParams}, scratch(participant.getScratch())
+    : params{singleParams}
   {
     const auto orderedSurfaces = ordered(0, NLayers);
     catalog.reserve(NLayers);
@@ -366,6 +366,7 @@ struct StandaloneRun {
     configuration.iterations.push_back(std::move(iteration));
     const auto configured = participant.initialize(frame, configuration);
     BOOST_REQUIRE(configured.ok());
+    scratch = &participant.getScratch();
     participant.setNThreads(1);
     participant.setBz(Bz);
 
@@ -377,7 +378,7 @@ struct StandaloneRun {
     }
     const std::vector<ROFRecord> rofs{ROFRecord{{100, 5}, 0, 0, static_cast<int>(compact.size())}};
     PrescribedDecoder decoder{det, kind, decoded};
-    const auto load = scratch.loadNormalizedSource(frame, decoder, o2::InteractionRecord{50, 5}, ROFTimingConfig{40, 0, 0, 0},
+    const auto load = scratch->loadNormalizedSource(frame, decoder, o2::InteractionRecord{50, 5}, ROFTimingConfig{40, 0, 0, 0},
                                                    compact, patterns, rofs, &dict(), nullptr, det,
                                                    gsl::span<const SurfaceId>{frame.getGraph(0).getOrderedSurfaces()},
                                                    frame.getGraph(0).getSurfaceCatalog());
@@ -401,7 +402,7 @@ struct StandaloneRun {
     for (int layer = 0; layer < NLayers; ++layer) {
       mask.setROFsEnabled(layer, 0, 1, 1);
     }
-    scratch.setROFViews(RuntimeROFViews{rofTable.getView(), vtxTable.getView(), mask.getView(), {}});
+    scratch->setROFViews(RuntimeROFViews{rofTable.getView(), vtxTable.getView(), mask.getView(), {}});
     participant.configureRofTables(ROFTimingConfig{40, 0, 0, 0}, 1);
     const auto tracking = participant.track(frame);
     result.outcome = tracking.outcome == ParticipantOutcome::Success ? TrackingOutcome::Success : TrackingOutcome::RecoverableDropped;
@@ -665,10 +666,10 @@ BOOST_AUTO_TEST_CASE(ITSAndMFTAcceptedResultsReproduceStandaloneCountsInOneCombi
   // clears the per-transition tracklet arrays once it has consumed them,
   // TrackerTraits.cxx) would diverge from the independently-built,
   // single-detector-catalog standalone references.
-  BOOST_CHECK_EQUAL(composer.getITSScratch().getNumberOfTracklets(), standaloneIts.scratch.getNumberOfTracklets());
-  BOOST_CHECK_EQUAL(composer.getITSScratch().getNumberOfCells(), standaloneIts.scratch.getNumberOfCells());
-  BOOST_CHECK_EQUAL(composer.getMFTScratch().getNumberOfTracklets(), standaloneMft.scratch.getNumberOfTracklets());
-  BOOST_CHECK_EQUAL(composer.getMFTScratch().getNumberOfCells(), standaloneMft.scratch.getNumberOfCells());
+  BOOST_CHECK_EQUAL(composer.getITSScratch().getNumberOfTracklets(), standaloneIts.scratch->getNumberOfTracklets());
+  BOOST_CHECK_EQUAL(composer.getITSScratch().getNumberOfCells(), standaloneIts.scratch->getNumberOfCells());
+  BOOST_CHECK_EQUAL(composer.getMFTScratch().getNumberOfTracklets(), standaloneMft.scratch->getNumberOfTracklets());
+  BOOST_CHECK_EQUAL(composer.getMFTScratch().getNumberOfCells(), standaloneMft.scratch->getNumberOfCells());
   BOOST_CHECK_GT(composer.getITSScratch().getNumberOfCells(), 0u);
   BOOST_CHECK_GT(composer.getMFTScratch().getNumberOfCells(), 0u);
 
@@ -786,10 +787,8 @@ BOOST_AUTO_TEST_CASE(MFTTrackingFailureAfterITSSuccessStillResetsBothScratches)
   const auto mftSource = makeSource(ClusterSourceId{1}, o2::detectors::DetID::MFT, mftSurfaces, mftDecoder, mftCompact, mftPatterns, mftRofs, mftClusters);
 
   // ITS runs (and would succeed) first; MFT's own MaxMemory is exhausted
-  // immediately, so its Tracker<MFTNLayers>::clustersToTracks() returns
-  // RecoverableDropped. The composition must still reset ITS's own scratch
-  // -- Tracker<MFTNLayers>'s own internal recovery only resets its own
-  // scratch plus the shared TimeFrame, never a sibling detector's scratch.
+  // immediately, so its Tracker returns RecoverableDropped. The composition
+  // must reset the entire frame-owned generic event state atomically.
   auto mftParams = makeMftParams();
   mftParams.MaxMemory = 1;
   mftParams.DropTFUponFailure = true;

@@ -9,15 +9,15 @@
 // SurfaceTrackingScratch split: TimeFrame lifecycle and
 // transactional legacy backfill.
 //
-// A. Wipe lifecycle: TimeFrame::wipe() must unconditionally clear the
+// A. Reset lifecycle: TimeFrame::resetEvent() must unconditionally clear the
 //    normalized owner (mNormalizedFrame) associated by
 //    SurfaceTrackingScratch::loadNormalizedSource() -- every
-//    normalized accessor obtained *after* wipe() must report empty/zero
-//    content. This test never dereferences a view obtained before wipe():
+//    normalized accessor obtained *after* resetEvent() must report empty/zero
+//    content. This test never dereferences a view obtained before resetEvent():
 //    every post-wipe check re-obtains its accessor. (Gate 4 B3.1: neither
 //    TimeFrame nor SurfaceTrackingScratch stores mDetId at all any
 //    more -- callers pass the detector explicitly to every call that needs
-//    it -- so there is nothing detector-identity-shaped left for wipe() to
+//    it -- so there is nothing detector-identity-shaped left for resetEvent() to
 //    preserve or clear.)
 //
 // B. Strong exception transactionality: the owner-level load operation
@@ -410,7 +410,7 @@ BOOST_AUTO_TEST_CASE(WipeClearsNormalizedFrameButPreservesDetId)
 
   // Gate 4 B3.1: neither owner stores mDetId any more -- the plan lives on
   // `plan` above, entirely outside both TimeFrame and LegacyTrackerScratch,
-  // so wipe() has no detector-identity state to preserve or clear.
+  // so resetEvent() has no detector-identity state to preserve or clear.
 }
 
 // --- B. Strong exception transactionality ------------------------------

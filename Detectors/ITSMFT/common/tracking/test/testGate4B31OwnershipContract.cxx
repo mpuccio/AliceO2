@@ -5,23 +5,22 @@
 // This software is distributed under the terms of the GNU General Public
 // License v3 (GPL Version 3), copied verbatim in the file "COPYING".
 
-// Gate 4 B3.1 acceptance tests: the accepted revised design's ownership,
-// reset, and transactional-load contracts for the split between the
-// permanent, non-templated TimeFrame (ITSMFTTracking/TimeFrame.h) and the
-// temporary, per-detector SurfaceTrackingScratch
-// (ITSMFTTracking/SurfaceTrackingScratch.h). This file covers exactly the
-// acceptance tests the implementation request enumerated that are not
-// already, incidentally, covered by the pre-existing suite migrated onto
-// the new split (testTimeFrameLifecycle.cxx, testTimeFrameNormalizedSource.cxx,
-// testTimeFrameCovarianceLifecycle.cxx, testTimeFrameDetectorLayouts.cxx,
-// testTrackingInterfaceLoadFailureContract.cxx, testMFTNormalizedRefit.cxx):
-//   1. reset() clears scratch-owned state only; TimeFrame content
+// Gate 4 ownership tests retained for the lower-level scratch staging seam.
+// Production event state is owned and reset by the non-templated TimeFrame;
+// these fixtures exercise scratch-local allocator/backfill behavior and the
+// public kernel seam without treating a standalone scratch as a live event
+// owner. The remaining cases cover contracts not already exercised by the
+// migrated TimeFrame tests (testTimeFrameLifecycle.cxx,
+// testTimeFrameNormalizedSource.cxx, testTimeFrameCovarianceLifecycle.cxx,
+// testTimeFrameDetectorLayouts.cxx, testTrackingInterfaceLoadFailureContract.cxx,
+// testMFTNormalizedRefit.cxx):
+//   1. reset() clears a standalone scratch fixture only; TimeFrame content
 //      (CommonTracks, vertices) is untouched.
-//   2. The owner-level reset helper resetTimeFrameEvent() -- what
-//      ITSMFTTrackingInterface<NLayers>::resetEvent() trivially wraps, see
-//      TrackingInterface.h -- clears both owners.
-//   3. Two scratches (<7>, <10>) bound to one shared TimeFrame: resetting
-//      one scratch never touches the other scratch or the shared frame.
+//   2. TimeFrame::resetEvent() is the owner-level operation that clears frame
+//      event data and configured workspaces.
+//   3. Two standalone scratch fixtures can be isolated while testing the
+//      lower-level kernel seam; production configured workspaces are grouped
+//      under their owning TimeFrame.
 //   4. An allocation failure injected into the scratch-side legacy backfill
 //      staging, after the TimeFrame-side normalized decode has already
 //      succeeded, leaves both live owners exactly at their pre-load state.
@@ -86,8 +85,8 @@ struct FieldFixture {
 BOOST_GLOBAL_FIXTURE(FieldFixture);
 
 // --- Compile-time proof (test 5): TimeFrame is a plain, non-templated
-// type; SurfaceTrackingScratch remains the plan-sized scratch
-// owner. If a `template <int NLayers> struct TimeFrame` regression were
+// type; SurfaceTrackingScratch remains the plan-sized kernel workspace
+// implementation type. If a `template <int NLayers> struct TimeFrame` regression were
 // ever reintroduced, a bare `TimeFrame` (used here and by every migrated
 // production/test call site, e.g. testTimeFrameLifecycle.cxx) would no
 // longer name a complete type, and these static_asserts -- along with

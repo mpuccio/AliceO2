@@ -19,7 +19,7 @@
 //    measurement's own surface matches the reference it was resolved from;
 //  - that a successful TimeFrame::loadNormalizedSource() reload clears
 //    CommonTrack/trackClusterIndices storage, and a failed one preserves it;
-//  - that TimeFrame::wipe() invalidates CommonTrack/trackClusterIndices
+//  - that TimeFrame::resetEvent() invalidates CommonTrack/trackClusterIndices
 //    storage together;
 //  - that CommonTrack itself has no detector/public-output dependency.
 //
@@ -946,7 +946,7 @@ BOOST_AUTO_TEST_CASE(TimeFrameWipeInvalidatesCommonTracksAndTrackClusterIndicesT
 
   // Reload after wipe: both containers accept new content independently of
   // whatever they held before, confirming they are ordinary per-event state
-  // rather than something wipe() leaves in a half-cleared condition.
+  // rather than something resetEvent() leaves in a half-cleared condition.
   tf.getTrackClusterIndices().push_back(TrackClusterReference{SurfaceId{2}, SurfaceMeasurementIndex{0}});
   CommonTrack reloaded{};
   reloaded.firstClusterRef = 0;

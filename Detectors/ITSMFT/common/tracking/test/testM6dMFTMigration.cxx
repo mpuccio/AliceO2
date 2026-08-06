@@ -5,45 +5,21 @@
 // This software is distributed under the terms of the GNU General Public
 // License v3 (GPL Version 3), copied verbatim in the file "COPYING".
 
-// M6d (doc/design/0002-m6-generic-workspace-migration.md Sec 9) focused
-// tests for the MFT common-CA participant's migration from
-// SurfaceTrackingScratch/DetectorTraversalBinding to
-// SurfaceTrackingScratch/SurfacePlanBinding. Exercises the real production
-// wiring (the workflow-owned application plan, SurfacePlanTrackingParticipantMFT), not a
-// synthetic seam-only fixture -- testSurfacePlanBinding.cxx already covers
-// SurfacePlanBinding's own generic slot-mapping equivalence;
-// testCombinedTrackingComposition.cxx already covers the full load/track/
-// publish composition. This file proves specifically:
-//  - the MFT participant's concrete scratch/binding types actually changed
-//    (compile-time type proof, not just behavior);
+// Focused MFT adapter coverage for the source-qualified plan and the
+// TimeFrame-owned workspace. Exercises real production participant wiring,
+// not a synthetic seam-only fixture. This file proves specifically:
+//  - the MFT participant's concrete scratch/binding types remain the intended
+//    kernel seam (compile-time type proof, not just behavior);
 //  - MFT load failure remains atomic across the ITS/MFT participant pair;
-//  - resetting only MFT's scratch never mutates TimeFrame or ITS's own
-//    scratch (two independent instances, same concrete type since M6e2);
+//  - one TimeFrame reset clears both source workspaces while preserving their
+//    configured capacities;
 //  - the production MFT SurfacePlanBinding construction (real combined
 //    catalog, real ClusterSourceId{1}/SurfaceKind::Disk/
 //    TransitionPolicyTag::DiskDisk parameters) resolves to the same
 //    transition/cell slot counts and owned-surface indices the old
 //    DetectorTraversalBinding construction at the same parameters would
 //    have;
-//  - the MFT publication/sidecar export path still works with the new
-//    scratch type backing tracking;
-//  - ITS and MFT scratch storage stay isolated during the coexistence
-//    phase (two independent SurfaceTrackingScratch instances, never
-//    cross-referenced).
-//
-// M6e2 correction: at M6d/M6e1 time, ITS was still SurfaceTrackingScratch/
-// DetectorTraversalBinding-backed, so this file's original "1/2: compile-time
-// type proof" section asserted ITS's types stayed byte-for-byte unchanged --
-// a genuine invariant at the time. M6e2 (doc/design/0002-m6-generic-workspace-
-// migration.md, M6e2 section) migrated the combined-workflow ITS participant
-// to SurfaceTrackingScratch/SurfacePlanBinding too, so that specific claim is
-// now obsolete and the assertions below were updated to match: both
-// participants share the direct SurfaceTrackingScratch/SurfacePlanBinding
-// types today (two independent
-// instances -- see testM6e2ITSWorkspaceMigration.cxx for the dedicated ITS
-// coexistence/isolation coverage this milestone adds), and only the MFT-
-// specific behavioral coverage in this file's remaining test cases is still
-// this file's own scope.
+//  - the MFT publication/sidecar export path still works at the adapter edge.
 
 #define BOOST_TEST_MODULE ITSMFT M6dMFTMigration
 #define BOOST_TEST_MAIN
@@ -218,8 +194,8 @@ BOOST_AUTO_TEST_CASE(AtomicMFTLoadFailureLeavesSharedTimeFrameAndBothParticipant
   BOOST_CHECK(result.source == ClusterSourceId{0});
   BOOST_CHECK(result.error == MultiSourceLoadError::InvalidLayerMapping);
 
-  // Nothing committed anywhere: not the shared normalized frame, not ITS's
-  // own scratch (its own stage() would have succeeded individually, exactly
+  // Nothing committed anywhere: not the shared normalized frame, not the
+  // already-staged ITS workspace (its own stage() would have succeeded individually, exactly
   // the same "earlier participant's target left untouched" property
   // testMultiSourceTimeFrameLoader.cxx proves generically -- this is that
   // same property proven across the real, differently-typed ITS/MFT pair).
@@ -230,7 +206,7 @@ BOOST_AUTO_TEST_CASE(AtomicMFTLoadFailureLeavesSharedTimeFrameAndBothParticipant
 
 // --- 4: MFT-only reset isolation ---------------------------------------------
 
-BOOST_AUTO_TEST_CASE(MFTOnlyResetDoesNotMutateTimeFrameOrITSScratch)
+BOOST_AUTO_TEST_CASE(TimeFrameResetClearsConfiguredWorkspacesAndPreservesFrameState)
 {
   auto participants = makeSet();
   // Real production code (CombinedCATrackerSpec.cxx) always calls this
@@ -256,21 +232,14 @@ BOOST_AUTO_TEST_CASE(MFTOnlyResetDoesNotMutateTimeFrameOrITSScratch)
   mftParticipantScratch.getUnsortedClusters()[0].emplace_back(4.f, 5.f, 6.f, 0);
   const auto mftPlanSurfaces = mftParticipantScratch.getNOwnedSurfaces();
 
-  // eventReset() on the MFT TrackingParticipant interface only -- never
-  // touches `frame` (TrackingParticipant.h's own contract) and, by
-  // construction (the workflow application plan composes two independent
-  // participant objects), cannot reach
-  // ITS's own scratch either.
-  TrackingParticipant& mftParticipant = *participants.schedule()[1];
-  BOOST_REQUIRE(mftParticipant.id() == ParticipantId{1});
-  mftParticipant.eventReset(frame);
+  const auto resetCount = frame.getEventResetCount();
+  frame.resetEvent();
 
   BOOST_CHECK(mftParticipantScratch.getUnsortedClusters()[0].empty());
   BOOST_CHECK_EQUAL(mftParticipantScratch.getNOwnedSurfaces(), mftPlanSurfaces); // reset() never un-adopts the plan
 
-  // ITS's own scratch and the shared TimeFrame are both completely
-  // unaffected.
-  BOOST_CHECK_EQUAL(itsParticipantScratch.getUnsortedClusters()[0].size(), 1u);
+  BOOST_CHECK_EQUAL(frame.getEventResetCount(), resetCount + 1);
+  BOOST_CHECK(itsParticipantScratch.getUnsortedClusters()[0].empty());
   BOOST_CHECK_EQUAL(frame.getBz(), 5.f);
   BOOST_CHECK_EQUAL(frame.getBeamX(), 1.f);
 }
