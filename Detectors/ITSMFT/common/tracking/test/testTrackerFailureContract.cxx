@@ -5,7 +5,7 @@
 // This software is distributed under the terms of the GNU General Public
 // License v3 (GPL Version 3), copied verbatim in the file "COPYING".
 
-// Gate 3 common-CA failure contract: Tracker::clustersToTracks()
+// Tracker failure contract: Tracker::run()
 // exception classification, wipe-on-every-failure, and the exact drop
 // sentinel.
 //
@@ -168,10 +168,10 @@ const TopologyDictionary& dict()
 // o2::base::Propagator singleton on first use, which in turn requires
 // TGeoGlobalMagField to already hold a real o2::field::MagneticField
 // object -- with none set (the state of every other test in this suite,
-// none of which calls clustersToTracks() end to end), Propagator falls
+// none of which calls Tracker::run() end to end), Propagator falls
 // back to a legacy FairRunAna singleton that also does not exist in this
 // process and segfaults dereferencing it. Only the tests that expect a
-// genuinely successful clustersToTracks() run (valid empty input,
+// genuinely successful Tracker::run() (valid empty input,
 // continued processing after a drop) reach findRoads(); the
 // structural/recoverable-failure tests throw/return before ever getting
 // there and do not need this. A trivial default-constructed
@@ -284,7 +284,7 @@ std::vector<TrackingParameters> makeTwoIterationITSParams(bool dropTFUponFailure
 
 // Deterministic injection seam for the std::bad_alloc and
 // unclassified-std::exception cases: TrackerTraits::computeLayerTracklets()
-// is virtual and is the first traversal stage Tracker::clustersToTracks()
+// is virtual and is the first traversal stage Tracker::run()
 // calls after initialiseTimeFrame() succeeds (see Tracker.cxx's do/while
 // loop), so overriding it to throw immediately exercises Tracker.cxx's
 // catch chain deterministically -- without provoking real host OOM, and
@@ -339,7 +339,7 @@ class TestTrackingOperationAdapter final : public TrackingOperationAdapter
 
 // Bundles a TimeFrame (non-templated), a TraitsT/Tracker pair, and a bounded
 // memory pool
-// -- the minimal wiring Tracker::clustersToTracks()
+// -- the minimal wiring Tracker::run()
 // needs to run at all (task arena included: TrackerTraits::
 // computeLayerTracklets() dereferences the frame-owned workspace, even though
 // structural-failure cases never reach that far). TraitsT defaults to the
@@ -351,21 +351,19 @@ struct RigT {
   explicit RigT(bool dropTFUponFailure, size_t maxMemory = std::numeric_limits<size_t>::max())
     : pool(std::make_shared<BoundedMemoryResource>()),
       params(makeOneIterationITSParams(dropTFUponFailure, maxMemory)),
-      tracker(&traits)
+      tracker()
   {
     traits.setMemoryPool(pool);
     traits.setNThreads(1, arena);
-    tracker.adoptFrame(frame);
-    tracker.setBz(0.5f);
-    // The operation adapter is passed to each tracking invocation. It is
-    // deliberately not retained by the non-templated core.
+    tracker.setOperationAdapter(&operationAdapter);
+    frame.setBz(0.5f);
   }
 
   // Stages one pending sidecar entry via the same transactional API
   // publishCommonTrackShadow() uses, and one CommonTrack/TrackClusterReference
   // pair directly on `frame` -- deliberately not through a real CA seed (out
   // of scope here): only frame.resetEvent()'s unconditional clear of these two
-  // containers, and clustersToTracks()'s existing sidecar `.clear()` call,
+  // containers, and Tracker::run()'s adapter reset call,
   // are under test.
   void stageStaleState()
   {
@@ -556,7 +554,7 @@ BOOST_AUTO_TEST_CASE(RecoverableFailureDroppedReturnsExactSentinelAndWipes)
 
   rig.forceMemoryLimitAtCurrentUsage();
 
-  const auto result = rig.tracker.clustersToTracks(rig.operationAdapter);
+  const auto result = rig.tracker.run(rig.frame, rig.traits);
 
   BOOST_CHECK(result.outcome == TrackingOutcome::RecoverableDropped);
   BOOST_CHECK_EQUAL(rig.frame.getNormalizedFrame().getTotalMeasurements(), 0u);
@@ -573,7 +571,7 @@ BOOST_AUTO_TEST_CASE(RecoverableFailureNotDroppedRethrowsButStillWipesFirst)
 
   rig.forceMemoryLimitAtCurrentUsage();
 
-  BOOST_CHECK_THROW(rig.tracker.clustersToTracks(rig.operationAdapter), BoundedMemoryResource::MemoryLimitExceeded);
+  BOOST_CHECK_THROW(rig.tracker.run(rig.frame, rig.traits), BoundedMemoryResource::MemoryLimitExceeded);
 
   // Wipe must have already happened before the exception propagated -- not
   // "the process is going down anyway".
@@ -597,7 +595,7 @@ BOOST_AUTO_TEST_CASE(BadAllocDroppedReturnsExactSentinelAndWipes)
   BOOST_REQUIRE(rig.frame.getNormalizedFrame().getTotalMeasurements() > 0u);
 
   rig.traits.failure = InjectedFailure::BadAlloc;
-  const auto result = rig.tracker.clustersToTracks(rig.operationAdapter);
+  const auto result = rig.tracker.run(rig.frame, rig.traits);
 
   BOOST_CHECK(result.outcome == TrackingOutcome::RecoverableDropped);
   BOOST_CHECK_EQUAL(rig.frame.getNormalizedFrame().getTotalMeasurements(), 0u);
@@ -612,7 +610,7 @@ BOOST_AUTO_TEST_CASE(BadAllocNotDroppedRethrowsButStillWipesFirst)
   BOOST_REQUIRE(rig.frame.getNormalizedFrame().getTotalMeasurements() > 0u);
 
   rig.traits.failure = InjectedFailure::BadAlloc;
-  BOOST_CHECK_THROW(rig.tracker.clustersToTracks(rig.operationAdapter), std::bad_alloc);
+  BOOST_CHECK_THROW(rig.tracker.run(rig.frame, rig.traits), std::bad_alloc);
 
   BOOST_CHECK_EQUAL(rig.frame.getNormalizedFrame().getTotalMeasurements(), 0u);
   BOOST_CHECK(rig.frame.getCommonTracks().empty());
@@ -634,7 +632,7 @@ BOOST_AUTO_TEST_CASE(UnclassifiedExceptionAlwaysRethrowsAndWipesRegardlessOfFlag
     BOOST_REQUIRE(rig.frame.getNormalizedFrame().getTotalMeasurements() > 0u);
 
     rig.traits.failure = InjectedFailure::UnclassifiedRuntimeError;
-    BOOST_CHECK_THROW(rig.tracker.clustersToTracks(rig.operationAdapter), std::runtime_error);
+    BOOST_CHECK_THROW(rig.tracker.run(rig.frame, rig.traits), std::runtime_error);
 
     BOOST_CHECK_EQUAL(rig.frame.getNormalizedFrame().getTotalMeasurements(), 0u);
     BOOST_CHECK(rig.frame.getCommonTracks().empty());
@@ -662,7 +660,7 @@ BOOST_AUTO_TEST_CASE(InvalidIndexTableConfigurationAlwaysRethrowsAndWipesRegardl
 
     bool threw = false;
     try {
-      rig.tracker.clustersToTracks(rig.operationAdapter);
+      rig.tracker.run(rig.frame, rig.traits);
     } catch (const TraversalException& e) {
       threw = true;
       BOOST_CHECK(e.getReason() == TraversalFailureReason::InvalidIndexTableConfiguration);
@@ -685,7 +683,7 @@ BOOST_AUTO_TEST_CASE(IndexTableConfigurationMismatchAlwaysRethrowsAndWipesRegard
 
     bool threw = false;
     try {
-      rig.tracker.clustersToTracks(rig.operationAdapter);
+      rig.tracker.run(rig.frame, rig.traits);
     } catch (const TraversalException& e) {
       threw = true;
       BOOST_CHECK(e.getReason() == TraversalFailureReason::IndexTableConfigurationMismatch);
@@ -707,7 +705,7 @@ BOOST_AUTO_TEST_CASE(ValidEmptyInputCompletesWithoutErrorAndProducesNoTracks)
   BOOST_REQUIRE_EQUAL(rig.frame.getNormalizedFrame().getTotalMeasurements(), 0u);
 
   TrackingResult result{TrackingOutcome::Structural, std::numeric_limits<float>::quiet_NaN()};
-  BOOST_CHECK_NO_THROW(result = rig.tracker.clustersToTracks(rig.operationAdapter));
+  BOOST_CHECK_NO_THROW(result = rig.tracker.run(rig.frame, rig.traits));
 
   BOOST_CHECK(result.outcome == TrackingOutcome::Success);
   BOOST_CHECK(result.elapsedMs >= 0.f);
@@ -717,8 +715,8 @@ BOOST_AUTO_TEST_CASE(ValidEmptyInputCompletesWithoutErrorAndProducesNoTracks)
 // --- Direct outcome classification ----------------------------------------
 //
 // TrackingOutcome::Structural is part of this type's vocabulary for a future
-// caller that catches clustersToTracks()'s propagated exception itself (a
-// combined coordinator) -- clustersToTracks() never constructs it via a
+// caller that catches Tracker::run()'s propagated exception itself -- run()
+// never constructs it via a
 // normal return, since every structural/unclassified/non-dropped-recoverable
 // failure keeps the exact "retain exceptions" contract already proven above
 // (UnclassifiedExceptionAlwaysRethrowsAndWipesRegardlessOfFlag,
@@ -743,7 +741,7 @@ BOOST_AUTO_TEST_CASE(TrackingOutcomeValuesAreDistinct)
 
 // --- No stale TimeFrame/CommonTrack/sidecar state survives -----------------
 //
-// Both non-success return paths from clustersToTracks() (structural-rethrow
+// Both non-success return paths from Tracker::run() (structural-rethrow
 // and recoverable-dropped) must leave the shared TimeFrame's CommonTrack
 // storage and the tracker's adopted compatibility sidecar exactly as empty
 // as a freshly wiped/cleared TimeFrame would -- not merely the normalized
@@ -757,7 +755,7 @@ BOOST_AUTO_TEST_CASE(RecoverableDroppedLeavesNoStaleCommonTrackOrSidecarState)
   rig.stageStaleState();
 
   rig.forceMemoryLimitAtCurrentUsage();
-  const auto result = rig.tracker.clustersToTracks(rig.operationAdapter);
+  const auto result = rig.tracker.run(rig.frame, rig.traits);
 
   BOOST_CHECK(result.outcome == TrackingOutcome::RecoverableDropped);
   BOOST_CHECK(rig.frame.getCommonTracks().empty());
@@ -774,7 +772,7 @@ BOOST_AUTO_TEST_CASE(StructuralFailureLeavesNoStaleCommonTrackOrSidecarState)
     rig.stageStaleState();
 
     rig.traits.failure = InjectedFailure::UnclassifiedRuntimeError;
-    BOOST_CHECK_THROW(rig.tracker.clustersToTracks(rig.operationAdapter), std::runtime_error);
+    BOOST_CHECK_THROW(rig.tracker.run(rig.frame, rig.traits), std::runtime_error);
 
     BOOST_CHECK(rig.frame.getCommonTracks().empty());
     BOOST_CHECK(rig.frame.getTrackClusterIndices().empty());
@@ -792,7 +790,7 @@ BOOST_AUTO_TEST_CASE(TrackerRemainsUsableAfterADroppedTimeFrame)
   rig.loadSource(makeFixture());
 
   rig.forceMemoryLimitAtCurrentUsage();
-  const auto dropped = rig.tracker.clustersToTracks(rig.operationAdapter);
+  const auto dropped = rig.tracker.run(rig.frame, rig.traits);
   BOOST_REQUIRE(dropped.outcome == TrackingOutcome::RecoverableDropped);
 
   // Restore headroom and process a fresh (here, empty) TimeFrame on the
@@ -802,7 +800,7 @@ BOOST_AUTO_TEST_CASE(TrackerRemainsUsableAfterADroppedTimeFrame)
   rig.loadSource(emptyFixture());
 
   TrackingResult result{TrackingOutcome::Structural, std::numeric_limits<float>::quiet_NaN()};
-  BOOST_CHECK_NO_THROW(result = rig.tracker.clustersToTracks(rig.operationAdapter));
+  BOOST_CHECK_NO_THROW(result = rig.tracker.run(rig.frame, rig.traits));
   BOOST_CHECK(result.outcome == TrackingOutcome::Success);
   BOOST_CHECK(result.elapsedMs >= 0.f);
 }

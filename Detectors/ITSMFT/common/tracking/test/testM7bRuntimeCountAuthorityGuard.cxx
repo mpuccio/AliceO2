@@ -119,7 +119,7 @@ std::optional<CountBoundary> classify(const fs::path& path, std::string_view cod
   }
   if (name == "Configuration.h" || name == "SurfaceGraphBuilder.cxx" || name == "MFTFwdTrackHelpers.h" ||
       name == "MFTFwdTrackHelpers.cxx" || name == "SurfaceMeasurement.h" ||
-      name == "SurfacePlanTrackingParticipant.h" || name == "SurfacePlanTrackingParticipant.cxx" ||
+      name == "Tracker.h" || name == "Tracker.cxx" ||
       name == "DetectorPublicationAdapter.h" ||
       name == "DetectorTrackingOperationAdapterSupport.h" ||
       name == "TrackingInterface.h" || name == "TrackingInterface.cxx" || name == "Configuration.cxx" ||

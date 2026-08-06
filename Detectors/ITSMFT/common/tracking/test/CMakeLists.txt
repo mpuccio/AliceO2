@@ -443,11 +443,11 @@ o2_add_test(track-seed
             LABELS "itsmft;tracking"
             PUBLIC_LINK_LIBRARIES O2::ITSMFTTracking)
 
-# Gate 4 M6g: common-CA production and combined-workflow trees must not retain
-# the retired bridge or coordinator; publication/timing state must be visibly
-# owned by the combined DPL task.
-o2_add_test(m6g-participant-ownership-guard
-            SOURCES testM6gParticipantOwnershipGuard.cxx
+# Gate 4 M6g/L8: Tracker is the sole generic orchestration component; the
+# retired engine/participant composition must not reappear in production or
+# combined-workflow sources.
+o2_add_test(l8-tracker-orchestration-guard
+            SOURCES testL8TrackerOrchestrationGuard.cxx
             COMPONENT_NAME itsmft-tracking
             LABELS "itsmft;tracking"
             PUBLIC_LINK_LIBRARIES O2::ITSMFTTracking)
@@ -504,20 +504,6 @@ o2_add_test(ioutils-syserror-ownership
             PUBLIC_LINK_LIBRARIES O2::ITSMFTTracking
                                   O2::MFTTracking)
 
-# GenericTrackingEngineMigration.md M1: the detector-neutral TrackingEngine/
-# TrackingParticipant contract (ADR 0007).
-o2_add_test(tracking-engine-contract
-            SOURCES testTrackingEngineContract.cxx
-            COMPONENT_NAME itsmft-tracking
-            LABELS "itsmft;tracking"
-            PUBLIC_LINK_LIBRARIES O2::ITSMFTTracking)
-
-o2_add_test(tracking-engine-dependency-boundary
-            SOURCES testTrackingEngineDependencyBoundary.cxx
-            COMPONENT_NAME itsmft-tracking
-            LABELS "itsmft;tracking"
-            PUBLIC_LINK_LIBRARIES O2::ITSMFTTracking)
-
 # M3: the combined ITS+MFT load/track/publish composition, ported from the
 # deleted host-only combined coordinator's own test suite.
 o2_add_test(combined-tracking-composition
@@ -555,8 +541,8 @@ o2_add_test(m6e1-standalone-mft-migration
                                   O2::Field)
 
 # M6e2 (doc/design/0002-m6-generic-workspace-migration.md): both live ITS
-# common-CA paths (standalone ITSMFTTrackingInterfaceITS,
-# o2-its-ca-tracker-workflow; combined SurfacePlanTrackingParticipantITS)
+# common-CA paths (standalone ITSMFTTrackingInterfaceITS and
+# o2-its-ca-tracker-workflow)
 # migrated onto SurfaceTrackingScratch/SurfacePlanBinding.
 o2_add_test(m6e2-its-workspace-migration
             SOURCES testM6e2ITSWorkspaceMigration.cxx

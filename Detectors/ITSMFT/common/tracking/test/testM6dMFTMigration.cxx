@@ -6,11 +6,11 @@
 // License v3 (GPL Version 3), copied verbatim in the file "COPYING".
 
 // Focused MFT adapter coverage for the source-qualified plan and the
-// TimeFrame-owned workspace. Exercises real production participant wiring,
+// TimeFrame-owned workspace. Exercises the real production Tracker wiring,
 // not a synthetic seam-only fixture. This file proves specifically:
-//  - the MFT participant's concrete scratch/binding types remain the intended
+//  - the MFT Tracker's concrete scratch/binding types remain the intended
 //    kernel seam (compile-time type proof, not just behavior);
-//  - MFT load failure remains atomic across the ITS/MFT participant pair;
+//  - MFT load failure remains atomic across the ITS/MFT tracker pair;
 //  - one TimeFrame reset clears both source workspaces while preserving their
 //    configured capacities;
 //  - the production MFT SurfacePlanBinding construction (real combined
@@ -39,7 +39,6 @@
 #include "ITSMFTTracking/ClusterSource.h"
 #include "ITSMFTTracking/Configuration.h"
 #include "ITSMFTTracking/SurfaceGraphBuilder.h"
-#include "ITSMFTTracking/SurfacePlanTrackingParticipant.h"
 #include "ITSMFTTracking/MultiSourceTimeFrameLoader.h"
 #include "ITSMFTTracking/StaticDetectorCatalogs.h"
 #include "ITSMFTTracking/SurfaceTrackingScratch.h"
@@ -54,14 +53,9 @@ using namespace o2::itsmft::tracking;
 
 // getScratch() itself proves the actual member type and keeps the production
 // class free of a compatibility alias.
-static_assert(std::is_same_v<decltype(std::declval<SurfacePlanTrackingParticipantMFT&>().getScratch()), SurfaceTrackingScratch&>);
-static_assert(std::is_same_v<decltype(std::declval<SurfacePlanTrackingParticipantITS&>().getScratch()), SurfaceTrackingScratch&>);
-static_assert(std::is_invocable_v<decltype(&SurfacePlanTrackingParticipantMFT::initialize), SurfacePlanTrackingParticipantMFT&, TimeFrame&, const TrackerInitialization&>);
-static_assert(std::is_invocable_v<decltype(&SurfacePlanTrackingParticipantITS::initialize), SurfacePlanTrackingParticipantITS&, TimeFrame&, const TrackerInitialization&>);
-// The workflow-owned application plan exposes the concrete participant
-// scratch types directly; no compatibility set is required.
-static_assert(std::is_same_v<decltype(std::declval<const test::CombinedTrackingParticipantPlan&>().getMFTScratch()), const SurfaceTrackingScratch&>);
-static_assert(std::is_same_v<decltype(std::declval<const test::CombinedTrackingParticipantPlan&>().getITSScratch()), const SurfaceTrackingScratch&>);
+static_assert(std::is_same_v<decltype(std::declval<const test::CombinedTrackingPlan&>().getMFTScratch()), const SurfaceTrackingScratch&>);
+static_assert(std::is_same_v<decltype(std::declval<const test::CombinedTrackingPlan&>().getITSScratch()), const SurfaceTrackingScratch&>);
+static_assert(std::is_invocable_v<decltype(&Tracker::run), Tracker&, TimeFrame&, TrackerTraits&>);
 
 BOOST_AUTO_TEST_CASE(CompileTimeTypeProofsHoldAtRuntimeToo)
 {
@@ -90,10 +84,10 @@ TrackingParameters makeMftParams()
   return p;
 }
 
-test::CombinedTrackingParticipantPlan makeSet()
+test::CombinedTrackingPlan makeSet()
 {
-  return test::CombinedTrackingParticipantPlan{std::vector<TrackingParameters>{makeItsParams()},
-                                               std::vector<TrackingParameters>{makeMftParams()}};
+  return test::CombinedTrackingPlan{std::vector<TrackingParameters>{makeItsParams()},
+                                    std::vector<TrackingParameters>{makeMftParams()}};
 }
 
 std::vector<SurfaceId> orderedRange(uint16_t first, uint16_t count)
@@ -183,8 +177,8 @@ BOOST_AUTO_TEST_CASE(AtomicMFTLoadFailureLeavesSharedTimeFrameAndBothParticipant
   participants.configureRofTables(itsSource, mftSource);
   auto itsInput = itsSource;
   auto mftInput = mftSource;
-  itsInput.rofViews = participants.itsParticipant().getROFViews();
-  mftInput.rofViews = participants.mftParticipant().getROFViews();
+  itsInput.rofViews = participants.getITSROFViews();
+  mftInput.rofViews = participants.getMFTROFViews();
   const std::array<ClusterSourceInput, 2> sources{itsInput, mftInput};
   const auto result = MultiSourceTimeFrameLoader::load(
     frame, gsl::span<const ClusterSourceInput>{sources}, participants.catalogView(), o2::InteractionRecord{50, 5});
@@ -196,8 +190,8 @@ BOOST_AUTO_TEST_CASE(AtomicMFTLoadFailureLeavesSharedTimeFrameAndBothParticipant
   BOOST_CHECK(result.error == MultiSourceLoadError::InvalidLayerMapping);
 
   // Nothing committed anywhere: not the shared normalized frame, not the
-  // already-staged ITS workspace (its own stage() would have succeeded individually, exactly
-  // the same "earlier participant's target left untouched" property
+  // already-staged ITS workspace (its stage() would have succeeded individually, exactly
+  // the same earlier-source target property
   // testMultiSourceTimeFrameLoader.cxx proves generically -- this is that
   // same property proven across the real, differently-typed ITS/MFT pair).
   BOOST_CHECK_EQUAL(frame.getNormalizedFrame().getTotalMeasurements(), 0u);
@@ -368,8 +362,7 @@ BOOST_AUTO_TEST_CASE(MFTSidecarAndPublicationExportRemainValidAfterMigration)
   // requirement 4: "MFT compatibility sidecar ownership" preserved).
   const auto& sidecarBefore = participants.getMFTPublicationCompatibility();
   (void)sidecarBefore;
-  participants.itsParticipant().clearPublicationSidecar();
-  participants.mftParticipant().clearPublicationSidecar();
+  participants.clearPublicationSidecars();
 
   // The publication clock/validity context is workflow-owned. Reproduce the
   // same narrow publication step locally without adding that event state to
@@ -425,8 +418,7 @@ BOOST_AUTO_TEST_CASE(CombinedExecutionKeepsITSAndMFTScratchStorageIsolated)
   // proven in detail above for the MFT direction; this closes the loop for
   // the ITS direction too, at the composed-set level).
   frame.setBz(9.f);
-  TrackingParticipant& itsParticipant = *participants.schedule()[0];
-  itsParticipant.eventReset(frame);
-  BOOST_CHECK_EQUAL(mftScratch.getTotalClusters(), 1); // the mutation just above survives
+  frame.resetEvent();
+  BOOST_CHECK_EQUAL(mftScratch.getTotalClusters(), 0); // one frame reset clears both source workspaces
   BOOST_CHECK_EQUAL(frame.getBz(), 9.f);
 }

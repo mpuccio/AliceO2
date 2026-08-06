@@ -1,7 +1,7 @@
 // Gate 4 M7c sparse-topology and runtime-ROF ownership coverage.
 //
 // The common production scan below has two deliberately narrow adapter-edge
-// exclusions: TrackingInterface and SurfacePlanTrackingParticipant own the
+// exclusions: TrackingInterface remains the
 // frozen fixed-capacity ITS/MFT table builders and immediately expose their
 // non-owning runtime views to SurfaceTrackingScratch. Frozen ITStracking
 // sources are outside this common-tracking scan and remain unchanged.
@@ -52,8 +52,7 @@ bool isAdapterEdge(const fs::path& root, const fs::path& path)
   const auto relative = path.lexically_relative(root).generic_string();
   return relative == "include/ITSMFTTracking/TrackingInterface.h" ||
          relative == "src/TrackingInterface.cxx" ||
-         relative == "include/ITSMFTTracking/SurfacePlanTrackingParticipant.h" ||
-         relative == "src/SurfacePlanTrackingParticipant.cxx";
+         false;
 }
 
 void scanCommonProductionSources(const fs::path& root)

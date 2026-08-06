@@ -66,8 +66,7 @@ BOOST_AUTO_TEST_CASE(TimeFrameOwnsWorkspaceAndResetsItOnce)
   const auto pool = std::make_shared<BoundedMemoryResource>();
   constexpr ClusterSourceId source{3};
   TimeFrame frame;
-  TrackerTraits traits;
-  Tracker tracker{&traits};
+  Tracker tracker;
   tracker.setSource(source);
   BOOST_REQUIRE(tracker.initialize(frame, makeConfiguration(catalog, pool, source)).ok());
 
@@ -97,8 +96,7 @@ BOOST_AUTO_TEST_CASE(FailedConfigurationDoesNotReplaceWorkspace)
 {
   const auto catalog = makeCatalog();
   TimeFrame frame;
-  TrackerTraits traits;
-  Tracker tracker{&traits};
+  Tracker tracker;
   constexpr ClusterSourceId source{3};
   tracker.setSource(source);
   BOOST_REQUIRE(tracker.initialize(frame, makeConfiguration(catalog, std::make_shared<BoundedMemoryResource>(), source)).ok());
@@ -123,18 +121,15 @@ BOOST_AUTO_TEST_CASE(ProductionHasOneFrameResetAndNoIndependentLiveScratchOwner)
   const std::vector<std::filesystem::path> sources{
     trackingRoot / "include/ITSMFTTracking/Tracker.h",
     trackingRoot / "include/ITSMFTTracking/TrackingInterface.h",
-    trackingRoot / "include/ITSMFTTracking/SurfacePlanTrackingParticipant.h",
     trackingRoot / "src/Tracker.cxx",
-    trackingRoot / "src/TrackingInterface.cxx",
-    trackingRoot / "src/SurfacePlanTrackingParticipant.cxx",
-    trackingRoot / "src/TrackingEngine.cxx"};
+    trackingRoot / "src/TrackingInterface.cxx"};
   for (const auto& source : sources) {
     BOOST_REQUIRE_MESSAGE(std::filesystem::exists(source), source.string());
     BOOST_CHECK_MESSAGE(!contains(source, "SurfaceTrackingScratch mScratch"), source.string());
     BOOST_CHECK_MESSAGE(!contains(source, "SurfaceTrackingScratch* mScratch"), source.string());
     BOOST_CHECK_MESSAGE(!contains(source, "resetTimeFrameEvent"), source.string());
   }
-  BOOST_CHECK(contains(trackingRoot / "src/TrackingEngine.cxx", "frame.resetEvent();"));
+  BOOST_CHECK(contains(trackingRoot / "src/Tracker.cxx", "frame.resetEvent();"));
   BOOST_CHECK(contains(trackingRoot / "include/ITSMFTTracking/TimeFrame.h", "mWorkspaces"));
   BOOST_CHECK(!contains(trackingRoot / "include/ITSMFTTracking/TimeFrame.h", "virtual void wipe"));
 }

@@ -58,7 +58,6 @@
 #include "ITSMFTTracking/DecodedCluster.h"
 #include "ITSMFTTracking/SurfaceGraphBuilder.h"
 #include "ITSMFTTracking/IOUtils.h"
-#include "ITSMFTTracking/SurfacePlanTrackingParticipant.h"
 #include "ITSMFTTracking/MultiSourceTimeFrameLoader.h"
 #include "ITSMFTTracking/StaticDetectorCatalogs.h"
 #include "ITSMFTTracking/SurfaceMeasurementAdapters.h"
@@ -72,8 +71,7 @@ using namespace o2::itsmft::tracking;
 
 // --- 1: compile-time type proof ----------------------------------------------
 
-static_assert(std::is_same_v<decltype(std::declval<SurfacePlanTrackingParticipantITS&>().getScratch()), SurfaceTrackingScratch&>);
-static_assert(std::is_invocable_v<decltype(&SurfacePlanTrackingParticipantITS::initialize), SurfacePlanTrackingParticipantITS&, TimeFrame&, const TrackerInitialization&>);
+static_assert(std::is_invocable_v<decltype(&Tracker::run), Tracker&, TimeFrame&, TrackerTraits&>);
 
 static_assert(std::is_same_v<decltype(std::declval<ITSMFTTrackingInterfaceITS&>().getScratch()), SurfaceTrackingScratch&>);
 
@@ -142,10 +140,10 @@ TrackingParameters makeMftParams()
   return p;
 }
 
-test::CombinedTrackingParticipantPlan makeSet()
+test::CombinedTrackingPlan makeSet()
 {
-  return test::CombinedTrackingParticipantPlan{std::vector<TrackingParameters>{makeItsParams()},
-                                               std::vector<TrackingParameters>{makeMftParams()}};
+  return test::CombinedTrackingPlan{std::vector<TrackingParameters>{makeItsParams()},
+                                    std::vector<TrackingParameters>{makeMftParams()}};
 }
 
 std::vector<SurfaceId> orderedRange(uint16_t first, uint16_t count)
@@ -215,8 +213,8 @@ BOOST_AUTO_TEST_CASE(AtomicITSLoadFailureLeavesSharedTimeFrameAndBothParticipant
   participants.configureRofTables(itsSource, mftSource);
   auto itsInput = itsSource;
   auto mftInput = mftSource;
-  itsInput.rofViews = participants.itsParticipant().getROFViews();
-  mftInput.rofViews = participants.mftParticipant().getROFViews();
+  itsInput.rofViews = participants.getITSROFViews();
+  mftInput.rofViews = participants.getMFTROFViews();
   const std::array<ClusterSourceInput, 2> sources{itsInput, mftInput};
   const auto result = MultiSourceTimeFrameLoader::load(
     frame, gsl::span<const ClusterSourceInput>{sources}, participants.catalogView(), o2::InteractionRecord{50, 5});
@@ -369,8 +367,7 @@ BOOST_AUTO_TEST_CASE(ITSSharedClusterCompatibilitySidecarRemainsFunctionalAfterM
   BOOST_CHECK(!sidecar.isSealed());
   BOOST_CHECK_EQUAL(sidecar.pendingSize(), 0u);
 
-  participants.itsParticipant().clearPublicationSidecar();
-  participants.mftParticipant().clearPublicationSidecar();
+  participants.clearPublicationSidecars();
   BOOST_CHECK_EQUAL(sidecar.entries().size(), 0u);
   BOOST_CHECK(!sidecar.isSealed());
 }

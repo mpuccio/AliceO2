@@ -138,10 +138,6 @@ std::optional<ResidualClassification> classifyNLayers(std::string_view relative)
   if (relative == "include/ITSMFTTracking/DetectorPublicationAdapter.h") {
     return ResidualClassification{ResidualKind::AdapterCompatibility, "typed publication sidecar adapter"};
   }
-  if (relative == "include/ITSMFTTracking/SurfacePlanTrackingParticipant.h" ||
-      relative == "src/SurfacePlanTrackingParticipant.cxx") {
-    return ResidualClassification{ResidualKind::AdapterCompatibility, "ITS/MFT participant, ROF, refit, and publication edge"};
-  }
   if (relative == "include/ITSMFTTracking/TrackingInterface.h" ||
       relative == "src/TrackingInterface.cxx") {
     return ResidualClassification{ResidualKind::AdapterCompatibility, "ITS/MFT workflow-facing interface and frozen ROF-table builder"};
@@ -231,15 +227,13 @@ void scanForbiddenProductionVocabulary(const fs::path& root)
 
 void scanCoreBoundary(const fs::path& root)
 {
-  static constexpr std::array<std::string_view, 9> coreFiles{
+  static constexpr std::array<std::string_view, 7> coreFiles{
     "include/ITSMFTTracking/Tracker.h",
     "include/ITSMFTTracking/TrackerTraits.h",
-    "include/ITSMFTTracking/TrackingEngine.h",
-    "include/ITSMFTTracking/TrackingParticipant.h",
     "include/ITSMFTTracking/TrackingOperationAdapter.h",
     "include/ITSMFTTracking/detail/SurfacePlanBinding.h",
     "include/ITSMFTTracking/SurfaceGraph.h",
-    "include/ITSMFTTracking/IndexTableUtils.h",
+    "include/ITSMFTTracking/IndexTableConfiguration.h",
     "src/TrackerTraits.cxx",
   };
   static constexpr std::array<std::string_view, 13> forbidden{
@@ -250,7 +244,6 @@ void scanCoreBoundary(const fs::path& root)
     "ROFVertexLookupTable",
     "ROFMaskTable",
     "TrackITSExt",
-    "MFT"
     "CATrack",
     "DetectorTraits",
     "CATrackType",

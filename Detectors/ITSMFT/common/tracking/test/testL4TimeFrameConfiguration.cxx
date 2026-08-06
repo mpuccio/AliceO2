@@ -69,8 +69,7 @@ BOOST_AUTO_TEST_CASE(ConfigurationCommitIsAtomicAndSourceQualified)
   const auto catalog = makeCatalog();
   auto pool = std::make_shared<BoundedMemoryResource>();
   TimeFrame frame;
-  TrackerTraits traits;
-  Tracker tracker{&traits};
+  Tracker tracker;
   tracker.setSource(ClusterSourceId{3});
 
   auto configuration = makeConfiguration(catalog, pool);
@@ -109,8 +108,7 @@ BOOST_AUTO_TEST_CASE(ResetPreservesStaticConfigurationAndCapacity)
 {
   const auto catalog = makeCatalog();
   TimeFrame frame;
-  TrackerTraits traits;
-  Tracker tracker{&traits};
+  Tracker tracker;
   tracker.setSource(ClusterSourceId{3});
   auto configuration = makeConfiguration(catalog, std::make_shared<BoundedMemoryResource>());
   const auto initialResult = tracker.initialize(frame, configuration);
@@ -133,10 +131,10 @@ BOOST_AUTO_TEST_CASE(ConfigurationOwnershipGuard)
   const std::vector<std::filesystem::path> sources{
     trackingRoot / "include/ITSMFTTracking/Tracker.h",
     trackingRoot / "include/ITSMFTTracking/TrackingInterface.h",
-    trackingRoot / "include/ITSMFTTracking/SurfacePlanTrackingParticipant.h",
+    trackingRoot / "include/ITSMFTTracking/TrackerTraits.h",
     trackingRoot / "src/Tracker.cxx",
     trackingRoot / "src/TrackingInterface.cxx",
-    trackingRoot / "src/SurfacePlanTrackingParticipant.cxx"};
+    trackingRoot / "src/TrackerTraits.cxx"};
   for (const auto& source : sources) {
     BOOST_REQUIRE_MESSAGE(std::filesystem::exists(source), source.string());
     BOOST_CHECK_MESSAGE(!contains(source, "mGraphs;"), source.string());

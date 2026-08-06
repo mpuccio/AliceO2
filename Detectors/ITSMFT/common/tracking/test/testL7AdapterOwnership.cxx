@@ -61,7 +61,7 @@ BOOST_AUTO_TEST_CASE(generic_core_has_no_detector_timing_or_publication_ownershi
     "include/ITSMFTTracking/Tracker.h",
     "include/ITSMFTTracking/TrackerTraits.h",
     "include/ITSMFTTracking/TrackingInterface.h",
-    "include/ITSMFTTracking/SurfacePlanTrackingParticipant.h",
+    "src/Tracker.cxx",
   };
   static constexpr std::array<std::string_view, 10> forbiddenOwnership{
     "ROFOverlapTable<",

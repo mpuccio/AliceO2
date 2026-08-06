@@ -24,20 +24,18 @@
 #include "ITSMFTTracking/MFTPublicationCompatibility.h"
 #include "ITSMFTTracking/MultiSourceTimeFrameLoader.h"
 #include "ITSMFTTracking/StaticDetectorCatalogs.h"
-#include "ITSMFTTracking/SurfacePlanTrackingParticipant.h"
 #include "ITSMFTTracking/TimeFrame.h"
-#include "ITSMFTTracking/TrackingParticipant.h"
+#include "ITSMFTTracking/Tracker.h"
+#include "ITSMFTTracking/TrackerTraits.h"
+#include "ITSMFTTracking/DetectorTrackingOperationAdapterSupport.h"
 #include "ITSMFTTracking/detail/SurfacePlanBinding.h"
 #include "ITStracking/ROFLookupTables.h"
 
 namespace o2::itsmft::tracking::test
 {
 
-// Test-only application-plan fixture. It composes the production concrete
-// participants, plans, bindings, and schedule directly. It deliberately owns
-// no TimeFrame, publication clock, validity flag, or event-loop decision;
-// tests that need those responsibilities keep them in their own workflow
-// driver, mirroring CombinedCATrackerDPL.
+// Test-only application-plan fixture. It composes the production Tracker,
+// TrackerTraits, operation adapters, plans, and bindings directly.
 inline SurfaceCatalogView combinedCatalogView()
 {
   return {kITSMFTCombinedStaticSurfaceCatalog.data(), static_cast<uint32_t>(kITSMFTCombinedStaticSurfaceCatalog.size())};
@@ -95,54 +93,93 @@ inline TrackerInitialization makeCombinedConfiguration(const TrackingParameters&
   return configuration;
 }
 
-class CombinedTrackingParticipantPlan
+template <o2::detectors::DetID::ID DetId, int NLayers>
+class TestTrackingOperationAdapter final : public TrackingOperationAdapter
 {
  public:
-  CombinedTrackingParticipantPlan(std::vector<TrackingParameters> itsParams, std::vector<TrackingParameters> mftParams)
+  explicit TestTrackingOperationAdapter(DetectorPublicationAdapter<NLayers>* publication) : mPublication(publication) {}
+
+  bool refitSeed(const TrackSeed& seed, const TrackingParameters& params, float bz, SurfaceTrackingScratch& scratch,
+                 gsl::span<const gsl::span<const SurfaceMeasurement>> measurements, SurfaceCatalogView catalog,
+                 ClusterSourceId source, TrackingCandidate& candidate) override
+  {
+    return detail::refitDetectorSeed<DetId>(seed, params, bz, scratch, measurements, catalog, source, candidate);
+  }
+  bool completeAccepted(gsl::span<const TrackingCandidate> candidates, const TrackingParameters& params,
+                        const SurfaceTrackingScratch& scratch, bool final) override
+  {
+    return mPublication == nullptr || mPublication->completeAccepted(candidates, params, scratch, final);
+  }
+  void resetAdapterState() noexcept override
+  {
+    if (mPublication != nullptr) {
+      mPublication->reset();
+    }
+  }
+
+ private:
+  DetectorPublicationAdapter<NLayers>* mPublication = nullptr;
+};
+
+class CombinedTrackingPlan
+{
+ public:
+  CombinedTrackingPlan(std::vector<TrackingParameters> itsParams, std::vector<TrackingParameters> mftParams)
   {
     if (itsParams.size() != 1 || mftParams.size() != 1) {
       throw std::invalid_argument{"combined test application plan requires one iteration per detector"};
     }
 
     mConfiguration = makeCombinedConfiguration(itsParams[0], mftParams[0]);
-    mITSParticipant = std::make_unique<SurfacePlanTrackingParticipantITS>(ParticipantId{0}, ClusterSourceId{0});
-    mMFTParticipant = std::make_unique<SurfacePlanTrackingParticipantMFT>(ParticipantId{1}, ClusterSourceId{1});
     mITSPublicationAdapter.adoptITSSharedClusterCompatibility(&mITSCompatibility);
     mMFTPublicationAdapter.adoptMFTPublicationCompatibility(&mMFTCompatibility);
-    mITSParticipant->bindPublicationAdapter(mITSPublicationAdapter);
-    mMFTParticipant->bindPublicationAdapter(mMFTPublicationAdapter);
-    mSchedule = {mITSParticipant.get(), mMFTParticipant.get()};
+    mITSOperationAdapter = std::make_unique<TestTrackingOperationAdapter<o2::detectors::DetID::ITS, ITSNLayers>>(&mITSPublicationAdapter);
+    mMFTOperationAdapter = std::make_unique<TestTrackingOperationAdapter<o2::detectors::DetID::MFT, MFTNLayers>>(&mMFTPublicationAdapter);
+    mITSTracker = std::make_unique<Tracker>(mITSOperationAdapter.get(), ClusterSourceId{0});
+    mMFTTracker = std::make_unique<Tracker>(mMFTOperationAdapter.get(), ClusterSourceId{1});
+    mITSTraits = std::make_unique<TrackerTraits>();
+    mMFTTraits = std::make_unique<TrackerTraits>();
   }
 
-  CombinedTrackingParticipantPlan(const CombinedTrackingParticipantPlan&) = delete;
-  CombinedTrackingParticipantPlan& operator=(const CombinedTrackingParticipantPlan&) = delete;
+  CombinedTrackingPlan(const CombinedTrackingPlan&) = delete;
+  CombinedTrackingPlan& operator=(const CombinedTrackingPlan&) = delete;
 
   void adoptFrame(TimeFrame& frame)
   {
     mFrame = &frame;
-    const auto result = mITSParticipant->initialize(frame, mConfiguration);
+    const auto result = mITSTracker->initialize(frame, mConfiguration);
     if (!result.ok()) {
       throw std::runtime_error{"combined test application plan failed to configure the TimeFrame"};
     }
-    mMFTParticipant->adoptConfiguredFrame(frame);
+    mITSTraits->setMemoryPool(frame.getMemoryPool());
+    mMFTTraits->setMemoryPool(frame.getMemoryPool());
   }
-  void setMemoryPool(std::shared_ptr<BoundedMemoryResource>) {}
+  void setMemoryPool(std::shared_ptr<BoundedMemoryResource> pool)
+  {
+    mITSTraits->setMemoryPool(pool);
+    mMFTTraits->setMemoryPool(pool);
+  }
   void setBz(float bz)
   {
-    mITSParticipant->setBz(bz);
-    mMFTParticipant->setBz(bz);
+    mFrame->setBz(bz);
   }
   void setNThreads(int n)
   {
-    mITSParticipant->setNThreads(n);
-    mMFTParticipant->setNThreads(n);
+    mITSTraits->setNThreads(n, mITSArena);
+    mMFTTraits->setNThreads(n, mMFTArena);
   }
 
-  gsl::span<TrackingParticipant* const> schedule() noexcept { return mSchedule; }
-  SurfacePlanTrackingParticipantITS& itsParticipant() noexcept { return *mITSParticipant; }
-  SurfacePlanTrackingParticipantMFT& mftParticipant() noexcept { return *mMFTParticipant; }
-  const SurfacePlanTrackingParticipantITS& itsParticipant() const noexcept { return *mITSParticipant; }
-  const SurfacePlanTrackingParticipantMFT& mftParticipant() const noexcept { return *mMFTParticipant; }
+  Tracker& itsTracker() noexcept { return *mITSTracker; }
+  Tracker& mftTracker() noexcept { return *mMFTTracker; }
+  TrackingResult runITS() { return mITSTracker->run(*mFrame, *mITSTraits); }
+  TrackingResult runMFT() { return mMFTTracker->run(*mFrame, *mMFTTraits); }
+  RuntimeROFViews getITSROFViews() const noexcept { return getITSScratch().getROFViews(); }
+  RuntimeROFViews getMFTROFViews() const noexcept { return getMFTScratch().getROFViews(); }
+  void clearPublicationSidecars() noexcept
+  {
+    mITSOperationAdapter->resetAdapterState();
+    mMFTOperationAdapter->resetAdapterState();
+  }
 
   std::optional<LoadSourcesResult> validateSources(const ClusterSourceInput& itsSource,
                                                    const ClusterSourceInput& mftSource) const noexcept
@@ -160,10 +197,14 @@ class CombinedTrackingParticipantPlan
   std::optional<bool> dropTFUponFailureFor(ClusterSourceId source) const noexcept
   {
     if (source == ClusterSourceId{0}) {
-      return mITSParticipant->getDropTFUponFailure();
+      return mFrame != nullptr && !mFrame->getTrackingParameters(ClusterSourceId{0}).empty()
+               ? std::optional<bool>{mFrame->getTrackingParameters(ClusterSourceId{0})[0].DropTFUponFailure}
+               : std::nullopt;
     }
     if (source == ClusterSourceId{1}) {
-      return mMFTParticipant->getDropTFUponFailure();
+      return mFrame != nullptr && !mFrame->getTrackingParameters(ClusterSourceId{1}).empty()
+               ? std::optional<bool>{mFrame->getTrackingParameters(ClusterSourceId{1})[0].DropTFUponFailure}
+               : std::nullopt;
     }
     return std::nullopt;
   }
@@ -190,14 +231,14 @@ class CombinedTrackingParticipantPlan
     };
     configure(mITSROFOverlapTable, mITSROFVertexLookupTable, mITSMultiplicityMask, itsSource.timing, static_cast<uint32_t>(itsSource.rofs.size()), ITSNLayers);
     configure(mMFTROFOverlapTable, mMFTROFVertexLookupTable, mMFTMultiplicityMask, mftSource.timing, static_cast<uint32_t>(mftSource.rofs.size()), MFTNLayers);
-    mITSParticipant->setROFViews({mITSROFOverlapTable.getView(), mITSROFVertexLookupTable.getView(), mITSMultiplicityMask.getView(), mITSUPCMask.getView()});
-    mMFTParticipant->setROFViews({mMFTROFOverlapTable.getView(), mMFTROFVertexLookupTable.getView(), mMFTMultiplicityMask.getView(), mMFTUPCMask.getView()});
+    mFrame->getWorkspace(ClusterSourceId{0}).setROFViews({mITSROFOverlapTable.getView(), mITSROFVertexLookupTable.getView(), mITSMultiplicityMask.getView(), mITSUPCMask.getView()});
+    mFrame->getWorkspace(ClusterSourceId{1}).setROFViews({mMFTROFOverlapTable.getView(), mMFTROFVertexLookupTable.getView(), mMFTMultiplicityMask.getView(), mMFTUPCMask.getView()});
   }
 
-  const SurfaceTrackingScratch& getITSScratch() const noexcept { return mITSParticipant->getScratch(); }
-  const SurfaceTrackingScratch& getMFTScratch() const noexcept { return mMFTParticipant->getScratch(); }
-  gsl::span<const SurfaceId> getITSOrderedSurfaces() const noexcept { return mITSParticipant->ownedSurfaces(); }
-  gsl::span<const SurfaceId> getMFTOrderedSurfaces() const noexcept { return mMFTParticipant->ownedSurfaces(); }
+  const SurfaceTrackingScratch& getITSScratch() const noexcept { return mFrame->getWorkspace(ClusterSourceId{0}); }
+  const SurfaceTrackingScratch& getMFTScratch() const noexcept { return mFrame->getWorkspace(ClusterSourceId{1}); }
+  gsl::span<const SurfaceId> getITSOrderedSurfaces() const noexcept { return mFrame->getBinding(0, ClusterSourceId{0})->getOrderedSurfaces(); }
+  gsl::span<const SurfaceId> getMFTOrderedSurfaces() const noexcept { return mFrame->getBinding(0, ClusterSourceId{1})->getOrderedSurfaces(); }
   const ITSSharedClusterCompatibility& getITSSharedClusterCompatibility() const noexcept
   {
     return mITSCompatibility;
@@ -212,8 +253,12 @@ class CombinedTrackingParticipantPlan
  private:
   TrackerInitialization mConfiguration;
   TimeFrame* mFrame = nullptr;
-  std::unique_ptr<SurfacePlanTrackingParticipantITS> mITSParticipant;
-  std::unique_ptr<SurfacePlanTrackingParticipantMFT> mMFTParticipant;
+  std::unique_ptr<Tracker> mITSTracker;
+  std::unique_ptr<Tracker> mMFTTracker;
+  std::unique_ptr<TrackerTraits> mITSTraits;
+  std::unique_ptr<TrackerTraits> mMFTTraits;
+  std::unique_ptr<TrackingOperationAdapter> mITSOperationAdapter;
+  std::unique_ptr<TrackingOperationAdapter> mMFTOperationAdapter;
   DetectorPublicationAdapter<ITSNLayers> mITSPublicationAdapter;
   DetectorPublicationAdapter<MFTNLayers> mMFTPublicationAdapter;
   ITSSharedClusterCompatibility mITSCompatibility;
@@ -226,7 +271,8 @@ class CombinedTrackingParticipantPlan
   o2::its::ROFVertexLookupTable<MFTNLayers> mMFTROFVertexLookupTable;
   o2::its::ROFMaskTable<MFTNLayers> mMFTMultiplicityMask;
   o2::its::ROFMaskTable<MFTNLayers> mMFTUPCMask;
-  std::array<TrackingParticipant*, 2> mSchedule{};
+  std::shared_ptr<tbb::task_arena> mITSArena;
+  std::shared_ptr<tbb::task_arena> mMFTArena;
 };
 
 } // namespace o2::itsmft::tracking::test

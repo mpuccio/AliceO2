@@ -6,20 +6,9 @@
 // License v3 (GPL Version 3), copied verbatim in the file "COPYING".
 ///
 /// \file testCombinedTrackingComposition.cxx
-/// \brief M3 (GenericTrackingEngineMigration.md; ADR 0007): focused tests
-/// for the combined ITS+MFT load/track/publish composition, ported from the
-/// pre-M3 combined-coordinator test suite this milestone deleted along with
-/// the coordinator class itself. There is no coordinator object anymore:
-/// `CombinedTrackingComposer` below is a test-only helper (never shipped)
-/// that reproduces the exact same whole-event composition the combined DPL
-/// task's own trackFrame() applies (CombinedCATrackerSpec.cxx) --
-/// the workflow-owned source validation/bindings,
-/// MultiSourceTimeFrameLoader::load(), TrackingEngine::executeEvent()/
-/// resetEvent() -- directly over the real production classes, so this file
-/// exercises the same behavior the DPL task exercises without needing a DPL
-/// ProcessingContext. ParticipantOutcome (TrackingParticipant.h) is reused
-/// as the whole-event outcome type rather than inventing a parallel enum,
-/// matching what the DPL task itself does.
+/// Focused tests for the combined ITS+MFT load/track/publish composition. The
+/// test-only helper follows the workflow-owned source validation, loader,
+/// Tracker invocation order, and publication sequence without a DPL context.
 
 #define BOOST_TEST_MODULE ITSMFT CombinedTrackingComposition
 #define BOOST_TEST_MAIN
@@ -64,7 +53,6 @@
 #include "ITSMFTTracking/TimeFrameLoadFailure.h"
 #include "ITSMFTTracking/TrackerTraits.h"
 #include "ITSMFTTracking/TrackingConfigParam.h"
-#include "ITSMFTTracking/TrackingEngine.h"
 #include "ITSMFTTracking/TrackingInterface.h"
 #include "ITSMFTTracking/detail/TransitionPolicyOperations.h"
 #include "ITStracking/Constants.h"
@@ -322,12 +310,15 @@ ClusterSourceInput makeEmptySource(ClusterSourceId id, o2::detectors::DetID::ID 
 /// SurfaceIds equal compact scratch slots, with the same plan-driven binding
 /// model as the combined path. Used as the "reproduce the standalone oracle
 /// count" reference for the combined composition.
-template <int NLayers>
+template <o2::detectors::DetID::ID DetId, int NLayers>
 struct StandaloneRun {
   TimeFrame frame;
   std::vector<TrackingParameters> params;
   std::shared_ptr<BoundedMemoryResource> pool = std::make_shared<BoundedMemoryResource>();
-  SurfacePlanTrackingParticipant<NLayers> participant{ParticipantId{0}, ClusterSourceId{0}};
+  test::TestTrackingOperationAdapter<DetId, NLayers> operationAdapter{nullptr};
+  Tracker tracker{&operationAdapter, ClusterSourceId{0}};
+  TrackerTraits traits;
+  std::shared_ptr<tbb::task_arena> arena;
   SurfaceTrackingScratch* scratch = nullptr;
   std::vector<SurfaceDescriptor> catalog;
   TrackingResult result;
@@ -364,11 +355,12 @@ struct StandaloneRun {
     iteration.bindings.push_back(SurfacePlanBinding::Declaration{ClusterSourceId{0}, ownedSurfaces, orderedSurfaces,
                                                                  kind, kind == SurfaceKind::Cylinder ? TransitionPolicyTag::CylinderCylinder : TransitionPolicyTag::DiskDisk});
     configuration.iterations.push_back(std::move(iteration));
-    const auto configured = participant.initialize(frame, configuration);
+    const auto configured = tracker.initialize(frame, configuration);
     BOOST_REQUIRE(configured.ok());
-    scratch = &participant.getScratch();
-    participant.setNThreads(1);
-    participant.setBz(Bz);
+    scratch = &frame.getWorkspace(ClusterSourceId{0});
+    traits.setMemoryPool(pool);
+    traits.setNThreads(1, arena);
+    frame.setBz(Bz);
 
     std::vector<CompClusterExt> compact;
     std::vector<unsigned char> patterns;
@@ -403,8 +395,8 @@ struct StandaloneRun {
       mask.setROFsEnabled(layer, 0, 1, 1);
     }
     scratch->setROFViews(RuntimeROFViews{rofTable.getView(), vtxTable.getView(), mask.getView(), {}});
-    const auto tracking = participant.track(frame);
-    result.outcome = tracking.outcome == ParticipantOutcome::Success ? TrackingOutcome::Success : TrackingOutcome::RecoverableDropped;
+    const auto tracking = tracker.run(frame, traits);
+    result.outcome = tracking.outcome;
   }
 };
 
@@ -412,40 +404,38 @@ struct StandaloneRun {
 /// the combined DPL task's own trackFrame() applies -- not a shipped
 /// coordinator class (M3 deleted the last one of those), just this file's
 /// own driver so these tests can exercise the workflow-owned application plan
-/// plus TrackingEngine + MultiSourceTimeFrameLoader::load() together the
-/// same way the DPL task does, without a DPL ProcessingContext.
+/// plus Tracker + MultiSourceTimeFrameLoader::load() together the same way the
+/// DPL task does, without a DPL ProcessingContext.
 struct CombinedTrackingComposer {
   struct Result {
-    ParticipantOutcome outcome{ParticipantOutcome::Structural};
+    TrackingOutcome outcome{TrackingOutcome::Structural};
     size_t nITSTracks{0};
     size_t nMFTTracks{0};
   };
 
-  test::CombinedTrackingParticipantPlan participants;
-  TrackingEngine engine;
+  test::CombinedTrackingPlan plan;
   TimeFrame* frame = nullptr;
   std::optional<ClockTimingPublicationView> itsClock;
   std::optional<ClockTimingPublicationView> mftClock;
   bool publicationValid = false;
 
   CombinedTrackingComposer(std::vector<TrackingParameters> itsParams, std::vector<TrackingParameters> mftParams)
-    : participants(std::move(itsParams), std::move(mftParams))
+    : plan(std::move(itsParams), std::move(mftParams))
   {
   }
 
   void adoptFrame(TimeFrame& f)
   {
     frame = &f;
-    participants.adoptFrame(f);
+    plan.adoptFrame(f);
   }
-  void setMemoryPool(std::shared_ptr<BoundedMemoryResource> pool) { participants.setMemoryPool(pool); }
-  void setBz(float bz) { participants.setBz(bz); }
-  void setNThreads(int n) { participants.setNThreads(n); }
+  void setMemoryPool(std::shared_ptr<BoundedMemoryResource> pool) { plan.setMemoryPool(pool); }
+  void setBz(float bz) { plan.setBz(bz); }
+  void setNThreads(int n) { plan.setNThreads(n); }
 
   void clearPublicationSidecars() noexcept
   {
-    participants.itsParticipant().clearPublicationSidecar();
-    participants.mftParticipant().clearPublicationSidecar();
+    plan.clearPublicationSidecars();
   }
   void invalidatePublication() noexcept
   {
@@ -455,8 +445,8 @@ struct CombinedTrackingComposer {
   }
   void markPublicationValid() noexcept
   {
-    itsClock.emplace(participants.getITSScratch().getROFOverlapView().getClockLayer());
-    mftClock.emplace(participants.getMFTScratch().getROFOverlapView().getClockLayer());
+    itsClock.emplace(plan.getITSScratch().getROFOverlapView().getClockLayer());
+    mftClock.emplace(plan.getMFTScratch().getROFOverlapView().getClockLayer());
     publicationValid = true;
   }
   std::optional<CommonTrackPublicationExport> getITSPublicationExport() const
@@ -465,7 +455,7 @@ struct CombinedTrackingComposer {
       return std::nullopt;
     }
     return CommonTrackPublicationExport{o2::detectors::DetID::ITS, ClusterSourceId{0}, *itsClock,
-                                        participants.getITSOrderedSurfaces()};
+                                        plan.getITSOrderedSurfaces()};
   }
   std::optional<CommonTrackPublicationExport> getMFTPublicationExport() const
   {
@@ -473,7 +463,7 @@ struct CombinedTrackingComposer {
       return std::nullopt;
     }
     return CommonTrackPublicationExport{o2::detectors::DetID::MFT, ClusterSourceId{1}, *mftClock,
-                                        participants.getMFTOrderedSurfaces()};
+                                        plan.getMFTOrderedSurfaces()};
   }
 
   Result process(const ClusterSourceInput& itsSource, const ClusterSourceInput& mftSource, const o2::InteractionRecord& origin)
@@ -481,34 +471,51 @@ struct CombinedTrackingComposer {
     invalidatePublication();
     clearPublicationSidecars();
 
-    participants.configureRofTables(itsSource, mftSource);
+    plan.configureRofTables(itsSource, mftSource);
     auto itsInput = itsSource;
     auto mftInput = mftSource;
-    itsInput.rofViews = participants.itsParticipant().getROFViews();
-    mftInput.rofViews = participants.mftParticipant().getROFViews();
+    itsInput.rofViews = plan.getITSROFViews();
+    mftInput.rofViews = plan.getMFTROFViews();
     LoadSourcesResult loadResult;
-    if (const auto rejected = participants.validateSources(itsSource, mftSource)) {
+    if (const auto rejected = plan.validateSources(itsSource, mftSource)) {
       loadResult = *rejected;
     } else {
       const std::array<ClusterSourceInput, 2> sources{itsInput, mftInput};
-      loadResult = MultiSourceTimeFrameLoader::load(*frame, gsl::span<const ClusterSourceInput>{sources}, participants.catalogView(), origin);
+      loadResult = MultiSourceTimeFrameLoader::load(*frame, gsl::span<const ClusterSourceInput>{sources}, plan.catalogView(), origin);
     }
     if (!loadResult.ok()) {
       const bool errorIsRecoverable = isRecoverableLoadError(loadResult.error, loadResult.timingDetail);
-      const auto dropAllowed = participants.dropTFUponFailureFor(loadResult.source);
+      const auto dropAllowed = plan.dropTFUponFailureFor(loadResult.source);
       const bool sourceRecognized = dropAllowed.has_value();
       const auto outcome = errorIsRecoverable && sourceRecognized && dropAllowed.value_or(false)
-                             ? ParticipantOutcome::RecoverableDropped
-                             : ParticipantOutcome::Structural;
-      engine.resetEvent(*frame, participants.schedule());
+                             ? TrackingOutcome::RecoverableDropped
+                             : TrackingOutcome::Structural;
+      plan.clearPublicationSidecars();
+      frame->resetEvent();
       invalidatePublication();
       return {outcome, 0, 0};
     }
 
-    const auto eventResult = engine.executeEvent(*frame, participants.schedule());
-    if (eventResult.outcome != ParticipantOutcome::Success) {
+    try {
+      const auto itsResult = plan.runITS();
+    if (itsResult.outcome != TrackingOutcome::Success) {
+      plan.clearPublicationSidecars();
+      frame->resetEvent();
       invalidatePublication();
-      return {eventResult.outcome, 0, 0};
+      return {itsResult.outcome, 0, 0};
+    }
+      const auto mftResult = plan.runMFT();
+      if (mftResult.outcome != TrackingOutcome::Success) {
+        plan.clearPublicationSidecars();
+        frame->resetEvent();
+        invalidatePublication();
+        return {mftResult.outcome, 0, 0};
+      }
+    } catch (const std::exception&) {
+      plan.clearPublicationSidecars();
+      frame->resetEvent();
+      invalidatePublication();
+      return {TrackingOutcome::Structural, 0, 0};
     }
 
     markPublicationValid();
@@ -516,17 +523,15 @@ struct CombinedTrackingComposer {
       return static_cast<size_t>(std::count_if(this->frame->getCommonTracks().begin(), this->frame->getCommonTracks().end(),
                                                [first](const auto& track) { return track.hitSurfaces.has(first); }));
     };
-    return {ParticipantOutcome::Success, countFor(SurfaceId{0}), countFor(SurfaceId{ITSNLayers})};
+    return {TrackingOutcome::Success, countFor(SurfaceId{0}), countFor(SurfaceId{ITSNLayers})};
   }
 
-  // Both participants own SurfaceTrackingScratch directly; this is the same
-  // application composition used by the workflow task.
-  const SurfaceTrackingScratch& getITSScratch() const noexcept { return participants.getITSScratch(); }
-  const SurfaceTrackingScratch& getMFTScratch() const noexcept { return participants.getMFTScratch(); }
-  const ITSSharedClusterCompatibility& getITSSharedClusterCompatibility() const noexcept { return participants.getITSSharedClusterCompatibility(); }
-  const MFTPublicationCompatibility& getMFTPublicationCompatibility() const noexcept { return participants.getMFTPublicationCompatibility(); }
-  gsl::span<const SurfaceId> getITSOrderedSurfaces() const noexcept { return participants.getITSOrderedSurfaces(); }
-  gsl::span<const SurfaceId> getMFTOrderedSurfaces() const noexcept { return participants.getMFTOrderedSurfaces(); }
+  const SurfaceTrackingScratch& getITSScratch() const noexcept { return plan.getITSScratch(); }
+  const SurfaceTrackingScratch& getMFTScratch() const noexcept { return plan.getMFTScratch(); }
+  const ITSSharedClusterCompatibility& getITSSharedClusterCompatibility() const noexcept { return plan.getITSSharedClusterCompatibility(); }
+  const MFTPublicationCompatibility& getMFTPublicationCompatibility() const noexcept { return plan.getMFTPublicationCompatibility(); }
+  gsl::span<const SurfaceId> getITSOrderedSurfaces() const noexcept { return plan.getITSOrderedSurfaces(); }
+  gsl::span<const SurfaceId> getMFTOrderedSurfaces() const noexcept { return plan.getMFTOrderedSurfaces(); }
 };
 
 CombinedTrackingComposer makeComposer(const TrackingParameters& itsParams, const TrackingParameters& mftParams)
@@ -563,7 +568,7 @@ BOOST_AUTO_TEST_CASE(CombinedLoadingBackfillsIndependentCompactScratches)
   composer.setNThreads(1);
 
   const auto result = composer.process(itsSource, mftSource, o2::InteractionRecord{50, 5});
-  BOOST_REQUIRE(result.outcome == ParticipantOutcome::Success);
+  BOOST_REQUIRE(result.outcome == TrackingOutcome::Success);
 
   BOOST_CHECK_EQUAL(composer.getITSScratch().getTotalClusters(), static_cast<int>(itsClusters.size()));
   BOOST_CHECK_EQUAL(composer.getMFTScratch().getTotalClusters(), static_cast<int>(mftClusters.size()));
@@ -584,7 +589,7 @@ BOOST_AUTO_TEST_CASE(MftGlobalIdsWorkEndToEndThroughRefitAndReproducesStandalone
   const auto mftClusters = buildMftChainClusters(mftParams, Bz, MFTNLayers - 1);
   BOOST_REQUIRE_EQUAL(mftClusters.size(), static_cast<size_t>(MFTNLayers));
 
-  StandaloneRun<MFTNLayers> standalone{o2::detectors::DetID::MFT, SurfaceKind::Disk, mftParams, mftClusters};
+  StandaloneRun<o2::detectors::DetID::MFT, MFTNLayers> standalone{o2::detectors::DetID::MFT, SurfaceKind::Disk, mftParams, mftClusters};
   BOOST_REQUIRE(standalone.result.outcome == TrackingOutcome::Success);
   BOOST_REQUIRE_GT(standalone.frame.getCommonTracks().size(), 0u);
 
@@ -604,7 +609,7 @@ BOOST_AUTO_TEST_CASE(MftGlobalIdsWorkEndToEndThroughRefitAndReproducesStandalone
   composer.setNThreads(1);
 
   const auto result = composer.process(itsSource, mftSource, o2::InteractionRecord{50, 5});
-  BOOST_REQUIRE(result.outcome == ParticipantOutcome::Success);
+  BOOST_REQUIRE(result.outcome == TrackingOutcome::Success);
   BOOST_CHECK_EQUAL(result.nITSTracks, 0u);
   // Global MFT SurfaceIds 7..16 plus source 1 worked end to end through
   // refit: the combined pass through the composition reproduces the
@@ -625,13 +630,13 @@ BOOST_AUTO_TEST_CASE(ITSAndMFTAcceptedResultsReproduceStandaloneCountsInOneCombi
   const auto mftClusters = buildMftChainClusters(mftParams, Bz, MFTNLayers - 1);
   BOOST_REQUIRE_EQUAL(mftClusters.size(), static_cast<size_t>(MFTNLayers));
 
-  StandaloneRun<ITSNLayers> standaloneIts{o2::detectors::DetID::ITS, SurfaceKind::Cylinder, itsParams, itsClusters};
+  StandaloneRun<o2::detectors::DetID::ITS, ITSNLayers> standaloneIts{o2::detectors::DetID::ITS, SurfaceKind::Cylinder, itsParams, itsClusters};
   BOOST_REQUIRE(standaloneIts.result.outcome == TrackingOutcome::Success);
   // A genuine full 7-layer road (MinTrackLength=7, MaxHoles=0): the helix
   // fixture above is a real, non-degenerate curved trajectory, so this is a
   // nonzero accepted-track oracle, not a 0==0 parity check.
   BOOST_REQUIRE_GT(standaloneIts.frame.getCommonTracks().size(), 0u);
-  StandaloneRun<MFTNLayers> standaloneMft{o2::detectors::DetID::MFT, SurfaceKind::Disk, mftParams, mftClusters};
+  StandaloneRun<o2::detectors::DetID::MFT, MFTNLayers> standaloneMft{o2::detectors::DetID::MFT, SurfaceKind::Disk, mftParams, mftClusters};
   BOOST_REQUIRE(standaloneMft.result.outcome == TrackingOutcome::Success);
   BOOST_REQUIRE_GT(standaloneMft.frame.getCommonTracks().size(), 0u);
 
@@ -651,7 +656,7 @@ BOOST_AUTO_TEST_CASE(ITSAndMFTAcceptedResultsReproduceStandaloneCountsInOneCombi
   composer.setNThreads(1);
 
   const auto result = composer.process(itsSource, mftSource, o2::InteractionRecord{50, 5});
-  BOOST_REQUIRE(result.outcome == ParticipantOutcome::Success);
+  BOOST_REQUIRE(result.outcome == TrackingOutcome::Success);
 
   // ITS and MFT accepted results reproduce their standalone oracle counts in
   // one combined pass -- nonzero on both sides, not a 0==0 check.
@@ -745,7 +750,7 @@ BOOST_AUTO_TEST_CASE(LoadFailureResetsWholeCombinedTFExactlyOnceAndInvalidatesPu
   // CommonTracks, publication exports) for the second, failing pass to
   // actually have to clear.
   const auto first = composer.process(itsSource, mftSource, o2::InteractionRecord{50, 5});
-  BOOST_REQUIRE(first.outcome == ParticipantOutcome::Success);
+  BOOST_REQUIRE(first.outcome == TrackingOutcome::Success);
   BOOST_REQUIRE(composer.getITSPublicationExport().has_value());
   BOOST_REQUIRE(composer.getMFTPublicationExport().has_value());
 
@@ -759,7 +764,7 @@ BOOST_AUTO_TEST_CASE(LoadFailureResetsWholeCombinedTFExactlyOnceAndInvalidatesPu
   // MFT's own DropTFUponFailure defaults false (makeMftParams() never sets
   // it), so this recoverable InvalidROFRange load error is still classified
   // Structural.
-  BOOST_CHECK(second.outcome == ParticipantOutcome::Structural);
+  BOOST_CHECK(second.outcome == TrackingOutcome::Structural);
   BOOST_CHECK_EQUAL(second.nITSTracks, 0u);
   BOOST_CHECK_EQUAL(second.nMFTTracks, 0u);
 
@@ -807,7 +812,7 @@ BOOST_AUTO_TEST_CASE(MFTTrackingFailureAfterITSSuccessStillResetsBothScratches)
   // returned TrackingOutcome::RecoverableDropped rather than throwing; the
   // composition's non-Success branch for a tracking-phase outcome is always
   // RecoverableDropped.
-  BOOST_CHECK(result.outcome == ParticipantOutcome::RecoverableDropped);
+  BOOST_CHECK(result.outcome == TrackingOutcome::RecoverableDropped);
   BOOST_CHECK_EQUAL(composer.getITSScratch().getTotalClusters(), 0);
   BOOST_CHECK_EQUAL(composer.getMFTScratch().getTotalClusters(), 0);
   BOOST_CHECK(frame.getCommonTracks().empty());
@@ -871,7 +876,7 @@ BOOST_AUTO_TEST_CASE(RecoverableITSLoadFailureIsDroppedOnlyWhenITSDropTFAllows)
     composer.setNThreads(1);
 
     const auto result = composer.process(fixture.itsSource, fixture.mftSource, o2::InteractionRecord{50, 5});
-    const auto expected = itsDropTF ? ParticipantOutcome::RecoverableDropped : ParticipantOutcome::Structural;
+    const auto expected = itsDropTF ? TrackingOutcome::RecoverableDropped : TrackingOutcome::Structural;
     BOOST_CHECK_MESSAGE(result.outcome == expected, "ITS DropTFUponFailure=" << itsDropTF);
     // Every non-success path still performs exactly one whole reset:
     // both scratches, the shared TimeFrame's CommonTracks, and both
@@ -903,7 +908,7 @@ BOOST_AUTO_TEST_CASE(RecoverableMFTLoadFailureIsDroppedOnlyWhenMFTDropTFAllows)
     composer.setNThreads(1);
 
     const auto result = composer.process(fixture.itsSource, fixture.mftSource, o2::InteractionRecord{50, 5});
-    const auto expected = mftDropTF ? ParticipantOutcome::RecoverableDropped : ParticipantOutcome::Structural;
+    const auto expected = mftDropTF ? TrackingOutcome::RecoverableDropped : TrackingOutcome::Structural;
     BOOST_CHECK_MESSAGE(result.outcome == expected, "MFT DropTFUponFailure=" << mftDropTF);
     BOOST_CHECK_EQUAL(composer.getITSScratch().getTotalClusters(), 0);
     BOOST_CHECK_EQUAL(composer.getMFTScratch().getTotalClusters(), 0);
@@ -933,7 +938,7 @@ BOOST_AUTO_TEST_CASE(StructuralLoadErrorIsAlwaysStructuralRegardlessOfDropTF)
   composer.setNThreads(1);
 
   const auto result = composer.process(fixture.itsSource, fixture.mftSource, o2::InteractionRecord{50, 5});
-  BOOST_CHECK(result.outcome == ParticipantOutcome::Structural);
+  BOOST_CHECK(result.outcome == TrackingOutcome::Structural);
   BOOST_CHECK(frame.getCommonTracks().empty());
   BOOST_CHECK(!composer.getITSPublicationExport().has_value());
 }
@@ -960,7 +965,7 @@ BOOST_AUTO_TEST_CASE(UnrecognizedLoadSourceIsAlwaysStructural)
   composer.setNThreads(1);
 
   const auto result = composer.process(fixture.itsSource, fixture.mftSource, o2::InteractionRecord{50, 5});
-  BOOST_CHECK(result.outcome == ParticipantOutcome::Structural);
+  BOOST_CHECK(result.outcome == TrackingOutcome::Structural);
   BOOST_CHECK(frame.getCommonTracks().empty());
 }
 
@@ -987,7 +992,7 @@ BOOST_AUTO_TEST_CASE(StructuralTrackingExceptionIsClassifiedStructuralAfterWhole
   composer.setNThreads(1);
 
   const auto result = composer.process(fixture.itsSource, fixture.mftSource, o2::InteractionRecord{50, 5});
-  BOOST_CHECK(result.outcome == ParticipantOutcome::Structural);
+  BOOST_CHECK(result.outcome == TrackingOutcome::Structural);
   BOOST_CHECK_EQUAL(composer.getITSScratch().getTotalClusters(), 0);
   BOOST_CHECK_EQUAL(composer.getMFTScratch().getTotalClusters(), 0);
   BOOST_CHECK(frame.getCommonTracks().empty());
@@ -1028,7 +1033,7 @@ BOOST_AUTO_TEST_CASE(SequentialSuccessfulTFsReplaceStateWithoutStaleAccumulation
   composer.setNThreads(1);
 
   const auto firstResult = composer.process(itsSource, mftSource, o2::InteractionRecord{50, 5});
-  BOOST_REQUIRE(firstResult.outcome == ParticipantOutcome::Success);
+  BOOST_REQUIRE(firstResult.outcome == TrackingOutcome::Success);
   BOOST_REQUIRE_GT(firstResult.nITSTracks + firstResult.nMFTTracks, 0u);
   const auto firstCommonTrackCount = frame.getCommonTracks().size();
   BOOST_REQUIRE_EQUAL(firstCommonTrackCount, firstResult.nITSTracks + firstResult.nMFTTracks);
@@ -1040,7 +1045,7 @@ BOOST_AUTO_TEST_CASE(SequentialSuccessfulTFsReplaceStateWithoutStaleAccumulation
   // identical fixture again -- must reproduce the same per-TF count, not
   // the first TF's count plus the second's.
   const auto secondResult = composer.process(itsSource, mftSource, o2::InteractionRecord{60, 6});
-  BOOST_REQUIRE(secondResult.outcome == ParticipantOutcome::Success);
+  BOOST_REQUIRE(secondResult.outcome == TrackingOutcome::Success);
 
   BOOST_CHECK_EQUAL(secondResult.nITSTracks, firstResult.nITSTracks);
   BOOST_CHECK_EQUAL(secondResult.nMFTTracks, firstResult.nMFTTracks);
@@ -1076,7 +1081,7 @@ BOOST_AUTO_TEST_CASE(OrderedSurfaceGettersAreAlwaysValidUnlikePublicationExports
   composer.setBz(Bz);
   composer.setNThreads(1);
   const auto failed = composer.process(fixture.itsSource, fixture.mftSource, o2::InteractionRecord{50, 5});
-  BOOST_REQUIRE(failed.outcome != ParticipantOutcome::Success);
+  BOOST_REQUIRE(failed.outcome != TrackingOutcome::Success);
   BOOST_CHECK(composer.getITSOrderedSurfaces().data() == itsSurfacesBefore.data());
   BOOST_CHECK(composer.getMFTOrderedSurfaces().data() == mftSurfacesBefore.data());
 }
@@ -1096,7 +1101,7 @@ BOOST_AUTO_TEST_CASE(CompatibilitySidecarGettersReflectSealAndReset)
   BOOST_CHECK(!composer.getITSSharedClusterCompatibility().isSealed());
 
   const auto result = composer.process(fixture.itsSource, fixture.mftSource, o2::InteractionRecord{50, 5});
-  BOOST_REQUIRE(result.outcome == ParticipantOutcome::Success);
+  BOOST_REQUIRE(result.outcome == TrackingOutcome::Success);
   // A successful run always seals the ITS sidecar (Tracker<ITSNLayers>::
   // clustersToTracks() -> markTracks() -> sealFromMarkedTracks()), which is
   // exactly what stageITSCommonTrackOutput() requires
@@ -1107,7 +1112,7 @@ BOOST_AUTO_TEST_CASE(CompatibilitySidecarGettersReflectSealAndReset)
   makeRofGap(fixture.mftRofs);
   fixture.mftSource.rofs = fixture.mftRofs;
   const auto failed = composer.process(fixture.itsSource, fixture.mftSource, o2::InteractionRecord{60, 6});
-  BOOST_REQUIRE(failed.outcome != ParticipantOutcome::Success);
+  BOOST_REQUIRE(failed.outcome != TrackingOutcome::Success);
   BOOST_CHECK(!composer.getITSSharedClusterCompatibility().isSealed());
   BOOST_CHECK(composer.getITSSharedClusterCompatibility().entries().empty());
   BOOST_CHECK(composer.getMFTPublicationCompatibility().find(0, 0) == nullptr);
@@ -1119,7 +1124,7 @@ BOOST_AUTO_TEST_CASE(ExplicitScheduleDrivesITSThenMFTThroughTheDelegatedEngine)
   // ITSAndMFTAcceptedResultsReproduceStandaloneCountsInOneCombinedPass,
   // narrowed to the one claim this test adds: process()'s ITS-then-MFT
   // CommonTrack ordering and per-detector publication exports are produced
-  // by TrackingEngine::executeEvent()'s explicit [ITS, MFT] schedule
+  // by the explicit [ITS, MFT] Tracker invocation order
   // (the workflow-owned explicit schedule), not a hand-unrolled pair of
   // clustersToTracks() calls.
   ensureTrivialMagneticFieldIsSet();
@@ -1148,7 +1153,7 @@ BOOST_AUTO_TEST_CASE(ExplicitScheduleDrivesITSThenMFTThroughTheDelegatedEngine)
   composer.setNThreads(1);
 
   const auto result = composer.process(itsSource, mftSource, o2::InteractionRecord{50, 5});
-  BOOST_REQUIRE(result.outcome == ParticipantOutcome::Success);
+  BOOST_REQUIRE(result.outcome == TrackingOutcome::Success);
   BOOST_REQUIRE_GT(result.nITSTracks, 0u);
   BOOST_REQUIRE_GT(result.nMFTTracks, 0u);
 
@@ -1187,8 +1192,8 @@ BOOST_AUTO_TEST_CASE(ExplicitScheduleDrivesITSThenMFTThroughTheDelegatedEngine)
 
 BOOST_AUTO_TEST_CASE(AtomicLoadFailureInvokesEngineResetOnlyAndLeavesNoParticipantOrSidecarState)
 {
-  // A load failure must reach TrackingEngine::resetEvent() directly --
-  // executeEvent() (and therefore either leg's track()) must never run on a
+  // A load failure must reach the single frame reset directly --
+  // Tracker::run() (and therefore either leg's kernel sequence) must never run on a
   // partially/never-loaded event. Externally this means: zero tracks
   // reported, both legs' scratches and both detector compatibility
   // sidecars back to their pre-process() empty/unsealed state (never
@@ -1207,7 +1212,7 @@ BOOST_AUTO_TEST_CASE(AtomicLoadFailureInvokesEngineResetOnlyAndLeavesNoParticipa
   composer.setNThreads(1);
 
   const auto result = composer.process(fixture.itsSource, fixture.mftSource, o2::InteractionRecord{50, 5});
-  BOOST_REQUIRE(result.outcome != ParticipantOutcome::Success);
+  BOOST_REQUIRE(result.outcome != TrackingOutcome::Success);
   BOOST_CHECK_EQUAL(result.nITSTracks, 0u);
   BOOST_CHECK_EQUAL(result.nMFTTracks, 0u);
 
