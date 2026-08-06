@@ -43,7 +43,7 @@
 #include "ITSMFTTracking/ClockTimingPublicationView.h"
 #include "ITSMFTTracking/Configuration.h"
 #include "ITSMFTTracking/ClusterSource.h"
-#include "ITSMFTTracking/DetectorLayoutSet.h"
+#include "ITSMFTTracking/SurfaceGraph.h"
 #include "ITSMFTTracking/ITSSharedClusterCompatibility.h"
 #include "ITSMFTTracking/MFTPublicationCompatibility.h"
 #include "ITSMFTTracking/MultiSourceTimeFrameLoader.h"
@@ -138,8 +138,7 @@ class CombinedCATrackerDPL : public o2::framework::Task
   std::unique_ptr<o2::itsmft::tracking::ClusterDecoder> mITSDecoder;
   std::unique_ptr<o2::itsmft::tracking::ClusterDecoder> mMFTDecoder;
   o2::itsmft::tracking::TimeFrame mFrame;
-  std::optional<o2::itsmft::tracking::DetectorLayoutSet> mITSPlan;
-  std::optional<o2::itsmft::tracking::DetectorLayoutSet> mMFTPlan;
+  std::vector<o2::itsmft::tracking::SurfaceGraph> mGraphs;
   std::unique_ptr<o2::itsmft::tracking::SurfacePlanTrackingParticipantITS> mITSParticipant;
   std::unique_ptr<o2::itsmft::tracking::SurfacePlanTrackingParticipantMFT> mMFTParticipant;
   std::array<o2::itsmft::tracking::TrackingParticipant*, 2> mSchedule{};

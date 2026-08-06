@@ -22,8 +22,8 @@ namespace o2::itsmft::tracking
 // surface catalog: a pointer to const SurfaceDescriptor plus a count,
 // nothing else. Deliberately carries no topology, masks, transition-policy,
 // STL ownership or detector dependency, so consumers that only need the
-// surface descriptions (e.g. loading) do not have to depend on
-// DetectorLayout/SparseTrackingTopology/TransitionPolicy.
+// surface descriptions (e.g. loading) do not have to depend on graph
+// adjacency or transition policy.
 //
 // A SurfaceDescriptor now includes immutable identity, geometry and nominal
 // material (see SurfaceDescriptor.h), so this view is not geometry-only:
@@ -37,9 +37,31 @@ namespace o2::itsmft::tracking
 struct SurfaceCatalogView {
   const SurfaceDescriptor* surfaces{nullptr};
   uint32_t nSurfaces{0};
+  // Optional compact lookup for catalogs whose global ids are not dense.
+  // A null pointer preserves direct indexing for the canonical dense catalogs.
+  const uint8_t* surfaceIndicesById{nullptr};
 
-  // Bounds-unchecked, matching DetectorLayoutView::getSurface().
-  GPUhdi() const SurfaceDescriptor& getSurface(SurfaceId id) const { return surfaces[id.value()]; }
+  GPUhdi() uint32_t getSurfaceIndex(SurfaceId id) const
+  {
+    if (!id.isValid() || id.value() >= MaxLayoutSurfaces) {
+      return nSurfaces;
+    }
+    if (surfaceIndicesById != nullptr) {
+      return surfaceIndicesById[id.value()];
+    }
+    if (id.value() < nSurfaces && surfaces[id.value()].id == id) {
+      return id.value();
+    }
+    for (uint32_t i = 0; i < nSurfaces; ++i) {
+      if (surfaces[i].id == id) {
+        return i;
+      }
+    }
+    return nSurfaces;
+  }
+
+  GPUhdi() bool hasSurface(SurfaceId id) const { return getSurfaceIndex(id) < nSurfaces; }
+  GPUhdi() const SurfaceDescriptor& getSurface(SurfaceId id) const { return surfaces[getSurfaceIndex(id)]; }
 };
 
 static_assert(std::is_standard_layout_v<SurfaceCatalogView>);

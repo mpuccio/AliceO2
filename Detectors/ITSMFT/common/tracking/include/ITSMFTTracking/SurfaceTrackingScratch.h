@@ -22,12 +22,12 @@
 /// application adapter that owns their lifetime; this class has no detector
 /// table or topology object to select.
 ///
-/// SparseTrackingTopologyView and SurfacePlanBinding ids are passed to
+/// SurfaceGraphView and SurfacePlanBinding ids are passed to
 /// initialise() explicitly. Traversal order is therefore the binding's
 /// ordered-surface/transition/cell order, never a numeric SurfaceId order.
 ///
-/// This type never owns a plan or binding. It borrows the caller's
-/// SparseTrackingTopologyView and runtime ROF context for the current event;
+/// This type never owns a graph or binding. It borrows the caller's
+/// SurfaceGraphView and runtime ROF context for the current event;
 /// the event owner/adapter owns raw ROFs and the event lifecycle.
 #ifndef ALICEO2_ITSMFT_TRACKING_SURFACETRACKINGSCRATCH_H_
 #define ALICEO2_ITSMFT_TRACKING_SURFACETRACKINGSCRATCH_H_
@@ -52,7 +52,7 @@
 #include "ITSMFTTracking/SurfaceMeasurement.h"
 #include "ITSMFTTracking/TimeFrame.h"
 #include "ITSMFTTracking/ROFViews.h"
-#include "ITSMFTTracking/SparseTrackingTopology.h"
+#include "ITSMFTTracking/SurfaceGraph.h"
 #include "ITStracking/BoundedAllocator.h"
 #include "ITStracking/Cluster.h"
 #include "ITStracking/ClusterLines.h"
@@ -261,7 +261,7 @@ class SurfaceTrackingScratch
   auto& getCellsLabel(int layer) { return mCellLabels[layer]; }
 
   void initialise(const TimeFrame& frame, const TrackingParameters& trkParam, int maxLayers, int iteration,
-                  const IndexTableUtilsCore& indexTableConfig, SparseTrackingTopologyView topology,
+                  const IndexTableUtilsCore& indexTableConfig, SurfaceGraphView topology,
                   gsl::span<const TransitionId> transitionIds, gsl::span<const CellTopologyId> cellIds,
                   gsl::span<const SurfaceId> orderedSurfaces,
                   gsl::span<const gsl::span<const SurfaceMeasurement>> layerMeasurements);

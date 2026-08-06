@@ -145,7 +145,7 @@ class CellSeed final : public SeedMetadataBase<o2::its::constants::ClustersPerCe
 /// on NLayers, since this type must remain usable on device (GPUhd()),
 /// where heap allocation is unavailable. MaxLayoutSurfaces already bounds
 /// every owned-surface position in this library (SurfaceMask,
-/// DetectorLayoutBuilder, SparseTrackingTopology), so no plan this library
+/// SurfaceGraphBuilder, so no graph this library
 /// can validly build can ever exceed this capacity -- no new bound is
 /// invented here.
 ///

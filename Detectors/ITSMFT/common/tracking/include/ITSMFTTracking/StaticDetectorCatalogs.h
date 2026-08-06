@@ -16,27 +16,17 @@
 // in that same test). No new catalog abstraction is introduced here.
 //
 // `inline constexpr` gives each array external linkage and static storage
-// duration, so a SurfaceCatalogView (SurfaceCatalogView.h) borrowing a
-// pointer into one of these arrays is valid for the process's entire
-// lifetime -- never dangling, never requiring a copy.
+// duration. Views into these arrays therefore remain valid for the process
+// lifetime.
 //
-// kITSStaticSurfaceCatalog/kMFTStaticSurfaceCatalog remain the sole plan
-// source for single-detector production tracking as of Gate 4 B2 Slice 2:
-// ITSMFTTrackingInterface::initialiseTracker() builds its one immutable
-// DetectorLayoutSet from whichever of the two matches DetId, once, via
-// buildDetectorLayoutSet() (DetectorLayoutSet.h). They are adapter/
-// application data for that single-detector path, not a combined-tracking
-// input.
+// The single-detector catalogs are application declarations used to build one
+// immutable SurfaceGraph for the selected tracking path.
 //
 // kITSMFTCombinedStaticSurfaceCatalog is, as of Gate 4 C2/C3, the
-// authoritative combined-catalog source for combined disconnected tracking:
-// the combined DPL application composition builds its one 17-surface
-// DetectorLayout directly from this catalog and derives both detectors'
-// SurfacePlanBinding objects from that single build, so ITS and MFT traversal
-// always share one identical global id space. Mixed-detector track publication
-// stays rejected/diagnostic outside that application composition
-// (TrackerTraits::initialiseTimeFrame()'s existing MixedPolicyLayout gate
-// already covers that, unchanged).
+// authoritative combined-catalog source for combined disconnected tracking.
+// The application composition builds one graph and derives both bindings from
+// it, so the two participants share one global id space while remaining
+// disconnected unless the declaration supplies cross-boundary edges.
 
 #ifndef ALICEO2_ITSMFT_TRACKING_STATICDETECTORCATALOGS_H_
 #define ALICEO2_ITSMFT_TRACKING_STATICDETECTORCATALOGS_H_

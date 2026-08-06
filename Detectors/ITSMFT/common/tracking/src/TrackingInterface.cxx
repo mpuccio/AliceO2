@@ -225,20 +225,20 @@ void ITSMFTTrackingInterface<NLayers>::initialiseTracker()
   // per-TF data, so it is fatal here, once, exactly like the nThreads
   // misconfiguration checked above.
   static constexpr auto kOrderedSurfaces = identitySurfaceOrder<NLayers>();
-  DetectorLayoutSetBuildResult planResult;
+  SurfaceGraphBatchResult planResult;
   if constexpr (DetId == o2::detectors::DetID::ITS) {
-    planResult = buildDetectorLayoutSet(SurfaceCatalogView{kITSStaticSurfaceCatalog.data(), static_cast<uint32_t>(kITSStaticSurfaceCatalog.size())},
-                                        gsl::span<const SurfaceId>{kOrderedSurfaces}, mTrackParams);
+    planResult = buildSurfaceGraphs(SurfaceCatalogView{kITSStaticSurfaceCatalog.data(), static_cast<uint32_t>(kITSStaticSurfaceCatalog.size())},
+                                    gsl::span<const SurfaceId>{kOrderedSurfaces}, mTrackParams);
   } else {
-    planResult = buildDetectorLayoutSet(SurfaceCatalogView{kMFTStaticSurfaceCatalog.data(), static_cast<uint32_t>(kMFTStaticSurfaceCatalog.size())},
-                                        gsl::span<const SurfaceId>{kOrderedSurfaces}, mTrackParams);
+    planResult = buildSurfaceGraphs(SurfaceCatalogView{kMFTStaticSurfaceCatalog.data(), static_cast<uint32_t>(kMFTStaticSurfaceCatalog.size())},
+                                    gsl::span<const SurfaceId>{kOrderedSurfaces}, mTrackParams);
   }
   if (!planResult.ok()) {
     LOGP(fatal, "{} CA tracker failed to build its static detector layout plan (error={} failedIteration={} layoutBuildError={} topologyError={} layoutError={})",
          detName<DetId>(), static_cast<int>(planResult.error), planResult.failedIteration,
-         static_cast<int>(planResult.layoutBuildError), static_cast<int>(planResult.topologyError), static_cast<int>(planResult.layoutError));
+         static_cast<int>(planResult.error), static_cast<int>(planResult.topologyError), static_cast<int>(planResult.graphError));
   }
-  mPlan = std::move(planResult.layout);
+  mGraphs = std::move(planResult.graphs);
 
   // M6e1/M6e2: adapter-derived expected kind/policy, mirroring the combined
   // participants' own SurfacePlanBinding construction in the combined
@@ -257,7 +257,7 @@ void ITSMFTTrackingInterface<NLayers>::initialiseTracker()
     }
     constexpr SurfaceKind expectedKind = (DetId == o2::detectors::DetID::ITS) ? SurfaceKind::Cylinder : SurfaceKind::Disk;
     constexpr TransitionPolicyTag expectedPolicy = (DetId == o2::detectors::DetID::ITS) ? TransitionPolicyTag::CylinderCylinder : TransitionPolicyTag::DiskDisk;
-    auto bindingResult = SurfacePlanBinding::build(mPlan->getLayoutView(0), ClusterSourceId{0}, owned,
+    auto bindingResult = SurfacePlanBinding::build(mGraphs.front().getView(), ClusterSourceId{0}, owned,
                                                    gsl::span<const SurfaceId>{kOrderedSurfaces}, expectedKind, expectedPolicy);
     if (!bindingResult.ok()) {
       LOGP(fatal, "{} CA tracker failed to build its SurfacePlanBinding (error={})", detName<DetId>(), static_cast<int>(bindingResult.error));
@@ -375,7 +375,7 @@ void ITSMFTTrackingInterface<NLayers>::loadTimeFrame(gsl::span<const o2::itsmft:
   // they were before this call.
   const auto orderedSurfaces = mBinding->getOrderedSurfaces();
   const auto result = mScratch.loadNormalizedSource(mFrame, *mClusterDecoder, origin, timing, clusters, patterns, rofs, mDict, labels, DetId,
-                                                    orderedSurfaces, mPlan->getSurfaceCatalog());
+                                                    orderedSurfaces, mGraphs.front().getSurfaceCatalog());
   if (!result.ok()) {
     if (isRecoverableLoadError(result.error, result.timingDetail)) {
       throw RecoverableLoadFailure{result};
@@ -411,7 +411,7 @@ float ITSMFTTrackingInterface<NLayers>::runTracking()
   }
   mTracker->adoptScratch(mScratch);
   mTracker->adoptFrame(mFrame);
-  mTracker->adoptDetectorLayoutSet(*mPlan);
+  mTracker->adoptSurfaceGraphs(mGraphs);
   mTracker->setParameters(mTrackParams);
   mTracker->setMemoryPool(mMemoryPool);
   mTracker->setBz(mFrame.getBz());

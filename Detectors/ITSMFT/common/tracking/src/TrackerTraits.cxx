@@ -127,7 +127,7 @@ Vertex diamondVertexForROF(const Vertex& base, const ROFOverlapView& rofOverlapV
 
 void TrackerTraits::resetTraversalCache() noexcept
 {
-  mTraversalLayout = {};
+  mTraversalGraph = {};
   mTraversalGrouping.reset();
   mCylinderPolicyParams.reset();
   mDiskPolicyParams.reset();
@@ -298,12 +298,12 @@ void TrackerTraits::bindTraversalOperation(int iteration)
 }
 
 void TrackerTraits::validateSparsePlan(int iteration,
-                                       const DetectorLayoutView& layout,
+                                       const SurfaceGraphView& layout,
                                        TransitionPolicyTag& activeTag,
                                        bool& mixedPolicy) const
 {
   const auto fail = [iteration]() { throw TraversalException{iteration, TraversalFailureReason::SparseTopologyMismatch}; };
-  const auto& topology = layout.topology;
+  const auto& topology = layout;
   if (layout.surfaces == nullptr || layout.nSurfaces == 0 ||
       (topology.nTransitions != 0 && (topology.transitions == nullptr || topology.cellsByFirstTransitionOffsets == nullptr)) ||
       (topology.nCells != 0 && (topology.cells == nullptr || topology.cellsByFirstTransition == nullptr))) {
@@ -397,7 +397,7 @@ void TrackerTraits::validateSparsePlan(int iteration,
   (void)mTrkParams[iteration];
 }
 
-void TrackerTraits::initialiseTimeFrame(const int iteration, const DetectorLayoutSet& layouts)
+void TrackerTraits::initialiseTimeFrame(const int iteration, const std::vector<SurfaceGraph>& graphs)
 {
   resetTraversalCache();
 
@@ -406,10 +406,10 @@ void TrackerTraits::initialiseTimeFrame(const int iteration, const DetectorLayou
   // (Gate 4 B2 Slice 2): its mere presence as a valid reference here is the
   // caller's guarantee that a plan exists, so there is no separate
   // missing/stale-layout state left to check.
-  if (iteration < 0 || static_cast<size_t>(iteration) >= layouts.size()) {
+  if (iteration < 0 || static_cast<size_t>(iteration) >= graphs.size()) {
     throw TraversalException{iteration, TraversalFailureReason::IterationOutOfRange};
   }
-  const auto layout = layouts.getLayoutView(iteration);
+  const auto layout = graphs[iteration].getView();
   if (mTrkParams[iteration].PassFlags[IterationStep::FirstPass]) {
     clearAcceptedTracksForSharedStatus();
   }
@@ -442,10 +442,10 @@ void TrackerTraits::initialiseTimeFrame(const int iteration, const DetectorLayou
   // owns; no layer-count-to-policy selection is used here.
   if (mBinding != nullptr) {
     const auto boundTransitions = mBinding->getGlobalTransitions();
-    if (boundTransitions.empty() || boundTransitions.front().value() >= layout.topology.nTransitions) {
+    if (boundTransitions.empty() || boundTransitions.front().value() >= layout.nTransitions) {
       throw TraversalException{iteration, TraversalFailureReason::SparseTopologyMismatch};
     }
-    mActiveTag = transitionPolicyTagForSurfaceKind(layout.getSurface(layout.topology.getTransition(boundTransitions.front()).from).kind);
+    mActiveTag = transitionPolicyTagForSurfaceKind(layout.getSurface(layout.getTransition(boundTransitions.front()).from).kind);
   } else if (grouping.hasTag(TransitionPolicyTag::CylinderCylinder)) {
     mActiveTag = TransitionPolicyTag::CylinderCylinder;
   } else if (grouping.hasTag(TransitionPolicyTag::DiskDisk)) {
@@ -477,7 +477,7 @@ void TrackerTraits::initialiseTimeFrame(const int iteration, const DetectorLayou
   // nominal material, entirely from `layouts`/`layout` (already resolved
   // above) and `mTrkParams[iteration]` -- before any TimeFrame tracking
   // state is touched (see TrackerTraits.h's TraversalFailureReason doc).
-  // The surface-position mapping is this DetectorLayoutSet's own validated
+  // The surface-position mapping is this graph vector's own validated
   // orderedSurfaces (never inferred from a detector identity,
   // radius, z, or numeric ordering); a size mismatch, an invalid/out-of-range
   // mapped SurfaceId, or a numeric disagreement against the temporary legacy
@@ -493,7 +493,7 @@ void TrackerTraits::initialiseTimeFrame(const int iteration, const DetectorLayou
   //
   const auto orderedSurfaces = mBinding != nullptr
                                  ? mBinding->getOrderedSurfaces()
-                                 : gsl::span<const SurfaceId>{layouts.getConfigurationKey().orderedSurfaces};
+                                 : gsl::span<const SurfaceId>{graphs.front().getOrderedSurfaces()};
   const int activeSurfaceCount = static_cast<int>(mScratch->getNOwnedSurfaces());
   // This is the remaining adapter-edge compatibility check: the application
   // configuration must agree with the adopted plan count. No shared
@@ -623,7 +623,7 @@ void TrackerTraits::initialiseTimeFrame(const int iteration, const DetectorLayou
   const auto transitionIds = mBinding != nullptr ? mBinding->getGlobalTransitions() : grouping.transitionsForTag(mActiveTag);
   const auto cellIds = mBinding != nullptr ? mBinding->getGlobalCells() : grouping.cellsForTag(mActiveTag);
   mScratch->initialise(*mFrame, mTrkParams[iteration], activeSurfaceCount, iteration,
-                       stagedIndexTableConfig, layout.topology, transitionIds, cellIds,
+                       stagedIndexTableConfig, layout, transitionIds, cellIds,
                        orderedSurfaces, stagedLayerMeasurements);
 
   // A sorted Cluster is a locator/navigation cache only. Validate each
@@ -633,7 +633,7 @@ void TrackerTraits::initialiseTimeFrame(const int iteration, const DetectorLayou
   // have succeeded, so a structural failure cannot publish traversal caches.
   std::vector<bool> candidateReachableLayers(static_cast<std::size_t>(activeSurfaceCount), false);
   for (const auto transitionId : transitionIds) {
-    const auto& transition = layout.topology.getTransition(transitionId);
+    const auto& transition = layout.getTransition(transitionId);
     const auto fromSlot = mBinding != nullptr ? mBinding->getOwnedSurfaceIndex(transition.from) : std::optional<uint16_t>{static_cast<uint16_t>(std::distance(orderedSurfaces.begin(), std::find(orderedSurfaces.begin(), orderedSurfaces.end(), transition.from)))};
     const auto toSlot = mBinding != nullptr ? mBinding->getOwnedSurfaceIndex(transition.to) : std::optional<uint16_t>{static_cast<uint16_t>(std::distance(orderedSurfaces.begin(), std::find(orderedSurfaces.begin(), orderedSurfaces.end(), transition.to)))};
     if (!fromSlot || !toSlot || *fromSlot >= candidateReachableLayers.size() || *toSlot >= candidateReachableLayers.size()) {
@@ -739,7 +739,7 @@ void TrackerTraits::initialiseTimeFrame(const int iteration, const DetectorLayou
     throw TraversalException{iteration, TraversalFailureReason::StateFamilyMismatch};
   }
 
-  mTraversalLayout = layout;
+  mTraversalGraph = layout;
   mTraversalGrouping.emplace(std::move(grouping));
   mCylinderPolicyParams = cylinderParams;
   mDiskPolicyParams = diskParams;
@@ -803,7 +803,7 @@ void TrackerTraits::prepareTransitionScatteringAndBendingForPolicy(
   // a Tag-specific curvature clamp. Iterate the binding's validated sparse
   // transition order, which is the compact scratch order and preserves the
   // existing global topology ordering without consulting a layer topology.
-  const auto& topology = mTraversalLayout.topology;
+  const auto& topology = mTraversalGraph;
   // The operation binding is installed after this preparation step. Resolve
   // the already-validated plan/binding span directly here; using the
   // not-yet-bound operation cache would silently leave every transition
@@ -845,7 +845,7 @@ void TrackerTraits::computeLayerTracklets(const int iteration, int iVertex)
   // preserving substitution there, and the only value that is ever actually
   // correct once a binding scopes this instance to one detector's own
   // compact slots.
-  const auto& topology = mTraversalLayout.topology;
+  const auto& topology = mTraversalGraph;
   const auto scratchTransitionCount = mScratch->getTracklets().size();
   for (size_t transitionId = 0; transitionId < scratchTransitionCount; ++transitionId) {
     mScratch->getTracklets()[transitionId].clear();
@@ -879,7 +879,7 @@ void TrackerTraits::computeLayerTrackletsForPolicy(
   // per-tag span from TransitionPolicyGrouping -- every loop below still
   // iterates exclusively over it (or over the tracklet storage it already
   // populated), never over the raw sparse transition count.
-  const auto& topology = mTraversalLayout.topology;
+  const auto& topology = mTraversalGraph;
   const Vertex diamondVert(mTrkParams[iteration].Diamond, mTrkParams[iteration].DiamondCov, 1, 1.f);
 
   mTaskArena->execute([&] {
@@ -1140,7 +1140,7 @@ void TrackerTraits::computeLayerCells(const int iteration)
   // Gate 4 Slice 0b: driven by the sparse topology cached on
   // initialiseTimeFrame() (mTraversalLayout), not a detector-specific
   // topology fetch.
-  const auto& topology = mTraversalLayout.topology;
+  const auto& topology = mTraversalGraph;
   // Defensive size-consistency check, mirroring findCellsNeighboursForPolicy's
   // own precedent. Gate 4 C2 Slice 1: checked against this scratch's own
   // already-allocated compact cell count, never topology.nCells directly --
@@ -1199,7 +1199,7 @@ void TrackerTraits::computeLayerCellsForPolicy(
   // function's own doc: its clear loop is the first thing to touch those
   // containers, so that is the only point that can actually intercept a
   // size mismatch before it becomes undefined behaviour.
-  const auto& topology = mTraversalLayout.topology;
+  const auto& topology = mTraversalGraph;
 
   mTaskArena->execute([&] {
     // Resolves one sparse SurfaceCellTopology's three hit surfaces to
@@ -1387,7 +1387,7 @@ void TrackerTraits::findCellsNeighboursForPolicy(
   gsl::span<const CellTopologyId> scheduledCells,
   const typename TransitionPolicyTraits<Tag>::Params& params)
 {
-  const auto topology = mTraversalLayout.topology;
+  const auto topology = mTraversalGraph;
   // Gate 4 C2 Slice 1: checked/bounded against this scratch's own already-
   // allocated compact cell count, never topology.nCells directly -- see
   // computeLayerCells()'s identical reasoning.
@@ -1672,7 +1672,7 @@ void TrackerTraits::findRoads(const int iteration, TrackingOperationAdapter& ope
   // is the possibly-multi-detector global cell count once a binding scopes
   // this instance to one detector.
   if (mBinding != nullptr ? mScratch->getCells().size() != mBinding->getGlobalCells().size()
-                          : mScratch->getCells().size() != mTraversalLayout.topology.nCells) {
+                          : mScratch->getCells().size() != mTraversalGraph.nCells) {
     throw TraversalException{iteration, TraversalFailureReason::SparseTopologyMismatch};
   }
   // M5c: see computeLayerTracklets()'s identical conversion above.
@@ -1788,7 +1788,7 @@ void TrackerTraits::findRoadsForPolicy(const int iteration,
                                                              mBz,
                                                              *mScratch,
                                                              mLayerMeasurements,
-                                                             mTraversalLayout.getSurfaceCatalogView(),
+                                                             mTraversalGraph.getSurfaceCatalogView(),
                                                              expectedSource,
                                                              temporaryTrack);
         if (refitSuccess) {

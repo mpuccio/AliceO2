@@ -10,7 +10,7 @@
 
 #include <cstdint>
 
-#include "ITSMFTTracking/DetectorLayout.h"
+#include "ITSMFTTracking/SurfaceGraph.h"
 #include "ITSMFTTracking/detail/TransitionPolicy.h"
 #include "ITSMFTTracking/detail/TransitionPolicyState.h"
 
@@ -39,20 +39,20 @@ enum class TransitionPolicyScheduleError : uint8_t {
   CyclicTopology
 };
 
-/// Host-side, one-shot grouping of an already-validated DetectorLayoutView's
+/// Host-side, one-shot grouping of an already-validated SurfaceGraphView's
 /// transitions and cell topologies by TransitionPolicyTag. Built once outside
 /// candidate/hot loops; `dispatchTransitionPolicies` then issues at most one
 /// call per active tag into a template-specialized policy implementation.
 class TransitionPolicyGrouping
 {
  public:
-  explicit TransitionPolicyGrouping(const DetectorLayoutView& layout)
+  explicit TransitionPolicyGrouping(const SurfaceGraphView& layout)
   {
     if (layout.nSurfaces != 0 && layout.surfaces == nullptr) {
       mScheduleError = TransitionPolicyScheduleError::MissingSurfaceData;
       return;
     }
-    const auto& topology = layout.topology;
+    const auto& topology = layout;
     if ((topology.nTransitions != 0 && topology.transitions == nullptr) ||
         (topology.nCells != 0 && topology.cells == nullptr)) {
       mScheduleError = TransitionPolicyScheduleError::MissingTopologyData;

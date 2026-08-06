@@ -38,15 +38,15 @@ void SurfacePlanTrackingParticipant<NLayers>::adoptSurfacePlanBinding(std::uniqu
 }
 
 template <int NLayers>
-void SurfacePlanTrackingParticipant<NLayers>::adoptDetectorLayoutSet(const DetectorLayoutSet& plan)
+void SurfacePlanTrackingParticipant<NLayers>::adoptSurfaceGraphs(const std::vector<SurfaceGraph>& graphs)
 {
-  mPlan = &plan;
+  mGraphs = &graphs;
   // The plan and binding are adopted before this call, so their compact
   // topology counts size the scratch before any loader or tracker access.
   mScratch.adoptPlan(static_cast<std::size_t>(ownedSurfaces().size()),
                      mBinding->getGlobalTransitions().size(),
                      mBinding->getGlobalCells().size());
-  mTracker.adoptDetectorLayoutSet(plan);
+  mTracker.adoptSurfaceGraphs(graphs);
 }
 
 template <int NLayers>
@@ -192,7 +192,7 @@ void SurfacePlanTrackingParticipant<NLayers>::eventReset(TimeFrame&) noexcept
 template <int NLayers>
 std::optional<ParticipantPublicationExport> SurfacePlanTrackingParticipant<NLayers>::publicationExport() const
 {
-  if (!mTracked || mPlan == nullptr) {
+  if (!mTracked || mGraphs == nullptr) {
     return std::nullopt;
   }
   return ParticipantPublicationExport{mId, ownedSurfaces()};

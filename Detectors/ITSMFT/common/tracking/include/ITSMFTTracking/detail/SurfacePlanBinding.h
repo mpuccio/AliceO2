@@ -55,7 +55,7 @@
 
 #include <gsl/span>
 
-#include "ITSMFTTracking/DetectorLayout.h"
+#include "ITSMFTTracking/SurfaceGraph.h"
 #include "ITSMFTTracking/detail/TransitionPolicyDispatch.h"
 
 namespace o2::itsmft::tracking
@@ -93,7 +93,7 @@ class SurfacePlanBinding
   // M4b's stateFamilyOf(SurfaceKind)/decision 8's
   // transitionPolicyTagForSurfaceKind()) -- never derived here from a
   // detector identity, since this type accepts none.
-  static BuildResult build(const DetectorLayoutView& globalLayout,
+  static BuildResult build(const SurfaceGraphView& globalLayout,
                            ClusterSourceId source,
                            SurfaceMask ownedSurfaces,
                            gsl::span<const SurfaceId> orderedSurfaces,
@@ -140,7 +140,7 @@ class SurfacePlanBinding
     if (!grouping.valid()) {
       return {{}, SurfacePlanBindingError::InvalidTopology};
     }
-    const auto& topology = globalLayout.topology;
+    const auto& topology = globalLayout;
     result->mScratchTransitionSlot.assign(topology.nTransitions, -1);
     result->mScratchCellSlot.assign(topology.nCells, -1);
 

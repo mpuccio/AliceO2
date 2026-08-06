@@ -26,7 +26,7 @@
 #include <oneapi/tbb.h>
 
 #include "ITSMFTTracking/Configuration.h"
-#include "ITSMFTTracking/DetectorLayoutSet.h"
+#include "ITSMFTTracking/SurfaceGraph.h"
 #include "ITSMFTTracking/SurfaceTrackingScratch.h"
 #include "ITSMFTTracking/SurfaceDescriptor.h"
 #include "ITSMFTTracking/SurfaceMeasurement.h"
@@ -117,7 +117,7 @@ enum class TraversalFailureReason : uint8_t {
   // binding structurally cannot hand a hot loop a foreign/unmapped id, this
   // can only mean the binding disagrees
   // with the layout/topology this iteration is actually running against
-  // (e.g. a stale binding, or a binding built for the wrong DetectorLayoutSet
+  // (e.g. a stale binding, or a binding built for the wrong graph vector
   // iteration) -- always a structural/configuration failure, never a per-TF
   // data problem, so DropTFUponFailure never applies. Raised before the
   // offending index is ever used to address scratch storage.
@@ -158,14 +158,13 @@ class TrackerTraits
   // `binding` must outlive every subsequent clustersToTracks() call and is
   // never owned or copied. Direct algorithm tests may omit it when their
   // topology is already identity-indexed; production adapters always adopt
-  // the binding built for the same DetectorLayoutSet iteration. A non-identity
+  // the binding built for the same graph iteration. A non-identity
   // binding mismatch surfaces as TraversalFailureReason::TraversalBindingMismatch,
   // never as a silent misread.
   void adoptSurfacePlanBinding(const SurfacePlanBinding* binding) noexcept { mBinding = binding; }
-  // `layouts` is the owner's (ITSMFTTrackingInterface's) one immutable plan,
-  // supplied explicitly by the caller (Gate 4 B2 Slice 2) -- this no longer
-  // reads any layout/catalog state off TimeFrame.
-  virtual void initialiseTimeFrame(const int iteration, const DetectorLayoutSet& layouts);
+  // `graphs` is the owner's one immutable graph vector,
+  // supplied explicitly by the caller; no graph state is read from TimeFrame.
+  virtual void initialiseTimeFrame(const int iteration, const std::vector<SurfaceGraph>& graphs);
 
   virtual void computeLayerTracklets(const int iteration, int iVertex);
   virtual void computeLayerCells(const int iteration);
@@ -232,7 +231,7 @@ class TrackerTraits
 
  private:
   void resetTraversalCache() noexcept;
-  void validateSparsePlan(int iteration, const DetectorLayoutView& layout, TransitionPolicyTag& activeTag, bool& mixedPolicy) const;
+  void validateSparsePlan(int iteration, const SurfaceGraphView& graph, TransitionPolicyTag& activeTag, bool& mixedPolicy) const;
   int requireSurfacePosition(int iteration, SurfaceId id) const;
 
   // Gate 4 C2 Slice 1: the sole global-TransitionId/CellTopologyId-to-
@@ -378,7 +377,7 @@ class TrackerTraits
 
   std::shared_ptr<BoundedMemoryResource> mMemoryPool;
   std::shared_ptr<tbb::task_arena> mTaskArena;
-  DetectorLayoutView mTraversalLayout{};
+  SurfaceGraphView mTraversalGraph{};
   std::optional<TransitionPolicyGrouping> mTraversalGrouping;
   std::optional<CylinderCylinderPolicyParams> mCylinderPolicyParams;
   std::optional<DiskDiskPolicyParams> mDiskPolicyParams;

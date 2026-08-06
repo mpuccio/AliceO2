@@ -116,7 +116,7 @@ struct CommonTrack {
 // consistent across host and device compilation -- both properties are
 // required together for the same reason every other device-facing type in
 // this library asserts both (SurfaceMeasurement, StaticSurfaceDescriptor,
-// DetectorLayoutView, ...), and neither one substitutes for the other.
+// SurfaceGraphView, ...), and neither one substitutes for the other.
 static_assert(std::is_standard_layout_v<CommonTrack>);
 static_assert(std::is_trivially_copyable_v<CommonTrack>);
 

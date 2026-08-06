@@ -44,8 +44,7 @@ o2_add_library(ITSMFTTracking
                        src/MaterialPhysics.cxx
                        src/FamilyMaterialOperations.cxx
                        src/IndexTableConfiguration.cxx
-                       src/DetectorLayoutBuilder.cxx
-                       src/DetectorLayoutSet.cxx
+                       src/SurfaceGraphBuilder.cxx
                        src/Tracker.cxx
                        src/TrackingInterface.cxx
                        src/MFTFwdTrackHelpers.cxx

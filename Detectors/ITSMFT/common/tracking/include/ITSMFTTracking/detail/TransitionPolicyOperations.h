@@ -891,7 +891,7 @@ struct TransitionScatteringBendingPrep {
 ///  - `fromLayer` and `toLayer` must be validated plan-local positions for
 ///    the active topology (the same index space
 ///    TrackletProjectionState<Tag>/TrackerTraits already document and
-///    validate elsewhere via SparseTrackingTopologyView/DetectorLayoutView), not
+///    validate elsewhere via SurfaceGraphView), not
 ///    arbitrary integers or global SurfaceIds.
 ///  - `fromLayer <= toLayer`; the accumulation loop is a no-op (`ms2 == 0`)
 ///    for `fromLayer == toLayer` and undefined for `fromLayer > toLayer`

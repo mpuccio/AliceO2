@@ -23,7 +23,7 @@
 #include <oneapi/tbb/task_arena.h>
 
 #include "ITSMFTTracking/Configuration.h"
-#include "ITSMFTTracking/DetectorLayoutSet.h"
+#include "ITSMFTTracking/SurfaceGraph.h"
 #include "ITSMFTTracking/SurfaceTrackingScratch.h"
 #include "ITSMFTTracking/TimeFrame.h"
 #include "ITSMFTTracking/TrackerTraits.h"
@@ -109,7 +109,7 @@ class Tracker
   // Binds the tracker's one immutable plan, owned by its caller
   // (ITSMFTTrackingInterface) -- mirrors adoptScratch()'s bind-once pattern.
   // `plan` must outlive every subsequent clustersToTracks() call.
-  void adoptDetectorLayoutSet(const DetectorLayoutSet& plan) { mLayoutPlan = &plan; }
+  void adoptSurfaceGraphs(const std::vector<SurfaceGraph>& graphs) { mGraphs = &graphs; }
   void setParameters(const std::vector<TrackingParameters>& p) { mTrkParams = p; }
   void setMemoryPool(std::shared_ptr<BoundedMemoryResource> pool) { mMemoryPool = pool; }
   void setBz(float bz) { mTraits->setBz(bz); }
@@ -133,7 +133,7 @@ class Tracker
   SurfaceTrackingScratch& getScratch() { return *mScratch; }
 
  private:
-  void initialiseTimeFrame(int iteration) { mTraits->initialiseTimeFrame(iteration, *mLayoutPlan); }
+  void initialiseTimeFrame(int iteration) { mTraits->initialiseTimeFrame(iteration, *mGraphs); }
   void computeTracklets(int iteration, int iVertex) { mTraits->computeLayerTracklets(iteration, iVertex); }
   void computeCells(int iteration) { mTraits->computeLayerCells(iteration); }
   void findCellsNeighbours(int iteration) { mTraits->findCellsNeighbours(iteration); }
@@ -141,7 +141,7 @@ class Tracker
   TrackerTraits* mTraits = nullptr;
   SurfaceTrackingScratch* mScratch = nullptr;
   TimeFrame* mFrame = nullptr;
-  const DetectorLayoutSet* mLayoutPlan = nullptr;
+  const std::vector<SurfaceGraph>* mGraphs = nullptr;
   std::vector<TrackingParameters> mTrkParams;
   std::shared_ptr<BoundedMemoryResource> mMemoryPool;
 };

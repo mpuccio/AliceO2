@@ -61,8 +61,8 @@ struct MultiSourceFrameView {
   uint32_t nSources{0};
 
   // Bounds-unchecked (matching the per-surface accessor convention every
-  // other device view in this library uses, e.g. DetectorLayoutView::
-  // getSurface()): callers must already know `surface` is valid for this
+  // other device view in this library uses: callers must already know
+  // `surface` is valid for this
   // view. getMeasurement() below is the bounds-checked counterpart. Returns
   // nullptr (never a computed nullptr+0) when the surface has no
   // measurements.

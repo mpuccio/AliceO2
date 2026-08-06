@@ -33,7 +33,7 @@
 #include "ITSMFTTracking/DetectorPublicationAdapter.h"
 #include "ITSMFTTracking/ClusterDecoder.h"
 #include "ITSMFTTracking/ClockTimingPublicationView.h"
-#include "ITSMFTTracking/DetectorLayoutSet.h"
+#include "ITSMFTTracking/SurfaceGraphBuilder.h"
 #include "ITSMFTTracking/TimeFrameLoadFailure.h"
 #include "ITSMFTTracking/TrackingOperationAdapter.h"
 #endif
@@ -180,11 +180,11 @@ class ITSMFTTrackingInterface : private MFTPublicationCompatibilityOwner<NLayers
   const std::vector<o2::itsmft::TrackingParameters>& getTrackingParameters() const { return mTrackParams; }
   std::optional<CommonTrackPublicationExport> getCommonTrackPublicationExport() const
   {
-    if (!mPublicationClock || !mPlan || !isActive()) {
+    if (!mPublicationClock || mGraphs.empty() || !isActive()) {
       return std::nullopt;
     }
     return CommonTrackPublicationExport{DetId, ClusterSourceId{0}, *mPublicationClock,
-                                        gsl::span<const SurfaceId>{mPlan->getConfigurationKey().orderedSurfaces}};
+                                        gsl::span<const SurfaceId>{mGraphs.front().getOrderedSurfaces()}};
   }
   bool isActive() const { return !mTrackParams.empty(); }
   // Actual tbb::task_arena concurrency the tracker was constructed with (0
@@ -244,14 +244,11 @@ class ITSMFTTrackingInterface : private MFTPublicationCompatibilityOwner<NLayers
 #ifndef GPUCA_GPUCODE
   DetectorPublicationAdapter<NLayers> mDetectorPublicationAdapter;
   std::unique_ptr<ClusterDecoder> mClusterDecoder;
-  // This interface's one immutable plan, built once in initialiseTracker()
-  // from the compile-time-selected static per-detector catalog
-  // (StaticDetectorCatalogs.h). Never rebuilt, invalidated, or forwarded
-  // through TimeFrame -- runTracking()/loadTimeFrame() pass it explicitly to
-  // Tracker::adoptDetectorLayoutSet()/TimeFrame::loadNormalizedSource().
-  std::optional<DetectorLayoutSet> mPlan;
+  // Built once by the adapter and borrowed by Tracker/TrackerTraits. Graph
+  // storage remains configuration state across event resets.
+  std::vector<SurfaceGraph> mGraphs;
   std::optional<ClockTimingPublicationView> mPublicationClock;
-  // Bind-once plan, built in initialiseTracker() alongside mPlan and adopted
+  // Bind-once binding, built in initialiseTracker() alongside mGraphs and adopted
   // onto mTracker immediately after.
   std::unique_ptr<SurfacePlanBinding> mBinding;
   // Adapter-edge ownership for the frozen fixed-capacity timing/mask builders.

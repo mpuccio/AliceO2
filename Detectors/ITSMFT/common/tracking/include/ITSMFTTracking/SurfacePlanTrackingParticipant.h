@@ -37,7 +37,7 @@
 #include "ITSMFTTracking/DetectorPublicationAdapter.h"
 #include "ITSMFTTracking/Tracker.h"
 #include "ITSMFTTracking/Configuration.h"
-#include "ITSMFTTracking/DetectorLayoutSet.h"
+#include "ITSMFTTracking/SurfaceGraph.h"
 #include "ITSMFTTracking/ITSSharedClusterCompatibility.h"
 #include "ITSMFTTracking/MFTPublicationCompatibility.h"
 #include "ITSMFTTracking/MultiSourceTimeFrameLoader.h"
@@ -74,7 +74,7 @@ class SurfacePlanTrackingParticipant final : public TrackingParticipant,
   // Tracker/TrackerTraits bind to sibling addresses at
   // construction (adoptScratch()/adoptITSSharedClusterCompatibility()/
   // adoptMFTPublicationCompatibility()) and to the addresses
-  // adoptSurfacePlanBinding()/adoptDetectorLayoutSet() bind
+  // adoptSurfacePlanBinding()/adoptSurfaceGraphs() bind
   // immediately afterward; relocating this object would silently dangle
   // every one of those bound pointers -- the non-relocatable contract
   // required by the owning workflow application.
@@ -88,7 +88,7 @@ class SurfacePlanTrackingParticipant final : public TrackingParticipant,
   // workflow holds this concrete type directly (never only a
   // TrackingParticipant*) specifically to reach these. ---
   void adoptSurfacePlanBinding(std::unique_ptr<SurfacePlanBinding> binding);
-  void adoptDetectorLayoutSet(const DetectorLayoutSet& plan);
+  void adoptSurfaceGraphs(const std::vector<SurfaceGraph>& graphs);
   void adoptFrame(TimeFrame& frame);
   void setMemoryPool(std::shared_ptr<BoundedMemoryResource> pool);
   void setBz(float bz);
@@ -155,9 +155,8 @@ class SurfacePlanTrackingParticipant final : public TrackingParticipant,
   std::vector<TrackingParameters> mParams;
   SurfaceTrackingScratch mScratch;
   std::unique_ptr<SurfacePlanBinding> mBinding;
-  // Non-owning: the owning workflow's static combined plan data
-  // (DetectorLayoutSet) outlives every participant.
-  const DetectorLayoutSet* mPlan = nullptr;
+  // Non-owning graph configuration owned by the workflow.
+  const std::vector<SurfaceGraph>* mGraphs = nullptr;
   TrackerTraits mTraits;
   Tracker mTracker;
   DetectorPublicationAdapter<NLayers> mDetectorPublicationAdapter;

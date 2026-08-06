@@ -62,7 +62,7 @@ GPUhdi() constexpr StateFamily stateFamilyOf(TransitionPolicyTag tag) noexcept
 
 /// True if a transition carrying `tag` may legally connect surfaces of
 /// `kind`. This is the single shared definition of the policy/surface-kind
-/// compatibility rule; DetectorLayout construction-time validation and the
+/// compatibility rule; SurfaceGraph construction-time validation and the
 /// policy/state traits both call this instead of each encoding their own copy.
 GPUhdi() constexpr bool isSurfaceKindCompatible(TransitionPolicyTag tag, SurfaceKind kind) noexcept
 {
@@ -82,7 +82,7 @@ GPUhdi() constexpr bool isSurfaceKindCompatible(TransitionPolicyTag tag, Surface
 /// inverse of isSurfaceKindCompatible, used to derive a transition's tag from
 /// its endpoint SurfaceDescriptor::kind now that SurfaceTransition no longer
 /// stores the tag itself (M4). Every current production transition's kind
-/// and tag were already consistent by construction (DetectorLayoutBuilder
+/// and tag were already consistent by construction (SurfaceGraphBuilder
 /// only ever built same-kind subgraphs), so this derivation reproduces
 /// exactly the value the removed stored field always held.
 GPUhdi() constexpr TransitionPolicyTag transitionPolicyTagForSurfaceKind(SurfaceKind kind) noexcept
