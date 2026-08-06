@@ -1,6 +1,6 @@
 # Post-M7 cleanup implementation plan
 
-- Status: L6 implementation complete; L7 remains the next authorized slice
+- Status: L7 implementation complete; L8/L9 remain the next authorized slices
 - Date: 2026-08-06
 - Architecture source: [post-M7 intentionality audit](0009-post-m7-intentionality-cleanup-audit.md)
 - Implementation owner: Luna agents under maintainer review
@@ -380,6 +380,25 @@ participant load-target members, and friendship-only load forwarding are gone.
 Adapter-built runtime ROF views are copied into frame-owned event state, while
 their table backing storage and raw ROFs remain outside the frame. Replay and
 full-suite evidence is in the [L6 validation record](../validation/l6-direct-loader.md).
+
+**L7 result (2026-08-06):** ITS, MFT, and combined workflow/adapter contexts
+now own fixed ROF-table backing storage, timing construction, publication
+clock/validity state, and detector-local compatibility sidecars. Generic
+`TimeFrame`, loader, tracker, tracker-traits, interface, and participant code
+borrows only event-lifetime runtime timing/mask views and publication adapter
+contexts; it does not own detector tables, clocks, validity, typed sidecars,
+or typed output state. Failure, drop, structural-failure, exception, and
+replacement paths invalidate adapter state without leaving stale borrowed
+views. The focused guard and the complete 102-test ITS/MFT suite passed, and
+the replay preserved the 43/43 fixture manifest, accepted ITS/MFT hashes,
+standalone/combined field equality, and L6-parent initialized-content equality.
+See the [L7 validation record](../validation/l7-adapter-ownership.md).
+
+The exact remaining L8/L9 boundary is the deletion of the borrowed
+participant/interface composition and direct workflow composition of Loader
+plus Tracker. Raw ROFs, timing backing storage, publication sidecars, and
+writers remain workflow/adapter-owned; L8/L9 must not move them into
+`TimeFrame`.
 
 ### L5 — internalize workspace and generic reset in `TimeFrame`
 
