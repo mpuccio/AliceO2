@@ -1,6 +1,6 @@
 # Post-M7 cleanup implementation plan
 
-- Status: L1 complete; L2 remains the next authorized slice
+- Status: L2 complete; L3 remains the next authorized slice
 - Date: 2026-08-06
 - Architecture source: [post-M7 intentionality audit](0009-post-m7-intentionality-cleanup-audit.md)
 - Implementation owner: Luna agents under maintainer review
@@ -249,6 +249,14 @@ or helper names, and no source-0/1 helper survives in common loading.
 
 **Gate:** R plus allocator/swap/reset, atomic-load retry, dropped-TF, and
 combined-source-isolation tests.
+
+**Status: complete (2026-08-06).** `mPValphaX`, the `resetScratch()` forwarding
+spelling, and the fixed-source `loadITSAndMFT()`/`resetITSAndMFTEvent()` test
+wrappers are deleted. Tests now compose `loadEvent()` with explicit bindings
+and reset each scratch plus the owning `TimeFrame` directly. The recursive L2
+guard scans common tracking include/src/test/CMake files for all four deleted
+names. The 98-test suite and the standalone/combined replay gate passed; see
+[L2 dead-forwarders validation](../validation/l2-dead-forwarders.md).
 
 ### L3 — consolidate the public graph representation
 
