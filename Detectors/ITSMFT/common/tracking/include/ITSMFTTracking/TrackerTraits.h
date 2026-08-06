@@ -104,14 +104,11 @@ enum class TraversalFailureReason : uint8_t {
   // this mirrors; mLayerMeasurements is never partially populated as a
   // result -- see mLayerMeasurements' own doc for the commit contract.
   NormalizedMeasurementMismatch,
-  // Gate 4 Slice 0a (sparse-topology tracklet migration): this iteration's
-  // orderedSurfaces does not define a bijection from runtime plan position onto
-  // global SurfaceId -- i.e. two distinct legacy layers map to the same
-  // SurfaceId. Detected in the same orderedSurfaces walk that resolves
-  // mSurfaceToSlot (see that member's doc), immediately alongside the
-  // existing per-entry LegacyMaterialMismatch validity/range check, before
-  // any TimeFrame tracking state is touched; mSurfaceToSlot is never
-  // partially populated as a result.
+  // Gate 4 sparse-topology validation: this iteration's orderedSurfaces does
+  // not define a bijection from runtime plan position onto global SurfaceId --
+  // i.e. two positions map to the same SurfaceId. Detected alongside the
+  // per-entry LegacyMaterialMismatch validity/range check, before any
+  // TimeFrame tracking state is touched.
   SurfaceLayerMappingMismatch,
   // Gate 4 C2 Slice 1: an adopted SurfacePlanBinding could not translate a
   // global TransitionId/CellTopologyId encountered during traversal into a
@@ -152,8 +149,6 @@ class TraversalException final : public std::runtime_error
 class TrackerTraits
 {
  public:
-  using IndexTableUtilsN = o2::itsmft::IndexTableUtilsCore;
-
   virtual ~TrackerTraits() = default;
   // Two independent bind-once pointers -- neither owns nor stores a
   // reference to the other.
@@ -207,10 +202,10 @@ class TrackerTraits
 
   int getTraversalGroupingCount() const noexcept { return mTraversalGroupingCount; }
   bool hasTraversalCache() const noexcept { return mTraversalGrouping.has_value(); }
-  // Authoritative per-(legacy-)layer nominal material resolved once by the
+  // Authoritative per-surface-position nominal material resolved once by the
   // most recent successful initialiseTimeFrame() call, from
   // SurfaceDescriptor::material via this iteration's orderedSurfaces mapping
-  // -- never inferred from legacy index/detector identity/geometry. Valid
+  // -- never inferred from a detector identity or geometry. Valid
   // (and committed) only after initialiseTimeFrame() returns without
   // throwing: a failed call -- for any reason, including one raised after
   // material validation itself already passed -- leaves this exactly as
@@ -220,7 +215,7 @@ class TrackerTraits
   // test/inspection accessor; production consumption is through
   // mAttachHitConfig (TransitionPolicyBinding.h), not this span directly.
   gsl::span<const NominalSurfaceMaterial> getLayerMaterial() const noexcept { return {mLayerMaterial.data(), mLayerMaterial.size()}; }
-  // Authoritative per-(legacy-)layer normalized SurfaceMeasurement span,
+  // Authoritative per-surface-position normalized SurfaceMeasurement span,
   // resolved once by the most recent successful initialiseTimeFrame() call
   // from the already-loaded, already-validated
   // TimeFrame::getNormalizedFrame() via this iteration's orderedSurfaces
@@ -238,6 +233,7 @@ class TrackerTraits
  private:
   void resetTraversalCache() noexcept;
   void validateSparsePlan(int iteration, const DetectorLayoutView& layout, TransitionPolicyTag& activeTag, bool& mixedPolicy) const;
+  int requireSurfacePosition(int iteration, SurfaceId id) const;
 
   // Gate 4 C2 Slice 1: the sole global-TransitionId/CellTopologyId-to-
   // compact-scratch-slot translation used anywhere in this class. Called
@@ -361,9 +357,8 @@ class TrackerTraits
   // M4 (GenericTrackingEngineMigration.md; ADR 0007 decision 7): moved from
   // public to private -- findRoadsForPolicy() is this method's only caller
   // (TrackerTraits.cxx), recursively, so there was never an external need
-  // for it to be publicly callable. Explicit template instantiation of a
-  // private member is unaffected by access control (TrackerTraits.cxx still
-  // instantiates it for every (NLayers, Tag) pair it needs).
+  // for it to be publicly callable. Explicit policy instantiation remains
+  // local to this implementation and does not encode a detector layer count.
   template <TransitionPolicyTag Tag, typename InputSeed>
   void processNeighbours(int iteration, int defaultCellTopologyId, int iLevel, const bounded_vector<InputSeed>& currentCellSeed, const bounded_vector<int>& currentCellId, const bounded_vector<int>& currentCellTopologyId, bounded_vector<TrackSeed>& updatedCellSeed, bounded_vector<int>& updatedCellId, bounded_vector<int>& updatedCellTopologyId, const typename TransitionPolicyTraits<Tag>::Params& params);
 
@@ -399,10 +394,10 @@ class TrackerTraits
   // never reads it.
   gsl::span<const float> mDiskLayerReferenceZ{};
   AttachHitPolicyConfigView mAttachHitConfig;
-  // Authoritative per-(legacy-)layer nominal material, resolved once per
+  // Authoritative per-surface-position nominal material, resolved once per
   // initialiseTimeFrame() from SurfaceDescriptor::material via this
-  // iteration's orderedSurfaces mapping (never inferred from legacy index,
-  // detector identity, radius, z, or numeric ordering). Compatibility-only:
+  // iteration's orderedSurfaces mapping (never inferred from detector identity,
+  // radius, z, or numeric ordering). Compatibility-only:
   // SurfaceDescriptor::material is authoritative and never overwritten here;
   // this cache is temporary duplication that disappears once the final ITS
   // refit migrates off TrackingParameters::LayerxX0.
@@ -416,32 +411,13 @@ class TrackerTraits
   // iteration that ultimately failed; resetTraversalCache() zero-fills it at
   // the top of every call, and it stays that way unless the call returns
   // normally. See getLayerMaterial()'s doc for the read-side contract.
-  // Host-only plan-sized cache.  The legacy layer index remains an adapter
-  // coordinate until M7c, but its extent is supplied by the adopted plan,
-  // never by the TrackerTraits template argument.
+  // Host-only plan-sized cache. The position is the adopted binding's ordered
+  // surface position; the temporary vector remains only because the current
+  // leaf operations consume per-position parameter spans.
   std::vector<NominalSurfaceMaterial> mLayerMaterial;
-  // Gate 4 Slice 0a (sparse-topology tracklet migration): temporary bridge
-  // from a global SurfaceId back to this tracker's own
-  // runtime-plan slot, so the migrated hot loops can resolve a sparse
-  // SurfaceTransition's `from`/`to` endpoints to layer-local storage
-  // indices TimeFrame's per-layer storage (clusters, index tables,
-  // TrackingParameters::LayerRadii, mLayerMaterial, mLayerMeasurements) is
-  // still keyed by. Sized to the full global SurfaceId domain
-  // (MaxLayoutSurfaces, SurfaceId.h) -- never NLayers -- because SurfaceId
-  // numbering is global, not per-detector; only the (at most) NLayers
-  // entries this iteration's orderedSurfaces actually maps are ever valid
-  // for this bridge, every other slot stays kInvalidSurfaceSlot. Same
-  // staged-then-committed contract as mLayerMaterial immediately above:
-  // resolved into a local scratch array first, alongside mLayerMaterial, in
-  // the same orderedSurfaces walk (see initialiseTimeFrame()'s step 2.5),
-  // and committed here only in the final traversal-cache commit block.
-  // resetTraversalCache() sentinel-fills every element at the top of every
-  // call, and it stays that way unless the call returns normally.
-  static constexpr uint8_t kInvalidSurfaceSlot = 0xFFu;
-  std::array<uint8_t, MaxLayoutSurfaces> mSurfaceToSlot{};
   TransitionPolicyTag mActiveTag{TransitionPolicyTag::Invalid};
   // One-time normalized-measurement binding (Stage-B normalized-CA-
-  // measurements slice): non-owning per-(legacy-)layer span into the
+  // measurements slice): non-owning per-surface-position span into the
   // TimeFrame-owned normalized frame, resolved and validated once per
   // initialiseTimeFrame() call from this iteration's orderedSurfaces mapping
   // -- never an owning container (Architecture.md Sec 7: the common

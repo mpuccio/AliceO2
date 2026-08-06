@@ -67,7 +67,7 @@ enum class OperationFailureReason : uint8_t {
   // Gate 3 Slice B: the frozen ITS refitTrackSeed's trailing
   // `if (minPt > 0.f && track.getPt() < minPt) return false;` check
   // (TrackHelpers.h), evaluated once after the outward-index leg using
-  // params.MinPt[NLayers - seed.getHitLayerMask().count()]. Distinct from
+  // the active traversal count minus seed.getHitLayerMask().count(). Distinct from
   // LegAcceptanceFailure: this is a refitTrackSeed-level check keyed on the
   // seed's own attached-cluster count, not a per-leg fitTrack acceptance
   // condition.

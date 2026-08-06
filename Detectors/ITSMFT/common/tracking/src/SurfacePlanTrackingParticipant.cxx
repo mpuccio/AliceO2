@@ -133,7 +133,7 @@ bool SurfacePlanTrackingParticipant<NLayers>::refitSeed(const TrackSeed& seed,
                                                         ClusterSourceId expectedSource,
                                                         TrackingCandidate& candidate)
 {
-  return detail::refitDetectorSeed<DetId, NLayers>(seed, params, bz, scratch, layerMeasurements, surfaceCatalog, expectedSource, candidate);
+  return detail::refitDetectorSeed<DetId>(seed, params, bz, scratch, layerMeasurements, surfaceCatalog, expectedSource, candidate);
 }
 
 template <int NLayers>

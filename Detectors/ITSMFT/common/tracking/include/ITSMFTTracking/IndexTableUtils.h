@@ -53,11 +53,8 @@ GPUhdi() float getNormalizedPhi(float phi)
 /// for the identical reason: getColBinIndex()/getInverseColCoordinate() are
 /// GPUhdi(), so device-portable fixed-capacity storage is required here,
 /// std::vector is not an option. A caller that populates fewer than
-/// MaxLayoutSurfaces layers (every real caller today: NLayers=7 or 10) simply
-/// never queries the unpopulated tail -- every read site indexes by an
-/// explicit layerIndex from the caller's runtime plan slot
-/// TrackerTraits<NLayers,...>/the former fixed-layer scratch<NLayers> already bounds
-/// correctly, exactly as before this change.
+  /// MaxLayoutSurfaces positions simply never query the unpopulated tail --
+  /// every read site indexes by an explicit runtime plan position.
 class IndexTableUtilsCore
 {
  public:

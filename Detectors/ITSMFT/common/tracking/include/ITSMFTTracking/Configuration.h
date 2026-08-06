@@ -86,6 +86,10 @@ struct TrackingParameters {
     const int effectiveMinClusters = minClusters > ClustersPerCell ? minClusters : ClustersPerCell;
     return effectiveMinClusters - ClustersPerCell + 1;
   }
+  // Adapter/frozen-ITS compatibility accessors.  The common runtime tracker
+  // derives its road start level from SurfaceTrackingScratch; these remain
+  // only for the frozen ITStracking and GPU-facing consumers of this shared
+  // configuration record.
   int NeighboursPerRoad() const noexcept { return NLayers - 3; }
   int CellsPerRoad() const noexcept { return NLayers - 2; }
   int TrackletsPerRoad() const noexcept { return NLayers - 1; }

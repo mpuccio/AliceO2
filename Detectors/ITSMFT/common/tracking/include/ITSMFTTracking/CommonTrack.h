@@ -49,7 +49,7 @@ static_assert(offsetof(TrackClusterReference, index) == 4);
 // TimeFrame stores a generic internal result"). Owned by the common
 // TimeFrame (see TimeFrame::getCommonTracks()/getTrackClusterIndices()).
 // Deliberately carries no ITS/MFT/ALICE-3 publication type, detector ID,
-// NLayers template parameter, or workflow dependency: detector output
+// compile-time layer parameter, or workflow dependency: detector output
 // adapters (TrackITSExt, TrackMFT, a future ALICE-3 type, ...) are built
 // from this type by code outside the common core, never the reverse.
 //
@@ -67,7 +67,7 @@ static_assert(offsetof(TrackClusterReference, index) == 4);
 // Forward family, selected by SurfaceKinematicState::family): this is
 // deliberately not a second five-parameter/covariance representation.
 // hitSurfaces uses the global 32-bit SurfaceMask (ITSMFTTracking/
-// SurfaceMask.h), never the legacy 16-bit per-NLayers LayerMask. For a valid,
+// SurfaceMask.h), never a legacy fixed-layer LayerMask. For a valid,
 // completed track: every TrackClusterReference in
 // [firstClusterRef, clusterRefEnd) resolves to an existing measurement whose
 // own SurfaceMeasurement::surface equals that reference's surface field, and

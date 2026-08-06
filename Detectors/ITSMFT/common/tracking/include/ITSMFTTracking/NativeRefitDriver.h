@@ -27,7 +27,7 @@
 // M5d: the shared (cylinder- and disk-common) whole-seed refit driver, built
 // entirely on Propagator (Propagator.h). This is the "one tracklet/cell/
 // road/refit flow" ADR 0007 decision 10 and the GenericTrackingEngineMigration
-// M5 plan describe for the refit stage: fitTrackSeedLegs<NLayers> below
+// M5 plan describe for the refit stage: fitTrackSeedLegs below
 // contains no family/Tag branch of its own -- every family difference is
 // already confined inside Propagator::propagateToMeasurement's own
 // descriptor-driven dispatch. It supersedes NativeCylinderCylinderRefitDriver.h's
@@ -109,8 +109,7 @@ GPUhdi() float ptFromQOverPt(float q2pt, uint8_t absCharge) noexcept
 //
 // Transactional exactly like nativeRefitTrackCylinderCylinder: outParamIn/
 // outParamOut/outChi2 are committed only on complete success.
-template <int NLayers>
-bool fitTrackSeedLegs(
+inline bool fitTrackSeedLegs(
   const TrackSeed& seed,
   gsl::span<const gsl::span<const SurfaceMeasurement>> layerMeasurements,
   SurfaceCatalogView surfaceCatalog,
@@ -145,7 +144,7 @@ bool fitTrackSeedLegs(
   uint32_t acceptedA = 0;
   const int activeSurfaceCount = static_cast<int>(layerMeasurements.size());
   std::vector<SurfaceMeasurement> slotsBufferA(static_cast<std::size_t>(activeSurfaceCount));
-  const auto slotsA = assembleRefitLegSlots<NLayers>(seed, layerMeasurements, 0, activeSurfaceCount, 1, slotsBufferA);
+  const auto slotsA = assembleRefitLegSlots(seed, layerMeasurements, 0, activeSurfaceCount, 1, slotsBufferA);
   if (!Propagator::driveRefitLeg(stateA, linRefA, chi2A, acceptedA, slotsA, surfaceCatalog, bz,
                                  material::MaterialTraversalDirection::AlongMomentum, shiftReferenceToMeasurement,
                                  maxChi2ClusterAttachment, reason)) {
@@ -168,7 +167,7 @@ bool fitTrackSeedLegs(
   float chi2B = 0.f;
   uint32_t acceptedB = 0;
   std::vector<SurfaceMeasurement> slotsBufferB(static_cast<std::size_t>(activeSurfaceCount));
-  const auto slotsB = assembleRefitLegSlots<NLayers>(seed, layerMeasurements, activeSurfaceCount - 1, -1, -1, slotsBufferB);
+  const auto slotsB = assembleRefitLegSlots(seed, layerMeasurements, activeSurfaceCount - 1, -1, -1, slotsBufferB);
   if (!Propagator::driveRefitLeg(stateB, linRefB, chi2B, acceptedB, slotsB, surfaceCatalog, bz,
                                  material::MaterialTraversalDirection::OppositeMomentum, shiftReferenceToMeasurement,
                                  maxChi2ClusterAttachment, reason)) {
@@ -203,7 +202,7 @@ bool fitTrackSeedLegs(
     float chi2C = 0.f;
     uint32_t acceptedC = 0;
     std::vector<SurfaceMeasurement> slotsBufferC(static_cast<std::size_t>(activeSurfaceCount));
-    const auto slotsC = assembleRefitLegSlots<NLayers>(seed, layerMeasurements, 0, activeSurfaceCount, 1, slotsBufferC);
+    const auto slotsC = assembleRefitLegSlots(seed, layerMeasurements, 0, activeSurfaceCount, 1, slotsBufferC);
     if (!Propagator::driveRefitLeg(stateC, linRefC, chi2C, acceptedC, slotsC, surfaceCatalog, bz,
                                    material::MaterialTraversalDirection::AlongMomentum, shiftReferenceToMeasurement,
                                    maxChi2ClusterAttachment, reason)) {

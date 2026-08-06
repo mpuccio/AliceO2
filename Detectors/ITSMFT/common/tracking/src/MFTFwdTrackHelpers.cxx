@@ -89,7 +89,7 @@ bool refitTrackFwd(const TrackSeed& seed,
   paramOut = {};
   chi2 = 0.f;
   OperationFailureReason reason{};
-  if (!fitTrackSeedLegs<kMFTLayers>(seed, layerMeasurements, surfaceCatalog, bz,
+  if (!fitTrackSeedLegs(seed, layerMeasurements, surfaceCatalog, bz,
                                     params.ShiftRefToCluster, params.MaxChi2ClusterAttachment, params.MaxChi2NDF,
                                     params.RepeatRefitOut, gsl::span<const float>(params.MinPt),
                                     paramIn, paramOut, chi2, reason)) {

@@ -600,7 +600,7 @@ void SurfaceTrackingScratch::prepareClusters(const TimeFrame& frame, const Track
   }
 }
 void SurfaceTrackingScratch::initialise(const TimeFrame& frame, const TrackingParameters& trkParam, const int maxLayers, const int iteration,
-                                        const IndexTableUtilsN& indexTableConfig, SparseTrackingTopologyView topology,
+                                        const IndexTableUtilsCore& indexTableConfig, SparseTrackingTopologyView topology,
                                         gsl::span<const TransitionId> transitionIds, gsl::span<const CellTopologyId> cellIds,
                                         gsl::span<const SurfaceId> orderedSurfaces,
                                         gsl::span<const gsl::span<const SurfaceMeasurement>> layerMeasurements)

@@ -18,10 +18,8 @@
 #include <gsl/span>
 
 #include "CommonConstants/MathConstants.h"
-#include "DataFormatsITS/TrackITS.h"
 #include "ITSMFTTracking/RefitLegAssembly.h"
 #include "ITSMFTTracking/SurfaceCatalogView.h"
-#include "ITSMFTTracking/SurfaceKinematicStateLegacyAdapters.h"
 #include "ITSMFTTracking/SurfaceStateOperationResult.h"
 #include "ITSMFTTracking/detail/TransitionPolicyOperations.h"
 #include "ReconstructionDataFormats/TrackParametrization.h"
@@ -85,11 +83,11 @@ GPUhdi() float getPtFromQOverPt(float q2pt, uint8_t absCharge) noexcept
 /// not called from DetectorTraits::refitSeed.
 ///
 /// Leg sequencing, exactly matching `refitTrack`:
-///   Leg A (inward-index, `[0, NLayers)`, step +1): seeded from `seed.
+///   Leg A (inward-index, `[0, activeSurfaceCount)`, step +1): seeded from `seed.
 ///     state()` as-is (see the enforced scope limitation below), direction
 ///     AlongMomentum, maxQoverPt = VeryBig. Its result becomes `outParamOut`
 ///     unless `repeatRefitOut` succeeds below.
-///   Leg B (outward-index, `[NLayers-1, -1)`, step -1): re-seeded from leg
+///   Leg B (outward-index, `[activeSurfaceCount-1, -1)`, step -1): re-seeded from leg
 ///     A's result (fresh `SurfaceLinearizationReference`, fresh covariance
 ///     via `resetCylinderCylinderCovarianceForRefit`), direction
 ///     OppositeMomentum, maxQoverPt = 50.f. Its result and chi2 are
@@ -111,7 +109,7 @@ GPUhdi() float getPtFromQOverPt(float q2pt, uint8_t absCharge) noexcept
 /// condition exactly (same VeryBig/50.f thresholds per leg).
 ///
 /// After leg B, the frozen `refitTrackSeed`'s MinPt check is reproduced
-/// exactly: `params.MinPt[NLayers - seed.getHitLayerMask().count()]`
+/// exactly: `params.MinPt[activeSurfaceCount - seed.getHitLayerMask().count()]`
 /// (`LayerMask::count()` is the same population count `TrackITSInternal::
 /// getNClusters()` tracks) compared against `getPtFromQOverPt` on leg B's
 /// result; failure reports `OperationFailureReason::MinPtFailure`.
@@ -138,8 +136,7 @@ GPUhdi() float getPtFromQOverPt(float q2pt, uint8_t absCharge) noexcept
 ///
 /// Host-only (no GPU/device-readiness claim), like driveRefitLeg/refitHit
 /// above, whose contracts this driver inherits unchanged.
-template <int NLayers>
-bool nativeRefitTrackCylinderCylinder(
+inline bool nativeRefitTrackCylinderCylinder(
   const TrackSeed& seed,
   gsl::span<const gsl::span<const SurfaceMeasurement>> layerMeasurements,
   SurfaceCatalogView surfaceCatalog,
@@ -182,7 +179,7 @@ bool nativeRefitTrackCylinderCylinder(
   uint32_t acceptedA = 0;
   const int activeSurfaceCount = static_cast<int>(layerMeasurements.size());
   std::vector<SurfaceMeasurement> slotsBufferA(static_cast<std::size_t>(activeSurfaceCount));
-  const auto slotsA = assembleRefitLegSlots<NLayers>(seed, layerMeasurements, 0, activeSurfaceCount, 1, slotsBufferA);
+  const auto slotsA = assembleRefitLegSlots(seed, layerMeasurements, 0, activeSurfaceCount, 1, slotsBufferA);
   if (!driveRefitLeg<Tag>(stateA, linRefA, chi2A, acceptedA, slotsA, surfaceCatalog, bz,
                           material::MaterialTraversalDirection::AlongMomentum, shiftReferenceToMeasurement,
                           maxChi2ClusterAttachment, reason)) {
@@ -205,7 +202,7 @@ bool nativeRefitTrackCylinderCylinder(
   float chi2B = 0.f;
   uint32_t acceptedB = 0;
   std::vector<SurfaceMeasurement> slotsBufferB(static_cast<std::size_t>(activeSurfaceCount));
-  const auto slotsB = assembleRefitLegSlots<NLayers>(seed, layerMeasurements, activeSurfaceCount - 1, -1, -1, slotsBufferB);
+  const auto slotsB = assembleRefitLegSlots(seed, layerMeasurements, activeSurfaceCount - 1, -1, -1, slotsBufferB);
   if (!driveRefitLeg<Tag>(stateB, linRefB, chi2B, acceptedB, slotsB, surfaceCatalog, bz,
                           material::MaterialTraversalDirection::OppositeMomentum, shiftReferenceToMeasurement,
                           maxChi2ClusterAttachment, reason)) {
@@ -243,7 +240,7 @@ bool nativeRefitTrackCylinderCylinder(
     float chi2C = 0.f;
     uint32_t acceptedC = 0;
     std::vector<SurfaceMeasurement> slotsBufferC(static_cast<std::size_t>(activeSurfaceCount));
-    const auto slotsC = assembleRefitLegSlots<NLayers>(seed, layerMeasurements, 0, activeSurfaceCount, 1, slotsBufferC);
+    const auto slotsC = assembleRefitLegSlots(seed, layerMeasurements, 0, activeSurfaceCount, 1, slotsBufferC);
     if (!driveRefitLeg<Tag>(stateC, linRefC, chi2C, acceptedC, slotsC, surfaceCatalog, bz,
                             material::MaterialTraversalDirection::AlongMomentum, shiftReferenceToMeasurement,
                             maxChi2ClusterAttachment, reason)) {
@@ -259,51 +256,6 @@ bool nativeRefitTrackCylinderCylinder(
   outParamIn = stateB;
   outParamOut = stateOut;
   outChi2 = chi2B;
-  return true;
-}
-
-/// Gate 3 Slice B: converts a successful `nativeRefitTrackCylinderCylinder`
-/// result into a `TrackITSExt`, field for field matching `makeTrackITSExt`
-/// (ITStracking/TrackITSInternal.h) exactly: `paramIn`/`paramOut` via the
-/// existing, already-generic `legacy::exportBarrelTrackParCov` (reused here
-/// a second time -- the same function `DetectorTraits.cxx`'s frozen ITS
-/// branch already calls once at entry), `chi2` passthrough, `timeStamp`
-/// from `seed.getTimeStamp().makeSymmetrical()`, and per-layer external
-/// cluster index/pattern passthrough from `seed.getCluster(layer)` --
-/// refit never touches hit assignment, only kinematics/chi2. Returns false
-/// (leaving `outTrack` untouched) if either export fails, which can only
-/// happen if `paramIn`/`paramOut` are not `StateFamily::Barrel` -- a
-/// caller/precondition violation, since every state this driver produces is
-/// Barrel by construction.
-///
-/// Unwired: no production call site uses this in this slice.
-template <int NLayers>
-bool exportNativeRefitToTrackITSExt(
-  const TrackSeed& seed,
-  const SurfaceKinematicState& paramIn,
-  const SurfaceKinematicState& paramOut,
-  float chi2,
-  o2::its::TrackITSExt& outTrack) noexcept
-{
-  o2::track::TrackParCovF legacyParamIn{};
-  o2::track::TrackParCovF legacyParamOut{};
-  if (!legacy::exportBarrelTrackParCov(paramIn, legacyParamIn) ||
-      !legacy::exportBarrelTrackParCov(paramOut, legacyParamOut)) {
-    return false;
-  }
-
-  o2::its::TrackITSExt scratch{};
-  scratch.getParamIn() = legacyParamIn;
-  scratch.getParamOut() = legacyParamOut;
-  scratch.setChi2(chi2);
-  scratch.getTimeStamp() = seed.getTimeStamp().makeSymmetrical();
-  for (int layer = 0; layer < NLayers; ++layer) {
-    const int clsIdx = seed.getCluster(layer);
-    if (clsIdx != o2::its::constants::UnusedIndex) {
-      scratch.setExternalClusterIndex(layer, clsIdx, true);
-    }
-  }
-  outTrack = scratch;
   return true;
 }
 

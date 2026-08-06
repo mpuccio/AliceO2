@@ -66,8 +66,7 @@ inline bool fillCandidateKinematics(TrackingCandidate& candidate) noexcept
   return false;
 }
 
-template <int NLayers>
-bool refitITSSeed(const TrackSeed& seed,
+inline bool refitITSSeed(const TrackSeed& seed,
                   const TrackingParameters& params,
                   float bz,
                   gsl::span<const gsl::span<const SurfaceMeasurement>> layerMeasurements,
@@ -78,7 +77,7 @@ bool refitITSSeed(const TrackSeed& seed,
   SurfaceKinematicState paramOut{};
   float chi2 = 0.f;
   OperationFailureReason reason{};
-  if (!fitTrackSeedLegs<NLayers>(seed, layerMeasurements, surfaceCatalog, bz,
+  if (!fitTrackSeedLegs(seed, layerMeasurements, surfaceCatalog, bz,
                                  params.ShiftRefToCluster, params.MaxChi2ClusterAttachment, params.MaxChi2NDF,
                                  params.RepeatRefitOut, gsl::span<const float>(params.MinPt),
                                  paramIn, paramOut, chi2, reason)) {
@@ -91,8 +90,7 @@ bool refitITSSeed(const TrackSeed& seed,
   return fillCandidateKinematics(candidate);
 }
 
-template <int NLayers>
-bool refitMFTSeed(const TrackSeed& seed,
+inline bool refitMFTSeed(const TrackSeed& seed,
                   const TrackingParameters& params,
                   float bz,
                   const SurfaceTrackingScratch& scratch,
@@ -114,7 +112,7 @@ bool refitMFTSeed(const TrackSeed& seed,
   return fillCandidateKinematics(candidate);
 }
 
-template <o2::detectors::DetID::ID DetId, int NLayers>
+template <o2::detectors::DetID::ID DetId>
 bool refitDetectorSeed(const TrackSeed& seed,
                        const TrackingParameters& params,
                        float bz,
@@ -125,9 +123,9 @@ bool refitDetectorSeed(const TrackSeed& seed,
                        TrackingCandidate& candidate)
 {
   if constexpr (DetId == o2::detectors::DetID::MFT) {
-    return refitMFTSeed<NLayers>(seed, params, bz, scratch, layerMeasurements, surfaceCatalog, expectedSource, candidate);
+    return refitMFTSeed(seed, params, bz, scratch, layerMeasurements, surfaceCatalog, expectedSource, candidate);
   } else {
-    return refitITSSeed<NLayers>(seed, params, bz, layerMeasurements, surfaceCatalog, candidate);
+    return refitITSSeed(seed, params, bz, layerMeasurements, surfaceCatalog, candidate);
   }
 }
 

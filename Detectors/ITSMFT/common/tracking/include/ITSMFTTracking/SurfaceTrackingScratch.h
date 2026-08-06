@@ -87,8 +87,8 @@ class SurfaceTrackingScratch
 {
  private:
   // ---- Group E: memory/allocator/device plumbing ----
-  // Declared first, exactly like the former fixed-layer scratch<NLayers>'s equivalent
-  // members and for the identical reason (see that class's own doc comment):
+  // Declared first so pool owners outlive every allocator-backed member below.
+  // C++ destroys non-static data members in reverse declaration order, so
   // C++ destroys non-static data members in reverse declaration order, so
   // declaring these two pool owners first guarantees they are destroyed
   // *last*, after every pmr/bounded_vector member declared below that could
@@ -99,9 +99,7 @@ class SurfaceTrackingScratch
   // this type's own focused tests do), and declaring them last caused a
   // real reproducible segfault in ~SurfaceTrackingScratch() when the pool's
   // last reference was released before the vectors allocated through it
-  // were destroyed. Fixed by matching the former fixed-layer scratch<NLayers>'s
-  // ordering exactly, not by asserting an ownership guarantee this type
-  // cannot actually enforce.
+  // were destroyed. This ordering is part of the allocator ownership contract.
   std::shared_ptr<o2::its::BoundedMemoryResource> mExtMemoryPool;
   std::shared_ptr<o2::its::BoundedMemoryResource> mMemoryPool;
   o2::its::ExternalAllocator* mExternalAllocator{nullptr};
@@ -115,10 +113,8 @@ class SurfaceTrackingScratch
   // M6d: LoadTargetImpl-equivalent staging code (MultiSourceTimeFrameLoader.cxx)
   // needs direct access to mExternalAllocator/mExtMemoryPool to preserve
   // allocator identity across stage()/commit(), exactly mirroring
-  // the former fixed-layer scratch<NLayers>'s own sole-friend contract.
+  // the workspace's allocator ownership contract.
   friend class MultiSourceTimeFrameLoader;
-
-  using IndexTableUtilsN = o2::itsmft::IndexTableUtilsCore;
 
   SurfaceTrackingScratch() = default;
   ~SurfaceTrackingScratch() = default;
@@ -128,10 +124,8 @@ class SurfaceTrackingScratch
   SurfaceTrackingScratch& operator=(SurfaceTrackingScratch&&) = delete;
 
   /// Sizes every Group A container to `nOwnedSurfaces` (one slot per owned
-  /// surface, replacing every the former fixed-layer scratch<NLayers>
-  /// std::array<T, NLayers>) and every Group B container to `nTransitions`/
-  /// `nCells` (already-runtime sparse-topology counts). Precondition, exactly
-  /// as the former fixed-layer scratch<NLayers>::initialise(): setMemoryPool() has
+  /// surface, and every Group B container to `nTransitions`/`nCells`
+  /// (already-runtime sparse-topology counts). Precondition: setMemoryPool() has
   /// already been called -- this never allocates through a null resource
   /// silently, it inherits whichever resource the owner already configured.
   /// Group D is not sized here (never plan-sized -- see the file doc); Group
@@ -144,20 +138,19 @@ class SurfaceTrackingScratch
   std::size_t getNCells() const noexcept { return mNCells; }
 
   /// Clears scratch-owned working state in place -- mirrors
-  /// the former fixed-layer scratch<NLayers>::resetScratch() member-for-member (same
-  /// deep-clear-vs-framework-allocator-skip, same MC-info-conditional
+  /// the previous workspace reset contract (same deep-clear-vs-framework-
+  /// allocator-skip, same MC-info-conditional
   /// clearing, same non-owning mClusterLabels re-nulling instead of
   /// deep-clear). Never touches a TimeFrame, even implicitly, and never
   /// changes the adopted plan sizing (getNOwnedSurfaces()/getNTransitions()/
   /// getNCells() are unaffected -- only each container's *contents* are
-  /// cleared, exactly as the original never shrinks its NLayers-wide outer
+  /// cleared; the operation never shrinks the plan-sized outer
   /// arrays either). Matches resetScratch()'s own name too now (M6d wires
   /// this in where production code calls it).
   void reset();
   void resetScratch() { reset(); }
 
-  /// memory management -- Group E. Doc mirrors
-  /// the former fixed-layer scratch<NLayers>::setMemoryPool(): reseats every
+  /// memory management -- Group E: reseat every
   /// allocator-backed container onto the new resource via a deep clear, so
   /// every subsequent allocation happens through the caller's pool.
   void setMemoryPool(std::shared_ptr<o2::its::BoundedMemoryResource> pool);
@@ -175,9 +168,8 @@ class SurfaceTrackingScratch
 
   bool hasMCinformation() const noexcept { return !mClusterLabels.empty() && mClusterLabels[0] != nullptr; }
 
-  /// Staging/swap support for M6d's atomic loader migration -- mirrors the
-  /// stage-then-commit discipline the former fixed-layer scratch<NLayers>::
-  /// loadNormalizedSource() already implements for Group A, generalized to
+  /// Staging/swap support for the atomic loader migration -- uses the same
+  /// stage-then-commit discipline as the normalized loader, generalized to
   /// every plan-sized container here.
   ///
   /// allocatorsMatch() is the precondition a caller must check before
@@ -201,12 +193,8 @@ class SurfaceTrackingScratch
   /// mMemoryPool itself, only the vectors allocated through it.
   void swap(SurfaceTrackingScratch& other) noexcept;
 
-  // ---- read-in data (M6d): mirrors
-  // the former fixed-layer scratch<NLayers>::loadNormalizedSource() exactly, except
-  // every NLayers-bound loop becomes a runtime orderedSurfaces.size() (==
-  // getNOwnedSurfaces()) loop. detId preflight accepts both common-CA
-  // detectors. See the former fixed-layer scratch.cxx for
-  // the byte-for-byte original this was ported from.
+  // ---- read-in data: every loop uses the runtime ordered-surface span.
+  // detId preflight accepts both common-CA detectors.
 #ifndef GPUCA_GPUCODE
   LoadSourcesResult loadNormalizedSource(TimeFrame& frame,
                                          const ClusterDecoder& decoder,
@@ -279,7 +267,7 @@ class SurfaceTrackingScratch
   auto& getCellsLabel(int layer) { return mCellLabels[layer]; }
 
   void initialise(const TimeFrame& frame, const TrackingParameters& trkParam, int maxLayers, int iteration,
-                  const IndexTableUtilsN& indexTableConfig, SparseTrackingTopologyView topology,
+                  const IndexTableUtilsCore& indexTableConfig, SparseTrackingTopologyView topology,
                   gsl::span<const TransitionId> transitionIds, gsl::span<const CellTopologyId> cellIds,
                   gsl::span<const SurfaceId> orderedSurfaces,
                   gsl::span<const gsl::span<const SurfaceMeasurement>> layerMeasurements);
@@ -323,7 +311,7 @@ class SurfaceTrackingScratch
   }
   void addClusterExternalIndexToLayer(int layer, const int idx) { mClusterExternalIndices[layer].push_back(idx); }
 
-  // ---- Group A: legacy per-(owned-surface) cluster/index-table cache ----
+  // ---- Group A: per-(owned-surface) cluster/index-table cache ----
   std::vector<o2::its::bounded_vector<o2::its::Cluster>> mClusters;
   std::vector<o2::its::bounded_vector<o2::its::Cluster>> mUnsortedClusters;
   std::vector<o2::its::bounded_vector<o2::its::TrackingFrameInfo>> mTrackingFrameInfo;
@@ -338,9 +326,8 @@ class SurfaceTrackingScratch
   std::vector<float> mMaxR;
   o2::its::bounded_vector<int> mBogusClusters;
   o2::its::bounded_vector<float> mPositionResolution;
-  // Not per-owned-surface: fixed at the two tracklet combinations (layers
-  // 0-1, 1-2), sized from cluster count at load time, exactly as in
-  // the former fixed-layer scratch<NLayers>.
+  // Not per-owned-surface: fixed at the two tracklet combinations (positions
+  // 0-1, 1-2), sized from cluster count at load time.
   std::array<o2::its::bounded_vector<int>, 2> mNTrackletsPerCluster;
   std::array<o2::its::bounded_vector<int>, 2> mNTrackletsPerClusterSum;
 
@@ -357,14 +344,11 @@ class SurfaceTrackingScratch
   std::vector<o2::its::bounded_vector<int>> mCellsNeighboursLUT;
   std::vector<o2::its::bounded_vector<o2::MCCompLabel>> mCellLabels;
   // The shared navigation auxiliary.
-  IndexTableUtilsN mIndexTableUtils;
+  IndexTableUtilsCore mIndexTableUtils;
 
   // ---- Group D: vertexer working scratch ----
-  // Never actually NLayers-sized in the former fixed-layer scratch<NLayers> either
-  // (bound by ROF count and the fixed layer-pair index of 2); carries over
-  // unchanged in shape. Not resized by adoptPlan() -- ROF count is not known
-  // at plan-adoption time, exactly as it was never known at NLayers-scratch
-  // construction time either.
+  // Never plan-sized (bound by ROF count and the fixed pair count of 2).
+  // Not resized by adoptPlan(): ROF count is not known at plan-adoption time.
   std::vector<o2::its::bounded_vector<o2::its::Line>> mLines;
   std::vector<o2::its::bounded_vector<o2::its::ClusterLines>> mTrackletClusters;
   std::vector<o2::its::bounded_vector<int>> mNTrackletsPerROF;

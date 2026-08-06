@@ -135,7 +135,6 @@ void TrackerTraits::resetTraversalCache() noexcept
   mAttachHitConfig = {};
   const auto resetSurfaceCount = mScratch == nullptr ? std::size_t{0} : mScratch->getNOwnedSurfaces();
   mLayerMaterial.assign(resetSurfaceCount, NominalSurfaceMaterial{});
-  mSurfaceToSlot.fill(kInvalidSurfaceSlot);
   mActiveTag = TransitionPolicyTag::Invalid;
   mLayerMeasurements.assign(resetSurfaceCount, gsl::span<const SurfaceMeasurement>{});
   mTraversalOperation = TraversalOperationBinding{};
@@ -164,6 +163,24 @@ int TrackerTraits::requireScratchCellSlot(int iteration, CellTopologyId id) cons
     throw TraversalException{iteration, TraversalFailureReason::TraversalBindingMismatch};
   }
   return static_cast<int>(*slot);
+}
+
+int TrackerTraits::requireSurfacePosition(int iteration, SurfaceId id) const
+{
+  if (!id.isValid()) {
+    throw TraversalException{iteration, TraversalFailureReason::SparseTopologyMismatch};
+  }
+  if (mBinding != nullptr) {
+    const auto position = mBinding->getOwnedSurfaceIndex(id);
+    if (!position || *position >= mScratch->getNOwnedSurfaces()) {
+      throw TraversalException{iteration, TraversalFailureReason::TraversalBindingMismatch};
+    }
+    return static_cast<int>(*position);
+  }
+  if (id.value() >= mScratch->getNOwnedSurfaces()) {
+    throw TraversalException{iteration, TraversalFailureReason::SparseTopologyMismatch};
+  }
+  return static_cast<int>(id.value());
 }
 
 template <typename Visitor>
@@ -456,12 +473,12 @@ void TrackerTraits::initialiseTimeFrame(const int iteration, const DetectorLayou
     throw TraversalException{iteration, TraversalFailureReason::UnsupportedMaterialCorrectionMode};
   }
 
-  // 2.5. Resolve and validate this iteration's authoritative per-layer
+  // 2.5. Resolve and validate this iteration's authoritative per-surface-position
   // nominal material, entirely from `layouts`/`layout` (already resolved
   // above) and `mTrkParams[iteration]` -- before any TimeFrame tracking
   // state is touched (see TrackerTraits.h's TraversalFailureReason doc).
-  // The layer-to-surface mapping is this DetectorLayoutSet's own validated
-  // orderedSurfaces (never inferred from legacy index, detector identity,
+  // The surface-position mapping is this DetectorLayoutSet's own validated
+  // orderedSurfaces (never inferred from a detector identity,
   // radius, z, or numeric ordering); a size mismatch, an invalid/out-of-range
   // mapped SurfaceId, or a numeric disagreement against the temporary legacy
   // TrackingParameters::LayerxX0 all reject with the same
@@ -474,16 +491,6 @@ void TrackerTraits::initialiseTimeFrame(const int iteration, const DetectorLayou
   // it (reset/zero-filled), never partially populated from a failed
   // iteration.
   //
-  // Gate 4 Slice 0a: the same walk also stages mSurfaceToSlot, the
-  // reverse SurfaceId->legacyLayer bridge the migrated tracklet loop needs
-  // (see that member's doc in TrackerTraits.h). `surfaceId.value() <
-  // layout.nSurfaces <= MaxLayoutSurfaces` is already established by the
-  // check immediately below, so indexing the MaxLayoutSurfaces-wide staged
-  // array is always in-bounds. A duplicate SurfaceId across two legacyLayer
-  // entries -- orderedSurfaces failing to be a bijection onto this
-  // iteration's legacy layers -- rejects with SurfaceLayerMappingMismatch,
-  // before any TimeFrame tracking state is touched, exactly like every
-  // other check in this block.
   const auto orderedSurfaces = mBinding != nullptr
                                  ? mBinding->getOrderedSurfaces()
                                  : gsl::span<const SurfaceId>{layouts.getConfigurationKey().orderedSurfaces};
@@ -497,31 +504,28 @@ void TrackerTraits::initialiseTimeFrame(const int iteration, const DetectorLayou
     throw TraversalException{iteration, TraversalFailureReason::LegacyMaterialMismatch};
   }
   std::vector<NominalSurfaceMaterial> stagedLayerMaterial(static_cast<std::size_t>(activeSurfaceCount));
-  std::array<uint8_t, MaxLayoutSurfaces> stagedSurfaceToSlot;
-  stagedSurfaceToSlot.fill(kInvalidSurfaceSlot);
-  for (int legacyLayer = 0; legacyLayer < activeSurfaceCount; ++legacyLayer) {
-    const auto surfaceId = orderedSurfaces[legacyLayer];
+  for (int surfacePosition = 0; surfacePosition < activeSurfaceCount; ++surfacePosition) {
+    const auto surfaceId = orderedSurfaces[surfacePosition];
     if (!surfaceId.isValid() || surfaceId.value() >= layout.nSurfaces) {
       throw TraversalException{iteration, TraversalFailureReason::LegacyMaterialMismatch};
     }
-    if (stagedSurfaceToSlot[surfaceId.value()] != kInvalidSurfaceSlot) {
+    if (std::find(orderedSurfaces.begin(), orderedSurfaces.begin() + surfacePosition, surfaceId) != orderedSurfaces.begin() + surfacePosition) {
       throw TraversalException{iteration, TraversalFailureReason::SurfaceLayerMappingMismatch};
     }
-    stagedSurfaceToSlot[surfaceId.value()] = static_cast<uint8_t>(legacyLayer);
-    stagedLayerMaterial[legacyLayer] = layout.getSurface(surfaceId).material;
+    stagedLayerMaterial[surfacePosition] = layout.getSurface(surfaceId).material;
   }
   if (mTrkParams[iteration].LayerxX0.size() != static_cast<size_t>(activeSurfaceCount)) {
     throw TraversalException{iteration, TraversalFailureReason::LegacyMaterialMismatch};
   }
-  for (int legacyLayer = 0; legacyLayer < activeSurfaceCount; ++legacyLayer) {
-    if (mTrkParams[iteration].LayerxX0[legacyLayer] != stagedLayerMaterial[legacyLayer].xOverX0) {
+  for (int surfacePosition = 0; surfacePosition < activeSurfaceCount; ++surfacePosition) {
+    if (mTrkParams[iteration].LayerxX0[surfacePosition] != stagedLayerMaterial[surfacePosition].xOverX0) {
       throw TraversalException{iteration, TraversalFailureReason::LegacyMaterialMismatch};
     }
   }
 
   // 2.6. One-time normalized-measurement binding (Stage-B normalized-CA-
   // measurements slice): resolve and validate this iteration's authoritative
-  // per-(legacy-)layer normalized SurfaceMeasurement span, entirely from
+  // per-surface-position normalized SurfaceMeasurement span, entirely from
   // `orderedSurfaces` (already resolved and validated above) and the
   // already-loaded TimeFrame normalized frame / legacy compatibility
   // structures -- before any TimeFrame tracking state is touched.
@@ -532,12 +536,12 @@ void TrackerTraits::initialiseTimeFrame(const int iteration, const DetectorLayou
   // left it (reset/empty spans), never partially populated from a failed
   // iteration.
   std::vector<gsl::span<const SurfaceMeasurement>> stagedLayerMeasurements(static_cast<std::size_t>(activeSurfaceCount));
-  for (int legacyLayer = 0; legacyLayer < activeSurfaceCount; ++legacyLayer) {
-    const auto surfaceId = orderedSurfaces[legacyLayer];
+  for (int surfacePosition = 0; surfacePosition < activeSurfaceCount; ++surfacePosition) {
+    const auto surfaceId = orderedSurfaces[surfacePosition];
     const auto measurements = mFrame->getNormalizedFrame().getSurfaceMeasurements(surfaceId);
-    const auto& legacyClusters = mScratch->getUnsortedClusters()[legacyLayer];
-    const auto& legacyHits = mScratch->getTrackingFrameInfoOnLayer(legacyLayer);
-    if (measurements.size() != legacyClusters.size() || legacyHits.size() != legacyClusters.size() ||
+    const auto& clusters = mScratch->getUnsortedClusters()[surfacePosition];
+    const auto& hits = mScratch->getTrackingFrameInfoOnLayer(surfacePosition);
+    if (measurements.size() != clusters.size() || hits.size() != clusters.size() ||
         measurements.size() > static_cast<size_t>(std::numeric_limits<int>::max())) {
       throw TraversalException{iteration, TraversalFailureReason::NormalizedMeasurementMismatch};
     }
@@ -546,15 +550,15 @@ void TrackerTraits::initialiseTimeFrame(const int iteration, const DetectorLayou
       if (measurement.surface != surfaceId || !measurement.cluster.isValid() ||
           measurement.cluster.source != (mBinding != nullptr ? mBinding->getSource() : ClusterSourceId{0}) ||
           measurement.cluster.index > static_cast<uint32_t>(std::numeric_limits<int>::max()) ||
-          legacyClusters[i].clusterId != static_cast<int>(i)) {
+          clusters[i].clusterId != static_cast<int>(i)) {
         throw TraversalException{iteration, TraversalFailureReason::NormalizedMeasurementMismatch};
       }
-      const int legacyExternalIndex = mScratch->getClusterExternalIndex(legacyLayer, static_cast<int>(i));
-      if (legacyExternalIndex < 0 || static_cast<uint32_t>(legacyExternalIndex) != measurement.cluster.index) {
+      const int externalIndex = mScratch->getClusterExternalIndex(surfacePosition, static_cast<int>(i));
+      if (externalIndex < 0 || static_cast<uint32_t>(externalIndex) != measurement.cluster.index) {
         throw TraversalException{iteration, TraversalFailureReason::NormalizedMeasurementMismatch};
       }
     }
-    const auto rofBoundaries = mScratch->getROFrameClusters(legacyLayer);
+    const auto rofBoundaries = mScratch->getROFrameClusters(surfacePosition);
     if (rofBoundaries.empty() || rofBoundaries.front() != 0 || rofBoundaries.back() != static_cast<int>(measurements.size())) {
       throw TraversalException{iteration, TraversalFailureReason::NormalizedMeasurementMismatch};
     }
@@ -570,7 +574,7 @@ void TrackerTraits::initialiseTimeFrame(const int iteration, const DetectorLayou
         }
       }
     }
-    stagedLayerMeasurements[legacyLayer] = measurements;
+    stagedLayerMeasurements[surfacePosition] = measurements;
   }
 
   // 3. Bind + validate index-table configuration into a local scratch value,
@@ -578,7 +582,7 @@ void TrackerTraits::initialiseTimeFrame(const int iteration, const DetectorLayou
   // the same idiom bindTraversalOperation() uses below (M5c) to bind the
   // shared hot loops' own operation. The scratch is not touched yet, so a
   // failure here leaves it completely unchanged.
-  IndexTableUtilsN stagedIndexTableConfig{};
+  IndexTableUtilsCore stagedIndexTableConfig{};
   IndexTableConfigError indexTableConfigError = IndexTableConfigError::None;
   bool activePolicyTagResolved = false;
   bool activePolicyFamilyResolved = false;
@@ -746,9 +750,6 @@ void TrackerTraits::initialiseTimeFrame(const int iteration, const DetectorLayou
   // now-populated, function-lifetime-independent mLayerMaterial member
   // before mAttachHitConfig (which outlives this call) retains it.
   mLayerMaterial = std::move(stagedLayerMaterial);
-  // Gate 4 Slice 0a: committed alongside mLayerMaterial, from the same
-  // orderedSurfaces walk above -- see mSurfaceToSlot's own doc.
-  mSurfaceToSlot = stagedSurfaceToSlot;
   attachHitConfig.layerMaterial = gsl::span<const NominalSurfaceMaterial>(mLayerMaterial.data(), mLayerMaterial.size());
   mAttachHitConfig = attachHitConfig;
   // One-time normalized-measurement binding: committed here, alongside every
@@ -813,17 +814,8 @@ void TrackerTraits::prepareTransitionScatteringAndBendingForPolicy(
   float oneOverR{0.001f * 0.3f * std::abs(getBz()) / trkParam.TrackletMinPt};
   for (int transitionSlot{0}; transitionSlot < static_cast<int>(transitionIds.size()); ++transitionSlot) {
     const auto& transition = topology.getTransition(transitionIds[transitionSlot]);
-    const auto from = transition.from.isValid() && transition.from.value() < MaxLayoutSurfaces && mSurfaceToSlot[transition.from.value()] != kInvalidSurfaceSlot
-                        ? std::optional<uint16_t>{mSurfaceToSlot[transition.from.value()]}
-                        : std::nullopt;
-    const auto to = transition.to.isValid() && transition.to.value() < MaxLayoutSurfaces && mSurfaceToSlot[transition.to.value()] != kInvalidSurfaceSlot
-                      ? std::optional<uint16_t>{mSurfaceToSlot[transition.to.value()]}
-                      : std::nullopt;
-    if (!from || !to) {
-      throw TraversalException{iteration, TraversalFailureReason::SparseTopologyMismatch};
-    }
-    const int fromLayer = static_cast<int>(*from);
-    const int toLayer = static_cast<int>(*to);
+    const int fromLayer = requireSurfacePosition(iteration, transition.from);
+    const int toLayer = requireSurfacePosition(iteration, transition.to);
     const float r1 = trkParam.LayerRadii[fromLayer];
     const float r2 = trkParam.LayerRadii[toLayer];
     oneOverR = clampTransitionCurvature<Tag>(oneOverR, r2);
@@ -891,16 +883,13 @@ void TrackerTraits::computeLayerTrackletsForPolicy(
   const Vertex diamondVert(mTrkParams[iteration].Diamond, mTrkParams[iteration].DiamondCov, 1, 1.f);
 
   mTaskArena->execute([&] {
-    // Resolves one sparse SurfaceTransition's endpoints to this
-    // the runtime-plan slots through
-    // mSurfaceToSlot (built/validated once per iteration in
-    // initialiseTimeFrame(), see that member's doc). Called exactly once
-    // per transitionId, outside every candidate (ROF/cluster/vertex) loop
-    // below -- never re-derived per candidate.
+    // Resolves one sparse SurfaceTransition's endpoints to runtime-plan
+    // positions through the immutable binding. Called exactly once per
+    // transitionId, outside every candidate (ROF/cluster/vertex) loop below.
     auto resolveTransitionLayers = [&](int transitionId) -> std::pair<int, int> {
       const auto& transition = topology.getTransition(TransitionId{static_cast<uint16_t>(transitionId)});
-      return {static_cast<int>(mSurfaceToSlot[transition.from.value()]),
-              static_cast<int>(mSurfaceToSlot[transition.to.value()])};
+      return {requireSurfacePosition(iteration, transition.from),
+              requireSurfacePosition(iteration, transition.to)};
     };
 
     auto makeTransitionState = [&](int transitionId, int fromLayer, int toLayer) {
@@ -1213,18 +1202,9 @@ void TrackerTraits::computeLayerCellsForPolicy(
   const auto& topology = mTraversalLayout.topology;
 
   mTaskArena->execute([&] {
-    // Resolves one sparse SurfaceCellTopology's three hit surfaces to this
-    // the runtime-plan slots through
-    // mSurfaceToSlot (built/validated once per iteration in
-    // initialiseTimeFrame(), see that member's doc). Called exactly once
-    // per CellTopologyId, outside the per-tracklet candidate loop below --
-    // never re-derived per candidate. Every endpoint SurfaceId is checked
-    // valid and in-range before it is ever used to index
-    // mSurfaceToSlot, and the mapped entry itself is checked against
-    // the invalid sentinel before use as a layer-local index -- fails
-    // closed with the same SparseTopologyMismatch reason
-    // findCellsNeighboursForPolicy already uses for its own analogous
-    // sparse-derived-index defensive checks.
+    // Resolves one sparse SurfaceCellTopology's three hit surfaces to
+    // runtime-plan positions through the immutable binding. Called exactly
+    // once per CellTopologyId, outside the per-tracklet candidate loop.
     auto resolveCellHitLayers = [&](const auto& cellTopology) -> std::array<int, 3> {
       const auto& firstTransition = topology.getTransition(cellTopology.firstTransition);
       const auto& secondTransition = topology.getTransition(cellTopology.secondTransition);
@@ -1232,14 +1212,7 @@ void TrackerTraits::computeLayerCellsForPolicy(
       std::array<int, 3> layers{};
       for (int i = 0; i < 3; ++i) {
         const auto surfaceId = surfaces[i];
-        if (!surfaceId.isValid() || surfaceId.value() >= MaxLayoutSurfaces) {
-          throw TraversalException{iteration, TraversalFailureReason::SparseTopologyMismatch};
-        }
-        const auto mapped = mSurfaceToSlot[surfaceId.value()];
-        if (mapped == kInvalidSurfaceSlot) {
-          throw TraversalException{iteration, TraversalFailureReason::SparseTopologyMismatch};
-        }
-        layers[i] = static_cast<int>(mapped);
+        layers[i] = requireSurfacePosition(iteration, surfaces[i]);
       }
       return layers;
     };
@@ -1750,7 +1723,8 @@ void TrackerTraits::findRoadsForPolicy(const int iteration,
   // coverage of that behavior, per the correction's requirement not to rely
   // on it without a test.
   constexpr float maxAbsQOverPt = 1.e3f;
-  for (int startLevel{mTrkParams[iteration].CellsPerRoad()}; startLevel >= mTrkParams[iteration].CellMinimumLevel(); --startLevel) {
+  const int cellsPerRoad = static_cast<int>(mScratch->getNOwnedSurfaces()) - 2;
+  for (int startLevel{cellsPerRoad}; startLevel >= mTrkParams[iteration].CellMinimumLevel(); --startLevel) {
 
     auto seedFilter = [&](const auto& seed) {
       return seed.getHitLayerMask().isAllowed(mTrkParams[iteration].MaxHoles, mTrkParams[iteration].HoleLayerMask) &&

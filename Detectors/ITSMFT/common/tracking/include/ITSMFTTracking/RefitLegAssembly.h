@@ -35,11 +35,11 @@ namespace o2::itsmft::tracking
 /// validate that range; the caller (the future native refit driver) supplies
 /// it exactly as the frozen `refitTrack` driver does for each of its legs.
 ///
-/// Per visited legacy layer, `seed.getCluster(legacyLayer)` (Cell.h) is either
+/// Per visited plan position, `seed.getCluster(position)` (Cell.h) is either
 /// `o2::its::constants::UnusedIndex` -- a hole, written as a default-
 /// constructed `SurfaceMeasurement` (`cluster.isValid() == false`), matching
 /// `driveRefitLeg`'s own hole contract exactly -- or a valid index into
-/// `layerMeasurements[legacyLayer]`, the same authoritative, per-iteration
+/// `layerMeasurements[position]`, the same authoritative, per-iteration
 /// validated span `TrackerTraits::mLayerMeasurements` already is (its
 /// correspondence to every attached cluster index is established once per
 /// iteration by `initialiseTimeFrame()`'s `NormalizedMeasurementMismatch`
@@ -49,32 +49,30 @@ namespace o2::itsmft::tracking
 /// production callers already do for the identical lookup.
 ///
 /// Slots are written at `out[position++]` while iterating in the caller's
-/// traversal order (`legacyLayer` running `start, start+step, ...`), never at
-/// `out[legacyLayer]` -- the array index and the traversal order coincide only
-/// for an increasing (`step == +1`) leg. Writing by `legacyLayer` instead of by
+/// traversal order (`position` running `start, start+step, ...`), never at
+/// `out[position]` from the source coordinate -- the array index and traversal
+/// order coincide only for an increasing (`step == +1`) leg. Writing by source
 /// `position` would silently reorder a decreasing leg's slots back into
 /// ascending-layer order, breaking `driveRefitLeg`'s hole/gate/direction
 /// semantics for that leg without any crash or bounds violation to reveal it.
 /// The returned span is the populated contiguous prefix `[0, position)`; for
 /// every call this function currently expects (the frozen `refitTrack`
-/// driver's three legs, each spanning the complete `[0, NLayers)` or
-/// `[NLayers - 1, -1)` range), `position` ends at `NLayers`, but the caller
-/// must use the returned span, not assume `NLayers` directly.
+/// driver's three legs, each spanning the complete runtime surface range),
+/// the returned span is the populated prefix and the caller must use it.
 ///
 /// Unwired: no production call site uses this in this slice.
-template <int NLayers>
-gsl::span<const SurfaceMeasurement> assembleRefitLegSlots(
+inline gsl::span<const SurfaceMeasurement> assembleRefitLegSlots(
   const TrackSeed& seed,
   gsl::span<const gsl::span<const SurfaceMeasurement>> layerMeasurements,
   int start, int end, int step,
   gsl::span<SurfaceMeasurement> out) noexcept
 {
   int position = 0;
-  for (int legacyLayer = start; legacyLayer != end && position < static_cast<int>(out.size()); legacyLayer += step) {
-    const int clsIdx = seed.getCluster(legacyLayer);
+  for (int surfacePosition = start; surfacePosition != end && position < static_cast<int>(out.size()); surfacePosition += step) {
+    const int clsIdx = seed.getCluster(surfacePosition);
     out[position++] = (clsIdx == o2::its::constants::UnusedIndex)
                         ? SurfaceMeasurement{}
-                        : layerMeasurements[legacyLayer][clsIdx];
+                        : layerMeasurements[surfacePosition][clsIdx];
   }
   return gsl::span<const SurfaceMeasurement>(out.data(), position);
 }
