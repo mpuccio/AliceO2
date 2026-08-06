@@ -405,11 +405,9 @@ o2_add_test(surface-tracking-scratch
             SOURCES testSurfaceTrackingScratch.cxx
             COMPONENT_NAME itsmft-tracking
             LABELS "itsmft;tracking"
-            # M6d: SurfaceTrackingScratch.h now pulls in MFTCATrack.h/
-            # IndexTableUtils.h's own MFTTracking/Constants.h dependency
-            # directly (the file-doc's own narrow MFTNLayers exception) --
-            # O2::ITSMFTTracking links O2::MFTTracking only PRIVATE_LINK_LIBRARIES,
-            # so consumers of this now-MFT-aware public header need it too.
+            # IndexTableUtils.h retains its narrow MFTTracking/Constants.h
+            # dependency, so this public-header test links MFTTracking
+            # directly while that common fixed-capacity utility remains live.
             PUBLIC_LINK_LIBRARIES O2::ITSMFTTracking O2::MFTTracking)
 
 # Gate 4 M6f: fixed-capacity GPU-portable whole-track seed coverage.

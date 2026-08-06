@@ -171,8 +171,8 @@ void check_cluster_attachment_mft_common_ca(std::string fixtureDir, std::string 
   }
   const int nClusters = (int)clusArr->size();
 
-  // Clamped to 63, not 255: o2::mft::TrackMFT::setClusterSize() (and
-  // MFTCATrack::setClusterSize()) pack the published size into a 6-bit
+  // Clamped to 63, not 255: o2::mft::TrackMFT::setClusterSize() packs the
+  // published size into a 6-bit
   // field per layer, so ground truth must apply the identical clamp.
   std::vector<uint8_t> groundTruthSize(nClusters, 0);
   {

@@ -33,6 +33,20 @@ std::string readFile(const fs::path& path)
   return {std::istreambuf_iterator<char>{input}, {}};
 }
 
+bool containsIdentifier(std::string_view source, std::string_view identifier)
+{
+  const auto isIdentifierCharacter = [](char c) { return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_'; };
+  for (std::size_t offset = source.find(identifier); offset != std::string_view::npos; offset = source.find(identifier, offset + 1)) {
+    const bool startsIdentifier = offset == 0 || !isIdentifierCharacter(source[offset - 1]);
+    const auto end = offset + identifier.size();
+    const bool endsIdentifier = end == source.size() || !isIdentifierCharacter(source[end]);
+    if (startsIdentifier && endsIdentifier) {
+      return true;
+    }
+  }
+  return false;
+}
+
 BOOST_AUTO_TEST_CASE(core_headers_and_sources_have_no_typed_output_dependency)
 {
   const auto root = trackingRoot();
@@ -50,7 +64,8 @@ BOOST_AUTO_TEST_CASE(core_headers_and_sources_have_no_typed_output_dependency)
     "LayerMeasurementSpans",
     "TrackITSExt",
     "TrackMFT",
-    "MFTCATrack",
+    "MFT"
+    "CATrack",
     "DetID",
     "o2::detectors",
     "DPL",
@@ -74,12 +89,16 @@ BOOST_AUTO_TEST_CASE(core_headers_and_sources_have_no_typed_output_dependency)
 BOOST_AUTO_TEST_CASE(deleted_typed_bridges_have_no_production_definition)
 {
   const auto root = trackingRoot();
-  static constexpr std::array<std::string_view, 5> forbidden{
+  static constexpr std::array<std::string_view, 7> forbidden{
     "DetectorTraits<",
     "CATrackType<",
     "LayerMeasurementSpans<",
     "Tracker<7",
     "Tracker<10",
+    "MFT"
+    "AdapterRefit",
+    "MFT"
+    "CATrack",
   };
   for (const auto& directory : {root / "include", root / "src"}) {
     for (const auto& entry : fs::recursive_directory_iterator(directory)) {
@@ -93,23 +112,38 @@ BOOST_AUTO_TEST_CASE(deleted_typed_bridges_have_no_production_definition)
       const auto source = readFile(entry.path());
       BOOST_REQUIRE_MESSAGE(!source.empty(), "cannot inspect " << entry.path().string());
       for (const auto token : forbidden) {
-        BOOST_CHECK_MESSAGE(source.find(token) == std::string::npos,
+        const auto found = token == ("MFT"
+                                     "CATrack")
+                             ? containsIdentifier(source, token)
+                             : source.find(token) != std::string::npos;
+        BOOST_CHECK_MESSAGE(!found,
                             entry.path().lexically_relative(root).generic_string() << " retains " << token);
       }
     }
   }
   BOOST_CHECK(!fs::exists(root / "include/ITSMFTTracking/DetectorTraits.h"));
+  BOOST_CHECK(!fs::exists(root / "include/ITSMFTTracking/MFT"
+                                 "AdapterRefit.h"));
+  BOOST_CHECK(!fs::exists(root / "include/ITSMFTTracking/MFT"
+                                 "CATrack.h"));
+  const auto trackingCMake = readFile(root / "CMakeLists.txt");
+  BOOST_CHECK(trackingCMake.find("MFT"
+                                 "AdapterRefit") == std::string::npos);
 }
 
 BOOST_AUTO_TEST_CASE(adapter_files_are_the_only_typed_compatibility_seam)
 {
   const auto root = trackingRoot();
   const auto refit = readFile(root / "include/ITSMFTTracking/MFTFwdTrackHelpers.h");
-  const auto adapterRefit = readFile(root / "include/ITSMFTTracking/MFTAdapterRefit.h");
   const auto support = readFile(root / "include/ITSMFTTracking/DetectorTrackingOperationAdapterSupport.h");
   const auto publication = readFile(root / "include/ITSMFTTracking/DetectorPublicationAdapter.h");
-  BOOST_CHECK(refit.find("MFTCATrack") == std::string::npos);
-  BOOST_CHECK(adapterRefit.find("MFTCATrack") != std::string::npos);
+  BOOST_CHECK(!containsIdentifier(refit,
+                                  "MFT"
+                                  "CATrack"));
+  BOOST_CHECK(!fs::exists(root / "include/ITSMFTTracking/MFT"
+                                 "AdapterRefit.h"));
+  BOOST_CHECK(!fs::exists(root / "include/ITSMFTTracking/MFT"
+                                 "CATrack.h"));
   BOOST_CHECK(support.find("DetectorTraits") == std::string::npos);
   BOOST_CHECK(publication.find("TrackITSExt") == std::string::npos);
   BOOST_CHECK(publication.find("TrackMFT") == std::string::npos);

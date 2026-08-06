@@ -75,7 +75,7 @@ using namespace o2::itsmft::tracking;
 // something a runtime assertion can observe: CommonTrack.h's own include
 // list (GPUCommonDef.h, and the ITSMFTTracking/Surface{Id,KinematicState,
 // Mask,MeasurementIndex,Timing}.h common primitives) contains no DetID.h,
-// TrackITS.h/TrackITSExt.h, MFTCATrack.h, GeometryTGeo.h, or workflow
+// TrackITS.h/TrackITSExt.h, typed MFT output header, GeometryTGeo.h, or workflow
 // header, and CommonTrack/TrackClusterReference declare no
 // DetID/NLayers/publication-type field -- every field is either a plain
 // scalar, or one of the shared SurfaceId/SurfaceKinematicState/SurfaceMask/

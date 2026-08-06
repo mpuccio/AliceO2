@@ -232,7 +232,8 @@ void scanCoreBoundary(const fs::path& root)
     "ROFVertexLookupTable",
     "ROFMaskTable",
     "TrackITSExt",
-    "MFTCATrack",
+    "MFT"
+    "CATrack",
     "DetectorTraits",
     "CATrackType",
     "LayerMeasurementSpans",

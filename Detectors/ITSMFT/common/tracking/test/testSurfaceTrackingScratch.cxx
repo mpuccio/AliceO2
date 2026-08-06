@@ -319,7 +319,7 @@ void checkNoForbiddenToken(const fs::path& path, const std::string& token, const
 // MFT specifically (SurfacePlanTrackingParticipantMFT), so it legitimately
 // knows a handful of things M6c's own additive-only version could not yet:
 // o2::detectors::DetID::MFT (loadNormalizedSource()'s own detector
-// preflight), the literal "MFT" token (MFTNLayers, MFTCATrack.h,
+// preflight), the literal "MFT" token (MFTNLayers,
 // o2::mft::constants::mft::LayersNumber -- the M6c design note's own
 // explicitly-flagged narrow exception for the auxiliary NLayers-templated
 // types this milestone hardcodes, see the header's file-level doc), and
