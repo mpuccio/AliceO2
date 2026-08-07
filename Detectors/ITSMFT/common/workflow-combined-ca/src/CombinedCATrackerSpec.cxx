@@ -49,7 +49,7 @@ using o2::itsmft::tracking::LoadSourcesResult;
 using o2::itsmft::tracking::MultiSourceTimeFrameLoader;
 using o2::itsmft::tracking::TrackingOutcome;
 
-template <o2::detectors::DetID::ID DetId, int NLayers>
+template <o2::detectors::DetID::ID DetId>
 class WorkflowTrackingOperationAdapter final : public o2::itsmft::tracking::TrackingOperationAdapter
 {
  public:
@@ -207,8 +207,8 @@ void CombinedCATrackerDPL::buildParticipantsOnce()
   const auto itsSurfaces = orderedSurfaceRange(0, o2::itsmft::tracking::ITSNLayers);
   const auto mftSurfaces = orderedSurfaceRange(o2::itsmft::tracking::ITSNLayers, o2::itsmft::tracking::MFTNLayers);
 
-  mITSOperationAdapter = std::make_unique<WorkflowTrackingOperationAdapter<o2::detectors::DetID::ITS, o2::itsmft::tracking::ITSNLayers>>();
-  mMFTOperationAdapter = std::make_unique<WorkflowTrackingOperationAdapter<o2::detectors::DetID::MFT, o2::itsmft::tracking::MFTNLayers>>();
+  mITSOperationAdapter = std::make_unique<WorkflowTrackingOperationAdapter<o2::detectors::DetID::ITS>>();
+  mMFTOperationAdapter = std::make_unique<WorkflowTrackingOperationAdapter<o2::detectors::DetID::MFT>>();
   mITSTraits = std::make_unique<o2::itsmft::tracking::TrackerTraits>();
   mMFTTraits = std::make_unique<o2::itsmft::tracking::TrackerTraits>();
   mITSTracker = std::make_unique<o2::itsmft::tracking::Tracker>(mITSOperationAdapter.get(), ClusterSourceId{0});

@@ -93,7 +93,7 @@ inline TrackerInitialization makeCombinedConfiguration(const TrackingParameters&
   return configuration;
 }
 
-template <o2::detectors::DetID::ID DetId, int NLayers>
+template <o2::detectors::DetID::ID DetId>
 class TestTrackingOperationAdapter final : public TrackingOperationAdapter
 {
  public:
@@ -117,8 +117,8 @@ class CombinedTrackingPlan
     mConfiguration = makeCombinedConfiguration(itsParams[0], mftParams[0]);
     mITSPublicationAdapter.adoptITSSharedClusterCompatibility(&mITSCompatibility);
     mMFTPublicationAdapter.adoptMFTPublicationCompatibility(&mMFTCompatibility);
-    mITSOperationAdapter = std::make_unique<TestTrackingOperationAdapter<o2::detectors::DetID::ITS, ITSNLayers>>();
-    mMFTOperationAdapter = std::make_unique<TestTrackingOperationAdapter<o2::detectors::DetID::MFT, MFTNLayers>>();
+    mITSOperationAdapter = std::make_unique<TestTrackingOperationAdapter<o2::detectors::DetID::ITS>>();
+    mMFTOperationAdapter = std::make_unique<TestTrackingOperationAdapter<o2::detectors::DetID::MFT>>();
     mITSTracker = std::make_unique<Tracker>(mITSOperationAdapter.get(), ClusterSourceId{0});
     mMFTTracker = std::make_unique<Tracker>(mMFTOperationAdapter.get(), ClusterSourceId{1});
     mITSTraits = std::make_unique<TrackerTraits>();

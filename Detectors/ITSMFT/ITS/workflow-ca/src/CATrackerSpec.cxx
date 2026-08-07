@@ -54,7 +54,7 @@ namespace
 {
 using namespace o2::itsmft::tracking;
 
-template <o2::detectors::DetID::ID DetId, int NLayers>
+template <o2::detectors::DetID::ID DetId>
 class StandaloneTrackingOperationAdapter final : public TrackingOperationAdapter
 {
  public:
@@ -104,7 +104,7 @@ CATrackerDPL::CATrackerDPL(std::shared_ptr<o2::base::GRPGeomRequest> gr, bool us
                            o2::itsmft::TrackingMode::Type trMode)
   : mGGCCDBRequest(std::move(gr)), mUseMC(useMC), mTrackingMode(trMode)
 {
-  mOperationAdapter = std::make_unique<StandaloneTrackingOperationAdapter<o2::detectors::DetID::ITS, o2::itsmft::tracking::ITSNLayers>>();
+  mOperationAdapter = std::make_unique<StandaloneTrackingOperationAdapter<o2::detectors::DetID::ITS>>();
   mClusterDecoder = std::make_unique<o2::itsmft::tracking::ITSGeometryClusterDecoder>();
   mPublicationAdapter.adoptITSSharedClusterCompatibility(&mCompatibility);
 }
