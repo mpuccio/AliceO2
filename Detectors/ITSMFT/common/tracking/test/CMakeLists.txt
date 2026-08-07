@@ -69,6 +69,12 @@ o2_add_test(retired-identifier-guard
             LABELS "itsmft;tracking"
             PUBLIC_LINK_LIBRARIES O2::ITSMFTTracking)
 
+o2_add_test(header-graph-cleanup-inventory
+            SOURCES testHeaderGraphCleanupInventory.cxx
+            COMPONENT_NAME itsmft-tracking
+            LABELS "itsmft;tracking"
+            PUBLIC_LINK_LIBRARIES O2::ITSMFTTracking)
+
 o2_add_test(tracking-kernel-parameters
             SOURCES testTrackingKernelParameters.cxx
             COMPONENT_NAME itsmft-tracking
