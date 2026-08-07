@@ -28,7 +28,7 @@
 // Every test below builds its own std::vector<SurfaceGraph> directly via
 // buildSurfaceGraphs() (a plain local, owned by the test) and passes its
 // SurfaceCatalogView and orderedSurfaces to loadNormalizedSource() explicitly,
-// exactly as ITSMFTTrackingInterface does in production.
+// exactly as the standalone workflow does in production.
 //
 // Deterministic adapter parity (this test) vs. real decode parity: like
 // every other Gate 1 test in this directory (see testMultiSourceLoading.cxx),

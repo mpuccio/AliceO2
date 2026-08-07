@@ -18,7 +18,7 @@
 // compatibility, mixed-policy/invalid-schedule rejection, iteration bounds)
 // are kept, migrated to build a local std::vector<SurfaceGraph> via
 // buildSurfaceGraphs() and pass it to initialiseTimeFrame() as its
-// explicit plan parameter, exactly as ITSMFTTrackingInterface does in
+// explicit plan parameter, exactly as the standalone workflow does in
 // production. One new focused test (buildSurfaceGraphsRejects...) covers
 // buildSurfaceGraphs()'s own two failure modes, which had no other
 // coverage after the deleted tests.

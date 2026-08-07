@@ -5,7 +5,7 @@
 // This software is distributed under the terms of the GNU General Public
 // License v3 (GPL Version 3), copied verbatim in the file "COPYING".
 
-// Pure classification/typed-exception tests for the ITSMFTTrackingInterface
+// Pure classification/typed-exception tests for the workflow loading boundary
 // loading boundary (ITSMFTTracking/TimeFrameLoadFailure.h). No geometry
 // singleton, DPL, or CCDB dependency: isRecoverableLoadError() and the two
 // exception types are plain host-only code.

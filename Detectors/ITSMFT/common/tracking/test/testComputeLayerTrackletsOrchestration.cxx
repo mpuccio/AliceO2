@@ -284,7 +284,7 @@ TrackletSnapshot runFixture(o2::detectors::DetID::ID detector,
     rofTable.defineLayer(layer, layerTiming);
   }
   rofTable.init();
-  // Real production (ITSMFTTrackingInterface::configureROFLookupTables())
+  // Real production workflow timing construction
   // always builds and sets this alongside the ROFOverlapTable above, from
   // the same per-layer LayerTiming, regardless of UseDiamond -- the diamond
   // vertex derived per-ROF for tracklet finding (TrackerTraits.cxx) is

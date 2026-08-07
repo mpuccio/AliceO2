@@ -193,7 +193,7 @@ void CATrackerDPL::initialiseTracking()
   static constexpr auto ordered = identitySurfaceOrder<o2::itsmft::tracking::ITSNLayers>();
   o2::itsmft::tracking::TrackerInitialization configuration;
   configuration.catalog = o2::itsmft::tracking::SurfaceCatalogView{o2::itsmft::tracking::kITSStaticSurfaceCatalog.data(),
-                                                                    static_cast<uint32_t>(o2::itsmft::tracking::kITSStaticSurfaceCatalog.size())};
+                                                                   static_cast<uint32_t>(o2::itsmft::tracking::kITSStaticSurfaceCatalog.size())};
   const auto maxMemory = parameters.front().MaxMemory;
   configuration.memoryPool = std::make_shared<o2::itsmft::tracking::BoundedMemoryResource>(maxMemory);
   configuration.iterations.reserve(parameters.size());

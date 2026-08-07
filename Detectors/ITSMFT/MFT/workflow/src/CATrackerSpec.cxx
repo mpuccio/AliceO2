@@ -230,7 +230,7 @@ void CATrackerDPL::initialiseTracking()
   static constexpr auto ordered = identitySurfaceOrder<o2::itsmft::tracking::MFTNLayers>();
   o2::itsmft::tracking::TrackerInitialization configuration;
   configuration.catalog = o2::itsmft::tracking::SurfaceCatalogView{o2::itsmft::tracking::kMFTStaticSurfaceCatalog.data(),
-                                                                    static_cast<uint32_t>(o2::itsmft::tracking::kMFTStaticSurfaceCatalog.size())};
+                                                                   static_cast<uint32_t>(o2::itsmft::tracking::kMFTStaticSurfaceCatalog.size())};
   configuration.memoryPool = std::make_shared<o2::itsmft::tracking::BoundedMemoryResource>(parameters.front().MaxMemory);
   configuration.iterations.reserve(parameters.size());
   for (const auto& params : parameters) {

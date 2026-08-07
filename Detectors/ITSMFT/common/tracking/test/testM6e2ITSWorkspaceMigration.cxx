@@ -63,7 +63,6 @@
 #include "ITSMFTTracking/SurfaceMeasurementAdapters.h"
 #include "ITSMFTTracking/SurfaceTrackingScratch.h"
 #include "ITSMFTTracking/TimeFrame.h"
-#include "ITSMFTTracking/TrackingInterface.h"
 #include "ITSMFTTracking/detail/SurfacePlanBinding.h"
 
 using namespace o2::itsmft;
@@ -72,8 +71,6 @@ using namespace o2::itsmft::tracking;
 // --- 1: compile-time type proof ----------------------------------------------
 
 static_assert(std::is_invocable_v<decltype(&Tracker::run), Tracker&, TimeFrame&, TrackerTraits&>);
-
-static_assert(std::is_same_v<decltype(std::declval<ITSMFTTrackingInterfaceITS&>().getScratch()), SurfaceTrackingScratch&>);
 
 BOOST_AUTO_TEST_CASE(CompileTimeTypeProofsHoldAtRuntimeToo)
 {

@@ -1,10 +1,8 @@
 // Gate 4 M7c sparse-topology and runtime-ROF ownership coverage.
 //
-// The common production scan below has two deliberately narrow adapter-edge
-// exclusions: TrackingInterface remains the
-// frozen fixed-capacity ITS/MFT table builders and immediately expose their
-// non-owning runtime views to SurfaceTrackingScratch. Frozen ITStracking
-// sources are outside this common-tracking scan and remain unchanged.
+// The common production scan below has no frozen-legacy exclusions. Frozen
+// ITStracking sources are outside this common-tracking scan and remain
+// unchanged.
 
 #define BOOST_TEST_MODULE ITSMFT M7c runtime topology and ROF guard
 #define BOOST_TEST_MAIN
@@ -49,10 +47,9 @@ std::string readFile(const fs::path& path)
 
 bool isAdapterEdge(const fs::path& root, const fs::path& path)
 {
-  const auto relative = path.lexically_relative(root).generic_string();
-  return relative == "include/ITSMFTTracking/TrackingInterface.h" ||
-         relative == "src/TrackingInterface.cxx" ||
-         false;
+  (void)root;
+  (void)path;
+  return false;
 }
 
 void scanCommonProductionSources(const fs::path& root)

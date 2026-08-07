@@ -55,12 +55,11 @@ void defineUniformTiming(Table& table, const std::array<LayerTiming, ITSNLayers>
 BOOST_AUTO_TEST_CASE(generic_core_has_no_detector_timing_or_publication_ownership)
 {
   const auto root = trackingRoot();
-  static constexpr std::array<std::string_view, 6> coreFiles{
+  static constexpr std::array<std::string_view, 5> coreFiles{
     "include/ITSMFTTracking/TimeFrame.h",
     "include/ITSMFTTracking/MultiSourceTimeFrameLoader.h",
     "include/ITSMFTTracking/Tracker.h",
     "include/ITSMFTTracking/TrackerTraits.h",
-    "include/ITSMFTTracking/TrackingInterface.h",
     "src/Tracker.cxx",
   };
   static constexpr std::array<std::string_view, 10> forbiddenOwnership{

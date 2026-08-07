@@ -37,13 +37,14 @@
 #include "DataFormatsITSMFT/ROFRecord.h"
 #include "DetectorsCommonDataFormats/DetID.h"
 #include "ITSMFTTracking/ClusterSource.h"
+#include "ITSMFTTracking/ClockTimingPublicationView.h"
+#include "ITSMFTTracking/CommonTrackOutputAdapter.h"
 #include "ITSMFTTracking/Configuration.h"
 #include "ITSMFTTracking/SurfaceGraphBuilder.h"
 #include "ITSMFTTracking/MultiSourceTimeFrameLoader.h"
 #include "ITSMFTTracking/StaticDetectorCatalogs.h"
 #include "ITSMFTTracking/SurfaceTrackingScratch.h"
 #include "ITSMFTTracking/TimeFrame.h"
-#include "ITSMFTTracking/TrackingInterface.h"
 #include "ITSMFTTracking/detail/SurfacePlanBinding.h"
 
 using namespace o2::itsmft;

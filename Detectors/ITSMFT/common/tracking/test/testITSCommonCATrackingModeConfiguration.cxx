@@ -14,7 +14,7 @@
 // real ITS Sync branch of TrackingMode::getTrackingParameters()
 // (Configuration.cxx). No workflow spec exists yet -- these tests call the
 // common-tracking library directly, the same way
-// testTrackingInterfaceLoadFailureContract.cxx already documents that the
+// the workflow loading tests already document that the
 // ITS branch of getTrackingParameters() used to unconditionally
 // LOGP(fatal, ...) regardless of mode; that fatal is now real per-mode
 // behaviour instead, exercised here.

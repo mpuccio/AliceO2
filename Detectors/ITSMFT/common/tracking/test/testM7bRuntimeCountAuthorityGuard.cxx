@@ -122,7 +122,7 @@ std::optional<CountBoundary> classify(const fs::path& path, std::string_view cod
       name == "Tracker.h" || name == "Tracker.cxx" ||
       name == "DetectorPublicationAdapter.h" ||
       name == "DetectorTrackingOperationAdapterSupport.h" ||
-      name == "TrackingInterface.h" || name == "TrackingInterface.cxx" || name == "Configuration.cxx" ||
+      name == "Configuration.cxx" ||
       name == "ITSSurfaceSpec.h" || name == "MFTSurfaceSpec.h" || name == "StaticDetectorCatalogs.h" ||
       name == "TrackingConfigParam.h" || name == "NominalSurfaceMaterialDefaults.h") {
     return CountBoundary::AdapterEdge;

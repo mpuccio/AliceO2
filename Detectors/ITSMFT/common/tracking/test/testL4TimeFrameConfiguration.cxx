@@ -130,10 +130,8 @@ BOOST_AUTO_TEST_CASE(ConfigurationOwnershipGuard)
   const auto trackingRoot = std::filesystem::path{__FILE__}.parent_path().parent_path();
   const std::vector<std::filesystem::path> sources{
     trackingRoot / "include/ITSMFTTracking/Tracker.h",
-    trackingRoot / "include/ITSMFTTracking/TrackingInterface.h",
     trackingRoot / "include/ITSMFTTracking/TrackerTraits.h",
     trackingRoot / "src/Tracker.cxx",
-    trackingRoot / "src/TrackingInterface.cxx",
     trackingRoot / "src/TrackerTraits.cxx"};
   for (const auto& source : sources) {
     BOOST_REQUIRE_MESSAGE(std::filesystem::exists(source), source.string());

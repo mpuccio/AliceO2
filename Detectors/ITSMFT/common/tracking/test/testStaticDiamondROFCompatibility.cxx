@@ -56,7 +56,7 @@ Vertex diamondVertexForROF(const Vertex& base, const View& view, int layer, int 
 }
 
 // Builds an NLayers-uniform ROFOverlapTable/ROFVertexLookupTable pair for
-// one explicit ROFTiming, exactly as ITSMFTTrackingInterface::
+// one explicit ROFTiming, exactly as the standalone workflow's
 // configureROFLookupTables() does for a real, uniform-across-layers
 // TimeFrame, then asserts the diamond derived for every (layer, rofId) in
 // [0, nROFsTF) is compatible with that very ROF via the real, unconditional

@@ -12,7 +12,7 @@
 // owner. The remaining cases cover contracts not already exercised by the
 // migrated TimeFrame tests (testTimeFrameLifecycle.cxx,
 // testTimeFrameNormalizedSource.cxx, testTimeFrameCovarianceLifecycle.cxx,
-// testTimeFrameDetectorLayouts.cxx, testTrackingInterfaceLoadFailureContract.cxx,
+// testTimeFrameDetectorLayouts.cxx and the workflow loading tests,
 // testMFTNormalizedRefit.cxx):
 //   1. reset() clears a standalone scratch fixture only; TimeFrame content
 //      (CommonTracks, vertices) is untouched.
@@ -71,7 +71,7 @@ namespace
 // PropagatorImpl<float>::Instance() (test 6, mPropagatorDevice) dereferences
 // TGeoGlobalMagField's configured field on construction; without it, the
 // singleton's first construction segfaults. Same fixture pattern as
-// testTimeFrameDetectorLayouts.cxx/testTrackingInterfaceLoadFailureContract.cxx.
+// testTimeFrameDetectorLayouts.cxx and the workflow loading tests.
 struct FieldFixture {
   FieldFixture()
   {
@@ -375,7 +375,7 @@ BOOST_AUTO_TEST_CASE(CommonCoreTimeFrameTemplateSpellingIsGone)
   // remaining occurrences of those old spellings across
   // Detectors/ITSMFT/common/tracking's headers/sources/tests and every
   // production call site -- Tracker, TrackerTraits, DetectorTraits,
-  // MFTFwdTrackHelpers, TrackingInterface, the ITS/MFT workflow specs, the
+  // MFTFwdTrackHelpers, the ITS/MFT workflow specs, the
   // ITS onboarding compile target) is not repeatable inside a unit test
   // binary; it was run as part of this slice's validation sweep and is
   // recorded in its handoff notes.

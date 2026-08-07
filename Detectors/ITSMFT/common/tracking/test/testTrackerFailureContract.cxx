@@ -15,7 +15,7 @@
 //    DropTFUponFailure.
 //  - BoundedMemoryResource::MemoryLimitExceeded and std::bad_alloc
 //    (recoverable, per-TF resource failures): TimeFrame is wiped;
-//    DropTFUponFailure=true returns the exact kDroppedTimeFrameResult
+//    DropTFUponFailure=true returns TrackingOutcome::RecoverableDropped
 //    sentinel, DropTFUponFailure=false rethrows.
 //  - Any other std::exception (e.g. std::runtime_error): treated as
 //    unclassified/structural, wiped, always rethrows regardless of the
@@ -461,7 +461,7 @@ struct RigT {
     // loadNormalizedSource() and defaults to an unconfigured/garbage view.
     // A traversal that reaches computeLayerTracklets() without this being
     // set derives its ROF loop bound from that garbage view and walks out
-    // of bounds. Mirrors TrackingInterface::configureROFLookupTables()'s
+    // of bounds. Mirrors the workflow timing-table construction's
     // shape, but with every layer given the same trivial timing matching
     // this fixture's single combined ROF stream (real production input has
     // per-detector-param ROF length/delay/bias; none of that is exercised
@@ -512,18 +512,6 @@ Fixture emptyFixture()
 }
 
 } // namespace
-
-// --- Sentinel exactness --------------------------------------------------
-
-BOOST_AUTO_TEST_CASE(SentinelIsExactMatchNotSignCheck)
-{
-  BOOST_CHECK(isDroppedTimeFrame(kDroppedTimeFrameResult));
-  BOOST_CHECK(!isDroppedTimeFrame(0.f));
-  BOOST_CHECK(!isDroppedTimeFrame(3.5f));
-  BOOST_CHECK(!isDroppedTimeFrame(-2.f));
-  BOOST_CHECK(!isDroppedTimeFrame(std::numeric_limits<float>::infinity()));
-  BOOST_CHECK(!isDroppedTimeFrame(std::numeric_limits<float>::quiet_NaN()));
-}
 
 // --- Structural failure: always rethrows, always wipes -------------------
 //

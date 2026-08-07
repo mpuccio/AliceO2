@@ -53,7 +53,7 @@
 #include "ITSMFTTracking/TimeFrameLoadFailure.h"
 #include "ITSMFTTracking/TrackerTraits.h"
 #include "ITSMFTTracking/TrackingConfigParam.h"
-#include "ITSMFTTracking/TrackingInterface.h"
+#include "ITSMFTTracking/CommonTrackOutputAdapter.h"
 #include "ITSMFTTracking/detail/TransitionPolicyOperations.h"
 #include "ITStracking/Constants.h"
 #include "ReconstructionDataFormats/Track.h"
@@ -291,7 +291,7 @@ ClusterSourceInput makeSource(ClusterSourceId id, o2::detectors::DetID::ID det, 
 
 /// A source that is valid (dense-empty ROF, zero clusters) but describes no
 /// hits at all -- the composition's own required "the other detector may be
-/// empty" shape, matching ITSMFTTrackingInterface's own zero-cluster path.
+/// empty" shape, matching the standalone workflow's zero-cluster path.
 ClusterSourceInput makeEmptySource(ClusterSourceId id, o2::detectors::DetID::ID det, const std::vector<SurfaceId>& surfaces,
                                    const PrescribedDecoder& decoder)
 {
@@ -306,7 +306,7 @@ ClusterSourceInput makeEmptySource(ClusterSourceId id, o2::detectors::DetID::ID 
 }
 
 /// Independent, non-combined, single-detector reference run: the same shape
-/// ITSMFTTrackingInterface<NLayers>'s standalone path already uses -- global
+/// the standalone path already uses -- global
 /// SurfaceIds equal compact scratch slots, with the same plan-driven binding
 /// model as the combined path. Used as the "reproduce the standalone oracle
 /// count" reference for the combined composition.

@@ -138,10 +138,6 @@ std::optional<ResidualClassification> classifyNLayers(std::string_view relative)
   if (relative == "include/ITSMFTTracking/DetectorPublicationAdapter.h") {
     return ResidualClassification{ResidualKind::AdapterCompatibility, "typed publication sidecar adapter"};
   }
-  if (relative == "include/ITSMFTTracking/TrackingInterface.h" ||
-      relative == "src/TrackingInterface.cxx") {
-    return ResidualClassification{ResidualKind::AdapterCompatibility, "ITS/MFT workflow-facing interface and frozen ROF-table builder"};
-  }
   return std::nullopt;
 }
 
