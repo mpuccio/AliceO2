@@ -316,25 +316,16 @@ class InjectingTrackerTraits final : public TrackerTraits
 };
 
 // The core's typed refit/publication work is deliberately not part of this
-// failure-contract fixture. This narrow test adapter supplies the M7e seam
-// and clears the one compatibility sidecar when the core resets an event.
+// failure-contract fixture. This narrow test adapter supplies only refit.
 class TestTrackingOperationAdapter final : public TrackingOperationAdapter
 {
  public:
-  explicit TestTrackingOperationAdapter(ITSSharedClusterCompatibility& sidecar) : mSidecar{&sidecar} {}
-
   bool refitSeed(const TrackSeed&, const TrackingParameters&, float, SurfaceTrackingScratch&,
                  gsl::span<const gsl::span<const SurfaceMeasurement>>, SurfaceCatalogView,
                  ClusterSourceId, TrackingCandidate&) override
   {
     return false;
   }
-
-  bool completeAccepted(gsl::span<const TrackingCandidate>, const TrackingParameters&, const SurfaceTrackingScratch&, bool) override { return true; }
-  void resetAdapterState() noexcept override { mSidecar->clear(); }
-
- private:
-  ITSSharedClusterCompatibility* mSidecar;
 };
 
 // Bundles a TimeFrame (non-templated), a TraitsT/Tracker pair, and a bounded
@@ -363,8 +354,7 @@ struct RigT {
   // publishCommonTrackShadow() uses, and one CommonTrack/TrackClusterReference
   // pair directly on `frame` -- deliberately not through a real CA seed (out
   // of scope here): only frame.resetEvent()'s unconditional clear of these two
-  // containers, and Tracker::run()'s adapter reset call,
-  // are under test.
+  // containers and the workflow-edge sidecar reset are under test.
   void stageStaleState()
   {
     ITSSharedClusterCompatibilityTransaction txn{sidecar};
@@ -381,13 +371,15 @@ struct RigT {
     BOOST_REQUIRE(!frame.getTrackClusterIndices().empty());
   }
 
+  void resetPublication() noexcept { sidecar.clear(); }
+
   std::shared_ptr<BoundedMemoryResource> pool;
   std::vector<TrackingParameters> params;
   TimeFrame frame;
   TraitsT traits;
   Tracker tracker;
   ITSSharedClusterCompatibility sidecar;
-  TestTrackingOperationAdapter operationAdapter{sidecar};
+  TestTrackingOperationAdapter operationAdapter;
   // Scratch carries non-owning runtime ROF views. Keep these adapter-edge
   // builders alive across load, initialise, and failure/replacement calls.
   std::optional<o2::its::ROFOverlapTable<ITSNLayers>> rofTable;
@@ -744,6 +736,7 @@ BOOST_AUTO_TEST_CASE(RecoverableDroppedLeavesNoStaleCommonTrackOrSidecarState)
 
   rig.forceMemoryLimitAtCurrentUsage();
   const auto result = rig.tracker.run(rig.frame, rig.traits);
+  rig.resetPublication();
 
   BOOST_CHECK(result.outcome == TrackingOutcome::RecoverableDropped);
   BOOST_CHECK(rig.frame.getCommonTracks().empty());
@@ -761,6 +754,7 @@ BOOST_AUTO_TEST_CASE(StructuralFailureLeavesNoStaleCommonTrackOrSidecarState)
 
     rig.traits.failure = InjectedFailure::UnclassifiedRuntimeError;
     BOOST_CHECK_THROW(rig.tracker.run(rig.frame, rig.traits), std::runtime_error);
+    rig.resetPublication();
 
     BOOST_CHECK(rig.frame.getCommonTracks().empty());
     BOOST_CHECK(rig.frame.getTrackClusterIndices().empty());

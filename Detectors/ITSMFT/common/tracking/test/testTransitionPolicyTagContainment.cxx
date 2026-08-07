@@ -64,11 +64,6 @@ const std::set<std::string>& transitionPolicyTagAllowlist()
     // Tag-templated legacy index-table binder (bindIndexTableConfiguration<Tag>);
     // declaration-only, host-only, called exclusively from TrackerTraits.cxx.
     "IndexTableConfiguration.h",
-    // Unwired native-refit driver; its one internal `constexpr auto Tag =
-    // TransitionPolicyTag::CylinderCylinder` selects a detail/
-    // TransitionPolicyOperations.h specialization, never exposed in this
-    // file's own public signatures.
-    "NativeCylinderCylinderRefitDriver.h",
   };
   return files;
 }
@@ -93,10 +88,6 @@ const std::set<std::string>& stateFamilyAllowlist()
     // state, not a topology/scheduling decision.
     "BarrelSurfaceStateOperations.h",
     "ForwardSurfaceStateOperations.h",
-    // Doc-comment-only mention (`paramIn`/`paramOut` are `StateFamily::Barrel`
-    // by construction); no code-level reference. Already allowlisted above
-    // for TransitionPolicyTag as an unwired, zero-external-consumer driver.
-    "NativeCylinderCylinderRefitDriver.h",
     // Adapter-edge refit conversion inspects the representation family of
     // the generic state before exporting detector compatibility data.
     "DetectorTrackingOperationAdapterSupport.h",

@@ -103,14 +103,11 @@ std::optional<CountBoundary> classify(const fs::path& path, std::string_view cod
     return CountBoundary::AdapterEdge;
   }
   if (name == "IndexTableConfiguration.h" || name == "IndexTableConfiguration.cxx" ||
-      name == "NativeRefitDriver.h" || name == "NativeCylinderCylinderRefitDriver.h" ||
+      name == "NativeRefitDriver.h" ||
       name == "RefitLegAssembly.h" || name == "TransitionPolicyOperations.h" ||
       name == "TransitionPolicyOperations.cxx") {
     // The old native-cylinder output loop is an adapter edge; its remaining
     // NLayers template uses are otherwise private operation plumbing.
-    if (name == "NativeCylinderCylinderRefitDriver.h" && codeLine.find("< NLayers") != std::string_view::npos) {
-      return CountBoundary::AdapterEdge;
-    }
     if ((name == "IndexTableConfiguration.h" || name == "IndexTableConfiguration.cxx") &&
         codeLine.find("params.NLayers") != std::string_view::npos) {
       return CountBoundary::AdapterEdge;

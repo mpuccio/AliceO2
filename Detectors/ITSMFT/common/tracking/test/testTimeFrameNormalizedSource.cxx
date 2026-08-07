@@ -993,12 +993,8 @@ BOOST_AUTO_TEST_CASE(PreflightFailureAfterBaselineLoadPreservesState)
   BOOST_CHECK_EQUAL(tf.getClusterExternalIndex(0, 0), 0);
 }
 
-// SurfaceTrackingScratch::loadROFrameData() calls
-// loadClusterTrackingFrameInfo() with its own default applySysErrors=true;
-// loadNormalizedSource() must match
-// that default (covariance compatibility) and must also honor and propagate
-// an explicit override, since callers may deliberately want the
-// GeometryClusterDecoder sys-error convention turned off.
+// Normalized loading must match the configured covariance default and honor
+// an explicit override when callers deliberately disable systematic errors.
 BOOST_AUTO_TEST_CASE(ApplySysErrorsDefaultsTrueAndPropagatesToTheDecoder)
 {
   const auto orderedSurfaces = identitySurfaces(ITSNLayers);

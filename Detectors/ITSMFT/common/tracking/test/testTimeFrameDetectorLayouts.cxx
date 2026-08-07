@@ -77,9 +77,6 @@ class NoopTrackingOperationAdapter final : public TrackingOperationAdapter
   {
     return false;
   }
-
-  bool completeAccepted(gsl::span<const TrackingCandidate>, const TrackingParameters&, const SurfaceTrackingScratch&, bool) override { return true; }
-  void resetAdapterState() noexcept override {}
 };
 
 NoopTrackingOperationAdapter gNoopOperationAdapter;

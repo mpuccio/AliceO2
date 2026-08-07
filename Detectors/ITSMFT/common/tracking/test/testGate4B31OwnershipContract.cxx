@@ -27,8 +27,6 @@
 //   5. Compile-time proof that the common core's TimeFrame is the plain,
 //      non-templated owner Gate 4 B3.1 introduced, not a surviving
 //      `TimeFrame<NLayers>` template.
-//   6. mPropagatorDevice, relocated unchanged onto TimeFrame, remains
-//      inert/unused through the base class's own hooks.
 
 #define BOOST_TEST_MODULE ITSMFT Gate4B31OwnershipContract
 #define BOOST_TEST_MAIN
@@ -68,10 +66,7 @@ using namespace o2::itsmft::tracking;
 namespace
 {
 
-// PropagatorImpl<float>::Instance() (test 6, mPropagatorDevice) dereferences
-// TGeoGlobalMagField's configured field on construction; without it, the
-// singleton's first construction segfaults. Same fixture pattern as
-// testTimeFrameDetectorLayouts.cxx and the workflow loading tests.
+// The field fixture is shared with the lower-level geometry fixtures below.
 struct FieldFixture {
   FieldFixture()
   {
@@ -380,28 +375,4 @@ BOOST_AUTO_TEST_CASE(CommonCoreTimeFrameTemplateSpellingIsGone)
   // binary; it was run as part of this slice's validation sweep and is
   // recorded in its handoff notes.
   BOOST_CHECK(true);
-}
-
-// ---------------------------------------------------------------------
-// 6. mPropagatorDevice, relocated unchanged onto TimeFrame, remains inert.
-// ---------------------------------------------------------------------
-
-BOOST_AUTO_TEST_CASE(PropagatorDeviceRemainsUnusedAfterRelocationIntoTimeFrame)
-{
-  // mPropagatorDevice was traced before B3.1 (see TimeFrame.h's own doc
-  // comment on getDevicePropagator()/setDevicePropagator()): a non-owning,
-  // raw observer pointer with zero call sites anywhere in this library,
-  // moved unchanged onto the new non-templated TimeFrame as its final
-  // placement. The base class's setDevicePropagator() override is an empty
-  // no-op -- the GPU-chain override that would actually store the pointer
-  // belongs to the separate, frozen o2::its::TimeFrame/TimeFrameGPU
-  // hierarchy, out of scope here -- so calling it through this base class
-  // must never change what getDevicePropagator() reports, proving this
-  // TimeFrame's own copy of the hook stays permanently inert.
-  TimeFrame frame;
-  BOOST_CHECK(frame.getDevicePropagator() == nullptr);
-
-  const auto* propagator = o2::base::PropagatorImpl<float>::Instance();
-  frame.setDevicePropagator(propagator);
-  BOOST_CHECK(frame.getDevicePropagator() == nullptr);
 }

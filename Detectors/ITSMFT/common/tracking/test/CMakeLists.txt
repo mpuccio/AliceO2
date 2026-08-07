@@ -214,18 +214,6 @@ o2_add_test(propagator
             LABELS "itsmft;tracking"
             PUBLIC_LINK_LIBRARIES O2::ITSMFTTracking)
 
-o2_add_test(native-cylindercylinder-refit-driver
-            SOURCES testNativeCylinderCylinderRefitDriver.cxx
-            COMPONENT_NAME itsmft-tracking
-            LABELS "itsmft;tracking"
-            PUBLIC_LINK_LIBRARIES O2::ITSMFTTracking O2::MFTTracking O2::ITStracking)
-
-o2_add_test(its-native-vs-legacy-refit-characterization-harness
-            SOURCES testITSNativeVsLegacyRefitCharacterizationHarness.cxx
-            COMPONENT_NAME itsmft-tracking
-            LABELS "itsmft;tracking"
-            PUBLIC_LINK_LIBRARIES O2::ITSMFTTracking O2::MFTTracking O2::ITStracking)
-
 o2_add_test(material-physics
             SOURCES testMaterialPhysics.cxx
             COMPONENT_NAME itsmft-tracking
@@ -448,6 +436,14 @@ o2_add_test(l8-tracker-orchestration-guard
 
 o2_add_test(l9-standalone-composition-guard
             SOURCES testL9StandaloneCompositionGuard.cxx
+            COMPONENT_NAME itsmft-tracking
+            LABELS "itsmft;tracking"
+            PUBLIC_LINK_LIBRARIES O2::ITSMFTTracking)
+
+# Gate 4 L10: the operation seam is refit-only and retired compatibility paths
+# have no common production or test references.
+o2_add_test(l10-operation-tail-guard
+            SOURCES testL10OperationTailGuard.cxx
             COMPONENT_NAME itsmft-tracking
             LABELS "itsmft;tracking"
             PUBLIC_LINK_LIBRARIES O2::ITSMFTTracking)

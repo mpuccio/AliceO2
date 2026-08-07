@@ -11,7 +11,6 @@
 #include <boost/test/unit_test.hpp>
 
 #include <array>
-#include <cstring>
 #include <vector>
 
 #include <gsl/gsl>
@@ -22,7 +21,6 @@
 #include "ITSMFTTracking/DecodedCluster.h"
 #include "ITSMFTTracking/IOUtils.h"
 #include "ITSMFTTracking/SurfaceMeasurementAdapters.h"
-#include "ITSMFTTracking/TrackingFrameInfoAdapters.h"
 
 namespace
 {
@@ -46,23 +44,22 @@ constexpr DecodedCluster MFTDecoded{
   9};
 } // namespace
 
-BOOST_AUTO_TEST_CASE(ITSNormalizedAndLegacyUseTheSameDecodedFacts)
+BOOST_AUTO_TEST_CASE(ITSNormalizedMeasurementPreservesDecodedFacts)
 {
   constexpr DetectorSensorId sensor{o2::detectors::DetID::ITS, ITSDecoded.sensor};
   constexpr ClusterRef cluster{ClusterSourceId{4}, 12345};
   const auto normalized = makeCylinderSurfaceMeasurement(ITSDecoded, sensor, SurfaceId{8}, cluster, 17);
-  const auto legacy = makeTrackingFrameInfo<o2::detectors::DetID::ITS>(ITSDecoded);
 
-  BOOST_CHECK_EQUAL(normalized.global.x, legacy.xCoordinate);
-  BOOST_CHECK_EQUAL(normalized.global.y, legacy.yCoordinate);
-  BOOST_CHECK_EQUAL(normalized.global.z, legacy.zCoordinate);
-  BOOST_CHECK_EQUAL(normalized.frame.q, legacy.xTrackingFrame);
-  BOOST_CHECK_EQUAL(normalized.frame.u, legacy.positionTrackingFrame[0]);
-  BOOST_CHECK_EQUAL(normalized.frame.v, legacy.positionTrackingFrame[1]);
-  BOOST_CHECK_EQUAL(normalized.frame.frameAngle, legacy.alphaTrackingFrame);
-  BOOST_CHECK_EQUAL(normalized.covariance.uu, legacy.covarianceTrackingFrame[0]);
-  BOOST_CHECK_EQUAL(normalized.covariance.uv, legacy.covarianceTrackingFrame[1]);
-  BOOST_CHECK_EQUAL(normalized.covariance.vv, legacy.covarianceTrackingFrame[2]);
+  BOOST_CHECK_EQUAL(normalized.global.x, ITSDecoded.global.x);
+  BOOST_CHECK_EQUAL(normalized.global.y, ITSDecoded.global.y);
+  BOOST_CHECK_EQUAL(normalized.global.z, ITSDecoded.global.z);
+  BOOST_CHECK_EQUAL(normalized.frame.q, ITSDecoded.cylinderFrame.q);
+  BOOST_CHECK_EQUAL(normalized.frame.u, ITSDecoded.cylinderFrame.u);
+  BOOST_CHECK_EQUAL(normalized.frame.v, ITSDecoded.cylinderFrame.v);
+  BOOST_CHECK_EQUAL(normalized.frame.frameAngle, ITSDecoded.cylinderFrame.frameAngle);
+  BOOST_CHECK_EQUAL(normalized.covariance.uu, ITSDecoded.rowColumnCovariance.uu);
+  BOOST_CHECK_EQUAL(normalized.covariance.uv, ITSDecoded.rowColumnCovariance.uv);
+  BOOST_CHECK_EQUAL(normalized.covariance.vv, ITSDecoded.rowColumnCovariance.vv);
   BOOST_CHECK(normalized.sensor == sensor);
   BOOST_CHECK(normalized.cluster == cluster);
   BOOST_CHECK(normalized.surface == SurfaceId{8});
@@ -72,18 +69,12 @@ BOOST_AUTO_TEST_CASE(ITSNormalizedAndLegacyUseTheSameDecodedFacts)
   BOOST_CHECK_EQUAL(normalized.shape.columnSpan, Shape.columnSpan);
 }
 
-BOOST_AUTO_TEST_CASE(MFTNormalizedDiskAxesDoNotChangeLegacyTrackingFrameInfo)
+BOOST_AUTO_TEST_CASE(MFTNormalizedDiskMeasurementUsesDescriptorAxes)
 {
   constexpr DetectorSensorId sensor{o2::detectors::DetID::MFT, MFTDecoded.sensor};
   constexpr ClusterRef cluster{ClusterSourceId{5}, 67890};
   const auto normalized = makeDiskSurfaceMeasurement(MFTDecoded, sensor, SurfaceId{16}, cluster, 23);
-  const auto legacy = makeTrackingFrameInfo<o2::detectors::DetID::MFT>(MFTDecoded);
-  const o2::its::TrackingFrameInfo expectedLegacy{
-    31.f, 32.f, 33.f, 31.f, 0.f,
-    std::array<float, 2>{32.f, 33.f},
-    std::array<float, 3>{0.4f, 0.f, 0.6f}};
 
-  BOOST_CHECK_EQUAL(std::memcmp(&legacy, &expectedLegacy, sizeof(legacy)), 0);
   BOOST_CHECK_EQUAL(normalized.frame.q, 33.f);
   BOOST_CHECK_EQUAL(normalized.frame.u, 31.f);
   BOOST_CHECK_EQUAL(normalized.frame.v, 32.f);
@@ -111,17 +102,11 @@ BOOST_AUTO_TEST_CASE(SystematicErrorAdjustedCovarianceIsPreservedByBothProjectio
     decodedAfterSystematicErrors, {o2::detectors::DetID::ITS, 6}, SurfaceId{2}, {ClusterSourceId{0}, 1}, 0);
   const auto mftMeasurement = makeDiskSurfaceMeasurement(
     decodedAfterSystematicErrors, {o2::detectors::DetID::MFT, 6}, SurfaceId{9}, {ClusterSourceId{1}, 1}, 0);
-  const auto itsLegacy = makeTrackingFrameInfo<o2::detectors::DetID::ITS>(decodedAfterSystematicErrors);
-  const auto mftLegacy = makeTrackingFrameInfo<o2::detectors::DetID::MFT>(decodedAfterSystematicErrors);
 
   BOOST_CHECK_EQUAL(itsMeasurement.covariance.uu, 0.8f);
   BOOST_CHECK_EQUAL(itsMeasurement.covariance.vv, 1.1f);
   BOOST_CHECK_EQUAL(mftMeasurement.covariance.uu, 0.8f);
   BOOST_CHECK_EQUAL(mftMeasurement.covariance.vv, 1.1f);
-  BOOST_CHECK_EQUAL(itsLegacy.covarianceTrackingFrame[0], 0.8f);
-  BOOST_CHECK_EQUAL(itsLegacy.covarianceTrackingFrame[2], 1.1f);
-  BOOST_CHECK_EQUAL(mftLegacy.covarianceTrackingFrame[0], 0.8f);
-  BOOST_CHECK_EQUAL(mftLegacy.covarianceTrackingFrame[2], 1.1f);
 }
 
 BOOST_AUTO_TEST_CASE(ExplicitPatternIsConsumedExactlyOnceAndProvidesShape)

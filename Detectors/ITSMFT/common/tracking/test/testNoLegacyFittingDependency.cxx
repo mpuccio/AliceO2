@@ -10,10 +10,8 @@
 // MFT/forward) no longer depend on either frozen legacy fitting engine --
 // o2::its::track::fitTrack/refitTrack/refitTrackSeed (ITStracking/TrackHelpers.h)
 // or o2::mft::TrackFitter<TrackLTF>/TrackLTFL (MFTTracking/TrackFitter.h). Both
-// engines instead remain reachable only as: (a) the still-valid, still-tested
-// legacy comparison oracle the M5a A/B harness and testNativeCylinderCylinderRefitDriver.cxx
-// exercise directly (never through this library's own headers), and (b)
-// explanatory prose in this milestone's own doc comments, describing what was
+// engines instead remain reachable only as explanatory prose in this
+// milestone's own doc comments, describing what was
 // removed and why -- never an actual #include or call.
 //
 // This scans include/ITSMFTTracking/*.h, include/ITSMFTTracking/detail/*.h,
@@ -47,11 +45,6 @@ struct TokenCheck {
 
 // Every allowlisted file is scanned too -- the allowlist only means "known,
 // reasoned exception", not "unscanned". Rationale per file:
-//  - NativeCylinderCylinderRefitDriver.h: Gate 3 Slice B's still-valid,
-//    still-tested (testNativeCylinderCylinderRefitDriver.cxx,
-//    testITSNativeVsLegacyRefitCharacterizationHarness.cxx) native/legacy A/B
-//    comparison infrastructure; mentions the legacy chain only in prose (it
-//    does not #include ITStracking/TrackHelpers.h itself).
 //  - RefitLegAssembly.h, detail/TransitionPolicyOperations.h,
 //    SurfaceStateOperationResult.h: doc comments describing the legacy
 //    fitTrack/refitTrack formula an operation reproduces or a failure reason
@@ -63,7 +56,7 @@ const std::vector<TokenCheck>& forbiddenTokens()
   static const std::vector<TokenCheck> checks = {
     {"refitTrackSeed",
      "frozen ITS refit entry point (ITStracking/TrackHelpers.h)",
-     {"NativeCylinderCylinderRefitDriver.h", "SurfaceStateOperationResult.h"}},
+     {"SurfaceStateOperationResult.h"}},
     {"TrackFitContext",
      "frozen ITS refit context type (ITStracking/TrackHelpers.h)",
      {}},

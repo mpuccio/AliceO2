@@ -97,28 +97,12 @@ template <o2::detectors::DetID::ID DetId, int NLayers>
 class TestTrackingOperationAdapter final : public TrackingOperationAdapter
 {
  public:
-  explicit TestTrackingOperationAdapter(DetectorPublicationAdapter<NLayers>* publication) : mPublication(publication) {}
-
   bool refitSeed(const TrackSeed& seed, const TrackingParameters& params, float bz, SurfaceTrackingScratch& scratch,
                  gsl::span<const gsl::span<const SurfaceMeasurement>> measurements, SurfaceCatalogView catalog,
                  ClusterSourceId source, TrackingCandidate& candidate) override
   {
     return detail::refitDetectorSeed<DetId>(seed, params, bz, scratch, measurements, catalog, source, candidate);
   }
-  bool completeAccepted(gsl::span<const TrackingCandidate> candidates, const TrackingParameters& params,
-                        const SurfaceTrackingScratch& scratch, bool final) override
-  {
-    return mPublication == nullptr || mPublication->completeAccepted(candidates, params, scratch, final);
-  }
-  void resetAdapterState() noexcept override
-  {
-    if (mPublication != nullptr) {
-      mPublication->reset();
-    }
-  }
-
- private:
-  DetectorPublicationAdapter<NLayers>* mPublication = nullptr;
 };
 
 class CombinedTrackingPlan
@@ -133,8 +117,8 @@ class CombinedTrackingPlan
     mConfiguration = makeCombinedConfiguration(itsParams[0], mftParams[0]);
     mITSPublicationAdapter.adoptITSSharedClusterCompatibility(&mITSCompatibility);
     mMFTPublicationAdapter.adoptMFTPublicationCompatibility(&mMFTCompatibility);
-    mITSOperationAdapter = std::make_unique<TestTrackingOperationAdapter<o2::detectors::DetID::ITS, ITSNLayers>>(&mITSPublicationAdapter);
-    mMFTOperationAdapter = std::make_unique<TestTrackingOperationAdapter<o2::detectors::DetID::MFT, MFTNLayers>>(&mMFTPublicationAdapter);
+    mITSOperationAdapter = std::make_unique<TestTrackingOperationAdapter<o2::detectors::DetID::ITS, ITSNLayers>>();
+    mMFTOperationAdapter = std::make_unique<TestTrackingOperationAdapter<o2::detectors::DetID::MFT, MFTNLayers>>();
     mITSTracker = std::make_unique<Tracker>(mITSOperationAdapter.get(), ClusterSourceId{0});
     mMFTTracker = std::make_unique<Tracker>(mMFTOperationAdapter.get(), ClusterSourceId{1});
     mITSTraits = std::make_unique<TrackerTraits>();
@@ -171,14 +155,50 @@ class CombinedTrackingPlan
 
   Tracker& itsTracker() noexcept { return *mITSTracker; }
   Tracker& mftTracker() noexcept { return *mMFTTracker; }
-  TrackingResult runITS() { return mITSTracker->run(*mFrame, *mITSTraits); }
-  TrackingResult runMFT() { return mMFTTracker->run(*mFrame, *mMFTTraits); }
+  TrackingResult runITS()
+  {
+    auto result = mITSTracker->run(*mFrame, *mITSTraits);
+    if (result.outcome == TrackingOutcome::Success) {
+      const auto& params = mFrame->getTrackingParameters(ClusterSourceId{0});
+      const auto& scratch = mFrame->getWorkspace(ClusterSourceId{0});
+      for (std::size_t i = 0; i < params.size(); ++i) {
+        const auto& candidates = mITSTraits->acceptedTracksForSharedStatus();
+        if (i >= result.acceptedTrackCounts.size() || result.acceptedTrackCounts[i] > candidates.size() ||
+            !mITSPublicationAdapter.completeAccepted(
+              gsl::span<const TrackingCandidate>{candidates.data(), result.acceptedTrackCounts[i]}, params[i], scratch, i + 1 == params.size())) {
+          throw std::runtime_error{"failed to seal ITS tracking compatibility"};
+        }
+      }
+    } else {
+      mITSPublicationAdapter.reset();
+    }
+    return result;
+  }
+  TrackingResult runMFT()
+  {
+    auto result = mMFTTracker->run(*mFrame, *mMFTTraits);
+    if (result.outcome == TrackingOutcome::Success) {
+      const auto& params = mFrame->getTrackingParameters(ClusterSourceId{1});
+      const auto& scratch = mFrame->getWorkspace(ClusterSourceId{1});
+      for (std::size_t i = 0; i < params.size(); ++i) {
+        const auto& candidates = mMFTTraits->acceptedTracksForSharedStatus();
+        if (i >= result.acceptedTrackCounts.size() || result.acceptedTrackCounts[i] > candidates.size() ||
+            !mMFTPublicationAdapter.completeAccepted(
+              gsl::span<const TrackingCandidate>{candidates.data(), result.acceptedTrackCounts[i]}, params[i], scratch, i + 1 == params.size())) {
+          throw std::runtime_error{"failed to seal MFT tracking compatibility"};
+        }
+      }
+    } else {
+      mMFTPublicationAdapter.reset();
+    }
+    return result;
+  }
   RuntimeROFViews getITSROFViews() const noexcept { return getITSScratch().getROFViews(); }
   RuntimeROFViews getMFTROFViews() const noexcept { return getMFTScratch().getROFViews(); }
   void clearPublicationSidecars() noexcept
   {
-    mITSOperationAdapter->resetAdapterState();
-    mMFTOperationAdapter->resetAdapterState();
+    mITSPublicationAdapter.reset();
+    mMFTPublicationAdapter.reset();
   }
 
   std::optional<LoadSourcesResult> validateSources(const ClusterSourceInput& itsSource,

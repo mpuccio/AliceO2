@@ -101,9 +101,6 @@ class NoopTrackingOperationAdapter final : public TrackingOperationAdapter
   {
     return false;
   }
-
-  bool completeAccepted(gsl::span<const TrackingCandidate>, const o2::itsmft::TrackingParameters&, const SurfaceTrackingScratch&, bool) override { return true; }
-  void resetAdapterState() noexcept override {}
 };
 
 BOOST_AUTO_TEST_CASE(CommonProductionHasOneNonTemplatedTrackerCore)

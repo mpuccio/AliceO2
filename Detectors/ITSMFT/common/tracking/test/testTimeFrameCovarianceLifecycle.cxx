@@ -422,23 +422,6 @@ void exerciseExplicitFalse(o2::detectors::DetID::ID detector, SurfaceKind kind)
   checkRepresentationsAligned(rig.frame, rig.tf);
 }
 
-// Common TimeFrame::loadROFrameData() calls this decoder API without the
-// final boolean. This compile-time source/API characterization proves that
-// the retained call form still selects applySysErrors=true by default. The
-// lifecycle tests above prove the shared later initialization contributes no
-// additional increment.
-static_assert(requires(const CompClusterExt& cluster,
-                       gsl::span<const unsigned char>::iterator& patterns,
-                       const TopologyDictionary* dict,
-                       int& layer,
-                       unsigned int& clusterSize,
-                       o2::its::TrackingFrameInfo& info) {
-  o2::itsmft::ioutils::loadClusterTrackingFrameInfo<o2::detectors::DetID::ITS>(
-    cluster, patterns, dict, layer, clusterSize, info);
-  o2::itsmft::ioutils::loadClusterTrackingFrameInfo<o2::detectors::DetID::MFT>(
-    cluster, patterns, dict, layer, clusterSize, info);
-});
-
 } // namespace
 
 BOOST_AUTO_TEST_CASE(SystematicsDisabledPreservesBaseCovarianceForITSAndMFT)
@@ -457,9 +440,4 @@ BOOST_AUTO_TEST_CASE(ExplicitApplySysErrorsFalseSurvivesInitialization)
 {
   exerciseExplicitFalse<ITSNLayers>(o2::detectors::DetID::ITS, SurfaceKind::Cylinder);
   exerciseExplicitFalse<MFTNLayers>(o2::detectors::DetID::MFT, SurfaceKind::Disk);
-}
-
-BOOST_AUTO_TEST_CASE(RetainedLoadROFrameDataUsesTheDefaultSystematicDecoderAPI)
-{
-  BOOST_CHECK(true);
 }

@@ -75,7 +75,7 @@ int initializeCommonITSTracker()
     return 3;
   }
 
-  Tracker tracker{&traits};
+  Tracker tracker;
   tracker.setSource(ClusterSourceId{0});
   TrackerInitialization configuration;
   configuration.catalog = SurfaceCatalogView{kITSStaticSurfaceCatalog.data(), static_cast<uint32_t>(kITSStaticSurfaceCatalog.size())};
