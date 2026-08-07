@@ -11,22 +11,44 @@
 
 #include "ITSCAWorkflow/ConfigPreflight.h"
 
+#include <string_view>
+
 #include "CommonUtils/ConfigurableParam.h"
+#include "CommonUtils/StringUtils.h"
 #include "Framework/Logger.h"
-#include "ITSMFTTracking/ConfigKeyValuesPreflight.h"
 #include "ITSMFTTracking/TrackingConfigParam.h"
 
 namespace o2::its::ca
 {
 
+namespace
+{
+// This is an ITS common-CA workflow policy, not a generic tracking-parameter
+// validation. Keep the legacy namespace spelling local to the workflow that
+// rejects it, so the shared parameter library does not expose a workflow API.
+constexpr std::string_view kLegacyITSNamespace = "ITSCATrackerParam";
+} // namespace
+
 void applyConfigKeyValuesOrFatal(const std::string& configKeyValues)
 {
-  const auto preflight = o2::itsmft::tracking::checkITSCommonCAConfigKeyValues(configKeyValues);
-  if (preflight.outcome == o2::itsmft::tracking::ConfigKeyValuesPreflightOutcome::RejectedLegacyITSNamespace) {
-    LOGP(fatal,
-        "ITS common-CA tracker workflow rejects legacy '{}' --configKeyValues override ('{}'); "
-        "use the dedicated 'ITSCommonCATrackerParam' namespace instead",
-        preflight.offendingNamespace, preflight.offendingToken);
+  // Mirror ConfigurableParam::updateFromString()'s tokenization: split on
+  // ';', trim each token, skip empty tokens, and split at the first '='.
+  // Malformed tokens remain the configurator's responsibility.
+  const auto tokens = o2::utils::Str::tokenize(configKeyValues, ';', true);
+  for (const auto& token : tokens) {
+    const auto eq = token.find('=');
+    if (eq == std::string::npos || eq == 0 || eq == token.size() - 1) {
+      continue;
+    }
+    const auto key = token.substr(0, eq);
+    const auto dot = key.find('.');
+    const auto ns = dot == std::string::npos ? key : key.substr(0, dot);
+    if (ns == kLegacyITSNamespace) {
+      LOGP(fatal,
+           "ITS common-CA tracker workflow rejects legacy '{}' --configKeyValues override ('{}'); "
+           "use the dedicated 'ITSCommonCATrackerParam' namespace instead",
+           ns, token);
+    }
   }
   o2::conf::ConfigurableParam::updateFromString(configKeyValues);
 }

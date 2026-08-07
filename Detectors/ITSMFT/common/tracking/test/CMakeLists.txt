@@ -443,12 +443,6 @@ o2_add_test(its-common-ca-tracking-mode-configuration
             PUBLIC_LINK_LIBRARIES O2::ITSMFTTracking
                                   FairLogger::FairLogger)
 
-o2_add_test(its-common-ca-configkeyvalues-preflight
-            SOURCES testITSCommonCAConfigKeyValuesPreflight.cxx
-            COMPONENT_NAME itsmft-tracking
-            LABELS "itsmft;tracking"
-            PUBLIC_LINK_LIBRARIES O2::ITSMFTTrackingParams)
-
 o2_add_test(static-diamond-rof-compatibility
             SOURCES testStaticDiamondROFCompatibility.cxx
             COMPONENT_NAME itsmft-tracking

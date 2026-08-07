@@ -79,6 +79,62 @@ BOOST_FIXTURE_TEST_CASE(EmptyStringIsAcceptedAndApplied, FatalToExceptionFixture
   BOOST_CHECK_NO_THROW(applyConfigKeyValuesOrFatal(""));
 }
 
+BOOST_FIXTURE_TEST_CASE(LegacyNamespaceWithoutFieldIsRejected, FatalToExceptionFixture)
+{
+  BOOST_CHECK_THROW(applyConfigKeyValuesOrFatal("ITSCATrackerParam=1"), std::runtime_error);
+}
+
+BOOST_FIXTURE_TEST_CASE(MixedInputRejectsLegacyNamespaceInEitherPosition, FatalToExceptionFixture)
+{
+  for (const auto* config : {"ITSCATrackerParam.trackFollowerTop=1;ITSCommonCATrackerParam.useDiamond=true",
+                             "ITSCommonCATrackerParam.useDiamond=true;ITSCATrackerParam.trackFollowerTop=1"}) {
+    o2::conf::ConfigurableParam::setValue<bool>("ITSCommonCATrackerParam", "useDiamond", false);
+    BOOST_CHECK_THROW(applyConfigKeyValuesOrFatal(config), std::runtime_error);
+    BOOST_CHECK_EQUAL(o2::itsmft::ITSCommonCATrackerParam::Instance().useDiamond, false);
+  }
+}
+
+BOOST_FIXTURE_TEST_CASE(OuterWhitespaceAndInternalKeyWhitespaceKeepNamespace, FatalToExceptionFixture)
+{
+  o2::conf::ConfigurableParam::setValue<bool>("ITSCommonCATrackerParam", "useDiamond", false);
+  BOOST_CHECK_THROW(
+    applyConfigKeyValuesOrFatal("  ITSCommonCATrackerParam.useDiamond=true ; ITSCATrackerParam.trackFollowerTop=1  "),
+    std::runtime_error);
+  BOOST_CHECK_EQUAL(o2::itsmft::ITSCommonCATrackerParam::Instance().useDiamond, false);
+
+  BOOST_CHECK_THROW(applyConfigKeyValuesOrFatal("ITSCATrackerParam.trackFollowerTop = 1"), std::runtime_error);
+}
+
+BOOST_FIXTURE_TEST_CASE(EmptyEntriesAndUnrelatedNamespacesAreAccepted, FatalToExceptionFixture)
+{
+  o2::conf::ConfigurableParam::setValue<bool>("ITSCommonCATrackerParam", "dropTFUponFailure", false);
+  o2::conf::ConfigurableParam::setValue<int>("ITSVertexerParam", "nIterations", 1);
+  BOOST_CHECK_NO_THROW(applyConfigKeyValuesOrFatal(
+    ";;ITSCommonCATrackerParam.dropTFUponFailure=true;;;ITSVertexerParam.nIterations=2;;"));
+  BOOST_CHECK_EQUAL(o2::itsmft::ITSCommonCATrackerParam::Instance().dropTFUponFailure, true);
+  BOOST_CHECK_EQUAL(o2::its::VertexerParamConfig::Instance().nIterations, 2);
+  o2::conf::ConfigurableParam::setValue<bool>("ITSCommonCATrackerParam", "dropTFUponFailure", false);
+  o2::conf::ConfigurableParam::setValue<int>("ITSVertexerParam", "nIterations", 1);
+}
+
+BOOST_FIXTURE_TEST_CASE(MalformedTokensRemainConfiguratorErrors, FatalToExceptionFixture)
+{
+  for (const auto* config : {"ITSCATrackerParamNoEquals", "=ITSCATrackerParam.x", "ITSCATrackerParam.x="}) {
+    BOOST_CHECK_THROW(applyConfigKeyValuesOrFatal(config), std::runtime_error);
+  }
+}
+
+BOOST_FIXTURE_TEST_CASE(RepeatedAcceptedAndRejectedCallsRemainDeterministic, FatalToExceptionFixture)
+{
+  for (int i = 0; i < 5; ++i) {
+    o2::conf::ConfigurableParam::setValue<bool>("ITSCommonCATrackerParam", "useDiamond", false);
+    BOOST_CHECK_THROW(applyConfigKeyValuesOrFatal("ITSCATrackerParam.trackFollowerTop=1"), std::runtime_error);
+    BOOST_CHECK_NO_THROW(applyConfigKeyValuesOrFatal("ITSCommonCATrackerParam.useDiamond=true"));
+    BOOST_CHECK_EQUAL(o2::itsmft::ITSCommonCATrackerParam::Instance().useDiamond, true);
+  }
+  o2::conf::ConfigurableParam::setValue<bool>("ITSCommonCATrackerParam", "useDiamond", false);
+}
+
 // --- requireSyncTrackingModeOrFatal(): every non-Sync mode fails closed ----
 
 BOOST_FIXTURE_TEST_CASE(SyncModeIsAccepted, FatalToExceptionFixture)
