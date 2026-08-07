@@ -24,7 +24,7 @@
 #include "Field/MagneticField.h"
 #include "GPUCommonMath.h"
 #include "ITSMFTTracking/MFTFwdTrackHelpers.h"
-#include "ITSMFTTracking/detail/TransitionPolicyBinding.h"
+#include "ITSMFTTracking/detail/CellFinding.h"
 #include "ITSMFTTracking/detail/TrackletFinding.h"
 #include "ITSMFTTracking/detail/CellFinding.h"
 #include "ITStracking/TrackHelpers.h"
@@ -44,7 +44,7 @@ struct PropagatorFieldFixture {
 
 BOOST_GLOBAL_FIXTURE(PropagatorFieldFixture);
 
-/// Focused numerical-parity coverage for the first D007 policy-boundary
+/// Focused numerical-parity coverage for the first D007 surface-kind boundary
 /// operation migrated off the legacy per-detector branch (Architecture.md
 /// §10, cellsAreCompatible). These tests do not exercise TrackerTraits'
 /// production traversal -- see the handoff note on scope.
@@ -185,7 +185,7 @@ BOOST_AUTO_TEST_CASE(BindingCopiesEveryFieldToTheCorrectSlot)
   BOOST_CHECK(disk.isValid());
 
   const auto legacyMaterial = toMaterial(legacy.LayerxX0);
-  const auto attach = bindAttachHitPolicyConfig(gsl::span<const NominalSurfaceMaterial>(legacyMaterial), legacy);
+  const auto attach = bindAttachHitConfig(gsl::span<const NominalSurfaceMaterial>(legacyMaterial), legacy);
   BOOST_REQUIRE_EQUAL(attach.layerMaterial.size(), 3u);
   BOOST_CHECK_CLOSE(attach.layerMaterial[0].xOverX0, 0.011f, 1e-6);
   BOOST_CHECK_CLOSE(attach.layerMaterial[1].xOverX0, 0.022f, 1e-6);
@@ -230,17 +230,17 @@ BOOST_AUTO_TEST_CASE(BoundNonFiniteParametersAreDetectableThroughIsValid)
   auto materialNaN = legacy;
   materialNaN.LayerxX0[2] = nan;
   const auto materialNaNSpan = toMaterial(materialNaN.LayerxX0);
-  BOOST_CHECK(!bindAttachHitPolicyConfig(gsl::span<const NominalSurfaceMaterial>(materialNaNSpan), materialNaN)
+  BOOST_CHECK(!bindAttachHitConfig(gsl::span<const NominalSurfaceMaterial>(materialNaNSpan), materialNaN)
                  .isValid(materialNaN.LayerxX0.size()));
   auto materialInf = legacy;
   materialInf.LayerxX0[4] = inf;
   const auto materialInfSpan = toMaterial(materialInf.LayerxX0);
-  BOOST_CHECK(!bindAttachHitPolicyConfig(gsl::span<const NominalSurfaceMaterial>(materialInfSpan), materialInf)
+  BOOST_CHECK(!bindAttachHitConfig(gsl::span<const NominalSurfaceMaterial>(materialInfSpan), materialInf)
                  .isValid(materialInf.LayerxX0.size()));
   auto invalidCorrection = legacy;
   invalidCorrection.CorrType = static_cast<o2::base::PropagatorF::MatCorrType>(99);
   const auto invalidCorrectionMaterial = toMaterial(invalidCorrection.LayerxX0);
-  BOOST_CHECK(!bindAttachHitPolicyConfig(gsl::span<const NominalSurfaceMaterial>(invalidCorrectionMaterial), invalidCorrection)
+  BOOST_CHECK(!bindAttachHitConfig(gsl::span<const NominalSurfaceMaterial>(invalidCorrectionMaterial), invalidCorrection)
                  .isValid(invalidCorrection.LayerxX0.size()));
 }
 
@@ -577,7 +577,7 @@ BOOST_AUTO_TEST_CASE(NormalizedMeasurementsRemainAuthoritativeOverPoisonedLocato
 {
   TrackingParameters cylinderParameters;
   cylinderParameters.PVres = 0.f;
-  const auto cylinderPolicy = makeKernelParameters(cylinderParameters, SurfaceKind::Cylinder);
+  const auto cylinderKernelParameters = makeKernelParameters(cylinderParameters, SurfaceKind::Cylinder);
   IndexTableUtilsCore cylinderIndex;
   cylinderIndex.setTrackingParameters(cylinderParameters);
   const auto vertex = makeVertex(0.f, 0.f, 0.f, 1.e-4f, 1.e-4f, 4.e-4f, 4);
@@ -590,7 +590,7 @@ BOOST_AUTO_TEST_CASE(NormalizedMeasurementsRemainAuthoritativeOverPoisonedLocato
 
   CylinderTrackletSearchWindow baseline{};
   BOOST_REQUIRE((projectCylinderSearchWindow(
-    sourceMeasurement, source, vertex, cylinderState, Bz, cylinderIndex, cylinderPolicy, baseline)));
+    sourceMeasurement, source, vertex, cylinderState, Bz, cylinderIndex, cylinderKernelParameters, baseline)));
   float baselineTanLambda = -1.f;
   BOOST_REQUIRE(baseline.acceptCandidate(sourceMeasurement, source, targetMeasurement, target, baselineTanLambda));
   const float baselinePhi = o2::gpu::GPUCommonMath::ATan2(sourceMeasurement.global.y - targetMeasurement.global.y,
@@ -606,7 +606,7 @@ BOOST_AUTO_TEST_CASE(NormalizedMeasurementsRemainAuthoritativeOverPoisonedLocato
   poisonedTarget.zCoordinate = 444.f;
   CylinderTrackletSearchWindow poisonedWindow{};
   BOOST_REQUIRE((projectCylinderSearchWindow(
-    sourceMeasurement, poisonedSource, vertex, cylinderState, Bz, cylinderIndex, cylinderPolicy, poisonedWindow)));
+    sourceMeasurement, poisonedSource, vertex, cylinderState, Bz, cylinderIndex, cylinderKernelParameters, poisonedWindow)));
   checkSearchWindowEqual(poisonedWindow, baseline);
   float poisonedTanLambda = -2.f;
   BOOST_REQUIRE(poisonedWindow.acceptCandidate(sourceMeasurement, poisonedSource, targetMeasurement, poisonedTarget, poisonedTanLambda));
@@ -619,11 +619,11 @@ BOOST_AUTO_TEST_CASE(NormalizedMeasurementsRemainAuthoritativeOverPoisonedLocato
   poisonedNavigationCache.radius = 4.f;
   CylinderTrackletSearchWindow cachePoisonedWindow{};
   BOOST_REQUIRE((projectCylinderSearchWindow(
-    sourceMeasurement, poisonedNavigationCache, vertex, cylinderState, Bz, cylinderIndex, cylinderPolicy, cachePoisonedWindow)));
+    sourceMeasurement, poisonedNavigationCache, vertex, cylinderState, Bz, cylinderIndex, cylinderKernelParameters, cachePoisonedWindow)));
   BOOST_CHECK_NE(cachePoisonedWindow.tanLambda, baseline.tanLambda);
 
   TrackingParameters diskParameters;
-  const auto diskPolicy = makeKernelParameters(diskParameters, SurfaceKind::Disk);
+  const auto diskKernelParameters = makeKernelParameters(diskParameters, SurfaceKind::Disk);
   IndexTableUtilsCore diskIndex;
   std::array<float, 10> halfExtents{};
   halfExtents.fill(20.f);
@@ -635,7 +635,7 @@ BOOST_AUTO_TEST_CASE(NormalizedMeasurementsRemainAuthoritativeOverPoisonedLocato
   const DiskTrackletProjectionState diskState{0, 1, fromZ, toZ, toZ - fromZ, 2.f, 3.e-3f, 0.04f};
   DiskTrackletSearchWindow diskBaseline{};
   BOOST_REQUIRE((projectDiskSearchWindow(
-    diskMeasurement, diskLocator, vertex, diskState, Bz, diskIndex, diskPolicy, diskBaseline)));
+    diskMeasurement, diskLocator, vertex, diskState, Bz, diskIndex, diskKernelParameters, diskBaseline)));
   diskLocator.xCoordinate = 123.f;
   diskLocator.yCoordinate = -321.f;
   diskLocator.zCoordinate = 456.f;
@@ -643,13 +643,13 @@ BOOST_AUTO_TEST_CASE(NormalizedMeasurementsRemainAuthoritativeOverPoisonedLocato
   uvPoisoned.covariance.uv = -12345.f;
   DiskTrackletSearchWindow diskPoisoned{};
   BOOST_REQUIRE((projectDiskSearchWindow(
-    uvPoisoned, diskLocator, vertex, diskState, Bz, diskIndex, diskPolicy, diskPoisoned)));
+    uvPoisoned, diskLocator, vertex, diskState, Bz, diskIndex, diskKernelParameters, diskPoisoned)));
   checkSearchWindowEqual(diskPoisoned, diskBaseline);
 }
 
 /// Gate 3 cell-road pre-cut slice coverage: cell road-precut leaves
 /// (TrackletFinding.h), the last detector branch removed from
-/// TrackerTraits::computeLayerCellsForPolicy's candidate loop. These tests
+/// TrackerTraits::computeLayerCellsForKind's candidate loop. These tests
 /// use an independent re-derivation of the legacy formula (formerly
 /// detail::validateMFTCellClusters/mftDistanceToSeedSquared/
 /// mftConicalRoadR2Scale, all three now deleted from MFTFwdTrackHelpers.h)
@@ -705,8 +705,8 @@ bool referenceCellRoadPrecut(const GlobalPoint3F& inner, const GlobalPoint3F& mi
 BOOST_AUTO_TEST_CASE(CylinderCellRoadPrecutAlwaysAcceptsAndIgnoresEmptyReferenceSpan)
 {
   // Garbage-ish points/layers and an empty reference span (exactly the state
-  // TrackerTraits::mDiskLayerReferenceZ is left in for a CylinderCylinder
-  // iteration): the CylinderCylinder specialization must not read any of
+  // TrackerTraits::mDiskLayerReferenceZ is left in for a Cylinder
+  // iteration): the Cylinder specialization must not read any of
   // them and must still return true.
   const GlobalPoint3F garbage{std::numeric_limits<float>::quiet_NaN(), std::numeric_limits<float>::infinity(), -1.f};
   BOOST_CHECK(passesCylinderCellRoadPrecut(
@@ -1116,7 +1116,7 @@ BOOST_AUTO_TEST_CASE(TrackingKernelParametersIsValidRejectsNonFiniteCellRoadRCut
 /// TimeFrame::initialise() into TrackerTraits::initialiseTimeFrame(); see
 /// TrackletFinding.h family scattering leaves,
 /// family curvature leaves, prepareTransitionScatteringAndBending, and
-/// TransitionPolicyBinding.h LayerGeometryConfigView). These tests verify
+/// host LayerGeometryConfigView). These tests verify
 /// exact legacy-formula parity, the family-specific arithmetic literal that
 /// integration review required preserved (not canonicalized), and the
 /// order-sensitive oneOverR ratchet -- independently of TrackerTraits'
@@ -1175,7 +1175,7 @@ BOOST_AUTO_TEST_CASE(CylinderScatteringAngleMatchesFrozenITSFormula)
 BOOST_AUTO_TEST_CASE(DiskScatteringAngleMatchesLegacyMftFormulaWithExplicitReferenceZ)
 {
   // Bit-exact vs the legacy detail::mftLayerMSAngle(layer, params), except
-  // the DiskDisk operation receives referenceCoordinate/layerRadius
+  // the Disk operation receives referenceCoordinate/layerRadius
   // explicitly instead of calling mftLayerZ()/LayerZCoordinate() internally.
   // mftLayerZ() is used here only to construct the *expected* legacy value,
   // exactly as this operation's caller (TrackerTraits::initialiseTimeFrame(),
@@ -1232,7 +1232,7 @@ BOOST_AUTO_TEST_CASE(LayerGeometryConfigViewChecksSpanSizeOnlyNotNumericValues)
   legacy.LayerxX0 = {5.e-3f, 5.e-3f, 5.e-3f, 1.e-2f, 1.e-2f, 1.e-2f, 1.e-2f};       // valid
   const auto legacyMaterial = toMaterial(legacy.LayerxX0);
 
-  const auto attachHitConfig = bindAttachHitPolicyConfig(gsl::span<const NominalSurfaceMaterial>(legacyMaterial), legacy);
+  const auto attachHitConfig = bindAttachHitConfig(gsl::span<const NominalSurfaceMaterial>(legacyMaterial), legacy);
   BOOST_CHECK(attachHitConfig.isValid(7));
 
   const auto geometryConfig = bindLayerGeometryConfig(legacy, attachHitConfig);
@@ -1241,14 +1241,14 @@ BOOST_AUTO_TEST_CASE(LayerGeometryConfigViewChecksSpanSizeOnlyNotNumericValues)
   BOOST_CHECK(geometryConfig.isValid(7));
   BOOST_CHECK(!geometryConfig.isValid(8)); // span-size check still applies
 
-  // Negative xOverX0 must be rejected -- by AttachHitPolicyConfigView, the
+  // Negative xOverX0 must be rejected -- by AttachHitConfigView, the
   // single established contract for that data. LayerGeometryConfigView
   // borrows the same (rejected) span rather than independently re-validating
   // it, so it must not be read as a numeric-validity signal on its own.
   auto corrupted = legacy;
   corrupted.LayerxX0[3] = -1.f;
   const auto corruptedMaterial = toMaterial(corrupted.LayerxX0);
-  const auto corruptedAttachHitConfig = bindAttachHitPolicyConfig(gsl::span<const NominalSurfaceMaterial>(corruptedMaterial), corrupted);
+  const auto corruptedAttachHitConfig = bindAttachHitConfig(gsl::span<const NominalSurfaceMaterial>(corruptedMaterial), corrupted);
   BOOST_CHECK(!corruptedAttachHitConfig.isValid(7));
   const auto corruptedGeometryConfig = bindLayerGeometryConfig(corrupted, corruptedAttachHitConfig);
   BOOST_CHECK(corruptedGeometryConfig.isValid(7)); // size-only: still reports valid
@@ -1258,7 +1258,7 @@ BOOST_AUTO_TEST_CASE(BindLayerGeometryConfigBorrowsAttachHitLayerMaterialSpan)
 {
   TrackingParameters legacy;
   const auto legacyMaterial = toMaterial(legacy.LayerxX0);
-  const auto attachHitConfig = bindAttachHitPolicyConfig(gsl::span<const NominalSurfaceMaterial>(legacyMaterial), legacy);
+  const auto attachHitConfig = bindAttachHitConfig(gsl::span<const NominalSurfaceMaterial>(legacyMaterial), legacy);
   const auto geometryConfig = bindLayerGeometryConfig(legacy, attachHitConfig);
   BOOST_CHECK_EQUAL(geometryConfig.layerMaterial.data(), attachHitConfig.layerMaterial.data());
   BOOST_CHECK_EQUAL(geometryConfig.layerMaterial.size(), attachHitConfig.layerMaterial.size());
@@ -1268,8 +1268,8 @@ BOOST_AUTO_TEST_CASE(BindLayerGeometryConfigBorrowsAttachHitLayerMaterialSpan)
 BOOST_AUTO_TEST_CASE(ClampTransitionCurvatureMatchesExactLegacyExpressionPerFamily)
 {
   // Integration review finding: the two legacy branches compare `0.5 *
-  // oneOverR` (CylinderCylinder: double-promoted) against `0.5f * oneOverR`
-  // (DiskDisk: float) before the same `>= 1.f / r2` clamp. Preserved
+  // oneOverR` (Cylinder: double-promoted) against `0.5f * oneOverR`
+  // (Disk: float) before the same `>= 1.f / r2` clamp. Preserved
   // verbatim per family, not canonicalized -- see
   // ClampTransitionCurvatureFloatVersusDoubleDiscriminatorAttempt for why no
   // observable difference could be constructed, and note that preservation,
@@ -1337,7 +1337,7 @@ BOOST_AUTO_TEST_CASE(CurvatureRatchetThreadsInIncreasingLegacyTransitionIdOrder)
   // family curvature leaves must be called once per transition, in
   // increasing legacy transitionId order, threading its return value into the
   // next call. This proves the computation is genuinely order-sensitive (an
-  // unproven iteration order, e.g. a policy-grouping span, cannot be
+  // unproven iteration order, e.g. a kind-grouping span, cannot be
   // substituted without first proving it matches legacy transitionId order)
   // and pins the exact sequence increasing order must produce.
   constexpr float initialOneOverR = 3.f;

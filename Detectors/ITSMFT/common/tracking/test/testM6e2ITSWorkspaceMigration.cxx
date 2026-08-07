@@ -16,7 +16,7 @@
 //    works correctly backed by the new scratch storage;
 //  - the production ITS SurfacePlanBinding construction (real combined
 //    catalog, real ClusterSourceId{0}/SurfaceKind::Cylinder/
-//    TransitionPolicyTag::CylinderCylinder parameters) resolves to the same
+//    SurfaceKind::Cylinder parameters) resolves to the same
 //    transition/cell slot counts and owned-surface indices the old
 //    DetectorTraversalBinding construction would have, both for the
 //    combined leg and for standalone-vs-combined compact-slot agreement;

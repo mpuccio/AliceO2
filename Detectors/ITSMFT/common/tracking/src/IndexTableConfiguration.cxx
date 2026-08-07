@@ -18,11 +18,14 @@ namespace o2::itsmft::tracking
 
 using o2::itsmft::IndexTableCoordType;
 
-template <TransitionPolicyTag Tag>
 IndexTableConfigError bindIndexTableConfiguration(o2::itsmft::IndexTableUtilsCore& staged,
                                                   const TrackingParameters& params,
-                                                  int activeSurfaceCount) noexcept
+                                                  int activeSurfaceCount,
+                                                  SurfaceKind kind) noexcept
 {
+  if (kind != SurfaceKind::Cylinder && kind != SurfaceKind::Disk) {
+    return IndexTableConfigError::InvalidSurfaceKind;
+  }
   if (!(activeSurfaceCount > 0 && activeSurfaceCount <= o2::itsmft::IndexTableUtilsCore::MaxLayers) ||
       params.NLayers != activeSurfaceCount) {
     return IndexTableConfigError::InvalidActiveLayerCount;
@@ -41,7 +44,7 @@ IndexTableConfigError bindIndexTableConfiguration(o2::itsmft::IndexTableUtilsCor
 
   float rowMin = 0.f;
   float rowMax = o2::constants::math::TwoPI;
-  if constexpr (Tag == TransitionPolicyTag::DiskDisk) {
+  if (kind == SurfaceKind::Disk) {
     constexpr float defaultRowMin{-20.f};
     constexpr float defaultRowMax{20.f};
     const bool hasRowRange = params.IndexRowMax != 0.f;
@@ -80,15 +83,10 @@ IndexTableConfigError bindIndexTableConfiguration(o2::itsmft::IndexTableUtilsCor
   // byte-identical to what that fallback would have produced for every input
   // that reaches this point, since `source` has already been proven to cover
   // the runtime plan extent.
-  staged.setIndexTableParams(Tag == TransitionPolicyTag::DiskDisk ? IndexTableCoordType::XY : IndexTableCoordType::PhiZ,
+  staged.setIndexTableParams(kind == SurfaceKind::Disk ? IndexTableCoordType::XY : IndexTableCoordType::PhiZ,
                              params.RowBins, params.ColBins, rowMin, rowMax,
                              gsl::span<const float>{source.data(), static_cast<std::size_t>(activeSurfaceCount)});
   return IndexTableConfigError::None;
 }
-
-template IndexTableConfigError bindIndexTableConfiguration<TransitionPolicyTag::CylinderCylinder>(
-  o2::itsmft::IndexTableUtilsCore&, const TrackingParameters&, int);
-template IndexTableConfigError bindIndexTableConfiguration<TransitionPolicyTag::DiskDisk>(
-  o2::itsmft::IndexTableUtilsCore&, const TrackingParameters&, int);
 
 } // namespace o2::itsmft::tracking

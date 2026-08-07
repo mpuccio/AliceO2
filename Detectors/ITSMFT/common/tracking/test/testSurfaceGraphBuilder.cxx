@@ -296,7 +296,7 @@ BOOST_AUTO_TEST_CASE(SurfaceDuplicatedAcrossSubgraphsIsRejected)
 
 BOOST_AUTO_TEST_CASE(SubgraphMixingSurfaceKindsIsRejected)
 {
-  // M4 (ADR 0007 decision 8): a subgraph no longer asserts an external policy
+  // A subgraph no longer asserts an external surface kind
   // tag the builder validates against the catalog -- its expected SurfaceKind
   // is derived from its own first surface, and every other surface in the
   // subgraph must match it. Catalog surface 0 is Cylinder, surface 1 is Disk;
@@ -308,7 +308,7 @@ BOOST_AUTO_TEST_CASE(SubgraphMixingSurfaceKindsIsRejected)
   const auto result = builder.build();
   BOOST_CHECK(!result.ok());
   BOOST_CHECK(result.error == SurfaceGraphBuildError::GraphRejected);
-  BOOST_CHECK(result.graphError == SurfaceGraphError::PolicySurfaceKindMismatch);
+  BOOST_CHECK(result.graphError == SurfaceGraphError::SurfaceKindMismatch);
 }
 
 BOOST_AUTO_TEST_CASE(SingletonSubgraphsOfEitherKindAreAccepted)

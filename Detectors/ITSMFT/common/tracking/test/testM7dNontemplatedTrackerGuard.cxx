@@ -198,7 +198,7 @@ BOOST_AUTO_TEST_CASE(NonSevenOrTenPlanExecutesTheNonTemplatedCore)
   traits.adoptSurfacePlanBinding(bindingResult.binding.get());
   traits.updateTrackingParameters(params);
   o2::itsmft::IndexTableUtilsCore indexTable;
-  const auto indexError = bindIndexTableConfiguration<TransitionPolicyTag::DiskDisk>(indexTable, params.front(), 4);
+  const auto indexError = bindIndexTableConfiguration(indexTable, params.front(), 4, SurfaceKind::Disk);
   BOOST_REQUIRE_MESSAGE(indexError == IndexTableConfigError::None,
                         "four-surface index-table configuration error=" << static_cast<int>(indexError)
                                                                         << " rowBins=" << params.front().RowBins

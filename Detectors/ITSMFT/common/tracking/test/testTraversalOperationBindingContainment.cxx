@@ -8,9 +8,8 @@
 // M5c source-level guard: the four shared tracklet/cell/neighbour/road
 // hot-loop entry points (TrackerTraits::computeLayerTracklets/
 // computeLayerCells/findCellsNeighbours/findRoads, TrackerTraits.cxx) used to
-// each re-run their own runtime StateFamily/TransitionPolicyTag dispatch
-// (one dispatchActivePolicy() call per method, every call) to pick which
-// Tag-templated leaf orchestration to invoke. M5c replaces all four with a
+// each re-run their own runtime StateFamily/SurfaceKind dispatch to pick which
+// leaf orchestration to invoke. The binding replaces all four with a
 // direct call into the already-bound TraversalOperationBinding
 // (mTraversalOperation, established once per iteration by
 // bindTraversalOperation() -- see TrackerTraits.h/.cxx). This test proves
@@ -22,9 +21,9 @@
 // comments (so explanatory prose about what these methods *used to* do,
 // referencing the same tokens, cannot produce a false failure -- only actual
 // code matters here), and greps what remains for the tokens that would mean
-// a Tag/StateFamily selection branch crept back in: TransitionPolicyTag,
-// StateFamily, dispatchActivePolicy, and `if constexpr`.
-// testTransitionPolicyTagContainment.cxx (M4/M4b) already proves the
+// a SurfaceKind/StateFamily selection branch crept back in: SurfaceKind,
+// StateFamily, and `if constexpr`.
+// The corresponding public-header containment test already proves the
 // analogous claim for public *headers*; this file is the .cxx/hot-loop
 // counterpart M5c adds.
 
@@ -71,7 +70,7 @@ std::string readTrackerTraitsHeader()
 /// by counting braces from that signature's opening `{` to its matching
 /// closing `}`. `methodName` must be immediately followed by `(` in the
 /// match (a plain string search on the qualified name, not a regex), so
-/// `computeLayerTracklets` never matches `computeLayerTrackletsForPolicy`.
+/// `computeLayerTracklets` never matches `computeLayerTrackletsForKind`.
 std::string extractMethodBody(const std::string& source, const std::string& methodName)
 {
   const std::string signature = "TrackerTraits::" + methodName + "(";
@@ -120,13 +119,12 @@ bool mentionsToken(const std::string& body, const std::string& token)
 
 } // namespace
 
-BOOST_AUTO_TEST_CASE(SharedHotLoopEntryPointsContainNoTagOrFamilyDispatchBranch)
+BOOST_AUTO_TEST_CASE(SharedHotLoopEntryPointsContainNoKindOrFamilyDispatchBranch)
 {
   const auto source = readTrackerTraitsSource();
   const std::array<std::string, 4> hotLoopMethods{
     "computeLayerTracklets", "computeLayerCells", "findCellsNeighbours", "findRoads"};
-  const std::array<std::string, 4> forbiddenTokens{
-    "TransitionPolicyTag", "StateFamily", "dispatchActivePolicy", "constexpr"};
+  const std::array<std::string, 3> forbiddenTokens{"SurfaceKind", "StateFamily", "constexpr"};
 
   for (const auto& method : hotLoopMethods) {
     const auto body = extractMethodBody(source, method);
@@ -135,7 +133,7 @@ BOOST_AUTO_TEST_CASE(SharedHotLoopEntryPointsContainNoTagOrFamilyDispatchBranch)
     for (const auto& token : forbiddenTokens) {
       BOOST_CHECK_MESSAGE(!mentionsToken(code, token),
                           "TrackerTraits::" << method << "() still mentions " << token
-                                            << " in code -- a Tag/StateFamily dispatch branch leaked back"
+                                            << " in code -- a SurfaceKind/StateFamily dispatch branch leaked back"
                                             << " into the shared hot loop instead of staying inside"
                                             << " bindTraversalOperation()");
     }
@@ -173,7 +171,7 @@ BOOST_AUTO_TEST_CASE(BindTraversalOperationIsTheSoleProducerOfTheBoundOperation)
                           << matchPos << ": " << it->str());
   }
   // Four callables (computeTracklets/computeCells/findNeighbours/findRoads),
-  // each assigned exactly twice (once per TransitionPolicyTag branch inside
+  // each assigned exactly twice (once per SurfaceKind branch inside
   // bindTraversalOperation()'s own `if constexpr`, which is explicitly
   // allowed -- see that method's own doc).
   BOOST_CHECK_EQUAL(count, 8u);
@@ -203,24 +201,24 @@ BOOST_AUTO_TEST_CASE(TraversalOperationBindingUsesNonAllocatingMemberFunctionPoi
   BOOST_CHECK_EQUAL(matches, 4);
 }
 
-BOOST_AUTO_TEST_CASE(EightNonTemplateWrapperTargetsForwardToTheExistingTagTemplatedLeafImplementations)
+BOOST_AUTO_TEST_CASE(EightNonTemplateWrapperTargetsForwardToKindSpecificLeafImplementations)
 {
-  // The eight (operation, TransitionPolicyTag) wrapper targets a bound
+  // The eight (operation, SurfaceKind) wrapper targets a bound
   // pointer-to-member may point to (TrackerTraits.h) must each be a thin,
-  // non-template forwarder to the corresponding pre-existing *ForPolicy<Tag>
+  // non-template forwarder to the corresponding pre-existing *ForKind<SurfaceKind>
   // leaf implementation -- never a reimplementation, and never itself
   // templated (a template member function cannot be the unique target of a
   // plain, non-template pointer-to-member-function type).
   const auto source = readTrackerTraitsSource();
   const std::array<std::pair<std::string, std::string>, 8> wrapperToLeaf{{
-    {"computeLayerTrackletsCylinderCylinder", "computeLayerTrackletsForPolicy<TransitionPolicyTag::CylinderCylinder>"},
-    {"computeLayerTrackletsDiskDisk", "computeLayerTrackletsForPolicy<TransitionPolicyTag::DiskDisk>"},
-    {"computeLayerCellsCylinderCylinder", "computeLayerCellsForPolicy<TransitionPolicyTag::CylinderCylinder>"},
-    {"computeLayerCellsDiskDisk", "computeLayerCellsForPolicy<TransitionPolicyTag::DiskDisk>"},
-    {"findCellsNeighboursCylinderCylinder", "findCellsNeighboursForPolicy<TransitionPolicyTag::CylinderCylinder>"},
-    {"findCellsNeighboursDiskDisk", "findCellsNeighboursForPolicy<TransitionPolicyTag::DiskDisk>"},
-    {"findRoadsCylinderCylinder", "findRoadsForPolicy<TransitionPolicyTag::CylinderCylinder>"},
-    {"findRoadsDiskDisk", "findRoadsForPolicy<TransitionPolicyTag::DiskDisk>"},
+    {"computeLayerTrackletsCylinder", "computeLayerTrackletsForKind<SurfaceKind::Cylinder>"},
+    {"computeLayerTrackletsDisk", "computeLayerTrackletsForKind<SurfaceKind::Disk>"},
+    {"computeLayerCellsCylinder", "computeLayerCellsForKind<SurfaceKind::Cylinder>"},
+    {"computeLayerCellsDisk", "computeLayerCellsForKind<SurfaceKind::Disk>"},
+    {"findCellsNeighboursCylinder", "findCellsNeighboursForKind<SurfaceKind::Cylinder>"},
+    {"findCellsNeighboursDisk", "findCellsNeighboursForKind<SurfaceKind::Disk>"},
+    {"findRoadsCylinder", "findRoadsForKind<SurfaceKind::Cylinder>"},
+    {"findRoadsDisk", "findRoadsForKind<SurfaceKind::Disk>"},
   }};
   for (const auto& [wrapper, leafCall] : wrapperToLeaf) {
     const auto body = extractMethodBody(source, wrapper);
@@ -228,4 +226,12 @@ BOOST_AUTO_TEST_CASE(EightNonTemplateWrapperTargetsForwardToTheExistingTagTempla
     BOOST_CHECK_MESSAGE(body.find(leafCall) != std::string::npos,
                         "TrackerTraits::" << wrapper << "() does not forward to " << leafCall);
   }
+}
+
+BOOST_AUTO_TEST_CASE(ProcessNeighboursKeepsSurfaceKindSelectionCompileTime)
+{
+  const auto source = readTrackerTraitsSource();
+  BOOST_CHECK(source.find("template <SurfaceKind Kind, typename InputSeed>") != std::string::npos);
+  BOOST_CHECK(source.find("params.kind") == std::string::npos);
+  BOOST_CHECK(source.find("processNeighbours<Kind>(") != std::string::npos);
 }

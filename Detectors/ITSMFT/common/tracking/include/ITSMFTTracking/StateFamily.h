@@ -14,22 +14,9 @@
 #include "GPUCommonDef.h"
 #include "ITSMFTTracking/SurfaceDescriptor.h"
 
-// ADR 0007 decisions 7-8 / M4-M4b: StateFamily and SurfaceKind are the
-// permanent public generic-core concepts; the legacy hot-loop-dispatch tag
-// those decisions confine behind the detail/ boundary is a temporary
-// implementation detail, not a future public/core abstraction. This header
-// lets state-representation types (SurfaceKinematicState,
-// SurfaceLinearizationReference) and the barrel::/forward:: operations that
-// consume them classify a surface's family without naming that legacy tag at
-// all.
-//
-// M4b correction: StateFamily is a state-representation-local concept only.
-// It must never be used as a substitute transition-policy/dispatch key by
-// public topology, traversal, scheduling, binding-count, or adapter-facing
-// observability APIs -- those must use SurfaceDescriptor/SurfaceKind
-// directly, or (for anything still dispatched by the legacy hot-loop tag)
-// stay confined behind the same detail/ boundary as that tag. No layer-count
-// or detector-identity-to-family bridge remains in the common core.
+// StateFamily describes the state representation associated with a
+// SurfaceDescriptor::kind. It is local to state-representation operations;
+// topology and traversal code use SurfaceKind directly.
 namespace o2::itsmft::tracking
 {
 

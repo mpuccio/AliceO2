@@ -35,34 +35,11 @@ static_assert(sizeof(CombinedCovariance) == 15 * sizeof(float), "combined covari
 // Upper bound for sanitizeCovariance()'s (SurfaceKinematicState.h) diagonal
 // range-clamp pass, in (X, Y, Phi, Tanl, Q2Pt) slot order.
 //
-// AUDIT FINDING, not a design choice made lightly: the frozen legacy MFT
-// Kalman fitting engine this module supersedes (MFTTracking/TrackFitter.h,
-// operating on the legacy forward track-parametrization-with-error type)
-// has NO covariance-sanitization mechanism at all -- confirmed by
-// inspection: that legacy forward type does not inherit from
-// TrackParametrizationWithError (a separate, independent class hierarchy)
-// and TrackFitter.cxx never calls anything resembling checkCovariance();
-// grepping the entire Detectors/ITSMFT/MFT/tracking tree for a
-// diagonal-range ceiling of any kind finds nothing. There is therefore no
-// established, proven forward-family diagonal-range validity
-// policy in the frozen legacy code this migration reproduces, unlike barrel
-// (kCY2max/kCZ2max/kCSnp2max/kCTgl2max/kC1Pt2max, TrackParametrizationWithError
-// ::checkCovariance(), a real, exercised, in-production legacy contract).
-// NativeRefitDriver.h's resetCovarianceForRefit() reuses the barrel-scale
-// constants for forward's *initial* covariance ceiling, but that function's
-// own doc comment already discloses these are "new native ceiling constants"
-// invented for that purpose, not a ported legacy policy -- reusing them here
-// too would launder a self-described non-legacy value as if it were an
-// established validity bound, which is exactly what this milestone's own
-// instruction (derive every sanitizer policy/value from an existing proven
-// contract; do not invent one) prohibits.
-//
-// Pending a separate, explicit design decision on a real forward diagonal-
-// range ceiling, this disables the range-clamp sub-pass for forward
-// (maxDiagonal effectively unreachable) while leaving the mathematically
-// necessary, detector-neutral parts of sanitizeCovariance() -- diagonal
-// non-negativity and the pairwise correlation bound -- fully active for
-// forward exactly as for barrel.
+// The legacy forward fitter supplies no exercised diagonal-range ceiling, and
+// the native forward refit ceiling is explicitly a new value. Keep the
+// range-clamp sub-pass disabled for forward until a supported bound exists;
+// the detector-neutral diagonal non-negativity and pairwise correlation checks
+// remain fully active.
 constexpr float kForwardNoRangeLimit = std::numeric_limits<float>::max();
 constexpr float kForwardMaxDiagonal[5] = {kForwardNoRangeLimit, kForwardNoRangeLimit, kForwardNoRangeLimit,
                                           kForwardNoRangeLimit, kForwardNoRangeLimit};

@@ -169,7 +169,7 @@ static_assert(offsetof(MaterialOperationResult, reserved) == 23);
 //
 // This kernel does not include or construct TrackParCovF, TrackParCovFwd,
 // TrackFwd, SurfaceKinematicState, detector geometry, or any
-// ITS/MFT/topology/policy/Propagator header.
+// ITS/MFT/topology/propagation header.
 MaterialOperationResult calculateMaterialPhysics(
   float momentumGeV,
   o2::track::PID pid,

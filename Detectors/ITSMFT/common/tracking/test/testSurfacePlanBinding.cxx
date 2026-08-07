@@ -289,7 +289,7 @@ BOOST_AUTO_TEST_CASE(SurfacePlanBindingBuildsForASyntheticNonItsMftDetector)
 {
   // Requirement 2b: a synthetic detector this library has never heard of
   // (detectorId 250, no corresponding o2::detectors::DetID::ID value at all)
-  // must build successfully given internally consistent expected kind/policy.
+  // must build successfully given internally consistent expected kind/configuration.
   constexpr uint8_t kSyntheticDetectorId = 250;
   std::vector<SurfaceDescriptor> surfaces;
   for (uint16_t id = 0; id < 4; ++id) {
@@ -406,7 +406,7 @@ BOOST_AUTO_TEST_CASE(RejectsUnexpectedSurfaceKind)
   const auto result = SurfacePlanBinding::build(combined.view, ClusterSourceId{0}, itsMask(), ordered(0, ITSNLayers),
                                                 SurfaceKind::Disk);
   BOOST_REQUIRE(!result.ok());
-  BOOST_CHECK(result.error == SurfacePlanBindingError::InvalidPolicySurface);
+  BOOST_CHECK(result.error == SurfacePlanBindingError::InvalidSurface);
 }
 
 BOOST_AUTO_TEST_CASE(RejectsSurfaceMaskSizeMismatch)
@@ -458,7 +458,7 @@ BOOST_AUTO_TEST_CASE(SurfacePlanBindingBuildsAcrossMultipleDistinctDetectorIdent
   // SurfacePlanBinding must be generic over its own owned SurfaceId set: it
   // must not assume "one binding, one detector". Three compatible (Cylinder)
   // surfaces spanning two distinct synthetic detectorIds (250, 251), one
-  // valid source, consistent expected kind/policy, and an internally valid
+  // valid source, consistent expected kind/configuration, and an internally valid
   // chain topology -- this must build successfully, unlike
   // The former binding's own single-detector-scoped contract.
   std::vector<SurfaceDescriptor> surfaces{
@@ -482,7 +482,7 @@ BOOST_AUTO_TEST_CASE(SurfacePlanBindingBuildsAcrossMultipleDistinctDetectorIdent
   }
 }
 
-BOOST_AUTO_TEST_CASE(RejectsPolicySurfaceKindMismatch)
+BOOST_AUTO_TEST_CASE(RejectsSurfaceKindMismatch)
 {
   std::vector<SurfaceDescriptor> surfaces{surfaceWithOwner(0, SurfaceKind::Disk, 250), surfaceWithOwner(1, SurfaceKind::Disk, 250)};
   SurfaceGraphBuilder builder{SurfaceCatalogView{surfaces.data(), static_cast<uint32_t>(surfaces.size())}};
@@ -495,7 +495,7 @@ BOOST_AUTO_TEST_CASE(RejectsPolicySurfaceKindMismatch)
   // expectedKind disagrees with the actual Disk-kind surfaces in `view`.
   const auto result = SurfacePlanBinding::build(view, ClusterSourceId{0}, owned, ordered(0, 2), SurfaceKind::Cylinder);
   BOOST_REQUIRE(!result.ok());
-  BOOST_CHECK(result.error == SurfacePlanBindingError::InvalidPolicySurface);
+  BOOST_CHECK(result.error == SurfacePlanBindingError::InvalidSurface);
 }
 
 BOOST_AUTO_TEST_CASE(RejectsCrossBoundaryTransition)

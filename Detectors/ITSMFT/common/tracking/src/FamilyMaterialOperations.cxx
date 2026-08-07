@@ -126,7 +126,7 @@ constexpr float kBarrelMaxDiagonal[5] = {o2::track::kCY2max, o2::track::kCZ2max,
 // the retained maximum, clamps it and rescales every off-diagonal entry
 // involving that parameter by sqrt(max/diagonal). No legacy track object is
 // constructed; this operates directly on the packed float covariance array.
-// Formerly a private reimplementation of this exact policy; now delegates to
+// Formerly a private reimplementation of this exact behavior; now delegates to
 // the one shared implementation also used by the barrel state operations'
 // own post-propagate/rotate/update sanitization, with no behavioral change.
 void limitBarrelCovariance(SurfaceKinematicState& scratch) noexcept

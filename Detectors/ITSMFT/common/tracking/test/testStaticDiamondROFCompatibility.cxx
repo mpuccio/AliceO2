@@ -10,7 +10,7 @@
 // or submit itself to any jurisdiction.
 
 // Static-diamond timing correctness (ITSCommonCATrackerParam.useDiamond /
-// TrackerTraits::computeLayerTrackletsForPolicy, TrackerTraits.cxx). A
+// TrackerTraits::computeLayerTrackletsForKind, TrackerTraits.cxx). A
 // diamond vertex has no genuine per-event timing, but Vertex::getTimeStamp()
 // is a fixed-width TimeEstBC (error field is only 16 bits -- see
 // DataFormatsITS/TimeEstBC.h) that cannot literally span a whole real
@@ -91,9 +91,9 @@ void checkEveryROFCompatible(uint32_t nROFsTF, uint32_t rofLength, uint32_t rofD
     for (uint32_t rof = 0; rof < nROFsTF; ++rof) {
       const auto diamond = diamondVertexForROF(base, rofView, layer, static_cast<int>(rof));
       BOOST_CHECK_MESSAGE(vtxView.isVertexCompatible(layer, rof, diamond),
-                           "layer=" << layer << " rof=" << rof << " nROFsTF=" << nROFsTF
-                                    << " rofLength=" << rofLength << " rofDelay=" << rofDelay
-                                    << " rofBias=" << rofBias << " addTimeErr=" << addTimeErr);
+                          "layer=" << layer << " rof=" << rof << " nROFsTF=" << nROFsTF
+                                   << " rofLength=" << rofLength << " rofDelay=" << rofDelay
+                                   << " rofBias=" << rofBias << " addTimeErr=" << addTimeErr);
     }
   }
 }

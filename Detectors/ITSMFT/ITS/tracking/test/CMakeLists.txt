@@ -43,7 +43,7 @@ add_dependencies(O2test-its-tracking-commontrackingparameters
 
 # Link-only Gate 3 onboarding proof. It initializes the translated ITS
 # parameters, seven-cylinder layout/topology, Tracker<7>, and the
-# CylinderCylinder policy boundary without processing or publishing an event.
+# Cylinder surface-kind boundary without processing or publishing an event.
 o2_add_executable(its-common-tracker-onboarding-compile
                   SOURCES compileCommonTrackerOnboarding.cxx
                   COMPONENT_NAME its-tracking

@@ -122,7 +122,7 @@ enum class SurfaceGraphError : uint8_t {
   SurfaceCountMismatch,
   NotFinalized,
   MixedSurfaceTransition,
-  PolicySurfaceKindMismatch
+  SurfaceKindMismatch
 };
 
 enum class SurfaceGraphTopologyError : uint8_t {

@@ -171,7 +171,7 @@ struct TrackletSnapshot {
 /// half-open [fromLayer, toLayer) MS accumulation range, threads oneOverR in
 /// increasing legacy transitionId order exactly as the production loop
 /// does, and uses the literal matching each family (`isDisk`selects `0.5f`
-/// float for DiskDisk vs `0.5` double-promoted for CylinderCylinder, per the
+/// float for Disk vs `0.5` double-promoted for Cylinder, per the
 /// integration review finding preserved -- not canonicalized -- in part 1/4
 /// of this slice).
 template <int NLayers>
@@ -221,7 +221,7 @@ void computeLegacyTransitionMSAndPhiCut(const TrackingParameters& trkParam, floa
 template <int NLayers>
 TrackletSnapshot runFixture(o2::detectors::DetID::ID detector,
                             SurfaceKind kind,
-                            TransitionPolicyTag tag,
+                            SurfaceKind tag,
                             std::vector<DecodedCluster> decoded,
                             int nThreads,
                             std::function<void(TrackingParameters&)> customizeParams = {})
@@ -317,11 +317,11 @@ TrackletSnapshot runFixture(o2::detectors::DetID::ID detector,
   // Gate 3 transition-preparation slice: successful initialisation must fill
   // every transition entry (relocated from TimeFrame::initialise() into
   // TrackerTraits::initialiseTimeFrame(), see TrackletFinding.h).
-  // Exercised here for both CylinderCylinder and DiskDisk through the
+  // Exercised here for both Cylinder and Disk through the
   // existing fixture rather than a separate harness. Beyond finiteness, each
   // entry is checked bit-for-bit against computeLegacyTransitionMSAndPhiCut's
   // independent oracle -- the only replay-grade acceptance evidence for the
-  // common CylinderCylinder path, since no real-geometry common-CA ITS
+  // common Cylinder path, since no real-geometry common-CA ITS
   // replay exists yet.
   {
     const auto preparedTopology = layoutView;
@@ -478,9 +478,9 @@ std::vector<DecodedCluster> buildMftChainClusters(const TrackingParameters& para
 /// production plan always builds a single-subgraph, single-kind layout
 /// from a duplicate-free orderedSurfaces span (SurfaceGraphBuilder already
 /// rejects a duplicate SurfaceId within one subgraph, and
-/// buildSurfaceGraphs() has no way to author a combined/mixed-policy
+/// buildSurfaceGraphs() has no way to author a combined/mixed-kind
 /// layout at all). To directly exercise TrackerTraits::initialiseTimeFrame()'s
-/// own fail-closed checks (SurfaceLayerMappingMismatch, MixedPolicyLayout)
+/// own fail-closed checks (SurfaceLayerMappingMismatch, MixedSurfaceKindLayout)
 /// against inputs that cannot arise through that production path, the two
 /// tests below construct a deliberately-corrupted std::vector<SurfaceGraph> directly
 /// and pass it to initialiseTimeFrame() as its explicit plan parameter -- no
@@ -540,9 +540,9 @@ BOOST_AUTO_TEST_CASE(CylinderOnePassAndTwoPassProduceIdenticalTracklets)
     cylinderCluster(3.f, 0.3f, 0),
     cylinderCluster(4.f, 0.4f, 1)};
   const auto serial = runFixture<ITSNLayers>(o2::detectors::DetID::ITS, SurfaceKind::Cylinder,
-                                             TransitionPolicyTag::CylinderCylinder, clusters, 1);
+                                             SurfaceKind::Cylinder, clusters, 1);
   const auto parallel = runFixture<ITSNLayers>(o2::detectors::DetID::ITS, SurfaceKind::Cylinder,
-                                               TransitionPolicyTag::CylinderCylinder, clusters, 4);
+                                               SurfaceKind::Cylinder, clusters, 4);
   checkExactTracklet(serial, (0.3f - 0.4f) / (3.f - 4.f), o2::gpu::CAMath::ATan2(0.f, -1.f));
   checkExactTracklet(parallel, (0.3f - 0.4f) / (3.f - 4.f), o2::gpu::CAMath::ATan2(0.f, -1.f));
   checkSame(serial, parallel);
@@ -563,9 +563,9 @@ BOOST_AUTO_TEST_CASE(DiskOnePassAndTwoPassProduceIdenticalTracklets)
     diskCluster(1.f, 0.5f, fromZ, 0),
     diskCluster(targetX, targetY, toZ, 1)};
   const auto serial = runFixture<MFTNLayers>(o2::detectors::DetID::MFT, SurfaceKind::Disk,
-                                             TransitionPolicyTag::DiskDisk, clusters, 1);
+                                             SurfaceKind::Disk, clusters, 1);
   const auto parallel = runFixture<MFTNLayers>(o2::detectors::DetID::MFT, SurfaceKind::Disk,
-                                               TransitionPolicyTag::DiskDisk, clusters, 4);
+                                               SurfaceKind::Disk, clusters, 4);
   const float expectedTanLambda = (fromZ - toZ) / (toZ - fromZ);
   const float expectedPhi = o2::gpu::CAMath::ATan2(0.5f - targetY, 1.f - targetX);
   checkExactTracklet(serial, expectedTanLambda, expectedPhi);
@@ -588,9 +588,9 @@ BOOST_AUTO_TEST_CASE(InitialiseTimeFrameFailureLeavesTransitionArraysZeroFilledN
 {
   // Gate 3 transition-preparation slice failure contract: TimeFrame::initialise()
   // already clears/resizes mTransitionMSAngles/mTransitionPhiCuts to
-  // nTransitions before any policy/geometry validation runs (unchanged by
+  // nTransitions before any surface-kind/geometry validation runs (unchanged by
   // this slice). A later fallible check (here: an invalid CorrType, so
-  // AttachHitPolicyConfigView::isValid() fails) must leave those arrays
+  // AttachHitConfigView::isValid() fails) must leave those arrays
   // exactly zero-filled at the correct size -- never a mixture of computed
   // and zero entries -- because the (non-throwing) value-computation loop
   // this slice added never starts until every fallible check has succeeded.
@@ -610,7 +610,7 @@ BOOST_AUTO_TEST_CASE(InitialiseTimeFrameFailureLeavesTransitionArraysZeroFilledN
   resetDetectorDefaults(params[0], o2::detectors::DetID::ITS);
   params[0].PassFlags.reset();
   params[0].PassFlags.set(IterationStep::FirstPass, IterationStep::RebuildClusterLUT);
-  params[0].CorrType = static_cast<o2::base::PropagatorImpl<float>::MatCorrType>(99); // invalid: AttachHitPolicyConfigView rejects it
+  params[0].CorrType = static_cast<o2::base::PropagatorImpl<float>::MatCorrType>(99); // invalid: AttachHitConfigView rejects it
 
   frame.setMemoryPool(pool);
   tf.setMemoryPool(pool);
@@ -681,7 +681,7 @@ BOOST_AUTO_TEST_CASE(InitialiseTimeFrameFailureLeavesTransitionArraysZeroFilledN
   traits.adoptSurfacePlanBinding(bindingResult.binding.get());
 
   BOOST_CHECK_EXCEPTION(traits.initialiseTimeFrame(0, plan), TraversalException, [](const TraversalException& error) {
-    return error.getReason() == TraversalFailureReason::InvalidPolicyParameters;
+    return error.getReason() == TraversalFailureReason::InvalidSurfaceParameters;
   });
 
   const auto topology = layoutView;
@@ -705,7 +705,7 @@ BOOST_AUTO_TEST_CASE(ItsIdentityLayoutTrackletsSpanMultipleAdjacentTransitionsIn
   // Under ITS's default MaxHoles=0 only strictly-adjacent transitions exist
   // at all, so this directly proves transition-level tracklet/LUT/order
   // parity across three distinct transitions simultaneously -- each
-  // resolved through the migrated computeLayerTrackletsForPolicy() via a
+  // resolved through the migrated computeLayerTrackletsForKind() via a
   // fresh mSurfaceToLegacyLayer lookup -- not just the single transition the
   // tests above check, while every non-participating transition (touching
   // layers 4/5/6) stays empty.
@@ -715,7 +715,7 @@ BOOST_AUTO_TEST_CASE(ItsIdentityLayoutTrackletsSpanMultipleAdjacentTransitionsIn
     cylinderCluster(5.f, 0.5f, 2),
     cylinderCluster(6.f, 0.6f, 3)};
   const auto snapshot = runFixture<ITSNLayers>(o2::detectors::DetID::ITS, SurfaceKind::Cylinder,
-                                               TransitionPolicyTag::CylinderCylinder, clusters, 1);
+                                               SurfaceKind::Cylinder, clusters, 1);
   // Each transition's expected tanLambda is computed from its own specific
   // (radius, z) pair rather than one shared constant: although every pair
   // shares the same nominal slope (z = 0.1 * r), float subtraction/division
@@ -756,7 +756,7 @@ BOOST_AUTO_TEST_CASE(ItsIdentityLayoutTrackletsSpanMultipleAdjacentTransitionsIn
 
 BOOST_AUTO_TEST_CASE(MftIdentityLayoutTrackletsSpanMultipleAdjacentTransitionsInOrder)
 {
-  // Same multi-transition parity property for the DiskDisk/forward family:
+  // Same multi-transition parity property for the Disk/forward family:
   // a 4-disk chain built hop-by-hop with detail::mftTrackletProject (the
   // same primitive projectDiskSearchWindow uses internally), proving
   // transitions (0,1),(1,2),(2,3) each get exactly one correctly-ordered
@@ -766,7 +766,7 @@ BOOST_AUTO_TEST_CASE(MftIdentityLayoutTrackletsSpanMultipleAdjacentTransitionsIn
   const auto clusters = buildMftChainClusters(params, Bz, 3);
   BOOST_REQUIRE_EQUAL(clusters.size(), 4u);
   const auto snapshot = runFixture<MFTNLayers>(o2::detectors::DetID::MFT, SurfaceKind::Disk,
-                                               TransitionPolicyTag::DiskDisk, clusters, 1);
+                                               SurfaceKind::Disk, clusters, 1);
   const std::vector<int> expectedLookup{0, 1};
 
   BOOST_REQUIRE_EQUAL(snapshot.allTransitionFromLayer.size(), snapshot.allTracklets.size());
@@ -812,7 +812,7 @@ BOOST_AUTO_TEST_CASE(ItsHoleTransitionTrackletResolvesCorrectLegacyLayerEndpoint
     cylinderCluster(3.f, 0.3f, 0),
     cylinderCluster(5.f, 0.5f, 2)};
   const auto snapshot = runFixture<ITSNLayers>(
-    o2::detectors::DetID::ITS, SurfaceKind::Cylinder, TransitionPolicyTag::CylinderCylinder, clusters, 1,
+    o2::detectors::DetID::ITS, SurfaceKind::Cylinder, SurfaceKind::Cylinder, clusters, 1,
     [](TrackingParameters& p) {
       p.MaxHoles = 1;
       p.HoleLayerMask = LayerMask{static_cast<uint16_t>(1u << 1)};
@@ -899,10 +899,10 @@ BOOST_AUTO_TEST_CASE(CombinedCylinderAndDiskLayoutIsRejectedBeforeTrackletProces
   // matching the architecture note that no cross-detector edges exist
   // because none are authored. This test
   // constructs one directly to prove TrackerTraits::initialiseTimeFrame()
-  // still fails closed (MixedPolicyLayout) before the plan binding is
+  // still fails closed (MixedSurfaceKindLayout) before the plan binding is
   // committed and before computeLayerTracklets() could process anything --
   // i.e. that no duplicate/cross-tag candidate processing is possible even
-  // if such a layout existed. Per-tag span exactness/disjointness itself is
+  // if such a layout existed. Per-kind span exactness/disjointness itself is
   // already proven by the SurfacePlanBinding schedule tests
   // level by the surface-plan schedule tests; this test is the
   // TrackerTraits-level complement covering the "rejected" case.

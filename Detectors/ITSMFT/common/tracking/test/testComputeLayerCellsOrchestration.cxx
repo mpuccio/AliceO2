@@ -263,7 +263,7 @@ void checkSurfaceKinematicStateEqual(const SurfaceKinematicState& lhs, const Sur
 
 // Minimal wiring TrackerTraits<NLayers>::computeLayerCells() needs: a real
 // layout/topology (so initialiseTimeFrame() genuinely binds
-// the transition/cell schedule and policy parameters
+// the transition/cell schedule and tracking parameters
 // -- computeLayerCells()'s own private caches, never poked directly), and a
 // validly-sized-but-empty normalized load (proven pattern from
 // testTrackerFailureContract.cxx: TimeFrame::initialise() unconditionally
@@ -421,7 +421,7 @@ int findCellTopologyId(const TopologyView& topology, int inner, int middle, int 
 // entry at index 0 directly (matching loadCandidateClusters()'s own
 // unsorted-index-0 cluster on each layer) and injects exactly one synthetic
 // tracklet per transition of cellTopologyId, wired so
-// computeLayerCellsForPolicy<Tag>'s tracklet-pairing loop finds exactly one
+// computeLayerCellsForKind<Tag>'s tracklet-pairing loop finds exactly one
 // candidate pair.
 template <int NLayers>
 void injectCandidateTracklets(Rig<NLayers>& rig, int cellTopologyId, const std::array<o2::its::Cluster, 3>& clusters)
@@ -448,7 +448,7 @@ void injectCandidateTracklets(Rig<NLayers>& rig, int cellTopologyId, const std::
 }
 
 // Gate 4 Slice 0b additions below: multi-cell parity coverage for the
-// migrated computeLayerCells()/computeLayerCellsForPolicy(), extending this
+// migrated computeLayerCells()/computeLayerCellsForKind(), extending this
 // file's existing single-cell (always layers {0,1,2}) machinery to an
 // arbitrary ordered set of N>=3 layers so several simultaneously-populated
 // cells (sharing transitions between adjacent triples) can be checked in one
@@ -538,7 +538,7 @@ BOOST_AUTO_TEST_CASE(CylinderComputeLayerCellsMatchesBuildCellSeedOracle)
   rig.params[0].MaxChi2ClusterAttachment = 1.e6f;
   rig.params[0].LayerxX0[0] = 0.005f; // inner
   rig.params[0].LayerxX0[1] = 0.005f; // middle
-  rig.params[0].LayerxX0[2] = 0.f;    // outer: contractually unused by CylinderCylinder
+  rig.params[0].LayerxX0[2] = 0.f;    // outer: contractually unused by Cylinder
   rig.establishLayout();
 
   const std::array<o2::its::Cluster, 3> clusters{makeGlobalCluster(3.0f, 0.100f, 0.9f, 0),
@@ -597,15 +597,15 @@ BOOST_AUTO_TEST_CASE(CylinderComputeLayerCellsMatchesBuildCellSeedOracle)
   const std::array<float, 3> xOverX0{rig.params[0].LayerxX0[0], rig.params[0].LayerxX0[1], rig.params[0].LayerxX0[2]};
   const auto material = toMaterial(xOverX0);
 
-  TrackingKernelParameters policyParams;
-  policyParams.maxChi2ClusterAttachment = rig.params[0].MaxChi2ClusterAttachment;
+  TrackingKernelParameters trackingParams;
+  trackingParams.maxChi2ClusterAttachment = rig.params[0].MaxChi2ClusterAttachment;
 
   SurfaceKinematicState oracleState{};
   float oracleChi2 = 0.f;
   OperationFailureReason oracleReason{};
   BOOST_REQUIRE(buildCylinderCellSeed(
     oracleMeasurementInner, oracleMeasurementMiddle, oracleMeasurementOuter,
-    material, Bz, kCompatibilityAbsCharge, kCompatibilityPID, oracleState, oracleChi2, policyParams, oracleReason));
+    material, Bz, kCompatibilityAbsCharge, kCompatibilityPID, oracleState, oracleChi2, trackingParams, oracleReason));
 
   checkSurfaceKinematicStateEqual(producedCell.state(), oracleState);
   BOOST_CHECK_EQUAL(producedCell.getChi2(), oracleChi2);
@@ -654,16 +654,16 @@ BOOST_AUTO_TEST_CASE(DiskComputeLayerCellsMatchesBuildCellSeedOracle)
   const std::array<float, 3> xOverX0{rig.params[0].LayerxX0[0], rig.params[0].LayerxX0[1], rig.params[0].LayerxX0[2]};
   const auto material = toMaterial(xOverX0);
 
-  TrackingKernelParameters policyParams;
-  policyParams.maxChi2ClusterAttachment = rig.params[0].MaxChi2ClusterAttachment;
-  policyParams.trackletMinPt = rig.params[0].TrackletMinPt;
+  TrackingKernelParameters trackingParams;
+  trackingParams.maxChi2ClusterAttachment = rig.params[0].MaxChi2ClusterAttachment;
+  trackingParams.trackletMinPt = rig.params[0].TrackletMinPt;
 
   SurfaceKinematicState oracleState{};
   float oracleChi2 = 0.f;
   OperationFailureReason oracleReason{};
   BOOST_REQUIRE(buildDiskCellSeed(
     oracleMeasurementInner, oracleMeasurementMiddle, oracleMeasurementOuter,
-    material, Bz, kCompatibilityAbsCharge, kCompatibilityPID, oracleState, oracleChi2, policyParams, oracleReason));
+    material, Bz, kCompatibilityAbsCharge, kCompatibilityPID, oracleState, oracleChi2, trackingParams, oracleReason));
 
   checkSurfaceKinematicStateEqual(producedCell.state(), oracleState);
   BOOST_CHECK_EQUAL(producedCell.getChi2(), oracleChi2);
@@ -830,10 +830,10 @@ BOOST_AUTO_TEST_CASE(DiskComputeLayerCellsOnePassAndTwoPassAgree)
 
 BOOST_AUTO_TEST_CASE(CylinderComputeLayerCellsSafeWithEmptyDiskReferenceSpan)
 {
-  // A CylinderCylinder iteration never binds a legacy MFT reference-z span:
+  // A Cylinder iteration never binds a legacy MFT reference-z span:
   // TrackerTraits::mDiskLayerReferenceZ stays default-constructed (empty) for
   // the whole traversal, exactly as it does today. passesCellRoadPrecut<
-  // CylinderCylinder> is still called unconditionally by the shared candidate
+  // Cylinder> is still called unconditionally by the shared candidate
   // loop and must never read it. This is already incidentally exercised by
   // every Cylinder test above; this case documents and asserts it explicitly.
   Rig<ITSNLayers> rig{o2::detectors::DetID::ITS, SurfaceKind::Cylinder};
@@ -870,14 +870,14 @@ BOOST_AUTO_TEST_CASE(RepeatedComputeLayerCellsCallsDoNotRebindOrIncreaseCounts)
   // getTraversalGroupingCount() only increments inside initialiseTimeFrame()
   // (Gate 2 counter, unchanged by this slice). computeLayerCells() has no
   // code path that rebinds mDiskLayerReferenceZ or any other cached
-  // policy/geometry state -- calling it repeatedly for the same iteration
+  // surface-kind/geometry state -- calling it repeatedly for the same iteration
   // must leave the counter exactly as it was after the single
   // initialiseTimeFrame() call, and must keep reproducing the identical
   // cell chi2 through the same, never-rebound mDiskLayerReferenceZ/
   // mKernelParameters cache -- the closest observable proxy, through the
   // public API alone, for "the legacy reference-z span is bound once per
   // iteration, not once per candidate". (M4b removed the
-  // TrackerTraits::getPolicyBindingCount(StateFamily) test-only
+  // TrackerTraits binding-count introspection test-only
   // introspection seam this test previously also checked; the grouping
   // count plus the reproduced chi2 below remain sufficient public-API
   // evidence for the same claim. computeLayerCells() itself clears and
@@ -949,7 +949,7 @@ BOOST_AUTO_TEST_CASE(ComputeLayerCellsFailsClosedWithoutInitialiseTimeFrame)
 
 // --- Stage-B activation: material-correction-mode preflight wiring --------
 //
-// checkMaterialCorrectionModeSupport<Tag>() itself is unit-tested in
+// materialCorrectionModeSupport() itself is unit-tested in
 // isolation (testMaterialCorrectionModePreflight.cxx); these tests instead
 // prove it is genuinely wired into TrackerTraits<NLayers>::initialiseTimeFrame()
 // through the real public API, using the same Rig harness as the rest of
@@ -989,11 +989,11 @@ BOOST_AUTO_TEST_CASE(CylinderUnsupportedMaterialCorrectionModeThrowsBeforeTimeFr
   }
 }
 
-BOOST_AUTO_TEST_CASE(InvalidCorrTypeRetainsExistingInvalidPolicyParametersReason)
+BOOST_AUTO_TEST_CASE(InvalidCorrTypeRetainsExistingInvalidSurfaceParametersReason)
 {
   // A CorrType value isRecognizedMatCorrType() does not recognize must
-  // surface as the pre-existing InvalidPolicyParameters failure (from
-  // AttachHitPolicyConfigView::isValid()), never as
+  // surface as the pre-existing InvalidSurfaceParameters failure (from
+  // AttachHitConfigView::isValid()), never as
   // UnsupportedMaterialCorrectionMode -- the preflight explicitly defers to
   // that established classification for this case.
   Rig<ITSNLayers> rig{o2::detectors::DetID::ITS, SurfaceKind::Cylinder};
@@ -1002,14 +1002,14 @@ BOOST_AUTO_TEST_CASE(InvalidCorrTypeRetainsExistingInvalidPolicyParametersReason
   rig.traits.updateTrackingParameters(rig.params);
 
   BOOST_CHECK_EXCEPTION(rig.traits.initialiseTimeFrame(0, *rig.plan), TraversalException, [](const TraversalException& e) {
-    return e.getReason() == TraversalFailureReason::InvalidPolicyParameters;
+    return e.getReason() == TraversalFailureReason::InvalidSurfaceParameters;
   });
   BOOST_CHECK(!rig.traits.hasTraversalCache());
 }
 
 BOOST_AUTO_TEST_CASE(DiskAcceptsAllRecognizedMaterialCorrectionModes)
 {
-  // DiskDisk's native path always uses descriptor-based nominal material
+  // Disk's native path always uses descriptor-based nominal material
   // regardless of CorrType, so it must never be rejected by this preflight
   // for any recognized mode.
   for (const auto corrType : {o2::base::PropagatorF::MatCorrType::USEMatCorrNONE,
@@ -1034,7 +1034,7 @@ BOOST_AUTO_TEST_CASE(CylinderComputeLayerCellsMultiCellChainProducesCorrectCells
   // single-cell oracle tests' convention above): proves transition-level/
   // cell-level parity across three simultaneously-populated cells (0,1,2),
   // (1,2,3), (2,3,4) -- each resolved through the migrated
-  // computeLayerCellsForPolicy() via a fresh mSurfaceToLegacyLayer lookup
+  // computeLayerCellsForKind() via a fresh mSurfaceToLegacyLayer lookup
   // per CellTopologyId -- not just the single cell the tests above check,
   // while every non-participating cellTopologyId stays empty.
   Rig<ITSNLayers> rig{o2::detectors::DetID::ITS, SurfaceKind::Cylinder};
@@ -1099,11 +1099,11 @@ BOOST_AUTO_TEST_CASE(CylinderComputeLayerCellsMultiCellChainProducesCorrectCells
 
 BOOST_AUTO_TEST_CASE(DiskComputeLayerCellsMultiCellChainProducesCorrectCellsAndOrder)
 {
-  // Same multi-cell parity property for the DiskDisk/forward family:
-  // cell-seed leaves genuinely branches per family (CylinderCylinder
-  // reads [1] then [0]; DiskDisk reads [2],[1],[0] -- see the comment on
-  // that call in computeLayerCellsForPolicy()), so multi-transition
-  // cell-chaining for DiskDisk is real, otherwise-unproven coverage.
+  // Same multi-cell parity property for the Disk/forward family:
+  // cell-seed leaves genuinely branches per family (Cylinder
+  // reads [1] then [0]; Disk reads [2],[1],[0] -- see the comment on
+  // that call in computeLayerCellsForKind()), so multi-transition
+  // cell-chaining for Disk is real, otherwise-unproven coverage.
   Rig<MFTNLayers> rig{o2::detectors::DetID::MFT, SurfaceKind::Disk};
   rig.params[0].MaxChi2ClusterAttachment = 1.e6f;
   rig.params[0].TrackletMinPt = 0.3f;

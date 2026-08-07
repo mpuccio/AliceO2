@@ -18,12 +18,12 @@
 namespace o2::itsmft::tracking
 {
 
-// Minimal, topology-free, mask-free and policy-free view over a canonical
+// Minimal, topology-free and mask-free view over a canonical
 // surface catalog: a pointer to const SurfaceDescriptor plus a count,
-// nothing else. Deliberately carries no topology, masks, transition-policy,
+// nothing else. Deliberately carries no topology, masks, transition dispatch,
 // STL ownership or detector dependency, so consumers that only need the
 // surface descriptions (e.g. loading) do not have to depend on graph
-// adjacency or transition policy.
+// adjacency or transition dispatch.
 //
 // A SurfaceDescriptor now includes immutable identity, geometry and nominal
 // material (see SurfaceDescriptor.h), so this view is not geometry-only:

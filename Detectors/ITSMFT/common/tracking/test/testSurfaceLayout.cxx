@@ -11,7 +11,6 @@
 #include <boost/test/unit_test.hpp>
 
 #include "ITSMFTTracking/SurfaceGraph.h"
-#include "ITSMFTTracking/detail/TransitionPolicy.h"
 
 namespace
 {
@@ -27,30 +26,6 @@ SurfaceDescriptor surface(uint16_t id, SurfaceKind kind)
   return SurfaceDescriptor{SurfaceId{id}, id, 0, kind};
 }
 } // namespace
-
-BOOST_AUTO_TEST_CASE(PolicyTagsMapToStateFamilies)
-{
-  BOOST_CHECK(stateFamilyOf(TransitionPolicyTag::Invalid) == StateFamily::Invalid);
-  BOOST_CHECK(stateFamilyOf(TransitionPolicyTag::CylinderCylinder) == StateFamily::Barrel);
-  BOOST_CHECK(stateFamilyOf(TransitionPolicyTag::DiskDisk) == StateFamily::Forward);
-  BOOST_CHECK(stateFamilyOf(static_cast<TransitionPolicyTag>(3)) == StateFamily::Invalid);
-
-  BOOST_CHECK(isKnownTransitionPolicyTag(TransitionPolicyTag::Invalid));
-  BOOST_CHECK(isKnownTransitionPolicyTag(TransitionPolicyTag::CylinderCylinder));
-  BOOST_CHECK(isKnownTransitionPolicyTag(TransitionPolicyTag::DiskDisk));
-  BOOST_CHECK(!isKnownTransitionPolicyTag(static_cast<TransitionPolicyTag>(3)));
-  BOOST_CHECK(!isStageATransitionPolicyTagEnabled(TransitionPolicyTag::Invalid));
-  BOOST_CHECK(isStageATransitionPolicyTagEnabled(TransitionPolicyTag::CylinderCylinder));
-  BOOST_CHECK(isStageATransitionPolicyTagEnabled(TransitionPolicyTag::DiskDisk));
-}
-
-BOOST_AUTO_TEST_CASE(PolicyTagAbiIsStable)
-{
-  BOOST_CHECK_EQUAL(sizeof(StateFamily), sizeof(uint8_t));
-  BOOST_CHECK_EQUAL(sizeof(TransitionPolicyTag), sizeof(uint16_t));
-  BOOST_CHECK_EQUAL(sizeof(SurfaceTransition), 12u);
-  BOOST_CHECK_EQUAL(sizeof(SurfaceCellTopology), 8u);
-}
 
 BOOST_AUTO_TEST_CASE(SurfaceMaskCoversThirtyTwoGlobalSurfaces)
 {
@@ -108,9 +83,9 @@ BOOST_AUTO_TEST_CASE(CellCannotReturnToItsFirstSurface)
 
 BOOST_AUTO_TEST_CASE(CellCannotConnectTransitionsOfDifferentSurfaceKinds)
 {
-  // M4 (ADR 0007 decision 8): SurfaceTransition no longer carries a policy
+  // SurfaceTransition carries its endpoint kinds directly
   // tag a caller could set inconsistently with the endpoint surfaces, so a
-  // "mixed policy" cell is no longer even expressible at this layer -- a
+  // "mixed kind" cell is no longer even expressible at this layer -- a
   // cell's own precondition (firstTransition.to == secondTransition.from,
   // DisconnectedTransitions below) already forces both transitions to share
   // the same pivot SurfaceId, and therefore the same SurfaceDescriptor::kind,

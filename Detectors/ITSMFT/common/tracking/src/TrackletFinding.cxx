@@ -6,10 +6,10 @@
 // License v3 (GPL Version 3), copied verbatim in the file "COPYING".
 ///
 /// \file TrackletFinding.cxx
-/// \brief Out-of-line transition-policy operation specializations
+/// \brief Out-of-line tracklet operation helpers
 ///
 /// Only this translation unit may include MFTFwdTrackHelpers.h on behalf of
-/// the D007 policy operation boundary, so the common public policy header
+/// the D007 operation boundary, so the common public headers
 /// stays free of MFT-specific constants, TimeFrame, and typed-output
 /// dependencies.
 
@@ -458,7 +458,7 @@ namespace
 {
 // Time-boxed Gate 3 compatibility values: the legacy nominal half-disk z
 // coordinates already used by mftLayerMSAngle() today, preserved bit-for-bit
-// so layerMultipleScatteringAngle<DiskDisk> reproduces the accepted 91-track
+// so layerMultipleScatteringAngle<Disk> reproduces the accepted 91-track
 // / hash 826dc653cd936a472929c600c97c140b baseline. Deliberately NOT
 // SurfaceDescriptor::referenceCoordinate -- see the header doc on
 // bindLegacyMFTReferenceCoordinates(). static constexpr storage duration:
@@ -468,9 +468,9 @@ static constexpr std::array<float, o2::mft::constants::mft::LayersNumber> kLegac
   o2::mft::constants::mft::LayerZCoordinate();
 } // namespace
 
-DiskDiskReferenceCoordinateView bindLegacyMFTReferenceCoordinates() noexcept
+DiskReferenceCoordinateView bindLegacyMFTReferenceCoordinates() noexcept
 {
-  return DiskDiskReferenceCoordinateView{gsl::span<const float>(kLegacyMFTReferenceCoordinate)};
+  return DiskReferenceCoordinateView{gsl::span<const float>(kLegacyMFTReferenceCoordinate)};
 }
 
 float clampCylinderTransitionCurvature(float oneOverR, float r2) noexcept

@@ -96,7 +96,7 @@ bool bitEqual(const T& lhs, const T& rhs)
 }
 } // namespace
 
-// --- 1. sanitizeCovariance() itself: the core policy, in isolation. -------
+// --- 1. sanitizeCovariance() itself: the core rule, in isolation. ----------
 
 BOOST_AUTO_TEST_CASE(SanitizeCovarianceAbsNegativeDiagonal)
 {
@@ -489,14 +489,14 @@ BOOST_AUTO_TEST_CASE(BarrelLinRefPropagateSanitizesLargeStep)
   BOOST_CHECK(allDiagonalsNonNegative(state));
 }
 
-// Forward has no established diagonal-range validity policy (see
+// Forward has no established diagonal-range validity bound (see
 // kForwardMaxDiagonal's own doc comment, ForwardSurfaceStateOperations.cxx:
 // legacy MFT's fitting engine has no covariance-sanitization mechanism at
 // all, so forward's range-clamp sub-pass is deliberately disabled pending a
 // separate design decision), so an over-range diagonal is no longer a valid
 // forward wiring probe. A deliberately over-correlated off-diagonal pair is:
 // the pairwise correlation bound is mathematically universal (Cauchy-
-// Schwarz), not a detector-specific policy, and is fully active for forward.
+// Schwarz), not a detector-specific bound, and is fully active for forward.
 SurfaceKinematicState makeOverCorrelatedForwardState()
 {
   SurfaceKinematicState state{};

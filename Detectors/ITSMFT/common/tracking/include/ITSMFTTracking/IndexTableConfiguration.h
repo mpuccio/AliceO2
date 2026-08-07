@@ -12,13 +12,13 @@
 
 // Host-only: TrackingParameters (Configuration.h) owns std::vector members
 // and is not itself device-compatible -- same reasoning as
-// TransitionPolicyBinding.h. Kept as its own boundary, separate from
-// TransitionPolicyBinding.h, so that header's existing consumers
-// (bindAttachHitPolicyConfig, bindLayerGeometryConfig,
+// the host material/configuration binding. Kept as its own boundary, separate
+// from the host binding, so that header's existing consumers
+// (bindAttachHitConfig, bindLayerGeometryConfig,
 // host kernel-parameter conversion) do not transitively pick up
 // IndexTableUtils.h's own ITStracking/Cluster.h and MFTTracking/Constants.h
 // dependencies merely because this binder also lives under
-// TransitionPolicyBinding.h's include.
+// host binding's include.
 #ifndef GPUCA_GPUCODE
 
 #include <cmath>
@@ -27,7 +27,7 @@
 
 #include "ITSMFTTracking/Configuration.h"
 #include "ITSMFTTracking/IndexTableUtils.h"
-#include "ITSMFTTracking/detail/TransitionPolicy.h"
+#include "ITSMFTTracking/SurfaceDescriptor.h"
 
 namespace o2::itsmft::tracking
 {
@@ -43,19 +43,19 @@ enum class IndexTableConfigError : uint8_t {
   NonPositiveColHalfExtent,        // finite but <= 0
   NonFiniteRowRange,               // XY only: rowMin or rowMax non-finite
   DegenerateRowRange,              // XY only: finite but rowMax <= rowMin
+  InvalidSurfaceKind,              // kind is neither Cylinder nor Disk
 };
 
 /// Binds and validates one iteration's TrackingParameters into `staged`,
-/// dispatched at compile time on the transition-policy Tag. The caller must
-/// resolve Tag exclusively from the validated SurfaceGraph/
-/// SurfacePlanBinding's active family for this iteration -- never from NLayers or
-/// DetId. Every field of `params` is validated before `staged` is mutated;
-/// on any error `staged` is left completely untouched. Must be called once
-/// per iteration, outside any candidate/neighbour/road loop.
-template <TransitionPolicyTag Tag>
+/// keyed by the active endpoint SurfaceKind. The caller must resolve `kind`
+/// from the validated SurfaceGraph/SurfacePlanBinding for this iteration --
+/// never from NLayers or DetId. Every field of `params` is validated before
+/// `staged` is mutated; on any error `staged` is left completely untouched.
+/// Must be called once per iteration, outside any candidate/neighbour/road loop.
 IndexTableConfigError bindIndexTableConfiguration(o2::itsmft::IndexTableUtilsCore& staged,
                                                   const TrackingParameters& params,
-                                                  int activeSurfaceCount) noexcept;
+                                                  int activeSurfaceCount,
+                                                  SurfaceKind kind) noexcept;
 
 /// True iff every field setIndexTableParams stores agrees exactly between
 /// `a` and `b`. Used to enforce that a non-FirstPass iteration's freshly

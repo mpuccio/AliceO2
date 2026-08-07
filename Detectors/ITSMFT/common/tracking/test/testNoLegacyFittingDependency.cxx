@@ -16,8 +16,8 @@
 //
 // This scans include/ITSMFTTracking/*.h, include/ITSMFTTracking/detail/*.h,
 // and src/*.cxx (this module's own production headers/sources, not test/),
-// exactly like the M4 TransitionPolicyTag containment guard
-// (testTransitionPolicyTagContainment.cxx), whose scan/allowlist structure
+// exactly like the M4 SurfaceKind containment guard
+// (testSurfaceKindContainment.cxx), whose scan/allowlist structure
 // this test follows.
 
 #define BOOST_TEST_MODULE ITSMFT NoLegacyFittingDependency

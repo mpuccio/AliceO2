@@ -40,7 +40,7 @@ namespace o2::itsmft::tracking
 // fitted parameters retained), family-dispatched by state.family rather than
 // by Tag. Barrel reuses the exact ceiling constants
 // the established barrel covariance formula (bit-for-bit identical, just resolved at
-// runtime instead of compiled once for CylinderCylinder). Forward has no
+// runtime instead of compiled once for Cylinder). Forward has no
 // legacy analogue to port (the frozen MFT TrackFitter/TrackLTF Kalman engine
 // this milestone removes from production never exposed a comparable
 // "reset to uninformative" primitive on its own parametrization) -- these are
@@ -92,7 +92,7 @@ GPUhdi() float ptFromQOverPt(float q2pt, uint8_t absCharge) noexcept
 
 // Shared (family-blind) whole-seed refit: reproduces the three-leg
 // (inward-index A, outward-index B, optional inward-index C) sequencing and
-// per-leg acceptance-gate structure nativeRefitTrackCylinderCylinder
+// per-leg acceptance-gate structure nativeRefitTrackCylinder
 // documents in full in the native operation -- same leg
 // direction/maxQoverPt/acceptance formula, same MinPt check keyed on the
 // seed's own attached-cluster count -- but built on Propagator::driveRefitLeg
@@ -102,7 +102,7 @@ GPUhdi() float ptFromQOverPt(float q2pt, uint8_t absCharge) noexcept
 // production entry point, not a byte-for-byte port, and no caller of this
 // function threads a nonzero value through it (see the adapter refit helper).
 //
-// Transactional exactly like nativeRefitTrackCylinderCylinder: outParamIn/
+// Transactional exactly like nativeRefitTrackCylinder: outParamIn/
 // outParamOut/outChi2 are committed only on complete success.
 inline bool fitTrackSeedLegs(
   const TrackSeed& seed,

@@ -50,7 +50,7 @@ TrackerInitialization makeConfiguration(const std::vector<SurfaceDescriptor>& ca
     parameters.NLayers = 0;
     iteration.parameters.push_back(parameters);
     iteration.bindings.push_back(SurfacePlanBinding::Declaration{source, owned, ordered,
-                                                                 SurfaceKind::Cylinder, TransitionPolicyTag::CylinderCylinder});
+                                                                 SurfaceKind::Cylinder});
     configuration.iterations.push_back(std::move(iteration));
   }
   return configuration;

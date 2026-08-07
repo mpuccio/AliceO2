@@ -334,11 +334,11 @@ void checkNoForbiddenToken(const fs::path& path, const std::string& token, const
 // now a legitimate mention too (loadNormalizedSource()'s preflight accepts
 // both), removed from the forbidden list below. What remains genuinely
 // forbidden: workflow/DPL/output-layer naming, and the detail/-confined
-// TransitionPolicyTag/StateFamily policy-key types -- SurfaceTrackingScratch
+// SurfaceKind/StateFamily dispatch-key types -- SurfaceTrackingScratch
 // itself must still never reintroduce those, and no detector-specific
 // *switch* (as opposed to a DetID::ITS/DetID::MFT preflight/comparison) may
 // appear here.
-BOOST_AUTO_TEST_CASE(NewHeadersPullNoITSWorkflowOutputOrTransitionPolicyTagDependency)
+BOOST_AUTO_TEST_CASE(NewHeadersPullNoITSWorkflowOutputOrSurfaceKindDependency)
 {
   const std::string testFile = __FILE__;
   const auto testDirectory = testFile.substr(0, testFile.find_last_of('/'));
@@ -352,7 +352,7 @@ BOOST_AUTO_TEST_CASE(NewHeadersPullNoITSWorkflowOutputOrTransitionPolicyTagDepen
   }
 
   const std::vector<std::pair<std::string, std::string>> forbidden = {
-    {"TransitionPolicyTag", "detail/-confined policy-key type"},
+    {"SurfaceKind", "detail/-confined dispatch-key type"},
     {"StateFamily", "Barrel/Forward state-family selector"},
     {"DPL", "DPL workflow machinery"},
     {"Workflow", "workflow-layer naming"},

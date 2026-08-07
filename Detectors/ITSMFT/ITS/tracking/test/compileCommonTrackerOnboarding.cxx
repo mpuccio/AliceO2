@@ -18,7 +18,7 @@
 #include "ITSMFTTracking/SurfaceGraphBuilder.h"
 #include "ITSMFTTracking/StaticDetectorCatalogs.h"
 #include "ITSMFTTracking/SurfaceCatalogView.h"
-#include "ITSMFTTracking/detail/TransitionPolicyBinding.h"
+#include "ITSMFTTracking/detail/CellFinding.h"
 
 namespace
 {
@@ -68,8 +68,9 @@ int initializeCommonITSTracker()
   std::shared_ptr<tbb::task_arena> arena;
   traits.setNThreads(1, arena);
 
-  const auto cylinderParameters = bindTransitionPolicyParams<TransitionPolicyTag::CylinderCylinder>(parameters.front());
-  const auto materialParameters = bindAttachHitPolicyConfig(
+  TrackingKernelParameters cylinderParameters;
+  cylinderParameters.kind = SurfaceKind::Cylinder;
+  const auto materialParameters = bindAttachHitConfig(
     gsl::span<const NominalSurfaceMaterial>(layerMaterial.data(), layerMaterial.size()), parameters.front());
   if (!cylinderParameters.isValid() || !materialParameters.isValid(ITSNLayers)) {
     return 3;
@@ -94,7 +95,7 @@ int initializeCommonITSTracker()
   }
   iteration.bindings.push_back(SurfacePlanBinding::Declaration{ClusterSourceId{0}, owned,
                                                                std::vector<SurfaceId>{orderedSurfaces.begin(), orderedSurfaces.end()},
-                                                               SurfaceKind::Cylinder, TransitionPolicyTag::CylinderCylinder});
+                                                               SurfaceKind::Cylinder});
   configuration.iterations.push_back(std::move(iteration));
   const auto result = tracker.initialize(frame, configuration);
   if (!result.ok()) {

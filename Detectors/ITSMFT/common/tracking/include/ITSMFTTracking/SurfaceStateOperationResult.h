@@ -27,7 +27,7 @@ enum class OperationFailureReason : uint8_t {
   AlphaMismatch = 10,
   ReferenceCoordinateMismatch = 11,
   // forward::buildSeed's own established strict-boundary rejections
-  // (the retained detail::mftFwdFitCellClusters / buildCellSeed<DiskDisk>
+  // (the retained detail::mftFwdFitCellClusters / buildCellSeed<Disk>
   // initializer treats an insufficient inner/outer z-ordering margin, or any
   // inner-middle/inner-outer separation below its 1e-6f minimum, as a hard
   // rejection before any direction estimate is computed -- not a NaN/Inf
@@ -53,7 +53,7 @@ enum class OperationFailureReason : uint8_t {
   // measurement.surface. Distinct from every reason above: no propagation,
   // material, or chi2 arithmetic has been attempted yet for this slot.
   InvalidSurfaceCatalogAssociation = 14,
-  // Gate 3 Slice B (native CylinderCylinder refit driver, unwired): one leg's
+  // Gate 3 Slice B (native Cylinder refit driver, unwired): one leg's
   // final acceptance check failed after the native leg driver already
   // succeeded for that leg -- reproducing the frozen ITS fitTrack's own
   // trailing `|Q2Pt| < maxQoverPt && chi2 < maxChi2NDF*(nCl*2-5)` return
@@ -72,7 +72,7 @@ enum class OperationFailureReason : uint8_t {
   // seed's own attached-cluster count, not a per-leg fitTrack acceptance
   // condition.
   MinPtFailure = 16,
-  // Gate 3 Slice B hardening: nativeRefitTrackCylinderCylinder does not
+  // Gate 3 Slice B hardening: nativeRefitTrackCylinder does not
   // reproduce the frozen seedTrackForRefit's conditional mid-track geometric
   // reseed (ncl < reseedIfShorter && ncl > 2, re-deriving the initial
   // parametrization via buildTrackSeed/selectReseedMidLayer from raw

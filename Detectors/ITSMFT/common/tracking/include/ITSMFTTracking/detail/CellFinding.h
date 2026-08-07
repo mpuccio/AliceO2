@@ -17,6 +17,7 @@
 #include <gsl/span>
 
 #include "ITSMFTTracking/MaterialPhysics.h"
+#include "ITSMFTTracking/Configuration.h"
 #include "ITSMFTTracking/SurfaceCatalogView.h"
 #include "ITSMFTTracking/SurfaceKinematicState.h"
 #include "ITSMFTTracking/SurfaceMeasurement.h"
@@ -28,6 +29,77 @@ namespace o2::itsmft::tracking
 {
 
 #ifndef GPUCA_GPUCODE
+
+inline bool isRecognizedMatCorrType(o2::base::PropagatorF::MatCorrType corrType) noexcept
+{
+  return corrType == o2::base::PropagatorF::MatCorrType::USEMatCorrNONE ||
+         corrType == o2::base::PropagatorF::MatCorrType::USEMatCorrTGeo ||
+         corrType == o2::base::PropagatorF::MatCorrType::USEMatCorrLUT;
+}
+
+struct AttachHitConfigView {
+  gsl::span<const NominalSurfaceMaterial> layerMaterial;
+  o2::base::PropagatorF::MatCorrType corrType{o2::base::PropagatorF::MatCorrType::USEMatCorrNONE};
+
+  bool isValid(size_t expectedLayers) const noexcept
+  {
+    if (layerMaterial.size() < expectedLayers || !isRecognizedMatCorrType(corrType)) {
+      return false;
+    }
+    for (size_t layer = 0; layer < expectedLayers; ++layer) {
+      const auto& material = layerMaterial[layer];
+      if (!isFiniteParam(material.xOverX0) || material.xOverX0 < 0.f ||
+          !isFiniteParam(material.arealDensityGPerCm2) || material.arealDensityGPerCm2 < 0.f) {
+        return false;
+      }
+    }
+    return true;
+  }
+};
+
+inline AttachHitConfigView bindAttachHitConfig(gsl::span<const NominalSurfaceMaterial> layerMaterial,
+                                               const TrackingParameters& params) noexcept
+{
+  return {layerMaterial, params.CorrType};
+}
+
+enum class MaterialCorrectionModeSupport : uint8_t {
+  Supported,
+  Unsupported,
+  InvalidMode,
+  InvalidSurfaceKind
+};
+
+inline MaterialCorrectionModeSupport materialCorrectionModeSupport(SurfaceKind kind,
+                                                                   o2::base::PropagatorF::MatCorrType corrType) noexcept
+{
+  if (!isRecognizedMatCorrType(corrType)) {
+    return MaterialCorrectionModeSupport::InvalidMode;
+  }
+  if (kind != SurfaceKind::Cylinder && kind != SurfaceKind::Disk) {
+    return MaterialCorrectionModeSupport::InvalidSurfaceKind;
+  }
+  if (kind == SurfaceKind::Cylinder && corrType != o2::base::PropagatorF::MatCorrType::USEMatCorrNONE) {
+    return MaterialCorrectionModeSupport::Unsupported;
+  }
+  return MaterialCorrectionModeSupport::Supported;
+}
+
+struct LayerGeometryConfigView {
+  gsl::span<const float> layerRadii;
+  gsl::span<const NominalSurfaceMaterial> layerMaterial;
+
+  bool isValid(size_t expectedLayers) const noexcept
+  {
+    return layerRadii.size() >= expectedLayers && layerMaterial.size() >= expectedLayers;
+  }
+};
+
+inline LayerGeometryConfigView bindLayerGeometryConfig(const TrackingParameters& params,
+                                                       const AttachHitConfigView& attachHitConfig) noexcept
+{
+  return {gsl::span<const float>{params.LayerRadii.data(), params.LayerRadii.size()}, attachHitConfig.layerMaterial};
+}
 
 bool buildCylinderCellSeed(const SurfaceMeasurement& measurementInner,
                            const SurfaceMeasurement& measurementMiddle,

@@ -238,10 +238,10 @@ void CombinedCATrackerDPL::buildParticipantsOnce()
   iteration.bindings = {
     o2::itsmft::tracking::SurfacePlanBinding::Declaration{
       o2::itsmft::tracking::ClusterSourceId{0}, surfaceRangeMask(0, o2::itsmft::tracking::ITSNLayers), itsSurfaces,
-      o2::itsmft::tracking::SurfaceKind::Cylinder, o2::itsmft::tracking::TransitionPolicyTag::CylinderCylinder},
+      o2::itsmft::tracking::SurfaceKind::Cylinder},
     o2::itsmft::tracking::SurfacePlanBinding::Declaration{
       o2::itsmft::tracking::ClusterSourceId{1}, surfaceRangeMask(o2::itsmft::tracking::ITSNLayers, o2::itsmft::tracking::MFTNLayers), mftSurfaces,
-      o2::itsmft::tracking::SurfaceKind::Disk, o2::itsmft::tracking::TransitionPolicyTag::DiskDisk}};
+      o2::itsmft::tracking::SurfaceKind::Disk}};
   iteration.parameters = {itsParams[0], mftParams[0]};
   configuration.iterations.push_back(std::move(iteration));
   const auto initialization = mITSTracker->initialize(mFrame, configuration);

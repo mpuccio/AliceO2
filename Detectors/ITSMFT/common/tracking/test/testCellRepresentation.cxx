@@ -180,9 +180,9 @@ BOOST_AUTO_TEST_CASE(GetQOverPtIsIdenticalForBarrelAndForwardGivenTheSameSlotVal
 
 // --- Road-length filter bound: std::abs(getQOverPt()) <= maxAbsQOverPt -----
 //
-// TrackerTraits<NLayers>::findRoadsForPolicy's seedFilter (TrackerTraits.cxx)
+// TrackerTraits<NLayers>::findRoadsForKind's seedFilter (TrackerTraits.cxx)
 // applies `std::abs(seed.getQOverPt()) <= maxAbsQOverPt` (maxAbsQOverPt =
-// 1.e3f) identically for both TransitionPolicyTag values: the expression
+// 1.e3f) identically for both SurfaceKind values: the expression
 // itself never reads NLayers, DetID, or SurfaceKinematicState::family. These
 // tests re-derive that exact expression as an independent oracle (mirroring
 // the pattern already used elsewhere in this test suite for other

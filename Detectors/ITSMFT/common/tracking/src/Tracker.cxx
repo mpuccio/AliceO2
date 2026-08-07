@@ -158,7 +158,7 @@ TrackingResult Tracker::run(TimeFrame& frame, TrackerTraits& traits)
       acceptedTrackCounts.push_back(traits.acceptedTracksForSharedStatus().size());
     }
   } catch (const TraversalException& err) {
-    // Structural/configuration failure (bad layout, stale layout, policy or
+    // Structural/configuration failure (bad layout, stale layout, surface-kind or
     // index mismatch): never a per-TF data problem, so DropTFUponFailure
     // never applies. Always reset before propagating -- see class-level
     // comment: never rely on "the process is going down anyway".

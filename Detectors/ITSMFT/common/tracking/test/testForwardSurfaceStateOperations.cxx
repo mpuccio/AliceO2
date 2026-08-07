@@ -198,7 +198,7 @@ o2::its::TrackingFrameInfo makeForwardOuterHit(float sigma2X = 0.05f, float sigm
 }
 
 // Retained oracle for forward::buildSeed: reimplements the initial seed
-// construction currently inside buildCellSeed<DiskDisk>
+// construction currently inside buildCellSeed<Disk>
 // (TrackletFinding.cxx) / detail::mftFwdFitCellClusters
 // (MFTFwdTrackHelpers.h) using the exact legacy double-precision
 // SVector/SMatrix types, reimplemented here rather than included for the

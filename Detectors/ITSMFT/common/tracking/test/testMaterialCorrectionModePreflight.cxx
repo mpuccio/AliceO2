@@ -6,11 +6,11 @@
 // License v3 (GPL Version 3), copied verbatim in the file "COPYING".
 
 // Stage-B Slice C: focused tests for the pure material-correction-mode
-// preflight (checkMaterialCorrectionModeSupport<Tag>, TransitionPolicyBinding.h)
+// preflight (materialCorrectionModeSupport),
 // and the new TraversalFailureReason::UnsupportedMaterialCorrectionMode value
-// (TrackerTraits.h). This slice is additive and unwired: no production call
-// site invokes the preflight, and none of these tests exercise
-// TrackerTraits::initialiseTimeFrame() or any TimeFrame/candidate state.
+// (TrackerTraits.h). The preflight is wired into
+// TrackerTraits::initialiseTimeFrame(); these tests cover its direct result
+// and the retained validation contract.
 
 #define BOOST_TEST_MODULE ITSMFT MaterialCorrectionModePreflight
 #define BOOST_TEST_MAIN
@@ -24,7 +24,7 @@
 
 #include "DetectorsBase/Propagator.h"
 #include "ITSMFTTracking/TrackerTraits.h"
-#include "ITSMFTTracking/detail/TransitionPolicyBinding.h"
+#include "ITSMFTTracking/detail/CellFinding.h"
 
 using namespace o2::itsmft::tracking;
 using MatCorrType = o2::base::PropagatorF::MatCorrType;
@@ -39,9 +39,9 @@ static_assert(static_cast<uint8_t>(TraversalFailureReason::StaleLayout) == 1);
 static_assert(static_cast<uint8_t>(TraversalFailureReason::IterationOutOfRange) == 2);
 static_assert(static_cast<uint8_t>(TraversalFailureReason::SparseTopologyMismatch) == 3);
 static_assert(static_cast<uint8_t>(TraversalFailureReason::InvalidTraversalSchedule) == 4);
-static_assert(static_cast<uint8_t>(TraversalFailureReason::MixedPolicyLayout) == 5);
+static_assert(static_cast<uint8_t>(TraversalFailureReason::MixedSurfaceKindLayout) == 5);
 static_assert(static_cast<uint8_t>(TraversalFailureReason::StateFamilyMismatch) == 6);
-static_assert(static_cast<uint8_t>(TraversalFailureReason::InvalidPolicyParameters) == 7);
+static_assert(static_cast<uint8_t>(TraversalFailureReason::InvalidSurfaceParameters) == 7);
 static_assert(static_cast<uint8_t>(TraversalFailureReason::InvalidIndexTableConfiguration) == 8);
 static_assert(static_cast<uint8_t>(TraversalFailureReason::IndexTableConfigurationMismatch) == 9);
 static_assert(static_cast<uint8_t>(TraversalFailureReason::LegacyMaterialMismatch) == 10);
@@ -52,89 +52,70 @@ BOOST_AUTO_TEST_CASE(UnsupportedMaterialCorrectionModeHasExactValue)
   BOOST_CHECK_EQUAL(static_cast<int>(TraversalFailureReason::UnsupportedMaterialCorrectionMode), 11);
 }
 
-// --- Compile-time rejection for unsupported policy tags --------------------
-//
-// checkMaterialCorrectionModeSupport<Tag>'s primary template is `= delete`d
-// (TransitionPolicyBinding.h): instantiating it for TransitionPolicyTag::Invalid
-// is a hard, SFINAE-observable compile-time error, never a silent fallback to
-// Supported/Unsupported. Proven with a dependent-trailing-decltype wrapper
-// (the standard idiom std::is_invocable itself relies on to detect deleted
-// candidates), not merely asserted in a comment.
+// --- Cylinder: every recognized CorrType --------------------------
 
-namespace
+BOOST_AUTO_TEST_CASE(CylinderNoneIsSupported)
 {
-template <TransitionPolicyTag Tag>
-struct MaterialModeInvoker {
-  template <class CorrTypeArg>
-  auto operator()(CorrTypeArg corrType) const noexcept -> decltype(checkMaterialCorrectionModeSupport<Tag>(corrType))
-  {
-    return checkMaterialCorrectionModeSupport<Tag>(corrType);
-  }
-};
-} // namespace
-
-static_assert(std::is_invocable_v<MaterialModeInvoker<TransitionPolicyTag::CylinderCylinder>, MatCorrType>,
-              "CylinderCylinder must have a usable specialization");
-static_assert(std::is_invocable_v<MaterialModeInvoker<TransitionPolicyTag::DiskDisk>, MatCorrType>,
-              "DiskDisk must have a usable specialization");
-static_assert(!std::is_invocable_v<MaterialModeInvoker<TransitionPolicyTag::Invalid>, MatCorrType>,
-              "Invalid must be rejected at compile time, not silently fall back to a supported family");
-
-// --- CylinderCylinder: every recognized CorrType --------------------------
-
-BOOST_AUTO_TEST_CASE(CylinderCylinderNoneIsSupported)
-{
-  BOOST_CHECK(checkMaterialCorrectionModeSupport<TransitionPolicyTag::CylinderCylinder>(MatCorrType::USEMatCorrNONE) ==
+  BOOST_CHECK(materialCorrectionModeSupport(SurfaceKind::Cylinder, MatCorrType::USEMatCorrNONE) ==
               MaterialCorrectionModeSupport::Supported);
 }
 
-BOOST_AUTO_TEST_CASE(CylinderCylinderLutIsRecognizedButUnsupported)
+BOOST_AUTO_TEST_CASE(CylinderLutIsRecognizedButUnsupported)
 {
-  BOOST_CHECK(checkMaterialCorrectionModeSupport<TransitionPolicyTag::CylinderCylinder>(MatCorrType::USEMatCorrLUT) ==
+  BOOST_CHECK(materialCorrectionModeSupport(SurfaceKind::Cylinder, MatCorrType::USEMatCorrLUT) ==
               MaterialCorrectionModeSupport::Unsupported);
 }
 
-BOOST_AUTO_TEST_CASE(CylinderCylinderTGeoIsRecognizedButUnsupported)
+BOOST_AUTO_TEST_CASE(CylinderTGeoIsRecognizedButUnsupported)
 {
-  BOOST_CHECK(checkMaterialCorrectionModeSupport<TransitionPolicyTag::CylinderCylinder>(MatCorrType::USEMatCorrTGeo) ==
+  BOOST_CHECK(materialCorrectionModeSupport(SurfaceKind::Cylinder, MatCorrType::USEMatCorrTGeo) ==
               MaterialCorrectionModeSupport::Unsupported);
 }
 
-BOOST_AUTO_TEST_CASE(CylinderCylinderInvalidCorrTypeIsInvalidModeNotUnsupported)
+BOOST_AUTO_TEST_CASE(CylinderInvalidCorrTypeIsInvalidModeNotUnsupported)
 {
   const auto invalid = static_cast<MatCorrType>(99);
-  const auto result = checkMaterialCorrectionModeSupport<TransitionPolicyTag::CylinderCylinder>(invalid);
+  const auto result = materialCorrectionModeSupport(SurfaceKind::Cylinder, invalid);
   BOOST_CHECK(result == MaterialCorrectionModeSupport::InvalidMode);
   BOOST_CHECK(result != MaterialCorrectionModeSupport::Unsupported);
   BOOST_CHECK(result != MaterialCorrectionModeSupport::Supported);
 }
 
-// --- DiskDisk: not constrained by this preflight ---------------------------
+// --- Disk: not constrained by this preflight ---------------------------
 
-BOOST_AUTO_TEST_CASE(DiskDiskNoneIsSupported)
+BOOST_AUTO_TEST_CASE(DiskNoneIsSupported)
 {
-  BOOST_CHECK(checkMaterialCorrectionModeSupport<TransitionPolicyTag::DiskDisk>(MatCorrType::USEMatCorrNONE) ==
+  BOOST_CHECK(materialCorrectionModeSupport(SurfaceKind::Disk, MatCorrType::USEMatCorrNONE) ==
               MaterialCorrectionModeSupport::Supported);
 }
 
-BOOST_AUTO_TEST_CASE(DiskDiskLutIsSupported)
+BOOST_AUTO_TEST_CASE(DiskLutIsSupported)
 {
-  BOOST_CHECK(checkMaterialCorrectionModeSupport<TransitionPolicyTag::DiskDisk>(MatCorrType::USEMatCorrLUT) ==
+  BOOST_CHECK(materialCorrectionModeSupport(SurfaceKind::Disk, MatCorrType::USEMatCorrLUT) ==
               MaterialCorrectionModeSupport::Supported);
 }
 
-BOOST_AUTO_TEST_CASE(DiskDiskTGeoIsSupported)
+BOOST_AUTO_TEST_CASE(DiskTGeoIsSupported)
 {
-  BOOST_CHECK(checkMaterialCorrectionModeSupport<TransitionPolicyTag::DiskDisk>(MatCorrType::USEMatCorrTGeo) ==
+  BOOST_CHECK(materialCorrectionModeSupport(SurfaceKind::Disk, MatCorrType::USEMatCorrTGeo) ==
               MaterialCorrectionModeSupport::Supported);
 }
 
-BOOST_AUTO_TEST_CASE(DiskDiskInvalidCorrTypeIsInvalidModeNotSilentlySupported)
+BOOST_AUTO_TEST_CASE(DiskInvalidCorrTypeIsInvalidModeNotSilentlySupported)
 {
   const auto invalid = static_cast<MatCorrType>(99);
-  const auto result = checkMaterialCorrectionModeSupport<TransitionPolicyTag::DiskDisk>(invalid);
+  const auto result = materialCorrectionModeSupport(SurfaceKind::Disk, invalid);
   BOOST_CHECK(result == MaterialCorrectionModeSupport::InvalidMode);
   BOOST_CHECK(result != MaterialCorrectionModeSupport::Supported);
+}
+
+BOOST_AUTO_TEST_CASE(InvalidSurfaceKindIsDeferredAndCorrTypeStillHasPrecedence)
+{
+  const auto invalidKind = static_cast<SurfaceKind>(99);
+  BOOST_CHECK(materialCorrectionModeSupport(invalidKind, MatCorrType::USEMatCorrNONE) ==
+              MaterialCorrectionModeSupport::InvalidSurfaceKind);
+  BOOST_CHECK(materialCorrectionModeSupport(invalidKind, static_cast<MatCorrType>(99)) ==
+              MaterialCorrectionModeSupport::InvalidMode);
 }
 
 // --- Exact distinction between Unsupported and InvalidMode ------------------
@@ -145,11 +126,11 @@ BOOST_AUTO_TEST_CASE(UnsupportedAndInvalidModeAreDistinctValues)
   BOOST_CHECK(MaterialCorrectionModeSupport::Supported != MaterialCorrectionModeSupport::InvalidMode);
   BOOST_CHECK(MaterialCorrectionModeSupport::Unsupported != MaterialCorrectionModeSupport::InvalidMode);
 
-  // The recognized-but-unsupported CylinderCylinder cases must never collapse
+  // The recognized-but-unsupported Cylinder cases must never collapse
   // onto the invalid-mode result, and vice versa.
-  BOOST_CHECK(checkMaterialCorrectionModeSupport<TransitionPolicyTag::CylinderCylinder>(MatCorrType::USEMatCorrLUT) ==
+  BOOST_CHECK(materialCorrectionModeSupport(SurfaceKind::Cylinder, MatCorrType::USEMatCorrLUT) ==
               MaterialCorrectionModeSupport::Unsupported);
-  BOOST_CHECK(checkMaterialCorrectionModeSupport<TransitionPolicyTag::CylinderCylinder>(static_cast<MatCorrType>(-1)) ==
+  BOOST_CHECK(materialCorrectionModeSupport(SurfaceKind::Cylinder, static_cast<MatCorrType>(-1)) ==
               MaterialCorrectionModeSupport::InvalidMode);
 }
 
@@ -158,46 +139,46 @@ BOOST_AUTO_TEST_CASE(UnsupportedAndInvalidModeAreDistinctValues)
 BOOST_AUTO_TEST_CASE(RepeatedCallsAreDeterministic)
 {
   for (int i = 0; i < 5; ++i) {
-    BOOST_CHECK(checkMaterialCorrectionModeSupport<TransitionPolicyTag::CylinderCylinder>(MatCorrType::USEMatCorrNONE) ==
+    BOOST_CHECK(materialCorrectionModeSupport(SurfaceKind::Cylinder, MatCorrType::USEMatCorrNONE) ==
                 MaterialCorrectionModeSupport::Supported);
-    BOOST_CHECK(checkMaterialCorrectionModeSupport<TransitionPolicyTag::CylinderCylinder>(MatCorrType::USEMatCorrLUT) ==
+    BOOST_CHECK(materialCorrectionModeSupport(SurfaceKind::Cylinder, MatCorrType::USEMatCorrLUT) ==
                 MaterialCorrectionModeSupport::Unsupported);
-    BOOST_CHECK(checkMaterialCorrectionModeSupport<TransitionPolicyTag::DiskDisk>(MatCorrType::USEMatCorrTGeo) ==
+    BOOST_CHECK(materialCorrectionModeSupport(SurfaceKind::Disk, MatCorrType::USEMatCorrTGeo) ==
                 MaterialCorrectionModeSupport::Supported);
-    BOOST_CHECK(checkMaterialCorrectionModeSupport<TransitionPolicyTag::CylinderCylinder>(static_cast<MatCorrType>(42)) ==
+    BOOST_CHECK(materialCorrectionModeSupport(SurfaceKind::Cylinder, static_cast<MatCorrType>(42)) ==
                 MaterialCorrectionModeSupport::InvalidMode);
   }
 }
 
 // --- noexcept / signature shape ---------------------------------------------
 
-static_assert(noexcept(checkMaterialCorrectionModeSupport<TransitionPolicyTag::CylinderCylinder>(MatCorrType::USEMatCorrNONE)));
-static_assert(noexcept(checkMaterialCorrectionModeSupport<TransitionPolicyTag::DiskDisk>(MatCorrType::USEMatCorrNONE)));
+static_assert(noexcept(materialCorrectionModeSupport(SurfaceKind::Cylinder, MatCorrType::USEMatCorrNONE)));
+static_assert(noexcept(materialCorrectionModeSupport(SurfaceKind::Disk, MatCorrType::USEMatCorrNONE)));
 static_assert(std::is_trivially_copyable_v<MaterialCorrectionModeSupport>);
 
 // --- isRecognizedMatCorrType is the single shared definition ----------------
 //
-// AttachHitPolicyConfigView::isValid() must still accept all three recognized
+// AttachHitConfigView::isValid() must still accept all three recognized
 // modes and reject an invalid one, using exactly the same predicate this
 // preflight uses -- proving the two contracts cannot diverge.
 
-BOOST_AUTO_TEST_CASE(AttachHitPolicyConfigViewAcceptsAllRecognizedModes)
+BOOST_AUTO_TEST_CASE(AttachHitConfigViewAcceptsAllRecognizedModes)
 {
   const std::array<NominalSurfaceMaterial, 1> material{NominalSurfaceMaterial{0.01f, 0.02f}};
   for (const auto corrType : {MatCorrType::USEMatCorrNONE, MatCorrType::USEMatCorrLUT, MatCorrType::USEMatCorrTGeo}) {
-    AttachHitPolicyConfigView view{gsl::span<const NominalSurfaceMaterial>(material), corrType};
+    AttachHitConfigView view{gsl::span<const NominalSurfaceMaterial>(material), corrType};
     BOOST_CHECK(view.isValid(1));
   }
 }
 
-BOOST_AUTO_TEST_CASE(AttachHitPolicyConfigViewRejectsInvalidCorrType)
+BOOST_AUTO_TEST_CASE(AttachHitConfigViewRejectsInvalidCorrType)
 {
   const std::array<NominalSurfaceMaterial, 1> material{NominalSurfaceMaterial{0.01f, 0.02f}};
-  AttachHitPolicyConfigView view{gsl::span<const NominalSurfaceMaterial>(material), static_cast<MatCorrType>(99)};
+  AttachHitConfigView view{gsl::span<const NominalSurfaceMaterial>(material), static_cast<MatCorrType>(99)};
   BOOST_CHECK(!view.isValid(1));
 }
 
-BOOST_AUTO_TEST_CASE(IsRecognizedMatCorrTypeMatchesAttachHitPolicyConfigViewContract)
+BOOST_AUTO_TEST_CASE(IsRecognizedMatCorrTypeMatchesAttachHitConfigViewContract)
 {
   BOOST_CHECK(isRecognizedMatCorrType(MatCorrType::USEMatCorrNONE));
   BOOST_CHECK(isRecognizedMatCorrType(MatCorrType::USEMatCorrLUT));

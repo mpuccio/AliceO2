@@ -252,8 +252,7 @@ void CATrackerDPL::initialiseTracking()
     iteration.bindings.push_back(o2::itsmft::tracking::SurfacePlanBinding::Declaration{
       o2::itsmft::tracking::ClusterSourceId{0}, owned,
       std::vector<o2::itsmft::tracking::SurfaceId>{ordered.begin(), ordered.end()},
-      o2::itsmft::tracking::SurfaceKind::Disk,
-      o2::itsmft::tracking::TransitionPolicyTag::DiskDisk});
+      o2::itsmft::tracking::SurfaceKind::Disk});
     configuration.iterations.push_back(std::move(iteration));
   }
 

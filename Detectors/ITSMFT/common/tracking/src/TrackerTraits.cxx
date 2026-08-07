@@ -39,9 +39,8 @@
 #include "ITSMFTTracking/SurfaceTrackingScratch.h"
 #include "ITSMFTTracking/TrackerTraits.h"
 #include "ITSMFTTracking/detail/SurfacePlanBinding.h"
-#include "ITSMFTTracking/detail/TransitionPolicyBinding.h"
-#include "ITSMFTTracking/detail/TrackletFinding.h"
 #include "ITSMFTTracking/detail/CellFinding.h"
+#include "ITSMFTTracking/detail/TrackletFinding.h"
 #include "ITStracking/Tracklet.h"
 #include "SimulationDataFormat/MCCompLabel.h"
 
@@ -101,7 +100,7 @@ bool makeCandidateShadow(const TrackingCandidate& candidate,
 }
 
 // A static "diamond" vertex (ITSCommonCATrackerParam.useDiamond /
-// TrackerTraits::computeLayerTrackletsForPolicy) carries no genuine
+// TrackerTraits::computeLayerTracklets) carries no genuine
 // per-event timing: it stands in for every real primary vertex at once, so
 // it must compare as time-compatible with whichever ROF it is being tested
 // against. Vertex::getTimeStamp() is a fixed-width TimeEstBC whose error
@@ -156,7 +155,7 @@ void TrackerTraits::resetTraversalCache() noexcept
   mAttachHitConfig = {};
   const auto resetSurfaceCount = mScratch == nullptr ? std::size_t{0} : mScratch->getNOwnedSurfaces();
   mLayerMaterial.assign(resetSurfaceCount, NominalSurfaceMaterial{});
-  mActiveTag = TransitionPolicyTag::Invalid;
+  mActiveKind.reset();
   mLayerMeasurements.assign(resetSurfaceCount, gsl::span<const SurfaceMeasurement>{});
   mTraversalOperation = TraversalOperationBinding{};
   mTraversalGroupingCount = 0;
@@ -201,69 +200,67 @@ int TrackerTraits::requireSurfacePosition(int iteration, SurfaceId id) const
   return static_cast<int>(*position);
 }
 
-// M5c: the eight non-template wrapper targets TraversalOperationBinding's
+// The eight non-template wrapper targets TraversalOperationBinding's
 // member-function pointers may point to -- see that struct's own doc
 // (TrackerTraits.h) for why plain pointers-to-member, not a type-erasing
 // callable wrapper.
-// Each simply forwards to the existing Tag-templated *ForPolicy leaf
+// Each selects one explicit SurfaceKind implementation
 // implementation, unchanged, using mTraversalOperation's own bound ids
 // (resolved once by bindTraversalOperation() below) and the corresponding
 // mKernelParameters (committed earlier in the same
 // initialiseTimeFrame() call). Never called except through
 // mTraversalOperation's bound pointer.
-void TrackerTraits::computeLayerTrackletsCylinderCylinder(int iteration, int iVertex)
+void TrackerTraits::computeLayerTrackletsCylinder(int iteration, int iVertex)
 {
-  computeLayerTrackletsForPolicy<TransitionPolicyTag::CylinderCylinder>(iteration, iVertex, mTraversalOperation.boundTransitionIds, mKernelParameters);
+  computeLayerTrackletsForKind<SurfaceKind::Cylinder>(iteration, iVertex, mTraversalOperation.boundTransitionIds, mKernelParameters);
 }
 
-void TrackerTraits::computeLayerTrackletsDiskDisk(int iteration, int iVertex)
+void TrackerTraits::computeLayerTrackletsDisk(int iteration, int iVertex)
 {
-  computeLayerTrackletsForPolicy<TransitionPolicyTag::DiskDisk>(iteration, iVertex, mTraversalOperation.boundTransitionIds, mKernelParameters);
+  computeLayerTrackletsForKind<SurfaceKind::Disk>(iteration, iVertex, mTraversalOperation.boundTransitionIds, mKernelParameters);
 }
 
-void TrackerTraits::computeLayerCellsCylinderCylinder(int iteration)
+void TrackerTraits::computeLayerCellsCylinder(int iteration)
 {
-  computeLayerCellsForPolicy<TransitionPolicyTag::CylinderCylinder>(iteration, mTraversalOperation.boundCellIds, mKernelParameters);
+  computeLayerCellsForKind<SurfaceKind::Cylinder>(iteration, mTraversalOperation.boundCellIds, mKernelParameters);
 }
 
-void TrackerTraits::computeLayerCellsDiskDisk(int iteration)
+void TrackerTraits::computeLayerCellsDisk(int iteration)
 {
-  computeLayerCellsForPolicy<TransitionPolicyTag::DiskDisk>(iteration, mTraversalOperation.boundCellIds, mKernelParameters);
+  computeLayerCellsForKind<SurfaceKind::Disk>(iteration, mTraversalOperation.boundCellIds, mKernelParameters);
 }
 
-void TrackerTraits::findCellsNeighboursCylinderCylinder(int iteration)
+void TrackerTraits::findCellsNeighboursCylinder(int iteration)
 {
-  findCellsNeighboursForPolicy<TransitionPolicyTag::CylinderCylinder>(iteration, mTraversalOperation.boundScheduledCellIds, mKernelParameters);
+  findCellsNeighboursForKind<SurfaceKind::Cylinder>(iteration, mTraversalOperation.boundScheduledCellIds, mKernelParameters);
 }
 
-void TrackerTraits::findCellsNeighboursDiskDisk(int iteration)
+void TrackerTraits::findCellsNeighboursDisk(int iteration)
 {
-  findCellsNeighboursForPolicy<TransitionPolicyTag::DiskDisk>(iteration, mTraversalOperation.boundScheduledCellIds, mKernelParameters);
+  findCellsNeighboursForKind<SurfaceKind::Disk>(iteration, mTraversalOperation.boundScheduledCellIds, mKernelParameters);
 }
 
-void TrackerTraits::findRoadsCylinderCylinder(int iteration, TrackingOperationAdapter& operationAdapter)
+void TrackerTraits::findRoadsCylinder(int iteration, TrackingOperationAdapter& operationAdapter)
 {
-  findRoadsForPolicy<TransitionPolicyTag::CylinderCylinder>(iteration, mKernelParameters, operationAdapter);
+  findRoadsForKind<SurfaceKind::Cylinder>(iteration, mKernelParameters, operationAdapter);
 }
 
-void TrackerTraits::findRoadsDiskDisk(int iteration, TrackingOperationAdapter& operationAdapter)
+void TrackerTraits::findRoadsDisk(int iteration, TrackingOperationAdapter& operationAdapter)
 {
-  findRoadsForPolicy<TransitionPolicyTag::DiskDisk>(iteration, mKernelParameters, operationAdapter);
+  findRoadsForKind<SurfaceKind::Disk>(iteration, mKernelParameters, operationAdapter);
 }
 
-// M5c: the single producer of mTraversalOperation (TraversalOperationBinding,
+// The single producer of mTraversalOperation (TraversalOperationBinding,
 // TrackerTraits.h). Called exactly once per successful initialiseTimeFrame()
-// call, after that call's activeTag/cylinderParams|diskParams
-// have all already been validated and committed -- so the one dispatchActivePolicy()
-// call below is guaranteed to invoke its visitor for exactly the tag that
-// validateSparsePlan() already derives the policy from this iteration's actual endpoint
+// call, after that call's activeKind/cylinderParams|diskParams
+// have all already been validated and committed. The one binding below
+// selects the operation targets for the endpoint
 // SurfaceDescriptor kinds (never from NLayers or detector identity), and the
 // `if constexpr` below only ever selects the matching pair of non-template
 // wrapper targets (and the ids/params they close over via mTraversalOperation's
-// own members and mKernelParameters) -- it does not
-// itself decide which tag is active. The four shared hot-loop entry points
+// own members and mKernelParameters). The four shared hot-loop entry points
 // below (computeLayerTracklets/computeLayerCells/findCellsNeighbours/
-// findRoads) invoke the bound pointer directly, with no Tag/StateFamily
+// findRoads) invoke the bound pointer directly, with no Kind/StateFamily
 // branch of their own.
 void TrackerTraits::bindTraversalOperation(int iteration)
 {
@@ -274,19 +271,19 @@ void TrackerTraits::bindTraversalOperation(int iteration)
   mTraversalOperation.boundTransitionIds = mBinding->getGlobalTransitions();
   mTraversalOperation.boundCellIds = mBinding->getGlobalCells();
   mTraversalOperation.boundScheduledCellIds = mBinding->getGlobalScheduledCells();
-  if (mActiveTag == TransitionPolicyTag::CylinderCylinder) {
-    mTraversalOperation.computeTracklets = &TrackerTraits::computeLayerTrackletsCylinderCylinder;
-    mTraversalOperation.computeCells = &TrackerTraits::computeLayerCellsCylinderCylinder;
-    mTraversalOperation.findNeighbours = &TrackerTraits::findCellsNeighboursCylinderCylinder;
-    mTraversalOperation.findRoads = &TrackerTraits::findRoadsCylinderCylinder;
-  } else if (mActiveTag == TransitionPolicyTag::DiskDisk) {
+  if (mActiveKind == SurfaceKind::Cylinder) {
+    mTraversalOperation.computeTracklets = &TrackerTraits::computeLayerTrackletsCylinder;
+    mTraversalOperation.computeCells = &TrackerTraits::computeLayerCellsCylinder;
+    mTraversalOperation.findNeighbours = &TrackerTraits::findCellsNeighboursCylinder;
+    mTraversalOperation.findRoads = &TrackerTraits::findRoadsCylinder;
+  } else if (mActiveKind == SurfaceKind::Disk) {
     if (mDiskLayerReferenceZ.size() < mScratch->getNOwnedSurfaces()) {
-      throw TraversalException{iteration, TraversalFailureReason::InvalidPolicyParameters};
+      throw TraversalException{iteration, TraversalFailureReason::InvalidSurfaceParameters};
     }
-    mTraversalOperation.computeTracklets = &TrackerTraits::computeLayerTrackletsDiskDisk;
-    mTraversalOperation.computeCells = &TrackerTraits::computeLayerCellsDiskDisk;
-    mTraversalOperation.findNeighbours = &TrackerTraits::findCellsNeighboursDiskDisk;
-    mTraversalOperation.findRoads = &TrackerTraits::findRoadsDiskDisk;
+    mTraversalOperation.computeTracklets = &TrackerTraits::computeLayerTrackletsDisk;
+    mTraversalOperation.computeCells = &TrackerTraits::computeLayerCellsDisk;
+    mTraversalOperation.findNeighbours = &TrackerTraits::findCellsNeighboursDisk;
+    mTraversalOperation.findRoads = &TrackerTraits::findRoadsDisk;
   } else {
     throw TraversalException{iteration, TraversalFailureReason::StateFamilyMismatch};
   }
@@ -295,8 +292,8 @@ void TrackerTraits::bindTraversalOperation(int iteration)
 
 void TrackerTraits::validateSparsePlan(int iteration,
                                        const SurfaceGraphView& layout,
-                                       TransitionPolicyTag& activeTag,
-                                       bool& mixedPolicy) const
+                                       std::optional<SurfaceKind>& activeKind,
+                                       bool& mixedKind) const
 {
   const auto fail = [iteration]() { throw TraversalException{iteration, TraversalFailureReason::SparseTopologyMismatch}; };
   const auto& topology = layout;
@@ -306,25 +303,25 @@ void TrackerTraits::validateSparsePlan(int iteration,
     fail();
   }
 
-  const auto tagOf = [&layout](SurfaceId surface) {
+  const auto kindOf = [&layout](SurfaceId surface) {
     if (!surface.isValid() || surface.value() >= layout.nSurfaces) {
-      return TransitionPolicyTag::Invalid;
+      return std::optional<SurfaceKind>{};
     }
-    return transitionPolicyTagForSurfaceKind(layout.getSurface(surface).kind);
+    return std::optional<SurfaceKind>{layout.getSurface(surface).kind};
   };
-  const auto observeTag = [&](TransitionPolicyTag tag) {
-    if (tag == TransitionPolicyTag::Invalid) {
+  const auto observeKind = [&](std::optional<SurfaceKind> kind) {
+    if (!kind) {
       fail();
     }
-    if (activeTag == TransitionPolicyTag::Invalid) {
-      activeTag = tag;
-    } else if (activeTag != tag) {
-      mixedPolicy = true;
+    if (!activeKind) {
+      activeKind = kind;
+    } else if (*activeKind != *kind) {
+      mixedKind = true;
     }
   };
 
-  activeTag = TransitionPolicyTag::Invalid;
-  mixedPolicy = false;
+  activeKind.reset();
+  mixedKind = false;
   if (mBinding == nullptr) {
     fail();
   }
@@ -342,9 +339,9 @@ void TrackerTraits::validateSparsePlan(int iteration,
         !transition.skippedSurfaces.isSubsetOf(mBinding->getOwnedSurfaces())) {
       fail();
     }
-    observeTag(tagOf(transition.from));
-    if (tagOf(transition.to) != activeTag) {
-      mixedPolicy = true;
+    observeKind(kindOf(transition.from));
+    if (kindOf(transition.to) != activeKind) {
+      mixedKind = true;
     }
   }
   for (const auto id : cells) {
@@ -357,11 +354,11 @@ void TrackerTraits::validateSparsePlan(int iteration,
         !cell.hitSurfaces.isSubsetOf(mBinding->getOwnedSurfaces())) {
       fail();
     }
-    const auto firstTag = tagOf(topology.getTransition(cell.firstTransition).from);
-    const auto secondTag = tagOf(topology.getTransition(cell.secondTransition).from);
-    observeTag(firstTag);
-    if (secondTag != firstTag) {
-      mixedPolicy = true;
+    const auto firstKind = kindOf(topology.getTransition(cell.firstTransition).from);
+    const auto secondKind = kindOf(topology.getTransition(cell.secondTransition).from);
+    observeKind(firstKind);
+    if (secondKind != firstKind) {
+      mixedKind = true;
     }
   }
   for (const auto id : mBinding->getGlobalScheduledCells()) {
@@ -401,33 +398,30 @@ void TrackerTraits::initialiseTimeFrame(const int iteration, const std::vector<S
   }
   ++mTraversalGroupingCount;
 
-  // Resolve the policy family from the actual sparse-plan endpoint before
-  // any policy-specific binding runs. A combined layout may contain both
-  // families, so a participant binding supplies the one family this tracker
-  // owns; no layer-count-to-policy selection is used here.
+  // Resolve the active SurfaceKind from the sparse-plan endpoint before
+  // any kind-specific binding runs. A combined layout may contain both
+  // families, so a participant binding supplies the one kind this tracker
+  // owns; no layer-count selection is used here.
   const auto boundTransitions = mBinding->getGlobalTransitions();
   if (boundTransitions.empty() || boundTransitions.front().value() >= layout.nTransitions) {
     throw TraversalException{iteration, TraversalFailureReason::SparseTopologyMismatch};
   }
-  mActiveTag = transitionPolicyTagForSurfaceKind(layout.getSurface(layout.getTransition(boundTransitions.front()).from).kind);
+  mActiveKind = layout.getSurface(layout.getTransition(boundTransitions.front()).from).kind;
 
   // 2.1 (Stage-B activation, Architecture.md Sec 11): material-correction-mode
-  // preflight for the active policy, once per iteration -- after layout/
-  // grouping validation and mixed-policy resolution, before any material
+  // preflight for the active kind, once per iteration -- after layout/
+  // grouping validation and mixed-kind resolution, before any material
   // staging, index-table binding, or TimeFrame tracking-state mutation.
-  // `grouping` alone (not yet `activeTag`, which validateSparsePlan() also
-  // resolves later) already tells us which single tag is active, exactly
-  // like step 3's index-table dispatch below. An `Unsupported` result is a
+  // `activeKind` already tells us which operation family is active. An
+  // `Unsupported` result is a
   // structural/configuration failure (TraversalFailureReason doc); an
   // `InvalidMode` result is deliberately not raised here -- it defers to the
-  // existing AttachHitPolicyConfigView::isValid() check further below, which
+  // existing AttachHitConfigView::isValid() check further below, which
   // remains the single source of truth for "this CorrType value is not
   // recognized at all".
   MaterialCorrectionModeSupport materialModeSupport = MaterialCorrectionModeSupport::Supported;
-  if (mActiveTag == TransitionPolicyTag::CylinderCylinder) {
-    materialModeSupport = checkMaterialCorrectionModeSupport<TransitionPolicyTag::CylinderCylinder>(mTrkParams[iteration].CorrType);
-  } else if (mActiveTag == TransitionPolicyTag::DiskDisk) {
-    materialModeSupport = checkMaterialCorrectionModeSupport<TransitionPolicyTag::DiskDisk>(mTrkParams[iteration].CorrType);
+  if (mActiveKind) {
+    materialModeSupport = materialCorrectionModeSupport(*mActiveKind, mTrkParams[iteration].CorrType);
   }
   if (materialModeSupport == MaterialCorrectionModeSupport::Unsupported) {
     throw TraversalException{iteration, TraversalFailureReason::UnsupportedMaterialCorrectionMode};
@@ -536,24 +530,16 @@ void TrackerTraits::initialiseTimeFrame(const int iteration, const std::vector<S
   }
 
   // 3. Bind + validate index-table configuration into a local scratch value,
-  // selected from the single active tag -- the same operation-local family
+  // selected from the single active kind -- the same operation-local family
   // selection used by bindTraversalOperation() below (M5c) to bind the
   // shared hot loops' own operation. The scratch is not touched yet, so a
   // failure here leaves it completely unchanged.
   IndexTableUtilsCore stagedIndexTableConfig{};
   IndexTableConfigError indexTableConfigError = IndexTableConfigError::None;
-  bool activePolicyTagResolved = false;
-  bool activePolicyFamilyResolved = false;
-  activePolicyTagResolved = true;
-  activePolicyFamilyResolved = true;
-  if (mActiveTag == TransitionPolicyTag::CylinderCylinder) {
-    indexTableConfigError = bindIndexTableConfiguration<TransitionPolicyTag::CylinderCylinder>(stagedIndexTableConfig, mTrkParams[iteration], activeSurfaceCount);
-  } else if (mActiveTag == TransitionPolicyTag::DiskDisk) {
-    indexTableConfigError = bindIndexTableConfiguration<TransitionPolicyTag::DiskDisk>(stagedIndexTableConfig, mTrkParams[iteration], activeSurfaceCount);
-  }
-  if (!activePolicyTagResolved || !activePolicyFamilyResolved) {
+  if (!mActiveKind) {
     throw TraversalException{iteration, TraversalFailureReason::StateFamilyMismatch};
   }
+  indexTableConfigError = bindIndexTableConfiguration(stagedIndexTableConfig, mTrkParams[iteration], activeSurfaceCount, *mActiveKind);
   if (indexTableConfigError != IndexTableConfigError::None) {
     throw TraversalException{iteration, TraversalFailureReason::InvalidIndexTableConfiguration};
   }
@@ -574,7 +560,7 @@ void TrackerTraits::initialiseTimeFrame(const int iteration, const std::vector<S
 
   // 5. Only now is the scratch touched: it receives an already-validated
   // configuration and the sparse plan's actual ordered ids. It never inspects
-  // a tag or detector ID.
+  // a layer count or detector ID.
   const auto transitionIds = mBinding->getGlobalTransitions();
   const auto cellIds = mBinding->getGlobalCells();
   mScratch->initialise(*mFrame, mTrkParams[iteration], activeSurfaceCount, iteration,
@@ -584,7 +570,7 @@ void TrackerTraits::initialiseTimeFrame(const int iteration, const std::vector<S
   // A sorted Cluster is a locator/navigation cache only. Validate each
   // enabled ROF that can participate in a configured transition after every
   // TimeFrame initialisation, including LUT reuse and non-FirstPass paths.
-  // The spans remain local until this check and all subsequent policy setup
+  // The spans remain local until this check and all subsequent kind setup
   // have succeeded, so a structural failure cannot publish traversal caches.
   std::vector<bool> candidateReachableLayers(static_cast<std::size_t>(activeSurfaceCount), false);
   for (const auto transitionId : transitionIds) {
@@ -651,40 +637,40 @@ void TrackerTraits::initialiseTimeFrame(const int iteration, const std::vector<S
 
   // 6. Validate the sparse plan/binding after scratch initialization and before
   // committing traversal state. No layer-indexed topology oracle is consulted.
-  TransitionPolicyTag activeTag = TransitionPolicyTag::Invalid;
-  bool mixedPolicy = false;
-  validateSparsePlan(iteration, layout, activeTag, mixedPolicy);
-  if (mixedPolicy) {
-    throw TraversalException{iteration, TraversalFailureReason::MixedPolicyLayout};
+  std::optional<SurfaceKind> activeKind;
+  bool mixedKind = false;
+  validateSparsePlan(iteration, layout, activeKind, mixedKind);
+  if (mixedKind) {
+    throw TraversalException{iteration, TraversalFailureReason::MixedSurfaceKindLayout};
   }
 
   // Bound from the still-local stagedLayerMaterial, not the mLayerMaterial
   // member (not committed yet): attachHitConfig.layerMaterial is rebound to
   // point at mLayerMaterial once that member is actually populated, at the
   // final commit below, before it escapes into mAttachHitConfig.
-  auto attachHitConfig = bindAttachHitPolicyConfig(
+  auto attachHitConfig = bindAttachHitConfig(
     gsl::span<const NominalSurfaceMaterial>(stagedLayerMaterial.data(), stagedLayerMaterial.size()), mTrkParams[iteration]);
   if (!attachHitConfig.isValid(activeSurfaceCount)) {
-    throw TraversalException{iteration, TraversalFailureReason::InvalidPolicyParameters};
+    throw TraversalException{iteration, TraversalFailureReason::InvalidSurfaceParameters};
   }
   const auto geometryConfig = bindLayerGeometryConfig(mTrkParams[iteration], attachHitConfig);
   if (!geometryConfig.isValid(activeSurfaceCount)) {
-    throw TraversalException{iteration, TraversalFailureReason::InvalidPolicyParameters};
+    throw TraversalException{iteration, TraversalFailureReason::InvalidSurfaceParameters};
   }
-  DiskDiskReferenceCoordinateView referenceCoordinateView{};
-  if (activeTag == TransitionPolicyTag::DiskDisk) {
+  DiskReferenceCoordinateView referenceCoordinateView{};
+  if (*activeKind == SurfaceKind::Disk) {
     referenceCoordinateView = bindLegacyMFTReferenceCoordinates();
     if (!referenceCoordinateView.isValid(activeSurfaceCount)) {
-      throw TraversalException{iteration, TraversalFailureReason::InvalidPolicyParameters};
+      throw TraversalException{iteration, TraversalFailureReason::InvalidSurfaceParameters};
     }
   }
-  if (activeTag != TransitionPolicyTag::CylinderCylinder && activeTag != TransitionPolicyTag::DiskDisk) {
+  if (!activeKind || (*activeKind != SurfaceKind::Cylinder && *activeKind != SurfaceKind::Disk) ||
+      !mActiveKind || *activeKind != *mActiveKind) {
     throw TraversalException{iteration, TraversalFailureReason::StateFamilyMismatch};
   }
-  const auto activeKind = activeTag == TransitionPolicyTag::CylinderCylinder ? SurfaceKind::Cylinder : SurfaceKind::Disk;
-  auto kernelParameters = bindTrackingKernelParameters(mTrkParams[iteration], activeKind);
+  auto kernelParameters = bindTrackingKernelParameters(mTrkParams[iteration], *activeKind);
   if (!kernelParameters.isValid()) {
-    throw TraversalException{iteration, TraversalFailureReason::InvalidPolicyParameters};
+    throw TraversalException{iteration, TraversalFailureReason::InvalidSurfaceParameters};
   }
 
   mTraversalGraph = layout;
@@ -705,37 +691,37 @@ void TrackerTraits::initialiseTimeFrame(const int iteration, const std::vector<S
   mLayerMeasurements = std::move(stagedLayerMeasurements);
 
   // All fallible validation for this iteration (layout/grouping, legacy
-  // parity, state-family, and every policy/geometry binding above) has now
+  // parity, state-family, and every kind/geometry binding above) has now
   // succeeded. What follows is the relocated, total (non-throwing) per-layer
   // and per-transition scattering/bending preparation -- see the method doc
   // for the ordering/failure contract this relies on.
-  if (activeTag == TransitionPolicyTag::CylinderCylinder) {
-    prepareTransitionScatteringAndBendingForPolicy<TransitionPolicyTag::CylinderCylinder>(iteration, geometryConfig, referenceCoordinateView);
+  if (*activeKind == SurfaceKind::Cylinder) {
+    prepareTransitionScatteringAndBendingForKind<SurfaceKind::Cylinder>(iteration, geometryConfig, referenceCoordinateView);
   } else {
-    prepareTransitionScatteringAndBendingForPolicy<TransitionPolicyTag::DiskDisk>(iteration, geometryConfig, referenceCoordinateView);
+    prepareTransitionScatteringAndBendingForKind<SurfaceKind::Disk>(iteration, geometryConfig, referenceCoordinateView);
   }
 
   // M5c: the operation-local binding every shared hot-loop entry point below
   // (computeLayerTracklets/computeLayerCells/findCellsNeighbours/findRoads)
-  // consumes directly, with no Tag/StateFamily branch of their own. Bound
+  // consumes directly, with no Kind/StateFamily branch of their own. Bound
   // last, once every other traversal cache above has already committed.
   bindTraversalOperation(iteration);
 }
 
-template <TransitionPolicyTag Tag>
-void TrackerTraits::prepareTransitionScatteringAndBendingForPolicy(
+template <SurfaceKind Kind>
+void TrackerTraits::prepareTransitionScatteringAndBendingForKind(
   int iteration,
   const LayerGeometryConfigView& geometryConfig,
-  const DiskDiskReferenceCoordinateView& referenceCoordinateView)
+  const DiskReferenceCoordinateView& referenceCoordinateView)
 {
   const auto& trkParam = mTrkParams[iteration];
 
-  // Per-layer step: genuinely policy-specific (typed operation), but the
+  // Per-layer step: genuinely kind-specific (typed operation), but the
   // extent is the adopted plan, not the TrackerTraits compatibility width.
   const int activeSurfaceCount = static_cast<int>(mScratch->getNOwnedSurfaces());
   std::vector<float> msAngles(static_cast<std::size_t>(activeSurfaceCount));
   for (int iLayer{0}; iLayer < activeSurfaceCount; ++iLayer) {
-    if constexpr (Tag == TransitionPolicyTag::CylinderCylinder) {
+    if constexpr (Kind == SurfaceKind::Cylinder) {
       msAngles[iLayer] = cylinderLayerMultipleScatteringAngle(
         CylinderLayerScatteringInputs{geometryConfig.layerMaterial[iLayer].xOverX0}, trkParam.TrackletMinPt);
     } else {
@@ -746,8 +732,8 @@ void TrackerTraits::prepareTransitionScatteringAndBendingForPolicy(
     }
   }
 
-  // Per-transition step: shared/Tag-independent post-clamp arithmetic behind
-  // a Tag-specific curvature clamp. Iterate the binding's validated sparse
+  // Per-transition step: shared/Kind-independent post-clamp arithmetic behind
+  // a Kind-specific curvature clamp. Iterate the binding's validated sparse
   // transition order, which is the compact scratch order and preserves the
   // existing global topology ordering without consulting a layer topology.
   const auto& topology = mTraversalGraph;
@@ -765,7 +751,7 @@ void TrackerTraits::prepareTransitionScatteringAndBendingForPolicy(
     const int toLayer = requireSurfacePosition(iteration, transition.to);
     const float r1 = trkParam.LayerRadii[fromLayer];
     const float r2 = trkParam.LayerRadii[toLayer];
-    if constexpr (Tag == TransitionPolicyTag::CylinderCylinder) {
+    if constexpr (Kind == SurfaceKind::Cylinder) {
       oneOverR = clampCylinderTransitionCurvature(oneOverR, r2);
     } else {
       oneOverR = clampDiskTransitionCurvature(oneOverR, r2);
@@ -784,9 +770,9 @@ void TrackerTraits::computeLayerTracklets(const int iteration, int iVertex)
   // Gate 4 Slice 0a: driven by the sparse topology cached on
   // initialiseTimeFrame() (mTraversalLayout), not a detector-specific
   // topology fetch. This clear/allocation pass is
-  // tag-agnostic and runs once over the full sparse transition count,
-  // regardless of which single policy tag is active for this layout (see
-  // computeLayerTrackletsForPolicy() below for the per-tag-filtered body).
+  // kind-agnostic and runs once over the full sparse transition count,
+  // regardless of which single SurfaceKind is active for this layout (see
+  // computeLayerTrackletsForKind() below for the per-kind body).
   //
   // Gate 4 C2 Slice 1: the bound is this scratch's own already-allocated
   // compact transition count -- never mTraversalLayout.topology.nTransitions
@@ -808,7 +794,7 @@ void TrackerTraits::computeLayerTracklets(const int iteration, int iVertex)
     throw TraversalException{iteration, TraversalFailureReason::InvalidTraversalSchedule};
   }
 
-  // M5c: the Tag/StateFamily selection this call used to perform itself, on
+  // M5c: the Kind/StateFamily selection this call used to perform itself, on
   // every call, is now resolved exactly once per iteration by
   // bindTraversalOperation() (initialiseTimeFrame()) -- see
   // TraversalOperationBinding's own doc (TrackerTraits.h).
@@ -818,8 +804,8 @@ void TrackerTraits::computeLayerTracklets(const int iteration, int iVertex)
   (this->*mTraversalOperation.computeTracklets)(iteration, iVertex);
 }
 
-template <TransitionPolicyTag Tag>
-void TrackerTraits::computeLayerTrackletsForPolicy(
+template <SurfaceKind Kind>
+void TrackerTraits::computeLayerTrackletsForKind(
   const int iteration,
   const int iVertex,
   gsl::span<const TransitionId> transitionIds,
@@ -844,7 +830,7 @@ void TrackerTraits::computeLayerTrackletsForPolicy(
     };
 
     auto makeTransitionState = [&](int transitionId, int fromLayer, int toLayer) {
-      if constexpr (Tag == TransitionPolicyTag::CylinderCylinder) {
+      if constexpr (Kind == SurfaceKind::Cylinder) {
         return CylinderTrackletProjectionState{fromLayer,
                                                toLayer,
                                                mTrkParams[iteration].LayerRadii[toLayer] - mTrkParams[iteration].LayerRadii[fromLayer],
@@ -922,11 +908,11 @@ void TrackerTraits::computeLayerTrackletsForPolicy(
           if (pv.isFlagSet(Vertex::Flags::UPCMode) != mTrkParams[iteration].PassFlags[IterationStep::SelectUPCVertices]) {
             continue;
           }
-          using SearchWindow = std::conditional_t<Tag == TransitionPolicyTag::CylinderCylinder,
+          using SearchWindow = std::conditional_t<Kind == SurfaceKind::Cylinder,
                                                   CylinderTrackletSearchWindow, DiskTrackletSearchWindow>;
           SearchWindow searchWindow{};
           const bool projected = [&] {
-            if constexpr (Tag == TransitionPolicyTag::CylinderCylinder) {
+            if constexpr (Kind == SurfaceKind::Cylinder) {
               return projectCylinderSearchWindow(sourceMeasurement, currentCluster, pv, transitionState, getBz(),
                                                  mScratch->getIndexTableUtils(), params, searchWindow);
             } else {
@@ -960,7 +946,7 @@ void TrackerTraits::computeLayerTrackletsForPolicy(
             const int colBinRange = (bins.z - bins.x) + 1;
             for (int iRow = 0; iRow < rowBinsNum; ++iRow) {
               int iRowBin = bins.y + iRow;
-              if constexpr (Tag == TransitionPolicyTag::DiskDisk) {
+              if constexpr (Kind == SurfaceKind::Disk) {
                 if (iRowBin >= rowBinsCount) {
                   break;
                 }
@@ -983,7 +969,7 @@ void TrackerTraits::computeLayerTrackletsForPolicy(
 
                 float tanL = 0.f;
                 const bool accepted = [&] {
-                  if constexpr (Tag == TransitionPolicyTag::CylinderCylinder) {
+                  if constexpr (Kind == SurfaceKind::Cylinder) {
                     return searchWindow.acceptCandidate(sourceMeasurement, currentCluster, targetMeasurement, nextCluster, tanL);
                   } else {
                     return searchWindow.acceptCandidate(sourceMeasurement, targetMeasurement, tanL);
@@ -1102,7 +1088,7 @@ void TrackerTraits::computeLayerCells(const int iteration)
   // initialiseTimeFrame() (mTraversalLayout), not a detector-specific
   // topology fetch.
   const auto& topology = mTraversalGraph;
-  // Defensive size-consistency check, mirroring findCellsNeighboursForPolicy's
+  // Defensive size-consistency check, mirroring findCellsNeighboursForKind's
   // own precedent. Gate 4 C2 Slice 1: checked against this scratch's own
   // already-allocated compact cell count, never topology.nCells directly --
   // see computeLayerTracklets()'s identical reasoning for
@@ -1113,10 +1099,10 @@ void TrackerTraits::computeLayerCells(const int iteration)
   if (mScratch->getCellsLookupTable().size() != scratchCellCount) {
     throw TraversalException{iteration, TraversalFailureReason::SparseTopologyMismatch};
   }
-  // This clear/allocation pass is tag-agnostic and runs once over the full
-  // sparse cell/transition count, regardless of which single policy tag is
-  // active for this layout (see computeLayerCellsForPolicy() below for the
-  // per-tag-filtered body).
+  // This clear/allocation pass is kind-agnostic and runs once over the full
+  // sparse cell/transition count, regardless of which single SurfaceKind is
+  // active for this layout (see computeLayerCellsForKind() below for the
+  // per-kind body).
   for (size_t cellTopologyId = 0; cellTopologyId < scratchCellCount; ++cellTopologyId) {
     deepVectorClear(mScratch->getCells()[cellTopologyId]);
     deepVectorClear(mScratch->getCellsLookupTable()[cellTopologyId]);
@@ -1129,7 +1115,7 @@ void TrackerTraits::computeLayerCells(const int iteration)
     throw TraversalException{iteration, TraversalFailureReason::InvalidTraversalSchedule};
   }
   if (!mAttachHitConfig.isValid(static_cast<int>(mScratch->getNOwnedSurfaces()))) {
-    throw TraversalException{iteration, TraversalFailureReason::InvalidPolicyParameters};
+    throw TraversalException{iteration, TraversalFailureReason::InvalidSurfaceParameters};
   }
 
   // M5c: see computeLayerTracklets()'s identical conversion above.
@@ -1145,14 +1131,14 @@ void TrackerTraits::computeLayerCells(const int iteration)
   }
 }
 
-template <TransitionPolicyTag Tag>
-void TrackerTraits::computeLayerCellsForPolicy(
+template <SurfaceKind Kind>
+void TrackerTraits::computeLayerCellsForKind(
   const int iteration,
   gsl::span<const CellTopologyId> cellIds,
   const TrackingKernelParameters& params)
 {
   // Gate 4 Slice 0b: sparse topology (cached, not re-fetched from the
-  // legacy view). `cellIds` remains the caller-filtered, ascending per-tag
+  // legacy view). `cellIds` remains the caller-filtered, ascending per-kind
   // span from SurfacePlanBinding -- the main loop below iterates
   // exclusively over it, never over the raw sparse cell count. The
   // defensive size-consistency check for mScratch's per-cellTopologyId
@@ -1208,13 +1194,13 @@ void TrackerTraits::computeLayerCellsForPolicy(
 
           // MFT geometric road pre-cut: TrackerTraits-owned, outside the cell
           // leaves in CellFinding.h.
-          // One unconditional call for both families -- no detector-ID/Tag
+          // One unconditional call for both families -- no detector-ID/Kind
           // branch here; the cylinder leaf is an inline no-op returning true.
           const GlobalPoint3F pointInner = measurementInner.global;
           const GlobalPoint3F pointMiddle = measurementMiddle.global;
           const GlobalPoint3F pointOuter = measurementOuter.global;
           const bool passesRoad = [&] {
-            if constexpr (Tag == TransitionPolicyTag::CylinderCylinder) {
+            if constexpr (Kind == SurfaceKind::Cylinder) {
               return passesCylinderCellRoadPrecut(pointInner, pointMiddle, pointOuter,
                                                   hitLayers[0], hitLayers[1], hitLayers[2],
                                                   mDiskLayerReferenceZ, params);
@@ -1228,8 +1214,8 @@ void TrackerTraits::computeLayerCellsForPolicy(
             continue;
           }
 
-          // Strictly {inner, middle, outer}: CylinderCylinder reads [1] then
-          // [0] (outer slot unused), DiskDisk reads [2], [1], [0].
+          // Strictly {inner, middle, outer}: Cylinder reads [1] then
+          // [0] (outer slot unused), Disk reads [2], [1], [0].
           const std::array<NominalSurfaceMaterial, 3> material{
             mAttachHitConfig.layerMaterial[hitLayers[0]],
             mAttachHitConfig.layerMaterial[hitLayers[1]],
@@ -1239,7 +1225,7 @@ void TrackerTraits::computeLayerCellsForPolicy(
           float chi2{0.f};
           OperationFailureReason buildReason{};
           const bool good = [&] {
-            if constexpr (Tag == TransitionPolicyTag::CylinderCylinder) {
+            if constexpr (Kind == SurfaceKind::Cylinder) {
               return buildCylinderCellSeed(measurementInner, measurementMiddle, measurementOuter,
                                            material, getBz(), kCompatibilityAbsCharge, kCompatibilityPID,
                                            state, chi2, params, buildReason);
@@ -1347,7 +1333,7 @@ void TrackerTraits::findCellsNeighbours(const int iteration)
   if (!mTraversalCacheValid) {
     throw TraversalException{iteration, TraversalFailureReason::InvalidTraversalSchedule};
   }
-  // M5c: the once-per-active-tag scheduledCellsForTag() resolution this call
+  // The once-per-active-kind scheduled-cell resolution this call
   // used to redo on every call (Gate 4 C2 Slice 1's binding-vs-grouping
   // choice, documented at bindTraversalOperation()) is now folded into the
   // bound findNeighbours callable itself -- see computeLayerTracklets()'s
@@ -1358,8 +1344,8 @@ void TrackerTraits::findCellsNeighbours(const int iteration)
   (this->*mTraversalOperation.findNeighbours)(iteration);
 }
 
-template <TransitionPolicyTag Tag>
-void TrackerTraits::findCellsNeighboursForPolicy(
+template <SurfaceKind Kind>
+void TrackerTraits::findCellsNeighboursForKind(
   int iteration,
   gsl::span<const CellTopologyId> scheduledCells,
   const TrackingKernelParameters& params)
@@ -1412,7 +1398,7 @@ void TrackerTraits::findCellsNeighboursForPolicy(
           // Gate 4 C2 Slice 1: the dynamically-discovered-neighbour
           // translation point -- `nextTopologyId` is read out of the global
           // topology's own CSR array (topology.cellsByFirstTransition), not
-          // from any precomputed per-tag span, so it is translated to its
+          // from any precomputed per-kind span, so it is translated to its
           // compact scratch slot here, exactly once, before any scratch
           // access below uses it.
           const auto nextTopologyId = topology.cellsByFirstTransition[successors.getFirstEntry() + iSuccessor];
@@ -1442,7 +1428,7 @@ void TrackerTraits::findCellsNeighboursForPolicy(
             }
 
             const bool compatible = [&] {
-              if constexpr (Tag == TransitionPolicyTag::CylinderCylinder) {
+              if constexpr (Kind == SurfaceKind::Cylinder) {
                 return cellsCylinderAreCompatible(currentCellSeed.state(), nextCellSeedRef.state(),
                                                   currentCellSeed.getSecondClusterIndex(), nextCellSeedRef.getFirstClusterIndex(),
                                                   getBz(), params);
@@ -1511,7 +1497,7 @@ void TrackerTraits::findCellsNeighboursForPolicy(
   });
 }
 
-template <TransitionPolicyTag Tag, typename InputSeed>
+template <SurfaceKind Kind, typename InputSeed>
 void TrackerTraits::processNeighbours(int iteration, int defaultCellTopologyId, int iLevel, const bounded_vector<InputSeed>& currentCellSeed, const bounded_vector<int>& currentCellId, const bounded_vector<int>& currentCellTopologyId, bounded_vector<TrackSeed>& updatedCellSeeds, bounded_vector<int>& updatedCellsIds, bounded_vector<int>& updatedCellsTopologyIds, const TrackingKernelParameters& params)
 {
   const auto layerMaterial = mAttachHitConfig.layerMaterial;
@@ -1571,7 +1557,7 @@ void TrackerTraits::processNeighbours(int iteration, int defaultCellTopologyId, 
         float chi2 = seed.getChi2();
         OperationFailureReason attachReason{};
         const bool attached = [&] {
-          if constexpr (Tag == TransitionPolicyTag::CylinderCylinder) {
+          if constexpr (Kind == SurfaceKind::Cylinder) {
             return attachCylinderHit(seed.state(), measurement, layerMaterial[neighbourLayer], getBz(), chi2, params, attachReason);
           } else {
             return attachDiskHit(seed.state(), measurement, layerMaterial[neighbourLayer], getBz(), chi2, params, attachReason);
@@ -1655,7 +1641,7 @@ void TrackerTraits::findRoads(const int iteration, TrackingOperationAdapter& ope
     throw TraversalException{iteration, TraversalFailureReason::InvalidTraversalSchedule};
   }
   // Defensive sparse-plan check:
-  // findRoadsForPolicy() below indexes the scratch cell vectors with the
+  // findRoadsForKind() below indexes the scratch cell vectors with the
   // compact slots returned by the bound sparse plan. The count is checked
   // before indexing so a future plan/storage desync becomes an explicit
   // failure instead of an out-of-bounds read; no legacy topology parity is
@@ -1674,10 +1660,10 @@ void TrackerTraits::findRoads(const int iteration, TrackingOperationAdapter& ope
   (this->*mTraversalOperation.findRoads)(iteration, operationAdapter);
 }
 
-template <TransitionPolicyTag Tag>
-void TrackerTraits::findRoadsForPolicy(const int iteration,
-                                       const TrackingKernelParameters& params,
-                                       TrackingOperationAdapter& operationAdapter)
+template <SurfaceKind Kind>
+void TrackerTraits::findRoadsForKind(const int iteration,
+                                     const TrackingKernelParameters& params,
+                                     TrackingOperationAdapter& operationAdapter)
 {
   const int activeSurfaceCount = static_cast<int>(mScratch->getNOwnedSurfaces());
   bounded_vector<bounded_vector<int>> firstClusters(activeSurfaceCount, bounded_vector<int>(mMemoryPool.get()), mMemoryPool.get());
@@ -1686,7 +1672,7 @@ void TrackerTraits::findRoadsForPolicy(const int iteration,
   // layerMeasurements/mTraversalLayout's surface catalog, not a raw
   // TrackingFrameInfo/Cluster array or an o2::base::Propagator instance --
   // see doc/decisions/0008-native-refit-activation.md.
-  // Gate 4 C2 source-identity correction: resolved once per findRoadsForPolicy
+  // Gate 4 C2 source-identity correction: resolved once per findRoadsForKind
   // invocation, same binding-adopted/fallback shape as roadStartCells below.
   // mBinding->getSource() is this call's own ClusterSourceId (see
   // the retired traversal binding::build()); ClusterSourceId{0} matches the
@@ -1742,7 +1728,7 @@ void TrackerTraits::findRoadsForPolicy(const int iteration,
       bounded_vector<int> lastCellTopologyId(mMemoryPool.get()), updatedCellTopologyId(mMemoryPool.get());
       bounded_vector<TrackSeed> lastCellSeed(mMemoryPool.get()), updatedCellSeed(mMemoryPool.get());
 
-      processNeighbours<Tag>(iteration, startCellTopologyId, startLevel, mScratch->getCells()[startCellTopologyId], lastCellId, lastCellTopologyId, updatedCellSeed, updatedCellId, updatedCellTopologyId, params);
+      processNeighbours<Kind>(iteration, startCellTopologyId, startLevel, mScratch->getCells()[startCellTopologyId], lastCellId, lastCellTopologyId, updatedCellSeed, updatedCellId, updatedCellTopologyId, params);
 
       int level = startLevel;
       while (level > 2 && !updatedCellSeed.empty()) {
@@ -1752,7 +1738,7 @@ void TrackerTraits::findRoadsForPolicy(const int iteration,
         deepVectorClear(updatedCellSeed); /// tame the memory peaks
         deepVectorClear(updatedCellId);   /// tame the memory peaks
         deepVectorClear(updatedCellTopologyId);
-        processNeighbours<Tag>(iteration, o2::its::constants::UnusedIndex, --level, lastCellSeed, lastCellId, lastCellTopologyId, updatedCellSeed, updatedCellId, updatedCellTopologyId, params);
+        processNeighbours<Kind>(iteration, o2::its::constants::UnusedIndex, --level, lastCellSeed, lastCellId, lastCellTopologyId, updatedCellSeed, updatedCellId, updatedCellTopologyId, params);
       }
       deepVectorClear(lastCellId);         /// tame the memory peaks
       deepVectorClear(lastCellTopologyId); /// tame the memory peaks

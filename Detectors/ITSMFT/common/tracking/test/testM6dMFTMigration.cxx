@@ -15,7 +15,7 @@
 //    configured capacities;
 //  - the production MFT SurfacePlanBinding construction (real combined
 //    catalog, real ClusterSourceId{1}/SurfaceKind::Disk/
-//    TransitionPolicyTag::DiskDisk parameters) resolves to the same
+//    SurfaceKind::Disk parameters) resolves to the same
 //    transition/cell slot counts and owned-surface indices the old
 //    DetectorTraversalBinding construction at the same parameters would
 //    have;
@@ -292,7 +292,7 @@ BOOST_AUTO_TEST_CASE(ProductionMFTSurfacePlanBindingMatchesConfiguredTopologyAtR
   // Exactly the parameters the combined workflow's application plan uses for
   // MFT: ClusterSourceId{1}, surfaceRangeMask(ITSNLayers,
   // MFTNLayers), the MFT ordered-surface range, SurfaceKind::Disk,
-  // TransitionPolicyTag::DiskDisk.
+  // SurfaceKind::Disk.
   const auto layout = buildProductionCombinedLayoutForTest();
   const auto masks = computeSurfaceKindMasks(kITSMFTCombinedStaticSurfaceCatalog);
   const auto view = layout.getView();

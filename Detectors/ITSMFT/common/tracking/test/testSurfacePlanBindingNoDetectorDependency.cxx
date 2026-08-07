@@ -14,7 +14,7 @@
 // legitimately still use every one of these tokens and are unaffected by
 // this guard. Mirrors the scan/allowlist idiom of
 // testNoLegacyFittingDependency.cxx (ADR 0008) and
-// testTransitionPolicyTagContainment.cxx (M4), scoped to a single file since
+// testSurfaceKindContainment.cxx (M4), scoped to a single file since
 // this guard has no exceptions to allowlist.
 
 #define BOOST_TEST_MODULE ITSMFT SurfacePlanBindingNoDetectorDependency

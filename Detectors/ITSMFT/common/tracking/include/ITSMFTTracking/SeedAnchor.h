@@ -13,7 +13,7 @@
 
 // M4b: SeedAnchor is an unrelated legacy concept that was previously bundled
 // into the state-family classification header by historical accident (both
-// used to live in the single pre-M4 TransitionPolicy.h). It has nothing to
+// used to live in an earlier migration header. It has nothing to
 // do with the legacy hot-loop-dispatch tag's containment or with
 // state-family/SurfaceKind classification: it never names a surface kind, a
 // state family, or that tag.

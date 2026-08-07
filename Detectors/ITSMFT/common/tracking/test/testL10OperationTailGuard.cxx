@@ -77,9 +77,9 @@ BOOST_AUTO_TEST_CASE(retired_public_compatibility_paths_are_absent)
   checkNoTokenInTree(root / "include", "loadClusterTrackingFrameInfo");
   checkNoTokenInTree(root / "src", "loadClusterTrackingFrameInfo");
   checkNoTokenInTree(root / "test", "loadClusterTrackingFrameInfo");
-  checkNoTokenInTree(root / "include", "NativeCylinderCylinderRefitDriver");
-  checkNoTokenInTree(root / "src", "NativeCylinderCylinderRefitDriver");
-  checkNoTokenInTree(root / "test", "NativeCylinderCylinderRefitDriver");
+  checkNoTokenInTree(root / "include", "NativeCylinderRefitDriver");
+  checkNoTokenInTree(root / "src", "NativeCylinderRefitDriver");
+  checkNoTokenInTree(root / "test", "NativeCylinderRefitDriver");
   checkNoTokenInTree(root / "include", "getDevicePropagator");
   checkNoTokenInTree(root / "src", "getDevicePropagator");
   checkNoTokenInTree(root / "test", "getDevicePropagator");
@@ -87,7 +87,7 @@ BOOST_AUTO_TEST_CASE(retired_public_compatibility_paths_are_absent)
   checkNoTokenInTree(root / "src", "setDevicePropagator");
   checkNoTokenInTree(root / "test", "setDevicePropagator");
   BOOST_CHECK(!fs::exists(root / "include/ITSMFTTracking/TrackingFrameInfoAdapters.h"));
-  BOOST_CHECK(!fs::exists(root / "include/ITSMFTTracking/NativeCylinderCylinderRefitDriver.h"));
+  BOOST_CHECK(!fs::exists(root / "include/ITSMFTTracking/NativeCylinderRefitDriver.h"));
 }
 
 BOOST_AUTO_TEST_CASE(publication_lifecycle_is_at_the_application_edge)

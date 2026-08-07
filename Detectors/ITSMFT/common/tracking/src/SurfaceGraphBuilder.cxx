@@ -55,7 +55,7 @@ SurfaceGraphBuildResult SurfaceGraphBuilder::build() const
         expectedKind = kind;
       } else if (*expectedKind != kind) {
         result.error = SurfaceGraphBuildError::GraphRejected;
-        result.graphError = SurfaceGraphError::PolicySurfaceKindMismatch;
+        result.graphError = SurfaceGraphError::SurfaceKindMismatch;
         return result;
       }
       subgraphSurfaces.set(id);

@@ -61,7 +61,7 @@ enum class SurfacePlanBindingError : uint8_t {
   InvalidSurfaceMask,
   InvalidLegacySurfaceOrder,
   InvalidTopology,
-  InvalidPolicySurface,
+  InvalidSurface,
   CrossBoundaryTransition,
   CrossBoundaryCell,
   IncompleteTransitionMapping,
@@ -198,7 +198,7 @@ class SurfacePlanBinding
       }
       if (globalLayout.getSurface(transition.from).kind != expectedKind ||
           globalLayout.getSurface(transition.to).kind != expectedKind) {
-        return {{}, SurfacePlanBindingError::InvalidPolicySurface};
+        return {{}, SurfacePlanBindingError::InvalidSurface};
       }
     }
 
