@@ -39,6 +39,7 @@
 #include "ITSMFTTracking/SurfaceMeasurementAdapters.h"
 #include "ITSMFTTracking/TimeFrame.h"
 #include "ITSMFTTracking/TrackerTraits.h"
+#include "ITSMFTTracking/detail/SurfacePlanBinding.h"
 #include "ITStracking/Constants.h"
 #include "ITStracking/ROFLookupTables.h"
 
@@ -233,6 +234,15 @@ struct Rig {
     plan.emplace(std::move(result.graphs));
     const auto layoutView = plan->front().getView();
     tf.adoptPlan(plan->front().getOrderedSurfaces().size(), layoutView.nTransitions, layoutView.nCells);
+    SurfaceMask owned;
+    for (const auto surface : plan->front().getOrderedSurfaces()) {
+      owned.set(surface);
+    }
+    auto bindingResult = SurfacePlanBinding::build(layoutView, ClusterSourceId{0}, owned,
+                                                   plan->front().getOrderedSurfaces(), kind);
+    BOOST_REQUIRE(bindingResult.ok());
+    traits.adoptSurfacePlanBinding(bindingResult.binding.get());
+    binding = std::move(bindingResult.binding);
   }
 
   void load(bool applySysErrors)
@@ -289,6 +299,7 @@ struct Rig {
   // first and destroyed last.
   std::vector<SurfaceDescriptor> catalog;
   std::optional<std::vector<SurfaceGraph>> plan;
+  std::unique_ptr<SurfacePlanBinding> binding;
 };
 
 template <int NLayers>

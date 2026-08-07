@@ -138,8 +138,7 @@ void configureFrame(TimeFrame& frame, const SurfaceGraph& graph)
     for (const auto surface : ordered) {
       owned.set(surface);
     }
-    auto built = SurfacePlanBinding::build(view, ClusterSourceId{id}, owned, ordered,
-                                           SurfaceKind::Cylinder, TransitionPolicyTag::CylinderCylinder);
+    auto built = SurfacePlanBinding::build(view, ClusterSourceId{id}, owned, ordered, SurfaceKind::Cylinder);
     BOOST_REQUIRE_MESSAGE(built.ok(), "binding error=" << static_cast<int>(built.error) << " source=" << id);
     capacities.push_back({built.binding->getOrderedSurfaces().size(), built.binding->getGlobalTransitions().size(), built.binding->getGlobalCells().size()});
     bindings.push_back(std::move(built.binding));

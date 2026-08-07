@@ -85,10 +85,10 @@ inline TrackerInitialization makeCombinedConfiguration(const TrackingParameters&
   iteration.parameters = {itsParams, mftParams};
   iteration.bindings.push_back(SurfacePlanBinding::Declaration{ClusterSourceId{0},
                                                                surfaceRangeMask(0, ITSNLayers), itsSurfaces,
-                                                               SurfaceKind::Cylinder, TransitionPolicyTag::CylinderCylinder});
+                                                               SurfaceKind::Cylinder});
   iteration.bindings.push_back(SurfacePlanBinding::Declaration{ClusterSourceId{1},
                                                                surfaceRangeMask(ITSNLayers, MFTNLayers), mftSurfaces,
-                                                               SurfaceKind::Disk, TransitionPolicyTag::DiskDisk});
+                                                               SurfaceKind::Disk});
   configuration.iterations.push_back(std::move(iteration));
   return configuration;
 }

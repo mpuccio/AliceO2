@@ -28,7 +28,7 @@
 //    TimeFrame is touched.
 //  - A FirstPass iteration may legitimately change RowBins/ColBins/extents
 //    relative to a previous iteration; that recommits and reallocates.
-//  - Layout/grouping/binding are one-shot per initialiseTimeFrame() call
+//  - Layout/binding are one-shot per initialiseTimeFrame() call
 //    (mTraversalGroupingCount).
 //
 // Gate 4 B2 Slice 2: initialiseTimeFrame() now takes the plan as an explicit
@@ -56,6 +56,7 @@
 #include "ITSMFTTracking/Configuration.h"
 #include "ITSMFTTracking/DecodedCluster.h"
 #include "ITSMFTTracking/SurfaceGraphBuilder.h"
+#include "ITSMFTTracking/detail/SurfacePlanBinding.h"
 #include "ITSMFTTracking/IndexTableConfiguration.h"
 #include "ITSMFTTracking/IndexTableUtils.h"
 #include "ITSMFTTracking/NominalSurfaceMaterialDefaults.h"
@@ -258,6 +259,7 @@ struct Rig {
   // first and destroyed last.
   std::vector<SurfaceDescriptor> catalog;
   std::optional<std::vector<SurfaceGraph>> plan;
+  std::unique_ptr<SurfacePlanBinding> binding;
 
   void establishValidLayout(gsl::span<const TrackingParameters> params)
   {
@@ -269,6 +271,15 @@ struct Rig {
     plan.emplace(std::move(result.graphs));
     const auto layoutView = plan->front().getView();
     tf.adoptPlan(plan->front().getOrderedSurfaces().size(), layoutView.nTransitions, layoutView.nCells);
+    SurfaceMask owned;
+    for (const auto surface : plan->front().getOrderedSurfaces()) {
+      owned.set(surface);
+    }
+    auto bindingResult = SurfacePlanBinding::build(layoutView, ClusterSourceId{0}, owned,
+                                                   plan->front().getOrderedSurfaces(), SurfaceKind::Cylinder);
+    BOOST_REQUIRE(bindingResult.ok());
+    traits.adoptSurfacePlanBinding(bindingResult.binding.get());
+    binding = std::move(bindingResult.binding);
   }
 
   // See testTrackerFailureContract.cxx's identical helper for why loading a

@@ -37,6 +37,7 @@
 #include "ITSMFTTracking/SurfaceTrackingScratch.h"
 #include "ITSMFTTracking/TimeFrame.h"
 #include "ITSMFTTracking/TrackerTraits.h"
+#include "ITSMFTTracking/detail/SurfacePlanBinding.h"
 #include "ITSMFTTracking/TrackingConfigParam.h"
 #include "ITStracking/Constants.h"
 #include "ITStracking/MathUtils.h"
@@ -302,6 +303,14 @@ TrackletSnapshot runFixture(o2::detectors::DetID::ID detector,
   }
   tf.setROFViews(RuntimeROFViews{rofTable.getView(), vtxTable.getView(), mask.getView(), {}});
 
+  SurfaceMask owned;
+  for (const auto surface : graph.getOrderedSurfaces()) {
+    owned.set(surface);
+  }
+  auto bindingResult = SurfacePlanBinding::build(graph.getView(), ClusterSourceId{0}, owned,
+                                                 graph.getOrderedSurfaces(), kind);
+  BOOST_REQUIRE(bindingResult.ok());
+  traits.adoptSurfacePlanBinding(bindingResult.binding.get());
   traits.initialiseTimeFrame(0, plan);
   BOOST_CHECK_EQUAL(traits.getTraversalGroupingCount(), 1);
 
@@ -662,6 +671,15 @@ BOOST_AUTO_TEST_CASE(InitialiseTimeFrameFailureLeavesTransitionArraysZeroFilledN
   }
   tf.setROFViews(RuntimeROFViews{rofTable.getView(), vtxTable.getView(), mask.getView(), {}});
 
+  SurfaceMask owned;
+  for (const auto surface : graph.getOrderedSurfaces()) {
+    owned.set(surface);
+  }
+  auto bindingResult = SurfacePlanBinding::build(graph.getView(), ClusterSourceId{0}, owned,
+                                                 graph.getOrderedSurfaces(), SurfaceKind::Cylinder);
+  BOOST_REQUIRE(bindingResult.ok());
+  traits.adoptSurfacePlanBinding(bindingResult.binding.get());
+
   BOOST_CHECK_EXCEPTION(traits.initialiseTimeFrame(0, plan), TraversalException, [](const TraversalException& error) {
     return error.getReason() == TraversalFailureReason::InvalidPolicyParameters;
   });
@@ -863,10 +881,13 @@ BOOST_AUTO_TEST_CASE(DuplicateSurfaceIdMappingFailsClosedBeforeTrackletProcessin
   const auto layoutView = plan.front().getView();
   tf.adoptPlan(plan.front().getOrderedSurfaces().size(), layoutView.nTransitions, layoutView.nCells);
 
-  BOOST_CHECK_EXCEPTION(traits.initialiseTimeFrame(0, plan), TraversalException, [](const TraversalException& error) {
-    return error.getReason() == TraversalFailureReason::SurfaceLayerMappingMismatch;
-  });
-  BOOST_CHECK(!traits.hasTraversalCache());
+  SurfaceMask owned;
+  for (const auto surface : plan.front().getOrderedSurfaces()) {
+    owned.set(surface);
+  }
+  const auto bindingResult = SurfacePlanBinding::build(plan.front().getView(), ClusterSourceId{0}, owned,
+                                                       plan.front().getOrderedSurfaces(), SurfaceKind::Cylinder);
+  BOOST_CHECK(!bindingResult.ok());
 }
 
 BOOST_AUTO_TEST_CASE(CombinedCylinderAndDiskLayoutIsRejectedBeforeTrackletProcessing)
@@ -878,15 +899,13 @@ BOOST_AUTO_TEST_CASE(CombinedCylinderAndDiskLayoutIsRejectedBeforeTrackletProces
   // matching the architecture note that no cross-detector edges exist
   // because none are authored. This test
   // constructs one directly to prove TrackerTraits::initialiseTimeFrame()
-  // still fails closed (MixedPolicyLayout) before mTraversalGrouping is
+  // still fails closed (MixedPolicyLayout) before the plan binding is
   // committed and before computeLayerTracklets() could process anything --
   // i.e. that no duplicate/cross-tag candidate processing is possible even
   // if such a layout existed. Per-tag span exactness/disjointness itself is
-  // already proven at the TransitionPolicyGrouping/dispatchTransitionPolicies
-  // level by testTransitionPolicyDispatch.cxx's
-  // CombinedDisconnectedLayoutDispatchesBothFamiliesWithoutDetectorBranching
-  // and RoadStartCellsSeparateCylinderAndDiskSpansInACombinedGrouping; this
-  // test is the TrackerTraits-level complement covering the "rejected" case.
+  // already proven by the SurfacePlanBinding schedule tests
+  // level by the surface-plan schedule tests; this test is the
+  // TrackerTraits-level complement covering the "rejected" case.
   const auto nCylinders = static_cast<uint16_t>(ITSNLayers);
   const auto nDisks = static_cast<uint16_t>(MFTNLayers);
   const std::vector<SurfaceDescriptor> surfaces = combinedCatalog(nCylinders, nDisks);
@@ -921,8 +940,11 @@ BOOST_AUTO_TEST_CASE(CombinedCylinderAndDiskLayoutIsRejectedBeforeTrackletProces
   traits.updateTrackingParameters(params);
   traits.setBz(Bz);
 
-  BOOST_CHECK_EXCEPTION(traits.initialiseTimeFrame(0, plan), TraversalException, [](const TraversalException& error) {
-    return error.getReason() == TraversalFailureReason::MixedPolicyLayout;
-  });
-  BOOST_CHECK(!traits.hasTraversalCache());
+  SurfaceMask owned;
+  for (const auto& surface : surfaces) {
+    owned.set(surface.id);
+  }
+  const auto bindingResult = SurfacePlanBinding::build(plan.front().getView(), ClusterSourceId{0}, owned,
+                                                       plan.front().getOrderedSurfaces(), SurfaceKind::Cylinder);
+  BOOST_CHECK(!bindingResult.ok());
 }

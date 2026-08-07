@@ -111,7 +111,7 @@ enum class MaterialCorrectionModeSupport : uint8_t {
 /// candidate-state dependency, no material spans, no detector identity, no
 /// NLayers. Deterministic and side-effect-free -- safe to call once per
 /// active policy tag during iteration initialization
-/// (TransitionPolicyGrouping/dispatchTransitionPolicies, TransitionPolicyDispatch.h),
+/// (the removed tag-grouping/dispatch layer),
 /// and idempotent under repeated calls with identical arguments.
 ///
 /// The primary template is `= delete`d: instantiating this for

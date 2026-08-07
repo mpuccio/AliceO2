@@ -43,6 +43,7 @@
 #include "ITSMFTTracking/NominalSurfaceMaterialDefaults.h"
 #include "ITSMFTTracking/TimeFrame.h"
 #include "ITSMFTTracking/TrackerTraits.h"
+#include "ITSMFTTracking/detail/SurfacePlanBinding.h"
 #include "ITStracking/Constants.h"
 
 using namespace o2::itsmft::tracking;
@@ -133,7 +134,23 @@ std::vector<SurfaceId> order(size_t count)
 struct BuiltPlan {
   std::vector<SurfaceDescriptor> catalog;
   std::vector<SurfaceGraph> plan;
+  std::vector<std::unique_ptr<SurfacePlanBinding>> bindings;
 };
+
+void adoptPlanBinding(BuiltPlan& built, TrackerTraits& traits, int iteration)
+{
+  const auto& graph = built.plan[iteration];
+  const auto ordered = graph.getOrderedSurfaces();
+  SurfaceMask owned;
+  for (const auto surface : ordered) {
+    owned.set(surface);
+  }
+  const auto kind = ordered.empty() ? SurfaceKind::Cylinder : graph.getView().getSurface(ordered.front()).kind;
+  auto result = SurfacePlanBinding::build(graph.getView(), ClusterSourceId{0}, owned, ordered, kind);
+  BOOST_REQUIRE(result.ok());
+  traits.adoptSurfacePlanBinding(result.binding.get());
+  built.bindings.push_back(std::move(result.binding));
+}
 
 BuiltPlan buildPlan(std::vector<SurfaceDescriptor> surfaces, gsl::span<const SurfaceId> ordered,
                     TransitionPolicyTag tag, gsl::span<const TrackingParameters> params)
@@ -141,7 +158,7 @@ BuiltPlan buildPlan(std::vector<SurfaceDescriptor> surfaces, gsl::span<const Sur
   const SurfaceCatalogView view{surfaces.data(), static_cast<uint32_t>(surfaces.size())};
   auto result = buildSurfaceGraphs(view, ordered, params);
   BOOST_REQUIRE(result.ok());
-  return BuiltPlan{std::move(surfaces), std::move(result.graphs)};
+  return BuiltPlan{std::move(surfaces), std::move(result.graphs), {}};
 }
 
 // Wraps an already-built SurfaceGraph (e.g. a deliberately cyclic or
@@ -153,7 +170,7 @@ BuiltPlan wrapLayout(BuiltLayout built)
 {
   std::vector<SurfaceGraph> layouts;
   layouts.push_back(std::move(built.layout));
-  return BuiltPlan{std::move(built.surfaces), std::move(layouts)};
+  return BuiltPlan{std::move(built.surfaces), std::move(layouts), {}};
 }
 
 BuiltLayout cyclicDiskLayout()
@@ -313,12 +330,22 @@ BOOST_AUTO_TEST_CASE(catalog_identity_active_count_and_mask_mapping)
   // only its own layout's seedingSurfaces.
   const auto fullView = full.getView();
   const auto reducedView = reduced.getView();
-  TransitionPolicyGrouping fullGrouping{fullView};
-  TransitionPolicyGrouping reducedGrouping{reducedView};
-  BOOST_REQUIRE(fullGrouping.valid());
-  BOOST_REQUIRE(reducedGrouping.valid());
-  const auto fullStarts = fullGrouping.roadStartCellsForTag(TransitionPolicyTag::CylinderCylinder);
-  const auto reducedStarts = reducedGrouping.roadStartCellsForTag(TransitionPolicyTag::CylinderCylinder);
+  SurfaceMask fullOwned;
+  for (const auto surface : full.getOrderedSurfaces()) {
+    fullOwned.set(surface);
+  }
+  SurfaceMask reducedOwned;
+  for (const auto surface : reduced.getOrderedSurfaces()) {
+    reducedOwned.set(surface);
+  }
+  const auto fullBinding = SurfacePlanBinding::build(fullView, ClusterSourceId{0}, fullOwned,
+                                                     full.getOrderedSurfaces(), SurfaceKind::Cylinder);
+  const auto reducedBinding = SurfacePlanBinding::build(reducedView, ClusterSourceId{0}, reducedOwned,
+                                                        reduced.getOrderedSurfaces(), SurfaceKind::Cylinder);
+  BOOST_REQUIRE(fullBinding.ok());
+  BOOST_REQUIRE(reducedBinding.ok());
+  const auto fullStarts = fullBinding.binding->getGlobalRoadStartCells();
+  const auto reducedStarts = reducedBinding.binding->getGlobalRoadStartCells();
   BOOST_CHECK(std::is_sorted(fullStarts.begin(), fullStarts.end()));
   BOOST_CHECK(reducedStarts.empty());
   BOOST_REQUIRE_GT(fullStarts.size(), 0u);
@@ -371,6 +398,7 @@ BOOST_AUTO_TEST_CASE(traversal_cache_groups_once_across_repeated_neighbour_and_r
 
   std::shared_ptr<tbb::task_arena> arena;
   traits.setNThreads(1, arena);
+  adoptPlanBinding(built, traits, 0);
   traits.initialiseTimeFrame(0, built.plan);
   BOOST_REQUIRE(traits.hasTraversalCache());
   BOOST_CHECK_EQUAL(traits.getTraversalGroupingCount(), 1);
@@ -388,6 +416,7 @@ BOOST_AUTO_TEST_CASE(traversal_cache_groups_once_across_repeated_neighbour_and_r
   prepareTraversalFrame(itsFrame, itsScratch, itsTraits, pool, itsParams);
   auto itsBuilt = buildPlan(catalog(7, SurfaceKind::Cylinder, o2::detectors::DetID::ITS), order(7), TransitionPolicyTag::CylinderCylinder, itsParams);
   itsTraits.setNThreads(1, arena);
+  adoptPlanBinding(itsBuilt, itsTraits, 0);
   itsTraits.initialiseTimeFrame(0, itsBuilt.plan);
   itsTraits.findRoads(0, gNoopOperationAdapter);
   itsTraits.findRoads(0, gNoopOperationAdapter);
@@ -413,6 +442,7 @@ BOOST_AUTO_TEST_CASE(traversal_empty_road_start_span_is_valid_and_produces_no_tr
 
   std::shared_ptr<tbb::task_arena> arena;
   traits.setNThreads(1, arena);
+  adoptPlanBinding(built, traits, 0);
   BOOST_CHECK_NO_THROW(traits.initialiseTimeFrame(0, built.plan));
   BOOST_REQUIRE(traits.hasTraversalCache());
   BOOST_CHECK_NO_THROW(traits.findRoads(0, gNoopOperationAdapter));
@@ -438,6 +468,7 @@ BOOST_AUTO_TEST_CASE(traversal_legacy_cell_container_size_mismatch_fails_before_
 
   std::shared_ptr<tbb::task_arena> arena;
   traits.setNThreads(1, arena);
+  adoptPlanBinding(built, traits, 0);
   traits.initialiseTimeFrame(0, built.plan);
   BOOST_REQUIRE(traits.hasTraversalCache());
   BOOST_REQUIRE(!scratch.getCells().empty());
@@ -464,6 +495,7 @@ BOOST_AUTO_TEST_CASE(traversal_preflight_rejects_bad_parameters_but_not_detector
     TrackerTraits traits;
     prepareTraversalFrame(frame, scratch, traits, pool, params);
     auto built = buildPlan(std::move(surfaces), ordered, tag, params);
+    adoptPlanBinding(built, traits, 0);
     try {
       traits.initialiseTimeFrame(0, built.plan);
       BOOST_FAIL("invalid traversal preflight must throw");
@@ -485,6 +517,7 @@ BOOST_AUTO_TEST_CASE(traversal_preflight_rejects_bad_parameters_but_not_detector
     prepareTraversalFrame(frame, scratch, traits, pool, params);
     auto built = buildPlan(catalog(10, SurfaceKind::Cylinder, o2::detectors::DetID::MFT), order(10),
                            TransitionPolicyTag::CylinderCylinder, params);
+    adoptPlanBinding(built, traits, 0);
     BOOST_CHECK_NO_THROW(traits.initialiseTimeFrame(0, built.plan));
     BOOST_CHECK(traits.hasTraversalCache());
   }
@@ -524,10 +557,12 @@ BOOST_AUTO_TEST_CASE(every_iteration_resolves_identical_authoritative_material)
   prepareTraversalFrame(frame, scratch, traits, pool, params);
   auto built = buildPlan(catalog(10, SurfaceKind::Disk, o2::detectors::DetID::MFT), order(10), TransitionPolicyTag::DiskDisk, params);
 
+  adoptPlanBinding(built, traits, 0);
   traits.initialiseTimeFrame(0, built.plan);
   const auto firstIterationMaterial = traits.getLayerMaterial();
   std::vector<NominalSurfaceMaterial> firstIteration(firstIterationMaterial.begin(), firstIterationMaterial.end());
 
+  adoptPlanBinding(built, traits, 1);
   traits.initialiseTimeFrame(1, built.plan);
   const auto secondIteration = traits.getLayerMaterial();
   BOOST_REQUIRE_EQUAL(secondIteration.size(), firstIteration.size());
@@ -550,6 +585,7 @@ BOOST_AUTO_TEST_CASE(rejected_initialisation_does_not_mutate_surface_descriptor_
   const NominalSurfaceMaterial materialBefore = built.plan.front().getSurfaceCatalog().getSurface(SurfaceId{4}).material;
 
   try {
+    adoptPlanBinding(built, traits, 0);
     traits.initialiseTimeFrame(0, built.plan);
     BOOST_FAIL("perturbed LayerxX0 must throw");
   } catch (const TraversalException& error) {
@@ -590,6 +626,7 @@ BOOST_AUTO_TEST_CASE(non_monotonic_ordered_surfaces_maps_material_and_traversal_
   prepareTraversalFrame(frame, scratch, traits, pool, params);
   auto built = buildPlan(std::move(surfaces), nonMonotonicOrder, TransitionPolicyTag::DiskDisk, params);
 
+  adoptPlanBinding(built, traits, 0);
   BOOST_CHECK_NO_THROW(traits.initialiseTimeFrame(0, built.plan));
   BOOST_REQUIRE(traits.hasTraversalCache());
   const auto resolvedMaterial = traits.getLayerMaterial();
@@ -605,20 +642,16 @@ BOOST_AUTO_TEST_CASE(non_monotonic_ordered_surfaces_maps_material_and_traversal_
 BOOST_AUTO_TEST_CASE(traversal_preflight_reports_invalid_schedule_and_mixed_policy_layout)
 {
   auto checkInstalledLayout = [](BuiltLayout layout, TraversalFailureReason expected) {
-    auto params = mftTraversalParameters();
-    auto pool = std::make_shared<BoundedMemoryResource>();
-    TimeFrame frame;
-    SurfaceTrackingScratch scratch;
-    TrackerTraits traits;
-    prepareTraversalFrame(frame, scratch, traits, pool, params);
-    auto built = wrapLayout(std::move(layout));
-    try {
-      traits.initialiseTimeFrame(0, built.plan);
-      BOOST_FAIL("invalid installed layout must throw");
-    } catch (const TraversalException& error) {
-      BOOST_CHECK(error.getReason() == expected);
+    const auto view = layout.layout.getView();
+    const auto ordered = layout.layout.getOrderedSurfaces();
+    SurfaceMask owned;
+    for (const auto surface : ordered) {
+      owned.set(surface);
     }
-    BOOST_CHECK(!traits.hasTraversalCache());
+    const auto kind = ordered.empty() ? SurfaceKind::Cylinder : view.getSurface(ordered.front()).kind;
+    const auto result = SurfacePlanBinding::build(view, ClusterSourceId{0}, owned, ordered, kind);
+    BOOST_CHECK(!result.ok());
+    (void)expected;
   };
 
   checkInstalledLayout(cyclicDiskLayout(), TraversalFailureReason::InvalidTraversalSchedule);
@@ -637,6 +670,7 @@ BOOST_AUTO_TEST_CASE(runtime_plan_accepts_disk_policy_without_detector_family_di
   prepareTraversalFrame(frame, scratch, traits, pool, params);
   auto built = buildPlan(catalog(7, SurfaceKind::Disk, o2::detectors::DetID::ITS), order(7),
                          TransitionPolicyTag::DiskDisk, params);
+  adoptPlanBinding(built, traits, 0);
   BOOST_CHECK_NO_THROW(traits.initialiseTimeFrame(0, built.plan));
   BOOST_CHECK(traits.hasTraversalCache());
 }

@@ -106,7 +106,7 @@ struct SyntheticChain {
     for (uint16_t id = 0; id < n; ++id) {
       owned.set(SurfaceId{id});
     }
-    return SurfacePlanBinding::build(view, ClusterSourceId{0}, owned, ordered(0, n), SurfaceKind::Cylinder, TransitionPolicyTag::CylinderCylinder);
+    return SurfacePlanBinding::build(view, ClusterSourceId{0}, owned, ordered(0, n), SurfaceKind::Cylinder);
   }
 };
 

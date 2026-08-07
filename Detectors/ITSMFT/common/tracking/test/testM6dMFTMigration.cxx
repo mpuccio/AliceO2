@@ -299,8 +299,7 @@ BOOST_AUTO_TEST_CASE(ProductionMFTSurfacePlanBindingMatchesConfiguredTopologyAtR
   const auto mftSurfaces = orderedRange(ITSNLayers, MFTNLayers);
   const auto mftMask = surfaceRangeMaskForTest(ITSNLayers, MFTNLayers);
 
-  const auto binding = SurfacePlanBinding::build(view, ClusterSourceId{1}, mftMask, mftSurfaces,
-                                                 SurfaceKind::Disk, TransitionPolicyTag::DiskDisk);
+  const auto binding = SurfacePlanBinding::build(view, ClusterSourceId{1}, mftMask, mftSurfaces, SurfaceKind::Disk);
   BOOST_REQUIRE(binding.ok());
   size_t ownedTransitions = 0;
   for (uint32_t id = 0; id < view.nTransitions; ++id) {

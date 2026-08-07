@@ -34,7 +34,6 @@
 #include "ITSMFTTracking/TrackingOperationAdapter.h"
 #include "ITSMFTTracking/detail/SurfacePlanBinding.h"
 #include "ITSMFTTracking/detail/TransitionPolicyBinding.h"
-#include "ITSMFTTracking/detail/TransitionPolicyDispatch.h"
 #include "ITSMFTTracking/detail/TransitionPolicyState.h"
 #include "ITStracking/BoundedAllocator.h"
 
@@ -199,7 +198,7 @@ class TrackerTraits
   int getTFNumberOfCells() const { return mScratch->getNumberOfCells(); }
 
   int getTraversalGroupingCount() const noexcept { return mTraversalGroupingCount; }
-  bool hasTraversalCache() const noexcept { return mTraversalGrouping.has_value(); }
+  bool hasTraversalCache() const noexcept { return mTraversalCacheValid; }
   // Authoritative per-surface-position nominal material resolved once by the
   // most recent successful initialiseTimeFrame() call, from
   // SurfaceDescriptor::material via this iteration's orderedSurfaces mapping
@@ -234,36 +233,15 @@ class TrackerTraits
   int requireSurfacePosition(int iteration, SurfaceId id) const;
 
   // Gate 4 C2 Slice 1: the sole global-TransitionId/CellTopologyId-to-
-  // compact-scratch-slot translation used anywhere in this class. Called
-  // exactly once per traversal loop head or per dynamically-discovered
-  // neighbour id (never inside a per-candidate inner loop -- see call sites
-  // in TrackerTraits.cxx). With no binding adopted (mBinding == nullptr),
-  // returns the id's raw .value() unchanged, i.e. an identity mapping --
-  // this is exactly today's Gate 3 behavior, where the detector-only static
-  // catalog already makes global ids dense/compact per detector. With a
-  // binding adopted, returns its checked scratch slot or throws
-  // TraversalFailureReason::TraversalBindingMismatch before the caller can
-  // use an unmapped id to index scratch.
+  // compact-scratch-slot translation used anywhere in this class.
   int requireScratchTransitionSlot(int iteration, TransitionId id) const;
   int requireScratchCellSlot(int iteration, CellTopologyId id) const;
-
-  // Gate 4 C2 Slice 1: outer-loop dispatch wrapper used everywhere this class
-  // previously called dispatchTransitionPolicies(grouping, visitor) directly.
-  // With no binding adopted, forwards unchanged to dispatchTransitionPolicies
-  // (identical behavior to before this slice). With a binding adopted,
-  // `grouping` (built from the possibly-multi-detector `layout`) is not used
-  // for tag selection at all: the active tag is derived from the bound sparse
-  // transitions and cached in mActiveTag, so the visitor is invoked exactly
-  // once with the binding's filtered transition/cell spans. This prevents a
-  // combined (both-tags-present) grouping from firing the visitor twice.
-  template <typename Visitor>
-  void dispatchActivePolicy(const TransitionPolicyGrouping& grouping, Visitor&& visitor) const;
 
   // M5c: the compact, operation-local replacement for the four
   // detector-family/TransitionPolicyTag runtime branches that used to live
   // directly in computeLayerTracklets()/computeLayerCells()/
-  // findCellsNeighbours()/findRoads() (one dispatchActivePolicy() call each,
-  // every call). Holds only already-bound member-function pointers -- never
+  // findCellsNeighbours()/findRoads() (one family selection each call).
+  // Holds only already-bound member-function pointers -- never
   // the TransitionPolicyTag (or the family it maps to) that selected them --
   // so those four shared hot-loop entry points below consume it with no Tag/
   // family branch of their own. Plain pointers-to-member, deliberately not a
@@ -278,7 +256,7 @@ class TrackerTraits
   // mCylinderPolicyParams/mDiskPolicyParams. bindTraversalOperation()
   // (TrackerTraits.cxx) is this struct's only producer: it fills every
   // member exactly once per successful initialiseTimeFrame() call, from
-  // that call's already-validated activeTag/params/grouping (activeTag itself
+  // that call's already-validated activeTag/params/binding (activeTag itself
   // derived earlier in the same call from actual endpoint SurfaceDescriptor
   // kinds via validateSparsePlan()'s tagOf(), never from NLayers or
   // detector identity). resetTraversalCache() clears it back to unbound,
@@ -296,11 +274,11 @@ class TrackerTraits
     FindRoadsFn findRoads = nullptr;
     // The ids computeTracklets/computeCells/findNeighbours were bound
     // against -- resolved once by bindTraversalOperation(), from the same
-    // grouping/binding lookup the removed per-call dispatch used to redo on
+    // binding lookup rather than a per-call family dispatch
     // every call. Not a tag/family/detector-id/SurfaceKindPair: plain sparse
     // topology ids, non-owning, valid for exactly the traversal cache's own
     // lifetime (see resetTraversalCache()). findRoads needs none: its target
-    // wrapper reads mTraversalGrouping/mBinding's road-start cells directly,
+    // wrapper reads the binding's road-start cells directly,
     // exactly as findRoadsForPolicy<Tag> already did before this slice.
     gsl::span<const TransitionId> boundTransitionIds{};
     gsl::span<const CellTopologyId> boundCellIds{};
@@ -377,7 +355,7 @@ class TrackerTraits
   std::shared_ptr<BoundedMemoryResource> mMemoryPool;
   std::shared_ptr<tbb::task_arena> mTaskArena;
   SurfaceGraphView mTraversalGraph{};
-  std::optional<TransitionPolicyGrouping> mTraversalGrouping;
+  bool mTraversalCacheValid{false};
   std::optional<CylinderCylinderPolicyParams> mCylinderPolicyParams;
   std::optional<DiskDiskPolicyParams> mDiskPolicyParams;
   // M5c: see TraversalOperationBinding's own doc above.
@@ -402,7 +380,7 @@ class TrackerTraits
   //
   // Commit contract: resolved into a local scratch array first and only
   // copied here at the very end of initialiseTimeFrame(), alongside every
-  // other traversal cache (mTraversalGrouping et al.) -- never as soon as
+  // other traversal cache -- never as soon as
   // material validation itself passes. A later fallible check in the same
   // call (index-table binding, legacy topology parity, state-family, or any
   // other policy/geometry validation) must not leave this populated from an
@@ -434,9 +412,7 @@ class TrackerTraits
   // Generic accepted candidates are retained only until shared-cluster
   // marking and the final adapter-owned publication seal complete.
   bounded_vector<TrackingCandidate> mAcceptedTracksForSharedStatus;
-  // M6f: non-owning pointer to the adopted common-CA plan binding. It is
-  // populated by production adapters before traversal; nullptr is retained
-  // only for identity-indexed direct algorithm tests (see above).
+  // M6f: non-owning pointer to the adopted common-CA plan binding.
   const SurfacePlanBinding* mBinding = nullptr;
 
  protected:

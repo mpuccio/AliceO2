@@ -48,7 +48,7 @@ enum class IndexTableConfigError : uint8_t {
 /// Binds and validates one iteration's TrackingParameters into `staged`,
 /// dispatched at compile time on the transition-policy Tag. The caller must
 /// resolve Tag exclusively from the validated SurfaceGraph/
-/// TransitionPolicyGrouping for this iteration -- never from NLayers or
+/// SurfacePlanBinding's active family for this iteration -- never from NLayers or
 /// DetId. Every field of `params` is validated before `staged` is mutated;
 /// on any error `staged` is left completely untouched. Must be called once
 /// per iteration, outside any candidate/neighbour/road loop.

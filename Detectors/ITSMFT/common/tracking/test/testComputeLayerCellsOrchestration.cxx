@@ -255,7 +255,7 @@ void checkSurfaceKinematicStateEqual(const SurfaceKinematicState& lhs, const Sur
 
 // Minimal wiring TrackerTraits<NLayers>::computeLayerCells() needs: a real
 // layout/topology (so initialiseTimeFrame() genuinely binds
-// mTraversalGrouping/mCylinderPolicyParams|mDiskPolicyParams/mAttachHitConfig
+// the transition/cell schedule and policy parameters
 // -- computeLayerCells()'s own private caches, never poked directly), and a
 // validly-sized-but-empty normalized load (proven pattern from
 // testTrackerFailureContract.cxx: TimeFrame::initialise() unconditionally
@@ -318,6 +318,15 @@ struct Rig {
     const auto loadResult = tf.loadNormalizedSource(frame, decoder, origin, timing, noClusters, noPatterns, noRofs, &dict(), nullptr, mDet,
                                                     gsl::span<const SurfaceId>{loadOrderedSurfaces}, plan->front().getSurfaceCatalog());
     BOOST_REQUIRE(loadResult.ok());
+    SurfaceMask owned;
+    for (const auto surface : plan->front().getOrderedSurfaces()) {
+      owned.set(surface);
+    }
+    auto bindingResult = SurfacePlanBinding::build(plan->front().getView(), ClusterSourceId{0}, owned,
+                                                   plan->front().getOrderedSurfaces(), mKind);
+    BOOST_REQUIRE(bindingResult.ok());
+    traits.adoptSurfacePlanBinding(bindingResult.binding.get());
+    binding = std::move(bindingResult.binding);
   }
 
   o2::detectors::DetID::ID detector() const noexcept { return mDet; }
@@ -336,6 +345,7 @@ struct Rig {
   // first and destroyed last.
   std::vector<SurfaceDescriptor> catalog;
   std::optional<std::vector<SurfaceGraph>> plan;
+  std::unique_ptr<SurfacePlanBinding> binding;
 
  private:
   o2::detectors::DetID::ID mDet;

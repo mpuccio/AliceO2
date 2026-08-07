@@ -14,22 +14,15 @@
 // temporary traversal bridge when M6d/M6e wiring completed; no second binding
 // implementation remains in common production code. Confined to detail/ --
 // private hot-loop-dispatch implementation, never a public/adapter-facing
-// contract, like every other header under this directory (see
-// TransitionPolicy.h's own file-level doc):
-// TransitionPolicyTag must never be nameable outside this boundary.
+// contract, like every other header under this directory.
 //
 // The two behavioral changes from the former traversal binding::build() that
 // the design note specifies:
 // 1. no detector-identity allow-list (the old `detector != ITS && detector
 //    != MFT` gate is gone -- ownership/topology validation below already
 //    fully determines correctness without it);
-// 2. `expectedKind`/`expectedPolicy` are caller-supplied parameters instead
-//    of being derived internally from a `detector` switch. They are no
-//    longer guaranteed mutually consistent by construction, so build() adds
-//    one new preflight check for that -- IncompatibleExpectedPolicyKind
-//    below -- using the same isSurfaceKindCompatible() the rest of this
-//    library already uses as its single shared policy/surface-kind
-//    compatibility rule (TransitionPolicy.h).
+// 2. `expectedKind` is a caller-supplied parameter instead of being derived
+//    internally from a detector switch.
 //
 // A third `detector` use the design note's "only two lines" framing did not
 // separately enumerate -- the retired traversal binding::build() also checked
@@ -48,15 +41,16 @@
 
 #ifndef GPUCA_GPUCODE
 
+#include <algorithm>
 #include <cstdint>
 #include <memory>
 #include <optional>
+#include <queue>
 #include <vector>
 
 #include <gsl/span>
 
 #include "ITSMFTTracking/SurfaceGraph.h"
-#include "ITSMFTTracking/detail/TransitionPolicyDispatch.h"
 
 namespace o2::itsmft::tracking
 {
@@ -64,7 +58,6 @@ namespace o2::itsmft::tracking
 enum class SurfacePlanBindingError : uint8_t {
   None,
   InvalidSource,
-  IncompatibleExpectedPolicyKind,
   InvalidSurfaceMask,
   InvalidLegacySurfaceOrder,
   InvalidTopology,
@@ -84,7 +77,6 @@ class SurfacePlanBinding
     SurfaceMask ownedSurfaces{};
     std::vector<SurfaceId> orderedSurfaces;
     SurfaceKind expectedKind{SurfaceKind::Cylinder};
-    TransitionPolicyTag expectedPolicy{TransitionPolicyTag::Invalid};
   };
 
   struct BuildResult {
@@ -96,22 +88,15 @@ class SurfacePlanBinding
   // `orderedSurfaces` maps position i to a global SurfaceId -- the only
   // global-to-positional projection here, exactly as
   // the retired traversal binding::build()'s own `legacySurfaceOrder` parameter.
-  // `expectedKind`/`expectedPolicy` are the caller's own already-derived
-  // family selection (e.g. from its own plan's surface kinds, mirroring
-  // M4b's stateFamilyOf(SurfaceKind)/decision 8's
-  // transitionPolicyTagForSurfaceKind()) -- never derived here from a
-  // detector identity, since this type accepts none.
+  // `expectedKind` is the caller's own already-derived family selection,
+  // never derived here from a detector identity.
   static BuildResult build(const SurfaceGraphView& globalLayout,
                            ClusterSourceId source,
                            SurfaceMask ownedSurfaces,
                            gsl::span<const SurfaceId> orderedSurfaces,
-                           SurfaceKind expectedKind,
-                           TransitionPolicyTag expectedPolicy)
+                           SurfaceKind expectedKind)
   {
     auto result = std::make_unique<SurfacePlanBinding>();
-    if (!isSurfaceKindCompatible(expectedPolicy, expectedKind)) {
-      return {{}, SurfacePlanBindingError::IncompatibleExpectedPolicyKind};
-    }
     if (!source.isValid()) {
       return {{}, SurfacePlanBindingError::InvalidSource};
     }
@@ -144,11 +129,54 @@ class SurfacePlanBinding
       }
     }
 
-    const TransitionPolicyGrouping grouping{globalLayout};
-    if (!grouping.valid()) {
+    if ((globalLayout.nTransitions != 0 && globalLayout.transitions == nullptr) ||
+        (globalLayout.nCells != 0 && globalLayout.cells == nullptr)) {
       return {{}, SurfacePlanBindingError::InvalidTopology};
     }
     const auto& topology = globalLayout;
+    std::vector<uint32_t> indegree(topology.nSurfaces, 0);
+    std::vector<uint32_t> rank(topology.nSurfaces, 0);
+    for (uint32_t id = 0; id < topology.nTransitions; ++id) {
+      const auto& transition = topology.getTransition(TransitionId{static_cast<uint16_t>(id)});
+      if (!transition.from.isValid() || !transition.to.isValid() ||
+          transition.from.value() >= topology.nSurfaces || transition.to.value() >= topology.nSurfaces) {
+        return {{}, SurfacePlanBindingError::InvalidTopology};
+      }
+      ++indegree[transition.to.value()];
+    }
+    const auto laterSurface = [](SurfaceId lhs, SurfaceId rhs) { return rhs < lhs; };
+    std::priority_queue<SurfaceId, std::vector<SurfaceId>, decltype(laterSurface)> ready{laterSurface};
+    for (uint16_t surface = 0; surface < topology.nSurfaces; ++surface) {
+      if (indegree[surface] == 0) {
+        ready.push(SurfaceId{surface});
+      }
+    }
+    uint32_t visited = 0;
+    while (!ready.empty()) {
+      const auto surface = ready.top();
+      ready.pop();
+      ++visited;
+      for (uint32_t id = 0; id < topology.nTransitions; ++id) {
+        const auto& transition = topology.getTransition(TransitionId{static_cast<uint16_t>(id)});
+        if (transition.from != surface) {
+          continue;
+        }
+        rank[transition.to.value()] = std::max(rank[transition.to.value()], rank[surface.value()] + 1);
+        if (--indegree[transition.to.value()] == 0) {
+          ready.push(transition.to);
+        }
+      }
+    }
+    if (visited != topology.nSurfaces) {
+      return {{}, SurfacePlanBindingError::InvalidTopology};
+    }
+    for (uint32_t id = 0; id < topology.nCells; ++id) {
+      const auto& cell = topology.getCell(CellTopologyId{static_cast<uint16_t>(id)});
+      if (!cell.firstTransition.isValid() || !cell.secondTransition.isValid() ||
+          cell.firstTransition.value() >= topology.nTransitions || cell.secondTransition.value() >= topology.nTransitions) {
+        return {{}, SurfacePlanBindingError::InvalidTopology};
+      }
+    }
     result->mScratchTransitionSlot.assign(topology.nTransitions, -1);
     result->mScratchCellSlot.assign(topology.nCells, -1);
 
@@ -174,11 +202,12 @@ class SurfacePlanBinding
       }
     }
 
-    // Existing grouping supplies the authoritative global-ID order. Filter
-    // it only by ownership; never rebuild/rebase a detector-local topology.
-    for (const auto id : grouping.transitionsForTag(expectedPolicy)) {
+    // Filter the immutable global-ID order only by ownership and endpoint
+    // kind; never rebuild/rebase a detector-local topology.
+    for (uint32_t rawId = 0; rawId < topology.nTransitions; ++rawId) {
+      const auto id = TransitionId{static_cast<uint16_t>(rawId)};
       const auto& transition = topology.getTransition(id);
-      if (!ownedSurfaces.has(transition.from)) {
+      if (!ownedSurfaces.has(transition.from) || topology.getSurface(transition.from).kind != expectedKind) {
         continue;
       }
       if (result->mScratchTransitionSlot[id.value()] >= 0) {
@@ -205,7 +234,8 @@ class SurfacePlanBinding
         return {{}, SurfacePlanBindingError::CrossBoundaryCell};
       }
     }
-    for (const auto id : grouping.cellsForTag(expectedPolicy)) {
+    for (uint32_t rawId = 0; rawId < topology.nCells; ++rawId) {
+      const auto id = CellTopologyId{static_cast<uint16_t>(rawId)};
       const auto& cell = topology.getCell(id);
       if (result->mScratchTransitionSlot[cell.firstTransition.value()] < 0) {
         continue;
@@ -222,18 +252,26 @@ class SurfacePlanBinding
         return {{}, SurfacePlanBindingError::IncompleteCellMapping};
       }
     }
-    for (const auto id : grouping.roadStartCellsForTag(expectedPolicy)) {
-      if (result->mScratchCellSlot[id.value()] >= 0) {
+    for (uint32_t rawId = 0; rawId < topology.nCells; ++rawId) {
+      const auto id = CellTopologyId{static_cast<uint16_t>(rawId)};
+      const auto& cell = topology.getCell(id);
+      if (result->mScratchCellSlot[id.value()] >= 0 &&
+          topology.seedingSurfaces.has(topology.getTransition(cell.secondTransition).to)) {
         result->mGlobalRoadStartCells.push_back(id);
       }
     }
-    // Same source grouping as mGlobalCells above, but in
-    // TransitionPolicyGrouping::scheduledCellsForTag()'s rank-sorted
+    // Same source cells as mGlobalCells above, but in rank-sorted
     // (neighbour-schedule) order rather than ascending CellTopologyId order.
     // Every id here is already confirmed owned (mScratchCellSlot valid) by
     // the mGlobalCells loop above, so this is a pure reordering of the same
     // set, never a superset/subset of it.
-    for (const auto id : grouping.scheduledCellsForTag(expectedPolicy)) {
+    std::vector<CellTopologyId> scheduledCells = result->mGlobalCells;
+    std::sort(scheduledCells.begin(), scheduledCells.end(), [&](CellTopologyId lhs, CellTopologyId rhs) {
+      const auto lhsTarget = topology.getTransition(topology.getCell(lhs).secondTransition).to;
+      const auto rhsTarget = topology.getTransition(topology.getCell(rhs).secondTransition).to;
+      return rank[lhsTarget.value()] != rank[rhsTarget.value()] ? rank[lhsTarget.value()] < rank[rhsTarget.value()] : lhs < rhs;
+    });
+    for (const auto id : scheduledCells) {
       if (result->mScratchCellSlot[id.value()] >= 0) {
         result->mGlobalScheduledCells.push_back(id);
       }
@@ -244,8 +282,7 @@ class SurfacePlanBinding
   static BuildResult build(const SurfaceGraphView& globalLayout, const Declaration& declaration)
   {
     return build(globalLayout, declaration.source, declaration.ownedSurfaces,
-                 declaration.orderedSurfaces, declaration.expectedKind,
-                 declaration.expectedPolicy);
+                 declaration.orderedSurfaces, declaration.expectedKind);
   }
 
   ClusterSourceId getSource() const noexcept { return mSource; }

@@ -305,8 +305,7 @@ BOOST_AUTO_TEST_CASE(ProductionITSSurfacePlanBindingMatchesConfiguredTopologyAtR
   const auto itsSurfaces = orderedRange(0, ITSNLayers);
   const auto itsMask = surfaceRangeMaskForTest(0, ITSNLayers);
 
-  const auto binding = SurfacePlanBinding::build(view, ClusterSourceId{0}, itsMask, itsSurfaces,
-                                                 SurfaceKind::Cylinder, TransitionPolicyTag::CylinderCylinder);
+  const auto binding = SurfacePlanBinding::build(view, ClusterSourceId{0}, itsMask, itsSurfaces, SurfaceKind::Cylinder);
   BOOST_REQUIRE(binding.ok());
   size_t ownedTransitions = 0;
   for (uint32_t id = 0; id < view.nTransitions; ++id) {
@@ -390,7 +389,7 @@ BOOST_AUTO_TEST_CASE(StandaloneAndCombinedITSBindingsAgreeOnCompactSlotsByRelati
   }
   const auto standaloneBindingResult = SurfacePlanBinding::build(
     standaloneResult.graphs.front().getView(), ClusterSourceId{0}, standaloneMask,
-    gsl::span<const SurfaceId>{standaloneOrder}, SurfaceKind::Cylinder, TransitionPolicyTag::CylinderCylinder);
+    gsl::span<const SurfaceId>{standaloneOrder}, SurfaceKind::Cylinder);
   BOOST_REQUIRE(standaloneBindingResult.ok());
 
   // Combined: real ITS+MFT combined static catalog, ITS half only.
@@ -403,7 +402,7 @@ BOOST_AUTO_TEST_CASE(StandaloneAndCombinedITSBindingsAgreeOnCompactSlotsByRelati
   const auto combinedMask = surfaceRangeMaskForTest(0, ITSNLayers);
   const auto combinedBindingResult = SurfacePlanBinding::build(
     combinedResult.graphs.front().getView(), ClusterSourceId{0}, combinedMask,
-    gsl::span<const SurfaceId>{combinedOrder}, SurfaceKind::Cylinder, TransitionPolicyTag::CylinderCylinder);
+    gsl::span<const SurfaceId>{combinedOrder}, SurfaceKind::Cylinder);
   BOOST_REQUIRE(combinedBindingResult.ok());
 
   BOOST_CHECK_EQUAL(standaloneBindingResult.binding->getGlobalTransitions().size(), combinedBindingResult.binding->getGlobalTransitions().size());

@@ -317,8 +317,7 @@ BOOST_AUTO_TEST_CASE(combined_owner_load_keeps_detector_backfills_separate)
     for (const auto surface : ordered) {
       owned.set(surface);
     }
-    auto built = SurfacePlanBinding::build(graph.getView(), source, owned, ordered, kind,
-                                           kind == SurfaceKind::Cylinder ? TransitionPolicyTag::CylinderCylinder : TransitionPolicyTag::DiskDisk);
+    auto built = SurfacePlanBinding::build(graph.getView(), source, owned, ordered, kind);
     BOOST_REQUIRE(built.ok());
     capacities.push_back({built.binding->getOrderedSurfaces().size(), built.binding->getGlobalTransitions().size(), built.binding->getGlobalCells().size()});
     bindings.push_back(std::move(built.binding));

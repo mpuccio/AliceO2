@@ -412,7 +412,7 @@ struct RigT {
         owned.set(surface);
       }
       iteration.bindings.push_back(SurfacePlanBinding::Declaration{ClusterSourceId{0}, owned, orderedSurfaces,
-                                                                   SurfaceKind::Cylinder, TransitionPolicyTag::CylinderCylinder});
+                                                                   SurfaceKind::Cylinder});
       configuration.iterations.push_back(std::move(iteration));
     }
     tracker.setSource(ClusterSourceId{0});

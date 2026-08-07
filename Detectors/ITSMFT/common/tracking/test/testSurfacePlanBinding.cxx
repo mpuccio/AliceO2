@@ -50,6 +50,71 @@ SurfaceDescriptor surfaceWithOwner(uint16_t id, SurfaceKind kind, uint8_t detect
   return SurfaceDescriptor{SurfaceId{id}, id, detectorId, kind};
 }
 
+SurfaceTransition adjacent(uint16_t from, uint16_t to)
+{
+  return SurfaceTransition{SurfaceId{from}, SurfaceId{to}, SurfaceMask{}, 0};
+}
+
+struct BuiltLayout {
+  SurfaceGraph layout;
+  std::vector<SurfaceDescriptor> surfaces;
+
+  SurfaceGraphView getView() const noexcept { return layout.getView(); }
+};
+
+BuiltLayout buildChainLayout(uint16_t nSurfaces, SurfaceKind kind, SurfaceMask seedingSurfaces = {})
+{
+  SurfaceGraph topology{nSurfaces, seedingSurfaces};
+  std::vector<TransitionId> transitions;
+  for (uint16_t surface = 0; surface + 1 < nSurfaces; ++surface) {
+    transitions.push_back(topology.addTransition(adjacent(surface, surface + 1)));
+  }
+  for (size_t transition = 0; transition + 1 < transitions.size(); ++transition) {
+    topology.addCell(transitions[transition], transitions[transition + 1]);
+  }
+  BOOST_REQUIRE(topology.finalize());
+  std::vector<SurfaceDescriptor> surfaces;
+  for (uint16_t id = 0; id < nSurfaces; ++id) {
+    surfaces.push_back(surfaceWithOwner(id, kind, 250));
+  }
+  return BuiltLayout{SurfaceGraph{surfaces, std::move(topology)}, std::move(surfaces)};
+}
+
+BuiltLayout buildTwoChainsLayout(uint16_t firstSurfaces, uint16_t secondSurfaces, SurfaceKind kind, SurfaceMask seedingSurfaces = {})
+{
+  const uint16_t totalSurfaces = static_cast<uint16_t>(firstSurfaces + secondSurfaces);
+  SurfaceGraph topology{totalSurfaces, seedingSurfaces};
+  std::vector<TransitionId> firstTransitions;
+  std::vector<TransitionId> secondTransitions;
+  for (uint16_t surface = 0; surface + 1 < firstSurfaces; ++surface) {
+    firstTransitions.push_back(topology.addTransition(adjacent(surface, surface + 1)));
+  }
+  for (uint16_t surface = firstSurfaces; surface + 1 < totalSurfaces; ++surface) {
+    secondTransitions.push_back(topology.addTransition(adjacent(surface, surface + 1)));
+  }
+  for (size_t transition = 0; transition + 1 < firstTransitions.size(); ++transition) {
+    topology.addCell(firstTransitions[transition], firstTransitions[transition + 1]);
+  }
+  for (size_t transition = 0; transition + 1 < secondTransitions.size(); ++transition) {
+    topology.addCell(secondTransitions[transition], secondTransitions[transition + 1]);
+  }
+  BOOST_REQUIRE(topology.finalize());
+  std::vector<SurfaceDescriptor> surfaces;
+  for (uint16_t id = 0; id < totalSurfaces; ++id) {
+    surfaces.push_back(surfaceWithOwner(id, kind, 250));
+  }
+  return BuiltLayout{SurfaceGraph{surfaces, std::move(topology)}, std::move(surfaces)};
+}
+
+SurfaceMask allSurfaces(uint16_t nSurfaces)
+{
+  SurfaceMask result;
+  for (uint16_t id = 0; id < nSurfaces; ++id) {
+    result.set(SurfaceId{id});
+  }
+  return result;
+}
+
 // --- Shared ITS+MFT combined-catalog fixture. Per-file-local fixtures are
 // this test directory's existing convention. ---
 struct CombinedLayout {
@@ -117,16 +182,100 @@ void checkBindingCoversOwnedTopology(const SurfacePlanBinding& binding, const Su
   }
 }
 
+BOOST_AUTO_TEST_CASE(SurfacePlanBindingPreservesExactGlobalAndScheduledCellOrder)
+{
+  auto layout = buildChainLayout(7, SurfaceKind::Cylinder, maskOf(2) | maskOf(4));
+  const auto order = ordered(0, 7);
+  const auto result = SurfacePlanBinding::build(layout.getView(), ClusterSourceId{0}, allSurfaces(7), order, SurfaceKind::Cylinder);
+  BOOST_REQUIRE(result.ok());
+
+  const auto transitions = result.binding->getGlobalTransitions();
+  const auto cells = result.binding->getGlobalCells();
+  const auto scheduled = result.binding->getGlobalScheduledCells();
+  const auto roadStarts = result.binding->getGlobalRoadStartCells();
+  BOOST_REQUIRE_EQUAL(transitions.size(), 6u);
+  BOOST_REQUIRE_EQUAL(cells.size(), 5u);
+  BOOST_REQUIRE_EQUAL(scheduled.size(), 5u);
+  BOOST_REQUIRE_EQUAL(roadStarts.size(), 2u);
+  for (uint16_t id = 0; id < transitions.size(); ++id) {
+    BOOST_CHECK(transitions[id] == TransitionId{id});
+  }
+  for (uint16_t id = 0; id < cells.size(); ++id) {
+    BOOST_CHECK(cells[id] == CellTopologyId{id});
+    BOOST_CHECK(scheduled[id] == CellTopologyId{id});
+  }
+  BOOST_CHECK(roadStarts[0] == CellTopologyId{0});
+  BOOST_CHECK(roadStarts[1] == CellTopologyId{2});
+}
+
+BOOST_AUTO_TEST_CASE(SurfacePlanBindingPreservesRankOrderForNonMonotonicPlan)
+{
+  const std::vector<SurfaceId> order{SurfaceId{3}, SurfaceId{1}, SurfaceId{4}, SurfaceId{0}};
+  std::vector<SurfaceDescriptor> surfaces;
+  for (uint16_t id = 0; id < 5; ++id) {
+    surfaces.push_back(surfaceWithOwner(id, SurfaceKind::Cylinder, 250));
+  }
+  SurfaceGraphBuilder builder{SurfaceCatalogView{surfaces.data(), static_cast<uint32_t>(surfaces.size())}};
+  auto built = builder.addSubgraph({order, 0, SurfaceMask{}, SurfaceMask{}}).build();
+  BOOST_REQUIRE(built.ok());
+  SurfaceMask owned;
+  for (const auto surface : order) {
+    owned.set(surface);
+  }
+  const auto result = SurfacePlanBinding::build(built.graph->getView(), ClusterSourceId{0}, owned, order, SurfaceKind::Cylinder);
+  BOOST_REQUIRE(result.ok());
+  const auto scheduled = result.binding->getGlobalScheduledCells();
+  BOOST_REQUIRE_EQUAL(scheduled.size(), 2u);
+  BOOST_CHECK(scheduled[0] == CellTopologyId{0});
+  BOOST_CHECK(scheduled[1] == CellTopologyId{1});
+}
+
+BOOST_AUTO_TEST_CASE(SurfacePlanBindingSeparatesDisconnectedDetectorSchedules)
+{
+  auto layout = buildTwoChainsLayout(7, 10, SurfaceKind::Cylinder, maskOf(2) | maskOf(9));
+  const auto firstResult = SurfacePlanBinding::build(layout.getView(), ClusterSourceId{0}, allSurfaces(7), ordered(0, 7), SurfaceKind::Cylinder);
+  SurfaceMask second;
+  for (uint16_t id = 7; id < 17; ++id) {
+    second.set(SurfaceId{id});
+  }
+  const auto secondResult = SurfacePlanBinding::build(layout.getView(), ClusterSourceId{1}, second, ordered(7, 10), SurfaceKind::Cylinder);
+  BOOST_REQUIRE(firstResult.ok());
+  BOOST_REQUIRE(secondResult.ok());
+  BOOST_REQUIRE_EQUAL(firstResult.binding->getGlobalScheduledCells().size(), 5u);
+  BOOST_REQUIRE_EQUAL(secondResult.binding->getGlobalScheduledCells().size(), 8u);
+  BOOST_CHECK(firstResult.binding->getGlobalScheduledCells()[0] == CellTopologyId{0});
+  BOOST_CHECK(secondResult.binding->getGlobalScheduledCells()[0] == CellTopologyId{5});
+  BOOST_REQUIRE_EQUAL(firstResult.binding->getGlobalRoadStartCells().size(), 1u);
+  BOOST_REQUIRE_EQUAL(secondResult.binding->getGlobalRoadStartCells().size(), 1u);
+  BOOST_CHECK(firstResult.binding->getGlobalRoadStartCells()[0] == CellTopologyId{0});
+  BOOST_CHECK(secondResult.binding->getGlobalRoadStartCells()[0] == CellTopologyId{5});
+}
+
+BOOST_AUTO_TEST_CASE(SurfacePlanBindingRejectsCyclicTopology)
+{
+  SurfaceGraph topology{3};
+  BOOST_REQUIRE(topology.addTransition(adjacent(0, 1)).isValid());
+  BOOST_REQUIRE(topology.addTransition(adjacent(1, 2)).isValid());
+  BOOST_REQUIRE(topology.addTransition(adjacent(2, 0)).isValid());
+  BOOST_REQUIRE(topology.finalize());
+  std::vector<SurfaceDescriptor> surfaces;
+  for (uint16_t id = 0; id < 3; ++id) {
+    surfaces.push_back(surfaceWithOwner(id, SurfaceKind::Cylinder, 250));
+  }
+  SurfaceGraph layout{surfaces, std::move(topology)};
+  const auto result = SurfacePlanBinding::build(layout.getView(), ClusterSourceId{0}, allSurfaces(3), ordered(0, 3), SurfaceKind::Cylinder);
+  BOOST_REQUIRE(!result.ok());
+  BOOST_CHECK(result.error == SurfacePlanBindingError::InvalidTopology);
+}
+
 } // namespace
 
 BOOST_AUTO_TEST_CASE(SurfacePlanBindingMapsCombinedItsAndMftPlans)
 {
   CombinedLayout combined;
 
-  const auto its = SurfacePlanBinding::build(combined.view, ClusterSourceId{0}, itsMask(), ordered(0, ITSNLayers),
-                                             SurfaceKind::Cylinder, TransitionPolicyTag::CylinderCylinder);
-  const auto mft = SurfacePlanBinding::build(combined.view, ClusterSourceId{1}, mftMask(), ordered(ITSNLayers, MFTNLayers),
-                                             SurfaceKind::Disk, TransitionPolicyTag::DiskDisk);
+  const auto its = SurfacePlanBinding::build(combined.view, ClusterSourceId{0}, itsMask(), ordered(0, ITSNLayers), SurfaceKind::Cylinder);
+  const auto mft = SurfacePlanBinding::build(combined.view, ClusterSourceId{1}, mftMask(), ordered(ITSNLayers, MFTNLayers), SurfaceKind::Disk);
   BOOST_REQUIRE(its.ok());
   BOOST_REQUIRE(mft.ok());
 
@@ -156,8 +305,7 @@ BOOST_AUTO_TEST_CASE(SurfacePlanBindingBuildsForASyntheticNonItsMftDetector)
   for (uint16_t id = 0; id < 4; ++id) {
     owned.set(SurfaceId{id});
   }
-  const auto result = SurfacePlanBinding::build(view, ClusterSourceId{7}, owned, ordered(0, 4),
-                                                SurfaceKind::Cylinder, TransitionPolicyTag::CylinderCylinder);
+  const auto result = SurfacePlanBinding::build(view, ClusterSourceId{7}, owned, ordered(0, 4), SurfaceKind::Cylinder);
   BOOST_REQUIRE(result.ok());
   BOOST_CHECK_EQUAL(result.binding->getGlobalTransitions().size(), 3u);
   BOOST_CHECK_EQUAL(result.binding->getGlobalCells().size(), 2u);
@@ -186,8 +334,7 @@ BOOST_AUTO_TEST_CASE(SparsePlanPositionsAreTheOnlyRuntimeCountAndOrderAuthority)
   BOOST_REQUIRE(built.ok());
   const auto masks = computeSurfaceKindMasks(surfaces);
   const auto view = built.graph->getView();
-  const auto bindingResult = SurfacePlanBinding::build(view, ClusterSourceId{7}, owned, planOrder,
-                                                       SurfaceKind::Cylinder, TransitionPolicyTag::CylinderCylinder);
+  const auto bindingResult = SurfacePlanBinding::build(view, ClusterSourceId{7}, owned, planOrder, SurfaceKind::Cylinder);
   BOOST_REQUIRE(bindingResult.ok());
   const auto& binding = *bindingResult.binding;
 
@@ -248,26 +395,24 @@ BOOST_AUTO_TEST_CASE(SparsePlanPositionsAreTheOnlyRuntimeCountAndOrderAuthority)
 BOOST_AUTO_TEST_CASE(RejectsInvalidSource)
 {
   CombinedLayout combined;
-  const auto result = SurfacePlanBinding::build(combined.view, ClusterSourceId{}, itsMask(), ordered(0, ITSNLayers),
-                                                SurfaceKind::Cylinder, TransitionPolicyTag::CylinderCylinder);
+  const auto result = SurfacePlanBinding::build(combined.view, ClusterSourceId{}, itsMask(), ordered(0, ITSNLayers), SurfaceKind::Cylinder);
   BOOST_REQUIRE(!result.ok());
   BOOST_CHECK(result.error == SurfacePlanBindingError::InvalidSource);
 }
 
-BOOST_AUTO_TEST_CASE(RejectsIncompatibleExpectedPolicyKind)
+BOOST_AUTO_TEST_CASE(RejectsUnexpectedSurfaceKind)
 {
   CombinedLayout combined;
   const auto result = SurfacePlanBinding::build(combined.view, ClusterSourceId{0}, itsMask(), ordered(0, ITSNLayers),
-                                                SurfaceKind::Disk, TransitionPolicyTag::CylinderCylinder);
+                                                SurfaceKind::Disk);
   BOOST_REQUIRE(!result.ok());
-  BOOST_CHECK(result.error == SurfacePlanBindingError::IncompatibleExpectedPolicyKind);
+  BOOST_CHECK(result.error == SurfacePlanBindingError::InvalidPolicySurface);
 }
 
 BOOST_AUTO_TEST_CASE(RejectsSurfaceMaskSizeMismatch)
 {
   CombinedLayout combined;
-  const auto result = SurfacePlanBinding::build(combined.view, ClusterSourceId{0}, itsMask(), ordered(0, ITSNLayers - 1),
-                                                SurfaceKind::Cylinder, TransitionPolicyTag::CylinderCylinder);
+  const auto result = SurfacePlanBinding::build(combined.view, ClusterSourceId{0}, itsMask(), ordered(0, ITSNLayers - 1), SurfaceKind::Cylinder);
   BOOST_REQUIRE(!result.ok());
   BOOST_CHECK(result.error == SurfacePlanBindingError::InvalidSurfaceMask);
 }
@@ -283,8 +428,7 @@ BOOST_AUTO_TEST_CASE(RejectsSurfaceMaskNotASubsetOfLayout)
 
   SurfaceMask outOfRange = maskOf(0) | maskOf(1) | maskOf(5); // surface 5 does not exist in this 2-surface layout
   const std::vector<SurfaceId> order{SurfaceId{0}, SurfaceId{1}, SurfaceId{5}};
-  const auto result = SurfacePlanBinding::build(view, ClusterSourceId{0}, outOfRange, order,
-                                                SurfaceKind::Cylinder, TransitionPolicyTag::CylinderCylinder);
+  const auto result = SurfacePlanBinding::build(view, ClusterSourceId{0}, outOfRange, order, SurfaceKind::Cylinder);
   BOOST_REQUIRE(!result.ok());
   BOOST_CHECK(result.error == SurfacePlanBindingError::InvalidSurfaceMask);
 }
@@ -294,8 +438,7 @@ BOOST_AUTO_TEST_CASE(RejectsDuplicateSurfaceInOrder)
   CombinedLayout combined;
   auto order = ordered(0, ITSNLayers);
   order[1] = order[0]; // duplicate
-  const auto result = SurfacePlanBinding::build(combined.view, ClusterSourceId{0}, itsMask(), order,
-                                                SurfaceKind::Cylinder, TransitionPolicyTag::CylinderCylinder);
+  const auto result = SurfacePlanBinding::build(combined.view, ClusterSourceId{0}, itsMask(), order, SurfaceKind::Cylinder);
   BOOST_REQUIRE(!result.ok());
   BOOST_CHECK(result.error == SurfacePlanBindingError::InvalidLegacySurfaceOrder);
 }
@@ -305,8 +448,7 @@ BOOST_AUTO_TEST_CASE(RejectsUnownedSurfaceInOrder)
   CombinedLayout combined;
   SurfaceMask owned = maskOf(0);
   const std::vector<SurfaceId> order{SurfaceId{1}}; // count matches (1) but surface 1 is not owned
-  const auto result = SurfacePlanBinding::build(combined.view, ClusterSourceId{0}, owned, order,
-                                                SurfaceKind::Cylinder, TransitionPolicyTag::CylinderCylinder);
+  const auto result = SurfacePlanBinding::build(combined.view, ClusterSourceId{0}, owned, order, SurfaceKind::Cylinder);
   BOOST_REQUIRE(!result.ok());
   BOOST_CHECK(result.error == SurfacePlanBindingError::InvalidLegacySurfaceOrder);
 }
@@ -330,8 +472,7 @@ BOOST_AUTO_TEST_CASE(SurfacePlanBindingBuildsAcrossMultipleDistinctDetectorIdent
   const auto view = built.graph->getView();
 
   SurfaceMask owned = maskOf(0) | maskOf(1) | maskOf(2);
-  const auto result = SurfacePlanBinding::build(view, ClusterSourceId{0}, owned, ordered(0, 3),
-                                                SurfaceKind::Cylinder, TransitionPolicyTag::CylinderCylinder);
+  const auto result = SurfacePlanBinding::build(view, ClusterSourceId{0}, owned, ordered(0, 3), SurfaceKind::Cylinder);
   BOOST_REQUIRE(result.ok());
   BOOST_CHECK_EQUAL(result.binding->getGlobalTransitions().size(), 2u);
   BOOST_CHECK_EQUAL(result.binding->getGlobalCells().size(), 1u);
@@ -351,10 +492,8 @@ BOOST_AUTO_TEST_CASE(RejectsPolicySurfaceKindMismatch)
   const auto view = built.graph->getView();
 
   SurfaceMask owned = maskOf(0) | maskOf(1);
-  // expectedKind/expectedPolicy are self-consistent (Cylinder/CylinderCylinder)
-  // but disagree with the actual Disk-kind surfaces in `view`.
-  const auto result = SurfacePlanBinding::build(view, ClusterSourceId{0}, owned, ordered(0, 2),
-                                                SurfaceKind::Cylinder, TransitionPolicyTag::CylinderCylinder);
+  // expectedKind disagrees with the actual Disk-kind surfaces in `view`.
+  const auto result = SurfacePlanBinding::build(view, ClusterSourceId{0}, owned, ordered(0, 2), SurfaceKind::Cylinder);
   BOOST_REQUIRE(!result.ok());
   BOOST_CHECK(result.error == SurfacePlanBindingError::InvalidPolicySurface);
 }
@@ -371,17 +510,14 @@ BOOST_AUTO_TEST_CASE(RejectsCrossBoundaryTransition)
   // Own only surface 0: the 0->1 transition has fromOwned=true, toOwned=false.
   SurfaceMask owned = maskOf(0);
   const std::vector<SurfaceId> order{SurfaceId{0}};
-  const auto result = SurfacePlanBinding::build(view, ClusterSourceId{0}, owned, order,
-                                                SurfaceKind::Cylinder, TransitionPolicyTag::CylinderCylinder);
+  const auto result = SurfacePlanBinding::build(view, ClusterSourceId{0}, owned, order, SurfaceKind::Cylinder);
   BOOST_REQUIRE(!result.ok());
   BOOST_CHECK(result.error == SurfacePlanBindingError::CrossBoundaryTransition);
 }
 
 BOOST_AUTO_TEST_CASE(RejectsCrossBoundaryCell)
 {
-  // Hand-built raw view (SurfaceGraphView/SurfaceGraphView are
-  // trivially-copyable PODs -- same technique testTransitionPolicyDispatch.cxx's
-  // ConstructorFailureClearsRoadStartCellsAlongsideAllGroups already uses):
+  // Hand-built raw view (the graph-view types are trivially-copyable PODs):
   // every transition individually satisfies the from/to ownership-parity
   // check (0,1,2 all owned), but the one cell's own hitSurfaces mask includes
   // surface 3 -- present in the catalog, untouched by either transition, and
@@ -407,8 +543,7 @@ BOOST_AUTO_TEST_CASE(RejectsCrossBoundaryCell)
 
   SurfaceMask owned = maskOf(0) | maskOf(1) | maskOf(2); // surface 3 not owned
   const std::vector<SurfaceId> order{SurfaceId{0}, SurfaceId{1}, SurfaceId{2}};
-  const auto result = SurfacePlanBinding::build(layoutView, ClusterSourceId{0}, owned, order,
-                                                SurfaceKind::Cylinder, TransitionPolicyTag::CylinderCylinder);
+  const auto result = SurfacePlanBinding::build(layoutView, ClusterSourceId{0}, owned, order, SurfaceKind::Cylinder);
   BOOST_REQUIRE(!result.ok());
   BOOST_CHECK(result.error == SurfacePlanBindingError::CrossBoundaryCell);
 }
@@ -417,7 +552,7 @@ BOOST_AUTO_TEST_CASE(RejectsInvalidTopology)
 {
   // Same corruption technique as RejectsCrossBoundaryCell above, but this
   // time the second cell references an out-of-range TransitionId, so
-  // TransitionPolicyGrouping's own constructor rejects the whole schedule
+  // SurfacePlanBinding's topology validation rejects the whole schedule
   // (InvalidCellTransition) before SurfacePlanBinding::build() ever reaches
   // its own per-cell ownership checks.
   std::array<SurfaceDescriptor, 3> surfaces{
@@ -438,8 +573,7 @@ BOOST_AUTO_TEST_CASE(RejectsInvalidTopology)
   SurfaceGraphView layoutView{surfaces.data(), static_cast<uint32_t>(surfaces.size()), nullptr, 0, cylinderSurfaces, {}, transitions.data(), cells.data(), offsets.data(), byFirstTransition.data(), {}, static_cast<uint32_t>(transitions.size()), static_cast<uint32_t>(cells.size())};
 
   SurfaceMask owned = maskOf(0) | maskOf(1) | maskOf(2);
-  const auto result = SurfacePlanBinding::build(layoutView, ClusterSourceId{0}, owned, ordered(0, 3),
-                                                SurfaceKind::Cylinder, TransitionPolicyTag::CylinderCylinder);
+  const auto result = SurfacePlanBinding::build(layoutView, ClusterSourceId{0}, owned, ordered(0, 3), SurfaceKind::Cylinder);
   BOOST_REQUIRE(!result.ok());
   BOOST_CHECK(result.error == SurfacePlanBindingError::InvalidTopology);
 }
