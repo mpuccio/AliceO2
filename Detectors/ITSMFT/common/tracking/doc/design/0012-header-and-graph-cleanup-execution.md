@@ -1,6 +1,6 @@
 # Header and graph cleanup execution
 
-- Status: Campaign C accepted; comment and inventory campaign in progress
+- Status: Campaign D accepted; execution complete at the test-only prototype stop line
 - Date: 2026-08-07
 - Integration branch: `codex/itsmft-header-graph-cleanup`
 - Base: `86113f2a14`
@@ -85,6 +85,10 @@ lifetime, device, numerical, failure, and physics invariants. Add a source
 guard for the final inventory, retired paths/symbols, detail-only workflow
 includes, and generic-core detector/layer-count authority.
 
+The comment-only slices and the final inventory/source guard were integrated
+without behavioral changes. The enforced endpoint is exactly 36 public and 12
+`detail/` headers.
+
 ### Campaign D: test-only pair-list prototype
 
 Add a non-production helper that accepts ordered active components,
@@ -99,6 +103,11 @@ hole policy, seeding eligibility, and adjacency—remain independent.
 Campaign gate D is the stop point. Production pair-list authority, dynamic
 hole traversal, and mixed cylinder/disk edges require a later decision and
 physics campaign.
+
+Campaign D passed its complete build, test, authentication, fixture, and
+frozen-replay gate. The pair-list evidence and full gate record are in
+[the prototype validation](../validation/campaign-d-pair-list-prototype.md)
+and [Campaign D validation](../validation/header-graph-cleanup-campaign-d.md).
 
 ## Validation contract
 
