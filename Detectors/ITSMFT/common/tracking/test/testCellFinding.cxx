@@ -19,6 +19,7 @@
 #include "ITSMFTTracking/BarrelSurfaceStateOperations.h"
 #include "ITSMFTTracking/ForwardSurfaceStateOperations.h"
 #include "ITSMFTTracking/MaterialPhysics.h"
+#include "ITSMFTTracking/Propagator.h"
 #include "ITSMFTTracking/detail/CellFinding.h"
 #include "ITStracking/Cluster.h"
 
@@ -260,16 +261,12 @@ SurfaceMeasurement diskMeasurementInner() { return diskMeasurementFor(diskCluste
 SurfaceMeasurement diskMeasurementMiddle() { return diskMeasurementFor(diskClusterMiddle(), diskHitMiddle()); }
 SurfaceMeasurement diskMeasurementOuter() { return diskMeasurementFor(diskClusterOuter(), diskHitOuter()); }
 
-// "The accepted forward model": independently reproduces Propagator's
-// |bz|>0.01f threshold dispatch to Helix/Linear (this is an independent,
-// deliberately duplicated re-transcription, not a call into production code).
+// Replays the accepted propagation boundary while this test independently
+// checks the surrounding cell-seed operation order.
 bool replayForwardPropagateAcceptedModel(SurfaceKinematicState& state, float targetZ, float bz,
                                          OperationFailureReason& reason)
 {
-  if (std::abs(bz) > 0.01f) {
-    return forward::propagate<forward::PropagationModel::Helix>(state, targetZ, bz, reason);
-  }
-  return forward::propagate<forward::PropagationModel::Linear>(state, targetZ, bz, reason);
+  return Propagator::propagateForward(state, targetZ, bz, reason);
 }
 
 // Independent re-transcription of native buildDiskCellSeed's own
@@ -915,7 +912,7 @@ BOOST_AUTO_TEST_CASE(CellsAreCompatibleDiskAcceptsAtExactThresholdAndRejectsBelo
 
   auto reference = next;
   OperationFailureReason reason{};
-  BOOST_REQUIRE(forward::propagate<forward::PropagationModel::Linear>(reference, current.referenceCoordinate, 0.f, reason));
+  BOOST_REQUIRE(Propagator::propagateForward(reference, current.referenceCoordinate, 0.f, reason));
   float refChi2 = 0.f;
   BOOST_REQUIRE(forward::stateChi2(current, reference, refChi2, reason));
   BOOST_REQUIRE_GT(refChi2, 0.f);
@@ -1173,7 +1170,7 @@ BOOST_AUTO_TEST_CASE(AttachHitDiskEachFailureStagePreservesStateTransactionally)
   permissive.maxChi2ClusterAttachment = 1.e6f;
 
   // Propagation failure: tanl == 0 at zero field rejects with
-  // UnreachableTarget in forward::propagate<Linear>.
+  // UnreachableTarget.
   {
     auto zeroTanl = state0;
     zeroTanl.parameters[3] = 0.f;

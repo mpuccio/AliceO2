@@ -28,29 +28,6 @@ namespace
 // three accepted hits ungated and enables the gate from the fourth hit.
 constexpr uint32_t kChi2GateMinAcceptedHits = 3;
 
-// Reuses the exact |bz| > 0.01f Helix/Linear threshold already established
-// as the accepted forward model by the disk cell and refit leaves.
-// Duplicated here, narrowly, so the generic Propagator keeps its own
-// operation-boundary choice without coupling to a stage-finding translation
-// unit.
-bool forwardPropagateAcceptedModel(SurfaceKinematicState& state, SurfaceLinearizationReference& linRef,
-                                   float targetZ, float bz, OperationFailureReason& reason) noexcept
-{
-  if (std::abs(bz) > 0.01f) {
-    return forward::propagate<forward::PropagationModel::Helix>(state, linRef, targetZ, bz, reason);
-  }
-  return forward::propagate<forward::PropagationModel::Linear>(state, linRef, targetZ, bz, reason);
-}
-
-bool forwardPropagateAcceptedModel(SurfaceKinematicState& state, float targetZ, float bz,
-                                   OperationFailureReason& reason) noexcept
-{
-  if (std::abs(bz) > 0.01f) {
-    return forward::propagate<forward::PropagationModel::Helix>(state, targetZ, bz, reason);
-  }
-  return forward::propagate<forward::PropagationModel::Linear>(state, targetZ, bz, reason);
-}
-
 // A congruence transform (rotate/propagate's own Jacobian-based covariance
 // transport) that starts from a "loose ceiling" reset diagonal (see
 // NativeRefitDriver.h's resetCovarianceForRefit) and crosses a large step at
@@ -326,12 +303,6 @@ bool forwardToBarrel(SurfaceKinematicState& state, SurfaceLinearizationReference
 
 } // namespace
 
-bool Propagator::propagateForward(SurfaceKinematicState& state, float targetZ, float bz,
-                                  OperationFailureReason& reason) noexcept
-{
-  return forwardPropagateAcceptedModel(state, targetZ, bz, reason);
-}
-
 bool Propagator::convertFamily(SurfaceKinematicState& state, SurfaceLinearizationReference* linRef,
                                StateFamily targetFamily, OperationFailureReason& reason) noexcept
 {
@@ -414,7 +385,7 @@ bool Propagator::propagateToMeasurement(SurfaceKinematicState& state, SurfaceLin
       return false;
     }
   } else {
-    if (!forwardPropagateAcceptedModel(scratchState, scratchRef, targetMeasurement.frame.q, bz, reason)) {
+    if (!Propagator::propagateForward(scratchState, scratchRef, targetMeasurement.frame.q, bz, reason)) {
       return false;
     }
     clampNegligibleCovarianceNoise(scratchState);

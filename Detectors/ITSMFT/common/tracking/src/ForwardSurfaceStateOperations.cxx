@@ -6,6 +6,7 @@
 // License v3 (GPL Version 3), copied verbatim in the file "COPYING".
 
 #include "ITSMFTTracking/ForwardSurfaceStateOperations.h"
+#include "ITSMFTTracking/Propagator.h"
 
 #include <algorithm>
 #include <cmath>
@@ -124,10 +125,8 @@ bool validateSource(const SurfaceKinematicState& state, OperationFailureReason& 
   return true;
 }
 
-// Shared commit point for every propagateBound<Model> instantiation above
-// (Linear/Quadratic/Helix/Optimized): sanitizing the covariance-validity
-// invariant (ADR 0008) unconditionally here -- once -- covers all four
-// models' exit paths without relying on each to remember it.
+// Every accepted propagation path sanitizes covariance at this single commit
+// point.
 bool commitPropagation(SurfaceKinematicState& destination, SurfaceKinematicState& scratch,
                        OperationFailureReason& reason) noexcept
 {
@@ -166,47 +165,6 @@ bool propagateLinear(SurfaceKinematicState& state, float targetZ, OperationFailu
   jacobian[0][3] = -m * cosPhi;
   jacobian[1][2] = n * cosPhi;
   jacobian[1][3] = -m * sinPhi;
-  transportCovariance(state, jacobian);
-  return true;
-}
-
-bool propagateQuadratic(SurfaceKinematicState& state, float targetZ, float bz,
-                        OperationFailureReason& reason) noexcept
-{
-  const float dz = targetZ - state.referenceCoordinate;
-  const float tanl = state.parameters[3];
-  if (tanl == 0.f && dz != 0.f) {
-    reason = OperationFailureReason::UnreachableTarget;
-    return false;
-  }
-  if (dz == 0.f) {
-    return true;
-  }
-  const float inverseTanl = 1.f / tanl;
-  const float inverseQPt = state.parameters[4];
-  const float sinPhi = std::sin(state.parameters[2]);
-  const float cosPhi = std::cos(state.parameters[2]);
-  const float fieldSign = std::copysign(1.f, bz);
-  const float k = std::abs(o2::constants::math::B2C * bz);
-  const float n = dz * inverseTanl;
-  const float m = n * inverseTanl;
-  const float theta = -inverseQPt * dz * k * inverseTanl;
-
-  state.parameters[0] += n * cosPhi - 0.5f * n * theta * fieldSign * sinPhi;
-  state.parameters[1] += n * sinPhi + 0.5f * n * theta * fieldSign * cosPhi;
-  state.parameters[2] += fieldSign * theta;
-  state.referenceCoordinate = targetZ;
-
-  Matrix5 jacobian{};
-  identity(jacobian);
-  jacobian[0][2] = -0.5f * n * theta * fieldSign * cosPhi - n * sinPhi;
-  jacobian[0][3] = fieldSign * m * theta * sinPhi - m * cosPhi;
-  jacobian[0][4] = 0.5f * k * m * fieldSign * dz * sinPhi;
-  jacobian[1][2] = -0.5f * n * theta * fieldSign * sinPhi + n * cosPhi;
-  jacobian[1][3] = -fieldSign * m * theta * cosPhi - m * sinPhi;
-  jacobian[1][4] = -0.5f * k * m * fieldSign * dz * cosPhi;
-  jacobian[2][3] = -fieldSign * theta * inverseTanl;
-  jacobian[2][4] = -fieldSign * k * n;
   transportCovariance(state, jacobian);
   return true;
 }
@@ -299,9 +257,8 @@ bool propagateHelix(SurfaceKinematicState& state, float targetZ, float bz,
   return true;
 }
 
-template <PropagationModel Model>
-bool propagateBound(SurfaceKinematicState& destination, float targetZ, float bz,
-                    OperationFailureReason& reason) noexcept
+bool propagateAccepted(SurfaceKinematicState& destination, float targetZ, float bz,
+                       OperationFailureReason& reason) noexcept
 {
   if (!validateSource(destination, reason) || !std::isfinite(targetZ) || !std::isfinite(bz)) {
     if (destination.family == StateFamily::Forward && finiteState(destination)) {
@@ -310,30 +267,8 @@ bool propagateBound(SurfaceKinematicState& destination, float targetZ, float bz,
     return false;
   }
   SurfaceKinematicState scratch = destination;
-  bool success = false;
-  if constexpr (Model == PropagationModel::Linear) {
-    success = propagateLinear(scratch, targetZ, reason);
-  } else if constexpr (Model == PropagationModel::Quadratic) {
-    success = propagateQuadratic(scratch, targetZ, bz, reason);
-  } else if constexpr (Model == PropagationModel::Helix) {
-    success = propagateHelix(scratch, targetZ, bz, reason);
-  } else {
-    if (bz == 0.f) {
-      success = propagateLinear(scratch, targetZ, reason);
-    } else {
-      const SurfaceKinematicState original = scratch;
-      success = propagateHelixParameters(scratch, targetZ, bz, reason);
-      if (success) {
-        SurfaceKinematicState covarianceScratch = original;
-        success = propagateQuadratic(covarianceScratch, targetZ, bz, reason);
-        if (success) {
-          for (uint8_t i = 0; i < 15; ++i) {
-            scratch.covariance[i] = covarianceScratch.covariance[i];
-          }
-        }
-      }
-    }
-  }
+  const bool success = std::abs(bz) > 0.01f ? propagateHelix(scratch, targetZ, bz, reason)
+                                            : propagateLinear(scratch, targetZ, reason);
   return success && commitPropagation(destination, scratch, reason);
 }
 
@@ -361,34 +296,6 @@ bool residualInverse(const SurfaceKinematicState& state, const SurfaceMeasuremen
 }
 
 } // namespace
-
-template <>
-bool propagate<PropagationModel::Linear>(SurfaceKinematicState& state, float targetZ, float bz,
-                                         OperationFailureReason& reason) noexcept
-{
-  return propagateBound<PropagationModel::Linear>(state, targetZ, bz, reason);
-}
-
-template <>
-bool propagate<PropagationModel::Quadratic>(SurfaceKinematicState& state, float targetZ, float bz,
-                                            OperationFailureReason& reason) noexcept
-{
-  return propagateBound<PropagationModel::Quadratic>(state, targetZ, bz, reason);
-}
-
-template <>
-bool propagate<PropagationModel::Helix>(SurfaceKinematicState& state, float targetZ, float bz,
-                                        OperationFailureReason& reason) noexcept
-{
-  return propagateBound<PropagationModel::Helix>(state, targetZ, bz, reason);
-}
-
-template <>
-bool propagate<PropagationModel::Optimized>(SurfaceKinematicState& state, float targetZ, float bz,
-                                            OperationFailureReason& reason) noexcept
-{
-  return propagateBound<PropagationModel::Optimized>(state, targetZ, bz, reason);
-}
 
 bool predictedChi2(const SurfaceKinematicState& state, const SurfaceMeasurement& measurement, float& chi2,
                    OperationFailureReason& reason) noexcept
@@ -663,11 +570,8 @@ bool finiteLinRef(const SurfaceLinearizationReference& ref) noexcept
   return true;
 }
 
-// Reference-only (no covariance) position update plus the Jacobian
-// evaluated at the reference's own pre-propagation parameters, mirroring
-// propagateLinear's position formula and identity-plus-offdiag Jacobian
-// exactly (see the header doc on the linRef-aware propagate<Model> for the
-// linearization structure this implements).
+// Reference-only (no covariance) position update plus the Jacobian evaluated
+// at the reference's own pre-propagation parameters.
 bool referencePropagateLinear(SurfaceLinearizationReference& ref, float targetZ, Matrix5& jacobian,
                               OperationFailureReason& reason) noexcept
 {
@@ -694,45 +598,6 @@ bool referencePropagateLinear(SurfaceLinearizationReference& ref, float targetZ,
   jacobian[0][3] = -m * cosPhi;
   jacobian[1][2] = n * cosPhi;
   jacobian[1][3] = -m * sinPhi;
-  return true;
-}
-
-bool referencePropagateQuadratic(SurfaceLinearizationReference& ref, float targetZ, float bz, Matrix5& jacobian,
-                                 OperationFailureReason& reason) noexcept
-{
-  identity(jacobian);
-  const float dz = targetZ - ref.referenceCoordinate;
-  const float tanl = ref.parameters[3];
-  if (tanl == 0.f && dz != 0.f) {
-    reason = OperationFailureReason::UnreachableTarget;
-    return false;
-  }
-  if (dz == 0.f) {
-    return true;
-  }
-  const float inverseTanl = 1.f / tanl;
-  const float inverseQPt = ref.parameters[4];
-  const float sinPhi = std::sin(ref.parameters[2]);
-  const float cosPhi = std::cos(ref.parameters[2]);
-  const float fieldSign = std::copysign(1.f, bz);
-  const float k = std::abs(o2::constants::math::B2C * bz);
-  const float n = dz * inverseTanl;
-  const float m = n * inverseTanl;
-  const float theta = -inverseQPt * dz * k * inverseTanl;
-
-  ref.parameters[0] += n * cosPhi - 0.5f * n * theta * fieldSign * sinPhi;
-  ref.parameters[1] += n * sinPhi + 0.5f * n * theta * fieldSign * cosPhi;
-  ref.parameters[2] += fieldSign * theta;
-  ref.referenceCoordinate = targetZ;
-
-  jacobian[0][2] = -0.5f * n * theta * fieldSign * cosPhi - n * sinPhi;
-  jacobian[0][3] = fieldSign * m * theta * sinPhi - m * cosPhi;
-  jacobian[0][4] = 0.5f * k * m * fieldSign * dz * sinPhi;
-  jacobian[1][2] = -0.5f * n * theta * fieldSign * sinPhi + n * cosPhi;
-  jacobian[1][3] = -fieldSign * m * theta * cosPhi - m * sinPhi;
-  jacobian[1][4] = -0.5f * k * m * fieldSign * dz * cosPhi;
-  jacobian[2][3] = -fieldSign * theta * inverseTanl;
-  jacobian[2][4] = -fieldSign * k * n;
   return true;
 }
 
@@ -823,9 +688,8 @@ bool referencePropagateHelix(SurfaceLinearizationReference& ref, float targetZ, 
   return true;
 }
 
-template <PropagationModel Model>
-bool propagateWithLinRefImpl(SurfaceKinematicState& state, SurfaceLinearizationReference& linRef, float targetZ, float bz,
-                             OperationFailureReason& reason) noexcept
+bool propagateAccepted(SurfaceKinematicState& state, SurfaceLinearizationReference& linRef, float targetZ, float bz,
+                       OperationFailureReason& reason) noexcept
 {
   if (!validateSource(state, reason)) {
     return false;
@@ -849,24 +713,8 @@ bool propagateWithLinRefImpl(SurfaceKinematicState& state, SurfaceLinearizationR
 
   SurfaceLinearizationReference scratchRef = linRef;
   Matrix5 jacobian{};
-  bool ok = false;
-  if constexpr (Model == PropagationModel::Linear) {
-    ok = referencePropagateLinear(scratchRef, targetZ, jacobian, reason);
-  } else if constexpr (Model == PropagationModel::Quadratic) {
-    ok = referencePropagateQuadratic(scratchRef, targetZ, bz, jacobian, reason);
-  } else if constexpr (Model == PropagationModel::Helix) {
-    ok = referencePropagateHelix(scratchRef, targetZ, bz, jacobian, reason);
-  } else {
-    if (bz == 0.f) {
-      ok = referencePropagateLinear(scratchRef, targetZ, jacobian, reason);
-    } else {
-      ok = referencePropagateHelixParameters(scratchRef, targetZ, bz, reason);
-      if (ok) {
-        SurfaceLinearizationReference jacobianRef = linRef;
-        ok = referencePropagateQuadratic(jacobianRef, targetZ, bz, jacobian, reason);
-      }
-    }
-  }
+  const bool ok = std::abs(bz) > 0.01f ? referencePropagateHelix(scratchRef, targetZ, bz, jacobian, reason)
+                                       : referencePropagateLinear(scratchRef, targetZ, jacobian, reason);
   if (!ok) {
     return false;
   }
@@ -912,34 +760,6 @@ bool buildSeed(const SurfaceMeasurement& measurementInner, const SurfaceMeasurem
   return buildSeedImpl(measurementInner, measurementMiddle, measurementOuter, measurementOuter, bz, trackletMinPt, absCharge, pid, outState, reason);
 }
 
-template <>
-bool propagate<PropagationModel::Linear>(SurfaceKinematicState& state, SurfaceLinearizationReference& linRef, float targetZ, float bz,
-                                         OperationFailureReason& reason) noexcept
-{
-  return propagateWithLinRefImpl<PropagationModel::Linear>(state, linRef, targetZ, bz, reason);
-}
-
-template <>
-bool propagate<PropagationModel::Quadratic>(SurfaceKinematicState& state, SurfaceLinearizationReference& linRef, float targetZ, float bz,
-                                            OperationFailureReason& reason) noexcept
-{
-  return propagateWithLinRefImpl<PropagationModel::Quadratic>(state, linRef, targetZ, bz, reason);
-}
-
-template <>
-bool propagate<PropagationModel::Helix>(SurfaceKinematicState& state, SurfaceLinearizationReference& linRef, float targetZ, float bz,
-                                        OperationFailureReason& reason) noexcept
-{
-  return propagateWithLinRefImpl<PropagationModel::Helix>(state, linRef, targetZ, bz, reason);
-}
-
-template <>
-bool propagate<PropagationModel::Optimized>(SurfaceKinematicState& state, SurfaceLinearizationReference& linRef, float targetZ, float bz,
-                                            OperationFailureReason& reason) noexcept
-{
-  return propagateWithLinRefImpl<PropagationModel::Optimized>(state, linRef, targetZ, bz, reason);
-}
-
 bool shiftReferenceToMeasurement(SurfaceLinearizationReference& linRef, const SurfaceMeasurement& measurement,
                                  OperationFailureReason& reason) noexcept
 {
@@ -965,3 +785,20 @@ bool shiftReferenceToMeasurement(SurfaceLinearizationReference& linRef, const Su
 #endif // GPUCA_GPUCODE
 
 } // namespace o2::itsmft::tracking::forward
+
+namespace o2::itsmft::tracking
+{
+
+bool Propagator::propagateForward(SurfaceKinematicState& state, float targetZ, float bz,
+                                  OperationFailureReason& reason) noexcept
+{
+  return forward::propagateAccepted(state, targetZ, bz, reason);
+}
+
+bool Propagator::propagateForward(SurfaceKinematicState& state, SurfaceLinearizationReference& linRef,
+                                  float targetZ, float bz, OperationFailureReason& reason) noexcept
+{
+  return forward::propagateAccepted(state, linRef, targetZ, bz, reason);
+}
+
+} // namespace o2::itsmft::tracking

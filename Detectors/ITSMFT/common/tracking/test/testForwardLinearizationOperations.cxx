@@ -17,6 +17,7 @@
 
 #include "CommonConstants/MathConstants.h"
 #include "ITSMFTTracking/ForwardSurfaceStateOperations.h"
+#include "ITSMFTTracking/Propagator.h"
 #include "ITSMFTTracking/SurfaceKinematicState.h"
 
 namespace
@@ -140,16 +141,13 @@ void computeExpectedLinear(const SurfaceKinematicState& state, const SurfaceLine
   }
 }
 
-// state == linRef reduction (item 4 hardening): when the reference is an
-// exact, unperturbed copy of the fitted state, the linRef-aware
-// propagate<Model> must agree with the already-accepted, independently
-// oracle-tested non-linRef propagate<Model> for BOTH parameters and
+// State == linRef reduction: when the reference is an exact, unperturbed
+// copy of the fitted state, the linRef-aware propagation must agree with the
+// independently oracle-tested non-linRef propagation for both parameters and
 // covariance -- not merely to first order, but to the tolerance floor of
 // this file's shared float arithmetic (the two paths compute the position
 // update and Jacobian from identical starting values and feed the same
-// transportCovariance() congruence transform). No legacy MFT oracle claim
-// is made or required here.
-template <PropagationModel Model>
+// covariance transform).
 void checkSelfDrivenReduction(float bz, float targetZ)
 {
   const auto baseState = makeState();
@@ -157,10 +155,10 @@ void checkSelfDrivenReduction(float bz, float targetZ)
   auto linRefDriven = baseState;
   auto linRef = linRefFromState(baseState);
   OperationFailureReason reason{};
-  BOOST_REQUIRE((propagate<Model>(linRefDriven, linRef, targetZ, bz, reason)));
+  BOOST_REQUIRE(Propagator::propagateForward(linRefDriven, linRef, targetZ, bz, reason));
 
   auto selfDriven = baseState;
-  BOOST_REQUIRE((propagate<Model>(selfDriven, targetZ, bz, reason)));
+  BOOST_REQUIRE(Propagator::propagateForward(selfDriven, targetZ, bz, reason));
 
   checkClose(linRefDriven.referenceCoordinate, selfDriven.referenceCoordinate, selfDrivenReductionParameterDrift);
   for (uint8_t i = 0; i < 5; ++i) {
@@ -173,14 +171,12 @@ void checkSelfDrivenReduction(float bz, float targetZ)
 
 // Finite-difference Jacobian check (item 4 hardening): perturbs exactly one
 // of the five parameters of `state` away from an otherwise-identical
-// `linRef`, and compares the linRef-aware propagate<Model> parameter
+// `linRef`, and compares the linRef-aware propagation parameter
 // output against a first-order Taylor prediction built from an
 // INDEPENDENT central-difference numerical derivative -- computed purely
-// from two calls to the already-accepted, non-linRef propagate<Model>
+// from two calls to the already-accepted, non-linRef propagation
 // (never this slice's own analytic Jacobian formulas). This validates the
-// analytic Jacobian embedded in propagate<Model>(state, linRef, ...)
-// against a numerically-derived one.
-template <PropagationModel Model>
+// analytic Jacobian against a numerically-derived one.
 void checkJacobianAgainstFiniteDifference(float bz, float targetZ, uint8_t paramIndex)
 {
   const auto baseState = makeState();
@@ -191,11 +187,11 @@ void checkJacobianAgainstFiniteDifference(float bz, float targetZ, uint8_t param
   auto minusSelf = baseState;
   minusSelf.parameters[paramIndex] -= epsilon;
   OperationFailureReason reason{};
-  BOOST_REQUIRE((propagate<Model>(plusSelf, targetZ, bz, reason)));
-  BOOST_REQUIRE((propagate<Model>(minusSelf, targetZ, bz, reason)));
+  BOOST_REQUIRE(Propagator::propagateForward(plusSelf, targetZ, bz, reason));
+  BOOST_REQUIRE(Propagator::propagateForward(minusSelf, targetZ, bz, reason));
 
   auto baseSelf = baseState;
-  BOOST_REQUIRE((propagate<Model>(baseSelf, targetZ, bz, reason)));
+  BOOST_REQUIRE(Propagator::propagateForward(baseSelf, targetZ, bz, reason));
 
   float numericalDerivative[5];
   for (uint8_t row = 0; row < 5; ++row) {
@@ -205,7 +201,7 @@ void checkJacobianAgainstFiniteDifference(float bz, float targetZ, uint8_t param
   auto perturbedState = baseState;
   perturbedState.parameters[paramIndex] += epsilon;
   auto linRef = linRefFromState(baseState);
-  BOOST_REQUIRE((propagate<Model>(perturbedState, linRef, targetZ, bz, reason)));
+  BOOST_REQUIRE(Propagator::propagateForward(perturbedState, linRef, targetZ, bz, reason));
 
   for (uint8_t row = 0; row < 5; ++row) {
     const float predicted = baseSelf.parameters[row] + numericalDerivative[row] * epsilon;
@@ -215,7 +211,7 @@ void checkJacobianAgainstFiniteDifference(float bz, float targetZ, uint8_t param
 
 } // namespace
 
-BOOST_AUTO_TEST_CASE(PropagateLinearMatchesIndependentAnalyticOracle)
+BOOST_AUTO_TEST_CASE(LowFieldPropagationMatchesIndependentAnalyticOracle)
 {
   const auto baseState = makeState();
   auto state = baseState;
@@ -229,7 +225,7 @@ BOOST_AUTO_TEST_CASE(PropagateLinearMatchesIndependentAnalyticOracle)
   computeExpectedLinear(state, linRef, -80.f, expectedState, expectedRef);
 
   OperationFailureReason reason{};
-  BOOST_REQUIRE((propagate<PropagationModel::Linear>(state, linRef, -80.f, 0.f, reason)));
+  BOOST_REQUIRE(Propagator::propagateForward(state, linRef, -80.f, 0.f, reason));
 
   BOOST_CHECK_CLOSE(state.referenceCoordinate, expectedState.referenceCoordinate, 1.e-3f);
   for (uint8_t i = 0; i < 5; ++i) {
@@ -238,7 +234,7 @@ BOOST_AUTO_TEST_CASE(PropagateLinearMatchesIndependentAnalyticOracle)
   }
 }
 
-BOOST_AUTO_TEST_CASE(PropagateLinearMatchesOracleZeroField)
+BOOST_AUTO_TEST_CASE(LowFieldPropagationMatchesOracleAtZeroField)
 {
   const auto baseState = makeState();
   auto state = baseState;
@@ -250,20 +246,19 @@ BOOST_AUTO_TEST_CASE(PropagateLinearMatchesOracleZeroField)
   computeExpectedLinear(state, linRef, -60.f, expectedState, expectedRef);
 
   OperationFailureReason reason{};
-  BOOST_REQUIRE((propagate<PropagationModel::Linear>(state, linRef, -60.f, 0.f, reason)));
+  BOOST_REQUIRE(Propagator::propagateForward(state, linRef, -60.f, 0.f, reason));
   for (uint8_t i = 0; i < 5; ++i) {
     BOOST_CHECK_SMALL(state.parameters[i] - expectedState.parameters[i], 1.e-4f);
   }
 }
 
 // First-order consistency: for a small state/linRef offset, the
-// linRef-aware propagate<Model> parameter output must agree with the
-// already-accepted, independently oracle-tested non-linRef propagate<Model>
+// linRef-aware propagation parameter output must agree with the
+// already-accepted, independently oracle-tested non-linRef propagation
 // applied directly to the same starting state, since the linRef-aware
 // transform is exactly a first-order (Jacobian) correction around the
 // reference. This is an independent numerical cross-check: it never
 // constructs or reuses this slice's own Jacobian formulas.
-template <PropagationModel Model>
 void checkFirstOrderConsistency(float bz, float targetZ)
 {
   const auto baseState = makeState();
@@ -277,10 +272,10 @@ void checkFirstOrderConsistency(float bz, float targetZ)
   auto referenceDrivenState = state;
   auto referenceDrivenLinRef = linRef;
   OperationFailureReason reason{};
-  BOOST_REQUIRE((propagate<Model>(referenceDrivenState, referenceDrivenLinRef, targetZ, bz, reason)));
+  BOOST_REQUIRE(Propagator::propagateForward(referenceDrivenState, referenceDrivenLinRef, targetZ, bz, reason));
 
   auto selfDrivenState = state;
-  BOOST_REQUIRE((propagate<Model>(selfDrivenState, targetZ, bz, reason)));
+  BOOST_REQUIRE(Propagator::propagateForward(selfDrivenState, targetZ, bz, reason));
 
   const float tolerance = 5.e-3f;
   for (uint8_t i = 0; i < 5; ++i) {
@@ -288,80 +283,25 @@ void checkFirstOrderConsistency(float bz, float targetZ)
   }
 }
 
-BOOST_AUTO_TEST_CASE(PropagateQuadraticFirstOrderConsistencyNonzeroField)
+BOOST_AUTO_TEST_CASE(AcceptedPropagationFirstOrderConsistency)
 {
-  checkFirstOrderConsistency<PropagationModel::Quadratic>(0.5f, -80.f);
+  checkFirstOrderConsistency(0.5f, -80.f);
+  checkFirstOrderConsistency(-0.5f, -80.f);
+  checkFirstOrderConsistency(0.f, -60.f);
 }
 
-BOOST_AUTO_TEST_CASE(PropagateHelixFirstOrderConsistencyNonzeroField)
+BOOST_AUTO_TEST_CASE(AcceptedPropagationSelfDrivenReduction)
 {
-  checkFirstOrderConsistency<PropagationModel::Helix>(0.5f, -80.f);
+  checkSelfDrivenReduction(0.5f, -80.f);
+  checkSelfDrivenReduction(-0.5f, -80.f);
+  checkSelfDrivenReduction(0.f, -60.f);
 }
 
-BOOST_AUTO_TEST_CASE(PropagateOptimizedFirstOrderConsistencyNonzeroField)
-{
-  checkFirstOrderConsistency<PropagationModel::Optimized>(0.5f, -80.f);
-}
-
-BOOST_AUTO_TEST_CASE(PropagateOptimizedFirstOrderConsistencyZeroField)
-{
-  checkFirstOrderConsistency<PropagationModel::Optimized>(0.f, -60.f);
-}
-
-// --- state == linRef reduction (item 4): parameters AND covariance, all
-// four models, zero field where applicable, both magnetic-field signs. ---
-
-BOOST_AUTO_TEST_CASE(PropagateLinearSelfDrivenReductionZeroField)
-{
-  checkSelfDrivenReduction<PropagationModel::Linear>(0.f, -60.f);
-}
-
-BOOST_AUTO_TEST_CASE(PropagateQuadraticSelfDrivenReductionBothFieldSigns)
-{
-  checkSelfDrivenReduction<PropagationModel::Quadratic>(0.5f, -80.f);
-  checkSelfDrivenReduction<PropagationModel::Quadratic>(-0.5f, -80.f);
-}
-
-BOOST_AUTO_TEST_CASE(PropagateHelixSelfDrivenReductionBothFieldSigns)
-{
-  checkSelfDrivenReduction<PropagationModel::Helix>(0.5f, -80.f);
-  checkSelfDrivenReduction<PropagationModel::Helix>(-0.5f, -80.f);
-}
-
-// Optimized at nonzero field is exactly the composition the header
-// documents (helix parameter transport, quadratic-Jacobian covariance
-// transport): the plain (non-linRef) propagate<Optimized> already
-// implements that composition and is this test's oracle, so agreement
-// here confirms both halves of the composition survive the linRef-aware
-// transform intact.
-BOOST_AUTO_TEST_CASE(PropagateOptimizedSelfDrivenReductionConfirmsHelixPlusQuadraticCompositionBothFieldSigns)
-{
-  checkSelfDrivenReduction<PropagationModel::Optimized>(0.5f, -80.f);
-  checkSelfDrivenReduction<PropagationModel::Optimized>(-0.5f, -80.f);
-}
-
-BOOST_AUTO_TEST_CASE(PropagateOptimizedSelfDrivenReductionZeroField)
-{
-  checkSelfDrivenReduction<PropagationModel::Optimized>(0.f, -60.f);
-}
-
-// --- Finite-difference Jacobian checks (item 4): each of the five
-// parameters perturbed independently, Quadratic and Helix, both field
-// signs. ---
-
-BOOST_AUTO_TEST_CASE(PropagateQuadraticJacobianMatchesFiniteDifferenceBothFieldSigns)
+BOOST_AUTO_TEST_CASE(AcceptedPropagationJacobianMatchesFiniteDifference)
 {
   for (uint8_t param = 0; param < 5; ++param) {
-    checkJacobianAgainstFiniteDifference<PropagationModel::Quadratic>(0.5f, -80.f, param);
-    checkJacobianAgainstFiniteDifference<PropagationModel::Quadratic>(-0.5f, -80.f, param);
-  }
-}
-
-BOOST_AUTO_TEST_CASE(PropagateHelixJacobianMatchesFiniteDifferenceBothFieldSigns)
-{
-  for (uint8_t param = 0; param < 5; ++param) {
-    checkJacobianAgainstFiniteDifference<PropagationModel::Helix>(0.5f, -80.f, param);
-    checkJacobianAgainstFiniteDifference<PropagationModel::Helix>(-0.5f, -80.f, param);
+    checkJacobianAgainstFiniteDifference(0.5f, -80.f, param);
+    checkJacobianAgainstFiniteDifference(-0.5f, -80.f, param);
   }
 }
 
@@ -376,11 +316,11 @@ BOOST_AUTO_TEST_CASE(ReferenceDrivenPropagationDiffersFromSelfDrivenPropagation)
 
   auto selfDriven = baseState;
   OperationFailureReason reason{};
-  BOOST_REQUIRE((propagate<PropagationModel::Helix>(selfDriven, targetZ, bz, reason)));
+  BOOST_REQUIRE(Propagator::propagateForward(selfDriven, targetZ, bz, reason));
 
   auto referenceDrivenState = baseState;
   auto referenceDrivenRef = perturbedLinRef(baseState);
-  BOOST_REQUIRE((propagate<PropagationModel::Helix>(referenceDrivenState, referenceDrivenRef, targetZ, bz, reason)));
+  BOOST_REQUIRE(Propagator::propagateForward(referenceDrivenState, referenceDrivenRef, targetZ, bz, reason));
 
   bool differs = false;
   for (uint8_t i = 0; i < 15; ++i) {
@@ -400,7 +340,7 @@ BOOST_AUTO_TEST_CASE(PropagateWithLinRefRejectsFamilyMismatchAndPreservesBytes)
   const auto stateBefore = state;
   const auto linRefBefore = linRef;
   OperationFailureReason reason{};
-  BOOST_CHECK(!(propagate<PropagationModel::Linear>(state, linRef, -60.f, 0.f, reason)));
+  BOOST_CHECK(!Propagator::propagateForward(state, linRef, -60.f, 0.f, reason));
   BOOST_CHECK(reason == OperationFailureReason::SourceFamilyMismatch);
   BOOST_CHECK(bitEqual(state, stateBefore));
   BOOST_CHECK(bitEqual(linRef, linRefBefore));
@@ -418,26 +358,27 @@ BOOST_AUTO_TEST_CASE(PropagateWithLinRefRejectsReferenceCoordinateMismatchAndPre
   const auto stateBefore = state;
   const auto linRefBefore = linRef;
   OperationFailureReason reason{};
-  BOOST_CHECK(!(propagate<PropagationModel::Linear>(state, linRef, -60.f, 0.f, reason)));
+  BOOST_CHECK(!Propagator::propagateForward(state, linRef, -60.f, 0.f, reason));
   BOOST_CHECK(reason == OperationFailureReason::ReferenceCoordinateMismatch);
   BOOST_CHECK(bitEqual(state, stateBefore));
   BOOST_CHECK(bitEqual(linRef, linRefBefore));
 }
 
-BOOST_AUTO_TEST_CASE(PropagateHelixRejectsZeroFieldAndPreservesBytes)
+BOOST_AUTO_TEST_CASE(FieldPropagationRejectsZeroCurvatureAndPreservesBytes)
 {
   auto state = makeState();
+  state.parameters[4] = 0.f;
   auto linRef = linRefFromState(state);
   const auto stateBefore = state;
   const auto linRefBefore = linRef;
   OperationFailureReason reason{};
-  BOOST_CHECK(!(propagate<PropagationModel::Helix>(state, linRef, -60.f, 0.f, reason)));
+  BOOST_CHECK(!Propagator::propagateForward(state, linRef, -60.f, 0.5f, reason));
   BOOST_CHECK(reason == OperationFailureReason::PropagationFailure);
   BOOST_CHECK(bitEqual(state, stateBefore));
   BOOST_CHECK(bitEqual(linRef, linRefBefore));
 }
 
-BOOST_AUTO_TEST_CASE(PropagateLinearRejectsZeroTanlAndPreservesBytes)
+BOOST_AUTO_TEST_CASE(PropagationRejectsZeroTanlAndPreservesBytes)
 {
   auto state = makeState();
   state.parameters[3] = 0.f;
@@ -445,7 +386,7 @@ BOOST_AUTO_TEST_CASE(PropagateLinearRejectsZeroTanlAndPreservesBytes)
   const auto stateBefore = state;
   const auto linRefBefore = linRef;
   OperationFailureReason reason{};
-  BOOST_CHECK(!(propagate<PropagationModel::Linear>(state, linRef, -60.f, 0.f, reason)));
+  BOOST_CHECK(!Propagator::propagateForward(state, linRef, -60.f, 0.f, reason));
   BOOST_CHECK(reason == OperationFailureReason::UnreachableTarget);
   BOOST_CHECK(bitEqual(state, stateBefore));
   BOOST_CHECK(bitEqual(linRef, linRefBefore));

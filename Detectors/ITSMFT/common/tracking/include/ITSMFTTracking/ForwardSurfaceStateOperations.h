@@ -14,32 +14,9 @@
 #include "ITSMFTTracking/SurfaceKinematicState.h"
 #include "ITSMFTTracking/SurfaceMeasurement.h"
 #include "ITSMFTTracking/SurfaceStateOperationResult.h"
-#include "ITSMFTTracking/StateFamily.h"
 
 namespace o2::itsmft::tracking::forward
 {
-
-// The template argument binds the propagation model outside a tracking loop.
-enum class PropagationModel : uint8_t {
-  Linear,
-  Quadratic,
-  Helix,
-  Optimized // Helix parameters with the quadratic covariance Jacobian.
-};
-
-// Operations are host-only and float-native. Mutating operations use scratch
-// then commit and leave state byte-for-byte unchanged on failure.
-template <PropagationModel Model>
-bool propagate(SurfaceKinematicState& state, float targetZ, float bz, OperationFailureReason& reason) noexcept;
-
-template <>
-bool propagate<PropagationModel::Linear>(SurfaceKinematicState&, float, float, OperationFailureReason&) noexcept;
-template <>
-bool propagate<PropagationModel::Quadratic>(SurfaceKinematicState&, float, float, OperationFailureReason&) noexcept;
-template <>
-bool propagate<PropagationModel::Helix>(SurfaceKinematicState&, float, float, OperationFailureReason&) noexcept;
-template <>
-bool propagate<PropagationModel::Optimized>(SurfaceKinematicState&, float, float, OperationFailureReason&) noexcept;
 
 // Disk measurements use global x/y as u/v, including the full uu/uv/vv
 // covariance. chi2 is unchanged on failure.
@@ -89,23 +66,6 @@ bool buildSeed(const SurfaceMeasurement& measurementInner, const SurfaceMeasurem
                const SurfaceMeasurement& measurementOuter, float bz, float trackletMinPt,
                uint8_t absCharge, o2::track::PID pid,
                SurfaceKinematicState& outState, OperationFailureReason& reason) noexcept;
-
-// Propagates the reference non-linearly with the selected Model, evaluates its
-// Jacobian at the reference, then transports state parameters and covariance
-// with that Jacobian. Exact family/reference-coordinate pairing is required;
-// Forward alpha is unused. Both objects are unchanged on failure.
-template <PropagationModel Model>
-bool propagate(SurfaceKinematicState& state, SurfaceLinearizationReference& linRef, float targetZ, float bz,
-               OperationFailureReason& reason) noexcept;
-
-template <>
-bool propagate<PropagationModel::Linear>(SurfaceKinematicState&, SurfaceLinearizationReference&, float, float, OperationFailureReason&) noexcept;
-template <>
-bool propagate<PropagationModel::Quadratic>(SurfaceKinematicState&, SurfaceLinearizationReference&, float, float, OperationFailureReason&) noexcept;
-template <>
-bool propagate<PropagationModel::Helix>(SurfaceKinematicState&, SurfaceLinearizationReference&, float, float, OperationFailureReason&) noexcept;
-template <>
-bool propagate<PropagationModel::Optimized>(SurfaceKinematicState&, SurfaceLinearizationReference&, float, float, OperationFailureReason&) noexcept;
 
 // Sets a forward reference's X/Y parameters from measurement u/v (q=z),
 // without changing referenceCoordinate, alpha, Phi, Tanl, or InvQPt.

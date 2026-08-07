@@ -14,11 +14,35 @@
 #include <type_traits>
 
 #include "GPUCommonDef.h"
-#include "ITSMFTTracking/StateFamily.h"
+#include "ITSMFTTracking/SurfaceDescriptor.h"
 #include "ReconstructionDataFormats/PID.h"
 
 namespace o2::itsmft::tracking
 {
+
+// State representation implied by a surface kind. Topology and traversal use
+// SurfaceKind directly; this tag only selects the parameter convention.
+enum class StateFamily : uint8_t {
+  Invalid,
+  Barrel,
+  Forward
+};
+
+GPUhdi() constexpr StateFamily stateFamilyOf(SurfaceKind kind) noexcept
+{
+  switch (kind) {
+    case SurfaceKind::Cylinder:
+      return StateFamily::Barrel;
+    case SurfaceKind::Disk:
+      return StateFamily::Forward;
+  }
+  return StateFamily::Invalid;
+}
+
+static_assert(std::is_same_v<std::underlying_type_t<StateFamily>, uint8_t>);
+static_assert(sizeof(StateFamily) == sizeof(uint8_t));
+static_assert(stateFamilyOf(SurfaceKind::Cylinder) == StateFamily::Barrel);
+static_assert(stateFamilyOf(SurfaceKind::Disk) == StateFamily::Forward);
 
 // The interpretation of parameters and covariance is selected by a typed view:
 // Barrel:  (Y, Z, Snp, Tgl, Q2Pt), referenceCoordinate is local X, alpha is frame angle.

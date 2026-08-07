@@ -15,8 +15,6 @@
 #include <gsl/span>
 
 #include "ITSMFTTracking/MaterialPhysics.h"
-#include "ITSMFTTracking/StateFamily.h"
-#include "ITSMFTTracking/SurfaceDescriptor.h"
 #include "ITSMFTTracking/SurfaceDescriptor.h"
 #include "ITSMFTTracking/SurfaceKinematicState.h"
 #include "ITSMFTTracking/SurfaceMeasurement.h"
@@ -28,7 +26,7 @@
 //
 // Every routing decision in this class inspects the actual
 // SurfaceDescriptor::kind of the surface at hand (equivalently, the
-// StateFamily it implies via stateFamilyOf(), StateFamily.h) at the call
+// StateFamily it implies via stateFamilyOf()) at the call
 // site. Nothing here names the confined legacy hot-loop-dispatch tag
 // (detail/TrackingKernelParameters.h) or a persisted family/kind pair, and
 // nothing here names ITS, MFT, a detector ID, a fixed layer count, a source
@@ -46,6 +44,12 @@ class Propagator
   // production callers do not grow independent propagation shortcuts.
   static bool propagateForward(SurfaceKinematicState& state, float targetZ, float bz,
                                OperationFailureReason& reason) noexcept;
+
+  // The paired reference supplies the Jacobian point. Exact family and
+  // reference-coordinate pairing is required; both objects are unchanged on
+  // failure.
+  static bool propagateForward(SurfaceKinematicState& state, SurfaceLinearizationReference& linRef,
+                               float targetZ, float bz, OperationFailureReason& reason) noexcept;
 
   // State-family conversion.
   // Re-expresses `state` (and, if supplied, its paired `linRef`) in

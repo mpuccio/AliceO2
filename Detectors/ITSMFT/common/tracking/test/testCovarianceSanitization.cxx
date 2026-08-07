@@ -9,7 +9,7 @@
 // covariance-fault-localization investigation): focused, deterministic
 // regression coverage for sanitizeCovariance() (SurfaceKinematicState.h) and
 // its eight call sites (barrel rotate/propagate x2 overloads/update, forward
-// propagate<Model> x2 overloads/update). Several fixtures below reproduce a
+// propagation x2 overloads/update). Several fixtures below reproduce a
 // real captured production failure verbatim (exact state/covariance/
 // measurement values from a checksummed replay of the
 // pp-20ev-run303000-seed20260716-daily20260717 fixture, candidate keys
@@ -27,6 +27,8 @@
 #include <cstdint>
 #include <cstring>
 #include <limits>
+
+#include "ITSMFTTracking/Propagator.h"
 
 #include "ITSMFTTracking/BarrelSurfaceStateOperations.h"
 #include "ITSMFTTracking/ForwardSurfaceStateOperations.h"
@@ -523,7 +525,7 @@ BOOST_AUTO_TEST_CASE(ForwardPropagateSanitizesOnZeroDzTrivialStep)
 {
   SurfaceKinematicState state = makeOverCorrelatedForwardState();
   OperationFailureReason reason{};
-  const bool ok = forward::propagate<forward::PropagationModel::Linear>(state, state.referenceCoordinate, 0.5f, reason);
+  const bool ok = Propagator::propagateForward(state, state.referenceCoordinate, 0.5f, reason);
   BOOST_REQUIRE(ok);
   BOOST_CHECK(covarianceSatisfiesDeclaredInvariant(state));
   BOOST_CHECK_CLOSE(state.covariance[packedCovarianceIndex(1, 0)], 2.f, 1e-3f); // sqrt(4*1) = 2, sign-preserved.
@@ -539,7 +541,7 @@ BOOST_AUTO_TEST_CASE(ForwardLinRefPropagateSanitizesOnZeroDzTrivialStep)
     linRef.parameters[i] = state.parameters[i];
   }
   OperationFailureReason reason{};
-  const bool ok = forward::propagate<forward::PropagationModel::Linear>(state, linRef, state.referenceCoordinate, 0.5f, reason);
+  const bool ok = Propagator::propagateForward(state, linRef, state.referenceCoordinate, 0.5f, reason);
   BOOST_REQUIRE(ok);
   BOOST_CHECK(covarianceSatisfiesDeclaredInvariant(state));
   BOOST_CHECK_CLOSE(state.covariance[packedCovarianceIndex(1, 0)], 2.f, 1e-3f); // sqrt(4*1) = 2, sign-preserved.

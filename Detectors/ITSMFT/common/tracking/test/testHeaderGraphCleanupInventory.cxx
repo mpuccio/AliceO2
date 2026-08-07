@@ -114,7 +114,7 @@ std::size_t directHeaderCount(const fs::path& directory)
 BOOST_AUTO_TEST_CASE(FinalHeaderInventoryIsExact)
 {
   const auto include = trackingRoot() / "include/ITSMFTTracking";
-  BOOST_CHECK_EQUAL(directHeaderCount(include), 35U);
+  BOOST_CHECK_EQUAL(directHeaderCount(include), 33U);
   BOOST_CHECK_EQUAL(directHeaderCount(include / "detail"), 12U);
 }
 
@@ -147,6 +147,8 @@ BOOST_AUTO_TEST_CASE(RetiredAndRelocatedPublicPathsAreAbsent)
     "MFTPublicationCompatibility.h",
     "MFTFwdTrackHelpers.h",
     "SurfaceKinematicStateLegacyAdapters.h",
+    "ConfigKeyValuesPreflight.h",
+    "StateFamily.h",
     "TrackingOperationAdapter.h",
   };
   for (const auto header : retiredPublic) {
@@ -164,6 +166,7 @@ BOOST_AUTO_TEST_CASE(RetiredAndRelocatedPublicPathsAreAbsent)
     std::string{"transition"} + "Policy",
     std::string{"For"} + "Policy",
     std::string{"bindTransition"} + "PolicyParams",
+    "PropagationModel",
   };
   for (const auto& path : productionFiles()) {
     const auto text = readFile(path);
@@ -224,7 +227,6 @@ BOOST_AUTO_TEST_CASE(GenericPlanTypesHaveNoDetectorOrLayerCountAuthority)
     "include/ITSMFTTracking/SurfaceKinematicState.h",
     "include/ITSMFTTracking/SurfaceMeasurement.h",
     "include/ITSMFTTracking/SurfaceSpec.h",
-    "include/ITSMFTTracking/StateFamily.h",
     "include/ITSMFTTracking/detail/SurfacePlanBinding.h",
     "include/ITSMFTTracking/detail/TrackingKernelParameters.h",
   };
