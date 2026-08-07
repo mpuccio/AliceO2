@@ -14,7 +14,7 @@
 
 #include <boost/test/unit_test.hpp>
 
-#include "ITSMFTTracking/ClockTimingPublicationView.h"
+#include "ITSMFTTracking/CommonTrackOutputAdapter.h"
 #include "ITSMFTTracking/ITSSharedClusterCompatibility.h"
 #include "ITSMFTTracking/MFTPublicationCompatibility.h"
 #include "ITSMFTTracking/ROFViews.h"

@@ -38,7 +38,6 @@
 #include "Framework/Task.h"
 #include "ITSMFTTracking/ClusterDecoder.h"
 #include "ITSMFTTracking/CommonTrackOutputAdapter.h"
-#include "ITSMFTTracking/ClockTimingPublicationView.h"
 #include "ITSMFTTracking/DetectorPublicationAdapter.h"
 #include "ITSMFTTracking/Configuration.h"
 #include "ITSMFTTracking/ClusterSource.h"

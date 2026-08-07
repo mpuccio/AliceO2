@@ -79,6 +79,7 @@ BOOST_AUTO_TEST_CASE(NoRetiredPrimitiveHeadersRemain)
   const std::vector<std::string> retiredHeaders{
     std::string{"SurfaceMeasurement"} + "Index.h",
     std::string{"Layer"} + "Mask.h",
+    std::string{"ClockTimingPublicationView"} + ".h",
   };
   for (const auto& header : retiredHeaders) {
     BOOST_CHECK_MESSAGE(!fs::exists(includeDirectory / header),
