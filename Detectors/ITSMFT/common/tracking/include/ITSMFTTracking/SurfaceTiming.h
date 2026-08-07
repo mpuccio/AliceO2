@@ -16,7 +16,10 @@
 #include "GPUCommonDef.h"
 
 #ifndef GPUCA_GPUCODE
+#include <gsl/gsl>
+
 #include "CommonDataFormat/InteractionRecord.h"
+#include "ITStracking/ROFLookupTables.h"
 #endif
 
 namespace o2::itsmft::tracking
@@ -214,6 +217,38 @@ inline WidenResult widen(const ROFIntervalBC& interval, TFBC margin) noexcept
     return {{}, WidenError::UpperBoundOverflow};
   }
   return {ROFIntervalBC{newBegin, newEnd, interval.sourceROF, interval.flags}, WidenError::None};
+}
+
+struct UniformROFTimingResult {
+  ROFTimingConfig config{};
+  bool uniform{false};
+};
+
+// TimeFrame::loadNormalizedSource() takes one ROFTimingConfig per source,
+// but DPLAlpideParam supports genuine per-layer staggering (independent
+// roFrameLayerLengthInBC/roFrameLayerBiasInBC/roFrameLayerDelayInBC
+// overrides per layer; both ITS and MFT default every override to zero, so
+// all layers resolve to the shared global value out of the box, but this is a
+// real, supported production knob, not a theoretical one). Collapsing to
+// one source-level config without checking would silently discard a
+// legitimately divergent configuration. `uniform` is false whenever any
+// layer's length/delay/bias/addTimeErr disagrees with layer 0's; `config` is
+// only meaningful when `uniform` is true.
+inline UniformROFTimingResult deriveUniformROFTimingConfig(gsl::span<const o2::its::LayerTiming> perLayer) noexcept
+{
+  if (perLayer.empty()) {
+    return {};
+  }
+  const auto& ref = perLayer[0];
+  for (const auto& lt : perLayer) {
+    if (lt.mROFLength != ref.mROFLength || lt.mROFDelay != ref.mROFDelay ||
+        lt.mROFBias != ref.mROFBias || lt.mROFAddTimeErr != ref.mROFAddTimeErr) {
+      return {};
+    }
+  }
+  return {ROFTimingConfig{static_cast<TFBC>(ref.mROFLength), static_cast<TFBC>(ref.mROFDelay),
+                          static_cast<TFBC>(ref.mROFBias), static_cast<TFBC>(ref.mROFAddTimeErr)},
+          true};
 }
 
 #endif // GPUCA_GPUCODE

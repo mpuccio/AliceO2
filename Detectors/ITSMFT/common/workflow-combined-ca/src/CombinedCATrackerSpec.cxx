@@ -27,7 +27,7 @@
 #include "ITSMFTTracking/DetectorTrackingOperationAdapterSupport.h"
 #include "ITSMFTTracking/SurfaceGraphBuilder.h"
 #include "ITSMFTTracking/MultiSourceTimeFrameLoader.h"
-#include "ITSMFTTracking/ROFTimingUniformity.h"
+#include "ITSMFTTracking/SurfaceTiming.h"
 #include "ITSMFTTracking/StaticDetectorCatalogs.h"
 #include "ITSMFTTracking/detail/SurfacePlanBinding.h"
 #include "ITSMFTTracking/TimeFrameLoadFailure.h"
@@ -93,7 +93,7 @@ bool completePublication(o2::itsmft::tracking::DetectorPublicationAdapter<NLayer
 // Per-layer DPLAlpideParam<DetId> -> one source-level ROFTimingConfig,
 // fatal on non-positive ROF length or non-uniform per-layer staggering --
 // the standalone workflow adapters use, reused via the same shared
-// deriveUniformROFTimingConfig() (ROFTimingUniformity.h). Unlike that
+// deriveUniformROFTimingConfig() (SurfaceTiming.h). Unlike that
 // single-detector path, this workflow does not need to derive nROFsTF here:
 // The workflow-owned configureRofTables() takes it directly as the workflow's
 // own ClusterSourceInput::rofs
