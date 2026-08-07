@@ -52,10 +52,12 @@ were searched at the audited revision.
 | `include/ITSMFTTracking/detail/*.h` | 6 | 1,944 |
 | **Total** | **67** | **11,460** |
 
-The proposed end state is 36 root-level headers and 14 `detail/` headers, 50
-headers total. Seventeen files disappear through cohesive merges or one
-evidence-gated deletion; eight implementation-only files move to `detail/`.
-This is a target map, not authorization to land all reductions together.
+The proposed end state is 36 root-level headers and 12 `detail/` headers, 48
+headers total. Sixteen files disappear through cohesive merges, `SeedAnchor`
+is evidence-gated for deletion, and the five temporary `TransitionPolicy`
+headers are replaced by three stage-coherent detail headers. Eight
+implementation-only files move to `detail/`. This is a target map, not
+authorization to land all reductions together.
 
 Classification keys used below are exactly the requested categories:
 
@@ -88,7 +90,7 @@ Classification keys used below are exactly the requested categories:
 | `IOUtils.h` | 5 | Mixed legacy conversion and live bounded decoding. Decide only after downstream API evidence; do not grow it. |
 | `ITSSharedClusterCompatibility.h` | 2 | Workflow-owned ITS publication sidecar and transaction. |
 | `ITSSurfaceSpec.h` | 3 | Merge into `StaticDetectorCatalogs.h`; it is catalog data, not an independent facility. |
-| `IndexTableConfiguration.h` | 1 | Host binding/validation kept apart from the device-portable LUT type. |
+| `IndexTableConfiguration.h` | 1 | Host binding/validation kept apart from the device-portable LUT type; remove its temporary policy-tag template in the retirement campaign. |
 | `IndexTableUtils.h` | 1 | Device-portable LUT geometry and search operations. |
 | `LayerMask.h` | 3 | Merge into `SurfaceMask.h`; the 16-bit positional compatibility mask and 32-bit surface mask form one mask contract. |
 | `MCLabelAccumulator.h` | 1 | Coherent host-side MC-label reduction algorithm; not merely an alias or flag. |
@@ -106,7 +108,7 @@ Classification keys used below are exactly the requested categories:
 | `ROFViews.h` | 1 | Device-portable, non-owning runtime timing/mask views. |
 | `RefitLegAssembly.h` | 3 | Merge into `NativeRefitDriver.h`; its only production consumer is that driver. |
 | `SeedAnchor.h` | 4 | Delete with the unused anchor-taking overloads after downstream evidence; `Inner` is test/historical only. |
-| `StateFamily.h` | 1 | Small but real device-shared representation tag; isolation prevents pulling the 259-line state into policy headers. |
+| `StateFamily.h` | 1 | Small but real device-shared representation tag; isolation prevents pulling the 259-line state into kernel-operation headers. It is not a replacement topology/dispatch policy. |
 | `StaticDetectorCatalogs.h` | 1 | Compile-time ITS/MFT catalog data and runtime projection; absorbs both detector spec files. |
 | `StaticSurfaceDescriptor.h` | 3 | Merge into `SurfaceSpec.h`; the type exists solely to define/validate compile-time specs. |
 | `SurfaceCatalogView.h` | 3 | Merge into `SurfaceDescriptor.h`; descriptor plus narrow borrowed catalog view is one device concept. |
@@ -132,18 +134,18 @@ Classification keys used below are exactly the requested categories:
 | `TrackingConfigParam.h` | 1 | ROOT-visible workflow configuration registration/data. |
 | `TrackingOperationAdapter.h` | 1 | Narrow call-scoped application refit operation. |
 | `detail/SurfacePlanBinding.h` | 5 | Keep private for now, but obtain evidence for replacing public TimeFrame exposure with a narrower frame-owned partition view. |
-| `detail/TransitionPolicy.h` | 1 | Private family-policy tag and compatibility mapping. |
-| `detail/TransitionPolicyBinding.h` | 1 | Host parameter validation/binding; separate from device policy values. |
-| `detail/TransitionPolicyDispatch.h` | 1 | Host one-shot grouping/scheduling cache. |
-| `detail/TransitionPolicyOperations.h` | 1 | Family-specialized operation leaves; large, but splitting by family would oppose structural parallelism. |
-| `detail/TransitionPolicyState.h` | 1 | Device-portable fixed-layout policy values and traits. |
+| `detail/TransitionPolicy.h` | 4 | Delete. The tag is a one-to-one restatement of `SurfaceKind`; use `SurfaceKind` for operation selection and `StateFamily` only for state representation. |
+| `detail/TransitionPolicyBinding.h` | 4 | Inline live host binding into `TrackerTraits.cxx`, relocate hit-attachment configuration to `detail/CellFinding.h`, and delete the unwired material-mode preflight after confirming no downstream caller. |
+| `detail/TransitionPolicyDispatch.h` | 4 | Delete. Derive deterministic transition/cell/road/neighbour schedules directly in `SurfacePlanBinding`; no tag grouping or dispatcher remains. |
+| `detail/TransitionPolicyOperations.h` | 4 | Replace with stage-coherent `detail/TrackletFinding.h` and `detail/CellFinding.h`; delete superseded policy refit helpers after downstream evidence. Do not split architecture by detector. |
+| `detail/TransitionPolicyState.h` | 4 | Replace the useful fixed-layout values with `detail/TrackingKernelParameters.h`; delete `TransitionPolicyTraits` and policy-tag mapping. Preserve device ABI validation. |
 
 ## 4. Cohesive consolidation map
 
 Paths in consumer lists are relative to `Detectors/ITSMFT/` unless stated
 otherwise. Tests are exact direct header consumers at the audited revision.
 
-### 4.1 `RefitLegAssembly.h` into `NativeRefitDriver.h` (recommended first slice)
+### 4.1 `RefitLegAssembly.h` into `NativeRefitDriver.h` (independent mechanical slice)
 
 - **Responsibility/lifecycle:** assembling the three traversal-ordered refit
   legs immediately before the native driver executes them.
@@ -347,6 +349,81 @@ Merge `ClusterSource.h`, `MultiSourceLoading.h`, and
   seed byte/physics fixtures, cell building, refit, device compilation, full
   suite, and replay parity pass.
 
+### 4.9 Retire the `TransitionPolicy` header cluster (recommended first campaign)
+
+The five headers are a coupled temporary migration layer, not five enduring
+concepts. `TransitionPolicyTag` has exactly two enabled values and each is
+derived one-to-one from `SurfaceKind`; `TransitionPolicyGrouping` groups by
+that derived value; `SurfacePlanBinding::Declaration` redundantly carries
+both `expectedKind` and `expectedPolicy`; and `TrackerTraits` retains
+`mActiveTag`, policy-specific parameter optionals, and `*ForPolicy<Tag>`
+methods. This is the tag-keyed duplicated orchestration that the
+[descriptor-driven operation-boundary classification](0001-descriptor-driven-operation-boundary.md#5-classification)
+says M5 removes.
+
+- **Responsibility/lifecycle:** retain three real responsibilities only:
+  deterministic source-binding schedules built once from immutable topology;
+  compact validated kernel parameters bound once per iteration; and narrow
+  tracklet/cell numerical leaves selected from endpoint `SurfaceKind` at the
+  `TrackerTraits` seam. A transition-policy identity has no lifecycle of its
+  own.
+- **Why accidental:** the stored tag already disappeared from
+  `SurfaceTransition`; every remaining tag is reconstructed from a surface
+  kind. The grouping, traits, two parameter optionals, wrappers, tests, and
+  comments mutually justify one another but encode no third choice that is
+  absent from `SurfaceKind`/`StateFamily`.
+- **Public API/dependencies:** remove `expectedPolicy` and
+  `IncompatibleExpectedPolicyKind` from `SurfacePlanBinding`; remove
+  `TransitionPolicyTag`, `TransitionPolicyTraits`,
+  `TransitionPolicyGrouping`, `dispatchTransitionPolicies`, `mActiveTag`,
+  and all `*ForPolicy` names. `IndexTableConfiguration` becomes an explicit
+  `SurfaceKind`/family operation rather than a policy-tag template. No
+  workflow, graph declaration, result, or adapter gains a replacement policy
+  type.
+- **Cohesive destinations:** `SurfacePlanBinding.h` owns validation plus its
+  filtered transition, cell, road-start, and neighbour schedule; new
+  `detail/TrackingKernelParameters.h` owns only the compact device-facing
+  barrel/forward parameter records and ABI checks; new
+  `detail/TrackletFinding.h` owns projection/search-window and transition-cut
+  preparation leaves; new `detail/CellFinding.h` owns cell seed, hit
+  attachment, compatibility, and road-precut leaves. Host conversion from
+  `TrackingParameters` is private `TrackerTraits.cxx` initialization code.
+  Existing `BarrelSurfaceStateOperations.h`,
+  `ForwardSurfaceStateOperations.h`, `Propagator.h`, and
+  `NativeRefitDriver.h` remain the state/refit leaves; do not duplicate them.
+- **Host/device boundary:** the compact replacement parameter records retain
+  standard-layout/trivially-copyable, size, alignment, offset, finite-value,
+  and `GPUhdi` contracts. Graph scheduling and `TrackingParameters` binding
+  remain host-only. Do not move STL, exceptions, configuration vectors, or
+  scheduling into either stage-operation header's device-visible portion.
+- **Exact production consumers:** `TrackerTraits.h/.cxx`,
+  `IndexTableConfiguration.h/.cxx`, `SurfacePlanBinding.h`,
+  `TransitionPolicyOperations.cxx`, and the one stale comment in
+  `ForwardSurfaceStateOperations.h`. The five headers also directly support
+  focused policy-tag/state/dispatch/operation tests and policy-named uses in
+  surface-layout, binding, index-table, refit-hit/leg, tracklet/cell
+  orchestration, material-preflight, TimeFrame, and migration guards. Rename
+  tests only when they still protect a replacement behavior; delete tests
+  whose sole assertion is policy-tag containment, mapping, or dispatch count.
+- **Smallest safe slices:** P1 removes `TransitionPolicyGrouping`,
+  `dispatchTransitionPolicies`, and redundant `expectedPolicy`, moving the
+  byte-identical deterministic schedules into `SurfacePlanBinding`; P2
+  replaces the compact parameter records and host binders; P3 converts
+  tracklet operations, then cell operations, from tag templates to explicit
+  structurally parallel leaves; P4 deletes unwired/superseded refit and
+  material-preflight policy helpers, then deletes the last policy header,
+  source name, test name, guard exception, and comment.
+- **Deletion criterion and validation gate:** repository and downstream
+  searches find no `TransitionPolicy` identifier or filename. For every
+  current ITS, MFT, and disconnected combined declaration, transition IDs,
+  cell IDs, compact slots, scheduled cells, road starts, CSR, accepted
+  candidates, result order, and output bytes remain identical. Gate binding
+  error classification, index-table configuration, parameter rejection,
+  tracklet/cell/neighbour/road orchestration, state/refit/material tests,
+  header self-containment, real device compilation, complete common/ITS/MFT
+  builds, and replay parity. Mixed cylinder/disk edges remain rejected until
+  separately specified and physics-validated.
+
 ## 5. Public-to-detail relocation map
 
 These moves reduce public signaling without merging unrelated facilities.
@@ -391,11 +468,13 @@ Concrete hotspots and corrections:
 - `Tracker.h` includes `TrackerTraits.h`, scratch, graph builder, binding, and
   TimeFrame. Forward declarations can narrow this only after inline/API uses
   are audited; do not use a new facade.
-- `TimeFrame.h` publicly includes a detail policy/binding chain. Resolve the
-  exposure evidence above before attempting a PImpl or nested view.
-- `detail/TransitionPolicyOperations.h` is 912 lines but has only eight direct
-  includes. Its size is physics/operation density, not proof that cylinder and
-  disk should be architecturally split.
+- `TimeFrame.h` publicly includes the detail binding and, through it, the
+  temporary policy chain. Retire that chain first; resolve the remaining
+  binding exposure evidence before attempting a PImpl or nested view.
+- `detail/TransitionPolicyOperations.h` is 912 lines and mixes tracklet, cell,
+  transition-preparation, and superseded refit responsibilities. Replace it
+  by stage, not by detector or family; keep cylinder/disk leaf structure
+  parallel and preserve the compact device-parameter boundary.
 
 ## 7. File-by-file comment audit
 
@@ -463,15 +542,15 @@ Condense, Move to Markdown, and Delete. Replacement text follows `=>`.
 | `TimeFrame.h` | M file-level Gate history; replace with current passive-owner contract. K/C 91-104 view invalidation, 108-127 atomic commit/reset, 150-162 result same-frame lifetime, 170-180 allocator destruction order. D/M 193-206 “unpopulated by B3.1” and old `loadNormalizedSource` history; describe current members only. |
 | `TimeFrameLoadFailure.h` | K 15-16 host boundary, 29-34 recoverable-vs-structural rule, 47-76 typed failure payload, 84-89 test-backed exhaustiveness limitation. Condense repeated wording. |
 | `Tracker.h` | D/M 38-55 stale standalone-interface/history. K/C 62-70 complete result/boundaries, 116-128 adapter lifetime and all-iteration failure/reset contract. |
-| `TrackerTraits.h` | K 44-48 forward-declaration dependency rule. C/M 60-123 failure reasons: keep discriminating failure conditions, move milestone narratives. D/replace 145-166 stale ownership (“TimeFrame owns workspace/config; Traits borrows per call”). C 178-180, 203-228 cache lifetime, 236-324 compact ID/dispatch invariants. M 355-439 M4-M6/Gate histories; retain only source-of-truth, units, lifetime, and non-owning rules. |
+| `TrackerTraits.h` | K 44-48 forward-declaration dependency rule. C/M 60-123 failure reasons: keep discriminating failure conditions, move milestone narratives. D/replace 145-166 stale ownership (“TimeFrame owns workspace/config; Traits borrows per call”). C 178-180, 203-228 cache lifetime, 236-324 compact-ID/schedule/operation-binding invariants after policy retirement. M 355-439 M4-M6/Gate histories; retain only source-of-truth, units, lifetime, and non-owning rules. |
 | `TrackingConfigParam.h` | D/M 35-36 “header only for now”; verify current use. C 79-121 namespace/thread semantics. M 127-137 Gate-4 activation history; retain default/ownership semantics only. |
 | `TrackingOperationAdapter.h` | K/C 25-28 generic candidate and 42-44 call-scoped refit-only seam. |
 | `detail/SurfacePlanBinding.h` | M file-level 11-47 migration history. K/C 96-103 order mapping, 126-130 stored order, 155-178 boundary validation/filtering, 230-235 scheduled-order distinction. |
-| `detail/TransitionPolicy.h` | M file-level M4 history. K/C 63-66 kind compatibility and 80-87 unique mapping. |
-| `detail/TransitionPolicyBinding.h` | K 13-16 host/device boundary. C 26-44 validation/material view, 71-126 correction-mode failure distinctions, 150-179 geometry view/binding. Move Stage-B narrative only. |
-| `detail/TransitionPolicyDispatch.h` | K/C 17-20 host-only dispatch, 42-45 one-shot grouping, 122-132 seeding endpoint/order, 175-181 schedule order, 234-242 dispatch count. Remove decision IDs. |
-| `detail/TransitionPolicyOperations.h` | M milestone/history portions of 50-53, 128-181, 246-267, 309-393, 442-506, 573-610, 650-690, 775-854. K/C formula, units, ordering, host/device, failure, hole, and unchecked-precondition facts in 195-231, 277-298, 435-439, 619-640, 699-756, 788-799, 864-903. Target at most 3-8 lines per operation. |
-| `detail/TransitionPolicyState.h` | K/C 23-28 device finite check, 34-66 parameter units/validity, 88-91 ABI lock, 113-125 compatibility hypothesis and per-tag boundary; remove Stage-B label. |
+| `detail/TransitionPolicy.h` | M the file-level migration history to this document. D tag definition, enabled-tag test, compatibility mapping, inverse kind mapping, and their assertions when the file is deleted; `SurfaceKind`/`stateFamilyOf(SurfaceKind)` are the replacement source of truth. |
+| `detail/TransitionPolicyBinding.h` | K/relocate the host/device boundary and material/config validity contracts beside the surviving cell/config initialization code. M Stage-B and activation narrative. D policy/tag/preflight prose and the unwired correction-mode preflight when its code is removed. Replacement wording: “Host-only validation binds one iteration's configuration before traversal state is committed.” |
+| `detail/TransitionPolicyDispatch.h` | K/relocate seeding-endpoint, deterministic schedule, cycle, and stable-order contracts to `SurfacePlanBinding`. D policy groups, per-tag spans, dispatch-count rules, and historical decision IDs with the deleted abstraction. |
+| `detail/TransitionPolicyOperations.h` | M milestone/history portions of 50-53, 128-181, 246-267, 309-393, 442-506, 573-610, 650-690, 775-854. K/relocate formula, units, ordering, host/device, failure, hole, and unchecked-precondition facts in 195-231, 277-298, 435-439, 619-640, 699-756, 788-799, 864-903 beside the replacement stage leaves, at most 3-8 lines per operation. D policy-boundary and tag-dispatch narration. |
+| `detail/TransitionPolicyState.h` | K/relocate the device finite check, parameter units/validity, and ABI locks to `TrackingKernelParameters.h`. M compatibility/Stage-B history. D `TransitionPolicyTraits`, expected-kind/tag assertions, and policy terminology. |
 
 ### 7.1 Safe comment-cleanup slices
 
@@ -483,9 +562,10 @@ Condense, Move to Markdown, and Delete. Replacement text follows `=>`.
 3. Condense value-type/device comments (`Cell`, identifiers/masks,
    descriptors, state/reference, measurements, graph/view). Re-run device
    header compilation because comments sit beside ABI assertions.
-4. Condense operation/physics comments one family pair at a time: barrel and
-   forward together, then propagator/refit, then transition-policy detail.
-   Physics reviewers must confirm no invariant was lost.
+4. Retire policy comments with the policy code, relocating only real schedule,
+   device, formula, unit, failure, and physics invariants. Then condense
+   operation comments one structurally parallel barrel/forward pair at a
+   time. Physics reviewers must confirm no invariant was lost.
 5. Clean adapter/loading/output comments and verify failure/writer contracts.
 
 ## 8. SurfaceGraph simplification investigation
@@ -514,12 +594,12 @@ expansion are all primary persistent topology today.
 |---|---|---|---|
 | `Tracker::initialize` / `TimeFrame::commitConfiguration` | validated counts and immutable per-iteration storage | Yes | Once before atomic configuration commit. |
 | `SurfacePlanBinding::build` | source-owned surfaces/order, filtered transitions/cells, global-to-compact slots, road-start and scheduled cell IDs | Yes | Once per iteration/source after graph derivation. |
-| `TransitionPolicyGrouping` | family groups, cycle/rank order, cells, scheduled cells, road starts | Yes | Once at initialization; not per event. |
+| `SurfacePlanBinding` schedule derivation | cycle/rank order, source-filtered cells, scheduled cells, road starts | Yes | Once at initialization; no policy grouping is required. |
 | `SurfaceTrackingScratch::adoptPlan/initialise` | compact transition/cell counts and endpoint lookup | Yes | Capacity at configuration; views at iteration bind. |
-| `computeLayerTrackletsForPolicy` | deterministic transition sequence and endpoints | The pair list is sufficient | Cache family-filtered pair indices once. |
-| `computeLayerCellsForPolicy` | every composable two-transition path and its three surfaces | Yes | Join pairs on `first.to == second.from`; cache before events. |
-| `findCellsNeighboursForPolicy` | successors whose first transition equals the current cell's second transition | Yes, but CSR is hot-loop useful | Derive/cache CSR once; do not scan all cells in candidate loops. |
-| `findRoadsForPolicy` | cells whose second-transition endpoint is seed-eligible, in deterministic order | Yes | Derive from cells plus seeding policy once. |
+| `TrackerTraits::computeLayerTracklets` | deterministic transition sequence and endpoints | The pair list is sufficient | Cache binding-filtered pair indices once. |
+| `TrackerTraits::computeLayerCells` | every composable two-transition path and its three surfaces | Yes | Join pairs on `first.to == second.from`; cache before events. |
+| `TrackerTraits::findCellsNeighbours` | successors whose first transition equals the current cell's second transition | Yes, but CSR is hot-loop useful | Derive/cache CSR once; do not scan all cells in candidate loops. |
+| `TrackerTraits::findRoads` | cells whose second-transition endpoint is seed-eligible, in deterministic order | Yes | Derive from cells plus the seeding declaration once. |
 | Tests/fixtures | direct mutation/error injection of transitions/cells/views | Not a runtime need | Rewrite fixtures against declarations/derived caches; keep targeted invalid-view tests privately. |
 
 No production consumer requires cells or neighbour CSR to be authored by the
@@ -544,7 +624,7 @@ Tracker initialization (local, fallible)
   derive transition execution records
   derive cells and deterministic cell order
   derive cell-successor CSR
-  derive family/binding/road-start caches
+  derive binding/road-start/schedule caches directly from surface kinds
   atomically install all immutable data in TimeFrame
 
 device/runtime view
@@ -569,17 +649,19 @@ device declaration transfer. A second phase may pack cache records only after
 measurement.
 
 Initialization gains an O(E + C) derivation and CSR build. This is configure-
-once work. Current `TransitionPolicyGrouping` already scans transitions,
-builds a topological rank, groups IDs, and sorts scheduled cells; pair-based
-adjacency can reduce its current repeated edge scans, but initialization speed
-is secondary to clarity. Candidate hot loops must retain O(1) indexed endpoint
-and CSR successor access; deriving cells or scanning pairs inside them is not
+once work. The temporary `TransitionPolicyGrouping` already scans transitions,
+builds a topological rank, groups IDs, and sorts scheduled cells. Its rank,
+road-start, and stable-order mechanics survive as binding/graph derivation;
+the tag buckets and dispatcher do not. Pair-based adjacency can reduce the
+current repeated edge scans, but initialization speed is secondary to
+clarity. Candidate hot loops must retain O(1) indexed endpoint and CSR
+successor access; deriving cells or scanning pairs inside them is not
 acceptable.
 
 The device view remains standard-layout/trivially-copyable pointer/count
-data. Host `std::vector`, exceptions, policy builders, and output facilities
-must not enter it. Compact indices are preferable on device, while the catalog
-retains stable `SurfaceId` identity for measurements/results.
+data. Host `std::vector`, exceptions, graph/schedule builders, and output
+facilities must not enter it. Compact indices are preferable on device, while
+the catalog retains stable `SurfaceId` identity for measurements/results.
 
 ### 8.5 Stable identity and deterministic traversal
 
@@ -611,10 +693,11 @@ Multiple detector identities within a connected component also need no graph
 special case: endpoint descriptors retain detector identity while topology
 uses compact indices. Current execution, however, rejects mixed-kind
 transitions (`SurfaceGraph::validate`) and mixed-kind subgraphs (builder
-preflight), because only cylinder-cylinder and disk-disk CA policy operations
+preflight), because only same-kind cylinder and disk CA operation leaves
 exist. A future cylinder-to-disk pair is representable but cannot be enabled
 until a mixed-family operation/cut/material contract and physics validation
-exist. Do not introduce separate graph architectures for cylinders and disks.
+exist. Do not reintroduce a policy tag to model that future operation, and do
+not introduce separate graph architectures for cylinders and disks.
 
 ## 9. Hole policy is not adjacency
 
@@ -664,26 +747,32 @@ the simplest design prototype to compare against those gates.
 
 ## 10. Recommended sequence, risks, and stop conditions
 
-1. Land the first slice in Section 4.1 only.
-2. Consolidate identifiers/masks and descriptor/spec fragments in small,
+1. Run Section 4.9 Slice P1: remove tag grouping/dispatch and redundant
+   `expectedPolicy` while preserving every binding and schedule sequence.
+2. Complete policy retirement through P2-P4 in independently replay-gated
+   stage slices; no policy identifier should survive as a compatibility alias.
+3. Land the mechanical `RefitLegAssembly` merge from Section 4.1, then
+   consolidate identifiers/masks and descriptor/spec fragments in small,
    device-verified commits.
-3. Consolidate timing and host decoding, then the Loader boundary. This
+4. Consolidate timing and host decoding, then the Loader boundary. This
    unlocks moving scratch and compatibility implementation headers to detail.
-4. Perform the comment cleanup slices independently of representation change.
-5. Build a non-production pair-list derivation fixture that consumes current
+5. Perform comment cleanup independently of representation changes, deleting
+   policy narration with the retired machinery.
+6. Build a non-production pair-list derivation fixture that consumes current
    graph declarations and compares every derived ID/cache byte-for-byte.
-6. Only after exact structural parity, decide whether `SurfaceGraph` stores
+7. Only after exact structural parity, decide whether `SurfaceGraph` stores
    pair authority plus caches or keeps the current representation.
-7. Treat any hole-model or mixed-kind execution difference as a separate
+8. Treat any hole-model or mixed-kind execution difference as a separate
    physics-reviewed campaign.
 
-Primary risks are downstream public includes, accidental host dependencies in
-device headers, changing stable ID/order while “deriving” caches, hiding a
-second topology in `SurfacePlanBinding`, widening `CommonTrackOutputAdapter`
-into a utility umbrella, and removing comments that encode actual physics or
-transactional guarantees. Stop if a slice needs a behavior/default change,
-cannot state one owner and deletion criterion, or lacks downstream/device
-evidence.
+Primary risks are downstream public includes, accidentally preserving the
+policy tag under a family-dispatch alias, accidental host dependencies in
+device headers, changing stable ID/order while deriving schedules/caches,
+hiding a second topology in `SurfacePlanBinding`, widening
+`CommonTrackOutputAdapter` into a utility umbrella, and removing comments that
+encode actual physics or transactional guarantees. Stop if a slice needs a
+behavior/default change, cannot state one owner and deletion criterion, or
+lacks downstream/device evidence.
 
 ## 11. Documentation validation contract
 
