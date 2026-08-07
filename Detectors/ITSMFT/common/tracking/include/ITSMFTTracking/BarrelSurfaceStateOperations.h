@@ -10,10 +10,8 @@
 
 #include "ITSMFTTracking/MaterialPhysics.h"
 #include "ITSMFTTracking/SurfaceKinematicState.h"
-#include "ITSMFTTracking/SurfaceLinearizationReference.h"
 #include "ITSMFTTracking/SurfaceMeasurement.h"
 #include "ITSMFTTracking/SurfaceStateOperationResult.h"
-#include "ITSMFTTracking/SeedAnchor.h"
 #include "ITSMFTTracking/StateFamily.h"
 
 namespace o2::itsmft::tracking::barrel
@@ -129,40 +127,6 @@ bool buildSeed(const SurfaceMeasurement& measurementInner, const SurfaceMeasurem
                uint8_t absCharge, o2::track::PID pid,
                SurfaceKinematicState& outState, OperationFailureReason& reason) noexcept;
 
-// Stage-B refit-primitive slice: builds the initial anchor-selected
-// SurfaceKinematicState seed for a cylindrical three-hit candidate.
-// `SeedAnchor::Outer` reproduces `buildSeed` above exactly (byte-for-byte;
-// that overload now delegates here). `SeedAnchor::Inner` reproduces the
-// frozen ITS `o2::its::track::buildTrackSeed(cluster1, cluster2, tf3, bz,
-// reverse=true)` convention used by `o2::its::track::seedTrackForRefit`
-// (ITStracking/TrackHelpers.h) for its short-track reseed: the roles of
-// `measurementInner` and `measurementOuter` swap (the anchor/frame-providing
-// measurement becomes `measurementInner`, and the two rotated global
-// positions become `measurementOuter`/`measurementMiddle`), and the
-// snp/q2pt/tgl formulas carry the legacy reverse=true sign flip (`sign =
-// -1`) needed to keep the local direction convention consistent with the
-// anchor swap. Output anchor/reference frame follows the anchor: Outer
-// anchors at measurementOuter's frame/reference exactly as `buildSeed`
-// above; Inner anchors at measurementInner's frame/reference (`alpha ==
-// measurementInner.frame.frameAngle`, `referenceCoordinate ==
-// measurementInner.frame.q`, covariance seeded from
-// measurementInner.covariance). Both anchors read the same {inner, middle,
-// outer} physical hit ordering; the anchor is never inferred from argument
-// permutation, numeric SurfaceId, or radius/z sign -- it is the explicit
-// `anchor` argument alone. An unrecognized `SeedAnchor` value fails with
-// `OperationFailureReason::InvalidSeedAnchor` (not NonFiniteInput -- the
-// raw measurement/bz/absCharge/pid inputs may be perfectly well-formed;
-// it is the anchor selector itself that is invalid) and leaves `outState`
-// unchanged
-// (this primitive does not yet implement midpoint selection or
-// ReseedIfShorter orchestration; it only makes seed construction anchor-
-// capable). Same failure vocabulary, absCharge/pid contract, and
-// scratch-then-commit transactionality as `buildSeed` above.
-bool buildSeed(SeedAnchor anchor, const SurfaceMeasurement& measurementInner, const SurfaceMeasurement& measurementMiddle,
-               const SurfaceMeasurement& measurementOuter, float bz,
-               uint8_t absCharge, o2::track::PID pid,
-               SurfaceKinematicState& outState, OperationFailureReason& reason) noexcept;
-
 // Stage-B refit-primitive slice (linRef-aware rotate): transcribes
 // o2::track::TrackParametrizationWithError<float>::rotate(alpha, linRef0,
 // bz) (DataFormats/Reconstruction/src/TrackParametrizationWithError.cxx)
@@ -179,7 +143,7 @@ bool buildSeed(SeedAnchor anchor, const SurfaceMeasurement& measurementInner, co
 //
 // `state.absCharge` supplies the curvature-relevant charge for `linRef`'s
 // own propagation step (linRef carries no absCharge/pid of its own --
-// see SurfaceLinearizationReference.h); this is the one place a
+// see the paired reference type in SurfaceKinematicState.h); this is the one place a
 // SurfaceLinearizationReference operation reads a field from its paired
 // state rather than from itself.
 //

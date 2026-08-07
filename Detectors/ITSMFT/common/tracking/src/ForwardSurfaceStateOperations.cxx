@@ -563,14 +563,10 @@ bool stateChi2(const SurfaceKinematicState& reference, const SurfaceKinematicSta
 namespace
 {
 
-// Shared closed-form seed construction. SeedAnchor::Outer calls this with
-// frameMeasurement=outer (transcribed verbatim from the retired single-
-// overload buildSeed body); SeedAnchor::Inner calls this with
-// frameMeasurement=inner. The direction estimate (phi, tanl, invQPt) is
-// anchor-symmetric (see the SeedAnchor::Inner doc on the header
-// declaration) and always reads measurementInner/measurementMiddle/
-// measurementOuter in the fixed physical order; only `frameMeasurement`
-// (which one of the three supplies the reference frame/covariance) varies.
+// Shared closed-form seed construction. The direction estimate (phi, tanl,
+// invQPt) reads measurementInner/measurementMiddle/measurementOuter in the
+// fixed physical order; frameMeasurement supplies the reference frame and
+// covariance.
 bool buildSeedImpl(const SurfaceMeasurement& measurementInner, const SurfaceMeasurement& measurementMiddle,
                    const SurfaceMeasurement& measurementOuter, const SurfaceMeasurement& frameMeasurement,
                    float bz, float trackletMinPt,
@@ -920,21 +916,6 @@ bool buildSeed(const SurfaceMeasurement& measurementInner, const SurfaceMeasurem
                SurfaceKinematicState& outState, OperationFailureReason& reason) noexcept
 {
   return buildSeedImpl(measurementInner, measurementMiddle, measurementOuter, measurementOuter, bz, trackletMinPt, absCharge, pid, outState, reason);
-}
-
-bool buildSeed(SeedAnchor anchor, const SurfaceMeasurement& measurementInner, const SurfaceMeasurement& measurementMiddle,
-               const SurfaceMeasurement& measurementOuter, float bz, float trackletMinPt,
-               uint8_t absCharge, o2::track::PID pid,
-               SurfaceKinematicState& outState, OperationFailureReason& reason) noexcept
-{
-  switch (anchor) {
-    case SeedAnchor::Outer:
-      return buildSeedImpl(measurementInner, measurementMiddle, measurementOuter, measurementOuter, bz, trackletMinPt, absCharge, pid, outState, reason);
-    case SeedAnchor::Inner:
-      return buildSeedImpl(measurementInner, measurementMiddle, measurementOuter, measurementInner, bz, trackletMinPt, absCharge, pid, outState, reason);
-  }
-  reason = OperationFailureReason::InvalidSeedAnchor;
-  return false;
 }
 
 template <>

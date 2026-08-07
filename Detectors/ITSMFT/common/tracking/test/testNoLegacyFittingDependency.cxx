@@ -45,7 +45,7 @@ struct TokenCheck {
 
 // Every allowlisted file is scanned too -- the allowlist only means "known,
 // reasoned exception", not "unscanned". Rationale per file:
-//  - RefitLegAssembly.h, detail/TrackletFinding.h,
+//  - NativeRefitDriver.h, detail/TrackletFinding.h,
 //    SurfaceStateOperationResult.h: doc comments describing the legacy
 //    fitTrack/refitTrack formula an operation reproduces or a failure reason
 //    mirrors -- prose, not a dependency.

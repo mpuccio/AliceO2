@@ -430,11 +430,6 @@ namespace
 // o2::its::track::buildTrackSeed (ITStracking/TrackHelpers.h) with its
 // `cluster1`/`cluster2`/`tf3`/`reverse` arguments renamed to
 // `clusterA`/`clusterB`/`frameMeasurement`/`sign` respectively.
-// SeedAnchor::Outer calls this with {clusterA=inner, clusterB=middle,
-// frameMeasurement=outer, sign=+1} (reverse=false); SeedAnchor::Inner calls
-// this with {clusterA=outer, clusterB=middle, frameMeasurement=inner,
-// sign=-1} (reverse=true), matching o2::its::track::seedTrackForRefit's own
-// swapped call exactly.
 bool buildSeedImpl(const SurfaceMeasurement& clusterA, const SurfaceMeasurement& clusterB,
                    const SurfaceMeasurement& frameMeasurement, float bz, float sign,
                    uint8_t absCharge, o2::track::PID pid,
@@ -523,8 +518,8 @@ bool buildSeedImpl(const SurfaceMeasurement& clusterA, const SurfaceMeasurement&
 // parameter-space formula the non-linRef `propagate` above already
 // transcribes for SurfaceKinematicState, applied here to the covariance-free
 // reference. `stateAbsCharge` substitutes for the legacy reference's own
-// absCharge field (a SurfaceLinearizationReference carries none -- see
-// SurfaceLinearizationReference.h): the reference and its paired state
+// absCharge field (a SurfaceLinearizationReference carries none -- see the
+// paired type in SurfaceKinematicState.h): the reference and its paired state
 // always describe the same particle hypothesis.
 bool propagateReferenceParams(SurfaceLinearizationReference& ref, uint8_t stateAbsCharge, float targetX, float bz,
                               OperationFailureReason& reason) noexcept
@@ -594,21 +589,6 @@ bool buildSeed(const SurfaceMeasurement& measurementInner, const SurfaceMeasurem
                SurfaceKinematicState& outState, OperationFailureReason& reason) noexcept
 {
   return buildSeedImpl(measurementInner, measurementMiddle, measurementOuter, bz, 1.f, absCharge, pid, outState, reason);
-}
-
-bool buildSeed(SeedAnchor anchor, const SurfaceMeasurement& measurementInner, const SurfaceMeasurement& measurementMiddle,
-               const SurfaceMeasurement& measurementOuter, float bz,
-               uint8_t absCharge, o2::track::PID pid,
-               SurfaceKinematicState& outState, OperationFailureReason& reason) noexcept
-{
-  switch (anchor) {
-    case SeedAnchor::Outer:
-      return buildSeedImpl(measurementInner, measurementMiddle, measurementOuter, bz, 1.f, absCharge, pid, outState, reason);
-    case SeedAnchor::Inner:
-      return buildSeedImpl(measurementOuter, measurementMiddle, measurementInner, bz, -1.f, absCharge, pid, outState, reason);
-  }
-  reason = OperationFailureReason::InvalidSeedAnchor;
-  return false;
 }
 
 bool rotate(SurfaceKinematicState& state, SurfaceLinearizationReference& linRef, float targetAlpha, float bz,

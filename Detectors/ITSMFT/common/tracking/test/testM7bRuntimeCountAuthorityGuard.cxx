@@ -104,7 +104,7 @@ std::optional<CountBoundary> classify(const fs::path& path, std::string_view cod
   }
   if (name == "IndexTableConfiguration.h" || name == "IndexTableConfiguration.cxx" ||
       name == "NativeRefitDriver.h" ||
-      name == "RefitLegAssembly.h" || name == "TrackletFinding.h" ||
+      name == "TrackletFinding.h" ||
       name == "TrackletFinding.cxx") {
     // The old native-cylinder output loop is an adapter edge; its remaining
     // NLayers template uses are otherwise private operation plumbing.

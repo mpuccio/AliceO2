@@ -30,7 +30,7 @@
 
 #include "ITSMFTTracking/BarrelSurfaceStateOperations.h"
 #include "ITSMFTTracking/ForwardSurfaceStateOperations.h"
-#include "ITSMFTTracking/SurfaceLinearizationReference.h"
+#include "ITSMFTTracking/SurfaceKinematicState.h"
 #include "ReconstructionDataFormats/PID.h"
 #include "ReconstructionDataFormats/TrackParametrization.h"
 

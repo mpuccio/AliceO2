@@ -17,7 +17,7 @@
 
 #include "CommonConstants/MathConstants.h"
 #include "ITSMFTTracking/ForwardSurfaceStateOperations.h"
-#include "ITSMFTTracking/SurfaceLinearizationReference.h"
+#include "ITSMFTTracking/SurfaceKinematicState.h"
 
 namespace
 {
@@ -508,25 +508,6 @@ SurfaceMeasurement makeOuterMeasurement()
   return measurement;
 }
 
-BOOST_AUTO_TEST_CASE(AnchoredBuildSeedOuterIsByteCompatibleWithExistingBuildSeed)
-{
-  const auto inner = makeInnerMeasurement();
-  const auto middle = makeMiddleMeasurement();
-  const auto outer = makeOuterMeasurement();
-  const float bz = 0.5f;
-  const float trackletMinPt = 0.3f;
-
-  SurfaceKinematicState plain{};
-  OperationFailureReason reasonPlain{};
-  BOOST_REQUIRE(forward::buildSeed(inner, middle, outer, bz, trackletMinPt, 1, o2::track::PID::Pion, plain, reasonPlain));
-
-  SurfaceKinematicState anchored{};
-  OperationFailureReason reasonAnchored{};
-  BOOST_REQUIRE(forward::buildSeed(SeedAnchor::Outer, inner, middle, outer, bz, trackletMinPt, 1, o2::track::PID::Pion, anchored, reasonAnchored));
-
-  BOOST_CHECK(bitEqual(plain, anchored));
-}
-
 // A second transverse handedness: negates the y-component of all three
 // global positions (z-ordering, hence the SeedGeometryDegenerate boundary,
 // is untouched), giving a geometrically distinct candidate whose estimated
@@ -537,77 +518,8 @@ SurfaceMeasurement mirrorTransverse(SurfaceMeasurement measurement)
   return measurement;
 }
 
-// SeedAnchor::Inner: same physical hits, anchored at the inner measurement's
-// own frame/reference/covariance instead of the outer's, with the identical
-// (anchor-symmetric) direction estimate as Outer -- correct signed q/pT and
-// endpoint frame per the header contract. Exercised at both magnetic-field
-// signs and both transverse handedness fixtures (item 6 hardening).
-void checkAnchorSymmetry(const SurfaceMeasurement& inner, const SurfaceMeasurement& middle, const SurfaceMeasurement& outer, float bz)
-{
-  const float trackletMinPt = 0.3f;
-
-  SurfaceKinematicState outerAnchored{};
-  OperationFailureReason reasonOuter{};
-  BOOST_REQUIRE(forward::buildSeed(SeedAnchor::Outer, inner, middle, outer, bz, trackletMinPt, 1, o2::track::PID::Pion, outerAnchored, reasonOuter));
-
-  SurfaceKinematicState innerAnchored{};
-  OperationFailureReason reasonInner{};
-  BOOST_REQUIRE(forward::buildSeed(SeedAnchor::Inner, inner, middle, outer, bz, trackletMinPt, 1, o2::track::PID::Pion, innerAnchored, reasonInner));
-
-  // Anchor/reference/covariance fields are the only fields the contract
-  // says may differ, and each is pinned to its own measurement's frame.
-  BOOST_CHECK(innerAnchored.family == StateFamily::Forward);
-  BOOST_CHECK(outerAnchored.family == StateFamily::Forward);
-  BOOST_CHECK_EQUAL(innerAnchored.referenceCoordinate, inner.frame.q);
-  BOOST_CHECK_EQUAL(outerAnchored.referenceCoordinate, outer.frame.q);
-  BOOST_CHECK_EQUAL(innerAnchored.parameters[0], inner.global.x);
-  BOOST_CHECK_EQUAL(innerAnchored.parameters[1], inner.global.y);
-  BOOST_CHECK_EQUAL(outerAnchored.parameters[0], outer.global.x);
-  BOOST_CHECK_EQUAL(outerAnchored.parameters[1], outer.global.y);
-  BOOST_CHECK_EQUAL(innerAnchored.covariance[packedCovarianceIndex(0, 0)], inner.covariance.uu);
-  BOOST_CHECK_EQUAL(innerAnchored.covariance[packedCovarianceIndex(1, 1)], inner.covariance.vv);
-  BOOST_CHECK_EQUAL(outerAnchored.covariance[packedCovarianceIndex(0, 0)], outer.covariance.uu);
-  BOOST_CHECK_EQUAL(outerAnchored.covariance[packedCovarianceIndex(1, 1)], outer.covariance.vv);
-
-  // Everything else -- alpha (always 0/unused for Forward), absCharge,
-  // pid, and the direction estimate (phi/tanl, geometry-derived, plus
-  // invQPt, the caller-configured trackletMinPt-derived magnitude that is
-  // anchor- and geometry-invariant by construction -- see
-  // forward::buildSeed's established compatibility fallback) -- must be
-  // identical between the two anchors, by the documented anchor-symmetry
-  // of the closed-form geometry estimate.
-  BOOST_CHECK_EQUAL(innerAnchored.alpha, outerAnchored.alpha);
-  BOOST_CHECK_EQUAL(innerAnchored.absCharge, outerAnchored.absCharge);
-  BOOST_CHECK(innerAnchored.pid == outerAnchored.pid);
-  BOOST_CHECK_CLOSE(innerAnchored.parameters[2], outerAnchored.parameters[2], 1.e-3f);
-  BOOST_CHECK_CLOSE(innerAnchored.parameters[3], outerAnchored.parameters[3], 1.e-3f);
-  BOOST_CHECK_CLOSE(innerAnchored.parameters[4], outerAnchored.parameters[4], 1.e-3f);
-}
-
-BOOST_AUTO_TEST_CASE(AnchoredBuildSeedInnerOuterSymmetryPositiveFieldUnmirrored)
-{
-  checkAnchorSymmetry(makeInnerMeasurement(), makeMiddleMeasurement(), makeOuterMeasurement(), 0.5f);
-}
-
-BOOST_AUTO_TEST_CASE(AnchoredBuildSeedInnerOuterSymmetryNegativeFieldUnmirrored)
-{
-  checkAnchorSymmetry(makeInnerMeasurement(), makeMiddleMeasurement(), makeOuterMeasurement(), -0.5f);
-}
-
-BOOST_AUTO_TEST_CASE(AnchoredBuildSeedInnerOuterSymmetryPositiveFieldMirrored)
-{
-  checkAnchorSymmetry(mirrorTransverse(makeInnerMeasurement()), mirrorTransverse(makeMiddleMeasurement()),
-                      mirrorTransverse(makeOuterMeasurement()), 0.5f);
-}
-
-BOOST_AUTO_TEST_CASE(AnchoredBuildSeedInnerOuterSymmetryNegativeFieldMirrored)
-{
-  checkAnchorSymmetry(mirrorTransverse(makeInnerMeasurement()), mirrorTransverse(makeMiddleMeasurement()),
-                      mirrorTransverse(makeOuterMeasurement()), -0.5f);
-}
-
 // The mirrored fixture is a geometrically distinct candidate (opposite
-// transverse handedness): its Outer-anchored phi (the atan2(dyPhi, dxPhi)
+// transverse handedness): its outer-seed phi (the atan2(dyPhi, dxPhi)
 // direction estimate, sign-sensitive to handedness) must differ from the
 // un-mirrored fixture's, confirming the two handedness fixtures above are
 // not accidentally equivalent. parameters[4] (invQPt) is deliberately not
@@ -630,19 +542,6 @@ BOOST_AUTO_TEST_CASE(MirroredFixtureIsGeometricallyDistinctFromUnmirrored)
                                    mirrored, reasonMirrored));
 
   BOOST_CHECK_NE(plain.parameters[2], mirrored.parameters[2]);
-}
-
-BOOST_AUTO_TEST_CASE(AnchoredBuildSeedRejectsInvalidAnchorTransactionally)
-{
-  const auto inner = makeInnerMeasurement();
-  const auto middle = makeMiddleMeasurement();
-  const auto outer = makeOuterMeasurement();
-  auto outState = makeState();
-  const auto before = outState;
-  OperationFailureReason reason{};
-  BOOST_CHECK(!forward::buildSeed(static_cast<SeedAnchor>(2), inner, middle, outer, 0.5f, 0.3f, 1, o2::track::PID::Pion, outState, reason));
-  BOOST_CHECK(reason == OperationFailureReason::InvalidSeedAnchor);
-  BOOST_CHECK(bitEqual(outState, before));
 }
 
 // Reports the observed maximum absolute/relative drift accumulated by the

@@ -5,9 +5,8 @@
 // This software is distributed under the terms of the GNU General Public
 // License v3 (GPL Version 3), copied verbatim in the file "COPYING".
 
-// Gate 3 Slice A: focused coverage for assembleRefitLegSlots
-// (RefitLegAssembly.h) -- the ordered-slot assembly prerequisite for the
-// native refit driver (Slice B, unwired). Exercises both traversal
+// Focused coverage for assembleRefitLegSlots in the native refit driver.
+// Exercises both traversal
 // directions explicitly: a forward (increasing-index) leg and a reverse
 // (decreasing-index) leg must produce different, correctly-ordered slot
 // sequences from the same seed/measurement fixture -- this is the exact
@@ -24,7 +23,7 @@
 #include <cstring>
 #include <vector>
 
-#include "ITSMFTTracking/RefitLegAssembly.h"
+#include "ITSMFTTracking/NativeRefitDriver.h"
 
 using namespace o2::itsmft::tracking;
 

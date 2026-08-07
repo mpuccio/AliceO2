@@ -18,8 +18,8 @@
 #include <gsl/span>
 
 #include "CommonConstants/MathConstants.h"
+#include "ITSMFTTracking/Cell.h"
 #include "ITSMFTTracking/Propagator.h"
-#include "ITSMFTTracking/RefitLegAssembly.h"
 #include "ITSMFTTracking/SurfaceDescriptor.h"
 #include "ITSMFTTracking/SurfaceStateOperationResult.h"
 #include "ReconstructionDataFormats/TrackParametrization.h"
@@ -34,6 +34,30 @@
 // the adapter refit operation.
 namespace o2::itsmft::tracking
 {
+
+/// Builds one traversal-ordered leg of `SurfaceMeasurement` slots for native
+/// refit from a `TrackSeed`'s already-attached, layer-indexed cluster
+/// bookkeeping. `[start, end)` stepping by `step` is the caller-supplied
+/// legacy layer-index range; `step == +1` walks inward and `step == -1`
+/// walks outward. Holes are represented by default-constructed measurements,
+/// and valid cluster indices are looked up in the corresponding layer span.
+/// Slots are written in traversal order, so decreasing legs remain reversed
+/// rather than being silently reordered by source layer index.
+inline gsl::span<const SurfaceMeasurement> assembleRefitLegSlots(
+  const TrackSeed& seed,
+  gsl::span<const gsl::span<const SurfaceMeasurement>> layerMeasurements,
+  int start, int end, int step,
+  gsl::span<SurfaceMeasurement> out) noexcept
+{
+  int position = 0;
+  for (int surfacePosition = start; surfacePosition != end && position < static_cast<int>(out.size()); surfacePosition += step) {
+    const int clsIdx = seed.getCluster(surfacePosition);
+    out[position++] = (clsIdx == o2::its::constants::UnusedIndex)
+                        ? SurfaceMeasurement{}
+                        : layerMeasurements[surfacePosition][clsIdx];
+  }
+  return gsl::span<const SurfaceMeasurement>(out.data(), position);
+}
 
 // Reproduces the "loose, uninformative diagonal" covariance reset every leg
 // of a from-scratch refit starts from (fresh Kalman filter, previous leg's

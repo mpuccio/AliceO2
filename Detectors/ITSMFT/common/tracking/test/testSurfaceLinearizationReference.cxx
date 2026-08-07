@@ -14,7 +14,7 @@
 #include <limits>
 #include <type_traits>
 
-#include "ITSMFTTracking/SurfaceLinearizationReference.h"
+#include "ITSMFTTracking/SurfaceKinematicState.h"
 
 namespace
 {

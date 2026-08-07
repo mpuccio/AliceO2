@@ -18,12 +18,7 @@
 #include "CommonConstants/MathConstants.h"
 #include "ITSMFTTracking/BarrelSurfaceStateOperations.h"
 #include "ITSMFTTracking/SurfaceKinematicStateLegacyAdapters.h"
-#include "ITSMFTTracking/SurfaceLinearizationReference.h"
-// buildTrackSeed is the retained legacy oracle for the SeedAnchor::Inner
-// buildSeed coverage below only -- production never calls it or constructs
-// the legacy barrel track-parametrization-with-error type it returns.
-#include "ITStracking/Cluster.h"
-#include "ITStracking/TrackHelpers.h"
+#include "ITSMFTTracking/SurfaceKinematicState.h"
 
 namespace
 {
@@ -127,49 +122,6 @@ void compareStateWithOracle(const SurfaceKinematicState& state, const o2::track:
   for (uint8_t i = 0; i < 15; ++i) {
     checkClose(state.covariance[i], oracle.getCov()[i], drift);
   }
-}
-
-// buildSeed fixtures, matching testBarrelSurfaceStateOperations.cxx exactly
-// (three well-separated, non-collinear points).
-o2::its::Cluster makeInnerCluster()
-{
-  return o2::its::Cluster{1.8f, 0.10f, -0.60f, 0};
-}
-
-o2::its::Cluster makeMiddleCluster()
-{
-  return o2::its::Cluster{3.0f, 0.35f, 0.10f, 1};
-}
-
-o2::its::TrackingFrameInfo makeOuterHit()
-{
-  return o2::its::TrackingFrameInfo{0.f, 0.f, 0.f, 4.4f, 0.15f, {0.5f, -0.8f}, {0.02f, 0.001f, 0.03f}};
-}
-
-o2::its::TrackingFrameInfo makeInnerHit()
-{
-  return o2::its::TrackingFrameInfo{0.f, 0.f, 0.f, 1.8f, 0.05f, {0.10f, -0.60f}, {0.015f, 0.0005f, 0.02f}};
-}
-
-SurfaceMeasurement measurementFromGlobalCluster(const o2::its::Cluster& cluster)
-{
-  SurfaceMeasurement measurement{};
-  measurement.global = {cluster.xCoordinate, cluster.yCoordinate, cluster.zCoordinate};
-  return measurement;
-}
-
-SurfaceMeasurement measurementFromFrameHit(const o2::its::TrackingFrameInfo& hit)
-{
-  SurfaceMeasurement measurement{};
-  measurement.frame.q = hit.xTrackingFrame;
-  measurement.frame.frameAngle = hit.alphaTrackingFrame;
-  measurement.frame.u = hit.positionTrackingFrame[0];
-  measurement.frame.v = hit.positionTrackingFrame[1];
-  measurement.covariance.uu = hit.covarianceTrackingFrame[0];
-  measurement.covariance.uv = hit.covarianceTrackingFrame[1];
-  measurement.covariance.vv = hit.covarianceTrackingFrame[2];
-  measurement.global = {0.f, 0.f, hit.positionTrackingFrame[1]}; // z only, matches makeXxxHit() global.z usage in buildSeed formulas
-  return measurement;
 }
 
 } // namespace
@@ -403,79 +355,6 @@ BOOST_AUTO_TEST_CASE(ShiftReferenceToMeasurementRejectsFamilyMismatch)
   OperationFailureReason reason{};
   BOOST_CHECK(!shiftReferenceToMeasurement(linRef, measurement, reason));
   BOOST_CHECK(bitEqual(linRef, before));
-}
-
-// SeedAnchor::Outer must reproduce the existing, unchanged buildSeed exactly.
-BOOST_AUTO_TEST_CASE(AnchoredBuildSeedOuterIsByteCompatibleWithExistingBuildSeed)
-{
-  const auto clusterInner = measurementFromGlobalCluster(makeInnerCluster());
-  const auto clusterMiddle = measurementFromGlobalCluster(makeMiddleCluster());
-  const auto outer = measurementFromFrameHit(makeOuterHit());
-  const float bz = -5.f;
-
-  SurfaceKinematicState plain{};
-  OperationFailureReason reasonPlain{};
-  BOOST_REQUIRE(barrel::buildSeed(clusterInner, clusterMiddle, outer, bz, 1, o2::track::PID::Pion, plain, reasonPlain));
-
-  SurfaceKinematicState anchored{};
-  OperationFailureReason reasonAnchored{};
-  BOOST_REQUIRE(barrel::buildSeed(SeedAnchor::Outer, clusterInner, clusterMiddle, outer, bz, 1, o2::track::PID::Pion, anchored, reasonAnchored));
-
-  BOOST_CHECK(bitEqual(plain, anchored));
-}
-
-// SeedAnchor::Inner must match the frozen ITS reverse=true convention
-// (o2::its::track::buildTrackSeed(outerAsCluster, middleAsCluster,
-// innerAsFrame, bz, reverse=true), the formula
-// o2::its::track::seedTrackForRefit uses for its own short-track reseed).
-BOOST_AUTO_TEST_CASE(AnchoredBuildSeedInnerMatchesFrozenReverseTrueOracle)
-{
-  const auto innerCluster = makeInnerCluster();
-  const auto middleCluster = makeMiddleCluster();
-  const auto outerHit = makeOuterHit();
-  const auto innerHit = makeInnerHit();
-  const float bz = -5.f;
-
-  // Legacy call: buildTrackSeed(cluster1=outer-as-cluster, cluster2=middle,
-  // tf3=inner-as-frame, bz, reverse=true).
-  o2::its::Cluster outerAsCluster{outerHit.xTrackingFrame, outerHit.positionTrackingFrame[0], outerHit.positionTrackingFrame[1], 2};
-  const auto oracle = o2::its::track::buildTrackSeed(outerAsCluster, middleCluster, innerHit, bz, true);
-
-  const auto measurementInner = measurementFromFrameHit(innerHit);
-  const auto measurementMiddle = measurementFromGlobalCluster(middleCluster);
-  SurfaceMeasurement measurementOuter{};
-  measurementOuter.global = {outerHit.xTrackingFrame, outerHit.positionTrackingFrame[0], outerHit.positionTrackingFrame[1]};
-
-  SurfaceKinematicState outState{};
-  OperationFailureReason reason{};
-  BOOST_REQUIRE(barrel::buildSeed(SeedAnchor::Inner, measurementInner, measurementMiddle, measurementOuter, bz, 1, o2::track::PID::Pion, outState, reason));
-
-  BOOST_CHECK(outState.family == StateFamily::Barrel);
-  BOOST_CHECK_EQUAL(outState.referenceCoordinate, measurementInner.frame.q);
-  BOOST_CHECK_EQUAL(outState.alpha, measurementInner.frame.frameAngle);
-
-  Drift drift{};
-  checkClose(outState.referenceCoordinate, oracle.getX(), drift);
-  checkClose(outState.alpha, oracle.getAlpha(), drift);
-  for (uint8_t i = 0; i < 5; ++i) {
-    checkClose(outState.parameters[i], oracle.getParam(i), drift);
-  }
-  for (uint8_t i = 0; i < 15; ++i) {
-    checkClose(outState.covariance[i], oracle.getCov()[i], drift);
-  }
-}
-
-BOOST_AUTO_TEST_CASE(AnchoredBuildSeedRejectsInvalidAnchorTransactionally)
-{
-  const auto clusterInner = measurementFromGlobalCluster(makeInnerCluster());
-  const auto clusterMiddle = measurementFromGlobalCluster(makeMiddleCluster());
-  const auto outer = measurementFromFrameHit(makeOuterHit());
-  auto outState = makeState(); // deliberately non-default sentinel pattern
-  const auto before = outState;
-  OperationFailureReason reason{};
-  BOOST_CHECK(!barrel::buildSeed(static_cast<SeedAnchor>(2), clusterInner, clusterMiddle, outer, -5.f, 1, o2::track::PID::Pion, outState, reason));
-  BOOST_CHECK(reason == OperationFailureReason::InvalidSeedAnchor);
-  BOOST_CHECK(bitEqual(outState, before));
 }
 
 // --- Fitted-state/linRef pairing preconditions (hardening) -----------------

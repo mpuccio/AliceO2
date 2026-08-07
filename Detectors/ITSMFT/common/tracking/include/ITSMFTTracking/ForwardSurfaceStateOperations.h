@@ -12,10 +12,8 @@
 
 #include "ITSMFTTracking/MaterialPhysics.h"
 #include "ITSMFTTracking/SurfaceKinematicState.h"
-#include "ITSMFTTracking/SurfaceLinearizationReference.h"
 #include "ITSMFTTracking/SurfaceMeasurement.h"
 #include "ITSMFTTracking/SurfaceStateOperationResult.h"
-#include "ITSMFTTracking/SeedAnchor.h"
 #include "ITSMFTTracking/StateFamily.h"
 
 namespace o2::itsmft::tracking::forward
@@ -169,35 +167,6 @@ bool buildSeed(const SurfaceMeasurement& measurementInner, const SurfaceMeasurem
                uint8_t absCharge, o2::track::PID pid,
                SurfaceKinematicState& outState, OperationFailureReason& reason) noexcept;
 
-// Stage-B refit-primitive slice: builds the initial anchor-selected
-// SurfaceKinematicState seed for a forward/disk three-hit candidate.
-// `SeedAnchor::Outer` reproduces `buildSeed` above exactly (byte-for-byte;
-// that overload now delegates here). `SeedAnchor::Inner` anchors at
-// measurementInner's own frame/reference/covariance instead
-// (`referenceCoordinate == measurementInner.frame.q`, `parameters[0]/[1] ==
-// measurementInner.global.x/y`, covariance diagonal seeded from
-// measurementInner.covariance) using the same {inner, middle, outer}
-// physical ordering and physically identical direction estimate. Unlike
-// barrel::buildSeed's Inner anchor, no sign flip is applied to phi/tanl/
-// invQPt: there is no legacy MFT "reverse" seed formula to reproduce, and
-// this operation's closed-form phi/tanl estimate (secant lines through the
-// same three global positions) is anchor-symmetric by construction --
-// changing which measurement supplies the reference frame does not change
-// the estimated direction of the same physical trajectory. The strict
-// z-ordering/degenerate-separation boundary (SeedGeometryDegenerate) is
-// unchanged: it is a physical-ordering check on the three hits, not an
-// anchor-dependent one. An unrecognized `SeedAnchor` value fails with
-// `OperationFailureReason::InvalidSeedAnchor` (not NonFiniteInput -- the
-// raw measurement/bz/absCharge/pid inputs may be perfectly well-formed;
-// it is the anchor selector itself that is invalid) and leaves `outState`
-// unchanged.
-// Same failure-precedence, absCharge/pid contract, and scratch-then-commit
-// transactionality as `buildSeed` above.
-bool buildSeed(SeedAnchor anchor, const SurfaceMeasurement& measurementInner, const SurfaceMeasurement& measurementMiddle,
-               const SurfaceMeasurement& measurementOuter, float bz, float trackletMinPt,
-               uint8_t absCharge, o2::track::PID pid,
-               SurfaceKinematicState& outState, OperationFailureReason& reason) noexcept;
-
 // Stage-B refit-primitive slice (linRef-aware propagate): the Disk
 // counterpart to barrel::propagate(state, linRef, ...) above, adopting the
 // same linearization structure -- propagate the reference trajectory
@@ -214,7 +183,7 @@ bool buildSeed(SeedAnchor anchor, const SurfaceMeasurement& measurementInner, co
 // implements) rather than an independent derivation.
 //
 // `linRef` carries no absCharge/pid of its own (see
-// SurfaceLinearizationReference.h); its own propagation and Jacobian
+// SurfaceKinematicState.h); its own propagation and Jacobian
 // evaluation always use `state.absCharge`/`state.pid` implicitly through
 // the shared per-Model helper, matching barrel's identical substitution.
 //
