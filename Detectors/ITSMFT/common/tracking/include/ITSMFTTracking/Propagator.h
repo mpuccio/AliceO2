@@ -16,7 +16,7 @@
 
 #include "ITSMFTTracking/MaterialPhysics.h"
 #include "ITSMFTTracking/StateFamily.h"
-#include "ITSMFTTracking/SurfaceCatalogView.h"
+#include "ITSMFTTracking/SurfaceDescriptor.h"
 #include "ITSMFTTracking/SurfaceDescriptor.h"
 #include "ITSMFTTracking/SurfaceKinematicState.h"
 #include "ITSMFTTracking/SurfaceLinearizationReference.h"

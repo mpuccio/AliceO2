@@ -201,7 +201,7 @@ static_assert(SurfaceMeasurementIndex{7} != SurfaceMeasurementIndex{8});
 
 // -------------------------------------------------------------------------
 // Runtime ABI/layout lock, alongside the compile-time static_asserts in
-// SurfaceDescriptor.h/StaticSurfaceDescriptor.h: nominal material is a field
+// SurfaceDescriptor.h/SurfaceSpec.h: nominal material is a field
 // directly on both descriptor types, not a parallel array or pointer.
 // -------------------------------------------------------------------------
 

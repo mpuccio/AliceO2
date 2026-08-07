@@ -40,8 +40,7 @@
 #include <string>
 #include <vector>
 
-#include "ITSMFTTracking/ITSSurfaceSpec.h"
-#include "ITSMFTTracking/MFTSurfaceSpec.h"
+#include "ITSMFTTracking/StaticDetectorCatalogs.h"
 #include "ITStracking/Constants.h"
 
 using namespace o2::itsmft::tracking;

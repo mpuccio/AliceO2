@@ -22,7 +22,7 @@
 #endif
 
 #include "GPUCommonDef.h"
-#include "ITSMFTTracking/SurfaceCatalogView.h"
+#include "ITSMFTTracking/SurfaceDescriptor.h"
 #include "ITSMFTTracking/SurfaceDescriptor.h"
 #include "ITSMFTTracking/SurfaceId.h"
 #include "ITSMFTTracking/SurfaceMask.h"

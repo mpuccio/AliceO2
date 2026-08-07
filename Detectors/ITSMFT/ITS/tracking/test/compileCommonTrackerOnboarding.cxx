@@ -17,7 +17,7 @@
 #include "ITSMFTTracking/Tracker.h"
 #include "ITSMFTTracking/SurfaceGraphBuilder.h"
 #include "ITSMFTTracking/StaticDetectorCatalogs.h"
-#include "ITSMFTTracking/SurfaceCatalogView.h"
+#include "ITSMFTTracking/SurfaceDescriptor.h"
 #include "ITSMFTTracking/detail/CellFinding.h"
 
 namespace

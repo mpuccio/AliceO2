@@ -20,7 +20,7 @@
 #include "CommonConstants/MathConstants.h"
 #include "ITSMFTTracking/Propagator.h"
 #include "ITSMFTTracking/RefitLegAssembly.h"
-#include "ITSMFTTracking/SurfaceCatalogView.h"
+#include "ITSMFTTracking/SurfaceDescriptor.h"
 #include "ITSMFTTracking/SurfaceStateOperationResult.h"
 #include "ReconstructionDataFormats/TrackParametrization.h"
 

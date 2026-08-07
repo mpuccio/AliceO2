@@ -16,7 +16,7 @@
 #include "CommonDataFormat/InteractionRecord.h"
 #include "ITSMFTTracking/ClusterSource.h"
 #include "ITSMFTTracking/MultiSourceFrame.h"
-#include "ITSMFTTracking/SurfaceCatalogView.h"
+#include "ITSMFTTracking/SurfaceDescriptor.h"
 #include "ITSMFTTracking/SurfaceTiming.h"
 
 namespace o2::itsmft::tracking

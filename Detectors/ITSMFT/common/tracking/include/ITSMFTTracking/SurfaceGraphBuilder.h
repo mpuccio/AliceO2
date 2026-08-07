@@ -15,7 +15,7 @@
 
 #include <gsl/span>
 
-#include "ITSMFTTracking/SurfaceCatalogView.h"
+#include "ITSMFTTracking/SurfaceDescriptor.h"
 #include "ITSMFTTracking/Configuration.h"
 #include "ITSMFTTracking/SurfaceGraph.h"
 #include "ITSMFTTracking/SurfaceId.h"

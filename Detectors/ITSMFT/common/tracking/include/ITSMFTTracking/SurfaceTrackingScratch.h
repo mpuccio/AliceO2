@@ -61,7 +61,7 @@
 #include "ITStracking/Tracklet.h"
 #ifndef GPUCA_GPUCODE
 #include <optional>
-#include "ITSMFTTracking/SurfaceCatalogView.h"
+#include "ITSMFTTracking/SurfaceDescriptor.h"
 #endif
 #include "SimulationDataFormat/MCCompLabel.h"
 #include "SimulationDataFormat/MCTruthContainer.h"

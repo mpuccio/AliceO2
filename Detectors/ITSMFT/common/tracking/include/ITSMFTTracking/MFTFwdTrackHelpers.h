@@ -24,7 +24,7 @@
 #include "ITSMFTTracking/Configuration.h"
 #include "ITSMFTTracking/SurfaceKinematicState.h"
 #include "ITSMFTTracking/SurfaceTrackingScratch.h"
-#include "ITSMFTTracking/SurfaceCatalogView.h"
+#include "ITSMFTTracking/SurfaceDescriptor.h"
 #include "ITStracking/Cluster.h"
 #include "ITStracking/Constants.h"
 #include "MFTTracking/Constants.h"
