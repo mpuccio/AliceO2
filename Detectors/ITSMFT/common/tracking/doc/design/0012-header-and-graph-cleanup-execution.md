@@ -1,6 +1,6 @@
 # Header and graph cleanup execution
 
-- Status: Campaign B accepted; Campaign C in progress
+- Status: Campaign C accepted; comment and inventory campaign in progress
 - Date: 2026-08-07
 - Integration branch: `codex/itsmft-header-graph-cleanup`
 - Base: `86113f2a14`
@@ -73,6 +73,10 @@ then consolidate the Loader declarations and failures. Move the audited
 implementation-only headers, including the TimeFrame-owned workspace, to
 `detail/` without changing ownership or atomic replacement. Decoding precedes
 Loader work. `SurfacePlanBinding` remains a detail implementation type.
+
+Campaign C passed its complete build, test, authentication, fixture, and
+frozen-replay gate. The exact evidence is recorded in
+[Campaign C validation](../validation/header-graph-cleanup-campaign-c.md).
 
 ### Comment and inventory campaign
 
