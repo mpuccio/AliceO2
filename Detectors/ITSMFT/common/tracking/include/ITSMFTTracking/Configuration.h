@@ -117,9 +117,8 @@ struct TrackingParameters {
   int MinTrackLength = 7;
   int MaxHoles = 0;
   tracking::LayerMask HoleLayerMask = 0;
-  // Gate 3 compatibility storage. The common CA does not consume inactive or
-  // explicit seeding-layer semantics yet; an event-processing adapter must
-  // reject non-empty values until that behavior is implemented.
+  // Reserved compatibility storage; adapters reject non-empty values because
+  // the common CA does not consume these declarations.
   tracking::LayerMask InactiveLayerMask = 0;
   tracking::LayerMask SeedingLayers = 0;
   float NSigmaCut = 5;
@@ -144,8 +143,8 @@ struct TrackingParameters {
   bool DoUPCIteration = false;
   bool FataliseUponFailure = true;
   bool CreateArtefactLabels{false};
-  // Gate 3 compatibility storage only. Top/bottom follower execution remains
-  // unavailable in the common tracker.
+  // Reserved compatibility storage; top/bottom follower execution is not part
+  // of the common tracker.
   float TrackFollowerNSigmaCutZ = 1.f;
   float TrackFollowerNSigmaCutPhi = 1.f;
   int TrackFollowerMaxHypotheses = 1;

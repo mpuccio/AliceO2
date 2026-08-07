@@ -170,12 +170,9 @@ static_assert(sizeof(SurfaceMask) == sizeof(uint32_t));
 static_assert(alignof(SurfaceMask) == alignof(uint32_t));
 
 #ifndef GPUCA_GPUCODE
-// Converts a positional LayerMask -- each set bit is a *position* in
-// `orderedSurfaces`, never a numeric comparison against the SurfaceId values
-// it contains -- into the corresponding global SurfaceMask. Only the first
-// `activeCount` positions are considered; `activeCount` must not exceed
-// `orderedSurfaces.size()` (unchecked, as with the two call sites this
-// consolidates).
+// Converts positional LayerMask bits to the corresponding global surfaces.
+// Only the first activeCount positions are considered; activeCount must not
+// exceed orderedSurfaces.size().
 inline SurfaceMask positionalSurfaceMask(LayerMask layerMask, gsl::span<const SurfaceId> orderedSurfaces, uint32_t activeCount) noexcept
 {
   SurfaceMask result;

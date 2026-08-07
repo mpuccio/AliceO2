@@ -43,7 +43,7 @@ static_assert(std::is_standard_layout_v<SurfaceMeasurementSpan>);
 static_assert(std::is_trivially_copyable_v<SurfaceMeasurementSpan>);
 
 // Read-only, device-facing view: pointer/count pairs only, no STL containers
-// or gsl::span (Architecture.md section 6/14). Every pointer here is
+// or gsl::span. Every pointer here is
 // non-owning and remains valid only while the MultiSourceFrame that produced
 // it is alive and has not been cleared, reloaded, moved from, or destroyed;
 // this view does not extend that owner's lifetime.
@@ -115,13 +115,9 @@ struct SourceMetadata {
   uint32_t nROFs{0};
 };
 
-// Standalone host owner (Architecture.md section 7.1): normalized
-// measurements owned per surface (one array per SurfaceId, never a single
-// flattened array with per-surface offsets), source metadata, source timing
-// intervals, and label-lookup metadata. This is not the tracking TimeFrame:
-// no CA artefacts, sorting, index tables, cells, roads or tracks are stored
-// here. It retains no geometry singletons, dictionaries, compact clusters or
-// detector output types after loading.
+// Host owner of normalized measurements per surface, source metadata, timing
+// intervals, and label-lookup metadata. It stores no CA artefacts, geometry
+// singletons, compact clusters, or detector output types.
 //
 // Non-owning label lifetime: MC labels are never copied into this owner.
 // `assignLoadedData()` (called only by loadSources()) stores raw, non-owning
@@ -138,35 +134,13 @@ class MultiSourceFrame
  public:
   MultiSourceFrame() = default;
 
-  // mSurfaceSpans caches raw pointers into mPerSurfaceMeasurements. A
-  // member-wise (default) copy would copy those pointers as-is, leaving the
-  // copy's mSurfaceSpans pointing into the *original* object's storage
-  // instead of its own already-duplicated one -- silently wrong, not merely
-  // unsafe, immediately after the copy completes. Correctly supporting copy
-  // would require rebuilding mSurfaceSpans from the copy's own
-  // mPerSurfaceMeasurements after duplicating it; no caller of this type
-  // needs that today (TimeFrame owns exactly one MultiSourceFrame per
-  // normalized load and only ever moves it, never copies it), so copy is
-  // deleted rather than implemented incorrectly by default.
+  // Cached spans point into this object's storage; copying would require
+  // rebuilding them, so copy is disabled.
   MultiSourceFrame(const MultiSourceFrame&) = delete;
   MultiSourceFrame& operator=(const MultiSourceFrame&) = delete;
 
-  // Move is implemented via swap() rather than relying on the member-wise
-  // move std::vector would otherwise generate implicitly. Both are
-  // semantically equivalent here (moving a vector-of-vectors never touches
-  // the innermost heap buffers mSurfaceSpans' cached pointers reference, so
-  // plain member-wise move would also leave every span correctly pointing
-  // into this object's own, now-moved-in storage) -- but swap() makes the
-  // noexcept guarantee provable from this operator's own definition
-  // (std::vector::swap is unconditionally noexcept: a pointer/size/capacity
-  // exchange only, never a reallocation or per-element operation) rather
-  // than from a conditional trait computed over every member's move
-  // operation, and it leaves `other` holding a fully self-consistent state
-  // (`*this`'s old content, spans included) rather than an unspecified-but-
-  // valid moved-from state. This is what guarantees a successful
-  // TimeFrame::loadNormalizedSource() commit (`mNormalizedFrame =
-  // std::move(staged)`) can never leave mNormalizedFrame's cached spans
-  // pointing into `staged` (or vice versa).
+  // Move via swap keeps cached spans paired with their measurement storage
+  // and leaves both objects self-consistent.
   MultiSourceFrame(MultiSourceFrame&& other) noexcept { swap(other); }
   MultiSourceFrame& operator=(MultiSourceFrame&& other) noexcept
   {
@@ -174,10 +148,7 @@ class MultiSourceFrame
     return *this;
   }
 
-  // Exchanges all owned storage, including the mSurfaceSpans cache, in
-  // lockstep -- every member swap below is a std::vector::swap, so this
-  // can never throw and can never leave either side's mSurfaceSpans
-  // pointing into the other side's mPerSurfaceMeasurements.
+  // Exchange all owned storage and the cached spans in lockstep.
   void swap(MultiSourceFrame& other) noexcept
   {
     mPerSurfaceMeasurements.swap(other.mPerSurfaceMeasurements);

@@ -38,10 +38,8 @@ struct CellNeighbour {
   int level{-1};
 };
 
-/// Stage-B activation (Architecture.md Sec 10/11): shared Cell/TrackSeed
-/// metadata, composing a named SurfaceKinematicState rather than inheriting a
-/// detector-selected track parametrization. Neither TrackParCovF nor
-/// TrackParCovFwd is a base of this type or of anything derived from it.
+/// Shared Cell/TrackSeed metadata stores a named SurfaceKinematicState rather
+/// than inheriting a detector-selected track parametrization.
 template <int NClusters>
 class SeedMetadataBase
 {
@@ -64,11 +62,7 @@ class SeedMetadataBase
   GPUhd() SurfaceKinematicState& state() noexcept { return mState; }
   GPUhd() const SurfaceKinematicState& state() const noexcept { return mState; }
 
-  /// Raw signed q/pT, common to both families (no barrel/forward branch):
-  /// slot 4 is the raw signed q/pT parameter for both Barrel and Forward
-  /// Stage-B state conventions -- never squared. The former common
-  /// getQ2Pt() accessor squared this value (correct convention for neither
-  /// family) and has been removed; do not reintroduce it.
+  /// Raw signed q/pT in slot 4 for both state families; never squared.
   GPUhd() float getQOverPt() const noexcept { return mState.parameters[4]; }
 
  protected:
@@ -135,31 +129,12 @@ class CellSeed final : public SeedMetadataBase<o2::its::constants::ClustersPerCe
   }
 };
 
-/// M6c (doc/design/0002-m6-generic-workspace-migration.md Sec 4.2, 9):
-/// GPU-portable, non-templated whole-track seed -- the generic successor to
-/// the former layer-count-specific seed. Its per-surface cluster-index array is indexed
-/// positionally, one slot per position in the adopted plan's ownedSurfaces()
-/// order, exactly like the former seed's per-layer indexing -- but
-/// fixed at MaxLayoutSurfaces (SurfaceId.h) capacity rather than templated
-/// on NLayers, since this type must remain usable on device (GPUhd()),
-/// where heap allocation is unavailable. MaxLayoutSurfaces already bounds
-/// every owned-surface position in this library (SurfaceMask,
-/// SurfaceGraphBuilder, so no graph this library
-/// can validly build can ever exceed this capacity -- no new bound is
-/// invented here.
+/// GPU-portable, non-templated whole-track seed with one cluster slot per
+/// adopted-plan position. Fixed MaxLayoutSurfaces capacity is required for
+/// device use, where heap allocation is unavailable.
 ///
-/// Deliberately does not derive from SeedMetadataBase<N> (unlike CellSeed):
-/// SeedMetadataBase's own hit-mask field is a
-/// 16-bit LayerMask, which cannot mark all MaxLayoutSurfaces=32 positions
-/// active. Reusing it here would either silently truncate at 16 active
-/// positions or require widening SeedMetadataBase itself -- a shared base
-/// CellSeed still uses in production. TrackSeed instead duplicates
-/// SeedMetadataBase's small metadata surface
-/// directly and uses SurfaceMask (already 32-bit, and already reused
-/// positionally elsewhere in this library -- see SurfaceMask.h's own
-/// positionalSurfaceMask()) as its active-surface mask: each set bit is a
-/// *position* in this seed's own fixed array, never a numeric comparison
-/// against a real global SurfaceId.
+/// TrackSeed uses SurfaceMask rather than SeedMetadataBase's 16-bit LayerMask:
+/// each set bit is a position in its fixed array, not a global SurfaceId.
 ///
 /// This fixed-capacity value is the sole common-CA whole-track seed
 /// representation.
@@ -175,13 +150,8 @@ class TrackSeed final
   GPUhdDefault() TrackSeed& operator=(const TrackSeed&) = default;
   GPUhdDefault() TrackSeed& operator=(TrackSeed&&) = default;
 
-  // CellSeed's own hit mask is a 16-bit LayerMask (SeedMetadataBase<N>'s
-  // stored width, independent of N): every set bit already lies in
-  // [0, 15], well within MaxSurfaces, so this conversion never needs to
-  // know NLayers -- this fixed-capacity conversion uses the same positional
-  // mapping as the former layer-count-specific constructor, generalized from
-  // an NLayers-wide loop to a fixed 16-wide one (CellSeed's mask can never set
-  // a bit beyond position 15 in the first place).
+  // CellSeed's 16-bit hit mask is positional; every set bit is within
+  // [0, 15], so conversion needs no detector layer count.
   GPUhd() explicit TrackSeed(const CellSeed& cs)
     : mState(cs.state()), mChi2(cs.getChi2()), mLevel(cs.getLevel()), mTracklets{cs.getFirstTrackletIndex(), cs.getSecondTrackletIndex()}, mTime(cs.getTimeStamp())
   {
@@ -247,8 +217,7 @@ class TrackSeed final
 
   GPUhd() SurfaceKinematicState& state() noexcept { return mState; }
   GPUhd() const SurfaceKinematicState& state() const noexcept { return mState; }
-  // See SeedMetadataBase<N>::getQOverPt()'s own doc: raw signed q/pT, never
-  // squared, common to both Barrel and Forward Stage-B state conventions.
+  // Raw signed q/pT in slot 4 for both state families; never squared.
   GPUhd() float getQOverPt() const noexcept { return mState.parameters[4]; }
 
  private:
@@ -274,20 +243,8 @@ class TrackSeed final
   o2::its::TimeEstBC mTime;
 };
 
-// TrackSeed is a GPU value type (GPUhd() throughout, exactly like CellSeed/
-// CellSeed above), so the applicable property is copyability by
-// value across the host/device boundary, not standard-layout: compiled and
-// checked here, TrackSeed is *not* standard-layout, because its embedded
-// o2::its::TimeEstBC (o2::dataformats::TimeStampWithError<uint32_t,
-// uint16_t> deriving from TimeStamp<uint32_t>) has non-static data members
-// declared in more than one class of its own hierarchy -- a property of
-// TimeEstBC itself, unrelated to anything TrackSeed adds. This is not a
-// TrackSeed-specific problem: CellSeed embeds the
-// exact same mTime member via SeedMetadataBase and carry no
-// standard-layout/trivially-copyable static_assert either. is_trivially_copyable
-// is the property this codebase's own device-value-type convention actually
-// needs (byte-for-byte copyable, no user-defined copy/move/destructor
-// logic) and the one TrackSeed does satisfy, checked below.
+// TrackSeed crosses the host/device boundary by value. TimeEstBC prevents a
+// standard-layout assertion; trivially copyable is the required property.
 static_assert(std::is_trivially_copyable_v<TrackSeed>);
 
 } // namespace o2::itsmft::tracking

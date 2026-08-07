@@ -26,10 +26,8 @@ enum class StateFamily : uint8_t {
   Forward
 };
 
-/// The state family every surface of `kind` belongs to. This is the public,
-/// tag-free bridge between SurfaceKind and StateFamily (ADR 0007 decision 8):
-/// generic/adapter code classifies a surface's family directly from its own
-/// SurfaceDescriptor::kind, never by naming the legacy hot-loop-dispatch tag.
+/// Maps a SurfaceKind to its state representation. It is a representation tag,
+/// never topology or dispatch policy; derive it from SurfaceKind.
 GPUhdi() constexpr StateFamily stateFamilyOf(SurfaceKind kind) noexcept
 {
   switch (kind) {

@@ -5,28 +5,9 @@
 // This software is distributed under the terms of the GNU General Public
 // License v3 (GPL Version 3), copied verbatim in the file "COPYING".
 //
-// Gate 4 B2 Slice 1: constexpr, static-storage-duration projections of the
-// candidate ITSSurfaceSpec/MFTSurfaceSpec tables (Gate 4 B1 Slice C3a) into
-// runtime SurfaceDescriptor catalogs, plus their compile-time concatenation
-// into one combined ITS+MFT global id space.
-//
-// Existing mechanism only: toRuntimeSurfaceDescriptor() (already used by
-// testITSMFTSurfaceSpecProjection.cxx per-surface) and ConcatenatedSurfaceSpec
-// (SurfaceSpec.h, already proven concatenable for ITSSurfaceSpec/MFTSurfaceSpec
-// in that same test). No new catalog abstraction is introduced here.
-//
-// `inline constexpr` gives each array external linkage and static storage
-// duration. Views into these arrays therefore remain valid for the process
-// lifetime.
-//
-// The single-detector catalogs are application declarations used to build one
-// immutable SurfaceGraph for the selected tracking path.
-//
-// kITSMFTCombinedStaticSurfaceCatalog is, as of Gate 4 C2/C3, the
-// authoritative combined-catalog source for combined disconnected tracking.
-// The application composition builds one graph and derives both bindings from
-// it, so the two participants share one global id space while remaining
-// disconnected unless the declaration supplies cross-boundary edges.
+// Static detector catalogs with process-lifetime storage. The combined catalog
+// concatenates ITS and MFT into one global ID space; cross-detector edges are
+// absent unless supplied by the graph declaration.
 
 #ifndef ALICEO2_ITSMFT_TRACKING_STATICDETECTORCATALOGS_H_
 #define ALICEO2_ITSMFT_TRACKING_STATICDETECTORCATALOGS_H_

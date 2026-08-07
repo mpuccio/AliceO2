@@ -22,18 +22,9 @@
 #include "ITSMFTTracking/SurfaceMeasurement.h"
 #include "ITSMFTTracking/SurfaceStateOperationResult.h"
 
-// M5d: the generic, descriptor-driven state propagator (see the ADR/design
-// note this milestone adds, Detectors/ITSMFT/common/tracking/doc/decisions/
-// 0008-native-refit-activation.md). Where the pre-existing legacy Propagator
-// (o2::base::Propagator, DetectorsBase/Propagator.h -- left completely
-// unmodified by this milestone) transports o2::track::TrackParCov along the
-// nominal field with a TGeo/MatLUT material model, o2::itsmft::tracking::
-// Propagator transports SurfaceKinematicState the same way, using this
-// library's own nominal-material mechanism (SurfaceDescriptor::material /
-// NominalSurfaceMaterial, ADR 0001, resolved from a SurfaceCatalogView
-// exactly as every other native operation in this library already does) in
-// place of a hit-based MatLUT lookup -- there is no second, parallel
-// material model (task requirement 6).
+// Generic descriptor-driven propagation of SurfaceKinematicState using the
+// nominal material stored in SurfaceDescriptor and resolved via
+// SurfaceCatalogView.
 //
 // Every routing decision in this class inspects the actual
 // SurfaceDescriptor::kind of the surface at hand (equivalently, the
@@ -49,8 +40,7 @@ namespace o2::itsmft::tracking
 class Propagator
 {
  public:
-  // ---- state-family conversion -------------------------------------------
-  //
+  // State-family conversion.
   // Re-expresses `state` (and, if supplied, its paired `linRef`) in
   // `targetFamily`'s parameter/reference convention, evaluated at the
   // state's *current* reference surface (task requirement 4: a real
@@ -81,8 +71,7 @@ class Propagator
   static bool convertFamily(SurfaceKinematicState& state, SurfaceLinearizationReference* linRef,
                             StateFamily targetFamily, OperationFailureReason& reason) noexcept;
 
-  // ---- propagation-to-measurement (the required new state-based API) -----
-  //
+  // Propagation to a measurement.
   // Contract (task spec items 1-7):
   //  1. `targetSurface`/`targetMeasurement` are the explicit target
   //     surface/measurement context; `state`/`linRef` are the explicit
@@ -116,8 +105,7 @@ class Propagator
                                      bool chi2GateEnabled, float maxChi2, float& chi2,
                                      bool shiftReferenceToMeasurement, OperationFailureReason& reason) noexcept;
 
-  // ---- shared leg orchestration (cylinder/disk-common) --------------------
-  //
+  // Shared cylinder/disk leg orchestration.
   // Shared descriptor-driven leg orchestration with the identical per-slot
   // contract
   // (a slot with an invalid `cluster` is a hole, skipped before its

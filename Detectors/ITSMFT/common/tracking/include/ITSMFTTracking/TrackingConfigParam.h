@@ -21,19 +21,18 @@
 
 namespace o2::itsmft::tracking
 {
-/// ITS CA layer count (matches legacy o2::its::TrackingParameters::NLayers default).
+/// ITS CA layer count.
 constexpr int ITSNLayers = 7;
-/// MFT CA half-disk layer count (same as o2::mft::constants::mft::LayersNumber).
+/// MFT CA half-disk layer count.
 constexpr int MFTNLayers = 10;
-/// Max CA iterations (same as o2::its::constants::MaxIter).
+/// Maximum CA iterations.
 constexpr int MaxIter = 4;
 } // namespace o2::itsmft::tracking
 
 namespace o2::itsmft
 {
 
-/// ITS vertexer settings (header only for now; not registered or used while ITS
-/// tracking stays on O2::ITStracking)
+/// ITS vertexer settings retained for the existing configuration boundary.
 struct VertexerParamConfig : public o2::conf::ConfigurableParamHelper<VertexerParamConfig> {
   bool saveTimeBenchmarks = false; // dump metrics on file
 
@@ -77,7 +76,7 @@ struct VertexerParamConfig : public o2::conf::ConfigurableParamHelper<VertexerPa
 };
 
 /// Dedicated, minimal configuration for the opt-in ITS common-CA tracking
-/// path (workflow-onboarding Slice 1: Sync mode only). Deliberately a
+/// path. Deliberately a
 /// distinct, non-templated type: it neither instantiates nor renames the
 /// still-dormant TrackerParamConfig<DetID::ITS> below, and its registered
 /// name is not "ITSCATrackerParam" -- that name already belongs to the
@@ -93,15 +92,8 @@ struct VertexerParamConfig : public o2::conf::ConfigurableParamHelper<VertexerPa
 /// so an unmodified ITSCommonCATrackerParam changes nothing relative to
 /// resetDetectorDefaults(..., DetID::ITS) alone.
 ///
-/// workflow-onboarding Slice 2: diamondPos/pvRes added alongside the
-/// pre-existing useDiamond, mirroring the legacy
-/// o2::its::TrackerParamConfig fields of the same name/semantics. These
-/// three fields together are the one Sync vertex/beam-constraint mode the
-/// opt-in ITS common-CA workflow can reproduce faithfully without a real
-/// per-event vertexer (see ITSCAWorkflow/ConfigPreflight.h): a static,
-/// config-supplied diamond vertex consumed identically by the shared
-/// TrackerTraits (Detectors/ITSMFT/common/tracking/src/TrackerTraits.cxx)
-/// regardless of detector.
+/// diamondPos/pvRes and useDiamond define the static vertex/beam-constraint
+/// mode consumed by the shared TrackerTraits.
 struct ITSCommonCATrackerParam : public o2::conf::ConfigurableParamHelper<ITSCommonCATrackerParam> {
   bool dropTFUponFailure = false;
   bool printMemory = false;
@@ -124,7 +116,7 @@ struct ITSCommonCATrackerParam : public o2::conf::ConfigurableParamHelper<ITSCom
   O2ParamDef(ITSCommonCATrackerParam, "ITSCommonCATrackerParam");
 };
 
-/// Gate 4 C4: default-false, ROOT-visible opt-in gate for the combined
+/// Default-false, ROOT-visible opt-in gate for the combined
 /// ITS+MFT DPL workflow (Detectors/ITSMFT/common/workflow-combined-ca/,
 /// o2-itsmft-combined-ca-tracker-workflow). A distinct struct/registered
 /// name from the retired single-detector output selector: this flag instead

@@ -161,16 +161,9 @@ bool projectDiskSearchWindow(const SurfaceMeasurement& sourceMeasurement,
 namespace
 {
 
-// "The accepted forward model" (Stage-B kickoff): reproduces
-// detail::mftFwdPropagateToZ's own field-magnitude dispatch exactly --
-// forward::propagate<Helix> when |bz| > 0.01f, otherwise
-// forward::propagate<Linear> -- the same threshold and the same two models
-// the legacy CA-construction path (detail::mftFwdAttachCluster, used by
-// today's disk cell construction already uses.
-// PropagationModel::Optimized (params: helix, errors: quadratic) is the
-// separate model used only by the MFT final-track refit
-// (TrackParCovFwd::propagateToZ, MFTTracking/TrackFitter.cxx) and is
-// deliberately not used here.
+// Accepted forward model: Helix for |bz| > 0.01f, otherwise Linear.
+// Optimized (helix parameters, quadratic covariance) is reserved for final
+// forward refit.
 bool forwardPropagateAcceptedModel(SurfaceKinematicState& state, float targetZ, float bz,
                                    OperationFailureReason& reason) noexcept
 {
@@ -433,7 +426,7 @@ bool cellsDiskAreCompatible(
 float cylinderLayerMultipleScatteringAngle(
   const CylinderLayerScatteringInputs& inputs, float trackletMinPt)
 {
-  // Unchanged from the frozen ITS expression:
+  // Keep the established ITS expression:
   // math_utils::MSangle(0.14f, trkParam.TrackletMinPt, trkParam.LayerxX0[iLayer]).
   return o2::its::math_utils::MSangle(0.14f, trackletMinPt, inputs.layerxX0);
 }
@@ -441,10 +434,7 @@ float cylinderLayerMultipleScatteringAngle(
 float diskLayerMultipleScatteringAngle(
   const DiskLayerScatteringInputs& inputs, float trackletMinPt)
 {
-  // Same formula as the legacy detail::mftLayerMSAngle(), except zLayer/rRef
-  // are supplied explicitly by the caller instead of being derived here from
-  // mftLayerZ()/LayerZCoordinate() -- see the header doc on this
-  // specialization and bindLegacyMFTReferenceCoordinates() below.
+  // zLayer and rRef are supplied explicitly by the caller.
   const float invP = 1.f / trackletMinPt;
   const float zLayer = inputs.referenceCoordinate;
   const float rRef = inputs.layerRadius;
@@ -456,14 +446,8 @@ float diskLayerMultipleScatteringAngle(
 
 namespace
 {
-// Time-boxed Gate 3 compatibility values: the legacy nominal half-disk z
-// coordinates already used by mftLayerMSAngle() today, preserved bit-for-bit
-// so layerMultipleScatteringAngle<Disk> reproduces the accepted 91-track
-// / hash 826dc653cd936a472929c600c97c140b baseline. Deliberately NOT
-// SurfaceDescriptor::referenceCoordinate -- see the header doc on
-// bindLegacyMFTReferenceCoordinates(). static constexpr storage duration:
-// initialized at compile time, lives for the process lifetime, so a span
-// over it is valid indefinitely and needs no per-iteration staging.
+// Static nominal half-disk z coordinates used by the disk scattering helper;
+// compile-time storage gives returned spans process lifetime.
 static constexpr std::array<float, o2::mft::constants::mft::LayersNumber> kLegacyMFTReferenceCoordinate =
   o2::mft::constants::mft::LayerZCoordinate();
 } // namespace

@@ -15,18 +15,8 @@
 #include "GPUROOTSMatrixFwd.h"
 #include <Math/SMatrix.h>
 
-// TrackParametrization.h is included solely to reuse its public
-// kCY2max/kCZ2max/kCSnp2max/kCTgl2max/kC1Pt2max/kMostProbablePt constants,
-// matching the exact covariance/curvature conventions
-// o2::its::track::buildTrackSeed (ITStracking/TrackHelpers.h) uses and the
-// covariance-validity upper range sanitizeCovariance() (SurfaceKinematicState.h)
-// enforces below -- no narrower public header declares them (the same reuse
-// pattern MaterialPhysics.cxx already uses for its own constants). Not part
-// of this translation unit's public interface, and nothing here constructs
-// or references a TrackParametrization/TrackParCov object. Unconditional
-// (not GPUCA_GPUCODE-guarded): unlike ITStracking/MathUtils.h below (needed
-// only by the host-only buildSeed), these constants are also needed by the
-// device-visible rotate/propagate/update operations' sanitization call.
+// TrackParametrization.h supplies the public covariance/curvature constants
+// used by device-visible operations; no track object is constructed here.
 #include "ReconstructionDataFormats/TrackParametrization.h"
 
 #ifndef GPUCA_GPUCODE

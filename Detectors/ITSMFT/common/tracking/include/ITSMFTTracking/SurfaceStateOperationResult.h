@@ -26,64 +26,24 @@ enum class OperationFailureReason : uint8_t {
   RotationFailure = 9,
   AlphaMismatch = 10,
   ReferenceCoordinateMismatch = 11,
-  // forward::buildSeed's own established strict-boundary rejections
-  // (the retained detail::mftFwdFitCellClusters / buildCellSeed<Disk>
-  // initializer treats an insufficient inner/outer z-ordering margin, or any
-  // inner-middle/inner-outer separation below its 1e-6f minimum, as a hard
-  // rejection before any direction estimate is computed -- not a NaN/Inf
-  // artifact of the arithmetic itself). Distinct from NonFiniteInput (raw
-  // inputs are finite; the *geometry* is degenerate) and from
-  // NonFiniteOutput (no output was even attempted yet). barrel::buildSeed
-  // never raises this: its retained oracle (o2::its::track::buildTrackSeed)
-  // has no analogous early rejection, only NonFiniteOutput-detected numeric
-  // fallbacks.
+  // Finite-input forward seed with z-ordering or transverse separation at or
+  // below the strict 1e-6f geometry boundary; distinct from numeric failures.
   SeedGeometryDegenerate = 12,
-  // the native leg driver: a present (non-hole) slot's SurfaceId/catalog
-  // association could not be validated -- covers an invalid
-  // measurement.surface, a catalog with a null surfaces pointer and a
-  // nonzero nSurfaces, an out-of-range measurement.surface.value(), or a
-  // resolved SurfaceDescriptor whose own id does not match
-  // measurement.surface. Distinct from every reason above: no propagation,
-  // material, or chi2 arithmetic has been attempted yet for this slot.
+  // A present (non-hole) measurement has an invalid SurfaceId/catalog
+  // association; no propagation, material, or chi2 arithmetic ran.
   InvalidSurfaceCatalogAssociation = 14,
-  // Gate 3 Slice B (native Cylinder refit driver, unwired): one leg's
-  // final acceptance check failed after the native leg driver already
-  // succeeded for that leg -- reproducing the frozen ITS fitTrack's own
-  // trailing `|Q2Pt| < maxQoverPt && chi2 < maxChi2NDF*(nCl*2-5)` return
-  // condition (ITSMFTTracking/TrackHelpers.h), evaluated once per leg with
-  // that leg's own maxQoverPt (VeryBig for the two inward-index legs, 50.f
-  // for the outward-index leg) and driveRefitLeg's own per-leg
-  // acceptedHitCount/chi2 outputs. Distinct from PredictedChi2Failure (a
-  // per-hit rejection raised inside the native leg driver, before
-  // this whole-leg check is even reached).
+  // A completed refit leg failed `|Q2Pt| < maxQoverPt && chi2 <
+  // maxChi2NDF*(nCl*2-5)` after per-hit processing.
   LegAcceptanceFailure = 15,
-  // Gate 3 Slice B: the frozen ITS refitTrackSeed's trailing
-  // `if (minPt > 0.f && track.getPt() < minPt) return false;` check
-  // (TrackHelpers.h), evaluated once after the outward-index leg using
-  // the active traversal count minus seed.getHitLayerMask().count(). Distinct from
-  // LegAcceptanceFailure: this is a refitTrackSeed-level check keyed on the
-  // seed's own attached-cluster count, not a per-leg fitTrack acceptance
-  // condition.
+  // The seed-level minimum-pT check failed after the outward leg, keyed by
+  // the active traversal count and attached-cluster count.
   MinPtFailure = 16,
-  // Gate 3 Slice B hardening: nativeRefitTrackCylinder does not
-  // reproduce the frozen seedTrackForRefit's conditional mid-track geometric
-  // reseed (ncl < reseedIfShorter && ncl > 2, re-deriving the initial
-  // parametrization via buildTrackSeed/selectReseedMidLayer from raw
-  // Cluster/TrackingFrameInfo, ITSMFTTracking/TrackHelpers.h). Any nonzero
-  // reseedIfShorter is rejected unconditionally -- before leg A or any output
-  // is touched -- rather than silently running the non-reseeded algorithm
-  // for a configuration where legacy could have taken a different starting
-  // point. Distinct from every reason above: no rotate/propagate/material/
-  // chi2 arithmetic has been attempted for any leg.
+  // A nonzero reseedIfShorter is unsupported and is rejected before any leg
+  // operation or output mutation.
   ReseedNotSupported = 17,
-  // M5d Propagator: state-representation-family conversion
-  // (Propagator::convertFamily, Propagator.h) could not produce a valid
-  // target-family state -- an unrecognized target family, a source
-  // Snp/direction too close to the +-1 boundary for the Barrel->Forward
-  // asin() step, or a non-finite converted parameter/covariance entry.
-  // Distinct from SourceFamilyMismatch
-  // (that reason means "no conversion was attempted and the families simply
-  // differ"; this one means "a conversion was attempted and failed").
+  // Family conversion was attempted but failed (invalid target family,
+  // direction boundary, or non-finite converted state), distinct from a
+  // source-family mismatch where conversion was not attempted.
   FamilyConversionFailure = 18
 };
 

@@ -50,8 +50,8 @@ struct StaticSurfaceDescriptor {
 
 // Precondition: source belongs to a validated SurfaceSpec. This is an
 // ideal/static layout projection only; it neither validates nor repairs an
-// arbitrary descriptor. Runtime geometry observations are validation data and
-// do not define a second Stage-B surface catalogue.
+// arbitrary descriptor. Runtime geometry observations do not define another
+// catalogue.
 GPUhdi() constexpr SurfaceDescriptor toRuntimeSurfaceDescriptor(const StaticSurfaceDescriptor& source) noexcept
 {
   return SurfaceDescriptor{source.id,

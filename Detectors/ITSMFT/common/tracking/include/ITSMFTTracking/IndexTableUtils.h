@@ -45,16 +45,9 @@ GPUhdi() float getNormalizedPhi(float phi)
 }
 } // namespace index_table_utils
 
-/// Row/column LUT helper (ITS: row=phi, col=z; MFT: row=y, col=x). This
-/// type is not templated on a detector layer count: ITS(7), MFT(10), and
-/// future applications share one runtime-plan-owned helper. Per-layer storage is
-/// therefore capacity-bound by MaxLayoutSurfaces (SurfaceId.h) -- the same
-/// established, reused (never invented) bound TrackSeed (Cell.h) already uses
-/// for the identical reason: getColBinIndex()/getInverseColCoordinate() are
-/// GPUhdi(), so device-portable fixed-capacity storage is required here,
-/// std::vector is not an option. A caller that populates fewer than
-/// MaxLayoutSurfaces positions simply never query the unpopulated tail --
-/// every read site indexes by an explicit runtime plan position.
+/// Row/column LUT helper (ITS: row=phi, col=z; MFT: row=y, col=x). Fixed
+/// MaxLayoutSurfaces storage keeps GPUhdi() access device-portable; callers
+/// must not query unpopulated runtime-plan positions.
 class IndexTableUtilsCore
 {
  public:
@@ -147,11 +140,8 @@ class IndexTableUtilsCore
   GPUhdi() float getRowCoordinateSpan() const { return mRowCoordinateSpan; }
 
  private:
-  /// Fixed-capacity result of layerColHalfExtentFrom(): `count` (never above
-  /// MaxLayers) is however many of `params`' own layer-extent entries were
-  /// actually available, exactly mirroring the pre-M6e2 array-fill loop's own
-  /// `iLayer < nLayers && iLayer < colExtents.size()` bound, minus the
-  /// compile-time nLayers half of that bound (no longer available here).
+  /// Fixed-capacity result of layerColHalfExtentFrom(); count is the number of
+  /// available entries, never above MaxLayers.
   struct LayerExtents {
     std::array<float, MaxLayers> values{};
     int count{0};

@@ -24,21 +24,15 @@
 #include "ITSMFTTracking/SurfaceStateOperationResult.h"
 #include "ReconstructionDataFormats/TrackParametrization.h"
 
-// M5d: the shared (cylinder- and disk-common) whole-seed refit driver, built
-// entirely on Propagator (Propagator.h). This is the "one tracklet/cell/
-// road/refit flow" ADR 0007 decision 10 and the GenericTrackingEngineMigration
-// M5 plan describe for the refit stage: fitTrackSeedLegs below
-// contains no family/Tag branch of its own -- every family difference is
-// already confined inside Propagator::propagateToMeasurement's own
-// descriptor-driven dispatch. It is the single native refit entry point used by
-// the adapter refit operation.
+// Shared cylinder/disk refit entry point built on descriptor-driven
+// Propagator operations; family dispatch remains inside propagation.
 namespace o2::itsmft::tracking
 {
 
 /// Builds one traversal-ordered leg of `SurfaceMeasurement` slots for native
 /// refit from a `TrackSeed`'s already-attached, layer-indexed cluster
 /// bookkeeping. `[start, end)` stepping by `step` is the caller-supplied
-/// legacy layer-index range; `step == +1` walks inward and `step == -1`
+/// caller-supplied layer-index range; `step == +1` walks inward and `step == -1`
 /// walks outward. Holes are represented by default-constructed measurements,
 /// and valid cluster indices are looked up in the corresponding layer span.
 /// Slots are written in traversal order, so decreasing legs remain reversed
@@ -59,22 +53,8 @@ inline gsl::span<const SurfaceMeasurement> assembleRefitLegSlots(
   return gsl::span<const SurfaceMeasurement>(out.data(), position);
 }
 
-// Reproduces the "loose, uninformative diagonal" covariance reset every leg
-// of a from-scratch refit starts from (fresh Kalman filter, previous leg's
-// fitted parameters retained), family-dispatched by state.family rather than
-// by Tag. Barrel reuses the exact ceiling constants
-// the established barrel covariance formula (bit-for-bit identical, just resolved at
-// runtime instead of compiled once for Cylinder). Forward has no
-// legacy analogue to port (the frozen MFT TrackFitter/TrackLTF Kalman engine
-// this milestone removes from production never exposed a comparable
-// "reset to uninformative" primitive on its own parametrization) -- these are
-// new native ceiling constants, chosen by the same rationale as their Barrel
-// counterparts: a diagonal loose enough to cover this parameter's full
-// physical range. X/Y position and InvQPt/Tanl reuse the Barrel position/
-// curvature/slope ceilings directly (same physical quantity, same units);
-// Phi is a full angle (unlike Barrel's bounded Snp=sin(local angle)), so its
-// own ceiling is (pi)^2 -- "SigmaPhi <= pi", the same "cover the full range"
-// rationale kCSnp2max's own comment states for Snp's [-1, 1] range.
+// Reset each refit leg to a loose diagonal. Barrel uses the existing ceilings;
+// Forward uses the same position/slope/curvature units and (pi)^2 for Phi.
 GPUhdi() void resetCovarianceForRefit(SurfaceKinematicState& state) noexcept
 {
   for (auto& element : state.covariance) {
@@ -114,20 +94,9 @@ GPUhdi() float ptFromQOverPt(float q2pt, uint8_t absCharge) noexcept
   return 1.f / ptInv;
 }
 
-// Shared (family-blind) whole-seed refit: reproduces the three-leg
-// (inward-index A, outward-index B, optional inward-index C) sequencing and
-// per-leg acceptance-gate structure nativeRefitTrackCylinder
-// documents in full in the native operation -- same leg
-// direction/maxQoverPt/acceptance formula, same MinPt check keyed on the
-// seed's own attached-cluster count -- but built on Propagator::driveRefitLeg
-// (descriptor-driven), so the identical
-// function body serves a Barrel seed (ITS) or a Forward seed (MFT) with no
-// specialization. `reseedIfShorter` is not carried over: this is a new
-// production entry point, not a byte-for-byte port, and no caller of this
-// function threads a nonzero value through it (see the adapter refit helper).
-//
-// Transactional exactly like nativeRefitTrackCylinder: outParamIn/
-// outParamOut/outChi2 are committed only on complete success.
+// Shared three-leg refit: inward A, outward B, and optional inward C. The
+// acceptance formula and MinPt check use the seed's attached-cluster count.
+// Outputs are committed only on complete success.
 inline bool fitTrackSeedLegs(
   const TrackSeed& seed,
   gsl::span<const gsl::span<const SurfaceMeasurement>> layerMeasurements,

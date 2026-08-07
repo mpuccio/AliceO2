@@ -11,7 +11,7 @@
 ///
 /// \file ConfigKeyValuesPreflight.h
 /// \brief Pure --configKeyValues namespace preflight for the opt-in ITS
-///        common-CA workflow (workflow-onboarding Slice 1).
+///        common-CA workflow.
 
 #ifndef ALICEO2_ITSMFT_TRACKING_CONFIG_KEY_VALUES_PREFLIGHT_H_
 #define ALICEO2_ITSMFT_TRACKING_CONFIG_KEY_VALUES_PREFLIGHT_H_
@@ -33,28 +33,10 @@ struct ConfigKeyValuesPreflightResult {
   std::string offendingNamespace; // namespace portion of the offending key (empty if Accepted)
 };
 
-/// Pure, DPL-free namespace preflight for a raw --configKeyValues string.
-///
-/// Mirrors the exact tokenization grammar
-/// o2::conf::ConfigurableParam::updateFromString() uses (semicolon-separated
-/// via o2::utils::Str::tokenize(..., ';', true) -- each token trimmed, empty
-/// tokens skipped -- then each token's key/value split on the first '='), so
-/// a string this helper accepts is guaranteed to be tokenized identically
-/// once actually applied.
-///
-/// Flags the first token whose key's namespace (the substring before the
-/// first '.', or the whole key if there is no '.') is exactly the legacy ITS
-/// namespace "ITSCATrackerParam" -- the name registered by the frozen
-/// legacy o2::its::TrackerParamConfig in O2::ITStracking. The dedicated
-/// ITSCommonCATrackerParam namespace and every other namespace (unrelated
-/// globally registered parameters such as MatLUT or HBFUtils) pass through
-/// unchanged. A malformed token (no '=', or '=' at the start/end) is not
-/// this helper's concern -- it is left for
-/// o2::conf::ConfigurableParam::updateFromString() to reject when the
-/// string is actually applied -- so it is skipped here without effect.
-///
-/// Never itself logs or aborts: the caller (a future workflow spec) is
-/// responsible for turning a rejection into its own fatal diagnostic.
+/// Pure, DPL-free preflight. Tokens are semicolon-separated, trimmed, and
+/// split at the first '='; malformed tokens are left to the configurator.
+/// The first key in namespace `ITSCATrackerParam` is reported. The helper
+/// neither logs nor aborts; the caller decides how to report rejection.
 ConfigKeyValuesPreflightResult checkITSCommonCAConfigKeyValues(std::string_view configKeyValues);
 
 } // namespace o2::itsmft::tracking

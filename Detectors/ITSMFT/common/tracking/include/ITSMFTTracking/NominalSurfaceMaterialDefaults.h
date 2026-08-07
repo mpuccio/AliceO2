@@ -12,13 +12,9 @@
 
 #include "ITSMFTTracking/TrackingConfigParam.h"
 
-// Single common-CA source for the detector-default nominal xOverX0 per
-// tracking surface, consumed by both the (temporary, compatibility-only)
-// TrackingParameters::LayerxX0 defaults and the ITS/MFT geometry-catalog
-// providers' nominal material (SurfaceDescriptor::material). Deliberately
-// does not include MFTBase/Constants.h: the MFT value below is reproduced
-// here as an intentional common-CA nominal model, not derived from legacy
-// MFT geometry constants.
+// Common source for detector-default nominal xOverX0 per tracking surface,
+// used by TrackingParameters and the ITS/MFT geometry catalogs. The MFT value
+// is an intentional common-CA nominal model.
 namespace o2::itsmft::tracking
 {
 
@@ -27,14 +23,12 @@ static_assert(MFTNLayers % 2 == 0, "MFTNLayers must be even to derive MFTDisks")
 /// o2::mft::constants::mft::DisksNumber (numerically identical: 10 / 2 == 5).
 inline constexpr int MFTDisks = MFTNLayers / 2;
 
-/// Existing ITS detector-default per-layer xOverX0 (matches the frozen
-/// legacy o2::its::TrackingParameters::LayerxX0 default).
+/// Existing ITS detector-default per-layer xOverX0.
 inline constexpr std::array<float, ITSNLayers> kNominalITSLayerX0{
   5.e-3f, 5.e-3f, 5.e-3f, 1.e-2f, 1.e-2f, 1.e-2f, 1.e-2f};
 
-/// Existing MFT average material budget within acceptance (matches
-/// o2::mft::MFTTrackingParam::MFTRadLength / legacy TrackFitter's
-/// mMFTDiskThicknessInX0), split evenly across every tracking surface.
+/// Existing MFT average material budget within acceptance, split evenly across
+/// every tracking surface.
 inline constexpr float kMFTNominalRadLength = 0.042f;
 
 constexpr std::array<float, MFTNLayers> makeNominalMFTLayerX0()

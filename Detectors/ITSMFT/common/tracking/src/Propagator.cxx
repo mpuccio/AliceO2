@@ -6,7 +6,7 @@
 // License v3 (GPL Version 3), copied verbatim in the file "COPYING".
 ///
 /// \file Propagator.cxx
-/// \brief M5d generic, descriptor-driven SurfaceKinematicState propagator
+/// \brief Descriptor-driven SurfaceKinematicState propagator
 ///
 
 #include "ITSMFTTracking/Propagator.h"

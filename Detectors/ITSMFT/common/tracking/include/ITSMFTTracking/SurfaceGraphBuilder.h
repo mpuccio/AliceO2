@@ -56,6 +56,8 @@ struct SurfaceGraphBuildResult {
 class SurfaceGraphBuilder
 {
  public:
+  // Builds active ordered subgraphs with separate hole and seeding masks;
+  // adjacency is derived only after those declarations validate.
   explicit SurfaceGraphBuilder(SurfaceCatalogView catalog) : mCatalog{catalog} {}
 
   SurfaceGraphBuilder& addSubgraph(SurfaceGraphSubgraph subgraph)

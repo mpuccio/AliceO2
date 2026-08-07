@@ -32,14 +32,8 @@ using CombinedCovariance = o2::math_utils::SMatrix<float, 5, 5, o2::math_utils::
 static_assert(o2::math_utils::MatRepSym<float, 5>::kSize == 15, "packed symmetric 5x5 representation must hold exactly 15 floats");
 static_assert(sizeof(CombinedCovariance) == 15 * sizeof(float), "combined covariance must occupy exactly 15 floats");
 
-// Upper bound for sanitizeCovariance()'s (SurfaceKinematicState.h) diagonal
-// range-clamp pass, in (X, Y, Phi, Tanl, Q2Pt) slot order.
-//
-// The legacy forward fitter supplies no exercised diagonal-range ceiling, and
-// the native forward refit ceiling is explicitly a new value. Keep the
-// range-clamp sub-pass disabled for forward until a supported bound exists;
-// the detector-neutral diagonal non-negativity and pairwise correlation checks
-// remain fully active.
+// No finite forward diagonal ceiling is configured; diagonal non-negativity
+// and pairwise correlation checks remain active.
 constexpr float kForwardNoRangeLimit = std::numeric_limits<float>::max();
 constexpr float kForwardMaxDiagonal[5] = {kForwardNoRangeLimit, kForwardNoRangeLimit, kForwardNoRangeLimit,
                                           kForwardNoRangeLimit, kForwardNoRangeLimit};

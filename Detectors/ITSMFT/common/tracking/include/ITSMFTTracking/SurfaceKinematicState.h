@@ -51,18 +51,8 @@ static_assert(offsetof(SurfaceKinematicState, flags) == 89);
 static_assert(offsetof(SurfaceKinematicState, absCharge) == 90);
 static_assert(offsetof(SurfaceKinematicState, pid) == 91);
 
-// Transient, covariance-free trajectory used only as a Kalman
-// linearization point (legacy name "linRef") during an ITS-shaped refit
-// leg -- the parameter-only companion to SurfaceKinematicState that
-// rotate/propagate/reference-shift operations transport alongside the
-// fitted state. Searched first: no existing public O2 parameter-only type
-// satisfies this contract without pulling in a legacy dependency --
-// o2::track::TrackParametrization<float> (TrackPar), the direct base class
-// of the excluded TrackParCovF, has no StateFamily tag (so it cannot
-// represent both the Barrel and Forward parameter conventions in one
-// dependency-light POD without misusing its fields), and pulls in the wide
-// legacy header footprint (BaseCluster.h, TrackUtils.h, PID.h, ...) this
-// slice is required to avoid.
+// Transient covariance-free trajectory used as a Kalman linearization point;
+// it is transported alongside exactly one fitted SurfaceKinematicState.
 //
 // Deliberately excludes covariance, chi2, cluster bookkeeping, and
 // PID/absCharge: a linearization reference always accompanies exactly one
@@ -80,11 +70,8 @@ static_assert(offsetof(SurfaceKinematicState, pid) == 91);
 // alpha is unused (zero) -- identical to SurfaceKinematicState's Forward
 // interpretation.
 //
-// This is a current in-memory layout commitment (standard-layout,
-// trivially-copyable, explicit size/alignment/offsets below), not yet a
-// durable serialized or device ABI promise -- matching the same
-// current-layout-only caveat MaterialPhysics.h already documents for its
-// own PODs.
+// The layout assertions describe the current in-memory representation, not a
+// serialized ABI.
 struct SurfaceLinearizationReference {
   float parameters[5]{};
   float referenceCoordinate{0.f};
@@ -105,16 +92,9 @@ static_assert(offsetof(SurfaceLinearizationReference, family) == 28);
 
 #ifndef GPUCA_GPUCODE
 
-// Host-only for this slice (no GPU/device-readiness claim, matching
-// buildSeed/buildCellSeed/attachHit's own host-only contract): validating
-// factory/transactional-mutation primitive. Copies only
-// parameters/referenceCoordinate/alpha/family out of `state` into `out`.
-// This same operation serves both roles required by the refit orchestration
-// this slice prepares for: constructing the initial linearization reference
-// from a freshly built seed, and re-anchoring it at a later fit leg's
-// starting state (the legacy `linRef = track.paramOut;` idiom). Fails if
-// `state.hasRecognizedFamily()` is false or any copied field is
-// non-finite; `out` is left completely unchanged on failure.
+// Host-only validating factory. Copies parameters, referenceCoordinate, alpha,
+// and family from state; rejects unrecognized families or non-finite fields
+// and leaves out unchanged on failure.
 bool makeLinearizationReference(const SurfaceKinematicState& state, SurfaceLinearizationReference& out) noexcept;
 
 #endif // GPUCA_GPUCODE
@@ -124,68 +104,14 @@ GPUhdi() constexpr uint8_t packedCovarianceIndex(uint8_t row, uint8_t column) no
   return row >= column ? row * (row + 1) / 2 + column : column * (column + 1) / 2 + row;
 }
 
-// Detector-neutral covariance-validity invariant, applied unconditionally
-// after every successful covariance-mutating state operation (propagate,
-// rotate, measurement update -- barrel and forward alike). It knows nothing
-// about materials, detectors, or families beyond the five per-slot upper
-// bounds the caller supplies. Operates directly on the packed
-// lower-triangular storage, so symmetry is preserved by construction; it
-// never constructs or depends on any legacy track-parametrization type.
-//
-// DECLARED INVARIANT (audited against o2::track::TrackParametrizationWithError
-// <float>::checkCovariance(), TrackParametrizationWithError.cxx -- read in
-// full, not excerpted): every diagonal is non-negative, no diagonal exceeds
-// maxDiagonal[i], and no individual off-diagonal pair's Pearson correlation
-// exceeds 1 in magnitude. This is the same three-part invariant legacy's own
-// checkCovariance() doc comment claims ("forces the diagonal elements... to
-// be positive and abs of correlation coefficients to be <1. In case the
-// diagonal element is bigger than the maximal allowed value, it is set to
-// the limit...").
-//
-// PASS 1 (diagonal abs + range clamp): byte-faithful to legacy's actual
-// code. For each diagonal, take its absolute value, and if it still exceeds
-// maxDiagonal[i], clamp it to that bound and rescale every off-diagonal
-// entry sharing that row/column by sqrt(maxDiagonal[i]/diagonal). Diagonals
-// are processed in slot order (0..4), matching legacy's own sequential
-// order, so cumulative rescaling of an entry shared by two out-of-range
-// diagonals is deterministic.
-//
-// PASS 2 (pairwise correlation clamp): legacy's own comment claims this
-// ("abs of correlation coefficients to be <1") but legacy's own CODE does
-// NOT implement it as a general check -- only pass 1 exists there, so a
-// pair whose correlation exceeds 1 while BOTH diagonals remain within range
-// is never touched by legacy's real implementation (confirmed by reading
-// the complete function body: there is no separate correlation-coefficient
-// pass at all). This is exactly the failure mode ADR 0008's covariance-
-// fault-localization investigation traced: a large-step propagate can leave
-// |correlation(Y,Q2Pt)| > 1 (Cauchy-Schwarz violated) while c(Y,Y) and
-// c(Q2Pt,Q2Pt) both stay well inside their maxDiagonal ceilings, so pass 1
-// alone never repairs it. Pass 2 completes legacy's own DOCUMENTED (not
-// coded) intent using the value that intent already names -- 1, the
-// mathematical Cauchy-Schwarz bound every valid covariance matrix must
-// satisfy, not a chosen/invented threshold -- by clamping each off-diagonal
-// entry's magnitude to sqrt(diagonal_i * diagonal_j) (using the
-// already-pass-1-clamped diagonals), independently per pair, in a single
-// non-iterative sweep.
-//
-// EXPLICIT LIMITATION, not silently omitted: pairwise correlation bounds
-// are necessary but NOT sufficient for the matrix to be positive
-// semi-definite (a joint/multivariate property of 3 or more parameters
-// simultaneously, e.g. a valid 3x3 correlation submatrix additionally
-// requires 1 + 2*rho01*rho02*rho12 - rho01^2 - rho02^2 - rho12^2 >= 0).
-// Verified empirically against the real captured ITS legB reproducer state
-// (candidate "13,6,6,5,4,9,5", hit 5): clamping every one of that state's
-// three simultaneously-violated pairs ((Y,Snp), (Y,Q2Pt), (Snp,Q2Pt)) to
-// exactly touch their pairwise Cauchy-Schwarz bound measurably shrinks the
-// magnitude of the negative diagonal the subsequent measurement update's
-// naive Kalman subtraction still manufactures (Q2Pt-Q2Pt: -0.0328 -> only
-// -0.0067), but does not eliminate it -- proving pass 1+2 together are not
-// a full PSD guarantee. The diagonal-abs step (pass 1) remains necessary
-// AND, for the non-negative-diagonal part of the declared invariant,
-// sufficient; achieving true full-matrix PSD validity would require an
-// eigenvalue-based projection this function deliberately does not attempt
-// -- that is a separate physics/model decision, not implemented here or
-// anywhere in the frozen legacy code this migration reproduces.
+// Covariance sanitizer used after successful covariance mutations. It takes
+// absolute values of diagonals, clamps each to maxDiagonal[i] while rescaling
+// its row/column by sqrt(maxDiagonal[i]/diagonal), then clamps each
+// off-diagonal to the pairwise Cauchy-Schwarz bound
+// sqrt(diagonal_i * diagonal_j). Pairwise bounds are necessary but do not
+// guarantee positive semi-definiteness of the full matrix; a 3x3 correlation
+// block additionally requires 1 + 2*rho01*rho02*rho12 - rho01^2 - rho02^2 -
+// rho12^2 >= 0.
 GPUhdi() void sanitizeCovariance(SurfaceKinematicState& state, const float (&maxDiagonal)[5]) noexcept
 {
   auto& c = state.covariance;
@@ -270,11 +196,7 @@ class ForwardStateView
   GPUhdi() float getPhi() const noexcept { return mState->parameters[2]; }
   GPUhdi() float getTanl() const noexcept { return mState->parameters[3]; }
   GPUhdi() float getInvQPt() const noexcept { return mState->parameters[4]; }
-  // The Stage-B forward slot carries signed q/pT for arbitrary absCharge
-  // (not merely the unit-charge inverse pT the legacy name suggests).
-  // getQ2Pt()/setQ2Pt() are the accepted post-migration names; getInvQPt()/
-  // setInvQPt() remain as documented migration aliases over the same slot,
-  // with no layout or ABI change.
+  // Forward slot 4 is signed q/pT; getInvQPt()/setInvQPt() are aliases.
   GPUhdi() float getQ2Pt() const noexcept { return mState->parameters[4]; }
   GPUhdi() float getCovariance(uint8_t row, uint8_t column) const noexcept { return mState->covariance[packedCovarianceIndex(row, column)]; }
   GPUhdi() float getReferenceZ() const noexcept { return mState->referenceCoordinate; }

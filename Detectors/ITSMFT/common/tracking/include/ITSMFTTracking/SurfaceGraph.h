@@ -52,8 +52,8 @@ struct TopologyRange {
   GPUhdi() constexpr uint32_t getEntriesBound() const noexcept { return firstEntry + entries; }
 };
 
-// The only device-facing graph representation. It contains the surface
-// catalog, traversal order, sparse adjacency and seed mask in one POD view.
+// Device-facing graph representation containing the surface catalog,
+// traversal order, sparse adjacency, and seed mask in one POD view.
 // All pointers are borrowed from one immutable SurfaceGraph owner.
 struct SurfaceGraphView {
   const SurfaceDescriptor* surfaces{nullptr};
@@ -141,9 +141,7 @@ enum class SurfaceGraphTopologyError : uint8_t {
   NotFinalized
 };
 
-// Owns one complete immutable-after-build surface graph. The uint32_t
-// constructor is retained for small topology fixtures; production builders
-// always replace its descriptors and ordered positions before finalization.
+// Owns one complete surface graph that is immutable after finalization.
 class SurfaceGraph
 {
  public:

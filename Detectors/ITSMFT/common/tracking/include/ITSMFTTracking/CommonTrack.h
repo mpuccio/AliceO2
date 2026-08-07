@@ -44,36 +44,16 @@ static_assert(alignof(TrackClusterReference) == 4);
 static_assert(offsetof(TrackClusterReference, surface) == 0);
 static_assert(offsetof(TrackClusterReference, index) == 4);
 
-// Detector-neutral common-CA tracking result (Architecture.md Sec 12: "The
-// TimeFrame stores a generic internal result"). Owned by the common
-// TimeFrame (see TimeFrame::getCommonTracks()/getTrackClusterIndices()).
-// Deliberately carries no ITS/MFT/ALICE-3 publication type, detector ID,
-// compile-time layer parameter, or workflow dependency: detector output
-// adapters (TrackITSExt, TrackMFT, a future ALICE-3 type, ...) are built
-// from this type by code outside the common core, never the reverse.
+// Detector-neutral common-CA result owned by the TimeFrame. Publication
+// adapters remain outside the tracking core.
 //
-// Cluster membership is not stored inline. firstClusterRef/clusterRefEnd is
-// a half-open [firstClusterRef, clusterRefEnd) range of *positions* into the
-// TimeFrame-owned flat trackClusterIndices array (see
-// TimeFrame::getTrackClusterIndices(), an array of TrackClusterReference);
-// see isValidTrackRange() below for the exact validity condition. Each
-// referenced TrackClusterReference resolves through
-// normalizedFrame.getMeasurement(reference.surface, reference.index) -- see
-// that struct's own doc above. References are stored in traversal order,
-// inner to outer.
+// Cluster membership is a half-open range of positions in the TimeFrame-owned
+// trackClusterIndices array. References resolve through the normalized frame
+// and are stored in inner-to-outer traversal order.
 //
-// innerState/outerState reuse SurfaceKinematicState directly (Barrel or
-// Forward family, selected by SurfaceKinematicState::family): this is
-// deliberately not a second five-parameter/covariance representation.
-// hitSurfaces uses the global 32-bit SurfaceMask (ITSMFTTracking/
-// SurfaceMask.h), never a legacy fixed-layer LayerMask. For a valid,
-// completed track: every TrackClusterReference in
-// [firstClusterRef, clusterRefEnd) resolves to an existing measurement whose
-// own SurfaceMeasurement::surface equals that reference's surface field, and
-// hitSurfaces is the union of those surfaces. This is a consumer-side
-// invariant (see testCommonTrack.cxx), not something this struct enforces by
-// construction, since populating a CommonTrack from CA seeds is out of scope
-// for this slice.
+// innerState/outerState use the family-selected SurfaceKinematicState;
+// hitSurfaces is the global 32-bit SurfaceMask. A completed track resolves
+// every reference in the range and has their union in hitSurfaces.
 //
 // timestamp is CommonTrackTimestamp (ITSMFTTracking/SurfaceTiming.h), the
 // common TFBC-based half-open BC interval -- not o2::its::TimeEstBC, which
@@ -106,16 +86,8 @@ struct CommonTrack {
   uint32_t clusterRefEnd{0};
 };
 
-// Standard-layout and trivially-copyable together -- not trivial-copyability
-// alone. Trivial-copyability only guarantees CommonTrack's bytes may be
-// copied (e.g. memcpy'd to a device buffer) without invoking non-trivial
-// special member functions; it says nothing about a consistent, portable
-// field layout. Standard-layout is the property that additionally
-// guarantees a single, well-defined member order usable with `offsetof` and
-// consistent across host and device compilation -- both properties are
-// required together for the same reason every other device-facing type in
-// this library asserts both (SurfaceMeasurement, StaticSurfaceDescriptor,
-// SurfaceGraphView, ...), and neither one substitutes for the other.
+// Both properties are required for a portable device-facing value: bytes are
+// copyable and member order is stable for host/device compilation.
 static_assert(std::is_standard_layout_v<CommonTrack>);
 static_assert(std::is_trivially_copyable_v<CommonTrack>);
 

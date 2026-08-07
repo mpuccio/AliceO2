@@ -85,10 +85,8 @@ struct MaterialOperationResult {
   bool ok() const noexcept { return failure == MaterialFailureReason::None; }
 };
 
-// Representation properties asserted here describe the current in-memory
-// layout of these types. They are not yet a durable serialized or device ABI
-// commitment; a future slice may need to revisit them explicitly before
-// making such a commitment.
+// The assertions below lock the current in-memory layout; they are not a
+// serialized or device ABI declaration.
 #define O2_ITSMFT_MATERIAL_ASSERT_LAYOUT(Type, Size, Alignment) \
   static_assert(std::is_standard_layout_v<Type>);               \
   static_assert(std::is_trivially_copyable_v<Type>);            \

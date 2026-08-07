@@ -50,8 +50,7 @@ struct ClusterSourceIdTag;
 using SurfaceId = detail::Identifier16<SurfaceIdTag>;
 using TransitionId = detail::Identifier16<TransitionIdTag>;
 using CellTopologyId = detail::Identifier16<CellTopologyIdTag>;
-// Dense, TimeFrame-local input-stream ID. The inherited all-ones value is
-// reserved as invalid.
+// Dense, TimeFrame-local input-stream ID; all-ones is invalid.
 using ClusterSourceId = detail::Identifier16<ClusterSourceIdTag>;
 
 // Position in one surface's complete TimeFrame measurement span.
