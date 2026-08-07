@@ -179,6 +179,26 @@ BOOST_AUTO_TEST_CASE(DiskToDiskPropagateAndUpdateSucceeds)
   BOOST_CHECK_GE(chi2, 0.f);
 }
 
+BOOST_AUTO_TEST_CASE(AcceptedForwardPropagationMatchesSelectedPrimitive)
+{
+  auto viaPropagator = diskState();
+  auto viaDirect = viaPropagator;
+  OperationFailureReason propagatorReason{};
+  OperationFailureReason directReason{};
+
+  BOOST_REQUIRE(Propagator::propagateForward(viaPropagator, -50.f, 5.f, propagatorReason));
+  BOOST_REQUIRE((forward::propagate<forward::PropagationModel::Helix>(viaDirect, -50.f, 5.f, directReason)));
+  BOOST_CHECK(bitEqual(viaPropagator, viaDirect));
+  BOOST_CHECK_EQUAL(static_cast<int>(propagatorReason), static_cast<int>(directReason));
+
+  viaPropagator = diskState();
+  viaDirect = viaPropagator;
+  BOOST_REQUIRE(Propagator::propagateForward(viaPropagator, -50.f, 0.01f, propagatorReason));
+  BOOST_REQUIRE((forward::propagate<forward::PropagationModel::Linear>(viaDirect, -50.f, 0.01f, directReason)));
+  BOOST_CHECK(bitEqual(viaPropagator, viaDirect));
+  BOOST_CHECK_EQUAL(static_cast<int>(propagatorReason), static_cast<int>(directReason));
+}
+
 // --- 3: compatible family never converts -- exact agreement with a direct
 // barrel::rotate/propagate/correctForMaterial/predictedChi2/update replay ---
 

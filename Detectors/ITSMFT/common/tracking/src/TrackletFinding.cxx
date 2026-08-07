@@ -24,6 +24,7 @@
 #include "DataFormatsITS/Vertex.h"
 #include "ITSMFTTracking/BarrelSurfaceStateOperations.h"
 #include "ITSMFTTracking/ForwardSurfaceStateOperations.h"
+#include "ITSMFTTracking/Propagator.h"
 #include "ITSMFTTracking/detail/MFTFwdTrackHelpers.h"
 #include "ITSMFTTracking/IndexTableUtils.h"
 #include "ITSMFTTracking/MaterialPhysics.h"
@@ -158,23 +159,6 @@ bool projectDiskSearchWindow(const SurfaceMeasurement& sourceMeasurement,
 // material kernel (MaterialPhysics.h). See TrackletFinding.h for
 // the per-operation contract documentation.
 
-namespace
-{
-
-// Accepted forward model: Helix for |bz| > 0.01f, otherwise Linear.
-// Optimized (helix parameters, quadratic covariance) is reserved for final
-// forward refit.
-bool forwardPropagateAcceptedModel(SurfaceKinematicState& state, float targetZ, float bz,
-                                   OperationFailureReason& reason) noexcept
-{
-  if (std::abs(bz) > 0.01f) {
-    return forward::propagate<forward::PropagationModel::Helix>(state, targetZ, bz, reason);
-  }
-  return forward::propagate<forward::PropagationModel::Linear>(state, targetZ, bz, reason);
-}
-
-} // namespace
-
 bool buildCylinderCellSeed(
   const SurfaceMeasurement& measurementInner,
   const SurfaceMeasurement& measurementMiddle,
@@ -260,7 +244,7 @@ bool buildDiskCellSeed(
     const bool isLast = (step == 2);
     const auto& measurement = *steps[step];
 
-    if (!forwardPropagateAcceptedModel(scratch, measurement.frame.q, bz, reason)) {
+    if (!Propagator::propagateForward(scratch, measurement.frame.q, bz, reason)) {
       return false;
     }
     const auto& stepMaterial = stepsMaterial[step];
@@ -347,7 +331,7 @@ bool attachDiskHit(
   SurfaceKinematicState scratch = state;
   float scratchChi2 = chi2;
 
-  if (!forwardPropagateAcceptedModel(scratch, measurement.frame.q, bz, reason)) {
+  if (!Propagator::propagateForward(scratch, measurement.frame.q, bz, reason)) {
     return false;
   }
   const auto materialResult = forward::correctForMaterial(
@@ -413,7 +397,7 @@ bool cellsDiskAreCompatible(
   }
   SurfaceKinematicState scratch = next;
   OperationFailureReason reason{};
-  if (!forwardPropagateAcceptedModel(scratch, current.referenceCoordinate, bz, reason)) {
+  if (!Propagator::propagateForward(scratch, current.referenceCoordinate, bz, reason)) {
     return false;
   }
   float chi2{0.f};

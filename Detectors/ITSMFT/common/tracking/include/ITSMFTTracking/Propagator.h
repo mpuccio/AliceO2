@@ -40,6 +40,13 @@ namespace o2::itsmft::tracking
 class Propagator
 {
  public:
+  // Propagates a forward state with the accepted model used by disk cell and
+  // refit operations: full helix transport for |bz| > 0.01f, and linear
+  // transport otherwise. The model selection is centralized here so forward
+  // production callers do not grow independent propagation shortcuts.
+  static bool propagateForward(SurfaceKinematicState& state, float targetZ, float bz,
+                               OperationFailureReason& reason) noexcept;
+
   // State-family conversion.
   // Re-expresses `state` (and, if supplied, its paired `linRef`) in
   // `targetFamily`'s parameter/reference convention, evaluated at the

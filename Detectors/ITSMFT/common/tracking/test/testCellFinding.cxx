@@ -260,11 +260,9 @@ SurfaceMeasurement diskMeasurementInner() { return diskMeasurementFor(diskCluste
 SurfaceMeasurement diskMeasurementMiddle() { return diskMeasurementFor(diskClusterMiddle(), diskHitMiddle()); }
 SurfaceMeasurement diskMeasurementOuter() { return diskMeasurementFor(diskClusterOuter(), diskHitOuter()); }
 
-// "The accepted forward model": reproduces detail::mftFwdPropagateToZ's own
-// |bz|>0.01f threshold dispatch to Helix/Linear (see
-// TrackletFinding.cxx's forwardPropagateAcceptedModel, which is
-// private to that translation unit -- this is an independent, deliberately
-// duplicated one-line re-transcription, not a call into production code).
+// "The accepted forward model": independently reproduces Propagator's
+// |bz|>0.01f threshold dispatch to Helix/Linear (this is an independent,
+// deliberately duplicated re-transcription, not a call into production code).
 bool replayForwardPropagateAcceptedModel(SurfaceKinematicState& state, float targetZ, float bz,
                                          OperationFailureReason& reason)
 {
