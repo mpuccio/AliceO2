@@ -1,6 +1,6 @@
 # Header and graph cleanup execution
 
-- Status: P1 in progress
+- Status: Campaign A accepted; Campaign B in progress
 - Date: 2026-08-07
 - Integration branch: `codex/itsmft-header-graph-cleanup`
 - Base: `86113f2a14`
@@ -43,6 +43,10 @@ non-empty, `SeedAnchor` remains and the endpoint is 49 headers.
    files/names/tests, and installs a zero-policy source guard.
 
 Campaign gate A runs before any header consolidation.
+
+Campaign A passed its complete build, test, authentication, fixture, and
+frozen-replay gate. The exact evidence is recorded in
+[Campaign A validation](../validation/header-graph-cleanup-campaign-a.md).
 
 ### Campaign B: device/public consolidation
 
