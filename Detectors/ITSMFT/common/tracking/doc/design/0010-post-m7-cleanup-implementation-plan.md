@@ -546,11 +546,11 @@ The replay parity requirement therefore remains unverified in this environment.
 
 **Suggested branch:** `luna/itsmft-postm7-l10-operation-tail`
 
-**Outcome:** move `completeAccepted()` and `resetAdapterState()` out of
-`TrackingOperationAdapter` into application publication handling. Retain only
-the exact call-scoped refit operation if it still has more than one real
-implementation; otherwise delete the seam. Do not create callbacks or central
-dispatch.
+**Outcome:** complete. `TrackingOperationAdapter` now contains only the
+call-scoped refit operation. `completeAccepted()` and adapter reset are direct
+workflow/application publication operations; per-iteration accepted-result
+boundaries are returned as generic result metadata so sidecar staging order is
+unchanged. No callback or central dispatch was introduced.
 
 Separately resolve the remaining proven-dead public compatibility tail from
 design note 0009: no-op common device hook, common
@@ -565,9 +565,10 @@ operation with concrete CPU/GPU ownership.
 operation only; no publication/reset lifecycle crosses it; every remaining
 public compatibility header has a live named owner and caller.
 
-**Gate:** R plus native-refit ordering/holes/rejection tests, ITS shared-status
+**Gate:** focused ownership/ordering/holes/rejection tests, ITS shared-status
 and MFT compatibility checks, failure-stale-state tests, public-header guards,
-and a real device build when available.
+and the combined L9+L10 replay campaign. Strict CCDB preflight remains a hard
+requirement; no token-check bypass is permitted.
 
 ## 7. Review checkpoints
 
@@ -579,6 +580,11 @@ Maintainer review is mandatory after L3, L5, L7, and L9:
 | After L5 | Is TimeFrame genuinely the sole entity, or did state merely move behind forwarding methods? |
 | After L7 | Are timing/publication/raw-ROF responsibilities visibly application-owned without duplicating event state? |
 | After L9 | Can every workflow be described only as owner + Loader + TimeFrame + Tracker + traits + publication adapter? |
+
+The post-L9 checkpoint is satisfied structurally by L9+L10: workflow owns
+compatibility, Loader acts on TimeFrame, Tracker acts on TimeFrame through
+TrackerTraits, and workflow publishes generic results. The final replay gate is
+still required before integration.
 
 A checkpoint may reorder or stop later slices, but it must not retroactively
 declare a failed deletion criterion acceptable.
