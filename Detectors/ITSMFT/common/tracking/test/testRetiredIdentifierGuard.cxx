@@ -70,4 +70,20 @@ BOOST_AUTO_TEST_CASE(NoRetiredDispatchVocabularyRemainsInITSMFTSources)
   }
 }
 
+BOOST_AUTO_TEST_CASE(NoRetiredPrimitiveHeadersRemain)
+{
+  const auto root = sourceRoot();
+  BOOST_REQUIRE_MESSAGE(fs::is_directory(root), "cannot find " << root.string());
+
+  const auto includeDirectory = root / "Detectors" / "ITSMFT" / "common" / "tracking" / "include" / "ITSMFTTracking";
+  const std::vector<std::string> retiredHeaders{
+    std::string{"SurfaceMeasurement"} + "Index.h",
+    std::string{"Layer"} + "Mask.h",
+  };
+  for (const auto& header : retiredHeaders) {
+    BOOST_CHECK_MESSAGE(!fs::exists(includeDirectory / header),
+                        "retired primitive header remains: " << (includeDirectory / header).string());
+  }
+}
+
 } // namespace

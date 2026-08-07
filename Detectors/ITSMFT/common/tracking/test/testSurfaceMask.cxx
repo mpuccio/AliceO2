@@ -18,7 +18,6 @@
 
 #include <boost/test/unit_test.hpp>
 
-#include "ITSMFTTracking/LayerMask.h"
 #include "ITSMFTTracking/SurfaceMask.h"
 
 using o2::itsmft::tracking::LayerMask;

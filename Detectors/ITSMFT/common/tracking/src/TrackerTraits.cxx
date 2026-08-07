@@ -35,7 +35,7 @@
 #include "ITSMFTTracking/IndexTableConfiguration.h"
 #include "ITSMFTTracking/MFTFwdTrackHelpers.h"
 #include "ITSMFTTracking/IndexTableUtils.h"
-#include "ITSMFTTracking/LayerMask.h"
+#include "ITSMFTTracking/SurfaceMask.h"
 #include "ITSMFTTracking/SurfaceTrackingScratch.h"
 #include "ITSMFTTracking/TrackerTraits.h"
 #include "ITSMFTTracking/detail/SurfacePlanBinding.h"

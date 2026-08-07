@@ -13,7 +13,7 @@
 
 #include "GPUCommonDef.h"
 #include "ITSMFTTracking/SurfaceMeasurement.h"
-#include "ITSMFTTracking/SurfaceMeasurementIndex.h"
+#include "ITSMFTTracking/SurfaceId.h"
 #include "ITSMFTTracking/SurfaceTiming.h"
 
 #ifndef GPUCA_GPUCODE

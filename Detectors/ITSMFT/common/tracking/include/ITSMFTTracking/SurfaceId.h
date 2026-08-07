@@ -54,6 +54,30 @@ using CellTopologyId = detail::Identifier16<CellTopologyIdTag>;
 // reserved as invalid.
 using ClusterSourceId = detail::Identifier16<ClusterSourceIdTag>;
 
+// Position in one surface's complete TimeFrame measurement span.
+class SurfaceMeasurementIndex
+{
+ public:
+  using ValueType = uint32_t;
+  static constexpr ValueType InvalidValue = std::numeric_limits<ValueType>::max();
+
+  GPUhdDefault() constexpr SurfaceMeasurementIndex() noexcept = default;
+  GPUhdDefault() explicit constexpr SurfaceMeasurementIndex(ValueType value) noexcept : mValue{value} {}
+
+  GPUhdi() constexpr ValueType value() const noexcept { return mValue; }
+  GPUhdi() constexpr bool isValid() const noexcept { return mValue != InvalidValue; }
+  GPUhdi() static constexpr SurfaceMeasurementIndex invalid() noexcept { return SurfaceMeasurementIndex{InvalidValue}; }
+
+  GPUhdi() friend constexpr bool operator==(SurfaceMeasurementIndex lhs, SurfaceMeasurementIndex rhs) noexcept
+  {
+    return lhs.mValue == rhs.mValue;
+  }
+  GPUhdi() friend constexpr bool operator!=(SurfaceMeasurementIndex lhs, SurfaceMeasurementIndex rhs) noexcept { return !(lhs == rhs); }
+
+ private:
+  ValueType mValue{InvalidValue};
+};
+
 inline constexpr uint32_t MaxLayoutSurfaces = 32;
 inline constexpr uint32_t MaxLayoutTransitions = MaxLayoutSurfaces * (MaxLayoutSurfaces - 1);
 inline constexpr uint32_t MaxLayoutCellTopologies = MaxLayoutSurfaces * (MaxLayoutSurfaces - 1) * (MaxLayoutSurfaces - 1);
@@ -64,10 +88,14 @@ static_assert(std::is_standard_layout_v<SurfaceId> && std::is_trivially_copyable
 static_assert(std::is_standard_layout_v<TransitionId> && std::is_trivially_copyable_v<TransitionId>);
 static_assert(std::is_standard_layout_v<CellTopologyId> && std::is_trivially_copyable_v<CellTopologyId>);
 static_assert(std::is_standard_layout_v<ClusterSourceId> && std::is_trivially_copyable_v<ClusterSourceId>);
+static_assert(std::is_standard_layout_v<SurfaceMeasurementIndex>);
+static_assert(std::is_trivially_copyable_v<SurfaceMeasurementIndex>);
 static_assert(sizeof(SurfaceId) == sizeof(uint16_t));
 static_assert(sizeof(TransitionId) == sizeof(uint16_t));
 static_assert(sizeof(CellTopologyId) == sizeof(uint16_t));
 static_assert(sizeof(ClusterSourceId) == sizeof(uint16_t));
+static_assert(sizeof(SurfaceMeasurementIndex) == sizeof(uint32_t));
+static_assert(alignof(SurfaceMeasurementIndex) == alignof(uint32_t));
 
 } // namespace o2::itsmft::tracking
 

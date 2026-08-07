@@ -23,7 +23,7 @@
 #include <string>
 
 #include "ITSMFTTracking/IndexTableConfiguration.h"
-#include "ITSMFTTracking/LayerMask.h"
+#include "ITSMFTTracking/SurfaceMask.h"
 #include "ITStracking/MathUtils.h"
 
 namespace o2::itsmft::tracking

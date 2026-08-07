@@ -16,7 +16,6 @@
 #include "ITSMFTTracking/SurfaceId.h"
 #include "ITSMFTTracking/SurfaceKinematicState.h"
 #include "ITSMFTTracking/SurfaceMask.h"
-#include "ITSMFTTracking/SurfaceMeasurementIndex.h"
 #include "ITSMFTTracking/SurfaceTiming.h"
 
 namespace o2::itsmft::tracking
