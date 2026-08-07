@@ -11,7 +11,7 @@ M7d non-templated core: [runtime-plan Tracker/TrackerTraits implementation](desi
 M7e adapter refit/output: [typed refit and output at the adapter boundary](design/0007-m7e-adapter-refit-output.md)
 M7f final cleanup: [redundant runtime-core bridge retirement](design/0008-m7f-final-runtime-core-cleanup.md)
 Post-M7 cleanup audit: [intentionality, ownership, and duplication audit](design/0009-post-m7-intentionality-cleanup-audit.md) — complete; bounded first slice is dead typed-MFT refit/export retirement.
-Post-M7 cleanup implementation: [sequential Luna execution plan](design/0010-post-m7-cleanup-implementation-plan.md) — L8 complete; L9 is the next authorized slice. [L8 Tracker-orchestration validation](validation/l8-retire-engine.md) records engine/participant retirement and direct combined composition; [L7 adapter-ownership validation](validation/l7-adapter-ownership.md) records the workflow-owned timing/publication boundary.
+Post-M7 cleanup implementation: [sequential Luna execution plan](design/0010-post-m7-cleanup-implementation-plan.md) — L9 complete; L10 is the next authorized slice. [L9 TrackingInterface-retirement validation](validation/l9-retire-interface.md) records direct standalone composition; [L8 Tracker-orchestration validation](validation/l8-retire-engine.md) records engine/participant retirement and direct combined composition.
 
 L6 makes `TimeFrame` the sole live owner of generic configuration, workspace,
 and event data, with `MultiSourceTimeFrameLoader` as the non-owning atomic load

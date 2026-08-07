@@ -1,7 +1,7 @@
 # Post-M7 cleanup implementation plan
 
-- Status: L8 implementation complete; L9 remains the next authorized slice
-- Date: 2026-08-06
+- Status: L9 implementation complete; L10 remains the next authorized slice
+- Date: 2026-08-07
 - Architecture source: [post-M7 intentionality audit](0009-post-m7-intentionality-cleanup-audit.md)
 - Implementation owner: Luna agents under maintainer review
 - Physics status: behavior-preserving structural cleanup only
@@ -531,6 +531,16 @@ publication lifecycle are visibly workflow-owned.
 
 **Gate:** R plus standalone configuration/lifecycle, dropped-TF behavior,
 combined parity, sidecar reset, and exact writer tests.
+
+**Status: complete (2026-08-07).** `TrackingInterface`, its float failure
+sentinel, interface-only tests, and common CMake/source entries are deleted.
+Standalone ITS and MFT now own `TimeFrame` directly and call the same
+`Tracker::initialize`/`Loader::load`/`Tracker::run` composition as the combined
+workflow. The serial ITS/MFT suite passed 97/97 with no `Not Run` entries.
+The fresh replay attempt verified the fixture 43/43 before and after, but could
+not reach tracking because the CCDB backend lacked a live alien token; the
+exact blocker is recorded in [the L9 validation record](../validation/l9-retire-interface.md).
+The replay parity requirement therefore remains unverified in this environment.
 
 ### L10 — narrow the operation seam and close public compatibility residue
 
