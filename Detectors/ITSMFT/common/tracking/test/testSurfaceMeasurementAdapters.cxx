@@ -18,9 +18,8 @@
 #include "DataFormatsITSMFT/CompCluster.h"
 #include "DataFormatsITSMFT/TopologyDictionary.h"
 #include "DetectorsCommonDataFormats/DetID.h"
-#include "ITSMFTTracking/DecodedCluster.h"
 #include "ITSMFTTracking/IOUtils.h"
-#include "ITSMFTTracking/SurfaceMeasurementAdapters.h"
+#include "ITSMFTTracking/ClusterDecoding.h"
 
 namespace
 {

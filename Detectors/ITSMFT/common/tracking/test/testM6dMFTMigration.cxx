@@ -106,7 +106,7 @@ std::vector<SurfaceId> orderedRange(uint16_t first, uint16_t count)
 class StubDecoder final : public ClusterDecoder
 {
  public:
-  o2::itsmft::ioutils::SurfaceMeasurementDecodeResult decode(
+  o2::itsmft::tracking::SurfaceMeasurementDecodeResult decode(
     const o2::itsmft::CompClusterExt&, BoundedPatternCursor&, const o2::itsmft::TopologyDictionary*,
     gsl::span<const SurfaceId>, ClusterSourceId, uint32_t, uint32_t, bool) const override
   {

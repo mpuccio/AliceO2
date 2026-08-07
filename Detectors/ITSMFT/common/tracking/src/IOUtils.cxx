@@ -15,8 +15,6 @@
 
 #include "ITSMFTTracking/IOUtils.h"
 #include "ITSMFTTracking/Configuration.h"
-#include "ITSMFTTracking/DecodedCluster.h"
-#include "ITSMFTTracking/SurfaceMeasurementAdapters.h"
 #include "ITStracking/Cluster.h"
 
 #include "Framework/Logger.h"
@@ -254,7 +252,7 @@ template o2::itsmft::tracking::SurfaceMeasurement loadClusterSurfaceMeasurement<
   o2::itsmft::tracking::ClusterSourceId, uint32_t, o2::itsmft::tracking::SurfaceId, uint32_t, bool);
 
 template <o2::detectors::DetID::ID DetId>
-SurfaceMeasurementDecodeResult loadClusterSurfaceMeasurement(
+o2::itsmft::tracking::SurfaceMeasurementDecodeResult loadClusterSurfaceMeasurement(
   const CompClusterExt& c,
   o2::itsmft::tracking::BoundedPatternCursor& patterns,
   const TopologyDictionary* dict,
@@ -271,7 +269,7 @@ SurfaceMeasurementDecodeResult loadClusterSurfaceMeasurement(
     decodedResult = decodeClusterBounded<DetId>(o2::mft::GeometryTGeo::Instance(), c, patterns, dict, applySysErrors);
   }
 
-  SurfaceMeasurementDecodeResult result;
+  o2::itsmft::tracking::SurfaceMeasurementDecodeResult result;
   if (!decodedResult.ok()) {
     result.error = decodedResult.error;
     return result;
@@ -297,11 +295,11 @@ SurfaceMeasurementDecodeResult loadClusterSurfaceMeasurement(
   return result;
 }
 
-template SurfaceMeasurementDecodeResult loadClusterSurfaceMeasurement<o2::detectors::DetID::ITS>(
+template o2::itsmft::tracking::SurfaceMeasurementDecodeResult loadClusterSurfaceMeasurement<o2::detectors::DetID::ITS>(
   const CompClusterExt&, o2::itsmft::tracking::BoundedPatternCursor&, const TopologyDictionary*,
   gsl::span<const o2::itsmft::tracking::SurfaceId>, o2::itsmft::tracking::ClusterSourceId, uint32_t, uint32_t, bool);
 
-template SurfaceMeasurementDecodeResult loadClusterSurfaceMeasurement<o2::detectors::DetID::MFT>(
+template o2::itsmft::tracking::SurfaceMeasurementDecodeResult loadClusterSurfaceMeasurement<o2::detectors::DetID::MFT>(
   const CompClusterExt&, o2::itsmft::tracking::BoundedPatternCursor&, const TopologyDictionary*,
   gsl::span<const o2::itsmft::tracking::SurfaceId>, o2::itsmft::tracking::ClusterSourceId, uint32_t, uint32_t, bool);
 

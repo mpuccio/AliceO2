@@ -19,14 +19,12 @@
 #include "DataFormatsITSMFT/ROFRecord.h"
 #include "DataFormatsITSMFT/TopologyDictionary.h"
 #include "DetectorsCommonDataFormats/DetID.h"
-#include "ITSMFTTracking/ClusterDecoder.h"
 #include "ITSMFTTracking/ClusterSource.h"
-#include "ITSMFTTracking/DecodedCluster.h"
 #include "ITSMFTTracking/SurfaceGraph.h"
 #include "ITSMFTTracking/IOUtils.h"
 #include "ITSMFTTracking/MultiSourceFrame.h"
 #include "ITSMFTTracking/MultiSourceLoading.h"
-#include "ITSMFTTracking/SurfaceMeasurementAdapters.h"
+#include "ITSMFTTracking/ClusterDecoding.h"
 #include "SimulationDataFormat/MCCompLabel.h"
 #include "SimulationDataFormat/MCTruthContainer.h"
 
@@ -66,7 +64,7 @@ class FakeClusterDecoder final : public ClusterDecoder
   {
   }
 
-  o2::itsmft::ioutils::SurfaceMeasurementDecodeResult decode(
+  o2::itsmft::tracking::SurfaceMeasurementDecodeResult decode(
     const CompClusterExt& cluster,
     BoundedPatternCursor& patterns,
     const TopologyDictionary* dict,
@@ -80,13 +78,13 @@ class FakeClusterDecoder final : public ClusterDecoder
     // the pattern cursor or geometry decode: loadSources() must catch this
     // from layerMapped/layer alone, before indexing layerToSurface.
     if (mCorruption == Corruption::LayerMappedTrueWithNegativeLayer) {
-      o2::itsmft::ioutils::SurfaceMeasurementDecodeResult result;
+      o2::itsmft::tracking::SurfaceMeasurementDecodeResult result;
       result.layerMapped = true;
       result.layer = -1;
       return result;
     }
     if (mCorruption == Corruption::LayerMappedTrueWithLayerOutOfRange) {
-      o2::itsmft::ioutils::SurfaceMeasurementDecodeResult result;
+      o2::itsmft::tracking::SurfaceMeasurementDecodeResult result;
       result.layerMapped = true;
       result.layer = static_cast<int>(layerToSurface.size());
       return result;
@@ -94,12 +92,12 @@ class FakeClusterDecoder final : public ClusterDecoder
 
     const auto clusterData = o2::itsmft::ioutils::extractClusterDataBounded(cluster, patterns, dict);
     if (!clusterData.ok()) {
-      o2::itsmft::ioutils::SurfaceMeasurementDecodeResult result;
+      o2::itsmft::tracking::SurfaceMeasurementDecodeResult result;
       result.error = clusterData.error;
       return result;
     }
 
-    o2::itsmft::ioutils::SurfaceMeasurementDecodeResult result;
+    o2::itsmft::tracking::SurfaceMeasurementDecodeResult result;
     const auto sensorID = cluster.getSensorID();
     const int layer = (sensorID >= 0 && static_cast<size_t>(sensorID) < mSensorToLayer.size()) ? mSensorToLayer[sensorID] : -1;
     result.layer = layer;
@@ -171,7 +169,7 @@ class FakeClusterDecoder final : public ClusterDecoder
 class PatternContractDecoder final : public ClusterDecoder
 {
  public:
-  o2::itsmft::ioutils::SurfaceMeasurementDecodeResult decode(
+  o2::itsmft::tracking::SurfaceMeasurementDecodeResult decode(
     const CompClusterExt& cluster,
     BoundedPatternCursor& patterns,
     const TopologyDictionary* dictionary,
@@ -181,7 +179,7 @@ class PatternContractDecoder final : public ClusterDecoder
     uint32_t sourceROF,
     bool) const override
   {
-    o2::itsmft::ioutils::SurfaceMeasurementDecodeResult result;
+    o2::itsmft::tracking::SurfaceMeasurementDecodeResult result;
     if (dictionary == nullptr) {
       result.error = ClusterDecodeError::MissingDictionary;
       return result;

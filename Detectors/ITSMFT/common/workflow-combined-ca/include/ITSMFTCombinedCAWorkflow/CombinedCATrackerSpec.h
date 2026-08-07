@@ -36,7 +36,7 @@
 #include "DetectorsBase/GRPGeomHelper.h"
 #include "Framework/DataProcessorSpec.h"
 #include "Framework/Task.h"
-#include "ITSMFTTracking/ClusterDecoder.h"
+#include "ITSMFTTracking/ClusterDecoding.h"
 #include "ITSMFTTracking/CommonTrackOutputAdapter.h"
 #include "ITSMFTTracking/DetectorPublicationAdapter.h"
 #include "ITSMFTTracking/Configuration.h"

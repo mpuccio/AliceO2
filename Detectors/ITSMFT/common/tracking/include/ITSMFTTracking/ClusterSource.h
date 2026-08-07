@@ -14,7 +14,7 @@
 #include "DataFormatsITSMFT/ROFRecord.h"
 #include "DataFormatsITSMFT/TopologyDictionary.h"
 #include "DetectorsCommonDataFormats/DetID.h"
-#include "ITSMFTTracking/ClusterDecoder.h"
+#include "ITSMFTTracking/ClusterDecoding.h"
 #include "ITSMFTTracking/SurfaceId.h"
 #include "ITSMFTTracking/SurfaceTiming.h"
 #include "ITSMFTTracking/ROFViews.h"

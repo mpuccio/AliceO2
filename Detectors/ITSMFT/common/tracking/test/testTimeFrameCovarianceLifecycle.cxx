@@ -30,13 +30,12 @@
 #include "DataFormatsITSMFT/TopologyDictionary.h"
 #include "DetectorsCommonDataFormats/DetID.h"
 #include "GPUCommonMath.h"
-#include "ITSMFTTracking/ClusterDecoder.h"
 #include "ITSMFTTracking/Configuration.h"
-#include "ITSMFTTracking/DecodedCluster.h"
 #include "ITSMFTTracking/SurfaceGraphBuilder.h"
 #include "ITSMFTTracking/SurfaceTrackingScratch.h"
 #include "ITSMFTTracking/NominalSurfaceMaterialDefaults.h"
-#include "ITSMFTTracking/SurfaceMeasurementAdapters.h"
+#include "ITSMFTTracking/ClusterDecoding.h"
+#include "ITSMFTTracking/IOUtils.h"
 #include "ITSMFTTracking/TimeFrame.h"
 #include "ITSMFTTracking/TrackerTraits.h"
 #include "ITSMFTTracking/detail/SurfacePlanBinding.h"
@@ -81,7 +80,7 @@ class SystematicContractDecoder final : public ClusterDecoder
   {
   }
 
-  o2::itsmft::ioutils::SurfaceMeasurementDecodeResult decode(
+  o2::itsmft::tracking::SurfaceMeasurementDecodeResult decode(
     const CompClusterExt& cluster,
     BoundedPatternCursor& patterns,
     const TopologyDictionary* dict,
@@ -94,12 +93,12 @@ class SystematicContractDecoder final : public ClusterDecoder
     lastApplySysErrors = applySysErrors;
     const auto clusterData = o2::itsmft::ioutils::extractClusterDataBounded(cluster, patterns, dict);
     if (!clusterData.ok()) {
-      o2::itsmft::ioutils::SurfaceMeasurementDecodeResult result;
+      o2::itsmft::tracking::SurfaceMeasurementDecodeResult result;
       result.error = clusterData.error;
       return result;
     }
 
-    o2::itsmft::ioutils::SurfaceMeasurementDecodeResult result;
+    o2::itsmft::tracking::SurfaceMeasurementDecodeResult result;
     const int layer = cluster.getSensorID();
     result.layer = layer;
     if (layer < 0 || static_cast<size_t>(layer) >= layerToSurface.size()) {

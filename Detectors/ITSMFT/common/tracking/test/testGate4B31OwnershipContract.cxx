@@ -49,13 +49,12 @@
 #include "DetectorsBase/Propagator.h"
 #include "DetectorsCommonDataFormats/DetID.h"
 #include "Field/MagneticField.h"
-#include "ITSMFTTracking/ClusterDecoder.h"
 #include "ITSMFTTracking/CommonTrack.h"
-#include "ITSMFTTracking/DecodedCluster.h"
 #include "ITSMFTTracking/SurfaceGraphBuilder.h"
 #include "ITSMFTTracking/SurfaceTrackingScratch.h"
 #include "ITSMFTTracking/SurfaceDescriptor.h"
-#include "ITSMFTTracking/SurfaceMeasurementAdapters.h"
+#include "ITSMFTTracking/ClusterDecoding.h"
+#include "ITSMFTTracking/IOUtils.h"
 #include "ITSMFTTracking/TimeFrame.h"
 #include "ITSMFTTracking/TrackingConfigParam.h"
 #include "ITStracking/Cluster.h"
@@ -134,7 +133,7 @@ class OneLayerDecoder final : public ClusterDecoder
  public:
   explicit OneLayerDecoder(o2::detectors::DetID::ID detector) : mDetector(detector) {}
 
-  o2::itsmft::ioutils::SurfaceMeasurementDecodeResult decode(
+  o2::itsmft::tracking::SurfaceMeasurementDecodeResult decode(
     const CompClusterExt& cluster,
     BoundedPatternCursor& patterns,
     const TopologyDictionary* dict,
@@ -144,7 +143,7 @@ class OneLayerDecoder final : public ClusterDecoder
     uint32_t sourceROF,
     bool /*applySysErrors*/) const override
   {
-    o2::itsmft::ioutils::SurfaceMeasurementDecodeResult result;
+    o2::itsmft::tracking::SurfaceMeasurementDecodeResult result;
     const auto clusterData = o2::itsmft::ioutils::extractClusterDataBounded(cluster, patterns, dict);
     if (!clusterData.ok()) {
       result.error = clusterData.error;

@@ -36,10 +36,8 @@
 #include "DataFormatsITSMFT/TopologyDictionary.h"
 #include "DetectorsCommonDataFormats/DetID.h"
 #include "ITSMFTTracking/Tracker.h"
-#include "ITSMFTTracking/ClusterDecoder.h"
 #include "ITSMFTTracking/ClusterSource.h"
 #include "ITSMFTTracking/Configuration.h"
-#include "ITSMFTTracking/DecodedCluster.h"
 #include "ITSMFTTracking/SurfaceGraphBuilder.h"
 #include "ITSMFTTracking/ITSSharedClusterCompatibility.h"
 #include "ITSMFTTracking/SurfaceTrackingScratch.h"
@@ -48,7 +46,8 @@
 #include "ITSMFTTracking/MultiSourceTimeFrameLoader.h"
 #include "ITSMFTTracking/NominalSurfaceMaterialDefaults.h"
 #include "ITSMFTTracking/SurfaceDescriptor.h"
-#include "ITSMFTTracking/SurfaceMeasurementAdapters.h"
+#include "ITSMFTTracking/ClusterDecoding.h"
+#include "ITSMFTTracking/IOUtils.h"
 #include "ITSMFTTracking/TimeFrame.h"
 #include "ITSMFTTracking/TimeFrameLoadFailure.h"
 #include "ITSMFTTracking/TrackerTraits.h"
@@ -101,7 +100,7 @@ class PrescribedDecoder final : public ClusterDecoder
   {
   }
 
-  o2::itsmft::ioutils::SurfaceMeasurementDecodeResult decode(
+  o2::itsmft::tracking::SurfaceMeasurementDecodeResult decode(
     const CompClusterExt& cluster,
     BoundedPatternCursor& patterns,
     const TopologyDictionary* dictionary,
@@ -113,12 +112,12 @@ class PrescribedDecoder final : public ClusterDecoder
   {
     const auto clusterData = o2::itsmft::ioutils::extractClusterDataBounded(cluster, patterns, dictionary);
     if (!clusterData.ok()) {
-      o2::itsmft::ioutils::SurfaceMeasurementDecodeResult result;
+      o2::itsmft::tracking::SurfaceMeasurementDecodeResult result;
       result.error = clusterData.error;
       return result;
     }
 
-    o2::itsmft::ioutils::SurfaceMeasurementDecodeResult result;
+    o2::itsmft::tracking::SurfaceMeasurementDecodeResult result;
     if (externalIndex >= mClusters.size()) {
       return result;
     }

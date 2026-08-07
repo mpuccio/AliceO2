@@ -14,8 +14,7 @@
 #include <limits>
 
 #include "DetectorsCommonDataFormats/DetID.h"
-#include "ITSMFTTracking/DecodedCluster.h"
-#include "ITSMFTTracking/SurfaceMeasurementAdapters.h"
+#include "ITSMFTTracking/ClusterDecoding.h"
 
 namespace
 {

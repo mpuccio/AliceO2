@@ -50,14 +50,13 @@
 #include "DataFormatsITSMFT/ROFRecord.h"
 #include "DataFormatsITSMFT/TopologyDictionary.h"
 #include "DetectorsCommonDataFormats/DetID.h"
-#include "ITSMFTTracking/ClusterDecoder.h"
-#include "ITSMFTTracking/DecodedCluster.h"
 #include "ITSMFTTracking/SurfaceGraphBuilder.h"
 #include "ITSMFTTracking/SurfaceTrackingScratch.h"
 #include "ITSMFTTracking/MultiSourceFrame.h"
 #include "ITSMFTTracking/MultiSourceLoading.h"
 #include "ITSMFTTracking/SurfaceDescriptor.h"
-#include "ITSMFTTracking/SurfaceMeasurementAdapters.h"
+#include "ITSMFTTracking/ClusterDecoding.h"
+#include "ITSMFTTracking/IOUtils.h"
 #include "ITSMFTTracking/TimeFrame.h"
 #include "ITSMFTTracking/TrackingConfigParam.h"
 #include "SimulationDataFormat/MCCompLabel.h"
@@ -80,7 +79,7 @@ class LegacyLikeDecoder final : public ClusterDecoder
  public:
   explicit LegacyLikeDecoder(o2::detectors::DetID::ID detector) : mDetector(detector) {}
 
-  o2::itsmft::ioutils::SurfaceMeasurementDecodeResult decode(
+  o2::itsmft::tracking::SurfaceMeasurementDecodeResult decode(
     const CompClusterExt& cluster,
     BoundedPatternCursor& patterns,
     const TopologyDictionary* dict,
@@ -92,12 +91,12 @@ class LegacyLikeDecoder final : public ClusterDecoder
   {
     const auto clusterData = o2::itsmft::ioutils::extractClusterDataBounded(cluster, patterns, dict);
     if (!clusterData.ok()) {
-      o2::itsmft::ioutils::SurfaceMeasurementDecodeResult result;
+      o2::itsmft::tracking::SurfaceMeasurementDecodeResult result;
       result.error = clusterData.error;
       return result;
     }
 
-    o2::itsmft::ioutils::SurfaceMeasurementDecodeResult result;
+    o2::itsmft::tracking::SurfaceMeasurementDecodeResult result;
     const int sensorID = cluster.getSensorID();
     const int layer = sensorID;
     result.layer = layer;

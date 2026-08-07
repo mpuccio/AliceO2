@@ -48,9 +48,8 @@
 #include "DataFormatsITSMFT/ROFRecord.h"
 #include "DataFormatsITSMFT/TopologyDictionary.h"
 #include "DetectorsCommonDataFormats/DetID.h"
-#include "ITSMFTTracking/ClusterDecoder.h"
 #include "ITSMFTTracking/Configuration.h"
-#include "ITSMFTTracking/DecodedCluster.h"
+#include "ITSMFTTracking/ClusterDecoding.h"
 #include "ITSMFTTracking/SurfaceGraphBuilder.h"
 #include "ITSMFTTracking/MultiSourceLoading.h"
 #include "ITSMFTTracking/SurfaceDescriptor.h"
@@ -88,7 +87,7 @@ class NeverDecodedDecoder final : public ClusterDecoder
  public:
   explicit NeverDecodedDecoder(o2::detectors::DetID::ID detector) : mDetector(detector) {}
 
-  o2::itsmft::ioutils::SurfaceMeasurementDecodeResult decode(
+  o2::itsmft::tracking::SurfaceMeasurementDecodeResult decode(
     const CompClusterExt&, BoundedPatternCursor&, const TopologyDictionary*,
     gsl::span<const SurfaceId>, ClusterSourceId, uint32_t, uint32_t, bool) const override
   {
@@ -118,7 +117,7 @@ class FixedMeasurementDecoder final : public ClusterDecoder
 
   void setMeasurement(int layer, const SurfaceMeasurement& measurement) { mByLayer[layer] = measurement; }
 
-  o2::itsmft::ioutils::SurfaceMeasurementDecodeResult decode(
+  o2::itsmft::tracking::SurfaceMeasurementDecodeResult decode(
     const CompClusterExt& cluster,
     BoundedPatternCursor&,
     const TopologyDictionary*,
@@ -128,7 +127,7 @@ class FixedMeasurementDecoder final : public ClusterDecoder
     uint32_t sourceROF,
     bool) const override
   {
-    o2::itsmft::ioutils::SurfaceMeasurementDecodeResult result;
+    o2::itsmft::tracking::SurfaceMeasurementDecodeResult result;
     const int layer = cluster.getSensorID();
     result.layer = layer;
     if (layer < 0 || static_cast<size_t>(layer) >= layerToSurface.size()) {

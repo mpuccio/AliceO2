@@ -52,15 +52,13 @@
 #include "Field/MagneticField.h"
 #include "Framework/ConcreteDataMatcher.h"
 #include "Framework/InputSpec.h"
-#include "ITSMFTTracking/ClusterDecoder.h"
 #include "ITSMFTTracking/ClusterSource.h"
 #include "ITSMFTTracking/Configuration.h"
-#include "ITSMFTTracking/DecodedCluster.h"
 #include "ITSMFTTracking/SurfaceGraphBuilder.h"
 #include "ITSMFTTracking/IOUtils.h"
 #include "ITSMFTTracking/MultiSourceTimeFrameLoader.h"
 #include "ITSMFTTracking/StaticDetectorCatalogs.h"
-#include "ITSMFTTracking/SurfaceMeasurementAdapters.h"
+#include "ITSMFTTracking/ClusterDecoding.h"
 #include "ITSMFTTracking/SurfaceTrackingScratch.h"
 #include "ITSMFTTracking/TimeFrame.h"
 #include "ITSMFTTracking/detail/SurfacePlanBinding.h"
@@ -93,7 +91,7 @@ BOOST_AUTO_TEST_CASE(UnadoptedScratchRejectsLoadInsteadOfMisbehaving)
   class RejectDecoder final : public ClusterDecoder
   {
    public:
-    o2::itsmft::ioutils::SurfaceMeasurementDecodeResult decode(
+    o2::itsmft::tracking::SurfaceMeasurementDecodeResult decode(
       const o2::itsmft::CompClusterExt&, BoundedPatternCursor&, const o2::itsmft::TopologyDictionary*,
       gsl::span<const SurfaceId>, ClusterSourceId, uint32_t, uint32_t, bool) const override
     {
@@ -156,7 +154,7 @@ std::vector<SurfaceId> orderedRange(uint16_t first, uint16_t count)
 class StubDecoder final : public ClusterDecoder
 {
  public:
-  o2::itsmft::ioutils::SurfaceMeasurementDecodeResult decode(
+  o2::itsmft::tracking::SurfaceMeasurementDecodeResult decode(
     const o2::itsmft::CompClusterExt&, BoundedPatternCursor&, const o2::itsmft::TopologyDictionary*,
     gsl::span<const SurfaceId>, ClusterSourceId, uint32_t, uint32_t, bool) const override
   {

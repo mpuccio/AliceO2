@@ -20,13 +20,12 @@
 #include "DataFormatsITSMFT/ROFRecord.h"
 #include "DataFormatsITSMFT/TopologyDictionary.h"
 #include "DetectorsCommonDataFormats/DetID.h"
-#include "ITSMFTTracking/ClusterDecoder.h"
 #include "ITSMFTTracking/ClusterSource.h"
-#include "ITSMFTTracking/DecodedCluster.h"
 #include "ITSMFTTracking/MultiSourceTimeFrameLoader.h"
 #include "ITSMFTTracking/StaticDetectorCatalogs.h"
 #include "ITSMFTTracking/SurfaceGraph.h"
-#include "ITSMFTTracking/SurfaceMeasurementAdapters.h"
+#include "ITSMFTTracking/ClusterDecoding.h"
+#include "ITSMFTTracking/IOUtils.h"
 #include "ITSMFTTracking/TimeFrame.h"
 #include "ITSMFTTracking/detail/SurfacePlanBinding.h"
 #include "SimulationDataFormat/MCCompLabel.h"
@@ -42,13 +41,13 @@ class FakeClusterDecoder final : public ClusterDecoder
  public:
   explicit FakeClusterDecoder(o2::detectors::DetID::ID detector) : mDetector(detector) {}
 
-  o2::itsmft::ioutils::SurfaceMeasurementDecodeResult decode(
+  o2::itsmft::tracking::SurfaceMeasurementDecodeResult decode(
     const CompClusterExt& cluster, BoundedPatternCursor& patterns, const TopologyDictionary* dictionary,
     gsl::span<const SurfaceId> layerToSurface, ClusterSourceId source, uint32_t externalIndex,
     uint32_t sourceROF, bool) const override
   {
     const auto decodedPattern = o2::itsmft::ioutils::extractClusterDataBounded(cluster, patterns, dictionary);
-    o2::itsmft::ioutils::SurfaceMeasurementDecodeResult result;
+    o2::itsmft::tracking::SurfaceMeasurementDecodeResult result;
     if (!decodedPattern.ok()) {
       result.error = decodedPattern.error;
       return result;
