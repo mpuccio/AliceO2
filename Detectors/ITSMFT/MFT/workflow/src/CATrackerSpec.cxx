@@ -40,7 +40,6 @@
 #include "ITSMFTTracking/SurfaceTiming.h"
 #include "ITSMFTTracking/StaticDetectorCatalogs.h"
 #include "ITSMFTTracking/TrackingConfigParam.h"
-#include "ITSMFTTracking/TimeFrameLoadFailure.h"
 #include "DetectorsBase/Propagator.h"
 #include <oneapi/tbb/task_arena.h>
 #include "CommonConstants/LHCConstants.h"

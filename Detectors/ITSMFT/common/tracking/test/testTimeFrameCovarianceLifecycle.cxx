@@ -31,6 +31,7 @@
 #include "DetectorsCommonDataFormats/DetID.h"
 #include "GPUCommonMath.h"
 #include "ITSMFTTracking/Configuration.h"
+#include "ITSMFTTracking/MultiSourceTimeFrameLoader.h"
 #include "ITSMFTTracking/SurfaceGraphBuilder.h"
 #include "ITSMFTTracking/SurfaceTrackingScratch.h"
 #include "ITSMFTTracking/NominalSurfaceMaterialDefaults.h"

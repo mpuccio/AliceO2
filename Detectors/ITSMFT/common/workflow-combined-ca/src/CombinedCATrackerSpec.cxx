@@ -22,7 +22,6 @@
 #include "Framework/Logger.h"
 #include "ITSBase/GeometryTGeo.h"
 #include "ITSMFTCombinedCAWorkflow/ConfigPreflight.h"
-#include "ITSMFTTracking/ClusterSource.h"
 #include "ITSMFTTracking/CommonTrackOutputAdapter.h"
 #include "ITSMFTTracking/DetectorTrackingOperationAdapterSupport.h"
 #include "ITSMFTTracking/SurfaceGraphBuilder.h"
@@ -30,7 +29,6 @@
 #include "ITSMFTTracking/SurfaceTiming.h"
 #include "ITSMFTTracking/StaticDetectorCatalogs.h"
 #include "ITSMFTTracking/detail/SurfacePlanBinding.h"
-#include "ITSMFTTracking/TimeFrameLoadFailure.h"
 #include "ITSMFTTracking/TrackingConfigParam.h"
 #include "MFTBase/GeometryTGeo.h"
 #include "MFTTracking/MFTTrackingParam.h"
@@ -397,7 +395,7 @@ TrackingOutcome CombinedCATrackerDPL::trackFrame(const ClusterSourceInput& itsSo
     loadResult = MultiSourceTimeFrameLoader::load(mFrame, gsl::span<const ClusterSourceInput>{sources}, catalogView(), origin);
   }
   if (!loadResult.ok()) {
-    // Reuse isRecoverableLoadError() (TimeFrameLoadFailure.h) rather than a
+    // Reuse isRecoverableLoadError() (MultiSourceTimeFrameLoader.h) rather than a
     // parallel taxonomy, then gate it by the *owning* detector's own
     // DropTFUponFailure -- the workflow-owned source mapping carries
     // the fixed ITS/MFT source-position contract. This is a *load*

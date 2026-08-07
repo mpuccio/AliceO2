@@ -49,7 +49,6 @@
 #include "ITSMFTTracking/Configuration.h"
 #include "ITSMFTTracking/IndexTableUtils.h"
 #include "ITSMFTTracking/MultiSourceFrame.h"
-#include "ITSMFTTracking/MultiSourceLoading.h"
 #include "ITSMFTTracking/SurfaceMeasurement.h"
 #include "ITSMFTTracking/TimeFrame.h"
 #include "ITSMFTTracking/ROFViews.h"
@@ -80,6 +79,7 @@ namespace o2::itsmft::tracking
 
 class MultiSourceTimeFrameLoader;
 class ClusterDecoder;
+struct LoadSourcesResult;
 
 /// Non-templated, detector-neutral CA working state. Detector-specific table
 /// builders and raw ROF ownership stay at the application boundary; this

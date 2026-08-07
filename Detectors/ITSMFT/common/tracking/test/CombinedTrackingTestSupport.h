@@ -16,7 +16,7 @@
 #include <utility>
 #include <vector>
 
-#include "ITSMFTTracking/ClusterSource.h"
+#include "ITSMFTTracking/MultiSourceTimeFrameLoader.h"
 #include "ITSMFTTracking/Configuration.h"
 #include "ITSMFTTracking/DetectorPublicationAdapter.h"
 #include "ITSMFTTracking/SurfaceGraphBuilder.h"

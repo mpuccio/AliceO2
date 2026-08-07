@@ -52,7 +52,7 @@
 #include "Field/MagneticField.h"
 #include "Framework/ConcreteDataMatcher.h"
 #include "Framework/InputSpec.h"
-#include "ITSMFTTracking/ClusterSource.h"
+#include "ITSMFTTracking/MultiSourceTimeFrameLoader.h"
 #include "ITSMFTTracking/Configuration.h"
 #include "ITSMFTTracking/SurfaceGraphBuilder.h"
 #include "ITSMFTTracking/IOUtils.h"

@@ -38,7 +38,6 @@
 #include "ITSMFTTracking/SurfaceTiming.h"
 #include "ITSMFTTracking/StaticDetectorCatalogs.h"
 #include "ITSMFTTracking/TrackingConfigParam.h"
-#include "ITSMFTTracking/TimeFrameLoadFailure.h"
 #include "ITStracking/BoundedAllocator.h"
 #include "CommonConstants/LHCConstants.h"
 #include "DetectorsBase/Propagator.h"

@@ -40,7 +40,7 @@
 #include "ITSMFTTracking/CommonTrackOutputAdapter.h"
 #include "ITSMFTTracking/DetectorPublicationAdapter.h"
 #include "ITSMFTTracking/Configuration.h"
-#include "ITSMFTTracking/ClusterSource.h"
+#include "ITSMFTTracking/MultiSourceTimeFrameLoader.h"
 #include "ITSMFTTracking/SurfaceGraph.h"
 #include "ITSMFTTracking/ITSSharedClusterCompatibility.h"
 #include "ITSMFTTracking/MFTPublicationCompatibility.h"
