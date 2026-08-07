@@ -8,6 +8,7 @@ Tests/guard commit: `ce7664691d`
 Package: `daily-20260717-0700-local1`
 Source: `/Users/mpuccio/alice/run3/O2-worktrees/m6e3-commontrack-output-retirement`
 Build: `/Users/mpuccio/alice/run3/O2-worktree-builds/m6e3-commontrack-output-retirement`
+Replay descendant: `f36a6e5b4c` (includes the subsequent L10 commits)
 
 ## Scope and result
 
@@ -26,10 +27,10 @@ backing storage, publication validity, typed sidecars, typed output conversion,
 and DPL lifecycle. No replacement facade or lifecycle-owner class was added.
 The combined workflow remains the reference for the same direct composition.
 
-The implementation is structurally validated by the full serial test suite,
-but the fresh replay gate is blocked by unavailable live CCDB authentication.
-This record therefore has the verdict **INSUFFICIENT EVIDENCE** for replay
-parity; it does not claim L9 output acceptance.
+The initial replay attempt was blocked by unavailable live CCDB authentication.
+A retry at the current descendant completed successfully and provides replay
+evidence for that descendant. Because the branch now includes L10 commits, the
+retry is not presented as an isolated L9-only replay.
 
 ## Provenance and user work
 
@@ -103,10 +104,11 @@ ctest --test-dir /Users/mpuccio/alice/run3/O2-worktree-builds/m6e3-commontrack-o
   -L itsmft --output-on-failure -j1
 ```
 
-Result: **97/97 passed, 0 failed, 0 `Not Run`**. This is the complete set of
-currently registered tests after deleting the interface-only registrations.
-The focused standalone-composition guard and existing failure, reset,
-source-isolation, publication, and combined-composition tests all passed.
+The L9 head result was **97/97 passed, 0 failed, 0 `Not Run`**. The current
+descendant replay/build result is **96/96 passed, 0 failed, 0 `Not Run`**; the
+one removed registration belongs to the subsequent L10 cleanup. The focused
+standalone-composition guard and existing failure, reset, source-isolation,
+publication, and combined-composition tests all passed.
 
 The final source checks are:
 
@@ -152,7 +154,7 @@ ITSCommonCATrackerParam.pvRes=0.05
 MFTCATrackerParam.nThreads=1
 ```
 
-All three current logs reached the DPL CCDB backend and then failed before
+The first-attempt logs reached the DPL CCDB backend and then failed before
 conditions were delivered to the tracker:
 
 ```text
@@ -160,11 +162,40 @@ TGrid::Connect returned nullptr. May be due to missing alien token
 internal-dpl-ccdb-backend: exit 128
 ```
 
-The tracker and writer processes exited cleanly, and output files were
-created, but no tracking-count/hash result is valid because the event did not
-reach the tracking stage. The exact logs and files are retained under the
-artifact directory above. This is an external environment blocker, not a
-classified L9 regression or a successful replay.
+Those first-attempt files are retained under
+`l9-retire-interface-20260807/`; they are not used as replay evidence.
+
+### Successful retry
+
+The successful retry artifacts are under:
+
+```text
+/Users/mpuccio/alice/run3/O2-validation-artifacts/itsmft/l9-retire-interface-20260807-rerun/
+```
+
+The retry used the exact standalone commands above with each `REPLAY_DIR`
+changed to the corresponding `l9-retire-interface-20260807-rerun/` directory,
+and the same two-reader combined pipeline and configuration values recorded
+above. It ran against current HEAD `f36a6e5b4c`.
+
+The retry verified:
+
+| Leg | Tracks | Content hash | Standalone/combined | L8-parent initialized content |
+| --- | ---: | --- | --- | --- |
+| ITS standalone | 212 | `46913a67a7e2fe7462e29df0db264fa8` | — | field match |
+| ITS combined | 212 | `46913a67a7e2fe7462e29df0db264fa8` | field match | field match |
+| MFT standalone | 68 | `8106b08571ca593c6b76ff72b761a680` | — | field match; 2992 projected floats, max abs/rel 0 |
+| MFT combined | 68 | `8106b08571ca593c6b76ff72b761a680` | field match | field match; 2992 projected floats, max abs/rel 0 |
+
+The standard metric extractors reported the same input counts and MC/fake/
+clone summaries for standalone and combined legs. The established
+field-level comparison returned zero for ITS standalone versus combined, MFT
+standalone versus combined, and each current leg versus the retained L8
+parent. ROOT file bytes are not used because ROOT metadata is run-specific;
+the known undefined `MFTTrack.mInvQPtSeed` byte artifact remains excluded.
+
+The retry checksum log reports **43/43 `OK`** after replay, matching the
+43/43 pre-replay result.
 
 For context only, the successful L8 parent artifacts recorded the accepted
 native values ITS `212` / `46913a67a7e2fe7462e29df0db264fa8` and MFT `68` /
