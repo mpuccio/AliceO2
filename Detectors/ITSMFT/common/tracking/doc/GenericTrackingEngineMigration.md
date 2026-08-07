@@ -441,9 +441,10 @@ ownership guards, and validation record are in [design note 0007](design/0007-m7
 `DetectorTraits<NLayers>`, `CATrackType<NLayers>`,
 `LayerMeasurementSpans<NLayers>`, `AcceptedTrackShadowPublisher`, and the
 typed MFT helper hook are deleted from generic-core ownership. One narrow
-`TrackingOperationAdapter` remains temporarily for generic seed refit and
-accepted-result sidecar completion; it carries no typed track, shared-cluster
-flag, or workflow state. ITS/MFT adapters consume the same
+`TrackingOperationAdapter` remained at this milestone for generic seed refit.
+The subsequent [fine-comb cleanup](validation/fine-comb-header-boundaries.md)
+replaced it with one typed function pointer and direct ITS/MFT refit functions;
+no adapter object or detector-ID refit dispatcher remains. ITS/MFT edges consume the same
 `TrackSeed`/`CommonTrack` result path, with ITS shared-status staging owned by
 the ITS publication adapter.
 
