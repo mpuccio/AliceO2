@@ -221,10 +221,9 @@ void scanForbiddenProductionVocabulary(const fs::path& root)
 
 void scanCoreBoundary(const fs::path& root)
 {
-  static constexpr std::array<std::string_view, 7> coreFiles{
+  static constexpr std::array<std::string_view, 6> coreFiles{
     "include/ITSMFTTracking/Tracker.h",
     "include/ITSMFTTracking/TrackerTraits.h",
-    "include/ITSMFTTracking/TrackingOperationAdapter.h",
     "include/ITSMFTTracking/detail/SurfacePlanBinding.h",
     "include/ITSMFTTracking/SurfaceGraph.h",
     "include/ITSMFTTracking/IndexTableConfiguration.h",

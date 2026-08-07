@@ -113,7 +113,7 @@ TrackerInitializationResult Tracker::initialize(TimeFrame& frame, const TrackerI
 
 TrackingResult Tracker::run(TimeFrame& frame, TrackerTraits& traits)
 {
-  if (mOperationAdapter == nullptr || !frame.isConfigured() ||
+  if (mRefitFunction == nullptr || !frame.isConfigured() ||
       frame.getNIterations() == 0 || frame.getBinding(0, mSource) == nullptr) {
     throw TraversalException{-1, TraversalFailureReason::MissingLayout};
   }
@@ -153,7 +153,7 @@ TrackingResult Tracker::run(TimeFrame& frame, TrackerTraits& traits)
         traits.computeLayerTracklets(iteration, iVertex);
         traits.computeLayerCells(iteration);
         traits.findCellsNeighbours(iteration);
-        traits.findRoads(iteration, *mOperationAdapter);
+        traits.findRoads(iteration, mRefitFunction);
       } while (++iVertex < maxNvertices);
       acceptedTrackCounts.push_back(traits.acceptedTracksForSharedStatus().size());
     }

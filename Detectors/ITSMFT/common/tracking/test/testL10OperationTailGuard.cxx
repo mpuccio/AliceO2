@@ -53,18 +53,21 @@ void checkNoTokenInTree(const fs::path& root, std::string_view token)
 BOOST_AUTO_TEST_CASE(operation_seam_contains_only_refit)
 {
   const auto root = trackingRoot();
-  const auto adapter = readFile(root / "include/ITSMFTTracking/TrackingOperationAdapter.h");
-  BOOST_REQUIRE(!adapter.empty());
-  BOOST_CHECK(adapter.find("refitSeed") != std::string::npos);
-  BOOST_CHECK(adapter.find("completeAccepted") == std::string::npos);
-  BOOST_CHECK(adapter.find("resetAdapterState") == std::string::npos);
+  const auto tracker = readFile(root / "include/ITSMFTTracking/Tracker.h");
+  const auto traits = readFile(root / "include/ITSMFTTracking/TrackerTraits.h");
+  BOOST_REQUIRE(!tracker.empty());
+  BOOST_REQUIRE(!traits.empty());
+  BOOST_CHECK(tracker.find("SeedRefitFunction") != std::string::npos);
+  BOOST_CHECK(tracker.find("TrackingOperationAdapter") == std::string::npos);
+  BOOST_CHECK(traits.find("SeedRefitFunction") != std::string::npos);
+  BOOST_CHECK(traits.find("TrackingOperationAdapter") == std::string::npos);
+  BOOST_CHECK(!fs::exists(root / "include/ITSMFTTracking/TrackingOperationAdapter.h"));
 
   for (const auto& relative : {"src/Tracker.cxx", "src/TrackerTraits.cxx", "include/ITSMFTTracking/Tracker.h",
                                "include/ITSMFTTracking/TrackerTraits.h"}) {
     const auto source = readFile(root / relative);
     BOOST_REQUIRE(!source.empty());
-    BOOST_CHECK(source.find("completeAccepted") == std::string::npos);
-    BOOST_CHECK(source.find("resetAdapterState") == std::string::npos);
+    BOOST_CHECK(source.find("TrackingOperationAdapter") == std::string::npos);
   }
 }
 

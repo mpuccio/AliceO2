@@ -10,9 +10,13 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <limits>
 #include <type_traits>
 
 #include "GPUCommonDef.h"
+#ifndef GPUCA_GPUCODE
+#include "ITSMFTTracking/Cell.h"
+#endif
 #include "ITSMFTTracking/SurfaceId.h"
 #include "ITSMFTTracking/SurfaceKinematicState.h"
 #include "ITSMFTTracking/SurfaceMask.h"
@@ -85,6 +89,25 @@ struct CommonTrack {
   uint32_t firstClusterRef{0};
   uint32_t clusterRefEnd{0};
 };
+
+#ifndef GPUCA_GPUCODE
+
+// Detector-neutral result of one successful seed refit. Typed output tracks
+// and publication sidecars remain outside the common tracker.
+struct TrackingCandidate {
+  TrackSeed seed;
+  CommonTrack track{};
+  float phi{0.f};
+  float eta{0.f};
+  double charge{0.};
+  uint32_t commonTrackIndex{std::numeric_limits<uint32_t>::max()};
+
+  int getNumberOfClusters() const noexcept { return seed.getActiveSurfaceCount(); }
+  int getClusterIndex(int position) const noexcept { return seed.getCluster(position); }
+  int getFirstClusterLayer() const noexcept { return seed.getSurfaceMask().first(); }
+};
+
+#endif
 
 // Both properties are required for a portable device-facing value: bytes are
 // copyable and member order is stable for host/device compilation.

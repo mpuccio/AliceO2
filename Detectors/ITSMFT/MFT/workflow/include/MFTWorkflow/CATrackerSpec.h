@@ -30,7 +30,6 @@
 #include "ITSMFTTracking/TimeFrame.h"
 #include "ITSMFTTracking/Tracker.h"
 #include "ITSMFTTracking/TrackerTraits.h"
-#include "ITSMFTTracking/TrackingOperationAdapter.h"
 #include "ITSMFTTracking/ROFViews.h"
 #include "ITStracking/ROFLookupTables.h"
 #include "DataFormatsITSMFT/TopologyDictionary.h"
@@ -95,7 +94,6 @@ class CATrackerDPL : public o2::framework::Task
   o2::itsmft::tracking::TimeFrame mFrame;
   std::unique_ptr<o2::itsmft::tracking::TrackerTraits> mTrackerTraits;
   std::unique_ptr<o2::itsmft::tracking::Tracker> mTracker;
-  std::unique_ptr<o2::itsmft::tracking::TrackingOperationAdapter> mOperationAdapter;
   std::unique_ptr<o2::itsmft::tracking::ClusterDecoder> mClusterDecoder;
   const o2::itsmft::TopologyDictionary* mDictionary = nullptr;
   o2::itsmft::tracking::DetectorPublicationAdapter<o2::itsmft::tracking::MFTNLayers> mPublicationAdapter;

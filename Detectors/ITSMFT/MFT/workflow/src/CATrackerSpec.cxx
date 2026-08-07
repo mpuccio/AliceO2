@@ -58,18 +58,6 @@ namespace
 {
 using namespace o2::itsmft::tracking;
 
-template <o2::detectors::DetID::ID DetId>
-class StandaloneTrackingOperationAdapter final : public TrackingOperationAdapter
-{
- public:
-  bool refitSeed(const TrackSeed& seed, const o2::itsmft::TrackingParameters& params, float bz, SurfaceTrackingScratch& scratch,
-                 gsl::span<const gsl::span<const SurfaceMeasurement>> measurements, SurfaceCatalogView catalog,
-                 ClusterSourceId source, TrackingCandidate& candidate) override
-  {
-    return detail::refitDetectorSeed<DetId>(seed, params, bz, scratch, measurements, catalog, source, candidate);
-  }
-};
-
 template <int NLayers>
 constexpr std::array<SurfaceId, NLayers> identitySurfaceOrder()
 {
@@ -121,7 +109,6 @@ CATrackerDPL::CATrackerDPL(std::shared_ptr<o2::base::GRPGeomRequest> gr, bool us
                            o2::itsmft::TrackingMode::Type trMode)
   : mGGCCDBRequest(std::move(gr)), mUseMC(useMC), mTrackingMode(trMode)
 {
-  mOperationAdapter = std::make_unique<StandaloneTrackingOperationAdapter<o2::detectors::DetID::MFT>>();
   mClusterDecoder = std::make_unique<o2::itsmft::tracking::MFTGeometryClusterDecoder>();
   mPublicationAdapter.adoptMFTPublicationCompatibility(&mCompatibility);
 }
@@ -255,7 +242,8 @@ void CATrackerDPL::initialiseTracking()
     configuration.iterations.push_back(std::move(iteration));
   }
 
-  mTracker = std::make_unique<o2::itsmft::tracking::Tracker>(mOperationAdapter.get(), o2::itsmft::tracking::ClusterSourceId{0});
+  mTracker = std::make_unique<o2::itsmft::tracking::Tracker>(
+    &o2::itsmft::tracking::detail::refitDetectorSeed<o2::detectors::DetID::MFT>, o2::itsmft::tracking::ClusterSourceId{0});
   const auto result = mTracker->initialize(mFrame, configuration);
   if (!result.ok()) {
     LOGP(fatal, "MFT CA tracker failed to initialize static configuration (error={} iteration={} graph={} binding={})",

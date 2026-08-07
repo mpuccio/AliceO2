@@ -26,12 +26,12 @@
 #include <oneapi/tbb.h>
 
 #include "ITSMFTTracking/Configuration.h"
+#include "ITSMFTTracking/CommonTrack.h"
 #include "ITSMFTTracking/SurfaceGraph.h"
 #include "ITSMFTTracking/detail/SurfaceTrackingScratch.h"
 #include "ITSMFTTracking/SurfaceDescriptor.h"
 #include "ITSMFTTracking/SurfaceMeasurement.h"
 #include "ITSMFTTracking/TimeFrame.h"
-#include "ITSMFTTracking/TrackingOperationAdapter.h"
 #include "ITSMFTTracking/detail/SurfacePlanBinding.h"
 #include "ITSMFTTracking/detail/CellFinding.h"
 #include "ITSMFTTracking/detail/TrackingKernelParameters.h"
@@ -39,6 +39,22 @@
 
 namespace o2::itsmft::tracking
 {
+
+#ifndef GPUCA_GPUCODE
+
+// Call-scoped native refit function supplied by the detector/workflow edge.
+// The generic road stage invokes this function only; publication and reset
+// remain outside the tracking transaction.
+using SeedRefitFunction = bool (*)(const TrackSeed& seed,
+                                   const TrackingParameters& params,
+                                   float bz,
+                                   SurfaceTrackingScratch& scratch,
+                                   gsl::span<const gsl::span<const SurfaceMeasurement>> layerMeasurements,
+                                   SurfaceCatalogView surfaceCatalog,
+                                   ClusterSourceId expectedSource,
+                                   TrackingCandidate& candidate);
+
+#endif
 
 // Full definition lives in TrackletFinding.h (included by
 // TrackerTraits.cxx, where the operation itself is called). Only used here
@@ -104,7 +120,7 @@ class TraversalException final : public std::runtime_error
 };
 
 // The traits borrow the TimeFrame-owned workspace, plan binding, parameters,
-// and operation adapter for each call. All plan-sized bounds come from the
+// and refit function for each call. All plan-sized bounds come from the
 // adopted runtime plan and scratch.
 class TrackerTraits
 {
@@ -123,7 +139,7 @@ class TrackerTraits
   virtual void computeLayerTracklets(const int iteration, int iVertex);
   virtual void computeLayerCells(const int iteration);
   virtual void findCellsNeighbours(const int iteration);
-  virtual void findRoads(const int iteration, TrackingOperationAdapter& operationAdapter);
+  virtual void findRoads(const int iteration, SeedRefitFunction refitFunction);
 
   void acceptTracks(int iteration,
                     bounded_vector<TrackingCandidate>& tracks,
@@ -220,7 +236,7 @@ class TrackerTraits
     using ComputeTrackletsFn = void (TrackerTraits::*)(int iteration, int iVertex);
     using ComputeCellsFn = void (TrackerTraits::*)(int iteration);
     using FindNeighboursFn = void (TrackerTraits::*)(int iteration);
-    using FindRoadsFn = void (TrackerTraits::*)(int iteration, TrackingOperationAdapter& operationAdapter);
+    using FindRoadsFn = void (TrackerTraits::*)(int iteration, SeedRefitFunction refitFunction);
 
     ComputeTrackletsFn computeTracklets = nullptr;
     ComputeCellsFn computeCells = nullptr;
@@ -246,8 +262,8 @@ class TrackerTraits
   void computeLayerCellsDisk(int iteration);
   void findCellsNeighboursCylinder(int iteration);
   void findCellsNeighboursDisk(int iteration);
-  void findRoadsCylinder(int iteration, TrackingOperationAdapter& operationAdapter);
-  void findRoadsDisk(int iteration, TrackingOperationAdapter& operationAdapter);
+  void findRoadsCylinder(int iteration, SeedRefitFunction refitFunction);
+  void findRoadsDisk(int iteration, SeedRefitFunction refitFunction);
 
   template <SurfaceKind Kind>
   void computeLayerTrackletsForKind(int iteration,
@@ -268,7 +284,7 @@ class TrackerTraits
   template <SurfaceKind Kind>
   void findRoadsForKind(int iteration,
                         const TrackingKernelParameters& params,
-                        TrackingOperationAdapter& operationAdapter);
+                        SeedRefitFunction refitFunction);
 
   // Neighbour processing helper; it does not encode a detector layer count.
   template <SurfaceKind Kind, typename InputSeed>

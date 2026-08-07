@@ -35,7 +35,7 @@ namespace o2::itsmft::tracking::test
 {
 
 // Test-only application-plan fixture. It composes the production Tracker,
-// TrackerTraits, operation adapters, plans, and bindings directly.
+// TrackerTraits, refit functions, plans, and bindings directly.
 inline SurfaceCatalogView combinedCatalogView()
 {
   return {kITSMFTCombinedStaticSurfaceCatalog.data(), static_cast<uint32_t>(kITSMFTCombinedStaticSurfaceCatalog.size())};
@@ -93,18 +93,6 @@ inline TrackerInitialization makeCombinedConfiguration(const TrackingParameters&
   return configuration;
 }
 
-template <o2::detectors::DetID::ID DetId>
-class TestTrackingOperationAdapter final : public TrackingOperationAdapter
-{
- public:
-  bool refitSeed(const TrackSeed& seed, const TrackingParameters& params, float bz, SurfaceTrackingScratch& scratch,
-                 gsl::span<const gsl::span<const SurfaceMeasurement>> measurements, SurfaceCatalogView catalog,
-                 ClusterSourceId source, TrackingCandidate& candidate) override
-  {
-    return detail::refitDetectorSeed<DetId>(seed, params, bz, scratch, measurements, catalog, source, candidate);
-  }
-};
-
 class CombinedTrackingPlan
 {
  public:
@@ -117,10 +105,8 @@ class CombinedTrackingPlan
     mConfiguration = makeCombinedConfiguration(itsParams[0], mftParams[0]);
     mITSPublicationAdapter.adoptITSSharedClusterCompatibility(&mITSCompatibility);
     mMFTPublicationAdapter.adoptMFTPublicationCompatibility(&mMFTCompatibility);
-    mITSOperationAdapter = std::make_unique<TestTrackingOperationAdapter<o2::detectors::DetID::ITS>>();
-    mMFTOperationAdapter = std::make_unique<TestTrackingOperationAdapter<o2::detectors::DetID::MFT>>();
-    mITSTracker = std::make_unique<Tracker>(mITSOperationAdapter.get(), ClusterSourceId{0});
-    mMFTTracker = std::make_unique<Tracker>(mMFTOperationAdapter.get(), ClusterSourceId{1});
+    mITSTracker = std::make_unique<Tracker>(&detail::refitDetectorSeed<o2::detectors::DetID::ITS>, ClusterSourceId{0});
+    mMFTTracker = std::make_unique<Tracker>(&detail::refitDetectorSeed<o2::detectors::DetID::MFT>, ClusterSourceId{1});
     mITSTraits = std::make_unique<TrackerTraits>();
     mMFTTraits = std::make_unique<TrackerTraits>();
   }
@@ -277,8 +263,6 @@ class CombinedTrackingPlan
   std::unique_ptr<Tracker> mMFTTracker;
   std::unique_ptr<TrackerTraits> mITSTraits;
   std::unique_ptr<TrackerTraits> mMFTTraits;
-  std::unique_ptr<TrackingOperationAdapter> mITSOperationAdapter;
-  std::unique_ptr<TrackingOperationAdapter> mMFTOperationAdapter;
   DetectorPublicationAdapter<ITSNLayers> mITSPublicationAdapter;
   DetectorPublicationAdapter<MFTNLayers> mMFTPublicationAdapter;
   ITSSharedClusterCompatibility mITSCompatibility;

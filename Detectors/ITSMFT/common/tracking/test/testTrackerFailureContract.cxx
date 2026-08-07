@@ -315,17 +315,13 @@ class InjectingTrackerTraits final : public TrackerTraits
 };
 
 // The core's typed refit/publication work is deliberately not part of this
-// failure-contract fixture. This narrow test adapter supplies only refit.
-class TestTrackingOperationAdapter final : public TrackingOperationAdapter
+// failure-contract fixture. This narrow test function supplies only refit.
+bool testSeedRefit(const TrackSeed&, const TrackingParameters&, float, SurfaceTrackingScratch&,
+                   gsl::span<const gsl::span<const SurfaceMeasurement>>, SurfaceCatalogView,
+                   ClusterSourceId, TrackingCandidate&)
 {
- public:
-  bool refitSeed(const TrackSeed&, const TrackingParameters&, float, SurfaceTrackingScratch&,
-                 gsl::span<const gsl::span<const SurfaceMeasurement>>, SurfaceCatalogView,
-                 ClusterSourceId, TrackingCandidate&) override
-  {
-    return false;
-  }
-};
+  return false;
+}
 
 // Bundles a TimeFrame (non-templated), a TraitsT/Tracker pair, and a bounded
 // memory pool
@@ -345,7 +341,7 @@ struct RigT {
   {
     traits.setMemoryPool(pool);
     traits.setNThreads(1, arena);
-    tracker.setOperationAdapter(&operationAdapter);
+    tracker.setSeedRefitFunction(testSeedRefit);
     frame.setBz(0.5f);
   }
 
@@ -378,7 +374,6 @@ struct RigT {
   TraitsT traits;
   Tracker tracker;
   ITSSharedClusterCompatibility sidecar;
-  TestTrackingOperationAdapter operationAdapter;
   // Scratch carries non-owning runtime ROF views. Keep these adapter-edge
   // builders alive across load, initialise, and failure/replacement calls.
   std::optional<o2::its::ROFOverlapTable<ITSNLayers>> rofTable;

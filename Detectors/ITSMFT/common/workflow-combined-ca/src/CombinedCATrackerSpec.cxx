@@ -49,23 +49,6 @@ using o2::itsmft::tracking::LoadSourcesResult;
 using o2::itsmft::tracking::MultiSourceTimeFrameLoader;
 using o2::itsmft::tracking::TrackingOutcome;
 
-template <o2::detectors::DetID::ID DetId>
-class WorkflowTrackingOperationAdapter final : public o2::itsmft::tracking::TrackingOperationAdapter
-{
- public:
-  bool refitSeed(const o2::itsmft::tracking::TrackSeed& seed,
-                 const o2::itsmft::TrackingParameters& params,
-                 float bz,
-                 o2::itsmft::tracking::SurfaceTrackingScratch& scratch,
-                 gsl::span<const gsl::span<const o2::itsmft::tracking::SurfaceMeasurement>> measurements,
-                 o2::itsmft::tracking::SurfaceCatalogView catalog,
-                 o2::itsmft::tracking::ClusterSourceId source,
-                 o2::itsmft::tracking::TrackingCandidate& candidate) override
-  {
-    return o2::itsmft::tracking::detail::refitDetectorSeed<DetId>(seed, params, bz, scratch, measurements, catalog, source, candidate);
-  }
-};
-
 template <int NLayers>
 bool completePublication(o2::itsmft::tracking::DetectorPublicationAdapter<NLayers>& publication,
                          o2::itsmft::tracking::TrackerTraits& traits,
@@ -207,12 +190,12 @@ void CombinedCATrackerDPL::buildParticipantsOnce()
   const auto itsSurfaces = orderedSurfaceRange(0, o2::itsmft::tracking::ITSNLayers);
   const auto mftSurfaces = orderedSurfaceRange(o2::itsmft::tracking::ITSNLayers, o2::itsmft::tracking::MFTNLayers);
 
-  mITSOperationAdapter = std::make_unique<WorkflowTrackingOperationAdapter<o2::detectors::DetID::ITS>>();
-  mMFTOperationAdapter = std::make_unique<WorkflowTrackingOperationAdapter<o2::detectors::DetID::MFT>>();
   mITSTraits = std::make_unique<o2::itsmft::tracking::TrackerTraits>();
   mMFTTraits = std::make_unique<o2::itsmft::tracking::TrackerTraits>();
-  mITSTracker = std::make_unique<o2::itsmft::tracking::Tracker>(mITSOperationAdapter.get(), ClusterSourceId{0});
-  mMFTTracker = std::make_unique<o2::itsmft::tracking::Tracker>(mMFTOperationAdapter.get(), ClusterSourceId{1});
+  mITSTracker = std::make_unique<o2::itsmft::tracking::Tracker>(
+    &o2::itsmft::tracking::detail::refitDetectorSeed<o2::detectors::DetID::ITS>, ClusterSourceId{0});
+  mMFTTracker = std::make_unique<o2::itsmft::tracking::Tracker>(
+    &o2::itsmft::tracking::detail::refitDetectorSeed<o2::detectors::DetID::MFT>, ClusterSourceId{1});
 
   o2::itsmft::tracking::TrackerInitialization configuration;
   configuration.catalog = combinedCatalogView();

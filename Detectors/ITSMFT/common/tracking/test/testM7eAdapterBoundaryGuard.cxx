@@ -50,10 +50,9 @@ bool containsIdentifier(std::string_view source, std::string_view identifier)
 BOOST_AUTO_TEST_CASE(core_headers_and_sources_have_no_typed_output_dependency)
 {
   const auto root = trackingRoot();
-  static constexpr std::array<std::string_view, 5> coreFiles{
+  static constexpr std::array<std::string_view, 4> coreFiles{
     "include/ITSMFTTracking/Tracker.h",
     "include/ITSMFTTracking/TrackerTraits.h",
-    "include/ITSMFTTracking/TrackingOperationAdapter.h",
     "src/Tracker.cxx",
     "src/TrackerTraits.cxx",
   };
@@ -136,6 +135,7 @@ BOOST_AUTO_TEST_CASE(adapter_files_are_the_only_typed_compatibility_seam)
   const auto refit = readFile(root / "include/ITSMFTTracking/detail/MFTFwdTrackHelpers.h");
   const auto support = readFile(root / "include/ITSMFTTracking/detail/DetectorTrackingOperationAdapterSupport.h");
   const auto publication = readFile(root / "include/ITSMFTTracking/detail/DetectorPublicationAdapter.h");
+  BOOST_CHECK(!fs::exists(root / "include/ITSMFTTracking/TrackingOperationAdapter.h"));
   BOOST_CHECK(!containsIdentifier(refit,
                                   "MFT"
                                   "CATrack"));

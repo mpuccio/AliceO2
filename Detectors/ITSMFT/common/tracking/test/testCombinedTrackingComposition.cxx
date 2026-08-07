@@ -312,8 +312,7 @@ struct StandaloneRun {
   TimeFrame frame;
   std::vector<TrackingParameters> params;
   std::shared_ptr<BoundedMemoryResource> pool = std::make_shared<BoundedMemoryResource>();
-  test::TestTrackingOperationAdapter<DetId> operationAdapter;
-  Tracker tracker{&operationAdapter, ClusterSourceId{0}};
+  Tracker tracker{&detail::refitDetectorSeed<DetId>, ClusterSourceId{0}};
   TrackerTraits traits;
   std::shared_ptr<tbb::task_arena> arena;
   SurfaceTrackingScratch* scratch = nullptr;

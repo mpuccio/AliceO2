@@ -87,21 +87,17 @@ std::filesystem::path trackingRoot()
   return std::filesystem::path{__FILE__}.parent_path().parent_path();
 }
 
-class NoopTrackingOperationAdapter final : public TrackingOperationAdapter
+bool noopSeedRefit(const TrackSeed&,
+                   const o2::itsmft::TrackingParameters&,
+                   float,
+                   SurfaceTrackingScratch&,
+                   gsl::span<const gsl::span<const SurfaceMeasurement>>,
+                   SurfaceCatalogView,
+                   ClusterSourceId,
+                   TrackingCandidate&)
 {
- public:
-  bool refitSeed(const TrackSeed&,
-                 const o2::itsmft::TrackingParameters&,
-                 float,
-                 SurfaceTrackingScratch&,
-                 gsl::span<const gsl::span<const SurfaceMeasurement>>,
-                 SurfaceCatalogView,
-                 ClusterSourceId,
-                 TrackingCandidate&) override
-  {
-    return false;
-  }
-};
+  return false;
+}
 
 BOOST_AUTO_TEST_CASE(CommonProductionHasOneNonTemplatedTrackerCore)
 {
@@ -191,7 +187,6 @@ BOOST_AUTO_TEST_CASE(NonSevenOrTenPlanExecutesTheNonTemplatedCore)
     rofOffsets.resize(1, 0);
   }
   TrackerTraits traits;
-  NoopTrackingOperationAdapter operationAdapter;
   traits.setMemoryPool(pool);
   traits.adoptScratch(&scratch);
   traits.adoptFrame(&frame);
@@ -226,7 +221,7 @@ BOOST_AUTO_TEST_CASE(NonSevenOrTenPlanExecutesTheNonTemplatedCore)
   BOOST_CHECK_EQUAL(seed.getCluster(0), 100);
   BOOST_CHECK_EQUAL(seed.getCluster(3), 103);
   BOOST_CHECK_NO_THROW(traits.findCellsNeighbours(0));
-  BOOST_CHECK_NO_THROW(traits.findRoads(0, operationAdapter));
+  BOOST_CHECK_NO_THROW(traits.findRoads(0, noopSeedRefit));
 }
 
 } // namespace

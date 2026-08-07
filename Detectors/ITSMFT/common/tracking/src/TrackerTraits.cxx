@@ -233,14 +233,14 @@ void TrackerTraits::findCellsNeighboursDisk(int iteration)
   findCellsNeighboursForKind<SurfaceKind::Disk>(iteration, mTraversalOperation.boundScheduledCellIds, mKernelParameters);
 }
 
-void TrackerTraits::findRoadsCylinder(int iteration, TrackingOperationAdapter& operationAdapter)
+void TrackerTraits::findRoadsCylinder(int iteration, SeedRefitFunction refitFunction)
 {
-  findRoadsForKind<SurfaceKind::Cylinder>(iteration, mKernelParameters, operationAdapter);
+  findRoadsForKind<SurfaceKind::Cylinder>(iteration, mKernelParameters, refitFunction);
 }
 
-void TrackerTraits::findRoadsDisk(int iteration, TrackingOperationAdapter& operationAdapter)
+void TrackerTraits::findRoadsDisk(int iteration, SeedRefitFunction refitFunction)
 {
-  findRoadsForKind<SurfaceKind::Disk>(iteration, mKernelParameters, operationAdapter);
+  findRoadsForKind<SurfaceKind::Disk>(iteration, mKernelParameters, refitFunction);
 }
 
 // Selects operation targets from the validated endpoint SurfaceKind. The
@@ -1564,7 +1564,7 @@ void TrackerTraits::processNeighbours(int iteration, int defaultCellTopologyId, 
   });
 }
 
-void TrackerTraits::findRoads(const int iteration, TrackingOperationAdapter& operationAdapter)
+void TrackerTraits::findRoads(const int iteration, SeedRefitFunction refitFunction)
 {
   if (!mTraversalCacheValid) {
     throw TraversalException{iteration, TraversalFailureReason::InvalidTraversalSchedule};
@@ -1583,18 +1583,18 @@ void TrackerTraits::findRoads(const int iteration, TrackingOperationAdapter& ope
   if (!mTraversalOperation.bound) {
     throw TraversalException{iteration, TraversalFailureReason::InvalidTraversalSchedule};
   }
-  (this->*mTraversalOperation.findRoads)(iteration, operationAdapter);
+  (this->*mTraversalOperation.findRoads)(iteration, refitFunction);
 }
 
 template <SurfaceKind Kind>
 void TrackerTraits::findRoadsForKind(const int iteration,
                                      const TrackingKernelParameters& params,
-                                     TrackingOperationAdapter& operationAdapter)
+                                     SeedRefitFunction refitFunction)
 {
   const int activeSurfaceCount = static_cast<int>(mScratch->getNOwnedSurfaces());
   bounded_vector<bounded_vector<int>> firstClusters(activeSurfaceCount, bounded_vector<int>(mMemoryPool.get()), mMemoryPool.get());
   firstClusters.resize(activeSurfaceCount);
-  // The adapter's native refit operation reads normalized measurements and
+  // The supplied native refit function reads normalized measurements and
   // the surface catalog. The expected source is the binding's source.
   const ClusterSourceId expectedSource = mBinding->getSource();
   // Road starts are the binding's deterministic sparse-plan subsequence whose
@@ -1667,14 +1667,14 @@ void TrackerTraits::findRoadsForKind(const int iteration,
       auto forSeed = [&](auto Mode, int iSeed, int offset = 0) {
         TrackingCandidate temporaryTrack;
         temporaryTrack.seed = trackSeeds[iSeed];
-        const bool refitSuccess = operationAdapter.refitSeed(trackSeeds[iSeed],
-                                                             mTrkParams[iteration],
-                                                             mBz,
-                                                             *mScratch,
-                                                             mLayerMeasurements,
-                                                             mTraversalGraph.getSurfaceCatalogView(),
-                                                             expectedSource,
-                                                             temporaryTrack);
+        const bool refitSuccess = refitFunction(trackSeeds[iSeed],
+                                                mTrkParams[iteration],
+                                                mBz,
+                                                *mScratch,
+                                                mLayerMeasurements,
+                                                mTraversalGraph.getSurfaceCatalogView(),
+                                                expectedSource,
+                                                temporaryTrack);
         if (refitSuccess) {
           if constexpr (decltype(Mode)::value == PassMode::OnePass::value) {
             tracks.push_back(temporaryTrack);

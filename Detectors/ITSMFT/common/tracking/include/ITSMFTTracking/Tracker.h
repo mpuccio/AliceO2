@@ -93,16 +93,15 @@ struct TrackerInitializationResult {
 class Tracker
 {
  public:
-  explicit Tracker(TrackingOperationAdapter* operationAdapter = nullptr, ClusterSourceId source = {})
-    : mOperationAdapter(operationAdapter), mSource(source)
+  explicit Tracker(SeedRefitFunction refitFunction = nullptr, ClusterSourceId source = {})
+    : mRefitFunction(refitFunction), mSource(source)
   {
   }
 
   TrackerInitializationResult initialize(TimeFrame& frame, const TrackerInitialization& configuration);
 
-  // The caller owns the adapter and keeps it alive for every run. Tracker
-  // stores no frame, configuration, workspace, graph, or event state.
-  void setOperationAdapter(TrackingOperationAdapter* operationAdapter) noexcept { mOperationAdapter = operationAdapter; }
+  // Tracker stores no frame, configuration, workspace, graph, or event state.
+  void setSeedRefitFunction(SeedRefitFunction refitFunction) noexcept { mRefitFunction = refitFunction; }
   void setSource(ClusterSourceId source) noexcept { mSource = source; }
 
   /// Run all configured iterations. Returns {Success, elapsed ms} on
@@ -116,7 +115,7 @@ class Tracker
   TrackingResult run(TimeFrame& frame, TrackerTraits& traits);
 
  private:
-  TrackingOperationAdapter* mOperationAdapter = nullptr;
+  SeedRefitFunction mRefitFunction = nullptr;
   ClusterSourceId mSource{};
 };
 } // namespace o2::itsmft::tracking

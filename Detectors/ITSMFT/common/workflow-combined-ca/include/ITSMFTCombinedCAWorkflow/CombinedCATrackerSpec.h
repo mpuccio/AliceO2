@@ -39,7 +39,6 @@
 #include "ITSMFTTracking/Tracker.h"
 #include "ITSMFTTracking/TrackerTraits.h"
 #include "ITSMFTTracking/TimeFrame.h"
-#include "ITSMFTTracking/TrackingOperationAdapter.h"
 #include "ITStracking/ROFLookupTables.h"
 
 namespace o2::itsmft::combined
@@ -123,8 +122,6 @@ class CombinedCATrackerDPL : public o2::framework::Task
   std::unique_ptr<o2::itsmft::tracking::Tracker> mMFTTracker;
   std::unique_ptr<o2::itsmft::tracking::TrackerTraits> mITSTraits;
   std::unique_ptr<o2::itsmft::tracking::TrackerTraits> mMFTTraits;
-  std::unique_ptr<o2::itsmft::tracking::TrackingOperationAdapter> mITSOperationAdapter;
-  std::unique_ptr<o2::itsmft::tracking::TrackingOperationAdapter> mMFTOperationAdapter;
   o2::itsmft::tracking::DetectorPublicationAdapter<o2::itsmft::tracking::ITSNLayers> mITSPublicationAdapter;
   o2::itsmft::tracking::DetectorPublicationAdapter<o2::itsmft::tracking::MFTNLayers> mMFTPublicationAdapter;
   o2::itsmft::tracking::ITSSharedClusterCompatibility mITSCompatibility;

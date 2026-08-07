@@ -114,7 +114,7 @@ std::size_t directHeaderCount(const fs::path& directory)
 BOOST_AUTO_TEST_CASE(FinalHeaderInventoryIsExact)
 {
   const auto include = trackingRoot() / "include/ITSMFTTracking";
-  BOOST_CHECK_EQUAL(directHeaderCount(include), 36U);
+  BOOST_CHECK_EQUAL(directHeaderCount(include), 35U);
   BOOST_CHECK_EQUAL(directHeaderCount(include / "detail"), 12U);
 }
 
@@ -147,6 +147,7 @@ BOOST_AUTO_TEST_CASE(RetiredAndRelocatedPublicPathsAreAbsent)
     "MFTPublicationCompatibility.h",
     "MFTFwdTrackHelpers.h",
     "SurfaceKinematicStateLegacyAdapters.h",
+    "TrackingOperationAdapter.h",
   };
   for (const auto header : retiredPublic) {
     BOOST_CHECK_MESSAGE(!fs::exists(include / header), "retired public path remains: " << header);

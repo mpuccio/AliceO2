@@ -64,23 +64,17 @@ BOOST_GLOBAL_FIXTURE(TraversalPropagatorFieldFixture);
 namespace
 {
 
-class NoopTrackingOperationAdapter final : public TrackingOperationAdapter
+bool noopSeedRefit(const TrackSeed&,
+                   const TrackingParameters&,
+                   float,
+                   SurfaceTrackingScratch&,
+                   gsl::span<const gsl::span<const SurfaceMeasurement>>,
+                   SurfaceCatalogView,
+                   ClusterSourceId,
+                   TrackingCandidate&)
 {
- public:
-  bool refitSeed(const TrackSeed&,
-                 const TrackingParameters&,
-                 float,
-                 SurfaceTrackingScratch&,
-                 gsl::span<const gsl::span<const SurfaceMeasurement>>,
-                 SurfaceCatalogView,
-                 ClusterSourceId,
-                 TrackingCandidate&) override
-  {
-    return false;
-  }
-};
-
-NoopTrackingOperationAdapter gNoopOperationAdapter;
+  return false;
+}
 
 /// SurfaceGraph no longer owns a surface copy (Slice 3, shared ownership):
 /// test fixtures that build one in isolation keep the surfaces alongside it.
@@ -405,8 +399,8 @@ BOOST_AUTO_TEST_CASE(traversal_cache_groups_once_across_repeated_neighbour_and_r
 
   traits.findCellsNeighbours(0);
   traits.findCellsNeighbours(0);
-  traits.findRoads(0, gNoopOperationAdapter);
-  traits.findRoads(0, gNoopOperationAdapter);
+  traits.findRoads(0, noopSeedRefit);
+  traits.findRoads(0, noopSeedRefit);
   BOOST_CHECK_EQUAL(traits.getTraversalGroupingCount(), 1);
 
   std::vector<TrackingParameters> itsParams{parameters(7, 0, 0, 0x7f)};
@@ -418,8 +412,8 @@ BOOST_AUTO_TEST_CASE(traversal_cache_groups_once_across_repeated_neighbour_and_r
   itsTraits.setNThreads(1, arena);
   adoptPlanBinding(itsBuilt, itsTraits, 0);
   itsTraits.initialiseTimeFrame(0, itsBuilt.plan);
-  itsTraits.findRoads(0, gNoopOperationAdapter);
-  itsTraits.findRoads(0, gNoopOperationAdapter);
+  itsTraits.findRoads(0, noopSeedRefit);
+  itsTraits.findRoads(0, noopSeedRefit);
   BOOST_CHECK_EQUAL(itsTraits.getTraversalGroupingCount(), 1);
 }
 
@@ -445,7 +439,7 @@ BOOST_AUTO_TEST_CASE(traversal_empty_road_start_span_is_valid_and_produces_no_tr
   adoptPlanBinding(built, traits, 0);
   BOOST_CHECK_NO_THROW(traits.initialiseTimeFrame(0, built.plan));
   BOOST_REQUIRE(traits.hasTraversalCache());
-  BOOST_CHECK_NO_THROW(traits.findRoads(0, gNoopOperationAdapter));
+  BOOST_CHECK_NO_THROW(traits.findRoads(0, noopSeedRefit));
   BOOST_CHECK_EQUAL(frame.getCommonTracks().size(), 0u);
 }
 
@@ -475,7 +469,7 @@ BOOST_AUTO_TEST_CASE(traversal_legacy_cell_container_size_mismatch_fails_before_
   scratch.getCells().pop_back();
 
   try {
-    traits.findRoads(0, gNoopOperationAdapter);
+    traits.findRoads(0, noopSeedRefit);
     BOOST_FAIL("legacy cell-container size mismatch must throw before indexing");
   } catch (const TraversalException& error) {
     BOOST_CHECK(error.getReason() == TraversalFailureReason::SparseTopologyMismatch);
