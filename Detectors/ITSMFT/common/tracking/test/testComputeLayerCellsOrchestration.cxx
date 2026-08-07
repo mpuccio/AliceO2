@@ -20,7 +20,7 @@
 //  - keeps the MFT road pre-cut (passesCellRoadPrecut<DiskDisk>, formerly
 //    detail::validateMFTCellClusters) outside buildCellSeed, called
 //    unconditionally for both families with no detector-ID branch in the
-//    candidate loop, and driven by the bound DiskDiskPolicyParams::cellRoadRCut
+//    candidate loop, and driven by the bound TrackingKernelParameters::cellRoadRCut
 //    and the once-per-iteration cached legacy reference-z span
 //    (TrackerTraits::mDiskLayerReferenceZ);
 //  - leaves cellTopologyId indexing, the LUT, MC-label construction, and
@@ -34,6 +34,7 @@
 #define BOOST_TEST_DYN_LINK
 
 #include <array>
+#include <cstdint>
 #include <map>
 #include <memory>
 #include <vector>
@@ -65,6 +66,12 @@
 
 using namespace o2::itsmft;
 using namespace o2::itsmft::tracking;
+
+namespace
+{
+constexpr uint8_t kCompatibilityAbsCharge = 1;
+const o2::track::PID kCompatibilityPID = o2::track::PID::Pion;
+} // namespace
 
 namespace
 {
@@ -589,7 +596,7 @@ BOOST_AUTO_TEST_CASE(CylinderComputeLayerCellsMatchesBuildCellSeedOracle)
   const std::array<float, 3> xOverX0{rig.params[0].LayerxX0[0], rig.params[0].LayerxX0[1], rig.params[0].LayerxX0[2]};
   const auto material = toMaterial(xOverX0);
 
-  CylinderCylinderPolicyParams policyParams;
+  TrackingKernelParameters policyParams;
   policyParams.maxChi2ClusterAttachment = rig.params[0].MaxChi2ClusterAttachment;
 
   SurfaceKinematicState oracleState{};
@@ -646,7 +653,7 @@ BOOST_AUTO_TEST_CASE(DiskComputeLayerCellsMatchesBuildCellSeedOracle)
   const std::array<float, 3> xOverX0{rig.params[0].LayerxX0[0], rig.params[0].LayerxX0[1], rig.params[0].LayerxX0[2]};
   const auto material = toMaterial(xOverX0);
 
-  DiskDiskPolicyParams policyParams;
+  TrackingKernelParameters policyParams;
   policyParams.maxChi2ClusterAttachment = rig.params[0].MaxChi2ClusterAttachment;
   policyParams.trackletMinPt = rig.params[0].TrackletMinPt;
 
@@ -669,7 +676,7 @@ BOOST_AUTO_TEST_CASE(DiskComputeLayerCellsRoadPreCutRejectsBeforeBuildCellSeed)
   // Same geometry as DiskComputeLayerCellsMatchesBuildCellSeedOracle, but a
   // vanishingly small road cut: proves passesCellRoadPrecut<DiskDisk> still
   // runs before buildCellSeed<DiskDisk> and is driven by the bound
-  // DiskDiskPolicyParams::cellRoadRCut, not a stale/uninitialized value.
+  // TrackingKernelParameters::cellRoadRCut, not a stale/uninitialized value.
   rig.params[0].CellRoadRCut = 1.e-6f;
   rig.establishLayout();
 
@@ -866,7 +873,7 @@ BOOST_AUTO_TEST_CASE(RepeatedComputeLayerCellsCallsDoNotRebindOrIncreaseCounts)
   // must leave the counter exactly as it was after the single
   // initialiseTimeFrame() call, and must keep reproducing the identical
   // cell chi2 through the same, never-rebound mDiskLayerReferenceZ/
-  // mDiskPolicyParams cache -- the closest observable proxy, through the
+  // mKernelParameters cache -- the closest observable proxy, through the
   // public API alone, for "the legacy reference-z span is bound once per
   // iteration, not once per candidate". (M4b removed the
   // TrackerTraits::getPolicyBindingCount(StateFamily) test-only
@@ -917,7 +924,7 @@ BOOST_AUTO_TEST_CASE(RepeatedComputeLayerCellsCallsDoNotRebindOrIncreaseCounts)
   // initialiseTimeFrame() call to re-resolve it, which is not what this test
   // checks): a fresh call after the tracklets were consumed must still
   // reproduce the identical chi2 through the same, never-rebound
-  // mDiskLayerReferenceZ/mDiskPolicyParams cache.
+  // mDiskLayerReferenceZ/mKernelParameters cache.
   injectCandidateTracklets(rig, cellTopologyId, clusters);
   rig.traits.computeLayerCells(0);
 

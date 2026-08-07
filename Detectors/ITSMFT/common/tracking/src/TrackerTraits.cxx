@@ -69,6 +69,9 @@ struct PassMode {
 
 namespace
 {
+constexpr uint8_t kCompatibilityAbsCharge = 1;
+const o2::track::PID kCompatibilityPID = o2::track::PID::Pion;
+
 bool makeCandidateShadow(const TrackingCandidate& candidate,
                          gsl::span<const gsl::span<const SurfaceMeasurement>> layerMeasurements,
                          CommonTrackShadowRecord& record) noexcept
@@ -123,14 +126,31 @@ Vertex diamondVertexForROF(const Vertex& base, const ROFOverlapView& rofOverlapV
   return v;
 }
 
+// Host-only conversion from ROOT-visible TrackingParameters into the one
+// device-portable record. This is intentionally private to the initialization
+// seam and is called once per iteration, after the active SurfaceKind is known.
+TrackingKernelParameters bindTrackingKernelParameters(const TrackingParameters& params, SurfaceKind kind) noexcept
+{
+  TrackingKernelParameters out;
+  out.kind = kind;
+  out.trackletMinPt = params.TrackletMinPt;
+  out.cellDeltaTanLambdaSigma = params.CellDeltaTanLambdaSigma;
+  out.nSigmaCut = params.NSigmaCut;
+  out.maxChi2ClusterAttachment = params.MaxChi2ClusterAttachment;
+  out.maxChi2NDF = params.MaxChi2NDF;
+  out.pvResolution = params.PVres;
+  out.cellRoadRCut = params.CellRoadRCut;
+  out.trackletMinAbsX = params.TrackletMinAbsX;
+  return out;
+}
+
 } // namespace
 
 void TrackerTraits::resetTraversalCache() noexcept
 {
   mTraversalGraph = {};
   mTraversalCacheValid = false;
-  mCylinderPolicyParams.reset();
-  mDiskPolicyParams.reset();
+  mKernelParameters = {};
   mDiskLayerReferenceZ = {};
   mAttachHitConfig = {};
   const auto resetSurfaceCount = mScratch == nullptr ? std::size_t{0} : mScratch->getNOwnedSurfaces();
@@ -187,47 +207,47 @@ int TrackerTraits::requireSurfacePosition(int iteration, SurfaceId id) const
 // Each simply forwards to the existing Tag-templated *ForPolicy leaf
 // implementation, unchanged, using mTraversalOperation's own bound ids
 // (resolved once by bindTraversalOperation() below) and the corresponding
-// mCylinderPolicyParams/mDiskPolicyParams (committed earlier in the same
+// mKernelParameters (committed earlier in the same
 // initialiseTimeFrame() call). Never called except through
 // mTraversalOperation's bound pointer.
 void TrackerTraits::computeLayerTrackletsCylinderCylinder(int iteration, int iVertex)
 {
-  computeLayerTrackletsForPolicy<TransitionPolicyTag::CylinderCylinder>(iteration, iVertex, mTraversalOperation.boundTransitionIds, *mCylinderPolicyParams);
+  computeLayerTrackletsForPolicy<TransitionPolicyTag::CylinderCylinder>(iteration, iVertex, mTraversalOperation.boundTransitionIds, mKernelParameters);
 }
 
 void TrackerTraits::computeLayerTrackletsDiskDisk(int iteration, int iVertex)
 {
-  computeLayerTrackletsForPolicy<TransitionPolicyTag::DiskDisk>(iteration, iVertex, mTraversalOperation.boundTransitionIds, *mDiskPolicyParams);
+  computeLayerTrackletsForPolicy<TransitionPolicyTag::DiskDisk>(iteration, iVertex, mTraversalOperation.boundTransitionIds, mKernelParameters);
 }
 
 void TrackerTraits::computeLayerCellsCylinderCylinder(int iteration)
 {
-  computeLayerCellsForPolicy<TransitionPolicyTag::CylinderCylinder>(iteration, mTraversalOperation.boundCellIds, *mCylinderPolicyParams);
+  computeLayerCellsForPolicy<TransitionPolicyTag::CylinderCylinder>(iteration, mTraversalOperation.boundCellIds, mKernelParameters);
 }
 
 void TrackerTraits::computeLayerCellsDiskDisk(int iteration)
 {
-  computeLayerCellsForPolicy<TransitionPolicyTag::DiskDisk>(iteration, mTraversalOperation.boundCellIds, *mDiskPolicyParams);
+  computeLayerCellsForPolicy<TransitionPolicyTag::DiskDisk>(iteration, mTraversalOperation.boundCellIds, mKernelParameters);
 }
 
 void TrackerTraits::findCellsNeighboursCylinderCylinder(int iteration)
 {
-  findCellsNeighboursForPolicy<TransitionPolicyTag::CylinderCylinder>(iteration, mTraversalOperation.boundScheduledCellIds, *mCylinderPolicyParams);
+  findCellsNeighboursForPolicy<TransitionPolicyTag::CylinderCylinder>(iteration, mTraversalOperation.boundScheduledCellIds, mKernelParameters);
 }
 
 void TrackerTraits::findCellsNeighboursDiskDisk(int iteration)
 {
-  findCellsNeighboursForPolicy<TransitionPolicyTag::DiskDisk>(iteration, mTraversalOperation.boundScheduledCellIds, *mDiskPolicyParams);
+  findCellsNeighboursForPolicy<TransitionPolicyTag::DiskDisk>(iteration, mTraversalOperation.boundScheduledCellIds, mKernelParameters);
 }
 
 void TrackerTraits::findRoadsCylinderCylinder(int iteration, TrackingOperationAdapter& operationAdapter)
 {
-  findRoadsForPolicy<TransitionPolicyTag::CylinderCylinder>(iteration, *mCylinderPolicyParams, operationAdapter);
+  findRoadsForPolicy<TransitionPolicyTag::CylinderCylinder>(iteration, mKernelParameters, operationAdapter);
 }
 
 void TrackerTraits::findRoadsDiskDisk(int iteration, TrackingOperationAdapter& operationAdapter)
 {
-  findRoadsForPolicy<TransitionPolicyTag::DiskDisk>(iteration, *mDiskPolicyParams, operationAdapter);
+  findRoadsForPolicy<TransitionPolicyTag::DiskDisk>(iteration, mKernelParameters, operationAdapter);
 }
 
 // M5c: the single producer of mTraversalOperation (TraversalOperationBinding,
@@ -239,7 +259,7 @@ void TrackerTraits::findRoadsDiskDisk(int iteration, TrackingOperationAdapter& o
 // SurfaceDescriptor kinds (never from NLayers or detector identity), and the
 // `if constexpr` below only ever selects the matching pair of non-template
 // wrapper targets (and the ids/params they close over via mTraversalOperation's
-// own members and mCylinderPolicyParams/mDiskPolicyParams) -- it does not
+// own members and mKernelParameters) -- it does not
 // itself decide which tag is active. The four shared hot-loop entry points
 // below (computeLayerTracklets/computeLayerCells/findCellsNeighbours/
 // findRoads) invoke the bound pointer directly, with no Tag/StateFamily
@@ -637,8 +657,6 @@ void TrackerTraits::initialiseTimeFrame(const int iteration, const std::vector<S
     throw TraversalException{iteration, TraversalFailureReason::MixedPolicyLayout};
   }
 
-  std::optional<CylinderCylinderPolicyParams> cylinderParams;
-  std::optional<DiskDiskPolicyParams> diskParams;
   // Bound from the still-local stagedLayerMaterial, not the mLayerMaterial
   // member (not committed yet): attachHitConfig.layerMaterial is rebound to
   // point at mLayerMaterial once that member is actually populated, at the
@@ -659,24 +677,18 @@ void TrackerTraits::initialiseTimeFrame(const int iteration, const std::vector<S
       throw TraversalException{iteration, TraversalFailureReason::InvalidPolicyParameters};
     }
   }
-  if (activeTag == TransitionPolicyTag::CylinderCylinder) {
-    cylinderParams = bindTransitionPolicyParams<TransitionPolicyTag::CylinderCylinder>(mTrkParams[iteration]);
-    if (!cylinderParams->isValid()) {
-      throw TraversalException{iteration, TraversalFailureReason::InvalidPolicyParameters};
-    }
-  } else if (activeTag == TransitionPolicyTag::DiskDisk) {
-    diskParams = bindTransitionPolicyParams<TransitionPolicyTag::DiskDisk>(mTrkParams[iteration]);
-    if (!diskParams->isValid()) {
-      throw TraversalException{iteration, TraversalFailureReason::InvalidPolicyParameters};
-    }
-  } else {
+  if (activeTag != TransitionPolicyTag::CylinderCylinder && activeTag != TransitionPolicyTag::DiskDisk) {
     throw TraversalException{iteration, TraversalFailureReason::StateFamilyMismatch};
+  }
+  const auto activeKind = activeTag == TransitionPolicyTag::CylinderCylinder ? SurfaceKind::Cylinder : SurfaceKind::Disk;
+  auto kernelParameters = bindTrackingKernelParameters(mTrkParams[iteration], activeKind);
+  if (!kernelParameters.isValid()) {
+    throw TraversalException{iteration, TraversalFailureReason::InvalidPolicyParameters};
   }
 
   mTraversalGraph = layout;
   mTraversalCacheValid = true;
-  mCylinderPolicyParams = cylinderParams;
-  mDiskPolicyParams = diskParams;
+  mKernelParameters = kernelParameters;
   mDiskLayerReferenceZ = referenceCoordinateView.perLayerReferenceZ;
   // Commit the material cache itself only now, alongside every other
   // traversal cache, then rebind attachHitConfig's span off the
@@ -806,7 +818,7 @@ void TrackerTraits::computeLayerTrackletsForPolicy(
   const int iteration,
   const int iVertex,
   gsl::span<const TransitionId> transitionIds,
-  const typename TransitionPolicyTraits<Tag>::Params& params)
+  const TrackingKernelParameters& params)
 {
   // Gate 4 Slice 0a: sparse topology (cached, not re-fetched from the
   // legacy view). `transitionIds` remains the caller-filtered, ascending
@@ -1122,7 +1134,7 @@ template <TransitionPolicyTag Tag>
 void TrackerTraits::computeLayerCellsForPolicy(
   const int iteration,
   gsl::span<const CellTopologyId> cellIds,
-  const typename TransitionPolicyTraits<Tag>::Params& params)
+  const TrackingKernelParameters& params)
 {
   // Gate 4 Slice 0b: sparse topology (cached, not re-fetched from the
   // legacy view). `cellIds` remains the caller-filtered, ascending per-tag
@@ -1319,7 +1331,7 @@ template <TransitionPolicyTag Tag>
 void TrackerTraits::findCellsNeighboursForPolicy(
   int iteration,
   gsl::span<const CellTopologyId> scheduledCells,
-  const typename TransitionPolicyTraits<Tag>::Params& params)
+  const TrackingKernelParameters& params)
 {
   const auto topology = mTraversalGraph;
   // Gate 4 C2 Slice 1: checked/bounded against this scratch's own already-
@@ -1460,7 +1472,7 @@ void TrackerTraits::findCellsNeighboursForPolicy(
 }
 
 template <TransitionPolicyTag Tag, typename InputSeed>
-void TrackerTraits::processNeighbours(int iteration, int defaultCellTopologyId, int iLevel, const bounded_vector<InputSeed>& currentCellSeed, const bounded_vector<int>& currentCellId, const bounded_vector<int>& currentCellTopologyId, bounded_vector<TrackSeed>& updatedCellSeeds, bounded_vector<int>& updatedCellsIds, bounded_vector<int>& updatedCellsTopologyIds, const typename TransitionPolicyTraits<Tag>::Params& params)
+void TrackerTraits::processNeighbours(int iteration, int defaultCellTopologyId, int iLevel, const bounded_vector<InputSeed>& currentCellSeed, const bounded_vector<int>& currentCellId, const bounded_vector<int>& currentCellTopologyId, bounded_vector<TrackSeed>& updatedCellSeeds, bounded_vector<int>& updatedCellsIds, bounded_vector<int>& updatedCellsTopologyIds, const TrackingKernelParameters& params)
 {
   const auto layerMaterial = mAttachHitConfig.layerMaterial;
   const int activeSurfaceCount = static_cast<int>(mScratch->getNOwnedSurfaces());
@@ -1617,7 +1629,7 @@ void TrackerTraits::findRoads(const int iteration, TrackingOperationAdapter& ope
 
 template <TransitionPolicyTag Tag>
 void TrackerTraits::findRoadsForPolicy(const int iteration,
-                                       const typename TransitionPolicyTraits<Tag>::Params& params,
+                                       const TrackingKernelParameters& params,
                                        TrackingOperationAdapter& operationAdapter)
 {
   const int activeSurfaceCount = static_cast<int>(mScratch->getNOwnedSurfaces());

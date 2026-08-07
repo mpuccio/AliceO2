@@ -10,7 +10,8 @@
 
 #include <array>
 
-#include "ITSMFTTracking/detail/TransitionPolicyState.h"
+#include "ITSMFTTracking/detail/TrackingKernelParameters.h"
+#include "ITSMFTTracking/detail/TransitionPolicy.h"
 
 #ifndef GPUCA_GPUCODE
 #include <cmath>
@@ -122,7 +123,7 @@ bool projectSearchWindow(const SurfaceMeasurement& sourceMeasurement,
                          const TrackletProjectionState<Tag>& transitionState,
                          float bz,
                          const o2::itsmft::IndexTableUtilsCore& indexUtils,
-                         const typename TransitionPolicyTraits<Tag>::Params& params,
+                         const TrackingKernelParameters& params,
                          TrackletSearchWindow<Tag>& out);
 
 /// D007 policy-boundary operation (Architecture.md Sec 10): seeds and fits
@@ -189,7 +190,7 @@ bool buildCellSeed(const SurfaceMeasurement& measurementInner,
                    o2::track::PID pid,
                    SurfaceKinematicState& outState,
                    float& chi2,
-                   const typename TransitionPolicyTraits<Tag>::Params& params,
+                   const TrackingKernelParameters& params,
                    OperationFailureReason& reason) noexcept;
 
 /// Barrel formula: barrel::buildSeed(measurementInner, measurementMiddle,
@@ -214,7 +215,7 @@ bool buildCellSeed<TransitionPolicyTag::CylinderCylinder>(
   o2::track::PID pid,
   SurfaceKinematicState& outState,
   float& chi2,
-  const CylinderCylinderPolicyParams& params,
+  const TrackingKernelParameters& params,
   OperationFailureReason& reason) noexcept;
 
 /// Disk formula: forward::buildSeed(measurementInner, measurementMiddle,
@@ -240,7 +241,7 @@ bool buildCellSeed<TransitionPolicyTag::DiskDisk>(
   o2::track::PID pid,
   SurfaceKinematicState& outState,
   float& chi2,
-  const DiskDiskPolicyParams& params,
+  const TrackingKernelParameters& params,
   OperationFailureReason& reason) noexcept;
 
 /// Stage-B Slice B (design report Sec 8/11), now the sole production
@@ -271,7 +272,7 @@ bool attachHit(SurfaceKinematicState& state,
                const NominalSurfaceMaterial& material,
                float bz,
                float& chi2,
-               const typename TransitionPolicyTraits<Tag>::Params& params,
+               const TrackingKernelParameters& params,
                OperationFailureReason& reason) noexcept;
 
 /// Barrel formula: rotate to measurement.frame.frameAngle, propagate to
@@ -286,7 +287,7 @@ bool attachHit<TransitionPolicyTag::CylinderCylinder>(
   const NominalSurfaceMaterial& material,
   float bz,
   float& chi2,
-  const CylinderCylinderPolicyParams& params,
+  const TrackingKernelParameters& params,
   OperationFailureReason& reason) noexcept;
 
 /// Disk formula: propagate to measurement.frame.q with the accepted forward
@@ -303,7 +304,7 @@ bool attachHit<TransitionPolicyTag::DiskDisk>(
   const NominalSurfaceMaterial& material,
   float bz,
   float& chi2,
-  const DiskDiskPolicyParams& params,
+  const TrackingKernelParameters& params,
   OperationFailureReason& reason) noexcept;
 
 /// Stage-B refit-primitive slice: the direction-aware, linRef-carrying
@@ -614,7 +615,7 @@ bool cellsAreCompatible(const SurfaceKinematicState& current,
                         int currentSecondClusterIndex,
                         int nextFirstClusterIndex,
                         float bz,
-                        const typename TransitionPolicyTraits<Tag>::Params& params) noexcept;
+                        const TrackingKernelParameters& params) noexcept;
 
 /// Barrel formula: copy `next` into scratch, rotate to current.alpha,
 /// propagate to current.referenceCoordinate, then barrel::stateChi2(current,
@@ -629,7 +630,7 @@ bool cellsAreCompatible<TransitionPolicyTag::CylinderCylinder>(
   int currentSecondClusterIndex,
   int nextFirstClusterIndex,
   float bz,
-  const CylinderCylinderPolicyParams& params) noexcept;
+  const TrackingKernelParameters& params) noexcept;
 
 /// Disk formula: checked first, `currentSecondClusterIndex ==
 /// nextFirstClusterIndex` (see the primary template's doc); then copy `next`
@@ -645,7 +646,7 @@ bool cellsAreCompatible<TransitionPolicyTag::DiskDisk>(
   int currentSecondClusterIndex,
   int nextFirstClusterIndex,
   float bz,
-  const DiskDiskPolicyParams& params) noexcept;
+  const TrackingKernelParameters& params) noexcept;
 
 /// D007 policy-boundary operation (Architecture.md Sec 10, Gate 3 cell-road
 /// pre-cut slice): true if the three-cluster candidate {inner, middle, outer}
@@ -694,7 +695,7 @@ bool passesCellRoadPrecut(const GlobalPoint3F& pointInner,
                           const GlobalPoint3F& pointOuter,
                           int layerInner, int layerMiddle, int layerOuter,
                           gsl::span<const float> perLayerReferenceZ,
-                          const typename TransitionPolicyTraits<Tag>::Params& params) noexcept;
+                          const TrackingKernelParameters& params) noexcept;
 
 /// CylinderCylinder has no geometric road pre-cut; compile-time no-op so the
 /// caller's candidate loop stays a single unconditional call for both
@@ -705,7 +706,7 @@ bool passesCellRoadPrecut(const GlobalPoint3F& pointInner,
 template <>
 inline bool passesCellRoadPrecut<TransitionPolicyTag::CylinderCylinder>(
   const GlobalPoint3F&, const GlobalPoint3F&, const GlobalPoint3F&,
-  int, int, int, gsl::span<const float>, const CylinderCylinderPolicyParams&) noexcept
+  int, int, int, gsl::span<const float>, const TrackingKernelParameters&) noexcept
 {
   return true;
 }
@@ -718,14 +719,14 @@ inline bool passesCellRoadPrecut<TransitionPolicyTag::CylinderCylinder>(
 /// conical-scale argument order are preserved exactly, as is strict `<` for
 /// all three checks and short-circuit evaluation of the combining `&&`.
 /// `params.cellRoadRCut` is the unsquared cut (matching
-/// DiskDiskPolicyParams::cellRoadRCut's existing contract); it is squared
+/// TrackingKernelParameters::cellRoadRCut's existing contract); it is squared
 /// exactly once, here.
 template <>
 inline bool passesCellRoadPrecut<TransitionPolicyTag::DiskDisk>(
   const GlobalPoint3F& pointInner, const GlobalPoint3F& pointMiddle, const GlobalPoint3F& pointOuter,
   int layerInner, int layerMiddle, int layerOuter,
   gsl::span<const float> perLayerReferenceZ,
-  const DiskDiskPolicyParams& params) noexcept
+  const TrackingKernelParameters& params) noexcept
 {
   // Squared transverse distance from `point` to the seed line from->to
   // (legacy detail::mftDistanceToSeedSquared / MFT getDistanceToSeed, moved
@@ -781,7 +782,7 @@ inline bool passesCellRoadPrecut<TransitionPolicyTag::DiskDisk>(
 /// caller supplies `referenceCoordinate` via the explicit, time-boxed
 /// compatibility binding below (bindLegacyMFTReferenceCoordinates()).
 /// Instantiating the primary template for an unsupported tag is a compile
-/// error rather than a silent fallback (mirrors TransitionPolicyTraits).
+/// error rather than a silent fallback for an unsupported transition tag.
 template <TransitionPolicyTag Tag>
 struct LayerScatteringInputs;
 

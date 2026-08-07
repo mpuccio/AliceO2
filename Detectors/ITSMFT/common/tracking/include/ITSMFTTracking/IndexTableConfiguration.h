@@ -15,7 +15,7 @@
 // TransitionPolicyBinding.h. Kept as its own boundary, separate from
 // TransitionPolicyBinding.h, so that header's existing consumers
 // (bindAttachHitPolicyConfig, bindLayerGeometryConfig,
-// bindTransitionPolicyParams) do not transitively pick up
+// host kernel-parameter conversion) do not transitively pick up
 // IndexTableUtils.h's own ITStracking/Cluster.h and MFTTracking/Constants.h
 // dependencies merely because this binder also lives under
 // TransitionPolicyBinding.h's include.

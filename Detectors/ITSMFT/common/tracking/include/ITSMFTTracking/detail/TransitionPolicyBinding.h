@@ -8,10 +8,11 @@
 #ifndef ALICEO2_ITSMFT_TRACKING_TRANSITIONPOLICYBINDING_H_
 #define ALICEO2_ITSMFT_TRACKING_TRANSITIONPOLICYBINDING_H_
 
-#include "ITSMFTTracking/detail/TransitionPolicyState.h"
+#include "ITSMFTTracking/detail/TrackingKernelParameters.h"
+#include "ITSMFTTracking/detail/TransitionPolicy.h"
 
 // Host-only: TrackingParameters (Configuration.h) owns std::vector members
-// and is not itself device-compatible; only the bound Params struct crosses
+// and is not itself device-compatible; only the bound kernel record crosses
 // into device-facing policy operations. This binding step has no device
 // counterpart and must never be compiled for device code.
 #ifndef GPUCA_GPUCODE
@@ -171,40 +172,6 @@ inline LayerGeometryConfigView bindLayerGeometryConfig(const TrackingParameters&
                                                        const AttachHitPolicyConfigView& attachHitConfig) noexcept
 {
   return {gsl::span<const float>{params.LayerRadii.data(), params.LayerRadii.size()}, attachHitConfig.layerMaterial};
-}
-
-/// Binds one iteration's legacy TrackingParameters into a typed,
-/// bounds-checkable policy parameter block (TransitionPolicyState.h). Callers
-/// must invoke this once per iteration, outside any candidate/neighbour/road
-/// loop (D007 / Architecture.md 10.1) -- never per-candidate.
-template <TransitionPolicyTag Tag>
-typename TransitionPolicyTraits<Tag>::Params bindTransitionPolicyParams(const TrackingParameters& params) noexcept;
-
-template <>
-inline CylinderCylinderPolicyParams bindTransitionPolicyParams<TransitionPolicyTag::CylinderCylinder>(const TrackingParameters& params) noexcept
-{
-  CylinderCylinderPolicyParams out;
-  out.trackletMinPt = params.TrackletMinPt;
-  out.cellDeltaTanLambdaSigma = params.CellDeltaTanLambdaSigma;
-  out.nSigmaCut = params.NSigmaCut;
-  out.maxChi2ClusterAttachment = params.MaxChi2ClusterAttachment;
-  out.maxChi2NDF = params.MaxChi2NDF;
-  out.pvResolution = params.PVres;
-  return out;
-}
-
-template <>
-inline DiskDiskPolicyParams bindTransitionPolicyParams<TransitionPolicyTag::DiskDisk>(const TrackingParameters& params) noexcept
-{
-  DiskDiskPolicyParams out;
-  out.trackletMinPt = params.TrackletMinPt;
-  out.cellDeltaTanLambdaSigma = params.CellDeltaTanLambdaSigma;
-  out.cellRoadRCut = params.CellRoadRCut;
-  out.trackletMinAbsX = params.TrackletMinAbsX;
-  out.nSigmaCut = params.NSigmaCut;
-  out.maxChi2ClusterAttachment = params.MaxChi2ClusterAttachment;
-  out.maxChi2NDF = params.MaxChi2NDF;
-  return out;
 }
 
 } // namespace o2::itsmft::tracking

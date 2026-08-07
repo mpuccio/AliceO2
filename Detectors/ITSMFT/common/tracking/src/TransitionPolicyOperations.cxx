@@ -77,7 +77,7 @@ bool projectSearchWindow(const SurfaceMeasurement& sourceMeasurement,
                          const TrackletProjectionState<Tag>& transitionState,
                          float bz,
                          const o2::itsmft::IndexTableUtilsCore& indexUtils,
-                         const typename TransitionPolicyTraits<Tag>::Params& params,
+                         const TrackingKernelParameters& params,
                          TrackletSearchWindow<Tag>& out)
 {
   if constexpr (Tag == TransitionPolicyTag::CylinderCylinder) {
@@ -149,13 +149,13 @@ bool projectSearchWindow(const SurfaceMeasurement& sourceMeasurement,
 template bool projectSearchWindow<TransitionPolicyTag::CylinderCylinder>(
   const SurfaceMeasurement&, const o2::its::Cluster&, const o2::its::Vertex&,
   const TrackletProjectionState<TransitionPolicyTag::CylinderCylinder>&, float,
-  const o2::itsmft::IndexTableUtilsCore&, const CylinderCylinderPolicyParams&,
+  const o2::itsmft::IndexTableUtilsCore&, const TrackingKernelParameters&,
   TrackletSearchWindow<TransitionPolicyTag::CylinderCylinder>&);
 
 template bool projectSearchWindow<TransitionPolicyTag::DiskDisk>(
   const SurfaceMeasurement&, const o2::its::Cluster&, const o2::its::Vertex&,
   const TrackletProjectionState<TransitionPolicyTag::DiskDisk>&, float,
-  const o2::itsmft::IndexTableUtilsCore&, const DiskDiskPolicyParams&,
+  const o2::itsmft::IndexTableUtilsCore&, const TrackingKernelParameters&,
   TrackletSearchWindow<TransitionPolicyTag::DiskDisk>&);
 
 // --- Stage-B activation: native SurfaceKinematicState policy operations ---
@@ -215,7 +215,7 @@ bool buildCellSeed<TransitionPolicyTag::CylinderCylinder>(
   o2::track::PID pid,
   SurfaceKinematicState& outState,
   float& chi2,
-  const CylinderCylinderPolicyParams& params,
+  const TrackingKernelParameters& params,
   OperationFailureReason& reason) noexcept
 {
   SurfaceKinematicState scratch{};
@@ -275,7 +275,7 @@ bool buildCellSeed<TransitionPolicyTag::DiskDisk>(
   o2::track::PID pid,
   SurfaceKinematicState& outState,
   float& chi2,
-  const DiskDiskPolicyParams& params,
+  const TrackingKernelParameters& params,
   OperationFailureReason& reason) noexcept
 {
   SurfaceKinematicState scratch{};
@@ -329,7 +329,7 @@ bool attachHit<TransitionPolicyTag::CylinderCylinder>(
   const NominalSurfaceMaterial& material,
   float bz,
   float& chi2,
-  const CylinderCylinderPolicyParams& params,
+  const TrackingKernelParameters& params,
   OperationFailureReason& reason) noexcept
 {
   SurfaceKinematicState scratch = state;
@@ -374,7 +374,7 @@ bool attachHit<TransitionPolicyTag::DiskDisk>(
   const NominalSurfaceMaterial& material,
   float bz,
   float& chi2,
-  const DiskDiskPolicyParams& params,
+  const TrackingKernelParameters& params,
   OperationFailureReason& reason) noexcept
 {
   SurfaceKinematicState scratch = state;
@@ -589,7 +589,7 @@ bool cellsAreCompatible<TransitionPolicyTag::CylinderCylinder>(
   int /*currentSecondClusterIndex*/,
   int /*nextFirstClusterIndex*/,
   float bz,
-  const CylinderCylinderPolicyParams& params) noexcept
+  const TrackingKernelParameters& params) noexcept
 {
   SurfaceKinematicState scratch = next;
   OperationFailureReason reason{};
@@ -611,7 +611,7 @@ bool cellsAreCompatible<TransitionPolicyTag::DiskDisk>(
   int currentSecondClusterIndex,
   int nextFirstClusterIndex,
   float bz,
-  const DiskDiskPolicyParams& params) noexcept
+  const TrackingKernelParameters& params) noexcept
 {
   // Temporary Gate-3 compatibility input (see the header doc on the primary
   // template): checked first, exactly mirroring

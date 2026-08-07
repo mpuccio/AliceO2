@@ -40,7 +40,7 @@
 // SurfaceDescriptor::kind of the surface at hand (equivalently, the
 // StateFamily it implies via stateFamilyOf(), StateFamily.h) at the call
 // site. Nothing here names the confined legacy hot-loop-dispatch tag
-// (detail/TransitionPolicyState.h) or a persisted family/kind pair, and
+// (detail/TrackingKernelParameters.h) or a persisted family/kind pair, and
 // nothing here names ITS, MFT, a detector ID, a fixed layer count, a source
 // position, a workflow, DPL, a writer, or an output type (ADR 0007 decisions
 // 7, 8, 10).

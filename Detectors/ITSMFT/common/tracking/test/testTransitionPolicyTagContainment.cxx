@@ -170,7 +170,7 @@ BOOST_AUTO_TEST_CASE(NoPublicTopologyOrSchedulingHeaderExposesStateFamilyAsATagS
   // M4b: StateFamily leaked into TrackerTraits::getPolicyBindingCount(StateFamily)
   // (a test-only introspection seam, since deleted) and into Cell.h's
   // stateFamilyFromNLayers<NLayers>() (a legacy NLayers-to-family dispatch
-  // bridge, since moved to detail/TransitionPolicyState.h). Neither
+  // bridge, since removed with the temporary parameter layer). Neither
   // public-facing use derived anything from SurfaceDescriptor/SurfaceKind;
   // both used StateFamily as a stand-in transition-policy key. This proves
   // neither -- nor any future equivalent -- reappears outside the narrow,

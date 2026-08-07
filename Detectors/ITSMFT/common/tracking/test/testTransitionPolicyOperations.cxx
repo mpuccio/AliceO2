@@ -131,6 +131,21 @@ std::vector<NominalSurfaceMaterial> toMaterial(const std::vector<float>& xOverX0
   return material;
 }
 
+TrackingKernelParameters makeKernelParameters(const TrackingParameters& params, SurfaceKind kind)
+{
+  TrackingKernelParameters out;
+  out.kind = kind;
+  out.trackletMinPt = params.TrackletMinPt;
+  out.cellDeltaTanLambdaSigma = params.CellDeltaTanLambdaSigma;
+  out.nSigmaCut = params.NSigmaCut;
+  out.maxChi2ClusterAttachment = params.MaxChi2ClusterAttachment;
+  out.maxChi2NDF = params.MaxChi2NDF;
+  out.pvResolution = params.PVres;
+  out.cellRoadRCut = params.CellRoadRCut;
+  out.trackletMinAbsX = params.TrackletMinAbsX;
+  return out;
+}
+
 } // namespace
 
 BOOST_AUTO_TEST_CASE(BindingCopiesEveryFieldToTheCorrectSlot)
@@ -148,7 +163,7 @@ BOOST_AUTO_TEST_CASE(BindingCopiesEveryFieldToTheCorrectSlot)
   legacy.LayerxX0 = {0.011f, 0.022f, 0.033f};
   legacy.CorrType = o2::base::PropagatorF::MatCorrType::USEMatCorrLUT;
 
-  const auto barrel = bindTransitionPolicyParams<TransitionPolicyTag::CylinderCylinder>(legacy);
+  const auto barrel = makeKernelParameters(legacy, SurfaceKind::Cylinder);
   BOOST_CHECK_CLOSE(barrel.trackletMinPt, 1.11f, 1e-6);
   BOOST_CHECK_CLOSE(barrel.cellDeltaTanLambdaSigma, 2.22f, 1e-6);
   BOOST_CHECK_CLOSE(barrel.nSigmaCut, 3.33f, 1e-6);
@@ -157,7 +172,7 @@ BOOST_AUTO_TEST_CASE(BindingCopiesEveryFieldToTheCorrectSlot)
   BOOST_CHECK_CLOSE(barrel.pvResolution, 8.88f, 1e-6);
   BOOST_CHECK(barrel.isValid());
 
-  const auto disk = bindTransitionPolicyParams<TransitionPolicyTag::DiskDisk>(legacy);
+  const auto disk = makeKernelParameters(legacy, SurfaceKind::Disk);
   BOOST_CHECK_CLOSE(disk.trackletMinPt, 1.11f, 1e-6);
   BOOST_CHECK_CLOSE(disk.cellDeltaTanLambdaSigma, 2.22f, 1e-6);
   BOOST_CHECK_CLOSE(disk.cellRoadRCut, 6.66f, 1e-6);
@@ -193,22 +208,22 @@ BOOST_AUTO_TEST_CASE(BoundNonFiniteParametersAreDetectableThroughIsValid)
   legacy.TrackletMinAbsX = 7.77f;
 
   auto barrelHealthy = legacy;
-  BOOST_CHECK(bindTransitionPolicyParams<TransitionPolicyTag::CylinderCylinder>(barrelHealthy).isValid());
+  BOOST_CHECK(makeKernelParameters(barrelHealthy, SurfaceKind::Cylinder).isValid());
   auto barrelNaN = legacy;
   barrelNaN.MaxChi2ClusterAttachment = nan;
-  BOOST_CHECK(!bindTransitionPolicyParams<TransitionPolicyTag::CylinderCylinder>(barrelNaN).isValid());
+  BOOST_CHECK(!makeKernelParameters(barrelNaN, SurfaceKind::Cylinder).isValid());
   auto barrelInf = legacy;
   barrelInf.NSigmaCut = inf;
-  BOOST_CHECK(!bindTransitionPolicyParams<TransitionPolicyTag::CylinderCylinder>(barrelInf).isValid());
+  BOOST_CHECK(!makeKernelParameters(barrelInf, SurfaceKind::Cylinder).isValid());
 
   auto diskHealthy = legacy;
-  BOOST_CHECK(bindTransitionPolicyParams<TransitionPolicyTag::DiskDisk>(diskHealthy).isValid());
+  BOOST_CHECK(makeKernelParameters(diskHealthy, SurfaceKind::Disk).isValid());
   auto diskNaN = legacy;
   diskNaN.CellRoadRCut = nan;
-  BOOST_CHECK(!bindTransitionPolicyParams<TransitionPolicyTag::DiskDisk>(diskNaN).isValid());
+  BOOST_CHECK(!makeKernelParameters(diskNaN, SurfaceKind::Disk).isValid());
   auto diskInf = legacy;
   diskInf.TrackletMinAbsX = inf;
-  BOOST_CHECK(!bindTransitionPolicyParams<TransitionPolicyTag::DiskDisk>(diskInf).isValid());
+  BOOST_CHECK(!makeKernelParameters(diskInf, SurfaceKind::Disk).isValid());
 
   auto materialNaN = legacy;
   materialNaN.LayerxX0[2] = nan;
@@ -231,7 +246,7 @@ BOOST_AUTO_TEST_CASE(CylinderProjectSearchWindowMatchesInlineFormulaAndDirectPhi
 {
   TrackingParameters legacy;
   legacy.PVres = 0.f; // valid: disables only the primary-vertex resolution term
-  const auto params = bindTransitionPolicyParams<TransitionPolicyTag::CylinderCylinder>(legacy);
+  const auto params = makeKernelParameters(legacy, SurfaceKind::Cylinder);
   BOOST_REQUIRE(params.isValid());
 
   IndexTableUtilsCore indexUtils;
@@ -268,7 +283,7 @@ BOOST_AUTO_TEST_CASE(CylinderProjectSearchWindowMatchesInlineFormulaAndDirectPhi
   BOOST_CHECK_EQUAL(window.sigmaZ, sigmaZ);
 
   legacy.PVres = 0.025f;
-  const auto positivePVParams = bindTransitionPolicyParams<TransitionPolicyTag::CylinderCylinder>(legacy);
+  const auto positivePVParams = makeKernelParameters(legacy, SurfaceKind::Cylinder);
   BOOST_REQUIRE(positivePVParams.isValid());
   TrackletSearchWindow<TransitionPolicyTag::CylinderCylinder> positivePVWindow{};
   BOOST_REQUIRE((projectSearchWindow<TransitionPolicyTag::CylinderCylinder>(
@@ -299,7 +314,7 @@ BOOST_AUTO_TEST_CASE(CylinderProjectSearchWindowMatchesInlineFormulaAndDirectPhi
 BOOST_AUTO_TEST_CASE(DiskProjectSearchWindowReusesHelpersAndDirectProjectedXYBins)
 {
   TrackingParameters legacy;
-  const auto params = bindTransitionPolicyParams<TransitionPolicyTag::DiskDisk>(legacy);
+  const auto params = makeKernelParameters(legacy, SurfaceKind::Disk);
   BOOST_REQUIRE(params.isValid());
 
   IndexTableUtilsCore indexUtils;
@@ -382,7 +397,7 @@ BOOST_AUTO_TEST_CASE(ProjectSearchWindowInvalidBinsLeaveEveryOutputFieldUnchange
 
   IndexTableUtilsCore cylinderIndexUtils;
   cylinderIndexUtils.setTrackingParameters(legacy);
-  const auto cylinderParams = bindTransitionPolicyParams<TransitionPolicyTag::CylinderCylinder>(legacy);
+  const auto cylinderParams = makeKernelParameters(legacy, SurfaceKind::Cylinder);
   const auto cylinderSource = makeGlobalCluster(2.f, 0.f, 100.f);
   const auto cylinderMeasurement = makeMeasurement(cylinderSource);
   const auto cylinderVertex = makeVertex(0.f, 0.f, 0.f, 0.f, 0.f, 0.f);
@@ -399,7 +414,7 @@ BOOST_AUTO_TEST_CASE(ProjectSearchWindowInvalidBinsLeaveEveryOutputFieldUnchange
   std::array<float, 10> tinyHalfExtents{};
   tinyHalfExtents.fill(0.01f);
   diskIndexUtils.setIndexTableParams(IndexTableCoordType::XY, legacy.RowBins, legacy.ColBins, -0.01f, 0.01f, tinyHalfExtents);
-  const auto diskParams = bindTransitionPolicyParams<TransitionPolicyTag::DiskDisk>(legacy);
+  const auto diskParams = makeKernelParameters(legacy, SurfaceKind::Disk);
   constexpr int fromLayer = 0;
   constexpr int toLayer = 1;
   const float fromZ = detail::mftLayerZ(fromLayer);
@@ -450,7 +465,7 @@ BOOST_AUTO_TEST_CASE(CylinderCandidateUsesPeriodicPhiAndStrictSigmaAndPhiBoundar
 BOOST_AUTO_TEST_CASE(DiskProjectionCoversStraightLineNearZeroDenominatorAndRadialSwap)
 {
   TrackingParameters legacy;
-  const auto params = bindTransitionPolicyParams<TransitionPolicyTag::DiskDisk>(legacy);
+  const auto params = makeKernelParameters(legacy, SurfaceKind::Disk);
   constexpr int fromLayer = 0;
   constexpr int toLayer = 1;
   const float fromZ = detail::mftLayerZ(fromLayer);
@@ -560,7 +575,7 @@ BOOST_AUTO_TEST_CASE(NormalizedMeasurementsRemainAuthoritativeOverPoisonedLocato
 {
   TrackingParameters cylinderParameters;
   cylinderParameters.PVres = 0.f;
-  const auto cylinderPolicy = bindTransitionPolicyParams<TransitionPolicyTag::CylinderCylinder>(cylinderParameters);
+  const auto cylinderPolicy = makeKernelParameters(cylinderParameters, SurfaceKind::Cylinder);
   IndexTableUtilsCore cylinderIndex;
   cylinderIndex.setTrackingParameters(cylinderParameters);
   const auto vertex = makeVertex(0.f, 0.f, 0.f, 1.e-4f, 1.e-4f, 4.e-4f, 4);
@@ -606,7 +621,7 @@ BOOST_AUTO_TEST_CASE(NormalizedMeasurementsRemainAuthoritativeOverPoisonedLocato
   BOOST_CHECK_NE(cachePoisonedWindow.tanLambda, baseline.tanLambda);
 
   TrackingParameters diskParameters;
-  const auto diskPolicy = bindTransitionPolicyParams<TransitionPolicyTag::DiskDisk>(diskParameters);
+  const auto diskPolicy = makeKernelParameters(diskParameters, SurfaceKind::Disk);
   IndexTableUtilsCore diskIndex;
   std::array<float, 10> halfExtents{};
   halfExtents.fill(20.f);
@@ -693,7 +708,7 @@ BOOST_AUTO_TEST_CASE(CylinderCellRoadPrecutAlwaysAcceptsAndIgnoresEmptyReference
   // them and must still return true.
   const GlobalPoint3F garbage{std::numeric_limits<float>::quiet_NaN(), std::numeric_limits<float>::infinity(), -1.f};
   BOOST_CHECK(passesCellRoadPrecut<TransitionPolicyTag::CylinderCylinder>(
-    garbage, garbage, garbage, 0, 1, 2, gsl::span<const float>{}, CylinderCylinderPolicyParams{}));
+    garbage, garbage, garbage, 0, 1, 2, gsl::span<const float>{}, TrackingKernelParameters{}));
 }
 
 BOOST_AUTO_TEST_CASE(DiskCellRoadPrecutMatchesIndependentOracleAcceptAndReject)
@@ -703,7 +718,7 @@ BOOST_AUTO_TEST_CASE(DiskCellRoadPrecutMatchesIndependentOracleAcceptAndReject)
   const GlobalPoint3F pointOuter{1.7f, 0.78f, -0.9f};
   const std::array<float, 3> referenceZ{-45.3f, -46.7f, -48.6f};
 
-  DiskDiskPolicyParams generous;
+  TrackingKernelParameters generous;
   generous.cellRoadRCut = 1000.f;
   const bool oracleAccepts = referenceCellRoadPrecut(pointInner, pointMiddle, pointOuter,
                                                      referenceZ[0], referenceZ[1], referenceZ[2], generous.cellRoadRCut);
@@ -713,7 +728,7 @@ BOOST_AUTO_TEST_CASE(DiskCellRoadPrecutMatchesIndependentOracleAcceptAndReject)
                       pointInner, pointMiddle, pointOuter, 0, 1, 2,
                       gsl::span<const float>(referenceZ), generous));
 
-  DiskDiskPolicyParams tight;
+  TrackingKernelParameters tight;
   tight.cellRoadRCut = 1.e-6f;
   const bool oracleRejects = referenceCellRoadPrecut(pointInner, pointMiddle, pointOuter,
                                                      referenceZ[0], referenceZ[1], referenceZ[2], tight.cellRoadRCut);
@@ -750,7 +765,7 @@ BOOST_AUTO_TEST_CASE(DiskCellRoadPrecutMiddleCheckRejectsIndependently)
   BOOST_REQUIRE(checkInner);
 
   const std::array<float, 3> referenceZ{zInner, zMiddle, zOuter};
-  DiskDiskPolicyParams params;
+  TrackingKernelParameters params;
   params.cellRoadRCut = 1.f;
   BOOST_CHECK(!passesCellRoadPrecut<TransitionPolicyTag::DiskDisk>(
     pointInner, pointMiddle, pointOuter, 0, 1, 2,
@@ -777,7 +792,7 @@ BOOST_AUTO_TEST_CASE(DiskCellRoadPrecutOuterCheckRejectsIndependently)
   BOOST_REQUIRE(checkInner);
 
   const std::array<float, 3> referenceZ{zInner, zMiddle, zOuter};
-  DiskDiskPolicyParams params;
+  TrackingKernelParameters params;
   params.cellRoadRCut = 10.f; // r2Cut == 100.f, matching the checks above
   BOOST_CHECK(!passesCellRoadPrecut<TransitionPolicyTag::DiskDisk>(
     pointInner, pointMiddle, pointOuter, 0, 1, 2,
@@ -804,7 +819,7 @@ BOOST_AUTO_TEST_CASE(DiskCellRoadPrecutInnerCheckRejectsIndependently)
   BOOST_REQUIRE(!checkInner);
 
   const std::array<float, 3> referenceZ{zInner, zMiddle, zOuter};
-  DiskDiskPolicyParams params;
+  TrackingKernelParameters params;
   params.cellRoadRCut = 1.f;
   BOOST_CHECK(!passesCellRoadPrecut<TransitionPolicyTag::DiskDisk>(
     pointInner, pointMiddle, pointOuter, 0, 1, 2,
@@ -835,7 +850,7 @@ BOOST_AUTO_TEST_CASE(DiskCellRoadPrecutExactBoundaryAndNextRepresentableInsideOu
   const float atBoundary = D;
   BOOST_REQUIRE_EQUAL(atBoundary * atBoundary, D * D); // same multiplication, bit-identical to distOuter/distInner
 
-  DiskDiskPolicyParams params;
+  TrackingKernelParameters params;
   params.cellRoadRCut = atBoundary;
   BOOST_CHECK(!passesCellRoadPrecut<TransitionPolicyTag::DiskDisk>(
     pointInner, pointMiddle, pointOuter, 0, 1, 2, gsl::span<const float>(referenceZ), params));
@@ -845,12 +860,12 @@ BOOST_AUTO_TEST_CASE(DiskCellRoadPrecutExactBoundaryAndNextRepresentableInsideOu
   BOOST_REQUIRE_GT(justAbove * justAbove, D * D);
   BOOST_REQUIRE_LT(justBelow * justBelow, D * D);
 
-  DiskDiskPolicyParams paramsAbove;
+  TrackingKernelParameters paramsAbove;
   paramsAbove.cellRoadRCut = justAbove;
   BOOST_CHECK(passesCellRoadPrecut<TransitionPolicyTag::DiskDisk>(
     pointInner, pointMiddle, pointOuter, 0, 1, 2, gsl::span<const float>(referenceZ), paramsAbove));
 
-  DiskDiskPolicyParams paramsBelow;
+  TrackingKernelParameters paramsBelow;
   paramsBelow.cellRoadRCut = justBelow;
   BOOST_CHECK(!passesCellRoadPrecut<TransitionPolicyTag::DiskDisk>(
     pointInner, pointMiddle, pointOuter, 0, 1, 2, gsl::span<const float>(referenceZ), paramsBelow));
@@ -870,7 +885,7 @@ BOOST_AUTO_TEST_CASE(DiskCellRoadPrecutNearZeroSeedDzRejects)
   BOOST_REQUIRE_EQUAL(referenceDistanceToSeedLineSquared(pointInner, pointOuter, pointMiddle),
                       std::numeric_limits<float>::max());
 
-  DiskDiskPolicyParams params;
+  TrackingKernelParameters params;
   params.cellRoadRCut = 1.e6f; // even a very generous cut cannot beat FLT_MAX
   BOOST_CHECK(!passesCellRoadPrecut<TransitionPolicyTag::DiskDisk>(
     pointInner, pointMiddle, pointOuter, 0, 1, 2, gsl::span<const float>(referenceZ), params));
@@ -900,7 +915,7 @@ BOOST_AUTO_TEST_CASE(DiskCellRoadPrecutZeroReferenceZFallbackMatchesUnitScale)
   BOOST_CHECK_EQUAL(referenceConicalRoadR2Scale(zMiddle, zInner), 0.f); // checkInner: zFrom == zMiddle != 0 -> real formula, not fallback
 
   const std::array<float, 3> referenceZ{zInner, zMiddle, zOuter};
-  DiskDiskPolicyParams params;
+  TrackingKernelParameters params;
   params.cellRoadRCut = 0.2f;
 
   const bool oracle = referenceCellRoadPrecut(pointInner, pointMiddle, pointOuter, zInner, zMiddle, zOuter, params.cellRoadRCut);
@@ -919,7 +934,7 @@ BOOST_AUTO_TEST_CASE(DiskCellRoadPrecutNonAdjacentLayerIndices)
   const GlobalPoint3F pointInner{1.0f, 0.5f, -0.4f};
   const GlobalPoint3F pointMiddle{1.3f, 0.62f, -0.6f};
   const GlobalPoint3F pointOuter{1.7f, 0.78f, -0.9f};
-  DiskDiskPolicyParams params;
+  TrackingKernelParameters params;
   params.cellRoadRCut = 1000.f;
 
   const bool oracle = referenceCellRoadPrecut(pointInner, pointMiddle, pointOuter,
@@ -940,7 +955,7 @@ BOOST_AUTO_TEST_CASE(DiskCellRoadPrecutNegativeDiskZRepresentative)
   const GlobalPoint3F pointMiddle{2.6f, -1.25f, -46.7f};
   const GlobalPoint3F pointOuter{2.75f, -1.32f, -48.6f};
   const std::array<float, 3> referenceZ{-45.3f, -46.7f, -48.6f};
-  DiskDiskPolicyParams params;
+  TrackingKernelParameters params;
   params.cellRoadRCut = 0.5f;
 
   const bool oracle = referenceCellRoadPrecut(pointInner, pointMiddle, pointOuter,
@@ -961,7 +976,7 @@ BOOST_AUTO_TEST_CASE(DiskCellRoadPrecutInputsAreNotMutated)
   const auto pointOuterBefore = pointOuter;
   std::array<float, 3> referenceZ{-45.3f, -46.7f, -48.6f};
   const auto referenceZBefore = referenceZ;
-  DiskDiskPolicyParams params;
+  TrackingKernelParameters params;
   params.cellRoadRCut = 1000.f;
   const auto paramsBefore = params;
 
@@ -985,7 +1000,7 @@ BOOST_AUTO_TEST_CASE(DiskCellRoadPrecutNaNClusterCoordinateRejects)
   const GlobalPoint3F pointMiddle{std::numeric_limits<float>::quiet_NaN(), 0.62f, -0.6f};
   const GlobalPoint3F pointOuter{1.7f, 0.78f, -0.9f};
   const std::array<float, 3> referenceZ{-45.f, -46.f, -47.f};
-  DiskDiskPolicyParams params;
+  TrackingKernelParameters params;
   params.cellRoadRCut = 1000.f; // generous: only the NaN can cause rejection
   BOOST_CHECK(!passesCellRoadPrecut<TransitionPolicyTag::DiskDisk>(
     pointInner, pointMiddle, pointOuter, 0, 1, 2,
@@ -998,7 +1013,7 @@ BOOST_AUTO_TEST_CASE(DiskCellRoadPrecutNaNReferenceZRejects)
   const GlobalPoint3F pointMiddle{1.3f, 0.62f, -0.6f};
   const GlobalPoint3F pointOuter{1.7f, 0.78f, -0.9f};
   const std::array<float, 3> referenceZ{-45.f, std::numeric_limits<float>::quiet_NaN(), -47.f};
-  DiskDiskPolicyParams params;
+  TrackingKernelParameters params;
   params.cellRoadRCut = 1000.f;
   BOOST_CHECK(!passesCellRoadPrecut<TransitionPolicyTag::DiskDisk>(
     pointInner, pointMiddle, pointOuter, 0, 1, 2,
@@ -1008,7 +1023,7 @@ BOOST_AUTO_TEST_CASE(DiskCellRoadPrecutNaNReferenceZRejects)
 BOOST_AUTO_TEST_CASE(DiskCellRoadPrecutNaNCutRejectsInIsolatedPredicate)
 {
   // Exercises the isolated predicate directly with a non-finite cut --
-  // DiskDiskPolicyParams::isValid() already prevents this from reaching
+  // TrackingKernelParameters::isValid() already prevents this from reaching
   // traversal in production (see the dedicated isValid() test below); this
   // test documents the predicate's own, otherwise-untested, arithmetic
   // behavior for this input.
@@ -1016,7 +1031,7 @@ BOOST_AUTO_TEST_CASE(DiskCellRoadPrecutNaNCutRejectsInIsolatedPredicate)
   const GlobalPoint3F pointMiddle{1.3f, 0.62f, -0.6f};
   const GlobalPoint3F pointOuter{1.7f, 0.78f, -0.9f};
   const std::array<float, 3> referenceZ{-45.f, -46.f, -47.f};
-  DiskDiskPolicyParams params;
+  TrackingKernelParameters params;
   params.cellRoadRCut = std::numeric_limits<float>::quiet_NaN();
   BOOST_CHECK(!passesCellRoadPrecut<TransitionPolicyTag::DiskDisk>(
     pointInner, pointMiddle, pointOuter, 0, 1, 2,
@@ -1029,13 +1044,13 @@ BOOST_AUTO_TEST_CASE(DiskCellRoadPrecutInfiniteCutAcceptsInIsolatedPredicate)
   // finite distance passes -- this is a real, different-from-NaN behavior of
   // the isolated formula (not "all non-finite input rejects"). Reference z
   // values stay finite and comparable in magnitude so every scale() call
-  // stays finite. DiskDiskPolicyParams::isValid() already prevents this input
+  // stays finite. TrackingKernelParameters::isValid() already prevents this input
   // from reaching production traversal (see the dedicated isValid() test).
   const GlobalPoint3F pointInner{1.0f, 0.5f, -0.4f};
   const GlobalPoint3F pointMiddle{1.3f, 0.62f, -0.6f};
   const GlobalPoint3F pointOuter{1.7f, 0.78f, -0.9f};
   const std::array<float, 3> referenceZ{-45.f, -46.f, -47.f};
-  DiskDiskPolicyParams params;
+  TrackingKernelParameters params;
   params.cellRoadRCut = std::numeric_limits<float>::infinity();
   BOOST_CHECK(passesCellRoadPrecut<TransitionPolicyTag::DiskDisk>(
     pointInner, pointMiddle, pointOuter, 0, 1, 2,
@@ -1062,31 +1077,35 @@ BOOST_AUTO_TEST_CASE(DiskCellRoadPrecutInfiniteReferenceZRejects)
   BOOST_CHECK(std::isnan(referenceConicalRoadR2Scale(zInner, zOuter)));
 
   const std::array<float, 3> referenceZ{zInner, zMiddle, zOuter};
-  DiskDiskPolicyParams params;
+  TrackingKernelParameters params;
   params.cellRoadRCut = 1000.f;
   BOOST_CHECK(!passesCellRoadPrecut<TransitionPolicyTag::DiskDisk>(
     pointInner, pointMiddle, pointOuter, 0, 1, 2,
     gsl::span<const float>(referenceZ), params));
 }
 
-BOOST_AUTO_TEST_CASE(DiskDiskPolicyParamsIsValidRejectsNonFiniteCellRoadRCut)
+BOOST_AUTO_TEST_CASE(TrackingKernelParametersIsValidRejectsNonFiniteCellRoadRCut)
 {
-  // Production guard (TransitionPolicyState.h): initialiseTimeFrame() calls
+  // Production guard (TrackingKernelParameters.h): initialiseTimeFrame() calls
   // this before any candidate is evaluated, so the infinite/NaN-cut behavior
   // exercised in isolation above never reaches traversal in practice.
-  DiskDiskPolicyParams infCut;
+  TrackingKernelParameters infCut;
+  infCut.kind = SurfaceKind::Disk;
   infCut.cellRoadRCut = std::numeric_limits<float>::infinity();
   BOOST_CHECK(!infCut.isValid());
 
-  DiskDiskPolicyParams nanCut;
+  TrackingKernelParameters nanCut;
+  nanCut.kind = SurfaceKind::Disk;
   nanCut.cellRoadRCut = std::numeric_limits<float>::quiet_NaN();
   BOOST_CHECK(!nanCut.isValid());
 
-  DiskDiskPolicyParams negativeCut;
+  TrackingKernelParameters negativeCut;
+  negativeCut.kind = SurfaceKind::Disk;
   negativeCut.cellRoadRCut = -0.05f;
   BOOST_CHECK(!negativeCut.isValid());
 
-  DiskDiskPolicyParams valid;
+  TrackingKernelParameters valid;
+  valid.kind = SurfaceKind::Disk;
   valid.cellRoadRCut = 0.05f;
   BOOST_CHECK(valid.isValid());
 }

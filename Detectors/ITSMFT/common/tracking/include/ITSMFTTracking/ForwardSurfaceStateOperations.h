@@ -125,7 +125,7 @@ bool stateChi2(const SurfaceKinematicState& reference, const SurfaceKinematicSta
 // outer measurement's measured (u, v) covariance (`measurement.covariance`)
 // used to seed the diagonal. trackletMinPt is the same configured
 // minimum-pT scale buildCellSeed<DiskDisk> already reads from
-// DiskDiskPolicyParams; its established `(trackletMinPt > 0.f) ?
+// TrackingKernelParameters; its established `(trackletMinPt > 0.f) ?
 // 1.f/trackletMinPt : 0.f` fallback is preserved verbatim, not
 // re-validated here.
 //

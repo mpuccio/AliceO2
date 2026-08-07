@@ -17,7 +17,6 @@
 #define ALICEO2_ITSMFT_TRACKING_TRACKERTRAITS_H_
 
 #include <array>
-#include <optional>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -33,8 +32,9 @@
 #include "ITSMFTTracking/TimeFrame.h"
 #include "ITSMFTTracking/TrackingOperationAdapter.h"
 #include "ITSMFTTracking/detail/SurfacePlanBinding.h"
+#include "ITSMFTTracking/detail/TransitionPolicy.h"
 #include "ITSMFTTracking/detail/TransitionPolicyBinding.h"
-#include "ITSMFTTracking/detail/TransitionPolicyState.h"
+#include "ITSMFTTracking/detail/TrackingKernelParameters.h"
 #include "ITStracking/BoundedAllocator.h"
 
 namespace o2::itsmft::tracking
@@ -253,7 +253,7 @@ class TrackerTraits
   // points to forwards to the existing
   // Tag-templated *ForPolicy leaf implementation, unchanged, using the ids
   // this same binding stores below and the corresponding
-  // mCylinderPolicyParams/mDiskPolicyParams. bindTraversalOperation()
+  // mKernelParameters. bindTraversalOperation()
   // (TrackerTraits.cxx) is this struct's only producer: it fills every
   // member exactly once per successful initialiseTimeFrame() call, from
   // that call's already-validated activeTag/params/binding (activeTag itself
@@ -297,7 +297,7 @@ class TrackerTraits
   // pair, selected only inside bindTraversalOperation(). Each is a thin,
   // non-template forwarder to the corresponding *ForPolicy<Tag> leaf
   // implementation below, reading mTraversalOperation's bound ids and the
-  // matching mCylinderPolicyParams/mDiskPolicyParams. Never called directly
+  // matching mKernelParameters. Never called directly
   // from the four public hot-loop entry points -- only through
   // mTraversalOperation's bound pointer.
   void computeLayerTrackletsCylinderCylinder(int iteration, int iVertex);
@@ -313,21 +313,21 @@ class TrackerTraits
   void computeLayerTrackletsForPolicy(int iteration,
                                       int iVertex,
                                       gsl::span<const TransitionId> transitionIds,
-                                      const typename TransitionPolicyTraits<Tag>::Params& params);
+                                      const TrackingKernelParameters& params);
 
   template <TransitionPolicyTag Tag>
   void computeLayerCellsForPolicy(int iteration,
                                   gsl::span<const CellTopologyId> cellIds,
-                                  const typename TransitionPolicyTraits<Tag>::Params& params);
+                                  const TrackingKernelParameters& params);
 
   template <TransitionPolicyTag Tag>
   void findCellsNeighboursForPolicy(int iteration,
                                     gsl::span<const CellTopologyId> scheduledCells,
-                                    const typename TransitionPolicyTraits<Tag>::Params& params);
+                                    const TrackingKernelParameters& params);
 
   template <TransitionPolicyTag Tag>
   void findRoadsForPolicy(int iteration,
-                          const typename TransitionPolicyTraits<Tag>::Params& params,
+                          const TrackingKernelParameters& params,
                           TrackingOperationAdapter& operationAdapter);
 
   // M4 (GenericTrackingEngineMigration.md; ADR 0007 decision 7): moved from
@@ -336,7 +336,7 @@ class TrackerTraits
   // for it to be publicly callable. Explicit policy instantiation remains
   // local to this implementation and does not encode a detector layer count.
   template <TransitionPolicyTag Tag, typename InputSeed>
-  void processNeighbours(int iteration, int defaultCellTopologyId, int iLevel, const bounded_vector<InputSeed>& currentCellSeed, const bounded_vector<int>& currentCellId, const bounded_vector<int>& currentCellTopologyId, bounded_vector<TrackSeed>& updatedCellSeed, bounded_vector<int>& updatedCellId, bounded_vector<int>& updatedCellTopologyId, const typename TransitionPolicyTraits<Tag>::Params& params);
+  void processNeighbours(int iteration, int defaultCellTopologyId, int iLevel, const bounded_vector<InputSeed>& currentCellSeed, const bounded_vector<int>& currentCellId, const bounded_vector<int>& currentCellTopologyId, bounded_vector<TrackSeed>& updatedCellSeed, bounded_vector<int>& updatedCellId, bounded_vector<int>& updatedCellTopologyId, const TrackingKernelParameters& params);
 
   // Gate 3 transition-preparation slice: relocated from TimeFrame::initialise()
   // (Architecture.md Sec 10/10.1). Called from initialiseTimeFrame() only
@@ -356,8 +356,10 @@ class TrackerTraits
   std::shared_ptr<tbb::task_arena> mTaskArena;
   SurfaceGraphView mTraversalGraph{};
   bool mTraversalCacheValid{false};
-  std::optional<CylinderCylinderPolicyParams> mCylinderPolicyParams;
-  std::optional<DiskDiskPolicyParams> mDiskPolicyParams;
+  // One committed record for the active endpoint SurfaceKind. It is reset
+  // together with the other traversal caches and published only after all
+  // fallible initialization checks succeed.
+  TrackingKernelParameters mKernelParameters{};
   // M5c: see TraversalOperationBinding's own doc above.
   TraversalOperationBinding mTraversalOperation;
   // Gate 3 cell-road pre-cut slice: the legacy MFT reference-z span bound

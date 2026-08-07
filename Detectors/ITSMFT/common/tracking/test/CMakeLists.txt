@@ -69,8 +69,8 @@ o2_add_test(transitionpolicytag-containment
             LABELS "itsmft;tracking"
             PUBLIC_LINK_LIBRARIES O2::ITSMFTTracking)
 
-o2_add_test(transitionpolicystate
-            SOURCES testTransitionPolicyState.cxx
+o2_add_test(tracking-kernel-parameters
+            SOURCES testTrackingKernelParameters.cxx
             COMPONENT_NAME itsmft-tracking
             LABELS "itsmft;tracking"
             PUBLIC_LINK_LIBRARIES O2::ITSMFTTracking)
