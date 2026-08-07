@@ -10,9 +10,7 @@
 // or submit itself to any jurisdiction.
 ///
 /// \file CATrackerSpec.h
-/// \brief Opt-in ITS common-CA tracker DPL device (Gate 3 workflow-onboarding
-///        Slice 2). Modeled on MFTWorkflow/CATrackerSpec.h where contracts
-///        match; publishes tracker-only outputs (no VERTICES/VERTICESROF).
+/// \brief ITS common-CA tracker DPL device with tracker-only outputs.
 
 #ifndef O2_ITS_CA_WORKFLOW_CATRACKERSPEC_H_
 #define O2_ITS_CA_WORKFLOW_CATRACKERSPEC_H_
@@ -47,10 +45,8 @@
 namespace o2::its::ca
 {
 
-/// Gate 3 failure-contract publication decision, mirroring
-/// o2::mft::decideCATrackerPublicationAction() exactly (same three-way
-/// outcome, same meaning) -- factored out as a pure function so the
-/// publish-vs-skip contract can be exercised without a DPL ProcessingContext.
+/// Failure-contract publication decision, factored out as a pure function so
+/// the publish-vs-skip contract is testable without a DPL ProcessingContext.
 enum class CATrackerPublicationAction {
   PublishInactiveEmpty, ///< tracker not configured/active: publish empty outputs
   PublishActiveResult,  ///< active tracking returned a non-dropped result (including valid-empty input)
@@ -66,43 +62,16 @@ CATrackerPublicationAction decideCATrackerPublicationAction(bool trackerActive, 
 /// RangeRefComp cluster range (o2::its::TrackITS::setFirstClusterEntry(),
 /// via the CA algorithm's own pre-set cluster count) accordingly.
 ///
-/// Byte-for-byte the same per-track logic as the legacy
-/// ITSWorkflow/TrackerSpec.cxx::run() loop: cluster indices are read
-/// per-layer (`track.getClusterIndex(layer)`, -1 if that layer has no hit)
-/// in decreasing layer order and each valid one is pushed onto
-/// `clusterIndices`; the resulting flattened order is
-/// outer-to-inner-most-populated-first, not physical layer order -- this
-/// matches every existing ITS track consumer's expectation (they all read
-/// through RangeRefComp + TRACKCLSID, never by assuming physical layer
-/// order).
+/// Copies cluster indices in decreasing layer order into `clusterIndices`,
+/// preserving the persisted outer-to-inner order.
 ///
-/// Unlike the legacy loop, this does NOT re-derive the packed cluster size
-/// here: by the time a track reaches `tf.getTracks()`,
-/// `track.getClusterIndex(layer)` has already been rewritten by
-/// Tracker<NLayers>::rectifyClusterIndices() (CATracker.cxx) from this
-/// layer's own local cluster identity -- the domain mClusterSize is keyed
-/// by -- to the external/global one, so the local identity needed to
-/// address mClusterSize is gone by the time this function runs.
-/// rectifyClusterIndices() captures `tf.getClusterSize(layer, localIndex)`
-/// onto the track itself (via TrackITS::setClusterSize()) while the local
-/// index is still available, so this function only has to carry that
-/// already-correct per-layer size through the by-value copy into the output
-/// TrackITS -- it must not query the TimeFrame with the (by-then external)
-/// `clid` here, which is exactly the local-vs-external index confusion this
-/// function used to have.
+/// Cluster sizes have already been captured on the track before local indices
+/// are rewritten to external indices; do not query the TimeFrame here.
 ///
-/// Takes `track` by value: the RangeRefComp mutation happens on the
-/// caller's own copy of the source TrackITSExt before it is sliced into the
-/// output TrackITS, so the caller's TimeFrame-owned track is never mutated
-/// by this call.
+/// Takes `track` by value so RangeRefComp mutation cannot alter TimeFrame-owned
+/// state before the output copy is appended.
 ///
-/// `clusterIndices`/`tracks` are templated (not plain std::vector<>&): DPL's
-/// pc.outputs().make<std::vector<T>>() actually returns a pmr-allocator
-/// vector (std::vector<T, polymorphic_allocator<T>>), not std::vector<T>, so
-/// a fixed std::vector<T>& parameter would reject the real call site in
-/// CATrackerSpec.cxx while only ever being exercised with plain
-/// std::vector<T> in tests -- genericity here is required for the real
-/// caller, not speculative.
+/// The vectors are templated to accept DPL's polymorphic-allocator outputs.
 template <typename ClusterIdxVec, typename TracksVec>
 void convertTrackITSExtToTrackITS(o2::its::TrackITSExt track,
                                   ClusterIdxVec& clusterIndices,
@@ -125,12 +94,8 @@ void convertTrackITSExtToTrackITS(o2::its::TrackITSExt track,
   tracks.push_back(track);
 }
 
-/// ITS common-CA tracker DPL task. Owns the standalone TimeFrame and
-/// composes the workflow-owned input/timing/publication edge with Tracker.
-/// Frozen legacy o2::its::TrackerDPL
-/// (ITSWorkflow/TrackerSpec.h) and o2-its-reco-workflow are untouched by
-/// this class; it lives in an isolated library/executable
-/// (o2-its-ca-tracker-workflow) with no link-graph overlap with ITSWorkflow.
+/// ITS common-CA tracker DPL task. Owns the TimeFrame and composes the
+/// workflow input/timing/publication edge with Tracker.
 class CATrackerDPL : public o2::framework::Task
 {
  public:

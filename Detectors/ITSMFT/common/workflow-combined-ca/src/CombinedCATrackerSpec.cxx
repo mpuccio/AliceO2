@@ -88,14 +88,8 @@ bool completePublication(o2::itsmft::tracking::DetectorPublicationAdapter<NLayer
   return true;
 }
 
-// Per-layer DPLAlpideParam<DetId> -> one source-level ROFTimingConfig,
-// fatal on non-positive ROF length or non-uniform per-layer staggering --
-// the standalone workflow adapters use, reused via the same shared
-// deriveUniformROFTimingConfig() (SurfaceTiming.h). Unlike that
-// single-detector path, this workflow does not need to derive nROFsTF here:
-// The workflow-owned configureRofTables() takes it directly as the workflow's
-// own ClusterSourceInput::rofs
-// .size(), the actual ROF count this TF's DPL input already carries.
+// Derive one source-level timing configuration from per-layer parameters;
+// reject non-positive lengths and non-uniform staggering.
 template <o2::detectors::DetID::ID DetId, int NLayers>
 o2::itsmft::tracking::ROFTimingConfig deriveRofTimingConfigOrFatal(const o2::itsmft::TrackingParameters& params)
 {
@@ -135,9 +129,7 @@ o2::InteractionRecord chooseOrigin(gsl::span<const o2::itsmft::ROFRecord> itsRof
   return o2::InteractionRecord{};
 }
 
-// The combined ITS/MFT application plan is workflow-owned. It is deliberately
-// built here, beside the DPL task that owns its source positions and schedule,
-// rather than hidden behind a library-level coordinator.
+// The workflow owns the combined application plan and source schedule.
 o2::itsmft::tracking::SurfaceCatalogView combinedCatalogView()
 {
   return {o2::itsmft::tracking::kITSMFTCombinedStaticSurfaceCatalog.data(),
@@ -209,12 +201,7 @@ void CombinedCATrackerDPL::buildParticipantsOnce()
   }
   mParticipantsBuilt = true;
 
-  // Sync-only, single iteration per detector -- enforced already by
-  // TrackingMode::getTrackingParameters(ITS, Sync) (fatal on any other
-  // mode) and by requireSyncTrackingModeOrFatal()/
-  // requireDiamondVertexConstraintOrFatal() at the workflow's own preflight
-  // (itsmft-combined-ca-tracker-workflow.cxx), before this device was even
-  // constructed.
+  // Preflight guarantees Sync mode and one iteration per detector.
   auto itsParams = o2::itsmft::TrackingMode::getTrackingParameters(o2::detectors::DetID::ITS, o2::itsmft::TrackingMode::Sync);
   auto mftParams = o2::itsmft::TrackingMode::getTrackingParameters(o2::detectors::DetID::MFT, o2::itsmft::TrackingMode::Sync);
   const auto itsSurfaces = orderedSurfaceRange(0, o2::itsmft::tracking::ITSNLayers);
@@ -364,19 +351,8 @@ TrackingOutcome CombinedCATrackerDPL::trackFrame(const ClusterSourceInput& itsSo
                                                  const o2::InteractionRecord& origin)
 {
   invalidatePublication();
-  // A prior successful trackFrame() call leaves both sidecars sealed
-  // (ITSSharedClusterCompatibility::sealFromMarkedTracks(),
-  // MFTPublicationCompatibility's per-TF entries): unlike
-  // TimeFrame::getCommonTracks()/getTrackClusterIndices(), which
-  // commitNormalizedFrame() clears atomically on the *next* load, neither
-  // sidecar is cleared by a successful trackFrame() itself. Left sealed,
-  // the very next TF's first accepted ITS track would fail
-  // AcceptedTrackShadowPublisher<ITSNLayers>::publish()'s already-sealed
-  // guard and fatal inside TrackerTraits<NLayers>::acceptTracks() ("CommonTrack
-  // shadow construction failed"). Clearing both unconditionally at the top
-  // of every trackFrame() call -- success or failure alike -- keeps every
-  // TF starting from the same fresh state regardless of how the previous
-  // one ended.
+  // Sidecars are sealed on success and are not cleared by the next frame's
+  // normalized-frame commit; clear them before each new transaction.
   clearPublicationSidecars();
 
   configureRofTables(itsSource, mftSource);
@@ -395,14 +371,8 @@ TrackingOutcome CombinedCATrackerDPL::trackFrame(const ClusterSourceInput& itsSo
     loadResult = MultiSourceTimeFrameLoader::load(mFrame, gsl::span<const ClusterSourceInput>{sources}, catalogView(), origin);
   }
   if (!loadResult.ok()) {
-    // Reuse isRecoverableLoadError() (MultiSourceTimeFrameLoader.h) rather than a
-    // parallel taxonomy, then gate it by the *owning* detector's own
-    // DropTFUponFailure -- the workflow-owned source mapping carries
-    // the fixed ITS/MFT source-position contract. This is a *load*
-    // failure: the event was never atomically committed, so
-    // Tracker::run() must never be called on it --
-    // resetEvent() alone applies the same all-participant/shared-frame
-    // reset contract without ever reaching track().
+    // Apply the shared recoverable-load taxonomy and the owning detector's
+    // DropTFUponFailure policy. No tracker runs after an uncommitted load.
     const bool errorIsRecoverable = o2::itsmft::tracking::isRecoverableLoadError(loadResult.error, loadResult.timingDetail);
     const auto dropAllowed = dropTFUponFailureFor(loadResult.source);
     const bool sourceRecognized = dropAllowed.has_value();
@@ -422,9 +392,8 @@ TrackingOutcome CombinedCATrackerDPL::trackFrame(const ClusterSourceInput& itsSo
     return outcome;
   }
 
-  // Loader commits first; Tracker then runs the explicit [ITS, MFT] order
-  // directly into the shared frame. Each Tracker owns no frame state and
-  // reads its source binding from the frame at the point of execution.
+  // Loader commits before the explicit [ITS, MFT] tracker order; trackers read
+  // their non-owning source bindings from the frame at execution.
   try {
     const auto itsResult = mITSTracker->run(mFrame, *mITSTraits);
     if (itsResult.outcome != TrackingOutcome::Success) {
@@ -493,8 +462,7 @@ void CombinedCATrackerDPL::run(ProcessingContext& pc)
   const gsl::span<const o2::itsmft::ROFRecord> itsRofs(itsRofsInput.data(), itsRofsInput.size());
   const gsl::span<const o2::itsmft::ROFRecord> mftRofs(mftRofsInput.data(), mftRofsInput.size());
 
-  // Direct field-by-field construction: each source input is workflow-owned
-  // and built fresh for this TF.
+  // Build fresh workflow-owned source inputs for this TF.
   ClusterSourceInput itsSource{};
   itsSource.id = ClusterSourceId{0};
   itsSource.detector = o2::detectors::DetID::ITS;
@@ -503,9 +471,7 @@ void CombinedCATrackerDPL::run(ProcessingContext& pc)
   itsSource.rofs = itsRofs;
   itsSource.dictionary = mITSDict;
   itsSource.labels = itsLabels;
-  // layerToSurface built directly from the workflow-owned plan's always-valid
-  // ordered-surface getter -- never re-derived by hand as a literal
-  // ITS=0..6/MFT=7..16 offset.
+  // Use the plan's ordered surfaces rather than re-deriving detector offsets.
   itsSource.layerToSurface = getITSOrderedSurfaces();
   itsSource.timing = deriveRofTimingConfigOrFatal<o2::detectors::DetID::ITS, o2::itsmft::tracking::ITSNLayers>(
     *mFrame.getTrackingParameters(0, ClusterSourceId{0}));
@@ -550,8 +516,7 @@ void CombinedCATrackerDPL::run(ProcessingContext& pc)
     const o2::itsmft::tracking::CommonTrackPublicationContext mftContext{
       mftExport->detector, mftExport->source, mftRofs, mftExport->clock, mftExport->orderedSurfaces};
 
-    // Stage both detectors' outputs completely before any pc.outputs() call:
-    // if either staging fails, neither stream is ever requested.
+    // Stage both outputs before requesting either output stream.
     o2::itsmft::tracking::CommonTrackOutputAdapterError itsError = o2::itsmft::tracking::CommonTrackOutputAdapterError::None;
     const auto stagedITS = o2::itsmft::tracking::stageITSCommonTrackOutput(
       mFrame, itsContext, getITSSharedClusterCompatibility(), mUseMC, itsError);
@@ -677,15 +642,8 @@ DataProcessorSpec getCombinedCATrackerSpec(bool useMC)
   // Deliberately no IRFramesITS input -- see ConfigPreflight.h's
   // requireNoMFTIRFrameConfigOrFatal()/requireContinuousMFTReadoutOrFatal().
 
-  // GeomRequest::None: clusters entering this tracker are already aligned,
-  // so this workflow never requests the full aligned global geometry
-  // (GeomRequest::Aligned -> CCDB "GLO/Config/GeometryAligned"). It always
-  // requests each detector's own nominal/ideal GeometryTGeo snapshot
-  // directly instead -- the same object both single-detector opt-in
-  // workflows already default to (their own useGeom=false path) -- since
-  // GeometryClusterDecoder<DetId>::decode() only ever consults
-  // getMatrixT2L()/getMatrixL2G() from it (IOUtils.cxx), never an
-  // alignment-adjusted matrix.
+  // Clusters are already aligned; request each detector's nominal GeometryTGeo
+  // snapshot used by GeometryClusterDecoder.
   auto ggRequest = std::make_shared<o2::base::GRPGeomRequest>(false, true, false, true, true,
                                                               o2::base::GRPGeomRequest::None, inputs, true);
   ggRequest->addInput({"itsTGeo", "ITS", "GEOMTGEO", 0, Lifetime::Condition, ccdbParamSpec("ITS/Config/Geometry")}, inputs);

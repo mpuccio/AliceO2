@@ -23,9 +23,8 @@
 namespace o2::itsmft::tracking
 {
 
-// Typed failures at the host compact-cluster decoding boundary. These values
-// are intentionally independent of MultiSourceLoadError: a loader maps them
-// while adding source/ROF/external-cluster context.
+// Typed failures at the host compact-cluster decoding boundary; the loader
+// adds source, ROF, and external-cluster context when it maps them.
 enum class ClusterDecodeError : uint8_t {
   None,
   MissingDictionary,
@@ -39,11 +38,9 @@ enum class ClusterDecodeError : uint8_t {
   OtherMalformedInput
 };
 
-// Host-only cursor for the source-local explicit-pattern byte stream. The
-// cursor owns no storage and always retains both the current position and the
-// end through a span plus an offset. It validates the ClusterPattern encoding
-// (row byte, column byte, then ceil(row*column/8) bitmap bytes) before calling
-// ClusterPattern's iterator constructor, which is itself unbounded.
+// Host-only cursor for the source-local explicit-pattern byte stream. It owns
+// no storage and checks the complete encoded pattern before using the
+// unbounded ClusterPattern iterator.
 class BoundedPatternCursor
 {
  public:
@@ -90,8 +87,7 @@ class BoundedPatternCursor
   size_t mPosition{0};
 };
 
-// Host-side facts produced by compact-cluster and geometry decoding. This is
-// deliberately independent of detector output and legacy tracking types.
+// Host-side facts produced by compact-cluster and geometry decoding.
 struct DecodedCluster {
   GlobalPoint3F global{};
   // ITS geometry supplies its cylindrical tracking frame here. Disk
@@ -105,16 +101,9 @@ struct DecodedCluster {
   int layer{0};
 };
 
-// Result of decoding a cluster when the target SurfaceId is not known ahead
-// of decoding: `layer` is the detector-local layer discovered by the same
-// geometry decode used to build `measurement`, and `layerMapped` reports
-// whether the caller-supplied detector-layer-to-SurfaceId table covered that
-// layer. `measurement`/`kind` are only meaningful when `layerMapped` is true.
-// `kind` is the geometry kind (cylinder/disk) the decoder actually produced;
-// it lets a caller validate the target surface's kind explicitly, without
-// inferring detector geometry from surface count. `error` is the typed host
-// decode failure; other fields are meaningful only when ok() is true (except
-// `layer`, which may identify an InvalidLayerMapping failure).
+// Decode result with the detector-local layer and its mapped SurfaceId. The
+// measurement and kind are valid only when layerMapped is true; other fields
+// are valid only on success, except layer on InvalidLayerMapping.
 struct SurfaceMeasurementDecodeResult {
   SurfaceMeasurement measurement{};
   SurfaceKind kind{SurfaceKind::Cylinder};
@@ -184,17 +173,15 @@ o2::itsmft::tracking::SurfaceMeasurementDecodeResult loadClusterSurfaceMeasureme
 namespace o2::itsmft::tracking
 {
 
-// Host loading-boundary polymorphism only (Architecture.md 7.1): decoder
-// implementations may call into detector geometry, but this interface, its
-// implementations, and its result type must never enter device views or CA
+// Host-only loading boundary. Decoder implementations may call detector
+// geometry, but this interface and its result never enter device views or CA
 // loops.
 class ClusterDecoder
 {
  public:
   virtual ~ClusterDecoder() = default;
 
-  // Called once per source before decoding its first cluster (e.g. to fill a
-  // detector geometry matrix cache). No-op by default.
+  // Called once per source before its first cluster; no-op by default.
   virtual void prepare() const {}
 
   virtual SurfaceMeasurementDecodeResult decode(
@@ -208,11 +195,9 @@ class ClusterDecoder
     bool applySysErrors) const = 0;
 };
 
-// Production adapter: decodes through the integrated detector geometry
-// singleton, exactly like the single-surface loadClusterSurfaceMeasurement
-// path (same geometry lookup, pattern consumption, covariance calculation
-// and systematic-error application, performed exactly once), plus mapping
-// the decoded detector-local layer to a global SurfaceId.
+// Geometry-backed decoder. It performs the established single-pass geometry,
+// pattern, covariance, and systematic-error operations, then maps the decoded
+// detector layer to a global SurfaceId.
 template <o2::detectors::DetID::ID DetId>
 class GeometryClusterDecoder final : public ClusterDecoder
 {
@@ -229,9 +214,7 @@ class GeometryClusterDecoder final : public ClusterDecoder
     uint32_t sourceROF,
     bool applySysErrors) const override
   {
-    // Check the required dictionary before asking GeometryTGeo::Instance()
-    // for anything. In particular, this keeps a missing dictionary typed
-    // even when detector geometry has not been loaded yet.
+    // Preserve a typed dictionary failure before any geometry access.
     if (dict == nullptr) {
       SurfaceMeasurementDecodeResult result;
       result.error = ClusterDecodeError::MissingDictionary;

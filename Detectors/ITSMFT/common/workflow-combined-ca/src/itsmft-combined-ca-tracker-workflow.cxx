@@ -6,15 +6,8 @@
 // License v3 (GPL Version 3), copied verbatim in the file "COPYING".
 ///
 /// \file itsmft-combined-ca-tracker-workflow.cxx
-/// \brief Gate 4 C4: opt-in combined ITS+MFT common-CA tracker workflow.
-///        Sync mode only, tracker-only outputs (no vertex products). No
-///        --use-geom (never selects an aligned-geometry route) and no
-///        --use-irframes (the combined coordinator has no IR-frame/trigger
-///        masking; see ConfigPreflight.h). The frozen legacy
-///        o2-its-reco-workflow/o2-mft-reco-workflow and the single-detector
-///        opt-in o2-its-ca-tracker-workflow/o2-mft-ca-tracker-workflow are
-///        all untouched; this is a separate executable built from an
-///        isolated library with no link-graph overlap with any of them.
+/// \brief Combined ITS+MFT common-CA tracker workflow. Sync mode only, with
+///        tracker outputs and no IR-frame masking.
 
 #include <string>
 #include <vector>
@@ -56,13 +49,8 @@ void customize(std::vector<ConfigParamSpec>& workflowOptions)
 
 WorkflowSpec defineDataProcessing(ConfigContext const& config)
 {
-  // Preflight order, all before any DataProcessorSpec/device is constructed:
-  //   1. apply --configKeyValues;
-  //   2. reject unless explicitly opted in;
-  //   3. reject every tracking-mode other than Sync;
-  //   4. reject a configuration with no reproducible ITS vertex/beam constraint;
-  //   5. reject a configuration requesting MFT IR-frame/triggered masking
-  //      this coordinator cannot apply.
+  // Apply configuration and enforce all preflight checks before constructing
+  // any DataProcessorSpec/device.
   o2::conf::ConfigurableParam::updateFromString(config.options().get<std::string>("configKeyValues"));
   o2::itsmft::combined::requireCombinedTrackingEnabledOrFatal();
 
@@ -77,11 +65,8 @@ WorkflowSpec defineDataProcessing(ConfigContext const& config)
   WorkflowSpec specs;
   specs.emplace_back(o2::itsmft::combined::getCombinedCATrackerSpec(useMC));
   if (!disableRootOutput) {
-    // Same shared writer-spec functions o2-its-ca-tracker-workflow/
-    // o2-mft-ca-tracker-workflow call (O2::ITSMFTCAWriter) -- not a
-    // reimplementation. useCA=true for MFT matches mft-ca-tracker-workflow.cxx:
-    // the combined route always publishes through the CommonTrack/CA adapter,
-    // so the MFTTrackSeedPattern branch must always be written.
+    // Reuse the shared writer specs; the combined MFT route always writes the
+    // seed-pattern branch produced by the CA adapter.
     specs.emplace_back(o2::its::ca::getTrackWriterSpec(useMC));
     specs.emplace_back(o2::mft::getTrackWriterSpec(useMC, true));
   }

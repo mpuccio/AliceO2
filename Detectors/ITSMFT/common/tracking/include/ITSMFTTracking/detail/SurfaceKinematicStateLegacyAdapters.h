@@ -21,10 +21,8 @@
 namespace o2::itsmft::tracking::legacy
 {
 
-// Host-only migration boundary. These adapters are for retained-legacy fixtures,
-// parity tests, and temporary boundary validation only. Stage-B production state
-// operations must use SurfaceKinematicState directly and must not include this
-// header or construct TrackParCovFwd.
+// Host-only boundary for retained legacy state conversion. Production state
+// operations use SurfaceKinematicState directly.
 inline bool importBarrelTrackParCov(const o2::track::TrackParCovF& source, SurfaceKinematicState& destination) noexcept
 {
   SurfaceKinematicState scratch{};
@@ -110,10 +108,8 @@ inline bool importLegacyForwardTrackParCov(const o2::track::TrackParCovFwd& sour
   return true;
 }
 
-// Host-only inverse of importLegacyForwardTrackParCov(), retained solely for
-// output-adapter staging. It deliberately reconstructs the exact legacy
-// double-precision payload from the common float representation rather than
-// adding a second forward-state representation to CommonTrack.
+// Host-only inverse used by output staging; reconstructs the legacy payload
+// from the common float representation.
 inline bool exportLegacyForwardTrackParCov(const SurfaceKinematicState& source, o2::track::TrackParCovFwd& destination) noexcept
 {
   if (source.family != StateFamily::Forward) {

@@ -37,10 +37,8 @@ void configureAdapterBeamPosition(TimeFrame& frame,
   }
 }
 
-// These helpers are the only detector-specific operation code used by the
-// two application adapters. They produce the same detector-neutral
-// TrackingCandidate consumed by TrackerTraits; no typed accepted track or
-// detector traits object crosses into the generic core.
+// Detector edges produce the detector-neutral TrackingCandidate consumed by
+// TrackerTraits; typed accepted tracks stay outside the generic core.
 inline bool fillCandidateKinematics(TrackingCandidate& candidate) noexcept
 {
   if (candidate.track.innerState.family == StateFamily::Barrel) {

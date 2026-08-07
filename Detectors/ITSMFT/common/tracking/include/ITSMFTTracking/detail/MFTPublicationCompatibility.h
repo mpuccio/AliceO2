@@ -20,11 +20,8 @@
 namespace o2::itsmft::tracking
 {
 
-// Temporary MFT output-compatibility data. This deliberately remains outside
-// CommonTrack and TimeFrame: it is only needed until the TrackMFT publication
-// schema can deliberately evolve. Indices address the one shared TimeFrame
-// CommonTrack collection, not an MFT-local position, so ITS/MFT entries may
-// interleave in a later combined owner.
+// MFT output-compatibility sidecar kept outside CommonTrack and TimeFrame.
+// Indices address the shared CommonTrack collection, not an MFT-local slot.
 struct MFTPublicationCompatibilityEntry {
   uint32_t commonTrackIndex{};
   double invQPtSeed{};
@@ -39,9 +36,7 @@ class MFTPublicationCompatibility
   const std::vector<MFTPublicationCompatibilityEntry>& entries() const noexcept { return mEntries; }
   void clear() noexcept { mEntries.clear(); }
 
-  // Adapter-edge completion from the generic accepted-result sequence. The
-  // result supplies only detector-neutral TrackSeed/CommonTrack data; no
-  // MFT typed track is required merely to preserve the compatibility fields.
+  // Materialize compatibility fields from detector-neutral accepted results.
   template <typename Results>
   bool replaceFromAcceptedResults(const Results& results)
   {
@@ -81,9 +76,8 @@ class MFTPublicationCompatibility
   std::vector<MFTPublicationCompatibilityEntry> mEntries;
 };
 
-// Local participant in publishCommonTrackShadow(). The caller stages one
-// entry before touching any owner; duplicate/non-monotonic keys fail before
-// reserve, and rollback restores the original sparse sequence size.
+// Transactional participant for one compatibility entry. Invalid ordering
+// fails before append, and rollback restores the prior sequence size.
 class MFTPublicationCompatibilityTransaction
 {
  public:

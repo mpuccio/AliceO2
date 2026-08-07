@@ -48,17 +48,10 @@ constexpr bool isLayerInDetector(int layer, int detectorLayers) noexcept
   return layer >= 0 && layer < detectorLayers;
 }
 
-/// Whether a cluster-decoding systematic-error correction should be applied
-/// for `DetId`. ITS common-CA is an explicit no-op here: the dedicated
-/// ITSCommonCATrackerParam configuration does not support this feature, so
-/// common ITS normalized decoding must not consult TrackerParamRef<ITS>::get()
-/// (the frozen legacy ITSCATrackerParam's sysErrY2/sysErrZ2 -- see
-/// TrackingConfigParam.h's doc comment on why the two namespaces are kept
-/// distinct). MFT is unchanged: it keeps reading its own live
-/// TrackerParamConfig<MFT> ("MFTCATrackerParam") sysErr2Row/sysErr2Col.
-/// A free function (not a class member) purely so isolation tests can call it
-/// directly without a geometry/dictionary fixture; not intended as broad
-/// public API.
+/// Whether to apply cluster-decoding systematic errors for `DetId`. ITS
+/// common-CA is an explicit no-op; MFT reads its live tracker configuration.
+/// The free function keeps this detector-generic boundary independently
+/// callable.
 template <o2::detectors::DetID::ID DetId>
 bool shouldApplySysErrors()
 {
@@ -75,10 +68,8 @@ bool shouldApplySysErrors()
   }
 }
 
-/// Adds the configured systematic-error correction to `sigma2Row`/`sigma2Col`
-/// for `DetId`. ITS is an explicit no-op: see shouldApplySysErrors<ITS>()
-/// above -- kept callable (rather than removed) so callers stay
-/// detector-generic, but it never reads TrackerParamRef<ITS>::get().
+/// Adds configured systematic-error corrections to `sigma2Row`/`sigma2Col`;
+/// the ITS specialization is an explicit no-op.
 template <o2::detectors::DetID::ID DetId>
 void addSysErrors(int layerId, float& sigma2Row, float& sigma2Col)
 {
@@ -115,12 +106,8 @@ o2::itsmft::tracking::SurfaceMeasurement loadClusterSurfaceMeasurement(
   uint32_t sourceROF,
   bool applySysErrors = true);
 
-/// Decode a compact cluster through the detector geometry singleton exactly
-/// once, then map the discovered detector-local layer to a global SurfaceId
-/// via `layerToSurface`. This avoids the duplicate geometry/layer lookup that
-/// a caller would otherwise need in order to know the SurfaceId before
-/// decoding (see the single-surface overload above, preserved for callers
-/// that already know the target surface).
+/// Decode once through detector geometry, then map the discovered local layer
+/// to a global SurfaceId through `layerToSurface`.
 template <o2::detectors::DetID::ID DetId>
 o2::itsmft::tracking::SurfaceMeasurementDecodeResult loadClusterSurfaceMeasurement(
   const CompClusterExt& c,
@@ -182,10 +169,8 @@ struct ClusterDataDecodeResult {
   bool ok() const noexcept { return error == o2::itsmft::tracking::ClusterDecodeError::None; }
 };
 
-// Bounded counterpart used by normalized loading. Legacy iterator-based
-// helpers remain unchanged for existing workflows. Explicit and grouped
-// patterns are acquired only after BoundedPatternCursor has proved that the
-// complete encoded pattern is present.
+// Bounded normalized-loading counterpart. Pattern bytes are acquired only
+// after BoundedPatternCursor has proved that the complete encoding is present.
 template <typename T = float>
 ClusterDataDecodeResult<T> extractClusterDataBounded(
   const CompClusterExt& c,
@@ -230,7 +215,7 @@ ClusterDataDecodeResult<T> extractClusterDataBounded(
   return result;
 }
 
-// same method returning coordinates as an array (suitable for the TGeoMatrix)
+// Array-valued coordinate counterpart for TGeoMatrix callers.
 template <class iterator, typename T>
 std::array<T, 3> extractClusterDataA(const CompClusterExt& c, iterator& iter, const TopologyDictionary* dict, T& sig2Row, T& sig2Col)
 {

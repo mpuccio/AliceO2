@@ -10,12 +10,8 @@
 // or submit itself to any jurisdiction.
 
 /// @file   its-ca-tracker-workflow.cxx
-/// \brief  Opt-in ITS common-CA tracker workflow (Gate 3 workflow-onboarding
-///         Slice 2). Runs the runtime-plan Tracker on real ITS
-///         cluster inputs, Sync mode only, tracker-only outputs. The frozen
-///         legacy o2-its-reco-workflow is untouched; this is a separate
-///         executable built from an isolated library with no link-graph
-///         overlap with ITSWorkflow.
+/// \brief  ITS common-CA tracker workflow: Sync-mode tracking on ITS cluster
+///         inputs with tracker-only outputs.
 
 #include <tuple>
 #include <vector>
@@ -56,11 +52,8 @@ void customize(std::vector<ConfigParamSpec>& workflowOptions)
 
 WorkflowSpec defineDataProcessing(ConfigContext const& config)
 {
-  // Preflight order, all before any DataProcessorSpec/device is constructed:
-  //   1. reject a legacy ITSCATrackerParam.* --configKeyValues override, then
-  //      apply the (accepted) string;
-  //   2. reject every tracking-mode other than Sync;
-  //   3. reject a configuration with no reproducible vertex/beam constraint.
+  // Apply configuration and enforce all preflight checks before constructing
+  // any DataProcessorSpec/device.
   o2::its::ca::applyConfigKeyValuesOrFatal(config.options().get<std::string>("configKeyValues"));
 
   const auto trMode = o2::itsmft::TrackingMode::fromString(config.options().get<std::string>("tracking-mode"));

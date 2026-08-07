@@ -126,32 +126,14 @@ inline void mftTrackletSigmaXY(float x0, float y0, float pvX, float pvY, float p
   }
 }
 
-// M5d: the frozen-legacy MFT final-track Kalman fit primitives that used to
-// live here (mftFwdPropagateToZ/mftFwdPredictedChi2/mftFwdStateChi2/
-// mftFwdAttachCluster/mftFwdFitCellClusters, all o2::track::TrackParCovFwd-
-// based, driving o2::mft::TrackFitter<TrackLTF>) have been removed: they had
-// no remaining production call site (Stage-B already migrated CA cell/hit
-// construction to forward::buildSeed/attachHit, and refitTrackFwd below now
-// uses the shared native driver) and no test referenced them directly. See
-// doc/decisions/0008-native-refit-activation.md. mftLayerZ/mftLayerMSAngle/
-// mftTrackletProject/mftTrackletSigmaXY above are untouched: they remain the
-// live tracklet-projection primitives TrackletFinding.cxx and
-// TrackerTraits.cxx call every iteration, a distinct stage from final refit.
-
 } // namespace o2::itsmft::tracking::detail
 
 namespace o2::itsmft::tracking
 {
 
-// layerMeasurements is TrackerTraits::mLayerMeasurements: the authoritative,
-// already-validated per-surface normalized SurfaceMeasurement span. Every
-// physical hit coordinate/covariance consumed by the fit comes from it; tf is
-// used only for the normalized identity re-check. surfaceCatalog is this
-// iteration's descriptor catalog (ADR 0001 nominal material).
-//
-// expectedSource is the ClusterSourceId resolved once by the caller. It is
-// used only to re-check normalized-measurement identity before trusting a
-// hit; it is never re-derived deeper in the fit.
+// layerMeasurements is the validated normalized measurement span; tf is used
+// only for identity checks. surfaceCatalog supplies this iteration's surface
+// descriptors, and expectedSource is checked without being re-derived.
 bool refitTrackFwd(const TrackSeed& seed,
                    const SurfaceTrackingScratch& tf,
                    const TrackingParameters& params,

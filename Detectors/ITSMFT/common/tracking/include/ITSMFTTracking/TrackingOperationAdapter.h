@@ -22,10 +22,8 @@
 namespace o2::itsmft::tracking
 {
 
-// Detector-neutral result of one successful seed refit. The candidate keeps
-// only values needed by the shared acceptance/ordering flow and the narrow
-// application adapter call. Typed output tracks and publication sidecars
-// remain outside the common tracker.
+// Detector-neutral result of one successful seed refit. Typed output tracks
+// and publication sidecars remain outside the common tracker.
 struct TrackingCandidate {
   TrackSeed seed;
   CommonTrack track{};
@@ -39,9 +37,8 @@ struct TrackingCandidate {
   int getFirstClusterLayer() const noexcept { return seed.getSurfaceMask().first(); }
 };
 
-// The only operation the generic road stage requires from an application is a
-// call-scoped refit. Publication and reset are workflow operations after the
-// generic tracker transaction has completed.
+// The generic road stage requires only a call-scoped refit. Publication and
+// reset occur after the generic tracker transaction completes.
 class TrackingOperationAdapter
 {
  public:

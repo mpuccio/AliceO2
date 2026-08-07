@@ -10,8 +10,7 @@
 // or submit itself to any jurisdiction.
 ///
 /// \file MFTFwdTrackHelpers.cxx
-/// \brief MFT CA final forward refit -- M5d: shared native driver, no frozen
-/// legacy o2::mft::TrackFitter/TrackLTF Kalman engine.
+/// \brief MFT CA final forward refit using the shared native driver.
 ///
 
 #include "ITSMFTTracking/detail/MFTFwdTrackHelpers.h"
@@ -30,17 +29,6 @@ namespace
 constexpr int kMFTLayers = o2::mft::constants::mft::LayersNumber;
 }
 
-// M5d: replaces the frozen o2::mft::TrackFitter<TrackLTF>/TrackLTFL Kalman
-// engine (MFTTracking/TrackFitter.h) with fitTrackSeedLegs (NativeRefitDriver.h),
-// the same shared, descriptor-driven driver the barrel/ITS branch
-// (the ITS adapter's native refit operation) now uses -- the intentional, approved
-// physics departure recorded in doc/decisions/0008-native-refit-activation.md.
-// The leg structure this milestone activates (inward/outward/optional-repeat,
-// Section "Required migration") is not a port of TrackLTF's own two-direction
-// linear-track-finder algorithm; it is the same three-leg Kalman sequencing
-// the barrel branch already uses, applied here to a Forward-family
-// SurfaceKinematicState. Numerical output is expected to differ from the
-// retired engine; see the design note for characterization evidence.
 bool refitTrackFwd(const TrackSeed& seed,
                    const SurfaceTrackingScratch& tf,
                    const TrackingParameters& params,
@@ -54,10 +42,8 @@ bool refitTrackFwd(const TrackSeed& seed,
 {
   const auto hitMask = seed.getHitLayerMask();
 
-  // Defensive re-check of the ClusterRef identity contract that
-  // TrackerTraits::initialiseTimeFrame() already established for every entry
-  // of mLayerMeasurements (NormalizedMeasurementMismatch) -- unchanged from
-  // the pre-M5d implementation, see MFTFwdTrackHelpers.h's own doc.
+  // Re-check the ClusterRef identity established for every normalized
+  // measurement by TrackerTraits::initialiseTimeFrame().
   for (int layer = 0; layer < static_cast<int>(layerMeasurements.size()); ++layer) {
     if (!hitMask.has(layer)) {
       continue;

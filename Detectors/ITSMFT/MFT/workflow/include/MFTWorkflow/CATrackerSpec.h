@@ -39,7 +39,7 @@
 namespace o2::mft
 {
 
-/// Gate 3 failure-contract publication decision for CATrackerDPL::run(),
+/// Failure-contract publication decision for CATrackerDPL::run(),
 /// factored out as a pure function of (tracker active, tracking result) so
 /// the publish-vs-skip contract can be exercised by a unit test without a
 /// DPL ProcessingContext.
@@ -51,8 +51,8 @@ enum class CATrackerPublicationAction {
 
 CATrackerPublicationAction decideCATrackerPublicationAction(bool trackerActive, o2::itsmft::tracking::TrackingOutcome outcome) noexcept;
 
-/// MFT CA tracker DPL task. Owns the standalone TimeFrame and composes the
-/// workflow-owned input/timing/publication edge with Tracker.
+/// MFT CA tracker DPL task. Owns the TimeFrame and composes the workflow
+/// input/timing/publication edge with Tracker.
 class CATrackerDPL : public o2::framework::Task
 {
  public:

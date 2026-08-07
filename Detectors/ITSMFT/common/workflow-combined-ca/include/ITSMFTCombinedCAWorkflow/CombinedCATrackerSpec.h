@@ -6,15 +6,9 @@
 // License v3 (GPL Version 3), copied verbatim in the file "COPYING".
 ///
 /// \file CombinedCATrackerSpec.h
-/// \brief Gate 4 C4/M3: opt-in combined ITS+MFT common-CA tracker DPL
-///        device. Consuming ITS and MFT cluster/pattern/ROF/dictionary
-///        (/label) inputs in one task invocation and publishing both
-///        detectors' existing CommonTrack OutputSpec streams (ITS exact, MFT
-///        float-projected) through the already-approved
-///        CommonTrackOutputAdapter.h staging functions. Lives in its own
-///        isolated library/executable -- no link-graph overlap with
-///        ITSCAWorkflow, MFTWorkflow, or either frozen legacy reco workflow
-///        (see this directory's CMakeLists.txt).
+/// \brief Combined ITS+MFT common-CA tracker DPL device. It consumes both
+///        detector input sets and publishes their CommonTrack output streams
+///        through CommonTrackOutputAdapter.h.
 ///
 /// This DPL task owns the shared TimeFrame, the two non-owning Tracker
 /// components, their application configuration, and the event publication
@@ -51,14 +45,8 @@
 namespace o2::itsmft::combined
 {
 
-/// Combined ITS+MFT opt-in common-CA tracker DPL task. Owns the one shared
-/// TimeFrame, the two Tracker components, the combined application plan, and
-/// the event publication context; delegates
-/// all CommonTrack->detector-track output staging to
-/// CommonTrackOutputAdapter.h. ITS/MFT source-position, invocation order, failure-
-/// classification, and publication state live here in this workflow task --
-/// never inside Tracker/TimeFrame/MultiSourceTimeFrameLoader, which stay
-/// detector-neutral.
+/// Combined ITS+MFT tracker DPL task. Owns the shared TimeFrame, the two
+/// Tracker components, the application plan, and publication context.
 class CombinedCATrackerDPL : public o2::framework::Task
 {
  public:
@@ -154,12 +142,8 @@ class CombinedCATrackerDPL : public o2::framework::Task
   bool mPublicationValid = false;
 };
 
-/// useGeom is deliberately not a parameter: clusters entering this tracker
-/// are already aligned, and this workflow never selects
-/// o2::base::GRPGeomRequest::GeomRequest::Aligned -- it always requests
-/// GeomRequest::None plus explicit ITS/Config/Geometry and MFT/Config/Geometry
-/// condition objects (the same nominal/ideal per-detector GeometryTGeo
-/// snapshot both single-detector opt-in workflows already default to).
+/// Clusters are already aligned; the task requests nominal per-detector
+/// geometry and does not expose an aligned-geometry switch.
 o2::framework::DataProcessorSpec getCombinedCATrackerSpec(bool useMC);
 
 } // namespace o2::itsmft::combined

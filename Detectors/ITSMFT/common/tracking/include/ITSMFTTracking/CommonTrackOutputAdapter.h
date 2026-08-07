@@ -4,9 +4,8 @@
 #ifndef ALICEO2_ITSMFT_TRACKING_COMMONTRACKOUTPUTADAPTER_H_
 #define ALICEO2_ITSMFT_TRACKING_COMMONTRACKOUTPUTADAPTER_H_
 
-// A deliberately pure, host-side boundary for the later opt-in DPL adapters.
-// It consumes immutable owner data plus workflow-owned ROF context and returns
-// only fully staged vectors.  In particular this file has no Framework/DPL API.
+// Pure host-side boundary for DPL adapters. It consumes immutable owner data
+// plus workflow-owned ROF context and returns fully staged vectors.
 
 #include <algorithm>
 #include <cstdint>
@@ -34,9 +33,8 @@ namespace o2::itsmft::tracking
 
 #ifndef GPUCA_GPUCODE
 
-// Host-only immutable output boundary around the established clock-layer
-// implementation. It deliberately delegates symmetry, clamp and ROF lookup
-// to LayerTiming/TimeEstBC; no second timing formula belongs in adapters.
+// Host-only immutable output view around the established clock-layer
+// implementation. Symmetry, clamping, and ROF lookup stay in LayerTiming.
 class ClockTimingPublicationView
 {
  public:
@@ -213,9 +211,7 @@ inline std::optional<std::vector<CommonTrackOutputOrderEntry>> makeLegacyOutputO
     }
     ordered.push_back({index, *timestamp});
   }
-  // Mirror Tracker::sortTracks(): it reorders the scratch results
-  // after all accepted CommonTrack shadows were appended, by the lower edge
-  // of the legacy symmetric/clamped timestamp and then chi2.
+  // Match Tracker::sortTracks(): lower timestamp edge, then chi2.
   std::sort(ordered.begin(), ordered.end(), [&frame](const auto& left, const auto& right) {
     const auto& leftTrack = frame.getCommonTracks()[left.globalIndex];
     const auto& rightTrack = frame.getCommonTracks()[right.globalIndex];
@@ -239,8 +235,7 @@ inline bool finalizeROFs(std::vector<o2::itsmft::ROFRecord>& rofs, const std::ve
   for (const auto& time : times) {
     const int rof = context.clock.getROF(time);
     if (rof < 0 || static_cast<size_t>(rof) >= rofs.size()) {
-      // A track is still published when its reconstructed timestamp lies outside
-      // the workflow ROF span; only its TrackROF entry is omitted.
+      // Keep the track; omit only its TrackROF entry.
       continue;
     }
     rofs[rof].setNEntries(rofs[rof].getNEntries() + 1);
@@ -403,9 +398,7 @@ inline std::optional<MFTCommonTrackOutput> stageMFTCommonTrackOutput(const TimeF
       error = CommonTrackOutputAdapterError::InvalidState;
       return std::nullopt;
     }
-    // TrackMFT persists the fitted chi2 in both its base and out-parameter
-    // TrackParCovFwd objects. CommonTrack owns that one fitted value, so the
-    // output reconstruction must restore it on the exported outer state too.
+    // TrackMFT persists the fitted chi2 in both state objects.
     outer.setTrackChi2(sidecar->outParamChi2);
     o2::mft::TrackMFT output;
     static_cast<o2::track::TrackParCovFwd&>(output) = inner;

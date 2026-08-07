@@ -23,9 +23,8 @@
 namespace o2::itsmft::tracking
 {
 
-// The generic tracker publishes CommonTrack results. This narrow adapter
-// consumes the same result sequence and owns only detector compatibility
-// sidecars; it does not construct or retain a typed accepted-track vector.
+// The generic tracker publishes CommonTrack results. This adapter owns only
+// detector compatibility sidecars; typed accepted-track vectors stay outside.
 template <int NLayers>
 class DetectorPublicationAdapter
 {
@@ -147,11 +146,8 @@ class DetectorPublicationAdapter<o2::mft::constants::mft::LayersNumber>
     if (mSidecar == nullptr) {
       return true;
     }
-    // These values are the detector compatibility payload that the previous
-    // typed staging track supplied. The seed q/pT and positional mask are
-    // already generic TrackSeed data; the two legacy fit-chi2 fields retain
-    // their historical zero/default semantics (the invQPtSeed writer byte is
-    // the separately documented undefined legacy artifact).
+    // Preserve initialized/default compatibility fields and the undefined
+    // invQPtSeed writer byte required by the legacy output contract.
     return mSidecar->replaceFromAcceptedResults(candidates);
   }
 

@@ -472,10 +472,8 @@ void CATrackerDPL::finaliseCCDB(ConcreteDataMatcher& matcher, void* obj)
     o2::its::GeometryTGeo::Instance()->fillMatrixCache(o2::math_utils::bit2Mask(o2::math_utils::TransformType::T2L,
                                                                                 o2::math_utils::TransformType::T2GRot,
                                                                                 o2::math_utils::TransformType::T2G));
-    // Gate 4 B2 Slice 2: the tracking catalog is a static, process-lifetime
-    // table (StaticDetectorCatalogs.h), immune to alignment/geometry updates
-    // by design -- there is nothing left to invalidate here. GeometryTGeo
-    // adoption above stays: raw cluster decoding still needs it.
+    // The catalog has static process lifetime; geometry adoption remains
+    // necessary for raw cluster decoding.
     return;
   }
 }

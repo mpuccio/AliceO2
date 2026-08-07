@@ -95,9 +95,8 @@ struct DecodedClusterResult {
   bool ok() const noexcept { return error == o2::itsmft::tracking::ClusterDecodeError::None; }
 };
 
-// Safe normalized-loading boundary. The iterator-based decodeCluster above
-// remains for unchanged legacy APIs; this overload performs every
-// malformed-input check before geometry or ClusterPattern data are used.
+// Safe normalized-loading boundary. Malformed-input checks precede geometry
+// and ClusterPattern access; the iterator-based API remains available.
 template <o2::detectors::DetID::ID DetId, typename GeomT>
 DecodedClusterResult decodeClusterBounded(GeomT* geom,
                                           const o2::itsmft::CompClusterExt& c,

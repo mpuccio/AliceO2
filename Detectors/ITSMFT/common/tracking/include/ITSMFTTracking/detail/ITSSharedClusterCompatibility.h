@@ -18,11 +18,9 @@
 namespace o2::itsmft::tracking
 {
 
-// Temporary ITS output-compatibility data. The pending sequence is an
-// explicit, pre-sort bridge from a legacy accepted-track slot to its global
-// CommonTrack index. It is never exposed to an output adapter. After the
-// final serial markTracks() pass, entries() exposes only the sealed sparse
-// global-index sequence carrying the final legacy shared-cluster bit.
+// ITS output-compatibility sidecar. The pre-sort sequence maps accepted-track
+// slots to global CommonTrack indices; entries() exposes the sealed sparse
+// sequence after the final serial markTracks() pass.
 struct ITSSharedClusterCompatibilityEntry {
   uint32_t commonTrackIndex{};
   bool hasSharedClusters{};
@@ -46,9 +44,7 @@ class ITSSharedClusterCompatibility
     mSealed = false;
   }
 
-  // Adapter-edge completion from the generic accepted-result sequence. The
-  // common tracker has already committed CommonTracks; this operation only
-  // materializes the ITS compatibility sidecar atomically.
+  // Atomically materialize the sidecar from accepted generic results.
   template <typename Results>
   bool replaceFromAcceptedResults(const Results& results)
   {
@@ -93,12 +89,8 @@ class ITSSharedClusterCompatibility
     return true;
   }
 
-  // Called only after the final serial markTracks() pass and before legacy
-  // rectify/sort. `tracks` is deliberately supplied here, while the explicit
-  // pending indices are still aligned with its un-reordered accepted slots.
-  // Both the adapter's historical TrackITSExt view and the generic accepted
-  // result expose the same `hasSharedClusters()` operation; no typed accepted
-  // vector is required by the common core.
+  // Called after the final serial markTracks() pass, while indices still align
+  // with the unreordered accepted slots.
   template <typename Tracks, typename Hook>
   bool sealFromMarkedTracks(const Tracks& tracks, Hook&& hook)
   {
@@ -137,8 +129,7 @@ class ITSSharedClusterCompatibility
   bool mSealed = false;
 };
 
-// Local participant in publishCommonTrackShadow(). It records the explicit
-// pre-sort association in the same transaction as the new CommonTrack.
+// Transactional association between a pre-sort accepted slot and CommonTrack.
 class ITSSharedClusterCompatibilityTransaction
 {
  public:
