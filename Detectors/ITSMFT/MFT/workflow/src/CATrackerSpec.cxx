@@ -63,30 +63,12 @@ template <o2::detectors::DetID::ID DetId, int NLayers>
 class StandaloneTrackingOperationAdapter final : public TrackingOperationAdapter
 {
  public:
-  explicit StandaloneTrackingOperationAdapter(DetectorPublicationAdapter<NLayers>* publication) : mPublication(publication) {}
-
   bool refitSeed(const TrackSeed& seed, const o2::itsmft::TrackingParameters& params, float bz, SurfaceTrackingScratch& scratch,
                  gsl::span<const gsl::span<const SurfaceMeasurement>> measurements, SurfaceCatalogView catalog,
                  ClusterSourceId source, TrackingCandidate& candidate) override
   {
     return detail::refitDetectorSeed<DetId>(seed, params, bz, scratch, measurements, catalog, source, candidate);
   }
-
-  bool completeAccepted(gsl::span<const TrackingCandidate> candidates, const o2::itsmft::TrackingParameters& params,
-                        const SurfaceTrackingScratch& scratch, bool final) override
-  {
-    return mPublication == nullptr || mPublication->completeAccepted(candidates, params, scratch, final);
-  }
-
-  void resetAdapterState() noexcept override
-  {
-    if (mPublication != nullptr) {
-      mPublication->reset();
-    }
-  }
-
- private:
-  DetectorPublicationAdapter<NLayers>* mPublication = nullptr;
 };
 
 template <int NLayers>
@@ -112,14 +94,35 @@ bool rofOverlapsIRFrames(const o2::itsmft::ROFRecord& rof, int rofLengthInBC,
   }
   return false;
 }
+
+template <int NLayers>
+bool completePublication(DetectorPublicationAdapter<NLayers>& publication,
+                         TrackerTraits& traits,
+                         const TimeFrame& frame,
+                         ClusterSourceId source,
+                         const TrackingResult& result)
+{
+  const auto& parameters = frame.getTrackingParameters(source);
+  const auto& scratch = frame.getWorkspace(source);
+  const auto& candidates = traits.acceptedTracksForSharedStatus();
+  for (std::size_t iteration = 0; iteration < parameters.size(); ++iteration) {
+    if (iteration >= result.acceptedTrackCounts.size() || result.acceptedTrackCounts[iteration] > candidates.size()) {
+      return false;
+    }
+    const gsl::span<const TrackingCandidate> iterationCandidates{candidates.data(), result.acceptedTrackCounts[iteration]};
+    if (!publication.completeAccepted(iterationCandidates, parameters[iteration], scratch, iteration + 1 == parameters.size())) {
+      return false;
+    }
+  }
+  return true;
+}
 } // namespace
 
 CATrackerDPL::CATrackerDPL(std::shared_ptr<o2::base::GRPGeomRequest> gr, bool useMC,
                            o2::itsmft::TrackingMode::Type trMode)
   : mGGCCDBRequest(std::move(gr)), mUseMC(useMC), mTrackingMode(trMode)
 {
-  mOperationAdapter = std::make_unique<StandaloneTrackingOperationAdapter<o2::detectors::DetID::MFT, o2::itsmft::tracking::MFTNLayers>>(
-    &mPublicationAdapter);
+  mOperationAdapter = std::make_unique<StandaloneTrackingOperationAdapter<o2::detectors::DetID::MFT, o2::itsmft::tracking::MFTNLayers>>();
   mClusterDecoder = std::make_unique<o2::itsmft::tracking::MFTGeometryClusterDecoder>();
   mPublicationAdapter.adoptMFTPublicationCompatibility(&mCompatibility);
 }
@@ -354,7 +357,19 @@ o2::itsmft::tracking::TrackingOutcome CATrackerDPL::processTimeFrame(
     throw;
   }
 
-  const auto result = mTracker->run(mFrame, *mTrackerTraits);
+  o2::itsmft::tracking::TrackingResult result;
+  try {
+    result = mTracker->run(mFrame, *mTrackerTraits);
+    if (result.outcome == o2::itsmft::tracking::TrackingOutcome::RecoverableDropped) {
+      mPublicationAdapter.reset();
+    } else if (!completePublication(mPublicationAdapter, *mTrackerTraits, mFrame, o2::itsmft::tracking::ClusterSourceId{0}, result)) {
+      mPublicationAdapter.reset();
+      throw std::runtime_error{"failed to seal MFT tracking compatibility"};
+    }
+  } catch (...) {
+    mPublicationAdapter.reset();
+    throw;
+  }
   if (result.outcome == o2::itsmft::tracking::TrackingOutcome::RecoverableDropped) {
     LOGP(warn, "MFT CA tracking failed for this TF");
   } else {

@@ -43,8 +43,6 @@
 #include "ITStracking/BoundedAllocator.h"
 #include "ITStracking/Cluster.h"
 
-#include "DetectorsBase/Propagator.h"
-
 namespace o2::itsmft::tracking
 {
 
@@ -169,19 +167,6 @@ struct TimeFrame {
   void setMemoryPool(std::shared_ptr<BoundedMemoryResource> pool);
   auto& getMemoryPool() const noexcept { return mMemoryPool; }
 
-  // Propagator. Traced before B3.1 (no owning class exists for it): a
-  // non-owning, raw observer pointer -- no construction/destruction
-  // responsibility -- with zero call sites anywhere in this library
-  // (grep-confirmed). The only live setDevicePropagator()/
-  // getDevicePropagator() implementations belong to the separate, frozen
-  // o2::its::TimeFrame/TimeFrameGPU hierarchy (ITStracking/), out of scope
-  // here. Kept exactly as it was (still unused, still default-nullptr) as a
-  // run/event-level device-context hook -- never NLayers-shaped, never
-  // touching per-detector scratch state -- not deleted (out of scope for
-  // B3) and not left "tentative": this is its final placement.
-  const o2::base::PropagatorImpl<float>* getDevicePropagator() const { return mPropagatorDevice; }
-  virtual void setDevicePropagator(const o2::base::PropagatorImpl<float>* /*unused*/) {};
-
   // Must be declared -- and therefore destroyed -- before every
   // pmr/bounded_vector member that may allocate through it (mPrimaryVertices,
   // mPrimaryVerticesLabels, mCommonTracks, mTrackClusterIndices). C++
@@ -194,12 +179,6 @@ struct TimeFrame {
   // exclusively by SurfaceTrackingScratch's per-layer compatibility
   // containers and lives there instead.
   std::shared_ptr<BoundedMemoryResource> mMemoryPool;
-
-  // interface (dead GPU-chain scaffolding, same story as mPropagatorDevice
-  // above: zero overrides anywhere in this library, kept unchanged/unused,
-  // not deleted).
-  virtual bool isGPU() const noexcept { return false; }
-  virtual const char* getName() const noexcept { return "CPU"; }
 
  private:
   float mBz = 5.;
@@ -218,8 +197,6 @@ struct TimeFrame {
   // population contract a later slice adds).
   bounded_vector<CommonTrack> mCommonTracks;
   bounded_vector<TrackClusterReference> mTrackClusterIndices;
-
-  const o2::base::PropagatorImpl<float>* mPropagatorDevice = nullptr; // Needed only for GPU; see doc above -- currently unused.
 
   // Normalized owner associated by the owner-level load operation
   // (SurfaceTrackingScratch::loadNormalizedSource()); host-only,

@@ -30,12 +30,8 @@
 // M5 plan describe for the refit stage: fitTrackSeedLegs below
 // contains no family/Tag branch of its own -- every family difference is
 // already confined inside Propagator::propagateToMeasurement's own
-// descriptor-driven dispatch. It supersedes NativeCylinderCylinderRefitDriver.h's
-// nativeRefitTrackCylinderCylinder as the production refit entry point (see
-// the adapter refit operation); that earlier, Barrel-only, Tag-templated driver
-// is left completely unmodified as the still-valid oracle the M5a A/B
-// characterization harness (testITSNativeVsLegacyRefitCharacterizationHarness.cxx)
-// continues to exercise.
+// descriptor-driven dispatch. It is the single native refit entry point used by
+// the adapter refit operation.
 namespace o2::itsmft::tracking
 {
 
@@ -43,8 +39,7 @@ namespace o2::itsmft::tracking
 // of a from-scratch refit starts from (fresh Kalman filter, previous leg's
 // fitted parameters retained), family-dispatched by state.family rather than
 // by Tag. Barrel reuses the exact ceiling constants
-// resetCylinderCylinderCovarianceForRefit (NativeCylinderCylinderRefitDriver.h)
-// already established (bit-for-bit identical formula, just resolved at
+// the established barrel covariance formula (bit-for-bit identical, just resolved at
 // runtime instead of compiled once for CylinderCylinder). Forward has no
 // legacy analogue to port (the frozen MFT TrackFitter/TrackLTF Kalman engine
 // this milestone removes from production never exposed a comparable
@@ -79,8 +74,8 @@ GPUhdi() void resetCovarianceForRefit(SurfaceKinematicState& state) noexcept
   }
 }
 
-// Same physical formula as getPtFromQOverPt (NativeCylinderCylinderRefitDriver.h),
-// reused verbatim: parameters[4] is the raw signed q/pT for both families
+// Same physical formula as the native minimum-pT helper: parameters[4] is the
+// raw signed q/pT for both families
 // (SurfaceKinematicState.h / ForwardStateView::getQ2Pt() doc), so no
 // family branch is needed here either.
 GPUhdi() float ptFromQOverPt(float q2pt, uint8_t absCharge) noexcept
@@ -98,7 +93,7 @@ GPUhdi() float ptFromQOverPt(float q2pt, uint8_t absCharge) noexcept
 // Shared (family-blind) whole-seed refit: reproduces the three-leg
 // (inward-index A, outward-index B, optional inward-index C) sequencing and
 // per-leg acceptance-gate structure nativeRefitTrackCylinderCylinder
-// documents in full (NativeCylinderCylinderRefitDriver.h) -- same leg
+// documents in full in the native operation -- same leg
 // direction/maxQoverPt/acceptance formula, same MinPt check keyed on the
 // seed's own attached-cluster count -- but built on Propagator::driveRefitLeg
 // (descriptor-driven) instead of driveRefitLeg<Tag>, so the identical

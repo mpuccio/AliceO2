@@ -39,11 +39,9 @@ struct TrackingCandidate {
   int getFirstClusterLayer() const noexcept { return seed.getSurfaceMask().first(); }
 };
 
-// Narrow application-operation seam used while typed ITS/MFT refit and
-// publication hooks complete their separately gated M7e migration. It is an
-// operation adapter, not a coordinator: the common core owns no detector
-// identity, typed output, timing tables, or workflow state, and this object
-// owns no event lifecycle.
+// The only operation the generic road stage requires from an application is a
+// call-scoped refit. Publication and reset are workflow operations after the
+// generic tracker transaction has completed.
 class TrackingOperationAdapter
 {
  public:
@@ -57,20 +55,6 @@ class TrackingOperationAdapter
                          SurfaceCatalogView surfaceCatalog,
                          ClusterSourceId expectedSource,
                          TrackingCandidate& candidate) = 0;
-
-  // Called at each serial accepted-result boundary. The adapter may consume
-  // the generic candidates and operation-local policy/scratch views to stage
-  // detector compatibility state; only the final call may publish sidecars.
-  // No typed track or compatibility flag is supplied by the core.
-  virtual bool completeAccepted(gsl::span<const TrackingCandidate> candidates,
-                                const TrackingParameters& params,
-                                const SurfaceTrackingScratch& scratch,
-                                bool final) = 0;
-
-  // Lifecycle reset is deliberately an adapter-edge operation. It clears
-  // only detector compatibility state; TimeFrame and scratch reset remain
-  // owned by the generic tracker.
-  virtual void resetAdapterState() noexcept = 0;
 };
 
 } // namespace o2::itsmft::tracking

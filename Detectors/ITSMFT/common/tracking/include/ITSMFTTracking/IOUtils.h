@@ -33,11 +33,6 @@
 #include "ITSMFTTracking/SurfaceMeasurement.h"
 #include "MathUtils/Cartesian.h"
 
-namespace o2::its
-{
-struct TrackingFrameInfo;
-}
-
 namespace o2::itsmft::ioutils
 {
 
@@ -106,16 +101,6 @@ constexpr float DefClusError2Col = DefClusErrorCol * DefClusErrorCol;
 
 void fillMatrixCache(o2::detectors::DetID::ID detId);
 int getClusterLayer(o2::detectors::DetID::ID detId, const CompClusterExt& cluster);
-
-/// Decode a compact cluster into layer, size, and a TrackingFrameInfo (global + local frame).
-template <o2::detectors::DetID::ID DetId>
-void loadClusterTrackingFrameInfo(const CompClusterExt& c,
-                                  gsl::span<const unsigned char>::iterator& pattIt,
-                                  const TopologyDictionary* dict,
-                                  int& layer,
-                                  unsigned int& clusterSize,
-                                  o2::its::TrackingFrameInfo& tfInfo,
-                                  bool applySysErrors = true);
 
 /// Decode a compact cluster through the detector geometry singleton directly
 /// into the normalized surface representation.

@@ -1843,7 +1843,6 @@ void TrackerTraits::findRoadsForPolicy(const int iteration,
     });
     acceptTracks(iteration, tracks, firstClusters);
   }
-  markTracks(iteration, operationAdapter);
 }
 
 void TrackerTraits::acceptTracks(int iteration,
@@ -1930,20 +1929,6 @@ void TrackerTraits::acceptTracks(int iteration,
     if (mTrkParams[iteration].AllowSharingFirstCluster) {
       firstClusters[firstLayer].push_back(firstCluster);
     }
-  }
-}
-
-void TrackerTraits::markTracks(int iteration, TrackingOperationAdapter& operationAdapter)
-{
-  // Adapter-owned compatibility state is staged from the deterministic
-  // accepted-result sequence. The core supplies only generic kinematics and
-  // the operation-local policy/scratch views; typed output flags remain at
-  // the adapter edge.
-  if (!operationAdapter.completeAccepted(acceptedTracksForSharedStatus(),
-                                         mTrkParams[iteration],
-                                         *mScratch,
-                                         iteration + 1 == static_cast<int>(mTrkParams.size()))) {
-    throw std::runtime_error{"failed to seal tracking compatibility"};
   }
 }
 

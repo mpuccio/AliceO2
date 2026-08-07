@@ -17,7 +17,6 @@
 #include "ITSMFTTracking/Configuration.h"
 #include "ITSMFTTracking/DecodedCluster.h"
 #include "ITSMFTTracking/SurfaceMeasurementAdapters.h"
-#include "ITSMFTTracking/TrackingFrameInfoAdapters.h"
 #include "ITStracking/Cluster.h"
 
 #include "Framework/Logger.h"
@@ -222,42 +221,6 @@ int getClusterLayer(o2::detectors::DetID::ID detId, const CompClusterExt& cluste
   LOGP(fatal, "Unsupported detector id {} in getClusterLayer", static_cast<int>(detId));
   return -1;
 }
-
-template <o2::detectors::DetID::ID DetId>
-void loadClusterTrackingFrameInfo(const CompClusterExt& c,
-                                  gsl::span<const unsigned char>::iterator& pattIt,
-                                  const TopologyDictionary* dict,
-                                  int& layer,
-                                  unsigned int& clusterSize,
-                                  o2::its::TrackingFrameInfo& tfInfo,
-                                  bool applySysErrors)
-{
-  o2::itsmft::tracking::DecodedCluster decoded;
-  if constexpr (DetId == o2::detectors::DetID::ITS) {
-    decoded = decodeCluster<DetId>(o2::its::GeometryTGeo::Instance(), c, pattIt, dict, applySysErrors);
-  } else {
-    decoded = decodeCluster<DetId>(o2::mft::GeometryTGeo::Instance(), c, pattIt, dict, applySysErrors);
-  }
-  layer = decoded.layer;
-  clusterSize = decoded.shape.nPixels;
-  tfInfo = o2::itsmft::tracking::makeTrackingFrameInfo<DetId>(decoded);
-}
-
-template void loadClusterTrackingFrameInfo<o2::detectors::DetID::ITS>(const CompClusterExt& c,
-                                                                      gsl::span<const unsigned char>::iterator& pattIt,
-                                                                      const TopologyDictionary* dict,
-                                                                      int& layer,
-                                                                      unsigned int& clusterSize,
-                                                                      o2::its::TrackingFrameInfo& tfInfo,
-                                                                      bool applySysErrors);
-
-template void loadClusterTrackingFrameInfo<o2::detectors::DetID::MFT>(const CompClusterExt& c,
-                                                                      gsl::span<const unsigned char>::iterator& pattIt,
-                                                                      const TopologyDictionary* dict,
-                                                                      int& layer,
-                                                                      unsigned int& clusterSize,
-                                                                      o2::its::TrackingFrameInfo& tfInfo,
-                                                                      bool applySysErrors);
 
 template <o2::detectors::DetID::ID DetId>
 o2::itsmft::tracking::SurfaceMeasurement loadClusterSurfaceMeasurement(

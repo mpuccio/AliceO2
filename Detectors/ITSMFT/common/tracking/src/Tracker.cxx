@@ -16,6 +16,7 @@
 #include "ITSMFTTracking/Tracker.h"
 
 #include <algorithm>
+#include <utility>
 
 #include "Framework/Logger.h"
 #include "ITStracking/BoundedAllocator.h"
@@ -130,6 +131,8 @@ TrackingResult Tracker::run(TimeFrame& frame, TrackerTraits& traits)
   }
 
   float total{0.f};
+  std::vector<std::size_t> acceptedTrackCounts;
+  acceptedTrackCounts.reserve(trkParams.size());
   try {
     for (int iteration = 0; iteration < static_cast<int>(trkParams.size()); ++iteration) {
       // Keep a deliberately tightened event-local bound. This is also the
@@ -152,6 +155,7 @@ TrackingResult Tracker::run(TimeFrame& frame, TrackerTraits& traits)
         traits.findCellsNeighbours(iteration);
         traits.findRoads(iteration, *mOperationAdapter);
       } while (++iVertex < maxNvertices);
+      acceptedTrackCounts.push_back(traits.acceptedTracksForSharedStatus().size());
     }
   } catch (const TraversalException& err) {
     // Structural/configuration failure (bad layout, stale layout, policy or
@@ -159,14 +163,12 @@ TrackingResult Tracker::run(TimeFrame& frame, TrackerTraits& traits)
     // never applies. Always reset before propagating -- see class-level
     // comment: never rely on "the process is going down anyway".
     LOGP(error, "CA tracker hit a structural traversal failure: {}", err.what());
-    mOperationAdapter->resetAdapterState();
     frame.resetEvent();
     throw;
   } catch (const BoundedMemoryResource::MemoryLimitExceeded& err) {
     // Recoverable, per-TF resource failure: the bounded pool's configured
     // budget was exceeded for this TimeFrame's data volume.
     LOGP(error, "CA tracker exceeded memory limit: {}", err.what());
-    mOperationAdapter->resetAdapterState();
     frame.resetEvent();
     if (trkParams[0].DropTFUponFailure) {
       return TrackingResult{TrackingOutcome::RecoverableDropped, 0.f};
@@ -179,7 +181,6 @@ TrackingResult Tracker::run(TimeFrame& frame, TrackerTraits& traits)
     // the bounded pool, so genuine memory pressure surfaces here as a plain
     // bad_alloc rather than MemoryLimitExceeded. Handled identically.
     LOGP(error, "CA tracker allocation failed: {}", err.what());
-    mOperationAdapter->resetAdapterState();
     frame.resetEvent();
     if (trkParams[0].DropTFUponFailure) {
       return TrackingResult{TrackingOutcome::RecoverableDropped, 0.f};
@@ -192,12 +193,11 @@ TrackingResult Tracker::run(TimeFrame& frame, TrackerTraits& traits)
     // RecoverableTimeFrameException may extend the recoverable set; until
     // then, recoverability is never inferred from std::exception alone.
     LOGP(error, "CA tracker failed with an unclassified exception; treating as structural: {}", err.what());
-    mOperationAdapter->resetAdapterState();
     frame.resetEvent();
     throw;
   }
 
-  return TrackingResult{TrackingOutcome::Success, total};
+  return TrackingResult{TrackingOutcome::Success, total, std::move(acceptedTrackCounts)};
 }
 
 } // namespace o2::itsmft::tracking

@@ -237,7 +237,7 @@ bool barrelToForward(SurfaceKinematicState& state, SurfaceLinearizationReference
 // variance slot), so the newly freed bZ parameter is assigned the same
 // loose, uninformative ceiling this library already uses for an
 // analogous "we do not actually know this coordinate's uncertainty here"
-// situation (o2::track::kCZ2max, NativeCylinderCylinderRefitDriver.h).
+// situation (o2::track::kCZ2max).
 bool forwardToBarrel(SurfaceKinematicState& state, SurfaceLinearizationReference* linRef,
                      OperationFailureReason& reason) noexcept
 {

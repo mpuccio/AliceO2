@@ -174,10 +174,9 @@ class TrackerTraits
   void acceptTracks(int iteration,
                     bounded_vector<TrackingCandidate>& tracks,
                     bounded_vector<bounded_vector<int>>& firstClusters);
-  void markTracks(int iteration, TrackingOperationAdapter& operationAdapter);
 
   // The generic result path keeps accepted CommonTrack/TrackSeed pairs until
-  // the final adapter-edge compatibility completion. It contains no typed
+  // the workflow consumes the successful result. It contains no typed
   // accepted-track vector.
   bounded_vector<TrackingCandidate>& acceptedTracksForSharedStatus();
   void clearAcceptedTracksForSharedStatus();

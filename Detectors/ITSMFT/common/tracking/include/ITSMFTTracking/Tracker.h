@@ -66,6 +66,9 @@ enum class TrackingOutcome : uint8_t {
 struct TrackingResult {
   TrackingOutcome outcome{TrackingOutcome::Success};
   float elapsedMs{0.f};
+  // Cumulative accepted-result boundaries let application publication adapters
+  // reproduce per-iteration staging without crossing the refit seam.
+  std::vector<std::size_t> acceptedTrackCounts;
 };
 
 struct TrackerIterationConfiguration {

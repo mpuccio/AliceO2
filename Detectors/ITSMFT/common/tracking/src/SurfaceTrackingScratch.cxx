@@ -848,11 +848,8 @@ LoadSourcesResult SurfaceTrackingScratch::loadNormalizedSource(
     for (const auto& m : measurements) {
       o2::its::TrackingFrameInfo tfInfo;
       if (isMFT) {
-        // Recreate the established synthetic legacy MFT representation
-        // (TrackingFrameInfoAdapters.h::makeTrackingFrameInfo<MFT>) from the
-        // normalized global position and row/column covariance -- ported
-        // byte-for-byte from the former fixed-layer scratch<NLayers>::
-        // loadNormalizedSource() (the former fixed-layer scratch.cxx).
+        // Recreate the established synthetic legacy MFT representation from
+        // normalized global position and row/column covariance.
         tfInfo = o2::its::TrackingFrameInfo{
           m.global.x, m.global.y, m.global.z,
           m.global.x, 0.f,

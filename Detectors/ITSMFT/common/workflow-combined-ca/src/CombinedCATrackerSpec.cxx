@@ -55,11 +55,6 @@ template <o2::detectors::DetID::ID DetId, int NLayers>
 class WorkflowTrackingOperationAdapter final : public o2::itsmft::tracking::TrackingOperationAdapter
 {
  public:
-  explicit WorkflowTrackingOperationAdapter(o2::itsmft::tracking::DetectorPublicationAdapter<NLayers>* publication)
-    : mPublication(publication)
-  {
-  }
-
   bool refitSeed(const o2::itsmft::tracking::TrackSeed& seed,
                  const o2::itsmft::TrackingParameters& params,
                  float bz,
@@ -71,25 +66,29 @@ class WorkflowTrackingOperationAdapter final : public o2::itsmft::tracking::Trac
   {
     return o2::itsmft::tracking::detail::refitDetectorSeed<DetId>(seed, params, bz, scratch, measurements, catalog, source, candidate);
   }
+};
 
-  bool completeAccepted(gsl::span<const o2::itsmft::tracking::TrackingCandidate> candidates,
-                        const o2::itsmft::TrackingParameters& params,
-                        const o2::itsmft::tracking::SurfaceTrackingScratch& scratch,
-                        bool final) override
-  {
-    return mPublication == nullptr || mPublication->completeAccepted(candidates, params, scratch, final);
-  }
-
-  void resetAdapterState() noexcept override
-  {
-    if (mPublication != nullptr) {
-      mPublication->reset();
+template <int NLayers>
+bool completePublication(o2::itsmft::tracking::DetectorPublicationAdapter<NLayers>& publication,
+                         o2::itsmft::tracking::TrackerTraits& traits,
+                         const o2::itsmft::tracking::TimeFrame& frame,
+                         o2::itsmft::tracking::ClusterSourceId source,
+                         const o2::itsmft::tracking::TrackingResult& result)
+{
+  const auto& parameters = frame.getTrackingParameters(source);
+  const auto& scratch = frame.getWorkspace(source);
+  const auto& candidates = traits.acceptedTracksForSharedStatus();
+  for (std::size_t iteration = 0; iteration < parameters.size(); ++iteration) {
+    if (iteration >= result.acceptedTrackCounts.size() || result.acceptedTrackCounts[iteration] > candidates.size()) {
+      return false;
+    }
+    const gsl::span<const o2::itsmft::tracking::TrackingCandidate> iterationCandidates{candidates.data(), result.acceptedTrackCounts[iteration]};
+    if (!publication.completeAccepted(iterationCandidates, parameters[iteration], scratch, iteration + 1 == parameters.size())) {
+      return false;
     }
   }
-
- private:
-  o2::itsmft::tracking::DetectorPublicationAdapter<NLayers>* mPublication = nullptr;
-};
+  return true;
+}
 
 // Per-layer DPLAlpideParam<DetId> -> one source-level ROFTimingConfig,
 // fatal on non-positive ROF length or non-uniform per-layer staggering --
@@ -223,10 +222,8 @@ void CombinedCATrackerDPL::buildParticipantsOnce()
   const auto itsSurfaces = orderedSurfaceRange(0, o2::itsmft::tracking::ITSNLayers);
   const auto mftSurfaces = orderedSurfaceRange(o2::itsmft::tracking::ITSNLayers, o2::itsmft::tracking::MFTNLayers);
 
-  mITSOperationAdapter = std::make_unique<WorkflowTrackingOperationAdapter<o2::detectors::DetID::ITS, o2::itsmft::tracking::ITSNLayers>>(
-    &mITSPublicationAdapter);
-  mMFTOperationAdapter = std::make_unique<WorkflowTrackingOperationAdapter<o2::detectors::DetID::MFT, o2::itsmft::tracking::MFTNLayers>>(
-    &mMFTPublicationAdapter);
+  mITSOperationAdapter = std::make_unique<WorkflowTrackingOperationAdapter<o2::detectors::DetID::ITS, o2::itsmft::tracking::ITSNLayers>>();
+  mMFTOperationAdapter = std::make_unique<WorkflowTrackingOperationAdapter<o2::detectors::DetID::MFT, o2::itsmft::tracking::MFTNLayers>>();
   mITSTraits = std::make_unique<o2::itsmft::tracking::TrackerTraits>();
   mMFTTraits = std::make_unique<o2::itsmft::tracking::TrackerTraits>();
   mITSTracker = std::make_unique<o2::itsmft::tracking::Tracker>(mITSOperationAdapter.get(), ClusterSourceId{0});
@@ -420,8 +417,8 @@ TrackingOutcome CombinedCATrackerDPL::trackFrame(const ClusterSourceInput& itsSo
     LOGP(error, "Combined TF loading failed (source={}, error={}, recoverable={}, dropAllowed={}): outcome={}",
          loadResult.source.value(), static_cast<int>(loadResult.error), errorIsRecoverable, dropAllowed.value_or(false),
          outcome == TrackingOutcome::RecoverableDropped ? "RecoverableDropped" : "Structural");
-    mITSOperationAdapter->resetAdapterState();
-    mMFTOperationAdapter->resetAdapterState();
+    mITSPublicationAdapter.reset();
+    mMFTPublicationAdapter.reset();
     mFrame.resetEvent();
     invalidatePublication();
     return outcome;
@@ -433,19 +430,29 @@ TrackingOutcome CombinedCATrackerDPL::trackFrame(const ClusterSourceInput& itsSo
   try {
     const auto itsResult = mITSTracker->run(mFrame, *mITSTraits);
     if (itsResult.outcome != TrackingOutcome::Success) {
-      mMFTOperationAdapter->resetAdapterState();
+      mITSPublicationAdapter.reset();
+      mMFTPublicationAdapter.reset();
       invalidatePublication();
       return itsResult.outcome;
     }
+    if (!completePublication(mITSPublicationAdapter, *mITSTraits, mFrame, ClusterSourceId{0}, itsResult)) {
+      mITSPublicationAdapter.reset();
+      throw std::runtime_error{"failed to seal ITS tracking compatibility"};
+    }
     const auto mftResult = mMFTTracker->run(mFrame, *mMFTTraits);
     if (mftResult.outcome != TrackingOutcome::Success) {
-      mITSOperationAdapter->resetAdapterState();
+      mITSPublicationAdapter.reset();
+      mMFTPublicationAdapter.reset();
       invalidatePublication();
       return mftResult.outcome;
     }
+    if (!completePublication(mMFTPublicationAdapter, *mMFTTraits, mFrame, ClusterSourceId{1}, mftResult)) {
+      mMFTPublicationAdapter.reset();
+      throw std::runtime_error{"failed to seal MFT tracking compatibility"};
+    }
   } catch (...) {
-    mITSOperationAdapter->resetAdapterState();
-    mMFTOperationAdapter->resetAdapterState();
+    mITSPublicationAdapter.reset();
+    mMFTPublicationAdapter.reset();
     invalidatePublication();
     throw;
   }
@@ -580,14 +587,14 @@ void CombinedCATrackerDPL::run(ProcessingContext& pc)
     if (mUseMC) {
       pc.outputs().snapshot(Output{"MFT", "TRACKSMCTR", 0}, stagedMFT->labels);
     }
-    mITSOperationAdapter->resetAdapterState();
-    mMFTOperationAdapter->resetAdapterState();
+    mITSPublicationAdapter.reset();
+    mMFTPublicationAdapter.reset();
     mFrame.resetEvent();
     invalidatePublication();
   } catch (...) {
     if (mFrame.getEventResetCount() == resetCount) {
-      mITSOperationAdapter->resetAdapterState();
-      mMFTOperationAdapter->resetAdapterState();
+      mITSPublicationAdapter.reset();
+      mMFTPublicationAdapter.reset();
       mFrame.resetEvent();
     }
     invalidatePublication();
