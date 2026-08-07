@@ -403,7 +403,7 @@ void TrackerTraits::initialiseTimeFrame(const int iteration, const std::vector<S
   // The surface-position mapping is this graph vector's own validated
   // orderedSurfaces (never inferred from a detector identity,
   // radius, z, or numeric ordering); a size mismatch, an invalid/out-of-range
-  // mapped SurfaceId, or a numeric disagreement against the temporary legacy
+  // mapped SurfaceId, or a numeric disagreement against the adapter-owned
   // TrackingParameters::LayerxX0 all reject with the same
   // LegacyMaterialMismatch reason -- this whole block is one compatibility
   // precondition, not several. SurfaceDescriptor::material itself is never

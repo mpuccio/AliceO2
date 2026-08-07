@@ -312,8 +312,8 @@ class TrackerTraits
   // the top of every call, and it stays that way unless the call returns
   // normally. See getLayerMaterial()'s doc for the read-side contract.
   // Host-only plan-sized cache. The position is the adopted binding's ordered
-  // surface position; the temporary vector remains only because the current
-  // leaf operations consume per-position parameter spans.
+  // surface position; current leaf operations consume these per-position
+  // parameter spans directly.
   std::vector<NominalSurfaceMaterial> mLayerMaterial;
   std::optional<SurfaceKind> mActiveKind;
   // Non-owning per-surface-position spans into the TimeFrame-owned normalized

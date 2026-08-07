@@ -18,20 +18,11 @@
 #pragma link C++ class o2::itsmft::TrackerParamConfig < o2::detectors::DetID::MFT> + ;
 #pragma link C++ class o2::conf::ConfigurableParamHelper < o2::itsmft::TrackerParamConfig < o2::detectors::DetID::MFT>> + ;
 
-// workflow-onboarding Slice 2 fix: ITSCommonCATrackerParam (added in Slice 1)
-// was never added here, so it had no ROOT dictionary and was invisible to
-// o2::conf::ConfigurableParam::updateFromString()/setValue() at runtime --
-// undetected until a test actually exercised the string-keyed path (Slice 1's
-// own tests only ever read ITSCommonCATrackerParam::Instance() directly in
-// C++). The opt-in ITS common-CA workflow's --configKeyValues contract
-// requires this to work.
+// String-keyed workflow configuration requires ROOT dictionaries for both
+// common-CA parameter records.
 #pragma link C++ class o2::itsmft::ITSCommonCATrackerParam + ;
 #pragma link C++ class o2::conf::ConfigurableParamHelper < o2::itsmft::ITSCommonCATrackerParam> + ;
 
-// Gate 4 C4: opt-in gate for the combined ITS+MFT DPL workflow. Registered
-// here (not the new workflow-combined-ca library) so
-// o2::conf::ConfigurableParam::updateFromString()/setValue() can see it --
-// same fix as ITSCommonCATrackerParam above.
 #pragma link C++ class o2::itsmft::ITSMFTCombinedCATrackerParam + ;
 #pragma link C++ class o2::conf::ConfigurableParamHelper < o2::itsmft::ITSMFTCombinedCATrackerParam> + ;
 
