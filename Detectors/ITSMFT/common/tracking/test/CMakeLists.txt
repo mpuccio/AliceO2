@@ -39,6 +39,12 @@ o2_add_test(surfacegraphbuilder
             LABELS "itsmft;tracking"
             PUBLIC_LINK_LIBRARIES O2::ITSMFTTracking)
 
+o2_add_test(pair-list-graph-prototype
+            SOURCES testPairListGraphPrototype.cxx
+            COMPONENT_NAME itsmft-tracking
+            LABELS "itsmft;tracking"
+            PUBLIC_LINK_LIBRARIES O2::ITSMFTTracking)
+
 o2_add_test(surfacegraph
             SOURCES testSurfaceGraph.cxx
             COMPONENT_NAME itsmft-tracking
