@@ -6,6 +6,7 @@
 - Branch: `codex/itsmft-header-graph-audit`
 - Scope: every header under `include/ITSMFTTracking/`, including `detail/`
 - Architecture prerequisites: [post-M7 audit](0009-post-m7-intentionality-cleanup-audit.md) and [cleanup plan](0010-post-m7-cleanup-implementation-plan.md)
+- Execution status: [header and graph cleanup campaign](0012-header-and-graph-cleanup-execution.md)
 
 This note is an audit and design only. It changes no C++, CMake, tests,
 workflows, physics, configuration, defaults, comments, or public API. Every
