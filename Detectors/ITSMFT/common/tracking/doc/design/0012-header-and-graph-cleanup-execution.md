@@ -1,6 +1,6 @@
 # Header and graph cleanup execution
 
-- Status: Campaign A accepted; Campaign B in progress
+- Status: Campaign B accepted; Campaign C in progress
 - Date: 2026-08-07
 - Integration branch: `codex/itsmft-header-graph-cleanup`
 - Base: `86113f2a14`
@@ -60,6 +60,10 @@ frozen-replay gate. The exact evidence is recorded in
 
 There are no forwarding headers or compatibility aliases. Each focused
 commit is validated and integrated separately before campaign gate B.
+
+Campaign B passed its complete build, test, authentication, fixture, and
+frozen-replay gate. The exact evidence is recorded in
+[Campaign B validation](../validation/header-graph-cleanup-campaign-b.md).
 
 ### Campaign C: host boundaries and detail relocation
 
