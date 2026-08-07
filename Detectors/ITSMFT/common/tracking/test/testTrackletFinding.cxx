@@ -5,7 +5,7 @@
 // This software is distributed under the terms of the GNU General Public
 // License v3 (GPL Version 3), copied verbatim in the file "COPYING".
 
-#define BOOST_TEST_MODULE ITSMFT TransitionPolicyOperations
+#define BOOST_TEST_MODULE ITSMFT TrackletFinding
 #define BOOST_TEST_MAIN
 #define BOOST_TEST_DYN_LINK
 
@@ -13,6 +13,7 @@
 #include <cmath>
 #include <cstring>
 #include <limits>
+#include <type_traits>
 #include <utility>
 
 #include <boost/test/unit_test.hpp>
@@ -24,7 +25,8 @@
 #include "GPUCommonMath.h"
 #include "ITSMFTTracking/MFTFwdTrackHelpers.h"
 #include "ITSMFTTracking/detail/TransitionPolicyBinding.h"
-#include "ITSMFTTracking/detail/TransitionPolicyOperations.h"
+#include "ITSMFTTracking/detail/TrackletFinding.h"
+#include "ITSMFTTracking/detail/CellFinding.h"
 #include "ITStracking/TrackHelpers.h"
 
 using namespace o2::itsmft;
@@ -89,14 +91,14 @@ SurfaceMeasurement makeMeasurement(const o2::its::Cluster& cluster, float uu = 1
   return makeMeasurement(cluster.xCoordinate, cluster.yCoordinate, cluster.zCoordinate, uu, vv, uv);
 }
 
-template <TransitionPolicyTag Tag>
-void checkSearchWindowEqual(const TrackletSearchWindow<Tag>& lhs, const TrackletSearchWindow<Tag>& rhs)
+template <typename Window>
+void checkSearchWindowEqual(const Window& lhs, const Window& rhs)
 {
   BOOST_CHECK_EQUAL(lhs.bins.x, rhs.bins.x);
   BOOST_CHECK_EQUAL(lhs.bins.y, rhs.bins.y);
   BOOST_CHECK_EQUAL(lhs.bins.z, rhs.bins.z);
   BOOST_CHECK_EQUAL(lhs.bins.w, rhs.bins.w);
-  if constexpr (Tag == TransitionPolicyTag::CylinderCylinder) {
+  if constexpr (std::is_same_v<Window, CylinderTrackletSearchWindow>) {
     BOOST_CHECK_EQUAL(lhs.tanLambda, rhs.tanLambda);
     BOOST_CHECK_EQUAL(lhs.sigmaZ, rhs.sigmaZ);
     BOOST_CHECK_EQUAL(lhs.phiCut, rhs.phiCut);
@@ -255,11 +257,11 @@ BOOST_AUTO_TEST_CASE(CylinderProjectSearchWindowMatchesInlineFormulaAndDirectPhi
   const auto source = makeGlobalCluster(2.f, 0.f, 0.5f);
   const auto sourceMeasurement = makeMeasurement(source);
   const auto vertex = makeVertex(0.f, 0.f, 0.f, 1.e-4f, 1.e-4f, 4.e-4f, 4);
-  const TrackletProjectionState<TransitionPolicyTag::CylinderCylinder> state{
+  const CylinderTrackletProjectionState state{
     0, 3, 2.f, 3.8f, 4.2f, 5.e-4f, 2.e-3f, 0.08f};
 
-  TrackletSearchWindow<TransitionPolicyTag::CylinderCylinder> window{};
-  BOOST_REQUIRE((projectSearchWindow<TransitionPolicyTag::CylinderCylinder>(
+  CylinderTrackletSearchWindow window{};
+  BOOST_REQUIRE((projectCylinderSearchWindow(
     sourceMeasurement, source, vertex, state, Bz, indexUtils, params, window)));
 
   const float inverseR0 = 1.f / source.radius;
@@ -285,8 +287,8 @@ BOOST_AUTO_TEST_CASE(CylinderProjectSearchWindowMatchesInlineFormulaAndDirectPhi
   legacy.PVres = 0.025f;
   const auto positivePVParams = makeKernelParameters(legacy, SurfaceKind::Cylinder);
   BOOST_REQUIRE(positivePVParams.isValid());
-  TrackletSearchWindow<TransitionPolicyTag::CylinderCylinder> positivePVWindow{};
-  BOOST_REQUIRE((projectSearchWindow<TransitionPolicyTag::CylinderCylinder>(
+  CylinderTrackletSearchWindow positivePVWindow{};
+  BOOST_REQUIRE((projectCylinderSearchWindow(
     sourceMeasurement, source, vertex, state, Bz, indexUtils, positivePVParams, positivePVWindow)));
   const float positivePVResolution = o2::gpu::CAMath::Sqrt(o2::its::math_utils::Sq(state.sourcePositionResolution) +
                                                            o2::its::math_utils::Sq(positivePVParams.pvResolution) / float(vertex.getNContributors()));
@@ -329,11 +331,11 @@ BOOST_AUTO_TEST_CASE(DiskProjectSearchWindowReusesHelpersAndDirectProjectedXYBin
   const auto source = makeGlobalCluster(1.2f, 0.7f, fromZ);
   const auto sourceMeasurement = makeMeasurement(source, 2.e-4f, 3.e-4f);
   const auto vertex = makeVertex(0.01f, -0.02f, 0.1f, 4.e-4f, 5.e-4f, 0.04f, 3);
-  const TrackletProjectionState<TransitionPolicyTag::DiskDisk> state{
+  const DiskTrackletProjectionState state{
     fromLayer, toLayer, fromZ, toZ, toZ - fromZ, 2.f, 3.e-3f, 0.04f};
 
-  TrackletSearchWindow<TransitionPolicyTag::DiskDisk> window{};
-  BOOST_REQUIRE((projectSearchWindow<TransitionPolicyTag::DiskDisk>(
+  DiskTrackletSearchWindow window{};
+  BOOST_REQUIRE((projectDiskSearchWindow(
     sourceMeasurement, source, vertex, state, Bz, indexUtils, params, window)));
 
   float expectedX = 0.f;
@@ -401,12 +403,12 @@ BOOST_AUTO_TEST_CASE(ProjectSearchWindowInvalidBinsLeaveEveryOutputFieldUnchange
   const auto cylinderSource = makeGlobalCluster(2.f, 0.f, 100.f);
   const auto cylinderMeasurement = makeMeasurement(cylinderSource);
   const auto cylinderVertex = makeVertex(0.f, 0.f, 0.f, 0.f, 0.f, 0.f);
-  const TrackletProjectionState<TransitionPolicyTag::CylinderCylinder> cylinderState{
+  const CylinderTrackletProjectionState cylinderState{
     0, 3, 2.f, 3.8f, 4.2f, 5.e-4f, 2.e-3f, 0.08f};
-  const TrackletSearchWindow<TransitionPolicyTag::CylinderCylinder> cylinderSentinel{
+  const CylinderTrackletSearchWindow cylinderSentinel{
     {101, 102, 103, 104}, 105.f, 106.f, 107.f, 108.f};
   auto cylinderOut = cylinderSentinel;
-  BOOST_CHECK(!(projectSearchWindow<TransitionPolicyTag::CylinderCylinder>(
+  BOOST_CHECK(!(projectCylinderSearchWindow(
     cylinderMeasurement, cylinderSource, cylinderVertex, cylinderState, Bz, cylinderIndexUtils, cylinderParams, cylinderOut)));
   checkSearchWindowEqual(cylinderOut, cylinderSentinel);
 
@@ -422,19 +424,19 @@ BOOST_AUTO_TEST_CASE(ProjectSearchWindowInvalidBinsLeaveEveryOutputFieldUnchange
   const auto diskSource = makeGlobalCluster(1.f, 0.5f, fromZ);
   const auto diskMeasurement = makeMeasurement(diskSource);
   const auto diskVertex = makeVertex(0.f, 0.f, 0.f, 0.f, 0.f, 0.f);
-  const TrackletProjectionState<TransitionPolicyTag::DiskDisk> diskState{
+  const DiskTrackletProjectionState diskState{
     fromLayer, toLayer, fromZ, toZ, toZ - fromZ, 2.f, 3.e-3f, 0.04f};
-  const TrackletSearchWindow<TransitionPolicyTag::DiskDisk> diskSentinel{
+  const DiskTrackletSearchWindow diskSentinel{
     {201, 202, 203, 204}, 205.f, 206.f, 207.f, 208.f, 209.f, 210.f};
   auto diskOut = diskSentinel;
-  BOOST_CHECK(!(projectSearchWindow<TransitionPolicyTag::DiskDisk>(
+  BOOST_CHECK(!(projectDiskSearchWindow(
     diskMeasurement, diskSource, diskVertex, diskState, Bz, diskIndexUtils, diskParams, diskOut)));
   checkSearchWindowEqual(diskOut, diskSentinel);
 }
 
 BOOST_AUTO_TEST_CASE(CylinderCandidateUsesPeriodicPhiAndStrictSigmaAndPhiBoundaries)
 {
-  TrackletSearchWindow<TransitionPolicyTag::CylinderCylinder> window{
+  CylinderTrackletSearchWindow window{
     {}, 0.f, 1.f, 0.02f, 5.f};
 
   const float wrapEpsilon = 0.005f;
@@ -472,7 +474,7 @@ BOOST_AUTO_TEST_CASE(DiskProjectionCoversStraightLineNearZeroDenominatorAndRadia
   const float toZ = detail::mftLayerZ(toLayer);
   const auto source = makeGlobalCluster(1.f, 0.5f, fromZ);
   const auto sourceMeasurement = makeMeasurement(source);
-  const TrackletProjectionState<TransitionPolicyTag::DiskDisk> state{
+  const DiskTrackletProjectionState state{
     fromLayer, toLayer, fromZ, toZ, toZ - fromZ, 2.f, 3.e-3f, 0.04f};
 
   IndexTableUtilsCore indexUtils;
@@ -481,8 +483,8 @@ BOOST_AUTO_TEST_CASE(DiskProjectionCoversStraightLineNearZeroDenominatorAndRadia
   indexUtils.setIndexTableParams(IndexTableCoordType::XY, legacy.RowBins, legacy.ColBins, -200.f, 200.f, halfExtents);
 
   const auto straightVertex = makeVertex(0.1f, -0.2f, 0.3f, 4.e-4f, 5.e-4f, 0.04f);
-  TrackletSearchWindow<TransitionPolicyTag::DiskDisk> straightWindow{};
-  BOOST_REQUIRE((projectSearchWindow<TransitionPolicyTag::DiskDisk>(
+  DiskTrackletSearchWindow straightWindow{};
+  BOOST_REQUIRE((projectDiskSearchWindow(
     sourceMeasurement, source, straightVertex, state, 0.f, indexUtils, params, straightWindow)));
   float expectedX = 0.f;
   float expectedY = 0.f;
@@ -493,8 +495,8 @@ BOOST_AUTO_TEST_CASE(DiskProjectionCoversStraightLineNearZeroDenominatorAndRadia
   BOOST_CHECK_EQUAL(straightWindow.yProj, expectedY);
 
   const auto fallbackVertex = makeVertex(0.1f, -0.2f, fromZ, 4.e-4f, 5.e-4f, 0.f);
-  TrackletSearchWindow<TransitionPolicyTag::DiskDisk> fallbackWindow{};
-  BOOST_REQUIRE((projectSearchWindow<TransitionPolicyTag::DiskDisk>(
+  DiskTrackletSearchWindow fallbackWindow{};
+  BOOST_REQUIRE((projectDiskSearchWindow(
     sourceMeasurement, source, fallbackVertex, state, 0.f, indexUtils, params, fallbackWindow)));
   expectedX = expectedY = 0.f;
   detail::mftTrackletProject(source.xCoordinate, source.yCoordinate, source.zCoordinate,
@@ -514,8 +516,8 @@ BOOST_AUTO_TEST_CASE(DiskProjectionCoversStraightLineNearZeroDenominatorAndRadia
   const float rawRadialMin = source.radius * (zVtxMax + absZTo) / (zVtxMax + absZFrom);
   const float rawRadialMax = source.radius * (absZTo + zVtxMin) / (absZFrom + zVtxMin);
   BOOST_REQUIRE_GT(rawRadialMin, rawRadialMax);
-  TrackletSearchWindow<TransitionPolicyTag::DiskDisk> swapWindow{};
-  BOOST_REQUIRE((projectSearchWindow<TransitionPolicyTag::DiskDisk>(
+  DiskTrackletSearchWindow swapWindow{};
+  BOOST_REQUIRE((projectDiskSearchWindow(
     sourceMeasurement, source, swapVertex, state, 0.f, indexUtils, params, swapWindow)));
   expectedX = expectedY = 0.f;
   detail::mftTrackletProject(source.xCoordinate, source.yCoordinate, source.zCoordinate,
@@ -547,13 +549,13 @@ BOOST_AUTO_TEST_CASE(DiskCandidatePreservesInverseVarianceAndStrictBoundarySeman
   const auto distantTarget = makeGlobalCluster(100.f, -80.f, -47.f);
   const auto sourceMeasurement = makeMeasurement(source);
   const auto distantTargetMeasurement = makeMeasurement(distantTarget);
-  TrackletSearchWindow<TransitionPolicyTag::DiskDisk> zeroSigmaWindow{
+  DiskTrackletSearchWindow zeroSigmaWindow{
     {}, 0.f, 0.f, 0.f, -1.f, 2.f, 5.f};
   float tanLambda = -8.f;
   BOOST_CHECK(zeroSigmaWindow.acceptCandidate(sourceMeasurement, distantTargetMeasurement, tanLambda));
   BOOST_CHECK_EQUAL(tanLambda, 1.f);
 
-  TrackletSearchWindow<TransitionPolicyTag::DiskDisk> chi2Window{
+  DiskTrackletSearchWindow chi2Window{
     {}, 0.f, 0.f, 1.f, 1.f, 2.f, 5.f};
   const auto exactChi2Target = makeGlobalCluster(5.f, 0.f, -47.f);
   tanLambda = 81.f;
@@ -579,15 +581,15 @@ BOOST_AUTO_TEST_CASE(NormalizedMeasurementsRemainAuthoritativeOverPoisonedLocato
   IndexTableUtilsCore cylinderIndex;
   cylinderIndex.setTrackingParameters(cylinderParameters);
   const auto vertex = makeVertex(0.f, 0.f, 0.f, 1.e-4f, 1.e-4f, 4.e-4f, 4);
-  const TrackletProjectionState<TransitionPolicyTag::CylinderCylinder> cylinderState{
+  const CylinderTrackletProjectionState cylinderState{
     0, 1, 2.f, 3.8f, 4.2f, 5.e-4f, 2.e-3f, 0.08f};
   const auto sourceMeasurement = makeMeasurement(2.f, 0.f, 0.5f);
   const auto targetMeasurement = makeMeasurement(4.f, 0.f, 1.f);
   const auto source = makeGlobalCluster(2.f, 0.f, 0.5f);
   const auto target = makeGlobalCluster(4.f, 0.f, 1.f);
 
-  TrackletSearchWindow<TransitionPolicyTag::CylinderCylinder> baseline{};
-  BOOST_REQUIRE((projectSearchWindow<TransitionPolicyTag::CylinderCylinder>(
+  CylinderTrackletSearchWindow baseline{};
+  BOOST_REQUIRE((projectCylinderSearchWindow(
     sourceMeasurement, source, vertex, cylinderState, Bz, cylinderIndex, cylinderPolicy, baseline)));
   float baselineTanLambda = -1.f;
   BOOST_REQUIRE(baseline.acceptCandidate(sourceMeasurement, source, targetMeasurement, target, baselineTanLambda));
@@ -602,8 +604,8 @@ BOOST_AUTO_TEST_CASE(NormalizedMeasurementsRemainAuthoritativeOverPoisonedLocato
   poisonedTarget.xCoordinate = 666.f;
   poisonedTarget.yCoordinate = -555.f;
   poisonedTarget.zCoordinate = 444.f;
-  TrackletSearchWindow<TransitionPolicyTag::CylinderCylinder> poisonedWindow{};
-  BOOST_REQUIRE((projectSearchWindow<TransitionPolicyTag::CylinderCylinder>(
+  CylinderTrackletSearchWindow poisonedWindow{};
+  BOOST_REQUIRE((projectCylinderSearchWindow(
     sourceMeasurement, poisonedSource, vertex, cylinderState, Bz, cylinderIndex, cylinderPolicy, poisonedWindow)));
   checkSearchWindowEqual(poisonedWindow, baseline);
   float poisonedTanLambda = -2.f;
@@ -615,8 +617,8 @@ BOOST_AUTO_TEST_CASE(NormalizedMeasurementsRemainAuthoritativeOverPoisonedLocato
 
   auto poisonedNavigationCache = source;
   poisonedNavigationCache.radius = 4.f;
-  TrackletSearchWindow<TransitionPolicyTag::CylinderCylinder> cachePoisonedWindow{};
-  BOOST_REQUIRE((projectSearchWindow<TransitionPolicyTag::CylinderCylinder>(
+  CylinderTrackletSearchWindow cachePoisonedWindow{};
+  BOOST_REQUIRE((projectCylinderSearchWindow(
     sourceMeasurement, poisonedNavigationCache, vertex, cylinderState, Bz, cylinderIndex, cylinderPolicy, cachePoisonedWindow)));
   BOOST_CHECK_NE(cachePoisonedWindow.tanLambda, baseline.tanLambda);
 
@@ -630,23 +632,23 @@ BOOST_AUTO_TEST_CASE(NormalizedMeasurementsRemainAuthoritativeOverPoisonedLocato
   const float toZ = detail::mftLayerZ(1);
   const auto diskMeasurement = makeMeasurement(1.f, 0.5f, fromZ, 2.e-4f, 3.e-4f, 7.f);
   auto diskLocator = makeGlobalCluster(1.f, 0.5f, fromZ);
-  const TrackletProjectionState<TransitionPolicyTag::DiskDisk> diskState{0, 1, fromZ, toZ, toZ - fromZ, 2.f, 3.e-3f, 0.04f};
-  TrackletSearchWindow<TransitionPolicyTag::DiskDisk> diskBaseline{};
-  BOOST_REQUIRE((projectSearchWindow<TransitionPolicyTag::DiskDisk>(
+  const DiskTrackletProjectionState diskState{0, 1, fromZ, toZ, toZ - fromZ, 2.f, 3.e-3f, 0.04f};
+  DiskTrackletSearchWindow diskBaseline{};
+  BOOST_REQUIRE((projectDiskSearchWindow(
     diskMeasurement, diskLocator, vertex, diskState, Bz, diskIndex, diskPolicy, diskBaseline)));
   diskLocator.xCoordinate = 123.f;
   diskLocator.yCoordinate = -321.f;
   diskLocator.zCoordinate = 456.f;
   auto uvPoisoned = diskMeasurement;
   uvPoisoned.covariance.uv = -12345.f;
-  TrackletSearchWindow<TransitionPolicyTag::DiskDisk> diskPoisoned{};
-  BOOST_REQUIRE((projectSearchWindow<TransitionPolicyTag::DiskDisk>(
+  DiskTrackletSearchWindow diskPoisoned{};
+  BOOST_REQUIRE((projectDiskSearchWindow(
     uvPoisoned, diskLocator, vertex, diskState, Bz, diskIndex, diskPolicy, diskPoisoned)));
   checkSearchWindowEqual(diskPoisoned, diskBaseline);
 }
 
-/// Gate 3 cell-road pre-cut slice coverage: passesCellRoadPrecut<Tag>
-/// (TransitionPolicyOperations.h), the last detector branch removed from
+/// Gate 3 cell-road pre-cut slice coverage: cell road-precut leaves
+/// (TrackletFinding.h), the last detector branch removed from
 /// TrackerTraits::computeLayerCellsForPolicy's candidate loop. These tests
 /// use an independent re-derivation of the legacy formula (formerly
 /// detail::validateMFTCellClusters/mftDistanceToSeedSquared/
@@ -688,7 +690,7 @@ float referenceConicalRoadR2Scale(float zFrom, float zTo)
 
 /// Independent re-derivation of the combined three-check road pre-cut
 /// (formerly detail::validateMFTCellClusters), used only as the oracle for
-/// passesCellRoadPrecut<DiskDisk> -- never called by the operation under test.
+/// passesDiskCellRoadPrecut -- never called by the operation under test.
 bool referenceCellRoadPrecut(const GlobalPoint3F& inner, const GlobalPoint3F& middle, const GlobalPoint3F& outer,
                              float zInner, float zMiddle, float zOuter, float cellRoadRCut)
 {
@@ -707,7 +709,7 @@ BOOST_AUTO_TEST_CASE(CylinderCellRoadPrecutAlwaysAcceptsAndIgnoresEmptyReference
   // iteration): the CylinderCylinder specialization must not read any of
   // them and must still return true.
   const GlobalPoint3F garbage{std::numeric_limits<float>::quiet_NaN(), std::numeric_limits<float>::infinity(), -1.f};
-  BOOST_CHECK(passesCellRoadPrecut<TransitionPolicyTag::CylinderCylinder>(
+  BOOST_CHECK(passesCylinderCellRoadPrecut(
     garbage, garbage, garbage, 0, 1, 2, gsl::span<const float>{}, TrackingKernelParameters{}));
 }
 
@@ -724,7 +726,7 @@ BOOST_AUTO_TEST_CASE(DiskCellRoadPrecutMatchesIndependentOracleAcceptAndReject)
                                                      referenceZ[0], referenceZ[1], referenceZ[2], generous.cellRoadRCut);
   BOOST_REQUIRE(oracleAccepts);
   BOOST_CHECK_EQUAL(oracleAccepts,
-                    passesCellRoadPrecut<TransitionPolicyTag::DiskDisk>(
+                    passesDiskCellRoadPrecut(
                       pointInner, pointMiddle, pointOuter, 0, 1, 2,
                       gsl::span<const float>(referenceZ), generous));
 
@@ -734,7 +736,7 @@ BOOST_AUTO_TEST_CASE(DiskCellRoadPrecutMatchesIndependentOracleAcceptAndReject)
                                                      referenceZ[0], referenceZ[1], referenceZ[2], tight.cellRoadRCut);
   BOOST_REQUIRE(!oracleRejects);
   BOOST_CHECK_EQUAL(oracleRejects,
-                    passesCellRoadPrecut<TransitionPolicyTag::DiskDisk>(
+                    passesDiskCellRoadPrecut(
                       pointInner, pointMiddle, pointOuter, 0, 1, 2,
                       gsl::span<const float>(referenceZ), tight));
 }
@@ -767,7 +769,7 @@ BOOST_AUTO_TEST_CASE(DiskCellRoadPrecutMiddleCheckRejectsIndependently)
   const std::array<float, 3> referenceZ{zInner, zMiddle, zOuter};
   TrackingKernelParameters params;
   params.cellRoadRCut = 1.f;
-  BOOST_CHECK(!passesCellRoadPrecut<TransitionPolicyTag::DiskDisk>(
+  BOOST_CHECK(!passesDiskCellRoadPrecut(
     pointInner, pointMiddle, pointOuter, 0, 1, 2,
     gsl::span<const float>(referenceZ), params));
 }
@@ -794,7 +796,7 @@ BOOST_AUTO_TEST_CASE(DiskCellRoadPrecutOuterCheckRejectsIndependently)
   const std::array<float, 3> referenceZ{zInner, zMiddle, zOuter};
   TrackingKernelParameters params;
   params.cellRoadRCut = 10.f; // r2Cut == 100.f, matching the checks above
-  BOOST_CHECK(!passesCellRoadPrecut<TransitionPolicyTag::DiskDisk>(
+  BOOST_CHECK(!passesDiskCellRoadPrecut(
     pointInner, pointMiddle, pointOuter, 0, 1, 2,
     gsl::span<const float>(referenceZ), params));
 }
@@ -821,7 +823,7 @@ BOOST_AUTO_TEST_CASE(DiskCellRoadPrecutInnerCheckRejectsIndependently)
   const std::array<float, 3> referenceZ{zInner, zMiddle, zOuter};
   TrackingKernelParameters params;
   params.cellRoadRCut = 1.f;
-  BOOST_CHECK(!passesCellRoadPrecut<TransitionPolicyTag::DiskDisk>(
+  BOOST_CHECK(!passesDiskCellRoadPrecut(
     pointInner, pointMiddle, pointOuter, 0, 1, 2,
     gsl::span<const float>(referenceZ), params));
 }
@@ -852,7 +854,7 @@ BOOST_AUTO_TEST_CASE(DiskCellRoadPrecutExactBoundaryAndNextRepresentableInsideOu
 
   TrackingKernelParameters params;
   params.cellRoadRCut = atBoundary;
-  BOOST_CHECK(!passesCellRoadPrecut<TransitionPolicyTag::DiskDisk>(
+  BOOST_CHECK(!passesDiskCellRoadPrecut(
     pointInner, pointMiddle, pointOuter, 0, 1, 2, gsl::span<const float>(referenceZ), params));
 
   const float justAbove = std::nextafter(atBoundary, std::numeric_limits<float>::max());
@@ -862,12 +864,12 @@ BOOST_AUTO_TEST_CASE(DiskCellRoadPrecutExactBoundaryAndNextRepresentableInsideOu
 
   TrackingKernelParameters paramsAbove;
   paramsAbove.cellRoadRCut = justAbove;
-  BOOST_CHECK(passesCellRoadPrecut<TransitionPolicyTag::DiskDisk>(
+  BOOST_CHECK(passesDiskCellRoadPrecut(
     pointInner, pointMiddle, pointOuter, 0, 1, 2, gsl::span<const float>(referenceZ), paramsAbove));
 
   TrackingKernelParameters paramsBelow;
   paramsBelow.cellRoadRCut = justBelow;
-  BOOST_CHECK(!passesCellRoadPrecut<TransitionPolicyTag::DiskDisk>(
+  BOOST_CHECK(!passesDiskCellRoadPrecut(
     pointInner, pointMiddle, pointOuter, 0, 1, 2, gsl::span<const float>(referenceZ), paramsBelow));
 }
 
@@ -887,7 +889,7 @@ BOOST_AUTO_TEST_CASE(DiskCellRoadPrecutNearZeroSeedDzRejects)
 
   TrackingKernelParameters params;
   params.cellRoadRCut = 1.e6f; // even a very generous cut cannot beat FLT_MAX
-  BOOST_CHECK(!passesCellRoadPrecut<TransitionPolicyTag::DiskDisk>(
+  BOOST_CHECK(!passesDiskCellRoadPrecut(
     pointInner, pointMiddle, pointOuter, 0, 1, 2, gsl::span<const float>(referenceZ), params));
 }
 
@@ -920,7 +922,7 @@ BOOST_AUTO_TEST_CASE(DiskCellRoadPrecutZeroReferenceZFallbackMatchesUnitScale)
 
   const bool oracle = referenceCellRoadPrecut(pointInner, pointMiddle, pointOuter, zInner, zMiddle, zOuter, params.cellRoadRCut);
   BOOST_CHECK_EQUAL(oracle,
-                    passesCellRoadPrecut<TransitionPolicyTag::DiskDisk>(
+                    passesDiskCellRoadPrecut(
                       pointInner, pointMiddle, pointOuter, 0, 1, 2,
                       gsl::span<const float>(referenceZ), params));
 }
@@ -940,7 +942,7 @@ BOOST_AUTO_TEST_CASE(DiskCellRoadPrecutNonAdjacentLayerIndices)
   const bool oracle = referenceCellRoadPrecut(pointInner, pointMiddle, pointOuter,
                                               referenceZ[0], referenceZ[2], referenceZ[5], params.cellRoadRCut);
   BOOST_CHECK_EQUAL(oracle,
-                    passesCellRoadPrecut<TransitionPolicyTag::DiskDisk>(
+                    passesDiskCellRoadPrecut(
                       pointInner, pointMiddle, pointOuter, 0, 2, 5,
                       gsl::span<const float>(referenceZ), params));
 }
@@ -961,7 +963,7 @@ BOOST_AUTO_TEST_CASE(DiskCellRoadPrecutNegativeDiskZRepresentative)
   const bool oracle = referenceCellRoadPrecut(pointInner, pointMiddle, pointOuter,
                                               referenceZ[0], referenceZ[1], referenceZ[2], params.cellRoadRCut);
   BOOST_CHECK_EQUAL(oracle,
-                    passesCellRoadPrecut<TransitionPolicyTag::DiskDisk>(
+                    passesDiskCellRoadPrecut(
                       pointInner, pointMiddle, pointOuter, 0, 1, 2,
                       gsl::span<const float>(referenceZ), params));
 }
@@ -980,7 +982,7 @@ BOOST_AUTO_TEST_CASE(DiskCellRoadPrecutInputsAreNotMutated)
   params.cellRoadRCut = 1000.f;
   const auto paramsBefore = params;
 
-  passesCellRoadPrecut<TransitionPolicyTag::DiskDisk>(
+  passesDiskCellRoadPrecut(
     pointInner, pointMiddle, pointOuter, 0, 1, 2, gsl::span<const float>(referenceZ), params);
 
   BOOST_CHECK_EQUAL(pointInner.x, pointInnerBefore.x);
@@ -1002,7 +1004,7 @@ BOOST_AUTO_TEST_CASE(DiskCellRoadPrecutNaNClusterCoordinateRejects)
   const std::array<float, 3> referenceZ{-45.f, -46.f, -47.f};
   TrackingKernelParameters params;
   params.cellRoadRCut = 1000.f; // generous: only the NaN can cause rejection
-  BOOST_CHECK(!passesCellRoadPrecut<TransitionPolicyTag::DiskDisk>(
+  BOOST_CHECK(!passesDiskCellRoadPrecut(
     pointInner, pointMiddle, pointOuter, 0, 1, 2,
     gsl::span<const float>(referenceZ), params));
 }
@@ -1015,7 +1017,7 @@ BOOST_AUTO_TEST_CASE(DiskCellRoadPrecutNaNReferenceZRejects)
   const std::array<float, 3> referenceZ{-45.f, std::numeric_limits<float>::quiet_NaN(), -47.f};
   TrackingKernelParameters params;
   params.cellRoadRCut = 1000.f;
-  BOOST_CHECK(!passesCellRoadPrecut<TransitionPolicyTag::DiskDisk>(
+  BOOST_CHECK(!passesDiskCellRoadPrecut(
     pointInner, pointMiddle, pointOuter, 0, 1, 2,
     gsl::span<const float>(referenceZ), params));
 }
@@ -1033,7 +1035,7 @@ BOOST_AUTO_TEST_CASE(DiskCellRoadPrecutNaNCutRejectsInIsolatedPredicate)
   const std::array<float, 3> referenceZ{-45.f, -46.f, -47.f};
   TrackingKernelParameters params;
   params.cellRoadRCut = std::numeric_limits<float>::quiet_NaN();
-  BOOST_CHECK(!passesCellRoadPrecut<TransitionPolicyTag::DiskDisk>(
+  BOOST_CHECK(!passesDiskCellRoadPrecut(
     pointInner, pointMiddle, pointOuter, 0, 1, 2,
     gsl::span<const float>(referenceZ), params));
 }
@@ -1052,7 +1054,7 @@ BOOST_AUTO_TEST_CASE(DiskCellRoadPrecutInfiniteCutAcceptsInIsolatedPredicate)
   const std::array<float, 3> referenceZ{-45.f, -46.f, -47.f};
   TrackingKernelParameters params;
   params.cellRoadRCut = std::numeric_limits<float>::infinity();
-  BOOST_CHECK(passesCellRoadPrecut<TransitionPolicyTag::DiskDisk>(
+  BOOST_CHECK(passesDiskCellRoadPrecut(
     pointInner, pointMiddle, pointOuter, 0, 1, 2,
     gsl::span<const float>(referenceZ), params));
 }
@@ -1079,7 +1081,7 @@ BOOST_AUTO_TEST_CASE(DiskCellRoadPrecutInfiniteReferenceZRejects)
   const std::array<float, 3> referenceZ{zInner, zMiddle, zOuter};
   TrackingKernelParameters params;
   params.cellRoadRCut = 1000.f;
-  BOOST_CHECK(!passesCellRoadPrecut<TransitionPolicyTag::DiskDisk>(
+  BOOST_CHECK(!passesDiskCellRoadPrecut(
     pointInner, pointMiddle, pointOuter, 0, 1, 2,
     gsl::span<const float>(referenceZ), params));
 }
@@ -1112,8 +1114,8 @@ BOOST_AUTO_TEST_CASE(TrackingKernelParametersIsValidRejectsNonFiniteCellRoadRCut
 
 /// Gate 3 transition-preparation slice coverage (relocated from
 /// TimeFrame::initialise() into TrackerTraits::initialiseTimeFrame(); see
-/// TransitionPolicyOperations.h layerMultipleScatteringAngle<Tag>,
-/// clampTransitionCurvature<Tag>, prepareTransitionScatteringAndBending, and
+/// TrackletFinding.h family scattering leaves,
+/// family curvature leaves, prepareTransitionScatteringAndBending, and
 /// TransitionPolicyBinding.h LayerGeometryConfigView). These tests verify
 /// exact legacy-formula parity, the family-specific arithmetic literal that
 /// integration review required preserved (not canonicalized), and the
@@ -1158,15 +1160,15 @@ BOOST_AUTO_TEST_CASE(CylinderScatteringAngleMatchesFrozenITSFormula)
   for (float xX0 : xX0Values) {
     for (float trackletMinPt : trackletMinPtValues) {
       const float reference = o2::its::math_utils::MSangle(0.14f, trackletMinPt, xX0);
-      const float actual = layerMultipleScatteringAngle<TransitionPolicyTag::CylinderCylinder>(
-        LayerScatteringInputs<TransitionPolicyTag::CylinderCylinder>{xX0}, trackletMinPt);
+      const float actual = cylinderLayerMultipleScatteringAngle(
+        CylinderLayerScatteringInputs{xX0}, trackletMinPt);
       BOOST_CHECK_EQUAL(actual, reference);
     }
   }
   // xX0 <= 0 behavior, explicit: legacy MSangle maps this to zero, not a
   // rejection; the typed operation must not add validation beyond it.
-  BOOST_CHECK_EQUAL(layerMultipleScatteringAngle<TransitionPolicyTag::CylinderCylinder>(
-                      LayerScatteringInputs<TransitionPolicyTag::CylinderCylinder>{0.f}, 0.3f),
+  BOOST_CHECK_EQUAL(cylinderLayerMultipleScatteringAngle(
+                      CylinderLayerScatteringInputs{0.f}, 0.3f),
                     0.f);
 }
 
@@ -1186,16 +1188,16 @@ BOOST_AUTO_TEST_CASE(DiskScatteringAngleMatchesLegacyMftFormulaWithExplicitRefer
     const float xX0 = legacy.LayerxX0[layer];
 
     const float reference = detail::mftLayerMSAngle(layer, legacy);
-    const float actual = layerMultipleScatteringAngle<TransitionPolicyTag::DiskDisk>(
-      LayerScatteringInputs<TransitionPolicyTag::DiskDisk>{xX0, radius, referenceZ}, legacy.TrackletMinPt);
+    const float actual = diskLayerMultipleScatteringAngle(
+      DiskLayerScatteringInputs{xX0, radius, referenceZ}, legacy.TrackletMinPt);
     BOOST_CHECK_EQUAL(actual, reference);
   }
 
   // xX0 == 0 behavior, explicit: the legacy formula has no special case for
   // it (sqrt(0 * cscLambda) == 0), and this operation must not add one.
   const float referenceZ = detail::mftLayerZ(0);
-  const float zeroX0Actual = layerMultipleScatteringAngle<TransitionPolicyTag::DiskDisk>(
-    LayerScatteringInputs<TransitionPolicyTag::DiskDisk>{0.f, legacy.LayerRadii[0], referenceZ}, legacy.TrackletMinPt);
+  const float zeroX0Actual = diskLayerMultipleScatteringAngle(
+    DiskLayerScatteringInputs{0.f, legacy.LayerRadii[0], referenceZ}, legacy.TrackletMinPt);
   BOOST_CHECK_EQUAL(zeroX0Actual, 0.f);
 }
 
@@ -1209,8 +1211,8 @@ BOOST_AUTO_TEST_CASE(DiskScatteringAngleNearZeroReferenceRadiusFallback)
   const float referenceZ = detail::mftLayerZ(0);
 
   const float reference = detail::mftLayerMSAngle(0, legacy);
-  const float actual = layerMultipleScatteringAngle<TransitionPolicyTag::DiskDisk>(
-    LayerScatteringInputs<TransitionPolicyTag::DiskDisk>{legacy.LayerxX0[0], legacy.LayerRadii[0], referenceZ},
+  const float actual = diskLayerMultipleScatteringAngle(
+    DiskLayerScatteringInputs{legacy.LayerxX0[0], legacy.LayerRadii[0], referenceZ},
     legacy.TrackletMinPt);
   BOOST_CHECK_EQUAL(actual, reference);
 
@@ -1283,11 +1285,11 @@ BOOST_AUTO_TEST_CASE(ClampTransitionCurvatureMatchesExactLegacyExpressionPerFami
     const float oneOverR = sample.first;
     const float r2 = sample.second;
 
-    const float cylinderActual = clampTransitionCurvature<TransitionPolicyTag::CylinderCylinder>(oneOverR, r2);
+    const float cylinderActual = clampCylinderTransitionCurvature(oneOverR, r2);
     const float cylinderReference = (0.5 * oneOverR >= 1.f / r2) ? (2.f / r2) - o2::constants::math::Almost0 : oneOverR;
     BOOST_CHECK_EQUAL(cylinderActual, cylinderReference);
 
-    const float diskActual = clampTransitionCurvature<TransitionPolicyTag::DiskDisk>(oneOverR, r2);
+    const float diskActual = clampDiskTransitionCurvature(oneOverR, r2);
     const float diskReference = (0.5f * oneOverR >= 1.f / r2) ? (2.f / r2) - o2::constants::math::Almost0 : oneOverR;
     BOOST_CHECK_EQUAL(diskActual, diskReference);
   }
@@ -1332,7 +1334,7 @@ BOOST_AUTO_TEST_CASE(ClampTransitionCurvatureFloatVersusDoubleDiscriminatorAttem
 BOOST_AUTO_TEST_CASE(CurvatureRatchetThreadsInIncreasingLegacyTransitionIdOrder)
 {
   // The legacy oneOverR is a loop-carried variable, not reset per transition:
-  // clampTransitionCurvature<Tag> must be called once per transition, in
+  // family curvature leaves must be called once per transition, in
   // increasing legacy transitionId order, threading its return value into the
   // next call. This proves the computation is genuinely order-sensitive (an
   // unproven iteration order, e.g. a policy-grouping span, cannot be
@@ -1344,7 +1346,7 @@ BOOST_AUTO_TEST_CASE(CurvatureRatchetThreadsInIncreasingLegacyTransitionIdOrder)
   float running = initialOneOverR;
   std::array<float, 3> forwardResults{};
   for (int i = 0; i < 3; ++i) {
-    running = clampTransitionCurvature<TransitionPolicyTag::CylinderCylinder>(running, r2InIncreasingTransitionIdOrder[i]);
+    running = clampCylinderTransitionCurvature(running, r2InIncreasingTransitionIdOrder[i]);
     forwardResults[i] = running;
   }
 
@@ -1358,7 +1360,7 @@ BOOST_AUTO_TEST_CASE(CurvatureRatchetThreadsInIncreasingLegacyTransitionIdOrder)
 
   // A different processing order must not be assumed to reproduce the same
   // first step: proves the caller cannot substitute an unproven order.
-  const float reversedFirstStep = clampTransitionCurvature<TransitionPolicyTag::CylinderCylinder>(
+  const float reversedFirstStep = clampCylinderTransitionCurvature(
     initialOneOverR, r2InIncreasingTransitionIdOrder[2]);
   BOOST_CHECK_NE(reversedFirstStep, forwardResults[0]);
 }
@@ -1374,7 +1376,7 @@ BOOST_AUTO_TEST_CASE(PrepareTransitionScatteringAndBendingMatchesFrozenFormulaFo
     constexpr float r2 = 19.6213f;
     constexpr float res1 = 5.e-4f;
     constexpr float res2 = 5.e-4f;
-    const float oneOverR = clampTransitionCurvature<TransitionPolicyTag::CylinderCylinder>(
+    const float oneOverR = clampCylinderTransitionCurvature(
       0.001f * 0.3f * std::abs(Bz) / 0.3f, r2);
     const gsl::span<const float> msSpan(msAngles.data(), msAngles.size());
     const auto actual = prepareTransitionScatteringAndBending(msSpan, fromLayer, toLayer, r1, r2, oneOverR, res1, res2);
@@ -1394,8 +1396,8 @@ BOOST_AUTO_TEST_CASE(PrepareTransitionScatteringAndBendingMatchesFrozenFormulaFo
     resetDetectorDefaults(mft, o2::detectors::DetID::MFT);
     std::array<float, o2::mft::constants::mft::LayersNumber> msAngles{};
     for (int layer = 0; layer < o2::mft::constants::mft::LayersNumber; ++layer) {
-      msAngles[layer] = layerMultipleScatteringAngle<TransitionPolicyTag::DiskDisk>(
-        LayerScatteringInputs<TransitionPolicyTag::DiskDisk>{mft.LayerxX0[layer], mft.LayerRadii[layer], detail::mftLayerZ(layer)},
+      msAngles[layer] = diskLayerMultipleScatteringAngle(
+        DiskLayerScatteringInputs{mft.LayerxX0[layer], mft.LayerRadii[layer], detail::mftLayerZ(layer)},
         mft.TrackletMinPt);
     }
     constexpr int fromLayer = 1;
@@ -1404,7 +1406,7 @@ BOOST_AUTO_TEST_CASE(PrepareTransitionScatteringAndBendingMatchesFrozenFormulaFo
     const float r2 = mft.LayerRadii[toLayer];
     constexpr float res1 = 5.e-4f;
     constexpr float res2 = 6.e-4f;
-    const float oneOverR = clampTransitionCurvature<TransitionPolicyTag::DiskDisk>(
+    const float oneOverR = clampDiskTransitionCurvature(
       0.001f * 0.3f * std::abs(Bz) / mft.TrackletMinPt, r2);
     const gsl::span<const float> msSpan(msAngles.data(), msAngles.size());
     const auto actual = prepareTransitionScatteringAndBending(msSpan, fromLayer, toLayer, r1, r2, oneOverR, res1, res2);
@@ -1424,7 +1426,7 @@ BOOST_AUTO_TEST_CASE(PrepareTransitionScatteringAndBendingZeroFieldAndDegenerate
   {
     const float zeroFieldOneOverR = 0.001f * 0.3f * std::abs(0.f) / 0.3f;
     BOOST_CHECK_EQUAL(zeroFieldOneOverR, 0.f);
-    const float clamped = clampTransitionCurvature<TransitionPolicyTag::CylinderCylinder>(zeroFieldOneOverR, 5.f);
+    const float clamped = clampCylinderTransitionCurvature(zeroFieldOneOverR, 5.f);
     BOOST_CHECK_EQUAL(clamped, 0.f); // 0.5*0 >= 1/5 is false: clamp does not trigger
     const auto actual = prepareTransitionScatteringAndBending(msSpan, 0, 2, 2.f, 5.f, clamped, 5.e-4f, 5.e-4f);
     const auto reference = referenceTransitionScatteringAndBending(msSpan, 0, 2, 2.f, 5.f, clamped, 5.e-4f, 5.e-4f);
@@ -1436,7 +1438,7 @@ BOOST_AUTO_TEST_CASE(PrepareTransitionScatteringAndBendingZeroFieldAndDegenerate
   // through to whatever the floating-point expression produces. This test
   // asserts parity with that expression, not any particular finiteness.
   {
-    const float oneOverR = clampTransitionCurvature<TransitionPolicyTag::CylinderCylinder>(0.01f, 0.f);
+    const float oneOverR = clampCylinderTransitionCurvature(0.01f, 0.f);
     const auto actual = prepareTransitionScatteringAndBending(msSpan, 0, 2, 2.f, 0.f, oneOverR, 5.e-4f, 5.e-4f);
     const auto reference = referenceTransitionScatteringAndBending(msSpan, 0, 2, 2.f, 0.f, oneOverR, 5.e-4f, 5.e-4f);
     // BOOST_CHECK_EQUAL on NaN is always false (NaN != NaN); compare the bit

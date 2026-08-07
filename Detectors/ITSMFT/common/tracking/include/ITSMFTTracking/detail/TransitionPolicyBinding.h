@@ -84,7 +84,7 @@ enum class MaterialCorrectionModeSupport : uint8_t {
 
 /// Stage-B Slice C: pure, host-only preflight for whether one active
 /// transition policy's Stage-A native SurfaceKinematicState path
-/// (TransitionPolicyOperations.h) supports one iteration's configured
+/// (TrackletFinding.h) supports one iteration's configured
 /// MatCorrType. Additive and unwired: no production caller exists yet --
 /// TrackerTraits::initialiseTimeFrame() does not call this in this slice,
 /// and production behavior is unchanged. When a later activation slice
@@ -121,7 +121,7 @@ enum class MaterialCorrectionModeSupport : uint8_t {
 /// function" -- rather than a silent fallback to `Supported` or
 /// `Unsupported`. This is a stronger, SFINAE-observable guarantee than the
 /// declared-but-undefined (link-error) convention used by the
-/// TransitionPolicyTag-dispatched operations in TransitionPolicyOperations.h
+/// TransitionPolicyTag-dispatched operations in TrackletFinding.h
 /// (cellsAreCompatible, attachHit, buildCellSeed), chosen here because this
 /// preflight's entire purpose is to reject unsupported/invalid configuration
 /// before any device-facing code is reached.

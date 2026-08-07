@@ -96,7 +96,7 @@ GPUhdi() float ptFromQOverPt(float q2pt, uint8_t absCharge) noexcept
 // documents in full in the native operation -- same leg
 // direction/maxQoverPt/acceptance formula, same MinPt check keyed on the
 // seed's own attached-cluster count -- but built on Propagator::driveRefitLeg
-// (descriptor-driven) instead of driveRefitLeg<Tag>, so the identical
+// (descriptor-driven), so the identical
 // function body serves a Barrel seed (ITS) or a Forward seed (MFT) with no
 // specialization. `reseedIfShorter` is not carried over: this is a new
 // production entry point, not a byte-for-byte port, and no caller of this

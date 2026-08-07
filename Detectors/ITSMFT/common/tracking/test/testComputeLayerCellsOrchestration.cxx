@@ -7,17 +7,17 @@
 
 // Orchestration coverage for TrackerTraits<NLayers>::computeLayerCells after
 // its detector-family branch was replaced by a one-shot outer dispatch to
-// buildCellSeed<Tag> (Architecture.md Sec 10/10.1). buildCellSeed<Tag>'s
+// cell-seed leaves (Architecture.md Sec 10/10.1). cell-seed leaves's
 // numerical parity with the legacy inline formulas is already proven by
-// testTransitionPolicyOperations.cxx; this file does not re-derive or
+// testTrackletFinding.cxx; this file does not re-derive or
 // duplicate that formula. It proves instead that the real public
 // computeLayerCells() entry point:
 //  - resolves the three clusters/hits/material values for a candidate in
-//    strict {inner, middle, outer} order and hands them to buildCellSeed<Tag>
-//    unchanged (checked against an oracle call to buildCellSeed<Tag> itself,
+//    strict {inner, middle, outer} order and hands them to cell-seed leaves
+//    unchanged (checked against an oracle call to cell-seed leaves itself,
 //    built from the same values refetched through the TimeFrame, not
 //    re-typed literals);
-//  - keeps the MFT road pre-cut (passesCellRoadPrecut<DiskDisk>, formerly
+//  - keeps the MFT road pre-cut (passesDiskCellRoadPrecut, formerly
 //    detail::validateMFTCellClusters) outside buildCellSeed, called
 //    unconditionally for both families with no detector-ID branch in the
 //    candidate loop, and driven by the bound TrackingKernelParameters::cellRoadRCut
@@ -58,7 +58,8 @@
 #include "ITSMFTTracking/TimeFrame.h"
 #include "ITSMFTTracking/TrackerTraits.h"
 #include "ITSMFTTracking/TrackingConfigParam.h"
-#include "ITSMFTTracking/detail/TransitionPolicyOperations.h"
+#include "ITSMFTTracking/detail/TrackletFinding.h"
+#include "ITSMFTTracking/detail/CellFinding.h"
 #include "ITStracking/Cluster.h"
 #include "ITStracking/Constants.h"
 #include "ITStracking/Tracklet.h"
@@ -197,7 +198,7 @@ std::array<NominalSurfaceMaterial, 3> toMaterial(const std::array<float, 3>& xOv
   return {toMaterial(xOverX0[0]), toMaterial(xOverX0[1]), toMaterial(xOverX0[2])};
 }
 
-// Same construction as testTransitionPolicyOperations.cxx's helpers -- plain
+// Same construction as testTrackletFinding.cxx's helpers -- plain
 // input-struct builders, not a reimplementation of any fit formula.
 o2::its::Cluster makeGlobalCluster(float x, float y, float z, int id = 0)
 {
@@ -216,7 +217,7 @@ o2::its::TrackingFrameInfo makeDiskHit(float z, float x, float y, float sigma2X 
 
 // Test-local field-mapping helpers (not a production API), matching the same
 // Cylinder/Disk field mapping used by the production migration and by
-// testTransitionPolicyOperationsNative.cxx: the single SurfaceMeasurement now
+// testCellFinding.cxx: the single SurfaceMeasurement now
 // standing in for the retired {Cluster, TrackingFrameInfo} pair at each
 // candidate position.
 SurfaceMeasurement barrelMeasurementFor(const o2::its::Cluster& cluster, const o2::its::TrackingFrameInfo& hit)
@@ -247,7 +248,7 @@ SurfaceMeasurement diskMeasurementFor(const o2::its::Cluster& cluster, const o2:
 // Stage-B activation: the produced Cell no longer inherits a track
 // parametrization, so the oracle comparison is done directly on
 // SurfaceKinematicState (both the produced cell's own .state() and the
-// oracle's native buildCellSeed<Tag> output are this type).
+// oracle's native cell-seed leaves output are this type).
 void checkSurfaceKinematicStateEqual(const SurfaceKinematicState& lhs, const SurfaceKinematicState& rhs)
 {
   for (int i = 0; i < 5; ++i) {
@@ -529,7 +530,7 @@ void injectChainCandidateTracklets(Rig<NLayers>& rig, const std::array<int, N>& 
 
 } // namespace
 
-// --- Barrel: real orchestration matches the buildCellSeed<Tag> oracle -----
+// --- Barrel: real orchestration matches the cell-seed leaves oracle -----
 
 BOOST_AUTO_TEST_CASE(CylinderComputeLayerCellsMatchesBuildCellSeedOracle)
 {
@@ -588,7 +589,7 @@ BOOST_AUTO_TEST_CASE(CylinderComputeLayerCellsMatchesBuildCellSeedOracle)
 
   // Oracle: independently refetch the same measurements through
   // TrackerTraits::getLayerMeasurements() (never re-typed literals) and call
-  // buildCellSeed<CylinderCylinder> directly.
+  // buildCylinderCellSeed directly.
   const auto layerMeasurements = rig.traits.getLayerMeasurements();
   const auto& oracleMeasurementInner = layerMeasurements[0][producedCell.getFirstClusterIndex()];
   const auto& oracleMeasurementMiddle = layerMeasurements[1][producedCell.getSecondClusterIndex()];
@@ -602,7 +603,7 @@ BOOST_AUTO_TEST_CASE(CylinderComputeLayerCellsMatchesBuildCellSeedOracle)
   SurfaceKinematicState oracleState{};
   float oracleChi2 = 0.f;
   OperationFailureReason oracleReason{};
-  BOOST_REQUIRE(buildCellSeed<TransitionPolicyTag::CylinderCylinder>(
+  BOOST_REQUIRE(buildCylinderCellSeed(
     oracleMeasurementInner, oracleMeasurementMiddle, oracleMeasurementOuter,
     material, Bz, kCompatibilityAbsCharge, kCompatibilityPID, oracleState, oracleChi2, policyParams, oracleReason));
 
@@ -610,7 +611,7 @@ BOOST_AUTO_TEST_CASE(CylinderComputeLayerCellsMatchesBuildCellSeedOracle)
   BOOST_CHECK_EQUAL(producedCell.getChi2(), oracleChi2);
 }
 
-// --- Disk: real orchestration matches the buildCellSeed<Tag> oracle -------
+// --- Disk: real orchestration matches the cell-seed leaves oracle -------
 
 BOOST_AUTO_TEST_CASE(DiskComputeLayerCellsMatchesBuildCellSeedOracle)
 {
@@ -660,7 +661,7 @@ BOOST_AUTO_TEST_CASE(DiskComputeLayerCellsMatchesBuildCellSeedOracle)
   SurfaceKinematicState oracleState{};
   float oracleChi2 = 0.f;
   OperationFailureReason oracleReason{};
-  BOOST_REQUIRE(buildCellSeed<TransitionPolicyTag::DiskDisk>(
+  BOOST_REQUIRE(buildDiskCellSeed(
     oracleMeasurementInner, oracleMeasurementMiddle, oracleMeasurementOuter,
     material, Bz, kCompatibilityAbsCharge, kCompatibilityPID, oracleState, oracleChi2, policyParams, oracleReason));
 
@@ -674,8 +675,8 @@ BOOST_AUTO_TEST_CASE(DiskComputeLayerCellsRoadPreCutRejectsBeforeBuildCellSeed)
   rig.params[0].MaxChi2ClusterAttachment = 1.e6f;
   rig.params[0].TrackletMinPt = 0.3f;
   // Same geometry as DiskComputeLayerCellsMatchesBuildCellSeedOracle, but a
-  // vanishingly small road cut: proves passesCellRoadPrecut<DiskDisk> still
-  // runs before buildCellSeed<DiskDisk> and is driven by the bound
+  // vanishingly small road cut: proves passesDiskCellRoadPrecut still
+  // runs before buildDiskCellSeed and is driven by the bound
   // TrackingKernelParameters::cellRoadRCut, not a stale/uninitialized value.
   rig.params[0].CellRoadRCut = 1.e-6f;
   rig.establishLayout();
@@ -1099,7 +1100,7 @@ BOOST_AUTO_TEST_CASE(CylinderComputeLayerCellsMultiCellChainProducesCorrectCells
 BOOST_AUTO_TEST_CASE(DiskComputeLayerCellsMultiCellChainProducesCorrectCellsAndOrder)
 {
   // Same multi-cell parity property for the DiskDisk/forward family:
-  // buildCellSeed<Tag> genuinely branches per family (CylinderCylinder
+  // cell-seed leaves genuinely branches per family (CylinderCylinder
   // reads [1] then [0]; DiskDisk reads [2],[1],[0] -- see the comment on
   // that call in computeLayerCellsForPolicy()), so multi-transition
   // cell-chaining for DiskDisk is real, otherwise-unproven coverage.

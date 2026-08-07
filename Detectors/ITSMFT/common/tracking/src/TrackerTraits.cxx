@@ -40,7 +40,8 @@
 #include "ITSMFTTracking/TrackerTraits.h"
 #include "ITSMFTTracking/detail/SurfacePlanBinding.h"
 #include "ITSMFTTracking/detail/TransitionPolicyBinding.h"
-#include "ITSMFTTracking/detail/TransitionPolicyOperations.h"
+#include "ITSMFTTracking/detail/TrackletFinding.h"
+#include "ITSMFTTracking/detail/CellFinding.h"
 #include "ITStracking/Tracklet.h"
 #include "SimulationDataFormat/MCCompLabel.h"
 
@@ -735,12 +736,12 @@ void TrackerTraits::prepareTransitionScatteringAndBendingForPolicy(
   std::vector<float> msAngles(static_cast<std::size_t>(activeSurfaceCount));
   for (int iLayer{0}; iLayer < activeSurfaceCount; ++iLayer) {
     if constexpr (Tag == TransitionPolicyTag::CylinderCylinder) {
-      msAngles[iLayer] = layerMultipleScatteringAngle<Tag>(
-        LayerScatteringInputs<Tag>{geometryConfig.layerMaterial[iLayer].xOverX0}, trkParam.TrackletMinPt);
+      msAngles[iLayer] = cylinderLayerMultipleScatteringAngle(
+        CylinderLayerScatteringInputs{geometryConfig.layerMaterial[iLayer].xOverX0}, trkParam.TrackletMinPt);
     } else {
-      msAngles[iLayer] = layerMultipleScatteringAngle<Tag>(
-        LayerScatteringInputs<Tag>{geometryConfig.layerMaterial[iLayer].xOverX0, geometryConfig.layerRadii[iLayer],
-                                   referenceCoordinateView.perLayerReferenceZ[iLayer]},
+      msAngles[iLayer] = diskLayerMultipleScatteringAngle(
+        DiskLayerScatteringInputs{geometryConfig.layerMaterial[iLayer].xOverX0, geometryConfig.layerRadii[iLayer],
+                                  referenceCoordinateView.perLayerReferenceZ[iLayer]},
         trkParam.TrackletMinPt);
     }
   }
@@ -764,7 +765,11 @@ void TrackerTraits::prepareTransitionScatteringAndBendingForPolicy(
     const int toLayer = requireSurfacePosition(iteration, transition.to);
     const float r1 = trkParam.LayerRadii[fromLayer];
     const float r2 = trkParam.LayerRadii[toLayer];
-    oneOverR = clampTransitionCurvature<Tag>(oneOverR, r2);
+    if constexpr (Tag == TransitionPolicyTag::CylinderCylinder) {
+      oneOverR = clampCylinderTransitionCurvature(oneOverR, r2);
+    } else {
+      oneOverR = clampDiskTransitionCurvature(oneOverR, r2);
+    }
     const float res1 = o2::gpu::CAMath::Hypot(trkParam.PVres, mScratch->getPositionResolution(fromLayer));
     const float res2 = o2::gpu::CAMath::Hypot(trkParam.PVres, mScratch->getPositionResolution(toLayer));
     const auto prep = prepareTransitionScatteringAndBending(
@@ -840,29 +845,29 @@ void TrackerTraits::computeLayerTrackletsForPolicy(
 
     auto makeTransitionState = [&](int transitionId, int fromLayer, int toLayer) {
       if constexpr (Tag == TransitionPolicyTag::CylinderCylinder) {
-        return TrackletProjectionState<Tag>{fromLayer,
-                                            toLayer,
-                                            mTrkParams[iteration].LayerRadii[toLayer] - mTrkParams[iteration].LayerRadii[fromLayer],
-                                            mScratch->getMinR(toLayer),
-                                            mScratch->getMaxR(toLayer),
-                                            mScratch->getPositionResolution(fromLayer),
-                                            mScratch->getTransitionMSAngle(transitionId),
-                                            mScratch->getTransitionPhiCut(transitionId)};
+        return CylinderTrackletProjectionState{fromLayer,
+                                               toLayer,
+                                               mTrkParams[iteration].LayerRadii[toLayer] - mTrkParams[iteration].LayerRadii[fromLayer],
+                                               mScratch->getMinR(toLayer),
+                                               mScratch->getMaxR(toLayer),
+                                               mScratch->getPositionResolution(fromLayer),
+                                               mScratch->getTransitionMSAngle(transitionId),
+                                               mScratch->getTransitionPhiCut(transitionId)};
       } else {
         const float fromZ = detail::mftLayerZ(fromLayer);
         const float toZ = detail::mftLayerZ(toLayer);
-        return TrackletProjectionState<Tag>{fromLayer,
-                                            toLayer,
-                                            fromZ,
-                                            toZ,
-                                            toZ - fromZ,
-                                            mTrkParams[iteration].LayerRadii[fromLayer],
-                                            mScratch->getTransitionMSAngle(transitionId),
-                                            mScratch->getTransitionPhiCut(transitionId)};
+        return DiskTrackletProjectionState{fromLayer,
+                                           toLayer,
+                                           fromZ,
+                                           toZ,
+                                           toZ - fromZ,
+                                           mTrkParams[iteration].LayerRadii[fromLayer],
+                                           mScratch->getTransitionMSAngle(transitionId),
+                                           mScratch->getTransitionPhiCut(transitionId)};
       }
     };
 
-    auto forTracklets = [&](auto Mode, int transitionId, int fromLayer, int toLayer, const TrackletProjectionState<Tag>& transitionState, int pivotROF, int base, int& offset) -> int {
+    auto forTracklets = [&](auto Mode, int transitionId, int fromLayer, int toLayer, const auto& transitionState, int pivotROF, int base, int& offset) -> int {
       if (!mScratch->getROFMaskView().isROFEnabled(fromLayer, pivotROF)) {
         return 0;
       }
@@ -917,9 +922,19 @@ void TrackerTraits::computeLayerTrackletsForPolicy(
           if (pv.isFlagSet(Vertex::Flags::UPCMode) != mTrkParams[iteration].PassFlags[IterationStep::SelectUPCVertices]) {
             continue;
           }
-          TrackletSearchWindow<Tag> searchWindow{};
-          if (!projectSearchWindow<Tag>(sourceMeasurement, currentCluster, pv, transitionState, getBz(),
-                                        mScratch->getIndexTableUtils(), params, searchWindow)) {
+          using SearchWindow = std::conditional_t<Tag == TransitionPolicyTag::CylinderCylinder,
+                                                  CylinderTrackletSearchWindow, DiskTrackletSearchWindow>;
+          SearchWindow searchWindow{};
+          const bool projected = [&] {
+            if constexpr (Tag == TransitionPolicyTag::CylinderCylinder) {
+              return projectCylinderSearchWindow(sourceMeasurement, currentCluster, pv, transitionState, getBz(),
+                                                 mScratch->getIndexTableUtils(), params, searchWindow);
+            } else {
+              return projectDiskSearchWindow(sourceMeasurement, currentCluster, pv, transitionState, getBz(),
+                                             mScratch->getIndexTableUtils(), params, searchWindow);
+            }
+          }();
+          if (!projected) {
             continue;
           }
           const auto bins = searchWindow.bins;
@@ -1191,17 +1206,25 @@ void TrackerTraits::computeLayerCellsForPolicy(
           const auto& measurementMiddle = mLayerMeasurements[hitLayers[1]][clusId[1]];
           const auto& measurementOuter = mLayerMeasurements[hitLayers[2]][clusId[2]];
 
-          // MFT geometric road pre-cut: TrackerTraits-owned, outside buildCellSeed
-          // (Architecture.md Sec 10 / TransitionPolicyOperations.h doc on buildCellSeed).
+          // MFT geometric road pre-cut: TrackerTraits-owned, outside the cell
+          // leaves in CellFinding.h.
           // One unconditional call for both families -- no detector-ID/Tag
-          // branch here; CylinderCylinder's specialization is an inline
-          // no-op returning true.
+          // branch here; the cylinder leaf is an inline no-op returning true.
           const GlobalPoint3F pointInner = measurementInner.global;
           const GlobalPoint3F pointMiddle = measurementMiddle.global;
           const GlobalPoint3F pointOuter = measurementOuter.global;
-          if (!passesCellRoadPrecut<Tag>(pointInner, pointMiddle, pointOuter,
-                                         hitLayers[0], hitLayers[1], hitLayers[2],
-                                         mDiskLayerReferenceZ, params)) {
+          const bool passesRoad = [&] {
+            if constexpr (Tag == TransitionPolicyTag::CylinderCylinder) {
+              return passesCylinderCellRoadPrecut(pointInner, pointMiddle, pointOuter,
+                                                  hitLayers[0], hitLayers[1], hitLayers[2],
+                                                  mDiskLayerReferenceZ, params);
+            } else {
+              return passesDiskCellRoadPrecut(pointInner, pointMiddle, pointOuter,
+                                              hitLayers[0], hitLayers[1], hitLayers[2],
+                                              mDiskLayerReferenceZ, params);
+            }
+          }();
+          if (!passesRoad) {
             continue;
           }
 
@@ -1215,9 +1238,17 @@ void TrackerTraits::computeLayerCellsForPolicy(
           SurfaceKinematicState state{};
           float chi2{0.f};
           OperationFailureReason buildReason{};
-          const bool good = o2::itsmft::tracking::buildCellSeed<Tag>(
-            measurementInner, measurementMiddle, measurementOuter,
-            material, getBz(), kCompatibilityAbsCharge, kCompatibilityPID, state, chi2, params, buildReason);
+          const bool good = [&] {
+            if constexpr (Tag == TransitionPolicyTag::CylinderCylinder) {
+              return buildCylinderCellSeed(measurementInner, measurementMiddle, measurementOuter,
+                                           material, getBz(), kCompatibilityAbsCharge, kCompatibilityPID,
+                                           state, chi2, params, buildReason);
+            } else {
+              return buildDiskCellSeed(measurementInner, measurementMiddle, measurementOuter,
+                                       material, getBz(), kCompatibilityAbsCharge, kCompatibilityPID,
+                                       state, chi2, params, buildReason);
+            }
+          }();
 
           if (good) {
             TimeEstBC ts = currentTracklet.getTimeStamp();
@@ -1410,9 +1441,18 @@ void TrackerTraits::findCellsNeighboursForPolicy(
               break;
             }
 
-            if (!o2::itsmft::tracking::cellsAreCompatible<Tag>(currentCellSeed.state(), nextCellSeedRef.state(),
-                                                               currentCellSeed.getSecondClusterIndex(), nextCellSeedRef.getFirstClusterIndex(),
-                                                               getBz(), params)) {
+            const bool compatible = [&] {
+              if constexpr (Tag == TransitionPolicyTag::CylinderCylinder) {
+                return cellsCylinderAreCompatible(currentCellSeed.state(), nextCellSeedRef.state(),
+                                                  currentCellSeed.getSecondClusterIndex(), nextCellSeedRef.getFirstClusterIndex(),
+                                                  getBz(), params);
+              } else {
+                return cellsDiskAreCompatible(currentCellSeed.state(), nextCellSeedRef.state(),
+                                              currentCellSeed.getSecondClusterIndex(), nextCellSeedRef.getFirstClusterIndex(),
+                                              getBz(), params);
+              }
+            }();
+            if (!compatible) {
               continue;
             }
 
@@ -1530,7 +1570,14 @@ void TrackerTraits::processNeighbours(int iteration, int defaultCellTopologyId, 
         const auto& measurement = mLayerMeasurements[neighbourLayer][neighbourCluster];
         float chi2 = seed.getChi2();
         OperationFailureReason attachReason{};
-        if (!o2::itsmft::tracking::attachHit<Tag>(seed.state(), measurement, layerMaterial[neighbourLayer], getBz(), chi2, params, attachReason)) {
+        const bool attached = [&] {
+          if constexpr (Tag == TransitionPolicyTag::CylinderCylinder) {
+            return attachCylinderHit(seed.state(), measurement, layerMaterial[neighbourLayer], getBz(), chi2, params, attachReason);
+          } else {
+            return attachDiskHit(seed.state(), measurement, layerMaterial[neighbourLayer], getBz(), chi2, params, attachReason);
+          }
+        }();
+        if (!attached) {
           continue;
         }
         seed.setChi2(chi2);

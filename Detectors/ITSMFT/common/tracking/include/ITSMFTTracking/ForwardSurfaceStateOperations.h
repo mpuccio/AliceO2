@@ -108,7 +108,7 @@ bool stateChi2(const SurfaceKinematicState& reference, const SurfaceKinematicSta
 // builds the initial *outer*-anchored SurfaceKinematicState seed for a
 // forward/disk three-hit Cell candidate, transcribing the current
 // closed-form direction/covariance initialization at the start of
-// buildCellSeed<DiskDisk> (TransitionPolicyOperations.cxx) /
+// buildDiskCellSeed (CellFinding.h, implemented in TrackletFinding.cxx) /
 // detail::mftFwdFitCellClusters (MFTFwdTrackHelpers.h) directly onto
 // SurfaceKinematicState in float arithmetic only. The legacy initializer
 // stores its seed in a ROOT::Math::SVector<double,5>/
@@ -124,7 +124,7 @@ bool stateChi2(const SurfaceKinematicState& reference, const SurfaceKinematicSta
 // `measurement.global` (x, y, z); measurementOuter additionally supplies the
 // outer measurement's measured (u, v) covariance (`measurement.covariance`)
 // used to seed the diagonal. trackletMinPt is the same configured
-// minimum-pT scale buildCellSeed<DiskDisk> already reads from
+// minimum-pT scale buildDiskCellSeed already reads from
 // TrackingKernelParameters; its established `(trackletMinPt > 0.f) ?
 // 1.f/trackletMinPt : 0.f` fallback is preserved verbatim, not
 // re-validated here.
@@ -145,7 +145,7 @@ bool stateChi2(const SurfaceKinematicState& reference, const SurfaceKinematicSta
 // guarantees frame.q == global.z). This is deliberately not the Cell's
 // eventual inner-anchored frame (anchor contract, design report Sec 5): this
 // operation produces only the initial outer seed that the existing
-// outer->middle->inner buildCellSeed sequence subsequently attaches inward,
+// outer->middle->inner buildDiskCellSeed sequence subsequently attaches inward,
 // hit by hit, to reach the Cell's actual innermost-surface anchor. Calling
 // buildSeed alone does not produce a complete Cell state.
 //

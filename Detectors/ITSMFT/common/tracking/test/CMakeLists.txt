@@ -93,14 +93,14 @@ o2_add_test(indextableconfigbinding
             LABELS "itsmft;tracking"
             PUBLIC_LINK_LIBRARIES O2::ITSMFTTracking O2::MFTTracking O2::DetectorsCommonDataFormats)
 
-o2_add_test(transitionpolicyoperations
-            SOURCES testTransitionPolicyOperations.cxx
+o2_add_test(tracklet-finding
+            SOURCES testTrackletFinding.cxx
             COMPONENT_NAME itsmft-tracking
             LABELS "itsmft;tracking"
             PUBLIC_LINK_LIBRARIES O2::ITSMFTTracking O2::MFTTracking)
 
-o2_add_test(transitionpolicyoperations-native
-            SOURCES testTransitionPolicyOperationsNative.cxx
+o2_add_test(cell-finding
+            SOURCES testCellFinding.cxx
             COMPONENT_NAME itsmft-tracking
             LABELS "itsmft;tracking"
             PUBLIC_LINK_LIBRARIES O2::ITSMFTTracking O2::MFTTracking)
@@ -177,18 +177,6 @@ o2_add_test(forward-linearization-operations
             COMPONENT_NAME itsmft-tracking
             LABELS "itsmft;tracking"
             PUBLIC_LINK_LIBRARIES O2::ITSMFTTracking)
-
-o2_add_test(refithit
-            SOURCES testRefitHit.cxx
-            COMPONENT_NAME itsmft-tracking
-            LABELS "itsmft;tracking"
-            PUBLIC_LINK_LIBRARIES O2::ITSMFTTracking O2::MFTTracking)
-
-o2_add_test(drive-refit-leg
-            SOURCES testDriveRefitLeg.cxx
-            COMPONENT_NAME itsmft-tracking
-            LABELS "itsmft;tracking"
-            PUBLIC_LINK_LIBRARIES O2::ITSMFTTracking O2::MFTTracking)
 
 o2_add_test(refit-leg-assembly
             SOURCES testRefitLegAssembly.cxx

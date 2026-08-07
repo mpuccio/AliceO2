@@ -24,19 +24,15 @@ namespace
 {
 
 // Minimum accepted-hit count (within one Propagator::driveRefitLeg leg) at
-// which the maxChi2 gate activates -- the same threshold and rationale as
-// detail::kRefitLegChi2GateMinAcceptedHits (TransitionPolicyOperations.h),
-// duplicated here (rather than included) so this generic Propagator has no
-// dependency on that Tag-templated legacy-adjacent detail header at all.
+// which the maxChi2 gate activates. The native leg contract keeps the first
+// three accepted hits ungated and enables the gate from the fourth hit.
 constexpr uint32_t kChi2GateMinAcceptedHits = 3;
 
 // Reuses the exact |bz| > 0.01f Helix/Linear threshold already established
-// as "the accepted forward model" by detail::forwardPropagateAcceptedModel
-// (TransitionPolicyOperations.cxx, anonymous namespace -- not exported).
-// Duplicated here, narrowly, rather than exported from that legacy-adjacent
-// translation unit: this is exactly the kind of small, family-local leaf
-// choice ADR 0007 decision 10 expects to live at the operation boundary, not
-// shared orchestration.
+// as the accepted forward model by the disk cell and refit leaves.
+// Duplicated here, narrowly, so the generic Propagator keeps its own
+// operation-boundary choice without coupling to a stage-finding translation
+// unit.
 bool forwardPropagateAcceptedModel(SurfaceKinematicState& state, SurfaceLinearizationReference& linRef,
                                    float targetZ, float bz, OperationFailureReason& reason) noexcept
 {

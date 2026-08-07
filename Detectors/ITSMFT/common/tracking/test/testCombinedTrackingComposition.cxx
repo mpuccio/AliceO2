@@ -54,7 +54,7 @@
 #include "ITSMFTTracking/TrackerTraits.h"
 #include "ITSMFTTracking/TrackingConfigParam.h"
 #include "ITSMFTTracking/CommonTrackOutputAdapter.h"
-#include "ITSMFTTracking/detail/TransitionPolicyOperations.h"
+#include "ITSMFTTracking/detail/TrackletFinding.h"
 #include "ITStracking/Constants.h"
 #include "ReconstructionDataFormats/Track.h"
 
@@ -198,7 +198,7 @@ std::vector<DecodedCluster> buildMftChainClusters(const TrackingParameters& para
 /// there -- both const, no incremental state mutation between layers).
 ///
 /// A perfectly collinear ("infinite pT" / zero-curvature) triple is a
-/// genuine, deliberate rejection of TransitionPolicyOperations.cxx's
+/// genuine, deliberate rejection of TrackletFinding.cxx's
 /// barrel::buildSeed circle fit -- see testBarrelSurfaceStateOperations.cxx's
 /// own BuildSeedDegenerateZeroFieldGeometryRejectsViaNonFiniteOutput and its
 /// "three well-separated, non-collinear points" fixture comment. A first
@@ -352,8 +352,7 @@ struct StandaloneRun {
     for (const auto surface : orderedSurfaces) {
       ownedSurfaces.set(surface);
     }
-    iteration.bindings.push_back(SurfacePlanBinding::Declaration{ClusterSourceId{0}, ownedSurfaces, orderedSurfaces,
-                                                                 kind, kind == SurfaceKind::Cylinder ? TransitionPolicyTag::CylinderCylinder : TransitionPolicyTag::DiskDisk});
+    iteration.bindings.push_back(SurfacePlanBinding::Declaration{ClusterSourceId{0}, ownedSurfaces, orderedSurfaces, kind});
     configuration.iterations.push_back(std::move(iteration));
     const auto configured = tracker.initialize(frame, configuration);
     BOOST_REQUIRE(configured.ok());

@@ -45,7 +45,7 @@ enum class OperationFailureReason : uint8_t {
   // that is invalid -- so an out-of-range SeedAnchor is never
   // misclassified as a numeric-input problem.
   InvalidSeedAnchor = 13,
-  // driveRefitLeg<Tag>: a present (non-hole) slot's SurfaceId/catalog
+  // the native leg driver: a present (non-hole) slot's SurfaceId/catalog
   // association could not be validated -- covers an invalid
   // measurement.surface, a catalog with a null surfaces pointer and a
   // nonzero nSurfaces, an out-of-range measurement.surface.value(), or a
@@ -54,14 +54,14 @@ enum class OperationFailureReason : uint8_t {
   // material, or chi2 arithmetic has been attempted yet for this slot.
   InvalidSurfaceCatalogAssociation = 14,
   // Gate 3 Slice B (native CylinderCylinder refit driver, unwired): one leg's
-  // final acceptance check failed after driveRefitLeg<Tag> itself already
+  // final acceptance check failed after the native leg driver already
   // succeeded for that leg -- reproducing the frozen ITS fitTrack's own
   // trailing `|Q2Pt| < maxQoverPt && chi2 < maxChi2NDF*(nCl*2-5)` return
   // condition (ITSMFTTracking/TrackHelpers.h), evaluated once per leg with
   // that leg's own maxQoverPt (VeryBig for the two inward-index legs, 50.f
   // for the outward-index leg) and driveRefitLeg's own per-leg
   // acceptedHitCount/chi2 outputs. Distinct from PredictedChi2Failure (a
-  // per-hit rejection raised inside refitHit/driveRefitLeg itself, before
+  // per-hit rejection raised inside the native leg driver, before
   // this whole-leg check is even reached).
   LegAcceptanceFailure = 15,
   // Gate 3 Slice B: the frozen ITS refitTrackSeed's trailing

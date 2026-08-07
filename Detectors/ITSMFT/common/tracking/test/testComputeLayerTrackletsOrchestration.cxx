@@ -316,7 +316,7 @@ TrackletSnapshot runFixture(o2::detectors::DetID::ID detector,
 
   // Gate 3 transition-preparation slice: successful initialisation must fill
   // every transition entry (relocated from TimeFrame::initialise() into
-  // TrackerTraits::initialiseTimeFrame(), see TransitionPolicyOperations.h).
+  // TrackerTraits::initialiseTimeFrame(), see TrackletFinding.h).
   // Exercised here for both CylinderCylinder and DiskDisk through the
   // existing fixture rather than a separate harness. Beyond finiteness, each
   // entry is checked bit-for-bit against computeLegacyTransitionMSAndPhiCut's
@@ -453,7 +453,7 @@ DecodedCluster diskCluster(float x, float y, float z, int layer)
 /// single forward trajectory: each hop's target position is computed by
 /// projecting from the previous hop's own cluster position via
 /// detail::mftTrackletProject -- the same primitive
-/// projectSearchWindow<DiskDisk> itself uses internally -- so every adjacent
+/// projectDiskSearchWindow itself uses internally -- so every adjacent
 /// pair in the chain is a genuine geometric match, not just the first one.
 std::vector<DecodedCluster> buildMftChainClusters(const TrackingParameters& params, float bz, int nHops)
 {
@@ -758,7 +758,7 @@ BOOST_AUTO_TEST_CASE(MftIdentityLayoutTrackletsSpanMultipleAdjacentTransitionsIn
 {
   // Same multi-transition parity property for the DiskDisk/forward family:
   // a 4-disk chain built hop-by-hop with detail::mftTrackletProject (the
-  // same primitive projectSearchWindow<DiskDisk> uses internally), proving
+  // same primitive projectDiskSearchWindow uses internally), proving
   // transitions (0,1),(1,2),(2,3) each get exactly one correctly-ordered
   // tracklet and every other transition stays empty.
   TrackingParameters params;

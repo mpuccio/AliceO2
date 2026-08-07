@@ -37,7 +37,7 @@ o2_add_library(ITSMFTTracking
                        src/TimeFrame.cxx
                        src/SurfaceTrackingScratch.cxx
                        src/TrackerTraits.cxx
-                       src/TransitionPolicyOperations.cxx
+                       src/TrackletFinding.cxx
                        src/BarrelSurfaceStateOperations.cxx
                        src/ForwardSurfaceStateOperations.cxx
                        src/SurfaceLinearizationReference.cxx

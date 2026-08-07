@@ -40,7 +40,7 @@
 namespace o2::itsmft::tracking
 {
 
-// Full definition lives in TransitionPolicyOperations.h (included by
+// Full definition lives in TrackletFinding.h (included by
 // TrackerTraits.cxx, where the operation itself is called). Only used here
 // by const reference in a private method declaration, so a forward
 // declaration is sufficient and keeps this public header's dependency

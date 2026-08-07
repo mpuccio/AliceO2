@@ -5,7 +5,7 @@
 // This software is distributed under the terms of the GNU General Public
 // License v3 (GPL Version 3), copied verbatim in the file "COPYING".
 ///
-/// \file TransitionPolicyOperations.cxx
+/// \file TrackletFinding.cxx
 /// \brief Out-of-line transition-policy operation specializations
 ///
 /// Only this translation unit may include MFTFwdTrackHelpers.h on behalf of
@@ -13,7 +13,8 @@
 /// stays free of MFT-specific constants, TimeFrame, and typed-output
 /// dependencies.
 
-#include "ITSMFTTracking/detail/TransitionPolicyOperations.h"
+#include "ITSMFTTracking/detail/TrackletFinding.h"
+#include "ITSMFTTracking/detail/CellFinding.h"
 
 #include <algorithm>
 #include <array>
@@ -35,7 +36,7 @@
 namespace o2::itsmft::tracking
 {
 
-bool TrackletSearchWindow<TransitionPolicyTag::CylinderCylinder>::acceptCandidate(
+bool CylinderTrackletSearchWindow::acceptCandidate(
   const SurfaceMeasurement& sourceMeasurement,
   const o2::its::Cluster& sourceLocator,
   const SurfaceMeasurement& targetMeasurement,
@@ -52,7 +53,7 @@ bool TrackletSearchWindow<TransitionPolicyTag::CylinderCylinder>::acceptCandidat
   return false;
 }
 
-bool TrackletSearchWindow<TransitionPolicyTag::DiskDisk>::acceptCandidate(
+bool DiskTrackletSearchWindow::acceptCandidate(
   const SurfaceMeasurement& sourceMeasurement,
   const SurfaceMeasurement& targetMeasurement,
   float& tanLambdaOut) const
@@ -70,102 +71,91 @@ bool TrackletSearchWindow<TransitionPolicyTag::DiskDisk>::acceptCandidate(
   return false;
 }
 
-template <TransitionPolicyTag Tag>
-bool projectSearchWindow(const SurfaceMeasurement& sourceMeasurement,
-                         const o2::its::Cluster& sourceLocator,
-                         const o2::its::Vertex& vertex,
-                         const TrackletProjectionState<Tag>& transitionState,
-                         float bz,
-                         const o2::itsmft::IndexTableUtilsCore& indexUtils,
-                         const TrackingKernelParameters& params,
-                         TrackletSearchWindow<Tag>& out)
+bool projectCylinderSearchWindow(const SurfaceMeasurement& sourceMeasurement,
+                                 const o2::its::Cluster& sourceLocator,
+                                 const o2::its::Vertex& vertex,
+                                 const CylinderTrackletProjectionState& transitionState,
+                                 float /*bz*/, const o2::itsmft::IndexTableUtilsCore& indexUtils,
+                                 const TrackingKernelParameters& params,
+                                 CylinderTrackletSearchWindow& out)
 {
-  if constexpr (Tag == TransitionPolicyTag::CylinderCylinder) {
-    const float inverseR0 = 1.f / sourceLocator.radius;
-    const float resolution = o2::gpu::CAMath::Sqrt(o2::its::math_utils::Sq(transitionState.sourcePositionResolution) +
-                                                   o2::its::math_utils::Sq(params.pvResolution) / float(vertex.getNContributors()));
-    const float tanLambda = (sourceMeasurement.global.z - vertex.getZ()) * inverseR0;
-    const float zAtTargetMinR = tanLambda * (transitionState.targetMinR - sourceLocator.radius) + sourceMeasurement.global.z;
-    const float zAtTargetMaxR = tanLambda * (transitionState.targetMaxR - sourceLocator.radius) + sourceMeasurement.global.z;
-    const float sqInvDeltaZ0 = 1.f / (o2::its::math_utils::Sq(sourceMeasurement.global.z - vertex.getZ()) + o2::its::constants::Tolerance);
-    const float sigmaZ = o2::gpu::CAMath::Sqrt((o2::its::math_utils::Sq(resolution) * o2::its::math_utils::Sq(tanLambda) *
-                                                ((o2::its::math_utils::Sq(inverseR0) + sqInvDeltaZ0) * o2::its::math_utils::Sq(transitionState.meanDeltaR) + 1.f)) +
-                                               o2::its::math_utils::Sq(transitionState.meanDeltaR * transitionState.transitionMSAngle));
-    const auto bins = o2::itsmft::getBinsPhiZ(sourceLocator.phi, transitionState.toLayer,
-                                              zAtTargetMinR, zAtTargetMaxR,
-                                              sigmaZ * params.nSigmaCut, transitionState.transitionPhiCut,
-                                              indexUtils);
-    if (bins.x < 0) {
-      return false;
-    }
-    out = {bins, tanLambda, sigmaZ, transitionState.transitionPhiCut, params.nSigmaCut};
-    return true;
-  } else if constexpr (Tag == TransitionPolicyTag::DiskDisk) {
-    float xProj = 0.f;
-    float yProj = 0.f;
-    detail::mftTrackletProject(sourceMeasurement.global.x, sourceMeasurement.global.y, sourceMeasurement.global.z,
-                               vertex.getX(), vertex.getY(), vertex.getZ(),
-                               transitionState.fromLayer, transitionState.toLayer, bz, params.trackletMinPt,
-                               xProj, yProj);
-    float sigmaX = 0.f;
-    float sigmaY = 0.f;
-    detail::mftTrackletSigmaXY(sourceMeasurement.global.x, sourceMeasurement.global.y,
-                               vertex.getX(), vertex.getY(), vertex.getZ(),
-                               sourceMeasurement.covariance.uu, sourceMeasurement.covariance.vv,
-                               vertex.getSigmaX2(), vertex.getSigmaY2(), vertex.getSigmaZ2(),
-                               transitionState.fromLayer, transitionState.toLayer,
-                               transitionState.sourceReferenceRadius, transitionState.meanDeltaZ,
-                               transitionState.transitionMSAngle, transitionState.transitionBendingAngle,
-                               xProj, yProj, sigmaX, sigmaY);
-
-    const float zSpread = params.nSigmaCut * vertex.getSigmaZ();
-    const float zVtxMin = vertex.getZ() - zSpread;
-    const float zVtxMax = vertex.getZ() + zSpread;
-    const float absZFrom = std::abs(transitionState.fromZ);
-    const float absZTo = std::abs(transitionState.toZ);
-    const float denomMin = zVtxMax + absZFrom;
-    const float denomMax = absZFrom + zVtxMin;
-    float radialRangeMin = (std::abs(denomMin) > 1.e-6f) ? sourceLocator.radius * (zVtxMax + absZTo) / denomMin : sourceLocator.radius;
-    float radialRangeMax = (std::abs(denomMax) > 1.e-6f) ? sourceLocator.radius * (absZTo + zVtxMin) / denomMax : sourceLocator.radius;
-    if (radialRangeMin > radialRangeMax) {
-      const float tmp = radialRangeMin;
-      radialRangeMin = radialRangeMax;
-      radialRangeMax = tmp;
-    }
-    const auto bins = o2::itsmft::getBinsRectClusterAtProj(xProj, yProj, transitionState.toLayer,
-                                                           radialRangeMin, radialRangeMax,
-                                                           sigmaX * params.nSigmaCut, sigmaY * params.nSigmaCut,
-                                                           indexUtils);
-    if (bins.x < 0) {
-      return false;
-    }
-    out = {bins, xProj, yProj, sigmaX, sigmaY, transitionState.meanDeltaZ, params.nSigmaCut};
-    return true;
-  } else {
-    static_assert(Tag != Tag, "Unsupported transition policy tag");
+  const float inverseR0 = 1.f / sourceLocator.radius;
+  const float resolution = o2::gpu::CAMath::Sqrt(o2::its::math_utils::Sq(transitionState.sourcePositionResolution) +
+                                                 o2::its::math_utils::Sq(params.pvResolution) / float(vertex.getNContributors()));
+  const float tanLambda = (sourceMeasurement.global.z - vertex.getZ()) * inverseR0;
+  const float zAtTargetMinR = tanLambda * (transitionState.targetMinR - sourceLocator.radius) + sourceMeasurement.global.z;
+  const float zAtTargetMaxR = tanLambda * (transitionState.targetMaxR - sourceLocator.radius) + sourceMeasurement.global.z;
+  const float sqInvDeltaZ0 = 1.f / (o2::its::math_utils::Sq(sourceMeasurement.global.z - vertex.getZ()) + o2::its::constants::Tolerance);
+  const float sigmaZ = o2::gpu::CAMath::Sqrt((o2::its::math_utils::Sq(resolution) * o2::its::math_utils::Sq(tanLambda) *
+                                              ((o2::its::math_utils::Sq(inverseR0) + sqInvDeltaZ0) * o2::its::math_utils::Sq(transitionState.meanDeltaR) + 1.f)) +
+                                             o2::its::math_utils::Sq(transitionState.meanDeltaR * transitionState.transitionMSAngle));
+  const auto bins = o2::itsmft::getBinsPhiZ(sourceLocator.phi, transitionState.toLayer,
+                                            zAtTargetMinR, zAtTargetMaxR,
+                                            sigmaZ * params.nSigmaCut, transitionState.transitionPhiCut,
+                                            indexUtils);
+  if (bins.x < 0) {
+    return false;
   }
+  out = {bins, tanLambda, sigmaZ, transitionState.transitionPhiCut, params.nSigmaCut};
+  return true;
 }
 
-template bool projectSearchWindow<TransitionPolicyTag::CylinderCylinder>(
-  const SurfaceMeasurement&, const o2::its::Cluster&, const o2::its::Vertex&,
-  const TrackletProjectionState<TransitionPolicyTag::CylinderCylinder>&, float,
-  const o2::itsmft::IndexTableUtilsCore&, const TrackingKernelParameters&,
-  TrackletSearchWindow<TransitionPolicyTag::CylinderCylinder>&);
+bool projectDiskSearchWindow(const SurfaceMeasurement& sourceMeasurement,
+                             const o2::its::Cluster& sourceLocator,
+                             const o2::its::Vertex& vertex,
+                             const DiskTrackletProjectionState& transitionState,
+                             float bz, const o2::itsmft::IndexTableUtilsCore& indexUtils,
+                             const TrackingKernelParameters& params,
+                             DiskTrackletSearchWindow& out)
+{
+  float xProj = 0.f;
+  float yProj = 0.f;
+  detail::mftTrackletProject(sourceMeasurement.global.x, sourceMeasurement.global.y, sourceMeasurement.global.z,
+                             vertex.getX(), vertex.getY(), vertex.getZ(),
+                             transitionState.fromLayer, transitionState.toLayer, bz, params.trackletMinPt,
+                             xProj, yProj);
+  float sigmaX = 0.f;
+  float sigmaY = 0.f;
+  detail::mftTrackletSigmaXY(sourceMeasurement.global.x, sourceMeasurement.global.y,
+                             vertex.getX(), vertex.getY(), vertex.getZ(),
+                             sourceMeasurement.covariance.uu, sourceMeasurement.covariance.vv,
+                             vertex.getSigmaX2(), vertex.getSigmaY2(), vertex.getSigmaZ2(),
+                             transitionState.fromLayer, transitionState.toLayer,
+                             transitionState.sourceReferenceRadius, transitionState.meanDeltaZ,
+                             transitionState.transitionMSAngle, transitionState.transitionBendingAngle,
+                             xProj, yProj, sigmaX, sigmaY);
 
-template bool projectSearchWindow<TransitionPolicyTag::DiskDisk>(
-  const SurfaceMeasurement&, const o2::its::Cluster&, const o2::its::Vertex&,
-  const TrackletProjectionState<TransitionPolicyTag::DiskDisk>&, float,
-  const o2::itsmft::IndexTableUtilsCore&, const TrackingKernelParameters&,
-  TrackletSearchWindow<TransitionPolicyTag::DiskDisk>&);
+  const float zSpread = params.nSigmaCut * vertex.getSigmaZ();
+  const float zVtxMin = vertex.getZ() - zSpread;
+  const float zVtxMax = vertex.getZ() + zSpread;
+  const float absZFrom = std::abs(transitionState.fromZ);
+  const float absZTo = std::abs(transitionState.toZ);
+  const float denomMin = zVtxMax + absZFrom;
+  const float denomMax = absZFrom + zVtxMin;
+  float radialRangeMin = (std::abs(denomMin) > 1.e-6f) ? sourceLocator.radius * (zVtxMax + absZTo) / denomMin : sourceLocator.radius;
+  float radialRangeMax = (std::abs(denomMax) > 1.e-6f) ? sourceLocator.radius * (absZTo + zVtxMin) / denomMax : sourceLocator.radius;
+  if (radialRangeMin > radialRangeMax) {
+    const float tmp = radialRangeMin;
+    radialRangeMin = radialRangeMax;
+    radialRangeMax = tmp;
+  }
+  const auto bins = o2::itsmft::getBinsRectClusterAtProj(xProj, yProj, transitionState.toLayer,
+                                                         radialRangeMin, radialRangeMax,
+                                                         sigmaX * params.nSigmaCut, sigmaY * params.nSigmaCut,
+                                                         indexUtils);
+  if (bins.x < 0) {
+    return false;
+  }
+  out = {bins, xProj, yProj, sigmaX, sigmaY, transitionState.meanDeltaZ, params.nSigmaCut};
+  return true;
+}
 
-// --- Stage-B activation: native SurfaceKinematicState policy operations ---
+// --- Native cylinder/disk cell leaves ---
 //
-// Now the sole production buildCellSeed/attachHit/cellsAreCompatible
-// overloads (the legacy TrackParCovF/TrackParCovFwd/CellSeedTpl signatures
-// they superseded have been removed), composed entirely from the existing
+// The cell leaves are composed entirely from the existing
 // barrel::/forward:: primitives (BarrelSurfaceStateOperations.h/
 // ForwardSurfaceStateOperations.h) and the shared PID/absCharge-aware
-// material kernel (MaterialPhysics.h). See TransitionPolicyOperations.h for
+// material kernel (MaterialPhysics.h). See TrackletFinding.h for
 // the per-operation contract documentation.
 
 namespace
@@ -176,7 +166,7 @@ namespace
 // forward::propagate<Helix> when |bz| > 0.01f, otherwise
 // forward::propagate<Linear> -- the same threshold and the same two models
 // the legacy CA-construction path (detail::mftFwdAttachCluster, used by
-// today's buildCellSeed<DiskDisk>/attachHit<DiskDisk>) already uses.
+// today's disk cell construction already uses.
 // PropagationModel::Optimized (params: helix, errors: quadratic) is the
 // separate model used only by the MFT final-track refit
 // (TrackParCovFwd::propagateToZ, MFTTracking/TrackFitter.cxx) and is
@@ -190,22 +180,9 @@ bool forwardPropagateAcceptedModel(SurfaceKinematicState& state, float targetZ, 
   return forward::propagate<forward::PropagationModel::Linear>(state, targetZ, bz, reason);
 }
 
-// linRef-aware counterpart of forwardPropagateAcceptedModel above, used by
-// refitHit<DiskDisk>: same |bz|>0.01f Helix/Linear threshold, applied to the
-// linRef-aware forward::propagate<Model> overloads (ForwardSurfaceStateOperations.h).
-bool forwardPropagateAcceptedModel(SurfaceKinematicState& state, SurfaceLinearizationReference& linRef, float targetZ, float bz,
-                                   OperationFailureReason& reason) noexcept
-{
-  if (std::abs(bz) > 0.01f) {
-    return forward::propagate<forward::PropagationModel::Helix>(state, linRef, targetZ, bz, reason);
-  }
-  return forward::propagate<forward::PropagationModel::Linear>(state, linRef, targetZ, bz, reason);
-}
-
 } // namespace
 
-template <>
-bool buildCellSeed<TransitionPolicyTag::CylinderCylinder>(
+bool buildCylinderCellSeed(
   const SurfaceMeasurement& measurementInner,
   const SurfaceMeasurement& measurementMiddle,
   const SurfaceMeasurement& measurementOuter,
@@ -264,8 +241,7 @@ bool buildCellSeed<TransitionPolicyTag::CylinderCylinder>(
   return true;
 }
 
-template <>
-bool buildCellSeed<TransitionPolicyTag::DiskDisk>(
+bool buildDiskCellSeed(
   const SurfaceMeasurement& measurementInner,
   const SurfaceMeasurement& measurementMiddle,
   const SurfaceMeasurement& measurementOuter,
@@ -322,8 +298,7 @@ bool buildCellSeed<TransitionPolicyTag::DiskDisk>(
   return true;
 }
 
-template <>
-bool attachHit<TransitionPolicyTag::CylinderCylinder>(
+bool attachCylinderHit(
   SurfaceKinematicState& state,
   const SurfaceMeasurement& measurement,
   const NominalSurfaceMaterial& material,
@@ -367,8 +342,7 @@ bool attachHit<TransitionPolicyTag::CylinderCylinder>(
   return true;
 }
 
-template <>
-bool attachHit<TransitionPolicyTag::DiskDisk>(
+bool attachDiskHit(
   SurfaceKinematicState& state,
   const SurfaceMeasurement& measurement,
   const NominalSurfaceMaterial& material,
@@ -409,181 +383,7 @@ bool attachHit<TransitionPolicyTag::DiskDisk>(
   return true;
 }
 
-template <>
-bool refitHit<TransitionPolicyTag::CylinderCylinder>(
-  SurfaceKinematicState& state,
-  SurfaceLinearizationReference& linRef,
-  const SurfaceMeasurement& measurement,
-  const NominalSurfaceMaterial& material,
-  float bz,
-  material::MaterialTraversalDirection direction,
-  bool chi2GateEnabled,
-  float maxChi2,
-  float& chi2,
-  bool shiftReferenceToMeasurement,
-  OperationFailureReason& reason) noexcept
-{
-  // Chi2/configuration hardening, checked before any transport (no
-  // state/linRef mutation has happened yet, so returning here is
-  // trivially transactional). A non-finite accumulator/gate configuration
-  // reports NonFiniteInput; a finite-but-negative one reports
-  // PredictedChi2Failure (the value is well-formed as a float but not a
-  // valid chi2). maxChi2 is only validated when the gate is enabled -- a
-  // disabled gate never reads it, so an arbitrary sentinel is fine.
-  if (!std::isfinite(chi2)) {
-    reason = OperationFailureReason::NonFiniteInput;
-    return false;
-  }
-  if (chi2 < 0.f) {
-    reason = OperationFailureReason::PredictedChi2Failure;
-    return false;
-  }
-  if (chi2GateEnabled) {
-    if (!std::isfinite(maxChi2)) {
-      reason = OperationFailureReason::NonFiniteInput;
-      return false;
-    }
-    if (maxChi2 < 0.f) {
-      reason = OperationFailureReason::PredictedChi2Failure;
-      return false;
-    }
-  }
-
-  SurfaceKinematicState scratchState = state;
-  SurfaceLinearizationReference scratchRef = linRef;
-  float scratchChi2 = chi2;
-
-  if (!barrel::rotate(scratchState, scratchRef, measurement.frame.frameAngle, bz, reason)) {
-    return false;
-  }
-  if (!barrel::propagate(scratchState, scratchRef, measurement.frame.q, bz, reason)) {
-    return false;
-  }
-  const auto materialResult = barrel::correctForMaterial(
-    scratchState, material::IntegratedMaterialBudget{material.xOverX0, material.arealDensityGPerCm2}, direction);
-  if (!materialResult.ok()) {
-    reason = OperationFailureReason::MaterialFailure;
-    return false;
-  }
-  float predChi2{0.f};
-  if (!barrel::predictedChi2(scratchState, measurement, predChi2, reason)) {
-    return false;
-  }
-  if (predChi2 < 0.f || !std::isfinite(predChi2)) {
-    reason = OperationFailureReason::PredictedChi2Failure;
-    return false;
-  }
-  if (chi2GateEnabled && predChi2 > maxChi2) {
-    reason = OperationFailureReason::PredictedChi2Failure;
-    return false;
-  }
-  float updateChi2{0.f};
-  if (!barrel::update(scratchState, measurement, updateChi2, reason)) {
-    return false;
-  }
-  scratchChi2 += updateChi2;
-  if (!std::isfinite(scratchChi2) || scratchChi2 < 0.f) {
-    reason = OperationFailureReason::NonFiniteOutput;
-    return false;
-  }
-
-  if (shiftReferenceToMeasurement) {
-    if (!barrel::shiftReferenceToMeasurement(scratchRef, measurement, reason)) {
-      return false;
-    }
-  }
-
-  state = scratchState;
-  linRef = scratchRef;
-  chi2 = scratchChi2;
-  return true;
-}
-
-template <>
-bool refitHit<TransitionPolicyTag::DiskDisk>(
-  SurfaceKinematicState& state,
-  SurfaceLinearizationReference& linRef,
-  const SurfaceMeasurement& measurement,
-  const NominalSurfaceMaterial& material,
-  float bz,
-  material::MaterialTraversalDirection direction,
-  bool chi2GateEnabled,
-  float maxChi2,
-  float& chi2,
-  bool shiftReferenceToMeasurement,
-  OperationFailureReason& reason) noexcept
-{
-  // Chi2/configuration hardening -- identical contract to
-  // refitHit<CylinderCylinder> above; see that specialization's comment for
-  // the rationale.
-  if (!std::isfinite(chi2)) {
-    reason = OperationFailureReason::NonFiniteInput;
-    return false;
-  }
-  if (chi2 < 0.f) {
-    reason = OperationFailureReason::PredictedChi2Failure;
-    return false;
-  }
-  if (chi2GateEnabled) {
-    if (!std::isfinite(maxChi2)) {
-      reason = OperationFailureReason::NonFiniteInput;
-      return false;
-    }
-    if (maxChi2 < 0.f) {
-      reason = OperationFailureReason::PredictedChi2Failure;
-      return false;
-    }
-  }
-
-  SurfaceKinematicState scratchState = state;
-  SurfaceLinearizationReference scratchRef = linRef;
-  float scratchChi2 = chi2;
-
-  if (!forwardPropagateAcceptedModel(scratchState, scratchRef, measurement.frame.q, bz, reason)) {
-    return false;
-  }
-  const auto materialResult = forward::correctForMaterial(
-    scratchState, material::IntegratedMaterialBudget{material.xOverX0, material.arealDensityGPerCm2}, direction);
-  if (!materialResult.ok()) {
-    reason = OperationFailureReason::MaterialFailure;
-    return false;
-  }
-  float predChi2{0.f};
-  if (!forward::predictedChi2(scratchState, measurement, predChi2, reason)) {
-    return false;
-  }
-  if (predChi2 < 0.f || !std::isfinite(predChi2)) {
-    reason = OperationFailureReason::PredictedChi2Failure;
-    return false;
-  }
-  if (chi2GateEnabled && predChi2 > maxChi2) {
-    reason = OperationFailureReason::PredictedChi2Failure;
-    return false;
-  }
-  float updateChi2{0.f};
-  if (!forward::update(scratchState, measurement, updateChi2, reason)) {
-    return false;
-  }
-  scratchChi2 += updateChi2;
-  if (!std::isfinite(scratchChi2) || scratchChi2 < 0.f) {
-    reason = OperationFailureReason::NonFiniteOutput;
-    return false;
-  }
-
-  if (shiftReferenceToMeasurement) {
-    if (!forward::shiftReferenceToMeasurement(scratchRef, measurement, reason)) {
-      return false;
-    }
-  }
-
-  state = scratchState;
-  linRef = scratchRef;
-  chi2 = scratchChi2;
-  return true;
-}
-
-template <>
-bool cellsAreCompatible<TransitionPolicyTag::CylinderCylinder>(
+bool cellsCylinderAreCompatible(
   const SurfaceKinematicState& current,
   const SurfaceKinematicState& next,
   int /*currentSecondClusterIndex*/,
@@ -604,8 +404,7 @@ bool cellsAreCompatible<TransitionPolicyTag::CylinderCylinder>(
   return chi2 <= params.maxChi2ClusterAttachment;
 }
 
-template <>
-bool cellsAreCompatible<TransitionPolicyTag::DiskDisk>(
+bool cellsDiskAreCompatible(
   const SurfaceKinematicState& current,
   const SurfaceKinematicState& next,
   int currentSecondClusterIndex,
@@ -631,18 +430,16 @@ bool cellsAreCompatible<TransitionPolicyTag::DiskDisk>(
   return chi2 <= params.maxChi2ClusterAttachment;
 }
 
-template <>
-float layerMultipleScatteringAngle<TransitionPolicyTag::CylinderCylinder>(
-  const LayerScatteringInputs<TransitionPolicyTag::CylinderCylinder>& inputs, float trackletMinPt)
+float cylinderLayerMultipleScatteringAngle(
+  const CylinderLayerScatteringInputs& inputs, float trackletMinPt)
 {
   // Unchanged from the frozen ITS expression:
   // math_utils::MSangle(0.14f, trkParam.TrackletMinPt, trkParam.LayerxX0[iLayer]).
   return o2::its::math_utils::MSangle(0.14f, trackletMinPt, inputs.layerxX0);
 }
 
-template <>
-float layerMultipleScatteringAngle<TransitionPolicyTag::DiskDisk>(
-  const LayerScatteringInputs<TransitionPolicyTag::DiskDisk>& inputs, float trackletMinPt)
+float diskLayerMultipleScatteringAngle(
+  const DiskLayerScatteringInputs& inputs, float trackletMinPt)
 {
   // Same formula as the legacy detail::mftLayerMSAngle(), except zLayer/rRef
   // are supplied explicitly by the caller instead of being derived here from
@@ -676,16 +473,14 @@ DiskDiskReferenceCoordinateView bindLegacyMFTReferenceCoordinates() noexcept
   return DiskDiskReferenceCoordinateView{gsl::span<const float>(kLegacyMFTReferenceCoordinate)};
 }
 
-template <>
-float clampTransitionCurvature<TransitionPolicyTag::CylinderCylinder>(float oneOverR, float r2) noexcept
+float clampCylinderTransitionCurvature(float oneOverR, float r2) noexcept
 {
   // Preserves the legacy double-promoted comparison verbatim (frozen ITS
   // TimeFrame.cxx / common-CA non-MFT branch): `0.5` is a double literal.
   return (0.5 * oneOverR >= 1.f / r2) ? (2.f / r2) - o2::constants::math::Almost0 : oneOverR;
 }
 
-template <>
-float clampTransitionCurvature<TransitionPolicyTag::DiskDisk>(float oneOverR, float r2) noexcept
+float clampDiskTransitionCurvature(float oneOverR, float r2) noexcept
 {
   // Preserves the legacy float-only comparison verbatim (common-CA MFT
   // branch): `0.5f` stays in float.

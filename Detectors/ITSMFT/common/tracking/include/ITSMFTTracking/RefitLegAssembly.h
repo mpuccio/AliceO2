@@ -22,7 +22,7 @@ namespace o2::itsmft::tracking
 {
 
 /// Gate 3 Slice A (native ITS refit driver prerequisite): builds one
-/// traversal-ordered leg of `SurfaceMeasurement` slots for `driveRefitLeg<Tag>`
+/// traversal-ordered leg of `SurfaceMeasurement` slots for native refit
 /// from a `TrackSeed`'s already-attached, layer-indexed
 /// cluster bookkeeping -- exactly the mapping `computeLayerCellsForPolicy`/
 /// `processNeighbours` already use per candidate (TrackerTraits.cxx), walked

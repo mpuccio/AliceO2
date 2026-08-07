@@ -107,8 +107,8 @@ class Propagator
   //     `linRef`/`chi2` are committed only together, on complete success.
   //     `reason` is always written on failure.
   //
-  // Chi2 hardening on entry matches detail::refitHit<Tag>'s own contract
-  // exactly (TransitionPolicyOperations.h): the incoming `chi2` accumulator
+  // Chi2 hardening on entry is shared by all native refit leaves: the incoming
+  // `chi2` accumulator
   // must be finite and non-negative; `maxChi2` is validated the same way,
   // but only when `chi2GateEnabled` is true.
   static bool propagateToMeasurement(SurfaceKinematicState& state, SurfaceLinearizationReference& linRef,
@@ -119,8 +119,8 @@ class Propagator
 
   // ---- shared leg orchestration (cylinder/disk-common) --------------------
   //
-  // Descriptor-driven counterpart of detail::driveRefitLeg<Tag>
-  // (detail/TransitionPolicyOperations.h): the identical per-slot contract
+  // Shared descriptor-driven leg orchestration with the identical per-slot
+  // contract
   // (a slot with an invalid `cluster` is a hole, skipped before its
   // `surface`/`surfaceCatalog` association is even inspected; a present
   // slot's `measurement.surface` is validated against `surfaceCatalog`
@@ -129,7 +129,7 @@ class Propagator
   // hardening; the same scratch-then-commit transactionality; an empty or
   // all-hole leg is unconditional success) -- but selects
   // Propagator::propagateToMeasurement per slot from the slot's own
-  // resolved SurfaceDescriptor instead of a compile-time refitHit<Tag>, so
+  // resolved SurfaceDescriptor instead of a compile-time family helper, so
   // one call serves a leg mixing Barrel and Forward slots without any
   // family branch of its own (ADR 0007 decision 10's shared orchestration).
   static bool driveRefitLeg(SurfaceKinematicState& state, SurfaceLinearizationReference& linRef,

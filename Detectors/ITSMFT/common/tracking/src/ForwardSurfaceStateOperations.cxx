@@ -610,8 +610,8 @@ bool buildSeedImpl(const SurfaceMeasurement& measurementInner, const SurfaceMeas
     return false;
   }
 
-  // Strict boundary, transcribed verbatim from buildCellSeed<DiskDisk>
-  // (TransitionPolicyOperations.cxx) / detail::mftFwdFitCellClusters
+  // Strict boundary, transcribed verbatim from buildDiskCellSeed
+  // (CellFinding.h, implemented in TrackletFinding.cxx) / detail::mftFwdFitCellClusters
   // (MFTFwdTrackHelpers.h): established hard rejections, not non-finite-
   // output artifacts, so they are reported through the dedicated
   // SeedGeometryDegenerate reason. Anchor-independent: this validates the

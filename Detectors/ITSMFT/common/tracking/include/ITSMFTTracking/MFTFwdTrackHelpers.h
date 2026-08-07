@@ -135,7 +135,7 @@ inline void mftTrackletSigmaXY(float x0, float y0, float pvX, float pvY, float p
 // uses the shared native driver) and no test referenced them directly. See
 // doc/decisions/0008-native-refit-activation.md. mftLayerZ/mftLayerMSAngle/
 // mftTrackletProject/mftTrackletSigmaXY above are untouched: they remain the
-// live tracklet-projection primitives TransitionPolicyOperations.cxx and
+// live tracklet-projection primitives TrackletFinding.cxx and
 // TrackerTraits.cxx call every iteration, a distinct stage from final refit.
 
 } // namespace o2::itsmft::tracking::detail
