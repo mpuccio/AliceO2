@@ -263,8 +263,8 @@ void TimeFrame::clearEventData() noexcept
 {
   deepVectorClear(mPrimaryVertices);
   deepVectorClear(mPrimaryVerticesLabels);
-  // Gate 4 CommonTrack foundation: common-CA result storage is per-event
-  // data, invalidated together -- a CommonTrack's cluster-reference range
+  // Common-CA result storage is per-event data and is invalidated together: a
+  // CommonTrack's cluster-reference range
   // and every SurfaceMeasurementIndex it reaches are only meaningful
   // alongside the normalized frame current when it was built (CommonTrack.h),
   // so both must be cleared here, unconditionally.

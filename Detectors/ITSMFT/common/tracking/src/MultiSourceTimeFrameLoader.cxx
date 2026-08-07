@@ -22,9 +22,8 @@ LoadSourcesResult MultiSourceTimeFrameLoader::load(TimeFrame& frame, gsl::span<c
   if (!frame.isConfigured()) {
     return {MultiSourceLoadError::FrameNotConfigured};
   }
-  // Stage normalized ownership first, generically, over every source at
-  // once. The existing source-level loader remains the authoritative decoder
-  // and timing validator.
+  // Stage normalized data for every source before committing the event. The
+  // source-level loader remains the decoder and timing-validation boundary.
   MultiSourceFrame normalized;
   const auto normalizedResult = loadSources(normalized, catalog, sources, origin);
   if (!normalizedResult.ok()) {
@@ -266,8 +265,7 @@ LoadSourcesResult SurfaceTrackingScratch::loadNormalizedSource(
   SurfaceCatalogView catalogView,
   bool applySysErrors)
 {
-  // M6e2: this scratch is now shared by ITS too (previously MFT-only) --
-  // matches the former fixed-layer scratch<NLayers>'s own ITS-or-MFT preflight.
+  // The workspace is shared by both common-CA detector sources.
   constexpr ClusterSourceId kSourceId{0};
   if (detId != o2::detectors::DetID::MFT && detId != o2::detectors::DetID::ITS) {
     return {MultiSourceLoadError::UnsupportedDetector, kSourceId};
@@ -352,7 +350,7 @@ LoadSourcesResult SurfaceTrackingScratch::loadNormalizedSource(
     for (const auto& m : measurements) {
       o2::its::TrackingFrameInfo tfInfo;
       if (isMFT) {
-        // Recreate the established synthetic legacy MFT representation from
+        // Recreate the synthetic legacy MFT representation from
         // normalized global position and row/column covariance.
         tfInfo = o2::its::TrackingFrameInfo{
           m.global.x, m.global.y, m.global.z,
@@ -360,8 +358,7 @@ LoadSourcesResult SurfaceTrackingScratch::loadNormalizedSource(
           std::array<float, 2>{m.global.y, m.global.z},
           std::array<float, 3>{m.covariance.uu, m.covariance.uv, m.covariance.vv}};
       } else {
-        // ITS: as above, ported byte-for-byte from
-        // the former fixed-layer scratch<NLayers>::loadNormalizedSource().
+        // ITS compatibility representation, using the normalized measurement.
         tfInfo = o2::its::TrackingFrameInfo{
           m.global.x, m.global.y, m.global.z,
           m.frame.q, m.frame.frameAngle,

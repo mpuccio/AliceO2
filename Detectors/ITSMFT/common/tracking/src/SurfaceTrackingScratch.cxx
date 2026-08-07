@@ -10,7 +10,7 @@
 // or submit itself to any jurisdiction.
 ///
 /// \file SurfaceTrackingScratch.cxx
-/// \brief M6c: see SurfaceTrackingScratch.h for the full design rationale.
+/// \brief SurfaceTrackingScratch implementation.
 ///
 
 #include "ITSMFTTracking/detail/SurfaceTrackingScratch.h"
@@ -111,9 +111,7 @@ void SurfaceTrackingScratch::reset()
   mTotalLines = 0;
   mNTotalLowPtVertices = 0;
 
-  // If we use the external host allocator, the assumption is that we don't
-  // clear that memory ourselves -- mirrors
-  // the former fixed-layer scratch<NLayers>::reset() exactly.
+  // External host-allocator memory is released by its owning framework.
   if (!hasFrameworkAllocator()) {
     deepVectorClear(mClusters);
     deepVectorClear(mUsedClusters);
@@ -123,7 +121,7 @@ void SurfaceTrackingScratch::reset()
     deepVectorClear(mROFramesClusters);
   }
 
-  // Only needed to clear if we have MC info -- mirrors the prior scratch reset exactly.
+  // MC-label storage is cleared only when labels are present.
   if (hasMCinformation()) {
     deepVectorClear(mLinesLabels);
     deepVectorClear(mTrackletLabels);
@@ -131,9 +129,7 @@ void SurfaceTrackingScratch::reset()
   }
 
   // mClusterLabels holds non-owning pointers into caller-supplied MC label
-  // containers, not owned storage -- reset to nullptr, not deepVectorClear'd,
-  // and the vector is not resized (mirrors the former fixed-layer scratch<NLayers>'s
-  // own std::array::fill(nullptr), which cannot resize).
+  // containers, so reset pointers rather than freeing or resizing storage.
   std::fill(mClusterLabels.begin(), mClusterLabels.end(), nullptr);
 }
 
@@ -151,7 +147,7 @@ void SurfaceTrackingScratch::setMemoryPool(std::shared_ptr<o2::its::BoundedMemor
     }
   };
 
-  // Host-only, mirrors the former fixed-layer scratch<NLayers>::setMemoryPool().
+  // Host-only allocator binding.
   initContainers(mClusterExternalIndices);
   initContainers(mNTrackletsPerCluster);
   initContainers(mNTrackletsPerClusterSum);
@@ -297,13 +293,7 @@ void SurfaceTrackingScratch::swap(SurfaceTrackingScratch& other) noexcept
   // see the header doc.
 }
 
-// ---------------------------------------------------------------------------
-// M6d: the remaining accessor surface TrackerTraits/Tracker needs, ported
-// mechanically from the former
-// fixed-layer scratch with
-// with every NLayers-bound array index replaced by the equivalent runtime
-// vector index -- no algorithm/formula change anywhere in this section.
-// ---------------------------------------------------------------------------
+// Accessors and runtime-plan operations.
 
 gsl::span<const int> SurfaceTrackingScratch::getROFrameClusters(int layerId) const
 {

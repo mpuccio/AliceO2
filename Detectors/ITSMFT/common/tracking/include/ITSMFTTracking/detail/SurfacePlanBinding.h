@@ -8,36 +8,9 @@
 #ifndef ALICEO2_ITSMFT_TRACKING_SURFACEPLANBINDING_H_
 #define ALICEO2_ITSMFT_TRACKING_SURFACEPLANBINDING_H_
 
-// M6f (Detectors/ITSMFT/common/tracking/doc/design/0002-m6-generic-workspace-
-// migration.md Sec 3.2, 7, 9; GenericTrackingEngineMigration.md M6): the one
-// detector-neutral plan binding used by the common tracker. It replaced the
-// temporary traversal bridge when M6d/M6e wiring completed; no second binding
-// implementation remains in common production code. Confined to detail/ --
-// private hot-loop-dispatch implementation, never a public/adapter-facing
-// contract, like every other header under this directory.
-//
-// The two behavioral changes from the former traversal binding::build() that
-// the design note specifies:
-// 1. no detector-identity allow-list (the old `detector != ITS && detector
-//    != MFT` gate is gone -- ownership/topology validation below already
-//    fully determines correctness without it);
-// 2. `expectedKind` is a caller-supplied parameter instead of being derived
-//    internally from a detector switch.
-//
-// A third `detector` use the design note's "only two lines" framing did not
-// separately enumerate -- the retired traversal binding::build() also checked
-// every legacy-ordered surface's SurfaceDescriptor::detectorId against the
-// caller-supplied `detector` (SurfaceDetectorMismatch) -- is deliberately
-// dropped, not replaced. An earlier revision of this type reintroduced an
-// equivalent check (every owned surface sharing one consistent detectorId)
-// without an external parameter; that was itself a hidden constraint this
-// type must not carry: SurfacePlanBinding is generic over its own
-// SurfaceId set and must not assume "one binding, one detector" at all, so
-// a future participant whose owned surfaces legitimately span more than one
-// detectorId (e.g. a merged/aggregate plan) is not artificially rejected.
-// detectorId-based ownership bookkeeping, if a caller ever needs it, belongs
-// in that caller (which already knows its own semantics for "owner"), never
-// in this detector-neutral type.
+// Private plan binding used by the common tracker. It owns validated ordered
+// surface positions and source-qualified compact transition/cell schedules;
+// it owns no graph, workspace, event data, or detector-specific policy.
 
 #ifndef GPUCA_GPUCODE
 
@@ -85,11 +58,8 @@ class SurfacePlanBinding
     bool ok() const noexcept { return static_cast<bool>(binding); }
   };
 
-  // `orderedSurfaces` maps position i to a global SurfaceId -- the only
-  // global-to-positional projection here, exactly as
-  // the retired traversal binding::build()'s own `legacySurfaceOrder` parameter.
-  // `expectedKind` is the caller's own already-derived family selection,
-  // never derived here from a detector identity.
+  // `orderedSurfaces` maps each plan position to a global SurfaceId.
+  // `expectedKind` is the caller's already-derived family selection.
   static BuildResult build(const SurfaceGraphView& globalLayout,
                            ClusterSourceId source,
                            SurfaceMask ownedSurfaces,
@@ -108,11 +78,8 @@ class SurfacePlanBinding
 
     result->mSource = source;
     result->mOwnedSurfaces = ownedSurfaces;
-    // Retain the validated positional order itself.  The inverse map below
-    // is useful for sparse global ids, but it cannot answer the hot-loop
-    // question "which surface is position i?" without reconstructing an
-    // order from a numeric SurfaceId.  The plan's ordered positions are the
-    // runtime traversal authority; the vector is immutable after build().
+    // Retain the validated positional order; it is the runtime traversal
+    // authority. The inverse map serves sparse global-ID lookups.
     result->mOrderedSurfaces.assign(orderedSurfaces.begin(), orderedSurfaces.end());
     result->mOwnedSurfaceIndexBySurface.assign(globalLayout.nSurfaces, -1);
     for (uint16_t position = 0; position < orderedSurfaces.size(); ++position) {

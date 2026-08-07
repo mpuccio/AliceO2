@@ -200,16 +200,9 @@ int TrackerTraits::requireSurfacePosition(int iteration, SurfaceId id) const
   return static_cast<int>(*position);
 }
 
-// The eight non-template wrapper targets TraversalOperationBinding's
-// member-function pointers may point to -- see that struct's own doc
-// (TrackerTraits.h) for why plain pointers-to-member, not a type-erasing
-// callable wrapper.
-// Each selects one explicit SurfaceKind implementation
-// implementation, unchanged, using mTraversalOperation's own bound ids
-// (resolved once by bindTraversalOperation() below) and the corresponding
-// mKernelParameters (committed earlier in the same
-// initialiseTimeFrame() call). Never called except through
-// mTraversalOperation's bound pointer.
+// Non-template wrappers selected by the traversal operation binding. Each
+// forwards to one SurfaceKind implementation with the bound ids and
+// kernel parameters.
 void TrackerTraits::computeLayerTrackletsCylinder(int iteration, int iVertex)
 {
   computeLayerTrackletsForKind<SurfaceKind::Cylinder>(iteration, iVertex, mTraversalOperation.boundTransitionIds, mKernelParameters);
@@ -250,18 +243,8 @@ void TrackerTraits::findRoadsDisk(int iteration, TrackingOperationAdapter& opera
   findRoadsForKind<SurfaceKind::Disk>(iteration, mKernelParameters, operationAdapter);
 }
 
-// The single producer of mTraversalOperation (TraversalOperationBinding,
-// TrackerTraits.h). Called exactly once per successful initialiseTimeFrame()
-// call, after that call's activeKind/cylinderParams|diskParams
-// have all already been validated and committed. The one binding below
-// selects the operation targets for the endpoint
-// SurfaceDescriptor kinds (never from NLayers or detector identity), and the
-// `if constexpr` below only ever selects the matching pair of non-template
-// wrapper targets (and the ids/params they close over via mTraversalOperation's
-// own members and mKernelParameters). The four shared hot-loop entry points
-// below (computeLayerTracklets/computeLayerCells/findCellsNeighbours/
-// findRoads) invoke the bound pointer directly, with no Kind/StateFamily
-// branch of their own.
+// Selects operation targets from the validated endpoint SurfaceKind. The
+// shared hot-loop entry points then invoke the bound pointer directly.
 void TrackerTraits::bindTraversalOperation(int iteration)
 {
   mTraversalOperation = TraversalOperationBinding{};
@@ -378,11 +361,7 @@ void TrackerTraits::initialiseTimeFrame(const int iteration, const std::vector<S
 {
   resetTraversalCache();
 
-  // 1. Iteration bounds, checked before any index-table (or other)
-  // configuration is touched. `layouts` is the caller's own immutable plan
-  // (Gate 4 B2 Slice 2): its mere presence as a valid reference here is the
-  // caller's guarantee that a plan exists, so there is no separate
-  // missing/stale-layout state left to check.
+  // 1. Check iteration bounds before accessing configuration.
   if (iteration < 0 || static_cast<size_t>(iteration) >= graphs.size()) {
     throw TraversalException{iteration, TraversalFailureReason::IterationOutOfRange};
   }
@@ -408,17 +387,9 @@ void TrackerTraits::initialiseTimeFrame(const int iteration, const std::vector<S
   }
   mActiveKind = layout.getSurface(layout.getTransition(boundTransitions.front()).from).kind;
 
-  // 2.1 (Stage-B activation, Architecture.md Sec 11): material-correction-mode
-  // preflight for the active kind, once per iteration -- after layout/
-  // grouping validation and mixed-kind resolution, before any material
-  // staging, index-table binding, or TimeFrame tracking-state mutation.
-  // `activeKind` already tells us which operation family is active. An
-  // `Unsupported` result is a
-  // structural/configuration failure (TraversalFailureReason doc); an
-  // `InvalidMode` result is deliberately not raised here -- it defers to the
-  // existing AttachHitConfigView::isValid() check further below, which
-  // remains the single source of truth for "this CorrType value is not
-  // recognized at all".
+  // 2.1 Validate material-correction support before staging or mutating
+  // TimeFrame tracking state. Unsupported modes are structural; unrecognized
+  // values remain classified by AttachHitConfigView::isValid().
   MaterialCorrectionModeSupport materialModeSupport = MaterialCorrectionModeSupport::Supported;
   if (mActiveKind) {
     materialModeSupport = materialCorrectionModeSupport(*mActiveKind, mTrkParams[iteration].CorrType);
@@ -427,10 +398,8 @@ void TrackerTraits::initialiseTimeFrame(const int iteration, const std::vector<S
     throw TraversalException{iteration, TraversalFailureReason::UnsupportedMaterialCorrectionMode};
   }
 
-  // 2.5. Resolve and validate this iteration's authoritative per-surface-position
-  // nominal material, entirely from `layouts`/`layout` (already resolved
-  // above) and `mTrkParams[iteration]` -- before any TimeFrame tracking
-  // state is touched (see TrackerTraits.h's TraversalFailureReason doc).
+  // 2.5. Resolve and validate per-surface-position material from the layout
+  // and iteration parameters before mutating TimeFrame tracking state.
   // The surface-position mapping is this graph vector's own validated
   // orderedSurfaces (never inferred from a detector identity,
   // radius, z, or numeric ordering); a size mismatch, an invalid/out-of-range
@@ -475,8 +444,7 @@ void TrackerTraits::initialiseTimeFrame(const int iteration, const std::vector<S
     }
   }
 
-  // 2.6. One-time normalized-measurement binding (Stage-B normalized-CA-
-  // measurements slice): resolve and validate this iteration's authoritative
+  // 2.6. Resolve and validate this iteration's normalized-measurement binding:
   // per-surface-position normalized SurfaceMeasurement span, entirely from
   // `orderedSurfaces` (already resolved and validated above) and the
   // already-loaded TimeFrame normalized frame / legacy compatibility
@@ -529,11 +497,8 @@ void TrackerTraits::initialiseTimeFrame(const int iteration, const std::vector<S
     stagedLayerMeasurements[surfacePosition] = measurements;
   }
 
-  // 3. Bind + validate index-table configuration into a local scratch value,
-  // selected from the single active kind -- the same operation-local family
-  // selection used by bindTraversalOperation() below (M5c) to bind the
-  // shared hot loops' own operation. The scratch is not touched yet, so a
-  // failure here leaves it completely unchanged.
+  // 3. Bind and validate index-table configuration in a local value. The
+  // scratch is not touched until this validation succeeds.
   IndexTableUtilsCore stagedIndexTableConfig{};
   IndexTableConfigError indexTableConfigError = IndexTableConfigError::None;
   if (!mActiveKind) {
@@ -546,12 +511,10 @@ void TrackerTraits::initialiseTimeFrame(const int iteration, const std::vector<S
 
   // 4. LUT-reuse invariant: a non-FirstPass iteration will not have its
   // index-table configuration (re)committed or its LUT storage reallocated
-  // by TimeFrame::initialise() below (TimeFrame.cxx, PassFlags[FirstPass]
+  // by the scratch initialization below (PassFlags[FirstPass]
   // gate) -- whether or not RebuildClusterLUT resorts clusters into the
   // existing LUT using whatever configuration TimeFrame already owns (e.g.
-  // legacy ITS's async iteration 3, which sets RebuildClusterLUT without
-  // FirstPass; ITS/tracking/src/Configuration.cxx). The freshly bound
-  // configuration for such an iteration must therefore already match the
+  // configuration for such an iteration must already match the
   // owned one exactly, checked before TimeFrame is touched at all.
   if (!mTrkParams[iteration].PassFlags[IterationStep::FirstPass] &&
       !indexTableConfigurationsMatch(stagedIndexTableConfig, mScratch->getIndexTableUtils(), activeSurfaceCount)) {
@@ -701,10 +664,8 @@ void TrackerTraits::initialiseTimeFrame(const int iteration, const std::vector<S
     prepareTransitionScatteringAndBendingForKind<SurfaceKind::Disk>(iteration, geometryConfig, referenceCoordinateView);
   }
 
-  // M5c: the operation-local binding every shared hot-loop entry point below
-  // (computeLayerTracklets/computeLayerCells/findCellsNeighbours/findRoads)
-  // consumes directly, with no Kind/StateFamily branch of their own. Bound
-  // last, once every other traversal cache above has already committed.
+  // Bind the shared hot-loop operation after every other traversal cache has
+  // committed.
   bindTraversalOperation(iteration);
 }
 
@@ -767,21 +728,7 @@ void TrackerTraits::prepareTransitionScatteringAndBendingForKind(
 
 void TrackerTraits::computeLayerTracklets(const int iteration, int iVertex)
 {
-  // Gate 4 Slice 0a: driven by the sparse topology cached on
-  // initialiseTimeFrame() (mTraversalLayout), not a detector-specific
-  // topology fetch. This clear/allocation pass is
-  // kind-agnostic and runs once over the full sparse transition count,
-  // regardless of which single SurfaceKind is active for this layout (see
-  // computeLayerTrackletsForKind() below for the per-kind body).
-  //
-  // Gate 4 C2 Slice 1: the bound is this scratch's own already-allocated
-  // compact transition count -- never mTraversalLayout.topology.nTransitions
-  // directly, which is the possibly-multi-detector global transition count
-  // once a binding is adopted. The two are equal with no binding adopted
-  // (today's Gate 3 single-detector catalogs), so this is a behavior-
-  // preserving substitution there, and the only value that is ever actually
-  // correct once a binding scopes this instance to one detector's own
-  // compact slots.
+  // Clear the scratch-owned compact transition storage before dispatch.
   const auto& topology = mTraversalGraph;
   const auto scratchTransitionCount = mScratch->getTracklets().size();
   for (size_t transitionId = 0; transitionId < scratchTransitionCount; ++transitionId) {
@@ -794,10 +741,7 @@ void TrackerTraits::computeLayerTracklets(const int iteration, int iVertex)
     throw TraversalException{iteration, TraversalFailureReason::InvalidTraversalSchedule};
   }
 
-  // M5c: the Kind/StateFamily selection this call used to perform itself, on
-  // every call, is now resolved exactly once per iteration by
-  // bindTraversalOperation() (initialiseTimeFrame()) -- see
-  // TraversalOperationBinding's own doc (TrackerTraits.h).
+  // The operation target is bound once during initialization.
   if (!mTraversalOperation.bound) {
     throw TraversalException{iteration, TraversalFailureReason::InvalidTraversalSchedule};
   }
@@ -811,11 +755,7 @@ void TrackerTraits::computeLayerTrackletsForKind(
   gsl::span<const TransitionId> transitionIds,
   const TrackingKernelParameters& params)
 {
-  // Gate 4 Slice 0a: sparse topology (cached, not re-fetched from the
-  // legacy view). `transitionIds` remains the caller-filtered, ascending
-  // per-plan span from SurfacePlanBinding -- every loop below still
-  // iterates exclusively over it (or over the tracklet storage it already
-  // populated), never over the raw sparse transition count.
+  // Iterate the caller-filtered, ascending plan transition span.
   const auto& topology = mTraversalGraph;
   const Vertex diamondVert(mTrkParams[iteration].Diamond, mTrkParams[iteration].DiamondCov, 1, 1.f);
 
@@ -1084,12 +1024,8 @@ void TrackerTraits::computeLayerTrackletsForKind(
 
 void TrackerTraits::computeLayerCells(const int iteration)
 {
-  // Gate 4 Slice 0b: driven by the sparse topology cached on
-  // initialiseTimeFrame() (mTraversalLayout), not a detector-specific
-  // topology fetch.
   const auto& topology = mTraversalGraph;
-  // Defensive size-consistency check, mirroring findCellsNeighboursForKind's
-  // own precedent. Gate 4 C2 Slice 1: checked against this scratch's own
+  // Defensive size-consistency check against this scratch's own
   // already-allocated compact cell count, never topology.nCells directly --
   // see computeLayerTracklets()'s identical reasoning for
   // scratchTransitionCount above. The two parallel per-cell-topology
@@ -1118,7 +1054,7 @@ void TrackerTraits::computeLayerCells(const int iteration)
     throw TraversalException{iteration, TraversalFailureReason::InvalidSurfaceParameters};
   }
 
-  // M5c: see computeLayerTracklets()'s identical conversion above.
+  // The operation target is bound once during initialization.
   if (!mTraversalOperation.bound) {
     throw TraversalException{iteration, TraversalFailureReason::InvalidTraversalSchedule};
   }
@@ -1137,9 +1073,8 @@ void TrackerTraits::computeLayerCellsForKind(
   gsl::span<const CellTopologyId> cellIds,
   const TrackingKernelParameters& params)
 {
-  // Gate 4 Slice 0b: sparse topology (cached, not re-fetched from the
-  // legacy view). `cellIds` remains the caller-filtered, ascending per-kind
-  // span from SurfacePlanBinding -- the main loop below iterates
+  // `cellIds` remains the caller-filtered, ascending per-kind span from
+  // SurfacePlanBinding; the main loop below iterates
   // exclusively over it, never over the raw sparse cell count. The
   // defensive size-consistency check for mScratch's per-cellTopologyId
   // storage lives in computeLayerCells() (the caller), not here -- see that
@@ -1239,8 +1174,8 @@ void TrackerTraits::computeLayerCellsForKind(
           if (good) {
             TimeEstBC ts = currentTracklet.getTimeStamp();
             ts += nextTracklet.getTimeStamp();
-            // Gate 4 Slice 0b: reconstructed directly from the three
-            // already-resolved plan positions via LayerMask's existing
+            // Reconstructed directly from the three already-resolved plan
+            // positions via LayerMask's existing
             // 3-int constructor. The positions are validated against the
             // sparse cell's hit-surface mask during plan validation, so no
             // generic SurfaceMask->LayerMask converter is needed.
@@ -1263,8 +1198,8 @@ void TrackerTraits::computeLayerCellsForKind(
     };
 
     for (const auto typedCellId : cellIds) {
-      // Gate 4 C2 Slice 1: the sole translation point for this loop
-      // iteration -- every scratch access below (getCells(), getCellsLookupTable(),
+      // Sole translation point for this loop iteration: every scratch access
+      // below (getCells(), getCellsLookupTable(),
       // getCellsLabel(), getTracklets(), getTrackletsLookupTable(),
       // getTrackletsLabel()) is addressed exclusively through these three
       // already-translated compact slots, never through typedCellId/
@@ -1333,11 +1268,7 @@ void TrackerTraits::findCellsNeighbours(const int iteration)
   if (!mTraversalCacheValid) {
     throw TraversalException{iteration, TraversalFailureReason::InvalidTraversalSchedule};
   }
-  // The once-per-active-kind scheduled-cell resolution this call
-  // used to redo on every call (Gate 4 C2 Slice 1's binding-vs-grouping
-  // choice, documented at bindTraversalOperation()) is now folded into the
-  // bound findNeighbours callable itself -- see computeLayerTracklets()'s
-  // identical conversion above.
+  // Scheduled cells are supplied by the bound operation.
   if (!mTraversalOperation.bound) {
     throw TraversalException{iteration, TraversalFailureReason::InvalidTraversalSchedule};
   }
@@ -1351,9 +1282,7 @@ void TrackerTraits::findCellsNeighboursForKind(
   const TrackingKernelParameters& params)
 {
   const auto topology = mTraversalGraph;
-  // Gate 4 C2 Slice 1: checked/bounded against this scratch's own already-
-  // allocated compact cell count, never topology.nCells directly -- see
-  // computeLayerCells()'s identical reasoning.
+  // Check against this scratch's allocated compact cell count.
   const auto scratchCellCount = mScratch->getCells().size();
   if (mScratch->getCellsLookupTable().size() != scratchCellCount ||
       mScratch->getCellsNeighbours().size() != scratchCellCount ||
@@ -1372,8 +1301,8 @@ void TrackerTraits::findCellsNeighboursForKind(
     }
 
     for (const auto scheduledId : scheduledCells) {
-      // Gate 4 C2 Slice 1: sole translation point for this loop iteration --
-      // every mScratch->getCells...() access below this line, for this
+      // Sole translation point for this loop iteration: every
+      // mScratch->getCells...() access below, for this
       // source cell, is addressed through this one already-translated slot.
       const int cellTopologyId = requireScratchCellSlot(iteration, scheduledId);
       if (static_cast<size_t>(cellTopologyId) >= scratchCellCount ||
@@ -1395,8 +1324,8 @@ void TrackerTraits::findCellsNeighboursForKind(
         const auto& currentCellSeed{mScratch->getCells()[cellTopologyId][iCell]};
         const int nextLayerTrackletIndex{currentCellSeed.getSecondTrackletIndex()};
         for (uint32_t iSuccessor = 0; iSuccessor < successors.getEntries(); ++iSuccessor) {
-          // Gate 4 C2 Slice 1: the dynamically-discovered-neighbour
-          // translation point -- `nextTopologyId` is read out of the global
+          // Dynamically discovered neighbours are translated here;
+          // `nextTopologyId` is read from the global
           // topology's own CSR array (topology.cellsByFirstTransition), not
           // from any precomputed per-kind span, so it is translated to its
           // compact scratch slot here, exactly once, before any scratch
@@ -1646,14 +1575,11 @@ void TrackerTraits::findRoads(const int iteration, TrackingOperationAdapter& ope
   // before indexing so a future plan/storage desync becomes an explicit
   // failure instead of an out-of-bounds read; no legacy topology parity is
   // required by this path.
-  // Gate 4 C2 Slice 1: with a binding adopted, the equivalent expected count
-  // is this binding's own owned cell count -- mTraversalLayout.topology.nCells
-  // is the possibly-multi-detector global cell count once a binding scopes
-  // this instance to one detector.
+  // The expected count is the binding's own owned-cell count.
   if (mScratch->getCells().size() != mBinding->getGlobalCells().size()) {
     throw TraversalException{iteration, TraversalFailureReason::SparseTopologyMismatch};
   }
-  // M5c: see computeLayerTracklets()'s identical conversion above.
+  // The operation target is bound once during initialization.
   if (!mTraversalOperation.bound) {
     throw TraversalException{iteration, TraversalFailureReason::InvalidTraversalSchedule};
   }
@@ -1668,29 +1594,12 @@ void TrackerTraits::findRoadsForKind(const int iteration,
   const int activeSurfaceCount = static_cast<int>(mScratch->getNOwnedSurfaces());
   bounded_vector<bounded_vector<int>> firstClusters(activeSurfaceCount, bounded_vector<int>(mMemoryPool.get()), mMemoryPool.get());
   firstClusters.resize(activeSurfaceCount);
-  // M5d: the adapter's native refit operation reads
-  // layerMeasurements/mTraversalLayout's surface catalog, not a raw
-  // TrackingFrameInfo/Cluster array or an o2::base::Propagator instance --
-  // see doc/decisions/0008-native-refit-activation.md.
-  // Gate 4 C2 source-identity correction: resolved once per findRoadsForKind
-  // invocation, same binding-adopted/fallback shape as roadStartCells below.
-  // mBinding->getSource() is this call's own ClusterSourceId (see
-  // the retired traversal binding::build()); ClusterSourceId{0} matches the
-  // long-standing legacy single-source assumption when unbound.
+  // The adapter's native refit operation reads normalized measurements and
+  // the surface catalog. The expected source is the binding's source.
   const ClusterSourceId expectedSource = mBinding->getSource();
-  // Road-start selection is topology-derived, not a StartLayerMask/LayerMask
-  // runtime decision (Architecture.md Sec 10, D003): the binding's cached
-  // road-start span is the deterministic
-  // sparse-plan subsequence of cells whose traversal endpoint is a seeding
-  // SurfaceId, cached once per
-  // initialiseTimeFrame() call and reused unchanged across every startLevel
-  // pass below and across every repeated findRoads() call in the
-  // PerPrimaryVertexProcessing loop (Tracker.cxx). StartLayerMask itself
-  // remains an adapter configuration/layout-construction input (see
-  // positionalSurfaceMask() in TimeFrame.cxx and validateSparsePlan()) --
-  // it is simply no longer read here. Each returned CellTopologyId is a
-  // sparse identifier resolved through the binding's compact cell slot. No
-  // SurfaceId is used as a layer/vector index anywhere in this function.
+  // Road starts are the binding's deterministic sparse-plan subsequence whose
+  // endpoint is seeding-eligible. CellTopologyId values are resolved through
+  // compact slots; SurfaceId is never used as a vector index here.
   // Road-length filter bound: maximum absolute q/pT, in the same (GeV/c)^-1
   // units as SurfaceKinematicState::parameters[4]. Applied identically to
   // both families via getQOverPt() (raw signed value, never squared); no
@@ -1711,11 +1620,10 @@ void TrackerTraits::findRoadsForKind(const int iteration,
     };
 
     bounded_vector<TrackSeed> trackSeeds(mMemoryPool.get());
-    // Gate 4 C2 Slice 1: the ownership-filtered road-start span is supplied
-    // directly by the adopted surface-plan binding.
+    // The binding supplies the ownership-filtered road-start span.
     const auto roadStartCells = mBinding->getGlobalRoadStartCells();
     for (const auto startId : roadStartCells) {
-      // Gate 4 C2 Slice 1: sole translation point for this road-start cell.
+      // Translate the road-start cell to its compact slot once.
       const int startCellTopologyId = requireScratchCellSlot(iteration, startId);
       // Cell population is per-event/per-vertex data, never cached in
       // SurfacePlanBinding: this check must stay here, evaluated at

@@ -56,70 +56,32 @@ enum class TraversalFailureReason : uint8_t {
   MixedSurfaceKindLayout,
   StateFamilyMismatch,
   InvalidSurfaceParameters,
-  // The index-table configuration bound from this iteration's
-  // TrackingParameters (IndexTableConfiguration.h) failed its own
-  // structural validation.
+  // The iteration's index-table configuration failed structural validation.
   InvalidIndexTableConfiguration,
-  // A non-FirstPass iteration's freshly bound index-table configuration
-  // disagrees with the configuration (and populated LUT) the TimeFrame
-  // already owns, which this iteration would otherwise silently reuse or
-  // resort clusters into.
+  // A non-FirstPass configuration disagrees with the configuration and LUT
+  // already owned by the TimeFrame.
   IndexTableConfigurationMismatch,
-  // Temporary compatibility check (Stage-B surface-material fast-fit slice):
-  // this iteration's legacy TrackingParameters::LayerxX0 does not match the
-  // authoritative SurfaceDescriptor::material resolved for the same layer
-  // range, or the layer-to-surface mapping needed to resolve it is itself
-  // invalid/incomplete. Raised before any TimeFrame tracking state is
-  // touched; SurfaceDescriptor::material is never overwritten as a result.
+  // Legacy LayerxX0 disagrees with the authoritative material for the mapped
+  // surface range, or that mapping is invalid/incomplete. Raised before
+  // TimeFrame tracking state is touched; the descriptor is never overwritten.
   LegacyMaterialMismatch,
-  // Stage-B activation constraint: material-mode preflight, wired into
-  // initialiseTimeFrame() (see materialCorrectionModeSupport() in
-  // host configuration binding, called once per iteration right after
-  // grouping/mixed-kind validation and before material staging/index-table
-  // binding/TimeFrame::initialise()). The active SurfaceKind's Stage-A
-  // native SurfaceKinematicState path does not support this iteration's
-  // configured MatCorrType: currently only Cylinder with a non-NONE,
-  // otherwise-recognized CorrType (USEMatCorrLUT/USEMatCorrTGeo remain
-  // legacy-ITS-only). This is a structural/configuration failure like every
-  // other TraversalException reason above: it is always wiped and rethrown
-  // regardless of DropTFUponFailure -- it must never be reported as the
-  // dropped-TF sentinel. A recognized-invalid CorrType value is a distinct,
-  // pre-existing configuration-validation failure
-  // (AttachHitConfigView::isValid()) and must never be reported as
-  // this reason.
+  // The active SurfaceKind does not support the configured MatCorrType.
+  // This is structural, so it is reset and rethrown regardless of drop
+  // policy. An unrecognized CorrType remains the distinct invalid-mode
+  // failure reported by AttachHitConfigView::isValid().
   UnsupportedMaterialCorrectionMode,
-  // Stage-B normalized-CA-measurements slice: this iteration's one-time
-  // normalized-measurement binding (mLayerMeasurements) failed its own
-  // compatibility validation against the already-loaded normalized frame and
-  // legacy compatibility structures -- covers a normalized measurement count
-  // that disagrees with the corresponding legacy unsorted-cluster count, a
-  // TrackingFrameInfo count that disagrees with that same count, a
-  // measurement whose SurfaceId does not match the expected mapped surface,
-  // an invalid measurement.cluster ClusterRef, a nonzero measurement source
-  // under the current single-source TimeFrame contract, a negative legacy
-  // external index, or a measurement.cluster.index that disagrees with the
-  // corresponding legacy external index. Raised before any TimeFrame
-  // tracking state is touched, alongside the LegacyMaterialMismatch check
-  // this mirrors; mLayerMeasurements is never partially populated as a
-  // result -- see mLayerMeasurements' own doc for the commit contract.
+  // The per-position normalized-measurement binding disagrees with the
+  // loaded frame or legacy compatibility data: counts, surface identity,
+  // ClusterRef/source, or external index. Raised before TimeFrame state is
+  // touched; the non-owning spans are committed only on success.
   NormalizedMeasurementMismatch,
-  // Gate 4 sparse-topology validation: this iteration's orderedSurfaces does
-  // not define a bijection from runtime plan position onto global SurfaceId --
-  // i.e. two positions map to the same SurfaceId. Detected alongside the
-  // per-entry LegacyMaterialMismatch validity/range check, before any
-  // TimeFrame tracking state is touched.
+  // The iteration's orderedSurfaces does not define a bijection from plan
+  // positions to global SurfaceId (for example, a duplicate entry).
   SurfaceLayerMappingMismatch,
-  // Gate 4 C2 Slice 1: an adopted SurfacePlanBinding could not translate a
-  // global TransitionId/CellTopologyId encountered during traversal into a
-  // compact scratch slot -- SurfacePlanBinding::getScratchTransitionSlot()/
-  // getScratchCellSlot() returned std::nullopt. Since a correctly-built
-  // binding structurally cannot hand a hot loop a foreign/unmapped id, this
-  // can only mean the binding disagrees
-  // with the layout/topology this iteration is actually running against
-  // (e.g. a stale binding, or a binding built for the wrong graph vector
-  // iteration) -- always a structural/configuration failure, never a per-TF
-  // data problem, so DropTFUponFailure never applies. Raised before the
-  // offending index is ever used to address scratch storage.
+  // An adopted SurfacePlanBinding cannot translate a traversal
+  // TransitionId/CellTopologyId into a compact scratch slot. This indicates
+  // a binding/layout mismatch, not event data, and is detected before the
+  // offending index addresses scratch storage.
   TraversalBindingMismatch
 };
 
@@ -141,28 +103,21 @@ class TraversalException final : public std::runtime_error
   TraversalFailureReason mReason{TraversalFailureReason::MissingLayout};
 };
 
-// The generic tracker owns one detector-neutral workspace and one immutable
-// plan binding. All plan-sized bounds come from the adopted runtime plan and
-// scratch; application-specific refit and compatibility completion are narrow
-// operation calls at the participant edge.
+// The traits borrow the TimeFrame-owned workspace, plan binding, parameters,
+// and operation adapter for each call. All plan-sized bounds come from the
+// adopted runtime plan and scratch.
 class TrackerTraits
 {
  public:
   virtual ~TrackerTraits() = default;
-  // Two independent bind-once pointers -- neither owns nor stores a
-  // reference to the other.
+  // Borrowed call-scoped pointers; neither object owns the other.
   virtual void adoptScratch(SurfaceTrackingScratch* scratch) { mScratch = scratch; }
   virtual void adoptFrame(TimeFrame* frame) { mFrame = frame; }
-  // M6f: bind the one SurfacePlanBinding used by the common-CA hot loops.
-  // `binding` must outlive every subsequent Tracker::run() call and is
-  // never owned or copied. Direct algorithm tests may omit it when their
-  // topology is already identity-indexed; production adapters always adopt
-  // the binding built for the same graph iteration. A non-identity
-  // binding mismatch surfaces as TraversalFailureReason::TraversalBindingMismatch,
-  // never as a silent misread.
+  // `binding` is borrowed for subsequent Tracker::run() calls and is never
+  // owned or copied. It must describe the same graph iteration; a mismatch
+  // is reported as TraversalBindingMismatch.
   void adoptSurfacePlanBinding(const SurfacePlanBinding* binding) noexcept { mBinding = binding; }
-  // `graphs` is the owner's one immutable graph vector,
-  // supplied explicitly by the caller; no graph state is read from TimeFrame.
+  // `graphs` is the caller-owned immutable graph vector for this call.
   virtual void initialiseTimeFrame(const int iteration, const std::vector<SurfaceGraph>& graphs);
 
   virtual void computeLayerTracklets(const int iteration, int iVertex);
@@ -232,8 +187,7 @@ class TrackerTraits
   void validateSparsePlan(int iteration, const SurfaceGraphView& graph, std::optional<SurfaceKind>& activeKind, bool& mixedKind) const;
   int requireSurfacePosition(int iteration, SurfaceId id) const;
 
-  // Gate 4 C2 Slice 1: the sole global-TransitionId/CellTopologyId-to-
-  // compact-scratch-slot translation used anywhere in this class.
+  // Sole global-ID to compact-scratch-slot translation used by this class.
   int requireScratchTransitionSlot(int iteration, TransitionId id) const;
   int requireScratchCellSlot(int iteration, CellTopologyId id) const;
 
@@ -272,34 +226,20 @@ class TrackerTraits
     ComputeCellsFn computeCells = nullptr;
     FindNeighboursFn findNeighbours = nullptr;
     FindRoadsFn findRoads = nullptr;
-    // The ids computeTracklets/computeCells/findNeighbours were bound
-    // against -- resolved once by bindTraversalOperation(), from the same
-    // binding lookup rather than a per-call family dispatch
-    // every call. Not a kind/family/detector-id/SurfaceKindPair: plain sparse
-    // topology ids, non-owning, valid for exactly the traversal cache's own
-    // lifetime (see resetTraversalCache()). findRoads needs none: its target
-    // wrapper reads the binding's road-start cells directly,
-    // exactly as findRoadsForKind<Kind> already did before this slice.
+    // Sparse topology ids are non-owning and valid for the traversal-cache
+    // lifetime. findRoads reads road-start cells from the same binding.
     gsl::span<const TransitionId> boundTransitionIds{};
     gsl::span<const CellTopologyId> boundCellIds{};
     gsl::span<const CellTopologyId> boundScheduledCellIds{};
     bool bound = false;
   };
 
-  // Builds mTraversalOperation for this iteration. Called once, at the very
-  // end of initialiseTimeFrame(), after every other fallible validation and
-  // traversal-cache commit in that call has already succeeded -- see that
-  // method and TraversalOperationBinding's own doc above.
+  // Builds mTraversalOperation once after fallible initialization succeeds.
   void bindTraversalOperation(int iteration);
 
-  // The eight non-template targets TraversalOperationBinding's member-
-  // function pointers may point to -- one per (operation, SurfaceKind)
-  // pair, selected only inside bindTraversalOperation(). Each is a thin,
-  // non-template forwarder to the corresponding *ForKind<Kind> leaf
-  // implementation below, reading mTraversalOperation's bound ids and the
-  // matching mKernelParameters. Never called directly
-  // from the four public hot-loop entry points -- only through
-  // mTraversalOperation's bound pointer.
+  // Non-template operation targets selected by bindTraversalOperation().
+  // Each forwards to the corresponding kind-specific leaf using the bound
+  // ids and kernel parameters.
   void computeLayerTrackletsCylinder(int iteration, int iVertex);
   void computeLayerTrackletsDisk(int iteration, int iVertex);
   void computeLayerCellsCylinder(int iteration);
@@ -330,21 +270,12 @@ class TrackerTraits
                         const TrackingKernelParameters& params,
                         TrackingOperationAdapter& operationAdapter);
 
-  // M4 (GenericTrackingEngineMigration.md; ADR 0007 decision 7): moved from
-  // private helper used only by findRoadsForKind(); it does not encode a
-  // detector layer count.
+  // Neighbour processing helper; it does not encode a detector layer count.
   template <SurfaceKind Kind, typename InputSeed>
   void processNeighbours(int iteration, int defaultCellTopologyId, int iLevel, const bounded_vector<InputSeed>& currentCellSeed, const bounded_vector<int>& currentCellId, const bounded_vector<int>& currentCellTopologyId, bounded_vector<TrackSeed>& updatedCellSeed, bounded_vector<int>& updatedCellId, bounded_vector<int>& updatedCellTopologyId, const TrackingKernelParameters& params);
 
-  // Gate 3 transition-preparation slice: relocated from TimeFrame::initialise()
-  // (Architecture.md Sec 10/10.1). Called from initialiseTimeFrame() only
-  // after all existing and new fallible validation for this iteration has
-  // already succeeded (activeKind, cylinder/disk params, attachHitConfig,
-  // geometryConfig, and -- for Disk -- referenceCoordinateView); this
-  // method itself never throws. Fills the scratch-owned transition arrays by
-  // iterating the binding's ordered sparse transition ids, so the
-  // loop-carried oneOverR ratchet follows plan order rather than a numeric
-  // SurfaceId or a detector-specific topology.
+  // Fills scratch-owned transition arrays in the binding's ordered sparse
+  // transition order after fallible validation. This method does not throw.
   template <SurfaceKind Kind>
   void prepareTransitionScatteringAndBendingForKind(int iteration,
                                                     const LayerGeometryConfigView& geometryConfig,
@@ -358,25 +289,18 @@ class TrackerTraits
   // together with the other traversal caches and published only after all
   // fallible initialization checks succeed.
   TrackingKernelParameters mKernelParameters{};
-  // M5c: see TraversalOperationBinding's own doc above.
+  // Operation binding for the active plan.
   TraversalOperationBinding mTraversalOperation;
-  // Gate 3 cell-road pre-cut slice: the legacy MFT reference-z span bound
-  // once per iteration by bindLegacyMFTReferenceCoordinates() (static-storage
-  // duration, never dangles), reused by passesCellRoadPrecut<Disk> across
-  // every candidate. Stored as the raw span -- not the full
-  // DiskReferenceCoordinateView -- so this header does not need that
-  // type complete (see the forward declaration above). Left empty (default)
-  // for Cylinder iterations; passesCellRoadPrecut<Cylinder>
-  // never reads it.
+  // Borrowed disk reference coordinates, bound once per iteration. Empty for
+  // Cylinder iterations; the cylinder path never reads them.
   gsl::span<const float> mDiskLayerReferenceZ{};
   AttachHitConfigView mAttachHitConfig;
   // Authoritative per-surface-position nominal material, resolved once per
   // initialiseTimeFrame() from SurfaceDescriptor::material via this
   // iteration's orderedSurfaces mapping (never inferred from detector identity,
-  // radius, z, or numeric ordering). Compatibility-only:
-  // SurfaceDescriptor::material is authoritative and never overwritten here;
-  // this cache is temporary duplication that disappears once the final ITS
-  // refit migrates off TrackingParameters::LayerxX0.
+  // radius, z, or numeric ordering). SurfaceDescriptor::material is
+  // authoritative and is never overwritten here; this is a compatibility
+  // cache for the current leaf operations.
   //
   // Commit contract: resolved into a local scratch array first and only
   // copied here at the very end of initialiseTimeFrame(), alongside every
@@ -392,27 +316,16 @@ class TrackerTraits
   // leaf operations consume per-position parameter spans.
   std::vector<NominalSurfaceMaterial> mLayerMaterial;
   std::optional<SurfaceKind> mActiveKind;
-  // One-time normalized-measurement binding (Stage-B normalized-CA-
-  // measurements slice): non-owning per-surface-position span into the
-  // TimeFrame-owned normalized frame, resolved and validated once per
-  // initialiseTimeFrame() call from this iteration's orderedSurfaces mapping
-  // -- never an owning container (Architecture.md Sec 7: the common
-  // TimeFrame/TrackerTraits own no compact clusters or duplicated
-  // measurement storage). Same staged-then-committed contract as
-  // mLayerMaterial above: resolved into a local scratch array first and
-  // committed here only in the final traversal-cache commit block, alongside
-  // mLayerMaterial and every other successfully staged state; a later
-  // fallible check in the same call must not leave this populated from an
-  // iteration that ultimately failed. resetTraversalCache() resets every
-  // element to an empty span at the top of every call, and it stays that way
-  // unless the call returns normally.
+  // Non-owning per-surface-position spans into the TimeFrame-owned normalized
+  // frame. They are staged and committed with the traversal cache, then
+  // cleared on failed initialization.
   // Host-only non-owning view, sized to the adopted ordered surface span.
   std::vector<gsl::span<const SurfaceMeasurement>> mLayerMeasurements;
   int mTraversalGroupingCount{0};
   // Generic accepted candidates are retained only until shared-cluster
   // marking and the final adapter-owned publication seal complete.
   bounded_vector<TrackingCandidate> mAcceptedTracksForSharedStatus;
-  // M6f: non-owning pointer to the adopted common-CA plan binding.
+  // Non-owning pointer to the adopted plan binding.
   const SurfacePlanBinding* mBinding = nullptr;
 
  protected:

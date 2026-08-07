@@ -35,24 +35,11 @@
 namespace o2::itsmft::tracking
 {
 
-/// Tracker::run() returns a typed outcome while the standalone interface keeps
-/// its existing float publication contract at the adapter edge.
-///
-/// run() itself only ever *returns* Success or
-/// RecoverableDropped: a recoverable, per-TF resource failure
-/// (BoundedMemoryResource::MemoryLimitExceeded, std::bad_alloc) with
-/// DropTFUponFailure=true. Every other failure -- structural/configuration
-/// (TraversalException, any reason, including Gate 4 C2 Slice 1's
-/// TraversalBindingMismatch), unclassified (any other std::exception), or a
-/// recoverable failure with DropTFUponFailure=false -- retains its existing,
-/// already-tested contract of propagating as a thrown C++ exception past
-/// run()'s own boundary; this is deliberate ("retain exceptions
-/// where that is the established contract"), not an oversight: reusing the
-/// existing exception-based classification means a mismatched/invalid
-/// binding can never be silently reclassified as a dropped, recoverable
-/// result merely because DropTFUponFailure happens to be true. Structural is
-/// part of this enum's vocabulary; workflow/adapter callers convert propagated
-/// failures at their own boundary.
+/// `run()` returns `Success` or `RecoverableDropped` only for a recoverable
+/// per-TimeFrame resource failure (`MemoryLimitExceeded` or `std::bad_alloc`)
+/// when `DropTFUponFailure` is enabled. Structural/configuration failures,
+/// unclassified exceptions, and recoverable failures with dropping disabled
+/// propagate as exceptions; workflow adapters classify them at their boundary.
 enum class TrackingOutcome : uint8_t {
   Success,
   RecoverableDropped,
@@ -113,8 +100,8 @@ class Tracker
 
   TrackerInitializationResult initialize(TimeFrame& frame, const TrackerInitialization& configuration);
 
-  // The workflow/application owns this adapter and keeps it alive for every
-  // run. Tracker stores no frame, graph, workspace, or event state.
+  // The caller owns the adapter and keeps it alive for every run. Tracker
+  // stores no frame, configuration, workspace, graph, or event state.
   void setOperationAdapter(TrackingOperationAdapter* operationAdapter) noexcept { mOperationAdapter = operationAdapter; }
   void setSource(ClusterSourceId source) noexcept { mSource = source; }
 

@@ -26,10 +26,9 @@
 /// initialise() explicitly. Traversal order is therefore the binding's
 /// ordered-surface/transition/cell order, never a numeric SurfaceId order.
 ///
-/// This type never owns a graph or binding. It borrows the caller's
-/// SurfaceGraphView and runtime ROF context for the current event;
-/// TimeFrame owns generic event reset; adapters own raw ROFs and event-loop
-/// lifecycle.
+/// This type never owns a graph or binding. It borrows the supplied graph and
+/// runtime ROF views for the current event; TimeFrame owns the workspace and
+/// event reset, while adapters own raw ROFs and event-loop lifecycle.
 #ifndef ALICEO2_ITSMFT_TRACKING_SURFACETRACKINGSCRATCH_H_
 #define ALICEO2_ITSMFT_TRACKING_SURFACETRACKINGSCRATCH_H_
 
@@ -87,20 +86,9 @@ struct LoadSourcesResult;
 class SurfaceTrackingScratch
 {
  private:
-  // ---- Group E: memory/allocator/device plumbing ----
-  // Declared first so pool owners outlive every allocator-backed member below.
-  // C++ destroys non-static data members in reverse declaration order, so
-  // C++ destroys non-static data members in reverse declaration order, so
-  // declaring these two pool owners first guarantees they are destroyed
-  // *last*, after every pmr/bounded_vector member declared below that could
-  // still hold memory allocated through them. An earlier revision of this
-  // header declared these last on the theory that the underlying
-  // BoundedMemoryResource is always externally owned; that is not
-  // guaranteed (a caller may hand this class the sole owning shared_ptr, as
-  // this type's own focused tests do), and declaring them last caused a
-  // real reproducible segfault in ~SurfaceTrackingScratch() when the pool's
-  // last reference was released before the vectors allocated through it
-  // were destroyed. This ordering is part of the allocator ownership contract.
+  // ---- Memory/allocator/device plumbing ----
+  // Declared first so pool owners outlive every allocator-backed member below:
+  // members are destroyed in reverse declaration order.
   std::shared_ptr<o2::its::BoundedMemoryResource> mExtMemoryPool;
   std::shared_ptr<o2::its::BoundedMemoryResource> mMemoryPool;
   o2::its::ExternalAllocator* mExternalAllocator{nullptr};
@@ -128,12 +116,8 @@ class SurfaceTrackingScratch
   std::size_t getNTransitions() const noexcept { return mNTransitions; }
   std::size_t getNCells() const noexcept { return mNCells; }
 
-  /// Clears scratch-owned working state in place -- mirrors
-  /// the previous workspace reset contract (same deep-clear-vs-framework-
-  /// allocator-skip, same MC-info-conditional
-  /// clearing, same non-owning mClusterLabels re-nulling instead of
-  /// deep-clear). Never touches a TimeFrame, even implicitly, and never
-  /// changes the adopted plan sizing (getNOwnedSurfaces()/getNTransitions()/
+  /// Clears scratch-owned working state in place. Never touches a TimeFrame
+  /// and never changes the adopted plan sizing (getNOwnedSurfaces()/getNTransitions()/
   /// getNCells() are unaffected -- only each container's *contents* are
   /// cleared; the operation never shrinks the plan-sized outer
   /// arrays either).
@@ -157,9 +141,8 @@ class SurfaceTrackingScratch
 
   bool hasMCinformation() const noexcept { return !mClusterLabels.empty() && mClusterLabels[0] != nullptr; }
 
-  /// Staging/swap support for the atomic loader migration -- uses the same
-  /// stage-then-commit discipline as the normalized loader, generalized to
-  /// every plan-sized container here.
+  /// Staging/swap support for atomic event loading; all plan-sized containers
+  /// are committed together.
   ///
   /// allocatorsMatch() is the precondition a caller must check before
   /// swap(): every *flat* bounded_vector member here (the ones swap()
@@ -174,16 +157,12 @@ class SurfaceTrackingScratch
   /// regardless of allocator identity.
   bool allocatorsMatch(const SurfaceTrackingScratch& staged) const noexcept;
 
-  /// Precondition: allocatorsMatch(other) (checked by the caller before
-  /// commit, mirroring loadNormalizedSource()'s own invariant gate -- not
-  /// re-checked here so this can stay noexcept). Never swaps mMemoryPool/
-  /// mExtMemoryPool/mExternalAllocator: allocator identity is owner-bound,
-  /// not staged data, exactly as loadNormalizedSource() never swaps
-  /// mMemoryPool itself, only the vectors allocated through it.
+  /// Precondition: allocatorsMatch(other) (checked by the caller; not
+  /// re-checked here so this can stay noexcept). Allocator identity remains
+  /// owner-bound; only staged data is swapped.
   void swap(SurfaceTrackingScratch& other) noexcept;
 
-  // ---- read-in data: every loop uses the runtime ordered-surface span.
-  // detId preflight accepts both common-CA detectors.
+  // ---- Read-in data: loops use the runtime ordered-surface span.
 #ifndef GPUCA_GPUCODE
   LoadSourcesResult loadNormalizedSource(TimeFrame& frame,
                                          const ClusterDecoder& decoder,

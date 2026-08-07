@@ -10,19 +10,12 @@
 // or submit itself to any jurisdiction.
 ///
 /// \file TimeFrame.h
-/// \brief Gate 4 B3.1: the permanent, non-templated common event owner.
+/// \brief Passive common event owner.
 ///
-/// TimeFrame owns exactly the detector- and NLayers-independent event state:
-/// normalized per-SurfaceId measurements (MultiSourceFrame), the detector-
-/// neutral CommonTrack/TrackClusterReference result storage, primary
-/// vertices, beam state, Bz, and the memory-pool ownership those event
-/// vectors allocate from. It stores no NLayers-templated type, no per-layer
-/// array, and no single-detector identity (mDetId is gone -- callers that
-/// need "which detector" pass it explicitly, since it was always fully
-/// determined by the caller's own compile-time NLayers). Generic CA workspace
-/// is owned here as source-qualified private implementation state. Raw ROFs,
-/// timing-table storage, publication state, and typed sidecars remain outside
-/// this entity.
+/// TimeFrame owns configuration, normalized event data, generic results,
+/// source-qualified workspace, and their allocator/capacity state. Raw ROFs,
+/// timing-table storage, publication state, typed sidecars, and workflow
+/// lifecycle remain with the application boundary.
 
 #ifndef ALICEO2_ITSMFT_TRACKING_TIMEFRAME_H_
 #define ALICEO2_ITSMFT_TRACKING_TIMEFRAME_H_
@@ -190,17 +183,13 @@ struct TimeFrame {
   bounded_vector<Vertex> mPrimaryVertices;
   bounded_vector<VertexLabel> mPrimaryVerticesLabels;
 
-  // Detector-neutral common-CA result storage (Gate 4 CommonTrack
-  // foundation; ITSMFTTracking/CommonTrack.h). Unpopulated by B3.1 -- no
-  // production or test call site writes through these accessors from CA
-  // seeds yet (see CommonTrack.h/SurfaceTrackingScratch.h for the shadow-
-  // population contract a later slice adds).
+  // Detector-neutral common-CA result storage. Results are valid only with
+  // the normalized frame content from the same event.
   bounded_vector<CommonTrack> mCommonTracks;
   bounded_vector<TrackClusterReference> mTrackClusterIndices;
 
-  // Normalized owner associated by the owner-level load operation
-  // (SurfaceTrackingScratch::loadNormalizedSource()); host-only,
-  // never GPU-managed or dictionary-serialized (see getNormalizedFrame()).
+  // Normalized owner associated by the load operation; host-only, never
+  // GPU-managed or dictionary-serialized (see getNormalizedFrame()).
   // Does not itself hold pmr/bounded-vector allocations (MultiSourceFrame's
   // own members are plain std::vector<T> with the default allocator), so it
   // has no ordering dependency on mMemoryPool above.
