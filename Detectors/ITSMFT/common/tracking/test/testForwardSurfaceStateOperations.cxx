@@ -21,7 +21,7 @@
 
 #include "CommonConstants/MathConstants.h"
 #include "ITSMFTTracking/ForwardSurfaceStateOperations.h"
-#include "ITSMFTTracking/SurfaceKinematicStateLegacyAdapters.h"
+#include "ITSMFTTracking/detail/SurfaceKinematicStateLegacyAdapters.h"
 #include "ITStracking/Cluster.h"
 
 namespace

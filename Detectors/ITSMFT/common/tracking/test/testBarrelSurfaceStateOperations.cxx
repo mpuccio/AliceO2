@@ -17,7 +17,7 @@
 
 #include "CommonConstants/MathConstants.h"
 #include "ITSMFTTracking/BarrelSurfaceStateOperations.h"
-#include "ITSMFTTracking/SurfaceKinematicStateLegacyAdapters.h"
+#include "ITSMFTTracking/detail/SurfaceKinematicStateLegacyAdapters.h"
 #include "ITStracking/Cluster.h"
 // buildTrackSeed is the retained legacy oracle for buildSeed's test coverage
 // only (see BuildSeed* test cases below) -- production never calls it or

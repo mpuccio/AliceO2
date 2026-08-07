@@ -23,7 +23,7 @@
 #include <vector>
 
 #include "ITSMFTTracking/SurfaceGraphBuilder.h"
-#include "ITSMFTTracking/SurfaceTrackingScratch.h"
+#include "ITSMFTTracking/detail/SurfaceTrackingScratch.h"
 #include "ITSMFTTracking/TimeFrame.h"
 #include "ITSMFTTracking/detail/SurfacePlanBinding.h"
 #include "ITStracking/BoundedAllocator.h"
@@ -345,7 +345,7 @@ BOOST_AUTO_TEST_CASE(NewHeadersPullNoITSWorkflowOutputOrSurfaceKindDependency)
   const fs::path trackingRoot = fs::path(testDirectory) / "..";
 
   const std::vector<fs::path> newFiles = {
-    trackingRoot / "include/ITSMFTTracking/SurfaceTrackingScratch.h",
+    trackingRoot / "include/ITSMFTTracking/detail/SurfaceTrackingScratch.h",
     trackingRoot / "src/SurfaceTrackingScratch.cxx"};
   for (const auto& path : newFiles) {
     BOOST_REQUIRE_MESSAGE(fs::is_regular_file(path), "cannot find " << path.string());
@@ -397,6 +397,6 @@ BOOST_AUTO_TEST_CASE(RetiredLegacyWorkspaceFilesAreAbsentAfterMigration)
   BOOST_CHECK(!fs::exists(trackingRoot / "include/ITSMFTTracking/LegacyTrackerScratch.h"));
   BOOST_CHECK(!fs::exists(trackingRoot / "include/ITSMFTTracking/detail/DetectorTraversalBinding.h"));
   BOOST_CHECK(!fs::exists(trackingRoot / "src/LegacyTrackerScratch.cxx"));
-  BOOST_CHECK(fs::is_regular_file(trackingRoot / "include/ITSMFTTracking/SurfaceTrackingScratch.h"));
+  BOOST_CHECK(fs::is_regular_file(trackingRoot / "include/ITSMFTTracking/detail/SurfaceTrackingScratch.h"));
   BOOST_CHECK(fs::is_regular_file(trackingRoot / "include/ITSMFTTracking/detail/SurfacePlanBinding.h"));
 }

@@ -133,9 +133,9 @@ BOOST_AUTO_TEST_CASE(deleted_typed_bridges_have_no_production_definition)
 BOOST_AUTO_TEST_CASE(adapter_files_are_the_only_typed_compatibility_seam)
 {
   const auto root = trackingRoot();
-  const auto refit = readFile(root / "include/ITSMFTTracking/MFTFwdTrackHelpers.h");
-  const auto support = readFile(root / "include/ITSMFTTracking/DetectorTrackingOperationAdapterSupport.h");
-  const auto publication = readFile(root / "include/ITSMFTTracking/DetectorPublicationAdapter.h");
+  const auto refit = readFile(root / "include/ITSMFTTracking/detail/MFTFwdTrackHelpers.h");
+  const auto support = readFile(root / "include/ITSMFTTracking/detail/DetectorTrackingOperationAdapterSupport.h");
+  const auto publication = readFile(root / "include/ITSMFTTracking/detail/DetectorPublicationAdapter.h");
   BOOST_CHECK(!containsIdentifier(refit,
                                   "MFT"
                                   "CATrack"));

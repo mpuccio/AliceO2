@@ -13,7 +13,7 @@
 /// \brief M6c: see SurfaceTrackingScratch.h for the full design rationale.
 ///
 
-#include "ITSMFTTracking/SurfaceTrackingScratch.h"
+#include "ITSMFTTracking/detail/SurfaceTrackingScratch.h"
 
 #include <algorithm>
 #include <limits>

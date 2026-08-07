@@ -21,7 +21,7 @@
 #include "DataFormatsITSMFT/TopologyDictionary.h"
 #include "DetectorsCommonDataFormats/DetID.h"
 #include "ITSMFTTracking/MultiSourceTimeFrameLoader.h"
-#include "ITSMFTTracking/SurfaceTrackingScratch.h"
+#include "ITSMFTTracking/detail/SurfaceTrackingScratch.h"
 #include "ITSMFTTracking/StaticDetectorCatalogs.h"
 #include "ITSMFTTracking/SurfaceGraph.h"
 #include "ITSMFTTracking/ClusterDecoding.h"

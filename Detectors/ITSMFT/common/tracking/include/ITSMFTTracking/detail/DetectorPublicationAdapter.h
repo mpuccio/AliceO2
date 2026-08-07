@@ -14,8 +14,8 @@
 #include <vector>
 
 #include "DetectorsCommonDataFormats/DetID.h"
-#include "ITSMFTTracking/ITSSharedClusterCompatibility.h"
-#include "ITSMFTTracking/MFTPublicationCompatibility.h"
+#include "ITSMFTTracking/detail/ITSSharedClusterCompatibility.h"
+#include "ITSMFTTracking/detail/MFTPublicationCompatibility.h"
 #include "ITSMFTTracking/TrackingOperationAdapter.h"
 #include "ITStracking/MathUtils.h"
 #include "MFTTracking/Constants.h"

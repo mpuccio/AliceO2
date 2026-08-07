@@ -10,9 +10,9 @@
 
 #include <boost/test/unit_test.hpp>
 
-#include "ITSMFTTracking/DetectorPublicationAdapter.h"
-#include "ITSMFTTracking/DetectorTrackingOperationAdapterSupport.h"
-#include "ITSMFTTracking/SurfaceKinematicStateLegacyAdapters.h"
+#include "ITSMFTTracking/detail/DetectorPublicationAdapter.h"
+#include "ITSMFTTracking/detail/DetectorTrackingOperationAdapterSupport.h"
+#include "ITSMFTTracking/detail/SurfaceKinematicStateLegacyAdapters.h"
 
 using namespace o2::itsmft::tracking;
 

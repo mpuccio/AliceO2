@@ -46,8 +46,8 @@
 #include <boost/test/unit_test.hpp>
 
 #include "ITSMFTTracking/ForwardSurfaceStateOperations.h"
-#include "ITSMFTTracking/SurfaceTrackingScratch.h"
-#include "ITSMFTTracking/DetectorTrackingOperationAdapterSupport.h"
+#include "ITSMFTTracking/detail/SurfaceTrackingScratch.h"
+#include "ITSMFTTracking/detail/DetectorTrackingOperationAdapterSupport.h"
 #include "ITSMFTTracking/SurfaceDescriptor.h"
 #include "ITSMFTTracking/SurfaceDescriptor.h"
 #include "ITSMFTTracking/TimeFrame.h"

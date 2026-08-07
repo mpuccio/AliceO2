@@ -23,7 +23,7 @@
 #include "ITSBase/GeometryTGeo.h"
 #include "ITSMFTCombinedCAWorkflow/ConfigPreflight.h"
 #include "ITSMFTTracking/CommonTrackOutputAdapter.h"
-#include "ITSMFTTracking/DetectorTrackingOperationAdapterSupport.h"
+#include "ITSMFTTracking/detail/DetectorTrackingOperationAdapterSupport.h"
 #include "ITSMFTTracking/SurfaceGraphBuilder.h"
 #include "ITSMFTTracking/MultiSourceTimeFrameLoader.h"
 #include "ITSMFTTracking/SurfaceTiming.h"

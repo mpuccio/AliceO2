@@ -14,7 +14,7 @@
 ///
 
 #include "ITSMFTTracking/TimeFrame.h"
-#include "ITSMFTTracking/SurfaceTrackingScratch.h"
+#include "ITSMFTTracking/detail/SurfaceTrackingScratch.h"
 
 #include <algorithm>
 #include <stdexcept>

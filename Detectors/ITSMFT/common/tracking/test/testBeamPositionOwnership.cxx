@@ -27,7 +27,7 @@
 
 #include "DataFormatsCalibration/MeanVertexObject.h"
 #include "DetectorsCommonDataFormats/DetID.h"
-#include "ITSMFTTracking/DetectorTrackingOperationAdapterSupport.h"
+#include "ITSMFTTracking/detail/DetectorTrackingOperationAdapterSupport.h"
 #include "ITSMFTTracking/TimeFrame.h"
 #include "ITStracking/TrackingConfigParam.h"
 

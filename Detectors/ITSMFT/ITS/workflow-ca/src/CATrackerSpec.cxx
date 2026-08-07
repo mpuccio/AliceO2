@@ -33,7 +33,7 @@
 #include "ITSBase/GeometryTGeo.h"
 #include "ITSMFTTracking/Tracker.h"
 #include "ITSMFTTracking/CommonTrackOutputAdapter.h"
-#include "ITSMFTTracking/DetectorTrackingOperationAdapterSupport.h"
+#include "ITSMFTTracking/detail/DetectorTrackingOperationAdapterSupport.h"
 #include "ITSMFTTracking/MultiSourceTimeFrameLoader.h"
 #include "ITSMFTTracking/SurfaceTiming.h"
 #include "ITSMFTTracking/StaticDetectorCatalogs.h"

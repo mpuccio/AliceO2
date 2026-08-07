@@ -24,7 +24,7 @@
 #include "DataFormatsITS/Vertex.h"
 #include "ITSMFTTracking/BarrelSurfaceStateOperations.h"
 #include "ITSMFTTracking/ForwardSurfaceStateOperations.h"
-#include "ITSMFTTracking/MFTFwdTrackHelpers.h"
+#include "ITSMFTTracking/detail/MFTFwdTrackHelpers.h"
 #include "ITSMFTTracking/IndexTableUtils.h"
 #include "ITSMFTTracking/MaterialPhysics.h"
 #include "ITStracking/Cluster.h"

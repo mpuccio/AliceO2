@@ -23,7 +23,7 @@
 #include "DetectorsCommonDataFormats/DetID.h"
 #include "Field/MagneticField.h"
 #include "GPUCommonMath.h"
-#include "ITSMFTTracking/MFTFwdTrackHelpers.h"
+#include "ITSMFTTracking/detail/MFTFwdTrackHelpers.h"
 #include "ITSMFTTracking/detail/CellFinding.h"
 #include "ITSMFTTracking/detail/TrackletFinding.h"
 #include "ITSMFTTracking/detail/CellFinding.h"

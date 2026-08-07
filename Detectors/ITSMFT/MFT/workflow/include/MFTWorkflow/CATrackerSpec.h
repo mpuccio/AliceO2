@@ -25,7 +25,7 @@
 #include "ITSMFTTracking/Configuration.h"
 #include "ITSMFTTracking/ClusterDecoding.h"
 #include "ITSMFTTracking/MultiSourceTimeFrameLoader.h"
-#include "ITSMFTTracking/DetectorPublicationAdapter.h"
+#include "ITSMFTTracking/detail/DetectorPublicationAdapter.h"
 #include "ITSMFTTracking/StaticDetectorCatalogs.h"
 #include "ITSMFTTracking/TimeFrame.h"
 #include "ITSMFTTracking/Tracker.h"

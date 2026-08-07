@@ -32,7 +32,7 @@
 #include "ITSMFTTracking/CommonTrackOutputAdapter.h"
 #include "ITSMFTTracking/Configuration.h"
 #include "ITSMFTTracking/ClusterDecoding.h"
-#include "ITSMFTTracking/DetectorPublicationAdapter.h"
+#include "ITSMFTTracking/detail/DetectorPublicationAdapter.h"
 #include "ITSMFTTracking/TrackingOperationAdapter.h"
 #include "ITSMFTTracking/Tracker.h"
 #include "ITSMFTTracking/TrackerTraits.h"

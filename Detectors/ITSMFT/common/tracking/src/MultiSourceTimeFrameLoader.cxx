@@ -9,7 +9,7 @@
 #include <memory>
 #include <vector>
 
-#include "ITSMFTTracking/SurfaceTrackingScratch.h"
+#include "ITSMFTTracking/detail/SurfaceTrackingScratch.h"
 #include "ITSMFTTracking/SurfaceMask.h"
 #include "ITSMFTTracking/TimeFrame.h"
 

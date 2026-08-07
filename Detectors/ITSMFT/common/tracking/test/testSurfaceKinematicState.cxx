@@ -16,7 +16,7 @@
 #include <limits>
 #include <type_traits>
 
-#include "ITSMFTTracking/SurfaceKinematicStateLegacyAdapters.h"
+#include "ITSMFTTracking/detail/SurfaceKinematicStateLegacyAdapters.h"
 
 namespace
 {

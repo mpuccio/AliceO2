@@ -133,7 +133,7 @@ std::optional<ResidualClassification> classifyNLayers(std::string_view relative)
   if (relative == "src/Tracker.cxx") {
     return ResidualClassification{ResidualKind::AdapterCompatibility, "adapter-edge NLayers/active-surface validation"};
   }
-  if (relative == "include/ITSMFTTracking/DetectorPublicationAdapter.h") {
+  if (relative == "include/ITSMFTTracking/detail/DetectorPublicationAdapter.h") {
     return ResidualClassification{ResidualKind::AdapterCompatibility, "typed publication sidecar adapter"};
   }
   return std::nullopt;
@@ -322,7 +322,7 @@ BOOST_AUTO_TEST_CASE(RuntimePlanAndFixedCapacityAuthoritiesRemainExplicit)
 {
   const auto root = trackingRoot();
   const auto traits = readFile(root / "src/TrackerTraits.cxx");
-  const auto scratch = readFile(root / "include/ITSMFTTracking/SurfaceTrackingScratch.h");
+  const auto scratch = readFile(root / "include/ITSMFTTracking/detail/SurfaceTrackingScratch.h");
   const auto binding = readFile(root / "include/ITSMFTTracking/detail/SurfacePlanBinding.h");
   const auto seed = readFile(root / "include/ITSMFTTracking/Cell.h");
   BOOST_CHECK(traits.find("getNOwnedSurfaces()") != std::string::npos);

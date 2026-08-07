@@ -17,7 +17,7 @@
 
 #include "CommonConstants/MathConstants.h"
 #include "ITSMFTTracking/BarrelSurfaceStateOperations.h"
-#include "ITSMFTTracking/SurfaceKinematicStateLegacyAdapters.h"
+#include "ITSMFTTracking/detail/SurfaceKinematicStateLegacyAdapters.h"
 #include "ITSMFTTracking/SurfaceKinematicState.h"
 
 namespace

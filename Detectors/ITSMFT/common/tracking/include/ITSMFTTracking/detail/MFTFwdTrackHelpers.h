@@ -23,7 +23,7 @@
 #include "ITSMFTTracking/Cell.h"
 #include "ITSMFTTracking/Configuration.h"
 #include "ITSMFTTracking/SurfaceKinematicState.h"
-#include "ITSMFTTracking/SurfaceTrackingScratch.h"
+#include "ITSMFTTracking/detail/SurfaceTrackingScratch.h"
 #include "ITSMFTTracking/SurfaceDescriptor.h"
 #include "ITStracking/Cluster.h"
 #include "ITStracking/Constants.h"

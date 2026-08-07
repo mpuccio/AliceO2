@@ -15,8 +15,8 @@
 #include <boost/test/unit_test.hpp>
 
 #include "ITSMFTTracking/CommonTrackOutputAdapter.h"
-#include "ITSMFTTracking/ITSSharedClusterCompatibility.h"
-#include "ITSMFTTracking/MFTPublicationCompatibility.h"
+#include "ITSMFTTracking/detail/ITSSharedClusterCompatibility.h"
+#include "ITSMFTTracking/detail/MFTPublicationCompatibility.h"
 #include "ITSMFTTracking/ROFViews.h"
 #include "ITSMFTTracking/SurfaceTiming.h"
 #include "ITSMFTTracking/TrackingConfigParam.h"

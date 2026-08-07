@@ -12,9 +12,9 @@
 #include "DetectorsCommonDataFormats/DetID.h"
 #include "DataFormatsCalibration/MeanVertexObject.h"
 #include "ITSMFTTracking/NativeRefitDriver.h"
-#include "ITSMFTTracking/SurfaceKinematicStateLegacyAdapters.h"
+#include "ITSMFTTracking/detail/SurfaceKinematicStateLegacyAdapters.h"
 #include "ITSMFTTracking/TrackingOperationAdapter.h"
-#include "ITSMFTTracking/MFTFwdTrackHelpers.h"
+#include "ITSMFTTracking/detail/MFTFwdTrackHelpers.h"
 #include "ITStracking/Constants.h"
 
 namespace o2::itsmft::tracking::detail

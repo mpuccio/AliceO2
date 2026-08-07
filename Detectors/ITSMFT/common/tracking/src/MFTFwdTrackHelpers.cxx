@@ -14,7 +14,7 @@
 /// legacy o2::mft::TrackFitter/TrackLTF Kalman engine.
 ///
 
-#include "ITSMFTTracking/MFTFwdTrackHelpers.h"
+#include "ITSMFTTracking/detail/MFTFwdTrackHelpers.h"
 
 #include <cmath>
 

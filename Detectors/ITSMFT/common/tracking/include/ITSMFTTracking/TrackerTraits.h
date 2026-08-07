@@ -27,7 +27,7 @@
 
 #include "ITSMFTTracking/Configuration.h"
 #include "ITSMFTTracking/SurfaceGraph.h"
-#include "ITSMFTTracking/SurfaceTrackingScratch.h"
+#include "ITSMFTTracking/detail/SurfaceTrackingScratch.h"
 #include "ITSMFTTracking/SurfaceDescriptor.h"
 #include "ITSMFTTracking/SurfaceMeasurement.h"
 #include "ITSMFTTracking/TimeFrame.h"

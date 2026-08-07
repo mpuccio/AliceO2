@@ -21,7 +21,7 @@
 
 #include "ITSMFTTracking/ROFViews.h"
 #include "ITSMFTTracking/SurfaceGraph.h"
-#include "ITSMFTTracking/SurfaceTrackingScratch.h"
+#include "ITSMFTTracking/detail/SurfaceTrackingScratch.h"
 #include "ITStracking/ROFLookupTables.h"
 
 namespace fs = std::filesystem;
