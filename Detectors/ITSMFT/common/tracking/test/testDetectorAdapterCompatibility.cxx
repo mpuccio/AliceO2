@@ -11,7 +11,7 @@
 #include <boost/test/unit_test.hpp>
 
 #include "ITSMFTTracking/detail/DetectorPublicationAdapter.h"
-#include "ITSMFTTracking/detail/DetectorTrackingOperationAdapterSupport.h"
+#include "ITSMFTTracking/detail/DetectorRefitSupport.h"
 #include "ITSMFTTracking/detail/SurfaceKinematicStateLegacyAdapters.h"
 
 using namespace o2::itsmft::tracking;
@@ -110,5 +110,6 @@ BOOST_AUTO_TEST_CASE(native_refit_rejects_invalid_generic_state)
   o2::itsmft::TrackingParameters params;
   const std::vector<gsl::span<const SurfaceMeasurement>> layerMeasurements(7);
   const SurfaceCatalogView surfaceCatalog{};
-  BOOST_CHECK(!detail::refitITSSeed(seed, params, 0.5f, layerMeasurements, surfaceCatalog, candidate));
+  SurfaceTrackingScratch scratch;
+  BOOST_CHECK(!detail::refitITSSeed(seed, params, 0.5f, scratch, layerMeasurements, surfaceCatalog, ClusterSourceId{}, candidate));
 }

@@ -23,7 +23,7 @@
 #include "ITSBase/GeometryTGeo.h"
 #include "ITSMFTCombinedCAWorkflow/ConfigPreflight.h"
 #include "ITSMFTTracking/CommonTrackOutputAdapter.h"
-#include "ITSMFTTracking/detail/DetectorTrackingOperationAdapterSupport.h"
+#include "ITSMFTTracking/detail/DetectorRefitSupport.h"
 #include "ITSMFTTracking/SurfaceGraphBuilder.h"
 #include "ITSMFTTracking/MultiSourceTimeFrameLoader.h"
 #include "ITSMFTTracking/SurfaceTiming.h"
@@ -193,9 +193,9 @@ void CombinedCATrackerDPL::buildParticipantsOnce()
   mITSTraits = std::make_unique<o2::itsmft::tracking::TrackerTraits>();
   mMFTTraits = std::make_unique<o2::itsmft::tracking::TrackerTraits>();
   mITSTracker = std::make_unique<o2::itsmft::tracking::Tracker>(
-    &o2::itsmft::tracking::detail::refitDetectorSeed<o2::detectors::DetID::ITS>, ClusterSourceId{0});
+    &o2::itsmft::tracking::detail::refitITSSeed, ClusterSourceId{0});
   mMFTTracker = std::make_unique<o2::itsmft::tracking::Tracker>(
-    &o2::itsmft::tracking::detail::refitDetectorSeed<o2::detectors::DetID::MFT>, ClusterSourceId{1});
+    &o2::itsmft::tracking::detail::refitMFTSeed, ClusterSourceId{1});
 
   o2::itsmft::tracking::TrackerInitialization configuration;
   configuration.catalog = combinedCatalogView();

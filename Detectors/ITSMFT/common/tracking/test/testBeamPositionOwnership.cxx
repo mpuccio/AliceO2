@@ -27,7 +27,7 @@
 
 #include "DataFormatsCalibration/MeanVertexObject.h"
 #include "DetectorsCommonDataFormats/DetID.h"
-#include "ITSMFTTracking/detail/DetectorTrackingOperationAdapterSupport.h"
+#include "ITSMFTTracking/detail/DetectorRefitSupport.h"
 #include "ITSMFTTracking/TimeFrame.h"
 #include "ITStracking/TrackingConfigParam.h"
 
@@ -91,7 +91,7 @@ BOOST_FIXTURE_TEST_CASE(LegacyOverrideBeamEstimationAloneDoesNotSelectMeanVertex
   // above still leaked in (the pre-fix "overrideBeamEstimation || tc.overrideBeamEstimation"
   // condition), the beam position would come from meanVertex (-9, -8)
   // instead of the diamond (1, 2).
-  detail::configureAdapterBeamPosition<o2::detectors::DetID::ITS>(tf, p, &meanVertex, /*overrideBeamEstimation=*/false);
+  detail::configureITSBeamPosition(tf, p, &meanVertex, /*overrideBeamEstimation=*/false);
 
   BOOST_CHECK_CLOSE(tf.getBeamX(), 1.f, 1e-4);
   BOOST_CHECK_CLOSE(tf.getBeamY(), 2.f, 1e-4);
@@ -108,7 +108,7 @@ BOOST_FIXTURE_TEST_CASE(ConstructorOverrideBeamEstimationStillSelectsMeanVertex,
   const auto p = diamondParameters(1.f, 2.f, 3.f);
   const auto meanVertex = meanVertexAt(-9.f, -8.f);
 
-  detail::configureAdapterBeamPosition<o2::detectors::DetID::ITS>(tf, p, &meanVertex, /*overrideBeamEstimation=*/true);
+  detail::configureITSBeamPosition(tf, p, &meanVertex, /*overrideBeamEstimation=*/true);
 
   BOOST_CHECK_CLOSE(tf.getBeamX(), -9.f, 1e-4);
   BOOST_CHECK_CLOSE(tf.getBeamY(), -8.f, 1e-4);
@@ -122,7 +122,7 @@ BOOST_FIXTURE_TEST_CASE(ITSFallsBackToDiamondWhenNeitherOverrideIsSet, ScopedLeg
   const auto p = diamondParameters(1.f, 2.f, 3.f);
   const auto meanVertex = meanVertexAt(-9.f, -8.f);
 
-  detail::configureAdapterBeamPosition<o2::detectors::DetID::ITS>(tf, p, &meanVertex, /*overrideBeamEstimation=*/false);
+  detail::configureITSBeamPosition(tf, p, &meanVertex, /*overrideBeamEstimation=*/false);
 
   BOOST_CHECK_CLOSE(tf.getBeamX(), 1.f, 1e-4);
   BOOST_CHECK_CLOSE(tf.getBeamY(), 2.f, 1e-4);
@@ -142,7 +142,7 @@ BOOST_FIXTURE_TEST_CASE(MFTAlwaysUsesDiamondRegardlessOfOverrideArguments, Scope
   p.Diamond[2] = 6.f;
   const auto meanVertex = meanVertexAt(-9.f, -8.f);
 
-  detail::configureAdapterBeamPosition<o2::detectors::DetID::MFT>(tf, p, &meanVertex, /*overrideBeamEstimation=*/true);
+  detail::configureMFTBeamPosition(tf, p);
 
   BOOST_CHECK_CLOSE(tf.getBeamX(), 4.f, 1e-4);
   BOOST_CHECK_CLOSE(tf.getBeamY(), 5.f, 1e-4);

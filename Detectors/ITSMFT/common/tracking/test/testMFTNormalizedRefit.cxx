@@ -47,7 +47,7 @@
 
 #include "ITSMFTTracking/ForwardSurfaceStateOperations.h"
 #include "ITSMFTTracking/detail/SurfaceTrackingScratch.h"
-#include "ITSMFTTracking/detail/DetectorTrackingOperationAdapterSupport.h"
+#include "ITSMFTTracking/detail/DetectorRefitSupport.h"
 #include "ITSMFTTracking/SurfaceDescriptor.h"
 #include "ITSMFTTracking/SurfaceDescriptor.h"
 #include "ITSMFTTracking/TimeFrame.h"

@@ -27,7 +27,7 @@
 #include "ITSMFTTracking/TimeFrame.h"
 #include "ITSMFTTracking/Tracker.h"
 #include "ITSMFTTracking/TrackerTraits.h"
-#include "ITSMFTTracking/detail/DetectorTrackingOperationAdapterSupport.h"
+#include "ITSMFTTracking/detail/DetectorRefitSupport.h"
 #include "ITSMFTTracking/detail/SurfacePlanBinding.h"
 #include "ITStracking/ROFLookupTables.h"
 
@@ -105,8 +105,8 @@ class CombinedTrackingPlan
     mConfiguration = makeCombinedConfiguration(itsParams[0], mftParams[0]);
     mITSPublicationAdapter.adoptITSSharedClusterCompatibility(&mITSCompatibility);
     mMFTPublicationAdapter.adoptMFTPublicationCompatibility(&mMFTCompatibility);
-    mITSTracker = std::make_unique<Tracker>(&detail::refitDetectorSeed<o2::detectors::DetID::ITS>, ClusterSourceId{0});
-    mMFTTracker = std::make_unique<Tracker>(&detail::refitDetectorSeed<o2::detectors::DetID::MFT>, ClusterSourceId{1});
+    mITSTracker = std::make_unique<Tracker>(&detail::refitITSSeed, ClusterSourceId{0});
+    mMFTTracker = std::make_unique<Tracker>(&detail::refitMFTSeed, ClusterSourceId{1});
     mITSTraits = std::make_unique<TrackerTraits>();
     mMFTTraits = std::make_unique<TrackerTraits>();
   }

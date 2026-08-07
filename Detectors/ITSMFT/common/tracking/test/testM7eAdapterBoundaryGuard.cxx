@@ -133,9 +133,10 @@ BOOST_AUTO_TEST_CASE(adapter_files_are_the_only_typed_compatibility_seam)
 {
   const auto root = trackingRoot();
   const auto refit = readFile(root / "include/ITSMFTTracking/detail/MFTFwdTrackHelpers.h");
-  const auto support = readFile(root / "include/ITSMFTTracking/detail/DetectorTrackingOperationAdapterSupport.h");
+  const auto support = readFile(root / "include/ITSMFTTracking/detail/DetectorRefitSupport.h");
   const auto publication = readFile(root / "include/ITSMFTTracking/detail/DetectorPublicationAdapter.h");
   BOOST_CHECK(!fs::exists(root / "include/ITSMFTTracking/TrackingOperationAdapter.h"));
+  BOOST_CHECK(!fs::exists(root / "include/ITSMFTTracking/detail/DetectorTrackingOperationAdapterSupport.h"));
   BOOST_CHECK(!containsIdentifier(refit,
                                   "MFT"
                                   "CATrack"));

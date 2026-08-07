@@ -2,14 +2,13 @@
 // See https://alice-o2.web.cern.ch/copyright for details of the copyright holders.
 // All rights not expressly granted are reserved.
 
-#ifndef ALICEO2_ITSMFT_TRACKING_DETECTORTRACKINGOPERATIONADAPTERSUPPORT_H_
-#define ALICEO2_ITSMFT_TRACKING_DETECTORTRACKINGOPERATIONADAPTERSUPPORT_H_
+#ifndef ALICEO2_ITSMFT_TRACKING_DETECTORREFITSUPPORT_H_
+#define ALICEO2_ITSMFT_TRACKING_DETECTORREFITSUPPORT_H_
 
 #ifndef GPUCA_GPUCODE
 
 #include <cmath>
 
-#include "DetectorsCommonDataFormats/DetID.h"
 #include "DataFormatsCalibration/MeanVertexObject.h"
 #include "ITSMFTTracking/CommonTrack.h"
 #include "ITSMFTTracking/NativeRefitDriver.h"
@@ -20,21 +19,25 @@
 namespace o2::itsmft::tracking::detail
 {
 
-template <o2::detectors::DetID::ID DetId>
-void configureAdapterBeamPosition(TimeFrame& frame,
-                                  const TrackingParameters& params,
-                                  const o2::dataformats::MeanVertexObject* meanVertex,
-                                  bool overrideBeamEstimation)
+inline void configureITSBeamPosition(TimeFrame& frame,
+                                     const TrackingParameters& params,
+                                     const o2::dataformats::MeanVertexObject* meanVertex,
+                                     bool overrideBeamEstimation)
 {
   const float systErrY2 = params.SystError2Row.empty() ? 0.f : params.SystError2Row[0];
   const float layerRes = params.LayerResolution.empty() ? 0.f : params.LayerResolution[0];
-  if constexpr (DetId == o2::detectors::DetID::MFT) {
-    frame.setBeamPosition(params.Diamond[0], params.Diamond[1], params.DiamondCov[3], layerRes, systErrY2);
-  } else if (overrideBeamEstimation && meanVertex != nullptr) {
+  if (overrideBeamEstimation && meanVertex != nullptr) {
     frame.setBeamPosition(meanVertex->getX(), meanVertex->getY(), meanVertex->getSigmaY2(), layerRes, systErrY2);
   } else if (params.UseDiamond) {
     frame.setBeamPosition(params.Diamond[0], params.Diamond[1], params.DiamondCov[3], layerRes, systErrY2);
   }
+}
+
+inline void configureMFTBeamPosition(TimeFrame& frame, const TrackingParameters& params)
+{
+  const float systErrY2 = params.SystError2Row.empty() ? 0.f : params.SystError2Row[0];
+  const float layerRes = params.LayerResolution.empty() ? 0.f : params.LayerResolution[0];
+  frame.setBeamPosition(params.Diamond[0], params.Diamond[1], params.DiamondCov[3], layerRes, systErrY2);
 }
 
 // Detector edges produce the detector-neutral TrackingCandidate consumed by
@@ -67,8 +70,10 @@ inline bool fillCandidateKinematics(TrackingCandidate& candidate) noexcept
 inline bool refitITSSeed(const TrackSeed& seed,
                          const TrackingParameters& params,
                          float bz,
+                         SurfaceTrackingScratch&,
                          gsl::span<const gsl::span<const SurfaceMeasurement>> layerMeasurements,
                          SurfaceCatalogView surfaceCatalog,
+                         ClusterSourceId,
                          TrackingCandidate& candidate)
 {
   SurfaceKinematicState paramIn{};
@@ -91,7 +96,7 @@ inline bool refitITSSeed(const TrackSeed& seed,
 inline bool refitMFTSeed(const TrackSeed& seed,
                          const TrackingParameters& params,
                          float bz,
-                         const SurfaceTrackingScratch& scratch,
+                         SurfaceTrackingScratch& scratch,
                          gsl::span<const gsl::span<const SurfaceMeasurement>> layerMeasurements,
                          SurfaceCatalogView surfaceCatalog,
                          ClusterSourceId expectedSource,
@@ -110,25 +115,8 @@ inline bool refitMFTSeed(const TrackSeed& seed,
   return fillCandidateKinematics(candidate);
 }
 
-template <o2::detectors::DetID::ID DetId>
-bool refitDetectorSeed(const TrackSeed& seed,
-                       const TrackingParameters& params,
-                       float bz,
-                       SurfaceTrackingScratch& scratch,
-                       gsl::span<const gsl::span<const SurfaceMeasurement>> layerMeasurements,
-                       SurfaceCatalogView surfaceCatalog,
-                       ClusterSourceId expectedSource,
-                       TrackingCandidate& candidate)
-{
-  if constexpr (DetId == o2::detectors::DetID::MFT) {
-    return refitMFTSeed(seed, params, bz, scratch, layerMeasurements, surfaceCatalog, expectedSource, candidate);
-  } else {
-    return refitITSSeed(seed, params, bz, layerMeasurements, surfaceCatalog, candidate);
-  }
-}
-
 } // namespace o2::itsmft::tracking::detail
 
 #endif // !GPUCA_GPUCODE
 
-#endif // ALICEO2_ITSMFT_TRACKING_DETECTORTRACKINGOPERATIONADAPTERSUPPORT_H_
+#endif // ALICEO2_ITSMFT_TRACKING_DETECTORREFITSUPPORT_H_

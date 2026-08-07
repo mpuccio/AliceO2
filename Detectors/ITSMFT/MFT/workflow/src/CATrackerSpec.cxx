@@ -35,7 +35,7 @@
 #include "Framework/Logger.h"
 #include "ITSMFTTracking/Tracker.h"
 #include "ITSMFTTracking/CommonTrackOutputAdapter.h"
-#include "ITSMFTTracking/detail/DetectorTrackingOperationAdapterSupport.h"
+#include "ITSMFTTracking/detail/DetectorRefitSupport.h"
 #include "ITSMFTTracking/MultiSourceTimeFrameLoader.h"
 #include "ITSMFTTracking/SurfaceTiming.h"
 #include "ITSMFTTracking/StaticDetectorCatalogs.h"
@@ -243,7 +243,7 @@ void CATrackerDPL::initialiseTracking()
   }
 
   mTracker = std::make_unique<o2::itsmft::tracking::Tracker>(
-    &o2::itsmft::tracking::detail::refitDetectorSeed<o2::detectors::DetID::MFT>, o2::itsmft::tracking::ClusterSourceId{0});
+    &o2::itsmft::tracking::detail::refitMFTSeed, o2::itsmft::tracking::ClusterSourceId{0});
   const auto result = mTracker->initialize(mFrame, configuration);
   if (!result.ok()) {
     LOGP(fatal, "MFT CA tracker failed to initialize static configuration (error={} iteration={} graph={} binding={})",
@@ -265,7 +265,7 @@ o2::itsmft::tracking::TrackingOutcome CATrackerDPL::processTimeFrame(
   }
   const auto& params = mFrame.getTrackingParameters().front();
   mFrame.setBz(o2::base::Propagator::Instance()->getNominalBz());
-  o2::itsmft::tracking::detail::configureAdapterBeamPosition<o2::detectors::DetID::MFT>(mFrame, params, nullptr, false);
+  o2::itsmft::tracking::detail::configureMFTBeamPosition(mFrame, params);
   const auto views = getScratch().getROFViews();
   if (views.overlap.mLayerCount > 0 && rofs.size() != views.overlap.getLayer(0).mNROFsTF) {
     LOGP(warn, "MFT CA ROF count differs from continuous timing expectation: received {} expected {}",
