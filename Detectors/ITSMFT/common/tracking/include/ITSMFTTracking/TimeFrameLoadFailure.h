@@ -6,7 +6,7 @@
 // License v3 (GPL Version 3), copied verbatim in the file "COPYING".
 ///
 /// \file TimeFrameLoadFailure.h
-/// \brief Typed failures at the ITSMFTTrackingInterface loading boundary
+/// \brief Typed failures at the workflow loading boundary
 ///
 
 #ifndef ALICEO2_ITSMFT_TRACKING_TIMEFRAMELOADFAILURE_H_
@@ -26,7 +26,7 @@
 namespace o2::itsmft::tracking
 {
 
-// Typed, per-TF malformed input at the ITSMFTTrackingInterface loading
+// Typed, per-TF malformed input at the workflow loading
 // boundary (e.g. a malformed cluster pattern, an invalid ROF range, a
 // genuine per-TF BC-arithmetic timing overflow). DropTFUponFailure applies
 // to this type and to the two concrete resource-exhaustion exceptions
@@ -50,7 +50,7 @@ class RecoverableLoadFailure final : public std::runtime_error
 // here is actually produced and actually distinguished by a construction
 // path below.
 enum class TimeFrameLoadFailureReason : uint8_t {
-  DictionaryNotConfigured, // ITSMFTTrackingInterface::mDict == nullptr
+  DictionaryNotConfigured, // the workflow has not supplied a dictionary
   NonUniformROFTiming,     // deriveUniformROFTimingConfig() found divergent per-layer length/delay/bias/addTimeErr
   ZeroROFCount,            // configured per-layer timing yields mNROFsTF == 0 (e.g. rofLengthInBC > LHCMaxBunches, or 0 orbits/TF)
   LoadSourcesFailure       // a structural LoadSourcesResult; see loadResult()

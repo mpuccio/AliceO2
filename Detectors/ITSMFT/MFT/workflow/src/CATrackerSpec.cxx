@@ -15,6 +15,8 @@
 
 #include <array>
 #include <algorithm>
+#include <limits>
+#include <memory>
 #include <utility>
 #include <vector>
 #include <stdexcept>
@@ -33,8 +35,14 @@
 #include "Framework/Logger.h"
 #include "ITSMFTTracking/Tracker.h"
 #include "ITSMFTTracking/CommonTrackOutputAdapter.h"
+#include "ITSMFTTracking/DetectorTrackingOperationAdapterSupport.h"
+#include "ITSMFTTracking/MultiSourceTimeFrameLoader.h"
 #include "ITSMFTTracking/ROFTimingUniformity.h"
+#include "ITSMFTTracking/StaticDetectorCatalogs.h"
+#include "ITSMFTTracking/TrackingConfigParam.h"
 #include "ITSMFTTracking/TimeFrameLoadFailure.h"
+#include "DetectorsBase/Propagator.h"
+#include <oneapi/tbb/task_arena.h>
 #include "CommonConstants/LHCConstants.h"
 #include "MFTBase/GeometryTGeo.h"
 #include "MFTTracking/Constants.h"
@@ -49,6 +57,48 @@ namespace o2::mft
 
 namespace
 {
+using namespace o2::itsmft::tracking;
+
+template <o2::detectors::DetID::ID DetId, int NLayers>
+class StandaloneTrackingOperationAdapter final : public TrackingOperationAdapter
+{
+ public:
+  explicit StandaloneTrackingOperationAdapter(DetectorPublicationAdapter<NLayers>* publication) : mPublication(publication) {}
+
+  bool refitSeed(const TrackSeed& seed, const o2::itsmft::TrackingParameters& params, float bz, SurfaceTrackingScratch& scratch,
+                 gsl::span<const gsl::span<const SurfaceMeasurement>> measurements, SurfaceCatalogView catalog,
+                 ClusterSourceId source, TrackingCandidate& candidate) override
+  {
+    return detail::refitDetectorSeed<DetId>(seed, params, bz, scratch, measurements, catalog, source, candidate);
+  }
+
+  bool completeAccepted(gsl::span<const TrackingCandidate> candidates, const o2::itsmft::TrackingParameters& params,
+                        const SurfaceTrackingScratch& scratch, bool final) override
+  {
+    return mPublication == nullptr || mPublication->completeAccepted(candidates, params, scratch, final);
+  }
+
+  void resetAdapterState() noexcept override
+  {
+    if (mPublication != nullptr) {
+      mPublication->reset();
+    }
+  }
+
+ private:
+  DetectorPublicationAdapter<NLayers>* mPublication = nullptr;
+};
+
+template <int NLayers>
+constexpr std::array<SurfaceId, NLayers> identitySurfaceOrder()
+{
+  std::array<SurfaceId, NLayers> order{};
+  for (int i = 0; i < NLayers; ++i) {
+    order[i] = SurfaceId{static_cast<uint16_t>(i)};
+  }
+  return order;
+}
+
 bool rofOverlapsIRFrames(const o2::itsmft::ROFRecord& rof, int rofLengthInBC,
                          gsl::span<const o2::dataformats::IRFrame> irFrames)
 {
@@ -64,10 +114,20 @@ bool rofOverlapsIRFrames(const o2::itsmft::ROFRecord& rof, int rofLengthInBC,
 }
 } // namespace
 
+CATrackerDPL::CATrackerDPL(std::shared_ptr<o2::base::GRPGeomRequest> gr, bool useMC,
+                           o2::itsmft::TrackingMode::Type trMode)
+  : mGGCCDBRequest(std::move(gr)), mUseMC(useMC), mTrackingMode(trMode)
+{
+  mOperationAdapter = std::make_unique<StandaloneTrackingOperationAdapter<o2::detectors::DetID::MFT, o2::itsmft::tracking::MFTNLayers>>(
+    &mPublicationAdapter);
+  mClusterDecoder = std::make_unique<o2::itsmft::tracking::MFTGeometryClusterDecoder>();
+  mPublicationAdapter.adoptMFTPublicationCompatibility(&mCompatibility);
+}
+
 void CATrackerDPL::configureROFViews(gsl::span<const o2::itsmft::ROFRecord> rofs,
                                      gsl::span<const o2::dataformats::IRFrame> irFrames)
 {
-  const auto& params = mTracking.getTrackingParameters().at(0);
+  const auto& params = mFrame.getTrackingParameters().at(0);
   const auto& alpParams = o2::itsmft::DPLAlpideParam<o2::detectors::DetID::MFT>::Instance();
   const bool continuous = o2::base::GRPGeomHelper::instance().getGRPECS()->isDetContinuousReadOut(o2::detectors::DetID::MFT);
   mMFTROFrameLengthInBC = continuous ? alpParams.roFrameLengthInBC : std::max(1, static_cast<int>(alpParams.roFrameLengthTrig / (o2::constants::lhc::LHCBunchSpacingNS * 1e3)));
@@ -129,24 +189,192 @@ void CATrackerDPL::configureROFViews(gsl::span<const o2::itsmft::ROFRecord> rofs
   mROFVertexLookupTable = std::move(vertex);
   mMultiplicityMask = std::move(mask);
   mPublicationAdapter.reset();
-  mTracking.getScratch().setROFViews({mROFOverlapTable.getView(), mROFVertexLookupTable.getView(), mMultiplicityMask.getView(), mUPCMask.getView()});
+  getScratch().setROFViews({mROFOverlapTable.getView(), mROFVertexLookupTable.getView(), mMultiplicityMask.getView(), mUPCMask.getView()});
 }
 
 void CATrackerDPL::invalidatePublication() noexcept
 {
   mPublicationAdapter.reset();
   mPublicationClock.reset();
-  mTracking.getScratch().setROFViews({});
+  getScratch().setROFViews({});
 }
 
-static_assert(o2::itsmft::tracking::ITSMFTTrackingInterfaceMFT::DetId == o2::detectors::DetID::MFT);
+void CATrackerDPL::initialiseTracking()
+{
+  auto mode = mTrackingMode;
+  const auto& trackerParams = o2::itsmft::tracking::TrackerParamRef<o2::detectors::DetID::MFT>::get();
+  const auto configuredMode = static_cast<o2::itsmft::TrackingMode::Type>(trackerParams.trackingMode);
+  if (mode == o2::itsmft::TrackingMode::Unset ||
+      (configuredMode != o2::itsmft::TrackingMode::Unset && mode != configuredMode)) {
+    if (configuredMode != o2::itsmft::TrackingMode::Unset) {
+      LOGP(info, "MFT CA tracking mode overwritten by configurable params from {} to {}",
+           o2::itsmft::TrackingMode::toString(mode), o2::itsmft::TrackingMode::toString(configuredMode));
+      mode = configuredMode;
+    }
+  }
+  if (mode == o2::itsmft::TrackingMode::Unset) {
+    mode = o2::itsmft::TrackingMode::Sync;
+  }
+  mTrackingMode = mode;
+  const auto parameters = o2::itsmft::TrackingMode::getTrackingParameters(o2::detectors::DetID::MFT, mode);
+  LOGP(info, "MFT CA tracker initialized in {} mode with {} iteration(s)",
+       o2::itsmft::TrackingMode::toString(mode), parameters.size());
+  if (parameters.empty()) {
+    return;
+  }
 
-CATrackerPublicationAction decideCATrackerPublicationAction(bool trackerActive, float trackingResult) noexcept
+  mTrackerTraits = std::make_unique<o2::itsmft::tracking::TrackerTraits>();
+  std::shared_ptr<tbb::task_arena> taskArena;
+  mTrackerTraits->setNThreads(trackerParams.nThreads, taskArena);
+
+  static constexpr auto ordered = identitySurfaceOrder<o2::itsmft::tracking::MFTNLayers>();
+  o2::itsmft::tracking::TrackerInitialization configuration;
+  configuration.catalog = o2::itsmft::tracking::SurfaceCatalogView{o2::itsmft::tracking::kMFTStaticSurfaceCatalog.data(),
+                                                                    static_cast<uint32_t>(o2::itsmft::tracking::kMFTStaticSurfaceCatalog.size())};
+  configuration.memoryPool = std::make_shared<o2::itsmft::tracking::BoundedMemoryResource>(parameters.front().MaxMemory);
+  configuration.iterations.reserve(parameters.size());
+  for (const auto& params : parameters) {
+    o2::itsmft::tracking::TrackerIterationConfiguration iteration;
+    iteration.parameters.push_back(params);
+    o2::itsmft::tracking::SurfaceGraphSubgraph subgraph;
+    subgraph.orderedSurfaces.assign(ordered.begin(), ordered.end());
+    subgraph.maxHoles = params.MaxHoles;
+    subgraph.holeSurfaces = o2::itsmft::tracking::positionalSurfaceMask(params.HoleLayerMask, ordered, o2::itsmft::tracking::MFTNLayers);
+    subgraph.seedingSurfaces = o2::itsmft::tracking::positionalSurfaceMask(params.StartLayerMask, ordered, o2::itsmft::tracking::MFTNLayers);
+    iteration.graphSubgraphs.push_back(std::move(subgraph));
+    o2::itsmft::tracking::SurfaceMask owned;
+    for (uint16_t surface = 0; surface < o2::itsmft::tracking::MFTNLayers; ++surface) {
+      owned.set(o2::itsmft::tracking::SurfaceId{surface});
+    }
+    iteration.bindings.push_back(o2::itsmft::tracking::SurfacePlanBinding::Declaration{
+      o2::itsmft::tracking::ClusterSourceId{0}, owned,
+      std::vector<o2::itsmft::tracking::SurfaceId>{ordered.begin(), ordered.end()},
+      o2::itsmft::tracking::SurfaceKind::Disk,
+      o2::itsmft::tracking::TransitionPolicyTag::DiskDisk});
+    configuration.iterations.push_back(std::move(iteration));
+  }
+
+  mTracker = std::make_unique<o2::itsmft::tracking::Tracker>(mOperationAdapter.get(), o2::itsmft::tracking::ClusterSourceId{0});
+  const auto result = mTracker->initialize(mFrame, configuration);
+  if (!result.ok()) {
+    LOGP(fatal, "MFT CA tracker failed to initialize static configuration (error={} iteration={} graph={} binding={})",
+         static_cast<int>(result.error), result.failedIteration, static_cast<int>(result.graphError), static_cast<int>(result.bindingError));
+  }
+  mTrackerTraits->setMemoryPool(mFrame.getMemoryPool());
+}
+
+o2::itsmft::tracking::TrackingOutcome CATrackerDPL::processTimeFrame(
+  gsl::span<const o2::itsmft::ROFRecord> rofs,
+  gsl::span<const o2::itsmft::CompClusterExt> clusters,
+  gsl::span<const unsigned char> patterns,
+  const o2::dataformats::MCTruthContainer<MCCompLabel>* labels,
+  gsl::span<const o2::dataformats::IRFrame> irFrames)
+{
+  if (!isActive()) {
+    LOGP(info, "MFT CA tracking mode is off, skipping TimeFrame processing");
+    return o2::itsmft::tracking::TrackingOutcome::Success;
+  }
+  const auto& params = mFrame.getTrackingParameters().front();
+  mFrame.setBz(o2::base::Propagator::Instance()->getNominalBz());
+  o2::itsmft::tracking::detail::configureAdapterBeamPosition<o2::detectors::DetID::MFT>(mFrame, params, nullptr, false);
+  const auto views = getScratch().getROFViews();
+  if (views.overlap.mLayerCount > 0 && rofs.size() != views.overlap.getLayer(0).mNROFsTF) {
+    LOGP(warn, "MFT CA ROF count differs from continuous timing expectation: received {} expected {}",
+         rofs.size(), views.overlap.getLayer(0).mNROFsTF);
+  }
+  try {
+    if (mDictionary == nullptr) {
+      throw o2::itsmft::tracking::TimeFrameLoadException{
+        o2::itsmft::tracking::TimeFrameLoadFailureReason::DictionaryNotConfigured,
+        "MFT CA tracker cluster dictionary is not available"};
+    }
+    const auto* binding = mFrame.getBinding(0, o2::itsmft::tracking::ClusterSourceId{0});
+    if (binding == nullptr) {
+      throw o2::itsmft::tracking::TimeFrameLoadException{
+        o2::itsmft::tracking::TimeFrameLoadFailureReason::DictionaryNotConfigured,
+        "MFT CA tracker has no configured source binding"};
+    }
+    const auto orderedSurfaces = binding->getOrderedSurfaces();
+    const auto rofViews = getScratch().getROFViews();
+    if (rofViews.overlap.mLayerCount <= 0) {
+      throw o2::itsmft::tracking::TimeFrameLoadException{
+        o2::itsmft::tracking::TimeFrameLoadFailureReason::NonUniformROFTiming,
+        "MFT CA tracker received no adapter-owned runtime ROF timing view"};
+    }
+    const auto& clock = rofViews.overlap.getLayer(0);
+    o2::itsmft::tracking::ClusterSourceInput source;
+    source.id = o2::itsmft::tracking::ClusterSourceId{0};
+    source.detector = o2::detectors::DetID::MFT;
+    source.clusters = clusters;
+    source.patterns = patterns;
+    source.rofs = rofs;
+    source.dictionary = mDictionary;
+    source.labels = labels;
+    source.layerToSurface = orderedSurfaces;
+    source.timing = o2::itsmft::tracking::ROFTimingConfig{clock.mROFLength, clock.mROFDelay, clock.mROFBias, clock.mROFAddTimeErr};
+    source.decoder = mClusterDecoder.get();
+    source.rofViews = rofViews;
+    const auto origin = rofs.empty() ? o2::InteractionRecord{} : rofs.front().getBCData();
+    const auto loaded = o2::itsmft::tracking::MultiSourceTimeFrameLoader::load(
+      mFrame, gsl::span<const o2::itsmft::tracking::ClusterSourceInput>{&source, 1}, mFrame.getGraph(0).getSurfaceCatalog(), origin);
+    if (!loaded.ok()) {
+      if (o2::itsmft::tracking::isRecoverableLoadError(loaded.error, loaded.timingDetail)) {
+        throw o2::itsmft::tracking::RecoverableLoadFailure{loaded};
+      }
+      throw o2::itsmft::tracking::TimeFrameLoadException{loaded};
+    }
+  } catch (const o2::itsmft::tracking::RecoverableLoadFailure& failure) {
+    LOGP(error, "MFT CA loading recoverably failed: {}", failure.what());
+    resetEvent();
+    if (params.DropTFUponFailure) {
+      return o2::itsmft::tracking::TrackingOutcome::RecoverableDropped;
+    }
+    throw;
+  } catch (const o2::itsmft::tracking::BoundedMemoryResource::MemoryLimitExceeded& failure) {
+    LOGP(error, "MFT CA loading exceeded memory limit: {}", failure.what());
+    resetEvent();
+    if (params.DropTFUponFailure) {
+      return o2::itsmft::tracking::TrackingOutcome::RecoverableDropped;
+    }
+    throw;
+  } catch (const std::bad_alloc& failure) {
+    LOGP(error, "MFT CA loading allocation failed: {}", failure.what());
+    resetEvent();
+    if (params.DropTFUponFailure) {
+      return o2::itsmft::tracking::TrackingOutcome::RecoverableDropped;
+    }
+    throw;
+  } catch (const o2::itsmft::tracking::TimeFrameLoadException& failure) {
+    LOGP(error, "MFT CA loading hit a structural failure: {}", failure.what());
+    resetEvent();
+    throw;
+  } catch (const std::exception& failure) {
+    LOGP(error, "MFT CA loading failed with an unclassified exception: {}", failure.what());
+    resetEvent();
+    throw;
+  }
+
+  const auto result = mTracker->run(mFrame, *mTrackerTraits);
+  if (result.outcome == o2::itsmft::tracking::TrackingOutcome::RecoverableDropped) {
+    LOGP(warn, "MFT CA tracking failed for this TF");
+  } else {
+    LOGP(info, "MFT CA tracking produced {} tracks in {:.2f} ms", mFrame.getCommonTracks().size(), result.elapsedMs);
+  }
+  return result.outcome;
+}
+
+void CATrackerDPL::resetEvent() noexcept
+{
+  mPublicationAdapter.reset();
+  mFrame.resetEvent();
+}
+
+CATrackerPublicationAction decideCATrackerPublicationAction(bool trackerActive, o2::itsmft::tracking::TrackingOutcome outcome) noexcept
 {
   if (!trackerActive) {
     return CATrackerPublicationAction::PublishInactiveEmpty;
   }
-  if (o2::itsmft::tracking::isDroppedTimeFrame(trackingResult)) {
+  if (outcome == o2::itsmft::tracking::TrackingOutcome::RecoverableDropped) {
     return CATrackerPublicationAction::SkipDroppedTimeFrame;
   }
   return CATrackerPublicationAction::PublishActiveResult;
@@ -163,7 +391,7 @@ void CATrackerDPL::run(ProcessingContext& pc)
 
   auto rofsinput = pc.inputs().get<const std::vector<o2::itsmft::ROFRecord>>("ROframes");
 
-  if (decideCATrackerPublicationAction(mTracking.isActive(), 0.f) == CATrackerPublicationAction::PublishInactiveEmpty) {
+  if (decideCATrackerPublicationAction(isActive(), o2::itsmft::tracking::TrackingOutcome::Success) == CATrackerPublicationAction::PublishInactiveEmpty) {
     // Existing production behavior, preserved exactly: publish the input
     // ROFs verbatim (their firstEntry/nEntries are not rewritten here) plus
     // empty track/cluster-index/seed-pattern outputs, when the tracker is
@@ -192,22 +420,14 @@ void CATrackerDPL::run(ProcessingContext& pc)
   LOGP(info, "MFT CA input pulled {} compressed clusters in {} RO frames ({} pattern bytes)",
        compClusters.size(), rofsinput.size(), patterns.size());
 
-  // A structural or unclassified failure inside processTimeFrame() throws
-  // uncaught out of this function -- no output is created on that path, and
-  // DPL treats the escaping exception as fatal for this device. Only a
-  // recoverable, dropped-and-wiped TimeFrame returns here as a sentinel
-  // value; see Tracker.h/Tracker.cxx for the classification.
-  const auto resetCount = mTracking.getTimeFrame().getEventResetCount();
+  const auto resetCount = mFrame.getEventResetCount();
   try {
     configureROFViews(gsl::span<const o2::itsmft::ROFRecord>(rofsinput.data(), rofsinput.size()), irFrames);
-    const float trackingResult = mTracking.processTimeFrame(gsl::span<const o2::itsmft::ROFRecord>(rofsinput.data(), rofsinput.size()),
-                                                            gsl::span<const o2::itsmft::CompClusterExt>(compClusters.data(), compClusters.size()),
-                                                            patterns,
-                                                            labels,
-                                                            irFrames,
-                                                            mTracking.getScratch().getROFViews());
+    const auto trackingResult = processTimeFrame(gsl::span<const o2::itsmft::ROFRecord>(rofsinput.data(), rofsinput.size()),
+                                                 gsl::span<const o2::itsmft::CompClusterExt>(compClusters.data(), compClusters.size()),
+                                                 patterns, labels, irFrames);
 
-    if (decideCATrackerPublicationAction(mTracking.isActive(), trackingResult) == CATrackerPublicationAction::SkipDroppedTimeFrame) {
+    if (decideCATrackerPublicationAction(isActive(), trackingResult) == CATrackerPublicationAction::SkipDroppedTimeFrame) {
       LOGP(error, "MFT CA tracking dropped this TimeFrame ({} ROFs, {} clusters); publishing nothing and continuing with the next TimeFrame",
            rofsinput.size(), compClusters.size());
       invalidatePublication();
@@ -216,16 +436,12 @@ void CATrackerDPL::run(ProcessingContext& pc)
 
     {
       mPublicationClock.emplace(mROFOverlapTable.getView().getClockLayer());
-      const auto exportContext = mTracking.getCommonTrackPublicationExport(*mPublicationClock);
-      const auto* compatibility = &mCompatibility;
-      if (!exportContext || compatibility == nullptr) {
-        throw std::runtime_error{"MFT CommonTrack output publication context is unavailable"};
-      }
       const o2::itsmft::tracking::CommonTrackPublicationContext context{
-        exportContext->detector, exportContext->source,
-        gsl::span<const o2::itsmft::ROFRecord>{rofsinput.data(), rofsinput.size()}, exportContext->clock, exportContext->orderedSurfaces};
+        o2::detectors::DetID::MFT, o2::itsmft::tracking::ClusterSourceId{0},
+        gsl::span<const o2::itsmft::ROFRecord>{rofsinput.data(), rofsinput.size()}, *mPublicationClock,
+        gsl::span<const o2::itsmft::tracking::SurfaceId>{mFrame.getGraph(0).getOrderedSurfaces()}};
       o2::itsmft::tracking::CommonTrackOutputAdapterError error = o2::itsmft::tracking::CommonTrackOutputAdapterError::None;
-      const auto staged = o2::itsmft::tracking::stageMFTCommonTrackOutput(mTracking.getTimeFrame(), context, *compatibility, mUseMC, error);
+      const auto staged = o2::itsmft::tracking::stageMFTCommonTrackOutput(mFrame, context, mCompatibility, mUseMC, error);
       if (!staged) {
         throw std::runtime_error{"MFT CommonTrack output staging failed"};
       }
@@ -245,14 +461,14 @@ void CATrackerDPL::run(ProcessingContext& pc)
       }
     }
   } catch (...) {
-    if (mTracking.getTimeFrame().getEventResetCount() == resetCount) {
-      mTracking.resetEvent();
+    if (mFrame.getEventResetCount() == resetCount) {
+      resetEvent();
     }
     invalidatePublication();
     throw;
   }
 
-  mTracking.resetEvent();
+  resetEvent();
   invalidatePublication();
 }
 
@@ -261,7 +477,7 @@ void CATrackerDPL::updateTimeDependentParams(ProcessingContext& pc)
   o2::base::GRPGeomHelper::instance().checkUpdates(pc);
   if (!mTrackingInitialised) {
     mTrackingInitialised = true;
-    mTracking.initialise();
+    initialiseTracking();
   }
   static bool initOnceDone = false;
   if (!initOnceDone) {
@@ -284,7 +500,7 @@ void CATrackerDPL::finaliseCCDB(ConcreteDataMatcher& matcher, void* obj)
   }
   if (matcher == ConcreteDataMatcher("MFT", "CLUSDICT", 0)) {
     LOG(info) << "MFT CA input cluster dictionary updated";
-    mTracking.setClusterDictionary(static_cast<const o2::itsmft::TopologyDictionary*>(obj));
+    mDictionary = static_cast<const o2::itsmft::TopologyDictionary*>(obj);
     return;
   }
   if (matcher == ConcreteDataMatcher("MFT", "GEOMTGEO", 0)) {

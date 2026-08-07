@@ -31,10 +31,18 @@
 #include "Framework/Task.h"
 #include "ITSMFTTracking/Configuration.h"
 #include "ITSMFTTracking/ClockTimingPublicationView.h"
+#include "ITSMFTTracking/ClusterDecoder.h"
 #include "ITSMFTTracking/DetectorPublicationAdapter.h"
+#include "ITSMFTTracking/TrackingOperationAdapter.h"
+#include "ITSMFTTracking/Tracker.h"
+#include "ITSMFTTracking/TrackerTraits.h"
+#include "ITSMFTTracking/TimeFrame.h"
+#include "ITSMFTTracking/ClusterSource.h"
+#include "ITSMFTTracking/TimeFrameLoadFailure.h"
+#include "ITSMFTTracking/StaticDetectorCatalogs.h"
 #include "ITSMFTTracking/ROFViews.h"
-#include "ITSMFTTracking/TrackingInterface.h"
 #include "ITStracking/ROFLookupTables.h"
+#include "DataFormatsITSMFT/TopologyDictionary.h"
 #include "SimulationDataFormat/MCCompLabel.h"
 
 namespace o2::its::ca
@@ -50,7 +58,7 @@ enum class CATrackerPublicationAction {
   SkipDroppedTimeFrame, ///< active tracking recoverably dropped this TF: publish nothing
 };
 
-CATrackerPublicationAction decideCATrackerPublicationAction(bool trackerActive, float trackingResult) noexcept;
+CATrackerPublicationAction decideCATrackerPublicationAction(bool trackerActive, o2::itsmft::tracking::TrackingOutcome outcome) noexcept;
 
 /// Converts one o2::its::TrackITSExt (the common tracker's internal barrel
 /// track representation, see ITSMFTTracking/Cell.h's CATrackTypeHelper<7>)
@@ -118,22 +126,16 @@ void convertTrackITSExtToTrackITS(o2::its::TrackITSExt track,
   tracks.push_back(track);
 }
 
-/// ITS common-CA tracker DPL task. Delegates reconstruction to
-/// o2::itsmft::tracking::ITSMFTTrackingInterfaceITS
-/// (ITSMFTTrackingInterface<7>). Frozen legacy o2::its::TrackerDPL
+/// ITS common-CA tracker DPL task. Owns the standalone TimeFrame and
+/// composes the workflow-owned input/timing/publication edge with Tracker.
+/// Frozen legacy o2::its::TrackerDPL
 /// (ITSWorkflow/TrackerSpec.h) and o2-its-reco-workflow are untouched by
 /// this class; it lives in an isolated library/executable
 /// (o2-its-ca-tracker-workflow) with no link-graph overlap with ITSWorkflow.
 class CATrackerDPL : public o2::framework::Task
 {
  public:
-  CATrackerDPL(std::shared_ptr<o2::base::GRPGeomRequest> gr, bool useMC, o2::itsmft::TrackingMode::Type trMode)
-    : mGGCCDBRequest(std::move(gr)), mUseMC(useMC),
-      mTracking(useMC, trMode, false)
-  {
-    mTracking.bindPublicationAdapter(mPublicationAdapter);
-    mPublicationAdapter.adoptITSSharedClusterCompatibility(&mCompatibility);
-  }
+  CATrackerDPL(std::shared_ptr<o2::base::GRPGeomRequest> gr, bool useMC, o2::itsmft::TrackingMode::Type trMode);
   ~CATrackerDPL() override = default;
 
   void init(framework::InitContext& ic) final;
@@ -144,11 +146,33 @@ class CATrackerDPL : public o2::framework::Task
   void updateTimeDependentParams(framework::ProcessingContext& pc);
   void configureROFViews(gsl::span<const o2::itsmft::ROFRecord> rofs);
   void invalidatePublication() noexcept;
+  void initialiseTracking();
+  o2::itsmft::tracking::TrackingOutcome processTimeFrame(
+    gsl::span<const o2::itsmft::ROFRecord> rofs,
+    gsl::span<const o2::itsmft::CompClusterExt> clusters,
+    gsl::span<const unsigned char> patterns,
+    const o2::dataformats::MCTruthContainer<MCCompLabel>* labels);
+  void resetEvent() noexcept;
+  bool isActive() const noexcept { return mFrame.isConfigured() && !mFrame.getTrackingParameters().empty(); }
+  const o2::itsmft::tracking::SurfaceTrackingScratch& getScratch() const noexcept
+  {
+    return mFrame.getWorkspace(o2::itsmft::tracking::ClusterSourceId{0});
+  }
+  o2::itsmft::tracking::SurfaceTrackingScratch& getScratch() noexcept
+  {
+    return mFrame.getWorkspace(o2::itsmft::tracking::ClusterSourceId{0});
+  }
 
   std::shared_ptr<o2::base::GRPGeomRequest> mGGCCDBRequest;
   bool mUseMC = false;
   bool mTrackingInitialised = false;
-  o2::itsmft::tracking::ITSMFTTrackingInterfaceITS mTracking;
+  o2::itsmft::TrackingMode::Type mTrackingMode = o2::itsmft::TrackingMode::Unset;
+  o2::itsmft::tracking::TimeFrame mFrame;
+  std::unique_ptr<o2::itsmft::tracking::TrackerTraits> mTrackerTraits;
+  std::unique_ptr<o2::itsmft::tracking::Tracker> mTracker;
+  std::unique_ptr<o2::itsmft::tracking::TrackingOperationAdapter> mOperationAdapter;
+  std::unique_ptr<o2::itsmft::tracking::ClusterDecoder> mClusterDecoder;
+  const o2::itsmft::TopologyDictionary* mDictionary = nullptr;
   o2::itsmft::tracking::DetectorPublicationAdapter<o2::itsmft::tracking::ITSNLayers> mPublicationAdapter;
   o2::itsmft::tracking::ITSSharedClusterCompatibility mCompatibility;
   o2::its::ROFOverlapTable<o2::itsmft::tracking::ITSNLayers> mROFOverlapTable;

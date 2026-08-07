@@ -26,7 +26,7 @@
 ///
 /// None of these belong in the shared common-tracking library: they encode
 /// this *workflow's* policy (no real per-event vertexing capability yet),
-/// not a general property of ITSMFTTrackingInterface<7> or of
+/// not a general property of the standalone workflow or of
 /// TrackingMode::getTrackingParameters() -- both of which continue to accept
 /// useDiamond=false for ITS Sync (see workflow-onboarding Slice 1's own
 /// tests), since a future caller with real vertexing may not need this
@@ -57,7 +57,7 @@ void applyConfigKeyValuesOrFatal(const std::string& configKeyValues);
 /// redundant with (and runs strictly before) the identical fail-closed gate
 /// already inside o2::itsmft::TrackingMode::getTrackingParameters(ITS, ...)
 /// (workflow-onboarding Slice 1): that gate only fires once the device is
-/// already running (ITSMFTTrackingInterface<7>::initialise(), at the first
+/// already running (CATrackerDPL::initialiseTracking(), at the first
 /// TimeFrame), too late to satisfy "reject before device construction".
 void requireSyncTrackingModeOrFatal(o2::itsmft::TrackingMode::Type mode);
 

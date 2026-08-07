@@ -12,8 +12,8 @@
 #ifndef ALICEO2_ITSMFT_TRACKING_ROFTIMINGUNIFORMITY_H_
 #define ALICEO2_ITSMFT_TRACKING_ROFTIMINGUNIFORMITY_H_
 
-// Host loading-boundary detail only (ITSMFTTrackingInterface::loadTimeFrame()
-// internals). Not a general public API: DPLAlpideParam-derived LayerTiming
+// Host loading-boundary detail only. Not a general public API:
+// DPLAlpideParam-derived LayerTiming
 // construction, and every caller of this function, are host-only already.
 #ifndef GPUCA_GPUCODE
 

@@ -93,8 +93,7 @@ class WorkflowTrackingOperationAdapter final : public o2::itsmft::tracking::Trac
 
 // Per-layer DPLAlpideParam<DetId> -> one source-level ROFTimingConfig,
 // fatal on non-positive ROF length or non-uniform per-layer staggering --
-// same classification ITSMFTTrackingInterface::configureROFLookupTables()
-// applies (TrackingInterface.cxx), reused via the same shared
+// the standalone workflow adapters use, reused via the same shared
 // deriveUniformROFTimingConfig() (ROFTimingUniformity.h). Unlike that
 // single-detector path, this workflow does not need to derive nROFsTF here:
 // The workflow-owned configureRofTables() takes it directly as the workflow's

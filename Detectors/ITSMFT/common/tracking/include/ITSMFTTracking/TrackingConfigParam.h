@@ -112,7 +112,7 @@ struct ITSCommonCATrackerParam : public o2::conf::ConfigurableParamHelper<ITSCom
   float pvRes = -1.f;                    // PV resolution override for the diamond vertex; <=0 keeps the struct default
 
   /// Number of tbb::task_arena threads for the ITS common-CA tracker
-  /// (ITSMFTTrackingInterface<7>::initialiseTracker()). Deliberately this
+  /// (the standalone ITS workflow's initialisation). Deliberately this
   /// struct's own field, not TrackerParamRef<ITS>::get().nThreads (the
   /// frozen legacy o2::its::TrackerParamConfig, registered "ITSCATrackerParam"
   /// -- see this struct's own doc comment above on why the two are kept

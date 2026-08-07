@@ -18,14 +18,24 @@
 #include <optional>
 
 #include "DetectorsBase/GRPGeomHelper.h"
+#include "CommonDataFormat/IRFrame.h"
 #include "Framework/DataProcessorSpec.h"
 #include "Framework/Task.h"
 #include "ITSMFTTracking/Configuration.h"
 #include "ITSMFTTracking/ClockTimingPublicationView.h"
+#include "ITSMFTTracking/ClusterDecoder.h"
+#include "ITSMFTTracking/ClusterSource.h"
 #include "ITSMFTTracking/DetectorPublicationAdapter.h"
+#include "ITSMFTTracking/StaticDetectorCatalogs.h"
+#include "ITSMFTTracking/TimeFrame.h"
+#include "ITSMFTTracking/TimeFrameLoadFailure.h"
+#include "ITSMFTTracking/Tracker.h"
+#include "ITSMFTTracking/TrackerTraits.h"
+#include "ITSMFTTracking/TrackingOperationAdapter.h"
 #include "ITSMFTTracking/ROFViews.h"
-#include "ITSMFTTracking/TrackingInterface.h"
 #include "ITStracking/ROFLookupTables.h"
+#include "DataFormatsITSMFT/TopologyDictionary.h"
+#include "SimulationDataFormat/MCCompLabel.h"
 
 namespace o2::mft
 {
@@ -40,27 +50,16 @@ enum class CATrackerPublicationAction {
   SkipDroppedTimeFrame, ///< active tracking recoverably dropped this TF: publish nothing, keep the device running
 };
 
-/// `trackingResult` is only meaningful when `trackerActive` is true (it is
-/// the value `ITSMFTTrackingInterfaceMFT::processTimeFrame()` returned);
-/// when `trackerActive` is false it is ignored. A structural/unclassified
-/// tracking failure never reaches this function: `processTimeFrame()`
-/// throws in that case, and CATrackerDPL::run() lets the exception
-/// propagate uncaught rather than returning a value to decide on.
-CATrackerPublicationAction decideCATrackerPublicationAction(bool trackerActive, float trackingResult) noexcept;
+CATrackerPublicationAction decideCATrackerPublicationAction(bool trackerActive, o2::itsmft::tracking::TrackingOutcome outcome) noexcept;
 
-/// MFT CA tracker DPL task. Delegates reconstruction to ITSMFTTrackingInterfaceMFT.
+/// MFT CA tracker DPL task. Owns the standalone TimeFrame and composes the
+/// workflow-owned input/timing/publication edge with Tracker.
 class CATrackerDPL : public o2::framework::Task
 {
  public:
   CATrackerDPL(std::shared_ptr<o2::base::GRPGeomRequest> gr,
                bool useMC,
-               o2::itsmft::TrackingMode::Type trMode)
-    : mGGCCDBRequest(std::move(gr)), mUseMC(useMC),
-      mTracking(useMC, trMode, false)
-  {
-    mTracking.bindPublicationAdapter(mPublicationAdapter);
-    mPublicationAdapter.adoptMFTPublicationCompatibility(&mCompatibility);
-  }
+               o2::itsmft::TrackingMode::Type trMode);
   ~CATrackerDPL() override = default;
 
   void init(framework::InitContext& ic) final;
@@ -72,11 +71,34 @@ class CATrackerDPL : public o2::framework::Task
   void configureROFViews(gsl::span<const o2::itsmft::ROFRecord> rofs,
                          gsl::span<const o2::dataformats::IRFrame> irFrames);
   void invalidatePublication() noexcept;
+  void initialiseTracking();
+  o2::itsmft::tracking::TrackingOutcome processTimeFrame(
+    gsl::span<const o2::itsmft::ROFRecord> rofs,
+    gsl::span<const o2::itsmft::CompClusterExt> clusters,
+    gsl::span<const unsigned char> patterns,
+    const o2::dataformats::MCTruthContainer<MCCompLabel>* labels,
+    gsl::span<const o2::dataformats::IRFrame> irFrames);
+  void resetEvent() noexcept;
+  bool isActive() const noexcept { return mFrame.isConfigured() && !mFrame.getTrackingParameters().empty(); }
+  const o2::itsmft::tracking::SurfaceTrackingScratch& getScratch() const noexcept
+  {
+    return mFrame.getWorkspace(o2::itsmft::tracking::ClusterSourceId{0});
+  }
+  o2::itsmft::tracking::SurfaceTrackingScratch& getScratch() noexcept
+  {
+    return mFrame.getWorkspace(o2::itsmft::tracking::ClusterSourceId{0});
+  }
 
   std::shared_ptr<o2::base::GRPGeomRequest> mGGCCDBRequest;
   bool mUseMC = false;
   bool mTrackingInitialised = false;
-  o2::itsmft::tracking::ITSMFTTrackingInterfaceMFT mTracking;
+  o2::itsmft::TrackingMode::Type mTrackingMode = o2::itsmft::TrackingMode::Unset;
+  o2::itsmft::tracking::TimeFrame mFrame;
+  std::unique_ptr<o2::itsmft::tracking::TrackerTraits> mTrackerTraits;
+  std::unique_ptr<o2::itsmft::tracking::Tracker> mTracker;
+  std::unique_ptr<o2::itsmft::tracking::TrackingOperationAdapter> mOperationAdapter;
+  std::unique_ptr<o2::itsmft::tracking::ClusterDecoder> mClusterDecoder;
+  const o2::itsmft::TopologyDictionary* mDictionary = nullptr;
   o2::itsmft::tracking::DetectorPublicationAdapter<o2::itsmft::tracking::MFTNLayers> mPublicationAdapter;
   o2::itsmft::tracking::MFTPublicationCompatibility mCompatibility;
   o2::its::ROFOverlapTable<o2::itsmft::tracking::MFTNLayers> mROFOverlapTable;

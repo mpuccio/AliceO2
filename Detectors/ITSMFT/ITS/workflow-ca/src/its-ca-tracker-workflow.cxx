@@ -11,7 +11,7 @@
 
 /// @file   its-ca-tracker-workflow.cxx
 /// \brief  Opt-in ITS common-CA tracker workflow (Gate 3 workflow-onboarding
-///         Slice 2). Runs Tracker<7>/ITSMFTTrackingInterface<7> on real ITS
+///         Slice 2). Runs the runtime-plan Tracker on real ITS
 ///         cluster inputs, Sync mode only, tracker-only outputs. The frozen
 ///         legacy o2-its-reco-workflow is untouched; this is a separate
 ///         executable built from an isolated library with no link-graph

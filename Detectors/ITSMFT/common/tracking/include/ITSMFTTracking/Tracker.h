@@ -100,25 +100,6 @@ struct TrackerInitializationResult {
   bool ok() const noexcept { return error == TrackerInitializationError::None; }
 };
 
-/// Gate 3 common-CA compatibility sentinel, retained for
-/// ITSMFTTrackingInterface's own external float contract (the ITS/MFT
-/// workflow adapters still call isDroppedTimeFrame() on
-/// processTimeFrame()'s return value) -- the single float value that means
-/// "this TimeFrame was a recoverable per-TF failure, DropTFUponFailure was
-/// set, and the TimeFrame has already been fully wiped -- do not publish
-/// anything for it, and it is safe to continue with the next TimeFrame."
-/// isDroppedTimeFrame() tests this exact value, never a sign check, so no
-/// other negative result, NaN, or infinity can be mistaken for a drop.
-inline constexpr float kDroppedTimeFrameResult = -1.f;
-
-/// Exact-match test for the drop sentinel above. Deliberately not `result <
-/// 0.f`: only the literal kDroppedTimeFrameResult value means "dropped",
-/// so callers cannot silently widen the contract to other negative values.
-inline bool isDroppedTimeFrame(float result) noexcept
-{
-  return result == kDroppedTimeFrameResult;
-}
-
 class Tracker
 {
  public:

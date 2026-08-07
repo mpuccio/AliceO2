@@ -26,8 +26,8 @@ o2_target_root_dictionary(ITSMFTTrackingParams
                           LINKDEF src/ITSMFTTrackingLinkDef.h)
 
 # Shared CA tracking infrastructure for ITS and MFT. Currently wired from the
-# MFT CA tracker workflow via ITSMFTTrackingInterface; ITS production tracking
-# remains on O2::ITSTrackingInterface / O2::ITStracking.
+# Standalone and combined CA workflows compose Tracker, Loader, and TimeFrame
+# at their workflow edges; frozen legacy ITS tracking remains separate.
 # Dependency is one-way (ITSMFTTracking -> ITStracking) to avoid a circular link.
 o2_add_library(ITSMFTTracking
                TARGETVARNAME targetName
@@ -46,7 +46,6 @@ o2_add_library(ITSMFTTracking
                        src/IndexTableConfiguration.cxx
                        src/SurfaceGraphBuilder.cxx
                        src/Tracker.cxx
-                       src/TrackingInterface.cxx
                        src/MFTFwdTrackHelpers.cxx
                        src/MultiSourceFrame.cxx
                        src/MultiSourceLoading.cxx

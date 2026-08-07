@@ -37,6 +37,7 @@
 #include "Framework/DataProcessorSpec.h"
 #include "Framework/Task.h"
 #include "ITSMFTTracking/ClusterDecoder.h"
+#include "ITSMFTTracking/CommonTrackOutputAdapter.h"
 #include "ITSMFTTracking/ClockTimingPublicationView.h"
 #include "ITSMFTTracking/DetectorPublicationAdapter.h"
 #include "ITSMFTTracking/Configuration.h"
@@ -49,7 +50,6 @@
 #include "ITSMFTTracking/TrackerTraits.h"
 #include "ITSMFTTracking/TimeFrame.h"
 #include "ITSMFTTracking/TrackingOperationAdapter.h"
-#include "ITSMFTTracking/TrackingInterface.h"
 #include "ITStracking/ROFLookupTables.h"
 
 namespace o2::itsmft::combined
@@ -78,7 +78,7 @@ class CombinedCATrackerDPL : public o2::framework::Task
   // Built exactly once, lazily, the first time updateTimeDependentParams()
   // observes a valid magnetic field (TrackingMode::getTrackingParameters()
   // for MFT reads o2::base::Propagator::Instance()->getNominalBz(), same
-  // ordering constraint ITSMFTTrackingInterface::initialise() already has).
+  // ordering constraint used by standalone workflow initialisation).
   void buildParticipantsOnce();
 
   // Composes the atomic load and, once that has committed, the tracking phase

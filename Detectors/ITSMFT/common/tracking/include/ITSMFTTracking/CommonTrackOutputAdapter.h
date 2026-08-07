@@ -62,6 +62,13 @@ struct CommonTrackOutputTimingContext {
   ClockTimingPublicationView clock;
 };
 
+struct CommonTrackPublicationExport {
+  o2::detectors::DetID::ID detector{};
+  ClusterSourceId source{};
+  ClockTimingPublicationView clock;
+  gsl::span<const SurfaceId> orderedSurfaces;
+};
+
 struct CommonTrackPublicationContext {
   o2::detectors::DetID::ID detector{};
   ClusterSourceId source{};
