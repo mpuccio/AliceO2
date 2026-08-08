@@ -19,23 +19,26 @@ pairs; the absent pair `(6,7)` keeps the detector families disconnected. No
 subgraph API or source-selected plan remains.
 
 The combined workflow owns one `Tracker`, `TrackerTraits`, `TimeFrame`, graph,
-binding, parameter record, workspace, schedule, and call to `Tracker::run`.
+binding, workspace, schedule, and call to `Tracker::run`.
 `TrackerTraits` may partition work by `SurfaceKind` internally to retain the
 existing branch-free cylinder and disk kernels, but those partitions are not
-plans and carry no source identity.
+plans and carry no source identity. An iteration may bind host parameters by
+`SurfaceKind`; both entries describe the same global surface arrays and plan,
+while preserving the established family-specific cuts and LUT configuration.
 
 Input sources remain distinct only as data provenance. Source IDs continue to
 qualify decoded measurements, errors, labels, refit checks, and publication;
-they no longer select graph, binding, parameters, tracker, or workspace.
+they never select a graph, binding, tracker, workspace, or family parameters.
 
 ## Combined defaults
 
-The combined scalar configuration inherits ITS Sync scalar values. Every
-surface-indexed field is the ITS value sequence followed by the MFT value
-sequence. `StartLayerMask` and the graph seeding mask cover all 17 surfaces by
-default (`0x1ffff`), so both disconnected components are eligible to produce
-roads and tracks. Detector-local hole masks are projected into the global rank
-space; hole expansion never crosses the missing ITS-to-MFT adjacency.
+Every surface-indexed field is the ITS value sequence followed by the MFT value
+sequence. Cylinder leaves retain ITS Sync scalar semantics and disk leaves
+retain MFT Sync scalar semantics. `StartLayerMask` and the graph seeding mask
+cover all 17 surfaces by default (`0x1ffff`), so both disconnected components
+are eligible to produce roads and tracks. Detector-local hole masks are
+projected into the global rank space; hole expansion never crosses the missing
+ITS-to-MFT adjacency.
 
 ## Preserved boundaries
 
@@ -55,9 +58,7 @@ space; hole expansion never crosses the missing ITS-to-MFT adjacency.
 Acceptance requires the production pair-list parity tests, explicit one-plan
 API guards, nonzero combined ITS and MFT tracks, the complete serial `itsmft`
 suite, strict authentication preflight, and unchanged fixture checksums.
-Standalone replay and the combined ITS component must retain the frozen
-baseline. Combined MFT is intentionally re-baselined because the all-surface
-start mask and ITS-owned shared scalar defaults change its accepted road set;
-that result must instead be deterministic across fresh runs with zero projected
-value delta. A missing external prerequisite is reported as a gate limitation
-rather than bypassed.
+Standalone replay and both combined components must retain the frozen baseline.
+The all-surface start mask does not authorize one family's scalar cuts to leak
+into the other disconnected component. A missing external prerequisite is
+reported as a gate limitation rather than bypassed.

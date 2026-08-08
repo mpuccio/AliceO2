@@ -320,7 +320,8 @@ struct StandaloneRun {
   TrackingResult result;
 
   StandaloneRun(o2::detectors::DetID::ID det, SurfaceKind kind,
-                const TrackingParameters& singleParams, const std::vector<DecodedCluster>& decoded)
+                const TrackingParameters& singleParams, const std::vector<DecodedCluster>& decoded,
+                int rofLength = 40)
     : params{singleParams}
   {
     const auto orderedSurfaces = ordered(0, NLayers);
@@ -358,7 +359,7 @@ struct StandaloneRun {
     }
     const std::vector<ROFRecord> rofs{ROFRecord{{100, 5}, 0, 0, static_cast<int>(compact.size())}};
     PrescribedDecoder decoder{det, kind, decoded};
-    const auto load = scratch->loadNormalizedSource(frame, decoder, o2::InteractionRecord{50, 5}, ROFTimingConfig{40, 0, 0, 0},
+    const auto load = scratch->loadNormalizedSource(frame, decoder, o2::InteractionRecord{50, 5}, ROFTimingConfig{rofLength, 0, 0, 0},
                                                     compact, patterns, rofs, &dict(), nullptr, det,
                                                     gsl::span<const SurfaceId>{frame.getGraph(0).getOrderedSurfaces()},
                                                     frame.getGraph(0).getSurfaceCatalog());
@@ -366,7 +367,7 @@ struct StandaloneRun {
 
     o2::its::LayerTiming layerTiming{};
     layerTiming.mNROFsTF = 1;
-    layerTiming.mROFLength = 40;
+    layerTiming.mROFLength = rofLength;
     o2::its::ROFOverlapTable<NLayers> rofTable;
     for (int layer = 0; layer < NLayers; ++layer) {
       rofTable.defineLayer(layer, layerTiming);
@@ -548,7 +549,11 @@ BOOST_AUTO_TEST_CASE(CombinedLoadingBackfillsOneGlobalWorkspace)
   const auto itsSource = makeSource(ClusterSourceId{0}, o2::detectors::DetID::ITS, itsSurfaces, itsDecoder, itsCompact, itsPatterns, itsRofs, itsClusters);
   const auto mftSource = makeSource(ClusterSourceId{1}, o2::detectors::DetID::MFT, mftSurfaces, mftDecoder, mftCompact, mftPatterns, mftRofs, mftClusters);
 
-  auto composer = makeComposer(makeItsParams(), makeMftParams());
+  auto itsParams = makeItsParams();
+  auto mftParams = makeMftParams();
+  itsParams.MinTrackLength = 4;
+  mftParams.MinTrackLength = 5;
+  auto composer = makeComposer(itsParams, mftParams);
   TimeFrame frame;
   composer.adoptFrame(frame);
   composer.setMemoryPool(std::make_shared<BoundedMemoryResource>());
@@ -558,6 +563,15 @@ BOOST_AUTO_TEST_CASE(CombinedLoadingBackfillsOneGlobalWorkspace)
   constexpr uint32_t allCombinedSurfaces = (uint32_t{1} << (ITSNLayers + MFTNLayers)) - 1u;
   BOOST_REQUIRE_EQUAL(frame.getTrackingParameters().size(), 1u);
   BOOST_CHECK_EQUAL(frame.getTrackingParameters()[0].StartLayerMask.value(), allCombinedSurfaces);
+  BOOST_REQUIRE_EQUAL(frame.getTrackingParametersByKind().size(), 1u);
+  const auto& parametersByKind = frame.getTrackingParametersByKind()[0];
+  BOOST_CHECK_EQUAL(parametersByKind[static_cast<std::size_t>(SurfaceKind::Cylinder)].MinTrackLength, 4);
+  BOOST_CHECK_EQUAL(parametersByKind[static_cast<std::size_t>(SurfaceKind::Disk)].MinTrackLength, 5);
+  BOOST_CHECK_EQUAL(parametersByKind[static_cast<std::size_t>(SurfaceKind::Cylinder)].ColBins, itsParams.ColBins);
+  BOOST_CHECK_EQUAL(parametersByKind[static_cast<std::size_t>(SurfaceKind::Disk)].ColBins, mftParams.ColBins);
+  BOOST_CHECK_EQUAL(parametersByKind[static_cast<std::size_t>(SurfaceKind::Disk)].TrackletMinAbsX, mftParams.TrackletMinAbsX);
+  BOOST_CHECK_EQUAL(parametersByKind[static_cast<std::size_t>(SurfaceKind::Cylinder)].StartLayerMask.value(), allCombinedSurfaces);
+  BOOST_CHECK_EQUAL(parametersByKind[static_cast<std::size_t>(SurfaceKind::Disk)].StartLayerMask.value(), allCombinedSurfaces);
   BOOST_CHECK_EQUAL(frame.getGraph(0).getView().seedingSurfaces.value(), allCombinedSurfaces);
 
   const auto result = composer.process(itsSource, mftSource, o2::InteractionRecord{50, 5});
@@ -628,7 +642,7 @@ BOOST_AUTO_TEST_CASE(ITSAndMFTAcceptedResultsReproduceStandaloneCountsInOneCombi
   // fixture above is a real, non-degenerate curved trajectory, so this is a
   // nonzero accepted-track oracle, not a 0==0 parity check.
   BOOST_REQUIRE_GT(standaloneIts.frame.getCommonTracks().size(), 0u);
-  StandaloneRun<o2::detectors::DetID::MFT, MFTNLayers> standaloneMft{o2::detectors::DetID::MFT, SurfaceKind::Disk, mftParams, mftClusters};
+  StandaloneRun<o2::detectors::DetID::MFT, MFTNLayers> standaloneMft{o2::detectors::DetID::MFT, SurfaceKind::Disk, mftParams, mftClusters, 80};
   BOOST_REQUIRE(standaloneMft.result.outcome == TrackingOutcome::Success);
   BOOST_REQUIRE_GT(standaloneMft.frame.getCommonTracks().size(), 0u);
 
@@ -639,10 +653,10 @@ BOOST_AUTO_TEST_CASE(ITSAndMFTAcceptedResultsReproduceStandaloneCountsInOneCombi
   std::vector<ROFRecord> itsRofs, mftRofs;
   const auto itsSource = makeSource(ClusterSourceId{0}, o2::detectors::DetID::ITS, itsSurfaces, itsDecoder, itsCompact, itsPatterns, itsRofs, itsClusters);
   auto mftSource = makeSource(ClusterSourceId{1}, o2::detectors::DetID::MFT, mftSurfaces, mftDecoder, mftCompact, mftPatterns, mftRofs, mftClusters);
-  // Deliberately make the disconnected MFT component's ROF much shorter.
-  // ITS timestamp clamping in the one global workspace must still depend
-  // only on the surfaces hit by each ITS track.
-  mftSource.timing.rofLength = 2;
+  // Make the disconnected MFT component's ROF longer than ITS. Reusing the
+  // first/global ITS view would incorrectly clamp MFT to an ITS half-ROF;
+  // the per-surface timing lookup must reproduce standalone MFT instead.
+  mftSource.timing.rofLength = 80;
 
   auto composer = makeComposer(itsParams, mftParams);
   TimeFrame frame;
@@ -682,6 +696,14 @@ BOOST_AUTO_TEST_CASE(ITSAndMFTAcceptedResultsReproduceStandaloneCountsInOneCombi
   for (size_t i = 0; i < result.nITSTracks; ++i) {
     BOOST_CHECK_EQUAL(commonTracks[i].timestamp.begin, standaloneIts.frame.getCommonTracks()[i].timestamp.begin);
     BOOST_CHECK_EQUAL(commonTracks[i].timestamp.end, standaloneIts.frame.getCommonTracks()[i].timestamp.end);
+  }
+  for (size_t i = 0; i < result.nMFTTracks; ++i) {
+    const auto& combinedTrack = commonTracks[result.nITSTracks + i];
+    const auto& standaloneTrack = standaloneMft.frame.getCommonTracks()[i];
+    BOOST_CHECK_EQUAL(combinedTrack.timestamp.begin, standaloneTrack.timestamp.begin);
+    BOOST_CHECK_EQUAL(combinedTrack.timestamp.end, standaloneTrack.timestamp.end);
+    BOOST_CHECK_GT(combinedTrack.timestamp.end - combinedTrack.timestamp.begin,
+                   commonTracks.front().timestamp.end - commonTracks.front().timestamp.begin);
   }
   bool seenMft = false;
   for (size_t i = 0; i < commonTracks.size(); ++i) {

@@ -90,24 +90,30 @@ inline TrackerInitialization makeCombinedConfiguration(const TrackingParameters&
   definition.holeSurfaces = itsDefinition.holeSurfaces | mftDefinition.holeSurfaces;
   definition.seedingSurfaces = surfaceRangeMask(0, ITSNLayers + MFTNLayers);
   iteration.graph = std::move(definition);
-  iteration.parameters = itsParams;
-  iteration.parameters.NLayers = ITSNLayers + MFTNLayers;
-  const auto append = [](auto& output, const auto& suffix) {
-    output.insert(output.end(), suffix.begin(), suffix.end());
+  const auto combine = [&](const TrackingParameters& familyParams) {
+    auto parameters = familyParams;
+    parameters.NLayers = ITSNLayers + MFTNLayers;
+    const auto concatenate = [](auto& output, const auto& prefix, const auto& suffix) {
+      output = prefix;
+      output.insert(output.end(), suffix.begin(), suffix.end());
+    };
+    concatenate(parameters.AddTimeError, itsParams.AddTimeError, mftParams.AddTimeError);
+    concatenate(parameters.LayerZ, itsParams.LayerZ, mftParams.LayerZ);
+    concatenate(parameters.LayerRadii, itsParams.LayerRadii, mftParams.LayerRadii);
+    concatenate(parameters.LayerxX0, itsParams.LayerxX0, mftParams.LayerxX0);
+    concatenate(parameters.LayerResolution, itsParams.LayerResolution, mftParams.LayerResolution);
+    concatenate(parameters.SystError2Row, itsParams.SystError2Row, mftParams.SystError2Row);
+    concatenate(parameters.SystError2Col, itsParams.SystError2Col, mftParams.SystError2Col);
+    parameters.LayerColHalfExtent = itsParams.LayerColHalfExtent.empty() ? itsParams.LayerZ : itsParams.LayerColHalfExtent;
+    const auto& mftColExtent = mftParams.LayerColHalfExtent.empty() ? mftParams.LayerZ : mftParams.LayerColHalfExtent;
+    parameters.LayerColHalfExtent.insert(parameters.LayerColHalfExtent.end(), mftColExtent.begin(), mftColExtent.end());
+    parameters.StartLayerMask = LayerMask{(uint32_t{1} << (ITSNLayers + MFTNLayers)) - 1u};
+    parameters.HoleLayerMask = LayerMask{itsParams.HoleLayerMask.value() |
+                                         (mftParams.HoleLayerMask.value() << ITSNLayers)};
+    return parameters;
   };
-  append(iteration.parameters.AddTimeError, mftParams.AddTimeError);
-  append(iteration.parameters.LayerZ, mftParams.LayerZ);
-  append(iteration.parameters.LayerRadii, mftParams.LayerRadii);
-  append(iteration.parameters.LayerxX0, mftParams.LayerxX0);
-  append(iteration.parameters.LayerResolution, mftParams.LayerResolution);
-  append(iteration.parameters.SystError2Row, mftParams.SystError2Row);
-  append(iteration.parameters.SystError2Col, mftParams.SystError2Col);
-  iteration.parameters.LayerColHalfExtent = itsParams.LayerColHalfExtent.empty() ? itsParams.LayerZ : itsParams.LayerColHalfExtent;
-  append(iteration.parameters.LayerColHalfExtent,
-         mftParams.LayerColHalfExtent.empty() ? mftParams.LayerZ : mftParams.LayerColHalfExtent);
-  iteration.parameters.StartLayerMask = LayerMask{(uint32_t{1} << (ITSNLayers + MFTNLayers)) - 1u};
-  iteration.parameters.HoleLayerMask = LayerMask{itsParams.HoleLayerMask.value() |
-                                                 (mftParams.HoleLayerMask.value() << ITSNLayers)};
+  iteration.parameters = combine(itsParams);
+  iteration.parametersByKind[static_cast<std::size_t>(SurfaceKind::Disk)] = combine(mftParams);
   configuration.iterations.push_back(std::move(iteration));
   return configuration;
 }

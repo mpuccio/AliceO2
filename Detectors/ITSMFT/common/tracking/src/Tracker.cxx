@@ -42,10 +42,12 @@ TrackerInitializationResult Tracker::initialize(TimeFrame& frame, const TrackerI
 
   std::vector<SurfaceGraph> graphs;
   std::vector<TrackingParameters> parameters;
+  std::vector<std::array<TrackingParameters, 2>> parametersByKind;
   std::vector<std::unique_ptr<SurfacePlanBinding>> bindings;
   std::vector<TrackingWorkspaceCapacity> capacities;
   graphs.reserve(configuration.iterations.size());
   parameters.reserve(configuration.iterations.size());
+  parametersByKind.reserve(configuration.iterations.size());
   bindings.reserve(configuration.iterations.size());
   capacities.reserve(configuration.iterations.size());
 
@@ -81,15 +83,27 @@ TrackerInitializationResult Tracker::initialize(TimeFrame& frame, const TrackerI
       result.failedIteration = iteration;
       return result;
     }
+    std::array<TrackingParameters, 2> resolvedByKind{input.parameters, input.parameters};
+    for (std::size_t kind = 0; kind < resolvedByKind.size(); ++kind) {
+      if (input.parametersByKind[kind]) {
+        resolvedByKind[kind] = *input.parametersByKind[kind];
+      }
+      if (resolvedByKind[kind].NLayers != 0 && resolvedByKind[kind].NLayers != input.graph.orderedSurfaces.size()) {
+        result.error = TrackerInitializationError::CapacityMismatch;
+        result.failedIteration = iteration;
+        return result;
+      }
+    }
     capacities.push_back(TrackingWorkspaceCapacity{
       input.graph.orderedSurfaces.size(), bindingResult.binding->getGlobalTransitions().size(),
       bindingResult.binding->getGlobalCells().size()});
     graphs.push_back(*graphResult.graph);
     parameters.push_back(input.parameters);
+    parametersByKind.push_back(std::move(resolvedByKind));
     bindings.push_back(std::move(bindingResult.binding));
   }
 
-  if (!frame.commitConfiguration(std::move(graphs), std::move(parameters), std::move(bindings),
+  if (!frame.commitConfiguration(std::move(graphs), std::move(parameters), std::move(parametersByKind), std::move(bindings),
                                  std::move(capacities), configuration.memoryPool)) {
     result.error = TrackerInitializationError::CapacityMismatch;
     return result;
@@ -105,11 +119,12 @@ TrackingResult Tracker::run(TimeFrame& frame, TrackerTraits& traits)
   }
   auto& scratch = frame.getWorkspace();
   const auto& trkParams = frame.getTrackingParameters();
+  const auto& trkParamsByKind = frame.getTrackingParametersByKind();
   const auto& memoryPool = frame.getMemoryPool();
   traits.adoptFrame(&frame);
   traits.adoptScratch(&scratch);
   traits.setBz(frame.getBz());
-  traits.updateTrackingParameters(trkParams);
+  traits.updateTrackingParameters(trkParams, trkParamsByKind);
 
   int maxNvertices{-1};
   if (trkParams[0].PerPrimaryVertexProcessing) {

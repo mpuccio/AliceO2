@@ -141,7 +141,7 @@ class TrackerTraits
   virtual void findCellsNeighbours(const int iteration);
   virtual void findRoads(const int iteration, SeedRefitFunction refitFunction);
 
-  void acceptTracks(int iteration,
+  void acceptTracks(const TrackingParameters& parameters,
                     bounded_vector<TrackingCandidate>& tracks,
                     bounded_vector<bounded_vector<int>>& firstClusters);
 
@@ -151,7 +151,17 @@ class TrackerTraits
   bounded_vector<TrackingCandidate>& acceptedTracksForSharedStatus();
   void clearAcceptedTracksForSharedStatus();
 
-  void updateTrackingParameters(gsl::span<const TrackingParameters> trkPars) { mTrkParams = trkPars; }
+  void updateTrackingParameters(gsl::span<const TrackingParameters> trkPars)
+  {
+    mTrkParams = trkPars;
+    mTrkParamsByKind = {};
+  }
+  void updateTrackingParameters(gsl::span<const TrackingParameters> trkPars,
+                                gsl::span<const std::array<TrackingParameters, 2>> trkParsByKind)
+  {
+    mTrkParams = trkPars;
+    mTrkParamsByKind = trkParsByKind;
+  }
   SurfaceTrackingScratch* getScratch() { return mScratch; }
 
   virtual void setBz(float bz);
@@ -199,6 +209,11 @@ class TrackerTraits
   gsl::span<const gsl::span<const SurfaceMeasurement>> getLayerMeasurements() const noexcept { return {mLayerMeasurements.data(), mLayerMeasurements.size()}; }
 
  private:
+  const TrackingParameters& parametersForKind(int iteration, SurfaceKind kind) const noexcept
+  {
+    return mTrkParamsByKind.empty() ? mTrkParams[iteration]
+                                    : mTrkParamsByKind[iteration][kind == SurfaceKind::Cylinder ? 0u : 1u];
+  }
   void resetTraversalCache() noexcept;
   void validateSparsePlan(int iteration, const SurfaceGraphView& graph, std::optional<SurfaceKind>& activeKind, bool& mixedKind) const;
   int requireSurfacePosition(int iteration, SurfaceId id) const;
@@ -307,6 +322,7 @@ class TrackerTraits
   SurfaceTrackingScratch* mScratch = nullptr;
   TimeFrame* mFrame = nullptr;
   gsl::span<const TrackingParameters> mTrkParams;
+  gsl::span<const std::array<TrackingParameters, 2>> mTrkParamsByKind;
   float mBz{-999.f};
 };
 
