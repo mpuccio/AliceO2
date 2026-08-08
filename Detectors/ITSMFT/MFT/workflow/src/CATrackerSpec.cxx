@@ -89,8 +89,8 @@ bool completePublication(DetectorPublicationAdapter<NLayers>& publication,
                          ClusterSourceId source,
                          const TrackingResult& result)
 {
-  const auto& parameters = frame.getTrackingParameters(source);
-  const auto& scratch = frame.getWorkspace(source);
+  const auto& parameters = frame.getTrackingParameters();
+  const auto& scratch = frame.getWorkspace();
   const auto& candidates = traits.acceptedTracksForSharedStatus();
   for (std::size_t iteration = 0; iteration < parameters.size(); ++iteration) {
     if (iteration >= result.acceptedTrackCounts.size() || result.acceptedTrackCounts[iteration] > candidates.size()) {
@@ -224,26 +224,16 @@ void CATrackerDPL::initialiseTracking()
   configuration.iterations.reserve(parameters.size());
   for (const auto& params : parameters) {
     o2::itsmft::tracking::TrackerIterationConfiguration iteration;
-    iteration.parameters.push_back(params);
-    o2::itsmft::tracking::SurfaceGraphSubgraph subgraph;
-    subgraph.orderedSurfaces.assign(ordered.begin(), ordered.end());
-    subgraph.maxHoles = params.MaxHoles;
-    subgraph.holeSurfaces = o2::itsmft::tracking::positionalSurfaceMask(params.HoleLayerMask, ordered, o2::itsmft::tracking::MFTNLayers);
-    subgraph.seedingSurfaces = o2::itsmft::tracking::positionalSurfaceMask(params.StartLayerMask, ordered, o2::itsmft::tracking::MFTNLayers);
-    iteration.graphSubgraphs.push_back(std::move(subgraph));
-    o2::itsmft::tracking::SurfaceMask owned;
-    for (uint16_t surface = 0; surface < o2::itsmft::tracking::MFTNLayers; ++surface) {
-      owned.set(o2::itsmft::tracking::SurfaceId{surface});
-    }
-    iteration.bindings.push_back(o2::itsmft::tracking::SurfacePlanBinding::Declaration{
-      o2::itsmft::tracking::ClusterSourceId{0}, owned,
-      std::vector<o2::itsmft::tracking::SurfaceId>{ordered.begin(), ordered.end()},
-      o2::itsmft::tracking::SurfaceKind::Disk});
+    iteration.parameters = params;
+    iteration.graph = o2::itsmft::tracking::makeSurfaceChain(
+      ordered, params.MaxHoles,
+      o2::itsmft::tracking::positionalSurfaceMask(params.HoleLayerMask, ordered, o2::itsmft::tracking::MFTNLayers),
+      o2::itsmft::tracking::positionalSurfaceMask(params.StartLayerMask, ordered, o2::itsmft::tracking::MFTNLayers));
     configuration.iterations.push_back(std::move(iteration));
   }
 
   mTracker = std::make_unique<o2::itsmft::tracking::Tracker>(
-    &o2::itsmft::tracking::detail::refitMFTSeed, o2::itsmft::tracking::ClusterSourceId{0});
+    &o2::itsmft::tracking::detail::refitMFTSeed);
   const auto result = mTracker->initialize(mFrame, configuration);
   if (!result.ok()) {
     LOGP(fatal, "MFT CA tracker failed to initialize static configuration (error={} iteration={} graph={} binding={})",
@@ -277,11 +267,11 @@ o2::itsmft::tracking::TrackingOutcome CATrackerDPL::processTimeFrame(
         o2::itsmft::tracking::TimeFrameLoadFailureReason::DictionaryNotConfigured,
         "MFT CA tracker cluster dictionary is not available"};
     }
-    const auto* binding = mFrame.getBinding(0, o2::itsmft::tracking::ClusterSourceId{0});
+    const auto* binding = mFrame.getBinding(0);
     if (binding == nullptr) {
       throw o2::itsmft::tracking::TimeFrameLoadException{
         o2::itsmft::tracking::TimeFrameLoadFailureReason::DictionaryNotConfigured,
-        "MFT CA tracker has no configured source binding"};
+        "MFT CA tracker has no configured surface binding"};
     }
     const auto orderedSurfaces = binding->getOrderedSurfaces();
     const auto rofViews = getScratch().getROFViews();

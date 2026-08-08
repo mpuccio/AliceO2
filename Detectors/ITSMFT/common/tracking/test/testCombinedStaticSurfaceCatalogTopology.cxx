@@ -29,13 +29,11 @@
 //    SurfaceGraphBuilder used today, each detector's own current
 //    production-shaped sparse hole/transition topology (MaxHoles=1,
 //    HoleLayerMask=1<<3 for ITS; MaxHoles=1, HoleLayerMask=1<<5 for MFT)
-//    remains isolated under each detector's ordered-surface subgraph;
+//    remains isolated under each detector's ordered-surface component;
 //  - zero transitions or cells cross the ITS/MFT boundary;
 //  - CSR (transition -> cell) consistency holds;
-//  - no runtime component/subgraph concept is introduced: SurfaceGraphBuilder
-//    and SurfaceGraphSubgraph are the same pre-existing types every
-//    detector already uses standalone today; this test adds no new type,
-//    only a new catalog *source*.
+//  - no runtime component concept is introduced: the flat graph definition
+//    is built directly over the shared catalog, with no new catalog type.
 //
 // Gate 4 B2 Slice 2 landed after this test: SurfaceGraphBuilder now
 // borrows SurfaceCatalogView directly, so the topology test below borrows
@@ -143,9 +141,20 @@ BOOST_AUTO_TEST_CASE(CombinedStaticCatalogPreservesCurrentTopologyWithNoBoundary
   // that exception is gone now that the builder itself borrows).
   const SurfaceCatalogView catalogView{kITSMFTCombinedStaticSurfaceCatalog.data(),
                                        static_cast<uint32_t>(kITSMFTCombinedStaticSurfaceCatalog.size())};
-  SurfaceGraphBuilder builder{catalogView};
-  builder.addSubgraph(SurfaceGraphSubgraph{orderedIds(0, ITSNLayers), 1, itsHoleMask, SurfaceMask{}});
-  builder.addSubgraph(SurfaceGraphSubgraph{orderedIds(ITSNLayers, MFTNLayers), 1, mftHoleMask, SurfaceMask{}});
+  const auto itsDefinition = makeSurfaceChain(orderedIds(0, ITSNLayers), 1, itsHoleMask);
+  const auto mftDefinition = makeSurfaceChain(orderedIds(ITSNLayers, MFTNLayers), 1, mftHoleMask);
+  SurfaceGraphDefinition definition;
+  definition.orderedSurfaces = itsDefinition.orderedSurfaces;
+  definition.basePairs = itsDefinition.basePairs;
+  const auto offset = static_cast<uint16_t>(definition.orderedSurfaces.size());
+  definition.orderedSurfaces.insert(definition.orderedSurfaces.end(), mftDefinition.orderedSurfaces.begin(), mftDefinition.orderedSurfaces.end());
+  for (const auto pair : mftDefinition.basePairs) {
+    definition.basePairs.push_back(SurfaceAdjacencyPair{static_cast<uint16_t>(pair.fromIndex + offset),
+                                                        static_cast<uint16_t>(pair.toIndex + offset)});
+  }
+  definition.maxHoles = 1;
+  definition.holeSurfaces = itsDefinition.holeSurfaces | mftDefinition.holeSurfaces;
+  SurfaceGraphBuilder builder{catalogView, std::move(definition)};
   const auto layoutResult = builder.build();
   BOOST_REQUIRE(layoutResult.ok());
   const auto view = layoutResult.graph->getView();
@@ -155,7 +164,7 @@ BOOST_AUTO_TEST_CASE(CombinedStaticCatalogPreservesCurrentTopologyWithNoBoundary
   // that skip its declared hole surface.  These counts are derived from the
   // supplied ordered positions, not from a layer-indexed reference graph:
   // six adjacent plus one hole transition for ITS, and nine adjacent plus
-  // one hole transition for MFT; each subgraph consequently contributes its
+  // one hole transition for MFT; each component consequently contributes its
   // surface count in the three-surface cell topology.
   BOOST_CHECK_EQUAL(view.nTransitions, 17u); // 7 ITS + 10 MFT
   BOOST_CHECK_EQUAL(view.nCells, 17u);       // 7 ITS + 10 MFT

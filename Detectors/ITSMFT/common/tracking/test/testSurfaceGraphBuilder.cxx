@@ -43,6 +43,15 @@ SurfaceCatalogView asView(const std::vector<SurfaceDescriptor>& catalog)
   return SurfaceCatalogView{catalog.data(), static_cast<uint32_t>(catalog.size())};
 }
 
+SurfaceGraphBuilder makeBuilder(const std::vector<SurfaceDescriptor>& catalog,
+                                const std::vector<SurfaceId>& ordered,
+                                int maxHoles = 0,
+                                SurfaceMask holeSurfaces = {},
+                                SurfaceMask seedingSurfaces = {})
+{
+  return SurfaceGraphBuilder{asView(catalog), makeSurfaceChain(ordered, maxHoles, holeSurfaces, seedingSurfaces)};
+}
+
 std::vector<SurfaceId> orderedIds(std::initializer_list<uint16_t> ids)
 {
   std::vector<SurfaceId> out;
@@ -101,10 +110,9 @@ BOOST_AUTO_TEST_CASE(TraversalFollowsSuppliedOrderNotNumericSurfaceId)
 {
   // Catalog ids are dense (0..4) but the physical traversal order is the
   // deliberately non-monotonic chain 3 -> 1 -> 4 -> 0; surface 2 is present
-  // in the catalog but not activated by this subgraph.
+  // in the catalog but not activated by this graph definition.
   const auto catalog = denseCatalog(5);
-  SurfaceGraphBuilder builder{asView(catalog)};
-  builder.addSubgraph(SurfaceGraphSubgraph{orderedIds({3, 1, 4, 0}), 0, SurfaceMask{}, SurfaceMask{}});
+  auto builder = makeBuilder(catalog, orderedIds({3, 1, 4, 0}));
 
   const auto result = builder.build();
   BOOST_REQUIRE(result.ok());
@@ -137,8 +145,7 @@ BOOST_AUTO_TEST_CASE(TraversalFollowsSuppliedOrderNotNumericSurfaceId)
 BOOST_AUTO_TEST_CASE(SparseTopologySevenNoHoles)
 {
   const auto catalog = denseCatalog(7);
-  SurfaceGraphBuilder builder{asView(catalog)};
-  builder.addSubgraph(SurfaceGraphSubgraph{orderedIds({0, 1, 2, 3, 4, 5, 6}), 0, SurfaceMask{}, SurfaceMask{}});
+  auto builder = makeBuilder(catalog, orderedIds({0, 1, 2, 3, 4, 5, 6}));
   const auto result = builder.build();
   BOOST_REQUIRE(result.ok());
 
@@ -148,8 +155,7 @@ BOOST_AUTO_TEST_CASE(SparseTopologySevenNoHoles)
 BOOST_AUTO_TEST_CASE(SparseTopologySevenSingleAllowedHole)
 {
   const auto catalog = denseCatalog(7);
-  SurfaceGraphBuilder builder{asView(catalog)};
-  builder.addSubgraph(SurfaceGraphSubgraph{orderedIds({0, 1, 2, 3, 4, 5, 6}), 1, maskOf({3}), SurfaceMask{}});
+  auto builder = makeBuilder(catalog, orderedIds({0, 1, 2, 3, 4, 5, 6}), 1, maskOf({3}));
   const auto result = builder.build();
   BOOST_REQUIRE(result.ok());
 
@@ -162,8 +168,7 @@ BOOST_AUTO_TEST_CASE(SparseTopologySevenSingleAllowedHole)
 BOOST_AUTO_TEST_CASE(SparseTopologyTenNoHoles)
 {
   const auto catalog = denseCatalog(10, SurfaceKind::Disk);
-  SurfaceGraphBuilder builder{asView(catalog)};
-  builder.addSubgraph(SurfaceGraphSubgraph{orderedIds({0, 1, 2, 3, 4, 5, 6, 7, 8, 9}), 0, SurfaceMask{}, SurfaceMask{}});
+  auto builder = makeBuilder(catalog, orderedIds({0, 1, 2, 3, 4, 5, 6, 7, 8, 9}));
   const auto result = builder.build();
   BOOST_REQUIRE(result.ok());
   checkSparseTopology(result.graph->getView());
@@ -172,8 +177,7 @@ BOOST_AUTO_TEST_CASE(SparseTopologyTenNoHoles)
 BOOST_AUTO_TEST_CASE(SparseTopologyTenSingleAllowedHole)
 {
   const auto catalog = denseCatalog(10, SurfaceKind::Disk);
-  SurfaceGraphBuilder builder{asView(catalog)};
-  builder.addSubgraph(SurfaceGraphSubgraph{orderedIds({0, 1, 2, 3, 4, 5, 6, 7, 8, 9}), 1, maskOf({5}), SurfaceMask{}});
+  auto builder = makeBuilder(catalog, orderedIds({0, 1, 2, 3, 4, 5, 6, 7, 8, 9}), 1, maskOf({5}));
   const auto result = builder.build();
   BOOST_REQUIRE(result.ok());
 
@@ -185,7 +189,7 @@ BOOST_AUTO_TEST_CASE(SparseTopologyTenSingleAllowedHole)
 
 BOOST_AUTO_TEST_CASE(SingleCallDisconnectedCylinderAndDiskLayout)
 {
-  // One builder, one build() call, two disjoint subgraphs: a 7-cylinder
+  // One builder, one build() call, two disjoint components: a 7-cylinder
   // ITS-like stack (ids 0-6) and a 10-disk MFT-like stack (ids 7-16) over a
   // single 17-surface catalog.
   std::vector<SurfaceDescriptor> catalog = denseCatalog(7, SurfaceKind::Cylinder);
@@ -193,9 +197,17 @@ BOOST_AUTO_TEST_CASE(SingleCallDisconnectedCylinderAndDiskLayout)
     catalog.push_back(surface(id, SurfaceKind::Disk));
   }
 
-  SurfaceGraphBuilder builder{asView(catalog)};
-  builder.addSubgraph(SurfaceGraphSubgraph{orderedIds({0, 1, 2, 3, 4, 5, 6}), 0, SurfaceMask{}, maskOf({0})});
-  builder.addSubgraph(SurfaceGraphSubgraph{orderedIds({7, 8, 9, 10, 11, 12, 13, 14, 15, 16}), 0, SurfaceMask{}, maskOf({7})});
+  SurfaceGraphDefinition definition;
+  definition.orderedSurfaces = orderedIds({0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16});
+  definition.basePairs.reserve(13);
+  for (uint16_t index = 0; index < 6; ++index) {
+    definition.basePairs.push_back(SurfaceAdjacencyPair{index, static_cast<uint16_t>(index + 1)});
+  }
+  for (uint16_t index = 7; index < 16; ++index) {
+    definition.basePairs.push_back(SurfaceAdjacencyPair{index, static_cast<uint16_t>(index + 1)});
+  }
+  definition.seedingSurfaces = maskOf({0, 7});
+  SurfaceGraphBuilder builder{asView(catalog), std::move(definition)};
 
   const auto result = builder.build();
   BOOST_REQUIRE(result.ok());
@@ -227,7 +239,7 @@ BOOST_AUTO_TEST_CASE(SingleCallDisconnectedCylinderAndDiskLayout)
 BOOST_AUTO_TEST_CASE(CatalogAboveThirtyTwoSurfacesIsRejected)
 {
   const auto catalog = denseCatalog(33);
-  SurfaceGraphBuilder builder{asView(catalog)};
+  SurfaceGraphBuilder builder{asView(catalog), SurfaceGraphDefinition{}};
   const auto result = builder.build();
   BOOST_CHECK(!result.ok());
   BOOST_CHECK(result.error == SurfaceGraphBuildError::TopologyRejected);
@@ -239,8 +251,7 @@ BOOST_AUTO_TEST_CASE(NonContiguousCatalogSurfaceIdsAreSupported)
   std::vector<SurfaceDescriptor> catalog;
   catalog.push_back(surface(0));
   catalog.push_back(surface(2));
-  SurfaceGraphBuilder builder{asView(catalog)};
-  builder.addSubgraph(SurfaceGraphSubgraph{orderedIds({0, 2}), 0, SurfaceMask{}, maskOf({2})});
+  auto builder = makeBuilder(catalog, orderedIds({0, 2}), 0, SurfaceMask{}, maskOf({2}));
 
   const auto result = builder.build();
   BOOST_REQUIRE(result.ok());
@@ -248,62 +259,59 @@ BOOST_AUTO_TEST_CASE(NonContiguousCatalogSurfaceIdsAreSupported)
   BOOST_CHECK(result.graph->getView().getSurface(SurfaceId{2}).id == SurfaceId{2});
 }
 
-BOOST_AUTO_TEST_CASE(InvalidSubgraphSurfaceIdsAreRejected)
+BOOST_AUTO_TEST_CASE(InvalidGraphSurfaceIdsAreRejected)
 {
   {
     // Out-of-range id.
     const auto catalog = denseCatalog(3);
-    SurfaceGraphBuilder builder{asView(catalog)};
-    builder.addSubgraph(SurfaceGraphSubgraph{orderedIds({0, 5}), 0, SurfaceMask{}, SurfaceMask{}});
+    auto builder = makeBuilder(catalog, orderedIds({0, 5}));
     const auto result = builder.build();
     BOOST_CHECK(!result.ok());
-    BOOST_CHECK(result.error == SurfaceGraphBuildError::InvalidSubgraphSurfaceId);
+    BOOST_CHECK(result.error == SurfaceGraphBuildError::InvalidSurfaceId);
   }
   {
     // The invalid-sentinel id.
     const auto catalog = denseCatalog(3);
-    SurfaceGraphBuilder builder{asView(catalog)};
     std::vector<SurfaceId> ordered{SurfaceId{0}, SurfaceId::invalid()};
-    builder.addSubgraph(SurfaceGraphSubgraph{std::move(ordered), 0, SurfaceMask{}, SurfaceMask{}});
+    SurfaceGraphBuilder builder{asView(catalog), makeSurfaceChain(ordered)};
     const auto result = builder.build();
     BOOST_CHECK(!result.ok());
-    BOOST_CHECK(result.error == SurfaceGraphBuildError::InvalidSubgraphSurfaceId);
+    BOOST_CHECK(result.error == SurfaceGraphBuildError::InvalidSurfaceId);
   }
 }
 
-BOOST_AUTO_TEST_CASE(DuplicateSurfaceWithinSubgraphIsRejected)
+BOOST_AUTO_TEST_CASE(DuplicateSurfaceInGraphIsRejected)
 {
   const auto catalog = denseCatalog(3);
-  SurfaceGraphBuilder builder{asView(catalog)};
-  builder.addSubgraph(SurfaceGraphSubgraph{orderedIds({0, 1, 0}), 0, SurfaceMask{}, SurfaceMask{}});
+  auto builder = makeBuilder(catalog, orderedIds({0, 1, 0}));
 
   const auto result = builder.build();
   BOOST_CHECK(!result.ok());
-  BOOST_CHECK(result.error == SurfaceGraphBuildError::DuplicateSurfaceInSubgraph);
+  BOOST_CHECK(result.error == SurfaceGraphBuildError::DuplicateSurface);
 }
 
-BOOST_AUTO_TEST_CASE(SurfaceDuplicatedAcrossSubgraphsIsRejected)
+BOOST_AUTO_TEST_CASE(DuplicateSurfaceInGraphDefinitionIsRejected)
 {
   const auto catalog = denseCatalog(4);
-  SurfaceGraphBuilder builder{asView(catalog)};
-  builder.addSubgraph(SurfaceGraphSubgraph{orderedIds({0, 1}), 0, SurfaceMask{}, SurfaceMask{}});
-  builder.addSubgraph(SurfaceGraphSubgraph{orderedIds({1, 2}), 0, SurfaceMask{}, SurfaceMask{}});
+  SurfaceGraphDefinition definition;
+  definition.orderedSurfaces = orderedIds({0, 1, 1, 2});
+  definition.basePairs = {{0, 1}, {2, 3}};
+  SurfaceGraphBuilder builder{asView(catalog), std::move(definition)};
 
   const auto result = builder.build();
   BOOST_CHECK(!result.ok());
-  BOOST_CHECK(result.error == SurfaceGraphBuildError::SurfaceDuplicatedAcrossSubgraphs);
+  BOOST_CHECK(result.error == SurfaceGraphBuildError::DuplicateSurface);
 }
 
-BOOST_AUTO_TEST_CASE(SubgraphMixingSurfaceKindsIsRejected)
+BOOST_AUTO_TEST_CASE(GraphDefinitionMixingSurfaceKindsIsRejected)
 {
-  // A subgraph no longer asserts an external surface kind
+  // A graph definition no longer asserts an external surface kind
   // tag the builder validates against the catalog -- its expected SurfaceKind
   // is derived from its own first surface, and every other surface in the
-  // subgraph must match it. Catalog surface 0 is Cylinder, surface 1 is Disk;
-  // a subgraph spanning both is rejected on that basis alone.
+  // graph must match it. Catalog surface 0 is Cylinder, surface 1 is Disk;
+  // a graph spanning both is rejected on that basis alone.
   std::vector<SurfaceDescriptor> catalog{surface(0, SurfaceKind::Cylinder), surface(1, SurfaceKind::Disk)};
-  SurfaceGraphBuilder builder{asView(catalog)};
-  builder.addSubgraph(SurfaceGraphSubgraph{orderedIds({0, 1}), 0, SurfaceMask{}, SurfaceMask{}});
+  auto builder = makeBuilder(catalog, orderedIds({0, 1}));
 
   const auto result = builder.build();
   BOOST_CHECK(!result.ok());
@@ -311,22 +319,20 @@ BOOST_AUTO_TEST_CASE(SubgraphMixingSurfaceKindsIsRejected)
   BOOST_CHECK(result.graphError == SurfaceGraphError::SurfaceKindMismatch);
 }
 
-BOOST_AUTO_TEST_CASE(SingletonSubgraphsOfEitherKindAreAccepted)
+BOOST_AUTO_TEST_CASE(SingletonGraphsOfEitherKindAreAccepted)
 {
-  // A singleton subgraph never calls addTransition, so the (former) tag
+  // A singleton graph definition never calls addTransition, so the (former) tag
   // validation this used to exercise up front no longer has anything to
   // check -- a single surface's own kind is trivially internally consistent
   // with itself, for either SurfaceKind.
   {
     const auto catalog = denseCatalog(1, SurfaceKind::Disk);
-    SurfaceGraphBuilder builder{asView(catalog)};
-    builder.addSubgraph(SurfaceGraphSubgraph{orderedIds({0}), 0, SurfaceMask{}, SurfaceMask{}});
+    auto builder = makeBuilder(catalog, orderedIds({0}));
     BOOST_CHECK(builder.build().ok());
   }
   {
     const auto catalog = denseCatalog(1, SurfaceKind::Cylinder);
-    SurfaceGraphBuilder builder{asView(catalog)};
-    builder.addSubgraph(SurfaceGraphSubgraph{orderedIds({0}), 0, SurfaceMask{}, SurfaceMask{}});
+    auto builder = makeBuilder(catalog, orderedIds({0}));
     BOOST_CHECK(builder.build().ok());
   }
 }
@@ -336,62 +342,59 @@ BOOST_AUTO_TEST_CASE(NegativeMaxHolesIsRejected)
   // Explicit contract: a negative maxHoles is rejected outright rather than
   // silently normalized to zero.
   const auto catalog = denseCatalog(2);
-  SurfaceGraphBuilder builder{asView(catalog)};
-  builder.addSubgraph(SurfaceGraphSubgraph{orderedIds({0, 1}), -1, SurfaceMask{}, SurfaceMask{}});
+  auto builder = makeBuilder(catalog, orderedIds({0, 1}), -1);
 
   const auto result = builder.build();
   BOOST_CHECK(!result.ok());
   BOOST_CHECK(result.error == SurfaceGraphBuildError::NegativeMaxHoles);
 }
 
-BOOST_AUTO_TEST_CASE(HoleSurfacesOutsideSubgraphAreRejected)
+BOOST_AUTO_TEST_CASE(HoleSurfacesOutsideGraphAreRejected)
 {
   const auto catalog = denseCatalog(3);
-  SurfaceGraphBuilder builder{asView(catalog)};
-  builder.addSubgraph(SurfaceGraphSubgraph{orderedIds({0, 1}), 1, maskOf({2}), SurfaceMask{}});
+  auto builder = makeBuilder(catalog, orderedIds({0, 1}), 1, maskOf({2}));
 
   const auto result = builder.build();
   BOOST_CHECK(!result.ok());
-  BOOST_CHECK(result.error == SurfaceGraphBuildError::HoleSurfacesOutsideSubgraph);
+  BOOST_CHECK(result.error == SurfaceGraphBuildError::HoleSurfacesOutsideGraph);
 }
 
-BOOST_AUTO_TEST_CASE(SeedingSurfacesOutsideSubgraphAreRejected)
+BOOST_AUTO_TEST_CASE(SeedingSurfacesOutsideGraphAreRejected)
 {
   const auto catalog = denseCatalog(3);
-  SurfaceGraphBuilder builder{asView(catalog)};
-  builder.addSubgraph(SurfaceGraphSubgraph{orderedIds({0, 1}), 0, SurfaceMask{}, maskOf({2})});
+  auto builder = makeBuilder(catalog, orderedIds({0, 1}), 0, SurfaceMask{}, maskOf({2}));
 
   const auto result = builder.build();
   BOOST_CHECK(!result.ok());
-  BOOST_CHECK(result.error == SurfaceGraphBuildError::SeedingSurfacesOutsideSubgraph);
+  BOOST_CHECK(result.error == SurfaceGraphBuildError::SeedingSurfacesOutsideGraph);
 }
 
-BOOST_AUTO_TEST_CASE(EmptyCatalogWithNoSubgraphsIsATrivialValidLayout)
+BOOST_AUTO_TEST_CASE(EmptyCatalogWithNoGraphSurfacesIsATrivialValidLayout)
 {
-  SurfaceGraphBuilder builder{SurfaceCatalogView{}};
+  SurfaceGraphBuilder builder{SurfaceCatalogView{}, SurfaceGraphDefinition{}};
   const auto result = builder.build();
   BOOST_REQUIRE(result.ok());
   BOOST_CHECK_EQUAL(result.graph->getView().nSurfaces, 0u);
   BOOST_CHECK_EQUAL(result.graph->getView().nTransitions, 0u);
 }
 
-BOOST_AUTO_TEST_CASE(EmptySubgraphIsRejected)
+BOOST_AUTO_TEST_CASE(EmptyGraphDefinitionIsAValidLayout)
 {
   const auto catalog = denseCatalog(2);
-  SurfaceGraphBuilder builder{asView(catalog)};
-  builder.addSubgraph(SurfaceGraphSubgraph{{}, 0, SurfaceMask{}, SurfaceMask{}});
+  SurfaceGraphBuilder builder{asView(catalog), SurfaceGraphDefinition{}};
 
   const auto result = builder.build();
-  BOOST_CHECK(!result.ok());
-  BOOST_CHECK(result.error == SurfaceGraphBuildError::EmptySubgraph);
+  BOOST_REQUIRE(result.ok());
+  BOOST_CHECK_EQUAL(result.graph->getView().nSurfaces, 2u);
+  BOOST_CHECK_EQUAL(result.graph->getView().nTransitions, 0u);
 }
 
-BOOST_AUTO_TEST_CASE(EmptyCatalogWithNonEmptySubgraphIsRejected)
+BOOST_AUTO_TEST_CASE(EmptyCatalogWithNonEmptyGraphDefinitionIsRejected)
 {
-  SurfaceGraphBuilder builder{SurfaceCatalogView{}};
-  builder.addSubgraph(SurfaceGraphSubgraph{orderedIds({0}), 0, SurfaceMask{}, SurfaceMask{}});
+  const std::vector<SurfaceDescriptor> catalog;
+  auto builder = makeBuilder(catalog, orderedIds({0}));
 
   const auto result = builder.build();
   BOOST_CHECK(!result.ok());
-  BOOST_CHECK(result.error == SurfaceGraphBuildError::InvalidSubgraphSurfaceId);
+  BOOST_CHECK(result.error == SurfaceGraphBuildError::InvalidSurfaceId);
 }

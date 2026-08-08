@@ -207,55 +207,8 @@ class TrackerTraits
   int requireScratchTransitionSlot(int iteration, TransitionId id) const;
   int requireScratchCellSlot(int iteration, CellTopologyId id) const;
 
-  // Compact operation-local binding for the four
-  // detector-family/SurfaceKind runtime branches that would otherwise live
-  // directly in computeLayerTracklets()/computeLayerCells()/
-  // findCellsNeighbours()/findRoads() (one family selection each call).
-  // Holds only already-bound member-function pointers -- never
-  // the SurfaceKind (or the family it maps to) that selected them --
-  // so those four shared hot-loop entry points below consume it with no Kind/
-  // family branch of their own. Plain pointers-to-member, deliberately not a
-  // type-erasing callable wrapper: each callable's target is one of the
-  // eight non-template wrapper methods below (two per operation, one per
-  // SurfaceKind), whose signature is fixed and identical for both
-  // keys -- so a plain pointer-to-member suffices, with no type erasure, no
-  // capture storage, and no possibility of a heap allocation. The wrapper it
-  // points to forwards to the existing
-  // kind-specific leaf implementation, using the ids
-  // this same binding stores below and the corresponding
-  // mKernelParameters. bindTraversalOperation()
-  // (TrackerTraits.cxx) is this struct's only producer: it fills every
-  // member exactly once per successful initialiseTimeFrame() call, from
-  // that call's already-validated activeKind/params/binding (activeKind itself
-  // derived earlier in the same call from actual endpoint SurfaceDescriptor
-  // kinds via validateSparsePlan()'s kindOf(), never from NLayers or
-  // detector identity). resetTraversalCache() clears it back to unbound,
-  // alongside every other traversal cache, so a hot loop can never observe a
-  // binding left over from a failed or unrelated iteration.
-  struct TraversalOperationBinding {
-    using ComputeTrackletsFn = void (TrackerTraits::*)(int iteration, int iVertex);
-    using ComputeCellsFn = void (TrackerTraits::*)(int iteration);
-    using FindNeighboursFn = void (TrackerTraits::*)(int iteration);
-    using FindRoadsFn = void (TrackerTraits::*)(int iteration, SeedRefitFunction refitFunction);
-
-    ComputeTrackletsFn computeTracklets = nullptr;
-    ComputeCellsFn computeCells = nullptr;
-    FindNeighboursFn findNeighbours = nullptr;
-    FindRoadsFn findRoads = nullptr;
-    // Sparse topology ids are non-owning and valid for the traversal-cache
-    // lifetime. findRoads reads road-start cells from the same binding.
-    gsl::span<const TransitionId> boundTransitionIds{};
-    gsl::span<const CellTopologyId> boundCellIds{};
-    gsl::span<const CellTopologyId> boundScheduledCellIds{};
-    bool bound = false;
-  };
-
-  // Builds mTraversalOperation once after fallible initialization succeeds.
-  void bindTraversalOperation(int iteration);
-
-  // Non-template operation targets selected by bindTraversalOperation().
-  // Each forwards to the corresponding kind-specific leaf using the bound
-  // ids and kernel parameters.
+  // Non-template operation targets forward to the kind-specific leaves using
+  // pre-partitioned ids and kernel parameters.
   void computeLayerTrackletsCylinder(int iteration, int iVertex);
   void computeLayerTrackletsDisk(int iteration, int iVertex);
   void computeLayerCellsCylinder(int iteration);
@@ -284,7 +237,9 @@ class TrackerTraits
   template <SurfaceKind Kind>
   void findRoadsForKind(int iteration,
                         const TrackingKernelParameters& params,
-                        SeedRefitFunction refitFunction);
+                        SeedRefitFunction refitFunction,
+                        gsl::span<const CellTopologyId> roadStartCells,
+                        ClusterSourceId expectedSource);
 
   // Neighbour processing helper; it does not encode a detector layer count.
   template <SurfaceKind Kind, typename InputSeed>
@@ -295,7 +250,8 @@ class TrackerTraits
   template <SurfaceKind Kind>
   void prepareTransitionScatteringAndBendingForKind(int iteration,
                                                     const LayerGeometryConfigView& geometryConfig,
-                                                    const DiskReferenceCoordinateView& referenceCoordinateView);
+                                                    const DiskReferenceCoordinateView& referenceCoordinateView,
+                                                    gsl::span<const TransitionId> transitionIds);
 
   std::shared_ptr<BoundedMemoryResource> mMemoryPool;
   std::shared_ptr<tbb::task_arena> mTaskArena;
@@ -304,12 +260,11 @@ class TrackerTraits
   // One committed record for the active endpoint SurfaceKind. It is reset
   // together with the other traversal caches and published only after all
   // fallible initialization checks succeed.
-  TrackingKernelParameters mKernelParameters{};
-  // Operation binding for the active plan.
-  TraversalOperationBinding mTraversalOperation;
+  std::array<TrackingKernelParameters, 2> mKernelParameters{};
   // Borrowed disk reference coordinates, bound once per iteration. Empty for
   // Cylinder iterations; the cylinder path never reads them.
   gsl::span<const float> mDiskLayerReferenceZ{};
+  std::vector<float> mDiskLayerReferenceZStorage;
   AttachHitConfigView mAttachHitConfig;
   // Authoritative per-surface-position nominal material, resolved once per
   // initialiseTimeFrame() from SurfaceDescriptor::material via this
@@ -332,6 +287,10 @@ class TrackerTraits
   // parameter spans directly.
   std::vector<NominalSurfaceMaterial> mLayerMaterial;
   std::optional<SurfaceKind> mActiveKind;
+  std::array<std::vector<TransitionId>, 2> mTransitionsByKind;
+  std::array<std::vector<CellTopologyId>, 2> mCellsByKind;
+  std::array<std::vector<CellTopologyId>, 2> mScheduledCellsByKind;
+  std::array<std::vector<CellTopologyId>, 2> mRoadStartCellsByKind;
   // Non-owning per-surface-position spans into the TimeFrame-owned normalized
   // frame. They are staged and committed with the traversal cache, then
   // cleared on failed initialization.

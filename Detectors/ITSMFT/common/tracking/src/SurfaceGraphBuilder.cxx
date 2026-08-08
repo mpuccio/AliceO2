@@ -15,6 +15,23 @@ struct BuiltTransition {
 };
 } // namespace
 
+SurfaceGraphDefinition makeSurfaceChain(gsl::span<const SurfaceId> orderedSurfaces,
+                                        int maxHoles,
+                                        SurfaceMask holeSurfaces,
+                                        SurfaceMask seedingSurfaces)
+{
+  SurfaceGraphDefinition definition;
+  definition.orderedSurfaces.assign(orderedSurfaces.begin(), orderedSurfaces.end());
+  definition.basePairs.reserve(orderedSurfaces.empty() ? 0 : orderedSurfaces.size() - 1);
+  for (uint16_t index = 0; index + 1 < orderedSurfaces.size(); ++index) {
+    definition.basePairs.push_back(SurfaceAdjacencyPair{index, static_cast<uint16_t>(index + 1)});
+  }
+  definition.maxHoles = maxHoles;
+  definition.holeSurfaces = holeSurfaces;
+  definition.seedingSurfaces = seedingSurfaces;
+  return definition;
+}
+
 SurfaceGraphBuildResult SurfaceGraphBuilder::build() const
 {
   SurfaceGraphBuildResult result;
@@ -23,92 +40,94 @@ SurfaceGraphBuildResult SurfaceGraphBuilder::build() const
     result.topologyError = SurfaceGraphTopologyError::InvalidSurfaceCount;
     return result;
   }
-  SurfaceMask seenAcrossSubgraphs;
-  SurfaceMask combinedSeeding;
-  std::vector<SurfaceId> graphOrder;
-  for (const auto& subgraph : mSubgraphs) {
-    if (subgraph.orderedSurfaces.empty()) {
-      result.error = SurfaceGraphBuildError::EmptySubgraph;
+  if (mDefinition.maxHoles < 0) {
+    result.error = SurfaceGraphBuildError::NegativeMaxHoles;
+    return result;
+  }
+  SurfaceMask activeSurfaces;
+  for (const auto id : mDefinition.orderedSurfaces) {
+    if (!mCatalog.hasSurface(id)) {
+      result.error = SurfaceGraphBuildError::InvalidSurfaceId;
       return result;
     }
-    if (subgraph.maxHoles < 0) {
-      result.error = SurfaceGraphBuildError::NegativeMaxHoles;
+    if (activeSurfaces.has(id)) {
+      result.error = SurfaceGraphBuildError::DuplicateSurface;
       return result;
     }
-    SurfaceMask subgraphSurfaces;
-    std::optional<SurfaceKind> expectedKind;
-    for (const auto id : subgraph.orderedSurfaces) {
-      if (!mCatalog.hasSurface(id)) {
-        result.error = SurfaceGraphBuildError::InvalidSubgraphSurfaceId;
-        return result;
+    activeSurfaces.set(id);
+  }
+  if (!mDefinition.holeSurfaces.isSubsetOf(activeSurfaces)) {
+    result.error = SurfaceGraphBuildError::HoleSurfacesOutsideGraph;
+    return result;
+  }
+  if (!mDefinition.seedingSurfaces.isSubsetOf(activeSurfaces)) {
+    result.error = SurfaceGraphBuildError::SeedingSurfacesOutsideGraph;
+    return result;
+  }
+
+  std::vector<bool> immediate(mDefinition.orderedSurfaces.empty() ? 0 : mDefinition.orderedSurfaces.size() - 1, false);
+  for (const auto pair : mDefinition.basePairs) {
+    if (pair.fromIndex >= mDefinition.orderedSurfaces.size() || pair.toIndex >= mDefinition.orderedSurfaces.size() ||
+        pair.toIndex != pair.fromIndex + 1) {
+      result.error = SurfaceGraphBuildError::InvalidBasePair;
+      return result;
+    }
+    if (immediate[pair.fromIndex]) {
+      result.error = SurfaceGraphBuildError::DuplicateBasePair;
+      return result;
+    }
+    const auto from = mDefinition.orderedSurfaces[pair.fromIndex];
+    const auto to = mDefinition.orderedSurfaces[pair.toIndex];
+    if (mCatalog.getSurface(from).kind != mCatalog.getSurface(to).kind) {
+      result.error = SurfaceGraphBuildError::GraphRejected;
+      result.graphError = SurfaceGraphError::SurfaceKindMismatch;
+      return result;
+    }
+    immediate[pair.fromIndex] = true;
+  }
+
+  SurfaceGraph graph{gsl::span<const SurfaceDescriptor>{mCatalog.surfaces, mCatalog.nSurfaces}, mDefinition.seedingSurfaces};
+  graph.setOrderedSurfaces(mDefinition.orderedSurfaces);
+  std::vector<BuiltTransition> transitions;
+  for (size_t posFrom = 0; posFrom < mDefinition.orderedSurfaces.size(); ++posFrom) {
+    bool connected = true;
+    for (size_t posTo = posFrom + 1; posTo < mDefinition.orderedSurfaces.size(); ++posTo) {
+      connected = connected && immediate[posTo - 1];
+      if (!connected) {
+        break;
       }
-      if (subgraphSurfaces.has(id)) {
-        result.error = SurfaceGraphBuildError::DuplicateSurfaceInSubgraph;
-        return result;
+      SurfaceMask skipped;
+      for (size_t k = posFrom + 1; k < posTo; ++k) {
+        skipped.set(mDefinition.orderedSurfaces[k]);
       }
-      if (seenAcrossSubgraphs.has(id)) {
-        result.error = SurfaceGraphBuildError::SurfaceDuplicatedAcrossSubgraphs;
-        return result;
+      if (skipped.count() > mDefinition.maxHoles || !skipped.isSubsetOf(mDefinition.holeSurfaces)) {
+        continue;
       }
-      const auto kind = mCatalog.getSurface(id).kind;
-      if (!expectedKind) {
-        expectedKind = kind;
-      } else if (*expectedKind != kind) {
+      const auto from = mDefinition.orderedSurfaces[posFrom];
+      const auto to = mDefinition.orderedSurfaces[posTo];
+      if (mCatalog.getSurface(from).kind != mCatalog.getSurface(to).kind) {
         result.error = SurfaceGraphBuildError::GraphRejected;
         result.graphError = SurfaceGraphError::SurfaceKindMismatch;
         return result;
       }
-      subgraphSurfaces.set(id);
-      graphOrder.push_back(id);
-    }
-    seenAcrossSubgraphs |= subgraphSurfaces;
-    if (!subgraph.holeSurfaces.isSubsetOf(subgraphSurfaces)) {
-      result.error = SurfaceGraphBuildError::HoleSurfacesOutsideSubgraph;
-      return result;
-    }
-    if (!subgraph.seedingSurfaces.isSubsetOf(subgraphSurfaces)) {
-      result.error = SurfaceGraphBuildError::SeedingSurfacesOutsideSubgraph;
-      return result;
-    }
-    combinedSeeding |= subgraph.seedingSurfaces;
-  }
-
-  SurfaceGraph graph{gsl::span<const SurfaceDescriptor>{mCatalog.surfaces, mCatalog.nSurfaces}, combinedSeeding};
-  graph.setOrderedSurfaces(std::move(graphOrder));
-  for (const auto& subgraph : mSubgraphs) {
-    std::vector<BuiltTransition> transitions;
-    const auto& ordered = subgraph.orderedSurfaces;
-    for (size_t posFrom = 0; posFrom < ordered.size(); ++posFrom) {
-      for (size_t posTo = posFrom + 1; posTo < ordered.size(); ++posTo) {
-        SurfaceMask skipped;
-        for (size_t k = posFrom + 1; k < posTo; ++k) {
-          skipped.set(ordered[k]);
-        }
-        if (skipped.count() > subgraph.maxHoles || !skipped.isSubsetOf(subgraph.holeSurfaces)) {
-          continue;
-        }
-        const auto id = graph.addTransition(SurfaceTransition{ordered[posFrom], ordered[posTo], skipped, 0});
-        if (!id.isValid()) {
-          result.error = SurfaceGraphBuildError::TopologyRejected;
-          result.topologyError = graph.getTopologyError();
-          return result;
-        }
-        transitions.push_back(BuiltTransition{id, ordered[posFrom], ordered[posTo], skipped});
+      const auto id = graph.addTransition(SurfaceTransition{from, to, skipped, 0});
+      if (!id.isValid()) {
+        result.error = SurfaceGraphBuildError::TopologyRejected;
+        result.topologyError = graph.getTopologyError();
+        return result;
       }
+      transitions.push_back(BuiltTransition{id, from, to, skipped});
     }
-    for (const auto& first : transitions) {
-      for (const auto& second : transitions) {
-        if (first.to != second.from) {
-          continue;
-        }
-        if ((first.skipped | second.skipped).count() > subgraph.maxHoles) {
-          continue;
-        }
-        if (!graph.addCell(first.id, second.id).isValid()) {
-          result.error = SurfaceGraphBuildError::TopologyRejected;
-          result.topologyError = graph.getTopologyError();
-          return result;
-        }
+  }
+  for (const auto& first : transitions) {
+    for (const auto& second : transitions) {
+      if (first.to != second.from || (first.skipped | second.skipped).count() > mDefinition.maxHoles) {
+        continue;
+      }
+      if (!graph.addCell(first.id, second.id).isValid()) {
+        result.error = SurfaceGraphBuildError::TopologyRejected;
+        result.topologyError = graph.getTopologyError();
+        return result;
       }
     }
   }
@@ -141,14 +160,11 @@ SurfaceGraphBatchResult buildSurfaceGraphs(SurfaceCatalogView catalog,
       result.failedIteration = iteration;
       return result;
     }
-    const auto activeEnd = orderedSurfaces.begin() + parameters.NLayers;
-    SurfaceGraphSubgraph subgraph;
-    subgraph.orderedSurfaces.assign(orderedSurfaces.begin(), activeEnd);
-    subgraph.maxHoles = parameters.MaxHoles;
-    subgraph.holeSurfaces = positionalSurfaceMask(parameters.HoleLayerMask, orderedSurfaces, static_cast<uint32_t>(parameters.NLayers));
-    subgraph.seedingSurfaces = positionalSurfaceMask(parameters.StartLayerMask, orderedSurfaces, static_cast<uint32_t>(parameters.NLayers));
-    SurfaceGraphBuilder builder{catalog};
-    const auto graphResult = builder.addSubgraph(std::move(subgraph)).build();
+    const auto definition = makeSurfaceChain(
+      gsl::span<const SurfaceId>{orderedSurfaces.data(), static_cast<size_t>(parameters.NLayers)}, parameters.MaxHoles,
+      positionalSurfaceMask(parameters.HoleLayerMask, orderedSurfaces, static_cast<uint32_t>(parameters.NLayers)),
+      positionalSurfaceMask(parameters.StartLayerMask, orderedSurfaces, static_cast<uint32_t>(parameters.NLayers)));
+    const auto graphResult = SurfaceGraphBuilder{catalog, definition}.build();
     if (!graphResult.ok()) {
       result.error = SurfaceGraphBuildError::GraphRejected;
       result.detail = graphResult.error;

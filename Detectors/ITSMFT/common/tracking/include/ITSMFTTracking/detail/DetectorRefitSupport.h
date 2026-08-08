@@ -115,6 +115,34 @@ inline bool refitMFTSeed(const TrackSeed& seed,
   return fillCandidateKinematics(candidate);
 }
 
+inline bool refitSurfaceSeed(const TrackSeed& seed,
+                             const TrackingParameters& params,
+                             float bz,
+                             SurfaceTrackingScratch& scratch,
+                             gsl::span<const gsl::span<const SurfaceMeasurement>> layerMeasurements,
+                             SurfaceCatalogView surfaceCatalog,
+                             ClusterSourceId expectedSource,
+                             TrackingCandidate& candidate)
+{
+  for (int position = 0; position < static_cast<int>(layerMeasurements.size()); ++position) {
+    const int clusterIndex = seed.getCluster(position);
+    if (clusterIndex == o2::its::constants::UnusedIndex) {
+      continue;
+    }
+    if (clusterIndex < 0 || clusterIndex >= static_cast<int>(layerMeasurements[position].size())) {
+      return false;
+    }
+    const auto surface = layerMeasurements[position][clusterIndex].surface;
+    if (!surfaceCatalog.hasSurface(surface)) {
+      return false;
+    }
+    return surfaceCatalog.getSurface(surface).kind == SurfaceKind::Cylinder
+             ? refitITSSeed(seed, params, bz, scratch, layerMeasurements, surfaceCatalog, expectedSource, candidate)
+             : refitMFTSeed(seed, params, bz, scratch, layerMeasurements, surfaceCatalog, expectedSource, candidate);
+  }
+  return false;
+}
+
 } // namespace o2::itsmft::tracking::detail
 
 #endif // !GPUCA_GPUCODE

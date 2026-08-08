@@ -28,18 +28,18 @@ namespace o2::itsmft::tracking
 
 struct LayerMask {
   GPUhdDefault() constexpr LayerMask() noexcept = default;
-  GPUhdDefault() constexpr LayerMask(uint16_t mask) noexcept : mBits{mask} {}
+  GPUhdDefault() constexpr LayerMask(uint32_t mask) noexcept : mBits{mask} {}
   GPUhdDefault() constexpr LayerMask(int layer0, int layer1, int layer2) noexcept
-    : mBits{static_cast<uint16_t>((uint16_t(1) << layer0) | (uint16_t(1) << layer1) | (uint16_t(1) << layer2))}
+    : mBits{(uint32_t(1) << layer0) | (uint32_t(1) << layer1) | (uint32_t(1) << layer2)}
   {
   }
-  GPUhdi() constexpr operator uint16_t() const noexcept { return mBits; }
-  GPUhdi() constexpr uint16_t value() const noexcept { return mBits; }
-  GPUhdi() constexpr void set(int layer) noexcept { mBits |= (uint16_t(1) << layer); }
+  GPUhdi() constexpr operator uint32_t() const noexcept { return mBits; }
+  GPUhdi() constexpr uint32_t value() const noexcept { return mBits; }
+  GPUhdi() constexpr void set(int layer) noexcept { mBits |= (uint32_t(1) << layer); }
 
-  GPUhdi() LayerMask operator~() const noexcept { return LayerMask{static_cast<uint16_t>(~mBits)}; }
-  GPUhdi() LayerMask operator&(LayerMask other) const noexcept { return LayerMask{static_cast<uint16_t>(mBits & other.mBits)}; }
-  GPUhdi() LayerMask operator|(LayerMask other) const noexcept { return LayerMask{static_cast<uint16_t>(mBits | other.mBits)}; }
+  GPUhdi() LayerMask operator~() const noexcept { return LayerMask{~mBits}; }
+  GPUhdi() LayerMask operator&(LayerMask other) const noexcept { return LayerMask{mBits & other.mBits}; }
+  GPUhdi() LayerMask operator|(LayerMask other) const noexcept { return LayerMask{mBits | other.mBits}; }
   GPUhdi() LayerMask& operator&=(LayerMask other) noexcept
   {
     mBits &= other.mBits;
@@ -52,7 +52,7 @@ struct LayerMask {
   }
 
   GPUhdi() bool empty() const noexcept { return mBits == 0; }
-  GPUhdi() bool has(int layer) const noexcept { return mBits & (uint16_t(1) << layer); }
+  GPUhdi() bool has(int layer) const noexcept { return mBits & (uint32_t(1) << layer); }
   GPUhdi() bool isSubsetOf(LayerMask allowed) const noexcept { return (*this & ~allowed).empty(); }
   GPUhdi() bool isAllowedHoleMask(int maxHoles, LayerMask allowedHoleMask) const noexcept
   {
@@ -86,9 +86,9 @@ struct LayerMask {
     if (fromLayer > toLayer) {
       return 0;
     }
-    const uint32_t upper = (uint32_t(1) << (toLayer + 1)) - 1;
+    const uint32_t upper = toLayer >= 31 ? uint32_t{0xffffffff} : (uint32_t(1) << (toLayer + 1)) - 1;
     const uint32_t lower = (uint32_t(1) << fromLayer) - 1;
-    return static_cast<uint16_t>(upper & ~lower);
+    return upper & ~lower;
   }
 
   static GPUhdi() LayerMask skipped(int fromLayer, int toLayer) noexcept
@@ -97,17 +97,17 @@ struct LayerMask {
   }
 
 #ifndef GPUCA_GPUCODE
-  std::string asString() const { return fmt::format("{:016b}", mBits); }
+  std::string asString() const { return fmt::format("{:032b}", mBits); }
 #endif
 
  private:
-  uint16_t mBits{0};
+  uint32_t mBits{0};
 };
 
 static_assert(std::is_standard_layout_v<LayerMask>);
 static_assert(std::is_trivially_copyable_v<LayerMask>);
-static_assert(sizeof(LayerMask) == sizeof(uint16_t));
-static_assert(alignof(LayerMask) == alignof(uint16_t));
+static_assert(sizeof(LayerMask) == sizeof(uint32_t));
+static_assert(alignof(LayerMask) == alignof(uint32_t));
 
 struct SurfaceMask {
   using ValueType = uint32_t;

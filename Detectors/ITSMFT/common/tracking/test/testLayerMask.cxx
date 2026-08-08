@@ -61,7 +61,7 @@ BOOST_AUTO_TEST_CASE(layermask_bitwise_operators)
 
   BOOST_CHECK_EQUAL((a & b).value(), 0x07);
   BOOST_CHECK_EQUAL((a | b).value(), 0x7f);
-  BOOST_CHECK_EQUAL((~LayerMask{0x00ff}).value(), static_cast<uint16_t>(0xff00));
+  BOOST_CHECK_EQUAL((~LayerMask{0x00ff}).value(), uint32_t{0xffffff00});
 
   LayerMask c{a};
   c &= b;
@@ -155,24 +155,20 @@ BOOST_AUTO_TEST_CASE(layermask_is_subset_of)
 BOOST_AUTO_TEST_CASE(layermask_as_string_is_stable_width)
 {
   const LayerMask mask{0x7f};
-  BOOST_CHECK_EQUAL(mask.asString(), "0000000001111111");
+  BOOST_CHECK_EQUAL(mask.asString(), "00000000000000000000000001111111");
 }
 
-BOOST_AUTO_TEST_CASE(layermask_current_capacity_is_sixteen_bits)
+BOOST_AUTO_TEST_CASE(layermask_covers_the_complete_surface_rank_domain)
 {
-  // Current storage is a plain uint16_t (Architecture.md section 2/6.4: the
-  // 16-bit mask cannot represent the 17-surface combined ITS+MFT layout).
-  // This test documents today's ceiling, not the target design.
-  static_assert(sizeof(LayerMask) == sizeof(uint16_t));
+  static_assert(sizeof(LayerMask) == sizeof(uint32_t));
 
   LayerMask mask{};
   mask.set(15);
   BOOST_CHECK(mask.has(15));
-  BOOST_CHECK_EQUAL(mask.value(), static_cast<uint16_t>(1u << 15));
+  BOOST_CHECK_EQUAL(mask.value(), uint32_t{1} << 15);
 
-  // Setting bit 16 overflows the 16-bit storage and silently wraps to 0
-  // under the current shift-based implementation.
-  LayerMask overflow{};
-  overflow.set(16);
-  BOOST_CHECK_EQUAL(overflow.value(), 0);
+  LayerMask combined{};
+  combined.set(16);
+  BOOST_CHECK(combined.has(16));
+  BOOST_CHECK_EQUAL(combined.value(), uint32_t{1} << 16);
 }

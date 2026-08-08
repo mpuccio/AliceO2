@@ -306,8 +306,7 @@ TrackletSnapshot runFixture(o2::detectors::DetID::ID detector,
   for (const auto surface : graph.getOrderedSurfaces()) {
     owned.set(surface);
   }
-  auto bindingResult = SurfacePlanBinding::build(graph.getView(), ClusterSourceId{0}, owned,
-                                                 graph.getOrderedSurfaces(), kind);
+  auto bindingResult = SurfacePlanBinding::build(graph.getView(), owned, graph.getOrderedSurfaces());
   BOOST_REQUIRE(bindingResult.ok());
   traits.adoptSurfacePlanBinding(bindingResult.binding.get());
   traits.initialiseTimeFrame(0, plan);
@@ -474,9 +473,9 @@ std::vector<DecodedCluster> buildMftChainClusters(const TrackingParameters& para
 }
 
 /// Gate 4 Slice 0a fail-closed coverage, revised for Gate 4 B2 Slice 2: a
-/// production plan always builds a single-subgraph, single-kind layout
+/// production plan always builds a single-component, single-kind layout
 /// from a duplicate-free orderedSurfaces span (SurfaceGraphBuilder already
-/// rejects a duplicate SurfaceId within one subgraph, and
+/// rejects a duplicate SurfaceId within one graph definition, and
 /// buildSurfaceGraphs() has no way to author a combined/mixed-kind
 /// layout at all). To directly exercise TrackerTraits::initialiseTimeFrame()'s
 /// own fail-closed checks (SurfaceLayerMappingMismatch, MixedSurfaceKindLayout)
@@ -494,11 +493,9 @@ std::vector<DecodedCluster> buildMftChainClusters(const TrackingParameters& para
 std::pair<SurfaceGraph, std::vector<SurfaceDescriptor>> buildIdentityChainLayout(uint16_t nSurfaces, o2::detectors::DetID::ID detector, SurfaceKind kind)
 {
   auto surfaces = makeCatalog(nSurfaces, detector, kind);
-  SurfaceGraphBuilder builder{SurfaceCatalogView{surfaces.data(), static_cast<uint32_t>(surfaces.size())}};
-  SurfaceGraphSubgraph subgraph;
-  subgraph.orderedSurfaces = identitySurfaces(nSurfaces);
-  subgraph.maxHoles = 0;
-  auto result = builder.addSubgraph(std::move(subgraph)).build();
+  SurfaceGraphBuilder builder{SurfaceCatalogView{surfaces.data(), static_cast<uint32_t>(surfaces.size())},
+                              makeSurfaceChain(identitySurfaces(nSurfaces))};
+  auto result = builder.build();
   BOOST_REQUIRE(result.ok());
   return {std::move(*result.graph), std::move(surfaces)};
 }
@@ -515,9 +512,7 @@ std::vector<SurfaceId> rangeSurfaces(uint16_t first, uint16_t count)
 
 /// Disconnected catalog spanning [0, nCylinders) as Cylinder/ITS surfaces and
 /// [nCylinders, nCylinders + nDisks) as Disk/MFT surfaces, in one shared
-/// global SurfaceId space -- material is left default-initialized since
-/// CombinedCylinderAndDiskLayoutIsRejectedBeforeTrackletProcessing never
-/// reaches the material-validation step.
+/// global SurfaceId space.
 std::vector<SurfaceDescriptor> combinedCatalog(uint16_t nCylinders, uint16_t nDisks)
 {
   std::vector<SurfaceDescriptor> surfaces;
@@ -674,8 +669,7 @@ BOOST_AUTO_TEST_CASE(InitialiseTimeFrameFailureLeavesTransitionArraysZeroFilledN
   for (const auto surface : graph.getOrderedSurfaces()) {
     owned.set(surface);
   }
-  auto bindingResult = SurfacePlanBinding::build(graph.getView(), ClusterSourceId{0}, owned,
-                                                 graph.getOrderedSurfaces(), SurfaceKind::Cylinder);
+  auto bindingResult = SurfacePlanBinding::build(graph.getView(), owned, graph.getOrderedSurfaces());
   BOOST_REQUIRE(bindingResult.ok());
   traits.adoptSurfacePlanBinding(bindingResult.binding.get());
 
@@ -842,9 +836,9 @@ BOOST_AUTO_TEST_CASE(ItsHoleTransitionTrackletResolvesCorrectLegacyLayerEndpoint
 BOOST_AUTO_TEST_CASE(DuplicateSurfaceIdMappingFailsClosedBeforeTrackletProcessing)
 {
   // buildSurfaceGraphs() -- the production path -- always builds its
-  // subgraph from the caller-supplied orderedSurfaces, and SurfaceGraphBuilder
-  // already rejects a duplicate SurfaceId within that subgraph
-  // (DuplicateSurfaceInSubgraph), so a duplicate mapping can never reach
+  // graph definition from the caller-supplied orderedSurfaces, and
+  // SurfaceGraphBuilder already rejects a duplicate SurfaceId within it
+  // (DuplicateSurface), so a duplicate mapping can never reach
   // TrackerTraits::initialiseTimeFrame() through that path. This test
   // constructs an otherwise-valid, identity-topology std::vector<SurfaceGraph>
   // directly, with a SurfaceGraphConfigurationKey::orderedSurfaces that
@@ -884,38 +878,33 @@ BOOST_AUTO_TEST_CASE(DuplicateSurfaceIdMappingFailsClosedBeforeTrackletProcessin
   for (const auto surface : plan.front().getOrderedSurfaces()) {
     owned.set(surface);
   }
-  const auto bindingResult = SurfacePlanBinding::build(plan.front().getView(), ClusterSourceId{0}, owned,
-                                                       plan.front().getOrderedSurfaces(), SurfaceKind::Cylinder);
+  const auto bindingResult = SurfacePlanBinding::build(plan.front().getView(), owned,
+                                                       plan.front().getOrderedSurfaces());
   BOOST_CHECK(!bindingResult.ok());
 }
 
-BOOST_AUTO_TEST_CASE(CombinedCylinderAndDiskLayoutIsRejectedBeforeTrackletProcessing)
+BOOST_AUTO_TEST_CASE(CombinedCylinderAndDiskLayoutBindsAsOneDisconnectedPlan)
 {
-  // Gate 4 Slice 0a scoping note (accepted plan revision): a layout
-  // combining both surface kinds cannot be authored through the production
-  // buildSurfaceGraphs() path at all -- it always builds a single
-  // subgraph over one detector's own homogeneous-kind orderedSurfaces,
-  // matching the architecture note that no cross-detector edges exist
-  // because none are authored. This test
-  // constructs one directly to prove TrackerTraits::initialiseTimeFrame()
-  // still fails closed (MixedSurfaceKindLayout) before the plan binding is
-  // committed and before computeLayerTracklets() could process anything --
-  // i.e. that no duplicate/cross-tag candidate processing is possible even
-  // if such a layout existed. Per-kind span exactness/disjointness itself is
-  // already proven by the SurfacePlanBinding schedule tests
-  // level by the surface-plan schedule tests; this test is the
-  // TrackerTraits-level complement covering the "rejected" case.
+  // The absent cylinder-to-disk base pair keeps the two families disconnected
+  // while one binding owns their shared rank space.
   const auto nCylinders = static_cast<uint16_t>(ITSNLayers);
   const auto nDisks = static_cast<uint16_t>(MFTNLayers);
   const std::vector<SurfaceDescriptor> surfaces = combinedCatalog(nCylinders, nDisks);
   const SurfaceCatalogView catalogView{surfaces.data(), static_cast<uint32_t>(surfaces.size())};
 
-  SurfaceGraphBuilder builder{catalogView};
-  SurfaceGraphSubgraph cylinderSubgraph;
-  cylinderSubgraph.orderedSurfaces = rangeSurfaces(0, nCylinders);
-  SurfaceGraphSubgraph diskSubgraph;
-  diskSubgraph.orderedSurfaces = rangeSurfaces(nCylinders, nDisks);
-  auto result = builder.addSubgraph(std::move(cylinderSubgraph)).addSubgraph(std::move(diskSubgraph)).build();
+  auto cylinderDefinition = makeSurfaceChain(rangeSurfaces(0, nCylinders));
+  const auto diskDefinition = makeSurfaceChain(rangeSurfaces(nCylinders, nDisks));
+  SurfaceGraphDefinition definition;
+  definition.orderedSurfaces = std::move(cylinderDefinition.orderedSurfaces);
+  definition.basePairs = std::move(cylinderDefinition.basePairs);
+  const auto offset = static_cast<uint16_t>(definition.orderedSurfaces.size());
+  definition.orderedSurfaces.insert(definition.orderedSurfaces.end(), diskDefinition.orderedSurfaces.begin(), diskDefinition.orderedSurfaces.end());
+  for (const auto pair : diskDefinition.basePairs) {
+    definition.basePairs.push_back(SurfaceAdjacencyPair{static_cast<uint16_t>(pair.fromIndex + offset),
+                                                        static_cast<uint16_t>(pair.toIndex + offset)});
+  }
+  SurfaceGraphBuilder builder{catalogView, std::move(definition)};
+  auto result = builder.build();
   BOOST_REQUIRE(result.ok());
 
   std::vector<SurfaceGraph> plan;
@@ -943,7 +932,11 @@ BOOST_AUTO_TEST_CASE(CombinedCylinderAndDiskLayoutIsRejectedBeforeTrackletProces
   for (const auto& surface : surfaces) {
     owned.set(surface.id);
   }
-  const auto bindingResult = SurfacePlanBinding::build(plan.front().getView(), ClusterSourceId{0}, owned,
-                                                       plan.front().getOrderedSurfaces(), SurfaceKind::Cylinder);
-  BOOST_CHECK(!bindingResult.ok());
+  const auto bindingResult = SurfacePlanBinding::build(plan.front().getView(), owned,
+                                                       plan.front().getOrderedSurfaces());
+  BOOST_REQUIRE(bindingResult.ok());
+  BOOST_CHECK_EQUAL(bindingResult.binding->getGlobalTransitions().size(),
+                    static_cast<size_t>(nCylinders + nDisks - 2));
+  BOOST_CHECK_EQUAL(bindingResult.binding->getGlobalCells().size(),
+                    static_cast<size_t>(nCylinders + nDisks - 4));
 }

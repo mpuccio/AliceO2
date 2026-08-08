@@ -53,11 +53,10 @@ inline float mftLayerMSAngle(int layer, const TrackingParameters& params)
 }
 
 inline void mftTrackletProject(float xCl, float yCl, float zCl, float pvX, float pvY, float pvZ,
-                               int fromLayer, int toLayer, float bz, float minPt,
+                               float zFrom, float zTo, float bz, float minPt,
                                float& xProj, float& yProj)
 {
   if (std::abs(bz) > 0.01f && minPt > 0.f) {
-    const float zTo = mftLayerZ(toLayer);
     const float dxTan = xCl - pvX;
     const float dyTan = yCl - pvY;
     const float dzTan = zCl - pvZ;
@@ -80,25 +79,31 @@ inline void mftTrackletProject(float xCl, float yCl, float zCl, float pvX, float
     xProj = static_cast<float>(track.getX());
     yProj = static_cast<float>(track.getY());
   } else {
-    const float dz0 = mftLayerZ(fromLayer) - pvZ;
+    const float dz0 = zFrom - pvZ;
     if (std::abs(dz0) < 1e-6f) {
       xProj = xCl;
       yProj = yCl;
       return;
     }
-    const float w = (mftLayerZ(toLayer) - pvZ) / dz0;
+    const float w = (zTo - pvZ) / dz0;
     xProj = pvX + w * (xCl - pvX);
     yProj = pvY + w * (yCl - pvY);
   }
 }
 
+inline void mftTrackletProject(float xCl, float yCl, float zCl, float pvX, float pvY, float pvZ,
+                               int fromLayer, int toLayer, float bz, float minPt,
+                               float& xProj, float& yProj)
+{
+  mftTrackletProject(xCl, yCl, zCl, pvX, pvY, pvZ, mftLayerZ(fromLayer), mftLayerZ(toLayer),
+                     bz, minPt, xProj, yProj);
+}
+
 inline void mftTrackletSigmaXY(float x0, float y0, float pvX, float pvY, float pvZ,
                                float sigma2X0, float sigma2Y0, float sigma2PvX, float sigma2PvY, float sigma2PvZ,
-                               int fromLayer, int toLayer, float rLayerFrom, float meanDeltaZ, float msAngle,
+                               float zFrom, float zTo, float rLayerFrom, float meanDeltaZ, float msAngle,
                                float bendingAngle, float xProj, float yProj, float& sigmaX, float& sigmaY)
 {
-  const float zFrom = mftLayerZ(fromLayer);
-  const float zTo = mftLayerZ(toLayer);
   const float dz0 = zFrom - pvZ;
   const float tanlRef = (std::abs(rLayerFrom) > 1e-6f) ? zFrom / rLayerFrom : 0.f;
   const float sigma2MS = meanDeltaZ * meanDeltaZ * msAngle * msAngle * (tanlRef * tanlRef + 1.f);
@@ -124,6 +129,16 @@ inline void mftTrackletSigmaXY(float x0, float y0, float pvX, float pvY, float p
     sigmaX = std::sqrt(sigmaX * sigmaX + dr * dr * sinPhi * sinPhi);
     sigmaY = std::sqrt(sigmaY * sigmaY + dr * dr * cosPhi * cosPhi);
   }
+}
+
+inline void mftTrackletSigmaXY(float x0, float y0, float pvX, float pvY, float pvZ,
+                               float sigma2X0, float sigma2Y0, float sigma2PvX, float sigma2PvY, float sigma2PvZ,
+                               int fromLayer, int toLayer, float rLayerFrom, float meanDeltaZ, float msAngle,
+                               float bendingAngle, float xProj, float yProj, float& sigmaX, float& sigmaY)
+{
+  mftTrackletSigmaXY(x0, y0, pvX, pvY, pvZ, sigma2X0, sigma2Y0, sigma2PvX, sigma2PvY, sigma2PvZ,
+                     mftLayerZ(fromLayer), mftLayerZ(toLayer), rLayerFrom, meanDeltaZ, msAngle,
+                     bendingAngle, xProj, yProj, sigmaX, sigmaY);
 }
 
 } // namespace o2::itsmft::tracking::detail

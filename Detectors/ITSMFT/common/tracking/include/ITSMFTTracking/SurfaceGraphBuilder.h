@@ -7,6 +7,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <type_traits>
 
 #ifndef GPUCA_GPUCODE
 #include <optional>
@@ -24,22 +25,36 @@
 namespace o2::itsmft::tracking
 {
 
-struct SurfaceGraphSubgraph {
+struct SurfaceAdjacencyPair {
+  uint16_t fromIndex{0};
+  uint16_t toIndex{0};
+};
+
+static_assert(std::is_standard_layout_v<SurfaceAdjacencyPair> && std::is_trivially_copyable_v<SurfaceAdjacencyPair>);
+static_assert(sizeof(SurfaceAdjacencyPair) == 4);
+
+struct SurfaceGraphDefinition {
   std::vector<SurfaceId> orderedSurfaces;
+  std::vector<SurfaceAdjacencyPair> basePairs;
   int maxHoles{0};
   SurfaceMask holeSurfaces{};
   SurfaceMask seedingSurfaces{};
 };
 
+SurfaceGraphDefinition makeSurfaceChain(gsl::span<const SurfaceId> orderedSurfaces,
+                                        int maxHoles = 0,
+                                        SurfaceMask holeSurfaces = {},
+                                        SurfaceMask seedingSurfaces = {});
+
 enum class SurfaceGraphBuildError : uint8_t {
   None,
-  EmptySubgraph,
-  InvalidSubgraphSurfaceId,
-  DuplicateSurfaceInSubgraph,
-  SurfaceDuplicatedAcrossSubgraphs,
+  InvalidSurfaceId,
+  DuplicateSurface,
+  InvalidBasePair,
+  DuplicateBasePair,
   NegativeMaxHoles,
-  HoleSurfacesOutsideSubgraph,
-  SeedingSurfacesOutsideSubgraph,
+  HoleSurfacesOutsideGraph,
+  SeedingSurfacesOutsideGraph,
   TopologyRejected,
   GraphRejected
 };
@@ -56,21 +71,16 @@ struct SurfaceGraphBuildResult {
 class SurfaceGraphBuilder
 {
  public:
-  // Builds active ordered subgraphs with separate hole and seeding masks;
-  // adjacency is derived only after those declarations validate.
-  explicit SurfaceGraphBuilder(SurfaceCatalogView catalog) : mCatalog{catalog} {}
-
-  SurfaceGraphBuilder& addSubgraph(SurfaceGraphSubgraph subgraph)
+  SurfaceGraphBuilder(SurfaceCatalogView catalog, SurfaceGraphDefinition definition)
+    : mCatalog{catalog}, mDefinition{std::move(definition)}
   {
-    mSubgraphs.push_back(std::move(subgraph));
-    return *this;
   }
 
   SurfaceGraphBuildResult build() const;
 
  private:
   SurfaceCatalogView mCatalog;
-  std::vector<SurfaceGraphSubgraph> mSubgraphs;
+  SurfaceGraphDefinition mDefinition;
 };
 
 struct SurfaceGraphBatchResult {

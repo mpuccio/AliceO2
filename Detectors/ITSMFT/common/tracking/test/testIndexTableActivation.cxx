@@ -275,8 +275,7 @@ struct Rig {
     for (const auto surface : plan->front().getOrderedSurfaces()) {
       owned.set(surface);
     }
-    auto bindingResult = SurfacePlanBinding::build(layoutView, ClusterSourceId{0}, owned,
-                                                   plan->front().getOrderedSurfaces(), SurfaceKind::Cylinder);
+    auto bindingResult = SurfacePlanBinding::build(layoutView, owned, plan->front().getOrderedSurfaces());
     BOOST_REQUIRE(bindingResult.ok());
     traits.adoptSurfacePlanBinding(bindingResult.binding.get());
     binding = std::move(bindingResult.binding);

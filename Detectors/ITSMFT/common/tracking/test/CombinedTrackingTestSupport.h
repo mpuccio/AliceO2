@@ -69,26 +69,45 @@ inline TrackerInitialization makeCombinedConfiguration(const TrackingParameters&
   TrackerIterationConfiguration iteration;
   const auto itsSurfaces = orderedSurfaceRange(0, ITSNLayers);
   const auto mftSurfaces = orderedSurfaceRange(ITSNLayers, MFTNLayers);
-  SurfaceGraphSubgraph itsSubgraph;
-  itsSubgraph.orderedSurfaces.assign(itsSurfaces.begin(), itsSurfaces.end());
-  itsSubgraph.maxHoles = itsParams.MaxHoles;
-  itsSubgraph.holeSurfaces = positionalSurfaceMask(itsParams.HoleLayerMask, itsSurfaces, static_cast<uint32_t>(itsSurfaces.size()));
-  itsSubgraph.seedingSurfaces = positionalSurfaceMask(itsParams.StartLayerMask, itsSurfaces, static_cast<uint32_t>(itsSurfaces.size()));
-
-  SurfaceGraphSubgraph mftSubgraph;
-  mftSubgraph.orderedSurfaces.assign(mftSurfaces.begin(), mftSurfaces.end());
-  mftSubgraph.maxHoles = mftParams.MaxHoles;
-  mftSubgraph.holeSurfaces = positionalSurfaceMask(mftParams.HoleLayerMask, mftSurfaces, static_cast<uint32_t>(mftSurfaces.size()));
-  mftSubgraph.seedingSurfaces = positionalSurfaceMask(mftParams.StartLayerMask, mftSurfaces, static_cast<uint32_t>(mftSurfaces.size()));
-
-  iteration.graphSubgraphs = {std::move(itsSubgraph), std::move(mftSubgraph)};
-  iteration.parameters = {itsParams, mftParams};
-  iteration.bindings.push_back(SurfacePlanBinding::Declaration{ClusterSourceId{0},
-                                                               surfaceRangeMask(0, ITSNLayers), itsSurfaces,
-                                                               SurfaceKind::Cylinder});
-  iteration.bindings.push_back(SurfacePlanBinding::Declaration{ClusterSourceId{1},
-                                                               surfaceRangeMask(ITSNLayers, MFTNLayers), mftSurfaces,
-                                                               SurfaceKind::Disk});
+  auto itsDefinition = makeSurfaceChain(
+    itsSurfaces, itsParams.MaxHoles,
+    positionalSurfaceMask(itsParams.HoleLayerMask, itsSurfaces, static_cast<uint32_t>(itsSurfaces.size())),
+    positionalSurfaceMask(itsParams.StartLayerMask, itsSurfaces, static_cast<uint32_t>(itsSurfaces.size())));
+  auto mftDefinition = makeSurfaceChain(
+    mftSurfaces, mftParams.MaxHoles,
+    positionalSurfaceMask(mftParams.HoleLayerMask, mftSurfaces, static_cast<uint32_t>(mftSurfaces.size())),
+    positionalSurfaceMask(mftParams.StartLayerMask, mftSurfaces, static_cast<uint32_t>(mftSurfaces.size())));
+  SurfaceGraphDefinition definition;
+  definition.orderedSurfaces = std::move(itsDefinition.orderedSurfaces);
+  definition.basePairs = std::move(itsDefinition.basePairs);
+  const auto offset = static_cast<uint16_t>(definition.orderedSurfaces.size());
+  definition.orderedSurfaces.insert(definition.orderedSurfaces.end(), mftDefinition.orderedSurfaces.begin(), mftDefinition.orderedSurfaces.end());
+  for (const auto pair : mftDefinition.basePairs) {
+    definition.basePairs.push_back(SurfaceAdjacencyPair{static_cast<uint16_t>(pair.fromIndex + offset),
+                                                        static_cast<uint16_t>(pair.toIndex + offset)});
+  }
+  definition.maxHoles = itsDefinition.maxHoles;
+  definition.holeSurfaces = itsDefinition.holeSurfaces | mftDefinition.holeSurfaces;
+  definition.seedingSurfaces = surfaceRangeMask(0, ITSNLayers + MFTNLayers);
+  iteration.graph = std::move(definition);
+  iteration.parameters = itsParams;
+  iteration.parameters.NLayers = ITSNLayers + MFTNLayers;
+  const auto append = [](auto& output, const auto& suffix) {
+    output.insert(output.end(), suffix.begin(), suffix.end());
+  };
+  append(iteration.parameters.AddTimeError, mftParams.AddTimeError);
+  append(iteration.parameters.LayerZ, mftParams.LayerZ);
+  append(iteration.parameters.LayerRadii, mftParams.LayerRadii);
+  append(iteration.parameters.LayerxX0, mftParams.LayerxX0);
+  append(iteration.parameters.LayerResolution, mftParams.LayerResolution);
+  append(iteration.parameters.SystError2Row, mftParams.SystError2Row);
+  append(iteration.parameters.SystError2Col, mftParams.SystError2Col);
+  iteration.parameters.LayerColHalfExtent = itsParams.LayerColHalfExtent.empty() ? itsParams.LayerZ : itsParams.LayerColHalfExtent;
+  append(iteration.parameters.LayerColHalfExtent,
+         mftParams.LayerColHalfExtent.empty() ? mftParams.LayerZ : mftParams.LayerColHalfExtent);
+  iteration.parameters.StartLayerMask = LayerMask{(uint32_t{1} << (ITSNLayers + MFTNLayers)) - 1u};
+  iteration.parameters.HoleLayerMask = LayerMask{itsParams.HoleLayerMask.value() |
+                                                 (mftParams.HoleLayerMask.value() << ITSNLayers)};
   configuration.iterations.push_back(std::move(iteration));
   return configuration;
 }
@@ -105,10 +124,8 @@ class CombinedTrackingPlan
     mConfiguration = makeCombinedConfiguration(itsParams[0], mftParams[0]);
     mITSPublicationAdapter.adoptITSSharedClusterCompatibility(&mITSCompatibility);
     mMFTPublicationAdapter.adoptMFTPublicationCompatibility(&mMFTCompatibility);
-    mITSTracker = std::make_unique<Tracker>(&detail::refitITSSeed, ClusterSourceId{0});
-    mMFTTracker = std::make_unique<Tracker>(&detail::refitMFTSeed, ClusterSourceId{1});
-    mITSTraits = std::make_unique<TrackerTraits>();
-    mMFTTraits = std::make_unique<TrackerTraits>();
+    mTracker = std::make_unique<Tracker>(&detail::refitSurfaceSeed);
+    mTraits = std::make_unique<TrackerTraits>();
   }
 
   CombinedTrackingPlan(const CombinedTrackingPlan&) = delete;
@@ -117,17 +134,15 @@ class CombinedTrackingPlan
   void adoptFrame(TimeFrame& frame)
   {
     mFrame = &frame;
-    const auto result = mITSTracker->initialize(frame, mConfiguration);
+    const auto result = mTracker->initialize(frame, mConfiguration);
     if (!result.ok()) {
       throw std::runtime_error{"combined test application plan failed to configure the TimeFrame"};
     }
-    mITSTraits->setMemoryPool(frame.getMemoryPool());
-    mMFTTraits->setMemoryPool(frame.getMemoryPool());
+    mTraits->setMemoryPool(frame.getMemoryPool());
   }
   void setMemoryPool(std::shared_ptr<BoundedMemoryResource> pool)
   {
-    mITSTraits->setMemoryPool(pool);
-    mMFTTraits->setMemoryPool(pool);
+    mTraits->setMemoryPool(pool);
   }
   void setBz(float bz)
   {
@@ -135,23 +150,31 @@ class CombinedTrackingPlan
   }
   void setNThreads(int n)
   {
-    mITSTraits->setNThreads(n, mITSArena);
-    mMFTTraits->setNThreads(n, mMFTArena);
+    mTraits->setNThreads(n, mArena);
   }
 
-  Tracker& itsTracker() noexcept { return *mITSTracker; }
-  Tracker& mftTracker() noexcept { return *mMFTTracker; }
+  Tracker& itsTracker() noexcept { return *mTracker; }
+  Tracker& mftTracker() noexcept { return *mTracker; }
   TrackingResult runITS()
   {
-    auto result = mITSTracker->run(*mFrame, *mITSTraits);
+    auto result = mTracker->run(*mFrame, *mTraits);
+    mLastResult = result;
     if (result.outcome == TrackingOutcome::Success) {
-      const auto& params = mFrame->getTrackingParameters(ClusterSourceId{0});
-      const auto& scratch = mFrame->getWorkspace(ClusterSourceId{0});
+      const auto& params = mFrame->getTrackingParameters();
+      const auto& scratch = mFrame->getWorkspace();
       for (std::size_t i = 0; i < params.size(); ++i) {
-        const auto& candidates = mITSTraits->acceptedTracksForSharedStatus();
-        if (i >= result.acceptedTrackCounts.size() || result.acceptedTrackCounts[i] > candidates.size() ||
-            !mITSPublicationAdapter.completeAccepted(
-              gsl::span<const TrackingCandidate>{candidates.data(), result.acceptedTrackCounts[i]}, params[i], scratch, i + 1 == params.size())) {
+        const auto& candidates = mTraits->acceptedTracksForSharedStatus();
+        if (i >= result.acceptedTrackCounts.size() || result.acceptedTrackCounts[i] > candidates.size()) {
+          throw std::runtime_error{"failed to seal ITS tracking compatibility"};
+        }
+        std::vector<TrackingCandidate> selected;
+        for (std::size_t index = 0; index < result.acceptedTrackCounts[i]; ++index) {
+          if (candidates[index].track.innerState.family == StateFamily::Barrel) {
+            selected.push_back(candidates[index]);
+          }
+        }
+        if (!mITSPublicationAdapter.completeAccepted(
+              selected, params[i], scratch, i + 1 == params.size())) {
           throw std::runtime_error{"failed to seal ITS tracking compatibility"};
         }
       }
@@ -162,15 +185,26 @@ class CombinedTrackingPlan
   }
   TrackingResult runMFT()
   {
-    auto result = mMFTTracker->run(*mFrame, *mMFTTraits);
+    if (!mLastResult) {
+      runITS();
+    }
+    auto result = *mLastResult;
     if (result.outcome == TrackingOutcome::Success) {
-      const auto& params = mFrame->getTrackingParameters(ClusterSourceId{1});
-      const auto& scratch = mFrame->getWorkspace(ClusterSourceId{1});
+      const auto& params = mFrame->getTrackingParameters();
+      const auto& scratch = mFrame->getWorkspace();
       for (std::size_t i = 0; i < params.size(); ++i) {
-        const auto& candidates = mMFTTraits->acceptedTracksForSharedStatus();
-        if (i >= result.acceptedTrackCounts.size() || result.acceptedTrackCounts[i] > candidates.size() ||
-            !mMFTPublicationAdapter.completeAccepted(
-              gsl::span<const TrackingCandidate>{candidates.data(), result.acceptedTrackCounts[i]}, params[i], scratch, i + 1 == params.size())) {
+        const auto& candidates = mTraits->acceptedTracksForSharedStatus();
+        if (i >= result.acceptedTrackCounts.size() || result.acceptedTrackCounts[i] > candidates.size()) {
+          throw std::runtime_error{"failed to seal MFT tracking compatibility"};
+        }
+        std::vector<TrackingCandidate> selected;
+        for (std::size_t index = 0; index < result.acceptedTrackCounts[i]; ++index) {
+          if (candidates[index].track.innerState.family == StateFamily::Forward) {
+            selected.push_back(candidates[index]);
+          }
+        }
+        if (!mMFTPublicationAdapter.completeAccepted(
+              selected, params[i], scratch, i + 1 == params.size())) {
           throw std::runtime_error{"failed to seal MFT tracking compatibility"};
         }
       }
@@ -179,12 +213,13 @@ class CombinedTrackingPlan
     }
     return result;
   }
-  RuntimeROFViews getITSROFViews() const noexcept { return getITSScratch().getROFViews(); }
-  RuntimeROFViews getMFTROFViews() const noexcept { return getMFTScratch().getROFViews(); }
+  RuntimeROFViews getITSROFViews() const noexcept { return {mITSROFOverlapTable.getView(), mITSROFVertexLookupTable.getView(), mITSMultiplicityMask.getView(), mITSUPCMask.getView()}; }
+  RuntimeROFViews getMFTROFViews() const noexcept { return {mMFTROFOverlapTable.getView(), mMFTROFVertexLookupTable.getView(), mMFTMultiplicityMask.getView(), mMFTUPCMask.getView()}; }
   void clearPublicationSidecars() noexcept
   {
     mITSPublicationAdapter.reset();
     mMFTPublicationAdapter.reset();
+    mLastResult.reset();
   }
 
   std::optional<LoadSourcesResult> validateSources(const ClusterSourceInput& itsSource,
@@ -203,13 +238,13 @@ class CombinedTrackingPlan
   std::optional<bool> dropTFUponFailureFor(ClusterSourceId source) const noexcept
   {
     if (source == ClusterSourceId{0}) {
-      return mFrame != nullptr && !mFrame->getTrackingParameters(ClusterSourceId{0}).empty()
-               ? std::optional<bool>{mFrame->getTrackingParameters(ClusterSourceId{0})[0].DropTFUponFailure}
+      return mFrame != nullptr && !mFrame->getTrackingParameters().empty()
+               ? std::optional<bool>{mFrame->getTrackingParameters()[0].DropTFUponFailure}
                : std::nullopt;
     }
     if (source == ClusterSourceId{1}) {
-      return mFrame != nullptr && !mFrame->getTrackingParameters(ClusterSourceId{1}).empty()
-               ? std::optional<bool>{mFrame->getTrackingParameters(ClusterSourceId{1})[0].DropTFUponFailure}
+      return mFrame != nullptr && !mFrame->getTrackingParameters().empty()
+               ? std::optional<bool>{mFrame->getTrackingParameters()[0].DropTFUponFailure}
                : std::nullopt;
     }
     return std::nullopt;
@@ -237,14 +272,12 @@ class CombinedTrackingPlan
     };
     configure(mITSROFOverlapTable, mITSROFVertexLookupTable, mITSMultiplicityMask, itsSource.timing, static_cast<uint32_t>(itsSource.rofs.size()), ITSNLayers);
     configure(mMFTROFOverlapTable, mMFTROFVertexLookupTable, mMFTMultiplicityMask, mftSource.timing, static_cast<uint32_t>(mftSource.rofs.size()), MFTNLayers);
-    mFrame->getWorkspace(ClusterSourceId{0}).setROFViews({mITSROFOverlapTable.getView(), mITSROFVertexLookupTable.getView(), mITSMultiplicityMask.getView(), mITSUPCMask.getView()});
-    mFrame->getWorkspace(ClusterSourceId{1}).setROFViews({mMFTROFOverlapTable.getView(), mMFTROFVertexLookupTable.getView(), mMFTMultiplicityMask.getView(), mMFTUPCMask.getView()});
   }
 
-  const SurfaceTrackingScratch& getITSScratch() const noexcept { return mFrame->getWorkspace(ClusterSourceId{0}); }
-  const SurfaceTrackingScratch& getMFTScratch() const noexcept { return mFrame->getWorkspace(ClusterSourceId{1}); }
-  gsl::span<const SurfaceId> getITSOrderedSurfaces() const noexcept { return mFrame->getBinding(0, ClusterSourceId{0})->getOrderedSurfaces(); }
-  gsl::span<const SurfaceId> getMFTOrderedSurfaces() const noexcept { return mFrame->getBinding(0, ClusterSourceId{1})->getOrderedSurfaces(); }
+  const SurfaceTrackingScratch& getITSScratch() const noexcept { return mFrame->getWorkspace(); }
+  const SurfaceTrackingScratch& getMFTScratch() const noexcept { return mFrame->getWorkspace(); }
+  gsl::span<const SurfaceId> getITSOrderedSurfaces() const noexcept { return mFrame->getBinding(0)->getOrderedSurfaces().first(ITSNLayers); }
+  gsl::span<const SurfaceId> getMFTOrderedSurfaces() const noexcept { return mFrame->getBinding(0)->getOrderedSurfaces().subspan(ITSNLayers, MFTNLayers); }
   const ITSSharedClusterCompatibility& getITSSharedClusterCompatibility() const noexcept
   {
     return mITSCompatibility;
@@ -259,10 +292,9 @@ class CombinedTrackingPlan
  private:
   TrackerInitialization mConfiguration;
   TimeFrame* mFrame = nullptr;
-  std::unique_ptr<Tracker> mITSTracker;
-  std::unique_ptr<Tracker> mMFTTracker;
-  std::unique_ptr<TrackerTraits> mITSTraits;
-  std::unique_ptr<TrackerTraits> mMFTTraits;
+  std::unique_ptr<Tracker> mTracker;
+  std::unique_ptr<TrackerTraits> mTraits;
+  std::optional<TrackingResult> mLastResult;
   DetectorPublicationAdapter<ITSNLayers> mITSPublicationAdapter;
   DetectorPublicationAdapter<MFTNLayers> mMFTPublicationAdapter;
   ITSSharedClusterCompatibility mITSCompatibility;
@@ -275,8 +307,7 @@ class CombinedTrackingPlan
   o2::its::ROFVertexLookupTable<MFTNLayers> mMFTROFVertexLookupTable;
   o2::its::ROFMaskTable<MFTNLayers> mMFTMultiplicityMask;
   o2::its::ROFMaskTable<MFTNLayers> mMFTUPCMask;
-  std::shared_ptr<tbb::task_arena> mITSArena;
-  std::shared_ptr<tbb::task_arena> mMFTArena;
+  std::shared_ptr<tbb::task_arena> mArena;
 };
 
 } // namespace o2::itsmft::tracking::test

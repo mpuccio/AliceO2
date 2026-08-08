@@ -305,46 +305,35 @@ BOOST_AUTO_TEST_CASE(combined_owner_load_keeps_detector_backfills_separate)
                                mftSurfaces, timing, &mftDecoder};
   TimeFrame frame;
   const SurfaceCatalogView view{catalog.data(), static_cast<uint32_t>(catalog.size())};
-  auto graph = catalogGraph(view, itsSurfaces);
-  TimeFrame::BindingSet bindings;
-  std::vector<TrackingParameters> parameters;
-  std::vector<TrackingWorkspaceCapacity> capacities;
-  for (const auto [source, ordered, kind] : {std::tuple{ClusterSourceId{0}, gsl::span<const SurfaceId>{itsSurfaces}, SurfaceKind::Cylinder},
-                                             std::tuple{ClusterSourceId{1}, gsl::span<const SurfaceId>{mftSurfaces}, SurfaceKind::Disk}}) {
-    SurfaceMask owned;
-    for (const auto surface : ordered) {
-      owned.set(surface);
-    }
-    auto built = SurfacePlanBinding::build(graph.getView(), source, owned, ordered, kind);
-    BOOST_REQUIRE(built.ok());
-    capacities.push_back({built.binding->getOrderedSurfaces().size(), built.binding->getGlobalTransitions().size(), built.binding->getGlobalCells().size()});
-    bindings.push_back(std::move(built.binding));
-    parameters.emplace_back();
+  std::vector<SurfaceId> combinedSurfaces{itsSurfaces.begin(), itsSurfaces.end()};
+  combinedSurfaces.insert(combinedSurfaces.end(), mftSurfaces.begin(), mftSurfaces.end());
+  auto graph = catalogGraph(view, combinedSurfaces);
+  SurfaceMask owned;
+  for (const auto surface : combinedSurfaces) {
+    owned.set(surface);
   }
+  auto built = SurfacePlanBinding::build(graph.getView(), owned, combinedSurfaces);
+  BOOST_REQUIRE(built.ok());
   std::vector<SurfaceGraph> graphs;
   graphs.push_back(std::move(graph));
-  std::vector<std::vector<TrackingParameters>> allParameters;
-  allParameters.push_back(std::move(parameters));
-  std::vector<TimeFrame::BindingSet> allBindings;
-  allBindings.push_back(std::move(bindings));
-  std::vector<std::vector<TrackingWorkspaceCapacity>> allCapacities;
-  allCapacities.push_back(std::move(capacities));
-  BOOST_REQUIRE(frame.commitConfiguration(std::move(graphs), std::move(allParameters), std::move(allBindings),
-                                          std::move(allCapacities), std::make_shared<BoundedMemoryResource>()));
+  std::vector<TrackingParameters> parameters(1);
+  std::vector<std::unique_ptr<SurfacePlanBinding>> bindings;
+  bindings.push_back(std::move(built.binding));
+  std::vector<TrackingWorkspaceCapacity> capacities{{combinedSurfaces.size(), 0, 0}};
+  BOOST_REQUIRE(frame.commitConfiguration(std::move(graphs), std::move(parameters), std::move(bindings),
+                                          std::move(capacities), std::make_shared<BoundedMemoryResource>()));
   const std::array<ClusterSourceInput, 2> sources{itsSource, mftSource};
   BOOST_REQUIRE(MultiSourceTimeFrameLoader::load(frame, gsl::span<const ClusterSourceInput>{sources}, view, {50, 5}).ok());
   BOOST_CHECK_EQUAL(frame.getNormalizedFrame().getSources().size(), 2u);
   BOOST_CHECK_EQUAL(frame.getNormalizedFrame().getSurfaceMeasurements(SurfaceId{0}).size(), 2u);
   BOOST_CHECK_EQUAL(frame.getNormalizedFrame().getSurfaceMeasurements(SurfaceId{static_cast<uint16_t>(ITSNLayers)}).size(), 2u);
-  BOOST_CHECK_EQUAL(frame.getWorkspace(ClusterSourceId{0}).getTotalClusters(), static_cast<int>(its.clusters.size()));
-  BOOST_CHECK_EQUAL(frame.getWorkspace(ClusterSourceId{1}).getTotalClusters(), static_cast<int>(mft.clusters.size()));
+  BOOST_CHECK_EQUAL(frame.getWorkspace().getTotalClusters(), static_cast<int>(its.clusters.size() + mft.clusters.size()));
   BOOST_CHECK(frame.getNormalizedFrame().getSurfaceMeasurements(SurfaceId{0})[0].cluster.source == ClusterSourceId{0});
   BOOST_CHECK(frame.getNormalizedFrame().getSurfaceMeasurements(SurfaceId{static_cast<uint16_t>(ITSNLayers)})[0].cluster.source == ClusterSourceId{1});
 
-  // Frame reset clears both workspaces and normalized ownership together.
+  // Frame reset clears the workspace and normalized ownership together.
   frame.resetEvent();
-  BOOST_CHECK(frame.getWorkspace(ClusterSourceId{0}).empty());
-  BOOST_CHECK(frame.getWorkspace(ClusterSourceId{1}).empty());
+  BOOST_CHECK(frame.getWorkspace().empty());
   BOOST_CHECK_EQUAL(frame.getNormalizedFrame().getSources().size(), 0u);
 
   // A malformed replacement is rejected before the no-throw three-owner
@@ -353,10 +342,10 @@ BOOST_AUTO_TEST_CASE(combined_owner_load_keeps_detector_backfills_separate)
   malformedMFT.patterns = {};
   const std::array<ClusterSourceInput, 2> retrySources{itsSource, malformedMFT};
   BOOST_CHECK(!MultiSourceTimeFrameLoader::load(frame, gsl::span<const ClusterSourceInput>{retrySources}, view, {50, 5}).ok());
-  BOOST_CHECK(frame.getWorkspace(ClusterSourceId{1}).empty());
+  BOOST_CHECK(frame.getWorkspace().empty());
   BOOST_CHECK_EQUAL(frame.getNormalizedFrame().getSources().size(), 0u);
   frame.resetEvent();
-  BOOST_CHECK(frame.getWorkspace(ClusterSourceId{1}).empty());
+  BOOST_CHECK(frame.getWorkspace().empty());
   BOOST_CHECK(frame.getNormalizedFrame().getSources().empty());
 }
 

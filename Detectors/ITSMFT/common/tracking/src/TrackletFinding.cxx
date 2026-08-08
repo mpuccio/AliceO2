@@ -113,7 +113,7 @@ bool projectDiskSearchWindow(const SurfaceMeasurement& sourceMeasurement,
   float yProj = 0.f;
   detail::mftTrackletProject(sourceMeasurement.global.x, sourceMeasurement.global.y, sourceMeasurement.global.z,
                              vertex.getX(), vertex.getY(), vertex.getZ(),
-                             transitionState.fromLayer, transitionState.toLayer, bz, params.trackletMinPt,
+                             transitionState.fromZ, transitionState.toZ, bz, params.trackletMinPt,
                              xProj, yProj);
   float sigmaX = 0.f;
   float sigmaY = 0.f;
@@ -121,7 +121,7 @@ bool projectDiskSearchWindow(const SurfaceMeasurement& sourceMeasurement,
                              vertex.getX(), vertex.getY(), vertex.getZ(),
                              sourceMeasurement.covariance.uu, sourceMeasurement.covariance.vv,
                              vertex.getSigmaX2(), vertex.getSigmaY2(), vertex.getSigmaZ2(),
-                             transitionState.fromLayer, transitionState.toLayer,
+                             transitionState.fromZ, transitionState.toZ,
                              transitionState.sourceReferenceRadius, transitionState.meanDeltaZ,
                              transitionState.transitionMSAngle, transitionState.transitionBendingAngle,
                              xProj, yProj, sigmaX, sigmaY);

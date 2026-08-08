@@ -78,6 +78,7 @@ namespace o2::itsmft::tracking
 
 class MultiSourceTimeFrameLoader;
 class ClusterDecoder;
+struct ClusterSourceInput;
 struct LoadSourcesResult;
 
 /// Non-templated, detector-neutral CA working state. Detector-specific table
@@ -177,6 +178,9 @@ class SurfaceTrackingScratch
                                          gsl::span<const SurfaceId> orderedSurfaces,
                                          SurfaceCatalogView catalogView,
                                          bool applySysErrors = true);
+  LoadSourcesResult backfillNormalizedSources(const MultiSourceFrame& normalized,
+                                              gsl::span<const ClusterSourceInput> sources,
+                                              gsl::span<const SurfaceId> orderedSurfaces);
 #endif
 
   int getTotalClusters() const;
@@ -211,13 +215,52 @@ class SurfaceTrackingScratch
   // Navigation and event timing views. Fixed-capacity detector tables are
   // owned by their application adapters; common scratch retains one
   // non-owning runtime view for the current event.
-  const auto& getIndexTableUtils() const { return mIndexTableUtils; }
+  const auto& getIndexTableUtils() const { return mIndexTableUtils.front(); }
+  const auto& getIndexTableUtils(int layer) const { return mIndexTableUtils[layer]; }
   void setROFViews(RuntimeROFViews views) noexcept
   {
     mROFViews = views;
+    mROFViewsBySurface.assign(mNOwnedSurfaces, views);
+    mROFLocalLayerBySurface.resize(mNOwnedSurfaces);
+    for (uint16_t layer = 0; layer < mNOwnedSurfaces; ++layer) {
+      mROFLocalLayerBySurface[layer] = layer;
+    }
     mUseUPC = false;
   }
   const RuntimeROFViews& getROFViews() const noexcept { return mROFViews; }
+  const RuntimeROFViews& getROFViews(int layer) const noexcept { return mROFViewsBySurface.empty() ? mROFViews : mROFViewsBySurface[layer]; }
+  int getROFLocalLayer(int layer) const noexcept { return mROFLocalLayerBySurface.empty() ? layer : mROFLocalLayerBySurface[layer]; }
+  const ROFTimingLayer& getROFTiming(int layer) const noexcept { return getROFViews(layer).overlap.getLayer(getROFLocalLayer(layer)); }
+  const RuntimeROFTableEntry& getROFOverlap(int fromLayer, int toLayer, int rof) const noexcept
+  {
+    return getROFViews(fromLayer).overlap.getOverlap(getROFLocalLayer(fromLayer), getROFLocalLayer(toLayer), rof);
+  }
+  bool isROFEnabled(int layer, int rof) const noexcept
+  {
+    const auto& views = getROFViews(layer);
+    const auto& mask = mUseUPC ? views.upcMask : views.mask;
+    return mask.isROFEnabled(getROFLocalLayer(layer), rof);
+  }
+  bool isVertexCompatible(int layer, int rof, const Vertex& vertex) const noexcept
+  {
+    return getROFViews(layer).vertexLookup.isVertexCompatible(getROFLocalLayer(layer), rof, vertex);
+  }
+  o2::its::TimeEstBC getROFTimeStamp(int fromLayer, int fromROF, int toLayer, int toROF) const noexcept
+  {
+    return getROFViews(fromLayer).overlap.getTimeStamp(getROFLocalLayer(fromLayer), fromROF,
+                                                       getROFLocalLayer(toLayer), toROF);
+  }
+  int getMaxVerticesPerROF() const noexcept
+  {
+    int result = 0;
+    if (mROFViewsBySurface.empty()) {
+      return mROFViews.vertexLookup.getMaxVerticesPerROF();
+    }
+    for (const auto& views : mROFViewsBySurface) {
+      result = std::max(result, views.vertexLookup.getMaxVerticesPerROF());
+    }
+    return result;
+  }
   const RuntimeROFOverlapView& getROFOverlapView() const noexcept { return mROFViews.overlap; }
   const RuntimeROFVertexLookupView& getROFVertexLookupView() const noexcept { return mROFViews.vertexLookup; }
   const RuntimeROFMaskView& getROFMaskView() const noexcept { return mUseUPC ? mROFViews.upcMask : mROFViews.mask; }
@@ -239,6 +282,11 @@ class SurfaceTrackingScratch
                   gsl::span<const TransitionId> transitionIds, gsl::span<const CellTopologyId> cellIds,
                   gsl::span<const SurfaceId> orderedSurfaces,
                   gsl::span<const gsl::span<const SurfaceMeasurement>> layerMeasurements);
+  void initialise(const TimeFrame& frame, const TrackingParameters& trkParam, int maxLayers, int iteration,
+                  gsl::span<const IndexTableUtilsCore> indexTableConfigs, SurfaceGraphView topology,
+                  gsl::span<const TransitionId> transitionIds, gsl::span<const CellTopologyId> cellIds,
+                  gsl::span<const SurfaceId> orderedSurfaces,
+                  gsl::span<const gsl::span<const SurfaceMeasurement>> layerMeasurements);
 
   bool isClusterUsed(int layer, int clusterId) const { return mUsedClusters[layer][clusterId]; }
   void markUsedCluster(int layer, int clusterId) { mUsedClusters[layer][clusterId] = true; }
@@ -252,6 +300,7 @@ class SurfaceTrackingScratch
   const auto& getUnsortedClusters() const { return mUnsortedClusters; }
   int getClusterROF(int iLayer, int iCluster) const;
   auto& getCells() { return mCells; }
+  const auto& getCells() const { return mCells; }
 
   auto& getCellsLookupTable() { return mCellsLookupTable; }
   auto& getCellsNeighbours() { return mCellsNeighbours; }
@@ -312,7 +361,7 @@ class SurfaceTrackingScratch
   std::vector<o2::its::bounded_vector<int>> mCellsNeighboursLUT;
   std::vector<o2::its::bounded_vector<o2::MCCompLabel>> mCellLabels;
   // The shared navigation auxiliary.
-  IndexTableUtilsCore mIndexTableUtils;
+  std::vector<IndexTableUtilsCore> mIndexTableUtils;
 
   // ---- Group D: vertexer working scratch ----
   // Never plan-sized (bound by ROF count and the fixed pair count of 2).
@@ -348,6 +397,8 @@ class SurfaceTrackingScratch
                        gsl::span<const gsl::span<const SurfaceMeasurement>> layerMeasurements);
 
   RuntimeROFViews mROFViews{};
+  std::vector<RuntimeROFViews> mROFViewsBySurface;
+  std::vector<uint16_t> mROFLocalLayerBySurface;
   bool mUseUPC{false};
 
   std::size_t mNOwnedSurfaces{0};

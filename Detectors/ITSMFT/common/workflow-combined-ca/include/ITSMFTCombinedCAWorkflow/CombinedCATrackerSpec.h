@@ -10,9 +10,9 @@
 ///        detector input sets and publishes their CommonTrack output streams
 ///        through CommonTrackOutputAdapter.h.
 ///
-/// This DPL task owns the shared TimeFrame, the two non-owning Tracker
-/// components, their application configuration, and the event publication
-/// context. trackFrame() composes the workflow-owned source inputs,
+/// This DPL task owns one TimeFrame, one Tracker, their application
+/// configuration, and the detector-specific publication context. trackFrame()
+/// composes the workflow-owned source inputs,
 /// MultiSourceTimeFrameLoader::load(), Tracker::run(), and publication.
 
 #ifndef ALICEO2_ITSMFT_COMBINEDCAWORKFLOW_COMBINEDCATRACKERSPEC_H_
@@ -44,8 +44,8 @@
 namespace o2::itsmft::combined
 {
 
-/// Combined ITS+MFT tracker DPL task. Owns the shared TimeFrame, the two
-/// Tracker components, the application plan, and publication context.
+/// Combined ITS+MFT tracker DPL task. Owns one TimeFrame, one Tracker, one
+/// application plan, and detector-specific publication context.
 class CombinedCATrackerDPL : public o2::framework::Task
 {
  public:
@@ -66,10 +66,10 @@ class CombinedCATrackerDPL : public o2::framework::Task
 
   // Composes the atomic load and, once that has committed, the tracking phase
   // into a whole-event all-or-nothing contract. Any non-success -- a load
-  // failure, a non-Success tracking outcome, or an exception from either
-  // leg's track() -- performs exactly one whole reset and leaves the
+  // failure, a non-Success tracking outcome, or an exception from tracking
+  // -- performs exactly one whole reset and leaves the
   // workflow-owned publication/timing state invalidated. A successful return
-  // leaves the two participant sidecars and publication exports populated for
+  // leaves the detector sidecars and publication exports populated for
   // run() to stage.
   o2::itsmft::tracking::TrackingOutcome trackFrame(const o2::itsmft::tracking::ClusterSourceInput& itsSource,
                                                    const o2::itsmft::tracking::ClusterSourceInput& mftSource,
@@ -88,8 +88,8 @@ class CombinedCATrackerDPL : public o2::framework::Task
   std::optional<o2::itsmft::tracking::CommonTrackPublicationExport> getITSPublicationExport() const;
   std::optional<o2::itsmft::tracking::CommonTrackPublicationExport> getMFTPublicationExport() const;
 
-  const o2::itsmft::tracking::SurfaceTrackingScratch& getITSScratch() const noexcept { return mFrame.getWorkspace(o2::itsmft::tracking::ClusterSourceId{0}); }
-  const o2::itsmft::tracking::SurfaceTrackingScratch& getMFTScratch() const noexcept { return mFrame.getWorkspace(o2::itsmft::tracking::ClusterSourceId{1}); }
+  const o2::itsmft::tracking::SurfaceTrackingScratch& getITSScratch() const noexcept { return mFrame.getWorkspace(); }
+  const o2::itsmft::tracking::SurfaceTrackingScratch& getMFTScratch() const noexcept { return mFrame.getWorkspace(); }
   const o2::itsmft::tracking::ITSSharedClusterCompatibility& getITSSharedClusterCompatibility() const noexcept
   {
     return mITSCompatibility;
@@ -100,13 +100,16 @@ class CombinedCATrackerDPL : public o2::framework::Task
   }
   gsl::span<const o2::itsmft::tracking::SurfaceId> getITSOrderedSurfaces() const noexcept
   {
-    const auto* binding = mFrame.getBinding(0, o2::itsmft::tracking::ClusterSourceId{0});
-    return binding == nullptr ? gsl::span<const o2::itsmft::tracking::SurfaceId>{} : binding->getOrderedSurfaces();
+    const auto* binding = mFrame.getBinding(0);
+    return binding == nullptr ? gsl::span<const o2::itsmft::tracking::SurfaceId>{}
+                              : binding->getOrderedSurfaces().first(o2::itsmft::tracking::ITSNLayers);
   }
   gsl::span<const o2::itsmft::tracking::SurfaceId> getMFTOrderedSurfaces() const noexcept
   {
-    const auto* binding = mFrame.getBinding(0, o2::itsmft::tracking::ClusterSourceId{1});
-    return binding == nullptr ? gsl::span<const o2::itsmft::tracking::SurfaceId>{} : binding->getOrderedSurfaces();
+    const auto* binding = mFrame.getBinding(0);
+    return binding == nullptr ? gsl::span<const o2::itsmft::tracking::SurfaceId>{}
+                              : binding->getOrderedSurfaces().subspan(o2::itsmft::tracking::ITSNLayers,
+                                                                      o2::itsmft::tracking::MFTNLayers);
   }
 
   std::shared_ptr<o2::base::GRPGeomRequest> mGGCCDBRequest;
@@ -118,10 +121,8 @@ class CombinedCATrackerDPL : public o2::framework::Task
   std::unique_ptr<o2::itsmft::tracking::ClusterDecoder> mITSDecoder;
   std::unique_ptr<o2::itsmft::tracking::ClusterDecoder> mMFTDecoder;
   o2::itsmft::tracking::TimeFrame mFrame;
-  std::unique_ptr<o2::itsmft::tracking::Tracker> mITSTracker;
-  std::unique_ptr<o2::itsmft::tracking::Tracker> mMFTTracker;
-  std::unique_ptr<o2::itsmft::tracking::TrackerTraits> mITSTraits;
-  std::unique_ptr<o2::itsmft::tracking::TrackerTraits> mMFTTraits;
+  std::unique_ptr<o2::itsmft::tracking::Tracker> mTracker;
+  std::unique_ptr<o2::itsmft::tracking::TrackerTraits> mTraits;
   o2::itsmft::tracking::DetectorPublicationAdapter<o2::itsmft::tracking::ITSNLayers> mITSPublicationAdapter;
   o2::itsmft::tracking::DetectorPublicationAdapter<o2::itsmft::tracking::MFTNLayers> mMFTPublicationAdapter;
   o2::itsmft::tracking::ITSSharedClusterCompatibility mITSCompatibility;

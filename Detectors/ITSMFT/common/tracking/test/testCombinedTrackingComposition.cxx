@@ -312,8 +312,7 @@ struct StandaloneRun {
   TimeFrame frame;
   std::vector<TrackingParameters> params;
   std::shared_ptr<BoundedMemoryResource> pool = std::make_shared<BoundedMemoryResource>();
-  Tracker tracker{DetId == o2::detectors::DetID::ITS ? &detail::refitITSSeed : &detail::refitMFTSeed,
-                  ClusterSourceId{0}};
+  Tracker tracker{DetId == o2::detectors::DetID::ITS ? &detail::refitITSSeed : &detail::refitMFTSeed};
   TrackerTraits traits;
   std::shared_ptr<tbb::task_arena> arena;
   SurfaceTrackingScratch* scratch = nullptr;
@@ -338,22 +337,15 @@ struct StandaloneRun {
     configuration.catalog = catalogView;
     configuration.memoryPool = pool;
     TrackerIterationConfiguration iteration;
-    SurfaceGraphSubgraph subgraph;
-    subgraph.orderedSurfaces.assign(orderedSurfaces.begin(), orderedSurfaces.end());
-    subgraph.maxHoles = singleParams.MaxHoles;
-    subgraph.holeSurfaces = positionalSurfaceMask(singleParams.HoleLayerMask, orderedSurfaces, NLayers);
-    subgraph.seedingSurfaces = positionalSurfaceMask(singleParams.StartLayerMask, orderedSurfaces, NLayers);
-    iteration.graphSubgraphs.push_back(std::move(subgraph));
-    iteration.parameters = {singleParams};
-    SurfaceMask ownedSurfaces;
-    for (const auto surface : orderedSurfaces) {
-      ownedSurfaces.set(surface);
-    }
-    iteration.bindings.push_back(SurfacePlanBinding::Declaration{ClusterSourceId{0}, ownedSurfaces, orderedSurfaces, kind});
+    iteration.graph = makeSurfaceChain(
+      orderedSurfaces, singleParams.MaxHoles,
+      positionalSurfaceMask(singleParams.HoleLayerMask, orderedSurfaces, NLayers),
+      positionalSurfaceMask(singleParams.StartLayerMask, orderedSurfaces, NLayers));
+    iteration.parameters = singleParams;
     configuration.iterations.push_back(std::move(iteration));
     const auto configured = tracker.initialize(frame, configuration);
     BOOST_REQUIRE(configured.ok());
-    scratch = &frame.getWorkspace(ClusterSourceId{0});
+    scratch = &frame.getWorkspace();
     traits.setMemoryPool(pool);
     traits.setNThreads(1, arena);
     frame.setBz(Bz);
@@ -537,7 +529,7 @@ CombinedTrackingComposer makeComposer(const TrackingParameters& itsParams, const
 
 } // namespace
 
-BOOST_AUTO_TEST_CASE(CombinedLoadingBackfillsIndependentCompactScratches)
+BOOST_AUTO_TEST_CASE(CombinedLoadingBackfillsOneGlobalWorkspace)
 {
   // TrackerTraits::findRoads() unconditionally touches the global
   // o2::base::Propagator singleton on first use, regardless of whether any
@@ -563,16 +555,20 @@ BOOST_AUTO_TEST_CASE(CombinedLoadingBackfillsIndependentCompactScratches)
   composer.setBz(Bz);
   composer.setNThreads(1);
 
+  constexpr uint32_t allCombinedSurfaces = (uint32_t{1} << (ITSNLayers + MFTNLayers)) - 1u;
+  BOOST_REQUIRE_EQUAL(frame.getTrackingParameters().size(), 1u);
+  BOOST_CHECK_EQUAL(frame.getTrackingParameters()[0].StartLayerMask.value(), allCombinedSurfaces);
+  BOOST_CHECK_EQUAL(frame.getGraph(0).getView().seedingSurfaces.value(), allCombinedSurfaces);
+
   const auto result = composer.process(itsSource, mftSource, o2::InteractionRecord{50, 5});
   BOOST_REQUIRE(result.outcome == TrackingOutcome::Success);
 
-  BOOST_CHECK_EQUAL(composer.getITSScratch().getTotalClusters(), static_cast<int>(itsClusters.size()));
-  BOOST_CHECK_EQUAL(composer.getMFTScratch().getTotalClusters(), static_cast<int>(mftClusters.size()));
-  // Independent compact backfills: each scratch only ever sees its own
-  // detector's layer count worth of per-layer arrays, and only its own
-  // clusters landed there.
+  BOOST_CHECK_EQUAL(composer.getITSScratch().getTotalClusters(),
+                    static_cast<int>(itsClusters.size() + mftClusters.size()));
+  BOOST_CHECK_EQUAL(&composer.getITSScratch(), &composer.getMFTScratch());
+  // The one workspace keeps source-local ROF numbering per global surface.
   BOOST_CHECK_EQUAL(composer.getITSScratch().getNrof(0), 1);
-  BOOST_CHECK_EQUAL(composer.getMFTScratch().getNrof(0), 1);
+  BOOST_CHECK_EQUAL(composer.getMFTScratch().getNrof(ITSNLayers), 1);
 }
 
 BOOST_AUTO_TEST_CASE(MftGlobalIdsWorkEndToEndThroughRefitAndReproducesStandaloneCount)
@@ -642,7 +638,11 @@ BOOST_AUTO_TEST_CASE(ITSAndMFTAcceptedResultsReproduceStandaloneCountsInOneCombi
   std::vector<unsigned char> itsPatterns, mftPatterns;
   std::vector<ROFRecord> itsRofs, mftRofs;
   const auto itsSource = makeSource(ClusterSourceId{0}, o2::detectors::DetID::ITS, itsSurfaces, itsDecoder, itsCompact, itsPatterns, itsRofs, itsClusters);
-  const auto mftSource = makeSource(ClusterSourceId{1}, o2::detectors::DetID::MFT, mftSurfaces, mftDecoder, mftCompact, mftPatterns, mftRofs, mftClusters);
+  auto mftSource = makeSource(ClusterSourceId{1}, o2::detectors::DetID::MFT, mftSurfaces, mftDecoder, mftCompact, mftPatterns, mftRofs, mftClusters);
+  // Deliberately make the disconnected MFT component's ROF much shorter.
+  // ITS timestamp clamping in the one global workspace must still depend
+  // only on the surfaces hit by each ITS track.
+  mftSource.timing.rofLength = 2;
 
   auto composer = makeComposer(itsParams, mftParams);
   TimeFrame frame;
@@ -661,19 +661,15 @@ BOOST_AUTO_TEST_CASE(ITSAndMFTAcceptedResultsReproduceStandaloneCountsInOneCombi
   BOOST_CHECK_EQUAL(result.nITSTracks, standaloneIts.frame.getCommonTracks().size());
   BOOST_CHECK_EQUAL(result.nMFTTracks, standaloneMft.frame.getCommonTracks().size());
 
-  // No cross-detector topology element reached either tracker: had the
-  // adopted bindings leaked a foreign transition/cell, the combined cell
-  // counts below (the real, non-degenerate evidence -- getNumberOfTracklets()
-  // is always 0 by the time clustersToTracks() returns: computeLayerCells()
-  // clears the per-transition tracklet arrays once it has consumed them,
-  // TrackerTraits.cxx) would diverge from the independently-built,
-  // single-detector-catalog standalone references.
-  BOOST_CHECK_EQUAL(composer.getITSScratch().getNumberOfTracklets(), standaloneIts.scratch->getNumberOfTracklets());
-  BOOST_CHECK_EQUAL(composer.getITSScratch().getNumberOfCells(), standaloneIts.scratch->getNumberOfCells());
-  BOOST_CHECK_EQUAL(composer.getMFTScratch().getNumberOfTracklets(), standaloneMft.scratch->getNumberOfTracklets());
-  BOOST_CHECK_EQUAL(composer.getMFTScratch().getNumberOfCells(), standaloneMft.scratch->getNumberOfCells());
+  // The one workspace contains the disjoint components' compact buffers in
+  // graph order. Their populated cell count is therefore the sum of the two
+  // standalone component counts; tracklets have already been consumed.
+  BOOST_CHECK_EQUAL(composer.getITSScratch().getNumberOfTracklets(),
+                    standaloneIts.scratch->getNumberOfTracklets() + standaloneMft.scratch->getNumberOfTracklets());
+  BOOST_CHECK_EQUAL(composer.getITSScratch().getNumberOfCells(),
+                    standaloneIts.scratch->getNumberOfCells() + standaloneMft.scratch->getNumberOfCells());
+  BOOST_CHECK_EQUAL(&composer.getITSScratch(), &composer.getMFTScratch());
   BOOST_CHECK_GT(composer.getITSScratch().getNumberOfCells(), 0u);
-  BOOST_CHECK_GT(composer.getMFTScratch().getNumberOfCells(), 0u);
 
   // CommonTrack global references resolve correctly and ordering is ITS
   // then MFT: every accepted track's hitSurfaces mask stays within exactly
@@ -683,6 +679,10 @@ BOOST_AUTO_TEST_CASE(ITSAndMFTAcceptedResultsReproduceStandaloneCountsInOneCombi
   const auto mftMask = SurfaceMask{static_cast<uint32_t>(((1u << MFTNLayers) - 1u) << ITSNLayers)};
   const auto& commonTracks = frame.getCommonTracks();
   BOOST_REQUIRE_EQUAL(commonTracks.size(), result.nITSTracks + result.nMFTTracks);
+  for (size_t i = 0; i < result.nITSTracks; ++i) {
+    BOOST_CHECK_EQUAL(commonTracks[i].timestamp.begin, standaloneIts.frame.getCommonTracks()[i].timestamp.begin);
+    BOOST_CHECK_EQUAL(commonTracks[i].timestamp.end, standaloneIts.frame.getCommonTracks()[i].timestamp.end);
+  }
   bool seenMft = false;
   for (size_t i = 0; i < commonTracks.size(); ++i) {
     const auto& track = commonTracks[i];
@@ -772,7 +772,7 @@ BOOST_AUTO_TEST_CASE(LoadFailureResetsWholeCombinedTFExactlyOnceAndInvalidatesPu
   BOOST_CHECK(!composer.getMFTPublicationExport().has_value());
 }
 
-BOOST_AUTO_TEST_CASE(MFTTrackingFailureAfterITSSuccessStillResetsBothScratches)
+BOOST_AUTO_TEST_CASE(CombinedTrackingResourceFailureUsesSharedPolicyAndResetsWorkspace)
 {
   ensureTrivialMagneticFieldIsSet();
   const auto itsSurfaces = ordered(0, ITSNLayers);
@@ -788,14 +788,14 @@ BOOST_AUTO_TEST_CASE(MFTTrackingFailureAfterITSSuccessStillResetsBothScratches)
   const auto itsSource = makeSource(ClusterSourceId{0}, o2::detectors::DetID::ITS, itsSurfaces, itsDecoder, itsCompact, itsPatterns, itsRofs, itsClusters);
   const auto mftSource = makeSource(ClusterSourceId{1}, o2::detectors::DetID::MFT, mftSurfaces, mftDecoder, mftCompact, mftPatterns, mftRofs, mftClusters);
 
-  // ITS runs (and would succeed) first; MFT's own MaxMemory is exhausted
-  // immediately, so its Tracker returns RecoverableDropped. The composition
-  // must reset the entire frame-owned generic event state atomically.
-  auto mftParams = makeMftParams();
-  mftParams.MaxMemory = 1;
-  mftParams.DropTFUponFailure = true;
+  // One run has one resource budget and one failure policy. The combined
+  // scalar baseline is ITS, so exhausting that budget drops and resets the
+  // one frame-owned workspace atomically.
+  auto itsParams = makeItsParams();
+  itsParams.MaxMemory = 1;
+  itsParams.DropTFUponFailure = true;
 
-  auto composer = makeComposer(makeItsParams(), mftParams);
+  auto composer = makeComposer(itsParams, makeMftParams());
   TimeFrame frame;
   composer.adoptFrame(frame);
   composer.setMemoryPool(std::make_shared<BoundedMemoryResource>());
@@ -803,14 +803,9 @@ BOOST_AUTO_TEST_CASE(MFTTrackingFailureAfterITSSuccessStillResetsBothScratches)
   composer.setNThreads(1);
 
   const auto result = composer.process(itsSource, mftSource, o2::InteractionRecord{50, 5});
-  // Tracker<NLayers>::clustersToTracks() already gated this resource
-  // exhaustion on MFT's own DropTFUponFailure=true internally, so it
-  // returned TrackingOutcome::RecoverableDropped rather than throwing; the
-  // composition's non-Success branch for a tracking-phase outcome is always
-  // RecoverableDropped.
   BOOST_CHECK(result.outcome == TrackingOutcome::RecoverableDropped);
   BOOST_CHECK_EQUAL(composer.getITSScratch().getTotalClusters(), 0);
-  BOOST_CHECK_EQUAL(composer.getMFTScratch().getTotalClusters(), 0);
+  BOOST_CHECK_EQUAL(&composer.getITSScratch(), &composer.getMFTScratch());
   BOOST_CHECK(frame.getCommonTracks().empty());
   BOOST_CHECK(!composer.getITSPublicationExport().has_value());
   BOOST_CHECK(!composer.getMFTPublicationExport().has_value());
@@ -885,18 +880,20 @@ BOOST_AUTO_TEST_CASE(RecoverableITSLoadFailureIsDroppedOnlyWhenITSDropTFAllows)
   }
 }
 
-BOOST_AUTO_TEST_CASE(RecoverableMFTLoadFailureIsDroppedOnlyWhenMFTDropTFAllows)
+BOOST_AUTO_TEST_CASE(RecoverableMFTLoadFailureUsesSharedCombinedDropPolicy)
 {
   ensureTrivialMagneticFieldIsSet();
 
-  for (const bool mftDropTF : {true, false}) {
+  for (const bool combinedDropTF : {true, false}) {
     MinimalFixture fixture;
     makeRofGap(fixture.mftRofs);
     fixture.mftSource.rofs = fixture.mftRofs;
 
+    auto itsParams = makeItsParams();
+    itsParams.DropTFUponFailure = combinedDropTF;
     auto mftParams = makeMftParams();
-    mftParams.DropTFUponFailure = mftDropTF;
-    auto composer = makeComposer(makeItsParams(), mftParams);
+    mftParams.DropTFUponFailure = !combinedDropTF;
+    auto composer = makeComposer(itsParams, mftParams);
     TimeFrame frame;
     composer.adoptFrame(frame);
     composer.setMemoryPool(std::make_shared<BoundedMemoryResource>());
@@ -904,8 +901,8 @@ BOOST_AUTO_TEST_CASE(RecoverableMFTLoadFailureIsDroppedOnlyWhenMFTDropTFAllows)
     composer.setNThreads(1);
 
     const auto result = composer.process(fixture.itsSource, fixture.mftSource, o2::InteractionRecord{50, 5});
-    const auto expected = mftDropTF ? TrackingOutcome::RecoverableDropped : TrackingOutcome::Structural;
-    BOOST_CHECK_MESSAGE(result.outcome == expected, "MFT DropTFUponFailure=" << mftDropTF);
+    const auto expected = combinedDropTF ? TrackingOutcome::RecoverableDropped : TrackingOutcome::Structural;
+    BOOST_CHECK_MESSAGE(result.outcome == expected, "combined DropTFUponFailure=" << combinedDropTF);
     BOOST_CHECK_EQUAL(composer.getITSScratch().getTotalClusters(), 0);
     BOOST_CHECK_EQUAL(composer.getMFTScratch().getTotalClusters(), 0);
     BOOST_CHECK(frame.getCommonTracks().empty());
@@ -969,18 +966,13 @@ BOOST_AUTO_TEST_CASE(StructuralTrackingExceptionIsClassifiedStructuralAfterWhole
 {
   ensureTrivialMagneticFieldIsSet();
 
-  // MaxMemory=1 with DropTFUponFailure left at its false default: MFT's
-  // Tracker<MFTNLayers>::clustersToTracks() throws
-  // BoundedMemoryResource::MemoryLimitExceeded (a std::bad_alloc, hence a
-  // std::exception) rather than returning RecoverableDropped, since that
-  // internal gate is only "drop" when DropTFUponFailure is explicitly true
-  // (see MFTTrackingFailureAfterITSSuccessStillResetsBothScratches for the
-  // DropTFUponFailure=true counterpart).
+  // MaxMemory=1 with the shared DropTFUponFailure left false makes the one
+  // tracker propagate the resource exception to the composition boundary.
   MinimalFixture fixture;
-  auto mftParams = makeMftParams();
-  mftParams.MaxMemory = 1;
+  auto itsParams = makeItsParams();
+  itsParams.MaxMemory = 1;
 
-  auto composer = makeComposer(makeItsParams(), mftParams);
+  auto composer = makeComposer(itsParams, makeMftParams());
   TimeFrame frame;
   composer.adoptFrame(frame);
   composer.setMemoryPool(std::make_shared<BoundedMemoryResource>());
@@ -1046,8 +1038,9 @@ BOOST_AUTO_TEST_CASE(SequentialSuccessfulTFsReplaceStateWithoutStaleAccumulation
   BOOST_CHECK_EQUAL(secondResult.nITSTracks, firstResult.nITSTracks);
   BOOST_CHECK_EQUAL(secondResult.nMFTTracks, firstResult.nMFTTracks);
   BOOST_CHECK_EQUAL(frame.getCommonTracks().size(), firstCommonTrackCount);
-  BOOST_CHECK_EQUAL(composer.getITSScratch().getTotalClusters(), static_cast<int>(itsClusters.size()));
-  BOOST_CHECK_EQUAL(composer.getMFTScratch().getTotalClusters(), static_cast<int>(mftClusters.size()));
+  BOOST_CHECK_EQUAL(composer.getITSScratch().getTotalClusters(),
+                    static_cast<int>(itsClusters.size() + mftClusters.size()));
+  BOOST_CHECK_EQUAL(&composer.getITSScratch(), &composer.getMFTScratch());
 }
 
 BOOST_AUTO_TEST_CASE(OrderedSurfaceGettersAreAlwaysValidUnlikePublicationExports)

@@ -59,9 +59,8 @@ struct TrackingResult {
 };
 
 struct TrackerIterationConfiguration {
-  std::vector<SurfaceGraphSubgraph> graphSubgraphs;
-  std::vector<SurfacePlanBinding::Declaration> bindings;
-  std::vector<TrackingParameters> parameters;
+  SurfaceGraphDefinition graph;
+  TrackingParameters parameters;
 };
 
 struct TrackerInitialization {
@@ -93,8 +92,8 @@ struct TrackerInitializationResult {
 class Tracker
 {
  public:
-  explicit Tracker(SeedRefitFunction refitFunction = nullptr, ClusterSourceId source = {})
-    : mRefitFunction(refitFunction), mSource(source)
+  explicit Tracker(SeedRefitFunction refitFunction = nullptr)
+    : mRefitFunction(refitFunction)
   {
   }
 
@@ -102,7 +101,6 @@ class Tracker
 
   // Tracker stores no frame, configuration, workspace, graph, or event state.
   void setSeedRefitFunction(SeedRefitFunction refitFunction) noexcept { mRefitFunction = refitFunction; }
-  void setSource(ClusterSourceId source) noexcept { mSource = source; }
 
   /// Run all configured iterations. Returns {Success, elapsed ms} on
   /// success, or {RecoverableDropped, 0.f} when a recoverable per-TF failure
@@ -116,7 +114,6 @@ class Tracker
 
  private:
   SeedRefitFunction mRefitFunction = nullptr;
-  ClusterSourceId mSource{};
 };
 } // namespace o2::itsmft::tracking
 

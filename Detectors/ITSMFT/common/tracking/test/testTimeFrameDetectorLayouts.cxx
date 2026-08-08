@@ -140,7 +140,7 @@ void adoptPlanBinding(BuiltPlan& built, TrackerTraits& traits, int iteration)
     owned.set(surface);
   }
   const auto kind = ordered.empty() ? SurfaceKind::Cylinder : graph.getView().getSurface(ordered.front()).kind;
-  auto result = SurfacePlanBinding::build(graph.getView(), ClusterSourceId{0}, owned, ordered, kind);
+  auto result = SurfacePlanBinding::build(graph.getView(), owned, ordered);
   BOOST_REQUIRE(result.ok());
   traits.adoptSurfacePlanBinding(result.binding.get());
   built.bindings.push_back(std::move(result.binding));
@@ -332,10 +332,8 @@ BOOST_AUTO_TEST_CASE(catalog_identity_active_count_and_mask_mapping)
   for (const auto surface : reduced.getOrderedSurfaces()) {
     reducedOwned.set(surface);
   }
-  const auto fullBinding = SurfacePlanBinding::build(fullView, ClusterSourceId{0}, fullOwned,
-                                                     full.getOrderedSurfaces(), SurfaceKind::Cylinder);
-  const auto reducedBinding = SurfacePlanBinding::build(reducedView, ClusterSourceId{0}, reducedOwned,
-                                                        reduced.getOrderedSurfaces(), SurfaceKind::Cylinder);
+  const auto fullBinding = SurfacePlanBinding::build(fullView, fullOwned, full.getOrderedSurfaces());
+  const auto reducedBinding = SurfacePlanBinding::build(reducedView, reducedOwned, reduced.getOrderedSurfaces());
   BOOST_REQUIRE(fullBinding.ok());
   BOOST_REQUIRE(reducedBinding.ok());
   const auto fullStarts = fullBinding.binding->getGlobalRoadStartCells();
@@ -633,23 +631,25 @@ BOOST_AUTO_TEST_CASE(non_monotonic_ordered_surfaces_maps_material_and_traversal_
   }
 }
 
-BOOST_AUTO_TEST_CASE(traversal_preflight_reports_invalid_schedule_and_mixed_kind_layout)
+BOOST_AUTO_TEST_CASE(traversal_preflight_rejects_cycles_and_accepts_disconnected_surface_kinds)
 {
-  auto checkInstalledLayout = [](BuiltLayout layout, TraversalFailureReason expected) {
+  auto bind = [](BuiltLayout layout) {
     const auto view = layout.layout.getView();
     const auto ordered = layout.layout.getOrderedSurfaces();
     SurfaceMask owned;
     for (const auto surface : ordered) {
       owned.set(surface);
     }
-    const auto kind = ordered.empty() ? SurfaceKind::Cylinder : view.getSurface(ordered.front()).kind;
-    const auto result = SurfacePlanBinding::build(view, ClusterSourceId{0}, owned, ordered, kind);
-    BOOST_CHECK(!result.ok());
-    (void)expected;
+    return SurfacePlanBinding::build(view, owned, ordered);
   };
 
-  checkInstalledLayout(cyclicDiskLayout(), TraversalFailureReason::InvalidTraversalSchedule);
-  checkInstalledLayout(mixedDisconnectedLayout(), TraversalFailureReason::MixedSurfaceKindLayout);
+  BOOST_CHECK(!bind(cyclicDiskLayout()).ok());
+
+  const auto mixed = bind(mixedDisconnectedLayout());
+  BOOST_REQUIRE(mixed.ok());
+  BOOST_CHECK_EQUAL(mixed.binding->getOwnedSurfaces().count(), 10);
+  BOOST_CHECK_EQUAL(mixed.binding->getGlobalTransitions().size(), 8u);
+  BOOST_CHECK_EQUAL(mixed.binding->getGlobalCells().size(), 0u);
 }
 
 // The runtime-plan core accepts a valid surface kind independently of the

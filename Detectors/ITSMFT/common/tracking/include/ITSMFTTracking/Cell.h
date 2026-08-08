@@ -81,7 +81,7 @@ class SeedMetadataBase
 
  private:
   SurfaceKinematicState mState{};
-  uint16_t mHitLayerMask{0};
+  uint32_t mHitLayerMask{0};
   float mChi2{o2::its::constants::UnsetValue};
   int mLevel{o2::its::constants::UnusedIndex};
   std::array<int, 2> mTracklets = o2::its::constants::helpers::initArray<int, 2, o2::its::constants::UnusedIndex>();
@@ -133,7 +133,7 @@ class CellSeed final : public SeedMetadataBase<o2::its::constants::ClustersPerCe
 /// adopted-plan position. Fixed MaxLayoutSurfaces capacity is required for
 /// device use, where heap allocation is unavailable.
 ///
-/// TrackSeed uses SurfaceMask rather than SeedMetadataBase's 16-bit LayerMask:
+/// TrackSeed uses SurfaceMask rather than SeedMetadataBase's positional LayerMask:
 /// each set bit is a position in its fixed array, not a global SurfaceId.
 ///
 /// This fixed-capacity value is the sole common-CA whole-track seed
@@ -150,14 +150,13 @@ class TrackSeed final
   GPUhdDefault() TrackSeed& operator=(const TrackSeed&) = default;
   GPUhdDefault() TrackSeed& operator=(TrackSeed&&) = default;
 
-  // CellSeed's 16-bit hit mask is positional; every set bit is within
-  // [0, 15], so conversion needs no detector layer count.
+  // CellSeed's hit mask is positional in the same fixed-capacity domain.
   GPUhd() explicit TrackSeed(const CellSeed& cs)
     : mState(cs.state()), mChi2(cs.getChi2()), mLevel(cs.getLevel()), mTracklets{cs.getFirstTrackletIndex(), cs.getSecondTrackletIndex()}, mTime(cs.getTimeStamp())
   {
     const auto hitMask = cs.getHitLayerMask();
     int slot = 0;
-    for (int position = 0; position < 16; ++position) {
+    for (int position = 0; position < MaxSurfaces; ++position) {
       if (hitMask.has(position)) {
         mClusters[position] = cs.getClusters()[slot++];
         mSurfaceMask.set(SurfaceId{static_cast<uint16_t>(position)});
@@ -181,12 +180,11 @@ class TrackSeed final
     return (position >= 0 && position < MaxSurfaces) ? mClusters[position] : o2::its::constants::UnusedIndex;
   }
 
-  // The active common-CA layer range is at most ten positions today. Keep a
-  // LayerMask view for the hole/acceptance code while SurfaceMask remains the
-  // authoritative fixed-capacity representation.
+  // Keep a LayerMask view for the positional hole/acceptance code while
+  // SurfaceMask remains the authoritative fixed-capacity representation.
   GPUhd() LayerMask getHitLayerMask() const noexcept
   {
-    return LayerMask{static_cast<uint16_t>(mSurfaceMask.value())};
+    return LayerMask{mSurfaceMask.value()};
   }
   GPUhd() void setCluster(int position, int clusterIndex) noexcept
   {

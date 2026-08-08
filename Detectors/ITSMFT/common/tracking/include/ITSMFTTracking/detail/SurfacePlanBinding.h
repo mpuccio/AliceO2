@@ -17,6 +17,8 @@
 #include <algorithm>
 #include <cstdint>
 #include <memory>
+#include <limits>
+#include <numeric>
 #include <optional>
 #include <queue>
 #include <vector>
@@ -30,7 +32,6 @@ namespace o2::itsmft::tracking
 
 enum class SurfacePlanBindingError : uint8_t {
   None,
-  InvalidSource,
   InvalidSurfaceMask,
   InvalidLegacySurfaceOrder,
   InvalidTopology,
@@ -46,10 +47,8 @@ class SurfacePlanBinding
 {
  public:
   struct Declaration {
-    ClusterSourceId source{};
     SurfaceMask ownedSurfaces{};
     std::vector<SurfaceId> orderedSurfaces;
-    SurfaceKind expectedKind{SurfaceKind::Cylinder};
   };
 
   struct BuildResult {
@@ -59,24 +58,17 @@ class SurfacePlanBinding
   };
 
   // `orderedSurfaces` maps each plan position to a global SurfaceId.
-  // `expectedKind` is the caller's already-derived family selection.
   static BuildResult build(const SurfaceGraphView& globalLayout,
-                           ClusterSourceId source,
                            SurfaceMask ownedSurfaces,
-                           gsl::span<const SurfaceId> orderedSurfaces,
-                           SurfaceKind expectedKind)
+                           gsl::span<const SurfaceId> orderedSurfaces)
   {
     auto result = std::make_unique<SurfacePlanBinding>();
-    if (!source.isValid()) {
-      return {{}, SurfacePlanBindingError::InvalidSource};
-    }
     if (globalLayout.surfaces == nullptr || globalLayout.nSurfaces == 0 ||
         !ownedSurfaces.isSubsetOf(SurfaceMask{globalLayout.nSurfaces == MaxLayoutSurfaces ? uint32_t{0xffffffff} : (uint32_t{1} << globalLayout.nSurfaces) - 1}) ||
         ownedSurfaces.count() != static_cast<int>(orderedSurfaces.size())) {
       return {{}, SurfacePlanBindingError::InvalidSurfaceMask};
     }
 
-    result->mSource = source;
     result->mOwnedSurfaces = ownedSurfaces;
     // Retain the validated positional order; it is the runtime traversal
     // authority. The inverse map serves sparse global-ID lookups.
@@ -137,6 +129,28 @@ class SurfacePlanBinding
     if (visited != topology.nSurfaces) {
       return {{}, SurfacePlanBindingError::InvalidTopology};
     }
+    std::vector<uint16_t> componentParent(topology.nSurfaces);
+    std::iota(componentParent.begin(), componentParent.end(), uint16_t{0});
+    const auto componentRoot = [&componentParent](uint16_t surface) {
+      while (componentParent[surface] != surface) {
+        componentParent[surface] = componentParent[componentParent[surface]];
+        surface = componentParent[surface];
+      }
+      return surface;
+    };
+    for (uint32_t id = 0; id < topology.nTransitions; ++id) {
+      const auto& transition = topology.getTransition(TransitionId{static_cast<uint16_t>(id)});
+      const auto fromRoot = componentRoot(transition.from.value());
+      const auto toRoot = componentRoot(transition.to.value());
+      if (fromRoot != toRoot) {
+        componentParent[toRoot] = fromRoot;
+      }
+    }
+    std::vector<uint32_t> componentOrder(topology.nSurfaces, std::numeric_limits<uint32_t>::max());
+    for (uint32_t position = 0; position < orderedSurfaces.size(); ++position) {
+      const auto root = componentRoot(orderedSurfaces[position].value());
+      componentOrder[root] = std::min(componentOrder[root], position);
+    }
     for (uint32_t id = 0; id < topology.nCells; ++id) {
       const auto& cell = topology.getCell(CellTopologyId{static_cast<uint16_t>(id)});
       if (!cell.firstTransition.isValid() || !cell.secondTransition.isValid() ||
@@ -163,18 +177,18 @@ class SurfacePlanBinding
       if (!transition.skippedSurfaces.isSubsetOf(ownedSurfaces)) {
         return {{}, SurfacePlanBindingError::CrossBoundaryTransition};
       }
-      if (globalLayout.getSurface(transition.from).kind != expectedKind ||
-          globalLayout.getSurface(transition.to).kind != expectedKind) {
+      if (globalLayout.getSurface(transition.from).kind != globalLayout.getSurface(transition.to).kind) {
         return {{}, SurfacePlanBindingError::InvalidSurface};
       }
     }
 
-    // Filter the immutable global-ID order only by ownership and endpoint
-    // kind; never rebuild/rebase a detector-local topology.
+    // Filter the immutable global-ID order only by ownership; disconnected
+    // SurfaceKind components remain part of this one binding and are batched
+    // by TrackerTraits from their endpoint descriptors.
     for (uint32_t rawId = 0; rawId < topology.nTransitions; ++rawId) {
       const auto id = TransitionId{static_cast<uint16_t>(rawId)};
       const auto& transition = topology.getTransition(id);
-      if (!ownedSurfaces.has(transition.from) || topology.getSurface(transition.from).kind != expectedKind) {
+      if (!ownedSurfaces.has(transition.from)) {
         continue;
       }
       if (result->mScratchTransitionSlot[id.value()] >= 0) {
@@ -236,6 +250,11 @@ class SurfacePlanBinding
     std::sort(scheduledCells.begin(), scheduledCells.end(), [&](CellTopologyId lhs, CellTopologyId rhs) {
       const auto lhsTarget = topology.getTransition(topology.getCell(lhs).secondTransition).to;
       const auto rhsTarget = topology.getTransition(topology.getCell(rhs).secondTransition).to;
+      const auto lhsComponent = componentOrder[componentRoot(lhsTarget.value())];
+      const auto rhsComponent = componentOrder[componentRoot(rhsTarget.value())];
+      if (lhsComponent != rhsComponent) {
+        return lhsComponent < rhsComponent;
+      }
       return rank[lhsTarget.value()] != rank[rhsTarget.value()] ? rank[lhsTarget.value()] < rank[rhsTarget.value()] : lhs < rhs;
     });
     for (const auto id : scheduledCells) {
@@ -248,11 +267,9 @@ class SurfacePlanBinding
 
   static BuildResult build(const SurfaceGraphView& globalLayout, const Declaration& declaration)
   {
-    return build(globalLayout, declaration.source, declaration.ownedSurfaces,
-                 declaration.orderedSurfaces, declaration.expectedKind);
+    return build(globalLayout, declaration.ownedSurfaces, declaration.orderedSurfaces);
   }
 
-  ClusterSourceId getSource() const noexcept { return mSource; }
   SurfaceMask getOwnedSurfaces() const noexcept { return mOwnedSurfaces; }
   gsl::span<const SurfaceId> getOrderedSurfaces() const noexcept { return mOrderedSurfaces; }
   std::optional<uint16_t> getOwnedSurfaceIndex(SurfaceId id) const noexcept { return getSlot(mOwnedSurfaceIndexBySurface, id); }
@@ -273,7 +290,6 @@ class SurfacePlanBinding
     return static_cast<uint16_t>(map[id.value()]);
   }
 
-  ClusterSourceId mSource{};
   SurfaceMask mOwnedSurfaces{};
   std::vector<SurfaceId> mOrderedSurfaces;
   std::vector<int16_t> mOwnedSurfaceIndexBySurface;

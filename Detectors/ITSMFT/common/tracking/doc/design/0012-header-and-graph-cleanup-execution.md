@@ -5,6 +5,7 @@
 - Integration branch: `codex/itsmft-header-graph-cleanup`
 - Base: `86113f2a14`
 - Architecture source: [header intentionality and surface-graph audit](0011-header-intentionality-and-surface-graph-audit.md)
+- Follow-on decision: [production flat pair-list and one combined plan](0013-flat-pair-list-combined-plan.md)
 - Pinned O2 package: `daily-20260717-0700-local1`
 - Integration build: `O2-worktree-builds/itsmft-header-graph-cleanup`
 - Physics status: behavior-preserving structural cleanup only

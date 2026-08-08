@@ -119,11 +119,11 @@ class CATrackerDPL : public o2::framework::Task
   bool isActive() const noexcept { return mFrame.isConfigured() && !mFrame.getTrackingParameters().empty(); }
   const o2::itsmft::tracking::SurfaceTrackingScratch& getScratch() const noexcept
   {
-    return mFrame.getWorkspace(o2::itsmft::tracking::ClusterSourceId{0});
+    return mFrame.getWorkspace();
   }
   o2::itsmft::tracking::SurfaceTrackingScratch& getScratch() noexcept
   {
-    return mFrame.getWorkspace(o2::itsmft::tracking::ClusterSourceId{0});
+    return mFrame.getWorkspace();
   }
 
   std::shared_ptr<o2::base::GRPGeomRequest> mGGCCDBRequest;

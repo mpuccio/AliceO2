@@ -128,30 +128,24 @@ ThreeSourceConfiguration makeConfiguration()
 void configureFrame(TimeFrame& frame, const SurfaceGraph& graph)
 {
   const auto view = graph.getView();
-  TimeFrame::BindingSet bindings;
-  std::vector<TrackingParameters> parameters;
-  std::vector<TrackingWorkspaceCapacity> capacities;
+  std::vector<SurfaceId> ordered;
+  SurfaceMask owned;
   for (uint16_t id = 0; id < 3; ++id) {
-    const std::vector<SurfaceId> ordered{SurfaceId{static_cast<uint16_t>(id * 2)}, SurfaceId{static_cast<uint16_t>(id * 2 + 1)}};
-    SurfaceMask owned;
-    for (const auto surface : ordered) {
+    for (const auto surface : {SurfaceId{static_cast<uint16_t>(id * 2)}, SurfaceId{static_cast<uint16_t>(id * 2 + 1)}}) {
       owned.set(surface);
+      ordered.push_back(surface);
     }
-    auto built = SurfacePlanBinding::build(view, ClusterSourceId{id}, owned, ordered, SurfaceKind::Cylinder);
-    BOOST_REQUIRE_MESSAGE(built.ok(), "binding error=" << static_cast<int>(built.error) << " source=" << id);
-    capacities.push_back({built.binding->getOrderedSurfaces().size(), built.binding->getGlobalTransitions().size(), built.binding->getGlobalCells().size()});
-    bindings.push_back(std::move(built.binding));
-    parameters.emplace_back();
   }
+  auto built = SurfacePlanBinding::build(view, owned, ordered);
+  BOOST_REQUIRE_MESSAGE(built.ok(), "binding error=" << static_cast<int>(built.error));
   std::vector<SurfaceGraph> graphs;
   graphs.push_back(graph);
-  std::vector<std::vector<TrackingParameters>> allParameters{std::move(parameters)};
-  std::vector<TimeFrame::BindingSet> allBindings;
-  allBindings.push_back(std::move(bindings));
-  std::vector<std::vector<TrackingWorkspaceCapacity>> allCapacities;
-  allCapacities.push_back(std::move(capacities));
-  BOOST_REQUIRE(frame.commitConfiguration(std::move(graphs), std::move(allParameters), std::move(allBindings),
-                                          std::move(allCapacities), std::make_shared<BoundedMemoryResource>()));
+  std::vector<TrackingParameters> parameters(1);
+  std::vector<std::unique_ptr<SurfacePlanBinding>> bindings;
+  bindings.push_back(std::move(built.binding));
+  std::vector<TrackingWorkspaceCapacity> capacities{{ordered.size(), 0, 0}};
+  BOOST_REQUIRE(frame.commitConfiguration(std::move(graphs), std::move(parameters), std::move(bindings),
+                                          std::move(capacities), std::make_shared<BoundedMemoryResource>()));
 }
 
 std::vector<ClusterSourceInput> makeSources(const std::array<OneClusterSource, 3>& sources)
@@ -173,8 +167,8 @@ BOOST_AUTO_TEST_CASE(DirectThreeSourceTransactionInstallsAllSources)
   BOOST_CHECK_EQUAL(frame.getEventResetCount(), 1u);
   for (uint16_t id = 0; id < 3; ++id) {
     BOOST_CHECK_EQUAL(frame.getNormalizedFrame().getSurfaceMeasurements(SurfaceId{static_cast<uint16_t>(id * 2)}).size(), 1u);
-    BOOST_CHECK_EQUAL(frame.getWorkspace(ClusterSourceId{id}).getTotalClusters(), 1);
   }
+  BOOST_CHECK_EQUAL(frame.getWorkspace().getTotalClusters(), 3);
 }
 
 BOOST_AUTO_TEST_CASE(FailedSourcePartitionLeavesPriorEventAndRetrySucceeds)
@@ -195,7 +189,7 @@ BOOST_AUTO_TEST_CASE(FailedSourcePartitionLeavesPriorEventAndRetrySucceeds)
   BOOST_CHECK(failed.error == MultiSourceLoadError::InvalidLayerMapping);
   BOOST_CHECK_EQUAL(frame.getEventResetCount(), resetCount);
   BOOST_CHECK_EQUAL(frame.getNormalizedFrame().getSurfaceMeasurements(SurfaceId{4}).size(), 1u);
-  BOOST_CHECK_EQUAL(frame.getWorkspace(ClusterSourceId{2}).getTotalClusters(), 1);
+  BOOST_CHECK_EQUAL(frame.getWorkspace().getTotalClusters(), 3);
 
   BOOST_REQUIRE(MultiSourceTimeFrameLoader::load(frame, sources, configuration.graph.getView().getSurfaceCatalogView(), {50, 5}).ok());
   BOOST_CHECK_EQUAL(frame.getEventResetCount(), resetCount + 1);

@@ -77,32 +77,22 @@ int initializeCommonITSTracker()
   }
 
   Tracker tracker;
-  tracker.setSource(ClusterSourceId{0});
   TrackerInitialization configuration;
   configuration.catalog = SurfaceCatalogView{kITSStaticSurfaceCatalog.data(), static_cast<uint32_t>(kITSStaticSurfaceCatalog.size())};
   configuration.memoryPool = pool;
   TrackerIterationConfiguration iteration;
-  SurfaceGraphSubgraph subgraph;
-  subgraph.orderedSurfaces.assign(orderedSurfaces.begin(), orderedSurfaces.end());
-  subgraph.maxHoles = parameters.front().MaxHoles;
-  subgraph.holeSurfaces = positionalSurfaceMask(parameters.front().HoleLayerMask, orderedSurfaces, ITSNLayers);
-  subgraph.seedingSurfaces = positionalSurfaceMask(parameters.front().StartLayerMask, orderedSurfaces, ITSNLayers);
-  iteration.graphSubgraphs.push_back(std::move(subgraph));
-  iteration.parameters.push_back(parameters.front());
-  SurfaceMask owned;
-  for (const auto surface : orderedSurfaces) {
-    owned.set(surface);
-  }
-  iteration.bindings.push_back(SurfacePlanBinding::Declaration{ClusterSourceId{0}, owned,
-                                                               std::vector<SurfaceId>{orderedSurfaces.begin(), orderedSurfaces.end()},
-                                                               SurfaceKind::Cylinder});
+  iteration.graph = makeSurfaceChain(
+    orderedSurfaces, parameters.front().MaxHoles,
+    positionalSurfaceMask(parameters.front().HoleLayerMask, orderedSurfaces, ITSNLayers),
+    positionalSurfaceMask(parameters.front().StartLayerMask, orderedSurfaces, ITSNLayers));
+  iteration.parameters = parameters.front();
   configuration.iterations.push_back(std::move(iteration));
   const auto result = tracker.initialize(frame, configuration);
   if (!result.ok()) {
     return 5;
   }
   traits.setMemoryPool(frame.getMemoryPool());
-  const auto* capacity = frame.getWorkspaceCapacity(0, ClusterSourceId{0});
+  const auto* capacity = frame.getWorkspaceCapacity(0);
   if (capacity == nullptr) {
     return 6;
   }

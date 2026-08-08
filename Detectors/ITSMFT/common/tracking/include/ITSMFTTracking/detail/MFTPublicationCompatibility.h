@@ -14,11 +14,28 @@
 #include <cstddef>
 #include <cstdint>
 #include <limits>
+#include <optional>
 #include <stdexcept>
 #include <vector>
 
+#include "ITSMFTTracking/StaticDetectorCatalogs.h"
+
 namespace o2::itsmft::tracking
 {
+
+// TRACKSEEDPAT is a legacy MFT publication field.  TrackSeed's mask is a
+// positional mask in the common fixed-capacity domain, so keep the wire
+// representation explicitly source-local rather than relying on an
+// implicit uint32_t -> uint16_t narrowing conversion.
+inline std::optional<uint16_t> toMFTSeedPattern(uint32_t positionalMask, uint16_t rankOffset = 0) noexcept
+{
+  constexpr uint32_t mftLayerMask = (uint32_t{1} << kMFTStaticSurfaceCatalog.size()) - 1u;
+  const uint32_t shifted = positionalMask >> rankOffset;
+  if ((shifted & ~mftLayerMask) != 0 || (rankOffset != 0 && (positionalMask & ((uint32_t{1} << rankOffset) - 1u)) != 0)) {
+    return std::nullopt;
+  }
+  return static_cast<uint16_t>(shifted);
+}
 
 // MFT output-compatibility sidecar kept outside CommonTrack and TimeFrame.
 // Indices address the shared CommonTrack collection, not an MFT-local slot.
@@ -49,11 +66,18 @@ class MFTPublicationCompatibility
       if ((havePrevious && previous >= index) || index == std::numeric_limits<uint32_t>::max()) {
         return false;
       }
+      const int firstLayer = result.getFirstClusterLayer();
+      constexpr uint16_t combinedMFTOffset = kITSStaticSurfaceCatalog.size();
+      const uint16_t rankOffset = firstLayer >= combinedMFTOffset ? combinedMFTOffset : 0;
+      const auto seedPattern = toMFTSeedPattern(result.seed.getHitLayerMask().value(), rankOffset);
+      if (!seedPattern) {
+        return false;
+      }
       staged.push_back({index,
                         static_cast<double>(result.seed.getQOverPt()),
                         0.,
                         0.f,
-                        result.seed.getHitLayerMask().value()});
+                        *seedPattern});
       previous = index;
       havePrevious = true;
     }

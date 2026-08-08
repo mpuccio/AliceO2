@@ -394,26 +394,17 @@ struct RigT {
     configuration.iterations.reserve(params.size());
     for (const auto& parameter : params) {
       TrackerIterationConfiguration iteration;
-      SurfaceGraphSubgraph subgraph;
-      subgraph.orderedSurfaces.assign(orderedSurfaces.begin(), orderedSurfaces.end());
-      subgraph.maxHoles = parameter.MaxHoles;
-      subgraph.holeSurfaces = positionalSurfaceMask(parameter.HoleLayerMask, orderedSurfaces, ITSNLayers);
-      subgraph.seedingSurfaces = positionalSurfaceMask(parameter.StartLayerMask, orderedSurfaces, ITSNLayers);
-      iteration.graphSubgraphs.push_back(std::move(subgraph));
-      iteration.parameters.push_back(parameter);
-      SurfaceMask owned;
-      for (const auto surface : orderedSurfaces) {
-        owned.set(surface);
-      }
-      iteration.bindings.push_back(SurfacePlanBinding::Declaration{ClusterSourceId{0}, owned, orderedSurfaces,
-                                                                   SurfaceKind::Cylinder});
+      iteration.graph = makeSurfaceChain(
+        orderedSurfaces, parameter.MaxHoles,
+        positionalSurfaceMask(parameter.HoleLayerMask, orderedSurfaces, ITSNLayers),
+        positionalSurfaceMask(parameter.StartLayerMask, orderedSurfaces, ITSNLayers));
+      iteration.parameters = parameter;
       configuration.iterations.push_back(std::move(iteration));
     }
-    tracker.setSource(ClusterSourceId{0});
     const auto result = tracker.initialize(frame, configuration);
     BOOST_REQUIRE(result.ok());
     traits.setMemoryPool(frame.getMemoryPool());
-    BOOST_REQUIRE_EQUAL(frame.getWorkspace(ClusterSourceId{0}).getNOwnedSurfaces(), orderedSurfaces.size());
+    BOOST_REQUIRE_EQUAL(frame.getWorkspace().getNOwnedSurfaces(), orderedSurfaces.size());
   }
 
   // Loads clusters (or, with an empty Fixture, zero clusters -- still a
@@ -435,7 +426,7 @@ struct RigT {
     const ROFTimingConfig timing{40, 0, 0, 0};
     const auto& graph = frame.getGraph(0);
     const auto& orderedSurfaces = graph.getOrderedSurfaces();
-    auto& workspace = frame.getWorkspace(ClusterSourceId{0});
+    auto& workspace = frame.getWorkspace();
     const auto result = workspace.loadNormalizedSource(frame, decoder, origin, timing, f.clusters, f.patterns, f.rofs, &dict(),
                                                        f.labels.getIndexedSize() > 0 ? &f.labels : nullptr, o2::detectors::DetID::ITS,
                                                        gsl::span<const SurfaceId>{orderedSurfaces}, graph.getSurfaceCatalog());

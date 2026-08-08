@@ -93,10 +93,12 @@ struct SyntheticChain {
   }
   static SurfaceGraph build(const std::vector<SurfaceDescriptor>& surfaces)
   {
-    SurfaceGraphBuilder builder{SurfaceCatalogView{surfaces.data(), static_cast<uint32_t>(surfaces.size())}};
     SurfaceMask seed;
     seed.set(SurfaceId{static_cast<uint16_t>(surfaces.size() - 1)});
-    auto built = builder.addSubgraph({ordered(0, static_cast<uint16_t>(surfaces.size())), 0, SurfaceMask{}, seed}).build();
+    const auto orderedSurfaces = ordered(0, static_cast<uint16_t>(surfaces.size()));
+    SurfaceGraphBuilder builder{SurfaceCatalogView{surfaces.data(), static_cast<uint32_t>(surfaces.size())},
+                                makeSurfaceChain(orderedSurfaces, 0, SurfaceMask{}, seed)};
+    auto built = builder.build();
     BOOST_REQUIRE(built.ok());
     return std::move(*built.graph);
   }
@@ -106,7 +108,7 @@ struct SyntheticChain {
     for (uint16_t id = 0; id < n; ++id) {
       owned.set(SurfaceId{id});
     }
-    return SurfacePlanBinding::build(view, ClusterSourceId{0}, owned, ordered(0, n), SurfaceKind::Cylinder);
+    return SurfacePlanBinding::build(view, owned, ordered(0, n));
   }
 };
 

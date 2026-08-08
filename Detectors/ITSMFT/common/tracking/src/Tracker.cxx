@@ -41,9 +41,9 @@ TrackerInitializationResult Tracker::initialize(TimeFrame& frame, const TrackerI
   }
 
   std::vector<SurfaceGraph> graphs;
-  std::vector<std::vector<TrackingParameters>> parameters;
-  std::vector<TimeFrame::BindingSet> bindings;
-  std::vector<std::vector<TrackingWorkspaceCapacity>> capacities;
+  std::vector<TrackingParameters> parameters;
+  std::vector<std::unique_ptr<SurfacePlanBinding>> bindings;
+  std::vector<TrackingWorkspaceCapacity> capacities;
   graphs.reserve(configuration.iterations.size());
   parameters.reserve(configuration.iterations.size());
   bindings.reserve(configuration.iterations.size());
@@ -51,11 +51,7 @@ TrackerInitializationResult Tracker::initialize(TimeFrame& frame, const TrackerI
 
   for (std::size_t iteration = 0; iteration < configuration.iterations.size(); ++iteration) {
     const auto& input = configuration.iterations[iteration];
-    SurfaceGraphBuilder builder{configuration.catalog};
-    for (const auto& subgraph : input.graphSubgraphs) {
-      builder.addSubgraph(subgraph);
-    }
-    const auto graphResult = builder.build();
+    const auto graphResult = SurfaceGraphBuilder{configuration.catalog, input.graph}.build();
     if (!graphResult.ok()) {
       result.error = TrackerInitializationError::GraphBuildFailed;
       result.failedIteration = iteration;
@@ -63,44 +59,34 @@ TrackerInitializationResult Tracker::initialize(TimeFrame& frame, const TrackerI
       return result;
     }
 
-    TimeFrame::BindingSet iterationBindings;
-    std::vector<TrackingWorkspaceCapacity> iterationCapacities;
-    if (input.bindings.empty() || input.bindings.size() != input.graphSubgraphs.size() ||
-        input.parameters.size() != input.bindings.size()) {
-      result.error = TrackerInitializationError::BindingCountMismatch;
+    if (input.graph.orderedSurfaces.empty()) {
+      result.error = TrackerInitializationError::BindingBuildFailed;
       result.failedIteration = iteration;
       return result;
     }
-    for (const auto& declaration : input.bindings) {
-      if (std::any_of(iterationBindings.begin(), iterationBindings.end(), [&](const auto& binding) {
-            return binding && binding->getSource() == declaration.source;
-          })) {
-        result.error = TrackerInitializationError::DuplicateSource;
-        result.failedIteration = iteration;
-        return result;
-      }
-      auto bindingResult = SurfacePlanBinding::build(graphResult.graph->getView(), declaration);
-      if (!bindingResult.ok()) {
-        result.error = TrackerInitializationError::BindingBuildFailed;
-        result.failedIteration = iteration;
-        result.bindingError = bindingResult.error;
-        return result;
-      }
-      if (input.parameters[iterationBindings.size()].NLayers != 0 &&
-          input.parameters[iterationBindings.size()].NLayers != declaration.orderedSurfaces.size()) {
-        result.error = TrackerInitializationError::CapacityMismatch;
-        result.failedIteration = iteration;
-        return result;
-      }
-      iterationCapacities.push_back(TrackingWorkspaceCapacity{
-        declaration.orderedSurfaces.size(), bindingResult.binding->getGlobalTransitions().size(),
-        bindingResult.binding->getGlobalCells().size()});
-      iterationBindings.push_back(std::move(bindingResult.binding));
+    SurfaceMask ownedSurfaces;
+    for (const auto surface : input.graph.orderedSurfaces) {
+      ownedSurfaces.set(surface);
     }
+    auto bindingResult = SurfacePlanBinding::build(graphResult.graph->getView(), ownedSurfaces,
+                                                   input.graph.orderedSurfaces);
+    if (!bindingResult.ok()) {
+      result.error = TrackerInitializationError::BindingBuildFailed;
+      result.failedIteration = iteration;
+      result.bindingError = bindingResult.error;
+      return result;
+    }
+    if (input.parameters.NLayers != 0 && input.parameters.NLayers != input.graph.orderedSurfaces.size()) {
+      result.error = TrackerInitializationError::CapacityMismatch;
+      result.failedIteration = iteration;
+      return result;
+    }
+    capacities.push_back(TrackingWorkspaceCapacity{
+      input.graph.orderedSurfaces.size(), bindingResult.binding->getGlobalTransitions().size(),
+      bindingResult.binding->getGlobalCells().size()});
     graphs.push_back(*graphResult.graph);
     parameters.push_back(input.parameters);
-    bindings.push_back(std::move(iterationBindings));
-    capacities.push_back(std::move(iterationCapacities));
+    bindings.push_back(std::move(bindingResult.binding));
   }
 
   if (!frame.commitConfiguration(std::move(graphs), std::move(parameters), std::move(bindings),
@@ -114,11 +100,11 @@ TrackerInitializationResult Tracker::initialize(TimeFrame& frame, const TrackerI
 TrackingResult Tracker::run(TimeFrame& frame, TrackerTraits& traits)
 {
   if (mRefitFunction == nullptr || !frame.isConfigured() ||
-      frame.getNIterations() == 0 || frame.getBinding(0, mSource) == nullptr) {
+      frame.getNIterations() == 0 || frame.getBinding(0) == nullptr) {
     throw TraversalException{-1, TraversalFailureReason::MissingLayout};
   }
-  auto& scratch = frame.getWorkspace(mSource);
-  const auto trkParams = frame.getTrackingParameters(mSource);
+  auto& scratch = frame.getWorkspace();
+  const auto& trkParams = frame.getTrackingParameters();
   const auto& memoryPool = frame.getMemoryPool();
   traits.adoptFrame(&frame);
   traits.adoptScratch(&scratch);
@@ -127,7 +113,7 @@ TrackingResult Tracker::run(TimeFrame& frame, TrackerTraits& traits)
 
   int maxNvertices{-1};
   if (trkParams[0].PerPrimaryVertexProcessing) {
-    maxNvertices = scratch.getROFVertexLookupView().getMaxVerticesPerROF();
+    maxNvertices = scratch.getMaxVerticesPerROF();
   }
 
   float total{0.f};
@@ -147,7 +133,7 @@ TrackingResult Tracker::run(TimeFrame& frame, TrackerTraits& traits)
       }
 
       int iVertex = std::min(maxNvertices, 0);
-      traits.adoptSurfacePlanBinding(frame.getBinding(iteration, mSource));
+      traits.adoptSurfacePlanBinding(frame.getBinding(iteration));
       traits.initialiseTimeFrame(iteration, frame.getGraphs());
       do {
         traits.computeLayerTracklets(iteration, iVertex);

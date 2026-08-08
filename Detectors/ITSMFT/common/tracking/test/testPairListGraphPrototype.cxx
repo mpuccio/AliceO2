@@ -115,15 +115,26 @@ PairListGraphInput input(std::initializer_list<PairListComponentInput> component
 SurfaceGraphBuildResult buildCurrent(const std::vector<SurfaceDescriptor>& surfaces,
                                      const PairListGraphInput& input)
 {
-  SurfaceGraphBuilder builder{SurfaceCatalogView{surfaces.data(), static_cast<uint32_t>(surfaces.size())}};
+  SurfaceGraphDefinition definition;
   for (const auto& item : input.components) {
     SurfaceMask active;
     for (const auto id : item.activeSurfaces) {
       active.set(id);
     }
-    builder.addSubgraph(SurfaceGraphSubgraph{item.activeSurfaces, input.holePolicy.maxSkipped,
-                                             input.holePolicy.skippableSurfaceMask & active, input.seedingMask & active});
+    const auto offset = static_cast<uint16_t>(definition.orderedSurfaces.size());
+    const auto componentDefinition = makeSurfaceChain(item.activeSurfaces, input.holePolicy.maxSkipped,
+                                                      input.holePolicy.skippableSurfaceMask & active,
+                                                      input.seedingMask & active);
+    definition.orderedSurfaces.insert(definition.orderedSurfaces.end(), componentDefinition.orderedSurfaces.begin(), componentDefinition.orderedSurfaces.end());
+    for (const auto pair : componentDefinition.basePairs) {
+      definition.basePairs.push_back(SurfaceAdjacencyPair{static_cast<uint16_t>(pair.fromIndex + offset),
+                                                          static_cast<uint16_t>(pair.toIndex + offset)});
+    }
+    definition.maxHoles = std::max(definition.maxHoles, componentDefinition.maxHoles);
+    definition.holeSurfaces |= componentDefinition.holeSurfaces;
+    definition.seedingSurfaces |= componentDefinition.seedingSurfaces;
   }
+  SurfaceGraphBuilder builder{SurfaceCatalogView{surfaces.data(), static_cast<uint32_t>(surfaces.size())}, std::move(definition)};
   return builder.build();
 }
 
@@ -157,25 +168,32 @@ void compareTopology(const PairListGraph& prototype, const SurfaceGraphView& cur
 
 void compareBinding(const PairListGraph& prototype, const SurfaceGraphView& view, const PairListGraphInput& input)
 {
-  for (size_t componentIndex = 0; componentIndex < input.components.size(); ++componentIndex) {
-    SurfaceMask owned;
-    for (const auto id : input.components[componentIndex].activeSurfaces) {
+  SurfaceMask owned;
+  std::vector<SurfaceId> orderedSurfaces;
+  for (const auto& component : input.components) {
+    for (const auto id : component.activeSurfaces) {
       owned.set(id);
+      orderedSurfaces.push_back(id);
     }
-    const auto bindingResult = SurfacePlanBinding::build(view, ClusterSourceId{static_cast<uint16_t>(componentIndex)},
-                                                         owned, input.components[componentIndex].activeSurfaces,
-                                                         view.getSurface(input.components[componentIndex].activeSurfaces.front()).kind);
-    BOOST_REQUIRE(bindingResult.ok());
-    const auto& expected = prototype.components[componentIndex];
-    checkBytes(expected.transitions, std::vector<TransitionId>(bindingResult.binding->getGlobalTransitions().begin(),
-                                                               bindingResult.binding->getGlobalTransitions().end()));
-    checkBytes(expected.cells, std::vector<CellTopologyId>(bindingResult.binding->getGlobalCells().begin(),
-                                                           bindingResult.binding->getGlobalCells().end()));
-    checkBytes(expected.scheduledCells, std::vector<CellTopologyId>(bindingResult.binding->getGlobalScheduledCells().begin(),
-                                                                    bindingResult.binding->getGlobalScheduledCells().end()));
-    checkBytes(expected.roadStartCells, std::vector<CellTopologyId>(bindingResult.binding->getGlobalRoadStartCells().begin(),
-                                                                    bindingResult.binding->getGlobalRoadStartCells().end()));
   }
+  const auto bindingResult = SurfacePlanBinding::build(view, owned, orderedSurfaces);
+  BOOST_REQUIRE(bindingResult.ok());
+  std::vector<TransitionId> expectedTransitions;
+  std::vector<CellTopologyId> expectedCells;
+  for (uint16_t id = 0; id < prototype.transitions.size(); ++id) {
+    expectedTransitions.emplace_back(id);
+  }
+  for (uint16_t id = 0; id < prototype.cells.size(); ++id) {
+    expectedCells.emplace_back(id);
+  }
+  checkBytes(expectedTransitions, std::vector<TransitionId>(bindingResult.binding->getGlobalTransitions().begin(),
+                                                            bindingResult.binding->getGlobalTransitions().end()));
+  checkBytes(expectedCells, std::vector<CellTopologyId>(bindingResult.binding->getGlobalCells().begin(),
+                                                        bindingResult.binding->getGlobalCells().end()));
+  checkBytes(prototype.scheduledCells, std::vector<CellTopologyId>(bindingResult.binding->getGlobalScheduledCells().begin(),
+                                                                   bindingResult.binding->getGlobalScheduledCells().end()));
+  checkBytes(prototype.roadStartCells, std::vector<CellTopologyId>(bindingResult.binding->getGlobalRoadStartCells().begin(),
+                                                                   bindingResult.binding->getGlobalRoadStartCells().end()));
 }
 
 void checkCase(const std::vector<SurfaceDescriptor>& surfaces, const PairListGraphInput& input)

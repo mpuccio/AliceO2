@@ -97,8 +97,9 @@ BOOST_AUTO_TEST_CASE(InvalidGraphReturnsEmptyView)
 BOOST_AUTO_TEST_CASE(NonContiguousGlobalIdsUseOneGraphLookup)
 {
   const std::vector<SurfaceDescriptor> surfaces{surface(1), surface(4), surface(7)};
-  SurfaceGraphBuilder builder{SurfaceCatalogView{surfaces.data(), static_cast<uint32_t>(surfaces.size())}};
-  builder.addSubgraph(SurfaceGraphSubgraph{{SurfaceId{7}, SurfaceId{1}, SurfaceId{4}}, 1, SurfaceMask{uint32_t{1} << 1}, SurfaceMask{uint32_t{1} << 7}});
+  const std::vector<SurfaceId> ordered{SurfaceId{7}, SurfaceId{1}, SurfaceId{4}};
+  SurfaceGraphBuilder builder{SurfaceCatalogView{surfaces.data(), static_cast<uint32_t>(surfaces.size())},
+                              makeSurfaceChain(ordered, 1, SurfaceMask{uint32_t{1} << 1}, SurfaceMask{uint32_t{1} << 7})};
   const auto result = builder.build();
   BOOST_REQUIRE(result.ok());
   const auto view = result.graph->getView();

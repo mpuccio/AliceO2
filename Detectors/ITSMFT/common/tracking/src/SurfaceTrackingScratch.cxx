@@ -54,6 +54,7 @@ void SurfaceTrackingScratch::adoptPlan(std::size_t nOwnedSurfaces, std::size_t n
   clearResizeBoundedVector(mClusterSize, nOwnedSurfaces, mMemoryPool.get());
   clearResizeBoundedVector(mROFramesClusters, nOwnedSurfaces, getMaybeFrameworkHostResource());
   mClusterLabels.assign(nOwnedSurfaces, nullptr);
+  mIndexTableUtils.assign(nOwnedSurfaces, IndexTableUtilsCore{});
   clearResizeBoundedVector(mIndexTables, nOwnedSurfaces, getMaybeFrameworkHostResource());
   clearResizeBoundedVector(mUsedClusters, nOwnedSurfaces, getMaybeFrameworkHostResource());
   clearResizeBoundedVector(mNClustersPerROF, nOwnedSurfaces, mMemoryPool.get());
@@ -81,6 +82,8 @@ void SurfaceTrackingScratch::reset()
   // The adapter-owned timing/mask storage may outlive this scratch, but its
   // non-owning event view must never cross an event boundary.
   mROFViews = {};
+  mROFViewsBySurface.clear();
+  mROFLocalLayerBySurface.clear();
   mUseUPC = false;
 
   // Group B.
@@ -233,6 +236,8 @@ void SurfaceTrackingScratch::swapLoadedEvent(SurfaceTrackingScratch& other) noex
     mNTrackletsPerClusterSum[i].swap(other.mNTrackletsPerClusterSum[i]);
   }
   std::swap(mROFViews, other.mROFViews);
+  mROFViewsBySurface.swap(other.mROFViewsBySurface);
+  mROFLocalLayerBySurface.swap(other.mROFLocalLayerBySurface);
   std::swap(mUseUPC, other.mUseUPC);
 }
 
@@ -288,6 +293,9 @@ void SurfaceTrackingScratch::swap(SurfaceTrackingScratch& other) noexcept
   std::swap(mTotalLines, other.mTotalLines);
   std::swap(mNTotalLowPtVertices, other.mNTotalLowPtVertices);
   std::swap(mIsStaggered, other.mIsStaggered);
+  std::swap(mROFViews, other.mROFViews);
+  mROFViewsBySurface.swap(other.mROFViewsBySurface);
+  mROFLocalLayerBySurface.swap(other.mROFLocalLayerBySurface);
 
   // mMemoryPool/mExtMemoryPool/mExternalAllocator deliberately not swapped --
   // see the header doc.
@@ -384,7 +392,8 @@ gsl::span<int> SurfaceTrackingScratch::getIndexTable(int rofId, int layer)
   if (rofId < 0 || rofId >= getNrof(layer)) {
     return {};
   }
-  const int tableSize = mIndexTableUtils.getNrowBins() * mIndexTableUtils.getNcolBins() + 1;
+  const auto& utils = mIndexTableUtils[layer];
+  const int tableSize = utils.getNrowBins() * utils.getNcolBins() + 1;
   return {&mIndexTables[layer][rofId * tableSize], static_cast<gsl::span<int>::size_type>(tableSize)};
 }
 
@@ -502,18 +511,17 @@ gsl::span<const Vertex> SurfaceTrackingScratch::getPrimaryVertices(const TimeFra
   if (rofId < 0 || rofId >= getNrof(layer)) {
     return {};
   }
-  const auto& view = getROFVertexLookupView();
-  const auto& entry = view.getVertices(layer, rofId);
+  const auto& view = getROFViews(layer).vertexLookup;
+  const auto& entry = view.getVertices(getROFLocalLayer(layer), rofId);
   const auto& vertices = frame.getPrimaryVertices();
   return {&vertices[entry.getFirstEntry()], static_cast<gsl::span<const Vertex>::size_type>(entry.getEntries())};
 }
 
 void SurfaceTrackingScratch::computeTrackletsPerROFScans()
 {
-  const auto& maskView = getROFMaskView();
   for (int iLayer = 0; iLayer < 2; ++iLayer) {
     for (unsigned int iRof{0}; iRof < static_cast<unsigned int>(getNrof(1)); ++iRof) {
-      if (maskView.isROFEnabled(1, iRof)) {
+      if (isROFEnabled(1, iRof)) {
         mTotalTracklets[iLayer] += mNTrackletsPerROF[iLayer][iRof];
       }
     }
@@ -530,23 +538,23 @@ void SurfaceTrackingScratch::prepareClusters(const TimeFrame& frame, const Track
     int bin;
     int ind;
   };
-  const int colBinsCount = mIndexTableUtils.getNcolBins();
-  std::size_t numBins = 0;
-  if (!checkedIndexTableSizeProduct(static_cast<std::size_t>(mIndexTableUtils.getNrowBins()),
-                                    static_cast<std::size_t>(colBinsCount), numBins) ||
-      numBins == std::numeric_limits<std::size_t>::max()) {
-    throw std::bad_alloc{};
-  }
-  const std::size_t stride{numBins + 1};
-  bounded_vector<ClusterHelper> cHelper(mMemoryPool.get());
-  bounded_vector<int> clsPerBin(numBins, 0, mMemoryPool.get());
-  bounded_vector<int> lutPerBin(numBins, 0, mMemoryPool.get());
   const std::array<float, 2> beamXY{frame.getBeamX(), frame.getBeamY()};
-  const auto& maskView = getROFMaskView();
   const int stopLayer = std::min(maxLayers, static_cast<int>(mNOwnedSurfaces));
   for (int iLayer{0}; iLayer < stopLayer; ++iLayer) {
+    const auto& utils = mIndexTableUtils[iLayer];
+    const int colBinsCount = utils.getNcolBins();
+    std::size_t numBins = 0;
+    if (!checkedIndexTableSizeProduct(static_cast<std::size_t>(utils.getNrowBins()),
+                                      static_cast<std::size_t>(colBinsCount), numBins) ||
+        numBins == std::numeric_limits<std::size_t>::max()) {
+      throw std::bad_alloc{};
+    }
+    const std::size_t stride{numBins + 1};
+    bounded_vector<ClusterHelper> cHelper(mMemoryPool.get());
+    bounded_vector<int> clsPerBin(numBins, 0, mMemoryPool.get());
+    bounded_vector<int> lutPerBin(numBins, 0, mMemoryPool.get());
     for (int rof{0}; rof < getNrof(iLayer); ++rof) {
-      if (!maskView.isROFEnabled(iLayer, rof)) {
+      if (!isROFEnabled(iLayer, rof)) {
         continue;
       }
       const auto& unsortedClusters{getUnsortedClustersOnLayer(rof, iLayer)};
@@ -555,7 +563,7 @@ void SurfaceTrackingScratch::prepareClusters(const TimeFrame& frame, const Track
 
       cHelper.resize(clustersNum);
 
-      const bool useXYBinning = mIndexTableUtils.getCoordType() == o2::itsmft::IndexTableCoordType::XY;
+      const bool useXYBinning = utils.getCoordType() == o2::itsmft::IndexTableCoordType::XY;
       for (int iCluster{0}; iCluster < clustersNum; ++iCluster) {
         const o2::its::Cluster& c = unsortedClusters[iCluster];
         const auto& measurement = layerMeasurements[iLayer][c.clusterId];
@@ -567,12 +575,12 @@ void SurfaceTrackingScratch::prepareClusters(const TimeFrame& frame, const Track
 
         const float rowCoord = useXYBinning ? measurement.global.y : o2::its::math_utils::computePhi(x, y);
         const float colCoord = useXYBinning ? measurement.global.x : z;
-        int colBin{mIndexTableUtils.getColBinIndex(iLayer, colCoord)};
+        int colBin{utils.getColBinIndex(iLayer, colCoord)};
         if (colBin < 0 || colBin >= colBinsCount) {
           colBin = std::clamp(colBin, 0, colBinsCount - 1);
           mBogusClusters[iLayer]++;
         }
-        int bin = mIndexTableUtils.getBinIndex(colBin, mIndexTableUtils.getRowBinIndex(rowCoord));
+        int bin = utils.getBinIndex(colBin, utils.getRowBinIndex(rowCoord));
         h.rowCoord = rowCoord;
         h.r = o2::its::math_utils::hypot(x, y);
         mMinR[iLayer] = o2::gpu::GPUCommonMath::Min(h.r, mMinR[iLayer]);
@@ -607,8 +615,20 @@ void SurfaceTrackingScratch::initialise(const TimeFrame& frame, const TrackingPa
                                         gsl::span<const SurfaceId> orderedSurfaces,
                                         gsl::span<const gsl::span<const SurfaceMeasurement>> layerMeasurements)
 {
+  std::vector<IndexTableUtilsCore> configs(mNOwnedSurfaces, indexTableConfig);
+  initialise(frame, trkParam, maxLayers, iteration, configs, topology, transitionIds, cellIds,
+             orderedSurfaces, layerMeasurements);
+}
+
+void SurfaceTrackingScratch::initialise(const TimeFrame& frame, const TrackingParameters& trkParam, const int maxLayers, const int iteration,
+                                        gsl::span<const IndexTableUtilsCore> indexTableConfigs, SurfaceGraphView topology,
+                                        gsl::span<const TransitionId> transitionIds, gsl::span<const CellTopologyId> cellIds,
+                                        gsl::span<const SurfaceId> orderedSurfaces,
+                                        gsl::span<const gsl::span<const SurfaceMeasurement>> layerMeasurements)
+{
   (void)iteration;
-  if (orderedSurfaces.size() != mNOwnedSurfaces || transitionIds.size() != mNTransitions || cellIds.size() != mNCells ||
+  if (orderedSurfaces.size() != mNOwnedSurfaces || indexTableConfigs.size() != mNOwnedSurfaces ||
+      transitionIds.size() != mNTransitions || cellIds.size() != mNCells ||
       transitionIds.size() > topology.nTransitions || cellIds.size() > topology.nCells ||
       (topology.nTransitions != 0 && (topology.transitions == nullptr || topology.cellsByFirstTransitionOffsets == nullptr)) ||
       (topology.nCells != 0 && (topology.cells == nullptr || topology.cellsByFirstTransition == nullptr))) {
@@ -645,7 +665,7 @@ void SurfaceTrackingScratch::initialise(const TimeFrame& frame, const TrackingPa
     deepVectorClear(mLines);
     deepVectorClear(mLinesLabels);
     clearResizeBoundedVector(mLinesLabels, getNrof(1), mMemoryPool.get());
-    mIndexTableUtils = indexTableConfig;
+    mIndexTableUtils.assign(indexTableConfigs.begin(), indexTableConfigs.end());
     clearResizeBoundedVector(mPositionResolution, maxLayers, mMemoryPool.get());
     clearResizeBoundedVector(mBogusClusters, maxLayers, mMemoryPool.get());
     deepVectorClear(mTrackletClusters);
@@ -657,14 +677,14 @@ void SurfaceTrackingScratch::initialise(const TimeFrame& frame, const TrackingPa
     clearResizeBoundedVector(mLines, getNrof(1), mMemoryPool.get());
     clearResizeBoundedVector(mTrackletClusters, getNrof(1), mMemoryPool.get());
 
-    std::size_t indexTableStride = 0;
-    if (!checkedIndexTableSizeProduct(static_cast<std::size_t>(mIndexTableUtils.getNrowBins()),
-                                      static_cast<std::size_t>(mIndexTableUtils.getNcolBins()), indexTableStride) ||
-        indexTableStride == std::numeric_limits<std::size_t>::max()) {
-      throw std::bad_alloc{};
-    }
-    ++indexTableStride;
     for (std::size_t iLayer{0}; iLayer < mNOwnedSurfaces; ++iLayer) {
+      std::size_t indexTableStride = 0;
+      if (!checkedIndexTableSizeProduct(static_cast<std::size_t>(mIndexTableUtils[iLayer].getNrowBins()),
+                                        static_cast<std::size_t>(mIndexTableUtils[iLayer].getNcolBins()), indexTableStride) ||
+          indexTableStride == std::numeric_limits<std::size_t>::max()) {
+        throw std::bad_alloc{};
+      }
+      ++indexTableStride;
       std::size_t indexTableSize = 0;
       if (!checkedIndexTableSizeProduct(static_cast<std::size_t>(getNrof(static_cast<int>(iLayer))), indexTableStride, indexTableSize)) {
         throw std::bad_alloc{};

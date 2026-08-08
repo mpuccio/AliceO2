@@ -30,49 +30,54 @@ LoadSourcesResult MultiSourceTimeFrameLoader::load(TimeFrame& frame, gsl::span<c
     return normalizedResult;
   }
 
-  if (sources.size() != frame.getNConfiguredSources()) {
-    return {MultiSourceLoadError::NonDenseSourceIds};
+  const auto* binding = frame.getBinding(0);
+  if (binding == nullptr) {
+    return {MultiSourceLoadError::FrameNotConfigured};
   }
-
-  std::vector<std::unique_ptr<SurfaceTrackingScratch>> stagedWorkspaces;
-  stagedWorkspaces.reserve(sources.size());
+  SurfaceMask mappedSurfaces;
   for (const auto& source : sources) {
-    const auto* binding = frame.getBinding(0, source.id);
-    if (binding == nullptr || binding->getSource() != source.id ||
-        source.layerToSurface.size() != binding->getOrderedSurfaces().size() ||
-        !std::equal(source.layerToSurface.begin(), source.layerToSurface.end(), binding->getOrderedSurfaces().begin())) {
-      return {MultiSourceLoadError::InvalidLayerMapping, source.id};
+    for (const auto surface : source.layerToSurface) {
+      if (!surface.isValid() || mappedSurfaces.has(surface) || !binding->getOwnedSurfaceIndex(surface)) {
+        return {MultiSourceLoadError::InvalidLayerMapping, source.id};
+      }
+      mappedSurfaces.set(surface);
     }
-
-    auto staged = std::make_unique<SurfaceTrackingScratch>();
-    auto& live = frame.getWorkspace(source.id);
-    if (live.hasFrameworkAllocator()) {
-      staged->setFrameworkAllocator(live.getFrameworkAllocator());
+  }
+  if (mappedSurfaces != binding->getOwnedSurfaces()) {
+    // Attribute an omitted surface when exactly one input stream owns its
+    // detector family. Ambiguous same-detector splits remain unattributed.
+    for (const auto surface : binding->getOrderedSurfaces()) {
+      if (mappedSurfaces.has(surface)) {
+        continue;
+      }
+      ClusterSourceId owner;
+      for (const auto& source : sources) {
+        if (static_cast<uint8_t>(source.detector) != catalog.getSurface(surface).detectorId) {
+          continue;
+        }
+        if (owner.isValid()) {
+          return {MultiSourceLoadError::InvalidLayerMapping};
+        }
+        owner = source.id;
+      }
+      return {MultiSourceLoadError::InvalidLayerMapping, owner};
     }
-    staged->setMemoryPool(frame.getMemoryPool());
-    staged->adoptPlan(live.getNOwnedSurfaces(), 0, 0);
-    staged->setROFViews(source.rofViews);
-
-    TimeFrame disposable;
-    ClusterSourceInput one = source;
-    one.id = ClusterSourceId{0};
-    auto result = staged->loadNormalizedSource(disposable, *one.decoder, origin, one.timing,
-                                               one.clusters, one.patterns, one.rofs,
-                                               one.dictionary, one.labels, one.detector,
-                                               one.layerToSurface, catalog, one.applySysErrors);
-    if (!result.ok()) {
-      result.source = source.id;
-      return result;
-    }
-    stagedWorkspaces.push_back(std::move(staged));
+    return {MultiSourceLoadError::InvalidLayerMapping};
   }
 
-  std::vector<ClusterSourceId> sourceOrder;
-  sourceOrder.reserve(sources.size());
-  for (const auto& source : sources) {
-    sourceOrder.push_back(source.id);
+  auto staged = std::make_unique<SurfaceTrackingScratch>();
+  auto& live = frame.getWorkspace();
+  if (live.hasFrameworkAllocator()) {
+    staged->setFrameworkAllocator(live.getFrameworkAllocator());
   }
-  if (!frame.commitLoadedEvent(std::move(normalized), sourceOrder, std::move(stagedWorkspaces))) {
+  staged->setMemoryPool(frame.getMemoryPool());
+  staged->adoptPlan(live.getNOwnedSurfaces(), 0, 0);
+  const auto backfillResult = staged->backfillNormalizedSources(normalized, sources, binding->getOrderedSurfaces());
+  if (!backfillResult.ok()) {
+    return backfillResult;
+  }
+
+  if (!frame.commitLoadedEvent(std::move(normalized), std::move(staged))) {
     return {MultiSourceLoadError::OtherMalformedInput};
   }
   return {};
@@ -433,6 +438,110 @@ LoadSourcesResult SurfaceTrackingScratch::loadNormalizedSource(
   }
 
   return result;
+}
+
+LoadSourcesResult SurfaceTrackingScratch::backfillNormalizedSources(
+  const MultiSourceFrame& normalized,
+  gsl::span<const ClusterSourceInput> sources,
+  gsl::span<const SurfaceId> orderedSurfaces)
+{
+  if (orderedSurfaces.size() != mNOwnedSurfaces || sources.empty()) {
+    return {MultiSourceLoadError::InvalidLayerMapping};
+  }
+
+  mROFViews = sources.front().rofViews;
+  mROFViewsBySurface.assign(mNOwnedSurfaces, {});
+  mROFLocalLayerBySurface.assign(mNOwnedSurfaces, 0);
+  SurfaceMask seenSurfaces;
+  for (std::size_t layer = 0; layer < orderedSurfaces.size(); ++layer) {
+    const auto surface = orderedSurfaces[layer];
+    if (!surface.isValid() || seenSurfaces.has(surface)) {
+      return {MultiSourceLoadError::InvalidLayerMapping};
+    }
+    seenSurfaces.set(surface);
+
+    const ClusterSourceInput* owner = nullptr;
+    uint16_t localLayer = 0;
+    for (const auto& source : sources) {
+      const auto it = std::find(source.layerToSurface.begin(), source.layerToSurface.end(), surface);
+      if (it == source.layerToSurface.end()) {
+        continue;
+      }
+      if (owner != nullptr) {
+        return {MultiSourceLoadError::InvalidLayerMapping, source.id};
+      }
+      owner = &source;
+      localLayer = static_cast<uint16_t>(std::distance(source.layerToSurface.begin(), it));
+    }
+    if (owner == nullptr) {
+      return {MultiSourceLoadError::InvalidLayerMapping};
+    }
+
+    const auto measurements = normalized.getSurfaceMeasurements(surface);
+    auto& clusters = mUnsortedClusters[layer];
+    auto& trackingInfo = mTrackingFrameInfo[layer];
+    auto& externalIndices = mClusterExternalIndices[layer];
+    auto& clusterSizes = mClusterSize[layer];
+    auto& rofBoundaries = mROFramesClusters[layer];
+    clusters.clear();
+    trackingInfo.clear();
+    externalIndices.clear();
+    clusterSizes.assign(measurements.size(), uint8_t{0});
+    rofBoundaries.assign(owner->rofs.size() + 1, 0);
+    clusters.reserve(measurements.size());
+    trackingInfo.reserve(measurements.size());
+    externalIndices.reserve(measurements.size());
+
+    const bool isMFT = owner->detector == o2::detectors::DetID::MFT;
+    std::size_t measurementIndex = 0;
+    for (const auto& measurement : measurements) {
+      if (measurement.surface != surface || !measurement.cluster.isValid() ||
+          measurement.cluster.source != owner->id || measurement.sourceROF >= owner->rofs.size()) {
+        return {MultiSourceLoadError::InconsistentDecoderMetadata, owner->id,
+                measurement.sourceROF, measurement.cluster.index};
+      }
+      if (isMFT) {
+        trackingInfo.emplace_back(
+          measurement.global.x, measurement.global.y, measurement.global.z,
+          measurement.global.x, 0.f,
+          std::array<float, 2>{measurement.global.y, measurement.global.z},
+          std::array<float, 3>{measurement.covariance.uu, measurement.covariance.uv, measurement.covariance.vv});
+      } else {
+        trackingInfo.emplace_back(
+          measurement.global.x, measurement.global.y, measurement.global.z,
+          measurement.frame.q, measurement.frame.frameAngle,
+          std::array<float, 2>{measurement.frame.u, measurement.frame.v},
+          std::array<float, 3>{measurement.covariance.uu, measurement.covariance.uv, measurement.covariance.vv});
+      }
+      clusters.emplace_back(measurement.global.x, measurement.global.y, measurement.global.z,
+                            static_cast<int>(clusters.size()));
+      externalIndices.push_back(static_cast<int>(measurement.cluster.index));
+      clusterSizes[measurementIndex++] = static_cast<uint8_t>(std::clamp(measurement.shape.nPixels, 0u, 255u));
+    }
+
+    std::size_t cursor = 0;
+    for (std::size_t rof = 0; rof < owner->rofs.size(); ++rof) {
+      while (cursor < measurements.size() && measurements[cursor].sourceROF == rof) {
+        ++cursor;
+      }
+      rofBoundaries[rof + 1] = static_cast<int>(cursor);
+    }
+    if (cursor != measurements.size()) {
+      return {MultiSourceLoadError::InconsistentDecoderMetadata, owner->id};
+    }
+    mClusterLabels[layer] = owner->labels;
+    mROFViewsBySurface[layer] = owner->rofViews;
+    mROFLocalLayerBySurface[layer] = localLayer;
+  }
+
+  const std::size_t pivotLayer = orderedSurfaces.size() > 1 ? 1 : 0;
+  const std::size_t pivotClusters = orderedSurfaces.empty() ? 0 : mUnsortedClusters[pivotLayer].size();
+  for (int i = 0; i < 2; ++i) {
+    mNTrackletsPerCluster[i].assign(pivotClusters, 0);
+    mNTrackletsPerClusterSum[i].assign(pivotClusters + 1, 0);
+  }
+  mUseUPC = false;
+  return {};
 }
 
 namespace

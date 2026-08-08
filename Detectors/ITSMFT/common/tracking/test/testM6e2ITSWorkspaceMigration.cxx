@@ -5,29 +5,20 @@
 // This software is distributed under the terms of the GNU General Public
 // License v3 (GPL Version 3), copied verbatim in the file "COPYING".
 
-// Focused ITS adapter coverage retained across the workspace ownership move.
+// Focused ITS adapter coverage for the combined flat plan and its shared
+// workspace.
 // It proves:
-//  - both ITS adapter participants expose the same borrowed kernel workspace
-//    and binding types (compile-time type proof);
+//  - both ITS workflow accessors expose the same shared kernel workspace;
 //  - an unconfigured workspace fails closed before loading;
-//  - ITS load failure, dropped-TF handling, and TimeFrame::resetEvent() all
-//    preserve the CommonTrack/sidecar/workspace contracts;
+//  - ITS load failure and TimeFrame::resetEvent() preserve the
+//    CommonTrack/sidecar/workspace contracts;
 //  - the ITS shared-cluster compatibility sidecar (pending/sealed) still
 //    works correctly backed by the new scratch storage;
-//  - the production ITS SurfacePlanBinding construction (real combined
-//    catalog, real ClusterSourceId{0}/SurfaceKind::Cylinder/
-//    SurfaceKind::Cylinder parameters) resolves to the same
-//    transition/cell slot counts and owned-surface indices the old
-//    DetectorTraversalBinding construction would have, both for the
-//    combined leg and for standalone-vs-combined compact-slot agreement;
-//  - source-qualified workspaces remain isolated while grouped under their
-//    owning TimeFrame;
+//  - the production ITS SurfacePlanBinding construction resolves to the same
+//    local transition/cell slot counts and owned-surface indices, while the
+//    workflow adopts one global plan;
 //  - no detector-specific switch was reintroduced into SurfacePlanBinding
-//    (testSurfacePlanBindingNoDetectorDependency.cxx already grep-verifies
-//    this generically; this file adds one direct compile-time proof that
-//    SurfacePlanBinding::build()'s own signature is still the same six
-//    detector-neutral parameters testM6e1StandaloneMFTMigration.cxx already
-//    fixed).
+//    (testSurfacePlanBindingNoDetectorDependency.cxx grep-verifies this).
 
 #define BOOST_TEST_MODULE ITSMFT M6e2ITSWorkspaceMigration
 #define BOOST_TEST_MAIN
@@ -197,8 +188,7 @@ BOOST_AUTO_TEST_CASE(AtomicITSLoadFailureLeavesSharedTimeFrameAndBothParticipant
   // ITSNLayers=7); MFT's is structurally valid. Since ITS is source 0
   // (staged first), this proves the failure is caught before any commit,
   // not only when the malformed source happens to be staged last (the
-  // complementary direction to testM6dMFTMigration.cxx's own
-  // AtomicMFTLoadFailureLeavesSharedTimeFrameAndBothParticipantScratchesUntouched).
+  // paired MFT-source failure test).
   std::vector<SurfaceId> itsLayerToSurfaceStorage;
   std::vector<SurfaceId> mftLayerToSurfaceStorage;
   const auto itsSource = makeEmptySource(ClusterSourceId{0}, o2::detectors::DetID::ITS, 0, ITSNLayers, itsLayerToSurfaceStorage, ITSNLayers - 1);
@@ -223,9 +213,9 @@ BOOST_AUTO_TEST_CASE(AtomicITSLoadFailureLeavesSharedTimeFrameAndBothParticipant
   BOOST_CHECK_EQUAL(participants.getMFTScratch().getTotalClusters(), 0);
 }
 
-// --- 4: ITS-only reset isolation ----------------------------------------------
+// --- 4: shared-workspace reset -----------------------------------------------
 
-BOOST_AUTO_TEST_CASE(TimeFrameResetClearsConfiguredWorkspacesAndPreservesFrameState)
+BOOST_AUTO_TEST_CASE(TimeFrameResetClearsSharedWorkspaceAndPreservesFrameState)
 {
   auto participants = makeSet();
   participants.setMemoryPool(std::make_shared<o2::its::BoundedMemoryResource>());
@@ -236,24 +226,28 @@ BOOST_AUTO_TEST_CASE(TimeFrameResetClearsConfiguredWorkspacesAndPreservesFrameSt
 
   auto& itsParticipantScratch = const_cast<SurfaceTrackingScratch&>(participants.getITSScratch());
   auto& mftParticipantScratch = const_cast<SurfaceTrackingScratch&>(participants.getMFTScratch());
+  BOOST_CHECK_EQUAL(&itsParticipantScratch, &mftParticipantScratch);
+  BOOST_CHECK_EQUAL(itsParticipantScratch.getNOwnedSurfaces(), 17u);
+  BOOST_CHECK_EQUAL(itsParticipantScratch.getNTransitions(), 15u);
+  BOOST_CHECK_EQUAL(itsParticipantScratch.getNCells(), 13u);
   BOOST_REQUIRE(!itsParticipantScratch.getUnsortedClusters().empty());
   itsParticipantScratch.getUnsortedClusters()[0].emplace_back(1.f, 2.f, 3.f, 0);
-  mftParticipantScratch.getUnsortedClusters()[0].emplace_back(4.f, 5.f, 6.f, 0);
-  const auto itsPlanSurfaces = itsParticipantScratch.getNOwnedSurfaces();
+  BOOST_CHECK_EQUAL(mftParticipantScratch.getTotalClusters(), 1);
+  mftParticipantScratch.getUnsortedClusters()[7].emplace_back(4.f, 5.f, 6.f, 7);
+  BOOST_CHECK_EQUAL(itsParticipantScratch.getTotalClusters(), 2);
 
   const auto resetCount = frame.getEventResetCount();
   frame.resetEvent();
 
   BOOST_CHECK_EQUAL(frame.getEventResetCount(), resetCount + 1);
-  BOOST_CHECK(itsParticipantScratch.getUnsortedClusters()[0].empty());
-  BOOST_CHECK_EQUAL(itsParticipantScratch.getNOwnedSurfaces(), itsPlanSurfaces); // resetEvent() preserves configured capacity
-
-  BOOST_CHECK(mftParticipantScratch.getUnsortedClusters()[0].empty());
+  BOOST_CHECK_EQUAL(itsParticipantScratch.getTotalClusters(), 0);
+  BOOST_CHECK_EQUAL(itsParticipantScratch.getNOwnedSurfaces(), 17u);
+  BOOST_CHECK_EQUAL(mftParticipantScratch.getTotalClusters(), 0);
   BOOST_CHECK_EQUAL(frame.getBz(), 5.f);
   BOOST_CHECK_EQUAL(frame.getBeamX(), 1.f);
 }
 
-// --- 5: production ITS SurfacePlanBinding matches the old construction ------
+// --- 5: production ITS SurfacePlanBinding for the local subset ---------------
 
 namespace
 {
@@ -273,22 +267,29 @@ SurfaceGraph buildProductionCombinedLayoutForTest()
   const auto itsParams = makeItsParams();
   const auto mftParams = makeMftParams();
 
-  SurfaceGraphSubgraph itsSubgraph;
-  itsSubgraph.orderedSurfaces.assign(itsSurfaces.begin(), itsSurfaces.end());
-  itsSubgraph.maxHoles = itsParams.MaxHoles;
-  itsSubgraph.holeSurfaces = positionalSurfaceMask(itsParams.HoleLayerMask, itsSurfaces, static_cast<uint32_t>(itsSurfaces.size()));
-  itsSubgraph.seedingSurfaces = positionalSurfaceMask(itsParams.StartLayerMask, itsSurfaces, static_cast<uint32_t>(itsSurfaces.size()));
-
-  SurfaceGraphSubgraph mftSubgraph;
-  mftSubgraph.orderedSurfaces.assign(mftSurfaces.begin(), mftSurfaces.end());
-  mftSubgraph.maxHoles = mftParams.MaxHoles;
-  mftSubgraph.holeSurfaces = positionalSurfaceMask(mftParams.HoleLayerMask, mftSurfaces, static_cast<uint32_t>(mftSurfaces.size()));
-  mftSubgraph.seedingSurfaces = positionalSurfaceMask(mftParams.StartLayerMask, mftSurfaces, static_cast<uint32_t>(mftSurfaces.size()));
+  auto itsDefinition = makeSurfaceChain(
+    itsSurfaces, itsParams.MaxHoles,
+    positionalSurfaceMask(itsParams.HoleLayerMask, itsSurfaces, static_cast<uint32_t>(itsSurfaces.size())),
+    positionalSurfaceMask(itsParams.StartLayerMask, itsSurfaces, static_cast<uint32_t>(itsSurfaces.size())));
+  auto mftDefinition = makeSurfaceChain(
+    mftSurfaces, mftParams.MaxHoles,
+    positionalSurfaceMask(mftParams.HoleLayerMask, mftSurfaces, static_cast<uint32_t>(mftSurfaces.size())),
+    positionalSurfaceMask(mftParams.StartLayerMask, mftSurfaces, static_cast<uint32_t>(mftSurfaces.size())));
+  SurfaceGraphDefinition definition;
+  definition.orderedSurfaces = std::move(itsDefinition.orderedSurfaces);
+  definition.basePairs = std::move(itsDefinition.basePairs);
+  const auto offset = static_cast<uint16_t>(definition.orderedSurfaces.size());
+  definition.orderedSurfaces.insert(definition.orderedSurfaces.end(), mftDefinition.orderedSurfaces.begin(), mftDefinition.orderedSurfaces.end());
+  for (const auto pair : mftDefinition.basePairs) {
+    definition.basePairs.push_back(SurfaceAdjacencyPair{static_cast<uint16_t>(pair.fromIndex + offset),
+                                                        static_cast<uint16_t>(pair.toIndex + offset)});
+  }
+  definition.maxHoles = std::max(itsDefinition.maxHoles, mftDefinition.maxHoles);
+  definition.holeSurfaces = itsDefinition.holeSurfaces | mftDefinition.holeSurfaces;
+  definition.seedingSurfaces = itsDefinition.seedingSurfaces | mftDefinition.seedingSurfaces;
 
   const SurfaceCatalogView catalog{kITSMFTCombinedStaticSurfaceCatalog.data(), static_cast<uint32_t>(kITSMFTCombinedStaticSurfaceCatalog.size())};
-  SurfaceGraphBuilder builder{catalog};
-  builder.addSubgraph(std::move(itsSubgraph));
-  builder.addSubgraph(std::move(mftSubgraph));
+  SurfaceGraphBuilder builder{catalog, std::move(definition)};
   auto built = builder.build();
   BOOST_REQUIRE(built.ok());
   return std::move(*built.graph);
@@ -303,7 +304,7 @@ BOOST_AUTO_TEST_CASE(ProductionITSSurfacePlanBindingMatchesConfiguredTopologyAtR
   const auto itsSurfaces = orderedRange(0, ITSNLayers);
   const auto itsMask = surfaceRangeMaskForTest(0, ITSNLayers);
 
-  const auto binding = SurfacePlanBinding::build(view, ClusterSourceId{0}, itsMask, itsSurfaces, SurfaceKind::Cylinder);
+  const auto binding = SurfacePlanBinding::build(view, itsMask, itsSurfaces);
   BOOST_REQUIRE(binding.ok());
   size_t ownedTransitions = 0;
   for (uint32_t id = 0; id < view.nTransitions; ++id) {
@@ -331,17 +332,15 @@ BOOST_AUTO_TEST_CASE(ProductionITSSurfacePlanBindingMatchesConfiguredTopologyAtR
     BOOST_CHECK_EQUAL(*slot, s);
   }
 
-  // The real workflow application composition adopts a plan whose sizing
-  // agrees with this direct comparison -- the
-  // concrete "compact ITS transition/cell slots match the prior binding
-  // exactly" proof, not just the generic synthetic fixture
-  // testSurfacePlanBinding.cxx already covers.
+  // The direct binding above is detector-local. The workflow itself adopts
+  // one global flat plan and one shared workspace.
   auto participants = makeSet();
   TimeFrame frame;
   participants.adoptFrame(frame);
-  BOOST_CHECK_EQUAL(participants.getITSScratch().getNOwnedSurfaces(), static_cast<size_t>(itsSurfaces.size()));
-  BOOST_CHECK_EQUAL(participants.getITSScratch().getNTransitions(), binding.binding->getGlobalTransitions().size());
-  BOOST_CHECK_EQUAL(participants.getITSScratch().getNCells(), binding.binding->getGlobalCells().size());
+  BOOST_CHECK_EQUAL(&participants.getITSScratch(), &participants.getMFTScratch());
+  BOOST_CHECK_EQUAL(participants.getITSScratch().getNOwnedSurfaces(), 17u);
+  BOOST_CHECK_EQUAL(participants.getITSScratch().getNTransitions(), 15u);
+  BOOST_CHECK_EQUAL(participants.getITSScratch().getNCells(), 13u);
 }
 
 // --- 6: ITS shared-cluster compatibility sidecar remains correct -----------
@@ -353,9 +352,7 @@ BOOST_AUTO_TEST_CASE(ITSSharedClusterCompatibilitySidecarRemainsFunctionalAfterM
   participants.adoptFrame(frame);
 
   // Reachable, clearable, and starts empty/unsealed -- ownership/lifetime of
-  // the sidecar is unaffected by the scratch/binding type swap, exactly the
-  // same property testM6dMFTMigration.cxx already proved for MFT's own
-  // publication-compatibility sidecar.
+  // the sidecar is unaffected by the shared-workspace composition.
   const auto& sidecar = participants.getITSSharedClusterCompatibility();
   BOOST_CHECK_EQUAL(sidecar.entries().size(), 0u);
   BOOST_CHECK(!sidecar.isSealed());
@@ -366,9 +363,7 @@ BOOST_AUTO_TEST_CASE(ITSSharedClusterCompatibilitySidecarRemainsFunctionalAfterM
   BOOST_CHECK(!sidecar.isSealed());
 }
 
-// --- 7: standalone-vs-combined ITS compact-slot agreement, no cross-leg
-// state leakage between standalone ITS/combined ITS/standalone MFT/combined
-// MFT ---------------------------------------------------------------------
+// --- 7: standalone-vs-combined ITS compact-slot agreement --------------------
 
 BOOST_AUTO_TEST_CASE(StandaloneAndCombinedITSBindingsAgreeOnCompactSlotsByRelativePosition)
 {
@@ -386,8 +381,7 @@ BOOST_AUTO_TEST_CASE(StandaloneAndCombinedITSBindingsAgreeOnCompactSlotsByRelati
     standaloneMask.set(s);
   }
   const auto standaloneBindingResult = SurfacePlanBinding::build(
-    standaloneResult.graphs.front().getView(), ClusterSourceId{0}, standaloneMask,
-    gsl::span<const SurfaceId>{standaloneOrder}, SurfaceKind::Cylinder);
+    standaloneResult.graphs.front().getView(), standaloneMask, gsl::span<const SurfaceId>{standaloneOrder});
   BOOST_REQUIRE(standaloneBindingResult.ok());
 
   // Combined: real ITS+MFT combined static catalog, ITS half only.
@@ -399,8 +393,7 @@ BOOST_AUTO_TEST_CASE(StandaloneAndCombinedITSBindingsAgreeOnCompactSlotsByRelati
   BOOST_REQUIRE(combinedResult.ok());
   const auto combinedMask = surfaceRangeMaskForTest(0, ITSNLayers);
   const auto combinedBindingResult = SurfacePlanBinding::build(
-    combinedResult.graphs.front().getView(), ClusterSourceId{0}, combinedMask,
-    gsl::span<const SurfaceId>{combinedOrder}, SurfaceKind::Cylinder);
+    combinedResult.graphs.front().getView(), combinedMask, gsl::span<const SurfaceId>{combinedOrder});
   BOOST_REQUIRE(combinedBindingResult.ok());
 
   BOOST_CHECK_EQUAL(standaloneBindingResult.binding->getGlobalTransitions().size(), combinedBindingResult.binding->getGlobalTransitions().size());
@@ -413,11 +406,9 @@ BOOST_AUTO_TEST_CASE(StandaloneAndCombinedITSBindingsAgreeOnCompactSlotsByRelati
     BOOST_CHECK_EQUAL(*standaloneSlot, *combinedSlot);
   }
 
-  // No cross-leg state leakage: two independently constructed
-  // SurfaceTrackingScratch instances (standalone-ITS-shaped plan adoption
-  // here, the combined participant set's own ITS participant there) never
-  // alias -- adopting one's plan leaves the other's owned-surface count
-  // untouched.
+  // A separately constructed standalone scratch remains independent. The
+  // workflow participant accessors below, in contrast, must alias the one
+  // global workspace.
   SurfaceTrackingScratch standaloneScratch;
   standaloneScratch.adoptPlan(static_cast<std::size_t>(standaloneBindingResult.binding->getOwnedSurfaces().count()),
                               standaloneBindingResult.binding->getGlobalTransitions().size(),
@@ -426,6 +417,8 @@ BOOST_AUTO_TEST_CASE(StandaloneAndCombinedITSBindingsAgreeOnCompactSlotsByRelati
   TimeFrame frame;
   participants.adoptFrame(frame);
   BOOST_CHECK_EQUAL(standaloneScratch.getNOwnedSurfaces(), static_cast<size_t>(ITSNLayers));
-  BOOST_CHECK_EQUAL(participants.getITSScratch().getNOwnedSurfaces(), static_cast<size_t>(ITSNLayers));
-  BOOST_CHECK_EQUAL(participants.getMFTScratch().getNOwnedSurfaces(), static_cast<size_t>(MFTNLayers));
+  BOOST_CHECK_EQUAL(&participants.getITSScratch(), &participants.getMFTScratch());
+  BOOST_CHECK_EQUAL(participants.getITSScratch().getNOwnedSurfaces(), 17u);
+  BOOST_CHECK_EQUAL(participants.getITSScratch().getNTransitions(), 15u);
+  BOOST_CHECK_EQUAL(participants.getITSScratch().getNCells(), 13u);
 }

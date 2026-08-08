@@ -13,7 +13,7 @@
 /// \brief Passive common event owner.
 ///
 /// TimeFrame owns configuration, normalized event data, generic results,
-/// source-qualified workspace, and their allocator/capacity state. Raw ROFs,
+/// one tracking workspace, and its allocator/capacity state. Raw ROFs,
 /// timing-table storage, publication state, typed sidecars, and workflow
 /// lifecycle remain with the application boundary.
 
@@ -54,8 +54,6 @@ struct TrackingWorkspaceCapacity {
 };
 
 struct TimeFrame {
-  using BindingSet = std::vector<std::unique_ptr<SurfacePlanBinding>>;
-
   TimeFrame() = default;
   virtual ~TimeFrame();
 
@@ -111,34 +109,32 @@ struct TimeFrame {
 
   // Commits a complete multi-source event after loader preflight. The
   // operation resets the prior event exactly once before installing all
-  // normalized data and staged source workspaces.
-  bool commitLoadedEvent(MultiSourceFrame&& staged, gsl::span<const ClusterSourceId> sources,
-                         std::vector<std::unique_ptr<SurfaceTrackingScratch>>&& stagedWorkspaces) noexcept;
+  // normalized data and the staged global workspace.
+  bool commitLoadedEvent(MultiSourceFrame&& staged,
+                         std::unique_ptr<SurfaceTrackingScratch>&& stagedWorkspace) noexcept;
 
   // One generic event-state reset. It preserves static configuration and
-  // allocator/capacity identity while clearing every source workspace and
+  // allocator/capacity identity while clearing the tracking workspace and
   // event result. External owners call this once for a whole event.
   void resetEvent() noexcept;
   std::size_t getEventResetCount() const noexcept { return mEventResetCount; }
 
-  SurfaceTrackingScratch& getWorkspace(ClusterSourceId source);
-  const SurfaceTrackingScratch& getWorkspace(ClusterSourceId source) const;
+  SurfaceTrackingScratch& getWorkspace();
+  const SurfaceTrackingScratch& getWorkspace() const;
 
   bool commitConfiguration(std::vector<SurfaceGraph>&& graphs,
-                           std::vector<std::vector<TrackingParameters>>&& parameters,
-                           std::vector<BindingSet>&& bindings,
-                           std::vector<std::vector<TrackingWorkspaceCapacity>>&& capacities,
+                           std::vector<TrackingParameters>&& parameters,
+                           std::vector<std::unique_ptr<SurfacePlanBinding>>&& bindings,
+                           std::vector<TrackingWorkspaceCapacity>&& capacities,
                            std::shared_ptr<BoundedMemoryResource> memoryPool);
   bool isConfigured() const noexcept { return mConfigurationValid; }
   std::size_t getNIterations() const noexcept { return mGraphs.size(); }
-  std::size_t getNConfiguredSources() const noexcept { return mBindings.empty() ? 0 : mBindings.front().size(); }
   const std::vector<SurfaceGraph>& getGraphs() const noexcept { return mGraphs; }
   const std::vector<TrackingParameters>& getTrackingParameters() const noexcept;
-  const std::vector<TrackingParameters>& getTrackingParameters(ClusterSourceId source) const noexcept;
   const SurfaceGraph& getGraph(std::size_t iteration) const { return mGraphs.at(iteration); }
-  const TrackingParameters* getTrackingParameters(std::size_t iteration, ClusterSourceId source) const noexcept;
-  const SurfacePlanBinding* getBinding(std::size_t iteration, ClusterSourceId source) const noexcept;
-  const TrackingWorkspaceCapacity* getWorkspaceCapacity(std::size_t iteration, ClusterSourceId source) const noexcept;
+  const TrackingParameters* getTrackingParameters(std::size_t iteration) const noexcept;
+  const SurfacePlanBinding* getBinding(std::size_t iteration) const noexcept;
+  const TrackingWorkspaceCapacity* getWorkspaceCapacity(std::size_t iteration) const noexcept;
 
   // Detector-neutral common-CA result storage (ITSMFTTracking/CommonTrack.h).
   // CommonTrack itself carries no NLayers dependency. Only meaningful
@@ -197,21 +193,13 @@ struct TimeFrame {
 
   bool mConfigurationValid = false;
   std::vector<SurfaceGraph> mGraphs;
-  struct SourceParameters {
-    ClusterSourceId source{};
-    std::vector<TrackingParameters> values;
-  };
-  std::vector<SourceParameters> mTrackingParameters;
-  std::vector<BindingSet> mBindings;
-  std::vector<std::vector<TrackingWorkspaceCapacity>> mWorkspaceCapacities;
+  std::vector<TrackingParameters> mTrackingParameters;
+  std::vector<std::unique_ptr<SurfacePlanBinding>> mBindings;
+  std::vector<TrackingWorkspaceCapacity> mWorkspaceCapacities;
   struct WorkspaceDeleter {
     void operator()(SurfaceTrackingScratch* workspace) const noexcept;
   };
-  struct WorkspaceEntry {
-    ClusterSourceId source{};
-    std::unique_ptr<SurfaceTrackingScratch, WorkspaceDeleter> workspace;
-  };
-  std::vector<WorkspaceEntry> mWorkspaces;
+  std::unique_ptr<SurfaceTrackingScratch, WorkspaceDeleter> mWorkspace;
   std::size_t mEventResetCount{0};
 
   void clearEventData() noexcept;

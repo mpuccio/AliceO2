@@ -174,7 +174,7 @@ BOOST_AUTO_TEST_CASE(NonSevenOrTenPlanExecutesTheNonTemplatedCore)
   for (const auto surface : ordered) {
     owned.set(surface);
   }
-  auto bindingResult = SurfacePlanBinding::build(layout, ClusterSourceId{7}, owned, ordered, SurfaceKind::Disk);
+  auto bindingResult = SurfacePlanBinding::build(layout, owned, ordered);
   BOOST_REQUIRE(bindingResult.ok());
 
   auto pool = std::make_shared<BoundedMemoryResource>();
