@@ -90,8 +90,8 @@ inline TrackerInitialization makeCombinedConfiguration(const TrackingParameters&
   definition.holeSurfaces = itsDefinition.holeSurfaces | mftDefinition.holeSurfaces;
   definition.seedingSurfaces = surfaceRangeMask(0, ITSNLayers + MFTNLayers);
   iteration.graph = std::move(definition);
-  const auto combine = [&](const TrackingParameters& familyParams) {
-    auto parameters = familyParams;
+  const auto combine = [&] {
+    auto parameters = itsParams;
     parameters.NLayers = ITSNLayers + MFTNLayers;
     const auto concatenate = [](auto& output, const auto& prefix, const auto& suffix) {
       output = prefix;
@@ -112,8 +112,7 @@ inline TrackerInitialization makeCombinedConfiguration(const TrackingParameters&
                                          (mftParams.HoleLayerMask.value() << ITSNLayers)};
     return parameters;
   };
-  iteration.parameters = combine(itsParams);
-  iteration.parametersByKind[static_cast<std::size_t>(SurfaceKind::Disk)] = combine(mftParams);
+  iteration.parameters = combine();
   configuration.iterations.push_back(std::move(iteration));
   return configuration;
 }

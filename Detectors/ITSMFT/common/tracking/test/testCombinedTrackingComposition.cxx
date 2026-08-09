@@ -17,6 +17,7 @@
 #include <array>
 #include <cmath>
 #include <fstream>
+#include <iterator>
 #include <memory>
 #include <optional>
 #include <string>
@@ -562,17 +563,67 @@ BOOST_AUTO_TEST_CASE(CombinedLoadingBackfillsOneGlobalWorkspace)
 
   constexpr uint32_t allCombinedSurfaces = (uint32_t{1} << (ITSNLayers + MFTNLayers)) - 1u;
   BOOST_REQUIRE_EQUAL(frame.getTrackingParameters().size(), 1u);
-  BOOST_CHECK_EQUAL(frame.getTrackingParameters()[0].StartLayerMask.value(), allCombinedSurfaces);
-  BOOST_REQUIRE_EQUAL(frame.getTrackingParametersByKind().size(), 1u);
-  const auto& parametersByKind = frame.getTrackingParametersByKind()[0];
-  BOOST_CHECK_EQUAL(parametersByKind[static_cast<std::size_t>(SurfaceKind::Cylinder)].MinTrackLength, 4);
-  BOOST_CHECK_EQUAL(parametersByKind[static_cast<std::size_t>(SurfaceKind::Disk)].MinTrackLength, 5);
-  BOOST_CHECK_EQUAL(parametersByKind[static_cast<std::size_t>(SurfaceKind::Cylinder)].ColBins, itsParams.ColBins);
-  BOOST_CHECK_EQUAL(parametersByKind[static_cast<std::size_t>(SurfaceKind::Disk)].ColBins, mftParams.ColBins);
-  BOOST_CHECK_EQUAL(parametersByKind[static_cast<std::size_t>(SurfaceKind::Disk)].TrackletMinAbsX, mftParams.TrackletMinAbsX);
-  BOOST_CHECK_EQUAL(parametersByKind[static_cast<std::size_t>(SurfaceKind::Cylinder)].StartLayerMask.value(), allCombinedSurfaces);
-  BOOST_CHECK_EQUAL(parametersByKind[static_cast<std::size_t>(SurfaceKind::Disk)].StartLayerMask.value(), allCombinedSurfaces);
-  BOOST_CHECK_EQUAL(frame.getGraph(0).getView().seedingSurfaces.value(), allCombinedSurfaces);
+  const auto& combined = frame.getTrackingParameters()[0];
+  BOOST_CHECK_EQUAL(combined.NLayers, ITSNLayers + MFTNLayers);
+  BOOST_CHECK_EQUAL(combined.StartLayerMask.value(), allCombinedSurfaces);
+  BOOST_CHECK(combined.PassFlags == itsParams.PassFlags);
+  BOOST_CHECK_EQUAL(combined.IndexRowMin, itsParams.IndexRowMin);
+  BOOST_CHECK_EQUAL(combined.IndexRowMax, itsParams.IndexRowMax);
+  BOOST_CHECK_EQUAL(combined.ColBins, itsParams.ColBins);
+  BOOST_CHECK_EQUAL(combined.RowBins, itsParams.RowBins);
+  BOOST_CHECK_EQUAL(combined.UseDiamond, itsParams.UseDiamond);
+  BOOST_CHECK_EQUAL_COLLECTIONS(std::begin(combined.Diamond), std::end(combined.Diamond),
+                                std::begin(itsParams.Diamond), std::end(itsParams.Diamond));
+  BOOST_CHECK_EQUAL_COLLECTIONS(std::begin(combined.DiamondCov), std::end(combined.DiamondCov),
+                                std::begin(itsParams.DiamondCov), std::end(itsParams.DiamondCov));
+  BOOST_CHECK_EQUAL(combined.MinTrackLength, itsParams.MinTrackLength);
+  BOOST_CHECK_EQUAL(combined.MaxHoles, itsParams.MaxHoles);
+  BOOST_CHECK_EQUAL(combined.NSigmaCut, itsParams.NSigmaCut);
+  BOOST_CHECK_EQUAL(combined.PVres, itsParams.PVres);
+  BOOST_CHECK_EQUAL(combined.TrackletMinPt, itsParams.TrackletMinPt);
+  BOOST_CHECK_EQUAL(combined.CellDeltaTanLambdaSigma, itsParams.CellDeltaTanLambdaSigma);
+  BOOST_CHECK_EQUAL(combined.CellRoadRCut, itsParams.CellRoadRCut);
+  BOOST_CHECK_EQUAL(combined.TrackletMinAbsX, itsParams.TrackletMinAbsX);
+  BOOST_CHECK(combined.CorrType == itsParams.CorrType);
+  BOOST_CHECK_EQUAL(combined.MaxChi2ClusterAttachment, itsParams.MaxChi2ClusterAttachment);
+  BOOST_CHECK_EQUAL(combined.MaxChi2NDF, itsParams.MaxChi2NDF);
+  BOOST_CHECK_EQUAL(combined.ReseedIfShorter, itsParams.ReseedIfShorter);
+  BOOST_CHECK_EQUAL_COLLECTIONS(combined.MinPt.begin(), combined.MinPt.end(), itsParams.MinPt.begin(), itsParams.MinPt.end());
+  BOOST_CHECK_EQUAL(combined.RepeatRefitOut, itsParams.RepeatRefitOut);
+  BOOST_CHECK_EQUAL(combined.ShiftRefToCluster, itsParams.ShiftRefToCluster);
+  BOOST_CHECK_EQUAL(combined.PerPrimaryVertexProcessing, itsParams.PerPrimaryVertexProcessing);
+  BOOST_CHECK_EQUAL(combined.AllowSharingFirstCluster, itsParams.AllowSharingFirstCluster);
+  BOOST_CHECK_EQUAL(combined.SharedClusterMaxDeltaPhi, itsParams.SharedClusterMaxDeltaPhi);
+  BOOST_CHECK_EQUAL(combined.SharedClusterMaxDeltaEta, itsParams.SharedClusterMaxDeltaEta);
+  BOOST_CHECK_EQUAL(combined.SharedClusterOppositeSign, itsParams.SharedClusterOppositeSign);
+  BOOST_CHECK_EQUAL(combined.SharedMaxClusters, itsParams.SharedMaxClusters);
+
+  const auto checkConcatenated = [](const auto& actual, const auto& itsValues, const auto& mftValues) {
+    BOOST_REQUIRE_EQUAL(actual.size(), itsValues.size() + mftValues.size());
+    BOOST_CHECK_EQUAL_COLLECTIONS(actual.begin(), actual.begin() + itsValues.size(), itsValues.begin(), itsValues.end());
+    BOOST_CHECK_EQUAL_COLLECTIONS(actual.begin() + itsValues.size(), actual.end(), mftValues.begin(), mftValues.end());
+  };
+  checkConcatenated(combined.AddTimeError, itsParams.AddTimeError, mftParams.AddTimeError);
+  checkConcatenated(combined.LayerZ, itsParams.LayerZ, mftParams.LayerZ);
+  checkConcatenated(combined.LayerRadii, itsParams.LayerRadii, mftParams.LayerRadii);
+  checkConcatenated(combined.LayerxX0, itsParams.LayerxX0, mftParams.LayerxX0);
+  checkConcatenated(combined.LayerResolution, itsParams.LayerResolution, mftParams.LayerResolution);
+  checkConcatenated(combined.SystError2Row, itsParams.SystError2Row, mftParams.SystError2Row);
+  checkConcatenated(combined.SystError2Col, itsParams.SystError2Col, mftParams.SystError2Col);
+  const auto& itsColExtent = itsParams.LayerColHalfExtent.empty() ? itsParams.LayerZ : itsParams.LayerColHalfExtent;
+  const auto& mftColExtent = mftParams.LayerColHalfExtent.empty() ? mftParams.LayerZ : mftParams.LayerColHalfExtent;
+  checkConcatenated(combined.LayerColHalfExtent, itsColExtent, mftColExtent);
+
+  const auto graph = frame.getGraph(0).getView();
+  BOOST_CHECK_EQUAL(graph.seedingSurfaces.value(), allCombinedSurfaces);
+  BOOST_REQUIRE_EQUAL(graph.nTransitions, static_cast<uint32_t>(ITSNLayers + MFTNLayers - 2));
+  for (uint16_t transitionId = 0; transitionId < graph.nTransitions; ++transitionId) {
+    const auto& transition = graph.getTransition(TransitionId{transitionId});
+    const bool fromITS = transition.from.value() < ITSNLayers;
+    const bool toITS = transition.to.value() < ITSNLayers;
+    BOOST_CHECK_EQUAL(fromITS, toITS);
+    BOOST_CHECK(!(transition.from == SurfaceId{ITSNLayers - 1} && transition.to == SurfaceId{ITSNLayers}));
+  }
 
   const auto result = composer.process(itsSource, mftSource, o2::InteractionRecord{50, 5});
   BOOST_REQUIRE(result.outcome == TrackingOutcome::Success);
@@ -585,7 +636,7 @@ BOOST_AUTO_TEST_CASE(CombinedLoadingBackfillsOneGlobalWorkspace)
   BOOST_CHECK_EQUAL(composer.getMFTScratch().getNrof(ITSNLayers), 1);
 }
 
-BOOST_AUTO_TEST_CASE(MftGlobalIdsWorkEndToEndThroughRefitAndReproducesStandaloneCount)
+BOOST_AUTO_TEST_CASE(MftGlobalIdsWorkEndToEndThroughRefitUnderCombinedPolicy)
 {
   ensureTrivialMagneticFieldIsSet();
   const auto itsSurfaces = ordered(0, ITSNLayers);
@@ -594,10 +645,6 @@ BOOST_AUTO_TEST_CASE(MftGlobalIdsWorkEndToEndThroughRefitAndReproducesStandalone
   const auto mftParams = makeMftParams();
   const auto mftClusters = buildMftChainClusters(mftParams, Bz, MFTNLayers - 1);
   BOOST_REQUIRE_EQUAL(mftClusters.size(), static_cast<size_t>(MFTNLayers));
-
-  StandaloneRun<o2::detectors::DetID::MFT, MFTNLayers> standalone{o2::detectors::DetID::MFT, SurfaceKind::Disk, mftParams, mftClusters};
-  BOOST_REQUIRE(standalone.result.outcome == TrackingOutcome::Success);
-  BOOST_REQUIRE_GT(standalone.frame.getCommonTracks().size(), 0u);
 
   PrescribedDecoder itsDecoder{o2::detectors::DetID::ITS, SurfaceKind::Cylinder, {}};
   PrescribedDecoder mftDecoder{o2::detectors::DetID::MFT, SurfaceKind::Disk, mftClusters};
@@ -617,13 +664,12 @@ BOOST_AUTO_TEST_CASE(MftGlobalIdsWorkEndToEndThroughRefitAndReproducesStandalone
   const auto result = composer.process(itsSource, mftSource, o2::InteractionRecord{50, 5});
   BOOST_REQUIRE(result.outcome == TrackingOutcome::Success);
   BOOST_CHECK_EQUAL(result.nITSTracks, 0u);
-  // Global MFT SurfaceIds 7..16 plus source 1 worked end to end through
-  // refit: the combined pass through the composition reproduces the
-  // standalone (global==compact, unbound) oracle count exactly.
-  BOOST_CHECK_EQUAL(result.nMFTTracks, standalone.frame.getCommonTracks().size());
+  // Global MFT SurfaceIds 7..16 plus source 1 work end to end through the
+  // disk leaves and refit while the one combined selection policy is active.
+  BOOST_CHECK_GT(result.nMFTTracks, 0u);
 }
 
-BOOST_AUTO_TEST_CASE(ITSAndMFTAcceptedResultsReproduceStandaloneCountsInOneCombinedPass)
+BOOST_AUTO_TEST_CASE(CombinedComponentsUseOwnROFTimingInOneCombinedPass)
 {
   ensureTrivialMagneticFieldIsSet();
   const auto itsSurfaces = ordered(0, ITSNLayers);
@@ -668,8 +714,9 @@ BOOST_AUTO_TEST_CASE(ITSAndMFTAcceptedResultsReproduceStandaloneCountsInOneCombi
   const auto result = composer.process(itsSource, mftSource, o2::InteractionRecord{50, 5});
   BOOST_REQUIRE(result.outcome == TrackingOutcome::Success);
 
-  // ITS and MFT accepted results reproduce their standalone oracle counts in
-  // one combined pass -- nonzero on both sides, not a 0==0 check.
+  // This full-chain fixture survives both standalone and combined selection,
+  // allowing timestamp behavior to be compared on nonzero tracks without
+  // making general standalone/combined population parity a requirement.
   BOOST_CHECK_GT(result.nITSTracks, 0u);
   BOOST_CHECK_GT(result.nMFTTracks, 0u);
   BOOST_CHECK_EQUAL(result.nITSTracks, standaloneIts.frame.getCommonTracks().size());

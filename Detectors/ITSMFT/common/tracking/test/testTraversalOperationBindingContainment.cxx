@@ -139,6 +139,20 @@ BOOST_AUTO_TEST_CASE(RetiredTraversalOperationAdapterDoesNotReturn)
   }
 }
 
+BOOST_AUTO_TEST_CASE(OperationPartitionsComeFromSurfaceDescriptorsOnly)
+{
+  const auto source = readTrackerTraitsSource();
+  const auto code = stripLineComments(extractMethodBody(source, "initialiseTimeFrame"));
+  BOOST_CHECK(code.find("layout.getSurface(layout.getTransition(transitionId).from).kind") != std::string::npos);
+  BOOST_CHECK(code.find("mTransitionsByKind[kindIndex(kind)].push_back(transitionId)") != std::string::npos);
+  BOOST_CHECK(code.find("mCellsByKind[kindIndex(kind)].push_back(cellId)") != std::string::npos);
+  BOOST_CHECK(code.find("mRoadStartCellsByKind[kindIndex(kind)].push_back(cellId)") != std::string::npos);
+  for (const auto token : {"ClusterSourceId", "DetID", "parametersByKind", "parametersForKind"}) {
+    BOOST_CHECK_MESSAGE(!mentionsToken(code, token),
+                        "operation partitioning depends on " << token << " instead of SurfaceDescriptor::kind");
+  }
+}
+
 BOOST_AUTO_TEST_CASE(EightNonTemplateWrapperTargetsForwardToKindSpecificLeafImplementations)
 {
   // The eight (operation, SurfaceKind) wrappers remain thin forwarders to the

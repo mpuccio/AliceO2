@@ -144,8 +144,7 @@ void configureFrame(TimeFrame& frame, const SurfaceGraph& graph)
   std::vector<std::unique_ptr<SurfacePlanBinding>> bindings;
   bindings.push_back(std::move(built.binding));
   std::vector<TrackingWorkspaceCapacity> capacities{{ordered.size(), 0, 0}};
-  std::vector<std::array<TrackingParameters, 2>> parametersByKind{{parameters[0], parameters[0]}};
-  BOOST_REQUIRE(frame.commitConfiguration(std::move(graphs), std::move(parameters), std::move(parametersByKind), std::move(bindings),
+  BOOST_REQUIRE(frame.commitConfiguration(std::move(graphs), std::move(parameters), std::move(bindings),
                                           std::move(capacities), std::make_shared<BoundedMemoryResource>()));
 }
 

@@ -32,6 +32,7 @@
 #include "ITSMFTTracking/detail/SurfacePlanBinding.h"
 #include "ITSMFTTracking/detail/SurfaceTrackingScratch.h"
 #include "ITSMFTTracking/TimeFrame.h"
+#include "ITSMFTTracking/Tracker.h"
 #include "ITSMFTTracking/TrackerTraits.h"
 #include "ITStracking/Constants.h"
 
@@ -39,6 +40,15 @@ using namespace o2::itsmft::tracking;
 
 namespace
 {
+
+template <typename T>
+concept HasParametersByKindMember = requires(T value) { value.parametersByKind; };
+
+template <typename T>
+concept HasParametersByKindAccessor = requires(const T& value) { value.getTrackingParametersByKind(); };
+
+static_assert(!HasParametersByKindMember<TrackerIterationConfiguration>);
+static_assert(!HasParametersByKindAccessor<TimeFrame>);
 
 std::string readFile(const std::filesystem::path& path)
 {
@@ -102,7 +112,7 @@ bool noopSeedRefit(const TrackSeed&,
 BOOST_AUTO_TEST_CASE(CommonProductionHasOneNonTemplatedTrackerCore)
 {
   const auto root = trackingRoot();
-  const std::regex forbidden{R"(\bTrackerTraits\s*<|\bTracker\s*<|\bCATracker\b|\bTrackerITS\b|\bTrackerMFT\b)"};
+  const std::regex forbidden{R"(\bTrackerTraits\s*<|\bTracker\s*<|\bCATracker\b|\bTrackerITS\b|\bTrackerMFT\b|\bparametersByKind\b|\bparametersForKind\b|\bmTrkParamsByKind\b|array\s*<\s*(?:o2::itsmft::)?TrackingParameters\s*,\s*2\s*>)"};
   for (const auto& tree : {root / "include", root / "src"}) {
     for (const auto& entry : std::filesystem::recursive_directory_iterator(tree)) {
       if (!entry.is_regular_file()) {

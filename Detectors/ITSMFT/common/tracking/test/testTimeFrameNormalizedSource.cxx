@@ -320,8 +320,7 @@ BOOST_AUTO_TEST_CASE(combined_owner_load_keeps_detector_backfills_separate)
   std::vector<std::unique_ptr<SurfacePlanBinding>> bindings;
   bindings.push_back(std::move(built.binding));
   std::vector<TrackingWorkspaceCapacity> capacities{{combinedSurfaces.size(), 0, 0}};
-  std::vector<std::array<TrackingParameters, 2>> parametersByKind{{parameters[0], parameters[0]}};
-  BOOST_REQUIRE(frame.commitConfiguration(std::move(graphs), std::move(parameters), std::move(parametersByKind), std::move(bindings),
+  BOOST_REQUIRE(frame.commitConfiguration(std::move(graphs), std::move(parameters), std::move(bindings),
                                           std::move(capacities), std::make_shared<BoundedMemoryResource>()));
   const std::array<ClusterSourceInput, 2> sources{itsSource, mftSource};
   BOOST_REQUIRE(MultiSourceTimeFrameLoader::load(frame, gsl::span<const ClusterSourceInput>{sources}, view, {50, 5}).ok());
