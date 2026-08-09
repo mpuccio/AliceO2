@@ -5,10 +5,8 @@
 // This software is distributed under the terms of the GNU General Public
 // License v3 (GPL Version 3), copied verbatim in the file "COPYING".
 
-// Source guard for the four shared tracklet/cell/neighbour/road entry points.
-// Initialization partitions topology ids by SurfaceKind; the entry points
-// invoke thin cylinder and disk leaves without a runtime kind switch or an
-// operation-adapter object.
+// Source guards for shared tracklet/cell orchestration and the remaining
+// neighbour/road operation boundary.
 
 #define BOOST_TEST_MODULE ITSMFT TraversalOperationBindingContainment
 #define BOOST_TEST_MAIN
@@ -54,6 +52,11 @@ std::string readTrackerTraitsHeader()
   const std::string testFile = __FILE__;
   const auto testDirectory = testFile.substr(0, testFile.find_last_of('/'));
   return readFile(testDirectory + "/../include/ITSMFTTracking/TrackerTraits.h");
+}
+
+std::string readTrackletFindingSource()
+{
+  return readFile((commonTrackingRoot() / "src/TrackletFinding.cxx").string());
 }
 
 /// Extracts the body (inclusive of the opening/closing braces) of the first
@@ -119,12 +122,25 @@ size_t countOccurrences(const std::string& text, const std::string& needle)
 
 } // namespace
 
-BOOST_AUTO_TEST_CASE(SharedEntryPointsUsePrepartitionedKindLeaves)
+BOOST_AUTO_TEST_CASE(TrackletAndCellEntryPointsUseOneGlobalTraversal)
 {
   const auto source = readTrackerTraitsSource();
-  const std::array<std::tuple<std::string, std::string, std::string>, 4> methods{{
-    {"computeLayerTracklets", "computeLayerTrackletsCylinder", "computeLayerTrackletsDisk"},
-    {"computeLayerCells", "computeLayerCellsCylinder", "computeLayerCellsDisk"},
+  const std::array<std::tuple<std::string, std::string, std::string>, 2> methods{{
+    {"computeLayerTracklets", "computeLayerTrackletsImpl", "getGlobalTransitions"},
+    {"computeLayerCells", "computeLayerCellsImpl", "getGlobalCells"},
+  }};
+  for (const auto& [method, implementation, globalIds] : methods) {
+    const auto code = stripLineComments(extractMethodBody(source, method));
+    BOOST_CHECK_EQUAL(countOccurrences(code, implementation + "("), 1u);
+    BOOST_CHECK_EQUAL(countOccurrences(code, globalIds + "()"), 1u);
+    BOOST_CHECK(!mentionsToken(code, "SurfaceKind"));
+  }
+}
+
+BOOST_AUTO_TEST_CASE(NeighbourAndRoadEntryPointsKeepTheirExistingLeafBoundary)
+{
+  const auto source = readTrackerTraitsSource();
+  const std::array<std::tuple<std::string, std::string, std::string>, 2> methods{{
     {"findCellsNeighbours", "findCellsNeighboursCylinder", "findCellsNeighboursDisk"},
     {"findRoads", "findRoadsCylinder", "findRoadsDisk"},
   }};
@@ -161,7 +177,8 @@ BOOST_AUTO_TEST_CASE(OperationPartitionsComeFromSurfaceDescriptorsOnly)
   const auto code = stripLineComments(extractMethodBody(source, "initialiseTimeFrame"));
   BOOST_CHECK(code.find("layout.getSurface(layout.getTransition(transitionId).from).kind") != std::string::npos);
   BOOST_CHECK(code.find("mTransitionsByKind[kindIndex(kind)].push_back(transitionId)") != std::string::npos);
-  BOOST_CHECK(code.find("mCellsByKind[kindIndex(kind)].push_back(cellId)") != std::string::npos);
+  BOOST_CHECK(code.find("mCellsByKind") == std::string::npos);
+  BOOST_CHECK(code.find("mScheduledCellsByKind[kindIndex(kind)].push_back(cellId)") != std::string::npos);
   BOOST_CHECK(code.find("mRoadStartCellsByKind[kindIndex(kind)].push_back(cellId)") != std::string::npos);
   for (const auto token : {"ClusterSourceId", "DetID", "parametersByKind", "parametersForKind"}) {
     BOOST_CHECK_MESSAGE(!mentionsToken(code, token),
@@ -169,16 +186,10 @@ BOOST_AUTO_TEST_CASE(OperationPartitionsComeFromSurfaceDescriptorsOnly)
   }
 }
 
-BOOST_AUTO_TEST_CASE(EightNonTemplateWrapperTargetsForwardToKindSpecificLeafImplementations)
+BOOST_AUTO_TEST_CASE(RemainingNonTemplateWrapperTargetsForwardToKindSpecificLeafImplementations)
 {
-  // The eight (operation, SurfaceKind) wrappers remain thin forwarders to the
-  // corresponding *ForKind<SurfaceKind> leaf implementations.
   const auto source = readTrackerTraitsSource();
-  const std::array<std::pair<std::string, std::string>, 8> wrapperToLeaf{{
-    {"computeLayerTrackletsCylinder", "computeLayerTrackletsForKind<SurfaceKind::Cylinder>"},
-    {"computeLayerTrackletsDisk", "computeLayerTrackletsForKind<SurfaceKind::Disk>"},
-    {"computeLayerCellsCylinder", "computeLayerCellsForKind<SurfaceKind::Cylinder>"},
-    {"computeLayerCellsDisk", "computeLayerCellsForKind<SurfaceKind::Disk>"},
+  const std::array<std::pair<std::string, std::string>, 4> wrapperToLeaf{{
     {"findCellsNeighboursCylinder", "findCellsNeighboursForKind<SurfaceKind::Cylinder>"},
     {"findCellsNeighboursDisk", "findCellsNeighboursForKind<SurfaceKind::Disk>"},
     {"findRoadsCylinder", "findRoadsForKind<SurfaceKind::Cylinder>"},
@@ -189,6 +200,11 @@ BOOST_AUTO_TEST_CASE(EightNonTemplateWrapperTargetsForwardToKindSpecificLeafImpl
     BOOST_REQUIRE_GT(body.size(), 0u);
     BOOST_CHECK_MESSAGE(body.find(leafCall) != std::string::npos,
                         "TrackerTraits::" << wrapper << "() does not forward to " << leafCall);
+  }
+  for (const auto retired : {"computeLayerTrackletsCylinder", "computeLayerTrackletsDisk",
+                             "computeLayerCellsCylinder", "computeLayerCellsDisk",
+                             "computeLayerTrackletsForKind", "computeLayerCellsForKind"}) {
+    BOOST_CHECK(source.find(retired) == std::string::npos);
   }
 }
 
@@ -226,13 +242,51 @@ BOOST_AUTO_TEST_CASE(RetiredCoordinateCutsAreAbsentFromCommonProductionSources)
 BOOST_AUTO_TEST_CASE(CellCandidateLoopHasOneDescriptorSelectedLeafBoundary)
 {
   const auto source = readTrackerTraitsSource();
-  const auto code = stripLineComments(extractMethodBody(source, "computeLayerCellsForKind"));
+  const auto code = stripLineComments(extractMethodBody(source, "computeLayerCellsImpl"));
 
-  BOOST_CHECK_EQUAL(countOccurrences(code, "if constexpr (Kind == SurfaceKind::Cylinder)"), 1u);
-  BOOST_CHECK_EQUAL(countOccurrences(code, "buildCylinderCellSeed("), 1u);
-  BOOST_CHECK_EQUAL(countOccurrences(code, "buildDiskCellSeed("), 1u);
+  BOOST_CHECK_EQUAL(countOccurrences(code, "buildCellSeed("), 1u);
+  BOOST_CHECK(code.find("buildCylinderCellSeed(") == std::string::npos);
+  BOOST_CHECK(code.find("buildDiskCellSeed(") == std::string::npos);
+  BOOST_CHECK(code.find("SurfaceKind::Cylinder") == std::string::npos);
+  BOOST_CHECK(code.find("SurfaceKind::Disk") == std::string::npos);
   for (const auto token : {"DetID", "ClusterSourceId", "ROAD", "Precut"}) {
     BOOST_CHECK_MESSAGE(!mentionsToken(code, token),
                         "cell orchestration contains detector/source/cut dispatch token " << token);
   }
+}
+
+BOOST_AUTO_TEST_CASE(TrackletLoopUsesOnlyCoordinateNeutralLeafFacades)
+{
+  const auto source = readTrackerTraitsSource();
+  const auto code = stripLineComments(extractMethodBody(source, "computeLayerTrackletsImpl"));
+  for (const auto required : {"bindTrackletProjectionState(", "projectTrackletSearchWindow(",
+                              "trackletSearchRowBin(", "acceptTrackletCandidate("}) {
+    BOOST_CHECK_EQUAL(countOccurrences(code, required), 1u);
+  }
+  for (const auto forbidden : {"projectCylinderSearchWindow(", "projectDiskSearchWindow(",
+                               "CylinderTrackletSearchWindow", "DiskTrackletSearchWindow",
+                               "SurfaceKind::Cylinder", "SurfaceKind::Disk",
+                               "DetID", "ClusterSourceId"}) {
+    BOOST_CHECK(code.find(forbidden) == std::string::npos);
+  }
+}
+
+BOOST_AUTO_TEST_CASE(KernelPolicyIsOneSurfaceNeutralRecord)
+{
+  const auto header = readTrackerTraitsHeader();
+  const auto kernelHeader = readFile((commonTrackingRoot() / "include/ITSMFTTracking/detail/TrackingKernelParameters.h").string());
+  BOOST_CHECK(header.find("TrackingKernelParameters mKernelParameters") != std::string::npos);
+  BOOST_CHECK(header.find("array<TrackingKernelParameters") == std::string::npos);
+  BOOST_CHECK(kernelHeader.find("SurfaceKind") == std::string::npos);
+}
+
+BOOST_AUTO_TEST_CASE(SurfaceSelectionLivesInTrackletAndCellLeafSource)
+{
+  const auto source = readTrackletFindingSource();
+  BOOST_CHECK(source.find("case SurfaceKind::Cylinder:") != std::string::npos);
+  BOOST_CHECK(source.find("case SurfaceKind::Disk:") != std::string::npos);
+  BOOST_CHECK(source.find("projectCylinderSearchWindow(") != std::string::npos);
+  BOOST_CHECK(source.find("projectDiskSearchWindow(") != std::string::npos);
+  BOOST_CHECK(source.find("buildCylinderCellSeed(") != std::string::npos);
+  BOOST_CHECK(source.find("buildDiskCellSeed(") != std::string::npos);
 }

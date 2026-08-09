@@ -107,7 +107,6 @@ void checkSearchWindowEqual(const Window& lhs, const Window& rhs)
     BOOST_CHECK_EQUAL(lhs.yProj, rhs.yProj);
     BOOST_CHECK_EQUAL(lhs.sigmaX, rhs.sigmaX);
     BOOST_CHECK_EQUAL(lhs.sigmaY, rhs.sigmaY);
-    BOOST_CHECK_EQUAL(lhs.meanDeltaZ, rhs.meanDeltaZ);
     BOOST_CHECK_EQUAL(lhs.nSigmaCut, rhs.nSigmaCut);
   }
 }
@@ -134,8 +133,8 @@ std::vector<NominalSurfaceMaterial> toMaterial(const std::vector<float>& xOverX0
 
 TrackingKernelParameters makeKernelParameters(const TrackingParameters& params, SurfaceKind kind)
 {
+  (void)kind;
   TrackingKernelParameters out;
-  out.kind = kind;
   out.trackletMinPt = params.TrackletMinPt;
   out.cellDeltaTanLambdaSigma = params.CellDeltaTanLambdaSigma;
   out.nSigmaCut = params.NSigmaCut;
@@ -375,12 +374,13 @@ BOOST_AUTO_TEST_CASE(DiskProjectSearchWindowReusesHelpersAndDirectProjectedXYBin
   const auto acceptedTargetMeasurement = makeMeasurement(acceptedTarget);
   float acceptedTanLambda = -999.f;
   BOOST_CHECK(window.acceptCandidate(sourceMeasurement, acceptedTargetMeasurement, acceptedTanLambda));
-  BOOST_CHECK_EQUAL(acceptedTanLambda, (source.zCoordinate - acceptedTarget.zCoordinate) / state.meanDeltaZ);
+  BOOST_CHECK_EQUAL(acceptedTanLambda,
+                    (source.zCoordinate - acceptedTarget.zCoordinate) /
+                      (source.radius - acceptedTarget.radius));
 
-  auto rejectedWindow = window;
-  rejectedWindow.meanDeltaZ = 0.f;
+  const auto sameRadiusTarget = makeGlobalCluster(source.radius, 0.f, toZ);
   float rejectedTanLambda = 123.f;
-  BOOST_CHECK(!rejectedWindow.acceptCandidate(sourceMeasurement, acceptedTargetMeasurement, rejectedTanLambda));
+  BOOST_CHECK(!window.acceptCandidate(sourceMeasurement, makeMeasurement(sameRadiusTarget), rejectedTanLambda));
   BOOST_CHECK_EQUAL(rejectedTanLambda, 123.f);
 }
 
@@ -418,7 +418,7 @@ BOOST_AUTO_TEST_CASE(ProjectSearchWindowInvalidBinsLeaveEveryOutputFieldUnchange
   const DiskTrackletProjectionState diskState{
     fromLayer, toLayer, fromZ, toZ, toZ - fromZ, 2.f, 3.e-3f, 0.04f};
   const DiskTrackletSearchWindow diskSentinel{
-    {201, 202, 203, 204}, 205.f, 206.f, 207.f, 208.f, 209.f, 210.f};
+    {201, 202, 203, 204}, 205.f, 206.f, 207.f, 208.f, 210.f};
   auto diskOut = diskSentinel;
   BOOST_CHECK(!(projectDiskSearchWindow(
     diskMeasurement, diskSource, diskVertex, diskState, Bz, diskIndexUtils, diskParams, diskOut)));
@@ -541,13 +541,16 @@ BOOST_AUTO_TEST_CASE(DiskCandidatePreservesInverseVarianceAndStrictBoundarySeman
   const auto sourceMeasurement = makeMeasurement(source);
   const auto distantTargetMeasurement = makeMeasurement(distantTarget);
   DiskTrackletSearchWindow zeroSigmaWindow{
-    {}, 0.f, 0.f, 0.f, -1.f, 2.f, 5.f};
+    {}, 0.f, 0.f, 0.f, -1.f, 5.f};
   float tanLambda = -8.f;
   BOOST_CHECK(zeroSigmaWindow.acceptCandidate(sourceMeasurement, distantTargetMeasurement, tanLambda));
-  BOOST_CHECK_EQUAL(tanLambda, 1.f);
+  BOOST_CHECK_CLOSE(tanLambda,
+                    (source.zCoordinate - distantTarget.zCoordinate) /
+                      (source.radius - distantTarget.radius),
+                    1.e-4f);
 
   DiskTrackletSearchWindow chi2Window{
-    {}, 0.f, 0.f, 1.f, 1.f, 2.f, 5.f};
+    {}, 0.f, 0.f, 1.f, 1.f, 5.f};
   const auto exactChi2Target = makeGlobalCluster(5.f, 0.f, -47.f);
   tanLambda = 81.f;
   BOOST_CHECK(!chi2Window.acceptCandidate(sourceMeasurement, makeMeasurement(exactChi2Target), tanLambda));
@@ -555,13 +558,13 @@ BOOST_AUTO_TEST_CASE(DiskCandidatePreservesInverseVarianceAndStrictBoundarySeman
   const auto insideChi2Target = makeGlobalCluster(std::nextafter(5.f, 0.f), 0.f, -47.f);
   BOOST_CHECK(chi2Window.acceptCandidate(sourceMeasurement, makeMeasurement(insideChi2Target), tanLambda));
 
-  const auto centeredTarget = makeGlobalCluster(0.f, 0.f, -47.f);
-  chi2Window.meanDeltaZ = 1.e-6f;
+  const auto sameRadiusTarget = makeGlobalCluster(1.f, 0.f, -47.f);
   tanLambda = 82.f;
-  BOOST_CHECK(!chi2Window.acceptCandidate(sourceMeasurement, makeMeasurement(centeredTarget), tanLambda));
+  BOOST_CHECK(!chi2Window.acceptCandidate(sourceMeasurement, makeMeasurement(sameRadiusTarget), tanLambda));
   BOOST_CHECK_EQUAL(tanLambda, 82.f);
-  chi2Window.meanDeltaZ = std::nextafter(1.e-6f, std::numeric_limits<float>::infinity());
-  BOOST_CHECK(chi2Window.acceptCandidate(sourceMeasurement, makeMeasurement(centeredTarget), tanLambda));
+  const auto distinctRadiusTarget = makeGlobalCluster(0.99f, 0.f, -47.f);
+  BOOST_CHECK(chi2Window.acceptCandidate(sourceMeasurement, makeMeasurement(distinctRadiusTarget), tanLambda));
+  BOOST_CHECK_CLOSE(tanLambda, 200.f, 1.e-3f);
 }
 
 BOOST_AUTO_TEST_CASE(NormalizedMeasurementsRemainAuthoritativeOverPoisonedLocatorCoordinates)

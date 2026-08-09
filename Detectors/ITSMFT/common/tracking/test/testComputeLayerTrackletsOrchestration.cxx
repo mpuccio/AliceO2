@@ -560,7 +560,9 @@ BOOST_AUTO_TEST_CASE(DiskOnePassAndTwoPassProduceIdenticalTracklets)
                                              SurfaceKind::Disk, clusters, 1);
   const auto parallel = runFixture<MFTNLayers>(o2::detectors::DetID::MFT, SurfaceKind::Disk,
                                                SurfaceKind::Disk, clusters, 4);
-  const float expectedTanLambda = (fromZ - toZ) / (toZ - fromZ);
+  const float sourceRadius = o2::gpu::CAMath::Hypot(1.f, 0.5f);
+  const float targetRadius = o2::gpu::CAMath::Hypot(targetX, targetY);
+  const float expectedTanLambda = (fromZ - toZ) / (sourceRadius - targetRadius);
   const float expectedPhi = o2::gpu::CAMath::ATan2(0.5f - targetY, 1.f - targetX);
   checkExactTracklet(serial, expectedTanLambda, expectedPhi);
   checkExactTracklet(parallel, expectedTanLambda, expectedPhi);
@@ -774,10 +776,12 @@ BOOST_AUTO_TEST_CASE(MftIdentityLayoutTrackletsSpanMultipleAdjacentTransitionsIn
       const auto& tracklet = snapshot.allTracklets[id].front();
       BOOST_CHECK_EQUAL(tracklet.firstClusterIndex, 0);
       BOOST_CHECK_EQUAL(tracklet.secondClusterIndex, 0);
-      // (fromZ - toZ) / (toZ - fromZ) is exactly -1 for any two distinct
-      // z values -- the same identity DiskOnePassAndTwoPassProduceIdenticalTracklets
-      // above already relies on for its single-hop expectedTanLambda.
-      BOOST_CHECK_EQUAL(tracklet.tanLambda, -1.f);
+      const auto& source = clusters[from].global;
+      const auto& target = clusters[to].global;
+      const float sourceRadius = o2::gpu::CAMath::Hypot(source.x, source.y);
+      const float targetRadius = o2::gpu::CAMath::Hypot(target.x, target.y);
+      const float expectedTanLambda = (source.z - target.z) / (sourceRadius - targetRadius);
+      BOOST_CHECK_EQUAL(tracklet.tanLambda, expectedTanLambda);
       BOOST_CHECK_EQUAL_COLLECTIONS(snapshot.allLookups[id].begin(), snapshot.allLookups[id].end(), expectedLookup.begin(), expectedLookup.end());
       sawTransition01 |= (from == 0 && to == 1);
       sawTransition12 |= (from == 1 && to == 2);

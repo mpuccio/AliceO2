@@ -33,92 +33,56 @@ BOOST_AUTO_TEST_CASE(TrackingKernelParametersDefaultsMatchCurrentProductionValue
   // Mirrors TrackingParameters defaults in Configuration.h; this is a
   // parity check on the new boundary's defaults, not a claim that
   // production tracking reads from these structs yet.
-  TrackingKernelParameters barrel;
-  barrel.kind = SurfaceKind::Cylinder;
-  BOOST_CHECK_CLOSE(barrel.trackletMinPt, 0.3f, 1e-6);
-  BOOST_CHECK_CLOSE(barrel.cellDeltaTanLambdaSigma, 0.007f, 1e-6);
-  BOOST_CHECK_CLOSE(barrel.nSigmaCut, 5.f, 1e-6);
-  BOOST_CHECK_CLOSE(barrel.maxChi2ClusterAttachment, 60.f, 1e-6);
-  BOOST_CHECK_CLOSE(barrel.maxChi2NDF, 30.f, 1e-6);
-  BOOST_CHECK_CLOSE(barrel.pvResolution, 1.e-2f, 1e-6);
-  BOOST_CHECK(barrel.isValid());
-
-  TrackingKernelParameters forward;
-  forward.kind = SurfaceKind::Disk;
-  BOOST_CHECK_CLOSE(forward.trackletMinPt, 0.3f, 1e-6);
-  BOOST_CHECK_CLOSE(forward.cellDeltaTanLambdaSigma, 0.007f, 1e-6);
-  BOOST_CHECK_CLOSE(forward.nSigmaCut, 5.f, 1e-6);
-  BOOST_CHECK_CLOSE(forward.maxChi2ClusterAttachment, 60.f, 1e-6);
-  BOOST_CHECK_CLOSE(forward.maxChi2NDF, 30.f, 1e-6);
-  BOOST_CHECK(forward.isValid());
+  TrackingKernelParameters parameters;
+  BOOST_CHECK_CLOSE(parameters.trackletMinPt, 0.3f, 1e-6);
+  BOOST_CHECK_CLOSE(parameters.cellDeltaTanLambdaSigma, 0.007f, 1e-6);
+  BOOST_CHECK_CLOSE(parameters.nSigmaCut, 5.f, 1e-6);
+  BOOST_CHECK_CLOSE(parameters.maxChi2ClusterAttachment, 60.f, 1e-6);
+  BOOST_CHECK_CLOSE(parameters.maxChi2NDF, 30.f, 1e-6);
+  BOOST_CHECK_CLOSE(parameters.pvResolution, 1.e-2f, 1e-6);
+  BOOST_CHECK(parameters.isValid());
 }
 
 BOOST_AUTO_TEST_CASE(TrackingKernelParametersAbiIsLocked)
 {
-  BOOST_CHECK_EQUAL(sizeof(TrackingKernelParameters), 28u);
+  BOOST_CHECK_EQUAL(sizeof(TrackingKernelParameters), 24u);
   BOOST_CHECK_EQUAL(alignof(TrackingKernelParameters), alignof(float));
-  BOOST_CHECK_EQUAL(offsetof(TrackingKernelParameters, kind), 0u);
-  BOOST_CHECK_EQUAL(offsetof(TrackingKernelParameters, trackletMinPt), 4u);
-  BOOST_CHECK_EQUAL(offsetof(TrackingKernelParameters, cellDeltaTanLambdaSigma), 8u);
-  BOOST_CHECK_EQUAL(offsetof(TrackingKernelParameters, nSigmaCut), 12u);
-  BOOST_CHECK_EQUAL(offsetof(TrackingKernelParameters, maxChi2ClusterAttachment), 16u);
-  BOOST_CHECK_EQUAL(offsetof(TrackingKernelParameters, maxChi2NDF), 20u);
-  BOOST_CHECK_EQUAL(offsetof(TrackingKernelParameters, pvResolution), 24u);
+  BOOST_CHECK_EQUAL(offsetof(TrackingKernelParameters, trackletMinPt), 0u);
+  BOOST_CHECK_EQUAL(offsetof(TrackingKernelParameters, cellDeltaTanLambdaSigma), 4u);
+  BOOST_CHECK_EQUAL(offsetof(TrackingKernelParameters, nSigmaCut), 8u);
+  BOOST_CHECK_EQUAL(offsetof(TrackingKernelParameters, maxChi2ClusterAttachment), 12u);
+  BOOST_CHECK_EQUAL(offsetof(TrackingKernelParameters, maxChi2NDF), 16u);
+  BOOST_CHECK_EQUAL(offsetof(TrackingKernelParameters, pvResolution), 20u);
 }
 
 BOOST_AUTO_TEST_CASE(TrackingKernelParametersBoundsAreValidated)
 {
-  TrackingKernelParameters barrel;
-  barrel.trackletMinPt = 0.f;
-  BOOST_CHECK(!barrel.isValid());
+  TrackingKernelParameters parameters;
+  parameters.trackletMinPt = 0.f;
+  BOOST_CHECK(!parameters.isValid());
 
-  barrel = TrackingKernelParameters{};
-  barrel.cellDeltaTanLambdaSigma = 0.f;
-  BOOST_CHECK(!barrel.isValid());
+  parameters = TrackingKernelParameters{};
+  parameters.cellDeltaTanLambdaSigma = 0.f;
+  BOOST_CHECK(!parameters.isValid());
 
-  barrel = TrackingKernelParameters{};
-  barrel.nSigmaCut = -1.f;
-  BOOST_CHECK(!barrel.isValid());
+  parameters = TrackingKernelParameters{};
+  parameters.nSigmaCut = -1.f;
+  BOOST_CHECK(!parameters.isValid());
 
-  barrel = TrackingKernelParameters{};
-  barrel.maxChi2ClusterAttachment = 0.f;
-  BOOST_CHECK(!barrel.isValid());
+  parameters = TrackingKernelParameters{};
+  parameters.maxChi2ClusterAttachment = 0.f;
+  BOOST_CHECK(!parameters.isValid());
 
-  barrel = TrackingKernelParameters{};
-  barrel.maxChi2NDF = -1.f;
-  BOOST_CHECK(!barrel.isValid());
+  parameters = TrackingKernelParameters{};
+  parameters.maxChi2NDF = -1.f;
+  BOOST_CHECK(!parameters.isValid());
 
-  barrel = TrackingKernelParameters{};
-  barrel.pvResolution = 0.f;
-  BOOST_CHECK(barrel.isValid());
+  parameters = TrackingKernelParameters{};
+  parameters.pvResolution = 0.f;
+  BOOST_CHECK(parameters.isValid());
 
-  barrel.pvResolution = -1.f;
-  BOOST_CHECK(!barrel.isValid());
-
-  TrackingKernelParameters forward;
-  forward.kind = SurfaceKind::Disk;
-  forward.trackletMinPt = 0.f;
-  BOOST_CHECK(!forward.isValid());
-
-  forward = TrackingKernelParameters{};
-  forward.kind = SurfaceKind::Disk;
-  forward.cellDeltaTanLambdaSigma = 0.f;
-  BOOST_CHECK(!forward.isValid());
-
-  forward = TrackingKernelParameters{};
-  forward.kind = SurfaceKind::Disk;
-  forward.nSigmaCut = -1.f;
-  BOOST_CHECK(!forward.isValid());
-
-  forward = TrackingKernelParameters{};
-  forward.kind = SurfaceKind::Disk;
-  forward.maxChi2ClusterAttachment = 0.f;
-  BOOST_CHECK(!forward.isValid());
-
-  forward = TrackingKernelParameters{};
-  forward.kind = SurfaceKind::Disk;
-  forward.maxChi2NDF = -1.f;
-  BOOST_CHECK(!forward.isValid());
+  parameters.pvResolution = -1.f;
+  BOOST_CHECK(!parameters.isValid());
 }
 
 BOOST_AUTO_TEST_CASE(TrackingKernelParametersRejectNonFiniteValues)
@@ -126,55 +90,30 @@ BOOST_AUTO_TEST_CASE(TrackingKernelParametersRejectNonFiniteValues)
   const float nan = std::numeric_limits<float>::quiet_NaN();
   const float inf = std::numeric_limits<float>::infinity();
 
-  TrackingKernelParameters barrel;
-  barrel.trackletMinPt = nan;
-  BOOST_CHECK(!barrel.isValid());
+  TrackingKernelParameters parameters;
+  parameters.trackletMinPt = nan;
+  BOOST_CHECK(!parameters.isValid());
 
-  barrel = TrackingKernelParameters{};
-  barrel.cellDeltaTanLambdaSigma = inf;
-  BOOST_CHECK(!barrel.isValid());
+  parameters = TrackingKernelParameters{};
+  parameters.cellDeltaTanLambdaSigma = inf;
+  BOOST_CHECK(!parameters.isValid());
 
-  barrel = TrackingKernelParameters{};
-  barrel.nSigmaCut = -inf;
-  BOOST_CHECK(!barrel.isValid());
+  parameters = TrackingKernelParameters{};
+  parameters.nSigmaCut = -inf;
+  BOOST_CHECK(!parameters.isValid());
 
-  barrel = TrackingKernelParameters{};
-  barrel.maxChi2ClusterAttachment = nan;
-  BOOST_CHECK(!barrel.isValid());
+  parameters = TrackingKernelParameters{};
+  parameters.maxChi2ClusterAttachment = nan;
+  BOOST_CHECK(!parameters.isValid());
 
-  barrel = TrackingKernelParameters{};
-  barrel.maxChi2NDF = inf;
-  BOOST_CHECK(!barrel.isValid());
+  parameters = TrackingKernelParameters{};
+  parameters.maxChi2NDF = inf;
+  BOOST_CHECK(!parameters.isValid());
 
-  barrel = TrackingKernelParameters{};
-  barrel.pvResolution = nan;
-  BOOST_CHECK(!barrel.isValid());
+  parameters = TrackingKernelParameters{};
+  parameters.pvResolution = nan;
+  BOOST_CHECK(!parameters.isValid());
 
-  barrel.pvResolution = inf;
-  BOOST_CHECK(!barrel.isValid());
-
-  TrackingKernelParameters forward;
-  forward.kind = SurfaceKind::Disk;
-  forward.trackletMinPt = nan;
-  BOOST_CHECK(!forward.isValid());
-
-  forward = TrackingKernelParameters{};
-  forward.kind = SurfaceKind::Disk;
-  forward.cellDeltaTanLambdaSigma = inf;
-  BOOST_CHECK(!forward.isValid());
-
-  forward = TrackingKernelParameters{};
-  forward.kind = SurfaceKind::Disk;
-  forward.nSigmaCut = nan;
-  BOOST_CHECK(!forward.isValid());
-
-  forward = TrackingKernelParameters{};
-  forward.kind = SurfaceKind::Disk;
-  forward.maxChi2ClusterAttachment = inf;
-  BOOST_CHECK(!forward.isValid());
-
-  forward = TrackingKernelParameters{};
-  forward.kind = SurfaceKind::Disk;
-  forward.maxChi2NDF = nan;
-  BOOST_CHECK(!forward.isValid());
+  parameters.pvResolution = inf;
+  BOOST_CHECK(!parameters.isValid());
 }
