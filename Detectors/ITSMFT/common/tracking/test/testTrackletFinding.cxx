@@ -26,7 +26,6 @@
 #include "ITSMFTTracking/detail/MFTFwdTrackHelpers.h"
 #include "ITSMFTTracking/detail/CellFinding.h"
 #include "ITSMFTTracking/detail/TrackletFinding.h"
-#include "ITSMFTTracking/detail/CellFinding.h"
 #include "ITStracking/TrackHelpers.h"
 
 using namespace o2::itsmft;
@@ -143,8 +142,6 @@ TrackingKernelParameters makeKernelParameters(const TrackingParameters& params, 
   out.maxChi2ClusterAttachment = params.MaxChi2ClusterAttachment;
   out.maxChi2NDF = params.MaxChi2NDF;
   out.pvResolution = params.PVres;
-  out.cellRoadRCut = params.CellRoadRCut;
-  out.trackletMinAbsX = params.TrackletMinAbsX;
   return out;
 }
 
@@ -160,8 +157,6 @@ BOOST_AUTO_TEST_CASE(BindingCopiesEveryFieldToTheCorrectSlot)
   legacy.MaxChi2ClusterAttachment = 4.44f;
   legacy.MaxChi2NDF = 5.55f;
   legacy.PVres = 8.88f;
-  legacy.CellRoadRCut = 6.66f;
-  legacy.TrackletMinAbsX = 7.77f;
   legacy.LayerxX0 = {0.011f, 0.022f, 0.033f};
   legacy.CorrType = o2::base::PropagatorF::MatCorrType::USEMatCorrLUT;
 
@@ -177,8 +172,6 @@ BOOST_AUTO_TEST_CASE(BindingCopiesEveryFieldToTheCorrectSlot)
   const auto disk = makeKernelParameters(legacy, SurfaceKind::Disk);
   BOOST_CHECK_CLOSE(disk.trackletMinPt, 1.11f, 1e-6);
   BOOST_CHECK_CLOSE(disk.cellDeltaTanLambdaSigma, 2.22f, 1e-6);
-  BOOST_CHECK_CLOSE(disk.cellRoadRCut, 6.66f, 1e-6);
-  BOOST_CHECK_CLOSE(disk.trackletMinAbsX, 7.77f, 1e-6);
   BOOST_CHECK_CLOSE(disk.nSigmaCut, 3.33f, 1e-6);
   BOOST_CHECK_CLOSE(disk.maxChi2ClusterAttachment, 4.44f, 1e-6);
   BOOST_CHECK_CLOSE(disk.maxChi2NDF, 5.55f, 1e-6);
@@ -206,8 +199,6 @@ BOOST_AUTO_TEST_CASE(BoundNonFiniteParametersAreDetectableThroughIsValid)
   legacy.NSigmaCut = 3.33f;
   legacy.MaxChi2ClusterAttachment = 4.44f;
   legacy.MaxChi2NDF = 5.55f;
-  legacy.CellRoadRCut = 6.66f;
-  legacy.TrackletMinAbsX = 7.77f;
 
   auto barrelHealthy = legacy;
   BOOST_CHECK(makeKernelParameters(barrelHealthy, SurfaceKind::Cylinder).isValid());
@@ -221,10 +212,10 @@ BOOST_AUTO_TEST_CASE(BoundNonFiniteParametersAreDetectableThroughIsValid)
   auto diskHealthy = legacy;
   BOOST_CHECK(makeKernelParameters(diskHealthy, SurfaceKind::Disk).isValid());
   auto diskNaN = legacy;
-  diskNaN.CellRoadRCut = nan;
+  diskNaN.MaxChi2ClusterAttachment = nan;
   BOOST_CHECK(!makeKernelParameters(diskNaN, SurfaceKind::Disk).isValid());
   auto diskInf = legacy;
-  diskInf.TrackletMinAbsX = inf;
+  diskInf.NSigmaCut = inf;
   BOOST_CHECK(!makeKernelParameters(diskInf, SurfaceKind::Disk).isValid());
 
   auto materialNaN = legacy;
@@ -464,7 +455,7 @@ BOOST_AUTO_TEST_CASE(CylinderCandidateUsesPeriodicPhiAndStrictSigmaAndPhiBoundar
   BOOST_CHECK_EQUAL(tanLambda, 72.f);
 }
 
-BOOST_AUTO_TEST_CASE(DiskProjectionCoversStraightLineNearZeroDenominatorAndRadialSwap)
+BOOST_AUTO_TEST_CASE(DiskProjectionLeafRetainsNearZeroDenominatorGuardAndRadialSwap)
 {
   TrackingParameters legacy;
   const auto params = makeKernelParameters(legacy, SurfaceKind::Disk);
@@ -645,471 +636,6 @@ BOOST_AUTO_TEST_CASE(NormalizedMeasurementsRemainAuthoritativeOverPoisonedLocato
   BOOST_REQUIRE((projectDiskSearchWindow(
     uvPoisoned, diskLocator, vertex, diskState, Bz, diskIndex, diskKernelParameters, diskPoisoned)));
   checkSearchWindowEqual(diskPoisoned, diskBaseline);
-}
-
-/// Gate 3 cell-road pre-cut slice coverage: cell road-precut leaves
-/// (TrackletFinding.h), the last detector branch removed from
-/// TrackerTraits::computeLayerCellsForKind's candidate loop. These tests
-/// use an independent re-derivation of the legacy formula (formerly
-/// detail::validateMFTCellClusters/mftDistanceToSeedSquared/
-/// mftConicalRoadR2Scale, all three now deleted from MFTFwdTrackHelpers.h)
-/// as the oracle, never the operation itself, so a transcription mistake in
-/// either would show up as a mismatch.
-
-namespace
-{
-/// Independent re-derivation of the legacy squared transverse distance from
-/// `point` to the seed line `from`->`to` (formerly
-/// detail::mftDistanceToSeedSquared). |dzSeed| < 1e-9f returns FLT_MAX.
-float referenceDistanceToSeedLineSquared(const GlobalPoint3F& from, const GlobalPoint3F& to, const GlobalPoint3F& point)
-{
-  const float dz = to.z - from.z;
-  if (std::abs(dz) < 1e-9f) {
-    return std::numeric_limits<float>::max();
-  }
-  const float t = (point.z - from.z) / dz;
-  const float xOnLine = from.x + t * (to.x - from.x);
-  const float yOnLine = from.y + t * (to.y - from.y);
-  const float dx = point.x - xOnLine;
-  const float dy = point.y - yOnLine;
-  return dx * dx + dy * dy;
-}
-
-/// Independent re-derivation of the legacy conical road scale (formerly
-/// detail::mftConicalRoadR2Scale), taking zFrom/zTo explicitly. |zFrom| <
-/// 1e-6f falls back to 1.f. Preserved as `1.f + (zTo - zFrom) / zFrom`,
-/// matching the operation -- not simplified to zTo/zFrom.
-float referenceConicalRoadR2Scale(float zFrom, float zTo)
-{
-  if (std::abs(zFrom) < 1e-6f) {
-    return 1.f;
-  }
-  const float scale = 1.f + (zTo - zFrom) / zFrom;
-  return scale * scale;
-}
-
-/// Independent re-derivation of the combined three-check road pre-cut
-/// (formerly detail::validateMFTCellClusters), used only as the oracle for
-/// passesDiskCellRoadPrecut -- never called by the operation under test.
-bool referenceCellRoadPrecut(const GlobalPoint3F& inner, const GlobalPoint3F& middle, const GlobalPoint3F& outer,
-                             float zInner, float zMiddle, float zOuter, float cellRoadRCut)
-{
-  const float r2Cut = cellRoadRCut * cellRoadRCut;
-  const bool checkMiddle = referenceDistanceToSeedLineSquared(inner, outer, middle) < r2Cut * referenceConicalRoadR2Scale(zInner, zMiddle);
-  const bool checkOuter = referenceDistanceToSeedLineSquared(inner, middle, outer) < r2Cut * referenceConicalRoadR2Scale(zInner, zOuter);
-  const bool checkInner = referenceDistanceToSeedLineSquared(middle, outer, inner) < r2Cut * referenceConicalRoadR2Scale(zMiddle, zInner);
-  return checkMiddle && checkOuter && checkInner;
-}
-} // namespace
-
-BOOST_AUTO_TEST_CASE(CylinderCellRoadPrecutAlwaysAcceptsAndIgnoresEmptyReferenceSpan)
-{
-  // Garbage-ish points/layers and an empty reference span (exactly the state
-  // TrackerTraits::mDiskLayerReferenceZ is left in for a Cylinder
-  // iteration): the Cylinder specialization must not read any of
-  // them and must still return true.
-  const GlobalPoint3F garbage{std::numeric_limits<float>::quiet_NaN(), std::numeric_limits<float>::infinity(), -1.f};
-  BOOST_CHECK(passesCylinderCellRoadPrecut(
-    garbage, garbage, garbage, 0, 1, 2, gsl::span<const float>{}, TrackingKernelParameters{}));
-}
-
-BOOST_AUTO_TEST_CASE(DiskCellRoadPrecutMatchesIndependentOracleAcceptAndReject)
-{
-  const GlobalPoint3F pointInner{1.0f, 0.5f, -0.4f};
-  const GlobalPoint3F pointMiddle{1.3f, 0.62f, -0.6f};
-  const GlobalPoint3F pointOuter{1.7f, 0.78f, -0.9f};
-  const std::array<float, 3> referenceZ{-45.3f, -46.7f, -48.6f};
-
-  TrackingKernelParameters generous;
-  generous.cellRoadRCut = 1000.f;
-  const bool oracleAccepts = referenceCellRoadPrecut(pointInner, pointMiddle, pointOuter,
-                                                     referenceZ[0], referenceZ[1], referenceZ[2], generous.cellRoadRCut);
-  BOOST_REQUIRE(oracleAccepts);
-  BOOST_CHECK_EQUAL(oracleAccepts,
-                    passesDiskCellRoadPrecut(
-                      pointInner, pointMiddle, pointOuter, 0, 1, 2,
-                      gsl::span<const float>(referenceZ), generous));
-
-  TrackingKernelParameters tight;
-  tight.cellRoadRCut = 1.e-6f;
-  const bool oracleRejects = referenceCellRoadPrecut(pointInner, pointMiddle, pointOuter,
-                                                     referenceZ[0], referenceZ[1], referenceZ[2], tight.cellRoadRCut);
-  BOOST_REQUIRE(!oracleRejects);
-  BOOST_CHECK_EQUAL(oracleRejects,
-                    passesDiskCellRoadPrecut(
-                      pointInner, pointMiddle, pointOuter, 0, 1, 2,
-                      gsl::span<const float>(referenceZ), tight));
-}
-
-BOOST_AUTO_TEST_CASE(DiskCellRoadPrecutMiddleCheckRejectsIndependently)
-{
-  // Non-collinear geometry (middle bulged in y) gives all three checks a
-  // genuine positive distance. zMiddle tiny relative to zInner/zOuter makes
-  // scale(zInner, zMiddle) ~ (zMiddle/zInner)^2 tiny -- checkMiddle's
-  // threshold collapses to ~0 -- while scale(zInner, zOuter) and
-  // scale(zMiddle, zInner) are correspondingly huge, so checkOuter/checkInner
-  // pass regardless of their own (unexamined) geometric distance.
-  const GlobalPoint3F pointInner{1.0f, 0.5f, -0.4f};
-  const GlobalPoint3F pointMiddle{1.3f, 0.9f, -0.6f};
-  const GlobalPoint3F pointOuter{1.7f, 0.78f, -0.9f};
-  const float zInner = -40.f;
-  const float zMiddle = 1.e-4f;
-  const float zOuter = -42.f;
-
-  const bool checkMiddle = referenceDistanceToSeedLineSquared(pointInner, pointOuter, pointMiddle) <
-                           1.f * referenceConicalRoadR2Scale(zInner, zMiddle);
-  const bool checkOuter = referenceDistanceToSeedLineSquared(pointInner, pointMiddle, pointOuter) <
-                          1.f * referenceConicalRoadR2Scale(zInner, zOuter);
-  const bool checkInner = referenceDistanceToSeedLineSquared(pointMiddle, pointOuter, pointInner) <
-                          1.f * referenceConicalRoadR2Scale(zMiddle, zInner);
-  BOOST_REQUIRE(!checkMiddle);
-  BOOST_REQUIRE(checkOuter);
-  BOOST_REQUIRE(checkInner);
-
-  const std::array<float, 3> referenceZ{zInner, zMiddle, zOuter};
-  TrackingKernelParameters params;
-  params.cellRoadRCut = 1.f;
-  BOOST_CHECK(!passesDiskCellRoadPrecut(
-    pointInner, pointMiddle, pointOuter, 0, 1, 2,
-    gsl::span<const float>(referenceZ), params));
-}
-
-BOOST_AUTO_TEST_CASE(DiskCellRoadPrecutOuterCheckRejectsIndependently)
-{
-  const GlobalPoint3F pointInner{1.0f, 0.5f, -0.4f};
-  const GlobalPoint3F pointMiddle{1.3f, 0.9f, -0.6f};
-  const GlobalPoint3F pointOuter{1.7f, 0.78f, -0.9f};
-  const float zInner = -40.f;
-  const float zMiddle = -40.f; // scale(zInner, zMiddle) == scale(zMiddle, zInner) == 1 exactly
-  const float zOuter = 1.e-4f; // scale(zInner, zOuter) ~ (zOuter/zInner)^2, tiny -> checkOuter collapses
-
-  const bool checkMiddle = referenceDistanceToSeedLineSquared(pointInner, pointOuter, pointMiddle) <
-                           100.f * referenceConicalRoadR2Scale(zInner, zMiddle);
-  const bool checkOuter = referenceDistanceToSeedLineSquared(pointInner, pointMiddle, pointOuter) <
-                          100.f * referenceConicalRoadR2Scale(zInner, zOuter);
-  const bool checkInner = referenceDistanceToSeedLineSquared(pointMiddle, pointOuter, pointInner) <
-                          100.f * referenceConicalRoadR2Scale(zMiddle, zInner);
-  BOOST_REQUIRE(checkMiddle);
-  BOOST_REQUIRE(!checkOuter);
-  BOOST_REQUIRE(checkInner);
-
-  const std::array<float, 3> referenceZ{zInner, zMiddle, zOuter};
-  TrackingKernelParameters params;
-  params.cellRoadRCut = 10.f; // r2Cut == 100.f, matching the checks above
-  BOOST_CHECK(!passesDiskCellRoadPrecut(
-    pointInner, pointMiddle, pointOuter, 0, 1, 2,
-    gsl::span<const float>(referenceZ), params));
-}
-
-BOOST_AUTO_TEST_CASE(DiskCellRoadPrecutInnerCheckRejectsIndependently)
-{
-  const GlobalPoint3F pointInner{1.0f, 0.5f, -0.4f};
-  const GlobalPoint3F pointMiddle{1.3f, 0.9f, -0.6f};
-  const GlobalPoint3F pointOuter{1.7f, 0.78f, -0.9f};
-  const float zInner = 1.e-4f; // scale(zMiddle, zInner) ~ (zInner/zMiddle)^2, tiny -> checkInner collapses
-  const float zMiddle = -40.f;
-  const float zOuter = -42.f;
-
-  const bool checkMiddle = referenceDistanceToSeedLineSquared(pointInner, pointOuter, pointMiddle) <
-                           1.f * referenceConicalRoadR2Scale(zInner, zMiddle);
-  const bool checkOuter = referenceDistanceToSeedLineSquared(pointInner, pointMiddle, pointOuter) <
-                          1.f * referenceConicalRoadR2Scale(zInner, zOuter);
-  const bool checkInner = referenceDistanceToSeedLineSquared(pointMiddle, pointOuter, pointInner) <
-                          1.f * referenceConicalRoadR2Scale(zMiddle, zInner);
-  BOOST_REQUIRE(checkMiddle);
-  BOOST_REQUIRE(checkOuter);
-  BOOST_REQUIRE(!checkInner);
-
-  const std::array<float, 3> referenceZ{zInner, zMiddle, zOuter};
-  TrackingKernelParameters params;
-  params.cellRoadRCut = 1.f;
-  BOOST_CHECK(!passesDiskCellRoadPrecut(
-    pointInner, pointMiddle, pointOuter, 0, 1, 2,
-    gsl::span<const float>(referenceZ), params));
-}
-
-BOOST_AUTO_TEST_CASE(DiskCellRoadPrecutExactBoundaryAndNextRepresentableInsideOutside)
-{
-  // Degenerate xy-collinear inner/middle (same x,y, different z) makes the
-  // checkOuter (line inner->middle) and checkInner (line middle->outer)
-  // distances both exactly D*D by construction; checkMiddle (line
-  // inner->outer) is comfortably smaller (0.25*D*D). Uniform reference z
-  // gives scale == 1.f exactly for all three checks, so r2Cut == cut*cut
-  // directly gates the outcome.
-  constexpr float D = 0.25f;
-  const GlobalPoint3F pointInner{0.f, 0.f, -10.f};
-  const GlobalPoint3F pointMiddle{0.f, 0.f, -20.f};
-  const GlobalPoint3F pointOuter{0.f, D, -30.f};
-  const std::array<float, 3> referenceZ{-1.f, -1.f, -1.f};
-
-  const float distMiddle = referenceDistanceToSeedLineSquared(pointInner, pointOuter, pointMiddle);
-  const float distOuter = referenceDistanceToSeedLineSquared(pointInner, pointMiddle, pointOuter);
-  const float distInner = referenceDistanceToSeedLineSquared(pointMiddle, pointOuter, pointInner);
-  BOOST_REQUIRE_EQUAL(distOuter, D * D);
-  BOOST_REQUIRE_EQUAL(distInner, D * D);
-  BOOST_REQUIRE_LT(distMiddle, D * D);
-
-  const float atBoundary = D;
-  BOOST_REQUIRE_EQUAL(atBoundary * atBoundary, D * D); // same multiplication, bit-identical to distOuter/distInner
-
-  TrackingKernelParameters params;
-  params.cellRoadRCut = atBoundary;
-  BOOST_CHECK(!passesDiskCellRoadPrecut(
-    pointInner, pointMiddle, pointOuter, 0, 1, 2, gsl::span<const float>(referenceZ), params));
-
-  const float justAbove = std::nextafter(atBoundary, std::numeric_limits<float>::max());
-  const float justBelow = std::nextafter(atBoundary, 0.f);
-  BOOST_REQUIRE_GT(justAbove * justAbove, D * D);
-  BOOST_REQUIRE_LT(justBelow * justBelow, D * D);
-
-  TrackingKernelParameters paramsAbove;
-  paramsAbove.cellRoadRCut = justAbove;
-  BOOST_CHECK(passesDiskCellRoadPrecut(
-    pointInner, pointMiddle, pointOuter, 0, 1, 2, gsl::span<const float>(referenceZ), paramsAbove));
-
-  TrackingKernelParameters paramsBelow;
-  paramsBelow.cellRoadRCut = justBelow;
-  BOOST_CHECK(!passesDiskCellRoadPrecut(
-    pointInner, pointMiddle, pointOuter, 0, 1, 2, gsl::span<const float>(referenceZ), paramsBelow));
-}
-
-BOOST_AUTO_TEST_CASE(DiskCellRoadPrecutNearZeroSeedDzRejects)
-{
-  // inner and outer share the same z: the checkMiddle line (inner->outer) has
-  // |dzSeed| < 1e-9f, so referenceDistanceToSeedLineSquared/the operation's
-  // internal equivalent both return FLT_MAX for that check, which cannot be
-  // less than any finite threshold.
-  const GlobalPoint3F pointInner{1.0f, 0.5f, -40.f};
-  const GlobalPoint3F pointMiddle{1.3f, 0.62f, -41.f};
-  const GlobalPoint3F pointOuter{1.7f, 0.78f, -40.f}; // same z as inner
-  const std::array<float, 3> referenceZ{-45.f, -46.f, -47.f};
-
-  BOOST_REQUIRE_EQUAL(referenceDistanceToSeedLineSquared(pointInner, pointOuter, pointMiddle),
-                      std::numeric_limits<float>::max());
-
-  TrackingKernelParameters params;
-  params.cellRoadRCut = 1.e6f; // even a very generous cut cannot beat FLT_MAX
-  BOOST_CHECK(!passesDiskCellRoadPrecut(
-    pointInner, pointMiddle, pointOuter, 0, 1, 2, gsl::span<const float>(referenceZ), params));
-}
-
-BOOST_AUTO_TEST_CASE(DiskCellRoadPrecutZeroReferenceZFallbackMatchesUnitScale)
-{
-  // zInner == 0.f triggers the |zFrom| < 1e-6f fallback (scale == 1.f) for
-  // the two pairs where zInner is zFrom: checkMiddle's (zInner, zMiddle) and
-  // checkOuter's (zInner, zOuter). The third pair, checkInner's (zMiddle,
-  // zInner), uses zInner as zTo, not zFrom, so it is NOT protected by the
-  // fallback: with zTo == 0 exactly, dCone == 1 + (0 - zMiddle) / zMiddle ==
-  // 0 exactly for any nonzero zMiddle, giving scale == 0.f, not 1.f. This
-  // documents that the fallback applies only where the formula defines it
-  // (zFrom itself near zero), not to every pair that merely involves zInner,
-  // and cross-checks the full predicate against the independent oracle for
-  // this exact mixed-scale configuration.
-  const GlobalPoint3F pointInner{1.0f, 0.5f, -0.4f};
-  const GlobalPoint3F pointMiddle{1.3f, 0.62f, -0.6f};
-  const GlobalPoint3F pointOuter{1.7f, 0.78f, -0.9f};
-  const float zInner = 0.f;
-  const float zMiddle = -40.f;
-  const float zOuter = -46.f;
-
-  BOOST_CHECK_EQUAL(referenceConicalRoadR2Scale(zInner, zMiddle), 1.f); // checkMiddle: zFrom == zInner == 0 -> fallback
-  BOOST_CHECK_EQUAL(referenceConicalRoadR2Scale(zInner, zOuter), 1.f);  // checkOuter: zFrom == zInner == 0 -> fallback
-  BOOST_CHECK_EQUAL(referenceConicalRoadR2Scale(zMiddle, zInner), 0.f); // checkInner: zFrom == zMiddle != 0 -> real formula, not fallback
-
-  const std::array<float, 3> referenceZ{zInner, zMiddle, zOuter};
-  TrackingKernelParameters params;
-  params.cellRoadRCut = 0.2f;
-
-  const bool oracle = referenceCellRoadPrecut(pointInner, pointMiddle, pointOuter, zInner, zMiddle, zOuter, params.cellRoadRCut);
-  BOOST_CHECK_EQUAL(oracle,
-                    passesDiskCellRoadPrecut(
-                      pointInner, pointMiddle, pointOuter, 0, 1, 2,
-                      gsl::span<const float>(referenceZ), params));
-}
-
-BOOST_AUTO_TEST_CASE(DiskCellRoadPrecutNonAdjacentLayerIndices)
-{
-  // perLayerReferenceZ has entries for 6 legacy layout-local layers with
-  // distinct values; layerInner/layerMiddle/layerOuter (0, 2, 5) skip several
-  // indices, exactly as a road spanning non-adjacent transitions would.
-  const std::array<float, 6> referenceZ{-10.f, -999.f, -30.f, -999.f, -999.f, -50.f};
-  const GlobalPoint3F pointInner{1.0f, 0.5f, -0.4f};
-  const GlobalPoint3F pointMiddle{1.3f, 0.62f, -0.6f};
-  const GlobalPoint3F pointOuter{1.7f, 0.78f, -0.9f};
-  TrackingKernelParameters params;
-  params.cellRoadRCut = 1000.f;
-
-  const bool oracle = referenceCellRoadPrecut(pointInner, pointMiddle, pointOuter,
-                                              referenceZ[0], referenceZ[2], referenceZ[5], params.cellRoadRCut);
-  BOOST_CHECK_EQUAL(oracle,
-                    passesDiskCellRoadPrecut(
-                      pointInner, pointMiddle, pointOuter, 0, 2, 5,
-                      gsl::span<const float>(referenceZ), params));
-}
-
-BOOST_AUTO_TEST_CASE(DiskCellRoadPrecutNegativeDiskZRepresentative)
-{
-  // Representative realistic MFT-scale negative half-disk z values (the
-  // production convention); no sign-based branch exists in the formula, so
-  // this is exercised identically to every other test above -- kept as its
-  // own case so the negative-z convention is explicitly documented/covered.
-  const GlobalPoint3F pointInner{2.5f, -1.2f, -45.3f};
-  const GlobalPoint3F pointMiddle{2.6f, -1.25f, -46.7f};
-  const GlobalPoint3F pointOuter{2.75f, -1.32f, -48.6f};
-  const std::array<float, 3> referenceZ{-45.3f, -46.7f, -48.6f};
-  TrackingKernelParameters params;
-  params.cellRoadRCut = 0.5f;
-
-  const bool oracle = referenceCellRoadPrecut(pointInner, pointMiddle, pointOuter,
-                                              referenceZ[0], referenceZ[1], referenceZ[2], params.cellRoadRCut);
-  BOOST_CHECK_EQUAL(oracle,
-                    passesDiskCellRoadPrecut(
-                      pointInner, pointMiddle, pointOuter, 0, 1, 2,
-                      gsl::span<const float>(referenceZ), params));
-}
-
-BOOST_AUTO_TEST_CASE(DiskCellRoadPrecutInputsAreNotMutated)
-{
-  GlobalPoint3F pointInner{1.0f, 0.5f, -0.4f};
-  GlobalPoint3F pointMiddle{1.3f, 0.62f, -0.6f};
-  GlobalPoint3F pointOuter{1.7f, 0.78f, -0.9f};
-  const auto pointInnerBefore = pointInner;
-  const auto pointMiddleBefore = pointMiddle;
-  const auto pointOuterBefore = pointOuter;
-  std::array<float, 3> referenceZ{-45.3f, -46.7f, -48.6f};
-  const auto referenceZBefore = referenceZ;
-  TrackingKernelParameters params;
-  params.cellRoadRCut = 1000.f;
-  const auto paramsBefore = params;
-
-  passesDiskCellRoadPrecut(
-    pointInner, pointMiddle, pointOuter, 0, 1, 2, gsl::span<const float>(referenceZ), params);
-
-  BOOST_CHECK_EQUAL(pointInner.x, pointInnerBefore.x);
-  BOOST_CHECK_EQUAL(pointInner.y, pointInnerBefore.y);
-  BOOST_CHECK_EQUAL(pointInner.z, pointInnerBefore.z);
-  BOOST_CHECK_EQUAL(pointMiddle.x, pointMiddleBefore.x);
-  BOOST_CHECK_EQUAL(pointOuter.x, pointOuterBefore.x);
-  for (size_t i = 0; i < referenceZ.size(); ++i) {
-    BOOST_CHECK_EQUAL(referenceZ[i], referenceZBefore[i]);
-  }
-  BOOST_CHECK_EQUAL(params.cellRoadRCut, paramsBefore.cellRoadRCut);
-}
-
-BOOST_AUTO_TEST_CASE(DiskCellRoadPrecutNaNClusterCoordinateRejects)
-{
-  const GlobalPoint3F pointInner{1.0f, 0.5f, -0.4f};
-  const GlobalPoint3F pointMiddle{std::numeric_limits<float>::quiet_NaN(), 0.62f, -0.6f};
-  const GlobalPoint3F pointOuter{1.7f, 0.78f, -0.9f};
-  const std::array<float, 3> referenceZ{-45.f, -46.f, -47.f};
-  TrackingKernelParameters params;
-  params.cellRoadRCut = 1000.f; // generous: only the NaN can cause rejection
-  BOOST_CHECK(!passesDiskCellRoadPrecut(
-    pointInner, pointMiddle, pointOuter, 0, 1, 2,
-    gsl::span<const float>(referenceZ), params));
-}
-
-BOOST_AUTO_TEST_CASE(DiskCellRoadPrecutNaNReferenceZRejects)
-{
-  const GlobalPoint3F pointInner{1.0f, 0.5f, -0.4f};
-  const GlobalPoint3F pointMiddle{1.3f, 0.62f, -0.6f};
-  const GlobalPoint3F pointOuter{1.7f, 0.78f, -0.9f};
-  const std::array<float, 3> referenceZ{-45.f, std::numeric_limits<float>::quiet_NaN(), -47.f};
-  TrackingKernelParameters params;
-  params.cellRoadRCut = 1000.f;
-  BOOST_CHECK(!passesDiskCellRoadPrecut(
-    pointInner, pointMiddle, pointOuter, 0, 1, 2,
-    gsl::span<const float>(referenceZ), params));
-}
-
-BOOST_AUTO_TEST_CASE(DiskCellRoadPrecutNaNCutRejectsInIsolatedPredicate)
-{
-  // Exercises the isolated predicate directly with a non-finite cut --
-  // TrackingKernelParameters::isValid() already prevents this from reaching
-  // traversal in production (see the dedicated isValid() test below); this
-  // test documents the predicate's own, otherwise-untested, arithmetic
-  // behavior for this input.
-  const GlobalPoint3F pointInner{1.0f, 0.5f, -0.4f};
-  const GlobalPoint3F pointMiddle{1.3f, 0.62f, -0.6f};
-  const GlobalPoint3F pointOuter{1.7f, 0.78f, -0.9f};
-  const std::array<float, 3> referenceZ{-45.f, -46.f, -47.f};
-  TrackingKernelParameters params;
-  params.cellRoadRCut = std::numeric_limits<float>::quiet_NaN();
-  BOOST_CHECK(!passesDiskCellRoadPrecut(
-    pointInner, pointMiddle, pointOuter, 0, 1, 2,
-    gsl::span<const float>(referenceZ), params));
-}
-
-BOOST_AUTO_TEST_CASE(DiskCellRoadPrecutInfiniteCutAcceptsInIsolatedPredicate)
-{
-  // An infinite cut makes every finite-scale threshold infinite, so every
-  // finite distance passes -- this is a real, different-from-NaN behavior of
-  // the isolated formula (not "all non-finite input rejects"). Reference z
-  // values stay finite and comparable in magnitude so every scale() call
-  // stays finite. TrackingKernelParameters::isValid() already prevents this input
-  // from reaching production traversal (see the dedicated isValid() test).
-  const GlobalPoint3F pointInner{1.0f, 0.5f, -0.4f};
-  const GlobalPoint3F pointMiddle{1.3f, 0.62f, -0.6f};
-  const GlobalPoint3F pointOuter{1.7f, 0.78f, -0.9f};
-  const std::array<float, 3> referenceZ{-45.f, -46.f, -47.f};
-  TrackingKernelParameters params;
-  params.cellRoadRCut = std::numeric_limits<float>::infinity();
-  BOOST_CHECK(passesDiskCellRoadPrecut(
-    pointInner, pointMiddle, pointOuter, 0, 1, 2,
-    gsl::span<const float>(referenceZ), params));
-}
-
-BOOST_AUTO_TEST_CASE(DiskCellRoadPrecutInfiniteReferenceZRejects)
-{
-  // zInner == Inf serves as zFrom in both the checkMiddle and checkOuter
-  // scale() calls: dCone = 1 + (zTo - Inf)/Inf is the Inf/Inf indeterminate
-  // form -> NaN -> that scale is NaN -> those checks' `<` comparisons are
-  // false regardless of geometry, so the combined AND rejects even though
-  // zInner also serves as zTo in checkInner's pair, where the same Inf
-  // produces an accepting (loose) scale -- the rejection is not universal
-  // across all three checks, only sufficient via short-circuit AND.
-  const GlobalPoint3F pointInner{1.0f, 0.5f, -0.4f};
-  const GlobalPoint3F pointMiddle{1.3f, 0.62f, -0.6f};
-  const GlobalPoint3F pointOuter{1.7f, 0.78f, -0.9f};
-  const float zInner = std::numeric_limits<float>::infinity();
-  const float zMiddle = -46.f;
-  const float zOuter = -47.f;
-
-  BOOST_CHECK(std::isnan(referenceConicalRoadR2Scale(zInner, zMiddle)));
-  BOOST_CHECK(std::isnan(referenceConicalRoadR2Scale(zInner, zOuter)));
-
-  const std::array<float, 3> referenceZ{zInner, zMiddle, zOuter};
-  TrackingKernelParameters params;
-  params.cellRoadRCut = 1000.f;
-  BOOST_CHECK(!passesDiskCellRoadPrecut(
-    pointInner, pointMiddle, pointOuter, 0, 1, 2,
-    gsl::span<const float>(referenceZ), params));
-}
-
-BOOST_AUTO_TEST_CASE(TrackingKernelParametersIsValidRejectsNonFiniteCellRoadRCut)
-{
-  // Production guard (TrackingKernelParameters.h): initialiseTimeFrame() calls
-  // this before any candidate is evaluated, so the infinite/NaN-cut behavior
-  // exercised in isolation above never reaches traversal in practice.
-  TrackingKernelParameters infCut;
-  infCut.kind = SurfaceKind::Disk;
-  infCut.cellRoadRCut = std::numeric_limits<float>::infinity();
-  BOOST_CHECK(!infCut.isValid());
-
-  TrackingKernelParameters nanCut;
-  nanCut.kind = SurfaceKind::Disk;
-  nanCut.cellRoadRCut = std::numeric_limits<float>::quiet_NaN();
-  BOOST_CHECK(!nanCut.isValid());
-
-  TrackingKernelParameters negativeCut;
-  negativeCut.kind = SurfaceKind::Disk;
-  negativeCut.cellRoadRCut = -0.05f;
-  BOOST_CHECK(!negativeCut.isValid());
-
-  TrackingKernelParameters valid;
-  valid.kind = SurfaceKind::Disk;
-  valid.cellRoadRCut = 0.05f;
-  BOOST_CHECK(valid.isValid());
 }
 
 /// Gate 3 transition-preparation slice coverage (relocated from

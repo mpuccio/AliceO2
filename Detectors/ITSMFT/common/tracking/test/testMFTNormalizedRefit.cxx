@@ -114,7 +114,6 @@ struct RefitFixture {
   {
     params.MinTrackLength = 5;
     params.MinPt.assign(NLayers + 1, 0.f);
-    params.TrackletMinAbsX = 0.f;
     params.MaxChi2NDF = 30.f;
 
     catalogSurfaces.resize(NLayers);
@@ -307,31 +306,7 @@ BOOST_AUTO_TEST_CASE(NormalizedCovarianceChangeAltersOutput)
                  referenceTrack.track.outerState.covariance[packedCovarianceIndex(1, 1)]);
 }
 
-// --- C. TrackletMinAbsX is gated by normalized global.x ----------------------
-
-BOOST_AUTO_TEST_CASE(TrackletMinAbsXUsesNormalizedGlobalXEvenWhenLegacyDisagrees)
-{
-  // Slope chosen so x crosses well below the cut only at the last (z-
-  // extreme) layer while staying far above it everywhere else, including at
-  // the fit's own overall-X gate (paramOut's X, at the fit's outward-leg
-  // reference, layer 0, x == 1.0).
-  const StraightTrackGeometry geometry(0.03f);
-  RefitFixture fx(geometry);
-  fx.params.TrackletMinAbsX = 0.05f;
-
-  // Legacy Cluster::xCoordinate poisoned to a value that would have passed
-  // the old (legacy-reading) cut; only the normalized global.x (~0.034 at
-  // layer 9) is below TrackletMinAbsX.
-  for (int layer = 0; layer < NLayers; ++layer) {
-    fx.tf.addClusterToLayer(layer, PoisonCoordinate, PoisonCoordinate, PoisonCoordinate, 0);
-  }
-
-  TrackingCandidate track;
-  const bool ok = refit(fx, track);
-  BOOST_CHECK(!ok);
-}
-
-// --- D. Invalid normalized input fails cleanly, destination untouched -------
+// --- C. Invalid normalized input fails cleanly, destination untouched -------
 
 BOOST_AUTO_TEST_CASE(NonFiniteGlobalCoordinateFailsCleanly)
 {
@@ -439,7 +414,7 @@ BOOST_AUTO_TEST_CASE(InvalidClusterRefFailsCleanly)
   checkTrackUnchanged(before, track);
 }
 
-// --- E. Preservation ---------------------------------------------------------
+// --- D. Preservation ---------------------------------------------------------
 
 BOOST_AUTO_TEST_CASE(PreservesSeedMembershipForGenericRefit)
 {
@@ -531,7 +506,6 @@ BOOST_AUTO_TEST_CASE(GenericRefitValidatesExternalClusterIdentity)
   o2::itsmft::TrackingParameters params;
   params.MinTrackLength = 5;
   params.MinPt.assign(NLayers + 1, 0.f);
-  params.TrackletMinAbsX = 0.f;
   params.MaxChi2NDF = 30.f;
 
   uint16_t mask = 0;

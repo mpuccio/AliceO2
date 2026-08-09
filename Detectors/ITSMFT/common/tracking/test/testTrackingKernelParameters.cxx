@@ -19,9 +19,8 @@
 
 using namespace o2::itsmft::tracking;
 
-/// Proves the single SurfaceKind-keyed parameter record is a device-compatible
-/// POD with a field-level ABI and preserves the old common and family-specific
-/// values and finite-value validation contracts.
+/// Proves the single parameter record is a device-compatible POD with a
+/// field-level ABI and common finite-value validation contracts.
 
 BOOST_AUTO_TEST_CASE(TrackingKernelParametersAreDeviceCompatiblePods)
 {
@@ -44,19 +43,10 @@ BOOST_AUTO_TEST_CASE(TrackingKernelParametersDefaultsMatchCurrentProductionValue
   BOOST_CHECK_CLOSE(barrel.pvResolution, 1.e-2f, 1e-6);
   BOOST_CHECK(barrel.isValid());
 
-  // Disk-disk carries its own TrackletMinPt/CellDeltaTanLambdaSigma because
-  // the disk path reads them directly (MFT projection and the
-  // detector-specific cell-building branch), not shared with the barrel
-  // struct. Defaults mirror resetDetectorDefaults(..., MFT) (Configuration.cxx):
-  // TrackletMinPt/CellDeltaTanLambdaSigma are left at the TrackingParameters
-  // struct defaults (unset by the MFT branch), TrackletMinAbsX is explicitly
-  // set to 0.05f there.
   TrackingKernelParameters forward;
   forward.kind = SurfaceKind::Disk;
   BOOST_CHECK_CLOSE(forward.trackletMinPt, 0.3f, 1e-6);
   BOOST_CHECK_CLOSE(forward.cellDeltaTanLambdaSigma, 0.007f, 1e-6);
-  BOOST_CHECK_CLOSE(forward.cellRoadRCut, 0.05f, 1e-6);
-  BOOST_CHECK_CLOSE(forward.trackletMinAbsX, 0.05f, 1e-6);
   BOOST_CHECK_CLOSE(forward.nSigmaCut, 5.f, 1e-6);
   BOOST_CHECK_CLOSE(forward.maxChi2ClusterAttachment, 60.f, 1e-6);
   BOOST_CHECK_CLOSE(forward.maxChi2NDF, 30.f, 1e-6);
@@ -65,7 +55,7 @@ BOOST_AUTO_TEST_CASE(TrackingKernelParametersDefaultsMatchCurrentProductionValue
 
 BOOST_AUTO_TEST_CASE(TrackingKernelParametersAbiIsLocked)
 {
-  BOOST_CHECK_EQUAL(sizeof(TrackingKernelParameters), 36u);
+  BOOST_CHECK_EQUAL(sizeof(TrackingKernelParameters), 28u);
   BOOST_CHECK_EQUAL(alignof(TrackingKernelParameters), alignof(float));
   BOOST_CHECK_EQUAL(offsetof(TrackingKernelParameters, kind), 0u);
   BOOST_CHECK_EQUAL(offsetof(TrackingKernelParameters, trackletMinPt), 4u);
@@ -74,8 +64,6 @@ BOOST_AUTO_TEST_CASE(TrackingKernelParametersAbiIsLocked)
   BOOST_CHECK_EQUAL(offsetof(TrackingKernelParameters, maxChi2ClusterAttachment), 16u);
   BOOST_CHECK_EQUAL(offsetof(TrackingKernelParameters, maxChi2NDF), 20u);
   BOOST_CHECK_EQUAL(offsetof(TrackingKernelParameters, pvResolution), 24u);
-  BOOST_CHECK_EQUAL(offsetof(TrackingKernelParameters, cellRoadRCut), 28u);
-  BOOST_CHECK_EQUAL(offsetof(TrackingKernelParameters, trackletMinAbsX), 32u);
 }
 
 BOOST_AUTO_TEST_CASE(TrackingKernelParametersBoundsAreValidated)
@@ -115,16 +103,6 @@ BOOST_AUTO_TEST_CASE(TrackingKernelParametersBoundsAreValidated)
   forward = TrackingKernelParameters{};
   forward.kind = SurfaceKind::Disk;
   forward.cellDeltaTanLambdaSigma = 0.f;
-  BOOST_CHECK(!forward.isValid());
-
-  forward = TrackingKernelParameters{};
-  forward.kind = SurfaceKind::Disk;
-  forward.cellRoadRCut = 0.f;
-  BOOST_CHECK(!forward.isValid());
-
-  forward = TrackingKernelParameters{};
-  forward.kind = SurfaceKind::Disk;
-  forward.trackletMinAbsX = -1.f;
   BOOST_CHECK(!forward.isValid());
 
   forward = TrackingKernelParameters{};
@@ -183,16 +161,6 @@ BOOST_AUTO_TEST_CASE(TrackingKernelParametersRejectNonFiniteValues)
   forward = TrackingKernelParameters{};
   forward.kind = SurfaceKind::Disk;
   forward.cellDeltaTanLambdaSigma = inf;
-  BOOST_CHECK(!forward.isValid());
-
-  forward = TrackingKernelParameters{};
-  forward.kind = SurfaceKind::Disk;
-  forward.cellRoadRCut = nan;
-  BOOST_CHECK(!forward.isValid());
-
-  forward = TrackingKernelParameters{};
-  forward.kind = SurfaceKind::Disk;
-  forward.trackletMinAbsX = inf;
   BOOST_CHECK(!forward.isValid());
 
   forward = TrackingKernelParameters{};

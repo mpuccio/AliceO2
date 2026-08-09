@@ -204,8 +204,6 @@ void checkParity(const LegacyParameters& legacy, const CommonParameters& common)
   BOOST_CHECK(common.LayerColHalfExtent.empty());
   BOOST_CHECK_EQUAL(common.IndexRowMin, 0.f);
   BOOST_CHECK_EQUAL(common.IndexRowMax, 0.f);
-  BOOST_CHECK_EQUAL(common.CellRoadRCut, 0.05f);
-  BOOST_CHECK_EQUAL(common.TrackletMinAbsX, 0.f);
 }
 
 void checkModeParity(o2::its::TrackingMode::Type mode)

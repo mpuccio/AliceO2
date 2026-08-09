@@ -16,6 +16,7 @@
 #include <boost/test/unit_test.hpp>
 
 #include <array>
+#include <filesystem>
 #include <fstream>
 #include <regex>
 #include <sstream>
@@ -25,6 +26,12 @@
 
 namespace
 {
+namespace fs = std::filesystem;
+
+fs::path commonTrackingRoot()
+{
+  return fs::path{__FILE__}.parent_path().parent_path();
+}
 
 std::string readFile(const std::string& path)
 {
@@ -99,6 +106,15 @@ bool mentionsToken(const std::string& body, const std::string& token)
 {
   const std::regex tokenRegex{"\\b" + token + "\\b"};
   return std::regex_search(body, tokenRegex);
+}
+
+size_t countOccurrences(const std::string& text, const std::string& needle)
+{
+  size_t count = 0;
+  for (size_t pos = 0; (pos = text.find(needle, pos)) != std::string::npos; pos += needle.size()) {
+    ++count;
+  }
+  return count;
 }
 
 } // namespace
@@ -182,4 +198,41 @@ BOOST_AUTO_TEST_CASE(ProcessNeighboursKeepsSurfaceKindSelectionCompileTime)
   BOOST_CHECK(source.find("template <SurfaceKind Kind, typename InputSeed>") != std::string::npos);
   BOOST_CHECK(source.find("params.kind") == std::string::npos);
   BOOST_CHECK(source.find("processNeighbours<Kind>(") != std::string::npos);
+}
+
+BOOST_AUTO_TEST_CASE(RetiredCoordinateCutsAreAbsentFromCommonProductionSources)
+{
+  const std::array<fs::path, 2> productionRoots{
+    commonTrackingRoot() / "include",
+    commonTrackingRoot() / "src"};
+  const std::array<std::string, 6> retired{
+    "TrackletMinAbsX", "trackletMinAbsX", "CellRoadRCut", "cellRoadRCut",
+    "passesCylinderCellRoadPrecut", "passesDiskCellRoadPrecut"};
+
+  for (const auto& root : productionRoots) {
+    for (const auto& entry : fs::recursive_directory_iterator{root}) {
+      if (!entry.is_regular_file() || (entry.path().extension() != ".h" && entry.path().extension() != ".cxx")) {
+        continue;
+      }
+      const auto source = readFile(entry.path().string());
+      for (const auto& token : retired) {
+        BOOST_CHECK_MESSAGE(source.find(token) == std::string::npos,
+                            entry.path() << " still contains retired coordinate cut " << token);
+      }
+    }
+  }
+}
+
+BOOST_AUTO_TEST_CASE(CellCandidateLoopHasOneDescriptorSelectedLeafBoundary)
+{
+  const auto source = readTrackerTraitsSource();
+  const auto code = stripLineComments(extractMethodBody(source, "computeLayerCellsForKind"));
+
+  BOOST_CHECK_EQUAL(countOccurrences(code, "if constexpr (Kind == SurfaceKind::Cylinder)"), 1u);
+  BOOST_CHECK_EQUAL(countOccurrences(code, "buildCylinderCellSeed("), 1u);
+  BOOST_CHECK_EQUAL(countOccurrences(code, "buildDiskCellSeed("), 1u);
+  for (const auto token : {"DetID", "ClusterSourceId", "ROAD", "Precut"}) {
+    BOOST_CHECK_MESSAGE(!mentionsToken(code, token),
+                        "cell orchestration contains detector/source/cut dispatch token " << token);
+  }
 }

@@ -926,7 +926,7 @@ BOOST_AUTO_TEST_CASE(BuildSeedPhiSignFollowsFieldSign)
   BOOST_CHECK_NE(statePositive.parameters[2], stateNegative.parameters[2]);
 }
 
-BOOST_AUTO_TEST_CASE(BuildSeedStrictZOrderingBoundary)
+BOOST_AUTO_TEST_CASE(ForwardBuildSeedLeafRetainsStrictZOrderingBoundary)
 {
   // A magnitude-~1 outer z is used here (unlike makeForwardOuterCluster's
   // z=-70.f) so that a 1e-6f/1e-7f offset is well above the float ULP at
@@ -953,7 +953,7 @@ BOOST_AUTO_TEST_CASE(BuildSeedStrictZOrderingBoundary)
                                  1, o2::track::PID::Pion, outState, reason));
 }
 
-BOOST_AUTO_TEST_CASE(BuildSeedStrictSeparationBoundaries)
+BOOST_AUTO_TEST_CASE(ForwardBuildSeedLeafRetainsStrictSeparationBoundaries)
 {
   const auto clusterInner = makeForwardInnerCluster();
   const auto hitOuter = makeForwardOuterHit();

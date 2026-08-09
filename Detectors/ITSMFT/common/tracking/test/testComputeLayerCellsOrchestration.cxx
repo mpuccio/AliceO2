@@ -17,12 +17,8 @@
 //    unchanged (checked against an oracle call to cell-seed leaves itself,
 //    built from the same values refetched through the TimeFrame, not
 //    re-typed literals);
-//  - keeps the MFT road pre-cut (passesDiskCellRoadPrecut, formerly
-//    detail::validateMFTCellClusters) outside buildCellSeed, called
-//    unconditionally for both families with no detector-ID branch in the
-//    candidate loop, and driven by the bound TrackingKernelParameters::cellRoadRCut
-//    and the once-per-iteration cached legacy reference-z span
-//    (TrackerTraits::mDiskLayerReferenceZ);
+//  - exercises cylinder and disk cells through the same public orchestration
+//    entry point, with coordinate differences confined to cell-seed leaves;
 //  - leaves cellTopologyId indexing, the LUT, MC-label construction, and
 //    one-pass/two-pass ordering untouched;
 //  - fails closed (TraversalException::InvalidTraversalSchedule) through the
@@ -617,7 +613,6 @@ BOOST_AUTO_TEST_CASE(DiskComputeLayerCellsMatchesBuildCellSeedOracle)
   Rig<MFTNLayers> rig{o2::detectors::DetID::MFT, SurfaceKind::Disk};
   rig.params[0].MaxChi2ClusterAttachment = 1.e6f;
   rig.params[0].TrackletMinPt = 0.3f;
-  rig.params[0].CellRoadRCut = 1000.f; // generous: road pre-cut must pass here
   rig.params[0].LayerxX0[0] = 0.015f;  // inner
   rig.params[0].LayerxX0[1] = 0.017f;  // middle
   rig.params[0].LayerxX0[2] = 0.02f;   // outer
@@ -666,43 +661,6 @@ BOOST_AUTO_TEST_CASE(DiskComputeLayerCellsMatchesBuildCellSeedOracle)
 
   checkSurfaceKinematicStateEqual(producedCell.state(), oracleState);
   BOOST_CHECK_EQUAL(producedCell.getChi2(), oracleChi2);
-}
-
-BOOST_AUTO_TEST_CASE(DiskComputeLayerCellsRoadPreCutRejectsBeforeBuildCellSeed)
-{
-  Rig<MFTNLayers> rig{o2::detectors::DetID::MFT, SurfaceKind::Disk};
-  rig.params[0].MaxChi2ClusterAttachment = 1.e6f;
-  rig.params[0].TrackletMinPt = 0.3f;
-  // Same geometry as DiskComputeLayerCellsMatchesBuildCellSeedOracle, but a
-  // vanishingly small road cut: proves passesDiskCellRoadPrecut still
-  // runs before buildDiskCellSeed and is driven by the bound
-  // TrackingKernelParameters::cellRoadRCut, not a stale/uninitialized value.
-  rig.params[0].CellRoadRCut = 1.e-6f;
-  rig.establishLayout();
-
-  const std::array<o2::its::Cluster, 3> clusters{makeGlobalCluster(1.0f, 0.5f, -0.4f, 0),
-                                                 makeGlobalCluster(1.3f, 0.62f, -0.6f, 0),
-                                                 makeGlobalCluster(1.7f, 0.78f, -0.9f, 0)};
-  loadCandidateClusters(rig, clusters,
-                        {makeDiskHit(-0.4f, 1.0f, 0.5f),
-                         makeDiskHit(-0.6f, 1.3f, 0.62f),
-                         makeDiskHit(-0.9f, 1.7f, 0.78f)});
-
-  rig.traits.updateTrackingParameters(rig.params);
-  rig.traits.initialiseTimeFrame(0, *rig.plan);
-
-  const auto topology = rig.plan->front().getView();
-  const int cellTopologyId = findCellTopologyId(topology, 0, 1, 2);
-  BOOST_REQUIRE_GE(cellTopologyId, 0);
-
-  injectCandidateTracklets(rig, cellTopologyId, clusters);
-
-  rig.traits.computeLayerCells(0);
-
-  BOOST_CHECK(rig.tf.getCells()[cellTopologyId].empty());
-  BOOST_REQUIRE_EQUAL(rig.tf.getCellsLookupTable()[cellTopologyId].size(), 2u);
-  BOOST_CHECK_EQUAL(rig.tf.getCellsLookupTable()[cellTopologyId][0], 0);
-  BOOST_CHECK_EQUAL(rig.tf.getCellsLookupTable()[cellTopologyId][1], 0);
 }
 
 // --- One-pass vs two-pass: identical result regardless of thread count ----
@@ -779,7 +737,6 @@ BOOST_AUTO_TEST_CASE(DiskComputeLayerCellsOnePassAndTwoPassAgree)
     Rig<MFTNLayers> rig{o2::detectors::DetID::MFT, SurfaceKind::Disk, nThreads};
     rig.params[0].MaxChi2ClusterAttachment = 1.e6f;
     rig.params[0].TrackletMinPt = 0.3f;
-    rig.params[0].CellRoadRCut = 1000.f; // generous: road pre-cut must pass here
     rig.establishLayout();
 
     const std::array<o2::its::Cluster, 3> clusters{makeGlobalCluster(1.0f, 0.5f, -0.4f, 0),
@@ -825,68 +782,21 @@ BOOST_AUTO_TEST_CASE(DiskComputeLayerCellsOnePassAndTwoPassAgree)
   BOOST_CHECK_EQUAL(onePass.cl2, twoPass.cl2);
 }
 
-// --- Gate 3 cell-road pre-cut cache: empty span safety and one-time binding
-
-BOOST_AUTO_TEST_CASE(CylinderComputeLayerCellsSafeWithEmptyDiskReferenceSpan)
-{
-  // A Cylinder iteration never binds a legacy MFT reference-z span:
-  // TrackerTraits::mDiskLayerReferenceZ stays default-constructed (empty) for
-  // the whole traversal, exactly as it does today. passesCellRoadPrecut<
-  // Cylinder> is still called unconditionally by the shared candidate
-  // loop and must never read it. This is already incidentally exercised by
-  // every Cylinder test above; this case documents and asserts it explicitly.
-  Rig<ITSNLayers> rig{o2::detectors::DetID::ITS, SurfaceKind::Cylinder};
-  rig.params[0].MaxChi2ClusterAttachment = 1.e6f;
-  rig.params[0].LayerxX0[0] = 0.005f;
-  rig.params[0].LayerxX0[1] = 0.005f;
-  rig.establishLayout();
-
-  const std::array<o2::its::Cluster, 3> clusters{makeGlobalCluster(3.0f, 0.100f, 0.9f, 0),
-                                                 makeGlobalCluster(4.0f, 0.150f, 1.05f, 0),
-                                                 makeGlobalCluster(5.0f, 0.201f, 1.25f, 0)};
-  loadCandidateClusters(rig, clusters,
-                        {makeBarrelHit(3.f, 0.f, 0.100f, 0.9f),
-                         makeBarrelHit(4.f, 0.f, 0.150f, 1.05f),
-                         makeBarrelHit(5.f, 0.f, 0.201f, 1.25f)});
-
-  rig.traits.updateTrackingParameters(rig.params);
-  rig.traits.initialiseTimeFrame(0, *rig.plan);
-  BOOST_REQUIRE(rig.traits.hasTraversalCache());
-
-  const auto topology = rig.plan->front().getView();
-  const int cellTopologyId = findCellTopologyId(topology, 0, 1, 2);
-  BOOST_REQUIRE_GE(cellTopologyId, 0);
-
-  injectCandidateTracklets(rig, cellTopologyId, clusters);
-
-  rig.traits.computeLayerCells(0);
-
-  BOOST_REQUIRE_EQUAL(rig.tf.getCells()[cellTopologyId].size(), 1u);
-}
-
 BOOST_AUTO_TEST_CASE(RepeatedComputeLayerCellsCallsDoNotRebindOrIncreaseCounts)
 {
   // getTraversalGroupingCount() only increments inside initialiseTimeFrame()
   // (Gate 2 counter, unchanged by this slice). computeLayerCells() has no
-  // code path that rebinds mDiskLayerReferenceZ or any other cached
-  // surface-kind/geometry state -- calling it repeatedly for the same iteration
+  // code path that rebinds cached surface-kind/geometry state. Repeated calls
   // must leave the counter exactly as it was after the single
   // initialiseTimeFrame() call, and must keep reproducing the identical
-  // cell chi2 through the same, never-rebound mDiskLayerReferenceZ/
-  // mKernelParameters cache -- the closest observable proxy, through the
-  // public API alone, for "the legacy reference-z span is bound once per
-  // iteration, not once per candidate". (M4b removed the
-  // TrackerTraits binding-count introspection test-only
-  // introspection seam this test previously also checked; the grouping
-  // count plus the reproduced chi2 below remain sufficient public-API
-  // evidence for the same claim. computeLayerCells() itself clears and
+  // cell chi2 through the same kernel-parameter cache. computeLayerCells()
+  // itself clears and
   // consumes tracklets as an existing, unrelated post-step, so a second call
   // with no freshly injected tracklets legitimately produces zero cells --
   // that is not what this test checks.)
   Rig<MFTNLayers> rig{o2::detectors::DetID::MFT, SurfaceKind::Disk};
   rig.params[0].MaxChi2ClusterAttachment = 1.e6f;
   rig.params[0].TrackletMinPt = 0.3f;
-  rig.params[0].CellRoadRCut = 1000.f;
   rig.establishLayout();
 
   const std::array<o2::its::Cluster, 3> clusters{makeGlobalCluster(1.0f, 0.5f, -0.4f, 0),
@@ -923,8 +833,7 @@ BOOST_AUTO_TEST_CASE(RepeatedComputeLayerCellsCallsDoNotRebindOrIncreaseCounts)
   // invalidate TrackerTraits::mLayerMeasurements without a fresh
   // initialiseTimeFrame() call to re-resolve it, which is not what this test
   // checks): a fresh call after the tracklets were consumed must still
-  // reproduce the identical chi2 through the same, never-rebound
-  // mDiskLayerReferenceZ/mKernelParameters cache.
+  // reproduce the identical chi2 through the same cache.
   injectCandidateTracklets(rig, cellTopologyId, clusters);
   rig.traits.computeLayerCells(0);
 
@@ -1106,7 +1015,6 @@ BOOST_AUTO_TEST_CASE(DiskComputeLayerCellsMultiCellChainProducesCorrectCellsAndO
   Rig<MFTNLayers> rig{o2::detectors::DetID::MFT, SurfaceKind::Disk};
   rig.params[0].MaxChi2ClusterAttachment = 1.e6f;
   rig.params[0].TrackletMinPt = 0.3f;
-  rig.params[0].CellRoadRCut = 1000.f; // generous: road pre-cut must pass here
   rig.establishLayout();
 
   constexpr std::array<int, 5> layers{0, 1, 2, 3, 4};
