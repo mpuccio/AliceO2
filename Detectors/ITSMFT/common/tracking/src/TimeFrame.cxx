@@ -74,12 +74,11 @@ bool TimeFrame::commitLoadedEvent(MultiSourceFrame&& staged,
 
 bool TimeFrame::commitConfiguration(std::vector<SurfaceGraph>&& graphs,
                                     std::vector<TrackingParameters>&& parameters,
-                                    std::vector<std::array<TrackingParameters, 2>>&& parametersByKind,
                                     std::vector<std::unique_ptr<SurfacePlanBinding>>&& bindings,
                                     std::vector<TrackingWorkspaceCapacity>&& capacities,
                                     std::shared_ptr<BoundedMemoryResource> memoryPool)
 {
-  if (!memoryPool || graphs.empty() || graphs.size() != parameters.size() || graphs.size() != parametersByKind.size() ||
+  if (!memoryPool || graphs.empty() || graphs.size() != parameters.size() ||
       graphs.size() != bindings.size() || graphs.size() != capacities.size()) {
     return false;
   }
@@ -109,7 +108,6 @@ bool TimeFrame::commitConfiguration(std::vector<SurfaceGraph>&& graphs,
   setMemoryPool(memoryPool);
   mGraphs = std::move(graphs);
   mTrackingParameters = std::move(parameters);
-  mTrackingParametersByKind = std::move(parametersByKind);
   mBindings = std::move(bindings);
   mWorkspaceCapacities = std::move(capacities);
   mWorkspace = std::move(workspace);

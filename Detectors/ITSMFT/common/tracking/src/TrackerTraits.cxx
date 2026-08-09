@@ -365,9 +365,7 @@ void TrackerTraits::initialiseTimeFrame(const int iteration, const std::vector<S
   resetTraversalCache();
 
   // 1. Check iteration bounds before accessing configuration.
-  if (iteration < 0 || static_cast<size_t>(iteration) >= graphs.size() ||
-      static_cast<size_t>(iteration) >= mTrkParams.size() ||
-      (!mTrkParamsByKind.empty() && static_cast<size_t>(iteration) >= mTrkParamsByKind.size())) {
+  if (iteration < 0 || static_cast<size_t>(iteration) >= graphs.size()) {
     throw TraversalException{iteration, TraversalFailureReason::IterationOutOfRange};
   }
   const auto layout = graphs[iteration].getView();
@@ -393,23 +391,14 @@ void TrackerTraits::initialiseTimeFrame(const int iteration, const std::vector<S
   mActiveKind = layout.getSurface(layout.getTransition(boundTransitions.front()).from).kind;
 
   // 2.1 Validate material-correction support before staging or mutating
-  // TimeFrame tracking state. Unsupported modes are structural; invalid
-  // modes are rejected as invalid surface parameters.
-  for (const auto kind : {SurfaceKind::Cylinder, SurfaceKind::Disk}) {
-    const bool present = std::any_of(boundTransitions.begin(), boundTransitions.end(), [&](const auto transitionId) {
-      return layout.getSurface(layout.getTransition(transitionId).from).kind == kind;
-    });
-    if (!present) {
-      continue;
-    }
-    const auto materialModeSupport = materialCorrectionModeSupport(
-      kind, parametersForKind(iteration, kind).CorrType);
-    if (materialModeSupport == MaterialCorrectionModeSupport::Unsupported) {
-      throw TraversalException{iteration, TraversalFailureReason::UnsupportedMaterialCorrectionMode};
-    }
-    if (materialModeSupport != MaterialCorrectionModeSupport::Supported) {
-      throw TraversalException{iteration, TraversalFailureReason::InvalidSurfaceParameters};
-    }
+  // TimeFrame tracking state. Unsupported modes are structural; unrecognized
+  // values remain classified by AttachHitConfigView::isValid().
+  MaterialCorrectionModeSupport materialModeSupport = MaterialCorrectionModeSupport::Supported;
+  if (mActiveKind) {
+    materialModeSupport = materialCorrectionModeSupport(*mActiveKind, mTrkParams[iteration].CorrType);
+  }
+  if (materialModeSupport == MaterialCorrectionModeSupport::Unsupported) {
+    throw TraversalException{iteration, TraversalFailureReason::UnsupportedMaterialCorrectionMode};
   }
 
   // 2.5. Resolve and validate per-surface-position material from the layout
@@ -522,8 +511,7 @@ void TrackerTraits::initialiseTimeFrame(const int iteration, const std::vector<S
     if (!present) {
       continue;
     }
-    if (bindIndexTableConfiguration(indexTableConfigByKind[kindIndex(kind)],
-                                    parametersForKind(iteration, kind),
+    if (bindIndexTableConfiguration(indexTableConfigByKind[kindIndex(kind)], mTrkParams[iteration],
                                     activeSurfaceCount, kind) != IndexTableConfigError::None) {
       throw TraversalException{iteration, TraversalFailureReason::InvalidIndexTableConfiguration};
     }
@@ -689,8 +677,7 @@ void TrackerTraits::initialiseTimeFrame(const int iteration, const std::vector<S
     if (mTransitionsByKind[kindIndex(kind)].empty()) {
       continue;
     }
-    mKernelParameters[kindIndex(kind)] = bindTrackingKernelParameters(
-      parametersForKind(iteration, kind), kind);
+    mKernelParameters[kindIndex(kind)] = bindTrackingKernelParameters(mTrkParams[iteration], kind);
     if (!mKernelParameters[kindIndex(kind)].isValid()) {
       throw TraversalException{iteration, TraversalFailureReason::InvalidSurfaceParameters};
     }
@@ -734,7 +721,7 @@ void TrackerTraits::prepareTransitionScatteringAndBendingForKind(
   const DiskReferenceCoordinateView& referenceCoordinateView,
   gsl::span<const TransitionId> transitionIds)
 {
-  const auto& trkParam = parametersForKind(iteration, Kind);
+  const auto& trkParam = mTrkParams[iteration];
 
   // Per-layer step: genuinely kind-specific (typed operation), but the
   // extent is the adopted plan, not the TrackerTraits compatibility width.
@@ -817,8 +804,7 @@ void TrackerTraits::computeLayerTrackletsForKind(
 {
   // Iterate the caller-filtered, ascending plan transition span.
   const auto& topology = mTraversalGraph;
-  const auto& familyParameters = parametersForKind(iteration, Kind);
-  const Vertex diamondVert(familyParameters.Diamond, familyParameters.DiamondCov, 1, 1.f);
+  const Vertex diamondVert(mTrkParams[iteration].Diamond, mTrkParams[iteration].DiamondCov, 1, 1.f);
 
   mTaskArena->execute([&] {
     // Resolves one sparse SurfaceTransition's endpoints to runtime-plan
@@ -866,7 +852,7 @@ void TrackerTraits::computeLayerTrackletsForKind(
       // frame, so this is safe under the tbb::parallel_for dispatch below.
       Vertex diamondForROF{};
       gsl::span<const Vertex> primaryVertices;
-      if (familyParameters.UseDiamond) {
+      if (mTrkParams[iteration].UseDiamond) {
         diamondForROF = diamondVertexForROF(diamondVert, mScratch->getROFViews(fromLayer).overlap,
                                             mScratch->getROFLocalLayer(fromLayer), pivotROF);
         primaryVertices = gsl::span<const Vertex>(&diamondForROF, 1);
@@ -907,7 +893,7 @@ void TrackerTraits::computeLayerTrackletsForKind(
           if (!mScratch->isVertexCompatible(fromLayer, pivotROF, pv)) {
             continue;
           }
-          if (pv.isFlagSet(Vertex::Flags::UPCMode) != familyParameters.PassFlags[IterationStep::SelectUPCVertices]) {
+          if (pv.isFlagSet(Vertex::Flags::UPCMode) != mTrkParams[iteration].PassFlags[IterationStep::SelectUPCVertices]) {
             continue;
           }
           using SearchWindow = std::conditional_t<Kind == SurfaceKind::Cylinder,
@@ -1178,8 +1164,8 @@ void TrackerTraits::computeLayerCellsForKind(
           continue;
         }
 
-        const float deltaTanLambdaSigma = std::abs(currentTracklet.tanLambda - nextTracklet.tanLambda) / params.cellDeltaTanLambdaSigma;
-        if (deltaTanLambdaSigma < params.nSigmaCut) {
+        const float deltaTanLambdaSigma = std::abs(currentTracklet.tanLambda - nextTracklet.tanLambda) / mTrkParams[iteration].CellDeltaTanLambdaSigma;
+        if (deltaTanLambdaSigma < mTrkParams[iteration].NSigmaCut) {
 
           /// Track seed preparation. Clusters are numbered progressively from the innermost going outward.
           const int clusId[3]{
@@ -1661,7 +1647,6 @@ void TrackerTraits::findRoadsForKind(const int iteration,
                                      ClusterSourceId expectedSource)
 {
   const int activeSurfaceCount = static_cast<int>(mScratch->getNOwnedSurfaces());
-  const auto& familyParameters = parametersForKind(iteration, Kind);
   bounded_vector<bounded_vector<int>> firstClusters(activeSurfaceCount, bounded_vector<int>(mMemoryPool.get()), mMemoryPool.get());
   firstClusters.resize(activeSurfaceCount);
   // Road starts are the binding's deterministic sparse-plan subsequence whose
@@ -1678,12 +1663,12 @@ void TrackerTraits::findRoadsForKind(const int iteration,
   // on it without a test.
   constexpr float maxAbsQOverPt = 1.e3f;
   const int cellsPerRoad = static_cast<int>(mScratch->getNOwnedSurfaces()) - 2;
-  for (int startLevel{cellsPerRoad}; startLevel >= familyParameters.CellMinimumLevel(); --startLevel) {
+  for (int startLevel{cellsPerRoad}; startLevel >= mTrkParams[iteration].CellMinimumLevel(); --startLevel) {
 
     auto seedFilter = [&](const auto& seed) {
-      return seed.getHitLayerMask().isAllowed(familyParameters.MaxHoles, familyParameters.HoleLayerMask) &&
-             seed.getHitLayerMask().length() >= familyParameters.MinTrackLength &&
-             std::abs(seed.getQOverPt()) <= maxAbsQOverPt && seed.getChi2() <= params.maxChi2NDF * ((startLevel + 2) * 2 - 5);
+      return seed.getHitLayerMask().isAllowed(mTrkParams[iteration].MaxHoles, mTrkParams[iteration].HoleLayerMask) &&
+             seed.getHitLayerMask().length() >= mTrkParams[iteration].MinTrackLength &&
+             std::abs(seed.getQOverPt()) <= maxAbsQOverPt && seed.getChi2() <= mTrkParams[iteration].MaxChi2NDF * ((startLevel + 2) * 2 - 5);
     };
 
     bounded_vector<TrackSeed> trackSeeds(mMemoryPool.get());
@@ -1734,7 +1719,7 @@ void TrackerTraits::findRoadsForKind(const int iteration,
         TrackingCandidate temporaryTrack;
         temporaryTrack.seed = trackSeeds[iSeed];
         const bool refitSuccess = refitFunction(trackSeeds[iSeed],
-                                                familyParameters,
+                                                mTrkParams[iteration],
                                                 mBz,
                                                 *mScratch,
                                                 mLayerMeasurements,
@@ -1791,11 +1776,11 @@ void TrackerTraits::findRoadsForKind(const int iteration,
       const auto nclb = b.getNumberOfClusters();
       return (ncla == nclb) ? (a.track.chi2 < b.track.chi2) : ncla > nclb;
     });
-    acceptTracks(familyParameters, tracks, firstClusters);
+    acceptTracks(iteration, tracks, firstClusters);
   }
 }
 
-void TrackerTraits::acceptTracks(const TrackingParameters& parameters,
+void TrackerTraits::acceptTracks(int iteration,
                                  bounded_vector<TrackingCandidate>& tracks,
                                  bounded_vector<bounded_vector<int>>& firstClusters)
 {
@@ -1814,13 +1799,13 @@ void TrackerTraits::acceptTracks(const TrackingParameters& parameters,
       nShared += int(isShared);
       if (firstLayer < 0) {
         firstCluster = track.getClusterIndex(iLayer);
-        isFirstShared = isShared && parameters.AllowSharingFirstCluster && std::find(firstClusters[iLayer].begin(), firstClusters[iLayer].end(), firstCluster) != firstClusters[iLayer].end();
+        isFirstShared = isShared && mTrkParams[iteration].AllowSharingFirstCluster && std::find(firstClusters[iLayer].begin(), firstClusters[iLayer].end(), firstCluster) != firstClusters[iLayer].end();
         firstLayer = iLayer;
       }
     }
 
     /// do not account for the first cluster in the shared clusters number if it is allowed
-    if (nShared - int(isFirstShared && parameters.AllowSharingFirstCluster) > parameters.SharedMaxClusters) {
+    if (nShared - int(isFirstShared && mTrkParams[iteration].AllowSharingFirstCluster) > mTrkParams[iteration].SharedMaxClusters) {
       continue;
     }
 
@@ -1877,7 +1862,7 @@ void TrackerTraits::acceptTracks(const TrackingParameters& parameters,
     }
     trks.back().commonTrackIndex = *commonTrackIndex;
 
-    if (parameters.AllowSharingFirstCluster) {
+    if (mTrkParams[iteration].AllowSharingFirstCluster) {
       firstClusters[firstLayer].push_back(firstCluster);
     }
   }

@@ -189,11 +189,10 @@ void appendSurfaceValues(std::vector<T>& destination, const std::vector<T>& firs
   destination.insert(destination.end(), second.begin(), second.end());
 }
 
-o2::itsmft::TrackingParameters combinedTrackingParameters(const o2::itsmft::TrackingParameters& familyParams,
-                                                          const o2::itsmft::TrackingParameters& itsParams,
+o2::itsmft::TrackingParameters combinedTrackingParameters(const o2::itsmft::TrackingParameters& itsParams,
                                                           const o2::itsmft::TrackingParameters& mftParams)
 {
-  auto result = familyParams;
+  auto result = itsParams;
   result.NLayers = o2::itsmft::tracking::ITSNLayers + o2::itsmft::tracking::MFTNLayers;
 
   // These are the surface-indexed fields consumed by the common tracker.
@@ -249,8 +248,7 @@ void CombinedCATrackerDPL::buildParticipantsOnce()
   auto mftParams = o2::itsmft::TrackingMode::getTrackingParameters(o2::detectors::DetID::MFT, o2::itsmft::TrackingMode::Sync);
   const auto itsSurfaces = orderedSurfaceRange(0, o2::itsmft::tracking::ITSNLayers);
   const auto mftSurfaces = orderedSurfaceRange(o2::itsmft::tracking::ITSNLayers, o2::itsmft::tracking::MFTNLayers);
-  const auto combinedParams = combinedTrackingParameters(itsParams[0], itsParams[0], mftParams[0]);
-  const auto combinedMFTParams = combinedTrackingParameters(mftParams[0], itsParams[0], mftParams[0]);
+  const auto combinedParams = combinedTrackingParameters(itsParams[0], mftParams[0]);
 
   mTraits = std::make_unique<o2::itsmft::tracking::TrackerTraits>();
   mTracker = std::make_unique<o2::itsmft::tracking::Tracker>(
@@ -263,7 +261,6 @@ void CombinedCATrackerDPL::buildParticipantsOnce()
   o2::itsmft::tracking::TrackerIterationConfiguration iteration;
   iteration.graph = combinedGraphDefinition(itsSurfaces, itsParams[0], mftSurfaces, mftParams[0]);
   iteration.parameters = combinedParams;
-  iteration.parametersByKind[static_cast<std::size_t>(o2::itsmft::tracking::SurfaceKind::Disk)] = combinedMFTParams;
   configuration.iterations.push_back(std::move(iteration));
 
   const auto initialization = mTracker->initialize(mFrame, configuration);

@@ -16,10 +16,8 @@
 #ifndef ALICEO2_ITSMFT_TRACKING_TRACKER_H_
 #define ALICEO2_ITSMFT_TRACKING_TRACKER_H_
 
-#include <array>
 #include <cstdint>
 #include <memory>
-#include <optional>
 #include <vector>
 
 #include <gsl/span>
@@ -63,11 +61,6 @@ struct TrackingResult {
 struct TrackerIterationConfiguration {
   SurfaceGraphDefinition graph;
   TrackingParameters parameters;
-  // Optional family-specific parameter records for a mixed-kind graph. They
-  // share the iteration's one graph, binding, workspace, and surface-indexed
-  // arrays; only kind-specific tracking semantics differ. An absent entry
-  // inherits `parameters`.
-  std::array<std::optional<TrackingParameters>, 2> parametersByKind;
 };
 
 struct TrackerInitialization {

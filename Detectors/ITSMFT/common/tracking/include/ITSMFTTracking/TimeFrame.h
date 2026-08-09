@@ -124,7 +124,6 @@ struct TimeFrame {
 
   bool commitConfiguration(std::vector<SurfaceGraph>&& graphs,
                            std::vector<TrackingParameters>&& parameters,
-                           std::vector<std::array<TrackingParameters, 2>>&& parametersByKind,
                            std::vector<std::unique_ptr<SurfacePlanBinding>>&& bindings,
                            std::vector<TrackingWorkspaceCapacity>&& capacities,
                            std::shared_ptr<BoundedMemoryResource> memoryPool);
@@ -132,7 +131,6 @@ struct TimeFrame {
   std::size_t getNIterations() const noexcept { return mGraphs.size(); }
   const std::vector<SurfaceGraph>& getGraphs() const noexcept { return mGraphs; }
   const std::vector<TrackingParameters>& getTrackingParameters() const noexcept;
-  const std::vector<std::array<TrackingParameters, 2>>& getTrackingParametersByKind() const noexcept { return mTrackingParametersByKind; }
   const SurfaceGraph& getGraph(std::size_t iteration) const { return mGraphs.at(iteration); }
   const TrackingParameters* getTrackingParameters(std::size_t iteration) const noexcept;
   const SurfacePlanBinding* getBinding(std::size_t iteration) const noexcept;
@@ -196,7 +194,6 @@ struct TimeFrame {
   bool mConfigurationValid = false;
   std::vector<SurfaceGraph> mGraphs;
   std::vector<TrackingParameters> mTrackingParameters;
-  std::vector<std::array<TrackingParameters, 2>> mTrackingParametersByKind;
   std::vector<std::unique_ptr<SurfacePlanBinding>> mBindings;
   std::vector<TrackingWorkspaceCapacity> mWorkspaceCapacities;
   struct WorkspaceDeleter {
