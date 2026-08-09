@@ -127,7 +127,6 @@ void resetDetectorDefaults(TrackingParameters& p, detectors::DetID::ID detId)
     p.UseDiamond = true;
     p.PerPrimaryVertexProcessing = false;
     p.StartLayerMask = (1u << nLayers) - 1u;
-    p.TrackletMinAbsX = 0.05f;
     p.MinPt.assign(TrackerParamConfig<detectors::DetID::MFT>::MaxTrackLength - TrackerParamConfig<detectors::DetID::MFT>::MinTrackLength + 1, 0.f);
     return;
   }
@@ -335,12 +334,6 @@ std::vector<TrackingParameters> getTrackingParameters(detectors::DetID::ID detId
     p.NSigmaCut *= tc.nSigmaCut > 0 ? tc.nSigmaCut : 1.f;
     p.CellDeltaTanLambdaSigma *= tc.deltaTanLres > 0 ? tc.deltaTanLres : 1.f;
     p.TrackletMinPt *= tc.minPt > 0 ? tc.minPt : 1.f;
-    if (tc.cellRoadRCut > 0.f) {
-      p.CellRoadRCut = tc.cellRoadRCut;
-    }
-    if (tc.trackletMinAbsX >= 0.f) {
-      p.TrackletMinAbsX = tc.trackletMinAbsX;
-    }
     for (int iD{0}; iD < 3; ++iD) {
       p.Diamond[iD] = tc.diamondPos[iD];
     }

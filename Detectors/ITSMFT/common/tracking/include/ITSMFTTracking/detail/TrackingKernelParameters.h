@@ -26,12 +26,9 @@ GPUhdi() bool isFiniteParam(float x) noexcept
 }
 
 /// Compact device-facing tracking configuration. The endpoint surface kind
-/// is the sole family key. Common fields are consumed by both operation
-/// families; `pvResolution` is used for cylinders, while `cellRoadRCut` and
-/// `trackletMinAbsX` are used for disks. Lengths are in cm, momentum in
-/// GeV/c, angles and their resolutions in radians, and chi-square quantities
-/// are dimensionless. `pvResolution` is in cm and `cellRoadRCut`/`trackletMinAbsX`
-/// are in cm.
+/// selects coordinate operations only. Lengths are in cm, momentum in GeV/c,
+/// angles and their resolutions in radians, and chi-square quantities are
+/// dimensionless.
 struct TrackingKernelParameters {
   SurfaceKind kind{SurfaceKind::Cylinder};
   float trackletMinPt{0.3f};
@@ -40,8 +37,6 @@ struct TrackingKernelParameters {
   float maxChi2ClusterAttachment{60.f};
   float maxChi2NDF{30.f};
   float pvResolution{1.e-2f};
-  float cellRoadRCut{0.05f};
-  float trackletMinAbsX{0.05f};
 
   GPUhdi() bool isValid() const noexcept
   {
@@ -56,8 +51,7 @@ struct TrackingKernelParameters {
       case SurfaceKind::Cylinder:
         return isFiniteParam(pvResolution) && pvResolution >= 0.f;
       case SurfaceKind::Disk:
-        return isFiniteParam(cellRoadRCut) && cellRoadRCut > 0.f &&
-               isFiniteParam(trackletMinAbsX) && trackletMinAbsX >= 0.f;
+        return true;
     }
     return false;
   }
@@ -65,7 +59,7 @@ struct TrackingKernelParameters {
 
 static_assert(std::is_standard_layout_v<TrackingKernelParameters>);
 static_assert(std::is_trivially_copyable_v<TrackingKernelParameters>);
-static_assert(sizeof(TrackingKernelParameters) == 36);
+static_assert(sizeof(TrackingKernelParameters) == 28);
 static_assert(alignof(TrackingKernelParameters) == alignof(float));
 static_assert(offsetof(TrackingKernelParameters, kind) == 0);
 static_assert(offsetof(TrackingKernelParameters, trackletMinPt) == 4);
@@ -74,8 +68,6 @@ static_assert(offsetof(TrackingKernelParameters, nSigmaCut) == 12);
 static_assert(offsetof(TrackingKernelParameters, maxChi2ClusterAttachment) == 16);
 static_assert(offsetof(TrackingKernelParameters, maxChi2NDF) == 20);
 static_assert(offsetof(TrackingKernelParameters, pvResolution) == 24);
-static_assert(offsetof(TrackingKernelParameters, cellRoadRCut) == 28);
-static_assert(offsetof(TrackingKernelParameters, trackletMinAbsX) == 32);
 
 } // namespace o2::itsmft::tracking
 

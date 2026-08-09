@@ -9,11 +9,7 @@
 #define ALICEO2_ITSMFT_TRACKING_CELLFINDING_H_
 
 #include <array>
-#include <limits>
-
 #ifndef GPUCA_GPUCODE
-#include <cmath>
-
 #include <gsl/span>
 
 #include "ITSMFTTracking/MaterialPhysics.h"
@@ -138,47 +134,6 @@ bool cellsDiskAreCompatible(const SurfaceKinematicState& current,
                             const SurfaceKinematicState& next,
                             int currentSecondClusterIndex, int nextFirstClusterIndex,
                             float bz, const TrackingKernelParameters& params) noexcept;
-
-inline bool passesCylinderCellRoadPrecut(const GlobalPoint3F&, const GlobalPoint3F&, const GlobalPoint3F&,
-                                         int, int, int, gsl::span<const float>,
-                                         const TrackingKernelParameters&) noexcept
-{
-  return true;
-}
-
-inline bool passesDiskCellRoadPrecut(const GlobalPoint3F& pointInner, const GlobalPoint3F& pointMiddle,
-                                     const GlobalPoint3F& pointOuter, int layerInner, int layerMiddle,
-                                     int layerOuter, gsl::span<const float> perLayerReferenceZ,
-                                     const TrackingKernelParameters& params) noexcept
-{
-  const auto distanceToSeedLineSquared = [](const GlobalPoint3F& from, const GlobalPoint3F& to,
-                                            const GlobalPoint3F& point) -> float {
-    const float dxSeed = to.x - from.x;
-    const float dySeed = to.y - from.y;
-    const float dzSeed = to.z - from.z;
-    if (std::abs(dzSeed) < 1.e-9f) {
-      return std::numeric_limits<float>::max();
-    }
-    const float invdzSeed = (point.z - from.z) / dzSeed;
-    const float dx = point.x - (from.x + dxSeed * invdzSeed);
-    const float dy = point.y - (from.y + dySeed * invdzSeed);
-    return dx * dx + dy * dy;
-  };
-  const auto conicalRoadR2Scale = [](float zFrom, float zTo) -> float {
-    if (std::abs(zFrom) < 1.e-6f) {
-      return 1.f;
-    }
-    const float dCone = 1.f + (zTo - zFrom) / zFrom;
-    return dCone * dCone;
-  };
-  const float zInner = perLayerReferenceZ[layerInner];
-  const float zMiddle = perLayerReferenceZ[layerMiddle];
-  const float zOuter = perLayerReferenceZ[layerOuter];
-  const float r2Cut = params.cellRoadRCut * params.cellRoadRCut;
-  return distanceToSeedLineSquared(pointInner, pointOuter, pointMiddle) < r2Cut * conicalRoadR2Scale(zInner, zMiddle) &&
-         distanceToSeedLineSquared(pointInner, pointMiddle, pointOuter) < r2Cut * conicalRoadR2Scale(zInner, zOuter) &&
-         distanceToSeedLineSquared(pointMiddle, pointOuter, pointInner) < r2Cut * conicalRoadR2Scale(zMiddle, zInner);
-}
 
 #endif
 

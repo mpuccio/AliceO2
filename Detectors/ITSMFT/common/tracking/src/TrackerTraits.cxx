@@ -144,8 +144,6 @@ TrackingKernelParameters bindTrackingKernelParameters(const TrackingParameters& 
   out.maxChi2ClusterAttachment = params.MaxChi2ClusterAttachment;
   out.maxChi2NDF = params.MaxChi2NDF;
   out.pvResolution = params.PVres;
-  out.cellRoadRCut = params.CellRoadRCut;
-  out.trackletMinAbsX = params.TrackletMinAbsX;
   return out;
 }
 
@@ -1176,28 +1174,6 @@ void TrackerTraits::computeLayerCellsForKind(
           const auto& measurementInner = mLayerMeasurements[hitLayers[0]][clusId[0]];
           const auto& measurementMiddle = mLayerMeasurements[hitLayers[1]][clusId[1]];
           const auto& measurementOuter = mLayerMeasurements[hitLayers[2]][clusId[2]];
-
-          // MFT geometric road pre-cut: TrackerTraits-owned, outside the cell
-          // leaves in CellFinding.h.
-          // One unconditional call for both families -- no detector-ID/Kind
-          // branch here; the cylinder leaf is an inline no-op returning true.
-          const GlobalPoint3F pointInner = measurementInner.global;
-          const GlobalPoint3F pointMiddle = measurementMiddle.global;
-          const GlobalPoint3F pointOuter = measurementOuter.global;
-          const bool passesRoad = [&] {
-            if constexpr (Kind == SurfaceKind::Cylinder) {
-              return passesCylinderCellRoadPrecut(pointInner, pointMiddle, pointOuter,
-                                                  hitLayers[0], hitLayers[1], hitLayers[2],
-                                                  mDiskLayerReferenceZ, params);
-            } else {
-              return passesDiskCellRoadPrecut(pointInner, pointMiddle, pointOuter,
-                                              hitLayers[0], hitLayers[1], hitLayers[2],
-                                              mDiskLayerReferenceZ, params);
-            }
-          }();
-          if (!passesRoad) {
-            continue;
-          }
 
           // Strictly {inner, middle, outer}: Cylinder reads [1] then
           // [0] (outer slot unused), Disk reads [2], [1], [0].

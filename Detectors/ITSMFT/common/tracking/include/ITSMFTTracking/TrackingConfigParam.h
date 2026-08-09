@@ -190,8 +190,6 @@ struct TrackerParamConfig : public o2::conf::ConfigurableParamHelper<TrackerPara
   float sharedClusterMaxDeltaPhi = 0.05f; // Maximum allowed delta phi at the cluster position
   float sharedClusterMaxDeltaEta = 0.03f; // Maximum allowed delta eta at the cluster position
   bool sharedClusterOppositeSign = false; // Require opposite sign of the tracklets
-  float cellRoadRCut = -1.f; // MFT: max distance to seed line; <=0 uses default (0.05 cm)
-  float trackletMinAbsX = -1.f; // MFT: min |x| (cm) for tracklet seeds and accepted tracks; <=0 uses code default
 
   O2ParamDef(TrackerParamConfig, getParamName().data());
 

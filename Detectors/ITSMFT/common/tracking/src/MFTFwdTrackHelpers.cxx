@@ -15,8 +15,6 @@
 
 #include "ITSMFTTracking/detail/MFTFwdTrackHelpers.h"
 
-#include <cmath>
-
 #include "Framework/Logger.h"
 #include "ITSMFTTracking/NativeRefitDriver.h"
 #include "ITStracking/Constants.h"
@@ -81,22 +79,6 @@ bool refitTrackFwd(const TrackSeed& seed,
                         paramIn, paramOut, chi2, reason)) {
     LOGP(warn, "MFT CA forward refit: fitTrackSeedLegs failed, reason={}", static_cast<int>(reason));
     return false;
-  }
-
-  if (params.TrackletMinAbsX > 0.f) {
-    if (std::abs(paramOut.parameters[0]) < params.TrackletMinAbsX) {
-      return false;
-    }
-    for (int layer = 0; layer < static_cast<int>(layerMeasurements.size()); ++layer) {
-      if (!hitMask.has(layer)) {
-        continue;
-      }
-      const int clIdx = seed.getCluster(layer);
-      if (clIdx != o2::its::constants::UnusedIndex &&
-          std::abs(layerMeasurements[layer][clIdx].global.x) < params.TrackletMinAbsX) {
-        return false;
-      }
-    }
   }
 
   return true;
