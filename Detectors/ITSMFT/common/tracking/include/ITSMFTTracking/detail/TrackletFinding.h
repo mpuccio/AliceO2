@@ -9,7 +9,9 @@
 #define ALICEO2_ITSMFT_TRACKING_TRACKLETFINDING_H_
 
 #include <array>
+#include <variant>
 
+#include "ITSMFTTracking/SurfaceDescriptor.h"
 #include "ITSMFTTracking/detail/TrackingKernelParameters.h"
 
 #ifndef GPUCA_GPUCODE
@@ -78,13 +80,44 @@ struct DiskTrackletSearchWindow {
   float yProj;
   float sigmaX;
   float sigmaY;
-  float meanDeltaZ;
   float nSigmaCut;
 
   bool acceptCandidate(const SurfaceMeasurement& sourceMeasurement,
                        const SurfaceMeasurement& targetMeasurement,
                        float& tanLambdaOut) const;
 };
+
+using TrackletProjectionState = std::variant<CylinderTrackletProjectionState, DiskTrackletProjectionState>;
+using TrackletSearchWindow = std::variant<CylinderTrackletSearchWindow, DiskTrackletSearchWindow>;
+
+bool bindTrackletProjectionState(SurfaceKind kind, int fromLayer, int toLayer,
+                                 gsl::span<const float> layerRadii,
+                                 gsl::span<const float> diskReferenceZ,
+                                 float targetMinR, float targetMaxR,
+                                 float sourcePositionResolution,
+                                 float transitionMSAngle, float transitionBendingAngle,
+                                 TrackletProjectionState& out) noexcept;
+
+bool projectTrackletSearchWindow(const SurfaceMeasurement& sourceMeasurement,
+                                 const o2::its::Cluster& sourceLocator,
+                                 const o2::its::Vertex& vertex,
+                                 const TrackletProjectionState& transitionState,
+                                 float bz, const o2::itsmft::IndexTableUtilsCore& indexUtils,
+                                 const TrackingKernelParameters& params,
+                                 TrackletSearchWindow& out);
+
+int4 trackletSearchBins(const TrackletSearchWindow& window) noexcept;
+int trackletSearchRowCount(const TrackletSearchWindow& window,
+                           const o2::itsmft::IndexTableUtilsCore& indexUtils) noexcept;
+int trackletSearchRowBin(const TrackletSearchWindow& window, int offset,
+                         const o2::itsmft::IndexTableUtilsCore& indexUtils) noexcept;
+
+bool acceptTrackletCandidate(const TrackletSearchWindow& window,
+                             const SurfaceMeasurement& sourceMeasurement,
+                             const o2::its::Cluster& sourceLocator,
+                             const SurfaceMeasurement& targetMeasurement,
+                             const o2::its::Cluster& targetLocator,
+                             float& tanLambdaOut) noexcept;
 
 bool projectCylinderSearchWindow(const SurfaceMeasurement& sourceMeasurement,
                                  const o2::its::Cluster& sourceLocator,

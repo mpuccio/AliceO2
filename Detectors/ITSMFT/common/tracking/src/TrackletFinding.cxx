@@ -19,6 +19,7 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <type_traits>
 
 #include "CommonConstants/MathConstants.h"
 #include "DataFormatsITS/Vertex.h"
@@ -64,8 +65,11 @@ bool DiskTrackletSearchWindow::acceptCandidate(
   const float invSigmaX2 = (sigmaX > 0.f) ? 1.f / (sigmaX * sigmaX) : 0.f;
   const float invSigmaY2 = (sigmaY > 0.f) ? 1.f / (sigmaY * sigmaY) : 0.f;
   const float transChi2 = dx * dx * invSigmaX2 + dy * dy * invSigmaY2;
-  if (transChi2 < o2::its::math_utils::Sq(nSigmaCut) && std::abs(meanDeltaZ) > 1.e-6f) {
-    const float acceptedTanLambda = (sourceMeasurement.global.z - targetMeasurement.global.z) / meanDeltaZ;
+  const float sourceRadius = std::hypot(sourceMeasurement.global.x, sourceMeasurement.global.y);
+  const float targetRadius = std::hypot(targetMeasurement.global.x, targetMeasurement.global.y);
+  const float deltaR = sourceRadius - targetRadius;
+  if (transChi2 < o2::its::math_utils::Sq(nSigmaCut) && std::abs(deltaR) > 1.e-6f) {
+    const float acceptedTanLambda = (sourceMeasurement.global.z - targetMeasurement.global.z) / deltaR;
     tanLambdaOut = acceptedTanLambda;
     return true;
   }
@@ -147,8 +151,130 @@ bool projectDiskSearchWindow(const SurfaceMeasurement& sourceMeasurement,
   if (bins.x < 0) {
     return false;
   }
-  out = {bins, xProj, yProj, sigmaX, sigmaY, transitionState.meanDeltaZ, params.nSigmaCut};
+  out = {bins, xProj, yProj, sigmaX, sigmaY, params.nSigmaCut};
   return true;
+}
+
+bool bindTrackletProjectionState(
+  SurfaceKind kind, int fromLayer, int toLayer,
+  gsl::span<const float> layerRadii,
+  gsl::span<const float> diskReferenceZ,
+  float targetMinR, float targetMaxR,
+  float sourcePositionResolution,
+  float transitionMSAngle, float transitionBendingAngle,
+  TrackletProjectionState& out) noexcept
+{
+  if (fromLayer < 0 || toLayer < 0 ||
+      static_cast<size_t>(fromLayer) >= layerRadii.size() ||
+      static_cast<size_t>(toLayer) >= layerRadii.size()) {
+    return false;
+  }
+  switch (kind) {
+    case SurfaceKind::Cylinder:
+      out = CylinderTrackletProjectionState{fromLayer, toLayer,
+                                            layerRadii[toLayer] - layerRadii[fromLayer],
+                                            targetMinR, targetMaxR, sourcePositionResolution,
+                                            transitionMSAngle, transitionBendingAngle};
+      return true;
+    case SurfaceKind::Disk:
+      if (static_cast<size_t>(fromLayer) >= diskReferenceZ.size() ||
+          static_cast<size_t>(toLayer) >= diskReferenceZ.size()) {
+        return false;
+      }
+      out = DiskTrackletProjectionState{fromLayer, toLayer,
+                                        diskReferenceZ[fromLayer], diskReferenceZ[toLayer],
+                                        diskReferenceZ[toLayer] - diskReferenceZ[fromLayer],
+                                        layerRadii[fromLayer], transitionMSAngle,
+                                        transitionBendingAngle};
+      return true;
+  }
+  return false;
+}
+
+bool projectTrackletSearchWindow(
+  const SurfaceMeasurement& sourceMeasurement,
+  const o2::its::Cluster& sourceLocator,
+  const o2::its::Vertex& vertex,
+  const TrackletProjectionState& transitionState,
+  float bz, const o2::itsmft::IndexTableUtilsCore& indexUtils,
+  const TrackingKernelParameters& params,
+  TrackletSearchWindow& out)
+{
+  return std::visit(
+    [&](const auto& state) {
+      using State = std::decay_t<decltype(state)>;
+      if constexpr (std::is_same_v<State, CylinderTrackletProjectionState>) {
+        CylinderTrackletSearchWindow window{};
+        if (!projectCylinderSearchWindow(sourceMeasurement, sourceLocator, vertex, state, bz, indexUtils, params, window)) {
+          return false;
+        }
+        out = window;
+      } else {
+        DiskTrackletSearchWindow window{};
+        if (!projectDiskSearchWindow(sourceMeasurement, sourceLocator, vertex, state, bz, indexUtils, params, window)) {
+          return false;
+        }
+        out = window;
+      }
+      return true;
+    },
+    transitionState);
+}
+
+int4 trackletSearchBins(const TrackletSearchWindow& window) noexcept
+{
+  return std::visit([](const auto& value) { return value.bins; }, window);
+}
+
+int trackletSearchRowCount(const TrackletSearchWindow& window,
+                           const o2::itsmft::IndexTableUtilsCore& indexUtils) noexcept
+{
+  return std::visit(
+    [&](const auto& value) {
+      int count = value.bins.w - value.bins.y + 1;
+      if constexpr (std::is_same_v<std::decay_t<decltype(value)>, CylinderTrackletSearchWindow>) {
+        if (count < 0) {
+          count += indexUtils.getNrowBins();
+        }
+      }
+      return std::max(0, count);
+    },
+    window);
+}
+
+int trackletSearchRowBin(const TrackletSearchWindow& window, int offset,
+                         const o2::itsmft::IndexTableUtilsCore& indexUtils) noexcept
+{
+  return std::visit(
+    [&](const auto& value) {
+      int row = value.bins.y + offset;
+      if constexpr (std::is_same_v<std::decay_t<decltype(value)>, CylinderTrackletSearchWindow>) {
+        return row % indexUtils.getNrowBins();
+      } else {
+        return row < indexUtils.getNrowBins() ? row : -1;
+      }
+    },
+    window);
+}
+
+bool acceptTrackletCandidate(
+  const TrackletSearchWindow& window,
+  const SurfaceMeasurement& sourceMeasurement,
+  const o2::its::Cluster& sourceLocator,
+  const SurfaceMeasurement& targetMeasurement,
+  const o2::its::Cluster& targetLocator,
+  float& tanLambdaOut) noexcept
+{
+  return std::visit(
+    [&](const auto& value) {
+      using Window = std::decay_t<decltype(value)>;
+      if constexpr (std::is_same_v<Window, CylinderTrackletSearchWindow>) {
+        return value.acceptCandidate(sourceMeasurement, sourceLocator, targetMeasurement, targetLocator, tanLambdaOut);
+      } else {
+        return value.acceptCandidate(sourceMeasurement, targetMeasurement, tanLambdaOut);
+      }
+    },
+    window);
 }
 
 // --- Native cylinder/disk cell leaves ---
@@ -273,6 +399,32 @@ bool buildDiskCellSeed(
   outState = scratch;
   chi2 = localChi2;
   return true;
+}
+
+bool buildCellSeed(
+  SurfaceKind kind,
+  const SurfaceMeasurement& measurementInner,
+  const SurfaceMeasurement& measurementMiddle,
+  const SurfaceMeasurement& measurementOuter,
+  const std::array<NominalSurfaceMaterial, 3>& material,
+  float bz,
+  uint8_t absCharge,
+  o2::track::PID pid,
+  SurfaceKinematicState& outState,
+  float& chi2,
+  const TrackingKernelParameters& params,
+  OperationFailureReason& reason) noexcept
+{
+  switch (kind) {
+    case SurfaceKind::Cylinder:
+      return buildCylinderCellSeed(measurementInner, measurementMiddle, measurementOuter,
+                                   material, bz, absCharge, pid, outState, chi2, params, reason);
+    case SurfaceKind::Disk:
+      return buildDiskCellSeed(measurementInner, measurementMiddle, measurementOuter,
+                               material, bz, absCharge, pid, outState, chi2, params, reason);
+  }
+  reason = OperationFailureReason::SourceFamilyMismatch;
+  return false;
 }
 
 bool attachCylinderHit(

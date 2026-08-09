@@ -195,7 +195,7 @@ class TrackerTraits
   // has not been cleared/reloaded (see MultiSourceFrame's own lifetime
   // documentation). Read-only test/inspection accessor; production
   // consumption is through the private mLayerMeasurements member directly in
-  // computeLayerCellsForKind/processNeighbours.
+  // computeLayerCellsImpl/processNeighbours.
   gsl::span<const gsl::span<const SurfaceMeasurement>> getLayerMeasurements() const noexcept { return {mLayerMeasurements.data(), mLayerMeasurements.size()}; }
 
  private:
@@ -207,27 +207,16 @@ class TrackerTraits
   int requireScratchTransitionSlot(int iteration, TransitionId id) const;
   int requireScratchCellSlot(int iteration, CellTopologyId id) const;
 
-  // Non-template operation targets forward to the kind-specific leaves using
-  // pre-partitioned ids and kernel parameters.
-  void computeLayerTrackletsCylinder(int iteration, int iVertex);
-  void computeLayerTrackletsDisk(int iteration, int iVertex);
-  void computeLayerCellsCylinder(int iteration);
-  void computeLayerCellsDisk(int iteration);
+  // Tracklet and cell enumeration are common; coordinate selection is owned
+  // by their operation leaves.
+  void computeLayerTrackletsImpl(int iteration, int iVertex,
+                                 gsl::span<const TransitionId> transitionIds);
+  void computeLayerCellsImpl(int iteration,
+                             gsl::span<const CellTopologyId> cellIds);
   void findCellsNeighboursCylinder(int iteration);
   void findCellsNeighboursDisk(int iteration);
   void findRoadsCylinder(int iteration, SeedRefitFunction refitFunction);
   void findRoadsDisk(int iteration, SeedRefitFunction refitFunction);
-
-  template <SurfaceKind Kind>
-  void computeLayerTrackletsForKind(int iteration,
-                                    int iVertex,
-                                    gsl::span<const TransitionId> transitionIds,
-                                    const TrackingKernelParameters& params);
-
-  template <SurfaceKind Kind>
-  void computeLayerCellsForKind(int iteration,
-                                gsl::span<const CellTopologyId> cellIds,
-                                const TrackingKernelParameters& params);
 
   template <SurfaceKind Kind>
   void findCellsNeighboursForKind(int iteration,
@@ -257,10 +246,8 @@ class TrackerTraits
   std::shared_ptr<tbb::task_arena> mTaskArena;
   SurfaceGraphView mTraversalGraph{};
   bool mTraversalCacheValid{false};
-  // One committed record for the active endpoint SurfaceKind. It is reset
-  // together with the other traversal caches and published only after all
-  // fallible initialization checks succeed.
-  std::array<TrackingKernelParameters, 2> mKernelParameters{};
+  // One scalar policy record shared by all surface operations.
+  TrackingKernelParameters mKernelParameters{};
   // Borrowed disk reference coordinates, bound once per iteration. Empty for
   // Cylinder iterations; the cylinder path never reads them.
   gsl::span<const float> mDiskLayerReferenceZ{};
@@ -288,7 +275,6 @@ class TrackerTraits
   std::vector<NominalSurfaceMaterial> mLayerMaterial;
   std::optional<SurfaceKind> mActiveKind;
   std::array<std::vector<TransitionId>, 2> mTransitionsByKind;
-  std::array<std::vector<CellTopologyId>, 2> mCellsByKind;
   std::array<std::vector<CellTopologyId>, 2> mScheduledCellsByKind;
   std::array<std::vector<CellTopologyId>, 2> mRoadStartCellsByKind;
   // Non-owning per-surface-position spans into the TimeFrame-owned normalized

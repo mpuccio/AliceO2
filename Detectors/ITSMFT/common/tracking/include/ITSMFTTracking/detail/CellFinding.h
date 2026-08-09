@@ -115,6 +115,16 @@ bool buildDiskCellSeed(const SurfaceMeasurement& measurementInner,
                        const TrackingKernelParameters& params,
                        OperationFailureReason& reason) noexcept;
 
+bool buildCellSeed(SurfaceKind kind,
+                   const SurfaceMeasurement& measurementInner,
+                   const SurfaceMeasurement& measurementMiddle,
+                   const SurfaceMeasurement& measurementOuter,
+                   const std::array<NominalSurfaceMaterial, 3>& material,
+                   float bz, uint8_t absCharge, o2::track::PID pid,
+                   SurfaceKinematicState& outState, float& chi2,
+                   const TrackingKernelParameters& params,
+                   OperationFailureReason& reason) noexcept;
+
 bool attachCylinderHit(SurfaceKinematicState& state, const SurfaceMeasurement& measurement,
                        const NominalSurfaceMaterial& material, float bz, float& chi2,
                        const TrackingKernelParameters& params,
