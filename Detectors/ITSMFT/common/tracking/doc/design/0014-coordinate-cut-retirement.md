@@ -1,9 +1,9 @@
 # Coordinate-cut retirement
 
-- Status: implementation planned
+- Status: implemented and structurally validated; MFT physics sign-off pending
 - Date: 2026-08-09
 - Predecessor: [flat pair-list graph and one combined plan](0013-flat-pair-list-combined-plan.md)
-- Validation: pending
+- Validation: [coordinate-cut retirement](../validation/coordinate-cut-retirement.md)
 - Pinned O2 package: `daily-20260717-0700-local1`
 
 ## Decision
