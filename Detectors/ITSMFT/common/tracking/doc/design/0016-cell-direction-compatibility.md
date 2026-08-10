@@ -116,14 +116,13 @@ The common `CellDeltaTanLambdaSigma` / `cellDeltaTanLambdaSigma` parameter and
 its configuration projection were removed. Legacy ITS production tracking
 retains its own parameter and implementation outside this common-CA slice.
 
-## Deferred transverse extension
+## Transverse extension
 
-This correction deliberately stops at longitudinal `(r,z)` compatibility.
-It does not introduce the stashed triplet fitter, estimate candidate `pT`, or
-add a `deltaPhi` selection. A later step may add a cheap analytic transverse
-triplet residual and curvature bound using the same `TrackletMinPt` contract.
-The full detector-neutral triplet fit remains a subsequent R&D migration after
-that primitive has timing and covariance evidence.
+This correction stopped at longitudinal `(r,z)` compatibility. The subsequent
+[transverse tracklet-direction compatibility](0017-transverse-tracklet-direction-compatibility.md)
+adds the cheap analytic `TrackletMinPt`, `deltaPhi`, measurement-covariance,
+and MS contract. The full detector-neutral triplet fit remains a later R&D
+migration.
 
 ## Deferred deletion inventory
 

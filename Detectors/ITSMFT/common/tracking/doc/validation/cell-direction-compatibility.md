@@ -1,6 +1,6 @@
 # Shared cell-direction compatibility validation
 
-- Status: TrackletMinPt process-noise correction validated; transverse step deferred
+- Status: longitudinal TrackletMinPt process-noise correction validated; transverse follow-up completed separately
 - Date: 2026-08-10
 - Harmonization commits: `ec9deeb178`, `58d87eb8e2`, `9fdeaaf318`
 - Cylinder observation correction: `1e2c8634be`, `4435cfe08f`, `09f821f1ce`
@@ -183,9 +183,8 @@ aggregate efficiency/fake/clone values, while retaining a distinct,
 deterministic candidate population; MFT publication is unchanged. The first
 two planned steps are complete.
 
-The next step, intentionally not started here, is a cheap analytic transverse
-triplet primitive: signed XY curvature or a normalized transverse
-collinearity residual, with the same `TrackletMinPt` contract and propagated
-measurement/MS uncertainty. Only after its physics and timing characterization
-should the broader stashed detector-neutral triplet fitting design be
-introduced. Neighbour/road and hole harmonization remain out of scope.
+The subsequent
+[transverse tracklet-direction validation](transverse-tracklet-direction-compatibility.md)
+records the cheap analytic `TrackletMinPt`, `deltaPhi`, measurement-covariance,
+and MS extension. The broader detector-neutral triplet fit remains a later
+R&D step. Neighbour/road and hole harmonization remain out of scope.
