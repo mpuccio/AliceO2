@@ -249,6 +249,8 @@ BOOST_AUTO_TEST_CASE(CellCandidateLoopHasOneDescriptorSelectedLeafBoundary)
 
   BOOST_CHECK_EQUAL(countOccurrences(code, "cellDirectionsAreCompatible("), 1u);
   BOOST_CHECK_EQUAL(countOccurrences(code, "makeDirectionObservation("), 3u);
+  BOOST_CHECK_EQUAL(countOccurrences(code, "getTransitionMSAngle(secondTransitionId)"), 1u);
+  BOOST_CHECK_EQUAL(countOccurrences(code, "DirectionProcessNoise"), 1u);
   BOOST_CHECK_EQUAL(countOccurrences(code, "buildCellSeed("), 1u);
   BOOST_CHECK(code.find("CellDeltaTanLambdaSigma") == std::string::npos);
   BOOST_CHECK(code.find("deltaTanLambdaSigma") == std::string::npos);

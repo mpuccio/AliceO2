@@ -608,6 +608,40 @@ BOOST_AUTO_TEST_CASE(CylinderComputeLayerCellsMatchesBuildCellSeedOracle)
   BOOST_CHECK_EQUAL(producedCell.getChi2(), oracleChi2);
 }
 
+BOOST_AUTO_TEST_CASE(CylinderCellCombinationUsesTrackletMinPtScattering)
+{
+  auto acceptedCells = [](float trackletMinPt) {
+    Rig<ITSNLayers> rig{o2::detectors::DetID::ITS, SurfaceKind::Cylinder};
+    rig.params[0].TrackletMinPt = trackletMinPt;
+    rig.params[0].MaxChi2ClusterAttachment = 1.e6f;
+    rig.params[0].LayerxX0[0] = 0.005f;
+    rig.params[0].LayerxX0[1] = 0.01f;
+    rig.params[0].LayerxX0[2] = 0.f;
+    rig.establishLayout();
+
+    const std::array<o2::its::Cluster, 3> clusters{
+      makeGlobalCluster(3.f, 0.100f, 0.9f),
+      makeGlobalCluster(4.f, 0.150f, 1.05f),
+      makeGlobalCluster(5.f, 0.201f, 1.22f)};
+    loadCandidateClusters(rig, clusters,
+                          {makeBarrelHit(3.f, 0.f, 0.100f, 0.9f, 1.e-6f, 1.e-6f),
+                           makeBarrelHit(4.f, 0.f, 0.150f, 1.05f, 1.e-6f, 1.e-6f),
+                           makeBarrelHit(5.f, 0.f, 0.201f, 1.22f, 1.e-6f, 1.e-6f)});
+
+    rig.traits.updateTrackingParameters(rig.params);
+    rig.traits.initialiseTimeFrame(0, *rig.plan);
+    const auto topology = rig.plan->front().getView();
+    const int cellTopologyId = findCellTopologyId(topology, 0, 1, 2);
+    BOOST_REQUIRE_GE(cellTopologyId, 0);
+    injectCandidateTracklets(rig, cellTopologyId, clusters);
+    rig.traits.computeLayerCells(0);
+    return rig.tf.getCells()[cellTopologyId].size();
+  };
+
+  BOOST_CHECK_EQUAL(acceptedCells(0.3f), 1u);
+  BOOST_CHECK_EQUAL(acceptedCells(1.f), 0u);
+}
+
 // --- Disk: real orchestration matches the cell-seed leaves oracle -------
 
 BOOST_AUTO_TEST_CASE(DiskComputeLayerCellsMatchesBuildCellSeedOracle)

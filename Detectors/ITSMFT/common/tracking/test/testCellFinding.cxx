@@ -460,10 +460,29 @@ BOOST_AUTO_TEST_CASE(CellDirectionCompatibilityMatchesFullAnalyticOracle)
     {7., 8., 0.03, 0.003, 0.07},
   }};
   CellDirectionCompatibility compatibility{};
-  BOOST_REQUIRE(cellDirectionsAreCompatible(observations, 1.f, compatibility));
+  BOOST_REQUIRE(cellDirectionsAreCompatible(observations, {}, 1.f, compatibility));
   BOOST_CHECK_CLOSE_FRACTION(compatibility.residual, 1., 1.e-12);
   BOOST_CHECK_CLOSE_FRACTION(compatibility.variance, 6.55, 1.e-12);
   BOOST_CHECK_CLOSE_FRACTION(compatibility.chi2, 1. / 6.55, 1.e-12);
+}
+
+BOOST_AUTO_TEST_CASE(CellDirectionCompatibilityTranslatesAngularProcessNoiseIntoKVariance)
+{
+  const std::array<DirectionObservation, 3> observations{{
+    {2., 1., 0.04, 0.006, 0.09},
+    {4., 4., 0.05, -0.004, 0.08},
+    {7., 8., 0.03, 0.003, 0.07},
+  }};
+  CellDirectionCompatibility measurementOnly{};
+  CellDirectionCompatibility withScattering{};
+  BOOST_CHECK(!cellDirectionsAreCompatible(observations, {}, 0.35f, measurementOnly));
+  BOOST_REQUIRE(cellDirectionsAreCompatible(observations, {0.01}, 0.35f, withScattering));
+
+  // Segment dot product = (2,3).(3,4) = 18, so the process contribution is
+  // 18^2 * 0.01 = 3.24.
+  BOOST_CHECK_CLOSE_FRACTION(withScattering.residual, 1., 1.e-12);
+  BOOST_CHECK_CLOSE_FRACTION(withScattering.variance, 6.55 + 3.24, 1.e-12);
+  BOOST_CHECK_CLOSE_FRACTION(withScattering.chi2, 1. / (6.55 + 3.24), 1.e-12);
 }
 
 BOOST_AUTO_TEST_CASE(DiskDirectionObservationProjectsFullGlobalXYCovariance)
@@ -515,8 +534,8 @@ BOOST_AUTO_TEST_CASE(DiskDirectionCompatibilityIsInvariantUnderGlobalZRotation)
   }
   CellDirectionCompatibility baselineCompatibility{};
   CellDirectionCompatibility rotatedCompatibility{};
-  BOOST_REQUIRE(cellDirectionsAreCompatible(baseline, 100.f, baselineCompatibility));
-  BOOST_REQUIRE(cellDirectionsAreCompatible(rotated, 100.f, rotatedCompatibility));
+  BOOST_REQUIRE(cellDirectionsAreCompatible(baseline, {0.0025}, 100.f, baselineCompatibility));
+  BOOST_REQUIRE(cellDirectionsAreCompatible(rotated, {0.0025}, 100.f, rotatedCompatibility));
   BOOST_CHECK_CLOSE_FRACTION(rotatedCompatibility.chi2, baselineCompatibility.chi2, 1.e-6);
 }
 
@@ -537,8 +556,8 @@ BOOST_AUTO_TEST_CASE(CollinearCylinderAndDiskObservationsHaveZeroChi2)
   }
   CellDirectionCompatibility cylinderCompatibility{};
   CellDirectionCompatibility diskCompatibility{};
-  BOOST_REQUIRE(cellDirectionsAreCompatible(cylinder, 1.f, cylinderCompatibility));
-  BOOST_REQUIRE(cellDirectionsAreCompatible(disk, 1.f, diskCompatibility));
+  BOOST_REQUIRE(cellDirectionsAreCompatible(cylinder, {}, 1.f, cylinderCompatibility));
+  BOOST_REQUIRE(cellDirectionsAreCompatible(disk, {}, 1.f, diskCompatibility));
   BOOST_CHECK_SMALL(cylinderCompatibility.chi2, 1.e-12);
   BOOST_CHECK_SMALL(diskCompatibility.chi2, 1.e-12);
 }
@@ -552,8 +571,8 @@ BOOST_AUTO_TEST_CASE(CellDirectionCompatibilityUsesOnlyCommonNSigmaCut)
   }};
   CellDirectionCompatibility pass{};
   CellDirectionCompatibility fail{};
-  BOOST_CHECK(cellDirectionsAreCompatible(observations, 0.4f, pass));
-  BOOST_CHECK(!cellDirectionsAreCompatible(observations, 0.39f, fail));
+  BOOST_CHECK(cellDirectionsAreCompatible(observations, {}, 0.4f, pass));
+  BOOST_CHECK(!cellDirectionsAreCompatible(observations, {}, 0.39f, fail));
   BOOST_CHECK_EQUAL(pass.residual, fail.residual);
   BOOST_CHECK_EQUAL(pass.variance, fail.variance);
   BOOST_CHECK_EQUAL(pass.chi2, fail.chi2);
@@ -569,12 +588,19 @@ BOOST_AUTO_TEST_CASE(CellDirectionCompatibilityFailsClosedTransactionally)
   const CellDirectionCompatibility sentinel{11., 12., 13.};
   auto compatibility = sentinel;
   observations[1].covarianceRZ = 1.; // non-PSD
-  BOOST_CHECK(!cellDirectionsAreCompatible(observations, 5.f, compatibility));
+  BOOST_CHECK(!cellDirectionsAreCompatible(observations, {}, 5.f, compatibility));
   BOOST_CHECK(bitEqual(compatibility, sentinel));
 
   observations[1] = {4., 4., 0.05, -0.004, 0.08};
   observations[2].z = std::numeric_limits<double>::quiet_NaN();
-  BOOST_CHECK(!cellDirectionsAreCompatible(observations, 5.f, compatibility));
+  BOOST_CHECK(!cellDirectionsAreCompatible(observations, {}, 5.f, compatibility));
+  BOOST_CHECK(bitEqual(compatibility, sentinel));
+
+  observations[2] = {7., 8., 0.03, 0.003, 0.07};
+  BOOST_CHECK(!cellDirectionsAreCompatible(observations, {-0.01}, 5.f, compatibility));
+  BOOST_CHECK(bitEqual(compatibility, sentinel));
+  BOOST_CHECK(!cellDirectionsAreCompatible(
+    observations, {std::numeric_limits<double>::quiet_NaN()}, 5.f, compatibility));
   BOOST_CHECK(bitEqual(compatibility, sentinel));
 
   auto invalidDisk = diskDirectionMeasurement(3.f, 4.f, 0.04f, 1.f, 0.09f);
