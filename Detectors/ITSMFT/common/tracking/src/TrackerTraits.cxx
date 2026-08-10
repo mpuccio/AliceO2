@@ -1085,6 +1085,22 @@ void TrackerTraits::computeLayerCellsImpl(
         const auto& measurementInner = mLayerMeasurements[hitLayers[0]][clusId[0]];
         const auto& measurementMiddle = mLayerMeasurements[hitLayers[1]][clusId[1]];
         const auto& measurementOuter = mLayerMeasurements[hitLayers[2]][clusId[2]];
+        const double transitionMSAngle = static_cast<double>(mScratch->getTransitionMSAngle(secondTransitionId));
+        const DirectionProcessNoise directionProcessNoise{transitionMSAngle * transitionMSAngle};
+        std::array<TransverseDirectionObservation, 3> transverseObservations{};
+        if (!makeTransverseDirectionObservation(hitBinding.surfaces[0], measurementInner, transverseObservations[0]) ||
+            !makeTransverseDirectionObservation(hitBinding.surfaces[1], measurementMiddle, transverseObservations[1]) ||
+            !makeTransverseDirectionObservation(hitBinding.surfaces[2], measurementOuter, transverseObservations[2])) {
+          continue;
+        }
+        TransverseDirectionCompatibility transverseCompatibility{};
+        if (!trackletDirectionsAreTransverselyCompatible(
+              transverseObservations, currentTracklet.phi, nextTracklet.phi,
+              directionProcessNoise, getBz(),
+              mKernelParameters.trackletMinPt, mKernelParameters.nSigmaCut,
+              transverseCompatibility)) {
+          continue;
+        }
         std::array<DirectionObservation, 3> directionObservations{};
         if (!makeDirectionObservation(hitBinding.surfaces[0], measurementInner, directionObservations[0]) ||
             !makeDirectionObservation(hitBinding.surfaces[1], measurementMiddle, directionObservations[1]) ||
@@ -1092,10 +1108,6 @@ void TrackerTraits::computeLayerCellsImpl(
           continue;
         }
         CellDirectionCompatibility directionCompatibility{};
-        // The outgoing transition begins at the middle hit; its precomputed
-        // TrackletMinPt scattering is the equivalent thin-kick uncertainty.
-        const double transitionMSAngle = static_cast<double>(mScratch->getTransitionMSAngle(secondTransitionId));
-        const DirectionProcessNoise directionProcessNoise{transitionMSAngle * transitionMSAngle};
         if (cellDirectionsAreCompatible(directionObservations, directionProcessNoise, mKernelParameters.nSigmaCut,
                                         directionCompatibility)) {
 

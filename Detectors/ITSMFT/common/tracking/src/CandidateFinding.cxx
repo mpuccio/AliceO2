@@ -18,6 +18,7 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <limits>
 #include <type_traits>
 
 #include "CommonConstants/MathConstants.h"
@@ -297,6 +298,21 @@ bool covarianceIsPositiveSemidefinite(double varianceFirst,
          varianceFirst * varianceSecond - covariance * covariance >= 0.;
 }
 
+bool covarianceIsPositiveSemidefiniteWithinRoundoff(double varianceFirst,
+                                                    double covariance,
+                                                    double varianceSecond) noexcept
+{
+  if (!std::isfinite(varianceFirst) || !std::isfinite(covariance) ||
+      !std::isfinite(varianceSecond) || varianceFirst < 0. || varianceSecond < 0.) {
+    return false;
+  }
+  const double diagonalProduct = varianceFirst * varianceSecond;
+  const double covarianceSquared = covariance * covariance;
+  const double roundoffTolerance = 16. * std::numeric_limits<double>::epsilon() *
+                                   std::max(diagonalProduct, covarianceSquared);
+  return diagonalProduct - covarianceSquared >= -roundoffTolerance;
+}
+
 bool observationIsValid(const DirectionObservation& observation) noexcept
 {
   return std::isfinite(observation.r) && observation.r > 0. &&
@@ -306,7 +322,147 @@ bool observationIsValid(const DirectionObservation& observation) noexcept
                                           observation.varianceZ);
 }
 
+bool observationIsValid(const TransverseDirectionObservation& observation) noexcept
+{
+  return std::isfinite(observation.x) && std::isfinite(observation.y) &&
+         covarianceIsPositiveSemidefiniteWithinRoundoff(observation.varianceX,
+                                                        observation.covarianceXY,
+                                                        observation.varianceY);
+}
+
 } // namespace
+
+bool makeCylinderTransverseDirectionObservation(
+  const SurfaceDescriptor& surface,
+  const SurfaceMeasurement& measurement,
+  TransverseDirectionObservation& observation) noexcept
+{
+  if (surface.kind != SurfaceKind::Cylinder ||
+      !std::isfinite(surface.referenceCoordinate) || surface.referenceCoordinate <= 0.f ||
+      !std::isfinite(measurement.frame.q) || !std::isfinite(measurement.frame.u) ||
+      !std::isfinite(measurement.frame.frameAngle) ||
+      !covarianceIsPositiveSemidefinite(measurement.covariance.uu,
+                                        measurement.covariance.uv,
+                                        measurement.covariance.vv)) {
+    return false;
+  }
+  const double sine = std::sin(measurement.frame.frameAngle);
+  const double cosine = std::cos(measurement.frame.frameAngle);
+  const double varianceU = measurement.covariance.uu;
+  const TransverseDirectionObservation scratch{
+    measurement.frame.q * cosine - measurement.frame.u * sine,
+    measurement.frame.q * sine + measurement.frame.u * cosine,
+    sine * sine * varianceU,
+    -sine * cosine * varianceU,
+    cosine * cosine * varianceU};
+  if (!observationIsValid(scratch)) {
+    return false;
+  }
+  observation = scratch;
+  return true;
+}
+
+bool makeDiskTransverseDirectionObservation(
+  const SurfaceDescriptor& surface,
+  const SurfaceMeasurement& measurement,
+  TransverseDirectionObservation& observation) noexcept
+{
+  const TransverseDirectionObservation scratch{
+    measurement.global.x, measurement.global.y,
+    measurement.covariance.uu, measurement.covariance.uv,
+    measurement.covariance.vv};
+  if (surface.kind != SurfaceKind::Disk ||
+      !std::isfinite(surface.referenceCoordinate) ||
+      !observationIsValid(scratch)) {
+    return false;
+  }
+  observation = scratch;
+  return true;
+}
+
+bool makeTransverseDirectionObservation(
+  const SurfaceDescriptor& surface,
+  const SurfaceMeasurement& measurement,
+  TransverseDirectionObservation& observation) noexcept
+{
+  using Builder = bool (*)(const SurfaceDescriptor&, const SurfaceMeasurement&,
+                           TransverseDirectionObservation&) noexcept;
+  static constexpr std::array<Builder, 2> builders{
+    makeCylinderTransverseDirectionObservation,
+    makeDiskTransverseDirectionObservation};
+  const auto kindIndex = static_cast<std::size_t>(surface.kind);
+  return kindIndex < builders.size() && builders[kindIndex](surface, measurement, observation);
+}
+
+bool trackletDirectionsAreTransverselyCompatible(
+  const std::array<TransverseDirectionObservation, 3>& observations,
+  float firstPhi, float secondPhi,
+  const DirectionProcessNoise& processNoise,
+  float bz, float trackletMinPt, float nSigmaCut,
+  TransverseDirectionCompatibility& compatibility) noexcept
+{
+  if (!std::isfinite(firstPhi) || !std::isfinite(secondPhi) ||
+      !std::isfinite(bz) || !std::isfinite(trackletMinPt) || trackletMinPt <= 0.f ||
+      !std::isfinite(nSigmaCut) || nSigmaCut <= 0.f ||
+      !std::isfinite(processNoise.angularVariance) || processNoise.angularVariance < 0. ||
+      !observationIsValid(observations[0]) ||
+      !observationIsValid(observations[1]) ||
+      !observationIsValid(observations[2])) {
+    return false;
+  }
+
+  const double deltaX01 = observations[0].x - observations[1].x;
+  const double deltaY01 = observations[0].y - observations[1].y;
+  const double deltaX12 = observations[1].x - observations[2].x;
+  const double deltaY12 = observations[1].y - observations[2].y;
+  const double lengthSquared01 = deltaX01 * deltaX01 + deltaY01 * deltaY01;
+  const double lengthSquared12 = deltaX12 * deltaX12 + deltaY12 * deltaY12;
+  if (!std::isfinite(lengthSquared01) || !std::isfinite(lengthSquared12) ||
+      lengthSquared01 <= 0. || lengthSquared12 <= 0.) {
+    return false;
+  }
+  const double length01 = std::sqrt(lengthSquared01);
+  const double length12 = std::sqrt(lengthSquared12);
+  // Profile the unknown signed curvature over the physical TrackletMinPt
+  // interval. Each asin is the chord's half central angle on one circle.
+  const double maximumCurvature = std::min({std::abs(static_cast<double>(o2::constants::math::B2C) * bz) / trackletMinPt,
+                                            2. / length01,
+                                            2. / length12});
+  const double maximumBending =
+    std::asin(std::clamp(0.5 * maximumCurvature * length01, 0., 1.)) +
+    std::asin(std::clamp(0.5 * maximumCurvature * length12, 0., 1.));
+  const double deltaPhi = std::remainder(static_cast<double>(firstPhi) - secondPhi,
+                                         2. * static_cast<double>(o2::constants::math::PI));
+
+  const std::array<std::array<double, 2>, 3> derivatives{{
+    {-deltaY01 / lengthSquared01, deltaX01 / lengthSquared01},
+    {deltaY01 / lengthSquared01 + deltaY12 / lengthSquared12,
+     -deltaX01 / lengthSquared01 - deltaX12 / lengthSquared12},
+    {-deltaY12 / lengthSquared12, deltaX12 / lengthSquared12},
+  }};
+  // The middle-hit derivative retains the correlation between both chords;
+  // the outgoing transition kick changes their relative azimuth directly.
+  double variance = processNoise.angularVariance;
+  for (std::size_t i = 0; i < observations.size(); ++i) {
+    const double derivativeX = derivatives[i][0];
+    const double derivativeY = derivatives[i][1];
+    variance += derivativeX * derivativeX * observations[i].varianceX +
+                2. * derivativeX * derivativeY * observations[i].covarianceXY +
+                derivativeY * derivativeY * observations[i].varianceY;
+  }
+  const double excess = std::max(0., std::abs(deltaPhi) - maximumBending);
+  if (!std::isfinite(deltaPhi) || !std::isfinite(maximumBending) ||
+      !std::isfinite(variance) || variance <= 0.) {
+    return false;
+  }
+  const double chi2 = excess * excess / variance;
+  if (!std::isfinite(chi2)) {
+    return false;
+  }
+
+  compatibility = TransverseDirectionCompatibility{deltaPhi, maximumBending, variance, chi2};
+  return chi2 < static_cast<double>(nSigmaCut) * nSigmaCut;
+}
 
 bool makeCylinderDirectionObservation(const SurfaceDescriptor& surface,
                                       const SurfaceMeasurement& measurement,

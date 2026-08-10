@@ -249,6 +249,14 @@ struct DirectionObservation {
   double varianceZ{0.};
 };
 
+struct TransverseDirectionObservation {
+  double x{0.};
+  double y{0.};
+  double varianceX{0.};
+  double covarianceXY{0.};
+  double varianceY{0.};
+};
+
 struct DirectionProcessNoise {
   // Variance of an equivalent thin angular kick at the middle observation.
   double angularVariance{0.};
@@ -259,6 +267,32 @@ struct CellDirectionCompatibility {
   double variance{0.};
   double chi2{0.};
 };
+
+struct TransverseDirectionCompatibility {
+  double deltaPhi{0.};
+  double maximumBending{0.};
+  double variance{0.};
+  double chi2{0.};
+};
+
+bool makeCylinderTransverseDirectionObservation(const SurfaceDescriptor& surface,
+                                                const SurfaceMeasurement& measurement,
+                                                TransverseDirectionObservation& observation) noexcept;
+
+bool makeDiskTransverseDirectionObservation(const SurfaceDescriptor& surface,
+                                            const SurfaceMeasurement& measurement,
+                                            TransverseDirectionObservation& observation) noexcept;
+
+bool makeTransverseDirectionObservation(const SurfaceDescriptor& surface,
+                                        const SurfaceMeasurement& measurement,
+                                        TransverseDirectionObservation& observation) noexcept;
+
+bool trackletDirectionsAreTransverselyCompatible(
+  const std::array<TransverseDirectionObservation, 3>& observations,
+  float firstPhi, float secondPhi,
+  const DirectionProcessNoise& processNoise,
+  float bz, float trackletMinPt, float nSigmaCut,
+  TransverseDirectionCompatibility& compatibility) noexcept;
 
 bool makeCylinderDirectionObservation(const SurfaceDescriptor& surface,
                                       const SurfaceMeasurement& measurement,
