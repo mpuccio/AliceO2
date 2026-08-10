@@ -117,6 +117,12 @@ o2_add_test(cell-finding
             LABELS "itsmft;tracking"
             PUBLIC_LINK_LIBRARIES O2::ITSMFTTracking O2::MFTTracking)
 
+o2_add_test(triplet-fitting
+            SOURCES testTripletFitting.cxx
+            COMPONENT_NAME itsmft-tracking
+            LABELS "itsmft;tracking"
+            PUBLIC_LINK_LIBRARIES O2::ITSMFTTracking)
+
 o2_add_test(detector-adapter-compatibility
             SOURCES testDetectorAdapterCompatibility.cxx
             COMPONENT_NAME itsmft-tracking
