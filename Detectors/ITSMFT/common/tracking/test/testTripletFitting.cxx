@@ -19,7 +19,6 @@
 #include <string>
 
 #include "CommonConstants/MathConstants.h"
-#include "ITSMFTTracking/MaterialPhysics.h"
 #include "ITSMFTTracking/TripletFitting.h"
 
 using namespace o2::itsmft::tracking;
@@ -125,32 +124,6 @@ BOOST_AUTO_TEST_CASE(DiskObservationUsesGlobalXYAndExactSurfaceZ)
   BOOST_CHECK_EQUAL(observation.covariance.zz, 0.);
 }
 
-BOOST_AUTO_TEST_CASE(MaterialLeavesConstructOnlyTheSurfaceNormalAndNominalBudget)
-{
-  SurfaceDescriptor cylinder{};
-  cylinder.kind = SurfaceKind::Cylinder;
-  cylinder.material = {0.01f, 0.02f};
-  SurfaceMeasurement cylinderMeasurement{};
-  cylinderMeasurement.frame.frameAngle = 0.7f;
-  TripletFitMaterial material{};
-  BOOST_REQUIRE(makeCylinderTripletFitMaterial(cylinder, cylinderMeasurement, material));
-  checkClose(material.unitNormal[0], std::cos(0.7f), 1.e-14);
-  checkClose(material.unitNormal[1], std::sin(0.7f), 1.e-14);
-  BOOST_CHECK_EQUAL(material.unitNormal[2], 0.);
-  BOOST_CHECK_EQUAL(material.nominal.xOverX0, 0.01f);
-  BOOST_CHECK_EQUAL(material.nominal.arealDensityGPerCm2, 0.02f);
-
-  SurfaceDescriptor disk{};
-  disk.kind = SurfaceKind::Disk;
-  disk.material = {0.03f, 0.04f};
-  BOOST_REQUIRE(makeDiskTripletFitMaterial(disk, {}, material));
-  BOOST_CHECK_EQUAL(material.unitNormal[0], 0.);
-  BOOST_CHECK_EQUAL(material.unitNormal[1], 0.);
-  BOOST_CHECK_EQUAL(material.unitNormal[2], 1.);
-  BOOST_CHECK_EQUAL(material.nominal.xOverX0, 0.03f);
-  BOOST_CHECK_EQUAL(material.nominal.arealDensityGPerCm2, 0.04f);
-}
-
 BOOST_AUTO_TEST_CASE(ExactHelixHasExpectedCurvatureAndZeroLocalQuality)
 {
   const auto observations = makeHelixObservations();
@@ -243,138 +216,6 @@ BOOST_AUTO_TEST_CASE(NonHelicalKinkHasPositiveQualityAndMSReducesIt)
   BOOST_CHECK_GT(withScattering.curvatureVariance, measurementOnly.curvatureVariance);
 }
 
-BOOST_AUTO_TEST_CASE(MaterialIterationUsesIncidenceScaledHighlandVariance)
-{
-  const auto observations = makeHelixObservations();
-  const TripletFitMaterial middleMaterial{{0., 0., 1.}, {0.01f, 0.f}};
-  MaterialAwareTripletFitResult result{};
-  BOOST_REQUIRE(fitLocalTripletWithMaterial(
-                  observations, middleMaterial, 5., 1,
-                  o2::track::PID{o2::track::PID::Pion}, result) ==
-                MaterialTripletFitStatus::Success);
-
-  const double expectedIncidence = TanLambda / std::sqrt(1. + TanLambda * TanLambda);
-  checkClose(result.incidenceCosine, expectedIncidence, 3.e-4);
-  BOOST_CHECK_EQUAL(result.iterations, 1);
-  BOOST_CHECK_GT(result.angularVariance, 0.);
-  const material::IntegratedMaterialBudget pathMaterial{
-    static_cast<float>(middleMaterial.nominal.xOverX0 / result.incidenceCosine), 0.f};
-  const auto expected = material::calculateMaterialPhysics(
-    static_cast<float>(result.momentum), o2::track::PID{o2::track::PID::Pion}, 1,
-    material::MaterialTraversalDirection::AlongMomentum, pathMaterial);
-  BOOST_REQUIRE(expected.ok());
-  checkClose(result.angularVariance, expected.highlandTheta2Rad2, 2.e-7);
-  checkClose(result.transverseMomentum,
-             fittedTripletTransverseMomentum(result.local, 5., 1), 1.e-14);
-}
-
-BOOST_AUTO_TEST_CASE(ZeroMaterialIterationMatchesTheMeasurementOnlyFit)
-{
-  auto observations = makeHelixObservations();
-  observations[2].position[2] += 0.04;
-  LocalTripletFitResult measurementOnly{};
-  BOOST_REQUIRE(fitLocalTripletUniformSolenoid(observations, {0.}, measurementOnly));
-
-  MaterialAwareTripletFitResult materialAware{};
-  BOOST_REQUIRE(fitLocalTripletWithMaterial(
-                  observations, {{0., 0., 1.}, {}}, 5., 1,
-                  o2::track::PID{o2::track::PID::Pion}, materialAware) ==
-                MaterialTripletFitStatus::Success);
-  BOOST_CHECK_EQUAL(materialAware.iterations, 1);
-  BOOST_CHECK_EQUAL(materialAware.angularVariance, 0.);
-  checkClose(materialAware.local.curvature, measurementOnly.curvature, 1.e-14);
-  checkClose(materialAware.local.curvatureVariance, measurementOnly.curvatureVariance, 1.e-14);
-  checkClose(materialAware.local.chi2, measurementOnly.chi2, 1.e-14);
-}
-
-BOOST_AUTO_TEST_CASE(MaterialIterationConvergesForAKinkAndWeakensItsQualityPenalty)
-{
-  auto observations = makeHelixObservations();
-  observations[2].position[2] += 0.04;
-  LocalTripletFitResult measurementOnly{};
-  BOOST_REQUIRE(fitLocalTripletUniformSolenoid(observations, {0.}, measurementOnly));
-
-  MaterialAwareTripletFitResult materialAware{};
-  BOOST_REQUIRE(fitLocalTripletWithMaterial(
-                  observations, {{0., 0., 1.}, {0.02f, 0.f}}, 5., 1,
-                  o2::track::PID{o2::track::PID::Pion}, materialAware) ==
-                MaterialTripletFitStatus::Success);
-  BOOST_CHECK_GE(materialAware.iterations, 2);
-  BOOST_CHECK_LE(materialAware.iterations, 128);
-  BOOST_CHECK_GT(materialAware.angularVariance, 0.);
-  BOOST_CHECK_LT(materialAware.local.chi2, measurementOnly.chi2);
-  BOOST_CHECK_GT(materialAware.local.curvatureVariance, measurementOnly.curvatureVariance);
-}
-
-BOOST_AUTO_TEST_CASE(MaterialAwareFitIsInvariantUnderGlobalZRotation)
-{
-  const auto original = makeHelixObservations();
-  auto transformed = original;
-  const double angle = 0.83;
-  const double cosine = std::cos(angle);
-  const double sine = std::sin(angle);
-  for (auto& observation : transformed) {
-    const double x = observation.position[0];
-    const double y = observation.position[1];
-    observation.position[0] = cosine * x - sine * y;
-    observation.position[1] = sine * x + cosine * y;
-    observation.covariance = rotateCovarianceAroundZ(observation.covariance, angle);
-  }
-  const TripletFitMaterial originalMaterial{{0.6, 0.2, std::sqrt(0.6)}, {0.01f, 0.f}};
-  const TripletFitMaterial transformedMaterial{
-    {cosine * originalMaterial.unitNormal[0] - sine * originalMaterial.unitNormal[1],
-     sine * originalMaterial.unitNormal[0] + cosine * originalMaterial.unitNormal[1],
-     originalMaterial.unitNormal[2]},
-    originalMaterial.nominal};
-  MaterialAwareTripletFitResult first{};
-  MaterialAwareTripletFitResult second{};
-  BOOST_REQUIRE(fitLocalTripletWithMaterial(
-                  original, originalMaterial, 5., 1,
-                  o2::track::PID{o2::track::PID::Pion}, first) ==
-                MaterialTripletFitStatus::Success);
-  BOOST_REQUIRE(fitLocalTripletWithMaterial(
-                  transformed, transformedMaterial, 5., 1,
-                  o2::track::PID{o2::track::PID::Pion}, second) ==
-                MaterialTripletFitStatus::Success);
-  checkClose(second.incidenceCosine, first.incidenceCosine, 1.e-14);
-  checkClose(second.angularVariance, first.angularVariance, 1.e-12);
-  checkClose(second.momentum, first.momentum, 1.e-12);
-  checkClose(second.local.chi2, first.local.chi2, 1.e-8, 1.e-20);
-}
-
-BOOST_AUTO_TEST_CASE(MaterialAwareFailuresDoNotMutateOutput)
-{
-  const auto observations = makeHelixObservations();
-  MaterialAwareTripletFitResult result{};
-  result.momentum = 17.;
-  result.local.chi2 = 23.;
-  result.iterations = 9;
-
-  BOOST_CHECK(fitLocalTripletWithMaterial(
-                observations, {{0., 0., 0.}, {0.01f, 0.f}}, 5., 1,
-                o2::track::PID{o2::track::PID::Pion}, result) ==
-              MaterialTripletFitStatus::InvalidInput);
-  BOOST_CHECK_EQUAL(result.momentum, 17.);
-  BOOST_CHECK_EQUAL(result.local.chi2, 23.);
-  BOOST_CHECK_EQUAL(result.iterations, 9);
-
-  BOOST_CHECK(fitLocalTripletWithMaterial(
-                observations, {{1., 0., 0.}, {0.01f, 0.f}}, 0., 1,
-                o2::track::PID{o2::track::PID::Pion}, result) ==
-              MaterialTripletFitStatus::InvalidInput);
-  BOOST_CHECK_EQUAL(result.momentum, 17.);
-  BOOST_CHECK_EQUAL(result.local.chi2, 23.);
-  BOOST_CHECK_EQUAL(result.iterations, 9);
-
-  BOOST_CHECK(fitLocalTripletWithMaterial(
-                observations, {{0., 0., 1.}, {0.01f, 100.f}}, 5., 1,
-                o2::track::PID{o2::track::PID::Pion}, result) ==
-              MaterialTripletFitStatus::StoppedInMaterial);
-  BOOST_CHECK_EQUAL(result.momentum, 17.);
-  BOOST_CHECK_EQUAL(result.local.chi2, 23.);
-  BOOST_CHECK_EQUAL(result.iterations, 9);
-}
-
 BOOST_AUTO_TEST_CASE(InvalidInputsFailTransactionally)
 {
   const LocalTripletFitResult sentinel{1., 2., 3., 4., 0.5, 6., 7., 8., 9., 10., 11., 12.};
@@ -413,16 +254,12 @@ BOOST_AUTO_TEST_CASE(StandaloneFitHasNoFamilyDispatchOrTrackerTraitsCallSite)
   BOOST_CHECK_EQUAL(fitBody.find("detectorId"), std::string::npos);
   BOOST_CHECK_EQUAL(fitBody.find("sourceId"), std::string::npos);
 
-  const auto materialBegin = source.find("MaterialTripletFitStatus fitLocalTripletWithMaterial(");
-  BOOST_REQUIRE_NE(materialBegin, std::string::npos);
-  const auto materialFitBody = source.substr(materialBegin);
-  BOOST_CHECK_EQUAL(materialFitBody.find("SurfaceKind"), std::string::npos);
-  BOOST_CHECK_EQUAL(materialFitBody.find("detectorId"), std::string::npos);
-  BOOST_CHECK_EQUAL(materialFitBody.find("sourceId"), std::string::npos);
+  BOOST_CHECK_EQUAL(source.find("fitLocalTripletWithMaterial"), std::string::npos);
+  BOOST_CHECK_EQUAL(source.find("calculateMaterialPhysics"), std::string::npos);
+  BOOST_CHECK_EQUAL(source.find("MaximumIterations"), std::string::npos);
 
   const auto trackerTraits = readFile(trackingRoot / "src/TrackerTraits.cxx");
   BOOST_CHECK_EQUAL(trackerTraits.find("fitLocalTripletUniformSolenoid"), std::string::npos);
-  BOOST_CHECK_EQUAL(trackerTraits.find("fitLocalTripletWithMaterial"), std::string::npos);
   BOOST_CHECK_EQUAL(trackerTraits.find("TripletFitting.h"), std::string::npos);
 }
 

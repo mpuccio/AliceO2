@@ -1,5 +1,9 @@
 # Local triplet fitting R2 validation
 
+> Historical characterization of the fixed-point material experiment. The
+> implementation is preserved at `ae27032797`; it is not the active fast
+> estimator.
+
 - Date: 2026-08-10
 - Package: `daily-20260717-0700-local1`
 - Build: `/Users/mpuccio/alice/run3/O2-worktree-builds/triplet-tracking-rnd-scratch`

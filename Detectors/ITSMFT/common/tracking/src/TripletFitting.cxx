@@ -14,7 +14,6 @@
 #include <limits>
 
 #include "CommonConstants/MathConstants.h"
-#include "ITSMFTTracking/MaterialPhysics.h"
 
 namespace o2::itsmft::tracking
 {
@@ -297,93 +296,6 @@ double covarianceContraction(const std::array<double, 3>& left,
          left[2] * (covariance.xz * right[0] + covariance.yz * right[1] + covariance.zz * right[2]);
 }
 
-bool materialIsValid(const NominalSurfaceMaterial& material) noexcept
-{
-  return std::isfinite(material.xOverX0) && material.xOverX0 >= 0.f &&
-         std::isfinite(material.arealDensityGPerCm2) && material.arealDensityGPerCm2 >= 0.f;
-}
-
-bool makeMiddleDirection(const std::array<TripletFitObservation, 3>& observations,
-                         double transverseCurvature,
-                         std::array<double, 3>& direction) noexcept
-{
-  std::array<std::array<double, 3>, 2> segmentDirections{};
-  for (std::size_t segment = 0; segment < 2; ++segment) {
-    const double dx = observations[segment + 1].position[0] - observations[segment].position[0];
-    const double dy = observations[segment + 1].position[1] - observations[segment].position[1];
-    const double dz = observations[segment + 1].position[2] - observations[segment].position[2];
-    const double chord = std::hypot(dx, dy);
-    const double halfSine = 0.5 * transverseCurvature * chord;
-    if (!std::isfinite(chord) || chord <= 0. || !std::isfinite(halfSine) || std::abs(halfSine) >= 1.) {
-      return false;
-    }
-
-    double halfAngle{0.};
-    double arcOverChord{1.};
-    if (std::abs(halfSine) < 1.e-4) {
-      const double halfSine2 = halfSine * halfSine;
-      halfAngle = halfSine * (1. + halfSine2 / 6. + 3. * halfSine2 * halfSine2 / 40.);
-      arcOverChord = 1. + halfSine2 / 6. + 3. * halfSine2 * halfSine2 / 40.;
-    } else {
-      halfAngle = std::asin(halfSine);
-      arcOverChord = halfAngle / halfSine;
-    }
-    const double transverseArc = chord * arcOverChord;
-    const double tanLambda = dz / transverseArc;
-    const double inverse3DScale = 1. / std::sqrt(1. + tanLambda * tanLambda);
-    const double rotation = segment == 0 ? halfAngle : -halfAngle;
-    const double cosine = std::cos(rotation);
-    const double sine = std::sin(rotation);
-    const double unitX = dx / chord;
-    const double unitY = dy / chord;
-    segmentDirections[segment] = {
-      (cosine * unitX - sine * unitY) * inverse3DScale,
-      (sine * unitX + cosine * unitY) * inverse3DScale,
-      tanLambda * inverse3DScale};
-  }
-
-  const std::array<double, 3> sum{
-    segmentDirections[0][0] + segmentDirections[1][0],
-    segmentDirections[0][1] + segmentDirections[1][1],
-    segmentDirections[0][2] + segmentDirections[1][2]};
-  const double norm = std::sqrt(sum[0] * sum[0] + sum[1] * sum[1] + sum[2] * sum[2]);
-  if (!std::isfinite(norm) || norm <= 0.) {
-    return false;
-  }
-  direction = {sum[0] / norm, sum[1] / norm, sum[2] / norm};
-  return true;
-}
-
-bool normalize(const std::array<double, 3>& input, std::array<double, 3>& output) noexcept
-{
-  const double norm = std::sqrt(input[0] * input[0] + input[1] * input[1] + input[2] * input[2]);
-  if (!std::isfinite(norm) || norm <= 0.) {
-    return false;
-  }
-  output = {input[0] / norm, input[1] / norm, input[2] / norm};
-  return true;
-}
-
-bool fittedMomentum(const LocalTripletFitResult& fit, double bz, uint8_t absCharge,
-                    double& momentum, double& transverseMomentum) noexcept
-{
-  if (absCharge == 0 || !std::isfinite(bz) || bz == 0. ||
-      !std::isfinite(fit.curvature) || !std::isfinite(fit.referenceSinTheta) ||
-      fit.referenceSinTheta <= 0. || fit.referenceSinTheta > 1.) {
-    return false;
-  }
-  if (fit.curvature == 0.) {
-    momentum = std::numeric_limits<double>::infinity();
-    transverseMomentum = std::numeric_limits<double>::infinity();
-    return true;
-  }
-  momentum = static_cast<double>(absCharge) *
-             std::abs(static_cast<double>(o2::constants::math::B2C) * bz / fit.curvature);
-  transverseMomentum = momentum * fit.referenceSinTheta;
-  return std::isfinite(momentum) && momentum > 0. &&
-         std::isfinite(transverseMomentum) && transverseMomentum > 0.;
-}
-
 } // namespace
 
 bool makeCylinderTripletFitObservation(const SurfaceDescriptor& surface,
@@ -447,45 +359,6 @@ bool makeTripletFitObservation(const SurfaceDescriptor& surface,
     makeDiskTripletFitObservation};
   const auto kindIndex = static_cast<std::size_t>(surface.kind);
   return kindIndex < builders.size() && builders[kindIndex](surface, measurement, observation);
-}
-
-bool makeCylinderTripletFitMaterial(const SurfaceDescriptor& surface,
-                                    const SurfaceMeasurement& measurement,
-                                    TripletFitMaterial& material) noexcept
-{
-  if (surface.kind != SurfaceKind::Cylinder || !materialIsValid(surface.material) ||
-      !std::isfinite(measurement.frame.frameAngle)) {
-    return false;
-  }
-  const TripletFitMaterial scratch{
-    {std::cos(measurement.frame.frameAngle), std::sin(measurement.frame.frameAngle), 0.},
-    surface.material};
-  material = scratch;
-  return true;
-}
-
-bool makeDiskTripletFitMaterial(const SurfaceDescriptor& surface,
-                                const SurfaceMeasurement&,
-                                TripletFitMaterial& material) noexcept
-{
-  if (surface.kind != SurfaceKind::Disk || !materialIsValid(surface.material)) {
-    return false;
-  }
-  material = {{0., 0., 1.}, surface.material};
-  return true;
-}
-
-bool makeTripletFitMaterial(const SurfaceDescriptor& surface,
-                            const SurfaceMeasurement& measurement,
-                            TripletFitMaterial& material) noexcept
-{
-  using Builder = bool (*)(const SurfaceDescriptor&, const SurfaceMeasurement&,
-                           TripletFitMaterial&) noexcept;
-  static constexpr std::array<Builder, 2> builders{
-    makeCylinderTripletFitMaterial,
-    makeDiskTripletFitMaterial};
-  const auto kindIndex = static_cast<std::size_t>(surface.kind);
-  return kindIndex < builders.size() && builders[kindIndex](surface, measurement, material);
 }
 
 bool fitLocalTripletUniformSolenoid(
@@ -589,117 +462,6 @@ double fittedTripletTransverseMomentum(const LocalTripletFitResult& result,
   return static_cast<double>(absCharge) *
          std::abs(static_cast<double>(o2::constants::math::B2C) * bz *
                   result.referenceSinTheta / result.curvature);
-}
-
-MaterialTripletFitStatus fitLocalTripletWithMaterial(
-  const std::array<TripletFitObservation, 3>& observations,
-  const TripletFitMaterial& middleMaterial,
-  double bz, uint8_t absCharge, o2::track::PID pid,
-  MaterialAwareTripletFitResult& result) noexcept
-{
-  if (!materialIsValid(middleMaterial.nominal) || absCharge == 0 ||
-      !std::isfinite(bz) || bz == 0. || pid.getID() >= o2::track::PID::NIDsTot ||
-      (pid.getMass() == 0.f && absCharge != 0)) {
-    return MaterialTripletFitStatus::InvalidInput;
-  }
-
-  std::array<double, 3> normal{};
-  if (!normalize(middleMaterial.unitNormal, normal)) {
-    return MaterialTripletFitStatus::InvalidInput;
-  }
-
-  LocalTripletFitResult fit{};
-  if (!fitLocalTripletUniformSolenoid(observations, {0.}, fit)) {
-    return MaterialTripletFitStatus::LocalFitFailure;
-  }
-  std::array<double, 3> middleDirection{};
-  if (!makeMiddleDirection(observations, fit.referenceTransverseCurvature, middleDirection)) {
-    return MaterialTripletFitStatus::LocalFitFailure;
-  }
-  const double incidenceCosine = std::abs(middleDirection[0] * normal[0] +
-                                          middleDirection[1] * normal[1] +
-                                          middleDirection[2] * normal[2]);
-  if (!std::isfinite(incidenceCosine) || incidenceCosine <= 0.) {
-    return MaterialTripletFitStatus::MaterialEvaluationFailure;
-  }
-  const double pathXOverX0 = static_cast<double>(middleMaterial.nominal.xOverX0) / incidenceCosine;
-  const double pathArealDensity = static_cast<double>(middleMaterial.nominal.arealDensityGPerCm2) / incidenceCosine;
-  if (!std::isfinite(pathXOverX0) || pathXOverX0 > std::numeric_limits<float>::max() ||
-      !std::isfinite(pathArealDensity) || pathArealDensity > std::numeric_limits<float>::max()) {
-    return MaterialTripletFitStatus::MaterialEvaluationFailure;
-  }
-  const material::IntegratedMaterialBudget pathMaterial{
-    static_cast<float>(pathXOverX0), static_cast<float>(pathArealDensity)};
-
-  double momentum{0.};
-  double transverseMomentum{0.};
-  if (!fittedMomentum(fit, bz, absCharge, momentum, transverseMomentum)) {
-    return MaterialTripletFitStatus::MomentumUnresolved;
-  }
-  if (std::isinf(momentum)) {
-    result = {fit, momentum, transverseMomentum, 0., incidenceCosine, 1};
-    return MaterialTripletFitStatus::Success;
-  }
-
-  constexpr uint8_t DirectIterations = 8;
-  constexpr uint8_t MaximumIterations = 128;
-  constexpr double RelativeFixedPointTolerance = 4.76837158203125e-7;
-  double angularVariance{0.};
-  for (uint8_t iteration = 1; iteration <= MaximumIterations; ++iteration) {
-    if (momentum > std::numeric_limits<float>::max()) {
-      return MaterialTripletFitStatus::MaterialEvaluationFailure;
-    }
-    const auto materialResult = material::calculateMaterialPhysics(
-      static_cast<float>(momentum), pid, absCharge,
-      material::MaterialTraversalDirection::AlongMomentum, pathMaterial);
-    if (materialResult.failure == material::MaterialFailureReason::MomentumBelowMinimum) {
-      return MaterialTripletFitStatus::MomentumBelowMaterialRange;
-    }
-    if (materialResult.failure == material::MaterialFailureReason::ExcessiveScattering) {
-      return MaterialTripletFitStatus::ExcessiveScattering;
-    }
-    if (materialResult.failure == material::MaterialFailureReason::StoppedInMaterial) {
-      return MaterialTripletFitStatus::StoppedInMaterial;
-    }
-    if (!materialResult.ok() || !std::isfinite(materialResult.highlandTheta2Rad2) ||
-        materialResult.highlandTheta2Rad2 < 0.f) {
-      return MaterialTripletFitStatus::MaterialEvaluationFailure;
-    }
-
-    const double targetAngularVariance = materialResult.highlandTheta2Rad2;
-    if (targetAngularVariance == angularVariance ||
-        (angularVariance > 0. &&
-         std::abs(targetAngularVariance - angularVariance) <=
-           RelativeFixedPointTolerance * std::max(targetAngularVariance, angularVariance))) {
-      result = {fit, momentum, transverseMomentum, angularVariance,
-                incidenceCosine, static_cast<uint8_t>(std::max<int>(1, iteration - 1))};
-      return MaterialTripletFitStatus::Success;
-    }
-    const double nextAngularVariance = iteration <= DirectIterations
-                                         ? targetAngularVariance
-                                         : 0.5 * (angularVariance + targetAngularVariance);
-    LocalTripletFitResult nextFit{};
-    if (!fitLocalTripletUniformSolenoid(observations, {nextAngularVariance}, nextFit)) {
-      return MaterialTripletFitStatus::LocalFitFailure;
-    }
-    double nextMomentum{0.};
-    double nextTransverseMomentum{0.};
-    if (!fittedMomentum(nextFit, bz, absCharge, nextMomentum, nextTransverseMomentum)) {
-      return MaterialTripletFitStatus::MomentumUnresolved;
-    }
-    if (std::isinf(nextMomentum) ||
-        (iteration <= DirectIterations &&
-         std::abs(nextMomentum - momentum) <= RelativeFixedPointTolerance * std::max(nextMomentum, momentum))) {
-      result = {nextFit, nextMomentum, nextTransverseMomentum,
-                nextAngularVariance, incidenceCosine, iteration};
-      return MaterialTripletFitStatus::Success;
-    }
-    fit = nextFit;
-    momentum = nextMomentum;
-    transverseMomentum = nextTransverseMomentum;
-    angularVariance = nextAngularVariance;
-  }
-  return MaterialTripletFitStatus::NoConvergence;
 }
 
 } // namespace o2::itsmft::tracking

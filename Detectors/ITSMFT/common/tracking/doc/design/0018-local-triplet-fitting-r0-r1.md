@@ -1,6 +1,6 @@
 # Detector-neutral local triplet fitting (R0/R1)
 
-- Status: prototype design
+- Status: active standalone prototype
 - Date: 2026-08-10
 - Predecessor: [transverse tracklet-direction compatibility](0017-transverse-tracklet-direction-compatibility.md)
 - Reference: A. Schoening, [A General Track Fit based on Triplets](https://arxiv.org/abs/2406.05240)
@@ -91,16 +91,12 @@ transactionally. Near zero bending, algebraic series for the otherwise
 removable `0/0` terms are selected by a machine-precision-scale numerical
 branch. This is not a physics cut.
 
-## R2 entry criteria
+## Production direction
 
-Before production filtering, the prototype must demonstrate:
-
-- correct synthetic curvature, covariance, rotation/translation invariance,
-  and failure behavior;
-- stable pulls with realistic ITS and MFT measurement covariances;
-- an explicit momentum-dependent material iteration using the fitted
-  momentum, PID, charge, and middle-surface material;
-- candidate-level cut-flow and CPU cost against the two current cheap gates;
-- a decision on whether the fit replaces both gates or runs only on their
-  survivors.
-
+The momentum-dependent material experiment was characterized and archived in
+[the R2 design](0019-momentum-dependent-local-triplet-material.md). For the
+neighbour-compatibility use case, the active primitive remains conditional on
+one externally prepared process variance. The intended caller supplies the
+same `TrackletMinPt` scattering envelope used by the preceding candidate
+gates and evaluates this fit once. See the
+[fast-estimator assessment](0020-fast-triplet-estimator.md).

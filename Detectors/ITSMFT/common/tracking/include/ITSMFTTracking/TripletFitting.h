@@ -9,11 +9,9 @@
 #define ALICEO2_ITSMFT_TRACKING_TRIPLETFITTING_H_
 
 #include <array>
-#include <cstdint>
 
 #include "ITSMFTTracking/SurfaceDescriptor.h"
 #include "ITSMFTTracking/SurfaceMeasurement.h"
-#include "ReconstructionDataFormats/PID.h"
 
 namespace o2::itsmft::tracking
 {
@@ -37,23 +35,6 @@ struct TripletFitProcessNoise {
   double angularVariance{0.};
 };
 
-struct TripletFitMaterial {
-  std::array<double, 3> unitNormal{};
-  NominalSurfaceMaterial nominal{};
-};
-
-enum class MaterialTripletFitStatus : uint8_t {
-  Success,
-  InvalidInput,
-  LocalFitFailure,
-  MomentumUnresolved,
-  MomentumBelowMaterialRange,
-  ExcessiveScattering,
-  StoppedInMaterial,
-  MaterialEvaluationFailure,
-  NoConvergence
-};
-
 struct LocalTripletFitResult {
   double curvature{0.};
   double curvatureVariance{0.};
@@ -69,15 +50,6 @@ struct LocalTripletFitResult {
   double gammaPhiPhi{0.};
 };
 
-struct MaterialAwareTripletFitResult {
-  LocalTripletFitResult local{};
-  double momentum{0.};
-  double transverseMomentum{0.};
-  double angularVariance{0.};
-  double incidenceCosine{0.};
-  uint8_t iterations{0};
-};
-
 bool makeCylinderTripletFitObservation(const SurfaceDescriptor& surface,
                                        const SurfaceMeasurement& measurement,
                                        TripletFitObservation& observation) noexcept;
@@ -90,18 +62,6 @@ bool makeTripletFitObservation(const SurfaceDescriptor& surface,
                                const SurfaceMeasurement& measurement,
                                TripletFitObservation& observation) noexcept;
 
-bool makeCylinderTripletFitMaterial(const SurfaceDescriptor& surface,
-                                    const SurfaceMeasurement& measurement,
-                                    TripletFitMaterial& material) noexcept;
-
-bool makeDiskTripletFitMaterial(const SurfaceDescriptor& surface,
-                                const SurfaceMeasurement& measurement,
-                                TripletFitMaterial& material) noexcept;
-
-bool makeTripletFitMaterial(const SurfaceDescriptor& surface,
-                            const SurfaceMeasurement& measurement,
-                            TripletFitMaterial& material) noexcept;
-
 bool fitLocalTripletUniformSolenoid(
   const std::array<TripletFitObservation, 3>& observations,
   const TripletFitProcessNoise& processNoise,
@@ -112,12 +72,6 @@ double fittedTripletTransverseMomentum(const LocalTripletFitResult& result,
 
 double fittedTripletTransverseMomentum(const LocalTripletFitResult& result,
                                        double bz, uint8_t absCharge) noexcept;
-
-MaterialTripletFitStatus fitLocalTripletWithMaterial(
-  const std::array<TripletFitObservation, 3>& observations,
-  const TripletFitMaterial& middleMaterial,
-  double bz, uint8_t absCharge, o2::track::PID pid,
-  MaterialAwareTripletFitResult& result) noexcept;
 
 } // namespace o2::itsmft::tracking
 

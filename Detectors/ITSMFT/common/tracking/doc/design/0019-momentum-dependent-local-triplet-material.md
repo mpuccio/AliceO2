@@ -1,12 +1,14 @@
 # Momentum-dependent material for the local triplet fit (R2)
 
-- Status: standalone prototype
+- Status: archived experiment
 - Date: 2026-08-10
 - Predecessor: [detector-neutral local triplet fitting](0018-local-triplet-fitting-r0-r1.md)
+- Preserved implementation: `ae27032797`
+- Successor: [fast triplet estimator](0020-fast-triplet-estimator.md)
 
-## Decision
+## Experimental decision
 
-R2 keeps the geometric triplet fit detector-neutral and adds one explicit
+R2 kept the geometric triplet fit detector-neutral and added one explicit
 fixed-point layer around it. It is not called from `TrackerTraits` and does
 not yet replace either cheap cell-direction gate.
 
@@ -80,9 +82,6 @@ material from other evaluation failures.
 ## Integration decision
 
 The real-candidate R2 characterization demonstrates a usable ITS momentum
-estimate but a broad MFT three-hit transverse-momentum residual. Therefore
-this slice adds the neutral fit/material primitive and its evidence, but no
-cell-selection call site or new cut. Production integration needs a later
-multi-triplet/track fit or other lever-arm improvement, followed by a new
-candidate-physics decision.
-
+estimate but a broad MFT three-hit transverse-momentum residual. Its iterative
+material wrapper is therefore not part of the active prototype. The exact
+implementation and tests remain recoverable at the commit named above.
