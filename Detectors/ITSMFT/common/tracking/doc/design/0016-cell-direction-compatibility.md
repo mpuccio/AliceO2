@@ -21,7 +21,7 @@ K = (z0 - z1) (r1 - r2) - (z1 - z2) (r0 - r1)
 The decision is
 
 ```text
-K^2 / Var(K) < NSigmaCut^2
+K^2 / (Var_measurement(K) + Var_process(K)) < NSigmaCut^2
 ```
 
 There is no slope division, fixed direction resolution, family-specific
@@ -38,11 +38,33 @@ dK/d(r,z)[1] = ( (z0-z1)+(z1-z2), -((r0-r1)+(r1-r2)))
 dK/d(r,z)[2] = (-(z0-z1),        r0-r1)
 ```
 
-`Var(K)` is the sum of each derivative pair contracted with that
-observation's full symmetric `(r,z)` covariance. Inputs must be finite, each
+`Var_measurement(K)` is the sum of each derivative pair contracted with that
+observation's full symmetric `(r,z)` covariance.
+
+The process term models the outgoing transition's already-prepared multiple
+scattering as an equivalent thin angular kick at the middle observation. For
+the incoming and outgoing segment vectors `a=(r1-r0,z1-z0)` and
+`b=(r2-r1,z2-z1)`, with `L=|b|` and normal `n=(-b_z,b_r)/L`, the induced
+outer-point covariance is
+
+```text
+Q_process = L^2 sigmaTheta^2 n n^T
+Var_process(K) = J2 Q_process J2^T
+               = (a dot b)^2 sigmaTheta^2.
+```
+
+There is no slope denominator and no spatial uncertainty floor. The neutral
+`sigmaTheta^2` input is the square of the outgoing transition RMS scattering
+angle already computed from nominal material and `TrackletMinPt` during
+transition preparation. A skipped outgoing transition is represented by its
+quadrature-summed angle at the middle observation; this is conservative
+because it gives downstream thin scatterers the maximum outgoing lever arm.
+The cell loop neither estimates momentum nor repeats family material math.
+
+Inputs must be finite, angular variance must be non-negative, each measurement
 covariance must be positive semidefinite, `r` must be positive, and the final
-variance must be finite and positive. Failure is transactional and rejects
-the candidate.
+variance must be finite and positive. Failure is transactional and rejects the
+candidate.
 
 ## Measurement models
 
@@ -79,9 +101,10 @@ conversion.
 
 `TrackerTraits` resolves the three measurements and descriptors, asks the
 descriptor-selected observation leaf to construct each neutral observation,
-and makes one shared compatibility call. It contains no family branch for
-the direction decision. Existing surface selection remains only for cell-seed
-and propagation leaves.
+binds the already-prepared outgoing transition angle as neutral process noise,
+and makes one shared compatibility call. It contains no family branch for the
+direction decision. Existing surface selection remains only for cell-seed,
+propagation, and transition-material leaves.
 
 `CellFinding.h` and `TrackletFinding.h` were consolidated into
 `CandidateFinding.h`, with their implementation in `CandidateFinding.cxx`.
@@ -92,6 +115,15 @@ seed construction, attachment, extension, and transition preparation.
 The common `CellDeltaTanLambdaSigma` / `cellDeltaTanLambdaSigma` parameter and
 its configuration projection were removed. Legacy ITS production tracking
 retains its own parameter and implementation outside this common-CA slice.
+
+## Deferred transverse extension
+
+This correction deliberately stops at longitudinal `(r,z)` compatibility.
+It does not introduce the stashed triplet fitter, estimate candidate `pT`, or
+add a `deltaPhi` selection. A later step may add a cheap analytic transverse
+triplet residual and curvature bound using the same `TrackletMinPt` contract.
+The full detector-neutral triplet fit remains a subsequent R&D migration after
+that primitive has timing and covariance evidence.
 
 ## Deferred deletion inventory
 
