@@ -1092,7 +1092,11 @@ void TrackerTraits::computeLayerCellsImpl(
           continue;
         }
         CellDirectionCompatibility directionCompatibility{};
-        if (cellDirectionsAreCompatible(directionObservations, mKernelParameters.nSigmaCut,
+        // The outgoing transition begins at the middle hit; its precomputed
+        // TrackletMinPt scattering is the equivalent thin-kick uncertainty.
+        const double transitionMSAngle = static_cast<double>(mScratch->getTransitionMSAngle(secondTransitionId));
+        const DirectionProcessNoise directionProcessNoise{transitionMSAngle * transitionMSAngle};
+        if (cellDirectionsAreCompatible(directionObservations, directionProcessNoise, mKernelParameters.nSigmaCut,
                                         directionCompatibility)) {
 
           // Strictly {inner, middle, outer}: Cylinder reads [1] then

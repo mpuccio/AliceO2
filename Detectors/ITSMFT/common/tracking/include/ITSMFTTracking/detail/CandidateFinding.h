@@ -249,6 +249,11 @@ struct DirectionObservation {
   double varianceZ{0.};
 };
 
+struct DirectionProcessNoise {
+  // Variance of an equivalent thin angular kick at the middle observation.
+  double angularVariance{0.};
+};
+
 struct CellDirectionCompatibility {
   double residual{0.};
   double variance{0.};
@@ -268,6 +273,7 @@ bool makeDirectionObservation(const SurfaceDescriptor& surface,
                               DirectionObservation& observation) noexcept;
 
 bool cellDirectionsAreCompatible(const std::array<DirectionObservation, 3>& observations,
+                                 const DirectionProcessNoise& processNoise,
                                  float nSigmaCut,
                                  CellDirectionCompatibility& compatibility) noexcept;
 

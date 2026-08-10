@@ -381,10 +381,12 @@ bool makeDirectionObservation(const SurfaceDescriptor& surface,
 }
 
 bool cellDirectionsAreCompatible(const std::array<DirectionObservation, 3>& observations,
+                                 const DirectionProcessNoise& processNoise,
                                  float nSigmaCut,
                                  CellDirectionCompatibility& compatibility) noexcept
 {
   if (!std::isfinite(nSigmaCut) || nSigmaCut <= 0.f ||
+      !std::isfinite(processNoise.angularVariance) || processNoise.angularVariance < 0. ||
       !observationIsValid(observations[0]) ||
       !observationIsValid(observations[1]) ||
       !observationIsValid(observations[2])) {
@@ -412,6 +414,14 @@ bool cellDirectionsAreCompatible(const std::array<DirectionObservation, 3>& obse
                 2. * derivativeR * derivativeZ * observations[i].covarianceRZ +
                 derivativeZ * derivativeZ * observations[i].varianceZ;
   }
+  const double incomingR = middle.r - first.r;
+  const double incomingZ = middle.z - first.z;
+  const double outgoingR = last.r - middle.r;
+  const double outgoingZ = last.z - middle.z;
+  const double segmentDotProduct = incomingR * outgoingR + incomingZ * outgoingZ;
+  // A middle-point kick displaces the outer point by L*n*dTheta, hence
+  // dK/dTheta is the scalar product of the two segment vectors.
+  variance += segmentDotProduct * segmentDotProduct * processNoise.angularVariance;
   if (!std::isfinite(residual) || !std::isfinite(variance) || variance <= 0.) {
     return false;
   }
