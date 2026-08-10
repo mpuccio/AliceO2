@@ -125,8 +125,6 @@ struct TrackingParameters {
   float PVres = 1.e-2f;
   /// Trackleting cuts
   float TrackletMinPt = 0.3f;
-  /// Cell finding cuts
-  float CellDeltaTanLambdaSigma = 0.007f;
   /// Fitter parameters
   o2::base::PropagatorImpl<float>::MatCorrType CorrType = o2::base::PropagatorImpl<float>::MatCorrType::USEMatCorrNONE;
   float MaxChi2ClusterAttachment = 60.f;

@@ -64,7 +64,6 @@ o2::itsmft::TrackingParameters translateTrackingParameters(const o2::its::Tracki
   translated.NSigmaCut = legacy.NSigmaCut;
   translated.PVres = legacy.PVres;
   translated.TrackletMinPt = legacy.TrackletMinPt;
-  translated.CellDeltaTanLambdaSigma = legacy.CellDeltaTanLambdaSigma;
   translated.CorrType = legacy.CorrType;
   translated.MaxChi2ClusterAttachment = legacy.MaxChi2ClusterAttachment;
   translated.MaxChi2NDF = legacy.MaxChi2NDF;

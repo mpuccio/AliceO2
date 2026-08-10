@@ -5,16 +5,15 @@
 // This software is distributed under the terms of the GNU General Public
 // License v3 (GPL Version 3), copied verbatim in the file "COPYING".
 ///
-/// \file TrackletFinding.cxx
-/// \brief Out-of-line tracklet operation helpers
+/// \file CandidateFinding.cxx
+/// \brief Out-of-line tracklet, cell, and candidate-extension operations
 ///
 /// Only this translation unit may include MFTFwdTrackHelpers.h on behalf of
 /// the D007 operation boundary, so the common public headers
 /// stays free of MFT-specific constants, TimeFrame, and typed-output
 /// dependencies.
 
-#include "ITSMFTTracking/detail/TrackletFinding.h"
-#include "ITSMFTTracking/detail/CellFinding.h"
+#include "ITSMFTTracking/detail/CandidateFinding.h"
 
 #include <algorithm>
 #include <array>
@@ -282,8 +281,141 @@ bool acceptTrackletCandidate(
 // The cell leaves are composed entirely from the existing
 // barrel::/forward:: primitives (BarrelSurfaceStateOperations.h/
 // ForwardSurfaceStateOperations.h) and the shared PID/absCharge-aware
-// material kernel (MaterialPhysics.h). See TrackletFinding.h for
+// material kernel (MaterialPhysics.h). See CandidateFinding.h for
 // the per-operation contract documentation.
+
+namespace
+{
+
+bool covarianceIsPositiveSemidefinite(double varianceFirst,
+                                      double covariance,
+                                      double varianceSecond) noexcept
+{
+  return std::isfinite(varianceFirst) && std::isfinite(covariance) &&
+         std::isfinite(varianceSecond) && varianceFirst >= 0. &&
+         varianceSecond >= 0. &&
+         varianceFirst * varianceSecond - covariance * covariance >= 0.;
+}
+
+bool observationIsValid(const DirectionObservation& observation) noexcept
+{
+  return std::isfinite(observation.r) && observation.r > 0. &&
+         std::isfinite(observation.z) &&
+         covarianceIsPositiveSemidefinite(observation.varianceR,
+                                          observation.covarianceRZ,
+                                          observation.varianceZ);
+}
+
+} // namespace
+
+bool makeCylinderDirectionObservation(const SurfaceDescriptor& surface,
+                                      const SurfaceMeasurement& measurement,
+                                      DirectionObservation& observation) noexcept
+{
+  if (surface.kind != SurfaceKind::Cylinder ||
+      !std::isfinite(surface.referenceCoordinate) || surface.referenceCoordinate <= 0.f ||
+      !std::isfinite(measurement.frame.v) ||
+      !covarianceIsPositiveSemidefinite(measurement.covariance.uu,
+                                        measurement.covariance.uv,
+                                        measurement.covariance.vv)) {
+    return false;
+  }
+  const DirectionObservation scratch{surface.referenceCoordinate,
+                                     measurement.frame.v,
+                                     0., 0., measurement.covariance.vv};
+  if (!observationIsValid(scratch)) {
+    return false;
+  }
+  observation = scratch;
+  return true;
+}
+
+bool makeDiskDirectionObservation(const SurfaceDescriptor& surface,
+                                  const SurfaceMeasurement& measurement,
+                                  DirectionObservation& observation) noexcept
+{
+  const double x = measurement.global.x;
+  const double y = measurement.global.y;
+  const double varianceX = measurement.covariance.uu;
+  const double covarianceXY = measurement.covariance.uv;
+  const double varianceY = measurement.covariance.vv;
+  const double radius2 = x * x + y * y;
+  if (surface.kind != SurfaceKind::Disk ||
+      !std::isfinite(surface.referenceCoordinate) ||
+      !std::isfinite(x) || !std::isfinite(y) || radius2 <= 0. ||
+      !covarianceIsPositiveSemidefinite(varianceX, covarianceXY, varianceY)) {
+    return false;
+  }
+  const double radius = std::sqrt(radius2);
+  const double varianceR = (x * x * varianceX + 2. * x * y * covarianceXY +
+                            y * y * varianceY) /
+                           radius2;
+  const DirectionObservation scratch{radius, surface.referenceCoordinate,
+                                     varianceR, 0., 0.};
+  if (!observationIsValid(scratch)) {
+    return false;
+  }
+  observation = scratch;
+  return true;
+}
+
+bool makeDirectionObservation(const SurfaceDescriptor& surface,
+                              const SurfaceMeasurement& measurement,
+                              DirectionObservation& observation) noexcept
+{
+  using Builder = bool (*)(const SurfaceDescriptor&, const SurfaceMeasurement&,
+                           DirectionObservation&) noexcept;
+  static constexpr std::array<Builder, 2> builders{
+    makeCylinderDirectionObservation,
+    makeDiskDirectionObservation};
+  const auto kindIndex = static_cast<std::size_t>(surface.kind);
+  return kindIndex < builders.size() && builders[kindIndex](surface, measurement, observation);
+}
+
+bool cellDirectionsAreCompatible(const std::array<DirectionObservation, 3>& observations,
+                                 float nSigmaCut,
+                                 CellDirectionCompatibility& compatibility) noexcept
+{
+  if (!std::isfinite(nSigmaCut) || nSigmaCut <= 0.f ||
+      !observationIsValid(observations[0]) ||
+      !observationIsValid(observations[1]) ||
+      !observationIsValid(observations[2])) {
+    return false;
+  }
+
+  const auto& first = observations[0];
+  const auto& middle = observations[1];
+  const auto& last = observations[2];
+  const double deltaZ01 = first.z - middle.z;
+  const double deltaZ12 = middle.z - last.z;
+  const double deltaR01 = first.r - middle.r;
+  const double deltaR12 = middle.r - last.r;
+  const double residual = deltaZ01 * deltaR12 - deltaZ12 * deltaR01;
+  const std::array<std::array<double, 2>, 3> derivatives{{
+    {-deltaZ12, deltaR12},
+    {deltaZ01 + deltaZ12, -(deltaR01 + deltaR12)},
+    {-deltaZ01, deltaR01},
+  }};
+  double variance = 0.;
+  for (std::size_t i = 0; i < observations.size(); ++i) {
+    const double derivativeR = derivatives[i][0];
+    const double derivativeZ = derivatives[i][1];
+    variance += derivativeR * derivativeR * observations[i].varianceR +
+                2. * derivativeR * derivativeZ * observations[i].covarianceRZ +
+                derivativeZ * derivativeZ * observations[i].varianceZ;
+  }
+  if (!std::isfinite(residual) || !std::isfinite(variance) || variance <= 0.) {
+    return false;
+  }
+  const double chi2 = residual * residual / variance;
+  if (!std::isfinite(chi2)) {
+    return false;
+  }
+
+  compatibility = CellDirectionCompatibility{residual, variance, chi2};
+  const double threshold = static_cast<double>(nSigmaCut) * nSigmaCut;
+  return chi2 < threshold;
+}
 
 bool buildCylinderCellSeed(
   const SurfaceMeasurement& measurementInner,

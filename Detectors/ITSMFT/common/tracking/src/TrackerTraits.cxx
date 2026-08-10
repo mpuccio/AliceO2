@@ -39,8 +39,7 @@
 #include "ITSMFTTracking/detail/SurfaceTrackingScratch.h"
 #include "ITSMFTTracking/TrackerTraits.h"
 #include "ITSMFTTracking/detail/SurfacePlanBinding.h"
-#include "ITSMFTTracking/detail/CellFinding.h"
-#include "ITSMFTTracking/detail/TrackletFinding.h"
+#include "ITSMFTTracking/detail/CandidateFinding.h"
 #include "ITStracking/Tracklet.h"
 #include "SimulationDataFormat/MCCompLabel.h"
 
@@ -138,7 +137,6 @@ TrackingKernelParameters bindTrackingKernelParameters(const TrackingParameters& 
 {
   TrackingKernelParameters out;
   out.trackletMinPt = params.TrackletMinPt;
-  out.cellDeltaTanLambdaSigma = params.CellDeltaTanLambdaSigma;
   out.nSigmaCut = params.NSigmaCut;
   out.maxChi2ClusterAttachment = params.MaxChi2ClusterAttachment;
   out.maxChi2NDF = params.MaxChi2NDF;
@@ -1041,22 +1039,29 @@ void TrackerTraits::computeLayerCellsImpl(
   const auto& topology = mTraversalGraph;
 
   mTaskArena->execute([&] {
+    struct CellHitBinding {
+      std::array<int, 3> layers{};
+      std::array<SurfaceDescriptor, 3> surfaces{};
+    };
+
     // Resolves one sparse SurfaceCellTopology's three hit surfaces to
     // runtime-plan positions through the immutable binding. Called exactly
     // once per CellTopologyId, outside the per-tracklet candidate loop.
-    auto resolveCellHitLayers = [&](const auto& cellTopology) -> std::array<int, 3> {
+    auto resolveCellHitBinding = [&](const auto& cellTopology) -> CellHitBinding {
       const auto& firstTransition = topology.getTransition(cellTopology.firstTransition);
       const auto& secondTransition = topology.getTransition(cellTopology.secondTransition);
       const std::array<SurfaceId, 3> surfaces{firstTransition.from, firstTransition.to, secondTransition.to};
-      std::array<int, 3> layers{};
+      CellHitBinding binding;
       for (int i = 0; i < 3; ++i) {
         const auto surfaceId = surfaces[i];
-        layers[i] = requireSurfacePosition(iteration, surfaces[i]);
+        binding.layers[i] = requireSurfacePosition(iteration, surfaceId);
+        binding.surfaces[i] = topology.getSurface(surfaceId);
       }
-      return layers;
+      return binding;
     };
 
-    auto forTrackletCells = [&](auto Mode, SurfaceKind kind, int firstTransitionId, int secondTransitionId, const std::array<int, 3>& hitLayers, bounded_vector<CellSeed>& layerCells, int iTracklet, int offset = 0) -> int {
+    auto forTrackletCells = [&](auto Mode, SurfaceKind kind, int firstTransitionId, int secondTransitionId, const CellHitBinding& hitBinding, bounded_vector<CellSeed>& layerCells, int iTracklet, int offset = 0) -> int {
+      const auto& hitLayers = hitBinding.layers;
       const o2::its::Tracklet& currentTracklet{mScratch->getTracklets()[firstTransitionId][iTracklet]};
       const int nextLayerClusterIndex{currentTracklet.secondClusterIndex};
       const int nextLayerFirstTrackletIndex{mScratch->getTrackletsLookupTable()[secondTransitionId][nextLayerClusterIndex]};
@@ -1071,18 +1076,24 @@ void TrackerTraits::computeLayerCellsImpl(
           continue;
         }
 
-        const float deltaTanLambdaSigma = std::abs(currentTracklet.tanLambda - nextTracklet.tanLambda) / mTrkParams[iteration].CellDeltaTanLambdaSigma;
-        if (deltaTanLambdaSigma < mTrkParams[iteration].NSigmaCut) {
+        /// Track seed preparation. Clusters are numbered progressively from the innermost going outward.
+        const int clusId[3]{
+          mScratch->getClusters()[hitLayers[0]][currentTracklet.firstClusterIndex].clusterId,
+          mScratch->getClusters()[hitLayers[1]][nextTracklet.firstClusterIndex].clusterId,
+          mScratch->getClusters()[hitLayers[2]][nextTracklet.secondClusterIndex].clusterId};
 
-          /// Track seed preparation. Clusters are numbered progressively from the innermost going outward.
-          const int clusId[3]{
-            mScratch->getClusters()[hitLayers[0]][currentTracklet.firstClusterIndex].clusterId,
-            mScratch->getClusters()[hitLayers[1]][nextTracklet.firstClusterIndex].clusterId,
-            mScratch->getClusters()[hitLayers[2]][nextTracklet.secondClusterIndex].clusterId};
-
-          const auto& measurementInner = mLayerMeasurements[hitLayers[0]][clusId[0]];
-          const auto& measurementMiddle = mLayerMeasurements[hitLayers[1]][clusId[1]];
-          const auto& measurementOuter = mLayerMeasurements[hitLayers[2]][clusId[2]];
+        const auto& measurementInner = mLayerMeasurements[hitLayers[0]][clusId[0]];
+        const auto& measurementMiddle = mLayerMeasurements[hitLayers[1]][clusId[1]];
+        const auto& measurementOuter = mLayerMeasurements[hitLayers[2]][clusId[2]];
+        std::array<DirectionObservation, 3> directionObservations{};
+        if (!makeDirectionObservation(hitBinding.surfaces[0], measurementInner, directionObservations[0]) ||
+            !makeDirectionObservation(hitBinding.surfaces[1], measurementMiddle, directionObservations[1]) ||
+            !makeDirectionObservation(hitBinding.surfaces[2], measurementOuter, directionObservations[2])) {
+          continue;
+        }
+        CellDirectionCompatibility directionCompatibility{};
+        if (cellDirectionsAreCompatible(directionObservations, mKernelParameters.nSigmaCut,
+                                        directionCompatibility)) {
 
           // Strictly {inner, middle, outer}: Cylinder reads [1] then
           // [0] (outer slot unused), Disk reads [2], [1], [0].
@@ -1140,19 +1151,19 @@ void TrackerTraits::computeLayerCellsImpl(
           mScratch->getTracklets()[secondTransitionId].empty()) {
         continue;
       }
-      const auto hitLayers = resolveCellHitLayers(cellTopology);
+      const auto hitBinding = resolveCellHitBinding(cellTopology);
 
       auto& layerCells = mScratch->getCells()[cellTopologyId];
       const int currentLayerTrackletsNum{static_cast<int>(mScratch->getTracklets()[firstTransitionId].size())};
       bounded_vector<int> perTrackletCount(currentLayerTrackletsNum + 1, 0, mMemoryPool.get());
       if (mTaskArena->max_concurrency() <= 1) {
         for (int iTracklet{0}; iTracklet < currentLayerTrackletsNum; ++iTracklet) {
-          perTrackletCount[iTracklet] = forTrackletCells(PassMode::OnePass{}, kind, firstTransitionId, secondTransitionId, hitLayers, layerCells, iTracklet);
+          perTrackletCount[iTracklet] = forTrackletCells(PassMode::OnePass{}, kind, firstTransitionId, secondTransitionId, hitBinding, layerCells, iTracklet);
         }
         std::exclusive_scan(perTrackletCount.begin(), perTrackletCount.end(), perTrackletCount.begin(), 0);
       } else {
         tbb::parallel_for(0, currentLayerTrackletsNum, [&](const int iTracklet) {
-          perTrackletCount[iTracklet] = forTrackletCells(PassMode::TwoPassCount{}, kind, firstTransitionId, secondTransitionId, hitLayers, layerCells, iTracklet);
+          perTrackletCount[iTracklet] = forTrackletCells(PassMode::TwoPassCount{}, kind, firstTransitionId, secondTransitionId, hitBinding, layerCells, iTracklet);
         });
 
         std::exclusive_scan(perTrackletCount.begin(), perTrackletCount.end(), perTrackletCount.begin(), 0);
@@ -1170,7 +1181,7 @@ void TrackerTraits::computeLayerCellsImpl(
           if (offset == perTrackletCount[iTracklet + 1]) {
             return;
           }
-          forTrackletCells(PassMode::TwoPassInsert{}, kind, firstTransitionId, secondTransitionId, hitLayers, layerCells, iTracklet, offset);
+          forTrackletCells(PassMode::TwoPassInsert{}, kind, firstTransitionId, secondTransitionId, hitBinding, layerCells, iTracklet, offset);
         });
       }
 

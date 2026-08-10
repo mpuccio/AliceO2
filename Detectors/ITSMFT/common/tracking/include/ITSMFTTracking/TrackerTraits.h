@@ -33,7 +33,7 @@
 #include "ITSMFTTracking/SurfaceMeasurement.h"
 #include "ITSMFTTracking/TimeFrame.h"
 #include "ITSMFTTracking/detail/SurfacePlanBinding.h"
-#include "ITSMFTTracking/detail/CellFinding.h"
+#include "ITSMFTTracking/detail/CandidateFinding.h"
 #include "ITSMFTTracking/detail/TrackingKernelParameters.h"
 #include "ITStracking/BoundedAllocator.h"
 
@@ -56,7 +56,7 @@ using SeedRefitFunction = bool (*)(const TrackSeed& seed,
 
 #endif
 
-// Full definition lives in TrackletFinding.h (included by
+// Full definition lives in CandidateFinding.h (included by
 // TrackerTraits.cxx, where the operation itself is called). Only used here
 // by const reference in a private method declaration, so a forward
 // declaration is sufficient and keeps this public header's dependency

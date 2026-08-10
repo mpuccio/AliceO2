@@ -221,9 +221,7 @@ std::vector<TrackingParameters> getTrackingParameters(detectors::DetID::ID detId
     }
 
     trackParams[1].TrackletMinPt = 0.15f;
-    trackParams[1].CellDeltaTanLambdaSigma *= 2.f;
     trackParams[2].TrackletMinPt = 0.08f;
-    trackParams[2].CellDeltaTanLambdaSigma *= 4.f;
 
     trackParams[0].MinPt[0] = 1.f / 12.f; // 10 clusters
     trackParams[1].MinPt[0] = 1.f / 12.f;
@@ -262,7 +260,6 @@ std::vector<TrackingParameters> getTrackingParameters(detectors::DetID::ID detId
     trackParams.resize(1);
     resetDetectorDefaults(trackParams[0], detId);
     trackParams[0].MinTrackLength = TrackerParamConfig<detectors::DetID::MFT>::MinTrackLength;
-    trackParams[0].CellDeltaTanLambdaSigma *= 10.f;
     trackParams[0].ColBins = 32;
     trackParams[0].RowBins = 64;
     trackParams[0].PVres = 1.e5f;
@@ -332,7 +329,6 @@ std::vector<TrackingParameters> getTrackingParameters(detectors::DetID::ID detId
     p.RowBins = tc.LUTbinsV > 0 ? tc.LUTbinsV : p.RowBins;
     p.PVres = tc.pvRes > 0 ? tc.pvRes : p.PVres;
     p.NSigmaCut *= tc.nSigmaCut > 0 ? tc.nSigmaCut : 1.f;
-    p.CellDeltaTanLambdaSigma *= tc.deltaTanLres > 0 ? tc.deltaTanLres : 1.f;
     p.TrackletMinPt *= tc.minPt > 0 ? tc.minPt : 1.f;
     for (int iD{0}; iD < 3; ++iD) {
       p.Diamond[iD] = tc.diamondPos[iD];

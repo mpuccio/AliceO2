@@ -29,7 +29,6 @@ GPUhdi() bool isFiniteParam(float x) noexcept
 /// dimensionless.
 struct TrackingKernelParameters {
   float trackletMinPt{0.3f};
-  float cellDeltaTanLambdaSigma{0.007f};
   float nSigmaCut{5.f};
   float maxChi2ClusterAttachment{60.f};
   float maxChi2NDF{30.f};
@@ -38,7 +37,6 @@ struct TrackingKernelParameters {
   GPUhdi() bool isValid() const noexcept
   {
     if (!isFiniteParam(trackletMinPt) || trackletMinPt <= 0.f ||
-        !isFiniteParam(cellDeltaTanLambdaSigma) || cellDeltaTanLambdaSigma <= 0.f ||
         !isFiniteParam(nSigmaCut) || nSigmaCut <= 0.f ||
         !isFiniteParam(maxChi2ClusterAttachment) || maxChi2ClusterAttachment <= 0.f ||
         !isFiniteParam(maxChi2NDF) || maxChi2NDF <= 0.f) {
@@ -50,14 +48,13 @@ struct TrackingKernelParameters {
 
 static_assert(std::is_standard_layout_v<TrackingKernelParameters>);
 static_assert(std::is_trivially_copyable_v<TrackingKernelParameters>);
-static_assert(sizeof(TrackingKernelParameters) == 24);
+static_assert(sizeof(TrackingKernelParameters) == 20);
 static_assert(alignof(TrackingKernelParameters) == alignof(float));
 static_assert(offsetof(TrackingKernelParameters, trackletMinPt) == 0);
-static_assert(offsetof(TrackingKernelParameters, cellDeltaTanLambdaSigma) == 4);
-static_assert(offsetof(TrackingKernelParameters, nSigmaCut) == 8);
-static_assert(offsetof(TrackingKernelParameters, maxChi2ClusterAttachment) == 12);
-static_assert(offsetof(TrackingKernelParameters, maxChi2NDF) == 16);
-static_assert(offsetof(TrackingKernelParameters, pvResolution) == 20);
+static_assert(offsetof(TrackingKernelParameters, nSigmaCut) == 4);
+static_assert(offsetof(TrackingKernelParameters, maxChi2ClusterAttachment) == 8);
+static_assert(offsetof(TrackingKernelParameters, maxChi2NDF) == 12);
+static_assert(offsetof(TrackingKernelParameters, pvResolution) == 16);
 
 } // namespace o2::itsmft::tracking
 
