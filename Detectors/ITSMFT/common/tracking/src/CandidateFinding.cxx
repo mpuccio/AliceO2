@@ -312,17 +312,25 @@ bool makeCylinderDirectionObservation(const SurfaceDescriptor& surface,
                                       const SurfaceMeasurement& measurement,
                                       DirectionObservation& observation) noexcept
 {
+  const double q = measurement.frame.q;
+  const double u = measurement.frame.u;
+  const double radius2 = q * q + u * u;
   if (surface.kind != SurfaceKind::Cylinder ||
       !std::isfinite(surface.referenceCoordinate) || surface.referenceCoordinate <= 0.f ||
+      !std::isfinite(q) || !std::isfinite(u) || radius2 <= 0. ||
       !std::isfinite(measurement.frame.v) ||
       !covarianceIsPositiveSemidefinite(measurement.covariance.uu,
                                         measurement.covariance.uv,
                                         measurement.covariance.vv)) {
     return false;
   }
-  const DirectionObservation scratch{surface.referenceCoordinate,
+  const double radius = std::sqrt(radius2);
+  const double radialDerivativeU = u / radius;
+  const DirectionObservation scratch{radius,
                                      measurement.frame.v,
-                                     0., 0., measurement.covariance.vv};
+                                     radialDerivativeU * radialDerivativeU * measurement.covariance.uu,
+                                     radialDerivativeU * measurement.covariance.uv,
+                                     measurement.covariance.vv};
   if (!observationIsValid(scratch)) {
     return false;
   }
