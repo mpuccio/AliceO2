@@ -1,177 +1,155 @@
 # Shared cell-direction compatibility validation
 
-- Status: safe implementation candidate; unified physics sign-off required
+- Status: safe targeted-correction candidate; unified physics sign-off required
 - Date: 2026-08-10
-- Production commit: `ec9deeb178`
-- Tests and guards: `58d87eb8e2`
+- Harmonization commits: `ec9deeb178`, `58d87eb8e2`, `9fdeaaf318`
+- Targeted cylinder correction: `1e2c8634be`
+- Targeted correction tests: `4435cfe08f`
 - Design: [shared cell-direction compatibility](../design/0016-cell-direction-compatibility.md)
-- Complete ITS population inventory: [cell-direction population delta](cell-direction-population-delta.md)
+- Rejected nominal-radius population inventory: [cell-direction population delta](cell-direction-population-delta.md)
 - Pinned O2 package: `daily-20260717-0700-local1`
 - Build: `/Users/mpuccio/alice/run3/O2-worktree-builds/triplet-tracking-rnd-scratch`
-- Fresh artifacts: `/private/tmp/o2-cell-direction-harmonization-20260810-E2xZk8`
+- Fresh correction artifacts: `/private/tmp/o2-cell-direction-cylinder-correction-20260810-agvm4P`
 
-## Implementation evidence
+## Correction and covariance contract
 
-The common core now constructs three neutral `(r,z)` observations and tests
+The first harmonized implementation treated the nominal cylinder descriptor
+radius as the exact hit radius. Real ITS sensors and hits do not lie exactly
+at that nominal layer radius. The old stored `tanLambda=dz/dr` instead used
+the per-hit global radius, so combining nominal radii with micrometre-scale Z
+uncertainties created artificial pulls as large as `chi2=136644.5` and reduced
+the ITS fixture from 212 to 17 tracks.
+
+The targeted correction changes only the cylinder observation leaf. ITS
+decoding supplies the sensor tracking frame `(q,u,v)`, where `(u,v)=(y,z)`
+are measured and `q` is normal to the sensor plane. That frame differs from
+global coordinates by a rotation around Z, which preserves radius. The leaf
+therefore constructs
+
+```text
+r = hypot(q,u),  z = v,  dr/du = u/r
+Var(r) = (dr/du)^2 Cuu
+Cov(r,z) = (dr/du) Cuv
+Var(z) = Cvv.
+```
+
+`q` is the exact surface-normal coordinate. No uncertainty floor, fixed
+direction scale, family cut, detector dispatch, or generic family branch was
+added. The shared compatibility algorithm remains
 
 ```text
 K = (z0-z1)(r1-r2) - (z1-z2)(r0-r1)
 chi2 = K^2 / Var(K)
-chi2 < NSigmaCut^2
+chi2 < NSigmaCut^2.
 ```
 
-The analytic variance includes `Var(r)`, `Cov(r,z)`, and `Var(z)` for every
-observation. Disk leaves project the decoded global `x/y` covariance onto
-`r` and use exact descriptor `z`. Cylinder leaves use exact descriptor `r`
-and tracking-frame measured `z` with `Cvv`. Invalid, non-finite, non-PSD, or
-zero-final-variance inputs reject transactionally.
+Disk observation construction and the common `NSigmaCut=5` contract are
+unchanged.
 
-Focused tests cover the exact analytic derivative/covariance contraction
-with non-zero cross terms, global-Z rotation invariance, disk radial
-projection, cylinder fixed-radius projection, zero residual for both
-families, the common `NSigmaCut` boundary, and closed transactional failure.
-Source guards prove that:
+## Tests and source boundary
 
-- `CellFinding.h` and `TrackletFinding.h` are absent;
-- `computeDiskCellDirectionCompatibilityChi2` and
-  `cellDirectionsAreCompatible(SurfaceKind,...)` are absent;
-- the shared compatibility body contains no `SurfaceKind`, family name,
-  switch, or `if constexpr`;
-- `TrackerTraits` constructs three observations and makes one compatibility
-  call without reading `Tracklet::tanLambda`;
-- cylinder and disk cell seeds continue through the same generic candidate
-  loop.
+The focused cylinder test now proves a nontrivial tracking-frame projection:
+for `(q,u)=(3,4)`, `(Cuu,Cuv,Cvv)=(0.04,0.006,0.09)`, the leaf returns
+`r=5`, `Var(r)=0.0256`, `Cov(r,z)=0.0048`, and `Var(z)=0.09`. Zero radius and
+non-PSD cylinder covariance fail without mutating the output.
 
-## Test and environment campaign
+The combined-composition synthetic helix fixtures were also corrected to
+populate their cylinder tracking frames. Their former all-zero `q/u/v`
+values were not valid decoded cylinder measurements; the tests continue to
+exercise ROF ownership and explicit ITS-then-MFT orchestration.
 
-After rebuilding all affected test binaries against the shortened compact
-parameter layout, the clean complete serial campaign passed:
+The final clean serial campaign passed:
 
 ```text
 ctest -L itsmft --output-on-failure -j1
 100% tests passed, 0 tests failed out of 93
-Total Test time (real) = 105.07 sec
+Total Test time (real) = 93.77 sec
 ```
 
-The final focused rerun passed 7/7. `git diff --check` passed and
-`git clang-format --diff` reported no changes for both production and test
-commits.
+The source guards still prove that `CellFinding.h`, the retired disk-specific
+compatibility function, a cell-direction `SurfaceKind` switch, and generic
+detector/source dispatch are absent. `TrackerTraits` still constructs three
+neutral observations and makes one shared compatibility call.
 
-Strict preflight resolved the exact pinned package, found the AliEn token
-valid from `2026-08-07 05:11:10 UTC` through
-`2026-09-05 09:33:43 UTC`, confirmed that
-`ALICEO2_CCDB_NOTOKENCHECK` was unset, and found every dataset reported by
-`geant4-config --datasets`. Replays used condition cap `1784207296000`.
-The fixture checksum manifest passed 43/43 before replay and 43/43 after all
-primary, repeat, and diagnostic runs.
+Strict preflight passed with a valid AliEn token, no
+`ALICEO2_CCDB_NOTOKENCHECK` bypass, the exact pinned package, and all Geant4
+datasets. The fixture checksum manifest passed 43/43 before and 43/43 after
+the campaign. Replays used condition cap `1784207296000`.
 
-## Stage-level cause
+## Stage-level effect
 
-Temporary environment-gated instrumentation was used only for diagnosis,
-then removed before the final build. The first ITS change is cell creation;
-tracklet formation is exactly unchanged.
+Temporary diagnostic logging was removed before the final clean rebuild.
+Tracklet formation remains unchanged; the first population decision is cell
+creation.
 
-| ITS stage, standalone and combined component | Prior fixed pull | Shared collinearity | Change |
+| ITS stage | Prior fixed slope pull | Nominal-radius collinearity | Corrected hit-radius collinearity |
 |---|---:|---:|---:|
-| Accepted tracklets | 1,886 | 1,886 | 0 |
-| Accepted cells | 1,455 | 136 | -1,319 |
-| Neighbour links | 1,049 | 29 | -1,020 |
-| Accepted/published tracks | 212 | 17 | -195 |
+| Accepted tracklets | 1,886 | 1,886 | 1,886 |
+| Accepted cells | 1,455 | 136 | 770 |
+| Neighbour links | 1,049 | 29 | 364 |
+| Accepted/published tracks | 212 | 17 | 174 |
 
-A temporary diagnostic selector using the former cylinder expression
-`abs(tanLambda01-tanLambda12)/0.007 < 5` reproduced all prior stage counts
-and the complete prior 212-track TSV byte-for-byte. This proves that graph,
-timing, tracklet search, neighbour linking, road finding, refit, and
-publication do not create the initial divergence. The changed cell gate does;
-later reductions and substitutions are downstream consequences.
-
-The disk leaf is unchanged from the preserved uncommitted starting
-correction, and MFT products remain field-identical. Current component counts
-are:
-
-| MFT composition | Tracklets | Cells | Neighbour links | Tracks |
-|---|---:|---:|---:|---:|
-| Standalone | 2,723 | 601 | 314 | 69 |
-| Combined MFT component | 4,705 | 631 | 315 | 100 |
-
-The combined aggregate is 6,591 tracklets, 767 cells, 344 neighbour links,
-and 117 tracks; subtracting the measured ITS component gives the MFT row
-above. No neighbour, road, graph, hole, or timing code changed in this slice.
+The correction recovers 634 cells, 335 neighbour links, and 157 tracks from
+the rejected nominal-radius candidate. The remaining 38-track difference
+from the former fixed slope pull is the direct and downstream effect of the
+requested measurement-uncertainty-normalized collinearity selection. It is
+not recoverable by correcting the radius mapping alone.
 
 ## Numerical representative cases
 
-The acceptance threshold is `chi2 < 25`. `oldPull` below is characterization
-of the removed cylinder decision and is not present in production.
+The common acceptance threshold is `chi2 < 25`. `oldPull` characterizes the
+retired `abs(delta tanLambda)/0.007` decision and is not used in production.
+Each observation below is `(r,z,Var(r),Cov(r,z),Var(z))`.
 
-| Candidate refs, inner to outer | Old tanLambda pair / pull | Descriptor `(r,z)` observations | `K` | `Var(K)` | chi2 | New decision |
-|---|---|---|---:|---:|---:|---|
-| `639,812,1010` | `(-0.3741004,-0.3744212)` / `0.0458317` | `(19.58824,-7.349940)`, `(24.52716,-9.196802)`, `(34.35460,-12.877872)` | `0.0305864` | `7.53209e-4` | `1.24205` | accept |
-| `812,1010,1294` | `(-0.3744212,-0.3750362)` / `0.0878487` | `(24.52716,-9.196802)`, `(34.35460,-12.877872)`, `(39.31064,-14.737780)` | `0.0345615` | `1.26357e-3` | `0.945334` | accept |
-| `470,639,812` | `(-0.3716724,-0.3741004)` / `0.346856` | `(3.916242,-1.423988)`, `(19.58824,-7.349940)`, `(24.52716,-9.196802)` | `-0.323775` | `9.70130e-4` | `108.058` | reject |
-| `273,470,639` | `(-0.3718146,-0.3716724)` / `0.0203082` | `(3.135354,-1.166676)`, `(3.916242,-1.423988)`, `(19.58824,-7.349940)` | `0.594916` | `2.58556e-4` | `1368.85` | reject |
-| `24,273,470` | `(-0.3714343,-0.3718146)` / `0.0543254` | `(2.325965,-0.930319)`, `(3.135354,-1.166676)`, `(3.916242,-1.423988)` | `0.0236971` | `1.71507e-6` | `327.421` | reject |
-| `117,327,515` | `(-2.060187,-2.059882)` / `0.0435625` | `(2.325965,-4.604550)`, `(3.135354,-6.598718)`, `(3.916242,-7.959709)` | `-0.455653` | `1.51942e-6` | `136644.5` | reject |
+| Candidate refs | Old slope pull | Corrected observations | `K` | `Var(K)` | chi2 | Decision |
+|---|---:|---|---:|---:|---:|---|
+| `117,327,515` | `0.0435625` | `(2.235743,-4.604550,4.43e-11,0,5.12e-7)`, `(3.203698,-6.598718,2.84e-8,0,3.79e-7)`, `(3.864410,-7.959709,7.86e-9,0,3.80e-7)` | `-1.94458e-4` | `1.93502e-6` | `0.01954` | accept |
+| `639,812,1010` | `0.0458317` | `(19.739592,-7.349940,6.96e-10,0,3.79e-7)`, `(24.676400,-9.196802,1.90e-9,0,3.24e-6)`, `(34.507762,-12.877872,5.65e-11,0,3.79e-7)` | `0.0155680` | `7.53472e-4` | `0.32166` | accept |
+| `470,639,812` | `0.346856` | `(3.795571,-1.423988,5.90e-9,0,5.00e-7)`, `(19.739592,-7.349940,6.96e-10,0,3.79e-7)`, `(24.676400,-9.196802,1.90e-9,0,3.24e-6)` | `0.191120` | `1.00240e-3` | `36.4397` | reject |
 
-The first two accepted rows form current track #0
-`1294,1010,812,639`. It is the four-hit prefix of old track #23
-`1294,1010,812,639,470,273,24`; the third row is its first rejected
-extension cell. Old track #0 `693,515,327,117` loses both cells; the last row
-is one of them.
-
-The old stored tracklet slopes use per-cluster global radius. The new
-cylinder observations use the descriptor's nominal fixed layer radius, as
-the requested measurement model specifies. On real stave geometry those
-radii are not identical. The last row illustrates the effect: the old
-slopes agree near `-2.06`, while slopes reconstructed from the displayed
-fixed-radius observations are about `-2.464` and `-1.743`. No coordinate
-conversion or denominator error is hidden here; the fixed-surface model and
-small measured-Z uncertainty make the normalized pull large.
+The first row is the clearest proof of the defect correction: the same
+candidate changed from an artificial `chi2=136644.5` under nominal layer
+radii to `0.01954` using its physical hit radii. The last row illustrates a
+remaining intentional selection difference: its coordinates are valid, but
+the measured triplet is incompatible with exact `(r,z)` collinearity at five
+measurement sigmas. Any future recovery of such candidates would require an
+explicit physical extension of `Var(K)` for curvature or process uncertainty,
+not a larger family-specific magic cut.
 
 ## Population characterization
 
-Standalone and combined ITS products are field-identical both before and
-after this change. Therefore one complete 212-to-17 association inventory
-covers both compositions.
+Standalone and combined ITS outputs are field-identical for the correction.
+The clean standalone repeat is also TSV-identical, including ordered
+references, ROFs, labels, fake bits, chi2, and hit counts.
 
-| ITS product | Tracks / hash | Matched / 142 | Efficiency | Fake / rate | Clone / rate | Hit distribution |
+| ITS candidate | Tracks / hash | Matched / 142 | Efficiency | Fake / rate | Clone | Hit distribution |
 |---|---:|---:|---:|---:|---:|---|
-| Prior | 212 / `46913a67a7e2fe7462e29df0db264fa8` | 135 | `0.950704` | 16 / `0.0754717` | 0 / 0 | 46x4, 16x5, 29x6, 121x7 |
-| Current | 17 / `b194927a8306cfac57ada54fc55c0c6f` | 10 | `0.0704225` | 3 / `0.176471` | 0 / 0 | 13x4, 3x5, 1x7 |
+| Prior fixed slope pull | 212 / `46913a67a7e2fe7462e29df0db264fa8` | 135 | `0.950704` | 16 / `0.0754717` | 0 | 46x4, 16x5, 29x6, 121x7 |
+| Rejected nominal-radius candidate | 17 / `b194927a8306cfac57ada54fc55c0c6f` | 10 | `0.0704225` | 3 / `0.176471` | 0 | 13x4, 3x5, 1x7 |
+| Corrected hit-radius candidate | 174 / `5103bc6679a801339828eb7e684e4ba0` | 112 | `0.788732` | 13 / `0.0747126` | 0 | 135x4, 20x5, 10x6, 9x7 |
 
-Ordered ROF plus ordered cluster references retain 2 tracks exactly, remove
-210, and add 15. Every addition is a shorter or changed candidate sharing a
-contiguous reference run with a prior track; the changed gate alters road
-availability and candidate competition rather than creating unrelated hits.
-All 227 association rows, including hit count, ROF/BC/orbit, raw label
-validity/fake bit, chi2, ordered references, and best
-prefix/suffix/internal relation, are in the linked population appendix.
+Against the prior 212 ordered reference sequences, the corrected population
+has 39 exact matches, 173 removals, and 135 additions. The low exact-overlap
+count reflects changed road availability and candidate competition; the
+stage counts localize the initiating difference to cell creation. The
+complete 212-to-17 appendix remains useful only as characterization of the
+rejected nominal-radius implementation and is not the corrected population.
 
-MFT is unchanged from the preserved disk-collinearity starting point:
+MFT is field-identical to the already reviewed disk-collinearity products:
 
-| MFT product | Tracks / hash | Matched / 109 | Efficiency | Fake / rate | Clone / rate |
+| MFT composition | Tracks / hash | Matched / 109 | Efficiency | Fake / rate | Clone / rate |
 |---|---:|---:|---:|---:|---:|
 | Standalone | 69 / `f6dee3f7a5f7def6b55900dbac734ef0` | 57 | `0.522936` | 2 / `0.0289855` | 0 / 0 |
 | Combined | 100 / `98f9730d6fca9e738c3f20afc66d296d` | 78 | `0.715596` | 3 / `0.03` | 6 / `0.0550459` |
 
-The current MFT TSVs are byte-identical to their immediate predecessors.
-Standalone and combined still share 68 of 69 standalone sequences; combined
-uses a five-hit suffix where standalone publishes the corresponding six-hit
-extension, and the wider combined population remains explained principally
-by the intentional common `MinTrackLength=4` policy. Equality is not an
-acceptance requirement.
-
-Fresh clean repeats are field-identical to every primary product for ITS
-standalone, MFT standalone, combined ITS, and combined MFT. This comparison
-includes ordered references, ROFs, labels, fake bits, chi2, and hit counts.
-
 ## Verdict
 
-**Safe implementation candidate; unified physics sign-off required.** The
-code implements the requested common mathematical and covariance contract,
-removes both fixed family direction scales, keeps family knowledge in
-descriptor-selected observation leaves, and introduces no detector/source
-dispatch. MFT is stable. The severe deterministic ITS efficiency loss is
-fully localized to the requested fixed-radius, measurement-uncertainty-only
-cell statistic and is recorded rather than tuned away. Whether nominal
-cylinder surfaces provide a sufficiently faithful physical observation for
-this selection is the explicit question for later unified physics review.
+**Safe targeted-correction candidate; unified physics sign-off required.**
+The catastrophic 212-to-17 loss was caused by an incorrect cylinder
+observation coordinate, not by the common five-sigma threshold. The
+correction restores the physical hit radius and propagates every available
+tracking-frame covariance term without adding tuning or family dispatch.
+The deterministic 212-to-174 difference is now the visible candidate-physics
+effect of measurement-only `(r,z)` collinearity. It must not be tuned away in
+this slice; whether curvature or process uncertainty belongs in the common
+variance model is a separate physics decision.

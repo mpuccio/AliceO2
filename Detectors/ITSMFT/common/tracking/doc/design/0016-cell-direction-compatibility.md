@@ -4,6 +4,8 @@
 - Date: 2026-08-10
 - Production commit: `ec9deeb178`
 - Tests and guards: `58d87eb8e2`
+- Targeted cylinder observation correction: `1e2c8634be`
+- Targeted correction tests: `4435cfe08f`
 - Predecessor: [tracklet and cell harmonization](0015-tracklet-cell-harmonization.md)
 
 ## Decision
@@ -58,17 +60,20 @@ conversion.
   Disk `z` is the descriptor's fixed reference coordinate, expressed as
   `Var(z)=Cov(r,z)=0`.
 
-- Cylinder decoding stores covariance in tracking-frame `(u,v)=(y,z)`.
-  The leaf takes `z=frame.v` and `Var(z)=Cvv`. Cylinder `r` is the descriptor's
-  fixed reference coordinate, expressed as `Var(r)=Cov(r,z)=0`. The complete
-  measured `(u,v)` covariance is still validated before projection.
+- Cylinder decoding stores covariance in tracking-frame `(u,v)=(y,z)`, with
+  `q` normal to the sensor plane. The tracking frame differs from global
+  coordinates by a rotation around Z, so the leaf computes
 
-This deliberately uses descriptor cylinder radii rather than per-cluster
-global radii. Real ITS sensors do not all lie at exactly the nominal layer
-radius, so this choice changes candidate physics substantially. That is a
-visible consequence of the requested surface contract, not an implicit
-uncertainty or conversion adjustment; it requires later unified physics
-sign-off.
+  ```text
+  r = hypot(q,u),  z = v,  dr/du = u/r
+  Var(r) = (dr/du)^2 Cuu
+  Cov(r,z) = (dr/du) Cuv
+  Var(z) = Cvv.
+  ```
+
+  The normal coordinate `q` is treated as exact. The descriptor radius is a
+  nominal layer reference, not the hit-level physical radius, and therefore
+  is not used as the observation coordinate.
 
 ## Code boundary
 

@@ -1,5 +1,9 @@
 # ITS cell-direction population delta
 
+- Status: superseded rejected nominal-radius candidate
+- The targeted cylinder observation correction now produces 174 tracks; see
+  [the current validation](cell-direction-compatibility.md). This table is
+  retained only as complete characterization of the earlier 212-to-17 result.
 - Date: 2026-08-10
 - Prior population: 212 tracks
 - Current population: 17 tracks
