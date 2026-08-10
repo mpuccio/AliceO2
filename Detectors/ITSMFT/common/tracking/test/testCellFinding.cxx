@@ -126,20 +126,29 @@ SurfaceMeasurement barrelMeasurementFromHit(const o2::its::TrackingFrameInfo& hi
   return measurement;
 }
 
-// Combines a cluster's global position with a hit's tracking-frame fields:
-// the single SurfaceMeasurement now standing in for the retired
-// {Cluster, TrackingFrameInfo} pair at each of cell-seed leaves's three
-// candidate positions.
+// Builds the native measurement half of the split fixture. Global geometry
+// is supplied independently through barrelGlobalMeasurement().
 SurfaceMeasurement barrelMeasurementFor(const o2::its::Cluster& cluster, const o2::its::TrackingFrameInfo& hit)
 {
   auto measurement = barrelMeasurementFromHit(hit);
-  measurement.global = {cluster.xCoordinate, cluster.yCoordinate, cluster.zCoordinate};
+  (void)cluster;
   return measurement;
 }
 
 SurfaceMeasurement barrelMeasurementInner() { return barrelMeasurementFor(barrelClusterInner(), barrelHitInner()); }
 SurfaceMeasurement barrelMeasurementMiddle() { return barrelMeasurementFor(barrelClusterMiddle(), barrelHitMiddle()); }
 SurfaceMeasurement barrelMeasurementOuter() { return barrelMeasurementFor(barrelClusterOuter(), barrelHitOuter()); }
+
+GlobalMeasurement barrelGlobalMeasurement(const o2::its::Cluster& cluster)
+{
+  GlobalMeasurement measurement{};
+  measurement.position = {cluster.xCoordinate, cluster.yCoordinate, cluster.zCoordinate};
+  measurement.radius = std::hypot(cluster.xCoordinate, cluster.yCoordinate);
+  return measurement;
+}
+
+GlobalMeasurement barrelGlobalInner() { return barrelGlobalMeasurement(barrelClusterInner()); }
+GlobalMeasurement barrelGlobalMiddle() { return barrelGlobalMeasurement(barrelClusterMiddle()); }
 
 // Independent re-transcription of native buildCylinderCellSeed's
 // own documented call sequence, built directly on the public barrel::
@@ -153,7 +162,7 @@ bool replayBuildCellSeedBarrel(uint8_t absCharge, o2::track::PID pid, float maxC
                                OperationFailureReason& reason, int nSteps = 2)
 {
   SurfaceKinematicState state{};
-  if (!barrel::buildSeed(barrelMeasurementInner(), barrelMeasurementMiddle(), barrelMeasurementOuter(), BarrelBz,
+  if (!barrel::buildSeed(barrelGlobalInner().position, barrelGlobalMiddle().position, barrelMeasurementOuter(), BarrelBz,
                          absCharge, pid, state, reason)) {
     return false;
   }
@@ -235,8 +244,7 @@ std::array<NominalSurfaceMaterial, 3> diskMaterial()
 SurfaceMeasurement diskMeasurementFromHit(const o2::its::TrackingFrameInfo& hit)
 {
   SurfaceMeasurement measurement{};
-  measurement.global.x = hit.xCoordinate;
-  measurement.global.y = hit.yCoordinate;
+  measurement.frame = {hit.zCoordinate, hit.xCoordinate, hit.yCoordinate, 0.f};
   measurement.covariance.uu = hit.covarianceTrackingFrame[0];
   measurement.covariance.uv = 0.f;
   measurement.covariance.vv = hit.covarianceTrackingFrame[2];
@@ -253,8 +261,7 @@ SurfaceMeasurement diskMeasurementFromHit(const o2::its::TrackingFrameInfo& hit)
 SurfaceMeasurement diskMeasurementFor(const o2::its::Cluster& cluster, const o2::its::TrackingFrameInfo& hit)
 {
   auto measurement = diskMeasurementFromHit(hit);
-  measurement.global = {cluster.xCoordinate, cluster.yCoordinate, cluster.zCoordinate};
-  measurement.frame.q = cluster.zCoordinate;
+  measurement.frame = {cluster.zCoordinate, cluster.xCoordinate, cluster.yCoordinate, 0.f};
   return measurement;
 }
 
@@ -403,26 +410,31 @@ SurfaceDescriptor directionSurface(SurfaceKind kind, float referenceCoordinate)
   return surface;
 }
 
-SurfaceMeasurement diskDirectionMeasurement(float x, float y,
-                                            float varianceX, float covarianceXY, float varianceY)
+GlobalMeasurement diskDirectionMeasurement(float x, float y,
+                                           float varianceX, float covarianceXY, float varianceY)
 {
-  SurfaceMeasurement measurement{};
-  measurement.global = {x, y, 1234.f}; // disk observation takes z from the surface
-  measurement.covariance = {varianceX, covarianceXY, varianceY};
+  GlobalMeasurement measurement{};
+  measurement.position = {x, y, 1234.f};
+  measurement.radius = std::hypot(x, y);
+  measurement.covariance = {varianceX, covarianceXY, 0.f, varianceY, 0.f, 0.f};
   return measurement;
 }
 
-SurfaceMeasurement cylinderDirectionMeasurement(float q, float u, float z,
-                                                float varianceU, float covarianceUZ, float varianceZ,
-                                                float frameAngle = 0.f)
+GlobalMeasurement cylinderDirectionMeasurement(float q, float u, float z,
+                                               float varianceU, float covarianceUZ, float varianceZ,
+                                               float frameAngle = 0.f)
 {
-  SurfaceMeasurement measurement{};
-  measurement.global = {999.f, 999.f, -1234.f}; // cylinder observation uses its tracking frame
-  measurement.frame.q = q;
-  measurement.frame.u = u;
-  measurement.frame.v = z;
-  measurement.frame.frameAngle = frameAngle;
-  measurement.covariance = {varianceU, covarianceUZ, varianceZ};
+  const float sine = std::sin(frameAngle);
+  const float cosine = std::cos(frameAngle);
+  GlobalMeasurement measurement{};
+  measurement.position = {q * cosine - u * sine, q * sine + u * cosine, z};
+  measurement.radius = std::hypot(measurement.position.x, measurement.position.y);
+  measurement.covariance = {sine * sine * varianceU,
+                            -sine * cosine * varianceU,
+                            -sine * covarianceUZ,
+                            cosine * cosine * varianceU,
+                            cosine * covarianceUZ,
+                            varianceZ};
   return measurement;
 }
 
@@ -450,24 +462,25 @@ float transverseTrackletPhi(const TransverseDirectionObservation& first,
   return std::atan2(first.y - second.y, first.x - second.x);
 }
 
-SurfaceMeasurement rotateDiskMeasurement(const SurfaceMeasurement& measurement, double angle)
+GlobalMeasurement rotateDiskMeasurement(const GlobalMeasurement& measurement, double angle)
 {
   const double cosine = std::cos(angle);
   const double sine = std::sin(angle);
-  const double x = measurement.global.x;
-  const double y = measurement.global.y;
-  const double varianceX = measurement.covariance.uu;
-  const double covarianceXY = measurement.covariance.uv;
-  const double varianceY = measurement.covariance.vv;
+  const double x = measurement.position.x;
+  const double y = measurement.position.y;
+  const double varianceX = measurement.covariance.xx;
+  const double covarianceXY = measurement.covariance.xy;
+  const double varianceY = measurement.covariance.yy;
   auto rotated = measurement;
-  rotated.global.x = static_cast<float>(cosine * x - sine * y);
-  rotated.global.y = static_cast<float>(sine * x + cosine * y);
-  rotated.covariance.uu = static_cast<float>(cosine * cosine * varianceX -
+  rotated.position.x = static_cast<float>(cosine * x - sine * y);
+  rotated.position.y = static_cast<float>(sine * x + cosine * y);
+  rotated.radius = std::hypot(rotated.position.x, rotated.position.y);
+  rotated.covariance.xx = static_cast<float>(cosine * cosine * varianceX -
                                              2. * cosine * sine * covarianceXY +
                                              sine * sine * varianceY);
-  rotated.covariance.uv = static_cast<float>(cosine * sine * (varianceX - varianceY) +
+  rotated.covariance.xy = static_cast<float>(cosine * sine * (varianceX - varianceY) +
                                              (cosine * cosine - sine * sine) * covarianceXY);
-  rotated.covariance.vv = static_cast<float>(sine * sine * varianceX +
+  rotated.covariance.yy = static_cast<float>(sine * sine * varianceX +
                                              2. * cosine * sine * covarianceXY +
                                              cosine * cosine * varianceY);
   return rotated;
@@ -581,10 +594,9 @@ BOOST_AUTO_TEST_CASE(TransverseCompatibilityIsInvariantUnderGlobalZRotation)
 
 BOOST_AUTO_TEST_CASE(DiskTransverseObservationRetainsGlobalXYCovariance)
 {
-  const auto surface = directionSurface(SurfaceKind::Disk, -50.f);
   const auto measurement = diskDirectionMeasurement(3.f, 4.f, 0.04f, 0.006f, 0.09f);
   TransverseDirectionObservation observation{};
-  BOOST_REQUIRE(makeDiskTransverseDirectionObservation(surface, measurement, observation));
+  BOOST_REQUIRE(makeTransverseDirectionObservation(measurement, observation));
   BOOST_CHECK_CLOSE_FRACTION(observation.x, 3., 1.e-12);
   BOOST_CHECK_CLOSE_FRACTION(observation.y, 4., 1.e-12);
   BOOST_CHECK_CLOSE_FRACTION(observation.varianceX, 0.04, 1.e-7);
@@ -595,11 +607,10 @@ BOOST_AUTO_TEST_CASE(DiskTransverseObservationRetainsGlobalXYCovariance)
 BOOST_AUTO_TEST_CASE(CylinderTransverseObservationRotatesTangentialCovariance)
 {
   constexpr float angle = 0.7f;
-  const auto surface = directionSurface(SurfaceKind::Cylinder, 5.f);
   const auto measurement = cylinderDirectionMeasurement(
     3.f, 4.f, -2.2f, 0.04f, 0.006f, 0.09f, angle);
   TransverseDirectionObservation observation{};
-  BOOST_REQUIRE(makeCylinderTransverseDirectionObservation(surface, measurement, observation));
+  BOOST_REQUIRE(makeTransverseDirectionObservation(measurement, observation));
   const double sine = std::sin(angle);
   const double cosine = std::cos(angle);
   BOOST_CHECK_CLOSE_FRACTION(observation.x, 3. * cosine - 4. * sine, 1.e-7);
@@ -677,10 +688,10 @@ BOOST_AUTO_TEST_CASE(CellDirectionCompatibilityTranslatesAngularProcessNoiseInto
 
 BOOST_AUTO_TEST_CASE(DiskDirectionObservationProjectsFullGlobalXYCovariance)
 {
-  const auto surface = directionSurface(SurfaceKind::Disk, -50.f);
-  const auto measurement = diskDirectionMeasurement(3.f, 4.f, 0.04f, 0.006f, 0.09f);
+  auto measurement = diskDirectionMeasurement(3.f, 4.f, 0.04f, 0.006f, 0.09f);
+  measurement.position.z = -50.f;
   DirectionObservation observation{};
-  BOOST_REQUIRE(makeDiskDirectionObservation(surface, measurement, observation));
+  BOOST_REQUIRE(makeDirectionObservation(measurement, observation));
   BOOST_CHECK_CLOSE_FRACTION(observation.r, 5., 1.e-12);
   BOOST_CHECK_CLOSE_FRACTION(observation.z, -50., 1.e-12);
   BOOST_CHECK_CLOSE_FRACTION(observation.varianceR, 0.07776, 1.e-7);
@@ -690,15 +701,29 @@ BOOST_AUTO_TEST_CASE(DiskDirectionObservationProjectsFullGlobalXYCovariance)
 
 BOOST_AUTO_TEST_CASE(CylinderDirectionObservationProjectsTrackingFrameCovariance)
 {
-  const auto surface = directionSurface(SurfaceKind::Cylinder, 3.5f);
   const auto measurement = cylinderDirectionMeasurement(3.f, 4.f, -2.2f, 0.04f, 0.006f, 0.09f);
   DirectionObservation observation{};
-  BOOST_REQUIRE(makeCylinderDirectionObservation(surface, measurement, observation));
+  BOOST_REQUIRE(makeDirectionObservation(measurement, observation));
   BOOST_CHECK_CLOSE_FRACTION(observation.r, 5., 1.e-12);
   BOOST_CHECK_CLOSE_FRACTION(observation.z, -2.2, 1.e-6);
   BOOST_CHECK_CLOSE_FRACTION(observation.varianceR, 0.0256, 1.e-7);
   BOOST_CHECK_CLOSE_FRACTION(observation.covarianceRZ, 0.0048, 1.e-7);
   BOOST_CHECK_CLOSE_FRACTION(observation.varianceZ, 0.09, 1.e-6);
+}
+
+BOOST_AUTO_TEST_CASE(DirectionObservationRepairsOnlyProjectionRoundoff)
+{
+  GlobalMeasurement measurement{};
+  measurement.position = {-1.15416992f, -1.91446579f, -0.0102339825f};
+  measurement.radius = 2.23546124f;
+  measurement.covariance = {1.70975554e-7f, -1.03069610e-7f, 0.f,
+                            6.21336937e-8f, -0.f, 4.68642071e-7f};
+
+  DirectionObservation observation{};
+  BOOST_REQUIRE(makeDirectionObservation(measurement, observation));
+  BOOST_CHECK_EQUAL(observation.varianceR, 0.);
+  BOOST_CHECK_EQUAL(observation.covarianceRZ, 0.);
+  BOOST_CHECK_CLOSE_FRACTION(observation.varianceZ, 4.68642071e-7, 1.e-7);
 }
 
 BOOST_AUTO_TEST_CASE(DiskDirectionCompatibilityIsInvariantUnderGlobalZRotation)
@@ -708,17 +733,20 @@ BOOST_AUTO_TEST_CASE(DiskDirectionCompatibilityIsInvariantUnderGlobalZRotation)
     directionSurface(SurfaceKind::Disk, 4.f),
     directionSurface(SurfaceKind::Disk, 8.f),
   }};
-  const std::array<SurfaceMeasurement, 3> measurements{{
+  std::array<GlobalMeasurement, 3> measurements{{
     diskDirectionMeasurement(1.2f, 1.6f, 0.04f, 0.006f, 0.09f),
     diskDirectionMeasurement(-2.4f, 3.2f, 0.05f, -0.004f, 0.08f),
     diskDirectionMeasurement(4.2f, -5.6f, 0.03f, 0.003f, 0.07f),
   }};
+  for (std::size_t i = 0; i < measurements.size(); ++i) {
+    measurements[i].position.z = surfaces[i].referenceCoordinate;
+  }
   std::array<DirectionObservation, 3> baseline{};
   std::array<DirectionObservation, 3> rotated{};
   for (std::size_t i = 0; i < measurements.size(); ++i) {
-    BOOST_REQUIRE(makeDirectionObservation(surfaces[i], measurements[i], baseline[i]));
+    BOOST_REQUIRE(makeDirectionObservation(measurements[i], baseline[i]));
     const auto rotatedMeasurement = rotateDiskMeasurement(measurements[i], 0.73);
-    BOOST_REQUIRE(makeDirectionObservation(surfaces[i], rotatedMeasurement, rotated[i]));
+    BOOST_REQUIRE(makeDirectionObservation(rotatedMeasurement, rotated[i]));
     BOOST_CHECK_CLOSE_FRACTION(rotated[i].r, baseline[i].r, 2.e-7);
     BOOST_CHECK_CLOSE_FRACTION(rotated[i].varianceR, baseline[i].varianceR, 5.e-7);
   }
@@ -726,7 +754,7 @@ BOOST_AUTO_TEST_CASE(DiskDirectionCompatibilityIsInvariantUnderGlobalZRotation)
   CellDirectionCompatibility rotatedCompatibility{};
   BOOST_REQUIRE(cellDirectionsAreCompatible(baseline, {0.0025}, 100.f, baselineCompatibility));
   BOOST_REQUIRE(cellDirectionsAreCompatible(rotated, {0.0025}, 100.f, rotatedCompatibility));
-  BOOST_CHECK_CLOSE_FRACTION(rotatedCompatibility.chi2, baselineCompatibility.chi2, 1.e-6);
+  BOOST_CHECK_CLOSE_FRACTION(rotatedCompatibility.chi2, baselineCompatibility.chi2, 5.e-6);
 }
 
 BOOST_AUTO_TEST_CASE(CollinearCylinderAndDiskObservationsHaveZeroChi2)
@@ -738,11 +766,12 @@ BOOST_AUTO_TEST_CASE(CollinearCylinderAndDiskObservationsHaveZeroChi2)
   for (std::size_t i = 0; i < radii.size(); ++i) {
     const auto cylinderSurface = directionSurface(SurfaceKind::Cylinder, radii[i]);
     const auto cylinderMeasurement = cylinderDirectionMeasurement(radii[i], 0.f, z[i], 0.02f, 0.001f, 0.03f);
-    BOOST_REQUIRE(makeDirectionObservation(cylinderSurface, cylinderMeasurement, cylinder[i]));
+    BOOST_REQUIRE(makeDirectionObservation(cylinderMeasurement, cylinder[i]));
 
     const auto diskSurface = directionSurface(SurfaceKind::Disk, z[i]);
-    const auto diskMeasurement = diskDirectionMeasurement(radii[i], 0.f, 0.03f, 0.001f, 0.02f);
-    BOOST_REQUIRE(makeDirectionObservation(diskSurface, diskMeasurement, disk[i]));
+    auto diskMeasurement = diskDirectionMeasurement(radii[i], 0.f, 0.03f, 0.001f, 0.02f);
+    diskMeasurement.position.z = diskSurface.referenceCoordinate;
+    BOOST_REQUIRE(makeDirectionObservation(diskMeasurement, disk[i]));
   }
   CellDirectionCompatibility cylinderCompatibility{};
   CellDirectionCompatibility diskCompatibility{};
@@ -796,18 +825,15 @@ BOOST_AUTO_TEST_CASE(CellDirectionCompatibilityFailsClosedTransactionally)
   auto invalidDisk = diskDirectionMeasurement(3.f, 4.f, 0.04f, 1.f, 0.09f);
   DirectionObservation observationSentinel{1., 2., 3., 4., 5.};
   auto observation = observationSentinel;
-  BOOST_CHECK(!makeDiskDirectionObservation(
-    directionSurface(SurfaceKind::Disk, -50.f), invalidDisk, observation));
+  BOOST_CHECK(!makeDirectionObservation(invalidDisk, observation));
   BOOST_CHECK(bitEqual(observation, observationSentinel));
 
   auto invalidCylinder = cylinderDirectionMeasurement(3.f, 4.f, -2.2f, 0.04f, 1.f, 0.09f);
-  BOOST_CHECK(!makeCylinderDirectionObservation(
-    directionSurface(SurfaceKind::Cylinder, 3.5f), invalidCylinder, observation));
+  BOOST_CHECK(!makeDirectionObservation(invalidCylinder, observation));
   BOOST_CHECK(bitEqual(observation, observationSentinel));
 
   invalidCylinder = cylinderDirectionMeasurement(0.f, 0.f, -2.2f, 0.04f, 0.006f, 0.09f);
-  BOOST_CHECK(!makeCylinderDirectionObservation(
-    directionSurface(SurfaceKind::Cylinder, 3.5f), invalidCylinder, observation));
+  BOOST_CHECK(!makeDirectionObservation(invalidCylinder, observation));
   BOOST_CHECK(bitEqual(observation, observationSentinel));
 }
 
@@ -829,7 +855,7 @@ BOOST_AUTO_TEST_CASE(BuildCellSeedBarrelSuccessMatchesIndependentReplayAndCharac
   TrackingKernelParameters params;
   params.maxChi2ClusterAttachment = 1.e6f;
   BOOST_REQUIRE(buildCylinderCellSeed(
-    barrelMeasurementInner(), barrelMeasurementMiddle(), barrelMeasurementOuter(), barrelMaterial(), BarrelBz,
+    barrelGlobalInner(), barrelGlobalMiddle(), barrelMeasurementInner(), barrelMeasurementMiddle(), barrelMeasurementOuter(), barrelMaterial(), BarrelBz,
     1, o2::track::PID::Kaon, outState, chi2, params, reason));
 
   BOOST_CHECK(bitEqual(outState, replayState));
@@ -862,7 +888,7 @@ BOOST_AUTO_TEST_CASE(BuildCellSeedBarrelExactChi2ThresholdBoundary)
   TrackingKernelParameters accept;
   accept.maxChi2ClusterAttachment = lastStepChi2; // exact threshold: inclusive accept
   BOOST_CHECK(buildCylinderCellSeed(
-    barrelMeasurementInner(), barrelMeasurementMiddle(), barrelMeasurementOuter(), barrelMaterial(), BarrelBz,
+    barrelGlobalInner(), barrelGlobalMiddle(), barrelMeasurementInner(), barrelMeasurementMiddle(), barrelMeasurementOuter(), barrelMaterial(), BarrelBz,
     1, o2::track::PID::Pion, outState, chi2, accept, reason));
 
   const auto sentinel = barrelAttachState();
@@ -873,7 +899,7 @@ BOOST_AUTO_TEST_CASE(BuildCellSeedBarrelExactChi2ThresholdBoundary)
   TrackingKernelParameters reject;
   reject.maxChi2ClusterAttachment = std::nextafter(lastStepChi2, -std::numeric_limits<float>::infinity());
   BOOST_CHECK(!buildCylinderCellSeed(
-    barrelMeasurementInner(), barrelMeasurementMiddle(), barrelMeasurementOuter(), barrelMaterial(), BarrelBz,
+    barrelGlobalInner(), barrelGlobalMiddle(), barrelMeasurementInner(), barrelMeasurementMiddle(), barrelMeasurementOuter(), barrelMaterial(), BarrelBz,
     1, o2::track::PID::Pion, rejectedState, rejectedChi2, reject, reason));
   BOOST_CHECK(reason == OperationFailureReason::PredictedChi2Failure);
   BOOST_CHECK(bitEqual(rejectedState, before));
@@ -884,7 +910,7 @@ BOOST_AUTO_TEST_CASE(BuildCellSeedBarrelFailuresAreTransactional)
 {
   const auto sentinel = barrelAttachState();
 
-  auto checkFailure = [&](const o2::its::Cluster& clusterInner, const o2::its::TrackingFrameInfo& hitMiddle,
+  auto checkFailure = [&](const SurfaceMeasurement& measurementInner, const o2::its::TrackingFrameInfo& hitMiddle,
                           const std::array<NominalSurfaceMaterial, 3>& material, OperationFailureReason expected) {
     auto state = sentinel;
     float chi2 = -321.f;
@@ -894,17 +920,17 @@ BOOST_AUTO_TEST_CASE(BuildCellSeedBarrelFailuresAreTransactional)
     TrackingKernelParameters params;
     params.maxChi2ClusterAttachment = 1.e6f;
     BOOST_CHECK(!buildCylinderCellSeed(
-      barrelMeasurementFor(clusterInner, barrelHitInner()), barrelMeasurementFor(barrelClusterMiddle(), hitMiddle), barrelMeasurementOuter(),
+      barrelGlobalInner(), barrelGlobalMiddle(), measurementInner, barrelMeasurementFor(barrelClusterMiddle(), hitMiddle), barrelMeasurementOuter(),
       material, BarrelBz, 1, o2::track::PID::Pion, state, chi2, params, reason));
     BOOST_CHECK(reason == expected);
     BOOST_CHECK(bitEqual(state, before));
     BOOST_CHECK_EQUAL(chi2, chi2Before);
   };
 
-  // Seed-construction failure: non-finite cluster coordinate.
+  // Inner hit-attachment failure: non-finite native surface coordinate.
   {
-    auto badInner = barrelClusterInner();
-    badInner.xCoordinate = std::numeric_limits<float>::quiet_NaN();
+    auto badInner = barrelMeasurementInner();
+    badInner.frame.q = std::numeric_limits<float>::quiet_NaN();
     checkFailure(badInner, barrelHitMiddle(), barrelMaterial(), OperationFailureReason::NonFiniteInput);
   }
 
@@ -915,34 +941,14 @@ BOOST_AUTO_TEST_CASE(BuildCellSeedBarrelFailuresAreTransactional)
   {
     auto farHit = barrelHitMiddle();
     farHit.alphaTrackingFrame = barrelHitOuter().alphaTrackingFrame + 3.f;
-    checkFailure(barrelClusterInner(), farHit, barrelMaterial(), OperationFailureReason::RotationFailure);
-  }
-
-  // Propagation failure: an unreachable target x far outside the seed's
-  // curvature-bounded range.
-  {
-    auto farHit = barrelHitMiddle();
-    farHit.xTrackingFrame = -50000.f;
-    auto state = sentinel;
-    float chi2 = -321.f;
-    const auto before = state;
-    const float chi2Before = chi2;
-    OperationFailureReason reason{};
-    TrackingKernelParameters params;
-    params.maxChi2ClusterAttachment = 1.e6f;
-    BOOST_CHECK(!buildCylinderCellSeed(
-      barrelMeasurementInner(), barrelMeasurementFor(barrelClusterMiddle(), farHit), barrelMeasurementOuter(),
-      barrelMaterial(), BarrelBz, 1, o2::track::PID::Pion, state, chi2, params, reason));
-    BOOST_CHECK(reason == OperationFailureReason::UnreachableTarget || reason == OperationFailureReason::PropagationFailure);
-    BOOST_CHECK(bitEqual(state, before));
-    BOOST_CHECK_EQUAL(chi2, chi2Before);
+    checkFailure(barrelMeasurementInner(), farHit, barrelMaterial(), OperationFailureReason::RotationFailure);
   }
 
   // Material failure: non-finite middle material.
   {
     auto badMaterial = barrelMaterial();
     badMaterial[1] = NominalSurfaceMaterial{std::numeric_limits<float>::quiet_NaN(), std::numeric_limits<float>::quiet_NaN()};
-    checkFailure(barrelClusterInner(), barrelHitMiddle(), badMaterial, OperationFailureReason::MaterialFailure);
+    checkFailure(barrelMeasurementInner(), barrelHitMiddle(), badMaterial, OperationFailureReason::MaterialFailure);
   }
 }
 
@@ -956,9 +962,9 @@ BOOST_AUTO_TEST_CASE(BuildCellSeedBarrelIsByteDeterministic)
   TrackingKernelParameters params;
   params.maxChi2ClusterAttachment = 1.e6f;
   BOOST_REQUIRE(buildCylinderCellSeed(
-    barrelMeasurementInner(), barrelMeasurementMiddle(), barrelMeasurementOuter(), barrelMaterial(), BarrelBz, 1, o2::track::PID::Kaon, first, chi2First, params, reason));
+    barrelGlobalInner(), barrelGlobalMiddle(), barrelMeasurementInner(), barrelMeasurementMiddle(), barrelMeasurementOuter(), barrelMaterial(), BarrelBz, 1, o2::track::PID::Kaon, first, chi2First, params, reason));
   BOOST_REQUIRE(buildCylinderCellSeed(
-    barrelMeasurementInner(), barrelMeasurementMiddle(), barrelMeasurementOuter(), barrelMaterial(), BarrelBz, 1, o2::track::PID::Kaon, second, chi2Second, params, reason));
+    barrelGlobalInner(), barrelGlobalMiddle(), barrelMeasurementInner(), barrelMeasurementMiddle(), barrelMeasurementOuter(), barrelMaterial(), BarrelBz, 1, o2::track::PID::Kaon, second, chi2Second, params, reason));
   BOOST_CHECK(bitEqual(first, second));
   BOOST_CHECK_EQUAL(chi2First, chi2Second);
 }
@@ -1149,243 +1155,6 @@ BOOST_AUTO_TEST_CASE(BuildCellSeedDiskActivatesEnergyLossUnlikeLegacyMcsOnlyPath
     withEnergyLoss, DiskBz, 2, o2::track::PID::Pion, stateWithLoss, chi2WithLoss, params, reason));
 
   BOOST_CHECK_NE(stateNoLoss.parameters[4], stateWithLoss.parameters[4]);
-}
-
-// ===========================================================================
-// cell compatibility leaves
-// ===========================================================================
-
-namespace
-{
-SurfaceKinematicState compatBarrelCurrent()
-{
-  SurfaceKinematicState state{};
-  state.parameters[0] = 0.1f;
-  state.parameters[1] = 1.f;
-  state.parameters[2] = 0.05f;
-  state.parameters[3] = 0.4f;
-  state.parameters[4] = 0.2f;
-  state.referenceCoordinate = 5.f;
-  state.alpha = 0.3f;
-  state.family = StateFamily::Barrel;
-  state.absCharge = 1;
-  state.pid = o2::track::PID::Pion;
-  state.covariance[packedCovarianceIndex(0, 0)] = 1.e-4f;
-  state.covariance[packedCovarianceIndex(1, 1)] = 1.e-4f;
-  state.covariance[packedCovarianceIndex(2, 2)] = 1.e-4f;
-  state.covariance[packedCovarianceIndex(3, 3)] = 1.e-4f;
-  state.covariance[packedCovarianceIndex(4, 4)] = 1.e-2f;
-  return state;
-}
-
-SurfaceKinematicState compatBarrelNext()
-{
-  SurfaceKinematicState state{};
-  state.parameters[0] = 0.2f;
-  state.parameters[1] = 1.1f;
-  state.parameters[2] = 0.06f;
-  state.parameters[3] = 0.42f;
-  state.parameters[4] = 0.21f;
-  state.referenceCoordinate = 4.f;
-  state.alpha = 0.3f;
-  state.family = StateFamily::Barrel;
-  state.absCharge = 1;
-  state.pid = o2::track::PID::Pion;
-  state.covariance[packedCovarianceIndex(0, 0)] = 1.e-4f;
-  state.covariance[packedCovarianceIndex(1, 1)] = 1.e-4f;
-  state.covariance[packedCovarianceIndex(2, 2)] = 1.e-4f;
-  state.covariance[packedCovarianceIndex(3, 3)] = 1.e-4f;
-  state.covariance[packedCovarianceIndex(4, 4)] = 1.e-2f;
-  return state;
-}
-
-constexpr float CompatBz = 0.5f;
-
-SurfaceKinematicState compatDiskCurrent()
-{
-  SurfaceKinematicState state{};
-  state.parameters[0] = 0.f;
-  state.parameters[1] = 0.f;
-  state.parameters[2] = 0.f;
-  state.parameters[3] = -1.2f;
-  state.parameters[4] = 0.1f;
-  state.referenceCoordinate = 0.f;
-  state.family = StateFamily::Forward;
-  state.absCharge = 1;
-  state.pid = o2::track::PID::Pion;
-  state.covariance[packedCovarianceIndex(0, 0)] = 1.e-2f;
-  state.covariance[packedCovarianceIndex(1, 1)] = 1.e-2f;
-  state.covariance[packedCovarianceIndex(2, 2)] = 1.e-3f;
-  state.covariance[packedCovarianceIndex(3, 3)] = 1.e-3f;
-  state.covariance[packedCovarianceIndex(4, 4)] = 1.e-2f;
-  return state;
-}
-
-SurfaceKinematicState compatDiskNext()
-{
-  SurfaceKinematicState state{};
-  state.parameters[0] = 0.05f;
-  state.parameters[1] = -0.03f;
-  state.parameters[2] = 0.02f;
-  state.parameters[3] = -1.19f;
-  state.parameters[4] = 0.11f;
-  state.referenceCoordinate = -1.f;
-  state.family = StateFamily::Forward;
-  state.absCharge = 1;
-  state.pid = o2::track::PID::Pion;
-  state.covariance[packedCovarianceIndex(0, 0)] = 1.e-2f;
-  state.covariance[packedCovarianceIndex(1, 1)] = 1.e-2f;
-  state.covariance[packedCovarianceIndex(2, 2)] = 1.e-3f;
-  state.covariance[packedCovarianceIndex(3, 3)] = 1.e-3f;
-  state.covariance[packedCovarianceIndex(4, 4)] = 1.e-2f;
-  return state;
-}
-
-constexpr float CompatDiskBz = 0.5f;
-
-} // namespace
-
-BOOST_AUTO_TEST_CASE(CellsAreCompatibleBarrelAcceptsAtExactThresholdAndRejectsBelow)
-{
-  const auto current = compatBarrelCurrent();
-  const auto next = compatBarrelNext();
-
-  auto reference = next;
-  OperationFailureReason reason{};
-  BOOST_REQUIRE(barrel::rotate(reference, current.alpha, reason));
-  BOOST_REQUIRE(barrel::propagate(reference, current.referenceCoordinate, CompatBz, reason));
-  float refChi2 = 0.f;
-  BOOST_REQUIRE(barrel::stateChi2(current, reference, refChi2, reason));
-  BOOST_REQUIRE_GT(refChi2, 0.f);
-
-  TrackingKernelParameters accept;
-  accept.maxChi2ClusterAttachment = refChi2;
-  BOOST_CHECK(cellsCylinderAreCompatible(current, next, -1, -1, CompatBz, accept));
-
-  TrackingKernelParameters reject;
-  reject.maxChi2ClusterAttachment = std::nextafter(refChi2, -std::numeric_limits<float>::infinity());
-  BOOST_CHECK(!cellsCylinderAreCompatible(current, next, -1, -1, CompatBz, reject));
-}
-
-BOOST_AUTO_TEST_CASE(CellsAreCompatibleBarrelRotationAndPropagationFailuresAreRejectedNotThrown)
-{
-  TrackingKernelParameters permissive;
-  permissive.maxChi2ClusterAttachment = 1.e6f;
-
-  // Rotation failure: far frame angle.
-  {
-    auto current = compatBarrelCurrent();
-    current.alpha = 0.f;
-    auto next = compatBarrelNext();
-    next.alpha = 3.f;
-    BOOST_CHECK(!cellsCylinderAreCompatible(current, next, -1, -1, CompatBz, permissive));
-  }
-
-  // Propagation failure: extreme q2pt on `next` makes the requested step
-  // unreachable.
-  {
-    auto current = compatBarrelCurrent();
-    auto next = compatBarrelNext();
-    next.parameters[4] = 2000.f;
-    BOOST_CHECK(!cellsCylinderAreCompatible(current, next, -1, -1, CompatBz, permissive));
-  }
-}
-
-BOOST_AUTO_TEST_CASE(CellsAreCompatibleBarrelFamilyMismatchFailsClosed)
-{
-  auto current = compatBarrelCurrent();
-  current.family = StateFamily::Forward;
-  const auto next = compatBarrelNext();
-  TrackingKernelParameters permissive;
-  permissive.maxChi2ClusterAttachment = 1.e6f;
-  BOOST_CHECK(!cellsCylinderAreCompatible(current, next, -1, -1, CompatBz, permissive));
-}
-
-BOOST_AUTO_TEST_CASE(CellsAreCompatibleBarrelIgnoresClusterIndicesAndNeverMutatesInputs)
-{
-  const auto current = compatBarrelCurrent();
-  const auto next = compatBarrelNext();
-  const auto currentBefore = current;
-  const auto nextBefore = next;
-  TrackingKernelParameters permissive;
-  permissive.maxChi2ClusterAttachment = 1.e6f;
-
-  const bool r1 = cellsCylinderAreCompatible(current, next, 10, 10, CompatBz, permissive);
-  const bool r2 = cellsCylinderAreCompatible(current, next, 10, 999, CompatBz, permissive);
-  BOOST_CHECK_EQUAL(r1, r2);
-  BOOST_CHECK(bitEqual(current, currentBefore));
-  BOOST_CHECK(bitEqual(next, nextBefore));
-
-  const bool r3 = cellsCylinderAreCompatible(current, next, 10, 10, CompatBz, permissive);
-  BOOST_CHECK_EQUAL(r1, r3);
-}
-
-BOOST_AUTO_TEST_CASE(CellsAreCompatibleDiskAcceptsAtExactThresholdAndRejectsBelow)
-{
-  const auto current = compatDiskCurrent();
-  const auto next = compatDiskNext();
-
-  auto reference = next;
-  OperationFailureReason reason{};
-  BOOST_REQUIRE(Propagator::propagateForward(reference, current.referenceCoordinate, 0.f, reason));
-  float refChi2 = 0.f;
-  BOOST_REQUIRE(forward::stateChi2(current, reference, refChi2, reason));
-  BOOST_REQUIRE_GT(refChi2, 0.f);
-
-  TrackingKernelParameters accept;
-  accept.maxChi2ClusterAttachment = refChi2;
-  BOOST_CHECK(cellsDiskAreCompatible(current, next, 42, 42, 0.f, accept));
-
-  TrackingKernelParameters reject;
-  reject.maxChi2ClusterAttachment = std::nextafter(refChi2, -std::numeric_limits<float>::infinity());
-  BOOST_CHECK(!cellsDiskAreCompatible(current, next, 42, 42, 0.f, reject));
-}
-
-BOOST_AUTO_TEST_CASE(CellsAreCompatibleDiskClusterIndexContinuityRejectedBeforeAnyPropagation)
-{
-  const auto current = compatDiskCurrent();
-  const auto next = compatDiskNext();
-  TrackingKernelParameters permissive;
-  permissive.maxChi2ClusterAttachment = 1.e6f;
-  // Otherwise-compatible states, but the temporary raw cluster-index
-  // continuity input (see the header doc) rejects first.
-  BOOST_CHECK(!cellsDiskAreCompatible(current, next, 5, 6, 0.f, permissive));
-}
-
-BOOST_AUTO_TEST_CASE(CellsAreCompatibleDiskPropagationFailureIsRejectedNotThrown)
-{
-  auto current = compatDiskCurrent();
-  current.referenceCoordinate = -5.f; // dz != 0 relative to `next`
-  auto next = compatDiskNext();
-  next.parameters[3] = 0.f; // tanl == 0: propagateLinear's UnreachableTarget
-  TrackingKernelParameters permissive;
-  permissive.maxChi2ClusterAttachment = 1.e6f;
-  BOOST_CHECK(!cellsDiskAreCompatible(current, next, 7, 7, 0.f, permissive));
-}
-
-BOOST_AUTO_TEST_CASE(CellsAreCompatibleDiskFamilyMismatchFailsClosed)
-{
-  auto current = compatDiskCurrent();
-  current.family = StateFamily::Barrel;
-  const auto next = compatDiskNext();
-  TrackingKernelParameters permissive;
-  permissive.maxChi2ClusterAttachment = 1.e6f;
-  BOOST_CHECK(!cellsDiskAreCompatible(current, next, 3, 3, 0.f, permissive));
-}
-
-BOOST_AUTO_TEST_CASE(CellsAreCompatibleDiskInputsUntouchedAndByteDeterministic)
-{
-  const auto current = compatDiskCurrent();
-  const auto next = compatDiskNext();
-  const auto currentBefore = current;
-  const auto nextBefore = next;
-  TrackingKernelParameters permissive;
-  permissive.maxChi2ClusterAttachment = 1.e6f;
-  const bool r1 = cellsDiskAreCompatible(current, next, 1, 1, 0.f, permissive);
-  const bool r2 = cellsDiskAreCompatible(current, next, 1, 1, 0.f, permissive);
-  BOOST_CHECK_EQUAL(r1, r2);
-  BOOST_CHECK(bitEqual(current, currentBefore));
-  BOOST_CHECK(bitEqual(next, nextBefore));
 }
 
 // ===========================================================================

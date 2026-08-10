@@ -119,7 +119,7 @@ SurfaceLinearizationReference diskLinRef(const SurfaceKinematicState& state)
 SurfaceMeasurement diskMeasurement()
 {
   SurfaceMeasurement measurement{};
-  measurement.global = {0.8f, -0.45f, -50.f};
+  measurement.frame = {-50.f, 0.8f, -0.45f, 0.f};
   measurement.frame.q = -50.f;
   measurement.frame.u = 0.8f;
   measurement.frame.v = -0.45f;
@@ -352,12 +352,10 @@ BOOST_AUTO_TEST_CASE(DriveRefitLegSkipsHoleSlots)
   surfaces[0].id = SurfaceId{0};
   SurfaceCatalogView catalog{surfaces.data(), static_cast<uint32_t>(surfaces.size())};
 
-  SurfaceMeasurement present = measurement;
-  present.surface = SurfaceId{0};
-  present.cluster = ClusterRef{ClusterSourceId{0}, 0};
-  SurfaceMeasurement hole{}; // default-constructed: cluster.isValid() == false
+  const RefitMeasurementSlot present{measurement, SurfaceId{0}, true};
+  const RefitMeasurementSlot hole{};
 
-  std::array<SurfaceMeasurement, 3> slots{hole, present, hole};
+  std::array<RefitMeasurementSlot, 3> slots{hole, present, hole};
   float chi2 = 0.f;
   uint32_t acceptedHitCount = 999;
   OperationFailureReason reason{};

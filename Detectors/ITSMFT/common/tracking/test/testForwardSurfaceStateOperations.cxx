@@ -54,8 +54,7 @@ SurfaceKinematicState makeState()
 SurfaceMeasurement makeMeasurement()
 {
   SurfaceMeasurement measurement{};
-  measurement.global = {0.8f, -0.45f, -50.f};
-  measurement.frame = {999.f, 777.f, 555.f, 1.2f}; // Deliberately not disk u/v.
+  measurement.frame = {-50.f, 0.8f, -0.45f, 0.f};
   measurement.covariance = {0.04f, 0.012f, 0.09f};
   return measurement;
 }
@@ -285,7 +284,7 @@ void checkBuildSeedMetadata(const SurfaceKinematicState& state, uint8_t expected
 SurfaceMeasurement measurementFromGlobalCluster(const o2::its::Cluster& cluster)
 {
   SurfaceMeasurement measurement{};
-  measurement.global = {cluster.xCoordinate, cluster.yCoordinate, cluster.zCoordinate};
+  measurement.frame = {cluster.zCoordinate, cluster.xCoordinate, cluster.yCoordinate, 0.f};
   return measurement;
 }
 
@@ -337,8 +336,8 @@ float directPredictedChi2(const SurfaceKinematicState& state, const SurfaceMeasu
   const float s01 = state.covariance[packedCovarianceIndex(1, 0)] + measurement.covariance.uv;
   const float s11 = state.covariance[packedCovarianceIndex(1, 1)] + measurement.covariance.vv;
   const float determinant = s00 * s11 - s01 * s01;
-  const float dx = measurement.global.x - state.parameters[0];
-  const float dy = measurement.global.y - state.parameters[1];
+  const float dx = measurement.frame.u - state.parameters[0];
+  const float dy = measurement.frame.v - state.parameters[1];
   return (s11 * dx * dx - 2.f * s01 * dx * dy + s00 * dy * dy) / determinant;
 }
 
@@ -402,7 +401,7 @@ BOOST_AUTO_TEST_CASE(NearZeroNonzeroFieldUsesLinearFallback)
   comparePropagationWithOracle(-45.01f, 1.e-4f);
 }
 
-BOOST_AUTO_TEST_CASE(PredictedChi2UsesDiskGlobalXYAndNonzeroUV)
+BOOST_AUTO_TEST_CASE(PredictedChi2UsesDiskSurfaceXYAndNonzeroUV)
 {
   const auto state = makeState();
   const auto measurement = makeMeasurement();
@@ -410,7 +409,7 @@ BOOST_AUTO_TEST_CASE(PredictedChi2UsesDiskGlobalXYAndNonzeroUV)
   OperationFailureReason reason{};
   BOOST_REQUIRE(predictedChi2(state, measurement, chi2, reason));
   BOOST_CHECK_CLOSE_FRACTION(chi2, directPredictedChi2(state, measurement), 2.e-6f);
-  BOOST_CHECK_LT(chi2, 100.f); // Would be enormous if frame.u/frame.v were used.
+  BOOST_CHECK_LT(chi2, 100.f);
 }
 
 BOOST_AUTO_TEST_CASE(UpdateMatchesDirectTwoDimensionalKalmanReference)
@@ -425,7 +424,7 @@ BOOST_AUTO_TEST_CASE(UpdateMatchesDirectTwoDimensionalKalmanReference)
   const float inv00 = s11 / determinant;
   const float inv01 = -s01 / determinant;
   const float inv11 = s00 / determinant;
-  const float residual[2] = {measurement.global.x - before.parameters[0], measurement.global.y - before.parameters[1]};
+  const float residual[2] = {measurement.frame.u - before.parameters[0], measurement.frame.v - before.parameters[1]};
   float expectedParameters[5]{};
   float expectedCovariance[5][5]{};
   for (uint8_t row = 0; row < 5; ++row) {
@@ -458,7 +457,7 @@ BOOST_AUTO_TEST_CASE(DiagonalMeasurementUpdateMatchesRetainedLegacyOracle)
   auto oracle = makeOracle(state);
   auto measurement = makeMeasurement();
   measurement.covariance.uv = 0.f;
-  const std::array<float, 2> position = {measurement.global.x, measurement.global.y};
+  const std::array<float, 2> position = {measurement.frame.u, measurement.frame.v};
   const std::array<float, 2> covariance = {measurement.covariance.uu, measurement.covariance.vv};
   BOOST_REQUIRE(oracle.update(position, covariance));
   float chi2 = -1.f;
@@ -796,8 +795,8 @@ BOOST_AUTO_TEST_CASE(RepeatedMultiStepChainsAreByteDeterministicAndCharacterizeO
       BOOST_REQUIRE(Propagator::propagateForward(state, z, 5.f, reason));
       BOOST_REQUIRE(correctForMaterial(state, 0.004f + 0.001f * step, reason));
       auto measurement = makeMeasurement();
-      measurement.global.x = state.parameters[0] + 0.01f * (step + 1);
-      measurement.global.y = state.parameters[1] - 0.015f * (step + 1);
+      measurement.frame.u = state.parameters[0] + 0.01f * (step + 1);
+      measurement.frame.v = state.parameters[1] - 0.015f * (step + 1);
       float increment = 0.f;
       BOOST_REQUIRE(update(state, measurement, increment, reason));
       chi2 += increment;

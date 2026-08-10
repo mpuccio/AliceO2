@@ -66,7 +66,7 @@ class FakeClusterDecoder final : public ClusterDecoder
     decoded.shape = decodedPattern.shape;
     decoded.sensor = static_cast<uint32_t>(layer);
     decoded.layer = layer;
-    result.measurement = makeCylinderSurfaceMeasurement(
+    result = makeCylinderMeasurementDecodeResult(
       decoded, DetectorSensorId{static_cast<uint32_t>(mDetector), decoded.sensor}, layerToSurface[layer],
       ClusterRef{source, externalIndex}, sourceROF);
     return result;

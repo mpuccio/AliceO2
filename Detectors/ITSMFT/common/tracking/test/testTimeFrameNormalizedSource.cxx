@@ -151,8 +151,8 @@ class LegacyLikeDecoder final : public ClusterDecoder
     const auto surface = layerToSurface[layer];
     const DetectorSensorId sensor{static_cast<uint32_t>(mDetector), decoded.sensor};
     const ClusterRef clusterRef{source, externalIndex};
-    result.measurement = mDisk ? makeDiskSurfaceMeasurement(decoded, sensor, surface, clusterRef, sourceROF)
-                               : makeCylinderSurfaceMeasurement(decoded, sensor, surface, clusterRef, sourceROF);
+    result = mDisk ? makeDiskMeasurementDecodeResult(decoded, sensor, surface, clusterRef, sourceROF)
+                   : makeCylinderMeasurementDecodeResult(decoded, sensor, surface, clusterRef, sourceROF);
     return result;
   }
 
@@ -328,8 +328,8 @@ BOOST_AUTO_TEST_CASE(combined_owner_load_keeps_detector_backfills_separate)
   BOOST_CHECK_EQUAL(frame.getNormalizedFrame().getSurfaceMeasurements(SurfaceId{0}).size(), 2u);
   BOOST_CHECK_EQUAL(frame.getNormalizedFrame().getSurfaceMeasurements(SurfaceId{static_cast<uint16_t>(ITSNLayers)}).size(), 2u);
   BOOST_CHECK_EQUAL(frame.getWorkspace().getTotalClusters(), static_cast<int>(its.clusters.size() + mft.clusters.size()));
-  BOOST_CHECK(frame.getNormalizedFrame().getSurfaceMeasurements(SurfaceId{0})[0].cluster.source == ClusterSourceId{0});
-  BOOST_CHECK(frame.getNormalizedFrame().getSurfaceMeasurements(SurfaceId{static_cast<uint16_t>(ITSNLayers)})[0].cluster.source == ClusterSourceId{1});
+  BOOST_CHECK(frame.getNormalizedFrame().getGlobalMeasurements(SurfaceId{0})[0].cluster.source == ClusterSourceId{0});
+  BOOST_CHECK(frame.getNormalizedFrame().getGlobalMeasurements(SurfaceId{static_cast<uint16_t>(ITSNLayers)})[0].cluster.source == ClusterSourceId{1});
 
   // Frame reset clears the workspace and normalized ownership together.
   frame.resetEvent();
@@ -434,13 +434,19 @@ void checkParity(std::vector<SurfaceDescriptor> catalog, const Fixture& f)
     BOOST_REQUIRE(legacyCluster != nullptr);
 
     // Find the matching normalized measurement independently.
+    const GlobalMeasurement* globalMeasurement = nullptr;
     const SurfaceMeasurement* measurement = nullptr;
-    for (const auto& m : frame.getNormalizedFrame().getSurfaceMeasurements(SurfaceId{static_cast<uint16_t>(e.layer)})) {
-      if (m.cluster.index == e.externalIndex) {
-        measurement = &m;
+    const auto surface = SurfaceId{static_cast<uint16_t>(e.layer)};
+    const auto globals = frame.getNormalizedFrame().getGlobalMeasurements(surface);
+    const auto locals = frame.getNormalizedFrame().getSurfaceMeasurements(surface);
+    for (size_t index = 0; index < globals.size(); ++index) {
+      if (globals[index].cluster.index == e.externalIndex) {
+        globalMeasurement = &globals[index];
+        measurement = &locals[index];
         break;
       }
     }
+    BOOST_REQUIRE(globalMeasurement != nullptr);
     BOOST_REQUIRE(measurement != nullptr);
 
     // --- global position: legacy accessor vs. normalized owner vs. independently expected ---
@@ -448,9 +454,9 @@ void checkParity(std::vector<SurfaceDescriptor> catalog, const Fixture& f)
     BOOST_CHECK_EQUAL(legacyCluster->xCoordinate, g.x);
     BOOST_CHECK_EQUAL(legacyCluster->yCoordinate, g.y);
     BOOST_CHECK_EQUAL(legacyCluster->zCoordinate, g.z);
-    BOOST_CHECK_EQUAL(measurement->global.x, g.x);
-    BOOST_CHECK_EQUAL(measurement->global.y, g.y);
-    BOOST_CHECK_EQUAL(measurement->global.z, g.z);
+    BOOST_CHECK_EQUAL(globalMeasurement->position.x, g.x);
+    BOOST_CHECK_EQUAL(globalMeasurement->position.y, g.y);
+    BOOST_CHECK_EQUAL(globalMeasurement->position.z, g.z);
 
     // --- tracking-frame coordinates and covariance: legacy TrackingFrameInfo vs. normalized owner ---
     const auto& tfInfo = tf.getClusterTrackingFrameInfo(e.layer, *legacyCluster);
@@ -488,18 +494,18 @@ void checkParity(std::vector<SurfaceDescriptor> catalog, const Fixture& f)
 
     // --- external indices and source-qualified references ---
     BOOST_CHECK_EQUAL(tf.getClusterExternalIndex(e.layer, clId), static_cast<int>(e.externalIndex));
-    BOOST_CHECK_EQUAL(measurement->cluster.index, e.externalIndex);
-    BOOST_CHECK(measurement->cluster.source == kSourceId);
-    BOOST_CHECK(measurement->sensor.detector == static_cast<uint32_t>(f.detector));
-    BOOST_CHECK_EQUAL(measurement->sensor.sensor, static_cast<uint32_t>(e.sensorID));
-    BOOST_CHECK(measurement->surface == SurfaceId{static_cast<uint16_t>(e.layer)});
-    BOOST_CHECK_EQUAL(measurement->sourceROF, e.sourceROF);
+    BOOST_CHECK_EQUAL(globalMeasurement->cluster.index, e.externalIndex);
+    BOOST_CHECK(globalMeasurement->cluster.source == kSourceId);
+    BOOST_CHECK(globalMeasurement->sensor.detector == static_cast<uint32_t>(f.detector));
+    BOOST_CHECK_EQUAL(globalMeasurement->sensor.sensor, static_cast<uint32_t>(e.sensorID));
+    BOOST_CHECK(globalMeasurement->surface == SurfaceId{static_cast<uint16_t>(e.layer)});
+    BOOST_CHECK_EQUAL(globalMeasurement->sourceROF, e.sourceROF);
 
     // --- cluster shape / sizes: legacy vs. normalized, explicit pattern consumed exactly once ---
     BOOST_CHECK_EQUAL(static_cast<uint32_t>(tf.getClusterSize(e.layer, clId)), e.nPixels);
-    BOOST_CHECK_EQUAL(measurement->shape.nPixels, e.nPixels);
-    BOOST_CHECK_EQUAL(measurement->shape.rowSpan, e.rowSpan);
-    BOOST_CHECK_EQUAL(measurement->shape.columnSpan, e.columnSpan);
+    BOOST_CHECK_EQUAL(globalMeasurement->shape.nPixels, e.nPixels);
+    BOOST_CHECK_EQUAL(globalMeasurement->shape.rowSpan, e.rowSpan);
+    BOOST_CHECK_EQUAL(globalMeasurement->shape.columnSpan, e.columnSpan);
 
     // --- labels: legacy lookup vs. normalized ClusterRef lookup ---
     const auto legacyLabels = tf.getClusterLabels(e.layer, clId);

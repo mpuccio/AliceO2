@@ -117,7 +117,7 @@ class LegacyLikeDecoder final : public ClusterDecoder
     const auto surface = layerToSurface[layer];
     const DetectorSensorId sensor{static_cast<uint32_t>(mDetector), decoded.sensor};
     const ClusterRef clusterRef{source, externalIndex};
-    result.measurement = makeCylinderSurfaceMeasurement(decoded, sensor, surface, clusterRef, sourceROF);
+    result = makeCylinderMeasurementDecodeResult(decoded, sensor, surface, clusterRef, sourceROF);
     // Counts only clusters this decoder actually turned into a measurement
     // (the early-return failure paths above never reach here), so a test can
     // prove every cluster of a given input was successfully decoded by
@@ -307,22 +307,28 @@ void verifyFixtureLoaded(const TimeFrame& frame, SurfaceTrackingScratch& tf, con
     }
     BOOST_REQUIRE(legacyCluster != nullptr);
 
+    const GlobalMeasurement* globalMeasurement = nullptr;
     const SurfaceMeasurement* measurement = nullptr;
-    for (const auto& m : frame.getNormalizedFrame().getSurfaceMeasurements(SurfaceId{static_cast<uint16_t>(e.layer)})) {
-      if (m.cluster.index == e.externalIndex) {
-        measurement = &m;
+    const auto surface = SurfaceId{static_cast<uint16_t>(e.layer)};
+    const auto globals = frame.getNormalizedFrame().getGlobalMeasurements(surface);
+    const auto locals = frame.getNormalizedFrame().getSurfaceMeasurements(surface);
+    for (size_t index = 0; index < globals.size(); ++index) {
+      if (globals[index].cluster.index == e.externalIndex) {
+        globalMeasurement = &globals[index];
+        measurement = &locals[index];
         break;
       }
     }
+    BOOST_REQUIRE(globalMeasurement != nullptr);
     BOOST_REQUIRE(measurement != nullptr);
 
     const auto g = expectedGlobal(e.sensorID, e.row, e.col);
     BOOST_CHECK_EQUAL(legacyCluster->xCoordinate, g.x);
     BOOST_CHECK_EQUAL(legacyCluster->yCoordinate, g.y);
     BOOST_CHECK_EQUAL(legacyCluster->zCoordinate, g.z);
-    BOOST_CHECK_EQUAL(measurement->global.x, g.x);
-    BOOST_CHECK_EQUAL(measurement->global.y, g.y);
-    BOOST_CHECK_EQUAL(measurement->global.z, g.z);
+    BOOST_CHECK_EQUAL(globalMeasurement->position.x, g.x);
+    BOOST_CHECK_EQUAL(globalMeasurement->position.y, g.y);
+    BOOST_CHECK_EQUAL(globalMeasurement->position.z, g.z);
 
     const auto& tfInfo = tf.getClusterTrackingFrameInfo(e.layer, *legacyCluster);
     BOOST_CHECK_EQUAL(tfInfo.xCoordinate, g.x);
@@ -345,15 +351,15 @@ void verifyFixtureLoaded(const TimeFrame& frame, SurfaceTrackingScratch& tf, con
     BOOST_CHECK_EQUAL(measurement->covariance.vv, o2::itsmft::ioutils::DefClusError2Col);
 
     BOOST_CHECK_EQUAL(tf.getClusterExternalIndex(e.layer, clId), static_cast<int>(e.externalIndex));
-    BOOST_CHECK_EQUAL(measurement->cluster.index, e.externalIndex);
-    BOOST_CHECK(measurement->cluster.source == kSourceId);
-    BOOST_CHECK(measurement->sensor.detector == static_cast<uint32_t>(o2::detectors::DetID::ITS));
-    BOOST_CHECK_EQUAL(measurement->sensor.sensor, static_cast<uint32_t>(e.sensorID));
-    BOOST_CHECK(measurement->surface == SurfaceId{static_cast<uint16_t>(e.layer)});
-    BOOST_CHECK_EQUAL(measurement->sourceROF, e.sourceROF);
+    BOOST_CHECK_EQUAL(globalMeasurement->cluster.index, e.externalIndex);
+    BOOST_CHECK(globalMeasurement->cluster.source == kSourceId);
+    BOOST_CHECK(globalMeasurement->sensor.detector == static_cast<uint32_t>(o2::detectors::DetID::ITS));
+    BOOST_CHECK_EQUAL(globalMeasurement->sensor.sensor, static_cast<uint32_t>(e.sensorID));
+    BOOST_CHECK(globalMeasurement->surface == SurfaceId{static_cast<uint16_t>(e.layer)});
+    BOOST_CHECK_EQUAL(globalMeasurement->sourceROF, e.sourceROF);
 
     BOOST_CHECK_EQUAL(static_cast<uint32_t>(tf.getClusterSize(e.layer, clId)), e.nPixels);
-    BOOST_CHECK_EQUAL(measurement->shape.nPixels, e.nPixels);
+    BOOST_CHECK_EQUAL(globalMeasurement->shape.nPixels, e.nPixels);
 
     const auto legacyLabels = tf.getClusterLabels(e.layer, clId);
     const auto normalizedLabels = frame.getNormalizedFrame().getLabels(ClusterRef{kSourceId, e.externalIndex});

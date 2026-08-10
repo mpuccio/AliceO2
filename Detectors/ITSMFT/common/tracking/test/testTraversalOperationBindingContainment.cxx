@@ -137,28 +137,36 @@ BOOST_AUTO_TEST_CASE(TrackletAndCellEntryPointsUseOneGlobalTraversal)
   }
 }
 
-BOOST_AUTO_TEST_CASE(NeighbourAndRoadEntryPointsKeepTheirExistingLeafBoundary)
+BOOST_AUTO_TEST_CASE(NeighbourEntryPointUsesOneCoordinateNeutralCompatibilityPath)
 {
   const auto source = readTrackerTraitsSource();
-  const std::array<std::tuple<std::string, std::string, std::string>, 2> methods{{
-    {"findCellsNeighbours", "findCellsNeighboursCylinder", "findCellsNeighboursDisk"},
-    {"findRoads", "findRoadsCylinder", "findRoadsDisk"},
-  }};
   const std::array<std::string, 3> forbiddenTokens{"SurfaceKind", "StateFamily", "constexpr"};
-
-  for (const auto& [method, cylinderLeaf, diskLeaf] : methods) {
-    const auto body = extractMethodBody(source, method);
-    BOOST_REQUIRE_GT(body.size(), 0u);
-    const auto code = stripLineComments(body);
-    for (const auto& token : forbiddenTokens) {
-      BOOST_CHECK_MESSAGE(!mentionsToken(code, token),
-                          "TrackerTraits::" << method << "() still mentions " << token
-                                            << " in code -- a SurfaceKind/StateFamily dispatch branch leaked back"
-                                            << " into the shared entry point");
-    }
-    BOOST_CHECK(code.find(cylinderLeaf) != std::string::npos);
-    BOOST_CHECK(code.find(diskLeaf) != std::string::npos);
+  const auto entryPoint = stripLineComments(extractMethodBody(source, "findCellsNeighbours"));
+  BOOST_CHECK_EQUAL(countOccurrences(entryPoint, "findCellsNeighboursForSchedule("), 1u);
+  for (const auto& token : forbiddenTokens) {
+    BOOST_CHECK_MESSAGE(!mentionsToken(entryPoint, token),
+                        "TrackerTraits::findCellsNeighbours() still mentions " << token);
   }
+
+  const auto compatibility = stripLineComments(extractMethodBody(source, "findCellsNeighboursForSchedule"));
+  BOOST_REQUIRE_GT(compatibility.size(), 0u);
+  BOOST_CHECK_EQUAL(countOccurrences(compatibility, "fitAdjacentTripletFactors("), 1u);
+  for (const auto& token : {"SurfaceKind", "StateFamily", "ClusterSourceId", "DetID", "constexpr"}) {
+    BOOST_CHECK_MESSAGE(!mentionsToken(compatibility, token),
+                        "cell-neighbour compatibility depends on " << token);
+  }
+}
+
+BOOST_AUTO_TEST_CASE(RoadEntryPointKeepsItsExistingLeafBoundary)
+{
+  const auto source = readTrackerTraitsSource();
+  const auto code = stripLineComments(extractMethodBody(source, "findRoads"));
+  BOOST_REQUIRE_GT(code.size(), 0u);
+  for (const auto token : {"SurfaceKind", "StateFamily", "constexpr"}) {
+    BOOST_CHECK(!mentionsToken(code, token));
+  }
+  BOOST_CHECK(code.find("findRoadsCylinder") != std::string::npos);
+  BOOST_CHECK(code.find("findRoadsDisk") != std::string::npos);
 }
 
 BOOST_AUTO_TEST_CASE(RetiredTraversalOperationAdapterDoesNotReturn)
@@ -178,7 +186,7 @@ BOOST_AUTO_TEST_CASE(OperationPartitionsComeFromSurfaceDescriptorsOnly)
   BOOST_CHECK(code.find("layout.getSurface(layout.getTransition(transitionId).from).kind") != std::string::npos);
   BOOST_CHECK(code.find("mTransitionsByKind[kindIndex(kind)].push_back(transitionId)") != std::string::npos);
   BOOST_CHECK(code.find("mCellsByKind") == std::string::npos);
-  BOOST_CHECK(code.find("mScheduledCellsByKind[kindIndex(kind)].push_back(cellId)") != std::string::npos);
+  BOOST_CHECK(code.find("mScheduledCellsByKind") == std::string::npos);
   BOOST_CHECK(code.find("mRoadStartCellsByKind[kindIndex(kind)].push_back(cellId)") != std::string::npos);
   for (const auto token : {"ClusterSourceId", "DetID", "parametersByKind", "parametersForKind"}) {
     BOOST_CHECK_MESSAGE(!mentionsToken(code, token),
@@ -189,9 +197,7 @@ BOOST_AUTO_TEST_CASE(OperationPartitionsComeFromSurfaceDescriptorsOnly)
 BOOST_AUTO_TEST_CASE(RemainingNonTemplateWrapperTargetsForwardToKindSpecificLeafImplementations)
 {
   const auto source = readTrackerTraitsSource();
-  const std::array<std::pair<std::string, std::string>, 4> wrapperToLeaf{{
-    {"findCellsNeighboursCylinder", "findCellsNeighboursForKind<SurfaceKind::Cylinder>"},
-    {"findCellsNeighboursDisk", "findCellsNeighboursForKind<SurfaceKind::Disk>"},
+  const std::array<std::pair<std::string, std::string>, 2> wrapperToLeaf{{
     {"findRoadsCylinder", "findRoadsForKind<SurfaceKind::Cylinder>"},
     {"findRoadsDisk", "findRoadsForKind<SurfaceKind::Disk>"},
   }};
@@ -203,7 +209,10 @@ BOOST_AUTO_TEST_CASE(RemainingNonTemplateWrapperTargetsForwardToKindSpecificLeaf
   }
   for (const auto retired : {"computeLayerTrackletsCylinder", "computeLayerTrackletsDisk",
                              "computeLayerCellsCylinder", "computeLayerCellsDisk",
-                             "computeLayerTrackletsForKind", "computeLayerCellsForKind"}) {
+                             "computeLayerTrackletsForKind", "computeLayerCellsForKind",
+                             "findCellsNeighboursCylinder", "findCellsNeighboursDisk",
+                             "findCellsNeighboursForKind", "cellsCylinderAreCompatible",
+                             "cellsDiskAreCompatible"}) {
     BOOST_CHECK(source.find(retired) == std::string::npos);
   }
 }
@@ -272,7 +281,7 @@ BOOST_AUTO_TEST_CASE(TransverseTrackletDirectionUsesOneFamilyNeutralAlgorithm)
 {
   const auto source = readCandidateFindingSource();
   const auto begin = source.find("bool trackletDirectionsAreTransverselyCompatible(");
-  const auto end = source.find("bool makeCylinderDirectionObservation(", begin);
+  const auto end = source.find("bool makeDirectionObservation(", begin);
   BOOST_REQUIRE(begin != std::string::npos);
   BOOST_REQUIRE(end != std::string::npos);
   const auto compatibility = source.substr(begin, end - begin);
@@ -347,8 +356,10 @@ BOOST_AUTO_TEST_CASE(SurfaceSelectionLivesInCandidateFindingLeaves)
   BOOST_CHECK(source.find("projectDiskSearchWindow(") != std::string::npos);
   BOOST_CHECK(source.find("buildCylinderCellSeed(") != std::string::npos);
   BOOST_CHECK(source.find("buildDiskCellSeed(") != std::string::npos);
-  BOOST_CHECK(source.find("makeCylinderDirectionObservation(") != std::string::npos);
-  BOOST_CHECK(source.find("makeDiskDirectionObservation(") != std::string::npos);
-  BOOST_CHECK(source.find("makeCylinderTransverseDirectionObservation(") != std::string::npos);
-  BOOST_CHECK(source.find("makeDiskTransverseDirectionObservation(") != std::string::npos);
+  BOOST_CHECK(source.find("makeDirectionObservation(") != std::string::npos);
+  BOOST_CHECK(source.find("makeTransverseDirectionObservation(") != std::string::npos);
+  BOOST_CHECK(source.find("makeCylinderDirectionObservation(") == std::string::npos);
+  BOOST_CHECK(source.find("makeDiskDirectionObservation(") == std::string::npos);
+  BOOST_CHECK(source.find("makeCylinderTransverseDirectionObservation(") == std::string::npos);
+  BOOST_CHECK(source.find("makeDiskTransverseDirectionObservation(") == std::string::npos);
 }

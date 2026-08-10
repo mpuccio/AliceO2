@@ -131,9 +131,9 @@ class PrescribedDecoder final : public ClusterDecoder
     result.kind = mKind;
     const DetectorSensorId sensor{static_cast<uint32_t>(mDetector), decoded.sensor};
     const ClusterRef clusterRef{source, externalIndex};
-    result.measurement = mKind == SurfaceKind::Disk
-                           ? makeDiskSurfaceMeasurement(decoded, sensor, layerToSurface[layer], clusterRef, sourceROF)
-                           : makeCylinderSurfaceMeasurement(decoded, sensor, layerToSurface[layer], clusterRef, sourceROF);
+    result = mKind == SurfaceKind::Disk
+               ? makeDiskMeasurementDecodeResult(decoded, sensor, layerToSurface[layer], clusterRef, sourceROF)
+               : makeCylinderMeasurementDecodeResult(decoded, sensor, layerToSurface[layer], clusterRef, sourceROF);
     return result;
   }
 
@@ -766,7 +766,7 @@ BOOST_AUTO_TEST_CASE(CombinedComponentsUseOwnROFTimingInOneCombinedPass)
     }
     for (uint32_t ref = track.firstClusterRef; ref < track.clusterRefEnd; ++ref) {
       const auto& reference = frame.getTrackClusterIndices()[ref];
-      const auto* measurement = frame.getNormalizedFrame().getMeasurement(reference.surface, reference.index);
+      const auto* measurement = frame.getNormalizedFrame().getGlobalMeasurement(reference.surface, reference.index);
       BOOST_REQUIRE(measurement != nullptr);
       BOOST_CHECK(measurement->surface == reference.surface);
       BOOST_CHECK(isMft ? mftMask.has(reference.surface) : itsMask.has(reference.surface));

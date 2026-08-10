@@ -121,7 +121,7 @@ class LegacyLikeDecoder final : public ClusterDecoder
     const auto surface = layerToSurface[layer];
     const DetectorSensorId sensor{static_cast<uint32_t>(mDetector), decoded.sensor};
     const ClusterRef clusterRef{source, externalIndex};
-    result.measurement = makeCylinderSurfaceMeasurement(decoded, sensor, surface, clusterRef, sourceROF);
+    result = makeCylinderMeasurementDecodeResult(decoded, sensor, surface, clusterRef, sourceROF);
     return result;
   }
 

@@ -126,9 +126,9 @@ class PrescribedDecoder final : public ClusterDecoder
     result.kind = mKind;
     const DetectorSensorId sensor{static_cast<uint32_t>(mDetector), decoded.sensor};
     const ClusterRef clusterRef{source, externalIndex};
-    result.measurement = mKind == SurfaceKind::Disk
-                           ? makeDiskSurfaceMeasurement(decoded, sensor, layerToSurface[layer], clusterRef, sourceROF)
-                           : makeCylinderSurfaceMeasurement(decoded, sensor, layerToSurface[layer], clusterRef, sourceROF);
+    result = mKind == SurfaceKind::Disk
+               ? makeDiskMeasurementDecodeResult(decoded, sensor, layerToSurface[layer], clusterRef, sourceROF)
+               : makeCylinderMeasurementDecodeResult(decoded, sensor, layerToSurface[layer], clusterRef, sourceROF);
     return result;
   }
 

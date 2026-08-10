@@ -81,7 +81,6 @@ SurfaceKinematicState makeCandidateState()
 SurfaceMeasurement makeMeasurement()
 {
   SurfaceMeasurement measurement{};
-  measurement.global = {99.f, -77.f, 123.f}; // Deliberately inconsistent with barrel frame u/v.
   measurement.frame = {456.f, 0.8f, -0.45f, 0.f};
   measurement.covariance = {0.04f, 0.012f, 0.09f};
   return measurement;
@@ -127,14 +126,9 @@ void checkBuildSeedMetadata(const SurfaceKinematicState& state, uint8_t expected
   BOOST_CHECK_EQUAL(static_cast<uint8_t>(state.pid), static_cast<uint8_t>(expectedPid));
 }
 
-// Test-local field-mapping helper (not a production API): builds the
-// SurfaceMeasurement fields barrel::buildSeed reads from a global-position-
-// only input (Cylinder field mapping: global coordinates -> measurement.global).
-SurfaceMeasurement measurementFromGlobalCluster(const o2::its::Cluster& cluster)
+GlobalPoint3F globalPointFromCluster(const o2::its::Cluster& cluster)
 {
-  SurfaceMeasurement measurement{};
-  measurement.global = {cluster.xCoordinate, cluster.yCoordinate, cluster.zCoordinate};
-  return measurement;
+  return {cluster.xCoordinate, cluster.yCoordinate, cluster.zCoordinate};
 }
 
 // Test-local field-mapping helper: builds the SurfaceMeasurement fields
@@ -162,7 +156,7 @@ void checkBuildSeedFailurePreservesBytes(const o2::its::Cluster& clusterInner, c
   auto outState = makeState(); // deliberately non-default sentinel pattern
   const auto before = outState;
   OperationFailureReason reason{};
-  BOOST_CHECK(!barrel::buildSeed(measurementFromGlobalCluster(clusterInner), measurementFromGlobalCluster(clusterMiddle),
+  BOOST_CHECK(!barrel::buildSeed(globalPointFromCluster(clusterInner), globalPointFromCluster(clusterMiddle),
                                  measurementFromOuterHit(hitOuter), bz, 1, o2::track::PID::Pion, outState, reason));
   BOOST_CHECK(reason == expected);
   BOOST_CHECK(bitEqual(outState, before));
@@ -617,7 +611,7 @@ BOOST_AUTO_TEST_CASE(BuildSeedMatchesRetainedLegacyOracleNonzeroField)
 
     SurfaceKinematicState outState{};
     OperationFailureReason reason{};
-    BOOST_REQUIRE(barrel::buildSeed(measurementFromGlobalCluster(clusterInner), measurementFromGlobalCluster(clusterMiddle),
+    BOOST_REQUIRE(barrel::buildSeed(globalPointFromCluster(clusterInner), globalPointFromCluster(clusterMiddle),
                                     measurementFromOuterHit(hitOuter), bz, 1, o2::track::PID::Pion, outState, reason));
 
     Drift drift{};
@@ -644,7 +638,7 @@ BOOST_AUTO_TEST_CASE(BuildSeedMatchesRetainedLegacyOracleZeroField)
 
   SurfaceKinematicState outState{};
   OperationFailureReason reason{};
-  BOOST_REQUIRE(barrel::buildSeed(measurementFromGlobalCluster(clusterInner), measurementFromGlobalCluster(clusterMiddle),
+  BOOST_REQUIRE(barrel::buildSeed(globalPointFromCluster(clusterInner), globalPointFromCluster(clusterMiddle),
                                   measurementFromOuterHit(hitOuter), bz, 2, o2::track::PID::Kaon, outState, reason));
 
   Drift drift{};
@@ -682,9 +676,9 @@ BOOST_AUTO_TEST_CASE(BuildSeedCurvatureSignFlipsWithMirroredGeometry)
   SurfaceKinematicState plain{};
   SurfaceKinematicState mirrored{};
   OperationFailureReason reason{};
-  BOOST_REQUIRE(barrel::buildSeed(measurementFromGlobalCluster(clusterInner), measurementFromGlobalCluster(clusterMiddle),
+  BOOST_REQUIRE(barrel::buildSeed(globalPointFromCluster(clusterInner), globalPointFromCluster(clusterMiddle),
                                   measurementFromOuterHit(hitOuter), bz, 1, o2::track::PID::Pion, plain, reason));
-  BOOST_REQUIRE(barrel::buildSeed(measurementFromGlobalCluster(clusterInnerMirrored), measurementFromGlobalCluster(clusterMiddleMirrored),
+  BOOST_REQUIRE(barrel::buildSeed(globalPointFromCluster(clusterInnerMirrored), globalPointFromCluster(clusterMiddleMirrored),
                                   measurementFromOuterHit(hitOuterMirrored), bz,
                                   1, o2::track::PID::Pion, mirrored, reason));
   BOOST_CHECK_LT(plain.parameters[4] * mirrored.parameters[4], 0.f);
@@ -736,9 +730,9 @@ BOOST_AUTO_TEST_CASE(BuildSeedIsByteDeterministic)
   SurfaceKinematicState firstState{};
   SurfaceKinematicState secondState{};
   OperationFailureReason reason{};
-  BOOST_REQUIRE(barrel::buildSeed(measurementFromGlobalCluster(clusterInner), measurementFromGlobalCluster(clusterMiddle),
+  BOOST_REQUIRE(barrel::buildSeed(globalPointFromCluster(clusterInner), globalPointFromCluster(clusterMiddle),
                                   measurementFromOuterHit(hitOuter), bz, 1, o2::track::PID::Pion, firstState, reason));
-  BOOST_REQUIRE(barrel::buildSeed(measurementFromGlobalCluster(clusterInner), measurementFromGlobalCluster(clusterMiddle),
+  BOOST_REQUIRE(barrel::buildSeed(globalPointFromCluster(clusterInner), globalPointFromCluster(clusterMiddle),
                                   measurementFromOuterHit(hitOuter), bz, 1, o2::track::PID::Pion, secondState, reason));
   BOOST_CHECK(bitEqual(firstState, secondState));
 }

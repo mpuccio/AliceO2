@@ -109,9 +109,14 @@ class NeverDecodedDecoder final : public ClusterDecoder
 class FixedMeasurementDecoder final : public ClusterDecoder
 {
  public:
+  struct MeasurementPair {
+    GlobalMeasurement global{};
+    SurfaceMeasurement local{};
+  };
+
   FixedMeasurementDecoder(o2::detectors::DetID::ID detector, SurfaceKind kind) : mDetector(detector), mKind(kind) {}
 
-  void setMeasurement(int layer, const SurfaceMeasurement& measurement) { mByLayer[layer] = measurement; }
+  void setMeasurement(int layer, const MeasurementPair& measurement) { mByLayer[layer] = measurement; }
 
   o2::itsmft::tracking::SurfaceMeasurementDecodeResult decode(
     const CompClusterExt& cluster,
@@ -134,18 +139,19 @@ class FixedMeasurementDecoder final : public ClusterDecoder
     const auto it = mByLayer.find(layer);
     BOOST_REQUIRE(it != mByLayer.end());
     auto measurement = it->second;
-    measurement.surface = layerToSurface[layer];
-    measurement.sensor = DetectorSensorId{static_cast<uint32_t>(mDetector), static_cast<uint32_t>(layer)};
-    measurement.cluster = ClusterRef{source, externalIndex};
-    measurement.sourceROF = sourceROF;
-    result.measurement = measurement;
+    measurement.global.surface = layerToSurface[layer];
+    measurement.global.sensor = DetectorSensorId{static_cast<uint32_t>(mDetector), static_cast<uint32_t>(layer)};
+    measurement.global.cluster = ClusterRef{source, externalIndex};
+    measurement.global.sourceROF = sourceROF;
+    result.global = measurement.global;
+    result.measurement = measurement.local;
     return result;
   }
 
  private:
   o2::detectors::DetID::ID mDetector;
   SurfaceKind mKind;
-  std::map<int, SurfaceMeasurement> mByLayer;
+  std::map<int, MeasurementPair> mByLayer;
 };
 
 const TopologyDictionary& dict()
@@ -218,28 +224,42 @@ o2::its::TrackingFrameInfo makeDiskHit(float z, float x, float y, float sigma2X 
 // testCellFinding.cxx: the single SurfaceMeasurement now
 // standing in for the retired {Cluster, TrackingFrameInfo} pair at each
 // candidate position.
-SurfaceMeasurement barrelMeasurementFor(const o2::its::Cluster& cluster, const o2::its::TrackingFrameInfo& hit)
+FixedMeasurementDecoder::MeasurementPair barrelMeasurementFor(const o2::its::Cluster& cluster, const o2::its::TrackingFrameInfo& hit)
 {
-  SurfaceMeasurement measurement{};
-  measurement.global = {cluster.xCoordinate, cluster.yCoordinate, cluster.zCoordinate};
-  measurement.frame.q = hit.xTrackingFrame;
-  measurement.frame.frameAngle = hit.alphaTrackingFrame;
-  measurement.frame.u = hit.positionTrackingFrame[0];
-  measurement.frame.v = hit.positionTrackingFrame[1];
-  measurement.covariance.uu = hit.covarianceTrackingFrame[0];
-  measurement.covariance.uv = hit.covarianceTrackingFrame[1];
-  measurement.covariance.vv = hit.covarianceTrackingFrame[2];
+  FixedMeasurementDecoder::MeasurementPair measurement{};
+  measurement.global.position = {cluster.xCoordinate, cluster.yCoordinate, cluster.zCoordinate};
+  measurement.global.radius = std::hypot(cluster.xCoordinate, cluster.yCoordinate);
+  const float sine = std::sin(hit.alphaTrackingFrame);
+  const float cosine = std::cos(hit.alphaTrackingFrame);
+  const float varianceU = hit.covarianceTrackingFrame[0];
+  const float covarianceUV = hit.covarianceTrackingFrame[1];
+  measurement.global.covariance = {sine * sine * varianceU,
+                                   -sine * cosine * varianceU,
+                                   -sine * covarianceUV,
+                                   cosine * cosine * varianceU,
+                                   cosine * covarianceUV,
+                                   hit.covarianceTrackingFrame[2]};
+  measurement.local.frame.q = hit.xTrackingFrame;
+  measurement.local.frame.frameAngle = hit.alphaTrackingFrame;
+  measurement.local.frame.u = hit.positionTrackingFrame[0];
+  measurement.local.frame.v = hit.positionTrackingFrame[1];
+  measurement.local.covariance.uu = hit.covarianceTrackingFrame[0];
+  measurement.local.covariance.uv = hit.covarianceTrackingFrame[1];
+  measurement.local.covariance.vv = hit.covarianceTrackingFrame[2];
   return measurement;
 }
 
-SurfaceMeasurement diskMeasurementFor(const o2::its::Cluster& cluster, const o2::its::TrackingFrameInfo& hit)
+FixedMeasurementDecoder::MeasurementPair diskMeasurementFor(const o2::its::Cluster& cluster, const o2::its::TrackingFrameInfo& hit)
 {
-  SurfaceMeasurement measurement{};
-  measurement.global = {cluster.xCoordinate, cluster.yCoordinate, cluster.zCoordinate};
-  measurement.frame.q = cluster.zCoordinate; // disk adapter contract: frame.q == global.z
-  measurement.covariance.uu = hit.covarianceTrackingFrame[0];
-  measurement.covariance.uv = 0.f;
-  measurement.covariance.vv = hit.covarianceTrackingFrame[2];
+  FixedMeasurementDecoder::MeasurementPair measurement{};
+  measurement.global.position = {cluster.xCoordinate, cluster.yCoordinate, cluster.zCoordinate};
+  measurement.global.radius = std::hypot(cluster.xCoordinate, cluster.yCoordinate);
+  measurement.global.covariance = {hit.covarianceTrackingFrame[0], 0.f, 0.f,
+                                   hit.covarianceTrackingFrame[2], 0.f, 0.f};
+  measurement.local.frame = {cluster.zCoordinate, cluster.xCoordinate, cluster.yCoordinate, 0.f};
+  measurement.local.covariance.uu = hit.covarianceTrackingFrame[0];
+  measurement.local.covariance.uv = 0.f;
+  measurement.local.covariance.vv = hit.covarianceTrackingFrame[2];
   return measurement;
 }
 
@@ -580,6 +600,12 @@ BOOST_AUTO_TEST_CASE(CylinderComputeLayerCellsMatchesBuildCellSeedOracle)
 
   BOOST_REQUIRE_EQUAL(rig.tf.getCells()[cellTopologyId].size(), 1u);
   const auto& producedCell = rig.tf.getCells()[cellTopologyId][0];
+  BOOST_CHECK(producedCell.tripletFactor().isValid());
+  for (int slot = 0; slot < 3; ++slot) {
+    const auto reference = producedCell.getClusterReference(slot);
+    BOOST_CHECK_EQUAL(reference.surfacePosition, slot);
+    BOOST_CHECK_EQUAL(reference.clusterIndex, producedCell.getClusters()[slot]);
+  }
 
   BOOST_REQUIRE_EQUAL(rig.tf.getCellsLookupTable()[cellTopologyId].size(), 2u);
   BOOST_CHECK_EQUAL(rig.tf.getCellsLookupTable()[cellTopologyId][0], 0);
@@ -593,6 +619,9 @@ BOOST_AUTO_TEST_CASE(CylinderComputeLayerCellsMatchesBuildCellSeedOracle)
   // TrackerTraits::getLayerMeasurements() (never re-typed literals) and call
   // buildCylinderCellSeed directly.
   const auto layerMeasurements = rig.traits.getLayerMeasurements();
+  const auto layerGlobalMeasurements = rig.traits.getLayerGlobalMeasurements();
+  const auto& oracleGlobalInner = layerGlobalMeasurements[0][producedCell.getFirstClusterIndex()];
+  const auto& oracleGlobalMiddle = layerGlobalMeasurements[1][producedCell.getSecondClusterIndex()];
   const auto& oracleMeasurementInner = layerMeasurements[0][producedCell.getFirstClusterIndex()];
   const auto& oracleMeasurementMiddle = layerMeasurements[1][producedCell.getSecondClusterIndex()];
   const auto& oracleMeasurementOuter = layerMeasurements[2][producedCell.getThirdClusterIndex()];
@@ -606,7 +635,7 @@ BOOST_AUTO_TEST_CASE(CylinderComputeLayerCellsMatchesBuildCellSeedOracle)
   float oracleChi2 = 0.f;
   OperationFailureReason oracleReason{};
   BOOST_REQUIRE(buildCylinderCellSeed(
-    oracleMeasurementInner, oracleMeasurementMiddle, oracleMeasurementOuter,
+    oracleGlobalInner, oracleGlobalMiddle, oracleMeasurementInner, oracleMeasurementMiddle, oracleMeasurementOuter,
     material, Bz, kCompatibilityAbsCharge, kCompatibilityPID, oracleState, oracleChi2, trackingParams, oracleReason));
 
   checkSurfaceKinematicStateEqual(producedCell.state(), oracleState);
@@ -681,6 +710,12 @@ BOOST_AUTO_TEST_CASE(DiskComputeLayerCellsMatchesBuildCellSeedOracle)
 
   BOOST_REQUIRE_EQUAL(rig.tf.getCells()[cellTopologyId].size(), 1u);
   const auto& producedCell = rig.tf.getCells()[cellTopologyId][0];
+  BOOST_CHECK(producedCell.tripletFactor().isValid());
+  for (int slot = 0; slot < 3; ++slot) {
+    const auto reference = producedCell.getClusterReference(slot);
+    BOOST_CHECK_EQUAL(reference.surfacePosition, slot);
+    BOOST_CHECK_EQUAL(reference.clusterIndex, producedCell.getClusters()[slot]);
+  }
 
   const auto layerMeasurements = rig.traits.getLayerMeasurements();
   const auto& oracleMeasurementInner = layerMeasurements[0][producedCell.getFirstClusterIndex()];
@@ -1021,10 +1056,13 @@ BOOST_AUTO_TEST_CASE(CylinderComputeLayerCellsMultiCellChainProducesCorrectCells
   rig.traits.computeLayerCells(0);
 
   const std::array<std::array<int, 3>, 3> triples{{{0, 1, 2}, {1, 2, 3}, {2, 3, 4}}};
+  std::array<int, 3> topologyIds{};
   std::vector<bool> participating(topology.nCells, false);
-  for (const auto& triple : triples) {
+  for (size_t i = 0; i < triples.size(); ++i) {
+    const auto& triple = triples[i];
     const int cellTopologyId = findCellTopologyId(topology, triple[0], triple[1], triple[2]);
     BOOST_REQUIRE_GE(cellTopologyId, 0);
+    topologyIds[i] = cellTopologyId;
     participating[cellTopologyId] = true;
 
     BOOST_REQUIRE_EQUAL(rig.tf.getCells()[cellTopologyId].size(), 1u);
@@ -1043,6 +1081,18 @@ BOOST_AUTO_TEST_CASE(CylinderComputeLayerCellsMultiCellChainProducesCorrectCells
     if (!participating[i]) {
       BOOST_CHECK(rig.tf.getCells()[i].empty());
     }
+  }
+
+  rig.traits.findCellsNeighbours(0);
+  for (size_t i = 0; i < topologyIds.size(); ++i) {
+    BOOST_CHECK_EQUAL(rig.tf.getCells()[topologyIds[i]][0].getLevel(), static_cast<int>(i + 1));
+    if (i == 0) {
+      BOOST_CHECK(rig.tf.getCellsNeighbours()[topologyIds[i]].empty());
+      continue;
+    }
+    BOOST_REQUIRE_EQUAL(rig.tf.getCellsNeighbours()[topologyIds[i]].size(), 1u);
+    BOOST_CHECK_EQUAL(rig.tf.getCellsNeighbours()[topologyIds[i]][0], 0);
+    BOOST_CHECK_EQUAL(rig.tf.getCellsNeighboursTopology()[topologyIds[i]][0], topologyIds[i - 1]);
   }
 }
 
@@ -1080,10 +1130,13 @@ BOOST_AUTO_TEST_CASE(DiskComputeLayerCellsMultiCellChainProducesCorrectCellsAndO
   rig.traits.computeLayerCells(0);
 
   const std::array<std::array<int, 3>, 3> triples{{{0, 1, 2}, {1, 2, 3}, {2, 3, 4}}};
+  std::array<int, 3> topologyIds{};
   std::vector<bool> participating(topology.nCells, false);
-  for (const auto& triple : triples) {
+  for (size_t i = 0; i < triples.size(); ++i) {
+    const auto& triple = triples[i];
     const int cellTopologyId = findCellTopologyId(topology, triple[0], triple[1], triple[2]);
     BOOST_REQUIRE_GE(cellTopologyId, 0);
+    topologyIds[i] = cellTopologyId;
     participating[cellTopologyId] = true;
 
     BOOST_REQUIRE_EQUAL(rig.tf.getCells()[cellTopologyId].size(), 1u);
@@ -1099,6 +1152,18 @@ BOOST_AUTO_TEST_CASE(DiskComputeLayerCellsMultiCellChainProducesCorrectCellsAndO
     if (!participating[i]) {
       BOOST_CHECK(rig.tf.getCells()[i].empty());
     }
+  }
+
+  rig.traits.findCellsNeighbours(0);
+  for (size_t i = 0; i < topologyIds.size(); ++i) {
+    BOOST_CHECK_EQUAL(rig.tf.getCells()[topologyIds[i]][0].getLevel(), static_cast<int>(i + 1));
+    if (i == 0) {
+      BOOST_CHECK(rig.tf.getCellsNeighbours()[topologyIds[i]].empty());
+      continue;
+    }
+    BOOST_REQUIRE_EQUAL(rig.tf.getCellsNeighbours()[topologyIds[i]].size(), 1u);
+    BOOST_CHECK_EQUAL(rig.tf.getCellsNeighbours()[topologyIds[i]][0], 0);
+    BOOST_CHECK_EQUAL(rig.tf.getCellsNeighboursTopology()[topologyIds[i]][0], topologyIds[i - 1]);
   }
 }
 

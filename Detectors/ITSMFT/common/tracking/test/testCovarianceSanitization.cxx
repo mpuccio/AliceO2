@@ -257,8 +257,8 @@ BOOST_AUTO_TEST_CASE(MFTReproducerNowSanitizesToValidCovariance)
   }
 
   SurfaceMeasurement meas{};
-  meas.global.x = -3.4059999f;
-  meas.global.y = -3.04678011f;
+  meas.frame.u = -3.4059999f;
+  meas.frame.v = -3.04678011f;
   meas.covariance.uu = 4.4239976e-05f;
   meas.covariance.uv = 0.f;
   meas.covariance.vv = 0.000105412393f;
@@ -568,8 +568,8 @@ BOOST_AUTO_TEST_CASE(ForwardUpdateSanitizesReproducer)
     state.covariance[i] = cov[i];
   }
   SurfaceMeasurement meas{};
-  meas.global.x = -3.4059999f;
-  meas.global.y = -3.04678011f;
+  meas.frame.u = -3.4059999f;
+  meas.frame.v = -3.04678011f;
   meas.covariance.uu = 4.4239976e-05f;
   meas.covariance.vv = 0.000105412393f;
   float chi2 = 0.f;

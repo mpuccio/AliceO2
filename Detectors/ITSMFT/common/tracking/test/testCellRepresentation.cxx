@@ -71,6 +71,26 @@ BOOST_AUTO_TEST_CASE(CellSeedComposesSurfaceKinematicStateAndDoesNotInheritLegac
   // state() is a real, mutable reference to the composed member, not a copy.
   cell.state().parameters[4] = 99.f;
   BOOST_CHECK_EQUAL(cell.state().parameters[4], 99.f);
+
+  BOOST_CHECK(!cell.tripletFactor().isValid());
+  cell.tripletFactor().rho.phi = -0.5f;
+  BOOST_CHECK(cell.tripletFactor().isValid());
+}
+
+BOOST_AUTO_TEST_CASE(CellTripletFactorReferencesReusePositionalClusterBinding)
+{
+  const auto state = makeDistinctState(StateFamily::Barrel);
+  const o2::its::TimeEstBC time{};
+  CellSeed cell{LayerMask{2, 4, 7}, 101, 202, 303, 1, 2, state, 0.f, time};
+
+  const std::array<CellClusterReference, 3> expected{{{2, 101}, {4, 202}, {7, 303}}};
+  for (int slot = 0; slot < 3; ++slot) {
+    const auto reference = cell.getClusterReference(slot);
+    BOOST_CHECK_EQUAL(reference.surfacePosition, expected[slot].surfacePosition);
+    BOOST_CHECK_EQUAL(reference.clusterIndex, expected[slot].clusterIndex);
+  }
+  BOOST_CHECK_EQUAL(cell.getClusterReference(-1).clusterIndex, o2::its::constants::UnusedIndex);
+  BOOST_CHECK_EQUAL(cell.getClusterReference(3).surfacePosition, o2::its::constants::UnusedIndex);
 }
 
 // --- One common CellSeed representation -------------------------------------

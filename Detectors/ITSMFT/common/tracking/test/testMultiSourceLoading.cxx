@@ -118,26 +118,26 @@ class FakeClusterDecoder final : public ClusterDecoder
     const DetectorSensorId sensor{static_cast<uint32_t>(mDetector), decoded.sensor};
     const ClusterRef clusterRef{source, externalIndex};
     if (mDisk) {
-      result.measurement = makeDiskSurfaceMeasurement(decoded, sensor, surface, clusterRef, sourceROF);
+      result = makeDiskMeasurementDecodeResult(decoded, sensor, surface, clusterRef, sourceROF);
     } else {
-      result.measurement = makeCylinderSurfaceMeasurement(decoded, sensor, surface, clusterRef, sourceROF);
+      result = makeCylinderMeasurementDecodeResult(decoded, sensor, surface, clusterRef, sourceROF);
     }
 
     switch (mCorruption) {
       case Corruption::WrongSurface:
-        result.measurement.surface = SurfaceId{static_cast<uint16_t>(surface.value() == 0 ? 1 : 0)};
+        result.global.surface = SurfaceId{static_cast<uint16_t>(surface.value() == 0 ? 1 : 0)};
         break;
       case Corruption::WrongSource:
-        result.measurement.cluster.source = ClusterSourceId{static_cast<uint16_t>(source.value() + 7)};
+        result.global.cluster.source = ClusterSourceId{static_cast<uint16_t>(source.value() + 7)};
         break;
       case Corruption::WrongIndex:
-        result.measurement.cluster.index = externalIndex + 1;
+        result.global.cluster.index = externalIndex + 1;
         break;
       case Corruption::WrongSourceROF:
-        result.measurement.sourceROF = sourceROF + 1;
+        result.global.sourceROF = sourceROF + 1;
         break;
       case Corruption::WrongSensorDetector:
-        result.measurement.sensor.detector = static_cast<uint32_t>(
+        result.global.sensor.detector = static_cast<uint32_t>(
           mDetector == o2::detectors::DetID::ITS ? o2::detectors::DetID::MFT : o2::detectors::DetID::ITS);
         break;
       case Corruption::WrongKind:
@@ -210,7 +210,7 @@ class PatternContractDecoder final : public ClusterDecoder
     result.layer = 0;
     result.layerMapped = true;
     result.kind = SurfaceKind::Cylinder;
-    result.measurement = makeCylinderSurfaceMeasurement(
+    result = makeCylinderMeasurementDecodeResult(
       decoded, {o2::detectors::DetID::ITS, decoded.sensor}, layerToSurface[0],
       {source, externalIndex}, sourceROF);
     return result;
@@ -310,7 +310,7 @@ BOOST_AUTO_TEST_CASE(SingleITSSourceLoadsIntoExpectedSurfaces)
   BOOST_REQUIRE_EQUAL(frame.getSources().size(), 1u);
   BOOST_CHECK(frame.getSources()[0].detector == o2::detectors::DetID::ITS);
   BOOST_CHECK_EQUAL(frame.getSources()[0].nROFs, 1u);
-  BOOST_CHECK_EQUAL(frame.getSurfaceMeasurements(SurfaceId{0})[0].sensor.detector, static_cast<uint32_t>(o2::detectors::DetID::ITS));
+  BOOST_CHECK_EQUAL(frame.getGlobalMeasurements(SurfaceId{0})[0].sensor.detector, static_cast<uint32_t>(o2::detectors::DetID::ITS));
 }
 
 BOOST_AUTO_TEST_CASE(InvalidTimingConfigurationIsReportedWithBuildErrorDetail)
@@ -380,7 +380,7 @@ BOOST_AUTO_TEST_CASE(SingleMFTSourceLoadsIntoExpectedSurfaces)
 
   BOOST_CHECK_EQUAL(frame.getSurfaceMeasurements(SurfaceId{2}).size(), 1u);
   BOOST_CHECK_EQUAL(frame.getSurfaceMeasurements(SurfaceId{3}).size(), 1u);
-  BOOST_CHECK_EQUAL(frame.getSurfaceMeasurements(SurfaceId{2})[0].sensor.detector, static_cast<uint32_t>(o2::detectors::DetID::MFT));
+  BOOST_CHECK_EQUAL(frame.getGlobalMeasurements(SurfaceId{2})[0].sensor.detector, static_cast<uint32_t>(o2::detectors::DetID::MFT));
 }
 
 BOOST_AUTO_TEST_CASE(CombinedITSAndMFTSourcesLoadTogether)
@@ -479,8 +479,8 @@ BOOST_AUTO_TEST_CASE(ViewResolvesMeasurementsOnMultipleSurfacesAfterSuccessfulLo
   BOOST_CHECK_EQUAL(view.getSurfaceMeasurementCount(SurfaceId{0}), 1u);
   BOOST_CHECK_EQUAL(view.getSurfaceMeasurementCount(SurfaceId{3}), 1u);
 
-  const auto* onITS = view.getMeasurement(SurfaceId{0}, SurfaceMeasurementIndex{0});
-  const auto* onMFT = view.getMeasurement(SurfaceId{3}, SurfaceMeasurementIndex{0});
+  const auto* onITS = view.getGlobalMeasurement(SurfaceId{0}, SurfaceMeasurementIndex{0});
+  const auto* onMFT = view.getGlobalMeasurement(SurfaceId{3}, SurfaceMeasurementIndex{0});
   BOOST_REQUIRE(onITS != nullptr);
   BOOST_REQUIRE(onMFT != nullptr);
   BOOST_CHECK(onITS->surface == SurfaceId{0});
@@ -488,8 +488,8 @@ BOOST_AUTO_TEST_CASE(ViewResolvesMeasurementsOnMultipleSurfacesAfterSuccessfulLo
   BOOST_CHECK(onITS->sensor.detector == static_cast<uint32_t>(o2::detectors::DetID::ITS));
   BOOST_CHECK(onMFT->sensor.detector == static_cast<uint32_t>(o2::detectors::DetID::MFT));
 
-  BOOST_CHECK_EQUAL(onITS->global.x, frame.getSurfaceMeasurements(SurfaceId{0})[0].global.x);
-  BOOST_CHECK_EQUAL(onMFT->global.x, frame.getSurfaceMeasurements(SurfaceId{3})[0].global.x);
+  BOOST_CHECK_EQUAL(onITS->position.x, frame.getGlobalMeasurements(SurfaceId{0})[0].position.x);
+  BOOST_CHECK_EQUAL(onMFT->position.x, frame.getGlobalMeasurements(SurfaceId{3})[0].position.x);
 }
 
 BOOST_AUTO_TEST_CASE(TwoSourcesOfSameDetectorBothAppendToOneSurface)
@@ -532,7 +532,7 @@ BOOST_AUTO_TEST_CASE(TwoSourcesOfSameDetectorBothAppendToOneSurface)
   const auto result = loadSources(frame, layout.getView().getSurfaceCatalogView(), gsl::span<const ClusterSourceInput>(sources), {0, 0});
   BOOST_REQUIRE(result.ok());
 
-  const auto onSurfaceZero = frame.getSurfaceMeasurements(SurfaceId{0});
+  const auto onSurfaceZero = frame.getGlobalMeasurements(SurfaceId{0});
   BOOST_REQUIRE_EQUAL(onSurfaceZero.size(), 2u);
   BOOST_CHECK(onSurfaceZero[0].cluster.source != onSurfaceZero[1].cluster.source);
 }
@@ -584,7 +584,7 @@ BOOST_AUTO_TEST_CASE(IdenticalExternalIndicesInDifferentSourcesDoNotCollide)
   const auto result = loadSources(frame, layout.getView().getSurfaceCatalogView(), gsl::span<const ClusterSourceInput>(sources), {0, 0});
   BOOST_REQUIRE(result.ok());
 
-  const auto onSurfaceZero = frame.getSurfaceMeasurements(SurfaceId{0});
+  const auto onSurfaceZero = frame.getGlobalMeasurements(SurfaceId{0});
   BOOST_REQUIRE_EQUAL(onSurfaceZero.size(), 2u);
   for (const auto& m : onSurfaceZero) {
     BOOST_CHECK_EQUAL(m.cluster.index, 0u);
@@ -649,7 +649,7 @@ BOOST_AUTO_TEST_CASE(ClusterRefFlagsDoNotAffectIdentityOrLabelLookup)
   // The measurement's own stored cluster ref -- produced by the production
   // decode path -- must also compare equal regardless of any flags a caller
   // later probes it with.
-  const auto measurement = frame.getSurfaceMeasurements(SurfaceId{0})[0];
+  const auto measurement = frame.getGlobalMeasurements(SurfaceId{0})[0];
   BOOST_CHECK(measurement.cluster == flagged);
 }
 
@@ -904,7 +904,7 @@ BOOST_AUTO_TEST_CASE(SourceSpecificPatternCursorsAreIndependent)
   BOOST_REQUIRE(result.ok());
 
   // Every cluster consumed exactly one 1-pixel pattern regardless of source.
-  for (const auto& m : frame.getSurfaceMeasurements(SurfaceId{0})) {
+  for (const auto& m : frame.getGlobalMeasurements(SurfaceId{0})) {
     BOOST_CHECK_EQUAL(m.shape.nPixels, 1u);
   }
 }
@@ -934,8 +934,8 @@ BOOST_AUTO_TEST_CASE(CommonDictionaryPatternDoesNotConsumeExplicitBytes)
   const auto result = loadSources(frame, layout.getView().getSurfaceCatalogView(), gsl::span<const ClusterSourceInput>(&src, 1), {0, 0});
   BOOST_REQUIRE(result.ok());
   BOOST_REQUIRE_EQUAL(frame.getSurfaceMeasurements(SurfaceId{0}).size(), 2u);
-  BOOST_CHECK_EQUAL(frame.getSurfaceMeasurements(SurfaceId{0})[0].shape.nPixels, 1u);
-  BOOST_CHECK_EQUAL(frame.getSurfaceMeasurements(SurfaceId{0})[1].shape.nPixels, 1u);
+  BOOST_CHECK_EQUAL(frame.getGlobalMeasurements(SurfaceId{0})[0].shape.nPixels, 1u);
+  BOOST_CHECK_EQUAL(frame.getGlobalMeasurements(SurfaceId{0})[1].shape.nPixels, 1u);
 }
 
 BOOST_AUTO_TEST_CASE(ExplicitAndGroupedPatternTruncationIsTypedAndContextual)
@@ -1458,6 +1458,8 @@ BOOST_AUTO_TEST_CASE(FailedLoadAfterFirstSourceStagedLeavesNoPartialState)
   // Baseline: content and view pointer identity before the failing call.
   const std::vector<SurfaceMeasurement> baselineMeasurements(
     frame.getSurfaceMeasurements(SurfaceId{0}).begin(), frame.getSurfaceMeasurements(SurfaceId{0}).end());
+  const std::vector<GlobalMeasurement> baselineGlobals(
+    frame.getGlobalMeasurements(SurfaceId{0}).begin(), frame.getGlobalMeasurements(SurfaceId{0}).end());
   const std::vector<ROFIntervalBC> baselineIntervals(
     frame.getSourceIntervals(ClusterSourceId{0}).begin(), frame.getSourceIntervals(ClusterSourceId{0}).end());
   const std::vector<SourceMetadata> baselineSources = frame.getSources();
@@ -1508,11 +1510,14 @@ BOOST_AUTO_TEST_CASE(FailedLoadAfterFirstSourceStagedLeavesNoPartialState)
   // ...and identical measurements, identities, timing intervals, source
   // metadata, and label lookup.
   const auto afterMeasurements = frame.getSurfaceMeasurements(SurfaceId{0});
+  const auto afterGlobals = frame.getGlobalMeasurements(SurfaceId{0});
   BOOST_REQUIRE_EQUAL(afterMeasurements.size(), baselineMeasurements.size());
+  BOOST_REQUIRE_EQUAL(afterGlobals.size(), baselineGlobals.size());
   for (size_t i = 0; i < afterMeasurements.size(); ++i) {
-    BOOST_CHECK(afterMeasurements[i].cluster == baselineMeasurements[i].cluster);
-    BOOST_CHECK(afterMeasurements[i].surface == baselineMeasurements[i].surface);
-    BOOST_CHECK_EQUAL(afterMeasurements[i].sourceROF, baselineMeasurements[i].sourceROF);
+    BOOST_CHECK_EQUAL(std::memcmp(&afterMeasurements[i], &baselineMeasurements[i], sizeof(SurfaceMeasurement)), 0);
+    BOOST_CHECK(afterGlobals[i].cluster == baselineGlobals[i].cluster);
+    BOOST_CHECK(afterGlobals[i].surface == baselineGlobals[i].surface);
+    BOOST_CHECK_EQUAL(afterGlobals[i].sourceROF, baselineGlobals[i].sourceROF);
   }
   const auto afterIntervals = frame.getSourceIntervals(ClusterSourceId{0});
   BOOST_REQUIRE_EQUAL(afterIntervals.size(), baselineIntervals.size());
@@ -1550,9 +1555,9 @@ BOOST_AUTO_TEST_CASE(EmptyFrameAccessorsAvoidNullPointerArithmetic)
   BOOST_CHECK_EQUAL(view.nSources, 0u);
   BOOST_CHECK_EQUAL(view.getSurfaceMeasurementCount(SurfaceId{0}), 0u);
   BOOST_CHECK(view.getSurfaceMeasurements(SurfaceId{0}) == nullptr);
-  BOOST_CHECK(view.getMeasurement(SurfaceId{0}, SurfaceMeasurementIndex{0}) == nullptr);
+  BOOST_CHECK(view.getGlobalMeasurement(SurfaceId{0}, SurfaceMeasurementIndex{0}) == nullptr);
   BOOST_CHECK(frame.getSurfaceMeasurements(SurfaceId{0}).empty());
-  BOOST_CHECK(frame.getMeasurement(SurfaceId{0}, SurfaceMeasurementIndex{0}) == nullptr);
+  BOOST_CHECK(frame.getGlobalMeasurement(SurfaceId{0}, SurfaceMeasurementIndex{0}) == nullptr);
 }
 
 BOOST_AUTO_TEST_CASE(EmptyLayoutWithZeroSourcesLoadsSuccessfully)

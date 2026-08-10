@@ -426,7 +426,7 @@ BOOST_AUTO_TEST_CASE(ShiftReferenceToMeasurementRejectsNonFiniteAndPreservesByte
 SurfaceMeasurement makeInnerMeasurement()
 {
   SurfaceMeasurement measurement{};
-  measurement.global = {0.5f, 0.3f, -46.f};
+  measurement.frame = {-46.f, 0.5f, 0.3f, 0.f};
   measurement.frame.q = -46.f;
   measurement.covariance = {0.02f, 0.001f, 0.03f};
   return measurement;
@@ -435,7 +435,7 @@ SurfaceMeasurement makeInnerMeasurement()
 SurfaceMeasurement makeMiddleMeasurement()
 {
   SurfaceMeasurement measurement{};
-  measurement.global = {1.1f, 0.9f, -65.f};
+  measurement.frame = {-65.f, 1.1f, 0.9f, 0.f};
   measurement.frame.q = -65.f;
   return measurement;
 }
@@ -443,7 +443,7 @@ SurfaceMeasurement makeMiddleMeasurement()
 SurfaceMeasurement makeOuterMeasurement()
 {
   SurfaceMeasurement measurement{};
-  measurement.global = {2.0f, 1.8f, -90.f};
+  measurement.frame = {-90.f, 2.0f, 1.8f, 0.f};
   measurement.frame.q = -90.f;
   measurement.covariance = {0.04f, 0.002f, 0.05f};
   return measurement;
@@ -455,7 +455,7 @@ SurfaceMeasurement makeOuterMeasurement()
 // signed q/pT has the opposite sense from the un-mirrored fixture above.
 SurfaceMeasurement mirrorTransverse(SurfaceMeasurement measurement)
 {
-  measurement.global.y = -measurement.global.y;
+  measurement.frame.v = -measurement.frame.v;
   return measurement;
 }
 

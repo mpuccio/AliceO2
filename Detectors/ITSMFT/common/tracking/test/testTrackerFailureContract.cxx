@@ -149,7 +149,7 @@ class LegacyLikeDecoder final : public ClusterDecoder
     const auto surface = layerToSurface[layer];
     const DetectorSensorId sensor{static_cast<uint32_t>(mDetector), decoded.sensor};
     const ClusterRef clusterRef{source, externalIndex};
-    result.measurement = makeCylinderSurfaceMeasurement(decoded, sensor, surface, clusterRef, sourceROF);
+    result = makeCylinderMeasurementDecodeResult(decoded, sensor, surface, clusterRef, sourceROF);
     return result;
   }
 
@@ -317,6 +317,7 @@ class InjectingTrackerTraits final : public TrackerTraits
 // The core's typed refit/publication work is deliberately not part of this
 // failure-contract fixture. This narrow test function supplies only refit.
 bool testSeedRefit(const TrackSeed&, const TrackingParameters&, float, SurfaceTrackingScratch&,
+                   gsl::span<const gsl::span<const GlobalMeasurement>>,
                    gsl::span<const gsl::span<const SurfaceMeasurement>>, SurfaceCatalogView,
                    ClusterSourceId, TrackingCandidate&)
 {

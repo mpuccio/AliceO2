@@ -374,11 +374,11 @@ BOOST_AUTO_TEST_CASE(SparsePlanPositionsAreTheOnlyRuntimeCountAndOrderAuthority)
     BOOST_CHECK_EQUAL(*binding.getScratchCellSlot(binding.getGlobalCells()[slot]), slot);
   }
 
-  std::vector<std::vector<SurfaceMeasurement>> measurements(planOrder.size());
-  std::vector<gsl::span<const SurfaceMeasurement>> measurementViews;
+  std::vector<std::vector<GlobalMeasurement>> measurements(planOrder.size());
+  std::vector<gsl::span<const GlobalMeasurement>> measurementViews;
   measurementViews.reserve(planOrder.size());
   for (std::size_t position = 0; position < planOrder.size(); ++position) {
-    SurfaceMeasurement measurement;
+    GlobalMeasurement measurement;
     measurement.surface = binding.getOrderedSurfaces()[position];
     measurement.cluster = ClusterRef{ClusterSourceId{7}, static_cast<uint32_t>(100 + position)};
     measurements[position].push_back(measurement);

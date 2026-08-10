@@ -11,7 +11,7 @@
 //  - isValidTrackRange()'s exact validity condition (empty/default, single-,
 //    multi- and hole-containing ranges, out-of-range and reversed ranges);
 //  - per-surface measurement storage and surface-local index bounds
-//    (MultiSourceFrame/MultiSourceFrameView::getMeasurement(SurfaceId,
+//    (MultiSourceFrame/MultiSourceFrameView::getGlobalMeasurement(SurfaceId,
 //    SurfaceMeasurementIndex));
 //  - cross-surface and cross-source TrackClusterReference resolution;
 //  - that a completed track's hitSurfaces is the union of the SurfaceId of
@@ -254,8 +254,8 @@ class FakeClusterDecoder final : public ClusterDecoder
     const auto surface = layerToSurface[layer];
     const DetectorSensorId sensor{static_cast<uint32_t>(mDetector), decoded.sensor};
     const ClusterRef clusterRef{source, externalIndex};
-    result.measurement = mDisk ? makeDiskSurfaceMeasurement(decoded, sensor, surface, clusterRef, sourceROF)
-                               : makeCylinderSurfaceMeasurement(decoded, sensor, surface, clusterRef, sourceROF);
+    result = mDisk ? makeDiskMeasurementDecodeResult(decoded, sensor, surface, clusterRef, sourceROF)
+                   : makeCylinderMeasurementDecodeResult(decoded, sensor, surface, clusterRef, sourceROF);
     return result;
   }
 
@@ -371,9 +371,9 @@ BOOST_AUTO_TEST_CASE(PerSurfaceMeasurementStorageAndSurfaceLocalIndexBounds)
   // proving each surface owns its own index space rather than sharing one
   // global domain (index 0 resolves to a *different* measurement on each
   // surface, not the same global position read three times).
-  const auto* onZero = frame.getMeasurement(SurfaceId{0}, SurfaceMeasurementIndex{0});
-  const auto* onOne = frame.getMeasurement(SurfaceId{1}, SurfaceMeasurementIndex{0});
-  const auto* onThree = frame.getMeasurement(SurfaceId{3}, SurfaceMeasurementIndex{0});
+  const auto* onZero = frame.getGlobalMeasurement(SurfaceId{0}, SurfaceMeasurementIndex{0});
+  const auto* onOne = frame.getGlobalMeasurement(SurfaceId{1}, SurfaceMeasurementIndex{0});
+  const auto* onThree = frame.getGlobalMeasurement(SurfaceId{3}, SurfaceMeasurementIndex{0});
   BOOST_REQUIRE(onZero != nullptr);
   BOOST_REQUIRE(onOne != nullptr);
   BOOST_REQUIRE(onThree != nullptr);
@@ -387,21 +387,21 @@ BOOST_AUTO_TEST_CASE(PerSurfaceMeasurementStorageAndSurfaceLocalIndexBounds)
   // though it would be perfectly in range if surface 0 had two entries --
   // the bound is surface-local, not derived from any other surface's size
   // or from a shared/global count.
-  BOOST_CHECK(frame.getMeasurement(SurfaceId{0}, SurfaceMeasurementIndex{1}) == nullptr);
+  BOOST_CHECK(frame.getGlobalMeasurement(SurfaceId{0}, SurfaceMeasurementIndex{1}) == nullptr);
   // Surface 2 has zero measurements: even index 0 is out of range.
-  BOOST_CHECK(frame.getMeasurement(SurfaceId{2}, SurfaceMeasurementIndex{0}) == nullptr);
+  BOOST_CHECK(frame.getGlobalMeasurement(SurfaceId{2}, SurfaceMeasurementIndex{0}) == nullptr);
   // Invalid surface id (out of range for a 4-surface catalog).
-  BOOST_CHECK(frame.getMeasurement(SurfaceId{4}, SurfaceMeasurementIndex{0}) == nullptr);
+  BOOST_CHECK(frame.getGlobalMeasurement(SurfaceId{4}, SurfaceMeasurementIndex{0}) == nullptr);
   // Invalid/default index sentinel.
-  BOOST_CHECK(frame.getMeasurement(SurfaceId{0}, SurfaceMeasurementIndex{}) == nullptr);
+  BOOST_CHECK(frame.getGlobalMeasurement(SurfaceId{0}, SurfaceMeasurementIndex{}) == nullptr);
 
   // Same contract on the device-facing view.
   const auto view = frame.getView();
   BOOST_REQUIRE_EQUAL(view.nSurfaces, 4u);
-  BOOST_CHECK(view.getMeasurement(SurfaceId{0}, SurfaceMeasurementIndex{0}) != nullptr);
-  BOOST_CHECK(view.getMeasurement(SurfaceId{0}, SurfaceMeasurementIndex{1}) == nullptr);
-  BOOST_CHECK(view.getMeasurement(SurfaceId{2}, SurfaceMeasurementIndex{0}) == nullptr);
-  BOOST_CHECK(view.getMeasurement(SurfaceId{4}, SurfaceMeasurementIndex{0}) == nullptr);
+  BOOST_CHECK(view.getGlobalMeasurement(SurfaceId{0}, SurfaceMeasurementIndex{0}) != nullptr);
+  BOOST_CHECK(view.getGlobalMeasurement(SurfaceId{0}, SurfaceMeasurementIndex{1}) == nullptr);
+  BOOST_CHECK(view.getGlobalMeasurement(SurfaceId{2}, SurfaceMeasurementIndex{0}) == nullptr);
+  BOOST_CHECK(view.getGlobalMeasurement(SurfaceId{4}, SurfaceMeasurementIndex{0}) == nullptr);
   BOOST_CHECK_EQUAL(view.getSurfaceMeasurementCount(SurfaceId{0}), 1u);
   BOOST_CHECK_EQUAL(view.getSurfaceMeasurementCount(SurfaceId{2}), 0u);
 }
@@ -434,7 +434,7 @@ BOOST_AUTO_TEST_CASE(CrossSurfaceAndCrossSourceTrackClusterReferenceResolution)
   bool foundITSZero = false, foundITSOne = false, foundMFT = false;
   for (uint32_t i = track.firstClusterRef; i < track.clusterRefEnd; ++i) {
     const auto& reference = trackClusterIndices[i];
-    const auto* measurement = frame.getMeasurement(reference.surface, reference.index);
+    const auto* measurement = frame.getGlobalMeasurement(reference.surface, reference.index);
     BOOST_REQUIRE(measurement != nullptr);
     // Completed-track invariant: the resolved measurement's own surface
     // matches the reference it was resolved from.
@@ -480,7 +480,7 @@ BOOST_AUTO_TEST_CASE(HitSurfacesEqualsUnionAndEachMeasurementSurfaceMatchesItsRe
   BOOST_REQUIRE(isValidTrackRange(track, static_cast<uint32_t>(trackClusterIndices.size())));
   for (uint32_t i = track.firstClusterRef; i < track.clusterRefEnd; ++i) {
     const auto& reference = trackClusterIndices[i];
-    const auto* measurement = frame.getMeasurement(reference.surface, reference.index);
+    const auto* measurement = frame.getGlobalMeasurement(reference.surface, reference.index);
     BOOST_REQUIRE(measurement != nullptr);
     BOOST_CHECK(measurement->surface == reference.surface);
     observed.set(reference.surface);
@@ -504,7 +504,7 @@ BOOST_AUTO_TEST_CASE(HitSurfacesEqualsUnionAndEachMeasurementSurfaceMatchesItsRe
   BOOST_REQUIRE(isValidTrackRange(holeTrack, static_cast<uint32_t>(holeIndices.size())));
   for (uint32_t i = holeTrack.firstClusterRef; i < holeTrack.clusterRefEnd; ++i) {
     const auto& reference = holeIndices[i];
-    const auto* measurement = frame.getMeasurement(reference.surface, reference.index);
+    const auto* measurement = frame.getGlobalMeasurement(reference.surface, reference.index);
     BOOST_REQUIRE(measurement != nullptr);
     BOOST_CHECK(measurement->surface == reference.surface);
     observedHole.set(reference.surface);
@@ -564,7 +564,7 @@ class LegacyLikeDecoder final : public ClusterDecoder
     const auto surface = layerToSurface[layer];
     const DetectorSensorId sensor{static_cast<uint32_t>(mDetector), decoded.sensor};
     const ClusterRef clusterRef{source, externalIndex};
-    result.measurement = makeCylinderSurfaceMeasurement(decoded, sensor, surface, clusterRef, sourceROF);
+    result = makeCylinderMeasurementDecodeResult(decoded, sensor, surface, clusterRef, sourceROF);
     return result;
   }
 
@@ -706,7 +706,7 @@ BOOST_AUTO_TEST_CASE(CommonTrackShadowPublishesOneAtomicRange)
   BOOST_CHECK_EQUAL(track.clusterRefEnd, 1u);
   BOOST_CHECK(isValidTrackRange(track, static_cast<uint32_t>(fixture.tf.getTrackClusterIndices().size())));
   const auto& reference = fixture.tf.getTrackClusterIndices().front();
-  const auto* measurement = fixture.tf.getNormalizedFrame().getMeasurement(reference.surface, reference.index);
+  const auto* measurement = fixture.tf.getNormalizedFrame().getGlobalMeasurement(reference.surface, reference.index);
   BOOST_REQUIRE(measurement != nullptr);
   BOOST_CHECK(measurement->surface == reference.surface);
 
@@ -1039,7 +1039,7 @@ BOOST_AUTO_TEST_CASE(CommonTrackOutputAdapterStagesITSAndFailsClosed)
   };
   const std::array<MarkedTrack, 1> marked{{{true}}};
   BOOST_REQUIRE(shared.sealFromMarkedTracks(marked));
-  const auto& measurement = *fixture.tf.getNormalizedFrame().getMeasurement(SurfaceId{0}, SurfaceMeasurementIndex{0});
+  const auto& measurement = *fixture.tf.getNormalizedFrame().getGlobalMeasurement(SurfaceId{0}, SurfaceMeasurementIndex{0});
   const std::vector<ROFRecord> rofs{ROFRecord{{100, 5}, 0, 7, 3}};
   CommonTrackOutputAdapterError error = CommonTrackOutputAdapterError::None;
   const auto clock = makeFixtureClockTiming();
@@ -1131,7 +1131,7 @@ BOOST_AUTO_TEST_CASE(CommonTrackOutputAdapterStagesMFTAndRejectsMissingSidecar)
   MFTPublicationCompatibility sidecar;
   MFTPublicationCompatibilityTransaction tx{sidecar, 0.25, 1.5, 0x51u, 8.f};
   BOOST_REQUIRE(publishCommonTrackShadow(frame, record, tx, [](CommonTrackShadowPublishStep) {}));
-  const auto& measurement = *frame.getNormalizedFrame().getMeasurement(SurfaceId{3}, SurfaceMeasurementIndex{0});
+  const auto& measurement = *frame.getNormalizedFrame().getGlobalMeasurement(SurfaceId{3}, SurfaceMeasurementIndex{0});
   const std::vector<ROFRecord> rofs{ROFRecord{{7, 9}, 2, 4, 5}};
   CommonTrackOutputAdapterError error = CommonTrackOutputAdapterError::None;
   o2::its::LayerTiming clock{};
@@ -1183,7 +1183,7 @@ BOOST_AUTO_TEST_CASE(CommonTrackOutputAdapterRejectsMalformedInputsWithoutMutati
   BOOST_REQUIRE(fixture.load().ok());
   const auto record = makeShadowRecord();
   publishCommonTrackShadow(fixture.tf, record);
-  const auto& measurement = *fixture.tf.getNormalizedFrame().getMeasurement(SurfaceId{0}, SurfaceMeasurementIndex{0});
+  const auto& measurement = *fixture.tf.getNormalizedFrame().getGlobalMeasurement(SurfaceId{0}, SurfaceMeasurementIndex{0});
   const std::vector<ROFRecord> rofs{ROFRecord{{1, 2}, 0, 0, 1}};
   const auto clock = makeFixtureClockTiming();
   const CommonTrackOutputTimingContext timing{rofs, ClockTimingPublicationView{clock}};

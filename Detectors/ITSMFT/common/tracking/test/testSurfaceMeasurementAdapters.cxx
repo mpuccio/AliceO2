@@ -47,11 +47,12 @@ BOOST_AUTO_TEST_CASE(ITSNormalizedMeasurementPreservesDecodedFacts)
 {
   constexpr DetectorSensorId sensor{o2::detectors::DetID::ITS, ITSDecoded.sensor};
   constexpr ClusterRef cluster{ClusterSourceId{4}, 12345};
-  const auto normalized = makeCylinderSurfaceMeasurement(ITSDecoded, sensor, SurfaceId{8}, cluster, 17);
+  const auto decoded = makeCylinderMeasurementDecodeResult(ITSDecoded, sensor, SurfaceId{8}, cluster, 17);
+  const auto& normalized = decoded.measurement;
 
-  BOOST_CHECK_EQUAL(normalized.global.x, ITSDecoded.global.x);
-  BOOST_CHECK_EQUAL(normalized.global.y, ITSDecoded.global.y);
-  BOOST_CHECK_EQUAL(normalized.global.z, ITSDecoded.global.z);
+  BOOST_CHECK_EQUAL(decoded.global.position.x, ITSDecoded.global.x);
+  BOOST_CHECK_EQUAL(decoded.global.position.y, ITSDecoded.global.y);
+  BOOST_CHECK_EQUAL(decoded.global.position.z, ITSDecoded.global.z);
   BOOST_CHECK_EQUAL(normalized.frame.q, ITSDecoded.cylinderFrame.q);
   BOOST_CHECK_EQUAL(normalized.frame.u, ITSDecoded.cylinderFrame.u);
   BOOST_CHECK_EQUAL(normalized.frame.v, ITSDecoded.cylinderFrame.v);
@@ -59,20 +60,21 @@ BOOST_AUTO_TEST_CASE(ITSNormalizedMeasurementPreservesDecodedFacts)
   BOOST_CHECK_EQUAL(normalized.covariance.uu, ITSDecoded.rowColumnCovariance.uu);
   BOOST_CHECK_EQUAL(normalized.covariance.uv, ITSDecoded.rowColumnCovariance.uv);
   BOOST_CHECK_EQUAL(normalized.covariance.vv, ITSDecoded.rowColumnCovariance.vv);
-  BOOST_CHECK(normalized.sensor == sensor);
-  BOOST_CHECK(normalized.cluster == cluster);
-  BOOST_CHECK(normalized.surface == SurfaceId{8});
-  BOOST_CHECK_EQUAL(normalized.sourceROF, 17u);
-  BOOST_CHECK_EQUAL(normalized.shape.nPixels, Shape.nPixels);
-  BOOST_CHECK_EQUAL(normalized.shape.rowSpan, Shape.rowSpan);
-  BOOST_CHECK_EQUAL(normalized.shape.columnSpan, Shape.columnSpan);
+  BOOST_CHECK(decoded.global.sensor == sensor);
+  BOOST_CHECK(decoded.global.cluster == cluster);
+  BOOST_CHECK(decoded.global.surface == SurfaceId{8});
+  BOOST_CHECK_EQUAL(decoded.global.sourceROF, 17u);
+  BOOST_CHECK_EQUAL(decoded.global.shape.nPixels, Shape.nPixels);
+  BOOST_CHECK_EQUAL(decoded.global.shape.rowSpan, Shape.rowSpan);
+  BOOST_CHECK_EQUAL(decoded.global.shape.columnSpan, Shape.columnSpan);
 }
 
 BOOST_AUTO_TEST_CASE(MFTNormalizedDiskMeasurementUsesDescriptorAxes)
 {
   constexpr DetectorSensorId sensor{o2::detectors::DetID::MFT, MFTDecoded.sensor};
   constexpr ClusterRef cluster{ClusterSourceId{5}, 67890};
-  const auto normalized = makeDiskSurfaceMeasurement(MFTDecoded, sensor, SurfaceId{16}, cluster, 23);
+  const auto decoded = makeDiskMeasurementDecodeResult(MFTDecoded, sensor, SurfaceId{16}, cluster, 23);
+  const auto& normalized = decoded.measurement;
 
   BOOST_CHECK_EQUAL(normalized.frame.q, 33.f);
   BOOST_CHECK_EQUAL(normalized.frame.u, 31.f);
@@ -81,11 +83,11 @@ BOOST_AUTO_TEST_CASE(MFTNormalizedDiskMeasurementUsesDescriptorAxes)
   BOOST_CHECK_EQUAL(normalized.covariance.uu, 0.4f); // ALPIDE row -> global x
   BOOST_CHECK_EQUAL(normalized.covariance.uv, 0.f);
   BOOST_CHECK_EQUAL(normalized.covariance.vv, 0.6f); // ALPIDE column -> global y
-  BOOST_CHECK(normalized.sensor == sensor);
-  BOOST_CHECK(normalized.cluster == cluster);
-  BOOST_CHECK(normalized.surface == SurfaceId{16});
-  BOOST_CHECK_EQUAL(normalized.sourceROF, 23u);
-  BOOST_CHECK_EQUAL(normalized.shape.nPixels, Shape.nPixels);
+  BOOST_CHECK(decoded.global.sensor == sensor);
+  BOOST_CHECK(decoded.global.cluster == cluster);
+  BOOST_CHECK(decoded.global.surface == SurfaceId{16});
+  BOOST_CHECK_EQUAL(decoded.global.sourceROF, 23u);
+  BOOST_CHECK_EQUAL(decoded.global.shape.nPixels, Shape.nPixels);
 }
 
 BOOST_AUTO_TEST_CASE(SystematicErrorAdjustedCovarianceIsPreservedByBothProjections)
@@ -97,10 +99,8 @@ BOOST_AUTO_TEST_CASE(SystematicErrorAdjustedCovarianceIsPreservedByBothProjectio
     {1, 1, 1},
     6,
     2};
-  const auto itsMeasurement = makeCylinderSurfaceMeasurement(
-    decodedAfterSystematicErrors, {o2::detectors::DetID::ITS, 6}, SurfaceId{2}, {ClusterSourceId{0}, 1}, 0);
-  const auto mftMeasurement = makeDiskSurfaceMeasurement(
-    decodedAfterSystematicErrors, {o2::detectors::DetID::MFT, 6}, SurfaceId{9}, {ClusterSourceId{1}, 1}, 0);
+  const auto itsMeasurement = makeCylinderSurfaceMeasurement(decodedAfterSystematicErrors);
+  const auto mftMeasurement = makeDiskSurfaceMeasurement(decodedAfterSystematicErrors);
 
   BOOST_CHECK_EQUAL(itsMeasurement.covariance.uu, 0.8f);
   BOOST_CHECK_EQUAL(itsMeasurement.covariance.vv, 1.1f);

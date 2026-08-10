@@ -108,8 +108,9 @@ BOOST_AUTO_TEST_CASE(native_refit_rejects_invalid_generic_state)
 
   TrackingCandidate candidate;
   o2::itsmft::TrackingParameters params;
+  const std::vector<gsl::span<const GlobalMeasurement>> layerGlobals(7);
   const std::vector<gsl::span<const SurfaceMeasurement>> layerMeasurements(7);
   const SurfaceCatalogView surfaceCatalog{};
   SurfaceTrackingScratch scratch;
-  BOOST_CHECK(!detail::refitITSSeed(seed, params, 0.5f, scratch, layerMeasurements, surfaceCatalog, ClusterSourceId{}, candidate));
+  BOOST_CHECK(!detail::refitITSSeed(seed, params, 0.5f, scratch, layerGlobals, layerMeasurements, surfaceCatalog, ClusterSourceId{}, candidate));
 }

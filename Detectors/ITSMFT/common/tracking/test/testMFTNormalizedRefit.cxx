@@ -102,7 +102,9 @@ struct StraightTrackGeometry {
 struct RefitFixture {
   SurfaceTrackingScratch tf;
   std::array<std::vector<SurfaceMeasurement>, NLayers> storage;
+  std::array<std::vector<GlobalMeasurement>, NLayers> globalStorage;
   std::vector<gsl::span<const SurfaceMeasurement>> layerMeasurements = std::vector<gsl::span<const SurfaceMeasurement>>(NLayers);
+  std::vector<gsl::span<const GlobalMeasurement>> layerGlobals = std::vector<gsl::span<const GlobalMeasurement>>(NLayers);
   std::vector<SurfaceDescriptor> catalogSurfaces;
   SurfaceCatalogView catalog{};
   TrackSeed seed;
@@ -159,21 +161,26 @@ struct RefitFixture {
   void setMeasurement(int layer, float x, float y, float z, float uu, float vv, uint32_t clusterIndex, float uv = 0.f)
   {
     SurfaceMeasurement m{};
-    m.global = {x, y, z};
     // Disk adapter contract (ForwardSurfaceStateOperations.h): frame.q ==
     // global.z. The retired legacy TrackLTF engine only ever read
     // measurement.global, so this fixture never needed frame.q populated
     // until now: Propagator::propagateToMeasurement's forward routing
     // propagates to frame.q (the same target every native forward CA
     // operation already uses), not global.z directly.
-    m.frame.q = z;
+    m.frame = {z, x, y, 0.f};
     m.covariance.uu = uu;
     m.covariance.vv = vv;
     m.covariance.uv = uv;
-    m.cluster = ClusterRef{ClusterSourceId{0}, clusterIndex};
-    m.surface = SurfaceId{static_cast<uint16_t>(layer)};
+    GlobalMeasurement global{};
+    global.position = {x, y, z};
+    global.radius = std::hypot(x, y);
+    global.covariance = {uu, uv, 0.f, vv, 0.f, 0.f};
+    global.cluster = ClusterRef{ClusterSourceId{0}, clusterIndex};
+    global.surface = SurfaceId{static_cast<uint16_t>(layer)};
     storage[layer].assign(1, m);
+    globalStorage[layer].assign(1, global);
     layerMeasurements[layer] = storage[layer];
+    layerGlobals[layer] = globalStorage[layer];
   }
 
   // Poisons legacy backfill (mUnsortedClusters / mTrackingFrameInfo) at every
@@ -193,14 +200,15 @@ struct RefitFixture {
 bool refit(RefitFixture& fixture, TrackingCandidate& candidate)
 {
   return detail::refitMFTSeed(fixture.seed, fixture.params, Bz, fixture.tf,
-                              fixture.layerMeasurements, fixture.catalog, ClusterSourceId{0}, candidate);
+                              fixture.layerGlobals, fixture.layerMeasurements, fixture.catalog, ClusterSourceId{0}, candidate);
 }
 
 bool refit(const TrackSeed& seed, o2::itsmft::TrackingParameters& params, SurfaceTrackingScratch& scratch,
+           gsl::span<const gsl::span<const GlobalMeasurement>> layerGlobals,
            gsl::span<const gsl::span<const SurfaceMeasurement>> layerMeasurements,
            SurfaceCatalogView catalog, TrackingCandidate& candidate)
 {
-  return detail::refitMFTSeed(seed, params, Bz, scratch, layerMeasurements, catalog, ClusterSourceId{0}, candidate);
+  return detail::refitMFTSeed(seed, params, Bz, scratch, layerGlobals, layerMeasurements, catalog, ClusterSourceId{0}, candidate);
 }
 
 void checkTrackUnchanged(const TrackingCandidate& before, const TrackingCandidate& after)
@@ -266,7 +274,7 @@ BOOST_AUTO_TEST_CASE(NormalizedGlobalCoordinateChangeAltersOutput)
   // ~0 chi2/ndf now certainly exceeds MaxChi2NDF.
   RefitFixture perturbed(geometry);
   auto perturbedMeasurement = perturbed.storage[5].front();
-  perturbedMeasurement.global.x += 0.05f;
+  perturbedMeasurement.frame.u += 0.05f;
   perturbed.storage[5].assign(1, perturbedMeasurement);
   perturbed.layerMeasurements[5] = perturbed.storage[5];
 
@@ -308,12 +316,12 @@ BOOST_AUTO_TEST_CASE(NormalizedCovarianceChangeAltersOutput)
 
 // --- C. Invalid normalized input fails cleanly, destination untouched -------
 
-BOOST_AUTO_TEST_CASE(NonFiniteGlobalCoordinateFailsCleanly)
+BOOST_AUTO_TEST_CASE(NonFiniteSurfaceCoordinateFailsCleanly)
 {
   const StraightTrackGeometry geometry(0.3f);
   RefitFixture fx(geometry);
   auto m = fx.storage[3].front();
-  m.global.x = std::numeric_limits<float>::quiet_NaN();
+  m.frame.u = std::numeric_limits<float>::quiet_NaN();
   fx.storage[3].assign(1, m);
   fx.layerMeasurements[3] = fx.storage[3];
 
@@ -323,12 +331,12 @@ BOOST_AUTO_TEST_CASE(NonFiniteGlobalCoordinateFailsCleanly)
   checkTrackUnchanged(before, track);
 }
 
-BOOST_AUTO_TEST_CASE(InfiniteGlobalCoordinateFailsCleanly)
+BOOST_AUTO_TEST_CASE(InfiniteSurfaceCoordinateFailsCleanly)
 {
   const StraightTrackGeometry geometry(0.3f);
   RefitFixture fx(geometry);
   auto m = fx.storage[3].front();
-  m.global.z = std::numeric_limits<float>::infinity();
+  m.frame.q = std::numeric_limits<float>::infinity();
   fx.storage[3].assign(1, m);
   fx.layerMeasurements[3] = fx.storage[3];
 
@@ -387,11 +395,11 @@ BOOST_AUTO_TEST_CASE(IdentityMismatchFailsCleanly)
   // ClusterRef.index no longer agrees with tf.getClusterExternalIndex(layer, clIdx)
   // (== layer, per RefitFixture's construction) -- the ClusterRef contract
   // TrackerTraits::initialiseTimeFrame() would normally have already enforced.
-  auto m = fx.storage[3].front();
+  auto m = fx.globalStorage[3].front();
   m.cluster = ClusterRef{ClusterSourceId{0}, 12345u};
   m.surface = SurfaceId{3};
-  fx.storage[3].assign(1, m);
-  fx.layerMeasurements[3] = fx.storage[3];
+  fx.globalStorage[3].assign(1, m);
+  fx.layerGlobals[3] = fx.globalStorage[3];
 
   TrackingCandidate before;
   TrackingCandidate track = before;
@@ -403,10 +411,10 @@ BOOST_AUTO_TEST_CASE(InvalidClusterRefFailsCleanly)
 {
   const StraightTrackGeometry geometry(0.3f);
   RefitFixture fx(geometry);
-  auto m = fx.storage[3].front();
+  auto m = fx.globalStorage[3].front();
   m.cluster = ClusterRef{}; // default-constructed: index == invalid sentinel, isValid() == false
-  fx.storage[3].assign(1, m);
-  fx.layerMeasurements[3] = fx.storage[3];
+  fx.globalStorage[3].assign(1, m);
+  fx.layerGlobals[3] = fx.globalStorage[3];
 
   TrackingCandidate before;
   TrackingCandidate track = before;
@@ -492,7 +500,9 @@ BOOST_AUTO_TEST_CASE(GenericRefitValidatesExternalClusterIdentity)
   const StraightTrackGeometry geometry(0.3f);
   SurfaceTrackingScratch tf;
   std::array<std::vector<SurfaceMeasurement>, NLayers> storage;
+  std::array<std::vector<GlobalMeasurement>, NLayers> globalStorage;
   std::vector<gsl::span<const SurfaceMeasurement>> layerMeasurements = std::vector<gsl::span<const SurfaceMeasurement>>(NLayers);
+  std::vector<gsl::span<const GlobalMeasurement>> layerGlobals = std::vector<gsl::span<const GlobalMeasurement>>(NLayers);
   std::vector<SurfaceDescriptor> catalogSurfaces(NLayers);
   for (int layer = 0; layer < NLayers; ++layer) {
     catalogSurfaces[layer].id = SurfaceId{static_cast<uint16_t>(layer)};
@@ -511,14 +521,19 @@ BOOST_AUTO_TEST_CASE(GenericRefitValidatesExternalClusterIdentity)
   uint16_t mask = 0;
   for (int layer = 0; layer < NLayers; ++layer) {
     SurfaceMeasurement m{};
-    m.global = {geometry.x[layer], geometry.y[layer], geometry.z[layer]};
-    m.frame.q = geometry.z[layer]; // disk adapter contract: frame.q == global.z
+    m.frame = {geometry.z[layer], geometry.x[layer], geometry.y[layer], 0.f};
     m.covariance.uu = DefaultSigma2;
     m.covariance.vv = DefaultSigma2;
-    m.cluster = ClusterRef{ClusterSourceId{0}, static_cast<uint32_t>(1000 + layer)};
-    m.surface = SurfaceId{static_cast<uint16_t>(layer)};
+    GlobalMeasurement global{};
+    global.position = {geometry.x[layer], geometry.y[layer], geometry.z[layer]};
+    global.radius = std::hypot(geometry.x[layer], geometry.y[layer]);
+    global.covariance = {DefaultSigma2, 0.f, 0.f, DefaultSigma2, 0.f, 0.f};
+    global.cluster = ClusterRef{ClusterSourceId{0}, static_cast<uint32_t>(1000 + layer)};
+    global.surface = SurfaceId{static_cast<uint16_t>(layer)};
     storage[layer].assign(1, m);
+    globalStorage[layer].assign(1, global);
     layerMeasurements[layer] = storage[layer];
+    layerGlobals[layer] = globalStorage[layer];
 
     tf.addClusterExternalIndexToLayer(layer, 1000 + layer); // clIdx 0 -> large, non-monotonic extIdx
     seed.getClusters()[layer] = 0;
@@ -533,11 +548,11 @@ BOOST_AUTO_TEST_CASE(GenericRefitValidatesExternalClusterIdentity)
                                    /*absCharge=*/1, o2::track::PID::Pion, seed.state(), seedReason));
 
   TrackingCandidate track;
-  BOOST_REQUIRE(refit(seed, params, tf, layerMeasurements, catalog, track));
+  BOOST_REQUIRE(refit(seed, params, tf, layerGlobals, layerMeasurements, catalog, track));
 
   for (int layer = 0; layer < NLayers; ++layer) {
     BOOST_CHECK(track.seed.hasCluster(layer));
     BOOST_CHECK_EQUAL(track.getClusterIndex(layer), 0);
-    BOOST_CHECK_EQUAL(layerMeasurements[layer][0].cluster.index, static_cast<uint32_t>(1000 + layer));
+    BOOST_CHECK_EQUAL(layerGlobals[layer][0].cluster.index, static_cast<uint32_t>(1000 + layer));
   }
 }

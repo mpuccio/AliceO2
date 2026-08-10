@@ -76,15 +76,16 @@ o2::its::Cluster makeGlobalCluster(float x, float y, float z, int id = 0)
   return o2::its::Cluster{x, y, z, id};
 }
 
-SurfaceMeasurement makeMeasurement(float x, float y, float z, float uu = 1.e-4f, float vv = 1.e-4f, float uv = 0.f)
+GlobalMeasurement makeMeasurement(float x, float y, float z, float uu = 1.e-4f, float vv = 1.e-4f, float uv = 0.f)
 {
-  SurfaceMeasurement measurement{};
-  measurement.global = {x, y, z};
-  measurement.covariance = {uu, uv, vv};
+  GlobalMeasurement measurement{};
+  measurement.position = {x, y, z};
+  measurement.radius = std::hypot(x, y);
+  measurement.covariance = {uu, uv, 0.f, vv, 0.f, 0.f};
   return measurement;
 }
 
-SurfaceMeasurement makeMeasurement(const o2::its::Cluster& cluster, float uu = 1.e-4f, float vv = 1.e-4f, float uv = 0.f)
+GlobalMeasurement makeMeasurement(const o2::its::Cluster& cluster, float uu = 1.e-4f, float vv = 1.e-4f, float uv = 0.f)
 {
   return makeMeasurement(cluster.xCoordinate, cluster.yCoordinate, cluster.zCoordinate, uu, vv, uv);
 }
@@ -331,7 +332,7 @@ BOOST_AUTO_TEST_CASE(DiskProjectSearchWindowReusesHelpersAndDirectProjectedXYBin
   float expectedSigmaY = 0.f;
   detail::mftTrackletSigmaXY(source.xCoordinate, source.yCoordinate,
                              vertex.getX(), vertex.getY(), vertex.getZ(),
-                             sourceMeasurement.covariance.uu, sourceMeasurement.covariance.vv,
+                             sourceMeasurement.covariance.xx, sourceMeasurement.covariance.yy,
                              vertex.getSigmaX2(), vertex.getSigmaY2(), vertex.getSigmaZ2(),
                              fromLayer, toLayer, state.sourceReferenceRadius, state.meanDeltaZ,
                              state.transitionMSAngle, state.transitionBendingAngle,
@@ -512,7 +513,7 @@ BOOST_AUTO_TEST_CASE(DiskProjectionLeafRetainsNearZeroDenominatorGuardAndRadialS
   float expectedSigmaY = 0.f;
   detail::mftTrackletSigmaXY(source.xCoordinate, source.yCoordinate,
                              swapVertex.getX(), swapVertex.getY(), swapVertex.getZ(),
-                             sourceMeasurement.covariance.uu, sourceMeasurement.covariance.vv,
+                             sourceMeasurement.covariance.xx, sourceMeasurement.covariance.yy,
                              swapVertex.getSigmaX2(), swapVertex.getSigmaY2(), swapVertex.getSigmaZ2(),
                              fromLayer, toLayer, state.sourceReferenceRadius, state.meanDeltaZ,
                              state.transitionMSAngle, state.transitionBendingAngle,
@@ -581,8 +582,8 @@ BOOST_AUTO_TEST_CASE(NormalizedMeasurementsRemainAuthoritativeOverPoisonedLocato
     sourceMeasurement, source, vertex, cylinderState, Bz, cylinderIndex, cylinderKernelParameters, baseline)));
   float baselineTanLambda = -1.f;
   BOOST_REQUIRE(baseline.acceptCandidate(sourceMeasurement, source, targetMeasurement, target, baselineTanLambda));
-  const float baselinePhi = o2::gpu::GPUCommonMath::ATan2(sourceMeasurement.global.y - targetMeasurement.global.y,
-                                                          sourceMeasurement.global.x - targetMeasurement.global.x);
+  const float baselinePhi = o2::gpu::GPUCommonMath::ATan2(sourceMeasurement.position.y - targetMeasurement.position.y,
+                                                          sourceMeasurement.position.x - targetMeasurement.position.x);
 
   auto poisonedSource = source;
   auto poisonedTarget = target;
@@ -599,8 +600,8 @@ BOOST_AUTO_TEST_CASE(NormalizedMeasurementsRemainAuthoritativeOverPoisonedLocato
   float poisonedTanLambda = -2.f;
   BOOST_REQUIRE(poisonedWindow.acceptCandidate(sourceMeasurement, poisonedSource, targetMeasurement, poisonedTarget, poisonedTanLambda));
   BOOST_CHECK_EQUAL(poisonedTanLambda, baselineTanLambda);
-  BOOST_CHECK_EQUAL(o2::gpu::GPUCommonMath::ATan2(sourceMeasurement.global.y - targetMeasurement.global.y,
-                                                  sourceMeasurement.global.x - targetMeasurement.global.x),
+  BOOST_CHECK_EQUAL(o2::gpu::GPUCommonMath::ATan2(sourceMeasurement.position.y - targetMeasurement.position.y,
+                                                  sourceMeasurement.position.x - targetMeasurement.position.x),
                     baselinePhi);
 
   auto poisonedNavigationCache = source;
@@ -628,7 +629,7 @@ BOOST_AUTO_TEST_CASE(NormalizedMeasurementsRemainAuthoritativeOverPoisonedLocato
   diskLocator.yCoordinate = -321.f;
   diskLocator.zCoordinate = 456.f;
   auto uvPoisoned = diskMeasurement;
-  uvPoisoned.covariance.uv = -12345.f;
+  uvPoisoned.covariance.xy = -12345.f;
   DiskTrackletSearchWindow diskPoisoned{};
   BOOST_REQUIRE((projectDiskSearchWindow(
     uvPoisoned, diskLocator, vertex, diskState, Bz, diskIndex, diskKernelParameters, diskPoisoned)));
