@@ -157,6 +157,7 @@ DecodedCluster cylinderCluster(float radius, float phi, float tanLambda, int lay
 {
   DecodedCluster cluster{};
   cluster.global = {radius * std::cos(phi), radius * std::sin(phi), radius * tanLambda};
+  cluster.cylinderFrame = {cluster.global.x, cluster.global.y, cluster.global.z, 0.f};
   cluster.rowColumnCovariance = {1.e-2f, 0.f, 1.e-2f};
   cluster.sensor = static_cast<uint32_t>(layer);
   cluster.layer = layer;
@@ -225,6 +226,7 @@ std::vector<DecodedCluster> buildItsHelixChainClusters(const std::vector<float>&
     }
     DecodedCluster cluster{};
     cluster.global = {static_cast<float>(point.X()), static_cast<float>(point.Y()), static_cast<float>(point.Z())};
+    cluster.cylinderFrame = {cluster.global.x, cluster.global.y, cluster.global.z, 0.f};
     cluster.rowColumnCovariance = {1.e-2f, 0.f, 1.e-2f};
     cluster.sensor = static_cast<uint32_t>(layer);
     cluster.layer = static_cast<int>(layer);

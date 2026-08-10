@@ -411,11 +411,13 @@ SurfaceMeasurement diskDirectionMeasurement(float x, float y,
   return measurement;
 }
 
-SurfaceMeasurement cylinderDirectionMeasurement(float z,
+SurfaceMeasurement cylinderDirectionMeasurement(float q, float u, float z,
                                                 float varianceU, float covarianceUZ, float varianceZ)
 {
   SurfaceMeasurement measurement{};
-  measurement.global = {999.f, 999.f, -1234.f}; // cylinder observation uses frame.v
+  measurement.global = {999.f, 999.f, -1234.f}; // cylinder observation uses its tracking frame
+  measurement.frame.q = q;
+  measurement.frame.u = u;
   measurement.frame.v = z;
   measurement.covariance = {varianceU, covarianceUZ, varianceZ};
   return measurement;
@@ -477,16 +479,16 @@ BOOST_AUTO_TEST_CASE(DiskDirectionObservationProjectsFullGlobalXYCovariance)
   BOOST_CHECK_SMALL(observation.varianceZ, 1.e-15);
 }
 
-BOOST_AUTO_TEST_CASE(CylinderDirectionObservationUsesFixedRadiusAndMeasuredZ)
+BOOST_AUTO_TEST_CASE(CylinderDirectionObservationProjectsTrackingFrameCovariance)
 {
   const auto surface = directionSurface(SurfaceKind::Cylinder, 3.5f);
-  const auto measurement = cylinderDirectionMeasurement(-2.2f, 0.04f, 0.006f, 0.09f);
+  const auto measurement = cylinderDirectionMeasurement(3.f, 4.f, -2.2f, 0.04f, 0.006f, 0.09f);
   DirectionObservation observation{};
   BOOST_REQUIRE(makeCylinderDirectionObservation(surface, measurement, observation));
-  BOOST_CHECK_CLOSE_FRACTION(observation.r, 3.5, 1.e-12);
+  BOOST_CHECK_CLOSE_FRACTION(observation.r, 5., 1.e-12);
   BOOST_CHECK_CLOSE_FRACTION(observation.z, -2.2, 1.e-6);
-  BOOST_CHECK_SMALL(observation.varianceR, 1.e-15);
-  BOOST_CHECK_SMALL(observation.covarianceRZ, 1.e-15);
+  BOOST_CHECK_CLOSE_FRACTION(observation.varianceR, 0.0256, 1.e-7);
+  BOOST_CHECK_CLOSE_FRACTION(observation.covarianceRZ, 0.0048, 1.e-7);
   BOOST_CHECK_CLOSE_FRACTION(observation.varianceZ, 0.09, 1.e-6);
 }
 
@@ -526,7 +528,7 @@ BOOST_AUTO_TEST_CASE(CollinearCylinderAndDiskObservationsHaveZeroChi2)
   const std::array<float, 3> z{10.f, 20.f, 40.f};
   for (std::size_t i = 0; i < radii.size(); ++i) {
     const auto cylinderSurface = directionSurface(SurfaceKind::Cylinder, radii[i]);
-    const auto cylinderMeasurement = cylinderDirectionMeasurement(z[i], 0.02f, 0.001f, 0.03f);
+    const auto cylinderMeasurement = cylinderDirectionMeasurement(radii[i], 0.f, z[i], 0.02f, 0.001f, 0.03f);
     BOOST_REQUIRE(makeDirectionObservation(cylinderSurface, cylinderMeasurement, cylinder[i]));
 
     const auto diskSurface = directionSurface(SurfaceKind::Disk, z[i]);
@@ -580,6 +582,16 @@ BOOST_AUTO_TEST_CASE(CellDirectionCompatibilityFailsClosedTransactionally)
   auto observation = observationSentinel;
   BOOST_CHECK(!makeDiskDirectionObservation(
     directionSurface(SurfaceKind::Disk, -50.f), invalidDisk, observation));
+  BOOST_CHECK(bitEqual(observation, observationSentinel));
+
+  auto invalidCylinder = cylinderDirectionMeasurement(3.f, 4.f, -2.2f, 0.04f, 1.f, 0.09f);
+  BOOST_CHECK(!makeCylinderDirectionObservation(
+    directionSurface(SurfaceKind::Cylinder, 3.5f), invalidCylinder, observation));
+  BOOST_CHECK(bitEqual(observation, observationSentinel));
+
+  invalidCylinder = cylinderDirectionMeasurement(0.f, 0.f, -2.2f, 0.04f, 0.006f, 0.09f);
+  BOOST_CHECK(!makeCylinderDirectionObservation(
+    directionSurface(SurfaceKind::Cylinder, 3.5f), invalidCylinder, observation));
   BOOST_CHECK(bitEqual(observation, observationSentinel));
 }
 
