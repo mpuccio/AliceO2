@@ -1,6 +1,7 @@
 # Fast local triplet estimator
 
-- Status: accepted standalone direction
+- Status: accepted fit direction; observation and cell-payload placement
+  superseded by [global measurements and the triplet fit factor](0021-global-measurements-and-triplet-state.md)
 - Date: 2026-08-10
 - Predecessor: [momentum-dependent material experiment](0019-momentum-dependent-local-triplet-material.md)
 
@@ -48,32 +49,13 @@ surfaces, it may add energy loss explicitly there.
 
 ## Global observation boundary
 
-`SurfaceMeasurement` already stores global `(x,y,z)`. Its three covariance
-numbers intentionally remain in the measured two-dimensional surface frame;
-that compact representation is sufficient because the normal coordinate is
-exact at this stage. The descriptor-selected leaf lifts it once into the full
-rank-deficient global covariance consumed by the neutral fit.
-
-Replacing the stored covariance with a packed global `3x3` covariance would
-increase every measurement by three floats and make the native cylinder
-Kalman update project it back to `(u,v)`. It would move, rather than eliminate,
-surface-frame work. Before neighbour integration, benchmark two narrower
-placements:
-
-1. cache the neutral global observation once per measurement; or
-2. fit each accepted cell once and store only the compact triplet parameters
-   and covariance needed by neighbour compatibility.
-
-The second placement avoids repeating both observation construction and the
-fit for every candidate neighbour and is the preferred direction. Surface
-measurement and material-normal construction remain leaf operations; the fit
-and neighbour comparison stay family-neutral.
+The successor design stores index-aligned global and native measurement
+records. The cell retains the Equation-19 `Psi`, `rho`, and `H` factor rather
+than independent segment marginals, so shared-hit covariance can be assembled
+exactly when neighbouring triplets are compared.
 
 ## Remaining integration requirement
 
-The current result exposes curvature, curvature variance, fit quality, and
-the angular residual covariance. Before it replaces neighbour compatibility,
-the compact cell payload must explicitly define the middle-reference
-direction parameters and their covariance/cross-covariance with curvature.
-That parameter contract, its comparison chi-square, and candidate-level cost
-must be validated before changing a production selection.
+The factor contract is defined in the successor note. Its multi-triplet
+Equation-19 assembly, MS model, candidate cut-flow, and physics calibration
+must still be validated before changing neighbour selection.

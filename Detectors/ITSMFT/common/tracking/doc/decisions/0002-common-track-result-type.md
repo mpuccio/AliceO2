@@ -88,7 +88,7 @@ struct CommonTrack {
   a bare `SurfaceMeasurementIndex` is never a complete identity on its own --
   it is only ever meaningful paired with the `SurfaceId` it is local to. A
   reference resolves through exactly one call:
-  `normalizedFrame.getMeasurement(reference.surface, reference.index)`.
+  `normalizedFrame.getGlobalMeasurement(reference.surface, reference.index)`.
   References are stored in traversal order, inner to outer. Never a
   detector-local raw cluster index or external cluster ID: those remain
   `ClusterRef`'s job (source-qualified, `ITSMFTTracking/SurfaceMeasurement.h`),
@@ -131,7 +131,7 @@ SurfaceMeasurement* data; uint32_t count;}`), indexed directly by `SurfaceId`
 -- not a flattened array plus offset ranges. `getSurfaceMeasurements(SurfaceId)`/
 `getSurfaceMeasurementCount(SurfaceId)` keep their existing per-surface
 contract, unchanged, on both the owner and the view. A bounds-checked
-`getMeasurement(SurfaceId, SurfaceMeasurementIndex)` (on both the owner and
+`getGlobalMeasurement(SurfaceId, SurfaceMeasurementIndex)` (on both the owner and
 the view) is the minimal support `TrackClusterReference` needs to validate
 and dereference a stored reference; there is no global-index accessor.
 
