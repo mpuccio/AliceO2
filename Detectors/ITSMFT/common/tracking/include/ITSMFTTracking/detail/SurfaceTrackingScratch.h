@@ -281,12 +281,12 @@ class SurfaceTrackingScratch
                   const IndexTableUtilsCore& indexTableConfig, SurfaceGraphView topology,
                   gsl::span<const TransitionId> transitionIds, gsl::span<const CellTopologyId> cellIds,
                   gsl::span<const SurfaceId> orderedSurfaces,
-                  gsl::span<const gsl::span<const SurfaceMeasurement>> layerMeasurements);
+                  gsl::span<const gsl::span<const GlobalMeasurement>> layerMeasurements);
   void initialise(const TimeFrame& frame, const TrackingParameters& trkParam, int maxLayers, int iteration,
                   gsl::span<const IndexTableUtilsCore> indexTableConfigs, SurfaceGraphView topology,
                   gsl::span<const TransitionId> transitionIds, gsl::span<const CellTopologyId> cellIds,
                   gsl::span<const SurfaceId> orderedSurfaces,
-                  gsl::span<const gsl::span<const SurfaceMeasurement>> layerMeasurements);
+                  gsl::span<const gsl::span<const GlobalMeasurement>> layerMeasurements);
 
   bool isClusterUsed(int layer, int clusterId) const { return mUsedClusters[layer][clusterId]; }
   void markUsedCluster(int layer, int clusterId) { mUsedClusters[layer][clusterId] = true; }
@@ -394,7 +394,7 @@ class SurfaceTrackingScratch
   void swapLoadedEvent(SurfaceTrackingScratch& other) noexcept;
 
   void prepareClusters(const TimeFrame& frame, const TrackingParameters& trkParam, int maxLayers,
-                       gsl::span<const gsl::span<const SurfaceMeasurement>> layerMeasurements);
+                       gsl::span<const gsl::span<const GlobalMeasurement>> layerMeasurements);
 
   RuntimeROFViews mROFViews{};
   std::vector<RuntimeROFViews> mROFViewsBySurface;

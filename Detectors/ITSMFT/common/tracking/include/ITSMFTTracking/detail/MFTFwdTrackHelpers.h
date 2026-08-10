@@ -22,6 +22,7 @@
 #include "CommonConstants/MathConstants.h"
 #include "ITSMFTTracking/Cell.h"
 #include "ITSMFTTracking/Configuration.h"
+#include "ITSMFTTracking/GlobalMeasurement.h"
 #include "ITSMFTTracking/SurfaceKinematicState.h"
 #include "ITSMFTTracking/detail/SurfaceTrackingScratch.h"
 #include "ITSMFTTracking/SurfaceDescriptor.h"
@@ -153,6 +154,7 @@ bool refitTrackFwd(const TrackSeed& seed,
                    const SurfaceTrackingScratch& tf,
                    const TrackingParameters& params,
                    float bz,
+                   gsl::span<const gsl::span<const GlobalMeasurement>> layerGlobals,
                    gsl::span<const gsl::span<const SurfaceMeasurement>> layerMeasurements,
                    SurfaceCatalogView surfaceCatalog,
                    ClusterSourceId expectedSource,

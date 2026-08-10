@@ -420,13 +420,13 @@ namespace
 // o2::its::track::buildTrackSeed (ITStracking/TrackHelpers.h) with its
 // `cluster1`/`cluster2`/`tf3`/`reverse` arguments renamed to
 // `clusterA`/`clusterB`/`frameMeasurement`/`sign` respectively.
-bool buildSeedImpl(const SurfaceMeasurement& clusterA, const SurfaceMeasurement& clusterB,
+bool buildSeedImpl(const GlobalPoint3F& clusterA, const GlobalPoint3F& clusterB,
                    const SurfaceMeasurement& frameMeasurement, float bz, float sign,
                    uint8_t absCharge, o2::track::PID pid,
                    SurfaceKinematicState& outState, OperationFailureReason& reason) noexcept
 {
-  if (!std::isfinite(clusterA.global.x) || !std::isfinite(clusterA.global.y) || !std::isfinite(clusterA.global.z) ||
-      !std::isfinite(clusterB.global.x) || !std::isfinite(clusterB.global.y) || !std::isfinite(clusterB.global.z) ||
+  if (!std::isfinite(clusterA.x) || !std::isfinite(clusterA.y) || !std::isfinite(clusterA.z) ||
+      !std::isfinite(clusterB.x) || !std::isfinite(clusterB.y) || !std::isfinite(clusterB.z) ||
       !std::isfinite(frameMeasurement.frame.q) || !std::isfinite(frameMeasurement.frame.frameAngle) ||
       !std::isfinite(frameMeasurement.frame.u) || !std::isfinite(frameMeasurement.frame.v) ||
       !std::isfinite(frameMeasurement.covariance.uu) || !std::isfinite(frameMeasurement.covariance.uv) ||
@@ -437,10 +437,10 @@ bool buildSeedImpl(const SurfaceMeasurement& clusterA, const SurfaceMeasurement&
 
   const float cosAlpha = std::cos(frameMeasurement.frame.frameAngle);
   const float sinAlpha = std::sin(frameMeasurement.frame.frameAngle);
-  const float x1 = (clusterA.global.x * cosAlpha) + (clusterA.global.y * sinAlpha);
-  const float y1 = (-clusterA.global.x * sinAlpha) + (clusterA.global.y * cosAlpha);
-  const float x2 = (clusterB.global.x * cosAlpha) + (clusterB.global.y * sinAlpha);
-  const float y2 = (-clusterB.global.x * sinAlpha) + (clusterB.global.y * cosAlpha);
+  const float x1 = (clusterA.x * cosAlpha) + (clusterA.y * sinAlpha);
+  const float y1 = (-clusterA.x * sinAlpha) + (clusterA.y * cosAlpha);
+  const float x2 = (clusterB.x * cosAlpha) + (clusterB.y * sinAlpha);
+  const float y2 = (-clusterB.x * sinAlpha) + (clusterB.y * cosAlpha);
   const float x3 = frameMeasurement.frame.q;
   const float y3 = frameMeasurement.frame.u;
 
@@ -459,7 +459,7 @@ bool buildSeedImpl(const SurfaceMeasurement& clusterA, const SurfaceMeasurement&
     q2pt = sign * crv / (bz * o2::constants::math::B2C);
     q2pt2 = crv * crv;
   }
-  const float tgl = -0.5f * sign * (o2::its::math_utils::computeTanDipAngle(x1, y1, x2, y2, clusterA.global.z, clusterB.global.z) + o2::its::math_utils::computeTanDipAngle(x2, y2, x3, y3, clusterB.global.z, frameMeasurement.frame.v));
+  const float tgl = -0.5f * sign * (o2::its::math_utils::computeTanDipAngle(x1, y1, x2, y2, clusterA.z, clusterB.z) + o2::its::math_utils::computeTanDipAngle(x2, y2, x3, y3, clusterB.z, frameMeasurement.frame.v));
   const float sg2q2pt = o2::track::kC1Pt2max * std::clamp(q2pt2, 0.0005f, 1.0f);
 
   SurfaceKinematicState scratch{};
@@ -573,12 +573,12 @@ bool finiteLinRef(const SurfaceLinearizationReference& ref) noexcept
 
 } // namespace
 
-bool buildSeed(const SurfaceMeasurement& measurementInner, const SurfaceMeasurement& measurementMiddle,
+bool buildSeed(const GlobalPoint3F& globalInner, const GlobalPoint3F& globalMiddle,
                const SurfaceMeasurement& measurementOuter, float bz,
                uint8_t absCharge, o2::track::PID pid,
                SurfaceKinematicState& outState, OperationFailureReason& reason) noexcept
 {
-  return buildSeedImpl(measurementInner, measurementMiddle, measurementOuter, bz, 1.f, absCharge, pid, outState, reason);
+  return buildSeedImpl(globalInner, globalMiddle, measurementOuter, bz, 1.f, absCharge, pid, outState, reason);
 }
 
 bool rotate(SurfaceKinematicState& state, SurfaceLinearizationReference& linRef, float targetAlpha, float bz,

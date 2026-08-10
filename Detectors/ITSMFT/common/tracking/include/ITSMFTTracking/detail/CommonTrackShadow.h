@@ -62,7 +62,7 @@ inline bool validateCommonTrackShadowRecord(const TimeFrame& frame, const Common
   }
   SurfaceMask surfaces;
   for (const auto& reference : record.references) {
-    const auto* measurement = frame.getNormalizedFrame().getMeasurement(reference.surface, reference.index);
+    const auto* measurement = frame.getNormalizedFrame().getGlobalMeasurement(reference.surface, reference.index);
     if (measurement == nullptr || measurement->surface != reference.surface) {
       return false;
     }

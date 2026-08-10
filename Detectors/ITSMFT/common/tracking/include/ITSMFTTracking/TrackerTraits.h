@@ -49,6 +49,7 @@ using SeedRefitFunction = bool (*)(const TrackSeed& seed,
                                    const TrackingParameters& params,
                                    float bz,
                                    SurfaceTrackingScratch& scratch,
+                                   gsl::span<const gsl::span<const GlobalMeasurement>> layerGlobals,
                                    gsl::span<const gsl::span<const SurfaceMeasurement>> layerMeasurements,
                                    SurfaceCatalogView surfaceCatalog,
                                    ClusterSourceId expectedSource,
@@ -197,6 +198,7 @@ class TrackerTraits
   // consumption is through the private mLayerMeasurements member directly in
   // computeLayerCellsImpl/processNeighbours.
   gsl::span<const gsl::span<const SurfaceMeasurement>> getLayerMeasurements() const noexcept { return {mLayerMeasurements.data(), mLayerMeasurements.size()}; }
+  gsl::span<const gsl::span<const GlobalMeasurement>> getLayerGlobalMeasurements() const noexcept { return {mLayerGlobalMeasurements.data(), mLayerGlobalMeasurements.size()}; }
 
  private:
   void resetTraversalCache() noexcept;
@@ -213,15 +215,12 @@ class TrackerTraits
                                  gsl::span<const TransitionId> transitionIds);
   void computeLayerCellsImpl(int iteration,
                              gsl::span<const CellTopologyId> cellIds);
-  void findCellsNeighboursCylinder(int iteration);
-  void findCellsNeighboursDisk(int iteration);
   void findRoadsCylinder(int iteration, SeedRefitFunction refitFunction);
   void findRoadsDisk(int iteration, SeedRefitFunction refitFunction);
 
-  template <SurfaceKind Kind>
-  void findCellsNeighboursForKind(int iteration,
-                                  gsl::span<const CellTopologyId> scheduledCells,
-                                  const TrackingKernelParameters& params);
+  void findCellsNeighboursForSchedule(int iteration,
+                                      gsl::span<const CellTopologyId> scheduledCells,
+                                      const TrackingKernelParameters& params);
 
   template <SurfaceKind Kind>
   void findRoadsForKind(int iteration,
@@ -275,13 +274,13 @@ class TrackerTraits
   std::vector<NominalSurfaceMaterial> mLayerMaterial;
   std::optional<SurfaceKind> mActiveKind;
   std::array<std::vector<TransitionId>, 2> mTransitionsByKind;
-  std::array<std::vector<CellTopologyId>, 2> mScheduledCellsByKind;
   std::array<std::vector<CellTopologyId>, 2> mRoadStartCellsByKind;
   // Non-owning per-surface-position spans into the TimeFrame-owned normalized
   // frame. They are staged and committed with the traversal cache, then
   // cleared on failed initialization.
   // Host-only non-owning view, sized to the adopted ordered surface span.
   std::vector<gsl::span<const SurfaceMeasurement>> mLayerMeasurements;
+  std::vector<gsl::span<const GlobalMeasurement>> mLayerGlobalMeasurements;
   int mTraversalGroupingCount{0};
   // Generic accepted candidates are retained only until shared-cluster
   // marking and the final adapter-owned publication seal complete.

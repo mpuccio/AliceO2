@@ -32,7 +32,7 @@ namespace o2::itsmft::tracking
 // flattened global array, so a bare SurfaceMeasurementIndex alone is never a
 // complete identity: it must always be paired with the SurfaceId it is local
 // to. A reference resolves through exactly one call:
-//   normalizedFrame.getMeasurement(reference.surface, reference.index)
+//   normalizedFrame.getGlobalMeasurement(reference.surface, reference.index)
 // Never a detector-local raw cluster index or external cluster ID: those
 // remain ClusterRef's job (source-qualified, ITSMFTTracking/
 // SurfaceMeasurement.h), a different identity axis entirely.

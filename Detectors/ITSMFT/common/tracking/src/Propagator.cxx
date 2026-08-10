@@ -443,7 +443,7 @@ bool Propagator::propagateToMeasurement(SurfaceKinematicState& state, SurfaceLin
 
 bool Propagator::driveRefitLeg(SurfaceKinematicState& state, SurfaceLinearizationReference& linRef,
                                float& chi2, uint32_t& acceptedHitCount,
-                               gsl::span<const SurfaceMeasurement> orderedSlots, SurfaceCatalogView surfaceCatalog,
+                               gsl::span<const RefitMeasurementSlot> orderedSlots, SurfaceCatalogView surfaceCatalog,
                                float bz, material::MaterialTraversalDirection direction,
                                bool shiftReferenceToMeasurement, float maxChi2, OperationFailureReason& reason) noexcept
 {
@@ -461,12 +461,12 @@ bool Propagator::driveRefitLeg(SurfaceKinematicState& state, SurfaceLinearizatio
   float scratchChi2 = chi2;
   uint32_t scratchAcceptedHitCount = 0;
 
-  for (const auto& measurement : orderedSlots) {
-    if (!measurement.cluster.isValid()) {
+  for (const auto& slot : orderedSlots) {
+    if (!slot.present) {
       continue;
     }
 
-    if (!measurement.surface.isValid()) {
+    if (!slot.surface.isValid()) {
       reason = OperationFailureReason::InvalidSurfaceCatalogAssociation;
       return false;
     }
@@ -474,18 +474,18 @@ bool Propagator::driveRefitLeg(SurfaceKinematicState& state, SurfaceLinearizatio
       reason = OperationFailureReason::InvalidSurfaceCatalogAssociation;
       return false;
     }
-    if (!(measurement.surface.value() < surfaceCatalog.nSurfaces)) {
+    if (!(slot.surface.value() < surfaceCatalog.nSurfaces)) {
       reason = OperationFailureReason::InvalidSurfaceCatalogAssociation;
       return false;
     }
-    const SurfaceDescriptor& descriptor = surfaceCatalog.getSurface(measurement.surface);
-    if (!(descriptor.id == measurement.surface)) {
+    const SurfaceDescriptor& descriptor = surfaceCatalog.getSurface(slot.surface);
+    if (!(descriptor.id == slot.surface)) {
       reason = OperationFailureReason::InvalidSurfaceCatalogAssociation;
       return false;
     }
 
     const bool chi2GateEnabled = scratchAcceptedHitCount >= kChi2GateMinAcceptedHits;
-    if (!propagateToMeasurement(scratchState, scratchLinRef, descriptor, measurement, bz, direction,
+    if (!propagateToMeasurement(scratchState, scratchLinRef, descriptor, slot.measurement, bz, direction,
                                 chi2GateEnabled, maxChi2, scratchChi2, shiftReferenceToMeasurement, reason)) {
       return false;
     }

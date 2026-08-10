@@ -162,7 +162,7 @@ inline std::optional<CommonTrackOutputAdapterSelection> selectCommonTracksForSou
     bool foreign = false;
     for (uint32_t i = track.firstClusterRef; i < track.clusterRefEnd; ++i) {
       const auto& reference = references[i];
-      const auto* measurement = normalized.getMeasurement(reference.surface, reference.index);
+      const auto* measurement = normalized.getGlobalMeasurement(reference.surface, reference.index);
       if (measurement == nullptr || measurement->surface != reference.surface) {
         error = CommonTrackOutputAdapterError::UnresolvedReference;
         return std::nullopt;
@@ -269,10 +269,10 @@ inline bool collectReferences(const TimeFrame& frame, const CommonTrack& common,
 {
   const auto& references = frame.getTrackClusterIndices();
   const auto& normalized = frame.getNormalizedFrame();
-  std::vector<const SurfaceMeasurement*> byLayer(maxLayers, nullptr);
+  std::vector<const GlobalMeasurement*> byLayer(maxLayers, nullptr);
   for (uint32_t ref = common.firstClusterRef; ref < common.clusterRefEnd; ++ref) {
     const auto& key = references[ref];
-    const auto* measurement = normalized.getMeasurement(key.surface, key.index);
+    const auto* measurement = normalized.getGlobalMeasurement(key.surface, key.index);
     if (measurement == nullptr) {
       error = CommonTrackOutputAdapterError::UnresolvedReference;
       return false;

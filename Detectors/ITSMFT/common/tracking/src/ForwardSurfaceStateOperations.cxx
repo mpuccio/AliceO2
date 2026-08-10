@@ -59,7 +59,7 @@ bool finiteState(const SurfaceKinematicState& state) noexcept
 
 bool finiteMeasurement(const SurfaceMeasurement& measurement) noexcept
 {
-  return std::isfinite(measurement.global.x) && std::isfinite(measurement.global.y) &&
+  return std::isfinite(measurement.frame.u) && std::isfinite(measurement.frame.v) &&
          std::isfinite(measurement.covariance.uu) && std::isfinite(measurement.covariance.uv) &&
          std::isfinite(measurement.covariance.vv);
 }
@@ -313,8 +313,8 @@ bool predictedChi2(const SurfaceKinematicState& state, const SurfaceMeasurement&
                        OperationFailureReason::PredictedChi2Failure)) {
     return false;
   }
-  const float residualX = measurement.global.x - state.parameters[0];
-  const float residualY = measurement.global.y - state.parameters[1];
+  const float residualX = measurement.frame.u - state.parameters[0];
+  const float residualY = measurement.frame.v - state.parameters[1];
   const float scratchChi2 = residualX * (inverse00 * residualX + inverse01 * residualY) +
                             residualY * (inverse01 * residualX + inverse11 * residualY);
   if (!std::isfinite(scratchChi2)) {
@@ -346,7 +346,7 @@ bool update(SurfaceKinematicState& state, const SurfaceMeasurement& measurement,
   Matrix5 updatedCovariance{};
   float gain[5][2]{};
   unpackCovariance(state, covariance);
-  const float residual[2] = {measurement.global.x - state.parameters[0], measurement.global.y - state.parameters[1]};
+  const float residual[2] = {measurement.frame.u - state.parameters[0], measurement.frame.v - state.parameters[1]};
   SurfaceKinematicState scratch = state;
   for (uint8_t row = 0; row < 5; ++row) {
     gain[row][0] = covariance[row][0] * inverse00 + covariance[row][1] * inverse01;
@@ -474,9 +474,9 @@ bool buildSeedImpl(const SurfaceMeasurement& measurementInner, const SurfaceMeas
                    uint8_t absCharge, o2::track::PID pid,
                    SurfaceKinematicState& outState, OperationFailureReason& reason) noexcept
 {
-  if (!std::isfinite(measurementInner.global.x) || !std::isfinite(measurementInner.global.y) || !std::isfinite(measurementInner.global.z) ||
-      !std::isfinite(measurementMiddle.global.x) || !std::isfinite(measurementMiddle.global.y) || !std::isfinite(measurementMiddle.global.z) ||
-      !std::isfinite(measurementOuter.global.x) || !std::isfinite(measurementOuter.global.y) || !std::isfinite(measurementOuter.global.z) ||
+  if (!std::isfinite(measurementInner.frame.u) || !std::isfinite(measurementInner.frame.v) || !std::isfinite(measurementInner.frame.q) ||
+      !std::isfinite(measurementMiddle.frame.u) || !std::isfinite(measurementMiddle.frame.v) || !std::isfinite(measurementMiddle.frame.q) ||
+      !std::isfinite(measurementOuter.frame.u) || !std::isfinite(measurementOuter.frame.v) || !std::isfinite(measurementOuter.frame.q) ||
       !std::isfinite(frameMeasurement.frame.q) ||
       !std::isfinite(frameMeasurement.covariance.uu) || !std::isfinite(frameMeasurement.covariance.vv) ||
       !std::isfinite(bz) || !std::isfinite(trackletMinPt)) {
@@ -490,18 +490,18 @@ bool buildSeedImpl(const SurfaceMeasurement& measurementInner, const SurfaceMeas
   // output artifacts, so they are reported through the dedicated
   // SeedGeometryDegenerate reason. Anchor-independent: this validates the
   // physical hit ordering, not the seed's reference frame.
-  if (measurementInner.global.z <= measurementOuter.global.z + 1.e-6f) {
+  if (measurementInner.frame.q <= measurementOuter.frame.q + 1.e-6f) {
     reason = OperationFailureReason::SeedGeometryDegenerate;
     return false;
   }
 
-  const float dxTan = measurementMiddle.global.x - measurementInner.global.x;
-  const float dyTan = measurementMiddle.global.y - measurementInner.global.y;
-  const float dzTan = measurementMiddle.global.z - measurementInner.global.z;
+  const float dxTan = measurementMiddle.frame.u - measurementInner.frame.u;
+  const float dyTan = measurementMiddle.frame.v - measurementInner.frame.v;
+  const float dzTan = measurementMiddle.frame.q - measurementInner.frame.q;
   const float drTan = std::sqrt(dxTan * dxTan + dyTan * dyTan);
-  const float dxPhi = measurementOuter.global.x - measurementInner.global.x;
-  const float dyPhi = measurementOuter.global.y - measurementInner.global.y;
-  const float dzPhi = measurementOuter.global.z - measurementInner.global.z;
+  const float dxPhi = measurementOuter.frame.u - measurementInner.frame.u;
+  const float dyPhi = measurementOuter.frame.v - measurementInner.frame.v;
+  const float dzPhi = measurementOuter.frame.q - measurementInner.frame.q;
   const float drPhi = std::sqrt(dxPhi * dxPhi + dyPhi * dyPhi);
   if (drTan < 1.e-6f || std::abs(dzTan) < 1.e-6f || drPhi < 1.e-6f || std::abs(dzPhi) < 1.e-6f) {
     reason = OperationFailureReason::SeedGeometryDegenerate;
@@ -529,8 +529,8 @@ bool buildSeedImpl(const SurfaceMeasurement& measurementInner, const SurfaceMeas
   SurfaceKinematicState scratch{};
   scratch.referenceCoordinate = frameMeasurement.frame.q;
   scratch.alpha = 0.f;
-  scratch.parameters[0] = frameMeasurement.global.x;
-  scratch.parameters[1] = frameMeasurement.global.y;
+  scratch.parameters[0] = frameMeasurement.frame.u;
+  scratch.parameters[1] = frameMeasurement.frame.v;
   scratch.parameters[2] = phi;
   scratch.parameters[3] = tanl;
   scratch.parameters[4] = invQPt;

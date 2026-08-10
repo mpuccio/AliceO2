@@ -5,7 +5,9 @@
 #include "ITSMFTTracking/MultiSourceTimeFrameLoader.h"
 
 #include <algorithm>
+#include <cmath>
 #include <format>
+#include <limits>
 #include <memory>
 #include <vector>
 
@@ -90,6 +92,55 @@ bool isSupportedDetector(o2::detectors::DetID::ID det) noexcept
   return det == o2::detectors::DetID::ITS || det == o2::detectors::DetID::MFT;
 }
 
+bool covariance2DIsPositiveSemidefinite(float varianceFirst, float covariance,
+                                        float varianceSecond) noexcept
+{
+  if (!std::isfinite(varianceFirst) || !std::isfinite(covariance) ||
+      !std::isfinite(varianceSecond) || varianceFirst < 0.f || varianceSecond < 0.f) {
+    return false;
+  }
+  const double diagonalProduct = static_cast<double>(varianceFirst) * varianceSecond;
+  const double covarianceSquared = static_cast<double>(covariance) * covariance;
+  const double tolerance = 16. * std::numeric_limits<float>::epsilon() *
+                           std::max(diagonalProduct, covarianceSquared);
+  return diagonalProduct - covarianceSquared >= -tolerance;
+}
+
+bool globalCovarianceIsPositiveSemidefinite(const GlobalCovariance3F& covariance) noexcept
+{
+  if (!covariance2DIsPositiveSemidefinite(covariance.xx, covariance.xy, covariance.yy) ||
+      !covariance2DIsPositiveSemidefinite(covariance.xx, covariance.xz, covariance.zz) ||
+      !covariance2DIsPositiveSemidefinite(covariance.yy, covariance.yz, covariance.zz)) {
+    return false;
+  }
+  const double determinant =
+    static_cast<double>(covariance.xx) * covariance.yy * covariance.zz +
+    2. * static_cast<double>(covariance.xy) * covariance.xz * covariance.yz -
+    static_cast<double>(covariance.xx) * covariance.yz * covariance.yz -
+    static_cast<double>(covariance.yy) * covariance.xz * covariance.xz -
+    static_cast<double>(covariance.zz) * covariance.xy * covariance.xy;
+  const double scale = std::max({std::abs(static_cast<double>(covariance.xx) * covariance.yy * covariance.zz),
+                                 std::abs(2. * static_cast<double>(covariance.xy) * covariance.xz * covariance.yz),
+                                 std::abs(static_cast<double>(covariance.xx) * covariance.yz * covariance.yz),
+                                 std::abs(static_cast<double>(covariance.yy) * covariance.xz * covariance.xz),
+                                 std::abs(static_cast<double>(covariance.zz) * covariance.xy * covariance.xy)});
+  return std::isfinite(determinant) &&
+         determinant >= -32. * std::numeric_limits<float>::epsilon() * scale;
+}
+
+bool decodedMeasurementIsValid(const GlobalMeasurement& global,
+                               const SurfaceMeasurement& local) noexcept
+{
+  return std::isfinite(global.position.x) && std::isfinite(global.position.y) &&
+         std::isfinite(global.position.z) &&
+         globalCovarianceIsPositiveSemidefinite(global.covariance) &&
+         std::isfinite(local.frame.q) && std::isfinite(local.frame.u) &&
+         std::isfinite(local.frame.v) && std::isfinite(local.frame.frameAngle) &&
+         covariance2DIsPositiveSemidefinite(local.covariance.uu,
+                                            local.covariance.uv,
+                                            local.covariance.vv);
+}
+
 MultiSourceLoadError mapDecodeError(ClusterDecodeError error) noexcept
 {
   switch (error) {
@@ -145,6 +196,7 @@ LoadSourcesResult loadSources(MultiSourceFrame& frame,
     }
   }
 
+  std::vector<std::vector<GlobalMeasurement>> perSurfaceGlobal(catalog.nSurfaces);
   std::vector<std::vector<SurfaceMeasurement>> perSurface(catalog.nSurfaces);
   std::vector<SourceMetadata> sourcesMeta(nSources);
   std::vector<std::vector<ROFIntervalBC>> perSourceIntervals(nSources);
@@ -204,12 +256,12 @@ LoadSourcesResult loadSources(MultiSourceFrame& frame,
         if (!expectedSurface.isValid() || expectedSurface.value() >= catalog.nSurfaces) {
           return {MultiSourceLoadError::InvalidLayerMapping, src.id, r, externalIndex};
         }
-        const auto& measurement = decoded.measurement;
-        if (measurement.surface != expectedSurface ||
-            measurement.cluster.source != src.id ||
-            measurement.cluster.index != externalIndex ||
-            measurement.sourceROF != r ||
-            measurement.sensor.detector != static_cast<uint32_t>(src.detector)) {
+        auto global = decoded.global;
+        if (global.surface != expectedSurface ||
+            global.cluster.source != src.id ||
+            global.cluster.index != externalIndex ||
+            global.sourceROF != r ||
+            global.sensor.detector != static_cast<uint32_t>(src.detector)) {
           return {MultiSourceLoadError::InconsistentDecoderMetadata, src.id, r, externalIndex};
         }
         const auto& surfaceDescriptor = catalog.getSurface(expectedSurface);
@@ -219,7 +271,12 @@ LoadSourcesResult loadSources(MultiSourceFrame& frame,
         if (surfaceDescriptor.kind != decoded.kind) {
           return {MultiSourceLoadError::SurfaceKindMismatch, src.id, r, externalIndex};
         }
-        perSurface[expectedSurface.value()].push_back(measurement);
+        if (!decodedMeasurementIsValid(global, decoded.measurement)) {
+          return {MultiSourceLoadError::OtherMalformedInput, src.id, r, externalIndex};
+        }
+        global.radius = std::hypot(global.position.x, global.position.y);
+        perSurfaceGlobal[expectedSurface.value()].push_back(global);
+        perSurface[expectedSurface.value()].push_back(decoded.measurement);
       }
     }
     if (!patterns.empty()) {
@@ -238,7 +295,7 @@ LoadSourcesResult loadSources(MultiSourceFrame& frame,
     flatIntervals.insert(flatIntervals.end(), perSourceIntervals[s].begin(), perSourceIntervals[s].end());
   }
 
-  frame.assignLoadedData(std::move(perSurface), std::move(sourcesMeta),
+  frame.assignLoadedData(std::move(perSurfaceGlobal), std::move(perSurface), std::move(sourcesMeta),
                          std::move(flatIntervals), std::move(sourceOffsets), std::move(labelSources));
   return {};
 }
@@ -337,6 +394,7 @@ LoadSourcesResult SurfaceTrackingScratch::loadNormalizedSource(
 
   for (std::size_t layer = 0; layer < nOwnedSurfaces; ++layer) {
     const auto measurements = staged.getSurfaceMeasurements(layerToSurface[layer]);
+    const auto globals = staged.getGlobalMeasurements(layerToSurface[layer]);
 
     auto* mr = getMaybeFrameworkHostResource();
     auto* unsortedClustersMr = mr != nullptr ? mr : mUnsortedClusters[layer].get_allocator().resource();
@@ -352,34 +410,36 @@ LoadSourcesResult SurfaceTrackingScratch::loadNormalizedSource(
     stagedROFramesClusters.emplace_back(nROFs + 1, 0, std::pmr::polymorphic_allocator<int>{rofFramesClustersMr});
 
     size_t mi{0};
-    for (const auto& m : measurements) {
+    for (std::size_t measurementIndex = 0; measurementIndex < measurements.size(); ++measurementIndex) {
+      const auto& m = measurements[measurementIndex];
+      const auto& global = globals[measurementIndex];
       o2::its::TrackingFrameInfo tfInfo;
       if (isMFT) {
         // Recreate the synthetic legacy MFT representation from
         // normalized global position and row/column covariance.
         tfInfo = o2::its::TrackingFrameInfo{
-          m.global.x, m.global.y, m.global.z,
-          m.global.x, 0.f,
-          std::array<float, 2>{m.global.y, m.global.z},
+          global.position.x, global.position.y, global.position.z,
+          global.position.x, 0.f,
+          std::array<float, 2>{global.position.y, global.position.z},
           std::array<float, 3>{m.covariance.uu, m.covariance.uv, m.covariance.vv}};
       } else {
         // ITS compatibility representation, using the normalized measurement.
         tfInfo = o2::its::TrackingFrameInfo{
-          m.global.x, m.global.y, m.global.z,
+          global.position.x, global.position.y, global.position.z,
           m.frame.q, m.frame.frameAngle,
           std::array<float, 2>{m.frame.u, m.frame.v},
           std::array<float, 3>{m.covariance.uu, m.covariance.uv, m.covariance.vv}};
       }
       stagedTrackingFrameInfo[layer].push_back(tfInfo);
-      stagedUnsortedClusters[layer].emplace_back(m.global.x, m.global.y, m.global.z, static_cast<int>(stagedUnsortedClusters[layer].size()));
-      stagedClusterExternalIndices[layer].push_back(static_cast<int>(m.cluster.index));
-      stagedClusterSize[layer][mi] = static_cast<uint8_t>(std::clamp(m.shape.nPixels, 0u, 255u));
+      stagedUnsortedClusters[layer].emplace_back(global.position.x, global.position.y, global.position.z, static_cast<int>(stagedUnsortedClusters[layer].size()));
+      stagedClusterExternalIndices[layer].push_back(static_cast<int>(global.cluster.index));
+      stagedClusterSize[layer][mi] = static_cast<uint8_t>(std::clamp(global.shape.nPixels, 0u, 255u));
       ++mi;
     }
 
     size_t mj{0};
     for (size_t r = 0; r < nROFs; ++r) {
-      while (mj < measurements.size() && measurements[mj].sourceROF == static_cast<uint32_t>(r)) {
+      while (mj < globals.size() && globals[mj].sourceROF == static_cast<uint32_t>(r)) {
         ++mj;
       }
       stagedROFramesClusters[layer][r + 1] = static_cast<int>(mj);
@@ -478,6 +538,7 @@ LoadSourcesResult SurfaceTrackingScratch::backfillNormalizedSources(
     }
 
     const auto measurements = normalized.getSurfaceMeasurements(surface);
+    const auto globals = normalized.getGlobalMeasurements(surface);
     auto& clusters = mUnsortedClusters[layer];
     auto& trackingInfo = mTrackingFrameInfo[layer];
     auto& externalIndices = mClusterExternalIndices[layer];
@@ -494,34 +555,36 @@ LoadSourcesResult SurfaceTrackingScratch::backfillNormalizedSources(
 
     const bool isMFT = owner->detector == o2::detectors::DetID::MFT;
     std::size_t measurementIndex = 0;
-    for (const auto& measurement : measurements) {
-      if (measurement.surface != surface || !measurement.cluster.isValid() ||
-          measurement.cluster.source != owner->id || measurement.sourceROF >= owner->rofs.size()) {
+    for (std::size_t localIndex = 0; localIndex < measurements.size(); ++localIndex) {
+      const auto& measurement = measurements[localIndex];
+      const auto& global = globals[localIndex];
+      if (global.surface != surface || !global.cluster.isValid() ||
+          global.cluster.source != owner->id || global.sourceROF >= owner->rofs.size()) {
         return {MultiSourceLoadError::InconsistentDecoderMetadata, owner->id,
-                measurement.sourceROF, measurement.cluster.index};
+                global.sourceROF, global.cluster.index};
       }
       if (isMFT) {
         trackingInfo.emplace_back(
-          measurement.global.x, measurement.global.y, measurement.global.z,
-          measurement.global.x, 0.f,
-          std::array<float, 2>{measurement.global.y, measurement.global.z},
+          global.position.x, global.position.y, global.position.z,
+          global.position.x, 0.f,
+          std::array<float, 2>{global.position.y, global.position.z},
           std::array<float, 3>{measurement.covariance.uu, measurement.covariance.uv, measurement.covariance.vv});
       } else {
         trackingInfo.emplace_back(
-          measurement.global.x, measurement.global.y, measurement.global.z,
+          global.position.x, global.position.y, global.position.z,
           measurement.frame.q, measurement.frame.frameAngle,
           std::array<float, 2>{measurement.frame.u, measurement.frame.v},
           std::array<float, 3>{measurement.covariance.uu, measurement.covariance.uv, measurement.covariance.vv});
       }
-      clusters.emplace_back(measurement.global.x, measurement.global.y, measurement.global.z,
+      clusters.emplace_back(global.position.x, global.position.y, global.position.z,
                             static_cast<int>(clusters.size()));
-      externalIndices.push_back(static_cast<int>(measurement.cluster.index));
-      clusterSizes[measurementIndex++] = static_cast<uint8_t>(std::clamp(measurement.shape.nPixels, 0u, 255u));
+      externalIndices.push_back(static_cast<int>(global.cluster.index));
+      clusterSizes[measurementIndex++] = static_cast<uint8_t>(std::clamp(global.shape.nPixels, 0u, 255u));
     }
 
     std::size_t cursor = 0;
     for (std::size_t rof = 0; rof < owner->rofs.size(); ++rof) {
-      while (cursor < measurements.size() && measurements[cursor].sourceROF == rof) {
+      while (cursor < globals.size() && globals[cursor].sourceROF == rof) {
         ++cursor;
       }
       rofBoundaries[rof + 1] = static_cast<int>(cursor);

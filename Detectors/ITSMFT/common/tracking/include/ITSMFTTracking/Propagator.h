@@ -35,6 +35,12 @@
 namespace o2::itsmft::tracking
 {
 
+struct RefitMeasurementSlot {
+  SurfaceMeasurement measurement{};
+  SurfaceId surface{};
+  bool present{false};
+};
+
 class Propagator
 {
  public:
@@ -119,9 +125,8 @@ class Propagator
   // Shared cylinder/disk leg orchestration.
   // Shared descriptor-driven leg orchestration with the identical per-slot
   // contract
-  // (a slot with an invalid `cluster` is a hole, skipped before its
-  // `surface`/`surfaceCatalog` association is even inspected; a present
-  // slot's `measurement.surface` is validated against `surfaceCatalog`
+  // (a slot with `present == false` is a hole; a present slot's `surface` is
+  // validated against `surfaceCatalog`
   // exactly as that function documents, failing with
   // OperationFailureReason::InvalidSurfaceCatalogAssociation; the same chi2
   // hardening; the same scratch-then-commit transactionality; an empty or
@@ -132,7 +137,7 @@ class Propagator
   // family branch of its own (ADR 0007 decision 10's shared orchestration).
   static bool driveRefitLeg(SurfaceKinematicState& state, SurfaceLinearizationReference& linRef,
                             float& chi2, uint32_t& acceptedHitCount,
-                            gsl::span<const SurfaceMeasurement> orderedSlots, SurfaceCatalogView surfaceCatalog,
+                            gsl::span<const RefitMeasurementSlot> orderedSlots, SurfaceCatalogView surfaceCatalog,
                             float bz, material::MaterialTraversalDirection direction,
                             bool shiftReferenceToMeasurement, float maxChi2, OperationFailureReason& reason) noexcept;
 };

@@ -31,6 +31,7 @@ bool refitTrackFwd(const TrackSeed& seed,
                    const SurfaceTrackingScratch& tf,
                    const TrackingParameters& params,
                    float bz,
+                   gsl::span<const gsl::span<const GlobalMeasurement>> layerGlobals,
                    gsl::span<const gsl::span<const SurfaceMeasurement>> layerMeasurements,
                    SurfaceCatalogView surfaceCatalog,
                    ClusterSourceId expectedSource,
@@ -40,8 +41,6 @@ bool refitTrackFwd(const TrackSeed& seed,
 {
   const auto hitMask = seed.getHitLayerMask();
 
-  // Re-check the ClusterRef identity established for every normalized
-  // measurement by TrackerTraits::initialiseTimeFrame().
   for (int layer = 0; layer < static_cast<int>(layerMeasurements.size()); ++layer) {
     if (!hitMask.has(layer)) {
       continue;
@@ -55,13 +54,13 @@ bool refitTrackFwd(const TrackSeed& seed,
       return false;
     }
     const auto& measurement = layerMeasurements[layer][clIdx];
-    const int extIdx = tf.getClusterExternalIndex(layer, clIdx);
-    if (!measurement.cluster.isValid() || measurement.cluster.source != expectedSource ||
-        extIdx < 0 || static_cast<uint32_t>(extIdx) != measurement.cluster.index) {
-      LOGP(warn, "MFT CA forward refit: normalized measurement identity mismatch on layer {} clIdx {}", layer, clIdx);
+    const auto& global = layerGlobals[layer][clIdx];
+    if (!surfaceCatalog.hasSurface(global.surface) || global.cluster.source != expectedSource ||
+        global.cluster.index != static_cast<uint32_t>(tf.getClusterExternalIndex(layer, clIdx))) {
+      LOGP(warn, "MFT CA forward refit: invalid global measurement identity on layer {} clIdx {}", layer, clIdx);
       return false;
     }
-    if (!std::isfinite(measurement.global.x) || !std::isfinite(measurement.global.y) || !std::isfinite(measurement.global.z) ||
+    if (!std::isfinite(measurement.frame.u) || !std::isfinite(measurement.frame.v) || !std::isfinite(measurement.frame.q) ||
         !std::isfinite(measurement.covariance.uu) || !std::isfinite(measurement.covariance.vv) ||
         measurement.covariance.uu < 0.f || measurement.covariance.vv < 0.f) {
       LOGP(warn, "MFT CA forward refit: invalid normalized measurement on layer {} clIdx {}", layer, clIdx);
@@ -73,7 +72,7 @@ bool refitTrackFwd(const TrackSeed& seed,
   paramOut = {};
   chi2 = 0.f;
   OperationFailureReason reason{};
-  if (!fitTrackSeedLegs(seed, layerMeasurements, surfaceCatalog, bz,
+  if (!fitTrackSeedLegs(seed, layerGlobals, layerMeasurements, surfaceCatalog, bz,
                         params.ShiftRefToCluster, params.MaxChi2ClusterAttachment, params.MaxChi2NDF,
                         params.RepeatRefitOut, gsl::span<const float>(params.MinPt),
                         paramIn, paramOut, chi2, reason)) {

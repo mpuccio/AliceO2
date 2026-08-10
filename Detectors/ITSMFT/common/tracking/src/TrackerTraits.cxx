@@ -36,6 +36,7 @@
 #include "ITSMFTTracking/detail/MFTFwdTrackHelpers.h"
 #include "ITSMFTTracking/IndexTableUtils.h"
 #include "ITSMFTTracking/SurfaceMask.h"
+#include "ITSMFTTracking/TripletFitting.h"
 #include "ITSMFTTracking/detail/SurfaceTrackingScratch.h"
 #include "ITSMFTTracking/TrackerTraits.h"
 #include "ITSMFTTracking/detail/SurfacePlanBinding.h"
@@ -77,7 +78,7 @@ constexpr std::size_t kindIndex(SurfaceKind kind) noexcept
 }
 
 bool makeCandidateShadow(const TrackingCandidate& candidate,
-                         gsl::span<const gsl::span<const SurfaceMeasurement>> layerMeasurements,
+                         gsl::span<const gsl::span<const GlobalMeasurement>> layerMeasurements,
                          CommonTrackShadowRecord& record) noexcept
 {
   record = {};
@@ -158,10 +159,8 @@ void TrackerTraits::resetTraversalCache() noexcept
   mLayerMaterial.assign(resetSurfaceCount, NominalSurfaceMaterial{});
   mActiveKind.reset();
   mLayerMeasurements.assign(resetSurfaceCount, gsl::span<const SurfaceMeasurement>{});
+  mLayerGlobalMeasurements.assign(resetSurfaceCount, gsl::span<const GlobalMeasurement>{});
   for (auto& group : mTransitionsByKind) {
-    group.clear();
-  }
-  for (auto& group : mScheduledCellsByKind) {
     group.clear();
   }
   for (auto& group : mRoadStartCellsByKind) {
@@ -209,23 +208,13 @@ int TrackerTraits::requireSurfacePosition(int iteration, SurfaceId id) const
   return static_cast<int>(*position);
 }
 
-void TrackerTraits::findCellsNeighboursCylinder(int iteration)
-{
-  findCellsNeighboursForKind<SurfaceKind::Cylinder>(iteration, mScheduledCellsByKind[0], mKernelParameters);
-}
-
-void TrackerTraits::findCellsNeighboursDisk(int iteration)
-{
-  findCellsNeighboursForKind<SurfaceKind::Disk>(iteration, mScheduledCellsByKind[1], mKernelParameters);
-}
-
 void TrackerTraits::findRoadsCylinder(int iteration, SeedRefitFunction refitFunction)
 {
   ClusterSourceId source{};
   for (const auto transitionId : mTransitionsByKind[0]) {
     const auto position = requireSurfacePosition(iteration, mTraversalGraph.getTransition(transitionId).from);
-    if (!mLayerMeasurements[position].empty()) {
-      source = mLayerMeasurements[position].front().cluster.source;
+    if (!mLayerGlobalMeasurements[position].empty()) {
+      source = mLayerGlobalMeasurements[position].front().cluster.source;
       break;
     }
   }
@@ -237,8 +226,8 @@ void TrackerTraits::findRoadsDisk(int iteration, SeedRefitFunction refitFunction
   ClusterSourceId source{};
   for (const auto transitionId : mTransitionsByKind[1]) {
     const auto position = requireSurfacePosition(iteration, mTraversalGraph.getTransition(transitionId).from);
-    if (!mLayerMeasurements[position].empty()) {
-      source = mLayerMeasurements[position].front().cluster.source;
+    if (!mLayerGlobalMeasurements[position].empty()) {
+      source = mLayerGlobalMeasurements[position].front().cluster.source;
       break;
     }
   }
@@ -428,24 +417,26 @@ void TrackerTraits::initialiseTimeFrame(const int iteration, const std::vector<S
   // left it (reset/empty spans), never partially populated from a failed
   // iteration.
   std::vector<gsl::span<const SurfaceMeasurement>> stagedLayerMeasurements(static_cast<std::size_t>(activeSurfaceCount));
+  std::vector<gsl::span<const GlobalMeasurement>> stagedLayerGlobalMeasurements(static_cast<std::size_t>(activeSurfaceCount));
   for (int surfacePosition = 0; surfacePosition < activeSurfaceCount; ++surfacePosition) {
     const auto surfaceId = orderedSurfaces[surfacePosition];
     const auto measurements = mFrame->getNormalizedFrame().getSurfaceMeasurements(surfaceId);
+    const auto globals = mFrame->getNormalizedFrame().getGlobalMeasurements(surfaceId);
     const auto& clusters = mScratch->getUnsortedClusters()[surfacePosition];
     const auto& hits = mScratch->getTrackingFrameInfoOnLayer(surfacePosition);
-    if (measurements.size() != clusters.size() || hits.size() != clusters.size() ||
+    if (measurements.size() != globals.size() || globals.size() != clusters.size() || hits.size() != clusters.size() ||
         measurements.size() > static_cast<size_t>(std::numeric_limits<int>::max())) {
       throw TraversalException{iteration, TraversalFailureReason::NormalizedMeasurementMismatch};
     }
     for (size_t i = 0; i < measurements.size(); ++i) {
-      const auto& measurement = measurements[i];
-      if (measurement.surface != surfaceId || !measurement.cluster.isValid() ||
-          measurement.cluster.index > static_cast<uint32_t>(std::numeric_limits<int>::max()) ||
+      const auto& global = globals[i];
+      if (global.surface != surfaceId || !global.cluster.isValid() ||
+          global.cluster.index > static_cast<uint32_t>(std::numeric_limits<int>::max()) ||
           clusters[i].clusterId != static_cast<int>(i)) {
         throw TraversalException{iteration, TraversalFailureReason::NormalizedMeasurementMismatch};
       }
       const int externalIndex = mScratch->getClusterExternalIndex(surfacePosition, static_cast<int>(i));
-      if (externalIndex < 0 || static_cast<uint32_t>(externalIndex) != measurement.cluster.index) {
+      if (externalIndex < 0 || static_cast<uint32_t>(externalIndex) != global.cluster.index) {
         throw TraversalException{iteration, TraversalFailureReason::NormalizedMeasurementMismatch};
       }
     }
@@ -460,12 +451,13 @@ void TrackerTraits::initialiseTimeFrame(const int iteration, const std::vector<S
         throw TraversalException{iteration, TraversalFailureReason::NormalizedMeasurementMismatch};
       }
       for (int index = first; index < last; ++index) {
-        if (measurements[index].sourceROF != rof) {
+        if (globals[index].sourceROF != rof) {
           throw TraversalException{iteration, TraversalFailureReason::NormalizedMeasurementMismatch};
         }
       }
     }
     stagedLayerMeasurements[surfacePosition] = measurements;
+    stagedLayerGlobalMeasurements[surfacePosition] = globals;
   }
 
   // 3. Bind and validate index-table configuration in a local value. The
@@ -511,7 +503,7 @@ void TrackerTraits::initialiseTimeFrame(const int iteration, const std::vector<S
   const auto cellIds = mBinding->getGlobalCells();
   mScratch->initialise(*mFrame, mTrkParams[iteration], activeSurfaceCount, iteration,
                        stagedIndexTableConfigs, layout, transitionIds, cellIds,
-                       orderedSurfaces, stagedLayerMeasurements);
+                       orderedSurfaces, stagedLayerGlobalMeasurements);
 
   // A sorted Cluster is a locator/navigation cache only. Validate each
   // enabled ROF that can participate in a configured transition after every
@@ -567,7 +559,7 @@ void TrackerTraits::initialiseTimeFrame(const int iteration, const std::vector<S
           throw TraversalException{iteration, TraversalFailureReason::NormalizedMeasurementMismatch};
         }
         seen[localId] = 1;
-        const auto& measurement = measurements[clusterId];
+        const auto& measurement = stagedLayerGlobalMeasurements[layer][clusterId];
         const int externalIndex = mScratch->getClusterExternalIndex(layer, clusterId);
         if (measurement.surface != orderedSurfaces[layer] || measurement.sourceROF != static_cast<uint32_t>(rof) || !measurement.cluster.isValid() ||
             externalIndex < 0 ||
@@ -590,11 +582,6 @@ void TrackerTraits::initialiseTimeFrame(const int iteration, const std::vector<S
   for (const auto transitionId : mBinding->getGlobalTransitions()) {
     const auto kind = layout.getSurface(layout.getTransition(transitionId).from).kind;
     mTransitionsByKind[kindIndex(kind)].push_back(transitionId);
-  }
-  for (const auto cellId : mBinding->getGlobalScheduledCells()) {
-    const auto& cell = layout.getCell(cellId);
-    const auto kind = layout.getSurface(layout.getTransition(cell.firstTransition).from).kind;
-    mScheduledCellsByKind[kindIndex(kind)].push_back(cellId);
   }
   for (const auto cellId : mBinding->getGlobalRoadStartCells()) {
     const auto& cell = layout.getCell(cellId);
@@ -657,6 +644,7 @@ void TrackerTraits::initialiseTimeFrame(const int iteration, const std::vector<S
   // other successfully staged traversal cache -- see mLayerMeasurements' own
   // doc for the commit contract.
   mLayerMeasurements = std::move(stagedLayerMeasurements);
+  mLayerGlobalMeasurements = std::move(stagedLayerGlobalMeasurements);
 
   // All fallible validation for this iteration (layout/grouping, legacy
   // parity, state-family, and every kind/geometry binding above) has now
@@ -826,7 +814,7 @@ void TrackerTraits::computeLayerTrackletsImpl(
         if (mScratch->isClusterUsed(fromLayer, currentCluster.clusterId)) {
           continue;
         }
-        const auto& sourceMeasurement = mLayerMeasurements[fromLayer][currentCluster.clusterId];
+        const auto& sourceMeasurement = mLayerGlobalMeasurements[fromLayer][currentCluster.clusterId];
 
         for (int iV = startVtx; iV < endVtx; ++iV) {
           const auto& pv = primaryVertices[iV];
@@ -879,14 +867,14 @@ void TrackerTraits::computeLayerTrackletsImpl(
                 if (mScratch->isClusterUsed(toLayer, nextCluster.clusterId)) {
                   continue;
                 }
-                const auto& targetMeasurement = mLayerMeasurements[toLayer][nextCluster.clusterId];
+                const auto& targetMeasurement = mLayerGlobalMeasurements[toLayer][nextCluster.clusterId];
 
                 float tanL = 0.f;
                 const bool accepted = acceptTrackletCandidate(searchWindow, sourceMeasurement, currentCluster,
                                                               targetMeasurement, nextCluster, tanL);
                 if (accepted) {
-                  const float phi{o2::gpu::GPUCommonMath::ATan2(sourceMeasurement.global.y - targetMeasurement.global.y,
-                                                                sourceMeasurement.global.x - targetMeasurement.global.x)};
+                  const float phi{o2::gpu::GPUCommonMath::ATan2(sourceMeasurement.position.y - targetMeasurement.position.y,
+                                                                sourceMeasurement.position.x - targetMeasurement.position.x)};
                   if constexpr (decltype(Mode)::value == PassMode::OnePass::value) {
                     tracklets.emplace_back(currentSortedIndex, mScratch->getSortedIndex(targetROF, toLayer, iNext), tanL, phi, ts);
                   } else if constexpr (decltype(Mode)::value == PassMode::TwoPassCount::value) {
@@ -1085,12 +1073,15 @@ void TrackerTraits::computeLayerCellsImpl(
         const auto& measurementInner = mLayerMeasurements[hitLayers[0]][clusId[0]];
         const auto& measurementMiddle = mLayerMeasurements[hitLayers[1]][clusId[1]];
         const auto& measurementOuter = mLayerMeasurements[hitLayers[2]][clusId[2]];
+        const auto& globalInner = mLayerGlobalMeasurements[hitLayers[0]][clusId[0]];
+        const auto& globalMiddle = mLayerGlobalMeasurements[hitLayers[1]][clusId[1]];
+        const auto& globalOuter = mLayerGlobalMeasurements[hitLayers[2]][clusId[2]];
         const double transitionMSAngle = static_cast<double>(mScratch->getTransitionMSAngle(secondTransitionId));
         const DirectionProcessNoise directionProcessNoise{transitionMSAngle * transitionMSAngle};
         std::array<TransverseDirectionObservation, 3> transverseObservations{};
-        if (!makeTransverseDirectionObservation(hitBinding.surfaces[0], measurementInner, transverseObservations[0]) ||
-            !makeTransverseDirectionObservation(hitBinding.surfaces[1], measurementMiddle, transverseObservations[1]) ||
-            !makeTransverseDirectionObservation(hitBinding.surfaces[2], measurementOuter, transverseObservations[2])) {
+        if (!makeTransverseDirectionObservation(globalInner, transverseObservations[0]) ||
+            !makeTransverseDirectionObservation(globalMiddle, transverseObservations[1]) ||
+            !makeTransverseDirectionObservation(globalOuter, transverseObservations[2])) {
           continue;
         }
         TransverseDirectionCompatibility transverseCompatibility{};
@@ -1102,9 +1093,9 @@ void TrackerTraits::computeLayerCellsImpl(
           continue;
         }
         std::array<DirectionObservation, 3> directionObservations{};
-        if (!makeDirectionObservation(hitBinding.surfaces[0], measurementInner, directionObservations[0]) ||
-            !makeDirectionObservation(hitBinding.surfaces[1], measurementMiddle, directionObservations[1]) ||
-            !makeDirectionObservation(hitBinding.surfaces[2], measurementOuter, directionObservations[2])) {
+        if (!makeDirectionObservation(globalInner, directionObservations[0]) ||
+            !makeDirectionObservation(globalMiddle, directionObservations[1]) ||
+            !makeDirectionObservation(globalOuter, directionObservations[2])) {
           continue;
         }
         CellDirectionCompatibility directionCompatibility{};
@@ -1121,7 +1112,8 @@ void TrackerTraits::computeLayerCellsImpl(
           SurfaceKinematicState state{};
           float chi2{0.f};
           OperationFailureReason buildReason{};
-          const bool good = buildCellSeed(kind, measurementInner, measurementMiddle, measurementOuter,
+          const bool good = buildCellSeed(kind, globalInner, globalMiddle, globalOuter,
+                                          measurementInner, measurementMiddle, measurementOuter,
                                           material, getBz(), kCompatibilityAbsCharge, kCompatibilityPID,
                                           state, chi2, mKernelParameters, buildReason);
 
@@ -1134,13 +1126,26 @@ void TrackerTraits::computeLayerCellsImpl(
             // sparse cell's hit-surface mask during plan validation, so no
             // generic SurfaceMask->LayerMask converter is needed.
             const LayerMask hitLayerMask{hitLayers[0], hitLayers[1], hitLayers[2]};
+            TripletFitFactor tripletFactor{};
+            if constexpr (decltype(Mode)::value != PassMode::TwoPassCount::value) {
+              std::array<TripletFitObservation, 3> observations{};
+              LocalTripletFitResult fitResult{};
+              if (makeTripletFitObservation(globalInner, observations[0]) &&
+                  makeTripletFitObservation(globalMiddle, observations[1]) &&
+                  makeTripletFitObservation(globalOuter, observations[2]) &&
+                  fitLocalTripletUniformSolenoid(observations, {directionProcessNoise.angularVariance}, getBz(), fitResult)) {
+                tripletFactor = fitResult.factor;
+              }
+            }
             if constexpr (decltype(Mode)::value == PassMode::OnePass::value) {
               layerCells.emplace_back(hitLayerMask, clusId[0], clusId[1], clusId[2], iTracklet, iNextTracklet, state, chi2, ts);
+              layerCells.back().tripletFactor() = tripletFactor;
               ++foundCells;
             } else if constexpr (decltype(Mode)::value == PassMode::TwoPassCount::value) {
               ++foundCells;
             } else if constexpr (decltype(Mode)::value == PassMode::TwoPassInsert::value) {
               layerCells[offset++] = CellSeed(hitLayerMask, clusId[0], clusId[1], clusId[2], iTracklet, iNextTracklet, state, chi2, ts);
+              layerCells[offset - 1].tripletFactor() = tripletFactor;
               ++foundCells;
             } else {
               static_assert(false, "Unknown mode!");
@@ -1228,19 +1233,16 @@ void TrackerTraits::findCellsNeighbours(const int iteration)
     deepVectorClear(mScratch->getCellsNeighboursTopology()[slot]);
     deepVectorClear(mScratch->getCellsNeighboursLUT()[slot]);
   }
-  if (!mScheduledCellsByKind[0].empty()) {
-    findCellsNeighboursCylinder(iteration);
-  }
-  if (!mScheduledCellsByKind[1].empty()) {
-    findCellsNeighboursDisk(iteration);
+  const auto scheduledCells = mBinding->getGlobalScheduledCells();
+  if (!scheduledCells.empty()) {
+    findCellsNeighboursForSchedule(iteration, scheduledCells, mKernelParameters);
   }
   for (auto& cellLUT : mScratch->getCellsLookupTable()) {
     deepVectorClear(cellLUT);
   }
 }
 
-template <SurfaceKind Kind>
-void TrackerTraits::findCellsNeighboursForKind(
+void TrackerTraits::findCellsNeighboursForSchedule(
   int iteration,
   gsl::span<const CellTopologyId> scheduledCells,
   const TrackingKernelParameters& params)
@@ -1271,6 +1273,9 @@ void TrackerTraits::findCellsNeighboursForKind(
         throw TraversalException{iteration, TraversalFailureReason::SparseTopologyMismatch};
       }
       const auto& cellTopology = topology.getCell(scheduledId);
+      const int currentProcessTransition = requireScratchTransitionSlot(iteration, cellTopology.secondTransition);
+      const double currentMSAngle = mScratch->getTransitionMSAngle(currentProcessTransition);
+      const double currentAngularVariance = currentMSAngle * currentMSAngle;
       if (mScratch->getCells()[cellTopologyId].empty()) {
         continue;
       }
@@ -1293,6 +1298,10 @@ void TrackerTraits::findCellsNeighboursForKind(
           // access below uses it.
           const auto nextTopologyId = topology.cellsByFirstTransition[successors.getFirstEntry() + iSuccessor];
           const int nextCellTopologyId = requireScratchCellSlot(iteration, nextTopologyId);
+          const auto& nextCellTopology = topology.getCell(nextTopologyId);
+          const int nextProcessTransition = requireScratchTransitionSlot(iteration, nextCellTopology.secondTransition);
+          const double nextMSAngle = mScratch->getTransitionMSAngle(nextProcessTransition);
+          const double nextAngularVariance = nextMSAngle * nextMSAngle;
           if (static_cast<size_t>(nextCellTopologyId) >= mScratch->getCells().size() ||
               static_cast<size_t>(nextCellTopologyId) >= mScratch->getCellsLookupTable().size()) {
             throw TraversalException{iteration, TraversalFailureReason::SparseTopologyMismatch};
@@ -1317,18 +1326,42 @@ void TrackerTraits::findCellsNeighboursForKind(
               break;
             }
 
-            const bool compatible = [&] {
-              if constexpr (Kind == SurfaceKind::Cylinder) {
-                return cellsCylinderAreCompatible(currentCellSeed.state(), nextCellSeedRef.state(),
-                                                  currentCellSeed.getSecondClusterIndex(), nextCellSeedRef.getFirstClusterIndex(),
-                                                  getBz(), params);
-              } else {
-                return cellsDiskAreCompatible(currentCellSeed.state(), nextCellSeedRef.state(),
-                                              currentCellSeed.getSecondClusterIndex(), nextCellSeedRef.getFirstClusterIndex(),
-                                              getBz(), params);
+            const auto currentMiddle = currentCellSeed.getClusterReference(1);
+            const auto currentOuter = currentCellSeed.getClusterReference(2);
+            const auto nextInner = nextCellSeedRef.getClusterReference(0);
+            const auto nextMiddle = nextCellSeedRef.getClusterReference(1);
+            if (currentMiddle.surfacePosition != nextInner.surfacePosition ||
+                currentMiddle.clusterIndex != nextInner.clusterIndex ||
+                currentOuter.surfacePosition != nextMiddle.surfacePosition ||
+                currentOuter.clusterIndex != nextMiddle.clusterIndex) {
+              continue;
+            }
+
+            const std::array<CellClusterReference, 4> references{
+              currentCellSeed.getClusterReference(0), currentMiddle,
+              currentOuter, nextCellSeedRef.getClusterReference(2)};
+            std::array<TripletFitObservation, 4> observations{};
+            bool observationsValid = true;
+            for (std::size_t hit = 0; hit < references.size(); ++hit) {
+              const auto reference = references[hit];
+              if (reference.surfacePosition < 0 ||
+                  static_cast<std::size_t>(reference.surfacePosition) >= mLayerGlobalMeasurements.size() ||
+                  reference.clusterIndex < 0 ||
+                  static_cast<std::size_t>(reference.clusterIndex) >= mLayerGlobalMeasurements[reference.surfacePosition].size() ||
+                  !makeTripletFitObservation(
+                    mLayerGlobalMeasurements[reference.surfacePosition][reference.clusterIndex], observations[hit])) {
+                observationsValid = false;
+                break;
               }
-            }();
-            if (!compatible) {
+            }
+            AdjacentTripletFitResult adjacentFit{};
+            const std::array<TripletFitFactor, 2> factors{
+              currentCellSeed.tripletFactor(), nextCellSeedRef.tripletFactor()};
+            const bool fitValid = observationsValid &&
+                                  fitAdjacentTripletFactors(
+                                    factors, observations,
+                                    {currentAngularVariance, nextAngularVariance}, adjacentFit);
+            if (!fitValid || adjacentFit.chi2 > params.maxChi2ClusterAttachment) {
               continue;
             }
 
@@ -1627,6 +1660,7 @@ void TrackerTraits::findRoadsForKind(const int iteration,
                                                 mTrkParams[iteration],
                                                 mBz,
                                                 *mScratch,
+                                                mLayerGlobalMeasurements,
                                                 mLayerMeasurements,
                                                 mTraversalGraph.getSurfaceCatalogView(),
                                                 expectedSource,
@@ -1758,7 +1792,7 @@ void TrackerTraits::acceptTracks(int iteration,
     // one deterministic accepted-result order. Typed sidecars are completed
     // later by the application adapter from the same generic results.
     CommonTrackShadowRecord shadow;
-    if (!makeCandidateShadow(track, mLayerMeasurements, shadow)) {
+    if (!makeCandidateShadow(track, mLayerGlobalMeasurements, shadow)) {
       LOGP(fatal, "CommonTrack publication failed for an accepted CA track");
     }
     const auto commonTrackIndex = publishCommonTrackShadow(*mFrame, shadow);

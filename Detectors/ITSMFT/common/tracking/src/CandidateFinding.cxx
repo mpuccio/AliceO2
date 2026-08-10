@@ -39,16 +39,16 @@ namespace o2::itsmft::tracking
 {
 
 bool CylinderTrackletSearchWindow::acceptCandidate(
-  const SurfaceMeasurement& sourceMeasurement,
+  const GlobalMeasurement& sourceMeasurement,
   const o2::its::Cluster& sourceLocator,
-  const SurfaceMeasurement& targetMeasurement,
+  const GlobalMeasurement& targetMeasurement,
   const o2::its::Cluster& targetLocator,
   float& tanLambdaOut) const
 {
-  const float deltaZ = o2::gpu::CAMath::Abs((tanLambda * (targetLocator.radius - sourceLocator.radius)) + sourceMeasurement.global.z - targetMeasurement.global.z);
+  const float deltaZ = o2::gpu::CAMath::Abs((tanLambda * (targetLocator.radius - sourceLocator.radius)) + sourceMeasurement.position.z - targetMeasurement.position.z);
   if (deltaZ / sigmaZ < nSigmaCut &&
       o2::its::math_utils::isPhiDifferenceBelow(sourceLocator.phi, targetLocator.phi, phiCut)) {
-    const float acceptedTanLambda = (sourceMeasurement.global.z - targetMeasurement.global.z) / (sourceLocator.radius - targetLocator.radius);
+    const float acceptedTanLambda = (sourceMeasurement.position.z - targetMeasurement.position.z) / (sourceLocator.radius - targetLocator.radius);
     tanLambdaOut = acceptedTanLambda;
     return true;
   }
@@ -56,27 +56,25 @@ bool CylinderTrackletSearchWindow::acceptCandidate(
 }
 
 bool DiskTrackletSearchWindow::acceptCandidate(
-  const SurfaceMeasurement& sourceMeasurement,
-  const SurfaceMeasurement& targetMeasurement,
+  const GlobalMeasurement& sourceMeasurement,
+  const GlobalMeasurement& targetMeasurement,
   float& tanLambdaOut) const
 {
-  const float dx = targetMeasurement.global.x - xProj;
-  const float dy = targetMeasurement.global.y - yProj;
+  const float dx = targetMeasurement.position.x - xProj;
+  const float dy = targetMeasurement.position.y - yProj;
   const float invSigmaX2 = (sigmaX > 0.f) ? 1.f / (sigmaX * sigmaX) : 0.f;
   const float invSigmaY2 = (sigmaY > 0.f) ? 1.f / (sigmaY * sigmaY) : 0.f;
   const float transChi2 = dx * dx * invSigmaX2 + dy * dy * invSigmaY2;
-  const float sourceRadius = std::hypot(sourceMeasurement.global.x, sourceMeasurement.global.y);
-  const float targetRadius = std::hypot(targetMeasurement.global.x, targetMeasurement.global.y);
-  const float deltaR = sourceRadius - targetRadius;
+  const float deltaR = sourceMeasurement.radius - targetMeasurement.radius;
   if (transChi2 < o2::its::math_utils::Sq(nSigmaCut) && std::abs(deltaR) > 1.e-6f) {
-    const float acceptedTanLambda = (sourceMeasurement.global.z - targetMeasurement.global.z) / deltaR;
+    const float acceptedTanLambda = (sourceMeasurement.position.z - targetMeasurement.position.z) / deltaR;
     tanLambdaOut = acceptedTanLambda;
     return true;
   }
   return false;
 }
 
-bool projectCylinderSearchWindow(const SurfaceMeasurement& sourceMeasurement,
+bool projectCylinderSearchWindow(const GlobalMeasurement& sourceMeasurement,
                                  const o2::its::Cluster& sourceLocator,
                                  const o2::its::Vertex& vertex,
                                  const CylinderTrackletProjectionState& transitionState,
@@ -87,10 +85,10 @@ bool projectCylinderSearchWindow(const SurfaceMeasurement& sourceMeasurement,
   const float inverseR0 = 1.f / sourceLocator.radius;
   const float resolution = o2::gpu::CAMath::Sqrt(o2::its::math_utils::Sq(transitionState.sourcePositionResolution) +
                                                  o2::its::math_utils::Sq(params.pvResolution) / float(vertex.getNContributors()));
-  const float tanLambda = (sourceMeasurement.global.z - vertex.getZ()) * inverseR0;
-  const float zAtTargetMinR = tanLambda * (transitionState.targetMinR - sourceLocator.radius) + sourceMeasurement.global.z;
-  const float zAtTargetMaxR = tanLambda * (transitionState.targetMaxR - sourceLocator.radius) + sourceMeasurement.global.z;
-  const float sqInvDeltaZ0 = 1.f / (o2::its::math_utils::Sq(sourceMeasurement.global.z - vertex.getZ()) + o2::its::constants::Tolerance);
+  const float tanLambda = (sourceMeasurement.position.z - vertex.getZ()) * inverseR0;
+  const float zAtTargetMinR = tanLambda * (transitionState.targetMinR - sourceLocator.radius) + sourceMeasurement.position.z;
+  const float zAtTargetMaxR = tanLambda * (transitionState.targetMaxR - sourceLocator.radius) + sourceMeasurement.position.z;
+  const float sqInvDeltaZ0 = 1.f / (o2::its::math_utils::Sq(sourceMeasurement.position.z - vertex.getZ()) + o2::its::constants::Tolerance);
   const float sigmaZ = o2::gpu::CAMath::Sqrt((o2::its::math_utils::Sq(resolution) * o2::its::math_utils::Sq(tanLambda) *
                                               ((o2::its::math_utils::Sq(inverseR0) + sqInvDeltaZ0) * o2::its::math_utils::Sq(transitionState.meanDeltaR) + 1.f)) +
                                              o2::its::math_utils::Sq(transitionState.meanDeltaR * transitionState.transitionMSAngle));
@@ -105,7 +103,7 @@ bool projectCylinderSearchWindow(const SurfaceMeasurement& sourceMeasurement,
   return true;
 }
 
-bool projectDiskSearchWindow(const SurfaceMeasurement& sourceMeasurement,
+bool projectDiskSearchWindow(const GlobalMeasurement& sourceMeasurement,
                              const o2::its::Cluster& sourceLocator,
                              const o2::its::Vertex& vertex,
                              const DiskTrackletProjectionState& transitionState,
@@ -115,15 +113,15 @@ bool projectDiskSearchWindow(const SurfaceMeasurement& sourceMeasurement,
 {
   float xProj = 0.f;
   float yProj = 0.f;
-  detail::mftTrackletProject(sourceMeasurement.global.x, sourceMeasurement.global.y, sourceMeasurement.global.z,
+  detail::mftTrackletProject(sourceMeasurement.position.x, sourceMeasurement.position.y, sourceMeasurement.position.z,
                              vertex.getX(), vertex.getY(), vertex.getZ(),
                              transitionState.fromZ, transitionState.toZ, bz, params.trackletMinPt,
                              xProj, yProj);
   float sigmaX = 0.f;
   float sigmaY = 0.f;
-  detail::mftTrackletSigmaXY(sourceMeasurement.global.x, sourceMeasurement.global.y,
+  detail::mftTrackletSigmaXY(sourceMeasurement.position.x, sourceMeasurement.position.y,
                              vertex.getX(), vertex.getY(), vertex.getZ(),
-                             sourceMeasurement.covariance.uu, sourceMeasurement.covariance.vv,
+                             sourceMeasurement.covariance.xx, sourceMeasurement.covariance.yy,
                              vertex.getSigmaX2(), vertex.getSigmaY2(), vertex.getSigmaZ2(),
                              transitionState.fromZ, transitionState.toZ,
                              transitionState.sourceReferenceRadius, transitionState.meanDeltaZ,
@@ -192,7 +190,7 @@ bool bindTrackletProjectionState(
 }
 
 bool projectTrackletSearchWindow(
-  const SurfaceMeasurement& sourceMeasurement,
+  const GlobalMeasurement& sourceMeasurement,
   const o2::its::Cluster& sourceLocator,
   const o2::its::Vertex& vertex,
   const TrackletProjectionState& transitionState,
@@ -259,9 +257,9 @@ int trackletSearchRowBin(const TrackletSearchWindow& window, int offset,
 
 bool acceptTrackletCandidate(
   const TrackletSearchWindow& window,
-  const SurfaceMeasurement& sourceMeasurement,
+  const GlobalMeasurement& sourceMeasurement,
   const o2::its::Cluster& sourceLocator,
-  const SurfaceMeasurement& targetMeasurement,
+  const GlobalMeasurement& targetMeasurement,
   const o2::its::Cluster& targetLocator,
   float& tanLambdaOut) noexcept
 {
@@ -308,9 +306,63 @@ bool covarianceIsPositiveSemidefiniteWithinRoundoff(double varianceFirst,
   }
   const double diagonalProduct = varianceFirst * varianceSecond;
   const double covarianceSquared = covariance * covariance;
-  const double roundoffTolerance = 16. * std::numeric_limits<double>::epsilon() *
+  const double roundoffTolerance = 16. * std::numeric_limits<float>::epsilon() *
                                    std::max(diagonalProduct, covarianceSquared);
   return diagonalProduct - covarianceSquared >= -roundoffTolerance;
+}
+
+bool covarianceIsPositiveSemidefinite(const GlobalCovariance3F& covariance) noexcept
+{
+  const double xx = covariance.xx;
+  const double xy = covariance.xy;
+  const double xz = covariance.xz;
+  const double yy = covariance.yy;
+  const double yz = covariance.yz;
+  const double zz = covariance.zz;
+  if (!covarianceIsPositiveSemidefiniteWithinRoundoff(xx, xy, yy) ||
+      !covarianceIsPositiveSemidefiniteWithinRoundoff(xx, xz, zz) ||
+      !covarianceIsPositiveSemidefiniteWithinRoundoff(yy, yz, zz)) {
+    return false;
+  }
+  const double determinant = xx * yy * zz + 2. * xy * xz * yz -
+                             xx * yz * yz - yy * xz * xz - zz * xy * xy;
+  const double scale = std::max({std::abs(xx * yy * zz),
+                                 std::abs(2. * xy * xz * yz),
+                                 std::abs(xx * yz * yz),
+                                 std::abs(yy * xz * xz),
+                                 std::abs(zz * xy * xy)});
+  return std::isfinite(determinant) &&
+         determinant >= -32. * std::numeric_limits<float>::epsilon() * scale;
+}
+
+bool sanitizeProjectedCovariance(double projectionScale,
+                                 double& varianceFirst,
+                                 double& covariance,
+                                 double varianceSecond) noexcept
+{
+  if (!std::isfinite(projectionScale) || projectionScale < 0. ||
+      !std::isfinite(varianceFirst) || !std::isfinite(covariance) ||
+      !std::isfinite(varianceSecond) || varianceSecond < 0.) {
+    return false;
+  }
+  const double varianceTolerance = 16. * std::numeric_limits<float>::epsilon() *
+                                   std::max(projectionScale, std::abs(varianceFirst));
+  if (varianceFirst < -varianceTolerance) {
+    return false;
+  }
+  varianceFirst = std::max(0., varianceFirst);
+
+  const double diagonalProduct = varianceFirst * varianceSecond;
+  const double covarianceSquared = covariance * covariance;
+  const double determinantTolerance = 16. * std::numeric_limits<float>::epsilon() *
+                                      std::max(diagonalProduct, covarianceSquared);
+  if (diagonalProduct - covarianceSquared < -determinantTolerance) {
+    return false;
+  }
+  if (covarianceSquared > diagonalProduct) {
+    covariance = diagonalProduct == 0. ? 0. : std::copysign(std::sqrt(diagonalProduct), covariance);
+  }
+  return true;
 }
 
 bool observationIsValid(const DirectionObservation& observation) noexcept
@@ -332,66 +384,22 @@ bool observationIsValid(const TransverseDirectionObservation& observation) noexc
 
 } // namespace
 
-bool makeCylinderTransverseDirectionObservation(
-  const SurfaceDescriptor& surface,
-  const SurfaceMeasurement& measurement,
+bool makeTransverseDirectionObservation(
+  const GlobalMeasurement& measurement,
   TransverseDirectionObservation& observation) noexcept
 {
-  if (surface.kind != SurfaceKind::Cylinder ||
-      !std::isfinite(surface.referenceCoordinate) || surface.referenceCoordinate <= 0.f ||
-      !std::isfinite(measurement.frame.q) || !std::isfinite(measurement.frame.u) ||
-      !std::isfinite(measurement.frame.frameAngle) ||
-      !covarianceIsPositiveSemidefinite(measurement.covariance.uu,
-                                        measurement.covariance.uv,
-                                        measurement.covariance.vv)) {
+  if (!covarianceIsPositiveSemidefinite(measurement.covariance)) {
     return false;
   }
-  const double sine = std::sin(measurement.frame.frameAngle);
-  const double cosine = std::cos(measurement.frame.frameAngle);
-  const double varianceU = measurement.covariance.uu;
   const TransverseDirectionObservation scratch{
-    measurement.frame.q * cosine - measurement.frame.u * sine,
-    measurement.frame.q * sine + measurement.frame.u * cosine,
-    sine * sine * varianceU,
-    -sine * cosine * varianceU,
-    cosine * cosine * varianceU};
+    measurement.position.x, measurement.position.y,
+    measurement.covariance.xx, measurement.covariance.xy,
+    measurement.covariance.yy};
   if (!observationIsValid(scratch)) {
     return false;
   }
   observation = scratch;
   return true;
-}
-
-bool makeDiskTransverseDirectionObservation(
-  const SurfaceDescriptor& surface,
-  const SurfaceMeasurement& measurement,
-  TransverseDirectionObservation& observation) noexcept
-{
-  const TransverseDirectionObservation scratch{
-    measurement.global.x, measurement.global.y,
-    measurement.covariance.uu, measurement.covariance.uv,
-    measurement.covariance.vv};
-  if (surface.kind != SurfaceKind::Disk ||
-      !std::isfinite(surface.referenceCoordinate) ||
-      !observationIsValid(scratch)) {
-    return false;
-  }
-  observation = scratch;
-  return true;
-}
-
-bool makeTransverseDirectionObservation(
-  const SurfaceDescriptor& surface,
-  const SurfaceMeasurement& measurement,
-  TransverseDirectionObservation& observation) noexcept
-{
-  using Builder = bool (*)(const SurfaceDescriptor&, const SurfaceMeasurement&,
-                           TransverseDirectionObservation&) noexcept;
-  static constexpr std::array<Builder, 2> builders{
-    makeCylinderTransverseDirectionObservation,
-    makeDiskTransverseDirectionObservation};
-  const auto kindIndex = static_cast<std::size_t>(surface.kind);
-  return kindIndex < builders.size() && builders[kindIndex](surface, measurement, observation);
 }
 
 bool trackletDirectionsAreTransverselyCompatible(
@@ -464,76 +472,39 @@ bool trackletDirectionsAreTransverselyCompatible(
   return chi2 < static_cast<double>(nSigmaCut) * nSigmaCut;
 }
 
-bool makeCylinderDirectionObservation(const SurfaceDescriptor& surface,
-                                      const SurfaceMeasurement& measurement,
-                                      DirectionObservation& observation) noexcept
-{
-  const double q = measurement.frame.q;
-  const double u = measurement.frame.u;
-  const double radius2 = q * q + u * u;
-  if (surface.kind != SurfaceKind::Cylinder ||
-      !std::isfinite(surface.referenceCoordinate) || surface.referenceCoordinate <= 0.f ||
-      !std::isfinite(q) || !std::isfinite(u) || radius2 <= 0. ||
-      !std::isfinite(measurement.frame.v) ||
-      !covarianceIsPositiveSemidefinite(measurement.covariance.uu,
-                                        measurement.covariance.uv,
-                                        measurement.covariance.vv)) {
-    return false;
-  }
-  const double radius = std::sqrt(radius2);
-  const double radialDerivativeU = u / radius;
-  const DirectionObservation scratch{radius,
-                                     measurement.frame.v,
-                                     radialDerivativeU * radialDerivativeU * measurement.covariance.uu,
-                                     radialDerivativeU * measurement.covariance.uv,
-                                     measurement.covariance.vv};
-  if (!observationIsValid(scratch)) {
-    return false;
-  }
-  observation = scratch;
-  return true;
-}
-
-bool makeDiskDirectionObservation(const SurfaceDescriptor& surface,
-                                  const SurfaceMeasurement& measurement,
-                                  DirectionObservation& observation) noexcept
-{
-  const double x = measurement.global.x;
-  const double y = measurement.global.y;
-  const double varianceX = measurement.covariance.uu;
-  const double covarianceXY = measurement.covariance.uv;
-  const double varianceY = measurement.covariance.vv;
-  const double radius2 = x * x + y * y;
-  if (surface.kind != SurfaceKind::Disk ||
-      !std::isfinite(surface.referenceCoordinate) ||
-      !std::isfinite(x) || !std::isfinite(y) || radius2 <= 0. ||
-      !covarianceIsPositiveSemidefinite(varianceX, covarianceXY, varianceY)) {
-    return false;
-  }
-  const double radius = std::sqrt(radius2);
-  const double varianceR = (x * x * varianceX + 2. * x * y * covarianceXY +
-                            y * y * varianceY) /
-                           radius2;
-  const DirectionObservation scratch{radius, surface.referenceCoordinate,
-                                     varianceR, 0., 0.};
-  if (!observationIsValid(scratch)) {
-    return false;
-  }
-  observation = scratch;
-  return true;
-}
-
-bool makeDirectionObservation(const SurfaceDescriptor& surface,
-                              const SurfaceMeasurement& measurement,
+bool makeDirectionObservation(const GlobalMeasurement& measurement,
                               DirectionObservation& observation) noexcept
 {
-  using Builder = bool (*)(const SurfaceDescriptor&, const SurfaceMeasurement&,
-                           DirectionObservation&) noexcept;
-  static constexpr std::array<Builder, 2> builders{
-    makeCylinderDirectionObservation,
-    makeDiskDirectionObservation};
-  const auto kindIndex = static_cast<std::size_t>(surface.kind);
-  return kindIndex < builders.size() && builders[kindIndex](surface, measurement, observation);
+  const double x = measurement.position.x;
+  const double y = measurement.position.y;
+  const double radius = measurement.radius;
+  if (!std::isfinite(x) || !std::isfinite(y) || !std::isfinite(radius) || radius <= 0. ||
+      !covarianceIsPositiveSemidefinite(measurement.covariance)) {
+    return false;
+  }
+  const double inverseRadius = 1. / radius;
+  const double xxTerm = x * x * measurement.covariance.xx;
+  const double xyTerm = 2. * x * y * measurement.covariance.xy;
+  const double yyTerm = y * y * measurement.covariance.yy;
+  const double inverseRadiusSquared = inverseRadius * inverseRadius;
+  double varianceR = (xxTerm + xyTerm + yyTerm) * inverseRadiusSquared;
+  double covarianceRZ = (x * measurement.covariance.xz +
+                         y * measurement.covariance.yz) *
+                        inverseRadius;
+  const double projectionScale = (std::abs(xxTerm) + std::abs(xyTerm) + std::abs(yyTerm)) *
+                                 inverseRadiusSquared;
+  if (!sanitizeProjectedCovariance(projectionScale, varianceR, covarianceRZ,
+                                   measurement.covariance.zz)) {
+    return false;
+  }
+  const DirectionObservation scratch{radius, measurement.position.z,
+                                     varianceR, covarianceRZ,
+                                     measurement.covariance.zz};
+  if (!observationIsValid(scratch)) {
+    return false;
+  }
+  observation = scratch;
+  return true;
 }
 
 bool cellDirectionsAreCompatible(const std::array<DirectionObservation, 3>& observations,
@@ -592,6 +563,8 @@ bool cellDirectionsAreCompatible(const std::array<DirectionObservation, 3>& obse
 }
 
 bool buildCylinderCellSeed(
+  const GlobalMeasurement& globalInner,
+  const GlobalMeasurement& globalMiddle,
   const SurfaceMeasurement& measurementInner,
   const SurfaceMeasurement& measurementMiddle,
   const SurfaceMeasurement& measurementOuter,
@@ -605,7 +578,7 @@ bool buildCylinderCellSeed(
   OperationFailureReason& reason) noexcept
 {
   SurfaceKinematicState scratch{};
-  if (!barrel::buildSeed(measurementInner, measurementMiddle, measurementOuter, bz, absCharge, pid, scratch, reason)) {
+  if (!barrel::buildSeed(globalInner.position, globalMiddle.position, measurementOuter, bz, absCharge, pid, scratch, reason)) {
     return false;
   }
 
@@ -709,6 +682,9 @@ bool buildDiskCellSeed(
 
 bool buildCellSeed(
   SurfaceKind kind,
+  const GlobalMeasurement& globalInner,
+  const GlobalMeasurement& globalMiddle,
+  const GlobalMeasurement& globalOuter,
   const SurfaceMeasurement& measurementInner,
   const SurfaceMeasurement& measurementMiddle,
   const SurfaceMeasurement& measurementOuter,
@@ -721,9 +697,12 @@ bool buildCellSeed(
   const TrackingKernelParameters& params,
   OperationFailureReason& reason) noexcept
 {
+  // All three global observations are resolved by generic orchestration.
+  // Current native disk seeding is fully expressed by its local measurements.
+  (void)globalOuter;
   switch (kind) {
     case SurfaceKind::Cylinder:
-      return buildCylinderCellSeed(measurementInner, measurementMiddle, measurementOuter,
+      return buildCylinderCellSeed(globalInner, globalMiddle, measurementInner, measurementMiddle, measurementOuter,
                                    material, bz, absCharge, pid, outState, chi2, params, reason);
     case SurfaceKind::Disk:
       return buildDiskCellSeed(measurementInner, measurementMiddle, measurementOuter,
@@ -816,53 +795,6 @@ bool attachDiskHit(
   state = scratch;
   chi2 = scratchChi2;
   return true;
-}
-
-bool cellsCylinderAreCompatible(
-  const SurfaceKinematicState& current,
-  const SurfaceKinematicState& next,
-  int /*currentSecondClusterIndex*/,
-  int /*nextFirstClusterIndex*/,
-  float bz,
-  const TrackingKernelParameters& params) noexcept
-{
-  SurfaceKinematicState scratch = next;
-  OperationFailureReason reason{};
-  if (!barrel::rotate(scratch, current.alpha, reason) ||
-      !barrel::propagate(scratch, current.referenceCoordinate, bz, reason)) {
-    return false;
-  }
-  float chi2{0.f};
-  if (!barrel::stateChi2(current, scratch, chi2, reason)) {
-    return false;
-  }
-  return chi2 <= params.maxChi2ClusterAttachment;
-}
-
-bool cellsDiskAreCompatible(
-  const SurfaceKinematicState& current,
-  const SurfaceKinematicState& next,
-  int currentSecondClusterIndex,
-  int nextFirstClusterIndex,
-  float bz,
-  const TrackingKernelParameters& params) noexcept
-{
-  // Temporary Gate-3 compatibility input (see the header doc on the primary
-  // template): checked first, exactly mirroring
-  // detail::mftFwdCellsAreCompatible's own precedence.
-  if (currentSecondClusterIndex != nextFirstClusterIndex) {
-    return false;
-  }
-  SurfaceKinematicState scratch = next;
-  OperationFailureReason reason{};
-  if (!Propagator::propagateForward(scratch, current.referenceCoordinate, bz, reason)) {
-    return false;
-  }
-  float chi2{0.f};
-  if (!forward::stateChi2(current, scratch, chi2, reason)) {
-    return false;
-  }
-  return chi2 <= params.maxChi2ClusterAttachment;
 }
 
 float cylinderLayerMultipleScatteringAngle(

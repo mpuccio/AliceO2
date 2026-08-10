@@ -15,6 +15,7 @@ namespace o2::itsmft::tracking
 void MultiSourceFrame::clear() noexcept
 {
   mPerSurfaceMeasurements.clear();
+  mPerSurfaceGlobalMeasurements.clear();
   mSurfaceSpans.clear();
   mSources.clear();
   mROFIntervals.clear();
@@ -27,7 +28,8 @@ void MultiSourceFrame::rebuildSurfaceSpans()
   mSurfaceSpans.resize(mPerSurfaceMeasurements.size());
   for (size_t s = 0; s < mPerSurfaceMeasurements.size(); ++s) {
     const auto& measurements = mPerSurfaceMeasurements[s];
-    mSurfaceSpans[s] = SurfaceMeasurementSpan{measurements.data(), static_cast<uint32_t>(measurements.size())};
+    const auto& globals = mPerSurfaceGlobalMeasurements[s];
+    mSurfaceSpans[s] = SurfaceMeasurementSpan{globals.data(), measurements.data(), static_cast<uint32_t>(measurements.size())};
   }
 }
 
@@ -51,7 +53,25 @@ gsl::span<const SurfaceMeasurement> MultiSourceFrame::getSurfaceMeasurements(Sur
   return {measurements.data(), measurements.size()};
 }
 
-const SurfaceMeasurement* MultiSourceFrame::getMeasurement(SurfaceId surface, SurfaceMeasurementIndex index) const noexcept
+gsl::span<const GlobalMeasurement> MultiSourceFrame::getGlobalMeasurements(SurfaceId surface) const
+{
+  if (!surface.isValid() || surface.value() >= mPerSurfaceGlobalMeasurements.size()) {
+    return {};
+  }
+  const auto& measurements = mPerSurfaceGlobalMeasurements[surface.value()];
+  return {measurements.data(), measurements.size()};
+}
+
+const GlobalMeasurement* MultiSourceFrame::getGlobalMeasurement(SurfaceId surface, SurfaceMeasurementIndex index) const noexcept
+{
+  if (!surface.isValid() || surface.value() >= mPerSurfaceGlobalMeasurements.size() || !index.isValid()) {
+    return nullptr;
+  }
+  const auto& measurements = mPerSurfaceGlobalMeasurements[surface.value()];
+  return index.value() < measurements.size() ? &measurements[index.value()] : nullptr;
+}
+
+const SurfaceMeasurement* MultiSourceFrame::getSurfaceMeasurement(SurfaceId surface, SurfaceMeasurementIndex index) const noexcept
 {
   if (!surface.isValid() || surface.value() >= mPerSurfaceMeasurements.size() || !index.isValid()) {
     return nullptr;
@@ -85,12 +105,14 @@ gsl::span<const o2::MCCompLabel> MultiSourceFrame::getLabels(ClusterRef cluster)
   return container->getLabels(cluster.index);
 }
 
-void MultiSourceFrame::assignLoadedData(std::vector<std::vector<SurfaceMeasurement>>&& perSurfaceMeasurements,
+void MultiSourceFrame::assignLoadedData(std::vector<std::vector<GlobalMeasurement>>&& perSurfaceGlobalMeasurements,
+                                        std::vector<std::vector<SurfaceMeasurement>>&& perSurfaceMeasurements,
                                         std::vector<SourceMetadata>&& sources,
                                         std::vector<ROFIntervalBC>&& rofIntervals,
                                         std::vector<uint32_t>&& sourceROFOffsets,
                                         std::vector<const o2::dataformats::MCTruthContainer<o2::MCCompLabel>*>&& labelSources)
 {
+  mPerSurfaceGlobalMeasurements = std::move(perSurfaceGlobalMeasurements);
   mPerSurfaceMeasurements = std::move(perSurfaceMeasurements);
   mSources = std::move(sources);
   mROFIntervals = std::move(rofIntervals);

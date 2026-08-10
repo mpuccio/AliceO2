@@ -71,6 +71,7 @@ inline bool refitITSSeed(const TrackSeed& seed,
                          const TrackingParameters& params,
                          float bz,
                          SurfaceTrackingScratch&,
+                         gsl::span<const gsl::span<const GlobalMeasurement>> layerGlobals,
                          gsl::span<const gsl::span<const SurfaceMeasurement>> layerMeasurements,
                          SurfaceCatalogView surfaceCatalog,
                          ClusterSourceId,
@@ -80,7 +81,7 @@ inline bool refitITSSeed(const TrackSeed& seed,
   SurfaceKinematicState paramOut{};
   float chi2 = 0.f;
   OperationFailureReason reason{};
-  if (!fitTrackSeedLegs(seed, layerMeasurements, surfaceCatalog, bz,
+  if (!fitTrackSeedLegs(seed, layerGlobals, layerMeasurements, surfaceCatalog, bz,
                         params.ShiftRefToCluster, params.MaxChi2ClusterAttachment, params.MaxChi2NDF,
                         params.RepeatRefitOut, gsl::span<const float>(params.MinPt),
                         paramIn, paramOut, chi2, reason)) {
@@ -97,6 +98,7 @@ inline bool refitMFTSeed(const TrackSeed& seed,
                          const TrackingParameters& params,
                          float bz,
                          SurfaceTrackingScratch& scratch,
+                         gsl::span<const gsl::span<const GlobalMeasurement>> layerGlobals,
                          gsl::span<const gsl::span<const SurfaceMeasurement>> layerMeasurements,
                          SurfaceCatalogView surfaceCatalog,
                          ClusterSourceId expectedSource,
@@ -105,7 +107,7 @@ inline bool refitMFTSeed(const TrackSeed& seed,
   SurfaceKinematicState paramIn{};
   SurfaceKinematicState paramOut{};
   float chi2 = 0.f;
-  if (!refitTrackFwd(seed, scratch, params, bz, layerMeasurements, surfaceCatalog, expectedSource, paramIn, paramOut, chi2)) {
+  if (!refitTrackFwd(seed, scratch, params, bz, layerGlobals, layerMeasurements, surfaceCatalog, expectedSource, paramIn, paramOut, chi2)) {
     return false;
   }
   candidate.seed = seed;
@@ -119,6 +121,7 @@ inline bool refitSurfaceSeed(const TrackSeed& seed,
                              const TrackingParameters& params,
                              float bz,
                              SurfaceTrackingScratch& scratch,
+                             gsl::span<const gsl::span<const GlobalMeasurement>> layerGlobals,
                              gsl::span<const gsl::span<const SurfaceMeasurement>> layerMeasurements,
                              SurfaceCatalogView surfaceCatalog,
                              ClusterSourceId expectedSource,
@@ -132,13 +135,13 @@ inline bool refitSurfaceSeed(const TrackSeed& seed,
     if (clusterIndex < 0 || clusterIndex >= static_cast<int>(layerMeasurements[position].size())) {
       return false;
     }
-    const auto surface = layerMeasurements[position][clusterIndex].surface;
+    const auto surface = layerGlobals[position][clusterIndex].surface;
     if (!surfaceCatalog.hasSurface(surface)) {
       return false;
     }
     return surfaceCatalog.getSurface(surface).kind == SurfaceKind::Cylinder
-             ? refitITSSeed(seed, params, bz, scratch, layerMeasurements, surfaceCatalog, expectedSource, candidate)
-             : refitMFTSeed(seed, params, bz, scratch, layerMeasurements, surfaceCatalog, expectedSource, candidate);
+             ? refitITSSeed(seed, params, bz, scratch, layerGlobals, layerMeasurements, surfaceCatalog, expectedSource, candidate)
+             : refitMFTSeed(seed, params, bz, scratch, layerGlobals, layerMeasurements, surfaceCatalog, expectedSource, candidate);
   }
   return false;
 }

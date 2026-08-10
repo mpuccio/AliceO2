@@ -24,6 +24,7 @@
 #include "ITSMFTTracking/SurfaceId.h"
 #include "ITSMFTTracking/SurfaceKinematicState.h"
 #include "ITSMFTTracking/SurfaceMask.h"
+#include "ITSMFTTracking/TripletFitting.h"
 #include "ITStracking/Constants.h"
 #include "GPUCommonDef.h"
 
@@ -36,6 +37,11 @@ struct CellNeighbour {
   int nextCellTopology{-1};
   int nextCell{-1};
   int level{-1};
+};
+
+struct CellClusterReference {
+  int surfacePosition{o2::its::constants::UnusedIndex};
+  int clusterIndex{o2::its::constants::UnusedIndex};
 };
 
 /// Shared Cell/TrackSeed metadata stores a named SurfaceKinematicState rather
@@ -122,11 +128,30 @@ class CellSeed final : public SeedMetadataBase<o2::its::constants::ClustersPerCe
   GPUhd() int getThirdClusterIndex() const { return this->clustersRaw()[2]; };
   GPUhd() auto& getClusters() { return this->clustersRaw(); }
   GPUhd() const auto& getClusters() const { return this->clustersRaw(); }
+  GPUhd() TripletFitFactor& tripletFactor() noexcept { return mTripletFactor; }
+  GPUhd() const TripletFitFactor& tripletFactor() const noexcept { return mTripletFactor; }
+  GPUhd() CellClusterReference getClusterReference(int requestedSlot) const noexcept
+  {
+    if (requestedSlot < 0 || requestedSlot >= o2::its::constants::ClustersPerCell) {
+      return {};
+    }
+    const auto mask = this->getHitLayerMask();
+    int slot = 0;
+    for (int position = 0; position < 32; ++position) {
+      if (mask.has(position) && slot++ == requestedSlot) {
+        return {position, this->clustersRaw()[requestedSlot]};
+      }
+    }
+    return {};
+  }
   GPUhd() int getCluster(int layer) const
   {
     const int slot = this->getHitLayerMask().slot(layer);
     return (slot >= 0 && slot < o2::its::constants::ClustersPerCell) ? this->clustersRaw()[slot] : o2::its::constants::UnusedIndex;
   }
+
+ private:
+  TripletFitFactor mTripletFactor{};
 };
 
 /// GPU-portable, non-templated whole-track seed with one cluster slot per

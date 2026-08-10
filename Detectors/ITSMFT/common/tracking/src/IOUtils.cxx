@@ -233,12 +233,10 @@ o2::itsmft::tracking::SurfaceMeasurement loadClusterSurfaceMeasurement(
   o2::itsmft::tracking::DecodedCluster decoded;
   if constexpr (DetId == o2::detectors::DetID::ITS) {
     decoded = decodeCluster<DetId>(o2::its::GeometryTGeo::Instance(), c, pattIt, dict, applySysErrors);
-    return o2::itsmft::tracking::makeCylinderSurfaceMeasurement(
-      decoded, {DetId, decoded.sensor}, surface, {source, externalClusterIndex}, sourceROF);
+    return o2::itsmft::tracking::makeCylinderSurfaceMeasurement(decoded);
   } else {
     decoded = decodeCluster<DetId>(o2::mft::GeometryTGeo::Instance(), c, pattIt, dict, applySysErrors);
-    return o2::itsmft::tracking::makeDiskSurfaceMeasurement(
-      decoded, {DetId, decoded.sensor}, surface, {source, externalClusterIndex}, sourceROF);
+    return o2::itsmft::tracking::makeDiskSurfaceMeasurement(decoded);
   }
 }
 
@@ -286,10 +284,12 @@ o2::itsmft::tracking::SurfaceMeasurementDecodeResult loadClusterSurfaceMeasureme
   const o2::itsmft::tracking::ClusterRef cluster{source, externalClusterIndex};
   if constexpr (DetId == o2::detectors::DetID::ITS) {
     result.kind = o2::itsmft::tracking::SurfaceKind::Cylinder;
-    result.measurement = o2::itsmft::tracking::makeCylinderSurfaceMeasurement(decoded, sensor, surface, cluster, sourceROF);
+    result.global = o2::itsmft::tracking::makeCylinderGlobalMeasurement(decoded, sensor, surface, cluster, sourceROF);
+    result.measurement = o2::itsmft::tracking::makeCylinderSurfaceMeasurement(decoded);
   } else {
     result.kind = o2::itsmft::tracking::SurfaceKind::Disk;
-    result.measurement = o2::itsmft::tracking::makeDiskSurfaceMeasurement(decoded, sensor, surface, cluster, sourceROF);
+    result.global = o2::itsmft::tracking::makeDiskGlobalMeasurement(decoded, sensor, surface, cluster, sourceROF);
+    result.measurement = o2::itsmft::tracking::makeDiskSurfaceMeasurement(decoded);
   }
   return result;
 }

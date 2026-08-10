@@ -147,7 +147,7 @@ struct TimeFrame {
   // *positions* into this array, in traversal order (inner to outer). Each
   // element pairs a SurfaceId with a SurfaceMeasurementIndex local to that
   // surface's own measurement array -- resolved via
-  // getNormalizedFrame().getMeasurement(reference.surface, reference.index)
+  // getNormalizedFrame().getGlobalMeasurement(reference.surface, reference.index)
   // -- never a global/flattened measurement position.
   auto& getTrackClusterIndices() { return mTrackClusterIndices; }
   const auto& getTrackClusterIndices() const { return mTrackClusterIndices; }

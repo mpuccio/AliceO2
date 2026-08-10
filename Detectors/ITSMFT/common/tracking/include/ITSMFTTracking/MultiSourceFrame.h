@@ -12,6 +12,7 @@
 #include <type_traits>
 
 #include "GPUCommonDef.h"
+#include "ITSMFTTracking/GlobalMeasurement.h"
 #include "ITSMFTTracking/SurfaceMeasurement.h"
 #include "ITSMFTTracking/SurfaceId.h"
 #include "ITSMFTTracking/SurfaceTiming.h"
@@ -35,6 +36,7 @@ namespace o2::itsmft::tracking
 // pointer into that surface's own storage -- never an offset into a shared
 // array. Indexed by SurfaceId in MultiSourceFrameView::surfaces.
 struct SurfaceMeasurementSpan {
+  const GlobalMeasurement* global{nullptr};
   const SurfaceMeasurement* data{nullptr};
   uint32_t count{0};
 };
@@ -63,13 +65,18 @@ struct MultiSourceFrameView {
   // Bounds-unchecked (matching the per-surface accessor convention every
   // other device view in this library uses: callers must already know
   // `surface` is valid for this
-  // view. getMeasurement() below is the bounds-checked counterpart. Returns
+  // view. getGlobalMeasurement() below is the bounds-checked counterpart. Returns
   // nullptr (never a computed nullptr+0) when the surface has no
   // measurements.
   GPUhdi() const SurfaceMeasurement* getSurfaceMeasurements(SurfaceId surface) const noexcept
   {
     const auto& span = surfaces[surface.value()];
     return span.count == 0 ? nullptr : span.data;
+  }
+  GPUhdi() const GlobalMeasurement* getGlobalMeasurements(SurfaceId surface) const noexcept
+  {
+    const auto& span = surfaces[surface.value()];
+    return span.count == 0 ? nullptr : span.global;
   }
   GPUhdi() uint32_t getSurfaceMeasurementCount(SurfaceId surface) const noexcept
   {
@@ -82,7 +89,15 @@ struct MultiSourceFrameView {
   // with, e.g. via TrackClusterReference, ITSMFTTracking/CommonTrack.h).
   // Returns nullptr for an invalid/out-of-range surface or an
   // invalid/out-of-range index.
-  GPUhdi() const SurfaceMeasurement* getMeasurement(SurfaceId surface, SurfaceMeasurementIndex index) const noexcept
+  GPUhdi() const GlobalMeasurement* getGlobalMeasurement(SurfaceId surface, SurfaceMeasurementIndex index) const noexcept
+  {
+    if (!surface.isValid() || surface.value() >= nSurfaces || !index.isValid()) {
+      return nullptr;
+    }
+    const auto& span = surfaces[surface.value()];
+    return index.value() < span.count ? span.global + index.value() : nullptr;
+  }
+  GPUhdi() const SurfaceMeasurement* getSurfaceMeasurement(SurfaceId surface, SurfaceMeasurementIndex index) const noexcept
   {
     if (!surface.isValid() || surface.value() >= nSurfaces || !index.isValid()) {
       return nullptr;
@@ -152,6 +167,7 @@ class MultiSourceFrame
   void swap(MultiSourceFrame& other) noexcept
   {
     mPerSurfaceMeasurements.swap(other.mPerSurfaceMeasurements);
+    mPerSurfaceGlobalMeasurements.swap(other.mPerSurfaceGlobalMeasurements);
     mSurfaceSpans.swap(other.mSurfaceSpans);
     mSources.swap(other.mSources);
     mROFIntervals.swap(other.mROFIntervals);
@@ -164,11 +180,13 @@ class MultiSourceFrame
   MultiSourceFrameView getView() const noexcept;
 
   gsl::span<const SurfaceMeasurement> getSurfaceMeasurements(SurfaceId surface) const;
+  gsl::span<const GlobalMeasurement> getGlobalMeasurements(SurfaceId surface) const;
   // Bounds-checked lookup by the surface it belongs to and its position
   // within that surface's own measurement array -- see
-  // MultiSourceFrameView::getMeasurement()'s doc above; same contract,
+  // MultiSourceFrameView::getGlobalMeasurement()'s doc above; same contract,
   // host-owner-side accessor.
-  const SurfaceMeasurement* getMeasurement(SurfaceId surface, SurfaceMeasurementIndex index) const noexcept;
+  const GlobalMeasurement* getGlobalMeasurement(SurfaceId surface, SurfaceMeasurementIndex index) const noexcept;
+  const SurfaceMeasurement* getSurfaceMeasurement(SurfaceId surface, SurfaceMeasurementIndex index) const noexcept;
   gsl::span<const ROFIntervalBC> getSourceIntervals(ClusterSourceId source) const;
   // MC labels stay external -- never copied here -- and are resolved
   // through ClusterRef via the non-owning per-source container pointer
@@ -197,7 +215,8 @@ class MultiSourceFrame
   // complete measurement array -- never flattened into, or reconstructed
   // from, a shared array. `labelSources` are stored as-is (non-owning): see
   // the class-level note on label lifetime above.
-  void assignLoadedData(std::vector<std::vector<SurfaceMeasurement>>&& perSurfaceMeasurements,
+  void assignLoadedData(std::vector<std::vector<GlobalMeasurement>>&& perSurfaceGlobalMeasurements,
+                        std::vector<std::vector<SurfaceMeasurement>>&& perSurfaceMeasurements,
                         std::vector<SourceMetadata>&& sources,
                         std::vector<ROFIntervalBC>&& rofIntervals,
                         std::vector<uint32_t>&& sourceROFOffsets,
@@ -206,10 +225,10 @@ class MultiSourceFrame
  private:
   void rebuildSurfaceSpans();
 
+  std::vector<std::vector<GlobalMeasurement>> mPerSurfaceGlobalMeasurements;
   std::vector<std::vector<SurfaceMeasurement>> mPerSurfaceMeasurements;
-  // Cached pointer/count view over mPerSurfaceMeasurements, rebuilt whenever
-  // that storage changes (assignLoadedData()/clear()); this is what getView()
-  // hands out and is never itself the owner of any measurement.
+  // Cached pointer/count view over both index-aligned measurement arrays,
+  // rebuilt whenever their storage changes. It never owns measurements.
   std::vector<SurfaceMeasurementSpan> mSurfaceSpans;
   std::vector<SourceMetadata> mSources;
   std::vector<ROFIntervalBC> mROFIntervals;

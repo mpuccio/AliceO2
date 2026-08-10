@@ -19,6 +19,7 @@
 
 #include "CommonConstants/MathConstants.h"
 #include "ITSMFTTracking/Cell.h"
+#include "ITSMFTTracking/GlobalMeasurement.h"
 #include "ITSMFTTracking/Propagator.h"
 #include "ITSMFTTracking/SurfaceDescriptor.h"
 #include "ITSMFTTracking/SurfaceStateOperationResult.h"
@@ -29,28 +30,32 @@
 namespace o2::itsmft::tracking
 {
 
-/// Builds one traversal-ordered leg of `SurfaceMeasurement` slots for native
+/// Builds one traversal-ordered leg of local measurement slots for native
 /// refit from a `TrackSeed`'s already-attached, layer-indexed cluster
 /// bookkeeping. `[start, end)` stepping by `step` is the caller-supplied
-/// caller-supplied layer-index range; `step == +1` walks inward and `step == -1`
-/// walks outward. Holes are represented by default-constructed measurements,
+/// layer-index range; `step == +1` walks inward and `step == -1` walks
+/// outward. Holes have `present == false`,
 /// and valid cluster indices are looked up in the corresponding layer span.
 /// Slots are written in traversal order, so decreasing legs remain reversed
 /// rather than being silently reordered by source layer index.
-inline gsl::span<const SurfaceMeasurement> assembleRefitLegSlots(
+inline gsl::span<const RefitMeasurementSlot> assembleRefitLegSlots(
   const TrackSeed& seed,
+  gsl::span<const gsl::span<const GlobalMeasurement>> layerGlobals,
   gsl::span<const gsl::span<const SurfaceMeasurement>> layerMeasurements,
   int start, int end, int step,
-  gsl::span<SurfaceMeasurement> out) noexcept
+  gsl::span<RefitMeasurementSlot> out) noexcept
 {
   int position = 0;
   for (int surfacePosition = start; surfacePosition != end && position < static_cast<int>(out.size()); surfacePosition += step) {
     const int clsIdx = seed.getCluster(surfacePosition);
-    out[position++] = (clsIdx == o2::its::constants::UnusedIndex)
-                        ? SurfaceMeasurement{}
-                        : layerMeasurements[surfacePosition][clsIdx];
+    if (clsIdx == o2::its::constants::UnusedIndex) {
+      out[position++] = {};
+      continue;
+    }
+    out[position++] = RefitMeasurementSlot{layerMeasurements[surfacePosition][clsIdx],
+                                           layerGlobals[surfacePosition][clsIdx].surface, true};
   }
-  return gsl::span<const SurfaceMeasurement>(out.data(), position);
+  return gsl::span<const RefitMeasurementSlot>(out.data(), position);
 }
 
 // Reset each refit leg to a loose diagonal. Barrel uses the existing ceilings;
@@ -99,6 +104,7 @@ GPUhdi() float ptFromQOverPt(float q2pt, uint8_t absCharge) noexcept
 // Outputs are committed only on complete success.
 inline bool fitTrackSeedLegs(
   const TrackSeed& seed,
+  gsl::span<const gsl::span<const GlobalMeasurement>> layerGlobals,
   gsl::span<const gsl::span<const SurfaceMeasurement>> layerMeasurements,
   SurfaceCatalogView surfaceCatalog,
   float bz,
@@ -131,8 +137,8 @@ inline bool fitTrackSeedLegs(
   float chi2A = 0.f;
   uint32_t acceptedA = 0;
   const int activeSurfaceCount = static_cast<int>(layerMeasurements.size());
-  std::vector<SurfaceMeasurement> slotsBufferA(static_cast<std::size_t>(activeSurfaceCount));
-  const auto slotsA = assembleRefitLegSlots(seed, layerMeasurements, 0, activeSurfaceCount, 1, slotsBufferA);
+  std::vector<RefitMeasurementSlot> slotsBufferA(static_cast<std::size_t>(activeSurfaceCount));
+  const auto slotsA = assembleRefitLegSlots(seed, layerGlobals, layerMeasurements, 0, activeSurfaceCount, 1, slotsBufferA);
   if (!Propagator::driveRefitLeg(stateA, linRefA, chi2A, acceptedA, slotsA, surfaceCatalog, bz,
                                  material::MaterialTraversalDirection::AlongMomentum, shiftReferenceToMeasurement,
                                  maxChi2ClusterAttachment, reason)) {
@@ -154,8 +160,8 @@ inline bool fitTrackSeedLegs(
   resetCovarianceForRefit(stateB);
   float chi2B = 0.f;
   uint32_t acceptedB = 0;
-  std::vector<SurfaceMeasurement> slotsBufferB(static_cast<std::size_t>(activeSurfaceCount));
-  const auto slotsB = assembleRefitLegSlots(seed, layerMeasurements, activeSurfaceCount - 1, -1, -1, slotsBufferB);
+  std::vector<RefitMeasurementSlot> slotsBufferB(static_cast<std::size_t>(activeSurfaceCount));
+  const auto slotsB = assembleRefitLegSlots(seed, layerGlobals, layerMeasurements, activeSurfaceCount - 1, -1, -1, slotsBufferB);
   if (!Propagator::driveRefitLeg(stateB, linRefB, chi2B, acceptedB, slotsB, surfaceCatalog, bz,
                                  material::MaterialTraversalDirection::OppositeMomentum, shiftReferenceToMeasurement,
                                  maxChi2ClusterAttachment, reason)) {
@@ -189,8 +195,8 @@ inline bool fitTrackSeedLegs(
     resetCovarianceForRefit(stateC);
     float chi2C = 0.f;
     uint32_t acceptedC = 0;
-    std::vector<SurfaceMeasurement> slotsBufferC(static_cast<std::size_t>(activeSurfaceCount));
-    const auto slotsC = assembleRefitLegSlots(seed, layerMeasurements, 0, activeSurfaceCount, 1, slotsBufferC);
+    std::vector<RefitMeasurementSlot> slotsBufferC(static_cast<std::size_t>(activeSurfaceCount));
+    const auto slotsC = assembleRefitLegSlots(seed, layerGlobals, layerMeasurements, 0, activeSurfaceCount, 1, slotsBufferC);
     if (!Propagator::driveRefitLeg(stateC, linRefC, chi2C, acceptedC, slotsC, surfaceCatalog, bz,
                                    material::MaterialTraversalDirection::AlongMomentum, shiftReferenceToMeasurement,
                                    maxChi2ClusterAttachment, reason)) {

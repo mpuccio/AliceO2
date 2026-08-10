@@ -9,6 +9,7 @@
 #define ALICEO2_ITSMFT_TRACKING_BARRELSURFACESTATEOPERATIONS_H_
 
 #include "ITSMFTTracking/MaterialPhysics.h"
+#include "ITSMFTTracking/GlobalMeasurement.h"
 #include "ITSMFTTracking/SurfaceKinematicState.h"
 #include "ITSMFTTracking/SurfaceMeasurement.h"
 #include "ITSMFTTracking/SurfaceStateOperationResult.h"
@@ -53,13 +54,13 @@ bool stateChi2(const SurfaceKinematicState& reference, const SurfaceKinematicSta
 
 #ifndef GPUCA_GPUCODE
 
-// Builds an outer-anchored cylindrical three-hit seed. Inputs are ordered
-// {inner, middle, outer}; the outer frame supplies referenceCoordinate,
-// alpha, local position, and covariance. absCharge/pid are caller-fixed and
+// Builds an outer-anchored cylindrical three-hit seed. The inner and middle
+// positions are global geometric inputs; the outer native frame supplies the
+// anchor, local position, and covariance. absCharge/pid are caller-fixed and
 // copied on success; flags is zero. Degenerate formula fallbacks are retained.
 // Construction is scratch-then-commit: outState is byte-for-byte unchanged
 // on NonFiniteInput or NonFiniteOutput.
-bool buildSeed(const SurfaceMeasurement& measurementInner, const SurfaceMeasurement& measurementMiddle,
+bool buildSeed(const GlobalPoint3F& globalInner, const GlobalPoint3F& globalMiddle,
                const SurfaceMeasurement& measurementOuter, float bz,
                uint8_t absCharge, o2::track::PID pid,
                SurfaceKinematicState& outState, OperationFailureReason& reason) noexcept;

@@ -14,6 +14,7 @@
 #include <gsl/span>
 
 #include "ITSMFTTracking/Configuration.h"
+#include "ITSMFTTracking/GlobalMeasurement.h"
 #include "ITSMFTTracking/IndexTableUtils.h"
 #include "ITSMFTTracking/MaterialPhysics.h"
 #include "ITSMFTTracking/SurfaceDescriptor.h"
@@ -71,9 +72,9 @@ struct CylinderTrackletSearchWindow {
   float phiCut;
   float nSigmaCut;
 
-  bool acceptCandidate(const SurfaceMeasurement& sourceMeasurement,
+  bool acceptCandidate(const GlobalMeasurement& sourceMeasurement,
                        const o2::its::Cluster& sourceLocator,
-                       const SurfaceMeasurement& targetMeasurement,
+                       const GlobalMeasurement& targetMeasurement,
                        const o2::its::Cluster& targetLocator,
                        float& tanLambdaOut) const;
 };
@@ -86,8 +87,8 @@ struct DiskTrackletSearchWindow {
   float sigmaY;
   float nSigmaCut;
 
-  bool acceptCandidate(const SurfaceMeasurement& sourceMeasurement,
-                       const SurfaceMeasurement& targetMeasurement,
+  bool acceptCandidate(const GlobalMeasurement& sourceMeasurement,
+                       const GlobalMeasurement& targetMeasurement,
                        float& tanLambdaOut) const;
 };
 
@@ -102,7 +103,7 @@ bool bindTrackletProjectionState(SurfaceKind kind, int fromLayer, int toLayer,
                                  float transitionMSAngle, float transitionBendingAngle,
                                  TrackletProjectionState& out) noexcept;
 
-bool projectTrackletSearchWindow(const SurfaceMeasurement& sourceMeasurement,
+bool projectTrackletSearchWindow(const GlobalMeasurement& sourceMeasurement,
                                  const o2::its::Cluster& sourceLocator,
                                  const o2::its::Vertex& vertex,
                                  const TrackletProjectionState& transitionState,
@@ -117,13 +118,13 @@ int trackletSearchRowBin(const TrackletSearchWindow& window, int offset,
                          const o2::itsmft::IndexTableUtilsCore& indexUtils) noexcept;
 
 bool acceptTrackletCandidate(const TrackletSearchWindow& window,
-                             const SurfaceMeasurement& sourceMeasurement,
+                             const GlobalMeasurement& sourceMeasurement,
                              const o2::its::Cluster& sourceLocator,
-                             const SurfaceMeasurement& targetMeasurement,
+                             const GlobalMeasurement& targetMeasurement,
                              const o2::its::Cluster& targetLocator,
                              float& tanLambdaOut) noexcept;
 
-bool projectCylinderSearchWindow(const SurfaceMeasurement& sourceMeasurement,
+bool projectCylinderSearchWindow(const GlobalMeasurement& sourceMeasurement,
                                  const o2::its::Cluster& sourceLocator,
                                  const o2::its::Vertex& vertex,
                                  const CylinderTrackletProjectionState& transitionState,
@@ -131,7 +132,7 @@ bool projectCylinderSearchWindow(const SurfaceMeasurement& sourceMeasurement,
                                  const TrackingKernelParameters& params,
                                  CylinderTrackletSearchWindow& out);
 
-bool projectDiskSearchWindow(const SurfaceMeasurement& sourceMeasurement,
+bool projectDiskSearchWindow(const GlobalMeasurement& sourceMeasurement,
                              const o2::its::Cluster& sourceLocator,
                              const o2::its::Vertex& vertex,
                              const DiskTrackletProjectionState& transitionState,
@@ -275,16 +276,7 @@ struct TransverseDirectionCompatibility {
   double chi2{0.};
 };
 
-bool makeCylinderTransverseDirectionObservation(const SurfaceDescriptor& surface,
-                                                const SurfaceMeasurement& measurement,
-                                                TransverseDirectionObservation& observation) noexcept;
-
-bool makeDiskTransverseDirectionObservation(const SurfaceDescriptor& surface,
-                                            const SurfaceMeasurement& measurement,
-                                            TransverseDirectionObservation& observation) noexcept;
-
-bool makeTransverseDirectionObservation(const SurfaceDescriptor& surface,
-                                        const SurfaceMeasurement& measurement,
+bool makeTransverseDirectionObservation(const GlobalMeasurement& measurement,
                                         TransverseDirectionObservation& observation) noexcept;
 
 bool trackletDirectionsAreTransverselyCompatible(
@@ -294,16 +286,7 @@ bool trackletDirectionsAreTransverselyCompatible(
   float bz, float trackletMinPt, float nSigmaCut,
   TransverseDirectionCompatibility& compatibility) noexcept;
 
-bool makeCylinderDirectionObservation(const SurfaceDescriptor& surface,
-                                      const SurfaceMeasurement& measurement,
-                                      DirectionObservation& observation) noexcept;
-
-bool makeDiskDirectionObservation(const SurfaceDescriptor& surface,
-                                  const SurfaceMeasurement& measurement,
-                                  DirectionObservation& observation) noexcept;
-
-bool makeDirectionObservation(const SurfaceDescriptor& surface,
-                              const SurfaceMeasurement& measurement,
+bool makeDirectionObservation(const GlobalMeasurement& measurement,
                               DirectionObservation& observation) noexcept;
 
 bool cellDirectionsAreCompatible(const std::array<DirectionObservation, 3>& observations,
@@ -311,7 +294,9 @@ bool cellDirectionsAreCompatible(const std::array<DirectionObservation, 3>& obse
                                  float nSigmaCut,
                                  CellDirectionCompatibility& compatibility) noexcept;
 
-bool buildCylinderCellSeed(const SurfaceMeasurement& measurementInner,
+bool buildCylinderCellSeed(const GlobalMeasurement& globalInner,
+                           const GlobalMeasurement& globalMiddle,
+                           const SurfaceMeasurement& measurementInner,
                            const SurfaceMeasurement& measurementMiddle,
                            const SurfaceMeasurement& measurementOuter,
                            const std::array<NominalSurfaceMaterial, 3>& material,
@@ -330,6 +315,9 @@ bool buildDiskCellSeed(const SurfaceMeasurement& measurementInner,
                        OperationFailureReason& reason) noexcept;
 
 bool buildCellSeed(SurfaceKind kind,
+                   const GlobalMeasurement& globalInner,
+                   const GlobalMeasurement& globalMiddle,
+                   const GlobalMeasurement& globalOuter,
                    const SurfaceMeasurement& measurementInner,
                    const SurfaceMeasurement& measurementMiddle,
                    const SurfaceMeasurement& measurementOuter,
@@ -348,16 +336,6 @@ bool attachDiskHit(SurfaceKinematicState& state, const SurfaceMeasurement& measu
                    const NominalSurfaceMaterial& material, float bz, float& chi2,
                    const TrackingKernelParameters& params,
                    OperationFailureReason& reason) noexcept;
-
-bool cellsCylinderAreCompatible(const SurfaceKinematicState& current,
-                                const SurfaceKinematicState& next,
-                                int currentSecondClusterIndex, int nextFirstClusterIndex,
-                                float bz, const TrackingKernelParameters& params) noexcept;
-
-bool cellsDiskAreCompatible(const SurfaceKinematicState& current,
-                            const SurfaceKinematicState& next,
-                            int currentSecondClusterIndex, int nextFirstClusterIndex,
-                            float bz, const TrackingKernelParameters& params) noexcept;
 
 #endif
 

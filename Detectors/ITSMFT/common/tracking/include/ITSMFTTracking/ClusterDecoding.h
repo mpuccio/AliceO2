@@ -10,6 +10,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <cmath>
 
 #include <gsl/gsl>
 
@@ -17,6 +18,7 @@
 #include "DataFormatsITSMFT/CompCluster.h"
 #include "DataFormatsITSMFT/TopologyDictionary.h"
 #include "DetectorsCommonDataFormats/DetID.h"
+#include "ITSMFTTracking/GlobalMeasurement.h"
 #include "ITSMFTTracking/SurfaceDescriptor.h"
 #include "ITSMFTTracking/SurfaceMeasurement.h"
 
@@ -105,6 +107,7 @@ struct DecodedCluster {
 // measurement and kind are valid only when layerMapped is true; other fields
 // are valid only on success, except layer on InvalidLayerMapping.
 struct SurfaceMeasurementDecodeResult {
+  GlobalMeasurement global{};
   SurfaceMeasurement measurement{};
   SurfaceKind kind{SurfaceKind::Cylinder};
   int layer{-1};
@@ -115,16 +118,24 @@ struct SurfaceMeasurementDecodeResult {
 };
 
 // Project decoded ITS facts into the accepted cylindrical convention.
-inline SurfaceMeasurement makeCylinderSurfaceMeasurement(const DecodedCluster& decoded,
-                                                         DetectorSensorId sensor,
-                                                         SurfaceId surface,
-                                                         ClusterRef cluster,
-                                                         uint32_t sourceROF)
+inline GlobalMeasurement makeCylinderGlobalMeasurement(const DecodedCluster& decoded,
+                                                       DetectorSensorId sensor,
+                                                       SurfaceId surface,
+                                                       ClusterRef cluster,
+                                                       uint32_t sourceROF)
 {
-  return SurfaceMeasurement{
+  const float sine = std::sin(decoded.cylinderFrame.frameAngle);
+  const float cosine = std::cos(decoded.cylinderFrame.frameAngle);
+  const auto& covariance = decoded.rowColumnCovariance;
+  return GlobalMeasurement{
     decoded.global,
-    decoded.cylinderFrame,
-    decoded.rowColumnCovariance,
+    std::hypot(decoded.global.x, decoded.global.y),
+    {sine * sine * covariance.uu,
+     -sine * cosine * covariance.uu,
+     -sine * covariance.uv,
+     cosine * cosine * covariance.uu,
+     cosine * covariance.uv,
+     covariance.vv},
     sensor,
     cluster,
     decoded.shape,
@@ -135,21 +146,51 @@ inline SurfaceMeasurement makeCylinderSurfaceMeasurement(const DecodedCluster& d
 // Project decoded MFT facts into z-normal, global-x/global-y disk coordinates.
 // ALPIDE row is established as global x and column as global y by the MFT
 // geometry decoder. No legacy TrackingFrameInfo participates in this mapping.
-inline SurfaceMeasurement makeDiskSurfaceMeasurement(const DecodedCluster& decoded,
-                                                     DetectorSensorId sensor,
-                                                     SurfaceId surface,
-                                                     ClusterRef cluster,
-                                                     uint32_t sourceROF)
+inline GlobalMeasurement makeDiskGlobalMeasurement(const DecodedCluster& decoded,
+                                                   DetectorSensorId sensor,
+                                                   SurfaceId surface,
+                                                   ClusterRef cluster,
+                                                   uint32_t sourceROF)
 {
-  return SurfaceMeasurement{
+  return GlobalMeasurement{
     decoded.global,
-    {decoded.global.z, decoded.global.x, decoded.global.y, 0.f},
-    decoded.rowColumnCovariance,
+    std::hypot(decoded.global.x, decoded.global.y),
+    {decoded.rowColumnCovariance.uu, decoded.rowColumnCovariance.uv, 0.f,
+     decoded.rowColumnCovariance.vv, 0.f, 0.f},
     sensor,
     cluster,
     decoded.shape,
     sourceROF,
     surface};
+}
+
+inline SurfaceMeasurement makeCylinderSurfaceMeasurement(const DecodedCluster& decoded)
+{
+  return {decoded.cylinderFrame, decoded.rowColumnCovariance};
+}
+
+inline SurfaceMeasurement makeDiskSurfaceMeasurement(const DecodedCluster& decoded)
+{
+  return {{decoded.global.z, decoded.global.x, decoded.global.y, 0.f},
+          decoded.rowColumnCovariance};
+}
+
+inline SurfaceMeasurementDecodeResult makeCylinderMeasurementDecodeResult(
+  const DecodedCluster& decoded, DetectorSensorId sensor, SurfaceId surface,
+  ClusterRef cluster, uint32_t sourceROF)
+{
+  return {makeCylinderGlobalMeasurement(decoded, sensor, surface, cluster, sourceROF),
+          makeCylinderSurfaceMeasurement(decoded), SurfaceKind::Cylinder,
+          decoded.layer, true, ClusterDecodeError::None};
+}
+
+inline SurfaceMeasurementDecodeResult makeDiskMeasurementDecodeResult(
+  const DecodedCluster& decoded, DetectorSensorId sensor, SurfaceId surface,
+  ClusterRef cluster, uint32_t sourceROF)
+{
+  return {makeDiskGlobalMeasurement(decoded, sensor, surface, cluster, sourceROF),
+          makeDiskSurfaceMeasurement(decoded), SurfaceKind::Disk,
+          decoded.layer, true, ClusterDecodeError::None};
 }
 
 } // namespace o2::itsmft::tracking

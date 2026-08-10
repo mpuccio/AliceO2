@@ -530,7 +530,7 @@ void SurfaceTrackingScratch::computeTrackletsPerROFScans()
   }
 }
 void SurfaceTrackingScratch::prepareClusters(const TimeFrame& frame, const TrackingParameters& trkParam, const int maxLayers,
-                                             gsl::span<const gsl::span<const SurfaceMeasurement>> layerMeasurements)
+                                             gsl::span<const gsl::span<const GlobalMeasurement>> layerMeasurements)
 {
   struct ClusterHelper {
     float rowCoord;
@@ -569,12 +569,12 @@ void SurfaceTrackingScratch::prepareClusters(const TimeFrame& frame, const Track
         const auto& measurement = layerMeasurements[iLayer][c.clusterId];
         ClusterHelper& h = cHelper[iCluster];
 
-        const float x = measurement.global.x - (useXYBinning ? 0.f : beamXY[0]);
-        const float y = measurement.global.y - (useXYBinning ? 0.f : beamXY[1]);
-        const float z = measurement.global.z;
+        const float x = measurement.position.x - (useXYBinning ? 0.f : beamXY[0]);
+        const float y = measurement.position.y - (useXYBinning ? 0.f : beamXY[1]);
+        const float z = measurement.position.z;
 
-        const float rowCoord = useXYBinning ? measurement.global.y : o2::its::math_utils::computePhi(x, y);
-        const float colCoord = useXYBinning ? measurement.global.x : z;
+        const float rowCoord = useXYBinning ? measurement.position.y : o2::its::math_utils::computePhi(x, y);
+        const float colCoord = useXYBinning ? measurement.position.x : z;
         int colBin{utils.getColBinIndex(iLayer, colCoord)};
         if (colBin < 0 || colBin >= colBinsCount) {
           colBin = std::clamp(colBin, 0, colBinsCount - 1);
@@ -597,7 +597,7 @@ void SurfaceTrackingScratch::prepareClusters(const TimeFrame& frame, const Track
 
         c = unsortedClusters[iCluster];
         const auto& measurement = layerMeasurements[iLayer][c.clusterId];
-        c.phi = useXYBinning ? o2::its::math_utils::computePhi(measurement.global.x, measurement.global.y) : h.rowCoord;
+        c.phi = useXYBinning ? o2::its::math_utils::computePhi(measurement.position.x, measurement.position.y) : h.rowCoord;
         c.radius = h.r;
         c.indexTableBinIndex = h.bin;
       }
@@ -613,7 +613,7 @@ void SurfaceTrackingScratch::initialise(const TimeFrame& frame, const TrackingPa
                                         const IndexTableUtilsCore& indexTableConfig, SurfaceGraphView topology,
                                         gsl::span<const TransitionId> transitionIds, gsl::span<const CellTopologyId> cellIds,
                                         gsl::span<const SurfaceId> orderedSurfaces,
-                                        gsl::span<const gsl::span<const SurfaceMeasurement>> layerMeasurements)
+                                        gsl::span<const gsl::span<const GlobalMeasurement>> layerMeasurements)
 {
   std::vector<IndexTableUtilsCore> configs(mNOwnedSurfaces, indexTableConfig);
   initialise(frame, trkParam, maxLayers, iteration, configs, topology, transitionIds, cellIds,
@@ -624,7 +624,7 @@ void SurfaceTrackingScratch::initialise(const TimeFrame& frame, const TrackingPa
                                         gsl::span<const IndexTableUtilsCore> indexTableConfigs, SurfaceGraphView topology,
                                         gsl::span<const TransitionId> transitionIds, gsl::span<const CellTopologyId> cellIds,
                                         gsl::span<const SurfaceId> orderedSurfaces,
-                                        gsl::span<const gsl::span<const SurfaceMeasurement>> layerMeasurements)
+                                        gsl::span<const gsl::span<const GlobalMeasurement>> layerMeasurements)
 {
   (void)iteration;
   if (orderedSurfaces.size() != mNOwnedSurfaces || indexTableConfigs.size() != mNOwnedSurfaces ||
