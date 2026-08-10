@@ -30,6 +30,7 @@
 #define BOOST_TEST_DYN_LINK
 
 #include <array>
+#include <cmath>
 #include <cstdint>
 #include <map>
 #include <memory>
@@ -435,8 +436,12 @@ void injectCandidateTracklets(Rig<NLayers>& rig, int cellTopologyId, const std::
   }
 
   const o2::its::TimeEstBC ts{static_cast<uint32_t>(0), static_cast<uint16_t>(1)};
-  rig.tf.getTracklets()[cell.firstTransition.value()].push_back(o2::its::Tracklet{0, 0, 0.f, 0.f, ts});
-  rig.tf.getTracklets()[cell.secondTransition.value()].push_back(o2::its::Tracklet{0, 0, 0.f, 0.f, ts});
+  const float firstPhi = std::atan2(clusters[0].yCoordinate - clusters[1].yCoordinate,
+                                    clusters[0].xCoordinate - clusters[1].xCoordinate);
+  const float secondPhi = std::atan2(clusters[1].yCoordinate - clusters[2].yCoordinate,
+                                     clusters[1].xCoordinate - clusters[2].xCoordinate);
+  rig.tf.getTracklets()[cell.firstTransition.value()].push_back(o2::its::Tracklet{0, 0, 0.f, firstPhi, ts});
+  rig.tf.getTracklets()[cell.secondTransition.value()].push_back(o2::its::Tracklet{0, 0, 0.f, secondPhi, ts});
 
   auto& secondLUT = rig.tf.getTrackletsLookupTable()[cell.secondTransition.value()];
   secondLUT.resize(2);

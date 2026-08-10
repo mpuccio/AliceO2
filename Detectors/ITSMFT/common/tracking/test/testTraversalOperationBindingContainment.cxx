@@ -249,6 +249,8 @@ BOOST_AUTO_TEST_CASE(CellCandidateLoopHasOneDescriptorSelectedLeafBoundary)
 
   BOOST_CHECK_EQUAL(countOccurrences(code, "cellDirectionsAreCompatible("), 1u);
   BOOST_CHECK_EQUAL(countOccurrences(code, "makeDirectionObservation("), 3u);
+  BOOST_CHECK_EQUAL(countOccurrences(code, "trackletDirectionsAreTransverselyCompatible("), 1u);
+  BOOST_CHECK_EQUAL(countOccurrences(code, "makeTransverseDirectionObservation("), 3u);
   BOOST_CHECK_EQUAL(countOccurrences(code, "getTransitionMSAngle(secondTransitionId)"), 1u);
   BOOST_CHECK_EQUAL(countOccurrences(code, "DirectionProcessNoise"), 1u);
   BOOST_CHECK_EQUAL(countOccurrences(code, "buildCellSeed("), 1u);
@@ -263,6 +265,26 @@ BOOST_AUTO_TEST_CASE(CellCandidateLoopHasOneDescriptorSelectedLeafBoundary)
   for (const auto token : {"DetID", "ClusterSourceId", "ROAD", "Precut"}) {
     BOOST_CHECK_MESSAGE(!mentionsToken(code, token),
                         "cell orchestration contains detector/source/cut dispatch token " << token);
+  }
+}
+
+BOOST_AUTO_TEST_CASE(TransverseTrackletDirectionUsesOneFamilyNeutralAlgorithm)
+{
+  const auto source = readCandidateFindingSource();
+  const auto begin = source.find("bool trackletDirectionsAreTransverselyCompatible(");
+  const auto end = source.find("bool makeCylinderDirectionObservation(", begin);
+  BOOST_REQUIRE(begin != std::string::npos);
+  BOOST_REQUIRE(end != std::string::npos);
+  const auto compatibility = source.substr(begin, end - begin);
+  for (const auto forbidden : {"SurfaceKind", "switch", "if constexpr",
+                               "Cylinder", "Disk", "DetID", "ClusterSourceId"}) {
+    BOOST_CHECK_MESSAGE(compatibility.find(forbidden) == std::string::npos,
+                        "shared transverse-direction algorithm contains " << forbidden);
+  }
+  for (const auto required : {"trackletMinPt", "maximumCurvature", "maximumBending",
+                              "deltaPhi", "covarianceXY", "angularVariance", "chi2"}) {
+    BOOST_CHECK_MESSAGE(compatibility.find(required) != std::string::npos,
+                        "shared transverse-direction algorithm lacks " << required);
   }
 }
 
@@ -327,4 +349,6 @@ BOOST_AUTO_TEST_CASE(SurfaceSelectionLivesInCandidateFindingLeaves)
   BOOST_CHECK(source.find("buildDiskCellSeed(") != std::string::npos);
   BOOST_CHECK(source.find("makeCylinderDirectionObservation(") != std::string::npos);
   BOOST_CHECK(source.find("makeDiskDirectionObservation(") != std::string::npos);
+  BOOST_CHECK(source.find("makeCylinderTransverseDirectionObservation(") != std::string::npos);
+  BOOST_CHECK(source.find("makeDiskTransverseDirectionObservation(") != std::string::npos);
 }

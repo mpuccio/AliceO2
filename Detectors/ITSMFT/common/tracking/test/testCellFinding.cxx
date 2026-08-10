@@ -16,6 +16,7 @@
 
 #include <boost/test/unit_test.hpp>
 
+#include "CommonConstants/MathConstants.h"
 #include "ITSMFTTracking/BarrelSurfaceStateOperations.h"
 #include "ITSMFTTracking/ForwardSurfaceStateOperations.h"
 #include "ITSMFTTracking/MaterialPhysics.h"
@@ -412,15 +413,41 @@ SurfaceMeasurement diskDirectionMeasurement(float x, float y,
 }
 
 SurfaceMeasurement cylinderDirectionMeasurement(float q, float u, float z,
-                                                float varianceU, float covarianceUZ, float varianceZ)
+                                                float varianceU, float covarianceUZ, float varianceZ,
+                                                float frameAngle = 0.f)
 {
   SurfaceMeasurement measurement{};
   measurement.global = {999.f, 999.f, -1234.f}; // cylinder observation uses its tracking frame
   measurement.frame.q = q;
   measurement.frame.u = u;
   measurement.frame.v = z;
+  measurement.frame.frameAngle = frameAngle;
   measurement.covariance = {varianceU, covarianceUZ, varianceZ};
   return measurement;
+}
+
+TransverseDirectionObservation rotateTransverseObservation(
+  const TransverseDirectionObservation& observation, double angle)
+{
+  const double cosine = std::cos(angle);
+  const double sine = std::sin(angle);
+  return {
+    cosine * observation.x - sine * observation.y,
+    sine * observation.x + cosine * observation.y,
+    cosine * cosine * observation.varianceX -
+      2. * cosine * sine * observation.covarianceXY +
+      sine * sine * observation.varianceY,
+    cosine * sine * (observation.varianceX - observation.varianceY) +
+      (cosine * cosine - sine * sine) * observation.covarianceXY,
+    sine * sine * observation.varianceX +
+      2. * cosine * sine * observation.covarianceXY +
+      cosine * cosine * observation.varianceY};
+}
+
+float transverseTrackletPhi(const TransverseDirectionObservation& first,
+                            const TransverseDirectionObservation& second)
+{
+  return std::atan2(first.y - second.y, first.x - second.x);
 }
 
 SurfaceMeasurement rotateDiskMeasurement(const SurfaceMeasurement& measurement, double angle)
@@ -451,6 +478,169 @@ SurfaceMeasurement rotateDiskMeasurement(const SurfaceMeasurement& measurement, 
 // ===========================================================================
 // cell direction compatibility
 // ===========================================================================
+
+BOOST_AUTO_TEST_CASE(TransverseCompatibilityMatchesFullAnalyticCovarianceOracle)
+{
+  const std::array<TransverseDirectionObservation, 3> observations{{
+    {0., 0., 0.04, 0.006, 0.09},
+    {2., 1., 0.05, -0.004, 0.08},
+    {5., 3., 0.03, 0.003, 0.07},
+  }};
+  const float firstPhi = transverseTrackletPhi(observations[0], observations[1]);
+  const float secondPhi = transverseTrackletPhi(observations[1], observations[2]);
+  TransverseDirectionCompatibility compatibility{};
+  BOOST_REQUIRE(trackletDirectionsAreTransverselyCompatible(
+    observations, firstPhi, secondPhi, {0.0025}, 0.f, 0.3f, 1.f, compatibility));
+
+  const double expectedDeltaPhi = std::remainder(
+    static_cast<double>(firstPhi) - secondPhi,
+    2. * static_cast<double>(o2::constants::math::PI));
+  BOOST_CHECK_CLOSE_FRACTION(compatibility.deltaPhi, expectedDeltaPhi, 1.e-12);
+  BOOST_CHECK_SMALL(compatibility.maximumBending, 1.e-15);
+  BOOST_CHECK_CLOSE_FRACTION(compatibility.variance, 0.06164035502958581, 1.e-12);
+  BOOST_CHECK_CLOSE_FRACTION(compatibility.chi2,
+                             expectedDeltaPhi * expectedDeltaPhi / 0.06164035502958581,
+                             1.e-12);
+}
+
+BOOST_AUTO_TEST_CASE(TransverseCompatibilityUsesExactTrackletMinPtChordEnvelope)
+{
+  constexpr double radius = 100.;
+  constexpr float bz = 5.f;
+  const float boundaryPt = static_cast<float>(
+    std::abs(o2::constants::math::B2C * bz) * radius);
+  const auto point = [](double angle) {
+    return TransverseDirectionObservation{
+      radius * std::cos(angle), radius * std::sin(angle),
+      1.e-8, 0., 1.e-8};
+  };
+  const std::array<TransverseDirectionObservation, 3> observations{{point(0.), point(0.1), point(0.25)}};
+  const float firstPhi = transverseTrackletPhi(observations[0], observations[1]);
+  const float secondPhi = transverseTrackletPhi(observations[1], observations[2]);
+
+  TransverseDirectionCompatibility boundary{};
+  BOOST_REQUIRE(trackletDirectionsAreTransverselyCompatible(
+    observations, firstPhi, secondPhi, {}, bz, boundaryPt, 5.f, boundary));
+  BOOST_CHECK_CLOSE_FRACTION(std::abs(boundary.deltaPhi), 0.125, 1.e-6);
+  BOOST_CHECK_CLOSE_FRACTION(boundary.maximumBending, 0.125, 1.e-6);
+  BOOST_CHECK_SMALL(boundary.chi2, 1.e-6);
+
+  TransverseDirectionCompatibility aboveThreshold{};
+  BOOST_CHECK(!trackletDirectionsAreTransverselyCompatible(
+    observations, firstPhi, secondPhi, {}, bz, 2.f * boundaryPt, 5.f, aboveThreshold));
+  BOOST_CHECK_LT(aboveThreshold.maximumBending, boundary.maximumBending);
+}
+
+BOOST_AUTO_TEST_CASE(TransverseCompatibilityNormalizesExcessWithOutgoingMS)
+{
+  const double tangent = std::tan(0.1);
+  const std::array<TransverseDirectionObservation, 3> observations{{
+    {0., 0., 1.e-10, 0., 1.e-10},
+    {1., 0., 1.e-10, 0., 1.e-10},
+    {2., tangent, 1.e-10, 0., 1.e-10},
+  }};
+  const float firstPhi = transverseTrackletPhi(observations[0], observations[1]);
+  const float secondPhi = transverseTrackletPhi(observations[1], observations[2]);
+  TransverseDirectionCompatibility withoutScattering{};
+  TransverseDirectionCompatibility withScattering{};
+  BOOST_CHECK(!trackletDirectionsAreTransverselyCompatible(
+    observations, firstPhi, secondPhi, {}, 0.f, 0.3f, 5.f, withoutScattering));
+  BOOST_REQUIRE(trackletDirectionsAreTransverselyCompatible(
+    observations, firstPhi, secondPhi, {0.001}, 0.f, 0.3f, 5.f, withScattering));
+  BOOST_CHECK_CLOSE_FRACTION(std::abs(withScattering.deltaPhi), 0.1, 2.e-6);
+  BOOST_CHECK_GT(withScattering.variance, withoutScattering.variance);
+  BOOST_CHECK_LT(withScattering.chi2, 25.);
+}
+
+BOOST_AUTO_TEST_CASE(TransverseCompatibilityIsInvariantUnderGlobalZRotation)
+{
+  const std::array<TransverseDirectionObservation, 3> observations{{
+    {0.3, -0.7, 0.04, 0.006, 0.09},
+    {2.2, 1.1, 0.05, -0.004, 0.08},
+    {5.4, 3.6, 0.03, 0.003, 0.07},
+  }};
+  std::array<TransverseDirectionObservation, 3> rotated{};
+  for (std::size_t i = 0; i < observations.size(); ++i) {
+    rotated[i] = rotateTransverseObservation(observations[i], 0.73);
+  }
+  TransverseDirectionCompatibility baseline{};
+  TransverseDirectionCompatibility transformed{};
+  const float firstPhi = transverseTrackletPhi(observations[0], observations[1]);
+  const float secondPhi = transverseTrackletPhi(observations[1], observations[2]);
+  const float rotatedFirstPhi = transverseTrackletPhi(rotated[0], rotated[1]);
+  const float rotatedSecondPhi = transverseTrackletPhi(rotated[1], rotated[2]);
+  BOOST_REQUIRE(trackletDirectionsAreTransverselyCompatible(
+    observations, firstPhi, secondPhi, {0.0025}, 0.5f, 0.3f, 100.f, baseline));
+  BOOST_REQUIRE(trackletDirectionsAreTransverselyCompatible(
+    rotated, rotatedFirstPhi, rotatedSecondPhi, {0.0025}, 0.5f, 0.3f, 100.f, transformed));
+  BOOST_CHECK_CLOSE_FRACTION(transformed.deltaPhi, baseline.deltaPhi, 2.e-6);
+  BOOST_CHECK_CLOSE_FRACTION(transformed.maximumBending, baseline.maximumBending, 1.e-12);
+  BOOST_CHECK_CLOSE_FRACTION(transformed.variance, baseline.variance, 1.e-12);
+  BOOST_CHECK_CLOSE_FRACTION(transformed.chi2, baseline.chi2, 3.e-6);
+}
+
+BOOST_AUTO_TEST_CASE(DiskTransverseObservationRetainsGlobalXYCovariance)
+{
+  const auto surface = directionSurface(SurfaceKind::Disk, -50.f);
+  const auto measurement = diskDirectionMeasurement(3.f, 4.f, 0.04f, 0.006f, 0.09f);
+  TransverseDirectionObservation observation{};
+  BOOST_REQUIRE(makeDiskTransverseDirectionObservation(surface, measurement, observation));
+  BOOST_CHECK_CLOSE_FRACTION(observation.x, 3., 1.e-12);
+  BOOST_CHECK_CLOSE_FRACTION(observation.y, 4., 1.e-12);
+  BOOST_CHECK_CLOSE_FRACTION(observation.varianceX, 0.04, 1.e-7);
+  BOOST_CHECK_CLOSE_FRACTION(observation.covarianceXY, 0.006, 1.e-7);
+  BOOST_CHECK_CLOSE_FRACTION(observation.varianceY, 0.09, 1.e-7);
+}
+
+BOOST_AUTO_TEST_CASE(CylinderTransverseObservationRotatesTangentialCovariance)
+{
+  constexpr float angle = 0.7f;
+  const auto surface = directionSurface(SurfaceKind::Cylinder, 5.f);
+  const auto measurement = cylinderDirectionMeasurement(
+    3.f, 4.f, -2.2f, 0.04f, 0.006f, 0.09f, angle);
+  TransverseDirectionObservation observation{};
+  BOOST_REQUIRE(makeCylinderTransverseDirectionObservation(surface, measurement, observation));
+  const double sine = std::sin(angle);
+  const double cosine = std::cos(angle);
+  BOOST_CHECK_CLOSE_FRACTION(observation.x, 3. * cosine - 4. * sine, 1.e-7);
+  BOOST_CHECK_CLOSE_FRACTION(observation.y, 3. * sine + 4. * cosine, 1.e-7);
+  BOOST_CHECK_CLOSE_FRACTION(observation.varianceX, sine * sine * 0.04, 1.e-7);
+  BOOST_CHECK_CLOSE_FRACTION(observation.covarianceXY, -sine * cosine * 0.04, 1.e-7);
+  BOOST_CHECK_CLOSE_FRACTION(observation.varianceY, cosine * cosine * 0.04, 1.e-7);
+}
+
+BOOST_AUTO_TEST_CASE(TransverseCompatibilityFailsClosedTransactionally)
+{
+  std::array<TransverseDirectionObservation, 3> observations{{
+    {0., 0., 0.04, 0.006, 0.09},
+    {2., 1., 0.05, -0.004, 0.08},
+    {5., 3., 0.03, 0.003, 0.07},
+  }};
+  const float firstPhi = transverseTrackletPhi(observations[0], observations[1]);
+  const float secondPhi = transverseTrackletPhi(observations[1], observations[2]);
+  const TransverseDirectionCompatibility sentinel{11., 12., 13., 14.};
+  auto compatibility = sentinel;
+  observations[1].covarianceXY = 1.;
+  BOOST_CHECK(!trackletDirectionsAreTransverselyCompatible(
+    observations, firstPhi, secondPhi, {}, 0.5f, 0.3f, 5.f, compatibility));
+  BOOST_CHECK(bitEqual(compatibility, sentinel));
+
+  observations[1] = {2., 1., 0.05, -0.004, 0.08};
+  observations[2].x = std::numeric_limits<double>::quiet_NaN();
+  BOOST_CHECK(!trackletDirectionsAreTransverselyCompatible(
+    observations, firstPhi, secondPhi, {}, 0.5f, 0.3f, 5.f, compatibility));
+  BOOST_CHECK(bitEqual(compatibility, sentinel));
+
+  observations[2] = observations[1];
+  BOOST_CHECK(!trackletDirectionsAreTransverselyCompatible(
+    observations, firstPhi, secondPhi, {}, 0.5f, 0.3f, 5.f, compatibility));
+  BOOST_CHECK(bitEqual(compatibility, sentinel));
+
+  observations[2] = {5., 3., 0.03, 0.003, 0.07};
+  BOOST_CHECK(!trackletDirectionsAreTransverselyCompatible(
+    observations, firstPhi, secondPhi, {-0.01}, 0.5f, 0.3f, 5.f, compatibility));
+  BOOST_CHECK(bitEqual(compatibility, sentinel));
+}
 
 BOOST_AUTO_TEST_CASE(CellDirectionCompatibilityMatchesFullAnalyticOracle)
 {
