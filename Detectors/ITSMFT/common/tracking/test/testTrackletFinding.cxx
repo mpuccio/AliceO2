@@ -24,8 +24,7 @@
 #include "Field/MagneticField.h"
 #include "GPUCommonMath.h"
 #include "ITSMFTTracking/detail/MFTFwdTrackHelpers.h"
-#include "ITSMFTTracking/detail/CellFinding.h"
-#include "ITSMFTTracking/detail/TrackletFinding.h"
+#include "ITSMFTTracking/detail/CandidateFinding.h"
 #include "ITStracking/TrackHelpers.h"
 
 using namespace o2::itsmft;
@@ -136,7 +135,6 @@ TrackingKernelParameters makeKernelParameters(const TrackingParameters& params, 
   (void)kind;
   TrackingKernelParameters out;
   out.trackletMinPt = params.TrackletMinPt;
-  out.cellDeltaTanLambdaSigma = params.CellDeltaTanLambdaSigma;
   out.nSigmaCut = params.NSigmaCut;
   out.maxChi2ClusterAttachment = params.MaxChi2ClusterAttachment;
   out.maxChi2NDF = params.MaxChi2NDF;
@@ -151,7 +149,6 @@ BOOST_AUTO_TEST_CASE(BindingCopiesEveryFieldToTheCorrectSlot)
   // Distinct sentinel per field so a field-swap bug in the binding is caught.
   TrackingParameters legacy;
   legacy.TrackletMinPt = 1.11f;
-  legacy.CellDeltaTanLambdaSigma = 2.22f;
   legacy.NSigmaCut = 3.33f;
   legacy.MaxChi2ClusterAttachment = 4.44f;
   legacy.MaxChi2NDF = 5.55f;
@@ -161,7 +158,6 @@ BOOST_AUTO_TEST_CASE(BindingCopiesEveryFieldToTheCorrectSlot)
 
   const auto barrel = makeKernelParameters(legacy, SurfaceKind::Cylinder);
   BOOST_CHECK_CLOSE(barrel.trackletMinPt, 1.11f, 1e-6);
-  BOOST_CHECK_CLOSE(barrel.cellDeltaTanLambdaSigma, 2.22f, 1e-6);
   BOOST_CHECK_CLOSE(barrel.nSigmaCut, 3.33f, 1e-6);
   BOOST_CHECK_CLOSE(barrel.maxChi2ClusterAttachment, 4.44f, 1e-6);
   BOOST_CHECK_CLOSE(barrel.maxChi2NDF, 5.55f, 1e-6);
@@ -170,7 +166,6 @@ BOOST_AUTO_TEST_CASE(BindingCopiesEveryFieldToTheCorrectSlot)
 
   const auto disk = makeKernelParameters(legacy, SurfaceKind::Disk);
   BOOST_CHECK_CLOSE(disk.trackletMinPt, 1.11f, 1e-6);
-  BOOST_CHECK_CLOSE(disk.cellDeltaTanLambdaSigma, 2.22f, 1e-6);
   BOOST_CHECK_CLOSE(disk.nSigmaCut, 3.33f, 1e-6);
   BOOST_CHECK_CLOSE(disk.maxChi2ClusterAttachment, 4.44f, 1e-6);
   BOOST_CHECK_CLOSE(disk.maxChi2NDF, 5.55f, 1e-6);
@@ -194,7 +189,6 @@ BOOST_AUTO_TEST_CASE(BoundNonFiniteParametersAreDetectableThroughIsValid)
 
   TrackingParameters legacy;
   legacy.TrackletMinPt = 1.11f;
-  legacy.CellDeltaTanLambdaSigma = 2.22f;
   legacy.NSigmaCut = 3.33f;
   legacy.MaxChi2ClusterAttachment = 4.44f;
   legacy.MaxChi2NDF = 5.55f;
@@ -643,7 +637,7 @@ BOOST_AUTO_TEST_CASE(NormalizedMeasurementsRemainAuthoritativeOverPoisonedLocato
 
 /// Gate 3 transition-preparation slice coverage (relocated from
 /// TimeFrame::initialise() into TrackerTraits::initialiseTimeFrame(); see
-/// TrackletFinding.h family scattering leaves,
+/// CandidateFinding.h family scattering leaves,
 /// family curvature leaves, prepareTransitionScatteringAndBending, and
 /// host LayerGeometryConfigView). These tests verify
 /// exact legacy-formula parity, the family-specific arithmetic literal that

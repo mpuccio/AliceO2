@@ -115,7 +115,7 @@ BOOST_AUTO_TEST_CASE(FinalHeaderInventoryIsExact)
 {
   const auto include = trackingRoot() / "include/ITSMFTTracking";
   BOOST_CHECK_EQUAL(directHeaderCount(include), 33U);
-  BOOST_CHECK_EQUAL(directHeaderCount(include / "detail"), 12U);
+  BOOST_CHECK_EQUAL(directHeaderCount(include / "detail"), 11U);
 }
 
 BOOST_AUTO_TEST_CASE(RetiredAndRelocatedPublicPathsAreAbsent)
@@ -198,8 +198,7 @@ BOOST_AUTO_TEST_CASE(WorkflowsUseOnlyTheDetailAdapterFacades)
     "ITSMFTTracking/detail/MFTFwdTrackHelpers.h",
     "ITSMFTTracking/detail/SurfaceKinematicStateLegacyAdapters.h",
     "ITSMFTTracking/detail/TrackingKernelParameters.h",
-    "ITSMFTTracking/detail/TrackletFinding.h",
-    "ITSMFTTracking/detail/CellFinding.h",
+    "ITSMFTTracking/detail/CandidateFinding.h",
   };
 
   for (const auto& root : workflowRoots) {

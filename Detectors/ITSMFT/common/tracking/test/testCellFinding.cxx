@@ -20,17 +20,17 @@
 #include "ITSMFTTracking/ForwardSurfaceStateOperations.h"
 #include "ITSMFTTracking/MaterialPhysics.h"
 #include "ITSMFTTracking/Propagator.h"
-#include "ITSMFTTracking/detail/CellFinding.h"
+#include "ITSMFTTracking/detail/CandidateFinding.h"
 #include "ITStracking/Cluster.h"
 
 /// Focused coverage for the explicit cylinder/disk SurfaceKinematicState
 /// cell-seed, compatibility, and hit-attachment leaves
-/// (CellFinding.h/.cxx). The leaves are production-wired through
+/// (CandidateFinding.h/.cxx). The leaves are production-wired through
 /// TrackerTraits; this test exercises their numerical contracts directly,
 /// while the separate orchestration tests cover their TrackerTraits callers.
 ///
 /// Oracle strategy (see the Stage-B design report's "Precision/oracles"
-/// split, referenced from CellFinding.h):
+/// split, referenced from CandidateFinding.h):
 ///  - Formula-preserving evidence (seed construction, rotation/propagation,
 ///    predicted chi2/update, state compatibility) is checked by an
 ///    independent, hand-written re-transcription of each operation's own
@@ -394,7 +394,194 @@ SurfaceMeasurement diskAttachMeasurementFrom(const o2::its::TrackingFrameInfo& h
 
 SurfaceMeasurement diskAttachMeasurement() { return diskAttachMeasurementFrom(diskAttachHit()); }
 
+SurfaceDescriptor directionSurface(SurfaceKind kind, float referenceCoordinate)
+{
+  SurfaceDescriptor surface{};
+  surface.kind = kind;
+  surface.referenceCoordinate = referenceCoordinate;
+  return surface;
+}
+
+SurfaceMeasurement diskDirectionMeasurement(float x, float y,
+                                            float varianceX, float covarianceXY, float varianceY)
+{
+  SurfaceMeasurement measurement{};
+  measurement.global = {x, y, 1234.f}; // disk observation takes z from the surface
+  measurement.covariance = {varianceX, covarianceXY, varianceY};
+  return measurement;
+}
+
+SurfaceMeasurement cylinderDirectionMeasurement(float z,
+                                                float varianceU, float covarianceUZ, float varianceZ)
+{
+  SurfaceMeasurement measurement{};
+  measurement.global = {999.f, 999.f, -1234.f}; // cylinder observation uses frame.v
+  measurement.frame.v = z;
+  measurement.covariance = {varianceU, covarianceUZ, varianceZ};
+  return measurement;
+}
+
+SurfaceMeasurement rotateDiskMeasurement(const SurfaceMeasurement& measurement, double angle)
+{
+  const double cosine = std::cos(angle);
+  const double sine = std::sin(angle);
+  const double x = measurement.global.x;
+  const double y = measurement.global.y;
+  const double varianceX = measurement.covariance.uu;
+  const double covarianceXY = measurement.covariance.uv;
+  const double varianceY = measurement.covariance.vv;
+  auto rotated = measurement;
+  rotated.global.x = static_cast<float>(cosine * x - sine * y);
+  rotated.global.y = static_cast<float>(sine * x + cosine * y);
+  rotated.covariance.uu = static_cast<float>(cosine * cosine * varianceX -
+                                             2. * cosine * sine * covarianceXY +
+                                             sine * sine * varianceY);
+  rotated.covariance.uv = static_cast<float>(cosine * sine * (varianceX - varianceY) +
+                                             (cosine * cosine - sine * sine) * covarianceXY);
+  rotated.covariance.vv = static_cast<float>(sine * sine * varianceX +
+                                             2. * cosine * sine * covarianceXY +
+                                             cosine * cosine * varianceY);
+  return rotated;
+}
+
 } // namespace
+
+// ===========================================================================
+// cell direction compatibility
+// ===========================================================================
+
+BOOST_AUTO_TEST_CASE(CellDirectionCompatibilityMatchesFullAnalyticOracle)
+{
+  const std::array<DirectionObservation, 3> observations{{
+    {2., 1., 0.04, 0.006, 0.09},
+    {4., 4., 0.05, -0.004, 0.08},
+    {7., 8., 0.03, 0.003, 0.07},
+  }};
+  CellDirectionCompatibility compatibility{};
+  BOOST_REQUIRE(cellDirectionsAreCompatible(observations, 1.f, compatibility));
+  BOOST_CHECK_CLOSE_FRACTION(compatibility.residual, 1., 1.e-12);
+  BOOST_CHECK_CLOSE_FRACTION(compatibility.variance, 6.55, 1.e-12);
+  BOOST_CHECK_CLOSE_FRACTION(compatibility.chi2, 1. / 6.55, 1.e-12);
+}
+
+BOOST_AUTO_TEST_CASE(DiskDirectionObservationProjectsFullGlobalXYCovariance)
+{
+  const auto surface = directionSurface(SurfaceKind::Disk, -50.f);
+  const auto measurement = diskDirectionMeasurement(3.f, 4.f, 0.04f, 0.006f, 0.09f);
+  DirectionObservation observation{};
+  BOOST_REQUIRE(makeDiskDirectionObservation(surface, measurement, observation));
+  BOOST_CHECK_CLOSE_FRACTION(observation.r, 5., 1.e-12);
+  BOOST_CHECK_CLOSE_FRACTION(observation.z, -50., 1.e-12);
+  BOOST_CHECK_CLOSE_FRACTION(observation.varianceR, 0.07776, 1.e-7);
+  BOOST_CHECK_SMALL(observation.covarianceRZ, 1.e-15);
+  BOOST_CHECK_SMALL(observation.varianceZ, 1.e-15);
+}
+
+BOOST_AUTO_TEST_CASE(CylinderDirectionObservationUsesFixedRadiusAndMeasuredZ)
+{
+  const auto surface = directionSurface(SurfaceKind::Cylinder, 3.5f);
+  const auto measurement = cylinderDirectionMeasurement(-2.2f, 0.04f, 0.006f, 0.09f);
+  DirectionObservation observation{};
+  BOOST_REQUIRE(makeCylinderDirectionObservation(surface, measurement, observation));
+  BOOST_CHECK_CLOSE_FRACTION(observation.r, 3.5, 1.e-12);
+  BOOST_CHECK_CLOSE_FRACTION(observation.z, -2.2, 1.e-6);
+  BOOST_CHECK_SMALL(observation.varianceR, 1.e-15);
+  BOOST_CHECK_SMALL(observation.covarianceRZ, 1.e-15);
+  BOOST_CHECK_CLOSE_FRACTION(observation.varianceZ, 0.09, 1.e-6);
+}
+
+BOOST_AUTO_TEST_CASE(DiskDirectionCompatibilityIsInvariantUnderGlobalZRotation)
+{
+  const std::array<SurfaceDescriptor, 3> surfaces{{
+    directionSurface(SurfaceKind::Disk, 1.f),
+    directionSurface(SurfaceKind::Disk, 4.f),
+    directionSurface(SurfaceKind::Disk, 8.f),
+  }};
+  const std::array<SurfaceMeasurement, 3> measurements{{
+    diskDirectionMeasurement(1.2f, 1.6f, 0.04f, 0.006f, 0.09f),
+    diskDirectionMeasurement(-2.4f, 3.2f, 0.05f, -0.004f, 0.08f),
+    diskDirectionMeasurement(4.2f, -5.6f, 0.03f, 0.003f, 0.07f),
+  }};
+  std::array<DirectionObservation, 3> baseline{};
+  std::array<DirectionObservation, 3> rotated{};
+  for (std::size_t i = 0; i < measurements.size(); ++i) {
+    BOOST_REQUIRE(makeDirectionObservation(surfaces[i], measurements[i], baseline[i]));
+    const auto rotatedMeasurement = rotateDiskMeasurement(measurements[i], 0.73);
+    BOOST_REQUIRE(makeDirectionObservation(surfaces[i], rotatedMeasurement, rotated[i]));
+    BOOST_CHECK_CLOSE_FRACTION(rotated[i].r, baseline[i].r, 2.e-7);
+    BOOST_CHECK_CLOSE_FRACTION(rotated[i].varianceR, baseline[i].varianceR, 5.e-7);
+  }
+  CellDirectionCompatibility baselineCompatibility{};
+  CellDirectionCompatibility rotatedCompatibility{};
+  BOOST_REQUIRE(cellDirectionsAreCompatible(baseline, 100.f, baselineCompatibility));
+  BOOST_REQUIRE(cellDirectionsAreCompatible(rotated, 100.f, rotatedCompatibility));
+  BOOST_CHECK_CLOSE_FRACTION(rotatedCompatibility.chi2, baselineCompatibility.chi2, 1.e-6);
+}
+
+BOOST_AUTO_TEST_CASE(CollinearCylinderAndDiskObservationsHaveZeroChi2)
+{
+  std::array<DirectionObservation, 3> cylinder{};
+  std::array<DirectionObservation, 3> disk{};
+  const std::array<float, 3> radii{1.f, 2.f, 4.f};
+  const std::array<float, 3> z{10.f, 20.f, 40.f};
+  for (std::size_t i = 0; i < radii.size(); ++i) {
+    const auto cylinderSurface = directionSurface(SurfaceKind::Cylinder, radii[i]);
+    const auto cylinderMeasurement = cylinderDirectionMeasurement(z[i], 0.02f, 0.001f, 0.03f);
+    BOOST_REQUIRE(makeDirectionObservation(cylinderSurface, cylinderMeasurement, cylinder[i]));
+
+    const auto diskSurface = directionSurface(SurfaceKind::Disk, z[i]);
+    const auto diskMeasurement = diskDirectionMeasurement(radii[i], 0.f, 0.03f, 0.001f, 0.02f);
+    BOOST_REQUIRE(makeDirectionObservation(diskSurface, diskMeasurement, disk[i]));
+  }
+  CellDirectionCompatibility cylinderCompatibility{};
+  CellDirectionCompatibility diskCompatibility{};
+  BOOST_REQUIRE(cellDirectionsAreCompatible(cylinder, 1.f, cylinderCompatibility));
+  BOOST_REQUIRE(cellDirectionsAreCompatible(disk, 1.f, diskCompatibility));
+  BOOST_CHECK_SMALL(cylinderCompatibility.chi2, 1.e-12);
+  BOOST_CHECK_SMALL(diskCompatibility.chi2, 1.e-12);
+}
+
+BOOST_AUTO_TEST_CASE(CellDirectionCompatibilityUsesOnlyCommonNSigmaCut)
+{
+  const std::array<DirectionObservation, 3> observations{{
+    {2., 1., 0.04, 0.006, 0.09},
+    {4., 4., 0.05, -0.004, 0.08},
+    {7., 8., 0.03, 0.003, 0.07},
+  }};
+  CellDirectionCompatibility pass{};
+  CellDirectionCompatibility fail{};
+  BOOST_CHECK(cellDirectionsAreCompatible(observations, 0.4f, pass));
+  BOOST_CHECK(!cellDirectionsAreCompatible(observations, 0.39f, fail));
+  BOOST_CHECK_EQUAL(pass.residual, fail.residual);
+  BOOST_CHECK_EQUAL(pass.variance, fail.variance);
+  BOOST_CHECK_EQUAL(pass.chi2, fail.chi2);
+}
+
+BOOST_AUTO_TEST_CASE(CellDirectionCompatibilityFailsClosedTransactionally)
+{
+  std::array<DirectionObservation, 3> observations{{
+    {2., 1., 0.04, 0.006, 0.09},
+    {4., 4., 0.05, -0.004, 0.08},
+    {7., 8., 0.03, 0.003, 0.07},
+  }};
+  const CellDirectionCompatibility sentinel{11., 12., 13.};
+  auto compatibility = sentinel;
+  observations[1].covarianceRZ = 1.; // non-PSD
+  BOOST_CHECK(!cellDirectionsAreCompatible(observations, 5.f, compatibility));
+  BOOST_CHECK(bitEqual(compatibility, sentinel));
+
+  observations[1] = {4., 4., 0.05, -0.004, 0.08};
+  observations[2].z = std::numeric_limits<double>::quiet_NaN();
+  BOOST_CHECK(!cellDirectionsAreCompatible(observations, 5.f, compatibility));
+  BOOST_CHECK(bitEqual(compatibility, sentinel));
+
+  auto invalidDisk = diskDirectionMeasurement(3.f, 4.f, 0.04f, 1.f, 0.09f);
+  DirectionObservation observationSentinel{1., 2., 3., 4., 5.};
+  auto observation = observationSentinel;
+  BOOST_CHECK(!makeDiskDirectionObservation(
+    directionSurface(SurfaceKind::Disk, -50.f), invalidDisk, observation));
+  BOOST_CHECK(bitEqual(observation, observationSentinel));
+}
 
 // ===========================================================================
 // buildCylinderCellSeed

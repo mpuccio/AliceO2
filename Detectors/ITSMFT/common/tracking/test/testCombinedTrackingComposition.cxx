@@ -52,7 +52,7 @@
 #include "ITSMFTTracking/TrackerTraits.h"
 #include "ITSMFTTracking/TrackingConfigParam.h"
 #include "ITSMFTTracking/CommonTrackOutputAdapter.h"
-#include "ITSMFTTracking/detail/TrackletFinding.h"
+#include "ITSMFTTracking/detail/CandidateFinding.h"
 #include "ITStracking/Constants.h"
 #include "ReconstructionDataFormats/Track.h"
 
@@ -196,7 +196,7 @@ std::vector<DecodedCluster> buildMftChainClusters(const TrackingParameters& para
 /// there -- both const, no incremental state mutation between layers).
 ///
 /// A perfectly collinear ("infinite pT" / zero-curvature) triple is a
-/// genuine, deliberate rejection of TrackletFinding.cxx's
+/// genuine, deliberate rejection of CandidateFinding.cxx's
 /// barrel::buildSeed circle fit -- see testBarrelSurfaceStateOperations.cxx's
 /// own BuildSeedDegenerateZeroFieldGeometryRejectsViaNonFiniteOutput and its
 /// "three well-separated, non-collinear points" fixture comment. A first
@@ -329,6 +329,9 @@ struct StandaloneRun {
     catalog.reserve(NLayers);
     for (uint16_t i = 0; i < NLayers; ++i) {
       SurfaceDescriptor surface{SurfaceId{i}, i, static_cast<uint8_t>(det), kind};
+      surface.referenceCoordinate = kind == SurfaceKind::Cylinder
+                                      ? singleParams.LayerRadii[i]
+                                      : detail::mftLayerZ(i);
       const float xOverX0 = det == o2::detectors::DetID::MFT ? kNominalMFTLayerX0[i] : kNominalITSLayerX0[i];
       surface.material.xOverX0 = xOverX0;
       surface.material.arealDensityGPerCm2 = xOverX0 * o2::its::constants::Radl * o2::its::constants::Rho;
@@ -581,7 +584,6 @@ BOOST_AUTO_TEST_CASE(CombinedLoadingBackfillsOneGlobalWorkspace)
   BOOST_CHECK_EQUAL(combined.NSigmaCut, itsParams.NSigmaCut);
   BOOST_CHECK_EQUAL(combined.PVres, itsParams.PVres);
   BOOST_CHECK_EQUAL(combined.TrackletMinPt, itsParams.TrackletMinPt);
-  BOOST_CHECK_EQUAL(combined.CellDeltaTanLambdaSigma, itsParams.CellDeltaTanLambdaSigma);
   BOOST_CHECK(combined.CorrType == itsParams.CorrType);
   BOOST_CHECK_EQUAL(combined.MaxChi2ClusterAttachment, itsParams.MaxChi2ClusterAttachment);
   BOOST_CHECK_EQUAL(combined.MaxChi2NDF, itsParams.MaxChi2NDF);

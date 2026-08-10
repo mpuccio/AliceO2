@@ -18,7 +18,7 @@
 #include "ITSMFTTracking/SurfaceGraphBuilder.h"
 #include "ITSMFTTracking/StaticDetectorCatalogs.h"
 #include "ITSMFTTracking/SurfaceDescriptor.h"
-#include "ITSMFTTracking/detail/CellFinding.h"
+#include "ITSMFTTracking/detail/CandidateFinding.h"
 
 namespace
 {
@@ -69,7 +69,6 @@ int initializeCommonITSTracker()
   traits.setNThreads(1, arena);
 
   TrackingKernelParameters cylinderParameters;
-  cylinderParameters.kind = SurfaceKind::Cylinder;
   const auto materialParameters = bindAttachHitConfig(
     gsl::span<const NominalSurfaceMaterial>(layerMaterial.data(), layerMaterial.size()), parameters.front());
   if (!cylinderParameters.isValid() || !materialParameters.isValid(ITSNLayers)) {

@@ -54,9 +54,9 @@ std::string readTrackerTraitsHeader()
   return readFile(testDirectory + "/../include/ITSMFTTracking/TrackerTraits.h");
 }
 
-std::string readTrackletFindingSource()
+std::string readCandidateFindingSource()
 {
-  return readFile((commonTrackingRoot() / "src/TrackletFinding.cxx").string());
+  return readFile((commonTrackingRoot() / "src/CandidateFinding.cxx").string());
 }
 
 /// Extracts the body (inclusive of the opening/closing braces) of the first
@@ -221,9 +221,12 @@ BOOST_AUTO_TEST_CASE(RetiredCoordinateCutsAreAbsentFromCommonProductionSources)
   const std::array<fs::path, 2> productionRoots{
     commonTrackingRoot() / "include",
     commonTrackingRoot() / "src"};
-  const std::array<std::string, 6> retired{
+  const std::array<std::string, 10> retired{
     "TrackletMinAbsX", "trackletMinAbsX", "CellRoadRCut", "cellRoadRCut",
-    "passesCylinderCellRoadPrecut", "passesDiskCellRoadPrecut"};
+    "passesCylinderCellRoadPrecut", "passesDiskCellRoadPrecut",
+    "CellDeltaTanLambdaSigma", "cellDeltaTanLambdaSigma",
+    "computeDiskCellDirectionCompatibilityChi2",
+    "cellDirectionsAreCompatible(SurfaceKind"};
 
   for (const auto& root : productionRoots) {
     for (const auto& entry : fs::recursive_directory_iterator{root}) {
@@ -244,14 +247,45 @@ BOOST_AUTO_TEST_CASE(CellCandidateLoopHasOneDescriptorSelectedLeafBoundary)
   const auto source = readTrackerTraitsSource();
   const auto code = stripLineComments(extractMethodBody(source, "computeLayerCellsImpl"));
 
+  BOOST_CHECK_EQUAL(countOccurrences(code, "cellDirectionsAreCompatible("), 1u);
+  BOOST_CHECK_EQUAL(countOccurrences(code, "makeDirectionObservation("), 3u);
   BOOST_CHECK_EQUAL(countOccurrences(code, "buildCellSeed("), 1u);
+  BOOST_CHECK(code.find("CellDeltaTanLambdaSigma") == std::string::npos);
+  BOOST_CHECK(code.find("deltaTanLambdaSigma") == std::string::npos);
   BOOST_CHECK(code.find("buildCylinderCellSeed(") == std::string::npos);
   BOOST_CHECK(code.find("buildDiskCellSeed(") == std::string::npos);
   BOOST_CHECK(code.find("SurfaceKind::Cylinder") == std::string::npos);
   BOOST_CHECK(code.find("SurfaceKind::Disk") == std::string::npos);
+  BOOST_CHECK(code.find(".tanLambda") == std::string::npos);
+  BOOST_CHECK(code.find("switch (kind)") == std::string::npos);
   for (const auto token : {"DetID", "ClusterSourceId", "ROAD", "Precut"}) {
     BOOST_CHECK_MESSAGE(!mentionsToken(code, token),
                         "cell orchestration contains detector/source/cut dispatch token " << token);
+  }
+}
+
+BOOST_AUTO_TEST_CASE(CellDirectionUsesOneFamilyNeutralAlgorithmAndConsolidatedBoundary)
+{
+  const auto root = commonTrackingRoot();
+  BOOST_CHECK(!fs::exists(root / "include/ITSMFTTracking/detail/CellFinding.h"));
+  BOOST_CHECK(!fs::exists(root / "include/ITSMFTTracking/detail/TrackletFinding.h"));
+  BOOST_CHECK(fs::exists(root / "include/ITSMFTTracking/detail/CandidateFinding.h"));
+
+  const auto source = readCandidateFindingSource();
+  const auto begin = source.find("bool cellDirectionsAreCompatible(");
+  const auto end = source.find("bool buildCylinderCellSeed(", begin);
+  BOOST_REQUIRE(begin != std::string::npos);
+  BOOST_REQUIRE(end != std::string::npos);
+  const auto compatibility = source.substr(begin, end - begin);
+  for (const auto forbidden : {"SurfaceKind", "switch", "if constexpr",
+                               "Cylinder", "Disk", "DetID", "ClusterSourceId"}) {
+    BOOST_CHECK_MESSAGE(compatibility.find(forbidden) == std::string::npos,
+                        "shared cell-direction algorithm contains " << forbidden);
+  }
+  for (const auto required : {"covarianceRZ", "deltaZ01", "deltaZ12",
+                              "deltaR01", "deltaR12", "variance", "chi2"}) {
+    BOOST_CHECK_MESSAGE(compatibility.find(required) != std::string::npos,
+                        "shared cell-direction algorithm lacks " << required);
   }
 }
 
@@ -280,13 +314,15 @@ BOOST_AUTO_TEST_CASE(KernelPolicyIsOneSurfaceNeutralRecord)
   BOOST_CHECK(kernelHeader.find("SurfaceKind") == std::string::npos);
 }
 
-BOOST_AUTO_TEST_CASE(SurfaceSelectionLivesInTrackletAndCellLeafSource)
+BOOST_AUTO_TEST_CASE(SurfaceSelectionLivesInCandidateFindingLeaves)
 {
-  const auto source = readTrackletFindingSource();
+  const auto source = readCandidateFindingSource();
   BOOST_CHECK(source.find("case SurfaceKind::Cylinder:") != std::string::npos);
   BOOST_CHECK(source.find("case SurfaceKind::Disk:") != std::string::npos);
   BOOST_CHECK(source.find("projectCylinderSearchWindow(") != std::string::npos);
   BOOST_CHECK(source.find("projectDiskSearchWindow(") != std::string::npos);
   BOOST_CHECK(source.find("buildCylinderCellSeed(") != std::string::npos);
   BOOST_CHECK(source.find("buildDiskCellSeed(") != std::string::npos);
+  BOOST_CHECK(source.find("makeCylinderDirectionObservation(") != std::string::npos);
+  BOOST_CHECK(source.find("makeDiskDirectionObservation(") != std::string::npos);
 }

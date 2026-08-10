@@ -53,8 +53,7 @@
 #include "ITSMFTTracking/TimeFrame.h"
 #include "ITSMFTTracking/TrackerTraits.h"
 #include "ITSMFTTracking/TrackingConfigParam.h"
-#include "ITSMFTTracking/detail/TrackletFinding.h"
-#include "ITSMFTTracking/detail/CellFinding.h"
+#include "ITSMFTTracking/detail/CandidateFinding.h"
 #include "ITStracking/Cluster.h"
 #include "ITStracking/Constants.h"
 #include "ITStracking/Tracklet.h"
@@ -176,6 +175,9 @@ std::vector<SurfaceDescriptor> makeCatalog(uint16_t nLayers, o2::detectors::DetI
   surfaces.reserve(nLayers);
   for (uint16_t i = 0; i < nLayers; ++i) {
     surfaces.push_back(SurfaceDescriptor{SurfaceId{i}, i, static_cast<uint8_t>(det), kind});
+    surfaces.back().referenceCoordinate = kind == SurfaceKind::Cylinder
+                                            ? 3.f + static_cast<float>(i)
+                                            : -0.4f - 0.2f * static_cast<float>(i);
     const float xOverX0 = layerxX0[i];
     surfaces.back().material.xOverX0 = xOverX0;
     surfaces.back().material.arealDensityGPerCm2 = xOverX0 * o2::its::constants::Radl * o2::its::constants::Rho;
@@ -613,9 +615,9 @@ BOOST_AUTO_TEST_CASE(DiskComputeLayerCellsMatchesBuildCellSeedOracle)
   Rig<MFTNLayers> rig{o2::detectors::DetID::MFT, SurfaceKind::Disk};
   rig.params[0].MaxChi2ClusterAttachment = 1.e6f;
   rig.params[0].TrackletMinPt = 0.3f;
-  rig.params[0].LayerxX0[0] = 0.015f;  // inner
-  rig.params[0].LayerxX0[1] = 0.017f;  // middle
-  rig.params[0].LayerxX0[2] = 0.02f;   // outer
+  rig.params[0].LayerxX0[0] = 0.015f; // inner
+  rig.params[0].LayerxX0[1] = 0.017f; // middle
+  rig.params[0].LayerxX0[2] = 0.02f;  // outer
   rig.establishLayout();
 
   const std::array<o2::its::Cluster, 3> clusters{makeGlobalCluster(1.0f, 0.5f, -0.4f, 0),

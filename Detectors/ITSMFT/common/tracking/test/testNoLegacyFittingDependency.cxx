@@ -45,7 +45,7 @@ struct TokenCheck {
 
 // Every allowlisted file is scanned too -- the allowlist only means "known,
 // reasoned exception", not "unscanned". Rationale per file:
-//  - NativeRefitDriver.h, detail/TrackletFinding.h,
+//  - NativeRefitDriver.h, detail/CandidateFinding.h,
 //    SurfaceStateOperationResult.h: doc comments describing the legacy
 //    fitTrack/refitTrack formula an operation reproduces or a failure reason
 //    mirrors -- prose, not a dependency.
@@ -151,12 +151,12 @@ BOOST_AUTO_TEST_CASE(NoProductionFileIncludesEitherFrozenLegacyFittingHeader)
       ++lineNumber;
       BOOST_CHECK_MESSAGE(!std::regex_search(line, mftIncludeRegex),
                           path.filename().string() << ":" << lineNumber << " includes the frozen MFT fitter header: " << line);
-      // ITStracking/TrackHelpers.h: retained by TrackletFinding.cxx
+      // ITStracking/TrackHelpers.h: retained by CandidateFinding.cxx
       // for legacy-layer/constant utilities unrelated to the fitting chain
       // this milestone removes (grep-verified: no o2::its::track::fitTrack/
       // refitTrack/refitTrackSeed/TrackFitContext symbol is referenced by that
       // file) -- pre-existing, out of this milestone's scope.
-      if (path.filename() == "TrackletFinding.cxx") {
+      if (path.filename() == "CandidateFinding.cxx") {
         continue;
       }
       BOOST_CHECK_MESSAGE(!std::regex_search(line, itsIncludeRegex),

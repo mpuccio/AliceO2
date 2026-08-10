@@ -175,7 +175,6 @@ void checkParity(const LegacyParameters& legacy, const CommonParameters& common)
   BOOST_CHECK_EQUAL(legacy.NSigmaCut, common.NSigmaCut);
   BOOST_CHECK_EQUAL(legacy.PVres, common.PVres);
   BOOST_CHECK_EQUAL(legacy.TrackletMinPt, common.TrackletMinPt);
-  BOOST_CHECK_EQUAL(legacy.CellDeltaTanLambdaSigma, common.CellDeltaTanLambdaSigma);
   BOOST_CHECK(legacy.CorrType == common.CorrType);
   BOOST_CHECK_EQUAL(legacy.MaxChi2ClusterAttachment, common.MaxChi2ClusterAttachment);
   BOOST_CHECK_EQUAL(legacy.MaxChi2NDF, common.MaxChi2NDF);
@@ -402,7 +401,6 @@ BOOST_AUTO_TEST_CASE(ArbitraryLegacyObjectIsTranslatedFieldByField)
   legacy.NSigmaCut = 3.1f;
   legacy.PVres = 3.2f;
   legacy.TrackletMinPt = 3.3f;
-  legacy.CellDeltaTanLambdaSigma = 3.4f;
   legacy.CorrType = o2::base::PropagatorF::MatCorrType::USEMatCorrTGeo;
   legacy.MaxChi2ClusterAttachment = 3.5f;
   legacy.MaxChi2NDF = 3.6f;

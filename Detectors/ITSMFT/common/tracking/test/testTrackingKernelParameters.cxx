@@ -35,7 +35,6 @@ BOOST_AUTO_TEST_CASE(TrackingKernelParametersDefaultsMatchCurrentProductionValue
   // production tracking reads from these structs yet.
   TrackingKernelParameters parameters;
   BOOST_CHECK_CLOSE(parameters.trackletMinPt, 0.3f, 1e-6);
-  BOOST_CHECK_CLOSE(parameters.cellDeltaTanLambdaSigma, 0.007f, 1e-6);
   BOOST_CHECK_CLOSE(parameters.nSigmaCut, 5.f, 1e-6);
   BOOST_CHECK_CLOSE(parameters.maxChi2ClusterAttachment, 60.f, 1e-6);
   BOOST_CHECK_CLOSE(parameters.maxChi2NDF, 30.f, 1e-6);
@@ -45,24 +44,19 @@ BOOST_AUTO_TEST_CASE(TrackingKernelParametersDefaultsMatchCurrentProductionValue
 
 BOOST_AUTO_TEST_CASE(TrackingKernelParametersAbiIsLocked)
 {
-  BOOST_CHECK_EQUAL(sizeof(TrackingKernelParameters), 24u);
+  BOOST_CHECK_EQUAL(sizeof(TrackingKernelParameters), 20u);
   BOOST_CHECK_EQUAL(alignof(TrackingKernelParameters), alignof(float));
   BOOST_CHECK_EQUAL(offsetof(TrackingKernelParameters, trackletMinPt), 0u);
-  BOOST_CHECK_EQUAL(offsetof(TrackingKernelParameters, cellDeltaTanLambdaSigma), 4u);
-  BOOST_CHECK_EQUAL(offsetof(TrackingKernelParameters, nSigmaCut), 8u);
-  BOOST_CHECK_EQUAL(offsetof(TrackingKernelParameters, maxChi2ClusterAttachment), 12u);
-  BOOST_CHECK_EQUAL(offsetof(TrackingKernelParameters, maxChi2NDF), 16u);
-  BOOST_CHECK_EQUAL(offsetof(TrackingKernelParameters, pvResolution), 20u);
+  BOOST_CHECK_EQUAL(offsetof(TrackingKernelParameters, nSigmaCut), 4u);
+  BOOST_CHECK_EQUAL(offsetof(TrackingKernelParameters, maxChi2ClusterAttachment), 8u);
+  BOOST_CHECK_EQUAL(offsetof(TrackingKernelParameters, maxChi2NDF), 12u);
+  BOOST_CHECK_EQUAL(offsetof(TrackingKernelParameters, pvResolution), 16u);
 }
 
 BOOST_AUTO_TEST_CASE(TrackingKernelParametersBoundsAreValidated)
 {
   TrackingKernelParameters parameters;
   parameters.trackletMinPt = 0.f;
-  BOOST_CHECK(!parameters.isValid());
-
-  parameters = TrackingKernelParameters{};
-  parameters.cellDeltaTanLambdaSigma = 0.f;
   BOOST_CHECK(!parameters.isValid());
 
   parameters = TrackingKernelParameters{};
@@ -92,10 +86,6 @@ BOOST_AUTO_TEST_CASE(TrackingKernelParametersRejectNonFiniteValues)
 
   TrackingKernelParameters parameters;
   parameters.trackletMinPt = nan;
-  BOOST_CHECK(!parameters.isValid());
-
-  parameters = TrackingKernelParameters{};
-  parameters.cellDeltaTanLambdaSigma = inf;
   BOOST_CHECK(!parameters.isValid());
 
   parameters = TrackingKernelParameters{};
