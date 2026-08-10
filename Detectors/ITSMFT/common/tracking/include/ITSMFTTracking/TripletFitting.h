@@ -9,7 +9,6 @@
 #define ALICEO2_ITSMFT_TRACKING_TRIPLETFITTING_H_
 
 #include <array>
-#include <cstdint>
 #include <type_traits>
 
 #include "GPUCommonDef.h"
@@ -31,30 +30,6 @@ struct SymmetricCovariance3D {
 struct TripletFitObservation {
   std::array<double, 3> position{};
   SymmetricCovariance3D covariance{};
-};
-
-struct TripletFitProcessNoise {
-  // Variance of the physical space-angle kick at the middle observation.
-  double angularVariance{0.};
-};
-
-// Packed covariance of (q/pT, phi, tanLambda).
-struct TripletParameterCovariance {
-  double qOverPtQOverPt{0.};
-  double qOverPtPhi{0.};
-  double qOverPtTanLambda{0.};
-  double phiPhi{0.};
-  double phiTanLambda{0.};
-  double tanLambdaTanLambda{0.};
-};
-
-// Diagnostic direction marginal at a tracklet midpoint. Inner refers to hits
-// (0,1), outer to hits (1,2); CellSeed persists the factor below instead.
-struct TripletSegmentEstimate {
-  double qOverPt{0.};
-  double phi{0.};
-  double tanLambda{0.};
-  TripletParameterCovariance covariance{};
 };
 
 struct TripletKinkVector {
@@ -105,57 +80,24 @@ struct AdjacentTripletFitResult {
   double curvature{0.};
   double curvatureVariance{0.};
   double chi2{0.};
-  // Interleaved triplet order: (theta0, phi0, theta1, phi1).
-  std::array<std::array<double, 4>, 4> covariance{};
-};
-
-struct LocalTripletFitResult {
-  double curvature{0.};
-  double curvatureVariance{0.};
-  double chi2{0.};
-  double referenceTransverseCurvature{0.};
-  double referenceSinTheta{0.};
-  double phiTilde{0.};
-  double thetaTilde{0.};
-  double rhoPhi{0.};
-  double rhoTheta{0.};
-  double gammaThetaTheta{0.};
-  double gammaThetaPhi{0.};
-  double gammaPhiPhi{0.};
-  TripletSegmentEstimate inner{};
-  TripletSegmentEstimate outer{};
-  TripletFitFactor factor{};
 };
 
 bool makeTripletFitObservation(const GlobalMeasurement& measurement,
                                TripletFitObservation& observation) noexcept;
 
-bool fitLocalTripletUniformSolenoid(
+bool makeTripletFitFactor(
   const std::array<TripletFitObservation, 3>& observations,
-  const TripletFitProcessNoise& processNoise,
-  double bz,
-  LocalTripletFitResult& result) noexcept;
+  TripletFitFactor& factor) noexcept;
 
 // Closed-form minimization of Eq. (19) for adjacent triplets over one common
 // curvature. observations are the four unique ordered hits; angularVariance
 // contains the physical space-angle MS variance for each triplet.
 bool fitAdjacentTripletFactors(
-  const std::array<TripletFitFactor, 2>& factors,
+  const TripletFitFactor& firstFactor,
+  const TripletFitFactor& secondFactor,
   const std::array<TripletFitObservation, 4>& observations,
   const std::array<double, 2>& angularVariance,
   AdjacentTripletFitResult& result) noexcept;
-
-double fittedTripletTransverseMomentum(const LocalTripletFitResult& result,
-                                       double bz) noexcept;
-
-double fittedTripletTransverseMomentum(const LocalTripletFitResult& result,
-                                       double bz, uint8_t absCharge) noexcept;
-
-double fittedTripletTransverseMomentum(const TripletSegmentEstimate& estimate,
-                                       uint8_t absCharge = 1) noexcept;
-
-double fittedTripletTransverseMomentumVariance(const TripletSegmentEstimate& estimate,
-                                               uint8_t absCharge = 1) noexcept;
 
 } // namespace o2::itsmft::tracking
 

@@ -18,7 +18,6 @@
 #include <limits>
 #include <string>
 
-#include "CommonConstants/MathConstants.h"
 #include "ITSMFTTracking/TripletFitting.h"
 
 using namespace o2::itsmft::tracking;
@@ -62,18 +61,16 @@ std::array<TripletFitObservation, 4> makeAdjacentHelixObservations()
 }
 
 std::array<TripletFitFactor, 2> fitAdjacentFactors(
-  const std::array<TripletFitObservation, 4>& observations,
-  const std::array<double, 2>& angularVariance)
+  const std::array<TripletFitObservation, 4>& observations)
 {
   const std::array<TripletFitObservation, 3> first{
     observations[0], observations[1], observations[2]};
   const std::array<TripletFitObservation, 3> second{
     observations[1], observations[2], observations[3]};
-  LocalTripletFitResult firstFit{};
-  LocalTripletFitResult secondFit{};
-  BOOST_REQUIRE(fitLocalTripletUniformSolenoid(first, {angularVariance[0]}, 5., firstFit));
-  BOOST_REQUIRE(fitLocalTripletUniformSolenoid(second, {angularVariance[1]}, 5., secondFit));
-  return {firstFit.factor, secondFit.factor};
+  std::array<TripletFitFactor, 2> factors{};
+  BOOST_REQUIRE(makeTripletFitFactor(first, factors[0]));
+  BOOST_REQUIRE(makeTripletFitFactor(second, factors[1]));
+  return factors;
 }
 
 SymmetricCovariance3D rotateCovarianceAroundZ(const SymmetricCovariance3D& covariance,
@@ -159,96 +156,20 @@ BOOST_AUTO_TEST_CASE(GlobalObservationAcceptsOnlyFloatRoundoffAtPSDBoundary)
   BOOST_CHECK(!makeTripletFitObservation(measurement, observation));
 }
 
-BOOST_AUTO_TEST_CASE(ExactHelixHasExpectedCurvatureAndZeroLocalQuality)
+BOOST_AUTO_TEST_CASE(ExactHelixProducesAConsistentFactor)
 {
   const auto observations = makeHelixObservations();
-  LocalTripletFitResult result{};
-  BOOST_REQUIRE(fitLocalTripletUniformSolenoid(observations, {1.e-8}, 5., result));
-
-  const double expectedTransverseCurvature = 1. / Radius;
-  const double expectedSinTheta = 1. / std::sqrt(1. + TanLambda * TanLambda);
-  const double expectedCurvature = expectedTransverseCurvature * expectedSinTheta;
-  checkClose(result.referenceTransverseCurvature, expectedTransverseCurvature, 2.e-13);
-  checkClose(result.referenceSinTheta, expectedSinTheta, 3.e-4);
-  checkClose(result.curvature, expectedCurvature, 3.e-4);
-  BOOST_CHECK_SMALL(result.chi2, 1.e-18);
-  BOOST_CHECK_GT(result.curvatureVariance, 0.);
-
-  const double expectedPt = std::abs(static_cast<double>(o2::constants::math::B2C) * 5. * Radius);
-  checkClose(fittedTripletTransverseMomentum(result, 5.), expectedPt, 4.e-4);
-  checkClose(fittedTripletTransverseMomentum(result.inner), expectedPt, 4.e-4);
-  BOOST_CHECK_GT(fittedTripletTransverseMomentumVariance(result.inner), 0.);
-  checkClose(result.inner.tanLambda, TanLambda, 4.e-4);
-  checkClose(result.outer.tanLambda, TanLambda, 4.e-4);
-  BOOST_CHECK_GT(result.inner.covariance.qOverPtQOverPt, 0.);
-  BOOST_CHECK_GT(result.inner.covariance.phiPhi, 0.);
-  BOOST_CHECK_GT(result.inner.covariance.tanLambdaTanLambda, 0.);
-
-  const auto& factor = result.factor;
+  TripletFitFactor factor{};
+  BOOST_REQUIRE(makeTripletFitFactor(observations, factor));
   BOOST_REQUIRE(factor.isValid());
-  checkClose(factor.psi.theta, result.thetaTilde, 1.e-7);
-  checkClose(factor.psi.phi, result.phiTilde, 1.e-7);
-  checkClose(factor.rho.theta, result.rhoTheta, 1.e-7);
-  checkClose(factor.rho.phi, result.rhoPhi, 1.e-7);
-
-  // Eq. (19): the persisted H reproduces the measurement part of the local
-  // kink covariance, including every per-hit xyz cross term.
-  checkClose(factorCovariance(factor, observations, true, true),
-             result.gammaThetaTheta - 1.e-8, 2.e-6, 1.e-15);
-  checkClose(factorCovariance(factor, observations, true, false),
-             result.gammaThetaPhi, 2.e-6, 1.e-15);
-  const double phiMSVariance = 1.e-8 / (result.referenceSinTheta * result.referenceSinTheta);
-  checkClose(factorCovariance(factor, observations, false, false),
-             result.gammaPhiPhi - phiMSVariance, 2.e-6, 1.e-15);
-}
-
-BOOST_AUTO_TEST_CASE(GlobalRotationAndTranslationLeaveFitInvariant)
-{
-  const auto original = makeHelixObservations();
-  auto transformed = original;
-  const double angle = 1.234;
-  const double cosine = std::cos(angle);
-  const double sine = std::sin(angle);
-  for (auto& observation : transformed) {
-    const double x = observation.position[0];
-    const double y = observation.position[1];
-    observation.position = {cosine * x - sine * y + 17.,
-                            sine * x + cosine * y - 8.,
-                            observation.position[2] + 23.};
-    observation.covariance = rotateCovarianceAroundZ(observation.covariance, angle);
-  }
-
-  LocalTripletFitResult first{};
-  LocalTripletFitResult second{};
-  BOOST_REQUIRE(fitLocalTripletUniformSolenoid(original, {2.e-7}, 5., first));
-  BOOST_REQUIRE(fitLocalTripletUniformSolenoid(transformed, {2.e-7}, 5., second));
-  checkClose(second.curvature, first.curvature, 2.e-13);
-  checkClose(second.curvatureVariance, first.curvatureVariance, 2.e-12);
-  checkClose(second.chi2, first.chi2, 1.e-9, 1.e-20);
-  checkClose(second.gammaThetaPhi, first.gammaThetaPhi, 3.e-12);
-  checkClose(second.inner.qOverPt, first.inner.qOverPt, 2.e-13);
-  checkClose(second.inner.phi - first.inner.phi, angle, 2.e-13);
-  checkClose(second.inner.tanLambda, first.inner.tanLambda, 2.e-13);
-  checkClose(second.inner.covariance.qOverPtQOverPt,
-             first.inner.covariance.qOverPtQOverPt, 3.e-11);
-}
-
-BOOST_AUTO_TEST_CASE(FullCrossCovarianceContributesToTheFit)
-{
-  const auto withCrossTerms = makeHelixObservations();
-  auto diagonal = withCrossTerms;
-  for (auto& observation : diagonal) {
-    observation.covariance.xy = 0.;
-    observation.covariance.xz = 0.;
-    observation.covariance.yz = 0.;
-  }
-
-  LocalTripletFitResult full{};
-  LocalTripletFitResult reduced{};
-  BOOST_REQUIRE(fitLocalTripletUniformSolenoid(withCrossTerms, {3.e-8}, 5., full));
-  BOOST_REQUIRE(fitLocalTripletUniformSolenoid(diagonal, {3.e-8}, 5., reduced));
-  BOOST_CHECK_NE(full.gammaThetaPhi, reduced.gammaThetaPhi);
-  BOOST_CHECK_NE(full.curvatureVariance, reduced.curvatureVariance);
+  const double referenceCurvature = -static_cast<double>(factor.psi.phi) / factor.rho.phi;
+  const double expectedCurvature = (1. / Radius) / std::sqrt(1. + TanLambda * TanLambda);
+  checkClose(referenceCurvature, expectedCurvature, 4.e-4);
+  BOOST_CHECK_SMALL(static_cast<double>(factor.psi.theta) +
+                      static_cast<double>(factor.rho.theta) * referenceCurvature,
+                    1.e-8);
+  BOOST_CHECK_GT(factorCovariance(factor, observations, true, true), 0.);
+  BOOST_CHECK_NE(factorCovariance(factor, observations, true, false), 0.);
 }
 
 BOOST_AUTO_TEST_CASE(AdjacentFactorsImplementEquation19ClosedForm)
@@ -267,7 +188,7 @@ BOOST_AUTO_TEST_CASE(AdjacentFactorsImplementEquation19ClosedForm)
   factors[1].rho = {1.f, 1.f};
 
   AdjacentTripletFitResult result{};
-  BOOST_REQUIRE(fitAdjacentTripletFactors(factors, observations, {4., 9.}, result));
+  BOOST_REQUIRE(fitAdjacentTripletFactors(factors[0], factors[1], observations, {4., 9.}, result));
   const double rhoKpsi = 1. / 4. + 2. / 4. + 3. / 9. + 4. / 9.;
   const double rhoKrho = 1. / 4. + 1. / 4. + 1. / 9. + 1. / 9.;
   const double psiKpsi = 1. / 4. + 4. / 4. + 9. / 9. + 16. / 9.;
@@ -293,23 +214,22 @@ BOOST_AUTO_TEST_CASE(AdjacentFactorsRetainSharedHitCrossCovariance)
   factors[1].h[0].theta = {3.f, -2.f, 0.f};
   factors[1].h[0].phi = {2.f, 4.f, 0.f};
 
-  AdjacentTripletFitResult result{};
-  BOOST_REQUIRE(fitAdjacentTripletFactors(factors, observations, {100., 100.}, result));
-  const auto contraction = [&](const std::array<float, 3>& left,
-                               const std::array<float, 3>& right) {
-    const auto& v = observations[1].covariance;
-    return left[0] * (v.xx * right[0] + v.xy * right[1]) +
-           left[1] * (v.xy * right[0] + v.yy * right[1]);
-  };
-  checkClose(result.covariance[0][2],
-             contraction(factors[0].h[1].theta, factors[1].h[0].theta), 1.e-14);
-  checkClose(result.covariance[0][3],
-             contraction(factors[0].h[1].theta, factors[1].h[0].phi), 1.e-14);
-  checkClose(result.covariance[1][2],
-             contraction(factors[0].h[1].phi, factors[1].h[0].theta), 1.e-14);
-  checkClose(result.covariance[1][3],
-             contraction(factors[0].h[1].phi, factors[1].h[0].phi), 1.e-14);
-  BOOST_CHECK_EQUAL(result.covariance[0][2], result.covariance[2][0]);
+  AdjacentTripletFitResult correlated{};
+  BOOST_REQUIRE(fitAdjacentTripletFactors(factors[0], factors[1], observations,
+                                          {100., 100.}, correlated));
+
+  // Move the second factor's identical covariance contribution from shared
+  // hit 1 to private hit 3. Diagonal blocks stay equal; only H V H^T's
+  // cross-triplet block disappears.
+  auto independentFactors = factors;
+  auto independentObservations = observations;
+  independentFactors[1].h[2] = independentFactors[1].h[0];
+  independentFactors[1].h[0] = {};
+  independentObservations[3].covariance = observations[1].covariance;
+  AdjacentTripletFitResult independent{};
+  BOOST_REQUIRE(fitAdjacentTripletFactors(independentFactors[0], independentFactors[1],
+                                          independentObservations, {100., 100.}, independent));
+  BOOST_CHECK_NE(correlated.curvatureVariance, independent.curvatureVariance);
 }
 
 BOOST_AUTO_TEST_CASE(AdjacentFactorsApplySpaceAngleMSGeometry)
@@ -325,20 +245,18 @@ BOOST_AUTO_TEST_CASE(AdjacentFactorsApplySpaceAngleMSGeometry)
   factors[0].rho = {1.f, 1.f};
   factors[1].rho = {1.f, 1.f};
   AdjacentTripletFitResult result{};
-  BOOST_REQUIRE(fitAdjacentTripletFactors(factors, observations, {4., 9.}, result));
-  checkClose(result.covariance[0][0], 4., 1.e-14);
-  checkClose(result.covariance[1][1], 8., 1.e-14);
-  checkClose(result.covariance[2][2], 9., 1.e-14);
-  checkClose(result.covariance[3][3], 18., 1.e-14);
+  BOOST_REQUIRE(fitAdjacentTripletFactors(factors[0], factors[1], observations, {4., 9.}, result));
+  const double expectedPrecision = 1. / 4. + 1. / 8. + 1. / 9. + 1. / 18.;
+  checkClose(result.curvatureVariance, 1. / expectedPrecision, 1.e-14);
 }
 
 BOOST_AUTO_TEST_CASE(AdjacentExactHelixHasCommonCurvatureAndZeroQuality)
 {
   const auto observations = makeAdjacentHelixObservations();
   const std::array<double, 2> angularVariance{1.e-8, 2.e-8};
-  const auto factors = fitAdjacentFactors(observations, angularVariance);
+  const auto factors = fitAdjacentFactors(observations);
   AdjacentTripletFitResult result{};
-  BOOST_REQUIRE(fitAdjacentTripletFactors(factors, observations, angularVariance, result));
+  BOOST_REQUIRE(fitAdjacentTripletFactors(factors[0], factors[1], observations, angularVariance, result));
   const double expectedCurvature = (1. / Radius) / std::sqrt(1. + TanLambda * TanLambda);
   checkClose(result.curvature, expectedCurvature, 4.e-4);
   // The persisted factors use floats; their round-trip leaves only this
@@ -362,12 +280,12 @@ BOOST_AUTO_TEST_CASE(AdjacentFactorFitIsRotationInvariant)
     observation.covariance = rotateCovarianceAroundZ(observation.covariance, angle);
   }
   const std::array<double, 2> angularVariance{2.e-8, 3.e-8};
-  const auto originalFactors = fitAdjacentFactors(original, angularVariance);
-  const auto rotatedFactors = fitAdjacentFactors(rotated, angularVariance);
+  const auto originalFactors = fitAdjacentFactors(original);
+  const auto rotatedFactors = fitAdjacentFactors(rotated);
   AdjacentTripletFitResult first{};
   AdjacentTripletFitResult second{};
-  BOOST_REQUIRE(fitAdjacentTripletFactors(originalFactors, original, angularVariance, first));
-  BOOST_REQUIRE(fitAdjacentTripletFactors(rotatedFactors, rotated, angularVariance, second));
+  BOOST_REQUIRE(fitAdjacentTripletFactors(originalFactors[0], originalFactors[1], original, angularVariance, first));
+  BOOST_REQUIRE(fitAdjacentTripletFactors(rotatedFactors[0], rotatedFactors[1], rotated, angularVariance, second));
   checkClose(second.curvature, first.curvature, 2.e-7);
   checkClose(second.curvatureVariance, first.curvatureVariance, 2.e-6);
   checkClose(second.chi2, first.chi2, 1.e-5, 1.e-14);
@@ -379,22 +297,21 @@ BOOST_AUTO_TEST_CASE(AdjacentFactorInvalidInputsFailTransactionally)
   sentinel.curvature = 1.;
   sentinel.curvatureVariance = 2.;
   sentinel.chi2 = 3.;
-  sentinel.covariance[0][0] = 4.;
   auto observations = makeAdjacentHelixObservations();
-  const auto factors = fitAdjacentFactors(observations, {1.e-8, 1.e-8});
+  const auto factors = fitAdjacentFactors(observations);
   AdjacentTripletFitResult result = sentinel;
 
   auto invalidFactors = factors;
   invalidFactors[0] = {};
-  BOOST_CHECK(!fitAdjacentTripletFactors(invalidFactors, observations, {1.e-8, 1.e-8}, result));
+  BOOST_CHECK(!fitAdjacentTripletFactors(invalidFactors[0], invalidFactors[1], observations, {1.e-8, 1.e-8}, result));
   BOOST_CHECK_EQUAL(std::memcmp(&result, &sentinel, sizeof(result)), 0);
 
   observations[1].covariance.xy = 1.;
-  BOOST_CHECK(!fitAdjacentTripletFactors(factors, observations, {1.e-8, 1.e-8}, result));
+  BOOST_CHECK(!fitAdjacentTripletFactors(factors[0], factors[1], observations, {1.e-8, 1.e-8}, result));
   BOOST_CHECK_EQUAL(std::memcmp(&result, &sentinel, sizeof(result)), 0);
 
   observations = makeAdjacentHelixObservations();
-  BOOST_CHECK(!fitAdjacentTripletFactors(factors, observations, {-1., 1.e-8}, result));
+  BOOST_CHECK(!fitAdjacentTripletFactors(factors[0], factors[1], observations, {-1., 1.e-8}, result));
   BOOST_CHECK_EQUAL(std::memcmp(&result, &sentinel, sizeof(result)), 0);
 }
 
@@ -406,53 +323,32 @@ BOOST_AUTO_TEST_CASE(StraightTripletUsesTheRemovableZeroBendingLimit)
     {{2., 2., 3.5}, covariance},
     {{4., 2., 4.5}, covariance},
   }};
-  LocalTripletFitResult result{};
-  BOOST_REQUIRE(fitLocalTripletUniformSolenoid(observations, {1.e-8}, 5., result));
-  BOOST_CHECK_SMALL(result.referenceTransverseCurvature, 1.e-15);
-  BOOST_CHECK_SMALL(result.curvature, 1.e-15);
-  BOOST_CHECK_SMALL(result.chi2, 1.e-18);
-  BOOST_CHECK(std::isinf(fittedTripletTransverseMomentum(result, 5.)));
+  TripletFitFactor factor{};
+  BOOST_REQUIRE(makeTripletFitFactor(observations, factor));
+  BOOST_REQUIRE(factor.isValid());
+  BOOST_CHECK_SMALL(-static_cast<double>(factor.psi.phi) / factor.rho.phi, 1.e-15);
 }
 
-BOOST_AUTO_TEST_CASE(NonHelicalKinkHasPositiveQualityAndMSReducesIt)
+BOOST_AUTO_TEST_CASE(FactorConstructionFailsTransactionally)
 {
+  TripletFitFactor sentinel{};
+  sentinel.psi = {1.f, 2.f};
+  sentinel.rho = {3.f, 4.f};
   auto observations = makeHelixObservations();
-  observations[2].position[2] += 0.04;
-  LocalTripletFitResult measurementOnly{};
-  LocalTripletFitResult withScattering{};
-  BOOST_REQUIRE(fitLocalTripletUniformSolenoid(observations, {0.}, 5., measurementOnly));
-  BOOST_REQUIRE(fitLocalTripletUniformSolenoid(observations, {2.e-4}, 5., withScattering));
-  BOOST_CHECK_GT(measurementOnly.chi2, 0.);
-  BOOST_CHECK_LT(withScattering.chi2, measurementOnly.chi2);
-  BOOST_CHECK_GT(withScattering.curvatureVariance, measurementOnly.curvatureVariance);
-}
-
-BOOST_AUTO_TEST_CASE(InvalidInputsFailTransactionally)
-{
-  const LocalTripletFitResult sentinel{1., 2., 3., 4., 0.5, 6., 7., 8., 9., 10., 11., 12.};
-  auto observations = makeHelixObservations();
-  LocalTripletFitResult result = sentinel;
+  TripletFitFactor result = sentinel;
 
   observations[1].covariance.xy = 1.;
-  BOOST_CHECK(!fitLocalTripletUniformSolenoid(observations, {0.}, 5., result));
+  BOOST_CHECK(!makeTripletFitFactor(observations, result));
   BOOST_CHECK_EQUAL(std::memcmp(&result, &sentinel, sizeof(result)), 0);
 
   observations = makeHelixObservations();
   observations[2].position[0] = std::numeric_limits<double>::quiet_NaN();
-  BOOST_CHECK(!fitLocalTripletUniformSolenoid(observations, {0.}, 5., result));
+  BOOST_CHECK(!makeTripletFitFactor(observations, result));
   BOOST_CHECK_EQUAL(std::memcmp(&result, &sentinel, sizeof(result)), 0);
 
   observations = makeHelixObservations();
   observations[1].position = observations[0].position;
-  BOOST_CHECK(!fitLocalTripletUniformSolenoid(observations, {0.}, 5., result));
-  BOOST_CHECK_EQUAL(std::memcmp(&result, &sentinel, sizeof(result)), 0);
-
-  observations = makeHelixObservations();
-  BOOST_CHECK(!fitLocalTripletUniformSolenoid(observations, {-1.}, 5., result));
-  BOOST_CHECK_EQUAL(std::memcmp(&result, &sentinel, sizeof(result)), 0);
-
-  observations = makeHelixObservations();
-  BOOST_CHECK(!fitLocalTripletUniformSolenoid(observations, {0.}, 0., result));
+  BOOST_CHECK(!makeTripletFitFactor(observations, result));
   BOOST_CHECK_EQUAL(std::memcmp(&result, &sentinel, sizeof(result)), 0);
 }
 
@@ -460,8 +356,8 @@ BOOST_AUTO_TEST_CASE(FitAndTrackerTraitsCallSiteHaveNoFamilyDispatch)
 {
   const auto trackingRoot = std::filesystem::path{__FILE__}.parent_path().parent_path();
   const auto source = readFile(trackingRoot / "src/TripletFitting.cxx");
-  const auto begin = source.find("bool fitLocalTripletUniformSolenoid(");
-  const auto end = source.find("double fittedTripletTransverseMomentum(", begin);
+  const auto begin = source.find("bool makeTripletFitFactor(");
+  const auto end = source.find("bool fitAdjacentTripletFactors(", begin);
   BOOST_REQUIRE_NE(begin, std::string::npos);
   BOOST_REQUIRE_NE(end, std::string::npos);
   const auto fitBody = source.substr(begin, end - begin);
@@ -474,9 +370,11 @@ BOOST_AUTO_TEST_CASE(FitAndTrackerTraitsCallSiteHaveNoFamilyDispatch)
   BOOST_CHECK_EQUAL(source.find("MaximumIterations"), std::string::npos);
   BOOST_CHECK_EQUAL(source.find("TripletCompatibilityState"), std::string::npos);
   BOOST_CHECK_EQUAL(source.find("makeTripletCompatibilityState"), std::string::npos);
+  BOOST_CHECK_EQUAL(source.find("fitLocalTripletUniformSolenoid"), std::string::npos);
+  BOOST_CHECK_EQUAL(source.find("TripletSegmentEstimate"), std::string::npos);
 
   const auto trackerTraits = readFile(trackingRoot / "src/TrackerTraits.cxx");
-  BOOST_CHECK_NE(trackerTraits.find("fitLocalTripletUniformSolenoid"), std::string::npos);
+  BOOST_CHECK_NE(trackerTraits.find("makeTripletFitFactor"), std::string::npos);
   BOOST_CHECK_NE(trackerTraits.find("fitAdjacentTripletFactors"), std::string::npos);
   BOOST_CHECK_NE(trackerTraits.find("TripletFitting.h"), std::string::npos);
 
@@ -488,36 +386,36 @@ BOOST_AUTO_TEST_CASE(FitAndTrackerTraitsCallSiteHaveNoFamilyDispatch)
   }
 }
 
-BOOST_AUTO_TEST_CASE(CharacterizeStandaloneHostCost)
+BOOST_AUTO_TEST_CASE(CharacterizeFactorConstructionHostCost)
 {
   const auto observations = makeHelixObservations();
   constexpr int Repetitions = 20000;
   double checksum = 0.;
   const auto start = std::chrono::steady_clock::now();
   for (int iteration = 0; iteration < Repetitions; ++iteration) {
-    LocalTripletFitResult result{};
-    BOOST_REQUIRE(fitLocalTripletUniformSolenoid(observations, {2.e-7}, 5., result));
-    checksum += result.curvature + result.chi2;
+    TripletFitFactor factor{};
+    BOOST_REQUIRE(makeTripletFitFactor(observations, factor));
+    checksum += factor.psi.theta + factor.psi.phi + factor.rho.theta + factor.rho.phi;
   }
   const auto elapsed = std::chrono::steady_clock::now() - start;
   const double nanosecondsPerFit =
     std::chrono::duration_cast<std::chrono::nanoseconds>(elapsed).count() /
     static_cast<double>(Repetitions);
-  BOOST_TEST_MESSAGE("local triplet fit host cost: " << nanosecondsPerFit << " ns/fit; checksum=" << checksum);
-  BOOST_CHECK_GT(checksum, 0.);
+  BOOST_TEST_MESSAGE("triplet-factor construction host cost: " << nanosecondsPerFit << " ns/factor; checksum=" << checksum);
+  BOOST_CHECK_NE(checksum, 0.);
 }
 
 BOOST_AUTO_TEST_CASE(CharacterizeAdjacentFactorHostCost)
 {
   const auto observations = makeAdjacentHelixObservations();
   const std::array<double, 2> angularVariance{2.e-7, 3.e-7};
-  const auto factors = fitAdjacentFactors(observations, angularVariance);
+  const auto factors = fitAdjacentFactors(observations);
   constexpr int Repetitions = 20000;
   double checksum = 0.;
   const auto start = std::chrono::steady_clock::now();
   for (int iteration = 0; iteration < Repetitions; ++iteration) {
     AdjacentTripletFitResult result{};
-    BOOST_REQUIRE(fitAdjacentTripletFactors(factors, observations, angularVariance, result));
+    BOOST_REQUIRE(fitAdjacentTripletFactors(factors[0], factors[1], observations, angularVariance, result));
     checksum += result.curvature + result.chi2;
   }
   const auto elapsed = std::chrono::steady_clock::now() - start;

@@ -1129,12 +1129,11 @@ void TrackerTraits::computeLayerCellsImpl(
             TripletFitFactor tripletFactor{};
             if constexpr (decltype(Mode)::value != PassMode::TwoPassCount::value) {
               std::array<TripletFitObservation, 3> observations{};
-              LocalTripletFitResult fitResult{};
-              if (makeTripletFitObservation(globalInner, observations[0]) &&
-                  makeTripletFitObservation(globalMiddle, observations[1]) &&
-                  makeTripletFitObservation(globalOuter, observations[2]) &&
-                  fitLocalTripletUniformSolenoid(observations, {directionProcessNoise.angularVariance}, getBz(), fitResult)) {
-                tripletFactor = fitResult.factor;
+              if (!makeTripletFitObservation(globalInner, observations[0]) ||
+                  !makeTripletFitObservation(globalMiddle, observations[1]) ||
+                  !makeTripletFitObservation(globalOuter, observations[2]) ||
+                  !makeTripletFitFactor(observations, tripletFactor)) {
+                tripletFactor = {};
               }
             }
             if constexpr (decltype(Mode)::value == PassMode::OnePass::value) {
@@ -1355,11 +1354,9 @@ void TrackerTraits::findCellsNeighboursForSchedule(
               }
             }
             AdjacentTripletFitResult adjacentFit{};
-            const std::array<TripletFitFactor, 2> factors{
-              currentCellSeed.tripletFactor(), nextCellSeedRef.tripletFactor()};
             const bool fitValid = observationsValid &&
                                   fitAdjacentTripletFactors(
-                                    factors, observations,
+                                    currentCellSeed.tripletFactor(), nextCellSeedRef.tripletFactor(), observations,
                                     {currentAngularVariance, nextAngularVariance}, adjacentFit);
             if (!fitValid || adjacentFit.chi2 > params.maxChi2ClusterAttachment) {
               continue;

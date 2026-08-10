@@ -13,16 +13,13 @@
 #include <cstddef>
 #include <limits>
 
-#include "CommonConstants/MathConstants.h"
-
 namespace o2::itsmft::tracking
 {
 namespace
 {
 
 constexpr std::size_t NMeasurementCoordinates = 9;
-constexpr std::size_t CurvatureNoiseCoordinate = NMeasurementCoordinates;
-constexpr std::size_t NCoordinates = NMeasurementCoordinates + 1;
+constexpr std::size_t NCoordinates = NMeasurementCoordinates;
 constexpr std::size_t NAdjacentKinks = 4;
 
 using KinkVector = std::array<double, NAdjacentKinks>;
@@ -212,15 +209,6 @@ struct TripletGeometry {
   Jet thetaTilde;
   Jet rhoPhi;
   Jet rhoTheta;
-  Jet chordAzimuth01;
-  Jet chordAzimuth12;
-  Jet chordLength01;
-  Jet chordLength12;
-  Jet deltaZ01;
-  Jet deltaZ12;
-  Jet referenceSinThetaJet;
-  double referenceTransverseCurvature{0.};
-  double referenceSinTheta{0.};
 };
 
 bool makeTripletGeometry(const std::array<TripletFitObservation, 3>& observations,
@@ -242,8 +230,6 @@ bool makeTripletGeometry(const std::array<TripletFitObservation, 3>& observation
   const Jet dz12 = point[2][2] - point[1][2];
   const Jet dx02 = point[2][0] - point[0][0];
   const Jet dy02 = point[2][1] - point[0][1];
-  const Jet dz02 = point[2][2] - point[0][2];
-
   const Jet length01 = squareRoot(dx01 * dx01 + dy01 * dy01);
   const Jet length12 = squareRoot(dx12 * dx12 + dy12 * dy12);
   const Jet length02 = squareRoot(dx02 * dx02 + dy02 * dy02);
@@ -254,8 +240,6 @@ bool makeTripletGeometry(const std::array<TripletFitObservation, 3>& observation
   }
 
   const Jet cross = dx01 * dy12 - dy01 * dx12;
-  const Jet chordAzimuth01 = arcTangent2(dy01, dx01);
-  const Jet chordAzimuth12 = arcTangent2(dy12, dx12);
   const Jet transverseCurvature = Jet{2.} * cross / (length01 * length12 * length02);
   SegmentGeometry firstSegment;
   SegmentGeometry secondSegment;
@@ -290,18 +274,12 @@ bool makeTripletGeometry(const std::array<TripletFitObservation, 3>& observation
                transverseCurvature;
   }
 
-  const Jet endpointLength = squareRoot(length02 * length02 + dz02 * dz02);
-  const Jet referenceSinTheta = length02 / endpointLength;
-  const double sineTheta = referenceSinTheta.value;
   if (!std::isfinite(phiTilde.value) || !std::isfinite(thetaTilde.value) ||
       !std::isfinite(rhoPhi.value) || rhoPhi.value == 0. ||
-      !std::isfinite(rhoTheta.value) || !std::isfinite(sineTheta) || sineTheta <= 0.) {
+      !std::isfinite(rhoTheta.value)) {
     return false;
   }
-  result = {phiTilde, thetaTilde, rhoPhi, rhoTheta,
-            chordAzimuth01, chordAzimuth12, length01, length12, dz01, dz12,
-            referenceSinTheta,
-            transverseCurvature.value, sineTheta};
+  result = {phiTilde, thetaTilde, rhoPhi, rhoTheta};
   return true;
 }
 
@@ -314,10 +292,9 @@ double covarianceContraction(const std::array<double, 3>& left,
          left[2] * (covariance.xz * right[0] + covariance.yz * right[1] + covariance.zz * right[2]);
 }
 
-bool choleskySolve(const KinkCovariance& covariance, const KinkVector& right,
-                   KinkVector& solution) noexcept
+bool choleskyDecompose(const KinkCovariance& covariance,
+                       KinkCovariance& lower) noexcept
 {
-  KinkCovariance lower{};
   for (std::size_t row = 0; row < NAdjacentKinks; ++row) {
     for (std::size_t column = 0; column <= row; ++column) {
       double value = covariance[row][column];
@@ -337,7 +314,12 @@ bool choleskySolve(const KinkCovariance& covariance, const KinkVector& right,
       }
     }
   }
+  return true;
+}
 
+bool choleskySolve(const KinkCovariance& lower, const KinkVector& right,
+                   KinkVector& solution) noexcept
+{
   KinkVector intermediate{};
   for (std::size_t row = 0; row < NAdjacentKinks; ++row) {
     double value = right[row];
@@ -389,52 +371,6 @@ bool referenceSinTheta(const TripletFitObservation& first,
   return std::isfinite(sineTheta) && sineTheta > 0. && sineTheta <= 1.;
 }
 
-double jetCovariance(const Jet& left, const Jet& right,
-                     const std::array<TripletFitObservation, 3>& observations,
-                     double independentCurvatureVariance) noexcept
-{
-  double covariance = left.derivative[CurvatureNoiseCoordinate] *
-                      right.derivative[CurvatureNoiseCoordinate] *
-                      independentCurvatureVariance;
-  for (std::size_t hit = 0; hit < observations.size(); ++hit) {
-    std::array<double, 3> leftGradient{};
-    std::array<double, 3> rightGradient{};
-    for (std::size_t coordinate = 0; coordinate < 3; ++coordinate) {
-      const auto index = 3 * hit + coordinate;
-      leftGradient[coordinate] = left.derivative[index];
-      rightGradient[coordinate] = right.derivative[index];
-    }
-    covariance += covarianceContraction(leftGradient, observations[hit].covariance, rightGradient);
-  }
-  return covariance;
-}
-
-bool makeSegmentEstimate(const Jet& qOverPt, const Jet& phi, const Jet& tanLambda,
-                         const std::array<TripletFitObservation, 3>& observations,
-                         double independentCurvatureVariance,
-                         TripletSegmentEstimate& estimate) noexcept
-{
-  const TripletParameterCovariance covariance{
-    jetCovariance(qOverPt, qOverPt, observations, independentCurvatureVariance),
-    jetCovariance(qOverPt, phi, observations, independentCurvatureVariance),
-    jetCovariance(qOverPt, tanLambda, observations, independentCurvatureVariance),
-    jetCovariance(phi, phi, observations, independentCurvatureVariance),
-    jetCovariance(phi, tanLambda, observations, independentCurvatureVariance),
-    jetCovariance(tanLambda, tanLambda, observations, independentCurvatureVariance)};
-  const std::array<double, 9> values{
-    qOverPt.value, phi.value, tanLambda.value,
-    covariance.qOverPtQOverPt, covariance.qOverPtPhi,
-    covariance.qOverPtTanLambda, covariance.phiPhi,
-    covariance.phiTanLambda, covariance.tanLambdaTanLambda};
-  if (!std::all_of(values.begin(), values.end(), [](double value) { return std::isfinite(value); }) ||
-      covariance.qOverPtQOverPt < 0. || covariance.phiPhi < 0. ||
-      covariance.tanLambdaTanLambda < 0.) {
-    return false;
-  }
-  estimate = {qOverPt.value, phi.value, tanLambda.value, covariance};
-  return true;
-}
-
 } // namespace
 
 bool makeTripletFitObservation(const GlobalMeasurement& measurement,
@@ -451,15 +387,11 @@ bool makeTripletFitObservation(const GlobalMeasurement& measurement,
   return true;
 }
 
-bool fitLocalTripletUniformSolenoid(
+bool makeTripletFitFactor(
   const std::array<TripletFitObservation, 3>& observations,
-  const TripletFitProcessNoise& processNoise,
-  double bz,
-  LocalTripletFitResult& result) noexcept
+  TripletFitFactor& result) noexcept
 {
-  if (!std::all_of(observations.begin(), observations.end(), observationIsValid) ||
-      !std::isfinite(processNoise.angularVariance) || processNoise.angularVariance < 0. ||
-      !std::isfinite(bz) || bz == 0.) {
+  if (!std::all_of(observations.begin(), observations.end(), observationIsValid)) {
     return false;
   }
 
@@ -482,137 +414,40 @@ bool fitLocalTripletUniformSolenoid(
   if (!std::all_of(factorParameters.begin(), factorParameters.end(), finiteFloat)) {
     return false;
   }
-  TripletFitFactor factor{
+  TripletFitFactor scratch{
     {static_cast<float>(geometry.thetaTilde.value), static_cast<float>(geometry.phiTilde.value)},
     {static_cast<float>(geometry.rhoTheta.value), static_cast<float>(geometry.rhoPhi.value)},
     {}};
 
-  double gammaThetaTheta = processNoise.angularVariance;
-  double gammaThetaPhi = 0.;
-  double gammaPhiPhi = processNoise.angularVariance /
-                       (geometry.referenceSinTheta * geometry.referenceSinTheta);
   for (std::size_t hit = 0; hit < observations.size(); ++hit) {
-    std::array<double, 3> gradientTheta{};
-    std::array<double, 3> gradientPhi{};
     for (std::size_t coordinate = 0; coordinate < 3; ++coordinate) {
       const std::size_t index = 3 * hit + coordinate;
-      gradientTheta[coordinate] = geometry.thetaTilde.derivative[index] +
-                                  kappaReference * geometry.rhoTheta.derivative[index];
-      gradientPhi[coordinate] = geometry.phiTilde.derivative[index] +
-                                kappaReference * geometry.rhoPhi.derivative[index];
-      if (!finiteFloat(gradientTheta[coordinate]) || !finiteFloat(gradientPhi[coordinate])) {
+      const double gradientTheta = geometry.thetaTilde.derivative[index] +
+                                   kappaReference * geometry.rhoTheta.derivative[index];
+      const double gradientPhi = geometry.phiTilde.derivative[index] +
+                                 kappaReference * geometry.rhoPhi.derivative[index];
+      if (!finiteFloat(gradientTheta) || !finiteFloat(gradientPhi)) {
         return false;
       }
-      factor.h[hit].theta[coordinate] = static_cast<float>(gradientTheta[coordinate]);
-      factor.h[hit].phi[coordinate] = static_cast<float>(gradientPhi[coordinate]);
+      scratch.h[hit].theta[coordinate] = static_cast<float>(gradientTheta);
+      scratch.h[hit].phi[coordinate] = static_cast<float>(gradientPhi);
     }
-    gammaThetaTheta += covarianceContraction(gradientTheta, observations[hit].covariance, gradientTheta);
-    gammaThetaPhi += covarianceContraction(gradientTheta, observations[hit].covariance, gradientPhi);
-    gammaPhiPhi += covarianceContraction(gradientPhi, observations[hit].covariance, gradientPhi);
   }
-  if (!factor.isValid()) {
+  if (!scratch.isValid()) {
     return false;
   }
-
-  const double covarianceDeterminant = gammaThetaTheta * gammaPhiPhi - gammaThetaPhi * gammaThetaPhi;
-  const double rhoTheta = geometry.rhoTheta.value;
-  const double rhoPhi = geometry.rhoPhi.value;
-  const double denominator = rhoTheta * rhoTheta * gammaPhiPhi +
-                             rhoPhi * rhoPhi * gammaThetaTheta -
-                             2. * rhoTheta * rhoPhi * gammaThetaPhi;
-  if (!std::isfinite(gammaThetaTheta) || !std::isfinite(gammaThetaPhi) ||
-      !std::isfinite(gammaPhiPhi) || gammaThetaTheta < 0. || gammaPhiPhi < 0. ||
-      !std::isfinite(covarianceDeterminant) || covarianceDeterminant <= 0. ||
-      !std::isfinite(denominator) || denominator <= 0.) {
-    return false;
-  }
-
-  const double thetaTilde = geometry.thetaTilde.value;
-  const double phiTilde = geometry.phiTilde.value;
-  const double curvature =
-    -(thetaTilde * rhoTheta * gammaPhiPhi +
-      phiTilde * rhoPhi * gammaThetaTheta -
-      gammaThetaPhi * (phiTilde * rhoTheta + thetaTilde * rhoPhi)) /
-    denominator;
-  const double curvatureVariance = covarianceDeterminant / denominator;
-  const double qualityResidual = thetaTilde * rhoPhi - phiTilde * rhoTheta;
-  const double chi2 = qualityResidual * qualityResidual / denominator;
-  if (!std::isfinite(curvature) || !std::isfinite(curvatureVariance) || curvatureVariance <= 0. ||
-      !std::isfinite(chi2) || chi2 < 0.) {
-    return false;
-  }
-
-  const Jet curvatureJet =
-    -(geometry.thetaTilde * geometry.rhoTheta * Jet{gammaPhiPhi} +
-      geometry.phiTilde * geometry.rhoPhi * Jet{gammaThetaTheta} -
-      Jet{gammaThetaPhi} * (geometry.phiTilde * geometry.rhoTheta +
-                            geometry.thetaTilde * geometry.rhoPhi)) /
-    (geometry.rhoTheta * geometry.rhoTheta * Jet{gammaPhiPhi} +
-     geometry.rhoPhi * geometry.rhoPhi * Jet{gammaThetaTheta} -
-     Jet{2. * gammaThetaPhi} * geometry.rhoTheta * geometry.rhoPhi);
-  if (!std::isfinite(curvatureJet.value)) {
-    return false;
-  }
-  Jet curvatureWithProcess = curvatureJet;
-  curvatureWithProcess.derivative[CurvatureNoiseCoordinate] = 1.;
-  const double measurementCurvatureVariance = jetCovariance(curvatureJet, curvatureJet, observations, 0.);
-  if (!std::isfinite(measurementCurvatureVariance) || measurementCurvatureVariance < 0.) {
-    return false;
-  }
-  // The local fit variance includes the supplied MS model. Its part not
-  // generated by the hit-coordinate Jacobian is represented as one latent
-  // curvature uncertainty and propagated into q/pT and both segment slopes.
-  const double independentCurvatureVariance =
-    std::max(0., curvatureVariance - measurementCurvatureVariance);
-
-  const Jet magneticScale{static_cast<double>(o2::constants::math::B2C) * bz};
-  const Jet qOverPt = curvatureWithProcess /
-                      (magneticScale * geometry.referenceSinThetaJet);
-  SegmentGeometry firstFittedSegment;
-  SegmentGeometry secondFittedSegment;
-  if (!makeSegmentGeometry(curvatureWithProcess, geometry.chordLength01,
-                           geometry.deltaZ01, firstFittedSegment) ||
-      !makeSegmentGeometry(curvatureWithProcess, geometry.chordLength12,
-                           geometry.deltaZ12, secondFittedSegment)) {
-    return false;
-  }
-
-  TripletSegmentEstimate inner;
-  TripletSegmentEstimate outer;
-  if (!makeSegmentEstimate(qOverPt, geometry.chordAzimuth01,
-                           firstFittedSegment.cotangentTheta, observations,
-                           independentCurvatureVariance, inner) ||
-      !makeSegmentEstimate(qOverPt, geometry.chordAzimuth12,
-                           secondFittedSegment.cotangentTheta, observations,
-                           independentCurvatureVariance, outer)) {
-    return false;
-  }
-
-  result = {curvature,
-            curvatureVariance,
-            chi2,
-            geometry.referenceTransverseCurvature,
-            geometry.referenceSinTheta,
-            phiTilde,
-            thetaTilde,
-            rhoPhi,
-            rhoTheta,
-            gammaThetaTheta,
-            gammaThetaPhi,
-            gammaPhiPhi,
-            inner,
-            outer,
-            factor};
+  result = scratch;
   return true;
 }
 
 bool fitAdjacentTripletFactors(
-  const std::array<TripletFitFactor, 2>& factors,
+  const TripletFitFactor& firstFactor,
+  const TripletFitFactor& secondFactor,
   const std::array<TripletFitObservation, 4>& observations,
   const std::array<double, 2>& angularVariance,
   AdjacentTripletFitResult& result) noexcept
 {
-  if (!factors[0].isValid() || !factors[1].isValid() ||
+  if (!firstFactor.isValid() || !secondFactor.isValid() ||
       !std::all_of(observations.begin(), observations.end(), observationIsValid) ||
       !std::all_of(angularVariance.begin(), angularVariance.end(),
                    [](double value) { return std::isfinite(value) && value >= 0.; })) {
@@ -626,11 +461,11 @@ bool fitAdjacentTripletFactors(
   }
 
   const KinkVector psi{
-    factors[0].psi.theta, factors[0].psi.phi,
-    factors[1].psi.theta, factors[1].psi.phi};
+    firstFactor.psi.theta, firstFactor.psi.phi,
+    secondFactor.psi.theta, secondFactor.psi.phi};
   const KinkVector rho{
-    factors[0].rho.theta, factors[0].rho.phi,
-    factors[1].rho.theta, factors[1].rho.phi};
+    firstFactor.rho.theta, firstFactor.rho.phi,
+    secondFactor.rho.theta, secondFactor.rho.phi};
   KinkCovariance covariance{};
   covariance[0][0] = angularVariance[0];
   covariance[1][1] = angularVariance[0] / (sineTheta[0] * sineTheta[0]);
@@ -642,10 +477,10 @@ bool fitAdjacentTripletFactors(
   std::array<std::array<std::array<double, 3>, NAdjacentKinks>, 4> gradients{};
   for (std::size_t coordinate = 0; coordinate < 3; ++coordinate) {
     for (std::size_t hit = 0; hit < 3; ++hit) {
-      gradients[hit][0][coordinate] = factors[0].h[hit].theta[coordinate];
-      gradients[hit][1][coordinate] = factors[0].h[hit].phi[coordinate];
-      gradients[hit + 1][2][coordinate] = factors[1].h[hit].theta[coordinate];
-      gradients[hit + 1][3][coordinate] = factors[1].h[hit].phi[coordinate];
+      gradients[hit][0][coordinate] = firstFactor.h[hit].theta[coordinate];
+      gradients[hit][1][coordinate] = firstFactor.h[hit].phi[coordinate];
+      gradients[hit + 1][2][coordinate] = secondFactor.h[hit].theta[coordinate];
+      gradients[hit + 1][3][coordinate] = secondFactor.h[hit].phi[coordinate];
     }
   }
   for (std::size_t hit = 0; hit < observations.size(); ++hit) {
@@ -661,10 +496,12 @@ bool fitAdjacentTripletFactors(
     }
   }
 
+  KinkCovariance lower{};
   KinkVector precisionPsi{};
   KinkVector precisionRho{};
-  if (!choleskySolve(covariance, psi, precisionPsi) ||
-      !choleskySolve(covariance, rho, precisionRho)) {
+  if (!choleskyDecompose(covariance, lower) ||
+      !choleskySolve(lower, psi, precisionPsi) ||
+      !choleskySolve(lower, rho, precisionRho)) {
     return false;
   }
   const double rhoPrecisionPsi = dotProduct(rho, precisionPsi);
@@ -689,55 +526,8 @@ bool fitAdjacentTripletFactors(
     return false;
   }
 
-  result = {curvature, curvatureVariance, chi2, covariance};
+  result = {curvature, curvatureVariance, chi2};
   return true;
-}
-
-double fittedTripletTransverseMomentum(const LocalTripletFitResult& result,
-                                       double bz) noexcept
-{
-  return fittedTripletTransverseMomentum(result, bz, 1);
-}
-
-double fittedTripletTransverseMomentum(const TripletSegmentEstimate& estimate,
-                                       uint8_t absCharge) noexcept
-{
-  if (!std::isfinite(estimate.qOverPt) || absCharge == 0) {
-    return std::numeric_limits<double>::quiet_NaN();
-  }
-  if (estimate.qOverPt == 0.) {
-    return std::numeric_limits<double>::infinity();
-  }
-  return static_cast<double>(absCharge) / std::abs(estimate.qOverPt);
-}
-
-double fittedTripletTransverseMomentumVariance(const TripletSegmentEstimate& estimate,
-                                               uint8_t absCharge) noexcept
-{
-  if (!std::isfinite(estimate.qOverPt) || estimate.qOverPt == 0. ||
-      !std::isfinite(estimate.covariance.qOverPtQOverPt) ||
-      estimate.covariance.qOverPtQOverPt < 0. || absCharge == 0) {
-    return std::numeric_limits<double>::quiet_NaN();
-  }
-  const double qOverPt2 = estimate.qOverPt * estimate.qOverPt;
-  return static_cast<double>(absCharge) * static_cast<double>(absCharge) *
-         estimate.covariance.qOverPtQOverPt / (qOverPt2 * qOverPt2);
-}
-
-double fittedTripletTransverseMomentum(const LocalTripletFitResult& result,
-                                       double bz, uint8_t absCharge) noexcept
-{
-  if (!std::isfinite(result.curvature) || !std::isfinite(result.referenceSinTheta) ||
-      result.referenceSinTheta <= 0. || result.referenceSinTheta > 1. ||
-      !std::isfinite(bz) || bz == 0. || absCharge == 0) {
-    return std::numeric_limits<double>::quiet_NaN();
-  }
-  if (result.curvature == 0.) {
-    return std::numeric_limits<double>::infinity();
-  }
-  return static_cast<double>(absCharge) *
-         std::abs(static_cast<double>(o2::constants::math::B2C) * bz *
-                  result.referenceSinTheta / result.curvature);
 }
 
 } // namespace o2::itsmft::tracking

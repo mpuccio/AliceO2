@@ -55,27 +55,8 @@ still fail closed. No uncertainty floor is introduced.
 
 ## Triplet fit factor
 
-The local fitter still returns signed inverse transverse momentum and the
-directions of both segments as diagnostics:
-
-```text
-u = (q/pT, phi, tanLambda)
-```
-
-`q/pT` retains the bend sign and remains finite in the high-momentum limit.
-`pT = 1/abs(q/pT)` and its first-order variance are exposed as derived
-diagnostics when `q/pT` is resolvable; they are not the coordinate inverted by
-the neighbour chi-square.
-
-A triplet reports an estimate for each of its two fitted tracklet segments:
-
-```text
-inner = (q/pT, phi01, tanLambda01, Cov_inner)
-outer = (q/pT, phi12, tanLambda12, Cov_outer)
-```
-
-The cell payload is not these two marginal estimates. It is the linearized
-factor needed by Eq. (19) of the General Triplet Track Fit:
+Cell construction produces only the linearized factor needed by Eq. (19) of
+the General Triplet Track Fit:
 
 ```text
 Psi = (thetaTilde, phiTilde)
@@ -86,6 +67,11 @@ H   = d(Psi + rho*kappa) / d(x0,y0,z0,...,x2,y2,z2)
 `H` is evaluated at the geometric reference
 `kappaRef = -Psi_phi/rho_phi`. The 2x9 matrix is stored as two xyz gradients
 for each of the three hits. Float conversion is checked and fails closed.
+The earlier local momentum and segment-error estimator is not part of this
+path: its outputs were discarded by production, so retaining it would make
+every cell pay for covariance contractions and automatic-differentiation
+propagation that neighbour finding does not consume. That prototype remains
+available in the repository history.
 
 The cell already stores the three local cluster indices and their positional
 hit mask. `getClusterReference(i)` exposes their unambiguous
@@ -115,11 +101,13 @@ variance evaluated at `TrackletMinPt`. It enters the angular covariance as
 momentum/material iteration. `tanLambda` is the longitudinal displacement
 divided by the transverse arc length of the corresponding fitted segment.
 
-The local fit is evaluated once when a cell is accepted. Its 88-byte float factor
-stores `Psi`, `rho`, and all 18 elements of `H`. An invalid estimate does not
-reject the accepted cell during cell construction, but it fails closed if the
-cell is later considered for a neighbour. Neither global observation
-construction nor triplet linearization is repeated per prospective neighbour.
+The factor is evaluated once when a cell is accepted. It depends only on the
+three global observations; magnetic field and material do not enter factor
+construction. Its 88-byte float payload stores `Psi`, `rho`, and all 18
+elements of `H`. An invalid factor does not reject the accepted cell during
+cell construction, but it fails closed if the cell is later considered for a
+neighbour. Neither global observation construction nor triplet linearization
+is repeated per prospective neighbour.
 
 Neighbour finding visits the global scheduled-cell span once. It verifies the
 two shared hit references, resolves the four unique global observations,
@@ -129,8 +117,8 @@ system by Cholesky decomposition, and applies the existing common
 source dispatch in this path. Cylinder/disk distinctions end when the decoder
 constructs `GlobalMeasurement`.
 
-The host characterization test evaluates 20,000 fits and reports about
-0.48 microseconds per fit on the validation machine. `CellSeed` grows from
+The host characterization test evaluates 20,000 factors and reports about
+0.24 microseconds per factor on the validation machine. `CellSeed` grows from
 132 to 220 bytes for the 88-byte factor. The normalized per-hit storage grows
 from one 72-byte mixed record to a 72-byte global record plus a 28-byte native
 record. This deliberately spends 28 bytes per hit to remove repeated global
