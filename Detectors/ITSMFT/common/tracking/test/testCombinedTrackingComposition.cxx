@@ -755,8 +755,12 @@ BOOST_AUTO_TEST_CASE(CombinedComponentsUseOwnROFTimingInOneCombinedPass)
                    commonTracks.front().timestamp.end - commonTracks.front().timestamp.begin);
   }
   bool seenMft = false;
+  size_t nextReference = 0;
   for (size_t i = 0; i < commonTracks.size(); ++i) {
     const auto& track = commonTracks[i];
+    BOOST_CHECK_EQUAL(track.firstClusterRef, nextReference);
+    BOOST_CHECK_LT(track.firstClusterRef, track.clusterRefEnd);
+    BOOST_CHECK(isValidTrackRange(track, static_cast<uint32_t>(frame.getTrackClusterIndices().size())));
     BOOST_REQUIRE(track.hitSurfaces.isSubsetOf(itsMask) || track.hitSurfaces.isSubsetOf(mftMask));
     const bool isMft = track.hitSurfaces.isSubsetOf(mftMask) && !track.hitSurfaces.empty();
     if (isMft) {
@@ -771,8 +775,21 @@ BOOST_AUTO_TEST_CASE(CombinedComponentsUseOwnROFTimingInOneCombinedPass)
       BOOST_CHECK(measurement->surface == reference.surface);
       BOOST_CHECK(isMft ? mftMask.has(reference.surface) : itsMask.has(reference.surface));
     }
+    nextReference = track.clusterRefEnd;
   }
+  BOOST_CHECK_EQUAL(nextReference, frame.getTrackClusterIndices().size());
   BOOST_CHECK_EQUAL(seenMft, result.nMFTTracks > 0);
+
+  const auto& itsCompatibility = composer.getITSSharedClusterCompatibility().entries();
+  const auto& mftCompatibility = composer.getMFTPublicationCompatibility().entries();
+  BOOST_REQUIRE_EQUAL(itsCompatibility.size(), result.nITSTracks);
+  BOOST_REQUIRE_EQUAL(mftCompatibility.size(), result.nMFTTracks);
+  for (size_t i = 0; i < itsCompatibility.size(); ++i) {
+    BOOST_CHECK_EQUAL(itsCompatibility[i].commonTrackIndex, i);
+  }
+  for (size_t i = 0; i < mftCompatibility.size(); ++i) {
+    BOOST_CHECK_EQUAL(mftCompatibility[i].commonTrackIndex, result.nITSTracks + i);
+  }
 
   // Publication exports are valid after success, source-qualified, and
   // carry each detector's own ordered-surface span.

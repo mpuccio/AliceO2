@@ -115,7 +115,7 @@ BOOST_AUTO_TEST_CASE(FinalHeaderInventoryIsExact)
 {
   const auto include = trackingRoot() / "include/ITSMFTTracking";
   BOOST_CHECK_EQUAL(directHeaderCount(include), 35U);
-  BOOST_CHECK_EQUAL(directHeaderCount(include / "detail"), 11U);
+  BOOST_CHECK_EQUAL(directHeaderCount(include / "detail"), 10U);
   BOOST_CHECK(fs::is_regular_file(include / "TripletFitting.h"));
 }
 
@@ -180,6 +180,15 @@ BOOST_AUTO_TEST_CASE(RetiredAndRelocatedPublicPathsAreAbsent)
       BOOST_CHECK_MESSAGE(text.find(oldInclude) == std::string::npos,
                           path.string() << " retains retired include path " << oldInclude);
     }
+  }
+}
+
+BOOST_AUTO_TEST_CASE(RetiredCommonTrackPublicationIdentifierIsAbsentFromProduction)
+{
+  for (const auto& path : productionFiles()) {
+    const auto text = readFile(path);
+    BOOST_CHECK_MESSAGE(text.find("CommonTrackShadow") == std::string::npos,
+                        path.string() << " retains the retired CommonTrack publication identifier");
   }
 }
 

@@ -346,8 +346,7 @@ struct RigT {
     frame.setBz(0.5f);
   }
 
-  // Stages one pending sidecar entry via the same transactional API
-  // publishCommonTrackShadow() uses, and one CommonTrack/TrackClusterReference
+  // Stages one pending sidecar entry and one CommonTrack/TrackClusterReference
   // pair directly on `frame` -- deliberately not through a real CA seed (out
   // of scope here): only frame.resetEvent()'s unconditional clear of these two
   // containers and the workflow-edge sidecar reset are under test.
