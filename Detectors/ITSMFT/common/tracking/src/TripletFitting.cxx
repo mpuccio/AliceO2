@@ -25,68 +25,68 @@ constexpr std::size_t NAdjacentKinks = 4;
 using KinkVector = std::array<double, NAdjacentKinks>;
 using KinkCovariance = std::array<std::array<double, NAdjacentKinks>, NAdjacentKinks>;
 
-struct Jet {
+struct DualNumber {
   double value{0.};
   std::array<double, NCoordinates> derivative{};
 
-  static Jet variable(double value, std::size_t index) noexcept
+  static DualNumber variable(double value, std::size_t index) noexcept
   {
-    Jet result{value};
+    DualNumber result{value};
     result.derivative[index] = 1.;
     return result;
   }
 };
 
-Jet operator+(const Jet& lhs, const Jet& rhs) noexcept
+DualNumber operator+(const DualNumber& lhs, const DualNumber& rhs) noexcept
 {
-  Jet result{lhs.value + rhs.value};
+  DualNumber result{lhs.value + rhs.value};
   for (std::size_t i = 0; i < NCoordinates; ++i) {
     result.derivative[i] = lhs.derivative[i] + rhs.derivative[i];
   }
   return result;
 }
 
-Jet operator-(const Jet& lhs, const Jet& rhs) noexcept
+DualNumber operator-(const DualNumber& lhs, const DualNumber& rhs) noexcept
 {
-  Jet result{lhs.value - rhs.value};
+  DualNumber result{lhs.value - rhs.value};
   for (std::size_t i = 0; i < NCoordinates; ++i) {
     result.derivative[i] = lhs.derivative[i] - rhs.derivative[i];
   }
   return result;
 }
 
-Jet operator-(const Jet& value) noexcept
+DualNumber operator-(const DualNumber& value) noexcept
 {
-  Jet result{-value.value};
+  DualNumber result{-value.value};
   for (std::size_t i = 0; i < NCoordinates; ++i) {
     result.derivative[i] = -value.derivative[i];
   }
   return result;
 }
 
-Jet operator*(const Jet& lhs, const Jet& rhs) noexcept
+DualNumber operator*(const DualNumber& lhs, const DualNumber& rhs) noexcept
 {
-  Jet result{lhs.value * rhs.value};
+  DualNumber result{lhs.value * rhs.value};
   for (std::size_t i = 0; i < NCoordinates; ++i) {
     result.derivative[i] = lhs.derivative[i] * rhs.value + lhs.value * rhs.derivative[i];
   }
   return result;
 }
 
-Jet operator/(const Jet& lhs, const Jet& rhs) noexcept
+DualNumber operator/(const DualNumber& lhs, const DualNumber& rhs) noexcept
 {
   const double inverse = 1. / rhs.value;
-  Jet result{lhs.value * inverse};
+  DualNumber result{lhs.value * inverse};
   for (std::size_t i = 0; i < NCoordinates; ++i) {
     result.derivative[i] = (lhs.derivative[i] - result.value * rhs.derivative[i]) * inverse;
   }
   return result;
 }
 
-Jet squareRoot(const Jet& argument) noexcept
+DualNumber squareRoot(const DualNumber& argument) noexcept
 {
   const double root = std::sqrt(argument.value);
-  Jet result{root};
+  DualNumber result{root};
   const double scale = 0.5 / root;
   for (std::size_t i = 0; i < NCoordinates; ++i) {
     result.derivative[i] = scale * argument.derivative[i];
@@ -94,9 +94,9 @@ Jet squareRoot(const Jet& argument) noexcept
   return result;
 }
 
-Jet arcSine(const Jet& argument) noexcept
+DualNumber arcSine(const DualNumber& argument) noexcept
 {
-  Jet result{std::asin(argument.value)};
+  DualNumber result{std::asin(argument.value)};
   const double scale = 1. / std::sqrt(1. - argument.value * argument.value);
   for (std::size_t i = 0; i < NCoordinates; ++i) {
     result.derivative[i] = scale * argument.derivative[i];
@@ -104,9 +104,9 @@ Jet arcSine(const Jet& argument) noexcept
   return result;
 }
 
-Jet arcTangent2(const Jet& y, const Jet& x) noexcept
+DualNumber arcTangent2(const DualNumber& y, const DualNumber& x) noexcept
 {
-  Jet result{std::atan2(y.value, x.value)};
+  DualNumber result{std::atan2(y.value, x.value)};
   const double denominator = x.value * x.value + y.value * y.value;
   for (std::size_t i = 0; i < NCoordinates; ++i) {
     result.derivative[i] = (x.value * y.derivative[i] - y.value * x.derivative[i]) / denominator;
@@ -159,41 +159,41 @@ bool observationIsValid(const TripletFitObservation& observation) noexcept
 }
 
 struct SegmentGeometry {
-  Jet bendingAngle;
-  Jet transverseArcLength;
-  Jet cotangentTheta;
-  Jet sineTheta;
-  Jet cosineTheta;
-  Jet index;
+  DualNumber bendingAngle;
+  DualNumber transverseArcLength;
+  DualNumber cotangentTheta;
+  DualNumber sineTheta;
+  DualNumber cosineTheta;
+  DualNumber index;
 };
 
-bool makeSegmentGeometry(const Jet& transverseCurvature, const Jet& chordLength,
-                         const Jet& deltaZ, SegmentGeometry& result) noexcept
+bool makeSegmentGeometry(const DualNumber& transverseCurvature, const DualNumber& chordLength,
+                         const DualNumber& deltaZ, SegmentGeometry& result) noexcept
 {
-  const Jet halfSine = Jet{0.5} * transverseCurvature * chordLength;
+  const DualNumber halfSine = DualNumber{0.5} * transverseCurvature * chordLength;
   if (!std::isfinite(halfSine.value) || std::abs(halfSine.value) >= 1.) {
     return false;
   }
 
-  const Jet halfSine2 = halfSine * halfSine;
-  const Jet halfSine4 = halfSine2 * halfSine2;
-  Jet asinOverArgument;
-  Jet angleCotangent;
+  const DualNumber halfSine2 = halfSine * halfSine;
+  const DualNumber halfSine4 = halfSine2 * halfSine2;
+  DualNumber asinOverArgument;
+  DualNumber angleCotangent;
   if (std::abs(halfSine.value) < 1.e-4) {
-    asinOverArgument = Jet{1.} + halfSine2 * Jet{1. / 6.} + halfSine4 * Jet{3. / 40.};
-    angleCotangent = Jet{1.} - halfSine2 * Jet{1. / 3.} - halfSine4 * Jet{2. / 15.};
+    asinOverArgument = DualNumber{1.} + halfSine2 * DualNumber{1. / 6.} + halfSine4 * DualNumber{3. / 40.};
+    angleCotangent = DualNumber{1.} - halfSine2 * DualNumber{1. / 3.} - halfSine4 * DualNumber{2. / 15.};
   } else {
-    const Jet halfAngle = arcSine(halfSine);
+    const DualNumber halfAngle = arcSine(halfSine);
     asinOverArgument = halfAngle / halfSine;
-    angleCotangent = halfAngle * squareRoot(Jet{1.} - halfSine2) / halfSine;
+    angleCotangent = halfAngle * squareRoot(DualNumber{1.} - halfSine2) / halfSine;
   }
 
-  const Jet bendingAngle = Jet{2.} * arcSine(halfSine);
-  const Jet transverseArcLength = chordLength * asinOverArgument;
-  const Jet cotangentTheta = deltaZ / transverseArcLength;
-  const Jet sineTheta = Jet{1.} / squareRoot(Jet{1.} + cotangentTheta * cotangentTheta);
-  const Jet cosineTheta = cotangentTheta * sineTheta;
-  const Jet index = Jet{1.} /
+  const DualNumber bendingAngle = DualNumber{2.} * arcSine(halfSine);
+  const DualNumber transverseArcLength = chordLength * asinOverArgument;
+  const DualNumber cotangentTheta = deltaZ / transverseArcLength;
+  const DualNumber sineTheta = DualNumber{1.} / squareRoot(DualNumber{1.} + cotangentTheta * cotangentTheta);
+  const DualNumber cosineTheta = cotangentTheta * sineTheta;
+  const DualNumber index = DualNumber{1.} /
                     (angleCotangent * sineTheta * sineTheta + cosineTheta * cosineTheta);
   if (!std::isfinite(transverseArcLength.value) || transverseArcLength.value <= 0. ||
       !std::isfinite(sineTheta.value) || sineTheta.value <= 0. ||
@@ -205,42 +205,42 @@ bool makeSegmentGeometry(const Jet& transverseCurvature, const Jet& chordLength,
 }
 
 struct TripletGeometry {
-  Jet phiTilde;
-  Jet thetaTilde;
-  Jet rhoPhi;
-  Jet rhoTheta;
+  DualNumber phiTilde;
+  DualNumber thetaTilde;
+  DualNumber rhoPhi;
+  DualNumber rhoTheta;
 };
 
 bool makeTripletGeometry(const std::array<TripletFitObservation, 3>& observations,
                          TripletGeometry& result) noexcept
 {
-  std::array<std::array<Jet, 3>, 3> point{};
+  std::array<std::array<DualNumber, 3>, 3> point{};
   for (std::size_t hit = 0; hit < observations.size(); ++hit) {
     for (std::size_t coordinate = 0; coordinate < 3; ++coordinate) {
       const std::size_t index = 3 * hit + coordinate;
-      point[hit][coordinate] = Jet::variable(observations[hit].position[coordinate], index);
+      point[hit][coordinate] = DualNumber::variable(observations[hit].position[coordinate], index);
     }
   }
 
-  const Jet dx01 = point[1][0] - point[0][0];
-  const Jet dy01 = point[1][1] - point[0][1];
-  const Jet dz01 = point[1][2] - point[0][2];
-  const Jet dx12 = point[2][0] - point[1][0];
-  const Jet dy12 = point[2][1] - point[1][1];
-  const Jet dz12 = point[2][2] - point[1][2];
-  const Jet dx02 = point[2][0] - point[0][0];
-  const Jet dy02 = point[2][1] - point[0][1];
-  const Jet length01 = squareRoot(dx01 * dx01 + dy01 * dy01);
-  const Jet length12 = squareRoot(dx12 * dx12 + dy12 * dy12);
-  const Jet length02 = squareRoot(dx02 * dx02 + dy02 * dy02);
+  const DualNumber dx01 = point[1][0] - point[0][0];
+  const DualNumber dy01 = point[1][1] - point[0][1];
+  const DualNumber dz01 = point[1][2] - point[0][2];
+  const DualNumber dx12 = point[2][0] - point[1][0];
+  const DualNumber dy12 = point[2][1] - point[1][1];
+  const DualNumber dz12 = point[2][2] - point[1][2];
+  const DualNumber dx02 = point[2][0] - point[0][0];
+  const DualNumber dy02 = point[2][1] - point[0][1];
+  const DualNumber length01 = squareRoot(dx01 * dx01 + dy01 * dy01);
+  const DualNumber length12 = squareRoot(dx12 * dx12 + dy12 * dy12);
+  const DualNumber length02 = squareRoot(dx02 * dx02 + dy02 * dy02);
   if (!std::isfinite(length01.value) || !std::isfinite(length12.value) ||
       !std::isfinite(length02.value) || length01.value <= 0. ||
       length12.value <= 0. || length02.value <= 0.) {
     return false;
   }
 
-  const Jet cross = dx01 * dy12 - dy01 * dx12;
-  const Jet transverseCurvature = Jet{2.} * cross / (length01 * length12 * length02);
+  const DualNumber cross = dx01 * dy12 - dy01 * dx12;
+  const DualNumber transverseCurvature = DualNumber{2.} * cross / (length01 * length12 * length02);
   SegmentGeometry firstSegment;
   SegmentGeometry secondSegment;
   if (!makeSegmentGeometry(transverseCurvature, length01, dz01, firstSegment) ||
@@ -248,29 +248,29 @@ bool makeTripletGeometry(const std::array<TripletFitObservation, 3>& observation
     return false;
   }
 
-  const Jet theta01 = arcTangent2(firstSegment.transverseArcLength, dz01);
-  const Jet theta12 = arcTangent2(secondSegment.transverseArcLength, dz12);
-  const Jet phiTilde = Jet{0.5} *
+  const DualNumber theta01 = arcTangent2(firstSegment.transverseArcLength, dz01);
+  const DualNumber theta12 = arcTangent2(secondSegment.transverseArcLength, dz12);
+  const DualNumber phiTilde = DualNumber{0.5} *
                        (firstSegment.bendingAngle * firstSegment.index +
                         secondSegment.bendingAngle * secondSegment.index);
-  const Jet thetaTilde = theta12 - theta01 +
-                         (Jet{1.} - secondSegment.index) * secondSegment.cotangentTheta -
-                         (Jet{1.} - firstSegment.index) * firstSegment.cotangentTheta;
-  const Jet rhoPhi = Jet{-0.5} *
+  const DualNumber thetaTilde = theta12 - theta01 +
+                         (DualNumber{1.} - secondSegment.index) * secondSegment.cotangentTheta -
+                         (DualNumber{1.} - firstSegment.index) * firstSegment.cotangentTheta;
+  const DualNumber rhoPhi = DualNumber{-0.5} *
                      (firstSegment.transverseArcLength * firstSegment.index / firstSegment.sineTheta +
                       secondSegment.transverseArcLength * secondSegment.index / secondSegment.sineTheta);
 
-  Jet rhoTheta;
+  DualNumber rhoTheta;
   const double maximumHalfSine = 0.5 * std::abs(transverseCurvature.value) *
                                  std::max(length01.value, length12.value);
   if (maximumHalfSine < 1.e-4) {
     rhoTheta = transverseCurvature *
                (length12 * length12 * secondSegment.cosineTheta -
                 length01 * length01 * firstSegment.cosineTheta) /
-               Jet{12.};
+               DualNumber{12.};
   } else {
-    rhoTheta = ((Jet{1.} - firstSegment.index) * firstSegment.cotangentTheta / firstSegment.sineTheta -
-                (Jet{1.} - secondSegment.index) * secondSegment.cotangentTheta / secondSegment.sineTheta) /
+    rhoTheta = ((DualNumber{1.} - firstSegment.index) * firstSegment.cotangentTheta / firstSegment.sineTheta -
+                (DualNumber{1.} - secondSegment.index) * secondSegment.cotangentTheta / secondSegment.sineTheta) /
                transverseCurvature;
   }
 
