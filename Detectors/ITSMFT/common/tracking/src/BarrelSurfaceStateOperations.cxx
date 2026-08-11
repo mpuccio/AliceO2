@@ -886,7 +886,7 @@ bool propagate(SurfaceKinematicState& state, SurfaceLinearizationReference& linR
     reason = OperationFailureReason::NonFiniteOutput;
     return false;
   }
-  // ADR 0008: a large single-step Jacobian transport can produce an
+  // A large single-step Jacobian transport can produce an
   // off-diagonal term large enough that the matrix is no longer
   // positive-semi-definite even though every individual diagonal still
   // looks valid; sanitize unconditionally so the next operation (typically

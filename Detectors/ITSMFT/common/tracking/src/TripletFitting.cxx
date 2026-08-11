@@ -29,9 +29,9 @@ struct DualNumber {
   double value{0.};
   std::array<double, NCoordinates> derivative{};
 
-  static DualNumber variable(double value, std::size_t index) noexcept
+  static DualNumber variable(double val, std::size_t index) noexcept
   {
-    DualNumber result{value};
+    DualNumber result{val};
     result.derivative[index] = 1.;
     return result;
   }
