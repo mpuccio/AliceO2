@@ -29,7 +29,6 @@
 #include "GPUCommonMath.h"
 #include "ITStracking/BoundedAllocator.h"
 #include "ITSMFTTracking/Cell.h"
-#include "ITSMFTTracking/detail/CommonTrackShadow.h"
 #include "ITStracking/Constants.h"
 #include "ITSMFTTracking/Configuration.h"
 #include "ITSMFTTracking/IndexTableConfiguration.h"
@@ -77,31 +76,62 @@ constexpr std::size_t kindIndex(SurfaceKind kind) noexcept
   return kind == SurfaceKind::Cylinder ? 0u : 1u;
 }
 
-bool makeCandidateShadow(const TrackingCandidate& candidate,
-                         gsl::span<const gsl::span<const GlobalMeasurement>> layerMeasurements,
-                         CommonTrackShadowRecord& record) noexcept
+std::optional<uint32_t> appendCommonTrack(TimeFrame& frame,
+                                          const TrackingCandidate& candidate,
+                                          gsl::span<const gsl::span<const GlobalMeasurement>> layerMeasurements)
 {
-  record = {};
-  record.track = candidate.track;
-  record.track.hitSurfaces = {};
-  record.references.reserve(layerMeasurements.size());
+  CommonTrack track = candidate.track;
+  track.hitSurfaces = {};
+  std::vector<TrackClusterReference> resolvedReferences;
+  resolvedReferences.reserve(layerMeasurements.size());
+  const auto& normalized = frame.getNormalizedFrame();
   for (std::size_t position = 0; position < layerMeasurements.size(); ++position) {
     const int localIndex = candidate.getClusterIndex(static_cast<int>(position));
     if (localIndex == o2::its::constants::UnusedIndex) {
       continue;
     }
     if (localIndex < 0 || static_cast<std::size_t>(localIndex) >= layerMeasurements[position].size()) {
-      return false;
+      return std::nullopt;
     }
     const auto& measurement = layerMeasurements[position][localIndex];
     const TrackClusterReference reference{measurement.surface, SurfaceMeasurementIndex{static_cast<uint32_t>(localIndex)}};
-    if (!reference.surface.isValid() || measurement.surface != reference.surface || !measurement.cluster.isValid()) {
-      return false;
+    const auto* resolved = normalized.getGlobalMeasurement(reference.surface, reference.index);
+    if (!reference.surface.isValid() || measurement.surface != reference.surface || !measurement.cluster.isValid() ||
+        resolved == nullptr || resolved != &measurement || resolved->surface != reference.surface || !resolved->cluster.isValid()) {
+      return std::nullopt;
     }
-    record.references.push_back(reference);
-    record.track.hitSurfaces.set(reference.surface);
+    resolvedReferences.push_back(reference);
+    track.hitSurfaces.set(reference.surface);
   }
-  return !record.references.empty();
+  if (!track.innerState.hasRecognizedFamily() || !track.outerState.hasRecognizedFamily() ||
+      track.innerState.family != track.outerState.family || !track.timestamp.isValid() || resolvedReferences.empty()) {
+    return std::nullopt;
+  }
+
+  auto& tracks = frame.getCommonTracks();
+  auto& references = frame.getTrackClusterIndices();
+  const auto oldTrackSize = tracks.size();
+  const auto oldReferenceSize = references.size();
+  if (oldTrackSize > std::numeric_limits<uint32_t>::max() || oldReferenceSize > std::numeric_limits<uint32_t>::max() ||
+      resolvedReferences.size() > std::numeric_limits<uint32_t>::max() - oldReferenceSize) {
+    return std::nullopt;
+  }
+
+  try {
+    references.reserve(oldReferenceSize + resolvedReferences.size());
+    tracks.reserve(oldTrackSize + 1);
+    for (const auto& reference : resolvedReferences) {
+      references.push_back(reference);
+    }
+    track.firstClusterRef = static_cast<uint32_t>(oldReferenceSize);
+    track.clusterRefEnd = static_cast<uint32_t>(references.size());
+    tracks.push_back(track);
+  } catch (...) {
+    references.resize(oldReferenceSize);
+    tracks.resize(oldTrackSize);
+    throw;
+  }
+  return static_cast<uint32_t>(oldTrackSize);
 }
 
 // A static "diamond" vertex (ITSCommonCATrackerParam.useDiamond /
@@ -1784,15 +1814,9 @@ void TrackerTraits::acceptTracks(int iteration,
                              static_cast<TFBC>(selectedTimestampSymmetric.getTimeStamp() + selectedTimestampError)};
     trks.emplace_back(track);
 
-    // Generic owner-thread publication. The candidate/refit loops above may
-    // be parallel, but acceptTracks() runs after they have joined and is the
-    // one deterministic accepted-result order. Typed sidecars are completed
-    // later by the application adapter from the same generic results.
-    CommonTrackShadowRecord shadow;
-    if (!makeCandidateShadow(track, mLayerGlobalMeasurements, shadow)) {
-      LOGP(fatal, "CommonTrack publication failed for an accepted CA track");
-    }
-    const auto commonTrackIndex = publishCommonTrackShadow(*mFrame, shadow);
+    // acceptTracks() is the serial owner-thread publication boundary. Typed
+    // sidecars are completed later by the application adapter.
+    const auto commonTrackIndex = appendCommonTrack(*mFrame, track, mLayerGlobalMeasurements);
     if (!commonTrackIndex) {
       LOGP(fatal, "CommonTrack publication failed for an accepted CA track");
     }
