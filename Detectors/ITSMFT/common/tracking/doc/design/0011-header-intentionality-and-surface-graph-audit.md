@@ -355,8 +355,7 @@ Merge `ClusterSource.h`, `MultiSourceLoading.h`, and
 The five headers are a coupled temporary migration layer, not five enduring
 concepts. `TransitionPolicyTag` has exactly two enabled values and each is
 derived one-to-one from `SurfaceKind`; `TransitionPolicyGrouping` groups by
-that derived value; `SurfacePlanBinding::Declaration` redundantly carries
-both `expectedKind` and `expectedPolicy`; and `TrackerTraits` retains
+that derived value; and `TrackerTraits` retains
 `mActiveTag`, policy-specific parameter optionals, and `*ForPolicy<Tag>`
 methods. This is the tag-keyed duplicated orchestration that the
 [descriptor-driven operation-boundary classification](0001-descriptor-driven-operation-boundary.md#5-classification)
