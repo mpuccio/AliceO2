@@ -691,9 +691,8 @@ BOOST_AUTO_TEST_CASE(CatalogRequestDetectorMismatchIsRejected)
   BOOST_CHECK_EQUAL(frame.getNormalizedFrame().getTotalMeasurements(), 0u);
 }
 
-// nLayersForDet() maps every non-MFT detector (including TPC) to ITSNLayers,
-// so a SurfaceTrackingScratch probed with detId=TPC shares
-// NLayers==7 with the scratch. The detector-identity preflight must still reject it as
+// A SurfaceTrackingScratch probed with detId=TPC shares NLayers==7 with the
+// scratch. The detector-identity preflight must still reject it as
 // UnsupportedDetector, and it must do so before catalog ownership is ever
 // inspected: no catalog is configured here at all, so a result of
 // SurfaceCatalogNotConfigured (or anything catalog-related) would prove the

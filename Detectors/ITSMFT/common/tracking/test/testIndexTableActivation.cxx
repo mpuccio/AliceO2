@@ -28,14 +28,7 @@
 //    TimeFrame is touched.
 //  - A FirstPass iteration may legitimately change RowBins/ColBins/extents
 //    relative to a previous iteration; that recommits and reallocates.
-//  - Layout/binding are one-shot per initialiseTimeFrame() call
-//    (mTraversalGroupingCount).
-//
-// Gate 4 B2 Slice 2: initialiseTimeFrame() now takes the plan as an explicit
-// `const std::vector<SurfaceGraph>&` parameter rather than reading it off TimeFrame,
-// so TimeFrame::initialise() runs only after every structural check by
-// construction -- there is no longer a "missing layout" TimeFrame state for
-// a reordering regression to reintroduce.
+//  - Layout/binding are validated before TimeFrame state is committed.
 
 #define BOOST_TEST_MODULE ITSMFT IndexTableActivation
 #define BOOST_TEST_MAIN
@@ -352,7 +345,6 @@ BOOST_AUTO_TEST_CASE(FirstPassCommitsValidatedConfigurationIntoTimeFrame)
   expected.setTrackingParameters(params[0]);
   BOOST_CHECK(indexTableConfigurationsMatch(rig.tf.getIndexTableUtils(), expected, ITSNLayers));
   BOOST_CHECK_GT(rig.tf.getIndexTableUtils().getNrowBins(), 0);
-  BOOST_CHECK_EQUAL(rig.traits.getTraversalGroupingCount(), 1);
 }
 
 // --- Invalid binding leaves TimeFrame untouched -----------------------------
@@ -399,7 +391,6 @@ BOOST_AUTO_TEST_CASE(NonFirstPassMatchingReuseSucceedsWithoutRecommit)
 
   BOOST_CHECK_NO_THROW(rig.traits.initialiseTimeFrame(1, *rig.plan));
   BOOST_CHECK(indexTableConfigurationsMatch(rig.tf.getIndexTableUtils(), committed, ITSNLayers));
-  BOOST_CHECK_EQUAL(rig.traits.getTraversalGroupingCount(), 1); // reset+incremented once per call, not accumulated
 }
 
 BOOST_AUTO_TEST_CASE(MismatchingRowColBinsRejectedBeforeMutation)

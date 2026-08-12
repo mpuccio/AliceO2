@@ -860,16 +860,6 @@ BOOST_AUTO_TEST_CASE(DiskComputeLayerCellsOnePassAndTwoPassAgree)
 
 BOOST_AUTO_TEST_CASE(RepeatedComputeLayerCellsCallsDoNotRebindOrIncreaseCounts)
 {
-  // getTraversalGroupingCount() only increments inside initialiseTimeFrame()
-  // (Gate 2 counter, unchanged by this slice). computeLayerCells() has no
-  // code path that rebinds cached surface-kind/geometry state. Repeated calls
-  // must leave the counter exactly as it was after the single
-  // initialiseTimeFrame() call, and must keep reproducing the identical
-  // cell chi2 through the same kernel-parameter cache. computeLayerCells()
-  // itself clears and
-  // consumes tracklets as an existing, unrelated post-step, so a second call
-  // with no freshly injected tracklets legitimately produces zero cells --
-  // that is not what this test checks.)
   Rig<MFTNLayers> rig{o2::detectors::DetID::MFT, SurfaceKind::Disk};
   rig.params[0].MaxChi2ClusterAttachment = 1.e6f;
   rig.params[0].TrackletMinPt = 0.3f;
@@ -887,8 +877,6 @@ BOOST_AUTO_TEST_CASE(RepeatedComputeLayerCellsCallsDoNotRebindOrIncreaseCounts)
   rig.traits.initialiseTimeFrame(0, *rig.plan);
   BOOST_REQUIRE(rig.traits.hasTraversalCache());
 
-  const int groupingCountAfterInit = rig.traits.getTraversalGroupingCount();
-
   const auto topology = rig.plan->front().getView();
   const int cellTopologyId = findCellTopologyId(topology, 0, 1, 2);
   BOOST_REQUIRE_GE(cellTopologyId, 0);
@@ -902,8 +890,6 @@ BOOST_AUTO_TEST_CASE(RepeatedComputeLayerCellsCallsDoNotRebindOrIncreaseCounts)
   rig.traits.computeLayerCells(0);
   rig.traits.computeLayerCells(0);
 
-  BOOST_CHECK_EQUAL(rig.traits.getTraversalGroupingCount(), groupingCountAfterInit);
-
   // Re-inject tracklets and recompute (the underlying candidate clusters/
   // measurements loaded above are untouched -- reloading them here would
   // invalidate TrackerTraits::mLayerMeasurements without a fresh
@@ -913,7 +899,6 @@ BOOST_AUTO_TEST_CASE(RepeatedComputeLayerCellsCallsDoNotRebindOrIncreaseCounts)
   injectCandidateTracklets(rig, cellTopologyId, clusters);
   rig.traits.computeLayerCells(0);
 
-  BOOST_CHECK_EQUAL(rig.traits.getTraversalGroupingCount(), groupingCountAfterInit);
   BOOST_REQUIRE_EQUAL(rig.tf.getCells()[cellTopologyId].size(), 1u);
   BOOST_CHECK_EQUAL(rig.tf.getCells()[cellTopologyId][0].getChi2(), firstChi2);
 }

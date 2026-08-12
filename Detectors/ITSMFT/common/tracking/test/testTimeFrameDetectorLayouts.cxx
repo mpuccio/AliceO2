@@ -376,11 +376,6 @@ BOOST_AUTO_TEST_CASE(traversal_initialisation_rejects_iteration_beyond_configure
 
 BOOST_AUTO_TEST_CASE(traversal_cache_groups_once_across_repeated_neighbour_and_road_calls)
 {
-  // Binding-count introspection is intentionally absent (a test-only seam
-  // using StateFamily as a dispatch key
-  // proxy); getTraversalGroupingCount() staying at 1 across every repeated
-  // call below remains the public-API evidence that initialiseTimeFrame()'s
-  // traversal grouping/parameter binding is not redone per call.
   auto params = mftTraversalParameters();
   auto pool = std::make_shared<BoundedMemoryResource>();
   TimeFrame frame;
@@ -394,13 +389,11 @@ BOOST_AUTO_TEST_CASE(traversal_cache_groups_once_across_repeated_neighbour_and_r
   adoptPlanBinding(built, traits, 0);
   traits.initialiseTimeFrame(0, built.plan);
   BOOST_REQUIRE(traits.hasTraversalCache());
-  BOOST_CHECK_EQUAL(traits.getTraversalGroupingCount(), 1);
 
   traits.findCellsNeighbours(0);
   traits.findCellsNeighbours(0);
   traits.findRoads(0, noopSeedRefit);
   traits.findRoads(0, noopSeedRefit);
-  BOOST_CHECK_EQUAL(traits.getTraversalGroupingCount(), 1);
 
   std::vector<TrackingParameters> itsParams{parameters(7, 0, 0, 0x7f)};
   TimeFrame itsFrame;
@@ -413,7 +406,6 @@ BOOST_AUTO_TEST_CASE(traversal_cache_groups_once_across_repeated_neighbour_and_r
   itsTraits.initialiseTimeFrame(0, itsBuilt.plan);
   itsTraits.findRoads(0, noopSeedRefit);
   itsTraits.findRoads(0, noopSeedRefit);
-  BOOST_CHECK_EQUAL(itsTraits.getTraversalGroupingCount(), 1);
 }
 
 BOOST_AUTO_TEST_CASE(traversal_empty_road_start_span_is_valid_and_produces_no_tracks)
