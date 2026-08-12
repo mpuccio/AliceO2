@@ -28,7 +28,8 @@ o2_target_root_dictionary(ITSMFTTrackingParams
 # Dependency is one-way (ITSMFTTracking -> ITStracking) to avoid a circular link.
 o2_add_library(ITSMFTTracking
                TARGETVARNAME targetName
-               SOURCES src/IOUtils.cxx
+               SOURCES src/ClusterIO.cxx
+                       src/IOUtils.cxx
                        src/Propagator.cxx
                        src/Configuration.cxx
                        src/TimeFrame.cxx
@@ -44,7 +45,6 @@ o2_add_library(ITSMFTTracking
                        src/IndexTableConfiguration.cxx
                        src/SurfaceGraphBuilder.cxx
                        src/Tracker.cxx
-                       src/MultiSourceTimeFrameLoader.cxx
                PUBLIC_LINK_LIBRARIES
                        O2::ITSMFTTrackingParams
                        O2::ITStracking

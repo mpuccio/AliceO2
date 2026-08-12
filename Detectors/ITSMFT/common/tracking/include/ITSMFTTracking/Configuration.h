@@ -34,7 +34,7 @@
 #include "CommonUtils/EnumFlags.h"
 #include "DetectorsBase/Propagator.h"
 #include "DetectorsCommonDataFormats/DetID.h"
-#include "ITSMFTTracking/NominalSurfaceMaterialDefaults.h"
+#include "ITSMFTTracking/ITSMFTDetectorDefinitions.h"
 #include "ITSMFTTracking/SurfaceMask.h"
 #include "ITSMFTTracking/TrackingConfigParam.h"
 #include "ITStracking/TrackingConfigParam.h"

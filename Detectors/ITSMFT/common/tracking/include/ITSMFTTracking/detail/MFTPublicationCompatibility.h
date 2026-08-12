@@ -18,7 +18,7 @@
 #include <stdexcept>
 #include <vector>
 
-#include "ITSMFTTracking/StaticDetectorCatalogs.h"
+#include "ITSMFTTracking/ITSMFTDetectorDefinitions.h"
 
 namespace o2::itsmft::tracking
 {

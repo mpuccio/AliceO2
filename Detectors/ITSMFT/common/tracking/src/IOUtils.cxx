@@ -1,336 +1,673 @@
-// Copyright 2019-2020 CERN and copyright holders of ALICE O2.
+// Copyright 2019-2026 CERN and copyright holders of ALICE O2.
 // See https://alice-o2.web.cern.ch/copyright for details of the copyright holders.
 // All rights not expressly granted are reserved.
-//
-// This software is distributed under the terms of the GNU General Public
-// License v3 (GPL Version 3), copied verbatim in the file "COPYING".
-//
-// In applying this license CERN does not waive the privileges and immunities
-// granted to it by virtue of its status as an Intergovernmental Organization
-// or submit itself to any jurisdiction.
-///
-/// \file IOUtils.cxx
-/// \brief Shared cluster I/O utilities for ITS and MFT (based on ITStracking/IOUtils.cxx)
-///
 
 #include "ITSMFTTracking/IOUtils.h"
-#include "ITSMFTTracking/Configuration.h"
-#include "ITStracking/Cluster.h"
 
-#include "Framework/Logger.h"
-#include "ITSBase/GeometryTGeo.h"
-#include "MFTBase/GeometryTGeo.h"
-#include "MathUtils/Utils.h"
+#include <algorithm>
+#include <cmath>
+#include <format>
+#include <limits>
+#include <memory>
+#include <vector>
+
+#include "ITSMFTTracking/detail/SurfaceTrackingScratch.h"
+#include "ITSMFTTracking/SurfaceMask.h"
+#include "ITSMFTTracking/TimeFrame.h"
+
+namespace o2::itsmft::tracking
+{
+
+LoadSourcesResult MultiSourceTimeFrameLoader::load(TimeFrame& frame, gsl::span<const ClusterSourceInput> sources,
+                                                   SurfaceCatalogView catalog, const o2::InteractionRecord& origin)
+{
+  if (!frame.isConfigured()) {
+    return {MultiSourceLoadError::FrameNotConfigured};
+  }
+  // Stage measurement data for every source before committing the event. The
+  // source-level loader remains the decoder and timing-validation boundary.
+  TimeFrame stagedMeasurements;
+  const auto loadResult = loadSources(stagedMeasurements, catalog, sources, origin);
+  if (!loadResult.ok()) {
+    return loadResult;
+  }
+
+  const auto* binding = frame.getBinding(0);
+  if (binding == nullptr) {
+    return {MultiSourceLoadError::FrameNotConfigured};
+  }
+  SurfaceMask mappedSurfaces;
+  for (const auto& source : sources) {
+    for (const auto surface : source.layerToSurface) {
+      if (!surface.isValid() || mappedSurfaces.has(surface) || !binding->getOwnedSurfaceIndex(surface)) {
+        return {MultiSourceLoadError::InvalidLayerMapping, source.id};
+      }
+      mappedSurfaces.set(surface);
+    }
+  }
+  if (mappedSurfaces != binding->getOwnedSurfaces()) {
+    // Attribute an omitted surface when exactly one input stream owns its
+    // detector family. Ambiguous same-detector splits remain unattributed.
+    for (const auto surface : binding->getOrderedSurfaces()) {
+      if (mappedSurfaces.has(surface)) {
+        continue;
+      }
+      ClusterSourceId owner;
+      for (const auto& source : sources) {
+        if (static_cast<uint8_t>(source.detector) != catalog.getSurface(surface).detectorId) {
+          continue;
+        }
+        if (owner.isValid()) {
+          return {MultiSourceLoadError::InvalidLayerMapping};
+        }
+        owner = source.id;
+      }
+      return {MultiSourceLoadError::InvalidLayerMapping, owner};
+    }
+    return {MultiSourceLoadError::InvalidLayerMapping};
+  }
+
+  auto staged = std::make_unique<SurfaceTrackingScratch>();
+  auto& live = frame.getWorkspace();
+  if (live.hasFrameworkAllocator()) {
+    staged->setFrameworkAllocator(live.getFrameworkAllocator());
+  }
+  staged->setMemoryPool(frame.getMemoryPool());
+  staged->adoptPlan(live.getNOwnedSurfaces(), 0, 0);
+  const auto backfillResult = staged->backfillNormalizedSources(stagedMeasurements, sources, binding->getOrderedSurfaces(), catalog);
+  if (!backfillResult.ok()) {
+    return backfillResult;
+  }
+
+  if (!frame.commitLoadedEvent(stagedMeasurements, std::move(staged))) {
+    return {MultiSourceLoadError::OtherMalformedInput};
+  }
+  return {};
+}
 
 namespace
 {
-constexpr int PrimaryVertexLayerId{-1};
-constexpr int EventLabelsSeparator{-1};
-
-using o2::itsmft::ioutils::detail::addSysErrors;
-using o2::itsmft::ioutils::detail::shouldApplySysErrors;
-
-template <o2::detectors::DetID::ID DetId, typename GeomT>
-o2::itsmft::tracking::DecodedCluster decodeCluster(GeomT* geom,
-                                                   const o2::itsmft::CompClusterExt& c,
-                                                   gsl::span<const unsigned char>::iterator& pattIt,
-                                                   const o2::itsmft::TopologyDictionary* dict,
-                                                   bool applySysErrors)
+bool isSupportedDetector(o2::detectors::DetID::ID det) noexcept
 {
-  const auto sensorID = c.getSensorID();
-  if (!o2::itsmft::ioutils::detail::isSensorInGeometry(sensorID, geom->getSize())) {
-    LOGP(fatal, "Cluster sensorID {} is out of geometry range [0, {})", sensorID, geom->getSize());
-  }
-  const int layer = geom->getLayer(sensorID);
-  if (!o2::itsmft::ioutils::detail::isLayerInDetector(layer, o2::itsmft::tracking::TrackerParamRef<DetId>::nLayers())) {
-    LOGP(fatal, "Cluster sensorID {} maps to invalid layer {} (expected [0, {}))",
-         sensorID, layer, o2::itsmft::tracking::TrackerParamRef<DetId>::nLayers());
-  }
-  const auto pattID = c.getPatternID();
-  if (pattID != o2::itsmft::CompCluster::InvalidPatternID && dict != nullptr &&
-      (pattID < 0 || pattID >= dict->getSize())) {
-    LOGP(fatal, "Cluster patternID {} is out of dictionary range [0, {})", pattID, dict->getSize());
-  }
-
-  float sigma2Row{0.f};
-  float sigma2Col{0.f};
-  o2::itsmft::tracking::ClusterShape shape{};
-  const auto locXYZ = o2::itsmft::ioutils::extractClusterData(c, pattIt, dict, sigma2Row, sigma2Col, nullptr, &shape);
-
-  if (applySysErrors && shouldApplySysErrors<DetId>()) {
-    addSysErrors<DetId>(layer, sigma2Row, sigma2Col);
-  }
-
-  if constexpr (DetId == o2::detectors::DetID::ITS) {
-    const auto trkXYZ = geom->getMatrixT2L(sensorID) ^ locXYZ;
-    const auto gloXYZ = geom->getMatrixL2G(sensorID) * locXYZ;
-    return o2::itsmft::tracking::DecodedCluster{
-      {gloXYZ.x(), gloXYZ.y(), gloXYZ.z()},
-      {trkXYZ.x(), trkXYZ.y(), trkXYZ.z(), geom->getSensorRefAlpha(sensorID)},
-      {sigma2Row, 0.f, sigma2Col},
-      shape,
-      static_cast<uint32_t>(sensorID),
-      layer};
-  } else {
-    if (!geom->getCacheL2G().isFilled() || geom->getCacheL2G().getSize() <= sensorID) {
-      LOGP(fatal, "MFT L2G matrix cache unavailable for sensorID {} (filled={}, size={})",
-           sensorID, geom->getCacheL2G().isFilled(), geom->getCacheL2G().getSize());
-    }
-    const auto gloXYZ = geom->getMatrixL2G(sensorID) * locXYZ;
-    // ALPIDE row (local X) -> global X, column (local Z) -> global Y
-    return o2::itsmft::tracking::DecodedCluster{
-      {gloXYZ.x(), gloXYZ.y(), gloXYZ.z()},
-      {},
-      {sigma2Row, 0.f, sigma2Col},
-      shape,
-      static_cast<uint32_t>(sensorID),
-      layer};
-  }
+  return det == o2::detectors::DetID::ITS || det == o2::detectors::DetID::MFT;
 }
 
-struct DecodedClusterResult {
-  o2::itsmft::tracking::DecodedCluster decoded{};
-  o2::itsmft::tracking::ClusterDecodeError error{o2::itsmft::tracking::ClusterDecodeError::None};
-
-  bool ok() const noexcept { return error == o2::itsmft::tracking::ClusterDecodeError::None; }
-};
-
-// Safe normalized-loading boundary. Malformed-input checks precede geometry
-// and ClusterPattern access; the iterator-based API remains available.
-template <o2::detectors::DetID::ID DetId, typename GeomT>
-DecodedClusterResult decodeClusterBounded(GeomT* geom,
-                                          const o2::itsmft::CompClusterExt& c,
-                                          o2::itsmft::tracking::BoundedPatternCursor& patterns,
-                                          const o2::itsmft::TopologyDictionary* dict,
-                                          bool applySysErrors)
+bool covariance2DIsPositiveSemidefinite(float varianceFirst, float covariance,
+                                        float varianceSecond) noexcept
 {
-  using o2::itsmft::tracking::ClusterDecodeError;
-  DecodedClusterResult result;
-  if (dict == nullptr) {
-    result.error = ClusterDecodeError::MissingDictionary;
-    return result;
+  if (!std::isfinite(varianceFirst) || !std::isfinite(covariance) ||
+      !std::isfinite(varianceSecond) || varianceFirst < 0.f || varianceSecond < 0.f) {
+    return false;
   }
-  if (geom == nullptr) {
-    result.error = ClusterDecodeError::GeometryUnavailable;
-    return result;
-  }
-
-  const auto sensorID = c.getSensorID();
-  if (!o2::itsmft::ioutils::detail::isSensorInGeometry(sensorID, geom->getSize())) {
-    result.error = ClusterDecodeError::InvalidSensor;
-    return result;
-  }
-  const int layer = geom->getLayer(sensorID);
-  if (!o2::itsmft::ioutils::detail::isLayerInDetector(layer, o2::itsmft::tracking::TrackerParamRef<DetId>::nLayers())) {
-    result.error = ClusterDecodeError::InvalidLayer;
-    return result;
-  }
-
-  const auto clusterData = o2::itsmft::ioutils::extractClusterDataBounded(c, patterns, dict);
-  if (!clusterData.ok()) {
-    result.error = clusterData.error;
-    return result;
-  }
-  float sigma2Row = clusterData.sig2Row;
-  float sigma2Col = clusterData.sig2Col;
-  if (applySysErrors && shouldApplySysErrors<DetId>()) {
-    addSysErrors<DetId>(layer, sigma2Row, sigma2Col);
-  }
-
-  if constexpr (DetId == o2::detectors::DetID::ITS) {
-    const auto trkXYZ = geom->getMatrixT2L(sensorID) ^ clusterData.coordinates;
-    const auto gloXYZ = geom->getMatrixL2G(sensorID) * clusterData.coordinates;
-    result.decoded = o2::itsmft::tracking::DecodedCluster{
-      {gloXYZ.x(), gloXYZ.y(), gloXYZ.z()},
-      {trkXYZ.x(), trkXYZ.y(), trkXYZ.z(), geom->getSensorRefAlpha(sensorID)},
-      {sigma2Row, 0.f, sigma2Col},
-      clusterData.shape,
-      static_cast<uint32_t>(sensorID),
-      layer};
-  } else {
-    if (!geom->getCacheL2G().isFilled() || geom->getCacheL2G().getSize() <= sensorID) {
-      result.error = ClusterDecodeError::GeometryUnavailable;
-      return result;
-    }
-    const auto gloXYZ = geom->getMatrixL2G(sensorID) * clusterData.coordinates;
-    result.decoded = o2::itsmft::tracking::DecodedCluster{
-      {gloXYZ.x(), gloXYZ.y(), gloXYZ.z()},
-      {},
-      {sigma2Row, 0.f, sigma2Col},
-      clusterData.shape,
-      static_cast<uint32_t>(sensorID),
-      layer};
-  }
-  return result;
+  const double diagonalProduct = static_cast<double>(varianceFirst) * varianceSecond;
+  const double covarianceSquared = static_cast<double>(covariance) * covariance;
+  const double tolerance = 16. * std::numeric_limits<float>::epsilon() *
+                           std::max(diagonalProduct, covarianceSquared);
+  return diagonalProduct - covarianceSquared >= -tolerance;
 }
 
-template <o2::detectors::DetID::ID DetId, typename GeomT>
-void fillOutputClusters(GeomT* geom,
-                        gsl::span<const o2::itsmft::CompClusterExt> clusters,
-                        gsl::span<const unsigned char>::iterator& pattIt,
-                        std::vector<o2::BaseCluster<float>>& output,
-                        const o2::itsmft::TopologyDictionary* dict,
-                        bool applyMisalignment)
+bool globalCovarianceIsPositiveSemidefinite(const GlobalCovariance3F& covariance) noexcept
 {
-  for (const auto& c : clusters) {
-    float sigma2Row{0.f}, sigma2Col{0.f};
-    const float sigmaRowCol{0.f}; // row-column covariance (unused)
-    const auto locXYZ = o2::itsmft::ioutils::extractClusterData(c, pattIt, dict, sigma2Row, sigma2Col);
-    if (applyMisalignment) {
-      addSysErrors<DetId>(geom->getLayer(c.getSensorID()), sigma2Row, sigma2Col);
-    }
-    o2::math_utils::Point3D<float> outXYZ{};
-    if constexpr (DetId == o2::detectors::DetID::ITS) {
-      outXYZ = geom->getMatrixT2L(c.getSensorID()) ^ locXYZ;
-    } else {
-      outXYZ = geom->getMatrixL2G(c.getSensorID()) * locXYZ;
-    }
-    auto& cl3d = output.emplace_back(c.getSensorID(), outXYZ);
-    cl3d.setErrors(sigma2Row, sigma2Col, sigmaRowCol);
+  if (!covariance2DIsPositiveSemidefinite(covariance.xx, covariance.xy, covariance.yy) ||
+      !covariance2DIsPositiveSemidefinite(covariance.xx, covariance.xz, covariance.zz) ||
+      !covariance2DIsPositiveSemidefinite(covariance.yy, covariance.yz, covariance.zz)) {
+    return false;
   }
+  const double determinant =
+    static_cast<double>(covariance.xx) * covariance.yy * covariance.zz +
+    2. * static_cast<double>(covariance.xy) * covariance.xz * covariance.yz -
+    static_cast<double>(covariance.xx) * covariance.yz * covariance.yz -
+    static_cast<double>(covariance.yy) * covariance.xz * covariance.xz -
+    static_cast<double>(covariance.zz) * covariance.xy * covariance.xy;
+  const double scale = std::max({std::abs(static_cast<double>(covariance.xx) * covariance.yy * covariance.zz),
+                                 std::abs(2. * static_cast<double>(covariance.xy) * covariance.xz * covariance.yz),
+                                 std::abs(static_cast<double>(covariance.xx) * covariance.yz * covariance.yz),
+                                 std::abs(static_cast<double>(covariance.yy) * covariance.xz * covariance.xz),
+                                 std::abs(static_cast<double>(covariance.zz) * covariance.xy * covariance.xy)});
+  return std::isfinite(determinant) &&
+         determinant >= -32. * std::numeric_limits<float>::epsilon() * scale;
 }
 
+bool decodedMeasurementIsValid(const GlobalMeasurement& global,
+                               const SurfaceMeasurement& local) noexcept
+{
+  return std::isfinite(global.position.x) && std::isfinite(global.position.y) &&
+         std::isfinite(global.position.z) &&
+         globalCovarianceIsPositiveSemidefinite(global.covariance) &&
+         std::isfinite(local.frame.q) && std::isfinite(local.frame.u) &&
+         std::isfinite(local.frame.v) && std::isfinite(local.frame.frameAngle) &&
+         covariance2DIsPositiveSemidefinite(local.covariance.uu,
+                                            local.covariance.uv,
+                                            local.covariance.vv);
+}
+
+MultiSourceLoadError mapDecodeError(ClusterDecodeError error) noexcept
+{
+  switch (error) {
+    case ClusterDecodeError::None:
+      return MultiSourceLoadError::None;
+    case ClusterDecodeError::MissingDictionary:
+      return MultiSourceLoadError::MissingDictionary;
+    case ClusterDecodeError::TruncatedExplicitPattern:
+      return MultiSourceLoadError::TruncatedExplicitPattern;
+    case ClusterDecodeError::MalformedExplicitPattern:
+      return MultiSourceLoadError::MalformedExplicitPattern;
+    case ClusterDecodeError::InvalidPatternId:
+      return MultiSourceLoadError::InvalidPatternId;
+    case ClusterDecodeError::InvalidSensor:
+      return MultiSourceLoadError::InvalidSensor;
+    case ClusterDecodeError::InvalidLayer:
+      return MultiSourceLoadError::InvalidDecodedLayer;
+    case ClusterDecodeError::InvalidLayerMapping:
+      return MultiSourceLoadError::InvalidLayerMapping;
+    case ClusterDecodeError::GeometryUnavailable:
+      return MultiSourceLoadError::GeometryUnavailable;
+    case ClusterDecodeError::OtherMalformedInput:
+      return MultiSourceLoadError::OtherMalformedInput;
+  }
+  return MultiSourceLoadError::OtherMalformedInput;
+}
 } // namespace
 
-namespace o2::itsmft::ioutils
+LoadSourcesResult loadSources(TimeFrame& frame,
+                              const SurfaceCatalogView& catalog,
+                              gsl::span<const ClusterSourceInput> sources,
+                              const o2::InteractionRecord& origin)
 {
+  const auto nSources = static_cast<uint32_t>(sources.size());
 
-void fillMatrixCache(o2::detectors::DetID::ID detId)
-{
-  const auto mask = o2::math_utils::bit2Mask(o2::math_utils::TransformType::T2L, o2::math_utils::TransformType::L2G);
-  if (detId == o2::detectors::DetID::ITS) {
-    o2::its::GeometryTGeo::Instance()->fillMatrixCache(mask);
-  } else if (detId == o2::detectors::DetID::MFT) {
-    o2::mft::GeometryTGeo::Instance()->fillMatrixCache(mask);
-  } else {
-    LOGP(fatal, "Unsupported detector id {} in fillMatrixCache", static_cast<int>(detId));
+  std::vector<bool> seen(nSources, false);
+  for (const auto& src : sources) {
+    if (!src.id.isValid() || src.id.value() >= nSources) {
+      return {MultiSourceLoadError::NonDenseSourceIds, src.id};
+    }
+    if (seen[src.id.value()]) {
+      return {MultiSourceLoadError::DuplicateSourceId, src.id};
+    }
+    seen[src.id.value()] = true;
+    if (!isSupportedDetector(src.detector)) {
+      return {MultiSourceLoadError::UnsupportedDetector, src.id};
+    }
+    if (src.decoder == nullptr) {
+      return {MultiSourceLoadError::MissingDecoder, src.id};
+    }
+    if (!src.clusters.empty() && src.dictionary == nullptr) {
+      return {MultiSourceLoadError::MissingDictionary, src.id, 0, 0};
+    }
   }
+
+  std::vector<std::vector<GlobalMeasurement>> perSurfaceGlobal(catalog.nSurfaces);
+  std::vector<std::vector<SurfaceMeasurement>> perSurface(catalog.nSurfaces);
+  std::vector<std::vector<ROFIntervalBC>> perSourceIntervals(nSources);
+  std::vector<const o2::dataformats::MCTruthContainer<o2::MCCompLabel>*> labelSources(nSources, nullptr);
+
+  for (const auto& src : sources) {
+    const auto srcIdx = src.id.value();
+    labelSources[srcIdx] = src.labels;
+
+    int64_t expectedNext = 0;
+    for (uint32_t r = 0; r < src.rofs.size(); ++r) {
+      const auto& rof = src.rofs[r];
+      const int64_t first = rof.getFirstEntry();
+      const int64_t n = rof.getNEntries();
+      if (n < 0 || first != expectedNext) {
+        return {MultiSourceLoadError::InvalidROFRange, src.id, r};
+      }
+      expectedNext = first + n;
+      if (expectedNext > static_cast<int64_t>(src.clusters.size())) {
+        return {MultiSourceLoadError::InvalidROFRange, src.id, r};
+      }
+    }
+    if (expectedNext != static_cast<int64_t>(src.clusters.size())) {
+      return {MultiSourceLoadError::InvalidROFRange, src.id, static_cast<uint32_t>(src.rofs.size())};
+    }
+
+    auto& intervals = perSourceIntervals[srcIdx];
+    intervals.reserve(src.rofs.size());
+    for (uint32_t r = 0; r < src.rofs.size(); ++r) {
+      const auto built = computeROFIntervalBC(src.rofs[r].getBCData(), origin, src.timing, r);
+      if (!built.ok()) {
+        return LoadSourcesResult{.error = MultiSourceLoadError::TimingError, .source = src.id, .rof = r, .timingDetail = built.error};
+      }
+      intervals.push_back(built.interval);
+    }
+
+    src.decoder->prepare();
+    BoundedPatternCursor patterns{src.patterns};
+    for (uint32_t r = 0; r < src.rofs.size(); ++r) {
+      const auto& rof = src.rofs[r];
+      const auto firstEntry = rof.getFirstEntry();
+      const auto nEntries = rof.getNEntries();
+      for (int32_t clusterId = firstEntry; clusterId < firstEntry + nEntries; ++clusterId) {
+        const auto& cluster = src.clusters[clusterId];
+        const auto externalIndex = static_cast<uint32_t>(clusterId);
+        const auto decoded = src.decoder->decode(cluster, patterns, src.dictionary, src.layerToSurface,
+                                                 src.id, externalIndex, r, src.applySysErrors);
+        if (!decoded.ok()) {
+          return {mapDecodeError(decoded.error), src.id, r, externalIndex};
+        }
+        if (!decoded.layerMapped || decoded.layer < 0 ||
+            static_cast<size_t>(decoded.layer) >= src.layerToSurface.size()) {
+          return {MultiSourceLoadError::InvalidLayerMapping, src.id, r, externalIndex};
+        }
+        const auto expectedSurface = src.layerToSurface[decoded.layer];
+        if (!expectedSurface.isValid() || expectedSurface.value() >= catalog.nSurfaces) {
+          return {MultiSourceLoadError::InvalidLayerMapping, src.id, r, externalIndex};
+        }
+        auto global = decoded.global;
+        if (global.surface != expectedSurface ||
+            global.cluster.source != src.id ||
+            global.cluster.index != externalIndex ||
+            global.sourceROF != r ||
+            global.sensor.detector != static_cast<uint32_t>(src.detector)) {
+          return {MultiSourceLoadError::InconsistentDecoderMetadata, src.id, r, externalIndex};
+        }
+        const auto& surfaceDescriptor = catalog.getSurface(expectedSurface);
+        if (surfaceDescriptor.detectorId != static_cast<uint8_t>(src.detector)) {
+          return {MultiSourceLoadError::DetectorSurfaceMismatch, src.id, r, externalIndex};
+        }
+        if (surfaceDescriptor.kind != decoded.kind) {
+          return {MultiSourceLoadError::SurfaceKindMismatch, src.id, r, externalIndex};
+        }
+        if (!decodedMeasurementIsValid(global, decoded.measurement)) {
+          return {MultiSourceLoadError::OtherMalformedInput, src.id, r, externalIndex};
+        }
+        global.radius = std::hypot(global.position.x, global.position.y);
+        perSurfaceGlobal[expectedSurface.value()].push_back(global);
+        perSurface[expectedSurface.value()].push_back(decoded.measurement);
+      }
+    }
+    if (!patterns.empty()) {
+      return {MultiSourceLoadError::TrailingPatternData, src.id,
+              static_cast<uint32_t>(src.rofs.size()), static_cast<uint32_t>(src.clusters.size())};
+    }
+  }
+
+  std::vector<uint32_t> sourceOffsets(nSources + 1, 0);
+  for (uint32_t s = 0; s < nSources; ++s) {
+    sourceOffsets[s + 1] = sourceOffsets[s] + static_cast<uint32_t>(perSourceIntervals[s].size());
+  }
+  std::vector<ROFIntervalBC> flatIntervals;
+  flatIntervals.reserve(sourceOffsets.back());
+  for (uint32_t s = 0; s < nSources; ++s) {
+    flatIntervals.insert(flatIntervals.end(), perSourceIntervals[s].begin(), perSourceIntervals[s].end());
+  }
+
+  frame.assignLoadedMeasurements(std::move(perSurfaceGlobal), std::move(perSurface),
+                                 std::move(flatIntervals), std::move(sourceOffsets), std::move(labelSources));
+  return {};
 }
 
-int getClusterLayer(o2::detectors::DetID::ID detId, const CompClusterExt& cluster)
+namespace
 {
-  if (detId == o2::detectors::DetID::ITS) {
-    return o2::its::GeometryTGeo::Instance()->getLayer(cluster.getSensorID());
+class NormalizedBackfillAllocatorMismatch final : public std::logic_error
+{
+ public:
+  explicit NormalizedBackfillAllocatorMismatch(int layer)
+    : std::logic_error("SurfaceTrackingScratch::loadNormalizedSource(): staged/live memory-resource mismatch on layer " + std::to_string(layer))
+  {
   }
-  if (detId == o2::detectors::DetID::MFT) {
-    return o2::mft::GeometryTGeo::Instance()->getLayer(cluster.getSensorID());
-  }
-  LOGP(fatal, "Unsupported detector id {} in getClusterLayer", static_cast<int>(detId));
-  return -1;
-}
+};
+} // namespace
 
-template <o2::detectors::DetID::ID DetId>
-o2::itsmft::tracking::SurfaceMeasurement loadClusterSurfaceMeasurement(
-  const CompClusterExt& c,
-  gsl::span<const unsigned char>::iterator& pattIt,
-  const TopologyDictionary* dict,
-  o2::itsmft::tracking::ClusterSourceId source,
-  uint32_t externalClusterIndex,
-  o2::itsmft::tracking::SurfaceId surface,
-  uint32_t sourceROF,
+LoadSourcesResult SurfaceTrackingScratch::loadNormalizedSource(
+  TimeFrame& frame,
+  const ClusterDecoder& decoder,
+  const o2::InteractionRecord& origin,
+  const ROFTimingConfig& timing,
+  gsl::span<const itsmft::CompClusterExt> clusters,
+  gsl::span<const unsigned char> patterns,
+  gsl::span<const o2::itsmft::ROFRecord> rofs,
+  const itsmft::TopologyDictionary* dictionary,
+  const dataformats::MCTruthContainer<MCCompLabel>* labels,
+  o2::detectors::DetID::ID detId,
+  gsl::span<const SurfaceId> orderedSurfaces,
+  SurfaceCatalogView catalogView,
   bool applySysErrors)
 {
-  o2::itsmft::tracking::DecodedCluster decoded;
-  if constexpr (DetId == o2::detectors::DetID::ITS) {
-    decoded = decodeCluster<DetId>(o2::its::GeometryTGeo::Instance(), c, pattIt, dict, applySysErrors);
-    return o2::itsmft::tracking::makeCylinderSurfaceMeasurement(decoded);
-  } else {
-    decoded = decodeCluster<DetId>(o2::mft::GeometryTGeo::Instance(), c, pattIt, dict, applySysErrors);
-    return o2::itsmft::tracking::makeDiskSurfaceMeasurement(decoded);
+  // The workspace is shared by both common-CA detector sources.
+  constexpr ClusterSourceId kSourceId{0};
+  if (detId != o2::detectors::DetID::MFT && detId != o2::detectors::DetID::ITS) {
+    return {MultiSourceLoadError::UnsupportedDetector, kSourceId};
   }
-}
-
-template o2::itsmft::tracking::SurfaceMeasurement loadClusterSurfaceMeasurement<o2::detectors::DetID::ITS>(
-  const CompClusterExt&, gsl::span<const unsigned char>::iterator&, const TopologyDictionary*,
-  o2::itsmft::tracking::ClusterSourceId, uint32_t, o2::itsmft::tracking::SurfaceId, uint32_t, bool);
-
-template o2::itsmft::tracking::SurfaceMeasurement loadClusterSurfaceMeasurement<o2::detectors::DetID::MFT>(
-  const CompClusterExt&, gsl::span<const unsigned char>::iterator&, const TopologyDictionary*,
-  o2::itsmft::tracking::ClusterSourceId, uint32_t, o2::itsmft::tracking::SurfaceId, uint32_t, bool);
-
-template <o2::detectors::DetID::ID DetId>
-o2::itsmft::tracking::SurfaceMeasurementDecodeResult loadClusterSurfaceMeasurement(
-  const CompClusterExt& c,
-  o2::itsmft::tracking::BoundedPatternCursor& patterns,
-  const TopologyDictionary* dict,
-  gsl::span<const o2::itsmft::tracking::SurfaceId> layerToSurface,
-  o2::itsmft::tracking::ClusterSourceId source,
-  uint32_t externalClusterIndex,
-  uint32_t sourceROF,
-  bool applySysErrors)
-{
-  DecodedClusterResult decodedResult;
-  if constexpr (DetId == o2::detectors::DetID::ITS) {
-    decodedResult = decodeClusterBounded<DetId>(o2::its::GeometryTGeo::Instance(), c, patterns, dict, applySysErrors);
-  } else {
-    decodedResult = decodeClusterBounded<DetId>(o2::mft::GeometryTGeo::Instance(), c, patterns, dict, applySysErrors);
+  if (catalogView.surfaces == nullptr || catalogView.nSurfaces == 0) {
+    return {MultiSourceLoadError::SurfaceCatalogNotConfigured, kSourceId};
+  }
+  if (orderedSurfaces.size() != mNOwnedSurfaces) {
+    return {MultiSourceLoadError::InvalidLayerMapping, kSourceId};
+  }
+  SurfaceMask mappedSurfaceSeen{};
+  for (const auto& surfaceId : orderedSurfaces) {
+    if (!surfaceId.isValid() || surfaceId.value() >= catalogView.nSurfaces) {
+      return {MultiSourceLoadError::InvalidLayerMapping, kSourceId};
+    }
+    if (mappedSurfaceSeen.has(surfaceId)) {
+      return {MultiSourceLoadError::InvalidLayerMapping, kSourceId};
+    }
+    mappedSurfaceSeen.set(surfaceId);
+  }
+  for (const auto& surfaceId : orderedSurfaces) {
+    if (catalogView.getSurface(surfaceId).detectorId != static_cast<uint8_t>(detId)) {
+      return {MultiSourceLoadError::DetectorSurfaceMismatch, kSourceId};
+    }
   }
 
-  o2::itsmft::tracking::SurfaceMeasurementDecodeResult result;
-  if (!decodedResult.ok()) {
-    result.error = decodedResult.error;
+  const gsl::span<const SurfaceId> layerToSurface = orderedSurfaces;
+  const std::size_t nOwnedSurfaces = orderedSurfaces.size();
+
+  TimeFrame staged;
+  ClusterSourceInput src;
+  src.id = kSourceId;
+  src.detector = detId;
+  src.clusters = clusters;
+  src.patterns = patterns;
+  src.rofs = rofs;
+  src.dictionary = dictionary;
+  src.labels = labels;
+  src.layerToSurface = layerToSurface;
+  src.timing = timing;
+  src.decoder = &decoder;
+  src.applySysErrors = applySysErrors;
+
+  const auto result = loadSources(staged, catalogView, gsl::span<const ClusterSourceInput>(&src, 1), origin);
+  if (!result.ok()) {
     return result;
   }
-  const auto& decoded = decodedResult.decoded;
-  result.layer = decoded.layer;
-  if (decoded.layer < 0 || static_cast<size_t>(decoded.layer) >= layerToSurface.size()) {
-    result.error = o2::itsmft::tracking::ClusterDecodeError::InvalidLayerMapping;
-    return result;
-  }
-  result.layerMapped = true;
 
-  const auto surface = layerToSurface[decoded.layer];
-  const o2::itsmft::tracking::DetectorSensorId sensor{DetId, decoded.sensor};
-  const o2::itsmft::tracking::ClusterRef cluster{source, externalClusterIndex};
-  if constexpr (DetId == o2::detectors::DetID::ITS) {
-    result.kind = o2::itsmft::tracking::SurfaceKind::Cylinder;
-    result.global = o2::itsmft::tracking::makeCylinderGlobalMeasurement(decoded, sensor, surface, cluster, sourceROF);
-    result.measurement = o2::itsmft::tracking::makeCylinderSurfaceMeasurement(decoded);
-  } else {
-    result.kind = o2::itsmft::tracking::SurfaceKind::Disk;
-    result.global = o2::itsmft::tracking::makeDiskGlobalMeasurement(decoded, sensor, surface, cluster, sourceROF);
-    result.measurement = o2::itsmft::tracking::makeDiskSurfaceMeasurement(decoded);
+  auto* pool = mMemoryPool.get();
+  const auto nROFs = static_cast<size_t>(rofs.size());
+
+  std::vector<bounded_vector<o2::its::Cluster>> stagedUnsortedClusters;
+  std::vector<bounded_vector<o2::its::TrackingFrameInfo>> stagedTrackingFrameInfo;
+  std::vector<bounded_vector<int>> stagedClusterExternalIndices;
+  std::vector<bounded_vector<uint8_t>> stagedClusterSize;
+  std::vector<bounded_vector<int>> stagedROFramesClusters;
+  std::vector<const dataformats::MCTruthContainer<MCCompLabel>*> stagedClusterLabels(nOwnedSurfaces, nullptr);
+  stagedUnsortedClusters.reserve(nOwnedSurfaces);
+  stagedTrackingFrameInfo.reserve(nOwnedSurfaces);
+  stagedClusterExternalIndices.reserve(nOwnedSurfaces);
+  stagedClusterSize.reserve(nOwnedSurfaces);
+  stagedROFramesClusters.reserve(nOwnedSurfaces);
+
+  for (std::size_t layer = 0; layer < nOwnedSurfaces; ++layer) {
+    const auto measurements = staged.getSurfaceMeasurements(layerToSurface[layer]);
+    const auto globals = staged.getGlobalMeasurements(layerToSurface[layer]);
+
+    auto* mr = getMaybeFrameworkHostResource();
+    auto* unsortedClustersMr = mr != nullptr ? mr : mUnsortedClusters[layer].get_allocator().resource();
+    auto* trackingFrameInfoMr = mr != nullptr ? mr : mTrackingFrameInfo[layer].get_allocator().resource();
+    auto* clusterExternalIndicesMr = pool != nullptr ? pool : mClusterExternalIndices[layer].get_allocator().resource();
+    auto* clusterSizeMr = pool != nullptr ? pool : mClusterSize[layer].get_allocator().resource();
+    auto* rofFramesClustersMr = mr != nullptr ? mr : mROFramesClusters[layer].get_allocator().resource();
+
+    stagedUnsortedClusters.emplace_back(std::pmr::polymorphic_allocator<o2::its::Cluster>{unsortedClustersMr});
+    stagedTrackingFrameInfo.emplace_back(std::pmr::polymorphic_allocator<o2::its::TrackingFrameInfo>{trackingFrameInfoMr});
+    stagedClusterExternalIndices.emplace_back(std::pmr::polymorphic_allocator<int>{clusterExternalIndicesMr});
+    stagedClusterSize.emplace_back(measurements.size(), uint8_t{0}, std::pmr::polymorphic_allocator<uint8_t>{clusterSizeMr});
+    stagedROFramesClusters.emplace_back(nROFs + 1, 0, std::pmr::polymorphic_allocator<int>{rofFramesClustersMr});
+
+    size_t mi{0};
+    for (std::size_t measurementIndex = 0; measurementIndex < measurements.size(); ++measurementIndex) {
+      const auto& m = measurements[measurementIndex];
+      const auto& global = globals[measurementIndex];
+      o2::its::TrackingFrameInfo tfInfo;
+      if (catalogView.getSurface(layerToSurface[layer]).kind == SurfaceKind::Disk) {
+        // Recreate the synthetic legacy MFT representation from
+        // normalized global position and row/column covariance.
+        tfInfo = o2::its::TrackingFrameInfo{
+          global.position.x, global.position.y, global.position.z,
+          global.position.x, 0.f,
+          std::array<float, 2>{global.position.y, global.position.z},
+          std::array<float, 3>{m.covariance.uu, m.covariance.uv, m.covariance.vv}};
+      } else {
+        // ITS compatibility representation, using the normalized measurement.
+        tfInfo = o2::its::TrackingFrameInfo{
+          global.position.x, global.position.y, global.position.z,
+          m.frame.q, m.frame.frameAngle,
+          std::array<float, 2>{m.frame.u, m.frame.v},
+          std::array<float, 3>{m.covariance.uu, m.covariance.uv, m.covariance.vv}};
+      }
+      stagedTrackingFrameInfo[layer].push_back(tfInfo);
+      stagedUnsortedClusters[layer].emplace_back(global.position.x, global.position.y, global.position.z, static_cast<int>(stagedUnsortedClusters[layer].size()));
+      stagedClusterExternalIndices[layer].push_back(static_cast<int>(global.cluster.index));
+      stagedClusterSize[layer][mi] = static_cast<uint8_t>(std::clamp(global.shape.nPixels, 0u, 255u));
+      ++mi;
+    }
+
+    size_t mj{0};
+    for (size_t r = 0; r < nROFs; ++r) {
+      while (mj < globals.size() && globals[mj].sourceROF == static_cast<uint32_t>(r)) {
+        ++mj;
+      }
+      stagedROFramesClusters[layer][r + 1] = static_cast<int>(mj);
+    }
+
+    stagedClusterLabels[layer] = labels;
   }
+
+  const size_t nClustersLayer1 = stagedUnsortedClusters[1].size();
+  auto* nTrackletsPerClusterMr = pool != nullptr ? pool : mNTrackletsPerCluster[0].get_allocator().resource();
+  auto* nTrackletsPerClusterSumMr = pool != nullptr ? pool : mNTrackletsPerClusterSum[0].get_allocator().resource();
+  std::array<bounded_vector<int>, 2> stagedNTrackletsPerCluster{
+    bounded_vector<int>(nClustersLayer1, 0, std::pmr::polymorphic_allocator<int>{nTrackletsPerClusterMr}),
+    bounded_vector<int>(nClustersLayer1, 0, std::pmr::polymorphic_allocator<int>{nTrackletsPerClusterMr})};
+  std::array<bounded_vector<int>, 2> stagedNTrackletsPerClusterSum{
+    bounded_vector<int>(nClustersLayer1 + 1, 0, std::pmr::polymorphic_allocator<int>{nTrackletsPerClusterSumMr}),
+    bounded_vector<int>(nClustersLayer1 + 1, 0, std::pmr::polymorphic_allocator<int>{nTrackletsPerClusterSumMr})};
+  std::vector<ClusterSourceId> stagedSourceBySurface(nOwnedSurfaces, kSourceId);
+
+  for (std::size_t layer = 0; layer < nOwnedSurfaces; ++layer) {
+    if (mUnsortedClusters[layer].get_allocator().resource() != stagedUnsortedClusters[layer].get_allocator().resource() ||
+        mTrackingFrameInfo[layer].get_allocator().resource() != stagedTrackingFrameInfo[layer].get_allocator().resource() ||
+        mClusterExternalIndices[layer].get_allocator().resource() != stagedClusterExternalIndices[layer].get_allocator().resource() ||
+        mClusterSize[layer].get_allocator().resource() != stagedClusterSize[layer].get_allocator().resource() ||
+        mROFramesClusters[layer].get_allocator().resource() != stagedROFramesClusters[layer].get_allocator().resource()) {
+      throw NormalizedBackfillAllocatorMismatch(static_cast<int>(layer));
+    }
+  }
+  for (int i = 0; i < 2; ++i) {
+    if (mNTrackletsPerCluster[i].get_allocator().resource() != stagedNTrackletsPerCluster[i].get_allocator().resource() ||
+        mNTrackletsPerClusterSum[i].get_allocator().resource() != stagedNTrackletsPerClusterSum[i].get_allocator().resource()) {
+      throw NormalizedBackfillAllocatorMismatch(-1);
+    }
+  }
+
+  static_assert(noexcept(std::declval<bounded_vector<o2::its::Cluster>&>().swap(std::declval<bounded_vector<o2::its::Cluster>&>())));
+  static_assert(noexcept(std::declval<bounded_vector<int>&>().swap(std::declval<bounded_vector<int>&>())));
+
+  // The view was constructed by the adapter for this staged event. The
+  // frame commit resets the previous event, including its non-owning ROF
+  // context, so reinstall this already-validated view only after the new
+  // measurement data is atomically live.
+  const auto stagedROFViews = mROFViews;
+  frame.commitMeasurements(staged);
+  setROFViews(stagedROFViews);
+  mSourceBySurface.swap(stagedSourceBySurface);
+  for (std::size_t layer = 0; layer < nOwnedSurfaces; ++layer) {
+    mUnsortedClusters[layer].swap(stagedUnsortedClusters[layer]);
+    mTrackingFrameInfo[layer].swap(stagedTrackingFrameInfo[layer]);
+    mClusterExternalIndices[layer].swap(stagedClusterExternalIndices[layer]);
+    mClusterSize[layer].swap(stagedClusterSize[layer]);
+    mROFramesClusters[layer].swap(stagedROFramesClusters[layer]);
+    mClusterLabels[layer] = stagedClusterLabels[layer];
+  }
+  for (int i = 0; i < 2; ++i) {
+    mNTrackletsPerCluster[i].swap(stagedNTrackletsPerCluster[i]);
+    mNTrackletsPerClusterSum[i].swap(stagedNTrackletsPerClusterSum[i]);
+  }
+
   return result;
 }
 
-template o2::itsmft::tracking::SurfaceMeasurementDecodeResult loadClusterSurfaceMeasurement<o2::detectors::DetID::ITS>(
-  const CompClusterExt&, o2::itsmft::tracking::BoundedPatternCursor&, const TopologyDictionary*,
-  gsl::span<const o2::itsmft::tracking::SurfaceId>, o2::itsmft::tracking::ClusterSourceId, uint32_t, uint32_t, bool);
-
-template o2::itsmft::tracking::SurfaceMeasurementDecodeResult loadClusterSurfaceMeasurement<o2::detectors::DetID::MFT>(
-  const CompClusterExt&, o2::itsmft::tracking::BoundedPatternCursor&, const TopologyDictionary*,
-  gsl::span<const o2::itsmft::tracking::SurfaceId>, o2::itsmft::tracking::ClusterSourceId, uint32_t, uint32_t, bool);
-
-template <o2::detectors::DetID::ID DetId>
-void convertCompactClusters(gsl::span<const CompClusterExt> clusters,
-                            gsl::span<const unsigned char>::iterator& pattIt,
-                            std::vector<o2::BaseCluster<float>>& output,
-                            const TopologyDictionary* dict)
+LoadSourcesResult SurfaceTrackingScratch::backfillNormalizedSources(
+  const TimeFrame& measurements,
+  gsl::span<const ClusterSourceInput> sources,
+  gsl::span<const SurfaceId> orderedSurfaces,
+  SurfaceCatalogView catalog)
 {
-  const auto mask = o2::math_utils::bit2Mask(o2::math_utils::TransformType::T2L, o2::math_utils::TransformType::L2G);
-
-  const bool applyMisalignment = shouldApplySysErrors<DetId>();
-
-  if constexpr (DetId == o2::detectors::DetID::ITS) {
-    auto* geom = o2::its::GeometryTGeo::Instance();
-    geom->fillMatrixCache(mask);
-    fillOutputClusters<DetId>(geom, clusters, pattIt, output, dict, applyMisalignment);
-  } else {
-    auto* geom = o2::mft::GeometryTGeo::Instance();
-    geom->fillMatrixCache(mask);
-    fillOutputClusters<DetId>(geom, clusters, pattIt, output, dict, applyMisalignment);
+  if (orderedSurfaces.size() != mNOwnedSurfaces || sources.empty()) {
+    return {MultiSourceLoadError::InvalidLayerMapping};
   }
+
+  mROFViews = sources.front().rofViews;
+  mROFViewsBySurface.assign(mNOwnedSurfaces, {});
+  mROFLocalLayerBySurface.assign(mNOwnedSurfaces, 0);
+  mSourceBySurface.assign(mNOwnedSurfaces, ClusterSourceId::invalid());
+  SurfaceMask seenSurfaces;
+  for (std::size_t layer = 0; layer < orderedSurfaces.size(); ++layer) {
+    const auto surface = orderedSurfaces[layer];
+    if (!surface.isValid() || seenSurfaces.has(surface)) {
+      return {MultiSourceLoadError::InvalidLayerMapping};
+    }
+    seenSurfaces.set(surface);
+
+    const ClusterSourceInput* owner = nullptr;
+    uint16_t localLayer = 0;
+    for (const auto& source : sources) {
+      const auto it = std::find(source.layerToSurface.begin(), source.layerToSurface.end(), surface);
+      if (it == source.layerToSurface.end()) {
+        continue;
+      }
+      if (owner != nullptr) {
+        return {MultiSourceLoadError::InvalidLayerMapping, source.id};
+      }
+      owner = &source;
+      localLayer = static_cast<uint16_t>(std::distance(source.layerToSurface.begin(), it));
+    }
+    if (owner == nullptr) {
+      return {MultiSourceLoadError::InvalidLayerMapping};
+    }
+    mSourceBySurface[layer] = owner->id;
+
+    const auto localMeasurements = measurements.getSurfaceMeasurements(surface);
+    const auto globals = measurements.getGlobalMeasurements(surface);
+    auto& clusters = mUnsortedClusters[layer];
+    auto& trackingInfo = mTrackingFrameInfo[layer];
+    auto& externalIndices = mClusterExternalIndices[layer];
+    auto& clusterSizes = mClusterSize[layer];
+    auto& rofBoundaries = mROFramesClusters[layer];
+    clusters.clear();
+    trackingInfo.clear();
+    externalIndices.clear();
+    clusterSizes.assign(localMeasurements.size(), uint8_t{0});
+    rofBoundaries.assign(owner->rofs.size() + 1, 0);
+    clusters.reserve(localMeasurements.size());
+    trackingInfo.reserve(localMeasurements.size());
+    externalIndices.reserve(localMeasurements.size());
+
+    const auto kind = catalog.getSurface(surface).kind;
+    std::size_t measurementIndex = 0;
+    for (std::size_t localIndex = 0; localIndex < localMeasurements.size(); ++localIndex) {
+      const auto& measurement = localMeasurements[localIndex];
+      const auto& global = globals[localIndex];
+      if (global.surface != surface || !global.cluster.isValid() ||
+          global.cluster.source != owner->id || global.sourceROF >= owner->rofs.size()) {
+        return {MultiSourceLoadError::InconsistentDecoderMetadata, owner->id,
+                global.sourceROF, global.cluster.index};
+      }
+      if (kind == SurfaceKind::Disk) {
+        trackingInfo.emplace_back(
+          global.position.x, global.position.y, global.position.z,
+          global.position.x, 0.f,
+          std::array<float, 2>{global.position.y, global.position.z},
+          std::array<float, 3>{measurement.covariance.uu, measurement.covariance.uv, measurement.covariance.vv});
+      } else {
+        trackingInfo.emplace_back(
+          global.position.x, global.position.y, global.position.z,
+          measurement.frame.q, measurement.frame.frameAngle,
+          std::array<float, 2>{measurement.frame.u, measurement.frame.v},
+          std::array<float, 3>{measurement.covariance.uu, measurement.covariance.uv, measurement.covariance.vv});
+      }
+      clusters.emplace_back(global.position.x, global.position.y, global.position.z,
+                            static_cast<int>(clusters.size()));
+      externalIndices.push_back(static_cast<int>(global.cluster.index));
+      clusterSizes[measurementIndex++] = static_cast<uint8_t>(std::clamp(global.shape.nPixels, 0u, 255u));
+    }
+
+    std::size_t cursor = 0;
+    for (std::size_t rof = 0; rof < owner->rofs.size(); ++rof) {
+      while (cursor < globals.size() && globals[cursor].sourceROF == rof) {
+        ++cursor;
+      }
+      rofBoundaries[rof + 1] = static_cast<int>(cursor);
+    }
+    if (cursor != localMeasurements.size()) {
+      return {MultiSourceLoadError::InconsistentDecoderMetadata, owner->id};
+    }
+    mClusterLabels[layer] = owner->labels;
+    mROFViewsBySurface[layer] = owner->rofViews;
+    mROFLocalLayerBySurface[layer] = localLayer;
+  }
+
+  const std::size_t pivotLayer = orderedSurfaces.size() > 1 ? 1 : 0;
+  const std::size_t pivotClusters = orderedSurfaces.empty() ? 0 : mUnsortedClusters[pivotLayer].size();
+  for (int i = 0; i < 2; ++i) {
+    mNTrackletsPerCluster[i].assign(pivotClusters, 0);
+    mNTrackletsPerClusterSum[i].assign(pivotClusters + 1, 0);
+  }
+  mUseUPC = false;
+  return {};
 }
 
-template void convertCompactClusters<o2::detectors::DetID::ITS>(gsl::span<const CompClusterExt> clusters,
-                                                                gsl::span<const unsigned char>::iterator& pattIt,
-                                                                std::vector<o2::BaseCluster<float>>& output,
-                                                                const TopologyDictionary* dict);
+namespace
+{
+std::string formatLoadSourcesResult(const char* label, const LoadSourcesResult& result)
+{
+  return std::format("{}: error={} source={} rof={} clusterIndex={} timingDetail={}",
+                     label, static_cast<int>(result.error), result.source.value(),
+                     result.rof, result.clusterIndex, static_cast<int>(result.timingDetail));
+}
+} // namespace
 
-template void convertCompactClusters<o2::detectors::DetID::MFT>(gsl::span<const CompClusterExt> clusters,
-                                                                gsl::span<const unsigned char>::iterator& pattIt,
-                                                                std::vector<o2::BaseCluster<float>>& output,
-                                                                const TopologyDictionary* dict);
+RecoverableLoadFailure::RecoverableLoadFailure(const LoadSourcesResult& result)
+  : std::runtime_error(formatLoadSourcesResult("TimeFrame loading boundary: recoverable data failure", result)),
+    mResult(result)
+{
+}
 
-} // namespace o2::itsmft::ioutils
+TimeFrameLoadException::TimeFrameLoadException(TimeFrameLoadFailureReason reason, std::string message)
+  : std::runtime_error(std::move(message)), mReason(reason)
+{
+}
+
+TimeFrameLoadException::TimeFrameLoadException(const LoadSourcesResult& result)
+  : std::runtime_error(formatLoadSourcesResult("TimeFrame loading boundary: structural failure", result)),
+    mReason(TimeFrameLoadFailureReason::LoadSourcesFailure),
+    mLoadResult(result)
+{
+}
+
+bool isRecoverableLoadError(MultiSourceLoadError error, TimingBuildError timingDetail) noexcept
+{
+  switch (error) {
+    case MultiSourceLoadError::InvalidROFRange:
+    case MultiSourceLoadError::TruncatedExplicitPattern:
+    case MultiSourceLoadError::MalformedExplicitPattern:
+    case MultiSourceLoadError::InvalidPatternId:
+    case MultiSourceLoadError::InvalidSensor:
+    case MultiSourceLoadError::InvalidDecodedLayer:
+    case MultiSourceLoadError::OtherMalformedInput:
+    case MultiSourceLoadError::TrailingPatternData:
+      return true;
+    case MultiSourceLoadError::TimingError:
+      return timingDetail == TimingBuildError::Overflow;
+    case MultiSourceLoadError::None:
+    case MultiSourceLoadError::NonDenseSourceIds:
+    case MultiSourceLoadError::DuplicateSourceId:
+    case MultiSourceLoadError::UnsupportedDetector:
+    case MultiSourceLoadError::MissingDecoder:
+    case MultiSourceLoadError::InvalidLayerMapping:
+    case MultiSourceLoadError::DetectorSurfaceMismatch:
+    case MultiSourceLoadError::InconsistentDecoderMetadata:
+    case MultiSourceLoadError::SurfaceKindMismatch:
+    case MultiSourceLoadError::SurfaceCatalogNotConfigured:
+    case MultiSourceLoadError::SurfaceCatalogStale:
+    case MultiSourceLoadError::MissingDictionary:
+    case MultiSourceLoadError::GeometryUnavailable:
+    case MultiSourceLoadError::FrameNotConfigured:
+      return false;
+  }
+  return false;
+}
+
+} // namespace o2::itsmft::tracking

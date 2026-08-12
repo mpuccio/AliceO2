@@ -17,7 +17,14 @@
 #define ALICEO2_ITSMFT_TRACKING_IOUTILS_H_
 
 #include <array>
+#include <cstdint>
+#include <limits>
 #include <vector>
+
+#ifndef GPUCA_GPUCODE
+#include <stdexcept>
+#include <string>
+#endif
 
 #include <gsl/gsl>
 
@@ -26,12 +33,16 @@
 #include "ReconstructionDataFormats/BaseCluster.h"
 #include "DataFormatsITSMFT/ClusterPattern.h"
 #include "DataFormatsITSMFT/CompCluster.h"
+#include "DataFormatsITSMFT/ROFRecord.h"
 #include "DataFormatsITSMFT/TopologyDictionary.h"
 #include "ITSMFTTracking/ClusterDecoding.h"
 #include "ITSMFTTracking/Configuration.h"
+#include "ITSMFTTracking/ROFViews.h"
 #include "ITSMFTTracking/SurfaceDescriptor.h"
 #include "ITSMFTTracking/SurfaceMeasurement.h"
+#include "ITSMFTTracking/SurfaceTiming.h"
 #include "MathUtils/Cartesian.h"
+#include "SimulationDataFormat/MCTruthContainer.h"
 
 namespace o2::itsmft::ioutils
 {
@@ -236,5 +247,108 @@ std::array<T, 3> extractClusterDataA(const CompClusterExt& c, iterator& iter, co
 }
 
 } // namespace o2::itsmft::ioutils
+
+namespace o2::itsmft::tracking
+{
+
+class TimeFrame;
+
+struct ClusterSourceInput {
+  ClusterSourceId id{};
+  o2::detectors::DetID::ID detector{o2::detectors::DetID::ITS};
+  gsl::span<const o2::itsmft::CompClusterExt> clusters{};
+  gsl::span<const unsigned char> patterns{};
+  gsl::span<const o2::itsmft::ROFRecord> rofs{};
+  const o2::itsmft::TopologyDictionary* dictionary{nullptr};
+  const o2::dataformats::MCTruthContainer<o2::MCCompLabel>* labels{nullptr};
+  gsl::span<const SurfaceId> layerToSurface{};
+  ROFTimingConfig timing{};
+  const ClusterDecoder* decoder{nullptr};
+  bool applySysErrors{true};
+  RuntimeROFViews rofViews{};
+};
+
+enum class MultiSourceLoadError : uint8_t {
+  None,
+  NonDenseSourceIds,
+  DuplicateSourceId,
+  UnsupportedDetector,
+  MissingDecoder,
+  InvalidROFRange,
+  InvalidLayerMapping,
+  DetectorSurfaceMismatch,
+  InconsistentDecoderMetadata,
+  SurfaceKindMismatch,
+  TimingError,
+  SurfaceCatalogNotConfigured,
+  SurfaceCatalogStale,
+  MissingDictionary,
+  TruncatedExplicitPattern,
+  MalformedExplicitPattern,
+  InvalidPatternId,
+  InvalidSensor,
+  InvalidDecodedLayer,
+  GeometryUnavailable,
+  OtherMalformedInput,
+  TrailingPatternData,
+  FrameNotConfigured
+};
+
+struct LoadSourcesResult {
+  MultiSourceLoadError error{MultiSourceLoadError::None};
+  ClusterSourceId source{};
+  uint32_t rof{std::numeric_limits<uint32_t>::max()};
+  uint32_t clusterIndex{std::numeric_limits<uint32_t>::max()};
+  TimingBuildError timingDetail{TimingBuildError::None};
+  bool ok() const noexcept { return error == MultiSourceLoadError::None; }
+};
+
+LoadSourcesResult loadSources(TimeFrame&, const SurfaceCatalogView&,
+                              gsl::span<const ClusterSourceInput>,
+                              const o2::InteractionRecord&);
+
+class MultiSourceTimeFrameLoader
+{
+ public:
+  static LoadSourcesResult load(TimeFrame&, gsl::span<const ClusterSourceInput>,
+                                SurfaceCatalogView, const o2::InteractionRecord&);
+};
+
+#ifndef GPUCA_GPUCODE
+class RecoverableLoadFailure final : public std::runtime_error
+{
+ public:
+  explicit RecoverableLoadFailure(const LoadSourcesResult& result);
+  MultiSourceLoadError error() const noexcept { return mResult.error; }
+  const LoadSourcesResult& result() const noexcept { return mResult; }
+
+ private:
+  LoadSourcesResult mResult;
+};
+
+enum class TimeFrameLoadFailureReason : uint8_t {
+  DictionaryNotConfigured,
+  NonUniformROFTiming,
+  ZeroROFCount,
+  LoadSourcesFailure
+};
+
+class TimeFrameLoadException final : public std::runtime_error
+{
+ public:
+  TimeFrameLoadException(TimeFrameLoadFailureReason, std::string);
+  explicit TimeFrameLoadException(const LoadSourcesResult&);
+  TimeFrameLoadFailureReason reason() const noexcept { return mReason; }
+  const LoadSourcesResult& loadResult() const noexcept { return mLoadResult; }
+
+ private:
+  TimeFrameLoadFailureReason mReason;
+  LoadSourcesResult mLoadResult{};
+};
+
+bool isRecoverableLoadError(MultiSourceLoadError, TimingBuildError) noexcept;
+#endif
+
+} // namespace o2::itsmft::tracking
 
 #endif /* ALICEO2_ITSMFT_TRACKING_IOUTILS_H_ */

@@ -36,9 +36,9 @@
 #include "ITSMFTTracking/Tracker.h"
 #include "ITSMFTTracking/CommonTrackOutputAdapter.h"
 #include "ITSMFTTracking/detail/DetectorRefitSupport.h"
-#include "ITSMFTTracking/MultiSourceTimeFrameLoader.h"
+#include "ITSMFTTracking/IOUtils.h"
 #include "ITSMFTTracking/SurfaceTiming.h"
-#include "ITSMFTTracking/StaticDetectorCatalogs.h"
+#include "ITSMFTTracking/ITSMFTDetectorDefinitions.h"
 #include "ITSMFTTracking/TrackingConfigParam.h"
 #include "DetectorsBase/Propagator.h"
 #include <oneapi/tbb/task_arena.h>

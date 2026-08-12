@@ -5,24 +5,38 @@
 // This software is distributed under the terms of the GNU General Public
 // License v3 (GPL Version 3), copied verbatim in the file "COPYING".
 //
-// Static detector catalogs with process-lifetime storage. The combined catalog
-// concatenates ITS and MFT into one global ID space; cross-detector edges are
-// absent unless supplied by the graph declaration.
+// Static detector definitions with process-lifetime storage.
 
-#ifndef ALICEO2_ITSMFT_TRACKING_STATICDETECTORCATALOGS_H_
-#define ALICEO2_ITSMFT_TRACKING_STATICDETECTORCATALOGS_H_
+#ifndef ALICEO2_ITSMFT_TRACKING_DETECTORDEFINITIONS_H_
+#define ALICEO2_ITSMFT_TRACKING_DETECTORDEFINITIONS_H_
 
 #include <array>
 #include <cstddef>
 
 #include "DetectorsCommonDataFormats/DetID.h"
-#include "ITSMFTTracking/NominalSurfaceMaterialDefaults.h"
 #include "ITSMFTTracking/SurfaceSpec.h"
 #include "ITSMFTTracking/TrackingConfigParam.h"
 #include "ITStracking/Constants.h"
 
 namespace o2::itsmft::tracking
 {
+
+static_assert(MFTNLayers % 2 == 0);
+inline constexpr int MFTDisks = MFTNLayers / 2;
+inline constexpr std::array<float, ITSNLayers> kNominalITSLayerX0{
+  5.e-3f, 5.e-3f, 5.e-3f, 1.e-2f, 1.e-2f, 1.e-2f, 1.e-2f};
+inline constexpr float kMFTNominalRadLength = 0.042f;
+
+constexpr std::array<float, MFTNLayers> makeNominalMFTLayerX0()
+{
+  std::array<float, MFTNLayers> values{};
+  for (auto& value : values) {
+    value = kMFTNominalRadLength / static_cast<float>(MFTDisks);
+  }
+  return values;
+}
+
+inline constexpr std::array<float, MFTNLayers> kNominalMFTLayerX0 = makeNominalMFTLayerX0();
 
 constexpr NominalSurfaceMaterial itsLayerMaterial(std::size_t layer) noexcept
 {
@@ -101,4 +115,4 @@ static_assert(kITSMFTCombinedStaticSurfaceCatalog.size() == ITSNLayers + MFTNLay
 
 } // namespace o2::itsmft::tracking
 
-#endif /* ALICEO2_ITSMFT_TRACKING_STATICDETECTORCATALOGS_H_ */
+#endif /* ALICEO2_ITSMFT_TRACKING_DETECTORDEFINITIONS_H_ */
