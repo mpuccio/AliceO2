@@ -17,6 +17,7 @@
 #define ALICEO2_ITSMFT_TRACKING_CONFIGURATION_H_
 
 #include <cstdint>
+#include <cmath>
 #ifndef GPUCA_GPUCODE_DEVICE
 #include <limits>
 #include <string>
@@ -24,10 +25,12 @@
 #include <vector>
 #endif
 
+#include <gsl/span>
 #include "CommonUtils/EnumFlags.h"
 #include "DetectorsBase/Propagator.h"
 #include "DetectorsCommonDataFormats/DetID.h"
 #include "ITSMFTTracking/NominalSurfaceMaterialDefaults.h"
+#include "ITSMFTTracking/SurfaceDescriptor.h"
 #include "ITSMFTTracking/SurfaceMask.h"
 #include "ITSMFTTracking/TrackingConfigParam.h"
 #include "ITStracking/TrackingConfigParam.h"
@@ -139,6 +142,39 @@ struct TrackingParameters {
   bool SharedClusterOppositeSign = false; // For tracks sharing clusters, require opposite sign of the tracklets
   int SharedMaxClusters = 0;              // Maximal allowed shared clusters (excluding first cluster)
 };
+
+inline bool isRecognizedMatCorrType(o2::base::PropagatorF::MatCorrType corrType) noexcept
+{
+  return corrType == o2::base::PropagatorF::MatCorrType::USEMatCorrNONE ||
+         corrType == o2::base::PropagatorF::MatCorrType::USEMatCorrTGeo ||
+         corrType == o2::base::PropagatorF::MatCorrType::USEMatCorrLUT;
+}
+
+struct AttachHitConfigView {
+  gsl::span<const tracking::NominalSurfaceMaterial> layerMaterial;
+  o2::base::PropagatorF::MatCorrType corrType{o2::base::PropagatorF::MatCorrType::USEMatCorrNONE};
+
+  bool isValid(size_t expectedLayers) const noexcept
+  {
+    if (layerMaterial.size() < expectedLayers || !isRecognizedMatCorrType(corrType)) {
+      return false;
+    }
+    for (size_t layer = 0; layer < expectedLayers; ++layer) {
+      const auto& material = layerMaterial[layer];
+      if (!std::isfinite(material.xOverX0) || material.xOverX0 < 0.f ||
+          !std::isfinite(material.arealDensityGPerCm2) || material.arealDensityGPerCm2 < 0.f) {
+        return false;
+      }
+    }
+    return true;
+  }
+};
+
+inline AttachHitConfigView bindAttachHitConfig(gsl::span<const tracking::NominalSurfaceMaterial> layerMaterial,
+                                               const TrackingParameters& params) noexcept
+{
+  return {layerMaterial, params.CorrType};
+}
 
 /// Reset tracking parameters to detector geometry defaults (ITS: struct defaults; MFT: MFTTracking/Constants.h).
 void resetDetectorDefaults(TrackingParameters& params, o2::detectors::DetID::ID detId);
