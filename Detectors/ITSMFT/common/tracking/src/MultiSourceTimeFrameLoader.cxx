@@ -457,6 +457,7 @@ LoadSourcesResult SurfaceTrackingScratch::loadNormalizedSource(
   std::array<bounded_vector<int>, 2> stagedNTrackletsPerClusterSum{
     bounded_vector<int>(nClustersLayer1 + 1, 0, std::pmr::polymorphic_allocator<int>{nTrackletsPerClusterSumMr}),
     bounded_vector<int>(nClustersLayer1 + 1, 0, std::pmr::polymorphic_allocator<int>{nTrackletsPerClusterSumMr})};
+  std::vector<ClusterSourceId> stagedSourceBySurface(nOwnedSurfaces, kSourceId);
 
   for (std::size_t layer = 0; layer < nOwnedSurfaces; ++layer) {
     if (mUnsortedClusters[layer].get_allocator().resource() != stagedUnsortedClusters[layer].get_allocator().resource() ||
@@ -484,7 +485,7 @@ LoadSourcesResult SurfaceTrackingScratch::loadNormalizedSource(
   const auto stagedROFViews = mROFViews;
   frame.commitNormalizedFrame(std::move(staged));
   setROFViews(stagedROFViews);
-  mSourceBySurface.assign(nOwnedSurfaces, kSourceId);
+  mSourceBySurface.swap(stagedSourceBySurface);
   for (std::size_t layer = 0; layer < nOwnedSurfaces; ++layer) {
     mUnsortedClusters[layer].swap(stagedUnsortedClusters[layer]);
     mTrackingFrameInfo[layer].swap(stagedTrackingFrameInfo[layer]);

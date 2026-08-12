@@ -916,6 +916,7 @@ BOOST_AUTO_TEST_CASE(FailedNormalizedLoadLeavesBothRepresentationsUnchanged)
   BOOST_REQUIRE_EQUAL(frame.getNormalizedFrame().getTotalMeasurements(), 1u);
   BOOST_REQUIRE_EQUAL(tf.getUnsortedClustersOnLayer(0, 0).size(), 1u);
   BOOST_REQUIRE_EQUAL(tf.getNrof(0), 1);
+  BOOST_REQUIRE(tf.getSurfaceSource(0) == ClusterSourceId{0});
 
   // Then a malformed ROF partition (leading gap): firstEntry != 0. This
   // fails inside loadSources() itself, after the preflight above has passed.
@@ -937,6 +938,7 @@ BOOST_AUTO_TEST_CASE(FailedNormalizedLoadLeavesBothRepresentationsUnchanged)
   BOOST_CHECK_EQUAL(tf.getUnsortedClustersOnLayer(0, 0).size(), 1u);
   BOOST_CHECK_EQUAL(tf.getNrof(0), 1);
   BOOST_CHECK_EQUAL(tf.getClusterExternalIndex(0, 0), 0);
+  BOOST_CHECK(tf.getSurfaceSource(0) == ClusterSourceId{0});
 }
 
 // Every preflight failure -- not only a loadSources()-internal one -- must
