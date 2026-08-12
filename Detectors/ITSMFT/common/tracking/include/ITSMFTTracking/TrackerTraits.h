@@ -196,7 +196,7 @@ class TrackerTraits
 
  private:
   void resetTraversalCache() noexcept;
-  void validateSparsePlan(int iteration, const SurfaceGraphView& graph, std::optional<SurfaceKind>& activeKind, bool& mixedKind) const;
+  void validateSparsePlan(int iteration, const SurfaceGraphView& graph) const;
   int requireSurfacePosition(int iteration, SurfaceId id) const;
 
   // Sole global-ID to compact-scratch-slot translation used by this class.
@@ -209,31 +209,27 @@ class TrackerTraits
                                  gsl::span<const TransitionId> transitionIds);
   void computeLayerCellsImpl(int iteration,
                              gsl::span<const CellTopologyId> cellIds);
-  void findRoadsCylinder(int iteration, SeedRefitFunction refitFunction);
-  void findRoadsDisk(int iteration, SeedRefitFunction refitFunction);
+  void findRoadsForGraph(int iteration, SeedRefitFunction refitFunction);
 
   void findCellsNeighboursForSchedule(int iteration,
                                       gsl::span<const CellTopologyId> scheduledCells,
                                       const TrackingKernelParameters& params);
 
-  template <SurfaceKind Kind>
-  void findRoadsForKind(int iteration,
-                        const TrackingKernelParameters& params,
-                        SeedRefitFunction refitFunction,
-                        gsl::span<const CellTopologyId> roadStartCells,
-                        ClusterSourceId expectedSource);
+  void findRoadsForSchedule(int iteration,
+                            const TrackingKernelParameters& params,
+                            SeedRefitFunction refitFunction,
+                            gsl::span<const CellTopologyId> roadStartCells);
 
   // Neighbour processing helper; it does not encode a detector layer count.
-  template <SurfaceKind Kind, typename InputSeed>
+  template <typename InputSeed>
   void processNeighbours(int iteration, int defaultCellTopologyId, int iLevel, const bounded_vector<InputSeed>& currentCellSeed, const bounded_vector<int>& currentCellId, const bounded_vector<int>& currentCellTopologyId, bounded_vector<TrackSeed>& updatedCellSeed, bounded_vector<int>& updatedCellId, bounded_vector<int>& updatedCellTopologyId, const TrackingKernelParameters& params);
 
   // Fills scratch-owned transition arrays in the binding's ordered sparse
   // transition order after fallible validation. This method does not throw.
-  template <SurfaceKind Kind>
-  void prepareTransitionScatteringAndBendingForKind(int iteration,
-                                                    const LayerGeometryConfigView& geometryConfig,
-                                                    const DiskReferenceCoordinateView& referenceCoordinateView,
-                                                    gsl::span<const TransitionId> transitionIds);
+  void prepareTransitionScatteringAndBending(int iteration,
+                                             const LayerGeometryConfigView& geometryConfig,
+                                             const DiskReferenceCoordinateView& referenceCoordinateView,
+                                             gsl::span<const TransitionId> transitionIds);
 
   std::shared_ptr<BoundedMemoryResource> mMemoryPool;
   std::shared_ptr<tbb::task_arena> mTaskArena;
@@ -266,9 +262,6 @@ class TrackerTraits
   // surface position; current leaf operations consume these per-position
   // parameter spans directly.
   std::vector<NominalSurfaceMaterial> mLayerMaterial;
-  std::optional<SurfaceKind> mActiveKind;
-  std::array<std::vector<TransitionId>, 2> mTransitionsByKind;
-  std::array<std::vector<CellTopologyId>, 2> mRoadStartCellsByKind;
   // Non-owning per-surface-position spans into the TimeFrame-owned normalized
   // frame. They are staged and committed with the traversal cache, then
   // cleared on failed initialization.

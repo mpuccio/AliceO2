@@ -76,13 +76,6 @@ SurfaceGraphBuildResult SurfaceGraphBuilder::build() const
       result.error = SurfaceGraphBuildError::DuplicateBasePair;
       return result;
     }
-    const auto from = mDefinition.orderedSurfaces[pair.fromIndex];
-    const auto to = mDefinition.orderedSurfaces[pair.toIndex];
-    if (mCatalog.getSurface(from).kind != mCatalog.getSurface(to).kind) {
-      result.error = SurfaceGraphBuildError::GraphRejected;
-      result.graphError = SurfaceGraphError::SurfaceKindMismatch;
-      return result;
-    }
     immediate[pair.fromIndex] = true;
   }
 
@@ -105,11 +98,6 @@ SurfaceGraphBuildResult SurfaceGraphBuilder::build() const
       }
       const auto from = mDefinition.orderedSurfaces[posFrom];
       const auto to = mDefinition.orderedSurfaces[posTo];
-      if (mCatalog.getSurface(from).kind != mCatalog.getSurface(to).kind) {
-        result.error = SurfaceGraphBuildError::GraphRejected;
-        result.graphError = SurfaceGraphError::SurfaceKindMismatch;
-        return result;
-      }
       const auto id = graph.addTransition(SurfaceTransition{from, to, skipped, 0});
       if (!id.isValid()) {
         result.error = SurfaceGraphBuildError::TopologyRejected;

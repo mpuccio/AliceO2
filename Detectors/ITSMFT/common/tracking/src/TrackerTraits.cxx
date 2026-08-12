@@ -177,15 +177,8 @@ void TrackerTraits::resetTraversalCache() noexcept
   mAttachHitConfig = {};
   const auto resetSurfaceCount = mScratch == nullptr ? std::size_t{0} : mScratch->getNOwnedSurfaces();
   mLayerMaterial.assign(resetSurfaceCount, NominalSurfaceMaterial{});
-  mActiveKind.reset();
   mLayerMeasurements.assign(resetSurfaceCount, gsl::span<const SurfaceMeasurement>{});
   mLayerGlobalMeasurements.assign(resetSurfaceCount, gsl::span<const GlobalMeasurement>{});
-  for (auto& group : mTransitionsByKind) {
-    group.clear();
-  }
-  for (auto& group : mRoadStartCellsByKind) {
-    group.clear();
-  }
 }
 
 int TrackerTraits::requireScratchTransitionSlot(int iteration, TransitionId id) const
@@ -227,36 +220,7 @@ int TrackerTraits::requireSurfacePosition(int iteration, SurfaceId id) const
   return static_cast<int>(*position);
 }
 
-void TrackerTraits::findRoadsCylinder(int iteration, SeedRefitFunction refitFunction)
-{
-  ClusterSourceId source{};
-  for (const auto transitionId : mTransitionsByKind[0]) {
-    const auto position = requireSurfacePosition(iteration, mTraversalGraph.getTransition(transitionId).from);
-    if (!mLayerGlobalMeasurements[position].empty()) {
-      source = mLayerGlobalMeasurements[position].front().cluster.source;
-      break;
-    }
-  }
-  findRoadsForKind<SurfaceKind::Cylinder>(iteration, mKernelParameters, refitFunction, mRoadStartCellsByKind[0], source);
-}
-
-void TrackerTraits::findRoadsDisk(int iteration, SeedRefitFunction refitFunction)
-{
-  ClusterSourceId source{};
-  for (const auto transitionId : mTransitionsByKind[1]) {
-    const auto position = requireSurfacePosition(iteration, mTraversalGraph.getTransition(transitionId).from);
-    if (!mLayerGlobalMeasurements[position].empty()) {
-      source = mLayerGlobalMeasurements[position].front().cluster.source;
-      break;
-    }
-  }
-  findRoadsForKind<SurfaceKind::Disk>(iteration, mKernelParameters, refitFunction, mRoadStartCellsByKind[1], source);
-}
-
-void TrackerTraits::validateSparsePlan(int iteration,
-                                       const SurfaceGraphView& layout,
-                                       std::optional<SurfaceKind>& activeKind,
-                                       bool& mixedKind) const
+void TrackerTraits::validateSparsePlan(int iteration, const SurfaceGraphView& layout) const
 {
   const auto fail = [iteration]() { throw TraversalException{iteration, TraversalFailureReason::SparseTopologyMismatch}; };
   const auto& topology = layout;
@@ -266,25 +230,6 @@ void TrackerTraits::validateSparsePlan(int iteration,
     fail();
   }
 
-  const auto kindOf = [&layout](SurfaceId surface) {
-    if (!surface.isValid() || surface.value() >= layout.nSurfaces) {
-      return std::optional<SurfaceKind>{};
-    }
-    return std::optional<SurfaceKind>{layout.getSurface(surface).kind};
-  };
-  const auto observeKind = [&](std::optional<SurfaceKind> kind) {
-    if (!kind) {
-      fail();
-    }
-    if (!activeKind) {
-      activeKind = kind;
-    } else if (*activeKind != *kind) {
-      mixedKind = true;
-    }
-  };
-
-  activeKind.reset();
-  mixedKind = false;
   if (mBinding == nullptr) {
     fail();
   }
@@ -302,10 +247,6 @@ void TrackerTraits::validateSparsePlan(int iteration,
         !transition.skippedSurfaces.isSubsetOf(mBinding->getOwnedSurfaces())) {
       fail();
     }
-    observeKind(kindOf(transition.from));
-    if (kindOf(transition.to) != activeKind) {
-      mixedKind = true;
-    }
   }
   for (const auto id : cells) {
     if (!id.isValid() || id.value() >= topology.nCells || !mBinding->getScratchCellSlot(id)) {
@@ -316,12 +257,6 @@ void TrackerTraits::validateSparsePlan(int iteration,
         !mBinding->getScratchTransitionSlot(cell.secondTransition) ||
         !cell.hitSurfaces.isSubsetOf(mBinding->getOwnedSurfaces())) {
       fail();
-    }
-    const auto firstKind = kindOf(topology.getTransition(cell.firstTransition).from);
-    const auto secondKind = kindOf(topology.getTransition(cell.secondTransition).from);
-    observeKind(firstKind);
-    if (secondKind != firstKind) {
-      mixedKind = true;
     }
   }
   for (const auto id : mBinding->getGlobalScheduledCells()) {
@@ -354,25 +289,16 @@ void TrackerTraits::initialiseTimeFrame(const int iteration, const std::vector<S
     throw TraversalException{iteration, TraversalFailureReason::MissingLayout};
   }
 
-  // Resolve the active SurfaceKind from the sparse-plan endpoint before
-  // any kind-specific binding runs. A combined layout may contain both
-  // families, so a participant binding supplies the one kind this tracker
-  // owns; no layer-count selection is used here.
   const auto boundTransitions = mBinding->getGlobalTransitions();
   if (boundTransitions.empty() || boundTransitions.front().value() >= layout.nTransitions) {
     throw TraversalException{iteration, TraversalFailureReason::SparseTopologyMismatch};
   }
-  mActiveKind = layout.getSurface(layout.getTransition(boundTransitions.front()).from).kind;
 
-  // 2.1 Validate material-correction support before staging or mutating
-  // TimeFrame tracking state. Unsupported modes are structural; unrecognized
-  // values remain classified by AttachHitConfigView::isValid().
-  MaterialCorrectionModeSupport materialModeSupport = MaterialCorrectionModeSupport::Supported;
-  if (mActiveKind) {
-    materialModeSupport = materialCorrectionModeSupport(*mActiveKind, mTrkParams[iteration].CorrType);
-  }
-  if (materialModeSupport == MaterialCorrectionModeSupport::Unsupported) {
-    throw TraversalException{iteration, TraversalFailureReason::UnsupportedMaterialCorrectionMode};
+  for (const auto surface : mBinding->getOrderedSurfaces()) {
+    if (materialCorrectionModeSupport(layout.getSurface(surface).kind, mTrkParams[iteration].CorrType) ==
+        MaterialCorrectionModeSupport::Unsupported) {
+      throw TraversalException{iteration, TraversalFailureReason::UnsupportedMaterialCorrectionMode};
+    }
   }
 
   // 2.5. Resolve and validate per-surface-position material from the layout
@@ -591,19 +517,7 @@ void TrackerTraits::initialiseTimeFrame(const int iteration, const std::vector<S
 
   // 6. Validate the sparse plan/binding after scratch initialization and before
   // committing traversal state. No layer-indexed topology oracle is consulted.
-  std::optional<SurfaceKind> activeKind;
-  bool mixedKind = false;
-  validateSparsePlan(iteration, layout, activeKind, mixedKind);
-  (void)mixedKind;
-  for (const auto transitionId : mBinding->getGlobalTransitions()) {
-    const auto kind = layout.getSurface(layout.getTransition(transitionId).from).kind;
-    mTransitionsByKind[kindIndex(kind)].push_back(transitionId);
-  }
-  for (const auto cellId : mBinding->getGlobalRoadStartCells()) {
-    const auto& cell = layout.getCell(cellId);
-    const auto kind = layout.getSurface(layout.getTransition(cell.firstTransition).from).kind;
-    mRoadStartCellsByKind[kindIndex(kind)].push_back(cellId);
-  }
+  validateSparsePlan(iteration, layout);
 
   // Bound from the still-local stagedLayerMaterial, not the mLayerMaterial
   // member (not committed yet): attachHitConfig.layerMaterial is rebound to
@@ -619,7 +533,10 @@ void TrackerTraits::initialiseTimeFrame(const int iteration, const std::vector<S
     throw TraversalException{iteration, TraversalFailureReason::InvalidSurfaceParameters};
   }
   DiskReferenceCoordinateView referenceCoordinateView{};
-  if (!mTransitionsByKind[1].empty()) {
+  const auto hasDiskSurface = std::ranges::any_of(orderedSurfaces, [&layout](SurfaceId id) {
+    return layout.getSurface(id).kind == SurfaceKind::Disk;
+  });
+  if (hasDiskSurface) {
     const auto legacyDiskReference = bindLegacyMFTReferenceCoordinates();
     mDiskLayerReferenceZStorage.assign(activeSurfaceCount, 0.f);
     std::size_t diskLayer = 0;
@@ -636,9 +553,6 @@ void TrackerTraits::initialiseTimeFrame(const int iteration, const std::vector<S
     if (!referenceCoordinateView.isValid(activeSurfaceCount)) {
       throw TraversalException{iteration, TraversalFailureReason::InvalidSurfaceParameters};
     }
-  }
-  if (!activeKind || (*activeKind != SurfaceKind::Cylinder && *activeKind != SurfaceKind::Disk)) {
-    throw TraversalException{iteration, TraversalFailureReason::StateFamilyMismatch};
   }
   mKernelParameters = bindTrackingKernelParameters(mTrkParams[iteration]);
   if (!mKernelParameters.isValid()) {
@@ -667,18 +581,11 @@ void TrackerTraits::initialiseTimeFrame(const int iteration, const std::vector<S
   // succeeded. What follows is the relocated, total (non-throwing) per-layer
   // and per-transition scattering/bending preparation -- see the method doc
   // for the ordering/failure contract this relies on.
-  if (!mTransitionsByKind[0].empty()) {
-    prepareTransitionScatteringAndBendingForKind<SurfaceKind::Cylinder>(iteration, geometryConfig, referenceCoordinateView,
-                                                                        mTransitionsByKind[0]);
-  }
-  if (!mTransitionsByKind[1].empty()) {
-    prepareTransitionScatteringAndBendingForKind<SurfaceKind::Disk>(iteration, geometryConfig, referenceCoordinateView,
-                                                                    mTransitionsByKind[1]);
-  }
+  prepareTransitionScatteringAndBending(iteration, geometryConfig, referenceCoordinateView,
+                                        mBinding->getGlobalTransitions());
 }
 
-template <SurfaceKind Kind>
-void TrackerTraits::prepareTransitionScatteringAndBendingForKind(
+void TrackerTraits::prepareTransitionScatteringAndBending(
   int iteration,
   const LayerGeometryConfigView& geometryConfig,
   const DiskReferenceCoordinateView& referenceCoordinateView,
@@ -687,12 +594,11 @@ void TrackerTraits::prepareTransitionScatteringAndBendingForKind(
   const auto& trkParam = mTrkParams[iteration];
   const auto& topology = mTraversalGraph;
 
-  // Per-layer step: genuinely kind-specific (typed operation), but the
-  // extent is the adopted plan, not the TrackerTraits compatibility width.
   const int activeSurfaceCount = static_cast<int>(mScratch->getNOwnedSurfaces());
   std::vector<float> msAngles(static_cast<std::size_t>(activeSurfaceCount));
   for (int iLayer{0}; iLayer < activeSurfaceCount; ++iLayer) {
-    if constexpr (Kind == SurfaceKind::Cylinder) {
+    const auto surface = mBinding->getOrderedSurfaces()[iLayer];
+    if (topology.getSurface(surface).kind == SurfaceKind::Cylinder) {
       msAngles[iLayer] = cylinderLayerMultipleScatteringAngle(
         CylinderLayerScatteringInputs{geometryConfig.layerMaterial[iLayer].xOverX0}, trkParam.TrackletMinPt);
     } else {
@@ -703,33 +609,21 @@ void TrackerTraits::prepareTransitionScatteringAndBendingForKind(
     }
   }
 
-  // Per-transition step: shared/Kind-independent post-clamp arithmetic behind
-  // a Kind-specific curvature clamp. Iterate the binding's validated sparse
-  // transition order, which is the compact scratch order and preserves the
-  // existing global topology ordering without consulting a layer topology.
-  // The operation binding is installed after this preparation step. Resolve
-  // the already-validated plan/binding span directly here; using the
-  // not-yet-bound operation cache would silently leave every transition
-  // preparation entry at its reset value.
   auto& transitionMSAngles = mScratch->getTransitionMSAngles();
   auto& transitionPhiCuts = mScratch->getTransitionPhiCuts();
-  float oneOverR{0.001f * 0.3f * std::abs(getBz()) / trkParam.TrackletMinPt};
+  const float oneOverR{0.001f * 0.3f * std::abs(getBz()) / trkParam.TrackletMinPt};
   for (const auto transitionId : transitionIds) {
     const auto transitionSlot = requireScratchTransitionSlot(iteration, transitionId);
     const auto& transition = topology.getTransition(transitionId);
     const int fromLayer = requireSurfacePosition(iteration, transition.from);
     const int toLayer = requireSurfacePosition(iteration, transition.to);
-    const float r1 = trkParam.LayerRadii[fromLayer];
-    const float r2 = trkParam.LayerRadii[toLayer];
-    if constexpr (Kind == SurfaceKind::Cylinder) {
-      oneOverR = clampCylinderTransitionCurvature(oneOverR, r2);
-    } else {
-      oneOverR = clampDiskTransitionCurvature(oneOverR, r2);
-    }
+    const float r1 = std::min(trkParam.LayerRadii[fromLayer], trkParam.LayerRadii[toLayer]);
+    const float r2 = std::max(trkParam.LayerRadii[fromLayer], trkParam.LayerRadii[toLayer]);
+    const float transitionOneOverR = clampTransitionCurvature(oneOverR, r2);
     const float res1 = o2::gpu::CAMath::Hypot(trkParam.PVres, mScratch->getPositionResolution(fromLayer));
     const float res2 = o2::gpu::CAMath::Hypot(trkParam.PVres, mScratch->getPositionResolution(toLayer));
-    const auto prep = prepareTransitionScatteringAndBending(
-      gsl::span<const float>(msAngles.data(), msAngles.size()), fromLayer, toLayer, r1, r2, oneOverR, res1, res2);
+    const auto prep = ::o2::itsmft::tracking::prepareTransitionScatteringAndBending(
+      gsl::span<const float>(msAngles.data(), msAngles.size()), fromLayer, toLayer, r1, r2, transitionOneOverR, res1, res2);
     transitionMSAngles[transitionSlot] = prep.msAngle;
     transitionPhiCuts[transitionSlot] = prep.phiCut;
   }
@@ -1429,7 +1323,7 @@ void TrackerTraits::findCellsNeighboursForSchedule(
   });
 }
 
-template <SurfaceKind Kind, typename InputSeed>
+template <typename InputSeed>
 void TrackerTraits::processNeighbours(int iteration, int defaultCellTopologyId, int iLevel, const bounded_vector<InputSeed>& currentCellSeed, const bounded_vector<int>& currentCellId, const bounded_vector<int>& currentCellTopologyId, bounded_vector<TrackSeed>& updatedCellSeeds, bounded_vector<int>& updatedCellsIds, bounded_vector<int>& updatedCellsTopologyIds, const TrackingKernelParameters& params)
 {
   const auto layerMaterial = mAttachHitConfig.layerMaterial;
@@ -1486,15 +1380,12 @@ void TrackerTraits::processNeighbours(int iteration, int defaultCellTopologyId, 
         seed.getTimeStamp() += neighbourCell.getTimeStamp();
 
         const auto& measurement = mLayerMeasurements[neighbourLayer][neighbourCluster];
+        const auto surface = mBinding->getOrderedSurfaces()[neighbourLayer];
         float chi2 = seed.getChi2();
         OperationFailureReason attachReason{};
-        const bool attached = [&] {
-          if constexpr (Kind == SurfaceKind::Cylinder) {
-            return attachCylinderHit(seed.state(), measurement, layerMaterial[neighbourLayer], getBz(), chi2, params, attachReason);
-          } else {
-            return attachDiskHit(seed.state(), measurement, layerMaterial[neighbourLayer], getBz(), chi2, params, attachReason);
-          }
-        }();
+        const bool attached = mTraversalGraph.getSurface(surface).kind == SurfaceKind::Cylinder
+                                ? attachCylinderHit(seed.state(), measurement, layerMaterial[neighbourLayer], getBz(), chi2, params, attachReason)
+                                : attachDiskHit(seed.state(), measurement, layerMaterial[neighbourLayer], getBz(), chi2, params, attachReason);
         if (!attached) {
           continue;
         }
@@ -1572,30 +1463,21 @@ void TrackerTraits::findRoads(const int iteration, SeedRefitFunction refitFuncti
   if (!mTraversalCacheValid) {
     throw TraversalException{iteration, TraversalFailureReason::InvalidTraversalSchedule};
   }
-  // Defensive sparse-plan check:
-  // findRoadsForKind() below indexes the scratch cell vectors with the
-  // compact slots returned by the bound sparse plan. The count is checked
-  // before indexing so a future plan/storage desync becomes an explicit
-  // failure instead of an out-of-bounds read; no legacy topology parity is
-  // required by this path.
-  // The expected count is the binding's own owned-cell count.
   if (mScratch->getCells().size() != mBinding->getGlobalCells().size()) {
     throw TraversalException{iteration, TraversalFailureReason::SparseTopologyMismatch};
   }
-  if (!mRoadStartCellsByKind[0].empty()) {
-    findRoadsCylinder(iteration, refitFunction);
-  }
-  if (!mRoadStartCellsByKind[1].empty()) {
-    findRoadsDisk(iteration, refitFunction);
-  }
+  findRoadsForGraph(iteration, refitFunction);
 }
 
-template <SurfaceKind Kind>
-void TrackerTraits::findRoadsForKind(const int iteration,
-                                     const TrackingKernelParameters& params,
-                                     SeedRefitFunction refitFunction,
-                                     gsl::span<const CellTopologyId> roadStartCells,
-                                     ClusterSourceId expectedSource)
+void TrackerTraits::findRoadsForGraph(int iteration, SeedRefitFunction refitFunction)
+{
+  findRoadsForSchedule(iteration, mKernelParameters, refitFunction, mBinding->getGlobalRoadStartCells());
+}
+
+void TrackerTraits::findRoadsForSchedule(const int iteration,
+                                         const TrackingKernelParameters& params,
+                                         SeedRefitFunction refitFunction,
+                                         gsl::span<const CellTopologyId> roadStartCells)
 {
   const int activeSurfaceCount = static_cast<int>(mScratch->getNOwnedSurfaces());
   bounded_vector<bounded_vector<int>> firstClusters(activeSurfaceCount, bounded_vector<int>(mMemoryPool.get()), mMemoryPool.get());
@@ -1638,7 +1520,7 @@ void TrackerTraits::findRoadsForKind(const int iteration,
       bounded_vector<int> lastCellTopologyId(mMemoryPool.get()), updatedCellTopologyId(mMemoryPool.get());
       bounded_vector<TrackSeed> lastCellSeed(mMemoryPool.get()), updatedCellSeed(mMemoryPool.get());
 
-      processNeighbours<Kind>(iteration, startCellTopologyId, startLevel, mScratch->getCells()[startCellTopologyId], lastCellId, lastCellTopologyId, updatedCellSeed, updatedCellId, updatedCellTopologyId, params);
+      processNeighbours(iteration, startCellTopologyId, startLevel, mScratch->getCells()[startCellTopologyId], lastCellId, lastCellTopologyId, updatedCellSeed, updatedCellId, updatedCellTopologyId, params);
 
       int level = startLevel;
       while (level > 2 && !updatedCellSeed.empty()) {
@@ -1648,7 +1530,7 @@ void TrackerTraits::findRoadsForKind(const int iteration,
         deepVectorClear(updatedCellSeed); /// tame the memory peaks
         deepVectorClear(updatedCellId);   /// tame the memory peaks
         deepVectorClear(updatedCellTopologyId);
-        processNeighbours<Kind>(iteration, o2::its::constants::UnusedIndex, --level, lastCellSeed, lastCellId, lastCellTopologyId, updatedCellSeed, updatedCellId, updatedCellTopologyId, params);
+        processNeighbours(iteration, o2::its::constants::UnusedIndex, --level, lastCellSeed, lastCellId, lastCellTopologyId, updatedCellSeed, updatedCellId, updatedCellTopologyId, params);
       }
       deepVectorClear(lastCellId);         /// tame the memory peaks
       deepVectorClear(lastCellTopologyId); /// tame the memory peaks
@@ -1669,6 +1551,14 @@ void TrackerTraits::findRoadsForKind(const int iteration,
       auto forSeed = [&](auto Mode, int iSeed, int offset = 0) {
         TrackingCandidate temporaryTrack;
         temporaryTrack.seed = trackSeeds[iSeed];
+        ClusterSourceId expectedSource{};
+        for (int position = 0; position < activeSurfaceCount; ++position) {
+          const int cluster = trackSeeds[iSeed].getCluster(position);
+          if (cluster != o2::its::constants::UnusedIndex) {
+            expectedSource = mLayerGlobalMeasurements[position][cluster].cluster.source;
+            break;
+          }
+        }
         const bool refitSuccess = refitFunction(trackSeeds[iSeed],
                                                 mTrkParams[iteration],
                                                 mBz,

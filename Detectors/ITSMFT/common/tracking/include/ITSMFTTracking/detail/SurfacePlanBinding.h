@@ -172,9 +172,6 @@ class SurfacePlanBinding
       if (!transition.skippedSurfaces.isSubsetOf(ownedSurfaces)) {
         return {{}, SurfacePlanBindingError::CrossBoundaryTransition};
       }
-      if (globalLayout.getSurface(transition.from).kind != globalLayout.getSurface(transition.to).kind) {
-        return {{}, SurfacePlanBindingError::InvalidSurface};
-      }
     }
 
     // Filter the immutable global-ID order only by ownership; disconnected

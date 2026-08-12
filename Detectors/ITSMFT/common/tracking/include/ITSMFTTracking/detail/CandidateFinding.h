@@ -159,8 +159,7 @@ struct DiskReferenceCoordinateView {
 
 DiskReferenceCoordinateView bindLegacyMFTReferenceCoordinates() noexcept;
 
-float clampCylinderTransitionCurvature(float oneOverR, float r2) noexcept;
-float clampDiskTransitionCurvature(float oneOverR, float r2) noexcept;
+float clampTransitionCurvature(float oneOverR, float outerRadius) noexcept;
 
 struct TransitionScatteringBendingPrep {
   float msAngle;

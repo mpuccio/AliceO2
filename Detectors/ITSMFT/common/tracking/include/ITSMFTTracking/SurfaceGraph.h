@@ -377,12 +377,6 @@ class SurfaceGraph
         orderedMask.set(id);
       }
     }
-    for (const auto& transition : mTransitions) {
-      if (mSurfaces[mSurfaceIndicesById[transition.from.value()]].kind != mSurfaces[mSurfaceIndicesById[transition.to.value()]].kind) {
-        mError = SurfaceGraphError::MixedSurfaceTransition;
-        return;
-      }
-    }
     mCylinderSurfaces = {};
     mDiskSurfaces = {};
     for (const auto& surface : mSurfaces) {

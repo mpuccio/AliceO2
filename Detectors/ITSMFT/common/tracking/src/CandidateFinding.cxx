@@ -831,18 +831,11 @@ DiskReferenceCoordinateView bindLegacyMFTReferenceCoordinates() noexcept
   return DiskReferenceCoordinateView{gsl::span<const float>(kLegacyMFTReferenceCoordinate)};
 }
 
-float clampCylinderTransitionCurvature(float oneOverR, float r2) noexcept
+float clampTransitionCurvature(float oneOverR, float outerRadius) noexcept
 {
-  // Preserves the legacy double-promoted comparison verbatim (frozen ITS
-  // TimeFrame.cxx / common-CA non-MFT branch): `0.5` is a double literal.
-  return (0.5 * oneOverR >= 1.f / r2) ? (2.f / r2) - o2::constants::math::Almost0 : oneOverR;
-}
-
-float clampDiskTransitionCurvature(float oneOverR, float r2) noexcept
-{
-  // Preserves the legacy float-only comparison verbatim (common-CA MFT
-  // branch): `0.5f` stays in float.
-  return (0.5f * oneOverR >= 1.f / r2) ? (2.f / r2) - o2::constants::math::Almost0 : oneOverR;
+  return (outerRadius > 0.f && 0.5f * oneOverR >= 1.f / outerRadius)
+           ? (2.f / outerRadius) - o2::constants::math::Almost0
+           : oneOverR;
 }
 
 TransitionScatteringBendingPrep prepareTransitionScatteringAndBending(
