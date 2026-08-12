@@ -74,7 +74,6 @@ std::optional<uint32_t> appendCommonTrack(TimeFrame& frame,
   track.hitSurfaces = {};
   std::vector<TrackClusterReference> resolvedReferences;
   resolvedReferences.reserve(layerMeasurements.size());
-  const auto& normalized = frame.getNormalizedFrame();
   for (std::size_t position = 0; position < layerMeasurements.size(); ++position) {
     const int localIndex = candidate.getClusterIndex(static_cast<int>(position));
     if (localIndex == o2::its::constants::UnusedIndex) {
@@ -85,7 +84,7 @@ std::optional<uint32_t> appendCommonTrack(TimeFrame& frame,
     }
     const auto& measurement = layerMeasurements[position][localIndex];
     const TrackClusterReference reference{measurement.surface, SurfaceMeasurementIndex{static_cast<uint32_t>(localIndex)}};
-    const auto* resolved = normalized.getGlobalMeasurement(reference.surface, reference.index);
+    const auto* resolved = frame.getGlobalMeasurement(reference.surface, reference.index);
     if (!reference.surface.isValid() || measurement.surface != reference.surface || !measurement.cluster.isValid() ||
         resolved == nullptr || resolved != &measurement || resolved->surface != reference.surface || !resolved->cluster.isValid()) {
       return std::nullopt;
@@ -362,8 +361,8 @@ void TrackerTraits::initialiseTimeFrame(const int iteration, const std::vector<S
   std::vector<gsl::span<const GlobalMeasurement>> stagedLayerGlobalMeasurements(static_cast<std::size_t>(activeSurfaceCount));
   for (int surfacePosition = 0; surfacePosition < activeSurfaceCount; ++surfacePosition) {
     const auto surfaceId = orderedSurfaces[surfacePosition];
-    const auto measurements = mFrame->getNormalizedFrame().getSurfaceMeasurements(surfaceId);
-    const auto globals = mFrame->getNormalizedFrame().getGlobalMeasurements(surfaceId);
+    const auto measurements = mFrame->getSurfaceMeasurements(surfaceId);
+    const auto globals = mFrame->getGlobalMeasurements(surfaceId);
     const auto& clusters = mScratch->getUnsortedClusters()[surfacePosition];
     const auto& hits = mScratch->getTrackingFrameInfoOnLayer(surfacePosition);
     if (measurements.size() != globals.size() || globals.size() != clusters.size() || hits.size() != clusters.size() ||
@@ -1319,7 +1318,6 @@ void TrackerTraits::findCellsNeighboursForSchedule(
       std::ranges::transform(cellsNeighbours, std::back_inserter(mScratch->getCellsNeighbours()[cellTopologyId]), [](const auto& neigh) { return neigh.cell; });
       std::ranges::transform(cellsNeighbours, std::back_inserter(mScratch->getCellsNeighboursTopology()[cellTopologyId]), [](const auto& neigh) { return neigh.cellTopology; });
     }
-
   });
 }
 
@@ -1502,121 +1500,121 @@ void TrackerTraits::findRoadsForSchedule(const int iteration,
   }
   for (size_t component = 0; component + 1 < componentOffsets.size(); ++component) {
     const auto componentRoadStarts = roadStartCells.subspan(componentOffsets[component],
-                                                             componentOffsets[component + 1] - componentOffsets[component]);
+                                                            componentOffsets[component + 1] - componentOffsets[component]);
     for (int startLevel{cellsPerRoad}; startLevel >= mTrkParams[iteration].CellMinimumLevel(); --startLevel) {
 
-    auto seedFilter = [&](const auto& seed) {
-      return seed.getHitLayerMask().isAllowed(mTrkParams[iteration].MaxHoles, mTrkParams[iteration].HoleLayerMask) &&
-             seed.getHitLayerMask().length() >= mTrkParams[iteration].MinTrackLength &&
-             std::abs(seed.getQOverPt()) <= maxAbsQOverPt && seed.getChi2() <= mTrkParams[iteration].MaxChi2NDF * ((startLevel + 2) * 2 - 5);
-    };
+      auto seedFilter = [&](const auto& seed) {
+        return seed.getHitLayerMask().isAllowed(mTrkParams[iteration].MaxHoles, mTrkParams[iteration].HoleLayerMask) &&
+               seed.getHitLayerMask().length() >= mTrkParams[iteration].MinTrackLength &&
+               std::abs(seed.getQOverPt()) <= maxAbsQOverPt && seed.getChi2() <= mTrkParams[iteration].MaxChi2NDF * ((startLevel + 2) * 2 - 5);
+      };
 
-    bounded_vector<TrackSeed> trackSeeds(mMemoryPool.get());
-    // The binding supplies the ownership-filtered road-start span.
-    for (const auto startId : componentRoadStarts) {
-      // Translate the road-start cell to its compact slot once.
-      const int startCellTopologyId = requireScratchCellSlot(iteration, startId);
-      // Cell population is per-event/per-vertex data, never cached in
-      // SurfacePlanBinding: this check must stay here, evaluated at
-      // runtime against the current iVertex's TimeFrame content.
-      if (mScratch->getCells()[startCellTopologyId].empty()) {
+      bounded_vector<TrackSeed> trackSeeds(mMemoryPool.get());
+      // The binding supplies the ownership-filtered road-start span.
+      for (const auto startId : componentRoadStarts) {
+        // Translate the road-start cell to its compact slot once.
+        const int startCellTopologyId = requireScratchCellSlot(iteration, startId);
+        // Cell population is per-event/per-vertex data, never cached in
+        // SurfacePlanBinding: this check must stay here, evaluated at
+        // runtime against the current iVertex's TimeFrame content.
+        if (mScratch->getCells()[startCellTopologyId].empty()) {
+          continue;
+        }
+
+        bounded_vector<int> lastCellId(mMemoryPool.get()), updatedCellId(mMemoryPool.get());
+        bounded_vector<int> lastCellTopologyId(mMemoryPool.get()), updatedCellTopologyId(mMemoryPool.get());
+        bounded_vector<TrackSeed> lastCellSeed(mMemoryPool.get()), updatedCellSeed(mMemoryPool.get());
+
+        processNeighbours(iteration, startCellTopologyId, startLevel, mScratch->getCells()[startCellTopologyId], lastCellId, lastCellTopologyId, updatedCellSeed, updatedCellId, updatedCellTopologyId, params);
+
+        int level = startLevel;
+        while (level > 2 && !updatedCellSeed.empty()) {
+          lastCellSeed.swap(updatedCellSeed);
+          lastCellId.swap(updatedCellId);
+          lastCellTopologyId.swap(updatedCellTopologyId);
+          deepVectorClear(updatedCellSeed); /// tame the memory peaks
+          deepVectorClear(updatedCellId);   /// tame the memory peaks
+          deepVectorClear(updatedCellTopologyId);
+          processNeighbours(iteration, o2::its::constants::UnusedIndex, --level, lastCellSeed, lastCellId, lastCellTopologyId, updatedCellSeed, updatedCellId, updatedCellTopologyId, params);
+        }
+        deepVectorClear(lastCellId);         /// tame the memory peaks
+        deepVectorClear(lastCellTopologyId); /// tame the memory peaks
+        deepVectorClear(lastCellSeed);       /// tame the memory peaks
+
+        if (!updatedCellSeed.empty()) {
+          trackSeeds.reserve(trackSeeds.size() + std::count_if(updatedCellSeed.begin(), updatedCellSeed.end(), seedFilter));
+          std::copy_if(updatedCellSeed.begin(), updatedCellSeed.end(), std::back_inserter(trackSeeds), seedFilter);
+        }
+      }
+
+      if (trackSeeds.empty()) {
         continue;
       }
 
-      bounded_vector<int> lastCellId(mMemoryPool.get()), updatedCellId(mMemoryPool.get());
-      bounded_vector<int> lastCellTopologyId(mMemoryPool.get()), updatedCellTopologyId(mMemoryPool.get());
-      bounded_vector<TrackSeed> lastCellSeed(mMemoryPool.get()), updatedCellSeed(mMemoryPool.get());
-
-      processNeighbours(iteration, startCellTopologyId, startLevel, mScratch->getCells()[startCellTopologyId], lastCellId, lastCellTopologyId, updatedCellSeed, updatedCellId, updatedCellTopologyId, params);
-
-      int level = startLevel;
-      while (level > 2 && !updatedCellSeed.empty()) {
-        lastCellSeed.swap(updatedCellSeed);
-        lastCellId.swap(updatedCellId);
-        lastCellTopologyId.swap(updatedCellTopologyId);
-        deepVectorClear(updatedCellSeed); /// tame the memory peaks
-        deepVectorClear(updatedCellId);   /// tame the memory peaks
-        deepVectorClear(updatedCellTopologyId);
-        processNeighbours(iteration, o2::its::constants::UnusedIndex, --level, lastCellSeed, lastCellId, lastCellTopologyId, updatedCellSeed, updatedCellId, updatedCellTopologyId, params);
-      }
-      deepVectorClear(lastCellId);         /// tame the memory peaks
-      deepVectorClear(lastCellTopologyId); /// tame the memory peaks
-      deepVectorClear(lastCellSeed);       /// tame the memory peaks
-
-      if (!updatedCellSeed.empty()) {
-        trackSeeds.reserve(trackSeeds.size() + std::count_if(updatedCellSeed.begin(), updatedCellSeed.end(), seedFilter));
-        std::copy_if(updatedCellSeed.begin(), updatedCellSeed.end(), std::back_inserter(trackSeeds), seedFilter);
-      }
-    }
-
-    if (trackSeeds.empty()) {
-      continue;
-    }
-
-    bounded_vector<TrackingCandidate> tracks(mMemoryPool.get());
-    mTaskArena->execute([&] {
-      auto forSeed = [&](auto Mode, int iSeed, int offset = 0) {
-        TrackingCandidate temporaryTrack;
-        temporaryTrack.seed = trackSeeds[iSeed];
-        const bool refitSuccess = refitFunction(trackSeeds[iSeed],
-                                                mTrkParams[iteration],
-                                                mBz,
-                                                *mScratch,
-                                                mLayerGlobalMeasurements,
-                                                mLayerMeasurements,
-                                                mTraversalGraph.getSurfaceCatalogView(),
-                                                mBinding->getOrderedSurfaces(),
-                                                temporaryTrack);
-        if (refitSuccess) {
-          if constexpr (decltype(Mode)::value == PassMode::OnePass::value) {
-            tracks.push_back(temporaryTrack);
-          } else if constexpr (decltype(Mode)::value == PassMode::TwoPassCount::value) {
-            // nothing to do
-          } else if constexpr (decltype(Mode)::value == PassMode::TwoPassInsert::value) {
-            tracks[offset] = temporaryTrack;
-          } else {
-            static_assert(false, "Unknown mode!");
+      bounded_vector<TrackingCandidate> tracks(mMemoryPool.get());
+      mTaskArena->execute([&] {
+        auto forSeed = [&](auto Mode, int iSeed, int offset = 0) {
+          TrackingCandidate temporaryTrack;
+          temporaryTrack.seed = trackSeeds[iSeed];
+          const bool refitSuccess = refitFunction(trackSeeds[iSeed],
+                                                  mTrkParams[iteration],
+                                                  mBz,
+                                                  *mScratch,
+                                                  mLayerGlobalMeasurements,
+                                                  mLayerMeasurements,
+                                                  mTraversalGraph.getSurfaceCatalogView(),
+                                                  mBinding->getOrderedSurfaces(),
+                                                  temporaryTrack);
+          if (refitSuccess) {
+            if constexpr (decltype(Mode)::value == PassMode::OnePass::value) {
+              tracks.push_back(temporaryTrack);
+            } else if constexpr (decltype(Mode)::value == PassMode::TwoPassCount::value) {
+              // nothing to do
+            } else if constexpr (decltype(Mode)::value == PassMode::TwoPassInsert::value) {
+              tracks[offset] = temporaryTrack;
+            } else {
+              static_assert(false, "Unknown mode!");
+            }
+            return 1;
           }
-          return 1;
-        }
-        return 0;
-      };
+          return 0;
+        };
 
-      const int nSeeds = static_cast<int>(trackSeeds.size());
-      if (mTaskArena->max_concurrency() <= 1) {
-        for (int iSeed{0}; iSeed < nSeeds; ++iSeed) {
-          forSeed(PassMode::OnePass{}, iSeed);
-        }
-      } else {
-        bounded_vector<int> perSeedCount(nSeeds + 1, 0, mMemoryPool.get());
-        tbb::parallel_for(0, nSeeds, [&](const int iSeed) {
-          perSeedCount[iSeed] = forSeed(PassMode::TwoPassCount{}, iSeed);
-        });
+        const int nSeeds = static_cast<int>(trackSeeds.size());
+        if (mTaskArena->max_concurrency() <= 1) {
+          for (int iSeed{0}; iSeed < nSeeds; ++iSeed) {
+            forSeed(PassMode::OnePass{}, iSeed);
+          }
+        } else {
+          bounded_vector<int> perSeedCount(nSeeds + 1, 0, mMemoryPool.get());
+          tbb::parallel_for(0, nSeeds, [&](const int iSeed) {
+            perSeedCount[iSeed] = forSeed(PassMode::TwoPassCount{}, iSeed);
+          });
 
-        std::exclusive_scan(perSeedCount.begin(), perSeedCount.end(), perSeedCount.begin(), 0);
-        auto totalTracks{perSeedCount.back()};
-        if (totalTracks == 0) {
-          return;
-        }
-        tracks.resize(totalTracks);
-
-        tbb::parallel_for(0, nSeeds, [&](const int iSeed) {
-          if (perSeedCount[iSeed] == perSeedCount[iSeed + 1]) {
+          std::exclusive_scan(perSeedCount.begin(), perSeedCount.end(), perSeedCount.begin(), 0);
+          auto totalTracks{perSeedCount.back()};
+          if (totalTracks == 0) {
             return;
           }
-          forSeed(PassMode::TwoPassInsert{}, iSeed, perSeedCount[iSeed]);
-        });
-      }
+          tracks.resize(totalTracks);
 
-      deepVectorClear(trackSeeds);
-    });
+          tbb::parallel_for(0, nSeeds, [&](const int iSeed) {
+            if (perSeedCount[iSeed] == perSeedCount[iSeed + 1]) {
+              return;
+            }
+            forSeed(PassMode::TwoPassInsert{}, iSeed, perSeedCount[iSeed]);
+          });
+        }
 
-    // Same ordering as o2::its::track::isBetter (longer track, then lower chi2).
-    std::sort(tracks.begin(), tracks.end(), [](const TrackingCandidate& a, const TrackingCandidate& b) {
-      const auto ncla = a.getNumberOfClusters();
-      const auto nclb = b.getNumberOfClusters();
-      return (ncla == nclb) ? (a.track.chi2 < b.track.chi2) : ncla > nclb;
-    });
+        deepVectorClear(trackSeeds);
+      });
+
+      // Same ordering as o2::its::track::isBetter (longer track, then lower chi2).
+      std::sort(tracks.begin(), tracks.end(), [](const TrackingCandidate& a, const TrackingCandidate& b) {
+        const auto ncla = a.getNumberOfClusters();
+        const auto nclb = b.getNumberOfClusters();
+        return (ncla == nclb) ? (a.track.chi2 < b.track.chi2) : ncla > nclb;
+      });
       acceptTracks(iteration, tracks, firstClusters);
     }
   }

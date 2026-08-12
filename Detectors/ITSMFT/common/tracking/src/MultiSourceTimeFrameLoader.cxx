@@ -24,12 +24,12 @@ LoadSourcesResult MultiSourceTimeFrameLoader::load(TimeFrame& frame, gsl::span<c
   if (!frame.isConfigured()) {
     return {MultiSourceLoadError::FrameNotConfigured};
   }
-  // Stage normalized data for every source before committing the event. The
+  // Stage measurement data for every source before committing the event. The
   // source-level loader remains the decoder and timing-validation boundary.
-  MultiSourceFrame normalized;
-  const auto normalizedResult = loadSources(normalized, catalog, sources, origin);
-  if (!normalizedResult.ok()) {
-    return normalizedResult;
+  TimeFrame stagedMeasurements;
+  const auto loadResult = loadSources(stagedMeasurements, catalog, sources, origin);
+  if (!loadResult.ok()) {
+    return loadResult;
   }
 
   const auto* binding = frame.getBinding(0);
@@ -74,12 +74,12 @@ LoadSourcesResult MultiSourceTimeFrameLoader::load(TimeFrame& frame, gsl::span<c
   }
   staged->setMemoryPool(frame.getMemoryPool());
   staged->adoptPlan(live.getNOwnedSurfaces(), 0, 0);
-  const auto backfillResult = staged->backfillNormalizedSources(normalized, sources, binding->getOrderedSurfaces());
+  const auto backfillResult = staged->backfillNormalizedSources(stagedMeasurements, sources, binding->getOrderedSurfaces());
   if (!backfillResult.ok()) {
     return backfillResult;
   }
 
-  if (!frame.commitLoadedEvent(std::move(normalized), std::move(staged))) {
+  if (!frame.commitLoadedEvent(std::move(stagedMeasurements), std::move(staged))) {
     return {MultiSourceLoadError::OtherMalformedInput};
   }
   return {};
@@ -169,7 +169,7 @@ MultiSourceLoadError mapDecodeError(ClusterDecodeError error) noexcept
 }
 } // namespace
 
-LoadSourcesResult loadSources(MultiSourceFrame& frame,
+LoadSourcesResult loadSources(TimeFrame& frame,
                               const SurfaceCatalogView& catalog,
                               gsl::span<const ClusterSourceInput> sources,
                               const o2::InteractionRecord& origin)
@@ -198,13 +198,13 @@ LoadSourcesResult loadSources(MultiSourceFrame& frame,
 
   std::vector<std::vector<GlobalMeasurement>> perSurfaceGlobal(catalog.nSurfaces);
   std::vector<std::vector<SurfaceMeasurement>> perSurface(catalog.nSurfaces);
-  std::vector<SourceMetadata> sourcesMeta(nSources);
+  std::vector<SourceROFInfo> sourceInfo(nSources);
   std::vector<std::vector<ROFIntervalBC>> perSourceIntervals(nSources);
   std::vector<const o2::dataformats::MCTruthContainer<o2::MCCompLabel>*> labelSources(nSources, nullptr);
 
   for (const auto& src : sources) {
     const auto srcIdx = src.id.value();
-    sourcesMeta[srcIdx] = SourceMetadata{src.id, src.detector, static_cast<uint32_t>(src.rofs.size())};
+    sourceInfo[srcIdx] = SourceROFInfo{src.id, static_cast<uint32_t>(src.rofs.size())};
     labelSources[srcIdx] = src.labels;
 
     int64_t expectedNext = 0;
@@ -295,8 +295,8 @@ LoadSourcesResult loadSources(MultiSourceFrame& frame,
     flatIntervals.insert(flatIntervals.end(), perSourceIntervals[s].begin(), perSourceIntervals[s].end());
   }
 
-  frame.assignLoadedData(std::move(perSurfaceGlobal), std::move(perSurface), std::move(sourcesMeta),
-                         std::move(flatIntervals), std::move(sourceOffsets), std::move(labelSources));
+  frame.assignLoadedMeasurements(std::move(perSurfaceGlobal), std::move(perSurface), std::move(sourceInfo),
+                                 std::move(flatIntervals), std::move(sourceOffsets), std::move(labelSources));
   return {};
 }
 
@@ -357,7 +357,7 @@ LoadSourcesResult SurfaceTrackingScratch::loadNormalizedSource(
   const gsl::span<const SurfaceId> layerToSurface = orderedSurfaces;
   const std::size_t nOwnedSurfaces = orderedSurfaces.size();
 
-  MultiSourceFrame staged;
+  TimeFrame staged;
   ClusterSourceInput src;
   src.id = kSourceId;
   src.detector = detId;
@@ -483,7 +483,7 @@ LoadSourcesResult SurfaceTrackingScratch::loadNormalizedSource(
   // context, so reinstall this already-validated view only after the new
   // normalized frame is atomically live.
   const auto stagedROFViews = mROFViews;
-  frame.commitNormalizedFrame(std::move(staged));
+  frame.commitMeasurements(std::move(staged));
   setROFViews(stagedROFViews);
   mSourceBySurface.swap(stagedSourceBySurface);
   for (std::size_t layer = 0; layer < nOwnedSurfaces; ++layer) {
@@ -503,7 +503,7 @@ LoadSourcesResult SurfaceTrackingScratch::loadNormalizedSource(
 }
 
 LoadSourcesResult SurfaceTrackingScratch::backfillNormalizedSources(
-  const MultiSourceFrame& normalized,
+  const TimeFrame& measurements,
   gsl::span<const ClusterSourceInput> sources,
   gsl::span<const SurfaceId> orderedSurfaces)
 {
@@ -541,8 +541,8 @@ LoadSourcesResult SurfaceTrackingScratch::backfillNormalizedSources(
     }
     mSourceBySurface[layer] = owner->id;
 
-    const auto measurements = normalized.getSurfaceMeasurements(surface);
-    const auto globals = normalized.getGlobalMeasurements(surface);
+    const auto localMeasurements = measurements.getSurfaceMeasurements(surface);
+    const auto globals = measurements.getGlobalMeasurements(surface);
     auto& clusters = mUnsortedClusters[layer];
     auto& trackingInfo = mTrackingFrameInfo[layer];
     auto& externalIndices = mClusterExternalIndices[layer];
@@ -551,16 +551,16 @@ LoadSourcesResult SurfaceTrackingScratch::backfillNormalizedSources(
     clusters.clear();
     trackingInfo.clear();
     externalIndices.clear();
-    clusterSizes.assign(measurements.size(), uint8_t{0});
+    clusterSizes.assign(localMeasurements.size(), uint8_t{0});
     rofBoundaries.assign(owner->rofs.size() + 1, 0);
-    clusters.reserve(measurements.size());
-    trackingInfo.reserve(measurements.size());
-    externalIndices.reserve(measurements.size());
+    clusters.reserve(localMeasurements.size());
+    trackingInfo.reserve(localMeasurements.size());
+    externalIndices.reserve(localMeasurements.size());
 
     const bool isMFT = owner->detector == o2::detectors::DetID::MFT;
     std::size_t measurementIndex = 0;
-    for (std::size_t localIndex = 0; localIndex < measurements.size(); ++localIndex) {
-      const auto& measurement = measurements[localIndex];
+    for (std::size_t localIndex = 0; localIndex < localMeasurements.size(); ++localIndex) {
+      const auto& measurement = localMeasurements[localIndex];
       const auto& global = globals[localIndex];
       if (global.surface != surface || !global.cluster.isValid() ||
           global.cluster.source != owner->id || global.sourceROF >= owner->rofs.size()) {
@@ -593,7 +593,7 @@ LoadSourcesResult SurfaceTrackingScratch::backfillNormalizedSources(
       }
       rofBoundaries[rof + 1] = static_cast<int>(cursor);
     }
-    if (cursor != measurements.size()) {
+    if (cursor != localMeasurements.size()) {
       return {MultiSourceLoadError::InconsistentDecoderMetadata, owner->id};
     }
     mClusterLabels[layer] = owner->labels;

@@ -48,7 +48,6 @@
 #include "ITSMFTTracking/Cell.h"
 #include "ITSMFTTracking/Configuration.h"
 #include "ITSMFTTracking/IndexTableUtils.h"
-#include "ITSMFTTracking/MultiSourceFrame.h"
 #include "ITSMFTTracking/SurfaceMeasurement.h"
 #include "ITSMFTTracking/TimeFrame.h"
 #include "ITSMFTTracking/ROFViews.h"
@@ -179,7 +178,7 @@ class SurfaceTrackingScratch
                                          gsl::span<const SurfaceId> orderedSurfaces,
                                          SurfaceCatalogView catalogView,
                                          bool applySysErrors = true);
-  LoadSourcesResult backfillNormalizedSources(const MultiSourceFrame& normalized,
+  LoadSourcesResult backfillNormalizedSources(const TimeFrame& measurements,
                                               gsl::span<const ClusterSourceInput> sources,
                                               gsl::span<const SurfaceId> orderedSurfaces);
 #endif

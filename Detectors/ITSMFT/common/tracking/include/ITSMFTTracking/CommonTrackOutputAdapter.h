@@ -150,7 +150,6 @@ inline std::optional<CommonTrackOutputAdapterSelection> selectCommonTracksForSou
   }
   CommonTrackOutputAdapterSelection selection;
   const auto& references = frame.getTrackClusterIndices();
-  const auto& normalized = frame.getNormalizedFrame();
   selection.globalIndices.reserve(tracks.size());
   for (uint32_t globalIndex = 0; globalIndex < tracks.size(); ++globalIndex) {
     const auto& track = tracks[globalIndex];
@@ -162,7 +161,7 @@ inline std::optional<CommonTrackOutputAdapterSelection> selectCommonTracksForSou
     bool foreign = false;
     for (uint32_t i = track.firstClusterRef; i < track.clusterRefEnd; ++i) {
       const auto& reference = references[i];
-      const auto* measurement = normalized.getGlobalMeasurement(reference.surface, reference.index);
+      const auto* measurement = frame.getGlobalMeasurement(reference.surface, reference.index);
       if (measurement == nullptr || measurement->surface != reference.surface) {
         error = CommonTrackOutputAdapterError::UnresolvedReference;
         return std::nullopt;
@@ -268,11 +267,10 @@ inline bool collectReferences(const TimeFrame& frame, const CommonTrack& common,
                               MCLabelAccumulator* labels, uint32_t& pattern, CommonTrackOutputAdapterError& error)
 {
   const auto& references = frame.getTrackClusterIndices();
-  const auto& normalized = frame.getNormalizedFrame();
   std::vector<const GlobalMeasurement*> byLayer(maxLayers, nullptr);
   for (uint32_t ref = common.firstClusterRef; ref < common.clusterRefEnd; ++ref) {
     const auto& key = references[ref];
-    const auto* measurement = normalized.getGlobalMeasurement(key.surface, key.index);
+    const auto* measurement = frame.getGlobalMeasurement(key.surface, key.index);
     if (measurement == nullptr) {
       error = CommonTrackOutputAdapterError::UnresolvedReference;
       return false;
@@ -305,7 +303,7 @@ inline bool collectReferences(const TimeFrame& frame, const CommonTrack& common,
   if (labels != nullptr) {
     for (const auto* measurement : byLayer) {
       if (measurement != nullptr) {
-        labels->addCluster(normalized.getLabels(measurement->cluster));
+        labels->addCluster(frame.getLabels(measurement->cluster));
       }
     }
   }

@@ -12,7 +12,7 @@
 /// \file TimeFrame.h
 /// \brief Passive common event owner.
 ///
-/// TimeFrame owns configuration, normalized event data, generic results,
+/// TimeFrame owns configuration, event measurements, generic results,
 /// one tracking workspace, and its allocator/capacity state. Raw ROFs,
 /// timing-table storage, publication state, typed sidecars, and workflow
 /// lifecycle remain with the application boundary.
@@ -28,9 +28,11 @@
 #include <gsl/gsl>
 
 #include "DataFormatsITS/Vertex.h"
+#include "SimulationDataFormat/MCCompLabel.h"
+#include "SimulationDataFormat/MCTruthContainer.h"
 #include "ITSMFTTracking/CommonTrack.h"
 #include "ITSMFTTracking/Configuration.h"
-#include "ITSMFTTracking/MultiSourceFrame.h"
+#include "ITSMFTTracking/MeasurementView.h"
 #include "ITSMFTTracking/SurfaceGraph.h"
 #include "ITSMFTTracking/detail/SurfacePlanBinding.h"
 #include "ITStracking/BoundedAllocator.h"
@@ -53,8 +55,17 @@ struct TrackingWorkspaceCapacity {
   std::size_t cells = 0;
 };
 
+struct SourceROFInfo {
+  ClusterSourceId id{};
+  uint32_t nROFs{0};
+};
+
 struct TimeFrame {
   TimeFrame() = default;
+  TimeFrame(const TimeFrame&) = delete;
+  TimeFrame& operator=(const TimeFrame&) = delete;
+  TimeFrame(TimeFrame&&) noexcept = default;
+  TimeFrame& operator=(TimeFrame&&) noexcept = default;
   virtual ~TimeFrame();
 
   const Vertex& getPrimaryVertex(const int ivtx) const { return mPrimaryVertices[ivtx]; }
@@ -79,38 +90,31 @@ struct TimeFrame {
   void setBz(float bz) { mBz = bz; }
   float getBz() const { return mBz; }
 
-  // Non-owning, read-only access to the normalized owner/view associated
-  // with this TimeFrame by the most recent successful commitNormalizedFrame()
-  // call (see SurfaceTrackingScratch::loadNormalizedSource(), the
-  // owner-level load operation this is the TimeFrame-side half of). Empty/
-  // default until that first succeeds, and after resetEvent(): resetEvent()
-  // unconditionally clears this owner in place. The `const MultiSourceFrame&`
-  // returned by getNormalizedFrame() is a reference to that same long-lived
-  // member object -- it remains valid and safe to dereference across a
-  // resetEvent() call, it simply then observes the owner's newly cleared
-  // (empty) state. What resetEvent() does invalidate is any MultiSourceFrameView or
-  // gsl::span (getSurfaceMeasurements(), getSourceIntervals(), getLabels(),
-  // getView()) obtained *before* the resetEvent() call: those hold pointers into
-  // the owner's internal buffers, which clear() may reallocate/free, so they
-  // must be re-obtained afterwards rather than reused.
-  const MultiSourceFrame& getNormalizedFrame() const noexcept { return mNormalizedFrame; }
-  MultiSourceFrameView getNormalizedFrameView() const noexcept { return mNormalizedFrame.getView(); }
+  MeasurementView getMeasurementView() const noexcept;
+  gsl::span<const SurfaceMeasurement> getSurfaceMeasurements(SurfaceId surface) const;
+  gsl::span<const GlobalMeasurement> getGlobalMeasurements(SurfaceId surface) const;
+  const GlobalMeasurement* getGlobalMeasurement(SurfaceId surface, SurfaceMeasurementIndex index) const noexcept;
+  const SurfaceMeasurement* getSurfaceMeasurement(SurfaceId surface, SurfaceMeasurementIndex index) const noexcept;
+  gsl::span<const ROFIntervalBC> getSourceIntervals(ClusterSourceId source) const;
+  gsl::span<const o2::MCCompLabel> getLabels(ClusterRef cluster) const;
+  const std::vector<SourceROFInfo>& getSourceROFInfo() const noexcept { return mSourceROFInfo; }
+  uint32_t getNMeasurementSurfaces() const noexcept { return static_cast<uint32_t>(mPerSurfaceMeasurements.size()); }
+  std::size_t getTotalMeasurements() const noexcept;
 
-  // Internal commit primitive for the owner-level load operation
-  // (SurfaceTrackingScratch::loadNormalizedSource(), which stages both
-  // this TimeFrame's normalized update and its own legacy backfill before
-  // calling this) -- not general API, and never throws: `staged` must
-  // already be the fully-built replacement frame. Swaps it in and clears
-  // mCommonTracks/mTrackClusterIndices in the same commit, since a
-  // CommonTrack/TrackClusterReference built against the previous normalized
-  // frame is meaningless once this replaces it (see CommonTrack.h's own
-  // lifetime doc).
-  void commitNormalizedFrame(MultiSourceFrame&& staged) noexcept;
+  // Loader-only staging hooks. A staged TimeFrame carries measurement data
+  // only; commit swaps it after all decoding and workspace backfill succeed.
+  void assignLoadedMeasurements(std::vector<std::vector<GlobalMeasurement>>&& perSurfaceGlobalMeasurements,
+                                std::vector<std::vector<SurfaceMeasurement>>&& perSurfaceMeasurements,
+                                std::vector<SourceROFInfo>&& sourceROFInfo,
+                                std::vector<ROFIntervalBC>&& rofIntervals,
+                                std::vector<uint32_t>&& sourceROFOffsets,
+                                std::vector<const o2::dataformats::MCTruthContainer<o2::MCCompLabel>*>&& labelSources);
+  void commitMeasurements(TimeFrame&& staged) noexcept;
 
   // Commits a complete multi-source event after loader preflight. The
   // operation resets the prior event exactly once before installing all
   // normalized data and the staged global workspace.
-  bool commitLoadedEvent(MultiSourceFrame&& staged,
+  bool commitLoadedEvent(TimeFrame&& staged,
                          std::unique_ptr<SurfaceTrackingScratch>&& stagedWorkspace) noexcept;
 
   // One generic event-state reset. It preserves static configuration and
@@ -138,7 +142,7 @@ struct TimeFrame {
 
   // Detector-neutral common-CA result storage (ITSMFTTracking/CommonTrack.h).
   // CommonTrack itself carries no NLayers dependency. Only meaningful
-  // together with getNormalizedFrame()'s current content -- see
+  // together with the current event measurements -- see
   // CommonTrack.h's own lifetime doc.
   auto& getCommonTracks() { return mCommonTracks; }
   const auto& getCommonTracks() const { return mCommonTracks; }
@@ -147,7 +151,7 @@ struct TimeFrame {
   // *positions* into this array, in traversal order (inner to outer). Each
   // element pairs a SurfaceId with a SurfaceMeasurementIndex local to that
   // surface's own measurement array -- resolved via
-  // getNormalizedFrame().getGlobalMeasurement(reference.surface, reference.index)
+  // getGlobalMeasurement(reference.surface, reference.index)
   // -- never a global/flattened measurement position.
   auto& getTrackClusterIndices() { return mTrackClusterIndices; }
   const auto& getTrackClusterIndices() const { return mTrackClusterIndices; }
@@ -184,12 +188,13 @@ struct TimeFrame {
   bounded_vector<CommonTrack> mCommonTracks;
   bounded_vector<TrackClusterReference> mTrackClusterIndices;
 
-  // Normalized owner associated by the load operation; host-only, never
-  // GPU-managed or dictionary-serialized (see getNormalizedFrame()).
-  // Does not itself hold pmr/bounded-vector allocations (MultiSourceFrame's
-  // own members are plain std::vector<T> with the default allocator), so it
-  // has no ordering dependency on mMemoryPool above.
-  MultiSourceFrame mNormalizedFrame;
+  std::vector<std::vector<GlobalMeasurement>> mPerSurfaceGlobalMeasurements;
+  std::vector<std::vector<SurfaceMeasurement>> mPerSurfaceMeasurements;
+  std::vector<SurfaceMeasurementSpan> mMeasurementSpans;
+  std::vector<SourceROFInfo> mSourceROFInfo;
+  std::vector<ROFIntervalBC> mROFIntervals;
+  std::vector<uint32_t> mSourceROFOffsets;
+  std::vector<const o2::dataformats::MCTruthContainer<o2::MCCompLabel>*> mLabelSources;
 
   bool mConfigurationValid = false;
   std::vector<SurfaceGraph> mGraphs;
@@ -203,6 +208,9 @@ struct TimeFrame {
   std::size_t mEventResetCount{0};
 
   void clearEventData() noexcept;
+  void clearMeasurements() noexcept;
+  void rebuildMeasurementSpans();
+  void swapMeasurements(TimeFrame& other) noexcept;
 };
 
 } // namespace o2::itsmft::tracking

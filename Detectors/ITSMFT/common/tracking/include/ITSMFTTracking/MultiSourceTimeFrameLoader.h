@@ -24,7 +24,6 @@
 #include "DataFormatsITSMFT/TopologyDictionary.h"
 #include "DetectorsCommonDataFormats/DetID.h"
 #include "ITSMFTTracking/ClusterDecoding.h"
-#include "ITSMFTTracking/MultiSourceFrame.h"
 #include "ITSMFTTracking/ROFViews.h"
 #include "ITSMFTTracking/SurfaceDescriptor.h"
 #include "ITSMFTTracking/SurfaceId.h"
@@ -107,11 +106,11 @@ struct LoadSourcesResult {
   bool ok() const noexcept { return error == MultiSourceLoadError::None; }
 };
 
-// Decode and stage all detector-qualified sources into a normalized frame.
+// Decode all sources into staged TimeFrame measurement storage.
 // Geometry lookup, pattern consumption, covariance calculation, and
 // systematic-error application occur once per cluster. On failure, `frame`
 // remains unmodified and the result identifies the first offending input.
-LoadSourcesResult loadSources(MultiSourceFrame& frame,
+LoadSourcesResult loadSources(TimeFrame& frame,
                               const SurfaceCatalogView& catalog,
                               gsl::span<const ClusterSourceInput> sources,
                               const o2::InteractionRecord& origin);

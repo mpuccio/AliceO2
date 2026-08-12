@@ -49,13 +49,102 @@ void TimeFrame::resetBeamXY(const float x, const float y, const float w)
   mBeamPosWeight = w;
 }
 
-void TimeFrame::commitNormalizedFrame(MultiSourceFrame&& staged) noexcept
+void TimeFrame::rebuildMeasurementSpans()
 {
-  resetEvent();
-  mNormalizedFrame = std::move(staged);
+  mMeasurementSpans.resize(mPerSurfaceMeasurements.size());
+  for (std::size_t surface = 0; surface < mMeasurementSpans.size(); ++surface) {
+    const auto& local = mPerSurfaceMeasurements[surface];
+    const auto& global = mPerSurfaceGlobalMeasurements[surface];
+    mMeasurementSpans[surface] = {global.empty() ? nullptr : global.data(), local.empty() ? nullptr : local.data(), static_cast<uint32_t>(local.size())};
+  }
 }
 
-bool TimeFrame::commitLoadedEvent(MultiSourceFrame&& staged,
+void TimeFrame::swapMeasurements(TimeFrame& other) noexcept
+{
+  mPerSurfaceGlobalMeasurements.swap(other.mPerSurfaceGlobalMeasurements);
+  mPerSurfaceMeasurements.swap(other.mPerSurfaceMeasurements);
+  mMeasurementSpans.swap(other.mMeasurementSpans);
+  mSourceROFInfo.swap(other.mSourceROFInfo);
+  mROFIntervals.swap(other.mROFIntervals);
+  mSourceROFOffsets.swap(other.mSourceROFOffsets);
+  mLabelSources.swap(other.mLabelSources);
+}
+
+void TimeFrame::assignLoadedMeasurements(std::vector<std::vector<GlobalMeasurement>>&& globals,
+                                         std::vector<std::vector<SurfaceMeasurement>>&& measurements,
+                                         std::vector<SourceROFInfo>&& sourceInfo,
+                                         std::vector<ROFIntervalBC>&& intervals,
+                                         std::vector<uint32_t>&& offsets,
+                                         std::vector<const o2::dataformats::MCTruthContainer<o2::MCCompLabel>*>&& labels)
+{
+  mPerSurfaceGlobalMeasurements = std::move(globals);
+  mPerSurfaceMeasurements = std::move(measurements);
+  mSourceROFInfo = std::move(sourceInfo);
+  mROFIntervals = std::move(intervals);
+  mSourceROFOffsets = std::move(offsets);
+  mLabelSources = std::move(labels);
+  rebuildMeasurementSpans();
+}
+
+void TimeFrame::commitMeasurements(TimeFrame&& staged) noexcept
+{
+  resetEvent();
+  swapMeasurements(staged);
+}
+
+MeasurementView TimeFrame::getMeasurementView() const noexcept
+{
+  return {mMeasurementSpans.empty() ? nullptr : mMeasurementSpans.data(), static_cast<uint32_t>(mMeasurementSpans.size()),
+          mROFIntervals.empty() ? nullptr : mROFIntervals.data(), mSourceROFOffsets.empty() ? nullptr : mSourceROFOffsets.data(),
+          static_cast<uint32_t>(mSourceROFInfo.size())};
+}
+
+gsl::span<const SurfaceMeasurement> TimeFrame::getSurfaceMeasurements(SurfaceId surface) const
+{
+  return surface.isValid() && surface.value() < mPerSurfaceMeasurements.size() ? gsl::make_span(mPerSurfaceMeasurements[surface.value()]) : gsl::span<const SurfaceMeasurement>{};
+}
+
+gsl::span<const GlobalMeasurement> TimeFrame::getGlobalMeasurements(SurfaceId surface) const
+{
+  return surface.isValid() && surface.value() < mPerSurfaceGlobalMeasurements.size() ? gsl::make_span(mPerSurfaceGlobalMeasurements[surface.value()]) : gsl::span<const GlobalMeasurement>{};
+}
+
+const GlobalMeasurement* TimeFrame::getGlobalMeasurement(SurfaceId surface, SurfaceMeasurementIndex index) const noexcept
+{
+  return getMeasurementView().getGlobalMeasurement(surface, index);
+}
+
+const SurfaceMeasurement* TimeFrame::getSurfaceMeasurement(SurfaceId surface, SurfaceMeasurementIndex index) const noexcept
+{
+  return getMeasurementView().getSurfaceMeasurement(surface, index);
+}
+
+gsl::span<const ROFIntervalBC> TimeFrame::getSourceIntervals(ClusterSourceId source) const
+{
+  if (!source.isValid() || source.value() >= mSourceROFInfo.size() || mSourceROFOffsets.size() != mSourceROFInfo.size() + 1) {
+    return {};
+  }
+  return gsl::make_span(mROFIntervals).subspan(mSourceROFOffsets[source.value()], mSourceROFOffsets[source.value() + 1] - mSourceROFOffsets[source.value()]);
+}
+
+gsl::span<const o2::MCCompLabel> TimeFrame::getLabels(ClusterRef cluster) const
+{
+  if (!cluster.source.isValid() || cluster.source.value() >= mLabelSources.size() || mLabelSources[cluster.source.value()] == nullptr) {
+    return {};
+  }
+  return mLabelSources[cluster.source.value()]->getLabels(cluster.index);
+}
+
+std::size_t TimeFrame::getTotalMeasurements() const noexcept
+{
+  std::size_t total = 0;
+  for (const auto& measurements : mPerSurfaceMeasurements) {
+    total += measurements.size();
+  }
+  return total;
+}
+
+bool TimeFrame::commitLoadedEvent(TimeFrame&& staged,
                                   std::unique_ptr<SurfaceTrackingScratch>&& stagedWorkspace) noexcept
 {
   if (!mConfigurationValid || !mWorkspace || !stagedWorkspace) {
@@ -67,7 +156,7 @@ bool TimeFrame::commitLoadedEvent(MultiSourceFrame&& staged,
   }
 
   resetEvent();
-  mNormalizedFrame = std::move(staged);
+  swapMeasurements(staged);
   mWorkspace->swapLoadedEvent(*stagedWorkspace);
   return true;
 }
@@ -191,16 +280,18 @@ void TimeFrame::clearEventData() noexcept
   // so both must be cleared here, unconditionally.
   deepVectorClear(mCommonTracks);
   deepVectorClear(mTrackClusterIndices);
-  // Event-owned normalized data, cleared unconditionally (MultiSourceFrame is
-  // host-only and never framework/GPU-managed). This clears mNormalizedFrame
-  // in place: a getNormalizedFrame() reference obtained before this call
-  // still refers to that same live member and remains safe to use, now
-  // observing its cleared (empty) state. Any MultiSourceFrameView or
-  // gsl::span obtained before this call (from getNormalizedFrameView(),
-  // getSurfaceMeasurements(), getSourceIntervals(), getLabels()) is
-  // invalidated by it, since clear() may reallocate/free the buffers those
-  // point into.
-  mNormalizedFrame.clear();
+  clearMeasurements();
+}
+
+void TimeFrame::clearMeasurements() noexcept
+{
+  mPerSurfaceGlobalMeasurements.clear();
+  mPerSurfaceMeasurements.clear();
+  mMeasurementSpans.clear();
+  mSourceROFInfo.clear();
+  mROFIntervals.clear();
+  mSourceROFOffsets.clear();
+  mLabelSources.clear();
 }
 
 } // namespace o2::itsmft::tracking

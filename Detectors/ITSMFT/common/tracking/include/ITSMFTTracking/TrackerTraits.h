@@ -181,13 +181,13 @@ class TrackerTraits
   // Authoritative per-surface-position normalized SurfaceMeasurement span,
   // resolved once by the most recent successful initialiseTimeFrame() call
   // from the already-loaded, already-validated
-  // TimeFrame::getNormalizedFrame() via this iteration's orderedSurfaces
+  // TimeFrame event measurements via this iteration's orderedSurfaces
   // mapping -- never re-decoded, re-projected, or re-validated per candidate.
   // Same commit/reset contract as getLayerMaterial() above: valid only after
   // a successful initialiseTimeFrame() call, reset to empty spans by
   // resetTraversalCache() otherwise. Every span is non-owning and remains
   // valid only while the owning TimeFrame's normalized frame is alive and
-  // has not been cleared/reloaded (see MultiSourceFrame's own lifetime
+  // has not been cleared/reloaded (see TimeFrame's event-data lifetime
   // documentation). Read-only test/inspection accessor; production
   // consumption is through the private mLayerMeasurements member directly in
   // computeLayerCellsImpl/processNeighbours.

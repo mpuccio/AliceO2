@@ -28,7 +28,7 @@ namespace o2::itsmft::tracking
 // Detector-neutral element of the TimeFrame-owned flat track-membership
 // array (TimeFrame::getTrackClusterIndices()). `surface` identifies which
 // surface's own measurement array `index` is a position into -- measurements
-// are owned per surface (MultiSourceFrame/MultiSourceFrameView), never as one
+// are owned per surface by TimeFrame, never as one
 // flattened global array, so a bare SurfaceMeasurementIndex alone is never a
 // complete identity: it must always be paired with the SurfaceId it is local
 // to. A reference resolves through exactly one call:
