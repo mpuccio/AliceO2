@@ -84,6 +84,7 @@ void SurfaceTrackingScratch::reset()
   mROFViews = {};
   mROFViewsBySurface.clear();
   mROFLocalLayerBySurface.clear();
+  mSourceBySurface.clear();
   mUseUPC = false;
 
   // Group B.
@@ -238,6 +239,7 @@ void SurfaceTrackingScratch::swapLoadedEvent(SurfaceTrackingScratch& other) noex
   std::swap(mROFViews, other.mROFViews);
   mROFViewsBySurface.swap(other.mROFViewsBySurface);
   mROFLocalLayerBySurface.swap(other.mROFLocalLayerBySurface);
+  mSourceBySurface.swap(other.mSourceBySurface);
   std::swap(mUseUPC, other.mUseUPC);
 }
 
@@ -296,6 +298,7 @@ void SurfaceTrackingScratch::swap(SurfaceTrackingScratch& other) noexcept
   std::swap(mROFViews, other.mROFViews);
   mROFViewsBySurface.swap(other.mROFViewsBySurface);
   mROFLocalLayerBySurface.swap(other.mROFLocalLayerBySurface);
+  mSourceBySurface.swap(other.mSourceBySurface);
 
   // mMemoryPool/mExtMemoryPool/mExternalAllocator deliberately not swapped --
   // see the header doc.

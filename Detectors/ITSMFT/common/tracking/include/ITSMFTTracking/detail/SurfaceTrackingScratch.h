@@ -188,6 +188,14 @@ class SurfaceTrackingScratch
   int getSortedIndex(int rofId, int layer, int idx) const { return mROFramesClusters[layer][rofId] + idx; }
   int getSortedStartIndex(const int rofId, const int layer) const { return mROFramesClusters[layer][rofId]; }
   int getNrof(int layer) const { return static_cast<int>(mROFramesClusters[layer].size()) - 1; }
+#ifndef GPUCA_GPUCODE
+  std::optional<ClusterSourceId> getSurfaceSource(int layer) const noexcept
+  {
+    return layer >= 0 && static_cast<std::size_t>(layer) < mSourceBySurface.size() && mSourceBySurface[layer].isValid()
+             ? std::optional<ClusterSourceId>{mSourceBySurface[layer]}
+             : std::nullopt;
+  }
+#endif
 
   auto& getMinRs() { return mMinR; }
   auto& getMaxRs() { return mMaxR; }
@@ -399,6 +407,7 @@ class SurfaceTrackingScratch
   RuntimeROFViews mROFViews{};
   std::vector<RuntimeROFViews> mROFViewsBySurface;
   std::vector<uint16_t> mROFLocalLayerBySurface;
+  std::vector<ClusterSourceId> mSourceBySurface;
   bool mUseUPC{false};
 
   std::size_t mNOwnedSurfaces{0};

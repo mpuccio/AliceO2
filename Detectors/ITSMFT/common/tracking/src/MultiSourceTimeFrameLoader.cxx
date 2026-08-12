@@ -484,6 +484,7 @@ LoadSourcesResult SurfaceTrackingScratch::loadNormalizedSource(
   const auto stagedROFViews = mROFViews;
   frame.commitNormalizedFrame(std::move(staged));
   setROFViews(stagedROFViews);
+  mSourceBySurface.assign(nOwnedSurfaces, kSourceId);
   for (std::size_t layer = 0; layer < nOwnedSurfaces; ++layer) {
     mUnsortedClusters[layer].swap(stagedUnsortedClusters[layer]);
     mTrackingFrameInfo[layer].swap(stagedTrackingFrameInfo[layer]);
@@ -512,6 +513,7 @@ LoadSourcesResult SurfaceTrackingScratch::backfillNormalizedSources(
   mROFViews = sources.front().rofViews;
   mROFViewsBySurface.assign(mNOwnedSurfaces, {});
   mROFLocalLayerBySurface.assign(mNOwnedSurfaces, 0);
+  mSourceBySurface.assign(mNOwnedSurfaces, ClusterSourceId::invalid());
   SurfaceMask seenSurfaces;
   for (std::size_t layer = 0; layer < orderedSurfaces.size(); ++layer) {
     const auto surface = orderedSurfaces[layer];
@@ -536,6 +538,7 @@ LoadSourcesResult SurfaceTrackingScratch::backfillNormalizedSources(
     if (owner == nullptr) {
       return {MultiSourceLoadError::InvalidLayerMapping};
     }
+    mSourceBySurface[layer] = owner->id;
 
     const auto measurements = normalized.getSurfaceMeasurements(surface);
     const auto globals = normalized.getGlobalMeasurements(surface);

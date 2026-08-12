@@ -1572,7 +1572,8 @@ void TrackerTraits::findRoadsForSchedule(const int iteration,
         }
         const auto& global = mLayerGlobalMeasurements[position][cluster];
         const auto surface = mBinding->getOrderedSurfaces()[position];
-        if (global.surface != surface) {
+        const auto expectedSource = mScratch->getSurfaceSource(position);
+        if (global.surface != surface || !expectedSource || global.cluster.source != *expectedSource) {
           throw TraversalException{iteration, TraversalFailureReason::TraversalBindingMismatch};
         }
         const auto nextKind = mTraversalGraph.getSurface(surface).kind;
@@ -1582,8 +1583,8 @@ void TrackerTraits::findRoadsForSchedule(const int iteration,
           throw TraversalException{iteration, TraversalFailureReason::StateFamilyMismatch};
         }
         if (!source) {
-          source = global.cluster.source;
-        } else if (*source != global.cluster.source) {
+          source = *expectedSource;
+        } else if (*source != *expectedSource) {
           throw TraversalException{iteration, TraversalFailureReason::TraversalBindingMismatch};
         }
       }

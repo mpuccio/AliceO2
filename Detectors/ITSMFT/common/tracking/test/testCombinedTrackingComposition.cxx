@@ -1048,6 +1048,8 @@ BOOST_AUTO_TEST_CASE(UnrecognizedLoadSourceIsAlwaysStructural)
   const auto result = composer.process(fixture.itsSource, fixture.mftSource, o2::InteractionRecord{50, 5});
   BOOST_CHECK(result.outcome == TrackingOutcome::Structural);
   BOOST_CHECK(frame.getCommonTracks().empty());
+  BOOST_CHECK(!composer.getITSPublicationExport().has_value());
+  BOOST_CHECK(!composer.getMFTPublicationExport().has_value());
 }
 
 BOOST_AUTO_TEST_CASE(StructuralTrackingExceptionIsClassifiedStructuralAfterWholeReset)

@@ -330,10 +330,13 @@ BOOST_AUTO_TEST_CASE(combined_owner_load_keeps_detector_backfills_separate)
   BOOST_CHECK_EQUAL(frame.getWorkspace().getTotalClusters(), static_cast<int>(its.clusters.size() + mft.clusters.size()));
   BOOST_CHECK(frame.getNormalizedFrame().getGlobalMeasurements(SurfaceId{0})[0].cluster.source == ClusterSourceId{0});
   BOOST_CHECK(frame.getNormalizedFrame().getGlobalMeasurements(SurfaceId{static_cast<uint16_t>(ITSNLayers)})[0].cluster.source == ClusterSourceId{1});
+  BOOST_CHECK(frame.getWorkspace().getSurfaceSource(0) == ClusterSourceId{0});
+  BOOST_CHECK(frame.getWorkspace().getSurfaceSource(ITSNLayers) == ClusterSourceId{1});
 
   // Frame reset clears the workspace and normalized ownership together.
   frame.resetEvent();
   BOOST_CHECK(frame.getWorkspace().empty());
+  BOOST_CHECK(!frame.getWorkspace().getSurfaceSource(0));
   BOOST_CHECK_EQUAL(frame.getNormalizedFrame().getSources().size(), 0u);
 
   // A malformed replacement is rejected before the no-throw three-owner
