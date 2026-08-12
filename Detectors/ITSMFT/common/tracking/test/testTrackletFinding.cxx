@@ -20,6 +20,7 @@
 
 #include <TGeoGlobalMagField.h>
 
+#include "DataFormatsITS/Vertex.h"
 #include "DetectorsCommonDataFormats/DetID.h"
 #include "Field/MagneticField.h"
 #include "GPUCommonMath.h"
