@@ -233,6 +233,28 @@ class SurfacePlanBinding
         result->mGlobalRoadStartCells.push_back(id);
       }
     }
+    std::sort(result->mGlobalRoadStartCells.begin(), result->mGlobalRoadStartCells.end(), [&](CellTopologyId lhs, CellTopologyId rhs) {
+      const auto lhsTarget = topology.getTransition(topology.getCell(lhs).secondTransition).to;
+      const auto rhsTarget = topology.getTransition(topology.getCell(rhs).secondTransition).to;
+      const auto lhsComponent = componentOrder[componentRoot(lhsTarget.value())];
+      const auto rhsComponent = componentOrder[componentRoot(rhsTarget.value())];
+      if (lhsComponent != rhsComponent) {
+        return lhsComponent < rhsComponent;
+      }
+      return rank[lhsTarget.value()] != rank[rhsTarget.value()] ? rank[lhsTarget.value()] < rank[rhsTarget.value()] : lhs < rhs;
+    });
+    result->mRoadStartComponentOffsets.push_back(0);
+    uint32_t previousComponent = std::numeric_limits<uint32_t>::max();
+    for (uint32_t offset = 0; offset < result->mGlobalRoadStartCells.size(); ++offset) {
+      const auto cell = result->mGlobalRoadStartCells[offset];
+      const auto target = topology.getTransition(topology.getCell(cell).secondTransition).to;
+      const auto component = componentOrder[componentRoot(target.value())];
+      if (component != previousComponent && offset != 0) {
+        result->mRoadStartComponentOffsets.push_back(offset);
+      }
+      previousComponent = component;
+    }
+    result->mRoadStartComponentOffsets.push_back(static_cast<uint32_t>(result->mGlobalRoadStartCells.size()));
     // Same source cells as mGlobalCells above, but in rank-sorted
     // (neighbour-schedule) order rather than ascending CellTopologyId order.
     // Every id here is already confirmed owned (mScratchCellSlot valid) by
@@ -265,6 +287,7 @@ class SurfacePlanBinding
   gsl::span<const TransitionId> getGlobalTransitions() const noexcept { return mGlobalTransitions; }
   gsl::span<const CellTopologyId> getGlobalCells() const noexcept { return mGlobalCells; }
   gsl::span<const CellTopologyId> getGlobalRoadStartCells() const noexcept { return mGlobalRoadStartCells; }
+  gsl::span<const uint32_t> getRoadStartComponentOffsets() const noexcept { return mRoadStartComponentOffsets; }
   gsl::span<const CellTopologyId> getGlobalScheduledCells() const noexcept { return mGlobalScheduledCells; }
 
  private:
@@ -285,6 +308,7 @@ class SurfacePlanBinding
   std::vector<TransitionId> mGlobalTransitions;
   std::vector<CellTopologyId> mGlobalCells;
   std::vector<CellTopologyId> mGlobalRoadStartCells;
+  std::vector<uint32_t> mRoadStartComponentOffsets;
   std::vector<CellTopologyId> mGlobalScheduledCells;
 };
 

@@ -16,5 +16,8 @@ radii. It is not carried between transitions or graph components.
 The retained detector-specific refit callback still selects one legacy refit
 from the first seed hit and validates one source for that refit. Consequently
 mixed-family roads can be constructed, but mixed-family accepted-track refit
-is not yet supported. This is an explicit later migration, not a reason for
-the graph/road layer to reject a mixed edge.
+is not yet supported. Before a legacy refit worker runs, every seed is
+validated to have one state family, one source, and measurements owned by its
+bound surfaces. A violation is structural and resets the event before any
+publication. This is an explicit later migration, not a reason for the
+graph/road layer to reject a mixed edge.

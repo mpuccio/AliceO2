@@ -1496,7 +1496,14 @@ void TrackerTraits::findRoadsForSchedule(const int iteration,
   // on it without a test.
   constexpr float maxAbsQOverPt = 1.e3f;
   const int cellsPerRoad = static_cast<int>(mScratch->getNOwnedSurfaces()) - 2;
-  for (int startLevel{cellsPerRoad}; startLevel >= mTrkParams[iteration].CellMinimumLevel(); --startLevel) {
+  const auto componentOffsets = mBinding->getRoadStartComponentOffsets();
+  if (componentOffsets.empty() || componentOffsets.front() != 0 || componentOffsets.back() != roadStartCells.size()) {
+    throw TraversalException{iteration, TraversalFailureReason::SparseTopologyMismatch};
+  }
+  for (size_t component = 0; component + 1 < componentOffsets.size(); ++component) {
+    const auto componentRoadStarts = roadStartCells.subspan(componentOffsets[component],
+                                                             componentOffsets[component + 1] - componentOffsets[component]);
+    for (int startLevel{cellsPerRoad}; startLevel >= mTrkParams[iteration].CellMinimumLevel(); --startLevel) {
 
     auto seedFilter = [&](const auto& seed) {
       return seed.getHitLayerMask().isAllowed(mTrkParams[iteration].MaxHoles, mTrkParams[iteration].HoleLayerMask) &&
@@ -1506,7 +1513,7 @@ void TrackerTraits::findRoadsForSchedule(const int iteration,
 
     bounded_vector<TrackSeed> trackSeeds(mMemoryPool.get());
     // The binding supplies the ownership-filtered road-start span.
-    for (const auto startId : roadStartCells) {
+    for (const auto startId : componentRoadStarts) {
       // Translate the road-start cell to its compact slot once.
       const int startCellTopologyId = requireScratchCellSlot(iteration, startId);
       // Cell population is per-event/per-vertex data, never cached in
@@ -1546,19 +1553,51 @@ void TrackerTraits::findRoadsForSchedule(const int iteration,
       continue;
     }
 
+    // The retained refit callback is detector-specific. Prove that each seed
+    // belongs to one source and one state family before any refit worker can
+    // publish a candidate. A future descriptor-driven refit may replace this
+    // gate; it must validate ownership per measurement rather than infer it.
+    std::vector<ClusterSourceId> refitSources;
+    refitSources.reserve(trackSeeds.size());
+    for (const auto& seed : trackSeeds) {
+      std::optional<ClusterSourceId> source;
+      std::optional<SurfaceKind> kind;
+      for (int position = 0; position < activeSurfaceCount; ++position) {
+        const int cluster = seed.getCluster(position);
+        if (cluster == o2::its::constants::UnusedIndex) {
+          continue;
+        }
+        if (cluster < 0 || cluster >= static_cast<int>(mLayerGlobalMeasurements[position].size())) {
+          throw TraversalException{iteration, TraversalFailureReason::SparseTopologyMismatch};
+        }
+        const auto& global = mLayerGlobalMeasurements[position][cluster];
+        const auto surface = mBinding->getOrderedSurfaces()[position];
+        if (global.surface != surface) {
+          throw TraversalException{iteration, TraversalFailureReason::TraversalBindingMismatch};
+        }
+        const auto nextKind = mTraversalGraph.getSurface(surface).kind;
+        if (!kind) {
+          kind = nextKind;
+        } else if (*kind != nextKind) {
+          throw TraversalException{iteration, TraversalFailureReason::StateFamilyMismatch};
+        }
+        if (!source) {
+          source = global.cluster.source;
+        } else if (*source != global.cluster.source) {
+          throw TraversalException{iteration, TraversalFailureReason::TraversalBindingMismatch};
+        }
+      }
+      if (!source || !kind) {
+        throw TraversalException{iteration, TraversalFailureReason::SparseTopologyMismatch};
+      }
+      refitSources.push_back(*source);
+    }
+
     bounded_vector<TrackingCandidate> tracks(mMemoryPool.get());
     mTaskArena->execute([&] {
       auto forSeed = [&](auto Mode, int iSeed, int offset = 0) {
         TrackingCandidate temporaryTrack;
         temporaryTrack.seed = trackSeeds[iSeed];
-        ClusterSourceId expectedSource{};
-        for (int position = 0; position < activeSurfaceCount; ++position) {
-          const int cluster = trackSeeds[iSeed].getCluster(position);
-          if (cluster != o2::its::constants::UnusedIndex) {
-            expectedSource = mLayerGlobalMeasurements[position][cluster].cluster.source;
-            break;
-          }
-        }
         const bool refitSuccess = refitFunction(trackSeeds[iSeed],
                                                 mTrkParams[iteration],
                                                 mBz,
@@ -1566,7 +1605,7 @@ void TrackerTraits::findRoadsForSchedule(const int iteration,
                                                 mLayerGlobalMeasurements,
                                                 mLayerMeasurements,
                                                 mTraversalGraph.getSurfaceCatalogView(),
-                                                expectedSource,
+                                                refitSources[iSeed],
                                                 temporaryTrack);
         if (refitSuccess) {
           if constexpr (decltype(Mode)::value == PassMode::OnePass::value) {
@@ -1618,7 +1657,8 @@ void TrackerTraits::findRoadsForSchedule(const int iteration,
       const auto nclb = b.getNumberOfClusters();
       return (ncla == nclb) ? (a.track.chi2 < b.track.chi2) : ncla > nclb;
     });
-    acceptTracks(iteration, tracks, firstClusters);
+      acceptTracks(iteration, tracks, firstClusters);
+    }
   }
 }
 
