@@ -100,6 +100,7 @@ Each surface describes geometry, material, measurement, timing, and indexing ind
 
 ```cpp
 enum class SurfaceKind : uint8_t {
+  Undefined,
   Cylinder,
   Disk
 };
@@ -118,6 +119,10 @@ struct SurfaceDescriptor {
   IndexingDescriptor indexing;
 };
 ```
+
+`SurfaceKind` is defined once in `IdTypes.h`. `Undefined` is permitted only
+for a default-constructed state or reference; validated surface graphs contain
+only `Cylinder` or `Disk` descriptors.
 
 Geometry constants should be populated by ITS and MFT layout builders. Tracking parameters may override cuts and uncertainties, but should not duplicate the detector geometry definition.
 
