@@ -57,7 +57,7 @@ frozen-replay gate. The exact evidence is recorded in
   `RefitLegAssembly` into `NativeRefitDriver`. Delete `SeedAnchor` only if the
   repository and downstream search is available and empty.
 - Merge catalog view into descriptor, static descriptor into surface spec,
-  and ITS/MFT static specs into `StaticDetectorCatalogs`.
+  and ITS/MFT static specs into `ITSMFTDetectorDefinitions`.
 
 There are no forwarding headers or compatibility aliases. Each focused
 commit is validated and integrated separately before campaign gate B.

@@ -279,10 +279,10 @@ Make `ClusterDecoding.h` the cohesive host API by absorbing
   `testMultiSourceLoading`, `testMultiSourceTimeFrameLoader`,
   `testTimeFrameCovarianceLifecycle`, `testTimeFrameLifecycle`,
   `testTimeFrameNormalizedSource`, and `testTrackerFailureContract`.
-  `DecodedCluster` is also directly consumed by `IOUtils.cxx`,
+  `DecodedCluster` is also directly consumed by `ClusterIO.cxx`,
   `testSurfaceMeasurement`, and `testSurfaceMeasurementAdapters`; the latter
   projection header has the same list except the cell-orchestration test and
-  adds no production consumer beyond `IOUtils.cxx`.
+  adds no production consumer beyond `ClusterIO.cxx`.
 - **Host/device:** the merged header is explicitly host-only. It may produce
   `SurfaceMeasurement`, but no decoder, geometry, dictionary, exception, or
   STL owner enters a device view.

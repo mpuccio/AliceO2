@@ -9,8 +9,8 @@
 // granted to it by virtue of its status as an Intergovernmental Organization
 // or submit itself to any jurisdiction.
 ///
-/// \file IOUtils.cxx
-/// \brief Shared cluster I/O utilities for ITS and MFT (based on ITStracking/IOUtils.cxx)
+/// \file ClusterIO.cxx
+/// \brief Implementation-private ITS/MFT cluster decoding utilities
 ///
 
 #include "ITSMFTTracking/IOUtils.h"
