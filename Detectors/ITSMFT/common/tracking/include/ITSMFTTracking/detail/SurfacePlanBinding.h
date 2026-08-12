@@ -46,11 +46,6 @@ enum class SurfacePlanBindingError : uint8_t {
 class SurfacePlanBinding
 {
  public:
-  struct Declaration {
-    SurfaceMask ownedSurfaces{};
-    std::vector<SurfaceId> orderedSurfaces;
-  };
-
   struct BuildResult {
     std::unique_ptr<SurfacePlanBinding> binding{};
     SurfacePlanBindingError error{SurfacePlanBindingError::None};
@@ -263,11 +258,6 @@ class SurfacePlanBinding
       }
     }
     return {std::move(result), SurfacePlanBindingError::None};
-  }
-
-  static BuildResult build(const SurfaceGraphView& globalLayout, const Declaration& declaration)
-  {
-    return build(globalLayout, declaration.ownedSurfaces, declaration.orderedSurfaces);
   }
 
   SurfaceMask getOwnedSurfaces() const noexcept { return mOwnedSurfaces; }

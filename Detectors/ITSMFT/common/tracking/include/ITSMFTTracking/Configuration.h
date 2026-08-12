@@ -32,22 +32,6 @@
 #include "ITSMFTTracking/TrackingConfigParam.h"
 #include "ITStracking/TrackingConfigParam.h"
 
-namespace o2::itsmft::tracking
-{
-
-constexpr int nLayersForDet(o2::detectors::DetID::ID detId)
-{
-  return detId == o2::detectors::DetID::MFT ? MFTNLayers : ITSNLayers;
-}
-
-template <int NLayers>
-constexpr o2::detectors::DetID::ID detIdFromNLayers()
-{
-  return NLayers == MFTNLayers ? o2::detectors::DetID::MFT : o2::detectors::DetID::ITS;
-}
-
-} // namespace o2::itsmft::tracking
-
 namespace o2::itsmft
 {
 

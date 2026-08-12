@@ -33,7 +33,6 @@
 #include "ITSMFTTracking/SurfaceMeasurement.h"
 #include "ITSMFTTracking/TimeFrame.h"
 #include "ITSMFTTracking/detail/SurfacePlanBinding.h"
-#include "ITSMFTTracking/detail/CandidateFinding.h"
 #include "ITSMFTTracking/detail/TrackingKernelParameters.h"
 #include "ITStracking/BoundedAllocator.h"
 
@@ -57,11 +56,7 @@ using SeedRefitFunction = bool (*)(const TrackSeed& seed,
 
 #endif
 
-// Full definition lives in CandidateFinding.h (included by
-// TrackerTraits.cxx, where the operation itself is called). Only used here
-// by const reference in a private method declaration, so a forward
-// declaration is sufficient and keeps this public header's dependency
-// surface narrow.
+struct LayerGeometryConfigView;
 struct DiskReferenceCoordinateView;
 
 enum class TraversalFailureReason : uint8_t {
@@ -169,7 +164,6 @@ class TrackerTraits
   int getTFNumberOfTracklets() const { return mScratch->getNumberOfTracklets(); }
   int getTFNumberOfCells() const { return mScratch->getNumberOfCells(); }
 
-  int getTraversalGroupingCount() const noexcept { return mTraversalGroupingCount; }
   bool hasTraversalCache() const noexcept { return mTraversalCacheValid; }
   // Authoritative per-surface-position nominal material resolved once by the
   // most recent successful initialiseTimeFrame() call, from
@@ -281,7 +275,6 @@ class TrackerTraits
   // Host-only non-owning view, sized to the adopted ordered surface span.
   std::vector<gsl::span<const SurfaceMeasurement>> mLayerMeasurements;
   std::vector<gsl::span<const GlobalMeasurement>> mLayerGlobalMeasurements;
-  int mTraversalGroupingCount{0};
   // Generic accepted candidates are retained only until shared-cluster
   // marking and the final adapter-owned publication seal complete.
   bounded_vector<TrackingCandidate> mAcceptedTracksForSharedStatus;

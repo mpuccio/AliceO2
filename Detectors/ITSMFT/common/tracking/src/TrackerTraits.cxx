@@ -50,16 +50,6 @@ namespace math_utils = o2::its::math_utils;
 using o2::its::deepVectorClear;
 using o2::its::TimeEstBC;
 
-namespace detail
-{
-// SurfacePlanBinding's compact owned-surface index is the one translation
-// used by the tracker while resolving a plan into layer-local storage.
-inline std::optional<uint16_t> ownedSurfacePosition(const SurfacePlanBinding& binding, SurfaceId id) noexcept
-{
-  return binding.getOwnedSurfaceIndex(id);
-}
-} // namespace detail
-
 struct PassMode {
   using OnePass = std::integral_constant<int, 0>;
   using TwoPassCount = std::integral_constant<int, 1>;
@@ -196,7 +186,6 @@ void TrackerTraits::resetTraversalCache() noexcept
   for (auto& group : mRoadStartCellsByKind) {
     group.clear();
   }
-  mTraversalGroupingCount = 0;
 }
 
 int TrackerTraits::requireScratchTransitionSlot(int iteration, TransitionId id) const
@@ -361,12 +350,9 @@ void TrackerTraits::initialiseTimeFrame(const int iteration, const std::vector<S
     clearAcceptedTracksForSharedStatus();
   }
 
-  // 2. Resolve the one participant binding and its active family. Schedule
-  // validation and all filtered ordering are performed by SurfacePlanBinding.
   if (mBinding == nullptr) {
     throw TraversalException{iteration, TraversalFailureReason::MissingLayout};
   }
-  ++mTraversalGroupingCount;
 
   // Resolve the active SurfaceKind from the sparse-plan endpoint before
   // any kind-specific binding runs. A combined layout may contain both
