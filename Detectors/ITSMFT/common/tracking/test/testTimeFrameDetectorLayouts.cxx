@@ -374,7 +374,7 @@ BOOST_AUTO_TEST_CASE(traversal_initialisation_rejects_iteration_beyond_configure
   BOOST_CHECK(!shortLayoutTraits.hasTraversalCache());
 }
 
-BOOST_AUTO_TEST_CASE(traversal_cache_groups_once_across_repeated_neighbour_and_road_calls)
+BOOST_AUTO_TEST_CASE(repeated_neighbour_and_road_stages_preserve_traversal_cache)
 {
   auto params = mftTraversalParameters();
   auto pool = std::make_shared<BoundedMemoryResource>();
