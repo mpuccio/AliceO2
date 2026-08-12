@@ -70,7 +70,7 @@ BOOST_AUTO_TEST_CASE(AbiIsLocked)
   BOOST_CHECK_EQUAL(offsetof(SurfaceKinematicState, covariance), 20U);
   BOOST_CHECK_EQUAL(offsetof(SurfaceKinematicState, referenceCoordinate), 80U);
   BOOST_CHECK_EQUAL(offsetof(SurfaceKinematicState, alpha), 84U);
-  BOOST_CHECK_EQUAL(offsetof(SurfaceKinematicState, family), 88U);
+  BOOST_CHECK_EQUAL(offsetof(SurfaceKinematicState, kind), 88U);
   BOOST_CHECK_EQUAL(offsetof(SurfaceKinematicState, flags), 89U);
   BOOST_CHECK_EQUAL(offsetof(SurfaceKinematicState, absCharge), 90U);
   BOOST_CHECK_EQUAL(offsetof(SurfaceKinematicState, pid), 91U);
