@@ -24,7 +24,7 @@
 #include "GPUCommonDef.h"
 #include "ITSMFTTracking/SurfaceDescriptor.h"
 #include "ITSMFTTracking/SurfaceDescriptor.h"
-#include "ITSMFTTracking/SurfaceId.h"
+#include "ITSMFTTracking/IdTypes.h"
 #include "ITSMFTTracking/SurfaceMask.h"
 
 namespace o2::itsmft::tracking

@@ -583,7 +583,7 @@ both at once.
      at once, and neither could the (then-forward-declared) `IndexTableUtils<NLayers>` used
      by `detail/TransitionPolicyOperations.h`. Fixed by de-templating `IndexTableUtils<nLayers>`
      into a template *alias* for one shared, non-templated `IndexTableUtilsCore` class using
-     `MaxLayoutSurfaces`-bounded (`SurfaceId.h`) fixed-capacity storage — the same established,
+     `MaxLayoutSurfaces`-bounded (`IdTypes.h`) fixed-capacity storage — the same established,
      reused GPU-portable-storage precedent `TrackSeed` (M6c, §4.2) already set, not a new one.
      `LegacyTrackerScratch<NLayers>::IndexTableUtilsN`'s own source line is unchanged and still
      compiles identically (now resolving to the same shared `IndexTableUtilsCore`, invisibly).

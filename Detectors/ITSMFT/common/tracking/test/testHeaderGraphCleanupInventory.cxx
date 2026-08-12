@@ -124,6 +124,7 @@ BOOST_AUTO_TEST_CASE(RetiredAndRelocatedPublicPathsAreAbsent)
   const auto include = trackingRoot() / "include/ITSMFTTracking";
   const std::vector<std::string_view> retiredPublic{
     "SurfaceMeasurementIndex.h",
+    "SurfaceId.h",
     "LayerMask.h",
     "SurfaceLinearizationReference.h",
     "RefitLegAssembly.h",
@@ -232,7 +233,7 @@ BOOST_AUTO_TEST_CASE(GenericPlanTypesHaveNoDetectorOrLayerCountAuthority)
     "include/ITSMFTTracking/SurfaceDescriptor.h",
     "include/ITSMFTTracking/SurfaceGraph.h",
     "include/ITSMFTTracking/SurfaceGraphBuilder.h",
-    "include/ITSMFTTracking/SurfaceId.h",
+    "include/ITSMFTTracking/IdTypes.h",
     "include/ITSMFTTracking/SurfaceKinematicState.h",
     "include/ITSMFTTracking/SurfaceMeasurement.h",
     "include/ITSMFTTracking/SurfaceSpec.h",

@@ -19,7 +19,7 @@
 #include "ITSMFTTracking/SurfaceDescriptor.h"
 #include "ITSMFTTracking/Configuration.h"
 #include "ITSMFTTracking/SurfaceGraph.h"
-#include "ITSMFTTracking/SurfaceId.h"
+#include "ITSMFTTracking/IdTypes.h"
 #include "ITSMFTTracking/SurfaceMask.h"
 
 namespace o2::itsmft::tracking

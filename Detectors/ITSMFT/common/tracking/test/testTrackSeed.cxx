@@ -45,7 +45,7 @@ BOOST_AUTO_TEST_CASE(CapacityIsExactlyMaxLayoutSurfaces)
 {
   // The one existing generic compile-time capacity constant this library
   // already uses to bound every owned-surface position (SurfaceMask,
-  // SurfaceGraphBuilder, SurfaceGraph -- SurfaceId.h). TrackSeed
+  // SurfaceGraphBuilder, SurfaceGraph -- IdTypes.h). TrackSeed
   // reuses it rather than inventing a new one.
   static_assert(TrackSeed::MaxSurfaces == static_cast<int>(MaxLayoutSurfaces));
   static_assert(TrackSeed::MaxSurfaces == 32);

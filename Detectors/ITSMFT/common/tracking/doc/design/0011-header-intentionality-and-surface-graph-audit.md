@@ -116,14 +116,14 @@ Classification keys used below are exactly the requested categories:
 | `SurfaceDescriptor.h` | 1 | Runtime surface identity, kind, reference coordinate, material, and catalog view. |
 | `SurfaceGraph.h` | 1 | Owning immutable graph plus device POD view; representation may simplify but remains a concept. |
 | `SurfaceGraphBuilder.h` | 1 | Host declaration-to-graph validation/build boundary; must not enter device headers. |
-| `SurfaceId.h` | 1 | Strong device-portable identifiers; absorbs `SurfaceMeasurementIndex`. A later rename to `TrackingIdentifiers.h` is optional API churn, not required. |
+| `IdTypes.h` | 1 | Strong device-portable identifiers; absorbs `SurfaceMeasurementIndex`. |
 | `SurfaceKinematicState.h` | 1 | Device-portable fitted state and typed views; absorbs its covariance-free companion. |
 | `SurfaceKinematicStateLegacyAdapters.h` | 2 | Host-only legacy import/export used at adapter/test boundaries. |
 | `SurfaceLinearizationReference.h` | 3 | Merge into `SurfaceKinematicState.h`; it is explicitly meaningful only beside that state. |
 | `SurfaceMask.h` | 1 | Device-portable generic mask and positional conversion; absorbs `LayerMask`. |
 | `SurfaceMeasurement.h` | 1 | Device-portable normalized measurement and its identity/geometry components. |
 | `SurfaceMeasurementAdapters.h` | 3 | Merge into `ClusterDecoding.h`; the two projections consume only `DecodedCluster`. |
-| `SurfaceMeasurementIndex.h` | 3 | Merge into `SurfaceId.h`; duplicate strong-identifier mechanics with a 32-bit value. |
+| `SurfaceMeasurementIndex.h` | 3 | Merge into `IdTypes.h`; duplicate strong-identifier mechanics with a 32-bit value. |
 | `SurfaceSpec.h` | 1 | Compile-time spec concept/validation/concatenation; absorbs static descriptor types. |
 | `SurfaceStateOperationResult.h` | 1 | Shared failure vocabulary avoids coupling barrel, disk, material, and propagator headers. |
 | `SurfaceTiming.h` | 1 | Device-safe intervals/timestamps plus guarded host builders; absorbs uniformity validation. |
@@ -167,7 +167,7 @@ otherwise. Tests are exact direct header consumers at the audited revision.
 
 ### 4.2 Identifier and mask consolidation
 
-`SurfaceMeasurementIndex.h` belongs in `SurfaceId.h`; `LayerMask.h` belongs in
+`SurfaceMeasurementIndex.h` belongs in `IdTypes.h`; `LayerMask.h` belongs in
 `SurfaceMask.h`.
 
 - **Responsibility:** strongly typed device identifiers; fixed-width generic
@@ -527,7 +527,7 @@ Condense, Move to Markdown, and Delete. Replacement text follows `=>`.
 | `SurfaceDescriptor.h` | K/C 25-29 nominal material ownership/zero validity and 42-44 device-shared geometry scope. |
 | `SurfaceGraph.h` | K/C 55-57 borrowed immutable device view and 144-146 immutable owner. Remove “only” claims if a pair view is prototyped. |
 | `SurfaceGraphBuilder.h` | No substantial comments; declarations need one future sentence separating active selection, holes, seeding, and adjacency. |
-| `SurfaceId.h` | K 53-54 dense source-ID/invalid-value rule. |
+| `IdTypes.h` | K 53-54 dense source-ID/invalid-value rule. |
 | `SurfaceKinematicState.h` | K 23-25 parameter conventions, 36-37 shallow family check, 161-162/194-195 null-view rule, 205-209 signed q/pT invariant. M 59-120 validation history/empirical narrative; retain mathematical invariant and explicit non-PSD limitation in 10 lines, move reproducer/history to Markdown. |
 | `SurfaceKinematicStateLegacyAdapters.h` | K/C 24-27 host-only edge restriction and 113-116 float-to-legacy output rule; remove migration-stage wording. |
 | `SurfaceLinearizationReference.h` | C/M 21-54 alternatives/history; retain paired-state lifetime, omitted particle hypothesis, parameter conventions, and POD status in 8 lines. K/C 75-84 factory failure/transaction contract. |

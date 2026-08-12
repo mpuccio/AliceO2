@@ -17,7 +17,7 @@
 #ifndef GPUCA_GPUCODE
 #include "ITSMFTTracking/Cell.h"
 #endif
-#include "ITSMFTTracking/SurfaceId.h"
+#include "ITSMFTTracking/IdTypes.h"
 #include "ITSMFTTracking/SurfaceKinematicState.h"
 #include "ITSMFTTracking/SurfaceMask.h"
 #include "ITSMFTTracking/SurfaceTiming.h"

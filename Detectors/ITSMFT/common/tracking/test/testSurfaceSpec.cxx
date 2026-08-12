@@ -14,7 +14,7 @@
 #include <limits>
 #include <type_traits>
 
-#include "ITSMFTTracking/SurfaceId.h"
+#include "ITSMFTTracking/IdTypes.h"
 #include "ITSMFTTracking/SurfaceSpec.h"
 
 using namespace o2::itsmft::tracking;

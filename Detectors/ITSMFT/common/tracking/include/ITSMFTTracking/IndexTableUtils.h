@@ -26,7 +26,7 @@
 #include "GPUCommonMath.h"
 #include "GPUCommonDef.h"
 #include "ITSMFTTracking/Configuration.h"
-#include "ITSMFTTracking/SurfaceId.h"
+#include "ITSMFTTracking/IdTypes.h"
 #include "ITStracking/Cluster.h"
 #include "MFTTracking/Constants.h"
 

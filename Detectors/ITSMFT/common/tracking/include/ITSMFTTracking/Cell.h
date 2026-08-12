@@ -21,7 +21,7 @@
 
 #include "DataFormatsITS/TimeEstBC.h"
 #include "ITSMFTTracking/Configuration.h"
-#include "ITSMFTTracking/SurfaceId.h"
+#include "ITSMFTTracking/IdTypes.h"
 #include "ITSMFTTracking/SurfaceKinematicState.h"
 #include "ITSMFTTracking/SurfaceMask.h"
 #include "ITSMFTTracking/TripletFitting.h"

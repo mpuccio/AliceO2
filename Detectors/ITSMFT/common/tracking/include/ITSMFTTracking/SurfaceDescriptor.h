@@ -13,7 +13,7 @@
 #include <type_traits>
 
 #include "GPUCommonDef.h"
-#include "ITSMFTTracking/SurfaceId.h"
+#include "ITSMFTTracking/IdTypes.h"
 
 namespace o2::itsmft::tracking
 {

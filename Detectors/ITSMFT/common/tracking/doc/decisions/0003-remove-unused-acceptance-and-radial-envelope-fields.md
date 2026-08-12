@@ -102,7 +102,7 @@ workflows, CCDB, or alignment behavior; the detached Gate 4 B1 validator
   exit 0 and are byte-identical to the pre-decision recorded output --
   proving this decision has zero effect on that separate tool.
 - GPU/device-header: `SurfaceDescriptor.h`/`StaticSurfaceDescriptor.h`/
-  `SurfaceId.h` are not included by any actual GPU-compiled target in this
+  `IdTypes.h` are not included by any actual GPU-compiled target in this
   repository; no CUDA/HIP/OpenCL toolchain is available in this
   environment to exercise `GPUCommonDefAPI.h`'s device branches directly.
   The full host build already exercises the one branch reachable without a
