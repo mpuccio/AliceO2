@@ -32,7 +32,7 @@ architecture docs alone:
 - `include/ITSMFTTracking/ITSMFTLegacyParticipantSet.h` / `src/ITSMFTLegacyParticipantSet.cxx`;
 - `include/ITSMFTTracking/{TrackingParticipant,TrackingEngine,TimeFrame}.h` (the permanent
   generic boundary these four migrate toward);
-- `include/ITSMFTTracking/MultiSourceTimeFrameLoader.h` / `.cxx` (already
+- `include/ITSMFTTracking/IOUtils.h` / `.cxx` (already
   participant-count-generic atomic loading, M2b — unaffected by this note);
 - `include/ITSMFTTracking/{ITSSharedClusterCompatibility,MFTPublicationCompatibility}.h`
   (the two detector-output sidecars);

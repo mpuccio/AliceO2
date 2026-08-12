@@ -78,7 +78,7 @@ Classification keys used below are exactly the requested categories:
 | `ClockTimingPublicationView.h` | 3 | Merge into `CommonTrackOutputAdapter.h`; it exists only to translate output timestamps. |
 | `ClusterDecoder.h` | 3 | Merge into `ClusterDecoding.h`; decoder interface and geometry adapter are one host decoding boundary. |
 | `ClusterDecoding.h` | 1 | Destination for the complete host decoding boundary; keep separate from device measurement values. |
-| `ClusterSource.h` | 3 | Merge into `MultiSourceTimeFrameLoader.h`; the input declaration has no lifecycle outside a loader call. |
+| `ClusterSource.h` | 3 | Merge into `IOUtils.h`; the input declaration has no lifecycle outside a loader call. |
 | `CommonTrack.h` | 1 | Device-portable generic result and membership reference. |
 | `CommonTrackOutputAdapter.h` | 1 | Host application output staging; remains outside the generic tracking core. |
 | `CommonTrackShadow.h` | 2 | TrackerTraits-only transactional result-commit implementation. |
@@ -90,27 +90,27 @@ Classification keys used below are exactly the requested categories:
 | `ForwardSurfaceStateOperations.h` | 1 | Disk state-operation leaf; keep structurally parallel to the cylinder leaf. |
 | `IOUtils.h` | 5 | Mixed legacy conversion and live bounded decoding. Decide only after downstream API evidence; do not grow it. |
 | `ITSSharedClusterCompatibility.h` | 2 | Workflow-owned ITS publication sidecar and transaction. |
-| `ITSSurfaceSpec.h` | 3 | Merge into `StaticDetectorCatalogs.h`; it is catalog data, not an independent facility. |
+| `ITSSurfaceSpec.h` | 3 | Merge into `ITSMFTDetectorDefinitions.h`; it is catalog data, not an independent facility. |
 | `IndexTableConfiguration.h` | 1 | Host binding/validation kept apart from the device-portable LUT type; remove its temporary policy-tag template in the retirement campaign. |
 | `IndexTableUtils.h` | 1 | Device-portable LUT geometry and search operations. |
 | `LayerMask.h` | 3 | Merge into `SurfaceMask.h`; the 16-bit positional compatibility mask and 32-bit surface mask form one mask contract. |
 | `MCLabelAccumulator.h` | 1 | Coherent host-side MC-label reduction algorithm; not merely an alias or flag. |
 | `MFTFwdTrackHelpers.h` | 2 | MFT compatibility projection/refit helpers used by implementation code only. |
 | `MFTPublicationCompatibility.h` | 2 | Workflow-owned MFT publication sidecar and transaction. |
-| `MFTSurfaceSpec.h` | 3 | Merge into `StaticDetectorCatalogs.h`; same reason as the ITS spec. |
+| `MFTSurfaceSpec.h` | 3 | Merge into `ITSMFTDetectorDefinitions.h`; same reason as the ITS spec. |
 | `MaterialPhysics.h` | 1 | Scalar material kernel and diagnostics; separate physics contract. |
 | `MultiSourceFrame.h` | 1 | Owning normalized event frame plus device-facing read-only view. |
-| `MultiSourceLoading.h` | 3 | Merge into `MultiSourceTimeFrameLoader.h`; errors/results/free staging belong to loader lifecycle. |
-| `MultiSourceTimeFrameLoader.h` | 1 | Architectural non-owning atomic Loader; destination for its declarations and failures. |
+| `MultiSourceLoading.h` | 3 | Merge into `IOUtils.h`; errors/results/free staging belong to loader lifecycle. |
+| `IOUtils.h` | 1 | Architectural non-owning atomic Loader; destination for its declarations and failures. |
 | `NativeRefitDriver.h` | 1 | Family-neutral whole-seed refit sequencing over `Propagator`. |
-| `NominalSurfaceMaterialDefaults.h` | 1 | Shared detector-default data used by configuration and static catalogs; merging would widen a high-fan-in include. |
+| `ITSMFTDetectorDefinitions.h` | 1 | Shared detector-default data used by configuration and static catalogs; merging would widen a high-fan-in include. |
 | `Propagator.h` | 1 | Descriptor-driven propagation and refit-leg operation boundary. |
 | `ROFTimingUniformity.h` | 3 | Merge into `SurfaceTiming.h`; one validation/result used only to construct timing configuration. |
 | `ROFViews.h` | 1 | Device-portable, non-owning runtime timing/mask views. |
 | `RefitLegAssembly.h` | 3 | Merge into `NativeRefitDriver.h`; its only production consumer is that driver. |
 | `SeedAnchor.h` | 4 | Delete with the unused anchor-taking overloads after downstream evidence; `Inner` is test/historical only. |
 | `SurfaceKind.h` | 1 | Small but real device-shared representation tag; isolation prevents pulling the 259-line state into kernel-operation headers. It is not a replacement topology/dispatch policy. |
-| `StaticDetectorCatalogs.h` | 1 | Compile-time ITS/MFT catalog data and runtime projection; absorbs both detector spec files. |
+| `ITSMFTDetectorDefinitions.h` | 1 | Compile-time ITS/MFT catalog data and runtime projection; absorbs both detector spec files. |
 | `StaticSurfaceDescriptor.h` | 3 | Merge into `SurfaceSpec.h`; the type exists solely to define/validate compile-time specs. |
 | `SurfaceCatalogView.h` | 3 | Merge into `SurfaceDescriptor.h`; descriptor plus narrow borrowed catalog view is one device concept. |
 | `SurfaceDescriptor.h` | 1 | Runtime surface identity, kind, reference coordinate, material, and catalog view. |
@@ -129,7 +129,7 @@ Classification keys used below are exactly the requested categories:
 | `SurfaceTiming.h` | 1 | Device-safe intervals/timestamps plus guarded host builders; absorbs uniformity validation. |
 | `SurfaceTrackingScratch.h` | 2 | Private TimeFrame-owned workspace implementation, not independently configured public state. |
 | `TimeFrame.h` | 1 | Passive reusable entity and sole generic state owner. |
-| `TimeFrameLoadFailure.h` | 3 | Merge into `MultiSourceTimeFrameLoader.h`; workflow classification is part of loader failure contract. |
+| `TimeFrameLoadFailure.h` | 3 | Merge into `IOUtils.h`; workflow classification is part of loader failure contract. |
 | `Tracker.h` | 1 | Non-owning initialization/execution orchestrator. |
 | `TrackerTraits.h` | 1 | CPU/GPU kernel seam; must remain distinct from `Tracker`. |
 | `TrackingConfigParam.h` | 1 | ROOT-visible workflow configuration registration/data. |
@@ -211,7 +211,7 @@ Merge `SurfaceLinearizationReference.h` into `SurfaceKinematicState.h`.
 
 Merge `SurfaceCatalogView.h` into `SurfaceDescriptor.h`,
 `StaticSurfaceDescriptor.h` into `SurfaceSpec.h`, and both
-`ITSSurfaceSpec.h`/`MFTSurfaceSpec.h` into `StaticDetectorCatalogs.h`.
+`ITSSurfaceSpec.h`/`MFTSurfaceSpec.h` into `ITSMFTDetectorDefinitions.h`.
 
 - **Responsibility:** runtime descriptor plus borrowed catalog view;
   compile-time descriptor plus validation; concrete application catalog data.
@@ -225,8 +225,8 @@ Merge `SurfaceCatalogView.h` into `SurfaceDescriptor.h`,
   `TrackingOperationAdapter.h`, `detail/TransitionPolicyOperations.h`,
   `testCombinedStaticSurfaceCatalogTopology.cxx`, and
   `testMFTNormalizedRefit.cxx`. Static descriptor direct consumers are the
-  two spec headers, `StaticDetectorCatalogs.h`, and `SurfaceSpec.h`. Each
-  detector spec is included only by `StaticDetectorCatalogs.h` and
+  two spec headers, `ITSMFTDetectorDefinitions.h`, and `SurfaceSpec.h`. Each
+  detector spec is included only by `ITSMFTDetectorDefinitions.h` and
   `testITSMFTSurfaceSpecProjection.cxx`.
 - **Host/device:** runtime descriptor/view and static descriptor remain POD;
   concrete catalog arrays remain host compile-time application data. Do not
@@ -296,7 +296,7 @@ Make `ClusterDecoding.h` the cohesive host API by absorbing
 ### 4.7 Atomic loader boundary
 
 Merge `ClusterSource.h`, `MultiSourceLoading.h`, and
-`TimeFrameLoadFailure.h` into `MultiSourceTimeFrameLoader.h`.
+`TimeFrameLoadFailure.h` into `IOUtils.h`.
 
 - **Responsibility:** one call-scoped source declaration, staging result/error,
   atomic load component, and workflow failure classification.
@@ -463,7 +463,7 @@ Concrete hotspots and corrections:
 - `ClusterDecoder.h` pulls `IOUtils.h` and therefore configuration, geometry,
   patterns, measurements, and vectors into every decoder mock. Section 4.6
   removes this inverted chain.
-- `MultiSourceTimeFrameLoader.h` pulls the full scratch implementation to get
+- `IOUtils.h` pulls the full scratch implementation to get
   types it does not own. Section 4.7 removes that chain.
 - `Tracker.h` includes `TrackerTraits.h`, scratch, graph builder, binding, and
   TimeFrame. Forward declarations can narrow this only after inline/API uses
@@ -512,16 +512,16 @@ Condense, Move to Markdown, and Delete. Replacement text follows `=>`.
 | `MaterialPhysics.h` | K 17-19 host-only boundary, 24-43 semantic value contracts, 65-73 fail-closed diagnostics. C 88-91 ABI caveat. C/M 113-172 formula narrative: retain units, flags, failure/transaction semantics; move derivation/history to Markdown. |
 | `MultiSourceFrame.h` | K/C 32-55 device view/ownership, 63-94 bounds/null rules, 141-180 cached-pointer move/swap lifetime, 196-207 lookup/labels, 221-241 staged construction/cache rebuild. M 118-135 architecture history; retain owner/lifetime rule only. |
 | `MultiSourceLoading.h` | K/C 34-43 decoder/kind failure distinctions, 74-79 timing detail, 85-94 atomic failure contract. M/D 46-54 Gate/pre-slice history; describe current not-configured and reserved-value semantics only. |
-| `MultiSourceTimeFrameLoader.h` | K 4-6 component ownership and 24-25 atomicity; combine into one class comment. |
+| `IOUtils.h` | K 4-6 component ownership and 24-25 atomicity; combine into one class comment. |
 | `NativeRefitDriver.h` | M 27-34 M5d history. K/C 38-53 covariance physics rationale, 77-80 q/pT formula, 93-106 leg ordering/transaction. D 153-154 section banner after names make order clear. |
-| `NominalSurfaceMaterialDefaults.h` | K/C 15-37 source/units/default provenance; remove milestone wording. |
+| `ITSMFTDetectorDefinitions.h` | K/C 15-37 source/units/default provenance; remove milestone wording. |
 | `Propagator.h` | M 26-46 milestone/ADR narrative. K/C 53-134 conversion, propagation, hole, direction, and transactional contracts; remove decorative section rulers. |
 | `ROFTimingUniformity.h` | D 15-17 “detail/not API” once merged. K/C 33-42 exact uniformity fields and empty-input result. |
 | `ROFViews.h` | K 34-36 borrowed backing lifetime and 366-368 assembled event-view ownership; ordinary print/accessor code needs no narration. |
 | `RefitLegAssembly.h` | M 24-36 history. K/C 37-63 traversal order, hole encoding, mapping precondition => 6-line contract beside merged function. D “unwired”. |
 | `SeedAnchor.h` | M all file-level M4/M5 history and 42-56 frozen convention; archive with deletion evidence. |
 | `SurfaceKind.h` | M 17-26 migration history. K/C 27-32 and 42-45 => “Representation tag only; never topology or dispatch policy. Derive from `SurfaceKind`.” |
-| `StaticDetectorCatalogs.h` | K/C 63-68 combined global-ID concatenation invariant. |
+| `ITSMFTDetectorDefinitions.h` | K/C 63-68 combined global-ID concatenation invariant. |
 | `StaticSurfaceDescriptor.h` | C 21-22 open detector identity. D 34-35 and 74-75 cross-file narration. K 52-55 validated-spec projection precondition. |
 | `SurfaceCatalogView.h` | C 21-36 => “Borrowed descriptor catalog with optional global-ID-to-compact-index map; no topology or ownership.” K 40-41 sparse lookup semantics. |
 | `SurfaceDescriptor.h` | K/C 25-29 nominal material ownership/zero validity and 42-44 device-shared geometry scope. |

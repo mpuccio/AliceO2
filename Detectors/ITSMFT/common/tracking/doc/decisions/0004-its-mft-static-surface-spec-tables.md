@@ -38,7 +38,7 @@ consumes them.
   `O2-validation-artifacts/itsmft/gate4-b1-slice1-nominal-geometry-validation/pp-20ev-run303000-seed20260716-daily20260717/acceptance-cleanup-c1-lossless-json/{its,mft}-report.json`.
   Not the earlier fixed-six-decimal output.
 - `material`: `kNominalITSLayerX0`/`kNominalMFTLayerX0`
-  (`NominalSurfaceMaterialDefaults.h`), referenced by index, not
+  (`ITSMFTDetectorDefinitions.h`), referenced by index, not
   re-literaled; `arealDensityGPerCm2` derived via the existing
   `xOverX0 * o2::its::constants::Radl * o2::its::constants::Rho` formula
   (`ITStracking/Constants.h`), the same one
