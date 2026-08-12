@@ -279,8 +279,8 @@ void verifyFixtureLoaded(const TimeFrame& frame, SurfaceTrackingScratch& tf, con
   }
 
   BOOST_CHECK_EQUAL(tf.getNrof(0), static_cast<int>(f.rofs.size()));
-  BOOST_REQUIRE_EQUAL(frame.getSourceROFInfo().size(), 1u);
-  BOOST_CHECK_EQUAL(frame.getSourceROFInfo()[0].nROFs, f.rofs.size());
+  BOOST_REQUIRE_EQUAL(frame.getMeasurementView().nSources, 1u);
+  BOOST_CHECK_EQUAL(frame.getSourceIntervals(kSourceId).size(), f.rofs.size());
   const auto intervals = frame.getSourceIntervals(kSourceId);
   BOOST_REQUIRE_EQUAL(intervals.size(), f.rofs.size());
   for (uint32_t r = 0; r < f.rofs.size(); ++r) {
@@ -401,7 +401,7 @@ BOOST_AUTO_TEST_CASE(WipeClearsNormalizedFrameButPreservesDetId)
 
   // --- inspect only freshly obtained normalized accessors/views ---
   BOOST_CHECK_EQUAL(frame.getTotalMeasurements(), 0u);
-  BOOST_CHECK(frame.getSourceROFInfo().empty());
+  BOOST_CHECK_EQUAL(frame.getMeasurementView().nSources, 0u);
   BOOST_CHECK_EQUAL(frame.getNMeasurementSurfaces(), 0u);
   for (uint16_t s = 0; s < ITSNLayers; ++s) {
     BOOST_CHECK(frame.getSurfaceMeasurements(SurfaceId{s}).empty());

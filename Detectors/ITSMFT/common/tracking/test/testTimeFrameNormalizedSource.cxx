@@ -324,7 +324,7 @@ BOOST_AUTO_TEST_CASE(combined_owner_load_keeps_detector_backfills_separate)
                                           std::move(capacities), std::make_shared<BoundedMemoryResource>()));
   const std::array<ClusterSourceInput, 2> sources{itsSource, mftSource};
   BOOST_REQUIRE(MultiSourceTimeFrameLoader::load(frame, gsl::span<const ClusterSourceInput>{sources}, view, {50, 5}).ok());
-  BOOST_CHECK_EQUAL(frame.getSourceROFInfo().size(), 2u);
+  BOOST_CHECK_EQUAL(frame.getMeasurementView().nSources, 2u);
   BOOST_CHECK_EQUAL(frame.getSurfaceMeasurements(SurfaceId{0}).size(), 2u);
   BOOST_CHECK_EQUAL(frame.getSurfaceMeasurements(SurfaceId{static_cast<uint16_t>(ITSNLayers)}).size(), 2u);
   BOOST_CHECK_EQUAL(frame.getWorkspace().getTotalClusters(), static_cast<int>(its.clusters.size() + mft.clusters.size()));
@@ -337,7 +337,7 @@ BOOST_AUTO_TEST_CASE(combined_owner_load_keeps_detector_backfills_separate)
   frame.resetEvent();
   BOOST_CHECK(frame.getWorkspace().empty());
   BOOST_CHECK(!frame.getWorkspace().getSurfaceSource(0));
-  BOOST_CHECK_EQUAL(frame.getSourceROFInfo().size(), 0u);
+  BOOST_CHECK_EQUAL(frame.getMeasurementView().nSources, 0u);
 
   // A malformed replacement is rejected before the no-throw three-owner
   // commit; the still-live MFT scratch and shared normalized owner survive.
@@ -346,10 +346,10 @@ BOOST_AUTO_TEST_CASE(combined_owner_load_keeps_detector_backfills_separate)
   const std::array<ClusterSourceInput, 2> retrySources{itsSource, malformedMFT};
   BOOST_CHECK(!MultiSourceTimeFrameLoader::load(frame, gsl::span<const ClusterSourceInput>{retrySources}, view, {50, 5}).ok());
   BOOST_CHECK(frame.getWorkspace().empty());
-  BOOST_CHECK_EQUAL(frame.getSourceROFInfo().size(), 0u);
+  BOOST_CHECK_EQUAL(frame.getMeasurementView().nSources, 0u);
   frame.resetEvent();
   BOOST_CHECK(frame.getWorkspace().empty());
-  BOOST_CHECK(frame.getSourceROFInfo().empty());
+  BOOST_CHECK_EQUAL(frame.getMeasurementView().nSources, 0u);
 }
 
 template <int NLayers>
@@ -406,8 +406,8 @@ void checkParity(std::vector<SurfaceDescriptor> catalog, const Fixture& f)
 
   // --- per-ROF counts: legacy cumulative table vs. per-source ROF count ---
   BOOST_CHECK_EQUAL(tf.getNrof(0), static_cast<int>(f.rofs.size()));
-  BOOST_REQUIRE_EQUAL(frame.getSourceROFInfo().size(), 1u);
-  BOOST_CHECK_EQUAL(frame.getSourceROFInfo()[0].nROFs, f.rofs.size());
+  BOOST_REQUIRE_EQUAL(frame.getMeasurementView().nSources, 1u);
+  BOOST_CHECK_EQUAL(frame.getSourceIntervals(kSourceId).size(), f.rofs.size());
   const auto intervals = frame.getSourceIntervals(kSourceId);
   BOOST_REQUIRE_EQUAL(intervals.size(), f.rofs.size());
   for (uint32_t r = 0; r < f.rofs.size(); ++r) {
@@ -569,8 +569,8 @@ BOOST_AUTO_TEST_CASE(EmptyInputsAreLegalForBothDetectors)
                                                 gsl::span<const SurfaceId>{orderedSurfaces}, plan.getSurfaceCatalog());
     BOOST_CHECK(result.ok());
     BOOST_CHECK_EQUAL(frame.getTotalMeasurements(), 0u);
-    BOOST_REQUIRE_EQUAL(frame.getSourceROFInfo().size(), 1u);
-    BOOST_CHECK_EQUAL(frame.getSourceROFInfo()[0].nROFs, 0u);
+    BOOST_REQUIRE_EQUAL(frame.getMeasurementView().nSources, 1u);
+    BOOST_CHECK_EQUAL(frame.getSourceIntervals(ClusterSourceId{0}).size(), 0u);
     BOOST_CHECK_EQUAL(tf.getNrof(0), 0);
   }
   {
@@ -932,8 +932,8 @@ BOOST_AUTO_TEST_CASE(FailedNormalizedLoadLeavesBothRepresentationsUnchanged)
   // Both the normalized owner and the legacy compatibility structures retain
   // exactly their pre-failure (baseline) content.
   BOOST_CHECK_EQUAL(frame.getTotalMeasurements(), 1u);
-  BOOST_REQUIRE_EQUAL(frame.getSourceROFInfo().size(), 1u);
-  BOOST_CHECK_EQUAL(frame.getSourceROFInfo()[0].nROFs, 1u);
+  BOOST_REQUIRE_EQUAL(frame.getMeasurementView().nSources, 1u);
+  BOOST_CHECK_EQUAL(frame.getSourceIntervals(ClusterSourceId{0}).size(), 1u);
   BOOST_CHECK_EQUAL(tf.getUnsortedClustersOnLayer(0, 0).size(), 1u);
   BOOST_CHECK_EQUAL(tf.getNrof(0), 1);
   BOOST_CHECK_EQUAL(tf.getClusterExternalIndex(0, 0), 0);

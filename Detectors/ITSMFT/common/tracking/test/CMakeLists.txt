@@ -250,6 +250,12 @@ o2_add_test(multisourceloading
             LABELS "itsmft;tracking"
             PUBLIC_LINK_LIBRARIES O2::ITSMFTTracking)
 
+o2_add_test(measurement-ownership-guard
+            SOURCES testMeasurementOwnershipGuard.cxx
+            COMPONENT_NAME itsmft-tracking
+            LABELS "itsmft;tracking"
+            PUBLIC_LINK_LIBRARIES O2::ITSMFTTracking)
+
 # M2b: MultiSourceTimeFrameLoader's participant-count-generic atomic loading
 # transaction (load()) and its scratch/event reset contract.
 o2_add_test(multisource-timeframe-loader

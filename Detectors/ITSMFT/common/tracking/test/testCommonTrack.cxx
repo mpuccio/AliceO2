@@ -311,7 +311,7 @@ const TopologyDictionary& dict()
 // {0,1,3} (surface 2 is left empty, a deliberate hole in the catalog's own
 // numbering -- not exercised by any track in these tests, only present to
 // prove per-surface storage does not require every surface to be non-empty).
-TimeFrame makeThreeMeasurementFrame(const BuiltLayout& layout)
+void loadThreeMeasurementFrame(TimeFrame& frame, const BuiltLayout& layout)
 {
   const std::vector<CompClusterExt> itsClusters{
     {10, 20, CompCluster::InvalidPatternID, 0},
@@ -349,9 +349,7 @@ TimeFrame makeThreeMeasurementFrame(const BuiltLayout& layout)
   sources[1].timing = ROFTimingConfig{50, 0, 0, 0};
   sources[1].decoder = &mftDecoder;
 
-  TimeFrame frame;
   BOOST_REQUIRE(loadSources(frame, layout.getView().getSurfaceCatalogView(), gsl::span<const ClusterSourceInput>(sources), {0, 0}).ok());
-  return frame;
 }
 
 } // namespace
@@ -359,7 +357,8 @@ TimeFrame makeThreeMeasurementFrame(const BuiltLayout& layout)
 BOOST_AUTO_TEST_CASE(PerSurfaceMeasurementStorageAndSurfaceLocalIndexBounds)
 {
   const auto layout = makeCombinedLayout();
-  auto frame = makeThreeMeasurementFrame(layout);
+  TimeFrame frame;
+  loadThreeMeasurementFrame(frame, layout);
 
   BOOST_REQUIRE_EQUAL(frame.getSurfaceMeasurements(SurfaceId{0}).size(), 1u);
   BOOST_REQUIRE_EQUAL(frame.getSurfaceMeasurements(SurfaceId{1}).size(), 1u);
@@ -408,7 +407,8 @@ BOOST_AUTO_TEST_CASE(PerSurfaceMeasurementStorageAndSurfaceLocalIndexBounds)
 BOOST_AUTO_TEST_CASE(CrossSurfaceAndCrossSourceTrackClusterReferenceResolution)
 {
   const auto layout = makeCombinedLayout();
-  auto frame = makeThreeMeasurementFrame(layout);
+  TimeFrame frame;
+  loadThreeMeasurementFrame(frame, layout);
 
   // A single common track crossing the ITS/MFT source boundary, traversal
   // order inner to outer: surface 0 (ITS, source 0), surface 1 (ITS, source
@@ -460,7 +460,8 @@ BOOST_AUTO_TEST_CASE(CrossSurfaceAndCrossSourceTrackClusterReferenceResolution)
 BOOST_AUTO_TEST_CASE(HitSurfacesEqualsUnionAndEachMeasurementSurfaceMatchesItsReference)
 {
   const auto layout = makeCombinedLayout();
-  auto frame = makeThreeMeasurementFrame(layout);
+  TimeFrame frame;
+  loadThreeMeasurementFrame(frame, layout);
 
   const std::vector<TrackClusterReference> trackClusterIndices{
     {SurfaceId{0}, SurfaceMeasurementIndex{0}},
@@ -1042,7 +1043,7 @@ BOOST_AUTO_TEST_CASE(CommonTrackOutputAdapterStagesMFTAndRejectsMissingSidecar)
 {
   const auto layout = makeCombinedLayout();
   TimeFrame frame;
-  frame.commitMeasurements(makeThreeMeasurementFrame(layout));
+  loadThreeMeasurementFrame(frame, layout);
   TestCommonTrack record;
   record.track.innerState.family = StateFamily::Forward;
   record.track.outerState.family = StateFamily::Forward;

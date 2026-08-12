@@ -308,8 +308,8 @@ BOOST_AUTO_TEST_CASE(SingleITSSourceLoadsIntoExpectedSurfaces)
   BOOST_CHECK_EQUAL(frame.getSurfaceMeasurements(SurfaceId{0}).size(), 1u);
   BOOST_CHECK_EQUAL(frame.getSurfaceMeasurements(SurfaceId{1}).size(), 1u);
   BOOST_CHECK_EQUAL(frame.getSurfaceMeasurements(SurfaceId{2}).size(), 0u);
-  BOOST_REQUIRE_EQUAL(frame.getSourceROFInfo().size(), 1u);
-  BOOST_CHECK_EQUAL(frame.getSourceROFInfo()[0].nROFs, 1u);
+  BOOST_REQUIRE_EQUAL(frame.getMeasurementView().nSources, 1u);
+  BOOST_CHECK_EQUAL(frame.getSourceIntervals(ClusterSourceId{0}).size(), 1u);
   BOOST_CHECK_EQUAL(frame.getGlobalMeasurements(SurfaceId{0})[0].sensor.detector, static_cast<uint32_t>(o2::detectors::DetID::ITS));
 }
 
@@ -425,7 +425,7 @@ BOOST_AUTO_TEST_CASE(CombinedITSAndMFTSourcesLoadTogether)
 
   BOOST_CHECK_EQUAL(frame.getSurfaceMeasurements(SurfaceId{0}).size(), 1u);
   BOOST_CHECK_EQUAL(frame.getSurfaceMeasurements(SurfaceId{3}).size(), 1u);
-  BOOST_REQUIRE_EQUAL(frame.getSourceROFInfo().size(), 2u);
+  BOOST_REQUIRE_EQUAL(frame.getMeasurementView().nSources, 2u);
 }
 
 // Hardening regression test (TimeFrame cached-span safety): proves
@@ -701,8 +701,8 @@ BOOST_AUTO_TEST_CASE(IndependentROFCountsAcrossSourcesAreAllowed)
   const auto result = loadSources(frame, layout.getView().getSurfaceCatalogView(), gsl::span<const ClusterSourceInput>(sources), {0, 0});
   BOOST_REQUIRE(result.ok());
 
-  BOOST_CHECK_EQUAL(frame.getSourceROFInfo()[0].nROFs, 3u);
-  BOOST_CHECK_EQUAL(frame.getSourceROFInfo()[1].nROFs, 1u);
+  BOOST_CHECK_EQUAL(frame.getSourceIntervals(ClusterSourceId{0}).size(), 3u);
+  BOOST_CHECK_EQUAL(frame.getSourceIntervals(ClusterSourceId{1}).size(), 1u);
   BOOST_CHECK_EQUAL(frame.getSourceIntervals(ClusterSourceId{0}).size(), 3u);
   BOOST_CHECK_EQUAL(frame.getSourceIntervals(ClusterSourceId{1}).size(), 1u);
 }
@@ -1420,7 +1420,7 @@ BOOST_AUTO_TEST_CASE(FailedLoadLeavesNoPartialState)
   BOOST_REQUIRE(!result.ok());
 
   BOOST_CHECK_EQUAL(frame.getTotalMeasurements(), totalBefore);
-  BOOST_REQUIRE_EQUAL(frame.getSourceROFInfo().size(), 1u);
+  BOOST_REQUIRE_EQUAL(frame.getMeasurementView().nSources, 1u);
 }
 
 BOOST_AUTO_TEST_CASE(FailedLoadAfterFirstSourceStagedLeavesNoPartialState)
@@ -1461,7 +1461,8 @@ BOOST_AUTO_TEST_CASE(FailedLoadAfterFirstSourceStagedLeavesNoPartialState)
     frame.getGlobalMeasurements(SurfaceId{0}).begin(), frame.getGlobalMeasurements(SurfaceId{0}).end());
   const std::vector<ROFIntervalBC> baselineIntervals(
     frame.getSourceIntervals(ClusterSourceId{0}).begin(), frame.getSourceIntervals(ClusterSourceId{0}).end());
-  const std::vector<SourceROFInfo> baselineSources = frame.getSourceROFInfo();
+  const auto baselineSourceCount = frame.getMeasurementView().nSources;
+  const auto baselineROFCount = frame.getSourceIntervals(ClusterSourceId{0}).size();
   const auto baselineLabel = frame.getLabels(ClusterRef{ClusterSourceId{0}, 0});
   BOOST_REQUIRE_EQUAL(baselineLabel.size(), 1u);
   const auto baselineView = frame.getMeasurementView();
@@ -1524,8 +1525,8 @@ BOOST_AUTO_TEST_CASE(FailedLoadAfterFirstSourceStagedLeavesNoPartialState)
     BOOST_CHECK_EQUAL(afterIntervals[i].begin, baselineIntervals[i].begin);
     BOOST_CHECK_EQUAL(afterIntervals[i].end, baselineIntervals[i].end);
   }
-  BOOST_REQUIRE_EQUAL(frame.getSourceROFInfo().size(), baselineSources.size());
-  BOOST_CHECK_EQUAL(frame.getSourceROFInfo()[0].nROFs, baselineSources[0].nROFs);
+  BOOST_REQUIRE_EQUAL(frame.getMeasurementView().nSources, baselineSourceCount);
+  BOOST_CHECK_EQUAL(frame.getSourceIntervals(ClusterSourceId{0}).size(), baselineROFCount);
   const auto afterLabel = frame.getLabels(ClusterRef{ClusterSourceId{0}, 0});
   BOOST_REQUIRE_EQUAL(afterLabel.size(), 1u);
   BOOST_CHECK(afterLabel[0] == baselineLabel[0]);
@@ -1574,11 +1575,13 @@ BOOST_AUTO_TEST_CASE(EmptyLayoutWithZeroSourcesLoadsSuccessfully)
   BOOST_CHECK(result.ok());
   BOOST_CHECK_EQUAL(frame.getTotalMeasurements(), 0u);
   BOOST_CHECK_EQUAL(frame.getNMeasurementSurfaces(), 0u);
-  BOOST_CHECK_EQUAL(frame.getSourceROFInfo().size(), 0u);
+  BOOST_CHECK_EQUAL(frame.getMeasurementView().nSources, 0u);
 }
 
 BOOST_AUTO_TEST_CASE(ViewsAreStandardLayoutAndTriviallyCopyable)
 {
+  static_assert(!std::is_move_constructible_v<TimeFrame>);
+  static_assert(!std::is_move_assignable_v<TimeFrame>);
   static_assert(std::is_standard_layout_v<MeasurementView>);
   static_assert(std::is_trivially_copyable_v<MeasurementView>);
   static_assert(std::is_standard_layout_v<SurfaceMeasurementSpan>);
