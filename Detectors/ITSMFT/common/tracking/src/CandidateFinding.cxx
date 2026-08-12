@@ -168,6 +168,8 @@ bool bindTrackletProjectionState(
     return false;
   }
   switch (kind) {
+    case SurfaceKind::Undefined:
+      return false;
     case SurfaceKind::Cylinder:
       out = CylinderTrackletProjectionState{fromLayer, toLayer,
                                             layerRadii[toLayer] - layerRadii[fromLayer],
@@ -701,6 +703,9 @@ bool buildCellSeed(
   // Current native disk seeding is fully expressed by its local measurements.
   (void)globalOuter;
   switch (kind) {
+    case SurfaceKind::Undefined:
+      reason = OperationFailureReason::SourceSurfaceKindMismatch;
+      return false;
     case SurfaceKind::Cylinder:
       return buildCylinderCellSeed(globalInner, globalMiddle, measurementInner, measurementMiddle, measurementOuter,
                                    material, bz, absCharge, pid, outState, chi2, params, reason);
@@ -708,7 +713,6 @@ bool buildCellSeed(
       return buildDiskCellSeed(measurementInner, measurementMiddle, measurementOuter,
                                material, bz, absCharge, pid, outState, chi2, params, reason);
   }
-  reason = OperationFailureReason::SourceSurfaceKindMismatch;
   return false;
 }
 
