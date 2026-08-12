@@ -85,7 +85,7 @@ class Propagator
   // `linRef` (if supplied) are left completely unchanged, byte-for-byte, on
   // any failure.
   static bool convertKind(SurfaceKinematicState& state, SurfaceLinearizationReference* linRef,
-                            SurfaceKind targetKind, OperationFailureReason& reason) noexcept;
+                          SurfaceKind targetKind, OperationFailureReason& reason) noexcept;
 
   // Propagation to a measurement.
   // Contract (task spec items 1-7):

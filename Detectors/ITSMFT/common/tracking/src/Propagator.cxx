@@ -307,7 +307,7 @@ bool forwardToBarrel(SurfaceKinematicState& state, SurfaceLinearizationReference
 } // namespace
 
 bool Propagator::convertKind(SurfaceKinematicState& state, SurfaceLinearizationReference* linRef,
-                               SurfaceKind targetKind, OperationFailureReason& reason) noexcept
+                             SurfaceKind targetKind, OperationFailureReason& reason) noexcept
 {
   if (targetKind != SurfaceKind::Cylinder && targetKind != SurfaceKind::Disk) {
     reason = OperationFailureReason::SurfaceKindConversionFailure;
