@@ -27,6 +27,8 @@
 #include "ITSMFTTracking/detail/CandidateFinding.h"
 
 using namespace o2::itsmft::tracking;
+using o2::itsmft::AttachHitConfigView;
+using o2::itsmft::isRecognizedMatCorrType;
 using MatCorrType = o2::base::PropagatorF::MatCorrType;
 
 // --- Exact TraversalFailureReason numeric value ----------------------------
