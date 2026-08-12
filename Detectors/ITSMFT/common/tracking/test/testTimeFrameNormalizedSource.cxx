@@ -17,7 +17,7 @@
 // SurfaceTrackingScratch::loadNormalizedSource(TimeFrame&, ...), the
 // owner-level load operation which loads one single-detector cluster stream
 // through TimeFrame event measurement storage (ITSMFTTracking/
-// MultiSourceTimeFrameLoader.h) and then backfills the scratch's existing legacy
+// IOUtils.h) and then backfills the scratch's existing legacy
 // compatibility structures (unsorted clusters, TrackingFrameInfo, external
 // indices, cluster sizes, ROF boundaries, label lookup) from the committed
 // normalized measurements.
@@ -75,7 +75,7 @@
 #include "ITSMFTTracking/SurfaceGraphBuilder.h"
 #include "ITSMFTTracking/detail/SurfaceTrackingScratch.h"
 #include "ITSMFTTracking/MeasurementView.h"
-#include "ITSMFTTracking/MultiSourceTimeFrameLoader.h"
+#include "ITSMFTTracking/IOUtils.h"
 #include "ITSMFTTracking/SurfaceDescriptor.h"
 #include "ITSMFTTracking/ClusterDecoding.h"
 #include "ITSMFTTracking/IOUtils.h"
@@ -651,7 +651,7 @@ BOOST_AUTO_TEST_CASE(NeverConfiguredCatalogIsRejected)
 // receives its SurfaceCatalogView explicitly from the caller on every call,
 // with no TimeFrame-owned currency concept to invalidate -- SurfaceCatalogStale
 // is retained in the enum only for wire/enum-value compatibility (see
-// MultiSourceTimeFrameLoader.h) and is no longer producible through this API.
+// IOUtils.h) and is no longer producible through this API.
 
 // TPC (or any non-ITS/MFT detector) is rejected as UnsupportedDetector before
 // the catalog is ever consulted -- see UnsupportedDetectorWinsOverSharedNLayers

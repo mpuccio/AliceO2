@@ -6,7 +6,7 @@
 // License v3 (GPL Version 3), copied verbatim in the file "COPYING".
 //
 // Gate 4 B2 Slice 1: replacement combined-layout test proving the static,
-// compile-time-concatenated ITS+MFT catalog (StaticDetectorCatalogs.h)
+// compile-time-concatenated ITS+MFT catalog (ITSMFTDetectorDefinitions.h)
 // reproduces the same one-global-id-space guarantees that the now-deleted
 // testCombinedSurfaceCatalogBuilder.cxx's
 // CombinedLayoutPreservesCurrentHoleSemanticsUnderGlobalIds established for
@@ -49,7 +49,7 @@
 
 #include "DetectorsCommonDataFormats/DetID.h"
 #include "ITSMFTTracking/SurfaceGraphBuilder.h"
-#include "ITSMFTTracking/StaticDetectorCatalogs.h"
+#include "ITSMFTTracking/ITSMFTDetectorDefinitions.h"
 #include "ITSMFTTracking/SurfaceDescriptor.h"
 #include "ITSMFTTracking/TrackingConfigParam.h"
 

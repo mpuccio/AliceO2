@@ -369,7 +369,7 @@ BOOST_AUTO_TEST_CASE(NewHeadersPullNoITSWorkflowOutputOrSurfaceKindDependency)
   const std::vector<std::string> forbiddenIncludes = {
     "SurfacePlanBinding.h",
     "DetectorTraversalBinding.h",
-    "MultiSourceTimeFrameLoader.h",
+    "IOUtils.h",
     "LegacyTrackerScratch.h",
     "SurfacePlanTrackingParticipant.h"};
   for (const auto& path : newFiles) {

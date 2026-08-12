@@ -332,7 +332,7 @@ o2_add_test(traversaloperationbinding-containment
             PUBLIC_LINK_LIBRARIES O2::ITSMFTTracking)
 
 # Gate 4 B2 Slice 1: replacement combined-layout test over the static,
-# compile-time-concatenated ITS+MFT catalog (StaticDetectorCatalogs.h). Gate
+# compile-time-concatenated ITS+MFT catalog (ITSMFTDetectorDefinitions.h). Gate
 # 4 B2 Slice 3 deleted CombinedSurfaceCatalogBuilder, its test, the runtime
 # catalog providers, and moved DetectorSurfaceCatalogAggregation into the
 # detached validator target (see ../validation/test/CMakeLists.txt) -- this

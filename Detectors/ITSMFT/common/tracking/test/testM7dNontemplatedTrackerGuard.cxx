@@ -28,7 +28,7 @@
 #include "ITSMFTTracking/Configuration.h"
 #include "ITSMFTTracking/SurfaceGraphBuilder.h"
 #include "ITSMFTTracking/IndexTableConfiguration.h"
-#include "ITSMFTTracking/NominalSurfaceMaterialDefaults.h"
+#include "ITSMFTTracking/ITSMFTDetectorDefinitions.h"
 #include "ITSMFTTracking/detail/SurfacePlanBinding.h"
 #include "ITSMFTTracking/detail/SurfaceTrackingScratch.h"
 #include "ITSMFTTracking/TimeFrame.h"

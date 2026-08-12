@@ -114,7 +114,7 @@ std::size_t directHeaderCount(const fs::path& directory)
 BOOST_AUTO_TEST_CASE(FinalHeaderInventoryIsExact)
 {
   const auto include = trackingRoot() / "include/ITSMFTTracking";
-  BOOST_CHECK_EQUAL(directHeaderCount(include), 35U);
+  BOOST_CHECK_EQUAL(directHeaderCount(include), 33U);
   BOOST_CHECK_EQUAL(directHeaderCount(include / "detail"), 10U);
   BOOST_CHECK(fs::is_regular_file(include / "TripletFitting.h"));
 }

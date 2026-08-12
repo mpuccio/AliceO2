@@ -16,7 +16,7 @@
 #include "ITSCommonTracking/CommonTrackingParameters.h"
 #include "ITSMFTTracking/Tracker.h"
 #include "ITSMFTTracking/SurfaceGraphBuilder.h"
-#include "ITSMFTTracking/StaticDetectorCatalogs.h"
+#include "ITSMFTTracking/ITSMFTDetectorDefinitions.h"
 #include "ITSMFTTracking/SurfaceDescriptor.h"
 #include "ITSMFTTracking/detail/CandidateFinding.h"
 
@@ -24,7 +24,7 @@ namespace
 {
 using namespace o2::itsmft::tracking;
 
-// kITSStaticSurfaceCatalog is dense and local (StaticDetectorCatalogs.h):
+// kITSStaticSurfaceCatalog is dense and local (ITSMFTDetectorDefinitions.h):
 // surface i's id is always SurfaceId{i}. Mirrors identitySurfaceOrder() in
 // TrackingInterface.cxx, the production plan builder this link-only proof
 // exercises the same way.

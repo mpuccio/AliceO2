@@ -6,7 +6,7 @@
 // License v3 (GPL Version 3), copied verbatim in the file "COPYING".
 
 // Pure classification/typed-exception tests for the workflow loading boundary
-// loading boundary (ITSMFTTracking/MultiSourceTimeFrameLoader.h). No geometry
+// loading boundary (ITSMFTTracking/IOUtils.h). No geometry
 // singleton, DPL, or CCDB dependency: isRecoverableLoadError() and the two
 // exception types are plain host-only code.
 
@@ -17,14 +17,14 @@
 
 #include <array>
 
-#include "ITSMFTTracking/MultiSourceTimeFrameLoader.h"
+#include "ITSMFTTracking/IOUtils.h"
 
 using namespace o2::itsmft::tracking;
 
 namespace
 {
 // Hand-maintained, exhaustive list of every MultiSourceLoadError enumerator
-// as declared in MultiSourceTimeFrameLoader.h, paired with the classification this
+// as declared in IOUtils.h, paired with the classification this
 // design's failure taxonomy requires. This -- not the absence of `default:`
 // in isRecoverableLoadError()'s switch -- is the actual, checked coverage
 // guarantee: if a new enumerator is added there without a corresponding

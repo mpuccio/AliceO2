@@ -40,7 +40,7 @@
 #include <string>
 #include <vector>
 
-#include "ITSMFTTracking/StaticDetectorCatalogs.h"
+#include "ITSMFTTracking/ITSMFTDetectorDefinitions.h"
 #include "ITStracking/Constants.h"
 
 using namespace o2::itsmft::tracking;
@@ -107,8 +107,8 @@ void checkAuthoredLiteralsMatchProvenanceTokens(const std::vector<ExpectedSurfac
     const float fromToken = parseToken(row.referenceCoordinateToken);
     BOOST_CHECK_MESSAGE(bitsOf(authored.nominalReferenceCoordinate) == bitsOf(fromToken),
                         "surface " << row.index << ": authored literal (bits 0x" << std::hex
-                                    << bitsOf(authored.nominalReferenceCoordinate) << ") does not bit-match provenance token \""
-                                    << row.referenceCoordinateToken << "\" (bits 0x" << bitsOf(fromToken) << ")" << std::dec);
+                                   << bitsOf(authored.nominalReferenceCoordinate) << ") does not bit-match provenance token \""
+                                   << row.referenceCoordinateToken << "\" (bits 0x" << bitsOf(fromToken) << ")" << std::dec);
   }
 }
 

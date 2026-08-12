@@ -16,14 +16,14 @@
 #include <utility>
 #include <vector>
 
-#include "ITSMFTTracking/MultiSourceTimeFrameLoader.h"
+#include "ITSMFTTracking/IOUtils.h"
 #include "ITSMFTTracking/Configuration.h"
 #include "ITSMFTTracking/detail/DetectorPublicationAdapter.h"
 #include "ITSMFTTracking/SurfaceGraphBuilder.h"
 #include "ITSMFTTracking/detail/ITSSharedClusterCompatibility.h"
 #include "ITSMFTTracking/detail/MFTPublicationCompatibility.h"
-#include "ITSMFTTracking/MultiSourceTimeFrameLoader.h"
-#include "ITSMFTTracking/StaticDetectorCatalogs.h"
+#include "ITSMFTTracking/IOUtils.h"
+#include "ITSMFTTracking/ITSMFTDetectorDefinitions.h"
 #include "ITSMFTTracking/TimeFrame.h"
 #include "ITSMFTTracking/Tracker.h"
 #include "ITSMFTTracking/TrackerTraits.h"

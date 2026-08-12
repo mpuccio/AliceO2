@@ -32,7 +32,19 @@ BOOST_AUTO_TEST_CASE(ProductionUsesTimeFrameMeasurementsAndDescriptorBackfill)
     }
   }
 
-  const auto loader = readFile(root / "src/MultiSourceTimeFrameLoader.cxx");
+  const auto loader = readFile(root / "src/IOUtils.cxx");
   BOOST_CHECK(loader.find("owner->detector") == std::string::npos);
   BOOST_CHECK(loader.find("catalog.getSurface(surface).kind") != std::string::npos);
+}
+
+BOOST_AUTO_TEST_CASE(LoaderAndDetectorDefinitionsHaveOneIdentity)
+{
+  const auto root = std::filesystem::path{__FILE__}.parent_path().parent_path();
+  const auto include = root / "include/ITSMFTTracking";
+  BOOST_CHECK(std::filesystem::exists(include / "IOUtils.h"));
+  BOOST_CHECK(std::filesystem::exists(include / "ITSMFTDetectorDefinitions.h"));
+  BOOST_CHECK(!std::filesystem::exists(include / "MultiSourceTimeFrameLoader.h"));
+  BOOST_CHECK(!std::filesystem::exists(include / "StaticDetectorCatalogs.h"));
+  BOOST_CHECK(!std::filesystem::exists(include / "NominalSurfaceMaterialDefaults.h"));
+  BOOST_CHECK(!std::filesystem::exists(root / "src/MultiSourceTimeFrameLoader.cxx"));
 }

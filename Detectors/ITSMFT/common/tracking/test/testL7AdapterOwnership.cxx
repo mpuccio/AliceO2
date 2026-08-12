@@ -57,7 +57,7 @@ BOOST_AUTO_TEST_CASE(generic_core_has_no_detector_timing_or_publication_ownershi
   const auto root = trackingRoot();
   static constexpr std::array<std::string_view, 5> coreFiles{
     "include/ITSMFTTracking/TimeFrame.h",
-    "include/ITSMFTTracking/MultiSourceTimeFrameLoader.h",
+    "include/ITSMFTTracking/IOUtils.h",
     "include/ITSMFTTracking/Tracker.h",
     "include/ITSMFTTracking/TrackerTraits.h",
     "src/Tracker.cxx",

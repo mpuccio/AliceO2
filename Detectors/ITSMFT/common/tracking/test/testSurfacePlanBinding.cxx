@@ -19,7 +19,7 @@
 #include <vector>
 
 #include "ITSMFTTracking/SurfaceGraphBuilder.h"
-#include "ITSMFTTracking/StaticDetectorCatalogs.h"
+#include "ITSMFTTracking/ITSMFTDetectorDefinitions.h"
 #include "ITSMFTTracking/Cell.h"
 #include "ITSMFTTracking/detail/SurfaceTrackingScratch.h"
 #include "ITSMFTTracking/detail/SurfacePlanBinding.h"

@@ -120,8 +120,8 @@ std::optional<CountBoundary> classify(const fs::path& path, std::string_view cod
       name == "DetectorPublicationAdapter.h" ||
       name == "DetectorRefitSupport.h" ||
       name == "Configuration.cxx" ||
-      name == "StaticDetectorCatalogs.h" ||
-      name == "TrackingConfigParam.h" || name == "NominalSurfaceMaterialDefaults.h") {
+      name == "ITSMFTDetectorDefinitions.h" ||
+      name == "TrackingConfigParam.h" || name == "ITSMFTDetectorDefinitions.h") {
     return CountBoundary::AdapterEdge;
   }
   return std::nullopt;

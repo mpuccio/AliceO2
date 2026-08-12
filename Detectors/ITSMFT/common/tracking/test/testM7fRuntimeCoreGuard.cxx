@@ -114,8 +114,8 @@ std::optional<ResidualClassification> classifyNLayers(std::string_view relative)
     return ResidualClassification{ResidualKind::AdapterCompatibility, "configuration compatibility accessors and DetID-to-layer adapter mapping"};
   }
   if (relative == "include/ITSMFTTracking/TrackingConfigParam.h" ||
-      relative == "include/ITSMFTTracking/StaticDetectorCatalogs.h" ||
-      relative == "include/ITSMFTTracking/NominalSurfaceMaterialDefaults.h") {
+      relative == "include/ITSMFTTracking/ITSMFTDetectorDefinitions.h" ||
+      relative == "include/ITSMFTTracking/ITSMFTDetectorDefinitions.h") {
     return ResidualClassification{ResidualKind::AdapterCompatibility, "detector application constants and static surface descriptors"};
   }
   if (relative == "src/Configuration.cxx") {
