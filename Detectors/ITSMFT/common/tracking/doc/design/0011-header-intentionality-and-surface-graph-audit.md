@@ -109,7 +109,7 @@ Classification keys used below are exactly the requested categories:
 | `ROFViews.h` | 1 | Device-portable, non-owning runtime timing/mask views. |
 | `RefitLegAssembly.h` | 3 | Merge into `NativeRefitDriver.h`; its only production consumer is that driver. |
 | `SeedAnchor.h` | 4 | Delete with the unused anchor-taking overloads after downstream evidence; `Inner` is test/historical only. |
-| `StateFamily.h` | 1 | Small but real device-shared representation tag; isolation prevents pulling the 259-line state into kernel-operation headers. It is not a replacement topology/dispatch policy. |
+| `SurfaceKind.h` | 1 | Small but real device-shared representation tag; isolation prevents pulling the 259-line state into kernel-operation headers. It is not a replacement topology/dispatch policy. |
 | `StaticDetectorCatalogs.h` | 1 | Compile-time ITS/MFT catalog data and runtime projection; absorbs both detector spec files. |
 | `StaticSurfaceDescriptor.h` | 3 | Merge into `SurfaceSpec.h`; the type exists solely to define/validate compile-time specs. |
 | `SurfaceCatalogView.h` | 3 | Merge into `SurfaceDescriptor.h`; descriptor plus narrow borrowed catalog view is one device concept. |
@@ -135,7 +135,7 @@ Classification keys used below are exactly the requested categories:
 | `TrackingConfigParam.h` | 1 | ROOT-visible workflow configuration registration/data. |
 | `TrackingOperationAdapter.h` | 1 | Narrow call-scoped application refit operation. |
 | `detail/SurfacePlanBinding.h` | 5 | Keep private for now, but obtain evidence for replacing public TimeFrame exposure with a narrower frame-owned partition view. |
-| `detail/TransitionPolicy.h` | 4 | Delete. The tag is a one-to-one restatement of `SurfaceKind`; use `SurfaceKind` for operation selection and `StateFamily` only for state representation. |
+| `detail/TransitionPolicy.h` | 4 | Delete. The tag is a one-to-one restatement of `SurfaceKind`; use `SurfaceKind` for operation selection and `SurfaceKind` only for state representation. |
 | `detail/TransitionPolicyBinding.h` | 4 | Inline live host binding into `TrackerTraits.cxx`, relocate hit-attachment configuration to `detail/CellFinding.h`, and delete the unwired material-mode preflight after confirming no downstream caller. |
 | `detail/TransitionPolicyDispatch.h` | 4 | Delete. Derive deterministic transition/cell/road/neighbour schedules directly in `SurfacePlanBinding`; no tag grouping or dispatcher remains. |
 | `detail/TransitionPolicyOperations.h` | 4 | Replace with stage-coherent `detail/TrackletFinding.h` and `detail/CellFinding.h`; delete superseded policy refit helpers after downstream evidence. Do not split architecture by detector. |
@@ -371,7 +371,7 @@ says M5 removes.
   `SurfaceTransition`; every remaining tag is reconstructed from a surface
   kind. The grouping, traits, two parameter optionals, wrappers, tests, and
   comments mutually justify one another but encode no third choice that is
-  absent from `SurfaceKind`/`StateFamily`.
+  absent from `SurfaceKind`/`SurfaceKind`.
 - **Public API/dependencies:** remove `expectedPolicy` and
   `IncompatibleExpectedPolicyKind` from `SurfacePlanBinding`; remove
   `TransitionPolicyTag`, `TransitionPolicyTraits`,
@@ -520,7 +520,7 @@ Condense, Move to Markdown, and Delete. Replacement text follows `=>`.
 | `ROFViews.h` | K 34-36 borrowed backing lifetime and 366-368 assembled event-view ownership; ordinary print/accessor code needs no narration. |
 | `RefitLegAssembly.h` | M 24-36 history. K/C 37-63 traversal order, hole encoding, mapping precondition => 6-line contract beside merged function. D “unwired”. |
 | `SeedAnchor.h` | M all file-level M4/M5 history and 42-56 frozen convention; archive with deletion evidence. |
-| `StateFamily.h` | M 17-26 migration history. K/C 27-32 and 42-45 => “Representation tag only; never topology or dispatch policy. Derive from `SurfaceKind`.” |
+| `SurfaceKind.h` | M 17-26 migration history. K/C 27-32 and 42-45 => “Representation tag only; never topology or dispatch policy. Derive from `SurfaceKind`.” |
 | `StaticDetectorCatalogs.h` | K/C 63-68 combined global-ID concatenation invariant. |
 | `StaticSurfaceDescriptor.h` | C 21-22 open detector identity. D 34-35 and 74-75 cross-file narration. K 52-55 validated-spec projection precondition. |
 | `SurfaceCatalogView.h` | C 21-36 => “Borrowed descriptor catalog with optional global-ID-to-compact-index map; no topology or ownership.” K 40-41 sparse lookup semantics. |
@@ -546,7 +546,7 @@ Condense, Move to Markdown, and Delete. Replacement text follows `=>`.
 | `TrackingConfigParam.h` | D/M 35-36 “header only for now”; verify current use. C 79-121 namespace/thread semantics. M 127-137 Gate-4 activation history; retain default/ownership semantics only. |
 | `TrackingOperationAdapter.h` | K/C 25-28 generic candidate and 42-44 call-scoped refit-only seam. |
 | `detail/SurfacePlanBinding.h` | M file-level 11-47 migration history. K/C 96-103 order mapping, 126-130 stored order, 155-178 boundary validation/filtering, 230-235 scheduled-order distinction. |
-| `detail/TransitionPolicy.h` | M the file-level migration history to this document. D tag definition, enabled-tag test, compatibility mapping, inverse kind mapping, and their assertions when the file is deleted; `SurfaceKind`/`stateFamilyOf(SurfaceKind)` are the replacement source of truth. |
+| `detail/TransitionPolicy.h` | M the file-level migration history to this document. D tag definition, enabled-tag test, compatibility mapping, inverse kind mapping, and their assertions when the file is deleted; `SurfaceKind` is the replacement source of truth. |
 | `detail/TransitionPolicyBinding.h` | K/relocate the host/device boundary and material/config validity contracts beside the surviving cell/config initialization code. M Stage-B and activation narrative. D policy/tag/preflight prose and the unwired correction-mode preflight when its code is removed. Replacement wording: “Host-only validation binds one iteration's configuration before traversal state is committed.” |
 | `detail/TransitionPolicyDispatch.h` | K/relocate seeding-endpoint, deterministic schedule, cycle, and stable-order contracts to `SurfacePlanBinding`. D policy groups, per-tag spans, dispatch-count rules, and historical decision IDs with the deleted abstraction. |
 | `detail/TransitionPolicyOperations.h` | M milestone/history portions of 50-53, 128-181, 246-267, 309-393, 442-506, 573-610, 650-690, 775-854. K/relocate formula, units, ordering, host/device, failure, hole, and unchecked-precondition facts in 195-231, 277-298, 435-439, 619-640, 699-756, 788-799, 864-903 beside the replacement stage leaves, at most 3-8 lines per operation. D policy-boundary and tag-dispatch narration. |

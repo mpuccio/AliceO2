@@ -33,19 +33,12 @@ struct DetectorSurfaceIdentity {
   GPUhdi() friend constexpr bool operator!=(DetectorSurfaceIdentity lhs, DetectorSurfaceIdentity rhs) noexcept { return !(lhs == rhs); }
 };
 
-enum class SurfaceIndexingFamily : uint8_t {
-  Invalid,
-  CylindricalPhiZ,
-  CartesianXY
-};
-
 struct StaticSurfaceDescriptor {
   SurfaceId id{};
   DetectorSurfaceIdentity identity{};
-  SurfaceKind kind{SurfaceKind::Cylinder};
+  SurfaceKind kind{SurfaceKind::Undefined};
   float nominalReferenceCoordinate{0.f};
   NominalSurfaceMaterial material{};
-  SurfaceIndexingFamily indexingFamily{SurfaceIndexingFamily::Invalid};
 };
 
 // Precondition: source belongs to a validated SurfaceSpec. This is an
@@ -70,7 +63,7 @@ GPUhdi() constexpr SurfaceDescriptor toRuntimeSurfaceDescriptor(const StaticSurf
   static_assert(alignof(Type) == Alignment)
 
 O2_ITSMFT_ASSERT_STATIC_SURFACE_TYPE(DetectorSurfaceIdentity, 4, 2);
-O2_ITSMFT_ASSERT_STATIC_SURFACE_TYPE(StaticSurfaceDescriptor, 24, 4);
+O2_ITSMFT_ASSERT_STATIC_SURFACE_TYPE(StaticSurfaceDescriptor, 20, 4);
 
 static_assert(offsetof(DetectorSurfaceIdentity, detectorId) == 0);
 static_assert(offsetof(DetectorSurfaceIdentity, detectorSurfaceIndex) == 2);
@@ -79,7 +72,6 @@ static_assert(offsetof(StaticSurfaceDescriptor, identity) == 2);
 static_assert(offsetof(StaticSurfaceDescriptor, kind) == 6);
 static_assert(offsetof(StaticSurfaceDescriptor, nominalReferenceCoordinate) == 8);
 static_assert(offsetof(StaticSurfaceDescriptor, material) == 12);
-static_assert(offsetof(StaticSurfaceDescriptor, indexingFamily) == 20);
 
 #undef O2_ITSMFT_ASSERT_STATIC_SURFACE_TYPE
 
@@ -101,12 +93,7 @@ constexpr bool isFinite(float value) noexcept
 
 constexpr bool isEnabled(SurfaceKind kind) noexcept
 {
-  return kind == SurfaceKind::Cylinder || kind == SurfaceKind::Disk;
-}
-
-constexpr bool isEnabled(SurfaceIndexingFamily family) noexcept
-{
-  return family == SurfaceIndexingFamily::CylindricalPhiZ || family == SurfaceIndexingFamily::CartesianXY;
+  return isRecognizedSurfaceKind(kind);
 }
 
 template <typename Spec>
@@ -137,8 +124,7 @@ consteval bool validateSurfaceArray(const std::array<StaticSurfaceDescriptor, N>
     const auto& surface = surfaces[i];
     if (!surface.id.isValid() || surface.id.value() != i || !isEnabled(surface.kind) ||
         !isFinite(surface.nominalReferenceCoordinate) ||
-        (surface.kind == SurfaceKind::Cylinder && surface.nominalReferenceCoordinate <= 0.f) ||
-        !isEnabled(surface.indexingFamily)) {
+        (surface.kind == SurfaceKind::Cylinder && surface.nominalReferenceCoordinate <= 0.f)) {
       return false;
     }
 

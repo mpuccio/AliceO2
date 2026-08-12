@@ -59,7 +59,7 @@ SurfaceKinematicState makeState()
   state.parameters[4] = 0.8f;
   state.referenceCoordinate = 4.f;
   state.alpha = 0.3f;
-  state.family = StateFamily::Barrel;
+  state.kind = SurfaceKind::Cylinder;
   state.flags = 0x5a;
   state.absCharge = 1;
   state.pid = o2::track::PID::Pion;
@@ -94,7 +94,7 @@ SurfaceLinearizationReference perturbedLinRef(const SurfaceKinematicState& state
 
 bool exportLinRef(const SurfaceLinearizationReference& ref, uint8_t absCharge, o2::track::TrackParF& out)
 {
-  if (ref.family != StateFamily::Barrel) {
+  if (ref.kind != SurfaceKind::Cylinder) {
     return false;
   }
   const o2::track::TrackParF::params_t params{ref.parameters[0], ref.parameters[1], ref.parameters[2], ref.parameters[3], ref.parameters[4]};
@@ -104,7 +104,7 @@ bool exportLinRef(const SurfaceLinearizationReference& ref, uint8_t absCharge, o
 
 void compareLinRefWithOracle(const SurfaceLinearizationReference& ref, const o2::track::TrackParF& oracle, Drift& drift)
 {
-  BOOST_CHECK(ref.family == StateFamily::Barrel);
+  BOOST_CHECK(ref.kind == SurfaceKind::Cylinder);
   checkClose(ref.referenceCoordinate, oracle.getX(), drift);
   checkClose(ref.alpha, oracle.getAlpha(), drift);
   for (uint8_t i = 0; i < 5; ++i) {
@@ -149,7 +149,7 @@ BOOST_AUTO_TEST_CASE(RotateWithLinRefMatchesRetainedLegacyOracle)
   compareStateWithOracle(state, oracleState, drift);
   compareLinRefWithOracle(linRef, oracleRef, drift);
   // Metadata (family/flags/absCharge/pid) never touched by rotate.
-  BOOST_CHECK(state.family == stateBefore.family);
+  BOOST_CHECK(state.kind == stateBefore.kind);
   BOOST_CHECK_EQUAL(state.flags, stateBefore.flags);
   BOOST_CHECK_EQUAL(state.absCharge, stateBefore.absCharge);
 }
@@ -259,12 +259,12 @@ BOOST_AUTO_TEST_CASE(RotateWithLinRefRejectsFamilyMismatchAndPreservesBytes)
 {
   auto state = makeState();
   auto linRef = linRefFromState(state);
-  linRef.family = StateFamily::Forward;
+  linRef.kind = SurfaceKind::Disk;
   const auto stateBefore = state;
   const auto linRefBefore = linRef;
   OperationFailureReason reason{};
   BOOST_CHECK(!rotate(state, linRef, 0.5f, -5.f, reason));
-  BOOST_CHECK(reason == OperationFailureReason::SourceFamilyMismatch);
+  BOOST_CHECK(reason == OperationFailureReason::SourceSurfaceKindMismatch);
   BOOST_CHECK(bitEqual(state, stateBefore));
   BOOST_CHECK(bitEqual(linRef, linRefBefore));
 }
@@ -347,7 +347,7 @@ BOOST_AUTO_TEST_CASE(ShiftReferenceToMeasurementRejectsNonFiniteAndPreservesByte
 BOOST_AUTO_TEST_CASE(ShiftReferenceToMeasurementRejectsFamilyMismatch)
 {
   auto linRef = linRefFromState(makeState());
-  linRef.family = StateFamily::Forward;
+  linRef.kind = SurfaceKind::Disk;
   const auto before = linRef;
   SurfaceMeasurement measurement{};
   measurement.frame.u = 1.f;

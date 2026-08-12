@@ -25,7 +25,7 @@
 //    into the spec headers.
 // 2. Each StaticSurfaceDescriptor entry projects through
 //    toRuntimeSurfaceDescriptor() preserving every field bit-for-bit
-//    (identity, kind, indexingFamily-independent flags==0, material, and
+//    (identity, kind, flags==0, material, and
 //    the same reference-coordinate bit pattern again) -- the ABI/
 //    projection lock already exercised generically in testSurfaceSpec.cxx,
 //    repeated here against the real authored tables specifically.
@@ -67,7 +67,6 @@ struct ExpectedSurface {
   const char* referenceCoordinateToken; // verbatim from the C1 lossless JSON provenance
   uint8_t detectorId;
   SurfaceKind kind;
-  SurfaceIndexingFamily indexingFamily;
 };
 
 // Tokens copied verbatim from
@@ -77,26 +76,26 @@ struct ExpectedSurface {
 // 2a428746b3a0b57179d5ffe631afc9c4afb4ca41cc9baa948ff670099b9204e4; full
 // provenance in doc/decisions/0004-its-mft-static-surface-spec-tables.md).
 const std::vector<ExpectedSurface> kExpectedITS{
-  {0, "2.3259652", 0, SurfaceKind::Cylinder, SurfaceIndexingFamily::CylindricalPhiZ},
-  {1, "3.1353536", 0, SurfaceKind::Cylinder, SurfaceIndexingFamily::CylindricalPhiZ},
-  {2, "3.9162421", 0, SurfaceKind::Cylinder, SurfaceIndexingFamily::CylindricalPhiZ},
-  {3, "19.58824", 0, SurfaceKind::Cylinder, SurfaceIndexingFamily::CylindricalPhiZ},
-  {4, "24.527159", 0, SurfaceKind::Cylinder, SurfaceIndexingFamily::CylindricalPhiZ},
-  {5, "34.354595", 0, SurfaceKind::Cylinder, SurfaceIndexingFamily::CylindricalPhiZ},
-  {6, "39.310642", 0, SurfaceKind::Cylinder, SurfaceIndexingFamily::CylindricalPhiZ},
+  {0, "2.3259652", 0, SurfaceKind::Cylinder},
+  {1, "3.1353536", 0, SurfaceKind::Cylinder},
+  {2, "3.9162421", 0, SurfaceKind::Cylinder},
+  {3, "19.58824", 0, SurfaceKind::Cylinder},
+  {4, "24.527159", 0, SurfaceKind::Cylinder},
+  {5, "34.354595", 0, SurfaceKind::Cylinder},
+  {6, "39.310642", 0, SurfaceKind::Cylinder},
 };
 
 const std::vector<ExpectedSurface> kExpectedMFT{
-  {0, "-45.2889", 8, SurfaceKind::Disk, SurfaceIndexingFamily::CartesianXY},
-  {1, "-46.7111", 8, SurfaceKind::Disk, SurfaceIndexingFamily::CartesianXY},
-  {2, "-48.5889", 8, SurfaceKind::Disk, SurfaceIndexingFamily::CartesianXY},
-  {3, "-50.0111", 8, SurfaceKind::Disk, SurfaceIndexingFamily::CartesianXY},
-  {4, "-52.3889", 8, SurfaceKind::Disk, SurfaceIndexingFamily::CartesianXY},
-  {5, "-53.8111", 8, SurfaceKind::Disk, SurfaceIndexingFamily::CartesianXY},
-  {6, "-67.6889", 8, SurfaceKind::Disk, SurfaceIndexingFamily::CartesianXY},
-  {7, "-69.1111", 8, SurfaceKind::Disk, SurfaceIndexingFamily::CartesianXY},
-  {8, "-76.0889", 8, SurfaceKind::Disk, SurfaceIndexingFamily::CartesianXY},
-  {9, "-77.5111", 8, SurfaceKind::Disk, SurfaceIndexingFamily::CartesianXY},
+  {0, "-45.2889", 8, SurfaceKind::Disk},
+  {1, "-46.7111", 8, SurfaceKind::Disk},
+  {2, "-48.5889", 8, SurfaceKind::Disk},
+  {3, "-50.0111", 8, SurfaceKind::Disk},
+  {4, "-52.3889", 8, SurfaceKind::Disk},
+  {5, "-53.8111", 8, SurfaceKind::Disk},
+  {6, "-67.6889", 8, SurfaceKind::Disk},
+  {7, "-69.1111", 8, SurfaceKind::Disk},
+  {8, "-76.0889", 8, SurfaceKind::Disk},
+  {9, "-77.5111", 8, SurfaceKind::Disk},
 };
 
 template <typename Spec>
@@ -114,7 +113,7 @@ void checkAuthoredLiteralsMatchProvenanceTokens(const std::vector<ExpectedSurfac
 }
 
 template <typename Spec>
-void checkIdentityKindAndFamily(const std::vector<ExpectedSurface>& expected)
+void checkIdentityAndKind(const std::vector<ExpectedSurface>& expected)
 {
   for (const auto& row : expected) {
     const auto& authored = Spec::surfaces[row.index];
@@ -122,7 +121,6 @@ void checkIdentityKindAndFamily(const std::vector<ExpectedSurface>& expected)
     BOOST_CHECK_EQUAL(authored.identity.detectorId, row.detectorId);
     BOOST_CHECK_EQUAL(authored.identity.detectorSurfaceIndex, row.index);
     BOOST_CHECK(authored.kind == row.kind);
-    BOOST_CHECK(authored.indexingFamily == row.indexingFamily);
   }
 }
 
@@ -162,12 +160,12 @@ BOOST_AUTO_TEST_CASE(MFTAuthoredLiteralsMatchProvenanceTokensBitExactly)
 
 BOOST_AUTO_TEST_CASE(ITSIdentityKindAndIndexingFamily)
 {
-  checkIdentityKindAndFamily<ITSSurfaceSpec>(kExpectedITS);
+  checkIdentityAndKind<ITSSurfaceSpec>(kExpectedITS);
 }
 
 BOOST_AUTO_TEST_CASE(MFTIdentityKindAndIndexingFamily)
 {
-  checkIdentityKindAndFamily<MFTSurfaceSpec>(kExpectedMFT);
+  checkIdentityAndKind<MFTSurfaceSpec>(kExpectedMFT);
 }
 
 BOOST_AUTO_TEST_CASE(ITSMaterialMatchesNominalDefaultsAndRadlRhoFormula)

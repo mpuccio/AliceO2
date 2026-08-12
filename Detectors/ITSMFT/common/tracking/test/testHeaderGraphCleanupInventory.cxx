@@ -150,7 +150,7 @@ BOOST_AUTO_TEST_CASE(RetiredAndRelocatedPublicPathsAreAbsent)
     "MFTFwdTrackHelpers.h",
     "SurfaceKinematicStateLegacyAdapters.h",
     "ConfigKeyValuesPreflight.h",
-    "StateFamily.h",
+    "SurfaceKind.h",
     "TrackingOperationAdapter.h",
   };
   for (const auto header : retiredPublic) {

@@ -195,7 +195,7 @@ BOOST_AUTO_TEST_CASE(SanitizeCovariancePreservesSymmetryByConstruction)
 BOOST_AUTO_TEST_CASE(ITSLegBReproducerNowSanitizesToValidCovariance)
 {
   SurfaceKinematicState state{};
-  state.family = StateFamily::Barrel;
+  state.kind = SurfaceKind::Cylinder;
   state.referenceCoordinate = 3.76323366f;
   state.alpha = -0.12901926f;
   state.parameters[0] = 0.642236829f;
@@ -238,7 +238,7 @@ BOOST_AUTO_TEST_CASE(ITSLegBReproducerNowSanitizesToValidCovariance)
 BOOST_AUTO_TEST_CASE(MFTReproducerNowSanitizesToValidCovariance)
 {
   SurfaceKinematicState state{};
-  state.family = StateFamily::Forward;
+  state.kind = SurfaceKind::Disk;
   state.referenceCoordinate = -67.6889038f;
   state.alpha = 0.f;
   state.parameters[0] = -3.40663648f;
@@ -296,7 +296,7 @@ BOOST_AUTO_TEST_CASE(MFTReproducerNowSanitizesToValidCovariance)
 BOOST_AUTO_TEST_CASE(LargeStepPropagationRepairsCorrelationBeforeUpdate)
 {
   SurfaceKinematicState state{};
-  state.family = StateFamily::Barrel;
+  state.kind = SurfaceKind::Cylinder;
   state.referenceCoordinate = 19.2192478f;
   state.alpha = -0.12901926f;
   state.parameters[0] = 3.03678966f;
@@ -315,7 +315,7 @@ BOOST_AUTO_TEST_CASE(LargeStepPropagationRepairsCorrelationBeforeUpdate)
   }
 
   SurfaceLinearizationReference linRef{};
-  linRef.family = StateFamily::Barrel;
+  linRef.kind = SurfaceKind::Cylinder;
   linRef.referenceCoordinate = 19.2192478f;
   linRef.alpha = -0.12901926f;
   linRef.parameters[0] = 3.03678894f;
@@ -367,7 +367,7 @@ BOOST_AUTO_TEST_CASE(LargeStepPropagationRepairsCorrelationBeforeUpdate)
 SurfaceKinematicState makeOverRangeBarrelState()
 {
   SurfaceKinematicState state{};
-  state.family = StateFamily::Barrel;
+  state.kind = SurfaceKind::Cylinder;
   state.referenceCoordinate = 4.f;
   state.alpha = 0.3f;
   state.parameters[0] = 1.25f;
@@ -410,7 +410,7 @@ BOOST_AUTO_TEST_CASE(BarrelUpdateSanitizesReproducer)
   // independently visible in the test list without relying on the reproducer
   // test's name to convey it.
   SurfaceKinematicState state{};
-  state.family = StateFamily::Barrel;
+  state.kind = SurfaceKind::Cylinder;
   state.referenceCoordinate = 3.76323366f;
   state.alpha = -0.12901926f;
   state.parameters[0] = 0.642236829f;
@@ -442,7 +442,7 @@ BOOST_AUTO_TEST_CASE(BarrelLinRefRotateSanitizesOnZeroDeltaTrivialStep)
 {
   SurfaceKinematicState state = makeOverRangeBarrelState();
   SurfaceLinearizationReference linRef{};
-  linRef.family = StateFamily::Barrel;
+  linRef.kind = SurfaceKind::Cylinder;
   linRef.referenceCoordinate = state.referenceCoordinate;
   linRef.alpha = state.alpha;
   for (int i = 0; i < 5; ++i) {
@@ -460,7 +460,7 @@ BOOST_AUTO_TEST_CASE(BarrelLinRefPropagateSanitizesLargeStep)
   // above; kept as a separate, minimally-named case for the same reason as
   // BarrelUpdateSanitizesReproducer.
   SurfaceKinematicState state{};
-  state.family = StateFamily::Barrel;
+  state.kind = SurfaceKind::Cylinder;
   state.referenceCoordinate = 19.2192478f;
   state.alpha = -0.12901926f;
   state.parameters[0] = 3.03678966f;
@@ -478,7 +478,7 @@ BOOST_AUTO_TEST_CASE(BarrelLinRefPropagateSanitizesLargeStep)
     state.covariance[i] = cov[i];
   }
   SurfaceLinearizationReference linRef{};
-  linRef.family = StateFamily::Barrel;
+  linRef.kind = SurfaceKind::Cylinder;
   linRef.referenceCoordinate = 19.2192478f;
   linRef.alpha = -0.12901926f;
   linRef.parameters[0] = 3.03678894f;
@@ -502,7 +502,7 @@ BOOST_AUTO_TEST_CASE(BarrelLinRefPropagateSanitizesLargeStep)
 SurfaceKinematicState makeOverCorrelatedForwardState()
 {
   SurfaceKinematicState state{};
-  state.family = StateFamily::Forward;
+  state.kind = SurfaceKind::Disk;
   state.referenceCoordinate = -40.f;
   state.alpha = 0.f;
   state.parameters[0] = 1.f;
@@ -535,7 +535,7 @@ BOOST_AUTO_TEST_CASE(ForwardLinRefPropagateSanitizesOnZeroDzTrivialStep)
 {
   SurfaceKinematicState state = makeOverCorrelatedForwardState();
   SurfaceLinearizationReference linRef{};
-  linRef.family = StateFamily::Forward;
+  linRef.kind = SurfaceKind::Disk;
   linRef.referenceCoordinate = state.referenceCoordinate;
   for (int i = 0; i < 5; ++i) {
     linRef.parameters[i] = state.parameters[i];
@@ -550,7 +550,7 @@ BOOST_AUTO_TEST_CASE(ForwardLinRefPropagateSanitizesOnZeroDzTrivialStep)
 BOOST_AUTO_TEST_CASE(ForwardUpdateSanitizesReproducer)
 {
   SurfaceKinematicState state{};
-  state.family = StateFamily::Forward;
+  state.kind = SurfaceKind::Disk;
   state.referenceCoordinate = -67.6889038f;
   state.alpha = 0.f;
   state.parameters[0] = -3.40663648f;
@@ -587,7 +587,7 @@ BOOST_AUTO_TEST_CASE(ForwardUpdateSanitizesReproducer)
 BOOST_AUTO_TEST_CASE(MalformedExternalBarrelCovarianceStillRejectedByPreflight)
 {
   SurfaceKinematicState state{};
-  state.family = StateFamily::Barrel;
+  state.kind = SurfaceKind::Cylinder;
   state.referenceCoordinate = 4.f;
   state.alpha = 0.3f;
   state.parameters[0] = 1.25f;
@@ -611,7 +611,7 @@ BOOST_AUTO_TEST_CASE(MalformedExternalBarrelCovarianceStillRejectedByPreflight)
 BOOST_AUTO_TEST_CASE(MalformedExternalForwardCovarianceStillRejectedByPreflight)
 {
   SurfaceKinematicState state{};
-  state.family = StateFamily::Forward;
+  state.kind = SurfaceKind::Disk;
   state.referenceCoordinate = -40.f;
   state.alpha = 0.f;
   state.parameters[0] = 1.f;
@@ -640,7 +640,7 @@ BOOST_AUTO_TEST_CASE(MalformedExternalForwardCovarianceStillRejectedByPreflight)
 BOOST_AUTO_TEST_CASE(FailingBarrelUpdateLeavesStateUnchanged)
 {
   SurfaceKinematicState state{};
-  state.family = StateFamily::Barrel;
+  state.kind = SurfaceKind::Cylinder;
   state.referenceCoordinate = 4.f;
   state.alpha = 0.3f;
   state.parameters[0] = 1.25f;
@@ -670,7 +670,7 @@ BOOST_AUTO_TEST_CASE(FailingBarrelUpdateLeavesStateUnchanged)
 BOOST_AUTO_TEST_CASE(FailingBarrelRotateLeavesStateUnchanged)
 {
   SurfaceKinematicState state{};
-  state.family = StateFamily::Barrel;
+  state.kind = SurfaceKind::Cylinder;
   state.referenceCoordinate = 4.f;
   state.alpha = 0.3f;
   state.parameters[0] = 1.25f;

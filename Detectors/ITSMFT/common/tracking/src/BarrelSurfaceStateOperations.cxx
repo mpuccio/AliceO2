@@ -74,8 +74,8 @@ bool finiteMeasurement(const SurfaceMeasurement& measurement) noexcept
 
 bool validateSource(const SurfaceKinematicState& state, OperationFailureReason& reason) noexcept
 {
-  if (state.family != StateFamily::Barrel) {
-    reason = OperationFailureReason::SourceFamilyMismatch;
+  if (state.kind != SurfaceKind::Cylinder) {
+    reason = OperationFailureReason::SourceSurfaceKindMismatch;
     return false;
   }
   if (!finiteState(state)) {
@@ -178,7 +178,7 @@ bool residualInverse(const SurfaceKinematicState& state, const SurfaceMeasuremen
 bool rotate(SurfaceKinematicState& state, float targetAlpha, OperationFailureReason& reason) noexcept
 {
   if (!validateSource(state, reason) || !std::isfinite(targetAlpha)) {
-    if (state.family == StateFamily::Barrel && finiteState(state)) {
+    if (state.kind == SurfaceKind::Cylinder && finiteState(state)) {
       reason = OperationFailureReason::NonFiniteInput;
     }
     return false;
@@ -222,7 +222,7 @@ bool rotate(SurfaceKinematicState& state, float targetAlpha, OperationFailureRea
 bool propagate(SurfaceKinematicState& state, float targetX, float bz, OperationFailureReason& reason) noexcept
 {
   if (!validateSource(state, reason) || !std::isfinite(targetX) || !std::isfinite(bz)) {
-    if (state.family == StateFamily::Barrel && finiteState(state)) {
+    if (state.kind == SurfaceKind::Cylinder && finiteState(state)) {
       reason = OperationFailureReason::NonFiniteInput;
     }
     return false;
@@ -290,7 +290,7 @@ bool predictedChi2(const SurfaceKinematicState& state, const SurfaceMeasurement&
                    OperationFailureReason& reason) noexcept
 {
   if (!validateSource(state, reason) || !finiteMeasurement(measurement)) {
-    if (state.family == StateFamily::Barrel && finiteState(state)) {
+    if (state.kind == SurfaceKind::Cylinder && finiteState(state)) {
       reason = OperationFailureReason::NonFiniteInput;
     }
     return false;
@@ -318,7 +318,7 @@ bool update(SurfaceKinematicState& state, const SurfaceMeasurement& measurement,
             OperationFailureReason& reason) noexcept
 {
   if (!validateSource(state, reason) || !finiteMeasurement(measurement)) {
-    if (state.family == StateFamily::Barrel && finiteState(state)) {
+    if (state.kind == SurfaceKind::Cylinder && finiteState(state)) {
       reason = OperationFailureReason::NonFiniteInput;
     }
     return false;
@@ -363,8 +363,8 @@ bool update(SurfaceKinematicState& state, const SurfaceMeasurement& measurement,
 bool stateChi2(const SurfaceKinematicState& reference, const SurfaceKinematicState& candidate, float& chi2,
                OperationFailureReason& reason) noexcept
 {
-  if (reference.family != StateFamily::Barrel || candidate.family != StateFamily::Barrel) {
-    reason = OperationFailureReason::SourceFamilyMismatch;
+  if (reference.kind != SurfaceKind::Cylinder || candidate.kind != SurfaceKind::Cylinder) {
+    reason = OperationFailureReason::SourceSurfaceKindMismatch;
     return false;
   }
   if (!finiteState(reference) || !finiteState(candidate)) {
@@ -489,7 +489,7 @@ bool buildSeedImpl(const GlobalPoint3F& clusterA, const GlobalPoint3F& clusterB,
   scratch.covariance[packedCovarianceIndex(4, 2)] = 0.f;
   scratch.covariance[packedCovarianceIndex(4, 3)] = 0.f;
   scratch.covariance[packedCovarianceIndex(4, 4)] = sg2q2pt;
-  scratch.family = StateFamily::Barrel;
+  scratch.kind = SurfaceKind::Cylinder;
   scratch.flags = 0;
   scratch.absCharge = absCharge;
   scratch.pid = pid;
@@ -587,8 +587,8 @@ bool rotate(SurfaceKinematicState& state, SurfaceLinearizationReference& linRef,
   if (!validateSource(state, reason)) {
     return false;
   }
-  if (linRef.family != StateFamily::Barrel) {
-    reason = OperationFailureReason::SourceFamilyMismatch;
+  if (linRef.kind != SurfaceKind::Cylinder) {
+    reason = OperationFailureReason::SourceSurfaceKindMismatch;
     return false;
   }
   if (!finiteLinRef(linRef) || !std::isfinite(targetAlpha) || !std::isfinite(bz)) {
@@ -745,8 +745,8 @@ bool propagate(SurfaceKinematicState& state, SurfaceLinearizationReference& linR
   if (!validateSource(state, reason)) {
     return false;
   }
-  if (linRef.family != StateFamily::Barrel) {
-    reason = OperationFailureReason::SourceFamilyMismatch;
+  if (linRef.kind != SurfaceKind::Cylinder) {
+    reason = OperationFailureReason::SourceSurfaceKindMismatch;
     return false;
   }
   if (!finiteLinRef(linRef) || !std::isfinite(targetX) || !std::isfinite(bz)) {
@@ -900,8 +900,8 @@ bool propagate(SurfaceKinematicState& state, SurfaceLinearizationReference& linR
 bool shiftReferenceToMeasurement(SurfaceLinearizationReference& linRef, const SurfaceMeasurement& measurement,
                                  OperationFailureReason& reason) noexcept
 {
-  if (linRef.family != StateFamily::Barrel) {
-    reason = OperationFailureReason::SourceFamilyMismatch;
+  if (linRef.kind != SurfaceKind::Cylinder) {
+    reason = OperationFailureReason::SourceSurfaceKindMismatch;
     return false;
   }
   if (!std::isfinite(measurement.frame.u) || !std::isfinite(measurement.frame.v)) {

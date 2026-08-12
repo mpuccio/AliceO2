@@ -34,7 +34,7 @@ using namespace o2::itsmft::tracking;
 namespace
 {
 
-SurfaceKinematicState makeDistinctState(StateFamily family)
+SurfaceKinematicState makeDistinctState(SurfaceKind family)
 {
   SurfaceKinematicState state{};
   for (int i = 0; i < 5; ++i) {
@@ -45,7 +45,7 @@ SurfaceKinematicState makeDistinctState(StateFamily family)
   }
   state.referenceCoordinate = 42.f;
   state.alpha = 0.25f;
-  state.family = family;
+  state.kind = family;
   state.flags = 0;
   state.absCharge = 1;
   state.pid = o2::track::PID::Pion;
@@ -64,7 +64,7 @@ BOOST_AUTO_TEST_CASE(CellSeedComposesSurfaceKinematicStateAndDoesNotInheritLegac
   BOOST_CHECK(!(std::is_base_of_v<o2::track::TrackParCovFwd, TrackSeed>));
 
   CellSeed cell{};
-  const auto state = makeDistinctState(StateFamily::Barrel);
+  const auto state = makeDistinctState(SurfaceKind::Cylinder);
   cell.state() = state;
   BOOST_CHECK_EQUAL(std::memcmp(&cell.state(), &state, sizeof(SurfaceKinematicState)), 0);
 
@@ -79,7 +79,7 @@ BOOST_AUTO_TEST_CASE(CellSeedComposesSurfaceKinematicStateAndDoesNotInheritLegac
 
 BOOST_AUTO_TEST_CASE(CellTripletFactorReferencesReusePositionalClusterBinding)
 {
-  const auto state = makeDistinctState(StateFamily::Barrel);
+  const auto state = makeDistinctState(SurfaceKind::Cylinder);
   const o2::its::TimeEstBC time{};
   CellSeed cell{LayerMask{2, 4, 7}, 101, 202, 303, 1, 2, state, 0.f, time};
 
@@ -97,7 +97,7 @@ BOOST_AUTO_TEST_CASE(CellTripletFactorReferencesReusePositionalClusterBinding)
 
 BOOST_AUTO_TEST_CASE(CellSeedUsesOneCommonRepresentationAcrossLayerRanges)
 {
-  const auto state = makeDistinctState(StateFamily::Barrel);
+  const auto state = makeDistinctState(SurfaceKind::Cylinder);
   const o2::its::TimeEstBC time{};
   CellSeed itsSeed{LayerMask{0x007f}, 10, 11, 12, 1, 2, state, 0.f, time};
   CellSeed mftSeed{LayerMask{0x03ff}, 20, 21, 22, 3, 4, state, 0.f, time};
@@ -134,7 +134,7 @@ BOOST_AUTO_TEST_CASE(TrackSeedUsesOneFixedCapacity)
 BOOST_AUTO_TEST_CASE(TrackSeedConstructionFromCellCopiesStateAndMetadataCompletely)
 {
   constexpr int innerLayer = 2;
-  const auto state = makeDistinctState(StateFamily::Barrel);
+  const auto state = makeDistinctState(SurfaceKind::Cylinder);
   const o2::its::TimeEstBC time{static_cast<uint32_t>(123), static_cast<uint16_t>(4)};
   CellSeed cell{innerLayer, 10, 20, 30, 5, 6, state, 7.5f, time};
 
@@ -165,7 +165,7 @@ BOOST_AUTO_TEST_CASE(TrackSeedConstructionFromCellCopiesStateAndMetadataComplete
 
 BOOST_AUTO_TEST_CASE(GetQOverPtReturnsTheExactRawPositiveValue)
 {
-  auto state = makeDistinctState(StateFamily::Barrel);
+  auto state = makeDistinctState(SurfaceKind::Cylinder);
   state.parameters[4] = 12.5f;
   const o2::its::TimeEstBC time{};
   CellSeed cell{0, 0, 1, 2, 0, 1, state, 0.f, time};
@@ -174,7 +174,7 @@ BOOST_AUTO_TEST_CASE(GetQOverPtReturnsTheExactRawPositiveValue)
 
 BOOST_AUTO_TEST_CASE(GetQOverPtReturnsTheExactRawNegativeValueWithoutSquaringOrAbs)
 {
-  auto state = makeDistinctState(StateFamily::Forward);
+  auto state = makeDistinctState(SurfaceKind::Disk);
   state.parameters[4] = -12.5f;
   const o2::its::TimeEstBC time{};
   CellSeed cell{0, 0, 1, 2, 0, 1, state, 0.f, time};
@@ -185,8 +185,8 @@ BOOST_AUTO_TEST_CASE(GetQOverPtReturnsTheExactRawNegativeValueWithoutSquaringOrA
 
 BOOST_AUTO_TEST_CASE(GetQOverPtIsIdenticalForBarrelAndForwardGivenTheSameSlotValue)
 {
-  const auto barrelState = makeDistinctState(StateFamily::Barrel);
-  const auto forwardState = makeDistinctState(StateFamily::Forward);
+  const auto barrelState = makeDistinctState(SurfaceKind::Cylinder);
+  const auto forwardState = makeDistinctState(SurfaceKind::Disk);
   const o2::its::TimeEstBC time{};
 
   CellSeed barrelCell{0, 0, 1, 2, 0, 1, barrelState, 0.f, time};
@@ -225,7 +225,7 @@ bool passesRoadOverPtFilter(float qOverPt) noexcept
 
 BOOST_AUTO_TEST_CASE(RoadFilterAcceptsBothInclusiveBoundariesForBothFamilies)
 {
-  for (const auto family : {StateFamily::Barrel, StateFamily::Forward}) {
+  for (const auto family : {SurfaceKind::Cylinder, SurfaceKind::Disk}) {
     BOOST_CHECK(passesRoadOverPtFilter(kMaxAbsQOverPt));
     BOOST_CHECK(passesRoadOverPtFilter(-kMaxAbsQOverPt));
     (void)family; // formula itself takes no family argument; looped only for documentation
@@ -268,8 +268,8 @@ BOOST_AUTO_TEST_CASE(RoadFilterTreatsEqualMagnitudeOppositeSignSeedsIdentically)
 
   // Same check through the real accessor, for both families, at a
   // representative in-bound magnitude.
-  auto barrelState = makeDistinctState(StateFamily::Barrel);
-  auto forwardState = makeDistinctState(StateFamily::Forward);
+  auto barrelState = makeDistinctState(SurfaceKind::Cylinder);
+  auto forwardState = makeDistinctState(SurfaceKind::Disk);
   const o2::its::TimeEstBC time{};
   for (const float signedValue : {10.f, -10.f}) {
     barrelState.parameters[4] = signedValue;

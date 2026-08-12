@@ -57,7 +57,7 @@ Every implementation slice must preserve all of the following:
   publication clocks/validity, writer content, sidecars, or output formats;
 - no detector identity, source-position convention, DPL/workflow/writer type,
   typed output track, or public transition taxonomy in generic core APIs;
-- `StateFamily` remains representation metadata only;
+- `SurfaceKind` remains representation metadata only;
 - fixed device capacities remain fixed where their ABI requires them;
 - frozen `Detectors/ITSMFT/ITS/tracking/` code remains untouched;
 - no runtime-plan wrapper, coordinator, manager, service locator, callback

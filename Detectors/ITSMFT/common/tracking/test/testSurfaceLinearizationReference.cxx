@@ -36,7 +36,7 @@ SurfaceKinematicState makeBarrelState()
   state.parameters[4] = 0.8f;
   state.referenceCoordinate = 4.f;
   state.alpha = 0.3f;
-  state.family = StateFamily::Barrel;
+  state.kind = SurfaceKind::Cylinder;
   state.flags = 0x5a;
   state.absCharge = 1;
   state.pid = o2::track::PID::Kaon;
@@ -58,7 +58,7 @@ SurfaceKinematicState makeForwardState()
   state.parameters[4] = 0.3f;
   state.referenceCoordinate = -45.f;
   state.alpha = 0.f;
-  state.family = StateFamily::Forward;
+  state.kind = SurfaceKind::Disk;
   state.flags = 0x11;
   state.absCharge = 1;
   state.pid = o2::track::PID::Muon;
@@ -73,7 +73,7 @@ SurfaceKinematicState makeForwardState()
 SurfaceLinearizationReference sentinel()
 {
   SurfaceLinearizationReference ref{};
-  ref.family = StateFamily::Barrel;
+  ref.kind = SurfaceKind::Cylinder;
   ref.referenceCoordinate = 999.f;
   ref.alpha = -1.f;
   for (uint8_t i = 0; i < 5; ++i) {
@@ -87,8 +87,8 @@ SurfaceLinearizationReference sentinel()
 BOOST_AUTO_TEST_CASE(DefaultReferenceIsInvalid)
 {
   SurfaceLinearizationReference ref{};
-  BOOST_CHECK(ref.family == StateFamily::Invalid);
-  BOOST_CHECK(!ref.hasRecognizedFamily());
+  BOOST_CHECK(ref.kind == SurfaceKind::Undefined);
+  BOOST_CHECK(!ref.hasRecognizedKind());
   for (float value : ref.parameters) {
     BOOST_CHECK_EQUAL(value, 0.f);
   }
@@ -109,7 +109,7 @@ BOOST_AUTO_TEST_CASE(FactoryMapsBarrelStateFieldsExactly)
   const auto state = makeBarrelState();
   SurfaceLinearizationReference ref{};
   BOOST_REQUIRE(makeLinearizationReference(state, ref));
-  BOOST_CHECK(ref.family == StateFamily::Barrel);
+  BOOST_CHECK(ref.kind == SurfaceKind::Cylinder);
   BOOST_CHECK_EQUAL(ref.referenceCoordinate, state.referenceCoordinate);
   BOOST_CHECK_EQUAL(ref.alpha, state.alpha);
   for (uint8_t i = 0; i < 5; ++i) {
@@ -122,7 +122,7 @@ BOOST_AUTO_TEST_CASE(FactoryMapsForwardStateFieldsExactly)
   const auto state = makeForwardState();
   SurfaceLinearizationReference ref{};
   BOOST_REQUIRE(makeLinearizationReference(state, ref));
-  BOOST_CHECK(ref.family == StateFamily::Forward);
+  BOOST_CHECK(ref.kind == SurfaceKind::Disk);
   BOOST_CHECK_EQUAL(ref.referenceCoordinate, state.referenceCoordinate);
   BOOST_CHECK_EQUAL(ref.alpha, state.alpha);
   for (uint8_t i = 0; i < 5; ++i) {
@@ -133,7 +133,7 @@ BOOST_AUTO_TEST_CASE(FactoryMapsForwardStateFieldsExactly)
 BOOST_AUTO_TEST_CASE(FactoryRejectsUnrecognizedFamily)
 {
   auto state = makeBarrelState();
-  state.family = StateFamily::Invalid;
+  state.kind = SurfaceKind::Undefined;
   auto ref = sentinel();
   const auto before = ref;
   BOOST_CHECK(!makeLinearizationReference(state, ref));

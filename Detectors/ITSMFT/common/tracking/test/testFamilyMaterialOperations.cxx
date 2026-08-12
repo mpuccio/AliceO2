@@ -51,7 +51,7 @@ SurfaceKinematicState makeBarrelState(uint8_t absCharge = 1, float q2pt = 0.8f, 
   state.parameters[4] = q2pt;   // Q2Pt
   state.referenceCoordinate = 4.f;
   state.alpha = 0.3f;
-  state.family = StateFamily::Barrel;
+  state.kind = SurfaceKind::Cylinder;
   state.flags = 0x5a;
   state.absCharge = absCharge;
   state.pid = pid;
@@ -73,7 +73,7 @@ SurfaceKinematicState makeForwardState(uint8_t absCharge = 1, float q2pt = 0.8f,
   state.parameters[4] = q2pt;   // Q2Pt
   state.referenceCoordinate = -45.f;
   state.alpha = 0.f;
-  state.family = StateFamily::Forward;
+  state.kind = SurfaceKind::Disk;
   state.flags = 0x5a;
   state.absCharge = absCharge;
   state.pid = pid;
@@ -161,13 +161,13 @@ BOOST_AUTO_TEST_CASE(FamilyMismatchBothDirections)
   auto barrelState = makeBarrelState();
   const auto barrelBefore = barrelState;
   auto resultAsForward = forward::correctForMaterial(barrelState, materialBudget, material::MaterialTraversalDirection::AlongMomentum);
-  checkPreflightFailure(resultAsForward, material::MaterialFailureReason::SourceFamilyMismatch);
+  checkPreflightFailure(resultAsForward, material::MaterialFailureReason::SourceSurfaceKindMismatch);
   BOOST_CHECK(bitEqual(barrelState, barrelBefore));
 
   auto forwardState = makeForwardState();
   const auto forwardBefore = forwardState;
   auto resultAsBarrel = barrel::correctForMaterial(forwardState, materialBudget, material::MaterialTraversalDirection::AlongMomentum);
-  checkPreflightFailure(resultAsBarrel, material::MaterialFailureReason::SourceFamilyMismatch);
+  checkPreflightFailure(resultAsBarrel, material::MaterialFailureReason::SourceSurfaceKindMismatch);
   BOOST_CHECK(bitEqual(forwardState, forwardBefore));
 }
 
@@ -463,7 +463,7 @@ BOOST_AUTO_TEST_CASE(CovarianceProjectionExactIndices)
     auto result = family.correct(state, materialBudget, material::MaterialTraversalDirection::AlongMomentum);
     BOOST_REQUIRE(result.ok());
 
-    const bool isBarrel = (before.family == StateFamily::Barrel);
+    const bool isBarrel = (before.kind == SurfaceKind::Cylinder);
     const float snp = before.parameters[2];
     const float c2 = 1.f - snp * snp;
     const float expectedIndex5Increment = isBarrel ? h * A * c2 : h * A;
@@ -559,7 +559,7 @@ BOOST_AUTO_TEST_CASE(MetadataPreservedOnSuccess)
     const auto before = state;
     auto result = family.correct(state, materialBudget, material::MaterialTraversalDirection::AlongMomentum);
     BOOST_REQUIRE(result.ok());
-    BOOST_CHECK_EQUAL(static_cast<uint8_t>(state.family), static_cast<uint8_t>(before.family));
+    BOOST_CHECK_EQUAL(static_cast<uint8_t>(state.kind), static_cast<uint8_t>(before.kind));
     BOOST_CHECK_EQUAL(state.flags, before.flags);
     BOOST_CHECK_EQUAL(state.absCharge, before.absCharge);
     BOOST_CHECK_EQUAL(static_cast<uint8_t>(state.pid), static_cast<uint8_t>(before.pid));
@@ -581,7 +581,7 @@ BOOST_AUTO_TEST_CASE(RepeatedCallsAreDeterministic)
     BOOST_CHECK(bitEqual(stateA, stateB));
 
     auto failA = family.makeValid();
-    failA.family = StateFamily::Invalid;
+    failA.kind = SurfaceKind::Undefined;
     auto failB = failA;
     auto rA = family.correct(failA, materialBudget, material::MaterialTraversalDirection::AlongMomentum);
     auto rB = family.correct(failB, materialBudget, material::MaterialTraversalDirection::AlongMomentum);

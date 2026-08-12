@@ -339,7 +339,7 @@ SurfaceKinematicState barrelAttachState()
   state.parameters[4] = 0.8f;
   state.referenceCoordinate = 4.f;
   state.alpha = 0.3f;
-  state.family = StateFamily::Barrel;
+  state.kind = SurfaceKind::Cylinder;
   state.absCharge = 1;
   state.pid = o2::track::PID::Kaon;
   for (uint8_t row = 0; row < 5; ++row) {
@@ -368,7 +368,7 @@ SurfaceKinematicState diskAttachState()
   state.parameters[3] = -2.5f;
   state.parameters[4] = 0.8f;
   state.referenceCoordinate = -45.f;
-  state.family = StateFamily::Forward;
+  state.kind = SurfaceKind::Disk;
   state.absCharge = 2;
   state.pid = o2::track::PID::Pion;
   for (uint8_t row = 0; row < 5; ++row) {
@@ -867,7 +867,7 @@ BOOST_AUTO_TEST_CASE(BuildCellSeedBarrelSuccessMatchesIndependentReplayAndCharac
   BOOST_CHECK_EQUAL(outState.referenceCoordinate, barrelHitInner().xTrackingFrame);
   BOOST_CHECK_CLOSE(outState.alpha, barrelHitInner().alphaTrackingFrame, 1.e-3f);
 
-  BOOST_CHECK(outState.family == StateFamily::Barrel);
+  BOOST_CHECK(outState.kind == SurfaceKind::Cylinder);
   BOOST_CHECK_EQUAL(outState.flags, uint8_t{0});
   BOOST_CHECK_EQUAL(outState.absCharge, uint8_t{1});
   BOOST_CHECK(outState.pid == o2::track::PID::Kaon);
@@ -998,7 +998,7 @@ BOOST_AUTO_TEST_CASE(BuildCellSeedDiskSuccessMatchesIndependentReplayAndCharacte
 
   BOOST_CHECK_EQUAL(outState.referenceCoordinate, diskHitInner().zCoordinate);
   BOOST_CHECK_EQUAL(outState.alpha, 0.f);
-  BOOST_CHECK(outState.family == StateFamily::Forward);
+  BOOST_CHECK(outState.kind == SurfaceKind::Disk);
   BOOST_CHECK_EQUAL(outState.flags, uint8_t{0});
   BOOST_CHECK_EQUAL(outState.absCharge, uint8_t{2});
   BOOST_CHECK(outState.pid == o2::track::PID::Pion);

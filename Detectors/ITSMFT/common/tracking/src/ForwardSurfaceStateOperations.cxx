@@ -114,8 +114,8 @@ void identity(Matrix5& matrix) noexcept
 
 bool validateSource(const SurfaceKinematicState& state, OperationFailureReason& reason) noexcept
 {
-  if (state.family != StateFamily::Forward) {
-    reason = OperationFailureReason::SourceFamilyMismatch;
+  if (state.kind != SurfaceKind::Disk) {
+    reason = OperationFailureReason::SourceSurfaceKindMismatch;
     return false;
   }
   if (!finiteState(state)) {
@@ -261,7 +261,7 @@ bool propagateAccepted(SurfaceKinematicState& destination, float targetZ, float 
                        OperationFailureReason& reason) noexcept
 {
   if (!validateSource(destination, reason) || !std::isfinite(targetZ) || !std::isfinite(bz)) {
-    if (destination.family == StateFamily::Forward && finiteState(destination)) {
+    if (destination.kind == SurfaceKind::Disk && finiteState(destination)) {
       reason = OperationFailureReason::NonFiniteInput;
     }
     return false;
@@ -301,7 +301,7 @@ bool predictedChi2(const SurfaceKinematicState& state, const SurfaceMeasurement&
                    OperationFailureReason& reason) noexcept
 {
   if (!validateSource(state, reason) || !finiteMeasurement(measurement)) {
-    if (state.family == StateFamily::Forward && finiteState(state)) {
+    if (state.kind == SurfaceKind::Disk && finiteState(state)) {
       reason = OperationFailureReason::NonFiniteInput;
     }
     return false;
@@ -329,7 +329,7 @@ bool update(SurfaceKinematicState& state, const SurfaceMeasurement& measurement,
             OperationFailureReason& reason) noexcept
 {
   if (!validateSource(state, reason) || !finiteMeasurement(measurement)) {
-    if (state.family == StateFamily::Forward && finiteState(state)) {
+    if (state.kind == SurfaceKind::Disk && finiteState(state)) {
       reason = OperationFailureReason::NonFiniteInput;
     }
     return false;
@@ -380,7 +380,7 @@ bool update(SurfaceKinematicState& state, const SurfaceMeasurement& measurement,
 bool correctForMaterial(SurfaceKinematicState& state, float xOverX0, OperationFailureReason& reason) noexcept
 {
   if (!validateSource(state, reason) || !std::isfinite(xOverX0)) {
-    if (state.family == StateFamily::Forward && finiteState(state)) {
+    if (state.kind == SurfaceKind::Disk && finiteState(state)) {
       reason = OperationFailureReason::NonFiniteInput;
     }
     return false;
@@ -413,8 +413,8 @@ bool correctForMaterial(SurfaceKinematicState& state, float xOverX0, OperationFa
 bool stateChi2(const SurfaceKinematicState& reference, const SurfaceKinematicState& candidate, float& chi2,
                OperationFailureReason& reason) noexcept
 {
-  if (reference.family != StateFamily::Forward || candidate.family != StateFamily::Forward) {
-    reason = OperationFailureReason::SourceFamilyMismatch;
+  if (reference.kind != SurfaceKind::Disk || candidate.kind != SurfaceKind::Disk) {
+    reason = OperationFailureReason::SourceSurfaceKindMismatch;
     return false;
   }
   if (!finiteState(reference) || !finiteState(candidate)) {
@@ -544,7 +544,7 @@ bool buildSeedImpl(const SurfaceMeasurement& measurementInner, const SurfaceMeas
   scratch.covariance[packedCovarianceIndex(3, 3)] = 1.f;
   const float qptSigma = std::clamp(std::abs(invQPt), 1.f, 10.f);
   scratch.covariance[packedCovarianceIndex(4, 4)] = qptSigma * qptSigma;
-  scratch.family = StateFamily::Forward;
+  scratch.kind = SurfaceKind::Disk;
   scratch.flags = 0;
   scratch.absCharge = absCharge;
   scratch.pid = pid;
@@ -694,8 +694,8 @@ bool propagateAccepted(SurfaceKinematicState& state, SurfaceLinearizationReferen
   if (!validateSource(state, reason)) {
     return false;
   }
-  if (linRef.family != StateFamily::Forward) {
-    reason = OperationFailureReason::SourceFamilyMismatch;
+  if (linRef.kind != SurfaceKind::Disk) {
+    reason = OperationFailureReason::SourceSurfaceKindMismatch;
     return false;
   }
   if (!finiteLinRef(linRef) || !std::isfinite(targetZ) || !std::isfinite(bz)) {
@@ -763,8 +763,8 @@ bool buildSeed(const SurfaceMeasurement& measurementInner, const SurfaceMeasurem
 bool shiftReferenceToMeasurement(SurfaceLinearizationReference& linRef, const SurfaceMeasurement& measurement,
                                  OperationFailureReason& reason) noexcept
 {
-  if (linRef.family != StateFamily::Forward) {
-    reason = OperationFailureReason::SourceFamilyMismatch;
+  if (linRef.kind != SurfaceKind::Disk) {
+    reason = OperationFailureReason::SourceSurfaceKindMismatch;
     return false;
   }
   if (!std::isfinite(measurement.frame.u) || !std::isfinite(measurement.frame.v)) {

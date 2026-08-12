@@ -20,7 +20,7 @@ using namespace o2::itsmft::tracking;
 
 namespace
 {
-SurfaceKinematicState makeDistinctState(StateFamily family)
+SurfaceKinematicState makeDistinctState(SurfaceKind family)
 {
   SurfaceKinematicState state{};
   for (int i = 0; i < 5; ++i) {
@@ -31,7 +31,7 @@ SurfaceKinematicState makeDistinctState(StateFamily family)
   }
   state.referenceCoordinate = 42.f;
   state.alpha = 0.25f;
-  state.family = family;
+  state.kind = family;
   state.flags = 0;
   state.absCharge = 1;
   state.pid = o2::track::PID::Pion;
@@ -66,7 +66,7 @@ BOOST_AUTO_TEST_CASE(TrackSeedIsAConcreteNonTemplatedType)
 BOOST_AUTO_TEST_CASE(ConstructionFromCellCopiesStateAndMetadataCompletely)
 {
   constexpr int innerLayer = 2;
-  const auto state = makeDistinctState(StateFamily::Barrel);
+  const auto state = makeDistinctState(SurfaceKind::Cylinder);
   const o2::its::TimeEstBC time{static_cast<uint32_t>(123), static_cast<uint16_t>(4)};
   CellSeed cell{innerLayer, 10, 20, 30, 5, 6, state, 7.5f, time};
 
@@ -167,7 +167,7 @@ BOOST_AUTO_TEST_CASE(GetClusterIsBoundsCheckedBeyondCapacity)
 BOOST_AUTO_TEST_CASE(SlotAccessorsReturnUnusedIndexBeyondActiveCount)
 {
   const o2::its::TimeEstBC time{};
-  const auto state = makeDistinctState(StateFamily::Forward);
+  const auto state = makeDistinctState(SurfaceKind::Disk);
   CellSeed cell{0, 100, 200, 300, 1, 2, state, 0.f, time};
   TrackSeed seed{cell}; // exactly 3 active slots
 
@@ -187,7 +187,7 @@ BOOST_AUTO_TEST_CASE(SlotAccessorsReturnUnusedIndexBeyondActiveCount)
 
 BOOST_AUTO_TEST_CASE(GetQOverPtReturnsTheExactRawValueWithoutSquaringOrAbs)
 {
-  auto state = makeDistinctState(StateFamily::Forward);
+  auto state = makeDistinctState(SurfaceKind::Disk);
   state.parameters[4] = -12.5f;
   const o2::its::TimeEstBC time{};
   CellSeed cell{0, 0, 1, 2, 0, 1, state, 0.f, time};

@@ -96,7 +96,7 @@ capacity with a runtime populated prefix.
 
 Cylinder/disk differences continue to be selected by the existing private
 descriptor-driven operation binding. M7d does not expose `TransitionPolicyTag`,
-introduce `StateFamily`/`SurfaceKindPair` routing, or add detector identity,
+introduce `SurfaceKind`/`SurfaceKindPair` routing, or add detector identity,
 source conventions, DPL, workflow, writer, or typed output dependencies to
 the core headers.
 
@@ -132,7 +132,7 @@ participants, schedule order, and source-qualified exports.
 2. Delete the `CATracker`/`TrackerITS`/`TrackerMFT` compatibility aliases.
 3. Keep one generic candidate representation in the shared orchestration and
    pass typed operation work through the call-scoped edge seam.
-4. Remove the layer-count-to-`StateFamily` bridge, since policy/representation
+4. Remove the layer-count-to-`SurfaceKind` bridge, since policy/representation
    selection already comes from the validated plan and actual surface states.
 
 ### Blocked until M7e or later

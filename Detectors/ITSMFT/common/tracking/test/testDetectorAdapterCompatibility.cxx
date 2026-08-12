@@ -90,7 +90,7 @@ struct MixedRefitFixture {
     state.parameters[4] = 0.1f;
     state.referenceCoordinate = 4.f;
     state.alpha = 0.3f;
-    state.family = StateFamily::Barrel;
+    state.kind = SurfaceKind::Cylinder;
     state.absCharge = 1;
     for (uint8_t i = 0; i < 5; ++i) {
       state.covariance[packedCovarianceIndex(i, i)] = 0.1f;
@@ -173,7 +173,7 @@ BOOST_AUTO_TEST_CASE(mft_compatibility_consumes_seed_and_common_result)
 BOOST_AUTO_TEST_CASE(native_refit_rejects_invalid_generic_state)
 {
   TrackSeed seed;
-  seed.state().family = StateFamily::Invalid;
+  seed.state().kind = SurfaceKind::Undefined;
   seed.state().parameters[4] = 0.2f;
   seed.setSurfaceMask(SurfaceMask{0x007f});
 
@@ -193,8 +193,8 @@ BOOST_AUTO_TEST_CASE(generic_refit_accepts_mixed_family_and_source_seed)
   TrackingCandidate candidate;
   BOOST_REQUIRE(detail::refitSurfaceSeed(fixture.seed, fixture.parameters, 0.5f, fixture.scratch,
                                          fixture.globals, fixture.measurements, fixture.catalog(), fixture.ordered, candidate));
-  BOOST_CHECK(candidate.track.innerState.hasRecognizedFamily());
-  BOOST_CHECK(candidate.track.outerState.hasRecognizedFamily());
+  BOOST_CHECK(candidate.track.innerState.hasRecognizedKind());
+  BOOST_CHECK(candidate.track.outerState.hasRecognizedKind());
   BOOST_CHECK_EQUAL(candidate.getNumberOfClusters(), 3);
 }
 

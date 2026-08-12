@@ -28,8 +28,7 @@ constexpr StaticSurfaceDescriptor cylinder(uint16_t id, uint8_t detector, uint16
           {detector, local},
           SurfaceKind::Cylinder,
           radius,
-          {material, arealDensity},
-          SurfaceIndexingFamily::CylindricalPhiZ};
+          {material, arealDensity}};
 }
 
 constexpr StaticSurfaceDescriptor disk(uint16_t id, uint8_t detector, uint16_t local, float z = -40.f,
@@ -39,8 +38,7 @@ constexpr StaticSurfaceDescriptor disk(uint16_t id, uint8_t detector, uint16_t l
           {detector, local},
           SurfaceKind::Disk,
           z,
-          {material, arealDensity},
-          SurfaceIndexingFamily::CartesianXY};
+          {material, arealDensity}};
 }
 
 struct Cylinders {
@@ -99,7 +97,6 @@ constexpr auto sparseId = [](auto& surfaces) { surfaces[1].id = SurfaceId{2}; };
 constexpr auto duplicateIdentity = [](auto& surfaces) { surfaces[1].identity = surfaces[0].identity; };
 constexpr auto sparseLocalIdentity = [](auto& surfaces) { surfaces[1].identity.detectorSurfaceIndex = 2; };
 constexpr auto invalidKind = [](auto& surfaces) { surfaces[0].kind = static_cast<SurfaceKind>(0xff); };
-constexpr auto invalidIndexing = [](auto& surfaces) { surfaces[0].indexingFamily = SurfaceIndexingFamily::Invalid; };
 constexpr auto nanCoordinate = [](auto& surfaces) {
   surfaces[0].nominalReferenceCoordinate = std::numeric_limits<float>::quiet_NaN();
 };
@@ -155,7 +152,6 @@ static_assert(!validateSurfaceSpec<MutatedCylinders<sparseId>>());
 static_assert(!validateSurfaceSpec<MutatedCylinders<duplicateIdentity>>());
 static_assert(!validateSurfaceSpec<MutatedCylinders<sparseLocalIdentity>>());
 static_assert(!validateSurfaceSpec<MutatedCylinders<invalidKind>>());
-static_assert(!validateSurfaceSpec<MutatedCylinders<invalidIndexing>>());
 static_assert(!validateSurfaceSpec<MutatedCylinders<nanCoordinate>>());
 static_assert(!validateSurfaceSpec<MutatedCylinders<infiniteCoordinate>>());
 static_assert(!validateSurfaceSpec<MutatedCylinders<zeroCylinderRadius>>());
@@ -216,10 +212,9 @@ BOOST_AUTO_TEST_CASE(SurfaceDescriptorRuntimeAbiLock)
   BOOST_CHECK_EQUAL(alignof(SurfaceDescriptor), 4u);
   BOOST_CHECK_EQUAL(offsetof(SurfaceDescriptor, material), 12u);
 
-  BOOST_CHECK_EQUAL(sizeof(StaticSurfaceDescriptor), 24u);
+  BOOST_CHECK_EQUAL(sizeof(StaticSurfaceDescriptor), 20u);
   BOOST_CHECK_EQUAL(alignof(StaticSurfaceDescriptor), 4u);
   BOOST_CHECK_EQUAL(offsetof(StaticSurfaceDescriptor, material), 12u);
-  BOOST_CHECK_EQUAL(offsetof(StaticSurfaceDescriptor, indexingFamily), 20u);
 
   // Default-constructed material on both descriptor types is zero on both
   // fields independently -- not just "some default", but exactly zero.
@@ -244,7 +239,6 @@ BOOST_AUTO_TEST_CASE(ConcatenationRebasesAndPreservesFields)
   BOOST_CHECK(Combined::surfaces[2].kind == Disks::surfaces[0].kind);
   BOOST_CHECK_EQUAL(Combined::surfaces[2].nominalReferenceCoordinate, Disks::surfaces[0].nominalReferenceCoordinate);
   BOOST_CHECK_EQUAL(Combined::surfaces[2].material.xOverX0, Disks::surfaces[0].material.xOverX0);
-  BOOST_CHECK(Combined::surfaces[2].indexingFamily == Disks::surfaces[0].indexingFamily);
 }
 
 BOOST_AUTO_TEST_CASE(RuntimeProjectionHasIdealStaticSemantics)

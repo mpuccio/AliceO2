@@ -65,7 +65,7 @@ GPUhdi() void resetCovarianceForRefit(SurfaceKinematicState& state) noexcept
   for (auto& element : state.covariance) {
     element = 0.f;
   }
-  if (state.family == StateFamily::Barrel) {
+  if (state.kind == SurfaceKind::Cylinder) {
     state.covariance[packedCovarianceIndex(0, 0)] = o2::track::kCY2max;
     state.covariance[packedCovarianceIndex(1, 1)] = o2::track::kCZ2max;
     state.covariance[packedCovarianceIndex(2, 2)] = o2::track::kCSnp2max;
@@ -130,7 +130,7 @@ inline bool fitTrackSeedLegs(
   SurfaceKinematicState stateA = seed.state();
   SurfaceLinearizationReference linRefA{};
   if (!makeLinearizationReference(stateA, linRefA)) {
-    reason = OperationFailureReason::SourceFamilyMismatch;
+    reason = OperationFailureReason::SourceSurfaceKindMismatch;
     return false;
   }
   resetCovarianceForRefit(stateA);
@@ -154,7 +154,7 @@ inline bool fitTrackSeedLegs(
   SurfaceKinematicState stateB = stateA;
   SurfaceLinearizationReference linRefB{};
   if (!makeLinearizationReference(stateB, linRefB)) {
-    reason = OperationFailureReason::SourceFamilyMismatch;
+    reason = OperationFailureReason::SourceSurfaceKindMismatch;
     return false;
   }
   resetCovarianceForRefit(stateB);
@@ -189,7 +189,7 @@ inline bool fitTrackSeedLegs(
     SurfaceKinematicState stateC = stateB;
     SurfaceLinearizationReference linRefC{};
     if (!makeLinearizationReference(stateC, linRefC)) {
-      reason = OperationFailureReason::SourceFamilyMismatch;
+      reason = OperationFailureReason::SourceSurfaceKindMismatch;
       return false;
     }
     resetCovarianceForRefit(stateC);

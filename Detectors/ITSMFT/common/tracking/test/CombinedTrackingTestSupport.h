@@ -174,7 +174,7 @@ class CombinedTrackingPlan
         }
         std::vector<TrackingCandidate> selected;
         for (std::size_t index = 0; index < result.acceptedTrackCounts[i]; ++index) {
-          if (candidates[index].track.innerState.family == StateFamily::Barrel) {
+          if (candidates[index].track.innerState.kind == SurfaceKind::Cylinder) {
             selected.push_back(candidates[index]);
           }
         }
@@ -204,7 +204,7 @@ class CombinedTrackingPlan
         }
         std::vector<TrackingCandidate> selected;
         for (std::size_t index = 0; index < result.acceptedTrackCounts[i]; ++index) {
-          if (candidates[index].track.innerState.family == StateFamily::Forward) {
+          if (candidates[index].track.innerState.kind == SurfaceKind::Disk) {
             selected.push_back(candidates[index]);
           }
         }

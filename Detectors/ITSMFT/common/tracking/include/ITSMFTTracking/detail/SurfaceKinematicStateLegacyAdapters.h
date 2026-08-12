@@ -34,7 +34,7 @@ inline bool importBarrelTrackParCov(const o2::track::TrackParCovF& source, Surfa
   for (uint8_t i = 0; i < 15; ++i) {
     scratch.covariance[i] = source.getCov()[i];
   }
-  scratch.family = StateFamily::Barrel;
+  scratch.kind = SurfaceKind::Cylinder;
   scratch.absCharge = static_cast<uint8_t>(source.getAbsCharge());
   scratch.pid = source.getPID();
   destination = scratch;
@@ -43,7 +43,7 @@ inline bool importBarrelTrackParCov(const o2::track::TrackParCovF& source, Surfa
 
 inline bool exportBarrelTrackParCov(const SurfaceKinematicState& source, o2::track::TrackParCovF& destination) noexcept
 {
-  if (source.family != StateFamily::Barrel) {
+  if (source.kind != SurfaceKind::Cylinder) {
     return false;
   }
   o2::track::TrackParCovF::params_t parameters{};
@@ -101,7 +101,7 @@ inline bool importLegacyForwardTrackParCov(const o2::track::TrackParCovFwd& sour
       scratch.covariance[packedCovarianceIndex(row, column)] = value;
     }
   }
-  scratch.family = StateFamily::Forward;
+  scratch.kind = SurfaceKind::Disk;
   scratch.absCharge = 1;
   scratch.pid = o2::track::PID::Pion;
   destination = scratch;
@@ -112,7 +112,7 @@ inline bool importLegacyForwardTrackParCov(const o2::track::TrackParCovFwd& sour
 // from the common float representation.
 inline bool exportLegacyForwardTrackParCov(const SurfaceKinematicState& source, o2::track::TrackParCovFwd& destination) noexcept
 {
-  if (source.family != StateFamily::Forward) {
+  if (source.kind != SurfaceKind::Disk) {
     return false;
   }
   o2::track::SMatrix5 parameters{};

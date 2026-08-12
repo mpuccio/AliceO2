@@ -38,7 +38,7 @@ tracklet/cell/road/refit flow" ADR 0007 decision 10 requires, and both still `Tr
    unmodified): it transports `SurfaceKinematicState` along the nominal field using
    this library's own nominal-material mechanism (`SurfaceDescriptor::material`, ADR
    0001) in place of a hit-based MatLUT lookup. It adds one new capability beyond what
-   the M5a-era `barrel::`/`forward::` primitives already had: `Propagator::convertFamily`,
+   the M5a-era `barrel::`/`forward::` primitives already had: `Propagator::convertKind`,
    a real coordinate/covariance transform between the Barrel and Forward
    representations, evaluated at the state's current reference surface (never a
    family-flag flip). `Propagator::propagateToMeasurement` composes compatibility

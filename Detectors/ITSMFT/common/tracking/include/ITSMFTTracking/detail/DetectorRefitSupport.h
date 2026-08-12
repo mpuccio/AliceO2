@@ -43,11 +43,11 @@ inline void configureMFTBeamPosition(TimeFrame& frame, const TrackingParameters&
 inline bool fillCandidateKinematics(TrackingCandidate& candidate) noexcept
 {
   auto& state = candidate.track.innerState;
-  if (!state.hasRecognizedFamily() || !std::isfinite(state.parameters[4])) {
+  if (!state.hasRecognizedKind() || !std::isfinite(state.parameters[4])) {
     return false;
   }
   candidate.charge = state.parameters[4] < 0.f ? -1 : 1;
-  if (state.family == StateFamily::Barrel) {
+  if (state.kind == SurfaceKind::Cylinder) {
     if (std::abs(state.parameters[2]) >= 1.f) {
       return false;
     }

@@ -708,7 +708,7 @@ bool buildCellSeed(
       return buildDiskCellSeed(measurementInner, measurementMiddle, measurementOuter,
                                material, bz, absCharge, pid, outState, chi2, params, reason);
   }
-  reason = OperationFailureReason::SourceFamilyMismatch;
+  reason = OperationFailureReason::SourceSurfaceKindMismatch;
   return false;
 }
 

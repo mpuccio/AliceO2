@@ -47,7 +47,7 @@ SurfaceKinematicState makeState()
   state.parameters[4] = 0.8f;
   state.referenceCoordinate = 4.f;
   state.alpha = 0.3f;
-  state.family = StateFamily::Barrel;
+  state.kind = SurfaceKind::Cylinder;
   state.flags = 0x5a;
   state.absCharge = 1;
   state.pid = o2::track::PID::Kaon;
@@ -120,7 +120,7 @@ o2::its::TrackingFrameInfo makeOuterHit(bool mirror = false)
 
 void checkBuildSeedMetadata(const SurfaceKinematicState& state, uint8_t expectedAbsCharge, o2::track::PID expectedPid)
 {
-  BOOST_CHECK(state.family == StateFamily::Barrel);
+  BOOST_CHECK(state.kind == SurfaceKind::Cylinder);
   BOOST_CHECK_EQUAL(state.flags, uint8_t{0});
   BOOST_CHECK_EQUAL(state.absCharge, expectedAbsCharge);
   BOOST_CHECK_EQUAL(static_cast<uint8_t>(state.pid), static_cast<uint8_t>(expectedPid));
@@ -188,7 +188,7 @@ void checkClose(float value, float oracle, Drift& drift)
 
 void checkMetadata(const SurfaceKinematicState& state, const SurfaceKinematicState& before)
 {
-  BOOST_CHECK_EQUAL(static_cast<uint8_t>(state.family), static_cast<uint8_t>(before.family));
+  BOOST_CHECK_EQUAL(static_cast<uint8_t>(state.kind), static_cast<uint8_t>(before.kind));
   BOOST_CHECK_EQUAL(state.flags, before.flags);
   BOOST_CHECK_EQUAL(state.absCharge, before.absCharge);
   BOOST_CHECK_EQUAL(static_cast<uint8_t>(state.pid), static_cast<uint8_t>(before.pid));
@@ -347,8 +347,8 @@ BOOST_AUTO_TEST_CASE(FailuresAreTransactionalAndAnalyticallyGuaranteed)
 {
   constexpr float InitialChi2 = 123.f;
   auto wrongFamily = makeState();
-  wrongFamily.family = StateFamily::Forward;
-  checkStateFailurePreservesBytes(wrongFamily, InitialChi2, OperationFailureReason::SourceFamilyMismatch,
+  wrongFamily.kind = SurfaceKind::Disk;
+  checkStateFailurePreservesBytes(wrongFamily, InitialChi2, OperationFailureReason::SourceSurfaceKindMismatch,
                                   [](auto& state, auto&, auto& reason) { return rotate(state, 0.5f, reason); });
   auto nonFiniteState = makeState();
   nonFiniteState.parameters[0] = std::numeric_limits<float>::infinity();
@@ -542,12 +542,12 @@ BOOST_AUTO_TEST_CASE(StateChi2RejectsInvalidInputsAndPreservesState)
   constexpr float InitialChi2 = 77.f;
 
   auto wrongFamilyCandidate = makeCandidateState();
-  wrongFamilyCandidate.family = StateFamily::Forward;
-  checkStateChi2FailurePreservesBytes(makeState(), wrongFamilyCandidate, InitialChi2, OperationFailureReason::SourceFamilyMismatch);
+  wrongFamilyCandidate.kind = SurfaceKind::Disk;
+  checkStateChi2FailurePreservesBytes(makeState(), wrongFamilyCandidate, InitialChi2, OperationFailureReason::SourceSurfaceKindMismatch);
 
   auto wrongFamilyReference = makeState();
-  wrongFamilyReference.family = StateFamily::Forward;
-  checkStateChi2FailurePreservesBytes(wrongFamilyReference, makeCandidateState(), InitialChi2, OperationFailureReason::SourceFamilyMismatch);
+  wrongFamilyReference.kind = SurfaceKind::Disk;
+  checkStateChi2FailurePreservesBytes(wrongFamilyReference, makeCandidateState(), InitialChi2, OperationFailureReason::SourceSurfaceKindMismatch);
 
   auto nonFiniteReference = makeState();
   nonFiniteReference.parameters[2] = std::numeric_limits<float>::quiet_NaN();

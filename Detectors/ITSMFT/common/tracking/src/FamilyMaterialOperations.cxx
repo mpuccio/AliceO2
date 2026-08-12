@@ -139,11 +139,11 @@ void limitBarrelCovariance(SurfaceKinematicState& scratch) noexcept
 // supplied by the caller; the shared slope-finite/slot4-finite-nonzero part
 // of step 3 is applied here for both families.
 template <typename FamilyKinematicsCheck>
-bool preflightValidate(const SurfaceKinematicState& state, StateFamily expectedFamily, FamilyKinematicsCheck&& familyCheck,
+bool preflightValidate(const SurfaceKinematicState& state, SurfaceKind expectedFamily, FamilyKinematicsCheck&& familyCheck,
                        material::MaterialFailureReason& failure) noexcept
 {
-  if (state.family != expectedFamily) {
-    failure = material::MaterialFailureReason::SourceFamilyMismatch;
+  if (state.kind != expectedFamily) {
+    failure = material::MaterialFailureReason::SourceSurfaceKindMismatch;
     return false;
   }
   if (!allStateFloatsFinite(state)) {
@@ -187,7 +187,7 @@ bool preflightValidate(const SurfaceKinematicState& state, StateFamily expectedF
 // retained checkCovariance limits: those diagonals must not be silently
 // clamped by an operation that has no material to apply.
 template <typename FamilyKinematicsCheck, typename ProjectCovariance>
-material::MaterialOperationResult correctForMaterialImpl(SurfaceKinematicState& state, StateFamily expectedFamily,
+material::MaterialOperationResult correctForMaterialImpl(SurfaceKinematicState& state, SurfaceKind expectedFamily,
                                                          material::IntegratedMaterialBudget materialBudget,
                                                          material::MaterialTraversalDirection direction,
                                                          FamilyKinematicsCheck&& familyCheck,
@@ -282,7 +282,7 @@ material::MaterialOperationResult correctForMaterial(SurfaceKinematicState& stat
     scratch.covariance[packedCovarianceIndex(4, 4)] += h * (t * k) * (t * k) + k * k * R;
     limitBarrelCovariance(scratch);
   };
-  return correctForMaterialImpl(state, StateFamily::Barrel, materialBudget, direction, familyCheck, projectCovariance);
+  return correctForMaterialImpl(state, SurfaceKind::Cylinder, materialBudget, direction, familyCheck, projectCovariance);
 }
 
 } // namespace o2::itsmft::tracking::barrel
@@ -312,7 +312,7 @@ material::MaterialOperationResult correctForMaterial(SurfaceKinematicState& stat
     scratch.covariance[packedCovarianceIndex(4, 3)] += h * A * t * k;
     scratch.covariance[packedCovarianceIndex(4, 4)] += h * (t * k) * (t * k) + k * k * R;
   };
-  return correctForMaterialImpl(state, StateFamily::Forward, materialBudget, direction, familyCheck, projectCovariance);
+  return correctForMaterialImpl(state, SurfaceKind::Disk, materialBudget, direction, familyCheck, projectCovariance);
 }
 
 } // namespace o2::itsmft::tracking::forward

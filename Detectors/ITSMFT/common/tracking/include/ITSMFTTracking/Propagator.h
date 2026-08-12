@@ -25,8 +25,7 @@
 // SurfaceCatalogView.
 //
 // Every routing decision in this class inspects the actual
-// SurfaceDescriptor::kind of the surface at hand (equivalently, the
-// StateFamily it implies via stateFamilyOf()) at the call
+// SurfaceDescriptor::kind of the surface at hand at the call
 // site. Nothing here names the confined legacy hot-loop-dispatch tag
 // (detail/TrackingKernelParameters.h) or a persisted family/kind pair, and
 // nothing here names ITS, MFT, a detector ID, a fixed layer count, a source
@@ -57,13 +56,13 @@ class Propagator
   static bool propagateForward(SurfaceKinematicState& state, SurfaceLinearizationReference& linRef,
                                float targetZ, float bz, OperationFailureReason& reason) noexcept;
 
-  // State-family conversion.
+  // Surface-kind conversion.
   // Re-expresses `state` (and, if supplied, its paired `linRef`) in
-  // `targetFamily`'s parameter/reference convention, evaluated at the
+  // `targetKind`'s parameter/reference convention, evaluated at the
   // state's *current* reference surface (task requirement 4: a real
   // coordinate/state/covariance transformation, never a family-flag
   // mutation and never a shortcut that pretends the state is already on
-  // the target surface). `state.family == targetFamily` is accepted as a
+  // the target surface). `state.kind == targetKind` is accepted as a
   // no-op success.
   //
   // The conversion is a first-order (linearized-Jacobian) reparametrization
@@ -85,19 +84,19 @@ class Propagator
   // family-specific parameter convention. Transactional: both `state` and
   // `linRef` (if supplied) are left completely unchanged, byte-for-byte, on
   // any failure.
-  static bool convertFamily(SurfaceKinematicState& state, SurfaceLinearizationReference* linRef,
-                            StateFamily targetFamily, OperationFailureReason& reason) noexcept;
+  static bool convertKind(SurfaceKinematicState& state, SurfaceLinearizationReference* linRef,
+                            SurfaceKind targetKind, OperationFailureReason& reason) noexcept;
 
   // Propagation to a measurement.
   // Contract (task spec items 1-7):
   //  1. `targetSurface`/`targetMeasurement` are the explicit target
   //     surface/measurement context; `state`/`linRef` are the explicit
   //     current/source-surface context.
-  //  2. Compatibility is `state.family == stateFamilyOf(targetSurface.kind)`.
-  //  3. On mismatch, `state`/`linRef` are converted (convertFamily above,
-  //     targeting stateFamilyOf(targetSurface.kind)) before any rotation or
+  //  2. Compatibility is `state.kind == targetSurface.kind`.
+  //  3. On mismatch, `state`/`linRef` are converted (convertKind above,
+  //     targeting `targetSurface.kind`) before any rotation or
   //     propagation is attempted.
-  //  4. See convertFamily's own doc: a real transform, never a flag flip.
+  //  4. See convertKind's own doc: a real transform, never a flag flip.
   //  5. charge/PID/reference/linearization state survive intact -- assigned
   //     only by the barrel::/forward:: primitives' own already-documented
   //     transactional contracts (BarrelSurfaceStateOperations.h /

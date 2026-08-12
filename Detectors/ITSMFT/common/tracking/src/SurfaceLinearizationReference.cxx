@@ -14,7 +14,7 @@ namespace o2::itsmft::tracking
 
 bool makeLinearizationReference(const SurfaceKinematicState& state, SurfaceLinearizationReference& out) noexcept
 {
-  if (!state.hasRecognizedFamily()) {
+  if (!state.hasRecognizedKind()) {
     return false;
   }
   SurfaceLinearizationReference scratch{};
@@ -29,7 +29,7 @@ bool makeLinearizationReference(const SurfaceKinematicState& state, SurfaceLinea
   }
   scratch.referenceCoordinate = state.referenceCoordinate;
   scratch.alpha = state.alpha;
-  scratch.family = state.family;
+  scratch.kind = state.kind;
   out = scratch;
   return true;
 }

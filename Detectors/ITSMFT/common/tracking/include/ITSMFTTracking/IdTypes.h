@@ -17,6 +17,16 @@
 namespace o2::itsmft::tracking
 {
 
+// The coordinate convention of a surface and every state defined on it.
+enum class SurfaceKind : uint8_t {
+  Undefined,
+  Cylinder,
+  Disk
+};
+
+static_assert(std::is_same_v<std::underlying_type_t<SurfaceKind>, uint8_t>);
+static_assert(sizeof(SurfaceKind) == sizeof(uint8_t));
+
 namespace detail
 {
 template <typename Tag, typename ValueType>
@@ -52,6 +62,11 @@ using TransitionId = detail::Identifier<TransitionIdTag, uint16_t>;
 using CellTopologyId = detail::Identifier<CellTopologyIdTag, uint16_t>;
 using ClusterSourceId = detail::Identifier<ClusterSourceIdTag, uint16_t>;
 using SurfaceMeasurementIndex = detail::Identifier<ClusterIndexTag, uint32_t>;
+
+GPUhdi() constexpr bool isRecognizedSurfaceKind(SurfaceKind kind) noexcept
+{
+  return kind == SurfaceKind::Cylinder || kind == SurfaceKind::Disk;
+}
 
 inline constexpr uint32_t MaxLayoutSurfaces = 32;
 inline constexpr uint32_t MaxLayoutTransitions = MaxLayoutSurfaces * (MaxLayoutSurfaces - 1);

@@ -42,7 +42,7 @@ static_assert(static_cast<uint8_t>(TraversalFailureReason::IterationOutOfRange) 
 static_assert(static_cast<uint8_t>(TraversalFailureReason::SparseTopologyMismatch) == 3);
 static_assert(static_cast<uint8_t>(TraversalFailureReason::InvalidTraversalSchedule) == 4);
 static_assert(static_cast<uint8_t>(TraversalFailureReason::MixedSurfaceKindLayout) == 5);
-static_assert(static_cast<uint8_t>(TraversalFailureReason::StateFamilyMismatch) == 6);
+static_assert(static_cast<uint8_t>(TraversalFailureReason::SurfaceKindMismatch) == 6);
 static_assert(static_cast<uint8_t>(TraversalFailureReason::InvalidSurfaceParameters) == 7);
 static_assert(static_cast<uint8_t>(TraversalFailureReason::InvalidIndexTableConfiguration) == 8);
 static_assert(static_cast<uint8_t>(TraversalFailureReason::IndexTableConfigurationMismatch) == 9);

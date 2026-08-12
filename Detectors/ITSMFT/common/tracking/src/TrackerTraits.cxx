@@ -92,7 +92,7 @@ std::optional<uint32_t> appendCommonTrack(TimeFrame& frame,
     resolvedReferences.push_back(reference);
     track.hitSurfaces.set(reference.surface);
   }
-  if (!track.innerState.hasRecognizedFamily() || !track.outerState.hasRecognizedFamily() ||
+  if (!track.innerState.hasRecognizedKind() || !track.outerState.hasRecognizedKind() ||
       !track.timestamp.isValid() || resolvedReferences.empty()) {
     return std::nullopt;
   }

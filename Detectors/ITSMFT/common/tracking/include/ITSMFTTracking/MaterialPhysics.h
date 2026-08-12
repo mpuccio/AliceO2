@@ -38,12 +38,12 @@ struct IntegratedMaterialBudget {
 };
 
 // Reasons a scalar material-physics operation can fail to produce a usable
-// result. SourceFamilyMismatch, NonFiniteState, InvalidStateKinematics, and
+// result. SourceSurfaceKindMismatch, NonFiniteState, InvalidStateKinematics, and
 // InvalidCovariance are reserved for later composite family operations that
 // carry a full track state; calculateMaterialPhysics() never emits them.
 enum class MaterialFailureReason : uint8_t {
   None = 0,
-  SourceFamilyMismatch = 1,
+  SourceSurfaceKindMismatch = 1,
   NonFiniteState = 2,
   InvalidStateKinematics = 3,
   InvalidPID = 4,

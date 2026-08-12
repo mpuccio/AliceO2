@@ -14,7 +14,7 @@ namespace o2::itsmft::tracking
 {
 
 enum class OperationFailureReason : uint8_t {
-  SourceFamilyMismatch = 0,
+  SourceSurfaceKindMismatch = 0,
   NonFiniteInput = 1,
   NonFiniteOutput = 2,
   InvalidCovariance = 3,
@@ -44,7 +44,7 @@ enum class OperationFailureReason : uint8_t {
   // Family conversion was attempted but failed (invalid target family,
   // direction boundary, or non-finite converted state), distinct from a
   // source-family mismatch where conversion was not attempted.
-  FamilyConversionFailure = 18
+  SurfaceKindConversionFailure = 18
 };
 
 static_assert(sizeof(OperationFailureReason) == sizeof(uint8_t));

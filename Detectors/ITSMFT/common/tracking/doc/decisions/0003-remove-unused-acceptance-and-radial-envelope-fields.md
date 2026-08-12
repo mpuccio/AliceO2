@@ -51,10 +51,10 @@ nominal-geometry validator's diagnostic output, unchanged.
   `sizeof(SurfaceDescriptor) == 20` (was 28), `offsetof(..., material) ==
   12` (was 20).
 - `StaticSurfaceDescriptor` shrinks to `{id, identity, kind,
-  nominalReferenceCoordinate, material, indexingFamily}`:
+  nominalReferenceCoordinate, material}`:
   `sizeof(StaticSurfaceDescriptor) == 24` (was 36),
   `offsetof(..., material) == 12` (was 24), `offsetof(...,
-  indexingFamily) == 20` (was 32).
+  material) == 12` (was 32).
 - `toRuntimeSurfaceDescriptor()` simplifies to a flat, unconditional field
   copy -- no per-kind branch left, since there is nothing left to branch
   on.

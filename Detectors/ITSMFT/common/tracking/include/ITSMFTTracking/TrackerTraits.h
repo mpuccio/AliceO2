@@ -66,7 +66,7 @@ enum class TraversalFailureReason : uint8_t {
   SparseTopologyMismatch,
   InvalidTraversalSchedule,
   MixedSurfaceKindLayout,
-  StateFamilyMismatch,
+  SurfaceKindMismatch,
   InvalidSurfaceParameters,
   // The iteration's index-table configuration failed structural validation.
   InvalidIndexTableConfiguration,

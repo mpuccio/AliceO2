@@ -61,7 +61,7 @@ No new wrapper type; existing mechanism only.
   `static_cast<uint8_t>(o2::detectors::DetID::ITS)` (0) /
   `o2::detectors::DetID::MFT` (8), local index equal to the surface's
   position.
-- `kind`/`indexingFamily`: `Cylinder`/`CylindricalPhiZ` for every ITS
+- `kind`: `Cylinder` for every ITS
   surface, `Disk`/`CartesianXY` for every MFT surface.
 
 ## Non-goals
@@ -86,7 +86,7 @@ tables, not approved ones).
   reproduces the exact `float32` bit pattern of its source JSON token
   (`strtof` + `memcpy`'d `uint32_t` ==, zero tolerance -- not a geometry
   comparison, no geometry file touched); (b) `id`/`identity`/`kind`/
-  `indexingFamily` match the authored table exactly; (c) `material`
+  `kind` matches the authored table exactly; (c) `material`
   matches `kNominalITSLayerX0`/`kNominalMFTLayerX0` and the `Radl*Rho`
   formula; (d) `toRuntimeSurfaceDescriptor()` preserves every field,
   including the reference-coordinate bit pattern, bit-exactly.

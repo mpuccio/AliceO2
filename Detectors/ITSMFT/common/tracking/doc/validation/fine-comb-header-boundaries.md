@@ -25,9 +25,9 @@ deleted. Both fitted-state and paired-linearization-reference propagation are
 transactional and retain their existing covariance sanitization and failure
 classification.
 
-`StateFamily` remains the necessary barrel/forward state-representation tag,
-but it and `stateFamilyOf(SurfaceKind)` now belong to
-`SurfaceKinematicState.h`; the standalone `StateFamily.h` is deleted.
+`SurfaceKind` remains the necessary barrel/forward state-representation tag,
+but it now belongs to
+`SurfaceKinematicState.h`; the standalone `SurfaceKind.h` is deleted.
 
 `TrackingOperationAdapter` is deleted. `Tracker` stores a typed
 `SeedRefitFunction`, selected once at the ITS or MFT workflow edge. The detail

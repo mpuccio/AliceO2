@@ -124,7 +124,7 @@ bool barrelToForward(SurfaceKinematicState& state, SurfaceLinearizationReference
   }
   const float snp = state.parameters[2];
   if (!(std::abs(snp) < 1.f)) {
-    reason = OperationFailureReason::FamilyConversionFailure;
+    reason = OperationFailureReason::SurfaceKindConversionFailure;
     return false;
   }
   const float csA = std::cos(state.alpha);
@@ -162,13 +162,13 @@ bool barrelToForward(SurfaceKinematicState& state, SurfaceLinearizationReference
   }
 
   if (linRef != nullptr) {
-    if (linRef->family != state.family || linRef->referenceCoordinate != state.referenceCoordinate || linRef->alpha != state.alpha) {
-      reason = OperationFailureReason::FamilyConversionFailure;
+    if (linRef->kind != state.kind || linRef->referenceCoordinate != state.referenceCoordinate || linRef->alpha != state.alpha) {
+      reason = OperationFailureReason::SurfaceKindConversionFailure;
       return false;
     }
     const float linSnp = linRef->parameters[2];
     if (!(std::abs(linSnp) < 1.f)) {
-      reason = OperationFailureReason::FamilyConversionFailure;
+      reason = OperationFailureReason::SurfaceKindConversionFailure;
       return false;
     }
     const float linBX = linRef->referenceCoordinate;
@@ -195,7 +195,7 @@ bool barrelToForward(SurfaceKinematicState& state, SurfaceLinearizationReference
     // propagation anchor.
     linRef->referenceCoordinate = zGlo;
     linRef->alpha = 0.f;
-    linRef->family = StateFamily::Forward;
+    linRef->kind = SurfaceKind::Disk;
   }
 
   for (uint8_t i = 0; i < 5; ++i) {
@@ -206,7 +206,7 @@ bool barrelToForward(SurfaceKinematicState& state, SurfaceLinearizationReference
   }
   state.referenceCoordinate = zGlo;
   state.alpha = 0.f;
-  state.family = StateFamily::Forward;
+  state.kind = SurfaceKind::Disk;
   return true;
 }
 
@@ -233,7 +233,7 @@ bool forwardToBarrel(SurfaceKinematicState& state, SurfaceLinearizationReference
   const float y = state.parameters[1];
   const float r = std::sqrt(x * x + y * y);
   if (!(r > 1.e-6f)) {
-    reason = OperationFailureReason::FamilyConversionFailure;
+    reason = OperationFailureReason::SurfaceKindConversionFailure;
     return false;
   }
   const float alpha = std::atan2(y, x);
@@ -243,7 +243,7 @@ bool forwardToBarrel(SurfaceKinematicState& state, SurfaceLinearizationReference
   const float csp = std::cos(phi - alpha);
   const float snp = std::sin(phi - alpha);
   if (!(std::abs(snp) < 1.f)) {
-    reason = OperationFailureReason::FamilyConversionFailure;
+    reason = OperationFailureReason::SurfaceKindConversionFailure;
     return false;
   }
 
@@ -268,8 +268,8 @@ bool forwardToBarrel(SurfaceKinematicState& state, SurfaceLinearizationReference
   }
 
   if (linRef != nullptr) {
-    if (linRef->family != state.family || linRef->referenceCoordinate != state.referenceCoordinate) {
-      reason = OperationFailureReason::FamilyConversionFailure;
+    if (linRef->kind != state.kind || linRef->referenceCoordinate != state.referenceCoordinate) {
+      reason = OperationFailureReason::SurfaceKindConversionFailure;
       return false;
     }
     const float linX = linRef->parameters[0];
@@ -289,7 +289,7 @@ bool forwardToBarrel(SurfaceKinematicState& state, SurfaceLinearizationReference
     // but anchor both representations at the fitted state's converted point.
     linRef->referenceCoordinate = bX;
     linRef->alpha = alpha;
-    linRef->family = StateFamily::Barrel;
+    linRef->kind = SurfaceKind::Cylinder;
   }
 
   for (uint8_t i = 0; i < 5; ++i) {
@@ -300,27 +300,27 @@ bool forwardToBarrel(SurfaceKinematicState& state, SurfaceLinearizationReference
   }
   state.referenceCoordinate = bX;
   state.alpha = alpha;
-  state.family = StateFamily::Barrel;
+  state.kind = SurfaceKind::Cylinder;
   return true;
 }
 
 } // namespace
 
-bool Propagator::convertFamily(SurfaceKinematicState& state, SurfaceLinearizationReference* linRef,
-                               StateFamily targetFamily, OperationFailureReason& reason) noexcept
+bool Propagator::convertKind(SurfaceKinematicState& state, SurfaceLinearizationReference* linRef,
+                               SurfaceKind targetKind, OperationFailureReason& reason) noexcept
 {
-  if (targetFamily != StateFamily::Barrel && targetFamily != StateFamily::Forward) {
-    reason = OperationFailureReason::FamilyConversionFailure;
+  if (targetKind != SurfaceKind::Cylinder && targetKind != SurfaceKind::Disk) {
+    reason = OperationFailureReason::SurfaceKindConversionFailure;
     return false;
   }
-  if (state.family != StateFamily::Barrel && state.family != StateFamily::Forward) {
-    reason = OperationFailureReason::SourceFamilyMismatch;
+  if (state.kind != SurfaceKind::Cylinder && state.kind != SurfaceKind::Disk) {
+    reason = OperationFailureReason::SourceSurfaceKindMismatch;
     return false;
   }
-  if (state.family == targetFamily) {
+  if (state.kind == targetKind) {
     return true;
   }
-  if (targetFamily == StateFamily::Forward) {
+  if (targetKind == SurfaceKind::Disk) {
     return barrelToForward(state, linRef, reason);
   }
   return forwardToBarrel(state, linRef, reason);
@@ -351,17 +351,17 @@ bool Propagator::propagateToMeasurement(SurfaceKinematicState& state, SurfaceLin
     }
   }
 
-  const StateFamily targetFamily = stateFamilyOf(targetSurface.kind);
-  if (targetFamily == StateFamily::Invalid) {
-    reason = OperationFailureReason::FamilyConversionFailure;
+  const SurfaceKind targetKind = targetSurface.kind;
+  if (targetKind == SurfaceKind::Undefined) {
+    reason = OperationFailureReason::SurfaceKindConversionFailure;
     return false;
   }
 
   SurfaceKinematicState scratchState = state;
   SurfaceLinearizationReference scratchRef = linRef;
 
-  if (scratchState.family != targetFamily) {
-    if (!convertFamily(scratchState, &scratchRef, targetFamily, reason)) {
+  if (scratchState.kind != targetKind) {
+    if (!convertKind(scratchState, &scratchRef, targetKind, reason)) {
       return false;
     }
   }
@@ -371,7 +371,7 @@ bool Propagator::propagateToMeasurement(SurfaceKinematicState& state, SurfaceLin
   float predChi2 = 0.f;
   float updateChi2 = 0.f;
 
-  if (targetFamily == StateFamily::Barrel) {
+  if (targetKind == SurfaceKind::Cylinder) {
     if (!barrel::rotate(scratchState, scratchRef, targetMeasurement.frame.frameAngle, bz, reason)) {
       return false;
     }
@@ -411,7 +411,7 @@ bool Propagator::propagateToMeasurement(SurfaceKinematicState& state, SurfaceLin
     return false;
   }
 
-  if (targetFamily == StateFamily::Barrel) {
+  if (targetKind == SurfaceKind::Cylinder) {
     if (!barrel::update(scratchState, targetMeasurement, updateChi2, reason)) {
       return false;
     }
@@ -427,7 +427,7 @@ bool Propagator::propagateToMeasurement(SurfaceKinematicState& state, SurfaceLin
   }
 
   if (shiftReferenceToMeasurement) {
-    if (targetFamily == StateFamily::Barrel) {
+    if (targetKind == SurfaceKind::Cylinder) {
       if (!barrel::shiftReferenceToMeasurement(scratchRef, targetMeasurement, reason)) {
         return false;
       }

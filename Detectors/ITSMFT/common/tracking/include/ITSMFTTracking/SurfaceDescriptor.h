@@ -18,11 +18,6 @@
 namespace o2::itsmft::tracking
 {
 
-enum class SurfaceKind : uint8_t {
-  Cylinder,
-  Disk
-};
-
 // Nominal (normal-incidence) per-surface material. An immutable property of
 // the surface itself, alongside its geometry -- not a separate catalogue
 // keyed by identity. Both fields are independently legal at zero (a surface
@@ -47,7 +42,7 @@ struct SurfaceDescriptor {
   SurfaceId id{};
   uint16_t detectorSurfaceIndex{0};
   uint8_t detectorId{0};
-  SurfaceKind kind{SurfaceKind::Cylinder};
+  SurfaceKind kind{SurfaceKind::Undefined};
   uint16_t flags{0};
   float referenceCoordinate{0.f}; // nominal radius for cylinders, z for disks
   NominalSurfaceMaterial material{};

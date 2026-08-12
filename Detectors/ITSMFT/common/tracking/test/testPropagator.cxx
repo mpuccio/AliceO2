@@ -46,7 +46,7 @@ SurfaceKinematicState barrelState(uint8_t absCharge = 1, o2::track::PID pid = o2
   state.parameters[4] = 0.8f;
   state.referenceCoordinate = 4.f;
   state.alpha = 0.3f;
-  state.family = StateFamily::Barrel;
+  state.kind = SurfaceKind::Cylinder;
   state.absCharge = absCharge;
   state.pid = pid;
   for (uint8_t row = 0; row < 5; ++row) {
@@ -98,7 +98,7 @@ SurfaceKinematicState diskState(uint8_t absCharge = 1, o2::track::PID pid = o2::
   state.parameters[3] = -2.5f;
   state.parameters[4] = 0.8f;
   state.referenceCoordinate = -45.f;
-  state.family = StateFamily::Forward;
+  state.kind = SurfaceKind::Disk;
   state.absCharge = absCharge;
   state.pid = pid;
   for (uint8_t row = 0; row < 5; ++row) {
@@ -155,7 +155,7 @@ BOOST_AUTO_TEST_CASE(CylinderToCylinderPropagateAndUpdateSucceeds)
   BOOST_REQUIRE(Propagator::propagateToMeasurement(state, linRef, descriptor, measurement, BarrelBz,
                                                    material::MaterialTraversalDirection::AlongMomentum,
                                                    false, 0.f, chi2, false, reason));
-  BOOST_CHECK_EQUAL(static_cast<int>(state.family), static_cast<int>(StateFamily::Barrel));
+  BOOST_CHECK_EQUAL(static_cast<int>(state.kind), static_cast<int>(SurfaceKind::Cylinder));
   BOOST_CHECK_EQUAL(state.referenceCoordinate, measurement.frame.q);
   BOOST_CHECK(std::isfinite(chi2));
   BOOST_CHECK_GE(chi2, 0.f);
@@ -173,7 +173,7 @@ BOOST_AUTO_TEST_CASE(DiskToDiskPropagateAndUpdateSucceeds)
   BOOST_REQUIRE(Propagator::propagateToMeasurement(state, linRef, descriptor, measurement, DiskBz,
                                                    material::MaterialTraversalDirection::AlongMomentum,
                                                    false, 0.f, chi2, false, reason));
-  BOOST_CHECK_EQUAL(static_cast<int>(state.family), static_cast<int>(StateFamily::Forward));
+  BOOST_CHECK_EQUAL(static_cast<int>(state.kind), static_cast<int>(SurfaceKind::Disk));
   BOOST_CHECK_EQUAL(state.referenceCoordinate, measurement.frame.q);
   BOOST_CHECK(std::isfinite(chi2));
   BOOST_CHECK_GE(chi2, 0.f);
@@ -253,7 +253,7 @@ BOOST_AUTO_TEST_CASE(BarrelStateConvertsToForwardThenPropagatesToDiskMeasurement
                                                      material::MaterialTraversalDirection::AlongMomentum,
                                                      false, 0.f, chi2, false, reason);
   BOOST_REQUIRE(ok);
-  BOOST_CHECK_EQUAL(static_cast<int>(state.family), static_cast<int>(StateFamily::Forward));
+  BOOST_CHECK_EQUAL(static_cast<int>(state.kind), static_cast<int>(SurfaceKind::Disk));
   BOOST_CHECK_EQUAL(state.referenceCoordinate, measurement.frame.q);
   BOOST_CHECK_EQUAL(state.absCharge, poisonState.absCharge);
   BOOST_CHECK(state.pid == poisonState.pid);
@@ -269,8 +269,8 @@ BOOST_AUTO_TEST_CASE(ConvertFamilyPreservesChargeAndPID)
 {
   auto state = barrelState(2, o2::track::PID::Kaon);
   OperationFailureReason reason{};
-  BOOST_REQUIRE(Propagator::convertFamily(state, nullptr, StateFamily::Forward, reason));
-  BOOST_CHECK_EQUAL(static_cast<int>(state.family), static_cast<int>(StateFamily::Forward));
+  BOOST_REQUIRE(Propagator::convertKind(state, nullptr, SurfaceKind::Disk, reason));
+  BOOST_CHECK_EQUAL(static_cast<int>(state.kind), static_cast<int>(SurfaceKind::Disk));
   BOOST_CHECK_EQUAL(state.absCharge, uint8_t{2});
   BOOST_CHECK(state.pid == o2::track::PID::Kaon);
 }
@@ -280,7 +280,7 @@ BOOST_AUTO_TEST_CASE(ConvertFamilySameFamilyIsNoOpSuccess)
   auto state = barrelState();
   const auto before = state;
   OperationFailureReason reason{};
-  BOOST_REQUIRE(Propagator::convertFamily(state, nullptr, StateFamily::Barrel, reason));
+  BOOST_REQUIRE(Propagator::convertKind(state, nullptr, SurfaceKind::Cylinder, reason));
   BOOST_CHECK(bitEqual(state, before));
 }
 
@@ -294,8 +294,8 @@ BOOST_AUTO_TEST_CASE(ForwardToBarrelConversionFailsAtOriginTransactionally)
   const auto poison = state;
   OperationFailureReason reason{};
 
-  BOOST_CHECK(!Propagator::convertFamily(state, nullptr, StateFamily::Barrel, reason));
-  BOOST_CHECK_EQUAL(static_cast<int>(reason), static_cast<int>(OperationFailureReason::FamilyConversionFailure));
+  BOOST_CHECK(!Propagator::convertKind(state, nullptr, SurfaceKind::Cylinder, reason));
+  BOOST_CHECK_EQUAL(static_cast<int>(reason), static_cast<int>(OperationFailureReason::SurfaceKindConversionFailure));
   BOOST_CHECK(bitEqual(state, poison));
 }
 
@@ -427,6 +427,6 @@ BOOST_AUTO_TEST_CASE(UnrecognizedTargetSurfaceKindFails)
                                                      material::MaterialTraversalDirection::AlongMomentum,
                                                      false, 0.f, chi2, false, reason);
   BOOST_CHECK(!ok);
-  BOOST_CHECK_EQUAL(static_cast<int>(reason), static_cast<int>(OperationFailureReason::FamilyConversionFailure));
+  BOOST_CHECK_EQUAL(static_cast<int>(reason), static_cast<int>(OperationFailureReason::SurfaceKindConversionFailure));
   BOOST_CHECK(bitEqual(state, poisonState));
 }

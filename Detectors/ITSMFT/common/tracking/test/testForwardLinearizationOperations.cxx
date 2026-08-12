@@ -67,7 +67,7 @@ SurfaceKinematicState makeState()
   state.parameters[3] = -2.5f;
   state.parameters[4] = 0.8f;
   state.referenceCoordinate = -45.f;
-  state.family = StateFamily::Forward;
+  state.kind = SurfaceKind::Disk;
   state.absCharge = 1;
   state.pid = o2::track::PID::Pion;
   for (uint8_t row = 0; row < 5; ++row) {
@@ -336,12 +336,12 @@ BOOST_AUTO_TEST_CASE(PropagateWithLinRefRejectsFamilyMismatchAndPreservesBytes)
 {
   auto state = makeState();
   auto linRef = linRefFromState(state);
-  linRef.family = StateFamily::Barrel;
+  linRef.kind = SurfaceKind::Cylinder;
   const auto stateBefore = state;
   const auto linRefBefore = linRef;
   OperationFailureReason reason{};
   BOOST_CHECK(!Propagator::propagateForward(state, linRef, -60.f, 0.f, reason));
-  BOOST_CHECK(reason == OperationFailureReason::SourceFamilyMismatch);
+  BOOST_CHECK(reason == OperationFailureReason::SourceSurfaceKindMismatch);
   BOOST_CHECK(bitEqual(state, stateBefore));
   BOOST_CHECK(bitEqual(linRef, linRefBefore));
 }

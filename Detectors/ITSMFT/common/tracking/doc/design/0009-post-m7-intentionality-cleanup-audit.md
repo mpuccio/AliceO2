@@ -120,7 +120,7 @@ Recommendations preserve these invariants:
 - the generic core names no detector identity, source-position convention,
   DPL/workflow/writer type, or typed detector output;
 - `TransitionPolicyTag` stays a private compatibility implementation detail;
-- `StateFamily` remains representation metadata, never schedule or topology;
+- `SurfaceKind` remains representation metadata, never schedule or topology;
 - the future `SurfaceGraphView` (today `DetectorLayoutView`), graph
   partitions, and TimeFrame-internal workspace remain the runtime
   authorities;
@@ -474,7 +474,7 @@ listed files share one disposition; it does not imply a new module.
 | `Configuration.h`, `TrackingConfigParam.h`, `ConfigKeyValuesPreflight.h`, `IndexTableConfiguration.h`, `IndexTableUtils.h` | Algorithm parameters/configuration and fixed-capacity index tables. Retain live runtime-prefix storage. Detector-named configuration registration is adapter compatibility, not a core routing authority; move only under a separately gated configuration migration. |
 | `DetectorLayout.h`, `DetectorLayoutBuilder.h`, `DetectorLayoutSet.h`, `SparseTrackingTopology.h`, `SurfaceCatalogView.h`, `SurfaceDescriptor.h`, `IdTypes.h`, `StaticSurfaceDescriptor.h`, `StaticDetectorCatalogs.h`, `SurfaceSpec.h` | Authoritative descriptors and graph data, but too many public ownership names. Consolidate `DetectorLayout` plus public sparse topology into `SurfaceGraph`/`SurfaceGraphView`; replace `DetectorLayoutSet` with a TimeFrame-owned `std::vector<SurfaceGraph>`; delete the stale configuration-key concept. `StaticDetectorCatalogs` remains application data and should move outward without duplicating graph construction. |
 | `ITSSurfaceSpec.h`, `MFTSurfaceSpec.h`, `NominalSurfaceMaterialDefaults.h` | ITS/MFT application data. Valid compatibility owners, but not generic core concepts. Move to detector application include locations in a bounded include/API migration. |
-| `SurfaceKinematicState.h`, `StateFamily.h` | Generic state representation. Retain; `StateFamily` must not become dispatch policy. |
+| `SurfaceKinematicState.h`, `SurfaceKind.h` | Generic state representation. Retain; `SurfaceKind` must not become dispatch policy. |
 | `SurfaceMeasurement.h` | Generic normalized measurement. Retain. |
 | `SurfaceKinematicStateLegacyAdapters.h`, `SurfaceMeasurementAdapters.h`, `TrackingFrameInfoAdapters.h` | Compatibility conversions. The first two remain live at adapter/decoder leaves. `TrackingFrameInfoAdapters` and common `loadClusterTrackingFrameInfo` have no production caller found and are test-preserved deletion candidates. |
 | `IOUtils.h` | Mixed decoder covariance/systematic helpers plus obsolete public conversions. Split only by deleting proven-dead declarations; avoid a new utility namespace hierarchy. Common `convertCompactClusters` needs a whole-repository/public-API check before deletion despite no current common production caller. |

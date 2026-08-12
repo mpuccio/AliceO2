@@ -140,7 +140,7 @@ BOOST_AUTO_TEST_CASE(TrackletAndCellEntryPointsUseOneGlobalTraversal)
 BOOST_AUTO_TEST_CASE(NeighbourEntryPointUsesOneCoordinateNeutralCompatibilityPath)
 {
   const auto source = readTrackerTraitsSource();
-  const std::array<std::string, 3> forbiddenTokens{"SurfaceKind", "StateFamily", "constexpr"};
+  const std::array<std::string, 3> forbiddenTokens{"SurfaceKind", "SurfaceKind", "constexpr"};
   const auto entryPoint = stripLineComments(extractMethodBody(source, "findCellsNeighbours"));
   BOOST_CHECK_EQUAL(countOccurrences(entryPoint, "findCellsNeighboursForSchedule("), 1u);
   for (const auto& token : forbiddenTokens) {
@@ -151,7 +151,7 @@ BOOST_AUTO_TEST_CASE(NeighbourEntryPointUsesOneCoordinateNeutralCompatibilityPat
   const auto compatibility = stripLineComments(extractMethodBody(source, "findCellsNeighboursForSchedule"));
   BOOST_REQUIRE_GT(compatibility.size(), 0u);
   BOOST_CHECK_EQUAL(countOccurrences(compatibility, "fitAdjacentTripletFactors("), 1u);
-  for (const auto& token : {"SurfaceKind", "StateFamily", "ClusterSourceId", "DetID", "constexpr"}) {
+  for (const auto& token : {"SurfaceKind", "SurfaceKind", "ClusterSourceId", "DetID", "constexpr"}) {
     BOOST_CHECK_MESSAGE(!mentionsToken(compatibility, token),
                         "cell-neighbour compatibility depends on " << token);
   }
@@ -162,7 +162,7 @@ BOOST_AUTO_TEST_CASE(RoadEntryPointUsesOneGraphSchedule)
   const auto source = readTrackerTraitsSource();
   const auto code = stripLineComments(extractMethodBody(source, "findRoads"));
   BOOST_REQUIRE_GT(code.size(), 0u);
-  for (const auto token : {"SurfaceKind", "StateFamily", "constexpr"}) {
+  for (const auto token : {"SurfaceKind", "SurfaceKind", "constexpr"}) {
     BOOST_CHECK(!mentionsToken(code, token));
   }
   BOOST_CHECK(code.find("findRoadsForGraph") != std::string::npos);
@@ -217,7 +217,7 @@ BOOST_AUTO_TEST_CASE(RefitWorkersUseTheDescriptorDrivenBoundary)
   const auto code = stripLineComments(extractMethodBody(source, "findRoadsForSchedule"));
   BOOST_REQUIRE_GT(code.size(), 0u);
   BOOST_CHECK(code.find("refitSources") == std::string::npos);
-  BOOST_CHECK(code.find("TraversalFailureReason::StateFamilyMismatch") == std::string::npos);
+  BOOST_CHECK(code.find("TraversalFailureReason::SurfaceKindMismatch") == std::string::npos);
   BOOST_CHECK(code.find("mBinding->getOrderedSurfaces()") != std::string::npos);
   BOOST_CHECK(code.find("mLayerGlobalMeasurements[position].front()") == std::string::npos);
 }

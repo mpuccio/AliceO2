@@ -86,8 +86,8 @@ using namespace o2::itsmft::tracking;
 BOOST_AUTO_TEST_CASE(CommonTrackHasNoDetectorOrPublicationOutputDependency)
 {
   CommonTrack track{};
-  track.innerState.family = StateFamily::Barrel;
-  track.outerState.family = StateFamily::Barrel;
+  track.innerState.kind = SurfaceKind::Cylinder;
+  track.outerState.kind = SurfaceKind::Cylinder;
   track.chi2 = 1.5f;
   track.timestamp = CommonTrackTimestamp{100, 140};
   track.hitSurfaces.set(SurfaceId{0});
@@ -654,8 +654,8 @@ struct TestCommonTrack {
 TestCommonTrack makeTestCommonTrack()
 {
   TestCommonTrack record;
-  record.track.innerState.family = StateFamily::Barrel;
-  record.track.outerState.family = StateFamily::Barrel;
+  record.track.innerState.kind = SurfaceKind::Cylinder;
+  record.track.outerState.kind = SurfaceKind::Cylinder;
   record.track.timestamp = {100, 140};
   record.track.hitSurfaces.set(SurfaceId{0});
   record.references.push_back({SurfaceId{0}, SurfaceMeasurementIndex{0}});
@@ -1045,8 +1045,8 @@ BOOST_AUTO_TEST_CASE(CommonTrackOutputAdapterStagesMFTAndRejectsMissingSidecar)
   TimeFrame frame;
   loadThreeMeasurementFrame(frame, layout);
   TestCommonTrack record;
-  record.track.innerState.family = StateFamily::Forward;
-  record.track.outerState.family = StateFamily::Forward;
+  record.track.innerState.kind = SurfaceKind::Disk;
+  record.track.outerState.kind = SurfaceKind::Disk;
   record.track.innerState.referenceCoordinate = -77.f;
   record.track.outerState.referenceCoordinate = -12.f;
   for (uint8_t i = 0; i < 5; ++i) {

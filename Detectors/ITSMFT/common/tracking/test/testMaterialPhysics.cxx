@@ -155,7 +155,7 @@ BOOST_AUTO_TEST_CASE(RepresentationLayout)
   static_assert(static_cast<uint8_t>(MaterialTraversalDirection::OppositeMomentum) == 1);
 
   static_assert(static_cast<uint8_t>(MaterialFailureReason::None) == 0);
-  static_assert(static_cast<uint8_t>(MaterialFailureReason::SourceFamilyMismatch) == 1);
+  static_assert(static_cast<uint8_t>(MaterialFailureReason::SourceSurfaceKindMismatch) == 1);
   static_assert(static_cast<uint8_t>(MaterialFailureReason::NonFiniteState) == 2);
   static_assert(static_cast<uint8_t>(MaterialFailureReason::InvalidStateKinematics) == 3);
   static_assert(static_cast<uint8_t>(MaterialFailureReason::InvalidPID) == 4);

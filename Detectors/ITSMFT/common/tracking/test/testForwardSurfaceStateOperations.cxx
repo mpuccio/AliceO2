@@ -39,7 +39,7 @@ SurfaceKinematicState makeState()
   state.parameters[3] = -2.5f;
   state.parameters[4] = 0.8f;
   state.referenceCoordinate = -45.f;
-  state.family = StateFamily::Forward;
+  state.kind = SurfaceKind::Disk;
   state.absCharge = 3;
   state.pid = o2::track::PID::Kaon;
   for (uint8_t row = 0; row < 5; ++row) {
@@ -271,7 +271,7 @@ void compareBuildSeedWithRetainedLegacyOracle(const SurfaceKinematicState& state
 
 void checkBuildSeedMetadata(const SurfaceKinematicState& state, uint8_t expectedAbsCharge, o2::track::PID expectedPid)
 {
-  BOOST_CHECK(state.family == StateFamily::Forward);
+  BOOST_CHECK(state.kind == SurfaceKind::Disk);
   BOOST_CHECK_EQUAL(state.flags, uint8_t{0});
   BOOST_CHECK_EQUAL(state.absCharge, expectedAbsCharge);
   BOOST_CHECK_EQUAL(static_cast<uint8_t>(state.pid), static_cast<uint8_t>(expectedPid));
@@ -493,8 +493,8 @@ BOOST_AUTO_TEST_CASE(MaterialMatchesHandCalculationAndRetainedLegacyOracle)
 BOOST_AUTO_TEST_CASE(FailuresPreserveEveryDestinationByte)
 {
   auto wrongFamily = makeState();
-  wrongFamily.family = StateFamily::Barrel;
-  checkStateFailurePreservesBytes(wrongFamily, OperationFailureReason::SourceFamilyMismatch,
+  wrongFamily.kind = SurfaceKind::Cylinder;
+  checkStateFailurePreservesBytes(wrongFamily, OperationFailureReason::SourceSurfaceKindMismatch,
                                   [](auto& state, auto& reason) { return Propagator::propagateForward(state, -50.f, 0.f, reason); });
 
   auto nonFinite = makeState();
@@ -690,12 +690,12 @@ BOOST_AUTO_TEST_CASE(StateChi2RejectsInvalidInputsAndPreservesState)
   constexpr float InitialChi2 = 88.f;
 
   auto wrongFamilyCandidate = makeCandidateState();
-  wrongFamilyCandidate.family = StateFamily::Barrel;
-  checkStateChi2FailurePreservesBytes(makeState(), wrongFamilyCandidate, InitialChi2, OperationFailureReason::SourceFamilyMismatch);
+  wrongFamilyCandidate.kind = SurfaceKind::Cylinder;
+  checkStateChi2FailurePreservesBytes(makeState(), wrongFamilyCandidate, InitialChi2, OperationFailureReason::SourceSurfaceKindMismatch);
 
   auto wrongFamilyReference = makeState();
-  wrongFamilyReference.family = StateFamily::Barrel;
-  checkStateChi2FailurePreservesBytes(wrongFamilyReference, makeCandidateState(), InitialChi2, OperationFailureReason::SourceFamilyMismatch);
+  wrongFamilyReference.kind = SurfaceKind::Cylinder;
+  checkStateChi2FailurePreservesBytes(wrongFamilyReference, makeCandidateState(), InitialChi2, OperationFailureReason::SourceSurfaceKindMismatch);
 
   auto nonFiniteReference = makeState();
   nonFiniteReference.parameters[3] = std::numeric_limits<float>::quiet_NaN();

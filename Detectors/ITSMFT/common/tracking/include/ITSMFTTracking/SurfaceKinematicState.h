@@ -20,30 +20,6 @@
 namespace o2::itsmft::tracking
 {
 
-// State representation implied by a surface kind. Topology and traversal use
-// SurfaceKind directly; this tag only selects the parameter convention.
-enum class StateFamily : uint8_t {
-  Invalid,
-  Barrel,
-  Forward
-};
-
-GPUhdi() constexpr StateFamily stateFamilyOf(SurfaceKind kind) noexcept
-{
-  switch (kind) {
-    case SurfaceKind::Cylinder:
-      return StateFamily::Barrel;
-    case SurfaceKind::Disk:
-      return StateFamily::Forward;
-  }
-  return StateFamily::Invalid;
-}
-
-static_assert(std::is_same_v<std::underlying_type_t<StateFamily>, uint8_t>);
-static_assert(sizeof(StateFamily) == sizeof(uint8_t));
-static_assert(stateFamilyOf(SurfaceKind::Cylinder) == StateFamily::Barrel);
-static_assert(stateFamilyOf(SurfaceKind::Disk) == StateFamily::Forward);
-
 // The interpretation of parameters and covariance is selected by a typed view:
 // Barrel:  (Y, Z, Snp, Tgl, Q2Pt), referenceCoordinate is local X, alpha is frame angle.
 // Forward: (X, Y, Phi, Tanl, InvQPt), referenceCoordinate is global Z, alpha is unused (zero).
@@ -52,14 +28,14 @@ struct SurfaceKinematicState {
   float covariance[15]{};
   float referenceCoordinate{0.f};
   float alpha{0.f};
-  StateFamily family{StateFamily::Invalid};
+  SurfaceKind kind{SurfaceKind::Undefined};
   uint8_t flags{0}; // Reserved: no flag semantics are defined in this slice.
   uint8_t absCharge{0};
   o2::track::PID pid{o2::track::PID::Pion};
 
-  // This only recognizes the two supported family tags. It does not validate
-  // parameter ranges, covariance, PID, alpha, or family-specific metadata.
-  GPUhdi() constexpr bool hasRecognizedFamily() const noexcept { return family == StateFamily::Barrel || family == StateFamily::Forward; }
+  // This only recognizes a concrete surface kind. It does not validate
+  // parameter ranges, covariance, PID, alpha, or coordinate-specific metadata.
+  GPUhdi() constexpr bool hasRecognizedKind() const noexcept { return isRecognizedSurfaceKind(kind); }
 };
 
 static_assert(std::is_standard_layout_v<SurfaceKinematicState>);
@@ -70,7 +46,7 @@ static_assert(offsetof(SurfaceKinematicState, parameters) == 0);
 static_assert(offsetof(SurfaceKinematicState, covariance) == 20);
 static_assert(offsetof(SurfaceKinematicState, referenceCoordinate) == 80);
 static_assert(offsetof(SurfaceKinematicState, alpha) == 84);
-static_assert(offsetof(SurfaceKinematicState, family) == 88);
+static_assert(offsetof(SurfaceKinematicState, kind) == 88);
 static_assert(offsetof(SurfaceKinematicState, flags) == 89);
 static_assert(offsetof(SurfaceKinematicState, absCharge) == 90);
 static_assert(offsetof(SurfaceKinematicState, pid) == 91);
@@ -100,9 +76,9 @@ struct SurfaceLinearizationReference {
   float parameters[5]{};
   float referenceCoordinate{0.f};
   float alpha{0.f};
-  StateFamily family{StateFamily::Invalid};
+  SurfaceKind kind{SurfaceKind::Undefined};
 
-  GPUhdi() constexpr bool hasRecognizedFamily() const noexcept { return family == StateFamily::Barrel || family == StateFamily::Forward; }
+  GPUhdi() constexpr bool hasRecognizedKind() const noexcept { return isRecognizedSurfaceKind(kind); }
 };
 
 static_assert(std::is_standard_layout_v<SurfaceLinearizationReference>);
@@ -112,12 +88,12 @@ static_assert(alignof(SurfaceLinearizationReference) == 4);
 static_assert(offsetof(SurfaceLinearizationReference, parameters) == 0);
 static_assert(offsetof(SurfaceLinearizationReference, referenceCoordinate) == 20);
 static_assert(offsetof(SurfaceLinearizationReference, alpha) == 24);
-static_assert(offsetof(SurfaceLinearizationReference, family) == 28);
+static_assert(offsetof(SurfaceLinearizationReference, kind) == 28);
 
 #ifndef GPUCA_GPUCODE
 
 // Host-only validating factory. Copies parameters, referenceCoordinate, alpha,
-// and family from state; rejects unrecognized families or non-finite fields
+// and kind from state; rejects an undefined kind or non-finite fields
 // and leaves out unchanged on failure.
 bool makeLinearizationReference(const SurfaceKinematicState& state, SurfaceLinearizationReference& out) noexcept;
 
@@ -243,7 +219,7 @@ class ForwardStateView
 
 inline bool makeBarrelStateView(SurfaceKinematicState& state, BarrelStateView& view) noexcept
 {
-  if (state.family != StateFamily::Barrel) {
+  if (state.kind != SurfaceKind::Cylinder) {
     return false;
   }
   view = BarrelStateView{&state};
@@ -252,7 +228,7 @@ inline bool makeBarrelStateView(SurfaceKinematicState& state, BarrelStateView& v
 
 inline bool makeForwardStateView(SurfaceKinematicState& state, ForwardStateView& view) noexcept
 {
-  if (state.family != StateFamily::Forward) {
+  if (state.kind != SurfaceKind::Disk) {
     return false;
   }
   view = ForwardStateView{&state};
