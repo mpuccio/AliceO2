@@ -64,9 +64,7 @@ bool completePublication(o2::itsmft::tracking::DetectorPublicationAdapter<NLayer
     }
     std::vector<o2::itsmft::tracking::TrackingCandidate> selected;
     for (std::size_t index = 0; index < result.acceptedTrackCounts[iteration]; ++index) {
-      const auto family = candidates[index].track.innerState.family;
-      if ((Kind == o2::itsmft::tracking::SurfaceKind::Cylinder && family == o2::itsmft::tracking::StateFamily::Barrel) ||
-          (Kind == o2::itsmft::tracking::SurfaceKind::Disk && family == o2::itsmft::tracking::StateFamily::Forward)) {
+      if (candidates[index].track.innerState.kind == Kind) {
         selected.push_back(candidates[index]);
       }
     }
