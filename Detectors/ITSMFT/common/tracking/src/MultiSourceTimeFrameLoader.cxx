@@ -74,12 +74,12 @@ LoadSourcesResult MultiSourceTimeFrameLoader::load(TimeFrame& frame, gsl::span<c
   }
   staged->setMemoryPool(frame.getMemoryPool());
   staged->adoptPlan(live.getNOwnedSurfaces(), 0, 0);
-  const auto backfillResult = staged->backfillNormalizedSources(stagedMeasurements, sources, binding->getOrderedSurfaces());
+  const auto backfillResult = staged->backfillNormalizedSources(stagedMeasurements, sources, binding->getOrderedSurfaces(), catalog);
   if (!backfillResult.ok()) {
     return backfillResult;
   }
 
-  if (!frame.commitLoadedEvent(std::move(stagedMeasurements), std::move(staged))) {
+  if (!frame.commitLoadedEvent(stagedMeasurements, std::move(staged))) {
     return {MultiSourceLoadError::OtherMalformedInput};
   }
   return {};
@@ -198,13 +198,11 @@ LoadSourcesResult loadSources(TimeFrame& frame,
 
   std::vector<std::vector<GlobalMeasurement>> perSurfaceGlobal(catalog.nSurfaces);
   std::vector<std::vector<SurfaceMeasurement>> perSurface(catalog.nSurfaces);
-  std::vector<SourceROFInfo> sourceInfo(nSources);
   std::vector<std::vector<ROFIntervalBC>> perSourceIntervals(nSources);
   std::vector<const o2::dataformats::MCTruthContainer<o2::MCCompLabel>*> labelSources(nSources, nullptr);
 
   for (const auto& src : sources) {
     const auto srcIdx = src.id.value();
-    sourceInfo[srcIdx] = SourceROFInfo{src.id, static_cast<uint32_t>(src.rofs.size())};
     labelSources[srcIdx] = src.labels;
 
     int64_t expectedNext = 0;
@@ -295,7 +293,7 @@ LoadSourcesResult loadSources(TimeFrame& frame,
     flatIntervals.insert(flatIntervals.end(), perSourceIntervals[s].begin(), perSourceIntervals[s].end());
   }
 
-  frame.assignLoadedMeasurements(std::move(perSurfaceGlobal), std::move(perSurface), std::move(sourceInfo),
+  frame.assignLoadedMeasurements(std::move(perSurfaceGlobal), std::move(perSurface),
                                  std::move(flatIntervals), std::move(sourceOffsets), std::move(labelSources));
   return {};
 }
@@ -376,7 +374,6 @@ LoadSourcesResult SurfaceTrackingScratch::loadNormalizedSource(
     return result;
   }
 
-  const bool isMFT = (detId == o2::detectors::DetID::MFT);
   auto* pool = mMemoryPool.get();
   const auto nROFs = static_cast<size_t>(rofs.size());
 
@@ -414,7 +411,7 @@ LoadSourcesResult SurfaceTrackingScratch::loadNormalizedSource(
       const auto& m = measurements[measurementIndex];
       const auto& global = globals[measurementIndex];
       o2::its::TrackingFrameInfo tfInfo;
-      if (isMFT) {
+      if (catalogView.getSurface(layerToSurface[layer]).kind == SurfaceKind::Disk) {
         // Recreate the synthetic legacy MFT representation from
         // normalized global position and row/column covariance.
         tfInfo = o2::its::TrackingFrameInfo{
@@ -481,9 +478,9 @@ LoadSourcesResult SurfaceTrackingScratch::loadNormalizedSource(
   // The view was constructed by the adapter for this staged event. The
   // frame commit resets the previous event, including its non-owning ROF
   // context, so reinstall this already-validated view only after the new
-  // normalized frame is atomically live.
+  // measurement data is atomically live.
   const auto stagedROFViews = mROFViews;
-  frame.commitMeasurements(std::move(staged));
+  frame.commitMeasurements(staged);
   setROFViews(stagedROFViews);
   mSourceBySurface.swap(stagedSourceBySurface);
   for (std::size_t layer = 0; layer < nOwnedSurfaces; ++layer) {
@@ -505,7 +502,8 @@ LoadSourcesResult SurfaceTrackingScratch::loadNormalizedSource(
 LoadSourcesResult SurfaceTrackingScratch::backfillNormalizedSources(
   const TimeFrame& measurements,
   gsl::span<const ClusterSourceInput> sources,
-  gsl::span<const SurfaceId> orderedSurfaces)
+  gsl::span<const SurfaceId> orderedSurfaces,
+  SurfaceCatalogView catalog)
 {
   if (orderedSurfaces.size() != mNOwnedSurfaces || sources.empty()) {
     return {MultiSourceLoadError::InvalidLayerMapping};
@@ -557,7 +555,7 @@ LoadSourcesResult SurfaceTrackingScratch::backfillNormalizedSources(
     trackingInfo.reserve(localMeasurements.size());
     externalIndices.reserve(localMeasurements.size());
 
-    const bool isMFT = owner->detector == o2::detectors::DetID::MFT;
+    const auto kind = catalog.getSurface(surface).kind;
     std::size_t measurementIndex = 0;
     for (std::size_t localIndex = 0; localIndex < localMeasurements.size(); ++localIndex) {
       const auto& measurement = localMeasurements[localIndex];
@@ -567,7 +565,7 @@ LoadSourcesResult SurfaceTrackingScratch::backfillNormalizedSources(
         return {MultiSourceLoadError::InconsistentDecoderMetadata, owner->id,
                 global.sourceROF, global.cluster.index};
       }
-      if (isMFT) {
+      if (kind == SurfaceKind::Disk) {
         trackingInfo.emplace_back(
           global.position.x, global.position.y, global.position.z,
           global.position.x, 0.f,

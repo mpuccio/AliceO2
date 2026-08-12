@@ -55,17 +55,10 @@ struct TrackingWorkspaceCapacity {
   std::size_t cells = 0;
 };
 
-struct SourceROFInfo {
-  ClusterSourceId id{};
-  uint32_t nROFs{0};
-};
-
 struct TimeFrame {
   TimeFrame() = default;
   TimeFrame(const TimeFrame&) = delete;
   TimeFrame& operator=(const TimeFrame&) = delete;
-  TimeFrame(TimeFrame&&) noexcept = default;
-  TimeFrame& operator=(TimeFrame&&) noexcept = default;
   virtual ~TimeFrame();
 
   const Vertex& getPrimaryVertex(const int ivtx) const { return mPrimaryVertices[ivtx]; }
@@ -97,7 +90,6 @@ struct TimeFrame {
   const SurfaceMeasurement* getSurfaceMeasurement(SurfaceId surface, SurfaceMeasurementIndex index) const noexcept;
   gsl::span<const ROFIntervalBC> getSourceIntervals(ClusterSourceId source) const;
   gsl::span<const o2::MCCompLabel> getLabels(ClusterRef cluster) const;
-  const std::vector<SourceROFInfo>& getSourceROFInfo() const noexcept { return mSourceROFInfo; }
   uint32_t getNMeasurementSurfaces() const noexcept { return static_cast<uint32_t>(mPerSurfaceMeasurements.size()); }
   std::size_t getTotalMeasurements() const noexcept;
 
@@ -105,16 +97,15 @@ struct TimeFrame {
   // only; commit swaps it after all decoding and workspace backfill succeed.
   void assignLoadedMeasurements(std::vector<std::vector<GlobalMeasurement>>&& perSurfaceGlobalMeasurements,
                                 std::vector<std::vector<SurfaceMeasurement>>&& perSurfaceMeasurements,
-                                std::vector<SourceROFInfo>&& sourceROFInfo,
                                 std::vector<ROFIntervalBC>&& rofIntervals,
                                 std::vector<uint32_t>&& sourceROFOffsets,
                                 std::vector<const o2::dataformats::MCTruthContainer<o2::MCCompLabel>*>&& labelSources);
-  void commitMeasurements(TimeFrame&& staged) noexcept;
+  void commitMeasurements(TimeFrame& staged) noexcept;
 
   // Commits a complete multi-source event after loader preflight. The
   // operation resets the prior event exactly once before installing all
-  // normalized data and the staged global workspace.
-  bool commitLoadedEvent(TimeFrame&& staged,
+  // measurement data and the staged global workspace.
+  bool commitLoadedEvent(TimeFrame& staged,
                          std::unique_ptr<SurfaceTrackingScratch>&& stagedWorkspace) noexcept;
 
   // One generic event-state reset. It preserves static configuration and
@@ -191,7 +182,6 @@ struct TimeFrame {
   std::vector<std::vector<GlobalMeasurement>> mPerSurfaceGlobalMeasurements;
   std::vector<std::vector<SurfaceMeasurement>> mPerSurfaceMeasurements;
   std::vector<SurfaceMeasurementSpan> mMeasurementSpans;
-  std::vector<SourceROFInfo> mSourceROFInfo;
   std::vector<ROFIntervalBC> mROFIntervals;
   std::vector<uint32_t> mSourceROFOffsets;
   std::vector<const o2::dataformats::MCTruthContainer<o2::MCCompLabel>*> mLabelSources;

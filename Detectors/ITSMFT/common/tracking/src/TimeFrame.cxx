@@ -64,7 +64,6 @@ void TimeFrame::swapMeasurements(TimeFrame& other) noexcept
   mPerSurfaceGlobalMeasurements.swap(other.mPerSurfaceGlobalMeasurements);
   mPerSurfaceMeasurements.swap(other.mPerSurfaceMeasurements);
   mMeasurementSpans.swap(other.mMeasurementSpans);
-  mSourceROFInfo.swap(other.mSourceROFInfo);
   mROFIntervals.swap(other.mROFIntervals);
   mSourceROFOffsets.swap(other.mSourceROFOffsets);
   mLabelSources.swap(other.mLabelSources);
@@ -72,21 +71,19 @@ void TimeFrame::swapMeasurements(TimeFrame& other) noexcept
 
 void TimeFrame::assignLoadedMeasurements(std::vector<std::vector<GlobalMeasurement>>&& globals,
                                          std::vector<std::vector<SurfaceMeasurement>>&& measurements,
-                                         std::vector<SourceROFInfo>&& sourceInfo,
                                          std::vector<ROFIntervalBC>&& intervals,
                                          std::vector<uint32_t>&& offsets,
                                          std::vector<const o2::dataformats::MCTruthContainer<o2::MCCompLabel>*>&& labels)
 {
   mPerSurfaceGlobalMeasurements = std::move(globals);
   mPerSurfaceMeasurements = std::move(measurements);
-  mSourceROFInfo = std::move(sourceInfo);
   mROFIntervals = std::move(intervals);
   mSourceROFOffsets = std::move(offsets);
   mLabelSources = std::move(labels);
   rebuildMeasurementSpans();
 }
 
-void TimeFrame::commitMeasurements(TimeFrame&& staged) noexcept
+void TimeFrame::commitMeasurements(TimeFrame& staged) noexcept
 {
   resetEvent();
   swapMeasurements(staged);
@@ -96,7 +93,7 @@ MeasurementView TimeFrame::getMeasurementView() const noexcept
 {
   return {mMeasurementSpans.empty() ? nullptr : mMeasurementSpans.data(), static_cast<uint32_t>(mMeasurementSpans.size()),
           mROFIntervals.empty() ? nullptr : mROFIntervals.data(), mSourceROFOffsets.empty() ? nullptr : mSourceROFOffsets.data(),
-          static_cast<uint32_t>(mSourceROFInfo.size())};
+          mSourceROFOffsets.empty() ? 0u : static_cast<uint32_t>(mSourceROFOffsets.size() - 1)};
 }
 
 gsl::span<const SurfaceMeasurement> TimeFrame::getSurfaceMeasurements(SurfaceId surface) const
@@ -121,7 +118,7 @@ const SurfaceMeasurement* TimeFrame::getSurfaceMeasurement(SurfaceId surface, Su
 
 gsl::span<const ROFIntervalBC> TimeFrame::getSourceIntervals(ClusterSourceId source) const
 {
-  if (!source.isValid() || source.value() >= mSourceROFInfo.size() || mSourceROFOffsets.size() != mSourceROFInfo.size() + 1) {
+  if (!source.isValid() || source.value() + 1 >= mSourceROFOffsets.size()) {
     return {};
   }
   return gsl::make_span(mROFIntervals).subspan(mSourceROFOffsets[source.value()], mSourceROFOffsets[source.value() + 1] - mSourceROFOffsets[source.value()]);
@@ -144,7 +141,7 @@ std::size_t TimeFrame::getTotalMeasurements() const noexcept
   return total;
 }
 
-bool TimeFrame::commitLoadedEvent(TimeFrame&& staged,
+bool TimeFrame::commitLoadedEvent(TimeFrame& staged,
                                   std::unique_ptr<SurfaceTrackingScratch>&& stagedWorkspace) noexcept
 {
   if (!mConfigurationValid || !mWorkspace || !stagedWorkspace) {
@@ -288,7 +285,6 @@ void TimeFrame::clearMeasurements() noexcept
   mPerSurfaceGlobalMeasurements.clear();
   mPerSurfaceMeasurements.clear();
   mMeasurementSpans.clear();
-  mSourceROFInfo.clear();
   mROFIntervals.clear();
   mSourceROFOffsets.clear();
   mLabelSources.clear();

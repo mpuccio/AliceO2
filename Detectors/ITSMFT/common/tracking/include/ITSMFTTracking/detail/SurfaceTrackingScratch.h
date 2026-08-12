@@ -180,7 +180,8 @@ class SurfaceTrackingScratch
                                          bool applySysErrors = true);
   LoadSourcesResult backfillNormalizedSources(const TimeFrame& measurements,
                                               gsl::span<const ClusterSourceInput> sources,
-                                              gsl::span<const SurfaceId> orderedSurfaces);
+                                              gsl::span<const SurfaceId> orderedSurfaces,
+                                              SurfaceCatalogView catalog);
 #endif
 
   int getTotalClusters() const;
