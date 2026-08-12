@@ -17,7 +17,13 @@
 #define ALICEO2_ITSMFT_TRACKING_CONFIGURATION_H_
 
 #include <cstdint>
+
+#ifndef GPUCA_GPUCODE
 #include <cmath>
+#include <gsl/span>
+#include "ITSMFTTracking/SurfaceDescriptor.h"
+#endif
+
 #ifndef GPUCA_GPUCODE_DEVICE
 #include <limits>
 #include <string>
@@ -25,12 +31,10 @@
 #include <vector>
 #endif
 
-#include <gsl/span>
 #include "CommonUtils/EnumFlags.h"
 #include "DetectorsBase/Propagator.h"
 #include "DetectorsCommonDataFormats/DetID.h"
 #include "ITSMFTTracking/NominalSurfaceMaterialDefaults.h"
-#include "ITSMFTTracking/SurfaceDescriptor.h"
 #include "ITSMFTTracking/SurfaceMask.h"
 #include "ITSMFTTracking/TrackingConfigParam.h"
 #include "ITStracking/TrackingConfigParam.h"
@@ -143,6 +147,8 @@ struct TrackingParameters {
   int SharedMaxClusters = 0;              // Maximal allowed shared clusters (excluding first cluster)
 };
 
+#ifndef GPUCA_GPUCODE
+
 inline bool isRecognizedMatCorrType(o2::base::PropagatorF::MatCorrType corrType) noexcept
 {
   return corrType == o2::base::PropagatorF::MatCorrType::USEMatCorrNONE ||
@@ -175,6 +181,8 @@ inline AttachHitConfigView bindAttachHitConfig(gsl::span<const tracking::Nominal
 {
   return {layerMaterial, params.CorrType};
 }
+
+#endif
 
 /// Reset tracking parameters to detector geometry defaults (ITS: struct defaults; MFT: MFTTracking/Constants.h).
 void resetDetectorDefaults(TrackingParameters& params, o2::detectors::DetID::ID detId);
