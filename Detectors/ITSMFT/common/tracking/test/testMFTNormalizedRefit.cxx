@@ -5,33 +5,8 @@
 // This software is distributed under the terms of the GNU General Public
 // License v3 (GPL Version 3), copied verbatim in the file "COPYING".
 
-// Stage-B MFT normalized-measurement authority slice (Architecture.md Sec
-// 6.5/12, AgentCoordination.md MFT-adapter role), updated for M5d: focused
-// coverage for the generic MFT refit operation in MFTFwdTrackHelpers.cxx,
-// proving every physical hit coordinate/covariance the shared native driver
-// (fitTrackSeedLegs, NativeRefitDriver.h) consumes comes from the
-// caller-supplied runtime span-of-spans (TrackerTraits::
-// mLayerMeasurements) and SurfaceCatalogView, never from detector-legacy
-// legacy Cluster/TrackingFrameInfo backfill. Each test calls the generic
-// refit operation directly with a hand-built SurfaceTrackingScratch/seed/measurement-span/
-// catalog fixture -- it does not exercise TrackerTraits::initialiseTimeFrame()
-// or the full CA traversal, which already have their own focused coverage
-// (testComputeLayerCellsOrchestration.cxx et al.) for the
-// NormalizedMeasurementMismatch load-time contract this file's fixtures
-// assume as given.
-//
-// M5d note: refitTrackFwd no longer drives the frozen o2::mft::TrackFitter/
-// TrackLTF Kalman engine -- it shares the same descriptor-driven native
-// driver the barrel/ITS branch uses (doc/decisions/0008-native-refit-activation.md).
-// Every assertion below that only depends on *which* measurement source is
-// authoritative (normalized vs. legacy backfill) or on generic Kalman
-// properties (larger measurement variance cannot shrink posterior variance)
-// remains valid unchanged. DiagonalOnlyCovarianceIgnoresOffDiagonalTerm is
-// replaced by OffDiagonalCovarianceIsUsedByNativeUpdate: unlike the retired
-// MFT TrackFitter, the native forward::predictedChi2/update operations use
-// the measurement's full uu/uv/vv covariance (ForwardSurfaceStateOperations.h),
-// so a nonzero, physically valid correlation now genuinely changes the fit --
-// this is a disclosed, intentional behavior difference, not an oversight.
+// Focused normalized-measurement authority and covariance coverage for the
+// descriptor-driven seed refit path.
 
 #define BOOST_TEST_MODULE ITSMFT MFTNormalizedRefit
 #define BOOST_TEST_MAIN
@@ -49,7 +24,6 @@
 #include "ITSMFTTracking/detail/SurfaceTrackingScratch.h"
 #include "ITSMFTTracking/detail/DetectorRefitSupport.h"
 #include "ITSMFTTracking/SurfaceDescriptor.h"
-#include "ITSMFTTracking/SurfaceDescriptor.h"
 #include "ITSMFTTracking/TimeFrame.h"
 #include "ITStracking/Cluster.h"
 #include "ITStracking/Constants.h"
@@ -61,18 +35,12 @@ namespace
 {
 
 constexpr int NLayers = o2::mft::constants::mft::LayersNumber;
-// Field-off dispatch (refitTrackFwd: std::abs(bz) < 1e-6f): exercises the
-// native Linear propagation model deterministically, independent of
-// o2::mft::MFTTrackingParam::Instance()'s global forceZeroField default.
+// Field-off exercises the native linear propagation model deterministically.
 constexpr float Bz = 0.f;
 constexpr float DefaultSigma2 = 2.5e-7f; // (~0.5 micron)^2, MFT-scale resolution
 constexpr float PoisonCoordinate = 9999.f;
 
-// A straight track through every MFT disk. Points are exact (analytic) so the
-// native Kalman fit converges with ~0 chi2 regardless of which reasonable
-// covariance is assigned -- residuals, not covariance magnitude, dominate
-// chi2 here, which is what keeps the fixture deterministic without needing to
-// hand-tune the fitter's internal MCS/Kalman numerics.
+// A straight track through every MFT disk.
 struct StraightTrackGeometry {
   std::array<float, NLayers> x{};
   std::array<float, NLayers> y{};
@@ -91,14 +59,7 @@ struct StraightTrackGeometry {
   }
 };
 
-// Owns everything refitTrackFwd needs for one call: a SurfaceTrackingScratch
-// (external-index/size bookkeeping only -- never a physical-coordinate
-// source once populated), the normalized measurement spans under test, a
-// matching zero-material Disk surface catalog (one SurfaceDescriptor per
-// layer, id == layer, resolved by every measurement's own .surface field),
-// and the seed. Every test builds its own fixture so mutating one layer's
-// normalized measurement or legacy backfill in one test can never leak into
-// another.
+// Owns one normalized refit fixture.
 struct RefitFixture {
   SurfaceTrackingScratch tf;
   std::array<std::vector<SurfaceMeasurement>, NLayers> storage;
@@ -106,6 +67,7 @@ struct RefitFixture {
   std::vector<gsl::span<const SurfaceMeasurement>> layerMeasurements = std::vector<gsl::span<const SurfaceMeasurement>>(NLayers);
   std::vector<gsl::span<const GlobalMeasurement>> layerGlobals = std::vector<gsl::span<const GlobalMeasurement>>(NLayers);
   std::vector<SurfaceDescriptor> catalogSurfaces;
+  std::vector<SurfaceId> orderedSurfaces;
   SurfaceCatalogView catalog{};
   TrackSeed seed;
   o2::itsmft::TrackingParameters params;
@@ -119,15 +81,20 @@ struct RefitFixture {
     params.MaxChi2NDF = 30.f;
 
     catalogSurfaces.resize(NLayers);
+    orderedSurfaces.reserve(NLayers);
     for (int layer = 0; layer < NLayers; ++layer) {
       catalogSurfaces[layer].id = SurfaceId{static_cast<uint16_t>(layer)};
       catalogSurfaces[layer].detectorSurfaceIndex = static_cast<uint16_t>(layer);
       catalogSurfaces[layer].kind = SurfaceKind::Disk;
       catalogSurfaces[layer].material = NominalSurfaceMaterial{0.f, 0.f};
+      orderedSurfaces.push_back(catalogSurfaces[layer].id);
     }
     catalog = SurfaceCatalogView{catalogSurfaces.data(), static_cast<uint32_t>(catalogSurfaces.size())};
     tf.setMemoryPool(std::make_shared<o2::its::BoundedMemoryResource>());
     tf.adoptPlan(NLayers, 0, 0);
+    std::array<ClusterSourceId, NLayers> validSources{};
+    validSources.fill(ClusterSourceId{0});
+    BOOST_REQUIRE(tf.setSurfaceSources(validSources));
 
     uint16_t mask = 0;
     for (int layer = 0; layer < hits; ++layer) {
@@ -139,16 +106,7 @@ struct RefitFixture {
     }
     seed.setSurfaceMask(SurfaceMask{mask});
 
-    // M5d: fitTrackSeedLegs (unlike the retired TrackLTF engine, which
-    // computed its own seed internally from the attached points) starts Leg
-    // A from the caller-supplied seed.state() -- production always supplies
-    // one already built by forward::buildSeed during CA cell construction.
-    // This fixture reproduces that here from its own inner/middle/outer
-    // measurements (layer 0 closest to the vertex has the largest z, per
-    // the MFT geometry convention buildSeed's own strict z-ordering check
-    // enforces) rather than leaving seed.state() default (StateFamily::
-    // Invalid), which fitTrackSeedLegs would reject before ever reading a
-    // measurement.
+    // The native driver starts from the CA seed state.
     const int innerLayer = 0;
     const int middleLayer = hits / 2;
     const int outerLayer = hits - 1;
@@ -161,12 +119,7 @@ struct RefitFixture {
   void setMeasurement(int layer, float x, float y, float z, float uu, float vv, uint32_t clusterIndex, float uv = 0.f)
   {
     SurfaceMeasurement m{};
-    // Disk adapter contract (ForwardSurfaceStateOperations.h): frame.q ==
-    // global.z. The retired legacy TrackLTF engine only ever read
-    // measurement.global, so this fixture never needed frame.q populated
-    // until now: Propagator::propagateToMeasurement's forward routing
-    // propagates to frame.q (the same target every native forward CA
-    // operation already uses), not global.z directly.
+    // Disk measurements propagate to frame.q, their global z coordinate.
     m.frame = {z, x, y, 0.f};
     m.covariance.uu = uu;
     m.covariance.vv = vv;
@@ -183,10 +136,7 @@ struct RefitFixture {
     layerGlobals[layer] = globalStorage[layer];
   }
 
-  // Poisons legacy backfill (mUnsortedClusters / mTrackingFrameInfo) at every
-  // hit layer with coordinates far from the real trajectory. refitTrackFwd
-  // must never read either: MFTFwdTrackHelpers.cxx no longer calls
-  // tf.getUnsortedClusters()/tf.getClusterTrackingFrameInfo() at all.
+  // Legacy backfill must not influence normalized refit.
   void poisonLegacyBackfill()
   {
     for (int layer = 0; layer < nHitLayers; ++layer) {
@@ -199,16 +149,8 @@ struct RefitFixture {
 
 bool refit(RefitFixture& fixture, TrackingCandidate& candidate)
 {
-  return detail::refitMFTSeed(fixture.seed, fixture.params, Bz, fixture.tf,
-                              fixture.layerGlobals, fixture.layerMeasurements, fixture.catalog, ClusterSourceId{0}, candidate);
-}
-
-bool refit(const TrackSeed& seed, o2::itsmft::TrackingParameters& params, SurfaceTrackingScratch& scratch,
-           gsl::span<const gsl::span<const GlobalMeasurement>> layerGlobals,
-           gsl::span<const gsl::span<const SurfaceMeasurement>> layerMeasurements,
-           SurfaceCatalogView catalog, TrackingCandidate& candidate)
-{
-  return detail::refitMFTSeed(seed, params, Bz, scratch, layerGlobals, layerMeasurements, catalog, ClusterSourceId{0}, candidate);
+  return detail::refitSurfaceSeed(fixture.seed, fixture.params, Bz, fixture.tf,
+                                  fixture.layerGlobals, fixture.layerMeasurements, fixture.catalog, fixture.orderedSurfaces, candidate);
 }
 
 void checkTrackUnchanged(const TrackingCandidate& before, const TrackingCandidate& after)
@@ -451,13 +393,7 @@ BOOST_AUTO_TEST_CASE(PreservesSeedMembershipForGenericRefit)
   }
 }
 
-// M5d: supersedes the retired DiagonalOnlyCovarianceIgnoresOffDiagonalTerm.
-// Unlike the retired MFT TrackFitter (diagonal-only measurement update), the
-// native forward::predictedChi2/update operations use the measurement's full
-// uu/uv/vv covariance (ForwardSurfaceStateOperations.h doc) -- a disclosed,
-// intentional behavior difference from this milestone. A physically valid
-// correlation (uv = 0.3*sqrt(uu*vv), |correlation| < 1) must therefore change
-// the fitted output relative to the uv == 0 reference.
+// The native update uses the full uu/uv/vv measurement covariance.
 BOOST_AUTO_TEST_CASE(OffDiagonalCovarianceIsUsedByNativeUpdate)
 {
   const StraightTrackGeometry geometry(0.3f);
@@ -512,6 +448,9 @@ BOOST_AUTO_TEST_CASE(GenericRefitValidatesExternalClusterIdentity)
   SurfaceCatalogView catalog{catalogSurfaces.data(), static_cast<uint32_t>(catalogSurfaces.size())};
   tf.setMemoryPool(std::make_shared<o2::its::BoundedMemoryResource>());
   tf.adoptPlan(NLayers, 0, 0);
+  std::array<ClusterSourceId, NLayers> sources{};
+  sources.fill(ClusterSourceId{0});
+  BOOST_REQUIRE(tf.setSurfaceSources(sources));
   TrackSeed seed;
   o2::itsmft::TrackingParameters params;
   params.MinTrackLength = 5;
@@ -541,14 +480,19 @@ BOOST_AUTO_TEST_CASE(GenericRefitValidatesExternalClusterIdentity)
   }
   seed.setSurfaceMask(SurfaceMask{mask});
 
-  // M5d: see RefitFixture's identical seed.state() construction above.
   OperationFailureReason seedReason{};
   BOOST_REQUIRE(forward::buildSeed(layerMeasurements[0][0], layerMeasurements[NLayers / 2][0],
                                    layerMeasurements[NLayers - 1][0], Bz, params.TrackletMinPt,
                                    /*absCharge=*/1, o2::track::PID::Pion, seed.state(), seedReason));
 
   TrackingCandidate track;
-  BOOST_REQUIRE(refit(seed, params, tf, layerGlobals, layerMeasurements, catalog, track));
+  std::vector<SurfaceId> orderedSurfaces;
+  orderedSurfaces.reserve(NLayers);
+  for (int layer = 0; layer < NLayers; ++layer) {
+    orderedSurfaces.push_back(SurfaceId{static_cast<uint16_t>(layer)});
+  }
+  BOOST_REQUIRE(detail::refitSurfaceSeed(seed, params, Bz, tf, layerGlobals,
+                                         layerMeasurements, catalog, orderedSurfaces, track));
 
   for (int layer = 0; layer < NLayers; ++layer) {
     BOOST_CHECK(track.seed.hasCluster(layer));

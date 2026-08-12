@@ -12,7 +12,6 @@
 #include "DataFormatsCalibration/MeanVertexObject.h"
 #include "ITSMFTTracking/CommonTrack.h"
 #include "ITSMFTTracking/NativeRefitDriver.h"
-#include "ITSMFTTracking/detail/MFTFwdTrackHelpers.h"
 #include "ITStracking/Constants.h"
 
 namespace o2::itsmft::tracking::detail
@@ -57,58 +56,6 @@ inline bool fillCandidateKinematics(TrackingCandidate& candidate) noexcept
     candidate.eta = std::asinh(state.parameters[3]);
   }
   return std::isfinite(candidate.phi) && std::isfinite(candidate.eta);
-}
-
-// Narrow compatibility entry points retained for direct unit coverage of the
-// detector adapters. Tracker uses refitSurfaceSeed below.
-inline bool refitITSSeed(const TrackSeed& seed,
-                         const TrackingParameters& params,
-                         float bz,
-                         SurfaceTrackingScratch&,
-                         gsl::span<const gsl::span<const GlobalMeasurement>> layerGlobals,
-                         gsl::span<const gsl::span<const SurfaceMeasurement>> layerMeasurements,
-                         SurfaceCatalogView surfaceCatalog,
-                         ClusterSourceId,
-                         TrackingCandidate& candidate)
-{
-  SurfaceKinematicState paramIn{};
-  SurfaceKinematicState paramOut{};
-  float chi2 = 0.f;
-  OperationFailureReason reason{};
-  if (!fitTrackSeedLegs(seed, layerGlobals, layerMeasurements, surfaceCatalog, bz,
-                        params.ShiftRefToCluster, params.MaxChi2ClusterAttachment, params.MaxChi2NDF,
-                        params.RepeatRefitOut, gsl::span<const float>(params.MinPt),
-                        paramIn, paramOut, chi2, reason)) {
-    return false;
-  }
-  candidate.seed = seed;
-  candidate.track.innerState = paramIn;
-  candidate.track.outerState = paramOut;
-  candidate.track.chi2 = chi2;
-  return fillCandidateKinematics(candidate);
-}
-
-inline bool refitMFTSeed(const TrackSeed& seed,
-                         const TrackingParameters& params,
-                         float bz,
-                         SurfaceTrackingScratch& scratch,
-                         gsl::span<const gsl::span<const GlobalMeasurement>> layerGlobals,
-                         gsl::span<const gsl::span<const SurfaceMeasurement>> layerMeasurements,
-                         SurfaceCatalogView surfaceCatalog,
-                         ClusterSourceId expectedSource,
-                         TrackingCandidate& candidate)
-{
-  SurfaceKinematicState paramIn{};
-  SurfaceKinematicState paramOut{};
-  float chi2 = 0.f;
-  if (!refitTrackFwd(seed, scratch, params, bz, layerGlobals, layerMeasurements, surfaceCatalog, expectedSource, paramIn, paramOut, chi2)) {
-    return false;
-  }
-  candidate.seed = seed;
-  candidate.track.innerState = paramIn;
-  candidate.track.outerState = paramOut;
-  candidate.track.chi2 = chi2;
-  return fillCandidateKinematics(candidate);
 }
 
 inline bool refitSurfaceSeed(const TrackSeed& seed,

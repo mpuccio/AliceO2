@@ -44,7 +44,6 @@ o2_add_library(ITSMFTTracking
                        src/IndexTableConfiguration.cxx
                        src/SurfaceGraphBuilder.cxx
                        src/Tracker.cxx
-                       src/MFTFwdTrackHelpers.cxx
                        src/MultiSourceFrame.cxx
                        src/MultiSourceTimeFrameLoader.cxx
                PUBLIC_LINK_LIBRARIES

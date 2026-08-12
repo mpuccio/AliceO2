@@ -28,7 +28,7 @@
 //     ITSMFTTracking/TimeFrame.cxx's loadNormalizedSource()) -- never
 //     re-deriving size from the track/TimeFrame's own bookkeeping, which is
 //     exactly what the local-vs-external cluster-size index-domain bug
-//     corrupted (MFTFwdTrackHelpers.cxx's refitTrackFwdImpl and
+//     corrupted (the generic descriptor-driven refit path and
 //     MFT/workflow/CATrackerSpec.cxx's fillMFTOutputs);
 //   - the associated ROF, cross-checked between the cluster's input ROF
 //     (MFTClustersROF) and the track's output ROF (MFTTracksROF), which are

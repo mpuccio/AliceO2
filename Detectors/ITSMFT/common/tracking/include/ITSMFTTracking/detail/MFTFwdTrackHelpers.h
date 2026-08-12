@@ -10,7 +10,7 @@
 // or submit itself to any jurisdiction.
 ///
 /// \file MFTFwdTrackHelpers.h
-/// \brief Forward-track helpers for MFT CA cell fitting and final track refit
+/// \brief Forward-track coordinate helpers for MFT CA candidate finding
 ///
 
 #ifndef ALICEO2_ITSMFT_TRACKING_MFTFWDTRACKHELPERS_H_
@@ -20,13 +20,7 @@
 #include <cmath>
 
 #include "CommonConstants/MathConstants.h"
-#include "ITSMFTTracking/Cell.h"
 #include "ITSMFTTracking/Configuration.h"
-#include "ITSMFTTracking/GlobalMeasurement.h"
-#include "ITSMFTTracking/SurfaceKinematicState.h"
-#include "ITSMFTTracking/detail/SurfaceTrackingScratch.h"
-#include "ITSMFTTracking/SurfaceDescriptor.h"
-#include "ITStracking/Cluster.h"
 #include "ITStracking/Constants.h"
 #include "MFTTracking/Constants.h"
 #include "ReconstructionDataFormats/TrackFwd.h"
@@ -143,25 +137,5 @@ inline void mftTrackletSigmaXY(float x0, float y0, float pvX, float pvY, float p
 }
 
 } // namespace o2::itsmft::tracking::detail
-
-namespace o2::itsmft::tracking
-{
-
-// layerMeasurements is the validated normalized measurement span; tf is used
-// only for identity checks. surfaceCatalog supplies this iteration's surface
-// descriptors, and expectedSource is checked without being re-derived.
-bool refitTrackFwd(const TrackSeed& seed,
-                   const SurfaceTrackingScratch& tf,
-                   const TrackingParameters& params,
-                   float bz,
-                   gsl::span<const gsl::span<const GlobalMeasurement>> layerGlobals,
-                   gsl::span<const gsl::span<const SurfaceMeasurement>> layerMeasurements,
-                   SurfaceCatalogView surfaceCatalog,
-                   ClusterSourceId expectedSource,
-                   SurfaceKinematicState& paramIn,
-                   SurfaceKinematicState& paramOut,
-                   float& chi2);
-
-} // namespace o2::itsmft::tracking
 
 #endif /* ALICEO2_ITSMFT_TRACKING_MFTFWDTRACKHELPERS_H_ */
