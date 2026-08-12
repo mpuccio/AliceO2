@@ -789,15 +789,8 @@ BOOST_AUTO_TEST_CASE(BindLayerGeometryConfigBorrowsAttachHitLayerMaterialSpan)
   BOOST_CHECK_EQUAL(geometryConfig.layerRadii.data(), legacy.LayerRadii.data());
 }
 
-BOOST_AUTO_TEST_CASE(ClampTransitionCurvatureMatchesExactLegacyExpressionPerFamily)
+BOOST_AUTO_TEST_CASE(ClampTransitionCurvatureUsesOneCoordinateNeutralExpression)
 {
-  // Integration review finding: the two legacy branches compare `0.5 *
-  // oneOverR` (Cylinder: double-promoted) against `0.5f * oneOverR`
-  // (Disk: float) before the same `>= 1.f / r2` clamp. Preserved
-  // verbatim per family, not canonicalized -- see
-  // ClampTransitionCurvatureFloatVersusDoubleDiscriminatorAttempt for why no
-  // observable difference could be constructed, and note that preservation,
-  // not the (negative) discriminator search, is what this test asserts.
   const std::array<std::pair<float, float>, 5> samples{{
     {0.001f, 50.f}, // clamp does not trigger
     {3.0f, 1.0f},   // clamp triggers
@@ -809,84 +802,21 @@ BOOST_AUTO_TEST_CASE(ClampTransitionCurvatureMatchesExactLegacyExpressionPerFami
     const float oneOverR = sample.first;
     const float r2 = sample.second;
 
-    const float cylinderActual = clampCylinderTransitionCurvature(oneOverR, r2);
-    const float cylinderReference = (0.5 * oneOverR >= 1.f / r2) ? (2.f / r2) - o2::constants::math::Almost0 : oneOverR;
-    BOOST_CHECK_EQUAL(cylinderActual, cylinderReference);
-
-    const float diskActual = clampDiskTransitionCurvature(oneOverR, r2);
-    const float diskReference = (0.5f * oneOverR >= 1.f / r2) ? (2.f / r2) - o2::constants::math::Almost0 : oneOverR;
-    BOOST_CHECK_EQUAL(diskActual, diskReference);
+    const float actual = clampTransitionCurvature(oneOverR, r2);
+    const float reference = (0.5f * oneOverR >= 1.f / r2) ? (2.f / r2) - o2::constants::math::Almost0 : oneOverR;
+    BOOST_CHECK_EQUAL(actual, reference);
   }
 }
 
-BOOST_AUTO_TEST_CASE(ClampTransitionCurvatureFloatVersusDoubleDiscriminatorAttempt)
+BOOST_AUTO_TEST_CASE(CurvatureClampIsTransitionLocal)
 {
-  // Attempted discriminator search. Multiplying/dividing an IEEE-754 value by
-  // exactly 0.5 (a power of two) is *exact* in both binary32 and binary64 --
-  // it only decrements the exponent, no mantissa rounding is required --
-  // provided the result does not underflow into the subnormal range.
-  // Consequently `0.5 * oneOverR` (double: `0.5` is an exact double literal
-  // and `oneOverR` promotes to double losslessly) and `0.5f * oneOverR`
-  // (float) are provably bit-identical once compared against the same
-  // `1.f / r2`, for any `oneOverR` that is not itself subnormal. Physically,
-  // `oneOverR == 0.001f*0.3f*|Bz|/TrackletMinPt` is many orders of magnitude
-  // away from the float underflow boundary (~1e-4..1e-2 for realistic
-  // Bz/TrackletMinPt), so no discriminating input exists in the physically
-  // meaningful domain this code operates in. This sweeps representative and
-  // extreme-but-normal values, including the clamp boundary itself, and
-  // finds none; it does not probe genuinely subnormal `oneOverR` (below
-  // ~1.18e-38), since those are far outside any value this code can produce
-  // and would not demonstrate a real risk.
-  const std::array<float, 9> oneOverRSamples{
-    0.f, 1.e-6f, 1.e-4f, 1.e-3f, 1.e-2f, 0.1f, 1.f, 10.f, 1.e10f};
-  const std::array<float, 7> r2Samples{
-    0.5f, 1.f, 2.33959f, 5.f, 19.6213f, 39.3329f, 1.e6f};
-
-  bool discriminatorFound = false;
-  for (float oneOverR : oneOverRSamples) {
-    for (float r2 : r2Samples) {
-      const float viaFloatLiteral = (0.5f * oneOverR >= 1.f / r2) ? (2.f / r2) - o2::constants::math::Almost0 : oneOverR;
-      const float viaDoubleLiteral = (0.5 * oneOverR >= 1.f / r2) ? (2.f / r2) - o2::constants::math::Almost0 : oneOverR;
-      if (viaFloatLiteral != viaDoubleLiteral) {
-        discriminatorFound = true;
-      }
-    }
-  }
-  BOOST_CHECK(!discriminatorFound); // documents the (negative) search result described above
-}
-
-BOOST_AUTO_TEST_CASE(CurvatureRatchetThreadsInIncreasingLegacyTransitionIdOrder)
-{
-  // The legacy oneOverR is a loop-carried variable, not reset per transition:
-  // family curvature leaves must be called once per transition, in
-  // increasing legacy transitionId order, threading its return value into the
-  // next call. This proves the computation is genuinely order-sensitive (an
-  // unproven iteration order, e.g. a kind-grouping span, cannot be
-  // substituted without first proving it matches legacy transitionId order)
-  // and pins the exact sequence increasing order must produce.
   constexpr float initialOneOverR = 3.f;
-  const std::array<float, 3> r2InIncreasingTransitionIdOrder{1.f, 4.f, 0.5f};
-
-  float running = initialOneOverR;
-  std::array<float, 3> forwardResults{};
-  for (int i = 0; i < 3; ++i) {
-    running = clampCylinderTransitionCurvature(running, r2InIncreasingTransitionIdOrder[i]);
-    forwardResults[i] = running;
+  const std::array<float, 3> outerRadii{1.f, 4.f, 0.5f};
+  for (const auto outerRadius : outerRadii) {
+    const auto forward = clampTransitionCurvature(initialOneOverR, outerRadius);
+    const auto repeated = clampTransitionCurvature(initialOneOverR, outerRadius);
+    BOOST_CHECK_EQUAL(forward, repeated);
   }
-
-  float manual = initialOneOverR;
-  manual = (0.5 * manual >= 1.f / r2InIncreasingTransitionIdOrder[0]) ? (2.f / r2InIncreasingTransitionIdOrder[0]) - o2::constants::math::Almost0 : manual;
-  BOOST_CHECK_EQUAL(forwardResults[0], manual);
-  manual = (0.5 * manual >= 1.f / r2InIncreasingTransitionIdOrder[1]) ? (2.f / r2InIncreasingTransitionIdOrder[1]) - o2::constants::math::Almost0 : manual;
-  BOOST_CHECK_EQUAL(forwardResults[1], manual);
-  manual = (0.5 * manual >= 1.f / r2InIncreasingTransitionIdOrder[2]) ? (2.f / r2InIncreasingTransitionIdOrder[2]) - o2::constants::math::Almost0 : manual;
-  BOOST_CHECK_EQUAL(forwardResults[2], manual);
-
-  // A different processing order must not be assumed to reproduce the same
-  // first step: proves the caller cannot substitute an unproven order.
-  const float reversedFirstStep = clampCylinderTransitionCurvature(
-    initialOneOverR, r2InIncreasingTransitionIdOrder[2]);
-  BOOST_CHECK_NE(reversedFirstStep, forwardResults[0]);
 }
 
 BOOST_AUTO_TEST_CASE(PrepareTransitionScatteringAndBendingMatchesFrozenFormulaForITSAndMFTShapedInputs)
@@ -900,7 +830,7 @@ BOOST_AUTO_TEST_CASE(PrepareTransitionScatteringAndBendingMatchesFrozenFormulaFo
     constexpr float r2 = 19.6213f;
     constexpr float res1 = 5.e-4f;
     constexpr float res2 = 5.e-4f;
-    const float oneOverR = clampCylinderTransitionCurvature(
+    const float oneOverR = clampTransitionCurvature(
       0.001f * 0.3f * std::abs(Bz) / 0.3f, r2);
     const gsl::span<const float> msSpan(msAngles.data(), msAngles.size());
     const auto actual = prepareTransitionScatteringAndBending(msSpan, fromLayer, toLayer, r1, r2, oneOverR, res1, res2);
@@ -930,7 +860,7 @@ BOOST_AUTO_TEST_CASE(PrepareTransitionScatteringAndBendingMatchesFrozenFormulaFo
     const float r2 = mft.LayerRadii[toLayer];
     constexpr float res1 = 5.e-4f;
     constexpr float res2 = 6.e-4f;
-    const float oneOverR = clampDiskTransitionCurvature(
+    const float oneOverR = clampTransitionCurvature(
       0.001f * 0.3f * std::abs(Bz) / mft.TrackletMinPt, r2);
     const gsl::span<const float> msSpan(msAngles.data(), msAngles.size());
     const auto actual = prepareTransitionScatteringAndBending(msSpan, fromLayer, toLayer, r1, r2, oneOverR, res1, res2);
@@ -950,7 +880,7 @@ BOOST_AUTO_TEST_CASE(PrepareTransitionScatteringAndBendingZeroFieldAndDegenerate
   {
     const float zeroFieldOneOverR = 0.001f * 0.3f * std::abs(0.f) / 0.3f;
     BOOST_CHECK_EQUAL(zeroFieldOneOverR, 0.f);
-    const float clamped = clampCylinderTransitionCurvature(zeroFieldOneOverR, 5.f);
+    const float clamped = clampTransitionCurvature(zeroFieldOneOverR, 5.f);
     BOOST_CHECK_EQUAL(clamped, 0.f); // 0.5*0 >= 1/5 is false: clamp does not trigger
     const auto actual = prepareTransitionScatteringAndBending(msSpan, 0, 2, 2.f, 5.f, clamped, 5.e-4f, 5.e-4f);
     const auto reference = referenceTransitionScatteringAndBending(msSpan, 0, 2, 2.f, 5.f, clamped, 5.e-4f, 5.e-4f);
@@ -962,7 +892,7 @@ BOOST_AUTO_TEST_CASE(PrepareTransitionScatteringAndBendingZeroFieldAndDegenerate
   // through to whatever the floating-point expression produces. This test
   // asserts parity with that expression, not any particular finiteness.
   {
-    const float oneOverR = clampCylinderTransitionCurvature(0.01f, 0.f);
+    const float oneOverR = clampTransitionCurvature(0.01f, 0.f);
     const auto actual = prepareTransitionScatteringAndBending(msSpan, 0, 2, 2.f, 0.f, oneOverR, 5.e-4f, 5.e-4f);
     const auto reference = referenceTransitionScatteringAndBending(msSpan, 0, 2, 2.f, 0.f, oneOverR, 5.e-4f, 5.e-4f);
     // BOOST_CHECK_EQUAL on NaN is always false (NaN != NaN); compare the bit

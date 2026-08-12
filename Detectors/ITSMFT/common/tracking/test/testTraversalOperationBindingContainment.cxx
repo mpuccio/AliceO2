@@ -157,7 +157,7 @@ BOOST_AUTO_TEST_CASE(NeighbourEntryPointUsesOneCoordinateNeutralCompatibilityPat
   }
 }
 
-BOOST_AUTO_TEST_CASE(RoadEntryPointKeepsItsExistingLeafBoundary)
+BOOST_AUTO_TEST_CASE(RoadEntryPointUsesOneGraphSchedule)
 {
   const auto source = readTrackerTraitsSource();
   const auto code = stripLineComments(extractMethodBody(source, "findRoads"));
@@ -165,8 +165,9 @@ BOOST_AUTO_TEST_CASE(RoadEntryPointKeepsItsExistingLeafBoundary)
   for (const auto token : {"SurfaceKind", "StateFamily", "constexpr"}) {
     BOOST_CHECK(!mentionsToken(code, token));
   }
-  BOOST_CHECK(code.find("findRoadsCylinder") != std::string::npos);
-  BOOST_CHECK(code.find("findRoadsDisk") != std::string::npos);
+  BOOST_CHECK(code.find("findRoadsForGraph") != std::string::npos);
+  BOOST_CHECK(code.find("findRoadsCylinder") == std::string::npos);
+  BOOST_CHECK(code.find("findRoadsDisk") == std::string::npos);
 }
 
 BOOST_AUTO_TEST_CASE(RetiredTraversalOperationAdapterDoesNotReturn)
@@ -179,50 +180,35 @@ BOOST_AUTO_TEST_CASE(RetiredTraversalOperationAdapterDoesNotReturn)
   }
 }
 
-BOOST_AUTO_TEST_CASE(OperationPartitionsComeFromSurfaceDescriptorsOnly)
+BOOST_AUTO_TEST_CASE(TransitionPreparationUsesOneGraphSchedule)
 {
   const auto source = readTrackerTraitsSource();
   const auto code = stripLineComments(extractMethodBody(source, "initialiseTimeFrame"));
-  BOOST_CHECK(code.find("layout.getSurface(layout.getTransition(transitionId).from).kind") != std::string::npos);
-  BOOST_CHECK(code.find("mTransitionsByKind[kindIndex(kind)].push_back(transitionId)") != std::string::npos);
-  BOOST_CHECK(code.find("mCellsByKind") == std::string::npos);
-  BOOST_CHECK(code.find("mScheduledCellsByKind") == std::string::npos);
-  BOOST_CHECK(code.find("mRoadStartCellsByKind[kindIndex(kind)].push_back(cellId)") != std::string::npos);
+  BOOST_CHECK(code.find("prepareTransitionScatteringAndBending") != std::string::npos);
+  BOOST_CHECK(code.find("mTransitionsByKind") == std::string::npos);
+  BOOST_CHECK(code.find("mRoadStartCellsByKind") == std::string::npos);
   for (const auto token : {"ClusterSourceId", "DetID", "parametersByKind", "parametersForKind"}) {
     BOOST_CHECK_MESSAGE(!mentionsToken(code, token),
                         "operation partitioning depends on " << token << " instead of SurfaceDescriptor::kind");
   }
 }
 
-BOOST_AUTO_TEST_CASE(RemainingNonTemplateWrapperTargetsForwardToKindSpecificLeafImplementations)
+BOOST_AUTO_TEST_CASE(RetiredRoadWrappersDoNotReturn)
 {
   const auto source = readTrackerTraitsSource();
-  const std::array<std::pair<std::string, std::string>, 2> wrapperToLeaf{{
-    {"findRoadsCylinder", "findRoadsForKind<SurfaceKind::Cylinder>"},
-    {"findRoadsDisk", "findRoadsForKind<SurfaceKind::Disk>"},
-  }};
-  for (const auto& [wrapper, leafCall] : wrapperToLeaf) {
-    const auto body = extractMethodBody(source, wrapper);
-    BOOST_REQUIRE_GT(body.size(), 0u);
-    BOOST_CHECK_MESSAGE(body.find(leafCall) != std::string::npos,
-                        "TrackerTraits::" << wrapper << "() does not forward to " << leafCall);
-  }
-  for (const auto retired : {"computeLayerTrackletsCylinder", "computeLayerTrackletsDisk",
-                             "computeLayerCellsCylinder", "computeLayerCellsDisk",
-                             "computeLayerTrackletsForKind", "computeLayerCellsForKind",
-                             "findCellsNeighboursCylinder", "findCellsNeighboursDisk",
-                             "findCellsNeighboursForKind", "cellsCylinderAreCompatible",
-                             "cellsDiskAreCompatible"}) {
+  for (const auto retired : {"findRoadsCylinder", "findRoadsDisk", "findRoadsForKind",
+                             "computeLayerTrackletsCylinder", "computeLayerTrackletsDisk",
+                             "computeLayerCellsCylinder", "computeLayerCellsDisk"}) {
     BOOST_CHECK(source.find(retired) == std::string::npos);
   }
 }
 
-BOOST_AUTO_TEST_CASE(ProcessNeighboursKeepsSurfaceKindSelectionCompileTime)
+BOOST_AUTO_TEST_CASE(ProcessNeighboursUsesTargetSurfaceDescriptor)
 {
   const auto source = readTrackerTraitsSource();
-  BOOST_CHECK(source.find("template <SurfaceKind Kind, typename InputSeed>") != std::string::npos);
+  BOOST_CHECK(source.find("template <SurfaceKind Kind, typename InputSeed>") == std::string::npos);
   BOOST_CHECK(source.find("params.kind") == std::string::npos);
-  BOOST_CHECK(source.find("processNeighbours<Kind>(") != std::string::npos);
+  BOOST_CHECK(source.find("mTraversalGraph.getSurface(surface).kind") != std::string::npos);
 }
 
 BOOST_AUTO_TEST_CASE(RetiredCoordinateCutsAreAbsentFromCommonProductionSources)

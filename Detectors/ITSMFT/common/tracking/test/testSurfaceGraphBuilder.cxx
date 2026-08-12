@@ -303,20 +303,13 @@ BOOST_AUTO_TEST_CASE(DuplicateSurfaceInGraphDefinitionIsRejected)
   BOOST_CHECK(result.error == SurfaceGraphBuildError::DuplicateSurface);
 }
 
-BOOST_AUTO_TEST_CASE(GraphDefinitionMixingSurfaceKindsIsRejected)
+BOOST_AUTO_TEST_CASE(GraphDefinitionMixingSurfaceKindsIsAccepted)
 {
-  // A graph definition no longer asserts an external surface kind
-  // tag the builder validates against the catalog -- its expected SurfaceKind
-  // is derived from its own first surface, and every other surface in the
-  // graph must match it. Catalog surface 0 is Cylinder, surface 1 is Disk;
-  // a graph spanning both is rejected on that basis alone.
   std::vector<SurfaceDescriptor> catalog{surface(0, SurfaceKind::Cylinder), surface(1, SurfaceKind::Disk)};
   auto builder = makeBuilder(catalog, orderedIds({0, 1}));
 
   const auto result = builder.build();
-  BOOST_CHECK(!result.ok());
-  BOOST_CHECK(result.error == SurfaceGraphBuildError::GraphRejected);
-  BOOST_CHECK(result.graphError == SurfaceGraphError::SurfaceKindMismatch);
+  BOOST_CHECK(result.ok());
 }
 
 BOOST_AUTO_TEST_CASE(SingletonGraphsOfEitherKindAreAccepted)

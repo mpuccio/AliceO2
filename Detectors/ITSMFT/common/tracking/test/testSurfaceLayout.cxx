@@ -165,23 +165,21 @@ BOOST_AUTO_TEST_CASE(DisconnectedCombinedLayoutAcceptsBothKinds)
   BOOST_CHECK(layout.valid());
 }
 
-BOOST_AUTO_TEST_CASE(LayoutRejectsCylinderDiskTransitions)
+BOOST_AUTO_TEST_CASE(LayoutAcceptsCylinderDiskTransitions)
 {
   SurfaceGraph cylinderToDisk{2};
   BOOST_REQUIRE(cylinderToDisk.addTransition(adjacent(0, 1)).isValid());
   BOOST_REQUIRE(cylinderToDisk.finalize());
   const std::vector<SurfaceDescriptor> outwardSurfaces{surface(0, SurfaceKind::Cylinder), surface(1, SurfaceKind::Disk)};
   SurfaceGraph outward{outwardSurfaces, std::move(cylinderToDisk)};
-  BOOST_CHECK(!outward.valid());
-  BOOST_CHECK(outward.getError() == SurfaceGraphError::MixedSurfaceTransition);
+  BOOST_CHECK(outward.valid());
 
   SurfaceGraph diskToCylinder{2};
   BOOST_REQUIRE(diskToCylinder.addTransition(adjacent(0, 1)).isValid());
   BOOST_REQUIRE(diskToCylinder.finalize());
   const std::vector<SurfaceDescriptor> inwardSurfaces{surface(0, SurfaceKind::Disk), surface(1, SurfaceKind::Cylinder)};
   SurfaceGraph inward{inwardSurfaces, std::move(diskToCylinder)};
-  BOOST_CHECK(!inward.valid());
-  BOOST_CHECK(inward.getError() == SurfaceGraphError::MixedSurfaceTransition);
+  BOOST_CHECK(inward.valid());
 }
 
 BOOST_AUTO_TEST_CASE(LayoutCachesKindMasksInTheGlobalIdSpace)
