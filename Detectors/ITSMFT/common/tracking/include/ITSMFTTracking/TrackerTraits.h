@@ -51,7 +51,7 @@ using SeedRefitFunction = bool (*)(const TrackSeed& seed,
                                    gsl::span<const gsl::span<const GlobalMeasurement>> layerGlobals,
                                    gsl::span<const gsl::span<const SurfaceMeasurement>> layerMeasurements,
                                    SurfaceCatalogView surfaceCatalog,
-                                   ClusterSourceId expectedSource,
+                                   gsl::span<const SurfaceId> orderedSurfaces,
                                    TrackingCandidate& candidate);
 
 #endif

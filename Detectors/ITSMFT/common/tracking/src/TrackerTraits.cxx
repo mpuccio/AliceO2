@@ -94,7 +94,7 @@ std::optional<uint32_t> appendCommonTrack(TimeFrame& frame,
     track.hitSurfaces.set(reference.surface);
   }
   if (!track.innerState.hasRecognizedFamily() || !track.outerState.hasRecognizedFamily() ||
-      track.innerState.family != track.outerState.family || !track.timestamp.isValid() || resolvedReferences.empty()) {
+      !track.timestamp.isValid() || resolvedReferences.empty()) {
     return std::nullopt;
   }
 
@@ -1553,47 +1553,6 @@ void TrackerTraits::findRoadsForSchedule(const int iteration,
       continue;
     }
 
-    // The retained refit callback is detector-specific. Prove that each seed
-    // belongs to one source and one state family before any refit worker can
-    // publish a candidate. A future descriptor-driven refit may replace this
-    // gate; it must validate ownership per measurement rather than infer it.
-    std::vector<ClusterSourceId> refitSources;
-    refitSources.reserve(trackSeeds.size());
-    for (const auto& seed : trackSeeds) {
-      std::optional<ClusterSourceId> source;
-      std::optional<SurfaceKind> kind;
-      for (int position = 0; position < activeSurfaceCount; ++position) {
-        const int cluster = seed.getCluster(position);
-        if (cluster == o2::its::constants::UnusedIndex) {
-          continue;
-        }
-        if (cluster < 0 || cluster >= static_cast<int>(mLayerGlobalMeasurements[position].size())) {
-          throw TraversalException{iteration, TraversalFailureReason::SparseTopologyMismatch};
-        }
-        const auto& global = mLayerGlobalMeasurements[position][cluster];
-        const auto surface = mBinding->getOrderedSurfaces()[position];
-        const auto expectedSource = mScratch->getSurfaceSource(position);
-        if (global.surface != surface || !expectedSource || global.cluster.source != *expectedSource) {
-          throw TraversalException{iteration, TraversalFailureReason::TraversalBindingMismatch};
-        }
-        const auto nextKind = mTraversalGraph.getSurface(surface).kind;
-        if (!kind) {
-          kind = nextKind;
-        } else if (*kind != nextKind) {
-          throw TraversalException{iteration, TraversalFailureReason::StateFamilyMismatch};
-        }
-        if (!source) {
-          source = *expectedSource;
-        } else if (*source != *expectedSource) {
-          throw TraversalException{iteration, TraversalFailureReason::TraversalBindingMismatch};
-        }
-      }
-      if (!source || !kind) {
-        throw TraversalException{iteration, TraversalFailureReason::SparseTopologyMismatch};
-      }
-      refitSources.push_back(*source);
-    }
-
     bounded_vector<TrackingCandidate> tracks(mMemoryPool.get());
     mTaskArena->execute([&] {
       auto forSeed = [&](auto Mode, int iSeed, int offset = 0) {
@@ -1606,7 +1565,7 @@ void TrackerTraits::findRoadsForSchedule(const int iteration,
                                                 mLayerGlobalMeasurements,
                                                 mLayerMeasurements,
                                                 mTraversalGraph.getSurfaceCatalogView(),
-                                                refitSources[iSeed],
+                                                mBinding->getOrderedSurfaces(),
                                                 temporaryTrack);
         if (refitSuccess) {
           if constexpr (decltype(Mode)::value == PassMode::OnePass::value) {

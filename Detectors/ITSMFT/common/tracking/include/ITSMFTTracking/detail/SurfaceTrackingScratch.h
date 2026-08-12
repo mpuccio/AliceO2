@@ -32,6 +32,7 @@
 #ifndef ALICEO2_ITSMFT_TRACKING_SURFACETRACKINGSCRATCH_H_
 #define ALICEO2_ITSMFT_TRACKING_SURFACETRACKINGSCRATCH_H_
 
+#include <algorithm>
 #include <array>
 #include <cstddef>
 #include <cstdint>
@@ -195,6 +196,14 @@ class SurfaceTrackingScratch
              ? std::optional<ClusterSourceId>{mSourceBySurface[layer]}
              : std::nullopt;
   }
+  bool setSurfaceSources(gsl::span<const ClusterSourceId> sources)
+  {
+    if (sources.size() != mNOwnedSurfaces || std::any_of(sources.begin(), sources.end(), [](ClusterSourceId source) { return !source.isValid(); })) {
+      return false;
+    }
+    mSourceBySurface.assign(sources.begin(), sources.end());
+    return true;
+  }
 #endif
 
   auto& getMinRs() { return mMinR; }
@@ -278,6 +287,11 @@ class SurfaceTrackingScratch
   const o2::its::TrackingFrameInfo& getClusterTrackingFrameInfo(int layerId, const o2::its::Cluster& cl) const;
   gsl::span<const MCCompLabel> getClusterLabels(int layerId, const o2::its::Cluster& cl) const { return getClusterLabels(layerId, cl.clusterId); }
   gsl::span<const MCCompLabel> getClusterLabels(int layerId, const int clId) const { return mClusterLabels[(mIsStaggered ? layerId : 0)]->getLabels(mClusterExternalIndices[layerId][clId]); }
+  bool hasClusterExternalIndex(int layerId, int clId) const noexcept
+  {
+    return layerId >= 0 && layerId < static_cast<int>(mClusterExternalIndices.size()) && clId >= 0 &&
+           clId < static_cast<int>(mClusterExternalIndices[layerId].size());
+  }
   int getClusterExternalIndex(int layerId, const int clId) const { return mClusterExternalIndices[layerId][clId]; }
   int getClusterSize(int layer, int clusterId) const { return mClusterSize[layer][clusterId]; }
   void setClusterSize(int layer, o2::its::bounded_vector<uint8_t>& v) { mClusterSize[layer] = std::move(v); }

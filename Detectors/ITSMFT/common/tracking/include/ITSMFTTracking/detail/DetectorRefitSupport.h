@@ -12,7 +12,6 @@
 #include "DataFormatsCalibration/MeanVertexObject.h"
 #include "ITSMFTTracking/CommonTrack.h"
 #include "ITSMFTTracking/NativeRefitDriver.h"
-#include "ITSMFTTracking/detail/SurfaceKinematicStateLegacyAdapters.h"
 #include "ITSMFTTracking/detail/MFTFwdTrackHelpers.h"
 #include "ITStracking/Constants.h"
 
@@ -40,33 +39,28 @@ inline void configureMFTBeamPosition(TimeFrame& frame, const TrackingParameters&
   frame.setBeamPosition(params.Diamond[0], params.Diamond[1], params.DiamondCov[3], layerRes, systErrY2);
 }
 
-// Detector edges produce the detector-neutral TrackingCandidate consumed by
-// TrackerTraits; typed accepted tracks stay outside the generic core.
 inline bool fillCandidateKinematics(TrackingCandidate& candidate) noexcept
 {
-  if (candidate.track.innerState.family == StateFamily::Barrel) {
-    o2::track::TrackParCovF param{};
-    if (!legacy::exportBarrelTrackParCov(candidate.track.innerState, param)) {
+  auto& state = candidate.track.innerState;
+  if (!state.hasRecognizedFamily() || !std::isfinite(state.parameters[4])) {
+    return false;
+  }
+  candidate.charge = state.parameters[4] < 0.f ? -1 : 1;
+  if (state.family == StateFamily::Barrel) {
+    if (std::abs(state.parameters[2]) >= 1.f) {
       return false;
     }
-    candidate.phi = param.getPhi();
-    candidate.eta = param.getEta();
-    candidate.charge = param.getSign();
-    return true;
+    candidate.phi = std::asin(state.parameters[2]) + state.alpha;
+    candidate.eta = std::asinh(state.parameters[3]);
+  } else {
+    candidate.phi = state.parameters[2];
+    candidate.eta = std::asinh(state.parameters[3]);
   }
-  if (candidate.track.innerState.family == StateFamily::Forward) {
-    o2::track::TrackParCovFwd param{};
-    if (!legacy::exportLegacyForwardTrackParCov(candidate.track.innerState, param)) {
-      return false;
-    }
-    candidate.phi = static_cast<float>(param.getPhi());
-    candidate.eta = static_cast<float>(param.getEta());
-    candidate.charge = param.getCharge();
-    return true;
-  }
-  return false;
+  return std::isfinite(candidate.phi) && std::isfinite(candidate.eta);
 }
 
+// Narrow compatibility entry points retained for direct unit coverage of the
+// detector adapters. Tracker uses refitSurfaceSeed below.
 inline bool refitITSSeed(const TrackSeed& seed,
                          const TrackingParameters& params,
                          float bz,
@@ -124,26 +118,57 @@ inline bool refitSurfaceSeed(const TrackSeed& seed,
                              gsl::span<const gsl::span<const GlobalMeasurement>> layerGlobals,
                              gsl::span<const gsl::span<const SurfaceMeasurement>> layerMeasurements,
                              SurfaceCatalogView surfaceCatalog,
-                             ClusterSourceId expectedSource,
+                             gsl::span<const SurfaceId> orderedSurfaces,
                              TrackingCandidate& candidate)
 {
+  if (layerGlobals.size() != layerMeasurements.size() || orderedSurfaces.size() != layerMeasurements.size()) {
+    return false;
+  }
+  bool hasMeasurement = false;
   for (int position = 0; position < static_cast<int>(layerMeasurements.size()); ++position) {
     const int clusterIndex = seed.getCluster(position);
     if (clusterIndex == o2::its::constants::UnusedIndex) {
       continue;
     }
-    if (clusterIndex < 0 || clusterIndex >= static_cast<int>(layerMeasurements[position].size())) {
+    if (clusterIndex < 0 || clusterIndex >= static_cast<int>(layerMeasurements[position].size()) ||
+        clusterIndex >= static_cast<int>(layerGlobals[position].size())) {
       return false;
     }
-    const auto surface = layerGlobals[position][clusterIndex].surface;
-    if (!surfaceCatalog.hasSurface(surface)) {
+    const auto& global = layerGlobals[position][clusterIndex];
+    const auto& measurement = layerMeasurements[position][clusterIndex];
+    const auto expectedSource = scratch.getSurfaceSource(position);
+    if (!scratch.hasClusterExternalIndex(position, clusterIndex)) {
       return false;
     }
-    return surfaceCatalog.getSurface(surface).kind == SurfaceKind::Cylinder
-             ? refitITSSeed(seed, params, bz, scratch, layerGlobals, layerMeasurements, surfaceCatalog, expectedSource, candidate)
-             : refitMFTSeed(seed, params, bz, scratch, layerGlobals, layerMeasurements, surfaceCatalog, expectedSource, candidate);
+    const int externalIndex = scratch.getClusterExternalIndex(position, clusterIndex);
+    if (!expectedSource || global.surface != orderedSurfaces[position] || !surfaceCatalog.hasSurface(global.surface) ||
+        !global.cluster.isValid() || global.cluster.source != *expectedSource || externalIndex < 0 ||
+        global.cluster.index != static_cast<uint32_t>(externalIndex) ||
+        !std::isfinite(measurement.frame.u) || !std::isfinite(measurement.frame.v) || !std::isfinite(measurement.frame.q) ||
+        !std::isfinite(measurement.covariance.uu) || !std::isfinite(measurement.covariance.uv) || !std::isfinite(measurement.covariance.vv) ||
+        measurement.covariance.uu < 0.f || measurement.covariance.vv < 0.f) {
+      return false;
+    }
+    hasMeasurement = true;
   }
-  return false;
+  if (!hasMeasurement) {
+    return false;
+  }
+  SurfaceKinematicState paramIn{};
+  SurfaceKinematicState paramOut{};
+  float chi2 = 0.f;
+  OperationFailureReason reason{};
+  if (!fitTrackSeedLegs(seed, layerGlobals, layerMeasurements, surfaceCatalog, bz,
+                        params.ShiftRefToCluster, params.MaxChi2ClusterAttachment, params.MaxChi2NDF,
+                        params.RepeatRefitOut, gsl::span<const float>(params.MinPt),
+                        paramIn, paramOut, chi2, reason)) {
+    return false;
+  }
+  candidate.seed = seed;
+  candidate.track.innerState = paramIn;
+  candidate.track.outerState = paramOut;
+  candidate.track.chi2 = chi2;
+  return fillCandidateKinematics(candidate);
 }
 
 } // namespace o2::itsmft::tracking::detail

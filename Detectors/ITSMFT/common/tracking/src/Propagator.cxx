@@ -175,7 +175,6 @@ bool barrelToForward(SurfaceKinematicState& state, SurfaceLinearizationReference
     const float linBY = linRef->parameters[0];
     const float linXGlo = linBX * csA - linBY * snA;
     const float linYGlo = linBX * snA + linBY * csA;
-    const float linZGlo = linRef->parameters[1];
     float linPhi = linRef->alpha + std::asin(linSnp);
     while (linPhi > o2::constants::math::PI) {
       linPhi -= o2::constants::math::TwoPI;
@@ -184,14 +183,17 @@ bool barrelToForward(SurfaceKinematicState& state, SurfaceLinearizationReference
       linPhi += o2::constants::math::TwoPI;
     }
     const float newLinParameters[5] = {linXGlo, linYGlo, linPhi, linRef->parameters[3], linRef->parameters[4]};
-    if (!isFinite5(newLinParameters) || !std::isfinite(linZGlo)) {
+    if (!isFinite5(newLinParameters)) {
       reason = OperationFailureReason::NonFiniteOutput;
       return false;
     }
     for (uint8_t i = 0; i < 5; ++i) {
       linRef->parameters[i] = newLinParameters[i];
     }
-    linRef->referenceCoordinate = linZGlo;
+    // Kalman updates may move the fitted z while the linearization parameters
+    // remain nominal. The converted pair must nevertheless share the same
+    // propagation anchor.
+    linRef->referenceCoordinate = zGlo;
     linRef->alpha = 0.f;
     linRef->family = StateFamily::Forward;
   }
@@ -274,17 +276,18 @@ bool forwardToBarrel(SurfaceKinematicState& state, SurfaceLinearizationReference
     const float linY = linRef->parameters[1];
     const float linPhi = linRef->parameters[2];
     const float linBY = -linX * snA + linY * csA;
-    const float linBX = linX * csA + linY * snA;
     const float linSnp = std::sin(linPhi - alpha);
     const float newLinParameters[5] = {linBY, linRef->referenceCoordinate, linSnp, linRef->parameters[3], linRef->parameters[4]};
-    if (!isFinite5(newLinParameters) || !std::isfinite(linBX)) {
+    if (!isFinite5(newLinParameters)) {
       reason = OperationFailureReason::NonFiniteOutput;
       return false;
     }
     for (uint8_t i = 0; i < 5; ++i) {
       linRef->parameters[i] = newLinParameters[i];
     }
-    linRef->referenceCoordinate = linBX;
+    // As for barrel-to-forward, retain the nominal linearization parameters
+    // but anchor both representations at the fitted state's converted point.
+    linRef->referenceCoordinate = bX;
     linRef->alpha = alpha;
     linRef->family = StateFamily::Barrel;
   }

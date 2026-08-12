@@ -233,7 +233,7 @@ void CATrackerDPL::initialiseTracking()
   }
 
   mTracker = std::make_unique<o2::itsmft::tracking::Tracker>(
-    &o2::itsmft::tracking::detail::refitMFTSeed);
+    &o2::itsmft::tracking::detail::refitSurfaceSeed);
   const auto result = mTracker->initialize(mFrame, configuration);
   if (!result.ok()) {
     LOGP(fatal, "MFT CA tracker failed to initialize static configuration (error={} iteration={} graph={} binding={})",
