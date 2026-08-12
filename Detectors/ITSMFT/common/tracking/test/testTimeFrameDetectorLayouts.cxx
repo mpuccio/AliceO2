@@ -71,7 +71,7 @@ bool noopSeedRefit(const TrackSeed&,
                    gsl::span<const gsl::span<const GlobalMeasurement>>,
                    gsl::span<const gsl::span<const SurfaceMeasurement>>,
                    SurfaceCatalogView,
-                   ClusterSourceId,
+                   gsl::span<const SurfaceId>,
                    TrackingCandidate&)
 {
   return false;

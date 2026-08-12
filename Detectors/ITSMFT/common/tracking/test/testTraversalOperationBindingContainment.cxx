@@ -211,15 +211,14 @@ BOOST_AUTO_TEST_CASE(ProcessNeighboursUsesTargetSurfaceDescriptor)
   BOOST_CHECK(source.find("mTraversalGraph.getSurface(surface).kind") != std::string::npos);
 }
 
-BOOST_AUTO_TEST_CASE(RefitPreflightRejectsMixedSeedsBeforeWorkers)
+BOOST_AUTO_TEST_CASE(RefitWorkersUseTheDescriptorDrivenBoundary)
 {
   const auto source = readTrackerTraitsSource();
   const auto code = stripLineComments(extractMethodBody(source, "findRoadsForSchedule"));
   BOOST_REQUIRE_GT(code.size(), 0u);
-  BOOST_CHECK(code.find("refitSources") != std::string::npos);
-  BOOST_CHECK(code.find("TraversalFailureReason::StateFamilyMismatch") != std::string::npos);
-  BOOST_CHECK(code.find("TraversalFailureReason::TraversalBindingMismatch") != std::string::npos);
-  BOOST_CHECK(code.find("refitSources[iSeed]") != std::string::npos);
+  BOOST_CHECK(code.find("refitSources") == std::string::npos);
+  BOOST_CHECK(code.find("TraversalFailureReason::StateFamilyMismatch") == std::string::npos);
+  BOOST_CHECK(code.find("mBinding->getOrderedSurfaces()") != std::string::npos);
   BOOST_CHECK(code.find("mLayerGlobalMeasurements[position].front()") == std::string::npos);
 }
 

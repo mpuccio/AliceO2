@@ -319,7 +319,7 @@ class InjectingTrackerTraits final : public TrackerTraits
 bool testSeedRefit(const TrackSeed&, const TrackingParameters&, float, SurfaceTrackingScratch&,
                    gsl::span<const gsl::span<const GlobalMeasurement>>,
                    gsl::span<const gsl::span<const SurfaceMeasurement>>, SurfaceCatalogView,
-                   ClusterSourceId, TrackingCandidate&)
+                   gsl::span<const SurfaceId>, TrackingCandidate&)
 {
   return false;
 }
