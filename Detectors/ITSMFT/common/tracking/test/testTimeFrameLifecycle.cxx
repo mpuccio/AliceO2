@@ -52,7 +52,7 @@
 #include "DetectorsCommonDataFormats/DetID.h"
 #include "ITSMFTTracking/SurfaceGraphBuilder.h"
 #include "ITSMFTTracking/detail/SurfaceTrackingScratch.h"
-#include "ITSMFTTracking/MultiSourceFrame.h"
+#include "ITSMFTTracking/MeasurementView.h"
 #include "ITSMFTTracking/MultiSourceTimeFrameLoader.h"
 #include "ITSMFTTracking/SurfaceDescriptor.h"
 #include "ITSMFTTracking/ClusterDecoding.h"
@@ -267,22 +267,21 @@ void verifyFixtureLoaded(const TimeFrame& frame, SurfaceTrackingScratch& tf, con
 {
   constexpr ClusterSourceId kSourceId{0};
 
-  BOOST_CHECK_EQUAL(frame.getNormalizedFrame().getSurfaceMeasurements(SurfaceId{0}).size(), 2u);
-  BOOST_CHECK_EQUAL(frame.getNormalizedFrame().getSurfaceMeasurements(SurfaceId{1}).size(), 1u);
-  BOOST_CHECK_EQUAL(frame.getNormalizedFrame().getSurfaceMeasurements(SurfaceId{2}).size(), 1u);
+  BOOST_CHECK_EQUAL(frame.getSurfaceMeasurements(SurfaceId{0}).size(), 2u);
+  BOOST_CHECK_EQUAL(frame.getSurfaceMeasurements(SurfaceId{1}).size(), 1u);
+  BOOST_CHECK_EQUAL(frame.getSurfaceMeasurements(SurfaceId{2}).size(), 1u);
   BOOST_CHECK_EQUAL(tf.getUnsortedClustersOnLayer(0, 0).size() + tf.getUnsortedClustersOnLayer(1, 0).size(), 2u);
   BOOST_CHECK_EQUAL(tf.getUnsortedClustersOnLayer(0, 1).size(), 1u);
   BOOST_CHECK_EQUAL(tf.getUnsortedClustersOnLayer(2, 2).size(), 1u);
   for (int l = 3; l < ITSNLayers; ++l) {
-    BOOST_CHECK_EQUAL(frame.getNormalizedFrame().getSurfaceMeasurements(SurfaceId{static_cast<uint16_t>(l)}).size(), 0u);
+    BOOST_CHECK_EQUAL(frame.getSurfaceMeasurements(SurfaceId{static_cast<uint16_t>(l)}).size(), 0u);
     BOOST_CHECK_EQUAL(tf.getNrof(l), static_cast<int>(f.rofs.size()));
   }
 
   BOOST_CHECK_EQUAL(tf.getNrof(0), static_cast<int>(f.rofs.size()));
-  BOOST_REQUIRE_EQUAL(frame.getNormalizedFrame().getSources().size(), 1u);
-  BOOST_CHECK(frame.getNormalizedFrame().getSources()[0].detector == o2::detectors::DetID::ITS);
-  BOOST_CHECK_EQUAL(frame.getNormalizedFrame().getSources()[0].nROFs, f.rofs.size());
-  const auto intervals = frame.getNormalizedFrame().getSourceIntervals(kSourceId);
+  BOOST_REQUIRE_EQUAL(frame.getSourceROFInfo().size(), 1u);
+  BOOST_CHECK_EQUAL(frame.getSourceROFInfo()[0].nROFs, f.rofs.size());
+  const auto intervals = frame.getSourceIntervals(kSourceId);
   BOOST_REQUIRE_EQUAL(intervals.size(), f.rofs.size());
   for (uint32_t r = 0; r < f.rofs.size(); ++r) {
     BOOST_CHECK_EQUAL(intervals[r].sourceROF, r);
@@ -310,8 +309,8 @@ void verifyFixtureLoaded(const TimeFrame& frame, SurfaceTrackingScratch& tf, con
     const GlobalMeasurement* globalMeasurement = nullptr;
     const SurfaceMeasurement* measurement = nullptr;
     const auto surface = SurfaceId{static_cast<uint16_t>(e.layer)};
-    const auto globals = frame.getNormalizedFrame().getGlobalMeasurements(surface);
-    const auto locals = frame.getNormalizedFrame().getSurfaceMeasurements(surface);
+    const auto globals = frame.getGlobalMeasurements(surface);
+    const auto locals = frame.getSurfaceMeasurements(surface);
     for (size_t index = 0; index < globals.size(); ++index) {
       if (globals[index].cluster.index == e.externalIndex) {
         globalMeasurement = &globals[index];
@@ -362,7 +361,7 @@ void verifyFixtureLoaded(const TimeFrame& frame, SurfaceTrackingScratch& tf, con
     BOOST_CHECK_EQUAL(globalMeasurement->shape.nPixels, e.nPixels);
 
     const auto legacyLabels = tf.getClusterLabels(e.layer, clId);
-    const auto normalizedLabels = frame.getNormalizedFrame().getLabels(ClusterRef{kSourceId, e.externalIndex});
+    const auto normalizedLabels = frame.getLabels(ClusterRef{kSourceId, e.externalIndex});
     BOOST_REQUIRE_EQUAL(legacyLabels.size(), 1u);
     BOOST_REQUIRE_EQUAL(normalizedLabels.size(), 1u);
     BOOST_CHECK(legacyLabels[0] == normalizedLabels[0]);
@@ -401,15 +400,15 @@ BOOST_AUTO_TEST_CASE(WipeClearsNormalizedFrameButPreservesDetId)
   frame.resetEvent();
 
   // --- inspect only freshly obtained normalized accessors/views ---
-  BOOST_CHECK_EQUAL(frame.getNormalizedFrame().getTotalMeasurements(), 0u);
-  BOOST_CHECK(frame.getNormalizedFrame().getSources().empty());
-  BOOST_CHECK_EQUAL(frame.getNormalizedFrame().getNSurfaces(), 0u);
+  BOOST_CHECK_EQUAL(frame.getTotalMeasurements(), 0u);
+  BOOST_CHECK(frame.getSourceROFInfo().empty());
+  BOOST_CHECK_EQUAL(frame.getNMeasurementSurfaces(), 0u);
   for (uint16_t s = 0; s < ITSNLayers; ++s) {
-    BOOST_CHECK(frame.getNormalizedFrame().getSurfaceMeasurements(SurfaceId{s}).empty());
+    BOOST_CHECK(frame.getSurfaceMeasurements(SurfaceId{s}).empty());
   }
-  BOOST_CHECK(frame.getNormalizedFrame().getSourceIntervals(ClusterSourceId{0}).empty());
-  BOOST_CHECK(frame.getNormalizedFrame().getLabels(ClusterRef{ClusterSourceId{0}, 0}).empty());
-  const auto freshView = frame.getNormalizedFrameView();
+  BOOST_CHECK(frame.getSourceIntervals(ClusterSourceId{0}).empty());
+  BOOST_CHECK(frame.getLabels(ClusterRef{ClusterSourceId{0}, 0}).empty());
+  const auto freshView = frame.getMeasurementView();
   BOOST_CHECK_EQUAL(freshView.nSurfaces, 0u);
   BOOST_CHECK_EQUAL(freshView.nSources, 0u);
 

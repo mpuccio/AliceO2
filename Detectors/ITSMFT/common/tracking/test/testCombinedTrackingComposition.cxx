@@ -770,7 +770,7 @@ BOOST_AUTO_TEST_CASE(CombinedComponentsUseOwnROFTimingInOneCombinedPass)
     }
     for (uint32_t ref = track.firstClusterRef; ref < track.clusterRefEnd; ++ref) {
       const auto& reference = frame.getTrackClusterIndices()[ref];
-      const auto* measurement = frame.getNormalizedFrame().getGlobalMeasurement(reference.surface, reference.index);
+      const auto* measurement = frame.getGlobalMeasurement(reference.surface, reference.index);
       BOOST_REQUIRE(measurement != nullptr);
       BOOST_CHECK(measurement->surface == reference.surface);
       BOOST_CHECK(isMft ? mftMask.has(reference.surface) : itsMask.has(reference.surface));

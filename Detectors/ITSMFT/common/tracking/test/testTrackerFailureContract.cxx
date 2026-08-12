@@ -82,7 +82,7 @@
 #include "ITSMFTTracking/Configuration.h"
 #include "ITSMFTTracking/SurfaceGraphBuilder.h"
 #include "ITSMFTTracking/detail/ITSSharedClusterCompatibility.h"
-#include "ITSMFTTracking/MultiSourceFrame.h"
+#include "ITSMFTTracking/MeasurementView.h"
 #include "ITSMFTTracking/MultiSourceTimeFrameLoader.h"
 #include "ITSMFTTracking/NominalSurfaceMaterialDefaults.h"
 #include "ITSMFTTracking/SurfaceDescriptor.h"
@@ -515,14 +515,14 @@ BOOST_AUTO_TEST_CASE(RecoverableFailureDroppedReturnsExactSentinelAndWipes)
   Rig rig{/*dropTFUponFailure=*/true};
   rig.establishValidLayout();
   rig.loadSource(makeFixture());
-  BOOST_REQUIRE(rig.frame.getNormalizedFrame().getTotalMeasurements() > 0u);
+  BOOST_REQUIRE(rig.frame.getTotalMeasurements() > 0u);
 
   rig.forceMemoryLimitAtCurrentUsage();
 
   const auto result = rig.tracker.run(rig.frame, rig.traits);
 
   BOOST_CHECK(result.outcome == TrackingOutcome::RecoverableDropped);
-  BOOST_CHECK_EQUAL(rig.frame.getNormalizedFrame().getTotalMeasurements(), 0u);
+  BOOST_CHECK_EQUAL(rig.frame.getTotalMeasurements(), 0u);
   BOOST_CHECK(rig.frame.getCommonTracks().empty());
   BOOST_CHECK_EQUAL(rig.frame.getEventResetCount(), 2u);
 }
@@ -532,7 +532,7 @@ BOOST_AUTO_TEST_CASE(RecoverableFailureNotDroppedRethrowsButStillWipesFirst)
   Rig rig{/*dropTFUponFailure=*/false};
   rig.establishValidLayout();
   rig.loadSource(makeFixture());
-  BOOST_REQUIRE(rig.frame.getNormalizedFrame().getTotalMeasurements() > 0u);
+  BOOST_REQUIRE(rig.frame.getTotalMeasurements() > 0u);
 
   rig.forceMemoryLimitAtCurrentUsage();
 
@@ -540,7 +540,7 @@ BOOST_AUTO_TEST_CASE(RecoverableFailureNotDroppedRethrowsButStillWipesFirst)
 
   // Wipe must have already happened before the exception propagated -- not
   // "the process is going down anyway".
-  BOOST_CHECK_EQUAL(rig.frame.getNormalizedFrame().getTotalMeasurements(), 0u);
+  BOOST_CHECK_EQUAL(rig.frame.getTotalMeasurements(), 0u);
   BOOST_CHECK(rig.frame.getCommonTracks().empty());
   BOOST_CHECK_EQUAL(rig.frame.getEventResetCount(), 2u);
 }
@@ -557,13 +557,13 @@ BOOST_AUTO_TEST_CASE(BadAllocDroppedReturnsExactSentinelAndWipes)
   ThrowingRig rig{/*dropTFUponFailure=*/true};
   rig.establishValidLayout();
   rig.loadSource(makeFixture());
-  BOOST_REQUIRE(rig.frame.getNormalizedFrame().getTotalMeasurements() > 0u);
+  BOOST_REQUIRE(rig.frame.getTotalMeasurements() > 0u);
 
   rig.traits.failure = InjectedFailure::BadAlloc;
   const auto result = rig.tracker.run(rig.frame, rig.traits);
 
   BOOST_CHECK(result.outcome == TrackingOutcome::RecoverableDropped);
-  BOOST_CHECK_EQUAL(rig.frame.getNormalizedFrame().getTotalMeasurements(), 0u);
+  BOOST_CHECK_EQUAL(rig.frame.getTotalMeasurements(), 0u);
   BOOST_CHECK(rig.frame.getCommonTracks().empty());
 }
 
@@ -572,12 +572,12 @@ BOOST_AUTO_TEST_CASE(BadAllocNotDroppedRethrowsButStillWipesFirst)
   ThrowingRig rig{/*dropTFUponFailure=*/false};
   rig.establishValidLayout();
   rig.loadSource(makeFixture());
-  BOOST_REQUIRE(rig.frame.getNormalizedFrame().getTotalMeasurements() > 0u);
+  BOOST_REQUIRE(rig.frame.getTotalMeasurements() > 0u);
 
   rig.traits.failure = InjectedFailure::BadAlloc;
   BOOST_CHECK_THROW(rig.tracker.run(rig.frame, rig.traits), std::bad_alloc);
 
-  BOOST_CHECK_EQUAL(rig.frame.getNormalizedFrame().getTotalMeasurements(), 0u);
+  BOOST_CHECK_EQUAL(rig.frame.getTotalMeasurements(), 0u);
   BOOST_CHECK(rig.frame.getCommonTracks().empty());
 }
 
@@ -594,12 +594,12 @@ BOOST_AUTO_TEST_CASE(UnclassifiedExceptionAlwaysRethrowsAndWipesRegardlessOfFlag
     ThrowingRig rig{dropFlag};
     rig.establishValidLayout();
     rig.loadSource(makeFixture());
-    BOOST_REQUIRE(rig.frame.getNormalizedFrame().getTotalMeasurements() > 0u);
+    BOOST_REQUIRE(rig.frame.getTotalMeasurements() > 0u);
 
     rig.traits.failure = InjectedFailure::UnclassifiedRuntimeError;
     BOOST_CHECK_THROW(rig.tracker.run(rig.frame, rig.traits), std::runtime_error);
 
-    BOOST_CHECK_EQUAL(rig.frame.getNormalizedFrame().getTotalMeasurements(), 0u);
+    BOOST_CHECK_EQUAL(rig.frame.getTotalMeasurements(), 0u);
     BOOST_CHECK(rig.frame.getCommonTracks().empty());
   }
 }
@@ -667,7 +667,7 @@ BOOST_AUTO_TEST_CASE(ValidEmptyInputCompletesWithoutErrorAndProducesNoTracks)
   Rig rig{/*dropTFUponFailure=*/false};
   rig.establishValidLayout();
   rig.loadSource(emptyFixture());
-  BOOST_REQUIRE_EQUAL(rig.frame.getNormalizedFrame().getTotalMeasurements(), 0u);
+  BOOST_REQUIRE_EQUAL(rig.frame.getTotalMeasurements(), 0u);
 
   TrackingResult result{TrackingOutcome::Structural, std::numeric_limits<float>::quiet_NaN()};
   BOOST_CHECK_NO_THROW(result = rig.tracker.run(rig.frame, rig.traits));

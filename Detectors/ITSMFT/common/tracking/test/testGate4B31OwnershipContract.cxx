@@ -321,7 +321,7 @@ BOOST_AUTO_TEST_CASE(InjectedScratchBackfillFailureAfterNormalizedStagingLeavesB
                                                      &dict(), nullptr, o2::detectors::DetID::ITS,
                                                      planOrderedSurfaces, catalogView);
   BOOST_REQUIRE(baseline.ok());
-  const auto baselineMeasurements = frame.getNormalizedFrame().getTotalMeasurements();
+  const auto baselineMeasurements = frame.getTotalMeasurements();
   const auto baselineClusters = scratch.getTotalClusters();
   BOOST_REQUIRE_EQUAL(baselineMeasurements, 1u);
   BOOST_REQUIRE_EQUAL(baselineClusters, 1);
@@ -349,7 +349,7 @@ BOOST_AUTO_TEST_CASE(InjectedScratchBackfillFailureAfterNormalizedStagingLeavesB
   // and testTimeFrameLifecycle.cxx's
   // BackfillAllocationFailureLeavesNormalizedAndLegacyStateAtBaseline for
   // the equivalent proof exercised through a larger, multi-cluster fixture.
-  BOOST_CHECK_EQUAL(frame.getNormalizedFrame().getTotalMeasurements(), baselineMeasurements);
+  BOOST_CHECK_EQUAL(frame.getTotalMeasurements(), baselineMeasurements);
   BOOST_CHECK_EQUAL(scratch.getTotalClusters(), baselineClusters);
 }
 

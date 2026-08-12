@@ -191,7 +191,7 @@ struct CovarianceSnapshot {
 
 CovarianceSnapshot snapshotCovariance(const TimeFrame& frame, const SurfaceTrackingScratch& tf)
 {
-  const auto measurements = frame.getNormalizedFrame().getSurfaceMeasurements(SurfaceId{0});
+  const auto measurements = frame.getSurfaceMeasurements(SurfaceId{0});
   BOOST_REQUIRE_EQUAL(measurements.size(), 1u);
   const auto& compatibility = tf.getTrackingFrameInfoOnLayer(0);
   BOOST_REQUIRE_EQUAL(compatibility.size(), 1u);

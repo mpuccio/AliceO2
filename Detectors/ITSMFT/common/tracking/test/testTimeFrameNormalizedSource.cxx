@@ -16,7 +16,7 @@
 // not yet workflow-wired -- for ITS) and exercise
 // SurfaceTrackingScratch::loadNormalizedSource(TimeFrame&, ...), the
 // owner-level load operation which loads one single-detector cluster stream
-// through the normalized MultiSourceFrame owner (ITSMFTTracking/
+// through TimeFrame event measurement storage (ITSMFTTracking/
 // MultiSourceTimeFrameLoader.h) and then backfills the scratch's existing legacy
 // compatibility structures (unsorted clusters, TrackingFrameInfo, external
 // indices, cluster sizes, ROF boundaries, label lookup) from the committed
@@ -74,7 +74,7 @@
 #include "DetectorsCommonDataFormats/DetID.h"
 #include "ITSMFTTracking/SurfaceGraphBuilder.h"
 #include "ITSMFTTracking/detail/SurfaceTrackingScratch.h"
-#include "ITSMFTTracking/MultiSourceFrame.h"
+#include "ITSMFTTracking/MeasurementView.h"
 #include "ITSMFTTracking/MultiSourceTimeFrameLoader.h"
 #include "ITSMFTTracking/SurfaceDescriptor.h"
 #include "ITSMFTTracking/ClusterDecoding.h"
@@ -324,12 +324,12 @@ BOOST_AUTO_TEST_CASE(combined_owner_load_keeps_detector_backfills_separate)
                                           std::move(capacities), std::make_shared<BoundedMemoryResource>()));
   const std::array<ClusterSourceInput, 2> sources{itsSource, mftSource};
   BOOST_REQUIRE(MultiSourceTimeFrameLoader::load(frame, gsl::span<const ClusterSourceInput>{sources}, view, {50, 5}).ok());
-  BOOST_CHECK_EQUAL(frame.getNormalizedFrame().getSources().size(), 2u);
-  BOOST_CHECK_EQUAL(frame.getNormalizedFrame().getSurfaceMeasurements(SurfaceId{0}).size(), 2u);
-  BOOST_CHECK_EQUAL(frame.getNormalizedFrame().getSurfaceMeasurements(SurfaceId{static_cast<uint16_t>(ITSNLayers)}).size(), 2u);
+  BOOST_CHECK_EQUAL(frame.getSourceROFInfo().size(), 2u);
+  BOOST_CHECK_EQUAL(frame.getSurfaceMeasurements(SurfaceId{0}).size(), 2u);
+  BOOST_CHECK_EQUAL(frame.getSurfaceMeasurements(SurfaceId{static_cast<uint16_t>(ITSNLayers)}).size(), 2u);
   BOOST_CHECK_EQUAL(frame.getWorkspace().getTotalClusters(), static_cast<int>(its.clusters.size() + mft.clusters.size()));
-  BOOST_CHECK(frame.getNormalizedFrame().getGlobalMeasurements(SurfaceId{0})[0].cluster.source == ClusterSourceId{0});
-  BOOST_CHECK(frame.getNormalizedFrame().getGlobalMeasurements(SurfaceId{static_cast<uint16_t>(ITSNLayers)})[0].cluster.source == ClusterSourceId{1});
+  BOOST_CHECK(frame.getGlobalMeasurements(SurfaceId{0})[0].cluster.source == ClusterSourceId{0});
+  BOOST_CHECK(frame.getGlobalMeasurements(SurfaceId{static_cast<uint16_t>(ITSNLayers)})[0].cluster.source == ClusterSourceId{1});
   BOOST_CHECK(frame.getWorkspace().getSurfaceSource(0) == ClusterSourceId{0});
   BOOST_CHECK(frame.getWorkspace().getSurfaceSource(ITSNLayers) == ClusterSourceId{1});
 
@@ -337,7 +337,7 @@ BOOST_AUTO_TEST_CASE(combined_owner_load_keeps_detector_backfills_separate)
   frame.resetEvent();
   BOOST_CHECK(frame.getWorkspace().empty());
   BOOST_CHECK(!frame.getWorkspace().getSurfaceSource(0));
-  BOOST_CHECK_EQUAL(frame.getNormalizedFrame().getSources().size(), 0u);
+  BOOST_CHECK_EQUAL(frame.getSourceROFInfo().size(), 0u);
 
   // A malformed replacement is rejected before the no-throw three-owner
   // commit; the still-live MFT scratch and shared normalized owner survive.
@@ -346,10 +346,10 @@ BOOST_AUTO_TEST_CASE(combined_owner_load_keeps_detector_backfills_separate)
   const std::array<ClusterSourceInput, 2> retrySources{itsSource, malformedMFT};
   BOOST_CHECK(!MultiSourceTimeFrameLoader::load(frame, gsl::span<const ClusterSourceInput>{retrySources}, view, {50, 5}).ok());
   BOOST_CHECK(frame.getWorkspace().empty());
-  BOOST_CHECK_EQUAL(frame.getNormalizedFrame().getSources().size(), 0u);
+  BOOST_CHECK_EQUAL(frame.getSourceROFInfo().size(), 0u);
   frame.resetEvent();
   BOOST_CHECK(frame.getWorkspace().empty());
-  BOOST_CHECK(frame.getNormalizedFrame().getSources().empty());
+  BOOST_CHECK(frame.getSourceROFInfo().empty());
 }
 
 template <int NLayers>
@@ -381,9 +381,9 @@ void checkParity(std::vector<SurfaceDescriptor> catalog, const Fixture& f)
   BOOST_REQUIRE(result.ok());
 
   // --- cluster counts per legacy layer == normalized surface (identity layout) ---
-  BOOST_CHECK_EQUAL(frame.getNormalizedFrame().getSurfaceMeasurements(SurfaceId{0}).size(), 2u); // clusters 0,2
-  BOOST_CHECK_EQUAL(frame.getNormalizedFrame().getSurfaceMeasurements(SurfaceId{1}).size(), 1u); // cluster 1
-  BOOST_CHECK_EQUAL(frame.getNormalizedFrame().getSurfaceMeasurements(SurfaceId{2}).size(), 1u); // cluster 3
+  BOOST_CHECK_EQUAL(frame.getSurfaceMeasurements(SurfaceId{0}).size(), 2u); // clusters 0,2
+  BOOST_CHECK_EQUAL(frame.getSurfaceMeasurements(SurfaceId{1}).size(), 1u); // cluster 1
+  BOOST_CHECK_EQUAL(frame.getSurfaceMeasurements(SurfaceId{2}).size(), 1u); // cluster 3
   BOOST_CHECK_EQUAL(tf.getUnsortedClustersOnLayer(0, 0).size() + tf.getUnsortedClustersOnLayer(1, 0).size(), 2u);
   BOOST_CHECK_EQUAL(tf.getUnsortedClustersOnLayer(0, 1).size(), 1u);
   BOOST_CHECK_EQUAL(tf.getUnsortedClustersOnLayer(2, 2).size(), 1u);
@@ -400,16 +400,15 @@ void checkParity(std::vector<SurfaceDescriptor> catalog, const Fixture& f)
     BOOST_CHECK_EQUAL(tf.mNTrackletsPerClusterSum[i].size(), nClustersLayer1 + 1);
   }
   for (int l = 3; l < NLayers; ++l) {
-    BOOST_CHECK_EQUAL(frame.getNormalizedFrame().getSurfaceMeasurements(SurfaceId{static_cast<uint16_t>(l)}).size(), 0u);
+    BOOST_CHECK_EQUAL(frame.getSurfaceMeasurements(SurfaceId{static_cast<uint16_t>(l)}).size(), 0u);
     BOOST_CHECK_EQUAL(tf.getNrof(l), static_cast<int>(f.rofs.size()));
   }
 
   // --- per-ROF counts: legacy cumulative table vs. per-source ROF count ---
   BOOST_CHECK_EQUAL(tf.getNrof(0), static_cast<int>(f.rofs.size()));
-  BOOST_REQUIRE_EQUAL(frame.getNormalizedFrame().getSources().size(), 1u);
-  BOOST_CHECK(frame.getNormalizedFrame().getSources()[0].detector == f.detector);
-  BOOST_CHECK_EQUAL(frame.getNormalizedFrame().getSources()[0].nROFs, f.rofs.size());
-  const auto intervals = frame.getNormalizedFrame().getSourceIntervals(kSourceId);
+  BOOST_REQUIRE_EQUAL(frame.getSourceROFInfo().size(), 1u);
+  BOOST_CHECK_EQUAL(frame.getSourceROFInfo()[0].nROFs, f.rofs.size());
+  const auto intervals = frame.getSourceIntervals(kSourceId);
   BOOST_REQUIRE_EQUAL(intervals.size(), f.rofs.size());
   for (uint32_t r = 0; r < f.rofs.size(); ++r) {
     BOOST_CHECK_EQUAL(intervals[r].sourceROF, r);
@@ -440,8 +439,8 @@ void checkParity(std::vector<SurfaceDescriptor> catalog, const Fixture& f)
     const GlobalMeasurement* globalMeasurement = nullptr;
     const SurfaceMeasurement* measurement = nullptr;
     const auto surface = SurfaceId{static_cast<uint16_t>(e.layer)};
-    const auto globals = frame.getNormalizedFrame().getGlobalMeasurements(surface);
-    const auto locals = frame.getNormalizedFrame().getSurfaceMeasurements(surface);
+    const auto globals = frame.getGlobalMeasurements(surface);
+    const auto locals = frame.getSurfaceMeasurements(surface);
     for (size_t index = 0; index < globals.size(); ++index) {
       if (globals[index].cluster.index == e.externalIndex) {
         globalMeasurement = &globals[index];
@@ -512,7 +511,7 @@ void checkParity(std::vector<SurfaceDescriptor> catalog, const Fixture& f)
 
     // --- labels: legacy lookup vs. normalized ClusterRef lookup ---
     const auto legacyLabels = tf.getClusterLabels(e.layer, clId);
-    const auto normalizedLabels = frame.getNormalizedFrame().getLabels(ClusterRef{kSourceId, e.externalIndex});
+    const auto normalizedLabels = frame.getLabels(ClusterRef{kSourceId, e.externalIndex});
     BOOST_REQUIRE_EQUAL(legacyLabels.size(), 1u);
     BOOST_REQUIRE_EQUAL(normalizedLabels.size(), 1u);
     BOOST_CHECK(legacyLabels[0] == normalizedLabels[0]);
@@ -569,9 +568,9 @@ BOOST_AUTO_TEST_CASE(EmptyInputsAreLegalForBothDetectors)
                                                 ROFTimingConfig{40, 0, 0, 0}, {}, {}, {}, &dict(), nullptr, o2::detectors::DetID::ITS,
                                                 gsl::span<const SurfaceId>{orderedSurfaces}, plan.getSurfaceCatalog());
     BOOST_CHECK(result.ok());
-    BOOST_CHECK_EQUAL(frame.getNormalizedFrame().getTotalMeasurements(), 0u);
-    BOOST_REQUIRE_EQUAL(frame.getNormalizedFrame().getSources().size(), 1u);
-    BOOST_CHECK_EQUAL(frame.getNormalizedFrame().getSources()[0].nROFs, 0u);
+    BOOST_CHECK_EQUAL(frame.getTotalMeasurements(), 0u);
+    BOOST_REQUIRE_EQUAL(frame.getSourceROFInfo().size(), 1u);
+    BOOST_CHECK_EQUAL(frame.getSourceROFInfo()[0].nROFs, 0u);
     BOOST_CHECK_EQUAL(tf.getNrof(0), 0);
   }
   {
@@ -588,7 +587,7 @@ BOOST_AUTO_TEST_CASE(EmptyInputsAreLegalForBothDetectors)
                                                 ROFTimingConfig{40, 0, 0, 0}, {}, {}, {}, &dict(), nullptr, o2::detectors::DetID::MFT,
                                                 gsl::span<const SurfaceId>{orderedSurfaces}, plan.getSurfaceCatalog());
     BOOST_CHECK(result.ok());
-    BOOST_CHECK_EQUAL(frame.getNormalizedFrame().getTotalMeasurements(), 0u);
+    BOOST_CHECK_EQUAL(frame.getTotalMeasurements(), 0u);
     BOOST_CHECK_EQUAL(tf.getNrof(0), 0);
   }
 }
@@ -621,7 +620,7 @@ BOOST_AUTO_TEST_CASE(ZeroIterationCatalogOnlyLoadingSucceeds)
                                               clusters, patterns, rofs, &dict(), nullptr, o2::detectors::DetID::ITS,
                                               gsl::span<const SurfaceId>{plan.getOrderedSurfaces()}, plan.getSurfaceCatalog());
   BOOST_CHECK(result.ok());
-  BOOST_CHECK_EQUAL(frame.getNormalizedFrame().getTotalMeasurements(), 1u);
+  BOOST_CHECK_EQUAL(frame.getTotalMeasurements(), 1u);
   BOOST_CHECK_EQUAL(tf.getUnsortedClustersOnLayer(0, 0).size(), 1u);
 }
 
@@ -643,7 +642,7 @@ BOOST_AUTO_TEST_CASE(NeverConfiguredCatalogIsRejected)
   BOOST_CHECK(!result.ok());
   BOOST_CHECK(result.error == MultiSourceLoadError::SurfaceCatalogNotConfigured);
   BOOST_CHECK(result.source == ClusterSourceId{0});
-  BOOST_CHECK_EQUAL(frame.getNormalizedFrame().getTotalMeasurements(), 0u);
+  BOOST_CHECK_EQUAL(frame.getTotalMeasurements(), 0u);
 }
 
 // Gate 4 B2 Slice 2 removed the StaleCatalogAfterInvalidationIsRejected test
@@ -691,7 +690,7 @@ BOOST_AUTO_TEST_CASE(CatalogRequestDetectorMismatchIsRejected)
                                               gsl::span<const SurfaceId>{plan.getOrderedSurfaces()}, plan.getSurfaceCatalog());
   BOOST_CHECK(!result.ok());
   BOOST_CHECK(result.error == MultiSourceLoadError::DetectorSurfaceMismatch);
-  BOOST_CHECK_EQUAL(frame.getNormalizedFrame().getTotalMeasurements(), 0u);
+  BOOST_CHECK_EQUAL(frame.getTotalMeasurements(), 0u);
 }
 
 // A SurfaceTrackingScratch probed with detId=TPC shares NLayers==7 with the
@@ -715,7 +714,7 @@ BOOST_AUTO_TEST_CASE(UnsupportedDetectorWinsOverSharedNLayers)
   BOOST_CHECK(!result.ok());
   BOOST_CHECK(result.error == MultiSourceLoadError::UnsupportedDetector);
   BOOST_CHECK(result.source == ClusterSourceId{0});
-  BOOST_CHECK_EQUAL(frame.getNormalizedFrame().getTotalMeasurements(), 0u);
+  BOOST_CHECK_EQUAL(frame.getTotalMeasurements(), 0u);
 }
 
 // A supported detector still requires a caller-adopted surface plan. The
@@ -735,7 +734,7 @@ BOOST_AUTO_TEST_CASE(SupportedDetectorRequiresConfiguredSurfacePlan)
                                               gsl::span<const SurfaceId>{}, SurfaceCatalogView{});
   BOOST_CHECK(!result.ok());
   BOOST_CHECK(result.error == MultiSourceLoadError::SurfaceCatalogNotConfigured);
-  BOOST_CHECK_EQUAL(frame.getNormalizedFrame().getTotalMeasurements(), 0u);
+  BOOST_CHECK_EQUAL(frame.getTotalMeasurements(), 0u);
 }
 
 BOOST_AUTO_TEST_CASE(WrongMappingCardinalityIsRejected)
@@ -913,7 +912,7 @@ BOOST_AUTO_TEST_CASE(FailedNormalizedLoadLeavesBothRepresentationsUnchanged)
                                                 timing, goodClusters, goodPatterns, goodRofs, &dict(), nullptr, o2::detectors::DetID::ITS,
                                                 planOrderedSurfaces, plan.getSurfaceCatalog());
   BOOST_REQUIRE(baseline.ok());
-  BOOST_REQUIRE_EQUAL(frame.getNormalizedFrame().getTotalMeasurements(), 1u);
+  BOOST_REQUIRE_EQUAL(frame.getTotalMeasurements(), 1u);
   BOOST_REQUIRE_EQUAL(tf.getUnsortedClustersOnLayer(0, 0).size(), 1u);
   BOOST_REQUIRE_EQUAL(tf.getNrof(0), 1);
   BOOST_REQUIRE(tf.getSurfaceSource(0) == ClusterSourceId{0});
@@ -932,9 +931,9 @@ BOOST_AUTO_TEST_CASE(FailedNormalizedLoadLeavesBothRepresentationsUnchanged)
 
   // Both the normalized owner and the legacy compatibility structures retain
   // exactly their pre-failure (baseline) content.
-  BOOST_CHECK_EQUAL(frame.getNormalizedFrame().getTotalMeasurements(), 1u);
-  BOOST_REQUIRE_EQUAL(frame.getNormalizedFrame().getSources().size(), 1u);
-  BOOST_CHECK_EQUAL(frame.getNormalizedFrame().getSources()[0].nROFs, 1u);
+  BOOST_CHECK_EQUAL(frame.getTotalMeasurements(), 1u);
+  BOOST_REQUIRE_EQUAL(frame.getSourceROFInfo().size(), 1u);
+  BOOST_CHECK_EQUAL(frame.getSourceROFInfo()[0].nROFs, 1u);
   BOOST_CHECK_EQUAL(tf.getUnsortedClustersOnLayer(0, 0).size(), 1u);
   BOOST_CHECK_EQUAL(tf.getNrof(0), 1);
   BOOST_CHECK_EQUAL(tf.getClusterExternalIndex(0, 0), 0);
@@ -974,7 +973,7 @@ BOOST_AUTO_TEST_CASE(PreflightFailureAfterBaselineLoadPreservesState)
                                                 timing, goodClusters, goodPatterns, goodRofs, &dict(), nullptr, o2::detectors::DetID::ITS,
                                                 gsl::span<const SurfaceId>{plan.getOrderedSurfaces()}, plan.getSurfaceCatalog());
   BOOST_REQUIRE(baseline.ok());
-  BOOST_REQUIRE_EQUAL(frame.getNormalizedFrame().getTotalMeasurements(), 1u);
+  BOOST_REQUIRE_EQUAL(frame.getTotalMeasurements(), 1u);
   BOOST_REQUIRE_EQUAL(tf.getUnsortedClustersOnLayer(0, 0).size(), 1u);
 
   const auto failed = tf.loadNormalizedSource(frame, decoder, {0, 0},
@@ -983,7 +982,7 @@ BOOST_AUTO_TEST_CASE(PreflightFailureAfterBaselineLoadPreservesState)
   BOOST_CHECK(!failed.ok());
   BOOST_CHECK(failed.error == MultiSourceLoadError::SurfaceCatalogNotConfigured);
 
-  BOOST_CHECK_EQUAL(frame.getNormalizedFrame().getTotalMeasurements(), 1u);
+  BOOST_CHECK_EQUAL(frame.getTotalMeasurements(), 1u);
   BOOST_CHECK_EQUAL(tf.getUnsortedClustersOnLayer(0, 0).size(), 1u);
   BOOST_CHECK_EQUAL(tf.getNrof(0), 1);
   BOOST_CHECK_EQUAL(tf.getClusterExternalIndex(0, 0), 0);

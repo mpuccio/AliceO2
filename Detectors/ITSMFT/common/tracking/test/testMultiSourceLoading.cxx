@@ -21,8 +21,9 @@
 #include "DetectorsCommonDataFormats/DetID.h"
 #include "ITSMFTTracking/SurfaceGraph.h"
 #include "ITSMFTTracking/IOUtils.h"
-#include "ITSMFTTracking/MultiSourceFrame.h"
+#include "ITSMFTTracking/MeasurementView.h"
 #include "ITSMFTTracking/MultiSourceTimeFrameLoader.h"
+#include "ITSMFTTracking/TimeFrame.h"
 #include "ITSMFTTracking/ClusterDecoding.h"
 #include "SimulationDataFormat/MCCompLabel.h"
 #include "SimulationDataFormat/MCTruthContainer.h"
@@ -297,7 +298,7 @@ BOOST_AUTO_TEST_CASE(SingleITSSourceLoadsIntoExpectedSurfaces)
   src.timing = ROFTimingConfig{40, 0, 0, 0};
   src.decoder = &decoder;
 
-  MultiSourceFrame frame;
+  TimeFrame frame;
   const auto result = loadSources(frame, layout.getView().getSurfaceCatalogView(), gsl::span<const ClusterSourceInput>(&src, 1), {0, 0});
   BOOST_REQUIRE(result.ok());
   // A success result must retain the timingDetail default: it is only ever
@@ -307,9 +308,8 @@ BOOST_AUTO_TEST_CASE(SingleITSSourceLoadsIntoExpectedSurfaces)
   BOOST_CHECK_EQUAL(frame.getSurfaceMeasurements(SurfaceId{0}).size(), 1u);
   BOOST_CHECK_EQUAL(frame.getSurfaceMeasurements(SurfaceId{1}).size(), 1u);
   BOOST_CHECK_EQUAL(frame.getSurfaceMeasurements(SurfaceId{2}).size(), 0u);
-  BOOST_REQUIRE_EQUAL(frame.getSources().size(), 1u);
-  BOOST_CHECK(frame.getSources()[0].detector == o2::detectors::DetID::ITS);
-  BOOST_CHECK_EQUAL(frame.getSources()[0].nROFs, 1u);
+  BOOST_REQUIRE_EQUAL(frame.getSourceROFInfo().size(), 1u);
+  BOOST_CHECK_EQUAL(frame.getSourceROFInfo()[0].nROFs, 1u);
   BOOST_CHECK_EQUAL(frame.getGlobalMeasurements(SurfaceId{0})[0].sensor.detector, static_cast<uint32_t>(o2::detectors::DetID::ITS));
 }
 
@@ -343,7 +343,7 @@ BOOST_AUTO_TEST_CASE(InvalidTimingConfigurationIsReportedWithBuildErrorDetail)
   src.timing = ROFTimingConfig{0, 0, 0, 0}; // rofLength <= 0
   src.decoder = &decoder;
 
-  MultiSourceFrame frame;
+  TimeFrame frame;
   const auto result = loadSources(frame, layout.getView().getSurfaceCatalogView(), gsl::span<const ClusterSourceInput>(&src, 1), {0, 0});
   BOOST_CHECK(result.error == MultiSourceLoadError::TimingError);
   BOOST_CHECK(result.timingDetail == TimingBuildError::InvalidROFLength);
@@ -374,7 +374,7 @@ BOOST_AUTO_TEST_CASE(SingleMFTSourceLoadsIntoExpectedSurfaces)
   src.timing = ROFTimingConfig{40, 0, 0, 0};
   src.decoder = &decoder;
 
-  MultiSourceFrame frame;
+  TimeFrame frame;
   const auto result = loadSources(frame, layout.getView().getSurfaceCatalogView(), gsl::span<const ClusterSourceInput>(&src, 1), {0, 0});
   BOOST_REQUIRE(result.ok());
 
@@ -419,17 +419,17 @@ BOOST_AUTO_TEST_CASE(CombinedITSAndMFTSourcesLoadTogether)
   sources[1].timing = ROFTimingConfig{50, 0, 0, 0};
   sources[1].decoder = &mftDecoder;
 
-  MultiSourceFrame frame;
+  TimeFrame frame;
   const auto result = loadSources(frame, layout.getView().getSurfaceCatalogView(), gsl::span<const ClusterSourceInput>(sources), {0, 0});
   BOOST_REQUIRE(result.ok());
 
   BOOST_CHECK_EQUAL(frame.getSurfaceMeasurements(SurfaceId{0}).size(), 1u);
   BOOST_CHECK_EQUAL(frame.getSurfaceMeasurements(SurfaceId{3}).size(), 1u);
-  BOOST_REQUIRE_EQUAL(frame.getSources().size(), 2u);
+  BOOST_REQUIRE_EQUAL(frame.getSourceROFInfo().size(), 2u);
 }
 
-// Hardening regression test (MultiSourceFrame cached-span safety): proves
-// MultiSourceFrameView's cached per-surface spans (mSurfaceSpans) resolve
+// Hardening regression test (TimeFrame cached-span safety): proves
+// MeasurementView's cached per-surface spans (mSurfaceSpans) resolve
 // correctly, on more than one populated surface, immediately after a real,
 // successful load -- not just via the owner-side accessors every other
 // test above already exercises. Also cross-checks the view's resolution
@@ -471,10 +471,10 @@ BOOST_AUTO_TEST_CASE(ViewResolvesMeasurementsOnMultipleSurfacesAfterSuccessfulLo
   sources[1].timing = ROFTimingConfig{50, 0, 0, 0};
   sources[1].decoder = &mftDecoder;
 
-  MultiSourceFrame frame;
+  TimeFrame frame;
   BOOST_REQUIRE(loadSources(frame, layout.getView().getSurfaceCatalogView(), gsl::span<const ClusterSourceInput>(sources), {0, 0}).ok());
 
-  const auto view = frame.getView();
+  const auto view = frame.getMeasurementView();
   BOOST_REQUIRE_EQUAL(view.nSurfaces, 4u);
   BOOST_CHECK_EQUAL(view.getSurfaceMeasurementCount(SurfaceId{0}), 1u);
   BOOST_CHECK_EQUAL(view.getSurfaceMeasurementCount(SurfaceId{3}), 1u);
@@ -528,7 +528,7 @@ BOOST_AUTO_TEST_CASE(TwoSourcesOfSameDetectorBothAppendToOneSurface)
   sources[1].timing = ROFTimingConfig{40, 0, 0, 0};
   sources[1].decoder = &decoderB;
 
-  MultiSourceFrame frame;
+  TimeFrame frame;
   const auto result = loadSources(frame, layout.getView().getSurfaceCatalogView(), gsl::span<const ClusterSourceInput>(sources), {0, 0});
   BOOST_REQUIRE(result.ok());
 
@@ -580,7 +580,7 @@ BOOST_AUTO_TEST_CASE(IdenticalExternalIndicesInDifferentSourcesDoNotCollide)
   sources[1].timing = ROFTimingConfig{40, 0, 0, 0};
   sources[1].decoder = &decoderB;
 
-  MultiSourceFrame frame;
+  TimeFrame frame;
   const auto result = loadSources(frame, layout.getView().getSurfaceCatalogView(), gsl::span<const ClusterSourceInput>(sources), {0, 0});
   BOOST_REQUIRE(result.ok());
 
@@ -626,7 +626,7 @@ BOOST_AUTO_TEST_CASE(ClusterRefFlagsDoNotAffectIdentityOrLabelLookup)
   src.timing = ROFTimingConfig{40, 0, 0, 0};
   src.decoder = &decoder;
 
-  MultiSourceFrame frame;
+  TimeFrame frame;
   const auto result = loadSources(frame, layout.getView().getSurfaceCatalogView(), gsl::span<const ClusterSourceInput>(&src, 1), {0, 0});
   BOOST_REQUIRE(result.ok());
 
@@ -697,12 +697,12 @@ BOOST_AUTO_TEST_CASE(IndependentROFCountsAcrossSourcesAreAllowed)
   sources[1].timing = ROFTimingConfig{100, 0, 0, 0};
   sources[1].decoder = &decoderB;
 
-  MultiSourceFrame frame;
+  TimeFrame frame;
   const auto result = loadSources(frame, layout.getView().getSurfaceCatalogView(), gsl::span<const ClusterSourceInput>(sources), {0, 0});
   BOOST_REQUIRE(result.ok());
 
-  BOOST_CHECK_EQUAL(frame.getSources()[0].nROFs, 3u);
-  BOOST_CHECK_EQUAL(frame.getSources()[1].nROFs, 1u);
+  BOOST_CHECK_EQUAL(frame.getSourceROFInfo()[0].nROFs, 3u);
+  BOOST_CHECK_EQUAL(frame.getSourceROFInfo()[1].nROFs, 1u);
   BOOST_CHECK_EQUAL(frame.getSourceIntervals(ClusterSourceId{0}).size(), 3u);
   BOOST_CHECK_EQUAL(frame.getSourceIntervals(ClusterSourceId{1}).size(), 1u);
 }
@@ -760,7 +760,7 @@ BOOST_AUTO_TEST_CASE(OverlappingAndNonOverlappingSourceTimingIntervals)
   sources[2].timing = ROFTimingConfig{40, 0, 0, 0};
   sources[2].decoder = &decoderC;
 
-  MultiSourceFrame frame;
+  TimeFrame frame;
   const auto result = loadSources(frame, layout.getView().getSurfaceCatalogView(), gsl::span<const ClusterSourceInput>(sources), {0, 0});
   BOOST_REQUIRE(result.ok());
 
@@ -831,7 +831,7 @@ BOOST_AUTO_TEST_CASE(TriggeredAndContinuousReadoutAreBothSupportedTogether)
   sources[1].timing = ROFTimingConfig{triggeredRofLength, 0, 0, 0};
   sources[1].decoder = &triggeredDecoder;
 
-  MultiSourceFrame frame;
+  TimeFrame frame;
   const auto result = loadSources(frame, layout.getView().getSurfaceCatalogView(), gsl::span<const ClusterSourceInput>(sources), {0, 0});
   BOOST_REQUIRE(result.ok());
 
@@ -899,7 +899,7 @@ BOOST_AUTO_TEST_CASE(SourceSpecificPatternCursorsAreIndependent)
   sources[1].timing = ROFTimingConfig{40, 0, 0, 0};
   sources[1].decoder = &decoderB;
 
-  MultiSourceFrame frame;
+  TimeFrame frame;
   const auto result = loadSources(frame, layout.getView().getSurfaceCatalogView(), gsl::span<const ClusterSourceInput>(sources), {0, 0});
   BOOST_REQUIRE(result.ok());
 
@@ -930,7 +930,7 @@ BOOST_AUTO_TEST_CASE(CommonDictionaryPatternDoesNotConsumeExplicitBytes)
   src.timing = ROFTimingConfig{40, 0, 0, 0};
   src.decoder = &decoder;
 
-  MultiSourceFrame frame;
+  TimeFrame frame;
   const auto result = loadSources(frame, layout.getView().getSurfaceCatalogView(), gsl::span<const ClusterSourceInput>(&src, 1), {0, 0});
   BOOST_REQUIRE(result.ok());
   BOOST_REQUIRE_EQUAL(frame.getSurfaceMeasurements(SurfaceId{0}).size(), 2u);
@@ -959,7 +959,7 @@ BOOST_AUTO_TEST_CASE(ExplicitAndGroupedPatternTruncationIsTypedAndContextual)
       src.timing = ROFTimingConfig{40, 0, 0, 0};
       src.decoder = &decoder;
 
-      MultiSourceFrame frame;
+      TimeFrame frame;
       const auto result = loadSources(frame, layout.getView().getSurfaceCatalogView(), gsl::span<const ClusterSourceInput>(&src, 1), {0, 0});
       BOOST_CHECK(result.error == MultiSourceLoadError::TruncatedExplicitPattern);
       BOOST_CHECK(result.source == ClusterSourceId{0});
@@ -981,7 +981,7 @@ BOOST_AUTO_TEST_CASE(ExplicitAndGroupedPatternTruncationIsTypedAndContextual)
   malformedSource.layerToSurface = itsLayerToSurface;
   malformedSource.timing = ROFTimingConfig{40, 0, 0, 0};
   malformedSource.decoder = &decoder;
-  MultiSourceFrame frame;
+  TimeFrame frame;
   const auto malformed = loadSources(
     frame, layout.getView().getSurfaceCatalogView(),
     gsl::span<const ClusterSourceInput>(&malformedSource, 1), {0, 0});
@@ -1013,7 +1013,7 @@ BOOST_AUTO_TEST_CASE(ExactPatternConsumptionSucceedsAndTrailingBytesAreRejected)
 
   const std::vector<unsigned char> exact{onePixelPattern.begin(), onePixelPattern.end()};
   auto exactSource = makeSource(exact);
-  MultiSourceFrame frame;
+  TimeFrame frame;
   BOOST_REQUIRE(loadSources(frame, layout.getView().getSurfaceCatalogView(), gsl::span<const ClusterSourceInput>(&exactSource, 1), {0, 0}).ok());
 
   const std::vector<unsigned char> trailing{1, 1, 0x80, 0xff};
@@ -1070,7 +1070,7 @@ BOOST_AUTO_TEST_CASE(AbsentLabelsAreLegal)
   src.timing = ROFTimingConfig{40, 0, 0, 0};
   src.decoder = &decoder;
 
-  MultiSourceFrame frame;
+  TimeFrame frame;
   const auto result = loadSources(frame, layout.getView().getSurfaceCatalogView(), gsl::span<const ClusterSourceInput>(&src, 1), {0, 0});
   BOOST_REQUIRE(result.ok());
 
@@ -1105,7 +1105,7 @@ BOOST_AUTO_TEST_CASE(NonDenseAndDuplicateAndInvalidSourceIdsAreRejected)
   {
     // Non-dense: ids {0, 2} for two sources.
     std::array<ClusterSourceInput, 2> sources{makeSource(ClusterSourceId{0}, decoderA), makeSource(ClusterSourceId{2}, decoderB)};
-    MultiSourceFrame frame;
+    TimeFrame frame;
     const auto result = loadSources(frame, layout.getView().getSurfaceCatalogView(), gsl::span<const ClusterSourceInput>(sources), {0, 0});
     BOOST_CHECK(!result.ok());
     BOOST_CHECK(result.error == MultiSourceLoadError::NonDenseSourceIds);
@@ -1113,7 +1113,7 @@ BOOST_AUTO_TEST_CASE(NonDenseAndDuplicateAndInvalidSourceIdsAreRejected)
   {
     // Duplicate ids {0, 0}.
     std::array<ClusterSourceInput, 2> sources{makeSource(ClusterSourceId{0}, decoderA), makeSource(ClusterSourceId{0}, decoderB)};
-    MultiSourceFrame frame;
+    TimeFrame frame;
     const auto result = loadSources(frame, layout.getView().getSurfaceCatalogView(), gsl::span<const ClusterSourceInput>(sources), {0, 0});
     BOOST_CHECK(!result.ok());
     BOOST_CHECK(result.error == MultiSourceLoadError::DuplicateSourceId);
@@ -1121,7 +1121,7 @@ BOOST_AUTO_TEST_CASE(NonDenseAndDuplicateAndInvalidSourceIdsAreRejected)
   {
     // Explicitly invalid id.
     std::array<ClusterSourceInput, 1> sources{makeSource(ClusterSourceId::invalid(), decoderA)};
-    MultiSourceFrame frame;
+    TimeFrame frame;
     const auto result = loadSources(frame, layout.getView().getSurfaceCatalogView(), gsl::span<const ClusterSourceInput>(sources), {0, 0});
     BOOST_CHECK(!result.ok());
     BOOST_CHECK(result.error == MultiSourceLoadError::NonDenseSourceIds);
@@ -1156,7 +1156,7 @@ BOOST_AUTO_TEST_CASE(InvalidROFClusterRangesAreRejected)
     // Out of bounds: firstEntry+nEntries exceeds the cluster span.
     const std::vector<ROFRecord> rofs{ROFRecord{{0, 0}, 0, 0, 5}};
     auto src = makeSrc(rofs);
-    MultiSourceFrame frame;
+    TimeFrame frame;
     const auto result = loadSources(frame, layout.getView().getSurfaceCatalogView(), gsl::span<const ClusterSourceInput>(&src, 1), {0, 0});
     BOOST_CHECK(!result.ok());
     BOOST_CHECK(result.error == MultiSourceLoadError::InvalidROFRange);
@@ -1165,7 +1165,7 @@ BOOST_AUTO_TEST_CASE(InvalidROFClusterRangesAreRejected)
     // Overlapping ranges.
     const std::vector<ROFRecord> rofs{ROFRecord{{0, 0}, 0, 0, 2}, ROFRecord{{40, 0}, 1, 1, 1}};
     auto src = makeSrc(rofs);
-    MultiSourceFrame frame;
+    TimeFrame frame;
     const auto result = loadSources(frame, layout.getView().getSurfaceCatalogView(), gsl::span<const ClusterSourceInput>(&src, 1), {0, 0});
     BOOST_CHECK(!result.ok());
     BOOST_CHECK(result.error == MultiSourceLoadError::InvalidROFRange);
@@ -1174,7 +1174,7 @@ BOOST_AUTO_TEST_CASE(InvalidROFClusterRangesAreRejected)
     // Leading gap: first ROF does not begin at cluster index 0.
     const std::vector<ROFRecord> rofs{ROFRecord{{0, 0}, 0, 1, 1}};
     auto src = makeSrc(rofs);
-    MultiSourceFrame frame;
+    TimeFrame frame;
     const auto result = loadSources(frame, layout.getView().getSurfaceCatalogView(), gsl::span<const ClusterSourceInput>(&src, 1), {0, 0});
     BOOST_CHECK(!result.ok());
     BOOST_CHECK(result.error == MultiSourceLoadError::InvalidROFRange);
@@ -1185,7 +1185,7 @@ BOOST_AUTO_TEST_CASE(InvalidROFClusterRangesAreRejected)
     // total, so this leaves cluster 1 outside any ROF).
     const std::vector<ROFRecord> rofs{ROFRecord{{0, 0}, 0, 0, 1}, ROFRecord{{40, 0}, 1, 2, 0}};
     auto src = makeSrc(rofs);
-    MultiSourceFrame frame;
+    TimeFrame frame;
     const auto result = loadSources(frame, layout.getView().getSurfaceCatalogView(), gsl::span<const ClusterSourceInput>(&src, 1), {0, 0});
     BOOST_CHECK(!result.ok());
     BOOST_CHECK(result.error == MultiSourceLoadError::InvalidROFRange);
@@ -1195,7 +1195,7 @@ BOOST_AUTO_TEST_CASE(InvalidROFClusterRangesAreRejected)
     // second cluster unreferenced by any ROF.
     const std::vector<ROFRecord> rofs{ROFRecord{{0, 0}, 0, 0, 1}};
     auto src = makeSrc(rofs);
-    MultiSourceFrame frame;
+    TimeFrame frame;
     const auto result = loadSources(frame, layout.getView().getSurfaceCatalogView(), gsl::span<const ClusterSourceInput>(&src, 1), {0, 0});
     BOOST_CHECK(!result.ok());
     BOOST_CHECK(result.error == MultiSourceLoadError::InvalidROFRange);
@@ -1205,7 +1205,7 @@ BOOST_AUTO_TEST_CASE(InvalidROFClusterRangesAreRejected)
     // empty, but this source has two clusters.
     const std::vector<ROFRecord> rofs{};
     auto src = makeSrc(rofs);
-    MultiSourceFrame frame;
+    TimeFrame frame;
     const auto result = loadSources(frame, layout.getView().getSurfaceCatalogView(), gsl::span<const ClusterSourceInput>(&src, 1), {0, 0});
     BOOST_CHECK(!result.ok());
     BOOST_CHECK(result.error == MultiSourceLoadError::InvalidROFRange);
@@ -1232,7 +1232,7 @@ BOOST_AUTO_TEST_CASE(ZeroROFsIsValidWithZeroClusters)
   src.timing = ROFTimingConfig{40, 0, 0, 0};
   src.decoder = &decoder;
 
-  MultiSourceFrame frame;
+  TimeFrame frame;
   const auto result = loadSources(frame, layout.getView().getSurfaceCatalogView(), gsl::span<const ClusterSourceInput>(&src, 1), {0, 0});
   BOOST_CHECK(result.ok());
   BOOST_CHECK_EQUAL(frame.getTotalMeasurements(), 0u);
@@ -1258,7 +1258,7 @@ BOOST_AUTO_TEST_CASE(InvalidLayerToSurfaceMappingIsRejected)
   src.timing = ROFTimingConfig{40, 0, 0, 0};
   src.decoder = &decoder;
 
-  MultiSourceFrame frame;
+  TimeFrame frame;
   const auto result = loadSources(frame, layout.getView().getSurfaceCatalogView(), gsl::span<const ClusterSourceInput>(&src, 1), {0, 0});
   BOOST_CHECK(!result.ok());
   BOOST_CHECK(result.error == MultiSourceLoadError::InvalidLayerMapping);
@@ -1286,7 +1286,7 @@ BOOST_AUTO_TEST_CASE(DetectorSurfaceMismatchIsRejected)
   src.timing = ROFTimingConfig{40, 0, 0, 0};
   src.decoder = &decoder;
 
-  MultiSourceFrame frame;
+  TimeFrame frame;
   const auto result = loadSources(frame, layout.getView().getSurfaceCatalogView(), gsl::span<const ClusterSourceInput>(&src, 1), {0, 0});
   BOOST_CHECK(!result.ok());
   BOOST_CHECK(result.error == MultiSourceLoadError::DetectorSurfaceMismatch);
@@ -1316,7 +1316,7 @@ BOOST_AUTO_TEST_CASE(InconsistentDecoderMetadataIsRejected)
     src.timing = ROFTimingConfig{40, 0, 0, 0};
     src.decoder = &decoder;
 
-    MultiSourceFrame frame;
+    TimeFrame frame;
     const auto result = loadSources(frame, layout.getView().getSurfaceCatalogView(), gsl::span<const ClusterSourceInput>(&src, 1), {0, 0});
     BOOST_CHECK(!result.ok());
     BOOST_CHECK(result.error == MultiSourceLoadError::InconsistentDecoderMetadata);
@@ -1350,7 +1350,7 @@ BOOST_AUTO_TEST_CASE(LayerMappedTrueWithUnsafeLayerIsRejected)
     src.timing = ROFTimingConfig{40, 0, 0, 0};
     src.decoder = &decoder;
 
-    MultiSourceFrame frame;
+    TimeFrame frame;
     const auto result = loadSources(frame, layout.getView().getSurfaceCatalogView(), gsl::span<const ClusterSourceInput>(&src, 1), {0, 0});
     BOOST_CHECK(!result.ok());
     BOOST_CHECK(result.error == MultiSourceLoadError::InvalidLayerMapping);
@@ -1382,7 +1382,7 @@ BOOST_AUTO_TEST_CASE(SurfaceKindMismatchIsRejected)
   src.timing = ROFTimingConfig{40, 0, 0, 0};
   src.decoder = &wrongKindDecoder;
 
-  MultiSourceFrame frame;
+  TimeFrame frame;
   const auto result = loadSources(frame, layout.getView().getSurfaceCatalogView(), gsl::span<const ClusterSourceInput>(&src, 1), {0, 0});
   BOOST_CHECK(!result.ok());
   BOOST_CHECK(result.error == MultiSourceLoadError::SurfaceKindMismatch);
@@ -1409,7 +1409,7 @@ BOOST_AUTO_TEST_CASE(FailedLoadLeavesNoPartialState)
   goodSrc.timing = ROFTimingConfig{40, 0, 0, 0};
   goodSrc.decoder = &decoder;
 
-  MultiSourceFrame frame;
+  TimeFrame frame;
   BOOST_REQUIRE(loadSources(frame, layout.getView().getSurfaceCatalogView(), gsl::span<const ClusterSourceInput>(&goodSrc, 1), {0, 0}).ok());
   const auto totalBefore = frame.getTotalMeasurements();
   BOOST_REQUIRE_EQUAL(totalBefore, 1u);
@@ -1420,8 +1420,7 @@ BOOST_AUTO_TEST_CASE(FailedLoadLeavesNoPartialState)
   BOOST_REQUIRE(!result.ok());
 
   BOOST_CHECK_EQUAL(frame.getTotalMeasurements(), totalBefore);
-  BOOST_REQUIRE_EQUAL(frame.getSources().size(), 1u);
-  BOOST_CHECK(frame.getSources()[0].detector == o2::detectors::DetID::ITS);
+  BOOST_REQUIRE_EQUAL(frame.getSourceROFInfo().size(), 1u);
 }
 
 BOOST_AUTO_TEST_CASE(FailedLoadAfterFirstSourceStagedLeavesNoPartialState)
@@ -1452,7 +1451,7 @@ BOOST_AUTO_TEST_CASE(FailedLoadAfterFirstSourceStagedLeavesNoPartialState)
   goodSrc.timing = ROFTimingConfig{40, 0, 0, 0};
   goodSrc.decoder = &decoder;
 
-  MultiSourceFrame frame;
+  TimeFrame frame;
   BOOST_REQUIRE(loadSources(frame, layout.getView().getSurfaceCatalogView(), gsl::span<const ClusterSourceInput>(&goodSrc, 1), {0, 0}).ok());
 
   // Baseline: content and view pointer identity before the failing call.
@@ -1462,10 +1461,10 @@ BOOST_AUTO_TEST_CASE(FailedLoadAfterFirstSourceStagedLeavesNoPartialState)
     frame.getGlobalMeasurements(SurfaceId{0}).begin(), frame.getGlobalMeasurements(SurfaceId{0}).end());
   const std::vector<ROFIntervalBC> baselineIntervals(
     frame.getSourceIntervals(ClusterSourceId{0}).begin(), frame.getSourceIntervals(ClusterSourceId{0}).end());
-  const std::vector<SourceMetadata> baselineSources = frame.getSources();
+  const std::vector<SourceROFInfo> baselineSources = frame.getSourceROFInfo();
   const auto baselineLabel = frame.getLabels(ClusterRef{ClusterSourceId{0}, 0});
   BOOST_REQUIRE_EQUAL(baselineLabel.size(), 1u);
-  const auto baselineView = frame.getView();
+  const auto baselineView = frame.getMeasurementView();
 
   // Second source: dense/unique id (so id-level validation passes and the
   // decoder actually runs for source 0), but fails once ITS is asked to map
@@ -1500,7 +1499,7 @@ BOOST_AUTO_TEST_CASE(FailedLoadAfterFirstSourceStagedLeavesNoPartialState)
   // only changes when assignLoadedData()/clear() actually reassigns the
   // underlying per-surface storage, so pointer identity here is exactly as
   // strong a proof as the old flattened `measurements` pointer used to be.
-  const auto afterView = frame.getView();
+  const auto afterView = frame.getMeasurementView();
   BOOST_CHECK(afterView.surfaces == baselineView.surfaces);
   BOOST_CHECK(afterView.rofIntervals == baselineView.rofIntervals);
   BOOST_CHECK(afterView.sourceROFOffsets == baselineView.sourceROFOffsets);
@@ -1525,9 +1524,8 @@ BOOST_AUTO_TEST_CASE(FailedLoadAfterFirstSourceStagedLeavesNoPartialState)
     BOOST_CHECK_EQUAL(afterIntervals[i].begin, baselineIntervals[i].begin);
     BOOST_CHECK_EQUAL(afterIntervals[i].end, baselineIntervals[i].end);
   }
-  BOOST_REQUIRE_EQUAL(frame.getSources().size(), baselineSources.size());
-  BOOST_CHECK(frame.getSources()[0].detector == baselineSources[0].detector);
-  BOOST_CHECK_EQUAL(frame.getSources()[0].nROFs, baselineSources[0].nROFs);
+  BOOST_REQUIRE_EQUAL(frame.getSourceROFInfo().size(), baselineSources.size());
+  BOOST_CHECK_EQUAL(frame.getSourceROFInfo()[0].nROFs, baselineSources[0].nROFs);
   const auto afterLabel = frame.getLabels(ClusterRef{ClusterSourceId{0}, 0});
   BOOST_REQUIRE_EQUAL(afterLabel.size(), 1u);
   BOOST_CHECK(afterLabel[0] == baselineLabel[0]);
@@ -1537,7 +1535,7 @@ BOOST_AUTO_TEST_CASE(FailedLoadAfterFirstSourceStagedLeavesNoPartialState)
 
 BOOST_AUTO_TEST_CASE(EmptyFrameAccessorsAvoidNullPointerArithmetic)
 {
-  MultiSourceFrame frame;
+  TimeFrame frame;
 
   BOOST_CHECK(frame.getSurfaceMeasurements(SurfaceId{0}).empty());
   BOOST_CHECK(frame.getSourceIntervals(ClusterSourceId{0}).empty());
@@ -1551,7 +1549,7 @@ BOOST_AUTO_TEST_CASE(EmptyFrameAccessorsAvoidNullPointerArithmetic)
   BOOST_REQUIRE(result.ok());
   BOOST_CHECK_EQUAL(frame.getTotalMeasurements(), 0u);
 
-  const auto view = frame.getView();
+  const auto view = frame.getMeasurementView();
   BOOST_CHECK_EQUAL(view.nSources, 0u);
   BOOST_CHECK_EQUAL(view.getSurfaceMeasurementCount(SurfaceId{0}), 0u);
   BOOST_CHECK(view.getSurfaceMeasurements(SurfaceId{0}) == nullptr);
@@ -1571,20 +1569,20 @@ BOOST_AUTO_TEST_CASE(EmptyLayoutWithZeroSourcesLoadsSuccessfully)
   BOOST_REQUIRE(emptyLayout.valid());
   BOOST_CHECK_EQUAL(emptyLayout.getView().nSurfaces, 0u);
 
-  MultiSourceFrame frame;
+  TimeFrame frame;
   const auto result = loadSources(frame, emptyLayout.getView().getSurfaceCatalogView(), gsl::span<const ClusterSourceInput>{}, {0, 0});
   BOOST_CHECK(result.ok());
   BOOST_CHECK_EQUAL(frame.getTotalMeasurements(), 0u);
-  BOOST_CHECK_EQUAL(frame.getNSurfaces(), 0u);
-  BOOST_CHECK_EQUAL(frame.getSources().size(), 0u);
+  BOOST_CHECK_EQUAL(frame.getNMeasurementSurfaces(), 0u);
+  BOOST_CHECK_EQUAL(frame.getSourceROFInfo().size(), 0u);
 }
 
 BOOST_AUTO_TEST_CASE(ViewsAreStandardLayoutAndTriviallyCopyable)
 {
-  static_assert(std::is_standard_layout_v<MultiSourceFrameView>);
-  static_assert(std::is_trivially_copyable_v<MultiSourceFrameView>);
+  static_assert(std::is_standard_layout_v<MeasurementView>);
+  static_assert(std::is_trivially_copyable_v<MeasurementView>);
   static_assert(std::is_standard_layout_v<SurfaceMeasurementSpan>);
   static_assert(std::is_trivially_copyable_v<SurfaceMeasurementSpan>);
-  BOOST_CHECK(std::is_standard_layout_v<MultiSourceFrameView>);
-  BOOST_CHECK(std::is_trivially_copyable_v<MultiSourceFrameView>);
+  BOOST_CHECK(std::is_standard_layout_v<MeasurementView>);
+  BOOST_CHECK(std::is_trivially_copyable_v<MeasurementView>);
 }

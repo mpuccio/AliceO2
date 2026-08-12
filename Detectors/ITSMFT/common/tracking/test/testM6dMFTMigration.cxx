@@ -181,7 +181,7 @@ BOOST_AUTO_TEST_CASE(AtomicMFTLoadFailureLeavesSharedTimeFrameAndBothParticipant
 
   // Nothing committed anywhere: not the shared normalized frame nor the
   // staged global workspace.
-  BOOST_CHECK_EQUAL(frame.getNormalizedFrame().getTotalMeasurements(), 0u);
+  BOOST_CHECK_EQUAL(frame.getTotalMeasurements(), 0u);
   BOOST_CHECK_EQUAL(participants.getITSScratch().getTotalClusters(), 0);
   BOOST_CHECK_EQUAL(participants.getMFTScratch().getTotalClusters(), 0);
 }

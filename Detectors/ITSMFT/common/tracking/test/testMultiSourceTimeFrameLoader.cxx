@@ -166,7 +166,7 @@ BOOST_AUTO_TEST_CASE(DirectThreeSourceTransactionInstallsAllSources)
   BOOST_REQUIRE_MESSAGE(result.ok(), "load error=" << static_cast<int>(result.error) << " source=" << result.source.value());
   BOOST_CHECK_EQUAL(frame.getEventResetCount(), 1u);
   for (uint16_t id = 0; id < 3; ++id) {
-    BOOST_CHECK_EQUAL(frame.getNormalizedFrame().getSurfaceMeasurements(SurfaceId{static_cast<uint16_t>(id * 2)}).size(), 1u);
+    BOOST_CHECK_EQUAL(frame.getSurfaceMeasurements(SurfaceId{static_cast<uint16_t>(id * 2)}).size(), 1u);
   }
   BOOST_CHECK_EQUAL(frame.getWorkspace().getTotalClusters(), 3);
 }
@@ -188,7 +188,7 @@ BOOST_AUTO_TEST_CASE(FailedSourcePartitionLeavesPriorEventAndRetrySucceeds)
   const auto failed = MultiSourceTimeFrameLoader::load(frame, malformedSources, configuration.graph.getView().getSurfaceCatalogView(), {50, 5});
   BOOST_CHECK(failed.error == MultiSourceLoadError::InvalidLayerMapping);
   BOOST_CHECK_EQUAL(frame.getEventResetCount(), resetCount);
-  BOOST_CHECK_EQUAL(frame.getNormalizedFrame().getSurfaceMeasurements(SurfaceId{4}).size(), 1u);
+  BOOST_CHECK_EQUAL(frame.getSurfaceMeasurements(SurfaceId{4}).size(), 1u);
   BOOST_CHECK_EQUAL(frame.getWorkspace().getTotalClusters(), 3);
 
   BOOST_REQUIRE(MultiSourceTimeFrameLoader::load(frame, sources, configuration.graph.getView().getSurfaceCatalogView(), {50, 5}).ok());
@@ -209,7 +209,7 @@ BOOST_AUTO_TEST_CASE(UnconfiguredFrameAndSourceQualificationFailBeforeCommit)
   wrong[1].id = ClusterSourceId{5};
   const auto result = MultiSourceTimeFrameLoader::load(frame, wrong, configuration.graph.getView().getSurfaceCatalogView(), {50, 5});
   BOOST_CHECK(result.error == MultiSourceLoadError::NonDenseSourceIds);
-  BOOST_CHECK_EQUAL(frame.getNormalizedFrame().getTotalMeasurements(), 0u);
+  BOOST_CHECK_EQUAL(frame.getTotalMeasurements(), 0u);
   BOOST_CHECK_EQUAL(frame.getEventResetCount(), 0u);
 }
 

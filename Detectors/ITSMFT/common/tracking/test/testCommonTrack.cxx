@@ -11,7 +11,7 @@
 //  - isValidTrackRange()'s exact validity condition (empty/default, single-,
 //    multi- and hole-containing ranges, out-of-range and reversed ranges);
 //  - per-surface measurement storage and surface-local index bounds
-//    (MultiSourceFrame/MultiSourceFrameView::getGlobalMeasurement(SurfaceId,
+//    (TimeFrame/MeasurementView::getGlobalMeasurement(SurfaceId,
 //    SurfaceMeasurementIndex));
 //  - cross-surface and cross-source TrackClusterReference resolution;
 //  - that a completed track's hitSurfaces is the union of the SurfaceId of
@@ -48,7 +48,7 @@
 #include "DetectorsCommonDataFormats/DetID.h"
 #include "ITSMFTTracking/CommonTrack.h"
 #include "ITSMFTTracking/SurfaceGraphBuilder.h"
-#include "ITSMFTTracking/MultiSourceFrame.h"
+#include "ITSMFTTracking/MeasurementView.h"
 #include "ITSMFTTracking/MultiSourceTimeFrameLoader.h"
 #include "ITSMFTTracking/ClusterDecoding.h"
 #include "ITSMFTTracking/IOUtils.h"
@@ -307,11 +307,11 @@ const TopologyDictionary& dict()
 }
 
 // Builds a combined ITS(surfaces {0,1,2}, source 0)+MFT(surface {3}, source
-// 1) MultiSourceFrame with exactly one measurement on each of surfaces
+// 1) TimeFrame with exactly one measurement on each of surfaces
 // {0,1,3} (surface 2 is left empty, a deliberate hole in the catalog's own
 // numbering -- not exercised by any track in these tests, only present to
 // prove per-surface storage does not require every surface to be non-empty).
-MultiSourceFrame makeThreeMeasurementFrame(const BuiltLayout& layout)
+TimeFrame makeThreeMeasurementFrame(const BuiltLayout& layout)
 {
   const std::vector<CompClusterExt> itsClusters{
     {10, 20, CompCluster::InvalidPatternID, 0},
@@ -349,7 +349,7 @@ MultiSourceFrame makeThreeMeasurementFrame(const BuiltLayout& layout)
   sources[1].timing = ROFTimingConfig{50, 0, 0, 0};
   sources[1].decoder = &mftDecoder;
 
-  MultiSourceFrame frame;
+  TimeFrame frame;
   BOOST_REQUIRE(loadSources(frame, layout.getView().getSurfaceCatalogView(), gsl::span<const ClusterSourceInput>(sources), {0, 0}).ok());
   return frame;
 }
@@ -395,7 +395,7 @@ BOOST_AUTO_TEST_CASE(PerSurfaceMeasurementStorageAndSurfaceLocalIndexBounds)
   BOOST_CHECK(frame.getGlobalMeasurement(SurfaceId{0}, SurfaceMeasurementIndex{}) == nullptr);
 
   // Same contract on the device-facing view.
-  const auto view = frame.getView();
+  const auto view = frame.getMeasurementView();
   BOOST_REQUIRE_EQUAL(view.nSurfaces, 4u);
   BOOST_CHECK(view.getGlobalMeasurement(SurfaceId{0}, SurfaceMeasurementIndex{0}) != nullptr);
   BOOST_CHECK(view.getGlobalMeasurement(SurfaceId{0}, SurfaceMeasurementIndex{1}) == nullptr);
@@ -831,7 +831,7 @@ BOOST_AUTO_TEST_CASE(FailedLoadPreservesCommonTrackAndTrackClusterIndicesUnchang
   populateCommonResults(fixture.tf);
   BOOST_REQUIRE_EQUAL(fixture.tf.getCommonTracks().size(), 1u);
   BOOST_REQUIRE_EQUAL(fixture.tf.getTrackClusterIndices().size(), 2u);
-  const auto measurementsBefore = fixture.tf.getNormalizedFrame().getTotalMeasurements();
+  const auto measurementsBefore = fixture.tf.getTotalMeasurements();
   BOOST_REQUIRE(measurementsBefore > 0u);
 
   // Deliberately fail: this SurfaceTrackingScratch preflight-rejects an
@@ -848,7 +848,7 @@ BOOST_AUTO_TEST_CASE(FailedLoadPreservesCommonTrackAndTrackClusterIndicesUnchang
 
   // Normalized frame, CommonTrack storage and trackClusterIndices are all
   // exactly as they were before the failed call.
-  BOOST_CHECK_EQUAL(fixture.tf.getNormalizedFrame().getTotalMeasurements(), measurementsBefore);
+  BOOST_CHECK_EQUAL(fixture.tf.getTotalMeasurements(), measurementsBefore);
   BOOST_REQUIRE_EQUAL(fixture.tf.getCommonTracks().size(), 1u);
   BOOST_CHECK_EQUAL(fixture.tf.getCommonTracks()[0].firstClusterRef, 0u);
   BOOST_CHECK_EQUAL(fixture.tf.getCommonTracks()[0].clusterRefEnd, 2u);
@@ -971,7 +971,7 @@ BOOST_AUTO_TEST_CASE(CommonTrackOutputAdapterStagesITSAndFailsClosed)
   };
   const std::array<MarkedTrack, 1> marked{{{true}}};
   BOOST_REQUIRE(shared.sealFromMarkedTracks(marked));
-  const auto& measurement = *fixture.tf.getNormalizedFrame().getGlobalMeasurement(SurfaceId{0}, SurfaceMeasurementIndex{0});
+  const auto& measurement = *fixture.tf.getGlobalMeasurement(SurfaceId{0}, SurfaceMeasurementIndex{0});
   const std::vector<ROFRecord> rofs{ROFRecord{{100, 5}, 0, 7, 3}};
   CommonTrackOutputAdapterError error = CommonTrackOutputAdapterError::None;
   const auto clock = makeFixtureClockTiming();
@@ -1042,7 +1042,7 @@ BOOST_AUTO_TEST_CASE(CommonTrackOutputAdapterStagesMFTAndRejectsMissingSidecar)
 {
   const auto layout = makeCombinedLayout();
   TimeFrame frame;
-  frame.commitNormalizedFrame(makeThreeMeasurementFrame(layout));
+  frame.commitMeasurements(makeThreeMeasurementFrame(layout));
   TestCommonTrack record;
   record.track.innerState.family = StateFamily::Forward;
   record.track.outerState.family = StateFamily::Forward;
@@ -1066,7 +1066,7 @@ BOOST_AUTO_TEST_CASE(CommonTrackOutputAdapterStagesMFTAndRejectsMissingSidecar)
   BOOST_REQUIRE(tx.validate(commonTrackIndex));
   tx.reserve();
   tx.append(commonTrackIndex);
-  const auto& measurement = *frame.getNormalizedFrame().getGlobalMeasurement(SurfaceId{3}, SurfaceMeasurementIndex{0});
+  const auto& measurement = *frame.getGlobalMeasurement(SurfaceId{3}, SurfaceMeasurementIndex{0});
   const std::vector<ROFRecord> rofs{ROFRecord{{7, 9}, 2, 4, 5}};
   CommonTrackOutputAdapterError error = CommonTrackOutputAdapterError::None;
   o2::its::LayerTiming clock{};
@@ -1118,14 +1118,14 @@ BOOST_AUTO_TEST_CASE(CommonTrackOutputAdapterRejectsMalformedInputsWithoutMutati
   BOOST_REQUIRE(fixture.load().ok());
   const auto record = makeTestCommonTrack();
   storeTestCommonTrack(fixture.tf, record);
-  const auto& measurement = *fixture.tf.getNormalizedFrame().getGlobalMeasurement(SurfaceId{0}, SurfaceMeasurementIndex{0});
+  const auto& measurement = *fixture.tf.getGlobalMeasurement(SurfaceId{0}, SurfaceMeasurementIndex{0});
   const std::vector<ROFRecord> rofs{ROFRecord{{1, 2}, 0, 0, 1}};
   const auto clock = makeFixtureClockTiming();
   const CommonTrackOutputTimingContext timing{rofs, ClockTimingPublicationView{clock}};
   const auto surfaces = gsl::span<const SurfaceId>{fixture.plan->front().getOrderedSurfaces()};
   const auto tracks = fixture.tf.getCommonTracks().size();
   const auto refs = fixture.tf.getTrackClusterIndices().size();
-  const auto measurements = fixture.tf.getNormalizedFrame().getTotalMeasurements();
+  const auto measurements = fixture.tf.getTotalMeasurements();
   CommonTrackOutputAdapterError error = CommonTrackOutputAdapterError::None;
   ITSSharedClusterCompatibility unsealed;
   BOOST_CHECK(!stageITSCommonTrackOutput(fixture.tf, measurement.cluster.source, surfaces, timing, unsealed, false, error));
@@ -1135,7 +1135,7 @@ BOOST_AUTO_TEST_CASE(CommonTrackOutputAdapterRejectsMalformedInputsWithoutMutati
   BOOST_CHECK(wrongSource->tracks.empty());
   BOOST_CHECK_EQUAL(fixture.tf.getCommonTracks().size(), tracks);
   BOOST_CHECK_EQUAL(fixture.tf.getTrackClusterIndices().size(), refs);
-  BOOST_CHECK_EQUAL(fixture.tf.getNormalizedFrame().getTotalMeasurements(), measurements);
+  BOOST_CHECK_EQUAL(fixture.tf.getTotalMeasurements(), measurements);
 
   fixture.tf.getCommonTracks()[0].clusterRefEnd = refs + 1;
   BOOST_CHECK(!selectCommonTracksForSource(fixture.tf, o2::detectors::DetID::ITS, measurement.cluster.source, error));
