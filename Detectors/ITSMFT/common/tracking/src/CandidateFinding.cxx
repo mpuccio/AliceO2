@@ -75,45 +75,48 @@ bool DiskTrackletSearchWindow::acceptCandidate(
 bool projectCylinderSearchWindow(const GlobalMeasurement& sourceMeasurement,
                                  const o2::its::Cluster& sourceLocator,
                                  const o2::its::Vertex& vertex,
-                                 const CylinderTrackletProjectionState& transitionState,
+                                 const TrackletProjectionCache& transitionCache,
                                  float /*bz*/, const o2::itsmft::IndexTableUtilsCore& indexUtils,
                                  const TrackingKernelParameters& params,
                                  CylinderTrackletSearchWindow& out)
 {
   const float inverseR0 = 1.f / sourceLocator.radius;
-  const float resolution = o2::gpu::CAMath::Sqrt(o2::its::math_utils::Sq(transitionState.sourcePositionResolution) +
+  const float resolution = o2::gpu::CAMath::Sqrt(o2::its::math_utils::Sq(transitionCache.sourcePositionResolution) +
                                                  o2::its::math_utils::Sq(params.pvResolution) / float(vertex.getNContributors()));
   const float tanLambda = (sourceMeasurement.position.z - vertex.getZ()) * inverseR0;
-  const float zAtTargetMinR = tanLambda * (transitionState.targetMinR - sourceLocator.radius) + sourceMeasurement.position.z;
-  const float zAtTargetMaxR = tanLambda * (transitionState.targetMaxR - sourceLocator.radius) + sourceMeasurement.position.z;
+  const float zAtTargetMinR = tanLambda * (transitionCache.targetMinR - sourceLocator.radius) + sourceMeasurement.position.z;
+  const float zAtTargetMaxR = tanLambda * (transitionCache.targetMaxR - sourceLocator.radius) + sourceMeasurement.position.z;
   const float sqInvDeltaZ0 = 1.f / (o2::its::math_utils::Sq(sourceMeasurement.position.z - vertex.getZ()) + o2::its::constants::Tolerance);
   const float sigmaZ = o2::gpu::CAMath::Sqrt((o2::its::math_utils::Sq(resolution) * o2::its::math_utils::Sq(tanLambda) *
-                                              ((o2::its::math_utils::Sq(inverseR0) + sqInvDeltaZ0) * o2::its::math_utils::Sq(transitionState.meanDeltaR) + 1.f)) +
-                                             o2::its::math_utils::Sq(transitionState.meanDeltaR * transitionState.transitionMSAngle));
-  const auto bins = o2::itsmft::getBinsPhiZ(sourceLocator.phi, transitionState.toLayer,
+                                              ((o2::its::math_utils::Sq(inverseR0) + sqInvDeltaZ0) * o2::its::math_utils::Sq(transitionCache.toRadius - transitionCache.fromRadius) + 1.f)) +
+                                             o2::its::math_utils::Sq((transitionCache.toRadius - transitionCache.fromRadius) * transitionCache.transitionMSAngle));
+  const auto bins = o2::itsmft::getBinsPhiZ(sourceLocator.phi, transitionCache.toLayer,
                                             zAtTargetMinR, zAtTargetMaxR,
-                                            sigmaZ * params.nSigmaCut, transitionState.transitionPhiCut,
+                                            sigmaZ * params.nSigmaCut, transitionCache.transitionPhiCut,
                                             indexUtils);
   if (bins.x < 0) {
     return false;
   }
-  out = {bins, tanLambda, sigmaZ, transitionState.transitionPhiCut, params.nSigmaCut};
+  out = {bins, tanLambda, sigmaZ, transitionCache.transitionPhiCut, params.nSigmaCut};
   return true;
 }
 
 bool projectDiskSearchWindow(const GlobalMeasurement& sourceMeasurement,
                              const o2::its::Cluster& sourceLocator,
                              const o2::its::Vertex& vertex,
-                             const DiskTrackletProjectionState& transitionState,
+                             const TrackletProjectionCache& transitionCache,
                              float bz, const o2::itsmft::IndexTableUtilsCore& indexUtils,
                              const TrackingKernelParameters& params,
                              DiskTrackletSearchWindow& out)
 {
+  if (!transitionCache.hasReferenceCoordinates) {
+    return false;
+  }
   float xProj = 0.f;
   float yProj = 0.f;
   detail::mftTrackletProject(sourceMeasurement.position.x, sourceMeasurement.position.y, sourceMeasurement.position.z,
                              vertex.getX(), vertex.getY(), vertex.getZ(),
-                             transitionState.fromZ, transitionState.toZ, bz, params.trackletMinPt,
+                             transitionCache.fromReferenceCoordinate, transitionCache.toReferenceCoordinate, bz, params.trackletMinPt,
                              xProj, yProj);
   float sigmaX = 0.f;
   float sigmaY = 0.f;
@@ -121,16 +124,16 @@ bool projectDiskSearchWindow(const GlobalMeasurement& sourceMeasurement,
                              vertex.getX(), vertex.getY(), vertex.getZ(),
                              sourceMeasurement.covariance.xx, sourceMeasurement.covariance.yy,
                              vertex.getSigmaX2(), vertex.getSigmaY2(), vertex.getSigmaZ2(),
-                             transitionState.fromZ, transitionState.toZ,
-                             transitionState.sourceReferenceRadius, transitionState.meanDeltaZ,
-                             transitionState.transitionMSAngle, transitionState.transitionPhiCut,
+                             transitionCache.fromReferenceCoordinate, transitionCache.toReferenceCoordinate,
+                             transitionCache.fromRadius, transitionCache.toReferenceCoordinate - transitionCache.fromReferenceCoordinate,
+                             transitionCache.transitionMSAngle, transitionCache.transitionPhiCut,
                              xProj, yProj, sigmaX, sigmaY);
 
   const float zSpread = params.nSigmaCut * vertex.getSigmaZ();
   const float zVtxMin = vertex.getZ() - zSpread;
   const float zVtxMax = vertex.getZ() + zSpread;
-  const float absZFrom = std::abs(transitionState.fromZ);
-  const float absZTo = std::abs(transitionState.toZ);
+  const float absZFrom = std::abs(transitionCache.fromReferenceCoordinate);
+  const float absZTo = std::abs(transitionCache.toReferenceCoordinate);
   const float denomMin = zVtxMax + absZFrom;
   const float denomMax = absZFrom + zVtxMin;
   float radialRangeMin = (std::abs(denomMin) > 1.e-6f) ? sourceLocator.radius * (zVtxMax + absZTo) / denomMin : sourceLocator.radius;
@@ -140,7 +143,7 @@ bool projectDiskSearchWindow(const GlobalMeasurement& sourceMeasurement,
     radialRangeMin = radialRangeMax;
     radialRangeMax = tmp;
   }
-  const auto bins = o2::itsmft::getBinsRectClusterAtProj(xProj, yProj, transitionState.toLayer,
+  const auto bins = o2::itsmft::getBinsRectClusterAtProj(xProj, yProj, transitionCache.toLayer,
                                                          radialRangeMin, radialRangeMax,
                                                          sigmaX * params.nSigmaCut, sigmaY * params.nSigmaCut,
                                                          indexUtils);
@@ -151,72 +154,64 @@ bool projectDiskSearchWindow(const GlobalMeasurement& sourceMeasurement,
   return true;
 }
 
-bool bindTrackletProjectionState(
-  SurfaceKind kind, int fromLayer, int toLayer,
+bool bindTrackletProjectionCache(
+  int fromLayer, int toLayer,
   gsl::span<const float> layerRadii,
   gsl::span<const float> diskReferenceZ,
   float targetMinR, float targetMaxR,
   float sourcePositionResolution,
   float transitionMSAngle, float transitionPhiCut,
-  TrackletProjectionState& out) noexcept
+  TrackletProjectionCache& out) noexcept
 {
   if (fromLayer < 0 || toLayer < 0 ||
       static_cast<size_t>(fromLayer) >= layerRadii.size() ||
       static_cast<size_t>(toLayer) >= layerRadii.size()) {
     return false;
   }
-  switch (kind) {
-    case SurfaceKind::Undefined:
-      return false;
-    case SurfaceKind::Cylinder:
-      out = CylinderTrackletProjectionState{toLayer,
-                                            layerRadii[toLayer] - layerRadii[fromLayer],
-                                            targetMinR, targetMaxR, sourcePositionResolution,
-                                            transitionMSAngle, transitionPhiCut};
-      return true;
-    case SurfaceKind::Disk:
-      if (static_cast<size_t>(fromLayer) >= diskReferenceZ.size() ||
-          static_cast<size_t>(toLayer) >= diskReferenceZ.size()) {
-        return false;
-      }
-      out = DiskTrackletProjectionState{toLayer,
-                                        diskReferenceZ[fromLayer], diskReferenceZ[toLayer],
-                                        diskReferenceZ[toLayer] - diskReferenceZ[fromLayer],
-                                        layerRadii[fromLayer], transitionMSAngle,
-                                        transitionPhiCut};
-      return true;
-  }
-  return false;
+  const bool hasReferenceCoordinates = static_cast<size_t>(fromLayer) < diskReferenceZ.size() &&
+                                       static_cast<size_t>(toLayer) < diskReferenceZ.size();
+  const auto referenceCoordinate = [&](int layer) {
+    return static_cast<size_t>(layer) < diskReferenceZ.size() ? diskReferenceZ[layer] : 0.f;
+  };
+  out = {fromLayer, toLayer,
+         layerRadii[fromLayer], layerRadii[toLayer],
+         targetMinR, targetMaxR, sourcePositionResolution,
+         referenceCoordinate(fromLayer), referenceCoordinate(toLayer),
+         transitionMSAngle, transitionPhiCut, hasReferenceCoordinates};
+  return true;
 }
 
 bool projectTrackletSearchWindow(
   const GlobalMeasurement& sourceMeasurement,
   const o2::its::Cluster& sourceLocator,
   const o2::its::Vertex& vertex,
-  const TrackletProjectionState& transitionState,
+  SurfaceKind kind,
+  const TrackletProjectionCache& transitionCache,
   float bz, const o2::itsmft::IndexTableUtilsCore& indexUtils,
   const TrackingKernelParameters& params,
   TrackletSearchWindow& out)
 {
-  return std::visit(
-    [&](const auto& state) {
-      using State = std::decay_t<decltype(state)>;
-      if constexpr (std::is_same_v<State, CylinderTrackletProjectionState>) {
-        CylinderTrackletSearchWindow window{};
-        if (!projectCylinderSearchWindow(sourceMeasurement, sourceLocator, vertex, state, bz, indexUtils, params, window)) {
-          return false;
-        }
-        out = window;
-      } else {
-        DiskTrackletSearchWindow window{};
-        if (!projectDiskSearchWindow(sourceMeasurement, sourceLocator, vertex, state, bz, indexUtils, params, window)) {
-          return false;
-        }
-        out = window;
+  switch (kind) {
+    case SurfaceKind::Cylinder: {
+      CylinderTrackletSearchWindow window{};
+      if (!projectCylinderSearchWindow(sourceMeasurement, sourceLocator, vertex, transitionCache, bz, indexUtils, params, window)) {
+        return false;
       }
+      out = window;
       return true;
-    },
-    transitionState);
+    }
+    case SurfaceKind::Disk: {
+      DiskTrackletSearchWindow window{};
+      if (!projectDiskSearchWindow(sourceMeasurement, sourceLocator, vertex, transitionCache, bz, indexUtils, params, window)) {
+        return false;
+      }
+      out = window;
+      return true;
+    }
+    case SurfaceKind::Undefined:
+      return false;
+  }
+  return false;
 }
 
 int4 trackletSearchBins(const TrackletSearchWindow& window) noexcept

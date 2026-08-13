@@ -41,24 +41,19 @@ namespace o2::itsmft::tracking
 
 #ifndef GPUCA_GPUCODE
 
-struct CylinderTrackletProjectionState {
+struct TrackletProjectionCache {
+  int fromLayer;
   int toLayer;
-  float meanDeltaR;
+  float fromRadius;
+  float toRadius;
   float targetMinR;
   float targetMaxR;
   float sourcePositionResolution;
+  float fromReferenceCoordinate;
+  float toReferenceCoordinate;
   float transitionMSAngle;
   float transitionPhiCut;
-};
-
-struct DiskTrackletProjectionState {
-  int toLayer;
-  float fromZ;
-  float toZ;
-  float meanDeltaZ;
-  float sourceReferenceRadius;
-  float transitionMSAngle;
-  float transitionPhiCut;
+  bool hasReferenceCoordinates;
 };
 
 struct CylinderTrackletSearchWindow {
@@ -88,21 +83,21 @@ struct DiskTrackletSearchWindow {
                        float& tanLambdaOut) const;
 };
 
-using TrackletProjectionState = std::variant<CylinderTrackletProjectionState, DiskTrackletProjectionState>;
 using TrackletSearchWindow = std::variant<CylinderTrackletSearchWindow, DiskTrackletSearchWindow>;
 
-bool bindTrackletProjectionState(SurfaceKind kind, int fromLayer, int toLayer,
+bool bindTrackletProjectionCache(int fromLayer, int toLayer,
                                  gsl::span<const float> layerRadii,
                                  gsl::span<const float> diskReferenceZ,
                                  float targetMinR, float targetMaxR,
                                  float sourcePositionResolution,
-  float transitionMSAngle, float transitionPhiCut,
-                                 TrackletProjectionState& out) noexcept;
+                                 float transitionMSAngle, float transitionPhiCut,
+                                 TrackletProjectionCache& out) noexcept;
 
 bool projectTrackletSearchWindow(const GlobalMeasurement& sourceMeasurement,
                                  const o2::its::Cluster& sourceLocator,
                                  const o2::its::Vertex& vertex,
-                                 const TrackletProjectionState& transitionState,
+                                 SurfaceKind kind,
+                                 const TrackletProjectionCache& transitionCache,
                                  float bz, const o2::itsmft::IndexTableUtilsCore& indexUtils,
                                  const TrackingKernelParameters& params,
                                  TrackletSearchWindow& out);
@@ -123,7 +118,7 @@ bool acceptTrackletCandidate(const TrackletSearchWindow& window,
 bool projectCylinderSearchWindow(const GlobalMeasurement& sourceMeasurement,
                                  const o2::its::Cluster& sourceLocator,
                                  const o2::its::Vertex& vertex,
-                                 const CylinderTrackletProjectionState& transitionState,
+                                 const TrackletProjectionCache& transitionCache,
                                  float bz, const o2::itsmft::IndexTableUtilsCore& indexUtils,
                                  const TrackingKernelParameters& params,
                                  CylinderTrackletSearchWindow& out);
@@ -131,7 +126,7 @@ bool projectCylinderSearchWindow(const GlobalMeasurement& sourceMeasurement,
 bool projectDiskSearchWindow(const GlobalMeasurement& sourceMeasurement,
                              const o2::its::Cluster& sourceLocator,
                              const o2::its::Vertex& vertex,
-                             const DiskTrackletProjectionState& transitionState,
+                             const TrackletProjectionCache& transitionCache,
                              float bz, const o2::itsmft::IndexTableUtilsCore& indexUtils,
                              const TrackingKernelParameters& params,
                              DiskTrackletSearchWindow& out);

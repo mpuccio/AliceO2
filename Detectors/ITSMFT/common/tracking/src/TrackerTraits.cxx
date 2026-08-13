@@ -601,21 +601,8 @@ void TrackerTraits::computeLayerTrackletsImpl(
               requireSurfacePosition(iteration, transition.to)};
     };
 
-    auto makeTransitionState = [&](SurfaceKind kind, int transitionId, int fromLayer, int toLayer) {
-      TrackletProjectionState state{};
-      const auto layerRadii = gsl::span<const float>{mTrkParams[iteration].LayerRadii.data(),
-                                                     mTrkParams[iteration].LayerRadii.size()};
-      if (!bindTrackletProjectionState(kind, fromLayer, toLayer, layerRadii, mDiskLayerReferenceZ,
-                                       mScratch->getMinR(toLayer), mScratch->getMaxR(toLayer),
-                                       mScratch->getPositionResolution(fromLayer),
-                                       mScratch->getTransitionMSAngle(transitionId),
-                                       mScratch->getTransitionPhiCut(transitionId), state)) {
-        throw TraversalException{iteration, TraversalFailureReason::InvalidSurfaceParameters};
-      }
-      return state;
-    };
-
-    auto forTracklets = [&](auto Mode, int transitionId, int fromLayer, int toLayer, const auto& transitionState, int pivotROF, int base, int& offset) -> int {
+    auto forTracklets = [&](auto Mode, int transitionId, int fromLayer, int toLayer, SurfaceKind kind,
+                            const TrackletProjectionCache& transitionCache, int pivotROF, int base, int& offset) -> int {
       if (!mScratch->isROFEnabled(fromLayer, pivotROF)) {
         return 0;
       }
@@ -669,7 +656,7 @@ void TrackerTraits::computeLayerTrackletsImpl(
           }
           TrackletSearchWindow searchWindow{};
           const bool projected = projectTrackletSearchWindow(sourceMeasurement, currentCluster, pv,
-                                                             transitionState, getBz(),
+                                                             kind, transitionCache, getBz(),
                                                              mScratch->getIndexTableUtils(toLayer),
                                                              mKernelParameters, searchWindow);
           if (!projected) {
@@ -742,10 +729,19 @@ void TrackerTraits::computeLayerTrackletsImpl(
         const int scratchTransitionId = requireScratchTransitionSlot(iteration, typedTransitionId);
         const auto [fromLayer, toLayer] = resolveTransitionLayers(transitionId);
         const auto kind = topology.getSurface(topology.getTransition(typedTransitionId).from).kind;
-        const auto transitionState = makeTransitionState(kind, scratchTransitionId, fromLayer, toLayer);
+        TrackletProjectionCache transitionCache{};
+        const auto layerRadii = gsl::span<const float>{mTrkParams[iteration].LayerRadii.data(),
+                                                       mTrkParams[iteration].LayerRadii.size()};
+        if (!bindTrackletProjectionCache(fromLayer, toLayer, layerRadii, mDiskLayerReferenceZ,
+                                         mScratch->getMinR(toLayer), mScratch->getMaxR(toLayer),
+                                         mScratch->getPositionResolution(fromLayer),
+                                         mScratch->getTransitionMSAngle(scratchTransitionId),
+                                         mScratch->getTransitionPhiCut(scratchTransitionId), transitionCache)) {
+          throw TraversalException{iteration, TraversalFailureReason::InvalidSurfaceParameters};
+        }
         const int startROF = 0, endROF = mScratch->getROFTiming(fromLayer).mNROFsTF;
         for (int pivotROF{startROF}; pivotROF < endROF; ++pivotROF) {
-          forTracklets(PassMode::OnePass{}, scratchTransitionId, fromLayer, toLayer, transitionState, pivotROF, 0, dummy);
+          forTracklets(PassMode::OnePass{}, scratchTransitionId, fromLayer, toLayer, kind, transitionCache, pivotROF, 0, dummy);
         }
       }
     } else {
@@ -755,11 +751,20 @@ void TrackerTraits::computeLayerTrackletsImpl(
         const int scratchTransitionId = requireScratchTransitionSlot(iteration, typedTransitionId);
         const auto [fromLayer, toLayer] = resolveTransitionLayers(transitionId);
         const auto kind = topology.getSurface(topology.getTransition(typedTransitionId).from).kind;
-        const auto transitionState = makeTransitionState(kind, scratchTransitionId, fromLayer, toLayer);
+        TrackletProjectionCache transitionCache{};
+        const auto layerRadii = gsl::span<const float>{mTrkParams[iteration].LayerRadii.data(),
+                                                       mTrkParams[iteration].LayerRadii.size()};
+        if (!bindTrackletProjectionCache(fromLayer, toLayer, layerRadii, mDiskLayerReferenceZ,
+                                         mScratch->getMinR(toLayer), mScratch->getMaxR(toLayer),
+                                         mScratch->getPositionResolution(fromLayer),
+                                         mScratch->getTransitionMSAngle(scratchTransitionId),
+                                         mScratch->getTransitionPhiCut(scratchTransitionId), transitionCache)) {
+          throw TraversalException{iteration, TraversalFailureReason::InvalidSurfaceParameters};
+        }
         const int startROF = 0, endROF = mScratch->getROFTiming(fromLayer).mNROFsTF;
         bounded_vector<int> perROFCount((endROF - startROF) + 1, mMemoryPool.get());
         tbb::parallel_for(startROF, endROF, [&](const int pivotROF) {
-          perROFCount[pivotROF - startROF] = forTracklets(PassMode::TwoPassCount{}, scratchTransitionId, fromLayer, toLayer, transitionState, pivotROF, 0, dummy);
+          perROFCount[pivotROF - startROF] = forTracklets(PassMode::TwoPassCount{}, scratchTransitionId, fromLayer, toLayer, kind, transitionCache, pivotROF, 0, dummy);
         });
         std::exclusive_scan(perROFCount.begin(), perROFCount.end(), perROFCount.begin(), 0);
         const int nTracklets = perROFCount.back();
@@ -773,7 +778,7 @@ void TrackerTraits::computeLayerTrackletsImpl(
             return;
           }
           int localIdx = 0;
-          forTracklets(PassMode::TwoPassInsert{}, scratchTransitionId, fromLayer, toLayer, transitionState, pivotROF, baseIdx, localIdx);
+          forTracklets(PassMode::TwoPassInsert{}, scratchTransitionId, fromLayer, toLayer, kind, transitionCache, pivotROF, baseIdx, localIdx);
         });
       });
     }

@@ -323,14 +323,14 @@ BOOST_AUTO_TEST_CASE(TrackletLoopUsesOnlyCoordinateNeutralLeafFacades)
 {
   const auto source = readTrackerTraitsSource();
   const auto code = stripLineComments(extractMethodBody(source, "computeLayerTrackletsImpl"));
-  for (const auto required : {"bindTrackletProjectionState(", "projectTrackletSearchWindow(",
-                              "trackletSearchRowBin(", "acceptTrackletCandidate("}) {
+  BOOST_CHECK_EQUAL(countOccurrences(code, "bindTrackletProjectionCache("), 2u);
+  for (const auto required : {"projectTrackletSearchWindow(", "trackletSearchRowBin(", "acceptTrackletCandidate("}) {
     BOOST_CHECK_EQUAL(countOccurrences(code, required), 1u);
   }
   for (const auto forbidden : {"projectCylinderSearchWindow(", "projectDiskSearchWindow(",
                                "CylinderTrackletSearchWindow", "DiskTrackletSearchWindow",
                                "SurfaceKind::Cylinder", "SurfaceKind::Disk",
-                               "DetID", "ClusterSourceId"}) {
+                               "DetID", "ClusterSourceId", "makeTransitionState"}) {
     BOOST_CHECK(code.find(forbidden) == std::string::npos);
   }
 }
