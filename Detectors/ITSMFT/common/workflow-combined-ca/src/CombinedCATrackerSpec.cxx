@@ -46,7 +46,7 @@ namespace
 using o2::itsmft::tracking::ClusterSourceId;
 using o2::itsmft::tracking::ClusterSourceInput;
 using o2::itsmft::tracking::LoadSourcesResult;
-using o2::itsmft::tracking::MultiSourceTimeFrameLoader;
+using o2::itsmft::tracking::loadTimeFrameSources;
 using o2::itsmft::tracking::TrackingOutcome;
 
 template <int NLayers, o2::itsmft::tracking::SurfaceKind Kind>
@@ -396,7 +396,7 @@ TrackingOutcome CombinedCATrackerDPL::trackFrame(const ClusterSourceInput& itsSo
     loadResult = *rejected;
   } else {
     const std::array<ClusterSourceInput, 2> sources{itsInput, mftInput};
-    loadResult = MultiSourceTimeFrameLoader::load(mFrame, gsl::span<const ClusterSourceInput>{sources}, catalogView(), origin);
+    loadResult = loadTimeFrameSources(mFrame, gsl::span<const ClusterSourceInput>{sources}, catalogView(), origin);
   }
   if (!loadResult.ok()) {
     // Apply the shared recoverable-load taxonomy and the owning detector's

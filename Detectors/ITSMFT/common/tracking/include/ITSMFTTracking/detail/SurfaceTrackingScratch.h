@@ -61,7 +61,6 @@ class ROFRecord;
 namespace o2::itsmft::tracking
 {
 
-class MultiSourceTimeFrameLoader;
 class ClusterDecoder;
 struct ClusterSourceInput;
 struct LoadSourcesResult;

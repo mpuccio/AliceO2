@@ -163,8 +163,8 @@ template o2::itsmft::tracking::SurfaceMeasurementDecodeResult loadClusterSurface
 namespace o2::itsmft::tracking
 {
 
-LoadSourcesResult MultiSourceTimeFrameLoader::load(TimeFrame& frame, gsl::span<const ClusterSourceInput> sources,
-                                                   SurfaceCatalogView catalog, const o2::InteractionRecord& origin)
+LoadSourcesResult loadTimeFrameSources(TimeFrame& frame, gsl::span<const ClusterSourceInput> sources,
+                                       SurfaceCatalogView catalog, const o2::InteractionRecord& origin)
 {
   if (!frame.isConfigured()) {
     return {MultiSourceLoadError::FrameNotConfigured};

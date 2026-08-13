@@ -279,12 +279,9 @@ LoadSourcesResult loadSources(TimeFrame&, const SurfaceCatalogView&,
                               gsl::span<const ClusterSourceInput>,
                               const o2::InteractionRecord&);
 
-class MultiSourceTimeFrameLoader
-{
- public:
-  static LoadSourcesResult load(TimeFrame&, gsl::span<const ClusterSourceInput>,
-                                SurfaceCatalogView, const o2::InteractionRecord&);
-};
+/// Atomically decode, normalize, backfill, and commit all sources into a configured frame.
+LoadSourcesResult loadTimeFrameSources(TimeFrame&, gsl::span<const ClusterSourceInput>,
+                                       SurfaceCatalogView, const o2::InteractionRecord&);
 
 #ifndef GPUCA_GPUCODE
 class RecoverableLoadFailure final : public std::runtime_error

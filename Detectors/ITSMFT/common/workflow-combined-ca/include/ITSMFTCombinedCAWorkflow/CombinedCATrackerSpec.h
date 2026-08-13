@@ -13,7 +13,7 @@
 /// This DPL task owns one TimeFrame, one Tracker, their application
 /// configuration, and the detector-specific publication context. trackFrame()
 /// composes the workflow-owned source inputs,
-/// MultiSourceTimeFrameLoader::load(), Tracker::run(), and publication.
+/// loadTimeFrameSources(), Tracker::run(), and publication.
 
 #ifndef ALICEO2_ITSMFT_COMBINEDCAWORKFLOW_COMBINEDCATRACKERSPEC_H_
 #define ALICEO2_ITSMFT_COMBINEDCAWORKFLOW_COMBINEDCATRACKERSPEC_H_

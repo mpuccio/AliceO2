@@ -257,7 +257,7 @@ o2::itsmft::tracking::TrackingOutcome CATrackerDPL::processTimeFrame(
     source.decoder = mClusterDecoder.get();
     source.rofViews = rofViews;
     const auto origin = rofs.empty() ? o2::InteractionRecord{} : rofs.front().getBCData();
-    const auto loaded = o2::itsmft::tracking::MultiSourceTimeFrameLoader::load(
+    const auto loaded = o2::itsmft::tracking::loadTimeFrameSources(
       mFrame, gsl::span<const o2::itsmft::tracking::ClusterSourceInput>{&source, 1}, mFrame.getGraph(0).getSurfaceCatalog(), origin);
     if (!loaded.ok()) {
       if (o2::itsmft::tracking::isRecoverableLoadError(loaded.error, loaded.timingDetail)) {
