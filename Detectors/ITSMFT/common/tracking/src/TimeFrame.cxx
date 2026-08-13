@@ -261,7 +261,7 @@ void TimeFrame::setMemoryPool(std::shared_ptr<BoundedMemoryResource> pool)
 
   initVector(mPrimaryVertices);
   initVector(mPrimaryVerticesLabels);
-  initVector(mCommonTracks);
+  initVector(mGenericTracks);
   initVector(mTrackClusterIndices);
 }
 
@@ -271,7 +271,7 @@ void TimeFrame::clearEventData() noexcept
   deepVectorClear(mPrimaryVerticesLabels);
   // Common tracks and their cluster references are valid only for the current
   // normalized event, so clear both together.
-  deepVectorClear(mCommonTracks);
+  deepVectorClear(mGenericTracks);
   deepVectorClear(mTrackClusterIndices);
   clearMeasurements();
 }

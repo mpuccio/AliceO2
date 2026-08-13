@@ -55,26 +55,26 @@ static_assert(std::is_standard_layout_v<ROFIntervalBC>);
 static_assert(std::is_trivially_copyable_v<ROFIntervalBC>);
 
 // Detector-neutral half-open time estimate for a track/cell/road. It has no
-// source-ROF identity and is standard-layout/trivially copyable for CommonTrack.
-struct CommonTrackTimestamp {
+// source-ROF identity and is standard-layout/trivially copyable for GenericTrack.
+struct GenericTrackTimestamp {
   TFBC begin{0};
   TFBC end{0};
 
   GPUhdi() constexpr bool isValid() const noexcept { return begin < end; }
   // Half-open intersection; adjacent intervals and invalid intervals do not
   // intersect.
-  GPUhdi() constexpr bool isCompatible(const CommonTrackTimestamp& other) const noexcept
+  GPUhdi() constexpr bool isCompatible(const GenericTrackTimestamp& other) const noexcept
   {
     return isValid() && other.isValid() && begin < other.end && other.begin < end;
   }
 };
 
-static_assert(std::is_standard_layout_v<CommonTrackTimestamp>);
-static_assert(std::is_trivially_copyable_v<CommonTrackTimestamp>);
-static_assert(sizeof(CommonTrackTimestamp) == 16);
-static_assert(alignof(CommonTrackTimestamp) == alignof(TFBC));
-static_assert(offsetof(CommonTrackTimestamp, begin) == 0);
-static_assert(offsetof(CommonTrackTimestamp, end) == 8);
+static_assert(std::is_standard_layout_v<GenericTrackTimestamp>);
+static_assert(std::is_trivially_copyable_v<GenericTrackTimestamp>);
+static_assert(sizeof(GenericTrackTimestamp) == 16);
+static_assert(alignof(GenericTrackTimestamp) == alignof(TFBC));
+static_assert(offsetof(GenericTrackTimestamp, begin) == 0);
+static_assert(offsetof(GenericTrackTimestamp, end) == 8);
 
 // Per-source readout timing configuration. ROF start uses the source ROF's
 // InteractionRecord plus delay and bias; rofAddTimeErr is applied only by

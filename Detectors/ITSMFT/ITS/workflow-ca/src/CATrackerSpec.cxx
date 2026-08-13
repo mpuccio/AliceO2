@@ -32,7 +32,7 @@
 #include "Framework/Logger.h"
 #include "ITSBase/GeometryTGeo.h"
 #include "ITSMFTTracking/Tracker.h"
-#include "ITSMFTTracking/CommonTrackOutputAdapter.h"
+#include "ITSMFTTracking/GenericTrackOutputAdapter.h"
 #include "ITSMFTTracking/detail/DetectorRefitSupport.h"
 #include "ITSMFTTracking/IOUtils.h"
 #include "ITSMFTTracking/SurfaceTiming.h"
@@ -312,7 +312,7 @@ o2::itsmft::tracking::TrackingOutcome CATrackerDPL::processTimeFrame(
   if (result.outcome == o2::itsmft::tracking::TrackingOutcome::RecoverableDropped) {
     LOGP(warn, "ITS CA tracking failed for this TF");
   } else {
-    LOGP(info, "ITS CA tracking produced {} tracks in {:.2f} ms", mFrame.getCommonTracks().size(), result.elapsedMs);
+    LOGP(info, "ITS CA tracking produced {} tracks in {:.2f} ms", mFrame.getGenericTracks().size(), result.elapsedMs);
   }
   return result.outcome;
 }
@@ -380,14 +380,14 @@ void CATrackerDPL::run(ProcessingContext& pc)
 
     {
       mPublicationClock.emplace(mROFOverlapTable.getView().getClockLayer());
-      const o2::itsmft::tracking::CommonTrackPublicationContext context{
+      const o2::itsmft::tracking::GenericTrackPublicationContext context{
         o2::detectors::DetID::ITS, o2::itsmft::tracking::ClusterSourceId{0},
         gsl::span<const o2::itsmft::ROFRecord>{rofsinput.data(), rofsinput.size()}, *mPublicationClock,
         gsl::span<const o2::itsmft::tracking::SurfaceId>{mFrame.getGraph(0).getOrderedSurfaces()}};
-      o2::itsmft::tracking::CommonTrackOutputAdapterError error = o2::itsmft::tracking::CommonTrackOutputAdapterError::None;
-      const auto staged = o2::itsmft::tracking::stageITSCommonTrackOutput(mFrame, context, mCompatibility, mUseMC, error);
+      o2::itsmft::tracking::GenericTrackOutputAdapterError error = o2::itsmft::tracking::GenericTrackOutputAdapterError::None;
+      const auto staged = o2::itsmft::tracking::stageITSGenericTrackOutput(mFrame, context, mCompatibility, mUseMC, error);
       if (!staged) {
-        throw std::runtime_error{"ITS CommonTrack output staging failed"};
+        throw std::runtime_error{"ITS GenericTrack output staging failed"};
       }
 
       auto& trackROFs = pc.outputs().make<std::vector<o2::itsmft::ROFRecord>>(Output{"ITS", "ITSTrackROF", 0},

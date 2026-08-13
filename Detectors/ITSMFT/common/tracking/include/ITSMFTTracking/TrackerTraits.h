@@ -26,7 +26,7 @@
 #include <oneapi/tbb.h>
 
 #include "ITSMFTTracking/Configuration.h"
-#include "ITSMFTTracking/CommonTrack.h"
+#include "ITSMFTTracking/GenericTrack.h"
 #include "ITSMFTTracking/SurfaceGraph.h"
 #include "ITSMFTTracking/detail/SurfaceTrackingScratch.h"
 #include "ITSMFTTracking/SurfaceDescriptor.h"
@@ -129,7 +129,7 @@ class TrackerTraits
                     bounded_vector<TrackingCandidate>& tracks,
                     bounded_vector<bounded_vector<int>>& firstClusters);
 
-  // Keeps accepted CommonTrack/TrackSeed pairs until the workflow consumes the result.
+  // Keeps accepted GenericTrack/TrackSeed pairs until the workflow consumes the result.
   bounded_vector<TrackingCandidate>& acceptedTracksForSharedStatus();
   void clearAcceptedTracksForSharedStatus();
 

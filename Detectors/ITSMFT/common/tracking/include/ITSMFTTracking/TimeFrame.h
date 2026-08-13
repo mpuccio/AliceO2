@@ -29,7 +29,7 @@
 #include "DataFormatsITS/Vertex.h"
 #include "SimulationDataFormat/MCCompLabel.h"
 #include "SimulationDataFormat/MCTruthContainer.h"
-#include "ITSMFTTracking/CommonTrack.h"
+#include "ITSMFTTracking/GenericTrack.h"
 #include "ITSMFTTracking/Configuration.h"
 #include "ITSMFTTracking/MeasurementView.h"
 #include "ITSMFTTracking/SurfaceGraph.h"
@@ -128,11 +128,11 @@ struct TimeFrame {
   const SurfacePlanBinding* getBinding(std::size_t iteration) const noexcept;
   const TrackingWorkspaceCapacity* getWorkspaceCapacity(std::size_t iteration) const noexcept;
 
-  // Detector-neutral common-CA results (see CommonTrack.h). Valid only with
-  // the current event measurements; CommonTrack has no NLayers dependency.
-  auto& getCommonTracks() { return mCommonTracks; }
-  const auto& getCommonTracks() const { return mCommonTracks; }
-  // Flat TrackClusterReference array. A CommonTrack's
+  // Detector-neutral common-CA results (see GenericTrack.h). Valid only with
+  // the current event measurements; GenericTrack has no NLayers dependency.
+  auto& getGenericTracks() { return mGenericTracks; }
+  const auto& getGenericTracks() const { return mGenericTracks; }
+  // Flat TrackClusterReference array. A GenericTrack's
   // [firstClusterRef, clusterRefEnd) range contains positions in inner-to-
   // outer traversal order. Each entry pairs a SurfaceId with an index local
   // to that surface's measurements, resolved by getGlobalMeasurement(); it is
@@ -161,7 +161,7 @@ struct TimeFrame {
   bounded_vector<VertexLabel> mPrimaryVerticesLabels;
 
   // Common-CA results, valid only with normalized content from the same event.
-  bounded_vector<CommonTrack> mCommonTracks;
+  bounded_vector<GenericTrack> mGenericTracks;
   bounded_vector<TrackClusterReference> mTrackClusterIndices;
 
   std::vector<std::vector<GlobalMeasurement>> mPerSurfaceGlobalMeasurements;

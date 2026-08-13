@@ -17,14 +17,14 @@
 #include "ITSMFTTracking/detail/ITSSharedClusterCompatibility.h"
 #include "ITSMFTTracking/detail/MFTPublicationCompatibility.h"
 #include "ITSMFTTracking/detail/SurfaceTrackingScratch.h"
-#include "ITSMFTTracking/CommonTrack.h"
+#include "ITSMFTTracking/GenericTrack.h"
 #include "ITStracking/MathUtils.h"
 #include "MFTTracking/Constants.h"
 
 namespace o2::itsmft::tracking
 {
 
-// The generic tracker publishes CommonTrack results. This adapter owns only
+// The generic tracker publishes GenericTrack results. This adapter owns only
 // detector compatibility sidecars; typed accepted-track vectors stay outside.
 template <int NLayers>
 class DetectorPublicationAdapter
@@ -83,10 +83,10 @@ class DetectorPublicationAdapter<ITSNLayers>
   {
     uint32_t maxIndex = 0;
     for (const auto& candidate : candidates) {
-      if (candidate.commonTrackIndex == std::numeric_limits<uint32_t>::max()) {
+      if (candidate.genericTrackIndex == std::numeric_limits<uint32_t>::max()) {
         return false;
       }
-      maxIndex = std::max(maxIndex, candidate.commonTrackIndex);
+      maxIndex = std::max(maxIndex, candidate.genericTrackIndex);
     }
     if (mSharedClusterFlags.size() <= maxIndex) {
       mSharedClusterFlags.resize(static_cast<size_t>(maxIndex) + 1, 0);
@@ -119,8 +119,8 @@ class DetectorPublicationAdapter<ITSNLayers>
         if (params.SharedClusterOppositeSign && firstCandidate.charge == secondCandidate.charge) {
           continue;
         }
-        mSharedClusterFlags[firstCandidate.commonTrackIndex] = 1;
-        mSharedClusterFlags[secondCandidate.commonTrackIndex] = 1;
+        mSharedClusterFlags[firstCandidate.genericTrackIndex] = 1;
+        mSharedClusterFlags[secondCandidate.genericTrackIndex] = 1;
       }
     }
     return true;

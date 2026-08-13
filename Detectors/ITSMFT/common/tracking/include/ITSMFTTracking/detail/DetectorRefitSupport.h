@@ -10,8 +10,8 @@
 #include <cmath>
 
 #include "DataFormatsCalibration/MeanVertexObject.h"
-#include "ITSMFTTracking/CommonTrack.h"
-#include "ITSMFTTracking/NativeRefitDriver.h"
+#include "ITSMFTTracking/GenericTrack.h"
+#include "ITSMFTTracking/RefitDriver.h"
 #include "ITSMFTTracking/TimeFrame.h"
 #include "ITSMFTTracking/detail/SurfaceTrackingScratch.h"
 #include "ITStracking/Constants.h"

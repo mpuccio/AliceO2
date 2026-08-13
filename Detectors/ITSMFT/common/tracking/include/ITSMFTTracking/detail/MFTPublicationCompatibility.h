@@ -37,10 +37,10 @@ inline std::optional<uint16_t> toMFTSeedPattern(uint32_t positionalMask, uint16_
   return static_cast<uint16_t>(shifted);
 }
 
-// MFT output-compatibility sidecar kept outside CommonTrack and TimeFrame.
-// Indices address the shared CommonTrack collection, not an MFT-local slot.
+// MFT output-compatibility sidecar kept outside GenericTrack and TimeFrame.
+// Indices address the shared GenericTrack collection, not an MFT-local slot.
 struct MFTPublicationCompatibilityEntry {
-  uint32_t commonTrackIndex{};
+  uint32_t genericTrackIndex{};
   double invQPtSeed{};
   double chi2QPtSeed{};
   float outParamChi2{};
@@ -62,7 +62,7 @@ class MFTPublicationCompatibility
     uint32_t previous = 0;
     bool havePrevious = false;
     for (const auto& result : results) {
-      const auto index = result.commonTrackIndex;
+      const auto index = result.genericTrackIndex;
       if ((havePrevious && previous >= index) || index == std::numeric_limits<uint32_t>::max()) {
         return false;
       }
@@ -85,14 +85,14 @@ class MFTPublicationCompatibility
     return true;
   }
 
-  const MFTPublicationCompatibilityEntry* find(uint32_t commonTrackIndex, size_t commonTrackCount) const noexcept
+  const MFTPublicationCompatibilityEntry* find(uint32_t genericTrackIndex, size_t commonTrackCount) const noexcept
   {
-    if (commonTrackIndex >= commonTrackCount) {
+    if (genericTrackIndex >= commonTrackCount) {
       return nullptr;
     }
-    const auto it = std::lower_bound(mEntries.begin(), mEntries.end(), commonTrackIndex,
-                                     [](const auto& entry, uint32_t index) { return entry.commonTrackIndex < index; });
-    return it != mEntries.end() && it->commonTrackIndex == commonTrackIndex ? &*it : nullptr;
+    const auto it = std::lower_bound(mEntries.begin(), mEntries.end(), genericTrackIndex,
+                                     [](const auto& entry, uint32_t index) { return entry.genericTrackIndex < index; });
+    return it != mEntries.end() && it->genericTrackIndex == genericTrackIndex ? &*it : nullptr;
   }
 
  private:
@@ -111,17 +111,17 @@ class MFTPublicationCompatibilityTransaction
   {
   }
 
-  bool validate(uint32_t commonTrackIndex) noexcept
+  bool validate(uint32_t genericTrackIndex) noexcept
   {
-    mEntry.commonTrackIndex = commonTrackIndex;
-    return mSidecar.mEntries.empty() || mSidecar.mEntries.back().commonTrackIndex < commonTrackIndex;
+    mEntry.genericTrackIndex = genericTrackIndex;
+    return mSidecar.mEntries.empty() || mSidecar.mEntries.back().genericTrackIndex < genericTrackIndex;
   }
 
   void reserve() { mSidecar.mEntries.reserve(mOldSize + 1); }
-  void append(uint32_t commonTrackIndex)
+  void append(uint32_t genericTrackIndex)
   {
-    if (commonTrackIndex != mEntry.commonTrackIndex ||
-        (!mSidecar.mEntries.empty() && mSidecar.mEntries.back().commonTrackIndex >= commonTrackIndex)) {
+    if (genericTrackIndex != mEntry.genericTrackIndex ||
+        (!mSidecar.mEntries.empty() && mSidecar.mEntries.back().genericTrackIndex >= genericTrackIndex)) {
       throw std::logic_error{"invalid MFT publication compatibility index"};
     }
     mSidecar.mEntries.push_back(mEntry);

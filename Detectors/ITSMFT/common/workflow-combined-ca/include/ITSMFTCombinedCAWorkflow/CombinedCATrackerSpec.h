@@ -7,8 +7,8 @@
 ///
 /// \file CombinedCATrackerSpec.h
 /// \brief Combined ITS+MFT common-CA tracker DPL device. It consumes both
-///        detector input sets and publishes their CommonTrack output streams
-///        through CommonTrackOutputAdapter.h.
+///        detector input sets and publishes their GenericTrack output streams
+///        through GenericTrackOutputAdapter.h.
 ///
 /// This DPL task owns one TimeFrame, one Tracker, their application
 /// configuration, and the detector-specific publication context. trackFrame()
@@ -31,7 +31,7 @@
 #include "Framework/DataProcessorSpec.h"
 #include "Framework/Task.h"
 #include "ITSMFTTracking/ClusterDecoding.h"
-#include "ITSMFTTracking/CommonTrackOutputAdapter.h"
+#include "ITSMFTTracking/GenericTrackOutputAdapter.h"
 #include "ITSMFTTracking/detail/DetectorPublicationAdapter.h"
 #include "ITSMFTTracking/Configuration.h"
 #include "ITSMFTTracking/IOUtils.h"
@@ -85,8 +85,8 @@ class CombinedCATrackerDPL : public o2::framework::Task
   void clearPublicationSidecars() noexcept;
   void invalidatePublication() noexcept;
   void markPublicationValid() noexcept;
-  std::optional<o2::itsmft::tracking::CommonTrackPublicationExport> getITSPublicationExport() const;
-  std::optional<o2::itsmft::tracking::CommonTrackPublicationExport> getMFTPublicationExport() const;
+  std::optional<o2::itsmft::tracking::GenericTrackPublicationExport> getITSPublicationExport() const;
+  std::optional<o2::itsmft::tracking::GenericTrackPublicationExport> getMFTPublicationExport() const;
 
   const o2::itsmft::tracking::SurfaceTrackingScratch& getITSScratch() const noexcept { return mFrame.getWorkspace(); }
   const o2::itsmft::tracking::SurfaceTrackingScratch& getMFTScratch() const noexcept { return mFrame.getWorkspace(); }

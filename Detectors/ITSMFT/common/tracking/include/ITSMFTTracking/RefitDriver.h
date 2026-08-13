@@ -5,8 +5,8 @@
 // This software is distributed under the terms of the GNU General Public
 // License v3 (GPL Version 3), copied verbatim in the file "COPYING".
 
-#ifndef ALICEO2_ITSMFT_TRACKING_NATIVEREFITDRIVER_H_
-#define ALICEO2_ITSMFT_TRACKING_NATIVEREFITDRIVER_H_
+#ifndef ALICEO2_ITSMFT_TRACKING_REFITDRIVER_H_
+#define ALICEO2_ITSMFT_TRACKING_REFITDRIVER_H_
 
 #include "GPUCommonDef.h"
 
@@ -275,4 +275,4 @@ inline bool fitTrackSeedLegs(
 
 #endif // GPUCA_GPUCODE
 
-#endif /* ALICEO2_ITSMFT_TRACKING_NATIVEREFITDRIVER_H_ */
+#endif /* ALICEO2_ITSMFT_TRACKING_REFITDRIVER_H_ */

@@ -22,7 +22,7 @@
 #include "Framework/Logger.h"
 #include "ITSBase/GeometryTGeo.h"
 #include "ITSMFTCombinedCAWorkflow/ConfigPreflight.h"
-#include "ITSMFTTracking/CommonTrackOutputAdapter.h"
+#include "ITSMFTTracking/GenericTrackOutputAdapter.h"
 #include "ITSMFTTracking/detail/DetectorRefitSupport.h"
 #include "ITSMFTTracking/SurfaceGraphBuilder.h"
 #include "ITSMFTTracking/IOUtils.h"
@@ -355,22 +355,22 @@ void CombinedCATrackerDPL::markPublicationValid() noexcept
   mPublicationValid = true;
 }
 
-std::optional<o2::itsmft::tracking::CommonTrackPublicationExport> CombinedCATrackerDPL::getITSPublicationExport() const
+std::optional<o2::itsmft::tracking::GenericTrackPublicationExport> CombinedCATrackerDPL::getITSPublicationExport() const
 {
   if (!mPublicationValid || !mITSClock) {
     return std::nullopt;
   }
-  return o2::itsmft::tracking::CommonTrackPublicationExport{o2::detectors::DetID::ITS, ClusterSourceId{0}, *mITSClock,
-                                                            getITSOrderedSurfaces()};
+  return o2::itsmft::tracking::GenericTrackPublicationExport{o2::detectors::DetID::ITS, ClusterSourceId{0}, *mITSClock,
+                                                             getITSOrderedSurfaces()};
 }
 
-std::optional<o2::itsmft::tracking::CommonTrackPublicationExport> CombinedCATrackerDPL::getMFTPublicationExport() const
+std::optional<o2::itsmft::tracking::GenericTrackPublicationExport> CombinedCATrackerDPL::getMFTPublicationExport() const
 {
   if (!mPublicationValid || !mMFTClock) {
     return std::nullopt;
   }
-  return o2::itsmft::tracking::CommonTrackPublicationExport{o2::detectors::DetID::MFT, ClusterSourceId{1}, *mMFTClock,
-                                                            getMFTOrderedSurfaces()};
+  return o2::itsmft::tracking::GenericTrackPublicationExport{o2::detectors::DetID::MFT, ClusterSourceId{1}, *mMFTClock,
+                                                             getMFTOrderedSurfaces()};
 }
 
 TrackingOutcome CombinedCATrackerDPL::trackFrame(const ClusterSourceInput& itsSource, const ClusterSourceInput& mftSource,
@@ -532,22 +532,22 @@ void CombinedCATrackerDPL::run(ProcessingContext& pc)
     const auto itsExport = getITSPublicationExport();
     const auto mftExport = getMFTPublicationExport();
     if (!itsExport || !mftExport) {
-      throw std::runtime_error{"Combined ITS+MFT CommonTrack output publication context is unavailable after a successful trackFrame()"};
+      throw std::runtime_error{"Combined ITS+MFT GenericTrack output publication context is unavailable after a successful trackFrame()"};
     }
-    const o2::itsmft::tracking::CommonTrackPublicationContext itsContext{
+    const o2::itsmft::tracking::GenericTrackPublicationContext itsContext{
       itsExport->detector, itsExport->source, itsRofs, itsExport->clock, itsExport->orderedSurfaces};
-    const o2::itsmft::tracking::CommonTrackPublicationContext mftContext{
+    const o2::itsmft::tracking::GenericTrackPublicationContext mftContext{
       mftExport->detector, mftExport->source, mftRofs, mftExport->clock, mftExport->orderedSurfaces};
 
     // Stage both outputs before requesting either output stream.
-    o2::itsmft::tracking::CommonTrackOutputAdapterError itsError = o2::itsmft::tracking::CommonTrackOutputAdapterError::None;
-    const auto stagedITS = o2::itsmft::tracking::stageITSCommonTrackOutput(
+    o2::itsmft::tracking::GenericTrackOutputAdapterError itsError = o2::itsmft::tracking::GenericTrackOutputAdapterError::None;
+    const auto stagedITS = o2::itsmft::tracking::stageITSGenericTrackOutput(
       mFrame, itsContext, getITSSharedClusterCompatibility(), mUseMC, itsError);
-    o2::itsmft::tracking::CommonTrackOutputAdapterError mftError = o2::itsmft::tracking::CommonTrackOutputAdapterError::None;
-    const auto stagedMFT = o2::itsmft::tracking::stageMFTCommonTrackOutput(
+    o2::itsmft::tracking::GenericTrackOutputAdapterError mftError = o2::itsmft::tracking::GenericTrackOutputAdapterError::None;
+    const auto stagedMFT = o2::itsmft::tracking::stageMFTGenericTrackOutput(
       mFrame, mftContext, getMFTPublicationCompatibility(), mUseMC, mftError);
     if (!stagedITS || !stagedMFT) {
-      throw std::runtime_error{"Combined ITS+MFT CommonTrack output staging failed"};
+      throw std::runtime_error{"Combined ITS+MFT GenericTrack output staging failed"};
     }
 
     auto& itsTrackROFs = pc.outputs().make<std::vector<o2::itsmft::ROFRecord>>(Output{"ITS", "ITSTrackROF", 0},

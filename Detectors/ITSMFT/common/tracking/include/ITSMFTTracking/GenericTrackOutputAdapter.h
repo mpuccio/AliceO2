@@ -1,8 +1,8 @@
 // Copyright 2019-2026 CERN and copyright holders of ALICE O2.
 // See https://alice-o2.web.cern.ch/copyright for details of the copyright holders.
 
-#ifndef ALICEO2_ITSMFT_TRACKING_COMMONTRACKOUTPUTADAPTER_H_
-#define ALICEO2_ITSMFT_TRACKING_COMMONTRACKOUTPUTADAPTER_H_
+#ifndef ALICEO2_ITSMFT_TRACKING_GENERICTRACKOUTPUTADAPTER_H_
+#define ALICEO2_ITSMFT_TRACKING_GENERICTRACKOUTPUTADAPTER_H_
 
 // Pure host-side boundary for DPL adapters. It consumes immutable owner data
 // plus workflow-owned ROF context and returns fully staged vectors.
@@ -40,7 +40,7 @@ class ClockTimingPublicationView
  public:
   explicit ClockTimingPublicationView(const o2::its::LayerTiming& clock) : mClock{clock} {}
 
-  std::optional<o2::its::TimeEstBC> makeTimeEstBC(const CommonTrackTimestamp& timestamp) const noexcept
+  std::optional<o2::its::TimeEstBC> makeTimeEstBC(const GenericTrackTimestamp& timestamp) const noexcept
   {
     if (!timestamp.isValid() || timestamp.begin < 0 || timestamp.end < 0 ||
         timestamp.begin > std::numeric_limits<uint32_t>::max() || timestamp.end > std::numeric_limits<uint32_t>::max()) {
@@ -53,7 +53,7 @@ class ClockTimingPublicationView
     return o2::its::TimeEstBC{static_cast<uint32_t>(timestamp.begin), static_cast<uint16_t>(width)};
   }
 
-  std::optional<o2::its::TimeStamp> makeOutputTimestamp(const CommonTrackTimestamp& timestamp) const noexcept
+  std::optional<o2::its::TimeStamp> makeOutputTimestamp(const GenericTrackTimestamp& timestamp) const noexcept
   {
     const auto asymmetric = makeTimeEstBC(timestamp);
     if (!asymmetric) {
@@ -77,9 +77,9 @@ class ClockTimingPublicationView
 
 #endif // !GPUCA_GPUCODE
 
-enum class CommonTrackOutputAdapterError : uint8_t {
+enum class GenericTrackOutputAdapterError : uint8_t {
   None,
-  TooManyCommonTracks,
+  TooManyGenericTracks,
   InvalidTrackRange,
   UnresolvedReference,
   MixedDetector,
@@ -92,30 +92,30 @@ enum class CommonTrackOutputAdapterError : uint8_t {
   MissingCompatibility
 };
 
-struct CommonTrackOutputAdapterSelection {
+struct GenericTrackOutputAdapterSelection {
   std::vector<uint32_t> globalIndices;
 };
 
-struct CommonTrackOutputOrderEntry {
+struct GenericTrackOutputOrderEntry {
   uint32_t globalIndex{};
   o2::its::TimeStamp timestamp{};
 };
 
 // This context is intentionally source-local.  ROFRecord payload is copied
 // only into the returned publication product, never into TimeFrame.
-struct CommonTrackOutputTimingContext {
+struct GenericTrackOutputTimingContext {
   gsl::span<const o2::itsmft::ROFRecord> inputROFs;
   ClockTimingPublicationView clock;
 };
 
-struct CommonTrackPublicationExport {
+struct GenericTrackPublicationExport {
   o2::detectors::DetID::ID detector{};
   ClusterSourceId source{};
   ClockTimingPublicationView clock;
   gsl::span<const SurfaceId> orderedSurfaces;
 };
 
-struct CommonTrackPublicationContext {
+struct GenericTrackPublicationContext {
   o2::detectors::DetID::ID detector{};
   ClusterSourceId source{};
   gsl::span<const o2::itsmft::ROFRecord> inputROFs;
@@ -123,14 +123,14 @@ struct CommonTrackPublicationContext {
   gsl::span<const SurfaceId> orderedSurfaces;
 };
 
-struct ITSCommonTrackOutput {
+struct ITSGenericTrackOutput {
   std::vector<o2::its::TrackITS> tracks;
   std::vector<int> clusterIndices;
   std::vector<o2::itsmft::ROFRecord> trackROFs;
   std::vector<o2::MCCompLabel> labels;
 };
 
-struct MFTCommonTrackOutput {
+struct MFTGenericTrackOutput {
   std::vector<o2::mft::TrackMFT> tracks;
   std::vector<int> clusterIndices;
   std::vector<o2::itsmft::ROFRecord> trackROFs;
@@ -138,23 +138,23 @@ struct MFTCommonTrackOutput {
   std::vector<o2::MCCompLabel> labels;
 };
 
-inline std::optional<CommonTrackOutputAdapterSelection> selectCommonTracksForSource(
+inline std::optional<GenericTrackOutputAdapterSelection> selectGenericTracksForSource(
   const TimeFrame& frame, o2::detectors::DetID::ID detector, ClusterSourceId source,
-  CommonTrackOutputAdapterError& error)
+  GenericTrackOutputAdapterError& error)
 {
-  error = CommonTrackOutputAdapterError::None;
-  const auto& tracks = frame.getCommonTracks();
+  error = GenericTrackOutputAdapterError::None;
+  const auto& tracks = frame.getGenericTracks();
   if (tracks.size() > std::numeric_limits<uint32_t>::max()) {
-    error = CommonTrackOutputAdapterError::TooManyCommonTracks;
+    error = GenericTrackOutputAdapterError::TooManyGenericTracks;
     return std::nullopt;
   }
-  CommonTrackOutputAdapterSelection selection;
+  GenericTrackOutputAdapterSelection selection;
   const auto& references = frame.getTrackClusterIndices();
   selection.globalIndices.reserve(tracks.size());
   for (uint32_t globalIndex = 0; globalIndex < tracks.size(); ++globalIndex) {
     const auto& track = tracks[globalIndex];
     if (!isValidTrackRange(track, static_cast<uint32_t>(references.size()))) {
-      error = CommonTrackOutputAdapterError::InvalidTrackRange;
+      error = GenericTrackOutputAdapterError::InvalidTrackRange;
       return std::nullopt;
     }
     bool requested = false;
@@ -163,19 +163,19 @@ inline std::optional<CommonTrackOutputAdapterSelection> selectCommonTracksForSou
       const auto& reference = references[i];
       const auto* measurement = frame.getGlobalMeasurement(reference.surface, reference.index);
       if (measurement == nullptr || measurement->surface != reference.surface) {
-        error = CommonTrackOutputAdapterError::UnresolvedReference;
+        error = GenericTrackOutputAdapterError::UnresolvedReference;
         return std::nullopt;
       }
       const bool match = measurement->sensor.detector == static_cast<uint32_t>(detector) && measurement->cluster.source == source;
       requested |= match;
       foreign |= !match;
       if (measurement->cluster.index > static_cast<uint32_t>(std::numeric_limits<int>::max())) {
-        error = CommonTrackOutputAdapterError::InvalidExternalClusterIndex;
+        error = GenericTrackOutputAdapterError::InvalidExternalClusterIndex;
         return std::nullopt;
       }
     }
     if (requested && foreign) {
-      error = CommonTrackOutputAdapterError::MixedDetector;
+      error = GenericTrackOutputAdapterError::MixedDetector;
       return std::nullopt;
     }
     if (requested) {
@@ -185,26 +185,26 @@ inline std::optional<CommonTrackOutputAdapterSelection> selectCommonTracksForSou
   return selection;
 }
 
-inline std::optional<o2::its::TimeStamp> makeOutputTimestamp(const CommonTrackTimestamp& timestamp,
+inline std::optional<o2::its::TimeStamp> makeOutputTimestamp(const GenericTrackTimestamp& timestamp,
                                                              const ClockTimingPublicationView& clock,
-                                                             CommonTrackOutputAdapterError& error)
+                                                             GenericTrackOutputAdapterError& error)
 {
   const auto result = clock.makeOutputTimestamp(timestamp);
   if (!result) {
-    error = CommonTrackOutputAdapterError::InvalidTimestamp;
+    error = GenericTrackOutputAdapterError::InvalidTimestamp;
     return std::nullopt;
   }
   return result;
 }
 
-inline std::optional<std::vector<CommonTrackOutputOrderEntry>> makeLegacyOutputOrder(
-  const TimeFrame& frame, const CommonTrackOutputAdapterSelection& selection,
-  const ClockTimingPublicationView& clock, CommonTrackOutputAdapterError& error)
+inline std::optional<std::vector<GenericTrackOutputOrderEntry>> makeLegacyOutputOrder(
+  const TimeFrame& frame, const GenericTrackOutputAdapterSelection& selection,
+  const ClockTimingPublicationView& clock, GenericTrackOutputAdapterError& error)
 {
-  std::vector<CommonTrackOutputOrderEntry> ordered;
+  std::vector<GenericTrackOutputOrderEntry> ordered;
   ordered.reserve(selection.globalIndices.size());
   for (const auto index : selection.globalIndices) {
-    const auto timestamp = makeOutputTimestamp(frame.getCommonTracks()[index].timestamp, clock, error);
+    const auto timestamp = makeOutputTimestamp(frame.getGenericTracks()[index].timestamp, clock, error);
     if (!timestamp) {
       return std::nullopt;
     }
@@ -212,8 +212,8 @@ inline std::optional<std::vector<CommonTrackOutputOrderEntry>> makeLegacyOutputO
   }
   // Match Tracker::sortTracks(): lower timestamp edge, then chi2.
   std::sort(ordered.begin(), ordered.end(), [&frame](const auto& left, const auto& right) {
-    const auto& leftTrack = frame.getCommonTracks()[left.globalIndex];
-    const auto& rightTrack = frame.getCommonTracks()[right.globalIndex];
+    const auto& leftTrack = frame.getGenericTracks()[left.globalIndex];
+    const auto& rightTrack = frame.getGenericTracks()[right.globalIndex];
     const auto leftLower = left.timestamp.getTimeStamp() - left.timestamp.getTimeStampError();
     const auto rightLower = right.timestamp.getTimeStamp() - right.timestamp.getTimeStampError();
     if (leftLower != rightLower) {
@@ -225,7 +225,7 @@ inline std::optional<std::vector<CommonTrackOutputOrderEntry>> makeLegacyOutputO
 }
 
 inline bool finalizeROFs(std::vector<o2::itsmft::ROFRecord>& rofs, const std::vector<o2::its::TimeStamp>& times,
-                         const CommonTrackOutputTimingContext& context, CommonTrackOutputAdapterError& error)
+                         const GenericTrackOutputTimingContext& context, GenericTrackOutputAdapterError& error)
 {
   for (auto& rof : rofs) {
     rof.setFirstEntry(0);
@@ -262,9 +262,9 @@ inline void setOutputClusterRange(o2::mft::TrackMFT& track, int first, int count
 }
 
 template <typename OutputTrack>
-inline bool collectReferences(const TimeFrame& frame, const CommonTrack& common, gsl::span<const SurfaceId> orderedSurfaces,
+inline bool collectReferences(const TimeFrame& frame, const GenericTrack& common, gsl::span<const SurfaceId> orderedSurfaces,
                               uint32_t maxLayers, std::vector<int>& outputIndices, OutputTrack& output,
-                              MCLabelAccumulator* labels, uint32_t& pattern, CommonTrackOutputAdapterError& error)
+                              MCLabelAccumulator* labels, uint32_t& pattern, GenericTrackOutputAdapterError& error)
 {
   const auto& references = frame.getTrackClusterIndices();
   std::vector<const GlobalMeasurement*> byLayer(maxLayers, nullptr);
@@ -272,17 +272,17 @@ inline bool collectReferences(const TimeFrame& frame, const CommonTrack& common,
     const auto& key = references[ref];
     const auto* measurement = frame.getGlobalMeasurement(key.surface, key.index);
     if (measurement == nullptr) {
-      error = CommonTrackOutputAdapterError::UnresolvedReference;
+      error = GenericTrackOutputAdapterError::UnresolvedReference;
       return false;
     }
     const auto where = std::find(orderedSurfaces.begin(), orderedSurfaces.end(), key.surface);
     if (where == orderedSurfaces.end() || static_cast<uint32_t>(where - orderedSurfaces.begin()) >= maxLayers) {
-      error = CommonTrackOutputAdapterError::InvalidLayerLayout;
+      error = GenericTrackOutputAdapterError::InvalidLayerLayout;
       return false;
     }
     const auto layer = static_cast<uint32_t>(where - orderedSurfaces.begin());
     if (byLayer[layer] != nullptr) {
-      error = CommonTrackOutputAdapterError::InvalidLayerLayout;
+      error = GenericTrackOutputAdapterError::InvalidLayerLayout;
       return false;
     }
     byLayer[layer] = measurement;
@@ -310,23 +310,23 @@ inline bool collectReferences(const TimeFrame& frame, const CommonTrack& common,
   return true;
 }
 
-inline std::optional<ITSCommonTrackOutput> stageITSCommonTrackOutput(const TimeFrame& frame, ClusterSourceId source,
+inline std::optional<ITSGenericTrackOutput> stageITSGenericTrackOutput(const TimeFrame& frame, ClusterSourceId source,
                                                                      gsl::span<const SurfaceId> surfaces,
-                                                                     const CommonTrackOutputTimingContext& context,
+                                                                     const GenericTrackOutputTimingContext& context,
                                                                      const ITSSharedClusterCompatibility& compatibility,
-                                                                     bool withMC, CommonTrackOutputAdapterError& error)
+                                                                     bool withMC, GenericTrackOutputAdapterError& error)
 {
-  const auto selection = selectCommonTracksForSource(frame, o2::detectors::DetID::ITS, source, error);
+  const auto selection = selectGenericTracksForSource(frame, o2::detectors::DetID::ITS, source, error);
   if (!selection || (!selection->globalIndices.empty() && !compatibility.isSealed())) {
-    if (error == CommonTrackOutputAdapterError::None)
-      error = CommonTrackOutputAdapterError::MissingCompatibility;
+    if (error == GenericTrackOutputAdapterError::None)
+      error = GenericTrackOutputAdapterError::MissingCompatibility;
     return std::nullopt;
   }
   const auto ordered = makeLegacyOutputOrder(frame, *selection, context.clock, error);
   if (!ordered) {
     return std::nullopt;
   }
-  ITSCommonTrackOutput staged;
+  ITSGenericTrackOutput staged;
   staged.trackROFs.assign(context.inputROFs.begin(), context.inputROFs.end());
   staged.tracks.reserve(ordered->size());
   staged.labels.reserve(withMC ? ordered->size() : 0);
@@ -335,15 +335,15 @@ inline std::optional<ITSCommonTrackOutput> stageITSCommonTrackOutput(const TimeF
   for (const auto& orderedTrack : *ordered) {
     const auto index = orderedTrack.globalIndex;
     o2::track::TrackParCovF inner, outer;
-    const auto& common = frame.getCommonTracks()[index];
+    const auto& common = frame.getGenericTracks()[index];
     if (!legacy::exportBarrelTrackParCov(common.innerState, inner) || !legacy::exportBarrelTrackParCov(common.outerState, outer)) {
-      error = CommonTrackOutputAdapterError::InvalidState;
+      error = GenericTrackOutputAdapterError::InvalidState;
       return std::nullopt;
     }
     const auto it = std::lower_bound(compatibility.entries().begin(), compatibility.entries().end(), index,
-                                     [](const auto& entry, uint32_t value) { return entry.commonTrackIndex < value; });
-    if (it == compatibility.entries().end() || it->commonTrackIndex != index) {
-      error = CommonTrackOutputAdapterError::MissingCompatibility;
+                                     [](const auto& entry, uint32_t value) { return entry.genericTrackIndex < value; });
+    if (it == compatibility.entries().end() || it->genericTrackIndex != index) {
+      error = GenericTrackOutputAdapterError::MissingCompatibility;
       return std::nullopt;
     }
     o2::its::TrackITS output{inner, common.chi2, outer};
@@ -364,20 +364,20 @@ inline std::optional<ITSCommonTrackOutput> stageITSCommonTrackOutput(const TimeF
   return staged;
 }
 
-inline std::optional<MFTCommonTrackOutput> stageMFTCommonTrackOutput(const TimeFrame& frame, ClusterSourceId source,
+inline std::optional<MFTGenericTrackOutput> stageMFTGenericTrackOutput(const TimeFrame& frame, ClusterSourceId source,
                                                                      gsl::span<const SurfaceId> surfaces,
-                                                                     const CommonTrackOutputTimingContext& context,
+                                                                     const GenericTrackOutputTimingContext& context,
                                                                      const MFTPublicationCompatibility& compatibility,
-                                                                     bool withMC, CommonTrackOutputAdapterError& error)
+                                                                     bool withMC, GenericTrackOutputAdapterError& error)
 {
-  const auto selection = selectCommonTracksForSource(frame, o2::detectors::DetID::MFT, source, error);
+  const auto selection = selectGenericTracksForSource(frame, o2::detectors::DetID::MFT, source, error);
   if (!selection)
     return std::nullopt;
   const auto ordered = makeLegacyOutputOrder(frame, *selection, context.clock, error);
   if (!ordered) {
     return std::nullopt;
   }
-  MFTCommonTrackOutput staged;
+  MFTGenericTrackOutput staged;
   staged.trackROFs.assign(context.inputROFs.begin(), context.inputROFs.end());
   staged.tracks.reserve(ordered->size());
   staged.seedPatterns.reserve(ordered->size());
@@ -385,15 +385,15 @@ inline std::optional<MFTCommonTrackOutput> stageMFTCommonTrackOutput(const TimeF
   times.reserve(ordered->size());
   for (const auto& orderedTrack : *ordered) {
     const auto index = orderedTrack.globalIndex;
-    const auto& common = frame.getCommonTracks()[index];
-    const auto* sidecar = compatibility.find(index, frame.getCommonTracks().size());
+    const auto& common = frame.getGenericTracks()[index];
+    const auto* sidecar = compatibility.find(index, frame.getGenericTracks().size());
     if (sidecar == nullptr) {
-      error = CommonTrackOutputAdapterError::MissingCompatibility;
+      error = GenericTrackOutputAdapterError::MissingCompatibility;
       return std::nullopt;
     }
     o2::track::TrackParCovFwd inner, outer;
     if (!legacy::exportLegacyForwardTrackParCov(common.innerState, inner) || !legacy::exportLegacyForwardTrackParCov(common.outerState, outer)) {
-      error = CommonTrackOutputAdapterError::InvalidState;
+      error = GenericTrackOutputAdapterError::InvalidState;
       return std::nullopt;
     }
     // TrackMFT persists the fitted chi2 in both state objects.
@@ -420,28 +420,28 @@ inline std::optional<MFTCommonTrackOutput> stageMFTCommonTrackOutput(const TimeF
   return staged;
 }
 
-inline std::optional<ITSCommonTrackOutput> stageITSCommonTrackOutput(const TimeFrame& frame, const CommonTrackPublicationContext& context,
+inline std::optional<ITSGenericTrackOutput> stageITSGenericTrackOutput(const TimeFrame& frame, const GenericTrackPublicationContext& context,
                                                                      const ITSSharedClusterCompatibility& compatibility, bool withMC,
-                                                                     CommonTrackOutputAdapterError& error)
+                                                                     GenericTrackOutputAdapterError& error)
 {
   if (context.detector != o2::detectors::DetID::ITS) {
-    error = CommonTrackOutputAdapterError::MixedDetector;
+    error = GenericTrackOutputAdapterError::MixedDetector;
     return std::nullopt;
   }
-  return stageITSCommonTrackOutput(frame, context.source, context.orderedSurfaces, {context.inputROFs, context.clock}, compatibility, withMC, error);
+  return stageITSGenericTrackOutput(frame, context.source, context.orderedSurfaces, {context.inputROFs, context.clock}, compatibility, withMC, error);
 }
 
-inline std::optional<MFTCommonTrackOutput> stageMFTCommonTrackOutput(const TimeFrame& frame, const CommonTrackPublicationContext& context,
+inline std::optional<MFTGenericTrackOutput> stageMFTGenericTrackOutput(const TimeFrame& frame, const GenericTrackPublicationContext& context,
                                                                      const MFTPublicationCompatibility& compatibility, bool withMC,
-                                                                     CommonTrackOutputAdapterError& error)
+                                                                     GenericTrackOutputAdapterError& error)
 {
   if (context.detector != o2::detectors::DetID::MFT) {
-    error = CommonTrackOutputAdapterError::MixedDetector;
+    error = GenericTrackOutputAdapterError::MixedDetector;
     return std::nullopt;
   }
-  return stageMFTCommonTrackOutput(frame, context.source, context.orderedSurfaces, {context.inputROFs, context.clock}, compatibility, withMC, error);
+  return stageMFTGenericTrackOutput(frame, context.source, context.orderedSurfaces, {context.inputROFs, context.clock}, compatibility, withMC, error);
 }
 
 } // namespace o2::itsmft::tracking
 
-#endif // ALICEO2_ITSMFT_TRACKING_COMMONTRACKOUTPUTADAPTER_H_
+#endif // ALICEO2_ITSMFT_TRACKING_GENERICTRACKOUTPUTADAPTER_H_

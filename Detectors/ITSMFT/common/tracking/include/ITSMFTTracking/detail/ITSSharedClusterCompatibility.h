@@ -19,10 +19,10 @@ namespace o2::itsmft::tracking
 {
 
 // ITS output-compatibility sidecar. The pre-sort sequence maps accepted-track
-// slots to global CommonTrack indices; entries() exposes the sealed sparse
+// slots to global GenericTrack indices; entries() exposes the sealed sparse
 // sequence after the final serial markTracks() pass.
 struct ITSSharedClusterCompatibilityEntry {
-  uint32_t commonTrackIndex{};
+  uint32_t genericTrackIndex{};
   bool hasSharedClusters{};
 };
 
@@ -53,7 +53,7 @@ class ITSSharedClusterCompatibility
     uint32_t previous = 0;
     bool havePrevious = false;
     for (const auto& result : results) {
-      const auto index = result.commonTrackIndex;
+      const auto index = result.genericTrackIndex;
       if ((havePrevious && previous >= index) || index == std::numeric_limits<uint32_t>::max()) {
         return false;
       }
@@ -75,7 +75,7 @@ class ITSSharedClusterCompatibility
     uint32_t previous = 0;
     bool havePrevious = false;
     for (const auto& result : results) {
-      const auto index = result.commonTrackIndex;
+      const auto index = result.genericTrackIndex;
       if ((havePrevious && previous >= index) || index == std::numeric_limits<uint32_t>::max() || index >= sharedFlags.size()) {
         return false;
       }
@@ -129,7 +129,7 @@ class ITSSharedClusterCompatibility
   bool mSealed = false;
 };
 
-// Transactional association between a pre-sort accepted slot and CommonTrack.
+// Transactional association between a pre-sort accepted slot and GenericTrack.
 class ITSSharedClusterCompatibilityTransaction
 {
  public:
@@ -138,17 +138,17 @@ class ITSSharedClusterCompatibilityTransaction
   {
   }
 
-  bool validate(uint32_t commonTrackIndex) const noexcept
+  bool validate(uint32_t genericTrackIndex) const noexcept
   {
-    return !mSidecar.mSealed && (mSidecar.mPendingIndices.empty() || mSidecar.mPendingIndices.back() < commonTrackIndex);
+    return !mSidecar.mSealed && (mSidecar.mPendingIndices.empty() || mSidecar.mPendingIndices.back() < genericTrackIndex);
   }
   void reserve() { mSidecar.mPendingIndices.reserve(mOldSize + 1); }
-  void append(uint32_t commonTrackIndex)
+  void append(uint32_t genericTrackIndex)
   {
-    if (!validate(commonTrackIndex)) {
+    if (!validate(genericTrackIndex)) {
       throw std::logic_error{"invalid ITS shared-cluster compatibility index"};
     }
-    mSidecar.mPendingIndices.push_back(commonTrackIndex);
+    mSidecar.mPendingIndices.push_back(genericTrackIndex);
   }
   void rollback() noexcept { mSidecar.mPendingIndices.resize(mOldSize); }
 

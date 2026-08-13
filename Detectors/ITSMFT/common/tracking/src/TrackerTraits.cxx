@@ -70,11 +70,11 @@ constexpr std::size_t kindIndex(SurfaceKind kind) noexcept
   return kind == SurfaceKind::Cylinder ? 0u : 1u;
 }
 
-std::optional<uint32_t> appendCommonTrack(TimeFrame& frame,
-                                          const TrackingCandidate& candidate,
-                                          gsl::span<const gsl::span<const GlobalMeasurement>> layerMeasurements)
+std::optional<uint32_t> appendGenericTrack(TimeFrame& frame,
+                                           const TrackingCandidate& candidate,
+                                           gsl::span<const gsl::span<const GlobalMeasurement>> layerMeasurements)
 {
-  CommonTrack track = candidate.track;
+  GenericTrack track = candidate.track;
   track.hitSurfaces = {};
   std::vector<TrackClusterReference> resolvedReferences;
   resolvedReferences.reserve(layerMeasurements.size());
@@ -101,7 +101,7 @@ std::optional<uint32_t> appendCommonTrack(TimeFrame& frame,
     return std::nullopt;
   }
 
-  auto& tracks = frame.getCommonTracks();
+  auto& tracks = frame.getGenericTracks();
   auto& references = frame.getTrackClusterIndices();
   const auto oldTrackSize = tracks.size();
   const auto oldReferenceSize = references.size();
@@ -1325,7 +1325,7 @@ void TrackerTraits::processNeighbours(int iteration, int defaultCellTopologyId, 
           }
           // TrackSeed::SurfaceMask is the fixed-capacity compact plan
           // position space used by the CA acceptance/refit loops. Global
-          // SurfaceIds stay on normalized measurements and CommonTrack
+          // SurfaceIds stay on normalized measurements and GenericTrack
           // references; mixing them into this local mask would make a
           // combined sparse binding look like extra holes. The binding's
           // ordered position is already `neighbourLayer` here.
@@ -1602,7 +1602,7 @@ void TrackerTraits::acceptTracks(int iteration,
     const auto selectedTimestamp = nominalCompatible ? nominalTS : expandedTS;
     const auto selectedTimestampSymmetric = selectedTimestamp.makeSymmetrical();
     // This is the same sanity clamp as the legacy symmetric timestamp, but
-    // committed directly to the detector-neutral CommonTrack interval.
+    // committed directly to the detector-neutral GenericTrack interval.
     const float selectedTimestampError = std::min(selectedTimestampSymmetric.getTimeStampError(), smallestROFHalf);
     track.track.timestamp = {static_cast<TFBC>(selectedTimestampSymmetric.getTimeStamp() - selectedTimestampError),
                              static_cast<TFBC>(selectedTimestampSymmetric.getTimeStamp() + selectedTimestampError)};
@@ -1610,11 +1610,11 @@ void TrackerTraits::acceptTracks(int iteration,
 
     // acceptTracks() is the serial owner-thread publication boundary. Typed
     // sidecars are completed later by the application adapter.
-    const auto commonTrackIndex = appendCommonTrack(*mFrame, track, mLayerGlobalMeasurements);
-    if (!commonTrackIndex) {
-      LOGP(fatal, "CommonTrack publication failed for an accepted CA track");
+    const auto genericTrackIndex = appendGenericTrack(*mFrame, track, mLayerGlobalMeasurements);
+    if (!genericTrackIndex) {
+      LOGP(fatal, "GenericTrack publication failed for an accepted CA track");
     }
-    trks.back().commonTrackIndex = *commonTrackIndex;
+    trks.back().genericTrackIndex = *genericTrackIndex;
 
     if (mTrkParams[iteration].AllowSharingFirstCluster) {
       firstClusters[firstLayer].push_back(firstCluster);
