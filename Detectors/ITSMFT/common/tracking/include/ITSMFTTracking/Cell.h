@@ -44,62 +44,9 @@ struct CellClusterReference {
   int clusterIndex{o2::its::constants::UnusedIndex};
 };
 
-/// Shared Cell/TrackSeed metadata stores a named SurfaceKinematicState rather
-/// than inheriting a detector-selected track parametrization.
-template <int NClusters>
-class SeedMetadataBase
-{
- public:
-  GPUhd() LayerMask getHitLayerMask() const { return LayerMask{mHitLayerMask}; }
-  GPUhd() void setHitLayerMask(LayerMask mask) { mHitLayerMask = mask.value(); }
-  GPUhd() int getInnerLayer() const { return getHitLayerMask().first(); }
-  GPUhd() int getFirstTrackletIndex() const { return mTracklets[0]; };
-  GPUhd() void setFirstTrackletIndex(int trkl) { mTracklets[0] = trkl; };
-  GPUhd() int getSecondTrackletIndex() const { return mTracklets[1]; };
-  GPUhd() void setSecondTrackletIndex(int trkl) { mTracklets[1] = trkl; };
-  GPUhd() float getChi2() const { return mChi2; };
-  GPUhd() void setChi2(float chi2) { mChi2 = chi2; };
-  GPUhd() int getLevel() const { return mLevel; };
-  GPUhd() void setLevel(int level) { mLevel = level; };
-  GPUhd() int* getLevelPtr() { return &mLevel; }
-  GPUhd() auto& getTimeStamp() noexcept { return mTime; }
-  GPUhd() const auto& getTimeStamp() const noexcept { return mTime; }
-
-  GPUhd() SurfaceKinematicState& state() noexcept { return mState; }
-  GPUhd() const SurfaceKinematicState& state() const noexcept { return mState; }
-
-  /// Raw signed q/pT in slot 4 for cylinder and disk states; never squared.
-  GPUhd() float getQOverPt() const noexcept { return mState.parameters[4]; }
-
- protected:
-  GPUhdDefault() SeedMetadataBase() = default;
-  GPUhdDefault() SeedMetadataBase(const SeedMetadataBase&) = default;
-  GPUhdDefault() ~SeedMetadataBase() = default;
-  GPUhdDefault() SeedMetadataBase(SeedMetadataBase&&) = default;
-  GPUhdDefault() SeedMetadataBase& operator=(const SeedMetadataBase&) = default;
-  GPUhdDefault() SeedMetadataBase& operator=(SeedMetadataBase&&) = default;
-  GPUhd() SeedMetadataBase(const SurfaceKinematicState& state, float chi2, int level, const o2::its::TimeEstBC& time)
-    : mState(state), mChi2(chi2), mLevel(level), mTime(time)
-  {
-  }
-  GPUhd() auto& clustersRaw() { return mClusters; }
-  GPUhd() const auto& clustersRaw() const { return mClusters; }
-
- private:
-  SurfaceKinematicState mState{};
-  uint32_t mHitLayerMask{0};
-  float mChi2{o2::its::constants::UnsetValue};
-  int mLevel{o2::its::constants::UnusedIndex};
-  std::array<int, 2> mTracklets = o2::its::constants::helpers::initArray<int, 2, o2::its::constants::UnusedIndex>();
-  std::array<int, NClusters> mClusters = o2::its::constants::helpers::initArray<int, NClusters, o2::its::constants::UnusedIndex>();
-  o2::its::TimeEstBC mTime;
-};
-
 /// Common non-`SurfaceKind`-templated CA cell representation.
-class CellSeed final : public SeedMetadataBase<o2::its::constants::ClustersPerCell>
+class CellSeed final
 {
-  using Base = SeedMetadataBase<o2::its::constants::ClustersPerCell>;
-
  public:
   GPUhdDefault() CellSeed() = default;
   GPUhd() CellSeed(int innerL, int cl0, int cl1, int cl2, int trkl0, int trkl1, const SurfaceKinematicState& state, float chi2, const o2::its::TimeEstBC& time)
@@ -107,15 +54,15 @@ class CellSeed final : public SeedMetadataBase<o2::its::constants::ClustersPerCe
   {
   }
   GPUhd() CellSeed(LayerMask hitLayerMask, int cl0, int cl1, int cl2, int trkl0, int trkl1, const SurfaceKinematicState& state, float chi2, const o2::its::TimeEstBC& time)
-    : Base(state, chi2, 1, time)
+    : mState(state), mChi2(chi2), mLevel(1), mTime(time)
   {
-    this->setHitLayerMask(hitLayerMask);
-    auto& clusters = this->clustersRaw();
+    setHitLayerMask(hitLayerMask);
+    auto& clusters = mClusters;
     clusters[0] = cl0;
     clusters[1] = cl1;
     clusters[2] = cl2;
-    this->setFirstTrackletIndex(trkl0);
-    this->setSecondTrackletIndex(trkl1);
+    setFirstTrackletIndex(trkl0);
+    setSecondTrackletIndex(trkl1);
   }
   GPUhdDefault() CellSeed(const CellSeed&) = default;
   GPUhdDefault() ~CellSeed() = default;
@@ -123,11 +70,28 @@ class CellSeed final : public SeedMetadataBase<o2::its::constants::ClustersPerCe
   GPUhdDefault() CellSeed& operator=(const CellSeed&) = default;
   GPUhdDefault() CellSeed& operator=(CellSeed&&) = default;
 
-  GPUhd() int getFirstClusterIndex() const { return this->clustersRaw()[0]; };
-  GPUhd() int getSecondClusterIndex() const { return this->clustersRaw()[1]; };
-  GPUhd() int getThirdClusterIndex() const { return this->clustersRaw()[2]; };
-  GPUhd() auto& getClusters() { return this->clustersRaw(); }
-  GPUhd() const auto& getClusters() const { return this->clustersRaw(); }
+  GPUhd() LayerMask getHitLayerMask() const { return LayerMask{mHitLayerMask}; }
+  GPUhd() void setHitLayerMask(LayerMask mask) { mHitLayerMask = mask.value(); }
+  GPUhd() int getInnerLayer() const { return getHitLayerMask().first(); }
+  GPUhd() int getFirstTrackletIndex() const { return mTracklets[0]; }
+  GPUhd() void setFirstTrackletIndex(int trkl) { mTracklets[0] = trkl; }
+  GPUhd() int getSecondTrackletIndex() const { return mTracklets[1]; }
+  GPUhd() void setSecondTrackletIndex(int trkl) { mTracklets[1] = trkl; }
+  GPUhd() float getChi2() const { return mChi2; }
+  GPUhd() void setChi2(float chi2) { mChi2 = chi2; }
+  GPUhd() int getLevel() const { return mLevel; }
+  GPUhd() void setLevel(int level) { mLevel = level; }
+  GPUhd() int* getLevelPtr() { return &mLevel; }
+  GPUhd() auto& getTimeStamp() noexcept { return mTime; }
+  GPUhd() const auto& getTimeStamp() const noexcept { return mTime; }
+  GPUhd() SurfaceKinematicState& state() noexcept { return mState; }
+  GPUhd() const SurfaceKinematicState& state() const noexcept { return mState; }
+  GPUhd() float getQOverPt() const noexcept { return mState.parameters[4]; }
+  GPUhd() int getFirstClusterIndex() const { return mClusters[0]; }
+  GPUhd() int getSecondClusterIndex() const { return mClusters[1]; }
+  GPUhd() int getThirdClusterIndex() const { return mClusters[2]; }
+  GPUhd() auto& getClusters() { return mClusters; }
+  GPUhd() const auto& getClusters() const { return mClusters; }
   GPUhd() TripletFitFactor& tripletFactor() noexcept { return mTripletFactor; }
   GPUhd() const TripletFitFactor& tripletFactor() const noexcept { return mTripletFactor; }
   GPUhd() CellClusterReference getClusterReference(int requestedSlot) const noexcept
@@ -135,30 +99,40 @@ class CellSeed final : public SeedMetadataBase<o2::its::constants::ClustersPerCe
     if (requestedSlot < 0 || requestedSlot >= o2::its::constants::ClustersPerCell) {
       return {};
     }
-    const auto mask = this->getHitLayerMask();
+    const auto mask = getHitLayerMask();
     int slot = 0;
     for (int position = 0; position < 32; ++position) {
       if (mask.has(position) && slot++ == requestedSlot) {
-        return {position, this->clustersRaw()[requestedSlot]};
+        return {position, mClusters[requestedSlot]};
       }
     }
     return {};
   }
   GPUhd() int getCluster(int layer) const
   {
-    const int slot = this->getHitLayerMask().slot(layer);
-    return (slot >= 0 && slot < o2::its::constants::ClustersPerCell) ? this->clustersRaw()[slot] : o2::its::constants::UnusedIndex;
+    const int slot = getHitLayerMask().slot(layer);
+    return (slot >= 0 && slot < o2::its::constants::ClustersPerCell) ? mClusters[slot] : o2::its::constants::UnusedIndex;
   }
 
  private:
+  SurfaceKinematicState mState{};
+  uint32_t mHitLayerMask{0};
+  float mChi2{o2::its::constants::UnsetValue};
+  int mLevel{o2::its::constants::UnusedIndex};
+  std::array<int, 2> mTracklets = o2::its::constants::helpers::initArray<int, 2, o2::its::constants::UnusedIndex>();
+  std::array<int, o2::its::constants::ClustersPerCell> mClusters =
+    o2::its::constants::helpers::initArray<int, o2::its::constants::ClustersPerCell, o2::its::constants::UnusedIndex>();
+  o2::its::TimeEstBC mTime;
   TripletFitFactor mTripletFactor{};
 };
+
+static_assert(std::is_trivially_copyable_v<CellSeed>);
 
 /// GPU-portable, non-templated whole-track seed with one cluster slot per
 /// adopted-plan position. Fixed MaxLayoutSurfaces capacity is required for
 /// device use, where heap allocation is unavailable.
 ///
-/// TrackSeed uses SurfaceMask rather than SeedMetadataBase's positional LayerMask:
+/// TrackSeed uses SurfaceMask rather than CellSeed's positional LayerMask:
 /// each set bit is a position in its fixed array, not a global SurfaceId.
 ///
 /// This fixed-capacity value is the sole common-CA whole-track seed
