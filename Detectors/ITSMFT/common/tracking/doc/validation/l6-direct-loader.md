@@ -1,6 +1,8 @@
 # L6 direct `TimeFrame` loader validation
 
-Status: implementation complete; L7 is the next authorized slice.
+Status: historical L6 validation. The later P1 cleanup replaced the one-method
+`MultiSourceTimeFrameLoader` façade with `loadTimeFrameSources()` while
+preserving this transaction contract.
 
 L6 makes `MultiSourceTimeFrameLoader::load(TimeFrame&, ...)` the direct,
 non-owning loading component. It stages all decoded normalized input and

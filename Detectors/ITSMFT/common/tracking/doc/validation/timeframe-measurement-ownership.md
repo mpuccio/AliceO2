@@ -2,7 +2,7 @@
 
 `TimeFrame` owns per-surface event measurements, source ROF intervals, and
 non-owning MC-label lookup pointers. `MeasurementView` is the POD kernel view.
-`MultiSourceTimeFrameLoader` decodes into a non-movable staged `TimeFrame` and
+`loadTimeFrameSources()` decodes into a non-movable staged `TimeFrame` and
 swaps only its measurement payload after workspace backfill succeeds. Source
 identity is the dense source index; source ROF ranges are addressed through
 the offsets held by the measurement view. Detector identity remains input
