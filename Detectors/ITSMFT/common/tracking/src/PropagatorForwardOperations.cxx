@@ -5,8 +5,7 @@
 // This software is distributed under the terms of the GNU General Public
 // License v3 (GPL Version 3), copied verbatim in the file "COPYING".
 
-#include "ITSMFTTracking/ForwardSurfaceStateOperations.h"
-#include "ITSMFTTracking/Propagator.h"
+#include "ITSMFTTracking/detail/SurfaceStateOperations.h"
 
 #include <algorithm>
 #include <cmath>
@@ -17,12 +16,12 @@
 #include "GPUROOTSMatrixFwd.h"
 #include <Math/SMatrix.h>
 
-namespace o2::itsmft::tracking::forward
+namespace o2::itsmft::tracking::detail::forward
 {
 namespace
 {
 
-using Matrix5 = float[5][5];
+using DenseMatrix5 = float[5][5];
 
 // Packed symmetric 5x5 covariance for stateChi2. MatRepSym::offset matches
 // packedCovarianceIndex (row*(row+1)/2+column), enabling direct construction.
@@ -61,7 +60,7 @@ bool finiteMeasurement(const SurfaceMeasurement& measurement) noexcept
          std::isfinite(measurement.covariance.vv);
 }
 
-void unpackCovariance(const SurfaceKinematicState& state, Matrix5& covariance) noexcept
+void unpackCovariance(const SurfaceKinematicState& state, DenseMatrix5& covariance) noexcept
 {
   for (uint8_t row = 0; row < 5; ++row) {
     for (uint8_t column = 0; column < 5; ++column) {
@@ -70,7 +69,7 @@ void unpackCovariance(const SurfaceKinematicState& state, Matrix5& covariance) n
   }
 }
 
-void packCovariance(const Matrix5& covariance, SurfaceKinematicState& state) noexcept
+void packCovariance(const DenseMatrix5& covariance, SurfaceKinematicState& state) noexcept
 {
   for (uint8_t row = 0; row < 5; ++row) {
     for (uint8_t column = 0; column <= row; ++column) {
@@ -79,11 +78,11 @@ void packCovariance(const Matrix5& covariance, SurfaceKinematicState& state) noe
   }
 }
 
-void transportCovariance(SurfaceKinematicState& state, const Matrix5& jacobian) noexcept
+void transportCovariance(SurfaceKinematicState& state, const DenseMatrix5& jacobian) noexcept
 {
-  Matrix5 covariance{};
-  Matrix5 product{};
-  Matrix5 transported{};
+  DenseMatrix5 covariance{};
+  DenseMatrix5 product{};
+  DenseMatrix5 transported{};
   unpackCovariance(state, covariance);
   for (uint8_t row = 0; row < 5; ++row) {
     for (uint8_t column = 0; column < 5; ++column) {
@@ -102,7 +101,7 @@ void transportCovariance(SurfaceKinematicState& state, const Matrix5& jacobian) 
   packCovariance(transported, state);
 }
 
-void identity(Matrix5& matrix) noexcept
+void identity(DenseMatrix5& matrix) noexcept
 {
   for (uint8_t i = 0; i < 5; ++i) {
     matrix[i][i] = 1.f;
@@ -155,7 +154,7 @@ bool propagateLinear(SurfaceKinematicState& state, float targetZ, OperationFailu
   state.parameters[1] += n * sinPhi;
   state.referenceCoordinate = targetZ;
 
-  Matrix5 jacobian{};
+  DenseMatrix5 jacobian{};
   identity(jacobian);
   jacobian[0][2] = -n * sinPhi;
   jacobian[0][3] = -m * cosPhi;
@@ -239,7 +238,7 @@ bool propagateHelix(SurfaceKinematicState& state, float targetZ, float bz,
   const float v = qPt;
   const float nn = dz * inverseTanl * qPt;
 
-  Matrix5 jacobian{};
+  DenseMatrix5 jacobian{};
   identity(jacobian);
   jacobian[0][2] = fieldSign * x - fieldSign * x * cosTheta + y * sinTheta;
   jacobian[0][3] = fieldSign * r * m - s * m;
@@ -338,8 +337,8 @@ bool update(SurfaceKinematicState& state, const SurfaceMeasurement& measurement,
     return false;
   }
 
-  Matrix5 covariance{};
-  Matrix5 updatedCovariance{};
+  DenseMatrix5 covariance{};
+  DenseMatrix5 updatedCovariance{};
   float gain[5][2]{};
   unpackCovariance(state, covariance);
   const float residual[2] = {measurement.frame.u - state.parameters[0], measurement.frame.v - state.parameters[1]};
@@ -557,7 +556,7 @@ bool finiteLinRef(const SurfaceLinearizationReference& ref) noexcept
 }
 
 // Reference-only position update with the Jacobian at the original parameters.
-bool referencePropagateLinear(SurfaceLinearizationReference& ref, float targetZ, Matrix5& jacobian,
+bool referencePropagateLinear(SurfaceLinearizationReference& ref, float targetZ, DenseMatrix5& jacobian,
                               OperationFailureReason& reason) noexcept
 {
   identity(jacobian);
@@ -624,7 +623,7 @@ bool referencePropagateHelixParameters(SurfaceLinearizationReference& ref, float
   return true;
 }
 
-bool referencePropagateHelix(SurfaceLinearizationReference& ref, float targetZ, float bz, Matrix5& jacobian,
+bool referencePropagateHelix(SurfaceLinearizationReference& ref, float targetZ, float bz, DenseMatrix5& jacobian,
                              OperationFailureReason& reason) noexcept
 {
   identity(jacobian);
@@ -695,7 +694,7 @@ bool propagateAccepted(SurfaceKinematicState& state, SurfaceLinearizationReferen
   }
 
   SurfaceLinearizationReference scratchRef = linRef;
-  Matrix5 jacobian{};
+  DenseMatrix5 jacobian{};
   const bool ok = std::abs(bz) > 0.01f ? referencePropagateHelix(scratchRef, targetZ, bz, jacobian, reason)
                                        : referencePropagateLinear(scratchRef, targetZ, jacobian, reason);
   if (!ok) {
@@ -765,21 +764,16 @@ bool shiftReferenceToMeasurement(SurfaceLinearizationReference& linRef, const Su
 
 #endif // GPUCA_GPUCODE
 
-} // namespace o2::itsmft::tracking::forward
-
-namespace o2::itsmft::tracking
+bool propagate(SurfaceKinematicState& state, float targetZ, float bz,
+               OperationFailureReason& reason) noexcept
 {
-
-bool Propagator::propagateForward(SurfaceKinematicState& state, float targetZ, float bz,
-                                  OperationFailureReason& reason) noexcept
-{
-  return forward::propagateAccepted(state, targetZ, bz, reason);
+  return propagateAccepted(state, targetZ, bz, reason);
 }
 
-bool Propagator::propagateForward(SurfaceKinematicState& state, SurfaceLinearizationReference& linRef,
-                                  float targetZ, float bz, OperationFailureReason& reason) noexcept
+bool propagate(SurfaceKinematicState& state, SurfaceLinearizationReference& linRef,
+               float targetZ, float bz, OperationFailureReason& reason) noexcept
 {
-  return forward::propagateAccepted(state, linRef, targetZ, bz, reason);
+  return propagateAccepted(state, linRef, targetZ, bz, reason);
 }
 
-} // namespace o2::itsmft::tracking
+} // namespace o2::itsmft::tracking::detail::forward

@@ -136,16 +136,6 @@ bool buildCellSeed(SurfaceKind kind,
                    const TrackingKernelParameters& params,
                    OperationFailureReason& reason) noexcept;
 
-bool attachCylinderHit(SurfaceKinematicState& state, const SurfaceMeasurement& measurement,
-                       const NominalSurfaceMaterial& material, float bz, float& chi2,
-                       const TrackingKernelParameters& params,
-                       OperationFailureReason& reason) noexcept;
-
-bool attachDiskHit(SurfaceKinematicState& state, const SurfaceMeasurement& measurement,
-                   const NominalSurfaceMaterial& material, float bz, float& chi2,
-                   const TrackingKernelParameters& params,
-                   OperationFailureReason& reason) noexcept;
-
 #endif
 
 } // namespace o2::itsmft::tracking

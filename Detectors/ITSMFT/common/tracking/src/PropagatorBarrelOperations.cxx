@@ -5,7 +5,7 @@
 // This software is distributed under the terms of the GNU General Public
 // License v3 (GPL Version 3), copied verbatim in the file "COPYING".
 
-#include "ITSMFTTracking/BarrelSurfaceStateOperations.h"
+#include "ITSMFTTracking/detail/SurfaceStateOperations.h"
 
 #include <algorithm>
 #include <cmath>
@@ -23,12 +23,12 @@
 #include "ITStracking/MathUtils.h"
 #endif
 
-namespace o2::itsmft::tracking::barrel
+namespace o2::itsmft::tracking::detail::barrel
 {
 namespace
 {
 
-using Matrix5 = float[5][5];
+using DenseMatrix5 = float[5][5];
 
 // Packed symmetric 5x5 covariance for stateChi2. MatRepSym::offset() matches
 // packedCovarianceIndex exactly, so the combined covariance is built directly
@@ -80,7 +80,7 @@ bool validateSource(const SurfaceKinematicState& state, OperationFailureReason& 
   return true;
 }
 
-void unpackCovariance(const SurfaceKinematicState& state, Matrix5& covariance) noexcept
+void unpackCovariance(const SurfaceKinematicState& state, DenseMatrix5& covariance) noexcept
 {
   for (uint8_t row = 0; row < 5; ++row) {
     for (uint8_t column = 0; column < 5; ++column) {
@@ -89,7 +89,7 @@ void unpackCovariance(const SurfaceKinematicState& state, Matrix5& covariance) n
   }
 }
 
-void packCovariance(const Matrix5& covariance, SurfaceKinematicState& state) noexcept
+void packCovariance(const DenseMatrix5& covariance, SurfaceKinematicState& state) noexcept
 {
   for (uint8_t row = 0; row < 5; ++row) {
     for (uint8_t column = 0; column <= row; ++column) {
@@ -98,18 +98,18 @@ void packCovariance(const Matrix5& covariance, SurfaceKinematicState& state) noe
   }
 }
 
-void identity(Matrix5& matrix) noexcept
+void identity(DenseMatrix5& matrix) noexcept
 {
   for (uint8_t i = 0; i < 5; ++i) {
     matrix[i][i] = 1.f;
   }
 }
 
-void transportCovariance(SurfaceKinematicState& state, const Matrix5& jacobian) noexcept
+void transportCovariance(SurfaceKinematicState& state, const DenseMatrix5& jacobian) noexcept
 {
-  Matrix5 covariance{};
-  Matrix5 product{};
-  Matrix5 transported{};
+  DenseMatrix5 covariance{};
+  DenseMatrix5 product{};
+  DenseMatrix5 transported{};
   unpackCovariance(state, covariance);
   for (uint8_t row = 0; row < 5; ++row) {
     for (uint8_t column = 0; column < 5; ++column) {
@@ -265,7 +265,7 @@ bool propagate(SurfaceKinematicState& state, float targetX, float bz, OperationF
   const float dxOverCosines = dx * reciprocalCosines;
   const float hh = dxOverCosines * propagatedCspInverse * (1.f + csp * propagatedCsp + snp * propagatedSnp);
   const float jj = dx * (dyOverDx - propagatedSnp * propagatedCspInverse);
-  Matrix5 jacobian{};
+  DenseMatrix5 jacobian{};
   identity(jacobian);
   jacobian[0][2] = hh / csp;
   jacobian[0][4] = hh * dxOverCosines * bz * o2::constants::math::B2C;
@@ -320,8 +320,8 @@ bool update(SurfaceKinematicState& state, const SurfaceMeasurement& measurement,
   if (!residualInverse(state, measurement, inverse00, inverse01, inverse11, reason, OperationFailureReason::UpdateFailure)) {
     return false;
   }
-  Matrix5 covariance{};
-  Matrix5 updatedCovariance{};
+  DenseMatrix5 covariance{};
+  DenseMatrix5 updatedCovariance{};
   float gain[5][2]{};
   unpackCovariance(state, covariance);
   const float residual[2] = {measurement.frame.u - state.parameters[0], measurement.frame.v - state.parameters[1]};
@@ -887,4 +887,4 @@ bool shiftReferenceToMeasurement(SurfaceLinearizationReference& linRef, const Su
 
 #endif // GPUCA_GPUCODE
 
-} // namespace o2::itsmft::tracking::barrel
+} // namespace o2::itsmft::tracking::detail::barrel

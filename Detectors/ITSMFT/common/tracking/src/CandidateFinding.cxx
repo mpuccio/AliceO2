@@ -20,8 +20,8 @@
 
 #include "CommonConstants/MathConstants.h"
 #include "DataFormatsITS/Vertex.h"
-#include "ITSMFTTracking/BarrelSurfaceStateOperations.h"
-#include "ITSMFTTracking/ForwardSurfaceStateOperations.h"
+#include "ITSMFTTracking/detail/SurfaceStateOperations.h"
+#include "ITSMFTTracking/detail/SurfaceStateOperations.h"
 #include "ITSMFTTracking/Propagator.h"
 #include "ITSMFTTracking/detail/DirectionCompatibility.h"
 #include "ITSMFTTracking/detail/MFTFwdTrackHelpers.h"
@@ -569,7 +569,7 @@ bool buildCylinderCellSeed(
   OperationFailureReason& reason) noexcept
 {
   SurfaceKinematicState scratch{};
-  if (!barrel::buildSeed(globalInner.position, globalMiddle.position, measurementOuter, bz, absCharge, pid, scratch, reason)) {
+  if (!detail::barrel::buildSeed(globalInner.position, globalMiddle.position, measurementOuter, bz, absCharge, pid, scratch, reason)) {
     return false;
   }
 
@@ -577,36 +577,11 @@ bool buildCylinderCellSeed(
   const std::array<const SurfaceMeasurement*, 2> steps{&measurementMiddle, &measurementInner};
   const std::array<NominalSurfaceMaterial, 2> stepsMaterial{material[1], material[0]};
   for (int step = 0; step < 2; ++step) {
-    const bool isLast = (step == 1);
-    const auto& measurement = *steps[step];
-
-    if (!barrel::rotate(scratch, measurement.frame.frameAngle, reason)) {
+    if (!Propagator::attachMeasurement(scratch, *steps[step], stepsMaterial[step], bz,
+                                       material::MaterialTraversalDirection::OppositeMomentum,
+                                       step == 1, params.maxChi2ClusterAttachment, localChi2, reason)) {
       return false;
     }
-    if (!barrel::propagate(scratch, measurement.frame.q, bz, reason)) {
-      return false;
-    }
-    const auto& stepMaterial = stepsMaterial[step];
-    const auto materialResult = barrel::correctForMaterial(
-      scratch, material::IntegratedMaterialBudget{stepMaterial.xOverX0, stepMaterial.arealDensityGPerCm2},
-      material::MaterialTraversalDirection::OppositeMomentum);
-    if (!materialResult.ok()) {
-      reason = OperationFailureReason::MaterialFailure;
-      return false;
-    }
-    float predChi2{0.f};
-    if (!barrel::predictedChi2(scratch, measurement, predChi2, reason)) {
-      return false;
-    }
-    if (isLast && predChi2 > params.maxChi2ClusterAttachment) {
-      reason = OperationFailureReason::PredictedChi2Failure;
-      return false;
-    }
-    float updateChi2{0.f};
-    if (!barrel::update(scratch, measurement, updateChi2, reason)) {
-      return false;
-    }
-    localChi2 += updateChi2;
   }
 
   outState = scratch;
@@ -628,8 +603,8 @@ bool buildDiskCellSeed(
   OperationFailureReason& reason) noexcept
 {
   SurfaceKinematicState scratch{};
-  if (!forward::buildSeed(measurementInner, measurementMiddle, measurementOuter, bz, params.trackletMinPt,
-                          absCharge, pid, scratch, reason)) {
+  if (!detail::forward::buildSeed(measurementInner, measurementMiddle, measurementOuter, bz, params.trackletMinPt,
+                                  absCharge, pid, scratch, reason)) {
     return false;
   }
 
@@ -637,33 +612,11 @@ bool buildDiskCellSeed(
   const std::array<const SurfaceMeasurement*, 3> steps{&measurementOuter, &measurementMiddle, &measurementInner};
   const std::array<NominalSurfaceMaterial, 3> stepsMaterial{material[2], material[1], material[0]};
   for (int step = 0; step < 3; ++step) {
-    const bool isLast = (step == 2);
-    const auto& measurement = *steps[step];
-
-    if (!Propagator::propagateForward(scratch, measurement.frame.q, bz, reason)) {
+    if (!Propagator::attachMeasurement(scratch, *steps[step], stepsMaterial[step], bz,
+                                       material::MaterialTraversalDirection::OppositeMomentum,
+                                       step == 2, params.maxChi2ClusterAttachment, localChi2, reason)) {
       return false;
     }
-    const auto& stepMaterial = stepsMaterial[step];
-    const auto materialResult = forward::correctForMaterial(
-      scratch, material::IntegratedMaterialBudget{stepMaterial.xOverX0, stepMaterial.arealDensityGPerCm2},
-      material::MaterialTraversalDirection::OppositeMomentum);
-    if (!materialResult.ok()) {
-      reason = OperationFailureReason::MaterialFailure;
-      return false;
-    }
-    float predChi2{0.f};
-    if (!forward::predictedChi2(scratch, measurement, predChi2, reason)) {
-      return false;
-    }
-    if (isLast && predChi2 > params.maxChi2ClusterAttachment) {
-      reason = OperationFailureReason::PredictedChi2Failure;
-      return false;
-    }
-    float updateChi2{0.f};
-    if (!forward::update(scratch, measurement, updateChi2, reason)) {
-      return false;
-    }
-    localChi2 += updateChi2;
   }
 
   outState = scratch;
@@ -703,91 +656,6 @@ bool buildCellSeed(
                                material, bz, absCharge, pid, outState, chi2, params, reason);
   }
   return false;
-}
-
-bool attachCylinderHit(
-  SurfaceKinematicState& state,
-  const SurfaceMeasurement& measurement,
-  const NominalSurfaceMaterial& material,
-  float bz,
-  float& chi2,
-  const TrackingKernelParameters& params,
-  OperationFailureReason& reason) noexcept
-{
-  SurfaceKinematicState scratch = state;
-  float scratchChi2 = chi2;
-
-  if (!barrel::rotate(scratch, measurement.frame.frameAngle, reason)) {
-    return false;
-  }
-  if (!barrel::propagate(scratch, measurement.frame.q, bz, reason)) {
-    return false;
-  }
-  const auto materialResult = barrel::correctForMaterial(
-    scratch, material::IntegratedMaterialBudget{material.xOverX0, material.arealDensityGPerCm2},
-    material::MaterialTraversalDirection::OppositeMomentum);
-  if (!materialResult.ok()) {
-    reason = OperationFailureReason::MaterialFailure;
-    return false;
-  }
-  float predChi2{0.f};
-  if (!barrel::predictedChi2(scratch, measurement, predChi2, reason)) {
-    return false;
-  }
-  if (predChi2 > params.maxChi2ClusterAttachment || predChi2 < 0.f) {
-    reason = OperationFailureReason::PredictedChi2Failure;
-    return false;
-  }
-  float updateChi2{0.f};
-  if (!barrel::update(scratch, measurement, updateChi2, reason)) {
-    return false;
-  }
-  scratchChi2 += updateChi2;
-
-  state = scratch;
-  chi2 = scratchChi2;
-  return true;
-}
-
-bool attachDiskHit(
-  SurfaceKinematicState& state,
-  const SurfaceMeasurement& measurement,
-  const NominalSurfaceMaterial& material,
-  float bz,
-  float& chi2,
-  const TrackingKernelParameters& params,
-  OperationFailureReason& reason) noexcept
-{
-  SurfaceKinematicState scratch = state;
-  float scratchChi2 = chi2;
-
-  if (!Propagator::propagateForward(scratch, measurement.frame.q, bz, reason)) {
-    return false;
-  }
-  const auto materialResult = forward::correctForMaterial(
-    scratch, material::IntegratedMaterialBudget{material.xOverX0, material.arealDensityGPerCm2},
-    material::MaterialTraversalDirection::OppositeMomentum);
-  if (!materialResult.ok()) {
-    reason = OperationFailureReason::MaterialFailure;
-    return false;
-  }
-  float predChi2{0.f};
-  if (!forward::predictedChi2(scratch, measurement, predChi2, reason)) {
-    return false;
-  }
-  if (predChi2 > params.maxChi2ClusterAttachment) {
-    reason = OperationFailureReason::PredictedChi2Failure;
-    return false;
-  }
-  float updateChi2{0.f};
-  if (!forward::update(scratch, measurement, updateChi2, reason)) {
-    return false;
-  }
-  scratchChi2 += updateChi2;
-
-  state = scratch;
-  chi2 = scratchChi2;
-  return true;
 }
 
 } // namespace o2::itsmft::tracking

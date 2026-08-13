@@ -5,8 +5,8 @@
 // This software is distributed under the terms of the GNU General Public
 // License v3 (GPL Version 3), copied verbatim in the file "COPYING".
 
-// Defines both barrel::correctForMaterial(state, material, direction) and
-// forward::correctForMaterial(state, material, direction): the PID/absCharge-
+// Defines both detail::barrel::correctForMaterial(state, material, direction) and
+// detail::forward::correctForMaterial(state, material, direction): the PID/absCharge-
 // aware composite cylinder/disk operations built on the detector-neutral
 // scalar kernel in MaterialPhysics.h. Both overloads share the complete
 // preflight-validation/momentum-derivation/scratch-and-commit orchestration
@@ -20,8 +20,8 @@
 // header declares them; the same reuse pattern is already used by
 // MaterialPhysics.cxx for its own constants).
 
-#include "ITSMFTTracking/BarrelSurfaceStateOperations.h"
-#include "ITSMFTTracking/ForwardSurfaceStateOperations.h"
+#include "ITSMFTTracking/detail/SurfaceStateOperations.h"
+#include "ITSMFTTracking/detail/SurfaceStateOperations.h"
 #include "ITSMFTTracking/MaterialPhysics.h"
 
 #include <cmath>
@@ -116,7 +116,7 @@ material::MaterialOperationResult makeProjectionFailure(const material::Material
 // Barrel covariance-range upper bound, in (Y, Z, Snp, Tgl, Q2Pt) slot order:
 // the retained TrackParametrizationWithError<float>::checkCovariance()
 // range-clamp values, and the same five constants
-// BarrelSurfaceStateOperations.cxx's post-propagate/rotate/update
+// PropagatorBarrelOperations.cxx's post-propagate/rotate/update
 // sanitization (ADR 0008) enforces.
 constexpr float kBarrelMaxDiagonal[5] = {o2::track::kCY2max, o2::track::kCZ2max, o2::track::kCSnp2max,
                                          o2::track::kCTgl2max, o2::track::kC1Pt2max};
@@ -256,7 +256,7 @@ material::MaterialOperationResult correctForMaterialImpl(SurfaceKinematicState& 
 } // namespace
 } // namespace o2::itsmft::tracking
 
-namespace o2::itsmft::tracking::barrel
+namespace o2::itsmft::tracking::detail::barrel
 {
 
 material::MaterialOperationResult correctForMaterial(SurfaceKinematicState& state, material::IntegratedMaterialBudget materialBudget,
@@ -285,9 +285,9 @@ material::MaterialOperationResult correctForMaterial(SurfaceKinematicState& stat
   return correctForMaterialImpl(state, SurfaceKind::Cylinder, materialBudget, direction, familyCheck, projectCovariance);
 }
 
-} // namespace o2::itsmft::tracking::barrel
+} // namespace o2::itsmft::tracking::detail::barrel
 
-namespace o2::itsmft::tracking::forward
+namespace o2::itsmft::tracking::detail::forward
 {
 
 material::MaterialOperationResult correctForMaterial(SurfaceKinematicState& state, material::IntegratedMaterialBudget materialBudget,
@@ -315,4 +315,4 @@ material::MaterialOperationResult correctForMaterial(SurfaceKinematicState& stat
   return correctForMaterialImpl(state, SurfaceKind::Disk, materialBudget, direction, familyCheck, projectCovariance);
 }
 
-} // namespace o2::itsmft::tracking::forward
+} // namespace o2::itsmft::tracking::detail::forward

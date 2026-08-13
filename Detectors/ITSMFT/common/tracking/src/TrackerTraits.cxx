@@ -32,6 +32,8 @@
 #include "ITStracking/Constants.h"
 #include "ITSMFTTracking/Configuration.h"
 #include "ITSMFTTracking/IndexTableConfiguration.h"
+#include "ITSMFTTracking/Propagator.h"
+#include "ITSMFTTracking/MaterialPhysics.h"
 #include "ITSMFTTracking/detail/MFTFwdTrackHelpers.h"
 #include "ITSMFTTracking/IndexTableUtils.h"
 #include "ITSMFTTracking/SurfaceMask.h"
@@ -1306,12 +1308,11 @@ void TrackerTraits::processNeighbours(int iteration, int defaultCellTopologyId, 
         seed.getTimeStamp() += neighbourCell.getTimeStamp();
 
         const auto& measurement = mLayerMeasurements[neighbourLayer][neighbourCluster];
-        const auto surface = mBinding->getOrderedSurfaces()[neighbourLayer];
         float chi2 = seed.getChi2();
         OperationFailureReason attachReason{};
-        const bool attached = mTraversalGraph.getSurface(surface).kind == SurfaceKind::Cylinder
-                                ? attachCylinderHit(seed.state(), measurement, layerMaterial[neighbourLayer], getBz(), chi2, params, attachReason)
-                                : attachDiskHit(seed.state(), measurement, layerMaterial[neighbourLayer], getBz(), chi2, params, attachReason);
+        const bool attached = Propagator::attachMeasurement(seed.state(), measurement, layerMaterial[neighbourLayer], getBz(),
+                                                            material::MaterialTraversalDirection::OppositeMomentum, true,
+                                                            params.maxChi2ClusterAttachment, chi2, attachReason);
         if (!attached) {
           continue;
         }

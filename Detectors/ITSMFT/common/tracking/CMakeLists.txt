@@ -37,8 +37,8 @@ o2_add_library(ITSMFTTracking
                        src/CandidateFinding.cxx
                        src/TrackerTraversalPreparation.cxx
                        src/TripletFitting.cxx
-                       src/BarrelSurfaceStateOperations.cxx
-                       src/ForwardSurfaceStateOperations.cxx
+                       src/PropagatorBarrelOperations.cxx
+                       src/PropagatorForwardOperations.cxx
                        src/SurfaceLinearizationReference.cxx
                        src/MaterialPhysics.cxx
                        src/FamilyMaterialOperations.cxx

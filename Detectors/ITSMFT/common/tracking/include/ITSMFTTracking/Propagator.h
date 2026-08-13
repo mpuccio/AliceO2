@@ -34,15 +34,31 @@ struct RefitMeasurementSlot {
 class Propagator
 {
  public:
-  // Propagate a forward state using helix transport for |bz| > 0.01f and
-  // linear transport otherwise.
-  static bool propagateForward(SurfaceKinematicState& state, float targetZ, float bz,
-                               OperationFailureReason& reason) noexcept;
+  // Advance a state in its current surface convention to measurement, apply
+  // the supplied nominal material, validate the predicted residual, and
+  // update it. Candidate construction uses this state-driven operation after
+  // building a family-local three-hit seed; it does not select a coordinate
+  // family itself. State and chi2 are committed only after complete success.
+  static bool attachMeasurement(SurfaceKinematicState& state, const SurfaceMeasurement& measurement,
+                                NominalSurfaceMaterial material, float bz,
+                                material::MaterialTraversalDirection direction,
+                                bool chi2GateEnabled, float maxChi2, float& chi2,
+                                OperationFailureReason& reason) noexcept;
 
-  // The paired reference supplies the Jacobian point. Both objects are
-  // unchanged on failure.
-  static bool propagateForward(SurfaceKinematicState& state, SurfaceLinearizationReference& linRef,
-                               float targetZ, float bz, OperationFailureReason& reason) noexcept;
+  // Compatibility chi2 for two states in the same surface convention. The
+  // coordinate convention is selected from the states, never by the caller.
+  static bool stateChi2(const SurfaceKinematicState& reference, const SurfaceKinematicState& candidate,
+                        float& chi2, OperationFailureReason& reason) noexcept;
+
+  // Propagate in the state’s current surface convention to its target
+  // reference coordinate. Disk transport uses helix propagation for
+  // |bz| > 0.01f and linear transport otherwise. Both objects are unchanged
+  // on failure when a linearization reference is supplied.
+  static bool propagateToReference(SurfaceKinematicState& state, float targetReferenceCoordinate, float bz,
+                                   OperationFailureReason& reason) noexcept;
+  static bool propagateToReference(SurfaceKinematicState& state, SurfaceLinearizationReference& linRef,
+                                   float targetReferenceCoordinate, float bz,
+                                   OperationFailureReason& reason) noexcept;
 
   // Re-express state (and, if supplied, linRef) in targetKind's
   // parameter/reference convention at the current reference surface.
