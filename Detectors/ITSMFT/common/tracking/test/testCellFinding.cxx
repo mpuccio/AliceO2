@@ -70,6 +70,34 @@ bool attachMeasurement(SurfaceKinematicState& state, const SurfaceMeasurement& m
                                        parameters.maxChi2ClusterAttachment, chi2, reason);
 }
 
+bool buildCylinderCellSeed(const GlobalMeasurement& globalInner,
+                           const GlobalMeasurement& globalMiddle,
+                           const SurfaceMeasurement& measurementInner,
+                           const SurfaceMeasurement& measurementMiddle,
+                           const SurfaceMeasurement& measurementOuter,
+                           const std::array<NominalSurfaceMaterial, 3>& material,
+                           float bz, uint8_t absCharge, o2::track::PID pid,
+                           SurfaceKinematicState& outState, float& chi2,
+                           const TrackingKernelParameters& params,
+                           OperationFailureReason& reason)
+{
+  return buildCellSeed(SurfaceKind::Cylinder, globalInner, globalMiddle, {}, measurementInner, measurementMiddle,
+                       measurementOuter, material, bz, absCharge, pid, outState, chi2, params, reason);
+}
+
+bool buildDiskCellSeed(const SurfaceMeasurement& measurementInner,
+                       const SurfaceMeasurement& measurementMiddle,
+                       const SurfaceMeasurement& measurementOuter,
+                       const std::array<NominalSurfaceMaterial, 3>& material,
+                       float bz, uint8_t absCharge, o2::track::PID pid,
+                       SurfaceKinematicState& outState, float& chi2,
+                       const TrackingKernelParameters& params,
+                       OperationFailureReason& reason)
+{
+  return buildCellSeed(SurfaceKind::Disk, {}, {}, {}, measurementInner, measurementMiddle, measurementOuter,
+                       material, bz, absCharge, pid, outState, chi2, params, reason);
+}
+
 // --- Barrel fixtures -------------------------------------------------------
 // Reuses the same well-separated, non-collinear geometry already established
 // in testBarrelSurfaceStateOperations.cxx's buildSeed fixtures, extended

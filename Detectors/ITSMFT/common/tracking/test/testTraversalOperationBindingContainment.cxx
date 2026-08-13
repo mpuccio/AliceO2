@@ -360,7 +360,9 @@ BOOST_AUTO_TEST_CASE(TrackletSearchWindowIsOneDataOnlyCovarianceContract)
   for (const auto required : {"int4 bins", "float prediction[2]", "float variance[3]"}) {
     BOOST_CHECK(window.find(required) != std::string::npos);
   }
-  for (const auto forbidden : {"std::variant", "CylinderTrackletSearchWindow", "DiskTrackletSearchWindow", "nSigmaCut"}) {
+  for (const auto forbidden : {"std::variant", "CylinderTrackletSearchWindow", "DiskTrackletSearchWindow", "nSigmaCut",
+                               "projectCylinderSearchWindow", "projectDiskSearchWindow",
+                               "buildCylinderCellSeed", "buildDiskCellSeed"}) {
     BOOST_CHECK(window.find(forbidden) == std::string::npos);
   }
 }

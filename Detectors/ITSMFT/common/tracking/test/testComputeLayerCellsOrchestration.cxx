@@ -616,8 +616,8 @@ BOOST_AUTO_TEST_CASE(CylinderComputeLayerCellsMatchesBuildCellSeedOracle)
   BOOST_CHECK(rig.tf.getCellsLabel(cellTopologyId).empty());
 
   // Oracle: independently refetch the same measurements through
-  // TrackerTraits::getLayerMeasurements() (never re-typed literals) and call
-  // buildCylinderCellSeed directly.
+  // TrackerTraits::getLayerMeasurements() (never re-typed literals) and use
+  // the same generic seed construction contract as production.
   const auto layerMeasurements = rig.traits.getLayerMeasurements();
   const auto layerGlobalMeasurements = rig.traits.getLayerGlobalMeasurements();
   const auto& oracleGlobalInner = layerGlobalMeasurements[0][producedCell.getFirstClusterIndex()];
@@ -634,8 +634,8 @@ BOOST_AUTO_TEST_CASE(CylinderComputeLayerCellsMatchesBuildCellSeedOracle)
   SurfaceKinematicState oracleState{};
   float oracleChi2 = 0.f;
   OperationFailureReason oracleReason{};
-  BOOST_REQUIRE(buildCylinderCellSeed(
-    oracleGlobalInner, oracleGlobalMiddle, oracleMeasurementInner, oracleMeasurementMiddle, oracleMeasurementOuter,
+  BOOST_REQUIRE(buildCellSeed(
+    SurfaceKind::Cylinder, oracleGlobalInner, oracleGlobalMiddle, {}, oracleMeasurementInner, oracleMeasurementMiddle, oracleMeasurementOuter,
     material, Bz, kCompatibilityAbsCharge, kCompatibilityPID, oracleState, oracleChi2, trackingParams, oracleReason));
 
   checkSurfaceKinematicStateEqual(producedCell.state(), oracleState);
@@ -676,7 +676,7 @@ BOOST_AUTO_TEST_CASE(CylinderCellCombinationUsesTrackletMinPtScattering)
   BOOST_CHECK_EQUAL(acceptedCells(1.f), 0u);
 }
 
-// --- Disk: real orchestration matches the cell-seed leaves oracle -------
+// --- Disk: real orchestration matches the generic cell-seed oracle -------
 
 BOOST_AUTO_TEST_CASE(DiskComputeLayerCellsMatchesBuildCellSeedOracle)
 {
@@ -731,8 +731,8 @@ BOOST_AUTO_TEST_CASE(DiskComputeLayerCellsMatchesBuildCellSeedOracle)
   SurfaceKinematicState oracleState{};
   float oracleChi2 = 0.f;
   OperationFailureReason oracleReason{};
-  BOOST_REQUIRE(buildDiskCellSeed(
-    oracleMeasurementInner, oracleMeasurementMiddle, oracleMeasurementOuter,
+  BOOST_REQUIRE(buildCellSeed(
+    SurfaceKind::Disk, {}, {}, {}, oracleMeasurementInner, oracleMeasurementMiddle, oracleMeasurementOuter,
     material, Bz, kCompatibilityAbsCharge, kCompatibilityPID, oracleState, oracleChi2, trackingParams, oracleReason));
 
   checkSurfaceKinematicStateEqual(producedCell.state(), oracleState);

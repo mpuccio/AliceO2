@@ -107,6 +107,32 @@ TrackletProjectionCache makeDiskProjectionCache(int fromLayer, int toLayer, floa
           0.f, fromReferenceCoordinate, transitionMSAngle, transitionPhiCut, true};
 }
 
+// CandidateFinding exposes one descriptor-selected projection operation.
+// Keep the numerical fixtures readable without exporting coordinate leaves.
+bool projectCylinderSearchWindow(const GlobalMeasurement& sourceMeasurement,
+                                 const o2::its::Cluster& sourceLocator,
+                                 const o2::its::Vertex& vertex,
+                                 const TrackletProjectionCache& transitionCache,
+                                 float bz, const o2::itsmft::IndexTableUtilsCore& indexUtils,
+                                 const TrackingKernelParameters& params,
+                                 TrackletSearchWindow& out)
+{
+  return projectTrackletSearchWindow(sourceMeasurement, sourceLocator, vertex, SurfaceKind::Cylinder,
+                                     transitionCache, bz, indexUtils, params, out);
+}
+
+bool projectDiskSearchWindow(const GlobalMeasurement& sourceMeasurement,
+                             const o2::its::Cluster& sourceLocator,
+                             const o2::its::Vertex& vertex,
+                             const TrackletProjectionCache& transitionCache,
+                             float bz, const o2::itsmft::IndexTableUtilsCore& indexUtils,
+                             const TrackingKernelParameters& params,
+                             TrackletSearchWindow& out)
+{
+  return projectTrackletSearchWindow(sourceMeasurement, sourceLocator, vertex, SurfaceKind::Disk,
+                                     transitionCache, bz, indexUtils, params, out);
+}
+
 void checkSearchWindowEqual(const TrackletSearchWindow& lhs, const TrackletSearchWindow& rhs)
 {
   BOOST_CHECK_EQUAL(lhs.bins.x, rhs.bins.x);
