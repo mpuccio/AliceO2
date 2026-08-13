@@ -143,6 +143,7 @@ BOOST_AUTO_TEST_CASE(RetiredAndRelocatedPublicPathsAreAbsent)
     "ClusterSource.h",
     "MultiSourceLoading.h",
     "TimeFrameLoadFailure.h",
+    "CommonTrackShadow.h",
     "GenericTrackShadow.h",
     "SurfaceTrackingScratch.h",
     "DetectorPublicationAdapter.h",
@@ -189,12 +190,16 @@ BOOST_AUTO_TEST_CASE(RetiredAndRelocatedPublicPathsAreAbsent)
   }
 }
 
-BOOST_AUTO_TEST_CASE(RetiredGenericTrackPublicationIdentifierIsAbsentFromProduction)
+BOOST_AUTO_TEST_CASE(NoRetiredShadowPublicationPathOrPublisherExists)
 {
   for (const auto& path : productionFiles()) {
     const auto text = readFile(path);
+    BOOST_CHECK_MESSAGE(text.find("CommonTrackShadow") == std::string::npos,
+                        path.string() << " retains the retired CommonTrack shadow identifier");
     BOOST_CHECK_MESSAGE(text.find("GenericTrackShadow") == std::string::npos,
-                        path.string() << " retains the retired GenericTrack publication identifier");
+                        path.string() << " recreates a GenericTrack shadow identifier");
+    BOOST_CHECK_MESSAGE(text.find("ShadowPublisher") == std::string::npos,
+                        path.string() << " recreates a shadow publication layer");
   }
 }
 
@@ -225,6 +230,7 @@ BOOST_AUTO_TEST_CASE(WorkflowsUseOnlyTheDetailAdapterFacades)
     itsmft / "common/workflow-combined-ca",
   };
   const std::vector<std::string_view> forbiddenDetailIncludes{
+    "ITSMFTTracking/detail/CommonTrackShadow.h",
     "ITSMFTTracking/detail/GenericTrackShadow.h",
     "ITSMFTTracking/detail/SurfaceTrackingScratch.h",
     "ITSMFTTracking/detail/ITSSharedClusterCompatibility.h",
