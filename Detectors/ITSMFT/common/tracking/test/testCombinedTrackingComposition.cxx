@@ -398,7 +398,7 @@ struct StandaloneRun {
 /// the combined DPL task's own trackFrame() applies -- not a shipped
 /// coordinator class (M3 deleted the last one of those), just this file's
 /// own driver so these tests can exercise the workflow-owned application plan
-/// plus Tracker + MultiSourceTimeFrameLoader::load() together the same way the
+/// plus Tracker + loadTimeFrameSources() together the same way the
 /// DPL task does, without a DPL ProcessingContext.
 struct CombinedTrackingComposer {
   struct Result {
@@ -475,7 +475,7 @@ struct CombinedTrackingComposer {
       loadResult = *rejected;
     } else {
       const std::array<ClusterSourceInput, 2> sources{itsInput, mftInput};
-      loadResult = MultiSourceTimeFrameLoader::load(*frame, gsl::span<const ClusterSourceInput>{sources}, plan.catalogView(), origin);
+      loadResult = loadTimeFrameSources(*frame, gsl::span<const ClusterSourceInput>{sources}, plan.catalogView(), origin);
     }
     if (!loadResult.ok()) {
       const bool errorIsRecoverable = isRecoverableLoadError(loadResult.error, loadResult.timingDetail);
@@ -838,7 +838,7 @@ BOOST_AUTO_TEST_CASE(LoadFailureResetsWholeCombinedTFExactlyOnceAndInvalidatesPu
   BOOST_REQUIRE(composer.getMFTPublicationExport().has_value());
 
   // Malformed MFT ROF partition (a gap before the second cluster): a
-  // structural load failure MultiSourceTimeFrameLoader::load() must
+  // structural load failure loadTimeFrameSources() must
   // reject before touching either scratch or the shared TimeFrame.
   std::vector<ROFRecord> malformedMftRofs{ROFRecord{{100, 5}, 0, 0, 1}, ROFRecord{{140, 5}, 0, 2, 1}};
   mftSource.rofs = malformedMftRofs;
@@ -1115,7 +1115,7 @@ BOOST_AUTO_TEST_CASE(SequentialSuccessfulTFsReplaceStateWithoutStaleAccumulation
   const auto firstGenericTrackCount = frame.getGenericTracks().size();
   BOOST_REQUIRE_EQUAL(firstGenericTrackCount, firstResult.nITSTracks + firstResult.nMFTTracks);
 
-  // No explicit reset between successful TFs: MultiSourceTimeFrameLoader::
+  // No explicit reset between successful TFs: loadTimeFrameSources()
   // load()'s frame commit atomically replaces the
   // normalized frame and clears mGenericTracks/mTrackClusterIndices in the
   // same commit (TimeFrame.h), so the second process() call alone -- on the

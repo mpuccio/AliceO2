@@ -1,7 +1,7 @@
 // Copyright 2019-2026 CERN and copyright holders of ALICE O2.
 // See https://alice-o2.web.cern.ch/copyright for details of the copyright holders.
 
-#define BOOST_TEST_MODULE ITSMFT MultiSourceTimeFrameLoader
+#define BOOST_TEST_MODULE ITSMFT TimeFrame source loading
 #define BOOST_TEST_MAIN
 #define BOOST_TEST_DYN_LINK
 #include <boost/test/unit_test.hpp>
@@ -162,7 +162,7 @@ BOOST_AUTO_TEST_CASE(DirectThreeSourceTransactionInstallsAllSources)
   const std::array<OneClusterSource, 3> inputs{OneClusterSource{SurfaceId{0}}, OneClusterSource{SurfaceId{2}}, OneClusterSource{SurfaceId{4}}};
   const auto sources = makeSources(inputs);
 
-  const auto result = MultiSourceTimeFrameLoader::load(frame, sources, configuration.graph.getView().getSurfaceCatalogView(), {50, 5});
+  const auto result = loadTimeFrameSources(frame, sources, configuration.graph.getView().getSurfaceCatalogView(), {50, 5});
   BOOST_REQUIRE_MESSAGE(result.ok(), "load error=" << static_cast<int>(result.error) << " source=" << result.source.value());
   BOOST_CHECK_EQUAL(frame.getEventResetCount(), 1u);
   for (uint16_t id = 0; id < 3; ++id) {
@@ -178,20 +178,20 @@ BOOST_AUTO_TEST_CASE(FailedSourcePartitionLeavesPriorEventAndRetrySucceeds)
   configureFrame(frame, configuration.graph);
   const std::array<OneClusterSource, 3> inputs{OneClusterSource{SurfaceId{0}}, OneClusterSource{SurfaceId{2}}, OneClusterSource{SurfaceId{4}}};
   auto sources = makeSources(inputs);
-  const auto baseline = MultiSourceTimeFrameLoader::load(frame, sources, configuration.graph.getView().getSurfaceCatalogView(), {50, 5});
+  const auto baseline = loadTimeFrameSources(frame, sources, configuration.graph.getView().getSurfaceCatalogView(), {50, 5});
   BOOST_REQUIRE_MESSAGE(baseline.ok(), "baseline load error=" << static_cast<int>(baseline.error) << " source=" << baseline.source.value());
   const auto resetCount = frame.getEventResetCount();
 
   auto malformedInputs = inputs;
   malformedInputs[2].layerToSurface[0] = SurfaceId{0};
   const auto malformedSources = makeSources(malformedInputs);
-  const auto failed = MultiSourceTimeFrameLoader::load(frame, malformedSources, configuration.graph.getView().getSurfaceCatalogView(), {50, 5});
+  const auto failed = loadTimeFrameSources(frame, malformedSources, configuration.graph.getView().getSurfaceCatalogView(), {50, 5});
   BOOST_CHECK(failed.error == MultiSourceLoadError::InvalidLayerMapping);
   BOOST_CHECK_EQUAL(frame.getEventResetCount(), resetCount);
   BOOST_CHECK_EQUAL(frame.getSurfaceMeasurements(SurfaceId{4}).size(), 1u);
   BOOST_CHECK_EQUAL(frame.getWorkspace().getTotalClusters(), 3);
 
-  BOOST_REQUIRE(MultiSourceTimeFrameLoader::load(frame, sources, configuration.graph.getView().getSurfaceCatalogView(), {50, 5}).ok());
+  BOOST_REQUIRE(loadTimeFrameSources(frame, sources, configuration.graph.getView().getSurfaceCatalogView(), {50, 5}).ok());
   BOOST_CHECK_EQUAL(frame.getEventResetCount(), resetCount + 1);
 }
 
@@ -201,13 +201,13 @@ BOOST_AUTO_TEST_CASE(UnconfiguredFrameAndSourceQualificationFailBeforeCommit)
   TimeFrame frame;
   const std::array<OneClusterSource, 3> inputs{OneClusterSource{SurfaceId{0}}, OneClusterSource{SurfaceId{2}}, OneClusterSource{SurfaceId{4}}};
   const auto sources = makeSources(inputs);
-  BOOST_CHECK(MultiSourceTimeFrameLoader::load(frame, sources, configuration.graph.getView().getSurfaceCatalogView(), {50, 5}).error ==
+  BOOST_CHECK(loadTimeFrameSources(frame, sources, configuration.graph.getView().getSurfaceCatalogView(), {50, 5}).error ==
               MultiSourceLoadError::FrameNotConfigured);
 
   configureFrame(frame, configuration.graph);
   auto wrong = sources;
   wrong[1].id = ClusterSourceId{5};
-  const auto result = MultiSourceTimeFrameLoader::load(frame, wrong, configuration.graph.getView().getSurfaceCatalogView(), {50, 5});
+  const auto result = loadTimeFrameSources(frame, wrong, configuration.graph.getView().getSurfaceCatalogView(), {50, 5});
   BOOST_CHECK(result.error == MultiSourceLoadError::NonDenseSourceIds);
   BOOST_CHECK_EQUAL(frame.getTotalMeasurements(), 0u);
   BOOST_CHECK_EQUAL(frame.getEventResetCount(), 0u);

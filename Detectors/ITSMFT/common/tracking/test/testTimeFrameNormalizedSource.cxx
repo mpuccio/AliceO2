@@ -323,7 +323,7 @@ BOOST_AUTO_TEST_CASE(combined_owner_load_keeps_detector_backfills_separate)
   BOOST_REQUIRE(frame.commitConfiguration(std::move(graphs), std::move(parameters), std::move(bindings),
                                           std::move(capacities), std::make_shared<BoundedMemoryResource>()));
   const std::array<ClusterSourceInput, 2> sources{itsSource, mftSource};
-  BOOST_REQUIRE(MultiSourceTimeFrameLoader::load(frame, gsl::span<const ClusterSourceInput>{sources}, view, {50, 5}).ok());
+  BOOST_REQUIRE(loadTimeFrameSources(frame, gsl::span<const ClusterSourceInput>{sources}, view, {50, 5}).ok());
   BOOST_CHECK_EQUAL(frame.getMeasurementView().nSources, 2u);
   BOOST_CHECK_EQUAL(frame.getSurfaceMeasurements(SurfaceId{0}).size(), 2u);
   BOOST_CHECK_EQUAL(frame.getSurfaceMeasurements(SurfaceId{static_cast<uint16_t>(ITSNLayers)}).size(), 2u);
@@ -344,7 +344,7 @@ BOOST_AUTO_TEST_CASE(combined_owner_load_keeps_detector_backfills_separate)
   auto malformedMFT = mftSource;
   malformedMFT.patterns = {};
   const std::array<ClusterSourceInput, 2> retrySources{itsSource, malformedMFT};
-  BOOST_CHECK(!MultiSourceTimeFrameLoader::load(frame, gsl::span<const ClusterSourceInput>{retrySources}, view, {50, 5}).ok());
+  BOOST_CHECK(!loadTimeFrameSources(frame, gsl::span<const ClusterSourceInput>{retrySources}, view, {50, 5}).ok());
   BOOST_CHECK(frame.getWorkspace().empty());
   BOOST_CHECK_EQUAL(frame.getMeasurementView().nSources, 0u);
   frame.resetEvent();

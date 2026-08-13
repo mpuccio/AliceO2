@@ -78,7 +78,7 @@ BOOST_AUTO_TEST_CASE(StandaloneWorkflowsUseDirectComposition)
     const auto source = readFile(root / "src/CATrackerSpec.cxx");
     const auto text = header + source;
     BOOST_CHECK(text.find("TimeFrame mFrame") != std::string::npos);
-    BOOST_CHECK(source.find("MultiSourceTimeFrameLoader::load") != std::string::npos);
+    BOOST_CHECK(source.find("loadTimeFrameSources") != std::string::npos);
     BOOST_CHECK(source.find("mTracker->run(mFrame") != std::string::npos);
     BOOST_CHECK(source.find("mFrame.resetEvent()") != std::string::npos);
     BOOST_CHECK(source.find("stage") != std::string::npos);

@@ -170,7 +170,7 @@ BOOST_AUTO_TEST_CASE(AtomicMFTLoadFailureLeavesSharedTimeFrameAndBothParticipant
   itsInput.rofViews = participants.getITSROFViews();
   mftInput.rofViews = participants.getMFTROFViews();
   const std::array<ClusterSourceInput, 2> sources{itsInput, mftInput};
-  const auto result = MultiSourceTimeFrameLoader::load(
+  const auto result = loadTimeFrameSources(
     frame, gsl::span<const ClusterSourceInput>{sources}, participants.catalogView(), o2::InteractionRecord{50, 5});
 
   BOOST_REQUIRE(!result.ok());

@@ -95,7 +95,7 @@ BOOST_AUTO_TEST_CASE(CombinedWorkflowComposesDirectly)
   const auto source = read(workflowRoot / "src/CombinedCATrackerSpec.cxx");
   BOOST_CHECK(header.find("std::unique_ptr<o2::itsmft::tracking::Tracker>") != std::string::npos);
   BOOST_CHECK(header.find("std::unique_ptr<o2::itsmft::tracking::TrackerTraits>") != std::string::npos);
-  BOOST_CHECK(source.find("MultiSourceTimeFrameLoader::load") != std::string::npos);
+  BOOST_CHECK(source.find("loadTimeFrameSources") != std::string::npos);
   BOOST_CHECK(source.find("->run(mFrame") != std::string::npos);
   BOOST_CHECK(source.find("mEngine") == std::string::npos);
 }
