@@ -279,16 +279,17 @@ Make `ClusterDecoding.h` the cohesive host API by absorbing
   `testMultiSourceLoading`, `testMultiSourceTimeFrameLoader`,
   `testTimeFrameCovarianceLifecycle`, `testTimeFrameLifecycle`,
   `testTimeFrameNormalizedSource`, and `testTrackerFailureContract`.
-  `DecodedCluster` is also directly consumed by `ClusterIO.cxx`,
+  `DecodedCluster` is also directly consumed by `IOUtils.cxx`,
   `testSurfaceMeasurement`, and `testSurfaceMeasurementAdapters`; the latter
   projection header has the same list except the cell-orchestration test and
-  adds no production consumer beyond `ClusterIO.cxx`.
+  adds no production consumer beyond `IOUtils.cxx`.
 - **Host/device:** the merged header is explicitly host-only. It may produce
   `SurfaceMeasurement`, but no decoder, geometry, dictionary, exception, or
   STL owner enters a device view.
-- **Smallest slice:** first move result/decode declarations to break the
-  `ClusterDecoder` -> `IOUtils` dependency, then move types/projections and
-  update includes; do not delete `convertCompactClusters` in this slice.
+- **Completed cleanup:** the common `getClusterLayer`, iterator decoding
+  overload, and `convertCompactClusters` declarations and implementation were
+  deleted after a whole-repository audit found no common or downstream caller.
+  Detector-local ITS/MFT variants remain outside this common boundary.
 - **Deletion/gate:** three old headers absent, no include cycle, public-header
   self-containment, all listed decoder/loading/covariance tests, ITS/MFT
   geometry-backed loading, downstream build, and replay parity.
