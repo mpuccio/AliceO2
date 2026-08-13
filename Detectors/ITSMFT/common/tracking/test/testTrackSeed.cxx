@@ -213,8 +213,8 @@ BOOST_AUTO_TEST_CASE(TrackSeedIsTriviallyCopyableButNotStandardLayout)
   // (o2::dataformats::TimeStampWithError<uint32_t, uint16_t>, deriving from
   // TimeStamp<uint32_t>) declares non-static data members in more than one
   // class of its own hierarchy. This is a property of TimeEstBC itself, not
-  // anything TrackSeed adds -- CellSeed embeds the same member via
-  // SeedMetadataBase and is not standard-layout either (it
+  // anything TrackSeed adds -- CellSeed embeds the same member and is not
+  // standard-layout either (it
   // carries a standard-layout static_assert in this codebase). Asserted
   // here explicitly, not merely omitted, so this is a stated fact rather
   // than an untested assumption.

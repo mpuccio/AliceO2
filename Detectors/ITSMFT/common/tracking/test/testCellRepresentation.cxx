@@ -22,7 +22,11 @@
 #include <array>
 #include <cmath>
 #include <cstring>
+#include <filesystem>
+#include <fstream>
+#include <iterator>
 #include <limits>
+#include <string>
 #include <type_traits>
 
 #include "ITSMFTTracking/Cell.h"
@@ -50,6 +54,13 @@ SurfaceKinematicState makeDistinctState(SurfaceKind family)
   state.absCharge = 1;
   state.pid = o2::track::PID::Pion;
   return state;
+}
+
+std::string readFile(const std::filesystem::path& path)
+{
+  std::ifstream input{path};
+  BOOST_REQUIRE_MESSAGE(input.good(), "cannot inspect " << path.string());
+  return {std::istreambuf_iterator<char>{input}, {}};
 }
 
 } // namespace
@@ -161,7 +172,7 @@ BOOST_AUTO_TEST_CASE(TrackSeedConstructionFromCellCopiesStateAndMetadataComplete
 // q/pT parameter for both Barrel and Forward -- see SurfaceKinematicState.h's
 // BarrelStateView::getQ2Pt()/ForwardStateView::getInvQPt(), which already
 // returned this same raw value unsquared). getQ2Pt() has been removed from
-// Cell.h/SeedMetadataBase; getQOverPt() is its sole replacement.
+// Cell.h; getQOverPt() is its sole replacement.
 
 BOOST_AUTO_TEST_CASE(GetQOverPtReturnsTheExactRawPositiveValue)
 {
@@ -297,4 +308,14 @@ BOOST_AUTO_TEST_CASE(CellSeedAndTrackSeedSizeAlignmentCharacterization)
   BOOST_CHECK_GE(sizeof(CellSeed), sizeof(SurfaceKinematicState));
   BOOST_CHECK_GE(sizeof(TrackSeed), sizeof(SurfaceKinematicState));
   BOOST_CHECK_EQUAL(alignof(CellSeed), alignof(SurfaceKinematicState));
+}
+
+BOOST_AUTO_TEST_CASE(CellSeedIsAGpuPortableValueWithoutMetadataBase)
+{
+  static_assert(std::is_trivially_copyable_v<CellSeed>);
+
+  const auto header = std::filesystem::path{__FILE__}.parent_path().parent_path() / "include" / "ITSMFTTracking" / "Cell.h";
+  const auto source = readFile(header);
+  const std::string retired = std::string{"Seed"} + "Metadata" + "Base";
+  BOOST_CHECK(source.find(retired) == std::string::npos);
 }
