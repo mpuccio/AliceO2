@@ -31,7 +31,6 @@
 #include "ITSMFTTracking/Propagator.h"
 
 #include "ITSMFTTracking/detail/SurfaceStateOperations.h"
-#include "ITSMFTTracking/detail/SurfaceStateOperations.h"
 #include "ITSMFTTracking/SurfaceKinematicState.h"
 #include "ReconstructionDataFormats/PID.h"
 #include "ReconstructionDataFormats/TrackParametrization.h"

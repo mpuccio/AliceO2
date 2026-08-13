@@ -16,9 +16,15 @@
 #include <array>
 #include <cmath>
 #include <cstring>
+#include <filesystem>
+#include <fstream>
+#include <iterator>
 #include <limits>
+#include <sstream>
+#include <string>
 
 #include "CommonConstants/MathConstants.h"
+#include "ITSMFTTracking/NativeRefitDriver.h"
 #include "ITSMFTTracking/detail/SurfaceStateOperations.h"
 #include "ITSMFTTracking/Propagator.h"
 
@@ -35,6 +41,12 @@ template <typename T>
 bool bitEqual(const T& lhs, const T& rhs)
 {
   return std::memcmp(&lhs, &rhs, sizeof(T)) == 0;
+}
+
+std::string readFile(const std::filesystem::path& path)
+{
+  std::ifstream input{path};
+  return {std::istreambuf_iterator<char>{input}, {}};
 }
 
 // --- Barrel fixtures (same convention as testRefitHit.cxx's barrelState()) --
@@ -360,9 +372,18 @@ BOOST_AUTO_TEST_CASE(NonzeroNominalMaterialChangesResultRelativeToZeroMaterial)
   BOOST_CHECK(!bitEqual(zeroState, materialState));
 }
 
-// --- Holes are skipped by driveRefitLeg --------------------------------------
+BOOST_AUTO_TEST_CASE(PropagatorPublicHeaderContainsOnlyStatePrimitives)
+{
+  const auto trackingRoot = std::filesystem::path{__FILE__}.parent_path().parent_path();
+  const auto header = readFile(trackingRoot / "include/ITSMFTTracking/Propagator.h");
+  BOOST_REQUIRE(!header.empty());
+  BOOST_CHECK(header.find("RefitMeasurementSlot") == std::string::npos);
+  BOOST_CHECK(header.find("driveRefitLeg") == std::string::npos);
+}
 
-BOOST_AUTO_TEST_CASE(DriveRefitLegSkipsHoleSlots)
+// --- Holes are skipped by the native refit driver ----------------------------
+
+BOOST_AUTO_TEST_CASE(NativeRefitDriverSkipsHoleSlots)
 {
   auto state = barrelState();
   auto linRef = barrelLinRef(state);
@@ -372,16 +393,16 @@ BOOST_AUTO_TEST_CASE(DriveRefitLegSkipsHoleSlots)
   surfaces[0].id = SurfaceId{0};
   SurfaceCatalogView catalog{surfaces.data(), static_cast<uint32_t>(surfaces.size())};
 
-  const RefitMeasurementSlot present{measurement, SurfaceId{0}, true};
-  const RefitMeasurementSlot hole{};
+  const detail::RefitMeasurementSlot present{measurement, SurfaceId{0}, true};
+  const detail::RefitMeasurementSlot hole{};
 
-  std::array<RefitMeasurementSlot, 3> slots{hole, present, hole};
+  std::array<detail::RefitMeasurementSlot, 3> slots{hole, present, hole};
   float chi2 = 0.f;
   uint32_t acceptedHitCount = 999;
   OperationFailureReason reason{};
 
-  BOOST_REQUIRE(Propagator::driveRefitLeg(state, linRef, chi2, acceptedHitCount, slots, catalog, BarrelBz,
-                                          material::MaterialTraversalDirection::AlongMomentum, false, 100.f, reason));
+  BOOST_REQUIRE(detail::driveRefitLeg(state, linRef, chi2, acceptedHitCount, slots, catalog, BarrelBz,
+                                      material::MaterialTraversalDirection::AlongMomentum, false, 100.f, reason));
   BOOST_CHECK_EQUAL(acceptedHitCount, 1u);
 }
 

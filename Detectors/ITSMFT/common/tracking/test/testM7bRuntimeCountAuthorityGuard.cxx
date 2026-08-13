@@ -201,6 +201,6 @@ BOOST_AUTO_TEST_CASE(RuntimePlanAndFixedCapacityContractsAreVisibleInProductionS
   BOOST_CHECK(traits.find("mScratch->getNOwnedSurfaces()") != std::string::npos);
   BOOST_CHECK(traits.find("getOrderedSurfaces()") != std::string::npos);
   BOOST_CHECK(scratch.find("mNOwnedSurfaces") != std::string::npos);
-  BOOST_CHECK(refit.find("std::vector<RefitMeasurementSlot>") != std::string::npos);
+  BOOST_CHECK(refit.find("std::vector<detail::RefitMeasurementSlot>") != std::string::npos);
   BOOST_CHECK(refit.find("std::array<SurfaceMeasurement, NLayers>") == std::string::npos);
 }
