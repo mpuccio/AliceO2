@@ -55,7 +55,6 @@ using SeedRefitFunction = bool (*)(const TrackSeed& seed,
 
 #endif
 
-struct LayerGeometryConfigView;
 struct DiskReferenceCoordinateView;
 
 enum class TraversalFailureReason : uint8_t {
@@ -177,16 +176,11 @@ class TrackerTraits
                                  gsl::span<const TransitionId> transitionIds);
   void computeLayerCellsImpl(int iteration,
                              gsl::span<const CellTopologyId> cellIds);
-  void findRoadsForGraph(int iteration, SeedRefitFunction refitFunction);
-
   void findCellsNeighboursForSchedule(int iteration,
                                       gsl::span<const CellTopologyId> scheduledCells,
                                       const TrackingKernelParameters& params);
 
-  void findRoadsForSchedule(int iteration,
-                            const TrackingKernelParameters& params,
-                            SeedRefitFunction refitFunction,
-                            gsl::span<const CellTopologyId> roadStartCells);
+  void findRoadsImpl(int iteration, SeedRefitFunction refitFunction);
 
   // Neighbour processing helper; it does not encode a detector layer count.
   template <typename InputSeed>
@@ -194,7 +188,6 @@ class TrackerTraits
 
   // Fills scratch transition arrays in binding order after validation. No throw.
   void prepareTransitionScatteringAndBending(int iteration,
-                                             const LayerGeometryConfigView& geometryConfig,
                                              const DiskReferenceCoordinateView& referenceCoordinateView,
                                              gsl::span<const TransitionId> transitionIds);
 

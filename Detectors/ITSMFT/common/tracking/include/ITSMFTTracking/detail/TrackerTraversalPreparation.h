@@ -11,7 +11,6 @@
 #ifndef GPUCA_GPUCODE
 #include <gsl/span>
 
-#include "ITSMFTTracking/Configuration.h"
 #endif
 
 namespace o2::itsmft::tracking
@@ -49,22 +48,6 @@ struct TransitionScatteringBendingPrep {
 TransitionScatteringBendingPrep prepareTransitionScatteringAndBending(
   gsl::span<const float> perLayerMSAngle, int fromLayer, int toLayer,
   float r1, float r2, float clampedOneOverR, float res1, float res2) noexcept;
-
-struct LayerGeometryConfigView {
-  gsl::span<const float> layerRadii;
-  gsl::span<const NominalSurfaceMaterial> layerMaterial;
-
-  bool isValid(size_t expectedLayers) const noexcept
-  {
-    return layerRadii.size() >= expectedLayers && layerMaterial.size() >= expectedLayers;
-  }
-};
-
-inline LayerGeometryConfigView bindLayerGeometryConfig(const TrackingParameters& params,
-                                                       const AttachHitConfigView& attachHitConfig) noexcept
-{
-  return {gsl::span<const float>{params.LayerRadii.data(), params.LayerRadii.size()}, attachHitConfig.layerMaterial};
-}
 
 #endif
 

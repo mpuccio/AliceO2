@@ -477,8 +477,7 @@ void TrackerTraits::initialiseTimeFrame(const int iteration, const std::vector<S
   if (!attachHitConfig.isValid(activeSurfaceCount)) {
     throw TraversalException{iteration, TraversalFailureReason::InvalidSurfaceParameters};
   }
-  const auto geometryConfig = bindLayerGeometryConfig(mTrkParams[iteration], attachHitConfig);
-  if (!geometryConfig.isValid(activeSurfaceCount)) {
+  if (mTrkParams[iteration].LayerRadii.size() < static_cast<size_t>(activeSurfaceCount)) {
     throw TraversalException{iteration, TraversalFailureReason::InvalidSurfaceParameters};
   }
   DiskReferenceCoordinateView referenceCoordinateView{};
@@ -522,13 +521,12 @@ void TrackerTraits::initialiseTimeFrame(const int iteration, const std::vector<S
 
   // All fallible validation is complete. The remaining per-layer and
   // per-transition scattering/bending preparation is non-throwing.
-  prepareTransitionScatteringAndBending(iteration, geometryConfig, referenceCoordinateView,
+  prepareTransitionScatteringAndBending(iteration, referenceCoordinateView,
                                         mBinding->getGlobalTransitions());
 }
 
 void TrackerTraits::prepareTransitionScatteringAndBending(
   int iteration,
-  const LayerGeometryConfigView& geometryConfig,
   const DiskReferenceCoordinateView& referenceCoordinateView,
   gsl::span<const TransitionId> transitionIds)
 {
@@ -541,10 +539,10 @@ void TrackerTraits::prepareTransitionScatteringAndBending(
     const auto surface = mBinding->getOrderedSurfaces()[iLayer];
     if (topology.getSurface(surface).kind == SurfaceKind::Cylinder) {
       msAngles[iLayer] = cylinderLayerMultipleScatteringAngle(
-        CylinderLayerScatteringInputs{geometryConfig.layerMaterial[iLayer].xOverX0}, trkParam.TrackletMinPt);
+        CylinderLayerScatteringInputs{mAttachHitConfig.layerMaterial[iLayer].xOverX0}, trkParam.TrackletMinPt);
     } else {
       msAngles[iLayer] = diskLayerMultipleScatteringAngle(
-        DiskLayerScatteringInputs{geometryConfig.layerMaterial[iLayer].xOverX0, geometryConfig.layerRadii[iLayer],
+        DiskLayerScatteringInputs{mAttachHitConfig.layerMaterial[iLayer].xOverX0, trkParam.LayerRadii[iLayer],
                                   referenceCoordinateView.perLayerReferenceZ[iLayer]},
         trkParam.TrackletMinPt);
     }
@@ -1393,19 +1391,12 @@ void TrackerTraits::findRoads(const int iteration, SeedRefitFunction refitFuncti
   if (mScratch->getCells().size() != mBinding->getGlobalCells().size()) {
     throw TraversalException{iteration, TraversalFailureReason::SparseTopologyMismatch};
   }
-  findRoadsForGraph(iteration, refitFunction);
+  findRoadsImpl(iteration, refitFunction);
 }
 
-void TrackerTraits::findRoadsForGraph(int iteration, SeedRefitFunction refitFunction)
+void TrackerTraits::findRoadsImpl(const int iteration, SeedRefitFunction refitFunction)
 {
-  findRoadsForSchedule(iteration, mKernelParameters, refitFunction, mBinding->getGlobalRoadStartCells());
-}
-
-void TrackerTraits::findRoadsForSchedule(const int iteration,
-                                         const TrackingKernelParameters& params,
-                                         SeedRefitFunction refitFunction,
-                                         gsl::span<const CellTopologyId> roadStartCells)
-{
+  const auto roadStartCells = mBinding->getGlobalRoadStartCells();
   const int activeSurfaceCount = static_cast<int>(mScratch->getNOwnedSurfaces());
   bounded_vector<bounded_vector<int>> firstClusters(activeSurfaceCount, bounded_vector<int>(mMemoryPool.get()), mMemoryPool.get());
   firstClusters.resize(activeSurfaceCount);
@@ -1445,7 +1436,7 @@ void TrackerTraits::findRoadsForSchedule(const int iteration,
         bounded_vector<int> lastCellTopologyId(mMemoryPool.get()), updatedCellTopologyId(mMemoryPool.get());
         bounded_vector<TrackSeed> lastCellSeed(mMemoryPool.get()), updatedCellSeed(mMemoryPool.get());
 
-        processNeighbours(iteration, startCellTopologyId, startLevel, mScratch->getCells()[startCellTopologyId], lastCellId, lastCellTopologyId, updatedCellSeed, updatedCellId, updatedCellTopologyId, params);
+        processNeighbours(iteration, startCellTopologyId, startLevel, mScratch->getCells()[startCellTopologyId], lastCellId, lastCellTopologyId, updatedCellSeed, updatedCellId, updatedCellTopologyId, mKernelParameters);
 
         int level = startLevel;
         while (level > 2 && !updatedCellSeed.empty()) {
@@ -1455,7 +1446,7 @@ void TrackerTraits::findRoadsForSchedule(const int iteration,
           deepVectorClear(updatedCellSeed); /// tame the memory peaks
           deepVectorClear(updatedCellId);   /// tame the memory peaks
           deepVectorClear(updatedCellTopologyId);
-          processNeighbours(iteration, o2::its::constants::UnusedIndex, --level, lastCellSeed, lastCellId, lastCellTopologyId, updatedCellSeed, updatedCellId, updatedCellTopologyId, params);
+          processNeighbours(iteration, o2::its::constants::UnusedIndex, --level, lastCellSeed, lastCellId, lastCellTopologyId, updatedCellSeed, updatedCellId, updatedCellTopologyId, mKernelParameters);
         }
         deepVectorClear(lastCellId);         /// tame the memory peaks
         deepVectorClear(lastCellTopologyId); /// tame the memory peaks
