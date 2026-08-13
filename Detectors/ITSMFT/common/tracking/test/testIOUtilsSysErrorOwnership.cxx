@@ -18,15 +18,20 @@
 // o2::itsmft::ioutils::detail::shouldApplySysErrors<DetId>()/addSysErrors<DetId>()
 // (IOUtils.h) are the smallest seam that lets this be tested directly,
 // without a geometry/dictionary/CompClusterExt fixture: they are the exact
-// functions IOUtils.cxx's decodeCluster()/decodeClusterBounded()/
-// convertCompactClusters() call, moved from an anonymous namespace in
-// IOUtils.cxx into IOUtils.h's pre-existing `detail` namespace (which
+// functions IOUtils.cxx's bounded decoder calls, moved from an anonymous
+// namespace into IOUtils.h's pre-existing `detail` namespace (which
 // already held isSensorInGeometry()/isLayerInDetector() for the same
 // reason: internal, not broad public API).
 
 #define BOOST_TEST_MODULE ITSMFT IOUtilsSysErrorOwnership
 #define BOOST_TEST_MAIN
 #define BOOST_TEST_DYN_LINK
+
+#include <filesystem>
+#include <fstream>
+#include <iterator>
+#include <string>
+
 #include <boost/test/unit_test.hpp>
 
 #include "DetectorsCommonDataFormats/DetID.h"
@@ -88,6 +93,12 @@ struct ScopedSysErrParams {
   float originalMFTSysErr2Col[MFTNLayers];
 };
 
+std::string readFile(const std::filesystem::path& path)
+{
+  std::ifstream input{path};
+  return {std::istreambuf_iterator<char>{input}, {}};
+}
+
 } // namespace
 
 // --- ITS: a legacy sysErrY2/sysErrZ2 override must not reach common ITS
@@ -141,4 +152,15 @@ BOOST_FIXTURE_TEST_CASE(MFTStillAppliesItsOwnLiveSysErrorConfig, ScopedSysErrPar
   addSysErrors<o2::detectors::DetID::MFT>(3, sigma2Row, sigma2Col);
   BOOST_CHECK_CLOSE(sigma2Row, 1.5f + 5.e-4f, 1e-4);
   BOOST_CHECK_CLOSE(sigma2Col, 2.5f + 7.e-4f, 1e-4);
+}
+
+BOOST_AUTO_TEST_CASE(CommonIOUtilsExposesOnlyBoundedMeasurementDecoding)
+{
+  const auto root = std::filesystem::path{__FILE__}.parent_path().parent_path();
+  const auto header = readFile(root / "include/ITSMFTTracking/IOUtils.h");
+
+  BOOST_CHECK(header.find("getClusterLayer") == std::string::npos);
+  BOOST_CHECK(header.find("convertCompactClusters") == std::string::npos);
+  BOOST_CHECK(header.find("iterator& pattIt") == std::string::npos);
+  BOOST_CHECK(!std::filesystem::exists(root / "src/ClusterIO.cxx"));
 }
