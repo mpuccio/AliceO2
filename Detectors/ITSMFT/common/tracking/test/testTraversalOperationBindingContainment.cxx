@@ -324,14 +324,31 @@ BOOST_AUTO_TEST_CASE(TrackletLoopUsesOnlyCoordinateNeutralLeafFacades)
   const auto source = readTrackerTraitsSource();
   const auto code = stripLineComments(extractMethodBody(source, "computeLayerTrackletsImpl"));
   BOOST_CHECK_EQUAL(countOccurrences(code, "bindTrackletProjectionCache("), 2u);
-  for (const auto required : {"projectTrackletSearchWindow(", "trackletSearchRowBin(", "acceptTrackletCandidate("}) {
+  for (const auto required : {"projectTrackletSearchWindow(", "searchWindow.bins", "acceptTrackletCandidate("}) {
     BOOST_CHECK_EQUAL(countOccurrences(code, required), 1u);
   }
   for (const auto forbidden : {"projectCylinderSearchWindow(", "projectDiskSearchWindow(",
                                "CylinderTrackletSearchWindow", "DiskTrackletSearchWindow",
+                               "trackletSearchBins(", "trackletSearchRowCount(", "trackletSearchRowBin(",
                                "SurfaceKind::Cylinder", "SurfaceKind::Disk",
                                "DetID", "ClusterSourceId", "makeTransitionState"}) {
     BOOST_CHECK(code.find(forbidden) == std::string::npos);
+  }
+}
+
+BOOST_AUTO_TEST_CASE(TrackletSearchWindowIsOneDataOnlyCovarianceContract)
+{
+  const auto header = readFile((commonTrackingRoot() / "include/ITSMFTTracking/detail/CandidateFinding.h").string());
+  const auto begin = header.find("struct TrackletSearchWindow");
+  const auto end = header.find("bool bindTrackletProjectionCache", begin);
+  BOOST_REQUIRE(begin != std::string::npos);
+  BOOST_REQUIRE(end != std::string::npos);
+  const auto window = header.substr(begin, end - begin);
+  for (const auto required : {"int4 bins", "float prediction[2]", "float variance[3]"}) {
+    BOOST_CHECK(window.find(required) != std::string::npos);
+  }
+  for (const auto forbidden : {"std::variant", "CylinderTrackletSearchWindow", "DiskTrackletSearchWindow", "nSigmaCut"}) {
+    BOOST_CHECK(window.find(forbidden) == std::string::npos);
   }
 }
 

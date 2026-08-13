@@ -13,7 +13,6 @@
 #include <cmath>
 #include <cstring>
 #include <limits>
-#include <type_traits>
 #include <utility>
 
 #include <boost/test/unit_test.hpp>
@@ -108,24 +107,17 @@ TrackletProjectionCache makeDiskProjectionCache(int fromLayer, int toLayer, floa
           fromReferenceCoordinate, toReferenceCoordinate, transitionMSAngle, transitionPhiCut, true};
 }
 
-template <typename Window>
-void checkSearchWindowEqual(const Window& lhs, const Window& rhs)
+void checkSearchWindowEqual(const TrackletSearchWindow& lhs, const TrackletSearchWindow& rhs)
 {
   BOOST_CHECK_EQUAL(lhs.bins.x, rhs.bins.x);
   BOOST_CHECK_EQUAL(lhs.bins.y, rhs.bins.y);
   BOOST_CHECK_EQUAL(lhs.bins.z, rhs.bins.z);
   BOOST_CHECK_EQUAL(lhs.bins.w, rhs.bins.w);
-  if constexpr (std::is_same_v<Window, CylinderTrackletSearchWindow>) {
-    BOOST_CHECK_EQUAL(lhs.tanLambda, rhs.tanLambda);
-    BOOST_CHECK_EQUAL(lhs.sigmaZ, rhs.sigmaZ);
-    BOOST_CHECK_EQUAL(lhs.phiCut, rhs.phiCut);
-    BOOST_CHECK_EQUAL(lhs.nSigmaCut, rhs.nSigmaCut);
-  } else {
-    BOOST_CHECK_EQUAL(lhs.xProj, rhs.xProj);
-    BOOST_CHECK_EQUAL(lhs.yProj, rhs.yProj);
-    BOOST_CHECK_EQUAL(lhs.sigmaX, rhs.sigmaX);
-    BOOST_CHECK_EQUAL(lhs.sigmaY, rhs.sigmaY);
-    BOOST_CHECK_EQUAL(lhs.nSigmaCut, rhs.nSigmaCut);
+  for (int i = 0; i < 2; ++i) {
+    BOOST_CHECK_EQUAL(lhs.prediction[i], rhs.prediction[i]);
+  }
+  for (int i = 0; i < 3; ++i) {
+    BOOST_CHECK_EQUAL(lhs.variance[i], rhs.variance[i]);
   }
 }
 
@@ -262,7 +254,7 @@ BOOST_AUTO_TEST_CASE(CylinderProjectSearchWindowMatchesInlineFormulaAndDirectPhi
   const auto vertex = makeVertex(0.f, 0.f, 0.f, 1.e-4f, 1.e-4f, 4.e-4f, 4);
   const auto state = makeCylinderProjectionCache(0, 3, 2.f, 4.f, 3.8f, 4.2f, 5.e-4f, 2.e-3f, 0.08f);
 
-  CylinderTrackletSearchWindow window{};
+  TrackletSearchWindow window{};
   BOOST_REQUIRE((projectCylinderSearchWindow(
     sourceMeasurement, source, vertex, state, Bz, indexUtils, params, window)));
 
@@ -270,48 +262,53 @@ BOOST_AUTO_TEST_CASE(CylinderProjectSearchWindowMatchesInlineFormulaAndDirectPhi
   const float resolution = o2::gpu::CAMath::Sqrt(o2::its::math_utils::Sq(state.sourcePositionResolution) +
                                                  o2::its::math_utils::Sq(params.pvResolution) / float(vertex.getNContributors()));
   const float tanLambda = (source.zCoordinate - vertex.getZ()) * inverseR0;
-  const float zAtTargetMinR = tanLambda * (state.targetMinR - source.radius) + source.zCoordinate;
-  const float zAtTargetMaxR = tanLambda * (state.targetMaxR - source.radius) + source.zCoordinate;
+  const float targetMeanRadius = 0.5f * (state.targetMinR + state.targetMaxR);
+  const float zAtTargetMeanR = tanLambda * (targetMeanRadius - source.radius) + source.zCoordinate;
   const float sqInvDeltaZ0 = 1.f / (o2::its::math_utils::Sq(source.zCoordinate - vertex.getZ()) + o2::its::constants::Tolerance);
+  const float targetRadialVariance = o2::its::math_utils::Sq(state.targetMaxR - state.targetMinR) / 12.f;
   const float sigmaZ = o2::gpu::CAMath::Sqrt((o2::its::math_utils::Sq(resolution) * o2::its::math_utils::Sq(tanLambda) *
                                               ((o2::its::math_utils::Sq(inverseR0) + sqInvDeltaZ0) * o2::its::math_utils::Sq(state.toRadius - state.fromRadius) + 1.f)) +
-                                             o2::its::math_utils::Sq((state.toRadius - state.fromRadius) * state.transitionMSAngle));
-  const auto directBins = getBinsPhiZ(source.phi, state.toLayer, zAtTargetMinR, zAtTargetMaxR,
+                                             o2::its::math_utils::Sq((state.toRadius - state.fromRadius) * state.transitionMSAngle) +
+                                             o2::its::math_utils::Sq(tanLambda) * targetRadialVariance);
+  const auto directBins = getBinsPhiZ(source.phi, state.toLayer, zAtTargetMeanR, zAtTargetMeanR,
                                       sigmaZ * params.nSigmaCut, state.transitionPhiCut, indexUtils);
 
   BOOST_CHECK_EQUAL(window.bins.x, directBins.x);
   BOOST_CHECK_EQUAL(window.bins.y, directBins.y);
   BOOST_CHECK_EQUAL(window.bins.z, directBins.z);
   BOOST_CHECK_EQUAL(window.bins.w, directBins.w);
-  BOOST_CHECK_EQUAL(window.tanLambda, tanLambda);
-  BOOST_CHECK_EQUAL(window.sigmaZ, sigmaZ);
+  BOOST_CHECK_EQUAL(window.prediction[0], zAtTargetMeanR);
+  BOOST_CHECK_EQUAL(window.variance[0], o2::its::math_utils::Sq(sigmaZ));
 
   legacy.PVres = 0.025f;
   const auto positivePVParams = makeKernelParameters(legacy, SurfaceKind::Cylinder);
   BOOST_REQUIRE(positivePVParams.isValid());
-  CylinderTrackletSearchWindow positivePVWindow{};
+  TrackletSearchWindow positivePVWindow{};
   BOOST_REQUIRE((projectCylinderSearchWindow(
     sourceMeasurement, source, vertex, state, Bz, indexUtils, positivePVParams, positivePVWindow)));
   const float positivePVResolution = o2::gpu::CAMath::Sqrt(o2::its::math_utils::Sq(state.sourcePositionResolution) +
                                                            o2::its::math_utils::Sq(positivePVParams.pvResolution) / float(vertex.getNContributors()));
   const float positivePVSigmaZ = o2::gpu::CAMath::Sqrt((o2::its::math_utils::Sq(positivePVResolution) * o2::its::math_utils::Sq(tanLambda) *
                                                         ((o2::its::math_utils::Sq(inverseR0) + sqInvDeltaZ0) * o2::its::math_utils::Sq(state.toRadius - state.fromRadius) + 1.f)) +
-                                                       o2::its::math_utils::Sq((state.toRadius - state.fromRadius) * state.transitionMSAngle));
-  BOOST_CHECK_EQUAL(positivePVWindow.sigmaZ, positivePVSigmaZ);
-  BOOST_CHECK_GT(positivePVWindow.sigmaZ, window.sigmaZ);
+                                                       o2::its::math_utils::Sq((state.toRadius - state.fromRadius) * state.transitionMSAngle) +
+                                                       o2::its::math_utils::Sq(tanLambda) * targetRadialVariance);
+  BOOST_CHECK_EQUAL(positivePVWindow.variance[0], o2::its::math_utils::Sq(positivePVSigmaZ));
+  BOOST_CHECK_GT(positivePVWindow.variance[0], window.variance[0]);
 
   const float targetRadius = 4.f;
   const float targetZ = tanLambda * (targetRadius - source.radius) + source.zCoordinate;
   const auto acceptedTarget = makeGlobalCluster(targetRadius, 0.f, targetZ);
   const auto acceptedTargetMeasurement = makeMeasurement(acceptedTarget);
   float acceptedTanLambda = -999.f;
-  BOOST_CHECK(window.acceptCandidate(sourceMeasurement, source, acceptedTargetMeasurement, acceptedTarget, acceptedTanLambda));
+  BOOST_CHECK(acceptTrackletCandidate(window, sourceMeasurement, source, acceptedTargetMeasurement, acceptedTarget,
+                                      SurfaceKind::Cylinder, params.nSigmaCut, acceptedTanLambda));
   BOOST_CHECK_EQUAL(acceptedTanLambda, (source.zCoordinate - acceptedTarget.zCoordinate) / (source.radius - acceptedTarget.radius));
 
   const auto rejectedTarget = makeGlobalCluster(-targetRadius, 0.f, targetZ);
   const auto rejectedTargetMeasurement = makeMeasurement(rejectedTarget);
   float rejectedTanLambda = 123.f;
-  BOOST_CHECK(!window.acceptCandidate(sourceMeasurement, source, rejectedTargetMeasurement, rejectedTarget, rejectedTanLambda));
+  BOOST_CHECK(!acceptTrackletCandidate(window, sourceMeasurement, source, rejectedTargetMeasurement, rejectedTarget,
+                                       SurfaceKind::Cylinder, params.nSigmaCut, rejectedTanLambda));
   BOOST_CHECK_EQUAL(rejectedTanLambda, 123.f);
 }
 
@@ -335,7 +332,7 @@ BOOST_AUTO_TEST_CASE(DiskProjectSearchWindowReusesHelpersAndDirectProjectedXYBin
   const auto vertex = makeVertex(0.01f, -0.02f, 0.1f, 4.e-4f, 5.e-4f, 0.04f, 3);
   const auto state = makeDiskProjectionCache(fromLayer, toLayer, 2.f, fromZ, toZ, 3.e-3f, 0.04f);
 
-  DiskTrackletSearchWindow window{};
+  TrackletSearchWindow window{};
   BOOST_REQUIRE((projectDiskSearchWindow(
     sourceMeasurement, source, vertex, state, Bz, indexUtils, params, window)));
 
@@ -376,22 +373,24 @@ BOOST_AUTO_TEST_CASE(DiskProjectSearchWindowReusesHelpersAndDirectProjectedXYBin
   BOOST_CHECK_EQUAL(window.bins.y, directBins.y);
   BOOST_CHECK_EQUAL(window.bins.z, directBins.z);
   BOOST_CHECK_EQUAL(window.bins.w, directBins.w);
-  BOOST_CHECK_EQUAL(window.xProj, expectedX);
-  BOOST_CHECK_EQUAL(window.yProj, expectedY);
-  BOOST_CHECK_EQUAL(window.sigmaX, expectedSigmaX);
-  BOOST_CHECK_EQUAL(window.sigmaY, expectedSigmaY);
+  BOOST_CHECK_EQUAL(window.prediction[0], expectedX);
+  BOOST_CHECK_EQUAL(window.prediction[1], expectedY);
+  BOOST_CHECK_EQUAL(window.variance[0], o2::its::math_utils::Sq(expectedSigmaX));
+  BOOST_CHECK_EQUAL(window.variance[2], o2::its::math_utils::Sq(expectedSigmaY));
 
   const auto acceptedTarget = makeGlobalCluster(expectedX, expectedY, toZ);
   const auto acceptedTargetMeasurement = makeMeasurement(acceptedTarget);
   float acceptedTanLambda = -999.f;
-  BOOST_CHECK(window.acceptCandidate(sourceMeasurement, acceptedTargetMeasurement, acceptedTanLambda));
+  BOOST_CHECK(acceptTrackletCandidate(window, sourceMeasurement, source, acceptedTargetMeasurement, acceptedTarget,
+                                      SurfaceKind::Disk, params.nSigmaCut, acceptedTanLambda));
   BOOST_CHECK_EQUAL(acceptedTanLambda,
                     (source.zCoordinate - acceptedTarget.zCoordinate) /
                       (source.radius - acceptedTarget.radius));
 
   const auto sameRadiusTarget = makeGlobalCluster(source.radius, 0.f, toZ);
   float rejectedTanLambda = 123.f;
-  BOOST_CHECK(!window.acceptCandidate(sourceMeasurement, makeMeasurement(sameRadiusTarget), rejectedTanLambda));
+  BOOST_CHECK(!acceptTrackletCandidate(window, sourceMeasurement, source, makeMeasurement(sameRadiusTarget), sameRadiusTarget,
+                                       SurfaceKind::Disk, params.nSigmaCut, rejectedTanLambda));
   BOOST_CHECK_EQUAL(rejectedTanLambda, 123.f);
 }
 
@@ -406,8 +405,8 @@ BOOST_AUTO_TEST_CASE(ProjectSearchWindowInvalidBinsLeaveEveryOutputFieldUnchange
   const auto cylinderMeasurement = makeMeasurement(cylinderSource);
   const auto cylinderVertex = makeVertex(0.f, 0.f, 0.f, 0.f, 0.f, 0.f);
   const auto cylinderState = makeCylinderProjectionCache(0, 3, 2.f, 4.f, 3.8f, 4.2f, 5.e-4f, 2.e-3f, 0.08f);
-  const CylinderTrackletSearchWindow cylinderSentinel{
-    {101, 102, 103, 104}, 105.f, 106.f, 107.f, 108.f};
+  const TrackletSearchWindow cylinderSentinel{
+    {101, 102, 103, 104}, {105.f, 106.f}, {107.f, 108.f, 109.f}};
   auto cylinderOut = cylinderSentinel;
   BOOST_CHECK(!(projectCylinderSearchWindow(
     cylinderMeasurement, cylinderSource, cylinderVertex, cylinderState, Bz, cylinderIndexUtils, cylinderParams, cylinderOut)));
@@ -426,8 +425,8 @@ BOOST_AUTO_TEST_CASE(ProjectSearchWindowInvalidBinsLeaveEveryOutputFieldUnchange
   const auto diskMeasurement = makeMeasurement(diskSource);
   const auto diskVertex = makeVertex(0.f, 0.f, 0.f, 0.f, 0.f, 0.f);
   const auto diskState = makeDiskProjectionCache(fromLayer, toLayer, 2.f, fromZ, toZ, 3.e-3f, 0.04f);
-  const DiskTrackletSearchWindow diskSentinel{
-    {201, 202, 203, 204}, 205.f, 206.f, 207.f, 208.f, 210.f};
+  const TrackletSearchWindow diskSentinel{
+    {201, 202, 203, 204}, {205.f, 206.f}, {207.f, 208.f, 210.f}};
   auto diskOut = diskSentinel;
   BOOST_CHECK(!(projectDiskSearchWindow(
     diskMeasurement, diskSource, diskVertex, diskState, Bz, diskIndexUtils, diskParams, diskOut)));
@@ -436,31 +435,33 @@ BOOST_AUTO_TEST_CASE(ProjectSearchWindowInvalidBinsLeaveEveryOutputFieldUnchange
 
 BOOST_AUTO_TEST_CASE(CylinderCandidateUsesPeriodicPhiAndStrictSigmaAndPhiBoundaries)
 {
-  CylinderTrackletSearchWindow window{
-    {}, 0.f, 1.f, 0.02f, 5.f};
+  constexpr float nSigmaCut = 5.f;
+  TrackletSearchWindow window{{}, {0.f, 0.f}, {1.f, 0.f, o2::its::math_utils::Sq(0.02f / nSigmaCut)}};
 
   const float wrapEpsilon = 0.005f;
   const auto wrappedSource = makeGlobalCluster(std::cos(wrapEpsilon), -std::sin(wrapEpsilon), 0.f);
   const auto wrappedTarget = makeGlobalCluster(2.f * std::cos(wrapEpsilon), 2.f * std::sin(wrapEpsilon), 0.f);
   float tanLambda = -9.f;
-  BOOST_REQUIRE(o2::its::math_utils::isPhiDifferenceBelow(wrappedSource.phi, wrappedTarget.phi, window.phiCut));
-  BOOST_CHECK(window.acceptCandidate(makeMeasurement(wrappedSource), wrappedSource, makeMeasurement(wrappedTarget), wrappedTarget, tanLambda));
+  BOOST_CHECK(acceptTrackletCandidate(window, makeMeasurement(wrappedSource), wrappedSource,
+                                      makeMeasurement(wrappedTarget), wrappedTarget,
+                                      SurfaceKind::Cylinder, nSigmaCut, tanLambda));
 
   const auto source = makeGlobalCluster(1.f, 0.f, 0.f);
   const auto sourceMeasurement = makeMeasurement(source);
   const auto exactSigmaTarget = makeGlobalCluster(2.f, 0.f, 5.f);
   tanLambda = 71.f;
-  BOOST_CHECK(!window.acceptCandidate(sourceMeasurement, source, makeMeasurement(exactSigmaTarget), exactSigmaTarget, tanLambda));
+  BOOST_CHECK(!acceptTrackletCandidate(window, sourceMeasurement, source, makeMeasurement(exactSigmaTarget), exactSigmaTarget,
+                                       SurfaceKind::Cylinder, nSigmaCut, tanLambda));
   BOOST_CHECK_EQUAL(tanLambda, 71.f);
   const auto insideSigmaTarget = makeGlobalCluster(2.f, 0.f, std::nextafter(5.f, 0.f));
-  BOOST_CHECK(window.acceptCandidate(sourceMeasurement, source, makeMeasurement(insideSigmaTarget), insideSigmaTarget, tanLambda));
+  BOOST_CHECK(acceptTrackletCandidate(window, sourceMeasurement, source, makeMeasurement(insideSigmaTarget), insideSigmaTarget,
+                                      SurfaceKind::Cylinder, nSigmaCut, tanLambda));
 
   const auto phiTarget = makeGlobalCluster(2.f * std::cos(0.125f), 2.f * std::sin(0.125f), 0.f);
-  window.phiCut = o2::gpu::CAMath::Abs(source.phi - phiTarget.phi);
-  const bool directPhiDecision = o2::its::math_utils::isPhiDifferenceBelow(source.phi, phiTarget.phi, window.phiCut);
+  window.variance[2] = o2::its::math_utils::Sq(o2::gpu::CAMath::Abs(source.phi - phiTarget.phi) / nSigmaCut);
   tanLambda = 72.f;
-  BOOST_CHECK_EQUAL(window.acceptCandidate(sourceMeasurement, source, makeMeasurement(phiTarget), phiTarget, tanLambda), directPhiDecision);
-  BOOST_CHECK(!directPhiDecision);
+  BOOST_CHECK(!acceptTrackletCandidate(window, sourceMeasurement, source, makeMeasurement(phiTarget), phiTarget,
+                                       SurfaceKind::Cylinder, nSigmaCut, tanLambda));
   BOOST_CHECK_EQUAL(tanLambda, 72.f);
 }
 
@@ -482,7 +483,7 @@ BOOST_AUTO_TEST_CASE(DiskProjectionLeafRetainsNearZeroDenominatorGuardAndRadialS
   indexUtils.setIndexTableParams(IndexTableCoordType::XY, legacy.RowBins, legacy.ColBins, -200.f, 200.f, halfExtents);
 
   const auto straightVertex = makeVertex(0.1f, -0.2f, 0.3f, 4.e-4f, 5.e-4f, 0.04f);
-  DiskTrackletSearchWindow straightWindow{};
+  TrackletSearchWindow straightWindow{};
   BOOST_REQUIRE((projectDiskSearchWindow(
     sourceMeasurement, source, straightVertex, state, 0.f, indexUtils, params, straightWindow)));
   float expectedX = 0.f;
@@ -490,11 +491,11 @@ BOOST_AUTO_TEST_CASE(DiskProjectionLeafRetainsNearZeroDenominatorGuardAndRadialS
   detail::mftTrackletProject(source.xCoordinate, source.yCoordinate, source.zCoordinate,
                              straightVertex.getX(), straightVertex.getY(), straightVertex.getZ(),
                              fromLayer, toLayer, 0.f, params.trackletMinPt, expectedX, expectedY);
-  BOOST_CHECK_EQUAL(straightWindow.xProj, expectedX);
-  BOOST_CHECK_EQUAL(straightWindow.yProj, expectedY);
+  BOOST_CHECK_EQUAL(straightWindow.prediction[0], expectedX);
+  BOOST_CHECK_EQUAL(straightWindow.prediction[1], expectedY);
 
   const auto fallbackVertex = makeVertex(0.1f, -0.2f, fromZ, 4.e-4f, 5.e-4f, 0.f);
-  DiskTrackletSearchWindow fallbackWindow{};
+  TrackletSearchWindow fallbackWindow{};
   BOOST_REQUIRE((projectDiskSearchWindow(
     sourceMeasurement, source, fallbackVertex, state, 0.f, indexUtils, params, fallbackWindow)));
   expectedX = expectedY = 0.f;
@@ -503,8 +504,8 @@ BOOST_AUTO_TEST_CASE(DiskProjectionLeafRetainsNearZeroDenominatorGuardAndRadialS
                              fromLayer, toLayer, 0.f, params.trackletMinPt, expectedX, expectedY);
   BOOST_CHECK_EQUAL(expectedX, source.xCoordinate);
   BOOST_CHECK_EQUAL(expectedY, source.yCoordinate);
-  BOOST_CHECK_EQUAL(fallbackWindow.xProj, expectedX);
-  BOOST_CHECK_EQUAL(fallbackWindow.yProj, expectedY);
+  BOOST_CHECK_EQUAL(fallbackWindow.prediction[0], expectedX);
+  BOOST_CHECK_EQUAL(fallbackWindow.prediction[1], expectedY);
 
   const auto swapVertex = makeVertex(0.f, 0.f, fromZ + 0.1f, 0.f, 0.f, 0.01f);
   const float zSpread = params.nSigmaCut * swapVertex.getSigmaZ();
@@ -515,7 +516,7 @@ BOOST_AUTO_TEST_CASE(DiskProjectionLeafRetainsNearZeroDenominatorGuardAndRadialS
   const float rawRadialMin = source.radius * (zVtxMax + absZTo) / (zVtxMax + absZFrom);
   const float rawRadialMax = source.radius * (absZTo + zVtxMin) / (absZFrom + zVtxMin);
   BOOST_REQUIRE_GT(rawRadialMin, rawRadialMax);
-  DiskTrackletSearchWindow swapWindow{};
+  TrackletSearchWindow swapWindow{};
   BOOST_REQUIRE((projectDiskSearchWindow(
     sourceMeasurement, source, swapVertex, state, 0.f, indexUtils, params, swapWindow)));
   expectedX = expectedY = 0.f;
@@ -544,34 +545,37 @@ BOOST_AUTO_TEST_CASE(DiskProjectionLeafRetainsNearZeroDenominatorGuardAndRadialS
 
 BOOST_AUTO_TEST_CASE(DiskCandidatePreservesInverseVarianceAndStrictBoundarySemantics)
 {
+  constexpr float nSigmaCut = 5.f;
   const auto source = makeGlobalCluster(1.f, 0.f, -45.f);
   const auto distantTarget = makeGlobalCluster(100.f, -80.f, -47.f);
   const auto sourceMeasurement = makeMeasurement(source);
   const auto distantTargetMeasurement = makeMeasurement(distantTarget);
-  DiskTrackletSearchWindow zeroSigmaWindow{
-    {}, 0.f, 0.f, 0.f, -1.f, 5.f};
+  TrackletSearchWindow zeroSigmaWindow{
+    {}, {0.f, 0.f}, {0.f, 0.f, -1.f}};
   float tanLambda = -8.f;
-  BOOST_CHECK(zeroSigmaWindow.acceptCandidate(sourceMeasurement, distantTargetMeasurement, tanLambda));
-  BOOST_CHECK_CLOSE(tanLambda,
-                    (source.zCoordinate - distantTarget.zCoordinate) /
-                      (source.radius - distantTarget.radius),
-                    1.e-4f);
+  BOOST_CHECK(!acceptTrackletCandidate(zeroSigmaWindow, sourceMeasurement, source, distantTargetMeasurement, distantTarget,
+                                       SurfaceKind::Disk, nSigmaCut, tanLambda));
+  BOOST_CHECK_EQUAL(tanLambda, -8.f);
 
-  DiskTrackletSearchWindow chi2Window{
-    {}, 0.f, 0.f, 1.f, 1.f, 5.f};
+  TrackletSearchWindow chi2Window{
+    {}, {0.f, 0.f}, {1.f, 0.f, 1.f}};
   const auto exactChi2Target = makeGlobalCluster(5.f, 0.f, -47.f);
   tanLambda = 81.f;
-  BOOST_CHECK(!chi2Window.acceptCandidate(sourceMeasurement, makeMeasurement(exactChi2Target), tanLambda));
+  BOOST_CHECK(!acceptTrackletCandidate(chi2Window, sourceMeasurement, source, makeMeasurement(exactChi2Target), exactChi2Target,
+                                       SurfaceKind::Disk, nSigmaCut, tanLambda));
   BOOST_CHECK_EQUAL(tanLambda, 81.f);
   const auto insideChi2Target = makeGlobalCluster(std::nextafter(5.f, 0.f), 0.f, -47.f);
-  BOOST_CHECK(chi2Window.acceptCandidate(sourceMeasurement, makeMeasurement(insideChi2Target), tanLambda));
+  BOOST_CHECK(acceptTrackletCandidate(chi2Window, sourceMeasurement, source, makeMeasurement(insideChi2Target), insideChi2Target,
+                                      SurfaceKind::Disk, nSigmaCut, tanLambda));
 
   const auto sameRadiusTarget = makeGlobalCluster(1.f, 0.f, -47.f);
   tanLambda = 82.f;
-  BOOST_CHECK(!chi2Window.acceptCandidate(sourceMeasurement, makeMeasurement(sameRadiusTarget), tanLambda));
+  BOOST_CHECK(!acceptTrackletCandidate(chi2Window, sourceMeasurement, source, makeMeasurement(sameRadiusTarget), sameRadiusTarget,
+                                       SurfaceKind::Disk, nSigmaCut, tanLambda));
   BOOST_CHECK_EQUAL(tanLambda, 82.f);
   const auto distinctRadiusTarget = makeGlobalCluster(0.99f, 0.f, -47.f);
-  BOOST_CHECK(chi2Window.acceptCandidate(sourceMeasurement, makeMeasurement(distinctRadiusTarget), tanLambda));
+  BOOST_CHECK(acceptTrackletCandidate(chi2Window, sourceMeasurement, source, makeMeasurement(distinctRadiusTarget), distinctRadiusTarget,
+                                      SurfaceKind::Disk, nSigmaCut, tanLambda));
   BOOST_CHECK_CLOSE(tanLambda, 200.f, 1.e-3f);
 }
 
@@ -589,11 +593,12 @@ BOOST_AUTO_TEST_CASE(NormalizedMeasurementsRemainAuthoritativeOverPoisonedLocato
   const auto source = makeGlobalCluster(2.f, 0.f, 0.5f);
   const auto target = makeGlobalCluster(4.f, 0.f, 1.f);
 
-  CylinderTrackletSearchWindow baseline{};
+  TrackletSearchWindow baseline{};
   BOOST_REQUIRE((projectCylinderSearchWindow(
     sourceMeasurement, source, vertex, cylinderState, Bz, cylinderIndex, cylinderKernelParameters, baseline)));
   float baselineTanLambda = -1.f;
-  BOOST_REQUIRE(baseline.acceptCandidate(sourceMeasurement, source, targetMeasurement, target, baselineTanLambda));
+  BOOST_REQUIRE(acceptTrackletCandidate(baseline, sourceMeasurement, source, targetMeasurement, target,
+                                        SurfaceKind::Cylinder, cylinderKernelParameters.nSigmaCut, baselineTanLambda));
   const float baselinePhi = o2::gpu::GPUCommonMath::ATan2(sourceMeasurement.position.y - targetMeasurement.position.y,
                                                           sourceMeasurement.position.x - targetMeasurement.position.x);
 
@@ -605,12 +610,13 @@ BOOST_AUTO_TEST_CASE(NormalizedMeasurementsRemainAuthoritativeOverPoisonedLocato
   poisonedTarget.xCoordinate = 666.f;
   poisonedTarget.yCoordinate = -555.f;
   poisonedTarget.zCoordinate = 444.f;
-  CylinderTrackletSearchWindow poisonedWindow{};
+  TrackletSearchWindow poisonedWindow{};
   BOOST_REQUIRE((projectCylinderSearchWindow(
     sourceMeasurement, poisonedSource, vertex, cylinderState, Bz, cylinderIndex, cylinderKernelParameters, poisonedWindow)));
   checkSearchWindowEqual(poisonedWindow, baseline);
   float poisonedTanLambda = -2.f;
-  BOOST_REQUIRE(poisonedWindow.acceptCandidate(sourceMeasurement, poisonedSource, targetMeasurement, poisonedTarget, poisonedTanLambda));
+  BOOST_REQUIRE(acceptTrackletCandidate(poisonedWindow, sourceMeasurement, poisonedSource, targetMeasurement, poisonedTarget,
+                                        SurfaceKind::Cylinder, cylinderKernelParameters.nSigmaCut, poisonedTanLambda));
   BOOST_CHECK_EQUAL(poisonedTanLambda, baselineTanLambda);
   BOOST_CHECK_EQUAL(o2::gpu::GPUCommonMath::ATan2(sourceMeasurement.position.y - targetMeasurement.position.y,
                                                   sourceMeasurement.position.x - targetMeasurement.position.x),
@@ -618,10 +624,10 @@ BOOST_AUTO_TEST_CASE(NormalizedMeasurementsRemainAuthoritativeOverPoisonedLocato
 
   auto poisonedNavigationCache = source;
   poisonedNavigationCache.radius = 4.f;
-  CylinderTrackletSearchWindow cachePoisonedWindow{};
+  TrackletSearchWindow cachePoisonedWindow{};
   BOOST_REQUIRE((projectCylinderSearchWindow(
     sourceMeasurement, poisonedNavigationCache, vertex, cylinderState, Bz, cylinderIndex, cylinderKernelParameters, cachePoisonedWindow)));
-  BOOST_CHECK_NE(cachePoisonedWindow.tanLambda, baseline.tanLambda);
+  BOOST_CHECK_NE(cachePoisonedWindow.prediction[0], baseline.prediction[0]);
 
   TrackingParameters diskParameters;
   const auto diskKernelParameters = makeKernelParameters(diskParameters, SurfaceKind::Disk);
@@ -634,7 +640,7 @@ BOOST_AUTO_TEST_CASE(NormalizedMeasurementsRemainAuthoritativeOverPoisonedLocato
   const auto diskMeasurement = makeMeasurement(1.f, 0.5f, fromZ, 2.e-4f, 3.e-4f, 7.f);
   auto diskLocator = makeGlobalCluster(1.f, 0.5f, fromZ);
   const auto diskState = makeDiskProjectionCache(0, 1, 2.f, fromZ, toZ, 3.e-3f, 0.04f);
-  DiskTrackletSearchWindow diskBaseline{};
+  TrackletSearchWindow diskBaseline{};
   BOOST_REQUIRE((projectDiskSearchWindow(
     diskMeasurement, diskLocator, vertex, diskState, Bz, diskIndex, diskKernelParameters, diskBaseline)));
   diskLocator.xCoordinate = 123.f;
@@ -642,7 +648,7 @@ BOOST_AUTO_TEST_CASE(NormalizedMeasurementsRemainAuthoritativeOverPoisonedLocato
   diskLocator.zCoordinate = 456.f;
   auto uvPoisoned = diskMeasurement;
   uvPoisoned.covariance.xy = -12345.f;
-  DiskTrackletSearchWindow diskPoisoned{};
+  TrackletSearchWindow diskPoisoned{};
   BOOST_REQUIRE((projectDiskSearchWindow(
     uvPoisoned, diskLocator, vertex, diskState, Bz, diskIndex, diskKernelParameters, diskPoisoned)));
   checkSearchWindowEqual(diskPoisoned, diskBaseline);
