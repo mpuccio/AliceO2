@@ -13,10 +13,8 @@
 #ifndef GPUCA_GPUCODE
 #include <gsl/span>
 
-#include "ITSMFTTracking/Configuration.h"
 #include "ITSMFTTracking/GlobalMeasurement.h"
 #include "ITSMFTTracking/IndexTableUtils.h"
-#include "ITSMFTTracking/MaterialPhysics.h"
 #include "ITSMFTTracking/SurfaceDescriptor.h"
 #include "ITSMFTTracking/SurfaceKinematicState.h"
 #include "ITSMFTTracking/SurfaceMeasurement.h"
@@ -44,7 +42,6 @@ namespace o2::itsmft::tracking
 #ifndef GPUCA_GPUCODE
 
 struct CylinderTrackletProjectionState {
-  int fromLayer;
   int toLayer;
   float meanDeltaR;
   float targetMinR;
@@ -55,14 +52,13 @@ struct CylinderTrackletProjectionState {
 };
 
 struct DiskTrackletProjectionState {
-  int fromLayer;
   int toLayer;
   float fromZ;
   float toZ;
   float meanDeltaZ;
   float sourceReferenceRadius;
   float transitionMSAngle;
-  float transitionBendingAngle;
+  float transitionPhiCut;
 };
 
 struct CylinderTrackletSearchWindow {
@@ -100,7 +96,7 @@ bool bindTrackletProjectionState(SurfaceKind kind, int fromLayer, int toLayer,
                                  gsl::span<const float> diskReferenceZ,
                                  float targetMinR, float targetMaxR,
                                  float sourcePositionResolution,
-                                 float transitionMSAngle, float transitionBendingAngle,
+  float transitionMSAngle, float transitionPhiCut,
                                  TrackletProjectionState& out) noexcept;
 
 bool projectTrackletSearchWindow(const GlobalMeasurement& sourceMeasurement,
@@ -139,126 +135,6 @@ bool projectDiskSearchWindow(const GlobalMeasurement& sourceMeasurement,
                              float bz, const o2::itsmft::IndexTableUtilsCore& indexUtils,
                              const TrackingKernelParameters& params,
                              DiskTrackletSearchWindow& out);
-
-struct CylinderLayerScatteringInputs {
-  float layerxX0;
-};
-struct DiskLayerScatteringInputs {
-  float layerxX0;
-  float layerRadius;
-  float referenceCoordinate;
-};
-
-float cylinderLayerMultipleScatteringAngle(const CylinderLayerScatteringInputs& inputs, float trackletMinPt);
-float diskLayerMultipleScatteringAngle(const DiskLayerScatteringInputs& inputs, float trackletMinPt);
-
-struct DiskReferenceCoordinateView {
-  gsl::span<const float> perLayerReferenceZ;
-  bool isValid(size_t expectedLayers) const noexcept { return perLayerReferenceZ.size() >= expectedLayers; }
-};
-
-DiskReferenceCoordinateView bindLegacyMFTReferenceCoordinates() noexcept;
-
-float clampTransitionCurvature(float oneOverR, float outerRadius) noexcept;
-
-struct TransitionScatteringBendingPrep {
-  float msAngle;
-  float phiCut;
-};
-
-TransitionScatteringBendingPrep prepareTransitionScatteringAndBending(
-  gsl::span<const float> perLayerMSAngle, int fromLayer, int toLayer,
-  float r1, float r2, float clampedOneOverR, float res1, float res2) noexcept;
-
-enum class MaterialCorrectionModeSupport : uint8_t {
-  Supported,
-  Unsupported,
-  InvalidMode,
-  InvalidSurfaceKind
-};
-
-inline MaterialCorrectionModeSupport materialCorrectionModeSupport(SurfaceKind kind,
-                                                                   o2::base::PropagatorF::MatCorrType corrType) noexcept
-{
-  if (!isRecognizedMatCorrType(corrType)) {
-    return MaterialCorrectionModeSupport::InvalidMode;
-  }
-  if (kind != SurfaceKind::Cylinder && kind != SurfaceKind::Disk) {
-    return MaterialCorrectionModeSupport::InvalidSurfaceKind;
-  }
-  if (kind == SurfaceKind::Cylinder && corrType != o2::base::PropagatorF::MatCorrType::USEMatCorrNONE) {
-    return MaterialCorrectionModeSupport::Unsupported;
-  }
-  return MaterialCorrectionModeSupport::Supported;
-}
-
-struct LayerGeometryConfigView {
-  gsl::span<const float> layerRadii;
-  gsl::span<const NominalSurfaceMaterial> layerMaterial;
-
-  bool isValid(size_t expectedLayers) const noexcept
-  {
-    return layerRadii.size() >= expectedLayers && layerMaterial.size() >= expectedLayers;
-  }
-};
-
-inline LayerGeometryConfigView bindLayerGeometryConfig(const TrackingParameters& params,
-                                                       const AttachHitConfigView& attachHitConfig) noexcept
-{
-  return {gsl::span<const float>{params.LayerRadii.data(), params.LayerRadii.size()}, attachHitConfig.layerMaterial};
-}
-
-struct DirectionObservation {
-  double r{0.};
-  double z{0.};
-  double varianceR{0.};
-  double covarianceRZ{0.};
-  double varianceZ{0.};
-};
-
-struct TransverseDirectionObservation {
-  double x{0.};
-  double y{0.};
-  double varianceX{0.};
-  double covarianceXY{0.};
-  double varianceY{0.};
-};
-
-struct DirectionProcessNoise {
-  // Variance of a thin angular kick at the middle observation.
-  double angularVariance{0.};
-};
-
-struct CellDirectionCompatibility {
-  double residual{0.};
-  double variance{0.};
-  double chi2{0.};
-};
-
-struct TransverseDirectionCompatibility {
-  double deltaPhi{0.};
-  double maximumBending{0.};
-  double variance{0.};
-  double chi2{0.};
-};
-
-bool makeTransverseDirectionObservation(const GlobalMeasurement& measurement,
-                                        TransverseDirectionObservation& observation) noexcept;
-
-bool trackletDirectionsAreTransverselyCompatible(
-  const std::array<TransverseDirectionObservation, 3>& observations,
-  float firstPhi, float secondPhi,
-  const DirectionProcessNoise& processNoise,
-  float bz, float trackletMinPt, float nSigmaCut,
-  TransverseDirectionCompatibility& compatibility) noexcept;
-
-bool makeDirectionObservation(const GlobalMeasurement& measurement,
-                              DirectionObservation& observation) noexcept;
-
-bool cellDirectionsAreCompatible(const std::array<DirectionObservation, 3>& observations,
-                                 const DirectionProcessNoise& processNoise,
-                                 float nSigmaCut,
-                                 CellDirectionCompatibility& compatibility) noexcept;
 
 bool buildCylinderCellSeed(const GlobalMeasurement& globalInner,
                            const GlobalMeasurement& globalMiddle,

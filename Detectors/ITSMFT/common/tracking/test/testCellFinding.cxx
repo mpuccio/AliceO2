@@ -22,6 +22,7 @@
 #include "ITSMFTTracking/MaterialPhysics.h"
 #include "ITSMFTTracking/Propagator.h"
 #include "ITSMFTTracking/detail/CandidateFinding.h"
+#include "ITSMFTTracking/detail/DirectionCompatibility.h"
 #include "ITStracking/Cluster.h"
 
 /// Focused coverage for the explicit cylinder/disk SurfaceKinematicState

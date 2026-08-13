@@ -40,6 +40,8 @@
 #include "ITSMFTTracking/TrackerTraits.h"
 #include "ITSMFTTracking/detail/SurfacePlanBinding.h"
 #include "ITSMFTTracking/detail/CandidateFinding.h"
+#include "ITSMFTTracking/detail/DirectionCompatibility.h"
+#include "ITSMFTTracking/detail/TrackerTraversalPreparation.h"
 #include "ITStracking/Tracklet.h"
 #include "SimulationDataFormat/MCCompLabel.h"
 

@@ -52,7 +52,6 @@
 #include "ITSMFTTracking/TrackerTraits.h"
 #include "ITSMFTTracking/TrackingConfigParam.h"
 #include "ITSMFTTracking/CommonTrackOutputAdapter.h"
-#include "ITSMFTTracking/detail/CandidateFinding.h"
 #include "ITStracking/Constants.h"
 #include "ReconstructionDataFormats/Track.h"
 

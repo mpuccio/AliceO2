@@ -24,7 +24,7 @@
 
 #include "DetectorsBase/Propagator.h"
 #include "ITSMFTTracking/TrackerTraits.h"
-#include "ITSMFTTracking/detail/CandidateFinding.h"
+#include "ITSMFTTracking/Configuration.h"
 
 using namespace o2::itsmft::tracking;
 using o2::itsmft::AttachHitConfigView;

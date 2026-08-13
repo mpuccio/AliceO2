@@ -26,6 +26,7 @@
 #include "GPUCommonMath.h"
 #include "ITSMFTTracking/detail/MFTFwdTrackHelpers.h"
 #include "ITSMFTTracking/detail/CandidateFinding.h"
+#include "ITSMFTTracking/detail/TrackerTraversalPreparation.h"
 #include "ITStracking/TrackHelpers.h"
 
 using namespace o2::itsmft;
@@ -244,7 +245,7 @@ BOOST_AUTO_TEST_CASE(CylinderProjectSearchWindowMatchesInlineFormulaAndDirectPhi
   const auto sourceMeasurement = makeMeasurement(source);
   const auto vertex = makeVertex(0.f, 0.f, 0.f, 1.e-4f, 1.e-4f, 4.e-4f, 4);
   const CylinderTrackletProjectionState state{
-    0, 3, 2.f, 3.8f, 4.2f, 5.e-4f, 2.e-3f, 0.08f};
+    3, 2.f, 3.8f, 4.2f, 5.e-4f, 2.e-3f, 0.08f};
 
   CylinderTrackletSearchWindow window{};
   BOOST_REQUIRE((projectCylinderSearchWindow(
@@ -318,7 +319,7 @@ BOOST_AUTO_TEST_CASE(DiskProjectSearchWindowReusesHelpersAndDirectProjectedXYBin
   const auto sourceMeasurement = makeMeasurement(source, 2.e-4f, 3.e-4f);
   const auto vertex = makeVertex(0.01f, -0.02f, 0.1f, 4.e-4f, 5.e-4f, 0.04f, 3);
   const DiskTrackletProjectionState state{
-    fromLayer, toLayer, fromZ, toZ, toZ - fromZ, 2.f, 3.e-3f, 0.04f};
+    toLayer, fromZ, toZ, toZ - fromZ, 2.f, 3.e-3f, 0.04f};
 
   DiskTrackletSearchWindow window{};
   BOOST_REQUIRE((projectDiskSearchWindow(
@@ -336,7 +337,7 @@ BOOST_AUTO_TEST_CASE(DiskProjectSearchWindowReusesHelpersAndDirectProjectedXYBin
                              sourceMeasurement.covariance.xx, sourceMeasurement.covariance.yy,
                              vertex.getSigmaX2(), vertex.getSigmaY2(), vertex.getSigmaZ2(),
                              fromLayer, toLayer, state.sourceReferenceRadius, state.meanDeltaZ,
-                             state.transitionMSAngle, state.transitionBendingAngle,
+                             state.transitionMSAngle, state.transitionPhiCut,
                              expectedX, expectedY, expectedSigmaX, expectedSigmaY);
 
   const float zSpread = params.nSigmaCut * vertex.getSigmaZ();
@@ -391,7 +392,7 @@ BOOST_AUTO_TEST_CASE(ProjectSearchWindowInvalidBinsLeaveEveryOutputFieldUnchange
   const auto cylinderMeasurement = makeMeasurement(cylinderSource);
   const auto cylinderVertex = makeVertex(0.f, 0.f, 0.f, 0.f, 0.f, 0.f);
   const CylinderTrackletProjectionState cylinderState{
-    0, 3, 2.f, 3.8f, 4.2f, 5.e-4f, 2.e-3f, 0.08f};
+    3, 2.f, 3.8f, 4.2f, 5.e-4f, 2.e-3f, 0.08f};
   const CylinderTrackletSearchWindow cylinderSentinel{
     {101, 102, 103, 104}, 105.f, 106.f, 107.f, 108.f};
   auto cylinderOut = cylinderSentinel;
@@ -412,7 +413,7 @@ BOOST_AUTO_TEST_CASE(ProjectSearchWindowInvalidBinsLeaveEveryOutputFieldUnchange
   const auto diskMeasurement = makeMeasurement(diskSource);
   const auto diskVertex = makeVertex(0.f, 0.f, 0.f, 0.f, 0.f, 0.f);
   const DiskTrackletProjectionState diskState{
-    fromLayer, toLayer, fromZ, toZ, toZ - fromZ, 2.f, 3.e-3f, 0.04f};
+    toLayer, fromZ, toZ, toZ - fromZ, 2.f, 3.e-3f, 0.04f};
   const DiskTrackletSearchWindow diskSentinel{
     {201, 202, 203, 204}, 205.f, 206.f, 207.f, 208.f, 210.f};
   auto diskOut = diskSentinel;
@@ -462,7 +463,7 @@ BOOST_AUTO_TEST_CASE(DiskProjectionLeafRetainsNearZeroDenominatorGuardAndRadialS
   const auto source = makeGlobalCluster(1.f, 0.5f, fromZ);
   const auto sourceMeasurement = makeMeasurement(source);
   const DiskTrackletProjectionState state{
-    fromLayer, toLayer, fromZ, toZ, toZ - fromZ, 2.f, 3.e-3f, 0.04f};
+    toLayer, fromZ, toZ, toZ - fromZ, 2.f, 3.e-3f, 0.04f};
 
   IndexTableUtilsCore indexUtils;
   std::array<float, 10> halfExtents{};
@@ -517,7 +518,7 @@ BOOST_AUTO_TEST_CASE(DiskProjectionLeafRetainsNearZeroDenominatorGuardAndRadialS
                              sourceMeasurement.covariance.xx, sourceMeasurement.covariance.yy,
                              swapVertex.getSigmaX2(), swapVertex.getSigmaY2(), swapVertex.getSigmaZ2(),
                              fromLayer, toLayer, state.sourceReferenceRadius, state.meanDeltaZ,
-                             state.transitionMSAngle, state.transitionBendingAngle,
+                             state.transitionMSAngle, state.transitionPhiCut,
                              expectedX, expectedY, expectedSigmaX, expectedSigmaY);
   const auto directBins = getBinsRectClusterAtProj(expectedX, expectedY, toLayer,
                                                    rawRadialMax, rawRadialMin,
@@ -572,7 +573,7 @@ BOOST_AUTO_TEST_CASE(NormalizedMeasurementsRemainAuthoritativeOverPoisonedLocato
   cylinderIndex.setTrackingParameters(cylinderParameters);
   const auto vertex = makeVertex(0.f, 0.f, 0.f, 1.e-4f, 1.e-4f, 4.e-4f, 4);
   const CylinderTrackletProjectionState cylinderState{
-    0, 1, 2.f, 3.8f, 4.2f, 5.e-4f, 2.e-3f, 0.08f};
+    1, 2.f, 3.8f, 4.2f, 5.e-4f, 2.e-3f, 0.08f};
   const auto sourceMeasurement = makeMeasurement(2.f, 0.f, 0.5f);
   const auto targetMeasurement = makeMeasurement(4.f, 0.f, 1.f);
   const auto source = makeGlobalCluster(2.f, 0.f, 0.5f);
@@ -622,7 +623,7 @@ BOOST_AUTO_TEST_CASE(NormalizedMeasurementsRemainAuthoritativeOverPoisonedLocato
   const float toZ = detail::mftLayerZ(1);
   const auto diskMeasurement = makeMeasurement(1.f, 0.5f, fromZ, 2.e-4f, 3.e-4f, 7.f);
   auto diskLocator = makeGlobalCluster(1.f, 0.5f, fromZ);
-  const DiskTrackletProjectionState diskState{0, 1, fromZ, toZ, toZ - fromZ, 2.f, 3.e-3f, 0.04f};
+  const DiskTrackletProjectionState diskState{1, fromZ, toZ, toZ - fromZ, 2.f, 3.e-3f, 0.04f};
   DiskTrackletSearchWindow diskBaseline{};
   BOOST_REQUIRE((projectDiskSearchWindow(
     diskMeasurement, diskLocator, vertex, diskState, Bz, diskIndex, diskKernelParameters, diskBaseline)));

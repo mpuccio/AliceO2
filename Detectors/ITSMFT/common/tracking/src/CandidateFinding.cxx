@@ -24,6 +24,7 @@
 #include "ITSMFTTracking/BarrelSurfaceStateOperations.h"
 #include "ITSMFTTracking/ForwardSurfaceStateOperations.h"
 #include "ITSMFTTracking/Propagator.h"
+#include "ITSMFTTracking/detail/DirectionCompatibility.h"
 #include "ITSMFTTracking/detail/MFTFwdTrackHelpers.h"
 #include "ITSMFTTracking/IndexTableUtils.h"
 #include "ITSMFTTracking/MaterialPhysics.h"
@@ -31,7 +32,6 @@
 #include "ITStracking/Constants.h"
 #include "ITStracking/MathUtils.h"
 #include "ITStracking/TrackHelpers.h"
-#include "MFTTracking/Constants.h"
 
 namespace o2::itsmft::tracking
 {
@@ -123,7 +123,7 @@ bool projectDiskSearchWindow(const GlobalMeasurement& sourceMeasurement,
                              vertex.getSigmaX2(), vertex.getSigmaY2(), vertex.getSigmaZ2(),
                              transitionState.fromZ, transitionState.toZ,
                              transitionState.sourceReferenceRadius, transitionState.meanDeltaZ,
-                             transitionState.transitionMSAngle, transitionState.transitionBendingAngle,
+                             transitionState.transitionMSAngle, transitionState.transitionPhiCut,
                              xProj, yProj, sigmaX, sigmaY);
 
   const float zSpread = params.nSigmaCut * vertex.getSigmaZ();
@@ -157,7 +157,7 @@ bool bindTrackletProjectionState(
   gsl::span<const float> diskReferenceZ,
   float targetMinR, float targetMaxR,
   float sourcePositionResolution,
-  float transitionMSAngle, float transitionBendingAngle,
+  float transitionMSAngle, float transitionPhiCut,
   TrackletProjectionState& out) noexcept
 {
   if (fromLayer < 0 || toLayer < 0 ||
@@ -169,21 +169,21 @@ bool bindTrackletProjectionState(
     case SurfaceKind::Undefined:
       return false;
     case SurfaceKind::Cylinder:
-      out = CylinderTrackletProjectionState{fromLayer, toLayer,
+      out = CylinderTrackletProjectionState{toLayer,
                                             layerRadii[toLayer] - layerRadii[fromLayer],
                                             targetMinR, targetMaxR, sourcePositionResolution,
-                                            transitionMSAngle, transitionBendingAngle};
+                                            transitionMSAngle, transitionPhiCut};
       return true;
     case SurfaceKind::Disk:
       if (static_cast<size_t>(fromLayer) >= diskReferenceZ.size() ||
           static_cast<size_t>(toLayer) >= diskReferenceZ.size()) {
         return false;
       }
-      out = DiskTrackletProjectionState{fromLayer, toLayer,
+      out = DiskTrackletProjectionState{toLayer,
                                         diskReferenceZ[fromLayer], diskReferenceZ[toLayer],
                                         diskReferenceZ[toLayer] - diskReferenceZ[fromLayer],
                                         layerRadii[fromLayer], transitionMSAngle,
-                                        transitionBendingAngle};
+                                        transitionPhiCut};
       return true;
   }
   return false;
@@ -792,65 +792,6 @@ bool attachDiskHit(
   state = scratch;
   chi2 = scratchChi2;
   return true;
-}
-
-float cylinderLayerMultipleScatteringAngle(
-  const CylinderLayerScatteringInputs& inputs, float trackletMinPt)
-{
-  // Keep the established ITS MSangle expression.
-  return o2::its::math_utils::MSangle(0.14f, trackletMinPt, inputs.layerxX0);
-}
-
-float diskLayerMultipleScatteringAngle(
-  const DiskLayerScatteringInputs& inputs, float trackletMinPt)
-{
-  // The caller supplies zLayer and rRef.
-  const float invP = 1.f / trackletMinPt;
-  const float zLayer = inputs.referenceCoordinate;
-  const float rRef = inputs.layerRadius;
-  const float tanlRef = (std::abs(rRef) > 1e-6f) ? zLayer / rRef : 0.f;
-  const float absTanl = std::abs(tanlRef);
-  const float cscLambda = (absTanl > 1e-6f) ? std::sqrt(1.f + tanlRef * tanlRef) / absTanl : 1e6f;
-  return 0.0136f * invP * std::sqrt(inputs.layerxX0 * cscLambda);
-}
-
-namespace
-{
-// Static nominal half-disk z coordinates for disk scattering; compile-time
-// storage gives returned spans process lifetime.
-static constexpr std::array<float, o2::mft::constants::mft::LayersNumber> kLegacyMFTReferenceCoordinate =
-  o2::mft::constants::mft::LayerZCoordinate();
-} // namespace
-
-DiskReferenceCoordinateView bindLegacyMFTReferenceCoordinates() noexcept
-{
-  return DiskReferenceCoordinateView{gsl::span<const float>(kLegacyMFTReferenceCoordinate)};
-}
-
-float clampTransitionCurvature(float oneOverR, float outerRadius) noexcept
-{
-  return (outerRadius > 0.f && 0.5f * oneOverR >= 1.f / outerRadius)
-           ? (2.f / outerRadius) - o2::constants::math::Almost0
-           : oneOverR;
-}
-
-TransitionScatteringBendingPrep prepareTransitionScatteringAndBending(
-  gsl::span<const float> perLayerMSAngle, int fromLayer, int toLayer,
-  float r1, float r2, float clampedOneOverR, float res1, float res2) noexcept
-{
-  float ms2 = 0.f;
-  for (int layer = fromLayer; layer < toLayer; ++layer) {
-    ms2 += o2::its::math_utils::Sq(perLayerMSAngle[layer]);
-  }
-  const float msAngle = o2::gpu::CAMath::Sqrt(ms2);
-  const float cosTheta1half = o2::gpu::CAMath::Sqrt(1.f - o2::its::math_utils::Sq(0.5f * r1 * clampedOneOverR));
-  const float cosTheta2half = o2::gpu::CAMath::Sqrt(1.f - o2::its::math_utils::Sq(0.5f * r2 * clampedOneOverR));
-  const float x = (r2 * cosTheta1half) - (r1 * cosTheta2half);
-  const float delta = o2::gpu::CAMath::Sqrt(1.f / (1.f - 0.25f * o2::its::math_utils::Sq(x * clampedOneOverR)) *
-                                            (o2::its::math_utils::Sq((0.25f * r1 * r2 * o2::its::math_utils::Sq(clampedOneOverR) / cosTheta2half) + cosTheta1half) * o2::its::math_utils::Sq(res1) +
-                                             o2::its::math_utils::Sq((0.25f * r1 * r2 * o2::its::math_utils::Sq(clampedOneOverR) / cosTheta1half) + cosTheta2half) * o2::its::math_utils::Sq(res2)));
-  const float phiCut = o2::gpu::CAMath::Min(o2::gpu::CAMath::ASin(0.5f * x * clampedOneOverR) + 2.f * msAngle + delta, o2::constants::math::PI * 0.5f);
-  return TransitionScatteringBendingPrep{msAngle, phiCut};
 }
 
 } // namespace o2::itsmft::tracking

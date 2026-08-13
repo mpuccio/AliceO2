@@ -178,6 +178,33 @@ inline AttachHitConfigView bindAttachHitConfig(gsl::span<const tracking::Nominal
   return {layerMaterial, params.CorrType};
 }
 
+namespace tracking
+{
+
+enum class MaterialCorrectionModeSupport : uint8_t {
+  Supported,
+  Unsupported,
+  InvalidMode,
+  InvalidSurfaceKind
+};
+
+inline MaterialCorrectionModeSupport materialCorrectionModeSupport(
+  SurfaceKind kind, o2::base::PropagatorF::MatCorrType corrType) noexcept
+{
+  if (!isRecognizedMatCorrType(corrType)) {
+    return MaterialCorrectionModeSupport::InvalidMode;
+  }
+  if (kind != SurfaceKind::Cylinder && kind != SurfaceKind::Disk) {
+    return MaterialCorrectionModeSupport::InvalidSurfaceKind;
+  }
+  if (kind == SurfaceKind::Cylinder && corrType != o2::base::PropagatorF::MatCorrType::USEMatCorrNONE) {
+    return MaterialCorrectionModeSupport::Unsupported;
+  }
+  return MaterialCorrectionModeSupport::Supported;
+}
+
+} // namespace tracking
+
 #endif
 
 /// Reset tracking parameters to detector geometry defaults.
