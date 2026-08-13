@@ -19,9 +19,12 @@
 #include <limits>
 
 #include "CommonConstants/MathConstants.h"
-#include "ITSMFTTracking/BarrelSurfaceStateOperations.h"
-#include "ITSMFTTracking/ForwardSurfaceStateOperations.h"
+#include "ITSMFTTracking/detail/SurfaceStateOperations.h"
 #include "ITSMFTTracking/Propagator.h"
+
+#if __has_include("ITSMFTTracking/BarrelSurfaceStateOperations.h") || __has_include("ITSMFTTracking/ForwardSurfaceStateOperations.h")
+#error "coordinate-family state operations must remain private to Propagator"
+#endif
 
 using namespace o2::itsmft::tracking;
 
@@ -186,15 +189,32 @@ BOOST_AUTO_TEST_CASE(AcceptedForwardPropagationSelectsFieldAndLowFieldPaths)
   auto lowNegative = diskState();
   OperationFailureReason reason{};
 
-  BOOST_REQUIRE(Propagator::propagateForward(fieldOn, -50.f, 5.f, reason));
-  BOOST_REQUIRE(Propagator::propagateForward(lowPositive, -50.f, 0.01f, reason));
-  BOOST_REQUIRE(Propagator::propagateForward(lowNegative, -50.f, -0.01f, reason));
+  BOOST_REQUIRE(Propagator::propagateToReference(fieldOn, -50.f, 5.f, reason));
+  BOOST_REQUIRE(Propagator::propagateToReference(lowPositive, -50.f, 0.01f, reason));
+  BOOST_REQUIRE(Propagator::propagateToReference(lowNegative, -50.f, -0.01f, reason));
   BOOST_CHECK(bitEqual(lowPositive, lowNegative));
   BOOST_CHECK(!bitEqual(fieldOn, lowPositive));
 }
 
+BOOST_AUTO_TEST_CASE(PropagatorSelectsCompatibilityFromStateKind)
+{
+  auto cylinderReference = barrelState();
+  auto cylinderCandidate = cylinderReference;
+  auto diskReference = diskState();
+  auto diskCandidate = diskReference;
+  float chi2 = -1.f;
+  OperationFailureReason reason{};
+
+  BOOST_REQUIRE(Propagator::stateChi2(cylinderReference, cylinderCandidate, chi2, reason));
+  BOOST_CHECK_EQUAL(chi2, 0.f);
+  BOOST_REQUIRE(Propagator::stateChi2(diskReference, diskCandidate, chi2, reason));
+  BOOST_CHECK_EQUAL(chi2, 0.f);
+  BOOST_CHECK(!Propagator::stateChi2(cylinderReference, diskCandidate, chi2, reason));
+  BOOST_CHECK(reason == OperationFailureReason::SourceSurfaceKindMismatch);
+}
+
 // --- 3: compatible family never converts -- exact agreement with a direct
-// barrel::rotate/propagate/correctForMaterial/predictedChi2/update replay ---
+// detail::barrel::rotate/propagate/correctForMaterial/predictedChi2/update replay ---
 
 BOOST_AUTO_TEST_CASE(CompatibleFamilyMatchesDirectBarrelPrimitiveReplay)
 {
@@ -213,18 +233,18 @@ BOOST_AUTO_TEST_CASE(CompatibleFamilyMatchesDirectBarrelPrimitiveReplay)
                                                    material::MaterialTraversalDirection::OppositeMomentum,
                                                    false, 0.f, chi2Propagator, true, reason));
 
-  BOOST_REQUIRE(barrel::rotate(viaDirect, viaDirectRef, measurement.frame.frameAngle, BarrelBz, reason));
-  BOOST_REQUIRE(barrel::propagate(viaDirect, viaDirectRef, measurement.frame.q, BarrelBz, reason));
-  const auto materialResult = barrel::correctForMaterial(
+  BOOST_REQUIRE(detail::barrel::rotate(viaDirect, viaDirectRef, measurement.frame.frameAngle, BarrelBz, reason));
+  BOOST_REQUIRE(detail::barrel::propagate(viaDirect, viaDirectRef, measurement.frame.q, BarrelBz, reason));
+  const auto materialResult = detail::barrel::correctForMaterial(
     viaDirect, material::IntegratedMaterialBudget{material.xOverX0, material.arealDensityGPerCm2},
     material::MaterialTraversalDirection::OppositeMomentum);
   BOOST_REQUIRE(materialResult.ok());
   float predChi2 = 0.f;
-  BOOST_REQUIRE(barrel::predictedChi2(viaDirect, measurement, predChi2, reason));
+  BOOST_REQUIRE(detail::barrel::predictedChi2(viaDirect, measurement, predChi2, reason));
   float updateChi2 = 0.f;
-  BOOST_REQUIRE(barrel::update(viaDirect, measurement, updateChi2, reason));
+  BOOST_REQUIRE(detail::barrel::update(viaDirect, measurement, updateChi2, reason));
   chi2Direct = updateChi2;
-  BOOST_REQUIRE(barrel::shiftReferenceToMeasurement(viaDirectRef, measurement, reason));
+  BOOST_REQUIRE(detail::barrel::shiftReferenceToMeasurement(viaDirectRef, measurement, reason));
 
   BOOST_CHECK(bitEqual(viaPropagator, viaDirect));
   BOOST_CHECK(bitEqual(viaPropagatorRef, viaDirectRef));

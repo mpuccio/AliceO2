@@ -16,8 +16,8 @@
 #include <cstring>
 #include <limits>
 
-#include "ITSMFTTracking/BarrelSurfaceStateOperations.h"
-#include "ITSMFTTracking/ForwardSurfaceStateOperations.h"
+#include "ITSMFTTracking/detail/SurfaceStateOperations.h"
+#include "ITSMFTTracking/detail/SurfaceStateOperations.h"
 #include "ITSMFTTracking/detail/SurfaceKinematicStateLegacyAdapters.h"
 #include "ReconstructionDataFormats/PID.h"
 #include "ReconstructionDataFormats/TrackParametrization.h"
@@ -110,8 +110,8 @@ struct Family {
 };
 
 const Family kFamilies[] = {
-  {"barrel", &barrel::correctForMaterial, &makeValidBarrel},
-  {"forward", &forward::correctForMaterial, &makeValidForward},
+  {"barrel", &detail::barrel::correctForMaterial, &makeValidBarrel},
+  {"forward", &detail::forward::correctForMaterial, &makeValidForward},
 };
 
 void checkPreflightFailure(const material::MaterialOperationResult& result, material::MaterialFailureReason expected)
@@ -160,13 +160,13 @@ BOOST_AUTO_TEST_CASE(FamilyMismatchBothDirections)
   material::IntegratedMaterialBudget materialBudget{0.02f, 0.01f};
   auto barrelState = makeBarrelState();
   const auto barrelBefore = barrelState;
-  auto resultAsForward = forward::correctForMaterial(barrelState, materialBudget, material::MaterialTraversalDirection::AlongMomentum);
+  auto resultAsForward = detail::forward::correctForMaterial(barrelState, materialBudget, material::MaterialTraversalDirection::AlongMomentum);
   checkPreflightFailure(resultAsForward, material::MaterialFailureReason::SourceSurfaceKindMismatch);
   BOOST_CHECK(bitEqual(barrelState, barrelBefore));
 
   auto forwardState = makeForwardState();
   const auto forwardBefore = forwardState;
-  auto resultAsBarrel = barrel::correctForMaterial(forwardState, materialBudget, material::MaterialTraversalDirection::AlongMomentum);
+  auto resultAsBarrel = detail::barrel::correctForMaterial(forwardState, materialBudget, material::MaterialTraversalDirection::AlongMomentum);
   checkPreflightFailure(resultAsBarrel, material::MaterialFailureReason::SourceSurfaceKindMismatch);
   BOOST_CHECK(bitEqual(forwardState, forwardBefore));
 }
@@ -221,13 +221,13 @@ BOOST_AUTO_TEST_CASE(BarrelSnpBoundaryRejection)
     auto state = makeBarrelState();
     state.parameters[2] = snp;
     const auto before = state;
-    auto result = barrel::correctForMaterial(state, materialBudget, material::MaterialTraversalDirection::AlongMomentum);
+    auto result = detail::barrel::correctForMaterial(state, materialBudget, material::MaterialTraversalDirection::AlongMomentum);
     checkPreflightFailure(result, material::MaterialFailureReason::InvalidStateKinematics);
     BOOST_CHECK(bitEqual(state, before));
   }
   auto state = makeBarrelState();
   state.parameters[2] = 0.999999f;
-  auto result = barrel::correctForMaterial(state, materialBudget, material::MaterialTraversalDirection::AlongMomentum);
+  auto result = detail::barrel::correctForMaterial(state, materialBudget, material::MaterialTraversalDirection::AlongMomentum);
   BOOST_CHECK(result.ok());
 }
 
@@ -238,7 +238,7 @@ BOOST_AUTO_TEST_CASE(ForwardNonzeroAlphaRejected)
     auto state = makeForwardState();
     state.alpha = alpha;
     const auto before = state;
-    auto result = forward::correctForMaterial(state, materialBudget, material::MaterialTraversalDirection::AlongMomentum);
+    auto result = detail::forward::correctForMaterial(state, materialBudget, material::MaterialTraversalDirection::AlongMomentum);
     checkPreflightFailure(result, material::MaterialFailureReason::InvalidStateKinematics);
     BOOST_CHECK(bitEqual(state, before));
   }
@@ -610,7 +610,7 @@ BOOST_AUTO_TEST_CASE(BarrelIntentionalUnitChargeCorrectionIsolated)
   const float legacyXrho = -materialBudget.arealDensityGPerCm2; // AlongMomentum == energy loss == negative xrho
   BOOST_REQUIRE(oracle.correctForMaterial(materialBudget.xOverX0, legacyXrho, false));
 
-  auto result = barrel::correctForMaterial(state, materialBudget, material::MaterialTraversalDirection::AlongMomentum);
+  auto result = detail::barrel::correctForMaterial(state, materialBudget, material::MaterialTraversalDirection::AlongMomentum);
   BOOST_REQUIRE(result.ok());
 
   // Snp/Tgl diagonal terms are unaffected by the unit-charge bug.
@@ -645,7 +645,7 @@ BOOST_AUTO_TEST_CASE(BarrelMatchesLegacyOracleForChargeAboveUnity)
   const float legacyXrho = -materialBudget.arealDensityGPerCm2;
   BOOST_REQUIRE(oracle.correctForMaterial(materialBudget.xOverX0, legacyXrho, false));
 
-  auto result = barrel::correctForMaterial(state, materialBudget, material::MaterialTraversalDirection::AlongMomentum);
+  auto result = detail::barrel::correctForMaterial(state, materialBudget, material::MaterialTraversalDirection::AlongMomentum);
   BOOST_REQUIRE(result.ok());
 
   BOOST_CHECK(closeTo(state.covariance[5], oracle.getSigmaSnp2(), 5.e-4f, 3.e-3f));
@@ -680,7 +680,7 @@ BOOST_AUTO_TEST_CASE(BarrelCovarianceLimitingActivates)
   BOOST_REQUIRE_GT(rawIndex5, o2::track::kCSnp2max);
   BOOST_REQUIRE_GT(rawIndex9, o2::track::kCTgl2max);
 
-  auto result = barrel::correctForMaterial(state, materialBudget, material::MaterialTraversalDirection::AlongMomentum);
+  auto result = detail::barrel::correctForMaterial(state, materialBudget, material::MaterialTraversalDirection::AlongMomentum);
   BOOST_REQUIRE(result.ok());
 
   BOOST_CHECK_EQUAL(state.covariance[packedCovarianceIndex(2, 2)], o2::track::kCSnp2max);
@@ -698,7 +698,7 @@ BOOST_AUTO_TEST_CASE(ForwardDoesNotInheritBarrelCovarianceLimiting)
   state.covariance[packedCovarianceIndex(3, 3)] = 0.99f;
   material::IntegratedMaterialBudget materialBudget{1.f, 0.f};
 
-  auto result = forward::correctForMaterial(state, materialBudget, material::MaterialTraversalDirection::AlongMomentum);
+  auto result = detail::forward::correctForMaterial(state, materialBudget, material::MaterialTraversalDirection::AlongMomentum);
   BOOST_REQUIRE(result.ok());
   BOOST_CHECK_GT(state.covariance[packedCovarianceIndex(2, 2)], o2::track::kCSnp2max);
   BOOST_CHECK_GT(state.covariance[packedCovarianceIndex(3, 3)], o2::track::kCTgl2max);
@@ -722,7 +722,7 @@ BOOST_AUTO_TEST_CASE(ForwardMatchesLegacyMCSUltraRelativisticUnitCharge)
   const float legacyXOverX0 = materialBudget.xOverX0 / cscLambda;
   oracle.addMCSEffect(legacyXOverX0);
 
-  auto result = forward::correctForMaterial(state, materialBudget, material::MaterialTraversalDirection::AlongMomentum);
+  auto result = detail::forward::correctForMaterial(state, materialBudget, material::MaterialTraversalDirection::AlongMomentum);
   BOOST_REQUIRE(result.ok());
 
   BOOST_CHECK(closeTo(state.covariance[5], static_cast<float>(oracle.getCovariances()(2, 2)), 1.e-4f, 5.e-3f));
@@ -751,7 +751,7 @@ BOOST_AUTO_TEST_CASE(ForwardAnalyticReferenceChargeAboveUnityWithEnergyLoss)
   const float h = scalarReference.highlandTheta2Rad2;
   const float R = scalarReference.relativeInverseMomentumVariance;
 
-  auto result = forward::correctForMaterial(state, materialBudget, material::MaterialTraversalDirection::AlongMomentum);
+  auto result = detail::forward::correctForMaterial(state, materialBudget, material::MaterialTraversalDirection::AlongMomentum);
   BOOST_REQUIRE(result.ok());
 
   BOOST_CHECK(closeTo(state.covariance[5], before.covariance[5] + h * A));
@@ -777,7 +777,7 @@ BOOST_AUTO_TEST_CASE(UnconditionalNoopLeavesOverLimitBarrelCovarianceUntouched)
       state.covariance[packedCovarianceIndex(3, 3)] = 2.f * o2::track::kCTgl2max;
       const auto before = state;
       material::IntegratedMaterialBudget materialBudget{0.f, 0.f}; // zero material, charged
-      auto result = barrel::correctForMaterial(state, materialBudget, direction);
+      auto result = detail::barrel::correctForMaterial(state, materialBudget, direction);
       BOOST_REQUIRE(result.ok());
       BOOST_CHECK(bitEqual(state, before));
     }
@@ -788,7 +788,7 @@ BOOST_AUTO_TEST_CASE(UnconditionalNoopLeavesOverLimitBarrelCovarianceUntouched)
       state.covariance[packedCovarianceIndex(3, 3)] = 2.f * o2::track::kCTgl2max;
       const auto before = state;
       material::IntegratedMaterialBudget materialBudget{0.5f, 3.f}; // nonzero, neutral (would matter if charged)
-      auto result = barrel::correctForMaterial(state, materialBudget, direction);
+      auto result = detail::barrel::correctForMaterial(state, materialBudget, direction);
       BOOST_REQUIRE(result.ok());
       BOOST_CHECK(bitEqual(state, before));
     }

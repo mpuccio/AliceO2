@@ -20,7 +20,7 @@
 
 #include <boost/test/unit_test.hpp>
 
-#include "ITSMFTTracking/ForwardSurfaceStateOperations.h"
+#include "ITSMFTTracking/detail/SurfaceStateOperations.h"
 #include "ITSMFTTracking/detail/SurfaceTrackingScratch.h"
 #include "ITSMFTTracking/detail/DetectorRefitSupport.h"
 #include "ITSMFTTracking/SurfaceDescriptor.h"
@@ -111,9 +111,9 @@ struct RefitFixture {
     const int middleLayer = hits / 2;
     const int outerLayer = hits - 1;
     OperationFailureReason seedReason{};
-    BOOST_REQUIRE(forward::buildSeed(layerMeasurements[innerLayer][0], layerMeasurements[middleLayer][0],
-                                     layerMeasurements[outerLayer][0], Bz, params.TrackletMinPt,
-                                     /*absCharge=*/1, o2::track::PID::Pion, seed.state(), seedReason));
+    BOOST_REQUIRE(detail::forward::buildSeed(layerMeasurements[innerLayer][0], layerMeasurements[middleLayer][0],
+                                             layerMeasurements[outerLayer][0], Bz, params.TrackletMinPt,
+                                             /*absCharge=*/1, o2::track::PID::Pion, seed.state(), seedReason));
   }
 
   void setMeasurement(int layer, float x, float y, float z, float uu, float vv, uint32_t clusterIndex, float uv = 0.f)
@@ -481,9 +481,9 @@ BOOST_AUTO_TEST_CASE(GenericRefitValidatesExternalClusterIdentity)
   seed.setSurfaceMask(SurfaceMask{mask});
 
   OperationFailureReason seedReason{};
-  BOOST_REQUIRE(forward::buildSeed(layerMeasurements[0][0], layerMeasurements[NLayers / 2][0],
-                                   layerMeasurements[NLayers - 1][0], Bz, params.TrackletMinPt,
-                                   /*absCharge=*/1, o2::track::PID::Pion, seed.state(), seedReason));
+  BOOST_REQUIRE(detail::forward::buildSeed(layerMeasurements[0][0], layerMeasurements[NLayers / 2][0],
+                                           layerMeasurements[NLayers - 1][0], Bz, params.TrackletMinPt,
+                                           /*absCharge=*/1, o2::track::PID::Pion, seed.state(), seedReason));
 
   TrackingCandidate track;
   std::vector<SurfaceId> orderedSurfaces;

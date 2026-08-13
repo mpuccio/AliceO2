@@ -16,14 +16,14 @@
 #include <limits>
 
 #include "CommonConstants/MathConstants.h"
-#include "ITSMFTTracking/ForwardSurfaceStateOperations.h"
+#include "ITSMFTTracking/detail/SurfaceStateOperations.h"
 #include "ITSMFTTracking/Propagator.h"
 #include "ITSMFTTracking/SurfaceKinematicState.h"
 
 namespace
 {
 using namespace o2::itsmft::tracking;
-using namespace o2::itsmft::tracking::forward;
+using namespace o2::itsmft::tracking::detail::forward;
 
 template <typename T>
 bool bitEqual(const T& lhs, const T& rhs)
@@ -155,10 +155,10 @@ void checkSelfDrivenReduction(float bz, float targetZ)
   auto linRefDriven = baseState;
   auto linRef = linRefFromState(baseState);
   OperationFailureReason reason{};
-  BOOST_REQUIRE(Propagator::propagateForward(linRefDriven, linRef, targetZ, bz, reason));
+  BOOST_REQUIRE(Propagator::propagateToReference(linRefDriven, linRef, targetZ, bz, reason));
 
   auto selfDriven = baseState;
-  BOOST_REQUIRE(Propagator::propagateForward(selfDriven, targetZ, bz, reason));
+  BOOST_REQUIRE(Propagator::propagateToReference(selfDriven, targetZ, bz, reason));
 
   checkClose(linRefDriven.referenceCoordinate, selfDriven.referenceCoordinate, selfDrivenReductionParameterDrift);
   for (uint8_t i = 0; i < 5; ++i) {
@@ -187,11 +187,11 @@ void checkJacobianAgainstFiniteDifference(float bz, float targetZ, uint8_t param
   auto minusSelf = baseState;
   minusSelf.parameters[paramIndex] -= epsilon;
   OperationFailureReason reason{};
-  BOOST_REQUIRE(Propagator::propagateForward(plusSelf, targetZ, bz, reason));
-  BOOST_REQUIRE(Propagator::propagateForward(minusSelf, targetZ, bz, reason));
+  BOOST_REQUIRE(Propagator::propagateToReference(plusSelf, targetZ, bz, reason));
+  BOOST_REQUIRE(Propagator::propagateToReference(minusSelf, targetZ, bz, reason));
 
   auto baseSelf = baseState;
-  BOOST_REQUIRE(Propagator::propagateForward(baseSelf, targetZ, bz, reason));
+  BOOST_REQUIRE(Propagator::propagateToReference(baseSelf, targetZ, bz, reason));
 
   float numericalDerivative[5];
   for (uint8_t row = 0; row < 5; ++row) {
@@ -201,7 +201,7 @@ void checkJacobianAgainstFiniteDifference(float bz, float targetZ, uint8_t param
   auto perturbedState = baseState;
   perturbedState.parameters[paramIndex] += epsilon;
   auto linRef = linRefFromState(baseState);
-  BOOST_REQUIRE(Propagator::propagateForward(perturbedState, linRef, targetZ, bz, reason));
+  BOOST_REQUIRE(Propagator::propagateToReference(perturbedState, linRef, targetZ, bz, reason));
 
   for (uint8_t row = 0; row < 5; ++row) {
     const float predicted = baseSelf.parameters[row] + numericalDerivative[row] * epsilon;
@@ -225,7 +225,7 @@ BOOST_AUTO_TEST_CASE(LowFieldPropagationMatchesIndependentAnalyticOracle)
   computeExpectedLinear(state, linRef, -80.f, expectedState, expectedRef);
 
   OperationFailureReason reason{};
-  BOOST_REQUIRE(Propagator::propagateForward(state, linRef, -80.f, 0.f, reason));
+  BOOST_REQUIRE(Propagator::propagateToReference(state, linRef, -80.f, 0.f, reason));
 
   BOOST_CHECK_CLOSE(state.referenceCoordinate, expectedState.referenceCoordinate, 1.e-3f);
   for (uint8_t i = 0; i < 5; ++i) {
@@ -246,7 +246,7 @@ BOOST_AUTO_TEST_CASE(LowFieldPropagationMatchesOracleAtZeroField)
   computeExpectedLinear(state, linRef, -60.f, expectedState, expectedRef);
 
   OperationFailureReason reason{};
-  BOOST_REQUIRE(Propagator::propagateForward(state, linRef, -60.f, 0.f, reason));
+  BOOST_REQUIRE(Propagator::propagateToReference(state, linRef, -60.f, 0.f, reason));
   for (uint8_t i = 0; i < 5; ++i) {
     BOOST_CHECK_SMALL(state.parameters[i] - expectedState.parameters[i], 1.e-4f);
   }
@@ -272,10 +272,10 @@ void checkFirstOrderConsistency(float bz, float targetZ)
   auto referenceDrivenState = state;
   auto referenceDrivenLinRef = linRef;
   OperationFailureReason reason{};
-  BOOST_REQUIRE(Propagator::propagateForward(referenceDrivenState, referenceDrivenLinRef, targetZ, bz, reason));
+  BOOST_REQUIRE(Propagator::propagateToReference(referenceDrivenState, referenceDrivenLinRef, targetZ, bz, reason));
 
   auto selfDrivenState = state;
-  BOOST_REQUIRE(Propagator::propagateForward(selfDrivenState, targetZ, bz, reason));
+  BOOST_REQUIRE(Propagator::propagateToReference(selfDrivenState, targetZ, bz, reason));
 
   const float tolerance = 5.e-3f;
   for (uint8_t i = 0; i < 5; ++i) {
@@ -316,11 +316,11 @@ BOOST_AUTO_TEST_CASE(ReferenceDrivenPropagationDiffersFromSelfDrivenPropagation)
 
   auto selfDriven = baseState;
   OperationFailureReason reason{};
-  BOOST_REQUIRE(Propagator::propagateForward(selfDriven, targetZ, bz, reason));
+  BOOST_REQUIRE(Propagator::propagateToReference(selfDriven, targetZ, bz, reason));
 
   auto referenceDrivenState = baseState;
   auto referenceDrivenRef = perturbedLinRef(baseState);
-  BOOST_REQUIRE(Propagator::propagateForward(referenceDrivenState, referenceDrivenRef, targetZ, bz, reason));
+  BOOST_REQUIRE(Propagator::propagateToReference(referenceDrivenState, referenceDrivenRef, targetZ, bz, reason));
 
   bool differs = false;
   for (uint8_t i = 0; i < 15; ++i) {
@@ -340,7 +340,7 @@ BOOST_AUTO_TEST_CASE(PropagateWithLinRefRejectsFamilyMismatchAndPreservesBytes)
   const auto stateBefore = state;
   const auto linRefBefore = linRef;
   OperationFailureReason reason{};
-  BOOST_CHECK(!Propagator::propagateForward(state, linRef, -60.f, 0.f, reason));
+  BOOST_CHECK(!Propagator::propagateToReference(state, linRef, -60.f, 0.f, reason));
   BOOST_CHECK(reason == OperationFailureReason::SourceSurfaceKindMismatch);
   BOOST_CHECK(bitEqual(state, stateBefore));
   BOOST_CHECK(bitEqual(linRef, linRefBefore));
@@ -358,7 +358,7 @@ BOOST_AUTO_TEST_CASE(PropagateWithLinRefRejectsReferenceCoordinateMismatchAndPre
   const auto stateBefore = state;
   const auto linRefBefore = linRef;
   OperationFailureReason reason{};
-  BOOST_CHECK(!Propagator::propagateForward(state, linRef, -60.f, 0.f, reason));
+  BOOST_CHECK(!Propagator::propagateToReference(state, linRef, -60.f, 0.f, reason));
   BOOST_CHECK(reason == OperationFailureReason::ReferenceCoordinateMismatch);
   BOOST_CHECK(bitEqual(state, stateBefore));
   BOOST_CHECK(bitEqual(linRef, linRefBefore));
@@ -372,7 +372,7 @@ BOOST_AUTO_TEST_CASE(FieldPropagationRejectsZeroCurvatureAndPreservesBytes)
   const auto stateBefore = state;
   const auto linRefBefore = linRef;
   OperationFailureReason reason{};
-  BOOST_CHECK(!Propagator::propagateForward(state, linRef, -60.f, 0.5f, reason));
+  BOOST_CHECK(!Propagator::propagateToReference(state, linRef, -60.f, 0.5f, reason));
   BOOST_CHECK(reason == OperationFailureReason::PropagationFailure);
   BOOST_CHECK(bitEqual(state, stateBefore));
   BOOST_CHECK(bitEqual(linRef, linRefBefore));
@@ -386,7 +386,7 @@ BOOST_AUTO_TEST_CASE(PropagationRejectsZeroTanlAndPreservesBytes)
   const auto stateBefore = state;
   const auto linRefBefore = linRef;
   OperationFailureReason reason{};
-  BOOST_CHECK(!Propagator::propagateForward(state, linRef, -60.f, 0.f, reason));
+  BOOST_CHECK(!Propagator::propagateToReference(state, linRef, -60.f, 0.f, reason));
   BOOST_CHECK(reason == OperationFailureReason::UnreachableTarget);
   BOOST_CHECK(bitEqual(state, stateBefore));
   BOOST_CHECK(bitEqual(linRef, linRefBefore));
@@ -464,7 +464,7 @@ SurfaceMeasurement mirrorTransverse(SurfaceMeasurement measurement)
 // direction estimate, sign-sensitive to handedness) must differ from the
 // un-mirrored fixture's, confirming the two handedness fixtures above are
 // not accidentally equivalent. parameters[4] (invQPt) is deliberately not
-// used as the discriminator here: forward::buildSeed's established
+// used as the discriminator here: detail::forward::buildSeed's established
 // `(trackletMinPt > 0.f) ? 1.f/trackletMinPt : 0.f` compatibility fallback
 // (see the header doc) makes it a fixed configured magnitude, not a
 // geometry-derived estimate, so it is identical for both fixtures by
@@ -473,14 +473,14 @@ BOOST_AUTO_TEST_CASE(MirroredFixtureIsGeometricallyDistinctFromUnmirrored)
 {
   SurfaceKinematicState plain{};
   OperationFailureReason reasonPlain{};
-  BOOST_REQUIRE(forward::buildSeed(makeInnerMeasurement(), makeMiddleMeasurement(), makeOuterMeasurement(), 0.5f, 0.3f,
-                                   1, o2::track::PID::Pion, plain, reasonPlain));
+  BOOST_REQUIRE(detail::forward::buildSeed(makeInnerMeasurement(), makeMiddleMeasurement(), makeOuterMeasurement(), 0.5f, 0.3f,
+                                           1, o2::track::PID::Pion, plain, reasonPlain));
 
   SurfaceKinematicState mirrored{};
   OperationFailureReason reasonMirrored{};
-  BOOST_REQUIRE(forward::buildSeed(mirrorTransverse(makeInnerMeasurement()), mirrorTransverse(makeMiddleMeasurement()),
-                                   mirrorTransverse(makeOuterMeasurement()), 0.5f, 0.3f, 1, o2::track::PID::Pion,
-                                   mirrored, reasonMirrored));
+  BOOST_REQUIRE(detail::forward::buildSeed(mirrorTransverse(makeInnerMeasurement()), mirrorTransverse(makeMiddleMeasurement()),
+                                           mirrorTransverse(makeOuterMeasurement()), 0.5f, 0.3f, 1, o2::track::PID::Pion,
+                                           mirrored, reasonMirrored));
 
   BOOST_CHECK_NE(plain.parameters[2], mirrored.parameters[2]);
 }

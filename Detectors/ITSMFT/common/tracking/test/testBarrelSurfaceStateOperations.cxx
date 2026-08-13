@@ -16,7 +16,7 @@
 #include <limits>
 
 #include "CommonConstants/MathConstants.h"
-#include "ITSMFTTracking/BarrelSurfaceStateOperations.h"
+#include "ITSMFTTracking/detail/SurfaceStateOperations.h"
 #include "ITSMFTTracking/detail/SurfaceKinematicStateLegacyAdapters.h"
 #include "ITStracking/Cluster.h"
 // buildTrackSeed is the retained legacy oracle for buildSeed's test coverage
@@ -27,7 +27,7 @@
 namespace
 {
 using namespace o2::itsmft::tracking;
-using namespace o2::itsmft::tracking::barrel;
+using namespace o2::itsmft::tracking::detail::barrel;
 
 constexpr float AbsoluteTolerance = 3.e-5f;
 constexpr float RelativeTolerance = 3.e-4f;
@@ -132,7 +132,7 @@ GlobalPoint3F globalPointFromCluster(const o2::its::Cluster& cluster)
 }
 
 // Test-local field-mapping helper: builds the SurfaceMeasurement fields
-// barrel::buildSeed reads from the outer tracking-frame hit (Cylinder field
+// detail::barrel::buildSeed reads from the outer tracking-frame hit (Cylinder field
 // mapping: reference coordinate -> measurement.frame.q, frame angle ->
 // measurement.frame.frameAngle, measured local coordinates ->
 // measurement.frame.u/v, measured covariance -> measurement.covariance).
@@ -156,8 +156,8 @@ void checkBuildSeedFailurePreservesBytes(const o2::its::Cluster& clusterInner, c
   auto outState = makeState(); // deliberately non-default sentinel pattern
   const auto before = outState;
   OperationFailureReason reason{};
-  BOOST_CHECK(!barrel::buildSeed(globalPointFromCluster(clusterInner), globalPointFromCluster(clusterMiddle),
-                                 measurementFromOuterHit(hitOuter), bz, 1, o2::track::PID::Pion, outState, reason));
+  BOOST_CHECK(!detail::barrel::buildSeed(globalPointFromCluster(clusterInner), globalPointFromCluster(clusterMiddle),
+                                         measurementFromOuterHit(hitOuter), bz, 1, o2::track::PID::Pion, outState, reason));
   BOOST_CHECK(reason == expected);
   BOOST_CHECK(bitEqual(outState, before));
 }
@@ -598,7 +598,7 @@ BOOST_AUTO_TEST_CASE(StateChi2PreservesInputsOnSuccessAndIsByteDeterministic)
   BOOST_CHECK_EQUAL(firstChi2, secondChi2);
 }
 
-// --- barrel::buildSeed (Stage-B Slice A) ---
+// --- detail::barrel::buildSeed (Stage-B Slice A) ---
 
 BOOST_AUTO_TEST_CASE(BuildSeedMatchesRetainedLegacyOracleNonzeroField)
 {
@@ -611,8 +611,8 @@ BOOST_AUTO_TEST_CASE(BuildSeedMatchesRetainedLegacyOracleNonzeroField)
 
     SurfaceKinematicState outState{};
     OperationFailureReason reason{};
-    BOOST_REQUIRE(barrel::buildSeed(globalPointFromCluster(clusterInner), globalPointFromCluster(clusterMiddle),
-                                    measurementFromOuterHit(hitOuter), bz, 1, o2::track::PID::Pion, outState, reason));
+    BOOST_REQUIRE(detail::barrel::buildSeed(globalPointFromCluster(clusterInner), globalPointFromCluster(clusterMiddle),
+                                            measurementFromOuterHit(hitOuter), bz, 1, o2::track::PID::Pion, outState, reason));
 
     Drift drift{};
     checkClose(outState.referenceCoordinate, oracle.getX(), drift);
@@ -638,8 +638,8 @@ BOOST_AUTO_TEST_CASE(BuildSeedMatchesRetainedLegacyOracleZeroField)
 
   SurfaceKinematicState outState{};
   OperationFailureReason reason{};
-  BOOST_REQUIRE(barrel::buildSeed(globalPointFromCluster(clusterInner), globalPointFromCluster(clusterMiddle),
-                                  measurementFromOuterHit(hitOuter), bz, 2, o2::track::PID::Kaon, outState, reason));
+  BOOST_REQUIRE(detail::barrel::buildSeed(globalPointFromCluster(clusterInner), globalPointFromCluster(clusterMiddle),
+                                          measurementFromOuterHit(hitOuter), bz, 2, o2::track::PID::Kaon, outState, reason));
 
   Drift drift{};
   checkClose(outState.referenceCoordinate, oracle.getX(), drift);
@@ -676,11 +676,11 @@ BOOST_AUTO_TEST_CASE(BuildSeedCurvatureSignFlipsWithMirroredGeometry)
   SurfaceKinematicState plain{};
   SurfaceKinematicState mirrored{};
   OperationFailureReason reason{};
-  BOOST_REQUIRE(barrel::buildSeed(globalPointFromCluster(clusterInner), globalPointFromCluster(clusterMiddle),
-                                  measurementFromOuterHit(hitOuter), bz, 1, o2::track::PID::Pion, plain, reason));
-  BOOST_REQUIRE(barrel::buildSeed(globalPointFromCluster(clusterInnerMirrored), globalPointFromCluster(clusterMiddleMirrored),
-                                  measurementFromOuterHit(hitOuterMirrored), bz,
-                                  1, o2::track::PID::Pion, mirrored, reason));
+  BOOST_REQUIRE(detail::barrel::buildSeed(globalPointFromCluster(clusterInner), globalPointFromCluster(clusterMiddle),
+                                          measurementFromOuterHit(hitOuter), bz, 1, o2::track::PID::Pion, plain, reason));
+  BOOST_REQUIRE(detail::barrel::buildSeed(globalPointFromCluster(clusterInnerMirrored), globalPointFromCluster(clusterMiddleMirrored),
+                                          measurementFromOuterHit(hitOuterMirrored), bz,
+                                          1, o2::track::PID::Pion, mirrored, reason));
   BOOST_CHECK_LT(plain.parameters[4] * mirrored.parameters[4], 0.f);
   BOOST_CHECK_LT(plain.parameters[2] * mirrored.parameters[2], 0.f);
 }
@@ -730,9 +730,9 @@ BOOST_AUTO_TEST_CASE(BuildSeedIsByteDeterministic)
   SurfaceKinematicState firstState{};
   SurfaceKinematicState secondState{};
   OperationFailureReason reason{};
-  BOOST_REQUIRE(barrel::buildSeed(globalPointFromCluster(clusterInner), globalPointFromCluster(clusterMiddle),
-                                  measurementFromOuterHit(hitOuter), bz, 1, o2::track::PID::Pion, firstState, reason));
-  BOOST_REQUIRE(barrel::buildSeed(globalPointFromCluster(clusterInner), globalPointFromCluster(clusterMiddle),
-                                  measurementFromOuterHit(hitOuter), bz, 1, o2::track::PID::Pion, secondState, reason));
+  BOOST_REQUIRE(detail::barrel::buildSeed(globalPointFromCluster(clusterInner), globalPointFromCluster(clusterMiddle),
+                                          measurementFromOuterHit(hitOuter), bz, 1, o2::track::PID::Pion, firstState, reason));
+  BOOST_REQUIRE(detail::barrel::buildSeed(globalPointFromCluster(clusterInner), globalPointFromCluster(clusterMiddle),
+                                          measurementFromOuterHit(hitOuter), bz, 1, o2::track::PID::Pion, secondState, reason));
   BOOST_CHECK(bitEqual(firstState, secondState));
 }

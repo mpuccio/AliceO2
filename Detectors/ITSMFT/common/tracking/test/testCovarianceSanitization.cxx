@@ -30,8 +30,8 @@
 
 #include "ITSMFTTracking/Propagator.h"
 
-#include "ITSMFTTracking/BarrelSurfaceStateOperations.h"
-#include "ITSMFTTracking/ForwardSurfaceStateOperations.h"
+#include "ITSMFTTracking/detail/SurfaceStateOperations.h"
+#include "ITSMFTTracking/detail/SurfaceStateOperations.h"
 #include "ITSMFTTracking/SurfaceKinematicState.h"
 #include "ReconstructionDataFormats/PID.h"
 #include "ReconstructionDataFormats/TrackParametrization.h"
@@ -185,7 +185,7 @@ BOOST_AUTO_TEST_CASE(SanitizeCovariancePreservesSymmetryByConstruction)
   BOOST_CHECK_CLOSE(state.covariance[packedCovarianceIndex(1, 3)], 5.f, 1e-4f);
 }
 
-// --- 2. ITS legB reproducer: barrel::update() on the exact captured real --
+// --- 2. ITS legB reproducer: detail::barrel::update() on the exact captured real --
 // prior state/covariance and measurement (candidate "13,6,6,5,4,9,5", hit 5)
 // that produced OperationFailureReason::MaterialFailure /
 // MaterialFailureReason::InvalidCovariance before this correction (posterior
@@ -222,14 +222,14 @@ BOOST_AUTO_TEST_CASE(ITSLegBReproducerNowSanitizesToValidCovariance)
 
   float chi2 = 0.f;
   OperationFailureReason reason{};
-  const bool ok = barrel::update(state, meas, chi2, reason);
+  const bool ok = detail::barrel::update(state, meas, chi2, reason);
 
   BOOST_REQUIRE(ok);
   BOOST_CHECK(allDiagonalsNonNegative(state));
   BOOST_CHECK_CLOSE(state.covariance[packedCovarianceIndex(4, 4)], 0.0328048468f, 5.f); // sign-flipped, matches production magnitude within float tolerance.
 }
 
-// --- 3. MFT reproducer: forward::update() on the exact captured real ------
+// --- 3. MFT reproducer: detail::forward::update() on the exact captured real ------
 // prior state/covariance and measurement (candidate
 // "68,71,73,67,72,73,62,76,80,-1", legB, hit 3) that produced a
 // Q2Pt-Q2Pt diagonal of -52.064167 (real production value) before this
@@ -265,13 +265,13 @@ BOOST_AUTO_TEST_CASE(MFTReproducerNowSanitizesToValidCovariance)
 
   float chi2 = 0.f;
   OperationFailureReason reason{};
-  const bool ok = forward::update(state, meas, chi2, reason);
+  const bool ok = detail::forward::update(state, meas, chi2, reason);
 
   BOOST_REQUIRE(ok);
   BOOST_CHECK(allDiagonalsNonNegative(state));
 }
 
-// --- 4. Large-step propagation invariant: barrel::propagate(state, linRef, --
+// --- 4. Large-step propagation invariant: detail::barrel::propagate(state, linRef, --
 // ...) on the exact captured real inputs that fed the ITS legB reproducer
 // above (the immediately preceding hit) must itself leave the covariance
 // invariant satisfied before the next update() ever runs. The raw off-
@@ -327,7 +327,7 @@ BOOST_AUTO_TEST_CASE(LargeStepPropagationRepairsCorrelationBeforeUpdate)
   const float targetX = 3.76323366f;
   const float bz = 5.00675011f;
   OperationFailureReason reason{};
-  const bool ok = barrel::propagate(state, linRef, targetX, bz, reason);
+  const bool ok = detail::barrel::propagate(state, linRef, targetX, bz, reason);
 
   BOOST_REQUIRE(ok);
   BOOST_CHECK(covarianceSatisfiesDeclaredInvariant(state));
@@ -352,7 +352,7 @@ BOOST_AUTO_TEST_CASE(LargeStepPropagationRepairsCorrelationBeforeUpdate)
   meas.covariance.vv = 3.60069805e-07f;
   float chi2 = 0.f;
   OperationFailureReason updateReason{};
-  BOOST_REQUIRE(barrel::update(state, meas, chi2, updateReason));
+  BOOST_REQUIRE(detail::barrel::update(state, meas, chi2, updateReason));
   BOOST_CHECK(covarianceSatisfiesDeclaredInvariant(state));
 }
 
@@ -389,7 +389,7 @@ BOOST_AUTO_TEST_CASE(BarrelRotateSanitizesOnZeroDeltaTrivialStep)
 {
   SurfaceKinematicState state = makeOverRangeBarrelState();
   OperationFailureReason reason{};
-  const bool ok = barrel::rotate(state, state.alpha, reason); // delta == 0: ratio == 1, transform is identity.
+  const bool ok = detail::barrel::rotate(state, state.alpha, reason); // delta == 0: ratio == 1, transform is identity.
   BOOST_REQUIRE(ok);
   BOOST_CHECK_CLOSE(state.covariance[packedCovarianceIndex(0, 0)], o2::track::kCY2max, 1e-3f);
 }
@@ -398,7 +398,7 @@ BOOST_AUTO_TEST_CASE(BarrelPropagateSanitizesOnZeroDxTrivialStep)
 {
   SurfaceKinematicState state = makeOverRangeBarrelState();
   OperationFailureReason reason{};
-  const bool ok = barrel::propagate(state, state.referenceCoordinate, 0.5f, reason); // dx == 0: early-return path.
+  const bool ok = detail::barrel::propagate(state, state.referenceCoordinate, 0.5f, reason); // dx == 0: early-return path.
   BOOST_REQUIRE(ok);
   BOOST_CHECK_CLOSE(state.covariance[packedCovarianceIndex(0, 0)], o2::track::kCY2max, 1e-3f);
 }
@@ -434,7 +434,7 @@ BOOST_AUTO_TEST_CASE(BarrelUpdateSanitizesReproducer)
   meas.covariance.vv = 3.60069805e-07f;
   float chi2 = 0.f;
   OperationFailureReason reason{};
-  BOOST_REQUIRE(barrel::update(state, meas, chi2, reason));
+  BOOST_REQUIRE(detail::barrel::update(state, meas, chi2, reason));
   BOOST_CHECK(allDiagonalsNonNegative(state));
 }
 
@@ -449,7 +449,7 @@ BOOST_AUTO_TEST_CASE(BarrelLinRefRotateSanitizesOnZeroDeltaTrivialStep)
     linRef.parameters[i] = state.parameters[i];
   }
   OperationFailureReason reason{};
-  const bool ok = barrel::rotate(state, linRef, state.alpha, 0.5f, reason);
+  const bool ok = detail::barrel::rotate(state, linRef, state.alpha, 0.5f, reason);
   BOOST_REQUIRE(ok);
   BOOST_CHECK_CLOSE(state.covariance[packedCovarianceIndex(0, 0)], o2::track::kCY2max, 1e-3f);
 }
@@ -487,7 +487,7 @@ BOOST_AUTO_TEST_CASE(BarrelLinRefPropagateSanitizesLargeStep)
   linRef.parameters[3] = -1.58717895f;
   linRef.parameters[4] = 1.21498108f;
   OperationFailureReason reason{};
-  BOOST_REQUIRE(barrel::propagate(state, linRef, 3.76323366f, 5.00675011f, reason));
+  BOOST_REQUIRE(detail::barrel::propagate(state, linRef, 3.76323366f, 5.00675011f, reason));
   BOOST_CHECK(allDiagonalsNonNegative(state));
 }
 
@@ -525,7 +525,7 @@ BOOST_AUTO_TEST_CASE(ForwardPropagateSanitizesOnZeroDzTrivialStep)
 {
   SurfaceKinematicState state = makeOverCorrelatedForwardState();
   OperationFailureReason reason{};
-  const bool ok = Propagator::propagateForward(state, state.referenceCoordinate, 0.5f, reason);
+  const bool ok = Propagator::propagateToReference(state, state.referenceCoordinate, 0.5f, reason);
   BOOST_REQUIRE(ok);
   BOOST_CHECK(covarianceSatisfiesDeclaredInvariant(state));
   BOOST_CHECK_CLOSE(state.covariance[packedCovarianceIndex(1, 0)], 2.f, 1e-3f); // sqrt(4*1) = 2, sign-preserved.
@@ -541,7 +541,7 @@ BOOST_AUTO_TEST_CASE(ForwardLinRefPropagateSanitizesOnZeroDzTrivialStep)
     linRef.parameters[i] = state.parameters[i];
   }
   OperationFailureReason reason{};
-  const bool ok = Propagator::propagateForward(state, linRef, state.referenceCoordinate, 0.5f, reason);
+  const bool ok = Propagator::propagateToReference(state, linRef, state.referenceCoordinate, 0.5f, reason);
   BOOST_REQUIRE(ok);
   BOOST_CHECK(covarianceSatisfiesDeclaredInvariant(state));
   BOOST_CHECK_CLOSE(state.covariance[packedCovarianceIndex(1, 0)], 2.f, 1e-3f); // sqrt(4*1) = 2, sign-preserved.
@@ -574,7 +574,7 @@ BOOST_AUTO_TEST_CASE(ForwardUpdateSanitizesReproducer)
   meas.covariance.vv = 0.000105412393f;
   float chi2 = 0.f;
   OperationFailureReason reason{};
-  BOOST_REQUIRE(forward::update(state, meas, chi2, reason));
+  BOOST_REQUIRE(detail::forward::update(state, meas, chi2, reason));
   BOOST_CHECK(allDiagonalsNonNegative(state));
 }
 
@@ -603,7 +603,7 @@ BOOST_AUTO_TEST_CASE(MalformedExternalBarrelCovarianceStillRejectedByPreflight)
   state.covariance[packedCovarianceIndex(4, 4)] = -0.01f; // Deliberately invalid, constructed directly.
 
   const material::IntegratedMaterialBudget budget{0.01f, 0.05f};
-  const auto result = barrel::correctForMaterial(state, budget, material::MaterialTraversalDirection::AlongMomentum);
+  const auto result = detail::barrel::correctForMaterial(state, budget, material::MaterialTraversalDirection::AlongMomentum);
   BOOST_CHECK(!result.ok());
   BOOST_CHECK(result.failure == material::MaterialFailureReason::InvalidCovariance);
 }
@@ -627,7 +627,7 @@ BOOST_AUTO_TEST_CASE(MalformedExternalForwardCovarianceStillRejectedByPreflight)
   state.covariance[packedCovarianceIndex(2, 2)] = -0.01f; // Deliberately invalid, constructed directly.
 
   const material::IntegratedMaterialBudget budget{0.01f, 0.05f};
-  const auto result = forward::correctForMaterial(state, budget, material::MaterialTraversalDirection::AlongMomentum);
+  const auto result = detail::forward::correctForMaterial(state, budget, material::MaterialTraversalDirection::AlongMomentum);
   BOOST_CHECK(!result.ok());
   BOOST_CHECK(result.failure == material::MaterialFailureReason::InvalidCovariance);
 }
@@ -661,7 +661,7 @@ BOOST_AUTO_TEST_CASE(FailingBarrelUpdateLeavesStateUnchanged)
   meas.covariance = {0.01f, 0.f, 0.01f};
   float chi2 = 0.f;
   OperationFailureReason reason{};
-  const bool ok = barrel::update(state, meas, chi2, reason);
+  const bool ok = detail::barrel::update(state, meas, chi2, reason);
 
   BOOST_CHECK(!ok);
   BOOST_CHECK(bitEqual(state, original));
@@ -686,7 +686,7 @@ BOOST_AUTO_TEST_CASE(FailingBarrelRotateLeavesStateUnchanged)
   const SurfaceKinematicState original = state;
 
   OperationFailureReason reason{};
-  const bool ok = barrel::rotate(state, state.alpha + 3.0f, reason); // Large rotation: local direction inversion.
+  const bool ok = detail::barrel::rotate(state, state.alpha + 3.0f, reason); // Large rotation: local direction inversion.
 
   BOOST_CHECK(!ok);
   BOOST_CHECK(bitEqual(state, original));

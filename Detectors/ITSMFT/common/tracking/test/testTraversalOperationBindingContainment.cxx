@@ -203,12 +203,15 @@ BOOST_AUTO_TEST_CASE(RetiredRoadWrappersDoNotReturn)
   }
 }
 
-BOOST_AUTO_TEST_CASE(ProcessNeighboursUsesTargetSurfaceDescriptor)
+BOOST_AUTO_TEST_CASE(ProcessNeighboursUsesTheStateDrivenPropagator)
 {
   const auto source = readTrackerTraitsSource();
   BOOST_CHECK(source.find("template <SurfaceKind Kind, typename InputSeed>") == std::string::npos);
   BOOST_CHECK(source.find("params.kind") == std::string::npos);
-  BOOST_CHECK(source.find("mTraversalGraph.getSurface(surface).kind") != std::string::npos);
+  const auto code = stripLineComments(extractMethodBody(source, "processNeighbours"));
+  BOOST_CHECK(code.find("Propagator::attachMeasurement") != std::string::npos);
+  BOOST_CHECK(code.find("SurfaceKind::Cylinder") == std::string::npos);
+  BOOST_CHECK(code.find("SurfaceKind::Disk") == std::string::npos);
 }
 
 BOOST_AUTO_TEST_CASE(RefitWorkersUseTheDescriptorDrivenBoundary)

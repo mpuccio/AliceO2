@@ -16,14 +16,14 @@
 #include <limits>
 
 #include "CommonConstants/MathConstants.h"
-#include "ITSMFTTracking/BarrelSurfaceStateOperations.h"
+#include "ITSMFTTracking/detail/SurfaceStateOperations.h"
 #include "ITSMFTTracking/detail/SurfaceKinematicStateLegacyAdapters.h"
 #include "ITSMFTTracking/SurfaceKinematicState.h"
 
 namespace
 {
 using namespace o2::itsmft::tracking;
-using namespace o2::itsmft::tracking::barrel;
+using namespace o2::itsmft::tracking::detail::barrel;
 
 constexpr float AbsoluteTolerance = 3.e-5f;
 constexpr float RelativeTolerance = 3.e-4f;
@@ -227,7 +227,7 @@ BOOST_AUTO_TEST_CASE(ReferenceDrivenPropagationDiffersFromSelfDrivenPropagation)
 
   auto selfDriven = baseState;
   OperationFailureReason reason{};
-  BOOST_REQUIRE(barrel::propagate(selfDriven, targetX, bz, reason));
+  BOOST_REQUIRE(detail::barrel::propagate(selfDriven, targetX, bz, reason));
 
   auto referenceDrivenState = baseState;
   auto referenceDrivenRef = perturbedLinRef(baseState);

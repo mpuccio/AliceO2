@@ -20,7 +20,7 @@
 #include <string>
 
 #include "CommonConstants/MathConstants.h"
-#include "ITSMFTTracking/ForwardSurfaceStateOperations.h"
+#include "ITSMFTTracking/detail/SurfaceStateOperations.h"
 #include "ITSMFTTracking/Propagator.h"
 #include "ITSMFTTracking/detail/SurfaceKinematicStateLegacyAdapters.h"
 #include "ITStracking/Cluster.h"
@@ -28,7 +28,7 @@
 namespace
 {
 using namespace o2::itsmft::tracking;
-using namespace o2::itsmft::tracking::forward;
+using namespace o2::itsmft::tracking::detail::forward;
 
 SurfaceKinematicState makeState()
 {
@@ -197,7 +197,7 @@ o2::its::TrackingFrameInfo makeForwardOuterHit(float sigma2X = 0.05f, float sigm
   return o2::its::TrackingFrameInfo{0.f, 0.f, 0.f, 0.f, 0.f, {0.f, 0.f}, {sigma2X, 0.f, sigma2Y}};
 }
 
-// Retained oracle for forward::buildSeed: reimplements the initial seed
+// Retained oracle for detail::forward::buildSeed: reimplements the initial seed
 // construction currently inside buildCellSeed<Disk>
 // (CandidateFinding.cxx) / detail::mftFwdFitCellClusters
 // (MFTFwdTrackHelpers.h) using the exact legacy double-precision
@@ -279,7 +279,7 @@ void checkBuildSeedMetadata(const SurfaceKinematicState& state, uint8_t expected
 }
 
 // Test-local field-mapping helper (not a production API): builds the
-// SurfaceMeasurement fields forward::buildSeed reads from a global-position-
+// SurfaceMeasurement fields detail::forward::buildSeed reads from a global-position-
 // only input (Disk field mapping: global coordinates -> measurement.global).
 SurfaceMeasurement measurementFromGlobalCluster(const o2::its::Cluster& cluster)
 {
@@ -289,7 +289,7 @@ SurfaceMeasurement measurementFromGlobalCluster(const o2::its::Cluster& cluster)
 }
 
 // Test-local field-mapping helper: builds the SurfaceMeasurement fields
-// forward::buildSeed reads from the outer cluster/hit pair (Disk field
+// detail::forward::buildSeed reads from the outer cluster/hit pair (Disk field
 // mapping: global coordinates -> measurement.global, reference z ->
 // measurement.frame.q -- contractually == global.z for the accepted disk
 // adapter -- measured covariance -> measurement.covariance).
@@ -309,9 +309,9 @@ void checkBuildSeedFailurePreservesBytes(const o2::its::Cluster& clusterInner, c
   auto outState = makeState(); // deliberately non-default sentinel pattern
   const auto before = outState;
   OperationFailureReason reason{};
-  BOOST_CHECK(!forward::buildSeed(measurementFromGlobalCluster(clusterInner), measurementFromGlobalCluster(clusterMiddle),
-                                  measurementFromOuterClusterAndHit(clusterOuter, hitOuter), bz, trackletMinPt,
-                                  1, o2::track::PID::Pion, outState, reason));
+  BOOST_CHECK(!detail::forward::buildSeed(measurementFromGlobalCluster(clusterInner), measurementFromGlobalCluster(clusterMiddle),
+                                          measurementFromOuterClusterAndHit(clusterOuter, hitOuter), bz, trackletMinPt,
+                                          1, o2::track::PID::Pion, outState, reason));
   BOOST_CHECK(reason == expected);
   BOOST_CHECK(bitEqual(outState, before));
 }
@@ -326,7 +326,7 @@ void comparePropagationWithOracle(float targetZ, float bz)
     oracle.propagateToZhelix(targetZ, bz);
   }
   OperationFailureReason reason{};
-  BOOST_REQUIRE(Propagator::propagateForward(state, targetZ, bz, reason));
+  BOOST_REQUIRE(Propagator::propagateToReference(state, targetZ, bz, reason));
   compareWithRetainedLegacyOracle(state, oracle);
 }
 
@@ -364,7 +364,7 @@ BOOST_AUTO_TEST_CASE(LowFieldPropagationMatchesHandCalculationAndPackedCovarianc
   constexpr float targetZ = -50.f;
   const float n = (targetZ - before.referenceCoordinate) / before.parameters[3];
   OperationFailureReason reason{};
-  BOOST_REQUIRE(Propagator::propagateForward(state, targetZ, 0.01f, reason));
+  BOOST_REQUIRE(Propagator::propagateToReference(state, targetZ, 0.01f, reason));
   BOOST_CHECK_CLOSE_FRACTION(state.parameters[0], before.parameters[0] + n * std::cos(before.parameters[2]), 2.e-6f);
   BOOST_CHECK_CLOSE_FRACTION(state.parameters[1], before.parameters[1] + n * std::sin(before.parameters[2]), 2.e-6f);
   BOOST_CHECK_EQUAL(state.referenceCoordinate, targetZ);
@@ -382,8 +382,8 @@ BOOST_AUTO_TEST_CASE(ZeroFieldPropagationIsByteDeterministicInBothDirections)
     auto first = makeState();
     auto second = first;
     OperationFailureReason reason{};
-    BOOST_REQUIRE(Propagator::propagateForward(first, targetZ, 0.f, reason));
-    BOOST_REQUIRE(Propagator::propagateForward(second, targetZ, 0.f, reason));
+    BOOST_REQUIRE(Propagator::propagateToReference(first, targetZ, 0.f, reason));
+    BOOST_REQUIRE(Propagator::propagateToReference(second, targetZ, 0.f, reason));
     BOOST_CHECK(bitEqual(first, second));
   }
 }
@@ -493,9 +493,9 @@ BOOST_AUTO_TEST_CASE(MaterialMatchesHandCalculationAndRetainedLegacyOracle)
 BOOST_AUTO_TEST_CASE(FailuresPreserveEveryDestinationByte)
 {
   auto wrongFamily = makeState();
-  wrongFamily.kind = SurfaceKind::Cylinder;
+  wrongFamily.kind = SurfaceKind::Undefined;
   checkStateFailurePreservesBytes(wrongFamily, OperationFailureReason::SourceSurfaceKindMismatch,
-                                  [](auto& state, auto& reason) { return Propagator::propagateForward(state, -50.f, 0.f, reason); });
+                                  [](auto& state, auto& reason) { return Propagator::propagateToReference(state, -50.f, 0.f, reason); });
 
   auto nonFinite = makeState();
   nonFinite.parameters[0] = std::numeric_limits<float>::quiet_NaN();
@@ -505,12 +505,12 @@ BOOST_AUTO_TEST_CASE(FailuresPreserveEveryDestinationByte)
   auto unreachable = makeState();
   unreachable.parameters[3] = 0.f;
   checkStateFailurePreservesBytes(unreachable, OperationFailureReason::UnreachableTarget,
-                                  [](auto& state, auto& reason) { return Propagator::propagateForward(state, -50.f, 5.f, reason); });
+                                  [](auto& state, auto& reason) { return Propagator::propagateToReference(state, -50.f, 5.f, reason); });
 
   auto straightAtField = makeState();
   straightAtField.parameters[4] = 0.f;
   checkStateFailurePreservesBytes(straightAtField, OperationFailureReason::PropagationFailure,
-                                  [](auto& state, auto& reason) { return Propagator::propagateForward(state, -50.f, 5.f, reason); });
+                                  [](auto& state, auto& reason) { return Propagator::propagateToReference(state, -50.f, 5.f, reason); });
 
   auto material = makeState();
   material.parameters[3] = 0.f;
@@ -562,7 +562,7 @@ BOOST_AUTO_TEST_CASE(FailuresPreserveEveryDestinationByte)
   BOOST_CHECK_EQUAL(chi2, chi2Before);
 
   checkStateFailurePreservesBytes(makeState(), OperationFailureReason::NonFiniteInput,
-                                  [](auto& state, auto& reason) { return Propagator::propagateForward(state, std::numeric_limits<float>::infinity(), 0.f, reason); });
+                                  [](auto& state, auto& reason) { return Propagator::propagateToReference(state, std::numeric_limits<float>::infinity(), 0.f, reason); });
 }
 
 BOOST_AUTO_TEST_CASE(StateChi2MatchesRetainedLegacyOracleAndHandReferences)
@@ -792,7 +792,7 @@ BOOST_AUTO_TEST_CASE(RepeatedMultiStepChainsAreByteDeterministicAndCharacterizeO
     float chi2 = 0.f;
     for (int step = 0; step < 5; ++step) {
       const float z = -48.f - 2.f * step;
-      BOOST_REQUIRE(Propagator::propagateForward(state, z, 5.f, reason));
+      BOOST_REQUIRE(Propagator::propagateToReference(state, z, 5.f, reason));
       BOOST_REQUIRE(correctForMaterial(state, 0.004f + 0.001f * step, reason));
       auto measurement = makeMeasurement();
       measurement.frame.u = state.parameters[0] + 0.01f * (step + 1);
@@ -815,7 +815,7 @@ BOOST_AUTO_TEST_CASE(RepeatedMultiStepChainsAreByteDeterministicAndCharacterizeO
   OperationFailureReason reason{};
   for (int step = 0; step < 5; ++step) {
     const float z = -48.f - 2.f * step;
-    BOOST_REQUIRE(Propagator::propagateForward(state, z, 5.f, reason));
+    BOOST_REQUIRE(Propagator::propagateToReference(state, z, 5.f, reason));
     BOOST_REQUIRE(correctForMaterial(state, 0.004f + 0.001f * step, reason));
     oracle.propagateToZhelix(z, 5.f);
     oracle.addMCSEffect(0.004f + 0.001f * step);
@@ -823,7 +823,7 @@ BOOST_AUTO_TEST_CASE(RepeatedMultiStepChainsAreByteDeterministicAndCharacterizeO
   compareWithRetainedLegacyOracle(state, oracle);
 }
 
-// --- forward::buildSeed (Stage-B Slice A) ---
+// --- detail::forward::buildSeed (Stage-B Slice A) ---
 
 BOOST_AUTO_TEST_CASE(BuildSeedMatchesRetainedLegacyOracleNonzeroField)
 {
@@ -839,9 +839,9 @@ BOOST_AUTO_TEST_CASE(BuildSeedMatchesRetainedLegacyOracleNonzeroField)
 
     SurfaceKinematicState outState{};
     OperationFailureReason reason{};
-    BOOST_REQUIRE(forward::buildSeed(measurementFromGlobalCluster(clusterInner), measurementFromGlobalCluster(clusterMiddle),
-                                     measurementFromOuterClusterAndHit(clusterOuter, hitOuter), bz, trackletMinPt,
-                                     1, o2::track::PID::Pion, outState, reason));
+    BOOST_REQUIRE(detail::forward::buildSeed(measurementFromGlobalCluster(clusterInner), measurementFromGlobalCluster(clusterMiddle),
+                                             measurementFromOuterClusterAndHit(clusterOuter, hitOuter), bz, trackletMinPt,
+                                             1, o2::track::PID::Pion, outState, reason));
     compareBuildSeedWithRetainedLegacyOracle(outState, oracle);
     checkBuildSeedMetadata(outState, 1, o2::track::PID::Pion);
   }
@@ -861,9 +861,9 @@ BOOST_AUTO_TEST_CASE(BuildSeedMatchesRetainedLegacyOracleZeroField)
 
   SurfaceKinematicState outState{};
   OperationFailureReason reason{};
-  BOOST_REQUIRE(forward::buildSeed(measurementFromGlobalCluster(clusterInner), measurementFromGlobalCluster(clusterMiddle),
-                                   measurementFromOuterClusterAndHit(clusterOuter, hitOuter), bz, trackletMinPt,
-                                   2, o2::track::PID::Kaon, outState, reason));
+  BOOST_REQUIRE(detail::forward::buildSeed(measurementFromGlobalCluster(clusterInner), measurementFromGlobalCluster(clusterMiddle),
+                                           measurementFromOuterClusterAndHit(clusterOuter, hitOuter), bz, trackletMinPt,
+                                           2, o2::track::PID::Kaon, outState, reason));
   compareBuildSeedWithRetainedLegacyOracle(outState, oracle);
   checkBuildSeedMetadata(outState, 2, o2::track::PID::Kaon);
 }
@@ -885,9 +885,9 @@ BOOST_AUTO_TEST_CASE(BuildSeedZeroOrNegativeTrackletMinPtFallsBackToZeroInvQPt)
 
     SurfaceKinematicState outState{};
     OperationFailureReason reason{};
-    BOOST_REQUIRE(forward::buildSeed(measurementFromGlobalCluster(clusterInner), measurementFromGlobalCluster(clusterMiddle),
-                                     measurementFromOuterClusterAndHit(clusterOuter, hitOuter), bz, trackletMinPt,
-                                     1, o2::track::PID::Pion, outState, reason));
+    BOOST_REQUIRE(detail::forward::buildSeed(measurementFromGlobalCluster(clusterInner), measurementFromGlobalCluster(clusterMiddle),
+                                             measurementFromOuterClusterAndHit(clusterOuter, hitOuter), bz, trackletMinPt,
+                                             1, o2::track::PID::Pion, outState, reason));
     BOOST_CHECK_EQUAL(outState.parameters[4], 0.f);
     compareBuildSeedWithRetainedLegacyOracle(outState, oracle);
   }
@@ -914,12 +914,12 @@ BOOST_AUTO_TEST_CASE(BuildSeedPhiSignFollowsFieldSign)
   SurfaceKinematicState statePositive{};
   SurfaceKinematicState stateNegative{};
   OperationFailureReason reason{};
-  BOOST_REQUIRE(forward::buildSeed(measurementFromGlobalCluster(clusterInner), measurementFromGlobalCluster(clusterMiddle),
-                                   measurementFromOuterClusterAndHit(clusterOuter, hitOuter), 0.5f, trackletMinPt,
-                                   1, o2::track::PID::Pion, statePositive, reason));
-  BOOST_REQUIRE(forward::buildSeed(measurementFromGlobalCluster(clusterInner), measurementFromGlobalCluster(clusterMiddle),
-                                   measurementFromOuterClusterAndHit(clusterOuter, hitOuter), -0.5f, trackletMinPt,
-                                   1, o2::track::PID::Pion, stateNegative, reason));
+  BOOST_REQUIRE(detail::forward::buildSeed(measurementFromGlobalCluster(clusterInner), measurementFromGlobalCluster(clusterMiddle),
+                                           measurementFromOuterClusterAndHit(clusterOuter, hitOuter), 0.5f, trackletMinPt,
+                                           1, o2::track::PID::Pion, statePositive, reason));
+  BOOST_REQUIRE(detail::forward::buildSeed(measurementFromGlobalCluster(clusterInner), measurementFromGlobalCluster(clusterMiddle),
+                                           measurementFromOuterClusterAndHit(clusterOuter, hitOuter), -0.5f, trackletMinPt,
+                                           1, o2::track::PID::Pion, stateNegative, reason));
   BOOST_CHECK_CLOSE(statePositive.parameters[2], static_cast<float>(oraclePositive.getPhi()), 1.e-2f);
   BOOST_CHECK_CLOSE(stateNegative.parameters[2], static_cast<float>(oracleNegative.getPhi()), 1.e-2f);
   BOOST_CHECK_NE(statePositive.parameters[2], stateNegative.parameters[2]);
@@ -947,9 +947,9 @@ BOOST_AUTO_TEST_CASE(ForwardBuildSeedLeafRetainsStrictZOrderingBoundary)
   o2::its::Cluster acceptedInner{2.0f, 1.0f, clusterOuter.zCoordinate + 1.e-6f + 1.e-7f, 0};
   SurfaceKinematicState outState{};
   OperationFailureReason reason{};
-  BOOST_CHECK(forward::buildSeed(measurementFromGlobalCluster(acceptedInner), measurementFromGlobalCluster(clusterMiddle),
-                                 measurementFromOuterClusterAndHit(clusterOuter, hitOuter), bz, trackletMinPt,
-                                 1, o2::track::PID::Pion, outState, reason));
+  BOOST_CHECK(detail::forward::buildSeed(measurementFromGlobalCluster(acceptedInner), measurementFromGlobalCluster(clusterMiddle),
+                                         measurementFromOuterClusterAndHit(clusterOuter, hitOuter), bz, trackletMinPt,
+                                         1, o2::track::PID::Pion, outState, reason));
 }
 
 BOOST_AUTO_TEST_CASE(ForwardBuildSeedLeafRetainsStrictSeparationBoundaries)
@@ -1036,12 +1036,12 @@ BOOST_AUTO_TEST_CASE(BuildSeedIsByteDeterministic)
   SurfaceKinematicState firstState{};
   SurfaceKinematicState secondState{};
   OperationFailureReason reason{};
-  BOOST_REQUIRE(forward::buildSeed(measurementFromGlobalCluster(clusterInner), measurementFromGlobalCluster(clusterMiddle),
-                                   measurementFromOuterClusterAndHit(clusterOuter, hitOuter), 0.5f, 0.5f,
-                                   1, o2::track::PID::Pion, firstState, reason));
-  BOOST_REQUIRE(forward::buildSeed(measurementFromGlobalCluster(clusterInner), measurementFromGlobalCluster(clusterMiddle),
-                                   measurementFromOuterClusterAndHit(clusterOuter, hitOuter), 0.5f, 0.5f,
-                                   1, o2::track::PID::Pion, secondState, reason));
+  BOOST_REQUIRE(detail::forward::buildSeed(measurementFromGlobalCluster(clusterInner), measurementFromGlobalCluster(clusterMiddle),
+                                           measurementFromOuterClusterAndHit(clusterOuter, hitOuter), 0.5f, 0.5f,
+                                           1, o2::track::PID::Pion, firstState, reason));
+  BOOST_REQUIRE(detail::forward::buildSeed(measurementFromGlobalCluster(clusterInner), measurementFromGlobalCluster(clusterMiddle),
+                                           measurementFromOuterClusterAndHit(clusterOuter, hitOuter), 0.5f, 0.5f,
+                                           1, o2::track::PID::Pion, secondState, reason));
   BOOST_CHECK(bitEqual(firstState, secondState));
 }
 
@@ -1050,8 +1050,8 @@ BOOST_AUTO_TEST_CASE(NewProductionFilesHaveNoLegacyForwardDependency)
   const std::string testFile = __FILE__;
   const auto testDirectory = testFile.substr(0, testFile.find_last_of('/'));
   const std::array<std::string, 2> productionFiles = {
-    testDirectory + "/../include/ITSMFTTracking/ForwardSurfaceStateOperations.h",
-    testDirectory + "/../src/ForwardSurfaceStateOperations.cxx"};
+    testDirectory + "/../include/ITSMFTTracking/detail/SurfaceStateOperations.h",
+    testDirectory + "/../src/PropagatorForwardOperations.cxx"};
   const std::array<std::string, 4> forbidden = {
     "SurfaceKinematicStateLegacyAdapters.h", "TrackFwd.h", "TrackParCovFwd", "TrackParFwd"};
   for (const auto& file : productionFiles) {
