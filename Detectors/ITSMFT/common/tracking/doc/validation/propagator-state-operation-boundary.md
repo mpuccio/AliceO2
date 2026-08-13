@@ -21,6 +21,12 @@ implements the two family-local covariance projections used by material
 correction. It exposes no public state-evolution API and is called only by
 `Propagator`.
 
+Ordered refit-leg slots are not a single-state propagation primitive.
+`detail::RefitMeasurementSlot` and transactional `detail::driveRefitLeg` live
+with `fitTrackSeedLegs` in `NativeRefitDriver.h`; that driver invokes
+`Propagator::propagateToMeasurement` for every present slot. Consequently the
+public `Propagator.h` exposes neither refit slot storage nor leg orchestration.
+
 ## Validation
 
 - Complete incremental build: 186 targets.

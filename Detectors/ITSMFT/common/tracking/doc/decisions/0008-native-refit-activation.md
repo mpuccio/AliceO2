@@ -46,8 +46,8 @@ tracklet/cell/road/refit flow" ADR 0007 decision 10 requires, and both still `Tr
    gate, and the Kalman update into one transactional operation, selecting Barrel vs.
    Forward behavior from the target `SurfaceDescriptor::kind` alone -- never from
    `TransitionPolicyTag`, a persisted `SurfaceKindPair`, or a detector identity.
-4. `Propagator::driveRefitLeg` is the shared (non-family-templated) counterpart of the
-   pre-existing `detail::driveRefitLeg<Tag>`; `fitTrackSeedLegs<NLayers>` is the shared
+4. `detail::driveRefitLeg` is native-refit-driver orchestration built on
+   `Propagator::propagateToMeasurement`; `fitTrackSeedLegs<NLayers>` is the shared
    whole-seed three-leg (inward A / outward B / optional repeat C) driver built on it,
    serving both families with no branch of its own -- the "one tracklet/cell/road/refit
    flow" ADR 0007 decision 10 requires, now also true for the refit stage.

@@ -7,8 +7,9 @@ each attached seed position against its ordered surface, the event-owned
 per-surface source mapping, normalized external index, and normalized
 measurement before invoking `fitTrackSeedLegs()`.
 
-The refit driver already advances through ordered measurements with
-`Propagator::driveRefitLeg()` and `Propagator::propagateToMeasurement()`. A
+The refit driver already advances through ordered measurements with its
+private `detail::driveRefitLeg()` and `Propagator::propagateToMeasurement()`.
+A
 target descriptor selects the coordinate family at each measurement; a seed
 is therefore not classified from its first hit and may contain Cylinder and
 Disk measurements from distinct valid sources.
