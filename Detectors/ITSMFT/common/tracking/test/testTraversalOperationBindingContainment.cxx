@@ -165,7 +165,7 @@ BOOST_AUTO_TEST_CASE(RoadEntryPointUsesOneGraphSchedule)
   for (const auto token : {"SurfaceKind", "SurfaceKind", "constexpr"}) {
     BOOST_CHECK(!mentionsToken(code, token));
   }
-  BOOST_CHECK(code.find("findRoadsForGraph") != std::string::npos);
+  BOOST_CHECK(code.find("findRoadsImpl") != std::string::npos);
   BOOST_CHECK(code.find("findRoadsCylinder") == std::string::npos);
   BOOST_CHECK(code.find("findRoadsDisk") == std::string::npos);
 }
@@ -217,12 +217,22 @@ BOOST_AUTO_TEST_CASE(ProcessNeighboursUsesTheStateDrivenPropagator)
 BOOST_AUTO_TEST_CASE(RefitWorkersUseTheDescriptorDrivenBoundary)
 {
   const auto source = readTrackerTraitsSource();
-  const auto code = stripLineComments(extractMethodBody(source, "findRoadsForSchedule"));
+  const auto code = stripLineComments(extractMethodBody(source, "findRoadsImpl"));
   BOOST_REQUIRE_GT(code.size(), 0u);
   BOOST_CHECK(code.find("refitSources") == std::string::npos);
   BOOST_CHECK(code.find("TraversalFailureReason::SurfaceKindMismatch") == std::string::npos);
   BOOST_CHECK(code.find("mBinding->getOrderedSurfaces()") != std::string::npos);
   BOOST_CHECK(code.find("mLayerGlobalMeasurements[position].front()") == std::string::npos);
+}
+
+BOOST_AUTO_TEST_CASE(RetiredTraversalForwardersDoNotReturn)
+{
+  const auto source = readTrackerTraitsSource();
+  const auto header = readTrackerTraitsHeader();
+  for (const auto token : {"findRoadsForGraph", "findRoadsForSchedule", "LayerGeometryConfigView", "bindLayerGeometryConfig"}) {
+    BOOST_CHECK(source.find(token) == std::string::npos);
+    BOOST_CHECK(header.find(token) == std::string::npos);
+  }
 }
 
 BOOST_AUTO_TEST_CASE(RetiredCoordinateCutsAreAbsentFromCommonProductionSources)

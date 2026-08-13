@@ -703,9 +703,8 @@ BOOST_AUTO_TEST_CASE(NormalizedMeasurementsRemainAuthoritativeOverPoisonedLocato
 
 /// Gate 3 transition-preparation slice coverage (relocated from
 /// TimeFrame::initialise() into TrackerTraits::initialiseTimeFrame(); see
-/// CandidateFinding.h family scattering leaves,
-/// family curvature leaves, prepareTransitionScatteringAndBending, and
-/// host LayerGeometryConfigView). These tests verify
+/// CandidateFinding.h family scattering leaves and
+/// prepareTransitionScatteringAndBending. These tests verify
 /// exact legacy-formula parity, the family-specific arithmetic literal that
 /// integration review required preserved (not canonicalized), and the
 /// order-sensitive oneOverR ratchet -- independently of TrackerTraits'
@@ -812,46 +811,6 @@ BOOST_AUTO_TEST_CASE(DiskScatteringAngleNearZeroReferenceRadiusFallback)
   // merely reproducing an unrelated formula.
   const float expectedWithSentinelCscLambda = 0.0136f * (1.f / legacy.TrackletMinPt) * std::sqrt(legacy.LayerxX0[0] * 1.e6f);
   BOOST_CHECK_EQUAL(reference, expectedWithSentinelCscLambda);
-}
-
-BOOST_AUTO_TEST_CASE(LayerGeometryConfigViewChecksSpanSizeOnlyNotNumericValues)
-{
-  TrackingParameters legacy;
-  legacy.LayerRadii = {0.f, -1.f, 3.91924f, 19.6213f, 24.5597f, 34.388f, 39.3329f}; // degenerate/negative radii
-  legacy.LayerxX0 = {5.e-3f, 5.e-3f, 5.e-3f, 1.e-2f, 1.e-2f, 1.e-2f, 1.e-2f};       // valid
-  const auto legacyMaterial = toMaterial(legacy.LayerxX0);
-
-  const auto attachHitConfig = bindAttachHitConfig(gsl::span<const NominalSurfaceMaterial>(legacyMaterial), legacy);
-  BOOST_CHECK(attachHitConfig.isValid(7));
-
-  const auto geometryConfig = bindLayerGeometryConfig(legacy, attachHitConfig);
-  // Legacy TimeFrame::initialise() never rejected degenerate/zero/negative
-  // radii; this slice must not silently start doing so.
-  BOOST_CHECK(geometryConfig.isValid(7));
-  BOOST_CHECK(!geometryConfig.isValid(8)); // span-size check still applies
-
-  // Negative xOverX0 must be rejected -- by AttachHitConfigView, the
-  // single established contract for that data. LayerGeometryConfigView
-  // borrows the same (rejected) span rather than independently re-validating
-  // it, so it must not be read as a numeric-validity signal on its own.
-  auto corrupted = legacy;
-  corrupted.LayerxX0[3] = -1.f;
-  const auto corruptedMaterial = toMaterial(corrupted.LayerxX0);
-  const auto corruptedAttachHitConfig = bindAttachHitConfig(gsl::span<const NominalSurfaceMaterial>(corruptedMaterial), corrupted);
-  BOOST_CHECK(!corruptedAttachHitConfig.isValid(7));
-  const auto corruptedGeometryConfig = bindLayerGeometryConfig(corrupted, corruptedAttachHitConfig);
-  BOOST_CHECK(corruptedGeometryConfig.isValid(7)); // size-only: still reports valid
-}
-
-BOOST_AUTO_TEST_CASE(BindLayerGeometryConfigBorrowsAttachHitLayerMaterialSpan)
-{
-  TrackingParameters legacy;
-  const auto legacyMaterial = toMaterial(legacy.LayerxX0);
-  const auto attachHitConfig = bindAttachHitConfig(gsl::span<const NominalSurfaceMaterial>(legacyMaterial), legacy);
-  const auto geometryConfig = bindLayerGeometryConfig(legacy, attachHitConfig);
-  BOOST_CHECK_EQUAL(geometryConfig.layerMaterial.data(), attachHitConfig.layerMaterial.data());
-  BOOST_CHECK_EQUAL(geometryConfig.layerMaterial.size(), attachHitConfig.layerMaterial.size());
-  BOOST_CHECK_EQUAL(geometryConfig.layerRadii.data(), legacy.LayerRadii.data());
 }
 
 BOOST_AUTO_TEST_CASE(ClampTransitionCurvatureUsesOneCoordinateNeutralExpression)
