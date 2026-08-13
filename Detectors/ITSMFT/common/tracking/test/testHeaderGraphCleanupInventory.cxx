@@ -143,7 +143,7 @@ BOOST_AUTO_TEST_CASE(RetiredAndRelocatedPublicPathsAreAbsent)
     "ClusterSource.h",
     "MultiSourceLoading.h",
     "TimeFrameLoadFailure.h",
-    "CommonTrackShadow.h",
+    "GenericTrackShadow.h",
     "SurfaceTrackingScratch.h",
     "DetectorPublicationAdapter.h",
     "DetectorTrackingOperationAdapterSupport.h",
@@ -154,6 +154,9 @@ BOOST_AUTO_TEST_CASE(RetiredAndRelocatedPublicPathsAreAbsent)
     "ConfigKeyValuesPreflight.h",
     "SurfaceKind.h",
     "TrackingOperationAdapter.h",
+    "CommonTrack.h",
+    "CommonTrackOutputAdapter.h",
+    "NativeRefitDriver.h",
   };
   for (const auto header : retiredPublic) {
     BOOST_CHECK_MESSAGE(!fs::exists(include / header), "retired public path remains: " << header);
@@ -186,12 +189,30 @@ BOOST_AUTO_TEST_CASE(RetiredAndRelocatedPublicPathsAreAbsent)
   }
 }
 
-BOOST_AUTO_TEST_CASE(RetiredCommonTrackPublicationIdentifierIsAbsentFromProduction)
+BOOST_AUTO_TEST_CASE(RetiredGenericTrackPublicationIdentifierIsAbsentFromProduction)
 {
   for (const auto& path : productionFiles()) {
     const auto text = readFile(path);
-    BOOST_CHECK_MESSAGE(text.find("CommonTrackShadow") == std::string::npos,
-                        path.string() << " retains the retired CommonTrack publication identifier");
+    BOOST_CHECK_MESSAGE(text.find("GenericTrackShadow") == std::string::npos,
+                        path.string() << " retains the retired GenericTrack publication identifier");
+  }
+}
+
+BOOST_AUTO_TEST_CASE(GenericTrackAndRefitDriverUseOnlyCurrentProductNames)
+{
+  const auto include = trackingRoot() / "include/ITSMFTTracking";
+  BOOST_CHECK(fs::is_regular_file(include / "GenericTrack.h"));
+  BOOST_CHECK(fs::is_regular_file(include / "GenericTrackOutputAdapter.h"));
+  BOOST_CHECK(fs::is_regular_file(include / "RefitDriver.h"));
+
+  for (const auto& path : productionFiles()) {
+    const auto text = readFile(path);
+    BOOST_CHECK_MESSAGE(text.find("ITSMFTTracking/NativeRefitDriver.h") == std::string::npos,
+                        path.string() << " retains the superseded RefitDriver include");
+    BOOST_CHECK_MESSAGE(text.find("ITSMFTTracking/CommonTrack.h") == std::string::npos,
+                        path.string() << " retains the superseded GenericTrack model include");
+    BOOST_CHECK_MESSAGE(text.find("ITSMFTTracking/CommonTrackOutputAdapter.h") == std::string::npos,
+                        path.string() << " retains the superseded GenericTrack adapter include");
   }
 }
 
@@ -204,7 +225,7 @@ BOOST_AUTO_TEST_CASE(WorkflowsUseOnlyTheDetailAdapterFacades)
     itsmft / "common/workflow-combined-ca",
   };
   const std::vector<std::string_view> forbiddenDetailIncludes{
-    "ITSMFTTracking/detail/CommonTrackShadow.h",
+    "ITSMFTTracking/detail/GenericTrackShadow.h",
     "ITSMFTTracking/detail/SurfaceTrackingScratch.h",
     "ITSMFTTracking/detail/ITSSharedClusterCompatibility.h",
     "ITSMFTTracking/detail/MFTPublicationCompatibility.h",

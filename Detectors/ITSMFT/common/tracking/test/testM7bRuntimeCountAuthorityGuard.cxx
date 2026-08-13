@@ -103,7 +103,7 @@ std::optional<CountBoundary> classify(const fs::path& path, std::string_view cod
     return CountBoundary::AdapterEdge;
   }
   if (name == "IndexTableConfiguration.h" || name == "IndexTableConfiguration.cxx" ||
-      name == "NativeRefitDriver.h" ||
+      name == "RefitDriver.h" ||
       name == "CandidateFinding.h" ||
       name == "CandidateFinding.cxx") {
     // The old native-cylinder output loop is an adapter edge; its remaining
@@ -197,7 +197,7 @@ BOOST_AUTO_TEST_CASE(RuntimePlanAndFixedCapacityContractsAreVisibleInProductionS
   const auto root = trackingRoot();
   const auto traits = readFile(root / "src/TrackerTraits.cxx");
   const auto scratch = readFile(root / "src/SurfaceTrackingScratch.cxx");
-  const auto refit = readFile(root / "include/ITSMFTTracking/NativeRefitDriver.h");
+  const auto refit = readFile(root / "include/ITSMFTTracking/RefitDriver.h");
   BOOST_CHECK(traits.find("mScratch->getNOwnedSurfaces()") != std::string::npos);
   BOOST_CHECK(traits.find("getOrderedSurfaces()") != std::string::npos);
   BOOST_CHECK(scratch.find("mNOwnedSurfaces") != std::string::npos);

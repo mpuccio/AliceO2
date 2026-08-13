@@ -126,9 +126,9 @@ BOOST_AUTO_TEST_CASE(generic_candidate_kinematics_are_adapter_edge_only)
 BOOST_AUTO_TEST_CASE(its_compatibility_consumes_generic_results)
 {
   TrackingCandidate first;
-  first.commonTrackIndex = 4;
+  first.genericTrackIndex = 4;
   TrackingCandidate second;
-  second.commonTrackIndex = 9;
+  second.genericTrackIndex = 9;
 
   std::vector<TrackingCandidate> results{first, second};
   ITSSharedClusterCompatibility sidecar;
@@ -138,7 +138,7 @@ BOOST_AUTO_TEST_CASE(its_compatibility_consumes_generic_results)
   SurfaceTrackingScratch scratch;
   BOOST_REQUIRE(adapter.completeAccepted(results, params, scratch, true));
   BOOST_REQUIRE_EQUAL(sidecar.entries().size(), 2);
-  BOOST_CHECK_EQUAL(sidecar.entries()[0].commonTrackIndex, 4);
+  BOOST_CHECK_EQUAL(sidecar.entries()[0].genericTrackIndex, 4);
   BOOST_CHECK(!sidecar.entries()[0].hasSharedClusters);
   BOOST_CHECK(!sidecar.entries()[1].hasSharedClusters);
 
@@ -152,7 +152,7 @@ BOOST_AUTO_TEST_CASE(its_compatibility_consumes_generic_results)
 BOOST_AUTO_TEST_CASE(mft_compatibility_consumes_seed_and_common_result)
 {
   TrackingCandidate result;
-  result.commonTrackIndex = 7;
+  result.genericTrackIndex = 7;
   result.seed.state().parameters[4] = -0.25f;
   result.seed.setSurfaceMask(SurfaceMask{0x02a5});
 
@@ -164,7 +164,7 @@ BOOST_AUTO_TEST_CASE(mft_compatibility_consumes_seed_and_common_result)
   SurfaceTrackingScratch scratch;
   BOOST_REQUIRE(adapter.completeAccepted(results, params, scratch, true));
   BOOST_REQUIRE_EQUAL(sidecar.entries().size(), 1);
-  BOOST_CHECK_EQUAL(sidecar.entries()[0].commonTrackIndex, 7);
+  BOOST_CHECK_EQUAL(sidecar.entries()[0].genericTrackIndex, 7);
   BOOST_CHECK_EQUAL(sidecar.entries()[0].invQPtSeed, -0.25);
   BOOST_CHECK_EQUAL(sidecar.entries()[0].chi2QPtSeed, 0.);
   BOOST_CHECK_EQUAL(sidecar.entries()[0].seedPattern, 0x02a5);

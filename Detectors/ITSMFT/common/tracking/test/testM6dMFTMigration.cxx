@@ -35,7 +35,7 @@
 #include "DataFormatsITSMFT/ROFRecord.h"
 #include "DetectorsCommonDataFormats/DetID.h"
 #include "ITSMFTTracking/IOUtils.h"
-#include "ITSMFTTracking/CommonTrackOutputAdapter.h"
+#include "ITSMFTTracking/GenericTrackOutputAdapter.h"
 #include "ITSMFTTracking/Configuration.h"
 #include "ITSMFTTracking/SurfaceGraphBuilder.h"
 #include "ITSMFTTracking/IOUtils.h"
@@ -351,7 +351,7 @@ BOOST_AUTO_TEST_CASE(MFTSidecarAndPublicationExportRemainValidAfterMigration)
   bool publicationValid = false;
   mftClock.emplace(participants.getMFTScratch().getROFOverlapView().getClockLayer());
   publicationValid = true;
-  std::optional<CommonTrackPublicationExport> mftExport;
+  std::optional<GenericTrackPublicationExport> mftExport;
   if (publicationValid && mftClock) {
     mftExport.emplace(o2::detectors::DetID::MFT, ClusterSourceId{1}, *mftClock, participants.getMFTOrderedSurfaces());
   }

@@ -23,7 +23,7 @@
 #include <cstring>
 #include <vector>
 
-#include "ITSMFTTracking/NativeRefitDriver.h"
+#include "ITSMFTTracking/RefitDriver.h"
 
 using namespace o2::itsmft::tracking;
 

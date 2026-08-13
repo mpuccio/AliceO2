@@ -45,7 +45,7 @@ struct TokenCheck {
 
 // Every allowlisted file is scanned too -- the allowlist only means "known,
 // reasoned exception", not "unscanned". Rationale per file:
-//  - NativeRefitDriver.h, detail/CandidateFinding.h,
+//  - RefitDriver.h, detail/CandidateFinding.h,
 //    SurfaceStateOperationResult.h: doc comments describing the legacy
 //    fitTrack/refitTrack formula an operation reproduces or a failure reason
 //    mirrors -- prose, not a dependency.
@@ -62,7 +62,7 @@ const std::vector<TokenCheck>& forbiddenTokens()
      {}},
     {"TrackLTF",
      "frozen MFT linear-track-finder fit engine (MFTTracking/TrackFitter.h)",
-     {"MFTFwdTrackHelpers.h", "MFTFwdTrackHelpers.cxx", "NativeRefitDriver.h"}},
+     {"MFTFwdTrackHelpers.h", "MFTFwdTrackHelpers.cxx", "RefitDriver.h"}},
   };
   return checks;
 }
@@ -117,7 +117,7 @@ std::vector<fs::path> collectProductionFiles(const fs::path& trackingRoot)
 
 } // namespace
 
-BOOST_AUTO_TEST_CASE(NewCommonTrackerHasNoFrozenLegacyFittingSymbolDependency)
+BOOST_AUTO_TEST_CASE(NewGenericTrackerHasNoFrozenLegacyFittingSymbolDependency)
 {
   const std::string testFile = __FILE__;
   const auto testDirectory = testFile.substr(0, testFile.find_last_of('/'));

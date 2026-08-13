@@ -160,8 +160,8 @@ o2_add_test(surfacekinematicstate
             LABELS "itsmft;tracking"
             PUBLIC_LINK_LIBRARIES O2::ITSMFTTracking)
 
-o2_add_test(commontrack
-            SOURCES testCommonTrack.cxx
+o2_add_test(generictrack
+            SOURCES testGenericTrack.cxx
             COMPONENT_NAME itsmft-tracking
             LABELS "itsmft;tracking"
             PUBLIC_LINK_LIBRARIES O2::ITSMFTTracking O2::MFTTracking)

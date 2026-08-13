@@ -346,7 +346,7 @@ struct RigT {
     frame.setBz(0.5f);
   }
 
-  // Stages one pending sidecar entry and one CommonTrack/TrackClusterReference
+  // Stages one pending sidecar entry and one GenericTrack/TrackClusterReference
   // pair directly on `frame` -- deliberately not through a real CA seed (out
   // of scope here): only frame.resetEvent()'s unconditional clear of these two
   // containers and the workflow-edge sidecar reset are under test.
@@ -359,10 +359,10 @@ struct RigT {
     BOOST_REQUIRE_EQUAL(sidecar.pendingSize(), 1u);
 
     frame.getTrackClusterIndices().push_back(TrackClusterReference{SurfaceId{0}, SurfaceMeasurementIndex{0}});
-    CommonTrack track{};
+    GenericTrack track{};
     track.clusterRefEnd = static_cast<uint32_t>(frame.getTrackClusterIndices().size());
-    frame.getCommonTracks().push_back(track);
-    BOOST_REQUIRE(!frame.getCommonTracks().empty());
+    frame.getGenericTracks().push_back(track);
+    BOOST_REQUIRE(!frame.getGenericTracks().empty());
     BOOST_REQUIRE(!frame.getTrackClusterIndices().empty());
   }
 
@@ -523,7 +523,7 @@ BOOST_AUTO_TEST_CASE(RecoverableFailureDroppedReturnsExactSentinelAndWipes)
 
   BOOST_CHECK(result.outcome == TrackingOutcome::RecoverableDropped);
   BOOST_CHECK_EQUAL(rig.frame.getTotalMeasurements(), 0u);
-  BOOST_CHECK(rig.frame.getCommonTracks().empty());
+  BOOST_CHECK(rig.frame.getGenericTracks().empty());
   BOOST_CHECK_EQUAL(rig.frame.getEventResetCount(), 2u);
 }
 
@@ -541,7 +541,7 @@ BOOST_AUTO_TEST_CASE(RecoverableFailureNotDroppedRethrowsButStillWipesFirst)
   // Wipe must have already happened before the exception propagated -- not
   // "the process is going down anyway".
   BOOST_CHECK_EQUAL(rig.frame.getTotalMeasurements(), 0u);
-  BOOST_CHECK(rig.frame.getCommonTracks().empty());
+  BOOST_CHECK(rig.frame.getGenericTracks().empty());
   BOOST_CHECK_EQUAL(rig.frame.getEventResetCount(), 2u);
 }
 
@@ -564,7 +564,7 @@ BOOST_AUTO_TEST_CASE(BadAllocDroppedReturnsExactSentinelAndWipes)
 
   BOOST_CHECK(result.outcome == TrackingOutcome::RecoverableDropped);
   BOOST_CHECK_EQUAL(rig.frame.getTotalMeasurements(), 0u);
-  BOOST_CHECK(rig.frame.getCommonTracks().empty());
+  BOOST_CHECK(rig.frame.getGenericTracks().empty());
 }
 
 BOOST_AUTO_TEST_CASE(BadAllocNotDroppedRethrowsButStillWipesFirst)
@@ -578,7 +578,7 @@ BOOST_AUTO_TEST_CASE(BadAllocNotDroppedRethrowsButStillWipesFirst)
   BOOST_CHECK_THROW(rig.tracker.run(rig.frame, rig.traits), std::bad_alloc);
 
   BOOST_CHECK_EQUAL(rig.frame.getTotalMeasurements(), 0u);
-  BOOST_CHECK(rig.frame.getCommonTracks().empty());
+  BOOST_CHECK(rig.frame.getGenericTracks().empty());
 }
 
 // --- Unclassified std::exception: always structural, never a sentinel ----
@@ -600,7 +600,7 @@ BOOST_AUTO_TEST_CASE(UnclassifiedExceptionAlwaysRethrowsAndWipesRegardlessOfFlag
     BOOST_CHECK_THROW(rig.tracker.run(rig.frame, rig.traits), std::runtime_error);
 
     BOOST_CHECK_EQUAL(rig.frame.getTotalMeasurements(), 0u);
-    BOOST_CHECK(rig.frame.getCommonTracks().empty());
+    BOOST_CHECK(rig.frame.getGenericTracks().empty());
   }
 }
 
@@ -620,8 +620,8 @@ BOOST_AUTO_TEST_CASE(InvalidIndexTableConfigurationAlwaysRethrowsAndWipesRegardl
     rig.establishValidLayout();
     rig.loadSource(emptyFixture());
 
-    rig.frame.getCommonTracks().push_back(CommonTrack{});
-    BOOST_REQUIRE(!rig.frame.getCommonTracks().empty());
+    rig.frame.getGenericTracks().push_back(GenericTrack{});
+    BOOST_REQUIRE(!rig.frame.getGenericTracks().empty());
 
     bool threw = false;
     try {
@@ -632,7 +632,7 @@ BOOST_AUTO_TEST_CASE(InvalidIndexTableConfigurationAlwaysRethrowsAndWipesRegardl
     }
     BOOST_CHECK(threw);
 
-    BOOST_CHECK(rig.frame.getCommonTracks().empty());
+    BOOST_CHECK(rig.frame.getGenericTracks().empty());
   }
 }
 
@@ -655,7 +655,7 @@ BOOST_AUTO_TEST_CASE(IndexTableConfigurationMismatchAlwaysRethrowsAndWipesRegard
     }
     BOOST_CHECK(threw);
 
-    BOOST_CHECK(rig.frame.getCommonTracks().empty());
+    BOOST_CHECK(rig.frame.getGenericTracks().empty());
   }
 }
 
@@ -674,7 +674,7 @@ BOOST_AUTO_TEST_CASE(ValidEmptyInputCompletesWithoutErrorAndProducesNoTracks)
 
   BOOST_CHECK(result.outcome == TrackingOutcome::Success);
   BOOST_CHECK(result.elapsedMs >= 0.f);
-  BOOST_CHECK_EQUAL(rig.frame.getCommonTracks().size(), 0u);
+  BOOST_CHECK_EQUAL(rig.frame.getGenericTracks().size(), 0u);
 }
 
 // --- Direct outcome classification ----------------------------------------
@@ -704,15 +704,15 @@ BOOST_AUTO_TEST_CASE(TrackingOutcomeValuesAreDistinct)
   BOOST_CHECK_EQUAL(defaulted.elapsedMs, 0.f);
 }
 
-// --- No stale TimeFrame/CommonTrack/sidecar state survives -----------------
+// --- No stale TimeFrame/GenericTrack/sidecar state survives -----------------
 //
 // Both non-success return paths from Tracker::run() (structural-rethrow
-// and recoverable-dropped) must leave the shared TimeFrame's CommonTrack
+// and recoverable-dropped) must leave the shared TimeFrame's GenericTrack
 // storage and the tracker's adopted compatibility sidecar exactly as empty
 // as a freshly wiped/cleared TimeFrame would -- not merely the normalized
 // frame and legacy tracks storage the tests above already check.
 
-BOOST_AUTO_TEST_CASE(RecoverableDroppedLeavesNoStaleCommonTrackOrSidecarState)
+BOOST_AUTO_TEST_CASE(RecoverableDroppedLeavesNoStaleGenericTrackOrSidecarState)
 {
   Rig rig{/*dropTFUponFailure=*/true};
   rig.establishValidLayout();
@@ -724,12 +724,12 @@ BOOST_AUTO_TEST_CASE(RecoverableDroppedLeavesNoStaleCommonTrackOrSidecarState)
   rig.resetPublication();
 
   BOOST_CHECK(result.outcome == TrackingOutcome::RecoverableDropped);
-  BOOST_CHECK(rig.frame.getCommonTracks().empty());
+  BOOST_CHECK(rig.frame.getGenericTracks().empty());
   BOOST_CHECK(rig.frame.getTrackClusterIndices().empty());
   BOOST_CHECK_EQUAL(rig.sidecar.pendingSize(), 0u);
 }
 
-BOOST_AUTO_TEST_CASE(StructuralFailureLeavesNoStaleCommonTrackOrSidecarState)
+BOOST_AUTO_TEST_CASE(StructuralFailureLeavesNoStaleGenericTrackOrSidecarState)
 {
   for (const bool dropFlag : {false, true}) {
     ThrowingRig rig{dropFlag};
@@ -741,7 +741,7 @@ BOOST_AUTO_TEST_CASE(StructuralFailureLeavesNoStaleCommonTrackOrSidecarState)
     BOOST_CHECK_THROW(rig.tracker.run(rig.frame, rig.traits), std::runtime_error);
     rig.resetPublication();
 
-    BOOST_CHECK(rig.frame.getCommonTracks().empty());
+    BOOST_CHECK(rig.frame.getGenericTracks().empty());
     BOOST_CHECK(rig.frame.getTrackClusterIndices().empty());
     BOOST_CHECK_EQUAL(rig.sidecar.pendingSize(), 0u);
   }

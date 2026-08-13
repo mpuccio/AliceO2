@@ -5,8 +5,8 @@
 // This software is distributed under the terms of the GNU General Public
 // License v3 (GPL Version 3), copied verbatim in the file "COPYING".
 
-// Gate 4 CommonTrack foundation. Covers:
-//  - CommonTrack/TrackClusterReference/CommonTrackTimestamp layout and
+// Gate 4 GenericTrack foundation. Covers:
+//  - GenericTrack/TrackClusterReference/GenericTrackTimestamp layout and
 //    device-compatibility traits;
 //  - isValidTrackRange()'s exact validity condition (empty/default, single-,
 //    multi- and hole-containing ranges, out-of-range and reversed ranges);
@@ -18,15 +18,15 @@
 //    every measurement its range references, and that each resolved
 //    measurement's own surface matches the reference it was resolved from;
 //  - that a successful TimeFrame::loadNormalizedSource() reload clears
-//    CommonTrack/trackClusterIndices storage, and a failed one preserves it;
-//  - that TimeFrame::resetEvent() invalidates CommonTrack/trackClusterIndices
+//    GenericTrack/trackClusterIndices storage, and a failed one preserves it;
+//  - that TimeFrame::resetEvent() invalidates GenericTrack/trackClusterIndices
 //    storage together;
-//  - that CommonTrack itself has no detector/public-output dependency.
+//  - that GenericTrack itself has no detector/public-output dependency.
 //
-// This slice does not populate CommonTrack from CA seeds: every track/range
+// This slice does not populate GenericTrack from CA seeds: every track/range
 // below is constructed directly by the test.
 
-#define BOOST_TEST_MODULE ITSMFT CommonTrack
+#define BOOST_TEST_MODULE ITSMFT GenericTrack
 #define BOOST_TEST_MAIN
 #define BOOST_TEST_DYN_LINK
 #include <boost/test/unit_test.hpp>
@@ -46,7 +46,7 @@
 #include "DataFormatsITSMFT/ROFRecord.h"
 #include "DataFormatsITSMFT/TopologyDictionary.h"
 #include "DetectorsCommonDataFormats/DetID.h"
-#include "ITSMFTTracking/CommonTrack.h"
+#include "ITSMFTTracking/GenericTrack.h"
 #include "ITSMFTTracking/SurfaceGraphBuilder.h"
 #include "ITSMFTTracking/MeasurementView.h"
 #include "ITSMFTTracking/IOUtils.h"
@@ -54,7 +54,7 @@
 #include "ITSMFTTracking/IOUtils.h"
 #include "ITSMFTTracking/detail/SurfaceTrackingScratch.h"
 #include "ITSMFTTracking/detail/ITSSharedClusterCompatibility.h"
-#include "ITSMFTTracking/CommonTrackOutputAdapter.h"
+#include "ITSMFTTracking/GenericTrackOutputAdapter.h"
 #include "ITSMFTTracking/detail/MFTPublicationCompatibility.h"
 #include "ITSMFTTracking/TimeFrame.h"
 #include "ITSMFTTracking/TrackingConfigParam.h"
@@ -65,31 +65,31 @@ using namespace o2::itsmft;
 using namespace o2::itsmft::tracking;
 
 // ---------------------------------------------------------------------
-// CommonTrack has no detector/public-output dependency.
+// GenericTrack has no detector/public-output dependency.
 //
-// This is a structural claim about ITSMFTTracking/CommonTrack.h itself, not
-// something a runtime assertion can observe: CommonTrack.h's own include
+// This is a structural claim about ITSMFTTracking/GenericTrack.h itself, not
+// something a runtime assertion can observe: GenericTrack.h's own include
 // list (GPUCommonDef.h, and the ITSMFTTracking/Surface{Id,KinematicState,
 // Mask,MeasurementIndex,Timing}.h common primitives) contains no DetID.h,
 // TrackITS.h/TrackITSExt.h, typed MFT output header, GeometryTGeo.h, or workflow
-// header, and CommonTrack/TrackClusterReference declare no
+// header, and GenericTrack/TrackClusterReference declare no
 // DetID/NLayers/publication-type field -- every field is either a plain
 // scalar, or one of the shared SurfaceId/SurfaceKinematicState/SurfaceMask/
-// SurfaceMeasurementIndex/CommonTrackTimestamp device PODs. This test case
-// exercises CommonTrack using exactly that narrow surface, so that if a
-// future edit to CommonTrack.h ever added such a dependency, the type
+// SurfaceMeasurementIndex/GenericTrackTimestamp device PODs. This test case
+// exercises GenericTrack using exactly that narrow surface, so that if a
+// future edit to GenericTrack.h ever added such a dependency, the type
 // itself (constructible, copyable, comparable-by-field here) would still
 // need no wider include to keep working -- the absence is enforced by
-// review of CommonTrack.h's own include list, restated here as the
+// review of GenericTrack.h's own include list, restated here as the
 // authoritative claim this test documents.
 // ---------------------------------------------------------------------
-BOOST_AUTO_TEST_CASE(CommonTrackHasNoDetectorOrPublicationOutputDependency)
+BOOST_AUTO_TEST_CASE(GenericTrackHasNoDetectorOrPublicationOutputDependency)
 {
-  CommonTrack track{};
+  GenericTrack track{};
   track.innerState.kind = SurfaceKind::Cylinder;
   track.outerState.kind = SurfaceKind::Cylinder;
   track.chi2 = 1.5f;
-  track.timestamp = CommonTrackTimestamp{100, 140};
+  track.timestamp = GenericTrackTimestamp{100, 140};
   track.hitSurfaces.set(SurfaceId{0});
   track.firstClusterRef = 0;
   track.clusterRefEnd = 1;
@@ -101,39 +101,39 @@ BOOST_AUTO_TEST_CASE(CommonTrackHasNoDetectorOrPublicationOutputDependency)
   BOOST_CHECK(reference.index == SurfaceMeasurementIndex{0});
 }
 
-BOOST_AUTO_TEST_CASE(CommonTrackLayoutAndDeviceCompatibilityTraits)
+BOOST_AUTO_TEST_CASE(GenericTrackLayoutAndDeviceCompatibilityTraits)
 {
   // Standard-layout and trivially-copyable together -- not trivial-
-  // copyability alone: trivial-copyability only proves CommonTrack's bytes
+  // copyability alone: trivial-copyability only proves GenericTrack's bytes
   // may be copied without invoking non-trivial special member functions; it
   // says nothing about a single, well-defined, offsetof-usable member order
   // that is consistent across host/device compilation. Both properties are
   // asserted, on all three types, matching every other device-facing type
   // in this library (SurfaceMeasurement, StaticSurfaceDescriptor,
   // SurfaceGraphView, ...).
-  static_assert(std::is_standard_layout_v<CommonTrack>);
-  static_assert(std::is_trivially_copyable_v<CommonTrack>);
+  static_assert(std::is_standard_layout_v<GenericTrack>);
+  static_assert(std::is_trivially_copyable_v<GenericTrack>);
   static_assert(std::is_standard_layout_v<TrackClusterReference>);
   static_assert(std::is_trivially_copyable_v<TrackClusterReference>);
-  static_assert(std::is_standard_layout_v<CommonTrackTimestamp>);
-  static_assert(std::is_trivially_copyable_v<CommonTrackTimestamp>);
+  static_assert(std::is_standard_layout_v<GenericTrackTimestamp>);
+  static_assert(std::is_trivially_copyable_v<GenericTrackTimestamp>);
 
-  static_assert(std::is_same_v<decltype(CommonTrack::hitSurfaces), SurfaceMask>);
-  static_assert(std::is_same_v<decltype(CommonTrack::innerState), SurfaceKinematicState>);
-  static_assert(std::is_same_v<decltype(CommonTrack::outerState), SurfaceKinematicState>);
-  static_assert(std::is_same_v<decltype(CommonTrack::timestamp), CommonTrackTimestamp>);
-  static_assert(std::is_same_v<decltype(CommonTrack::firstClusterRef), uint32_t>);
-  static_assert(std::is_same_v<decltype(CommonTrack::clusterRefEnd), uint32_t>);
+  static_assert(std::is_same_v<decltype(GenericTrack::hitSurfaces), SurfaceMask>);
+  static_assert(std::is_same_v<decltype(GenericTrack::innerState), SurfaceKinematicState>);
+  static_assert(std::is_same_v<decltype(GenericTrack::outerState), SurfaceKinematicState>);
+  static_assert(std::is_same_v<decltype(GenericTrack::timestamp), GenericTrackTimestamp>);
+  static_assert(std::is_same_v<decltype(GenericTrack::firstClusterRef), uint32_t>);
+  static_assert(std::is_same_v<decltype(GenericTrack::clusterRefEnd), uint32_t>);
   static_assert(std::is_same_v<decltype(TrackClusterReference::surface), SurfaceId>);
   static_assert(std::is_same_v<decltype(TrackClusterReference::index), SurfaceMeasurementIndex>);
 
   // Default-constructed: zeroed range, empty mask, no NLayers/detector
   // dependency of any kind. Not constructed as `constexpr` here:
   // o2::track::PID's constructor (SurfaceKinematicState::pid's default
-  // member initializer) is not itself constexpr, so a CommonTrack instance
+  // member initializer) is not itself constexpr, so a GenericTrack instance
   // cannot be a core-constant-expression -- a property of PID, unrelated to
-  // CommonTrack's own standard-layout/trivial-copyability asserted above.
-  const CommonTrack defaultTrack{};
+  // GenericTrack's own standard-layout/trivial-copyability asserted above.
+  const GenericTrack defaultTrack{};
   BOOST_CHECK_EQUAL(defaultTrack.firstClusterRef, 0u);
   BOOST_CHECK_EQUAL(defaultTrack.clusterRefEnd, 0u);
   BOOST_CHECK(defaultTrack.hitSurfaces.empty());
@@ -145,7 +145,7 @@ BOOST_AUTO_TEST_CASE(CommonTrackLayoutAndDeviceCompatibilityTraits)
 
 BOOST_AUTO_TEST_CASE(EmptyDefaultRangeIsValidForAnyContainerSize)
 {
-  const CommonTrack track{};
+  const GenericTrack track{};
   BOOST_CHECK(isValidTrackRange(track, 0));
   BOOST_CHECK(isValidTrackRange(track, 5));
   BOOST_CHECK_EQUAL(trackClusterRefCount(track), 0u);
@@ -154,7 +154,7 @@ BOOST_AUTO_TEST_CASE(EmptyDefaultRangeIsValidForAnyContainerSize)
 BOOST_AUTO_TEST_CASE(ValidSingleMultiAndHoleContainingRanges)
 {
   // Single-hit range: [0,1) into a 1-element array.
-  CommonTrack single{};
+  GenericTrack single{};
   single.firstClusterRef = 0;
   single.clusterRefEnd = 1;
   BOOST_CHECK(isValidTrackRange(single, 1));
@@ -162,7 +162,7 @@ BOOST_AUTO_TEST_CASE(ValidSingleMultiAndHoleContainingRanges)
 
   // Multi-hit range: [1,4) into a 5-element array (some entries before/after
   // the range belong to other tracks sharing the same flat array).
-  CommonTrack multi{};
+  GenericTrack multi{};
   multi.firstClusterRef = 1;
   multi.clusterRefEnd = 4;
   BOOST_CHECK(isValidTrackRange(multi, 5));
@@ -174,7 +174,7 @@ BOOST_AUTO_TEST_CASE(ValidSingleMultiAndHoleContainingRanges)
   // 2-hit track on surfaces {0,2} (skipping surface 1) is a valid,
   // completed, hole-containing track: its range is still contiguous and
   // valid, only its mask has a gap.
-  CommonTrack withHole{};
+  GenericTrack withHole{};
   withHole.firstClusterRef = 0;
   withHole.clusterRefEnd = 2;
   withHole.hitSurfaces.set(SurfaceId{0});
@@ -186,17 +186,17 @@ BOOST_AUTO_TEST_CASE(ValidSingleMultiAndHoleContainingRanges)
 
 BOOST_AUTO_TEST_CASE(OutOfRangeAndReversedRangesAreRejected)
 {
-  CommonTrack pastEnd{};
+  GenericTrack pastEnd{};
   pastEnd.firstClusterRef = 0;
   pastEnd.clusterRefEnd = 6;
   BOOST_CHECK(!isValidTrackRange(pastEnd, 5)); // clusterRefEnd > size
 
-  CommonTrack exactlyAtSize{};
+  GenericTrack exactlyAtSize{};
   exactlyAtSize.firstClusterRef = 0;
   exactlyAtSize.clusterRefEnd = 5;
   BOOST_CHECK(isValidTrackRange(exactlyAtSize, 5)); // clusterRefEnd == size is valid (half-open)
 
-  CommonTrack reversed{};
+  GenericTrack reversed{};
   reversed.firstClusterRef = 3;
   reversed.clusterRefEnd = 1;
   BOOST_CHECK(!isValidTrackRange(reversed, 5)); // firstClusterRef > clusterRefEnd
@@ -422,7 +422,7 @@ BOOST_AUTO_TEST_CASE(CrossSurfaceAndCrossSourceTrackClusterReferenceResolution)
     {SurfaceId{3}, SurfaceMeasurementIndex{0}},
   };
 
-  CommonTrack track{};
+  GenericTrack track{};
   track.firstClusterRef = 0;
   track.clusterRefEnd = static_cast<uint32_t>(trackClusterIndices.size());
   track.hitSurfaces.set(SurfaceId{0});
@@ -469,7 +469,7 @@ BOOST_AUTO_TEST_CASE(HitSurfacesEqualsUnionAndEachMeasurementSurfaceMatchesItsRe
     {SurfaceId{3}, SurfaceMeasurementIndex{0}},
   };
 
-  CommonTrack track{};
+  GenericTrack track{};
   track.firstClusterRef = 0;
   track.clusterRefEnd = static_cast<uint32_t>(trackClusterIndices.size());
   track.hitSurfaces.set(SurfaceId{0});
@@ -494,7 +494,7 @@ BOOST_AUTO_TEST_CASE(HitSurfacesEqualsUnionAndEachMeasurementSurfaceMatchesItsRe
     {SurfaceId{0}, SurfaceMeasurementIndex{0}},
     {SurfaceId{3}, SurfaceMeasurementIndex{0}},
   };
-  CommonTrack holeTrack{};
+  GenericTrack holeTrack{};
   holeTrack.firstClusterRef = 0;
   holeTrack.clusterRefEnd = 2;
   holeTrack.hitSurfaces.set(SurfaceId{0});
@@ -594,7 +594,7 @@ std::vector<SurfaceId> identitySurfaces(uint16_t nLayers)
 
 struct TimeFrameFixture {
   // Gate 4 B3.1: `tf` (the permanent, non-templated TimeFrame, owning
-  // CommonTrack/TrackClusterReference/normalized-frame state) is declared
+  // GenericTrack/TrackClusterReference/normalized-frame state) is declared
   // before `scratch` (the temporary SurfaceTrackingScratch) so it
   // is constructed first and destroyed last -- see SurfaceTrackingScratch's
   // own lifetime-contract doc. Neither owns or stores a reference to the
@@ -646,14 +646,14 @@ o2::its::LayerTiming makeFixtureClockTiming()
   return timing;
 }
 
-struct TestCommonTrack {
-  CommonTrack track;
+struct TestGenericTrack {
+  GenericTrack track;
   std::vector<TrackClusterReference> references;
 };
 
-TestCommonTrack makeTestCommonTrack()
+TestGenericTrack makeTestGenericTrack()
 {
-  TestCommonTrack record;
+  TestGenericTrack record;
   record.track.innerState.kind = SurfaceKind::Cylinder;
   record.track.outerState.kind = SurfaceKind::Cylinder;
   record.track.timestamp = {100, 140};
@@ -662,48 +662,48 @@ TestCommonTrack makeTestCommonTrack()
   return record;
 }
 
-uint32_t storeTestCommonTrack(TimeFrame& frame, TestCommonTrack record)
+uint32_t storeTestGenericTrack(TimeFrame& frame, TestGenericTrack record)
 {
-  const auto index = static_cast<uint32_t>(frame.getCommonTracks().size());
+  const auto index = static_cast<uint32_t>(frame.getGenericTracks().size());
   record.track.firstClusterRef = static_cast<uint32_t>(frame.getTrackClusterIndices().size());
   frame.getTrackClusterIndices().insert(frame.getTrackClusterIndices().end(), record.references.begin(), record.references.end());
   record.track.clusterRefEnd = static_cast<uint32_t>(frame.getTrackClusterIndices().size());
-  frame.getCommonTracks().push_back(record.track);
+  frame.getGenericTracks().push_back(record.track);
   return index;
 }
 
-// Populates tf's CommonTrack/trackClusterIndices with arbitrary, self-
+// Populates tf's GenericTrack/trackClusterIndices with arbitrary, self-
 // consistent content so a subsequent clear can be observed.
 void populateCommonResults(TimeFrame& tf)
 {
   tf.getTrackClusterIndices().push_back(TrackClusterReference{SurfaceId{0}, SurfaceMeasurementIndex{0}});
   tf.getTrackClusterIndices().push_back(TrackClusterReference{SurfaceId{1}, SurfaceMeasurementIndex{0}});
-  CommonTrack track{};
+  GenericTrack track{};
   track.firstClusterRef = 0;
   track.clusterRefEnd = 2;
   track.hitSurfaces.set(SurfaceId{0});
   track.hitSurfaces.set(SurfaceId{1});
-  tf.getCommonTracks().push_back(track);
+  tf.getGenericTracks().push_back(track);
 }
 
 } // namespace
 
-BOOST_AUTO_TEST_CASE(SuccessfulReloadClearsCommonTrackAndTrackClusterIndices)
+BOOST_AUTO_TEST_CASE(SuccessfulReloadClearsGenericTrackAndTrackClusterIndices)
 {
   TimeFrameFixture fixture;
   BOOST_REQUIRE(fixture.load().ok());
 
   populateCommonResults(fixture.tf);
-  BOOST_REQUIRE_EQUAL(fixture.tf.getCommonTracks().size(), 1u);
+  BOOST_REQUIRE_EQUAL(fixture.tf.getGenericTracks().size(), 1u);
   BOOST_REQUIRE_EQUAL(fixture.tf.getTrackClusterIndices().size(), 2u);
 
   // A second, independently successful load on the same TimeFrame: the
-  // normalized frame is replaced, and CommonTrack/trackClusterIndices --
+  // normalized frame is replaced, and GenericTrack/trackClusterIndices --
   // built against the *previous* normalized frame -- must be cleared in
   // that same successful commit, since they are no longer meaningful once
   // the frame they referenced is gone.
   BOOST_REQUIRE(fixture.load().ok());
-  BOOST_CHECK(fixture.tf.getCommonTracks().empty());
+  BOOST_CHECK(fixture.tf.getGenericTracks().empty());
   BOOST_CHECK(fixture.tf.getTrackClusterIndices().empty());
 }
 
@@ -711,32 +711,32 @@ BOOST_AUTO_TEST_CASE(MFTPublicationCompatibilityIsSparseOrderedAndTransactional)
 {
   TimeFrameFixture fixture;
   BOOST_REQUIRE(fixture.load().ok());
-  const auto record = makeTestCommonTrack();
+  const auto record = makeTestGenericTrack();
   MFTPublicationCompatibility sidecar;
 
   MFTPublicationCompatibilityTransaction firstTx{sidecar, 1.25, 3.5, 0x25u};
-  const auto first = storeTestCommonTrack(fixture.tf, record);
+  const auto first = storeTestGenericTrack(fixture.tf, record);
   BOOST_REQUIRE(firstTx.validate(first));
   firstTx.reserve();
   firstTx.append(first);
   BOOST_CHECK_EQUAL(first, 0u);
   BOOST_REQUIRE_EQUAL(sidecar.entries().size(), 1u);
-  BOOST_CHECK_EQUAL(sidecar.entries().front().commonTrackIndex, first);
+  BOOST_CHECK_EQUAL(sidecar.entries().front().genericTrackIndex, first);
   BOOST_CHECK_EQUAL(sidecar.entries().front().invQPtSeed, 1.25);
   BOOST_CHECK_EQUAL(sidecar.entries().front().chi2QPtSeed, 3.5);
   BOOST_CHECK_EQUAL(sidecar.entries().front().seedPattern, 0x25u);
-  BOOST_CHECK(sidecar.find(first, fixture.tf.getCommonTracks().size()) != nullptr);
-  BOOST_CHECK(sidecar.find(1u, fixture.tf.getCommonTracks().size()) == nullptr);  // missing key
-  BOOST_CHECK(sidecar.find(99u, fixture.tf.getCommonTracks().size()) == nullptr); // out of range
+  BOOST_CHECK(sidecar.find(first, fixture.tf.getGenericTracks().size()) != nullptr);
+  BOOST_CHECK(sidecar.find(1u, fixture.tf.getGenericTracks().size()) == nullptr);  // missing key
+  BOOST_CHECK(sidecar.find(99u, fixture.tf.getGenericTracks().size()) == nullptr); // out of range
 
   MFTPublicationCompatibilityTransaction duplicate{sidecar, 2., 4., 0x12u};
   BOOST_CHECK(!duplicate.validate(0u));
 
   // Scratch-only reset has no authority over the shared TimeFrame or this
   // MFT bridge-owned sidecar; a future combined owner decides detector-local
-  // CommonTrack removal/marking separately.
+  // GenericTrack removal/marking separately.
   fixture.scratch.reset();
-  BOOST_CHECK_EQUAL(fixture.tf.getCommonTracks().size(), 1u);
+  BOOST_CHECK_EQUAL(fixture.tf.getGenericTracks().size(), 1u);
   BOOST_CHECK_EQUAL(sidecar.entries().size(), 1u);
 }
 
@@ -749,7 +749,7 @@ BOOST_AUTO_TEST_CASE(ITSSharedClusterCompatibilityUsesExplicitPreSortAssociation
 
   TimeFrameFixture fixture;
   BOOST_REQUIRE(fixture.load().ok());
-  const auto record = makeTestCommonTrack();
+  const auto record = makeTestGenericTrack();
   ITSSharedClusterCompatibility sidecar;
 
   // Deliberately use a non-identity conceptual fclusSort permutation. The
@@ -759,7 +759,7 @@ BOOST_AUTO_TEST_CASE(ITSSharedClusterCompatibilityUsesExplicitPreSortAssociation
   BOOST_CHECK_NE(fclusSort[0], 0);
   for (size_t i = 0; i < accepted.size(); ++i) {
     ITSSharedClusterCompatibilityTransaction tx{sidecar};
-    const auto index = storeTestCommonTrack(fixture.tf, record);
+    const auto index = storeTestGenericTrack(fixture.tf, record);
     BOOST_REQUIRE(tx.validate(index));
     tx.reserve();
     tx.append(index);
@@ -769,25 +769,25 @@ BOOST_AUTO_TEST_CASE(ITSSharedClusterCompatibilityUsesExplicitPreSortAssociation
   BOOST_CHECK(sidecar.sealFromMarkedTracks(accepted));
   BOOST_CHECK(sidecar.isSealed());
   BOOST_REQUIRE_EQUAL(sidecar.entries().size(), accepted.size());
-  BOOST_CHECK_EQUAL(sidecar.entries()[0].commonTrackIndex, 0u);
+  BOOST_CHECK_EQUAL(sidecar.entries()[0].genericTrackIndex, 0u);
   BOOST_CHECK(!sidecar.entries()[0].hasSharedClusters);
-  BOOST_CHECK_EQUAL(sidecar.entries()[1].commonTrackIndex, 1u);
+  BOOST_CHECK_EQUAL(sidecar.entries()[1].genericTrackIndex, 1u);
   BOOST_CHECK(sidecar.entries()[1].hasSharedClusters);
 
   // A later legacy output sort cannot change the already global-index-keyed
   // sealed result.
   std::reverse(accepted.begin(), accepted.end());
-  BOOST_CHECK_EQUAL(sidecar.entries()[1].commonTrackIndex, 1u);
+  BOOST_CHECK_EQUAL(sidecar.entries()[1].genericTrackIndex, 1u);
   BOOST_CHECK(sidecar.entries()[1].hasSharedClusters);
 
-  // Scratch-only reset has no authority over TimeFrame-owned CommonTracks
+  // Scratch-only reset has no authority over TimeFrame-owned GenericTracks
   // or the bridge-owned compatibility result they index.
   fixture.scratch.reset();
-  BOOST_CHECK_EQUAL(fixture.tf.getCommonTracks().size(), 3u);
+  BOOST_CHECK_EQUAL(fixture.tf.getGenericTracks().size(), 3u);
   BOOST_CHECK_EQUAL(sidecar.entries().size(), 3u);
 
   ITSSharedClusterCompatibility malformed;
-  const auto malformedIndex = storeTestCommonTrack(fixture.tf, record);
+  const auto malformedIndex = storeTestGenericTrack(fixture.tf, record);
   ITSSharedClusterCompatibilityTransaction tx{malformed};
   BOOST_REQUIRE(tx.validate(malformedIndex));
   tx.reserve();
@@ -799,7 +799,7 @@ BOOST_AUTO_TEST_CASE(ITSSharedClusterCompatibilityUsesExplicitPreSortAssociation
   TimeFrameFixture rollbackFixture;
   BOOST_REQUIRE(rollbackFixture.load().ok());
   ITSSharedClusterCompatibility rollback;
-  const auto rollbackIndex = storeTestCommonTrack(rollbackFixture.tf, record);
+  const auto rollbackIndex = storeTestGenericTrack(rollbackFixture.tf, record);
   ITSSharedClusterCompatibilityTransaction rollbackTx{rollback};
   BOOST_REQUIRE(rollbackTx.validate(rollbackIndex));
   rollbackTx.reserve();
@@ -808,7 +808,7 @@ BOOST_AUTO_TEST_CASE(ITSSharedClusterCompatibilityUsesExplicitPreSortAssociation
 
   ITSSharedClusterCompatibility sealingFailure;
   ITSSharedClusterCompatibilityTransaction sealingTx{sealingFailure};
-  const auto sealingIndex = storeTestCommonTrack(rollbackFixture.tf, record);
+  const auto sealingIndex = storeTestGenericTrack(rollbackFixture.tf, record);
   BOOST_REQUIRE(sealingTx.validate(sealingIndex));
   sealingTx.reserve();
   sealingTx.append(sealingIndex);
@@ -819,18 +819,18 @@ BOOST_AUTO_TEST_CASE(ITSSharedClusterCompatibilityUsesExplicitPreSortAssociation
 
   sidecar.clear();
   fixture.tf.resetEvent();
-  BOOST_CHECK(fixture.tf.getCommonTracks().empty());
+  BOOST_CHECK(fixture.tf.getGenericTracks().empty());
   BOOST_CHECK_EQUAL(sidecar.pendingSize(), 0u);
   BOOST_CHECK(sidecar.entries().empty());
 }
 
-BOOST_AUTO_TEST_CASE(FailedLoadPreservesCommonTrackAndTrackClusterIndicesUnchanged)
+BOOST_AUTO_TEST_CASE(FailedLoadPreservesGenericTrackAndTrackClusterIndicesUnchanged)
 {
   TimeFrameFixture fixture;
   BOOST_REQUIRE(fixture.load().ok());
 
   populateCommonResults(fixture.tf);
-  BOOST_REQUIRE_EQUAL(fixture.tf.getCommonTracks().size(), 1u);
+  BOOST_REQUIRE_EQUAL(fixture.tf.getGenericTracks().size(), 1u);
   BOOST_REQUIRE_EQUAL(fixture.tf.getTrackClusterIndices().size(), 2u);
   const auto measurementsBefore = fixture.tf.getTotalMeasurements();
   BOOST_REQUIRE(measurementsBefore > 0u);
@@ -847,46 +847,46 @@ BOOST_AUTO_TEST_CASE(FailedLoadPreservesCommonTrackAndTrackClusterIndicesUnchang
   BOOST_REQUIRE(!failed.ok());
   BOOST_CHECK(failed.error == MultiSourceLoadError::UnsupportedDetector);
 
-  // Normalized frame, CommonTrack storage and trackClusterIndices are all
+  // Normalized frame, GenericTrack storage and trackClusterIndices are all
   // exactly as they were before the failed call.
   BOOST_CHECK_EQUAL(fixture.tf.getTotalMeasurements(), measurementsBefore);
-  BOOST_REQUIRE_EQUAL(fixture.tf.getCommonTracks().size(), 1u);
-  BOOST_CHECK_EQUAL(fixture.tf.getCommonTracks()[0].firstClusterRef, 0u);
-  BOOST_CHECK_EQUAL(fixture.tf.getCommonTracks()[0].clusterRefEnd, 2u);
+  BOOST_REQUIRE_EQUAL(fixture.tf.getGenericTracks().size(), 1u);
+  BOOST_CHECK_EQUAL(fixture.tf.getGenericTracks()[0].firstClusterRef, 0u);
+  BOOST_CHECK_EQUAL(fixture.tf.getGenericTracks()[0].clusterRefEnd, 2u);
   BOOST_REQUIRE_EQUAL(fixture.tf.getTrackClusterIndices().size(), 2u);
   BOOST_CHECK(fixture.tf.getTrackClusterIndices()[0].surface == SurfaceId{0});
   BOOST_CHECK(fixture.tf.getTrackClusterIndices()[1].surface == SurfaceId{1});
 }
 
-BOOST_AUTO_TEST_CASE(TimeFrameWipeInvalidatesCommonTracksAndTrackClusterIndicesTogether)
+BOOST_AUTO_TEST_CASE(TimeFrameWipeInvalidatesGenericTracksAndTrackClusterIndicesTogether)
 {
   TimeFrame tf;
   populateCommonResults(tf);
 
-  BOOST_REQUIRE_EQUAL(tf.getCommonTracks().size(), 1u);
+  BOOST_REQUIRE_EQUAL(tf.getGenericTracks().size(), 1u);
   BOOST_REQUIRE_EQUAL(tf.getTrackClusterIndices().size(), 2u);
-  BOOST_REQUIRE(isValidTrackRange(tf.getCommonTracks()[0], static_cast<uint32_t>(tf.getTrackClusterIndices().size())));
+  BOOST_REQUIRE(isValidTrackRange(tf.getGenericTracks()[0], static_cast<uint32_t>(tf.getTrackClusterIndices().size())));
 
   tf.resetEvent();
 
-  BOOST_CHECK(tf.getCommonTracks().empty());
+  BOOST_CHECK(tf.getGenericTracks().empty());
   BOOST_CHECK(tf.getTrackClusterIndices().empty());
 
   // Reload after wipe: both containers accept new content independently of
   // whatever they held before, confirming they are ordinary per-event state
   // rather than something resetEvent() leaves in a half-cleared condition.
   tf.getTrackClusterIndices().push_back(TrackClusterReference{SurfaceId{2}, SurfaceMeasurementIndex{0}});
-  CommonTrack reloaded{};
+  GenericTrack reloaded{};
   reloaded.firstClusterRef = 0;
   reloaded.clusterRefEnd = 1;
-  tf.getCommonTracks().push_back(reloaded);
-  BOOST_CHECK_EQUAL(tf.getCommonTracks().size(), 1u);
+  tf.getGenericTracks().push_back(reloaded);
+  BOOST_CHECK_EQUAL(tf.getGenericTracks().size(), 1u);
   BOOST_CHECK_EQUAL(tf.getTrackClusterIndices().size(), 1u);
 }
 
-BOOST_AUTO_TEST_CASE(CommonTrackOutputAdapterTimestampIsSymmetricAndClamped)
+BOOST_AUTO_TEST_CASE(GenericTrackOutputAdapterTimestampIsSymmetricAndClamped)
 {
-  CommonTrackOutputAdapterError error = CommonTrackOutputAdapterError::None;
+  GenericTrackOutputAdapterError error = GenericTrackOutputAdapterError::None;
   o2::its::LayerTiming clock{};
   clock.mROFLength = 14;
   const ClockTimingPublicationView view{clock};
@@ -895,27 +895,27 @@ BOOST_AUTO_TEST_CASE(CommonTrackOutputAdapterTimestampIsSymmetricAndClamped)
   BOOST_CHECK_EQUAL(timestamp->getTimeStamp(), 110.f);
   BOOST_CHECK_EQUAL(timestamp->getTimeStampError(), 7.f);
   BOOST_CHECK(!makeOutputTimestamp({20, 20}, view, error));
-  BOOST_CHECK(error == CommonTrackOutputAdapterError::InvalidTimestamp);
+  BOOST_CHECK(error == GenericTrackOutputAdapterError::InvalidTimestamp);
 }
 
-BOOST_AUTO_TEST_CASE(CommonTrackOutputAdapterUsesLegacyPublicationOrder)
+BOOST_AUTO_TEST_CASE(GenericTrackOutputAdapterUsesLegacyPublicationOrder)
 {
   TimeFrameFixture fixture;
   BOOST_REQUIRE(fixture.load().ok());
 
-  auto later = makeTestCommonTrack();
+  auto later = makeTestGenericTrack();
   later.track.timestamp = {200, 240};
   later.track.chi2 = 1.f;
-  auto earlier = makeTestCommonTrack();
+  auto earlier = makeTestGenericTrack();
   earlier.track.timestamp = {100, 140};
   earlier.track.chi2 = 2.f;
-  BOOST_CHECK_EQUAL(storeTestCommonTrack(fixture.tf, later), 0u);
-  BOOST_CHECK_EQUAL(storeTestCommonTrack(fixture.tf, earlier), 1u);
+  BOOST_CHECK_EQUAL(storeTestGenericTrack(fixture.tf, later), 0u);
+  BOOST_CHECK_EQUAL(storeTestGenericTrack(fixture.tf, earlier), 1u);
 
   o2::its::LayerTiming clock{};
   clock.mROFLength = 40;
-  CommonTrackOutputAdapterError error = CommonTrackOutputAdapterError::None;
-  const CommonTrackOutputAdapterSelection selection{{0u, 1u}};
+  GenericTrackOutputAdapterError error = GenericTrackOutputAdapterError::None;
+  const GenericTrackOutputAdapterSelection selection{{0u, 1u}};
   const auto ordered = makeLegacyOutputOrder(fixture.tf, selection, ClockTimingPublicationView{clock}, error);
   BOOST_REQUIRE(ordered);
   BOOST_REQUIRE_EQUAL(ordered->size(), 2u);
@@ -932,7 +932,7 @@ BOOST_AUTO_TEST_CASE(ClockTimingPublicationViewDelegatesLegacyClockSemantics)
     legacy.mROFDelay = 3;
     legacy.mROFBias = 2;
     const ClockTimingPublicationView view{legacy};
-    const std::array<CommonTrackTimestamp, 4> timestamps{{{5, 6}, {5, 5 + length}, {5 + length, 5 + 2 * length}, {5 + 3 * length, 5 + 4 * length}}};
+    const std::array<GenericTrackTimestamp, 4> timestamps{{{5, 6}, {5, 5 + length}, {5 + length, 5 + 2 * length}, {5 + 3 * length, 5 + 4 * length}}};
     for (const auto timestamp : timestamps) {
       const auto asymmetric = view.makeTimeEstBC(timestamp);
       BOOST_REQUIRE(asymmetric);
@@ -954,18 +954,18 @@ BOOST_AUTO_TEST_CASE(ClockTimingPublicationViewDelegatesLegacyClockSemantics)
   BOOST_CHECK(!view.makeTimeEstBC({0, static_cast<TFBC>(std::numeric_limits<uint16_t>::max()) + 1}));
 }
 
-BOOST_AUTO_TEST_CASE(CommonTrackOutputAdapterStagesITSAndFailsClosed)
+BOOST_AUTO_TEST_CASE(GenericTrackOutputAdapterStagesITSAndFailsClosed)
 {
   TimeFrameFixture fixture;
   BOOST_REQUIRE(fixture.load().ok());
-  auto record = makeTestCommonTrack();
+  auto record = makeTestGenericTrack();
   record.track.chi2 = 3.f;
   ITSSharedClusterCompatibility shared;
-  const auto commonTrackIndex = storeTestCommonTrack(fixture.tf, record);
+  const auto genericTrackIndex = storeTestGenericTrack(fixture.tf, record);
   ITSSharedClusterCompatibilityTransaction transaction{shared};
-  BOOST_REQUIRE(transaction.validate(commonTrackIndex));
+  BOOST_REQUIRE(transaction.validate(genericTrackIndex));
   transaction.reserve();
-  transaction.append(commonTrackIndex);
+  transaction.append(genericTrackIndex);
   struct MarkedTrack {
     bool shared{};
     bool hasSharedClusters() const { return shared; }
@@ -974,10 +974,10 @@ BOOST_AUTO_TEST_CASE(CommonTrackOutputAdapterStagesITSAndFailsClosed)
   BOOST_REQUIRE(shared.sealFromMarkedTracks(marked));
   const auto& measurement = *fixture.tf.getGlobalMeasurement(SurfaceId{0}, SurfaceMeasurementIndex{0});
   const std::vector<ROFRecord> rofs{ROFRecord{{100, 5}, 0, 7, 3}};
-  CommonTrackOutputAdapterError error = CommonTrackOutputAdapterError::None;
+  GenericTrackOutputAdapterError error = GenericTrackOutputAdapterError::None;
   const auto clock = makeFixtureClockTiming();
-  const CommonTrackOutputTimingContext timing{rofs, ClockTimingPublicationView{clock}};
-  const auto output = stageITSCommonTrackOutput(fixture.tf, measurement.cluster.source,
+  const GenericTrackOutputTimingContext timing{rofs, ClockTimingPublicationView{clock}};
+  const auto output = stageITSGenericTrackOutput(fixture.tf, measurement.cluster.source,
                                                 gsl::span<const SurfaceId>{fixture.plan->front().getOrderedSurfaces()}, timing, shared,
                                                 true, error);
   BOOST_REQUIRE(output);
@@ -994,10 +994,10 @@ BOOST_AUTO_TEST_CASE(CommonTrackOutputAdapterStagesITSAndFailsClosed)
   // span with the immutable export returned by the tracking interface.  The
   // adapter accepts no scratch state and keeps the source/layout binding
   // explicit at this boundary.
-  const CommonTrackPublicationContext publicationContext{
+  const GenericTrackPublicationContext publicationContext{
     o2::detectors::DetID::ITS, measurement.cluster.source, rofs, ClockTimingPublicationView{clock},
     gsl::span<const SurfaceId>{fixture.plan->front().getOrderedSurfaces()}};
-  const auto contextOutput = stageITSCommonTrackOutput(fixture.tf, publicationContext, shared, true, error);
+  const auto contextOutput = stageITSGenericTrackOutput(fixture.tf, publicationContext, shared, true, error);
   BOOST_REQUIRE(contextOutput);
   BOOST_CHECK_EQUAL(contextOutput->tracks.size(), output->tracks.size());
   BOOST_REQUIRE_EQUAL(contextOutput->clusterIndices.size(), output->clusterIndices.size());
@@ -1008,43 +1008,43 @@ BOOST_AUTO_TEST_CASE(CommonTrackOutputAdapterStagesITSAndFailsClosed)
 
   auto wrongDetectorContext = publicationContext;
   wrongDetectorContext.detector = o2::detectors::DetID::MFT;
-  BOOST_CHECK(!stageITSCommonTrackOutput(fixture.tf, wrongDetectorContext, shared, false, error));
-  BOOST_CHECK(error == CommonTrackOutputAdapterError::MixedDetector);
+  BOOST_CHECK(!stageITSGenericTrackOutput(fixture.tf, wrongDetectorContext, shared, false, error));
+  BOOST_CHECK(error == GenericTrackOutputAdapterError::MixedDetector);
 
   // Legacy publication retains a track even when its selected output
   // timestamp falls outside the workflow ROF span; it simply does not
   // increment a TrackROF entry. The adapter must preserve that behavior.
-  fixture.tf.getCommonTracks()[0].timestamp = {1000, 1001};
-  const auto outOfRangeOutput = stageITSCommonTrackOutput(fixture.tf, publicationContext, shared, false, error);
+  fixture.tf.getGenericTracks()[0].timestamp = {1000, 1001};
+  const auto outOfRangeOutput = stageITSGenericTrackOutput(fixture.tf, publicationContext, shared, false, error);
   BOOST_REQUIRE(outOfRangeOutput);
   BOOST_REQUIRE_EQUAL(outOfRangeOutput->tracks.size(), 1u);
   BOOST_CHECK_EQUAL(outOfRangeOutput->trackROFs[0].getFirstEntry(), 0);
   BOOST_CHECK_EQUAL(outOfRangeOutput->trackROFs[0].getNEntries(), 0);
-  fixture.tf.getCommonTracks()[0].timestamp = record.track.timestamp;
+  fixture.tf.getGenericTracks()[0].timestamp = record.track.timestamp;
 
-  const auto oldTracks = fixture.tf.getCommonTracks().size();
+  const auto oldTracks = fixture.tf.getGenericTracks().size();
   const auto oldReferences = fixture.tf.getTrackClusterIndices().size();
   // The original workflow ROF span can have more (or fewer) entries than
-  // the LayerTiming clock. The CommonTrack adapter preserves that span
+  // the LayerTiming clock. The GenericTrack adapter preserves that span
   // verbatim and groups only in-range clock slots.
   const std::vector<ROFRecord> mismatchedROFs{ROFRecord{{100, 5}, 0, 1, 2}, ROFRecord{{100, 6}, 1, 2, 3}};
-  const CommonTrackOutputTimingContext mismatchedROF{mismatchedROFs, ClockTimingPublicationView{clock}};
-  const auto mismatchedOutput = stageITSCommonTrackOutput(fixture.tf, measurement.cluster.source,
+  const GenericTrackOutputTimingContext mismatchedROF{mismatchedROFs, ClockTimingPublicationView{clock}};
+  const auto mismatchedOutput = stageITSGenericTrackOutput(fixture.tf, measurement.cluster.source,
                                                           gsl::span<const SurfaceId>{fixture.plan->front().getOrderedSurfaces()}, mismatchedROF, shared, false, error);
   BOOST_REQUIRE(mismatchedOutput);
   BOOST_REQUIRE_EQUAL(mismatchedOutput->trackROFs.size(), mismatchedROFs.size());
   BOOST_CHECK_EQUAL(mismatchedOutput->trackROFs[0].getNEntries(), 1);
   BOOST_CHECK_EQUAL(mismatchedOutput->trackROFs[1].getNEntries(), 0);
-  BOOST_CHECK_EQUAL(fixture.tf.getCommonTracks().size(), oldTracks);
+  BOOST_CHECK_EQUAL(fixture.tf.getGenericTracks().size(), oldTracks);
   BOOST_CHECK_EQUAL(fixture.tf.getTrackClusterIndices().size(), oldReferences);
 }
 
-BOOST_AUTO_TEST_CASE(CommonTrackOutputAdapterStagesMFTAndRejectsMissingSidecar)
+BOOST_AUTO_TEST_CASE(GenericTrackOutputAdapterStagesMFTAndRejectsMissingSidecar)
 {
   const auto layout = makeCombinedLayout();
   TimeFrame frame;
   loadThreeMeasurementFrame(frame, layout);
-  TestCommonTrack record;
+  TestGenericTrack record;
   record.track.innerState.kind = SurfaceKind::Disk;
   record.track.outerState.kind = SurfaceKind::Disk;
   record.track.innerState.referenceCoordinate = -77.f;
@@ -1063,20 +1063,20 @@ BOOST_AUTO_TEST_CASE(CommonTrackOutputAdapterStagesMFTAndRejectsMissingSidecar)
   record.references.push_back({SurfaceId{3}, SurfaceMeasurementIndex{0}});
   MFTPublicationCompatibility sidecar;
   MFTPublicationCompatibilityTransaction tx{sidecar, 0.25, 1.5, 0x51u, 8.f};
-  const auto commonTrackIndex = storeTestCommonTrack(frame, record);
-  BOOST_REQUIRE(tx.validate(commonTrackIndex));
+  const auto genericTrackIndex = storeTestGenericTrack(frame, record);
+  BOOST_REQUIRE(tx.validate(genericTrackIndex));
   tx.reserve();
-  tx.append(commonTrackIndex);
+  tx.append(genericTrackIndex);
   const auto& measurement = *frame.getGlobalMeasurement(SurfaceId{3}, SurfaceMeasurementIndex{0});
   const std::vector<ROFRecord> rofs{ROFRecord{{7, 9}, 2, 4, 5}};
-  CommonTrackOutputAdapterError error = CommonTrackOutputAdapterError::None;
+  GenericTrackOutputAdapterError error = GenericTrackOutputAdapterError::None;
   o2::its::LayerTiming clock{};
   clock.mNROFsTF = 1;
   clock.mROFLength = 18;
   clock.mROFDelay = 100;
-  const CommonTrackOutputTimingContext timing{rofs, ClockTimingPublicationView{clock}};
+  const GenericTrackOutputTimingContext timing{rofs, ClockTimingPublicationView{clock}};
   const std::array<SurfaceId, 1> surfaces{SurfaceId{3}};
-  const auto output = stageMFTCommonTrackOutput(frame, measurement.cluster.source, surfaces, timing, sidecar, true, error);
+  const auto output = stageMFTGenericTrackOutput(frame, measurement.cluster.source, surfaces, timing, sidecar, true, error);
   BOOST_REQUIRE(output);
   BOOST_REQUIRE_EQUAL(output->tracks.size(), 1u);
   BOOST_CHECK_EQUAL(output->tracks[0].getZ(), -77.);
@@ -1093,9 +1093,9 @@ BOOST_AUTO_TEST_CASE(CommonTrackOutputAdapterStagesMFTAndRejectsMissingSidecar)
   BOOST_CHECK_EQUAL(output->trackROFs[0].getNEntries(), 1);
   BOOST_CHECK_EQUAL(output->trackROFs[0].getFlags(), rofs[0].getFlags());
 
-  const CommonTrackPublicationContext publicationContext{
+  const GenericTrackPublicationContext publicationContext{
     o2::detectors::DetID::MFT, measurement.cluster.source, rofs, ClockTimingPublicationView{clock}, surfaces};
-  const auto contextOutput = stageMFTCommonTrackOutput(frame, publicationContext, sidecar, true, error);
+  const auto contextOutput = stageMFTGenericTrackOutput(frame, publicationContext, sidecar, true, error);
   BOOST_REQUIRE(contextOutput);
   BOOST_CHECK_EQUAL(contextOutput->tracks.size(), output->tracks.size());
   BOOST_REQUIRE_EQUAL(contextOutput->seedPatterns.size(), output->seedPatterns.size());
@@ -1103,53 +1103,53 @@ BOOST_AUTO_TEST_CASE(CommonTrackOutputAdapterStagesMFTAndRejectsMissingSidecar)
 
   auto wrongDetectorContext = publicationContext;
   wrongDetectorContext.detector = o2::detectors::DetID::ITS;
-  BOOST_CHECK(!stageMFTCommonTrackOutput(frame, wrongDetectorContext, sidecar, false, error));
-  BOOST_CHECK(error == CommonTrackOutputAdapterError::MixedDetector);
+  BOOST_CHECK(!stageMFTGenericTrackOutput(frame, wrongDetectorContext, sidecar, false, error));
+  BOOST_CHECK(error == GenericTrackOutputAdapterError::MixedDetector);
 
   MFTPublicationCompatibility missing;
-  BOOST_CHECK(!stageMFTCommonTrackOutput(frame, measurement.cluster.source, surfaces, timing, missing, false, error));
-  BOOST_CHECK(error == CommonTrackOutputAdapterError::MissingCompatibility);
-  BOOST_CHECK_EQUAL(frame.getCommonTracks().size(), 1u);
+  BOOST_CHECK(!stageMFTGenericTrackOutput(frame, measurement.cluster.source, surfaces, timing, missing, false, error));
+  BOOST_CHECK(error == GenericTrackOutputAdapterError::MissingCompatibility);
+  BOOST_CHECK_EQUAL(frame.getGenericTracks().size(), 1u);
   BOOST_CHECK_EQUAL(frame.getTrackClusterIndices().size(), 1u);
 }
 
-BOOST_AUTO_TEST_CASE(CommonTrackOutputAdapterRejectsMalformedInputsWithoutMutatingOwners)
+BOOST_AUTO_TEST_CASE(GenericTrackOutputAdapterRejectsMalformedInputsWithoutMutatingOwners)
 {
   TimeFrameFixture fixture;
   BOOST_REQUIRE(fixture.load().ok());
-  const auto record = makeTestCommonTrack();
-  storeTestCommonTrack(fixture.tf, record);
+  const auto record = makeTestGenericTrack();
+  storeTestGenericTrack(fixture.tf, record);
   const auto& measurement = *fixture.tf.getGlobalMeasurement(SurfaceId{0}, SurfaceMeasurementIndex{0});
   const std::vector<ROFRecord> rofs{ROFRecord{{1, 2}, 0, 0, 1}};
   const auto clock = makeFixtureClockTiming();
-  const CommonTrackOutputTimingContext timing{rofs, ClockTimingPublicationView{clock}};
+  const GenericTrackOutputTimingContext timing{rofs, ClockTimingPublicationView{clock}};
   const auto surfaces = gsl::span<const SurfaceId>{fixture.plan->front().getOrderedSurfaces()};
-  const auto tracks = fixture.tf.getCommonTracks().size();
+  const auto tracks = fixture.tf.getGenericTracks().size();
   const auto refs = fixture.tf.getTrackClusterIndices().size();
   const auto measurements = fixture.tf.getTotalMeasurements();
-  CommonTrackOutputAdapterError error = CommonTrackOutputAdapterError::None;
+  GenericTrackOutputAdapterError error = GenericTrackOutputAdapterError::None;
   ITSSharedClusterCompatibility unsealed;
-  BOOST_CHECK(!stageITSCommonTrackOutput(fixture.tf, measurement.cluster.source, surfaces, timing, unsealed, false, error));
-  BOOST_CHECK(error == CommonTrackOutputAdapterError::MissingCompatibility);
-  const auto wrongSource = stageITSCommonTrackOutput(fixture.tf, ClusterSourceId{99}, surfaces, timing, unsealed, false, error);
+  BOOST_CHECK(!stageITSGenericTrackOutput(fixture.tf, measurement.cluster.source, surfaces, timing, unsealed, false, error));
+  BOOST_CHECK(error == GenericTrackOutputAdapterError::MissingCompatibility);
+  const auto wrongSource = stageITSGenericTrackOutput(fixture.tf, ClusterSourceId{99}, surfaces, timing, unsealed, false, error);
   BOOST_REQUIRE(wrongSource);
   BOOST_CHECK(wrongSource->tracks.empty());
-  BOOST_CHECK_EQUAL(fixture.tf.getCommonTracks().size(), tracks);
+  BOOST_CHECK_EQUAL(fixture.tf.getGenericTracks().size(), tracks);
   BOOST_CHECK_EQUAL(fixture.tf.getTrackClusterIndices().size(), refs);
   BOOST_CHECK_EQUAL(fixture.tf.getTotalMeasurements(), measurements);
 
-  fixture.tf.getCommonTracks()[0].clusterRefEnd = refs + 1;
-  BOOST_CHECK(!selectCommonTracksForSource(fixture.tf, o2::detectors::DetID::ITS, measurement.cluster.source, error));
-  BOOST_CHECK(error == CommonTrackOutputAdapterError::InvalidTrackRange);
-  fixture.tf.getCommonTracks()[0].clusterRefEnd = refs;
+  fixture.tf.getGenericTracks()[0].clusterRefEnd = refs + 1;
+  BOOST_CHECK(!selectGenericTracksForSource(fixture.tf, o2::detectors::DetID::ITS, measurement.cluster.source, error));
+  BOOST_CHECK(error == GenericTrackOutputAdapterError::InvalidTrackRange);
+  fixture.tf.getGenericTracks()[0].clusterRefEnd = refs;
   fixture.tf.getTrackClusterIndices()[0].surface = SurfaceId{99};
-  BOOST_CHECK(!selectCommonTracksForSource(fixture.tf, o2::detectors::DetID::ITS, measurement.cluster.source, error));
-  BOOST_CHECK(error == CommonTrackOutputAdapterError::UnresolvedReference);
+  BOOST_CHECK(!selectGenericTracksForSource(fixture.tf, o2::detectors::DetID::ITS, measurement.cluster.source, error));
+  BOOST_CHECK(error == GenericTrackOutputAdapterError::UnresolvedReference);
   fixture.tf.getTrackClusterIndices()[0].surface = SurfaceId{0};
 
   ITSSharedClusterCompatibility sealed;
   ITSSharedClusterCompatibilityTransaction tx{sealed};
-  const auto secondTrackIndex = storeTestCommonTrack(fixture.tf, record);
+  const auto secondTrackIndex = storeTestGenericTrack(fixture.tf, record);
   BOOST_REQUIRE(tx.validate(secondTrackIndex));
   tx.reserve();
   tx.append(secondTrackIndex);
@@ -1172,7 +1172,7 @@ BOOST_AUTO_TEST_CASE(MFTPublicationCompatibilityRejectsDuplicateNonMonotonicAndO
   BOOST_CHECK(!duplicate.validate(4));
   MFTPublicationCompatibilityTransaction nonMonotonic{sidecar, 4., 5., 6};
   BOOST_CHECK(!nonMonotonic.validate(3));
-  BOOST_CHECK(sidecar.find(4, 4) == nullptr); // key is outside the supplied CommonTrack owner range
+  BOOST_CHECK(sidecar.find(4, 4) == nullptr); // key is outside the supplied GenericTrack owner range
   BOOST_CHECK(sidecar.find(5, 10) == nullptr);
   BOOST_REQUIRE(sidecar.find(4, 5));
   BOOST_CHECK_EQUAL(sidecar.entries().size(), 1u);

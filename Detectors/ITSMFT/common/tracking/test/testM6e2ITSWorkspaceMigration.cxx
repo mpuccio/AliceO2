@@ -11,7 +11,7 @@
 //  - both ITS workflow accessors expose the same shared kernel workspace;
 //  - an unconfigured workspace fails closed before loading;
 //  - ITS load failure and TimeFrame::resetEvent() preserve the
-//    CommonTrack/sidecar/workspace contracts;
+//    GenericTrack/sidecar/workspace contracts;
 //  - the ITS shared-cluster compatibility sidecar (pending/sealed) still
 //    works correctly backed by the new scratch storage;
 //  - the production ITS SurfacePlanBinding construction resolves to the same

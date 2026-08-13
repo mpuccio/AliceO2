@@ -15,7 +15,7 @@
 // testTimeFrameDetectorLayouts.cxx and the workflow loading tests,
 // testMFTNormalizedRefit.cxx):
 //   1. reset() clears a standalone scratch fixture only; TimeFrame content
-//      (CommonTracks, vertices) is untouched.
+//      (GenericTracks, vertices) is untouched.
 //   2. TimeFrame::resetEvent() is the owner-level operation that clears frame
 //      event data and configured workspaces.
 //   3. Two standalone scratch fixtures can be isolated while testing the
@@ -49,7 +49,7 @@
 #include "DetectorsBase/Propagator.h"
 #include "DetectorsCommonDataFormats/DetID.h"
 #include "Field/MagneticField.h"
-#include "ITSMFTTracking/CommonTrack.h"
+#include "ITSMFTTracking/GenericTrack.h"
 #include "ITSMFTTracking/IOUtils.h"
 #include "ITSMFTTracking/SurfaceGraphBuilder.h"
 #include "ITSMFTTracking/detail/SurfaceTrackingScratch.h"
@@ -115,13 +115,13 @@ void populateScratch(SurfaceTrackingScratch& scratch, float tag)
   scratch.setClusterSize(0, sizes);
 }
 
-// Cheap, direct frame population: one vertex, one CommonTrack -- enough to
+// Cheap, direct frame population: one vertex, one GenericTrack -- enough to
 // distinguish "untouched" from "cleared" without depending on a normalized
 // load.
 void populateFrame(TimeFrame& frame)
 {
   frame.addPrimaryVertex(Vertex{});
-  frame.getCommonTracks().push_back(CommonTrack{});
+  frame.getGenericTracks().push_back(GenericTrack{});
 }
 
 // --- Decoder/catalog fixture for test 4 only: a minimal, geometry-free,
@@ -220,7 +220,7 @@ BOOST_AUTO_TEST_CASE(ResetScratchClearsScratchOnlyTimeFrameContentSurvives)
 
   BOOST_REQUIRE_GT(scratch.getTotalClusters(), 0);
   BOOST_REQUIRE_EQUAL(frame.getPrimaryVertices().size(), 1u);
-  BOOST_REQUIRE_EQUAL(frame.getCommonTracks().size(), 1u);
+  BOOST_REQUIRE_EQUAL(frame.getGenericTracks().size(), 1u);
 
   scratch.reset();
 
@@ -228,7 +228,7 @@ BOOST_AUTO_TEST_CASE(ResetScratchClearsScratchOnlyTimeFrameContentSurvives)
   // reset() must never wipe or mutate TimeFrame: its populated
   // content survives exactly, byte for byte.
   BOOST_CHECK_EQUAL(frame.getPrimaryVertices().size(), 1u);
-  BOOST_CHECK_EQUAL(frame.getCommonTracks().size(), 1u);
+  BOOST_CHECK_EQUAL(frame.getGenericTracks().size(), 1u);
 }
 
 // ---------------------------------------------------------------------
@@ -245,14 +245,14 @@ BOOST_AUTO_TEST_CASE(ResetTimeFrameEventClearsBothOwners)
 
   BOOST_REQUIRE_GT(scratch.getTotalClusters(), 0);
   BOOST_REQUIRE_EQUAL(frame.getPrimaryVertices().size(), 1u);
-  BOOST_REQUIRE_EQUAL(frame.getCommonTracks().size(), 1u);
+  BOOST_REQUIRE_EQUAL(frame.getGenericTracks().size(), 1u);
 
   scratch.reset();
   frame.resetEvent();
 
   BOOST_CHECK_EQUAL(scratch.getTotalClusters(), 0);
   BOOST_CHECK(frame.getPrimaryVertices().empty());
-  BOOST_CHECK(frame.getCommonTracks().empty());
+  BOOST_CHECK(frame.getGenericTracks().empty());
 }
 
 // ---------------------------------------------------------------------
@@ -281,7 +281,7 @@ BOOST_AUTO_TEST_CASE(TwoScratchesOneFrameResettingOneLeavesTheOtherAndTheFrameUn
   // MFT event data".
   BOOST_CHECK_GT(mftScratch.getTotalClusters(), 0);
   BOOST_CHECK_EQUAL(frame.getPrimaryVertices().size(), 1u);
-  BOOST_CHECK_EQUAL(frame.getCommonTracks().size(), 1u);
+  BOOST_CHECK_EQUAL(frame.getGenericTracks().size(), 1u);
 }
 
 // ---------------------------------------------------------------------

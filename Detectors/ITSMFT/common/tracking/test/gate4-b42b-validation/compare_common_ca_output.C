@@ -5,7 +5,7 @@
 // This software is distributed under the terms of the GNU General Public
 // License v3 (GPL Version 3), copied verbatim in the file "COPYING".
 
-// Field-level comparison for the B4.2b legacy/CommonTrack output A/B gate.
+// Field-level comparison for the B4.2b legacy/GenericTrack output A/B gate.
 // It deliberately compares the persisted TTree leaves and flattened vector
 // products, rather than ROOT file bytes (which contain run-specific metadata).
 

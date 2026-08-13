@@ -106,12 +106,12 @@ BOOST_AUTO_TEST_CASE(ResetPreservesStaticConfigurationAndCapacity)
                                                                            << " binding=" << static_cast<int>(initialResult.bindingError));
   const auto* binding = frame.getBinding(0);
   const auto capacity = *frame.getWorkspaceCapacity(0);
-  frame.getCommonTracks().push_back(CommonTrack{});
+  frame.getGenericTracks().push_back(GenericTrack{});
   frame.resetEvent();
   BOOST_CHECK(frame.isConfigured());
   BOOST_CHECK(frame.getBinding(0) == binding);
   BOOST_CHECK_EQUAL(frame.getWorkspaceCapacity(0)->cells, capacity.cells);
-  BOOST_CHECK(frame.getCommonTracks().empty());
+  BOOST_CHECK(frame.getGenericTracks().empty());
 }
 
 BOOST_AUTO_TEST_CASE(ConfigurationOwnershipGuard)

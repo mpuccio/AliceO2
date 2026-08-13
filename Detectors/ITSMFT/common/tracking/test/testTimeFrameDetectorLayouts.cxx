@@ -431,7 +431,7 @@ BOOST_AUTO_TEST_CASE(traversal_empty_road_start_span_is_valid_and_produces_no_tr
   BOOST_CHECK_NO_THROW(traits.initialiseTimeFrame(0, built.plan));
   BOOST_REQUIRE(traits.hasTraversalCache());
   BOOST_CHECK_NO_THROW(traits.findRoads(0, noopSeedRefit));
-  BOOST_CHECK_EQUAL(frame.getCommonTracks().size(), 0u);
+  BOOST_CHECK_EQUAL(frame.getGenericTracks().size(), 0u);
 }
 
 BOOST_AUTO_TEST_CASE(traversal_legacy_cell_container_size_mismatch_fails_before_indexing)

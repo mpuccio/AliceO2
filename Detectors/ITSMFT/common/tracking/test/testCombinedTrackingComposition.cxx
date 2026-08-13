@@ -51,7 +51,7 @@
 #include "ITSMFTTracking/TimeFrame.h"
 #include "ITSMFTTracking/TrackerTraits.h"
 #include "ITSMFTTracking/TrackingConfigParam.h"
-#include "ITSMFTTracking/CommonTrackOutputAdapter.h"
+#include "ITSMFTTracking/GenericTrackOutputAdapter.h"
 #include "ITStracking/Constants.h"
 #include "ReconstructionDataFormats/Track.h"
 
@@ -443,21 +443,21 @@ struct CombinedTrackingComposer {
     mftClock.emplace(plan.getMFTScratch().getROFOverlapView().getClockLayer());
     publicationValid = true;
   }
-  std::optional<CommonTrackPublicationExport> getITSPublicationExport() const
+  std::optional<GenericTrackPublicationExport> getITSPublicationExport() const
   {
     if (!publicationValid || !itsClock) {
       return std::nullopt;
     }
-    return CommonTrackPublicationExport{o2::detectors::DetID::ITS, ClusterSourceId{0}, *itsClock,
-                                        plan.getITSOrderedSurfaces()};
+    return GenericTrackPublicationExport{o2::detectors::DetID::ITS, ClusterSourceId{0}, *itsClock,
+                                         plan.getITSOrderedSurfaces()};
   }
-  std::optional<CommonTrackPublicationExport> getMFTPublicationExport() const
+  std::optional<GenericTrackPublicationExport> getMFTPublicationExport() const
   {
     if (!publicationValid || !mftClock) {
       return std::nullopt;
     }
-    return CommonTrackPublicationExport{o2::detectors::DetID::MFT, ClusterSourceId{1}, *mftClock,
-                                        plan.getMFTOrderedSurfaces()};
+    return GenericTrackPublicationExport{o2::detectors::DetID::MFT, ClusterSourceId{1}, *mftClock,
+                                         plan.getMFTOrderedSurfaces()};
   }
 
   Result process(const ClusterSourceInput& itsSource, const ClusterSourceInput& mftSource, const o2::InteractionRecord& origin)
@@ -514,7 +514,7 @@ struct CombinedTrackingComposer {
 
     markPublicationValid();
     const auto countFor = [this](SurfaceId first) {
-      return static_cast<size_t>(std::count_if(this->frame->getCommonTracks().begin(), this->frame->getCommonTracks().end(),
+      return static_cast<size_t>(std::count_if(this->frame->getGenericTracks().begin(), this->frame->getGenericTracks().end(),
                                                [first](const auto& track) { return track.hitSurfaces.has(first); }));
     };
     return {TrackingOutcome::Success, countFor(SurfaceId{0}), countFor(SurfaceId{ITSNLayers})};
@@ -688,10 +688,10 @@ BOOST_AUTO_TEST_CASE(CombinedComponentsUseOwnROFTimingInOneCombinedPass)
   // A genuine full 7-layer road (MinTrackLength=7, MaxHoles=0): the helix
   // fixture above is a real, non-degenerate curved trajectory, so this is a
   // nonzero accepted-track oracle, not a 0==0 parity check.
-  BOOST_REQUIRE_GT(standaloneIts.frame.getCommonTracks().size(), 0u);
+  BOOST_REQUIRE_GT(standaloneIts.frame.getGenericTracks().size(), 0u);
   StandaloneRun<o2::detectors::DetID::MFT, MFTNLayers> standaloneMft{o2::detectors::DetID::MFT, SurfaceKind::Disk, mftParams, mftClusters, 80};
   BOOST_REQUIRE(standaloneMft.result.outcome == TrackingOutcome::Success);
-  BOOST_REQUIRE_GT(standaloneMft.frame.getCommonTracks().size(), 0u);
+  BOOST_REQUIRE_GT(standaloneMft.frame.getGenericTracks().size(), 0u);
 
   PrescribedDecoder itsDecoder{o2::detectors::DetID::ITS, SurfaceKind::Cylinder, itsClusters};
   PrescribedDecoder mftDecoder{o2::detectors::DetID::MFT, SurfaceKind::Disk, mftClusters};
@@ -720,8 +720,8 @@ BOOST_AUTO_TEST_CASE(CombinedComponentsUseOwnROFTimingInOneCombinedPass)
   // making general standalone/combined population parity a requirement.
   BOOST_CHECK_GT(result.nITSTracks, 0u);
   BOOST_CHECK_GT(result.nMFTTracks, 0u);
-  BOOST_CHECK_EQUAL(result.nITSTracks, standaloneIts.frame.getCommonTracks().size());
-  BOOST_CHECK_EQUAL(result.nMFTTracks, standaloneMft.frame.getCommonTracks().size());
+  BOOST_CHECK_EQUAL(result.nITSTracks, standaloneIts.frame.getGenericTracks().size());
+  BOOST_CHECK_EQUAL(result.nMFTTracks, standaloneMft.frame.getGenericTracks().size());
 
   // The one workspace contains the disjoint components' compact buffers in
   // graph order. Their populated cell count is therefore the sum of the two
@@ -733,21 +733,21 @@ BOOST_AUTO_TEST_CASE(CombinedComponentsUseOwnROFTimingInOneCombinedPass)
   BOOST_CHECK_EQUAL(&composer.getITSScratch(), &composer.getMFTScratch());
   BOOST_CHECK_GT(composer.getITSScratch().getNumberOfCells(), 0u);
 
-  // CommonTrack global references resolve correctly and ordering is ITS
+  // GenericTrack global references resolve correctly and ordering is ITS
   // then MFT: every accepted track's hitSurfaces mask stays within exactly
   // one detector's own global range, and every ITS-range entry precedes
   // every MFT-range entry (shared TimeFrame, append-only, ITS run first).
   const auto itsMask = SurfaceMask{uint32_t{(1u << ITSNLayers) - 1u}};
   const auto mftMask = SurfaceMask{static_cast<uint32_t>(((1u << MFTNLayers) - 1u) << ITSNLayers)};
-  const auto& commonTracks = frame.getCommonTracks();
+  const auto& commonTracks = frame.getGenericTracks();
   BOOST_REQUIRE_EQUAL(commonTracks.size(), result.nITSTracks + result.nMFTTracks);
   for (size_t i = 0; i < result.nITSTracks; ++i) {
-    BOOST_CHECK_EQUAL(commonTracks[i].timestamp.begin, standaloneIts.frame.getCommonTracks()[i].timestamp.begin);
-    BOOST_CHECK_EQUAL(commonTracks[i].timestamp.end, standaloneIts.frame.getCommonTracks()[i].timestamp.end);
+    BOOST_CHECK_EQUAL(commonTracks[i].timestamp.begin, standaloneIts.frame.getGenericTracks()[i].timestamp.begin);
+    BOOST_CHECK_EQUAL(commonTracks[i].timestamp.end, standaloneIts.frame.getGenericTracks()[i].timestamp.end);
   }
   for (size_t i = 0; i < result.nMFTTracks; ++i) {
     const auto& combinedTrack = commonTracks[result.nITSTracks + i];
-    const auto& standaloneTrack = standaloneMft.frame.getCommonTracks()[i];
+    const auto& standaloneTrack = standaloneMft.frame.getGenericTracks()[i];
     BOOST_CHECK_EQUAL(combinedTrack.timestamp.begin, standaloneTrack.timestamp.begin);
     BOOST_CHECK_EQUAL(combinedTrack.timestamp.end, standaloneTrack.timestamp.end);
     BOOST_CHECK_GT(combinedTrack.timestamp.end - combinedTrack.timestamp.begin,
@@ -765,7 +765,7 @@ BOOST_AUTO_TEST_CASE(CombinedComponentsUseOwnROFTimingInOneCombinedPass)
     if (isMft) {
       seenMft = true;
     } else {
-      BOOST_CHECK_MESSAGE(!seenMft, "ITS CommonTrack at index " << i << " appeared after an MFT one");
+      BOOST_CHECK_MESSAGE(!seenMft, "ITS GenericTrack at index " << i << " appeared after an MFT one");
     }
     for (uint32_t ref = track.firstClusterRef; ref < track.clusterRefEnd; ++ref) {
       const auto& reference = frame.getTrackClusterIndices()[ref];
@@ -784,10 +784,10 @@ BOOST_AUTO_TEST_CASE(CombinedComponentsUseOwnROFTimingInOneCombinedPass)
   BOOST_REQUIRE_EQUAL(itsCompatibility.size(), result.nITSTracks);
   BOOST_REQUIRE_EQUAL(mftCompatibility.size(), result.nMFTTracks);
   for (size_t i = 0; i < itsCompatibility.size(); ++i) {
-    BOOST_CHECK_EQUAL(itsCompatibility[i].commonTrackIndex, i);
+    BOOST_CHECK_EQUAL(itsCompatibility[i].genericTrackIndex, i);
   }
   for (size_t i = 0; i < mftCompatibility.size(); ++i) {
-    BOOST_CHECK_EQUAL(mftCompatibility[i].commonTrackIndex, result.nITSTracks + i);
+    BOOST_CHECK_EQUAL(mftCompatibility[i].genericTrackIndex, result.nITSTracks + i);
   }
 
   // Publication exports are valid after success, source-qualified, and
@@ -830,7 +830,7 @@ BOOST_AUTO_TEST_CASE(LoadFailureResetsWholeCombinedTFExactlyOnceAndInvalidatesPu
   composer.setNThreads(1);
 
   // First pass genuinely succeeds, so there is real state (scratches,
-  // CommonTracks, publication exports) for the second, failing pass to
+  // GenericTracks, publication exports) for the second, failing pass to
   // actually have to clear.
   const auto first = composer.process(itsSource, mftSource, o2::InteractionRecord{50, 5});
   BOOST_REQUIRE(first.outcome == TrackingOutcome::Success);
@@ -853,7 +853,7 @@ BOOST_AUTO_TEST_CASE(LoadFailureResetsWholeCombinedTFExactlyOnceAndInvalidatesPu
 
   BOOST_CHECK_EQUAL(composer.getITSScratch().getTotalClusters(), 0);
   BOOST_CHECK_EQUAL(composer.getMFTScratch().getTotalClusters(), 0);
-  BOOST_CHECK(frame.getCommonTracks().empty());
+  BOOST_CHECK(frame.getGenericTracks().empty());
   BOOST_CHECK(frame.getTrackClusterIndices().empty());
   BOOST_CHECK(!composer.getITSPublicationExport().has_value());
   BOOST_CHECK(!composer.getMFTPublicationExport().has_value());
@@ -893,7 +893,7 @@ BOOST_AUTO_TEST_CASE(CombinedTrackingResourceFailureUsesSharedPolicyAndResetsWor
   BOOST_CHECK(result.outcome == TrackingOutcome::RecoverableDropped);
   BOOST_CHECK_EQUAL(composer.getITSScratch().getTotalClusters(), 0);
   BOOST_CHECK_EQUAL(&composer.getITSScratch(), &composer.getMFTScratch());
-  BOOST_CHECK(frame.getCommonTracks().empty());
+  BOOST_CHECK(frame.getGenericTracks().empty());
   BOOST_CHECK(!composer.getITSPublicationExport().has_value());
   BOOST_CHECK(!composer.getMFTPublicationExport().has_value());
 }
@@ -957,11 +957,11 @@ BOOST_AUTO_TEST_CASE(RecoverableITSLoadFailureIsDroppedOnlyWhenITSDropTFAllows)
     const auto expected = itsDropTF ? TrackingOutcome::RecoverableDropped : TrackingOutcome::Structural;
     BOOST_CHECK_MESSAGE(result.outcome == expected, "ITS DropTFUponFailure=" << itsDropTF);
     // Every non-success path still performs exactly one whole reset:
-    // both scratches, the shared TimeFrame's CommonTracks, and both
+    // both scratches, the shared TimeFrame's GenericTracks, and both
     // publication exports are empty/invalid regardless of classification.
     BOOST_CHECK_EQUAL(composer.getITSScratch().getTotalClusters(), 0);
     BOOST_CHECK_EQUAL(composer.getMFTScratch().getTotalClusters(), 0);
-    BOOST_CHECK(frame.getCommonTracks().empty());
+    BOOST_CHECK(frame.getGenericTracks().empty());
     BOOST_CHECK(!composer.getITSPublicationExport().has_value());
     BOOST_CHECK(!composer.getMFTPublicationExport().has_value());
   }
@@ -992,7 +992,7 @@ BOOST_AUTO_TEST_CASE(RecoverableMFTLoadFailureUsesSharedCombinedDropPolicy)
     BOOST_CHECK_MESSAGE(result.outcome == expected, "combined DropTFUponFailure=" << combinedDropTF);
     BOOST_CHECK_EQUAL(composer.getITSScratch().getTotalClusters(), 0);
     BOOST_CHECK_EQUAL(composer.getMFTScratch().getTotalClusters(), 0);
-    BOOST_CHECK(frame.getCommonTracks().empty());
+    BOOST_CHECK(frame.getGenericTracks().empty());
     BOOST_CHECK(!composer.getITSPublicationExport().has_value());
     BOOST_CHECK(!composer.getMFTPublicationExport().has_value());
   }
@@ -1019,7 +1019,7 @@ BOOST_AUTO_TEST_CASE(StructuralLoadErrorIsAlwaysStructuralRegardlessOfDropTF)
 
   const auto result = composer.process(fixture.itsSource, fixture.mftSource, o2::InteractionRecord{50, 5});
   BOOST_CHECK(result.outcome == TrackingOutcome::Structural);
-  BOOST_CHECK(frame.getCommonTracks().empty());
+  BOOST_CHECK(frame.getGenericTracks().empty());
   BOOST_CHECK(!composer.getITSPublicationExport().has_value());
 }
 
@@ -1046,7 +1046,7 @@ BOOST_AUTO_TEST_CASE(UnrecognizedLoadSourceIsAlwaysStructural)
 
   const auto result = composer.process(fixture.itsSource, fixture.mftSource, o2::InteractionRecord{50, 5});
   BOOST_CHECK(result.outcome == TrackingOutcome::Structural);
-  BOOST_CHECK(frame.getCommonTracks().empty());
+  BOOST_CHECK(frame.getGenericTracks().empty());
   BOOST_CHECK(!composer.getITSPublicationExport().has_value());
   BOOST_CHECK(!composer.getMFTPublicationExport().has_value());
 }
@@ -1072,7 +1072,7 @@ BOOST_AUTO_TEST_CASE(StructuralTrackingExceptionIsClassifiedStructuralAfterWhole
   BOOST_CHECK(result.outcome == TrackingOutcome::Structural);
   BOOST_CHECK_EQUAL(composer.getITSScratch().getTotalClusters(), 0);
   BOOST_CHECK_EQUAL(composer.getMFTScratch().getTotalClusters(), 0);
-  BOOST_CHECK(frame.getCommonTracks().empty());
+  BOOST_CHECK(frame.getGenericTracks().empty());
   BOOST_CHECK(!composer.getITSPublicationExport().has_value());
   BOOST_CHECK(!composer.getMFTPublicationExport().has_value());
 }
@@ -1086,7 +1086,7 @@ BOOST_AUTO_TEST_CASE(SequentialSuccessfulTFsReplaceStateWithoutStaleAccumulation
   const auto mftParams = makeMftParams();
   // A genuine nonzero-track fixture (same construction as
   // ITSAndMFTAcceptedResultsReproduceStandaloneCountsInOneCombinedPass): if
-  // CommonTrack/TrackClusterIndices storage ever accumulated across TFs
+  // GenericTrack/TrackClusterIndices storage ever accumulated across TFs
   // instead of being replaced, the second TF's count below would silently
   // double rather than reproduce the same per-TF value.
   const auto itsClusters = buildItsHelixChainClusters(itsParams.LayerRadii, Bz, 1.f, 0.4f, 0.3f);
@@ -1112,12 +1112,12 @@ BOOST_AUTO_TEST_CASE(SequentialSuccessfulTFsReplaceStateWithoutStaleAccumulation
   const auto firstResult = composer.process(itsSource, mftSource, o2::InteractionRecord{50, 5});
   BOOST_REQUIRE(firstResult.outcome == TrackingOutcome::Success);
   BOOST_REQUIRE_GT(firstResult.nITSTracks + firstResult.nMFTTracks, 0u);
-  const auto firstCommonTrackCount = frame.getCommonTracks().size();
-  BOOST_REQUIRE_EQUAL(firstCommonTrackCount, firstResult.nITSTracks + firstResult.nMFTTracks);
+  const auto firstGenericTrackCount = frame.getGenericTracks().size();
+  BOOST_REQUIRE_EQUAL(firstGenericTrackCount, firstResult.nITSTracks + firstResult.nMFTTracks);
 
   // No explicit reset between successful TFs: MultiSourceTimeFrameLoader::
   // load()'s frame commit atomically replaces the
-  // normalized frame and clears mCommonTracks/mTrackClusterIndices in the
+  // normalized frame and clears mGenericTracks/mTrackClusterIndices in the
   // same commit (TimeFrame.h), so the second process() call alone -- on the
   // identical fixture again -- must reproduce the same per-TF count, not
   // the first TF's count plus the second's.
@@ -1126,7 +1126,7 @@ BOOST_AUTO_TEST_CASE(SequentialSuccessfulTFsReplaceStateWithoutStaleAccumulation
 
   BOOST_CHECK_EQUAL(secondResult.nITSTracks, firstResult.nITSTracks);
   BOOST_CHECK_EQUAL(secondResult.nMFTTracks, firstResult.nMFTTracks);
-  BOOST_CHECK_EQUAL(frame.getCommonTracks().size(), firstCommonTrackCount);
+  BOOST_CHECK_EQUAL(frame.getGenericTracks().size(), firstGenericTrackCount);
   BOOST_CHECK_EQUAL(composer.getITSScratch().getTotalClusters(),
                     static_cast<int>(itsClusters.size() + mftClusters.size()));
   BOOST_CHECK_EQUAL(&composer.getITSScratch(), &composer.getMFTScratch());
@@ -1182,8 +1182,8 @@ BOOST_AUTO_TEST_CASE(CompatibilitySidecarGettersReflectSealAndReset)
   BOOST_REQUIRE(result.outcome == TrackingOutcome::Success);
   // A successful run always seals the ITS sidecar (Tracker<ITSNLayers>::
   // clustersToTracks() -> markTracks() -> sealFromMarkedTracks()), which is
-  // exactly what stageITSCommonTrackOutput() requires
-  // (CommonTrackOutputAdapter.h).
+  // exactly what stageITSGenericTrackOutput() requires
+  // (GenericTrackOutputAdapter.h).
   BOOST_CHECK(composer.getITSSharedClusterCompatibility().isSealed());
 
   // A whole reset clears both sidecars back to their pre-process() state.
@@ -1201,7 +1201,7 @@ BOOST_AUTO_TEST_CASE(ExplicitScheduleDrivesITSThenMFTThroughTheDelegatedEngine)
   // Same construction as
   // ITSAndMFTAcceptedResultsReproduceStandaloneCountsInOneCombinedPass,
   // narrowed to the one claim this test adds: process()'s ITS-then-MFT
-  // CommonTrack ordering and per-detector publication exports are produced
+  // GenericTrack ordering and per-detector publication exports are produced
   // by the explicit [ITS, MFT] Tracker invocation order
   // (the workflow-owned explicit schedule), not a hand-unrolled pair of
   // clustersToTracks() calls.
@@ -1235,12 +1235,12 @@ BOOST_AUTO_TEST_CASE(ExplicitScheduleDrivesITSThenMFTThroughTheDelegatedEngine)
   BOOST_REQUIRE_GT(result.nITSTracks, 0u);
   BOOST_REQUIRE_GT(result.nMFTTracks, 0u);
 
-  // CommonTrack ordering: every ITS-range entry precedes every MFT-range
+  // GenericTrack ordering: every ITS-range entry precedes every MFT-range
   // entry -- the observable footprint of the engine having run track() in
   // schedule order [ITS, MFT], not some other order.
   const auto itsMask = SurfaceMask{uint32_t{(1u << ITSNLayers) - 1u}};
   const auto mftMask = SurfaceMask{static_cast<uint32_t>(((1u << MFTNLayers) - 1u) << ITSNLayers)};
-  const auto& commonTracks = frame.getCommonTracks();
+  const auto& commonTracks = frame.getGenericTracks();
   BOOST_REQUIRE_EQUAL(commonTracks.size(), result.nITSTracks + result.nMFTTracks);
   bool seenMft = false;
   for (const auto& track : commonTracks) {
@@ -1249,7 +1249,7 @@ BOOST_AUTO_TEST_CASE(ExplicitScheduleDrivesITSThenMFTThroughTheDelegatedEngine)
       seenMft = true;
     } else {
       BOOST_CHECK(track.hitSurfaces.isSubsetOf(itsMask));
-      BOOST_CHECK_MESSAGE(!seenMft, "an ITS CommonTrack appeared after an MFT one: schedule order was not ITS-then-MFT");
+      BOOST_CHECK_MESSAGE(!seenMft, "an ITS GenericTrack appeared after an MFT one: schedule order was not ITS-then-MFT");
     }
   }
   BOOST_CHECK(seenMft);
@@ -1296,7 +1296,7 @@ BOOST_AUTO_TEST_CASE(AtomicLoadFailureInvokesEngineResetOnlyAndLeavesNoParticipa
 
   BOOST_CHECK_EQUAL(composer.getITSScratch().getTotalClusters(), 0);
   BOOST_CHECK_EQUAL(composer.getMFTScratch().getTotalClusters(), 0);
-  BOOST_CHECK(frame.getCommonTracks().empty());
+  BOOST_CHECK(frame.getGenericTracks().empty());
   BOOST_CHECK(frame.getTrackClusterIndices().empty());
   // Neither sidecar was ever sealed/populated by this process() call --
   // proof that track() (and therefore the engine's executeEvent()) was

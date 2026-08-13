@@ -24,7 +24,7 @@
 #include <string>
 
 #include "CommonConstants/MathConstants.h"
-#include "ITSMFTTracking/NativeRefitDriver.h"
+#include "ITSMFTTracking/RefitDriver.h"
 #include "ITSMFTTracking/detail/SurfaceStateOperations.h"
 #include "ITSMFTTracking/Propagator.h"
 
@@ -383,7 +383,7 @@ BOOST_AUTO_TEST_CASE(PropagatorPublicHeaderContainsOnlyStatePrimitives)
 
 // --- Holes are skipped by the native refit driver ----------------------------
 
-BOOST_AUTO_TEST_CASE(NativeRefitDriverSkipsHoleSlots)
+BOOST_AUTO_TEST_CASE(RefitDriverSkipsHoleSlots)
 {
   auto state = barrelState();
   auto linRef = barrelLinRef(state);

@@ -14,7 +14,7 @@
 
 #include <boost/test/unit_test.hpp>
 
-#include "ITSMFTTracking/CommonTrackOutputAdapter.h"
+#include "ITSMFTTracking/GenericTrackOutputAdapter.h"
 #include "ITSMFTTracking/detail/ITSSharedClusterCompatibility.h"
 #include "ITSMFTTracking/detail/MFTPublicationCompatibility.h"
 #include "ITSMFTTracking/ROFViews.h"
@@ -120,7 +120,7 @@ BOOST_AUTO_TEST_CASE(workflow_owned_runtime_views_preserve_timing_and_mask_seman
   BOOST_CHECK(!views.mask.isROFEnabled(0, 3));
 
   ClockTimingPublicationView publicationClock{views.overlap.getClockLayer()};
-  CommonTrackTimestamp timestamp{8, 48};
+  GenericTrackTimestamp timestamp{8, 48};
   const auto output = publicationClock.makeOutputTimestamp(timestamp);
   BOOST_REQUIRE(output.has_value());
   BOOST_CHECK_EQUAL(publicationClock.getROF(*output), 0);
