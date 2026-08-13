@@ -121,9 +121,8 @@ TrackingResult Tracker::run(TimeFrame& frame, TrackerTraits& traits)
   acceptedTrackCounts.reserve(trkParams.size());
   try {
     for (int iteration = 0; iteration < static_cast<int>(trkParams.size()); ++iteration) {
-      // Keep a deliberately tightened event-local bound. This is also the
-      // only way a workflow/test can inject a resource failure after loading;
-      // configuration still supplies the normal upper bound.
+      // Apply a tighter event-local limit when configured; this also lets
+      // workflows and tests inject a resource failure after loading.
       if (trkParams[iteration].MaxMemory != std::numeric_limits<size_t>::max() &&
           memoryPool->getMaxMemory() > trkParams[iteration].MaxMemory) {
         memoryPool->setMaxMemory(trkParams[iteration].MaxMemory);
@@ -144,16 +143,14 @@ TrackingResult Tracker::run(TimeFrame& frame, TrackerTraits& traits)
       acceptedTrackCounts.push_back(traits.acceptedTracksForSharedStatus().size());
     }
   } catch (const TraversalException& err) {
-    // Structural/configuration failure (bad layout, stale layout, surface-kind or
-    // index mismatch): never a per-TF data problem, so DropTFUponFailure
-    // never applies. Always reset before propagating -- see class-level
-    // comment: never rely on "the process is going down anyway".
+    // Structural/configuration failures are not per-TF data failures, so
+    // DropTFUponFailure does not apply. Reset before propagating.
     LOGP(error, "CA tracker hit a structural traversal failure: {}", err.what());
     frame.resetEvent();
     throw;
   } catch (const BoundedMemoryResource::MemoryLimitExceeded& err) {
-    // Recoverable, per-TF resource failure: the bounded pool's configured
-    // budget was exceeded for this TimeFrame's data volume.
+    // Recoverable per-TF resource failure: the bounded pool budget was
+    // exceeded for this TimeFrame.
     LOGP(error, "CA tracker exceeded memory limit: {}", err.what());
     frame.resetEvent();
     if (trkParams[0].DropTFUponFailure) {
@@ -161,11 +158,8 @@ TrackingResult Tracker::run(TimeFrame& frame, TrackerTraits& traits)
     }
     throw;
   } catch (const std::bad_alloc& err) {
-    // Also recoverable/per-TF: several CA scratch containers on the hot path
-    // (e.g. TrackerTraits::findCellsNeighbours' cellsNeighboursByTarget and
-    // its per-thread TBB storage) allocate from the plain heap rather than
-    // the bounded pool, so genuine memory pressure surfaces here as a plain
-    // bad_alloc rather than MemoryLimitExceeded. Handled identically.
+    // Some CA scratch containers use the plain heap instead of the bounded
+    // pool, so memory pressure can surface as bad_alloc. Handle it likewise.
     LOGP(error, "CA tracker allocation failed: {}", err.what());
     frame.resetEvent();
     if (trkParams[0].DropTFUponFailure) {
@@ -173,11 +167,8 @@ TrackingResult Tracker::run(TimeFrame& frame, TrackerTraits& traits)
     }
     throw;
   } catch (const std::exception& err) {
-    // Unclassified: not a recognized recoverable-resource failure, so it is
-    // treated as structural and always propagates, regardless of
-    // DropTFUponFailure. A future explicitly typed
-    // RecoverableTimeFrameException may extend the recoverable set; until
-    // then, recoverability is never inferred from std::exception alone.
+    // Unclassified exceptions are treated as structural and always propagate;
+    // recoverability is not inferred from std::exception alone.
     LOGP(error, "CA tracker failed with an unclassified exception; treating as structural: {}", err.what());
     frame.resetEvent();
     throw;

@@ -29,9 +29,7 @@
 namespace o2::itsmft::tracking
 {
 
-// bounded_vector<T> is already brought into this namespace by TimeFrame.h's
-// own `template <typename T> using bounded_vector = o2::its::bounded_vector<T>;`
-// -- a using-declaration for the same name here would conflict with it.
+// TimeFrame.h already defines bounded_vector<T> in this namespace.
 using o2::its::clearResizeBoundedVector;
 using o2::its::deepVectorClear;
 
@@ -46,7 +44,7 @@ void SurfaceTrackingScratch::adoptPlan(std::size_t nOwnedSurfaces, std::size_t n
   mNTransitions = nTransitions;
   mNCells = nCells;
 
-  // Group A -- one slot per owned surface.
+  // Group A: one slot per owned surface.
   clearResizeBoundedVector(mClusters, nOwnedSurfaces, getMaybeFrameworkHostResource());
   clearResizeBoundedVector(mUnsortedClusters, nOwnedSurfaces, getMaybeFrameworkHostResource());
   clearResizeBoundedVector(mTrackingFrameInfo, nOwnedSurfaces, getMaybeFrameworkHostResource());
@@ -63,7 +61,7 @@ void SurfaceTrackingScratch::adoptPlan(std::size_t nOwnedSurfaces, std::size_t n
   clearResizeBoundedVector(mBogusClusters, nOwnedSurfaces, mMemoryPool.get());
   clearResizeBoundedVector(mPositionResolution, nOwnedSurfaces, mMemoryPool.get());
 
-  // Group B -- sparse transition/cell counts, already runtime today.
+  // Group B: runtime transition and cell counts.
   clearResizeBoundedVector(mTracklets, nTransitions, mMemoryPool.get());
   clearResizeBoundedVector(mTrackletsLookupTable, nTransitions, mMemoryPool.get());
   clearResizeBoundedVector(mTrackletLabels, nTransitions, mMemoryPool.get());
@@ -79,8 +77,7 @@ void SurfaceTrackingScratch::adoptPlan(std::size_t nOwnedSurfaces, std::size_t n
 
 void SurfaceTrackingScratch::reset()
 {
-  // The adapter-owned timing/mask storage may outlive this scratch, but its
-  // non-owning event view must never cross an event boundary.
+  // Drop the non-owning event view at each event boundary.
   mROFViews = {};
   mROFViewsBySurface.clear();
   mROFLocalLayerBySurface.clear();
@@ -98,7 +95,7 @@ void SurfaceTrackingScratch::reset()
   deepVectorClear(mTransitionPhiCuts);
   deepVectorClear(mTransitionMSAngles);
 
-  // Group A (allocator-backed, always cleared regardless of framework allocator).
+  // Group A: allocator-backed storage, always cleared.
   deepVectorClear(mClusterExternalIndices);
   deepVectorClear(mNClustersPerROF);
   deepVectorClear(mBogusClusters);
@@ -115,7 +112,7 @@ void SurfaceTrackingScratch::reset()
   mTotalLines = 0;
   mNTotalLowPtVertices = 0;
 
-  // External host-allocator memory is released by its owning framework.
+  // Framework-owned host memory is released by its owner.
   if (!hasFrameworkAllocator()) {
     deepVectorClear(mClusters);
     deepVectorClear(mUsedClusters);
@@ -125,15 +122,14 @@ void SurfaceTrackingScratch::reset()
     deepVectorClear(mROFramesClusters);
   }
 
-  // MC-label storage is cleared only when labels are present.
+  // Clear MC labels only when MC data is present.
   if (hasMCinformation()) {
     deepVectorClear(mLinesLabels);
     deepVectorClear(mTrackletLabels);
     deepVectorClear(mCellLabels);
   }
 
-  // mClusterLabels holds non-owning pointers into caller-supplied MC label
-  // containers, so reset pointers rather than freeing or resizing storage.
+  // These are non-owning pointers; reset them without freeing or resizing.
   std::fill(mClusterLabels.begin(), mClusterLabels.end(), nullptr);
 }
 
@@ -151,7 +147,7 @@ void SurfaceTrackingScratch::setMemoryPool(std::shared_ptr<o2::its::BoundedMemor
     }
   };
 
-  // Host-only allocator binding.
+  // Host-only allocator bindings.
   initContainers(mClusterExternalIndices);
   initContainers(mNTrackletsPerCluster);
   initContainers(mNTrackletsPerClusterSum);
@@ -166,11 +162,11 @@ void SurfaceTrackingScratch::setMemoryPool(std::shared_ptr<o2::its::BoundedMemor
   initContainers(mCells);
   initContainers(mCellsNeighbours);
   initContainers(mCellsLookupTable);
-  // MC info (we don't know if we have MC).
+  // MC data (if present).
   initContainers(mLinesLabels);
   initContainers(mTrackletLabels);
   initContainers(mCellLabels);
-  // May use an externally provided allocator.
+  // These may use an external allocator.
   initContainers(mClusters, hasFrameworkAllocator());
   initContainers(mUsedClusters, hasFrameworkAllocator());
   initContainers(mUnsortedClusters, hasFrameworkAllocator());
@@ -207,11 +203,8 @@ bool flatArrayAllocatorMatches(const std::array<bounded_vector<T>, N>& a, const 
 
 bool SurfaceTrackingScratch::allocatorsMatch(const SurfaceTrackingScratch& staged) const noexcept
 {
-  // Every flat bounded_vector<T> member swap() exchanges directly (the ones
-  // whose allocators must compare equal for a well-defined
-  // bounded_vector::swap()). Per-owned-surface/per-transition/per-cell
-  // *outer* std::vector<bounded_vector<T>> members carry no such precondition
-  // (see the header doc) and are intentionally not checked here.
+  // Flat bounded_vector<T> swaps require equal allocators. Outer
+  // std::vector<bounded_vector<T>> swaps do not, so they are not checked.
   return flatAllocatorMatches(mBogusClusters, staged.mBogusClusters) &&
          flatAllocatorMatches(mPositionResolution, staged.mPositionResolution) &&
          flatAllocatorMatches(mTransitionPhiCuts, staged.mTransitionPhiCuts) &&
@@ -223,9 +216,8 @@ bool SurfaceTrackingScratch::allocatorsMatch(const SurfaceTrackingScratch& stage
 
 void SurfaceTrackingScratch::swapLoadedEvent(SurfaceTrackingScratch& other) noexcept
 {
-  // Exchange only data produced by loadNormalizedSource(). Plan sizes,
-  // allocator identity, and transition/cell capacity stay with the live
-  // frame-owned workspace.
+  // Swap only data loaded by loadNormalizedSource(); plan sizes, allocators,
+  // and transition/cell capacity stay with the live workspace.
   mUnsortedClusters.swap(other.mUnsortedClusters);
   mTrackingFrameInfo.swap(other.mTrackingFrameInfo);
   mClusterExternalIndices.swap(other.mClusterExternalIndices);
@@ -252,8 +244,7 @@ void SurfaceTrackingScratch::swap(SurfaceTrackingScratch& other) noexcept
   std::swap(mNTransitions, other.mNTransitions);
   std::swap(mNCells, other.mNCells);
 
-  // Outer std::vector<bounded_vector<T>> containers: always safe, see the
-  // header doc.
+  // Outer vectors are always safe to swap; see the header documentation.
   mClusters.swap(other.mClusters);
   mUnsortedClusters.swap(other.mUnsortedClusters);
   mTrackingFrameInfo.swap(other.mTrackingFrameInfo);
@@ -280,7 +271,7 @@ void SurfaceTrackingScratch::swap(SurfaceTrackingScratch& other) noexcept
   mNTrackletsPerROF.swap(other.mNTrackletsPerROF);
   mLinesLabels.swap(other.mLinesLabels);
 
-  // Flat bounded_vector<T> containers: precondition allocatorsMatch(other).
+  // Flat bounded_vector<T> containers require allocatorsMatch(other).
   mBogusClusters.swap(other.mBogusClusters);
   mPositionResolution.swap(other.mPositionResolution);
   mTransitionPhiCuts.swap(other.mTransitionPhiCuts);
@@ -300,8 +291,7 @@ void SurfaceTrackingScratch::swap(SurfaceTrackingScratch& other) noexcept
   mROFLocalLayerBySurface.swap(other.mROFLocalLayerBySurface);
   mSourceBySurface.swap(other.mSourceBySurface);
 
-  // mMemoryPool/mExtMemoryPool/mExternalAllocator deliberately not swapped --
-  // see the header doc.
+  // Keep memory pools and the external allocator with their owner.
 }
 
 // Accessors and runtime-plan operations.

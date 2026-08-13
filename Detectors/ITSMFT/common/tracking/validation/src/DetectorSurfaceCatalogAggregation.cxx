@@ -56,10 +56,7 @@ double minimumRadius(const std::array<ProjectedPoint, 4>& polygon)
                       std::hypot(next.x - point.x, next.y - point.y)});
   }
 
-  // The tolerance follows the coordinate scale and the dimensions of the
-  // tested quantity: lengthTolerance is O(scale), while areaTolerance is
-  // O(scale^2). The factor 64 covers the short sequences of subtractions and
-  // products used by affine projection, shoelace area and half-plane tests.
+  // Scale tolerances to the coordinates and quantities being tested.
   constexpr double toleranceFactor = 64. * std::numeric_limits<double>::epsilon();
   const double lengthTolerance = toleranceFactor * scale;
   const double areaTolerance = toleranceFactor * scale * scale;

@@ -41,9 +41,9 @@ enum class OperationFailureReason : uint8_t {
   // A nonzero reseedIfShorter is unsupported and is rejected before any leg
   // operation or output mutation.
   ReseedNotSupported = 17,
-  // Family conversion was attempted but failed (invalid target family,
+  // Surface-kind conversion was attempted but failed (invalid target kind,
   // direction boundary, or non-finite converted state), distinct from a
-  // source-family mismatch where conversion was not attempted.
+  // source-kind mismatch where conversion was not attempted.
   SurfaceKindConversionFailure = 18
 };
 

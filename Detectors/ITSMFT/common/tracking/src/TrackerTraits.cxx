@@ -123,25 +123,10 @@ std::optional<uint32_t> appendCommonTrack(TimeFrame& frame,
   return static_cast<uint32_t>(oldTrackSize);
 }
 
-// A static "diamond" vertex (ITSCommonCATrackerParam.useDiamond /
-// TrackerTraits::computeLayerTracklets) carries no genuine
-// per-event timing: it stands in for every real primary vertex at once, so
-// it must compare as time-compatible with whichever ROF it is being tested
-// against. Vertex::getTimeStamp() is a fixed-width TimeEstBC whose error
-// field is only 16 bits (DataFormatsITS/TimeEstBC.h) -- sized for one ROF's
-// own uncertainty, not for an entire TimeFrame's real BC span (order
-// 1e5-1e6 BC for a realistic TF) -- so one static timestamp value literally
-// cannot overlap every ROF in a real TimeFrame at once; the correct
-// full-TimeFrame envelope has to be re-derived at each (layer, rofId) this
-// vertex is actually tested against, from that ROF's own real interval
-// (RuntimeROFOverlapView::getLayer(layer).getROFTimeBounds(rofId, true) -- the
-// exact same, already-configured per-TF bounds every real-vertex ROF
-// compatibility check in this file already uses; not an independently
-// invented arithmetic formula). A vertex timestamp built this way is
-// therefore provably -- not just observed to be -- compatible with the ROF
-// it was derived from: see this function's two call sites below for the two
-// provable cases (an exact-match window, and a tracklet-time window that is
-// always a subset of one of its two source ROF windows).
+// A static diamond vertex represents all primary vertices and has no event
+// timestamp. Derive its envelope from the tested ROF's configured bounds;
+// TimeEstBC cannot represent a full TimeFrame. The resulting timestamp is
+// compatible by construction with that ROF.
 template <typename ROFOverlapView>
 Vertex diamondVertexForROF(const Vertex& base, const ROFOverlapView& rofOverlapView, int layer, int rofId)
 {
@@ -150,9 +135,7 @@ Vertex diamondVertexForROF(const Vertex& base, const ROFOverlapView& rofOverlapV
   return v;
 }
 
-// Host-only conversion from ROOT-visible TrackingParameters into the one
-// device-portable record. This is intentionally private to the initialization
-// seam and is called once per iteration.
+// Convert ROOT-visible parameters to the device-portable record once per iteration.
 TrackingKernelParameters bindTrackingKernelParameters(const TrackingParameters& params) noexcept
 {
   TrackingKernelParameters out;
@@ -300,27 +283,14 @@ void TrackerTraits::initialiseTimeFrame(const int iteration, const std::vector<S
     }
   }
 
-  // 2.5. Resolve and validate per-surface-position material from the layout
-  // and iteration parameters before mutating TimeFrame tracking state.
-  // The surface-position mapping is this graph vector's own validated
-  // orderedSurfaces (never inferred from a detector identity,
-  // radius, z, or numeric ordering); a size mismatch, an invalid/out-of-range
-  // mapped SurfaceId, or a numeric disagreement against the adapter-owned
-  // TrackingParameters::LayerxX0 all reject with the same
-  // LegacyMaterialMismatch reason -- this whole block is one compatibility
-  // precondition, not several. SurfaceDescriptor::material itself is never
-  // written here. `stagedLayerMaterial` is kept local (not yet committed to
-  // the mLayerMaterial member) until every remaining fallible check in this
-  // function has also succeeded -- see the final commit block below -- so a
-  // later failure leaves mLayerMaterial exactly as resetTraversalCache() left
-  // it (reset/zero-filled), never partially populated from a failed
-  // iteration.
+  // 2.5. Resolve and validate material through this graph's orderedSurfaces
+  // before touching TimeFrame state. LayerxX0 mismatches and invalid mappings
+  // use LegacyMaterialMismatch. Keep stagedLayerMaterial local until all
+  // fallible checks succeed, so failures leave the cache reset.
   //
   const auto orderedSurfaces = mBinding->getOrderedSurfaces();
   const int activeSurfaceCount = static_cast<int>(mScratch->getNOwnedSurfaces());
-  // This is the remaining adapter-edge compatibility check: the application
-  // configuration must agree with the adopted plan count. No shared
-  // traversal loop uses the compatibility field as its extent.
+  // The application configuration must match the adopted plan count.
   if (activeSurfaceCount <= 0 || activeSurfaceCount > MaxLayoutSurfaces ||
       orderedSurfaces.size() != static_cast<std::size_t>(activeSurfaceCount) ||
       mTrkParams[iteration].NLayers != activeSurfaceCount) {
@@ -346,17 +316,9 @@ void TrackerTraits::initialiseTimeFrame(const int iteration, const std::vector<S
     }
   }
 
-  // 2.6. Resolve and validate this iteration's normalized-measurement binding:
-  // per-surface-position normalized SurfaceMeasurement span, entirely from
-  // `orderedSurfaces` (already resolved and validated above) and the
-  // already-loaded TimeFrame normalized frame / legacy compatibility
-  // structures -- before any TimeFrame tracking state is touched.
-  // `stagedLayerMeasurements` is kept local (not yet committed to the
-  // mLayerMeasurements member) until every remaining fallible check in this
-  // function has also succeeded -- see the final commit block below -- so a
-  // later failure leaves mLayerMeasurements exactly as resetTraversalCache()
-  // left it (reset/empty spans), never partially populated from a failed
-  // iteration.
+  // 2.6. Resolve and validate normalized measurements from orderedSurfaces
+  // and the loaded TimeFrame before touching tracking state. Keep staged spans
+  // local until all fallible checks succeed; failures leave the cache empty.
   std::vector<gsl::span<const SurfaceMeasurement>> stagedLayerMeasurements(static_cast<std::size_t>(activeSurfaceCount));
   std::vector<gsl::span<const GlobalMeasurement>> stagedLayerGlobalMeasurements(static_cast<std::size_t>(activeSurfaceCount));
   for (int surfacePosition = 0; surfacePosition < activeSurfaceCount; ++surfacePosition) {
@@ -401,8 +363,7 @@ void TrackerTraits::initialiseTimeFrame(const int iteration, const std::vector<S
     stagedLayerGlobalMeasurements[surfacePosition] = globals;
   }
 
-  // 3. Bind and validate index-table configuration in a local value. The
-  // scratch is not touched until this validation succeeds.
+  // 3. Validate index-table configuration locally before touching scratch.
   std::array<IndexTableUtilsCore, 2> indexTableConfigByKind{};
   std::vector<IndexTableUtilsCore> stagedIndexTableConfigs(activeSurfaceCount);
   for (const auto kind : {SurfaceKind::Cylinder, SurfaceKind::Disk}) {
@@ -422,13 +383,8 @@ void TrackerTraits::initialiseTimeFrame(const int iteration, const std::vector<S
     stagedIndexTableConfigs[position] = indexTableConfigByKind[kindIndex(layout.getSurface(orderedSurfaces[position]).kind)];
   }
 
-  // 4. LUT-reuse invariant: a non-FirstPass iteration will not have its
-  // index-table configuration (re)committed or its LUT storage reallocated
-  // by the scratch initialization below (PassFlags[FirstPass]
-  // gate) -- whether or not RebuildClusterLUT resorts clusters into the
-  // existing LUT using whatever configuration TimeFrame already owns (e.g.
-  // configuration for such an iteration must already match the
-  // owned one exactly, checked before TimeFrame is touched at all.
+  // 4. Non-FirstPass iterations reuse the TimeFrame's index-table configuration
+  // and LUT storage; their configuration was matched before touching state.
   if (!mTrkParams[iteration].PassFlags[IterationStep::FirstPass]) {
     for (int position = 0; position < activeSurfaceCount; ++position) {
       if (!indexTableConfigurationsMatch(stagedIndexTableConfigs[position], mScratch->getIndexTableUtils(position), activeSurfaceCount)) {
@@ -437,20 +393,16 @@ void TrackerTraits::initialiseTimeFrame(const int iteration, const std::vector<S
     }
   }
 
-  // 5. Only now is the scratch touched: it receives an already-validated
-  // configuration and the sparse plan's actual ordered ids. It never inspects
-  // a layer count or detector ID.
+  // 5. Scratch now receives the validated configuration and sparse plan IDs.
   const auto transitionIds = mBinding->getGlobalTransitions();
   const auto cellIds = mBinding->getGlobalCells();
   mScratch->initialise(*mFrame, mTrkParams[iteration], activeSurfaceCount, iteration,
                        stagedIndexTableConfigs, layout, transitionIds, cellIds,
                        orderedSurfaces, stagedLayerGlobalMeasurements);
 
-  // A sorted Cluster is a locator/navigation cache only. Validate each
-  // enabled ROF that can participate in a configured transition after every
-  // TimeFrame initialisation, including LUT reuse and non-FirstPass paths.
-  // The spans remain local until this check and all subsequent kind setup
-  // have succeeded, so a structural failure cannot publish traversal caches.
+  // Sorted clusters are a locator cache. Validate every enabled ROF that can
+  // participate in a configured transition, including LUT-reuse paths.
+  // Keep spans local until validation and kind setup complete.
   std::vector<bool> candidateReachableLayers(static_cast<std::size_t>(activeSurfaceCount), false);
   for (const auto transitionId : transitionIds) {
     const auto& transition = layout.getTransition(transitionId);
@@ -469,9 +421,7 @@ void TrackerTraits::initialiseTimeFrame(const int iteration, const std::vector<S
     const auto measurements = stagedLayerMeasurements[layer];
     const auto rofBoundaries = mScratch->getROFrameClusters(layer);
     const auto rofMask = mScratch->getROFViews(layer).mask;
-    // Orchestration-only users can intentionally omit the mask altogether;
-    // without it no ROF is candidate-reachable. Do not validate allocated
-    // spans until a later configuration actually enables one.
+    // Orchestration-only users may omit the mask; without it no ROF is reachable.
     if (rofMask.mFlatMask == nullptr || rofMask.mLayerROFOffsets == nullptr) {
       continue;
     }
@@ -514,14 +464,10 @@ void TrackerTraits::initialiseTimeFrame(const int iteration, const std::vector<S
     }
   }
 
-  // 6. Validate the sparse plan/binding after scratch initialization and before
-  // committing traversal state. No layer-indexed topology oracle is consulted.
+  // 6. Validate the sparse plan and binding before committing traversal state.
   validateSparsePlan(iteration, layout);
 
-  // Bound from the still-local stagedLayerMaterial, not the mLayerMaterial
-  // member (not committed yet): attachHitConfig.layerMaterial is rebound to
-  // point at mLayerMaterial once that member is actually populated, at the
-  // final commit below, before it escapes into mAttachHitConfig.
+  // Bind the local staged material for validation; rebind to mLayerMaterial at commit.
   auto attachHitConfig = bindAttachHitConfig(
     gsl::span<const NominalSurfaceMaterial>(stagedLayerMaterial.data(), stagedLayerMaterial.size()), mTrkParams[iteration]);
   if (!attachHitConfig.isValid(activeSurfaceCount)) {
@@ -561,25 +507,17 @@ void TrackerTraits::initialiseTimeFrame(const int iteration, const std::vector<S
   mTraversalGraph = layout;
   mTraversalCacheValid = true;
   mDiskLayerReferenceZ = referenceCoordinateView.perLayerReferenceZ;
-  // Commit the material cache itself only now, alongside every other
-  // traversal cache, then rebind attachHitConfig's span off the
-  // about-to-be-destroyed local stagedLayerMaterial and onto the
-  // now-populated, function-lifetime-independent mLayerMaterial member
-  // before mAttachHitConfig (which outlives this call) retains it.
+  // Commit material with the other traversal caches, then rebind attachHitConfig
+  // from the local staging span to the persistent member.
   mLayerMaterial = std::move(stagedLayerMaterial);
   attachHitConfig.layerMaterial = gsl::span<const NominalSurfaceMaterial>(mLayerMaterial.data(), mLayerMaterial.size());
   mAttachHitConfig = attachHitConfig;
-  // One-time normalized-measurement binding: committed here, alongside every
-  // other successfully staged traversal cache -- see mLayerMeasurements' own
-  // doc for the commit contract.
+  // Commit normalized measurements with the other traversal caches.
   mLayerMeasurements = std::move(stagedLayerMeasurements);
   mLayerGlobalMeasurements = std::move(stagedLayerGlobalMeasurements);
 
-  // All fallible validation for this iteration (layout/grouping, legacy
-  // parity, state-family, and every kind/geometry binding above) has now
-  // succeeded. What follows is the relocated, total (non-throwing) per-layer
-  // and per-transition scattering/bending preparation -- see the method doc
-  // for the ordering/failure contract this relies on.
+  // All fallible validation is complete. The remaining per-layer and
+  // per-transition scattering/bending preparation is non-throwing.
   prepareTransitionScatteringAndBending(iteration, geometryConfig, referenceCoordinateView,
                                         mBinding->getGlobalTransitions());
 }
@@ -654,9 +592,7 @@ void TrackerTraits::computeLayerTrackletsImpl(
   const Vertex diamondVert(mTrkParams[iteration].Diamond, mTrkParams[iteration].DiamondCov, 1, 1.f);
 
   mTaskArena->execute([&] {
-    // Resolves one sparse SurfaceTransition's endpoints to runtime-plan
-    // positions through the immutable binding. Called exactly once per
-    // transitionId, outside every candidate (ROF/cluster/vertex) loop below.
+    // Resolve this sparse transition's endpoints once, outside candidate loops.
     auto resolveTransitionLayers = [&](int transitionId) -> std::pair<int, int> {
       const auto& transition = topology.getTransition(TransitionId{static_cast<uint16_t>(transitionId)});
       return {requireSurfacePosition(iteration, transition.from),
@@ -681,12 +617,8 @@ void TrackerTraits::computeLayerTrackletsImpl(
       if (!mScratch->isROFEnabled(fromLayer, pivotROF)) {
         return 0;
       }
-      // A diamond vertex valid for this specific pivotROF is derived fresh
-      // here (see diamondVertexForROF's doc comment above) rather than
-      // reused from a single shared instance: the derivation is cheap
-      // (two field reads + arithmetic already computed for every real ROF
-      // timing check) and each forTracklets invocation owns its own stack
-      // frame, so this is safe under the tbb::parallel_for dispatch below.
+      // Derive a diamond vertex for this pivot ROF; each invocation owns its
+      // stack frame, so this is safe inside the parallel dispatch.
       Vertex diamondForROF{};
       gsl::span<const Vertex> primaryVertices;
       if (mTrkParams[iteration].UseDiamond) {
@@ -892,17 +824,13 @@ void TrackerTraits::computeLayerTrackletsImpl(
 
 void TrackerTraits::computeLayerCells(const int iteration)
 {
-  // Defensive size-consistency check against this scratch's own
-  // already-allocated compact cell count, never topology.nCells directly --
-  // see computeLayerTracklets()'s identical reasoning for
-  // scratchTransitionCount above. The two parallel per-cell-topology
-  // containers must still agree with each other before the clear loop
-  // touches either.
+  // Check the scratch's allocated compact cell count, not topology.nCells.
+  // The parallel per-cell containers must agree before either is cleared.
   const auto scratchCellCount = mScratch->getCells().size();
   if (mScratch->getCellsLookupTable().size() != scratchCellCount) {
     throw TraversalException{iteration, TraversalFailureReason::SparseTopologyMismatch};
   }
-  // This clear/allocation pass runs once over the full sparse cell count.
+  // Clear and allocate once for the full sparse cell count.
   for (size_t cellTopologyId = 0; cellTopologyId < scratchCellCount; ++cellTopologyId) {
     deepVectorClear(mScratch->getCells()[cellTopologyId]);
     deepVectorClear(mScratch->getCellsLookupTable()[cellTopologyId]);
@@ -931,8 +859,7 @@ void TrackerTraits::computeLayerCellsImpl(
   const int iteration,
   gsl::span<const CellTopologyId> cellIds)
 {
-  // The defensive size-consistency check for mScratch's per-cellTopologyId
-  // storage lives in computeLayerCells(), before this traversal begins.
+  // computeLayerCells() checks per-cell-topology storage before this traversal.
   const auto& topology = mTraversalGraph;
 
   mTaskArena->execute([&] {
@@ -941,9 +868,7 @@ void TrackerTraits::computeLayerCellsImpl(
       std::array<SurfaceDescriptor, 3> surfaces{};
     };
 
-    // Resolves one sparse SurfaceCellTopology's three hit surfaces to
-    // runtime-plan positions through the immutable binding. Called exactly
-    // once per CellTopologyId, outside the per-tracklet candidate loop.
+    // Resolve this cell topology's hit surfaces once, outside candidate loops.
     auto resolveCellHitBinding = [&](const auto& cellTopology) -> CellHitBinding {
       const auto& firstTransition = topology.getTransition(cellTopology.firstTransition);
       const auto& secondTransition = topology.getTransition(cellTopology.secondTransition);
@@ -973,7 +898,7 @@ void TrackerTraits::computeLayerCellsImpl(
           continue;
         }
 
-        /// Track seed preparation. Clusters are numbered progressively from the innermost going outward.
+        /// Prepare the track seed; clusters are numbered from inner to outer.
         const int clusId[3]{
           mScratch->getClusters()[hitLayers[0]][currentTracklet.firstClusterIndex].clusterId,
           mScratch->getClusters()[hitLayers[1]][nextTracklet.firstClusterIndex].clusterId,
@@ -1029,11 +954,8 @@ void TrackerTraits::computeLayerCellsImpl(
           if (good) {
             TimeEstBC ts = currentTracklet.getTimeStamp();
             ts += nextTracklet.getTimeStamp();
-            // Reconstructed directly from the three already-resolved plan
-            // positions via LayerMask's existing
-            // 3-int constructor. The positions are validated against the
-            // sparse cell's hit-surface mask during plan validation, so no
-            // generic SurfaceMask->LayerMask converter is needed.
+            // Build directly from the resolved plan positions; plan validation
+            // already checked them against the cell's hit-surface mask.
             const LayerMask hitLayerMask{hitLayers[0], hitLayers[1], hitLayers[2]};
             TripletFitFactor tripletFactor{};
             if constexpr (decltype(Mode)::value != PassMode::TwoPassCount::value) {
@@ -1065,12 +987,7 @@ void TrackerTraits::computeLayerCellsImpl(
     };
 
     for (const auto typedCellId : cellIds) {
-      // Sole translation point for this loop iteration: every scratch access
-      // below (getCells(), getCellsLookupTable(),
-      // getCellsLabel(), getTracklets(), getTrackletsLookupTable(),
-      // getTrackletsLabel()) is addressed exclusively through these three
-      // already-translated compact slots, never through typedCellId/
-      // cellTopology.firstTransition/secondTransition's own .value() again.
+      // Translate IDs once; all scratch accesses below use these compact slots.
       const int cellTopologyId = requireScratchCellSlot(iteration, typedCellId);
       const auto& cellTopology = topology.getCell(typedCellId);
       const auto kind = topology.getSurface(topology.getTransition(cellTopology.firstTransition).from).kind;
@@ -1172,9 +1089,7 @@ void TrackerTraits::findCellsNeighboursForSchedule(
     }
 
     for (const auto scheduledId : scheduledCells) {
-      // Sole translation point for this loop iteration: every
-      // mScratch->getCells...() access below, for this
-      // source cell, is addressed through this one already-translated slot.
+      // Translate this source cell once; all accesses below use the compact slot.
       const int cellTopologyId = requireScratchCellSlot(iteration, scheduledId);
       if (static_cast<size_t>(cellTopologyId) >= scratchCellCount ||
           static_cast<size_t>(cellTopologyId) >= mScratch->getCellsLookupTable().size()) {
@@ -1198,12 +1113,8 @@ void TrackerTraits::findCellsNeighboursForSchedule(
         const auto& currentCellSeed{mScratch->getCells()[cellTopologyId][iCell]};
         const int nextLayerTrackletIndex{currentCellSeed.getSecondTrackletIndex()};
         for (uint32_t iSuccessor = 0; iSuccessor < successors.getEntries(); ++iSuccessor) {
-          // Dynamically discovered neighbours are translated here;
-          // `nextTopologyId` is read from the global
-          // topology's own CSR array (topology.cellsByFirstTransition), not
-          // from any precomputed per-kind span, so it is translated to its
-          // compact scratch slot here, exactly once, before any scratch
-          // access below uses it.
+          // Translate dynamically discovered neighbours from the global CSR
+          // topology before accessing scratch.
           const auto nextTopologyId = topology.cellsByFirstTransition[successors.getFirstEntry() + iSuccessor];
           const int nextCellTopologyId = requireScratchCellSlot(iteration, nextTopologyId);
           const auto& nextCellTopology = topology.getCell(nextTopologyId);
@@ -1480,18 +1391,10 @@ void TrackerTraits::findRoadsForSchedule(const int iteration,
   const int activeSurfaceCount = static_cast<int>(mScratch->getNOwnedSurfaces());
   bounded_vector<bounded_vector<int>> firstClusters(activeSurfaceCount, bounded_vector<int>(mMemoryPool.get()), mMemoryPool.get());
   firstClusters.resize(activeSurfaceCount);
-  // Road starts are the binding's deterministic sparse-plan subsequence whose
-  // endpoint is seeding-eligible. CellTopologyId values are resolved through
-  // compact slots; SurfaceId is never used as a vector index here.
-  // Road-length filter bound: maximum absolute q/pT, in the same (GeV/c)^-1
-  // units as SurfaceKinematicState::parameters[4]. Applied identically to
-  // both families via getQOverPt() (raw signed value, never squared); no
-  // layer-count/family branch. std::abs() of a NaN/+-Inf q/pT is
-  // never <= this finite bound (standard IEEE-754 comparison semantics), so
-  // non-finite seeds are rejected deterministically without extra checks --
-  // see testCellRepresentation.cxx's dedicated road-filter tests for focused
-  // coverage of that behavior, per the correction's requirement not to rely
-  // on it without a test.
+  // Road starts are the binding's seeding-eligible sparse-plan subsequence.
+  // CellTopologyId values use compact slots; SurfaceId is never a vector index.
+  // Filter roads by absolute q/pT in parameters[4]'s units, identically for
+  // both families. Non-finite values fail the finite-bound comparison.
   constexpr float maxAbsQOverPt = 1.e3f;
   const int cellsPerRoad = static_cast<int>(mScratch->getNOwnedSurfaces()) - 2;
   const auto componentOffsets = mBinding->getRoadStartComponentOffsets();
@@ -1514,9 +1417,8 @@ void TrackerTraits::findRoadsForSchedule(const int iteration,
       for (const auto startId : componentRoadStarts) {
         // Translate the road-start cell to its compact slot once.
         const int startCellTopologyId = requireScratchCellSlot(iteration, startId);
-        // Cell population is per-event/per-vertex data, never cached in
-        // SurfacePlanBinding: this check must stay here, evaluated at
-        // runtime against the current iVertex's TimeFrame content.
+        // Cell population is per-event/per-vertex data, so check it against
+        // the current vertex rather than caching it in SurfacePlanBinding.
         if (mScratch->getCells()[startCellTopologyId].empty()) {
           continue;
         }

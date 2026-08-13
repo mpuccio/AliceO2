@@ -68,7 +68,7 @@ class SeedMetadataBase
   GPUhd() SurfaceKinematicState& state() noexcept { return mState; }
   GPUhd() const SurfaceKinematicState& state() const noexcept { return mState; }
 
-  /// Raw signed q/pT in slot 4 for both state families; never squared.
+  /// Raw signed q/pT in slot 4 for cylinder and disk states; never squared.
   GPUhd() float getQOverPt() const noexcept { return mState.parameters[4]; }
 
  protected:
@@ -95,7 +95,7 @@ class SeedMetadataBase
   o2::its::TimeEstBC mTime;
 };
 
-/// Common (non-family-templated) CA cell representation.
+/// Common non-`SurfaceKind`-templated CA cell representation.
 class CellSeed final : public SeedMetadataBase<o2::its::constants::ClustersPerCell>
 {
   using Base = SeedMetadataBase<o2::its::constants::ClustersPerCell>;
@@ -240,7 +240,7 @@ class TrackSeed final
 
   GPUhd() SurfaceKinematicState& state() noexcept { return mState; }
   GPUhd() const SurfaceKinematicState& state() const noexcept { return mState; }
-  // Raw signed q/pT in slot 4 for both state families; never squared.
+  // Raw signed q/pT in slot 4 for cylinder and disk states; never squared.
   GPUhd() float getQOverPt() const noexcept { return mState.parameters[4]; }
 
  private:

@@ -20,17 +20,8 @@
 #include "ITSMFTTracking/SurfaceMeasurement.h"
 #include "ITSMFTTracking/SurfaceStateOperationResult.h"
 
-// Generic descriptor-driven propagation of SurfaceKinematicState using the
-// nominal material stored in SurfaceDescriptor and resolved via
-// SurfaceCatalogView.
-//
-// Every routing decision in this class inspects the actual
-// SurfaceDescriptor::kind of the surface at hand at the call
-// site. Nothing here names the confined legacy hot-loop-dispatch tag
-// (detail/TrackingKernelParameters.h) or a persisted family/kind pair, and
-// nothing here names ITS, MFT, a detector ID, a fixed layer count, a source
-// position, a workflow, DPL, a writer, or an output type (ADR 0007 decisions
-// 7, 8, 10).
+// Descriptor-driven propagation using the material and kind resolved from
+// SurfaceDescriptor and SurfaceCatalogView.
 namespace o2::itsmft::tracking
 {
 
@@ -43,97 +34,46 @@ struct RefitMeasurementSlot {
 class Propagator
 {
  public:
-  // Propagates a forward state with the accepted model used by disk cell and
-  // refit operations: full helix transport for |bz| > 0.01f, and linear
-  // transport otherwise. The model selection is centralized here so forward
-  // production callers do not grow independent propagation shortcuts.
+  // Propagate a forward state using helix transport for |bz| > 0.01f and
+  // linear transport otherwise.
   static bool propagateForward(SurfaceKinematicState& state, float targetZ, float bz,
                                OperationFailureReason& reason) noexcept;
 
-  // The paired reference supplies the Jacobian point. Exact family and
-  // reference-coordinate pairing is required; both objects are unchanged on
-  // failure.
+  // The paired reference supplies the Jacobian point. Both objects are
+  // unchanged on failure.
   static bool propagateForward(SurfaceKinematicState& state, SurfaceLinearizationReference& linRef,
                                float targetZ, float bz, OperationFailureReason& reason) noexcept;
 
-  // Surface-kind conversion.
-  // Re-expresses `state` (and, if supplied, its paired `linRef`) in
-  // `targetKind`'s parameter/reference convention, evaluated at the
-  // state's *current* reference surface (task requirement 4: a real
-  // coordinate/state/covariance transformation, never a family-flag
-  // mutation and never a shortcut that pretends the state is already on
-  // the target surface). `state.kind == targetKind` is accepted as a
-  // no-op success.
+  // Re-express state (and, if supplied, linRef) in targetKind's
+  // parameter/reference convention at the current reference surface.
+  // A matching kind is a no-op.
   //
-  // The conversion is a first-order (linearized-Jacobian) reparametrization
-  // between two different "one coordinate is the fixed reference, the rest
-  // are fitted parameters" gauges (Barrel fixes radius+frame angle; Forward
-  // fixes only z). Converting necessarily moves which coordinate is fixed,
-  // so the coordinate that *becomes* the new fixed reference has its own
-  // fitted variance discarded (exactly as every family already discards its
-  // own reference coordinate's variance -- SurfaceKinematicState has no
-  // variance slot for referenceCoordinate at all), while the coordinate
-  // that is newly *freed* into a fitted parameter is assigned a loose,
-  // uninformative ceiling variance (reusing this library's own existing
-  // "reset to an uninformative diagonal" ceiling constants, see
-  // Propagator.cxx) rather than a fabricated precise value. This is a
-  // documented, honest engineering choice, not a claim of information-
-  // preserving round-trip conversion.
+  // This is a first-order Jacobian reparametrization between Barrel's
+  // radius/angle reference and Forward's z reference. The new reference's
+  // fitted variance is discarded; the newly freed coordinate receives a
+  // loose, uninformative ceiling variance.
   //
-  // Preserves absCharge, PID, and every field of `state` outside the
-  // family-specific parameter convention. Transactional: both `state` and
-  // `linRef` (if supplied) are left completely unchanged, byte-for-byte, on
-  // any failure.
+  // Preserves absCharge, PID, and all fields outside the parameter
+  // convention. On failure, state and linRef are unchanged.
   static bool convertKind(SurfaceKinematicState& state, SurfaceLinearizationReference* linRef,
                           SurfaceKind targetKind, OperationFailureReason& reason) noexcept;
 
-  // Propagation to a measurement.
-  // Contract (task spec items 1-7):
-  //  1. `targetSurface`/`targetMeasurement` are the explicit target
-  //     surface/measurement context; `state`/`linRef` are the explicit
-  //     current/source-surface context.
-  //  2. Compatibility is `state.kind == targetSurface.kind`.
-  //  3. On mismatch, `state`/`linRef` are converted (convertKind above,
-  //     targeting `targetSurface.kind`) before any rotation or
-  //     propagation is attempted.
-  //  4. See convertKind's own doc: a real transform, never a flag flip.
-  //  5. charge/PID/reference/linearization state survive intact -- assigned
-  //     only by the barrel::/forward:: primitives' own already-documented
-  //     transactional contracts (BarrelSurfaceStateOperations.h /
-  //     ForwardSurfaceStateOperations.h), which this function composes but
-  //     does not reimplement.
-  //  6. Material is `targetSurface.material`, applied through the existing
-  //     PID/absCharge-aware material::calculateMaterialPhysics() kernel via
-  //     barrel::/forward::correctForMaterial -- never a second material
-  //     formula (see the class doc above).
-  //  7. Conversion + rotate/propagate + material + chi2 gate + update +
-  //     optional reference shift all run in local scratch; `state`/
-  //     `linRef`/`chi2` are committed only together, on complete success.
-  //     `reason` is always written on failure.
+  // Propagate to a measurement, converting the state to the target surface
+  // kind when needed, then applying material, the chi2 gate, and the update.
+  // State, reference, and chi2 are committed only after complete success.
   //
-  // Chi2 hardening on entry is shared by all native refit leaves: the incoming
-  // `chi2` accumulator
-  // must be finite and non-negative; `maxChi2` is validated the same way,
-  // but only when `chi2GateEnabled` is true.
+  // The incoming chi2 must be finite and non-negative. maxChi2 is validated
+  // the same way when the gate is enabled.
   static bool propagateToMeasurement(SurfaceKinematicState& state, SurfaceLinearizationReference& linRef,
                                      const SurfaceDescriptor& targetSurface, const SurfaceMeasurement& targetMeasurement,
                                      float bz, material::MaterialTraversalDirection direction,
                                      bool chi2GateEnabled, float maxChi2, float& chi2,
                                      bool shiftReferenceToMeasurement, OperationFailureReason& reason) noexcept;
 
-  // Shared cylinder/disk leg orchestration.
-  // Shared descriptor-driven leg orchestration with the identical per-slot
-  // contract
-  // (a slot with `present == false` is a hole; a present slot's `surface` is
-  // validated against `surfaceCatalog`
-  // exactly as that function documents, failing with
-  // OperationFailureReason::InvalidSurfaceCatalogAssociation; the same chi2
-  // hardening; the same scratch-then-commit transactionality; an empty or
-  // all-hole leg is unconditional success) -- but selects
-  // Propagator::propagateToMeasurement per slot from the slot's own
-  // resolved SurfaceDescriptor instead of a compile-time family helper, so
-  // one call serves a leg mixing Barrel and Forward slots without any
-  // family branch of its own (ADR 0007 decision 10's shared orchestration).
+  // Drive a refit leg over descriptor-resolved cylinder and disk slots.
+  // Holes are skipped, present slots are validated against surfaceCatalog,
+  // and all changes are committed only if every slot succeeds. Empty and
+  // all-hole legs succeed.
   static bool driveRefitLeg(SurfaceKinematicState& state, SurfaceLinearizationReference& linRef,
                             float& chi2, uint32_t& acceptedHitCount,
                             gsl::span<const RefitMeasurementSlot> orderedSlots, SurfaceCatalogView surfaceCatalog,

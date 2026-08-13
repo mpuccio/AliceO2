@@ -36,12 +36,7 @@ const char* toString(ArgParseStatus status) noexcept
 
 namespace
 {
-// Carries forward whatever was already successfully parsed into `args`
-// (notably --format, which may have appeared before the option that
-// ultimately fails) rather than discarding it: main()'s --format json
-// stdout contract must hold on a validation failure too, and it can only
-// do that if a --format seen before the failing option survives into the
-// returned ArgParseResult.
+// Preserve successfully parsed options, including --format, on failure.
 ArgParseResult fail(ValidatorArgs args, ArgParseStatus status, std::string diagnostic)
 {
   ArgParseResult result;

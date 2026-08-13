@@ -35,26 +35,23 @@
 namespace o2::itsmft::tracking
 {
 
-/// `run()` returns `Success` or `RecoverableDropped` only for a recoverable
+/// `run()` returns `Success`, or `RecoverableDropped` for a recoverable
 /// per-TimeFrame resource failure (`MemoryLimitExceeded` or `std::bad_alloc`)
-/// when `DropTFUponFailure` is enabled. Structural/configuration failures,
-/// unclassified exceptions, and recoverable failures with dropping disabled
-/// propagate as exceptions; workflow adapters classify them at their boundary.
+/// when `DropTFUponFailure` is enabled.
+/// Structural and unclassified failures, and recoverable failures with
+/// dropping disabled, propagate as exceptions.
 enum class TrackingOutcome : uint8_t {
   Success,
   RecoverableDropped,
   Structural
 };
 
-/// run()'s complete return value on every path it does not
-/// throw past its own boundary. `elapsedMs` is only meaningful when
-/// `outcome == Success` (0.f otherwise, matching the old sentinel's implicit
-/// contract of never being read on a drop).
+/// Complete return value for paths that do not throw. `elapsedMs` is meaningful
+/// only when `outcome == Success`; it is 0.f otherwise.
 struct TrackingResult {
   TrackingOutcome outcome{TrackingOutcome::Success};
   float elapsedMs{0.f};
-  // Cumulative accepted-result boundaries let application publication adapters
-  // reproduce per-iteration staging without crossing the refit seam.
+  // Cumulative accepted-result counts preserve per-iteration staging.
   std::vector<std::size_t> acceptedTrackCounts;
 };
 
@@ -102,14 +99,9 @@ class Tracker
   // Tracker stores no frame, configuration, workspace, graph, or event state.
   void setSeedRefitFunction(SeedRefitFunction refitFunction) noexcept { mRefitFunction = refitFunction; }
 
-  /// Run all configured iterations. Returns {Success, elapsed ms} on
-  /// success, or {RecoverableDropped, 0.f} when a recoverable per-TF failure
-  /// was dropped (DropTFUponFailure=true); the event is always fully reset
-  /// before that return.
-  /// Any structural or unclassified failure, and any recoverable failure
-  /// with DropTFUponFailure=false, throws instead of returning -- see
-  /// TrackingOutcome's own doc for why this is deliberate -- the event is
-  /// always fully reset before the exception propagates.
+  /// Run all configured iterations. Returns `Success` on success or
+  /// `RecoverableDropped` when an allowed recoverable per-TF failure is
+  /// dropped. The event is reset before a dropped return or propagated error.
   TrackingResult run(TimeFrame& frame, TrackerTraits& traits);
 
  private:

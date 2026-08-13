@@ -472,8 +472,8 @@ bool fitAdjacentTripletFactors(
   covariance[2][2] = angularVariance[1];
   covariance[3][3] = angularVariance[1] / (sineTheta[1] * sineTheta[1]);
 
-  // H for four unique hits. Adjacent factors use hit slots (0,1,2) and
-  // (1,2,3), so the shared-hit rows generate the cross-triplet covariance.
+  // Build H for four unique hits. The factors use slots (0,1,2) and (1,2,3),
+  // so shared hits contribute to the cross-triplet covariance.
   std::array<std::array<std::array<double, 3>, NAdjacentKinks>, 4> gradients{};
   for (std::size_t coordinate = 0; coordinate < 3; ++coordinate) {
     for (std::size_t hit = 0; hit < 3; ++hit) {

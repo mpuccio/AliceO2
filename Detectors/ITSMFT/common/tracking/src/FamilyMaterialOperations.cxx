@@ -7,10 +7,10 @@
 
 // Defines both barrel::correctForMaterial(state, material, direction) and
 // forward::correctForMaterial(state, material, direction): the PID/absCharge-
-// aware composite family operations built on top of the detector-neutral
+// aware composite cylinder/disk operations built on the detector-neutral
 // scalar kernel in MaterialPhysics.h. Both overloads share the complete
 // preflight-validation/momentum-derivation/scratch-and-commit orchestration
-// below; only the family-specific extra kinematics check and covariance
+// below; only the coordinate-specific kinematics check and covariance
 // projection formula differ between them.
 //
 // This translation unit is host-only, does not construct or delegate through
@@ -63,7 +63,7 @@ bool covarianceDiagonalsNonNegative(const SurfaceKinematicState& state) noexcept
   return true;
 }
 
-// Physical-momentum derivation shared by both families. u = slot 4, t = slot
+// Physical-momentum derivation shared by both coordinate conventions. u = slot 4, t = slot
 // 3. Rejects overflow, underflow to zero, and non-finite derived values.
 bool derivePhysicalMomentum(const SurfaceKinematicState& state, float& momentumGeV) noexcept
 {
@@ -135,9 +135,9 @@ void limitBarrelCovariance(SurfaceKinematicState& scratch) noexcept
 }
 
 // Shared preflight validation, steps 1-6 of the required order. Step 3's
-// family-specific extra check (barrel |Snp|<1 / forward alpha==0) is
+// kind-specific extra check (barrel |Snp|<1 / forward alpha==0) is
 // supplied by the caller; the shared slope-finite/slot4-finite-nonzero part
-// of step 3 is applied here for both families.
+// of step 3 is applied here for both kinds.
 template <typename FamilyKinematicsCheck>
 bool preflightValidate(const SurfaceKinematicState& state, SurfaceKind expectedFamily, FamilyKinematicsCheck&& familyCheck,
                        material::MaterialFailureReason& failure) noexcept
@@ -171,13 +171,13 @@ bool preflightValidate(const SurfaceKinematicState& state, SurfaceKind expectedF
   return true;
 }
 
-// Complete transactional operation shared by both families (Slice 2
+// Complete transactional operation shared by cylinder and disk states (Slice 2
 // "Transactional result contract"): validate, derive physical momentum,
 // scratch-copy, invoke the scalar kernel, project covariance on scratch
 // only, validate the projected scratch, and commit exactly once.
-// projectCovariance may additionally apply family-specific covariance range
+// projectCovariance may additionally apply cylinder-specific covariance range
 // handling (barrel only); it must not touch state.parameters[4], which this
-// function updates uniformly for both families after projection.
+// function updates uniformly for both kinds after projection.
 //
 // Unconditional no-op contract: once the scalar kernel succeeds, absCharge
 // == 0 or an exactly-{0,0} materialBudget returns the scalar result
@@ -232,7 +232,7 @@ material::MaterialOperationResult correctForMaterialImpl(SurfaceKinematicState& 
 
   // Complete post-projection validation. Deliberately more than
   // allStateFloatsFinite() plus a covariance-diagonal scan: the projected
-  // state must still satisfy every family/kinematics precondition the
+  // state must still satisfy every kind/kinematics precondition the
   // source state was required to satisfy, and physical momentum must still
   // be re-derivable.
   if (!allStateFloatsFinite(scratch)) {

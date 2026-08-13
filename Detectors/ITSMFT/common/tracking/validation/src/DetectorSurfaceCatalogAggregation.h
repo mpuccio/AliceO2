@@ -59,9 +59,8 @@ struct SurfaceGeometryAggregationResult {
 using SurfaceForChip = std::function<int(size_t)>;
 using LocalToGlobal = std::function<GeometryPoint(size_t, const GeometryPoint&)>;
 
-/// Aggregate chip active areas into exact beam-axis bounds for detector
-/// surfaces. This is the single chip loop shared by the ITS and MFT catalog
-/// providers; detector-specific code supplies only layer lookup and L2G access.
+/// Aggregate chip active areas into beam-axis bounds for detector surfaces.
+/// ITS and MFT providers supply the layer lookup and local-to-global transform.
 SurfaceGeometryAggregationResult aggregateSurfaceGeometry(size_t chipCount,
                                                           size_t surfaceCount,
                                                           const LocalActiveArea& activeArea,

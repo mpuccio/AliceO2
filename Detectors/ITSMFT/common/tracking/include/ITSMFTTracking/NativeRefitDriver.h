@@ -26,7 +26,7 @@
 #include "ReconstructionDataFormats/TrackParametrization.h"
 
 // Shared cylinder/disk refit entry point built on descriptor-driven
-// Propagator operations; family dispatch remains inside propagation.
+// Propagator operations; cylinder/disk dispatch remains inside propagation.
 namespace o2::itsmft::tracking
 {
 
@@ -84,9 +84,9 @@ GPUhdi() void resetCovarianceForRefit(SurfaceKinematicState& state) noexcept
 }
 
 // Same physical formula as the native minimum-pT helper: parameters[4] is the
-// raw signed q/pT for both families
+// raw signed q/pT for both coordinate conventions
 // (SurfaceKinematicState.h / ForwardStateView::getQ2Pt() doc), so no
-// family branch is needed here either.
+// SurfaceKind branch is needed here either.
 GPUhdi() float ptFromQOverPt(float q2pt, uint8_t absCharge) noexcept
 {
   float ptInv = std::abs(q2pt);

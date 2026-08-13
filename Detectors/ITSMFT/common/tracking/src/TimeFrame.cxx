@@ -189,8 +189,7 @@ bool TimeFrame::commitConfiguration(std::vector<SurfaceGraph>&& graphs,
     return false;
   }
 
-  // All validation is complete before any static or event state is replaced.
-  // The prepared workspaces make the final replacement coherent as well.
+  // Replace state only after validation and workspace preparation succeed.
   setMemoryPool(memoryPool);
   mGraphs = std::move(graphs);
   mTrackingParameters = std::move(parameters);
@@ -270,11 +269,8 @@ void TimeFrame::clearEventData() noexcept
 {
   deepVectorClear(mPrimaryVertices);
   deepVectorClear(mPrimaryVerticesLabels);
-  // Common-CA result storage is per-event data and is invalidated together: a
-  // CommonTrack's cluster-reference range
-  // and every SurfaceMeasurementIndex it reaches are only meaningful
-  // alongside the normalized frame current when it was built (CommonTrack.h),
-  // so both must be cleared here, unconditionally.
+  // Common tracks and their cluster references are valid only for the current
+  // normalized event, so clear both together.
   deepVectorClear(mCommonTracks);
   deepVectorClear(mTrackClusterIndices);
   clearMeasurements();

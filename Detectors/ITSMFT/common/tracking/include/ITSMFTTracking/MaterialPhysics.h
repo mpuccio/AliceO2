@@ -14,33 +14,30 @@
 
 #include "ReconstructionDataFormats/PID.h"
 
-// This header and its implementation are host-only. Nothing here has been
-// exercised on GPU, and OPENCL_HOST-style host-side compilation of GPU
-// translation units is not evidence of CUDA/HIP support.
+// This header and its implementation are host-only; GPU compilation is not
+// supported.
 
 namespace o2::itsmft::tracking::material
 {
 
-// Semantic direction of material traversal relative to the particle's
-// momentum. This is independent of the sign of any propagation/covariance
-// convention used by a caller's track state.
+// Material traversal direction relative to the particle momentum, independent
+// of any propagation or covariance sign convention in the caller.
 enum class MaterialTraversalDirection : uint8_t {
   AlongMomentum = 0,
   OppositeMomentum = 1
 };
 
-// Unsigned, already path-integrated material budget crossed by a state.
-// Both fields are non-negative by construction; direction is carried
-// separately by MaterialTraversalDirection.
+// Unsigned, path-integrated material budget. Both fields are non-negative;
+// direction is supplied separately.
 struct IntegratedMaterialBudget {
   float xOverX0;             ///< thickness in units of radiation length
   float arealDensityGPerCm2; ///< crossed length*density, g/cm^2
 };
 
-// Reasons a scalar material-physics operation can fail to produce a usable
-// result. SourceSurfaceKindMismatch, NonFiniteState, InvalidStateKinematics, and
-// InvalidCovariance are reserved for later composite family operations that
-// carry a full track state; calculateMaterialPhysics() never emits them.
+// Reasons a scalar material-physics operation can fail. SourceSurfaceKindMismatch,
+// NonFiniteState, InvalidStateKinematics, and InvalidCovariance are reserved
+// for future full-state operations and are never emitted by
+// calculateMaterialPhysics().
 enum class MaterialFailureReason : uint8_t {
   None = 0,
   SourceSurfaceKindMismatch = 1,
@@ -62,15 +59,10 @@ enum class MaterialOperationFlags : uint8_t {
   SubstepCountClamped = 1
 };
 
-// Result of one scalar material-physics evaluation.
-//
-// Diagnostics on failure: momentumBeforeGeV always echoes the raw
-// momentumGeV argument as supplied by the caller (even if that argument
-// itself was the cause of failure, e.g. non-finite). failure identifies the
-// reason. Every other field (momentumAfterGeV, signedEnergyChangeGeV,
-// highlandTheta2Rad2, relativeInverseMomentumVariance,
-// energyLossSubsteps, flags) is set to its deterministic zero/None value
-// and carries no physical meaning on failure. reserved is always zero.
+// Result of one scalar material-physics evaluation. On failure,
+// momentumBeforeGeV echoes the input, failure gives the reason, and all other
+// fields are deterministic zero/None values with no physical meaning.
+// reserved is always zero.
 struct MaterialOperationResult {
   float momentumBeforeGeV;
   float momentumAfterGeV;
@@ -85,8 +77,7 @@ struct MaterialOperationResult {
   bool ok() const noexcept { return failure == MaterialFailureReason::None; }
 };
 
-// The assertions below lock the current in-memory layout; they are not a
-// serialized or device ABI declaration.
+// Lock the current in-memory layout; this is not a serialized or device ABI.
 #define O2_ITSMFT_MATERIAL_ASSERT_LAYOUT(Type, Size, Alignment) \
   static_assert(std::is_standard_layout_v<Type>);               \
   static_assert(std::is_trivially_copyable_v<Type>);            \
@@ -109,65 +100,43 @@ static_assert(offsetof(MaterialOperationResult, failure) == 22);
 static_assert(offsetof(MaterialOperationResult, reserved) == 23);
 
 // Detector-neutral, PID/absCharge-aware scalar material-physics kernel.
+// pid supplies the mass; absCharge supplies |q| for energy-loss and
+// scattering scale factors. It need not equal PID::getCharge(). For
+// absCharge == 0, validation still runs, then the operation succeeds with
+// unchanged momentum and zero material effects.
 //
-// pid supplies the mass; absCharge supplies the physical |q| used for the
-// q^2 scaling of energy loss and multiple scattering. There is no required
-// equality between absCharge and PID::getCharge() -- callers may model
-// exotic or non-standard charge states by supplying absCharge independently
-// of the nominal PID charge. For absCharge == 0 the state is treated as
-// neutral: after the common validation below, the operation always
-// succeeds with an unchanged momentum and zero energy-loss/scattering
-// contributions, even for nonzero material and even for a valid massive
-// neutral PID.
+// Validation precedence (first failure wins): invalid direction, invalid
+// material, non-positive or non-finite momentum, invalid PID, then a charged
+// massless PID. The PID range is checked before accessing its mass.
 //
-// Validation precedence (first failing check wins):
-//   1. direction is a recognized MaterialTraversalDirection value, else
-//      InvalidDirection.
-//   2. both material fields are finite and non-negative, else
-//      InvalidMaterial.
-//   3. momentumGeV is finite and strictly positive, else
-//      MomentumBelowMinimum.
-//   4. pid.getID() is below PID::NIDsTot, else InvalidPID (checked before
-//      any mass-array access).
-//   5. absCharge != 0 with zero PID mass, else ChargedMasslessPID.
+// For charged massive states, the entry-derived energy (e0) and beta^2 are
+// checked for finite values (and beta^2 for positivity) before either
+// material-effect calculation. Failure gives NonFiniteResult.
 //
-// For a charged, massive state, the entry-derived total energy (e0) and
-// beta^2 are explicitly checked to be finite (and beta^2 additionally
-// checked to be strictly positive) before any energy-loss or multiple-
-// scattering arithmetic runs, since both quantities feed both branches;
-// this is a deterministic NonFiniteResult, not a reliance on later
-// inf-inf/inf-over-inf/NaN propagation to eventually surface the problem.
-//
-// For a charged, massive state, momentumGeV is the physical input momentum
-// already selected by the caller (no covariance projection is performed by
-// this kernel). Energy loss is evaluated with the same capped-substep
-// Bethe-Bloch algorithm as
-// o2::track::TrackParametrizationWithError::correctForMaterial(): the
+// For charged massive states, momentumGeV is the caller-selected physical
+// momentum; no covariance projection is performed. Energy loss uses the same
+// capped-substep Bethe-Bloch algorithm as
+// o2::track::TrackParametrizationWithError::correctForMaterial(). The
 // requested substep count is
 //   1 + floor(|dE_full| / eKin * o2::track::ELoss2EKinThreshInv)
-// (computed in a manner that never converts a non-finite or out-of-range
-// float to int), capped at o2::track::MaxELossIter (50); flags carries
-// SubstepCountClamped iff the requested count exceeds 50. Regardless of
-// clamping, the complete arealDensityGPerCm2 is processed (the capped
-// substep count only changes the granularity, not the total crossed
-// material), and Bethe-Bloch (o2::track::BetheBlochSolidOpt<float>()) is
-// recomputed from the current momentum at every substep.
+// (without converting a non-finite or out-of-range float to int), capped at
+// o2::track::MaxELossIter (50). flags marks SubstepCountClamped when the
+// request exceeds 50. All arealDensityGPerCm2 is processed; only the
+// granularity changes. Bethe-Bloch is recomputed from the current momentum
+// at each substep.
 // MaterialTraversalDirection::AlongMomentum subtracts energy per substep;
 // OppositeMomentum adds it; signedEnergyChangeGeV is always
 // Eafter - Ebefore. A particle whose energy would fall to or below its rest
 // mass fails with StoppedInMaterial; a particle that completes with
 // momentum below 0.01 GeV/c fails with MomentumBelowMinimum.
 //
-// highlandTheta2Rad2 and relativeInverseMomentumVariance use the
-// simplified O2 Highland variance (no logarithmic correction) and the
-// pre-material momentum, energy, and beta -- never the post-energy-loss
-// values. Both scale with absCharge^2 (relativeInverseMomentumVariance via
-// the already-charge-scaled total energy change). highlandTheta2Rad2 > pi^2
+// highlandTheta2Rad2 and relativeInverseMomentumVariance use the simplified
+// O2 Highland variance (no logarithmic correction) and pre-material momentum,
+// energy, and beta. Both scale with absCharge^2. highlandTheta2Rad2 > pi^2
 // fails with ExcessiveScattering.
 //
-// This kernel does not include or construct TrackParCovF, TrackParCovFwd,
-// TrackFwd, SurfaceKinematicState, detector geometry, or any
-// ITS/MFT/topology/propagation header.
+// This kernel does not construct track states, detector geometry, or
+// ITS/MFT/topology/propagation objects.
 MaterialOperationResult calculateMaterialPhysics(
   float momentumGeV,
   o2::track::PID pid,

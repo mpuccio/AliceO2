@@ -32,14 +32,14 @@ constexpr int MaxIter = 4;
 namespace o2::itsmft
 {
 
-/// ITS vertexer settings retained for the existing configuration boundary.
+/// ITS vertexer settings for the existing configuration boundary.
 struct VertexerParamConfig : public o2::conf::ConfigurableParamHelper<VertexerParamConfig> {
-  bool saveTimeBenchmarks = false; // dump metrics on file
+  bool saveTimeBenchmarks = false; // dump metrics to a file
 
-  int nIterations = 1;         // Number of vertexing passes to perform.
-  int vertPerRofThreshold = 0; // Maximum number of vertices per ROF to trigger second a iteration.
+  int nIterations = 1;         // Number of vertexing passes.
+  int vertPerRofThreshold = 0; // Vertices per ROF that trigger a second iteration.
 
-  // geometrical cuts for tracklet selection for Pb-Pb
+  // Geometrical cuts for Pb-Pb tracklet selection.
   float zCut = 0.002f;
   float phiCut = 0.005f;
   float pairCut = 0.017321f;
@@ -54,18 +54,18 @@ struct VertexerParamConfig : public o2::conf::ConfigurableParamHelper<VertexerPa
   float nSigmaCut = 0.0164651f;
   float maxZPositionAllowed = 25.f; // 4x sZ of the beam
 
-  // Artefacts selections
-  int clusterContributorsCut = 3; // minimum number of contributors for an accepted final vertex
-  int suppressLowMultDebris = 16; // suppress all vertices below this threshold if a vertex was already found in a rof
+  // Artefact selection.
+  int clusterContributorsCut = 3; // Minimum contributors for an accepted final vertex.
+  int suppressLowMultDebris = 16; // Suppress lower-multiplicity vertices after finding one in a ROF.
   int seedMemberRadiusTime = 0;
   int seedMemberRadiusZ = 2;
   int maxTrackletsPerCluster = 100;
   int phiSpan = -1;
   int zSpan = -1;
-  int ZBins = 1;     // z-phi index table configutation: number of z bins
-  int PhiBins = 128; // z-phi index table configutation: number of phi bins
+  int ZBins = 1;     // Number of z bins in the z-phi index table.
+  int PhiBins = 128; // Number of phi bins in the z-phi index table.
 
-  bool useTruthSeeding{false}; // overwrite seeding vertices with MC truth
+  bool useTruthSeeding{false}; // Replace seed vertices with MC truth.
 
   int nThreads = 1;
   bool printMemory = false;
@@ -75,58 +75,40 @@ struct VertexerParamConfig : public o2::conf::ConfigurableParamHelper<VertexerPa
   O2ParamDef(VertexerParamConfig, "ITSVertexerParam");
 };
 
-/// Dedicated, minimal configuration for the opt-in ITS common-CA tracking
-/// path. Deliberately a
-/// distinct, non-templated type: it neither instantiates nor renames the
-/// still-dormant TrackerParamConfig<DetID::ITS> below, and its registered
-/// name is not "ITSCATrackerParam" -- that name already belongs to the
-/// unrelated, frozen legacy o2::its::TrackerParamConfig in O2::ITStracking,
-/// which stays transitively linked into any executable using this library
-/// (O2::ITSMFTTracking -> O2::ITStracking, for the frozen final-refit
-/// boundary) regardless of which type is used here.
-/// Exposes only fields actually consumed by
+/// Minimal configuration for opt-in ITS common-CA tracking.
+/// It is distinct from the dormant TrackerParamConfig<DetID::ITS> and does
+/// not use the registered name "ITSCATrackerParam", which belongs to the
+/// legacy o2::its::TrackerParamConfig in O2::ITStracking.
+/// It exposes only fields consumed by
 /// TrackingMode::getTrackingParameters(DetID::ITS, Sync); legacy-only knobs
-/// (TrackFollower*, UPC orchestration, vertexing, FataliseUponFailure) are
-/// intentionally absent, not merely unread. Defaults match
-/// TrackingParameters' own struct defaults (the documented Sync baseline),
-/// so an unmodified ITSCommonCATrackerParam changes nothing relative to
-/// resetDetectorDefaults(..., DetID::ITS) alone.
+/// are intentionally absent. Defaults match TrackingParameters' Sync
+/// baseline, so leaving this configuration unchanged preserves the detector
+/// defaults.
 ///
-/// diamondPos/pvRes and useDiamond define the static vertex/beam-constraint
-/// mode consumed by the shared TrackerTraits.
+/// diamondPos, pvRes, and useDiamond define the static vertex/beam constraint
+/// consumed by the shared TrackerTraits.
 struct ITSCommonCATrackerParam : public o2::conf::ConfigurableParamHelper<ITSCommonCATrackerParam> {
   bool dropTFUponFailure = false;
   bool printMemory = false;
   size_t maxMemory = std::numeric_limits<size_t>::max();
   bool saveTimeBenchmarks = false;
   bool useDiamond = false;
-  float diamondPos[3] = {0.f, 0.f, 0.f}; // diamond vertex position, consumed only when useDiamond is set
-  float pvRes = -1.f;                    // PV resolution override for the diamond vertex; <=0 keeps the struct default
+  float diamondPos[3] = {0.f, 0.f, 0.f}; // Diamond vertex position when useDiamond is set.
+  float pvRes = -1.f;                    // Diamond-vertex PV resolution; <=0 keeps the default.
 
-  /// Number of tbb::task_arena threads for the ITS common-CA tracker
-  /// (the standalone ITS workflow's initialisation). Deliberately this
-  /// struct's own field, not TrackerParamRef<ITS>::get().nThreads (the
-  /// frozen legacy o2::its::TrackerParamConfig, registered "ITSCATrackerParam"
-  /// -- see this struct's own doc comment above on why the two are kept
-  /// distinct): the common ITS interface must read this dedicated value.
-  /// Must be > 0; validated where consumed, not here (ConfigurableParam
-  /// structs cannot fail construction).
+  /// Number of tbb::task_arena threads for the ITS common-CA tracker.
+  /// This dedicated field is separate from the legacy ITS configuration.
+  /// Must be > 0; validated where consumed because ConfigurableParam
+  /// structs cannot reject construction.
   int nThreads = 1;
 
   O2ParamDef(ITSCommonCATrackerParam, "ITSCommonCATrackerParam");
 };
 
-/// Default-false, ROOT-visible opt-in gate for the combined
-/// ITS+MFT DPL workflow (Detectors/ITSMFT/common/workflow-combined-ca/,
-/// o2-itsmft-combined-ca-tracker-workflow). A distinct struct/registered
-/// name from the retired single-detector output selector: this flag instead
-/// gates whether the combined executable's own defineDataProcessing()
-/// refuses to run at all. Checked before any DataProcessorSpec is
-/// constructed -- see the combined workflow's own ConfigPreflight -- so a
-/// pipeline template that accidentally invokes this binary without
-/// explicitly setting `enabled=true` fatals immediately rather than
-/// silently replacing o2-its-ca-tracker-workflow/o2-mft-ca-tracker-workflow
-/// or either legacy workflow.
+/// ROOT-visible, default-false gate for the combined ITS+MFT DPL workflow.
+/// The executable checks it before constructing any DataProcessorSpec, so an
+/// invocation without `enabled=true` fails instead of replacing a detector
+/// workflow.
 struct ITSMFTCombinedCATrackerParam : public o2::conf::ConfigurableParamHelper<ITSMFTCombinedCATrackerParam> {
   bool enabled = false;
   O2ParamDef(ITSMFTCombinedCATrackerParam, "ITSMFTCombinedCATrackerParam");
@@ -148,48 +130,48 @@ struct TrackerParamConfig : public o2::conf::ConfigurableParamHelper<TrackerPara
     return N == o2::detectors::DetID::ITS ? o2::itsmft::tracking::ITSNLayers : o2::itsmft::tracking::MFTNLayers;
   }
 
-  bool useMatCorrTGeo = false;                                                         // use full geometry to corect for material budget accounting in the fits. Default is to use the material budget LUT.
-  bool useFastMaterial = false;                                                        // use faster material approximation for material budget accounting in the fits.
-  int addTimeError[getNLayers()] = {0};                                                // configure the width of the window in BC to be considered for the tracking.
-  int minTrackLgtIter[o2::itsmft::tracking::MaxIter] = {};                               // minimum track length at each iteration, used only if >0, otherwise use code defaults
-  uint8_t startLayerMask[o2::itsmft::tracking::MaxIter] = {};                            // mask of start layer for this iteration (if >0)
-  int maxHolesIter[o2::itsmft::tracking::MaxIter] = {};                                  // maximum number of missing internal layers allowed in the CA topology for each iteration
-  uint16_t holeLayerMaskIter[o2::itsmft::tracking::MaxIter] = {};                          // layers that may be skipped by the CA topology for each iteration
-  float minPtIterLgt[o2::itsmft::tracking::MaxIter * (MaxTrackLength - MinTrackLength + 1)] = {}; // min.pT for given track length at this iteration, used only if >0, otherwise use code defaults
-  float sysErr2Row[getNLayers()] = {0}; // systematic error^2 along ALPIDE rows (local X) per layer
-  float sysErr2Col[getNLayers()] = {0}; // systematic error^2 along ALPIDE columns (local Z) per layer
+  bool useMatCorrTGeo = false;                                                                    // Use full geometry for material correction; default is the LUT.
+  bool useFastMaterial = false;                                                                   // Use a faster material approximation in fits.
+  int addTimeError[getNLayers()] = {0};                                                           // Tracking window width in BC.
+  int minTrackLgtIter[o2::itsmft::tracking::MaxIter] = {};                                        // Minimum track length per iteration; <=0 uses code defaults.
+  uint8_t startLayerMask[o2::itsmft::tracking::MaxIter] = {};                                     // Start-layer mask per iteration.
+  int maxHolesIter[o2::itsmft::tracking::MaxIter] = {};                                           // Maximum missing internal layers per iteration.
+  uint16_t holeLayerMaskIter[o2::itsmft::tracking::MaxIter] = {};                                 // Layers that the CA topology may skip per iteration.
+  float minPtIterLgt[o2::itsmft::tracking::MaxIter * (MaxTrackLength - MinTrackLength + 1)] = {}; // Minimum pT by track length; <=0 uses code defaults.
+  float sysErr2Row[getNLayers()] = {0};                                                           // Systematic error squared along local X per layer.
+  float sysErr2Col[getNLayers()] = {0};                                                           // Systematic error squared along local Z per layer.
   float maxChi2ClusterAttachment = -1.f;
   float maxChi2NDF = -1.f;
   float nSigmaCut = -1.f;
   float deltaTanLres = -1.f;
   float minPt = -1.f;
   float pvRes = -1.f;
-  int LUTbinsU = N == o2::detectors::DetID::MFT ? 64 : -1; // number of LUT bins along the first coordinate (ITS: phi, MFT: global x)
-  int LUTbinsV = N == o2::detectors::DetID::MFT ? 128 : -1; // number of LUT bins along the second coordinate (ITS: z, MFT: global y)
-  float diamondPos[3] = {0.f, 0.f, 0.f};   // diamond vertex position (MFT CA tracklet seed; ITS when useDiamond)
-  bool useDiamond = N == o2::detectors::DetID::MFT; // MFT CA: always diamond; ITS: opt-in via param
-  bool perPrimaryVertexProcessing = false; // perform the full tracking considering the vertex hypotheses one at the time.
-  bool saveTimeBenchmarks = false;         // dump metrics on file
-  bool overrideBeamEstimation = false;     // ITS only: meanVertex CCDB beam seed (MFT CA always uses diamond)
-  int trackingMode = -1; // -1: unset (use --tracking-mode), 0=sync, 1=async, 2=cosmics
-  bool doUPCIteration = false;             // Perform an additional iteration for UPC events on tagged vertices. You want to combine this config with VertexerParamConfig.nIterations=2
-  int nIterations = N == o2::detectors::DetID::MFT ? 1 : o2::itsmft::tracking::MaxIter; // overwrite the number of iterations
-  int reseedIfShorter = 6;                 // for the final refit reseed the track with circle if they are shorter than this value
-  bool shiftRefToCluster{true};            // TrackFit: after update shift the linearization reference to cluster
-  bool repeatRefitOut{false};              // repeat outward refit using inward refit as a seed
-  bool createArtefactLabels{false};        // create on-the-fly labels for the artefacts
+  int LUTbinsU = N == o2::detectors::DetID::MFT ? 64 : -1;                              // LUT bins along the first coordinate (ITS: phi, MFT: global x).
+  int LUTbinsV = N == o2::detectors::DetID::MFT ? 128 : -1;                             // LUT bins along the second coordinate (ITS: z, MFT: global y).
+  float diamondPos[3] = {0.f, 0.f, 0.f};                                                // Diamond vertex for MFT seeds, or ITS when useDiamond.
+  bool useDiamond = N == o2::detectors::DetID::MFT;                                     // MFT always uses diamond; ITS opts in.
+  bool perPrimaryVertexProcessing = false;                                              // Track separately for each vertex hypothesis.
+  bool saveTimeBenchmarks = false;                                                      // Dump metrics to a file.
+  bool overrideBeamEstimation = false;                                                  // ITS only: use the meanVertex CCDB beam seed.
+  int trackingMode = -1;                                                                // -1: unset (use --tracking-mode); 0: sync, 1: async, 2: cosmics.
+  bool doUPCIteration = false;                                                          // Add an iteration for UPC events on tagged vertices; use nIterations=2.
+  int nIterations = N == o2::detectors::DetID::MFT ? 1 : o2::itsmft::tracking::MaxIter; // Number of iterations.
+  int reseedIfShorter = 6;                                                              // Reseed short final-refit tracks with a circle.
+  bool shiftRefToCluster{true};                                                         // Shift the linearization reference to the cluster after update.
+  bool repeatRefitOut{false};                                                           // Repeat outward refit using the inward refit as a seed.
+  bool createArtefactLabels{false};                                                     // Create labels for artefacts on the fly.
 
   int nThreads = 1;
   bool printMemory = false;
   size_t maxMemory = std::numeric_limits<size_t>::max();
   bool dropTFUponFailure = false;
-  bool fataliseUponFailure = true;       // granular management of the fatalisation in async mode
+  bool fataliseUponFailure = true; // Granular fatalisation control in async mode.
 
-  // Selections on tracks sharing clusters
-  bool allowSharingFirstCluster = false;  // allow first cluster sharing among tracks
-  float sharedClusterMaxDeltaPhi = 0.05f; // Maximum allowed delta phi at the cluster position
-  float sharedClusterMaxDeltaEta = 0.03f; // Maximum allowed delta eta at the cluster position
-  bool sharedClusterOppositeSign = false; // Require opposite sign of the tracklets
+  // Selection of tracks sharing clusters.
+  bool allowSharingFirstCluster = false;  // Allow sharing the first cluster.
+  float sharedClusterMaxDeltaPhi = 0.05f; // Maximum delta phi at the cluster.
+  float sharedClusterMaxDeltaEta = 0.03f; // Maximum delta eta at the cluster.
+  bool sharedClusterOppositeSign = false; // Require opposite-sign tracklets.
 
   O2ParamDef(TrackerParamConfig, getParamName().data());
 

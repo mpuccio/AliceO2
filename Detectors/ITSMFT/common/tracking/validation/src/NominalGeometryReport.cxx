@@ -90,9 +90,7 @@ ValidationReport buildValidationReport(
 
 namespace
 {
-// Fixed precision, classic ("C") locale, no grouping: the same
-// ValidationReport always formats to the same string, independent of the
-// environment's locale/thousands-separator configuration.
+// Use a fixed precision and the classic locale so output is deterministic.
 std::ostringstream freshStream()
 {
   std::ostringstream stream;
@@ -116,22 +114,9 @@ std::string escapeJson(const std::string& value)
 
 } // namespace
 
-// std::to_chars(float)'s default (general) format emits the shortest
-// decimal token that std::from_chars parses back to the exact same float32
-// bit pattern -- e.g. "39.310642", "-77.5111", "1e+30" -- every one already
-// valid JSON number syntax (JSON's number grammar permits a bare integer,
-// an optional fractional part, and an optional signed exponent). Gate 4
-// acceptance-cleanup C1: this replaces fixed six-decimal formatting for
-// every geometry float field emitted by formatMachineReadable() below,
-// closing the round-trip gap that formatting left open.
-//
-// aggregateSurfaceGeometry() only ever returns finite values on a
-// successful (report.ok()) aggregation -- isfinite-checked throughout
-// DetectorSurfaceCatalogAggregation.cxx -- so to_chars cannot fail for any
-// float this function is actually called with in that path. The "null"
-// fallback below exists purely so a to_chars failure -- which would mean
-// that upstream invariant broke, not a formatting bug -- still yields
-// syntactically valid single-document JSON rather than a truncated token.
+// Use std::to_chars' shortest round-tripping representation for JSON floats.
+// Successful aggregation supplies finite values, but return "null" if
+// conversion fails so the output remains valid JSON.
 std::string formatLosslessFloat(float value)
 {
   std::array<char, 32> buffer{};

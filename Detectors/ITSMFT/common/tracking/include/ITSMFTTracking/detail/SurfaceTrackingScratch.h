@@ -12,23 +12,17 @@
 /// \file SurfaceTrackingScratch.h
 /// \brief Runtime-plan-owned, detector-neutral CA workspace.
 ///
-/// The workspace sizes all host-side event storage from adoptPlan(): one slot
-/// per ordered owned surface and one compact slot per bound sparse transition
-/// or cell. The fixed-capacity device value types remain independent of this
-/// host workspace.
+/// adoptPlan() sizes host event storage by ordered surface, transition, and
+/// cell. Fixed-capacity device values remain independent of this workspace.
 ///
-/// Timing, ROF assignment, and masks are supplied as one non-owning
-/// RuntimeROFViews event context. Fixed-capacity table builders stay with the
-/// application adapter that owns their lifetime; this class has no detector
-/// table or topology object to select.
+/// Timing, ROF assignment, and masks come from a non-owning RuntimeROFViews
+/// event context. Adapters own fixed-capacity tables and detector topology.
 ///
-/// SurfaceGraphView and SurfacePlanBinding ids are passed to
-/// initialise() explicitly. Traversal order is therefore the binding's
-/// ordered-surface/transition/cell order, never a numeric SurfaceId order.
+/// initialise() receives SurfaceGraphView and SurfacePlanBinding ids explicitly;
+/// traversal follows their ordered surfaces, transitions, and cells.
 ///
-/// This type never owns a graph or binding. It borrows the supplied graph and
-/// runtime ROF views for the current event; TimeFrame owns the workspace and
-/// event reset, while adapters own raw ROFs and event-loop lifecycle.
+/// The class borrows the graph and runtime ROF views. TimeFrame owns the
+/// workspace and reset; adapters own raw ROFs and the event-loop lifecycle.
 #ifndef ALICEO2_ITSMFT_TRACKING_SURFACETRACKINGSCRATCH_H_
 #define ALICEO2_ITSMFT_TRACKING_SURFACETRACKINGSCRATCH_H_
 
@@ -81,15 +75,14 @@ class ClusterDecoder;
 struct ClusterSourceInput;
 struct LoadSourcesResult;
 
-/// Non-templated, detector-neutral CA working state. Detector-specific table
-/// builders and raw ROF ownership stay at the application boundary; this
-/// class retains only the runtime views needed by the current event.
+/// Detector-neutral CA working state. Detector-specific tables and raw ROFs
+/// remain at the application boundary; this class retains current-event views.
 class SurfaceTrackingScratch
 {
  private:
   // ---- Memory/allocator/device plumbing ----
-  // Declared first so pool owners outlive every allocator-backed member below:
-  // members are destroyed in reverse declaration order.
+  // Declared first so pools outlive allocator-backed members (reverse
+  // destruction order).
   std::shared_ptr<o2::its::BoundedMemoryResource> mExtMemoryPool;
   std::shared_ptr<o2::its::BoundedMemoryResource> mMemoryPool;
   o2::its::ExternalAllocator* mExternalAllocator{nullptr};
@@ -103,30 +96,20 @@ class SurfaceTrackingScratch
   SurfaceTrackingScratch(SurfaceTrackingScratch&&) = delete;
   SurfaceTrackingScratch& operator=(SurfaceTrackingScratch&&) = delete;
 
-  /// Sizes every Group A container to `nOwnedSurfaces` (one slot per owned
-  /// surface, and every Group B container to `nTransitions`/`nCells`
-  /// (already-runtime sparse-topology counts). Precondition: setMemoryPool() has
-  /// already been called -- this never allocates through a null resource
-  /// silently, it inherits whichever resource the owner already configured.
-  /// Group D is not sized here (never plan-sized -- see the file doc); Group
-  /// E is unaffected (memory/allocator plumbing is set up independently via
-  /// setMemoryPool()/setFrameworkAllocator(), not by plan adoption).
+  /// Size Group A by owned surface and Group B by runtime transition/cell
+  /// counts. setMemoryPool() must be called first. Group D is not plan-sized;
+  /// allocator setup is independent of plan adoption.
   void adoptPlan(std::size_t nOwnedSurfaces, std::size_t nTransitions, std::size_t nCells);
 
   std::size_t getNOwnedSurfaces() const noexcept { return mNOwnedSurfaces; }
   std::size_t getNTransitions() const noexcept { return mNTransitions; }
   std::size_t getNCells() const noexcept { return mNCells; }
 
-  /// Clears scratch-owned working state in place. Never touches a TimeFrame
-  /// and never changes the adopted plan sizing (getNOwnedSurfaces()/getNTransitions()/
-  /// getNCells() are unaffected -- only each container's *contents* are
-  /// cleared; the operation never shrinks the plan-sized outer
-  /// arrays either).
+  /// Clear scratch-owned state in place without touching the TimeFrame or
+  /// changing plan sizes or the plan-sized outer arrays.
   void reset();
 
-  /// memory management -- Group E: reseat every
-  /// allocator-backed container onto the new resource via a deep clear, so
-  /// every subsequent allocation happens through the caller's pool.
+  /// Reseat every allocator-backed Group E container on the new resource.
   void setMemoryPool(std::shared_ptr<o2::its::BoundedMemoryResource> pool);
   auto& getMemoryPool() const noexcept { return mMemoryPool; }
   void setFrameworkAllocator(o2::its::ExternalAllocator* ext);
@@ -142,25 +125,15 @@ class SurfaceTrackingScratch
 
   bool hasMCinformation() const noexcept { return !mClusterLabels.empty() && mClusterLabels[0] != nullptr; }
 
-  /// Staging/swap support for atomic event loading; all plan-sized containers
-  /// are committed together.
+  /// Staging/swap support for atomic event loading.
   ///
-  /// allocatorsMatch() is the precondition a caller must check before
-  /// swap(): every *flat* bounded_vector member here (the ones swap()
-  /// exchanges via bounded_vector::swap(), which is only well-defined when
-  /// both sides' allocators compare equal -- std::pmr::polymorphic_allocator
-  /// neither propagates on swap nor is ever always_equal) must already share
-  /// its counterpart's memory-resource pointer. The per-owned-surface/
-  /// per-transition/per-cell *outer* containers (std::vector<bounded_vector<T>>)
-  /// carry no such precondition: swapping the outer std::vector only
-  /// exchanges its own internal pointers/size/capacity and never touches an
-  /// inner bounded_vector's allocator, so those are always safe to swap
-  /// regardless of allocator identity.
+  /// Before swap(), allocatorsMatch() must confirm equal resources for every
+  /// flat bounded_vector. Outer std::vector<bounded_vector<T>> swaps do not
+  /// touch inner allocators and are safe regardless of allocator identity.
   bool allocatorsMatch(const SurfaceTrackingScratch& staged) const noexcept;
 
-  /// Precondition: allocatorsMatch(other) (checked by the caller; not
-  /// re-checked here so this can stay noexcept). Allocator identity remains
-  /// owner-bound; only staged data is swapped.
+  /// Precondition: the caller has checked allocatorsMatch(other). Allocators
+  /// remain owner-bound; only staged data is swapped.
   void swap(SurfaceTrackingScratch& other) noexcept;
 
   // ---- Read-in data: loops use the runtime ordered-surface span.
@@ -229,9 +202,8 @@ class SurfaceTrackingScratch
   gsl::span<int> getIndexTable(int rofId, int layerId);
   const auto& getTrackingFrameInfoOnLayer(int layerId) const { return mTrackingFrameInfo[layerId]; }
 
-  // Navigation and event timing views. Fixed-capacity detector tables are
-  // owned by their application adapters; common scratch retains one
-  // non-owning runtime view for the current event.
+  // Navigation and event timing views. Adapters own detector tables; scratch
+  // retains one non-owning runtime view for the current event.
   const auto& getIndexTableUtils() const { return mIndexTableUtils.front(); }
   const auto& getIndexTableUtils(int layer) const { return mIndexTableUtils[layer]; }
   void setROFViews(RuntimeROFViews views) noexcept
@@ -365,8 +337,7 @@ class SurfaceTrackingScratch
   std::vector<float> mMaxR;
   o2::its::bounded_vector<int> mBogusClusters;
   o2::its::bounded_vector<float> mPositionResolution;
-  // Not per-owned-surface: fixed at the two tracklet combinations (positions
-  // 0-1, 1-2), sized from cluster count at load time.
+  // Two fixed tracklet combinations (positions 0-1 and 1-2), sized at load.
   std::array<o2::its::bounded_vector<int>, 2> mNTrackletsPerCluster;
   std::array<o2::its::bounded_vector<int>, 2> mNTrackletsPerClusterSum;
 
@@ -382,12 +353,11 @@ class SurfaceTrackingScratch
   std::vector<o2::its::bounded_vector<int>> mCellsNeighboursTopology;
   std::vector<o2::its::bounded_vector<int>> mCellsNeighboursLUT;
   std::vector<o2::its::bounded_vector<o2::MCCompLabel>> mCellLabels;
-  // The shared navigation auxiliary.
+  // Shared navigation auxiliary.
   std::vector<IndexTableUtilsCore> mIndexTableUtils;
 
   // ---- Group D: vertexer working scratch ----
-  // Never plan-sized (bound by ROF count and the fixed pair count of 2).
-  // Not resized by adoptPlan(): ROF count is not known at plan-adoption time.
+  // Sized by ROF count and the two fixed pairs, not by adoptPlan().
   std::vector<o2::its::bounded_vector<o2::its::Line>> mLines;
   std::vector<o2::its::bounded_vector<o2::its::ClusterLines>> mTrackletClusters;
   std::vector<o2::its::bounded_vector<int>> mNTrackletsPerROF;

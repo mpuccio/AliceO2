@@ -37,16 +37,16 @@ struct TripletKinkVector {
   float phi{0.f};
 };
 
-// Two rows of the hit-coordinate Jacobian H for one of the three observations.
+// Theta and phi rows of the hit-coordinate Jacobian H.
 struct TripletHitJacobian {
   std::array<float, 3> theta{};
   std::array<float, 3> phi{};
 };
 
 // Linearized local-triplet factor from Eq. (19) of the General Triplet Track
-// Fit. H is evaluated at kappaRef = -Psi_phi / rho_phi. Hit slot i is bound to
-// CellSeed::getClusterReference(i); measurement and MS covariances stay outside
-// this factor and are assembled when adjacent triplets are compared.
+// Fit. H is evaluated at kappaRef = -Psi_phi / rho_phi and hit slot i maps to
+// CellSeed::getClusterReference(i). Measurement and MS covariances are added
+// when adjacent triplets are compared.
 struct TripletFitFactor {
   TripletKinkVector psi{};
   TripletKinkVector rho{};
@@ -89,9 +89,9 @@ bool makeTripletFitFactor(
   const std::array<TripletFitObservation, 3>& observations,
   TripletFitFactor& factor) noexcept;
 
-// Closed-form minimization of Eq. (19) for adjacent triplets over one common
-// curvature. observations are the four unique ordered hits; angularVariance
-// contains the physical space-angle MS variance for each triplet.
+// Minimize Eq. (19) for adjacent triplets sharing one curvature. observations
+// are the four unique ordered hits; angularVariance is the space-angle MS
+// variance for each triplet.
 bool fitAdjacentTripletFactors(
   const TripletFitFactor& firstFactor,
   const TripletFitFactor& secondFactor,

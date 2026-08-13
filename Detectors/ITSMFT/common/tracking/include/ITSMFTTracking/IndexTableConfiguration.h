@@ -10,15 +10,9 @@
 
 #include <cstdint>
 
-// Host-only: TrackingParameters (Configuration.h) owns std::vector members
-// and is not itself device-compatible -- same reasoning as
-// the host material/configuration binding. Kept as its own boundary, separate
-// from the host binding, so that header's existing consumers
-// (bindAttachHitConfig, bindLayerGeometryConfig,
-// host kernel-parameter conversion) do not transitively pick up
-// IndexTableUtils.h's own ITStracking/Cluster.h and MFTTracking/Constants.h
-// dependencies merely because this binder also lives under
-// host binding's include.
+// Host-only: TrackingParameters owns std::vector members and is not
+// device-compatible. Keep this boundary separate so existing host-binding
+// consumers do not inherit IndexTableUtils.h's extra dependencies.
 #ifndef GPUCA_GPUCODE
 
 #include <cmath>
@@ -36,31 +30,28 @@ enum class IndexTableConfigError : uint8_t {
   None,
   NonPositiveRowBins,
   NonPositiveColBins,
-  RowColBinCountExceedsIndexRange, // RowBins*ColBins would exceed int, the type used for bin indices in the unchanged hot loop
-  InvalidActiveLayerCount,         // !(0 < activeSurfaceCount <= MaxLayoutSurfaces) or params.NLayers != activeSurfaceCount
-  InsufficientLayerColHalfExtent,  // selected extent source shorter than activeSurfaceCount
-  NonFiniteColHalfExtent,          // NaN or +/-Inf
-  NonPositiveColHalfExtent,        // finite but <= 0
-  NonFiniteRowRange,               // XY only: rowMin or rowMax non-finite
-  DegenerateRowRange,              // XY only: finite but rowMax <= rowMin
-  InvalidSurfaceKind,              // kind is neither Cylinder nor Disk
+  RowColBinCountExceedsIndexRange, // Product exceeds int, the bin-index type.
+  InvalidActiveLayerCount,         // Invalid count or params.NLayers mismatch.
+  InsufficientLayerColHalfExtent,  // Extent source is too short.
+  NonFiniteColHalfExtent,          // NaN or +/-Inf.
+  NonPositiveColHalfExtent,        // Finite but <= 0.
+  NonFiniteRowRange,               // XY row bound is non-finite.
+  DegenerateRowRange,              // XY rowMax <= rowMin.
+  InvalidSurfaceKind,              // Neither Cylinder nor Disk.
 };
 
-/// Binds and validates one iteration's TrackingParameters into `staged`,
-/// keyed by the active endpoint SurfaceKind. The caller must resolve `kind`
-/// from the validated SurfaceGraph/SurfacePlanBinding for this iteration --
-/// never from NLayers or DetId. Every field of `params` is validated before
-/// `staged` is mutated; on any error `staged` is left completely untouched.
-/// Must be called once per iteration, outside any candidate/neighbour/road loop.
+/// Validates and binds one iteration's parameters into `staged` for its
+/// active endpoint SurfaceKind. Resolve `kind` from the validated
+/// SurfaceGraph/SurfacePlanBinding, never from NLayers or DetId. On error,
+/// `staged` is unchanged. Call once per iteration, outside candidate loops.
 IndexTableConfigError bindIndexTableConfiguration(o2::itsmft::IndexTableUtilsCore& staged,
                                                   const TrackingParameters& params,
                                                   int activeSurfaceCount,
                                                   SurfaceKind kind) noexcept;
 
-/// True iff every field setIndexTableParams stores agrees exactly between
-/// `a` and `b`. Used to enforce that a non-FirstPass iteration's freshly
-/// bound configuration matches the TimeFrame-owned configuration and LUT
-/// content it intends to reuse or resort, before that TimeFrame is touched.
+/// True iff all fields stored by setIndexTableParams match between `a` and
+/// `b`. Used to verify that a non-FirstPass iteration matches the
+/// TimeFrame-owned configuration before reusing or resorting its LUT.
 inline bool indexTableConfigurationsMatch(const o2::itsmft::IndexTableUtilsCore& a,
                                           const o2::itsmft::IndexTableUtilsCore& b,
                                           int activeSurfaceCount) noexcept
@@ -83,10 +74,8 @@ inline bool indexTableConfigurationsMatch(const o2::itsmft::IndexTableUtilsCore&
   return true;
 }
 
-/// Checked size_t multiplication for index-table allocation sizes: returns
-/// false (leaving `result` unset) iff `a * b` would overflow size_t. A
-/// division-guard, valid for any operand values -- never relies on operands
-/// being "realistically" bounded.
+/// Checked size_t multiplication for index-table allocation sizes. Returns
+/// false, leaving `result` unset, if `a * b` overflows size_t.
 inline bool checkedIndexTableSizeProduct(std::size_t a, std::size_t b, std::size_t& result) noexcept
 {
   if (a != 0 && b > std::numeric_limits<std::size_t>::max() / a) {

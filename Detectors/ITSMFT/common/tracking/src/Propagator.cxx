@@ -23,26 +23,11 @@ namespace o2::itsmft::tracking
 namespace
 {
 
-// Minimum accepted-hit count (within one Propagator::driveRefitLeg leg) at
-// which the maxChi2 gate activates. The native leg contract keeps the first
-// three accepted hits ungated and enables the gate from the fourth hit.
+// Enable the maxChi2 gate from the fourth accepted hit in a refit leg.
 constexpr uint32_t kChi2GateMinAcceptedHits = 3;
 
-// A congruence transform (rotate/propagate's own Jacobian-based covariance
-// transport) that starts from a "loose ceiling" reset diagonal (see
-// NativeRefitDriver.h's resetCovarianceForRefit) and crosses a large step at
-// an extreme dip angle can leave a diagonal entry that is mathematically
-// exactly zero as an infinitesimally negative float (catastrophic
-// cancellation inside the Jacobian congruence, not a sign of a genuinely
-// corrupted covariance) -- observed for a near-longitudinal forward
-// trajectory. correctForMaterialImpl's own covarianceDiagonalsNonNegative()
-// check is an exact `< 0.f` comparison with no tolerance, so this noise must
-// be floored before it reaches that check. Deliberately narrow: only
-// sub-float-precision noise (magnitude below this threshold, itself already
-// tiny next to the smallest loose-ceiling constant these states are ever
-// reset to, o2::track::kCSnp2max == 1) is floored to zero; anything larger
-// still fails downstream exactly as before, so a genuine covariance-transport
-// defect is not masked.
+// Remove tiny negative diagonal values caused by floating-point cancellation
+// during covariance transport. Larger negative values remain errors.
 void clampNegligibleCovarianceNoise(SurfaceKinematicState& state) noexcept
 {
   constexpr float kNoiseFloor = 1.e-3f;
@@ -74,9 +59,7 @@ bool isFiniteCov(const float (&cov)[15]) noexcept
   return true;
 }
 
-// Congruence transform outCov = J * inCov * J^T for packed-symmetric 5x5
-// covariances, J a dense 5x5 Jacobian. Shared by both conversion directions
-// below.
+// Apply outCov = J * inCov * J^T to a packed-symmetric 5x5 covariance.
 void congruenceTransform(const float (&inCov)[15], const float (&jacobian)[5][5], float (&outCov)[15]) noexcept
 {
   float full[5][5];
@@ -106,14 +89,8 @@ void congruenceTransform(const float (&inCov)[15], const float (&jacobian)[5][5]
   }
 }
 
-// Barrel (bY, bZ, Snp, Tgl, Q2Pt) @ (referenceCoordinate=bX, alpha) ->
-// Forward (X, Y, Phi, Tanl, InvQPt) @ (referenceCoordinate=Z). A real
-// coordinate/covariance transform at the state's current point: bX/alpha
-// select the global point (Xg, Yg, Zg) the state already sits at, and that
-// same point becomes Forward's (X, Y) parameters / Z reference. bZ's own
-// fitted variance is discarded as it becomes the new fixed reference
-// (Propagator.h's class doc explains why); every other quantity is a real,
-// linearized (first-order Jacobian) reparametrization, not a relabeling.
+// Convert Barrel (bY, bZ, Snp, Tgl, Q2Pt) to Forward
+// (X, Y, Phi, Tanl, InvQPt) at the state's current point.
 bool barrelToForward(SurfaceKinematicState& state, SurfaceLinearizationReference* linRef,
                      OperationFailureReason& reason) noexcept
 {
@@ -137,8 +114,7 @@ bool barrelToForward(SurfaceKinematicState& state, SurfaceLinearizationReference
   const float yGlo = bX * snA + bY * csA;
   const float zGlo = state.parameters[1];
   float phi = state.alpha + std::asin(snp);
-  // Canonicalize to (-pi, pi], matching this library's own alpha convention
-  // elsewhere (barrel::rotate).
+  // Match the library's (-pi, pi] angle convention.
   while (phi > o2::constants::math::PI) {
     phi -= o2::constants::math::TwoPI;
   }
@@ -190,9 +166,7 @@ bool barrelToForward(SurfaceKinematicState& state, SurfaceLinearizationReference
     for (uint8_t i = 0; i < 5; ++i) {
       linRef->parameters[i] = newLinParameters[i];
     }
-    // Kalman updates may move the fitted z while the linearization parameters
-    // remain nominal. The converted pair must nevertheless share the same
-    // propagation anchor.
+    // Use the fitted z as the common propagation anchor.
     linRef->referenceCoordinate = zGlo;
     linRef->alpha = 0.f;
     linRef->kind = SurfaceKind::Disk;
@@ -210,18 +184,10 @@ bool barrelToForward(SurfaceKinematicState& state, SurfaceLinearizationReference
   return true;
 }
 
-// Forward (X, Y, Phi, Tanl, InvQPt) @ (referenceCoordinate=Z) -> Barrel (bY,
-// bZ, Snp, Tgl, Q2Pt) @ (referenceCoordinate=bX, alpha). alpha is chosen
-// once as atan2(Y, X) at the current nominal point and then frozen for the
-// linearized Jacobian (the same "linearize at an externally supplied,
-// fixed target" technique barrel::rotate/propagate already use for their
-// own targetAlpha argument) -- not a self-referential function of the
-// varying parameters. Z's own fitted variance has no Forward-side
-// representation to transport (Forward's referenceCoordinate carries no
-// variance slot), so the newly freed bZ parameter is assigned the same
-// loose, uninformative ceiling this library already uses for an
-// analogous "we do not actually know this coordinate's uncertainty here"
-// situation (o2::track::kCZ2max).
+// Convert Forward (X, Y, Phi, Tanl, InvQPt) to Barrel
+// (bY, bZ, Snp, Tgl, Q2Pt) at the current nominal point. The target alpha
+// is fixed while constructing the linearized Jacobian. Since Forward has no
+// variance for its reference z, the newly freed bZ uses kCZ2max.
 bool forwardToBarrel(SurfaceKinematicState& state, SurfaceLinearizationReference* linRef,
                      OperationFailureReason& reason) noexcept
 {
@@ -285,8 +251,7 @@ bool forwardToBarrel(SurfaceKinematicState& state, SurfaceLinearizationReference
     for (uint8_t i = 0; i < 5; ++i) {
       linRef->parameters[i] = newLinParameters[i];
     }
-    // As for barrel-to-forward, retain the nominal linearization parameters
-    // but anchor both representations at the fitted state's converted point.
+    // Keep the linearization values but anchor them at the converted point.
     linRef->referenceCoordinate = bX;
     linRef->alpha = alpha;
     linRef->kind = SurfaceKind::Cylinder;

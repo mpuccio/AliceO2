@@ -225,7 +225,7 @@ struct TransverseDirectionObservation {
 };
 
 struct DirectionProcessNoise {
-  // Variance of an equivalent thin angular kick at the middle observation.
+  // Variance of a thin angular kick at the middle observation.
   double angularVariance{0.};
 };
 

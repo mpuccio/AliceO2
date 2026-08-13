@@ -55,7 +55,7 @@ static_assert(offsetof(TrackClusterReference, index) == 4);
 // trackClusterIndices array. References resolve through the normalized frame
 // and are stored in inner-to-outer traversal order.
 //
-// innerState/outerState use the family-selected SurfaceKinematicState;
+// innerState/outerState carry the SurfaceKind-selected SurfaceKinematicState;
 // hitSurfaces is the global 32-bit SurfaceMask. A completed track resolves
 // every reference in the range and has their union in hitSurfaces.
 //

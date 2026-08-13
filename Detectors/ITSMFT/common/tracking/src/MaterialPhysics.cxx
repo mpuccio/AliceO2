@@ -9,11 +9,8 @@
 
 #include <cmath>
 
-// TrackParametrization.h is included solely to reuse its public
-// ELoss2EKinThreshInv/MaxELossIter constants: no narrower public header
-// declares them. TrackUtils.h is the narrower public source for
-// BetheBlochSolidOpt() and is included directly for that reason. Neither
-// header is part of this translation unit's public interface.
+// Reuse the public energy-loss constants and Bethe-Bloch helper. These
+// headers are implementation details of this translation unit.
 #include "ReconstructionDataFormats/TrackParametrization.h"
 #include "ReconstructionDataFormats/TrackUtils.h"
 
@@ -60,10 +57,8 @@ MaterialOperationResult makeSuccessResult(float momentumBeforeGeV, float momentu
   return result;
 }
 
-// Requested substep count for the given full-step energy loss, computed
-// without ever converting a non-finite or out-of-int-range float to int.
-// Returns the (already capped at o2::track::MaxELossIter) substep count and
-// whether the true requested count exceeded that cap.
+// Compute the capped substep count without converting invalid or out-of-range
+// floats to int. Also report whether the requested count exceeded the cap.
 void classifySubsteps(float fullStepEnergyLossGeV, float kineticEnergyGeV, uint8_t& substeps, bool& clamped) noexcept
 {
   const float ratio = std::fabs(fullStepEnergyLossGeV) / kineticEnergyGeV * o2::track::ELoss2EKinThreshInv;
@@ -72,8 +67,7 @@ void classifySubsteps(float fullStepEnergyLossGeV, float kineticEnergyGeV, uint8
     clamped = true;
     return;
   }
-  // ratio is finite and in [0, MaxELossIter), so the conversion below is
-  // always in [0, MaxELossIter - 1] -- well within int range.
+  // ratio is finite and below MaxELossIter, so this conversion is in range.
   const int requested = 1 + static_cast<int>(ratio);
   substeps = static_cast<uint8_t>(requested);
   clamped = false;

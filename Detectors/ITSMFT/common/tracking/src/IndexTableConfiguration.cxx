@@ -74,15 +74,9 @@ IndexTableConfigError bindIndexTableConfiguration(o2::itsmft::IndexTableUtilsCor
     }
   }
 
-  // Only now, after every check has passed, is `staged` mutated. Calling the
-  // low-level setIndexTableParams directly -- rather than the higher-level
-  // setTrackingParameters/setTrackingParametersXY convenience wrappers -- is
-  // deliberate: those wrappers re-run their own more lenient fallback/size
-  // selection (IndexTableUtils.h's layerColHalfExtentFrom), which silently
-  // zero-fills any shortfall instead of rejecting it. `extents` here is
-  // byte-identical to what that fallback would have produced for every input
-  // that reaches this point, since `source` has already been proven to cover
-  // the runtime plan extent.
+  // Mutate `staged` only after validation. Use the low-level setter because
+  // the convenience wrappers silently zero-fill short extent sources instead
+  // of rejecting them; `source` is already known to cover the active layers.
   staged.setIndexTableParams(kind == SurfaceKind::Disk ? IndexTableCoordType::XY : IndexTableCoordType::PhiZ,
                              params.RowBins, params.ColBins, rowMin, rowMax,
                              gsl::span<const float>{source.data(), static_cast<std::size_t>(activeSurfaceCount)});

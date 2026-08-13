@@ -176,10 +176,7 @@ std::string toString(Type mode)
 std::vector<TrackingParameters> getTrackingParameters(detectors::DetID::ID detId, Type mode)
 {
   if (detId == detectors::DetID::ITS) {
-    // Workflow-onboarding Slice 1: only Sync is implemented. Every other
-    // mode value fails closed with an explicit, mode-naming diagnostic --
-    // none of Off/Unset/Async/Cosmics is silently mapped onto Sync or onto
-    // an empty result.
+    // Only Sync is implemented for ITS; reject all other modes explicitly.
     if (mode != Sync) {
       LOGP(fatal, "ITS common-CA tracking mode '{}' is not supported yet; only 'sync' is implemented", toString(mode));
     }
@@ -227,12 +224,12 @@ std::vector<TrackingParameters> getTrackingParameters(detectors::DetID::ID detId
     trackParams[1].MinPt[0] = 1.f / 12.f;
 
     trackParams[2].MinTrackLength = TrackerParamConfig<detectors::DetID::MFT>::MinTrackLength;
-    trackParams[2].MinPt[0] = 1.f / 12.f; // 10 cl
-    trackParams[2].MinPt[1] = 1.f / 8.f;  // 9 cl
-    trackParams[2].MinPt[2] = 1.f / 5.f;  // 8 cl
-    trackParams[2].MinPt[3] = 1.f / 3.f;  // 7 cl
-    trackParams[2].MinPt[4] = 1.f / 2.f;  // 6 cl
-    trackParams[2].MinPt[5] = 1.f / 1.f;  // 5 cl
+    trackParams[2].MinPt[0] = 1.f / 12.f; // 10 clusters
+    trackParams[2].MinPt[1] = 1.f / 8.f;  // 9 clusters
+    trackParams[2].MinPt[2] = 1.f / 5.f;  // 8 clusters
+    trackParams[2].MinPt[3] = 1.f / 3.f;  // 7 clusters
+    trackParams[2].MinPt[4] = 1.f / 2.f;  // 6 clusters
+    trackParams[2].MinPt[5] = 1.f / 1.f;  // 5 clusters
 
     for (int ip = 0; ip < static_cast<int>(trackParams.size()); ip++) {
       auto& param = trackParams[ip];

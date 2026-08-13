@@ -24,8 +24,7 @@ LoadSourcesResult MultiSourceTimeFrameLoader::load(TimeFrame& frame, gsl::span<c
   if (!frame.isConfigured()) {
     return {MultiSourceLoadError::FrameNotConfigured};
   }
-  // Stage measurement data for every source before committing the event. The
-  // source-level loader remains the decoder and timing-validation boundary.
+  // Stage all source measurements before committing the event.
   TimeFrame stagedMeasurements;
   const auto loadResult = loadSources(stagedMeasurements, catalog, sources, origin);
   if (!loadResult.ok()) {
@@ -46,8 +45,7 @@ LoadSourcesResult MultiSourceTimeFrameLoader::load(TimeFrame& frame, gsl::span<c
     }
   }
   if (mappedSurfaces != binding->getOwnedSurfaces()) {
-    // Attribute an omitted surface when exactly one input stream owns its
-    // detector family. Ambiguous same-detector splits remain unattributed.
+    // Attribute an omitted surface only when one source owns its detector.
     for (const auto surface : binding->getOrderedSurfaces()) {
       if (mappedSurfaces.has(surface)) {
         continue;
@@ -325,7 +323,7 @@ LoadSourcesResult SurfaceTrackingScratch::loadNormalizedSource(
   SurfaceCatalogView catalogView,
   bool applySysErrors)
 {
-  // The workspace is shared by both common-CA detector sources.
+  // The workspace is shared by both detector sources.
   constexpr ClusterSourceId kSourceId{0};
   if (detId != o2::detectors::DetID::MFT && detId != o2::detectors::DetID::ITS) {
     return {MultiSourceLoadError::UnsupportedDetector, kSourceId};
@@ -412,15 +410,14 @@ LoadSourcesResult SurfaceTrackingScratch::loadNormalizedSource(
       const auto& global = globals[measurementIndex];
       o2::its::TrackingFrameInfo tfInfo;
       if (catalogView.getSurface(layerToSurface[layer]).kind == SurfaceKind::Disk) {
-        // Recreate the synthetic legacy MFT representation from
-        // normalized global position and row/column covariance.
+        // Recreate the legacy MFT representation from normalized data.
         tfInfo = o2::its::TrackingFrameInfo{
           global.position.x, global.position.y, global.position.z,
           global.position.x, 0.f,
           std::array<float, 2>{global.position.y, global.position.z},
           std::array<float, 3>{m.covariance.uu, m.covariance.uv, m.covariance.vv}};
       } else {
-        // ITS compatibility representation, using the normalized measurement.
+        // Build the ITS compatibility representation from normalized data.
         tfInfo = o2::its::TrackingFrameInfo{
           global.position.x, global.position.y, global.position.z,
           m.frame.q, m.frame.frameAngle,
@@ -475,10 +472,7 @@ LoadSourcesResult SurfaceTrackingScratch::loadNormalizedSource(
   static_assert(noexcept(std::declval<bounded_vector<o2::its::Cluster>&>().swap(std::declval<bounded_vector<o2::its::Cluster>&>())));
   static_assert(noexcept(std::declval<bounded_vector<int>&>().swap(std::declval<bounded_vector<int>&>())));
 
-  // The view was constructed by the adapter for this staged event. The
-  // frame commit resets the previous event, including its non-owning ROF
-  // context, so reinstall this already-validated view only after the new
-  // measurement data is atomically live.
+  // Restore the validated ROF view after the commit replaces the event.
   const auto stagedROFViews = mROFViews;
   frame.commitMeasurements(staged);
   setROFViews(stagedROFViews);

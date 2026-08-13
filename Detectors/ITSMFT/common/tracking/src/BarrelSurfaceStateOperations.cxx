@@ -15,8 +15,8 @@
 #include "GPUROOTSMatrixFwd.h"
 #include <Math/SMatrix.h>
 
-// TrackParametrization.h supplies the public covariance/curvature constants
-// used by device-visible operations; no track object is constructed here.
+// Provides covariance/curvature constants for device-visible operations;
+// no track object is constructed here.
 #include "ReconstructionDataFormats/TrackParametrization.h"
 
 #ifndef GPUCA_GPUCODE
@@ -30,20 +30,15 @@ namespace
 
 using Matrix5 = float[5][5];
 
-// Packed symmetric 5x5 covariance for the same-family stateChi2 combined
-// matrix. o2::math_utils::MatRepSym<float, 5>::offset(row, column) matches
-// packedCovarianceIndex bit-for-bit (both are row*(row+1)/2+column for
-// row >= column), so the combined covariance is formed directly in packed
-// storage without an intermediate dense unpack.
+// Packed symmetric 5x5 covariance for stateChi2. MatRepSym::offset() matches
+// packedCovarianceIndex exactly, so the combined covariance is built directly
+// in packed storage.
 using CombinedCovariance = o2::math_utils::SMatrix<float, 5, 5, o2::math_utils::MatRepSym<float, 5>>;
 static_assert(o2::math_utils::MatRepSym<float, 5>::kSize == 15, "packed symmetric 5x5 representation must hold exactly 15 floats");
 static_assert(sizeof(CombinedCovariance) == 15 * sizeof(float), "combined covariance must occupy exactly 15 floats");
 
-// Upper bound for sanitizeCovariance() (SurfaceKinematicState.h), in (Y, Z,
-// Snp, Tgl, Q2Pt) slot order -- the exact five constants
-// FamilyMaterialOperations.cxx's barrel covariance-range limiting already
-// uses, so post-propagate/rotate/update sanitization and the material-step
-// range clamp enforce the identical upper bound.
+// sanitizeCovariance() upper bounds in (Y, Z, Snp, Tgl, Q2Pt) order. These
+// match the barrel limits used by FamilyMaterialOperations.
 constexpr float kBarrelMaxDiagonal[5] = {o2::track::kCY2max, o2::track::kCZ2max, o2::track::kCSnp2max,
                                          o2::track::kCTgl2max, o2::track::kC1Pt2max};
 
@@ -133,12 +128,8 @@ void transportCovariance(SurfaceKinematicState& state, const Matrix5& jacobian) 
   packCovariance(transported, state);
 }
 
-// Shared commit point for rotate() and propagate() (non-linRef) above: every
-// exit from either function funnels through here, so sanitizing the
-// covariance-validity invariant (ADR 0008) unconditionally here -- once --
-// covers both operations and every one of their exit paths (including the
-// dx==0 trivial-step early return, where covariance is unchanged and
-// sanitization is a no-op) without relying on each call site to remember it.
+// Shared commit point for non-linRef rotate() and propagate(). It validates
+// and sanitizes the covariance (ADR 0008) on every exit, including dx == 0.
 bool commit(SurfaceKinematicState& destination, SurfaceKinematicState& scratch, OperationFailureReason& reason) noexcept
 {
   if (!finiteState(scratch)) {
@@ -350,10 +341,8 @@ bool update(SurfaceKinematicState& state, const SurfaceMeasurement& measurement,
     reason = OperationFailureReason::NonFiniteOutput;
     return false;
   }
-  // ADR 0008: the naive/non-Joseph-form Kalman covariance subtraction above
-  // can reveal an already out-of-bounds correlation (introduced upstream by
-  // a large-step propagate) as a small negative diagonal; sanitize
-  // unconditionally before committing so no caller ever observes it.
+  // ADR 0008: covariance subtraction can expose an upstream out-of-bounds
+  // correlation as a small negative diagonal. Sanitize before committing.
   sanitizeCovariance(scratch, kBarrelMaxDiagonal);
   state = scratch;
   chi2 = scratchChi2;
@@ -416,10 +405,8 @@ bool stateChi2(const SurfaceKinematicState& reference, const SurfaceKinematicSta
 namespace
 {
 
-// Shared closed-form seed construction, transcribed verbatim from
-// o2::its::track::buildTrackSeed (ITStracking/TrackHelpers.h) with its
-// `cluster1`/`cluster2`/`tf3`/`reverse` arguments renamed to
-// `clusterA`/`clusterB`/`frameMeasurement`/`sign` respectively.
+// Closed-form seed construction from o2::its::track::buildTrackSeed
+// (ITStracking/TrackHelpers.h), with arguments renamed to match this API.
 bool buildSeedImpl(const GlobalPoint3F& clusterA, const GlobalPoint3F& clusterB,
                    const SurfaceMeasurement& frameMeasurement, float bz, float sign,
                    uint8_t absCharge, o2::track::PID pid,
@@ -447,7 +434,7 @@ bool buildSeedImpl(const GlobalPoint3F& clusterA, const GlobalPoint3F& clusterB,
   float snp = 0.f;
   float q2pt = 0.f;
   float q2pt2 = 0.f;
-  if (std::abs(bz) < 0.01f) { // zero field
+  if (std::abs(bz) < 0.01f) { // zero magnetic field
     const float dx = x3 - x1;
     const float dy = y3 - y1;
     snp = sign * dy / std::hypot(dx, dy);
@@ -470,10 +457,8 @@ bool buildSeedImpl(const GlobalPoint3F& clusterA, const GlobalPoint3F& clusterB,
   scratch.parameters[2] = snp;
   scratch.parameters[3] = tgl;
   scratch.parameters[4] = q2pt;
-  // Packed layout matches o2::track::TrackParametrizationWithError's own
-  // packed-symmetric storage index-for-index (both are row*(row+1)/2+column
-  // for row >= column), so the legacy flat covariance initializer list
-  // transcribes directly, entry for entry, with no reshuffling.
+  // Packed layout matches TrackParametrizationWithError index-for-index, so
+  // the legacy covariance initializer needs no reshuffling.
   scratch.covariance[packedCovarianceIndex(0, 0)] = frameMeasurement.covariance.uu;
   scratch.covariance[packedCovarianceIndex(1, 0)] = frameMeasurement.covariance.uv;
   scratch.covariance[packedCovarianceIndex(1, 1)] = frameMeasurement.covariance.vv;
@@ -502,15 +487,10 @@ bool buildSeedImpl(const GlobalPoint3F& clusterA, const GlobalPoint3F& clusterB,
   return true;
 }
 
-// Non-covariance propagation of a SurfaceLinearizationReference, transcribed
-// from o2::track::TrackParametrization<float>::propagateParamTo(xk, b)
-// (DataFormats/Reconstruction/src/TrackParametrization.cxx) -- the exact
-// parameter-space formula the non-linRef `propagate` above already
-// transcribes for SurfaceKinematicState, applied here to the covariance-free
-// reference. `stateAbsCharge` substitutes for the legacy reference's own
-// absCharge field (a SurfaceLinearizationReference carries none -- see the
-// paired type in SurfaceKinematicState.h): the reference and its paired state
-// always describe the same particle hypothesis.
+// Covariance-free propagation of SurfaceLinearizationReference using the
+// TrackParametrization::propagateParamTo formula. stateAbsCharge supplies the
+// charge absent from SurfaceLinearizationReference; it matches the paired
+// state's particle hypothesis.
 bool propagateReferenceParams(SurfaceLinearizationReference& ref, uint8_t stateAbsCharge, float targetX, float bz,
                               OperationFailureReason& reason) noexcept
 {
@@ -595,12 +575,8 @@ bool rotate(SurfaceKinematicState& state, SurfaceLinearizationReference& linRef,
     reason = OperationFailureReason::NonFiniteInput;
     return false;
   }
-  // Fitted-state/linRef pairing precondition: parameters may legitimately
-  // differ (that is the entire purpose of a linearization reference), but
-  // the anchor and frame may not. makeLinearizationReference and every
-  // successful paired rotate/propagate establish referenceCoordinate/alpha
-  // identically (bit-for-bit, not merely within tolerance), so this is an
-  // exact comparison, not an epsilon check.
+  // Pairing requires exact referenceCoordinate/alpha equality. Parameters may
+  // differ because linRef is a linearization reference.
   if (state.referenceCoordinate != linRef.referenceCoordinate) {
     reason = OperationFailureReason::ReferenceCoordinateMismatch;
     return false;
@@ -620,8 +596,7 @@ bool rotate(SurfaceKinematicState& state, SurfaceLinearizationReference& linRef,
 
   const float canonicalAlpha = std::remainder(targetAlpha, 2.f * o2::constants::math::PI);
 
-  // Rotate the reference (linRef1.rotateParam(alpha, ca, sa)): gated by the
-  // reference's own pre-rotation snp, not state's.
+  // Rotate the reference using its own pre-rotation snp.
   const float refSnpBefore = scratchRef.parameters[2];
   if (std::abs(refSnpBefore) >= 1.f) {
     reason = OperationFailureReason::RotationFailure;
@@ -647,7 +622,7 @@ bool rotate(SurfaceKinematicState& state, SurfaceLinearizationReference& linRef,
   scratchRef.parameters[0] = -refXOld * sa + refYOld * ca;
   scratchRef.parameters[2] = refSnpRotated;
 
-  // trackX = state's own (pre-rotation) X,Y rotated by the reference's delta.
+  // Rotate the state's pre-rotation X,Y by the reference delta.
   const float trackX = scratchState.referenceCoordinate * ca + scratchState.parameters[0] * sa;
 
   if (!propagateReferenceParams(scratchRef, state.absCharge, trackX, bz, reason)) {
@@ -655,8 +630,7 @@ bool rotate(SurfaceKinematicState& state, SurfaceLinearizationReference& linRef,
     return false;
   }
 
-  // Rotate state itself, gated by state's own snp (already checked above)
-  // and its own post-rotation validity.
+  // Rotate the state using its own snp and post-rotation validity.
   const float csp = std::sqrt((1.f - stateSnp) * (1.f + stateSnp));
   if (csp * ca + stateSnp * sa < 0.f) {
     reason = OperationFailureReason::RotationFailure;
@@ -674,11 +648,8 @@ bool rotate(SurfaceKinematicState& state, SurfaceLinearizationReference& linRef,
   scratchState.parameters[2] = updatedSnp;
   scratchState.alpha = canonicalAlpha;
 
-  // Covariance: Jacobian evaluated at the reference (cspRef0/cspRef1), not
-  // at state's own snp -- the defining difference from the non-linRef
-  // rotate() above. cspRef1 is computed algebraically (ca*cspRef0 +
-  // sa*snpRef0), matching the legacy formula exactly rather than
-  // re-deriving it via sqrt(1-refSnpRotated^2).
+  // Evaluate the covariance Jacobian at the reference, not the state's snp.
+  // Compute cspRef1 algebraically to match the legacy formula.
   const float cspRef1 = ca * refCsp0 + sa * refSnpBefore;
   if (cspRef1 == 0.f) {
     reason = OperationFailureReason::RotationFailure;
@@ -686,9 +657,8 @@ bool rotate(SurfaceKinematicState& state, SurfaceLinearizationReference& linRef,
   }
   const float rr = cspRef1 / refCsp0;
 
-  // "Extra row" of the lower triangle, computed from the covariance values
-  // as they stand *before* the plane-rotation multiplies below (matching
-  // the legacy evaluation order exactly).
+  // Compute the extra lower-triangle row before the plane-rotation multiplies,
+  // matching the legacy evaluation order.
   const float cXSigY = scratchState.covariance[packedCovarianceIndex(0, 0)] * ca * sa;
   const float cXSigZ = scratchState.covariance[packedCovarianceIndex(1, 0)] * sa;
   const float cXSigSnp = scratchState.covariance[packedCovarianceIndex(2, 0)] * rr * sa;
@@ -753,9 +723,8 @@ bool propagate(SurfaceKinematicState& state, SurfaceLinearizationReference& linR
     reason = OperationFailureReason::NonFiniteInput;
     return false;
   }
-  // Fitted-state/linRef pairing precondition -- see the identical check in
-  // rotate() above for the rationale (exact comparison; parameters may
-  // differ, anchor/frame may not).
+  // Pairing requires exact referenceCoordinate/alpha equality; parameters may
+  // differ.
   if (state.referenceCoordinate != linRef.referenceCoordinate) {
     reason = OperationFailureReason::ReferenceCoordinateMismatch;
     return false;
@@ -886,11 +855,8 @@ bool propagate(SurfaceKinematicState& state, SurfaceLinearizationReference& linR
     reason = OperationFailureReason::NonFiniteOutput;
     return false;
   }
-  // A large single-step Jacobian transport can produce an
-  // off-diagonal term large enough that the matrix is no longer
-  // positive-semi-definite even though every individual diagonal still
-  // looks valid; sanitize unconditionally so the next operation (typically
-  // a measurement update) never receives an already-invalid covariance.
+  // A large Jacobian step can invalidate covariance through an off-diagonal
+  // term even when all diagonals look valid. Sanitize before committing.
   sanitizeCovariance(scratchState, kBarrelMaxDiagonal);
   state = scratchState;
   linRef = scratchRef;

@@ -12,10 +12,9 @@
 /// \file TimeFrame.h
 /// \brief Passive common event owner.
 ///
-/// TimeFrame owns configuration, event measurements, generic results,
-/// one tracking workspace, and its allocator/capacity state. Raw ROFs,
-/// timing-table storage, publication state, typed sidecars, and workflow
-/// lifecycle remain with the application boundary.
+/// TimeFrame owns configuration, event measurements, generic results, one
+/// tracking workspace, and allocator/capacity state. The application owns
+/// raw ROFs, timing tables, publication state, sidecars, and workflow state.
 
 #ifndef ALICEO2_ITSMFT_TRACKING_TIMEFRAME_H_
 #define ALICEO2_ITSMFT_TRACKING_TIMEFRAME_H_
@@ -93,8 +92,8 @@ struct TimeFrame {
   uint32_t getNMeasurementSurfaces() const noexcept { return static_cast<uint32_t>(mPerSurfaceMeasurements.size()); }
   std::size_t getTotalMeasurements() const noexcept;
 
-  // Loader-only staging hooks. A staged TimeFrame carries measurement data
-  // only; commit swaps it after all decoding and workspace backfill succeed.
+  // Loader-only staging: commit swaps staged measurements after decoding and
+  // workspace backfill succeed.
   void assignLoadedMeasurements(std::vector<std::vector<GlobalMeasurement>>&& perSurfaceGlobalMeasurements,
                                 std::vector<std::vector<SurfaceMeasurement>>&& perSurfaceMeasurements,
                                 std::vector<ROFIntervalBC>&& rofIntervals,
@@ -102,15 +101,13 @@ struct TimeFrame {
                                 std::vector<const o2::dataformats::MCTruthContainer<o2::MCCompLabel>*>&& labelSources);
   void commitMeasurements(TimeFrame& staged) noexcept;
 
-  // Commits a complete multi-source event after loader preflight. The
-  // operation resets the prior event exactly once before installing all
-  // measurement data and the staged global workspace.
+  // Commit a preflighted multi-source event, resetting the previous event once
+  // before installing measurements and the staged workspace.
   bool commitLoadedEvent(TimeFrame& staged,
                          std::unique_ptr<SurfaceTrackingScratch>&& stagedWorkspace) noexcept;
 
-  // One generic event-state reset. It preserves static configuration and
-  // allocator/capacity identity while clearing the tracking workspace and
-  // event result. External owners call this once for a whole event.
+  // Reset event state while preserving configuration and allocator identity.
+  // External owners call this once per event.
   void resetEvent() noexcept;
   std::size_t getEventResetCount() const noexcept { return mEventResetCount; }
 
@@ -131,19 +128,15 @@ struct TimeFrame {
   const SurfacePlanBinding* getBinding(std::size_t iteration) const noexcept;
   const TrackingWorkspaceCapacity* getWorkspaceCapacity(std::size_t iteration) const noexcept;
 
-  // Detector-neutral common-CA result storage (ITSMFTTracking/CommonTrack.h).
-  // CommonTrack itself carries no NLayers dependency. Only meaningful
-  // together with the current event measurements -- see
-  // CommonTrack.h's own lifetime doc.
+  // Detector-neutral common-CA results (see CommonTrack.h). Valid only with
+  // the current event measurements; CommonTrack has no NLayers dependency.
   auto& getCommonTracks() { return mCommonTracks; }
   const auto& getCommonTracks() const { return mCommonTracks; }
-  // Flat array of TrackClusterReference (CommonTrack.h); a CommonTrack's
-  // [firstClusterRef, clusterRefEnd) range is a half-open range of
-  // *positions* into this array, in traversal order (inner to outer). Each
-  // element pairs a SurfaceId with a SurfaceMeasurementIndex local to that
-  // surface's own measurement array -- resolved via
-  // getGlobalMeasurement(reference.surface, reference.index)
-  // -- never a global/flattened measurement position.
+  // Flat TrackClusterReference array. A CommonTrack's
+  // [firstClusterRef, clusterRefEnd) range contains positions in inner-to-
+  // outer traversal order. Each entry pairs a SurfaceId with an index local
+  // to that surface's measurements, resolved by getGlobalMeasurement(); it is
+  // not a global measurement position.
   auto& getTrackClusterIndices() { return mTrackClusterIndices; }
   const auto& getTrackClusterIndices() const { return mTrackClusterIndices; }
 
@@ -151,17 +144,10 @@ struct TimeFrame {
   void setMemoryPool(std::shared_ptr<BoundedMemoryResource> pool);
   auto& getMemoryPool() const noexcept { return mMemoryPool; }
 
-  // Must be declared -- and therefore destroyed -- before every
-  // pmr/bounded_vector member that may allocate through it (mPrimaryVertices,
-  // mPrimaryVerticesLabels, mCommonTracks, mTrackClusterIndices). C++
-  // destroys non-static data members in reverse declaration order, so
-  // declaring this resource owner first guarantees it is destroyed last,
-  // after every vector that could still hold memory allocated from it has
-  // already released it back. TimeFrame's own containers never use the
-  // framework/GPU allocator: that mechanism (mExtMemoryPool,
-  // hasFrameworkAllocator(), getMaybeFrameworkHostResource()) is used
-  // exclusively by SurfaceTrackingScratch's per-layer compatibility
-  // containers and lives there instead.
+  // Declared before vectors that allocate from it so reverse destruction order
+  // releases those allocations before the resource. TimeFrame containers do
+  // not use the framework/GPU allocator; SurfaceTrackingScratch owns that
+  // compatibility path for its per-layer containers.
   std::shared_ptr<BoundedMemoryResource> mMemoryPool;
 
  private:
@@ -174,8 +160,7 @@ struct TimeFrame {
   bounded_vector<Vertex> mPrimaryVertices;
   bounded_vector<VertexLabel> mPrimaryVerticesLabels;
 
-  // Detector-neutral common-CA result storage. Results are valid only with
-  // the normalized frame content from the same event.
+  // Common-CA results, valid only with normalized content from the same event.
   bounded_vector<CommonTrack> mCommonTracks;
   bounded_vector<TrackClusterReference> mTrackClusterIndices;
 

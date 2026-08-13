@@ -44,7 +44,7 @@ namespace o2::itsmft
 
 inline constexpr int ClustersPerCell = 3;
 
-// Steering of dedicated steps in an iteration
+// Dedicated steps in an iteration.
 enum class IterationStep : uint16_t {
   FirstPass = 0,
   RebuildClusterLUT = 1,
@@ -77,10 +77,8 @@ struct TrackingParameters {
     const int effectiveMinClusters = minClusters > ClustersPerCell ? minClusters : ClustersPerCell;
     return effectiveMinClusters - ClustersPerCell + 1;
   }
-  // Adapter/frozen-ITS compatibility accessors.  The common runtime tracker
-  // derives its road start level from SurfaceTrackingScratch; these remain
-  // only for the frozen ITStracking and GPU-facing consumers of this shared
-  // configuration record.
+  // Compatibility accessors for frozen ITStracking/GPU consumers; the common
+  // runtime derives its road start level from SurfaceTrackingScratch.
   int NeighboursPerRoad() const noexcept { return NLayers - 3; }
   int CellsPerRoad() const noexcept { return NLayers - 2; }
   int TrackletsPerRoad() const noexcept { return NLayers - 1; }
@@ -90,14 +88,14 @@ struct TrackingParameters {
   int NLayers = tracking::ITSNLayers;
   std::vector<uint32_t> AddTimeError = {0, 0, 0, 0, 0, 0, 0};
   std::vector<float> LayerZ = {16.333f + 1, 16.333f + 1, 16.333f + 1, 42.140f + 1, 42.140f + 1, 73.745f + 1, 73.745f + 1};
-  std::vector<float> LayerColHalfExtent{}; // index-table column half extent (ITS: z, MFT: global x); falls back to LayerZ
-  float IndexRowMin{0.f};                  // index-table row origin (MFT: global y min; unused for ITS phi-z)
-  float IndexRowMax{0.f};                  // index-table row span end (MFT: global y max; 0 => TwoPI for ITS)
+  std::vector<float> LayerColHalfExtent{}; // Index-table column half extent (ITS z, MFT global x); falls back to LayerZ.
+  float IndexRowMin{0.f};                  // Index-table row minimum (MFT global y); unused for ITS phi-z.
+  float IndexRowMax{0.f};                  // Index-table row maximum (MFT global y); 0 means TwoPI for ITS.
   std::vector<float> LayerRadii = {2.33959f, 3.14076f, 3.91924f, 19.6213f, 24.5597f, 34.388f, 39.3329f};
   std::vector<float> LayerxX0{tracking::kNominalITSLayerX0.begin(), tracking::kNominalITSLayerX0.end()};
   std::vector<float> LayerResolution = {5.e-4f, 5.e-4f, 5.e-4f, 5.e-4f, 5.e-4f, 5.e-4f, 5.e-4f};
-  std::vector<float> SystError2Row = {0.f, 0.f, 0.f, 0.f, 0.f, 0.f, 0.f}; // systematic error^2 along local row (ALPIDE X) per layer
-  std::vector<float> SystError2Col = {0.f, 0.f, 0.f, 0.f, 0.f, 0.f, 0.f}; // systematic error^2 along local column (ALPIDE Z) per layer
+  std::vector<float> SystError2Row = {0.f, 0.f, 0.f, 0.f, 0.f, 0.f, 0.f}; // Systematic row error squared per layer (ALPIDE X).
+  std::vector<float> SystError2Col = {0.f, 0.f, 0.f, 0.f, 0.f, 0.f, 0.f}; // Systematic column error squared per layer (ALPIDE Z).
   int ColBins{256};                                                       // ITS: ZBins
   int RowBins{128};                                                       // ITS: PhiBins
   bool UseDiamond = false;
@@ -108,8 +106,7 @@ struct TrackingParameters {
   int MinTrackLength = 7;
   int MaxHoles = 0;
   tracking::LayerMask HoleLayerMask = 0;
-  // Reserved compatibility storage; adapters reject non-empty values because
-  // the common CA does not consume these declarations.
+  // Reserved compatibility storage; adapters reject non-empty values; unused by common CA.
   tracking::LayerMask InactiveLayerMask = 0;
   tracking::LayerMask SeedingLayers = 0;
   float NSigmaCut = 5;
@@ -120,31 +117,30 @@ struct TrackingParameters {
   o2::base::PropagatorImpl<float>::MatCorrType CorrType = o2::base::PropagatorImpl<float>::MatCorrType::USEMatCorrNONE;
   float MaxChi2ClusterAttachment = 60.f;
   float MaxChi2NDF = 30.f;
-  int ReseedIfShorter = 6; // reseed for the final fit track with the length shorter than this
+  int ReseedIfShorter = 6; // Reseed final fit tracks shorter than this.
   std::vector<float> MinPt = {0.f, 0.f, 0.f, 0.f};
   tracking::LayerMask StartLayerMask = 0x7F;
-  bool RepeatRefitOut = false;   // repeat outward refit using inward refit as a seed
-  bool ShiftRefToCluster = true; // TrackFit: after update shift the linearization reference to cluster
+  bool RepeatRefitOut = false;   // Repeat outward refit using inward refit as a seed.
+  bool ShiftRefToCluster = true; // Shift the linearization reference to the cluster after an update.
   bool PerPrimaryVertexProcessing = false;
   bool SaveTimeBenchmarks = false;
   bool DoUPCIteration = false;
   bool FataliseUponFailure = true;
   bool CreateArtefactLabels{false};
-  // Reserved compatibility storage; top/bottom follower execution is not part
-  // of the common tracker.
+  // Reserved compatibility storage; top/bottom followers are unused by the common tracker.
   float TrackFollowerNSigmaCutZ = 1.f;
   float TrackFollowerNSigmaCutPhi = 1.f;
   int TrackFollowerMaxHypotheses = 1;
-  bool PrintMemory = false; // print allocator usage in epilog report
+  bool PrintMemory = false; // Print allocator usage in the epilog report.
   size_t MaxMemory = std::numeric_limits<size_t>::max();
   bool DropTFUponFailure = false;
 
-  // Selections on tracks sharing clusters
+  // Track-sharing selections.
   bool AllowSharingFirstCluster = false;
-  float SharedClusterMaxDeltaPhi = 0.05f; // For tracks sharing clusters, maximum allowed delta phi at the cluster position
-  float SharedClusterMaxDeltaEta = 0.03f; // For tracks sharing clusters, maximum allowed delta eta at the cluster position
-  bool SharedClusterOppositeSign = false; // For tracks sharing clusters, require opposite sign of the tracklets
-  int SharedMaxClusters = 0;              // Maximal allowed shared clusters (excluding first cluster)
+  float SharedClusterMaxDeltaPhi = 0.05f; // Maximum delta phi at a shared cluster.
+  float SharedClusterMaxDeltaEta = 0.03f; // Maximum delta eta at a shared cluster.
+  bool SharedClusterOppositeSign = false; // Require opposite-sign tracklets.
+  int SharedMaxClusters = 0;              // Maximum shared clusters, excluding the first.
 };
 
 #ifndef GPUCA_GPUCODE
@@ -184,7 +180,7 @@ inline AttachHitConfigView bindAttachHitConfig(gsl::span<const tracking::Nominal
 
 #endif
 
-/// Reset tracking parameters to detector geometry defaults (ITS: struct defaults; MFT: MFTTracking/Constants.h).
+/// Reset tracking parameters to detector geometry defaults.
 void resetDetectorDefaults(TrackingParameters& params, o2::detectors::DetID::ID detId);
 
 namespace TrackingMode
@@ -209,7 +205,7 @@ struct VertexingParameters {
   IterationSteps PassFlags{IterationStep::FirstPass, IterationStep::ResetVertices};
   std::vector<float> LayerZ = {16.333f + 1, 16.333f + 1, 16.333f + 1, 42.140f + 1, 42.140f + 1, 73.745f + 1, 73.745f + 1};
   std::vector<float> LayerRadii = {2.33959f, 3.14076f, 3.91924f, 19.6213f, 24.5597f, 34.388f, 39.3329f};
-  int vertPerRofThreshold = 0; // Maximum number of vertices per ROF to trigger second a round
+  int vertPerRofThreshold = 0; // Vertices per ROF that trigger a second round.
   int ColBins = 1;
   int RowBins = 128;
   float zCut = -1.f;
@@ -234,10 +230,10 @@ struct VertexingParameters {
   int zSpan = -1;
   bool SaveTimeBenchmarks = false;
 
-  bool useTruthSeeding = false; // overwrite found vertices with MC events
+  bool useTruthSeeding = false; // Replace found vertices with MC events.
 
   int nThreads = 1;
-  bool PrintMemory = false; // print allocator usage in epilog report
+  bool PrintMemory = false; // Print allocator usage in the epilog report.
   size_t MaxMemory = std::numeric_limits<size_t>::max();
   bool DropTFUponFailure = false;
 };

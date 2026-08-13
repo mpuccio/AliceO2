@@ -24,17 +24,14 @@ namespace
 
 using Matrix5 = float[5][5];
 
-// Packed symmetric 5x5 covariance for the same-family stateChi2 combined
-// matrix. o2::math_utils::MatRepSym<float, 5>::offset(row, column) matches
-// packedCovarianceIndex bit-for-bit (both are row*(row+1)/2+column for
-// row >= column), so the combined covariance is formed directly in packed
-// storage without an intermediate dense unpack.
+// Packed symmetric 5x5 covariance for stateChi2. MatRepSym::offset matches
+// packedCovarianceIndex (row*(row+1)/2+column), enabling direct construction.
 using CombinedCovariance = o2::math_utils::SMatrix<float, 5, 5, o2::math_utils::MatRepSym<float, 5>>;
 static_assert(o2::math_utils::MatRepSym<float, 5>::kSize == 15, "packed symmetric 5x5 representation must hold exactly 15 floats");
 static_assert(sizeof(CombinedCovariance) == 15 * sizeof(float), "combined covariance must occupy exactly 15 floats");
 
-// No finite forward diagonal ceiling is configured; diagonal non-negativity
-// and pairwise correlation checks remain active.
+// Forward diagonals have no finite ceiling; non-negativity and correlations
+// are still checked.
 constexpr float kForwardNoRangeLimit = std::numeric_limits<float>::max();
 constexpr float kForwardMaxDiagonal[5] = {kForwardNoRangeLimit, kForwardNoRangeLimit, kForwardNoRangeLimit,
                                           kForwardNoRangeLimit, kForwardNoRangeLimit};
@@ -125,8 +122,7 @@ bool validateSource(const SurfaceKinematicState& state, OperationFailureReason& 
   return true;
 }
 
-// Every accepted propagation path sanitizes covariance at this single commit
-// point.
+// Sanitize covariance once, at the propagation commit point.
 bool commitPropagation(SurfaceKinematicState& destination, SurfaceKinematicState& scratch,
                        OperationFailureReason& reason) noexcept
 {
@@ -367,10 +363,9 @@ bool update(SurfaceKinematicState& state, const SurfaceMeasurement& measurement,
     reason = OperationFailureReason::NonFiniteOutput;
     return false;
   }
-  // ADR 0008: the naive/non-Joseph-form Kalman covariance subtraction above
-  // can reveal an already out-of-bounds correlation (introduced upstream by
-  // a large-step propagate) as a small negative diagonal; sanitize
-  // unconditionally before committing so no caller ever observes it.
+  // ADR 0008: non-Joseph covariance subtraction can expose an upstream
+  // out-of-bounds correlation as a small negative diagonal. Sanitize before
+  // committing so callers never observe it.
   sanitizeCovariance(scratch, kForwardMaxDiagonal);
   state = scratch;
   chi2 = scratchChi2;
@@ -436,8 +431,7 @@ bool stateChi2(const SurfaceKinematicState& reference, const SurfaceKinematicSta
     return false;
   }
 
-  // Direct differences of (X, Y, Phi, Tanl, InvQPt): no phi wrapping. See
-  // ITSMFTTracking/ForwardSurfaceStateOperations.h for the raw-phi rationale.
+  // Use direct (unwrapped) differences of (X, Y, Phi, Tanl, InvQPt).
   float diff[5];
   for (uint8_t i = 0; i < 5; ++i) {
     diff[i] = reference.parameters[i] - candidate.parameters[i];
@@ -464,10 +458,8 @@ bool stateChi2(const SurfaceKinematicState& reference, const SurfaceKinematicSta
 namespace
 {
 
-// Shared closed-form seed construction. The direction estimate (phi, tanl,
-// invQPt) reads measurementInner/measurementMiddle/measurementOuter in the
-// fixed physical order; frameMeasurement supplies the reference frame and
-// covariance.
+// Shared closed-form seed construction. Direction uses the measurements in
+// fixed physical order; frameMeasurement supplies the reference frame/covariance.
 bool buildSeedImpl(const SurfaceMeasurement& measurementInner, const SurfaceMeasurement& measurementMiddle,
                    const SurfaceMeasurement& measurementOuter, const SurfaceMeasurement& frameMeasurement,
                    float bz, float trackletMinPt,
@@ -484,12 +476,9 @@ bool buildSeedImpl(const SurfaceMeasurement& measurementInner, const SurfaceMeas
     return false;
   }
 
-  // Strict boundary, transcribed verbatim from buildDiskCellSeed
-  // (CandidateFinding.h/.cxx) / detail::mftFwdFitCellClusters
-  // (MFTFwdTrackHelpers.h): established hard rejections, not non-finite-
-  // output artifacts, so they are reported through the dedicated
-  // SeedGeometryDegenerate reason. Anchor-independent: this validates the
-  // physical hit ordering, not the seed's reference frame.
+  // Established strict boundary from buildDiskCellSeed and
+  // detail::mftFwdFitCellClusters. Report degenerate hit geometry as
+  // SeedGeometryDegenerate, independently of the reference-frame anchor.
   if (measurementInner.frame.q <= measurementOuter.frame.q + 1.e-6f) {
     reason = OperationFailureReason::SeedGeometryDegenerate;
     return false;
@@ -508,8 +497,7 @@ bool buildSeedImpl(const SurfaceMeasurement& measurementInner, const SurfaceMeas
     return false;
   }
 
-  // trackletMinPt<=0 fallback preserved verbatim (established behavior, not
-  // re-validated here): invQPt becomes 0 rather than being rejected.
+  // Preserve the established trackletMinPt<=0 fallback: invQPt becomes 0.
   const float invQPt = (trackletMinPt > 0.f) ? 1.f / trackletMinPt : 0.f;
   float tanl = 0.f;
   float phi = 0.f;
@@ -534,10 +522,8 @@ bool buildSeedImpl(const SurfaceMeasurement& measurementInner, const SurfaceMeas
   scratch.parameters[2] = phi;
   scratch.parameters[3] = tanl;
   scratch.parameters[4] = invQPt;
-  // Only the diagonal is populated, matching the legacy seedCov (a
-  // default-constructed, i.e. zero, SMatrix55Sym with just five diagonal
-  // assignments) -- every off-diagonal packed entry stays at its
-  // value-initialized 0.f.
+  // Match legacy seedCov: populate only the diagonal; off-diagonal entries
+  // remain value-initialized to 0.f.
   scratch.covariance[packedCovarianceIndex(0, 0)] = frameMeasurement.covariance.uu > 0.f ? frameMeasurement.covariance.uu : 1.f;
   scratch.covariance[packedCovarianceIndex(1, 1)] = frameMeasurement.covariance.vv > 0.f ? frameMeasurement.covariance.vv : 1.f;
   scratch.covariance[packedCovarianceIndex(2, 2)] = 1.f;
@@ -570,8 +556,7 @@ bool finiteLinRef(const SurfaceLinearizationReference& ref) noexcept
   return true;
 }
 
-// Reference-only (no covariance) position update plus the Jacobian evaluated
-// at the reference's own pre-propagation parameters.
+// Reference-only position update with the Jacobian at the original parameters.
 bool referencePropagateLinear(SurfaceLinearizationReference& ref, float targetZ, Matrix5& jacobian,
                               OperationFailureReason& reason) noexcept
 {
@@ -601,7 +586,7 @@ bool referencePropagateLinear(SurfaceLinearizationReference& ref, float targetZ,
   return true;
 }
 
-// Position-only helix step (no Jacobian), mirroring propagateHelixParameters.
+// Position-only helix step, matching propagateHelixParameters.
 bool referencePropagateHelixParameters(SurfaceLinearizationReference& ref, float targetZ, float bz,
                                        OperationFailureReason& reason) noexcept
 {
@@ -702,10 +687,8 @@ bool propagateAccepted(SurfaceKinematicState& state, SurfaceLinearizationReferen
     reason = OperationFailureReason::NonFiniteInput;
     return false;
   }
-  // Fitted-state/linRef pairing precondition (exact comparison; parameters
-  // may differ -- that is the entire purpose of a linearization reference --
-  // but the anchor may not). No alpha check here: Forward's alpha is always
-  // 0/unused, unlike Barrel's frame angle.
+  // The fitted state and linearization reference must share the exact anchor;
+  // their parameters may differ. Forward alpha is always 0/unused.
   if (state.referenceCoordinate != linRef.referenceCoordinate) {
     reason = OperationFailureReason::ReferenceCoordinateMismatch;
     return false;
@@ -739,11 +722,9 @@ bool propagateAccepted(SurfaceKinematicState& state, SurfaceLinearizationReferen
     reason = OperationFailureReason::NonFiniteOutput;
     return false;
   }
-  // ADR 0008: a large single-step Jacobian transport can produce an
-  // off-diagonal term large enough that the matrix is no longer
-  // positive-semi-definite even though every individual diagonal still
-  // looks valid; sanitize unconditionally so the next operation (typically
-  // a measurement update) never receives an already-invalid covariance.
+  // ADR 0008: a large Jacobian step can break positive semidefiniteness via
+  // an off-diagonal term even when diagonals look valid. Sanitize before the
+  // next operation receives the covariance.
   sanitizeCovariance(scratchState, kForwardMaxDiagonal);
   state = scratchState;
   linRef = scratchRef;

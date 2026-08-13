@@ -59,10 +59,8 @@ constexpr bool isLayerInDetector(int layer, int detectorLayers) noexcept
   return layer >= 0 && layer < detectorLayers;
 }
 
-/// Whether to apply cluster-decoding systematic errors for `DetId`. ITS
-/// common-CA is an explicit no-op; MFT reads its live tracker configuration.
-/// The free function keeps this detector-generic boundary independently
-/// callable.
+/// Return whether cluster-decoding systematic errors are configured for `DetId`.
+/// ITS is a no-op; MFT reads its live tracker configuration.
 template <o2::detectors::DetID::ID DetId>
 bool shouldApplySysErrors()
 {
@@ -79,8 +77,8 @@ bool shouldApplySysErrors()
   }
 }
 
-/// Adds configured systematic-error corrections to `sigma2Row`/`sigma2Col`;
-/// the ITS specialization is an explicit no-op.
+/// Add configured systematic-error corrections to `sigma2Row` and `sigma2Col`.
+/// ITS is a no-op.
 template <o2::detectors::DetID::ID DetId>
 void addSysErrors(int layerId, float& sigma2Row, float& sigma2Col)
 {
@@ -104,8 +102,7 @@ constexpr float DefClusError2Col = DefClusErrorCol * DefClusErrorCol;
 void fillMatrixCache(o2::detectors::DetID::ID detId);
 int getClusterLayer(o2::detectors::DetID::ID detId, const CompClusterExt& cluster);
 
-/// Decode a compact cluster through the detector geometry singleton directly
-/// into the normalized surface representation.
+/// Decode a compact cluster directly into the normalized surface representation.
 template <o2::detectors::DetID::ID DetId>
 o2::itsmft::tracking::SurfaceMeasurement loadClusterSurfaceMeasurement(
   const CompClusterExt& c,
@@ -117,8 +114,7 @@ o2::itsmft::tracking::SurfaceMeasurement loadClusterSurfaceMeasurement(
   uint32_t sourceROF,
   bool applySysErrors = true);
 
-/// Decode once through detector geometry, then map the discovered local layer
-/// to a global SurfaceId through `layerToSurface`.
+/// Decode a cluster and map its local layer to a global `SurfaceId`.
 template <o2::detectors::DetID::ID DetId>
 o2::itsmft::tracking::SurfaceMeasurementDecodeResult loadClusterSurfaceMeasurement(
   const CompClusterExt& c,
@@ -143,7 +139,7 @@ o2::math_utils::Point3D<T> extractClusterData(const CompClusterExt& c, iterator&
 {
   auto pattID = c.getPatternID();
   sig2Row = DefClusError2Row;
-  sig2Col = DefClusError2Col; // Dummy COG errors (about half pixel size)
+  sig2Col = DefClusError2Col; // Default COG error (about half a pixel)
   const auto setShape = [clusterSize, clusterShape](const ClusterPattern& patt, unsigned int nPixels) {
     if (clusterSize != nullptr) {
       *clusterSize = nPixels;
@@ -180,8 +176,7 @@ struct ClusterDataDecodeResult {
   bool ok() const noexcept { return error == o2::itsmft::tracking::ClusterDecodeError::None; }
 };
 
-// Bounded normalized-loading counterpart. Pattern bytes are acquired only
-// after BoundedPatternCursor has proved that the complete encoding is present.
+// Bounded counterpart: acquire pattern bytes only after validating the encoding.
 template <typename T = float>
 ClusterDataDecodeResult<T> extractClusterDataBounded(
   const CompClusterExt& c,
@@ -226,13 +221,13 @@ ClusterDataDecodeResult<T> extractClusterDataBounded(
   return result;
 }
 
-// Array-valued coordinate counterpart for TGeoMatrix callers.
+// Return coordinates as an array for TGeoMatrix callers.
 template <class iterator, typename T>
 std::array<T, 3> extractClusterDataA(const CompClusterExt& c, iterator& iter, const TopologyDictionary* dict, T& sig2Row, T& sig2Col)
 {
   auto pattID = c.getPatternID();
   sig2Row = DefClusError2Row;
-  sig2Col = DefClusError2Col; // Dummy COG errors (about half pixel size)
+  sig2Col = DefClusError2Col; // Default COG error (about half a pixel)
   if (pattID != CompCluster::InvalidPatternID) {
     sig2Row = dict->getErr2X(pattID);
     sig2Col = dict->getErr2Z(pattID);

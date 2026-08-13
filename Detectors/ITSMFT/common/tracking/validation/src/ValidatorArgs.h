@@ -5,17 +5,8 @@
 // This software is distributed under the terms of the GNU General Public
 // License v3 (GPL Version 3), copied verbatim in the file "COPYING".
 //
-// Gate 4 B1 Slice 1: CLI argument parsing/validation for the detached
-// nominal-geometry validator. Pure argc/argv logic -- never touches
-// GeometryTGeo, GeometryManager, or any file I/O -- so
-// testValidatorArgs.cxx exercises it without any geometry file or
-// synthetic-seam plumbing at all.
-//
-// Surface count is a required argument, not a compiled-in ITS=7/MFT=10
-// assumption: Gate 4 B1's accepted design forbids inventing detector
-// constants in this slice, and topology surface counts are exactly the kind
-// of fact the future ITSSurfaceSpec/MFTSurfaceSpec tables (not this tool)
-// are meant to become the authority on.
+// CLI argument parsing for the detached nominal-geometry validator.
+// This layer only processes argc/argv and does not access geometry or files.
 
 #ifndef ALICEO2_ITSMFT_VALIDATION_VALIDATORARGS_H_
 #define ALICEO2_ITSMFT_VALIDATION_VALIDATORARGS_H_
@@ -40,7 +31,7 @@ enum class OutputFormat : uint8_t {
 struct ValidatorArgs {
   std::string geometryPrefixOrPath{};
   DetectorSelection detector{DetectorSelection::ITS};
-  std::string detectorLabel{}; // as given on the command line, preserved verbatim for report provenance
+  std::string detectorLabel{}; // original command-line value for report provenance
   size_t surfaceCount{0};
   OutputFormat format{OutputFormat::Text};
 };
@@ -62,8 +53,7 @@ struct ArgParseResult {
   bool ok() const noexcept { return status == ArgParseStatus::Ok; }
 };
 
-// argv[0] (the program name) is expected at index 0, exactly as passed to
-// main(); parsing starts at argv[1].
+// argv[0] is the program name; parsing starts at argv[1].
 ArgParseResult parseValidatorArgs(int argc, const char* const* argv);
 
 const char* toString(ArgParseStatus status) noexcept;

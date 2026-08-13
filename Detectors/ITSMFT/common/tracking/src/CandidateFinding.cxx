@@ -6,12 +6,10 @@
 // License v3 (GPL Version 3), copied verbatim in the file "COPYING".
 ///
 /// \file CandidateFinding.cxx
-/// \brief Out-of-line tracklet, cell, and candidate-extension operations
+/// \brief Tracklet, cell, and candidate-extension operations
 ///
-/// Only this translation unit may include MFTFwdTrackHelpers.h on behalf of
-/// the D007 operation boundary, so the common public headers
-/// stays free of MFT-specific constants, TimeFrame, and typed-output
-/// dependencies.
+/// This is the only translation unit that includes MFTFwdTrackHelpers.h for
+/// D007, keeping public headers free of MFT-specific and typed-output dependencies.
 
 #include "ITSMFTTracking/detail/CandidateFinding.h"
 
@@ -277,13 +275,8 @@ bool acceptTrackletCandidate(
     window);
 }
 
-// --- Native cylinder/disk cell leaves ---
-//
-// The cell leaves are composed entirely from the existing
-// barrel::/forward:: primitives (BarrelSurfaceStateOperations.h/
-// ForwardSurfaceStateOperations.h) and the shared PID/absCharge-aware
-// material kernel (MaterialPhysics.h). See CandidateFinding.h for
-// the per-operation contract documentation.
+// Native cylinder/disk cell operations use the barrel/forward primitives and
+// the shared PID/absCharge-aware material kernel; see CandidateFinding.h for contracts.
 
 namespace
 {
@@ -433,8 +426,8 @@ bool trackletDirectionsAreTransverselyCompatible(
   }
   const double length01 = std::sqrt(lengthSquared01);
   const double length12 = std::sqrt(lengthSquared12);
-  // Profile the unknown signed curvature over the physical TrackletMinPt
-  // interval. Each asin is the chord's half central angle on one circle.
+  // Profile signed curvature over the physical TrackletMinPt interval;
+  // each asin is a chord's half central angle.
   const double maximumCurvature = std::min({std::abs(static_cast<double>(o2::constants::math::B2C) * bz) / trackletMinPt,
                                             2. / length01,
                                             2. / length12});
@@ -450,8 +443,8 @@ bool trackletDirectionsAreTransverselyCompatible(
      -deltaX01 / lengthSquared01 - deltaX12 / lengthSquared12},
     {-deltaY12 / lengthSquared12, deltaX12 / lengthSquared12},
   }};
-  // The middle-hit derivative retains the correlation between both chords;
-  // the outgoing transition kick changes their relative azimuth directly.
+  // The middle-hit derivative correlates both chords; the outgoing kick
+  // directly changes their relative azimuth.
   double variance = processNoise.angularVariance;
   for (std::size_t i = 0; i < observations.size(); ++i) {
     const double derivativeX = derivatives[i][0];
@@ -548,8 +541,8 @@ bool cellDirectionsAreCompatible(const std::array<DirectionObservation, 3>& obse
   const double outgoingR = last.r - middle.r;
   const double outgoingZ = last.z - middle.z;
   const double segmentDotProduct = incomingR * outgoingR + incomingZ * outgoingZ;
-  // A middle-point kick displaces the outer point by L*n*dTheta, hence
-  // dK/dTheta is the scalar product of the two segment vectors.
+  // A middle-point kick displaces the outer point by L*n*dTheta, so
+  // dK/dTheta is the segment-vector dot product.
   variance += segmentDotProduct * segmentDotProduct * processNoise.angularVariance;
   if (!std::isfinite(residual) || !std::isfinite(variance) || variance <= 0.) {
     return false;
@@ -699,8 +692,8 @@ bool buildCellSeed(
   const TrackingKernelParameters& params,
   OperationFailureReason& reason) noexcept
 {
-  // All three global observations are resolved by generic orchestration.
-  // Current native disk seeding is fully expressed by its local measurements.
+  // Generic orchestration resolves all global observations; disk seeding uses
+  // only local measurements.
   (void)globalOuter;
   switch (kind) {
     case SurfaceKind::Undefined:
@@ -804,15 +797,14 @@ bool attachDiskHit(
 float cylinderLayerMultipleScatteringAngle(
   const CylinderLayerScatteringInputs& inputs, float trackletMinPt)
 {
-  // Keep the established ITS expression:
-  // math_utils::MSangle(0.14f, trkParam.TrackletMinPt, trkParam.LayerxX0[iLayer]).
+  // Keep the established ITS MSangle expression.
   return o2::its::math_utils::MSangle(0.14f, trackletMinPt, inputs.layerxX0);
 }
 
 float diskLayerMultipleScatteringAngle(
   const DiskLayerScatteringInputs& inputs, float trackletMinPt)
 {
-  // zLayer and rRef are supplied explicitly by the caller.
+  // The caller supplies zLayer and rRef.
   const float invP = 1.f / trackletMinPt;
   const float zLayer = inputs.referenceCoordinate;
   const float rRef = inputs.layerRadius;
@@ -824,8 +816,8 @@ float diskLayerMultipleScatteringAngle(
 
 namespace
 {
-// Static nominal half-disk z coordinates used by the disk scattering helper;
-// compile-time storage gives returned spans process lifetime.
+// Static nominal half-disk z coordinates for disk scattering; compile-time
+// storage gives returned spans process lifetime.
 static constexpr std::array<float, o2::mft::constants::mft::LayersNumber> kLegacyMFTReferenceCoordinate =
   o2::mft::constants::mft::LayerZCoordinate();
 } // namespace

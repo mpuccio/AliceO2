@@ -41,9 +41,8 @@ namespace o2::itsmft::tracking
 
 #ifndef GPUCA_GPUCODE
 
-// Call-scoped native refit function supplied by the detector/workflow edge.
-// The generic road stage invokes this function only; publication and reset
-// remain outside the tracking transaction.
+// Call-scoped native refit supplied by the detector/workflow edge.
+// Publication and reset remain outside the tracking transaction.
 using SeedRefitFunction = bool (*)(const TrackSeed& seed,
                                    const TrackingParameters& params,
                                    float bz,
@@ -68,32 +67,24 @@ enum class TraversalFailureReason : uint8_t {
   MixedSurfaceKindLayout,
   SurfaceKindMismatch,
   InvalidSurfaceParameters,
-  // The iteration's index-table configuration failed structural validation.
+  // The iteration's index-table configuration is structurally invalid.
   InvalidIndexTableConfiguration,
-  // A non-FirstPass configuration disagrees with the configuration and LUT
-  // already owned by the TimeFrame.
+  // A non-FirstPass configuration disagrees with the TimeFrame's configuration or LUT.
   IndexTableConfigurationMismatch,
-  // Legacy LayerxX0 disagrees with the authoritative material for the mapped
-  // surface range, or that mapping is invalid/incomplete. Raised before
-  // TimeFrame tracking state is touched; the descriptor is never overwritten.
+  // LayerxX0 disagrees with mapped authoritative material, or the mapping is invalid.
+  // Raised before tracking state is touched; the descriptor is never overwritten.
   LegacyMaterialMismatch,
   // The active SurfaceKind does not support the configured MatCorrType.
-  // This is structural, so it is reset and rethrown regardless of drop
-  // policy. An unrecognized CorrType remains the distinct invalid-mode
-  // failure reported by AttachHitConfigView::isValid().
+  // This structural error is reset and rethrown regardless of drop policy.
+  // An unrecognized CorrType is reported separately by AttachHitConfigView::isValid().
   UnsupportedMaterialCorrectionMode,
-  // The per-position normalized-measurement binding disagrees with the
-  // loaded frame or legacy compatibility data: counts, surface identity,
-  // ClusterRef/source, or external index. Raised before TimeFrame state is
-  // touched; the non-owning spans are committed only on success.
+  // Per-position normalized measurements disagree with the loaded frame or
+  // compatibility data. Raised before tracking state is touched; spans commit only on success.
   NormalizedMeasurementMismatch,
-  // The iteration's orderedSurfaces does not define a bijection from plan
-  // positions to global SurfaceId (for example, a duplicate entry).
+  // orderedSurfaces does not map plan positions bijectively to global SurfaceId.
   SurfaceLayerMappingMismatch,
-  // An adopted SurfacePlanBinding cannot translate a traversal
-  // TransitionId/CellTopologyId into a compact scratch slot. This indicates
-  // a binding/layout mismatch, not event data, and is detected before the
-  // offending index addresses scratch storage.
+  // The adopted binding cannot translate a traversal ID to a compact scratch slot.
+  // This is a binding/layout mismatch, detected before scratch access.
   TraversalBindingMismatch
 };
 
@@ -115,9 +106,8 @@ class TraversalException final : public std::runtime_error
   TraversalFailureReason mReason{TraversalFailureReason::MissingLayout};
 };
 
-// The traits borrow the TimeFrame-owned workspace, plan binding, parameters,
-// and refit function for each call. All plan-sized bounds come from the
-// adopted runtime plan and scratch.
+// The traits borrow the TimeFrame workspace, plan binding, parameters, and
+// refit function. Plan-sized bounds come from the adopted plan and scratch.
 class TrackerTraits
 {
  public:
@@ -125,9 +115,7 @@ class TrackerTraits
   // Borrowed call-scoped pointers; neither object owns the other.
   virtual void adoptScratch(SurfaceTrackingScratch* scratch) { mScratch = scratch; }
   virtual void adoptFrame(TimeFrame* frame) { mFrame = frame; }
-  // `binding` is borrowed for subsequent Tracker::run() calls and is never
-  // owned or copied. It must describe the same graph iteration; a mismatch
-  // is reported as TraversalBindingMismatch.
+  // `binding` is borrowed, never owned or copied, and must match the graph iteration.
   void adoptSurfacePlanBinding(const SurfacePlanBinding* binding) noexcept { mBinding = binding; }
   // `graphs` is the caller-owned immutable graph vector for this call.
   virtual void initialiseTimeFrame(const int iteration, const std::vector<SurfaceGraph>& graphs);
@@ -141,9 +129,7 @@ class TrackerTraits
                     bounded_vector<TrackingCandidate>& tracks,
                     bounded_vector<bounded_vector<int>>& firstClusters);
 
-  // The generic result path keeps accepted CommonTrack/TrackSeed pairs until
-  // the workflow consumes the successful result. It contains no typed
-  // accepted-track vector.
+  // Keeps accepted CommonTrack/TrackSeed pairs until the workflow consumes the result.
   bounded_vector<TrackingCandidate>& acceptedTracksForSharedStatus();
   void clearAcceptedTracksForSharedStatus();
 
@@ -165,32 +151,14 @@ class TrackerTraits
   int getTFNumberOfCells() const { return mScratch->getNumberOfCells(); }
 
   bool hasTraversalCache() const noexcept { return mTraversalCacheValid; }
-  // Authoritative per-surface-position nominal material resolved once by the
-  // most recent successful initialiseTimeFrame() call, from
-  // SurfaceDescriptor::material via this iteration's orderedSurfaces mapping
-  // -- never inferred from a detector identity or geometry. Valid
-  // (and committed) only after initialiseTimeFrame() returns without
-  // throwing: a failed call -- for any reason, including one raised after
-  // material validation itself already passed -- leaves this exactly as
-  // resetTraversalCache() left it (reset/zero-filled), like every other
-  // traversal cache; hasTraversalCache() is the existing, single source of
-  // truth for whether the most recent call actually succeeded. Read-only
-  // test/inspection accessor; production consumption is through
-  // mAttachHitConfig, not this span directly.
+  // Nominal material resolved from SurfaceDescriptor::material and orderedSurfaces
+  // by the last successful initialiseTimeFrame(). It is committed only on success
+  // and reset otherwise. Read-only inspection; production uses mAttachHitConfig.
   gsl::span<const NominalSurfaceMaterial> getLayerMaterial() const noexcept { return {mLayerMaterial.data(), mLayerMaterial.size()}; }
-  // Authoritative per-surface-position normalized SurfaceMeasurement span,
-  // resolved once by the most recent successful initialiseTimeFrame() call
-  // from the already-loaded, already-validated
-  // TimeFrame event measurements via this iteration's orderedSurfaces
-  // mapping -- never re-decoded, re-projected, or re-validated per candidate.
-  // Same commit/reset contract as getLayerMaterial() above: valid only after
-  // a successful initialiseTimeFrame() call, reset to empty spans by
-  // resetTraversalCache() otherwise. Every span is non-owning and remains
-  // valid only while the owning TimeFrame's normalized frame is alive and
-  // has not been cleared/reloaded (see TimeFrame's event-data lifetime
-  // documentation). Read-only test/inspection accessor; production
-  // consumption is through the private mLayerMeasurements member directly in
-  // computeLayerCellsImpl/processNeighbours.
+  // Normalized measurements resolved once by the last successful
+  // initialiseTimeFrame(), using orderedSurfaces. Spans are non-owning, reset
+  // on failure, and valid only while the TimeFrame's normalized frame is alive.
+  // Read-only inspection; production uses mLayerMeasurements.
   gsl::span<const gsl::span<const SurfaceMeasurement>> getLayerMeasurements() const noexcept { return {mLayerMeasurements.data(), mLayerMeasurements.size()}; }
   gsl::span<const gsl::span<const GlobalMeasurement>> getLayerGlobalMeasurements() const noexcept { return {mLayerGlobalMeasurements.data(), mLayerGlobalMeasurements.size()}; }
 
@@ -199,7 +167,7 @@ class TrackerTraits
   void validateSparsePlan(int iteration, const SurfaceGraphView& graph) const;
   int requireSurfacePosition(int iteration, SurfaceId id) const;
 
-  // Sole global-ID to compact-scratch-slot translation used by this class.
+  // Global-ID to compact-scratch-slot translation used by this class.
   int requireScratchTransitionSlot(int iteration, TransitionId id) const;
   int requireScratchCellSlot(int iteration, CellTopologyId id) const;
 
@@ -224,8 +192,7 @@ class TrackerTraits
   template <typename InputSeed>
   void processNeighbours(int iteration, int defaultCellTopologyId, int iLevel, const bounded_vector<InputSeed>& currentCellSeed, const bounded_vector<int>& currentCellId, const bounded_vector<int>& currentCellTopologyId, bounded_vector<TrackSeed>& updatedCellSeed, bounded_vector<int>& updatedCellId, bounded_vector<int>& updatedCellTopologyId, const TrackingKernelParameters& params);
 
-  // Fills scratch-owned transition arrays in the binding's ordered sparse
-  // transition order after fallible validation. This method does not throw.
+  // Fills scratch transition arrays in binding order after validation. No throw.
   void prepareTransitionScatteringAndBending(int iteration,
                                              const LayerGeometryConfigView& geometryConfig,
                                              const DiskReferenceCoordinateView& referenceCoordinateView,
@@ -242,34 +209,18 @@ class TrackerTraits
   gsl::span<const float> mDiskLayerReferenceZ{};
   std::vector<float> mDiskLayerReferenceZStorage;
   AttachHitConfigView mAttachHitConfig;
-  // Authoritative per-surface-position nominal material, resolved once per
-  // initialiseTimeFrame() from SurfaceDescriptor::material via this
-  // iteration's orderedSurfaces mapping (never inferred from detector identity,
-  // radius, z, or numeric ordering). SurfaceDescriptor::material is
-  // authoritative and is never overwritten here; this is a compatibility
-  // cache for the current leaf operations.
+  // Per-position material resolved from SurfaceDescriptor::material through
+  // orderedSurfaces. This compatibility cache is not written back to the descriptor.
   //
-  // Commit contract: resolved into a local scratch array first and only
-  // copied here at the very end of initialiseTimeFrame(), alongside every
-  // other traversal cache -- never as soon as
-  // material validation itself passes. A later fallible check in the same
-  // call (index-table binding, legacy topology parity, state-family, or any
-  // other surface-kind/geometry validation) must not leave this populated from an
-  // iteration that ultimately failed; resetTraversalCache() zero-fills it at
-  // the top of every call, and it stays that way unless the call returns
-  // normally. See getLayerMaterial()'s doc for the read-side contract.
-  // Host-only plan-sized cache. The position is the adopted binding's ordered
-  // surface position; current leaf operations consume these per-position
-  // parameter spans directly.
+  // Staged locally and committed with the other traversal caches only when
+  // initialiseTimeFrame() succeeds; resetTraversalCache() clears it otherwise.
+  // Host-only plan-sized cache indexed by the binding's ordered surface position.
   std::vector<NominalSurfaceMaterial> mLayerMaterial;
-  // Non-owning per-surface-position spans into the TimeFrame-owned normalized
-  // frame. They are staged and committed with the traversal cache, then
-  // cleared on failed initialization.
-  // Host-only non-owning view, sized to the adopted ordered surface span.
+  // Non-owning spans into the TimeFrame normalized frame, staged with the
+  // traversal cache and cleared on failed initialization.
   std::vector<gsl::span<const SurfaceMeasurement>> mLayerMeasurements;
   std::vector<gsl::span<const GlobalMeasurement>> mLayerGlobalMeasurements;
-  // Generic accepted candidates are retained only until shared-cluster
-  // marking and the final adapter-owned publication seal complete.
+  // Accepted candidates retained until shared-cluster marking and publication finish.
   bounded_vector<TrackingCandidate> mAcceptedTracksForSharedStatus;
   // Non-owning pointer to the adopted plan binding.
   const SurfacePlanBinding* mBinding = nullptr;

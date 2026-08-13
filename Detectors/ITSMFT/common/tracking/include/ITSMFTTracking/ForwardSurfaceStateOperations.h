@@ -18,58 +18,54 @@
 namespace o2::itsmft::tracking::forward
 {
 
-// Disk measurements use global x/y as u/v, including the full uu/uv/vv
-// covariance. chi2 is unchanged on failure.
+// Disk measurements use global x/y as u/v and the full uu/uv/vv covariance.
+// chi2 is unchanged on failure.
 bool predictedChi2(const SurfaceKinematicState& state, const SurfaceMeasurement& measurement, float& chi2,
                    OperationFailureReason& reason) noexcept;
 
-// Returns the chi2 increment through chi2 and applies the 2D Kalman update.
-// Both outputs are unchanged on failure.
+// Return the chi2 increment and apply the 2D Kalman update. Outputs are
+// unchanged on failure.
 bool update(SurfaceKinematicState& state, const SurfaceMeasurement& measurement, float& chi2,
             OperationFailureReason& reason) noexcept;
 
-// Variance core used by the forward Highland operation.
+// Variance core for the forward Highland operation.
 constexpr float highlandTheta2(float inverseMomentum, float xOverX0) noexcept
 {
   const float theta = 0.0136f * inverseMomentum;
   return theta * theta * xOverX0;
 }
 
-// Forward Highland MCS correction; this overload is mass/PID/absCharge
-// agnostic and remains separate from the scalar material kernel below.
+// Mass/PID/absCharge-agnostic forward Highland MCS correction.
 bool correctForMaterial(SurfaceKinematicState& state, float xOverX0, OperationFailureReason& reason) noexcept;
 
-// PID/absCharge-aware material correction through the shared scalar kernel;
-// the projected covariance is committed transactionally. Diagnostics follow
-// MaterialOperationResult and the 92-byte state is unchanged unless result.ok().
+// PID/absCharge-aware correction through the shared scalar kernel. Covariance
+// is committed transactionally; diagnostics follow MaterialOperationResult,
+// and the 92-byte state changes only if result.ok().
 material::MaterialOperationResult correctForMaterial(SurfaceKinematicState& state, material::IntegratedMaterialBudget materialBudget,
                                                      material::MaterialTraversalDirection direction) noexcept;
 
-// Same-family compatibility chi2 between two forward states expressed at the
-// same reference Z. Residuals are the direct (unwrapped) differences of
-// (X, Y, Phi, Tanl, InvQPt), preserving the legacy same-family behavior of
-// detail::mftFwdStateChi2. Neither input is mutated and chi2 is unchanged on
+// Same-disk compatibility chi2 for states at the same reference Z, using
+// direct (unwrapped) differences of (X, Y, Phi, Tanl, InvQPt), as in the
+// legacy detail::mftFwdStateChi2. Inputs are unchanged; chi2 is unchanged on
 // failure.
 bool stateChi2(const SurfaceKinematicState& reference, const SurfaceKinematicState& candidate, float& chi2,
                OperationFailureReason& reason) noexcept;
 
 #ifndef GPUCA_GPUCODE
 
-// Builds an outer-anchored forward/disk three-hit seed from ordered
-// {inner, middle, outer} measurements. The outer frame supplies z and
-// covariance; trackletMinPt uses the established `(trackletMinPt > 0.f) ?
-// 1.f/trackletMinPt : 0.f` fallback. Finite-input checks precede the strict
-// boundary requiring inner z to exceed outer z by 1e-6f and all relevant
-// separations to exceed 1e-6f, followed by the NonFiniteOutput check.
-// Construction is scratch-then-commit and leaves outState unchanged on failure.
+// Build an outer-anchored forward/disk seed from ordered {inner, middle,
+// outer} measurements. The outer frame supplies z/covariance. For
+// trackletMinPt<=0, use the established invQPt=0 fallback. Validate finite
+// inputs, then require inner z and all relevant separations to exceed 1e-6f;
+// report invalid results as NonFiniteOutput. Build in scratch storage and
+// leave outState unchanged on failure.
 bool buildSeed(const SurfaceMeasurement& measurementInner, const SurfaceMeasurement& measurementMiddle,
                const SurfaceMeasurement& measurementOuter, float bz, float trackletMinPt,
                uint8_t absCharge, o2::track::PID pid,
                SurfaceKinematicState& outState, OperationFailureReason& reason) noexcept;
 
-// Sets a forward reference's X/Y parameters from measurement u/v (q=z),
-// without changing referenceCoordinate, alpha, Phi, Tanl, or InvQPt.
-// Requires a forward reference and finite u/v; failure leaves it unchanged.
+// Set a forward reference's X/Y from measurement u/v (q=z), leaving all
+// other fields unchanged. Requires a forward reference and finite u/v.
 bool shiftReferenceToMeasurement(SurfaceLinearizationReference& linRef, const SurfaceMeasurement& measurement,
                                  OperationFailureReason& reason) noexcept;
 

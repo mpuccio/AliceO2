@@ -29,14 +29,10 @@ JsonStdoutGuard::JsonStdoutGuard()
 
 JsonStdoutGuard::~JsonStdoutGuard()
 {
-  // Deliberately does not dup2() the original binding back onto fd 1:
-  // GeometryTGeo's singleton destructor logs again during static teardown
-  // after main() returns -- after every call site that owns a
-  // JsonStdoutGuard has already gone out of scope and emitted its payload.
-  // Restoring stdout here would let that later noise reach the real stdout
-  // after all; fd 1 stays bound to stderr for the remainder of the
-  // process's life instead. Only the duplicated fd this instance owns is
-  // closed.
+  // Keep fd 1 bound to stderr: GeometryTGeo's singleton destructor logs
+  // during static teardown after guarded call sites have emitted JSON.
+  // Restoring stdout would send that late noise to the real stdout.
+  // Close only the duplicated descriptor owned by this instance.
   if (mOriginalStdoutFd >= 0) {
     ::close(mOriginalStdoutFd);
   }
