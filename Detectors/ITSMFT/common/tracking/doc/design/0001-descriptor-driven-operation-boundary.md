@@ -12,7 +12,7 @@ Companion harness: `Detectors/ITSMFT/common/tracking/test/testNativeCylinderCyli
 (new, M5a — see [Section 6](#6-ab-harness-summary)).
 
 This note is deliberately narrower than ADR 0007: it does not revisit the
-end-state boundary (permanent `TimeFrame`/`CommonTrack`, one `TrackingEngine`,
+end-state boundary (permanent `TimeFrame`/`GenericTrack`, one `TrackingEngine`,
 detectors as adapters) or the milestone sequencing. It only answers one
 question ADR 0007 decision 10 leaves open: *exactly which functions, at
 exactly what granularity, are the "narrow, explicit surface-operation

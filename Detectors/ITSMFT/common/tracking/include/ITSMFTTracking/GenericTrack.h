@@ -25,17 +25,9 @@
 namespace o2::itsmft::tracking
 {
 
-// Detector-neutral element of the TimeFrame-owned flat track-membership
-// array (TimeFrame::getTrackClusterIndices()). `surface` identifies which
-// surface's own measurement array `index` is a position into -- measurements
-// are owned per surface by TimeFrame, never as one
-// flattened global array, so a bare SurfaceMeasurementIndex alone is never a
-// complete identity: it must always be paired with the SurfaceId it is local
-// to. A reference resolves through exactly one call:
-//   normalizedFrame.getGlobalMeasurement(reference.surface, reference.index)
-// Never a detector-local raw cluster index or external cluster ID: those
-// remain ClusterRef's job (source-qualified, ITSMFTTracking/
-// SurfaceMeasurement.h), a different identity axis entirely.
+// A measurement index is local to its surface. Resolve a reference through
+// TimeFrame::getGlobalMeasurement(surface, index); raw external cluster IDs
+// remain source-qualified ClusterRef data.
 struct TrackClusterReference {
   SurfaceId surface{};
   SurfaceMeasurementIndex index{};
@@ -48,38 +40,10 @@ static_assert(alignof(TrackClusterReference) == 4);
 static_assert(offsetof(TrackClusterReference, surface) == 0);
 static_assert(offsetof(TrackClusterReference, index) == 4);
 
-// Detector-neutral common-CA result owned by the TimeFrame. Publication
-// adapters remain outside the tracking core.
-//
-// Cluster membership is a half-open range of positions in the TimeFrame-owned
-// trackClusterIndices array. References resolve through the normalized frame
-// and are stored in inner-to-outer traversal order.
-//
-// innerState/outerState carry the SurfaceKind-selected SurfaceKinematicState;
-// hitSurfaces is the global 32-bit SurfaceMask. A completed track resolves
-// every reference in the range and has their union in hitSurfaces.
-//
-// timestamp is GenericTrackTimestamp (ITSMFTTracking/SurfaceTiming.h), the
-// common TFBC-based half-open BC interval -- not o2::its::TimeEstBC, which
-// is not standard-layout (its TimeStampWithError/TimeStamp base hierarchy
-// declares non-static data members at more than one level) and is an
-// ITS-namespaced type despite being reused elsewhere in this library.
-//
-// Lifetime: track-cluster-reference storage and GenericTrack storage are
-// TimeFrame event data. Both are cleared together with every other
-// per-event CA artefact by TimeFrame::resetEvent(), and are also cleared together,
-// in the same successful commit, whenever TimeFrame::loadNormalizedSource()
-// replaces the normalized frame they were built against (a stale
-// GenericTrack/trackClusterIndices pair referencing measurements from a
-// now-replaced normalized frame is not meaningful and must not survive a
-// reload). A *failed* loadNormalizedSource() call leaves the normalized
-// frame, GenericTrack storage and trackClusterIndices all completely
-// unchanged, matching that call's existing transactional contract for every
-// other TimeFrame member. A GenericTrack's range, and every
-// TrackClusterReference it reaches, are only meaningful together with the
-// TimeFrame's normalized frame that was current when the track was built;
-// none of the three is individually meaningful once any of the other two
-// has been wiped or reloaded.
+// Detector-neutral result owned by TimeFrame. Its reference range is
+// inner-to-outer in the frame-owned trackClusterIndices array; hitSurfaces is
+// their union. The result and its references are valid only with the same
+// normalized frame and are cleared atomically on event reset or replacement.
 struct GenericTrack {
   SurfaceKinematicState innerState{};
   SurfaceKinematicState outerState{};

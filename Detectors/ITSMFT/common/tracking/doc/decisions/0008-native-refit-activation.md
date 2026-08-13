@@ -27,7 +27,7 @@ tracklet/cell/road/refit flow" ADR 0007 decision 10 requires, and both still `Tr
 
 1. Both `DetectorTraits::refitSeed` branches (ITS/barrel and MFT/forward) now call the
    same shared, descriptor-driven native refit orchestration
-   (`fitTrackSeedLegs<NLayers>`, `NativeRefitDriver.h`, built on the new `Propagator`
+   (`fitTrackSeedLegs<NLayers>`, `RefitDriver.h`, built on the new `Propagator`
    class, `Propagator.h`/`.cxx`) instead of either frozen legacy Kalman engine.
 2. This is an intentional, approved numerical-departure commit range. Native and frozen
    output are not expected to agree, and this decision does not claim they do -- see
@@ -261,7 +261,7 @@ not make or imply.
 found it has no covariance-sanitization mechanism of any kind (confirmed by inspection:
 its track-parametrization type does not inherit from `TrackParametrizationWithError`;
 its fitter never calls anything resembling `checkCovariance()`). Reusing
-`NativeRefitDriver.h`'s `resetCovarianceForRefit` ceilings as a forward sanitizer
+`RefitDriver.h`'s `resetCovarianceForRefit` ceilings as a forward sanitizer
 diagonal bound (as the first correction pass did) had no legacy-derived rationale --
 that function's own doc comment already discloses those are new, invented ceiling
 constants, not a ported policy. Forward's diagonal-range-clamp sub-pass is now disabled

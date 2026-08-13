@@ -13,6 +13,10 @@ workflows, physics, configuration, defaults, comments, or public API. Every
 implementation item below remains separately reviewable and must pass its
 stated gate.
 
+> Historical inventory note: this audit predates the `CommonTrack` to
+> `GenericTrack` rename. Its references to the retired `CommonTrackShadow`
+> are evidence of the prior boundary, not a proposed current type.
+
 ## 1. Fixed architectural boundary and non-goals
 
 The audit preserves these responsibilities:
@@ -79,7 +83,7 @@ Classification keys used below are exactly the requested categories:
 | `ClusterDecoder.h` | 3 | Merge into `ClusterDecoding.h`; decoder interface and geometry adapter are one host decoding boundary. |
 | `ClusterDecoding.h` | 1 | Destination for the complete host decoding boundary; keep separate from device measurement values. |
 | `ClusterSource.h` | 3 | Merge into `IOUtils.h`; the input declaration has no lifecycle outside a loader call. |
-| `CommonTrack.h` | 1 | Device-portable generic result and membership reference. |
+| `GenericTrack.h` | 1 | Device-portable generic result and membership reference. |
 | `CommonTrackOutputAdapter.h` | 1 | Host application output staging; remains outside the generic tracking core. |
 | `CommonTrackShadow.h` | 2 | TrackerTraits-only transactional result-commit implementation. |
 | `ConfigKeyValuesPreflight.h` | 1 | DPL-free configuration-string validation boundary. |
@@ -102,12 +106,12 @@ Classification keys used below are exactly the requested categories:
 | `MultiSourceFrame.h` | 1 | Owning normalized event frame plus device-facing read-only view. |
 | `MultiSourceLoading.h` | 3 | Merge into `IOUtils.h`; errors/results/free staging belong to loader lifecycle. |
 | `IOUtils.h` | 1 | Architectural non-owning atomic Loader; destination for its declarations and failures. |
-| `NativeRefitDriver.h` | 1 | Family-neutral whole-seed refit sequencing over `Propagator`. |
+| `RefitDriver.h` | 1 | Family-neutral whole-seed refit sequencing over `Propagator`. |
 | `ITSMFTDetectorDefinitions.h` | 1 | Shared detector-default data used by configuration and static catalogs; merging would widen a high-fan-in include. |
 | `Propagator.h` | 1 | Descriptor-driven propagation and refit-leg operation boundary. |
 | `ROFTimingUniformity.h` | 3 | Merge into `SurfaceTiming.h`; one validation/result used only to construct timing configuration. |
 | `ROFViews.h` | 1 | Device-portable, non-owning runtime timing/mask views. |
-| `RefitLegAssembly.h` | 3 | Merge into `NativeRefitDriver.h`; its only production consumer is that driver. |
+| `RefitLegAssembly.h` | 3 | Merge into `RefitDriver.h`; its only production consumer is that driver. |
 | `SeedAnchor.h` | 4 | Delete with the unused anchor-taking overloads after downstream evidence; `Inner` is test/historical only. |
 | `SurfaceKind.h` | 1 | Small but real device-shared representation tag; isolation prevents pulling the 259-line state into kernel-operation headers. It is not a replacement topology/dispatch policy. |
 | `ITSMFTDetectorDefinitions.h` | 1 | Compile-time ITS/MFT catalog data and runtime projection; absorbs both detector spec files. |
@@ -146,18 +150,18 @@ Classification keys used below are exactly the requested categories:
 Paths in consumer lists are relative to `Detectors/ITSMFT/` unless stated
 otherwise. Tests are exact direct header consumers at the audited revision.
 
-### 4.1 `RefitLegAssembly.h` into `NativeRefitDriver.h` (independent mechanical slice)
+### 4.1 `RefitLegAssembly.h` into `RefitDriver.h` (independent mechanical slice)
 
 - **Responsibility/lifecycle:** assembling the three traversal-ordered refit
   legs immediately before the native driver executes them.
 - **Why accidental:** `assembleRefitLegSlots()` has one production include,
-  `NativeRefitDriver.h`; its file comment still says “unwired” although all
+  `RefitDriver.h`; its file comment still says “unwired” although all
   three driver legs call it.
 - **API/dependencies:** retain the inline function and tests; replace includes,
   then delete the old header. No added dependency because the driver already
   includes `Cell.h` and measurement types transitively.
 - **Host/device:** both declarations are under `!GPUCA_GPUCODE`; unchanged.
-- **Exact consumers:** `common/tracking/include/ITSMFTTracking/NativeRefitDriver.h`
+- **Exact consumers:** `common/tracking/include/ITSMFTTracking/RefitDriver.h`
   and `common/tracking/test/testRefitLegAssembly.cxx`.
 - **Smallest slice:** move the function byte-for-byte, update the test include,
   delete the file and its stale “unwired/Gate 3” prose.
@@ -176,7 +180,7 @@ otherwise. Tests are exact direct header consumers at the audited revision.
   `SurfaceMask.h` already includes `LayerMask.h` solely for positional
   conversion. Neither tiny file owns an independent lifecycle.
 - **API/dependencies:** names, widths, layout assertions, and semantics remain.
-  `CommonTrack.h`, `MultiSourceFrame.h`, and `testSurfaceSpec.cxx` change the
+  `GenericTrack.h`, `MultiSourceFrame.h`, and `testSurfaceSpec.cxx` change the
   index include. Mask direct consumers are `Cell.h`, `Configuration.h`,
   `SurfaceMask.h`, `SurfaceTrackingScratch.cxx`, `TrackerTraits.cxx`,
   `testLayerMask.cxx`, and `testSurfaceMask.cxx`.
@@ -220,7 +224,7 @@ Merge `SurfaceCatalogView.h` into `SurfaceDescriptor.h`,
   destination concept.
 - **API/dependencies:** catalog-view direct consumers are
   `compileCommonTrackerOnboarding.cxx`, `MFTFwdTrackHelpers.h`,
-  `MultiSourceLoading.h`, `NativeRefitDriver.h`, `Propagator.h`,
+  `MultiSourceLoading.h`, `RefitDriver.h`, `Propagator.h`,
   `SurfaceGraph.h`, `SurfaceGraphBuilder.h`, `SurfaceTrackingScratch.h`,
   `TrackingOperationAdapter.h`, `detail/TransitionPolicyOperations.h`,
   `testCombinedStaticSurfaceCatalogTopology.cxx`, and
@@ -391,7 +395,7 @@ says M5 removes.
   `TrackingParameters` is private `TrackerTraits.cxx` initialization code.
   Existing `BarrelSurfaceStateOperations.h`,
   `ForwardSurfaceStateOperations.h`, `Propagator.h`, and
-  `NativeRefitDriver.h` remain the state/refit leaves; do not duplicate them.
+  `RefitDriver.h` remain the state/refit leaves; do not duplicate them.
 - **Host/device boundary:** the compact replacement parameter records retain
   standard-layout/trivially-copyable, size, alignment, offset, finite-value,
   and `GPUhdi` contracts. Graph scheduling and `TrackingParameters` binding
@@ -491,7 +495,7 @@ Condense, Move to Markdown, and Delete. Replacement text follows `=>`.
 | `ClusterDecoder.h` | K/C 24-34 host-only/lifetime contract. D 48-52 obvious production-adapter narration. K 69-71 fail-before-geometry rule. |
 | `ClusterDecoding.h` | K 21-23 typed-boundary distinction and 37-41 bounded-cursor invariant; condense each to two lines. |
 | `ClusterSource.h` | K/C 27-33 ownership/ID contract; K 43-51 exact ROF partition failure contract; C 38-41 and 60-62 field narration. |
-| `CommonTrack.h` | C 25-35 => “Reference index is local to `surface`; resolve through `MultiSourceFrame::getMeasurement`.” M 48-99 architecture/lifetime essay; retain range, traversal order, and same-frame lifetime in 6 lines. C 110-119 ABI rationale. K 123-127 range invariant. |
+| `GenericTrack.h` | C 25-35 => “Reference index is local to `surface`; resolve through `MultiSourceFrame::getMeasurement`.” M 48-99 architecture/lifetime essay; retain range, traversal order, and same-frame lifetime in 6 lines. C 110-119 ABI rationale. K 123-127 range invariant. |
 | `CommonTrackOutputAdapter.h` | K 7-9 host/DPL boundary, 58-59 source-local ownership, 168-170 deterministic ordering, 194-195 out-of-span publication rule, and 358-360 persisted-chi2 rule; condense 168-170 wording to remove obsolete scratch reference. |
 | `CommonTrackShadow.h` | K 25-26, 74-78 transactional owner-thread/rollback contract, 102-103 reserve-before-append invariant. D 41-43 ITS-specific historical rationale. |
 | `ConfigKeyValuesPreflight.h` | C 36-57 to a 5-line parse/fail-closed contract; move option history/diagnostics examples to Markdown. |
@@ -514,7 +518,7 @@ Condense, Move to Markdown, and Delete. Replacement text follows `=>`.
 | `MultiSourceFrame.h` | K/C 32-55 device view/ownership, 63-94 bounds/null rules, 141-180 cached-pointer move/swap lifetime, 196-207 lookup/labels, 221-241 staged construction/cache rebuild. M 118-135 architecture history; retain owner/lifetime rule only. |
 | `MultiSourceLoading.h` | K/C 34-43 decoder/kind failure distinctions, 74-79 timing detail, 85-94 atomic failure contract. M/D 46-54 Gate/pre-slice history; describe current not-configured and reserved-value semantics only. |
 | `IOUtils.h` | K 4-6 component ownership and 24-25 atomicity; combine into one class comment. |
-| `NativeRefitDriver.h` | M 27-34 M5d history. K/C 38-53 covariance physics rationale, 77-80 q/pT formula, 93-106 leg ordering/transaction. D 153-154 section banner after names make order clear. |
+| `RefitDriver.h` | M 27-34 M5d history. K/C 38-53 covariance physics rationale, 77-80 q/pT formula, 93-106 leg ordering/transaction. D 153-154 section banner after names make order clear. |
 | `ITSMFTDetectorDefinitions.h` | K/C 15-37 source/units/default provenance; remove milestone wording. |
 | `Propagator.h` | M 26-46 milestone/ADR narrative. K/C 53-134 conversion, propagation, hole, direction, and transactional contracts; remove decorative section rulers. |
 | `ROFTimingUniformity.h` | D 15-17 “detail/not API” once merged. K/C 33-42 exact uniformity fields and empty-input result. |

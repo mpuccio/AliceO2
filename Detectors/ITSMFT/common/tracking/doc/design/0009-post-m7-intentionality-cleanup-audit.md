@@ -152,10 +152,10 @@ ITS or MFT DPL task
         +-- scratch.loadNormalizedSource(frame, ...)
         +-- Tracker::clustersToTracks(adapter = interface)
         |     +-- TrackerTraits: tracklets -> cells -> neighbours -> roads
-        |     +-- adapter refit -> generic CommonTrack
+        |     +-- adapter refit -> generic GenericTrack
         |     +-- adapter accepted-result compatibility
         +-- translate TrackingResult to float/drop sentinel
-        +-- workflow consumes CommonTrack and sidecars
+        +-- workflow consumes GenericTrack and sidecars
 ```
 
 The DPL task owns the actual event boundary, but the interface owns most event
@@ -198,7 +198,7 @@ DPL task (standalone or combined)
   +-- TimeFrame entity
   |     owns vector<SurfaceGraph> + per-iteration partitions/parameters
   |     owns allocator-backed workspaces
-  |     owns normalized measurements + CommonTrack results
+  |     owns normalized measurements + GenericTrack results
   |
   +-- Loader::load(TimeFrame&, normalized source inputs/views)
   |
@@ -246,7 +246,7 @@ Standalone/combined DPL task
        |
        +--> TimeFrame
        |      owns vector<SurfaceGraph>, partitions, parameters, pool,
-       |      workspaces, normalized event data, and CommonTrack results
+       |      workspaces, normalized event data, and GenericTrack results
        |
        +--> MultiSourceTimeFrameLoader::load(TimeFrame&, inputs)
        |
@@ -256,7 +256,7 @@ Standalone/combined DPL task
               +--> generic event transaction over borrowed frame state
               +--successful result--> application publication adapter
 
-TimeFrame <----- normalized measurements, CommonTrack results, and
+TimeFrame <----- normalized measurements, GenericTrack results, and
                 TimeFrame-owned graph partitions/bindings
 ROFViews <----- borrowed by core; built and owned at adapter edge
 TrackingOperationAdapter <----- refit + accepted compatibility + reset seam
@@ -358,12 +358,12 @@ invalidation must be pinned first.
 ### 6.4 Tracking and publication
 
 There is one CA algorithm body, but two adapter entry paths. Publication is
-also split: generic `CommonTrack` append occurs in the tracker path,
+also split: generic `GenericTrack` append occurs in the tracker path,
 `TrackingOperationAdapter::completeAccepted()` stages compatibility, the
 participant exposes a publication export, and the workflow builds typed
 outputs. The intended split is simpler:
 
-- `Tracker` produces generic accepted results and `CommonTrack` references;
+- `Tracker` produces generic accepted results and `GenericTrack` references;
 - a detector application adapter converts the successful generic result;
 - the workflow owns validity, clocks, raw ROFs, and final publication.
 
@@ -465,10 +465,10 @@ listed files share one disposition; it does not imply a new module.
 
 | Files/modules | Current owner and recommendation |
 |---|---|
-| `BarrelSurfaceStateOperations.h`, `ForwardSurfaceStateOperations.h`, `SurfaceStateOperationResult.h`, `MaterialPhysics.h`, `Propagator.h`, `NativeRefitDriver.h`, `RefitLegAssembly.h`, `SurfaceLinearizationReference.h` | Narrow descriptor/state leaf operations and native refit. Generic core; retain. Any formula, covariance, material, leg, or ordering consolidation needs physics approval. |
+| `BarrelSurfaceStateOperations.h`, `ForwardSurfaceStateOperations.h`, `SurfaceStateOperationResult.h`, `MaterialPhysics.h`, `Propagator.h`, `RefitDriver.h`, `RefitLegAssembly.h`, `SurfaceLinearizationReference.h` | Narrow descriptor/state leaf operations and native refit. Generic core; retain. Any formula, covariance, material, leg, or ordering consolidation needs physics approval. |
 | `NativeCylinderCylinderRefitDriver.h` | Pre-activation comparison driver with no production caller; tests and P1-era characterization still name it. Archive unique evidence, then delete or fold only genuinely unique test helpers into the live driver. |
 | `Cell.h`, `SeedAnchor.h`, `LayerMask.h`, `SurfaceMask.h`, `SurfaceMeasurementIndex.h` | Device-safe CA value types and fixed-capacity metadata. Retain fixed capacity with runtime active prefixes. Do not remove live `SeedMetadataBase<N>` used by `CellSeed`. |
-| `CommonTrack.h`, `CommonTrackShadow.h`, `CommonTrackOutputAdapter.h`, `MCLabelAccumulator.h` | Generic result and adapter conversion utilities. Keep `CommonTrack`; move detector-shaped output helpers outward if their callers are only workflows. Audit `CommonTrackShadow` after P1 tooling no longer needs it. |
+| `GenericTrack.h`, `GenericTrackOutputAdapter.h`, `MCLabelAccumulator.h` | Generic result and adapter conversion utilities. Keep `GenericTrack`; move detector-shaped output helpers outward if their callers are only workflows. |
 | `ClusterSource.h`, `DecodedCluster.h`, `ClusterDecoding.h`, `ClusterDecoder.h`, `MultiSourceFrame.h`, `MultiSourceLoading.h`, `TimeFrameLoadFailure.h` | Generic normalized multi-source input and transactional decoding. Retain. Narrow includes where implementation-only decoder dependencies leak into public headers. |
 | `ClockTimingPublicationView.h`, `SurfaceTiming.h`, `ROFTimingUniformity.h`, `ROFViews.h` | Runtime timing views and validation. Retain generic views; timing construction and publication clocks stay workflows/adapters. |
 | `Configuration.h`, `TrackingConfigParam.h`, `ConfigKeyValuesPreflight.h`, `IndexTableConfiguration.h`, `IndexTableUtils.h` | Algorithm parameters/configuration and fixed-capacity index tables. Retain live runtime-prefix storage. Detector-named configuration registration is adapter compatibility, not a core routing authority; move only under a separately gated configuration migration. |
@@ -494,7 +494,7 @@ listed files share one disposition; it does not imply a new module.
 
 | Rank | Exact files/action | Current callers | Replacement owner | Required gate | Deletion criterion |
 |---:|---|---|---|---|---|
-| 1 | Delete the three unused common typed-MFT refit/export files and their CMake entry. Migrate `testMFTNormalizedRefit.cxx` away from typed export. | No production caller; only `testMFTNormalizedRefit`, M7 guards, and stale CMake comments. | Existing generic `MFTFwdTrackHelpers`/`NativeRefitDriver` result path; MFT workflow publication already consumes `CommonTrack`/adapter compatibility. | Focused native-refit and MFT publication tests, full serial `itsmft` suite, 43/43 fixture checks, 212/68 hashes, combined-leg and writer parity. | **Completed by L0:** repository search finds no common typed-MFT refit/export symbol or CMake entry; no production target loses a symbol. |
+| 1 | Delete the three unused common typed-MFT refit/export files and their CMake entry. Migrate `testMFTNormalizedRefit.cxx` away from typed export. | No production caller; only `testMFTNormalizedRefit`, M7 guards, and stale CMake comments. | Existing generic `MFTFwdTrackHelpers`/`RefitDriver` result path; MFT workflow publication already consumes `GenericTrack`/adapter compatibility. | Focused native-refit and MFT publication tests, full serial `itsmft` suite, 43/43 fixture checks, 212/68 hashes, combined-leg and writer parity. | **Completed by L0:** repository search finds no common typed-MFT refit/export symbol or CMake entry; no production target loses a symbol. |
 | 2 | Move the `Tracker` declaration/definition from `CATracker.{h,cxx}` to canonical `Tracker.{h,cxx}` and delete the forwarding/stale file names. | Common tracker users include either name; `TrackingInterface.h` is the forwarding header's production consumer found. | `Tracker.{h,cxx}`. | Build all common/ITS/MFT/combined targets; public-header dependency guard. | One canonical Tracker header/source and no `CATracker` implementation filename. |
 | 3 | Delete scratch member `mPValphaX` and allocator/reset/swap bookkeeping. | No read or semantic write found; only initialization, clearing, allocator-match, and swap. | None. | Scratch allocator/swap/reset tests, sanitizer-capable focused tests, full suite and replay. | No field/reference remains and staged/live allocator matching still passes. |
 | 4 | Use one scratch reset name; delete forwarding `resetScratch()` after changing direct callers to `reset()`. | Participant, loader wrapper, and migration-era tests. | `SurfaceTrackingScratch::reset()`. | Reset ordering, retry, dropped/structural failure tests. | One public scratch reset method and no semantic change in ordering. |
@@ -519,7 +519,7 @@ review and regression localization worse.
 | 9 | Make the `TrackerTraits` architecture contract explicit and port tests away from assuming CPU is the only backend; retain virtual kernel entry points. | Tracker, direct kernel fixtures, future common GPU integration. | Tracker borrows CPU or GPU traits; traits implement backend kernels and act on TimeFrame/backend-local views without owning the entity. | CPU replay plus a real pinned CUDA/HIP build when a common GPU traits backend exists. | Backend substitution changes no TimeFrame/Tracker API and introduces no detector/layer specialization. |
 | 10 | Remove `TimeFrame`'s no-op virtual device-propagator hook/member if full build configurations confirm no common-derived device frame. | A migration-era ownership test; frozen ITS has a separate live override in a different class. | None in common CPU runtime; common GPU traits must declare its actual device state ownership. | Whole-repository inheritance/API audit and actual device build when pinned toolchain exists. | Common `TimeFrame` contains no placeholder device pointer; GPU ownership is explicit. |
 | 11 | Delete common `TrackingFrameInfoAdapters`, `loadClusterTrackingFrameInfo`, and obsolete compact-cluster conversion APIs. | Tests only for the former; a whole-repository audit found no common or downstream caller for `getClusterLayer`, the iterator decoding overload, or `convertCompactClusters`. | `SurfaceMeasurement` decoder path for production; detector-local frozen utilities remain untouched. | Whole-repository symbol/header audit, downstream build, covariance/systematics tests. | No downstream consumer and no lost compatibility contract. |
-| 12 | Retire `NativeCylinderCylinderRefitDriver.h` after preserving the comparison evidence it uniquely supplies. | Dedicated test, guard, and historical design/P1 harness. | Live `NativeRefitDriver`; durable validation docs/artifacts for historical evidence. | Demonstrate all production numerical/refit properties remain covered; no replay delta. | No production or active validation need for the unwired driver. |
+| 12 | Retire `NativeCylinderCylinderRefitDriver.h` after preserving the comparison evidence it uniquely supplies. | Dedicated test, guard, and historical design/P1 harness. | Live `RefitDriver`; durable validation docs/artifacts for historical evidence. | Demonstrate all production numerical/refit properties remain covered; no replay delta. | No production or active validation need for the unwired driver. |
 
 ### 8.3 Requires explicit physics or algorithm approval
 

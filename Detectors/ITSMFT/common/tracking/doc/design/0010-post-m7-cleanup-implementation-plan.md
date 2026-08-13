@@ -32,7 +32,7 @@ DPL/application event owner
 - per-iteration parameters and source-qualified graph partitions;
 - allocator/pool identity and allocator-backed CA workspaces;
 - normalized current-event measurements and runtime timing/mask views; and
-- generic `CommonTrack`, cluster-reference, label, and support results.
+- generic `GenericTrack`, cluster-reference, label, and support results.
 
 `Loader` and `Tracker` do not own those data. `TrackerTraits` contains the
 target-architecture implementations of the kernels invoked by `Tracker`.
@@ -136,7 +136,7 @@ Call the following production-slice contract **R**:
    - ITS: 212 tracks / `46913a67a7e2fe7462e29df0db264fa8`;
    - MFT: 68 tracks / `8106b08571ca593c6b76ff72b761a680`;
 7. require each combined leg to be byte-identical to its standalone product;
-8. compare initialized writer content, `CommonTrack`s, cluster references,
+8. compare initialized writer content, `GenericTrack`s, cluster references,
    ROFs, labels, and sidecars with the accepted parent. Exclude only the known
    undefined `MFTTrack.mInvQPtSeed` byte artifact; and
 9. perform a real device build only when the pinned CUDA/HIP toolchain exists.

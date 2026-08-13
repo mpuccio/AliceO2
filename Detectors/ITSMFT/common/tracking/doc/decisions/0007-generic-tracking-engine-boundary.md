@@ -28,8 +28,8 @@ classified as temporary. The milestone plan implementing this ADR is
 
 ## Decision
 
-1. **`TimeFrame` and `CommonTrack` are permanent.** The non-templated
-   `TimeFrame` is the detector-neutral per-event data owner; `CommonTrack` (with
+1. **`TimeFrame` and `GenericTrack` are permanent.** The non-templated
+   `TimeFrame` is the detector-neutral per-event data owner; `GenericTrack` (with
    `TrackClusterReference`) is the generic algorithm result. Neither is a
    migration artifact.
 

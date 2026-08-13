@@ -17,7 +17,7 @@ Disk measurements from distinct valid sources.
 ## Output boundary
 
 A successful mixed refit is generic `TimeFrame` state. The existing ITS and
-MFT output adapters remain detector-specific: a `CommonTrack` whose references
+MFT output adapters remain detector-specific: a `GenericTrack` whose references
 span their requested detector/source is rejected as `MixedDetector` before an
 output request. This slice defines no mixed DPL product or routing rule.
 

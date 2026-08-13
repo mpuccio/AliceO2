@@ -54,7 +54,7 @@ frozen-replay gate. The exact evidence is recorded in
 - Merge `SurfaceMeasurementIndex` into `SurfaceId` and `LayerMask` into
   `SurfaceMask`.
 - Merge `SurfaceLinearizationReference` into `SurfaceKinematicState` and
-  `RefitLegAssembly` into `NativeRefitDriver`. Delete `SeedAnchor` only if the
+  `RefitLegAssembly` into `RefitDriver`. Delete `SeedAnchor` only if the
   repository and downstream search is available and empty.
 - Merge catalog view into descriptor, static descriptor into surface spec,
   and ITS/MFT static specs into `ITSMFTDetectorDefinitions`.
@@ -124,7 +124,7 @@ and after fresh replay; and compares against the frozen `86113f2a14` build.
 Required standalone results are 212 ITS tracks with hash
 `46913a67a7e2fe7462e29df0db264fa8` and 68 MFT tracks with hash
 `8106b08571ca593c6b76ff72b761a680`. Standalone/combined fields, initialized
-writers, ROFs, labels, references, `CommonTrack`s, sidecars, and MFT projected
+writers, ROFs, labels, references, `GenericTrack`s, sidecars, and MFT projected
 values must match. Only the documented undefined `MFTTrack.mInvQPtSeed` byte
 is excluded.
 

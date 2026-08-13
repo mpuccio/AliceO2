@@ -152,7 +152,7 @@ its own decision (M5).
   implementation slices change production physics. Satisfied by [ADR
   0008](decisions/0008-native-refit-activation.md) (M5d): both
   `DetectorTraits::refitSeed` branches now call the shared `Propagator`
-  (`Propagator.h`/`NativeRefitDriver.h`); see that ADR for the exact legacy
+  (`Propagator.h`/`RefitDriver.h`); see that ADR for the exact legacy
   dependencies removed and the validation record.
 - **Dependency**: M4.
 - **Classification**: the design and harness (this milestone) are
@@ -285,7 +285,7 @@ float-projected fields matched. The sole persisted difference was
 `MFTTrack.mInvQPtSeed`, whose `TrackMFT` member is uninitialized in both the
 parent and M6f production path (the parent contains run-dependent bytes such
 as `0x60000002b`, while the M6f process contains `0x4`). It is not a defined
-physics or CommonTrack value and was not rewritten or normalized in M6f, so
+physics or GenericTrack value and was not rewritten or normalized in M6f, so
 the writer/sidecar path remains unchanged; the discrepancy is recorded rather
 than misreported as byte equality.
 
@@ -306,7 +306,7 @@ all 2,992 approved float-projected values with zero absolute/relative delta.
 The combined output also matched the retained accepted pre-M6f M6e3 parent
 artifact for all initialized ITS/MFT writer leaves, ROFs, labels, cluster
 references, and sidecars. As in M6f, the only excluded parent difference was the
-single uninitialized `MFTTrack.mInvQPtSeed` leaf; no defined writer or CommonTrack
+single uninitialized `MFTTrack.mInvQPtSeed` leaf; no defined writer or GenericTrack
 content differed.
 
 The M6g ownership guard and direct-composition tests cover load failure, dropped
@@ -445,7 +445,7 @@ typed MFT helper hook are deleted from generic-core ownership. One narrow
 The subsequent [fine-comb cleanup](validation/fine-comb-header-boundaries.md)
 replaced it with one typed function pointer and direct ITS/MFT refit functions;
 no adapter object or detector-ID refit dispatcher remains. ITS/MFT edges consume the same
-`TrackSeed`/`CommonTrack` result path, with ITS shared-status staging owned by
+`TrackSeed`/`GenericTrack` result path, with ITS shared-status staging owned by
 the ITS publication adapter.
 
 The durable build passed all 97 registered serial ITS/MFT tests. Fixture
@@ -492,7 +492,7 @@ has no CUDA/HIP/device tools.
 | `loadITSAndMFT()`/`resetITSAndMFTEvent()` fixed source-0/1 mapping | Current combined load/reset contract of the C4 workflow | M2 generalizes, M3 deletes the fixed-position entry points |
 | `TransitionPolicyTag` machinery (dispatch, grouping, templated operations) | Only existing hot-loop implementation of the CA stages | contained at M4, replaced by M5 implementation |
 | Policy/legacy compatibility code (`kDroppedTimeFrameResult` sentinel, `mLayerMaterial`/`LegacyMaterialMismatch`, `DiskDiskReferenceCoordinateView`, `passesCellRoadPrecut<DiskDisk>`) | Pins byte-identical replay parity against the frozen legacy implementations | respective M4–M6 slices, each under its replay gate |
-| Output sidecars (`ITSSharedClusterCompatibility`, `MFTPublicationCompatibility`) | Legacy output conversion still requires per-detector compatibility state | M6, when adapters convert from `CommonTrack` alone |
+| Output sidecars (`ITSSharedClusterCompatibility`, `MFTPublicationCompatibility`) | Legacy output conversion still requires per-detector compatibility state | M6, when adapters convert from `GenericTrack` alone |
 | `SurfacePlanTrackingParticipant<NLayers>` | Narrow plan-driven ITS/MFT participant adapter; it owns detector/output sidecars but no retired workspace/binding bridge or combined event loop | **M7f:** retained only as the named application-edge compatibility seam; reduce it after workflow-edge ROF/configuration consumers are independently runtime-view based |
 | `ITSMFTLegacyParticipantSet` | Coordinator-shaped holder of combined application construction and event-owned publication/reset state | **Deleted M6g**; construction is inlined into the combined DPL task and publication/timing ownership remains workflow-local |
 | Common `TrackingTopology<NLayers>` | The common layer-indexed topology duplicated the sparse plan topology | **Deleted M7c**; frozen legacy ITS topology is outside the common-CA guard and remains unchanged |

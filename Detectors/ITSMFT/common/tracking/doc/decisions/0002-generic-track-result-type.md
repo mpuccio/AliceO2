@@ -1,7 +1,11 @@
-# ADR 0002: `CommonTrack` is the detector-neutral common-CA result type
+# ADR 0002: `GenericTrack` is the detector-neutral common-CA result type
 
 Status: Accepted
 Date: 2026-07-30
+
+> Naming update (2026-08-13): this project-owned core type was renamed from
+> `CommonTrack` to `GenericTrack`. Historical validation records retain the
+> former spelling; this ADR describes the current API.
 
 ## Context
 
@@ -32,16 +36,16 @@ is the only one ever integrated.
 
 ## Decision
 
-### `CommonTrack` and `TrackClusterReference`
+### `GenericTrack` and `TrackClusterReference`
 
-`CommonTrack` (`ITSMFTTracking/CommonTrack.h`) owns exactly:
+`GenericTrack` (`ITSMFTTracking/GenericTrack.h`) owns exactly:
 
 ```cpp
-struct CommonTrack {
+struct GenericTrack {
   SurfaceKinematicState innerState{};
   SurfaceKinematicState outerState{};
   float chi2{0.f};
-  CommonTrackTimestamp timestamp{};
+  GenericTrackTimestamp timestamp{};
   SurfaceMask hitSurfaces{};
   uint32_t firstClusterRef{0};
   uint32_t clusterRefEnd{0};
@@ -55,7 +59,7 @@ struct CommonTrack {
   representation.
 - `hitSurfaces` is the global 32-bit `SurfaceMask` (`ITSMFTTracking/
   SurfaceMask.h`), never the legacy 16-bit per-`NLayers` `LayerMask`.
-- `timestamp` is `CommonTrackTimestamp` (`ITSMFTTracking/SurfaceTiming.h`): a
+- `timestamp` is `GenericTrackTimestamp` (`ITSMFTTracking/SurfaceTiming.h`): a
   new, common, `TFBC`-based half-open BC interval (`{TFBC begin; TFBC end;}`),
   standard-layout and trivially-copyable, with an `isValid()`/`isCompatible()`
   contract mirroring `ROFIntervalBC`'s own half-open-interval semantics
@@ -64,12 +68,12 @@ struct CommonTrack {
   `TimeEstBC`'s own `TimeStampWithError`/`TimeStamp` base hierarchy declares
   non-static data members at more than one level, which makes `TimeEstBC` --
   and therefore any aggregate containing it -- not standard-layout, despite
-  being trivially-copyable. `CommonTrack` must be both: trivial-copyability
+  being trivially-copyable. `GenericTrack` must be both: trivial-copyability
   alone only proves its bytes may be copied without invoking non-trivial
   special member functions, it says nothing about a single, well-defined,
   `offsetof`-usable member order consistent across host/device compilation.
-  Both properties are asserted together on `CommonTrack`, `TrackClusterReference`
-  and `CommonTrackTimestamp`, matching every other device-facing type in this
+  Both properties are asserted together on `GenericTrack`, `TrackClusterReference`
+  and `GenericTrackTimestamp`, matching every other device-facing type in this
   library (`SurfaceMeasurement`, `StaticSurfaceDescriptor`,
   `DetectorLayoutView`, ...).
 - Cluster membership is not stored inline. `[firstClusterRef, clusterRefEnd)`
@@ -94,21 +98,21 @@ struct CommonTrack {
   `ClusterRef`'s job (source-qualified, `ITSMFTTracking/SurfaceMeasurement.h`),
   a different identity axis entirely.
 - A range is valid iff `0 <= firstClusterRef <= clusterRefEnd <=
-  trackClusterIndices.size()` (`isValidTrackRange()`, `CommonTrack.h`); the
+  trackClusterIndices.size()` (`isValidTrackRange()`, `GenericTrack.h`); the
   lower bound is automatic since both fields are unsigned.
 - For a valid, completed track: every `TrackClusterReference` in
   `[firstClusterRef, clusterRefEnd)` resolves to an existing measurement
   whose own `SurfaceMeasurement::surface` equals that reference's `surface`
   field, and `hitSurfaces` is the union of those surfaces. This is a
   consumer-side invariant (exercised by `testCommonTrack.cxx`), not something
-  `CommonTrack` enforces by construction -- no code populates it from real
+  `GenericTrack` enforces by construction -- no code populates it from real
   seeds in this slice.
-- `CommonTrack`/`TrackClusterReference` carry no `DetID`, no `NLayers`, and no
+- `GenericTrack`/`TrackClusterReference` carry no `DetID`, no `NLayers`, and no
   reference to typed detector output/`GeometryTGeo`/any
   workflow header.
 
 `TimeFrame<NLayers>` gains two new members, `mCommonTracks` (`bounded_vector<
-CommonTrack>`) and `mTrackClusterIndices` (`bounded_vector<
+GenericTrack>`) and `mTrackClusterIndices` (`bounded_vector<
 TrackClusterReference>`), with `getCommonTracks()`/`getTrackClusterIndices()`
 accessors. Neither element type depends on `NLayers`; this is a **temporary
 bridge** holding detector-neutral types inside the still-`NLayers`-templated
@@ -162,7 +166,7 @@ the other side's storage.
 
 `TimeFrame::loadNormalizedSource()`'s successful commit also clears
 `mCommonTracks`/`mTrackClusterIndices`, in that same commit, since a
-`CommonTrack`/`TrackClusterReference` set built against the just-replaced
+`GenericTrack`/`TrackClusterReference` set built against the just-replaced
 normalized frame is meaningless once that frame is gone -- a stale reference
 into a frame that no longer exists is worse than an empty one. A **failing**
 call leaves the normalized frame, `mCommonTracks` and `mTrackClusterIndices`
@@ -174,7 +178,7 @@ complete legacy backfill are staged before anything is committed).
 other per-event CA artefact, and `setMemoryPool()` initializes the two new
 containers like every other host-only bounded vector.
 
-A `CommonTrack`'s range, and every `TrackClusterReference` it reaches through
+A `GenericTrack`'s range, and every `TrackClusterReference` it reaches through
 `trackClusterIndices`, are only meaningful together with the `TimeFrame`'s
 normalized frame that was current when the track was built; none of the
 three is individually meaningful once any of the other two has been wiped or
@@ -182,12 +186,12 @@ reloaded.
 
 ## Adapter boundary
 
-`CommonTrack` is core storage; `TrackITS`/`TrackITSExt`/`TrackMFT`/a future
+`GenericTrack` is core storage; `TrackITS`/`TrackITSExt`/`TrackMFT`/a future
 ALICE-3 type are adapter outputs built from it by code outside the common
 core (Architecture.md Sec 12), never the reverse. The adapter direction is:
 
 ```text
-CommonTrack (+ TimeFrame::getTrackClusterIndices() + MultiSourceFrame)
+GenericTrack (+ TimeFrame::getTrackClusterIndices() + MultiSourceFrame)
         -> detector output adapter (not yet written)
         -> TrackITSExt / TrackMFT / ...
 ```
@@ -195,12 +199,12 @@ CommonTrack (+ TimeFrame::getTrackClusterIndices() + MultiSourceFrame)
 No such adapter exists yet: `TrackerTraits`/`CATracker` still populate the
 legacy `CATrackType<NLayers>` exclusively, and every existing workflow output
 is unchanged. Writing the adapter, and deciding exactly how/when a
-`CommonTrack` is constructed from a completed CA road, is explicitly out of
+`GenericTrack` is constructed from a completed CA road, is explicitly out of
 scope for this decision (see "Non-goals").
 
 ## Non-goals
 
-Populating `CommonTrack` from `TrackerTraits`/`CATracker` seeds or completed
+Populating `GenericTrack` from `TrackerTraits`/`CATracker` seeds or completed
 roads; any change to `TrackerTraits`, `CATracker` candidate/road/refit logic,
 typed detector output, legacy workflows, or current output publication;
 real `ITSSurfaceSpec`/`MFTSurfaceSpec` constants; any change to topology
@@ -211,9 +215,9 @@ storage they will later be adapted from.
 
 ## Validation gates
 
-- POD layout: `CommonTrack`, `TrackClusterReference` and
-  `CommonTrackTimestamp` are all standard-layout and trivially-copyable
-  (`static_assert`s in `CommonTrack.h`/`SurfaceTiming.h`).
+- POD layout: `GenericTrack`, `TrackClusterReference` and
+  `GenericTrackTimestamp` are all standard-layout and trivially-copyable
+  (`static_assert`s in `GenericTrack.h`/`SurfaceTiming.h`).
 - `MultiSourceFrame` is move-only, provably nothrow-movable
   (`static_assert(std::is_nothrow_move_constructible_v<MultiSourceFrame>)`/
   `..._assignable_v...`) and not copyable
@@ -240,7 +244,7 @@ storage they will later be adapted from.
   normalized frame) completely unchanged; `TimeFrame::wipe()` clears all
   three together and each accepts independent reload afterward
   (`testCommonTrack.cxx`).
-- `CommonTrack.h`'s own include list contains no `DetID.h`, `TrackITS.h`/
+- `GenericTrack.h`'s own include list contains no `DetID.h`, `TrackITS.h`/
   `TrackITSExt.h`, a typed MFT output header, `GeometryTGeo.h`, or workflow
   header.
 
@@ -255,7 +259,7 @@ storage they will later be adapted from.
   shared Barrel/Forward state and introducing a parallel representation
   would duplicate exactly the kind of machinery Architecture.md's
   Stage-A/Stage-B track-state strategy already consolidated.
-- **Inline cluster storage on `CommonTrack` (a fixed-size array of
+- **Inline cluster storage on `GenericTrack` (a fixed-size array of
   references)**: rejected; a fixed-size in-struct array would reintroduce an
   `NLayers`-shaped bound on a type whose entire purpose is to have none. The
   flat `TimeFrame`-owned array plus a range is the same range-into-flat-array
@@ -265,9 +269,9 @@ storage they will later be adapted from.
   membership identity**: rejected; once measurements are owned per surface, a
   surface-local index alone is not a complete identity. `TrackClusterReference`
   pairs it with the `SurfaceId` it is local to.
-- **`o2::its::TimeEstBC` for `CommonTrack::timestamp`**: rejected; not
+- **`o2::its::TimeEstBC` for `GenericTrack::timestamp`**: rejected; not
   standard-layout (see "Decision"), and an ITS-namespaced type despite being
-  reused elsewhere in this library. `CommonTrackTimestamp` is the common,
+  reused elsewhere in this library. `GenericTrackTimestamp` is the common,
   `TFBC`-based replacement.
 - **Relying on `MultiSourceFrame`'s implicitly-generated copy/move
   operations**: rejected; the implicit copy would silently misbind
