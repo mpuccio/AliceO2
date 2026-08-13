@@ -662,9 +662,13 @@ void TrackerTraits::computeLayerTrackletsImpl(
           if (!projected) {
             continue;
           }
-          const auto bins = trackletSearchBins(searchWindow);
+          const auto bins = searchWindow.bins;
           const auto& indexTableUtils = mScratch->getIndexTableUtils(toLayer);
-          const int rowBinsNum = trackletSearchRowCount(searchWindow, indexTableUtils);
+          int rowBinsNum = bins.w - bins.y + 1;
+          if (indexTableUtils.getCoordType() == IndexTableCoordType::PhiZ && rowBinsNum < 0) {
+            rowBinsNum += indexTableUtils.getNrowBins();
+          }
+          rowBinsNum = std::max(0, rowBinsNum);
 
           for (int targetROF = rofOverlap.getFirstEntry(); targetROF < rofOverlap.getEntriesBound(); ++targetROF) {
             if (!mScratch->isROFEnabled(toLayer, targetROF)) {
@@ -681,8 +685,11 @@ void TrackerTraits::computeLayerTrackletsImpl(
             const auto& targetIndexTable = mScratch->getIndexTable(targetROF, toLayer);
             const int colBinRange = (bins.z - bins.x) + 1;
             for (int iRow = 0; iRow < rowBinsNum; ++iRow) {
-              const int iRowBin = trackletSearchRowBin(searchWindow, iRow, indexTableUtils);
-              if (iRowBin < 0) {
+              int iRowBin = bins.y + iRow;
+              if (indexTableUtils.getCoordType() == IndexTableCoordType::PhiZ) {
+                iRowBin %= indexTableUtils.getNrowBins();
+              }
+              if (iRowBin < 0 || iRowBin >= indexTableUtils.getNrowBins()) {
                 break;
               }
               const int firstBinIdx = indexTableUtils.getBinIndex(bins.x, iRowBin);
@@ -701,7 +708,8 @@ void TrackerTraits::computeLayerTrackletsImpl(
 
                 float tanL = 0.f;
                 const bool accepted = acceptTrackletCandidate(searchWindow, sourceMeasurement, currentCluster,
-                                                              targetMeasurement, nextCluster, tanL);
+                                                              targetMeasurement, nextCluster, kind,
+                                                              mKernelParameters.nSigmaCut, tanL);
                 if (accepted) {
                   const float phi{o2::gpu::GPUCommonMath::ATan2(sourceMeasurement.position.y - targetMeasurement.position.y,
                                                                 sourceMeasurement.position.x - targetMeasurement.position.x)};

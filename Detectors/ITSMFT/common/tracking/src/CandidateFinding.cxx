@@ -17,7 +17,6 @@
 #include <array>
 #include <cmath>
 #include <limits>
-#include <type_traits>
 
 #include "CommonConstants/MathConstants.h"
 #include "DataFormatsITS/Vertex.h"
@@ -36,41 +35,51 @@
 namespace o2::itsmft::tracking
 {
 
-bool CylinderTrackletSearchWindow::acceptCandidate(
-  const GlobalMeasurement& sourceMeasurement,
-  const o2::its::Cluster& sourceLocator,
-  const GlobalMeasurement& targetMeasurement,
-  const o2::its::Cluster& targetLocator,
-  float& tanLambdaOut) const
+namespace
 {
-  const float deltaZ = o2::gpu::CAMath::Abs((tanLambda * (targetLocator.radius - sourceLocator.radius)) + sourceMeasurement.position.z - targetMeasurement.position.z);
-  if (deltaZ / sigmaZ < nSigmaCut &&
-      o2::its::math_utils::isPhiDifferenceBelow(sourceLocator.phi, targetLocator.phi, phiCut)) {
-    const float acceptedTanLambda = (sourceMeasurement.position.z - targetMeasurement.position.z) / (sourceLocator.radius - targetLocator.radius);
-    tanLambdaOut = acceptedTanLambda;
-    return true;
+bool acceptNormalizedResidual(const std::array<float, 2>& residual,
+                              const float (&variance)[3], float nSigmaCut) noexcept
+{
+  const float determinant = variance[0] * variance[2] - o2::its::math_utils::Sq(variance[1]);
+  if (!(determinant > 0.f)) {
+    return false;
   }
-  return false;
+  const float chi2 = (residual[0] * residual[0] * variance[2] -
+                      2.f * residual[0] * residual[1] * variance[1] +
+                      residual[1] * residual[1] * variance[0]) /
+                     determinant;
+  return std::isfinite(chi2) && chi2 < o2::its::math_utils::Sq(nSigmaCut);
 }
 
-bool DiskTrackletSearchWindow::acceptCandidate(
-  const GlobalMeasurement& sourceMeasurement,
-  const GlobalMeasurement& targetMeasurement,
-  float& tanLambdaOut) const
+bool cylinderTrackletCoordinates(const GlobalMeasurement& targetMeasurement,
+                                 const o2::its::Cluster& targetLocator,
+                                 std::array<float, 2>& coordinates) noexcept
 {
-  const float dx = targetMeasurement.position.x - xProj;
-  const float dy = targetMeasurement.position.y - yProj;
-  const float invSigmaX2 = (sigmaX > 0.f) ? 1.f / (sigmaX * sigmaX) : 0.f;
-  const float invSigmaY2 = (sigmaY > 0.f) ? 1.f / (sigmaY * sigmaY) : 0.f;
-  const float transChi2 = dx * dx * invSigmaX2 + dy * dy * invSigmaY2;
-  const float deltaR = sourceMeasurement.radius - targetMeasurement.radius;
-  if (transChi2 < o2::its::math_utils::Sq(nSigmaCut) && std::abs(deltaR) > 1.e-6f) {
-    const float acceptedTanLambda = (sourceMeasurement.position.z - targetMeasurement.position.z) / deltaR;
-    tanLambdaOut = acceptedTanLambda;
-    return true;
-  }
-  return false;
+  coordinates = {targetMeasurement.position.z, targetLocator.phi};
+  return true;
 }
+
+bool diskTrackletCoordinates(const GlobalMeasurement& targetMeasurement,
+                             std::array<float, 2>& coordinates) noexcept
+{
+  coordinates = {targetMeasurement.position.x, targetMeasurement.position.y};
+  return true;
+}
+
+bool acceptTrackletCoordinates(const TrackletSearchWindow& window,
+                               const std::array<float, 2>& coordinates,
+                               bool periodicSecondCoordinate,
+                               float nSigmaCut) noexcept
+{
+  std::array<float, 2> residual{window.prediction[0] - coordinates[0],
+                                window.prediction[1] - coordinates[1]};
+  if (periodicSecondCoordinate) {
+    residual[1] = static_cast<float>(std::remainder(static_cast<double>(residual[1]),
+                                                    static_cast<double>(o2::constants::math::TwoPI)));
+  }
+  return acceptNormalizedResidual(residual, window.variance, nSigmaCut);
+}
+} // namespace
 
 bool projectCylinderSearchWindow(const GlobalMeasurement& sourceMeasurement,
                                  const o2::its::Cluster& sourceLocator,
@@ -78,26 +87,29 @@ bool projectCylinderSearchWindow(const GlobalMeasurement& sourceMeasurement,
                                  const TrackletProjectionCache& transitionCache,
                                  float /*bz*/, const o2::itsmft::IndexTableUtilsCore& indexUtils,
                                  const TrackingKernelParameters& params,
-                                 CylinderTrackletSearchWindow& out)
+                                 TrackletSearchWindow& out)
 {
   const float inverseR0 = 1.f / sourceLocator.radius;
   const float resolution = o2::gpu::CAMath::Sqrt(o2::its::math_utils::Sq(transitionCache.sourcePositionResolution) +
                                                  o2::its::math_utils::Sq(params.pvResolution) / float(vertex.getNContributors()));
   const float tanLambda = (sourceMeasurement.position.z - vertex.getZ()) * inverseR0;
-  const float zAtTargetMinR = tanLambda * (transitionCache.targetMinR - sourceLocator.radius) + sourceMeasurement.position.z;
-  const float zAtTargetMaxR = tanLambda * (transitionCache.targetMaxR - sourceLocator.radius) + sourceMeasurement.position.z;
+  const float targetMeanRadius = 0.5f * (transitionCache.targetMinR + transitionCache.targetMaxR);
+  const float zAtTargetMeanR = tanLambda * (targetMeanRadius - sourceLocator.radius) + sourceMeasurement.position.z;
   const float sqInvDeltaZ0 = 1.f / (o2::its::math_utils::Sq(sourceMeasurement.position.z - vertex.getZ()) + o2::its::constants::Tolerance);
+  const float targetRadialVariance = o2::its::math_utils::Sq(transitionCache.targetMaxR - transitionCache.targetMinR) / 12.f;
   const float sigmaZ = o2::gpu::CAMath::Sqrt((o2::its::math_utils::Sq(resolution) * o2::its::math_utils::Sq(tanLambda) *
                                               ((o2::its::math_utils::Sq(inverseR0) + sqInvDeltaZ0) * o2::its::math_utils::Sq(transitionCache.toRadius - transitionCache.fromRadius) + 1.f)) +
-                                             o2::its::math_utils::Sq((transitionCache.toRadius - transitionCache.fromRadius) * transitionCache.transitionMSAngle));
+                                             o2::its::math_utils::Sq((transitionCache.toRadius - transitionCache.fromRadius) * transitionCache.transitionMSAngle) +
+                                             o2::its::math_utils::Sq(tanLambda) * targetRadialVariance);
   const auto bins = o2::itsmft::getBinsPhiZ(sourceLocator.phi, transitionCache.toLayer,
-                                            zAtTargetMinR, zAtTargetMaxR,
+                                            zAtTargetMeanR, zAtTargetMeanR,
                                             sigmaZ * params.nSigmaCut, transitionCache.transitionPhiCut,
                                             indexUtils);
   if (bins.x < 0) {
     return false;
   }
-  out = {bins, tanLambda, sigmaZ, transitionCache.transitionPhiCut, params.nSigmaCut};
+  const float phiSigma = transitionCache.transitionPhiCut / params.nSigmaCut;
+  out = {bins, {zAtTargetMeanR, sourceLocator.phi}, {o2::its::math_utils::Sq(sigmaZ), 0.f, o2::its::math_utils::Sq(phiSigma)}};
   return true;
 }
 
@@ -107,7 +119,7 @@ bool projectDiskSearchWindow(const GlobalMeasurement& sourceMeasurement,
                              const TrackletProjectionCache& transitionCache,
                              float bz, const o2::itsmft::IndexTableUtilsCore& indexUtils,
                              const TrackingKernelParameters& params,
-                             DiskTrackletSearchWindow& out)
+                             TrackletSearchWindow& out)
 {
   if (!transitionCache.hasReferenceCoordinates) {
     return false;
@@ -150,7 +162,7 @@ bool projectDiskSearchWindow(const GlobalMeasurement& sourceMeasurement,
   if (bins.x < 0) {
     return false;
   }
-  out = {bins, xProj, yProj, sigmaX, sigmaY, params.nSigmaCut};
+  out = {bins, {xProj, yProj}, {o2::its::math_utils::Sq(sigmaX), 0.f, o2::its::math_utils::Sq(sigmaY)}};
   return true;
 }
 
@@ -192,62 +204,14 @@ bool projectTrackletSearchWindow(
   TrackletSearchWindow& out)
 {
   switch (kind) {
-    case SurfaceKind::Cylinder: {
-      CylinderTrackletSearchWindow window{};
-      if (!projectCylinderSearchWindow(sourceMeasurement, sourceLocator, vertex, transitionCache, bz, indexUtils, params, window)) {
-        return false;
-      }
-      out = window;
-      return true;
-    }
-    case SurfaceKind::Disk: {
-      DiskTrackletSearchWindow window{};
-      if (!projectDiskSearchWindow(sourceMeasurement, sourceLocator, vertex, transitionCache, bz, indexUtils, params, window)) {
-        return false;
-      }
-      out = window;
-      return true;
-    }
+    case SurfaceKind::Cylinder:
+      return projectCylinderSearchWindow(sourceMeasurement, sourceLocator, vertex, transitionCache, bz, indexUtils, params, out);
+    case SurfaceKind::Disk:
+      return projectDiskSearchWindow(sourceMeasurement, sourceLocator, vertex, transitionCache, bz, indexUtils, params, out);
     case SurfaceKind::Undefined:
       return false;
   }
   return false;
-}
-
-int4 trackletSearchBins(const TrackletSearchWindow& window) noexcept
-{
-  return std::visit([](const auto& value) { return value.bins; }, window);
-}
-
-int trackletSearchRowCount(const TrackletSearchWindow& window,
-                           const o2::itsmft::IndexTableUtilsCore& indexUtils) noexcept
-{
-  return std::visit(
-    [&](const auto& value) {
-      int count = value.bins.w - value.bins.y + 1;
-      if constexpr (std::is_same_v<std::decay_t<decltype(value)>, CylinderTrackletSearchWindow>) {
-        if (count < 0) {
-          count += indexUtils.getNrowBins();
-        }
-      }
-      return std::max(0, count);
-    },
-    window);
-}
-
-int trackletSearchRowBin(const TrackletSearchWindow& window, int offset,
-                         const o2::itsmft::IndexTableUtilsCore& indexUtils) noexcept
-{
-  return std::visit(
-    [&](const auto& value) {
-      int row = value.bins.y + offset;
-      if constexpr (std::is_same_v<std::decay_t<decltype(value)>, CylinderTrackletSearchWindow>) {
-        return row % indexUtils.getNrowBins();
-      } else {
-        return row < indexUtils.getNrowBins() ? row : -1;
-      }
-    },
-    window);
 }
 
 bool acceptTrackletCandidate(
@@ -256,18 +220,32 @@ bool acceptTrackletCandidate(
   const o2::its::Cluster& sourceLocator,
   const GlobalMeasurement& targetMeasurement,
   const o2::its::Cluster& targetLocator,
-  float& tanLambdaOut) noexcept
+  SurfaceKind kind, float nSigmaCut, float& tanLambdaOut) noexcept
 {
-  return std::visit(
-    [&](const auto& value) {
-      using Window = std::decay_t<decltype(value)>;
-      if constexpr (std::is_same_v<Window, CylinderTrackletSearchWindow>) {
-        return value.acceptCandidate(sourceMeasurement, sourceLocator, targetMeasurement, targetLocator, tanLambdaOut);
-      } else {
-        return value.acceptCandidate(sourceMeasurement, targetMeasurement, tanLambdaOut);
+  std::array<float, 2> residual{};
+  bool validCoordinates = false;
+  switch (kind) {
+    case SurfaceKind::Cylinder:
+      validCoordinates = cylinderTrackletCoordinates(targetMeasurement, targetLocator, residual);
+      if (!validCoordinates || !acceptTrackletCoordinates(window, residual, true, nSigmaCut)) {
+        return false;
       }
-    },
-    window);
+      break;
+    case SurfaceKind::Disk:
+      validCoordinates = diskTrackletCoordinates(targetMeasurement, residual);
+      if (!validCoordinates || !acceptTrackletCoordinates(window, residual, false, nSigmaCut)) {
+        return false;
+      }
+      break;
+    case SurfaceKind::Undefined:
+      return false;
+  }
+  const float deltaR = sourceMeasurement.radius - targetMeasurement.radius;
+  if (!(std::abs(deltaR) > 1.e-6f)) {
+    return false;
+  }
+  tanLambdaOut = (sourceMeasurement.position.z - targetMeasurement.position.z) / deltaR;
+  return true;
 }
 
 // Native cylinder/disk cell operations use the barrel/forward primitives and

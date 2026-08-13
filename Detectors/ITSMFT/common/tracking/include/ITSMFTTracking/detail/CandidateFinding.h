@@ -9,7 +9,6 @@
 #define ALICEO2_ITSMFT_TRACKING_CANDIDATEFINDING_H_
 
 #include <array>
-#include <variant>
 #ifndef GPUCA_GPUCODE
 #include <gsl/span>
 
@@ -56,34 +55,11 @@ struct TrackletProjectionCache {
   bool hasReferenceCoordinates;
 };
 
-struct CylinderTrackletSearchWindow {
+struct TrackletSearchWindow {
   int4 bins;
-  float tanLambda;
-  float sigmaZ;
-  float phiCut;
-  float nSigmaCut;
-
-  bool acceptCandidate(const GlobalMeasurement& sourceMeasurement,
-                       const o2::its::Cluster& sourceLocator,
-                       const GlobalMeasurement& targetMeasurement,
-                       const o2::its::Cluster& targetLocator,
-                       float& tanLambdaOut) const;
+  float prediction[2];
+  float variance[3];
 };
-
-struct DiskTrackletSearchWindow {
-  int4 bins;
-  float xProj;
-  float yProj;
-  float sigmaX;
-  float sigmaY;
-  float nSigmaCut;
-
-  bool acceptCandidate(const GlobalMeasurement& sourceMeasurement,
-                       const GlobalMeasurement& targetMeasurement,
-                       float& tanLambdaOut) const;
-};
-
-using TrackletSearchWindow = std::variant<CylinderTrackletSearchWindow, DiskTrackletSearchWindow>;
 
 bool bindTrackletProjectionCache(int fromLayer, int toLayer,
                                  gsl::span<const float> layerRadii,
@@ -102,17 +78,12 @@ bool projectTrackletSearchWindow(const GlobalMeasurement& sourceMeasurement,
                                  const TrackingKernelParameters& params,
                                  TrackletSearchWindow& out);
 
-int4 trackletSearchBins(const TrackletSearchWindow& window) noexcept;
-int trackletSearchRowCount(const TrackletSearchWindow& window,
-                           const o2::itsmft::IndexTableUtilsCore& indexUtils) noexcept;
-int trackletSearchRowBin(const TrackletSearchWindow& window, int offset,
-                         const o2::itsmft::IndexTableUtilsCore& indexUtils) noexcept;
-
 bool acceptTrackletCandidate(const TrackletSearchWindow& window,
                              const GlobalMeasurement& sourceMeasurement,
                              const o2::its::Cluster& sourceLocator,
                              const GlobalMeasurement& targetMeasurement,
                              const o2::its::Cluster& targetLocator,
+                             SurfaceKind kind, float nSigmaCut,
                              float& tanLambdaOut) noexcept;
 
 bool projectCylinderSearchWindow(const GlobalMeasurement& sourceMeasurement,
@@ -121,7 +92,7 @@ bool projectCylinderSearchWindow(const GlobalMeasurement& sourceMeasurement,
                                  const TrackletProjectionCache& transitionCache,
                                  float bz, const o2::itsmft::IndexTableUtilsCore& indexUtils,
                                  const TrackingKernelParameters& params,
-                                 CylinderTrackletSearchWindow& out);
+                                 TrackletSearchWindow& out);
 
 bool projectDiskSearchWindow(const GlobalMeasurement& sourceMeasurement,
                              const o2::its::Cluster& sourceLocator,
@@ -129,7 +100,7 @@ bool projectDiskSearchWindow(const GlobalMeasurement& sourceMeasurement,
                              const TrackletProjectionCache& transitionCache,
                              float bz, const o2::itsmft::IndexTableUtilsCore& indexUtils,
                              const TrackingKernelParameters& params,
-                             DiskTrackletSearchWindow& out);
+                             TrackletSearchWindow& out);
 
 bool buildCylinderCellSeed(const GlobalMeasurement& globalInner,
                            const GlobalMeasurement& globalMiddle,
