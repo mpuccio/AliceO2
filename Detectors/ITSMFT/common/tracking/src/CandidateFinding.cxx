@@ -21,7 +21,6 @@
 #include "CommonConstants/MathConstants.h"
 #include "DataFormatsITS/Vertex.h"
 #include "ITSMFTTracking/detail/SurfaceStateOperations.h"
-#include "ITSMFTTracking/detail/SurfaceStateOperations.h"
 #include "ITSMFTTracking/Propagator.h"
 #include "ITSMFTTracking/detail/DirectionCompatibility.h"
 #include "ITSMFTTracking/detail/MFTFwdTrackHelpers.h"

@@ -30,14 +30,17 @@
 namespace o2::itsmft::tracking
 {
 
-/// Builds one traversal-ordered leg of local measurement slots for native
-/// refit from a `TrackSeed`'s already-attached, layer-indexed cluster
-/// bookkeeping. `[start, end)` stepping by `step` is the caller-supplied
-/// layer-index range; `step == +1` walks inward and `step == -1` walks
-/// outward. Holes have `present == false`,
-/// and valid cluster indices are looked up in the corresponding layer span.
-/// Slots are written in traversal order, so decreasing legs remain reversed
-/// rather than being silently reordered by source layer index.
+namespace detail
+{
+
+struct RefitMeasurementSlot {
+  SurfaceMeasurement measurement{};
+  SurfaceId surface{};
+  bool present{false};
+};
+
+/// Builds an ordered native-refit leg; holes remain explicit and reverse legs
+/// retain their traversal order.
 inline gsl::span<const RefitMeasurementSlot> assembleRefitLegSlots(
   const TrackSeed& seed,
   gsl::span<const gsl::span<const GlobalMeasurement>> layerGlobals,
@@ -57,6 +60,59 @@ inline gsl::span<const RefitMeasurementSlot> assembleRefitLegSlots(
   }
   return gsl::span<const RefitMeasurementSlot>(out.data(), position);
 }
+
+// Refit-leg orchestration is transactional: holes are skipped; every present
+// slot must resolve to its surface descriptor; and state, reference, chi2,
+// and count are committed only after the whole ordered leg succeeds.
+inline bool driveRefitLeg(SurfaceKinematicState& state, SurfaceLinearizationReference& linRef,
+                          float& chi2, uint32_t& acceptedHitCount,
+                          gsl::span<const RefitMeasurementSlot> orderedSlots, SurfaceCatalogView surfaceCatalog,
+                          float bz, material::MaterialTraversalDirection direction,
+                          bool shiftReferenceToMeasurement, float maxChi2, OperationFailureReason& reason) noexcept
+{
+  if (!std::isfinite(chi2)) {
+    reason = OperationFailureReason::NonFiniteInput;
+    return false;
+  }
+  if (chi2 < 0.f) {
+    reason = OperationFailureReason::PredictedChi2Failure;
+    return false;
+  }
+
+  SurfaceKinematicState scratchState = state;
+  SurfaceLinearizationReference scratchLinRef = linRef;
+  float scratchChi2 = chi2;
+  uint32_t scratchAcceptedHitCount = 0;
+  constexpr uint32_t kChi2GateMinAcceptedHits = 3;
+  for (const auto& slot : orderedSlots) {
+    if (!slot.present) {
+      continue;
+    }
+    if (!slot.surface.isValid() || !(surfaceCatalog.nSurfaces == 0 || surfaceCatalog.surfaces != nullptr) ||
+        !(slot.surface.value() < surfaceCatalog.nSurfaces)) {
+      reason = OperationFailureReason::InvalidSurfaceCatalogAssociation;
+      return false;
+    }
+    const SurfaceDescriptor& descriptor = surfaceCatalog.getSurface(slot.surface);
+    if (descriptor.id != slot.surface) {
+      reason = OperationFailureReason::InvalidSurfaceCatalogAssociation;
+      return false;
+    }
+    if (!Propagator::propagateToMeasurement(scratchState, scratchLinRef, descriptor, slot.measurement, bz, direction,
+                                            scratchAcceptedHitCount >= kChi2GateMinAcceptedHits, maxChi2, scratchChi2,
+                                            shiftReferenceToMeasurement, reason)) {
+      return false;
+    }
+    ++scratchAcceptedHitCount;
+  }
+  state = scratchState;
+  linRef = scratchLinRef;
+  chi2 = scratchChi2;
+  acceptedHitCount = scratchAcceptedHitCount;
+  return true;
+}
+
+} // namespace detail
 
 // Reset each refit leg to a loose diagonal. Barrel uses the existing ceilings;
 // Forward uses the same position/slope/curvature units and (pi)^2 for Phi.
@@ -137,11 +193,11 @@ inline bool fitTrackSeedLegs(
   float chi2A = 0.f;
   uint32_t acceptedA = 0;
   const int activeSurfaceCount = static_cast<int>(layerMeasurements.size());
-  std::vector<RefitMeasurementSlot> slotsBufferA(static_cast<std::size_t>(activeSurfaceCount));
-  const auto slotsA = assembleRefitLegSlots(seed, layerGlobals, layerMeasurements, 0, activeSurfaceCount, 1, slotsBufferA);
-  if (!Propagator::driveRefitLeg(stateA, linRefA, chi2A, acceptedA, slotsA, surfaceCatalog, bz,
-                                 material::MaterialTraversalDirection::AlongMomentum, shiftReferenceToMeasurement,
-                                 maxChi2ClusterAttachment, reason)) {
+  std::vector<detail::RefitMeasurementSlot> slotsBufferA(static_cast<std::size_t>(activeSurfaceCount));
+  const auto slotsA = detail::assembleRefitLegSlots(seed, layerGlobals, layerMeasurements, 0, activeSurfaceCount, 1, slotsBufferA);
+  if (!detail::driveRefitLeg(stateA, linRefA, chi2A, acceptedA, slotsA, surfaceCatalog, bz,
+                             material::MaterialTraversalDirection::AlongMomentum, shiftReferenceToMeasurement,
+                             maxChi2ClusterAttachment, reason)) {
     return false;
   }
   if (!legAcceptable(stateA, chi2A, acceptedA, o2::constants::math::VeryBig, maxChi2NDF)) {
@@ -160,11 +216,11 @@ inline bool fitTrackSeedLegs(
   resetCovarianceForRefit(stateB);
   float chi2B = 0.f;
   uint32_t acceptedB = 0;
-  std::vector<RefitMeasurementSlot> slotsBufferB(static_cast<std::size_t>(activeSurfaceCount));
-  const auto slotsB = assembleRefitLegSlots(seed, layerGlobals, layerMeasurements, activeSurfaceCount - 1, -1, -1, slotsBufferB);
-  if (!Propagator::driveRefitLeg(stateB, linRefB, chi2B, acceptedB, slotsB, surfaceCatalog, bz,
-                                 material::MaterialTraversalDirection::OppositeMomentum, shiftReferenceToMeasurement,
-                                 maxChi2ClusterAttachment, reason)) {
+  std::vector<detail::RefitMeasurementSlot> slotsBufferB(static_cast<std::size_t>(activeSurfaceCount));
+  const auto slotsB = detail::assembleRefitLegSlots(seed, layerGlobals, layerMeasurements, activeSurfaceCount - 1, -1, -1, slotsBufferB);
+  if (!detail::driveRefitLeg(stateB, linRefB, chi2B, acceptedB, slotsB, surfaceCatalog, bz,
+                             material::MaterialTraversalDirection::OppositeMomentum, shiftReferenceToMeasurement,
+                             maxChi2ClusterAttachment, reason)) {
     return false;
   }
   if (!legAcceptable(stateB, chi2B, acceptedB, 50.f, maxChi2NDF)) {
@@ -195,11 +251,11 @@ inline bool fitTrackSeedLegs(
     resetCovarianceForRefit(stateC);
     float chi2C = 0.f;
     uint32_t acceptedC = 0;
-    std::vector<RefitMeasurementSlot> slotsBufferC(static_cast<std::size_t>(activeSurfaceCount));
-    const auto slotsC = assembleRefitLegSlots(seed, layerGlobals, layerMeasurements, 0, activeSurfaceCount, 1, slotsBufferC);
-    if (!Propagator::driveRefitLeg(stateC, linRefC, chi2C, acceptedC, slotsC, surfaceCatalog, bz,
-                                   material::MaterialTraversalDirection::AlongMomentum, shiftReferenceToMeasurement,
-                                   maxChi2ClusterAttachment, reason)) {
+    std::vector<detail::RefitMeasurementSlot> slotsBufferC(static_cast<std::size_t>(activeSurfaceCount));
+    const auto slotsC = detail::assembleRefitLegSlots(seed, layerGlobals, layerMeasurements, 0, activeSurfaceCount, 1, slotsBufferC);
+    if (!detail::driveRefitLeg(stateC, linRefC, chi2C, acceptedC, slotsC, surfaceCatalog, bz,
+                               material::MaterialTraversalDirection::AlongMomentum, shiftReferenceToMeasurement,
+                               maxChi2ClusterAttachment, reason)) {
       return false;
     }
     if (!legAcceptable(stateC, chi2C, acceptedC, o2::constants::math::VeryBig, maxChi2NDF)) {

@@ -21,7 +21,6 @@
 // MaterialPhysics.cxx for its own constants).
 
 #include "ITSMFTTracking/detail/SurfaceStateOperations.h"
-#include "ITSMFTTracking/detail/SurfaceStateOperations.h"
 #include "ITSMFTTracking/MaterialPhysics.h"
 
 #include <cmath>

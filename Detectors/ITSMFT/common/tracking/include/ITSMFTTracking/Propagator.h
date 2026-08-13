@@ -12,8 +12,6 @@
 
 #ifndef GPUCA_GPUCODE
 
-#include <gsl/span>
-
 #include "ITSMFTTracking/MaterialPhysics.h"
 #include "ITSMFTTracking/SurfaceDescriptor.h"
 #include "ITSMFTTracking/SurfaceKinematicState.h"
@@ -24,12 +22,6 @@
 // SurfaceDescriptor and SurfaceCatalogView.
 namespace o2::itsmft::tracking
 {
-
-struct RefitMeasurementSlot {
-  SurfaceMeasurement measurement{};
-  SurfaceId surface{};
-  bool present{false};
-};
 
 class Propagator
 {
@@ -85,16 +77,6 @@ class Propagator
                                      float bz, material::MaterialTraversalDirection direction,
                                      bool chi2GateEnabled, float maxChi2, float& chi2,
                                      bool shiftReferenceToMeasurement, OperationFailureReason& reason) noexcept;
-
-  // Drive a refit leg over descriptor-resolved cylinder and disk slots.
-  // Holes are skipped, present slots are validated against surfaceCatalog,
-  // and all changes are committed only if every slot succeeds. Empty and
-  // all-hole legs succeed.
-  static bool driveRefitLeg(SurfaceKinematicState& state, SurfaceLinearizationReference& linRef,
-                            float& chi2, uint32_t& acceptedHitCount,
-                            gsl::span<const RefitMeasurementSlot> orderedSlots, SurfaceCatalogView surfaceCatalog,
-                            float bz, material::MaterialTraversalDirection direction,
-                            bool shiftReferenceToMeasurement, float maxChi2, OperationFailureReason& reason) noexcept;
 };
 
 } // namespace o2::itsmft::tracking

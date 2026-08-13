@@ -22,9 +22,6 @@ namespace o2::itsmft::tracking
 namespace
 {
 
-// Enable the maxChi2 gate from the fourth accepted hit in a refit leg.
-constexpr uint32_t kChi2GateMinAcceptedHits = 3;
-
 // Remove tiny negative diagonal values caused by floating-point cancellation
 // during covariance transport. Larger negative values remain errors.
 void clampNegligibleCovarianceNoise(SurfaceKinematicState& state) noexcept
@@ -525,64 +522,6 @@ bool Propagator::propagateToMeasurement(SurfaceKinematicState& state, SurfaceLin
   state = scratchState;
   linRef = scratchRef;
   chi2 = scratchChi2;
-  return true;
-}
-
-bool Propagator::driveRefitLeg(SurfaceKinematicState& state, SurfaceLinearizationReference& linRef,
-                               float& chi2, uint32_t& acceptedHitCount,
-                               gsl::span<const RefitMeasurementSlot> orderedSlots, SurfaceCatalogView surfaceCatalog,
-                               float bz, material::MaterialTraversalDirection direction,
-                               bool shiftReferenceToMeasurement, float maxChi2, OperationFailureReason& reason) noexcept
-{
-  if (!std::isfinite(chi2)) {
-    reason = OperationFailureReason::NonFiniteInput;
-    return false;
-  }
-  if (chi2 < 0.f) {
-    reason = OperationFailureReason::PredictedChi2Failure;
-    return false;
-  }
-
-  SurfaceKinematicState scratchState = state;
-  SurfaceLinearizationReference scratchLinRef = linRef;
-  float scratchChi2 = chi2;
-  uint32_t scratchAcceptedHitCount = 0;
-
-  for (const auto& slot : orderedSlots) {
-    if (!slot.present) {
-      continue;
-    }
-
-    if (!slot.surface.isValid()) {
-      reason = OperationFailureReason::InvalidSurfaceCatalogAssociation;
-      return false;
-    }
-    if (!(surfaceCatalog.nSurfaces == 0 || surfaceCatalog.surfaces != nullptr)) {
-      reason = OperationFailureReason::InvalidSurfaceCatalogAssociation;
-      return false;
-    }
-    if (!(slot.surface.value() < surfaceCatalog.nSurfaces)) {
-      reason = OperationFailureReason::InvalidSurfaceCatalogAssociation;
-      return false;
-    }
-    const SurfaceDescriptor& descriptor = surfaceCatalog.getSurface(slot.surface);
-    if (!(descriptor.id == slot.surface)) {
-      reason = OperationFailureReason::InvalidSurfaceCatalogAssociation;
-      return false;
-    }
-
-    const bool chi2GateEnabled = scratchAcceptedHitCount >= kChi2GateMinAcceptedHits;
-    if (!propagateToMeasurement(scratchState, scratchLinRef, descriptor, slot.measurement, bz, direction,
-                                chi2GateEnabled, maxChi2, scratchChi2, shiftReferenceToMeasurement, reason)) {
-      return false;
-    }
-    ++scratchAcceptedHitCount;
-  }
-
-  state = scratchState;
-  linRef = scratchLinRef;
-  chi2 = scratchChi2;
-  acceptedHitCount = scratchAcceptedHitCount;
   return true;
 }
 
