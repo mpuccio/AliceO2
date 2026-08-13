@@ -92,8 +92,7 @@ struct TimeFrame {
   uint32_t getNMeasurementSurfaces() const noexcept { return static_cast<uint32_t>(mPerSurfaceMeasurements.size()); }
   std::size_t getTotalMeasurements() const noexcept;
 
-  // Loader-only staging: commit swaps staged measurements after decoding and
-  // workspace backfill succeed.
+  // Loader staging; committed only after decoding and workspace backfill.
   void assignLoadedMeasurements(std::vector<std::vector<GlobalMeasurement>>&& perSurfaceGlobalMeasurements,
                                 std::vector<std::vector<SurfaceMeasurement>>&& perSurfaceMeasurements,
                                 std::vector<ROFIntervalBC>&& rofIntervals,
@@ -101,13 +100,11 @@ struct TimeFrame {
                                 std::vector<const o2::dataformats::MCTruthContainer<o2::MCCompLabel>*>&& labelSources);
   void commitMeasurements(TimeFrame& staged) noexcept;
 
-  // Commit a preflighted multi-source event, resetting the previous event once
-  // before installing measurements and the staged workspace.
+  // Atomically replace the event after preflight.
   bool commitLoadedEvent(TimeFrame& staged,
                          std::unique_ptr<SurfaceTrackingScratch>&& stagedWorkspace) noexcept;
 
-  // Reset event state while preserving configuration and allocator identity.
-  // External owners call this once per event.
+  // Clear event state while preserving configuration and allocator identity.
   void resetEvent() noexcept;
   std::size_t getEventResetCount() const noexcept { return mEventResetCount; }
 
@@ -128,15 +125,10 @@ struct TimeFrame {
   const SurfacePlanBinding* getBinding(std::size_t iteration) const noexcept;
   const TrackingWorkspaceCapacity* getWorkspaceCapacity(std::size_t iteration) const noexcept;
 
-  // Detector-neutral common-CA results (see GenericTrack.h). Valid only with
-  // the current event measurements; GenericTrack has no NLayers dependency.
+  // Results are valid only with this event's normalized measurements.
   auto& getGenericTracks() { return mGenericTracks; }
   const auto& getGenericTracks() const { return mGenericTracks; }
-  // Flat TrackClusterReference array. A GenericTrack's
-  // [firstClusterRef, clusterRefEnd) range contains positions in inner-to-
-  // outer traversal order. Each entry pairs a SurfaceId with an index local
-  // to that surface's measurements, resolved by getGlobalMeasurement(); it is
-  // not a global measurement position.
+  // Flat inner-to-outer references; indices are local to their surface.
   auto& getTrackClusterIndices() { return mTrackClusterIndices; }
   const auto& getTrackClusterIndices() const { return mTrackClusterIndices; }
 
@@ -144,10 +136,7 @@ struct TimeFrame {
   void setMemoryPool(std::shared_ptr<BoundedMemoryResource> pool);
   auto& getMemoryPool() const noexcept { return mMemoryPool; }
 
-  // Declared before vectors that allocate from it so reverse destruction order
-  // releases those allocations before the resource. TimeFrame containers do
-  // not use the framework/GPU allocator; SurfaceTrackingScratch owns that
-  // compatibility path for its per-layer containers.
+  // Must outlive containers allocated from it (reverse destruction order).
   std::shared_ptr<BoundedMemoryResource> mMemoryPool;
 
  private:
@@ -160,7 +149,6 @@ struct TimeFrame {
   bounded_vector<Vertex> mPrimaryVertices;
   bounded_vector<VertexLabel> mPrimaryVerticesLabels;
 
-  // Common-CA results, valid only with normalized content from the same event.
   bounded_vector<GenericTrack> mGenericTracks;
   bounded_vector<TrackClusterReference> mTrackClusterIndices;
 

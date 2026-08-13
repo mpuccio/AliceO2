@@ -25,9 +25,7 @@
 namespace o2::itsmft::tracking
 {
 
-// A measurement index is local to its surface. Resolve a reference through
-// TimeFrame::getGlobalMeasurement(surface, index); raw external cluster IDs
-// remain source-qualified ClusterRef data.
+// Measurement indices are local to their surface and resolve through TimeFrame.
 struct TrackClusterReference {
   SurfaceId surface{};
   SurfaceMeasurementIndex index{};
@@ -40,10 +38,8 @@ static_assert(alignof(TrackClusterReference) == 4);
 static_assert(offsetof(TrackClusterReference, surface) == 0);
 static_assert(offsetof(TrackClusterReference, index) == 4);
 
-// Detector-neutral result owned by TimeFrame. Its reference range is
-// inner-to-outer in the frame-owned trackClusterIndices array; hitSurfaces is
-// their union. The result and its references are valid only with the same
-// normalized frame and are cleared atomically on event reset or replacement.
+// Frame-owned result; [firstClusterRef, clusterRefEnd) is inner-to-outer and
+// valid only with the same normalized event.
 struct GenericTrack {
   SurfaceKinematicState innerState{};
   SurfaceKinematicState outerState{};
@@ -56,8 +52,7 @@ struct GenericTrack {
 
 #ifndef GPUCA_GPUCODE
 
-// Detector-neutral result of one successful seed refit. Typed output tracks
-// and publication sidecars remain outside the common tracker.
+// Successful refit result; typed output remains adapter-owned.
 struct TrackingCandidate {
   TrackSeed seed;
   GenericTrack track{};
@@ -73,16 +68,12 @@ struct TrackingCandidate {
 
 #endif
 
-// Both properties are required for a portable device-facing value: bytes are
-// copyable and member order is stable for host/device compilation.
+// Device-facing layout requirements.
 static_assert(std::is_standard_layout_v<GenericTrack>);
 static_assert(std::is_trivially_copyable_v<GenericTrack>);
 
-// A track range is valid iff 0 <= firstClusterRef <= clusterRefEnd <=
-// trackClusterIndicesSize (firstClusterRef's lower bound is automatic: both
-// fields are unsigned). `trackClusterIndicesSize` is the caller's current
-// TimeFrame::getTrackClusterIndices().size(), never inferred from the track
-// itself.
+// The caller supplies the current frame-owned reference-array size; do not
+// infer validity from the track itself.
 GPUhdi() constexpr bool isValidTrackRange(const GenericTrack& track, uint32_t trackClusterIndicesSize) noexcept
 {
   return track.firstClusterRef <= track.clusterRefEnd && track.clusterRefEnd <= trackClusterIndicesSize;

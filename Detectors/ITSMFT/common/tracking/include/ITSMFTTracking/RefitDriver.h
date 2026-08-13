@@ -25,8 +25,7 @@
 #include "ITSMFTTracking/SurfaceStateOperationResult.h"
 #include "ReconstructionDataFormats/TrackParametrization.h"
 
-// Shared cylinder/disk refit entry point built on descriptor-driven
-// Propagator operations; cylinder/disk dispatch remains inside propagation.
+// Descriptor-driven refit built on Propagator operations.
 namespace o2::itsmft::tracking
 {
 
@@ -39,8 +38,7 @@ struct RefitMeasurementSlot {
   bool present{false};
 };
 
-/// Builds an ordered native-refit leg; holes remain explicit and reverse legs
-/// retain their traversal order.
+/// Builds an ordered refit leg; holes remain explicit.
 inline gsl::span<const RefitMeasurementSlot> assembleRefitLegSlots(
   const TrackSeed& seed,
   gsl::span<const gsl::span<const GlobalMeasurement>> layerGlobals,
@@ -61,9 +59,8 @@ inline gsl::span<const RefitMeasurementSlot> assembleRefitLegSlots(
   return gsl::span<const RefitMeasurementSlot>(out.data(), position);
 }
 
-// Refit-leg orchestration is transactional: holes are skipped; every present
-// slot must resolve to its surface descriptor; and state, reference, chi2,
-// and count are committed only after the whole ordered leg succeeds.
+// Holes are skipped; present slots must resolve to a descriptor. Commit state,
+// reference, chi2 and count only after the full leg succeeds.
 inline bool driveRefitLeg(SurfaceKinematicState& state, SurfaceLinearizationReference& linRef,
                           float& chi2, uint32_t& acceptedHitCount,
                           gsl::span<const RefitMeasurementSlot> orderedSlots, SurfaceCatalogView surfaceCatalog,
@@ -114,8 +111,7 @@ inline bool driveRefitLeg(SurfaceKinematicState& state, SurfaceLinearizationRefe
 
 } // namespace detail
 
-// Reset each refit leg to a loose diagonal. Barrel uses the existing ceilings;
-// Forward uses the same position/slope/curvature units and (pi)^2 for Phi.
+// Reset a refit leg to a loose diagonal covariance.
 GPUhdi() void resetCovarianceForRefit(SurfaceKinematicState& state) noexcept
 {
   for (auto& element : state.covariance) {
@@ -139,10 +135,7 @@ GPUhdi() void resetCovarianceForRefit(SurfaceKinematicState& state) noexcept
   }
 }
 
-// Same physical formula as the native minimum-pT helper: parameters[4] is the
-// raw signed q/pT for both coordinate conventions
-// (SurfaceKinematicState.h / ForwardStateView::getQ2Pt() doc), so no
-// SurfaceKind branch is needed here either.
+// parameters[4] is signed q/pT for both coordinate conventions.
 GPUhdi() float ptFromQOverPt(float q2pt, uint8_t absCharge) noexcept
 {
   float ptInv = std::abs(q2pt);
@@ -155,9 +148,7 @@ GPUhdi() float ptFromQOverPt(float q2pt, uint8_t absCharge) noexcept
   return 1.f / ptInv;
 }
 
-// Shared three-leg refit: inward A, outward B, and optional inward C. The
-// acceptance formula and MinPt check use the seed's attached-cluster count.
-// Outputs are committed only on complete success.
+// Refit inward, outward, then optionally inward again; commit on success.
 inline bool fitTrackSeedLegs(
   const TrackSeed& seed,
   gsl::span<const gsl::span<const GlobalMeasurement>> layerGlobals,
@@ -182,7 +173,7 @@ inline bool fitTrackSeedLegs(
     return chi2 < maxChi2NDFValue * static_cast<float>(static_cast<int>(acceptedHitCount) * 2 - 5);
   };
 
-  // --- Leg A: inward-index, seeded from the seed's own state as-is. ---
+  // Leg A: inward.
   SurfaceKinematicState stateA = seed.state();
   SurfaceLinearizationReference linRefA{};
   if (!makeLinearizationReference(stateA, linRefA)) {
@@ -205,8 +196,7 @@ inline bool fitTrackSeedLegs(
     return false;
   }
 
-  // --- Leg B: outward-index, re-seeded from leg A's result. Its result and
-  // chi2 are always the reported outParamIn/outChi2. ---
+  // Leg B: outward; this is the reported inner result.
   SurfaceKinematicState stateB = stateA;
   SurfaceLinearizationReference linRefB{};
   if (!makeLinearizationReference(stateB, linRefB)) {
@@ -228,7 +218,7 @@ inline bool fitTrackSeedLegs(
     return false;
   }
 
-  // --- MinPt check, keyed on the seed's own attached-cluster count. ---
+  // MinPt uses the seed's attached-cluster count.
   const int nClAttached = seed.getHitLayerMask().count();
   const int minPtSlot = activeSurfaceCount - nClAttached;
   if (minPtSlot >= 0 && minPtSlot < static_cast<int>(minPt.size())) {
@@ -239,7 +229,7 @@ inline bool fitTrackSeedLegs(
     }
   }
 
-  // --- Optional leg C: re-seeded from leg B's result, inward-index again. ---
+  // Optional leg C: inward again.
   SurfaceKinematicState stateOut = stateA;
   if (repeatRefitOut) {
     SurfaceKinematicState stateC = stateB;

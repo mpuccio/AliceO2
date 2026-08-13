@@ -262,7 +262,6 @@ void TrackerTraits::initialiseTimeFrame(const int iteration, const std::vector<S
 {
   resetTraversalCache();
 
-  // 1. Check iteration bounds before accessing configuration.
   if (iteration < 0 || static_cast<size_t>(iteration) >= graphs.size()) {
     throw TraversalException{iteration, TraversalFailureReason::IterationOutOfRange};
   }
@@ -367,7 +366,6 @@ void TrackerTraits::initialiseTimeFrame(const int iteration, const std::vector<S
     stagedLayerGlobalMeasurements[surfacePosition] = globals;
   }
 
-  // 3. Validate index-table configuration locally before touching scratch.
   std::array<IndexTableUtilsCore, 2> indexTableConfigByKind{};
   std::vector<IndexTableUtilsCore> stagedIndexTableConfigs(activeSurfaceCount);
   for (const auto kind : {SurfaceKind::Cylinder, SurfaceKind::Disk}) {
@@ -387,8 +385,6 @@ void TrackerTraits::initialiseTimeFrame(const int iteration, const std::vector<S
     stagedIndexTableConfigs[position] = indexTableConfigByKind[kindIndex(layout.getSurface(orderedSurfaces[position]).kind)];
   }
 
-  // 4. Non-FirstPass iterations reuse the TimeFrame's index-table configuration
-  // and LUT storage; their configuration was matched before touching state.
   if (!mTrkParams[iteration].PassFlags[IterationStep::FirstPass]) {
     for (int position = 0; position < activeSurfaceCount; ++position) {
       if (!indexTableConfigurationsMatch(stagedIndexTableConfigs[position], mScratch->getIndexTableUtils(position), activeSurfaceCount)) {
@@ -397,7 +393,6 @@ void TrackerTraits::initialiseTimeFrame(const int iteration, const std::vector<S
     }
   }
 
-  // 5. Scratch now receives the validated configuration and sparse plan IDs.
   const auto transitionIds = mBinding->getGlobalTransitions();
   const auto cellIds = mBinding->getGlobalCells();
   mScratch->initialise(*mFrame, mTrkParams[iteration], activeSurfaceCount, iteration,
@@ -468,7 +463,6 @@ void TrackerTraits::initialiseTimeFrame(const int iteration, const std::vector<S
     }
   }
 
-  // 6. Validate the sparse plan and binding before committing traversal state.
   validateSparsePlan(iteration, layout);
 
   // Bind the local staged material for validation; rebind to mLayerMaterial at commit.
@@ -570,7 +564,6 @@ void TrackerTraits::prepareTransitionScatteringAndBending(
 
 void TrackerTraits::computeLayerTracklets(const int iteration, int iVertex)
 {
-  // Clear the scratch-owned compact transition storage before dispatch.
   const auto scratchTransitionCount = mScratch->getTracklets().size();
   for (size_t transitionId = 0; transitionId < scratchTransitionCount; ++transitionId) {
     mScratch->getTracklets()[transitionId].clear();
@@ -594,7 +587,6 @@ void TrackerTraits::computeLayerTrackletsImpl(
   const Vertex diamondVert(mTrkParams[iteration].Diamond, mTrkParams[iteration].DiamondCov, 1, 1.f);
 
   mTaskArena->execute([&] {
-    // Resolve this sparse transition's endpoints once, outside candidate loops.
     auto resolveTransitionLayers = [&](int transitionId) -> std::pair<int, int> {
       const auto& transition = topology.getTransition(TransitionId{static_cast<uint16_t>(transitionId)});
       return {requireSurfacePosition(iteration, transition.from),
@@ -841,13 +833,10 @@ void TrackerTraits::computeLayerTrackletsImpl(
 
 void TrackerTraits::computeLayerCells(const int iteration)
 {
-  // Check the scratch's allocated compact cell count, not topology.nCells.
-  // The parallel per-cell containers must agree before either is cleared.
   const auto scratchCellCount = mScratch->getCells().size();
   if (mScratch->getCellsLookupTable().size() != scratchCellCount) {
     throw TraversalException{iteration, TraversalFailureReason::SparseTopologyMismatch};
   }
-  // Clear and allocate once for the full sparse cell count.
   for (size_t cellTopologyId = 0; cellTopologyId < scratchCellCount; ++cellTopologyId) {
     deepVectorClear(mScratch->getCells()[cellTopologyId]);
     deepVectorClear(mScratch->getCellsLookupTable()[cellTopologyId]);
@@ -876,7 +865,6 @@ void TrackerTraits::computeLayerCellsImpl(
   const int iteration,
   gsl::span<const CellTopologyId> cellIds)
 {
-  // computeLayerCells() checks per-cell-topology storage before this traversal.
   const auto& topology = mTraversalGraph;
 
   mTaskArena->execute([&] {
@@ -885,7 +873,6 @@ void TrackerTraits::computeLayerCellsImpl(
       std::array<SurfaceDescriptor, 3> surfaces{};
     };
 
-    // Resolve this cell topology's hit surfaces once, outside candidate loops.
     auto resolveCellHitBinding = [&](const auto& cellTopology) -> CellHitBinding {
       const auto& firstTransition = topology.getTransition(cellTopology.firstTransition);
       const auto& secondTransition = topology.getTransition(cellTopology.secondTransition);
@@ -1004,7 +991,6 @@ void TrackerTraits::computeLayerCellsImpl(
     };
 
     for (const auto typedCellId : cellIds) {
-      // Translate IDs once; all scratch accesses below use these compact slots.
       const int cellTopologyId = requireScratchCellSlot(iteration, typedCellId);
       const auto& cellTopology = topology.getCell(typedCellId);
       const auto kind = topology.getSurface(topology.getTransition(cellTopology.firstTransition).from).kind;
@@ -1090,7 +1076,6 @@ void TrackerTraits::findCellsNeighboursForSchedule(
   const TrackingKernelParameters& params)
 {
   const auto topology = mTraversalGraph;
-  // Check against this scratch's allocated compact cell count.
   const auto scratchCellCount = mScratch->getCells().size();
   if (mScratch->getCellsLookupTable().size() != scratchCellCount ||
       mScratch->getCellsNeighbours().size() != scratchCellCount ||
@@ -1106,7 +1091,6 @@ void TrackerTraits::findCellsNeighboursForSchedule(
     }
 
     for (const auto scheduledId : scheduledCells) {
-      // Translate this source cell once; all accesses below use the compact slot.
       const int cellTopologyId = requireScratchCellSlot(iteration, scheduledId);
       if (static_cast<size_t>(cellTopologyId) >= scratchCellCount ||
           static_cast<size_t>(cellTopologyId) >= mScratch->getCellsLookupTable().size()) {

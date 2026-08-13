@@ -12,17 +12,8 @@
 /// \file SurfaceTrackingScratch.h
 /// \brief Runtime-plan-owned, detector-neutral CA workspace.
 ///
-/// adoptPlan() sizes host event storage by ordered surface, transition, and
-/// cell. Fixed-capacity device values remain independent of this workspace.
-///
-/// Timing, ROF assignment, and masks come from a non-owning RuntimeROFViews
-/// event context. Adapters own fixed-capacity tables and detector topology.
-///
-/// initialise() receives SurfaceGraphView and SurfacePlanBinding ids explicitly;
-/// traversal follows their ordered surfaces, transitions, and cells.
-///
-/// The class borrows the graph and runtime ROF views. TimeFrame owns the
-/// workspace and reset; adapters own raw ROFs and the event-loop lifecycle.
+/// Host storage follows the runtime surface graph; device capacities remain
+/// fixed. TimeFrame owns the workspace, while adapters own raw ROFs.
 #ifndef ALICEO2_ITSMFT_TRACKING_SURFACETRACKINGSCRATCH_H_
 #define ALICEO2_ITSMFT_TRACKING_SURFACETRACKINGSCRATCH_H_
 
@@ -75,14 +66,11 @@ class ClusterDecoder;
 struct ClusterSourceInput;
 struct LoadSourcesResult;
 
-/// Detector-neutral CA working state. Detector-specific tables and raw ROFs
-/// remain at the application boundary; this class retains current-event views.
+/// Detector-neutral CA working state with current-event views.
 class SurfaceTrackingScratch
 {
  private:
-  // ---- Memory/allocator/device plumbing ----
-  // Declared first so pools outlive allocator-backed members (reverse
-  // destruction order).
+  // Pools must outlive allocator-backed members.
   std::shared_ptr<o2::its::BoundedMemoryResource> mExtMemoryPool;
   std::shared_ptr<o2::its::BoundedMemoryResource> mMemoryPool;
   o2::its::ExternalAllocator* mExternalAllocator{nullptr};
@@ -96,20 +84,17 @@ class SurfaceTrackingScratch
   SurfaceTrackingScratch(SurfaceTrackingScratch&&) = delete;
   SurfaceTrackingScratch& operator=(SurfaceTrackingScratch&&) = delete;
 
-  /// Size Group A by owned surface and Group B by runtime transition/cell
-  /// counts. setMemoryPool() must be called first. Group D is not plan-sized;
-  /// allocator setup is independent of plan adoption.
+  /// Size surface, transition and cell storage; setMemoryPool() comes first.
   void adoptPlan(std::size_t nOwnedSurfaces, std::size_t nTransitions, std::size_t nCells);
 
   std::size_t getNOwnedSurfaces() const noexcept { return mNOwnedSurfaces; }
   std::size_t getNTransitions() const noexcept { return mNTransitions; }
   std::size_t getNCells() const noexcept { return mNCells; }
 
-  /// Clear scratch-owned state in place without touching the TimeFrame or
-  /// changing plan sizes or the plan-sized outer arrays.
+  /// Clear event state without changing plan sizes.
   void reset();
 
-  /// Reseat every allocator-backed Group E container on the new resource.
+  /// Reseat allocator-backed containers.
   void setMemoryPool(std::shared_ptr<o2::its::BoundedMemoryResource> pool);
   auto& getMemoryPool() const noexcept { return mMemoryPool; }
   void setFrameworkAllocator(o2::its::ExternalAllocator* ext);
@@ -125,15 +110,11 @@ class SurfaceTrackingScratch
 
   bool hasMCinformation() const noexcept { return !mClusterLabels.empty() && mClusterLabels[0] != nullptr; }
 
-  /// Staging/swap support for atomic event loading.
-  ///
-  /// Before swap(), allocatorsMatch() must confirm equal resources for every
-  /// flat bounded_vector. Outer std::vector<bounded_vector<T>> swaps do not
-  /// touch inner allocators and are safe regardless of allocator identity.
+  /// Atomic-load staging requires matching flat-container allocators; nested
+  /// vector swaps preserve their own allocator identity.
   bool allocatorsMatch(const SurfaceTrackingScratch& staged) const noexcept;
 
-  /// Precondition: the caller has checked allocatorsMatch(other). Allocators
-  /// remain owner-bound; only staged data is swapped.
+  /// Precondition: allocatorsMatch(other); owner-bound allocators are retained.
   void swap(SurfaceTrackingScratch& other) noexcept;
 
   // ---- Read-in data: loops use the runtime ordered-surface span.

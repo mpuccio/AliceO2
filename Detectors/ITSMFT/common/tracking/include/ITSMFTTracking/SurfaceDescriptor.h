@@ -18,11 +18,7 @@
 namespace o2::itsmft::tracking
 {
 
-// Nominal (normal-incidence) per-surface material. An immutable property of
-// the surface itself, alongside its geometry -- not a separate catalogue
-// keyed by identity. Both fields are independently legal at zero (a surface
-// with no material yet configured); shared by SurfaceDescriptor and
-// StaticSurfaceDescriptor so there is exactly one definition of this type.
+// Nominal normal-incidence material; zero denotes material not configured.
 struct NominalSurfaceMaterial {
   float xOverX0{0.f};
   float arealDensityGPerCm2{0.f};
@@ -35,9 +31,7 @@ static_assert(alignof(NominalSurfaceMaterial) == 4);
 static_assert(offsetof(NominalSurfaceMaterial, xOverX0) == 0);
 static_assert(offsetof(NominalSurfaceMaterial, arealDensityGPerCm2) == 4);
 
-// Geometry identity shared by host and device code, plus its nominal
-// material. Measurement, timing and indexing descriptors are deliberately
-// composed separately.
+// Immutable surface identity, geometry and nominal material.
 struct SurfaceDescriptor {
   SurfaceId id{};
   uint16_t detectorSurfaceIndex{0};
@@ -60,27 +54,12 @@ static_assert(offsetof(SurfaceDescriptor, flags) == 6);
 static_assert(offsetof(SurfaceDescriptor, referenceCoordinate) == 8);
 static_assert(offsetof(SurfaceDescriptor, material) == 12);
 
-// Minimal, topology-free and mask-free view over a canonical
-// surface catalog: a pointer to const SurfaceDescriptor plus a count,
-// nothing else. Deliberately carries no topology, masks, transition dispatch,
-// STL ownership or detector dependency, so consumers that only need the
-// surface descriptions (e.g. loading) do not have to depend on graph
-// adjacency or transition dispatch.
-//
-// A SurfaceDescriptor includes immutable identity, geometry and nominal
-// material, so this view is not geometry-only: consumers that only care about
-// identity/geometry may simply ignore the `material` field on each returned
-// SurfaceDescriptor, but the view does not hide it. No separate material
-// pointer or accessor is added here for that -- it is naturally reachable
-// through the returned SurfaceDescriptor itself. What keeps this view narrow
-// is what it deliberately excludes: topology, masks, transition policies,
-// timing, measurements, and any runtime (endpoint-dependent) material-query
-// result.
+// Non-owning surface-catalog view. Topology, timing and measurements stay
+// outside this POD so loading and propagation do not depend on them.
 struct SurfaceCatalogView {
   const SurfaceDescriptor* surfaces{nullptr};
   uint32_t nSurfaces{0};
-  // Optional compact lookup for catalogs whose global ids are not dense.
-  // A null pointer preserves direct indexing for the canonical dense catalogs.
+  // Optional lookup for non-dense IDs; null keeps dense catalog indexing.
   const uint8_t* surfaceIndicesById{nullptr};
 
   GPUhdi() uint32_t getSurfaceIndex(SurfaceId id) const
