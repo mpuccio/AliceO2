@@ -311,10 +311,10 @@ inline bool collectReferences(const TimeFrame& frame, const GenericTrack& common
 }
 
 inline std::optional<ITSGenericTrackOutput> stageITSGenericTrackOutput(const TimeFrame& frame, ClusterSourceId source,
-                                                                     gsl::span<const SurfaceId> surfaces,
-                                                                     const GenericTrackOutputTimingContext& context,
-                                                                     const ITSSharedClusterCompatibility& compatibility,
-                                                                     bool withMC, GenericTrackOutputAdapterError& error)
+                                                                       gsl::span<const SurfaceId> surfaces,
+                                                                       const GenericTrackOutputTimingContext& context,
+                                                                       const ITSSharedClusterCompatibility& compatibility,
+                                                                       bool withMC, GenericTrackOutputAdapterError& error)
 {
   const auto selection = selectGenericTracksForSource(frame, o2::detectors::DetID::ITS, source, error);
   if (!selection || (!selection->globalIndices.empty() && !compatibility.isSealed())) {
@@ -365,10 +365,10 @@ inline std::optional<ITSGenericTrackOutput> stageITSGenericTrackOutput(const Tim
 }
 
 inline std::optional<MFTGenericTrackOutput> stageMFTGenericTrackOutput(const TimeFrame& frame, ClusterSourceId source,
-                                                                     gsl::span<const SurfaceId> surfaces,
-                                                                     const GenericTrackOutputTimingContext& context,
-                                                                     const MFTPublicationCompatibility& compatibility,
-                                                                     bool withMC, GenericTrackOutputAdapterError& error)
+                                                                       gsl::span<const SurfaceId> surfaces,
+                                                                       const GenericTrackOutputTimingContext& context,
+                                                                       const MFTPublicationCompatibility& compatibility,
+                                                                       bool withMC, GenericTrackOutputAdapterError& error)
 {
   const auto selection = selectGenericTracksForSource(frame, o2::detectors::DetID::MFT, source, error);
   if (!selection)
@@ -421,8 +421,8 @@ inline std::optional<MFTGenericTrackOutput> stageMFTGenericTrackOutput(const Tim
 }
 
 inline std::optional<ITSGenericTrackOutput> stageITSGenericTrackOutput(const TimeFrame& frame, const GenericTrackPublicationContext& context,
-                                                                     const ITSSharedClusterCompatibility& compatibility, bool withMC,
-                                                                     GenericTrackOutputAdapterError& error)
+                                                                       const ITSSharedClusterCompatibility& compatibility, bool withMC,
+                                                                       GenericTrackOutputAdapterError& error)
 {
   if (context.detector != o2::detectors::DetID::ITS) {
     error = GenericTrackOutputAdapterError::MixedDetector;
@@ -432,8 +432,8 @@ inline std::optional<ITSGenericTrackOutput> stageITSGenericTrackOutput(const Tim
 }
 
 inline std::optional<MFTGenericTrackOutput> stageMFTGenericTrackOutput(const TimeFrame& frame, const GenericTrackPublicationContext& context,
-                                                                     const MFTPublicationCompatibility& compatibility, bool withMC,
-                                                                     GenericTrackOutputAdapterError& error)
+                                                                       const MFTPublicationCompatibility& compatibility, bool withMC,
+                                                                       GenericTrackOutputAdapterError& error)
 {
   if (context.detector != o2::detectors::DetID::MFT) {
     error = GenericTrackOutputAdapterError::MixedDetector;

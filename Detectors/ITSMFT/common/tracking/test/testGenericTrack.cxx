@@ -978,8 +978,8 @@ BOOST_AUTO_TEST_CASE(GenericTrackOutputAdapterStagesITSAndFailsClosed)
   const auto clock = makeFixtureClockTiming();
   const GenericTrackOutputTimingContext timing{rofs, ClockTimingPublicationView{clock}};
   const auto output = stageITSGenericTrackOutput(fixture.tf, measurement.cluster.source,
-                                                gsl::span<const SurfaceId>{fixture.plan->front().getOrderedSurfaces()}, timing, shared,
-                                                true, error);
+                                                 gsl::span<const SurfaceId>{fixture.plan->front().getOrderedSurfaces()}, timing, shared,
+                                                 true, error);
   BOOST_REQUIRE(output);
   BOOST_CHECK_EQUAL(output->tracks.size(), 1u);
   BOOST_CHECK_EQUAL(output->clusterIndices.size(), 1u);
@@ -1030,7 +1030,7 @@ BOOST_AUTO_TEST_CASE(GenericTrackOutputAdapterStagesITSAndFailsClosed)
   const std::vector<ROFRecord> mismatchedROFs{ROFRecord{{100, 5}, 0, 1, 2}, ROFRecord{{100, 6}, 1, 2, 3}};
   const GenericTrackOutputTimingContext mismatchedROF{mismatchedROFs, ClockTimingPublicationView{clock}};
   const auto mismatchedOutput = stageITSGenericTrackOutput(fixture.tf, measurement.cluster.source,
-                                                          gsl::span<const SurfaceId>{fixture.plan->front().getOrderedSurfaces()}, mismatchedROF, shared, false, error);
+                                                           gsl::span<const SurfaceId>{fixture.plan->front().getOrderedSurfaces()}, mismatchedROF, shared, false, error);
   BOOST_REQUIRE(mismatchedOutput);
   BOOST_REQUIRE_EQUAL(mismatchedOutput->trackROFs.size(), mismatchedROFs.size());
   BOOST_CHECK_EQUAL(mismatchedOutput->trackROFs[0].getNEntries(), 1);
