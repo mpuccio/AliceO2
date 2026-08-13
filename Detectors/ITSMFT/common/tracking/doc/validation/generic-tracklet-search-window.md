@@ -12,8 +12,11 @@ one data-only `TrackletSearchWindow`. Both leaves now fill a fixed
 two-coordinate prediction and packed covariance. The cylinder target is the
 mean radial coordinate of its surface interval; the interval is treated as a
 uniform uncertainty and contributes `tanLambda^2 DeltaR^2 / 12` to the
-longitudinal variance. Its periodic azimuth residual is wrapped before the
-same strict covariance-normalized ellipse used for disk `(x,y)` residuals.
+longitudinal variance. The disk target is the event-derived mean z of its
+surface interval; the secant of its existing XY projection over that interval
+contributes the full uniform `(x,y)` covariance, including the cross term.
+Its periodic azimuth residual is wrapped before the same strict
+covariance-normalized ellipse used for disk `(x,y)` residuals.
 
 This is an approved physics migration. It is not a claim of equivalence to
 the former cylinder rectangular `z`/`phi` selection.
@@ -39,3 +42,4 @@ ITS standalone and combined are byte-identical on this fixture. MFT remains
 unchanged from the preceding candidate; its standalone/combined population
 difference is the established common-policy composition effect. The new
 cylinder ellipse changes ITS from the preceding 184-track candidate to 189.
+The target-z interval extension reproduces the listed standalone MFT product.

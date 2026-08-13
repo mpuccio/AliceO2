@@ -742,6 +742,7 @@ void TrackerTraits::computeLayerTrackletsImpl(
                                                        mTrkParams[iteration].LayerRadii.size()};
         if (!bindTrackletProjectionCache(fromLayer, toLayer, layerRadii, mDiskLayerReferenceZ,
                                          mScratch->getMinR(toLayer), mScratch->getMaxR(toLayer),
+                                         mScratch->getMinZ(toLayer), mScratch->getMaxZ(toLayer),
                                          mScratch->getPositionResolution(fromLayer),
                                          mScratch->getTransitionMSAngle(scratchTransitionId),
                                          mScratch->getTransitionPhiCut(scratchTransitionId), transitionCache)) {
@@ -764,6 +765,7 @@ void TrackerTraits::computeLayerTrackletsImpl(
                                                        mTrkParams[iteration].LayerRadii.size()};
         if (!bindTrackletProjectionCache(fromLayer, toLayer, layerRadii, mDiskLayerReferenceZ,
                                          mScratch->getMinR(toLayer), mScratch->getMaxR(toLayer),
+                                         mScratch->getMinZ(toLayer), mScratch->getMaxZ(toLayer),
                                          mScratch->getPositionResolution(fromLayer),
                                          mScratch->getTransitionMSAngle(scratchTransitionId),
                                          mScratch->getTransitionPhiCut(scratchTransitionId), transitionCache)) {

@@ -183,6 +183,8 @@ class SurfaceTrackingScratch
   auto& getMaxRs() { return mMaxR; }
   float getMinR(int layer) const { return mMinR[layer]; }
   float getMaxR(int layer) const { return mMaxR[layer]; }
+  float getMinZ(int layer) const { return mMinZ[layer]; }
+  float getMaxZ(int layer) const { return mMaxZ[layer]; }
   float getTransitionPhiCut(int transitionId) const { return mTransitionPhiCuts[transitionId]; }
   float getTransitionMSAngle(int transitionId) const { return mTransitionMSAngles[transitionId]; }
   auto& getTransitionPhiCuts() { return mTransitionPhiCuts; }
@@ -335,6 +337,8 @@ class SurfaceTrackingScratch
   std::vector<o2::its::bounded_vector<int>> mNClustersPerROF;
   std::vector<float> mMinR;
   std::vector<float> mMaxR;
+  std::vector<float> mMinZ;
+  std::vector<float> mMaxZ;
   o2::its::bounded_vector<int> mBogusClusters;
   o2::its::bounded_vector<float> mPositionResolution;
   // Two fixed tracklet combinations (positions 0-1 and 1-2), sized at load.

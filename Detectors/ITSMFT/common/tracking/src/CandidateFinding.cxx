@@ -124,11 +124,16 @@ bool projectDiskSearchWindow(const GlobalMeasurement& sourceMeasurement,
   if (!transitionCache.hasReferenceCoordinates) {
     return false;
   }
+  if (!(std::isfinite(transitionCache.targetMinZ) && std::isfinite(transitionCache.targetMaxZ) &&
+        transitionCache.targetMinZ <= transitionCache.targetMaxZ)) {
+    return false;
+  }
+  const float targetMeanZ = 0.5f * (transitionCache.targetMinZ + transitionCache.targetMaxZ);
   float xProj = 0.f;
   float yProj = 0.f;
   detail::mftTrackletProject(sourceMeasurement.position.x, sourceMeasurement.position.y, sourceMeasurement.position.z,
                              vertex.getX(), vertex.getY(), vertex.getZ(),
-                             transitionCache.fromReferenceCoordinate, transitionCache.toReferenceCoordinate, bz, params.trackletMinPt,
+                             transitionCache.fromReferenceCoordinate, targetMeanZ, bz, params.trackletMinPt,
                              xProj, yProj);
   float sigmaX = 0.f;
   float sigmaY = 0.f;
@@ -136,16 +141,35 @@ bool projectDiskSearchWindow(const GlobalMeasurement& sourceMeasurement,
                              vertex.getX(), vertex.getY(), vertex.getZ(),
                              sourceMeasurement.covariance.xx, sourceMeasurement.covariance.yy,
                              vertex.getSigmaX2(), vertex.getSigmaY2(), vertex.getSigmaZ2(),
-                             transitionCache.fromReferenceCoordinate, transitionCache.toReferenceCoordinate,
-                             transitionCache.fromRadius, transitionCache.toReferenceCoordinate - transitionCache.fromReferenceCoordinate,
+                             transitionCache.fromReferenceCoordinate, targetMeanZ,
+                             transitionCache.fromRadius, targetMeanZ - transitionCache.fromReferenceCoordinate,
                              transitionCache.transitionMSAngle, transitionCache.transitionPhiCut,
                              xProj, yProj, sigmaX, sigmaY);
+
+  float xAtMinZ = 0.f;
+  float yAtMinZ = 0.f;
+  float xAtMaxZ = 0.f;
+  float yAtMaxZ = 0.f;
+  detail::mftTrackletProject(sourceMeasurement.position.x, sourceMeasurement.position.y, sourceMeasurement.position.z,
+                             vertex.getX(), vertex.getY(), vertex.getZ(),
+                             transitionCache.fromReferenceCoordinate, transitionCache.targetMinZ, bz, params.trackletMinPt,
+                             xAtMinZ, yAtMinZ);
+  detail::mftTrackletProject(sourceMeasurement.position.x, sourceMeasurement.position.y, sourceMeasurement.position.z,
+                             vertex.getX(), vertex.getY(), vertex.getZ(),
+                             transitionCache.fromReferenceCoordinate, transitionCache.targetMaxZ, bz, params.trackletMinPt,
+                             xAtMaxZ, yAtMaxZ);
+  const float targetZVarianceScale = 1.f / 12.f;
+  const float deltaX = xAtMaxZ - xAtMinZ;
+  const float deltaY = yAtMaxZ - yAtMinZ;
+  const float varianceX = o2::its::math_utils::Sq(sigmaX) + targetZVarianceScale * o2::its::math_utils::Sq(deltaX);
+  const float covarianceXY = targetZVarianceScale * deltaX * deltaY;
+  const float varianceY = o2::its::math_utils::Sq(sigmaY) + targetZVarianceScale * o2::its::math_utils::Sq(deltaY);
 
   const float zSpread = params.nSigmaCut * vertex.getSigmaZ();
   const float zVtxMin = vertex.getZ() - zSpread;
   const float zVtxMax = vertex.getZ() + zSpread;
   const float absZFrom = std::abs(transitionCache.fromReferenceCoordinate);
-  const float absZTo = std::abs(transitionCache.toReferenceCoordinate);
+  const float absZTo = std::abs(targetMeanZ);
   const float denomMin = zVtxMax + absZFrom;
   const float denomMax = absZFrom + zVtxMin;
   float radialRangeMin = (std::abs(denomMin) > 1.e-6f) ? sourceLocator.radius * (zVtxMax + absZTo) / denomMin : sourceLocator.radius;
@@ -157,12 +181,12 @@ bool projectDiskSearchWindow(const GlobalMeasurement& sourceMeasurement,
   }
   const auto bins = o2::itsmft::getBinsRectClusterAtProj(xProj, yProj, transitionCache.toLayer,
                                                          radialRangeMin, radialRangeMax,
-                                                         sigmaX * params.nSigmaCut, sigmaY * params.nSigmaCut,
+                                                         std::sqrt(varianceX) * params.nSigmaCut, std::sqrt(varianceY) * params.nSigmaCut,
                                                          indexUtils);
   if (bins.x < 0) {
     return false;
   }
-  out = {bins, {xProj, yProj}, {o2::its::math_utils::Sq(sigmaX), 0.f, o2::its::math_utils::Sq(sigmaY)}};
+  out = {bins, {xProj, yProj}, {varianceX, covarianceXY, varianceY}};
   return true;
 }
 
@@ -170,7 +194,7 @@ bool bindTrackletProjectionCache(
   int fromLayer, int toLayer,
   gsl::span<const float> layerRadii,
   gsl::span<const float> diskReferenceZ,
-  float targetMinR, float targetMaxR,
+  float targetMinR, float targetMaxR, float targetMinZ, float targetMaxZ,
   float sourcePositionResolution,
   float transitionMSAngle, float transitionPhiCut,
   TrackletProjectionCache& out) noexcept
@@ -180,15 +204,14 @@ bool bindTrackletProjectionCache(
       static_cast<size_t>(toLayer) >= layerRadii.size()) {
     return false;
   }
-  const bool hasReferenceCoordinates = static_cast<size_t>(fromLayer) < diskReferenceZ.size() &&
-                                       static_cast<size_t>(toLayer) < diskReferenceZ.size();
+  const bool hasReferenceCoordinates = static_cast<size_t>(fromLayer) < diskReferenceZ.size();
   const auto referenceCoordinate = [&](int layer) {
     return static_cast<size_t>(layer) < diskReferenceZ.size() ? diskReferenceZ[layer] : 0.f;
   };
   out = {fromLayer, toLayer,
          layerRadii[fromLayer], layerRadii[toLayer],
-         targetMinR, targetMaxR, sourcePositionResolution,
-         referenceCoordinate(fromLayer), referenceCoordinate(toLayer),
+         targetMinR, targetMaxR, targetMinZ, targetMaxZ, sourcePositionResolution,
+         referenceCoordinate(fromLayer),
          transitionMSAngle, transitionPhiCut, hasReferenceCoordinates};
   return true;
 }

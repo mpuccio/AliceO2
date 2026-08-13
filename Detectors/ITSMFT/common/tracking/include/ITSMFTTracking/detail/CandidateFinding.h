@@ -47,9 +47,10 @@ struct TrackletProjectionCache {
   float toRadius;
   float targetMinR;
   float targetMaxR;
+  float targetMinZ;
+  float targetMaxZ;
   float sourcePositionResolution;
   float fromReferenceCoordinate;
-  float toReferenceCoordinate;
   float transitionMSAngle;
   float transitionPhiCut;
   bool hasReferenceCoordinates;
@@ -64,7 +65,7 @@ struct TrackletSearchWindow {
 bool bindTrackletProjectionCache(int fromLayer, int toLayer,
                                  gsl::span<const float> layerRadii,
                                  gsl::span<const float> diskReferenceZ,
-                                 float targetMinR, float targetMaxR,
+                                 float targetMinR, float targetMaxR, float targetMinZ, float targetMaxZ,
                                  float sourcePositionResolution,
                                  float transitionMSAngle, float transitionPhiCut,
                                  TrackletProjectionCache& out) noexcept;

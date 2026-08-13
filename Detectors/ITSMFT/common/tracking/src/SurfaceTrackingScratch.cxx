@@ -58,6 +58,8 @@ void SurfaceTrackingScratch::adoptPlan(std::size_t nOwnedSurfaces, std::size_t n
   clearResizeBoundedVector(mNClustersPerROF, nOwnedSurfaces, mMemoryPool.get());
   mMinR.assign(nOwnedSurfaces, std::numeric_limits<float>::max());
   mMaxR.assign(nOwnedSurfaces, std::numeric_limits<float>::lowest());
+  mMinZ.assign(nOwnedSurfaces, std::numeric_limits<float>::max());
+  mMaxZ.assign(nOwnedSurfaces, std::numeric_limits<float>::lowest());
   clearResizeBoundedVector(mBogusClusters, nOwnedSurfaces, mMemoryPool.get());
   clearResizeBoundedVector(mPositionResolution, nOwnedSurfaces, mMemoryPool.get());
 
@@ -257,6 +259,8 @@ void SurfaceTrackingScratch::swap(SurfaceTrackingScratch& other) noexcept
   mNClustersPerROF.swap(other.mNClustersPerROF);
   mMinR.swap(other.mMinR);
   mMaxR.swap(other.mMaxR);
+  mMinZ.swap(other.mMinZ);
+  mMaxZ.swap(other.mMaxZ);
   mTracklets.swap(other.mTracklets);
   mTrackletsLookupTable.swap(other.mTrackletsLookupTable);
   mTrackletLabels.swap(other.mTrackletLabels);
@@ -578,6 +582,8 @@ void SurfaceTrackingScratch::prepareClusters(const TimeFrame& frame, const Track
         h.r = o2::its::math_utils::hypot(x, y);
         mMinR[iLayer] = o2::gpu::GPUCommonMath::Min(h.r, mMinR[iLayer]);
         mMaxR[iLayer] = o2::gpu::GPUCommonMath::Max(h.r, mMaxR[iLayer]);
+        mMinZ[iLayer] = o2::gpu::GPUCommonMath::Min(z, mMinZ[iLayer]);
+        mMaxZ[iLayer] = o2::gpu::GPUCommonMath::Max(z, mMaxZ[iLayer]);
         h.bin = bin;
         h.ind = clsPerBin[bin]++;
       }
@@ -687,6 +693,8 @@ void SurfaceTrackingScratch::initialise(const TimeFrame& frame, const TrackingPa
 
     std::fill(mMinR.begin(), mMinR.end(), std::numeric_limits<float>::max());
     std::fill(mMaxR.begin(), mMaxR.end(), std::numeric_limits<float>::lowest());
+    std::fill(mMinZ.begin(), mMinZ.end(), std::numeric_limits<float>::max());
+    std::fill(mMaxZ.begin(), mMaxZ.end(), std::numeric_limits<float>::lowest());
   }
   clearResizeBoundedVector(mCells, mNCells, mMemoryPool.get());
   clearResizeBoundedVector(mCellsLookupTable, mNCells, mMemoryPool.get());

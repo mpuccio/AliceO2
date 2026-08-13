@@ -16,8 +16,11 @@ the bins directly and passes `TrackingKernelParameters::nSigmaCut` separately
 to the common covariance-normalized acceptance. Coordinate conversion is
 selected at the descriptor boundary; detector/source identity has no role.
 
-For disks, the projected coordinates are `(x,y)` and the leaf supplies their
-diagonal covariance. For cylinders they are `(z,phi)`. The cylinder leaf
+For disks, the projected coordinates are `(x,y)`. The disk leaf projects to
+the event-derived target mean z `(targetMinZ + targetMaxZ) / 2`. Treating the
+target z interval as uniform, it adds the secant-propagated covariance
+`(p(targetMaxZ)-p(targetMinZ))(...)^T / 12`, including the XY cross term.
+For cylinders the coordinates are `(z,phi)`. The cylinder leaf
 projects `z` to the target surface mean radius
 `(targetMinR + targetMaxR) / 2`; its radial interval is modeled as uniform,
 so it adds `tanLambda^2 * (targetMaxR-targetMinR)^2 / 12` to the longitudinal

@@ -95,16 +95,16 @@ TrackletProjectionCache makeCylinderProjectionCache(int fromLayer, int toLayer, 
                                                     float targetMinR, float targetMaxR, float sourcePositionResolution,
                                                     float transitionMSAngle, float transitionPhiCut)
 {
-  return {fromLayer, toLayer, fromRadius, toRadius, targetMinR, targetMaxR, sourcePositionResolution,
-          0.f, 0.f, transitionMSAngle, transitionPhiCut, false};
+  return {fromLayer, toLayer, fromRadius, toRadius, targetMinR, targetMaxR, 0.f, 0.f,
+          sourcePositionResolution, 0.f, transitionMSAngle, transitionPhiCut, false};
 }
 
 TrackletProjectionCache makeDiskProjectionCache(int fromLayer, int toLayer, float fromRadius,
-                                                float fromReferenceCoordinate, float toReferenceCoordinate,
+                                                float fromReferenceCoordinate, float targetMinZ, float targetMaxZ,
                                                 float transitionMSAngle, float transitionPhiCut)
 {
-  return {fromLayer, toLayer, fromRadius, 0.f, 0.f, 0.f, 0.f,
-          fromReferenceCoordinate, toReferenceCoordinate, transitionMSAngle, transitionPhiCut, true};
+  return {fromLayer, toLayer, fromRadius, 0.f, 0.f, 0.f, targetMinZ, targetMaxZ,
+          0.f, fromReferenceCoordinate, transitionMSAngle, transitionPhiCut, true};
 }
 
 void checkSearchWindowEqual(const TrackletSearchWindow& lhs, const TrackletSearchWindow& rhs)
@@ -330,7 +330,7 @@ BOOST_AUTO_TEST_CASE(DiskProjectSearchWindowReusesHelpersAndDirectProjectedXYBin
   const auto source = makeGlobalCluster(1.2f, 0.7f, fromZ);
   const auto sourceMeasurement = makeMeasurement(source, 2.e-4f, 3.e-4f);
   const auto vertex = makeVertex(0.01f, -0.02f, 0.1f, 4.e-4f, 5.e-4f, 0.04f, 3);
-  const auto state = makeDiskProjectionCache(fromLayer, toLayer, 2.f, fromZ, toZ, 3.e-3f, 0.04f);
+  const auto state = makeDiskProjectionCache(fromLayer, toLayer, 2.f, fromZ, toZ, toZ, 3.e-3f, 0.04f);
 
   TrackletSearchWindow window{};
   BOOST_REQUIRE((projectDiskSearchWindow(
@@ -347,7 +347,8 @@ BOOST_AUTO_TEST_CASE(DiskProjectSearchWindowReusesHelpersAndDirectProjectedXYBin
                              vertex.getX(), vertex.getY(), vertex.getZ(),
                              sourceMeasurement.covariance.xx, sourceMeasurement.covariance.yy,
                              vertex.getSigmaX2(), vertex.getSigmaY2(), vertex.getSigmaZ2(),
-                             fromLayer, toLayer, state.fromRadius, state.toReferenceCoordinate - state.fromReferenceCoordinate,
+                             fromLayer, toLayer, state.fromRadius,
+                             0.5f * (state.targetMinZ + state.targetMaxZ) - state.fromReferenceCoordinate,
                              state.transitionMSAngle, state.transitionPhiCut,
                              expectedX, expectedY, expectedSigmaX, expectedSigmaY);
 
@@ -394,6 +395,51 @@ BOOST_AUTO_TEST_CASE(DiskProjectSearchWindowReusesHelpersAndDirectProjectedXYBin
   BOOST_CHECK_EQUAL(rejectedTanLambda, 123.f);
 }
 
+BOOST_AUTO_TEST_CASE(DiskSearchWindowPropagatesTargetZIntervalIntoXYCovariance)
+{
+  TrackingParameters legacy;
+  const auto params = makeKernelParameters(legacy, SurfaceKind::Disk);
+  BOOST_REQUIRE(params.isValid());
+
+  IndexTableUtilsCore indexUtils;
+  std::array<float, 10> halfExtents{};
+  halfExtents.fill(200.f);
+  indexUtils.setIndexTableParams(IndexTableCoordType::XY, legacy.RowBins, legacy.ColBins, -200.f, 200.f, halfExtents);
+
+  constexpr int fromLayer = 0;
+  constexpr int toLayer = 1;
+  const float fromZ = detail::mftLayerZ(fromLayer);
+  const float toZ = detail::mftLayerZ(toLayer);
+  const auto source = makeGlobalCluster(1.2f, 0.7f, fromZ);
+  const auto measurement = makeMeasurement(source, 2.e-4f, 3.e-4f);
+  const auto vertex = makeVertex(0.01f, -0.02f, 0.1f, 4.e-4f, 5.e-4f, 0.04f, 3);
+
+  const auto pointTarget = makeDiskProjectionCache(fromLayer, toLayer, 2.f, fromZ, toZ, toZ, 3.e-3f, 0.04f);
+  const auto intervalTarget = makeDiskProjectionCache(fromLayer, toLayer, 2.f, fromZ, toZ - 0.5f, toZ + 0.5f, 3.e-3f, 0.04f);
+  TrackletSearchWindow pointWindow{};
+  TrackletSearchWindow intervalWindow{};
+  BOOST_REQUIRE((projectDiskSearchWindow(measurement, source, vertex, pointTarget, Bz, indexUtils, params, pointWindow)));
+  BOOST_REQUIRE((projectDiskSearchWindow(measurement, source, vertex, intervalTarget, Bz, indexUtils, params, intervalWindow)));
+
+  float xAtMinZ = 0.f;
+  float yAtMinZ = 0.f;
+  float xAtMaxZ = 0.f;
+  float yAtMaxZ = 0.f;
+  detail::mftTrackletProject(source.xCoordinate, source.yCoordinate, source.zCoordinate,
+                             vertex.getX(), vertex.getY(), vertex.getZ(), fromZ, toZ - 0.5f,
+                             Bz, params.trackletMinPt, xAtMinZ, yAtMinZ);
+  detail::mftTrackletProject(source.xCoordinate, source.yCoordinate, source.zCoordinate,
+                             vertex.getX(), vertex.getY(), vertex.getZ(), fromZ, toZ + 0.5f,
+                             Bz, params.trackletMinPt, xAtMaxZ, yAtMaxZ);
+  const float deltaX = xAtMaxZ - xAtMinZ;
+  const float deltaY = yAtMaxZ - yAtMinZ;
+  BOOST_CHECK_CLOSE_FRACTION(intervalWindow.prediction[0], pointWindow.prediction[0], 1.e-6f);
+  BOOST_CHECK_CLOSE_FRACTION(intervalWindow.prediction[1], pointWindow.prediction[1], 1.e-6f);
+  BOOST_CHECK_CLOSE_FRACTION(intervalWindow.variance[0] - pointWindow.variance[0], deltaX * deltaX / 12.f, 1.e-4f);
+  BOOST_CHECK_CLOSE_FRACTION(intervalWindow.variance[1], deltaX * deltaY / 12.f, 1.e-4f);
+  BOOST_CHECK_CLOSE_FRACTION(intervalWindow.variance[2] - pointWindow.variance[2], deltaY * deltaY / 12.f, 1.e-4f);
+}
+
 BOOST_AUTO_TEST_CASE(ProjectSearchWindowInvalidBinsLeaveEveryOutputFieldUnchanged)
 {
   TrackingParameters legacy;
@@ -424,7 +470,7 @@ BOOST_AUTO_TEST_CASE(ProjectSearchWindowInvalidBinsLeaveEveryOutputFieldUnchange
   const auto diskSource = makeGlobalCluster(1.f, 0.5f, fromZ);
   const auto diskMeasurement = makeMeasurement(diskSource);
   const auto diskVertex = makeVertex(0.f, 0.f, 0.f, 0.f, 0.f, 0.f);
-  const auto diskState = makeDiskProjectionCache(fromLayer, toLayer, 2.f, fromZ, toZ, 3.e-3f, 0.04f);
+  const auto diskState = makeDiskProjectionCache(fromLayer, toLayer, 2.f, fromZ, toZ, toZ, 3.e-3f, 0.04f);
   const TrackletSearchWindow diskSentinel{
     {201, 202, 203, 204}, {205.f, 206.f}, {207.f, 208.f, 210.f}};
   auto diskOut = diskSentinel;
@@ -475,7 +521,7 @@ BOOST_AUTO_TEST_CASE(DiskProjectionLeafRetainsNearZeroDenominatorGuardAndRadialS
   const float toZ = detail::mftLayerZ(toLayer);
   const auto source = makeGlobalCluster(1.f, 0.5f, fromZ);
   const auto sourceMeasurement = makeMeasurement(source);
-  const auto state = makeDiskProjectionCache(fromLayer, toLayer, 2.f, fromZ, toZ, 3.e-3f, 0.04f);
+  const auto state = makeDiskProjectionCache(fromLayer, toLayer, 2.f, fromZ, toZ, toZ, 3.e-3f, 0.04f);
 
   IndexTableUtilsCore indexUtils;
   std::array<float, 10> halfExtents{};
@@ -529,7 +575,8 @@ BOOST_AUTO_TEST_CASE(DiskProjectionLeafRetainsNearZeroDenominatorGuardAndRadialS
                              swapVertex.getX(), swapVertex.getY(), swapVertex.getZ(),
                              sourceMeasurement.covariance.xx, sourceMeasurement.covariance.yy,
                              swapVertex.getSigmaX2(), swapVertex.getSigmaY2(), swapVertex.getSigmaZ2(),
-                             fromLayer, toLayer, state.fromRadius, state.toReferenceCoordinate - state.fromReferenceCoordinate,
+                             fromLayer, toLayer, state.fromRadius,
+                             0.5f * (state.targetMinZ + state.targetMaxZ) - state.fromReferenceCoordinate,
                              state.transitionMSAngle, state.transitionPhiCut,
                              expectedX, expectedY, expectedSigmaX, expectedSigmaY);
   const auto directBins = getBinsRectClusterAtProj(expectedX, expectedY, toLayer,
@@ -639,7 +686,7 @@ BOOST_AUTO_TEST_CASE(NormalizedMeasurementsRemainAuthoritativeOverPoisonedLocato
   const float toZ = detail::mftLayerZ(1);
   const auto diskMeasurement = makeMeasurement(1.f, 0.5f, fromZ, 2.e-4f, 3.e-4f, 7.f);
   auto diskLocator = makeGlobalCluster(1.f, 0.5f, fromZ);
-  const auto diskState = makeDiskProjectionCache(0, 1, 2.f, fromZ, toZ, 3.e-3f, 0.04f);
+  const auto diskState = makeDiskProjectionCache(0, 1, 2.f, fromZ, toZ, toZ, 3.e-3f, 0.04f);
   TrackletSearchWindow diskBaseline{};
   BOOST_REQUIRE((projectDiskSearchWindow(
     diskMeasurement, diskLocator, vertex, diskState, Bz, diskIndex, diskKernelParameters, diskBaseline)));
