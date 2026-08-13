@@ -14,6 +14,151 @@
 #include "ITSMFTTracking/detail/SurfaceTrackingScratch.h"
 #include "ITSMFTTracking/SurfaceMask.h"
 #include "ITSMFTTracking/TimeFrame.h"
+#include "Framework/Logger.h"
+#include "ITSBase/GeometryTGeo.h"
+#include "MFTBase/GeometryTGeo.h"
+#include "MathUtils/Utils.h"
+
+namespace
+{
+
+using o2::itsmft::ioutils::detail::addSysErrors;
+using o2::itsmft::ioutils::detail::shouldApplySysErrors;
+
+struct DecodedClusterResult {
+  o2::itsmft::tracking::DecodedCluster decoded{};
+  o2::itsmft::tracking::ClusterDecodeError error{o2::itsmft::tracking::ClusterDecodeError::None};
+
+  bool ok() const noexcept { return error == o2::itsmft::tracking::ClusterDecodeError::None; }
+};
+
+template <o2::detectors::DetID::ID DetId, typename GeomT>
+DecodedClusterResult decodeClusterBounded(GeomT* geom,
+                                          const o2::itsmft::CompClusterExt& cluster,
+                                          o2::itsmft::tracking::BoundedPatternCursor& patterns,
+                                          const o2::itsmft::TopologyDictionary* dict,
+                                          bool applySysErrors)
+{
+  using o2::itsmft::tracking::ClusterDecodeError;
+  DecodedClusterResult result;
+  if (dict == nullptr) {
+    result.error = ClusterDecodeError::MissingDictionary;
+    return result;
+  }
+  if (geom == nullptr) {
+    result.error = ClusterDecodeError::GeometryUnavailable;
+    return result;
+  }
+
+  const auto sensorID = cluster.getSensorID();
+  if (!o2::itsmft::ioutils::detail::isSensorInGeometry(sensorID, geom->getSize())) {
+    result.error = ClusterDecodeError::InvalidSensor;
+    return result;
+  }
+  const int layer = geom->getLayer(sensorID);
+  if (!o2::itsmft::ioutils::detail::isLayerInDetector(layer, o2::itsmft::tracking::TrackerParamRef<DetId>::nLayers())) {
+    result.error = ClusterDecodeError::InvalidLayer;
+    return result;
+  }
+
+  const auto clusterData = o2::itsmft::ioutils::extractClusterDataBounded(cluster, patterns, dict);
+  if (!clusterData.ok()) {
+    result.error = clusterData.error;
+    return result;
+  }
+  float sigma2Row = clusterData.sig2Row;
+  float sigma2Col = clusterData.sig2Col;
+  if (applySysErrors && shouldApplySysErrors<DetId>()) {
+    addSysErrors<DetId>(layer, sigma2Row, sigma2Col);
+  }
+
+  if constexpr (DetId == o2::detectors::DetID::ITS) {
+    const auto trkXYZ = geom->getMatrixT2L(sensorID) ^ clusterData.coordinates;
+    const auto gloXYZ = geom->getMatrixL2G(sensorID) * clusterData.coordinates;
+    result.decoded = {{gloXYZ.x(), gloXYZ.y(), gloXYZ.z()},
+                      {trkXYZ.x(), trkXYZ.y(), trkXYZ.z(), geom->getSensorRefAlpha(sensorID)},
+                      {sigma2Row, 0.f, sigma2Col},
+                      clusterData.shape,
+                      static_cast<uint32_t>(sensorID),
+                      layer};
+  } else {
+    if (!geom->getCacheL2G().isFilled() || geom->getCacheL2G().getSize() <= sensorID) {
+      result.error = ClusterDecodeError::GeometryUnavailable;
+      return result;
+    }
+    const auto gloXYZ = geom->getMatrixL2G(sensorID) * clusterData.coordinates;
+    result.decoded = {{gloXYZ.x(), gloXYZ.y(), gloXYZ.z()}, {}, {sigma2Row, 0.f, sigma2Col}, clusterData.shape, static_cast<uint32_t>(sensorID), layer};
+  }
+  return result;
+}
+
+} // namespace
+
+namespace o2::itsmft::ioutils
+{
+
+void fillMatrixCache(o2::detectors::DetID::ID detId)
+{
+  const auto mask = o2::math_utils::bit2Mask(o2::math_utils::TransformType::T2L, o2::math_utils::TransformType::L2G);
+  if (detId == o2::detectors::DetID::ITS) {
+    o2::its::GeometryTGeo::Instance()->fillMatrixCache(mask);
+  } else if (detId == o2::detectors::DetID::MFT) {
+    o2::mft::GeometryTGeo::Instance()->fillMatrixCache(mask);
+  } else {
+    LOGP(fatal, "Unsupported detector id {} in fillMatrixCache", static_cast<int>(detId));
+  }
+}
+
+template <o2::detectors::DetID::ID DetId>
+o2::itsmft::tracking::SurfaceMeasurementDecodeResult loadClusterSurfaceMeasurement(
+  const CompClusterExt& cluster, o2::itsmft::tracking::BoundedPatternCursor& patterns,
+  const TopologyDictionary* dict, gsl::span<const o2::itsmft::tracking::SurfaceId> layerToSurface,
+  o2::itsmft::tracking::ClusterSourceId source, uint32_t externalClusterIndex,
+  uint32_t sourceROF, bool applySysErrors)
+{
+  const auto decodedResult = [&] {
+    if constexpr (DetId == o2::detectors::DetID::ITS) {
+      return decodeClusterBounded<DetId>(o2::its::GeometryTGeo::Instance(), cluster, patterns, dict, applySysErrors);
+    } else {
+      return decodeClusterBounded<DetId>(o2::mft::GeometryTGeo::Instance(), cluster, patterns, dict, applySysErrors);
+    }
+  }();
+
+  o2::itsmft::tracking::SurfaceMeasurementDecodeResult result;
+  if (!decodedResult.ok()) {
+    result.error = decodedResult.error;
+    return result;
+  }
+  const auto& decoded = decodedResult.decoded;
+  result.layer = decoded.layer;
+  if (decoded.layer < 0 || static_cast<size_t>(decoded.layer) >= layerToSurface.size()) {
+    result.error = o2::itsmft::tracking::ClusterDecodeError::InvalidLayerMapping;
+    return result;
+  }
+  result.layerMapped = true;
+  const auto surface = layerToSurface[decoded.layer];
+  const o2::itsmft::tracking::DetectorSensorId sensor{DetId, decoded.sensor};
+  const o2::itsmft::tracking::ClusterRef clusterRef{source, externalClusterIndex};
+  if constexpr (DetId == o2::detectors::DetID::ITS) {
+    result.kind = o2::itsmft::tracking::SurfaceKind::Cylinder;
+    result.global = o2::itsmft::tracking::makeCylinderGlobalMeasurement(decoded, sensor, surface, clusterRef, sourceROF);
+    result.measurement = o2::itsmft::tracking::makeCylinderSurfaceMeasurement(decoded);
+  } else {
+    result.kind = o2::itsmft::tracking::SurfaceKind::Disk;
+    result.global = o2::itsmft::tracking::makeDiskGlobalMeasurement(decoded, sensor, surface, clusterRef, sourceROF);
+    result.measurement = o2::itsmft::tracking::makeDiskSurfaceMeasurement(decoded);
+  }
+  return result;
+}
+
+template o2::itsmft::tracking::SurfaceMeasurementDecodeResult loadClusterSurfaceMeasurement<o2::detectors::DetID::ITS>(
+  const CompClusterExt&, o2::itsmft::tracking::BoundedPatternCursor&, const TopologyDictionary*,
+  gsl::span<const o2::itsmft::tracking::SurfaceId>, o2::itsmft::tracking::ClusterSourceId, uint32_t, uint32_t, bool);
+template o2::itsmft::tracking::SurfaceMeasurementDecodeResult loadClusterSurfaceMeasurement<o2::detectors::DetID::MFT>(
+  const CompClusterExt&, o2::itsmft::tracking::BoundedPatternCursor&, const TopologyDictionary*,
+  gsl::span<const o2::itsmft::tracking::SurfaceId>, o2::itsmft::tracking::ClusterSourceId, uint32_t, uint32_t, bool);
+
+} // namespace o2::itsmft::ioutils
 
 namespace o2::itsmft::tracking
 {

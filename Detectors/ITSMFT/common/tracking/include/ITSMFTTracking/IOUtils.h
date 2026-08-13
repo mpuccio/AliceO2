@@ -19,7 +19,6 @@
 #include <array>
 #include <cstdint>
 #include <limits>
-#include <vector>
 
 #ifndef GPUCA_GPUCODE
 #include <stdexcept>
@@ -30,7 +29,6 @@
 
 #include "DetectorsCommonDataFormats/DetID.h"
 #include "ITSMFTBase/SegmentationAlpide.h"
-#include "ReconstructionDataFormats/BaseCluster.h"
 #include "DataFormatsITSMFT/ClusterPattern.h"
 #include "DataFormatsITSMFT/CompCluster.h"
 #include "DataFormatsITSMFT/ROFRecord.h"
@@ -100,19 +98,6 @@ constexpr float DefClusError2Row = DefClusErrorRow * DefClusErrorRow;
 constexpr float DefClusError2Col = DefClusErrorCol * DefClusErrorCol;
 
 void fillMatrixCache(o2::detectors::DetID::ID detId);
-int getClusterLayer(o2::detectors::DetID::ID detId, const CompClusterExt& cluster);
-
-/// Decode a compact cluster directly into the normalized surface representation.
-template <o2::detectors::DetID::ID DetId>
-o2::itsmft::tracking::SurfaceMeasurement loadClusterSurfaceMeasurement(
-  const CompClusterExt& c,
-  gsl::span<const unsigned char>::iterator& pattIt,
-  const TopologyDictionary* dict,
-  o2::itsmft::tracking::ClusterSourceId source,
-  uint32_t externalClusterIndex,
-  o2::itsmft::tracking::SurfaceId surface,
-  uint32_t sourceROF,
-  bool applySysErrors = true);
 
 /// Decode a cluster and map its local layer to a global `SurfaceId`.
 template <o2::detectors::DetID::ID DetId>
@@ -125,14 +110,6 @@ o2::itsmft::tracking::SurfaceMeasurementDecodeResult loadClusterSurfaceMeasureme
   uint32_t externalClusterIndex,
   uint32_t sourceROF,
   bool applySysErrors);
-
-/// Convert compact clusters to 3D spacepoints.
-/// \tparam DetId o2::detectors::DetID::ITS or DetID::MFT
-template <o2::detectors::DetID::ID DetId>
-void convertCompactClusters(gsl::span<const CompClusterExt> clusters,
-                            gsl::span<const unsigned char>::iterator& pattIt,
-                            std::vector<o2::BaseCluster<float>>& output,
-                            const TopologyDictionary* dict);
 
 template <class iterator, typename T>
 o2::math_utils::Point3D<T> extractClusterData(const CompClusterExt& c, iterator& iter, const TopologyDictionary* dict, T& sig2Row, T& sig2Col, unsigned int* clusterSize = nullptr, o2::itsmft::tracking::ClusterShape* clusterShape = nullptr)
