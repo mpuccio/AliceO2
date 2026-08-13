@@ -87,42 +87,6 @@ bool acceptTrackletCandidate(const TrackletSearchWindow& window,
                              SurfaceKind kind, float nSigmaCut,
                              float& tanLambdaOut) noexcept;
 
-bool projectCylinderSearchWindow(const GlobalMeasurement& sourceMeasurement,
-                                 const o2::its::Cluster& sourceLocator,
-                                 const o2::its::Vertex& vertex,
-                                 const TrackletProjectionCache& transitionCache,
-                                 float bz, const o2::itsmft::IndexTableUtilsCore& indexUtils,
-                                 const TrackingKernelParameters& params,
-                                 TrackletSearchWindow& out);
-
-bool projectDiskSearchWindow(const GlobalMeasurement& sourceMeasurement,
-                             const o2::its::Cluster& sourceLocator,
-                             const o2::its::Vertex& vertex,
-                             const TrackletProjectionCache& transitionCache,
-                             float bz, const o2::itsmft::IndexTableUtilsCore& indexUtils,
-                             const TrackingKernelParameters& params,
-                             TrackletSearchWindow& out);
-
-bool buildCylinderCellSeed(const GlobalMeasurement& globalInner,
-                           const GlobalMeasurement& globalMiddle,
-                           const SurfaceMeasurement& measurementInner,
-                           const SurfaceMeasurement& measurementMiddle,
-                           const SurfaceMeasurement& measurementOuter,
-                           const std::array<NominalSurfaceMaterial, 3>& material,
-                           float bz, uint8_t absCharge, o2::track::PID pid,
-                           SurfaceKinematicState& outState, float& chi2,
-                           const TrackingKernelParameters& params,
-                           OperationFailureReason& reason) noexcept;
-
-bool buildDiskCellSeed(const SurfaceMeasurement& measurementInner,
-                       const SurfaceMeasurement& measurementMiddle,
-                       const SurfaceMeasurement& measurementOuter,
-                       const std::array<NominalSurfaceMaterial, 3>& material,
-                       float bz, uint8_t absCharge, o2::track::PID pid,
-                       SurfaceKinematicState& outState, float& chi2,
-                       const TrackingKernelParameters& params,
-                       OperationFailureReason& reason) noexcept;
-
 bool buildCellSeed(SurfaceKind kind,
                    const GlobalMeasurement& globalInner,
                    const GlobalMeasurement& globalMiddle,

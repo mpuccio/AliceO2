@@ -80,6 +80,9 @@ bool acceptTrackletCoordinates(const TrackletSearchWindow& window,
 }
 } // namespace
 
+namespace
+{
+
 bool projectCylinderSearchWindow(const GlobalMeasurement& sourceMeasurement,
                                  const o2::its::Cluster& sourceLocator,
                                  const o2::its::Vertex& vertex,
@@ -189,6 +192,8 @@ bool projectDiskSearchWindow(const GlobalMeasurement& sourceMeasurement,
   return true;
 }
 
+} // namespace
+
 bool bindTrackletProjectionCache(
   int fromLayer, int toLayer,
   gsl::span<const float> layerRadii,
@@ -270,8 +275,7 @@ bool acceptTrackletCandidate(
   return true;
 }
 
-// Native cylinder/disk cell operations use the barrel/forward primitives and
-// the shared PID/absCharge-aware material kernel; see CandidateFinding.h for contracts.
+// Coordinate leaves use the shared PID/absCharge-aware material kernel.
 
 namespace
 {
@@ -552,6 +556,9 @@ bool cellDirectionsAreCompatible(const std::array<DirectionObservation, 3>& obse
   return chi2 < threshold;
 }
 
+namespace
+{
+
 bool buildCylinderCellSeed(
   const GlobalMeasurement& globalInner,
   const GlobalMeasurement& globalMiddle,
@@ -622,6 +629,8 @@ bool buildDiskCellSeed(
   chi2 = localChi2;
   return true;
 }
+
+} // namespace
 
 bool buildCellSeed(
   SurfaceKind kind,
