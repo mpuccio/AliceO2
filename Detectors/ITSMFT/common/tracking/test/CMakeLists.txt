@@ -486,10 +486,9 @@ o2_add_test(combined-tracking-composition
                                   O2::DetectorsBase
                                   O2::Field)
 
-# M6d (doc/design/0002-m6-generic-workspace-migration.md Sec 9): focused
-# coverage for the MFT common-CA participant's migration onto
-# SurfaceTrackingScratch/SurfacePlanBinding, exercised through the same
-# workflow-owned application plan used by production.
+# Historical M6d coverage, now exercising the MFT common-CA path through
+# SurfaceTrackingScratch and its frame-owned TraversalWorkspace, using the
+# same workflow configuration as production.
 o2_add_test(m6d-mft-migration
             SOURCES testM6dMFTMigration.cxx
             COMPONENT_NAME itsmft-tracking
