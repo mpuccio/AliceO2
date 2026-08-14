@@ -484,6 +484,13 @@ content and M7e initialized output matched, excluding only the known undefined
 `MFTTrack.mInvQPtSeed` byte. No GPU result is claimed because the pinned host
 has no CUDA/HIP/device tools.
 
+## Pass-owned traversal schedules
+
+`SurfacePlanBinding` has been deleted. `Tracker` now derives each pass's
+active surfaces, selected edges/cells, compact slots, and road schedules into
+`TraversalWorkspace`; `SurfaceGraph` remains immutable static configuration.
+The focused migration record is [workspace-owned traversal plan](validation/workspace-owned-traversal-plan.md).
+
 ## Not safe to delete yet
 
 | Artifact | Why it must stay | Removal gate |
