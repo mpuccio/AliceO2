@@ -208,11 +208,11 @@ BOOST_AUTO_TEST_CASE(SurfaceDescriptorRuntimeAbiLock)
   BOOST_CHECK_EQUAL(offsetof(NominalSurfaceMaterial, xOverX0), 0u);
   BOOST_CHECK_EQUAL(offsetof(NominalSurfaceMaterial, arealDensityGPerCm2), 4u);
 
-  BOOST_CHECK_EQUAL(sizeof(SurfaceDescriptor), 20u);
+  BOOST_CHECK_EQUAL(sizeof(SurfaceDescriptor), 28u);
   BOOST_CHECK_EQUAL(alignof(SurfaceDescriptor), 4u);
   BOOST_CHECK_EQUAL(offsetof(SurfaceDescriptor, material), 12u);
 
-  BOOST_CHECK_EQUAL(sizeof(StaticSurfaceDescriptor), 20u);
+  BOOST_CHECK_EQUAL(sizeof(StaticSurfaceDescriptor), 28u);
   BOOST_CHECK_EQUAL(alignof(StaticSurfaceDescriptor), 4u);
   BOOST_CHECK_EQUAL(offsetof(StaticSurfaceDescriptor, material), 12u);
 

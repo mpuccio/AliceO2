@@ -33,6 +33,12 @@ o2_add_test(surfacelayout
             LABELS "itsmft;tracking"
             PUBLIC_LINK_LIBRARIES O2::ITSMFTTracking)
 
+o2_add_test(lookup-coordinates
+            SOURCES testLookupCoordinates.cxx
+            COMPONENT_NAME itsmft-tracking
+            LABELS "itsmft;tracking"
+            PUBLIC_LINK_LIBRARIES O2::ITSMFTTracking O2::MFTTracking)
+
 o2_add_test(surfacegraphbuilder
             SOURCES testSurfaceGraphBuilder.cxx
             COMPONENT_NAME itsmft-tracking

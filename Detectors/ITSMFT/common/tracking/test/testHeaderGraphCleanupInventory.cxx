@@ -115,7 +115,7 @@ BOOST_AUTO_TEST_CASE(FinalHeaderInventoryIsExact)
 {
   const auto include = trackingRoot() / "include/ITSMFTTracking";
   BOOST_CHECK_EQUAL(directHeaderCount(include), 31U);
-  BOOST_CHECK_EQUAL(directHeaderCount(include / "detail"), 13U);
+  BOOST_CHECK_EQUAL(directHeaderCount(include / "detail"), 14U);
   BOOST_CHECK(fs::is_regular_file(include / "TripletFitting.h"));
 }
 
