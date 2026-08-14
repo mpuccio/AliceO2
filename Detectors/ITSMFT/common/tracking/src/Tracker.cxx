@@ -282,23 +282,18 @@ void Tracker::initializeTraversalWorkspace(TraversalWorkspaceView& context) cons
     stagedLayerGlobalMeasurements[surfacePosition] = globals;
   }
 
-  std::array<IndexTableUtilsCore, 2> indexTableConfigByKind{};
   std::array<IndexTableUtilsCore, MaxLayoutSurfaces> stagedIndexTableConfigs{};
-  for (const auto kind : {SurfaceKind::Cylinder, SurfaceKind::Disk}) {
-    bool present = false;
-    for (const auto surface : orderedSurfaces) {
-      present = present || layout.getSurface(surface).kind == kind;
-    }
-    if (!present) {
-      continue;
-    }
-    if (bindIndexTableConfiguration(indexTableConfigByKind[kindIndex(kind)], mTrkParams[iteration],
-                                    activeSurfaceCount, kind) != IndexTableConfigError::None) {
+  std::array<SurfaceChartRange, MaxLayoutSurfaces> chartRanges{};
+  for (int position = 0; position < activeSurfaceCount; ++position) {
+    chartRanges[position] = layout.getSurface(orderedSurfaces[position]).chartRange;
+  }
+  const gsl::span<const SurfaceChartRange> chartRangeView{chartRanges.data(), activeCount};
+  for (int position = 0; position < activeSurfaceCount; ++position) {
+    if (bindIndexTableConfiguration(stagedIndexTableConfigs[position], mTrkParams[iteration], activeSurfaceCount,
+                                    layout.getSurface(orderedSurfaces[position]).kind, chartRangeView,
+                                    mUseDiskXYReferenceForTesting ? IndexTableCoordType::XYReference : IndexTableCoordType::PhiR) != IndexTableConfigError::None) {
       throw TraversalException{iteration, TraversalFailureReason::InvalidIndexTableConfiguration};
     }
-  }
-  for (int position = 0; position < activeSurfaceCount; ++position) {
-    stagedIndexTableConfigs[position] = indexTableConfigByKind[kindIndex(layout.getSurface(orderedSurfaces[position]).kind)];
   }
 
   if (!mTrkParams[iteration].PassFlags[IterationStep::FirstPass]) {

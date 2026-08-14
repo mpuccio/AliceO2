@@ -10,7 +10,7 @@
 // or submit itself to any jurisdiction.
 ///
 /// \file IndexTableUtils.h
-/// \brief Shared index-table utilities for ITS (phi-z) and MFT (x-y)
+/// \brief Shared index-table utilities for periodic-phi surface charts
 ///
 
 #ifndef ALICEO2_ITSMFT_TRACKING_INDEXTABLEUTILS_H_
@@ -27,14 +27,13 @@
 #include "GPUCommonDef.h"
 #include "ITSMFTTracking/Configuration.h"
 #include "ITSMFTTracking/IdTypes.h"
-#include "ITStracking/Cluster.h"
-#include "MFTTracking/Constants.h"
 
 namespace o2::itsmft
 {
 
 enum class IndexTableCoordType : uint8_t { PhiZ,
-                                           XY };
+                                           PhiR,
+                                           XYReference };
 
 namespace index_table_utils
 {
@@ -45,7 +44,8 @@ GPUhdi() float getNormalizedPhi(float phi)
 }
 } // namespace index_table_utils
 
-/// Row/column LUT helper (ITS: row=phi, col=z; MFT: row=y, col=x). Fixed
+/// Row/column LUT helper. Production charts have periodic phi rows and a
+/// descriptor-bounded linear column; XYReference exists only for A/B tests.
 /// MaxLayoutSurfaces storage keeps GPUhdi() access device-portable; callers
 /// must not query unpopulated runtime-plan positions.
 class IndexTableUtilsCore
@@ -53,26 +53,44 @@ class IndexTableUtilsCore
  public:
   static constexpr int MaxLayers = static_cast<int>(o2::itsmft::tracking::MaxLayoutSurfaces);
 
-  /// Configure LUT geometry. ITS (PhiZ): row = phi [0, TwoPI), col = z; MFT (XY): row = y, col = x.
+  /// Configure LUT geometry with a row interval and per-surface column intervals.
   /// `layerColHalfExtent` may be shorter than MaxLayers (the common case --
   /// real detectors have far fewer than 32 layers); anything beyond its size
   /// is left at its previous value, exactly as it would be untouched by a
   /// caller that never re-populates it.
   void setIndexTableParams(IndexTableCoordType coordType, int nRowBins, int nColBins,
                            float rowMin, float rowMax,
-                           gsl::span<const float> layerColHalfExtent)
+                           gsl::span<const float> layerColMin,
+                           gsl::span<const float> layerColMax)
   {
     mCoordType = coordType;
-    mRowOrigin = (coordType == IndexTableCoordType::PhiZ) ? 0.f : rowMin;
+    mRowOrigin = (coordType == IndexTableCoordType::XYReference) ? rowMin : 0.f;
     mRowCoordinateSpan = rowMax - rowMin;
     mInverseRowBinSize = (mRowCoordinateSpan > 0.f) ? static_cast<float>(nRowBins) / mRowCoordinateSpan : 0.f;
     mNcolBins = nColBins;
     mNrowBins = nRowBins;
-    const int nLayers = std::min(static_cast<int>(layerColHalfExtent.size()), MaxLayers);
+    const int nLayers = std::min({static_cast<int>(layerColMin.size()), static_cast<int>(layerColMax.size()), MaxLayers});
     for (int iLayer{0}; iLayer < nLayers; ++iLayer) {
-      mLayerColHalfExtent[iLayer] = layerColHalfExtent[iLayer];
-      mInverseColBinSize[iLayer] = 0.5f * nColBins / layerColHalfExtent[iLayer];
+      mLayerColMin[iLayer] = layerColMin[iLayer];
+      mLayerColMax[iLayer] = layerColMax[iLayer];
+      mInverseColBinSize[iLayer] = static_cast<float>(nColBins) / (layerColMax[iLayer] - layerColMin[iLayer]);
     }
+  }
+
+  void setIndexTableParams(IndexTableCoordType coordType, int nRowBins, int nColBins,
+                           float rowMin, float rowMax,
+                           gsl::span<const float> layerColHalfExtent)
+  {
+    std::array<float, MaxLayers> minima{};
+    std::array<float, MaxLayers> maxima{};
+    const int count = std::min(static_cast<int>(layerColHalfExtent.size()), MaxLayers);
+    for (int iLayer = 0; iLayer < count; ++iLayer) {
+      minima[iLayer] = -layerColHalfExtent[iLayer];
+      maxima[iLayer] = layerColHalfExtent[iLayer];
+    }
+    setIndexTableParams(coordType, nRowBins, nColBins, rowMin, rowMax,
+                        gsl::span<const float>{minima.data(), static_cast<size_t>(count)},
+                        gsl::span<const float>{maxima.data(), static_cast<size_t>(count)});
   }
 
   /// Fill LUT geometry from any struct exposing RowBins, ColBins and LayerZ (ITS phi-z).
@@ -84,28 +102,19 @@ class IndexTableUtilsCore
                         0.f, o2::constants::math::TwoPI, gsl::span<const float>{extents.data(), static_cast<std::size_t>(extents.count)});
   }
 
-  /// Fill LUT geometry for MFT (row = global y, col = global x).
-  template <class T>
-  void setTrackingParametersXY(const T& params, float rowMin, float rowMax)
-  {
-    const auto extents = layerColHalfExtentFrom(params);
-    setIndexTableParams(IndexTableCoordType::XY, params.RowBins, params.ColBins,
-                        rowMin, rowMax, gsl::span<const float>{extents.data(), static_cast<std::size_t>(extents.count)});
-  }
-
   GPUhdi() float getInverseColCoordinate(const int layerIndex) const
   {
-    return 0.5f * mNcolBins / mLayerColHalfExtent[layerIndex];
+    return mInverseColBinSize[layerIndex];
   }
 
   GPUhdi() int getColBinIndex(const int layerIndex, const float colCoordinate) const
   {
-    return (colCoordinate + mLayerColHalfExtent[layerIndex]) * mInverseColBinSize[layerIndex];
+    return (colCoordinate - mLayerColMin[layerIndex]) * mInverseColBinSize[layerIndex];
   }
 
   GPUhdi() int getRowBinIndex(const float rowCoordinate) const
   {
-    if (mCoordType == IndexTableCoordType::PhiZ) {
+    if (mCoordType != IndexTableCoordType::XYReference) {
       return rowCoordinate * mInverseRowBinSize;
     }
     return (rowCoordinate - mRowOrigin) * mInverseRowBinSize;
@@ -129,7 +138,9 @@ class IndexTableUtilsCore
 
   GPUhdi() int getNcolBins() const { return mNcolBins; }
   GPUhdi() int getNrowBins() const { return mNrowBins; }
-  GPUhdi() float getLayerColHalfExtent(int i) const { return mLayerColHalfExtent[i]; }
+  GPUhdi() float getLayerColHalfExtent(int i) const { return 0.5f * (mLayerColMax[i] - mLayerColMin[i]); }
+  GPUhdi() float getLayerColMin(int i) const { return mLayerColMin[i]; }
+  GPUhdi() float getLayerColMax(int i) const { return mLayerColMax[i]; }
   GPUhdi() void setNcolBins(const int colBins) { mNcolBins = colBins; }
   GPUhdi() void setNrowBins(const int rowBins) { mNrowBins = rowBins; }
   GPUhdi() IndexTableCoordType getCoordType() const { return mCoordType; }
@@ -173,7 +184,8 @@ class IndexTableUtilsCore
   float mRowOrigin = 0.f;
   float mRowCoordinateSpan = o2::constants::math::TwoPI;
   IndexTableCoordType mCoordType{IndexTableCoordType::PhiZ};
-  std::array<float, MaxLayers> mLayerColHalfExtent{};
+  std::array<float, MaxLayers> mLayerColMin{};
+  std::array<float, MaxLayers> mLayerColMax{};
   std::array<float, MaxLayers> mInverseColBinSize{};
 };
 
@@ -181,7 +193,7 @@ inline void IndexTableUtilsCore::print() const
 {
   printf("NcolBins: %d, NrowBins: %d, InverseRowBinSize: %f\n", mNcolBins, mNrowBins, mInverseRowBinSize);
   for (int iLayer{0}; iLayer < MaxLayers; ++iLayer) {
-    printf("Layer %d: ColHalfExtent: %f, InverseColBinSize: %f\n", iLayer, mLayerColHalfExtent[iLayer], mInverseColBinSize[iLayer]);
+    printf("Layer %d: ColRange: [%f, %f], InverseColBinSize: %f\n", iLayer, mLayerColMin[iLayer], mLayerColMax[iLayer], mInverseColBinSize[iLayer]);
   }
 }
 
@@ -196,8 +208,8 @@ GPUhdi() int4 getBinsPhiZ(float phi, const int layerIndex,
   const float colRangeMax = o2::gpu::GPUCommonMath::Max(z1, z2) + maxDeltaCol;
   const float rowRangeMax = (maxDeltaRow > o2::constants::math::PI) ? o2::constants::math::TwoPI : phi + maxDeltaRow;
 
-  if (colRangeMax < -utils.getLayerColHalfExtent(layerIndex) ||
-      colRangeMin > utils.getLayerColHalfExtent(layerIndex) || colRangeMin > colRangeMax) {
+  if (colRangeMax < utils.getLayerColMin(layerIndex) ||
+      colRangeMin > utils.getLayerColMax(layerIndex) || colRangeMin > colRangeMax) {
     return int4{-1, -1, -1, -1};
   }
 
@@ -205,6 +217,14 @@ GPUhdi() int4 getBinsPhiZ(float phi, const int layerIndex,
               utils.getRowBinIndex(index_table_utils::getNormalizedPhi(rowRangeMin)),
               o2::gpu::GPUCommonMath::Min(utils.getNcolBins() - 1, utils.getColBinIndex(layerIndex, colRangeMax)),
               utils.getRowBinIndex(index_table_utils::getNormalizedPhi(rowRangeMax))};
+}
+
+/// Disk: row = phi, col = r. The physical radial range is descriptor-owned.
+GPUhdi() int4 getBinsPhiR(float phi, const int layerIndex,
+                          float r1, float r2, float maxDeltaR, float maxDeltaPhi,
+                          const IndexTableUtilsCore& utils)
+{
+  return getBinsPhiZ(phi, layerIndex, r1, r2, maxDeltaR, maxDeltaPhi, utils);
 }
 
 /// MFT: row = y, col = x.
@@ -218,8 +238,7 @@ GPUhdi() int4 getBinsXY(float x, float y, const int layerIndex,
   const float colRangeMax = o2::gpu::GPUCommonMath::Max(x1, x2) + maxDeltaCol;
   const float rowRangeMax = o2::gpu::GPUCommonMath::Max(y1, y2) + maxDeltaRow;
 
-  const float colHalf = utils.getLayerColHalfExtent(layerIndex);
-  if (colRangeMax < -colHalf || colRangeMin > colHalf || colRangeMin > colRangeMax) {
+  if (colRangeMax < utils.getLayerColMin(layerIndex) || colRangeMin > utils.getLayerColMax(layerIndex) || colRangeMin > colRangeMax) {
     return int4{-1, -1, -1, -1};
   }
 
@@ -227,24 +246,6 @@ GPUhdi() int4 getBinsXY(float x, float y, const int layerIndex,
               o2::gpu::GPUCommonMath::Max(0, utils.getRowBinIndex(rowRangeMin)),
               o2::gpu::GPUCommonMath::Min(utils.getNcolBins() - 1, utils.getColBinIndex(layerIndex, colRangeMax)),
               utils.getRowBinIndex(rowRangeMax)};
-}
-
-/// MFT: extrapolate cluster to toLayer on the line through the primary vertex.
-GPUhdi() void mftConeProject(const o2::its::Cluster& cluster, int fromLayer, int toLayer,
-                             float pvX, float pvY, float pvZ, float& xProj, float& yProj)
-{
-  const auto& layerZ = o2::mft::constants::mft::LayerZCoordinate();
-  const float zFrom = layerZ[fromLayer];
-  const float zTo = layerZ[toLayer];
-  const float dz0 = zFrom - pvZ;
-  if (o2::gpu::GPUCommonMath::Abs(dz0) < 1e-6f) {
-    xProj = cluster.xCoordinate;
-    yProj = cluster.yCoordinate;
-    return;
-  }
-  const float w = (zTo - pvZ) / dz0;
-  xProj = pvX + w * (cluster.xCoordinate - pvX);
-  yProj = pvY + w * (cluster.yCoordinate - pvY);
 }
 
 /// MFT LUT window around a precomputed (x, y) projection on toLayer.
@@ -265,22 +266,6 @@ GPUhdi() int4 getBinsRectClusterAtProj(float xProj, float yProj, int toLayer,
     y2 = colRangeMax * yProj * invRProj;
   }
   return getBinsXY(xProj, yProj, toLayer, x1, x2, y1, y2, maxDeltaCol, maxDeltaRow, utils);
-}
-
-/// Cluster-driven LUT window: phi-z for ITS, projected x-y for MFT.
-/// ITS: colRangeMin/Max = z window; MFT: colRangeMin/Max = rMin/rMax at toLayer from diamond z spread.
-GPUhdi() int4 getBinsRectCluster(const o2::its::Cluster& cluster, int fromLayer, int toLayer,
-                                 float colRangeMin, float colRangeMax, float maxDeltaCol, float maxDeltaRow,
-                                 const IndexTableUtilsCore& utils,
-                                 float pvX = 0.f, float pvY = 0.f, float pvZ = 0.f)
-{
-  if (utils.getCoordType() == IndexTableCoordType::XY) {
-    float xProj = 0.f;
-    float yProj = 0.f;
-    mftConeProject(cluster, fromLayer, toLayer, pvX, pvY, pvZ, xProj, yProj);
-    return getBinsRectClusterAtProj(xProj, yProj, toLayer, colRangeMin, colRangeMax, maxDeltaCol, maxDeltaRow, utils);
-  }
-  return getBinsPhiZ(cluster.phi, toLayer, colRangeMin, colRangeMax, maxDeltaCol, maxDeltaRow, utils);
 }
 
 } // namespace o2::itsmft

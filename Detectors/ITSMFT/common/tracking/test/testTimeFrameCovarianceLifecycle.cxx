@@ -159,6 +159,7 @@ std::vector<SurfaceDescriptor> makeCatalog(o2::detectors::DetID::ID detector, Su
     result.push_back(SurfaceDescriptor{
       SurfaceId{layer}, layer, static_cast<uint8_t>(detector), kind, 0,
       static_cast<float>(layer + 1), 0.f, 100.f});
+    result.back().chartRange = kind == SurfaceKind::Disk ? SurfaceChartRange{0.1f, 20.f} : SurfaceChartRange{-20.f, 20.f};
     const float xOverX0 = detector == o2::detectors::DetID::ITS
                             ? kNominalITSLayerX0[layer]
                             : kNominalMFTLayerX0[layer];

@@ -347,7 +347,7 @@ BOOST_AUTO_TEST_CASE(DiskProjectSearchWindowReusesHelpersAndDirectProjectedXYBin
   IndexTableUtilsCore indexUtils;
   std::array<float, 10> halfExtents{};
   halfExtents.fill(20.f);
-  indexUtils.setIndexTableParams(IndexTableCoordType::XY, legacy.RowBins, legacy.ColBins, -20.f, 20.f, halfExtents);
+  indexUtils.setIndexTableParams(IndexTableCoordType::XYReference, legacy.RowBins, legacy.ColBins, -20.f, 20.f, halfExtents);
 
   constexpr int fromLayer = 1;
   constexpr int toLayer = 4; // deliberately skipped/nonadjacent link
@@ -430,7 +430,7 @@ BOOST_AUTO_TEST_CASE(DiskSearchWindowPropagatesTargetZIntervalIntoXYCovariance)
   IndexTableUtilsCore indexUtils;
   std::array<float, 10> halfExtents{};
   halfExtents.fill(200.f);
-  indexUtils.setIndexTableParams(IndexTableCoordType::XY, legacy.RowBins, legacy.ColBins, -200.f, 200.f, halfExtents);
+  indexUtils.setIndexTableParams(IndexTableCoordType::XYReference, legacy.RowBins, legacy.ColBins, -200.f, 200.f, halfExtents);
 
   constexpr int fromLayer = 0;
   constexpr int toLayer = 1;
@@ -487,7 +487,7 @@ BOOST_AUTO_TEST_CASE(ProjectSearchWindowInvalidBinsLeaveEveryOutputFieldUnchange
   IndexTableUtilsCore diskIndexUtils;
   std::array<float, 10> tinyHalfExtents{};
   tinyHalfExtents.fill(0.01f);
-  diskIndexUtils.setIndexTableParams(IndexTableCoordType::XY, legacy.RowBins, legacy.ColBins, -0.01f, 0.01f, tinyHalfExtents);
+  diskIndexUtils.setIndexTableParams(IndexTableCoordType::XYReference, legacy.RowBins, legacy.ColBins, -0.01f, 0.01f, tinyHalfExtents);
   const auto diskParams = makeKernelParameters(legacy, SurfaceKind::Disk);
   constexpr int fromLayer = 0;
   constexpr int toLayer = 1;
@@ -552,7 +552,7 @@ BOOST_AUTO_TEST_CASE(DiskProjectionLeafRetainsNearZeroDenominatorGuardAndRadialS
   IndexTableUtilsCore indexUtils;
   std::array<float, 10> halfExtents{};
   halfExtents.fill(200.f);
-  indexUtils.setIndexTableParams(IndexTableCoordType::XY, legacy.RowBins, legacy.ColBins, -200.f, 200.f, halfExtents);
+  indexUtils.setIndexTableParams(IndexTableCoordType::XYReference, legacy.RowBins, legacy.ColBins, -200.f, 200.f, halfExtents);
 
   const auto straightVertex = makeVertex(0.1f, -0.2f, 0.3f, 4.e-4f, 5.e-4f, 0.04f);
   TrackletSearchWindow straightWindow{};
@@ -707,7 +707,7 @@ BOOST_AUTO_TEST_CASE(NormalizedMeasurementsRemainAuthoritativeOverPoisonedLocato
   IndexTableUtilsCore diskIndex;
   std::array<float, 10> halfExtents{};
   halfExtents.fill(20.f);
-  diskIndex.setIndexTableParams(IndexTableCoordType::XY, diskParameters.RowBins, diskParameters.ColBins, -20.f, 20.f, halfExtents);
+  diskIndex.setIndexTableParams(IndexTableCoordType::XYReference, diskParameters.RowBins, diskParameters.ColBins, -20.f, 20.f, halfExtents);
   const float fromZ = detail::mftLayerZ(0);
   const float toZ = detail::mftLayerZ(1);
   const auto diskMeasurement = makeMeasurement(1.f, 0.5f, fromZ, 2.e-4f, 3.e-4f, 7.f);

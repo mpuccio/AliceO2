@@ -206,6 +206,7 @@ std::vector<SurfaceDescriptor> makeITSTestCatalog()
   surfaces.reserve(ITSNLayers);
   for (uint16_t i = 0; i < ITSNLayers; ++i) {
     surfaces.push_back(SurfaceDescriptor{SurfaceId{i}, i, static_cast<uint8_t>(o2::detectors::DetID::ITS), SurfaceKind::Cylinder});
+    surfaces.back().chartRange = {-20.f, 20.f};
     // Matches o2::itsmft::resetDetectorDefaults(..., DetID::ITS)'s LayerxX0
     // default, so TrackerTraits::initialiseTimeFrame()'s LegacyMaterialMismatch
     // compatibility check passes for these unperturbed fixtures.
@@ -507,8 +508,8 @@ std::vector<DecodedCluster> makeMftRoad(const TrackingParameters& parameters, fl
 {
   std::vector<DecodedCluster> result;
   result.reserve(MFTNLayers);
-  float x = 1.f;
-  float y = .5f;
+  float x = 3.f;
+  float y = 1.5f;
   float z = detail::mftLayerZ(0);
   for (int layer = 0; layer < MFTNLayers; ++layer) {
     DecodedCluster cluster{};
@@ -538,6 +539,7 @@ std::vector<SurfaceDescriptor> makeMftCatalog()
   catalog.reserve(MFTNLayers);
   for (uint16_t layer = 0; layer < MFTNLayers; ++layer) {
     SurfaceDescriptor surface{SurfaceId{layer}, layer, static_cast<uint8_t>(o2::detectors::DetID::MFT), SurfaceKind::Disk};
+    surface.chartRange = {kMFTLookupRMin[layer], kMFTLookupRMax[layer]};
     surface.referenceCoordinate = detail::mftLayerZ(layer);
     const float xOverX0 = kNominalMFTLayerX0[layer];
     surface.material.xOverX0 = xOverX0;

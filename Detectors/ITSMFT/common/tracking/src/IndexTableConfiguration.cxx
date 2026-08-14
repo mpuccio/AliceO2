@@ -8,6 +8,7 @@
 #include "ITSMFTTracking/IndexTableConfiguration.h"
 
 #include <cmath>
+#include <array>
 #include <cstdint>
 #include <limits>
 
@@ -21,7 +22,9 @@ using o2::itsmft::IndexTableCoordType;
 IndexTableConfigError bindIndexTableConfiguration(o2::itsmft::IndexTableUtilsCore& staged,
                                                   const TrackingParameters& params,
                                                   int activeSurfaceCount,
-                                                  SurfaceKind kind) noexcept
+                                                  SurfaceKind kind,
+                                                  gsl::span<const SurfaceChartRange> chartRanges,
+                                                  IndexTableCoordType diskCoordinateType) noexcept
 {
   if (kind != SurfaceKind::Cylinder && kind != SurfaceKind::Disk) {
     return IndexTableConfigError::InvalidSurfaceKind;
@@ -42,44 +45,47 @@ IndexTableConfigError bindIndexTableConfiguration(o2::itsmft::IndexTableUtilsCor
     return IndexTableConfigError::RowColBinCountExceedsIndexRange;
   }
 
-  float rowMin = 0.f;
-  float rowMax = o2::constants::math::TwoPI;
-  if (kind == SurfaceKind::Disk) {
-    constexpr float defaultRowMin{-20.f};
-    constexpr float defaultRowMax{20.f};
-    const bool hasRowRange = params.IndexRowMax != 0.f;
-    rowMin = hasRowRange ? params.IndexRowMin : defaultRowMin;
-    rowMax = hasRowRange ? params.IndexRowMax : defaultRowMax;
-    if (!std::isfinite(rowMin) || !std::isfinite(rowMax)) {
-      return IndexTableConfigError::NonFiniteRowRange;
-    }
-    if (!(rowMax > rowMin)) {
-      return IndexTableConfigError::DegenerateRowRange;
-    }
+  if (chartRanges.size() < static_cast<std::size_t>(activeSurfaceCount)) {
+    return IndexTableConfigError::InsufficientChartRanges;
   }
-
-  const bool useColHalfExtent = !params.LayerColHalfExtent.empty();
-  const auto& source = useColHalfExtent ? params.LayerColHalfExtent : params.LayerZ;
-  if (source.size() < static_cast<std::size_t>(activeSurfaceCount)) {
-    return IndexTableConfigError::InsufficientLayerColHalfExtent;
-  }
-
+  std::array<float, o2::itsmft::IndexTableUtilsCore::MaxLayers> colMin{};
+  std::array<float, o2::itsmft::IndexTableUtilsCore::MaxLayers> colMax{};
   for (int iLayer = 0; iLayer < activeSurfaceCount; ++iLayer) {
-    const float extent = source[iLayer];
-    if (!std::isfinite(extent)) {
-      return IndexTableConfigError::NonFiniteColHalfExtent;
+    if (!std::isfinite(chartRanges[iLayer].min) || !std::isfinite(chartRanges[iLayer].max)) {
+      return IndexTableConfigError::NonFiniteChartRange;
     }
-    if (!(extent > 0.f)) {
-      return IndexTableConfigError::NonPositiveColHalfExtent;
+    if (!(chartRanges[iLayer].max > chartRanges[iLayer].min)) {
+      return IndexTableConfigError::InvalidChartRange;
     }
+    colMin[iLayer] = chartRanges[iLayer].min;
+    colMax[iLayer] = chartRanges[iLayer].max;
   }
 
-  // Mutate `staged` only after validation. Use the low-level setter because
-  // the convenience wrappers silently zero-fill short extent sources instead
-  // of rejecting them; `source` is already known to cover the active layers.
-  staged.setIndexTableParams(kind == SurfaceKind::Disk ? IndexTableCoordType::XY : IndexTableCoordType::PhiZ,
-                             params.RowBins, params.ColBins, rowMin, rowMax,
-                             gsl::span<const float>{source.data(), static_cast<std::size_t>(activeSurfaceCount)});
+  if (kind == SurfaceKind::Disk && diskCoordinateType == IndexTableCoordType::XYReference) {
+    const auto& extents = params.LayerColHalfExtent.empty() ? params.LayerZ : params.LayerColHalfExtent;
+    if (extents.size() < static_cast<std::size_t>(activeSurfaceCount)) {
+      return IndexTableConfigError::InsufficientChartRanges;
+    }
+    std::array<float, o2::itsmft::IndexTableUtilsCore::MaxLayers> halfExtents{};
+    for (int iLayer = 0; iLayer < activeSurfaceCount; ++iLayer) {
+      if (!(std::isfinite(extents[iLayer]) && extents[iLayer] > 0.f)) {
+        return IndexTableConfigError::InvalidReferenceExtent;
+      }
+      halfExtents[iLayer] = extents[iLayer];
+    }
+    const float rowMin = params.IndexRowMax == 0.f ? -20.f : params.IndexRowMin;
+    const float rowMax = params.IndexRowMax == 0.f ? 20.f : params.IndexRowMax;
+    if (!(std::isfinite(rowMin) && std::isfinite(rowMax) && rowMax > rowMin)) {
+      return IndexTableConfigError::InvalidReferenceRowRange;
+    }
+    staged.setIndexTableParams(IndexTableCoordType::XYReference, params.RowBins, params.ColBins, rowMin, rowMax,
+                               gsl::span<const float>{halfExtents.data(), static_cast<std::size_t>(activeSurfaceCount)});
+    return IndexTableConfigError::None;
+  }
+  staged.setIndexTableParams(kind == SurfaceKind::Disk ? IndexTableCoordType::PhiR : IndexTableCoordType::PhiZ,
+                             params.RowBins, params.ColBins, 0.f, o2::constants::math::TwoPI,
+                             gsl::span<const float>{colMin.data(), static_cast<std::size_t>(activeSurfaceCount)},
+                             gsl::span<const float>{colMax.data(), static_cast<std::size_t>(activeSurfaceCount)});
   return IndexTableConfigError::None;
 }
 

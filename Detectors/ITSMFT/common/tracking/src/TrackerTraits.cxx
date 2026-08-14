@@ -300,7 +300,9 @@ void TrackerTraits::computeLayerTrackletsImpl(
           const auto bins = searchWindow.bins;
           const auto& indexTableUtils = mScratch->getIndexTableUtils(toLayer);
           int rowBinsNum = bins.w - bins.y + 1;
-          if (indexTableUtils.getCoordType() == IndexTableCoordType::PhiZ && rowBinsNum < 0) {
+          const bool periodicPhi = indexTableUtils.getCoordType() == IndexTableCoordType::PhiZ ||
+                                   indexTableUtils.getCoordType() == IndexTableCoordType::PhiR;
+          if (periodicPhi && rowBinsNum < 0) {
             rowBinsNum += indexTableUtils.getNrowBins();
           }
           rowBinsNum = std::max(0, rowBinsNum);
@@ -321,7 +323,7 @@ void TrackerTraits::computeLayerTrackletsImpl(
             const int colBinRange = (bins.z - bins.x) + 1;
             for (int iRow = 0; iRow < rowBinsNum; ++iRow) {
               int iRowBin = bins.y + iRow;
-              if (indexTableUtils.getCoordType() == IndexTableCoordType::PhiZ) {
+              if (periodicPhi) {
                 iRowBin %= indexTableUtils.getNrowBins();
               }
               if (iRowBin < 0 || iRowBin >= indexTableUtils.getNrowBins()) {

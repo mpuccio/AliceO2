@@ -172,7 +172,10 @@ DecodedCluster cylinderCluster(float radius, float phi, float tanLambda, int lay
 std::vector<DecodedCluster> buildMftChainClusters(const TrackingParameters& params, float bz, int nHops)
 {
   std::vector<DecodedCluster> clusters;
-  float x = 1.f, y = 0.5f;
+  // Keep the synthetic trajectory on the descriptor-owned MFT radial chart.
+  // The former (1, 0.5) seed was inside the legacy square LUT but below the
+  // physical inner radius of every MFT disk.
+  float x = 3.f, y = 1.5f;
   float z = detail::mftLayerZ(0);
   clusters.push_back(diskCluster(x, y, z, 0));
   for (int hop = 0; hop < nHops; ++hop) {
@@ -330,6 +333,7 @@ struct StandaloneRun {
     catalog.reserve(NLayers);
     for (uint16_t i = 0; i < NLayers; ++i) {
       SurfaceDescriptor surface{SurfaceId{i}, i, static_cast<uint8_t>(det), kind};
+      surface.chartRange = kind == SurfaceKind::Disk ? SurfaceChartRange{kMFTLookupRMin[i], kMFTLookupRMax[i]} : SurfaceChartRange{-20.f, 20.f};
       surface.referenceCoordinate = kind == SurfaceKind::Cylinder
                                       ? singleParams.LayerRadii[i]
                                       : detail::mftLayerZ(i);

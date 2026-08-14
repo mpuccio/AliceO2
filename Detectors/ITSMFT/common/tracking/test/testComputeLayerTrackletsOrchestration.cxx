@@ -77,6 +77,7 @@ std::vector<SurfaceDescriptor> makeCatalog(uint16_t nLayers, o2::detectors::DetI
   surfaces.reserve(nLayers);
   for (uint16_t i = 0; i < nLayers; ++i) {
     surfaces.push_back(SurfaceDescriptor{SurfaceId{i}, i, static_cast<uint8_t>(detector), kind});
+    surfaces.back().chartRange = kind == SurfaceKind::Disk ? SurfaceChartRange{0.1f, 20.f} : SurfaceChartRange{-20.f, 20.f};
     // Matches o2::itsmft::resetDetectorDefaults()'s per-detector LayerxX0
     // default, so TrackerTraits::initialiseTimeFrame()'s LegacyMaterialMismatch
     // compatibility check passes for these unperturbed fixtures.
@@ -224,11 +225,13 @@ TrackletSnapshot runFixture(o2::detectors::DetID::ID detector,
                             SurfaceKind tag,
                             std::vector<DecodedCluster> decoded,
                             int nThreads,
-                            std::function<void(TrackingParameters&)> customizeParams = {})
+                            std::function<void(TrackingParameters&)> customizeParams = {},
+                            bool useXYReference = false)
 {
   auto pool = std::make_shared<BoundedMemoryResource>();
   TimeFrame frame;
   Tracker tracker;
+  TrackerTestAccess::useDiskXYReference(tracker, useXYReference);
   TrackerTraits traits;
   std::shared_ptr<tbb::task_arena> arena;
   std::vector<TrackingParameters> params(1);
@@ -762,6 +765,27 @@ BOOST_AUTO_TEST_CASE(MftIdentityLayoutTrackletsSpanMultipleAdjacentLinksInOrder)
   BOOST_CHECK(sawLink01);
   BOOST_CHECK(sawLink12);
   BOOST_CHECK(sawLink23);
+}
+
+BOOST_AUTO_TEST_CASE(DiskXYReferenceExercisesTheSameTrackletPipeline)
+{
+  TrackingParameters params;
+  resetDetectorDefaults(params, o2::detectors::DetID::MFT);
+  const auto clusters = buildMftChainClusters(params, Bz, 3);
+  const auto phiR = runFixture<MFTNLayers>(o2::detectors::DetID::MFT, SurfaceKind::Disk,
+                                           SurfaceKind::Disk, clusters, 1);
+  const auto xyReference = runFixture<MFTNLayers>(o2::detectors::DetID::MFT, SurfaceKind::Disk,
+                                                  SurfaceKind::Disk, clusters, 1, {}, true);
+  BOOST_REQUIRE_EQUAL(phiR.allTracklets.size(), xyReference.allTracklets.size());
+  BOOST_REQUIRE_EQUAL(phiR.allLookups.size(), xyReference.allLookups.size());
+  for (size_t link = 0; link < phiR.allTracklets.size(); ++link) {
+    BOOST_REQUIRE_EQUAL(phiR.allTracklets[link].size(), xyReference.allTracklets[link].size());
+    for (size_t candidate = 0; candidate < phiR.allTracklets[link].size(); ++candidate) {
+      BOOST_CHECK(phiR.allTracklets[link][candidate] == xyReference.allTracklets[link][candidate]);
+    }
+    BOOST_CHECK_EQUAL_COLLECTIONS(phiR.allLookups[link].begin(), phiR.allLookups[link].end(),
+                                  xyReference.allLookups[link].begin(), xyReference.allLookups[link].end());
+  }
 }
 
 BOOST_AUTO_TEST_CASE(ItsHoleLinkTrackletResolvesCorrectLegacyLayerEndpoints)

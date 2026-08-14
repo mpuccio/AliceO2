@@ -33,6 +33,21 @@ bool isUntouched(const IndexTableUtilsCore& utils)
   // Default-constructed sentinel state (IndexTableUtils.h): never mutated.
   return utils.getNrowBins() == 0 && utils.getNcolBins() == 0 && utils.getCoordType() == IndexTableCoordType::PhiZ;
 }
+
+IndexTableConfigError bindIndexTableConfiguration(IndexTableUtilsCore& staged,
+                                                  const TrackingParameters& params,
+                                                  int activeSurfaceCount,
+                                                  SurfaceKind kind)
+{
+  std::array<SurfaceChartRange, IndexTableUtilsCore::MaxLayers> ranges{};
+  const auto& extents = params.LayerColHalfExtent.empty() ? params.LayerZ : params.LayerColHalfExtent;
+  const int rangeCount = std::min(activeSurfaceCount, static_cast<int>(extents.size()));
+  for (int iLayer = 0; iLayer < rangeCount; ++iLayer) {
+    ranges[iLayer] = kind == SurfaceKind::Disk ? SurfaceChartRange{0.1f, 20.f} : SurfaceChartRange{-extents[iLayer], extents[iLayer]};
+  }
+  return o2::itsmft::tracking::bindIndexTableConfiguration(staged, params, activeSurfaceCount, kind,
+                                                           gsl::span<const SurfaceChartRange>{ranges.data(), static_cast<size_t>(rangeCount)});
+}
 } // namespace
 
 /// Exact Cylinder/PhiZ parity: bindIndexTableConfiguration must
@@ -60,8 +75,7 @@ BOOST_AUTO_TEST_CASE(CylinderBindingMatchesSetTrackingParameters)
   }
 }
 
-/// Exact Disk/XY parity with the +/-20 cm default fallback (IndexRowMax
-/// left at 0, as a caller bypassing resetDetectorDefaults could do).
+/// Disk charts are periodic phi with descriptor-owned radial intervals.
 BOOST_AUTO_TEST_CASE(DiskBindingMatchesDefaultRowRangeFallback)
 {
   TrackingParameters params;
@@ -73,20 +87,18 @@ BOOST_AUTO_TEST_CASE(DiskBindingMatchesDefaultRowRangeFallback)
   const auto error = bindIndexTableConfiguration(staged, params, MFTN, SurfaceKind::Disk);
   BOOST_REQUIRE(error == IndexTableConfigError::None);
 
-  IndexTableUtilsCore reference;
-  reference.setTrackingParametersXY(params, -20.f, 20.f);
-
-  BOOST_CHECK(staged.getCoordType() == reference.getCoordType());
-  BOOST_CHECK_EQUAL(staged.getNrowBins(), reference.getNrowBins());
-  BOOST_CHECK_EQUAL(staged.getNcolBins(), reference.getNcolBins());
-  BOOST_CHECK_EQUAL(staged.getRowOrigin(), reference.getRowOrigin());
-  BOOST_CHECK_EQUAL(staged.getRowCoordinateSpan(), reference.getRowCoordinateSpan());
+  BOOST_CHECK(staged.getCoordType() == IndexTableCoordType::PhiR);
+  BOOST_CHECK_EQUAL(staged.getNrowBins(), params.RowBins);
+  BOOST_CHECK_EQUAL(staged.getNcolBins(), params.ColBins);
+  BOOST_CHECK_EQUAL(staged.getRowOrigin(), 0.f);
+  BOOST_CHECK_EQUAL(staged.getRowCoordinateSpan(), o2::constants::math::TwoPI);
   for (int iLayer = 0; iLayer < MFTN; ++iLayer) {
-    BOOST_CHECK_EQUAL(staged.getLayerColHalfExtent(iLayer), reference.getLayerColHalfExtent(iLayer));
+    BOOST_CHECK_EQUAL(staged.getLayerColMin(iLayer), 0.1f);
+    BOOST_CHECK_EQUAL(staged.getLayerColMax(iLayer), 20.f);
   }
 }
 
-/// Exact Disk/XY parity with an explicit IndexRowMin/Max override.
+/// Legacy XY row-range knobs cannot alter a periodic disk chart.
 BOOST_AUTO_TEST_CASE(DiskBindingMatchesExplicitRowRangeOverride)
 {
   TrackingParameters params;
@@ -98,13 +110,10 @@ BOOST_AUTO_TEST_CASE(DiskBindingMatchesExplicitRowRangeOverride)
   const auto error = bindIndexTableConfiguration(staged, params, MFTN, SurfaceKind::Disk);
   BOOST_REQUIRE(error == IndexTableConfigError::None);
 
-  IndexTableUtilsCore reference;
-  reference.setTrackingParametersXY(params, -15.f, 15.f);
-
-  BOOST_CHECK_EQUAL(staged.getRowOrigin(), reference.getRowOrigin());
-  BOOST_CHECK_EQUAL(staged.getRowCoordinateSpan(), reference.getRowCoordinateSpan());
-  BOOST_CHECK_EQUAL(staged.getNrowBins(), reference.getNrowBins());
-  BOOST_CHECK_EQUAL(staged.getNcolBins(), reference.getNcolBins());
+  BOOST_CHECK_EQUAL(staged.getRowOrigin(), 0.f);
+  BOOST_CHECK_EQUAL(staged.getRowCoordinateSpan(), o2::constants::math::TwoPI);
+  BOOST_CHECK_EQUAL(staged.getNrowBins(), params.RowBins);
+  BOOST_CHECK_EQUAL(staged.getNcolBins(), params.ColBins);
 }
 
 /// params.NLayers may be a smaller active prefix of the template NLayers.
@@ -203,7 +212,7 @@ BOOST_AUTO_TEST_CASE(InsufficientExtentSourceRejectedAndStagedUntouched)
   params.LayerColHalfExtent.assign(ITSN - 1, 1.f);
   {
     IndexTableUtilsCore staged;
-    BOOST_CHECK((bindIndexTableConfiguration(staged, params, ITSN, SurfaceKind::Cylinder) == IndexTableConfigError::InsufficientLayerColHalfExtent));
+    BOOST_CHECK((bindIndexTableConfiguration(staged, params, ITSN, SurfaceKind::Cylinder) == IndexTableConfigError::InsufficientChartRanges));
     BOOST_CHECK(isUntouched(staged));
   }
 
@@ -212,15 +221,15 @@ BOOST_AUTO_TEST_CASE(InsufficientExtentSourceRejectedAndStagedUntouched)
   params.LayerZ.resize(ITSN - 1);
   {
     IndexTableUtilsCore staged;
-    BOOST_CHECK((bindIndexTableConfiguration(staged, params, ITSN, SurfaceKind::Cylinder) == IndexTableConfigError::InsufficientLayerColHalfExtent));
+    BOOST_CHECK((bindIndexTableConfiguration(staged, params, ITSN, SurfaceKind::Cylinder) == IndexTableConfigError::InsufficientChartRanges));
     BOOST_CHECK(isUntouched(staged));
   }
 }
 
 /// A naive `!(extent > 0)` predicate lets +Inf through (Inf > 0 is true).
-/// NonFiniteColHalfExtent must catch it explicitly, separately from
-/// NonPositiveColHalfExtent.
-BOOST_AUTO_TEST_CASE(NonFiniteColHalfExtentRejectsNaNAndInfSeparatelyFromNonPositive)
+/// NonFiniteChartRange must catch it explicitly, separately from
+/// InvalidChartRange.
+BOOST_AUTO_TEST_CASE(NonFiniteChartRangeRejectsNaNAndInfSeparatelyFromInvalidRange)
 {
   TrackingParameters params;
   resetDetectorDefaults(params, o2::detectors::DetID::ITS);
@@ -228,33 +237,33 @@ BOOST_AUTO_TEST_CASE(NonFiniteColHalfExtentRejectsNaNAndInfSeparatelyFromNonPosi
   params.LayerZ[2] = std::numeric_limits<float>::infinity();
   {
     IndexTableUtilsCore staged;
-    BOOST_CHECK((bindIndexTableConfiguration(staged, params, ITSN, SurfaceKind::Cylinder) == IndexTableConfigError::NonFiniteColHalfExtent));
+    BOOST_CHECK((bindIndexTableConfiguration(staged, params, ITSN, SurfaceKind::Cylinder) == IndexTableConfigError::NonFiniteChartRange));
     BOOST_CHECK(isUntouched(staged));
   }
 
   params.LayerZ[2] = std::numeric_limits<float>::quiet_NaN();
   {
     IndexTableUtilsCore staged;
-    BOOST_CHECK((bindIndexTableConfiguration(staged, params, ITSN, SurfaceKind::Cylinder) == IndexTableConfigError::NonFiniteColHalfExtent));
+    BOOST_CHECK((bindIndexTableConfiguration(staged, params, ITSN, SurfaceKind::Cylinder) == IndexTableConfigError::NonFiniteChartRange));
     BOOST_CHECK(isUntouched(staged));
   }
 
   params.LayerZ[2] = 0.f;
   {
     IndexTableUtilsCore staged;
-    BOOST_CHECK((bindIndexTableConfiguration(staged, params, ITSN, SurfaceKind::Cylinder) == IndexTableConfigError::NonPositiveColHalfExtent));
+    BOOST_CHECK((bindIndexTableConfiguration(staged, params, ITSN, SurfaceKind::Cylinder) == IndexTableConfigError::InvalidChartRange));
     BOOST_CHECK(isUntouched(staged));
   }
 
   params.LayerZ[2] = -3.f;
   {
     IndexTableUtilsCore staged;
-    BOOST_CHECK((bindIndexTableConfiguration(staged, params, ITSN, SurfaceKind::Cylinder) == IndexTableConfigError::NonPositiveColHalfExtent));
+    BOOST_CHECK((bindIndexTableConfiguration(staged, params, ITSN, SurfaceKind::Cylinder) == IndexTableConfigError::InvalidChartRange));
     BOOST_CHECK(isUntouched(staged));
   }
 }
 
-BOOST_AUTO_TEST_CASE(RowRangeValidationIsXYOnly)
+BOOST_AUTO_TEST_CASE(ChartRangeValidationRejectsNonFiniteAndDegenerateIntervals)
 {
   TrackingParameters params;
   resetDetectorDefaults(params, o2::detectors::DetID::MFT);
@@ -263,7 +272,10 @@ BOOST_AUTO_TEST_CASE(RowRangeValidationIsXYOnly)
   params.IndexRowMax = 1.f;
   {
     IndexTableUtilsCore staged;
-    BOOST_CHECK((bindIndexTableConfiguration(staged, params, MFTN, SurfaceKind::Disk) == IndexTableConfigError::NonFiniteRowRange));
+    std::array<SurfaceChartRange, MFTN> ranges{};
+    ranges.fill({0.1f, 20.f});
+    ranges[0].min = std::numeric_limits<float>::quiet_NaN();
+    BOOST_CHECK((o2::itsmft::tracking::bindIndexTableConfiguration(staged, params, MFTN, SurfaceKind::Disk, ranges) == IndexTableConfigError::NonFiniteChartRange));
     BOOST_CHECK(isUntouched(staged));
   }
 
@@ -271,7 +283,10 @@ BOOST_AUTO_TEST_CASE(RowRangeValidationIsXYOnly)
   params.IndexRowMax = 5.f; // rowMax <= rowMin
   {
     IndexTableUtilsCore staged;
-    BOOST_CHECK((bindIndexTableConfiguration(staged, params, MFTN, SurfaceKind::Disk) == IndexTableConfigError::DegenerateRowRange));
+    std::array<SurfaceChartRange, MFTN> ranges{};
+    ranges.fill({0.1f, 20.f});
+    ranges[0] = {10.f, 5.f};
+    BOOST_CHECK((o2::itsmft::tracking::bindIndexTableConfiguration(staged, params, MFTN, SurfaceKind::Disk, ranges) == IndexTableConfigError::InvalidChartRange));
     BOOST_CHECK(isUntouched(staged));
   }
 }
@@ -295,20 +310,20 @@ BOOST_AUTO_TEST_CASE(ConfigurationsMatchIdentifiesEveryStoredField)
   BOOST_REQUIRE((bindIndexTableConfiguration(c, diffBins, MFTN, SurfaceKind::Disk) == IndexTableConfigError::None));
   BOOST_CHECK(!indexTableConfigurationsMatch(a, c, MFTN));
 
-  // Different row range.
+  // Legacy row-range knobs do not alter a periodic chart.
   auto diffRange = params;
   diffRange.IndexRowMin = -15.f;
   diffRange.IndexRowMax = 15.f;
   IndexTableUtilsCore d;
   BOOST_REQUIRE((bindIndexTableConfiguration(d, diffRange, MFTN, SurfaceKind::Disk) == IndexTableConfigError::None));
-  BOOST_CHECK(!indexTableConfigurationsMatch(a, d, MFTN));
+  BOOST_CHECK(indexTableConfigurationsMatch(a, d, MFTN));
 
-  // Different per-layer extent.
+  // Legacy XY extents no longer affect the chart contract.
   auto diffExtent = params;
   diffExtent.LayerColHalfExtent[0] += 1.f;
   IndexTableUtilsCore e;
   BOOST_REQUIRE((bindIndexTableConfiguration(e, diffExtent, MFTN, SurfaceKind::Disk) == IndexTableConfigError::None));
-  BOOST_CHECK(!indexTableConfigurationsMatch(a, e, MFTN));
+  BOOST_CHECK(indexTableConfigurationsMatch(a, e, MFTN));
 }
 
 BOOST_AUTO_TEST_CASE(CheckedIndexTableSizeProductBoundaries)

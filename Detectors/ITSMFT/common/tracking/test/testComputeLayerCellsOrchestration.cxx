@@ -185,6 +185,7 @@ std::vector<SurfaceDescriptor> makeCatalog(uint16_t nLayers, o2::detectors::DetI
   surfaces.reserve(nLayers);
   for (uint16_t i = 0; i < nLayers; ++i) {
     surfaces.push_back(SurfaceDescriptor{SurfaceId{i}, i, static_cast<uint8_t>(det), kind});
+    surfaces.back().chartRange = kind == SurfaceKind::Disk ? SurfaceChartRange{0.1f, 20.f} : SurfaceChartRange{-20.f, 20.f};
     surfaces.back().referenceCoordinate = kind == SurfaceKind::Cylinder
                                             ? 3.f + static_cast<float>(i)
                                             : -0.4f - 0.2f * static_cast<float>(i);

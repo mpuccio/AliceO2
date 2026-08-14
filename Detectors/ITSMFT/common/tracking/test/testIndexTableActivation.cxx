@@ -35,6 +35,7 @@
 #define BOOST_TEST_DYN_LINK
 #include <boost/test/unit_test.hpp>
 
+#include <array>
 #include <optional>
 #include <vector>
 
@@ -147,6 +148,7 @@ std::vector<SurfaceDescriptor> makeITSTestCatalog()
   surfaces.reserve(ITSNLayers);
   for (uint16_t i = 0; i < ITSNLayers; ++i) {
     surfaces.push_back(SurfaceDescriptor{SurfaceId{i}, i, static_cast<uint8_t>(o2::detectors::DetID::ITS), SurfaceKind::Cylinder});
+    surfaces.back().chartRange = {-20.f, 20.f};
     // Matches o2::itsmft::resetDetectorDefaults(..., DetID::ITS)'s LayerxX0
     // default, so TrackerTraits::initialiseTimeFrame()'s LegacyMaterialMismatch
     // compatibility check passes for these unperturbed fixtures.
@@ -324,10 +326,16 @@ BOOST_AUTO_TEST_CASE(FirstPassCommitsValidatedConfigurationIntoTimeFrame)
   auto params = makeOneIterationITSParams();
   rig.establishValidLayout(params);
   rig.loadSource(makeFixture());
+  BOOST_TEST(rig.frame.getGraph(0).getSurfaceCatalog().getSurface(SurfaceId{0}).chartRange.min == -20.f);
+  BOOST_TEST(rig.frame.getGraph(0).getSurfaceCatalog().getSurface(SurfaceId{0}).chartRange.max == 20.f);
   BOOST_CHECK_NO_THROW(TrackerTestAccess::prepare(rig.tracker, rig.frame, 0));
 
   IndexTableUtilsCore expected;
-  expected.setTrackingParameters(params[0]);
+  std::array<SurfaceChartRange, ITSNLayers> chartRanges{};
+  for (auto& range : chartRanges) {
+    range = {-20.f, 20.f};
+  }
+  BOOST_REQUIRE(bindIndexTableConfiguration(expected, params[0], ITSNLayers, SurfaceKind::Cylinder, chartRanges) == IndexTableConfigError::None);
   BOOST_CHECK(indexTableConfigurationsMatch(rig.tf->getIndexTableUtils(), expected, ITSNLayers));
   BOOST_CHECK_GT(rig.tf->getIndexTableUtils().getNrowBins(), 0);
 }
@@ -400,10 +408,12 @@ BOOST_AUTO_TEST_CASE(MismatchingRowColBinsRejectedBeforeMutation)
   BOOST_CHECK(snapshotIndexTable(*rig.tf, 0) == lutBefore);
 }
 
-BOOST_AUTO_TEST_CASE(MismatchingPerLayerExtentRejectedBeforeMutation)
+BOOST_AUTO_TEST_CASE(ParameterSideExtentDoesNotOverrideDescriptorChartRange)
 {
   Rig rig;
   auto params = makeTwoIterationITSParams();
+  // The descriptor is now the authoritative chart-range source: changing a
+  // retired parameter-side extent cannot alter a configured LUT.
   BOOST_REQUIRE(!params[1].LayerZ.empty());
   params[1].LayerZ[0] += 1.f;
   rig.establishValidLayout(params);
@@ -418,7 +428,7 @@ BOOST_AUTO_TEST_CASE(MismatchingPerLayerExtentRejectedBeforeMutation)
     threw = true;
     BOOST_CHECK(e.getReason() == TraversalFailureReason::IndexTableConfigurationMismatch);
   }
-  BOOST_CHECK(threw);
+  BOOST_CHECK(!threw);
   BOOST_CHECK(indexTableConfigurationsMatch(rig.tf->getIndexTableUtils(), committedBefore, ITSNLayers));
 }
 

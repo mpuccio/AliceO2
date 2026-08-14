@@ -32,11 +32,11 @@ enum class IndexTableConfigError : uint8_t {
   NonPositiveColBins,
   RowColBinCountExceedsIndexRange, // Product exceeds int, the bin-index type.
   InvalidActiveLayerCount,         // Invalid count or params.NLayers mismatch.
-  InsufficientLayerColHalfExtent,  // Extent source is too short.
-  NonFiniteColHalfExtent,          // NaN or +/-Inf.
-  NonPositiveColHalfExtent,        // Finite but <= 0.
-  NonFiniteRowRange,               // XY row bound is non-finite.
-  DegenerateRowRange,              // XY rowMax <= rowMin.
+  InsufficientChartRanges,         // Fewer descriptor chart ranges than active surfaces.
+  NonFiniteChartRange,             // Chart bound is NaN or +/-Inf.
+  InvalidChartRange,               // Chart maximum does not exceed its minimum.
+  InvalidReferenceExtent,          // The test-only XY reference backend lacks a positive extent.
+  InvalidReferenceRowRange,        // The test-only XY reference backend has invalid row bounds.
   InvalidSurfaceKind,              // Neither Cylinder nor Disk.
 };
 
@@ -47,7 +47,9 @@ enum class IndexTableConfigError : uint8_t {
 IndexTableConfigError bindIndexTableConfiguration(o2::itsmft::IndexTableUtilsCore& staged,
                                                   const TrackingParameters& params,
                                                   int activeSurfaceCount,
-                                                  SurfaceKind kind) noexcept;
+                                                  SurfaceKind kind,
+                                                  gsl::span<const SurfaceChartRange> chartRanges,
+                                                  IndexTableCoordType diskCoordinateType = IndexTableCoordType::PhiR) noexcept;
 
 /// True iff all fields stored by setIndexTableParams match between `a` and
 /// `b`. Used to verify that a non-FirstPass iteration matches the
@@ -67,7 +69,8 @@ inline bool indexTableConfigurationsMatch(const o2::itsmft::IndexTableUtilsCore&
     return false;
   }
   for (int iLayer = 0; iLayer < activeSurfaceCount; ++iLayer) {
-    if (a.getLayerColHalfExtent(iLayer) != b.getLayerColHalfExtent(iLayer)) {
+    if (a.getLayerColMin(iLayer) != b.getLayerColMin(iLayer) ||
+        a.getLayerColMax(iLayer) != b.getLayerColMax(iLayer)) {
       return false;
     }
   }
