@@ -125,7 +125,9 @@ BOOST_AUTO_TEST_CASE(nonidentity_surface_order_builds_the_expected_graph)
   BOOST_REQUIRE(result.ok());
   const auto& graph = result.graphs.front();
   BOOST_CHECK_EQUAL(graph.getOrderedSurfaces().size(), 7u);
-  BOOST_CHECK_EQUAL_COLLECTIONS(graph.getOrderedSurfaces().begin(), graph.getOrderedSurfaces().end(), ordered.begin(), ordered.end());
+  for (size_t position = 0; position < ordered.size(); ++position) {
+    BOOST_CHECK_EQUAL(graph.getOrderedSurfaces()[position].value(), ordered[position].value());
+  }
   BOOST_CHECK(graph.getView().nEdges > 0);
   BOOST_CHECK(graph.getView().nCells > 0);
 }
@@ -161,9 +163,12 @@ BOOST_AUTO_TEST_CASE(configuration_retains_the_selected_workspace_plan)
   const auto surfaces = catalog(10, SurfaceKind::Disk, o2::detectors::DetID::MFT);
   const auto ordered = order(10);
   configure(frame, tracker, pool, surfaces, ordered, {params});
-  const auto view = TrackerTestAccess::prepare(tracker, frame, 0);
-  BOOST_CHECK_EQUAL(view.workspace.orderedSurfaces.size(), 10u);
-  BOOST_CHECK_EQUAL_COLLECTIONS(view.workspace.orderedSurfaces.begin(), view.workspace.orderedSurfaces.end(), ordered.begin(), ordered.end());
+  auto& workspace = frame.getWorkspace().getTraversalWorkspace(0);
+  TrackerTestAccess::preparePlan(tracker, workspace, frame.getGraph(0).getView());
+  BOOST_CHECK_EQUAL(workspace.orderedSurfaces.size(), 10u);
+  for (size_t position = 0; position < ordered.size(); ++position) {
+    BOOST_CHECK_EQUAL(workspace.orderedSurfaces[position].value(), ordered[position].value());
+  }
   BOOST_CHECK(frame.getGenericTracks().empty());
 }
 
@@ -177,7 +182,8 @@ BOOST_AUTO_TEST_CASE(empty_road_start_is_represented_by_the_workspace_plan)
   const auto surfaces = catalog(10, SurfaceKind::Disk, o2::detectors::DetID::MFT);
   const auto ordered = order(10);
   configure(frame, tracker, pool, surfaces, ordered, {params});
-  const auto view = TrackerTestAccess::prepare(tracker, frame, 0);
-  BOOST_CHECK(view.workspace.roadStartCells.empty());
+  auto& workspace = frame.getWorkspace().getTraversalWorkspace(0);
+  TrackerTestAccess::preparePlan(tracker, workspace, frame.getGraph(0).getView());
+  BOOST_CHECK(workspace.roadStartCells.empty());
   BOOST_CHECK(frame.getGenericTracks().empty());
 }

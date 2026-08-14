@@ -198,8 +198,8 @@ BOOST_AUTO_TEST_CASE(RuntimePlanAndFixedCapacityContractsAreVisibleInProductionS
   const auto traits = readFile(root / "src/TrackerTraits.cxx");
   const auto scratch = readFile(root / "src/SurfaceTrackingScratch.cxx");
   const auto refit = readFile(root / "include/ITSMFTTracking/RefitDriver.h");
-  BOOST_CHECK(traits.find("mScratch->getNOwnedSurfaces()") != std::string::npos);
-  BOOST_CHECK(traits.find("getOrderedSurfaces()") != std::string::npos);
+  BOOST_CHECK(traits.find("context.workspace.orderedSurfaces") != std::string::npos);
+  BOOST_CHECK(traits.find("context.workspace.edges") != std::string::npos);
   BOOST_CHECK(scratch.find("mNOwnedSurfaces") != std::string::npos);
   BOOST_CHECK(refit.find("std::vector<detail::RefitMeasurementSlot>") != std::string::npos);
   BOOST_CHECK(refit.find("std::array<SurfaceMeasurement, NLayers>") == std::string::npos);

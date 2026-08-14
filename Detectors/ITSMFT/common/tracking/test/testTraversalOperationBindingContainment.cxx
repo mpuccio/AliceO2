@@ -134,13 +134,13 @@ BOOST_AUTO_TEST_CASE(TrackletAndCellEntryPointsUseOneGlobalTraversal)
 {
   const auto source = readTrackerTraitsSource();
   const std::array<std::tuple<std::string, std::string, std::string>, 2> methods{{
-    {"computeLayerTracklets", "computeLayerTrackletsImpl", "getGlobalEdges"},
-    {"computeLayerCells", "computeLayerCellsImpl", "getGlobalCells"},
+    {"computeLayerTracklets", "computeLayerTrackletsImpl", "context.workspace.edges"},
+    {"computeLayerCells", "computeLayerCellsImpl", "context.workspace.cells"},
   }};
   for (const auto& [method, implementation, globalIds] : methods) {
     const auto code = stripLineComments(extractMethodBody(source, method));
     BOOST_CHECK_EQUAL(countOccurrences(code, implementation + "("), 1u);
-    BOOST_CHECK_EQUAL(countOccurrences(code, globalIds + "()"), 1u);
+    BOOST_CHECK_EQUAL(countOccurrences(code, globalIds), 1u);
     BOOST_CHECK(!mentionsToken(code, "SurfaceKind"));
   }
 }
@@ -229,7 +229,7 @@ BOOST_AUTO_TEST_CASE(RefitWorkersUseTheDescriptorDrivenBoundary)
   BOOST_REQUIRE_GT(code.size(), 0u);
   BOOST_CHECK(code.find("refitSources") == std::string::npos);
   BOOST_CHECK(code.find("TraversalFailureReason::SurfaceKindMismatch") == std::string::npos);
-  BOOST_CHECK(code.find("mBinding->getOrderedSurfaces()") != std::string::npos);
+  BOOST_CHECK(code.find("context.workspace.orderedSurfaces") != std::string::npos);
   BOOST_CHECK(code.find("mLayerGlobalMeasurements[position].front()") == std::string::npos);
 }
 

@@ -241,7 +241,7 @@ BOOST_AUTO_TEST_CASE(CombinedDisconnectedComponentsNoHoles)
   const auto currentResult = buildCurrent(surfaces, graphInput);
   BOOST_REQUIRE(currentResult.ok());
   compareTopology(*prototypeResult.graph, currentResult.graph->getView());
-  compareBinding(*prototypeResult.graph, currentResult.graph->getView(), graphInput);
+  compareTraversalIds(*prototypeResult.graph, currentResult.graph->getView());
 }
 
 BOOST_AUTO_TEST_CASE(IndependentAuthoritiesChangeOnlyTheirDerivedOutputs)

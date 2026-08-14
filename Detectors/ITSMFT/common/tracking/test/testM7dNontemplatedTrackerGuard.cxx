@@ -189,7 +189,8 @@ BOOST_AUTO_TEST_CASE(NonSevenOrTenPlanExecutesTheNonTemplatedCore)
   const auto configured = tracker.initialize(frame, configuration);
   BOOST_REQUIRE(configured.ok());
 
-  const auto& layout = frame.getGraph(0).getView();
+  const auto& graph = frame.getGraph(0);
+  const auto& layout = graph.getView();
   TrackerTraits traits;
   std::shared_ptr<tbb::task_arena> arena;
   traits.setNThreads(1, arena);
@@ -207,9 +208,9 @@ BOOST_AUTO_TEST_CASE(NonSevenOrTenPlanExecutesTheNonTemplatedCore)
   BOOST_CHECK_EQUAL(seed.getActiveSurfaceCount(), 4);
   BOOST_CHECK_EQUAL(seed.getCluster(0), 100);
   BOOST_CHECK_EQUAL(seed.getCluster(3), 103);
-  // The graph view carries the complete catalog; this sparse traversal owns
-  // only the four surfaces recorded by the binding.
-  BOOST_CHECK_EQUAL(binding->getOrderedSurfaces().size(), ordered.size());
+  // Static graph configuration retains the sparse, non-identity order. The
+  // Tracker derives the pass-local workspace from it at traversal time.
+  BOOST_CHECK_EQUAL(graph.getOrderedSurfaces().size(), ordered.size());
 }
 
 } // namespace
