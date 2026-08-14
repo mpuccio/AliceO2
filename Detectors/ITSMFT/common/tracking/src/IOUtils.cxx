@@ -176,22 +176,30 @@ LoadSourcesResult loadTimeFrameSources(TimeFrame& frame, gsl::span<const Cluster
     return loadResult;
   }
 
-  const auto* binding = frame.getBinding(0);
-  if (binding == nullptr) {
+  if (frame.getNIterations() == 0) {
     return {MultiSourceLoadError::FrameNotConfigured};
+  }
+  const auto layout = frame.getGraph(0).getView();
+  if (layout.orderedSurfaces == nullptr || layout.nOrderedSurfaces == 0) {
+    return {MultiSourceLoadError::FrameNotConfigured};
+  }
+  SurfaceMask configuredSurfaces;
+  for (uint32_t position = 0; position < layout.nOrderedSurfaces; ++position) {
+    configuredSurfaces.set(layout.orderedSurfaces[position]);
   }
   SurfaceMask mappedSurfaces;
   for (const auto& source : sources) {
     for (const auto surface : source.layerToSurface) {
-      if (!surface.isValid() || mappedSurfaces.has(surface) || !binding->getOwnedSurfaceIndex(surface)) {
+      if (!surface.isValid() || mappedSurfaces.has(surface) || !configuredSurfaces.has(surface)) {
         return {MultiSourceLoadError::InvalidLayerMapping, source.id};
       }
       mappedSurfaces.set(surface);
     }
   }
-  if (mappedSurfaces != binding->getOwnedSurfaces()) {
+  if (mappedSurfaces != configuredSurfaces) {
     // Attribute an omitted surface only when one source owns its detector.
-    for (const auto surface : binding->getOrderedSurfaces()) {
+    for (uint32_t position = 0; position < layout.nOrderedSurfaces; ++position) {
+      const auto surface = layout.orderedSurfaces[position];
       if (mappedSurfaces.has(surface)) {
         continue;
       }
@@ -217,7 +225,8 @@ LoadSourcesResult loadTimeFrameSources(TimeFrame& frame, gsl::span<const Cluster
   }
   staged->setMemoryPool(frame.getMemoryPool());
   staged->adoptPlan(live.getNOwnedSurfaces(), 0, 0);
-  const auto backfillResult = staged->backfillNormalizedSources(stagedMeasurements, sources, binding->getOrderedSurfaces(), catalog);
+  const auto backfillResult = staged->backfillNormalizedSources(
+    stagedMeasurements, sources, gsl::span<const SurfaceId>{layout.orderedSurfaces, layout.nOrderedSurfaces}, catalog);
   if (!backfillResult.ok()) {
     return backfillResult;
   }

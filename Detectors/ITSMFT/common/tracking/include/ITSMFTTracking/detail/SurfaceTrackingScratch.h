@@ -78,7 +78,23 @@ struct TraversalWorkspace {
   std::vector<float> diskLayerReferenceZ;
   gsl::span<const float> diskLayerReferenceZView{};
   o2::its::bounded_vector<TrackingCandidate> acceptedTracks;
+  // Per-pass traversal plan. The graph remains immutable configuration; the
+  // tracker derives this selected topology and its compact scratch mapping.
+  SurfaceMask activeSurfaces{};
+  std::vector<SurfaceId> orderedSurfaces;
+  std::vector<int16_t> surfaceSlotById;
+  std::vector<int16_t> edgeSlotById;
+  std::vector<int16_t> cellSlotById;
+  std::vector<EdgeId> edges;
+  std::vector<CellTopologyId> cells;
+  std::vector<CellTopologyId> roadStartCells;
+  std::vector<uint32_t> roadStartComponentOffsets;
+  std::vector<CellTopologyId> scheduledCells;
   bool valid{false};
+
+  std::optional<uint16_t> getSurfaceSlot(SurfaceId id) const noexcept;
+  std::optional<uint16_t> getEdgeSlot(EdgeId id) const noexcept;
+  std::optional<uint16_t> getCellSlot(CellTopologyId id) const noexcept;
 
   void reset(std::pmr::memory_resource* resource) noexcept
   {
@@ -90,6 +106,16 @@ struct TraversalWorkspace {
     diskLayerReferenceZ.clear();
     diskLayerReferenceZView = {};
     o2::its::deepVectorClear(acceptedTracks, resource);
+    activeSurfaces = {};
+    orderedSurfaces = {};
+    surfaceSlotById.clear();
+    edgeSlotById.clear();
+    cellSlotById.clear();
+    edges.clear();
+    cells.clear();
+    roadStartCells.clear();
+    roadStartComponentOffsets.clear();
+    scheduledCells.clear();
     valid = false;
   }
 };

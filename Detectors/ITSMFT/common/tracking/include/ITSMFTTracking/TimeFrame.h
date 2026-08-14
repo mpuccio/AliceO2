@@ -33,7 +33,6 @@
 #include "ITSMFTTracking/Configuration.h"
 #include "ITSMFTTracking/MeasurementView.h"
 #include "ITSMFTTracking/SurfaceGraph.h"
-#include "ITSMFTTracking/detail/SurfacePlanBinding.h"
 #include "ITStracking/BoundedAllocator.h"
 #include "ITStracking/Cluster.h"
 
@@ -113,7 +112,6 @@ struct TimeFrame {
 
   bool commitConfiguration(std::vector<SurfaceGraph>&& graphs,
                            std::vector<TrackingParameters>&& parameters,
-                           std::vector<std::unique_ptr<SurfacePlanBinding>>&& bindings,
                            std::vector<TrackingWorkspaceCapacity>&& capacities,
                            std::shared_ptr<BoundedMemoryResource> memoryPool);
   bool isConfigured() const noexcept { return mConfigurationValid; }
@@ -122,7 +120,6 @@ struct TimeFrame {
   const std::vector<TrackingParameters>& getTrackingParameters() const noexcept;
   const SurfaceGraph& getGraph(std::size_t iteration) const { return mGraphs.at(iteration); }
   const TrackingParameters* getTrackingParameters(std::size_t iteration) const noexcept;
-  const SurfacePlanBinding* getBinding(std::size_t iteration) const noexcept;
   const TrackingWorkspaceCapacity* getWorkspaceCapacity(std::size_t iteration) const noexcept;
 
   // Results are valid only with this event's normalized measurements.
@@ -162,7 +159,6 @@ struct TimeFrame {
   bool mConfigurationValid = false;
   std::vector<SurfaceGraph> mGraphs;
   std::vector<TrackingParameters> mTrackingParameters;
-  std::vector<std::unique_ptr<SurfacePlanBinding>> mBindings;
   std::vector<TrackingWorkspaceCapacity> mWorkspaceCapacities;
   struct WorkspaceDeleter {
     void operator()(SurfaceTrackingScratch* workspace) const noexcept;

@@ -32,7 +32,6 @@
 #include "ITSMFTTracking/SurfaceDescriptor.h"
 #include "ITSMFTTracking/SurfaceMeasurement.h"
 #include "ITSMFTTracking/TimeFrame.h"
-#include "ITSMFTTracking/detail/SurfacePlanBinding.h"
 #include "ITSMFTTracking/detail/TrackingKernelParameters.h"
 #include "ITStracking/BoundedAllocator.h"
 
@@ -63,7 +62,6 @@ struct TraversalWorkspaceView {
   TimeFrame& frame;
   SurfaceTrackingScratch& scratch;
   SurfaceGraphView graph{};
-  const SurfacePlanBinding& binding;
   gsl::span<const TrackingParameters> parameters;
   float bz{0.f};
   TraversalWorkspace& workspace;

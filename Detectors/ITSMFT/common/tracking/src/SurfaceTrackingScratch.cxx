@@ -38,6 +38,33 @@ namespace constants
 using namespace o2::its::constants;
 } // namespace constants
 
+namespace
+{
+template <typename Id>
+std::optional<uint16_t> traversalSlot(const std::vector<int16_t>& slots, Id id) noexcept
+{
+  if (!id.isValid() || id.value() >= slots.size() || slots[id.value()] < 0) {
+    return std::nullopt;
+  }
+  return static_cast<uint16_t>(slots[id.value()]);
+}
+} // namespace
+
+std::optional<uint16_t> TraversalWorkspace::getSurfaceSlot(SurfaceId id) const noexcept
+{
+  return traversalSlot(surfaceSlotById, id);
+}
+
+std::optional<uint16_t> TraversalWorkspace::getEdgeSlot(EdgeId id) const noexcept
+{
+  return traversalSlot(edgeSlotById, id);
+}
+
+std::optional<uint16_t> TraversalWorkspace::getCellSlot(CellTopologyId id) const noexcept
+{
+  return traversalSlot(cellSlotById, id);
+}
+
 void SurfaceTrackingScratch::adoptPlan(std::size_t nOwnedSurfaces, std::size_t nEdges, std::size_t nCells)
 {
   mNOwnedSurfaces = nOwnedSurfaces;

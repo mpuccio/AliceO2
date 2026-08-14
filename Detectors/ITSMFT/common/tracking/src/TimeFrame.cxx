@@ -160,16 +160,15 @@ bool TimeFrame::commitLoadedEvent(TimeFrame& staged,
 
 bool TimeFrame::commitConfiguration(std::vector<SurfaceGraph>&& graphs,
                                     std::vector<TrackingParameters>&& parameters,
-                                    std::vector<std::unique_ptr<SurfacePlanBinding>>&& bindings,
                                     std::vector<TrackingWorkspaceCapacity>&& capacities,
                                     std::shared_ptr<BoundedMemoryResource> memoryPool)
 {
   if (!memoryPool || graphs.empty() || graphs.size() != parameters.size() ||
-      graphs.size() != bindings.size() || graphs.size() != capacities.size()) {
+      graphs.size() != capacities.size()) {
     return false;
   }
   for (std::size_t iteration = 0; iteration < graphs.size(); ++iteration) {
-    if (!bindings[iteration] || capacities[iteration].ownedSurfaces == 0) {
+    if (!graphs[iteration].valid() || capacities[iteration].ownedSurfaces == 0) {
       return false;
     }
   }
@@ -194,7 +193,6 @@ bool TimeFrame::commitConfiguration(std::vector<SurfaceGraph>&& graphs,
   setMemoryPool(memoryPool);
   mGraphs = std::move(graphs);
   mTrackingParameters = std::move(parameters);
-  mBindings = std::move(bindings);
   mWorkspaceCapacities = std::move(capacities);
   mWorkspace = std::move(workspace);
   mConfigurationValid = true;
@@ -234,14 +232,6 @@ const std::vector<TrackingParameters>& TimeFrame::getTrackingParameters() const 
 const TrackingParameters* TimeFrame::getTrackingParameters(std::size_t iteration) const noexcept
 {
   return iteration < mTrackingParameters.size() ? &mTrackingParameters[iteration] : nullptr;
-}
-
-const SurfacePlanBinding* TimeFrame::getBinding(std::size_t iteration) const noexcept
-{
-  if (!mConfigurationValid || iteration >= mBindings.size()) {
-    return nullptr;
-  }
-  return mBindings[iteration].get();
 }
 
 const TrackingWorkspaceCapacity* TimeFrame::getWorkspaceCapacity(std::size_t iteration) const noexcept

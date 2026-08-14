@@ -30,7 +30,6 @@
 #include "ITSMFTTracking/detail/SurfaceTrackingScratch.h"
 #include "ITSMFTTracking/TimeFrame.h"
 #include "ITSMFTTracking/TrackerTraits.h"
-#include "ITSMFTTracking/detail/SurfacePlanBinding.h"
 
 namespace o2::itsmft::tracking
 {
@@ -74,8 +73,7 @@ enum class TrackerInitializationError : uint8_t {
   MissingCatalog,
   MissingMemoryPool,
   GraphBuildFailed,
-  BindingCountMismatch,
-  BindingBuildFailed,
+  TraversalPlanBuildFailed,
   DuplicateSource,
   CapacityMismatch
 };
@@ -84,7 +82,6 @@ struct TrackerInitializationResult {
   TrackerInitializationError error{TrackerInitializationError::None};
   std::size_t failedIteration{static_cast<std::size_t>(-1)};
   SurfaceGraphBuildError graphError{SurfaceGraphBuildError::None};
-  SurfacePlanBindingError bindingError{SurfacePlanBindingError::None};
   bool ok() const noexcept { return error == TrackerInitializationError::None; }
 };
 
