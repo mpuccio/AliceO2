@@ -189,7 +189,7 @@ void checkBindingCoversOwnedTopology(const SurfacePlanBinding& binding, const Su
     const auto id = CellTopologyId{static_cast<uint16_t>(c)};
     const auto& cell = global.getCell(id);
     const bool ownedLink = binding.getScratchLinkSlot(cell.firstLink).has_value() ||
-                                 binding.getScratchLinkSlot(cell.secondLink).has_value();
+                           binding.getScratchLinkSlot(cell.secondLink).has_value();
     if (ownedLink) {
       BOOST_REQUIRE(binding.getScratchCellSlot(id));
     }

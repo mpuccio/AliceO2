@@ -220,7 +220,7 @@ BOOST_AUTO_TEST_CASE(SingleCallDisconnectedCylinderAndDiskLayout)
   BOOST_CHECK_EQUAL(layoutView.diskSurfaces.value(), 0x1ff80u);  // bits 7-16
 
   const auto view = layoutView;
-  BOOST_CHECK_EQUAL(view.nLinks, 15u); // 6 + 9
+  BOOST_CHECK_EQUAL(view.nLinks, 15u);       // 6 + 9
   BOOST_CHECK_EQUAL(view.nCells, 13u);       // 5 + 8
 
   // Disconnected: the last ITS link (5 -> 6) has no successors, and no

@@ -444,7 +444,7 @@ void Tracker::initializeTraversalWorkspace(TraversalWorkspaceView& context) cons
   // All fallible validation is complete. The remaining per-layer and
   // per-link scattering/bending preparation is non-throwing.
   prepareLinkAngularTolerances(context, iteration, referenceCoordinateView,
-                                        mBinding->getGlobalLinks());
+                               mBinding->getGlobalLinks());
 }
 
 TrackerInitializationResult Tracker::initialize(TimeFrame& frame, const TrackerInitialization& configuration)

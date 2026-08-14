@@ -187,7 +187,7 @@ void compareBinding(const PairListGraph& prototype, const SurfaceGraphView& view
     expectedCells.emplace_back(id);
   }
   checkBytes(expectedLinks, std::vector<LinkId>(bindingResult.binding->getGlobalLinks().begin(),
-                                                            bindingResult.binding->getGlobalLinks().end()));
+                                                bindingResult.binding->getGlobalLinks().end()));
   checkBytes(expectedCells, std::vector<CellTopologyId>(bindingResult.binding->getGlobalCells().begin(),
                                                         bindingResult.binding->getGlobalCells().end()));
   checkBytes(prototype.scheduledCells, std::vector<CellTopologyId>(bindingResult.binding->getGlobalScheduledCells().begin(),

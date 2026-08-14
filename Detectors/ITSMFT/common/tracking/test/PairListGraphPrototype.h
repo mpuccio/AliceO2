@@ -163,7 +163,7 @@ inline PairListGraphBuildResult derivePairListGraph(const PairListGraphInput& in
           continue;
         }
         graph.links.push_back(SurfaceLink{component.activeSurfaces[fromRank],
-                                                      component.activeSurfaces[toRank], skipped, 0});
+                                          component.activeSurfaces[toRank], skipped, 0});
         graph.skippedWitnesses.push_back(skipped);
         graph.components[componentIndex].links.push_back(
           LinkId{static_cast<uint16_t>(graph.links.size() - 1)});

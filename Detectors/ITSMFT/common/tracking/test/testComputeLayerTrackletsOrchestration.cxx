@@ -176,9 +176,9 @@ struct TrackletSnapshot {
 /// of this slice).
 template <int NLayers>
 void computeLegacyLinkMSAndPhiCut(const TrackingParameters& trkParam, float bz, bool isDisk,
-                                        const SurfaceGraphView& topology,
-                                        gsl::span<const float> positionResolution,
-                                        std::vector<float>& msAnglesOut, std::vector<float>& phiCutsOut)
+                                  const SurfaceGraphView& topology,
+                                  gsl::span<const float> positionResolution,
+                                  std::vector<float>& msAnglesOut, std::vector<float>& phiCutsOut)
 {
   std::array<float, NLayers> msAngles{};
   for (unsigned int iLayer{0}; iLayer < NLayers; ++iLayer) {
@@ -332,8 +332,8 @@ TrackletSnapshot runFixture(o2::detectors::DetID::ID detector,
     std::vector<float> expectedMSAngles;
     std::vector<float> expectedPhiCuts;
     computeLegacyLinkMSAndPhiCut<NLayers>(params[0], Bz, kind == SurfaceKind::Disk, preparedTopology,
-                                                gsl::span<const float>(positionResolution.data(), positionResolution.size()),
-                                                expectedMSAngles, expectedPhiCuts);
+                                          gsl::span<const float>(positionResolution.data(), positionResolution.size()),
+                                          expectedMSAngles, expectedPhiCuts);
     BOOST_REQUIRE_EQUAL(expectedMSAngles.size(), msAngles.size());
     BOOST_REQUIRE_EQUAL(expectedPhiCuts.size(), phiCuts.size());
     for (int id = 0; id < preparedTopology.nLinks; ++id) {

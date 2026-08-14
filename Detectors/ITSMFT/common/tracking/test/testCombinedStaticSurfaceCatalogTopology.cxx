@@ -166,7 +166,7 @@ BOOST_AUTO_TEST_CASE(CombinedStaticCatalogPreservesCurrentTopologyWithNoBoundary
   // six adjacent plus one hole link for ITS, and nine adjacent plus
   // one hole link for MFT; each component consequently contributes its
   // surface count in the three-surface cell topology.
-  BOOST_CHECK_EQUAL(view.nLinks, 17u); // 7 ITS + 10 MFT
+  BOOST_CHECK_EQUAL(view.nLinks, 17u);       // 7 ITS + 10 MFT
   BOOST_CHECK_EQUAL(view.nCells, 17u);       // 7 ITS + 10 MFT
 
   for (uint32_t t = 0; t < view.nLinks; ++t) {
