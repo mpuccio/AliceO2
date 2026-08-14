@@ -41,8 +41,8 @@ GPUhdi() float normalizeLookupPhi(float phi) noexcept
 }
 
 GPUhdi() bool makeLookupCoordinates(const SurfaceDescriptor& surface,
-                                           const GlobalMeasurement& measurement,
-                                           LookupCoordinates& out) noexcept
+                                    const GlobalMeasurement& measurement,
+                                    LookupCoordinates& out) noexcept
 {
   const float x = measurement.position.x;
   const float y = measurement.position.y;
@@ -67,8 +67,7 @@ GPUhdi() bool makeLookupCoordinates(const SurfaceDescriptor& surface,
         !o2::gpu::GPUCommonMath::Finite(covZPhi) || !o2::gpu::GPUCommonMath::Finite(c.zz)) {
       return false;
     }
-    out = {normalizeLookupPhi(o2::gpu::GPUCommonMath::ATan2(y, x)), measurement.position.z,
-           {c.zz, covZPhi, varPhi}};
+    out = {normalizeLookupPhi(o2::gpu::GPUCommonMath::ATan2(y, x)), measurement.position.z, {c.zz, covZPhi, varPhi}};
     return true;
   }
   const float radialX = x * inverseR;

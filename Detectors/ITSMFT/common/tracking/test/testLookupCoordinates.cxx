@@ -53,7 +53,8 @@ BOOST_AUTO_TEST_CASE(DiskTransformKeepsPhiRadialCorrelation)
   BOOST_CHECK_CLOSE_FRACTION(coordinates.phi, std::atan2(4.f, 3.f), 1.e-6f);
   BOOST_CHECK_NE(coordinates.covariance[1], 0.f);
   BOOST_CHECK_GE(coordinates.covariance[0] * coordinates.covariance[2] -
-                   coordinates.covariance[1] * coordinates.covariance[1], 0.f);
+                   coordinates.covariance[1] * coordinates.covariance[1],
+                 0.f);
 }
 
 BOOST_AUTO_TEST_CASE(CylinderTransformUsesPhiAndZWithCorrelation)
