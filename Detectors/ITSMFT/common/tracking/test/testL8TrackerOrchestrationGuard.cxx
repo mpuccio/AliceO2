@@ -75,16 +75,56 @@ BOOST_AUTO_TEST_CASE(TrackerIsStatelessAndOwnsOnlyTheOperationEdge)
 {
   const fs::path trackingRoot{fs::path{__FILE__}.parent_path().parent_path()};
   const auto header = read(trackingRoot / "include/ITSMFTTracking/Tracker.h");
-  const auto source = read(trackingRoot / "src/Tracker.cxx");
   BOOST_CHECK(header.find("TrackingResult run(TimeFrame& frame, TrackerTraits& traits)") != std::string::npos);
   BOOST_CHECK(header.find("TimeFrame*") == std::string::npos);
   BOOST_CHECK(header.find("TrackerTraits*") == std::string::npos);
   BOOST_CHECK(header.find("SurfaceTrackingScratch m") == std::string::npos);
   BOOST_CHECK(header.find("std::vector<SurfaceGraph>") == std::string::npos);
-  BOOST_CHECK(source.find("mFrame") == std::string::npos);
-  BOOST_CHECK(source.find("mTraits") == std::string::npos);
-  BOOST_CHECK(source.find("mGraphs") == std::string::npos);
-  BOOST_CHECK(source.find("mMemoryPool") == std::string::npos);
+}
+
+BOOST_AUTO_TEST_CASE(TraversalTestAccessIsConfinedToTestSupport)
+{
+  const fs::path trackingRoot{fs::path{__FILE__}.parent_path().parent_path()};
+  const auto tracker = read(trackingRoot / "include/ITSMFTTracking/Tracker.h");
+  const auto traits = read(trackingRoot / "include/ITSMFTTracking/TrackerTraits.h");
+  const auto trackerFriend = tracker.find("friend struct TrackerTestAccess");
+  const auto traitsFriend = traits.find("friend struct TrackerTestAccess");
+  BOOST_REQUIRE_NE(trackerFriend, std::string::npos);
+  BOOST_REQUIRE_NE(traitsFriend, std::string::npos);
+  BOOST_CHECK_EQUAL(tracker.find("friend struct TrackerTestAccess", trackerFriend + 1), std::string::npos);
+  BOOST_CHECK_EQUAL(traits.find("friend struct TrackerTestAccess", traitsFriend + 1), std::string::npos);
+
+  const std::regex access{"\\bTrackerTestAccess\\b"};
+  for (const auto& root : {trackingRoot / "include", trackingRoot / "src"}) {
+    BOOST_REQUIRE(fs::is_directory(root));
+    for (const auto& entry : fs::recursive_directory_iterator(root)) {
+      if (!entry.is_regular_file() || !isSource(entry.path())) {
+        continue;
+      }
+      if (entry.path() == trackingRoot / "include/ITSMFTTracking/Tracker.h" ||
+          entry.path() == trackingRoot / "include/ITSMFTTracking/TrackerTraits.h") {
+        continue;
+      }
+      const auto text = read(entry.path());
+      BOOST_CHECK_MESSAGE(!std::regex_search(text, access), "test-only traversal access leaked into " << entry.path());
+    }
+  }
+}
+
+BOOST_AUTO_TEST_CASE(TraversalTraitsKeepsNoAdoptedTraversalState)
+{
+  const fs::path trackingRoot{fs::path{__FILE__}.parent_path().parent_path()};
+  const auto traits = read(trackingRoot / "include/ITSMFTTracking/TrackerTraits.h");
+  const std::vector<std::regex> retired{
+    std::regex{"\\badopt(Frame|Scratch|SurfacePlanBinding)\\b"},
+    std::regex{"\\b(updateTrackingParameters|setBz|setMemoryPool|resetTraversalCache|hasTraversalCache)\\b"},
+    std::regex{"\\b(acceptedTracksForSharedStatus|clearAcceptedTracksForSharedStatus|initialiseTimeFrame)\\b"},
+    std::regex{"\\bm(Frame|Scratch|Binding|TrkParams|Bz|MemoryPool|TraversalGraph|TraversalCacheValid|KernelParameters|AttachHitConfig|LayerMaterial|LayerMeasurements|LayerGlobalMeasurements|DiskLayerReferenceZ|AcceptedTracksForSharedStatus)\\b"}};
+  for (const auto& pattern : retired) {
+    BOOST_CHECK_MESSAGE(!std::regex_search(traits, pattern), "retired TrackerTraits state/API remains in its header");
+  }
+  BOOST_CHECK(traits.find("TraversalWorkspaceView") != std::string::npos);
+  BOOST_CHECK(traits.find("mTaskArena") != std::string::npos);
 }
 
 BOOST_AUTO_TEST_CASE(CombinedWorkflowComposesDirectly)

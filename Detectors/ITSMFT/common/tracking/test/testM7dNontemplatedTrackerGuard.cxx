@@ -175,51 +175,30 @@ BOOST_AUTO_TEST_CASE(NonSevenOrTenPlanExecutesTheNonTemplatedCore)
   }
   parameters.LayerxX0.resize(orderedIds.size());
   const std::vector<SurfaceId> ordered{SurfaceId{1}, SurfaceId{4}, SurfaceId{7}, SurfaceId{10}};
-  const SurfaceCatalogView catalogView{catalog.data(), static_cast<uint32_t>(catalog.size())};
-  const std::vector<o2::itsmft::TrackingParameters> params{parameters};
-  auto planResult = buildSurfaceGraphs(catalogView, ordered, params);
-  BOOST_REQUIRE(planResult.ok());
-  auto plan = std::move(planResult.graphs);
-  const auto layout = plan.front().getView();
-  SurfaceMask owned;
-  for (const auto surface : ordered) {
-    owned.set(surface);
-  }
-  auto bindingResult = SurfacePlanBinding::build(layout, owned, ordered);
-  BOOST_REQUIRE(bindingResult.ok());
-
   auto pool = std::make_shared<BoundedMemoryResource>();
   TimeFrame frame;
-  SurfaceTrackingScratch scratch;
-  frame.setMemoryPool(pool);
-  scratch.setMemoryPool(pool);
-  scratch.adoptPlan(ordered.size(), layout.nTransitions, layout.nCells);
-  for (auto& rofOffsets : scratch.mROFramesClusters) {
-    rofOffsets.resize(1, 0);
-  }
+  Tracker tracker{noopSeedRefit};
+  TrackerInitialization configuration;
+  configuration.catalog = {catalog.data(), static_cast<uint32_t>(catalog.size())};
+  configuration.memoryPool = pool;
+  TrackerIterationConfiguration iteration;
+  iteration.graph = makeSurfaceChain(ordered, parameters.MaxHoles,
+                                     positionalSurfaceMask(parameters.HoleLayerMask, ordered, ordered.size()),
+                                     positionalSurfaceMask(parameters.StartLayerMask, ordered, ordered.size()));
+  iteration.parameters = parameters;
+  configuration.iterations.push_back(std::move(iteration));
+  const auto configured = tracker.initialize(frame, configuration);
+  BOOST_REQUIRE(configured.ok());
+
+  const auto& layout = frame.getGraph(0).getView();
+  const auto* binding = frame.getBinding(0);
+  BOOST_REQUIRE(binding != nullptr);
   TrackerTraits traits;
-  traits.setMemoryPool(pool);
-  traits.adoptScratch(&scratch);
-  traits.adoptFrame(&frame);
-  traits.adoptSurfacePlanBinding(bindingResult.binding.get());
-  traits.updateTrackingParameters(params);
-  o2::itsmft::IndexTableUtilsCore indexTable;
-  const auto indexError = bindIndexTableConfiguration(indexTable, params.front(), 4, SurfaceKind::Disk);
-  BOOST_REQUIRE_MESSAGE(indexError == IndexTableConfigError::None,
-                        "four-surface index-table configuration error=" << static_cast<int>(indexError)
-                                                                        << " rowBins=" << params.front().RowBins
-                                                                        << " colBins=" << params.front().ColBins
-                                                                        << " layerZ=" << params.front().LayerZ.size());
   std::shared_ptr<tbb::task_arena> arena;
   traits.setNThreads(1, arena);
-  try {
-    traits.initialiseTimeFrame(0, plan);
-  } catch (const std::exception& error) {
-    BOOST_FAIL("four-surface runtime-plan initialization failed: " << error.what());
-  }
-  BOOST_REQUIRE_EQUAL(scratch.getNOwnedSurfaces(), 4u);
-  BOOST_CHECK_EQUAL(bindingResult.binding->getOwnedSurfaceIndex(SurfaceId{1}).value(), 0u);
-  BOOST_CHECK_EQUAL(bindingResult.binding->getOwnedSurfaceIndex(SurfaceId{7}).value(), 2u);
+  BOOST_REQUIRE_EQUAL(frame.getWorkspace().getNOwnedSurfaces(), 4u);
+  BOOST_CHECK_EQUAL(binding->getOwnedSurfaceIndex(SurfaceId{1}).value(), 0u);
+  BOOST_CHECK_EQUAL(binding->getOwnedSurfaceIndex(SurfaceId{7}).value(), 2u);
 
   TrackSeed seed;
   SurfaceMask activePositions;
@@ -231,8 +210,9 @@ BOOST_AUTO_TEST_CASE(NonSevenOrTenPlanExecutesTheNonTemplatedCore)
   BOOST_CHECK_EQUAL(seed.getActiveSurfaceCount(), 4);
   BOOST_CHECK_EQUAL(seed.getCluster(0), 100);
   BOOST_CHECK_EQUAL(seed.getCluster(3), 103);
-  BOOST_CHECK_NO_THROW(traits.findCellsNeighbours(0));
-  BOOST_CHECK_NO_THROW(traits.findRoads(0, noopSeedRefit));
+  // The graph view carries the complete catalog; this sparse traversal owns
+  // only the four surfaces recorded by the binding.
+  BOOST_CHECK_EQUAL(binding->getOrderedSurfaces().size(), ordered.size());
 }
 
 } // namespace

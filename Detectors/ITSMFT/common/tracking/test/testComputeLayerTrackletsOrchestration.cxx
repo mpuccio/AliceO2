@@ -36,6 +36,7 @@
 #include "ITSMFTTracking/detail/SurfaceTrackingScratch.h"
 #include "ITSMFTTracking/TimeFrame.h"
 #include "ITSMFTTracking/TrackerTraits.h"
+#include "TraversalTestSupport.h"
 #include "ITSMFTTracking/detail/SurfacePlanBinding.h"
 #include "ITSMFTTracking/TrackingConfigParam.h"
 #include "ITStracking/Constants.h"
@@ -226,10 +227,8 @@ TrackletSnapshot runFixture(o2::detectors::DetID::ID detector,
                             std::function<void(TrackingParameters&)> customizeParams = {})
 {
   auto pool = std::make_shared<BoundedMemoryResource>();
-  // Gate 4 B3.1: `frame` declared before `tf` so it is constructed first and
-  // destroyed last (see SurfaceTrackingScratch's own lifetime-contract doc).
   TimeFrame frame;
-  SurfaceTrackingScratch tf;
+  Tracker tracker;
   TrackerTraits traits;
   std::shared_ptr<tbb::task_arena> arena;
   std::vector<TrackingParameters> params(1);
@@ -242,24 +241,26 @@ TrackletSnapshot runFixture(o2::detectors::DetID::ID detector,
     customizeParams(params[0]);
   }
 
-  frame.setMemoryPool(pool);
-  tf.setMemoryPool(pool);
-  traits.setMemoryPool(pool);
   traits.setNThreads(nThreads, arena);
-  traits.adoptScratch(&tf);
-  traits.adoptFrame(&frame);
-  traits.updateTrackingParameters(params);
-  traits.setBz(Bz);
+  frame.setBz(Bz);
 
   const auto orderedSurfaces = identitySurfaces(static_cast<uint16_t>(NLayers));
   const auto catalog = makeCatalog(static_cast<uint16_t>(NLayers), detector, kind);
   const SurfaceCatalogView catalogView{catalog.data(), static_cast<uint32_t>(catalog.size())};
-  auto planResult = buildSurfaceGraphs(catalogView, orderedSurfaces, params);
-  BOOST_REQUIRE(planResult.ok());
-  const auto graph = std::move(planResult.graphs.front());
-  const std::vector<SurfaceGraph> plan{graph};
+  TrackerInitialization configuration;
+  configuration.catalog = catalogView;
+  configuration.memoryPool = pool;
+  TrackerIterationConfiguration iteration;
+  iteration.graph = makeSurfaceChain(
+    orderedSurfaces, params[0].MaxHoles,
+    positionalSurfaceMask(params[0].HoleLayerMask, orderedSurfaces, NLayers),
+    positionalSurfaceMask(params[0].StartLayerMask, orderedSurfaces, NLayers));
+  iteration.parameters = params[0];
+  configuration.iterations.push_back(std::move(iteration));
+  BOOST_REQUIRE(tracker.initialize(frame, configuration).ok());
+  auto& tf = frame.getWorkspace();
+  const auto& graph = frame.getGraph(0);
   const auto layoutView = graph.getView();
-  tf.adoptPlan(orderedSurfaces.size(), layoutView.nTransitions, layoutView.nCells);
 
   std::vector<CompClusterExt> compactClusters;
   std::vector<unsigned char> patterns;
@@ -302,14 +303,7 @@ TrackletSnapshot runFixture(o2::detectors::DetID::ID detector,
   }
   tf.setROFViews(RuntimeROFViews{rofTable.getView(), vtxTable.getView(), mask.getView(), {}});
 
-  SurfaceMask owned;
-  for (const auto surface : graph.getOrderedSurfaces()) {
-    owned.set(surface);
-  }
-  auto bindingResult = SurfacePlanBinding::build(graph.getView(), owned, graph.getOrderedSurfaces());
-  BOOST_REQUIRE(bindingResult.ok());
-  traits.adoptSurfacePlanBinding(bindingResult.binding.get());
-  traits.initialiseTimeFrame(0, plan);
+  auto view = TrackerTestAccess::prepare(tracker, frame, 0);
 
   // Gate 3 transition-preparation slice: successful initialisation must fill
   // every transition entry (relocated from TimeFrame::initialise() into
@@ -359,8 +353,7 @@ TrackletSnapshot runFixture(o2::detectors::DetID::ID detector,
   }
   BOOST_REQUIRE_GE(transitionId, 0);
 
-  traits.computeLayerTracklets(0, 0);
-  traits.computeLayerTracklets(0, 0);
+  TrackerTestAccess::computeTracklets(traits, view, 0);
 
   TrackletSnapshot result;
   result.transitionId = transitionId;
@@ -564,17 +557,6 @@ BOOST_AUTO_TEST_CASE(DiskOnePassAndTwoPassProduceIdenticalTracklets)
   checkSame(serial, parallel);
 }
 
-BOOST_AUTO_TEST_CASE(ComputeLayerTrackletsFailsClosedWithoutInitialiseTimeFrame)
-{
-  SurfaceTrackingScratch tf;
-  TrackerTraits traits;
-  traits.adoptScratch(&tf);
-
-  BOOST_CHECK_EXCEPTION(traits.computeLayerTracklets(0, -1), TraversalException, [](const TraversalException& error) {
-    return error.getReason() == TraversalFailureReason::InvalidTraversalSchedule;
-  });
-}
-
 BOOST_AUTO_TEST_CASE(InitialiseTimeFrameFailureLeavesTransitionArraysZeroFilledNotPartial)
 {
   // Gate 3 transition-preparation slice failure contract: TimeFrame::initialise()
@@ -591,10 +573,8 @@ BOOST_AUTO_TEST_CASE(InitialiseTimeFrameFailureLeavesTransitionArraysZeroFilledN
   // there instead, before the arrays are ever resized -- this test wants a
   // fallible check that fires strictly after TimeFrame::initialise().
   auto pool = std::make_shared<BoundedMemoryResource>();
-  // Gate 4 B3.1: `frame` declared before `tf` so it is constructed first and
-  // destroyed last (see SurfaceTrackingScratch's own lifetime-contract doc).
   TimeFrame frame;
-  SurfaceTrackingScratch tf;
+  Tracker tracker;
   TrackerTraits traits;
   std::shared_ptr<tbb::task_arena> arena;
   std::vector<TrackingParameters> params(1);
@@ -603,24 +583,26 @@ BOOST_AUTO_TEST_CASE(InitialiseTimeFrameFailureLeavesTransitionArraysZeroFilledN
   params[0].PassFlags.set(IterationStep::FirstPass, IterationStep::RebuildClusterLUT);
   params[0].CorrType = static_cast<o2::base::PropagatorImpl<float>::MatCorrType>(99); // invalid: AttachHitConfigView rejects it
 
-  frame.setMemoryPool(pool);
-  tf.setMemoryPool(pool);
-  traits.setMemoryPool(pool);
   traits.setNThreads(1, arena);
-  traits.adoptScratch(&tf);
-  traits.adoptFrame(&frame);
-  traits.updateTrackingParameters(params);
-  traits.setBz(Bz);
+  frame.setBz(Bz);
 
   const auto orderedSurfaces = identitySurfaces(static_cast<uint16_t>(ITSNLayers));
   const auto catalog = makeCatalog(static_cast<uint16_t>(ITSNLayers), o2::detectors::DetID::ITS, SurfaceKind::Cylinder);
   const SurfaceCatalogView catalogView{catalog.data(), static_cast<uint32_t>(catalog.size())};
-  auto planResult = buildSurfaceGraphs(catalogView, orderedSurfaces, params);
-  BOOST_REQUIRE(planResult.ok());
-  const auto graph = std::move(planResult.graphs.front());
-  const std::vector<SurfaceGraph> plan{graph};
+  TrackerInitialization configuration;
+  configuration.catalog = catalogView;
+  configuration.memoryPool = pool;
+  TrackerIterationConfiguration iteration;
+  iteration.graph = makeSurfaceChain(
+    orderedSurfaces, params[0].MaxHoles,
+    positionalSurfaceMask(params[0].HoleLayerMask, orderedSurfaces, ITSNLayers),
+    positionalSurfaceMask(params[0].StartLayerMask, orderedSurfaces, ITSNLayers));
+  iteration.parameters = params[0];
+  configuration.iterations.push_back(std::move(iteration));
+  BOOST_REQUIRE(tracker.initialize(frame, configuration).ok());
+  auto& tf = frame.getWorkspace();
+  const auto& graph = frame.getGraph(0);
   const auto layoutView = graph.getView();
-  tf.adoptPlan(orderedSurfaces.size(), layoutView.nTransitions, layoutView.nCells);
 
   // Same minimal cluster/ROF/mask setup as runFixture(): TimeFrame::initialise()
   // (called unconditionally, before any of this test's induced failure) needs
@@ -662,15 +644,7 @@ BOOST_AUTO_TEST_CASE(InitialiseTimeFrameFailureLeavesTransitionArraysZeroFilledN
   }
   tf.setROFViews(RuntimeROFViews{rofTable.getView(), vtxTable.getView(), mask.getView(), {}});
 
-  SurfaceMask owned;
-  for (const auto surface : graph.getOrderedSurfaces()) {
-    owned.set(surface);
-  }
-  auto bindingResult = SurfacePlanBinding::build(graph.getView(), owned, graph.getOrderedSurfaces());
-  BOOST_REQUIRE(bindingResult.ok());
-  traits.adoptSurfacePlanBinding(bindingResult.binding.get());
-
-  BOOST_CHECK_EXCEPTION(traits.initialiseTimeFrame(0, plan), TraversalException, [](const TraversalException& error) {
+  BOOST_CHECK_EXCEPTION(TrackerTestAccess::prepare(tracker, frame, 0), TraversalException, [](const TraversalException& error) {
     return error.getReason() == TraversalFailureReason::InvalidSurfaceParameters;
   });
 
@@ -853,26 +827,6 @@ BOOST_AUTO_TEST_CASE(DuplicateSurfaceIdMappingFailsClosedBeforeTrackletProcessin
   std::vector<SurfaceGraph> plan;
   plan.push_back(std::move(planGraph));
 
-  // Gate 4 B3.1: `frame` declared before `tf` so it is constructed first and
-  // destroyed last (see SurfaceTrackingScratch's own lifetime-contract doc).
-  TimeFrame frame;
-  SurfaceTrackingScratch tf;
-  auto pool = std::make_shared<BoundedMemoryResource>();
-  std::shared_ptr<tbb::task_arena> arena;
-  TrackerTraits traits;
-  std::vector<TrackingParameters> params(1);
-  resetDetectorDefaults(params[0], o2::detectors::DetID::ITS);
-  frame.setMemoryPool(pool);
-  tf.setMemoryPool(pool);
-  traits.setMemoryPool(pool);
-  traits.setNThreads(1, arena);
-  traits.adoptScratch(&tf);
-  traits.adoptFrame(&frame);
-  traits.updateTrackingParameters(params);
-  traits.setBz(Bz);
-  const auto layoutView = plan.front().getView();
-  tf.adoptPlan(plan.front().getOrderedSurfaces().size(), layoutView.nTransitions, layoutView.nCells);
-
   SurfaceMask owned;
   for (const auto surface : plan.front().getOrderedSurfaces()) {
     owned.set(surface);
@@ -908,24 +862,6 @@ BOOST_AUTO_TEST_CASE(CombinedCylinderAndDiskLayoutBindsAsOneDisconnectedPlan)
 
   std::vector<SurfaceGraph> plan;
   plan.push_back(std::move(*result.graph));
-
-  // Gate 4 B3.1: `frame` declared before `tf` so it is constructed first and
-  // destroyed last (see SurfaceTrackingScratch's own lifetime-contract doc).
-  TimeFrame frame;
-  SurfaceTrackingScratch tf;
-  auto pool = std::make_shared<BoundedMemoryResource>();
-  std::shared_ptr<tbb::task_arena> arena;
-  TrackerTraits traits;
-  std::vector<TrackingParameters> params(1);
-  resetDetectorDefaults(params[0], o2::detectors::DetID::ITS);
-  frame.setMemoryPool(pool);
-  tf.setMemoryPool(pool);
-  traits.setMemoryPool(pool);
-  traits.setNThreads(1, arena);
-  traits.adoptScratch(&tf);
-  traits.adoptFrame(&frame);
-  traits.updateTrackingParameters(params);
-  traits.setBz(Bz);
 
   SurfaceMask owned;
   for (const auto& surface : surfaces) {

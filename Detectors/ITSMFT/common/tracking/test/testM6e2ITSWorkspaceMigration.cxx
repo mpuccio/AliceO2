@@ -180,7 +180,6 @@ ClusterSourceInput makeEmptySource(ClusterSourceId id, o2::detectors::DetID::ID 
 BOOST_AUTO_TEST_CASE(AtomicITSLoadFailureLeavesSharedTimeFrameAndBothParticipantScratchesUntouched)
 {
   auto participants = makeSet();
-  participants.setMemoryPool(std::make_shared<o2::its::BoundedMemoryResource>());
   TimeFrame frame;
   participants.adoptFrame(frame);
 
@@ -218,7 +217,6 @@ BOOST_AUTO_TEST_CASE(AtomicITSLoadFailureLeavesSharedTimeFrameAndBothParticipant
 BOOST_AUTO_TEST_CASE(TimeFrameResetClearsSharedWorkspaceAndPreservesFrameState)
 {
   auto participants = makeSet();
-  participants.setMemoryPool(std::make_shared<o2::its::BoundedMemoryResource>());
   TimeFrame frame;
   participants.adoptFrame(frame);
   frame.setBz(5.f);

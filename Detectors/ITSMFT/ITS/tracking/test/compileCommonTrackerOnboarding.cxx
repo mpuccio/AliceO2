@@ -62,9 +62,6 @@ int initializeCommonITSTracker()
 
   auto pool = std::make_shared<BoundedMemoryResource>();
   TrackerTraits traits;
-  traits.setMemoryPool(pool);
-  traits.adoptFrame(&frame);
-  traits.updateTrackingParameters(parameters);
   std::shared_ptr<tbb::task_arena> arena;
   traits.setNThreads(1, arena);
 
@@ -90,7 +87,6 @@ int initializeCommonITSTracker()
   if (!result.ok()) {
     return 5;
   }
-  traits.setMemoryPool(frame.getMemoryPool());
   const auto* capacity = frame.getWorkspaceCapacity(0);
   if (capacity == nullptr) {
     return 6;

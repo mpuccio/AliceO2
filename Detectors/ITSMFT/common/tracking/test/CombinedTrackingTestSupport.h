@@ -143,11 +143,6 @@ class CombinedTrackingPlan
     if (!result.ok()) {
       throw std::runtime_error{"combined test application plan failed to configure the TimeFrame"};
     }
-    mTraits->setMemoryPool(frame.getMemoryPool());
-  }
-  void setMemoryPool(std::shared_ptr<BoundedMemoryResource> pool)
-  {
-    mTraits->setMemoryPool(pool);
   }
   void setBz(float bz)
   {
@@ -168,8 +163,8 @@ class CombinedTrackingPlan
       const auto& params = mFrame->getTrackingParameters();
       const auto& scratch = mFrame->getWorkspace();
       for (std::size_t i = 0; i < params.size(); ++i) {
-        const auto& candidates = mTraits->acceptedTracksForSharedStatus();
-        if (i >= result.acceptedTrackCounts.size() || result.acceptedTrackCounts[i] > candidates.size()) {
+        const auto& candidates = scratch.getTraversalWorkspace(i).acceptedTracks;
+        if (i >= result.acceptedTrackCounts.size() || result.acceptedTrackCounts[i] != candidates.size()) {
           throw std::runtime_error{"failed to seal ITS tracking compatibility"};
         }
         std::vector<TrackingCandidate> selected;
@@ -198,8 +193,8 @@ class CombinedTrackingPlan
       const auto& params = mFrame->getTrackingParameters();
       const auto& scratch = mFrame->getWorkspace();
       for (std::size_t i = 0; i < params.size(); ++i) {
-        const auto& candidates = mTraits->acceptedTracksForSharedStatus();
-        if (i >= result.acceptedTrackCounts.size() || result.acceptedTrackCounts[i] > candidates.size()) {
+        const auto& candidates = scratch.getTraversalWorkspace(i).acceptedTracks;
+        if (i >= result.acceptedTrackCounts.size() || result.acceptedTrackCounts[i] != candidates.size()) {
           throw std::runtime_error{"failed to seal MFT tracking compatibility"};
         }
         std::vector<TrackingCandidate> selected;

@@ -352,7 +352,6 @@ struct StandaloneRun {
     const auto configured = tracker.initialize(frame, configuration);
     BOOST_REQUIRE(configured.ok());
     scratch = &frame.getWorkspace();
-    traits.setMemoryPool(pool);
     traits.setNThreads(1, arena);
     frame.setBz(Bz);
 
@@ -423,7 +422,6 @@ struct CombinedTrackingComposer {
     frame = &f;
     plan.adoptFrame(f);
   }
-  void setMemoryPool(std::shared_ptr<BoundedMemoryResource> pool) { plan.setMemoryPool(pool); }
   void setBz(float bz) { plan.setBz(bz); }
   void setNThreads(int n) { plan.setNThreads(n); }
 
@@ -561,7 +559,6 @@ BOOST_AUTO_TEST_CASE(CombinedLoadingBackfillsOneGlobalWorkspace)
   auto composer = makeComposer(itsParams, mftParams);
   TimeFrame frame;
   composer.adoptFrame(frame);
-  composer.setMemoryPool(std::make_shared<BoundedMemoryResource>());
   composer.setBz(Bz);
   composer.setNThreads(1);
 
@@ -658,7 +655,6 @@ BOOST_AUTO_TEST_CASE(MftGlobalIdsWorkEndToEndThroughRefitUnderCombinedPolicy)
   auto composer = makeComposer(makeItsParams(), mftParams);
   TimeFrame frame;
   composer.adoptFrame(frame);
-  composer.setMemoryPool(std::make_shared<BoundedMemoryResource>());
   composer.setBz(Bz);
   composer.setNThreads(1);
 
@@ -708,7 +704,6 @@ BOOST_AUTO_TEST_CASE(CombinedComponentsUseOwnROFTimingInOneCombinedPass)
   auto composer = makeComposer(itsParams, mftParams);
   TimeFrame frame;
   composer.adoptFrame(frame);
-  composer.setMemoryPool(std::make_shared<BoundedMemoryResource>());
   composer.setBz(Bz);
   composer.setNThreads(1);
 
@@ -825,7 +820,6 @@ BOOST_AUTO_TEST_CASE(LoadFailureResetsWholeCombinedTFExactlyOnceAndInvalidatesPu
   auto composer = makeComposer(makeItsParams(), makeMftParams());
   TimeFrame frame;
   composer.adoptFrame(frame);
-  composer.setMemoryPool(std::make_shared<BoundedMemoryResource>());
   composer.setBz(Bz);
   composer.setNThreads(1);
 
@@ -885,7 +879,6 @@ BOOST_AUTO_TEST_CASE(CombinedTrackingResourceFailureUsesSharedPolicyAndResetsWor
   auto composer = makeComposer(itsParams, makeMftParams());
   TimeFrame frame;
   composer.adoptFrame(frame);
-  composer.setMemoryPool(std::make_shared<BoundedMemoryResource>());
   composer.setBz(Bz);
   composer.setNThreads(1);
 
@@ -949,7 +942,6 @@ BOOST_AUTO_TEST_CASE(RecoverableITSLoadFailureIsDroppedOnlyWhenITSDropTFAllows)
     auto composer = makeComposer(itsParams, makeMftParams());
     TimeFrame frame;
     composer.adoptFrame(frame);
-    composer.setMemoryPool(std::make_shared<BoundedMemoryResource>());
     composer.setBz(Bz);
     composer.setNThreads(1);
 
@@ -983,7 +975,6 @@ BOOST_AUTO_TEST_CASE(RecoverableMFTLoadFailureUsesSharedCombinedDropPolicy)
     auto composer = makeComposer(itsParams, mftParams);
     TimeFrame frame;
     composer.adoptFrame(frame);
-    composer.setMemoryPool(std::make_shared<BoundedMemoryResource>());
     composer.setBz(Bz);
     composer.setNThreads(1);
 
@@ -1013,7 +1004,6 @@ BOOST_AUTO_TEST_CASE(StructuralLoadErrorIsAlwaysStructuralRegardlessOfDropTF)
   auto composer = makeComposer(itsParams, makeMftParams());
   TimeFrame frame;
   composer.adoptFrame(frame);
-  composer.setMemoryPool(std::make_shared<BoundedMemoryResource>());
   composer.setBz(Bz);
   composer.setNThreads(1);
 
@@ -1040,7 +1030,6 @@ BOOST_AUTO_TEST_CASE(UnrecognizedLoadSourceIsAlwaysStructural)
   auto composer = makeComposer(makeItsParams(), makeMftParams());
   TimeFrame frame;
   composer.adoptFrame(frame);
-  composer.setMemoryPool(std::make_shared<BoundedMemoryResource>());
   composer.setBz(Bz);
   composer.setNThreads(1);
 
@@ -1064,7 +1053,6 @@ BOOST_AUTO_TEST_CASE(StructuralTrackingExceptionIsClassifiedStructuralAfterWhole
   auto composer = makeComposer(itsParams, makeMftParams());
   TimeFrame frame;
   composer.adoptFrame(frame);
-  composer.setMemoryPool(std::make_shared<BoundedMemoryResource>());
   composer.setBz(Bz);
   composer.setNThreads(1);
 
@@ -1105,7 +1093,6 @@ BOOST_AUTO_TEST_CASE(SequentialSuccessfulTFsReplaceStateWithoutStaleAccumulation
   auto composer = makeComposer(itsParams, mftParams);
   TimeFrame frame;
   composer.adoptFrame(frame);
-  composer.setMemoryPool(std::make_shared<BoundedMemoryResource>());
   composer.setBz(Bz);
   composer.setNThreads(1);
 
@@ -1155,7 +1142,6 @@ BOOST_AUTO_TEST_CASE(OrderedSurfaceGettersAreAlwaysValidUnlikePublicationExports
   MinimalFixture fixture;
   makeRofGap(fixture.mftRofs);
   fixture.mftSource.rofs = fixture.mftRofs;
-  composer.setMemoryPool(std::make_shared<BoundedMemoryResource>());
   composer.setBz(Bz);
   composer.setNThreads(1);
   const auto failed = composer.process(fixture.itsSource, fixture.mftSource, o2::InteractionRecord{50, 5});
@@ -1171,7 +1157,6 @@ BOOST_AUTO_TEST_CASE(CompatibilitySidecarGettersReflectSealAndReset)
   auto composer = makeComposer(makeItsParams(), makeMftParams());
   TimeFrame frame;
   composer.adoptFrame(frame);
-  composer.setMemoryPool(std::make_shared<BoundedMemoryResource>());
   composer.setBz(Bz);
   composer.setNThreads(1);
 
@@ -1226,7 +1211,6 @@ BOOST_AUTO_TEST_CASE(ExplicitScheduleDrivesITSThenMFTThroughTheDelegatedEngine)
   auto composer = makeComposer(itsParams, mftParams);
   TimeFrame frame;
   composer.adoptFrame(frame);
-  composer.setMemoryPool(std::make_shared<BoundedMemoryResource>());
   composer.setBz(Bz);
   composer.setNThreads(1);
 
@@ -1285,7 +1269,6 @@ BOOST_AUTO_TEST_CASE(AtomicLoadFailureInvokesEngineResetOnlyAndLeavesNoParticipa
   auto composer = makeComposer(makeItsParams(), makeMftParams());
   TimeFrame frame;
   composer.adoptFrame(frame);
-  composer.setMemoryPool(std::make_shared<BoundedMemoryResource>());
   composer.setBz(Bz);
   composer.setNThreads(1);
 

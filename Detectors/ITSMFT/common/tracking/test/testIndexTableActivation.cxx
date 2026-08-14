@@ -58,6 +58,7 @@
 #include "ITSMFTTracking/detail/SurfaceTrackingScratch.h"
 #include "ITSMFTTracking/TimeFrame.h"
 #include "ITSMFTTracking/TrackerTraits.h"
+#include "TraversalTestSupport.h"
 #include "ITStracking/Constants.h"
 #include "ITStracking/ROFLookupTables.h"
 #include "SimulationDataFormat/MCCompLabel.h"
@@ -221,57 +222,42 @@ std::vector<TrackingParameters> makeTwoIterationITSParams()
   return params;
 }
 
-// Minimal wiring for TrackerTraits<ITSNLayers>::initialiseTimeFrame(): a
-// TimeFrame and a TrackerTraits sharing a bounded memory pool. Unlike
-// testTrackerFailureContract.cxx's Rig, no Tracker<N>, task arena, or
-// magnetic field is needed -- initialiseTimeFrame() never reaches
-// computeLayerTracklets()/findRoads().
 struct Rig {
   Rig() : pool(std::make_shared<BoundedMemoryResource>())
   {
-    frame.setMemoryPool(pool);
-    tf.setMemoryPool(pool);
-    traits.setMemoryPool(pool);
-    traits.adoptScratch(&tf);
-    traits.adoptFrame(&frame);
   }
 
   std::shared_ptr<BoundedMemoryResource> pool;
-  // Gate 4 B3.1: `frame` declared before `tf` so it is constructed first and
-  // destroyed last (see SurfaceTrackingScratch's own lifetime-contract doc).
   TimeFrame frame;
-  SurfaceTrackingScratch tf;
+  SurfaceTrackingScratch* tf{nullptr};
+  Tracker tracker;
   TrackerTraits traits;
   // Scratch carries non-owning runtime ROF views. Keep these adapter-edge
   // builders alive across every load/initialise call on this fixture.
   std::optional<o2::its::ROFOverlapTable<ITSNLayers>> rofTable;
   std::optional<o2::its::ROFVertexLookupTable<ITSNLayers>> vertexTable;
   std::optional<o2::its::ROFMaskTable<ITSNLayers>> mask;
-  // Must outlive `plan` (std::vector<SurfaceGraph> borrows a SurfaceCatalogView into
-  // it, Gate 4 B2 Slice 2) -- declared before `plan` so it is constructed
-  // first and destroyed last.
   std::vector<SurfaceDescriptor> catalog;
-  std::optional<std::vector<SurfaceGraph>> plan;
-  std::unique_ptr<SurfacePlanBinding> binding;
 
   void establishValidLayout(gsl::span<const TrackingParameters> params)
   {
     catalog = makeITSTestCatalog();
     const auto orderedSurfaces = identitySurfaces(ITSNLayers);
     const SurfaceCatalogView catalogView{catalog.data(), static_cast<uint32_t>(catalog.size())};
-    auto result = buildSurfaceGraphs(catalogView, orderedSurfaces, params);
-    BOOST_REQUIRE(result.ok());
-    plan.emplace(std::move(result.graphs));
-    const auto layoutView = plan->front().getView();
-    tf.adoptPlan(plan->front().getOrderedSurfaces().size(), layoutView.nTransitions, layoutView.nCells);
-    SurfaceMask owned;
-    for (const auto surface : plan->front().getOrderedSurfaces()) {
-      owned.set(surface);
+    TrackerInitialization configuration;
+    configuration.catalog = catalogView;
+    configuration.memoryPool = pool;
+    for (const auto& parameter : params) {
+      TrackerIterationConfiguration iteration;
+      iteration.graph = makeSurfaceChain(
+        orderedSurfaces, parameter.MaxHoles,
+        positionalSurfaceMask(parameter.HoleLayerMask, orderedSurfaces, ITSNLayers),
+        positionalSurfaceMask(parameter.StartLayerMask, orderedSurfaces, ITSNLayers));
+      iteration.parameters = parameter;
+      configuration.iterations.push_back(std::move(iteration));
     }
-    auto bindingResult = SurfacePlanBinding::build(layoutView, owned, plan->front().getOrderedSurfaces());
-    BOOST_REQUIRE(bindingResult.ok());
-    traits.adoptSurfacePlanBinding(bindingResult.binding.get());
-    binding = std::move(bindingResult.binding);
+    BOOST_REQUIRE(tracker.initialize(frame, configuration).ok());
+    tf = &frame.getWorkspace();
   }
 
   // See testTrackerFailureContract.cxx's identical helper for why loading a
@@ -288,10 +274,11 @@ struct Rig {
     LegacyLikeDecoder decoder{o2::detectors::DetID::ITS};
     const o2::InteractionRecord origin{50, 5};
     const ROFTimingConfig timing{40, 0, 0, 0};
-    const auto& orderedSurfaces = plan->front().getOrderedSurfaces();
-    const auto result = tf.loadNormalizedSource(frame, decoder, origin, timing, f.clusters, f.patterns, f.rofs, &dict(),
-                                                f.labels.getIndexedSize() > 0 ? &f.labels : nullptr, o2::detectors::DetID::ITS,
-                                                gsl::span<const SurfaceId>{orderedSurfaces}, plan->front().getSurfaceCatalog());
+    const auto& graph = frame.getGraph(0);
+    const auto& orderedSurfaces = graph.getOrderedSurfaces();
+    const auto result = tf->loadNormalizedSource(frame, decoder, origin, timing, f.clusters, f.patterns, f.rofs, &dict(),
+                                                 f.labels.getIndexedSize() > 0 ? &f.labels : nullptr, o2::detectors::DetID::ITS,
+                                                 gsl::span<const SurfaceId>{orderedSurfaces}, graph.getSurfaceCatalog());
     BOOST_REQUIRE(result.ok());
 
     o2::its::LayerTiming timing2{};
@@ -313,7 +300,7 @@ struct Rig {
     for (int iLayer = 0; iLayer < ITSNLayers; ++iLayer) {
       mask->setROFsEnabled(iLayer, 0, timing2.mNROFsTF, 1);
     }
-    tf.setROFViews(RuntimeROFViews{rofTable->getView(), vertexTable->getView(), mask->getView(), {}});
+    tf->setROFViews(RuntimeROFViews{rofTable->getView(), vertexTable->getView(), mask->getView(), {}});
   }
 };
 
@@ -337,14 +324,12 @@ BOOST_AUTO_TEST_CASE(FirstPassCommitsValidatedConfigurationIntoTimeFrame)
   auto params = makeOneIterationITSParams();
   rig.establishValidLayout(params);
   rig.loadSource(makeFixture());
-  rig.traits.updateTrackingParameters(params);
-
-  BOOST_CHECK_NO_THROW(rig.traits.initialiseTimeFrame(0, *rig.plan));
+  BOOST_CHECK_NO_THROW(TrackerTestAccess::prepare(rig.tracker, rig.frame, 0));
 
   IndexTableUtilsCore expected;
   expected.setTrackingParameters(params[0]);
-  BOOST_CHECK(indexTableConfigurationsMatch(rig.tf.getIndexTableUtils(), expected, ITSNLayers));
-  BOOST_CHECK_GT(rig.tf.getIndexTableUtils().getNrowBins(), 0);
+  BOOST_CHECK(indexTableConfigurationsMatch(rig.tf->getIndexTableUtils(), expected, ITSNLayers));
+  BOOST_CHECK_GT(rig.tf->getIndexTableUtils().getNrowBins(), 0);
 }
 
 // --- Invalid binding leaves TimeFrame untouched -----------------------------
@@ -356,15 +341,14 @@ BOOST_AUTO_TEST_CASE(InvalidBindingLeavesTimeFrameOwnedConfigurationUnchanged)
   params[0].RowBins = 0; // structurally invalid
   rig.establishValidLayout(params);
   rig.loadSource(emptyFixture());
-  rig.traits.updateTrackingParameters(params);
 
   // Default-constructed sentinel state (IndexTableUtils.h), before any call.
-  BOOST_REQUIRE_EQUAL(rig.tf.getIndexTableUtils().getNrowBins(), 0);
-  BOOST_REQUIRE_EQUAL(rig.tf.getIndexTableUtils().getNcolBins(), 0);
+  BOOST_REQUIRE_EQUAL(rig.tf->getIndexTableUtils().getNrowBins(), 0);
+  BOOST_REQUIRE_EQUAL(rig.tf->getIndexTableUtils().getNcolBins(), 0);
 
   bool threw = false;
   try {
-    rig.traits.initialiseTimeFrame(0, *rig.plan);
+    TrackerTestAccess::prepare(rig.tracker, rig.frame, 0);
   } catch (const TraversalException& e) {
     threw = true;
     BOOST_CHECK(e.getReason() == TraversalFailureReason::InvalidIndexTableConfiguration);
@@ -372,8 +356,8 @@ BOOST_AUTO_TEST_CASE(InvalidBindingLeavesTimeFrameOwnedConfigurationUnchanged)
   BOOST_CHECK(threw);
 
   // TimeFrame::initialise() was never reached: still the untouched sentinel.
-  BOOST_CHECK_EQUAL(rig.tf.getIndexTableUtils().getNrowBins(), 0);
-  BOOST_CHECK_EQUAL(rig.tf.getIndexTableUtils().getNcolBins(), 0);
+  BOOST_CHECK_EQUAL(rig.tf->getIndexTableUtils().getNrowBins(), 0);
+  BOOST_CHECK_EQUAL(rig.tf->getIndexTableUtils().getNcolBins(), 0);
 }
 
 // --- Non-FirstPass reuse -----------------------------------------------------
@@ -384,13 +368,11 @@ BOOST_AUTO_TEST_CASE(NonFirstPassMatchingReuseSucceedsWithoutRecommit)
   auto params = makeTwoIterationITSParams(); // params[1] is a byte-identical, non-FirstPass reuse
   rig.establishValidLayout(params);
   rig.loadSource(makeFixture());
-  rig.traits.updateTrackingParameters(params);
+  BOOST_REQUIRE_NO_THROW(TrackerTestAccess::prepare(rig.tracker, rig.frame, 0));
+  const IndexTableUtilsCore committed = rig.tf->getIndexTableUtils();
 
-  BOOST_REQUIRE_NO_THROW(rig.traits.initialiseTimeFrame(0, *rig.plan));
-  const IndexTableUtilsCore committed = rig.tf.getIndexTableUtils();
-
-  BOOST_CHECK_NO_THROW(rig.traits.initialiseTimeFrame(1, *rig.plan));
-  BOOST_CHECK(indexTableConfigurationsMatch(rig.tf.getIndexTableUtils(), committed, ITSNLayers));
+  BOOST_CHECK_NO_THROW(TrackerTestAccess::prepare(rig.tracker, rig.frame, 1));
+  BOOST_CHECK(indexTableConfigurationsMatch(rig.tf->getIndexTableUtils(), committed, ITSNLayers));
 }
 
 BOOST_AUTO_TEST_CASE(MismatchingRowColBinsRejectedBeforeMutation)
@@ -400,15 +382,13 @@ BOOST_AUTO_TEST_CASE(MismatchingRowColBinsRejectedBeforeMutation)
   params[1].RowBins = params[0].RowBins + 1;
   rig.establishValidLayout(params);
   rig.loadSource(makeFixture());
-  rig.traits.updateTrackingParameters(params);
-
-  BOOST_REQUIRE_NO_THROW(rig.traits.initialiseTimeFrame(0, *rig.plan));
-  const IndexTableUtilsCore committedBefore = rig.tf.getIndexTableUtils();
-  const auto lutBefore = snapshotIndexTable(rig.tf, 0);
+  BOOST_REQUIRE_NO_THROW(TrackerTestAccess::prepare(rig.tracker, rig.frame, 0));
+  const IndexTableUtilsCore committedBefore = rig.tf->getIndexTableUtils();
+  const auto lutBefore = snapshotIndexTable(*rig.tf, 0);
 
   bool threw = false;
   try {
-    rig.traits.initialiseTimeFrame(1, *rig.plan);
+    TrackerTestAccess::prepare(rig.tracker, rig.frame, 1);
   } catch (const TraversalException& e) {
     threw = true;
     BOOST_CHECK(e.getReason() == TraversalFailureReason::IndexTableConfigurationMismatch);
@@ -416,8 +396,8 @@ BOOST_AUTO_TEST_CASE(MismatchingRowColBinsRejectedBeforeMutation)
   BOOST_CHECK(threw);
 
   // Neither the owned configuration nor the already-populated LUT were touched.
-  BOOST_CHECK(indexTableConfigurationsMatch(rig.tf.getIndexTableUtils(), committedBefore, ITSNLayers));
-  BOOST_CHECK(snapshotIndexTable(rig.tf, 0) == lutBefore);
+  BOOST_CHECK(indexTableConfigurationsMatch(rig.tf->getIndexTableUtils(), committedBefore, ITSNLayers));
+  BOOST_CHECK(snapshotIndexTable(*rig.tf, 0) == lutBefore);
 }
 
 BOOST_AUTO_TEST_CASE(MismatchingPerLayerExtentRejectedBeforeMutation)
@@ -428,20 +408,18 @@ BOOST_AUTO_TEST_CASE(MismatchingPerLayerExtentRejectedBeforeMutation)
   params[1].LayerZ[0] += 1.f;
   rig.establishValidLayout(params);
   rig.loadSource(makeFixture());
-  rig.traits.updateTrackingParameters(params);
-
-  BOOST_REQUIRE_NO_THROW(rig.traits.initialiseTimeFrame(0, *rig.plan));
-  const IndexTableUtilsCore committedBefore = rig.tf.getIndexTableUtils();
+  BOOST_REQUIRE_NO_THROW(TrackerTestAccess::prepare(rig.tracker, rig.frame, 0));
+  const IndexTableUtilsCore committedBefore = rig.tf->getIndexTableUtils();
 
   bool threw = false;
   try {
-    rig.traits.initialiseTimeFrame(1, *rig.plan);
+    TrackerTestAccess::prepare(rig.tracker, rig.frame, 1);
   } catch (const TraversalException& e) {
     threw = true;
     BOOST_CHECK(e.getReason() == TraversalFailureReason::IndexTableConfigurationMismatch);
   }
   BOOST_CHECK(threw);
-  BOOST_CHECK(indexTableConfigurationsMatch(rig.tf.getIndexTableUtils(), committedBefore, ITSNLayers));
+  BOOST_CHECK(indexTableConfigurationsMatch(rig.tf->getIndexTableUtils(), committedBefore, ITSNLayers));
 }
 
 // --- FirstPass may legitimately change configuration ------------------------
@@ -454,18 +432,16 @@ BOOST_AUTO_TEST_CASE(FirstPassWithRebuildClusterLUTLegitimatelyChangesConfigurat
   params[1].RowBins = params[0].RowBins + 8;
   rig.establishValidLayout(params);
   rig.loadSource(makeFixture());
-  rig.traits.updateTrackingParameters(params);
+  BOOST_REQUIRE_NO_THROW(TrackerTestAccess::prepare(rig.tracker, rig.frame, 0));
+  const int nRowBinsBefore = rig.tf->getIndexTableUtils().getNrowBins();
 
-  BOOST_REQUIRE_NO_THROW(rig.traits.initialiseTimeFrame(0, *rig.plan));
-  const int nRowBinsBefore = rig.tf.getIndexTableUtils().getNrowBins();
-
-  BOOST_CHECK_NO_THROW(rig.traits.initialiseTimeFrame(1, *rig.plan));
-  BOOST_CHECK_EQUAL(rig.tf.getIndexTableUtils().getNrowBins(), params[1].RowBins);
-  BOOST_CHECK_NE(rig.tf.getIndexTableUtils().getNrowBins(), nRowBinsBefore);
+  BOOST_CHECK_NO_THROW(TrackerTestAccess::prepare(rig.tracker, rig.frame, 1));
+  BOOST_CHECK_EQUAL(rig.tf->getIndexTableUtils().getNrowBins(), params[1].RowBins);
+  BOOST_CHECK_NE(rig.tf->getIndexTableUtils().getNrowBins(), nRowBinsBefore);
 
   // LUT storage was reallocated to the new, larger dimensions.
-  const int expectedTableSize = rig.tf.getIndexTableUtils().getNrowBins() * rig.tf.getIndexTableUtils().getNcolBins() + 1;
-  BOOST_CHECK_EQUAL(static_cast<int>(rig.tf.getIndexTable(0, 0).size()), expectedTableSize);
+  const int expectedTableSize = rig.tf->getIndexTableUtils().getNrowBins() * rig.tf->getIndexTableUtils().getNcolBins() + 1;
+  BOOST_CHECK_EQUAL(static_cast<int>(rig.tf->getIndexTable(0, 0).size()), expectedTableSize);
 }
 
 // Gate 4 B2 Slice 2 removed the MissingLayout reordering-regression test that

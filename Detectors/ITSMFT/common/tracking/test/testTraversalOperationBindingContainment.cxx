@@ -47,6 +47,13 @@ std::string readTrackerTraitsSource()
   return readFile(testDirectory + "/../src/TrackerTraits.cxx");
 }
 
+std::string readTrackerSource()
+{
+  const std::string testFile = __FILE__;
+  const auto testDirectory = testFile.substr(0, testFile.find_last_of('/'));
+  return readFile(testDirectory + "/../src/Tracker.cxx");
+}
+
 std::string readTrackerTraitsHeader()
 {
   const std::string testFile = __FILE__;
@@ -65,9 +72,10 @@ std::string readCandidateFindingSource()
 /// closing `}`. `methodName` must be immediately followed by `(` in the
 /// match (a plain string search on the qualified name, not a regex), so
 /// `computeLayerTracklets` never matches `computeLayerTrackletsForKind`.
-std::string extractMethodBody(const std::string& source, const std::string& methodName)
+std::string extractMethodBody(const std::string& source, const std::string& methodName,
+                              const std::string& owner = "TrackerTraits")
 {
-  const std::string signature = "TrackerTraits::" + methodName + "(";
+  const std::string signature = owner + "::" + methodName + "(";
   const auto signaturePos = source.find(signature);
   BOOST_REQUIRE_MESSAGE(signaturePos != std::string::npos, "cannot find " << signature << " in TrackerTraits.cxx");
   const auto openBrace = source.find('{', signaturePos);
@@ -182,8 +190,8 @@ BOOST_AUTO_TEST_CASE(RetiredTraversalOperationAdapterDoesNotReturn)
 
 BOOST_AUTO_TEST_CASE(TransitionPreparationUsesOneGraphSchedule)
 {
-  const auto source = readTrackerTraitsSource();
-  const auto code = stripLineComments(extractMethodBody(source, "initialiseTimeFrame"));
+  const auto source = readTrackerSource();
+  const auto code = stripLineComments(extractMethodBody(source, "initializeTraversalWorkspace", "Tracker"));
   BOOST_CHECK(code.find("prepareTransitionScatteringAndBending") != std::string::npos);
   BOOST_CHECK(code.find("mTransitionsByKind") == std::string::npos);
   BOOST_CHECK(code.find("mRoadStartCellsByKind") == std::string::npos);
@@ -371,7 +379,7 @@ BOOST_AUTO_TEST_CASE(KernelPolicyIsOneSurfaceNeutralRecord)
 {
   const auto header = readTrackerTraitsHeader();
   const auto kernelHeader = readFile((commonTrackingRoot() / "include/ITSMFTTracking/detail/TrackingKernelParameters.h").string());
-  BOOST_CHECK(header.find("TrackingKernelParameters mKernelParameters") != std::string::npos);
+  BOOST_CHECK(header.find("TrackingKernelParameters mKernelParameters") == std::string::npos);
   BOOST_CHECK(header.find("array<TrackingKernelParameters") == std::string::npos);
   BOOST_CHECK(kernelHeader.find("SurfaceKind") == std::string::npos);
 }

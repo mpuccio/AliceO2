@@ -149,7 +149,6 @@ BOOST_AUTO_TEST_CASE(AtomicMFTLoadFailureLeavesSharedTimeFrameAndBothParticipant
   auto participants = makeSet();
   // The fixture writes directly to the workspace, so provide its allocator
   // before loading or inspecting event-owned containers.
-  participants.setMemoryPool(std::make_shared<o2::its::BoundedMemoryResource>());
   TimeFrame frame;
   participants.adoptFrame(frame);
 
@@ -191,7 +190,6 @@ BOOST_AUTO_TEST_CASE(AtomicMFTLoadFailureLeavesSharedTimeFrameAndBothParticipant
 BOOST_AUTO_TEST_CASE(TimeFrameResetClearsSharedWorkspaceAndPreservesFrameState)
 {
   auto participants = makeSet();
-  participants.setMemoryPool(std::make_shared<o2::its::BoundedMemoryResource>());
   TimeFrame frame;
   participants.adoptFrame(frame);
   frame.setBz(5.f);
@@ -372,7 +370,6 @@ BOOST_AUTO_TEST_CASE(CombinedExecutionUsesOneSharedWorkspace)
 {
   // Both workflow accessors address one global plan/workspace.
   auto participants = makeSet();
-  participants.setMemoryPool(std::make_shared<o2::its::BoundedMemoryResource>());
   TimeFrame frame;
   participants.adoptFrame(frame);
 

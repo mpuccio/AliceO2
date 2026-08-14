@@ -26,11 +26,10 @@
 //  - A tracker instance that dropped one TimeFrame can immediately process a
 //    following one successfully.
 //
-// The std::bad_alloc and unclassified-std::exception cases are exercised
-// through InjectingTrackerTraits, a test-only TrackerTraits
-// subclass that overrides the virtual computeLayerTracklets() traversal-stage
-// boundary to throw on demand, deterministically, without provoking real
-// host OOM or needing to reach genuine tracklet/cell/road computation.
+// The std::bad_alloc and unclassified-std::exception cases use a real MFT
+// road and a test-only SeedRefitFunction that throws at the normal refit
+// boundary. This keeps the failure classification test at Tracker::run()
+// without restoring a virtual traversal-stage injection seam.
 //
 // Every fixture below establishes a real layout/plan (buildSurfaceGraphs())
 // and then loads a normalized source -- even the structural-failure cases,
@@ -85,6 +84,7 @@
 #include "ITSMFTTracking/MeasurementView.h"
 #include "ITSMFTTracking/IOUtils.h"
 #include "ITSMFTTracking/ITSMFTDetectorDefinitions.h"
+#include "ITSMFTTracking/detail/MFTFwdTrackHelpers.h"
 #include "ITSMFTTracking/SurfaceDescriptor.h"
 #include "ITSMFTTracking/detail/SurfaceTrackingScratch.h"
 #include "ITSMFTTracking/ClusterDecoding.h"
@@ -281,38 +281,36 @@ std::vector<TrackingParameters> makeTwoIterationITSParams(bool dropTFUponFailure
   return params;
 }
 
-// Deterministic injection seam for the std::bad_alloc and
-// unclassified-std::exception cases: TrackerTraits::computeLayerTracklets()
-// is virtual and is the first traversal stage Tracker::run()
-// calls after initialiseTimeFrame() succeeds (see Tracker.cxx's do/while
-// loop), so overriding it to throw immediately exercises Tracker.cxx's
-// catch chain deterministically -- without provoking real host OOM, and
-// without ever reaching genuine tracklet/cell/road computation (so, unlike
-// ValidEmptyInputCompletesWithoutErrorAndProducesNoTracks /
-// TrackerRemainsUsableAfterADroppedTimeFrame, these cases do not need
-// ensureTrivialMagneticFieldIsSet(): findRoads() is never reached).
-enum class InjectedFailure { None,
-                             BadAlloc,
-                             UnclassifiedRuntimeError };
+enum class RefitFailure { None,
+                          BadAlloc,
+                          UnclassifiedRuntimeError };
 
-class InjectingTrackerTraits final : public TrackerTraits
+RefitFailure gRefitFailure = RefitFailure::None;
+int gRefitCalls = 0;
+int gThrowOnRefitCall = 1;
+
+// Deliberately a plain function pointer: production itself reaches this
+// seam only after candidate formation and road finding have produced a real
+// seed. Tests reset the process-local controls before every invocation.
+bool controlledSeedRefit(const TrackSeed&, const TrackingParameters&, float, SurfaceTrackingScratch&,
+                         gsl::span<const gsl::span<const GlobalMeasurement>>,
+                         gsl::span<const gsl::span<const SurfaceMeasurement>>, SurfaceCatalogView,
+                         gsl::span<const SurfaceId>, TrackingCandidate&)
 {
- public:
-  InjectedFailure failure = InjectedFailure::None;
-
-  void computeLayerTracklets(const int iteration, int iVertex) override
-  {
-    switch (failure) {
-      case InjectedFailure::BadAlloc:
-        throw std::bad_alloc{};
-      case InjectedFailure::UnclassifiedRuntimeError:
-        throw std::runtime_error{"injected unclassified failure"};
-      case InjectedFailure::None:
-        break;
-    }
-    TrackerTraits::computeLayerTracklets(iteration, iVertex);
+  ++gRefitCalls;
+  if (gRefitCalls < gThrowOnRefitCall) {
+    return false;
   }
-};
+  switch (gRefitFailure) {
+    case RefitFailure::BadAlloc:
+      throw std::bad_alloc{};
+    case RefitFailure::UnclassifiedRuntimeError:
+      throw std::runtime_error{"controlled refit failure"};
+    case RefitFailure::None:
+      return false;
+  }
+  return false;
+}
 
 // The core's typed refit/publication work is deliberately not part of this
 // failure-contract fixture. This narrow test function supplies only refit.
@@ -324,23 +322,14 @@ bool testSeedRefit(const TrackSeed&, const TrackingParameters&, float, SurfaceTr
   return false;
 }
 
-// Bundles a TimeFrame (non-templated), a TraitsT/Tracker pair, and a bounded
-// memory pool
-// -- the minimal wiring Tracker::run()
-// needs to run at all (task arena included: TrackerTraits::
-// computeLayerTracklets() dereferences the frame-owned workspace, even though
-// structural-failure cases never reach that far). TraitsT defaults to the
-// real TrackerTraits; RigT<InjectingTrackerTraits> (aliased
-// ThrowingRig below) is used by the injected-failure tests. `frame` is
-// the tracker binds its traits to the workspace installed in the frame.
-template <class TraitsT = TrackerTraits>
-struct RigT {
-  explicit RigT(bool dropTFUponFailure, size_t maxMemory = std::numeric_limits<size_t>::max())
+// Bundles a TimeFrame, real backend, Tracker, and bounded memory pool -- the
+// minimal wiring Tracker::run() needs for the ITS configuration tests below.
+struct Rig {
+  explicit Rig(bool dropTFUponFailure, size_t maxMemory = std::numeric_limits<size_t>::max())
     : pool(std::make_shared<BoundedMemoryResource>()),
       params(makeOneIterationITSParams(dropTFUponFailure, maxMemory)),
       tracker()
   {
-    traits.setMemoryPool(pool);
     traits.setNThreads(1, arena);
     tracker.setSeedRefitFunction(testSeedRefit);
     frame.setBz(0.5f);
@@ -371,7 +360,7 @@ struct RigT {
   std::shared_ptr<BoundedMemoryResource> pool;
   std::vector<TrackingParameters> params;
   TimeFrame frame;
-  TraitsT traits;
+  TrackerTraits traits;
   Tracker tracker;
   ITSSharedClusterCompatibility sidecar;
   // Scratch carries non-owning runtime ROF views. Keep these adapter-edge
@@ -403,7 +392,6 @@ struct RigT {
     }
     const auto result = tracker.initialize(frame, configuration);
     BOOST_REQUIRE(result.ok());
-    traits.setMemoryPool(frame.getMemoryPool());
     BOOST_REQUIRE_EQUAL(frame.getWorkspace().getNOwnedSurfaces(), orderedSurfaces.size());
   }
 
@@ -480,8 +468,194 @@ struct RigT {
   }
 };
 
-using Rig = RigT<>;
-using ThrowingRig = RigT<InjectingTrackerTraits>;
+class MftRoadDecoder final : public ClusterDecoder
+{
+ public:
+  explicit MftRoadDecoder(std::vector<DecodedCluster> clusters) : mClusters{std::move(clusters)} {}
+
+  SurfaceMeasurementDecodeResult decode(const CompClusterExt& cluster, BoundedPatternCursor& patterns,
+                                        const TopologyDictionary* dictionary, gsl::span<const SurfaceId> layerToSurface,
+                                        ClusterSourceId source, uint32_t externalIndex, uint32_t sourceROF, bool) const final
+  {
+    const auto clusterData = ioutils::extractClusterDataBounded(cluster, patterns, dictionary);
+    if (!clusterData.ok()) {
+      SurfaceMeasurementDecodeResult result;
+      result.error = clusterData.error;
+      return result;
+    }
+    SurfaceMeasurementDecodeResult result;
+    if (externalIndex >= mClusters.size()) {
+      return result;
+    }
+    auto decoded = mClusters[externalIndex];
+    decoded.shape = clusterData.shape;
+    result.layer = decoded.layer;
+    if (decoded.layer < 0 || static_cast<std::size_t>(decoded.layer) >= layerToSurface.size()) {
+      return result;
+    }
+    result.layerMapped = true;
+    result.kind = SurfaceKind::Disk;
+    return makeDiskMeasurementDecodeResult(decoded, DetectorSensorId{static_cast<uint32_t>(o2::detectors::DetID::MFT), decoded.sensor},
+                                           layerToSurface[decoded.layer], ClusterRef{source, externalIndex}, sourceROF);
+  }
+
+ private:
+  std::vector<DecodedCluster> mClusters;
+};
+
+std::vector<DecodedCluster> makeMftRoad(const TrackingParameters& parameters, float bz)
+{
+  std::vector<DecodedCluster> result;
+  result.reserve(MFTNLayers);
+  float x = 1.f;
+  float y = .5f;
+  float z = detail::mftLayerZ(0);
+  for (int layer = 0; layer < MFTNLayers; ++layer) {
+    DecodedCluster cluster{};
+    cluster.global = {x, y, z};
+    cluster.rowColumnCovariance = {1.e-2f, 0.f, 1.e-2f};
+    cluster.sensor = static_cast<uint32_t>(layer);
+    cluster.layer = layer;
+    result.push_back(cluster);
+    if (layer + 1 == MFTNLayers) {
+      break;
+    }
+    const float nextZ = detail::mftLayerZ(layer + 1);
+    float nextX = 0.f;
+    float nextY = 0.f;
+    detail::mftTrackletProject(x, y, z, parameters.Diamond[0], parameters.Diamond[1], parameters.Diamond[2],
+                               layer, layer + 1, bz, parameters.TrackletMinPt, nextX, nextY);
+    x = nextX;
+    y = nextY;
+    z = nextZ;
+  }
+  return result;
+}
+
+std::vector<SurfaceDescriptor> makeMftCatalog()
+{
+  std::vector<SurfaceDescriptor> catalog;
+  catalog.reserve(MFTNLayers);
+  for (uint16_t layer = 0; layer < MFTNLayers; ++layer) {
+    SurfaceDescriptor surface{SurfaceId{layer}, layer, static_cast<uint8_t>(o2::detectors::DetID::MFT), SurfaceKind::Disk};
+    surface.referenceCoordinate = detail::mftLayerZ(layer);
+    const float xOverX0 = kNominalMFTLayerX0[layer];
+    surface.material.xOverX0 = xOverX0;
+    surface.material.arealDensityGPerCm2 = xOverX0 * o2::its::constants::Radl * o2::its::constants::Rho;
+    catalog.push_back(surface);
+  }
+  return catalog;
+}
+
+// This fixture forms the smallest established full MFT chain: one hit on
+// every disk surface. Its controlled refit callback is invoked only after
+// real tracklet, cell, neighbour, and road construction.
+struct MftFailureRig {
+  explicit MftFailureRig(bool dropTFUponFailure)
+    : pool(std::make_shared<BoundedMemoryResource>()), tracker(&controlledSeedRefit)
+  {
+    resetDetectorDefaults(parameters, o2::detectors::DetID::MFT);
+    parameters.UseDiamond = true;
+    parameters.CreateArtefactLabels = false;
+    parameters.DropTFUponFailure = dropTFUponFailure;
+    frame.setBz(.5f);
+    traits.setNThreads(1, arena);
+  }
+
+  void configure(std::size_t iterations = 1)
+  {
+    catalog = makeMftCatalog();
+    TrackerInitialization configuration;
+    configuration.catalog = {catalog.data(), static_cast<uint32_t>(catalog.size())};
+    configuration.memoryPool = pool;
+    const auto surfaces = identitySurfaces(MFTNLayers);
+    for (std::size_t index = 0; index < iterations; ++index) {
+      TrackerIterationConfiguration iteration;
+      iteration.graph = makeSurfaceChain(surfaces, parameters.MaxHoles,
+                                         positionalSurfaceMask(parameters.HoleLayerMask, surfaces, MFTNLayers),
+                                         positionalSurfaceMask(parameters.StartLayerMask, surfaces, MFTNLayers));
+      iteration.parameters = parameters;
+      configuration.iterations.push_back(std::move(iteration));
+    }
+    BOOST_REQUIRE(tracker.initialize(frame, configuration).ok());
+  }
+
+  void loadRoad()
+  {
+    const auto decoded = makeMftRoad(parameters, frame.getBz());
+    std::vector<CompClusterExt> compact;
+    std::vector<unsigned char> patterns;
+    compact.reserve(decoded.size());
+    patterns.reserve(decoded.size() * onePixelPattern.size());
+    for (const auto& cluster : decoded) {
+      compact.emplace_back(0, 0, CompCluster::InvalidPatternID, cluster.layer);
+      patterns.insert(patterns.end(), onePixelPattern.begin(), onePixelPattern.end());
+    }
+    const std::vector<ROFRecord> rofs{ROFRecord{{100, 5}, 0, 0, static_cast<int>(compact.size())}};
+    MftRoadDecoder decoder{decoded};
+    auto& scratch = frame.getWorkspace();
+    const auto& graph = frame.getGraph(0);
+    BOOST_REQUIRE(scratch.loadNormalizedSource(frame, decoder, o2::InteractionRecord{50, 5}, ROFTimingConfig{40, 0, 0, 0},
+                                               compact, patterns, rofs, &dict(), nullptr, o2::detectors::DetID::MFT,
+                                               gsl::span<const SurfaceId>{graph.getOrderedSurfaces()}, graph.getSurfaceCatalog())
+                    .ok());
+    o2::its::LayerTiming timing{};
+    timing.mNROFsTF = 1;
+    timing.mROFLength = 40;
+    rofTable.emplace();
+    vertexTable.emplace();
+    for (int layer = 0; layer < MFTNLayers; ++layer) {
+      rofTable->defineLayer(layer, timing);
+      vertexTable->defineLayer(layer, timing);
+    }
+    rofTable->init();
+    vertexTable->init();
+    mask.emplace(*rofTable);
+    mask->resetMask();
+    for (int layer = 0; layer < MFTNLayers; ++layer) {
+      mask->setROFsEnabled(layer, 0, 1, 1);
+    }
+    scratch.setROFViews(RuntimeROFViews{rofTable->getView(), vertexTable->getView(), mask->getView(), {}});
+  }
+
+  void assertReset() const
+  {
+    BOOST_CHECK_EQUAL(frame.getTotalMeasurements(), 0u);
+    BOOST_CHECK(frame.getGenericTracks().empty());
+    BOOST_CHECK(frame.getTrackClusterIndices().empty());
+    for (std::size_t iteration = 0; iteration < frame.getTrackingParameters().size(); ++iteration) {
+      const auto& workspace = frame.getWorkspace().getTraversalWorkspace(iteration);
+      BOOST_CHECK(!workspace.valid);
+      BOOST_CHECK(workspace.acceptedTracks.empty());
+    }
+  }
+
+  void stageStaleState()
+  {
+    ITSSharedClusterCompatibilityTransaction txn{sidecar};
+    BOOST_REQUIRE(txn.validate(0));
+    txn.reserve();
+    txn.append(0);
+    frame.getTrackClusterIndices().push_back(TrackClusterReference{SurfaceId{0}, SurfaceMeasurementIndex{0}});
+    GenericTrack track{};
+    track.clusterRefEnd = static_cast<uint32_t>(frame.getTrackClusterIndices().size());
+    frame.getGenericTracks().push_back(track);
+  }
+
+  void resetPublication() noexcept { sidecar.clear(); }
+
+  std::shared_ptr<BoundedMemoryResource> pool;
+  TrackingParameters parameters{};
+  TimeFrame frame;
+  TrackerTraits traits;
+  Tracker tracker;
+  ITSSharedClusterCompatibility sidecar;
+  std::shared_ptr<tbb::task_arena> arena;
+  std::vector<SurfaceDescriptor> catalog;
+  std::optional<o2::its::ROFOverlapTable<MFTNLayers>> rofTable;
+  std::optional<o2::its::ROFVertexLookupTable<MFTNLayers>> vertexTable;
+  std::optional<o2::its::ROFMaskTable<MFTNLayers>> mask;
+};
 
 Fixture emptyFixture()
 {
@@ -547,38 +721,43 @@ BOOST_AUTO_TEST_CASE(RecoverableFailureNotDroppedRethrowsButStillWipesFirst)
 
 // --- std::bad_alloc: recoverable, same drop-or-rethrow policy ------------
 //
-// Injected via InjectingTrackerTraits rather than genuine host OOM (see the
-// class comment above): computeLayerTracklets() throws std::bad_alloc
-// immediately, after initialiseTimeFrame() has already established a real,
-// valid state from establishValidLayout()+loadSource(makeFixture()).
+// A real ten-disk MFT road reaches controlledSeedRefit() after all CA stages.
+// The callback is the existing refit operation seam, not a synthetic kernel
+// override.
 
 BOOST_AUTO_TEST_CASE(BadAllocDroppedReturnsExactSentinelAndWipes)
 {
-  ThrowingRig rig{/*dropTFUponFailure=*/true};
-  rig.establishValidLayout();
-  rig.loadSource(makeFixture());
+  ensureTrivialMagneticFieldIsSet();
+  MftFailureRig rig{/*dropTFUponFailure=*/true};
+  rig.configure();
+  rig.loadRoad();
   BOOST_REQUIRE(rig.frame.getTotalMeasurements() > 0u);
 
-  rig.traits.failure = InjectedFailure::BadAlloc;
+  gRefitFailure = RefitFailure::BadAlloc;
+  gRefitCalls = 0;
   const auto result = rig.tracker.run(rig.frame, rig.traits);
+  gRefitFailure = RefitFailure::None;
 
   BOOST_CHECK(result.outcome == TrackingOutcome::RecoverableDropped);
-  BOOST_CHECK_EQUAL(rig.frame.getTotalMeasurements(), 0u);
-  BOOST_CHECK(rig.frame.getGenericTracks().empty());
+  BOOST_CHECK_GT(gRefitCalls, 0);
+  rig.assertReset();
 }
 
 BOOST_AUTO_TEST_CASE(BadAllocNotDroppedRethrowsButStillWipesFirst)
 {
-  ThrowingRig rig{/*dropTFUponFailure=*/false};
-  rig.establishValidLayout();
-  rig.loadSource(makeFixture());
+  ensureTrivialMagneticFieldIsSet();
+  MftFailureRig rig{/*dropTFUponFailure=*/false};
+  rig.configure();
+  rig.loadRoad();
   BOOST_REQUIRE(rig.frame.getTotalMeasurements() > 0u);
 
-  rig.traits.failure = InjectedFailure::BadAlloc;
+  gRefitFailure = RefitFailure::BadAlloc;
+  gRefitCalls = 0;
   BOOST_CHECK_THROW(rig.tracker.run(rig.frame, rig.traits), std::bad_alloc);
+  gRefitFailure = RefitFailure::None;
 
-  BOOST_CHECK_EQUAL(rig.frame.getTotalMeasurements(), 0u);
-  BOOST_CHECK(rig.frame.getGenericTracks().empty());
+  BOOST_CHECK_GT(gRefitCalls, 0);
+  rig.assertReset();
 }
 
 // --- Unclassified std::exception: always structural, never a sentinel ----
@@ -591,17 +770,41 @@ BOOST_AUTO_TEST_CASE(BadAllocNotDroppedRethrowsButStillWipesFirst)
 BOOST_AUTO_TEST_CASE(UnclassifiedExceptionAlwaysRethrowsAndWipesRegardlessOfFlag)
 {
   for (const bool dropFlag : {false, true}) {
-    ThrowingRig rig{dropFlag};
-    rig.establishValidLayout();
-    rig.loadSource(makeFixture());
+    ensureTrivialMagneticFieldIsSet();
+    MftFailureRig rig{dropFlag};
+    rig.configure();
+    rig.loadRoad();
     BOOST_REQUIRE(rig.frame.getTotalMeasurements() > 0u);
 
-    rig.traits.failure = InjectedFailure::UnclassifiedRuntimeError;
+    gRefitFailure = RefitFailure::UnclassifiedRuntimeError;
+    gRefitCalls = 0;
     BOOST_CHECK_THROW(rig.tracker.run(rig.frame, rig.traits), std::runtime_error);
+    gRefitFailure = RefitFailure::None;
 
-    BOOST_CHECK_EQUAL(rig.frame.getTotalMeasurements(), 0u);
-    BOOST_CHECK(rig.frame.getGenericTracks().empty());
+    BOOST_CHECK_GT(gRefitCalls, 0);
+    rig.assertReset();
   }
+}
+
+BOOST_AUTO_TEST_CASE(LaterIterationRefitFailureWipesEveryIterationWorkspace)
+{
+  ensureTrivialMagneticFieldIsSet();
+  MftFailureRig rig{/*dropTFUponFailure=*/true};
+  rig.configure(/*iterations=*/2);
+  rig.loadRoad();
+
+  gRefitFailure = RefitFailure::UnclassifiedRuntimeError;
+  gRefitCalls = 0;
+  gThrowOnRefitCall = 2;
+  BOOST_CHECK_THROW(rig.tracker.run(rig.frame, rig.traits), std::runtime_error);
+  gRefitFailure = RefitFailure::None;
+  gThrowOnRefitCall = 1;
+
+  // The first iteration completed its real road/refit callback before the
+  // second failed. Tracker::run() must not leave its workspace selectable by
+  // a later adapter pass.
+  BOOST_CHECK_EQUAL(gRefitCalls, 2);
+  rig.assertReset();
 }
 
 // --- Index-table configuration failures: structural, always rethrow -------
@@ -732,17 +935,20 @@ BOOST_AUTO_TEST_CASE(RecoverableDroppedLeavesNoStaleGenericTrackOrSidecarState)
 BOOST_AUTO_TEST_CASE(StructuralFailureLeavesNoStaleGenericTrackOrSidecarState)
 {
   for (const bool dropFlag : {false, true}) {
-    ThrowingRig rig{dropFlag};
-    rig.establishValidLayout();
-    rig.loadSource(makeFixture());
+    ensureTrivialMagneticFieldIsSet();
+    MftFailureRig rig{dropFlag};
+    rig.configure();
+    rig.loadRoad();
     rig.stageStaleState();
 
-    rig.traits.failure = InjectedFailure::UnclassifiedRuntimeError;
+    gRefitFailure = RefitFailure::UnclassifiedRuntimeError;
+    gRefitCalls = 0;
     BOOST_CHECK_THROW(rig.tracker.run(rig.frame, rig.traits), std::runtime_error);
+    gRefitFailure = RefitFailure::None;
     rig.resetPublication();
 
-    BOOST_CHECK(rig.frame.getGenericTracks().empty());
-    BOOST_CHECK(rig.frame.getTrackClusterIndices().empty());
+    BOOST_CHECK_GT(gRefitCalls, 0);
+    rig.assertReset();
     BOOST_CHECK_EQUAL(rig.sidecar.pendingSize(), 0u);
   }
 }

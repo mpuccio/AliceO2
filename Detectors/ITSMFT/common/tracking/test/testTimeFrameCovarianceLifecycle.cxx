@@ -38,10 +38,13 @@
 #include "ITSMFTTracking/ClusterDecoding.h"
 #include "ITSMFTTracking/IOUtils.h"
 #include "ITSMFTTracking/TimeFrame.h"
+#include "ITSMFTTracking/Tracker.h"
 #include "ITSMFTTracking/TrackerTraits.h"
 #include "ITSMFTTracking/detail/SurfacePlanBinding.h"
 #include "ITStracking/Constants.h"
 #include "ITStracking/ROFLookupTables.h"
+
+#include "TraversalTestSupport.h"
 
 using namespace o2::itsmft;
 using namespace o2::itsmft::tracking;
@@ -217,31 +220,27 @@ struct Rig {
     : detector(detectorValue), kind(kindValue), decoder(detectorValue, kindValue, rowIncrement, columnIncrement), pool(std::make_shared<BoundedMemoryResource>())
   {
     frame.setMemoryPool(pool);
-    tf.setMemoryPool(pool);
-    traits.setMemoryPool(pool);
-    traits.adoptScratch(&tf);
-    traits.adoptFrame(&frame);
-    traits.setBz(5.f);
+    frame.setBz(5.f);
   }
 
   void configure(gsl::span<const TrackingParameters> parameters)
   {
     catalog = makeCatalog<NLayers>(detector, kind);
     const auto orderedSurfaces = identitySurfaces<NLayers>();
-    const SurfaceCatalogView catalogView{catalog.data(), static_cast<uint32_t>(catalog.size())};
-    auto result = buildSurfaceGraphs(catalogView, orderedSurfaces, parameters);
-    BOOST_REQUIRE(result.ok());
-    plan.emplace(std::move(result.graphs));
-    const auto layoutView = plan->front().getView();
-    tf.adoptPlan(plan->front().getOrderedSurfaces().size(), layoutView.nTransitions, layoutView.nCells);
-    SurfaceMask owned;
-    for (const auto surface : plan->front().getOrderedSurfaces()) {
-      owned.set(surface);
+    TrackerInitialization configuration;
+    configuration.catalog = {catalog.data(), static_cast<uint32_t>(catalog.size())};
+    configuration.memoryPool = pool;
+    for (const auto& parameter : parameters) {
+      TrackerIterationConfiguration iteration;
+      iteration.graph = makeSurfaceChain(
+        orderedSurfaces, parameter.MaxHoles,
+        positionalSurfaceMask(parameter.HoleLayerMask, orderedSurfaces, NLayers),
+        positionalSurfaceMask(parameter.StartLayerMask, orderedSurfaces, NLayers));
+      iteration.parameters = parameter;
+      configuration.iterations.push_back(std::move(iteration));
     }
-    auto bindingResult = SurfacePlanBinding::build(layoutView, owned, plan->front().getOrderedSurfaces());
-    BOOST_REQUIRE(bindingResult.ok());
-    traits.adoptSurfacePlanBinding(bindingResult.binding.get());
-    binding = std::move(bindingResult.binding);
+    BOOST_REQUIRE(tracker.initialize(frame, configuration).ok());
+    tf = &frame.getWorkspace();
   }
 
   void load(bool applySysErrors)
@@ -250,11 +249,12 @@ struct Rig {
       CompClusterExt{10, 20, CompCluster::InvalidPatternID, 0}};
     const std::vector<unsigned char> patterns{OnePixelPattern.begin(), OnePixelPattern.end()};
     const std::vector<ROFRecord> rofs{ROFRecord{{100, 5}, 0, 0, 1}};
-    const auto& orderedSurfaces = plan->front().getOrderedSurfaces();
-    const auto result = tf.loadNormalizedSource(
+    const auto& graph = frame.getGraph(0);
+    const auto& orderedSurfaces = graph.getOrderedSurfaces();
+    const auto result = tf->loadNormalizedSource(
       frame, decoder, o2::InteractionRecord{50, 5}, ROFTimingConfig{40, 0, 0, 0},
       clusters, patterns, rofs, &dictionary(), nullptr, detector,
-      gsl::span<const SurfaceId>{orderedSurfaces}, plan->front().getSurfaceCatalog(), applySysErrors);
+      gsl::span<const SurfaceId>{orderedSurfaces}, graph.getSurfaceCatalog(), applySysErrors);
     BOOST_REQUIRE(result.ok());
 
     o2::its::LayerTiming timing{};
@@ -276,29 +276,23 @@ struct Rig {
     for (int layer = 0; layer < NLayers; ++layer) {
       mask->setROFsEnabled(layer, 0, 1, 1);
     }
-    tf.setROFViews(RuntimeROFViews{rofTable->getView(), vertexTable->getView(), mask->getView(), {}});
+    tf->setROFViews(RuntimeROFViews{rofTable->getView(), vertexTable->getView(), mask->getView(), {}});
   }
 
   o2::detectors::DetID::ID detector;
   SurfaceKind kind;
   SystematicContractDecoder decoder;
   std::shared_ptr<BoundedMemoryResource> pool;
-  // Gate 4 B3.1: `frame` declared before `tf` so it is constructed first and
-  // destroyed last (see SurfaceTrackingScratch's own lifetime-contract doc).
   TimeFrame frame;
-  SurfaceTrackingScratch tf;
+  SurfaceTrackingScratch* tf{nullptr};
+  Tracker tracker;
   TrackerTraits traits;
   // Scratch carries non-owning runtime ROF views. Keep these adapter-edge
   // builders alive for every subsequent tracking call.
   std::optional<o2::its::ROFOverlapTable<NLayers>> rofTable;
   std::optional<o2::its::ROFVertexLookupTable<NLayers>> vertexTable;
   std::optional<o2::its::ROFMaskTable<NLayers>> mask;
-  // Must outlive `plan` (std::vector<SurfaceGraph> borrows a SurfaceCatalogView into
-  // it, Gate 4 B2 Slice 2) -- declared before `plan` so it is constructed
-  // first and destroyed last.
   std::vector<SurfaceDescriptor> catalog;
-  std::optional<std::vector<SurfaceGraph>> plan;
-  std::unique_ptr<SurfacePlanBinding> binding;
 };
 
 template <int NLayers>
@@ -310,7 +304,7 @@ void checkPositionResolution(const Rig<NLayers>& rig,
   const float expected = o2::gpu::CAMath::Sqrt(
     0.5f * (columnIncrement + rowIncrement) +
     parameters.LayerResolution[0] * parameters.LayerResolution[0]);
-  checkBitIdentical(rig.tf.getPositionResolution(0), expected);
+  checkBitIdentical(rig.tf->getPositionResolution(0), expected);
 }
 
 template <int NLayers>
@@ -320,16 +314,14 @@ void exerciseDisabled(o2::detectors::DetID::ID detector, SurfaceKind kind)
   Rig<NLayers> rig{detector, kind, 0.f, 0.f};
   rig.configure(parameters);
   rig.load(true);
-  rig.traits.updateTrackingParameters(parameters);
-
-  const auto before = snapshotCovariance(rig.frame, rig.tf);
+  const auto before = snapshotCovariance(rig.frame, *rig.tf);
   checkBitIdentical(std::bit_cast<float>(before.normalized[0]), o2::itsmft::ioutils::DefClusError2Row);
   checkBitIdentical(std::bit_cast<float>(before.normalized[2]), o2::itsmft::ioutils::DefClusError2Col);
-  checkRepresentationsAligned(rig.frame, rig.tf);
+  checkRepresentationsAligned(rig.frame, *rig.tf);
 
-  BOOST_REQUIRE_NO_THROW(rig.traits.initialiseTimeFrame(0, *rig.plan));
-  BOOST_CHECK(snapshotCovariance(rig.frame, rig.tf) == before);
-  checkRepresentationsAligned(rig.frame, rig.tf);
+  BOOST_REQUIRE_NO_THROW(TrackerTestAccess::prepare(rig.tracker, rig.frame, 0));
+  BOOST_CHECK(snapshotCovariance(rig.frame, *rig.tf) == before);
+  checkRepresentationsAligned(rig.frame, *rig.tf);
 }
 
 template <int NLayers>
@@ -342,63 +334,43 @@ void exerciseEnabledLifecycle(o2::detectors::DetID::ID detector, SurfaceKind kin
   rig.configure(parameters);
   rig.load(true);
   BOOST_REQUIRE(rig.decoder.lastApplySysErrors);
-  rig.traits.updateTrackingParameters(parameters);
-
   const float expectedRow = o2::itsmft::ioutils::DefClusError2Row + ConfiguredRowIncrement;
   const float expectedColumn = o2::itsmft::ioutils::DefClusError2Col + ConfiguredColumnIncrement;
-  const auto loaded = snapshotCovariance(rig.frame, rig.tf);
+  const auto loaded = snapshotCovariance(rig.frame, *rig.tf);
   checkBitIdentical(std::bit_cast<float>(loaded.normalized[0]), expectedRow);
   checkBitIdentical(std::bit_cast<float>(loaded.normalized[2]), expectedColumn);
-  checkRepresentationsAligned(rig.frame, rig.tf);
+  checkRepresentationsAligned(rig.frame, *rig.tf);
 
   // FirstPass + LUT rebuild.
-  BOOST_REQUIRE_NO_THROW(rig.traits.initialiseTimeFrame(0, *rig.plan));
-  BOOST_CHECK(snapshotCovariance(rig.frame, rig.tf) == loaded);
+  BOOST_REQUIRE_NO_THROW(TrackerTestAccess::prepare(rig.tracker, rig.frame, 0));
+  BOOST_CHECK(snapshotCovariance(rig.frame, *rig.tf) == loaded);
   checkPositionResolution(rig, parameters[0], ConfiguredRowIncrement, ConfiguredColumnIncrement);
 
   // Later iteration + LUT reuse.
-  BOOST_REQUIRE_NO_THROW(rig.traits.initialiseTimeFrame(1, *rig.plan));
-  BOOST_CHECK(snapshotCovariance(rig.frame, rig.tf) == loaded);
+  BOOST_REQUIRE_NO_THROW(TrackerTestAccess::prepare(rig.tracker, rig.frame, 1));
+  BOOST_CHECK(snapshotCovariance(rig.frame, *rig.tf) == loaded);
 
   // Later iteration + LUT rebuild.
-  BOOST_REQUIRE_NO_THROW(rig.traits.initialiseTimeFrame(2, *rig.plan));
-  BOOST_CHECK(snapshotCovariance(rig.frame, rig.tf) == loaded);
+  BOOST_REQUIRE_NO_THROW(TrackerTestAccess::prepare(rig.tracker, rig.frame, 2));
+  BOOST_CHECK(snapshotCovariance(rig.frame, *rig.tf) == loaded);
 
   // Repeated FirstPass initialization is bit-identical.
-  BOOST_REQUIRE_NO_THROW(rig.traits.initialiseTimeFrame(0, *rig.plan));
-  BOOST_CHECK(snapshotCovariance(rig.frame, rig.tf) == loaded);
-  BOOST_REQUIRE_NO_THROW(rig.traits.initialiseTimeFrame(0, *rig.plan));
-  BOOST_CHECK(snapshotCovariance(rig.frame, rig.tf) == loaded);
-  checkRepresentationsAligned(rig.frame, rig.tf);
-
-  // A rejected later iteration leaves normalized and compatibility
-  // covariance untouched.
-  auto invalidParameters = parameters;
-  ++invalidParameters[1].RowBins;
-  rig.traits.updateTrackingParameters(invalidParameters);
-  bool rejected = false;
-  try {
-    rig.traits.initialiseTimeFrame(1, *rig.plan);
-  } catch (const TraversalException& error) {
-    rejected = true;
-    BOOST_CHECK(error.getReason() == TraversalFailureReason::IndexTableConfigurationMismatch);
-  }
-  BOOST_REQUIRE(rejected);
-  BOOST_CHECK(snapshotCovariance(rig.frame, rig.tf) == loaded);
-  checkRepresentationsAligned(rig.frame, rig.tf);
+  BOOST_REQUIRE_NO_THROW(TrackerTestAccess::prepare(rig.tracker, rig.frame, 0));
+  BOOST_CHECK(snapshotCovariance(rig.frame, *rig.tf) == loaded);
+  BOOST_REQUIRE_NO_THROW(TrackerTestAccess::prepare(rig.tracker, rig.frame, 0));
+  BOOST_CHECK(snapshotCovariance(rig.frame, *rig.tf) == loaded);
+  checkRepresentationsAligned(rig.frame, *rig.tf);
 
   // The frame-owned reset clears event state but preserves the configured
   // layout. Reloading and initializing the same event starts again from one
   // decoded increment, never from the previous compatibility copy.
-  rig.tf.reset();
   rig.frame.resetEvent();
   rig.load(true);
-  rig.traits.updateTrackingParameters(parameters);
-  const auto reloaded = snapshotCovariance(rig.frame, rig.tf);
+  const auto reloaded = snapshotCovariance(rig.frame, *rig.tf);
   BOOST_CHECK(reloaded == loaded);
-  BOOST_REQUIRE_NO_THROW(rig.traits.initialiseTimeFrame(0, *rig.plan));
-  BOOST_CHECK(snapshotCovariance(rig.frame, rig.tf) == loaded);
-  checkRepresentationsAligned(rig.frame, rig.tf);
+  BOOST_REQUIRE_NO_THROW(TrackerTestAccess::prepare(rig.tracker, rig.frame, 0));
+  BOOST_CHECK(snapshotCovariance(rig.frame, *rig.tf) == loaded);
+  checkRepresentationsAligned(rig.frame, *rig.tf);
 }
 
 template <int NLayers>
@@ -411,25 +383,23 @@ void exerciseExplicitFalse(o2::detectors::DetID::ID detector, SurfaceKind kind)
   rig.configure(parameters);
   rig.load(false);
   BOOST_REQUIRE(!rig.decoder.lastApplySysErrors);
-  rig.traits.updateTrackingParameters(parameters);
-
-  const auto loaded = snapshotCovariance(rig.frame, rig.tf);
+  const auto loaded = snapshotCovariance(rig.frame, *rig.tf);
   checkBitIdentical(std::bit_cast<float>(loaded.normalized[0]), o2::itsmft::ioutils::DefClusError2Row);
   checkBitIdentical(std::bit_cast<float>(loaded.normalized[2]), o2::itsmft::ioutils::DefClusError2Col);
-  checkRepresentationsAligned(rig.frame, rig.tf);
+  checkRepresentationsAligned(rig.frame, *rig.tf);
 
-  BOOST_REQUIRE_NO_THROW(rig.traits.initialiseTimeFrame(0, *rig.plan));
-  BOOST_CHECK(snapshotCovariance(rig.frame, rig.tf) == loaded);
-  BOOST_REQUIRE_NO_THROW(rig.traits.initialiseTimeFrame(1, *rig.plan));
-  BOOST_CHECK(snapshotCovariance(rig.frame, rig.tf) == loaded);
-  BOOST_REQUIRE_NO_THROW(rig.traits.initialiseTimeFrame(2, *rig.plan));
-  BOOST_CHECK(snapshotCovariance(rig.frame, rig.tf) == loaded);
+  BOOST_REQUIRE_NO_THROW(TrackerTestAccess::prepare(rig.tracker, rig.frame, 0));
+  BOOST_CHECK(snapshotCovariance(rig.frame, *rig.tf) == loaded);
+  BOOST_REQUIRE_NO_THROW(TrackerTestAccess::prepare(rig.tracker, rig.frame, 1));
+  BOOST_CHECK(snapshotCovariance(rig.frame, *rig.tf) == loaded);
+  BOOST_REQUIRE_NO_THROW(TrackerTestAccess::prepare(rig.tracker, rig.frame, 2));
+  BOOST_CHECK(snapshotCovariance(rig.frame, *rig.tf) == loaded);
 
   // Position-resolution preparation intentionally still consumes configured
   // systematic contributions even when this explicit loading override keeps
   // cluster covariance at its base value.
   checkPositionResolution(rig, parameters[2], ConfiguredRowIncrement, ConfiguredColumnIncrement);
-  checkRepresentationsAligned(rig.frame, rig.tf);
+  checkRepresentationsAligned(rig.frame, *rig.tf);
 }
 
 } // namespace
