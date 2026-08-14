@@ -77,6 +77,14 @@ void SurfaceTrackingScratch::adoptPlan(std::size_t nOwnedSurfaces, std::size_t n
   clearResizeBoundedVector(mCellLabels, nCells, mMemoryPool.get());
 }
 
+void SurfaceTrackingScratch::configureTraversalWorkspaces(std::size_t nIterations)
+{
+  mTraversalWorkspaces.resize(nIterations);
+  for (auto& workspace : mTraversalWorkspaces) {
+    workspace.reset(mMemoryPool.get());
+  }
+}
+
 void SurfaceTrackingScratch::reset()
 {
   // Drop the non-owning event view at each event boundary.
@@ -96,6 +104,9 @@ void SurfaceTrackingScratch::reset()
   deepVectorClear(mCellsNeighboursLUT);
   deepVectorClear(mTransitionPhiCuts);
   deepVectorClear(mTransitionMSAngles);
+  for (auto& workspace : mTraversalWorkspaces) {
+    workspace.reset(mMemoryPool.get());
+  }
 
   // Group A: allocator-backed storage, always cleared.
   deepVectorClear(mClusterExternalIndices);
@@ -168,6 +179,9 @@ void SurfaceTrackingScratch::setMemoryPool(std::shared_ptr<o2::its::BoundedMemor
   initContainers(mLinesLabels);
   initContainers(mTrackletLabels);
   initContainers(mCellLabels);
+  for (auto& workspace : mTraversalWorkspaces) {
+    workspace.reset(mMemoryPool.get());
+  }
   // These may use an external allocator.
   initContainers(mClusters, hasFrameworkAllocator());
   initContainers(mUsedClusters, hasFrameworkAllocator());

@@ -32,11 +32,13 @@
 
 #include "ITSMFTTracking/Cell.h"
 #include "ITSMFTTracking/Configuration.h"
+#include "ITSMFTTracking/GenericTrack.h"
 #include "ITSMFTTracking/IndexTableUtils.h"
 #include "ITSMFTTracking/SurfaceMeasurement.h"
 #include "ITSMFTTracking/TimeFrame.h"
 #include "ITSMFTTracking/ROFViews.h"
 #include "ITSMFTTracking/SurfaceGraph.h"
+#include "ITSMFTTracking/detail/TrackingKernelParameters.h"
 #include "ITStracking/BoundedAllocator.h"
 #include "ITStracking/Cluster.h"
 #include "ITStracking/ClusterLines.h"
@@ -65,6 +67,33 @@ class ClusterDecoder;
 struct ClusterSourceInput;
 struct LoadSourcesResult;
 
+// Per-iteration derived traversal state. The TimeFrame workspace owns this
+// storage; Tracker builds a short-lived view for a traversal call.
+struct TraversalWorkspace {
+  TrackingKernelParameters kernelParameters{};
+  AttachHitConfigView attachHitConfig{};
+  std::vector<NominalSurfaceMaterial> layerMaterial;
+  std::vector<gsl::span<const SurfaceMeasurement>> layerMeasurements;
+  std::vector<gsl::span<const GlobalMeasurement>> layerGlobalMeasurements;
+  std::vector<float> diskLayerReferenceZ;
+  gsl::span<const float> diskLayerReferenceZView{};
+  o2::its::bounded_vector<TrackingCandidate> acceptedTracks;
+  bool valid{false};
+
+  void reset(std::pmr::memory_resource* resource) noexcept
+  {
+    kernelParameters = {};
+    attachHitConfig = {};
+    layerMaterial.clear();
+    layerMeasurements.clear();
+    layerGlobalMeasurements.clear();
+    diskLayerReferenceZ.clear();
+    diskLayerReferenceZView = {};
+    o2::its::deepVectorClear(acceptedTracks, resource);
+    valid = false;
+  }
+};
+
 /// Detector-neutral CA working state with current-event views.
 class SurfaceTrackingScratch
 {
@@ -85,6 +114,10 @@ class SurfaceTrackingScratch
 
   /// Size surface, transition and cell storage; setMemoryPool() comes first.
   void adoptPlan(std::size_t nOwnedSurfaces, std::size_t nTransitions, std::size_t nCells);
+  void configureTraversalWorkspaces(std::size_t nIterations);
+  TraversalWorkspace& getTraversalWorkspace(std::size_t iteration) { return mTraversalWorkspaces.at(iteration); }
+  const TraversalWorkspace& getTraversalWorkspace(std::size_t iteration) const { return mTraversalWorkspaces.at(iteration); }
+  std::size_t getNTraversalWorkspaces() const noexcept { return mTraversalWorkspaces.size(); }
 
   std::size_t getNOwnedSurfaces() const noexcept { return mNOwnedSurfaces; }
   std::size_t getNTransitions() const noexcept { return mNTransitions; }
@@ -339,6 +372,7 @@ class SurfaceTrackingScratch
   std::vector<o2::its::bounded_vector<o2::MCCompLabel>> mCellLabels;
   // Shared navigation auxiliary.
   std::vector<IndexTableUtilsCore> mIndexTableUtils;
+  std::vector<TraversalWorkspace> mTraversalWorkspaces;
 
   // ---- Group D: vertexer working scratch ----
   // Sized by ROF count and the two fixed pairs, not by adoptPlan().

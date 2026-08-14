@@ -51,15 +51,14 @@ using o2::itsmft::tracking::TrackingOutcome;
 
 template <int NLayers, o2::itsmft::tracking::SurfaceKind Kind>
 bool completePublication(o2::itsmft::tracking::DetectorPublicationAdapter<NLayers>& publication,
-                         o2::itsmft::tracking::TrackerTraits& traits,
                          const o2::itsmft::tracking::TimeFrame& frame,
                          const o2::itsmft::tracking::TrackingResult& result)
 {
   const auto& parameters = frame.getTrackingParameters();
   const auto& scratch = frame.getWorkspace();
-  const auto& candidates = traits.acceptedTracksForSharedStatus();
   for (std::size_t iteration = 0; iteration < parameters.size(); ++iteration) {
-    if (iteration >= result.acceptedTrackCounts.size() || result.acceptedTrackCounts[iteration] > candidates.size()) {
+    const auto& candidates = scratch.getTraversalWorkspace(iteration).acceptedTracks;
+    if (iteration >= result.acceptedTrackCounts.size() || result.acceptedTrackCounts[iteration] != candidates.size()) {
       return false;
     }
     std::vector<o2::itsmft::tracking::TrackingCandidate> selected;
@@ -272,7 +271,6 @@ void CombinedCATrackerDPL::buildParticipantsOnce()
   const int itsNThreads = o2::itsmft::ITSCommonCATrackerParam::Instance().nThreads;
   const int mftNThreads = o2::itsmft::tracking::TrackerParamRef<o2::detectors::DetID::MFT>::get().nThreads;
   const int nThreads = std::max({1, itsNThreads, mftNThreads});
-  mTraits->setMemoryPool(mFrame.getMemoryPool());
   std::shared_ptr<tbb::task_arena> arena;
   mTraits->setNThreads(nThreads, arena);
 }
@@ -431,12 +429,12 @@ TrackingOutcome CombinedCATrackerDPL::trackFrame(const ClusterSourceInput& itsSo
       return result.outcome;
     }
     if (!completePublication<o2::itsmft::tracking::ITSNLayers, o2::itsmft::tracking::SurfaceKind::Cylinder>(
-          mITSPublicationAdapter, *mTraits, mFrame, result)) {
+          mITSPublicationAdapter, mFrame, result)) {
       mITSPublicationAdapter.reset();
       throw std::runtime_error{"failed to seal ITS tracking compatibility"};
     }
     if (!completePublication<o2::itsmft::tracking::MFTNLayers, o2::itsmft::tracking::SurfaceKind::Disk>(
-          mMFTPublicationAdapter, *mTraits, mFrame, result)) {
+          mMFTPublicationAdapter, mFrame, result)) {
       mMFTPublicationAdapter.reset();
       throw std::runtime_error{"failed to seal MFT tracking compatibility"};
     }

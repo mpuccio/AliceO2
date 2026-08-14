@@ -185,6 +185,7 @@ bool TimeFrame::commitConfiguration(std::vector<SurfaceGraph>&& graphs,
     workspace.reset(new SurfaceTrackingScratch);
     workspace->setMemoryPool(memoryPool);
     workspace->adoptPlan(capacity.ownedSurfaces, capacity.transitions, capacity.cells);
+    workspace->configureTraversalWorkspaces(parameters.size());
   } catch (const std::exception&) {
     return false;
   }

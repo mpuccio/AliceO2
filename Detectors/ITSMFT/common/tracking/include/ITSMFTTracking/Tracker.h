@@ -35,6 +35,8 @@
 namespace o2::itsmft::tracking
 {
 
+struct TrackerTestAccess;
+
 /// `run()` returns `Success`, or `RecoverableDropped` for a recoverable
 /// per-TimeFrame resource failure (`MemoryLimitExceeded` or `std::bad_alloc`)
 /// when `DropTFUponFailure` is enabled.
@@ -51,7 +53,7 @@ enum class TrackingOutcome : uint8_t {
 struct TrackingResult {
   TrackingOutcome outcome{TrackingOutcome::Success};
   float elapsedMs{0.f};
-  // Cumulative accepted-result counts preserve per-iteration staging.
+  // Accepted-result counts are indexed by configured iteration.
   std::vector<std::size_t> acceptedTrackCounts;
 };
 
@@ -105,6 +107,8 @@ class Tracker
   TrackingResult run(TimeFrame& frame, TrackerTraits& traits);
 
  private:
+  friend struct TrackerTestAccess;
+  void initializeTraversalWorkspace(TraversalWorkspaceView& view) const;
   SeedRefitFunction mRefitFunction = nullptr;
 };
 } // namespace o2::itsmft::tracking

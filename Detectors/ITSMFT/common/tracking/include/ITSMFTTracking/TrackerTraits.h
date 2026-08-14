@@ -56,6 +56,18 @@ using SeedRefitFunction = bool (*)(const TrackSeed& seed,
 #endif
 
 struct DiskReferenceCoordinateView;
+struct TrackerTestAccess;
+
+struct TraversalWorkspaceView {
+  int iteration{-1};
+  TimeFrame& frame;
+  SurfaceTrackingScratch& scratch;
+  SurfaceGraphView graph{};
+  const SurfacePlanBinding& binding;
+  gsl::span<const TrackingParameters> parameters;
+  float bz{0.f};
+  TraversalWorkspace& workspace;
+};
 
 enum class TraversalFailureReason : uint8_t {
   MissingLayout,
@@ -105,124 +117,47 @@ class TraversalException final : public std::runtime_error
   TraversalFailureReason mReason{TraversalFailureReason::MissingLayout};
 };
 
-// The traits borrow the TimeFrame workspace, plan binding, parameters, and
-// refit function. Plan-sized bounds come from the adopted plan and scratch.
+// Backend implementation of a traversal supplied explicitly by Tracker.
 class TrackerTraits
 {
  public:
   virtual ~TrackerTraits() = default;
-  // Borrowed call-scoped pointers; neither object owns the other.
-  virtual void adoptScratch(SurfaceTrackingScratch* scratch) { mScratch = scratch; }
-  virtual void adoptFrame(TimeFrame* frame) { mFrame = frame; }
-  // `binding` is borrowed, never owned or copied, and must match the graph iteration.
-  void adoptSurfacePlanBinding(const SurfacePlanBinding* binding) noexcept { mBinding = binding; }
-  // `graphs` is the caller-owned immutable graph vector for this call.
-  virtual void initialiseTimeFrame(const int iteration, const std::vector<SurfaceGraph>& graphs);
+  // The production caller supplies all event and iteration state explicitly.
+  void runTraversal(TraversalWorkspaceView view, SeedRefitFunction refitFunction);
 
-  virtual void computeLayerTracklets(const int iteration, int iVertex);
-  virtual void computeLayerCells(const int iteration);
-  virtual void findCellsNeighbours(const int iteration);
-  virtual void findRoads(const int iteration, SeedRefitFunction refitFunction);
-
-  void acceptTracks(int iteration,
-                    bounded_vector<TrackingCandidate>& tracks,
-                    bounded_vector<bounded_vector<int>>& firstClusters);
-
-  // Keeps accepted GenericTrack/TrackSeed pairs until the workflow consumes the result.
-  bounded_vector<TrackingCandidate>& acceptedTracksForSharedStatus();
-  void clearAcceptedTracksForSharedStatus();
-
-  void updateTrackingParameters(gsl::span<const TrackingParameters> trkPars) { mTrkParams = trkPars; }
-  SurfaceTrackingScratch* getScratch() { return mScratch; }
-
-  virtual void setBz(float bz);
-  float getBz() const { return mBz; }
   virtual const char* getName() const noexcept { return "CPU"; }
   virtual bool isGPU() const noexcept { return false; }
-  void setMemoryPool(std::shared_ptr<BoundedMemoryResource> pool) noexcept { mMemoryPool = pool; }
-  auto getMemoryPool() const noexcept { return mMemoryPool; }
-
   void setNThreads(int n, std::shared_ptr<tbb::task_arena>& arena);
   int getNThreads() { return mTaskArena->max_concurrency(); }
 
-  int getTFNumberOfClusters() const { return mScratch->getNumberOfClusters(); }
-  int getTFNumberOfTracklets() const { return mScratch->getNumberOfTracklets(); }
-  int getTFNumberOfCells() const { return mScratch->getNumberOfCells(); }
-
-  bool hasTraversalCache() const noexcept { return mTraversalCacheValid; }
-  // Nominal material resolved from SurfaceDescriptor::material and orderedSurfaces
-  // by the last successful initialiseTimeFrame(). It is committed only on success
-  // and reset otherwise. Read-only inspection; production uses mAttachHitConfig.
-  gsl::span<const NominalSurfaceMaterial> getLayerMaterial() const noexcept { return {mLayerMaterial.data(), mLayerMaterial.size()}; }
-  // Normalized measurements resolved once by the last successful
-  // initialiseTimeFrame(), using orderedSurfaces. Spans are non-owning, reset
-  // on failure, and valid only while the TimeFrame's normalized frame is alive.
-  // Read-only inspection; production uses mLayerMeasurements.
-  gsl::span<const gsl::span<const SurfaceMeasurement>> getLayerMeasurements() const noexcept { return {mLayerMeasurements.data(), mLayerMeasurements.size()}; }
-  gsl::span<const gsl::span<const GlobalMeasurement>> getLayerGlobalMeasurements() const noexcept { return {mLayerGlobalMeasurements.data(), mLayerGlobalMeasurements.size()}; }
-
  private:
-  void resetTraversalCache() noexcept;
-  void validateSparsePlan(int iteration, const SurfaceGraphView& graph) const;
-  int requireSurfacePosition(int iteration, SurfaceId id) const;
+  friend struct TrackerTestAccess;
 
-  // Global-ID to compact-scratch-slot translation used by this class.
-  int requireScratchTransitionSlot(int iteration, TransitionId id) const;
-  int requireScratchCellSlot(int iteration, CellTopologyId id) const;
+  void acceptTracks(TraversalWorkspaceView& context, int iteration,
+                    bounded_vector<TrackingCandidate>& tracks,
+                    bounded_vector<bounded_vector<int>>& firstClusters);
 
   // Tracklet and cell enumeration are common; coordinate selection is owned
   // by their operation leaves.
-  void computeLayerTrackletsImpl(int iteration, int iVertex,
+  void computeLayerTracklets(TraversalWorkspaceView& context, int iteration, int iVertex);
+  void computeLayerTrackletsImpl(TraversalWorkspaceView& context, int iteration, int iVertex,
                                  gsl::span<const TransitionId> transitionIds);
-  void computeLayerCellsImpl(int iteration,
+  void computeLayerCells(TraversalWorkspaceView& context, int iteration);
+  void computeLayerCellsImpl(TraversalWorkspaceView& context, int iteration,
                              gsl::span<const CellTopologyId> cellIds);
-  void findCellsNeighboursForSchedule(int iteration,
+  void findCellsNeighbours(TraversalWorkspaceView& context, int iteration);
+  void findCellsNeighboursForSchedule(TraversalWorkspaceView& context, int iteration,
                                       gsl::span<const CellTopologyId> scheduledCells,
                                       const TrackingKernelParameters& params);
 
-  void findRoadsImpl(int iteration, SeedRefitFunction refitFunction);
+  void findRoads(TraversalWorkspaceView& context, int iteration, SeedRefitFunction refitFunction);
+  void findRoadsImpl(TraversalWorkspaceView& context, int iteration, SeedRefitFunction refitFunction);
 
   // Neighbour processing helper; it does not encode a detector layer count.
   template <typename InputSeed>
-  void processNeighbours(int iteration, int defaultCellTopologyId, int iLevel, const bounded_vector<InputSeed>& currentCellSeed, const bounded_vector<int>& currentCellId, const bounded_vector<int>& currentCellTopologyId, bounded_vector<TrackSeed>& updatedCellSeed, bounded_vector<int>& updatedCellId, bounded_vector<int>& updatedCellTopologyId, const TrackingKernelParameters& params);
+  void processNeighbours(TraversalWorkspaceView& context, int iteration, int defaultCellTopologyId, int iLevel, const bounded_vector<InputSeed>& currentCellSeed, const bounded_vector<int>& currentCellId, const bounded_vector<int>& currentCellTopologyId, bounded_vector<TrackSeed>& updatedCellSeed, bounded_vector<int>& updatedCellId, bounded_vector<int>& updatedCellTopologyId, const TrackingKernelParameters& params);
 
-  // Fills scratch transition arrays in binding order after validation. No throw.
-  void prepareTransitionScatteringAndBending(int iteration,
-                                             const DiskReferenceCoordinateView& referenceCoordinateView,
-                                             gsl::span<const TransitionId> transitionIds);
-
-  std::shared_ptr<BoundedMemoryResource> mMemoryPool;
   std::shared_ptr<tbb::task_arena> mTaskArena;
-  SurfaceGraphView mTraversalGraph{};
-  bool mTraversalCacheValid{false};
-  // One scalar policy record shared by all surface operations.
-  TrackingKernelParameters mKernelParameters{};
-  // Borrowed disk reference coordinates, bound once per iteration. Empty for
-  // Cylinder iterations; the cylinder path never reads them.
-  gsl::span<const float> mDiskLayerReferenceZ{};
-  std::vector<float> mDiskLayerReferenceZStorage;
-  AttachHitConfigView mAttachHitConfig;
-  // Per-position material resolved from SurfaceDescriptor::material through
-  // orderedSurfaces. This compatibility cache is not written back to the descriptor.
-  //
-  // Staged locally and committed with the other traversal caches only when
-  // initialiseTimeFrame() succeeds; resetTraversalCache() clears it otherwise.
-  // Host-only plan-sized cache indexed by the binding's ordered surface position.
-  std::vector<NominalSurfaceMaterial> mLayerMaterial;
-  // Non-owning spans into the TimeFrame normalized frame, staged with the
-  // traversal cache and cleared on failed initialization.
-  std::vector<gsl::span<const SurfaceMeasurement>> mLayerMeasurements;
-  std::vector<gsl::span<const GlobalMeasurement>> mLayerGlobalMeasurements;
-  // Accepted candidates retained until shared-cluster marking and publication finish.
-  bounded_vector<TrackingCandidate> mAcceptedTracksForSharedStatus;
-  // Non-owning pointer to the adopted plan binding.
-  const SurfacePlanBinding* mBinding = nullptr;
-
- protected:
-  SurfaceTrackingScratch* mScratch = nullptr;
-  TimeFrame* mFrame = nullptr;
-  gsl::span<const TrackingParameters> mTrkParams;
-  float mBz{-999.f};
 };
 
 } // namespace o2::itsmft::tracking

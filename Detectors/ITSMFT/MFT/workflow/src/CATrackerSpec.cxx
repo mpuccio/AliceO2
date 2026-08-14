@@ -84,16 +84,15 @@ bool rofOverlapsIRFrames(const o2::itsmft::ROFRecord& rof, int rofLengthInBC,
 
 template <int NLayers>
 bool completePublication(DetectorPublicationAdapter<NLayers>& publication,
-                         TrackerTraits& traits,
                          const TimeFrame& frame,
                          ClusterSourceId source,
                          const TrackingResult& result)
 {
   const auto& parameters = frame.getTrackingParameters();
   const auto& scratch = frame.getWorkspace();
-  const auto& candidates = traits.acceptedTracksForSharedStatus();
   for (std::size_t iteration = 0; iteration < parameters.size(); ++iteration) {
-    if (iteration >= result.acceptedTrackCounts.size() || result.acceptedTrackCounts[iteration] > candidates.size()) {
+    const auto& candidates = scratch.getTraversalWorkspace(iteration).acceptedTracks;
+    if (iteration >= result.acceptedTrackCounts.size() || result.acceptedTrackCounts[iteration] != candidates.size()) {
       return false;
     }
     const gsl::span<const TrackingCandidate> iterationCandidates{candidates.data(), result.acceptedTrackCounts[iteration]};
@@ -239,7 +238,6 @@ void CATrackerDPL::initialiseTracking()
     LOGP(fatal, "MFT CA tracker failed to initialize static configuration (error={} iteration={} graph={} binding={})",
          static_cast<int>(result.error), result.failedIteration, static_cast<int>(result.graphError), static_cast<int>(result.bindingError));
   }
-  mTrackerTraits->setMemoryPool(mFrame.getMemoryPool());
 }
 
 o2::itsmft::tracking::TrackingOutcome CATrackerDPL::processTimeFrame(
@@ -338,7 +336,7 @@ o2::itsmft::tracking::TrackingOutcome CATrackerDPL::processTimeFrame(
     result = mTracker->run(mFrame, *mTrackerTraits);
     if (result.outcome == o2::itsmft::tracking::TrackingOutcome::RecoverableDropped) {
       mPublicationAdapter.reset();
-    } else if (!completePublication(mPublicationAdapter, *mTrackerTraits, mFrame, o2::itsmft::tracking::ClusterSourceId{0}, result)) {
+    } else if (!completePublication(mPublicationAdapter, mFrame, o2::itsmft::tracking::ClusterSourceId{0}, result)) {
       mPublicationAdapter.reset();
       throw std::runtime_error{"failed to seal MFT tracking compatibility"};
     }
