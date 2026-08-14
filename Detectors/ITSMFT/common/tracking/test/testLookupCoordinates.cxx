@@ -66,10 +66,14 @@ BOOST_AUTO_TEST_CASE(CylinderTransformUsesPhiAndZWithCorrelation)
   BOOST_CHECK_NE(coordinates.covariance[1], 0.f);
 }
 
-BOOST_AUTO_TEST_CASE(ZeroRadiusAndUndefinedSurfaceFailClosed)
+BOOST_AUTO_TEST_CASE(DiskRadialChartAndUndefinedSurfaceFailClosed)
 {
   LookupCoordinates coordinates;
   BOOST_CHECK(!makeLookupCoordinates(kMFTStaticSurfaceCatalog[0], measurement(0.f, 0.f, 0.f, {}), coordinates));
+  BOOST_CHECK(!makeLookupCoordinates(kMFTStaticSurfaceCatalog[0], measurement(1.f, 0.f, 0.f, {}), coordinates));
+  auto invalidRange = kMFTStaticSurfaceCatalog[0];
+  invalidRange.chartRange = {2.1f, 2.1f};
+  BOOST_CHECK(!makeLookupCoordinates(invalidRange, measurement(3.f, 4.f, 0.f, {}), coordinates));
   auto surface = kMFTStaticSurfaceCatalog[0];
   surface.kind = SurfaceKind::Undefined;
   BOOST_CHECK(!makeLookupCoordinates(surface, measurement(1.f, 0.f, 0.f, {}), coordinates));
