@@ -27,7 +27,6 @@
 #include "ITSMFTTracking/ClusterDecoding.h"
 #include "ITSMFTTracking/IOUtils.h"
 #include "ITSMFTTracking/TimeFrame.h"
-#include "ITSMFTTracking/detail/SurfacePlanBinding.h"
 #include "SimulationDataFormat/MCCompLabel.h"
 #include "SimulationDataFormat/MCTruthContainer.h"
 
@@ -129,22 +128,16 @@ void configureFrame(TimeFrame& frame, const SurfaceGraph& graph)
 {
   const auto view = graph.getView();
   std::vector<SurfaceId> ordered;
-  SurfaceMask owned;
   for (uint16_t id = 0; id < 3; ++id) {
     for (const auto surface : {SurfaceId{static_cast<uint16_t>(id * 2)}, SurfaceId{static_cast<uint16_t>(id * 2 + 1)}}) {
-      owned.set(surface);
       ordered.push_back(surface);
     }
   }
-  auto built = SurfacePlanBinding::build(view, owned, ordered);
-  BOOST_REQUIRE_MESSAGE(built.ok(), "binding error=" << static_cast<int>(built.error));
   std::vector<SurfaceGraph> graphs;
   graphs.push_back(graph);
   std::vector<TrackingParameters> parameters(1);
-  std::vector<std::unique_ptr<SurfacePlanBinding>> bindings;
-  bindings.push_back(std::move(built.binding));
   std::vector<TrackingWorkspaceCapacity> capacities{{ordered.size(), 0, 0}};
-  BOOST_REQUIRE(frame.commitConfiguration(std::move(graphs), std::move(parameters), std::move(bindings),
+  BOOST_REQUIRE(frame.commitConfiguration(std::move(graphs), std::move(parameters),
                                           std::move(capacities), std::make_shared<BoundedMemoryResource>()));
 }
 

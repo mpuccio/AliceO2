@@ -15,21 +15,22 @@ namespace o2::itsmft::tracking
 // Test-only access to the Tracker-owned initialization transaction and
 // explicit backend stages. It never persists the resulting view.
 struct TrackerTestAccess {
+  static void preparePlan(Tracker& tracker, TraversalWorkspace& workspace, SurfaceGraphView graph, LayerMask inactiveLayers = {})
+  {
+    workspace.reset(nullptr);
+    tracker.buildTraversalPlan(workspace, graph, inactiveLayers, 0);
+  }
+
   static TraversalWorkspaceView prepare(Tracker& tracker, TimeFrame& frame, int iteration)
   {
     if (iteration < 0 || static_cast<std::size_t>(iteration) >= frame.getTrackingParameters().size()) {
       throw std::out_of_range{"test traversal iteration"};
-    }
-    const auto* binding = frame.getBinding(static_cast<std::size_t>(iteration));
-    if (binding == nullptr) {
-      throw std::runtime_error{"test traversal requires configured binding"};
     }
     auto& scratch = frame.getWorkspace();
     TraversalWorkspaceView view{iteration,
                                 frame,
                                 scratch,
                                 frame.getGraph(static_cast<std::size_t>(iteration)).getView(),
-                                *binding,
                                 frame.getTrackingParameters(),
                                 frame.getBz(),
                                 scratch.getTraversalWorkspace(static_cast<std::size_t>(iteration))};

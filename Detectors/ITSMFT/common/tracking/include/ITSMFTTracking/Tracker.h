@@ -105,6 +105,7 @@ class Tracker
 
  private:
   friend struct TrackerTestAccess;
+  void buildTraversalPlan(TraversalWorkspace& workspace, const SurfaceGraphView& graph, LayerMask inactiveLayers, int iteration) const;
   void initializeTraversalWorkspace(TraversalWorkspaceView& view) const;
   SeedRefitFunction mRefitFunction = nullptr;
 };

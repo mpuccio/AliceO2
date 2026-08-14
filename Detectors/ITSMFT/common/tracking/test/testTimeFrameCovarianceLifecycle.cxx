@@ -40,7 +40,6 @@
 #include "ITSMFTTracking/TimeFrame.h"
 #include "ITSMFTTracking/Tracker.h"
 #include "ITSMFTTracking/TrackerTraits.h"
-#include "ITSMFTTracking/detail/SurfacePlanBinding.h"
 #include "ITStracking/Constants.h"
 #include "ITStracking/ROFLookupTables.h"
 

@@ -29,7 +29,6 @@
 #include "ITSMFTTracking/SurfaceGraphBuilder.h"
 #include "ITSMFTTracking/IndexTableConfiguration.h"
 #include "ITSMFTTracking/ITSMFTDetectorDefinitions.h"
-#include "ITSMFTTracking/detail/SurfacePlanBinding.h"
 #include "ITSMFTTracking/detail/SurfaceTrackingScratch.h"
 #include "ITSMFTTracking/TimeFrame.h"
 #include "ITSMFTTracking/Tracker.h"
@@ -191,14 +190,12 @@ BOOST_AUTO_TEST_CASE(NonSevenOrTenPlanExecutesTheNonTemplatedCore)
   BOOST_REQUIRE(configured.ok());
 
   const auto& layout = frame.getGraph(0).getView();
-  const auto* binding = frame.getBinding(0);
-  BOOST_REQUIRE(binding != nullptr);
   TrackerTraits traits;
   std::shared_ptr<tbb::task_arena> arena;
   traits.setNThreads(1, arena);
   BOOST_REQUIRE_EQUAL(frame.getWorkspace().getNOwnedSurfaces(), 4u);
-  BOOST_CHECK_EQUAL(binding->getOwnedSurfaceIndex(SurfaceId{1}).value(), 0u);
-  BOOST_CHECK_EQUAL(binding->getOwnedSurfaceIndex(SurfaceId{7}).value(), 2u);
+  BOOST_CHECK(layout.orderedSurfaces[0] == SurfaceId{1});
+  BOOST_CHECK(layout.orderedSurfaces[2] == SurfaceId{7});
 
   TrackSeed seed;
   SurfaceMask activePositions;

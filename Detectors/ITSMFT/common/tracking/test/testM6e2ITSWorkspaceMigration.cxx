@@ -14,11 +14,8 @@
 //    GenericTrack/sidecar/workspace contracts;
 //  - the ITS shared-cluster compatibility sidecar (pending/sealed) still
 //    works correctly backed by the new scratch storage;
-//  - the production ITS SurfacePlanBinding construction resolves to the same
-//    local edge/cell slot counts and owned-surface indices, while the
-//    workflow adopts one global plan;
-//  - no detector-specific switch was reintroduced into SurfacePlanBinding
-//    (testSurfacePlanBindingNoDetectorDependency.cxx grep-verifies this).
+//  - the production ITS traversal uses the same shared workspace plan as the
+//    combined workflow.
 
 #define BOOST_TEST_MODULE ITSMFT M6e2ITSWorkspaceMigration
 #define BOOST_TEST_MAIN
@@ -52,7 +49,6 @@
 #include "ITSMFTTracking/ClusterDecoding.h"
 #include "ITSMFTTracking/detail/SurfaceTrackingScratch.h"
 #include "ITSMFTTracking/TimeFrame.h"
-#include "ITSMFTTracking/detail/SurfacePlanBinding.h"
 
 using namespace o2::itsmft;
 using namespace o2::itsmft::tracking;
@@ -245,93 +241,10 @@ BOOST_AUTO_TEST_CASE(TimeFrameResetClearsSharedWorkspaceAndPreservesFrameState)
   BOOST_CHECK_EQUAL(frame.getBeamX(), 1.f);
 }
 
-// --- 5: production ITS SurfacePlanBinding for the local subset ---------------
+// --- 5: production ITS traversal workspace ----------------------------------
 
-namespace
+BOOST_AUTO_TEST_CASE(ProductionITSWorkspaceMatchesConfiguredTopologyAtRealParameters)
 {
-SurfaceMask surfaceRangeMaskForTest(uint16_t first, uint16_t count)
-{
-  SurfaceMask result;
-  for (uint16_t i = 0; i < count; ++i) {
-    result.set(SurfaceId{static_cast<uint16_t>(first + i)});
-  }
-  return result;
-}
-
-SurfaceGraph buildProductionCombinedLayoutForTest()
-{
-  const auto itsSurfaces = orderedRange(0, ITSNLayers);
-  const auto mftSurfaces = orderedRange(ITSNLayers, MFTNLayers);
-  const auto itsParams = makeItsParams();
-  const auto mftParams = makeMftParams();
-
-  auto itsDefinition = makeSurfaceChain(
-    itsSurfaces, itsParams.MaxHoles,
-    positionalSurfaceMask(itsParams.HoleLayerMask, itsSurfaces, static_cast<uint32_t>(itsSurfaces.size())),
-    positionalSurfaceMask(itsParams.StartLayerMask, itsSurfaces, static_cast<uint32_t>(itsSurfaces.size())));
-  auto mftDefinition = makeSurfaceChain(
-    mftSurfaces, mftParams.MaxHoles,
-    positionalSurfaceMask(mftParams.HoleLayerMask, mftSurfaces, static_cast<uint32_t>(mftSurfaces.size())),
-    positionalSurfaceMask(mftParams.StartLayerMask, mftSurfaces, static_cast<uint32_t>(mftSurfaces.size())));
-  SurfaceGraphDefinition definition;
-  definition.orderedSurfaces = std::move(itsDefinition.orderedSurfaces);
-  definition.basePairs = std::move(itsDefinition.basePairs);
-  const auto offset = static_cast<uint16_t>(definition.orderedSurfaces.size());
-  definition.orderedSurfaces.insert(definition.orderedSurfaces.end(), mftDefinition.orderedSurfaces.begin(), mftDefinition.orderedSurfaces.end());
-  for (const auto pair : mftDefinition.basePairs) {
-    definition.basePairs.push_back(SurfaceAdjacencyPair{static_cast<uint16_t>(pair.fromIndex + offset),
-                                                        static_cast<uint16_t>(pair.toIndex + offset)});
-  }
-  definition.maxHoles = std::max(itsDefinition.maxHoles, mftDefinition.maxHoles);
-  definition.holeSurfaces = itsDefinition.holeSurfaces | mftDefinition.holeSurfaces;
-  definition.seedingSurfaces = itsDefinition.seedingSurfaces | mftDefinition.seedingSurfaces;
-
-  const SurfaceCatalogView catalog{kITSMFTCombinedStaticSurfaceCatalog.data(), static_cast<uint32_t>(kITSMFTCombinedStaticSurfaceCatalog.size())};
-  SurfaceGraphBuilder builder{catalog, std::move(definition)};
-  auto built = builder.build();
-  BOOST_REQUIRE(built.ok());
-  return std::move(*built.graph);
-}
-} // namespace
-
-BOOST_AUTO_TEST_CASE(ProductionITSSurfacePlanBindingMatchesConfiguredTopologyAtRealParameters)
-{
-  const auto layout = buildProductionCombinedLayoutForTest();
-  const auto masks = computeSurfaceKindMasks(kITSMFTCombinedStaticSurfaceCatalog);
-  const auto view = layout.getView();
-  const auto itsSurfaces = orderedRange(0, ITSNLayers);
-  const auto itsMask = surfaceRangeMaskForTest(0, ITSNLayers);
-
-  const auto binding = SurfacePlanBinding::build(view, itsMask, itsSurfaces);
-  BOOST_REQUIRE(binding.ok());
-  size_t ownedEdges = 0;
-  for (uint32_t id = 0; id < view.nEdges; ++id) {
-    const auto& edge = view.getEdge(EdgeId{static_cast<uint16_t>(id)});
-    if (itsMask.has(edge.from) && itsMask.has(edge.to)) {
-      ++ownedEdges;
-    }
-  }
-  size_t ownedCells = 0;
-  for (uint32_t id = 0; id < view.nCells; ++id) {
-    const auto cellId = CellTopologyId{static_cast<uint16_t>(id)};
-    const auto& cell = view.getCell(cellId);
-    if (binding.binding->getScratchEdgeSlot(cell.firstEdge)) {
-      ++ownedCells;
-    }
-  }
-
-  BOOST_CHECK_EQUAL(binding.binding->getOwnedSurfaces().count(), static_cast<int>(itsSurfaces.size()));
-  BOOST_CHECK_EQUAL(binding.binding->getGlobalEdges().size(), ownedEdges);
-  BOOST_CHECK_EQUAL(binding.binding->getGlobalCells().size(), ownedCells);
-
-  for (uint16_t s = 0; s < ITSNLayers; ++s) {
-    const auto slot = binding.binding->getOwnedSurfaceIndex(SurfaceId{s});
-    BOOST_REQUIRE(slot);
-    BOOST_CHECK_EQUAL(*slot, s);
-  }
-
-  // The direct binding above is detector-local. The workflow itself adopts
-  // one global flat plan and one shared workspace.
   auto participants = makeSet();
   TimeFrame frame;
   participants.adoptFrame(frame);
@@ -363,7 +276,7 @@ BOOST_AUTO_TEST_CASE(ITSSharedClusterCompatibilitySidecarRemainsFunctionalAfterM
 
 // --- 7: standalone-vs-combined ITS compact-slot agreement --------------------
 
-BOOST_AUTO_TEST_CASE(StandaloneAndCombinedITSBindingsAgreeOnCompactSlotsByRelativePosition)
+BOOST_AUTO_TEST_CASE(StandaloneAndCombinedITSGraphsAgreeByRelativePosition)
 {
   const auto standaloneParams = o2::itsmft::TrackingMode::getTrackingParameters(o2::detectors::DetID::ITS, o2::itsmft::TrackingMode::Sync);
   std::vector<SurfaceId> standaloneOrder;
@@ -374,13 +287,6 @@ BOOST_AUTO_TEST_CASE(StandaloneAndCombinedITSBindingsAgreeOnCompactSlotsByRelati
     SurfaceCatalogView{kITSStaticSurfaceCatalog.data(), static_cast<uint32_t>(kITSStaticSurfaceCatalog.size())},
     gsl::span<const SurfaceId>{standaloneOrder}, standaloneParams);
   BOOST_REQUIRE(standaloneResult.ok());
-  SurfaceMask standaloneMask;
-  for (const auto& s : standaloneOrder) {
-    standaloneMask.set(s);
-  }
-  const auto standaloneBindingResult = SurfacePlanBinding::build(
-    standaloneResult.graphs.front().getView(), standaloneMask, gsl::span<const SurfaceId>{standaloneOrder});
-  BOOST_REQUIRE(standaloneBindingResult.ok());
 
   // Combined: real ITS+MFT combined static catalog, ITS half only.
   const auto combinedParams = standaloneParams;
@@ -389,28 +295,19 @@ BOOST_AUTO_TEST_CASE(StandaloneAndCombinedITSBindingsAgreeOnCompactSlotsByRelati
     SurfaceCatalogView{kITSMFTCombinedStaticSurfaceCatalog.data(), static_cast<uint32_t>(kITSMFTCombinedStaticSurfaceCatalog.size())},
     gsl::span<const SurfaceId>{combinedOrder}, combinedParams);
   BOOST_REQUIRE(combinedResult.ok());
-  const auto combinedMask = surfaceRangeMaskForTest(0, ITSNLayers);
-  const auto combinedBindingResult = SurfacePlanBinding::build(
-    combinedResult.graphs.front().getView(), combinedMask, gsl::span<const SurfaceId>{combinedOrder});
-  BOOST_REQUIRE(combinedBindingResult.ok());
-
-  BOOST_CHECK_EQUAL(standaloneBindingResult.binding->getGlobalEdges().size(), combinedBindingResult.binding->getGlobalEdges().size());
-  BOOST_CHECK_EQUAL(standaloneBindingResult.binding->getGlobalCells().size(), combinedBindingResult.binding->getGlobalCells().size());
+  const auto standaloneView = standaloneResult.graphs.front().getView();
+  const auto combinedView = combinedResult.graphs.front().getView();
+  BOOST_CHECK_EQUAL(standaloneView.nEdges, combinedView.nEdges);
+  BOOST_CHECK_EQUAL(standaloneView.nCells, combinedView.nCells);
   for (uint16_t k = 0; k < ITSNLayers; ++k) {
-    const auto standaloneSlot = standaloneBindingResult.binding->getOwnedSurfaceIndex(standaloneOrder[k]);
-    const auto combinedSlot = combinedBindingResult.binding->getOwnedSurfaceIndex(combinedOrder[k]);
-    BOOST_REQUIRE(standaloneSlot.has_value());
-    BOOST_REQUIRE(combinedSlot.has_value());
-    BOOST_CHECK_EQUAL(*standaloneSlot, *combinedSlot);
+    BOOST_CHECK(standaloneResult.graphs.front().getOrderedSurfaces()[k] == combinedResult.graphs.front().getOrderedSurfaces()[k]);
   }
 
   // A separately constructed standalone scratch remains independent. The
   // workflow participant accessors below, in contrast, must alias the one
   // global workspace.
   SurfaceTrackingScratch standaloneScratch;
-  standaloneScratch.adoptPlan(static_cast<std::size_t>(standaloneBindingResult.binding->getOwnedSurfaces().count()),
-                              standaloneBindingResult.binding->getGlobalEdges().size(),
-                              standaloneBindingResult.binding->getGlobalCells().size());
+  standaloneScratch.adoptPlan(standaloneOrder.size(), standaloneView.nEdges, standaloneView.nCells);
   auto participants = makeSet();
   TimeFrame frame;
   participants.adoptFrame(frame);

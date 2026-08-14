@@ -28,7 +28,6 @@
 #include "ITSMFTTracking/Tracker.h"
 #include "ITSMFTTracking/TrackerTraits.h"
 #include "ITSMFTTracking/detail/DetectorRefitSupport.h"
-#include "ITSMFTTracking/detail/SurfacePlanBinding.h"
 #include "ITStracking/ROFLookupTables.h"
 
 namespace o2::itsmft::tracking::test
@@ -276,8 +275,8 @@ class CombinedTrackingPlan
 
   const SurfaceTrackingScratch& getITSScratch() const noexcept { return mFrame->getWorkspace(); }
   const SurfaceTrackingScratch& getMFTScratch() const noexcept { return mFrame->getWorkspace(); }
-  gsl::span<const SurfaceId> getITSOrderedSurfaces() const noexcept { return mFrame->getBinding(0)->getOrderedSurfaces().first(ITSNLayers); }
-  gsl::span<const SurfaceId> getMFTOrderedSurfaces() const noexcept { return mFrame->getBinding(0)->getOrderedSurfaces().subspan(ITSNLayers, MFTNLayers); }
+  gsl::span<const SurfaceId> getITSOrderedSurfaces() const noexcept { return {mFrame->getGraph(0).getOrderedSurfaces().data(), ITSNLayers}; }
+  gsl::span<const SurfaceId> getMFTOrderedSurfaces() const noexcept { return {mFrame->getGraph(0).getOrderedSurfaces().data() + ITSNLayers, MFTNLayers}; }
   const ITSSharedClusterCompatibility& getITSSharedClusterCompatibility() const noexcept
   {
     return mITSCompatibility;

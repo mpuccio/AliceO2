@@ -13,10 +13,8 @@
 //  - MFT load failure remains atomic across the shared workspace;
 //  - one TimeFrame reset clears the shared workspace while preserving its
 //    configured global capacity;
-//  - the production MFT SurfacePlanBinding construction (real combined
-//    catalog, real ClusterSourceId{1}/SurfaceKind::Disk/
-//    SurfaceKind::Disk parameters) resolves to the same
-//    local edge/cell slot counts and owned-surface indices;
+//  - the production MFT plan is represented by the shared traversal
+//    workspace rather than a detector-local binding;
 //  - the MFT publication/sidecar export path still works at the adapter edge.
 
 #define BOOST_TEST_MODULE ITSMFT M6dMFTMigration
@@ -42,7 +40,6 @@
 #include "ITSMFTTracking/ITSMFTDetectorDefinitions.h"
 #include "ITSMFTTracking/detail/SurfaceTrackingScratch.h"
 #include "ITSMFTTracking/TimeFrame.h"
-#include "ITSMFTTracking/detail/SurfacePlanBinding.h"
 
 using namespace o2::itsmft;
 using namespace o2::itsmft::tracking;
@@ -221,99 +218,10 @@ BOOST_AUTO_TEST_CASE(TimeFrameResetClearsSharedWorkspaceAndPreservesFrameState)
   BOOST_CHECK_EQUAL(frame.getBeamX(), 1.f);
 }
 
-// --- 5: production MFT SurfacePlanBinding for the local subset --------------
+// --- 5: production MFT traversal workspace ----------------------------------
 
-namespace
+BOOST_AUTO_TEST_CASE(ProductionMFTWorkspaceMatchesConfiguredTopologyAtRealParameters)
 {
-SurfaceMask surfaceRangeMaskForTest(uint16_t first, uint16_t count)
-{
-  SurfaceMask result;
-  for (uint16_t i = 0; i < count; ++i) {
-    result.set(SurfaceId{static_cast<uint16_t>(first + i)});
-  }
-  return result;
-}
-
-// Reconstruct the production flat combined graph locally so the MFT subset
-// binding can be checked without weakening the one-plan workflow assertions.
-SurfaceGraph buildProductionCombinedLayoutForTest()
-{
-  const auto itsSurfaces = orderedRange(0, ITSNLayers);
-  const auto mftSurfaces = orderedRange(ITSNLayers, MFTNLayers);
-  const auto itsParams = makeItsParams();
-  const auto mftParams = makeMftParams();
-
-  auto itsDefinition = makeSurfaceChain(
-    itsSurfaces, itsParams.MaxHoles,
-    positionalSurfaceMask(itsParams.HoleLayerMask, itsSurfaces, static_cast<uint32_t>(itsSurfaces.size())),
-    positionalSurfaceMask(itsParams.StartLayerMask, itsSurfaces, static_cast<uint32_t>(itsSurfaces.size())));
-  auto mftDefinition = makeSurfaceChain(
-    mftSurfaces, mftParams.MaxHoles,
-    positionalSurfaceMask(mftParams.HoleLayerMask, mftSurfaces, static_cast<uint32_t>(mftSurfaces.size())),
-    positionalSurfaceMask(mftParams.StartLayerMask, mftSurfaces, static_cast<uint32_t>(mftSurfaces.size())));
-  SurfaceGraphDefinition definition;
-  definition.orderedSurfaces = std::move(itsDefinition.orderedSurfaces);
-  definition.basePairs = std::move(itsDefinition.basePairs);
-  const auto offset = static_cast<uint16_t>(definition.orderedSurfaces.size());
-  definition.orderedSurfaces.insert(definition.orderedSurfaces.end(), mftDefinition.orderedSurfaces.begin(), mftDefinition.orderedSurfaces.end());
-  for (const auto pair : mftDefinition.basePairs) {
-    definition.basePairs.push_back(SurfaceAdjacencyPair{static_cast<uint16_t>(pair.fromIndex + offset),
-                                                        static_cast<uint16_t>(pair.toIndex + offset)});
-  }
-  definition.maxHoles = std::max(itsDefinition.maxHoles, mftDefinition.maxHoles);
-  definition.holeSurfaces = itsDefinition.holeSurfaces | mftDefinition.holeSurfaces;
-  definition.seedingSurfaces = itsDefinition.seedingSurfaces | mftDefinition.seedingSurfaces;
-
-  const SurfaceCatalogView catalog{kITSMFTCombinedStaticSurfaceCatalog.data(), static_cast<uint32_t>(kITSMFTCombinedStaticSurfaceCatalog.size())};
-  SurfaceGraphBuilder builder{catalog, std::move(definition)};
-  auto built = builder.build();
-  BOOST_REQUIRE(built.ok());
-  return std::move(*built.graph);
-}
-} // namespace
-
-BOOST_AUTO_TEST_CASE(ProductionMFTSurfacePlanBindingMatchesConfiguredTopologyAtRealParameters)
-{
-  // Exactly the parameters the combined workflow's application plan uses for
-  // MFT: ClusterSourceId{1}, surfaceRangeMask(ITSNLayers,
-  // MFTNLayers), the MFT ordered-surface range, SurfaceKind::Disk,
-  // SurfaceKind::Disk.
-  const auto layout = buildProductionCombinedLayoutForTest();
-  const auto masks = computeSurfaceKindMasks(kITSMFTCombinedStaticSurfaceCatalog);
-  const auto view = layout.getView();
-  const auto mftSurfaces = orderedRange(ITSNLayers, MFTNLayers);
-  const auto mftMask = surfaceRangeMaskForTest(ITSNLayers, MFTNLayers);
-
-  const auto binding = SurfacePlanBinding::build(view, mftMask, mftSurfaces);
-  BOOST_REQUIRE(binding.ok());
-  size_t ownedEdges = 0;
-  for (uint32_t id = 0; id < view.nEdges; ++id) {
-    const auto& edge = view.getEdge(EdgeId{static_cast<uint16_t>(id)});
-    if (mftMask.has(edge.from) && mftMask.has(edge.to)) {
-      ++ownedEdges;
-    }
-  }
-  size_t ownedCells = 0;
-  for (uint32_t id = 0; id < view.nCells; ++id) {
-    const auto cellId = CellTopologyId{static_cast<uint16_t>(id)};
-    const auto& cell = view.getCell(cellId);
-    if (binding.binding->getScratchEdgeSlot(cell.firstEdge)) {
-      ++ownedCells;
-    }
-  }
-
-  // These are the detector-local compact-slot counts for the direct subset.
-  BOOST_CHECK_EQUAL(binding.binding->getOwnedSurfaces().count(), static_cast<int>(mftSurfaces.size()));
-  BOOST_CHECK_EQUAL(binding.binding->getGlobalEdges().size(), ownedEdges);
-  BOOST_CHECK_EQUAL(binding.binding->getGlobalCells().size(), ownedCells);
-
-  for (uint16_t s = ITSNLayers; s < ITSNLayers + MFTNLayers; ++s) {
-    const auto slot = binding.binding->getOwnedSurfaceIndex(SurfaceId{s});
-    BOOST_REQUIRE(slot);
-    BOOST_CHECK_EQUAL(*slot, s - ITSNLayers);
-  }
-
-  // The workflow uses one global workspace, not this detector-local subset.
   auto participants = makeSet();
   TimeFrame frame;
   participants.adoptFrame(frame);

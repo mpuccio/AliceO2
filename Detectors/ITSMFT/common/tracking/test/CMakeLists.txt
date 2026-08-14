@@ -349,10 +349,9 @@ o2_add_test(combined-static-surface-catalog-topology
             LABELS "itsmft;tracking"
             PUBLIC_LINK_LIBRARIES O2::ITSMFTTracking)
 
-# Gate 4 M6f: the sole detector-neutral plan/binding model. This test locks
-# down its compact mapping contract and constructor transactionality.
-o2_add_test(surface-plan-binding
-            SOURCES testSurfacePlanBinding.cxx
+# The tracker derives compact selected topology into each pass workspace.
+o2_add_test(traversal-workspace-plan
+            SOURCES testTraversalWorkspacePlan.cxx
             COMPONENT_NAME itsmft-tracking
             LABELS "itsmft;tracking"
             PUBLIC_LINK_LIBRARIES O2::ITSMFTTracking O2::MFTTracking)
@@ -406,12 +405,6 @@ o2_add_test(m7f-runtime-core-guard
             COMPONENT_NAME itsmft-tracking
             LABELS "itsmft;tracking"
             PUBLIC_LINK_LIBRARIES O2::ITSMFTTracking O2::MFTTracking)
-
-o2_add_test(surface-plan-binding-no-detector-dependency
-            SOURCES testSurfacePlanBindingNoDetectorDependency.cxx
-            COMPONENT_NAME itsmft-tracking
-            LABELS "itsmft;tracking"
-            PUBLIC_LINK_LIBRARIES O2::ITSMFTTracking)
 
 # Gate 4 M6f: focused runtime ownership and sizing coverage for the sole
 # SurfaceTrackingScratch workspace.

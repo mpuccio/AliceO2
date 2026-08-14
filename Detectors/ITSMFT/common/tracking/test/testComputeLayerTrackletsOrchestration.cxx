@@ -37,7 +37,6 @@
 #include "ITSMFTTracking/TimeFrame.h"
 #include "ITSMFTTracking/TrackerTraits.h"
 #include "TraversalTestSupport.h"
-#include "ITSMFTTracking/detail/SurfacePlanBinding.h"
 #include "ITSMFTTracking/TrackingConfigParam.h"
 #include "ITStracking/Constants.h"
 #include "ITStracking/MathUtils.h"
@@ -828,13 +827,11 @@ BOOST_AUTO_TEST_CASE(DuplicateSurfaceIdMappingFailsClosedBeforeTrackletProcessin
   std::vector<SurfaceGraph> plan;
   plan.push_back(std::move(planGraph));
 
-  SurfaceMask owned;
-  for (const auto surface : plan.front().getOrderedSurfaces()) {
-    owned.set(surface);
-  }
-  const auto bindingResult = SurfacePlanBinding::build(plan.front().getView(), owned,
-                                                       plan.front().getOrderedSurfaces());
-  BOOST_CHECK(!bindingResult.ok());
+  const auto result = SurfaceGraphBuilder{
+    SurfaceCatalogView{surfaces.data(), static_cast<uint32_t>(surfaces.size())},
+    makeSurfaceChain(plan.front().getOrderedSurfaces())}
+                        .build();
+  BOOST_CHECK(!result.ok());
 }
 
 BOOST_AUTO_TEST_CASE(CombinedCylinderAndDiskLayoutBindsAsOneDisconnectedPlan)
@@ -861,18 +858,7 @@ BOOST_AUTO_TEST_CASE(CombinedCylinderAndDiskLayoutBindsAsOneDisconnectedPlan)
   auto result = builder.build();
   BOOST_REQUIRE(result.ok());
 
-  std::vector<SurfaceGraph> plan;
-  plan.push_back(std::move(*result.graph));
-
-  SurfaceMask owned;
-  for (const auto& surface : surfaces) {
-    owned.set(surface.id);
-  }
-  const auto bindingResult = SurfacePlanBinding::build(plan.front().getView(), owned,
-                                                       plan.front().getOrderedSurfaces());
-  BOOST_REQUIRE(bindingResult.ok());
-  BOOST_CHECK_EQUAL(bindingResult.binding->getGlobalEdges().size(),
-                    static_cast<size_t>(nCylinders + nDisks - 2));
-  BOOST_CHECK_EQUAL(bindingResult.binding->getGlobalCells().size(),
-                    static_cast<size_t>(nCylinders + nDisks - 4));
+  const auto view = result.graph->getView();
+  BOOST_CHECK_EQUAL(view.nEdges, static_cast<uint32_t>(nCylinders + nDisks - 2));
+  BOOST_CHECK_EQUAL(view.nCells, static_cast<uint32_t>(nCylinders + nDisks - 4));
 }

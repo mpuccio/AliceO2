@@ -266,7 +266,6 @@ BOOST_AUTO_TEST_CASE(GenericPlanTypesHaveNoDetectorOrLayerCountAuthority)
     "include/ITSMFTTracking/SurfaceKinematicState.h",
     "include/ITSMFTTracking/SurfaceMeasurement.h",
     "include/ITSMFTTracking/SurfaceSpec.h",
-    "include/ITSMFTTracking/detail/SurfacePlanBinding.h",
     "include/ITSMFTTracking/detail/TrackingKernelParameters.h",
   };
   const std::vector<std::string_view> forbiddenAuthorities{

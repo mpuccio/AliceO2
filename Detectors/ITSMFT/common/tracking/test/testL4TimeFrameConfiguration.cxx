@@ -66,17 +66,14 @@ BOOST_AUTO_TEST_CASE(ConfigurationCommitIsAtomic)
   auto configuration = makeConfiguration(catalog, pool);
   const auto initialResult = tracker.initialize(frame, configuration);
   BOOST_REQUIRE_MESSAGE(initialResult.ok(), "initial configuration error=" << static_cast<int>(initialResult.error)
-                                                                           << " graph=" << static_cast<int>(initialResult.graphError)
-                                                                           << " binding=" << static_cast<int>(initialResult.bindingError));
+                                                                           << " graph=" << static_cast<int>(initialResult.graphError));
   BOOST_REQUIRE(frame.isConfigured());
   BOOST_REQUIRE_EQUAL(frame.getNIterations(), 2u);
-  BOOST_REQUIRE(frame.getBinding(0) != nullptr);
-  BOOST_REQUIRE(frame.getBinding(1) != nullptr);
-  BOOST_CHECK(frame.getBinding(0)->getOrderedSurfaces()[0] == SurfaceId{2});
-  BOOST_CHECK(frame.getBinding(1)->getOrderedSurfaces()[0] == SurfaceId{2});
+  BOOST_CHECK(frame.getGraph(0).getOrderedSurfaces()[0] == SurfaceId{2});
+  BOOST_CHECK(frame.getGraph(1).getOrderedSurfaces()[0] == SurfaceId{2});
   BOOST_CHECK(frame.getGraph(0).getView().seedingSurfaces.has(SurfaceId{2}));
   BOOST_CHECK(frame.getGraph(1).getView().seedingSurfaces.has(SurfaceId{0}));
-  const auto* oldBinding = frame.getBinding(0);
+  const auto* oldGraph = &frame.getGraph(0);
   const auto* oldPool = frame.getMemoryPool().get();
 
   TrackerInitialization invalid;
@@ -85,13 +82,12 @@ BOOST_AUTO_TEST_CASE(ConfigurationCommitIsAtomic)
   invalid.iterations.push_back(TrackerIterationConfiguration{});
   BOOST_CHECK(!tracker.initialize(frame, invalid).ok());
   BOOST_CHECK(frame.isConfigured());
-  BOOST_CHECK(frame.getBinding(0) == oldBinding);
+  BOOST_CHECK(&frame.getGraph(0) == oldGraph);
   BOOST_CHECK(frame.getMemoryPool().get() == oldPool);
 
   auto replacement = makeConfiguration(catalog, std::make_shared<BoundedMemoryResource>());
   BOOST_REQUIRE(tracker.initialize(frame, replacement).ok());
-  BOOST_CHECK(frame.getBinding(0) != nullptr);
-  BOOST_CHECK(frame.getBinding(0) != oldBinding);
+  BOOST_CHECK(&frame.getGraph(0) != oldGraph);
 }
 
 BOOST_AUTO_TEST_CASE(ResetPreservesStaticConfigurationAndCapacity)
@@ -102,14 +98,13 @@ BOOST_AUTO_TEST_CASE(ResetPreservesStaticConfigurationAndCapacity)
   auto configuration = makeConfiguration(catalog, std::make_shared<BoundedMemoryResource>());
   const auto initialResult = tracker.initialize(frame, configuration);
   BOOST_REQUIRE_MESSAGE(initialResult.ok(), "initial configuration error=" << static_cast<int>(initialResult.error)
-                                                                           << " graph=" << static_cast<int>(initialResult.graphError)
-                                                                           << " binding=" << static_cast<int>(initialResult.bindingError));
-  const auto* binding = frame.getBinding(0);
+                                                                           << " graph=" << static_cast<int>(initialResult.graphError));
+  const auto* graph = &frame.getGraph(0);
   const auto capacity = *frame.getWorkspaceCapacity(0);
   frame.getGenericTracks().push_back(GenericTrack{});
   frame.resetEvent();
   BOOST_CHECK(frame.isConfigured());
-  BOOST_CHECK(frame.getBinding(0) == binding);
+  BOOST_CHECK(&frame.getGraph(0) == graph);
   BOOST_CHECK_EQUAL(frame.getWorkspaceCapacity(0)->cells, capacity.cells);
   BOOST_CHECK(frame.getGenericTracks().empty());
 }

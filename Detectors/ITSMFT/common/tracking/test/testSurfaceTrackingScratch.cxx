@@ -25,7 +25,6 @@
 #include "ITSMFTTracking/SurfaceGraphBuilder.h"
 #include "ITSMFTTracking/detail/SurfaceTrackingScratch.h"
 #include "ITSMFTTracking/TimeFrame.h"
-#include "ITSMFTTracking/detail/SurfacePlanBinding.h"
 #include "ITStracking/BoundedAllocator.h"
 
 namespace fs = std::filesystem;
@@ -49,29 +48,24 @@ SurfaceDescriptor surfaceWithOwner(uint16_t id, SurfaceKind kind, uint8_t detect
   return SurfaceDescriptor{SurfaceId{id}, id, detectorId, kind};
 }
 
-// A synthetic, detector-neutral Cylinder chain of `n` surfaces -- same
-// construction technique as testSurfacePlanBinding.cxx's own synthetic
-// fixtures (this file deliberately duplicates it locally rather than
-// sharing a new header, matching that file's own stated per-file-local
-// fixture convention). Deliberately uses a synthetic detectorId (250), never
+// A synthetic, detector-neutral Cylinder chain of `n` surfaces. Deliberately
+// uses a synthetic detectorId (250), never
 // o2::detectors::DetID::ITS/MFT, and never touches SurfaceTrackingScratch
 // itself with a detector identity of any kind -- only the three plain
-// counts a SurfacePlanBinding already exposes.
+// counts exposed directly by the graph.
 struct SyntheticChain {
   std::vector<SurfaceDescriptor> surfaces;
   SurfaceGraph layout;
   SurfaceGraphView view;
-  SurfacePlanBinding::BuildResult binding;
 
   explicit SyntheticChain(uint16_t n)
-    : surfaces{makeSurfaces(n)}, layout{build(surfaces)}, view{layout.getView()}, binding{buildBinding(view, n)}
+    : surfaces{makeSurfaces(n)}, layout{build(surfaces)}, view{layout.getView()}
   {
-    BOOST_REQUIRE(binding.ok());
   }
 
-  std::size_t nOwnedSurfaces() const { return static_cast<std::size_t>(binding.binding->getOwnedSurfaces().count()); }
-  std::size_t nEdges() const { return binding.binding->getGlobalEdges().size(); }
-  std::size_t nCells() const { return binding.binding->getGlobalCells().size(); }
+  std::size_t nOwnedSurfaces() const { return layout.getOrderedSurfaces().size(); }
+  std::size_t nEdges() const { return view.nEdges; }
+  std::size_t nCells() const { return view.nCells; }
 
  private:
   static std::vector<SurfaceDescriptor> makeSurfaces(uint16_t n)
@@ -83,14 +77,6 @@ struct SyntheticChain {
     }
     return result;
   }
-  static SurfaceMask allCylinder(uint16_t n)
-  {
-    SurfaceMask mask;
-    for (uint16_t id = 0; id < n; ++id) {
-      mask.set(SurfaceId{id});
-    }
-    return mask;
-  }
   static SurfaceGraph build(const std::vector<SurfaceDescriptor>& surfaces)
   {
     SurfaceMask seed;
@@ -101,14 +87,6 @@ struct SyntheticChain {
     auto built = builder.build();
     BOOST_REQUIRE(built.ok());
     return std::move(*built.graph);
-  }
-  static SurfacePlanBinding::BuildResult buildBinding(const SurfaceGraphView& view, uint16_t n)
-  {
-    SurfaceMask owned;
-    for (uint16_t id = 0; id < n; ++id) {
-      owned.set(SurfaceId{id});
-    }
-    return SurfacePlanBinding::build(view, owned, ordered(0, n));
   }
 };
 
@@ -122,8 +100,7 @@ std::shared_ptr<o2::its::BoundedMemoryResource> makePool()
 BOOST_AUTO_TEST_CASE(AdoptsPlansWithDistinctRuntimeCountsWithoutDetectorOrLayerCountAssumption)
 {
   // Two synthetic plans of deliberately different owned-surface/edge/
-  // cell cardinality -- 4 surfaces (3 edges, 2 cells, per
-  // testSurfacePlanBinding.cxx's own equivalent fixture) and 6 surfaces (5
+  // cell cardinality -- 4 surfaces (3 edges, 2 cells) and 6 surfaces (5
   // edges, 4 cells) -- adopted in turn by the *same* scratch instance,
   // proving sizing tracks whatever plan was last adopted rather than any
   // baked-in constant (no NLayers, no ITS/MFT-shaped assumption anywhere in
@@ -367,7 +344,6 @@ BOOST_AUTO_TEST_CASE(NewHeadersPullNoITSWorkflowOutputOrSurfaceKindDependency)
   }
 
   const std::vector<std::string> forbiddenIncludes = {
-    "SurfacePlanBinding.h",
     "DetectorTraversalBinding.h",
     "IOUtils.h",
     "LegacyTrackerScratch.h",
@@ -400,5 +376,5 @@ BOOST_AUTO_TEST_CASE(RetiredLegacyWorkspaceFilesAreAbsentAfterMigration)
   BOOST_CHECK(!fs::exists(trackingRoot / "include/ITSMFTTracking/detail/DetectorTraversalBinding.h"));
   BOOST_CHECK(!fs::exists(trackingRoot / "src/LegacyTrackerScratch.cxx"));
   BOOST_CHECK(fs::is_regular_file(trackingRoot / "include/ITSMFTTracking/detail/SurfaceTrackingScratch.h"));
-  BOOST_CHECK(fs::is_regular_file(trackingRoot / "include/ITSMFTTracking/detail/SurfacePlanBinding.h"));
+  BOOST_CHECK(!fs::exists(trackingRoot / "include/ITSMFTTracking/detail/SurfacePlanBinding.h"));
 }

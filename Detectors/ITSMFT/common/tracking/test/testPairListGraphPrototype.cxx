@@ -12,7 +12,6 @@
 #include <vector>
 
 #include "ITSMFTTracking/SurfaceGraphBuilder.h"
-#include "ITSMFTTracking/detail/SurfacePlanBinding.h"
 #include "PairListGraphPrototype.h"
 
 namespace
@@ -166,18 +165,8 @@ void compareTopology(const PairListGraph& prototype, const SurfaceGraphView& cur
   }
 }
 
-void compareBinding(const PairListGraph& prototype, const SurfaceGraphView& view, const PairListGraphInput& input)
+void compareTraversalIds(const PairListGraph& prototype, const SurfaceGraphView& view)
 {
-  SurfaceMask owned;
-  std::vector<SurfaceId> orderedSurfaces;
-  for (const auto& component : input.components) {
-    for (const auto id : component.activeSurfaces) {
-      owned.set(id);
-      orderedSurfaces.push_back(id);
-    }
-  }
-  const auto bindingResult = SurfacePlanBinding::build(view, owned, orderedSurfaces);
-  BOOST_REQUIRE(bindingResult.ok());
   std::vector<EdgeId> expectedEdges;
   std::vector<CellTopologyId> expectedCells;
   for (uint16_t id = 0; id < prototype.edges.size(); ++id) {
@@ -186,14 +175,24 @@ void compareBinding(const PairListGraph& prototype, const SurfaceGraphView& view
   for (uint16_t id = 0; id < prototype.cells.size(); ++id) {
     expectedCells.emplace_back(id);
   }
-  checkBytes(expectedEdges, std::vector<EdgeId>(bindingResult.binding->getGlobalEdges().begin(),
-                                                bindingResult.binding->getGlobalEdges().end()));
-  checkBytes(expectedCells, std::vector<CellTopologyId>(bindingResult.binding->getGlobalCells().begin(),
-                                                        bindingResult.binding->getGlobalCells().end()));
-  checkBytes(prototype.scheduledCells, std::vector<CellTopologyId>(bindingResult.binding->getGlobalScheduledCells().begin(),
-                                                                   bindingResult.binding->getGlobalScheduledCells().end()));
-  checkBytes(prototype.roadStartCells, std::vector<CellTopologyId>(bindingResult.binding->getGlobalRoadStartCells().begin(),
-                                                                   bindingResult.binding->getGlobalRoadStartCells().end()));
+  std::vector<EdgeId> graphEdges;
+  std::vector<CellTopologyId> graphCells;
+  for (uint16_t id = 0; id < view.nEdges; ++id) {
+    graphEdges.emplace_back(id);
+  }
+  for (uint16_t id = 0; id < view.nCells; ++id) {
+    graphCells.emplace_back(id);
+  }
+  checkBytes(expectedEdges, graphEdges);
+  checkBytes(expectedCells, graphCells);
+  for (const auto id : prototype.scheduledCells) {
+    BOOST_CHECK(id.isValid());
+    BOOST_CHECK_LT(id.value(), view.nCells);
+  }
+  for (const auto id : prototype.roadStartCells) {
+    BOOST_CHECK(id.isValid());
+    BOOST_CHECK_LT(id.value(), view.nCells);
+  }
 }
 
 void checkCase(const std::vector<SurfaceDescriptor>& surfaces, const PairListGraphInput& input)
@@ -204,7 +203,7 @@ void checkCase(const std::vector<SurfaceDescriptor>& surfaces, const PairListGra
   BOOST_REQUIRE(currentResult.ok());
   compareTopology(*prototypeResult.graph, currentResult.graph->getView());
   const auto view = currentResult.graph->getView();
-  compareBinding(*prototypeResult.graph, view, input);
+  compareTraversalIds(*prototypeResult.graph, view);
 }
 } // namespace
 

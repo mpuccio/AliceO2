@@ -116,7 +116,7 @@ BOOST_AUTO_TEST_CASE(TraversalTraitsKeepsNoAdoptedTraversalState)
   const fs::path trackingRoot{fs::path{__FILE__}.parent_path().parent_path()};
   const auto traits = read(trackingRoot / "include/ITSMFTTracking/TrackerTraits.h");
   const std::vector<std::regex> retired{
-    std::regex{"\\badopt(Frame|Scratch|SurfacePlanBinding)\\b"},
+    std::regex{"\\badopt(Frame|Scratch)\\b"},
     std::regex{"\\b(updateTrackingParameters|setBz|setMemoryPool|resetTraversalCache|hasTraversalCache)\\b"},
     std::regex{"\\b(acceptedTracksForSharedStatus|clearAcceptedTracksForSharedStatus|initialiseTimeFrame)\\b"},
     std::regex{"\\bm(Frame|Scratch|Binding|TrkParams|Bz|MemoryPool|TraversalGraph|TraversalCacheValid|KernelParameters|AttachHitConfig|LayerMaterial|LayerMeasurements|LayerGlobalMeasurements|DiskLayerReferenceZ|AcceptedTracksForSharedStatus)\\b"}};

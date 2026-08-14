@@ -18,7 +18,6 @@
 #include "ITSMFTTracking/TimeFrame.h"
 #include "ITSMFTTracking/Tracker.h"
 #include "ITSMFTTracking/TrackerTraits.h"
-#include "ITSMFTTracking/detail/SurfacePlanBinding.h"
 #include "ITStracking/Constants.h"
 
 #include "TraversalTestSupport.h"
@@ -111,7 +110,7 @@ BOOST_AUTO_TEST_CASE(buildSurfaceGraphsRejectsInvalidDefinitions)
   BOOST_CHECK_EQUAL(holeResult.failedIteration, 0u);
 }
 
-BOOST_AUTO_TEST_CASE(nonidentity_surface_order_builds_the_expected_binding)
+BOOST_AUTO_TEST_CASE(nonidentity_surface_order_builds_the_expected_graph)
 {
   const std::vector<SurfaceId> ordered{SurfaceId{3}, SurfaceId{0}, SurfaceId{6}, SurfaceId{2}, SurfaceId{5}, SurfaceId{1}, SurfaceId{4}};
   auto params = parameters(o2::detectors::DetID::ITS);
@@ -125,15 +124,10 @@ BOOST_AUTO_TEST_CASE(nonidentity_surface_order_builds_the_expected_binding)
   const auto result = buildSurfaceGraphs(view, ordered, graphParameters);
   BOOST_REQUIRE(result.ok());
   const auto& graph = result.graphs.front();
-  SurfaceMask owned;
-  for (const auto surface : ordered) {
-    owned.set(surface);
-  }
-  const auto binding = SurfacePlanBinding::build(graph.getView(), owned, ordered);
-  BOOST_REQUIRE(binding.ok());
-  BOOST_CHECK_EQUAL(binding.binding->getOwnedSurfaces().count(), 7);
-  BOOST_CHECK(std::is_sorted(binding.binding->getGlobalEdges().begin(), binding.binding->getGlobalEdges().end()));
-  BOOST_CHECK(!binding.binding->getGlobalRoadStartCells().empty());
+  BOOST_CHECK_EQUAL(graph.getOrderedSurfaces().size(), 7u);
+  BOOST_CHECK_EQUAL_COLLECTIONS(graph.getOrderedSurfaces().begin(), graph.getOrderedSurfaces().end(), ordered.begin(), ordered.end());
+  BOOST_CHECK(graph.getView().nEdges > 0);
+  BOOST_CHECK(graph.getView().nCells > 0);
 }
 
 BOOST_AUTO_TEST_CASE(traversal_configuration_allocates_one_workspace_per_iteration)
@@ -158,7 +152,7 @@ BOOST_AUTO_TEST_CASE(traversal_configuration_allocates_one_workspace_per_iterati
   BOOST_CHECK_NE(frame.getGraph(0).getView().nEdges, frame.getGraph(1).getView().nEdges);
 }
 
-BOOST_AUTO_TEST_CASE(configuration_retains_the_selected_binding)
+BOOST_AUTO_TEST_CASE(configuration_retains_the_selected_workspace_plan)
 {
   const auto pool = std::make_shared<BoundedMemoryResource>();
   TimeFrame frame;
@@ -167,12 +161,13 @@ BOOST_AUTO_TEST_CASE(configuration_retains_the_selected_binding)
   const auto surfaces = catalog(10, SurfaceKind::Disk, o2::detectors::DetID::MFT);
   const auto ordered = order(10);
   configure(frame, tracker, pool, surfaces, ordered, {params});
-  BOOST_REQUIRE(frame.getBinding(0) != nullptr);
-  BOOST_CHECK_EQUAL(frame.getBinding(0)->getOwnedSurfaces().count(), 10);
+  const auto view = TrackerTestAccess::prepare(tracker, frame, 0);
+  BOOST_CHECK_EQUAL(view.workspace.orderedSurfaces.size(), 10u);
+  BOOST_CHECK_EQUAL_COLLECTIONS(view.workspace.orderedSurfaces.begin(), view.workspace.orderedSurfaces.end(), ordered.begin(), ordered.end());
   BOOST_CHECK(frame.getGenericTracks().empty());
 }
 
-BOOST_AUTO_TEST_CASE(empty_road_start_is_represented_by_the_binding)
+BOOST_AUTO_TEST_CASE(empty_road_start_is_represented_by_the_workspace_plan)
 {
   const auto pool = std::make_shared<BoundedMemoryResource>();
   TimeFrame frame;
@@ -182,20 +177,7 @@ BOOST_AUTO_TEST_CASE(empty_road_start_is_represented_by_the_binding)
   const auto surfaces = catalog(10, SurfaceKind::Disk, o2::detectors::DetID::MFT);
   const auto ordered = order(10);
   configure(frame, tracker, pool, surfaces, ordered, {params});
-  BOOST_REQUIRE(frame.getBinding(0) != nullptr);
-  BOOST_CHECK(frame.getBinding(0)->getGlobalRoadStartCells().empty());
+  const auto view = TrackerTestAccess::prepare(tracker, frame, 0);
+  BOOST_CHECK(view.workspace.roadStartCells.empty());
   BOOST_CHECK(frame.getGenericTracks().empty());
-}
-
-BOOST_AUTO_TEST_CASE(surface_plan_binding_rejects_cycles_and_accepts_disconnected_kinds)
-{
-  SurfaceGraph cycle{3};
-  BOOST_REQUIRE(cycle.addEdge({SurfaceId{0}, SurfaceId{1}, {}, 0}).isValid());
-  BOOST_REQUIRE(cycle.addEdge({SurfaceId{1}, SurfaceId{2}, {}, 0}).isValid());
-  BOOST_REQUIRE(cycle.addEdge({SurfaceId{2}, SurfaceId{0}, {}, 0}).isValid());
-  BOOST_REQUIRE(cycle.finalize());
-  const auto disk = catalog(3, SurfaceKind::Disk, o2::detectors::DetID::MFT);
-  SurfaceGraph cyclicGraph{disk, std::move(cycle)};
-  const auto cyclicBinding = SurfacePlanBinding::build(cyclicGraph.getView(), SurfaceMask{0x7}, cyclicGraph.getOrderedSurfaces());
-  BOOST_CHECK(!cyclicBinding.ok());
 }

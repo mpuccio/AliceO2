@@ -106,7 +106,7 @@ struct TrackingParameters {
   int MinTrackLength = 7;
   int MaxHoles = 0;
   tracking::LayerMask HoleLayerMask = 0;
-  // Reserved compatibility storage; adapters reject non-empty values; unused by common CA.
+  // Positional static-graph surfaces disabled for this tracking pass.
   tracking::LayerMask InactiveLayerMask = 0;
   tracking::LayerMask SeedingLayers = 0;
   float NSigmaCut = 5;

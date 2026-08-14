@@ -48,7 +48,6 @@
 #include "DetectorsCommonDataFormats/DetID.h"
 #include "ITSMFTTracking/Configuration.h"
 #include "ITSMFTTracking/SurfaceGraphBuilder.h"
-#include "ITSMFTTracking/detail/SurfacePlanBinding.h"
 #include "ITSMFTTracking/IndexTableConfiguration.h"
 #include "ITSMFTTracking/IndexTableUtils.h"
 #include "ITSMFTTracking/ITSMFTDetectorDefinitions.h"
