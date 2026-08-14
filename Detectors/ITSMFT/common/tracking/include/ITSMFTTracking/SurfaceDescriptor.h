@@ -24,12 +24,22 @@ struct NominalSurfaceMaterial {
   float arealDensityGPerCm2{0.f};
 };
 
+struct SurfaceChartRange {
+  float min{0.f};
+  float max{0.f};
+
+  GPUhdi() constexpr bool isValid() const noexcept { return min < max; }
+};
+
 static_assert(std::is_standard_layout_v<NominalSurfaceMaterial>);
 static_assert(std::is_trivially_copyable_v<NominalSurfaceMaterial>);
 static_assert(sizeof(NominalSurfaceMaterial) == 8);
 static_assert(alignof(NominalSurfaceMaterial) == 4);
 static_assert(offsetof(NominalSurfaceMaterial, xOverX0) == 0);
 static_assert(offsetof(NominalSurfaceMaterial, arealDensityGPerCm2) == 4);
+static_assert(std::is_standard_layout_v<SurfaceChartRange>);
+static_assert(std::is_trivially_copyable_v<SurfaceChartRange>);
+static_assert(sizeof(SurfaceChartRange) == 8);
 
 // Immutable surface identity, geometry and nominal material.
 struct SurfaceDescriptor {
@@ -40,11 +50,12 @@ struct SurfaceDescriptor {
   uint16_t flags{0};
   float referenceCoordinate{0.f}; // nominal radius for cylinders, z for disks
   NominalSurfaceMaterial material{};
+  SurfaceChartRange chartRange{};
 };
 
 static_assert(std::is_standard_layout_v<SurfaceDescriptor>);
 static_assert(std::is_trivially_copyable_v<SurfaceDescriptor>);
-static_assert(sizeof(SurfaceDescriptor) == 20);
+static_assert(sizeof(SurfaceDescriptor) == 28);
 static_assert(alignof(SurfaceDescriptor) == 4);
 static_assert(offsetof(SurfaceDescriptor, id) == 0);
 static_assert(offsetof(SurfaceDescriptor, detectorSurfaceIndex) == 2);
@@ -53,6 +64,7 @@ static_assert(offsetof(SurfaceDescriptor, kind) == 5);
 static_assert(offsetof(SurfaceDescriptor, flags) == 6);
 static_assert(offsetof(SurfaceDescriptor, referenceCoordinate) == 8);
 static_assert(offsetof(SurfaceDescriptor, material) == 12);
+static_assert(offsetof(SurfaceDescriptor, chartRange) == 20);
 
 // Non-owning surface-catalog view. Topology, timing and measurements stay
 // outside this POD so loading and propagation do not depend on them.

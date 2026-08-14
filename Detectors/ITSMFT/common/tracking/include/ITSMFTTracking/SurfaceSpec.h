@@ -39,6 +39,7 @@ struct StaticSurfaceDescriptor {
   SurfaceKind kind{SurfaceKind::Undefined};
   float nominalReferenceCoordinate{0.f};
   NominalSurfaceMaterial material{};
+  SurfaceChartRange chartRange{};
 };
 
 // Precondition: source belongs to a validated SurfaceSpec. This is an
@@ -53,7 +54,8 @@ GPUhdi() constexpr SurfaceDescriptor toRuntimeSurfaceDescriptor(const StaticSurf
                            source.kind,
                            0,
                            source.nominalReferenceCoordinate,
-                           source.material};
+                           source.material,
+                           source.chartRange};
 }
 
 #define O2_ITSMFT_ASSERT_STATIC_SURFACE_TYPE(Type, Size, Alignment) \
@@ -63,7 +65,7 @@ GPUhdi() constexpr SurfaceDescriptor toRuntimeSurfaceDescriptor(const StaticSurf
   static_assert(alignof(Type) == Alignment)
 
 O2_ITSMFT_ASSERT_STATIC_SURFACE_TYPE(DetectorSurfaceIdentity, 4, 2);
-O2_ITSMFT_ASSERT_STATIC_SURFACE_TYPE(StaticSurfaceDescriptor, 20, 4);
+O2_ITSMFT_ASSERT_STATIC_SURFACE_TYPE(StaticSurfaceDescriptor, 28, 4);
 
 static_assert(offsetof(DetectorSurfaceIdentity, detectorId) == 0);
 static_assert(offsetof(DetectorSurfaceIdentity, detectorSurfaceIndex) == 2);
@@ -72,6 +74,7 @@ static_assert(offsetof(StaticSurfaceDescriptor, identity) == 2);
 static_assert(offsetof(StaticSurfaceDescriptor, kind) == 6);
 static_assert(offsetof(StaticSurfaceDescriptor, nominalReferenceCoordinate) == 8);
 static_assert(offsetof(StaticSurfaceDescriptor, material) == 12);
+static_assert(offsetof(StaticSurfaceDescriptor, chartRange) == 20);
 
 #undef O2_ITSMFT_ASSERT_STATIC_SURFACE_TYPE
 

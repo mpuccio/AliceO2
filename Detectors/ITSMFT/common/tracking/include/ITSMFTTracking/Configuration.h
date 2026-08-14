@@ -87,7 +87,7 @@ struct TrackingParameters {
   IterationSteps PassFlags{IterationStep::FirstPass, IterationStep::RebuildClusterLUT};
   int NLayers = tracking::ITSNLayers;
   std::vector<uint32_t> AddTimeError = {0, 0, 0, 0, 0, 0, 0};
-  std::vector<float> LayerZ = {16.333f + 1, 16.333f + 1, 16.333f + 1, 42.140f + 1, 42.140f + 1, 73.745f + 1, 73.745f + 1};
+  std::vector<float> LayerZ{tracking::kITSLookupZHalfExtent.begin(), tracking::kITSLookupZHalfExtent.end()};
   std::vector<float> LayerColHalfExtent{}; // Index-table column half extent (ITS z, MFT global x); falls back to LayerZ.
   float IndexRowMin{0.f};                  // Index-table row minimum (MFT global y); unused for ITS phi-z.
   float IndexRowMax{0.f};                  // Index-table row maximum (MFT global y); 0 means TwoPI for ITS.

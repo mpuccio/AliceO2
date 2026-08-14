@@ -12,6 +12,7 @@
 #ifndef ALICEO2_ITSMFT_TRACKING_CONFIG_PARAM_H_
 #define ALICEO2_ITSMFT_TRACKING_CONFIG_PARAM_H_
 
+#include <array>
 #include <limits>
 #include <string_view>
 
@@ -27,6 +28,8 @@ constexpr int ITSNLayers = 7;
 constexpr int MFTNLayers = 10;
 /// Maximum CA iterations.
 constexpr int MaxIter = 4;
+inline constexpr std::array<float, ITSNLayers> kITSLookupZHalfExtent{
+  17.333f, 17.333f, 17.333f, 43.140f, 43.140f, 74.745f, 74.745f};
 } // namespace o2::itsmft::tracking
 
 namespace o2::itsmft
