@@ -115,7 +115,7 @@ BOOST_AUTO_TEST_CASE(FinalHeaderInventoryIsExact)
 {
   const auto include = trackingRoot() / "include/ITSMFTTracking";
   BOOST_CHECK_EQUAL(directHeaderCount(include), 31U);
-  BOOST_CHECK_EQUAL(directHeaderCount(include / "detail"), 14U);
+  BOOST_CHECK_EQUAL(directHeaderCount(include / "detail"), 13U);
   BOOST_CHECK(fs::is_regular_file(include / "TripletFitting.h"));
 }
 
@@ -291,4 +291,21 @@ BOOST_AUTO_TEST_CASE(GenericPlanTypesHaveNoDetectorOrLayerCountAuthority)
                           relative << " acquires detector/layer-count authority through " << authority);
     }
   }
+}
+
+BOOST_AUTO_TEST_CASE(TraversalWorkspaceOwnsPassTopologyAndTrackerBuildsIt)
+{
+  const auto root = trackingRoot();
+  const auto timeFrame = withoutComments(readFile(root / "include/ITSMFTTracking/TimeFrame.h"));
+  const auto workspace = withoutComments(readFile(root / "include/ITSMFTTracking/detail/SurfaceTrackingScratch.h"));
+  const auto tracker = withoutComments(readFile(root / "include/ITSMFTTracking/Tracker.h"));
+  const auto trackerSource = withoutComments(readFile(root / "src/Tracker.cxx"));
+
+  BOOST_CHECK(timeFrame.find("SurfacePlanBinding") == std::string::npos);
+  BOOST_CHECK(timeFrame.find("mBindings") == std::string::npos);
+  BOOST_CHECK(workspace.find("std::vector<EdgeId> edges") != std::string::npos);
+  BOOST_CHECK(workspace.find("std::vector<CellTopologyId> cells") != std::string::npos);
+  BOOST_CHECK(workspace.find("roadStartCells") != std::string::npos);
+  BOOST_CHECK(tracker.find("buildTraversalPlan") != std::string::npos);
+  BOOST_CHECK(trackerSource.find("buildTraversalPlan(context.workspace") != std::string::npos);
 }

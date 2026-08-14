@@ -73,6 +73,9 @@ BOOST_AUTO_TEST_CASE(ConfigurationCommitIsAtomic)
   BOOST_CHECK(frame.getGraph(1).getOrderedSurfaces()[0] == SurfaceId{2});
   BOOST_CHECK(frame.getGraph(0).getView().seedingSurfaces.has(SurfaceId{2}));
   BOOST_CHECK(frame.getGraph(1).getView().seedingSurfaces.has(SurfaceId{0}));
+  BOOST_CHECK_EQUAL(frame.getWorkspace().getNTraversalWorkspaces(), 2u);
+  BOOST_CHECK(!frame.getWorkspace().getTraversalWorkspace(0).valid);
+  BOOST_CHECK(!frame.getWorkspace().getTraversalWorkspace(1).valid);
   const auto* oldGraph = &frame.getGraph(0);
   const auto* oldPool = frame.getMemoryPool().get();
 
@@ -101,6 +104,7 @@ BOOST_AUTO_TEST_CASE(ResetPreservesStaticConfigurationAndCapacity)
                                                                            << " graph=" << static_cast<int>(initialResult.graphError));
   const auto* graph = &frame.getGraph(0);
   const auto capacity = *frame.getWorkspaceCapacity(0);
+  BOOST_CHECK_EQUAL(frame.getWorkspace().getNTraversalWorkspaces(), 2u);
   frame.getGenericTracks().push_back(GenericTrack{});
   frame.resetEvent();
   BOOST_CHECK(frame.isConfigured());

@@ -64,6 +64,7 @@ BOOST_AUTO_TEST_CASE(TimeFrameOwnsWorkspaceAndResetsItOnce)
   auto* workspaceAddress = &workspace;
   const auto* allocator = frame.getMemoryPool().get();
   const auto capacity = workspace.getNOwnedSurfaces();
+  BOOST_CHECK_EQUAL(frame.getEventResetCount(), 0u);
   BOOST_REQUIRE(!workspace.getTracklets().empty());
   workspace.getTracklets().front().push_back(o2::its::Tracklet{});
   frame.getGenericTracks().push_back(GenericTrack{});
@@ -76,6 +77,9 @@ BOOST_AUTO_TEST_CASE(TimeFrameOwnsWorkspaceAndResetsItOnce)
   BOOST_CHECK(frame.getWorkspace().getTracklets().front().empty());
   BOOST_CHECK(frame.getGenericTracks().empty());
   BOOST_CHECK(frame.isConfigured());
+
+  // A frame-owned workspace is reset only through TimeFrame::resetEvent().
+  BOOST_CHECK_EQUAL(frame.getEventResetCount(), 1u);
 
   frame.resetEvent();
   BOOST_CHECK_EQUAL(frame.getEventResetCount(), 2u);
