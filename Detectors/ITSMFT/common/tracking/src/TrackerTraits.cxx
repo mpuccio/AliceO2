@@ -53,24 +53,6 @@ namespace math_utils = o2::its::math_utils;
 using o2::its::deepVectorClear;
 using o2::its::TimeEstBC;
 
-#define BIND_TRAVERSAL_CONTEXT(context)                                         \
-  auto* mScratch = &(context).scratch;                                          \
-  const auto& mMemoryPool = mScratch->getMemoryPool();                          \
-  auto* mFrame = &(context).frame;                                              \
-  const auto* mBinding = &(context).binding;                                    \
-  const auto mTrkParams = (context).parameters;                                 \
-  const auto mBz = (context).bz;                                                \
-  const auto& mTraversalGraph = (context).graph;                                \
-  auto& mTraversalCacheValid = (context).workspace.valid;                       \
-  auto& mKernelParameters = (context).workspace.kernelParameters;               \
-  auto& mDiskLayerReferenceZ = (context).workspace.diskLayerReferenceZView;     \
-  auto& mDiskLayerReferenceZStorage = (context).workspace.diskLayerReferenceZ;  \
-  auto& mAttachHitConfig = (context).workspace.attachHitConfig;                 \
-  auto& mLayerMaterial = (context).workspace.layerMaterial;                     \
-  auto& mLayerMeasurements = (context).workspace.layerMeasurements;             \
-  auto& mLayerGlobalMeasurements = (context).workspace.layerGlobalMeasurements; \
-  auto& mAcceptedTracksForSharedStatus = (context).workspace.acceptedTracks
-
 struct PassMode {
   using OnePass = std::integral_constant<int, 0>;
   using TwoPassCount = std::integral_constant<int, 1>;
@@ -182,11 +164,7 @@ void TrackerTraits::runTraversal(TraversalWorkspaceView view, SeedRefitFunction 
 
 int requireScratchTransitionSlot(const TraversalWorkspaceView& context, int iteration, TransitionId id)
 {
-  BIND_TRAVERSAL_CONTEXT(context);
-  if (mBinding == nullptr) {
-    throw TraversalException{iteration, TraversalFailureReason::MissingLayout};
-  }
-  const auto slot = mBinding->getScratchTransitionSlot(id);
+  const auto slot = context.binding.getScratchTransitionSlot(id);
   if (!slot) {
     throw TraversalException{iteration, TraversalFailureReason::TraversalBindingMismatch};
   }
@@ -195,11 +173,7 @@ int requireScratchTransitionSlot(const TraversalWorkspaceView& context, int iter
 
 int requireScratchCellSlot(const TraversalWorkspaceView& context, int iteration, CellTopologyId id)
 {
-  BIND_TRAVERSAL_CONTEXT(context);
-  if (mBinding == nullptr) {
-    throw TraversalException{iteration, TraversalFailureReason::MissingLayout};
-  }
-  const auto slot = mBinding->getScratchCellSlot(id);
+  const auto slot = context.binding.getScratchCellSlot(id);
   if (!slot) {
     throw TraversalException{iteration, TraversalFailureReason::TraversalBindingMismatch};
   }
@@ -208,15 +182,11 @@ int requireScratchCellSlot(const TraversalWorkspaceView& context, int iteration,
 
 int requireSurfacePosition(const TraversalWorkspaceView& context, int iteration, SurfaceId id)
 {
-  BIND_TRAVERSAL_CONTEXT(context);
   if (!id.isValid()) {
     throw TraversalException{iteration, TraversalFailureReason::SparseTopologyMismatch};
   }
-  if (mBinding == nullptr) {
-    throw TraversalException{iteration, TraversalFailureReason::MissingLayout};
-  }
-  const auto position = mBinding->getOwnedSurfaceIndex(id);
-  if (!position || *position >= mScratch->getNOwnedSurfaces()) {
+  const auto position = context.binding.getOwnedSurfaceIndex(id);
+  if (!position || *position >= context.scratch.getNOwnedSurfaces()) {
     throw TraversalException{iteration, TraversalFailureReason::TraversalBindingMismatch};
   }
   return static_cast<int>(*position);
@@ -224,19 +194,20 @@ int requireSurfacePosition(const TraversalWorkspaceView& context, int iteration,
 
 void TrackerTraits::computeLayerTracklets(TraversalWorkspaceView& context, const int iteration, int iVertex)
 {
-  BIND_TRAVERSAL_CONTEXT(context);
-  const auto scratchTransitionCount = mScratch->getTracklets().size();
+  auto& scratch = context.scratch;
+  auto& workspace = context.workspace;
+  const auto scratchTransitionCount = scratch.getTracklets().size();
   for (size_t transitionId = 0; transitionId < scratchTransitionCount; ++transitionId) {
-    mScratch->getTracklets()[transitionId].clear();
-    mScratch->getTrackletsLabel(transitionId).clear();
-    std::fill(mScratch->getTrackletsLookupTable()[transitionId].begin(), mScratch->getTrackletsLookupTable()[transitionId].end(), 0);
+    scratch.getTracklets()[transitionId].clear();
+    scratch.getTrackletsLabel(transitionId).clear();
+    std::fill(scratch.getTrackletsLookupTable()[transitionId].begin(), scratch.getTrackletsLookupTable()[transitionId].end(), 0);
   }
 
-  if (!mTraversalCacheValid) {
+  if (!workspace.valid) {
     throw TraversalException{iteration, TraversalFailureReason::InvalidTraversalSchedule};
   }
 
-  computeLayerTrackletsImpl(context, iteration, iVertex, mBinding->getGlobalTransitions());
+  computeLayerTrackletsImpl(context, iteration, iVertex, context.binding.getGlobalTransitions());
 }
 
 void TrackerTraits::computeLayerTrackletsImpl(
@@ -245,7 +216,16 @@ void TrackerTraits::computeLayerTrackletsImpl(
   const int iVertex,
   gsl::span<const TransitionId> transitionIds)
 {
-  BIND_TRAVERSAL_CONTEXT(context);
+  auto* mScratch = &context.scratch;
+  const auto& mMemoryPool = mScratch->getMemoryPool();
+  auto* mFrame = &context.frame;
+  const auto* mBinding = &context.binding;
+  const auto mTrkParams = context.parameters;
+  const auto mBz = context.bz;
+  const auto& mTraversalGraph = context.graph;
+  auto& mKernelParameters = context.workspace.kernelParameters;
+  const auto& mDiskLayerReferenceZ = context.workspace.diskLayerReferenceZView;
+  const auto& mLayerGlobalMeasurements = context.workspace.layerGlobalMeasurements;
   const auto& topology = mTraversalGraph;
   const Vertex diamondVert(mTrkParams[iteration].Diamond, mTrkParams[iteration].DiamondCov, 1, 1.f);
 
@@ -496,32 +476,33 @@ void TrackerTraits::computeLayerTrackletsImpl(
 
 void TrackerTraits::computeLayerCells(TraversalWorkspaceView& context, const int iteration)
 {
-  BIND_TRAVERSAL_CONTEXT(context);
-  const auto scratchCellCount = mScratch->getCells().size();
-  if (mScratch->getCellsLookupTable().size() != scratchCellCount) {
+  auto& scratch = context.scratch;
+  const auto& workspace = context.workspace;
+  const auto scratchCellCount = scratch.getCells().size();
+  if (scratch.getCellsLookupTable().size() != scratchCellCount) {
     throw TraversalException{iteration, TraversalFailureReason::SparseTopologyMismatch};
   }
   for (size_t cellTopologyId = 0; cellTopologyId < scratchCellCount; ++cellTopologyId) {
-    deepVectorClear(mScratch->getCells()[cellTopologyId]);
-    deepVectorClear(mScratch->getCellsLookupTable()[cellTopologyId]);
-    if (mScratch->hasMCinformation() && mTrkParams[iteration].CreateArtefactLabels) {
-      deepVectorClear(mScratch->getCellsLabel(cellTopologyId));
+    deepVectorClear(scratch.getCells()[cellTopologyId]);
+    deepVectorClear(scratch.getCellsLookupTable()[cellTopologyId]);
+    if (scratch.hasMCinformation() && context.parameters[iteration].CreateArtefactLabels) {
+      deepVectorClear(scratch.getCellsLabel(cellTopologyId));
     }
   }
 
-  if (!mTraversalCacheValid) {
+  if (!workspace.valid) {
     throw TraversalException{iteration, TraversalFailureReason::InvalidTraversalSchedule};
   }
-  if (!mAttachHitConfig.isValid(static_cast<int>(mScratch->getNOwnedSurfaces()))) {
+  if (!workspace.attachHitConfig.isValid(static_cast<int>(scratch.getNOwnedSurfaces()))) {
     throw TraversalException{iteration, TraversalFailureReason::InvalidSurfaceParameters};
   }
 
-  computeLayerCellsImpl(context, iteration, mBinding->getGlobalCells());
+  computeLayerCellsImpl(context, iteration, context.binding.getGlobalCells());
 
-  const auto scratchTransitionCount = mScratch->getTracklets().size();
+  const auto scratchTransitionCount = scratch.getTracklets().size();
   for (size_t transitionId = 0; transitionId < scratchTransitionCount; ++transitionId) {
-    deepVectorClear(mScratch->getTracklets()[transitionId]);
-    deepVectorClear(mScratch->getTrackletsLabel(transitionId));
+    deepVectorClear(scratch.getTracklets()[transitionId]);
+    deepVectorClear(scratch.getTrackletsLabel(transitionId));
   }
 }
 
@@ -530,7 +511,17 @@ void TrackerTraits::computeLayerCellsImpl(
   const int iteration,
   gsl::span<const CellTopologyId> cellIds)
 {
-  BIND_TRAVERSAL_CONTEXT(context);
+  auto* mScratch = &context.scratch;
+  const auto& mMemoryPool = mScratch->getMemoryPool();
+  const auto* mBinding = &context.binding;
+  const auto mTrkParams = context.parameters;
+  const auto mBz = context.bz;
+  const auto& mTraversalGraph = context.graph;
+  const auto& mKernelParameters = context.workspace.kernelParameters;
+  const auto& mAttachHitConfig = context.workspace.attachHitConfig;
+  const auto& mLayerMaterial = context.workspace.layerMaterial;
+  const auto& mLayerMeasurements = context.workspace.layerMeasurements;
+  const auto& mLayerGlobalMeasurements = context.workspace.layerGlobalMeasurements;
   const auto& topology = mTraversalGraph;
 
   mTaskArena->execute([&] {
@@ -719,20 +710,21 @@ void TrackerTraits::computeLayerCellsImpl(
 
 void TrackerTraits::findCellsNeighbours(TraversalWorkspaceView& context, const int iteration)
 {
-  BIND_TRAVERSAL_CONTEXT(context);
-  if (!mTraversalCacheValid) {
+  auto& scratch = context.scratch;
+  const auto& workspace = context.workspace;
+  if (!workspace.valid) {
     throw TraversalException{iteration, TraversalFailureReason::InvalidTraversalSchedule};
   }
-  for (std::size_t slot = 0; slot < mScratch->getCellsNeighbours().size(); ++slot) {
-    deepVectorClear(mScratch->getCellsNeighbours()[slot]);
-    deepVectorClear(mScratch->getCellsNeighboursTopology()[slot]);
-    deepVectorClear(mScratch->getCellsNeighboursLUT()[slot]);
+  for (std::size_t slot = 0; slot < scratch.getCellsNeighbours().size(); ++slot) {
+    deepVectorClear(scratch.getCellsNeighbours()[slot]);
+    deepVectorClear(scratch.getCellsNeighboursTopology()[slot]);
+    deepVectorClear(scratch.getCellsNeighboursLUT()[slot]);
   }
-  const auto scheduledCells = mBinding->getGlobalScheduledCells();
+  const auto scheduledCells = context.binding.getGlobalScheduledCells();
   if (!scheduledCells.empty()) {
-    findCellsNeighboursForSchedule(context, iteration, scheduledCells, mKernelParameters);
+    findCellsNeighboursForSchedule(context, iteration, scheduledCells, workspace.kernelParameters);
   }
-  for (auto& cellLUT : mScratch->getCellsLookupTable()) {
+  for (auto& cellLUT : scratch.getCellsLookupTable()) {
     deepVectorClear(cellLUT);
   }
 }
@@ -743,7 +735,11 @@ void TrackerTraits::findCellsNeighboursForSchedule(
   gsl::span<const CellTopologyId> scheduledCells,
   const TrackingKernelParameters& params)
 {
-  BIND_TRAVERSAL_CONTEXT(context);
+  auto* mScratch = &context.scratch;
+  const auto& mMemoryPool = mScratch->getMemoryPool();
+  const auto& mTraversalGraph = context.graph;
+  const auto& mLayerMaterial = context.workspace.layerMaterial;
+  const auto& mLayerGlobalMeasurements = context.workspace.layerGlobalMeasurements;
   const auto topology = mTraversalGraph;
   const auto scratchCellCount = mScratch->getCells().size();
   if (mScratch->getCellsLookupTable().size() != scratchCellCount ||
@@ -905,7 +901,11 @@ void TrackerTraits::findCellsNeighboursForSchedule(
 template <typename InputSeed>
 void TrackerTraits::processNeighbours(TraversalWorkspaceView& context, int iteration, int defaultCellTopologyId, int iLevel, const bounded_vector<InputSeed>& currentCellSeed, const bounded_vector<int>& currentCellId, const bounded_vector<int>& currentCellTopologyId, bounded_vector<TrackSeed>& updatedCellSeeds, bounded_vector<int>& updatedCellsIds, bounded_vector<int>& updatedCellsTopologyIds, const TrackingKernelParameters& params)
 {
-  BIND_TRAVERSAL_CONTEXT(context);
+  auto* mScratch = &context.scratch;
+  const auto& mMemoryPool = mScratch->getMemoryPool();
+  const auto mBz = context.bz;
+  const auto& mAttachHitConfig = context.workspace.attachHitConfig;
+  const auto& mLayerMeasurements = context.workspace.layerMeasurements;
   const auto layerMaterial = mAttachHitConfig.layerMaterial;
   const int activeSurfaceCount = static_cast<int>(mScratch->getNOwnedSurfaces());
 
@@ -1039,11 +1039,10 @@ void TrackerTraits::processNeighbours(TraversalWorkspaceView& context, int itera
 
 void TrackerTraits::findRoads(TraversalWorkspaceView& context, const int iteration, SeedRefitFunction refitFunction)
 {
-  BIND_TRAVERSAL_CONTEXT(context);
-  if (!mTraversalCacheValid) {
+  if (!context.workspace.valid) {
     throw TraversalException{iteration, TraversalFailureReason::InvalidTraversalSchedule};
   }
-  if (mScratch->getCells().size() != mBinding->getGlobalCells().size()) {
+  if (context.scratch.getCells().size() != context.binding.getGlobalCells().size()) {
     throw TraversalException{iteration, TraversalFailureReason::SparseTopologyMismatch};
   }
   findRoadsImpl(context, iteration, refitFunction);
@@ -1051,7 +1050,15 @@ void TrackerTraits::findRoads(TraversalWorkspaceView& context, const int iterati
 
 void TrackerTraits::findRoadsImpl(TraversalWorkspaceView& context, const int iteration, SeedRefitFunction refitFunction)
 {
-  BIND_TRAVERSAL_CONTEXT(context);
+  auto* mScratch = &context.scratch;
+  const auto& mMemoryPool = mScratch->getMemoryPool();
+  const auto* mBinding = &context.binding;
+  const auto mTrkParams = context.parameters;
+  const auto mBz = context.bz;
+  const auto& mTraversalGraph = context.graph;
+  const auto& mKernelParameters = context.workspace.kernelParameters;
+  const auto& mLayerMeasurements = context.workspace.layerMeasurements;
+  const auto& mLayerGlobalMeasurements = context.workspace.layerGlobalMeasurements;
   const auto roadStartCells = mBinding->getGlobalRoadStartCells();
   const int activeSurfaceCount = static_cast<int>(mScratch->getNOwnedSurfaces());
   bounded_vector<bounded_vector<int>> firstClusters(activeSurfaceCount, bounded_vector<int>(mMemoryPool.get()), mMemoryPool.get());
@@ -1191,7 +1198,11 @@ void TrackerTraits::acceptTracks(TraversalWorkspaceView& context, int iteration,
                                  bounded_vector<TrackingCandidate>& tracks,
                                  bounded_vector<bounded_vector<int>>& firstClusters)
 {
-  BIND_TRAVERSAL_CONTEXT(context);
+  auto* mScratch = &context.scratch;
+  auto* mFrame = &context.frame;
+  const auto mTrkParams = context.parameters;
+  auto& mAcceptedTracksForSharedStatus = context.workspace.acceptedTracks;
+  const auto& mLayerGlobalMeasurements = context.workspace.layerGlobalMeasurements;
   auto& trks = mAcceptedTracksForSharedStatus;
   trks.reserve(trks.size() + tracks.size());
   const int activeSurfaceCount = static_cast<int>(mScratch->getNOwnedSurfaces());

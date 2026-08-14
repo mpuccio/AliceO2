@@ -39,24 +39,6 @@ constexpr std::size_t kindIndex(SurfaceKind kind) noexcept
   return kind == SurfaceKind::Cylinder ? 0u : 1u;
 }
 
-#define BIND_TRAVERSAL_CONTEXT(context)                                         \
-  auto* mScratch = &(context).scratch;                                          \
-  auto* mFrame = &(context).frame;                                              \
-  const auto& mMemoryPool = mScratch->getMemoryPool();                          \
-  const auto* mBinding = &(context).binding;                                    \
-  const auto mTrkParams = (context).parameters;                                 \
-  const auto mBz = (context).bz;                                                \
-  const auto& mTraversalGraph = (context).graph;                                \
-  auto& mTraversalCacheValid = (context).workspace.valid;                       \
-  auto& mKernelParameters = (context).workspace.kernelParameters;               \
-  auto& mDiskLayerReferenceZ = (context).workspace.diskLayerReferenceZView;     \
-  auto& mDiskLayerReferenceZStorage = (context).workspace.diskLayerReferenceZ;  \
-  auto& mAttachHitConfig = (context).workspace.attachHitConfig;                 \
-  auto& mLayerMaterial = (context).workspace.layerMaterial;                     \
-  auto& mLayerMeasurements = (context).workspace.layerMeasurements;             \
-  auto& mLayerGlobalMeasurements = (context).workspace.layerGlobalMeasurements; \
-  auto& mAcceptedTracksForSharedStatus = (context).workspace.acceptedTracks
-
 TrackingKernelParameters bindTrackingKernelParameters(const TrackingParameters& params) noexcept
 {
   TrackingKernelParameters out;
@@ -70,7 +52,8 @@ TrackingKernelParameters bindTrackingKernelParameters(const TrackingParameters& 
 
 void validateSparsePlan(const TraversalWorkspaceView& context, int iteration, const SurfaceGraphView& layout)
 {
-  BIND_TRAVERSAL_CONTEXT(context);
+  const auto& binding = context.binding;
+  const auto parameters = context.parameters;
   const auto fail = [iteration]() { throw TraversalException{iteration, TraversalFailureReason::SparseTopologyMismatch}; };
   const auto& topology = layout;
   if (layout.surfaces == nullptr || layout.nSurfaces == 0 ||
@@ -79,46 +62,43 @@ void validateSparsePlan(const TraversalWorkspaceView& context, int iteration, co
     fail();
   }
 
-  if (mBinding == nullptr) {
-    fail();
-  }
-  const auto transitions = mBinding->getGlobalTransitions();
-  const auto cells = mBinding->getGlobalCells();
+  const auto transitions = binding.getGlobalTransitions();
+  const auto cells = binding.getGlobalCells();
   if (transitions.empty() || transitions.size() > topology.nTransitions || cells.size() > topology.nCells) {
     fail();
   }
   for (const auto id : transitions) {
-    if (!id.isValid() || id.value() >= topology.nTransitions || !mBinding->getScratchTransitionSlot(id)) {
+    if (!id.isValid() || id.value() >= topology.nTransitions || !binding.getScratchTransitionSlot(id)) {
       fail();
     }
     const auto& transition = topology.getTransition(id);
-    if (!mBinding->getOwnedSurfaceIndex(transition.from) || !mBinding->getOwnedSurfaceIndex(transition.to) ||
-        !transition.skippedSurfaces.isSubsetOf(mBinding->getOwnedSurfaces())) {
+    if (!binding.getOwnedSurfaceIndex(transition.from) || !binding.getOwnedSurfaceIndex(transition.to) ||
+        !transition.skippedSurfaces.isSubsetOf(binding.getOwnedSurfaces())) {
       fail();
     }
   }
   for (const auto id : cells) {
-    if (!id.isValid() || id.value() >= topology.nCells || !mBinding->getScratchCellSlot(id)) {
+    if (!id.isValid() || id.value() >= topology.nCells || !binding.getScratchCellSlot(id)) {
       fail();
     }
     const auto& cell = topology.getCell(id);
-    if (!mBinding->getScratchTransitionSlot(cell.firstTransition) ||
-        !mBinding->getScratchTransitionSlot(cell.secondTransition) ||
-        !cell.hitSurfaces.isSubsetOf(mBinding->getOwnedSurfaces())) {
+    if (!binding.getScratchTransitionSlot(cell.firstTransition) ||
+        !binding.getScratchTransitionSlot(cell.secondTransition) ||
+        !cell.hitSurfaces.isSubsetOf(binding.getOwnedSurfaces())) {
       fail();
     }
   }
-  for (const auto id : mBinding->getGlobalScheduledCells()) {
-    if (!mBinding->getScratchCellSlot(id)) {
+  for (const auto id : binding.getGlobalScheduledCells()) {
+    if (!binding.getScratchCellSlot(id)) {
       fail();
     }
   }
-  for (const auto id : mBinding->getGlobalRoadStartCells()) {
-    if (!mBinding->getScratchCellSlot(id)) {
+  for (const auto id : binding.getGlobalRoadStartCells()) {
+    if (!binding.getScratchCellSlot(id)) {
       fail();
     }
   }
-  (void)mTrkParams[iteration];
+  (void)parameters[iteration];
 }
 
 void prepareTransitionScatteringAndBending(
@@ -127,36 +107,40 @@ void prepareTransitionScatteringAndBending(
   const DiskReferenceCoordinateView& referenceCoordinateView,
   gsl::span<const TransitionId> transitionIds)
 {
-  BIND_TRAVERSAL_CONTEXT(context);
-  const auto& trkParam = mTrkParams[iteration];
-  const auto& topology = mTraversalGraph;
+  auto& scratch = context.scratch;
+  const auto& binding = context.binding;
+  const auto parameters = context.parameters;
+  const auto& graph = context.graph;
+  const auto& attachHitConfig = context.workspace.attachHitConfig;
+  const auto& trkParam = parameters[iteration];
+  const auto& topology = graph;
 
-  const int activeSurfaceCount = static_cast<int>(mScratch->getNOwnedSurfaces());
+  const int activeSurfaceCount = static_cast<int>(scratch.getNOwnedSurfaces());
   std::array<float, MaxLayoutSurfaces> msAngles{};
   for (int iLayer{0}; iLayer < activeSurfaceCount; ++iLayer) {
-    const auto surface = mBinding->getOrderedSurfaces()[iLayer];
+    const auto surface = binding.getOrderedSurfaces()[iLayer];
     if (topology.getSurface(surface).kind == SurfaceKind::Cylinder) {
       msAngles[iLayer] = cylinderLayerMultipleScatteringAngle(
-        CylinderLayerScatteringInputs{mAttachHitConfig.layerMaterial[iLayer].xOverX0}, trkParam.TrackletMinPt);
+        CylinderLayerScatteringInputs{attachHitConfig.layerMaterial[iLayer].xOverX0}, trkParam.TrackletMinPt);
     } else {
       msAngles[iLayer] = diskLayerMultipleScatteringAngle(
-        DiskLayerScatteringInputs{mAttachHitConfig.layerMaterial[iLayer].xOverX0, trkParam.LayerRadii[iLayer],
+        DiskLayerScatteringInputs{attachHitConfig.layerMaterial[iLayer].xOverX0, trkParam.LayerRadii[iLayer],
                                   referenceCoordinateView.perLayerReferenceZ[iLayer]},
         trkParam.TrackletMinPt);
     }
   }
 
-  auto& transitionMSAngles = mScratch->getTransitionMSAngles();
-  auto& transitionPhiCuts = mScratch->getTransitionPhiCuts();
-  const float oneOverR{0.001f * 0.3f * std::abs(mBz) / trkParam.TrackletMinPt};
+  auto& transitionMSAngles = scratch.getTransitionMSAngles();
+  auto& transitionPhiCuts = scratch.getTransitionPhiCuts();
+  const float oneOverR{0.001f * 0.3f * std::abs(context.bz) / trkParam.TrackletMinPt};
   for (const auto transitionId : transitionIds) {
-    const auto transitionSlot = mBinding->getScratchTransitionSlot(transitionId);
+    const auto transitionSlot = binding.getScratchTransitionSlot(transitionId);
     if (!transitionSlot) {
       throw TraversalException{iteration, TraversalFailureReason::TraversalBindingMismatch};
     }
     const auto& transition = topology.getTransition(transitionId);
-    const auto fromPosition = mBinding->getOwnedSurfaceIndex(transition.from);
-    const auto toPosition = mBinding->getOwnedSurfaceIndex(transition.to);
+    const auto fromPosition = binding.getOwnedSurfaceIndex(transition.from);
+    const auto toPosition = binding.getOwnedSurfaceIndex(transition.to);
     if (!fromPosition || !toPosition || *fromPosition >= static_cast<std::size_t>(activeSurfaceCount) ||
         *toPosition >= static_cast<std::size_t>(activeSurfaceCount)) {
       throw TraversalException{iteration, TraversalFailureReason::TraversalBindingMismatch};
@@ -166,8 +150,8 @@ void prepareTransitionScatteringAndBending(
     const float r1 = std::min(trkParam.LayerRadii[fromLayer], trkParam.LayerRadii[toLayer]);
     const float r2 = std::max(trkParam.LayerRadii[fromLayer], trkParam.LayerRadii[toLayer]);
     const float transitionOneOverR = clampTransitionCurvature(oneOverR, r2);
-    const float res1 = o2::gpu::CAMath::Hypot(trkParam.PVres, mScratch->getPositionResolution(fromLayer));
-    const float res2 = o2::gpu::CAMath::Hypot(trkParam.PVres, mScratch->getPositionResolution(toLayer));
+    const float res1 = o2::gpu::CAMath::Hypot(trkParam.PVres, scratch.getPositionResolution(fromLayer));
+    const float res2 = o2::gpu::CAMath::Hypot(trkParam.PVres, scratch.getPositionResolution(toLayer));
     const auto prep = ::o2::itsmft::tracking::prepareTransitionScatteringAndBending(
       gsl::span<const float>(msAngles.data(), static_cast<std::size_t>(activeSurfaceCount)), fromLayer, toLayer, r1, r2, transitionOneOverR, res1, res2);
     transitionMSAngles[*transitionSlot] = prep.msAngle;
@@ -178,7 +162,20 @@ void prepareTransitionScatteringAndBending(
 
 void Tracker::initializeTraversalWorkspace(TraversalWorkspaceView& context) const
 {
-  BIND_TRAVERSAL_CONTEXT(context);
+  auto* mScratch = &context.scratch;
+  auto* mFrame = &context.frame;
+  const auto& mMemoryPool = mScratch->getMemoryPool();
+  const auto* mBinding = &context.binding;
+  const auto mTrkParams = context.parameters;
+  const auto& mTraversalGraph = context.graph;
+  auto& mTraversalCacheValid = context.workspace.valid;
+  auto& mKernelParameters = context.workspace.kernelParameters;
+  auto& mDiskLayerReferenceZ = context.workspace.diskLayerReferenceZView;
+  auto& mDiskLayerReferenceZStorage = context.workspace.diskLayerReferenceZ;
+  auto& mAttachHitConfig = context.workspace.attachHitConfig;
+  auto& mLayerMaterial = context.workspace.layerMaterial;
+  auto& mLayerMeasurements = context.workspace.layerMeasurements;
+  auto& mLayerGlobalMeasurements = context.workspace.layerGlobalMeasurements;
   const int iteration = context.iteration;
   // Invalidate before preflight so no failed preparation can leave a reusable
   // traversal view. The workspace itself is reset only after preflight.
@@ -449,8 +446,6 @@ void Tracker::initializeTraversalWorkspace(TraversalWorkspaceView& context) cons
   prepareTransitionScatteringAndBending(context, iteration, referenceCoordinateView,
                                         mBinding->getGlobalTransitions());
 }
-
-#undef BIND_TRAVERSAL_CONTEXT
 
 TrackerInitializationResult Tracker::initialize(TimeFrame& frame, const TrackerInitialization& configuration)
 {
