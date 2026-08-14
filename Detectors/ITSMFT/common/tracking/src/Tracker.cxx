@@ -290,8 +290,7 @@ void Tracker::initializeTraversalWorkspace(TraversalWorkspaceView& context) cons
   const gsl::span<const SurfaceChartRange> chartRangeView{chartRanges.data(), activeCount};
   for (int position = 0; position < activeSurfaceCount; ++position) {
     if (bindIndexTableConfiguration(stagedIndexTableConfigs[position], mTrkParams[iteration], activeSurfaceCount,
-                                    layout.getSurface(orderedSurfaces[position]).kind, chartRangeView,
-                                    mUseDiskXYReferenceForTesting ? IndexTableCoordType::XYReference : IndexTableCoordType::PhiR) != IndexTableConfigError::None) {
+                                    layout.getSurface(orderedSurfaces[position]).kind, chartRangeView) != IndexTableConfigError::None) {
       throw TraversalException{iteration, TraversalFailureReason::InvalidIndexTableConfiguration};
     }
   }

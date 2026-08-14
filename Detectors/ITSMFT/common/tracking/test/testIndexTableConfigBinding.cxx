@@ -98,7 +98,7 @@ BOOST_AUTO_TEST_CASE(DiskBindingMatchesDefaultRowRangeFallback)
   }
 }
 
-/// Legacy XY row-range knobs cannot alter a periodic disk chart.
+/// Obsolete Cartesian row-range knobs cannot alter a periodic disk chart.
 BOOST_AUTO_TEST_CASE(DiskBindingMatchesExplicitRowRangeOverride)
 {
   TrackingParameters params;
@@ -318,7 +318,7 @@ BOOST_AUTO_TEST_CASE(ConfigurationsMatchIdentifiesEveryStoredField)
   BOOST_REQUIRE((bindIndexTableConfiguration(d, diffRange, MFTN, SurfaceKind::Disk) == IndexTableConfigError::None));
   BOOST_CHECK(indexTableConfigurationsMatch(a, d, MFTN));
 
-  // Legacy XY extents no longer affect the chart contract.
+  // Obsolete Cartesian extents no longer affect the chart contract.
   auto diffExtent = params;
   diffExtent.LayerColHalfExtent[0] += 1.f;
   IndexTableUtilsCore e;

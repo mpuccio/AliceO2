@@ -23,8 +23,7 @@ IndexTableConfigError bindIndexTableConfiguration(o2::itsmft::IndexTableUtilsCor
                                                   const TrackingParameters& params,
                                                   int activeSurfaceCount,
                                                   SurfaceKind kind,
-                                                  gsl::span<const SurfaceChartRange> chartRanges,
-                                                  IndexTableCoordType diskCoordinateType) noexcept
+                                                  gsl::span<const SurfaceChartRange> chartRanges) noexcept
 {
   if (kind != SurfaceKind::Cylinder && kind != SurfaceKind::Disk) {
     return IndexTableConfigError::InvalidSurfaceKind;
@@ -61,27 +60,6 @@ IndexTableConfigError bindIndexTableConfiguration(o2::itsmft::IndexTableUtilsCor
     colMax[iLayer] = chartRanges[iLayer].max;
   }
 
-  if (kind == SurfaceKind::Disk && diskCoordinateType == IndexTableCoordType::XYReference) {
-    const auto& extents = params.LayerColHalfExtent.empty() ? params.LayerZ : params.LayerColHalfExtent;
-    if (extents.size() < static_cast<std::size_t>(activeSurfaceCount)) {
-      return IndexTableConfigError::InsufficientChartRanges;
-    }
-    std::array<float, o2::itsmft::IndexTableUtilsCore::MaxLayers> halfExtents{};
-    for (int iLayer = 0; iLayer < activeSurfaceCount; ++iLayer) {
-      if (!(std::isfinite(extents[iLayer]) && extents[iLayer] > 0.f)) {
-        return IndexTableConfigError::InvalidReferenceExtent;
-      }
-      halfExtents[iLayer] = extents[iLayer];
-    }
-    const float rowMin = params.IndexRowMax == 0.f ? -20.f : params.IndexRowMin;
-    const float rowMax = params.IndexRowMax == 0.f ? 20.f : params.IndexRowMax;
-    if (!(std::isfinite(rowMin) && std::isfinite(rowMax) && rowMax > rowMin)) {
-      return IndexTableConfigError::InvalidReferenceRowRange;
-    }
-    staged.setIndexTableParams(IndexTableCoordType::XYReference, params.RowBins, params.ColBins, rowMin, rowMax,
-                               gsl::span<const float>{halfExtents.data(), static_cast<std::size_t>(activeSurfaceCount)});
-    return IndexTableConfigError::None;
-  }
   staged.setIndexTableParams(kind == SurfaceKind::Disk ? IndexTableCoordType::PhiR : IndexTableCoordType::PhiZ,
                              params.RowBins, params.ColBins, 0.f, o2::constants::math::TwoPI,
                              gsl::span<const float>{colMin.data(), static_cast<std::size_t>(activeSurfaceCount)},

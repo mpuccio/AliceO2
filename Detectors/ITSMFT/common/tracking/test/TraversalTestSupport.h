@@ -15,11 +15,6 @@ namespace o2::itsmft::tracking
 // Test-only access to the Tracker-owned initialization transaction and
 // explicit backend stages. It never persists the resulting view.
 struct TrackerTestAccess {
-  static void useDiskXYReference(Tracker& tracker, bool enabled) noexcept
-  {
-    tracker.mUseDiskXYReferenceForTesting = enabled;
-  }
-
   static TraversalWorkspaceView prepare(Tracker& tracker, TimeFrame& frame, int iteration)
   {
     if (iteration < 0 || static_cast<std::size_t>(iteration) >= frame.getTrackingParameters().size()) {

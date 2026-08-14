@@ -574,19 +574,18 @@ void SurfaceTrackingScratch::prepareClusters(const TimeFrame& frame, const Track
 
       cHelper.resize(clustersNum);
 
-      const bool useXYBinning = utils.getCoordType() == o2::itsmft::IndexTableCoordType::XYReference;
       const bool usePhiRBinning = utils.getCoordType() == o2::itsmft::IndexTableCoordType::PhiR;
       for (int iCluster{0}; iCluster < clustersNum; ++iCluster) {
         const o2::its::Cluster& c = unsortedClusters[iCluster];
         const auto& measurement = layerMeasurements[iLayer][c.clusterId];
         ClusterHelper& h = cHelper[iCluster];
 
-        const float x = measurement.position.x - (useXYBinning ? 0.f : beamXY[0]);
-        const float y = measurement.position.y - (useXYBinning ? 0.f : beamXY[1]);
+        const float x = measurement.position.x - beamXY[0];
+        const float y = measurement.position.y - beamXY[1];
         const float z = measurement.position.z;
 
-        const float rowCoord = useXYBinning ? measurement.position.y : o2::its::math_utils::computePhi(x, y);
-        const float colCoord = useXYBinning ? measurement.position.x : (usePhiRBinning ? o2::its::math_utils::hypot(x, y) : z);
+        const float rowCoord = o2::its::math_utils::computePhi(x, y);
+        const float colCoord = usePhiRBinning ? o2::its::math_utils::hypot(x, y) : z;
         int colBin{utils.getColBinIndex(iLayer, colCoord)};
         if (colBin < 0 || colBin >= colBinsCount) {
           colBin = std::clamp(colBin, 0, colBinsCount - 1);
@@ -611,7 +610,7 @@ void SurfaceTrackingScratch::prepareClusters(const TimeFrame& frame, const Track
 
         c = unsortedClusters[iCluster];
         const auto& measurement = layerMeasurements[iLayer][c.clusterId];
-        c.phi = useXYBinning ? o2::its::math_utils::computePhi(measurement.position.x, measurement.position.y) : h.rowCoord;
+        c.phi = h.rowCoord;
         c.radius = h.r;
         c.indexTableBinIndex = h.bin;
       }

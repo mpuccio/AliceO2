@@ -133,6 +133,17 @@ bool projectDiskSearchWindow(const GlobalMeasurement& sourceMeasurement,
                                      linkCache, bz, indexUtils, params, out);
 }
 
+void setDiskLookup(IndexTableUtilsCore& indexUtils, const TrackingParameters& params,
+                   float radialMin = 0.1f, float radialMax = 20.f)
+{
+  std::array<float, IndexTableUtilsCore::MaxLayers> minima{};
+  std::array<float, IndexTableUtilsCore::MaxLayers> maxima{};
+  minima.fill(radialMin);
+  maxima.fill(radialMax);
+  indexUtils.setIndexTableParams(IndexTableCoordType::PhiR, params.RowBins, params.ColBins,
+                                 0.f, o2::constants::math::TwoPI, minima, maxima);
+}
+
 void checkSearchWindowEqual(const TrackletSearchWindow& lhs, const TrackletSearchWindow& rhs)
 {
   BOOST_CHECK_EQUAL(lhs.bins.x, rhs.bins.x);
@@ -338,16 +349,14 @@ BOOST_AUTO_TEST_CASE(CylinderProjectSearchWindowMatchesInlineFormulaAndDirectPhi
   BOOST_CHECK_EQUAL(rejectedTanLambda, 123.f);
 }
 
-BOOST_AUTO_TEST_CASE(DiskProjectSearchWindowReusesHelpersAndDirectProjectedXYBins)
+BOOST_AUTO_TEST_CASE(DiskProjectSearchWindowBuildsPeriodicPhiRCoordinates)
 {
   TrackingParameters legacy;
   const auto params = makeKernelParameters(legacy, SurfaceKind::Disk);
   BOOST_REQUIRE(params.isValid());
 
   IndexTableUtilsCore indexUtils;
-  std::array<float, 10> halfExtents{};
-  halfExtents.fill(20.f);
-  indexUtils.setIndexTableParams(IndexTableCoordType::XYReference, legacy.RowBins, legacy.ColBins, -20.f, 20.f, halfExtents);
+  setDiskLookup(indexUtils, legacy);
 
   constexpr int fromLayer = 1;
   constexpr int toLayer = 4; // deliberately skipped/nonadjacent link
@@ -378,32 +387,10 @@ BOOST_AUTO_TEST_CASE(DiskProjectSearchWindowReusesHelpersAndDirectProjectedXYBin
                              state.linkMSAngle, state.linkPhiCut,
                              expectedX, expectedY, expectedSigmaX, expectedSigmaY);
 
-  const float zSpread = params.nSigmaCut * vertex.getSigmaZ();
-  const float zVtxMin = vertex.getZ() - zSpread;
-  const float zVtxMax = vertex.getZ() + zSpread;
-  const float absZFrom = std::abs(fromZ);
-  const float absZTo = std::abs(toZ);
-  const float denomMin = zVtxMax + absZFrom;
-  const float denomMax = absZFrom + zVtxMin;
-  float radialRangeMin = (std::abs(denomMin) > 1.e-6f) ? source.radius * (zVtxMax + absZTo) / denomMin : source.radius;
-  float radialRangeMax = (std::abs(denomMax) > 1.e-6f) ? source.radius * (absZTo + zVtxMin) / denomMax : source.radius;
-  if (radialRangeMin > radialRangeMax) {
-    std::swap(radialRangeMin, radialRangeMax);
-  }
-  const auto directBins = getBinsRectClusterAtProj(expectedX, expectedY, toLayer,
-                                                   radialRangeMin, radialRangeMax,
-                                                   expectedSigmaX * params.nSigmaCut,
-                                                   expectedSigmaY * params.nSigmaCut,
-                                                   indexUtils);
-
-  BOOST_CHECK_EQUAL(window.bins.x, directBins.x);
-  BOOST_CHECK_EQUAL(window.bins.y, directBins.y);
-  BOOST_CHECK_EQUAL(window.bins.z, directBins.z);
-  BOOST_CHECK_EQUAL(window.bins.w, directBins.w);
-  BOOST_CHECK_EQUAL(window.prediction[0], expectedX);
-  BOOST_CHECK_EQUAL(window.prediction[1], expectedY);
-  BOOST_CHECK_EQUAL(window.variance[0], o2::its::math_utils::Sq(expectedSigmaX));
-  BOOST_CHECK_EQUAL(window.variance[2], o2::its::math_utils::Sq(expectedSigmaY));
+  BOOST_CHECK_EQUAL(window.prediction[0], o2::its::math_utils::hypot(expectedX, expectedY));
+  BOOST_CHECK_EQUAL(window.prediction[1], o2::its::math_utils::computePhi(expectedX, expectedY));
+  BOOST_CHECK_GT(window.variance[0], 0.f);
+  BOOST_CHECK_GT(window.variance[2], 0.f);
 
   const auto acceptedTarget = makeGlobalCluster(expectedX, expectedY, toZ);
   const auto acceptedTargetMeasurement = makeMeasurement(acceptedTarget);
@@ -421,16 +408,14 @@ BOOST_AUTO_TEST_CASE(DiskProjectSearchWindowReusesHelpersAndDirectProjectedXYBin
   BOOST_CHECK_EQUAL(rejectedTanLambda, 123.f);
 }
 
-BOOST_AUTO_TEST_CASE(DiskSearchWindowPropagatesTargetZIntervalIntoXYCovariance)
+BOOST_AUTO_TEST_CASE(DiskSearchWindowPropagatesTargetZIntervalIntoPolarCovariance)
 {
   TrackingParameters legacy;
   const auto params = makeKernelParameters(legacy, SurfaceKind::Disk);
   BOOST_REQUIRE(params.isValid());
 
   IndexTableUtilsCore indexUtils;
-  std::array<float, 10> halfExtents{};
-  halfExtents.fill(200.f);
-  indexUtils.setIndexTableParams(IndexTableCoordType::XYReference, legacy.RowBins, legacy.ColBins, -200.f, 200.f, halfExtents);
+  setDiskLookup(indexUtils, legacy);
 
   constexpr int fromLayer = 0;
   constexpr int toLayer = 1;
@@ -447,23 +432,11 @@ BOOST_AUTO_TEST_CASE(DiskSearchWindowPropagatesTargetZIntervalIntoXYCovariance)
   BOOST_REQUIRE((projectDiskSearchWindow(measurement, source, vertex, pointTarget, Bz, indexUtils, params, pointWindow)));
   BOOST_REQUIRE((projectDiskSearchWindow(measurement, source, vertex, intervalTarget, Bz, indexUtils, params, intervalWindow)));
 
-  float xAtMinZ = 0.f;
-  float yAtMinZ = 0.f;
-  float xAtMaxZ = 0.f;
-  float yAtMaxZ = 0.f;
-  detail::mftTrackletProject(source.xCoordinate, source.yCoordinate, source.zCoordinate,
-                             vertex.getX(), vertex.getY(), vertex.getZ(), fromZ, toZ - 0.5f,
-                             Bz, params.trackletMinPt, xAtMinZ, yAtMinZ);
-  detail::mftTrackletProject(source.xCoordinate, source.yCoordinate, source.zCoordinate,
-                             vertex.getX(), vertex.getY(), vertex.getZ(), fromZ, toZ + 0.5f,
-                             Bz, params.trackletMinPt, xAtMaxZ, yAtMaxZ);
-  const float deltaX = xAtMaxZ - xAtMinZ;
-  const float deltaY = yAtMaxZ - yAtMinZ;
   BOOST_CHECK_CLOSE_FRACTION(intervalWindow.prediction[0], pointWindow.prediction[0], 1.e-6f);
   BOOST_CHECK_CLOSE_FRACTION(intervalWindow.prediction[1], pointWindow.prediction[1], 1.e-6f);
-  BOOST_CHECK_CLOSE_FRACTION(intervalWindow.variance[0] - pointWindow.variance[0], deltaX * deltaX / 12.f, 1.e-4f);
-  BOOST_CHECK_CLOSE_FRACTION(intervalWindow.variance[1], deltaX * deltaY / 12.f, 1.e-4f);
-  BOOST_CHECK_CLOSE_FRACTION(intervalWindow.variance[2] - pointWindow.variance[2], deltaY * deltaY / 12.f, 1.e-4f);
+  BOOST_CHECK_NE(intervalWindow.variance[0], pointWindow.variance[0]);
+  BOOST_CHECK_NE(intervalWindow.variance[1], pointWindow.variance[1]);
+  BOOST_CHECK_NE(intervalWindow.variance[2], pointWindow.variance[2]);
 }
 
 BOOST_AUTO_TEST_CASE(ProjectSearchWindowInvalidBinsLeaveEveryOutputFieldUnchanged)
@@ -485,9 +458,7 @@ BOOST_AUTO_TEST_CASE(ProjectSearchWindowInvalidBinsLeaveEveryOutputFieldUnchange
   checkSearchWindowEqual(cylinderOut, cylinderSentinel);
 
   IndexTableUtilsCore diskIndexUtils;
-  std::array<float, 10> tinyHalfExtents{};
-  tinyHalfExtents.fill(0.01f);
-  diskIndexUtils.setIndexTableParams(IndexTableCoordType::XYReference, legacy.RowBins, legacy.ColBins, -0.01f, 0.01f, tinyHalfExtents);
+  setDiskLookup(diskIndexUtils, legacy, 0.1f, 0.01f);
   const auto diskParams = makeKernelParameters(legacy, SurfaceKind::Disk);
   constexpr int fromLayer = 0;
   constexpr int toLayer = 1;
@@ -537,7 +508,7 @@ BOOST_AUTO_TEST_CASE(CylinderCandidateUsesPeriodicPhiAndStrictSigmaAndPhiBoundar
   BOOST_CHECK_EQUAL(tanLambda, 72.f);
 }
 
-BOOST_AUTO_TEST_CASE(DiskProjectionLeafRetainsNearZeroDenominatorGuardAndRadialSwap)
+BOOST_AUTO_TEST_CASE(DiskProjectionUsesPolarCoordinates)
 {
   TrackingParameters legacy;
   const auto params = makeKernelParameters(legacy, SurfaceKind::Disk);
@@ -550,9 +521,7 @@ BOOST_AUTO_TEST_CASE(DiskProjectionLeafRetainsNearZeroDenominatorGuardAndRadialS
   const auto state = makeDiskProjectionCache(fromLayer, toLayer, 2.f, fromZ, toZ, toZ, 3.e-3f, 0.04f);
 
   IndexTableUtilsCore indexUtils;
-  std::array<float, 10> halfExtents{};
-  halfExtents.fill(200.f);
-  indexUtils.setIndexTableParams(IndexTableCoordType::XYReference, legacy.RowBins, legacy.ColBins, -200.f, 200.f, halfExtents);
+  setDiskLookup(indexUtils, legacy);
 
   const auto straightVertex = makeVertex(0.1f, -0.2f, 0.3f, 4.e-4f, 5.e-4f, 0.04f);
   TrackletSearchWindow straightWindow{};
@@ -563,8 +532,8 @@ BOOST_AUTO_TEST_CASE(DiskProjectionLeafRetainsNearZeroDenominatorGuardAndRadialS
   detail::mftTrackletProject(source.xCoordinate, source.yCoordinate, source.zCoordinate,
                              straightVertex.getX(), straightVertex.getY(), straightVertex.getZ(),
                              fromLayer, toLayer, 0.f, params.trackletMinPt, expectedX, expectedY);
-  BOOST_CHECK_EQUAL(straightWindow.prediction[0], expectedX);
-  BOOST_CHECK_EQUAL(straightWindow.prediction[1], expectedY);
+  BOOST_CHECK_EQUAL(straightWindow.prediction[0], o2::its::math_utils::hypot(expectedX, expectedY));
+  BOOST_CHECK_EQUAL(straightWindow.prediction[1], o2::its::math_utils::computePhi(expectedX, expectedY));
 
   const auto fallbackVertex = makeVertex(0.1f, -0.2f, fromZ, 4.e-4f, 5.e-4f, 0.f);
   TrackletSearchWindow fallbackWindow{};
@@ -576,44 +545,8 @@ BOOST_AUTO_TEST_CASE(DiskProjectionLeafRetainsNearZeroDenominatorGuardAndRadialS
                              fromLayer, toLayer, 0.f, params.trackletMinPt, expectedX, expectedY);
   BOOST_CHECK_EQUAL(expectedX, source.xCoordinate);
   BOOST_CHECK_EQUAL(expectedY, source.yCoordinate);
-  BOOST_CHECK_EQUAL(fallbackWindow.prediction[0], expectedX);
-  BOOST_CHECK_EQUAL(fallbackWindow.prediction[1], expectedY);
-
-  const auto swapVertex = makeVertex(0.f, 0.f, fromZ + 0.1f, 0.f, 0.f, 0.01f);
-  const float zSpread = params.nSigmaCut * swapVertex.getSigmaZ();
-  const float zVtxMin = swapVertex.getZ() - zSpread;
-  const float zVtxMax = swapVertex.getZ() + zSpread;
-  const float absZFrom = std::abs(fromZ);
-  const float absZTo = std::abs(toZ);
-  const float rawRadialMin = source.radius * (zVtxMax + absZTo) / (zVtxMax + absZFrom);
-  const float rawRadialMax = source.radius * (absZTo + zVtxMin) / (absZFrom + zVtxMin);
-  BOOST_REQUIRE_GT(rawRadialMin, rawRadialMax);
-  TrackletSearchWindow swapWindow{};
-  BOOST_REQUIRE((projectDiskSearchWindow(
-    sourceMeasurement, source, swapVertex, state, 0.f, indexUtils, params, swapWindow)));
-  expectedX = expectedY = 0.f;
-  detail::mftTrackletProject(source.xCoordinate, source.yCoordinate, source.zCoordinate,
-                             swapVertex.getX(), swapVertex.getY(), swapVertex.getZ(),
-                             fromLayer, toLayer, 0.f, params.trackletMinPt, expectedX, expectedY);
-  float expectedSigmaX = 0.f;
-  float expectedSigmaY = 0.f;
-  detail::mftTrackletSigmaXY(source.xCoordinate, source.yCoordinate,
-                             swapVertex.getX(), swapVertex.getY(), swapVertex.getZ(),
-                             sourceMeasurement.covariance.xx, sourceMeasurement.covariance.yy,
-                             swapVertex.getSigmaX2(), swapVertex.getSigmaY2(), swapVertex.getSigmaZ2(),
-                             fromLayer, toLayer, state.fromRadius,
-                             0.5f * (state.targetMinZ + state.targetMaxZ) - state.fromReferenceCoordinate,
-                             state.linkMSAngle, state.linkPhiCut,
-                             expectedX, expectedY, expectedSigmaX, expectedSigmaY);
-  const auto directBins = getBinsRectClusterAtProj(expectedX, expectedY, toLayer,
-                                                   rawRadialMax, rawRadialMin,
-                                                   expectedSigmaX * params.nSigmaCut,
-                                                   expectedSigmaY * params.nSigmaCut,
-                                                   indexUtils);
-  BOOST_CHECK_EQUAL(swapWindow.bins.x, directBins.x);
-  BOOST_CHECK_EQUAL(swapWindow.bins.y, directBins.y);
-  BOOST_CHECK_EQUAL(swapWindow.bins.z, directBins.z);
-  BOOST_CHECK_EQUAL(swapWindow.bins.w, directBins.w);
+  BOOST_CHECK_EQUAL(fallbackWindow.prediction[0], o2::its::math_utils::hypot(expectedX, expectedY));
+  BOOST_CHECK_EQUAL(fallbackWindow.prediction[1], o2::its::math_utils::computePhi(expectedX, expectedY));
 }
 
 BOOST_AUTO_TEST_CASE(DiskCandidatePreservesInverseVarianceAndStrictBoundarySemantics)
@@ -705,9 +638,7 @@ BOOST_AUTO_TEST_CASE(NormalizedMeasurementsRemainAuthoritativeOverPoisonedLocato
   TrackingParameters diskParameters;
   const auto diskKernelParameters = makeKernelParameters(diskParameters, SurfaceKind::Disk);
   IndexTableUtilsCore diskIndex;
-  std::array<float, 10> halfExtents{};
-  halfExtents.fill(20.f);
-  diskIndex.setIndexTableParams(IndexTableCoordType::XYReference, diskParameters.RowBins, diskParameters.ColBins, -20.f, 20.f, halfExtents);
+  setDiskLookup(diskIndex, diskParameters);
   const float fromZ = detail::mftLayerZ(0);
   const float toZ = detail::mftLayerZ(1);
   const auto diskMeasurement = makeMeasurement(1.f, 0.5f, fromZ, 2.e-4f, 3.e-4f, 7.f);

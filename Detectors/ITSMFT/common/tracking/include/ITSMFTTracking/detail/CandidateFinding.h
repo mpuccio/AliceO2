@@ -60,7 +60,6 @@ struct TrackletSearchWindow {
   int4 bins;
   float prediction[2];
   float variance[3];
-  bool periodicSecondCoordinate{false};
 };
 
 bool bindTrackletProjectionCache(int fromLayer, int toLayer,

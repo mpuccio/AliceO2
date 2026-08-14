@@ -58,13 +58,9 @@ bool cylinderTrackletCoordinates(const GlobalMeasurement& targetMeasurement,
   return true;
 }
 
-bool diskTrackletCoordinates(const GlobalMeasurement& targetMeasurement, bool polar,
+bool diskTrackletCoordinates(const GlobalMeasurement& targetMeasurement,
                              std::array<float, 2>& coordinates) noexcept
 {
-  if (!polar) {
-    coordinates = {targetMeasurement.position.x, targetMeasurement.position.y};
-    return true;
-  }
   const float x = targetMeasurement.position.x;
   const float y = targetMeasurement.position.y;
   const float r = o2::its::math_utils::hypot(x, y);
@@ -121,7 +117,7 @@ bool projectCylinderSearchWindow(const GlobalMeasurement& sourceMeasurement,
     return false;
   }
   const float phiSigma = linkCache.linkPhiCut / params.nSigmaCut;
-  out = {bins, {zAtTargetMeanR, sourceLocator.phi}, {o2::its::math_utils::Sq(sigmaZ), 0.f, o2::its::math_utils::Sq(phiSigma)}, true};
+  out = {bins, {zAtTargetMeanR, sourceLocator.phi}, {o2::its::math_utils::Sq(sigmaZ), 0.f, o2::its::math_utils::Sq(phiSigma)}};
   return true;
 }
 
@@ -177,30 +173,6 @@ bool projectDiskSearchWindow(const GlobalMeasurement& sourceMeasurement,
   const float covarianceXY = targetZVarianceScale * deltaX * deltaY;
   const float varianceY = o2::its::math_utils::Sq(sigmaY) + targetZVarianceScale * o2::its::math_utils::Sq(deltaY);
 
-  if (indexUtils.getCoordType() == o2::itsmft::IndexTableCoordType::XYReference) {
-    const float zSpread = params.nSigmaCut * vertex.getSigmaZ();
-    const float zVtxMin = vertex.getZ() - zSpread;
-    const float zVtxMax = vertex.getZ() + zSpread;
-    const float absZFrom = std::abs(linkCache.fromReferenceCoordinate);
-    const float absZTo = std::abs(targetMeanZ);
-    const float denomMin = zVtxMax + absZFrom;
-    const float denomMax = absZFrom + zVtxMin;
-    float radialRangeMin = (std::abs(denomMin) > 1.e-6f) ? sourceLocator.radius * (zVtxMax + absZTo) / denomMin : sourceLocator.radius;
-    float radialRangeMax = (std::abs(denomMax) > 1.e-6f) ? sourceLocator.radius * (absZTo + zVtxMin) / denomMax : sourceLocator.radius;
-    if (radialRangeMin > radialRangeMax) {
-      std::swap(radialRangeMin, radialRangeMax);
-    }
-    const auto bins = o2::itsmft::getBinsRectClusterAtProj(xProj, yProj, linkCache.toLayer,
-                                                           radialRangeMin, radialRangeMax,
-                                                           std::sqrt(varianceX) * params.nSigmaCut, std::sqrt(varianceY) * params.nSigmaCut,
-                                                           indexUtils);
-    if (bins.x < 0) {
-      return false;
-    }
-    out = {bins, {xProj, yProj}, {varianceX, covarianceXY, varianceY}, false};
-    return true;
-  }
-
   const float radius = o2::its::math_utils::hypot(xProj, yProj);
   if (!(std::isfinite(radius) && radius > 0.f)) {
     return false;
@@ -224,7 +196,7 @@ bool projectDiskSearchWindow(const GlobalMeasurement& sourceMeasurement,
   if (bins.x < 0) {
     return false;
   }
-  out = {bins, {radius, o2::its::math_utils::computePhi(xProj, yProj)}, {varianceR, covarianceRPhi, variancePhi}, true};
+  out = {bins, {radius, o2::its::math_utils::computePhi(xProj, yProj)}, {varianceR, covarianceRPhi, variancePhi}};
   return true;
 }
 
@@ -295,8 +267,8 @@ bool acceptTrackletCandidate(
       }
       break;
     case SurfaceKind::Disk:
-      validCoordinates = diskTrackletCoordinates(targetMeasurement, window.periodicSecondCoordinate, residual);
-      if (!validCoordinates || !acceptTrackletCoordinates(window, residual, window.periodicSecondCoordinate, nSigmaCut)) {
+      validCoordinates = diskTrackletCoordinates(targetMeasurement, residual);
+      if (!validCoordinates || !acceptTrackletCoordinates(window, residual, true, nSigmaCut)) {
         return false;
       }
       break;

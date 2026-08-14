@@ -110,7 +110,6 @@ class Tracker
   friend struct TrackerTestAccess;
   void initializeTraversalWorkspace(TraversalWorkspaceView& view) const;
   SeedRefitFunction mRefitFunction = nullptr;
-  bool mUseDiskXYReferenceForTesting{false};
 };
 } // namespace o2::itsmft::tracking
 

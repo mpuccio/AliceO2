@@ -35,8 +35,6 @@ enum class IndexTableConfigError : uint8_t {
   InsufficientChartRanges,         // Fewer descriptor chart ranges than active surfaces.
   NonFiniteChartRange,             // Chart bound is NaN or +/-Inf.
   InvalidChartRange,               // Chart maximum does not exceed its minimum.
-  InvalidReferenceExtent,          // The test-only XY reference backend lacks a positive extent.
-  InvalidReferenceRowRange,        // The test-only XY reference backend has invalid row bounds.
   InvalidSurfaceKind,              // Neither Cylinder nor Disk.
 };
 
@@ -48,8 +46,7 @@ IndexTableConfigError bindIndexTableConfiguration(o2::itsmft::IndexTableUtilsCor
                                                   const TrackingParameters& params,
                                                   int activeSurfaceCount,
                                                   SurfaceKind kind,
-                                                  gsl::span<const SurfaceChartRange> chartRanges,
-                                                  IndexTableCoordType diskCoordinateType = IndexTableCoordType::PhiR) noexcept;
+                                                  gsl::span<const SurfaceChartRange> chartRanges) noexcept;
 
 /// True iff all fields stored by setIndexTableParams match between `a` and
 /// `b`. Used to verify that a non-FirstPass iteration matches the
