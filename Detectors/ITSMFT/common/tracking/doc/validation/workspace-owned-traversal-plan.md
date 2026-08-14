@@ -24,6 +24,7 @@ These are the current scratch candidate fences after the search-window and
 phi--r migrations, not the older 184-track ITS fence. Artifacts are in
 `/private/tmp/itsmft-workspace-plan-20260814/`.
 
-The current run establishes population/hash parity. Field-level comparison
-against the retained candidate products remains required before integration;
-this record intentionally makes no unrun comparator claim.
+The retained current products in `/private/tmp/itsmft-target-z-interval-replay/`
+match the new products field-by-field for standalone and combined ITS/MFT.
+The MFT comparator covered 2,904 standalone and 4,136 combined projected
+float values; maximum absolute and relative deltas were zero.
