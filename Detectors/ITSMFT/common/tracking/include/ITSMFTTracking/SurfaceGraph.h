@@ -23,6 +23,7 @@
 
 #include "GPUCommonDef.h"
 #include "ITSMFTTracking/SurfaceDescriptor.h"
+#include "ITSMFTTracking/TraversalTopology.h"
 #include "ITSMFTTracking/SurfaceDescriptor.h"
 #include "ITSMFTTracking/IdTypes.h"
 #include "ITSMFTTracking/SurfaceMask.h"
@@ -30,27 +31,12 @@
 namespace o2::itsmft::tracking
 {
 
-struct Edge {
-  SurfaceId from{};
-  SurfaceId to{};
-  SurfaceMask skippedSurfaces{};
-  uint16_t flags{0};
-};
-
 struct SurfaceCellTopology {
   EdgeId firstEdge{};
   EdgeId secondEdge{};
   SurfaceMask hitSurfaces{};
 };
 
-struct TopologyRange {
-  uint32_t firstEntry{0};
-  uint32_t entries{0};
-
-  GPUhdi() constexpr uint32_t getFirstEntry() const noexcept { return firstEntry; }
-  GPUhdi() constexpr uint32_t getEntries() const noexcept { return entries; }
-  GPUhdi() constexpr uint32_t getEntriesBound() const noexcept { return firstEntry + entries; }
-};
 
 // Device-facing graph representation containing the surface catalog,
 // traversal order, sparse adjacency, and seed mask in one POD view.
