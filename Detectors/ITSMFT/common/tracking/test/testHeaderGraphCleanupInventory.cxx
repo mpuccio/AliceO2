@@ -114,9 +114,16 @@ std::size_t directHeaderCount(const fs::path& directory)
 BOOST_AUTO_TEST_CASE(FinalHeaderInventoryIsExact)
 {
   const auto include = trackingRoot() / "include/ITSMFTTracking";
-  BOOST_CHECK_EQUAL(directHeaderCount(include), 31U);
+  BOOST_CHECK_EQUAL(directHeaderCount(include), 32U);
   BOOST_CHECK_EQUAL(directHeaderCount(include / "detail"), 13U);
   BOOST_CHECK(fs::is_regular_file(include / "TripletFitting.h"));
+
+  const auto surfaceLayout = include / "SurfaceLayout.h";
+  BOOST_REQUIRE_MESSAGE(fs::is_regular_file(surfaceLayout), "SurfaceLayout must remain a direct public configuration header");
+  const auto layoutText = withoutComments(readFile(surfaceLayout));
+  BOOST_CHECK(layoutText.find("class SurfaceLayout") != std::string::npos);
+  BOOST_CHECK(layoutText.find("SurfaceLayoutDefinition") != std::string::npos);
+  BOOST_CHECK(layoutText.find("SurfaceGraph") == std::string::npos);
 }
 
 BOOST_AUTO_TEST_CASE(RetiredAndRelocatedPublicPathsAreAbsent)
