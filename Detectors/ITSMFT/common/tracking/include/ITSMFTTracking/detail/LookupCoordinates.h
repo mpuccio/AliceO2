@@ -52,6 +52,10 @@ GPUhdi() bool makeLookupCoordinates(const SurfaceDescriptor& surface,
     return false;
   }
   const float r = o2::gpu::GPUCommonMath::Sqrt(r2);
+  if (surface.kind == SurfaceKind::Disk &&
+      (!surface.chartRange.isValid() || r < surface.chartRange.min || r > surface.chartRange.max)) {
+    return false;
+  }
   const float inverseR = 1.f / r;
   const float inverseR2 = inverseR * inverseR;
   const float phiX = -y * inverseR2;
