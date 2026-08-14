@@ -134,7 +134,7 @@ BOOST_AUTO_TEST_CASE(TrackletAndCellEntryPointsUseOneGlobalTraversal)
 {
   const auto source = readTrackerTraitsSource();
   const std::array<std::tuple<std::string, std::string, std::string>, 2> methods{{
-    {"computeLayerTracklets", "computeLayerTrackletsImpl", "getGlobalTransitions"},
+    {"computeLayerTracklets", "computeLayerTrackletsImpl", "getGlobalLinks"},
     {"computeLayerCells", "computeLayerCellsImpl", "getGlobalCells"},
   }};
   for (const auto& [method, implementation, globalIds] : methods) {
@@ -188,12 +188,12 @@ BOOST_AUTO_TEST_CASE(RetiredTraversalOperationAdapterDoesNotReturn)
   }
 }
 
-BOOST_AUTO_TEST_CASE(TransitionPreparationUsesOneGraphSchedule)
+BOOST_AUTO_TEST_CASE(LinkPreparationUsesOneGraphSchedule)
 {
   const auto source = readTrackerSource();
   const auto code = stripLineComments(extractMethodBody(source, "initializeTraversalWorkspace", "Tracker"));
-  BOOST_CHECK(code.find("prepareTransitionScatteringAndBending") != std::string::npos);
-  BOOST_CHECK(code.find("mTransitionsByKind") == std::string::npos);
+  BOOST_CHECK(code.find("prepareLinkAngularTolerances") != std::string::npos);
+  BOOST_CHECK(code.find("mLinksByKind") == std::string::npos);
   BOOST_CHECK(code.find("mRoadStartCellsByKind") == std::string::npos);
   for (const auto token : {"ClusterSourceId", "DetID", "parametersByKind", "parametersForKind"}) {
     BOOST_CHECK_MESSAGE(!mentionsToken(code, token),
@@ -278,7 +278,7 @@ BOOST_AUTO_TEST_CASE(CellCandidateLoopHasOneDescriptorSelectedLeafBoundary)
   BOOST_CHECK_EQUAL(countOccurrences(code, "makeDirectionObservation("), 3u);
   BOOST_CHECK_EQUAL(countOccurrences(code, "trackletDirectionsAreTransverselyCompatible("), 1u);
   BOOST_CHECK_EQUAL(countOccurrences(code, "makeTransverseDirectionObservation("), 3u);
-  BOOST_CHECK_EQUAL(countOccurrences(code, "getTransitionMSAngle(secondTransitionId)"), 1u);
+  BOOST_CHECK_EQUAL(countOccurrences(code, "getLinkMSAngle(secondLinkId)"), 1u);
   BOOST_CHECK_EQUAL(countOccurrences(code, "DirectionProcessNoise"), 1u);
   BOOST_CHECK_EQUAL(countOccurrences(code, "buildCellSeed("), 1u);
   BOOST_CHECK(code.find("CellDeltaTanLambdaSigma") == std::string::npos);
@@ -352,7 +352,7 @@ BOOST_AUTO_TEST_CASE(TrackletLoopUsesOnlyCoordinateNeutralLeafFacades)
                                "CylinderTrackletSearchWindow", "DiskTrackletSearchWindow",
                                "trackletSearchBins(", "trackletSearchRowCount(", "trackletSearchRowBin(",
                                "SurfaceKind::Cylinder", "SurfaceKind::Disk",
-                               "DetID", "ClusterSourceId", "makeTransitionState"}) {
+                               "DetID", "ClusterSourceId", "makeLinkState"}) {
     BOOST_CHECK(code.find(forbidden) == std::string::npos);
   }
 }

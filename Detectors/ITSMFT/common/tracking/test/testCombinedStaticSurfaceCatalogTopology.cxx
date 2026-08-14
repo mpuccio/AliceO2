@@ -27,11 +27,11 @@
 //    addresses), proving no copy is required to view it;
 //  - built under the shared global numbering, via the SAME (unmodified)
 //    SurfaceGraphBuilder used today, each detector's own current
-//    production-shaped sparse hole/transition topology (MaxHoles=1,
+//    production-shaped sparse hole/link topology (MaxHoles=1,
 //    HoleLayerMask=1<<3 for ITS; MaxHoles=1, HoleLayerMask=1<<5 for MFT)
 //    remains isolated under each detector's ordered-surface component;
-//  - zero transitions or cells cross the ITS/MFT boundary;
-//  - CSR (transition -> cell) consistency holds;
+//  - zero links or cells cross the ITS/MFT boundary;
+//  - CSR (link -> cell) consistency holds;
 //  - no runtime component concept is introduced: the flat graph definition
 //    is built directly over the shared catalog, with no new catalog type.
 //
@@ -70,8 +70,8 @@ std::vector<SurfaceId> orderedIds(uint16_t first, uint16_t count)
 void checkCsrConsistency(const SurfaceGraphView& view)
 {
   uint32_t total = 0;
-  for (uint32_t t = 0; t < view.nTransitions; ++t) {
-    const auto range = view.getCellsStartingWithTransition(TransitionId{static_cast<uint16_t>(t)});
+  for (uint32_t t = 0; t < view.nLinks; ++t) {
+    const auto range = view.getCellsStartingWithLink(LinkId{static_cast<uint16_t>(t)});
     total += range.getEntries();
   }
   BOOST_CHECK_EQUAL(total, view.nCells);
@@ -126,8 +126,8 @@ BOOST_AUTO_TEST_CASE(SurfaceCatalogViewBorrowsTheStaticStorageWithoutCopying)
 // The central regression this test exists to establish -- the static,
 // compile-time-concatenated catalog's global-id offset, fed through the SAME
 // (unmodified) SurfaceGraphBuilder used today, reproduces each detector's
-// own current production-shaped hole/transition topology exactly, with zero
-// transitions or cells crossing the ITS/MFT boundary.
+// own current production-shaped hole/link topology exactly, with zero
+// links or cells crossing the ITS/MFT boundary.
 BOOST_AUTO_TEST_CASE(CombinedStaticCatalogPreservesCurrentTopologyWithNoBoundaryCrossing)
 {
   SurfaceMask itsHoleMask;
@@ -163,25 +163,25 @@ BOOST_AUTO_TEST_CASE(CombinedStaticCatalogPreservesCurrentTopologyWithNoBoundary
   // For each detector, the direct ordered pairs are augmented only by pairs
   // that skip its declared hole surface.  These counts are derived from the
   // supplied ordered positions, not from a layer-indexed reference graph:
-  // six adjacent plus one hole transition for ITS, and nine adjacent plus
-  // one hole transition for MFT; each component consequently contributes its
+  // six adjacent plus one hole link for ITS, and nine adjacent plus
+  // one hole link for MFT; each component consequently contributes its
   // surface count in the three-surface cell topology.
-  BOOST_CHECK_EQUAL(view.nTransitions, 17u); // 7 ITS + 10 MFT
+  BOOST_CHECK_EQUAL(view.nLinks, 17u); // 7 ITS + 10 MFT
   BOOST_CHECK_EQUAL(view.nCells, 17u);       // 7 ITS + 10 MFT
 
-  for (uint32_t t = 0; t < view.nTransitions; ++t) {
-    const auto& built = view.getTransition(TransitionId{static_cast<uint16_t>(t)});
+  for (uint32_t t = 0; t < view.nLinks; ++t) {
+    const auto& built = view.getLink(LinkId{static_cast<uint16_t>(t)});
     const bool bothCylinder = masks.first.has(built.from) && masks.first.has(built.to);
     const bool bothDisk = masks.second.has(built.from) && masks.second.has(built.to);
     BOOST_CHECK(bothCylinder || bothDisk);
   }
 
-  // No declared edge crosses the ITS/MFT boundary: every transition and
+  // No declared edge crosses the ITS/MFT boundary: every link and
   // every cell's hit-surface mask stays within one detector's global range.
-  for (uint32_t t = 0; t < view.nTransitions; ++t) {
-    const auto& transition = view.getTransition(TransitionId{static_cast<uint16_t>(t)});
-    const bool bothCylinder = masks.first.has(transition.from) && masks.first.has(transition.to);
-    const bool bothDisk = masks.second.has(transition.from) && masks.second.has(transition.to);
+  for (uint32_t t = 0; t < view.nLinks; ++t) {
+    const auto& link = view.getLink(LinkId{static_cast<uint16_t>(t)});
+    const bool bothCylinder = masks.first.has(link.from) && masks.first.has(link.to);
+    const bool bothDisk = masks.second.has(link.from) && masks.second.has(link.to);
     BOOST_CHECK(bothCylinder || bothDisk);
   }
   for (uint32_t c = 0; c < view.nCells; ++c) {

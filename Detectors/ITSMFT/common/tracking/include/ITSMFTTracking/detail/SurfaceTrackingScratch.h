@@ -112,15 +112,15 @@ class SurfaceTrackingScratch
   SurfaceTrackingScratch(SurfaceTrackingScratch&&) = delete;
   SurfaceTrackingScratch& operator=(SurfaceTrackingScratch&&) = delete;
 
-  /// Size surface, transition and cell storage; setMemoryPool() comes first.
-  void adoptPlan(std::size_t nOwnedSurfaces, std::size_t nTransitions, std::size_t nCells);
+  /// Size surface, link and cell storage; setMemoryPool() comes first.
+  void adoptPlan(std::size_t nOwnedSurfaces, std::size_t nLinks, std::size_t nCells);
   void configureTraversalWorkspaces(std::size_t nIterations);
   TraversalWorkspace& getTraversalWorkspace(std::size_t iteration) { return mTraversalWorkspaces.at(iteration); }
   const TraversalWorkspace& getTraversalWorkspace(std::size_t iteration) const { return mTraversalWorkspaces.at(iteration); }
   std::size_t getNTraversalWorkspaces() const noexcept { return mTraversalWorkspaces.size(); }
 
   std::size_t getNOwnedSurfaces() const noexcept { return mNOwnedSurfaces; }
-  std::size_t getNTransitions() const noexcept { return mNTransitions; }
+  std::size_t getNLinks() const noexcept { return mNLinks; }
   std::size_t getNCells() const noexcept { return mNCells; }
 
   /// Clear event state without changing plan sizes.
@@ -198,10 +198,10 @@ class SurfaceTrackingScratch
   float getMaxR(int layer) const { return mMaxR[layer]; }
   float getMinZ(int layer) const { return mMinZ[layer]; }
   float getMaxZ(int layer) const { return mMaxZ[layer]; }
-  float getTransitionPhiCut(int transitionId) const { return mTransitionPhiCuts[transitionId]; }
-  float getTransitionMSAngle(int transitionId) const { return mTransitionMSAngles[transitionId]; }
-  auto& getTransitionPhiCuts() { return mTransitionPhiCuts; }
-  auto& getTransitionMSAngles() { return mTransitionMSAngles; }
+  float getLinkPhiCut(int linkId) const { return mLinkPhiCuts[linkId]; }
+  float getLinkMSAngle(int linkId) const { return mLinkMSAngles[linkId]; }
+  auto& getLinkPhiCuts() { return mLinkPhiCuts; }
+  auto& getLinkMSAngles() { return mLinkMSAngles; }
   float getPositionResolution(int layer) const { return mPositionResolution[layer]; }
   auto& getPositionResolutions() { return mPositionResolution; }
 
@@ -288,12 +288,12 @@ class SurfaceTrackingScratch
 
   void initialise(const TimeFrame& frame, const TrackingParameters& trkParam, int maxLayers, int iteration,
                   const IndexTableUtilsCore& indexTableConfig, SurfaceGraphView topology,
-                  gsl::span<const TransitionId> transitionIds, gsl::span<const CellTopologyId> cellIds,
+                  gsl::span<const LinkId> linkIds, gsl::span<const CellTopologyId> cellIds,
                   gsl::span<const SurfaceId> orderedSurfaces,
                   gsl::span<const gsl::span<const GlobalMeasurement>> layerMeasurements);
   void initialise(const TimeFrame& frame, const TrackingParameters& trkParam, int maxLayers, int iteration,
                   gsl::span<const IndexTableUtilsCore> indexTableConfigs, SurfaceGraphView topology,
-                  gsl::span<const TransitionId> transitionIds, gsl::span<const CellTopologyId> cellIds,
+                  gsl::span<const LinkId> linkIds, gsl::span<const CellTopologyId> cellIds,
                   gsl::span<const SurfaceId> orderedSurfaces,
                   gsl::span<const gsl::span<const GlobalMeasurement>> layerMeasurements);
 
@@ -362,8 +362,8 @@ class SurfaceTrackingScratch
   std::vector<o2::its::bounded_vector<o2::its::Tracklet>> mTracklets;
   std::vector<o2::its::bounded_vector<int>> mTrackletsLookupTable;
   std::vector<o2::its::bounded_vector<o2::MCCompLabel>> mTrackletLabels;
-  o2::its::bounded_vector<float> mTransitionPhiCuts;
-  o2::its::bounded_vector<float> mTransitionMSAngles;
+  o2::its::bounded_vector<float> mLinkPhiCuts;
+  o2::its::bounded_vector<float> mLinkMSAngles;
   std::vector<o2::its::bounded_vector<CellSeed>> mCells;
   std::vector<o2::its::bounded_vector<int>> mCellsLookupTable;
   std::vector<o2::its::bounded_vector<int>> mCellsNeighbours;
@@ -413,7 +413,7 @@ class SurfaceTrackingScratch
   bool mUseUPC{false};
 
   std::size_t mNOwnedSurfaces{0};
-  std::size_t mNTransitions{0};
+  std::size_t mNLinks{0};
   std::size_t mNCells{0};
 };
 

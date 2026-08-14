@@ -162,9 +162,9 @@ void TrackerTraits::runTraversal(TraversalWorkspaceView view, SeedRefitFunction 
   } while (++iVertex < maxNvertices);
 }
 
-int requireScratchTransitionSlot(const TraversalWorkspaceView& context, int iteration, TransitionId id)
+int requireScratchLinkSlot(const TraversalWorkspaceView& context, int iteration, LinkId id)
 {
-  const auto slot = context.binding.getScratchTransitionSlot(id);
+  const auto slot = context.binding.getScratchLinkSlot(id);
   if (!slot) {
     throw TraversalException{iteration, TraversalFailureReason::TraversalBindingMismatch};
   }
@@ -196,25 +196,25 @@ void TrackerTraits::computeLayerTracklets(TraversalWorkspaceView& context, const
 {
   auto& scratch = context.scratch;
   auto& workspace = context.workspace;
-  const auto scratchTransitionCount = scratch.getTracklets().size();
-  for (size_t transitionId = 0; transitionId < scratchTransitionCount; ++transitionId) {
-    scratch.getTracklets()[transitionId].clear();
-    scratch.getTrackletsLabel(transitionId).clear();
-    std::fill(scratch.getTrackletsLookupTable()[transitionId].begin(), scratch.getTrackletsLookupTable()[transitionId].end(), 0);
+  const auto scratchLinkCount = scratch.getTracklets().size();
+  for (size_t linkId = 0; linkId < scratchLinkCount; ++linkId) {
+    scratch.getTracklets()[linkId].clear();
+    scratch.getTrackletsLabel(linkId).clear();
+    std::fill(scratch.getTrackletsLookupTable()[linkId].begin(), scratch.getTrackletsLookupTable()[linkId].end(), 0);
   }
 
   if (!workspace.valid) {
     throw TraversalException{iteration, TraversalFailureReason::InvalidTraversalSchedule};
   }
 
-  computeLayerTrackletsImpl(context, iteration, iVertex, context.binding.getGlobalTransitions());
+  computeLayerTrackletsImpl(context, iteration, iVertex, context.binding.getGlobalLinks());
 }
 
 void TrackerTraits::computeLayerTrackletsImpl(
   TraversalWorkspaceView& context,
   const int iteration,
   const int iVertex,
-  gsl::span<const TransitionId> transitionIds)
+  gsl::span<const LinkId> linkIds)
 {
   auto* mScratch = &context.scratch;
   const auto& mMemoryPool = mScratch->getMemoryPool();
@@ -230,14 +230,14 @@ void TrackerTraits::computeLayerTrackletsImpl(
   const Vertex diamondVert(mTrkParams[iteration].Diamond, mTrkParams[iteration].DiamondCov, 1, 1.f);
 
   mTaskArena->execute([&] {
-    auto resolveTransitionLayers = [&](int transitionId) -> std::pair<int, int> {
-      const auto& transition = topology.getTransition(TransitionId{static_cast<uint16_t>(transitionId)});
-      return {requireSurfacePosition(context, iteration, transition.from),
-              requireSurfacePosition(context, iteration, transition.to)};
+    auto resolveLinkLayers = [&](int linkId) -> std::pair<int, int> {
+      const auto& link = topology.getLink(LinkId{static_cast<uint16_t>(linkId)});
+      return {requireSurfacePosition(context, iteration, link.from),
+              requireSurfacePosition(context, iteration, link.to)};
     };
 
-    auto forTracklets = [&](auto Mode, int transitionId, int fromLayer, int toLayer, SurfaceKind kind,
-                            const TrackletProjectionCache& transitionCache, int pivotROF, int base, int& offset) -> int {
+    auto forTracklets = [&](auto Mode, int linkId, int fromLayer, int toLayer, SurfaceKind kind,
+                            const TrackletProjectionCache& linkCache, int pivotROF, int base, int& offset) -> int {
       if (!mScratch->isROFEnabled(fromLayer, pivotROF)) {
         return 0;
       }
@@ -267,7 +267,7 @@ void TrackerTraits::computeLayerTrackletsImpl(
       }
 
       int localCount = 0;
-      auto& tracklets = mScratch->getTracklets()[transitionId];
+      auto& tracklets = mScratch->getTracklets()[linkId];
       auto layer0 = mScratch->getClustersOnLayer(pivotROF, fromLayer);
       if (layer0.empty()) {
         return 0;
@@ -291,7 +291,7 @@ void TrackerTraits::computeLayerTrackletsImpl(
           }
           TrackletSearchWindow searchWindow{};
           const bool projected = projectTrackletSearchWindow(sourceMeasurement, currentCluster, pv,
-                                                             kind, transitionCache, mBz,
+                                                             kind, linkCache, mBz,
                                                              mScratch->getIndexTableUtils(toLayer),
                                                              mKernelParameters, searchWindow);
           if (!projected) {
@@ -367,53 +367,53 @@ void TrackerTraits::computeLayerTrackletsImpl(
 
     int dummy{0};
     if (mTaskArena->max_concurrency() <= 1) {
-      for (const auto typedTransitionId : transitionIds) {
-        const int transitionId = typedTransitionId.value();
-        const int scratchTransitionId = requireScratchTransitionSlot(context, iteration, typedTransitionId);
-        const auto [fromLayer, toLayer] = resolveTransitionLayers(transitionId);
-        const auto kind = topology.getSurface(topology.getTransition(typedTransitionId).from).kind;
-        TrackletProjectionCache transitionCache{};
+      for (const auto typedLinkId : linkIds) {
+        const int linkId = typedLinkId.value();
+        const int scratchLinkId = requireScratchLinkSlot(context, iteration, typedLinkId);
+        const auto [fromLayer, toLayer] = resolveLinkLayers(linkId);
+        const auto kind = topology.getSurface(topology.getLink(typedLinkId).from).kind;
+        TrackletProjectionCache linkCache{};
         const auto layerRadii = gsl::span<const float>{mTrkParams[iteration].LayerRadii.data(),
                                                        mTrkParams[iteration].LayerRadii.size()};
         if (!bindTrackletProjectionCache(fromLayer, toLayer, layerRadii, mDiskLayerReferenceZ,
                                          mScratch->getMinR(toLayer), mScratch->getMaxR(toLayer),
                                          mScratch->getMinZ(toLayer), mScratch->getMaxZ(toLayer),
                                          mScratch->getPositionResolution(fromLayer),
-                                         mScratch->getTransitionMSAngle(scratchTransitionId),
-                                         mScratch->getTransitionPhiCut(scratchTransitionId), transitionCache)) {
+                                         mScratch->getLinkMSAngle(scratchLinkId),
+                                         mScratch->getLinkPhiCut(scratchLinkId), linkCache)) {
           throw TraversalException{iteration, TraversalFailureReason::InvalidSurfaceParameters};
         }
         const int startROF = 0, endROF = mScratch->getROFTiming(fromLayer).mNROFsTF;
         for (int pivotROF{startROF}; pivotROF < endROF; ++pivotROF) {
-          forTracklets(PassMode::OnePass{}, scratchTransitionId, fromLayer, toLayer, kind, transitionCache, pivotROF, 0, dummy);
+          forTracklets(PassMode::OnePass{}, scratchLinkId, fromLayer, toLayer, kind, linkCache, pivotROF, 0, dummy);
         }
       }
     } else {
-      tbb::parallel_for(0, static_cast<int>(transitionIds.size()), [&](const int transitionIndex) {
-        const auto typedTransitionId = transitionIds[transitionIndex];
-        const int transitionId = typedTransitionId.value();
-        const int scratchTransitionId = requireScratchTransitionSlot(context, iteration, typedTransitionId);
-        const auto [fromLayer, toLayer] = resolveTransitionLayers(transitionId);
-        const auto kind = topology.getSurface(topology.getTransition(typedTransitionId).from).kind;
-        TrackletProjectionCache transitionCache{};
+      tbb::parallel_for(0, static_cast<int>(linkIds.size()), [&](const int linkIndex) {
+        const auto typedLinkId = linkIds[linkIndex];
+        const int linkId = typedLinkId.value();
+        const int scratchLinkId = requireScratchLinkSlot(context, iteration, typedLinkId);
+        const auto [fromLayer, toLayer] = resolveLinkLayers(linkId);
+        const auto kind = topology.getSurface(topology.getLink(typedLinkId).from).kind;
+        TrackletProjectionCache linkCache{};
         const auto layerRadii = gsl::span<const float>{mTrkParams[iteration].LayerRadii.data(),
                                                        mTrkParams[iteration].LayerRadii.size()};
         if (!bindTrackletProjectionCache(fromLayer, toLayer, layerRadii, mDiskLayerReferenceZ,
                                          mScratch->getMinR(toLayer), mScratch->getMaxR(toLayer),
                                          mScratch->getMinZ(toLayer), mScratch->getMaxZ(toLayer),
                                          mScratch->getPositionResolution(fromLayer),
-                                         mScratch->getTransitionMSAngle(scratchTransitionId),
-                                         mScratch->getTransitionPhiCut(scratchTransitionId), transitionCache)) {
+                                         mScratch->getLinkMSAngle(scratchLinkId),
+                                         mScratch->getLinkPhiCut(scratchLinkId), linkCache)) {
           throw TraversalException{iteration, TraversalFailureReason::InvalidSurfaceParameters};
         }
         const int startROF = 0, endROF = mScratch->getROFTiming(fromLayer).mNROFsTF;
         bounded_vector<int> perROFCount((endROF - startROF) + 1, mMemoryPool.get());
         tbb::parallel_for(startROF, endROF, [&](const int pivotROF) {
-          perROFCount[pivotROF - startROF] = forTracklets(PassMode::TwoPassCount{}, scratchTransitionId, fromLayer, toLayer, kind, transitionCache, pivotROF, 0, dummy);
+          perROFCount[pivotROF - startROF] = forTracklets(PassMode::TwoPassCount{}, scratchLinkId, fromLayer, toLayer, kind, linkCache, pivotROF, 0, dummy);
         });
         std::exclusive_scan(perROFCount.begin(), perROFCount.end(), perROFCount.begin(), 0);
         const int nTracklets = perROFCount.back();
-        mScratch->getTracklets()[scratchTransitionId].resize(nTracklets);
+        mScratch->getTracklets()[scratchLinkId].resize(nTracklets);
         if (nTracklets == 0) {
           return;
         }
@@ -423,20 +423,20 @@ void TrackerTraits::computeLayerTrackletsImpl(
             return;
           }
           int localIdx = 0;
-          forTracklets(PassMode::TwoPassInsert{}, scratchTransitionId, fromLayer, toLayer, kind, transitionCache, pivotROF, baseIdx, localIdx);
+          forTracklets(PassMode::TwoPassInsert{}, scratchLinkId, fromLayer, toLayer, kind, linkCache, pivotROF, baseIdx, localIdx);
         });
       });
     }
 
-    tbb::parallel_for(0, static_cast<int>(transitionIds.size()), [&](const int transitionIndex) {
-      const int scratchTransitionId = requireScratchTransitionSlot(context, iteration, transitionIds[transitionIndex]);
+    tbb::parallel_for(0, static_cast<int>(linkIds.size()), [&](const int linkIndex) {
+      const int scratchLinkId = requireScratchLinkSlot(context, iteration, linkIds[linkIndex]);
       /// Sort tracklets & remove duplicates
       // duplicates can exist simply since we evaluate per vertex
-      auto& trkl{mScratch->getTracklets()[scratchTransitionId]};
+      auto& trkl{mScratch->getTracklets()[scratchLinkId]};
       std::sort(trkl.begin(), trkl.end());
       trkl.erase(std::unique(trkl.begin(), trkl.end()), trkl.end());
       trkl.shrink_to_fit();
-      auto& lut{mScratch->getTrackletsLookupTable()[scratchTransitionId]};
+      auto& lut{mScratch->getTrackletsLookupTable()[scratchLinkId]};
       if (!trkl.empty()) {
         for (const auto& tkl : trkl) {
           lut[tkl.firstClusterIndex + 1]++;
@@ -447,12 +447,12 @@ void TrackerTraits::computeLayerTrackletsImpl(
 
     /// Create tracklets labels
     if (mScratch->hasMCinformation() && mTrkParams[iteration].CreateArtefactLabels) {
-      tbb::parallel_for(0, static_cast<int>(transitionIds.size()), [&](const int transitionIndex) {
-        const auto typedTransitionId = transitionIds[transitionIndex];
-        const int transitionId = typedTransitionId.value();
-        const int scratchTransitionId = requireScratchTransitionSlot(context, iteration, typedTransitionId);
-        const auto [fromLayer, toLayer] = resolveTransitionLayers(transitionId);
-        for (auto& trk : mScratch->getTracklets()[scratchTransitionId]) {
+      tbb::parallel_for(0, static_cast<int>(linkIds.size()), [&](const int linkIndex) {
+        const auto typedLinkId = linkIds[linkIndex];
+        const int linkId = typedLinkId.value();
+        const int scratchLinkId = requireScratchLinkSlot(context, iteration, typedLinkId);
+        const auto [fromLayer, toLayer] = resolveLinkLayers(linkId);
+        for (auto& trk : mScratch->getTracklets()[scratchLinkId]) {
           MCCompLabel label;
           int currentId{mScratch->getClusters()[fromLayer][trk.firstClusterIndex].clusterId};
           int nextId{mScratch->getClusters()[toLayer][trk.secondClusterIndex].clusterId};
@@ -467,7 +467,7 @@ void TrackerTraits::computeLayerTrackletsImpl(
               break;
             }
           }
-          mScratch->getTrackletsLabel(scratchTransitionId).emplace_back(label);
+          mScratch->getTrackletsLabel(scratchLinkId).emplace_back(label);
         }
       });
     }
@@ -499,10 +499,10 @@ void TrackerTraits::computeLayerCells(TraversalWorkspaceView& context, const int
 
   computeLayerCellsImpl(context, iteration, context.binding.getGlobalCells());
 
-  const auto scratchTransitionCount = scratch.getTracklets().size();
-  for (size_t transitionId = 0; transitionId < scratchTransitionCount; ++transitionId) {
-    deepVectorClear(scratch.getTracklets()[transitionId]);
-    deepVectorClear(scratch.getTrackletsLabel(transitionId));
+  const auto scratchLinkCount = scratch.getTracklets().size();
+  for (size_t linkId = 0; linkId < scratchLinkCount; ++linkId) {
+    deepVectorClear(scratch.getTracklets()[linkId]);
+    deepVectorClear(scratch.getTrackletsLabel(linkId));
   }
 }
 
@@ -531,9 +531,9 @@ void TrackerTraits::computeLayerCellsImpl(
     };
 
     auto resolveCellHitBinding = [&](const auto& cellTopology) -> CellHitBinding {
-      const auto& firstTransition = topology.getTransition(cellTopology.firstTransition);
-      const auto& secondTransition = topology.getTransition(cellTopology.secondTransition);
-      const std::array<SurfaceId, 3> surfaces{firstTransition.from, firstTransition.to, secondTransition.to};
+      const auto& firstLink = topology.getLink(cellTopology.firstLink);
+      const auto& secondLink = topology.getLink(cellTopology.secondLink);
+      const std::array<SurfaceId, 3> surfaces{firstLink.from, firstLink.to, secondLink.to};
       CellHitBinding binding;
       for (int i = 0; i < 3; ++i) {
         const auto surfaceId = surfaces[i];
@@ -543,15 +543,15 @@ void TrackerTraits::computeLayerCellsImpl(
       return binding;
     };
 
-    auto forTrackletCells = [&](auto Mode, SurfaceKind kind, int firstTransitionId, int secondTransitionId, const CellHitBinding& hitBinding, bounded_vector<CellSeed>& layerCells, int iTracklet, int offset = 0) -> int {
+    auto forTrackletCells = [&](auto Mode, SurfaceKind kind, int firstLinkId, int secondLinkId, const CellHitBinding& hitBinding, bounded_vector<CellSeed>& layerCells, int iTracklet, int offset = 0) -> int {
       const auto& hitLayers = hitBinding.layers;
-      const o2::its::Tracklet& currentTracklet{mScratch->getTracklets()[firstTransitionId][iTracklet]};
+      const o2::its::Tracklet& currentTracklet{mScratch->getTracklets()[firstLinkId][iTracklet]};
       const int nextLayerClusterIndex{currentTracklet.secondClusterIndex};
-      const int nextLayerFirstTrackletIndex{mScratch->getTrackletsLookupTable()[secondTransitionId][nextLayerClusterIndex]};
-      const int nextLayerLastTrackletIndex{mScratch->getTrackletsLookupTable()[secondTransitionId][nextLayerClusterIndex + 1]};
+      const int nextLayerFirstTrackletIndex{mScratch->getTrackletsLookupTable()[secondLinkId][nextLayerClusterIndex]};
+      const int nextLayerLastTrackletIndex{mScratch->getTrackletsLookupTable()[secondLinkId][nextLayerClusterIndex + 1]};
       int foundCells{0};
       for (int iNextTracklet{nextLayerFirstTrackletIndex}; iNextTracklet < nextLayerLastTrackletIndex; ++iNextTracklet) {
-        const o2::its::Tracklet& nextTracklet{mScratch->getTracklets()[secondTransitionId][iNextTracklet]};
+        const o2::its::Tracklet& nextTracklet{mScratch->getTracklets()[secondLinkId][iNextTracklet]};
         if (nextTracklet.firstClusterIndex != nextLayerClusterIndex) {
           break;
         }
@@ -571,8 +571,8 @@ void TrackerTraits::computeLayerCellsImpl(
         const auto& globalInner = mLayerGlobalMeasurements[hitLayers[0]][clusId[0]];
         const auto& globalMiddle = mLayerGlobalMeasurements[hitLayers[1]][clusId[1]];
         const auto& globalOuter = mLayerGlobalMeasurements[hitLayers[2]][clusId[2]];
-        const double transitionMSAngle = static_cast<double>(mScratch->getTransitionMSAngle(secondTransitionId));
-        const DirectionProcessNoise directionProcessNoise{transitionMSAngle * transitionMSAngle};
+        const double linkMSAngle = static_cast<double>(mScratch->getLinkMSAngle(secondLinkId));
+        const DirectionProcessNoise directionProcessNoise{linkMSAngle * linkMSAngle};
         std::array<TransverseDirectionObservation, 3> transverseObservations{};
         if (!makeTransverseDirectionObservation(globalInner, transverseObservations[0]) ||
             !makeTransverseDirectionObservation(globalMiddle, transverseObservations[1]) ||
@@ -650,26 +650,26 @@ void TrackerTraits::computeLayerCellsImpl(
     for (const auto typedCellId : cellIds) {
       const int cellTopologyId = requireScratchCellSlot(context, iteration, typedCellId);
       const auto& cellTopology = topology.getCell(typedCellId);
-      const auto kind = topology.getSurface(topology.getTransition(cellTopology.firstTransition).from).kind;
-      const int firstTransitionId = requireScratchTransitionSlot(context, iteration, cellTopology.firstTransition);
-      const int secondTransitionId = requireScratchTransitionSlot(context, iteration, cellTopology.secondTransition);
-      if (mScratch->getTracklets()[firstTransitionId].empty() ||
-          mScratch->getTracklets()[secondTransitionId].empty()) {
+      const auto kind = topology.getSurface(topology.getLink(cellTopology.firstLink).from).kind;
+      const int firstLinkId = requireScratchLinkSlot(context, iteration, cellTopology.firstLink);
+      const int secondLinkId = requireScratchLinkSlot(context, iteration, cellTopology.secondLink);
+      if (mScratch->getTracklets()[firstLinkId].empty() ||
+          mScratch->getTracklets()[secondLinkId].empty()) {
         continue;
       }
       const auto hitBinding = resolveCellHitBinding(cellTopology);
 
       auto& layerCells = mScratch->getCells()[cellTopologyId];
-      const int currentLayerTrackletsNum{static_cast<int>(mScratch->getTracklets()[firstTransitionId].size())};
+      const int currentLayerTrackletsNum{static_cast<int>(mScratch->getTracklets()[firstLinkId].size())};
       bounded_vector<int> perTrackletCount(currentLayerTrackletsNum + 1, 0, mMemoryPool.get());
       if (mTaskArena->max_concurrency() <= 1) {
         for (int iTracklet{0}; iTracklet < currentLayerTrackletsNum; ++iTracklet) {
-          perTrackletCount[iTracklet] = forTrackletCells(PassMode::OnePass{}, kind, firstTransitionId, secondTransitionId, hitBinding, layerCells, iTracklet);
+          perTrackletCount[iTracklet] = forTrackletCells(PassMode::OnePass{}, kind, firstLinkId, secondLinkId, hitBinding, layerCells, iTracklet);
         }
         std::exclusive_scan(perTrackletCount.begin(), perTrackletCount.end(), perTrackletCount.begin(), 0);
       } else {
         tbb::parallel_for(0, currentLayerTrackletsNum, [&](const int iTracklet) {
-          perTrackletCount[iTracklet] = forTrackletCells(PassMode::TwoPassCount{}, kind, firstTransitionId, secondTransitionId, hitBinding, layerCells, iTracklet);
+          perTrackletCount[iTracklet] = forTrackletCells(PassMode::TwoPassCount{}, kind, firstLinkId, secondLinkId, hitBinding, layerCells, iTracklet);
         });
 
         std::exclusive_scan(perTrackletCount.begin(), perTrackletCount.end(), perTrackletCount.begin(), 0);
@@ -687,7 +687,7 @@ void TrackerTraits::computeLayerCellsImpl(
           if (offset == perTrackletCount[iTracklet + 1]) {
             return;
           }
-          forTrackletCells(PassMode::TwoPassInsert{}, kind, firstTransitionId, secondTransitionId, hitBinding, layerCells, iTracklet, offset);
+          forTrackletCells(PassMode::TwoPassInsert{}, kind, firstLinkId, secondLinkId, hitBinding, layerCells, iTracklet, offset);
         });
       }
 
@@ -699,8 +699,8 @@ void TrackerTraits::computeLayerCellsImpl(
         auto& labels = mScratch->getCellsLabel(cellTopologyId);
         labels.reserve(layerCells.size());
         for (const auto& cell : layerCells) {
-          MCCompLabel currentLab{mScratch->getTrackletsLabel(firstTransitionId)[cell.getFirstTrackletIndex()]};
-          MCCompLabel nextLab{mScratch->getTrackletsLabel(secondTransitionId)[cell.getSecondTrackletIndex()]};
+          MCCompLabel currentLab{mScratch->getTrackletsLabel(firstLinkId)[cell.getFirstTrackletIndex()]};
+          MCCompLabel nextLab{mScratch->getTrackletsLabel(secondLinkId)[cell.getSecondTrackletIndex()]};
           labels.emplace_back(currentLab == nextLab ? currentLab : MCCompLabel());
         }
       }
@@ -762,13 +762,13 @@ void TrackerTraits::findCellsNeighboursForSchedule(
         throw TraversalException{iteration, TraversalFailureReason::SparseTopologyMismatch};
       }
       const auto& cellTopology = topology.getCell(scheduledId);
-      const int currentProcessTransition = requireScratchTransitionSlot(context, iteration, cellTopology.secondTransition);
-      const double currentMSAngle = mScratch->getTransitionMSAngle(currentProcessTransition);
+      const int currentProcessLink = requireScratchLinkSlot(context, iteration, cellTopology.secondLink);
+      const double currentMSAngle = mScratch->getLinkMSAngle(currentProcessLink);
       const double currentAngularVariance = currentMSAngle * currentMSAngle;
       if (mScratch->getCells()[cellTopologyId].empty()) {
         continue;
       }
-      const auto successors = topology.getCellsStartingWithTransition(cellTopology.secondTransition);
+      const auto successors = topology.getCellsStartingWithLink(cellTopology.secondLink);
       if (!successors.getEntries()) {
         continue;
       }
@@ -781,11 +781,11 @@ void TrackerTraits::findCellsNeighboursForSchedule(
         for (uint32_t iSuccessor = 0; iSuccessor < successors.getEntries(); ++iSuccessor) {
           // Translate dynamically discovered neighbours from the global CSR
           // topology before accessing scratch.
-          const auto nextTopologyId = topology.cellsByFirstTransition[successors.getFirstEntry() + iSuccessor];
+          const auto nextTopologyId = topology.cellsByFirstLink[successors.getFirstEntry() + iSuccessor];
           const int nextCellTopologyId = requireScratchCellSlot(context, iteration, nextTopologyId);
           const auto& nextCellTopology = topology.getCell(nextTopologyId);
-          const int nextProcessTransition = requireScratchTransitionSlot(context, iteration, nextCellTopology.secondTransition);
-          const double nextMSAngle = mScratch->getTransitionMSAngle(nextProcessTransition);
+          const int nextProcessLink = requireScratchLinkSlot(context, iteration, nextCellTopology.secondLink);
+          const double nextMSAngle = mScratch->getLinkMSAngle(nextProcessLink);
           const double nextAngularVariance = nextMSAngle * nextMSAngle;
           if (static_cast<size_t>(nextCellTopologyId) >= mScratch->getCells().size() ||
               static_cast<size_t>(nextCellTopologyId) >= mScratch->getCellsLookupTable().size()) {

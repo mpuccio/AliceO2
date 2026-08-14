@@ -132,7 +132,7 @@ BOOST_AUTO_TEST_CASE(nonidentity_surface_order_builds_the_expected_binding)
   const auto binding = SurfacePlanBinding::build(graph.getView(), owned, ordered);
   BOOST_REQUIRE(binding.ok());
   BOOST_CHECK_EQUAL(binding.binding->getOwnedSurfaces().count(), 7);
-  BOOST_CHECK(std::is_sorted(binding.binding->getGlobalTransitions().begin(), binding.binding->getGlobalTransitions().end()));
+  BOOST_CHECK(std::is_sorted(binding.binding->getGlobalLinks().begin(), binding.binding->getGlobalLinks().end()));
   BOOST_CHECK(!binding.binding->getGlobalRoadStartCells().empty());
 }
 
@@ -155,7 +155,7 @@ BOOST_AUTO_TEST_CASE(traversal_configuration_allocates_one_workspace_per_iterati
   BOOST_CHECK(!workspace.getTraversalWorkspace(0).valid);
   BOOST_CHECK(!workspace.getTraversalWorkspace(1).valid);
   BOOST_CHECK_NE(&workspace.getTraversalWorkspace(0), &workspace.getTraversalWorkspace(1));
-  BOOST_CHECK_NE(frame.getGraph(0).getView().nTransitions, frame.getGraph(1).getView().nTransitions);
+  BOOST_CHECK_NE(frame.getGraph(0).getView().nLinks, frame.getGraph(1).getView().nLinks);
 }
 
 BOOST_AUTO_TEST_CASE(configuration_retains_the_selected_binding)
@@ -190,9 +190,9 @@ BOOST_AUTO_TEST_CASE(empty_road_start_is_represented_by_the_binding)
 BOOST_AUTO_TEST_CASE(surface_plan_binding_rejects_cycles_and_accepts_disconnected_kinds)
 {
   SurfaceGraph cycle{3};
-  BOOST_REQUIRE(cycle.addTransition({SurfaceId{0}, SurfaceId{1}, {}, 0}).isValid());
-  BOOST_REQUIRE(cycle.addTransition({SurfaceId{1}, SurfaceId{2}, {}, 0}).isValid());
-  BOOST_REQUIRE(cycle.addTransition({SurfaceId{2}, SurfaceId{0}, {}, 0}).isValid());
+  BOOST_REQUIRE(cycle.addLink({SurfaceId{0}, SurfaceId{1}, {}, 0}).isValid());
+  BOOST_REQUIRE(cycle.addLink({SurfaceId{1}, SurfaceId{2}, {}, 0}).isValid());
+  BOOST_REQUIRE(cycle.addLink({SurfaceId{2}, SurfaceId{0}, {}, 0}).isValid());
   BOOST_REQUIRE(cycle.finalize());
   const auto disk = catalog(3, SurfaceKind::Disk, o2::detectors::DetID::MFT);
   SurfaceGraph cyclicGraph{disk, std::move(cycle)};

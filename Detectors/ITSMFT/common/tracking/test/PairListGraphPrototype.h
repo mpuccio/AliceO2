@@ -55,20 +55,20 @@ enum class PairListGraphError : uint8_t {
 };
 
 struct PairListComponentSequences {
-  std::vector<TransitionId> transitions;
+  std::vector<LinkId> links;
   std::vector<CellTopologyId> cells;
   std::vector<CellTopologyId> scheduledCells;
   std::vector<CellTopologyId> roadStartCells;
 };
 
 struct PairListGraph {
-  std::vector<SurfaceTransition> transitions;
+  std::vector<SurfaceLink> links;
   // Kept separately to make skipped-surface witnesses an explicit parity
-  // output, even though each witness is also in SurfaceTransition.
+  // output, even though each witness is also in SurfaceLink.
   std::vector<SurfaceMask> skippedWitnesses;
   std::vector<SurfaceCellTopology> cells;
-  std::vector<uint32_t> cellsByFirstTransitionOffsets;
-  std::vector<CellTopologyId> cellsByFirstTransition;
+  std::vector<uint32_t> cellsByFirstLinkOffsets;
+  std::vector<CellTopologyId> cellsByFirstLink;
   std::vector<CellTopologyId> scheduledCells;
   std::vector<CellTopologyId> roadStartCells;
   std::vector<PairListComponentSequences> components;
@@ -139,12 +139,12 @@ inline PairListGraphBuildResult derivePairListGraph(const PairListGraphInput& in
     return result;
   }
 
-  struct TransitionInfo {
+  struct LinkInfo {
     size_t component{0};
     uint16_t fromRank{0};
     uint16_t toRank{0};
   };
-  std::vector<TransitionInfo> transitionInfo;
+  std::vector<LinkInfo> linkInfo;
   for (size_t componentIndex = 0; componentIndex < input.components.size(); ++componentIndex) {
     const auto& component = input.components[componentIndex];
     for (uint16_t fromRank = 0; fromRank + 1 < component.activeSurfaces.size(); ++fromRank) {
@@ -162,12 +162,12 @@ inline PairListGraphBuildResult derivePairListGraph(const PairListGraphInput& in
             !skipped.isSubsetOf(componentHoleMasks[componentIndex])) {
           continue;
         }
-        graph.transitions.push_back(SurfaceTransition{component.activeSurfaces[fromRank],
+        graph.links.push_back(SurfaceLink{component.activeSurfaces[fromRank],
                                                       component.activeSurfaces[toRank], skipped, 0});
         graph.skippedWitnesses.push_back(skipped);
-        graph.components[componentIndex].transitions.push_back(
-          TransitionId{static_cast<uint16_t>(graph.transitions.size() - 1)});
-        transitionInfo.push_back(TransitionInfo{componentIndex, fromRank, toRank});
+        graph.components[componentIndex].links.push_back(
+          LinkId{static_cast<uint16_t>(graph.links.size() - 1)});
+        linkInfo.push_back(LinkInfo{componentIndex, fromRank, toRank});
       }
     }
   }
@@ -177,46 +177,46 @@ inline PairListGraphBuildResult derivePairListGraph(const PairListGraphInput& in
     uint16_t targetRank{0};
   };
   std::vector<CellInfo> cellInfo;
-  for (size_t first = 0; first < graph.transitions.size(); ++first) {
-    for (size_t second = 0; second < graph.transitions.size(); ++second) {
-      const auto& firstTransition = graph.transitions[first];
-      const auto& secondTransition = graph.transitions[second];
-      if (firstTransition.to != secondTransition.from ||
-          (firstTransition.skippedSurfaces | secondTransition.skippedSurfaces).count() >
+  for (size_t first = 0; first < graph.links.size(); ++first) {
+    for (size_t second = 0; second < graph.links.size(); ++second) {
+      const auto& firstLink = graph.links[first];
+      const auto& secondLink = graph.links[second];
+      if (firstLink.to != secondLink.from ||
+          (firstLink.skippedSurfaces | secondLink.skippedSurfaces).count() >
             input.holePolicy.maxSkipped) {
         continue;
       }
-      const auto componentIndex = transitionInfo[first].component;
-      if (componentIndex != transitionInfo[second].component || firstTransition.from == secondTransition.to) {
+      const auto componentIndex = linkInfo[first].component;
+      if (componentIndex != linkInfo[second].component || firstLink.from == secondLink.to) {
         continue;
       }
       const auto id = CellTopologyId{static_cast<uint16_t>(graph.cells.size())};
       SurfaceMask hits;
-      hits.set(firstTransition.from);
-      hits.set(firstTransition.to);
-      hits.set(secondTransition.to);
-      graph.cells.push_back(SurfaceCellTopology{TransitionId{static_cast<uint16_t>(first)},
-                                                TransitionId{static_cast<uint16_t>(second)}, hits});
-      cellInfo.push_back(CellInfo{componentIndex, transitionInfo[second].toRank});
+      hits.set(firstLink.from);
+      hits.set(firstLink.to);
+      hits.set(secondLink.to);
+      graph.cells.push_back(SurfaceCellTopology{LinkId{static_cast<uint16_t>(first)},
+                                                LinkId{static_cast<uint16_t>(second)}, hits});
+      cellInfo.push_back(CellInfo{componentIndex, linkInfo[second].toRank});
       graph.components[componentIndex].cells.push_back(id);
-      if (componentSeedingMasks[componentIndex].has(secondTransition.to)) {
+      if (componentSeedingMasks[componentIndex].has(secondLink.to)) {
         graph.roadStartCells.push_back(id);
         graph.components[componentIndex].roadStartCells.push_back(id);
       }
     }
   }
 
-  graph.cellsByFirstTransitionOffsets.assign(graph.transitions.size() + 1, 0);
+  graph.cellsByFirstLinkOffsets.assign(graph.links.size() + 1, 0);
   for (const auto& cell : graph.cells) {
-    ++graph.cellsByFirstTransitionOffsets[cell.firstTransition.value() + 1];
+    ++graph.cellsByFirstLinkOffsets[cell.firstLink.value() + 1];
   }
-  for (size_t i = 1; i < graph.cellsByFirstTransitionOffsets.size(); ++i) {
-    graph.cellsByFirstTransitionOffsets[i] += graph.cellsByFirstTransitionOffsets[i - 1];
+  for (size_t i = 1; i < graph.cellsByFirstLinkOffsets.size(); ++i) {
+    graph.cellsByFirstLinkOffsets[i] += graph.cellsByFirstLinkOffsets[i - 1];
   }
-  graph.cellsByFirstTransition.resize(graph.cells.size());
-  auto cursor = graph.cellsByFirstTransitionOffsets;
+  graph.cellsByFirstLink.resize(graph.cells.size());
+  auto cursor = graph.cellsByFirstLinkOffsets;
   for (size_t id = 0; id < graph.cells.size(); ++id) {
-    graph.cellsByFirstTransition[cursor[graph.cells[id].firstTransition.value()]++] = CellTopologyId{static_cast<uint16_t>(id)};
+    graph.cellsByFirstLink[cursor[graph.cells[id].firstLink.value()]++] = CellTopologyId{static_cast<uint16_t>(id)};
   }
 
   std::vector<CellTopologyId> sorted;

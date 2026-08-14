@@ -177,14 +177,14 @@ bool TimeFrame::commitConfiguration(std::vector<SurfaceGraph>&& graphs,
   TrackingWorkspaceCapacity capacity{};
   for (const auto& iterationCapacity : capacities) {
     capacity.ownedSurfaces = std::max(capacity.ownedSurfaces, iterationCapacity.ownedSurfaces);
-    capacity.transitions = std::max(capacity.transitions, iterationCapacity.transitions);
+    capacity.links = std::max(capacity.links, iterationCapacity.links);
     capacity.cells = std::max(capacity.cells, iterationCapacity.cells);
   }
   std::unique_ptr<SurfaceTrackingScratch, WorkspaceDeleter> workspace;
   try {
     workspace.reset(new SurfaceTrackingScratch);
     workspace->setMemoryPool(memoryPool);
-    workspace->adoptPlan(capacity.ownedSurfaces, capacity.transitions, capacity.cells);
+    workspace->adoptPlan(capacity.ownedSurfaces, capacity.links, capacity.cells);
     workspace->configureTraversalWorkspaces(parameters.size());
   } catch (const std::exception&) {
     return false;

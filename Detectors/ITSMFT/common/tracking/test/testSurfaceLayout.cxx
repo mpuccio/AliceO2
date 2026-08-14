@@ -16,9 +16,9 @@ namespace
 {
 using namespace o2::itsmft::tracking;
 
-SurfaceTransition adjacent(uint16_t from, uint16_t to)
+SurfaceLink adjacent(uint16_t from, uint16_t to)
 {
-  return SurfaceTransition{SurfaceId{from}, SurfaceId{to}, SurfaceMask{}, 0};
+  return SurfaceLink{SurfaceId{from}, SurfaceId{to}, SurfaceMask{}, 0};
 }
 
 SurfaceDescriptor surface(uint16_t id, SurfaceKind kind)
@@ -46,12 +46,12 @@ BOOST_AUTO_TEST_CASE(SurfaceMaskCoversThirtyTwoGlobalSurfaces)
   BOOST_CHECK_EQUAL(mask.value(), (uint32_t{1} | (uint32_t{1} << 31)));
 }
 
-BOOST_AUTO_TEST_CASE(ParallelTransitionsAreRejected)
+BOOST_AUTO_TEST_CASE(ParallelLinksAreRejected)
 {
   SurfaceGraph topology{3};
-  BOOST_CHECK(topology.addTransition(adjacent(0, 1)).isValid());
-  BOOST_CHECK(!topology.addTransition(adjacent(0, 1)).isValid());
-  BOOST_CHECK(topology.getTopologyError() == SurfaceGraphTopologyError::DuplicateTransition);
+  BOOST_CHECK(topology.addLink(adjacent(0, 1)).isValid());
+  BOOST_CHECK(!topology.addLink(adjacent(0, 1)).isValid());
+  BOOST_CHECK(topology.getTopologyError() == SurfaceGraphTopologyError::DuplicateLink);
   BOOST_CHECK(!topology.finalize());
 }
 
@@ -72,8 +72,8 @@ BOOST_AUTO_TEST_CASE(LayoutLimitsAndNonContiguousIdsAreValidated)
 BOOST_AUTO_TEST_CASE(CellCannotReturnToItsFirstSurface)
 {
   SurfaceGraph topology{2};
-  const auto outward = topology.addTransition(adjacent(0, 1));
-  const auto returning = topology.addTransition(adjacent(1, 0));
+  const auto outward = topology.addLink(adjacent(0, 1));
+  const auto returning = topology.addLink(adjacent(1, 0));
   BOOST_REQUIRE(outward.isValid());
   BOOST_REQUIRE(returning.isValid());
 
@@ -81,20 +81,20 @@ BOOST_AUTO_TEST_CASE(CellCannotReturnToItsFirstSurface)
   BOOST_CHECK(topology.getTopologyError() == SurfaceGraphTopologyError::RepeatedSurface);
 }
 
-BOOST_AUTO_TEST_CASE(CellCannotConnectTransitionsOfDifferentSurfaceKinds)
+BOOST_AUTO_TEST_CASE(CellCannotConnectLinksOfDifferentSurfaceKinds)
 {
-  // SurfaceTransition carries its endpoint kinds directly
+  // SurfaceLink carries its endpoint kinds directly
   // tag a caller could set inconsistently with the endpoint surfaces, so a
   // "mixed kind" cell is no longer even expressible at this layer -- a
-  // cell's own precondition (firstTransition.to == secondTransition.from,
-  // DisconnectedTransitions below) already forces both transitions to share
+  // cell's own precondition (firstLink.to == secondLink.from,
+  // DisconnectedLinks below) already forces both links to share
   // the same pivot SurfaceId, and therefore the same SurfaceDescriptor::kind,
   // at the layout layer that actually owns the surface catalog. This proves
   // that structural guarantee still holds for two same-family chains sharing
   // a pivot surface.
   SurfaceGraph topology{3};
-  const auto first = topology.addTransition(adjacent(0, 1));
-  const auto second = topology.addTransition(adjacent(1, 2));
+  const auto first = topology.addLink(adjacent(0, 1));
+  const auto second = topology.addLink(adjacent(1, 2));
   BOOST_REQUIRE(first.isValid());
   BOOST_REQUIRE(second.isValid());
   BOOST_CHECK(topology.addCell(first, second).isValid());
@@ -103,49 +103,49 @@ BOOST_AUTO_TEST_CASE(CellCannotConnectTransitionsOfDifferentSurfaceKinds)
 BOOST_AUTO_TEST_CASE(DisconnectedCombinedTopologyIsSparse)
 {
   SurfaceGraph topology{17};
-  std::vector<TransitionId> transitions;
+  std::vector<LinkId> links;
 
   for (uint16_t surface = 0; surface < 6; ++surface) {
-    transitions.push_back(topology.addTransition(adjacent(surface, surface + 1)));
+    links.push_back(topology.addLink(adjacent(surface, surface + 1)));
   }
   for (uint16_t surface = 7; surface < 16; ++surface) {
-    transitions.push_back(topology.addTransition(adjacent(surface, surface + 1)));
+    links.push_back(topology.addLink(adjacent(surface, surface + 1)));
   }
-  BOOST_REQUIRE_EQUAL(transitions.size(), 15u);
+  BOOST_REQUIRE_EQUAL(links.size(), 15u);
 
-  for (uint16_t transition = 0; transition < 5; ++transition) {
-    BOOST_REQUIRE(topology.addCell(transitions[transition], transitions[transition + 1]).isValid());
+  for (uint16_t link = 0; link < 5; ++link) {
+    BOOST_REQUIRE(topology.addCell(links[link], links[link + 1]).isValid());
   }
-  for (uint16_t transition = 6; transition < 14; ++transition) {
-    BOOST_REQUIRE(topology.addCell(transitions[transition], transitions[transition + 1]).isValid());
+  for (uint16_t link = 6; link < 14; ++link) {
+    BOOST_REQUIRE(topology.addCell(links[link], links[link + 1]).isValid());
   }
 
   BOOST_REQUIRE(topology.finalize());
   const auto view = topology.getView();
-  BOOST_CHECK_EQUAL(view.nTransitions, 15u);
+  BOOST_CHECK_EQUAL(view.nLinks, 15u);
   BOOST_CHECK_EQUAL(view.nCells, 13u);
   BOOST_CHECK_EQUAL(view.getCell(CellTopologyId{0}).hitSurfaces.count(), 3);
 
-  const auto firstSuccessors = view.getCellsStartingWithTransition(transitions[0]);
+  const auto firstSuccessors = view.getCellsStartingWithLink(links[0]);
   BOOST_CHECK_EQUAL(firstSuccessors.getFirstEntry(), 0u);
   BOOST_CHECK_EQUAL(firstSuccessors.getEntries(), 1u);
-  BOOST_CHECK(view.cellsByFirstTransition[firstSuccessors.getFirstEntry()] == CellTopologyId{0});
+  BOOST_CHECK(view.cellsByFirstLink[firstSuccessors.getFirstEntry()] == CellTopologyId{0});
 
-  // The final ITS transition has no successor and is not connected to MFT.
-  BOOST_CHECK_EQUAL(view.getCellsStartingWithTransition(transitions[5]).getEntries(), 0u);
+  // The final ITS link has no successor and is not connected to MFT.
+  BOOST_CHECK_EQUAL(view.getCellsStartingWithLink(links[5]).getEntries(), 0u);
 }
 
 BOOST_AUTO_TEST_CASE(CylinderAndDiskLayoutsAreBothAccepted)
 {
   SurfaceGraph cylinderTopology{2};
-  BOOST_REQUIRE(cylinderTopology.addTransition(adjacent(0, 1)).isValid());
+  BOOST_REQUIRE(cylinderTopology.addLink(adjacent(0, 1)).isValid());
   BOOST_REQUIRE(cylinderTopology.finalize());
   const std::vector<SurfaceDescriptor> cylinderSurfaces{surface(0, SurfaceKind::Cylinder), surface(1, SurfaceKind::Cylinder)};
   SurfaceGraph cylinderLayout{cylinderSurfaces, std::move(cylinderTopology)};
   BOOST_CHECK(cylinderLayout.valid());
 
   SurfaceGraph diskTopology{2};
-  BOOST_REQUIRE(diskTopology.addTransition(adjacent(0, 1)).isValid());
+  BOOST_REQUIRE(diskTopology.addLink(adjacent(0, 1)).isValid());
   BOOST_REQUIRE(diskTopology.finalize());
   const std::vector<SurfaceDescriptor> diskSurfaces{surface(0, SurfaceKind::Disk), surface(1, SurfaceKind::Disk)};
   SurfaceGraph diskLayout{diskSurfaces, std::move(diskTopology)};
@@ -155,8 +155,8 @@ BOOST_AUTO_TEST_CASE(CylinderAndDiskLayoutsAreBothAccepted)
 BOOST_AUTO_TEST_CASE(DisconnectedCombinedLayoutAcceptsBothKinds)
 {
   SurfaceGraph topology{4};
-  BOOST_REQUIRE(topology.addTransition(adjacent(0, 1)).isValid());
-  BOOST_REQUIRE(topology.addTransition(adjacent(2, 3)).isValid());
+  BOOST_REQUIRE(topology.addLink(adjacent(0, 1)).isValid());
+  BOOST_REQUIRE(topology.addLink(adjacent(2, 3)).isValid());
   BOOST_REQUIRE(topology.finalize());
 
   const std::vector<SurfaceDescriptor> surfaces{surface(0, SurfaceKind::Cylinder), surface(1, SurfaceKind::Cylinder),
@@ -165,17 +165,17 @@ BOOST_AUTO_TEST_CASE(DisconnectedCombinedLayoutAcceptsBothKinds)
   BOOST_CHECK(layout.valid());
 }
 
-BOOST_AUTO_TEST_CASE(LayoutAcceptsCylinderDiskTransitions)
+BOOST_AUTO_TEST_CASE(LayoutAcceptsCylinderDiskLinks)
 {
   SurfaceGraph cylinderToDisk{2};
-  BOOST_REQUIRE(cylinderToDisk.addTransition(adjacent(0, 1)).isValid());
+  BOOST_REQUIRE(cylinderToDisk.addLink(adjacent(0, 1)).isValid());
   BOOST_REQUIRE(cylinderToDisk.finalize());
   const std::vector<SurfaceDescriptor> outwardSurfaces{surface(0, SurfaceKind::Cylinder), surface(1, SurfaceKind::Disk)};
   SurfaceGraph outward{outwardSurfaces, std::move(cylinderToDisk)};
   BOOST_CHECK(outward.valid());
 
   SurfaceGraph diskToCylinder{2};
-  BOOST_REQUIRE(diskToCylinder.addTransition(adjacent(0, 1)).isValid());
+  BOOST_REQUIRE(diskToCylinder.addLink(adjacent(0, 1)).isValid());
   BOOST_REQUIRE(diskToCylinder.finalize());
   const std::vector<SurfaceDescriptor> inwardSurfaces{surface(0, SurfaceKind::Disk), surface(1, SurfaceKind::Cylinder)};
   SurfaceGraph inward{inwardSurfaces, std::move(diskToCylinder)};

@@ -284,7 +284,7 @@ void checkSurfaceKinematicStateEqual(const SurfaceKinematicState& lhs, const Sur
 
 // Minimal wiring TrackerTraits<NLayers>::computeLayerCells() needs: a real
 // layout/topology (so initialiseTimeFrame() genuinely binds
-// the transition/cell schedule and tracking parameters
+// the link/cell schedule and tracking parameters
 // -- computeLayerCells()'s own private caches, never poked directly), and a
 // validly-sized-but-empty normalized load (proven pattern from
 // testTrackerFailureContract.cxx: TimeFrame::initialise() unconditionally
@@ -419,7 +419,7 @@ void loadCandidateClusters(Rig<NLayers>& rig,
   BOOST_REQUIRE(result.ok());
 }
 
-// Finds the cellTopologyId whose two transitions span exactly
+// Finds the cellTopologyId whose two links span exactly
 // inner->middle->outer, without assuming any particular enumeration order
 // out of the sparse topology's builder enumeration.
 template <typename TopologyView>
@@ -427,8 +427,8 @@ int findCellTopologyId(const TopologyView& topology, int inner, int middle, int 
 {
   for (int i = 0; i < topology.nCells; ++i) {
     const auto& cell = topology.getCell(CellTopologyId{static_cast<uint16_t>(i)});
-    const auto& first = topology.getTransition(cell.firstTransition);
-    const auto& second = topology.getTransition(cell.secondTransition);
+    const auto& first = topology.getLink(cell.firstLink);
+    const auto& second = topology.getLink(cell.secondLink);
     if (first.from.value() == inner && first.to.value() == middle && second.from.value() == middle && second.to.value() == outer) {
       return i;
     }
@@ -444,7 +444,7 @@ int findCellTopologyId(const TopologyView& topology, int inner, int middle, int 
 // sorting real content into it. This helper assigns the real sorted-cluster
 // entry at index 0 directly (matching loadCandidateClusters()'s own
 // unsorted-index-0 cluster on each layer) and injects exactly one synthetic
-// tracklet per transition of cellTopologyId, wired so
+// tracklet per link of cellTopologyId, wired so
 // computeLayerCellsForKind<Tag>'s tracklet-pairing loop finds exactly one
 // candidate pair.
 template <int NLayers>
@@ -452,8 +452,8 @@ void injectCandidateTracklets(Rig<NLayers>& rig, int cellTopologyId, const std::
 {
   const auto topology = rig.frame.getGraph(0).getView();
   const auto& cell = topology.getCell(CellTopologyId{static_cast<uint16_t>(cellTopologyId)});
-  const auto& first = topology.getTransition(cell.firstTransition);
-  const auto& second = topology.getTransition(cell.secondTransition);
+  const auto& first = topology.getLink(cell.firstLink);
+  const auto& second = topology.getLink(cell.secondLink);
   const int layers[3] = {first.from.value(), first.to.value(), second.to.value()};
 
   for (int i = 0; i < 3; ++i) {
@@ -466,10 +466,10 @@ void injectCandidateTracklets(Rig<NLayers>& rig, int cellTopologyId, const std::
                                     clusters[0].xCoordinate - clusters[1].xCoordinate);
   const float secondPhi = std::atan2(clusters[1].yCoordinate - clusters[2].yCoordinate,
                                      clusters[1].xCoordinate - clusters[2].xCoordinate);
-  rig.tf->getTracklets()[cell.firstTransition.value()].push_back(o2::its::Tracklet{0, 0, 0.f, firstPhi, ts});
-  rig.tf->getTracklets()[cell.secondTransition.value()].push_back(o2::its::Tracklet{0, 0, 0.f, secondPhi, ts});
+  rig.tf->getTracklets()[cell.firstLink.value()].push_back(o2::its::Tracklet{0, 0, 0.f, firstPhi, ts});
+  rig.tf->getTracklets()[cell.secondLink.value()].push_back(o2::its::Tracklet{0, 0, 0.f, secondPhi, ts});
 
-  auto& secondLUT = rig.tf->getTrackletsLookupTable()[cell.secondTransition.value()];
+  auto& secondLUT = rig.tf->getTrackletsLookupTable()[cell.secondLink.value()];
   secondLUT.resize(2);
   secondLUT[0] = 0;
   secondLUT[1] = 1;
@@ -479,7 +479,7 @@ void injectCandidateTracklets(Rig<NLayers>& rig, int cellTopologyId, const std::
 // migrated computeLayerCells()/computeLayerCellsForKind(), extending this
 // file's existing single-cell (always layers {0,1,2}) machinery to an
 // arbitrary ordered set of N>=3 layers so several simultaneously-populated
-// cells (sharing transitions between adjacent triples) can be checked in one
+// cells (sharing links between adjacent triples) can be checked in one
 // run.
 
 // Same technique as loadCandidateClusters() (real loadNormalizedSource()
@@ -510,13 +510,13 @@ void loadCandidateClustersAtLayers(Rig<NLayers>& rig,
   BOOST_REQUIRE(result.ok());
 }
 
-// Finds the transitionId spanning exactly from->to, mirroring
+// Finds the linkId spanning exactly from->to, mirroring
 // findCellTopologyId()'s linear-search style over the legacy view.
 template <typename TopologyView>
-int findTransitionId(const TopologyView& topology, int from, int to)
+int findLinkId(const TopologyView& topology, int from, int to)
 {
-  for (int i = 0; i < topology.nTransitions; ++i) {
-    const auto& t = topology.getTransition(TransitionId{static_cast<uint16_t>(i)});
+  for (int i = 0; i < topology.nLinks; ++i) {
+    const auto& t = topology.getLink(LinkId{static_cast<uint16_t>(i)});
     if (t.from.value() == from && t.to.value() == to) {
       return i;
     }
@@ -526,14 +526,14 @@ int findTransitionId(const TopologyView& topology, int from, int to)
 
 // Generalizes injectCandidateTracklets() to an ordered chain of N>=3 layers:
 // writes each physical layer's single cluster exactly once, then touches
-// each of the N-1 adjacent-pair transitions exactly once (one synthetic
+// each of the N-1 adjacent-pair links exactly once (one synthetic
 // tracklet + one LUT {0,1}), regardless of how many downstream cells in the
-// chain share that transition. Naively calling the single-cell
+// chain share that link. Naively calling the single-cell
 // injectCandidateTracklets() once per overlapping cell would instead
-// double-write any shared transition (extra duplicate tracklet, and a LUT
+// double-write any shared link (extra duplicate tracklet, and a LUT
 // left however the last call set it) and silently clobber a shared physical
 // layer's cluster across calls -- this helper touches every physical layer
-// and every transition exactly once, by construction.
+// and every link exactly once, by construction.
 template <int NLayers, size_t N>
 void injectChainCandidateTracklets(Rig<NLayers>& rig, const std::array<int, N>& layers, const std::array<o2::its::Cluster, N>& clusters)
 {
@@ -546,10 +546,10 @@ void injectChainCandidateTracklets(Rig<NLayers>& rig, const std::array<int, N>& 
 
   const o2::its::TimeEstBC ts{static_cast<uint32_t>(0), static_cast<uint16_t>(1)};
   for (size_t i = 0; i + 1 < N; ++i) {
-    const int transitionId = findTransitionId(topology, layers[i], layers[i + 1]);
-    BOOST_REQUIRE_GE(transitionId, 0);
-    rig.tf->getTracklets()[transitionId].push_back(o2::its::Tracklet{0, 0, 0.f, 0.f, ts});
-    auto& lut = rig.tf->getTrackletsLookupTable()[transitionId];
+    const int linkId = findLinkId(topology, layers[i], layers[i + 1]);
+    BOOST_REQUIRE_GE(linkId, 0);
+    rig.tf->getTracklets()[linkId].push_back(o2::its::Tracklet{0, 0, 0.f, 0.f, ts});
+    auto& lut = rig.tf->getTrackletsLookupTable()[linkId];
     lut.resize(2);
     lut[0] = 0;
     lut[1] = 1;
@@ -585,7 +585,7 @@ BOOST_AUTO_TEST_CASE(CylinderComputeLayerCellsMatchesBuildCellSeedOracle)
 
   injectCandidateTracklets(rig, cellTopologyId, clusters);
 
-  // Any other cellTopologyId keeps its empty-transition early-continue
+  // Any other cellTopologyId keeps its empty-link early-continue
   // path: cleared once up front, never touched again.
   int otherCellTopologyId = -1;
   for (int i = 0; i < topology.nCells; ++i) {
@@ -906,7 +906,7 @@ BOOST_AUTO_TEST_CASE(RepeatedComputeLayerCellsCallsDoNotRebindOrIncreaseCounts)
 BOOST_AUTO_TEST_CASE(CylinderComputeLayerCellsMultiCellChainProducesCorrectCellsAndOrder)
 {
   // 5-layer chain at global X = 3..7 (small Y, alpha=0.f, matching the
-  // single-cell oracle tests' convention above): proves transition-level/
+  // single-cell oracle tests' convention above): proves link-level/
   // cell-level parity across three simultaneously-populated cells (0,1,2),
   // (1,2,3), (2,3,4) -- each resolved through the migrated
   // computeLayerCellsForKind() via a fresh mSurfaceToLegacyLayer lookup
@@ -990,7 +990,7 @@ BOOST_AUTO_TEST_CASE(DiskComputeLayerCellsMultiCellChainProducesCorrectCellsAndO
   // Same multi-cell parity property for the Disk/forward family:
   // cell-seed leaves genuinely branches per family (Cylinder
   // reads [1] then [0]; Disk reads [2],[1],[0] -- see the comment on
-  // that call in computeLayerCellsForKind()), so multi-transition
+  // that call in computeLayerCellsForKind()), so multi-link
   // cell-chaining for Disk is real, otherwise-unproven coverage.
   Rig<MFTNLayers> rig{o2::detectors::DetID::MFT, SurfaceKind::Disk};
   rig.params[0].MaxChi2ClusterAttachment = 1.e6f;
@@ -1057,7 +1057,7 @@ BOOST_AUTO_TEST_CASE(DiskComputeLayerCellsMultiCellChainProducesCorrectCellsAndO
 BOOST_AUTO_TEST_CASE(CylinderComputeLayerCellsHoleCellReconstructsCorrectLayerMask)
 {
   // MaxHoles=1 with layer 1 an allowed hole introduces a (0,2)-skip-1
-  // transition; combined with the adjacent (2,3) transition this forms cell
+  // link; combined with the adjacent (2,3) link this forms cell
   // (0,2,3) -- a direct, non-adjacent exercise of resolveCellHitLayers()
   // (mSurfaceToLegacyLayer) resolving a cell's endpoints correctly, and of
   // hole/skipped-surface behaviour staying identical to the pre-migration

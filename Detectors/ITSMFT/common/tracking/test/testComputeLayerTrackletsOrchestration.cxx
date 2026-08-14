@@ -140,42 +140,42 @@ class PrescribedDecoder final : public ClusterDecoder
 };
 
 struct TrackletSnapshot {
-  int transitionId{-1};
+  int linkId{-1};
   std::vector<o2::its::Tracklet> tracklets;
   std::vector<int> lookup;
   o2::its::TimeEstBC expectedTimestamp;
-  bool nonparticipatingTransitionsEmpty{false};
-  // Gate 4 Slice 0a additions: full per-(legacy-transitionId) tracklet/LUT
-  // content and (fromLayer,toLayer) identity, for multi-transition
+  bool nonparticipatingLinksEmpty{false};
+  // Gate 4 Slice 0a additions: full per-(legacy-linkId) tracklet/LUT
+  // content and (fromLayer,toLayer) identity, for multi-link
   // candidate-set/order/LUT parity checks that go beyond the single
-  // `transitionId` above. Indices across these three vectors correspond
-  // 1:1, in ascending legacy transitionId order.
-  std::vector<int> allTransitionFromLayer;
-  std::vector<int> allTransitionToLayer;
+  // `linkId` above. Indices across these three vectors correspond
+  // 1:1, in ascending legacy linkId order.
+  std::vector<int> allLinkFromLayer;
+  std::vector<int> allLinkToLayer;
   std::vector<std::vector<o2::its::Tracklet>> allTracklets;
   std::vector<std::vector<int>> allLookups;
 };
 
-/// Independent acceptance oracle for the Gate 3 transition-preparation slice
-/// (layerMultipleScatteringAngle<Tag>, clampTransitionCurvature<Tag>,
-/// prepareTransitionScatteringAndBending, relocated into
+/// Independent acceptance oracle for the Gate 3 link-preparation slice
+/// (layerMultipleScatteringAngle<Tag>, clampLinkCurvature<Tag>,
+/// prepareLinkAngularTolerances, relocated into
 /// TrackerTraits::initialiseTimeFrame()). Re-derives the frozen legacy
-/// per-layer/per-transition formula directly -- from math_utils::MSangle
+/// per-layer/per-link formula directly -- from math_utils::MSangle
 /// (barrel) or detail::mftLayerMSAngle (disk, which itself still calls the
 /// legacy mftLayerZ()/LayerZCoordinate() constants internally, exactly as
 /// production did before this migration) and the exact former
-/// TimeFrame::initialise() transition loop -- and deliberately never calls
-/// layerMultipleScatteringAngle<Tag>, clampTransitionCurvature<Tag>, or
-/// prepareTransitionScatteringAndBending, so this is a genuine external
+/// TimeFrame::initialise() link loop -- and deliberately never calls
+/// layerMultipleScatteringAngle<Tag>, clampLinkCurvature<Tag>, or
+/// prepareLinkAngularTolerances, so this is a genuine external
 /// oracle for those operations rather than a caller of them. Preserves the
 /// half-open [fromLayer, toLayer) MS accumulation range, threads oneOverR in
-/// increasing legacy transitionId order exactly as the production loop
+/// increasing legacy linkId order exactly as the production loop
 /// does, and uses the literal matching each family (`isDisk`selects `0.5f`
 /// float for Disk vs `0.5` double-promoted for Cylinder, per the
 /// integration review finding preserved -- not canonicalized -- in part 1/4
 /// of this slice).
 template <int NLayers>
-void computeLegacyTransitionMSAndPhiCut(const TrackingParameters& trkParam, float bz, bool isDisk,
+void computeLegacyLinkMSAndPhiCut(const TrackingParameters& trkParam, float bz, bool isDisk,
                                         const SurfaceGraphView& topology,
                                         gsl::span<const float> positionResolution,
                                         std::vector<float>& msAnglesOut, std::vector<float>& phiCutsOut)
@@ -186,13 +186,13 @@ void computeLegacyTransitionMSAndPhiCut(const TrackingParameters& trkParam, floa
                               : o2::its::math_utils::MSangle(0.14f, trkParam.TrackletMinPt, trkParam.LayerxX0[iLayer]);
   }
 
-  msAnglesOut.assign(topology.nTransitions, 0.f);
-  phiCutsOut.assign(topology.nTransitions, 0.f);
+  msAnglesOut.assign(topology.nLinks, 0.f);
+  phiCutsOut.assign(topology.nLinks, 0.f);
   float oneOverR{0.001f * 0.3f * std::abs(bz) / trkParam.TrackletMinPt};
-  for (int transitionId{0}; transitionId < static_cast<int>(topology.nTransitions); ++transitionId) {
-    const auto& transition = topology.getTransition(TransitionId{static_cast<uint16_t>(transitionId)});
-    const int from = transition.from.value();
-    const int to = transition.to.value();
+  for (int linkId{0}; linkId < static_cast<int>(topology.nLinks); ++linkId) {
+    const auto& link = topology.getLink(LinkId{static_cast<uint16_t>(linkId)});
+    const int from = link.from.value();
+    const int to = link.to.value();
     float ms2 = 0.f;
     for (int layer = from; layer < to; ++layer) {
       ms2 += o2::its::math_utils::Sq(msAngles[layer]);
@@ -213,8 +213,8 @@ void computeLegacyTransitionMSAndPhiCut(const TrackingParameters& trkParam, floa
     const float delta = o2::gpu::CAMath::Sqrt(1.f / (1.f - 0.25f * o2::its::math_utils::Sq(x * oneOverR)) *
                                               (o2::its::math_utils::Sq((0.25f * r1 * r2 * o2::its::math_utils::Sq(oneOverR) / cosTheta2half) + cosTheta1half) * o2::its::math_utils::Sq(res1) +
                                                o2::its::math_utils::Sq((0.25f * r1 * r2 * o2::its::math_utils::Sq(oneOverR) / cosTheta1half) + cosTheta2half) * o2::its::math_utils::Sq(res2)));
-    msAnglesOut[transitionId] = msAngle;
-    phiCutsOut[transitionId] = o2::gpu::CAMath::Min(o2::gpu::CAMath::ASin(0.5f * x * oneOverR) + 2.f * msAngle + delta, o2::constants::math::PI * 0.5f);
+    msAnglesOut[linkId] = msAngle;
+    phiCutsOut[linkId] = o2::gpu::CAMath::Min(o2::gpu::CAMath::ASin(0.5f * x * oneOverR) + 2.f * msAngle + delta, o2::constants::math::PI * 0.5f);
   }
 }
 
@@ -305,22 +305,22 @@ TrackletSnapshot runFixture(o2::detectors::DetID::ID detector,
 
   auto view = TrackerTestAccess::prepare(tracker, frame, 0);
 
-  // Gate 3 transition-preparation slice: successful initialisation must fill
-  // every transition entry (relocated from TimeFrame::initialise() into
+  // Gate 3 link-preparation slice: successful initialisation must fill
+  // every link entry (relocated from TimeFrame::initialise() into
   // TrackerTraits::initialiseTimeFrame(), see TrackletFinding.h).
   // Exercised here for both Cylinder and Disk through the
   // existing fixture rather than a separate harness. Beyond finiteness, each
-  // entry is checked bit-for-bit against computeLegacyTransitionMSAndPhiCut's
+  // entry is checked bit-for-bit against computeLegacyLinkMSAndPhiCut's
   // independent oracle -- the only replay-grade acceptance evidence for the
   // common Cylinder path, since no real-geometry common-CA ITS
   // replay exists yet.
   {
     const auto preparedTopology = layoutView;
-    const auto& msAngles = tf.getTransitionMSAngles();
-    const auto& phiCuts = tf.getTransitionPhiCuts();
-    BOOST_REQUIRE_EQUAL(msAngles.size(), static_cast<size_t>(preparedTopology.nTransitions));
-    BOOST_REQUIRE_EQUAL(phiCuts.size(), static_cast<size_t>(preparedTopology.nTransitions));
-    for (int id = 0; id < preparedTopology.nTransitions; ++id) {
+    const auto& msAngles = tf.getLinkMSAngles();
+    const auto& phiCuts = tf.getLinkPhiCuts();
+    BOOST_REQUIRE_EQUAL(msAngles.size(), static_cast<size_t>(preparedTopology.nLinks));
+    BOOST_REQUIRE_EQUAL(phiCuts.size(), static_cast<size_t>(preparedTopology.nLinks));
+    for (int id = 0; id < preparedTopology.nLinks; ++id) {
       BOOST_CHECK(std::isfinite(msAngles[id]));
       BOOST_CHECK(std::isfinite(phiCuts[id]));
     }
@@ -331,52 +331,52 @@ TrackletSnapshot runFixture(o2::detectors::DetID::ID detector,
     }
     std::vector<float> expectedMSAngles;
     std::vector<float> expectedPhiCuts;
-    computeLegacyTransitionMSAndPhiCut<NLayers>(params[0], Bz, kind == SurfaceKind::Disk, preparedTopology,
+    computeLegacyLinkMSAndPhiCut<NLayers>(params[0], Bz, kind == SurfaceKind::Disk, preparedTopology,
                                                 gsl::span<const float>(positionResolution.data(), positionResolution.size()),
                                                 expectedMSAngles, expectedPhiCuts);
     BOOST_REQUIRE_EQUAL(expectedMSAngles.size(), msAngles.size());
     BOOST_REQUIRE_EQUAL(expectedPhiCuts.size(), phiCuts.size());
-    for (int id = 0; id < preparedTopology.nTransitions; ++id) {
+    for (int id = 0; id < preparedTopology.nLinks; ++id) {
       BOOST_CHECK_EQUAL(msAngles[id], expectedMSAngles[id]);
       BOOST_CHECK_EQUAL(phiCuts[id], expectedPhiCuts[id]);
     }
   }
 
   const auto topology = layoutView;
-  int transitionId = -1;
-  for (int id = 0; id < topology.nTransitions; ++id) {
-    const auto& transition = topology.getTransition(TransitionId{static_cast<uint16_t>(id)});
-    if (transition.from.value() == 0 && transition.to.value() == 1) {
-      transitionId = id;
+  int linkId = -1;
+  for (int id = 0; id < topology.nLinks; ++id) {
+    const auto& link = topology.getLink(LinkId{static_cast<uint16_t>(id)});
+    if (link.from.value() == 0 && link.to.value() == 1) {
+      linkId = id;
       break;
     }
   }
-  BOOST_REQUIRE_GE(transitionId, 0);
+  BOOST_REQUIRE_GE(linkId, 0);
 
   TrackerTestAccess::computeTracklets(traits, view, 0);
 
   TrackletSnapshot result;
-  result.transitionId = transitionId;
+  result.linkId = linkId;
   result.expectedTimestamp = tf.getROFOverlapView().getTimeStamp(0, 0, 1, 0);
-  const auto& tracklets = tf.getTracklets()[transitionId];
+  const auto& tracklets = tf.getTracklets()[linkId];
   result.tracklets.assign(tracklets.begin(), tracklets.end());
-  const auto& lookup = tf.getTrackletsLookupTable()[transitionId];
+  const auto& lookup = tf.getTrackletsLookupTable()[linkId];
   result.lookup.assign(lookup.begin(), lookup.end());
-  result.nonparticipatingTransitionsEmpty = true;
-  for (int id = 0; id < topology.nTransitions; ++id) {
-    if (id != transitionId && !tf.getTracklets()[id].empty()) {
-      result.nonparticipatingTransitionsEmpty = false;
+  result.nonparticipatingLinksEmpty = true;
+  for (int id = 0; id < topology.nLinks; ++id) {
+    if (id != linkId && !tf.getTracklets()[id].empty()) {
+      result.nonparticipatingLinksEmpty = false;
       break;
     }
   }
 
-  // Gate 4 Slice 0a: full per-transition snapshot, ascending legacy
-  // transitionId order, for multi-transition candidate-set/order/LUT parity
-  // checks (see e.g. ItsIdentityLayoutTrackletsSpanMultipleAdjacentTransitionsInOrder).
-  for (int id = 0; id < topology.nTransitions; ++id) {
-    const auto& transition = topology.getTransition(TransitionId{static_cast<uint16_t>(id)});
-    result.allTransitionFromLayer.push_back(transition.from.value());
-    result.allTransitionToLayer.push_back(transition.to.value());
+  // Gate 4 Slice 0a: full per-link snapshot, ascending legacy
+  // linkId order, for multi-link candidate-set/order/LUT parity
+  // checks (see e.g. ItsIdentityLayoutTrackletsSpanMultipleAdjacentLinksInOrder).
+  for (int id = 0; id < topology.nLinks; ++id) {
+    const auto& link = topology.getLink(LinkId{static_cast<uint16_t>(id)});
+    result.allLinkFromLayer.push_back(link.from.value());
+    result.allLinkToLayer.push_back(link.to.value());
     const auto& idTracklets = tf.getTracklets()[id];
     result.allTracklets.emplace_back(idTracklets.begin(), idTracklets.end());
     const auto& idLookup = tf.getTrackletsLookupTable()[id];
@@ -387,7 +387,7 @@ TrackletSnapshot runFixture(o2::detectors::DetID::ID detector,
 
 void checkSame(const TrackletSnapshot& serial, const TrackletSnapshot& parallel)
 {
-  BOOST_CHECK_EQUAL(serial.transitionId, parallel.transitionId);
+  BOOST_CHECK_EQUAL(serial.linkId, parallel.linkId);
   BOOST_REQUIRE_EQUAL(serial.tracklets.size(), parallel.tracklets.size());
   BOOST_CHECK_EQUAL_COLLECTIONS(serial.lookup.begin(), serial.lookup.end(), parallel.lookup.begin(), parallel.lookup.end());
   for (size_t i = 0; i < serial.tracklets.size(); ++i) {
@@ -411,7 +411,7 @@ void checkExactTracklet(const TrackletSnapshot& snapshot, float expectedTanLambd
   BOOST_CHECK_EQUAL(tracklet.getTimeStamp().getTimeStampError(), snapshot.expectedTimestamp.getTimeStampError());
   const std::vector<int> expectedLookup{0, 1};
   BOOST_CHECK_EQUAL_COLLECTIONS(snapshot.lookup.begin(), snapshot.lookup.end(), expectedLookup.begin(), expectedLookup.end());
-  BOOST_CHECK(snapshot.nonparticipatingTransitionsEmpty);
+  BOOST_CHECK(snapshot.nonparticipatingLinksEmpty);
 }
 
 DecodedCluster cylinderCluster(float radius, float z, int layer)
@@ -557,11 +557,11 @@ BOOST_AUTO_TEST_CASE(DiskOnePassAndTwoPassProduceIdenticalTracklets)
   checkSame(serial, parallel);
 }
 
-BOOST_AUTO_TEST_CASE(InitialiseTimeFrameFailureLeavesTransitionArraysZeroFilledNotPartial)
+BOOST_AUTO_TEST_CASE(InitialiseTimeFrameFailureLeavesLinkArraysZeroFilledNotPartial)
 {
-  // Gate 3 transition-preparation slice failure contract: TimeFrame::initialise()
-  // already clears/resizes mTransitionMSAngles/mTransitionPhiCuts to
-  // nTransitions before any surface-kind/geometry validation runs (unchanged by
+  // Gate 3 link-preparation slice failure contract: TimeFrame::initialise()
+  // already clears/resizes mLinkMSAngles/mLinkPhiCuts to
+  // nLinks before any surface-kind/geometry validation runs (unchanged by
   // this slice). A later fallible check (here: an invalid CorrType, so
   // AttachHitConfigView::isValid() fails) must leave those arrays
   // exactly zero-filled at the correct size -- never a mixture of computed
@@ -649,11 +649,11 @@ BOOST_AUTO_TEST_CASE(InitialiseTimeFrameFailureLeavesTransitionArraysZeroFilledN
   });
 
   const auto topology = layoutView;
-  const auto& msAngles = tf.getTransitionMSAngles();
-  const auto& phiCuts = tf.getTransitionPhiCuts();
-  BOOST_REQUIRE_EQUAL(msAngles.size(), static_cast<size_t>(topology.nTransitions));
-  BOOST_REQUIRE_EQUAL(phiCuts.size(), static_cast<size_t>(topology.nTransitions));
-  for (int id = 0; id < topology.nTransitions; ++id) {
+  const auto& msAngles = tf.getLinkMSAngles();
+  const auto& phiCuts = tf.getLinkPhiCuts();
+  BOOST_REQUIRE_EQUAL(msAngles.size(), static_cast<size_t>(topology.nLinks));
+  BOOST_REQUIRE_EQUAL(phiCuts.size(), static_cast<size_t>(topology.nLinks));
+  for (int id = 0; id < topology.nLinks; ++id) {
     BOOST_CHECK_EQUAL(msAngles[id], 0.f);
     BOOST_CHECK_EQUAL(phiCuts[id], 0.f);
   }
@@ -663,15 +663,15 @@ BOOST_AUTO_TEST_CASE(InitialiseTimeFrameFailureLeavesTransitionArraysZeroFilledN
 // Gate 4 Slice 0a (sparse-topology tracklet migration) additions below.
 // ---------------------------------------------------------------------------
 
-BOOST_AUTO_TEST_CASE(ItsIdentityLayoutTrackletsSpanMultipleAdjacentTransitionsInOrder)
+BOOST_AUTO_TEST_CASE(ItsIdentityLayoutTrackletsSpanMultipleAdjacentLinksInOrder)
 {
   // Collinear track across 4 barrel layers (z = 0.1 * r for every cluster).
-  // Under ITS's default MaxHoles=0 only strictly-adjacent transitions exist
-  // at all, so this directly proves transition-level tracklet/LUT/order
-  // parity across three distinct transitions simultaneously -- each
+  // Under ITS's default MaxHoles=0 only strictly-adjacent links exist
+  // at all, so this directly proves link-level tracklet/LUT/order
+  // parity across three distinct links simultaneously -- each
   // resolved through the migrated computeLayerTrackletsForKind() via a
-  // fresh mSurfaceToLegacyLayer lookup -- not just the single transition the
-  // tests above check, while every non-participating transition (touching
+  // fresh mSurfaceToLegacyLayer lookup -- not just the single link the
+  // tests above check, while every non-participating link (touching
   // layers 4/5/6) stays empty.
   const std::vector<DecodedCluster> clusters{
     cylinderCluster(3.f, 0.3f, 0),
@@ -680,7 +680,7 @@ BOOST_AUTO_TEST_CASE(ItsIdentityLayoutTrackletsSpanMultipleAdjacentTransitionsIn
     cylinderCluster(6.f, 0.6f, 3)};
   const auto snapshot = runFixture<ITSNLayers>(o2::detectors::DetID::ITS, SurfaceKind::Cylinder,
                                                SurfaceKind::Cylinder, clusters, 1);
-  // Each transition's expected tanLambda is computed from its own specific
+  // Each link's expected tanLambda is computed from its own specific
   // (radius, z) pair rather than one shared constant: although every pair
   // shares the same nominal slope (z = 0.1 * r), float subtraction/division
   // of different operand pairs does not generally round to the identical
@@ -690,12 +690,12 @@ BOOST_AUTO_TEST_CASE(ItsIdentityLayoutTrackletsSpanMultipleAdjacentTransitionsIn
   const float expectedPhi = o2::gpu::CAMath::ATan2(0.f, -1.f);
   const std::vector<int> expectedLookup{0, 1};
 
-  BOOST_REQUIRE_EQUAL(snapshot.allTransitionFromLayer.size(), snapshot.allTracklets.size());
-  BOOST_REQUIRE_EQUAL(snapshot.allTransitionFromLayer.size(), snapshot.allLookups.size());
-  bool sawTransition01 = false, sawTransition12 = false, sawTransition23 = false;
-  for (size_t id = 0; id < snapshot.allTransitionFromLayer.size(); ++id) {
-    const int from = snapshot.allTransitionFromLayer[id];
-    const int to = snapshot.allTransitionToLayer[id];
+  BOOST_REQUIRE_EQUAL(snapshot.allLinkFromLayer.size(), snapshot.allTracklets.size());
+  BOOST_REQUIRE_EQUAL(snapshot.allLinkFromLayer.size(), snapshot.allLookups.size());
+  bool sawLink01 = false, sawLink12 = false, sawLink23 = false;
+  for (size_t id = 0; id < snapshot.allLinkFromLayer.size(); ++id) {
+    const int from = snapshot.allLinkFromLayer[id];
+    const int to = snapshot.allLinkToLayer[id];
     const bool participates = (from == 0 && to == 1) || (from == 1 && to == 2) || (from == 2 && to == 3);
     if (participates) {
       BOOST_REQUIRE_EQUAL(snapshot.allTracklets[id].size(), 1u);
@@ -706,25 +706,25 @@ BOOST_AUTO_TEST_CASE(ItsIdentityLayoutTrackletsSpanMultipleAdjacentTransitionsIn
       BOOST_CHECK_EQUAL(tracklet.tanLambda, expectedTanLambda);
       BOOST_CHECK_EQUAL(tracklet.phi, expectedPhi);
       BOOST_CHECK_EQUAL_COLLECTIONS(snapshot.allLookups[id].begin(), snapshot.allLookups[id].end(), expectedLookup.begin(), expectedLookup.end());
-      sawTransition01 |= (from == 0 && to == 1);
-      sawTransition12 |= (from == 1 && to == 2);
-      sawTransition23 |= (from == 2 && to == 3);
+      sawLink01 |= (from == 0 && to == 1);
+      sawLink12 |= (from == 1 && to == 2);
+      sawLink23 |= (from == 2 && to == 3);
     } else {
       BOOST_CHECK(snapshot.allTracklets[id].empty());
     }
   }
-  BOOST_CHECK(sawTransition01);
-  BOOST_CHECK(sawTransition12);
-  BOOST_CHECK(sawTransition23);
+  BOOST_CHECK(sawLink01);
+  BOOST_CHECK(sawLink12);
+  BOOST_CHECK(sawLink23);
 }
 
-BOOST_AUTO_TEST_CASE(MftIdentityLayoutTrackletsSpanMultipleAdjacentTransitionsInOrder)
+BOOST_AUTO_TEST_CASE(MftIdentityLayoutTrackletsSpanMultipleAdjacentLinksInOrder)
 {
-  // Same multi-transition parity property for the Disk/forward family:
+  // Same multi-link parity property for the Disk/forward family:
   // a 4-disk chain built hop-by-hop with detail::mftTrackletProject (the
   // same primitive projectDiskSearchWindow uses internally), proving
-  // transitions (0,1),(1,2),(2,3) each get exactly one correctly-ordered
-  // tracklet and every other transition stays empty.
+  // links (0,1),(1,2),(2,3) each get exactly one correctly-ordered
+  // tracklet and every other link stays empty.
   TrackingParameters params;
   resetDetectorDefaults(params, o2::detectors::DetID::MFT);
   const auto clusters = buildMftChainClusters(params, Bz, 3);
@@ -733,12 +733,12 @@ BOOST_AUTO_TEST_CASE(MftIdentityLayoutTrackletsSpanMultipleAdjacentTransitionsIn
                                                SurfaceKind::Disk, clusters, 1);
   const std::vector<int> expectedLookup{0, 1};
 
-  BOOST_REQUIRE_EQUAL(snapshot.allTransitionFromLayer.size(), snapshot.allTracklets.size());
-  BOOST_REQUIRE_EQUAL(snapshot.allTransitionFromLayer.size(), snapshot.allLookups.size());
-  bool sawTransition01 = false, sawTransition12 = false, sawTransition23 = false;
-  for (size_t id = 0; id < snapshot.allTransitionFromLayer.size(); ++id) {
-    const int from = snapshot.allTransitionFromLayer[id];
-    const int to = snapshot.allTransitionToLayer[id];
+  BOOST_REQUIRE_EQUAL(snapshot.allLinkFromLayer.size(), snapshot.allTracklets.size());
+  BOOST_REQUIRE_EQUAL(snapshot.allLinkFromLayer.size(), snapshot.allLookups.size());
+  bool sawLink01 = false, sawLink12 = false, sawLink23 = false;
+  for (size_t id = 0; id < snapshot.allLinkFromLayer.size(); ++id) {
+    const int from = snapshot.allLinkFromLayer[id];
+    const int to = snapshot.allLinkToLayer[id];
     const bool participates = (from == 0 && to == 1) || (from == 1 && to == 2) || (from == 2 && to == 3);
     if (participates) {
       BOOST_REQUIRE_EQUAL(snapshot.allTracklets[id].size(), 1u);
@@ -752,27 +752,27 @@ BOOST_AUTO_TEST_CASE(MftIdentityLayoutTrackletsSpanMultipleAdjacentTransitionsIn
       const float expectedTanLambda = (source.z - target.z) / (sourceRadius - targetRadius);
       BOOST_CHECK_EQUAL(tracklet.tanLambda, expectedTanLambda);
       BOOST_CHECK_EQUAL_COLLECTIONS(snapshot.allLookups[id].begin(), snapshot.allLookups[id].end(), expectedLookup.begin(), expectedLookup.end());
-      sawTransition01 |= (from == 0 && to == 1);
-      sawTransition12 |= (from == 1 && to == 2);
-      sawTransition23 |= (from == 2 && to == 3);
+      sawLink01 |= (from == 0 && to == 1);
+      sawLink12 |= (from == 1 && to == 2);
+      sawLink23 |= (from == 2 && to == 3);
     } else {
       BOOST_CHECK(snapshot.allTracklets[id].empty());
     }
   }
-  BOOST_CHECK(sawTransition01);
-  BOOST_CHECK(sawTransition12);
-  BOOST_CHECK(sawTransition23);
+  BOOST_CHECK(sawLink01);
+  BOOST_CHECK(sawLink12);
+  BOOST_CHECK(sawLink23);
 }
 
-BOOST_AUTO_TEST_CASE(ItsHoleTransitionTrackletResolvesCorrectLegacyLayerEndpoints)
+BOOST_AUTO_TEST_CASE(ItsHoleLinkTrackletResolvesCorrectLegacyLayerEndpoints)
 {
   // MaxHoles=1 with layer 1 an allowed hole introduces a (0,2)-skip-1
-  // transition whose sparse SurfaceTransition endpoints are SurfaceId{0}/
+  // link whose sparse SurfaceLink endpoints are SurfaceId{0}/
   // SurfaceId{2} -- a direct, non-adjacent exercise of mSurfaceToLegacyLayer
-  // resolving a transition's endpoints correctly, and of hole/skipped-surface
+  // resolving a link's endpoints correctly, and of hole/skipped-surface
   // behaviour staying identical to the pre-migration code (which read the
   // same fromLayer/toLayer straight off the legacy view). No cluster is
-  // placed on layer 1 at all, so only the hole transition can produce a
+  // placed on layer 1 at all, so only the hole link can produce a
   // tracklet.
   const std::vector<DecodedCluster> clusters{
     cylinderCluster(3.f, 0.3f, 0),
@@ -786,13 +786,13 @@ BOOST_AUTO_TEST_CASE(ItsHoleTransitionTrackletResolvesCorrectLegacyLayerEndpoint
 
   const float expectedTanLambda = (0.3f - 0.5f) / (3.f - 5.f);
   const float expectedPhi = o2::gpu::CAMath::ATan2(0.f, -1.f);
-  bool sawHoleTransition = false;
-  BOOST_REQUIRE_EQUAL(snapshot.allTransitionFromLayer.size(), snapshot.allTracklets.size());
-  for (size_t id = 0; id < snapshot.allTransitionFromLayer.size(); ++id) {
-    const int from = snapshot.allTransitionFromLayer[id];
-    const int to = snapshot.allTransitionToLayer[id];
+  bool sawHoleLink = false;
+  BOOST_REQUIRE_EQUAL(snapshot.allLinkFromLayer.size(), snapshot.allTracklets.size());
+  for (size_t id = 0; id < snapshot.allLinkFromLayer.size(); ++id) {
+    const int from = snapshot.allLinkFromLayer[id];
+    const int to = snapshot.allLinkToLayer[id];
     if (from == 0 && to == 2) {
-      sawHoleTransition = true;
+      sawHoleLink = true;
       BOOST_REQUIRE_EQUAL(snapshot.allTracklets[id].size(), 1u);
       const auto& tracklet = snapshot.allTracklets[id].front();
       BOOST_CHECK_EQUAL(tracklet.tanLambda, expectedTanLambda);
@@ -803,7 +803,7 @@ BOOST_AUTO_TEST_CASE(ItsHoleTransitionTrackletResolvesCorrectLegacyLayerEndpoint
       BOOST_CHECK(snapshot.allTracklets[id].empty());
     }
   }
-  BOOST_CHECK(sawHoleTransition);
+  BOOST_CHECK(sawHoleLink);
 }
 
 BOOST_AUTO_TEST_CASE(DuplicateSurfaceIdMappingFailsClosedBeforeTrackletProcessing)
@@ -870,7 +870,7 @@ BOOST_AUTO_TEST_CASE(CombinedCylinderAndDiskLayoutBindsAsOneDisconnectedPlan)
   const auto bindingResult = SurfacePlanBinding::build(plan.front().getView(), owned,
                                                        plan.front().getOrderedSurfaces());
   BOOST_REQUIRE(bindingResult.ok());
-  BOOST_CHECK_EQUAL(bindingResult.binding->getGlobalTransitions().size(),
+  BOOST_CHECK_EQUAL(bindingResult.binding->getGlobalLinks().size(),
                     static_cast<size_t>(nCylinders + nDisks - 2));
   BOOST_CHECK_EQUAL(bindingResult.binding->getGlobalCells().size(),
                     static_cast<size_t>(nCylinders + nDisks - 4));

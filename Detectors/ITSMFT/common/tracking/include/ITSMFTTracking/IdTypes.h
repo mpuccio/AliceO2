@@ -52,13 +52,13 @@ class Identifier
 } // namespace detail
 
 struct SurfaceIdTag;
-struct TransitionIdTag;
+struct LinkIdTag;
 struct CellTopologyIdTag;
 struct ClusterSourceIdTag;
 struct ClusterIndexTag;
 
 using SurfaceId = detail::Identifier<SurfaceIdTag, uint16_t>;
-using TransitionId = detail::Identifier<TransitionIdTag, uint16_t>;
+using LinkId = detail::Identifier<LinkIdTag, uint16_t>;
 using CellTopologyId = detail::Identifier<CellTopologyIdTag, uint16_t>;
 using ClusterSourceId = detail::Identifier<ClusterSourceIdTag, uint16_t>;
 using SurfaceMeasurementIndex = detail::Identifier<ClusterIndexTag, uint32_t>;
@@ -69,10 +69,10 @@ GPUhdi() constexpr bool isRecognizedSurfaceKind(SurfaceKind kind) noexcept
 }
 
 inline constexpr uint32_t MaxLayoutSurfaces = 32;
-inline constexpr uint32_t MaxLayoutTransitions = MaxLayoutSurfaces * (MaxLayoutSurfaces - 1);
+inline constexpr uint32_t MaxLayoutLinks = MaxLayoutSurfaces * (MaxLayoutSurfaces - 1);
 inline constexpr uint32_t MaxLayoutCellTopologies = MaxLayoutSurfaces * (MaxLayoutSurfaces - 1) * (MaxLayoutSurfaces - 1);
 
-static_assert(MaxLayoutTransitions < TransitionId::InvalidValue);
+static_assert(MaxLayoutLinks < LinkId::InvalidValue);
 static_assert(MaxLayoutCellTopologies < CellTopologyId::InvalidValue);
 
 } // namespace o2::itsmft::tracking

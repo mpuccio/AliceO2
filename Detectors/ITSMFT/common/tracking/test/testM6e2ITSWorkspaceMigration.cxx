@@ -15,7 +15,7 @@
 //  - the ITS shared-cluster compatibility sidecar (pending/sealed) still
 //    works correctly backed by the new scratch storage;
 //  - the production ITS SurfacePlanBinding construction resolves to the same
-//    local transition/cell slot counts and owned-surface indices, while the
+//    local link/cell slot counts and owned-surface indices, while the
 //    workflow adopts one global plan;
 //  - no detector-specific switch was reintroduced into SurfacePlanBinding
 //    (testSurfacePlanBindingNoDetectorDependency.cxx grep-verifies this).
@@ -226,7 +226,7 @@ BOOST_AUTO_TEST_CASE(TimeFrameResetClearsSharedWorkspaceAndPreservesFrameState)
   auto& mftParticipantScratch = const_cast<SurfaceTrackingScratch&>(participants.getMFTScratch());
   BOOST_CHECK_EQUAL(&itsParticipantScratch, &mftParticipantScratch);
   BOOST_CHECK_EQUAL(itsParticipantScratch.getNOwnedSurfaces(), 17u);
-  BOOST_CHECK_EQUAL(itsParticipantScratch.getNTransitions(), 15u);
+  BOOST_CHECK_EQUAL(itsParticipantScratch.getNLinks(), 15u);
   BOOST_CHECK_EQUAL(itsParticipantScratch.getNCells(), 13u);
   BOOST_REQUIRE(!itsParticipantScratch.getUnsortedClusters().empty());
   itsParticipantScratch.getUnsortedClusters()[0].emplace_back(1.f, 2.f, 3.f, 0);
@@ -304,24 +304,24 @@ BOOST_AUTO_TEST_CASE(ProductionITSSurfacePlanBindingMatchesConfiguredTopologyAtR
 
   const auto binding = SurfacePlanBinding::build(view, itsMask, itsSurfaces);
   BOOST_REQUIRE(binding.ok());
-  size_t ownedTransitions = 0;
-  for (uint32_t id = 0; id < view.nTransitions; ++id) {
-    const auto& transition = view.getTransition(TransitionId{static_cast<uint16_t>(id)});
-    if (itsMask.has(transition.from) && itsMask.has(transition.to)) {
-      ++ownedTransitions;
+  size_t ownedLinks = 0;
+  for (uint32_t id = 0; id < view.nLinks; ++id) {
+    const auto& link = view.getLink(LinkId{static_cast<uint16_t>(id)});
+    if (itsMask.has(link.from) && itsMask.has(link.to)) {
+      ++ownedLinks;
     }
   }
   size_t ownedCells = 0;
   for (uint32_t id = 0; id < view.nCells; ++id) {
     const auto cellId = CellTopologyId{static_cast<uint16_t>(id)};
     const auto& cell = view.getCell(cellId);
-    if (binding.binding->getScratchTransitionSlot(cell.firstTransition)) {
+    if (binding.binding->getScratchLinkSlot(cell.firstLink)) {
       ++ownedCells;
     }
   }
 
   BOOST_CHECK_EQUAL(binding.binding->getOwnedSurfaces().count(), static_cast<int>(itsSurfaces.size()));
-  BOOST_CHECK_EQUAL(binding.binding->getGlobalTransitions().size(), ownedTransitions);
+  BOOST_CHECK_EQUAL(binding.binding->getGlobalLinks().size(), ownedLinks);
   BOOST_CHECK_EQUAL(binding.binding->getGlobalCells().size(), ownedCells);
 
   for (uint16_t s = 0; s < ITSNLayers; ++s) {
@@ -337,7 +337,7 @@ BOOST_AUTO_TEST_CASE(ProductionITSSurfacePlanBindingMatchesConfiguredTopologyAtR
   participants.adoptFrame(frame);
   BOOST_CHECK_EQUAL(&participants.getITSScratch(), &participants.getMFTScratch());
   BOOST_CHECK_EQUAL(participants.getITSScratch().getNOwnedSurfaces(), 17u);
-  BOOST_CHECK_EQUAL(participants.getITSScratch().getNTransitions(), 15u);
+  BOOST_CHECK_EQUAL(participants.getITSScratch().getNLinks(), 15u);
   BOOST_CHECK_EQUAL(participants.getITSScratch().getNCells(), 13u);
 }
 
@@ -394,7 +394,7 @@ BOOST_AUTO_TEST_CASE(StandaloneAndCombinedITSBindingsAgreeOnCompactSlotsByRelati
     combinedResult.graphs.front().getView(), combinedMask, gsl::span<const SurfaceId>{combinedOrder});
   BOOST_REQUIRE(combinedBindingResult.ok());
 
-  BOOST_CHECK_EQUAL(standaloneBindingResult.binding->getGlobalTransitions().size(), combinedBindingResult.binding->getGlobalTransitions().size());
+  BOOST_CHECK_EQUAL(standaloneBindingResult.binding->getGlobalLinks().size(), combinedBindingResult.binding->getGlobalLinks().size());
   BOOST_CHECK_EQUAL(standaloneBindingResult.binding->getGlobalCells().size(), combinedBindingResult.binding->getGlobalCells().size());
   for (uint16_t k = 0; k < ITSNLayers; ++k) {
     const auto standaloneSlot = standaloneBindingResult.binding->getOwnedSurfaceIndex(standaloneOrder[k]);
@@ -409,7 +409,7 @@ BOOST_AUTO_TEST_CASE(StandaloneAndCombinedITSBindingsAgreeOnCompactSlotsByRelati
   // global workspace.
   SurfaceTrackingScratch standaloneScratch;
   standaloneScratch.adoptPlan(static_cast<std::size_t>(standaloneBindingResult.binding->getOwnedSurfaces().count()),
-                              standaloneBindingResult.binding->getGlobalTransitions().size(),
+                              standaloneBindingResult.binding->getGlobalLinks().size(),
                               standaloneBindingResult.binding->getGlobalCells().size());
   auto participants = makeSet();
   TimeFrame frame;
@@ -417,6 +417,6 @@ BOOST_AUTO_TEST_CASE(StandaloneAndCombinedITSBindingsAgreeOnCompactSlotsByRelati
   BOOST_CHECK_EQUAL(standaloneScratch.getNOwnedSurfaces(), static_cast<size_t>(ITSNLayers));
   BOOST_CHECK_EQUAL(&participants.getITSScratch(), &participants.getMFTScratch());
   BOOST_CHECK_EQUAL(participants.getITSScratch().getNOwnedSurfaces(), 17u);
-  BOOST_CHECK_EQUAL(participants.getITSScratch().getNTransitions(), 15u);
+  BOOST_CHECK_EQUAL(participants.getITSScratch().getNLinks(), 15u);
   BOOST_CHECK_EQUAL(participants.getITSScratch().getNCells(), 13u);
 }

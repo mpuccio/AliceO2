@@ -20,9 +20,9 @@ namespace
 using namespace o2::itsmft::tracking;
 using namespace o2::itsmft::tracking::test;
 
-static_assert(std::is_trivially_copyable_v<SurfaceTransition>);
+static_assert(std::is_trivially_copyable_v<SurfaceLink>);
 static_assert(std::is_trivially_copyable_v<SurfaceCellTopology>);
-static_assert(std::is_trivially_copyable_v<TransitionId>);
+static_assert(std::is_trivially_copyable_v<LinkId>);
 static_assert(std::is_trivially_copyable_v<CellTopologyId>);
 static_assert(std::is_trivially_copyable_v<SurfaceMask>);
 static_assert(std::is_trivially_copyable_v<uint32_t>);
@@ -34,19 +34,19 @@ void checkBytes(gsl::span<const T> actual, gsl::span<const T> expected)
   if (actual.empty()) {
     return;
   }
-  if constexpr (std::is_same_v<T, SurfaceTransition>) {
+  if constexpr (std::is_same_v<T, SurfaceLink>) {
     for (size_t i = 0; i < actual.size(); ++i) {
       BOOST_CHECK(actual[i].from == expected[i].from);
       BOOST_CHECK(actual[i].to == expected[i].to);
       BOOST_CHECK(actual[i].skippedSurfaces == expected[i].skippedSurfaces);
       BOOST_CHECK_EQUAL(actual[i].flags, expected[i].flags);
     }
-    // SurfaceTransition has two tail padding bytes (its value fields total
+    // SurfaceLink has two tail padding bytes (its value fields total
     // ten bytes). Normalize those unspecified bytes before the raw comparison;
     // all value fields above are still checked and the type is asserted
     // trivially copyable at file scope.
-    std::vector<SurfaceTransition> canonicalActual(actual.size());
-    std::vector<SurfaceTransition> canonicalExpected(expected.size());
+    std::vector<SurfaceLink> canonicalActual(actual.size());
+    std::vector<SurfaceLink> canonicalExpected(expected.size());
     for (size_t i = 0; i < actual.size(); ++i) {
       canonicalActual[i].from = actual[i].from;
       canonicalActual[i].to = actual[i].to;
@@ -57,7 +57,7 @@ void checkBytes(gsl::span<const T> actual, gsl::span<const T> expected)
       canonicalExpected[i].skippedSurfaces = expected[i].skippedSurfaces;
       canonicalExpected[i].flags = expected[i].flags;
     }
-    BOOST_CHECK_EQUAL(std::memcmp(canonicalActual.data(), canonicalExpected.data(), canonicalActual.size() * sizeof(SurfaceTransition)), 0);
+    BOOST_CHECK_EQUAL(std::memcmp(canonicalActual.data(), canonicalExpected.data(), canonicalActual.size() * sizeof(SurfaceLink)), 0);
     return;
   }
   BOOST_CHECK_EQUAL(std::memcmp(actual.data(), expected.data(), actual.size_bytes()), 0);
@@ -141,27 +141,27 @@ SurfaceGraphBuildResult buildCurrent(const std::vector<SurfaceDescriptor>& surfa
 void compareTopology(const PairListGraph& prototype, const SurfaceGraphView& current)
 {
   {
-    BOOST_TEST_CONTEXT("transitions")
+    BOOST_TEST_CONTEXT("links")
     {
-      checkBytes(prototype.transitions, std::vector<SurfaceTransition>(current.transitions, current.transitions + current.nTransitions));
+      checkBytes(prototype.links, std::vector<SurfaceLink>(current.links, current.links + current.nLinks));
     }
   }
   std::vector<SurfaceMask> expectedWitnesses;
-  for (uint32_t id = 0; id < current.nTransitions; ++id) {
-    expectedWitnesses.push_back(current.getTransition(TransitionId{static_cast<uint16_t>(id)}).skippedSurfaces);
+  for (uint32_t id = 0; id < current.nLinks; ++id) {
+    expectedWitnesses.push_back(current.getLink(LinkId{static_cast<uint16_t>(id)}).skippedSurfaces);
   }
   {
     BOOST_TEST_CONTEXT("witnesses") { checkBytes(prototype.skippedWitnesses, expectedWitnesses); }
     BOOST_TEST_CONTEXT("cells") { checkBytes(prototype.cells, std::vector<SurfaceCellTopology>(current.cells, current.cells + current.nCells)); }
     BOOST_TEST_CONTEXT("offsets")
     {
-      checkBytes(prototype.cellsByFirstTransitionOffsets,
-                 std::vector<uint32_t>(current.cellsByFirstTransitionOffsets, current.cellsByFirstTransitionOffsets + current.nTransitions + 1));
+      checkBytes(prototype.cellsByFirstLinkOffsets,
+                 std::vector<uint32_t>(current.cellsByFirstLinkOffsets, current.cellsByFirstLinkOffsets + current.nLinks + 1));
     }
     BOOST_TEST_CONTEXT("csr entries")
     {
-      checkBytes(prototype.cellsByFirstTransition,
-                 std::vector<CellTopologyId>(current.cellsByFirstTransition, current.cellsByFirstTransition + current.nCells));
+      checkBytes(prototype.cellsByFirstLink,
+                 std::vector<CellTopologyId>(current.cellsByFirstLink, current.cellsByFirstLink + current.nCells));
     }
   }
 }
@@ -178,16 +178,16 @@ void compareBinding(const PairListGraph& prototype, const SurfaceGraphView& view
   }
   const auto bindingResult = SurfacePlanBinding::build(view, owned, orderedSurfaces);
   BOOST_REQUIRE(bindingResult.ok());
-  std::vector<TransitionId> expectedTransitions;
+  std::vector<LinkId> expectedLinks;
   std::vector<CellTopologyId> expectedCells;
-  for (uint16_t id = 0; id < prototype.transitions.size(); ++id) {
-    expectedTransitions.emplace_back(id);
+  for (uint16_t id = 0; id < prototype.links.size(); ++id) {
+    expectedLinks.emplace_back(id);
   }
   for (uint16_t id = 0; id < prototype.cells.size(); ++id) {
     expectedCells.emplace_back(id);
   }
-  checkBytes(expectedTransitions, std::vector<TransitionId>(bindingResult.binding->getGlobalTransitions().begin(),
-                                                            bindingResult.binding->getGlobalTransitions().end()));
+  checkBytes(expectedLinks, std::vector<LinkId>(bindingResult.binding->getGlobalLinks().begin(),
+                                                            bindingResult.binding->getGlobalLinks().end()));
   checkBytes(expectedCells, std::vector<CellTopologyId>(bindingResult.binding->getGlobalCells().begin(),
                                                         bindingResult.binding->getGlobalCells().end()));
   checkBytes(prototype.scheduledCells, std::vector<CellTopologyId>(bindingResult.binding->getGlobalScheduledCells().begin(),
@@ -255,10 +255,10 @@ BOOST_AUTO_TEST_CASE(IndependentAuthoritiesChangeOnlyTheirDerivedOutputs)
   const auto seedResult = derivePairListGraph(seed);
   BOOST_REQUIRE(noSeedResult.ok());
   BOOST_REQUIRE(seedResult.ok());
-  checkBytes(noSeedResult.graph->transitions, seedResult.graph->transitions);
+  checkBytes(noSeedResult.graph->links, seedResult.graph->links);
   checkBytes(noSeedResult.graph->cells, seedResult.graph->cells);
-  checkBytes(noSeedResult.graph->cellsByFirstTransitionOffsets, seedResult.graph->cellsByFirstTransitionOffsets);
-  checkBytes(noSeedResult.graph->cellsByFirstTransition, seedResult.graph->cellsByFirstTransition);
+  checkBytes(noSeedResult.graph->cellsByFirstLinkOffsets, seedResult.graph->cellsByFirstLinkOffsets);
+  checkBytes(noSeedResult.graph->cellsByFirstLink, seedResult.graph->cellsByFirstLink);
   checkBytes(noSeedResult.graph->scheduledCells, seedResult.graph->scheduledCells);
   BOOST_CHECK(noSeedResult.graph->roadStartCells != seedResult.graph->roadStartCells);
 
@@ -268,7 +268,7 @@ BOOST_AUTO_TEST_CASE(IndependentAuthoritiesChangeOnlyTheirDerivedOutputs)
   BOOST_REQUIRE(holeResult.ok());
   BOOST_REQUIRE(expandedResult.ok());
   checkBytes(noHole.components[0].basePairs, seed.components[0].basePairs);
-  BOOST_CHECK_NE(holeResult.graph->transitions.size(), expandedResult.graph->transitions.size());
+  BOOST_CHECK_NE(holeResult.graph->links.size(), expandedResult.graph->links.size());
   auto catalogFive = catalog(5);
   const auto noHoleCurrent = buildCurrent(catalogFive, noHole);
   const auto expandedCurrent = buildCurrent(catalogFive, seed);
@@ -282,15 +282,15 @@ BOOST_AUTO_TEST_CASE(IndependentAuthoritiesChangeOnlyTheirDerivedOutputs)
   const auto missingEdge = input({missingEdgeComponent}, oneHole, maskOf({3}));
   const auto missingEdgeResult = derivePairListGraph(missingEdge);
   BOOST_REQUIRE(missingEdgeResult.ok());
-  BOOST_CHECK_EQUAL(missingEdgeResult.graph->transitions.size(), 2u);
-  for (const auto transition : missingEdgeResult.graph->transitions) {
-    BOOST_CHECK(!(transition.from == SurfaceId{0} && transition.to == SurfaceId{2}));
-    BOOST_CHECK(!(transition.from == SurfaceId{1} && transition.to == SurfaceId{3}));
+  BOOST_CHECK_EQUAL(missingEdgeResult.graph->links.size(), 2u);
+  for (const auto link : missingEdgeResult.graph->links) {
+    BOOST_CHECK(!(link.from == SurfaceId{0} && link.to == SurfaceId{2}));
+    BOOST_CHECK(!(link.from == SurfaceId{1} && link.to == SurfaceId{3}));
   }
 
   const auto changedActive = derivePairListGraph(input({component({0, 1, 2, 4, 5})}, oneHole, maskOf({2})));
   BOOST_REQUIRE(changedActive.ok());
-  BOOST_CHECK(changedActive.graph->transitions[3].to != noSeedResult.graph->transitions[3].to);
+  BOOST_CHECK(changedActive.graph->links[3].to != noSeedResult.graph->links[3].to);
 }
 
 BOOST_AUTO_TEST_CASE(NonMonotonicGlobalSurfaceIds)
@@ -317,9 +317,9 @@ BOOST_AUTO_TEST_CASE(MultipleAllowedHolesAndIndependentMasks)
   rejected.basePairs.pop_back();
   const auto result = derivePairListGraph(input({std::move(rejected)}, {1, maskOf({2})}, maskOf({0})));
   BOOST_REQUIRE(result.ok());
-  BOOST_CHECK_EQUAL(result.graph->transitions.size(), 2u);
-  BOOST_CHECK(result.graph->transitions[0].from == SurfaceId{0});
-  BOOST_CHECK(result.graph->transitions[0].to == SurfaceId{1});
+  BOOST_CHECK_EQUAL(result.graph->links.size(), 2u);
+  BOOST_CHECK(result.graph->links[0].from == SurfaceId{0});
+  BOOST_CHECK(result.graph->links[0].to == SurfaceId{1});
 }
 
 BOOST_AUTO_TEST_CASE(ValidationRejectsIndependentAuthorityViolations)

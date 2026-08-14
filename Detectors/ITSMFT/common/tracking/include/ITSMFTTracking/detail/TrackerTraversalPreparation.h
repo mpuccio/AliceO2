@@ -38,14 +38,14 @@ struct DiskReferenceCoordinateView {
 
 DiskReferenceCoordinateView bindLegacyMFTReferenceCoordinates() noexcept;
 
-float clampTransitionCurvature(float oneOverR, float outerRadius) noexcept;
+float clampLinkCurvature(float oneOverR, float outerRadius) noexcept;
 
-struct TransitionScatteringBendingPrep {
+struct LinkScatteringBendingPrep {
   float msAngle;
   float phiCut;
 };
 
-TransitionScatteringBendingPrep prepareTransitionScatteringAndBending(
+LinkScatteringBendingPrep prepareLinkAngularTolerances(
   gsl::span<const float> perLayerMSAngle, int fromLayer, int toLayer,
   float r1, float r2, float clampedOneOverR, float res1, float res2) noexcept;
 

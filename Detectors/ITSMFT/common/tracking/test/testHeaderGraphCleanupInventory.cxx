@@ -163,7 +163,7 @@ BOOST_AUTO_TEST_CASE(RetiredAndRelocatedPublicPathsAreAbsent)
     BOOST_CHECK_MESSAGE(!fs::exists(include / header), "retired public path remains: " << header);
   }
 
-  const std::string policy = std::string{"Transition"} + "Policy";
+  const std::string policy = std::string{"Link"} + "Policy";
   for (const auto suffix : {".h", "Binding.h", "Dispatch.h", "Operations.h", "State.h"}) {
     BOOST_CHECK_MESSAGE(!fs::exists(include / "detail" / (policy + suffix)),
                         "retired policy header remains: " << policy + suffix);
@@ -171,9 +171,9 @@ BOOST_AUTO_TEST_CASE(RetiredAndRelocatedPublicPathsAreAbsent)
 
   const std::vector<std::string> forbiddenSpellings{
     policy,
-    std::string{"transition"} + "Policy",
+    std::string{"link"} + "Policy",
     std::string{"For"} + "Policy",
-    std::string{"bindTransition"} + "PolicyParams",
+    std::string{"bindLink"} + "PolicyParams",
     "PropagationModel",
   };
   for (const auto& path : productionFiles()) {

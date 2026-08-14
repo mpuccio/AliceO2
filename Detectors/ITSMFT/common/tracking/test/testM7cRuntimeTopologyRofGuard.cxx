@@ -182,8 +182,8 @@ BOOST_AUTO_TEST_CASE(CommonProductionUsesOnlySparseTopologyAndRuntimeROFViews)
 BOOST_AUTO_TEST_CASE(SparseTopologyViewRetainsExplicitNonIdentityOrder)
 {
   SurfaceGraph topology{8};
-  const auto first = topology.addTransition(SurfaceTransition{SurfaceId{5}, SurfaceId{2}, {}, 0});
-  const auto second = topology.addTransition(SurfaceTransition{SurfaceId{2}, SurfaceId{7}, {}, 0});
+  const auto first = topology.addLink(SurfaceLink{SurfaceId{5}, SurfaceId{2}, {}, 0});
+  const auto second = topology.addLink(SurfaceLink{SurfaceId{2}, SurfaceId{7}, {}, 0});
   BOOST_REQUIRE(first.isValid());
   BOOST_REQUIRE(second.isValid());
   const auto cell = topology.addCell(first, second);
@@ -191,12 +191,12 @@ BOOST_AUTO_TEST_CASE(SparseTopologyViewRetainsExplicitNonIdentityOrder)
   BOOST_REQUIRE(topology.finalize());
 
   const auto view = topology.getView();
-  BOOST_REQUIRE_EQUAL(view.nTransitions, 2u);
+  BOOST_REQUIRE_EQUAL(view.nLinks, 2u);
   BOOST_REQUIRE_EQUAL(view.nCells, 1u);
-  BOOST_CHECK(view.getTransition(first).from == SurfaceId{5});
-  BOOST_CHECK(view.getTransition(first).to == SurfaceId{2});
-  BOOST_CHECK(view.getTransition(second).from == SurfaceId{2});
-  BOOST_CHECK(view.getTransition(second).to == SurfaceId{7});
+  BOOST_CHECK(view.getLink(first).from == SurfaceId{5});
+  BOOST_CHECK(view.getLink(first).to == SurfaceId{2});
+  BOOST_CHECK(view.getLink(second).from == SurfaceId{2});
+  BOOST_CHECK(view.getLink(second).to == SurfaceId{7});
   BOOST_CHECK(view.getCell(cell).hitSurfaces.has(SurfaceId{5}));
   BOOST_CHECK(view.getCell(cell).hitSurfaces.has(SurfaceId{2}));
   BOOST_CHECK(view.getCell(cell).hitSurfaces.has(SurfaceId{7}));

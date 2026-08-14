@@ -57,23 +57,23 @@ void validateSparsePlan(const TraversalWorkspaceView& context, int iteration, co
   const auto fail = [iteration]() { throw TraversalException{iteration, TraversalFailureReason::SparseTopologyMismatch}; };
   const auto& topology = layout;
   if (layout.surfaces == nullptr || layout.nSurfaces == 0 ||
-      (topology.nTransitions != 0 && (topology.transitions == nullptr || topology.cellsByFirstTransitionOffsets == nullptr)) ||
-      (topology.nCells != 0 && (topology.cells == nullptr || topology.cellsByFirstTransition == nullptr))) {
+      (topology.nLinks != 0 && (topology.links == nullptr || topology.cellsByFirstLinkOffsets == nullptr)) ||
+      (topology.nCells != 0 && (topology.cells == nullptr || topology.cellsByFirstLink == nullptr))) {
     fail();
   }
 
-  const auto transitions = binding.getGlobalTransitions();
+  const auto links = binding.getGlobalLinks();
   const auto cells = binding.getGlobalCells();
-  if (transitions.empty() || transitions.size() > topology.nTransitions || cells.size() > topology.nCells) {
+  if (links.empty() || links.size() > topology.nLinks || cells.size() > topology.nCells) {
     fail();
   }
-  for (const auto id : transitions) {
-    if (!id.isValid() || id.value() >= topology.nTransitions || !binding.getScratchTransitionSlot(id)) {
+  for (const auto id : links) {
+    if (!id.isValid() || id.value() >= topology.nLinks || !binding.getScratchLinkSlot(id)) {
       fail();
     }
-    const auto& transition = topology.getTransition(id);
-    if (!binding.getOwnedSurfaceIndex(transition.from) || !binding.getOwnedSurfaceIndex(transition.to) ||
-        !transition.skippedSurfaces.isSubsetOf(binding.getOwnedSurfaces())) {
+    const auto& link = topology.getLink(id);
+    if (!binding.getOwnedSurfaceIndex(link.from) || !binding.getOwnedSurfaceIndex(link.to) ||
+        !link.skippedSurfaces.isSubsetOf(binding.getOwnedSurfaces())) {
       fail();
     }
   }
@@ -82,8 +82,8 @@ void validateSparsePlan(const TraversalWorkspaceView& context, int iteration, co
       fail();
     }
     const auto& cell = topology.getCell(id);
-    if (!binding.getScratchTransitionSlot(cell.firstTransition) ||
-        !binding.getScratchTransitionSlot(cell.secondTransition) ||
+    if (!binding.getScratchLinkSlot(cell.firstLink) ||
+        !binding.getScratchLinkSlot(cell.secondLink) ||
         !cell.hitSurfaces.isSubsetOf(binding.getOwnedSurfaces())) {
       fail();
     }
@@ -101,11 +101,11 @@ void validateSparsePlan(const TraversalWorkspaceView& context, int iteration, co
   (void)parameters[iteration];
 }
 
-void prepareTransitionScatteringAndBending(
+void prepareLinkAngularTolerances(
   TraversalWorkspaceView& context,
   int iteration,
   const DiskReferenceCoordinateView& referenceCoordinateView,
-  gsl::span<const TransitionId> transitionIds)
+  gsl::span<const LinkId> linkIds)
 {
   auto& scratch = context.scratch;
   const auto& binding = context.binding;
@@ -130,17 +130,17 @@ void prepareTransitionScatteringAndBending(
     }
   }
 
-  auto& transitionMSAngles = scratch.getTransitionMSAngles();
-  auto& transitionPhiCuts = scratch.getTransitionPhiCuts();
+  auto& linkMSAngles = scratch.getLinkMSAngles();
+  auto& linkPhiCuts = scratch.getLinkPhiCuts();
   const float oneOverR{0.001f * 0.3f * std::abs(context.bz) / trkParam.TrackletMinPt};
-  for (const auto transitionId : transitionIds) {
-    const auto transitionSlot = binding.getScratchTransitionSlot(transitionId);
-    if (!transitionSlot) {
+  for (const auto linkId : linkIds) {
+    const auto linkSlot = binding.getScratchLinkSlot(linkId);
+    if (!linkSlot) {
       throw TraversalException{iteration, TraversalFailureReason::TraversalBindingMismatch};
     }
-    const auto& transition = topology.getTransition(transitionId);
-    const auto fromPosition = binding.getOwnedSurfaceIndex(transition.from);
-    const auto toPosition = binding.getOwnedSurfaceIndex(transition.to);
+    const auto& link = topology.getLink(linkId);
+    const auto fromPosition = binding.getOwnedSurfaceIndex(link.from);
+    const auto toPosition = binding.getOwnedSurfaceIndex(link.to);
     if (!fromPosition || !toPosition || *fromPosition >= static_cast<std::size_t>(activeSurfaceCount) ||
         *toPosition >= static_cast<std::size_t>(activeSurfaceCount)) {
       throw TraversalException{iteration, TraversalFailureReason::TraversalBindingMismatch};
@@ -149,13 +149,13 @@ void prepareTransitionScatteringAndBending(
     const int toLayer = static_cast<int>(*toPosition);
     const float r1 = std::min(trkParam.LayerRadii[fromLayer], trkParam.LayerRadii[toLayer]);
     const float r2 = std::max(trkParam.LayerRadii[fromLayer], trkParam.LayerRadii[toLayer]);
-    const float transitionOneOverR = clampTransitionCurvature(oneOverR, r2);
+    const float linkOneOverR = clampLinkCurvature(oneOverR, r2);
     const float res1 = o2::gpu::CAMath::Hypot(trkParam.PVres, scratch.getPositionResolution(fromLayer));
     const float res2 = o2::gpu::CAMath::Hypot(trkParam.PVres, scratch.getPositionResolution(toLayer));
-    const auto prep = ::o2::itsmft::tracking::prepareTransitionScatteringAndBending(
-      gsl::span<const float>(msAngles.data(), static_cast<std::size_t>(activeSurfaceCount)), fromLayer, toLayer, r1, r2, transitionOneOverR, res1, res2);
-    transitionMSAngles[*transitionSlot] = prep.msAngle;
-    transitionPhiCuts[*transitionSlot] = prep.phiCut;
+    const auto prep = ::o2::itsmft::tracking::prepareLinkAngularTolerances(
+      gsl::span<const float>(msAngles.data(), static_cast<std::size_t>(activeSurfaceCount)), fromLayer, toLayer, r1, r2, linkOneOverR, res1, res2);
+    linkMSAngles[*linkSlot] = prep.msAngle;
+    linkPhiCuts[*linkSlot] = prep.phiCut;
   }
 }
 } // namespace
@@ -189,8 +189,8 @@ void Tracker::initializeTraversalWorkspace(TraversalWorkspaceView& context) cons
     throw TraversalException{iteration, TraversalFailureReason::MissingLayout};
   }
 
-  const auto boundTransitions = mBinding->getGlobalTransitions();
-  if (boundTransitions.empty() || boundTransitions.front().value() >= layout.nTransitions) {
+  const auto boundLinks = mBinding->getGlobalLinks();
+  if (boundLinks.empty() || boundLinks.front().value() >= layout.nLinks) {
     throw TraversalException{iteration, TraversalFailureReason::SparseTopologyMismatch};
   }
 
@@ -314,7 +314,7 @@ void Tracker::initializeTraversalWorkspace(TraversalWorkspaceView& context) cons
   // it also clears any prior accepted candidates for this iteration.
   context.workspace.reset(mMemoryPool.get());
 
-  const auto transitionIds = mBinding->getGlobalTransitions();
+  const auto linkIds = mBinding->getGlobalLinks();
   const auto cellIds = mBinding->getGlobalCells();
   const gsl::span<const IndexTableUtilsCore> stagedIndexTableConfigView{stagedIndexTableConfigs.data(), activeCount};
   const gsl::span<const gsl::span<const GlobalMeasurement>> stagedLayerGlobalMeasurementView{
@@ -323,17 +323,17 @@ void Tracker::initializeTraversalWorkspace(TraversalWorkspaceView& context) cons
   // remaining sorted-ROF validation. If that validation fails, Tracker::run()
   // resets the whole TimeFrame before returning or propagating the error.
   mScratch->initialise(*mFrame, mTrkParams[iteration], activeSurfaceCount, iteration,
-                       stagedIndexTableConfigView, layout, transitionIds, cellIds,
+                       stagedIndexTableConfigView, layout, linkIds, cellIds,
                        orderedSurfaces, stagedLayerGlobalMeasurementView);
 
   // Sorted clusters are a locator cache. Validate every enabled ROF that can
-  // participate in a configured transition, including LUT-reuse paths.
+  // participate in a configured link, including LUT-reuse paths.
   // Keep spans local until validation and kind setup complete.
   std::array<bool, MaxLayoutSurfaces> candidateReachableLayers{};
-  for (const auto transitionId : transitionIds) {
-    const auto& transition = layout.getTransition(transitionId);
-    const auto fromSlot = mBinding->getOwnedSurfaceIndex(transition.from);
-    const auto toSlot = mBinding->getOwnedSurfaceIndex(transition.to);
+  for (const auto linkId : linkIds) {
+    const auto& link = layout.getLink(linkId);
+    const auto fromSlot = mBinding->getOwnedSurfaceIndex(link.from);
+    const auto toSlot = mBinding->getOwnedSurfaceIndex(link.to);
     if (!fromSlot || !toSlot || *fromSlot >= candidateReachableLayers.size() || *toSlot >= candidateReachableLayers.size()) {
       throw TraversalException{iteration, TraversalFailureReason::SparseTopologyMismatch};
     }
@@ -442,9 +442,9 @@ void Tracker::initializeTraversalWorkspace(TraversalWorkspaceView& context) cons
   mTraversalCacheValid = true;
 
   // All fallible validation is complete. The remaining per-layer and
-  // per-transition scattering/bending preparation is non-throwing.
-  prepareTransitionScatteringAndBending(context, iteration, referenceCoordinateView,
-                                        mBinding->getGlobalTransitions());
+  // per-link scattering/bending preparation is non-throwing.
+  prepareLinkAngularTolerances(context, iteration, referenceCoordinateView,
+                                        mBinding->getGlobalLinks());
 }
 
 TrackerInitializationResult Tracker::initialize(TimeFrame& frame, const TrackerInitialization& configuration)
@@ -505,7 +505,7 @@ TrackerInitializationResult Tracker::initialize(TimeFrame& frame, const TrackerI
       return result;
     }
     capacities.push_back(TrackingWorkspaceCapacity{
-      input.graph.orderedSurfaces.size(), bindingResult.binding->getGlobalTransitions().size(),
+      input.graph.orderedSurfaces.size(), bindingResult.binding->getGlobalLinks().size(),
       bindingResult.binding->getGlobalCells().size()});
     graphs.push_back(*graphResult.graph);
     parameters.push_back(input.parameters);

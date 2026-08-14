@@ -9,7 +9,7 @@
 #define ALICEO2_ITSMFT_TRACKING_SURFACEPLANBINDING_H_
 
 // Private plan binding used by the common tracker. It owns validated ordered
-// surface positions and source-qualified compact transition/cell schedules;
+// surface positions and source-qualified compact link/cell schedules;
 // it owns no graph, workspace, event data, or detector-specific policy.
 
 #ifndef GPUCA_GPUCODE
@@ -36,9 +36,9 @@ enum class SurfacePlanBindingError : uint8_t {
   InvalidLegacySurfaceOrder,
   InvalidTopology,
   InvalidSurface,
-  CrossBoundaryTransition,
+  CrossBoundaryLink,
   CrossBoundaryCell,
-  IncompleteTransitionMapping,
+  IncompleteLinkMapping,
   IncompleteCellMapping,
   DuplicateScratchSlot
 };
@@ -83,20 +83,20 @@ class SurfacePlanBinding
       }
     }
 
-    if ((globalLayout.nTransitions != 0 && globalLayout.transitions == nullptr) ||
+    if ((globalLayout.nLinks != 0 && globalLayout.links == nullptr) ||
         (globalLayout.nCells != 0 && globalLayout.cells == nullptr)) {
       return {{}, SurfacePlanBindingError::InvalidTopology};
     }
     const auto& topology = globalLayout;
     std::vector<uint32_t> indegree(topology.nSurfaces, 0);
     std::vector<uint32_t> rank(topology.nSurfaces, 0);
-    for (uint32_t id = 0; id < topology.nTransitions; ++id) {
-      const auto& transition = topology.getTransition(TransitionId{static_cast<uint16_t>(id)});
-      if (!transition.from.isValid() || !transition.to.isValid() ||
-          transition.from.value() >= topology.nSurfaces || transition.to.value() >= topology.nSurfaces) {
+    for (uint32_t id = 0; id < topology.nLinks; ++id) {
+      const auto& link = topology.getLink(LinkId{static_cast<uint16_t>(id)});
+      if (!link.from.isValid() || !link.to.isValid() ||
+          link.from.value() >= topology.nSurfaces || link.to.value() >= topology.nSurfaces) {
         return {{}, SurfacePlanBindingError::InvalidTopology};
       }
-      ++indegree[transition.to.value()];
+      ++indegree[link.to.value()];
     }
     const auto laterSurface = [](SurfaceId lhs, SurfaceId rhs) { return rhs < lhs; };
     std::priority_queue<SurfaceId, std::vector<SurfaceId>, decltype(laterSurface)> ready{laterSurface};
@@ -110,14 +110,14 @@ class SurfacePlanBinding
       const auto surface = ready.top();
       ready.pop();
       ++visited;
-      for (uint32_t id = 0; id < topology.nTransitions; ++id) {
-        const auto& transition = topology.getTransition(TransitionId{static_cast<uint16_t>(id)});
-        if (transition.from != surface) {
+      for (uint32_t id = 0; id < topology.nLinks; ++id) {
+        const auto& link = topology.getLink(LinkId{static_cast<uint16_t>(id)});
+        if (link.from != surface) {
           continue;
         }
-        rank[transition.to.value()] = std::max(rank[transition.to.value()], rank[surface.value()] + 1);
-        if (--indegree[transition.to.value()] == 0) {
-          ready.push(transition.to);
+        rank[link.to.value()] = std::max(rank[link.to.value()], rank[surface.value()] + 1);
+        if (--indegree[link.to.value()] == 0) {
+          ready.push(link.to);
         }
       }
     }
@@ -133,10 +133,10 @@ class SurfacePlanBinding
       }
       return surface;
     };
-    for (uint32_t id = 0; id < topology.nTransitions; ++id) {
-      const auto& transition = topology.getTransition(TransitionId{static_cast<uint16_t>(id)});
-      const auto fromRoot = componentRoot(transition.from.value());
-      const auto toRoot = componentRoot(transition.to.value());
+    for (uint32_t id = 0; id < topology.nLinks; ++id) {
+      const auto& link = topology.getLink(LinkId{static_cast<uint16_t>(id)});
+      const auto fromRoot = componentRoot(link.from.value());
+      const auto toRoot = componentRoot(link.to.value());
       if (fromRoot != toRoot) {
         componentParent[toRoot] = fromRoot;
       }
@@ -148,61 +148,61 @@ class SurfacePlanBinding
     }
     for (uint32_t id = 0; id < topology.nCells; ++id) {
       const auto& cell = topology.getCell(CellTopologyId{static_cast<uint16_t>(id)});
-      if (!cell.firstTransition.isValid() || !cell.secondTransition.isValid() ||
-          cell.firstTransition.value() >= topology.nTransitions || cell.secondTransition.value() >= topology.nTransitions) {
+      if (!cell.firstLink.isValid() || !cell.secondLink.isValid() ||
+          cell.firstLink.value() >= topology.nLinks || cell.secondLink.value() >= topology.nLinks) {
         return {{}, SurfacePlanBindingError::InvalidTopology};
       }
     }
-    result->mScratchTransitionSlot.assign(topology.nTransitions, -1);
+    result->mScratchLinkSlot.assign(topology.nLinks, -1);
     result->mScratchCellSlot.assign(topology.nCells, -1);
 
-    // Validate every global transition first. A boundary edge is invalid
+    // Validate every global link first. A boundary edge is invalid
     // regardless of whether it would otherwise be filtered from this
     // binding's own scope.
-    for (uint32_t id = 0; id < topology.nTransitions; ++id) {
-      const auto& transition = topology.getTransition(TransitionId{static_cast<uint16_t>(id)});
-      const bool fromOwned = ownedSurfaces.has(transition.from);
-      const bool toOwned = ownedSurfaces.has(transition.to);
+    for (uint32_t id = 0; id < topology.nLinks; ++id) {
+      const auto& link = topology.getLink(LinkId{static_cast<uint16_t>(id)});
+      const bool fromOwned = ownedSurfaces.has(link.from);
+      const bool toOwned = ownedSurfaces.has(link.to);
       if (fromOwned != toOwned) {
-        return {{}, SurfacePlanBindingError::CrossBoundaryTransition};
+        return {{}, SurfacePlanBindingError::CrossBoundaryLink};
       }
       if (!fromOwned) {
         continue;
       }
-      if (!transition.skippedSurfaces.isSubsetOf(ownedSurfaces)) {
-        return {{}, SurfacePlanBindingError::CrossBoundaryTransition};
+      if (!link.skippedSurfaces.isSubsetOf(ownedSurfaces)) {
+        return {{}, SurfacePlanBindingError::CrossBoundaryLink};
       }
     }
 
     // Filter the immutable global-ID order only by ownership; disconnected
     // SurfaceKind components remain part of this one binding and are batched
     // by TrackerTraits from their endpoint descriptors.
-    for (uint32_t rawId = 0; rawId < topology.nTransitions; ++rawId) {
-      const auto id = TransitionId{static_cast<uint16_t>(rawId)};
-      const auto& transition = topology.getTransition(id);
-      if (!ownedSurfaces.has(transition.from)) {
+    for (uint32_t rawId = 0; rawId < topology.nLinks; ++rawId) {
+      const auto id = LinkId{static_cast<uint16_t>(rawId)};
+      const auto& link = topology.getLink(id);
+      if (!ownedSurfaces.has(link.from)) {
         continue;
       }
-      if (result->mScratchTransitionSlot[id.value()] >= 0) {
+      if (result->mScratchLinkSlot[id.value()] >= 0) {
         return {{}, SurfacePlanBindingError::DuplicateScratchSlot};
       }
-      result->mScratchTransitionSlot[id.value()] = static_cast<int16_t>(result->mGlobalTransitions.size());
-      result->mGlobalTransitions.push_back(id);
+      result->mScratchLinkSlot[id.value()] = static_cast<int16_t>(result->mGlobalLinks.size());
+      result->mGlobalLinks.push_back(id);
     }
-    for (uint32_t id = 0; id < topology.nTransitions; ++id) {
-      const auto& transition = topology.getTransition(TransitionId{static_cast<uint16_t>(id)});
-      if (ownedSurfaces.has(transition.from) && result->mScratchTransitionSlot[id] < 0) {
-        return {{}, SurfacePlanBindingError::IncompleteTransitionMapping};
+    for (uint32_t id = 0; id < topology.nLinks; ++id) {
+      const auto& link = topology.getLink(LinkId{static_cast<uint16_t>(id)});
+      if (ownedSurfaces.has(link.from) && result->mScratchLinkSlot[id] < 0) {
+        return {{}, SurfacePlanBindingError::IncompleteLinkMapping};
       }
     }
 
     for (uint32_t id = 0; id < topology.nCells; ++id) {
       const auto cellId = CellTopologyId{static_cast<uint16_t>(id)};
       const auto& cell = topology.getCell(cellId);
-      const bool firstOwned = cell.firstTransition.isValid() && cell.firstTransition.value() < topology.nTransitions &&
-                              result->mScratchTransitionSlot[cell.firstTransition.value()] >= 0;
-      const bool secondOwned = cell.secondTransition.isValid() && cell.secondTransition.value() < topology.nTransitions &&
-                               result->mScratchTransitionSlot[cell.secondTransition.value()] >= 0;
+      const bool firstOwned = cell.firstLink.isValid() && cell.firstLink.value() < topology.nLinks &&
+                              result->mScratchLinkSlot[cell.firstLink.value()] >= 0;
+      const bool secondOwned = cell.secondLink.isValid() && cell.secondLink.value() < topology.nLinks &&
+                               result->mScratchLinkSlot[cell.secondLink.value()] >= 0;
       if (firstOwned != secondOwned || (firstOwned && !cell.hitSurfaces.isSubsetOf(ownedSurfaces))) {
         return {{}, SurfacePlanBindingError::CrossBoundaryCell};
       }
@@ -210,7 +210,7 @@ class SurfacePlanBinding
     for (uint32_t rawId = 0; rawId < topology.nCells; ++rawId) {
       const auto id = CellTopologyId{static_cast<uint16_t>(rawId)};
       const auto& cell = topology.getCell(id);
-      if (result->mScratchTransitionSlot[cell.firstTransition.value()] < 0) {
+      if (result->mScratchLinkSlot[cell.firstLink.value()] < 0) {
         continue;
       }
       if (result->mScratchCellSlot[id.value()] >= 0) {
@@ -221,7 +221,7 @@ class SurfacePlanBinding
     }
     for (uint32_t id = 0; id < topology.nCells; ++id) {
       const auto& cell = topology.getCell(CellTopologyId{static_cast<uint16_t>(id)});
-      if (result->mScratchTransitionSlot[cell.firstTransition.value()] >= 0 && result->mScratchCellSlot[id] < 0) {
+      if (result->mScratchLinkSlot[cell.firstLink.value()] >= 0 && result->mScratchCellSlot[id] < 0) {
         return {{}, SurfacePlanBindingError::IncompleteCellMapping};
       }
     }
@@ -229,13 +229,13 @@ class SurfacePlanBinding
       const auto id = CellTopologyId{static_cast<uint16_t>(rawId)};
       const auto& cell = topology.getCell(id);
       if (result->mScratchCellSlot[id.value()] >= 0 &&
-          topology.seedingSurfaces.has(topology.getTransition(cell.secondTransition).to)) {
+          topology.seedingSurfaces.has(topology.getLink(cell.secondLink).to)) {
         result->mGlobalRoadStartCells.push_back(id);
       }
     }
     std::sort(result->mGlobalRoadStartCells.begin(), result->mGlobalRoadStartCells.end(), [&](CellTopologyId lhs, CellTopologyId rhs) {
-      const auto lhsTarget = topology.getTransition(topology.getCell(lhs).secondTransition).to;
-      const auto rhsTarget = topology.getTransition(topology.getCell(rhs).secondTransition).to;
+      const auto lhsTarget = topology.getLink(topology.getCell(lhs).secondLink).to;
+      const auto rhsTarget = topology.getLink(topology.getCell(rhs).secondLink).to;
       const auto lhsComponent = componentOrder[componentRoot(lhsTarget.value())];
       const auto rhsComponent = componentOrder[componentRoot(rhsTarget.value())];
       if (lhsComponent != rhsComponent) {
@@ -247,7 +247,7 @@ class SurfacePlanBinding
     uint32_t previousComponent = std::numeric_limits<uint32_t>::max();
     for (uint32_t offset = 0; offset < result->mGlobalRoadStartCells.size(); ++offset) {
       const auto cell = result->mGlobalRoadStartCells[offset];
-      const auto target = topology.getTransition(topology.getCell(cell).secondTransition).to;
+      const auto target = topology.getLink(topology.getCell(cell).secondLink).to;
       const auto component = componentOrder[componentRoot(target.value())];
       if (component != previousComponent && offset != 0) {
         result->mRoadStartComponentOffsets.push_back(offset);
@@ -262,8 +262,8 @@ class SurfacePlanBinding
     // set, never a superset/subset of it.
     std::vector<CellTopologyId> scheduledCells = result->mGlobalCells;
     std::sort(scheduledCells.begin(), scheduledCells.end(), [&](CellTopologyId lhs, CellTopologyId rhs) {
-      const auto lhsTarget = topology.getTransition(topology.getCell(lhs).secondTransition).to;
-      const auto rhsTarget = topology.getTransition(topology.getCell(rhs).secondTransition).to;
+      const auto lhsTarget = topology.getLink(topology.getCell(lhs).secondLink).to;
+      const auto rhsTarget = topology.getLink(topology.getCell(rhs).secondLink).to;
       const auto lhsComponent = componentOrder[componentRoot(lhsTarget.value())];
       const auto rhsComponent = componentOrder[componentRoot(rhsTarget.value())];
       if (lhsComponent != rhsComponent) {
@@ -282,9 +282,9 @@ class SurfacePlanBinding
   SurfaceMask getOwnedSurfaces() const noexcept { return mOwnedSurfaces; }
   gsl::span<const SurfaceId> getOrderedSurfaces() const noexcept { return mOrderedSurfaces; }
   std::optional<uint16_t> getOwnedSurfaceIndex(SurfaceId id) const noexcept { return getSlot(mOwnedSurfaceIndexBySurface, id); }
-  std::optional<uint16_t> getScratchTransitionSlot(TransitionId id) const noexcept { return getSlot(mScratchTransitionSlot, id); }
+  std::optional<uint16_t> getScratchLinkSlot(LinkId id) const noexcept { return getSlot(mScratchLinkSlot, id); }
   std::optional<uint16_t> getScratchCellSlot(CellTopologyId id) const noexcept { return getSlot(mScratchCellSlot, id); }
-  gsl::span<const TransitionId> getGlobalTransitions() const noexcept { return mGlobalTransitions; }
+  gsl::span<const LinkId> getGlobalLinks() const noexcept { return mGlobalLinks; }
   gsl::span<const CellTopologyId> getGlobalCells() const noexcept { return mGlobalCells; }
   gsl::span<const CellTopologyId> getGlobalRoadStartCells() const noexcept { return mGlobalRoadStartCells; }
   gsl::span<const uint32_t> getRoadStartComponentOffsets() const noexcept { return mRoadStartComponentOffsets; }
@@ -303,9 +303,9 @@ class SurfacePlanBinding
   SurfaceMask mOwnedSurfaces{};
   std::vector<SurfaceId> mOrderedSurfaces;
   std::vector<int16_t> mOwnedSurfaceIndexBySurface;
-  std::vector<int16_t> mScratchTransitionSlot;
+  std::vector<int16_t> mScratchLinkSlot;
   std::vector<int16_t> mScratchCellSlot;
-  std::vector<TransitionId> mGlobalTransitions;
+  std::vector<LinkId> mGlobalLinks;
   std::vector<CellTopologyId> mGlobalCells;
   std::vector<CellTopologyId> mGlobalRoadStartCells;
   std::vector<uint32_t> mRoadStartComponentOffsets;

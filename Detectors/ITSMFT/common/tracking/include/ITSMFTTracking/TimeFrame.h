@@ -50,7 +50,7 @@ using bounded_vector = o2::its::bounded_vector<T>;
 
 struct TrackingWorkspaceCapacity {
   std::size_t ownedSurfaces = 0;
-  std::size_t transitions = 0;
+  std::size_t links = 0;
   std::size_t cells = 0;
 };
 
