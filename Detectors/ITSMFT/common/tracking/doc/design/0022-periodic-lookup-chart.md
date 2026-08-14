@@ -8,8 +8,9 @@ existing `LayerZ` defaults.  The MFT ranges reproduce the existing immutable
 
 `detail/LookupCoordinates.h` transforms a global measurement and its full XY
 covariance into `(phi, transverse)`, retaining the off-diagonal term.  Phi is
-always periodic.  Disk conversion rejects `r == 0` rather than introducing a
-numeric floor.  Its window helper bounds the correlated ellipse
+always periodic.  Disk conversion requires the descriptor's immutable valid
+`[rMin,rMax]` range, so the origin and every out-of-chart radius fail closed
+without a numeric floor.  Its window helper bounds the correlated ellipse
 conservatively in the chart, clamps only the non-periodic coordinate to the
 descriptor range, and records phi wrapping.
 
