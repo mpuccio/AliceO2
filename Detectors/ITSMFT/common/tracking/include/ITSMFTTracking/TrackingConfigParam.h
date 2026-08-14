@@ -29,7 +29,8 @@ constexpr int MFTNLayers = 10;
 /// Maximum CA iterations.
 constexpr int MaxIter = 4;
 inline constexpr std::array<float, ITSNLayers> kITSLookupZHalfExtent{
-  17.333f, 17.333f, 17.333f, 43.140f, 43.140f, 74.745f, 74.745f};
+  16.333f + 1.f, 16.333f + 1.f, 16.333f + 1.f,
+  42.140f + 1.f, 42.140f + 1.f, 73.745f + 1.f, 73.745f + 1.f};
 } // namespace o2::itsmft::tracking
 
 namespace o2::itsmft
