@@ -44,7 +44,7 @@ BOOST_AUTO_TEST_CASE(NoRetiredDispatchVocabularyRemainsInITSMFTSources)
   const std::string retiredFamily = std::string{"Trans"} + "ition" + "Policy";
   const std::string retiredTag = retiredFamily + "Tag";
   const std::string retiredTemplateName = std::string{"For"} + "Policy";
-  const std::string retiredLowerName = std::string{"link"} + "Policy";
+  const std::string retiredLowerName = std::string{"edge"} + "Policy";
   const std::string retiredBindingName = std::string{"bindLink"} + "Policy" + "Params";
   const std::vector<std::string> forbidden{retiredFamily, retiredTag, retiredTemplateName,
                                            retiredLowerName, retiredBindingName};

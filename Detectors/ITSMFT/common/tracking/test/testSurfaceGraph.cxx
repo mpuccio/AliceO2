@@ -30,8 +30,8 @@ SurfaceGraph buildGraph(const std::vector<SurfaceDescriptor>& surfaces, std::vec
 {
   SurfaceGraph graph{gsl::span<const SurfaceDescriptor>{surfaces}};
   graph.setOrderedSurfaces(std::move(order));
-  BOOST_REQUIRE(graph.addLink(SurfaceLink{SurfaceId{3}, SurfaceId{2}, {}, 0}).isValid());
-  BOOST_REQUIRE(graph.addLink(SurfaceLink{SurfaceId{1}, SurfaceId{0}, {}, 0}).isValid());
+  BOOST_REQUIRE(graph.addEdge(Edge{SurfaceId{3}, SurfaceId{2}, {}, 0}).isValid());
+  BOOST_REQUIRE(graph.addEdge(Edge{SurfaceId{1}, SurfaceId{0}, {}, 0}).isValid());
   BOOST_REQUIRE(graph.finalize());
   return graph;
 }
@@ -65,10 +65,10 @@ BOOST_AUTO_TEST_CASE(ViewCarriesOneOwnerCatalogOrderAndTopology)
   BOOST_CHECK_EQUAL(view.diskSurfaces.value(), 0xcu);
   BOOST_CHECK(view.orderedSurfaces[0] == SurfaceId{3});
   BOOST_CHECK(view.orderedSurfaces[1] == SurfaceId{1});
-  BOOST_CHECK_EQUAL(view.nLinks, 2u);
+  BOOST_CHECK_EQUAL(view.nEdges, 2u);
   BOOST_CHECK_EQUAL(view.nCells, 0u);
-  BOOST_CHECK(view.getLink(LinkId{0}).from == SurfaceId{3});
-  BOOST_CHECK(view.getLink(LinkId{0}).to == SurfaceId{2});
+  BOOST_CHECK(view.getEdge(EdgeId{0}).from == SurfaceId{3});
+  BOOST_CHECK(view.getEdge(EdgeId{0}).to == SurfaceId{2});
 }
 
 BOOST_AUTO_TEST_CASE(ViewIsDeviceSafePOD)
@@ -78,7 +78,7 @@ BOOST_AUTO_TEST_CASE(ViewIsDeviceSafePOD)
   const auto view = graph.getView();
   const auto copy = view;
   BOOST_CHECK(copy.surfaces == view.surfaces);
-  BOOST_CHECK(copy.links == view.links);
+  BOOST_CHECK(copy.edges == view.edges);
   BOOST_CHECK(copy.cells == view.cells);
 }
 
@@ -108,6 +108,6 @@ BOOST_AUTO_TEST_CASE(NonContiguousGlobalIdsUseOneGraphLookup)
   BOOST_CHECK(view.getSurface(SurfaceId{1}).id == SurfaceId{1});
   BOOST_CHECK(view.orderedSurfaces[0] == SurfaceId{7});
   BOOST_CHECK(view.seedingSurfaces.has(SurfaceId{7}));
-  BOOST_CHECK(view.getLink(LinkId{0}).from == SurfaceId{7});
-  BOOST_CHECK(view.getLink(LinkId{0}).to == SurfaceId{1});
+  BOOST_CHECK(view.getEdge(EdgeId{0}).from == SurfaceId{7});
+  BOOST_CHECK(view.getEdge(EdgeId{0}).to == SurfaceId{1});
 }

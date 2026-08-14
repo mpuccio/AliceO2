@@ -70,7 +70,7 @@ struct SyntheticChain {
   }
 
   std::size_t nOwnedSurfaces() const { return static_cast<std::size_t>(binding.binding->getOwnedSurfaces().count()); }
-  std::size_t nLinks() const { return binding.binding->getGlobalLinks().size(); }
+  std::size_t nEdges() const { return binding.binding->getGlobalEdges().size(); }
   std::size_t nCells() const { return binding.binding->getGlobalCells().size(); }
 
  private:
@@ -121,29 +121,29 @@ std::shared_ptr<o2::its::BoundedMemoryResource> makePool()
 
 BOOST_AUTO_TEST_CASE(AdoptsPlansWithDistinctRuntimeCountsWithoutDetectorOrLayerCountAssumption)
 {
-  // Two synthetic plans of deliberately different owned-surface/link/
-  // cell cardinality -- 4 surfaces (3 links, 2 cells, per
+  // Two synthetic plans of deliberately different owned-surface/edge/
+  // cell cardinality -- 4 surfaces (3 edges, 2 cells, per
   // testSurfacePlanBinding.cxx's own equivalent fixture) and 6 surfaces (5
-  // links, 4 cells) -- adopted in turn by the *same* scratch instance,
+  // edges, 4 cells) -- adopted in turn by the *same* scratch instance,
   // proving sizing tracks whatever plan was last adopted rather than any
   // baked-in constant (no NLayers, no ITS/MFT-shaped assumption anywhere in
   // this test or in SurfaceTrackingScratch itself).
   SyntheticChain small{4};
   SyntheticChain large{6};
   BOOST_CHECK_EQUAL(small.nOwnedSurfaces(), 4u);
-  BOOST_CHECK_EQUAL(small.nLinks(), 3u);
+  BOOST_CHECK_EQUAL(small.nEdges(), 3u);
   BOOST_CHECK_EQUAL(small.nCells(), 2u);
   BOOST_CHECK_EQUAL(large.nOwnedSurfaces(), 6u);
-  BOOST_CHECK_EQUAL(large.nLinks(), 5u);
+  BOOST_CHECK_EQUAL(large.nEdges(), 5u);
   BOOST_CHECK_EQUAL(large.nCells(), 4u);
   BOOST_REQUIRE_NE(small.nOwnedSurfaces(), large.nOwnedSurfaces());
 
   SurfaceTrackingScratch scratch;
   scratch.setMemoryPool(makePool());
 
-  scratch.adoptPlan(small.nOwnedSurfaces(), small.nLinks(), small.nCells());
+  scratch.adoptPlan(small.nOwnedSurfaces(), small.nEdges(), small.nCells());
   BOOST_CHECK_EQUAL(scratch.getNOwnedSurfaces(), 4u);
-  BOOST_CHECK_EQUAL(scratch.getNLinks(), 3u);
+  BOOST_CHECK_EQUAL(scratch.getNEdges(), 3u);
   BOOST_CHECK_EQUAL(scratch.getNCells(), 2u);
   BOOST_CHECK_EQUAL(scratch.mClusters.size(), 4u);
   BOOST_CHECK_EQUAL(scratch.mTracklets.size(), 3u);
@@ -151,24 +151,24 @@ BOOST_AUTO_TEST_CASE(AdoptsPlansWithDistinctRuntimeCountsWithoutDetectorOrLayerC
 
   // Re-adopting a differently-shaped plan on the same instance must fully
   // re-size every container -- no residue from the previous plan.
-  scratch.adoptPlan(large.nOwnedSurfaces(), large.nLinks(), large.nCells());
+  scratch.adoptPlan(large.nOwnedSurfaces(), large.nEdges(), large.nCells());
   BOOST_CHECK_EQUAL(scratch.getNOwnedSurfaces(), 6u);
-  BOOST_CHECK_EQUAL(scratch.getNLinks(), 5u);
+  BOOST_CHECK_EQUAL(scratch.getNEdges(), 5u);
   BOOST_CHECK_EQUAL(scratch.getNCells(), 4u);
   BOOST_CHECK_EQUAL(scratch.mClusters.size(), 6u);
   BOOST_CHECK_EQUAL(scratch.mTracklets.size(), 5u);
   BOOST_CHECK_EQUAL(scratch.mCells.size(), 4u);
 }
 
-BOOST_AUTO_TEST_CASE(PerSurfaceAndLinkCellContainersHaveExpectedRuntimeSizes)
+BOOST_AUTO_TEST_CASE(PerSurfaceAndEdgeCellContainersHaveExpectedRuntimeSizes)
 {
   SyntheticChain chain{5};
   SurfaceTrackingScratch scratch;
   scratch.setMemoryPool(makePool());
-  scratch.adoptPlan(chain.nOwnedSurfaces(), chain.nLinks(), chain.nCells());
+  scratch.adoptPlan(chain.nOwnedSurfaces(), chain.nEdges(), chain.nCells());
 
   const auto nSurf = chain.nOwnedSurfaces();
-  const auto nTr = chain.nLinks();
+  const auto nTr = chain.nEdges();
   const auto nCe = chain.nCells();
 
   // Group A: one slot per owned surface.
@@ -187,12 +187,12 @@ BOOST_AUTO_TEST_CASE(PerSurfaceAndLinkCellContainersHaveExpectedRuntimeSizes)
   BOOST_CHECK_EQUAL(scratch.mBogusClusters.size(), nSurf);
   BOOST_CHECK_EQUAL(scratch.mPositionResolution.size(), nSurf);
 
-  // Group B: sparse link/cell counts.
+  // Group B: sparse edge/cell counts.
   BOOST_CHECK_EQUAL(scratch.mTracklets.size(), nTr);
   BOOST_CHECK_EQUAL(scratch.mTrackletsLookupTable.size(), nTr);
   BOOST_CHECK_EQUAL(scratch.mTrackletLabels.size(), nTr);
-  BOOST_CHECK_EQUAL(scratch.mLinkPhiCuts.size(), nTr);
-  BOOST_CHECK_EQUAL(scratch.mLinkMSAngles.size(), nTr);
+  BOOST_CHECK_EQUAL(scratch.mEdgePhiCuts.size(), nTr);
+  BOOST_CHECK_EQUAL(scratch.mEdgeMSAngles.size(), nTr);
   BOOST_CHECK_EQUAL(scratch.mCells.size(), nCe);
   BOOST_CHECK_EQUAL(scratch.mCellsLookupTable.size(), nCe);
   BOOST_CHECK_EQUAL(scratch.mCellsNeighbours.size(), nCe);
@@ -210,7 +210,7 @@ BOOST_AUTO_TEST_CASE(ResetClearsWorkingStateWithoutMutatingAPopulatedTimeFrameOr
   SyntheticChain chain{4};
   SurfaceTrackingScratch scratch;
   scratch.setMemoryPool(makePool());
-  scratch.adoptPlan(chain.nOwnedSurfaces(), chain.nLinks(), chain.nCells());
+  scratch.adoptPlan(chain.nOwnedSurfaces(), chain.nEdges(), chain.nCells());
 
   // Populate a handful of containers with observable content.
   scratch.mClusters[0].emplace_back(1.f, 2.f, 3.f, 0);
@@ -236,7 +236,7 @@ BOOST_AUTO_TEST_CASE(ResetClearsWorkingStateWithoutMutatingAPopulatedTimeFrameOr
   BOOST_CHECK_EQUAL(scratch.mCells.size(), chain.nCells());
   BOOST_CHECK(scratch.mCells[0].empty());
   BOOST_CHECK_EQUAL(scratch.getNOwnedSurfaces(), chain.nOwnedSurfaces());
-  BOOST_CHECK_EQUAL(scratch.getNLinks(), chain.nLinks());
+  BOOST_CHECK_EQUAL(scratch.getNEdges(), chain.nEdges());
   BOOST_CHECK_EQUAL(scratch.getNCells(), chain.nCells());
 
   // Flat bounded_vector (Group A) containers: fully cleared to empty, not
@@ -257,16 +257,16 @@ BOOST_AUTO_TEST_CASE(AllocatorsMatchDetectsSharedVersusDistinctPools)
 
   SurfaceTrackingScratch live;
   live.setMemoryPool(poolA);
-  live.adoptPlan(chain.nOwnedSurfaces(), chain.nLinks(), chain.nCells());
+  live.adoptPlan(chain.nOwnedSurfaces(), chain.nEdges(), chain.nCells());
 
   SurfaceTrackingScratch stagedSamePool;
   stagedSamePool.setMemoryPool(poolA);
-  stagedSamePool.adoptPlan(chain.nOwnedSurfaces(), chain.nLinks(), chain.nCells());
+  stagedSamePool.adoptPlan(chain.nOwnedSurfaces(), chain.nEdges(), chain.nCells());
   BOOST_CHECK(live.allocatorsMatch(stagedSamePool));
 
   SurfaceTrackingScratch stagedDifferentPool;
   stagedDifferentPool.setMemoryPool(poolB);
-  stagedDifferentPool.adoptPlan(chain.nOwnedSurfaces(), chain.nLinks(), chain.nCells());
+  stagedDifferentPool.adoptPlan(chain.nOwnedSurfaces(), chain.nEdges(), chain.nCells());
   BOOST_CHECK(!live.allocatorsMatch(stagedDifferentPool));
 }
 
@@ -277,12 +277,12 @@ BOOST_AUTO_TEST_CASE(SwapExchangesContentAndPreservesLiveAllocatorIdentity)
 
   SurfaceTrackingScratch live;
   live.setMemoryPool(poolA);
-  live.adoptPlan(chain.nOwnedSurfaces(), chain.nLinks(), chain.nCells());
+  live.adoptPlan(chain.nOwnedSurfaces(), chain.nEdges(), chain.nCells());
   live.mBogusClusters[0] = 1;
 
   SurfaceTrackingScratch staged;
   staged.setMemoryPool(poolA); // same resource -- allocatorsMatch() precondition for swap().
-  staged.adoptPlan(chain.nOwnedSurfaces(), chain.nLinks(), chain.nCells());
+  staged.adoptPlan(chain.nOwnedSurfaces(), chain.nEdges(), chain.nCells());
   staged.mBogusClusters[0] = 42;
   staged.mClusters[0].emplace_back(9.f, 8.f, 7.f, 0);
 

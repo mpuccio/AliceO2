@@ -74,12 +74,12 @@ SurfaceMask maskOf(std::initializer_list<uint16_t> ids)
 void checkCsrConsistency(const SurfaceGraphView& view)
 {
   uint32_t total = 0;
-  for (uint32_t t = 0; t < view.nLinks; ++t) {
-    const auto range = view.getCellsStartingWithLink(LinkId{static_cast<uint16_t>(t)});
+  for (uint32_t t = 0; t < view.nEdges; ++t) {
+    const auto range = view.getCellsStartingWithEdge(EdgeId{static_cast<uint16_t>(t)});
     total += range.getEntries();
     for (uint32_t k = 0; k < range.getEntries(); ++k) {
-      const auto cellId = view.cellsByFirstLink[range.getFirstEntry() + k];
-      BOOST_CHECK_EQUAL(view.getCell(cellId).firstLink.value(), t);
+      const auto cellId = view.cellsByFirstEdge[range.getFirstEntry() + k];
+      BOOST_CHECK_EQUAL(view.getCell(cellId).firstEdge.value(), t);
     }
   }
   BOOST_CHECK_EQUAL(total, view.nCells);
@@ -87,18 +87,18 @@ void checkCsrConsistency(const SurfaceGraphView& view)
 
 void checkSparseTopology(const SurfaceGraphView& view)
 {
-  BOOST_REQUIRE_GT(view.nLinks, 0u);
+  BOOST_REQUIRE_GT(view.nEdges, 0u);
   BOOST_REQUIRE_GT(view.nCells, 0u);
-  for (uint32_t t = 0; t < view.nLinks; ++t) {
-    const auto& link = view.getLink(LinkId{static_cast<uint16_t>(t)});
-    BOOST_CHECK(link.from.isValid());
-    BOOST_CHECK(link.to.isValid());
-    BOOST_CHECK(link.from != link.to);
+  for (uint32_t t = 0; t < view.nEdges; ++t) {
+    const auto& edge = view.getEdge(EdgeId{static_cast<uint16_t>(t)});
+    BOOST_CHECK(edge.from.isValid());
+    BOOST_CHECK(edge.to.isValid());
+    BOOST_CHECK(edge.from != edge.to);
   }
   for (uint32_t c = 0; c < view.nCells; ++c) {
     const auto& cell = view.getCell(CellTopologyId{static_cast<uint16_t>(c)});
-    BOOST_CHECK(cell.firstLink.value() < view.nLinks);
-    BOOST_CHECK(cell.secondLink.value() < view.nLinks);
+    BOOST_CHECK(cell.firstEdge.value() < view.nEdges);
+    BOOST_CHECK(cell.secondEdge.value() < view.nEdges);
     BOOST_CHECK_EQUAL(cell.hitSurfaces.count(), 3);
   }
 
@@ -118,21 +118,21 @@ BOOST_AUTO_TEST_CASE(TraversalFollowsSuppliedOrderNotNumericSurfaceId)
   BOOST_REQUIRE(result.ok());
   const auto view = result.graph->getView();
 
-  BOOST_CHECK_EQUAL(view.nLinks, 3u);
-  BOOST_CHECK(view.getLink(LinkId{0}).from == SurfaceId{3});
-  BOOST_CHECK(view.getLink(LinkId{0}).to == SurfaceId{1});
-  BOOST_CHECK(view.getLink(LinkId{1}).from == SurfaceId{1});
-  BOOST_CHECK(view.getLink(LinkId{1}).to == SurfaceId{4});
-  BOOST_CHECK(view.getLink(LinkId{2}).from == SurfaceId{4});
-  BOOST_CHECK(view.getLink(LinkId{2}).to == SurfaceId{0});
+  BOOST_CHECK_EQUAL(view.nEdges, 3u);
+  BOOST_CHECK(view.getEdge(EdgeId{0}).from == SurfaceId{3});
+  BOOST_CHECK(view.getEdge(EdgeId{0}).to == SurfaceId{1});
+  BOOST_CHECK(view.getEdge(EdgeId{1}).from == SurfaceId{1});
+  BOOST_CHECK(view.getEdge(EdgeId{1}).to == SurfaceId{4});
+  BOOST_CHECK(view.getEdge(EdgeId{2}).from == SurfaceId{4});
+  BOOST_CHECK(view.getEdge(EdgeId{2}).to == SurfaceId{0});
 
   // Numeric-SurfaceId-adjacent pairs that are not adjacent in the supplied
   // traversal must not appear.
-  for (uint32_t t = 0; t < view.nLinks; ++t) {
-    const auto& link = view.getLink(LinkId{static_cast<uint16_t>(t)});
-    BOOST_CHECK(!(link.from == SurfaceId{0} && link.to == SurfaceId{1}));
-    BOOST_CHECK(!(link.from == SurfaceId{1} && link.to == SurfaceId{2}));
-    BOOST_CHECK(!(link.from == SurfaceId{2} && link.to == SurfaceId{3}));
+  for (uint32_t t = 0; t < view.nEdges; ++t) {
+    const auto& edge = view.getEdge(EdgeId{static_cast<uint16_t>(t)});
+    BOOST_CHECK(!(edge.from == SurfaceId{0} && edge.to == SurfaceId{1}));
+    BOOST_CHECK(!(edge.from == SurfaceId{1} && edge.to == SurfaceId{2}));
+    BOOST_CHECK(!(edge.from == SurfaceId{2} && edge.to == SurfaceId{3}));
   }
 
   BOOST_CHECK_EQUAL(view.nCells, 2u);
@@ -161,7 +161,7 @@ BOOST_AUTO_TEST_CASE(SparseTopologySevenSingleAllowedHole)
 
   const auto view = result.graph->getView();
   checkSparseTopology(view);
-  BOOST_CHECK_EQUAL(view.nLinks, 7u);
+  BOOST_CHECK_EQUAL(view.nEdges, 7u);
   BOOST_CHECK_EQUAL(view.nCells, 7u);
 }
 
@@ -183,7 +183,7 @@ BOOST_AUTO_TEST_CASE(SparseTopologyTenSingleAllowedHole)
 
   const auto view = result.graph->getView();
   checkSparseTopology(view);
-  BOOST_CHECK_EQUAL(view.nLinks, 10u);
+  BOOST_CHECK_EQUAL(view.nEdges, 10u);
   BOOST_CHECK_EQUAL(view.nCells, 10u);
 }
 
@@ -220,12 +220,12 @@ BOOST_AUTO_TEST_CASE(SingleCallDisconnectedCylinderAndDiskLayout)
   BOOST_CHECK_EQUAL(layoutView.diskSurfaces.value(), 0x1ff80u);  // bits 7-16
 
   const auto view = layoutView;
-  BOOST_CHECK_EQUAL(view.nLinks, 15u);       // 6 + 9
+  BOOST_CHECK_EQUAL(view.nEdges, 15u);       // 6 + 9
   BOOST_CHECK_EQUAL(view.nCells, 13u);       // 5 + 8
 
-  // Disconnected: the last ITS link (5 -> 6) has no successors, and no
+  // Disconnected: the last ITS edge (5 -> 6) has no successors, and no
   // cell crosses the cylinder/disk boundary.
-  BOOST_CHECK_EQUAL(view.getCellsStartingWithLink(LinkId{5}).getEntries(), 0u);
+  BOOST_CHECK_EQUAL(view.getCellsStartingWithEdge(EdgeId{5}).getEntries(), 0u);
   for (uint32_t c = 0; c < view.nCells; ++c) {
     const auto& cell = view.getCell(CellTopologyId{static_cast<uint16_t>(c)});
     const bool allCylinder = cell.hitSurfaces.isSubsetOf(layoutView.cylinderSurfaces);
@@ -314,7 +314,7 @@ BOOST_AUTO_TEST_CASE(GraphDefinitionMixingSurfaceKindsIsAccepted)
 
 BOOST_AUTO_TEST_CASE(SingletonGraphsOfEitherKindAreAccepted)
 {
-  // A singleton graph definition never calls addLink, so the (former) tag
+  // A singleton graph definition never calls addEdge, so the (former) tag
   // validation this used to exercise up front no longer has anything to
   // check -- a single surface's own kind is trivially internally consistent
   // with itself, for either SurfaceKind.
@@ -368,7 +368,7 @@ BOOST_AUTO_TEST_CASE(EmptyCatalogWithNoGraphSurfacesIsATrivialValidLayout)
   const auto result = builder.build();
   BOOST_REQUIRE(result.ok());
   BOOST_CHECK_EQUAL(result.graph->getView().nSurfaces, 0u);
-  BOOST_CHECK_EQUAL(result.graph->getView().nLinks, 0u);
+  BOOST_CHECK_EQUAL(result.graph->getView().nEdges, 0u);
 }
 
 BOOST_AUTO_TEST_CASE(EmptyGraphDefinitionIsAValidLayout)
@@ -379,7 +379,7 @@ BOOST_AUTO_TEST_CASE(EmptyGraphDefinitionIsAValidLayout)
   const auto result = builder.build();
   BOOST_REQUIRE(result.ok());
   BOOST_CHECK_EQUAL(result.graph->getView().nSurfaces, 2u);
-  BOOST_CHECK_EQUAL(result.graph->getView().nLinks, 0u);
+  BOOST_CHECK_EQUAL(result.graph->getView().nEdges, 0u);
 }
 
 BOOST_AUTO_TEST_CASE(EmptyCatalogWithNonEmptyGraphDefinitionIsRejected)

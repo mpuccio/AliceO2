@@ -141,7 +141,7 @@ class TrackerTraits
   // by their operation leaves.
   void computeLayerTracklets(TraversalWorkspaceView& context, int iteration, int iVertex);
   void computeLayerTrackletsImpl(TraversalWorkspaceView& context, int iteration, int iVertex,
-                                 gsl::span<const LinkId> linkIds);
+                                 gsl::span<const EdgeId> edgeIds);
   void computeLayerCells(TraversalWorkspaceView& context, int iteration);
   void computeLayerCellsImpl(TraversalWorkspaceView& context, int iteration,
                              gsl::span<const CellTopologyId> cellIds);

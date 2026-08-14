@@ -618,13 +618,13 @@ BOOST_AUTO_TEST_CASE(CombinedLoadingBackfillsOneGlobalWorkspace)
 
   const auto graph = frame.getGraph(0).getView();
   BOOST_CHECK_EQUAL(graph.seedingSurfaces.value(), allCombinedSurfaces);
-  BOOST_REQUIRE_EQUAL(graph.nLinks, static_cast<uint32_t>(ITSNLayers + MFTNLayers - 2));
-  for (uint16_t linkId = 0; linkId < graph.nLinks; ++linkId) {
-    const auto& link = graph.getLink(LinkId{linkId});
-    const bool fromITS = link.from.value() < ITSNLayers;
-    const bool toITS = link.to.value() < ITSNLayers;
+  BOOST_REQUIRE_EQUAL(graph.nEdges, static_cast<uint32_t>(ITSNLayers + MFTNLayers - 2));
+  for (uint16_t edgeId = 0; edgeId < graph.nEdges; ++edgeId) {
+    const auto& edge = graph.getEdge(EdgeId{edgeId});
+    const bool fromITS = edge.from.value() < ITSNLayers;
+    const bool toITS = edge.to.value() < ITSNLayers;
     BOOST_CHECK_EQUAL(fromITS, toITS);
-    BOOST_CHECK(!(link.from == SurfaceId{ITSNLayers - 1} && link.to == SurfaceId{ITSNLayers}));
+    BOOST_CHECK(!(edge.from == SurfaceId{ITSNLayers - 1} && edge.to == SurfaceId{ITSNLayers}));
   }
 
   const auto result = composer.process(itsSource, mftSource, o2::InteractionRecord{50, 5});

@@ -52,7 +52,7 @@ struct Disks {
 using Combined = ConcatenatedSurfaceSpec<Cylinders, Disks>;
 
 template <typename T>
-concept HasLinks = requires { T::links; };
+concept HasEdges = requires { T::edges; };
 
 template <typename T>
 concept HasTopology = requires { T::topology; };
@@ -144,8 +144,8 @@ static_assert(SurfaceCount<Cylinders> == 2);
 static_assert(SurfaceCount<Disks> == 2);
 static_assert(SurfaceCount<Combined> == 4);
 static_assert(Cylinders::surfaces.data() == &Cylinders::surfaces[0]);
-static_assert(!HasLinks<Cylinders> && !HasTopology<Cylinders>);
-static_assert(!HasLinks<Combined> && !HasTopology<Combined>);
+static_assert(!HasEdges<Cylinders> && !HasTopology<Cylinders>);
+static_assert(!HasEdges<Combined> && !HasTopology<Combined>);
 
 static_assert(!validateSurfaceSpec<MutatedCylinders<duplicateId>>());
 static_assert(!validateSurfaceSpec<MutatedCylinders<sparseId>>());

@@ -48,14 +48,14 @@ DiskReferenceCoordinateView bindLegacyMFTReferenceCoordinates() noexcept
   return {gsl::span<const float>(kLegacyMFTReferenceCoordinate)};
 }
 
-float clampLinkCurvature(float oneOverR, float outerRadius) noexcept
+float clampEdgeCurvature(float oneOverR, float outerRadius) noexcept
 {
   return (outerRadius > 0.f && 0.5f * oneOverR >= 1.f / outerRadius)
            ? (2.f / outerRadius) - o2::constants::math::Almost0
            : oneOverR;
 }
 
-LinkScatteringBendingPrep prepareLinkAngularTolerances(
+EdgeScatteringBendingPrep prepareEdgeScatteringAndBending(
   gsl::span<const float> perLayerMSAngle, int fromLayer, int toLayer,
   float r1, float r2, float clampedOneOverR, float res1, float res2) noexcept
 {

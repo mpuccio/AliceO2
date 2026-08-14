@@ -420,7 +420,7 @@ o2_add_test(surface-tracking-scratch
             COMPONENT_NAME itsmft-tracking
             LABELS "itsmft;tracking"
             # IndexTableUtils.h retains its narrow MFTTracking/Constants.h
-            # dependency, so this public-header test links MFTTracking
+            # dependency, so this public-header test edges MFTTracking
             # directly while that common fixed-capacity utility remains live.
             PUBLIC_LINK_LIBRARIES O2::ITSMFTTracking O2::MFTTracking)
 

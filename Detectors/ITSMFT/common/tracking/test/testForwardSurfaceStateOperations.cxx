@@ -101,7 +101,7 @@ SurfaceKinematicState makeCandidateState()
 
 // Mirrors o2::itsmft::tracking::detail::mftFwdStateChi2 (MFTFwdTrackHelpers.h),
 // reimplemented here rather than included: that header pulls in O2::MFTTracking,
-// which this test target does not link (see test/CMakeLists.txt), and this is a
+// which this test target does not edge (see test/CMakeLists.txt), and this is a
 // retained-oracle comparison, not a production dependency.
 float retainedMftFwdStateChi2(const o2::track::TrackParCovFwd& current, const o2::track::TrackParCovFwd& rhs)
 {

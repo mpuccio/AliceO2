@@ -235,7 +235,7 @@ struct BuiltLayout {
 };
 
 // 4-surface disconnected ITS(cylinder)+MFT(disk) layout: surfaces {0,1} are
-// ITS layers 0/1, surfaces {2,3} are MFT layers 0/1. No links are
+// ITS layers 0/1, surfaces {2,3} are MFT layers 0/1. No edges are
 // needed to exercise loading.
 BuiltLayout makeCombinedLayout()
 {

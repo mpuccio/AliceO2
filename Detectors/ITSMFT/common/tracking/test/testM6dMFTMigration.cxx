@@ -16,7 +16,7 @@
 //  - the production MFT SurfacePlanBinding construction (real combined
 //    catalog, real ClusterSourceId{1}/SurfaceKind::Disk/
 //    SurfaceKind::Disk parameters) resolves to the same
-//    local link/cell slot counts and owned-surface indices;
+//    local edge/cell slot counts and owned-surface indices;
 //  - the MFT publication/sidecar export path still works at the adapter edge.
 
 #define BOOST_TEST_MODULE ITSMFT M6dMFTMigration
@@ -202,7 +202,7 @@ BOOST_AUTO_TEST_CASE(TimeFrameResetClearsSharedWorkspaceAndPreservesFrameState)
   auto& mftParticipantScratch = const_cast<SurfaceTrackingScratch&>(participants.getMFTScratch());
   BOOST_CHECK_EQUAL(&itsParticipantScratch, &mftParticipantScratch);
   BOOST_CHECK_EQUAL(itsParticipantScratch.getNOwnedSurfaces(), 17u);
-  BOOST_CHECK_EQUAL(itsParticipantScratch.getNLinks(), 15u);
+  BOOST_CHECK_EQUAL(itsParticipantScratch.getNEdges(), 15u);
   BOOST_CHECK_EQUAL(itsParticipantScratch.getNCells(), 13u);
   itsParticipantScratch.getUnsortedClusters()[0].emplace_back(1.f, 2.f, 3.f, 0);
   BOOST_CHECK_EQUAL(mftParticipantScratch.getTotalClusters(), 1);
@@ -286,25 +286,25 @@ BOOST_AUTO_TEST_CASE(ProductionMFTSurfacePlanBindingMatchesConfiguredTopologyAtR
 
   const auto binding = SurfacePlanBinding::build(view, mftMask, mftSurfaces);
   BOOST_REQUIRE(binding.ok());
-  size_t ownedLinks = 0;
-  for (uint32_t id = 0; id < view.nLinks; ++id) {
-    const auto& link = view.getLink(LinkId{static_cast<uint16_t>(id)});
-    if (mftMask.has(link.from) && mftMask.has(link.to)) {
-      ++ownedLinks;
+  size_t ownedEdges = 0;
+  for (uint32_t id = 0; id < view.nEdges; ++id) {
+    const auto& edge = view.getEdge(EdgeId{static_cast<uint16_t>(id)});
+    if (mftMask.has(edge.from) && mftMask.has(edge.to)) {
+      ++ownedEdges;
     }
   }
   size_t ownedCells = 0;
   for (uint32_t id = 0; id < view.nCells; ++id) {
     const auto cellId = CellTopologyId{static_cast<uint16_t>(id)};
     const auto& cell = view.getCell(cellId);
-    if (binding.binding->getScratchLinkSlot(cell.firstLink)) {
+    if (binding.binding->getScratchEdgeSlot(cell.firstEdge)) {
       ++ownedCells;
     }
   }
 
   // These are the detector-local compact-slot counts for the direct subset.
   BOOST_CHECK_EQUAL(binding.binding->getOwnedSurfaces().count(), static_cast<int>(mftSurfaces.size()));
-  BOOST_CHECK_EQUAL(binding.binding->getGlobalLinks().size(), ownedLinks);
+  BOOST_CHECK_EQUAL(binding.binding->getGlobalEdges().size(), ownedEdges);
   BOOST_CHECK_EQUAL(binding.binding->getGlobalCells().size(), ownedCells);
 
   for (uint16_t s = ITSNLayers; s < ITSNLayers + MFTNLayers; ++s) {
@@ -319,7 +319,7 @@ BOOST_AUTO_TEST_CASE(ProductionMFTSurfacePlanBindingMatchesConfiguredTopologyAtR
   participants.adoptFrame(frame);
   BOOST_CHECK_EQUAL(&participants.getITSScratch(), &participants.getMFTScratch());
   BOOST_CHECK_EQUAL(participants.getMFTScratch().getNOwnedSurfaces(), 17u);
-  BOOST_CHECK_EQUAL(participants.getMFTScratch().getNLinks(), 15u);
+  BOOST_CHECK_EQUAL(participants.getMFTScratch().getNEdges(), 15u);
   BOOST_CHECK_EQUAL(participants.getMFTScratch().getNCells(), 13u);
 }
 
@@ -377,7 +377,7 @@ BOOST_AUTO_TEST_CASE(CombinedExecutionUsesOneSharedWorkspace)
   auto& mftScratch = const_cast<SurfaceTrackingScratch&>(participants.getMFTScratch());
   BOOST_CHECK_EQUAL(&itsScratch, &mftScratch);
   BOOST_CHECK_EQUAL(itsScratch.getNOwnedSurfaces(), 17u);
-  BOOST_CHECK_EQUAL(itsScratch.getNLinks(), 15u);
+  BOOST_CHECK_EQUAL(itsScratch.getNEdges(), 15u);
   BOOST_CHECK_EQUAL(itsScratch.getNCells(), 13u);
   itsScratch.getUnsortedClusters()[0].emplace_back(1.f, 1.f, 1.f, 0);
   BOOST_CHECK_EQUAL(mftScratch.getTotalClusters(), 1);

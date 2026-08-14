@@ -16,9 +16,9 @@ namespace
 {
 using namespace o2::itsmft::tracking;
 
-SurfaceLink adjacent(uint16_t from, uint16_t to)
+Edge adjacent(uint16_t from, uint16_t to)
 {
-  return SurfaceLink{SurfaceId{from}, SurfaceId{to}, SurfaceMask{}, 0};
+  return Edge{SurfaceId{from}, SurfaceId{to}, SurfaceMask{}, 0};
 }
 
 SurfaceDescriptor surface(uint16_t id, SurfaceKind kind)
@@ -46,12 +46,12 @@ BOOST_AUTO_TEST_CASE(SurfaceMaskCoversThirtyTwoGlobalSurfaces)
   BOOST_CHECK_EQUAL(mask.value(), (uint32_t{1} | (uint32_t{1} << 31)));
 }
 
-BOOST_AUTO_TEST_CASE(ParallelLinksAreRejected)
+BOOST_AUTO_TEST_CASE(ParallelEdgesAreRejected)
 {
   SurfaceGraph topology{3};
-  BOOST_CHECK(topology.addLink(adjacent(0, 1)).isValid());
-  BOOST_CHECK(!topology.addLink(adjacent(0, 1)).isValid());
-  BOOST_CHECK(topology.getTopologyError() == SurfaceGraphTopologyError::DuplicateLink);
+  BOOST_CHECK(topology.addEdge(adjacent(0, 1)).isValid());
+  BOOST_CHECK(!topology.addEdge(adjacent(0, 1)).isValid());
+  BOOST_CHECK(topology.getTopologyError() == SurfaceGraphTopologyError::DuplicateEdge);
   BOOST_CHECK(!topology.finalize());
 }
 
@@ -72,8 +72,8 @@ BOOST_AUTO_TEST_CASE(LayoutLimitsAndNonContiguousIdsAreValidated)
 BOOST_AUTO_TEST_CASE(CellCannotReturnToItsFirstSurface)
 {
   SurfaceGraph topology{2};
-  const auto outward = topology.addLink(adjacent(0, 1));
-  const auto returning = topology.addLink(adjacent(1, 0));
+  const auto outward = topology.addEdge(adjacent(0, 1));
+  const auto returning = topology.addEdge(adjacent(1, 0));
   BOOST_REQUIRE(outward.isValid());
   BOOST_REQUIRE(returning.isValid());
 
@@ -81,20 +81,20 @@ BOOST_AUTO_TEST_CASE(CellCannotReturnToItsFirstSurface)
   BOOST_CHECK(topology.getTopologyError() == SurfaceGraphTopologyError::RepeatedSurface);
 }
 
-BOOST_AUTO_TEST_CASE(CellCannotConnectLinksOfDifferentSurfaceKinds)
+BOOST_AUTO_TEST_CASE(CellCannotConnectEdgesOfDifferentSurfaceKinds)
 {
-  // SurfaceLink carries its endpoint kinds directly
+  // Edge carries its endpoint kinds directly
   // tag a caller could set inconsistently with the endpoint surfaces, so a
   // "mixed kind" cell is no longer even expressible at this layer -- a
-  // cell's own precondition (firstLink.to == secondLink.from,
-  // DisconnectedLinks below) already forces both links to share
+  // cell's own precondition (firstEdge.to == secondEdge.from,
+  // DisconnectedEdges below) already forces both edges to share
   // the same pivot SurfaceId, and therefore the same SurfaceDescriptor::kind,
   // at the layout layer that actually owns the surface catalog. This proves
   // that structural guarantee still holds for two same-family chains sharing
   // a pivot surface.
   SurfaceGraph topology{3};
-  const auto first = topology.addLink(adjacent(0, 1));
-  const auto second = topology.addLink(adjacent(1, 2));
+  const auto first = topology.addEdge(adjacent(0, 1));
+  const auto second = topology.addEdge(adjacent(1, 2));
   BOOST_REQUIRE(first.isValid());
   BOOST_REQUIRE(second.isValid());
   BOOST_CHECK(topology.addCell(first, second).isValid());
@@ -103,49 +103,49 @@ BOOST_AUTO_TEST_CASE(CellCannotConnectLinksOfDifferentSurfaceKinds)
 BOOST_AUTO_TEST_CASE(DisconnectedCombinedTopologyIsSparse)
 {
   SurfaceGraph topology{17};
-  std::vector<LinkId> links;
+  std::vector<EdgeId> edges;
 
   for (uint16_t surface = 0; surface < 6; ++surface) {
-    links.push_back(topology.addLink(adjacent(surface, surface + 1)));
+    edges.push_back(topology.addEdge(adjacent(surface, surface + 1)));
   }
   for (uint16_t surface = 7; surface < 16; ++surface) {
-    links.push_back(topology.addLink(adjacent(surface, surface + 1)));
+    edges.push_back(topology.addEdge(adjacent(surface, surface + 1)));
   }
-  BOOST_REQUIRE_EQUAL(links.size(), 15u);
+  BOOST_REQUIRE_EQUAL(edges.size(), 15u);
 
-  for (uint16_t link = 0; link < 5; ++link) {
-    BOOST_REQUIRE(topology.addCell(links[link], links[link + 1]).isValid());
+  for (uint16_t edge = 0; edge < 5; ++edge) {
+    BOOST_REQUIRE(topology.addCell(edges[edge], edges[edge + 1]).isValid());
   }
-  for (uint16_t link = 6; link < 14; ++link) {
-    BOOST_REQUIRE(topology.addCell(links[link], links[link + 1]).isValid());
+  for (uint16_t edge = 6; edge < 14; ++edge) {
+    BOOST_REQUIRE(topology.addCell(edges[edge], edges[edge + 1]).isValid());
   }
 
   BOOST_REQUIRE(topology.finalize());
   const auto view = topology.getView();
-  BOOST_CHECK_EQUAL(view.nLinks, 15u);
+  BOOST_CHECK_EQUAL(view.nEdges, 15u);
   BOOST_CHECK_EQUAL(view.nCells, 13u);
   BOOST_CHECK_EQUAL(view.getCell(CellTopologyId{0}).hitSurfaces.count(), 3);
 
-  const auto firstSuccessors = view.getCellsStartingWithLink(links[0]);
+  const auto firstSuccessors = view.getCellsStartingWithEdge(edges[0]);
   BOOST_CHECK_EQUAL(firstSuccessors.getFirstEntry(), 0u);
   BOOST_CHECK_EQUAL(firstSuccessors.getEntries(), 1u);
-  BOOST_CHECK(view.cellsByFirstLink[firstSuccessors.getFirstEntry()] == CellTopologyId{0});
+  BOOST_CHECK(view.cellsByFirstEdge[firstSuccessors.getFirstEntry()] == CellTopologyId{0});
 
-  // The final ITS link has no successor and is not connected to MFT.
-  BOOST_CHECK_EQUAL(view.getCellsStartingWithLink(links[5]).getEntries(), 0u);
+  // The final ITS edge has no successor and is not connected to MFT.
+  BOOST_CHECK_EQUAL(view.getCellsStartingWithEdge(edges[5]).getEntries(), 0u);
 }
 
 BOOST_AUTO_TEST_CASE(CylinderAndDiskLayoutsAreBothAccepted)
 {
   SurfaceGraph cylinderTopology{2};
-  BOOST_REQUIRE(cylinderTopology.addLink(adjacent(0, 1)).isValid());
+  BOOST_REQUIRE(cylinderTopology.addEdge(adjacent(0, 1)).isValid());
   BOOST_REQUIRE(cylinderTopology.finalize());
   const std::vector<SurfaceDescriptor> cylinderSurfaces{surface(0, SurfaceKind::Cylinder), surface(1, SurfaceKind::Cylinder)};
   SurfaceGraph cylinderLayout{cylinderSurfaces, std::move(cylinderTopology)};
   BOOST_CHECK(cylinderLayout.valid());
 
   SurfaceGraph diskTopology{2};
-  BOOST_REQUIRE(diskTopology.addLink(adjacent(0, 1)).isValid());
+  BOOST_REQUIRE(diskTopology.addEdge(adjacent(0, 1)).isValid());
   BOOST_REQUIRE(diskTopology.finalize());
   const std::vector<SurfaceDescriptor> diskSurfaces{surface(0, SurfaceKind::Disk), surface(1, SurfaceKind::Disk)};
   SurfaceGraph diskLayout{diskSurfaces, std::move(diskTopology)};
@@ -155,8 +155,8 @@ BOOST_AUTO_TEST_CASE(CylinderAndDiskLayoutsAreBothAccepted)
 BOOST_AUTO_TEST_CASE(DisconnectedCombinedLayoutAcceptsBothKinds)
 {
   SurfaceGraph topology{4};
-  BOOST_REQUIRE(topology.addLink(adjacent(0, 1)).isValid());
-  BOOST_REQUIRE(topology.addLink(adjacent(2, 3)).isValid());
+  BOOST_REQUIRE(topology.addEdge(adjacent(0, 1)).isValid());
+  BOOST_REQUIRE(topology.addEdge(adjacent(2, 3)).isValid());
   BOOST_REQUIRE(topology.finalize());
 
   const std::vector<SurfaceDescriptor> surfaces{surface(0, SurfaceKind::Cylinder), surface(1, SurfaceKind::Cylinder),
@@ -165,17 +165,17 @@ BOOST_AUTO_TEST_CASE(DisconnectedCombinedLayoutAcceptsBothKinds)
   BOOST_CHECK(layout.valid());
 }
 
-BOOST_AUTO_TEST_CASE(LayoutAcceptsCylinderDiskLinks)
+BOOST_AUTO_TEST_CASE(LayoutAcceptsCylinderDiskEdges)
 {
   SurfaceGraph cylinderToDisk{2};
-  BOOST_REQUIRE(cylinderToDisk.addLink(adjacent(0, 1)).isValid());
+  BOOST_REQUIRE(cylinderToDisk.addEdge(adjacent(0, 1)).isValid());
   BOOST_REQUIRE(cylinderToDisk.finalize());
   const std::vector<SurfaceDescriptor> outwardSurfaces{surface(0, SurfaceKind::Cylinder), surface(1, SurfaceKind::Disk)};
   SurfaceGraph outward{outwardSurfaces, std::move(cylinderToDisk)};
   BOOST_CHECK(outward.valid());
 
   SurfaceGraph diskToCylinder{2};
-  BOOST_REQUIRE(diskToCylinder.addLink(adjacent(0, 1)).isValid());
+  BOOST_REQUIRE(diskToCylinder.addEdge(adjacent(0, 1)).isValid());
   BOOST_REQUIRE(diskToCylinder.finalize());
   const std::vector<SurfaceDescriptor> inwardSurfaces{surface(0, SurfaceKind::Disk), surface(1, SurfaceKind::Cylinder)};
   SurfaceGraph inward{inwardSurfaces, std::move(diskToCylinder)};

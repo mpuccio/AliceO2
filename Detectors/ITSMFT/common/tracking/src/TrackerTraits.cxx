@@ -162,9 +162,9 @@ void TrackerTraits::runTraversal(TraversalWorkspaceView view, SeedRefitFunction 
   } while (++iVertex < maxNvertices);
 }
 
-int requireScratchLinkSlot(const TraversalWorkspaceView& context, int iteration, LinkId id)
+int requireScratchEdgeSlot(const TraversalWorkspaceView& context, int iteration, EdgeId id)
 {
-  const auto slot = context.binding.getScratchLinkSlot(id);
+  const auto slot = context.binding.getScratchEdgeSlot(id);
   if (!slot) {
     throw TraversalException{iteration, TraversalFailureReason::TraversalBindingMismatch};
   }
@@ -196,25 +196,25 @@ void TrackerTraits::computeLayerTracklets(TraversalWorkspaceView& context, const
 {
   auto& scratch = context.scratch;
   auto& workspace = context.workspace;
-  const auto scratchLinkCount = scratch.getTracklets().size();
-  for (size_t linkId = 0; linkId < scratchLinkCount; ++linkId) {
-    scratch.getTracklets()[linkId].clear();
-    scratch.getTrackletsLabel(linkId).clear();
-    std::fill(scratch.getTrackletsLookupTable()[linkId].begin(), scratch.getTrackletsLookupTable()[linkId].end(), 0);
+  const auto scratchEdgeCount = scratch.getTracklets().size();
+  for (size_t edgeId = 0; edgeId < scratchEdgeCount; ++edgeId) {
+    scratch.getTracklets()[edgeId].clear();
+    scratch.getTrackletsLabel(edgeId).clear();
+    std::fill(scratch.getTrackletsLookupTable()[edgeId].begin(), scratch.getTrackletsLookupTable()[edgeId].end(), 0);
   }
 
   if (!workspace.valid) {
     throw TraversalException{iteration, TraversalFailureReason::InvalidTraversalSchedule};
   }
 
-  computeLayerTrackletsImpl(context, iteration, iVertex, context.binding.getGlobalLinks());
+  computeLayerTrackletsImpl(context, iteration, iVertex, context.binding.getGlobalEdges());
 }
 
 void TrackerTraits::computeLayerTrackletsImpl(
   TraversalWorkspaceView& context,
   const int iteration,
   const int iVertex,
-  gsl::span<const LinkId> linkIds)
+  gsl::span<const EdgeId> edgeIds)
 {
   auto* mScratch = &context.scratch;
   const auto& mMemoryPool = mScratch->getMemoryPool();
@@ -230,14 +230,14 @@ void TrackerTraits::computeLayerTrackletsImpl(
   const Vertex diamondVert(mTrkParams[iteration].Diamond, mTrkParams[iteration].DiamondCov, 1, 1.f);
 
   mTaskArena->execute([&] {
-    auto resolveLinkLayers = [&](int linkId) -> std::pair<int, int> {
-      const auto& link = topology.getLink(LinkId{static_cast<uint16_t>(linkId)});
-      return {requireSurfacePosition(context, iteration, link.from),
-              requireSurfacePosition(context, iteration, link.to)};
+    auto resolveEdgeLayers = [&](int edgeId) -> std::pair<int, int> {
+      const auto& edge = topology.getEdge(EdgeId{static_cast<uint16_t>(edgeId)});
+      return {requireSurfacePosition(context, iteration, edge.from),
+              requireSurfacePosition(context, iteration, edge.to)};
     };
 
-    auto forTracklets = [&](auto Mode, int linkId, int fromLayer, int toLayer, SurfaceKind kind,
-                            const TrackletProjectionCache& linkCache, int pivotROF, int base, int& offset) -> int {
+    auto forTracklets = [&](auto Mode, int edgeId, int fromLayer, int toLayer, SurfaceKind kind,
+                            const TrackletProjectionCache& edgeCache, int pivotROF, int base, int& offset) -> int {
       if (!mScratch->isROFEnabled(fromLayer, pivotROF)) {
         return 0;
       }
@@ -267,7 +267,7 @@ void TrackerTraits::computeLayerTrackletsImpl(
       }
 
       int localCount = 0;
-      auto& tracklets = mScratch->getTracklets()[linkId];
+      auto& tracklets = mScratch->getTracklets()[edgeId];
       auto layer0 = mScratch->getClustersOnLayer(pivotROF, fromLayer);
       if (layer0.empty()) {
         return 0;
@@ -291,7 +291,7 @@ void TrackerTraits::computeLayerTrackletsImpl(
           }
           TrackletSearchWindow searchWindow{};
           const bool projected = projectTrackletSearchWindow(sourceMeasurement, currentCluster, pv,
-                                                             kind, linkCache, mBz,
+                                                             kind, edgeCache, mBz,
                                                              mScratch->getIndexTableUtils(toLayer),
                                                              mKernelParameters, searchWindow);
           if (!projected) {
@@ -369,53 +369,53 @@ void TrackerTraits::computeLayerTrackletsImpl(
 
     int dummy{0};
     if (mTaskArena->max_concurrency() <= 1) {
-      for (const auto typedLinkId : linkIds) {
-        const int linkId = typedLinkId.value();
-        const int scratchLinkId = requireScratchLinkSlot(context, iteration, typedLinkId);
-        const auto [fromLayer, toLayer] = resolveLinkLayers(linkId);
-        const auto kind = topology.getSurface(topology.getLink(typedLinkId).from).kind;
-        TrackletProjectionCache linkCache{};
+      for (const auto typedEdgeId : edgeIds) {
+        const int edgeId = typedEdgeId.value();
+        const int scratchEdgeId = requireScratchEdgeSlot(context, iteration, typedEdgeId);
+        const auto [fromLayer, toLayer] = resolveEdgeLayers(edgeId);
+        const auto kind = topology.getSurface(topology.getEdge(typedEdgeId).from).kind;
+        TrackletProjectionCache edgeCache{};
         const auto layerRadii = gsl::span<const float>{mTrkParams[iteration].LayerRadii.data(),
                                                        mTrkParams[iteration].LayerRadii.size()};
         if (!bindTrackletProjectionCache(fromLayer, toLayer, layerRadii, mDiskLayerReferenceZ,
                                          mScratch->getMinR(toLayer), mScratch->getMaxR(toLayer),
                                          mScratch->getMinZ(toLayer), mScratch->getMaxZ(toLayer),
                                          mScratch->getPositionResolution(fromLayer),
-                                         mScratch->getLinkMSAngle(scratchLinkId),
-                                         mScratch->getLinkPhiCut(scratchLinkId), linkCache)) {
+                                         mScratch->getEdgeMSAngle(scratchEdgeId),
+                                         mScratch->getEdgePhiCut(scratchEdgeId), edgeCache)) {
           throw TraversalException{iteration, TraversalFailureReason::InvalidSurfaceParameters};
         }
         const int startROF = 0, endROF = mScratch->getROFTiming(fromLayer).mNROFsTF;
         for (int pivotROF{startROF}; pivotROF < endROF; ++pivotROF) {
-          forTracklets(PassMode::OnePass{}, scratchLinkId, fromLayer, toLayer, kind, linkCache, pivotROF, 0, dummy);
+          forTracklets(PassMode::OnePass{}, scratchEdgeId, fromLayer, toLayer, kind, edgeCache, pivotROF, 0, dummy);
         }
       }
     } else {
-      tbb::parallel_for(0, static_cast<int>(linkIds.size()), [&](const int linkIndex) {
-        const auto typedLinkId = linkIds[linkIndex];
-        const int linkId = typedLinkId.value();
-        const int scratchLinkId = requireScratchLinkSlot(context, iteration, typedLinkId);
-        const auto [fromLayer, toLayer] = resolveLinkLayers(linkId);
-        const auto kind = topology.getSurface(topology.getLink(typedLinkId).from).kind;
-        TrackletProjectionCache linkCache{};
+      tbb::parallel_for(0, static_cast<int>(edgeIds.size()), [&](const int edgeIndex) {
+        const auto typedEdgeId = edgeIds[edgeIndex];
+        const int edgeId = typedEdgeId.value();
+        const int scratchEdgeId = requireScratchEdgeSlot(context, iteration, typedEdgeId);
+        const auto [fromLayer, toLayer] = resolveEdgeLayers(edgeId);
+        const auto kind = topology.getSurface(topology.getEdge(typedEdgeId).from).kind;
+        TrackletProjectionCache edgeCache{};
         const auto layerRadii = gsl::span<const float>{mTrkParams[iteration].LayerRadii.data(),
                                                        mTrkParams[iteration].LayerRadii.size()};
         if (!bindTrackletProjectionCache(fromLayer, toLayer, layerRadii, mDiskLayerReferenceZ,
                                          mScratch->getMinR(toLayer), mScratch->getMaxR(toLayer),
                                          mScratch->getMinZ(toLayer), mScratch->getMaxZ(toLayer),
                                          mScratch->getPositionResolution(fromLayer),
-                                         mScratch->getLinkMSAngle(scratchLinkId),
-                                         mScratch->getLinkPhiCut(scratchLinkId), linkCache)) {
+                                         mScratch->getEdgeMSAngle(scratchEdgeId),
+                                         mScratch->getEdgePhiCut(scratchEdgeId), edgeCache)) {
           throw TraversalException{iteration, TraversalFailureReason::InvalidSurfaceParameters};
         }
         const int startROF = 0, endROF = mScratch->getROFTiming(fromLayer).mNROFsTF;
         bounded_vector<int> perROFCount((endROF - startROF) + 1, mMemoryPool.get());
         tbb::parallel_for(startROF, endROF, [&](const int pivotROF) {
-          perROFCount[pivotROF - startROF] = forTracklets(PassMode::TwoPassCount{}, scratchLinkId, fromLayer, toLayer, kind, linkCache, pivotROF, 0, dummy);
+          perROFCount[pivotROF - startROF] = forTracklets(PassMode::TwoPassCount{}, scratchEdgeId, fromLayer, toLayer, kind, edgeCache, pivotROF, 0, dummy);
         });
         std::exclusive_scan(perROFCount.begin(), perROFCount.end(), perROFCount.begin(), 0);
         const int nTracklets = perROFCount.back();
-        mScratch->getTracklets()[scratchLinkId].resize(nTracklets);
+        mScratch->getTracklets()[scratchEdgeId].resize(nTracklets);
         if (nTracklets == 0) {
           return;
         }
@@ -425,20 +425,20 @@ void TrackerTraits::computeLayerTrackletsImpl(
             return;
           }
           int localIdx = 0;
-          forTracklets(PassMode::TwoPassInsert{}, scratchLinkId, fromLayer, toLayer, kind, linkCache, pivotROF, baseIdx, localIdx);
+          forTracklets(PassMode::TwoPassInsert{}, scratchEdgeId, fromLayer, toLayer, kind, edgeCache, pivotROF, baseIdx, localIdx);
         });
       });
     }
 
-    tbb::parallel_for(0, static_cast<int>(linkIds.size()), [&](const int linkIndex) {
-      const int scratchLinkId = requireScratchLinkSlot(context, iteration, linkIds[linkIndex]);
+    tbb::parallel_for(0, static_cast<int>(edgeIds.size()), [&](const int edgeIndex) {
+      const int scratchEdgeId = requireScratchEdgeSlot(context, iteration, edgeIds[edgeIndex]);
       /// Sort tracklets & remove duplicates
       // duplicates can exist simply since we evaluate per vertex
-      auto& trkl{mScratch->getTracklets()[scratchLinkId]};
+      auto& trkl{mScratch->getTracklets()[scratchEdgeId]};
       std::sort(trkl.begin(), trkl.end());
       trkl.erase(std::unique(trkl.begin(), trkl.end()), trkl.end());
       trkl.shrink_to_fit();
-      auto& lut{mScratch->getTrackletsLookupTable()[scratchLinkId]};
+      auto& lut{mScratch->getTrackletsLookupTable()[scratchEdgeId]};
       if (!trkl.empty()) {
         for (const auto& tkl : trkl) {
           lut[tkl.firstClusterIndex + 1]++;
@@ -449,12 +449,12 @@ void TrackerTraits::computeLayerTrackletsImpl(
 
     /// Create tracklets labels
     if (mScratch->hasMCinformation() && mTrkParams[iteration].CreateArtefactLabels) {
-      tbb::parallel_for(0, static_cast<int>(linkIds.size()), [&](const int linkIndex) {
-        const auto typedLinkId = linkIds[linkIndex];
-        const int linkId = typedLinkId.value();
-        const int scratchLinkId = requireScratchLinkSlot(context, iteration, typedLinkId);
-        const auto [fromLayer, toLayer] = resolveLinkLayers(linkId);
-        for (auto& trk : mScratch->getTracklets()[scratchLinkId]) {
+      tbb::parallel_for(0, static_cast<int>(edgeIds.size()), [&](const int edgeIndex) {
+        const auto typedEdgeId = edgeIds[edgeIndex];
+        const int edgeId = typedEdgeId.value();
+        const int scratchEdgeId = requireScratchEdgeSlot(context, iteration, typedEdgeId);
+        const auto [fromLayer, toLayer] = resolveEdgeLayers(edgeId);
+        for (auto& trk : mScratch->getTracklets()[scratchEdgeId]) {
           MCCompLabel label;
           int currentId{mScratch->getClusters()[fromLayer][trk.firstClusterIndex].clusterId};
           int nextId{mScratch->getClusters()[toLayer][trk.secondClusterIndex].clusterId};
@@ -469,7 +469,7 @@ void TrackerTraits::computeLayerTrackletsImpl(
               break;
             }
           }
-          mScratch->getTrackletsLabel(scratchLinkId).emplace_back(label);
+          mScratch->getTrackletsLabel(scratchEdgeId).emplace_back(label);
         }
       });
     }
@@ -501,10 +501,10 @@ void TrackerTraits::computeLayerCells(TraversalWorkspaceView& context, const int
 
   computeLayerCellsImpl(context, iteration, context.binding.getGlobalCells());
 
-  const auto scratchLinkCount = scratch.getTracklets().size();
-  for (size_t linkId = 0; linkId < scratchLinkCount; ++linkId) {
-    deepVectorClear(scratch.getTracklets()[linkId]);
-    deepVectorClear(scratch.getTrackletsLabel(linkId));
+  const auto scratchEdgeCount = scratch.getTracklets().size();
+  for (size_t edgeId = 0; edgeId < scratchEdgeCount; ++edgeId) {
+    deepVectorClear(scratch.getTracklets()[edgeId]);
+    deepVectorClear(scratch.getTrackletsLabel(edgeId));
   }
 }
 
@@ -533,9 +533,9 @@ void TrackerTraits::computeLayerCellsImpl(
     };
 
     auto resolveCellHitBinding = [&](const auto& cellTopology) -> CellHitBinding {
-      const auto& firstLink = topology.getLink(cellTopology.firstLink);
-      const auto& secondLink = topology.getLink(cellTopology.secondLink);
-      const std::array<SurfaceId, 3> surfaces{firstLink.from, firstLink.to, secondLink.to};
+      const auto& firstEdge = topology.getEdge(cellTopology.firstEdge);
+      const auto& secondEdge = topology.getEdge(cellTopology.secondEdge);
+      const std::array<SurfaceId, 3> surfaces{firstEdge.from, firstEdge.to, secondEdge.to};
       CellHitBinding binding;
       for (int i = 0; i < 3; ++i) {
         const auto surfaceId = surfaces[i];
@@ -545,15 +545,15 @@ void TrackerTraits::computeLayerCellsImpl(
       return binding;
     };
 
-    auto forTrackletCells = [&](auto Mode, SurfaceKind kind, int firstLinkId, int secondLinkId, const CellHitBinding& hitBinding, bounded_vector<CellSeed>& layerCells, int iTracklet, int offset = 0) -> int {
+    auto forTrackletCells = [&](auto Mode, SurfaceKind kind, int firstEdgeId, int secondEdgeId, const CellHitBinding& hitBinding, bounded_vector<CellSeed>& layerCells, int iTracklet, int offset = 0) -> int {
       const auto& hitLayers = hitBinding.layers;
-      const o2::its::Tracklet& currentTracklet{mScratch->getTracklets()[firstLinkId][iTracklet]};
+      const o2::its::Tracklet& currentTracklet{mScratch->getTracklets()[firstEdgeId][iTracklet]};
       const int nextLayerClusterIndex{currentTracklet.secondClusterIndex};
-      const int nextLayerFirstTrackletIndex{mScratch->getTrackletsLookupTable()[secondLinkId][nextLayerClusterIndex]};
-      const int nextLayerLastTrackletIndex{mScratch->getTrackletsLookupTable()[secondLinkId][nextLayerClusterIndex + 1]};
+      const int nextLayerFirstTrackletIndex{mScratch->getTrackletsLookupTable()[secondEdgeId][nextLayerClusterIndex]};
+      const int nextLayerLastTrackletIndex{mScratch->getTrackletsLookupTable()[secondEdgeId][nextLayerClusterIndex + 1]};
       int foundCells{0};
       for (int iNextTracklet{nextLayerFirstTrackletIndex}; iNextTracklet < nextLayerLastTrackletIndex; ++iNextTracklet) {
-        const o2::its::Tracklet& nextTracklet{mScratch->getTracklets()[secondLinkId][iNextTracklet]};
+        const o2::its::Tracklet& nextTracklet{mScratch->getTracklets()[secondEdgeId][iNextTracklet]};
         if (nextTracklet.firstClusterIndex != nextLayerClusterIndex) {
           break;
         }
@@ -573,8 +573,8 @@ void TrackerTraits::computeLayerCellsImpl(
         const auto& globalInner = mLayerGlobalMeasurements[hitLayers[0]][clusId[0]];
         const auto& globalMiddle = mLayerGlobalMeasurements[hitLayers[1]][clusId[1]];
         const auto& globalOuter = mLayerGlobalMeasurements[hitLayers[2]][clusId[2]];
-        const double linkMSAngle = static_cast<double>(mScratch->getLinkMSAngle(secondLinkId));
-        const DirectionProcessNoise directionProcessNoise{linkMSAngle * linkMSAngle};
+        const double edgeMSAngle = static_cast<double>(mScratch->getEdgeMSAngle(secondEdgeId));
+        const DirectionProcessNoise directionProcessNoise{edgeMSAngle * edgeMSAngle};
         std::array<TransverseDirectionObservation, 3> transverseObservations{};
         if (!makeTransverseDirectionObservation(globalInner, transverseObservations[0]) ||
             !makeTransverseDirectionObservation(globalMiddle, transverseObservations[1]) ||
@@ -652,26 +652,26 @@ void TrackerTraits::computeLayerCellsImpl(
     for (const auto typedCellId : cellIds) {
       const int cellTopologyId = requireScratchCellSlot(context, iteration, typedCellId);
       const auto& cellTopology = topology.getCell(typedCellId);
-      const auto kind = topology.getSurface(topology.getLink(cellTopology.firstLink).from).kind;
-      const int firstLinkId = requireScratchLinkSlot(context, iteration, cellTopology.firstLink);
-      const int secondLinkId = requireScratchLinkSlot(context, iteration, cellTopology.secondLink);
-      if (mScratch->getTracklets()[firstLinkId].empty() ||
-          mScratch->getTracklets()[secondLinkId].empty()) {
+      const auto kind = topology.getSurface(topology.getEdge(cellTopology.firstEdge).from).kind;
+      const int firstEdgeId = requireScratchEdgeSlot(context, iteration, cellTopology.firstEdge);
+      const int secondEdgeId = requireScratchEdgeSlot(context, iteration, cellTopology.secondEdge);
+      if (mScratch->getTracklets()[firstEdgeId].empty() ||
+          mScratch->getTracklets()[secondEdgeId].empty()) {
         continue;
       }
       const auto hitBinding = resolveCellHitBinding(cellTopology);
 
       auto& layerCells = mScratch->getCells()[cellTopologyId];
-      const int currentLayerTrackletsNum{static_cast<int>(mScratch->getTracklets()[firstLinkId].size())};
+      const int currentLayerTrackletsNum{static_cast<int>(mScratch->getTracklets()[firstEdgeId].size())};
       bounded_vector<int> perTrackletCount(currentLayerTrackletsNum + 1, 0, mMemoryPool.get());
       if (mTaskArena->max_concurrency() <= 1) {
         for (int iTracklet{0}; iTracklet < currentLayerTrackletsNum; ++iTracklet) {
-          perTrackletCount[iTracklet] = forTrackletCells(PassMode::OnePass{}, kind, firstLinkId, secondLinkId, hitBinding, layerCells, iTracklet);
+          perTrackletCount[iTracklet] = forTrackletCells(PassMode::OnePass{}, kind, firstEdgeId, secondEdgeId, hitBinding, layerCells, iTracklet);
         }
         std::exclusive_scan(perTrackletCount.begin(), perTrackletCount.end(), perTrackletCount.begin(), 0);
       } else {
         tbb::parallel_for(0, currentLayerTrackletsNum, [&](const int iTracklet) {
-          perTrackletCount[iTracklet] = forTrackletCells(PassMode::TwoPassCount{}, kind, firstLinkId, secondLinkId, hitBinding, layerCells, iTracklet);
+          perTrackletCount[iTracklet] = forTrackletCells(PassMode::TwoPassCount{}, kind, firstEdgeId, secondEdgeId, hitBinding, layerCells, iTracklet);
         });
 
         std::exclusive_scan(perTrackletCount.begin(), perTrackletCount.end(), perTrackletCount.begin(), 0);
@@ -689,7 +689,7 @@ void TrackerTraits::computeLayerCellsImpl(
           if (offset == perTrackletCount[iTracklet + 1]) {
             return;
           }
-          forTrackletCells(PassMode::TwoPassInsert{}, kind, firstLinkId, secondLinkId, hitBinding, layerCells, iTracklet, offset);
+          forTrackletCells(PassMode::TwoPassInsert{}, kind, firstEdgeId, secondEdgeId, hitBinding, layerCells, iTracklet, offset);
         });
       }
 
@@ -701,8 +701,8 @@ void TrackerTraits::computeLayerCellsImpl(
         auto& labels = mScratch->getCellsLabel(cellTopologyId);
         labels.reserve(layerCells.size());
         for (const auto& cell : layerCells) {
-          MCCompLabel currentLab{mScratch->getTrackletsLabel(firstLinkId)[cell.getFirstTrackletIndex()]};
-          MCCompLabel nextLab{mScratch->getTrackletsLabel(secondLinkId)[cell.getSecondTrackletIndex()]};
+          MCCompLabel currentLab{mScratch->getTrackletsLabel(firstEdgeId)[cell.getFirstTrackletIndex()]};
+          MCCompLabel nextLab{mScratch->getTrackletsLabel(secondEdgeId)[cell.getSecondTrackletIndex()]};
           labels.emplace_back(currentLab == nextLab ? currentLab : MCCompLabel());
         }
       }
@@ -764,13 +764,13 @@ void TrackerTraits::findCellsNeighboursForSchedule(
         throw TraversalException{iteration, TraversalFailureReason::SparseTopologyMismatch};
       }
       const auto& cellTopology = topology.getCell(scheduledId);
-      const int currentProcessLink = requireScratchLinkSlot(context, iteration, cellTopology.secondLink);
-      const double currentMSAngle = mScratch->getLinkMSAngle(currentProcessLink);
+      const int currentProcessEdge = requireScratchEdgeSlot(context, iteration, cellTopology.secondEdge);
+      const double currentMSAngle = mScratch->getEdgeMSAngle(currentProcessEdge);
       const double currentAngularVariance = currentMSAngle * currentMSAngle;
       if (mScratch->getCells()[cellTopologyId].empty()) {
         continue;
       }
-      const auto successors = topology.getCellsStartingWithLink(cellTopology.secondLink);
+      const auto successors = topology.getCellsStartingWithEdge(cellTopology.secondEdge);
       if (!successors.getEntries()) {
         continue;
       }
@@ -783,11 +783,11 @@ void TrackerTraits::findCellsNeighboursForSchedule(
         for (uint32_t iSuccessor = 0; iSuccessor < successors.getEntries(); ++iSuccessor) {
           // Translate dynamically discovered neighbours from the global CSR
           // topology before accessing scratch.
-          const auto nextTopologyId = topology.cellsByFirstLink[successors.getFirstEntry() + iSuccessor];
+          const auto nextTopologyId = topology.cellsByFirstEdge[successors.getFirstEntry() + iSuccessor];
           const int nextCellTopologyId = requireScratchCellSlot(context, iteration, nextTopologyId);
           const auto& nextCellTopology = topology.getCell(nextTopologyId);
-          const int nextProcessLink = requireScratchLinkSlot(context, iteration, nextCellTopology.secondLink);
-          const double nextMSAngle = mScratch->getLinkMSAngle(nextProcessLink);
+          const int nextProcessEdge = requireScratchEdgeSlot(context, iteration, nextCellTopology.secondEdge);
+          const double nextMSAngle = mScratch->getEdgeMSAngle(nextProcessEdge);
           const double nextAngularVariance = nextMSAngle * nextMSAngle;
           if (static_cast<size_t>(nextCellTopologyId) >= mScratch->getCells().size() ||
               static_cast<size_t>(nextCellTopologyId) >= mScratch->getCellsLookupTable().size()) {

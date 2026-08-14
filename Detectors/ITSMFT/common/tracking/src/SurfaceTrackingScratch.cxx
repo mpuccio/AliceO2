@@ -38,10 +38,10 @@ namespace constants
 using namespace o2::its::constants;
 } // namespace constants
 
-void SurfaceTrackingScratch::adoptPlan(std::size_t nOwnedSurfaces, std::size_t nLinks, std::size_t nCells)
+void SurfaceTrackingScratch::adoptPlan(std::size_t nOwnedSurfaces, std::size_t nEdges, std::size_t nCells)
 {
   mNOwnedSurfaces = nOwnedSurfaces;
-  mNLinks = nLinks;
+  mNEdges = nEdges;
   mNCells = nCells;
 
   // Group A: one slot per owned surface.
@@ -63,12 +63,12 @@ void SurfaceTrackingScratch::adoptPlan(std::size_t nOwnedSurfaces, std::size_t n
   clearResizeBoundedVector(mBogusClusters, nOwnedSurfaces, mMemoryPool.get());
   clearResizeBoundedVector(mPositionResolution, nOwnedSurfaces, mMemoryPool.get());
 
-  // Group B: runtime link and cell counts.
-  clearResizeBoundedVector(mTracklets, nLinks, mMemoryPool.get());
-  clearResizeBoundedVector(mTrackletsLookupTable, nLinks, mMemoryPool.get());
-  clearResizeBoundedVector(mTrackletLabels, nLinks, mMemoryPool.get());
-  clearResizeBoundedVector(mLinkPhiCuts, nLinks, mMemoryPool.get());
-  clearResizeBoundedVector(mLinkMSAngles, nLinks, mMemoryPool.get());
+  // Group B: runtime edge and cell counts.
+  clearResizeBoundedVector(mTracklets, nEdges, mMemoryPool.get());
+  clearResizeBoundedVector(mTrackletsLookupTable, nEdges, mMemoryPool.get());
+  clearResizeBoundedVector(mTrackletLabels, nEdges, mMemoryPool.get());
+  clearResizeBoundedVector(mEdgePhiCuts, nEdges, mMemoryPool.get());
+  clearResizeBoundedVector(mEdgeMSAngles, nEdges, mMemoryPool.get());
   clearResizeBoundedVector(mCells, nCells, mMemoryPool.get());
   clearResizeBoundedVector(mCellsLookupTable, nCells, mMemoryPool.get());
   clearResizeBoundedVector(mCellsNeighbours, nCells, mMemoryPool.get());
@@ -102,8 +102,8 @@ void SurfaceTrackingScratch::reset()
   deepVectorClear(mCellsNeighbours);
   deepVectorClear(mCellsNeighboursTopology);
   deepVectorClear(mCellsNeighboursLUT);
-  deepVectorClear(mLinkPhiCuts);
-  deepVectorClear(mLinkMSAngles);
+  deepVectorClear(mEdgePhiCuts);
+  deepVectorClear(mEdgeMSAngles);
   for (auto& workspace : mTraversalWorkspaces) {
     workspace.reset(mMemoryPool.get());
   }
@@ -165,8 +165,8 @@ void SurfaceTrackingScratch::setMemoryPool(std::shared_ptr<o2::its::BoundedMemor
   initContainers(mNTrackletsPerCluster);
   initContainers(mNTrackletsPerClusterSum);
   initContainers(mNClustersPerROF);
-  initVector(mLinkPhiCuts);
-  initVector(mLinkMSAngles);
+  initVector(mEdgePhiCuts);
+  initVector(mEdgeMSAngles);
   initVector(mPositionResolution);
   initContainers(mClusterSize);
   initVector(mBogusClusters);
@@ -223,8 +223,8 @@ bool SurfaceTrackingScratch::allocatorsMatch(const SurfaceTrackingScratch& stage
   // std::vector<bounded_vector<T>> swaps do not, so they are not checked.
   return flatAllocatorMatches(mBogusClusters, staged.mBogusClusters) &&
          flatAllocatorMatches(mPositionResolution, staged.mPositionResolution) &&
-         flatAllocatorMatches(mLinkPhiCuts, staged.mLinkPhiCuts) &&
-         flatAllocatorMatches(mLinkMSAngles, staged.mLinkMSAngles) &&
+         flatAllocatorMatches(mEdgePhiCuts, staged.mEdgePhiCuts) &&
+         flatAllocatorMatches(mEdgeMSAngles, staged.mEdgeMSAngles) &&
          flatArrayAllocatorMatches(mNTrackletsPerCluster, staged.mNTrackletsPerCluster) &&
          flatArrayAllocatorMatches(mNTrackletsPerClusterSum, staged.mNTrackletsPerClusterSum) &&
          flatArrayAllocatorMatches(mTrackletsIndexROF, staged.mTrackletsIndexROF);
@@ -233,7 +233,7 @@ bool SurfaceTrackingScratch::allocatorsMatch(const SurfaceTrackingScratch& stage
 void SurfaceTrackingScratch::swapLoadedEvent(SurfaceTrackingScratch& other) noexcept
 {
   // Swap only data loaded by loadNormalizedSource(); plan sizes, allocators,
-  // and link/cell capacity stay with the live workspace.
+  // and edge/cell capacity stay with the live workspace.
   mUnsortedClusters.swap(other.mUnsortedClusters);
   mTrackingFrameInfo.swap(other.mTrackingFrameInfo);
   mClusterExternalIndices.swap(other.mClusterExternalIndices);
@@ -257,7 +257,7 @@ void SurfaceTrackingScratch::swap(SurfaceTrackingScratch& other) noexcept
   static_assert(noexcept(std::declval<bounded_vector<int>&>().swap(std::declval<bounded_vector<int>&>())));
 
   std::swap(mNOwnedSurfaces, other.mNOwnedSurfaces);
-  std::swap(mNLinks, other.mNLinks);
+  std::swap(mNEdges, other.mNEdges);
   std::swap(mNCells, other.mNCells);
 
   // Outer vectors are always safe to swap; see the header documentation.
@@ -292,8 +292,8 @@ void SurfaceTrackingScratch::swap(SurfaceTrackingScratch& other) noexcept
   // Flat bounded_vector<T> containers require allocatorsMatch(other).
   mBogusClusters.swap(other.mBogusClusters);
   mPositionResolution.swap(other.mPositionResolution);
-  mLinkPhiCuts.swap(other.mLinkPhiCuts);
-  mLinkMSAngles.swap(other.mLinkMSAngles);
+  mEdgePhiCuts.swap(other.mEdgePhiCuts);
+  mEdgeMSAngles.swap(other.mEdgeMSAngles);
   for (std::size_t i = 0; i < mNTrackletsPerCluster.size(); ++i) {
     mNTrackletsPerCluster[i].swap(other.mNTrackletsPerCluster[i]);
     mNTrackletsPerClusterSum[i].swap(other.mNTrackletsPerClusterSum[i]);
@@ -624,27 +624,27 @@ void SurfaceTrackingScratch::prepareClusters(const TimeFrame& frame, const Track
 }
 void SurfaceTrackingScratch::initialise(const TimeFrame& frame, const TrackingParameters& trkParam, const int maxLayers, const int iteration,
                                         const IndexTableUtilsCore& indexTableConfig, SurfaceGraphView topology,
-                                        gsl::span<const LinkId> linkIds, gsl::span<const CellTopologyId> cellIds,
+                                        gsl::span<const EdgeId> edgeIds, gsl::span<const CellTopologyId> cellIds,
                                         gsl::span<const SurfaceId> orderedSurfaces,
                                         gsl::span<const gsl::span<const GlobalMeasurement>> layerMeasurements)
 {
   std::vector<IndexTableUtilsCore> configs(mNOwnedSurfaces, indexTableConfig);
-  initialise(frame, trkParam, maxLayers, iteration, configs, topology, linkIds, cellIds,
+  initialise(frame, trkParam, maxLayers, iteration, configs, topology, edgeIds, cellIds,
              orderedSurfaces, layerMeasurements);
 }
 
 void SurfaceTrackingScratch::initialise(const TimeFrame& frame, const TrackingParameters& trkParam, const int maxLayers, const int iteration,
                                         gsl::span<const IndexTableUtilsCore> indexTableConfigs, SurfaceGraphView topology,
-                                        gsl::span<const LinkId> linkIds, gsl::span<const CellTopologyId> cellIds,
+                                        gsl::span<const EdgeId> edgeIds, gsl::span<const CellTopologyId> cellIds,
                                         gsl::span<const SurfaceId> orderedSurfaces,
                                         gsl::span<const gsl::span<const GlobalMeasurement>> layerMeasurements)
 {
   (void)iteration;
   if (orderedSurfaces.size() != mNOwnedSurfaces || indexTableConfigs.size() != mNOwnedSurfaces ||
-      linkIds.size() != mNLinks || cellIds.size() != mNCells ||
-      linkIds.size() > topology.nLinks || cellIds.size() > topology.nCells ||
-      (topology.nLinks != 0 && (topology.links == nullptr || topology.cellsByFirstLinkOffsets == nullptr)) ||
-      (topology.nCells != 0 && (topology.cells == nullptr || topology.cellsByFirstLink == nullptr))) {
+      edgeIds.size() != mNEdges || cellIds.size() != mNCells ||
+      edgeIds.size() > topology.nEdges || cellIds.size() > topology.nCells ||
+      (topology.nEdges != 0 && (topology.edges == nullptr || topology.cellsByFirstEdgeOffsets == nullptr)) ||
+      (topology.nCells != 0 && (topology.cells == nullptr || topology.cellsByFirstEdge == nullptr))) {
     throw std::logic_error{"SurfaceTrackingScratch::initialise(): plan/sparse-topology extent mismatch"};
   }
   const auto surfaceSlot = [&](SurfaceId surface) {
@@ -655,22 +655,22 @@ void SurfaceTrackingScratch::initialise(const TimeFrame& frame, const TrackingPa
     return static_cast<std::size_t>(std::distance(orderedSurfaces.begin(), it));
   };
 
-  for (const auto linkId : linkIds) {
-    if (!linkId.isValid() || linkId.value() >= topology.nLinks) {
-      throw std::logic_error{"SurfaceTrackingScratch::initialise(): invalid sparse link binding"};
+  for (const auto edgeId : edgeIds) {
+    if (!edgeId.isValid() || edgeId.value() >= topology.nEdges) {
+      throw std::logic_error{"SurfaceTrackingScratch::initialise(): invalid sparse edge binding"};
     }
-    const auto& link = topology.getLink(linkId);
-    (void)surfaceSlot(link.from);
-    (void)surfaceSlot(link.to);
+    const auto& edge = topology.getEdge(edgeId);
+    (void)surfaceSlot(edge.from);
+    (void)surfaceSlot(edge.to);
   }
   for (const auto cellId : cellIds) {
     if (!cellId.isValid() || cellId.value() >= topology.nCells) {
       throw std::logic_error{"SurfaceTrackingScratch::initialise(): invalid sparse cell binding"};
     }
     const auto& cell = topology.getCell(cellId);
-    if (!cell.firstLink.isValid() || !cell.secondLink.isValid() ||
-        cell.firstLink.value() >= topology.nLinks || cell.secondLink.value() >= topology.nLinks) {
-      throw std::logic_error{"SurfaceTrackingScratch::initialise(): sparse cell references an invalid link"};
+    if (!cell.firstEdge.isValid() || !cell.secondEdge.isValid() ||
+        cell.firstEdge.value() >= topology.nEdges || cell.secondEdge.value() >= topology.nEdges) {
+      throw std::logic_error{"SurfaceTrackingScratch::initialise(): sparse cell references an invalid edge"};
     }
   }
 
@@ -716,11 +716,11 @@ void SurfaceTrackingScratch::initialise(const TimeFrame& frame, const TrackingPa
   clearResizeBoundedVector(mCellsNeighboursTopology, mNCells, mMemoryPool.get());
   clearResizeBoundedVector(mCellsNeighboursLUT, mNCells, mMemoryPool.get());
   clearResizeBoundedVector(mCellLabels, mNCells, mMemoryPool.get());
-  clearResizeBoundedVector(mTracklets, mNLinks, mMemoryPool.get());
-  clearResizeBoundedVector(mTrackletLabels, mNLinks, mMemoryPool.get());
-  clearResizeBoundedVector(mTrackletsLookupTable, mNLinks, mMemoryPool.get());
-  clearResizeBoundedVector(mLinkPhiCuts, mNLinks, mMemoryPool.get());
-  clearResizeBoundedVector(mLinkMSAngles, mNLinks, mMemoryPool.get());
+  clearResizeBoundedVector(mTracklets, mNEdges, mMemoryPool.get());
+  clearResizeBoundedVector(mTrackletLabels, mNEdges, mMemoryPool.get());
+  clearResizeBoundedVector(mTrackletsLookupTable, mNEdges, mMemoryPool.get());
+  clearResizeBoundedVector(mEdgePhiCuts, mNEdges, mMemoryPool.get());
+  clearResizeBoundedVector(mEdgeMSAngles, mNEdges, mMemoryPool.get());
   mNTrackletsPerROF.resize(2);
   for (auto& v : mNTrackletsPerROF) {
     v = bounded_vector<int>(getNrof(1) + 1, 0, mMemoryPool.get());
@@ -740,13 +740,13 @@ void SurfaceTrackingScratch::initialise(const TimeFrame& frame, const TrackingPa
     mPositionResolution[iLayer] = o2::gpu::CAMath::Sqrt((0.5f * (trkParam.SystError2Col[iLayer] + trkParam.SystError2Row[iLayer])) + (trkParam.LayerResolution[iLayer] * trkParam.LayerResolution[iLayer]));
   }
 
-  for (int linkId{0}; linkId < static_cast<int>(mTracklets.size()); ++linkId) {
-    const auto& link = topology.getLink(linkIds[linkId]);
-    const auto fromSlot = surfaceSlot(link.from);
-    deepVectorClear(mTracklets[linkId]);
-    deepVectorClear(mTrackletLabels[linkId]);
-    deepVectorClear(mTrackletsLookupTable[linkId]);
-    mTrackletsLookupTable[linkId].resize(mClusters[fromSlot].size() + 1, 0);
+  for (int edgeId{0}; edgeId < static_cast<int>(mTracklets.size()); ++edgeId) {
+    const auto& edge = topology.getEdge(edgeIds[edgeId]);
+    const auto fromSlot = surfaceSlot(edge.from);
+    deepVectorClear(mTracklets[edgeId]);
+    deepVectorClear(mTrackletLabels[edgeId]);
+    deepVectorClear(mTrackletsLookupTable[edgeId]);
+    mTrackletsLookupTable[edgeId].resize(mClusters[fromSlot].size() + 1, 0);
   }
 
   for (int cellId{0}; cellId < static_cast<int>(mCells.size()); ++cellId) {

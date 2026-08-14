@@ -92,31 +92,31 @@ namespace
 bool projectCylinderSearchWindow(const GlobalMeasurement& sourceMeasurement,
                                  const o2::its::Cluster& sourceLocator,
                                  const o2::its::Vertex& vertex,
-                                 const TrackletProjectionCache& linkCache,
+                                 const TrackletProjectionCache& edgeCache,
                                  float /*bz*/, const o2::itsmft::IndexTableUtilsCore& indexUtils,
                                  const TrackingKernelParameters& params,
                                  TrackletSearchWindow& out)
 {
   const float inverseR0 = 1.f / sourceLocator.radius;
-  const float resolution = o2::gpu::CAMath::Sqrt(o2::its::math_utils::Sq(linkCache.sourcePositionResolution) +
+  const float resolution = o2::gpu::CAMath::Sqrt(o2::its::math_utils::Sq(edgeCache.sourcePositionResolution) +
                                                  o2::its::math_utils::Sq(params.pvResolution) / float(vertex.getNContributors()));
   const float tanLambda = (sourceMeasurement.position.z - vertex.getZ()) * inverseR0;
-  const float targetMeanRadius = 0.5f * (linkCache.targetMinR + linkCache.targetMaxR);
+  const float targetMeanRadius = 0.5f * (edgeCache.targetMinR + edgeCache.targetMaxR);
   const float zAtTargetMeanR = tanLambda * (targetMeanRadius - sourceLocator.radius) + sourceMeasurement.position.z;
   const float sqInvDeltaZ0 = 1.f / (o2::its::math_utils::Sq(sourceMeasurement.position.z - vertex.getZ()) + o2::its::constants::Tolerance);
-  const float targetRadialVariance = o2::its::math_utils::Sq(linkCache.targetMaxR - linkCache.targetMinR) / 12.f;
+  const float targetRadialVariance = o2::its::math_utils::Sq(edgeCache.targetMaxR - edgeCache.targetMinR) / 12.f;
   const float sigmaZ = o2::gpu::CAMath::Sqrt((o2::its::math_utils::Sq(resolution) * o2::its::math_utils::Sq(tanLambda) *
-                                              ((o2::its::math_utils::Sq(inverseR0) + sqInvDeltaZ0) * o2::its::math_utils::Sq(linkCache.toRadius - linkCache.fromRadius) + 1.f)) +
-                                             o2::its::math_utils::Sq((linkCache.toRadius - linkCache.fromRadius) * linkCache.linkMSAngle) +
+                                              ((o2::its::math_utils::Sq(inverseR0) + sqInvDeltaZ0) * o2::its::math_utils::Sq(edgeCache.toRadius - edgeCache.fromRadius) + 1.f)) +
+                                             o2::its::math_utils::Sq((edgeCache.toRadius - edgeCache.fromRadius) * edgeCache.edgeMSAngle) +
                                              o2::its::math_utils::Sq(tanLambda) * targetRadialVariance);
-  const auto bins = o2::itsmft::getBinsPhiZ(sourceLocator.phi, linkCache.toLayer,
+  const auto bins = o2::itsmft::getBinsPhiZ(sourceLocator.phi, edgeCache.toLayer,
                                             zAtTargetMeanR, zAtTargetMeanR,
-                                            sigmaZ * params.nSigmaCut, linkCache.linkPhiCut,
+                                            sigmaZ * params.nSigmaCut, edgeCache.edgePhiCut,
                                             indexUtils);
   if (bins.x < 0) {
     return false;
   }
-  const float phiSigma = linkCache.linkPhiCut / params.nSigmaCut;
+  const float phiSigma = edgeCache.edgePhiCut / params.nSigmaCut;
   out = {bins, {zAtTargetMeanR, sourceLocator.phi}, {o2::its::math_utils::Sq(sigmaZ), 0.f, o2::its::math_utils::Sq(phiSigma)}};
   return true;
 }
@@ -124,24 +124,24 @@ bool projectCylinderSearchWindow(const GlobalMeasurement& sourceMeasurement,
 bool projectDiskSearchWindow(const GlobalMeasurement& sourceMeasurement,
                              const o2::its::Cluster& sourceLocator,
                              const o2::its::Vertex& vertex,
-                             const TrackletProjectionCache& linkCache,
+                             const TrackletProjectionCache& edgeCache,
                              float bz, const o2::itsmft::IndexTableUtilsCore& indexUtils,
                              const TrackingKernelParameters& params,
                              TrackletSearchWindow& out)
 {
-  if (!linkCache.hasReferenceCoordinates) {
+  if (!edgeCache.hasReferenceCoordinates) {
     return false;
   }
-  if (!(std::isfinite(linkCache.targetMinZ) && std::isfinite(linkCache.targetMaxZ) &&
-        linkCache.targetMinZ <= linkCache.targetMaxZ)) {
+  if (!(std::isfinite(edgeCache.targetMinZ) && std::isfinite(edgeCache.targetMaxZ) &&
+        edgeCache.targetMinZ <= edgeCache.targetMaxZ)) {
     return false;
   }
-  const float targetMeanZ = 0.5f * (linkCache.targetMinZ + linkCache.targetMaxZ);
+  const float targetMeanZ = 0.5f * (edgeCache.targetMinZ + edgeCache.targetMaxZ);
   float xProj = 0.f;
   float yProj = 0.f;
   detail::mftTrackletProject(sourceMeasurement.position.x, sourceMeasurement.position.y, sourceMeasurement.position.z,
                              vertex.getX(), vertex.getY(), vertex.getZ(),
-                             linkCache.fromReferenceCoordinate, targetMeanZ, bz, params.trackletMinPt,
+                             edgeCache.fromReferenceCoordinate, targetMeanZ, bz, params.trackletMinPt,
                              xProj, yProj);
   float sigmaX = 0.f;
   float sigmaY = 0.f;
@@ -149,9 +149,9 @@ bool projectDiskSearchWindow(const GlobalMeasurement& sourceMeasurement,
                              vertex.getX(), vertex.getY(), vertex.getZ(),
                              sourceMeasurement.covariance.xx, sourceMeasurement.covariance.yy,
                              vertex.getSigmaX2(), vertex.getSigmaY2(), vertex.getSigmaZ2(),
-                             linkCache.fromReferenceCoordinate, targetMeanZ,
-                             linkCache.fromRadius, targetMeanZ - linkCache.fromReferenceCoordinate,
-                             linkCache.linkMSAngle, linkCache.linkPhiCut,
+                             edgeCache.fromReferenceCoordinate, targetMeanZ,
+                             edgeCache.fromRadius, targetMeanZ - edgeCache.fromReferenceCoordinate,
+                             edgeCache.edgeMSAngle, edgeCache.edgePhiCut,
                              xProj, yProj, sigmaX, sigmaY);
 
   float xAtMinZ = 0.f;
@@ -160,11 +160,11 @@ bool projectDiskSearchWindow(const GlobalMeasurement& sourceMeasurement,
   float yAtMaxZ = 0.f;
   detail::mftTrackletProject(sourceMeasurement.position.x, sourceMeasurement.position.y, sourceMeasurement.position.z,
                              vertex.getX(), vertex.getY(), vertex.getZ(),
-                             linkCache.fromReferenceCoordinate, linkCache.targetMinZ, bz, params.trackletMinPt,
+                             edgeCache.fromReferenceCoordinate, edgeCache.targetMinZ, bz, params.trackletMinPt,
                              xAtMinZ, yAtMinZ);
   detail::mftTrackletProject(sourceMeasurement.position.x, sourceMeasurement.position.y, sourceMeasurement.position.z,
                              vertex.getX(), vertex.getY(), vertex.getZ(),
-                             linkCache.fromReferenceCoordinate, linkCache.targetMaxZ, bz, params.trackletMinPt,
+                             edgeCache.fromReferenceCoordinate, edgeCache.targetMaxZ, bz, params.trackletMinPt,
                              xAtMaxZ, yAtMaxZ);
   const float targetZVarianceScale = 1.f / 12.f;
   const float deltaX = xAtMaxZ - xAtMinZ;
@@ -190,7 +190,7 @@ bool projectDiskSearchWindow(const GlobalMeasurement& sourceMeasurement,
         varianceR > 0.f && variancePhi > 0.f && varianceR * variancePhi > covarianceRPhi * covarianceRPhi)) {
     return false;
   }
-  const auto bins = o2::itsmft::getBinsPhiR(o2::its::math_utils::computePhi(xProj, yProj), linkCache.toLayer,
+  const auto bins = o2::itsmft::getBinsPhiR(o2::its::math_utils::computePhi(xProj, yProj), edgeCache.toLayer,
                                             radius, radius, params.nSigmaCut * std::sqrt(varianceR),
                                             params.nSigmaCut * std::sqrt(variancePhi), indexUtils);
   if (bins.x < 0) {
@@ -208,7 +208,7 @@ bool bindTrackletProjectionCache(
   gsl::span<const float> diskReferenceZ,
   float targetMinR, float targetMaxR, float targetMinZ, float targetMaxZ,
   float sourcePositionResolution,
-  float linkMSAngle, float linkPhiCut,
+  float edgeMSAngle, float edgePhiCut,
   TrackletProjectionCache& out) noexcept
 {
   if (fromLayer < 0 || toLayer < 0 ||
@@ -224,7 +224,7 @@ bool bindTrackletProjectionCache(
          layerRadii[fromLayer], layerRadii[toLayer],
          targetMinR, targetMaxR, targetMinZ, targetMaxZ, sourcePositionResolution,
          referenceCoordinate(fromLayer),
-         linkMSAngle, linkPhiCut, hasReferenceCoordinates};
+         edgeMSAngle, edgePhiCut, hasReferenceCoordinates};
   return true;
 }
 
@@ -233,16 +233,16 @@ bool projectTrackletSearchWindow(
   const o2::its::Cluster& sourceLocator,
   const o2::its::Vertex& vertex,
   SurfaceKind kind,
-  const TrackletProjectionCache& linkCache,
+  const TrackletProjectionCache& edgeCache,
   float bz, const o2::itsmft::IndexTableUtilsCore& indexUtils,
   const TrackingKernelParameters& params,
   TrackletSearchWindow& out)
 {
   switch (kind) {
     case SurfaceKind::Cylinder:
-      return projectCylinderSearchWindow(sourceMeasurement, sourceLocator, vertex, linkCache, bz, indexUtils, params, out);
+      return projectCylinderSearchWindow(sourceMeasurement, sourceLocator, vertex, edgeCache, bz, indexUtils, params, out);
     case SurfaceKind::Disk:
-      return projectDiskSearchWindow(sourceMeasurement, sourceLocator, vertex, linkCache, bz, indexUtils, params, out);
+      return projectDiskSearchWindow(sourceMeasurement, sourceLocator, vertex, edgeCache, bz, indexUtils, params, out);
     case SurfaceKind::Undefined:
       return false;
   }

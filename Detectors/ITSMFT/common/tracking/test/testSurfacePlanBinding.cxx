@@ -64,9 +64,9 @@ SurfaceDescriptor surfaceWithOwner(uint16_t id, SurfaceKind kind, uint8_t detect
   return SurfaceDescriptor{SurfaceId{id}, id, detectorId, kind};
 }
 
-SurfaceLink adjacent(uint16_t from, uint16_t to)
+Edge adjacent(uint16_t from, uint16_t to)
 {
-  return SurfaceLink{SurfaceId{from}, SurfaceId{to}, SurfaceMask{}, 0};
+  return Edge{SurfaceId{from}, SurfaceId{to}, SurfaceMask{}, 0};
 }
 
 struct BuiltLayout {
@@ -79,12 +79,12 @@ struct BuiltLayout {
 BuiltLayout buildChainLayout(uint16_t nSurfaces, SurfaceKind kind, SurfaceMask seedingSurfaces = {})
 {
   SurfaceGraph topology{nSurfaces, seedingSurfaces};
-  std::vector<LinkId> links;
+  std::vector<EdgeId> edges;
   for (uint16_t surface = 0; surface + 1 < nSurfaces; ++surface) {
-    links.push_back(topology.addLink(adjacent(surface, surface + 1)));
+    edges.push_back(topology.addEdge(adjacent(surface, surface + 1)));
   }
-  for (size_t link = 0; link + 1 < links.size(); ++link) {
-    topology.addCell(links[link], links[link + 1]);
+  for (size_t edge = 0; edge + 1 < edges.size(); ++edge) {
+    topology.addCell(edges[edge], edges[edge + 1]);
   }
   BOOST_REQUIRE(topology.finalize());
   std::vector<SurfaceDescriptor> surfaces;
@@ -98,19 +98,19 @@ BuiltLayout buildTwoChainsLayout(uint16_t firstSurfaces, uint16_t secondSurfaces
 {
   const uint16_t totalSurfaces = static_cast<uint16_t>(firstSurfaces + secondSurfaces);
   SurfaceGraph topology{totalSurfaces, seedingSurfaces};
-  std::vector<LinkId> firstLinks;
-  std::vector<LinkId> secondLinks;
+  std::vector<EdgeId> firstEdges;
+  std::vector<EdgeId> secondEdges;
   for (uint16_t surface = 0; surface + 1 < firstSurfaces; ++surface) {
-    firstLinks.push_back(topology.addLink(adjacent(surface, surface + 1)));
+    firstEdges.push_back(topology.addEdge(adjacent(surface, surface + 1)));
   }
   for (uint16_t surface = firstSurfaces; surface + 1 < totalSurfaces; ++surface) {
-    secondLinks.push_back(topology.addLink(adjacent(surface, surface + 1)));
+    secondEdges.push_back(topology.addEdge(adjacent(surface, surface + 1)));
   }
-  for (size_t link = 0; link + 1 < firstLinks.size(); ++link) {
-    topology.addCell(firstLinks[link], firstLinks[link + 1]);
+  for (size_t edge = 0; edge + 1 < firstEdges.size(); ++edge) {
+    topology.addCell(firstEdges[edge], firstEdges[edge + 1]);
   }
-  for (size_t link = 0; link + 1 < secondLinks.size(); ++link) {
-    topology.addCell(secondLinks[link], secondLinks[link + 1]);
+  for (size_t edge = 0; edge + 1 < secondEdges.size(); ++edge) {
+    topology.addCell(secondEdges[edge], secondEdges[edge + 1]);
   }
   BOOST_REQUIRE(topology.finalize());
   std::vector<SurfaceDescriptor> surfaces;
@@ -177,20 +177,20 @@ void checkBindingCoversOwnedTopology(const SurfacePlanBinding& binding, const Su
       BOOST_REQUIRE(binding.getOwnedSurfaceIndex(SurfaceId{s}));
     }
   }
-  for (uint32_t t = 0; t < global.nLinks; ++t) {
-    const auto id = LinkId{static_cast<uint16_t>(t)};
-    const auto& link = global.getLink(id);
-    if (binding.getOwnedSurfaces().has(link.from)) {
-      BOOST_REQUIRE(binding.getOwnedSurfaces().has(link.to));
-      BOOST_REQUIRE(binding.getScratchLinkSlot(id));
+  for (uint32_t t = 0; t < global.nEdges; ++t) {
+    const auto id = EdgeId{static_cast<uint16_t>(t)};
+    const auto& edge = global.getEdge(id);
+    if (binding.getOwnedSurfaces().has(edge.from)) {
+      BOOST_REQUIRE(binding.getOwnedSurfaces().has(edge.to));
+      BOOST_REQUIRE(binding.getScratchEdgeSlot(id));
     }
   }
   for (uint32_t c = 0; c < global.nCells; ++c) {
     const auto id = CellTopologyId{static_cast<uint16_t>(c)};
     const auto& cell = global.getCell(id);
-    const bool ownedLink = binding.getScratchLinkSlot(cell.firstLink).has_value() ||
-                           binding.getScratchLinkSlot(cell.secondLink).has_value();
-    if (ownedLink) {
+    const bool ownedEdge = binding.getScratchEdgeSlot(cell.firstEdge).has_value() ||
+                           binding.getScratchEdgeSlot(cell.secondEdge).has_value();
+    if (ownedEdge) {
       BOOST_REQUIRE(binding.getScratchCellSlot(id));
     }
   }
@@ -203,16 +203,16 @@ BOOST_AUTO_TEST_CASE(SurfacePlanBindingPreservesExactGlobalAndScheduledCellOrder
   const auto result = SurfacePlanBinding::build(layout.getView(), allSurfaces(7), order);
   BOOST_REQUIRE(result.ok());
 
-  const auto links = result.binding->getGlobalLinks();
+  const auto edges = result.binding->getGlobalEdges();
   const auto cells = result.binding->getGlobalCells();
   const auto scheduled = result.binding->getGlobalScheduledCells();
   const auto roadStarts = result.binding->getGlobalRoadStartCells();
-  BOOST_REQUIRE_EQUAL(links.size(), 6u);
+  BOOST_REQUIRE_EQUAL(edges.size(), 6u);
   BOOST_REQUIRE_EQUAL(cells.size(), 5u);
   BOOST_REQUIRE_EQUAL(scheduled.size(), 5u);
   BOOST_REQUIRE_EQUAL(roadStarts.size(), 2u);
-  for (uint16_t id = 0; id < links.size(); ++id) {
-    BOOST_CHECK(links[id] == LinkId{id});
+  for (uint16_t id = 0; id < edges.size(); ++id) {
+    BOOST_CHECK(edges[id] == EdgeId{id});
   }
   for (uint16_t id = 0; id < cells.size(); ++id) {
     BOOST_CHECK(cells[id] == CellTopologyId{id});
@@ -268,9 +268,9 @@ BOOST_AUTO_TEST_CASE(SurfacePlanBindingSeparatesDisconnectedDetectorSchedules)
 BOOST_AUTO_TEST_CASE(SurfacePlanBindingRejectsCyclicTopology)
 {
   SurfaceGraph topology{3};
-  BOOST_REQUIRE(topology.addLink(adjacent(0, 1)).isValid());
-  BOOST_REQUIRE(topology.addLink(adjacent(1, 2)).isValid());
-  BOOST_REQUIRE(topology.addLink(adjacent(2, 0)).isValid());
+  BOOST_REQUIRE(topology.addEdge(adjacent(0, 1)).isValid());
+  BOOST_REQUIRE(topology.addEdge(adjacent(1, 2)).isValid());
+  BOOST_REQUIRE(topology.addEdge(adjacent(2, 0)).isValid());
   BOOST_REQUIRE(topology.finalize());
   std::vector<SurfaceDescriptor> surfaces;
   for (uint16_t id = 0; id < 3; ++id) {
@@ -322,7 +322,7 @@ BOOST_AUTO_TEST_CASE(SurfacePlanBindingBuildsForASyntheticNonItsMftDetector)
   }
   const auto result = SurfacePlanBinding::build(view, owned, ordered(0, 4));
   BOOST_REQUIRE(result.ok());
-  BOOST_CHECK_EQUAL(result.binding->getGlobalLinks().size(), 3u);
+  BOOST_CHECK_EQUAL(result.binding->getGlobalEdges().size(), 3u);
   BOOST_CHECK_EQUAL(result.binding->getGlobalCells().size(), 2u);
   for (uint16_t id = 0; id < 4; ++id) {
     BOOST_REQUIRE(result.binding->getOwnedSurfaceIndex(SurfaceId{id}));
@@ -361,13 +361,13 @@ BOOST_AUTO_TEST_CASE(SparsePlanPositionsAreTheOnlyRuntimeCountAndOrderAuthority)
   }
 
   SurfaceTrackingScratch scratch;
-  scratch.adoptPlan(binding.getOrderedSurfaces().size(), binding.getGlobalLinks().size(), binding.getGlobalCells().size());
+  scratch.adoptPlan(binding.getOrderedSurfaces().size(), binding.getGlobalEdges().size(), binding.getGlobalCells().size());
   BOOST_CHECK_EQUAL(scratch.getNOwnedSurfaces(), planOrder.size());
-  BOOST_CHECK_EQUAL(scratch.getNLinks(), binding.getGlobalLinks().size());
+  BOOST_CHECK_EQUAL(scratch.getNEdges(), binding.getGlobalEdges().size());
   BOOST_CHECK_EQUAL(scratch.getNCells(), binding.getGlobalCells().size());
-  for (std::size_t slot = 0; slot < binding.getGlobalLinks().size(); ++slot) {
-    BOOST_REQUIRE(binding.getScratchLinkSlot(binding.getGlobalLinks()[slot]));
-    BOOST_CHECK_EQUAL(*binding.getScratchLinkSlot(binding.getGlobalLinks()[slot]), slot);
+  for (std::size_t slot = 0; slot < binding.getGlobalEdges().size(); ++slot) {
+    BOOST_REQUIRE(binding.getScratchEdgeSlot(binding.getGlobalEdges()[slot]));
+    BOOST_CHECK_EQUAL(*binding.getScratchEdgeSlot(binding.getGlobalEdges()[slot]), slot);
   }
   for (std::size_t slot = 0; slot < binding.getGlobalCells().size(); ++slot) {
     BOOST_REQUIRE(binding.getScratchCellSlot(binding.getGlobalCells()[slot]));
@@ -474,7 +474,7 @@ BOOST_AUTO_TEST_CASE(SurfacePlanBindingBuildsAcrossMultipleDistinctDetectorIdent
   SurfaceMask owned = maskOf(0) | maskOf(1) | maskOf(2);
   const auto result = SurfacePlanBinding::build(view, owned, ordered(0, 3));
   BOOST_REQUIRE(result.ok());
-  BOOST_CHECK_EQUAL(result.binding->getGlobalLinks().size(), 2u);
+  BOOST_CHECK_EQUAL(result.binding->getGlobalEdges().size(), 2u);
   BOOST_CHECK_EQUAL(result.binding->getGlobalCells().size(), 1u);
   for (uint16_t id = 0; id < 3; ++id) {
     BOOST_REQUIRE(result.binding->getOwnedSurfaceIndex(SurfaceId{id}));
@@ -482,7 +482,7 @@ BOOST_AUTO_TEST_CASE(SurfacePlanBindingBuildsAcrossMultipleDistinctDetectorIdent
   }
 }
 
-BOOST_AUTO_TEST_CASE(RejectsCrossBoundaryLink)
+BOOST_AUTO_TEST_CASE(RejectsCrossBoundaryEdge)
 {
   std::vector<SurfaceDescriptor> surfaces{surfaceWithOwner(0, SurfaceKind::Cylinder, 250), surfaceWithOwner(1, SurfaceKind::Cylinder, 250)};
   SurfaceGraphBuilder builder{SurfaceCatalogView{surfaces.data(), static_cast<uint32_t>(surfaces.size())}, makeSurfaceChain(ordered(0, 2))};
@@ -491,39 +491,39 @@ BOOST_AUTO_TEST_CASE(RejectsCrossBoundaryLink)
   const auto masks = computeSurfaceKindMasks(surfaces);
   const auto view = built.graph->getView();
 
-  // Own only surface 0: the 0->1 link has fromOwned=true, toOwned=false.
+  // Own only surface 0: the 0->1 edge has fromOwned=true, toOwned=false.
   SurfaceMask owned = maskOf(0);
   const std::vector<SurfaceId> order{SurfaceId{0}};
   const auto result = SurfacePlanBinding::build(view, owned, order);
   BOOST_REQUIRE(!result.ok());
-  BOOST_CHECK(result.error == SurfacePlanBindingError::CrossBoundaryLink);
+  BOOST_CHECK(result.error == SurfacePlanBindingError::CrossBoundaryEdge);
 }
 
 BOOST_AUTO_TEST_CASE(RejectsCrossBoundaryCell)
 {
   // Hand-built raw view (the graph-view types are trivially-copyable PODs):
-  // every link individually satisfies the from/to ownership-parity
+  // every edge individually satisfies the from/to ownership-parity
   // check (0,1,2 all owned), but the one cell's own hitSurfaces mask includes
-  // surface 3 -- present in the catalog, untouched by either link, and
+  // surface 3 -- present in the catalog, untouched by either edge, and
   // deliberately not owned. Only reachable via direct corruption of the
-  // topology's own per-cell metadata, exactly like the link-id
+  // topology's own per-cell metadata, exactly like the edge-id
   // corruption case this technique was first proven on.
   std::array<SurfaceDescriptor, 4> surfaces{
     surfaceWithOwner(0, SurfaceKind::Cylinder, 250), surfaceWithOwner(1, SurfaceKind::Cylinder, 250),
     surfaceWithOwner(2, SurfaceKind::Cylinder, 250), surfaceWithOwner(3, SurfaceKind::Cylinder, 250)};
-  std::array<SurfaceLink, 2> links{
-    SurfaceLink{SurfaceId{0}, SurfaceId{1}, SurfaceMask{}, 0},
-    SurfaceLink{SurfaceId{1}, SurfaceId{2}, SurfaceMask{}, 0}};
+  std::array<Edge, 2> edges{
+    Edge{SurfaceId{0}, SurfaceId{1}, SurfaceMask{}, 0},
+    Edge{SurfaceId{1}, SurfaceId{2}, SurfaceMask{}, 0}};
   SurfaceMask hitSurfaces = maskOf(0) | maskOf(1) | maskOf(2) | maskOf(3); // surface 3: deliberate corruption
-  std::array<SurfaceCellTopology, 1> cells{SurfaceCellTopology{LinkId{0}, LinkId{1}, hitSurfaces}};
+  std::array<SurfaceCellTopology, 1> cells{SurfaceCellTopology{EdgeId{0}, EdgeId{1}, hitSurfaces}};
   std::array<uint32_t, 3> offsets{0, 1, 1};
-  std::array<CellTopologyId, 1> byFirstLink{CellTopologyId{0}};
+  std::array<CellTopologyId, 1> byFirstEdge{CellTopologyId{0}};
 
   SurfaceMask cylinderSurfaces;
   for (const auto& descriptor : surfaces) {
     cylinderSurfaces.set(descriptor.id);
   }
-  SurfaceGraphView layoutView{surfaces.data(), static_cast<uint32_t>(surfaces.size()), nullptr, 0, cylinderSurfaces, {}, links.data(), cells.data(), offsets.data(), byFirstLink.data(), {}, static_cast<uint32_t>(links.size()), static_cast<uint32_t>(cells.size())};
+  SurfaceGraphView layoutView{surfaces.data(), static_cast<uint32_t>(surfaces.size()), nullptr, 0, cylinderSurfaces, {}, edges.data(), cells.data(), offsets.data(), byFirstEdge.data(), {}, static_cast<uint32_t>(edges.size()), static_cast<uint32_t>(cells.size())};
 
   SurfaceMask owned = maskOf(0) | maskOf(1) | maskOf(2); // surface 3 not owned
   const std::vector<SurfaceId> order{SurfaceId{0}, SurfaceId{1}, SurfaceId{2}};
@@ -535,26 +535,26 @@ BOOST_AUTO_TEST_CASE(RejectsCrossBoundaryCell)
 BOOST_AUTO_TEST_CASE(RejectsInvalidTopology)
 {
   // Same corruption technique as RejectsCrossBoundaryCell above, but this
-  // time the second cell references an out-of-range LinkId, so
+  // time the second cell references an out-of-range EdgeId, so
   // SurfacePlanBinding's topology validation rejects the whole schedule
-  // (InvalidCellLink) before SurfacePlanBinding::build() ever reaches
+  // (InvalidCellEdge) before SurfacePlanBinding::build() ever reaches
   // its own per-cell ownership checks.
   std::array<SurfaceDescriptor, 3> surfaces{
     surfaceWithOwner(0, SurfaceKind::Cylinder, 250), surfaceWithOwner(1, SurfaceKind::Cylinder, 250), surfaceWithOwner(2, SurfaceKind::Cylinder, 250)};
-  std::array<SurfaceLink, 2> links{
-    SurfaceLink{SurfaceId{0}, SurfaceId{1}, SurfaceMask{}, 0},
-    SurfaceLink{SurfaceId{1}, SurfaceId{2}, SurfaceMask{}, 0}};
+  std::array<Edge, 2> edges{
+    Edge{SurfaceId{0}, SurfaceId{1}, SurfaceMask{}, 0},
+    Edge{SurfaceId{1}, SurfaceId{2}, SurfaceMask{}, 0}};
   std::array<SurfaceCellTopology, 2> cells{
-    SurfaceCellTopology{LinkId{0}, LinkId{1}, maskOf(0) | maskOf(1) | maskOf(2)}, // valid
-    SurfaceCellTopology{LinkId{0}, LinkId{99}, SurfaceMask{}}};                   // out-of-range secondLink
+    SurfaceCellTopology{EdgeId{0}, EdgeId{1}, maskOf(0) | maskOf(1) | maskOf(2)}, // valid
+    SurfaceCellTopology{EdgeId{0}, EdgeId{99}, SurfaceMask{}}};                   // out-of-range secondEdge
   std::array<uint32_t, 3> offsets{0, 2, 2};
-  std::array<CellTopologyId, 2> byFirstLink{CellTopologyId{0}, CellTopologyId{1}};
+  std::array<CellTopologyId, 2> byFirstEdge{CellTopologyId{0}, CellTopologyId{1}};
 
   SurfaceMask cylinderSurfaces;
   for (const auto& descriptor : surfaces) {
     cylinderSurfaces.set(descriptor.id);
   }
-  SurfaceGraphView layoutView{surfaces.data(), static_cast<uint32_t>(surfaces.size()), nullptr, 0, cylinderSurfaces, {}, links.data(), cells.data(), offsets.data(), byFirstLink.data(), {}, static_cast<uint32_t>(links.size()), static_cast<uint32_t>(cells.size())};
+  SurfaceGraphView layoutView{surfaces.data(), static_cast<uint32_t>(surfaces.size()), nullptr, 0, cylinderSurfaces, {}, edges.data(), cells.data(), offsets.data(), byFirstEdge.data(), {}, static_cast<uint32_t>(edges.size()), static_cast<uint32_t>(cells.size())};
 
   SurfaceMask owned = maskOf(0) | maskOf(1) | maskOf(2);
   const auto result = SurfacePlanBinding::build(layoutView, owned, ordered(0, 3));

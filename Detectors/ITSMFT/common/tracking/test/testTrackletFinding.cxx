@@ -93,18 +93,18 @@ GlobalMeasurement makeMeasurement(const o2::its::Cluster& cluster, float uu = 1.
 
 TrackletProjectionCache makeCylinderProjectionCache(int fromLayer, int toLayer, float fromRadius, float toRadius,
                                                     float targetMinR, float targetMaxR, float sourcePositionResolution,
-                                                    float linkMSAngle, float linkPhiCut)
+                                                    float edgeMSAngle, float edgePhiCut)
 {
   return {fromLayer, toLayer, fromRadius, toRadius, targetMinR, targetMaxR, 0.f, 0.f,
-          sourcePositionResolution, 0.f, linkMSAngle, linkPhiCut, false};
+          sourcePositionResolution, 0.f, edgeMSAngle, edgePhiCut, false};
 }
 
 TrackletProjectionCache makeDiskProjectionCache(int fromLayer, int toLayer, float fromRadius,
                                                 float fromReferenceCoordinate, float targetMinZ, float targetMaxZ,
-                                                float linkMSAngle, float linkPhiCut)
+                                                float edgeMSAngle, float edgePhiCut)
 {
   return {fromLayer, toLayer, fromRadius, 0.f, 0.f, 0.f, targetMinZ, targetMaxZ,
-          0.f, fromReferenceCoordinate, linkMSAngle, linkPhiCut, true};
+          0.f, fromReferenceCoordinate, edgeMSAngle, edgePhiCut, true};
 }
 
 // CandidateFinding exposes one descriptor-selected projection operation.
@@ -112,25 +112,25 @@ TrackletProjectionCache makeDiskProjectionCache(int fromLayer, int toLayer, floa
 bool projectCylinderSearchWindow(const GlobalMeasurement& sourceMeasurement,
                                  const o2::its::Cluster& sourceLocator,
                                  const o2::its::Vertex& vertex,
-                                 const TrackletProjectionCache& linkCache,
+                                 const TrackletProjectionCache& edgeCache,
                                  float bz, const o2::itsmft::IndexTableUtilsCore& indexUtils,
                                  const TrackingKernelParameters& params,
                                  TrackletSearchWindow& out)
 {
   return projectTrackletSearchWindow(sourceMeasurement, sourceLocator, vertex, SurfaceKind::Cylinder,
-                                     linkCache, bz, indexUtils, params, out);
+                                     edgeCache, bz, indexUtils, params, out);
 }
 
 bool projectDiskSearchWindow(const GlobalMeasurement& sourceMeasurement,
                              const o2::its::Cluster& sourceLocator,
                              const o2::its::Vertex& vertex,
-                             const TrackletProjectionCache& linkCache,
+                             const TrackletProjectionCache& edgeCache,
                              float bz, const o2::itsmft::IndexTableUtilsCore& indexUtils,
                              const TrackingKernelParameters& params,
                              TrackletSearchWindow& out)
 {
   return projectTrackletSearchWindow(sourceMeasurement, sourceLocator, vertex, SurfaceKind::Disk,
-                                     linkCache, bz, indexUtils, params, out);
+                                     edgeCache, bz, indexUtils, params, out);
 }
 
 void setDiskLookup(IndexTableUtilsCore& indexUtils, const TrackingParameters& params,
@@ -305,10 +305,10 @@ BOOST_AUTO_TEST_CASE(CylinderProjectSearchWindowMatchesInlineFormulaAndDirectPhi
   const float targetRadialVariance = o2::its::math_utils::Sq(state.targetMaxR - state.targetMinR) / 12.f;
   const float sigmaZ = o2::gpu::CAMath::Sqrt((o2::its::math_utils::Sq(resolution) * o2::its::math_utils::Sq(tanLambda) *
                                               ((o2::its::math_utils::Sq(inverseR0) + sqInvDeltaZ0) * o2::its::math_utils::Sq(state.toRadius - state.fromRadius) + 1.f)) +
-                                             o2::its::math_utils::Sq((state.toRadius - state.fromRadius) * state.linkMSAngle) +
+                                             o2::its::math_utils::Sq((state.toRadius - state.fromRadius) * state.edgeMSAngle) +
                                              o2::its::math_utils::Sq(tanLambda) * targetRadialVariance);
   const auto directBins = getBinsPhiZ(source.phi, state.toLayer, zAtTargetMeanR, zAtTargetMeanR,
-                                      sigmaZ * params.nSigmaCut, state.linkPhiCut, indexUtils);
+                                      sigmaZ * params.nSigmaCut, state.edgePhiCut, indexUtils);
 
   BOOST_CHECK_EQUAL(window.bins.x, directBins.x);
   BOOST_CHECK_EQUAL(window.bins.y, directBins.y);
@@ -327,7 +327,7 @@ BOOST_AUTO_TEST_CASE(CylinderProjectSearchWindowMatchesInlineFormulaAndDirectPhi
                                                            o2::its::math_utils::Sq(positivePVParams.pvResolution) / float(vertex.getNContributors()));
   const float positivePVSigmaZ = o2::gpu::CAMath::Sqrt((o2::its::math_utils::Sq(positivePVResolution) * o2::its::math_utils::Sq(tanLambda) *
                                                         ((o2::its::math_utils::Sq(inverseR0) + sqInvDeltaZ0) * o2::its::math_utils::Sq(state.toRadius - state.fromRadius) + 1.f)) +
-                                                       o2::its::math_utils::Sq((state.toRadius - state.fromRadius) * state.linkMSAngle) +
+                                                       o2::its::math_utils::Sq((state.toRadius - state.fromRadius) * state.edgeMSAngle) +
                                                        o2::its::math_utils::Sq(tanLambda) * targetRadialVariance);
   BOOST_CHECK_EQUAL(positivePVWindow.variance[0], o2::its::math_utils::Sq(positivePVSigmaZ));
   BOOST_CHECK_GT(positivePVWindow.variance[0], window.variance[0]);
@@ -359,7 +359,7 @@ BOOST_AUTO_TEST_CASE(DiskProjectSearchWindowBuildsPeriodicPhiRCoordinates)
   setDiskLookup(indexUtils, legacy);
 
   constexpr int fromLayer = 1;
-  constexpr int toLayer = 4; // deliberately skipped/nonadjacent link
+  constexpr int toLayer = 4; // deliberately skipped/nonadjacent edge
   const float fromZ = detail::mftLayerZ(fromLayer);
   const float toZ = detail::mftLayerZ(toLayer);
   const auto source = makeGlobalCluster(1.2f, 0.7f, fromZ);
@@ -384,7 +384,7 @@ BOOST_AUTO_TEST_CASE(DiskProjectSearchWindowBuildsPeriodicPhiRCoordinates)
                              vertex.getSigmaX2(), vertex.getSigmaY2(), vertex.getSigmaZ2(),
                              fromLayer, toLayer, state.fromRadius,
                              0.5f * (state.targetMinZ + state.targetMaxZ) - state.fromReferenceCoordinate,
-                             state.linkMSAngle, state.linkPhiCut,
+                             state.edgeMSAngle, state.edgePhiCut,
                              expectedX, expectedY, expectedSigmaX, expectedSigmaY);
 
   BOOST_CHECK_EQUAL(window.prediction[0], o2::its::math_utils::hypot(expectedX, expectedY));
@@ -658,10 +658,10 @@ BOOST_AUTO_TEST_CASE(NormalizedMeasurementsRemainAuthoritativeOverPoisonedLocato
   checkSearchWindowEqual(diskPoisoned, diskBaseline);
 }
 
-/// Gate 3 link-preparation slice coverage (relocated from
+/// Gate 3 edge-preparation slice coverage (relocated from
 /// TimeFrame::initialise() into TrackerTraits::initialiseTimeFrame(); see
 /// CandidateFinding.h family scattering leaves and
-/// prepareLinkAngularTolerances. These tests verify
+/// prepareEdgeScatteringAndBending. These tests verify
 /// exact legacy-formula parity, the family-specific arithmetic literal that
 /// integration review required preserved (not canonicalized), and the
 /// order-sensitive oneOverR ratchet -- independently of TrackerTraits'
@@ -674,9 +674,9 @@ namespace
 /// ITS-only TimeFrame::initialise() (ITS/tracking/src/TimeFrame.cxx:352-370),
 /// which the (now-removed) common-CA non-MFT branch reproduced verbatim.
 /// Deliberately re-derived here rather than calling
-/// prepareLinkAngularTolerances, so a transcription mistake in
+/// prepareEdgeScatteringAndBending, so a transcription mistake in
 /// either the operation or this reference would show up as a mismatch.
-LinkScatteringBendingPrep referenceLinkScatteringAndBending(
+EdgeScatteringBendingPrep referenceEdgeScatteringAndBending(
   gsl::span<const float> perLayerMSAngle, int fromLayer, int toLayer,
   float r1, float r2, float clampedOneOverR, float res1, float res2)
 {
@@ -692,7 +692,7 @@ LinkScatteringBendingPrep referenceLinkScatteringAndBending(
                                             (o2::its::math_utils::Sq((0.25f * r1 * r2 * o2::its::math_utils::Sq(clampedOneOverR) / cosTheta2half) + cosTheta1half) * o2::its::math_utils::Sq(res1) +
                                              o2::its::math_utils::Sq((0.25f * r1 * r2 * o2::its::math_utils::Sq(clampedOneOverR) / cosTheta1half) + cosTheta2half) * o2::its::math_utils::Sq(res2)));
   const float phiCut = o2::gpu::CAMath::Min(o2::gpu::CAMath::ASin(0.5f * x * clampedOneOverR) + 2.f * msAngle + delta, o2::constants::math::PI * 0.5f);
-  return LinkScatteringBendingPrep{msAngle, phiCut};
+  return EdgeScatteringBendingPrep{msAngle, phiCut};
 }
 } // namespace
 
@@ -770,7 +770,7 @@ BOOST_AUTO_TEST_CASE(DiskScatteringAngleNearZeroReferenceRadiusFallback)
   BOOST_CHECK_EQUAL(reference, expectedWithSentinelCscLambda);
 }
 
-BOOST_AUTO_TEST_CASE(ClampLinkCurvatureUsesOneCoordinateNeutralExpression)
+BOOST_AUTO_TEST_CASE(ClampEdgeCurvatureUsesOneCoordinateNeutralExpression)
 {
   const std::array<std::pair<float, float>, 5> samples{{
     {0.001f, 50.f}, // clamp does not trigger
@@ -783,24 +783,24 @@ BOOST_AUTO_TEST_CASE(ClampLinkCurvatureUsesOneCoordinateNeutralExpression)
     const float oneOverR = sample.first;
     const float r2 = sample.second;
 
-    const float actual = clampLinkCurvature(oneOverR, r2);
+    const float actual = clampEdgeCurvature(oneOverR, r2);
     const float reference = (0.5f * oneOverR >= 1.f / r2) ? (2.f / r2) - o2::constants::math::Almost0 : oneOverR;
     BOOST_CHECK_EQUAL(actual, reference);
   }
 }
 
-BOOST_AUTO_TEST_CASE(CurvatureClampIsLinkLocal)
+BOOST_AUTO_TEST_CASE(CurvatureClampIsEdgeLocal)
 {
   constexpr float initialOneOverR = 3.f;
   const std::array<float, 3> outerRadii{1.f, 4.f, 0.5f};
   for (const auto outerRadius : outerRadii) {
-    const auto forward = clampLinkCurvature(initialOneOverR, outerRadius);
-    const auto repeated = clampLinkCurvature(initialOneOverR, outerRadius);
+    const auto forward = clampEdgeCurvature(initialOneOverR, outerRadius);
+    const auto repeated = clampEdgeCurvature(initialOneOverR, outerRadius);
     BOOST_CHECK_EQUAL(forward, repeated);
   }
 }
 
-BOOST_AUTO_TEST_CASE(PrepareLinkScatteringAndBendingMatchesFrozenFormulaForITSAndMFTShapedInputs)
+BOOST_AUTO_TEST_CASE(PrepareEdgeScatteringAndBendingMatchesFrozenFormulaForITSAndMFTShapedInputs)
 {
   // ITS-shaped (cm-scale barrel radii from TrackingParameters defaults).
   {
@@ -811,20 +811,20 @@ BOOST_AUTO_TEST_CASE(PrepareLinkScatteringAndBendingMatchesFrozenFormulaForITSAn
     constexpr float r2 = 19.6213f;
     constexpr float res1 = 5.e-4f;
     constexpr float res2 = 5.e-4f;
-    const float oneOverR = clampLinkCurvature(
+    const float oneOverR = clampEdgeCurvature(
       0.001f * 0.3f * std::abs(Bz) / 0.3f, r2);
     const gsl::span<const float> msSpan(msAngles.data(), msAngles.size());
-    const auto actual = prepareLinkAngularTolerances(msSpan, fromLayer, toLayer, r1, r2, oneOverR, res1, res2);
-    const auto reference = referenceLinkScatteringAndBending(msSpan, fromLayer, toLayer, r1, r2, oneOverR, res1, res2);
+    const auto actual = prepareEdgeScatteringAndBending(msSpan, fromLayer, toLayer, r1, r2, oneOverR, res1, res2);
+    const auto reference = referenceEdgeScatteringAndBending(msSpan, fromLayer, toLayer, r1, r2, oneOverR, res1, res2);
     BOOST_CHECK_EQUAL(actual.msAngle, reference.msAngle);
     BOOST_CHECK_EQUAL(actual.phiCut, reference.phiCut);
 
     // Half-open range: layer index `toLayer` itself must not contribute.
-    const auto includingToLayer = referenceLinkScatteringAndBending(msSpan, fromLayer, toLayer + 1, r1, r2, oneOverR, res1, res2);
+    const auto includingToLayer = referenceEdgeScatteringAndBending(msSpan, fromLayer, toLayer + 1, r1, r2, oneOverR, res1, res2);
     BOOST_CHECK_NE(actual.msAngle, includingToLayer.msAngle);
   }
 
-  // MFT-shaped, deliberately skipped/non-adjacent link (fromLayer=1,
+  // MFT-shaped, deliberately skipped/non-adjacent edge (fromLayer=1,
   // toLayer=4: sums layers 1,2,3, skipping layer 4 itself as the endpoint).
   {
     TrackingParameters mft;
@@ -841,17 +841,17 @@ BOOST_AUTO_TEST_CASE(PrepareLinkScatteringAndBendingMatchesFrozenFormulaForITSAn
     const float r2 = mft.LayerRadii[toLayer];
     constexpr float res1 = 5.e-4f;
     constexpr float res2 = 6.e-4f;
-    const float oneOverR = clampLinkCurvature(
+    const float oneOverR = clampEdgeCurvature(
       0.001f * 0.3f * std::abs(Bz) / mft.TrackletMinPt, r2);
     const gsl::span<const float> msSpan(msAngles.data(), msAngles.size());
-    const auto actual = prepareLinkAngularTolerances(msSpan, fromLayer, toLayer, r1, r2, oneOverR, res1, res2);
-    const auto reference = referenceLinkScatteringAndBending(msSpan, fromLayer, toLayer, r1, r2, oneOverR, res1, res2);
+    const auto actual = prepareEdgeScatteringAndBending(msSpan, fromLayer, toLayer, r1, r2, oneOverR, res1, res2);
+    const auto reference = referenceEdgeScatteringAndBending(msSpan, fromLayer, toLayer, r1, r2, oneOverR, res1, res2);
     BOOST_CHECK_EQUAL(actual.msAngle, reference.msAngle);
     BOOST_CHECK_EQUAL(actual.phiCut, reference.phiCut);
   }
 }
 
-BOOST_AUTO_TEST_CASE(PrepareLinkScatteringAndBendingZeroFieldAndDegenerateRadiusMatchLegacyFormula)
+BOOST_AUTO_TEST_CASE(PrepareEdgeScatteringAndBendingZeroFieldAndDegenerateRadiusMatchLegacyFormula)
 {
   const std::array<float, 3> msAngles{1.e-3f, 1.2e-3f, 1.4e-3f};
   const gsl::span<const float> msSpan(msAngles.data(), msAngles.size());
@@ -861,10 +861,10 @@ BOOST_AUTO_TEST_CASE(PrepareLinkScatteringAndBendingZeroFieldAndDegenerateRadius
   {
     const float zeroFieldOneOverR = 0.001f * 0.3f * std::abs(0.f) / 0.3f;
     BOOST_CHECK_EQUAL(zeroFieldOneOverR, 0.f);
-    const float clamped = clampLinkCurvature(zeroFieldOneOverR, 5.f);
+    const float clamped = clampEdgeCurvature(zeroFieldOneOverR, 5.f);
     BOOST_CHECK_EQUAL(clamped, 0.f); // 0.5*0 >= 1/5 is false: clamp does not trigger
-    const auto actual = prepareLinkAngularTolerances(msSpan, 0, 2, 2.f, 5.f, clamped, 5.e-4f, 5.e-4f);
-    const auto reference = referenceLinkScatteringAndBending(msSpan, 0, 2, 2.f, 5.f, clamped, 5.e-4f, 5.e-4f);
+    const auto actual = prepareEdgeScatteringAndBending(msSpan, 0, 2, 2.f, 5.f, clamped, 5.e-4f, 5.e-4f);
+    const auto reference = referenceEdgeScatteringAndBending(msSpan, 0, 2, 2.f, 5.f, clamped, 5.e-4f, 5.e-4f);
     BOOST_CHECK_EQUAL(actual.msAngle, reference.msAngle);
     BOOST_CHECK_EQUAL(actual.phiCut, reference.phiCut);
   }
@@ -873,9 +873,9 @@ BOOST_AUTO_TEST_CASE(PrepareLinkScatteringAndBendingZeroFieldAndDegenerateRadius
   // through to whatever the floating-point expression produces. This test
   // asserts parity with that expression, not any particular finiteness.
   {
-    const float oneOverR = clampLinkCurvature(0.01f, 0.f);
-    const auto actual = prepareLinkAngularTolerances(msSpan, 0, 2, 2.f, 0.f, oneOverR, 5.e-4f, 5.e-4f);
-    const auto reference = referenceLinkScatteringAndBending(msSpan, 0, 2, 2.f, 0.f, oneOverR, 5.e-4f, 5.e-4f);
+    const float oneOverR = clampEdgeCurvature(0.01f, 0.f);
+    const auto actual = prepareEdgeScatteringAndBending(msSpan, 0, 2, 2.f, 0.f, oneOverR, 5.e-4f, 5.e-4f);
+    const auto reference = referenceEdgeScatteringAndBending(msSpan, 0, 2, 2.f, 0.f, oneOverR, 5.e-4f, 5.e-4f);
     // BOOST_CHECK_EQUAL on NaN is always false (NaN != NaN); compare the bit
     // pattern so a NaN-vs-NaN legacy-parity match is still recognized as a pass.
     BOOST_CHECK(std::memcmp(&actual.msAngle, &reference.msAngle, sizeof(float)) == 0);

@@ -51,8 +51,8 @@ struct TrackletProjectionCache {
   float targetMaxZ;
   float sourcePositionResolution;
   float fromReferenceCoordinate;
-  float linkMSAngle;
-  float linkPhiCut;
+  float edgeMSAngle;
+  float edgePhiCut;
   bool hasReferenceCoordinates;
 };
 
@@ -67,14 +67,14 @@ bool bindTrackletProjectionCache(int fromLayer, int toLayer,
                                  gsl::span<const float> diskReferenceZ,
                                  float targetMinR, float targetMaxR, float targetMinZ, float targetMaxZ,
                                  float sourcePositionResolution,
-                                 float linkMSAngle, float linkPhiCut,
+                                 float edgeMSAngle, float edgePhiCut,
                                  TrackletProjectionCache& out) noexcept;
 
 bool projectTrackletSearchWindow(const GlobalMeasurement& sourceMeasurement,
                                  const o2::its::Cluster& sourceLocator,
                                  const o2::its::Vertex& vertex,
                                  SurfaceKind kind,
-                                 const TrackletProjectionCache& linkCache,
+                                 const TrackletProjectionCache& edgeCache,
                                  float bz, const o2::itsmft::IndexTableUtilsCore& indexUtils,
                                  const TrackingKernelParameters& params,
                                  TrackletSearchWindow& out);

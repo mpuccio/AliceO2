@@ -30,7 +30,7 @@
 namespace o2::itsmft::tracking
 {
 
-struct SurfaceLink {
+struct Edge {
   SurfaceId from{};
   SurfaceId to{};
   SurfaceMask skippedSurfaces{};
@@ -38,8 +38,8 @@ struct SurfaceLink {
 };
 
 struct SurfaceCellTopology {
-  LinkId firstLink{};
-  LinkId secondLink{};
+  EdgeId firstEdge{};
+  EdgeId secondEdge{};
   SurfaceMask hitSurfaces{};
 };
 
@@ -62,12 +62,12 @@ struct SurfaceGraphView {
   uint32_t nOrderedSurfaces{0};
   SurfaceMask cylinderSurfaces{};
   SurfaceMask diskSurfaces{};
-  const SurfaceLink* links{nullptr};
+  const Edge* edges{nullptr};
   const SurfaceCellTopology* cells{nullptr};
-  const uint32_t* cellsByFirstLinkOffsets{nullptr};
-  const CellTopologyId* cellsByFirstLink{nullptr};
+  const uint32_t* cellsByFirstEdgeOffsets{nullptr};
+  const CellTopologyId* cellsByFirstEdge{nullptr};
   SurfaceMask seedingSurfaces{};
-  uint32_t nLinks{0};
+  uint32_t nEdges{0};
   uint32_t nCells{0};
   const uint8_t* surfaceIndicesById{nullptr};
 
@@ -83,25 +83,25 @@ struct SurfaceGraphView {
   }
   GPUhdi() const SurfaceDescriptor& getSurface(SurfaceId id) const { return surfaces[getSurfaceIndex(id)]; }
   GPUhdi() SurfaceCatalogView getSurfaceCatalogView() const noexcept { return SurfaceCatalogView{surfaces, nSurfaces, surfaceIndicesById}; }
-  GPUhdi() const SurfaceLink& getLink(LinkId id) const { return links[id.value()]; }
+  GPUhdi() const Edge& getEdge(EdgeId id) const { return edges[id.value()]; }
   GPUhdi() const SurfaceCellTopology& getCell(CellTopologyId id) const { return cells[id.value()]; }
-  GPUhdi() TopologyRange getCellsStartingWithLink(LinkId link) const
+  GPUhdi() TopologyRange getCellsStartingWithEdge(EdgeId edge) const
   {
-    const uint32_t id = link.value();
-    return TopologyRange{cellsByFirstLinkOffsets[id], cellsByFirstLinkOffsets[id + 1] - cellsByFirstLinkOffsets[id]};
+    const uint32_t id = edge.value();
+    return TopologyRange{cellsByFirstEdgeOffsets[id], cellsByFirstEdgeOffsets[id + 1] - cellsByFirstEdgeOffsets[id]};
   }
 };
 
-static_assert(std::is_standard_layout_v<SurfaceLink> && std::is_trivially_copyable_v<SurfaceLink>);
+static_assert(std::is_standard_layout_v<Edge> && std::is_trivially_copyable_v<Edge>);
 static_assert(std::is_standard_layout_v<SurfaceCellTopology> && std::is_trivially_copyable_v<SurfaceCellTopology>);
 static_assert(std::is_standard_layout_v<TopologyRange> && std::is_trivially_copyable_v<TopologyRange>);
 static_assert(std::is_standard_layout_v<SurfaceGraphView> && std::is_trivially_copyable_v<SurfaceGraphView>);
-static_assert(sizeof(SurfaceLink) == 12);
+static_assert(sizeof(Edge) == 12);
 static_assert(sizeof(SurfaceCellTopology) == 8);
-static_assert(offsetof(SurfaceLink, from) == 0);
-static_assert(offsetof(SurfaceLink, to) == 2);
-static_assert(offsetof(SurfaceLink, skippedSurfaces) == 4);
-static_assert(offsetof(SurfaceLink, flags) == 8);
+static_assert(offsetof(Edge, from) == 0);
+static_assert(offsetof(Edge, to) == 2);
+static_assert(offsetof(Edge, skippedSurfaces) == 4);
+static_assert(offsetof(Edge, flags) == 8);
 
 #ifndef GPUCA_GPUCODE
 
@@ -121,7 +121,7 @@ enum class SurfaceGraphError : uint8_t {
   NonDenseSurfaceIds,
   SurfaceCountMismatch,
   NotFinalized,
-  MixedSurfaceLink,
+  MixedSurfaceEdge,
   SurfaceKindMismatch
 };
 
@@ -129,11 +129,11 @@ enum class SurfaceGraphTopologyError : uint8_t {
   None,
   InvalidSurfaceCount,
   InvalidSurface,
-  SelfLink,
-  DuplicateLink,
-  TooManyLinks,
-  InvalidLink,
-  DisconnectedLinks,
+  SelfEdge,
+  DuplicateEdge,
+  TooManyEdges,
+  InvalidEdge,
+  DisconnectedEdges,
   RepeatedSurface,
   DuplicateCell,
   TooManyCells,
@@ -173,10 +173,10 @@ class SurfaceGraph
       mSurfaceCount{static_cast<uint32_t>(surfaces.size())},
       mOrderedSurfaces{std::move(topology.mOrderedSurfaces)},
       mSeedingSurfaces{topology.mSeedingSurfaces},
-      mLinks{std::move(topology.mLinks)},
+      mEdges{std::move(topology.mEdges)},
       mCells{std::move(topology.mCells)},
-      mCellsByFirstLinkOffsets{std::move(topology.mCellsByFirstLinkOffsets)},
-      mCellsByFirstLink{std::move(topology.mCellsByFirstLink)},
+      mCellsByFirstEdgeOffsets{std::move(topology.mCellsByFirstEdgeOffsets)},
+      mCellsByFirstEdge{std::move(topology.mCellsByFirstEdge)},
       mTopologyError{topology.mTopologyError},
       mFinalized{topology.mFinalized}
   {
@@ -191,58 +191,58 @@ class SurfaceGraph
 
   void setOrderedSurfaces(std::vector<SurfaceId> ordered) { mOrderedSurfaces = std::move(ordered); }
 
-  LinkId addLink(SurfaceLink link)
+  EdgeId addEdge(Edge edge)
   {
     if (!canModify()) {
-      return LinkId::invalid();
+      return EdgeId::invalid();
     }
-    if (!isSurfaceInGraph(link.from) || !isSurfaceInGraph(link.to) ||
-        !link.skippedSurfaces.isSubsetOf(activeSurfaceMask()) ||
-        link.skippedSurfaces.has(link.from) || link.skippedSurfaces.has(link.to)) {
+    if (!isSurfaceInGraph(edge.from) || !isSurfaceInGraph(edge.to) ||
+        !edge.skippedSurfaces.isSubsetOf(activeSurfaceMask()) ||
+        edge.skippedSurfaces.has(edge.from) || edge.skippedSurfaces.has(edge.to)) {
       mTopologyError = SurfaceGraphTopologyError::InvalidSurface;
-      return LinkId::invalid();
+      return EdgeId::invalid();
     }
-    if (link.from == link.to) {
-      mTopologyError = SurfaceGraphTopologyError::SelfLink;
-      return LinkId::invalid();
+    if (edge.from == edge.to) {
+      mTopologyError = SurfaceGraphTopologyError::SelfEdge;
+      return EdgeId::invalid();
     }
-    const auto duplicate = std::find_if(mLinks.begin(), mLinks.end(), [&](const auto& existing) {
-      return existing.from == link.from && existing.to == link.to;
+    const auto duplicate = std::find_if(mEdges.begin(), mEdges.end(), [&](const auto& existing) {
+      return existing.from == edge.from && existing.to == edge.to;
     });
-    if (duplicate != mLinks.end()) {
-      mTopologyError = SurfaceGraphTopologyError::DuplicateLink;
-      return LinkId::invalid();
+    if (duplicate != mEdges.end()) {
+      mTopologyError = SurfaceGraphTopologyError::DuplicateEdge;
+      return EdgeId::invalid();
     }
-    if (mLinks.size() >= MaxLayoutLinks) {
-      mTopologyError = SurfaceGraphTopologyError::TooManyLinks;
-      return LinkId::invalid();
+    if (mEdges.size() >= MaxLayoutEdges) {
+      mTopologyError = SurfaceGraphTopologyError::TooManyEdges;
+      return EdgeId::invalid();
     }
-    const auto id = LinkId{static_cast<uint16_t>(mLinks.size())};
-    mLinks.push_back(link);
+    const auto id = EdgeId{static_cast<uint16_t>(mEdges.size())};
+    mEdges.push_back(edge);
     return id;
   }
 
-  CellTopologyId addCell(LinkId first, LinkId second)
+  CellTopologyId addCell(EdgeId first, EdgeId second)
   {
     if (!canModify()) {
       return CellTopologyId::invalid();
     }
-    if (!isLinkInGraph(first) || !isLinkInGraph(second)) {
-      mTopologyError = SurfaceGraphTopologyError::InvalidLink;
+    if (!isEdgeInGraph(first) || !isEdgeInGraph(second)) {
+      mTopologyError = SurfaceGraphTopologyError::InvalidEdge;
       return CellTopologyId::invalid();
     }
-    const auto& firstLink = mLinks[first.value()];
-    const auto& secondLink = mLinks[second.value()];
-    if (firstLink.to != secondLink.from) {
-      mTopologyError = SurfaceGraphTopologyError::DisconnectedLinks;
+    const auto& firstEdge = mEdges[first.value()];
+    const auto& secondEdge = mEdges[second.value()];
+    if (firstEdge.to != secondEdge.from) {
+      mTopologyError = SurfaceGraphTopologyError::DisconnectedEdges;
       return CellTopologyId::invalid();
     }
-    if (firstLink.from == secondLink.to) {
+    if (firstEdge.from == secondEdge.to) {
       mTopologyError = SurfaceGraphTopologyError::RepeatedSurface;
       return CellTopologyId::invalid();
     }
     const auto duplicate = std::find_if(mCells.begin(), mCells.end(), [&](const auto& existing) {
-      return existing.firstLink == first && existing.secondLink == second;
+      return existing.firstEdge == first && existing.secondEdge == second;
     });
     if (duplicate != mCells.end()) {
       mTopologyError = SurfaceGraphTopologyError::DuplicateCell;
@@ -253,9 +253,9 @@ class SurfaceGraph
       return CellTopologyId::invalid();
     }
     SurfaceMask hits;
-    hits.set(firstLink.from);
-    hits.set(firstLink.to);
-    hits.set(secondLink.to);
+    hits.set(firstEdge.from);
+    hits.set(firstEdge.to);
+    hits.set(secondEdge.to);
     const auto id = CellTopologyId{static_cast<uint16_t>(mCells.size())};
     mCells.push_back(SurfaceCellTopology{first, second, hits});
     return id;
@@ -275,18 +275,18 @@ class SurfaceGraph
         mOrderedSurfaces[i] = SurfaceId{static_cast<uint16_t>(i)};
       }
     }
-    mCellsByFirstLinkOffsets.assign(mLinks.size() + 1, 0);
+    mCellsByFirstEdgeOffsets.assign(mEdges.size() + 1, 0);
     for (const auto& cell : mCells) {
-      ++mCellsByFirstLinkOffsets[cell.firstLink.value() + 1];
+      ++mCellsByFirstEdgeOffsets[cell.firstEdge.value() + 1];
     }
-    for (size_t i = 1; i < mCellsByFirstLinkOffsets.size(); ++i) {
-      mCellsByFirstLinkOffsets[i] += mCellsByFirstLinkOffsets[i - 1];
+    for (size_t i = 1; i < mCellsByFirstEdgeOffsets.size(); ++i) {
+      mCellsByFirstEdgeOffsets[i] += mCellsByFirstEdgeOffsets[i - 1];
     }
-    mCellsByFirstLink.resize(mCells.size());
-    auto cursor = mCellsByFirstLinkOffsets;
+    mCellsByFirstEdge.resize(mCells.size());
+    auto cursor = mCellsByFirstEdgeOffsets;
     for (uint32_t cell = 0; cell < mCells.size(); ++cell) {
-      const auto link = mCells[cell].firstLink.value();
-      mCellsByFirstLink[cursor[link]++] = CellTopologyId{static_cast<uint16_t>(cell)};
+      const auto edge = mCells[cell].firstEdge.value();
+      mCellsByFirstEdge[cursor[edge]++] = CellTopologyId{static_cast<uint16_t>(cell)};
     }
     mFinalized = true;
     validate();
@@ -300,10 +300,10 @@ class SurfaceGraph
   uint32_t getSurfaceCount() const noexcept { return mSurfaceCount; }
   const std::vector<SurfaceDescriptor>& getSurfaces() const noexcept { return mSurfaces; }
   const std::vector<SurfaceId>& getOrderedSurfaces() const noexcept { return mOrderedSurfaces; }
-  const auto& getLinks() const noexcept { return mLinks; }
+  const auto& getEdges() const noexcept { return mEdges; }
   const auto& getCells() const noexcept { return mCells; }
-  const auto& getCellsByFirstLinkOffsets() const noexcept { return mCellsByFirstLinkOffsets; }
-  const auto& getCellsByFirstLink() const noexcept { return mCellsByFirstLink; }
+  const auto& getCellsByFirstEdgeOffsets() const noexcept { return mCellsByFirstEdgeOffsets; }
+  const auto& getCellsByFirstEdge() const noexcept { return mCellsByFirstEdge; }
   SurfaceCatalogView getSurfaceCatalog() const noexcept { return SurfaceCatalogView{mSurfaces.data(), mSurfaceCount, mSurfaceIndicesById.data()}; }
   SurfaceGraphView getView() const noexcept
   {
@@ -311,9 +311,9 @@ class SurfaceGraph
       return {};
     }
     return SurfaceGraphView{mSurfaces.data(), mSurfaceCount, mOrderedSurfaces.data(), static_cast<uint32_t>(mOrderedSurfaces.size()),
-                            mCylinderSurfaces, mDiskSurfaces, mLinks.data(), mCells.data(),
-                            mCellsByFirstLinkOffsets.data(), mCellsByFirstLink.data(), mSeedingSurfaces,
-                            static_cast<uint32_t>(mLinks.size()), static_cast<uint32_t>(mCells.size()), mSurfaceIndicesById.data()};
+                            mCylinderSurfaces, mDiskSurfaces, mEdges.data(), mCells.data(),
+                            mCellsByFirstEdgeOffsets.data(), mCellsByFirstEdge.data(), mSeedingSurfaces,
+                            static_cast<uint32_t>(mEdges.size()), static_cast<uint32_t>(mCells.size()), mSurfaceIndicesById.data()};
   }
 
  private:
@@ -329,7 +329,7 @@ class SurfaceGraph
   {
     return id.isValid() && id.value() < MaxLayoutSurfaces && mSurfaceIndicesById[id.value()] != InvalidSurfaceIndex;
   }
-  bool isLinkInGraph(LinkId id) const noexcept { return id.isValid() && id.value() < mLinks.size(); }
+  bool isEdgeInGraph(EdgeId id) const noexcept { return id.isValid() && id.value() < mEdges.size(); }
   SurfaceMask activeSurfaceMask() const noexcept
   {
     SurfaceMask result;
@@ -390,10 +390,10 @@ class SurfaceGraph
   SurfaceMask mSeedingSurfaces{};
   SurfaceMask mCylinderSurfaces{};
   SurfaceMask mDiskSurfaces{};
-  std::vector<SurfaceLink> mLinks;
+  std::vector<Edge> mEdges;
   std::vector<SurfaceCellTopology> mCells;
-  std::vector<uint32_t> mCellsByFirstLinkOffsets;
-  std::vector<CellTopologyId> mCellsByFirstLink;
+  std::vector<uint32_t> mCellsByFirstEdgeOffsets;
+  std::vector<CellTopologyId> mCellsByFirstEdge;
   std::array<uint8_t, MaxLayoutSurfaces> mSurfaceIndicesById{};
   SurfaceGraphError mError{SurfaceGraphError::None};
   SurfaceGraphTopologyError mTopologyError{SurfaceGraphTopologyError::None};

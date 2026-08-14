@@ -7,8 +7,8 @@ namespace o2::itsmft::tracking
 
 namespace
 {
-struct BuiltLink {
-  LinkId id{};
+struct BuiltEdge {
+  EdgeId id{};
   SurfaceId from{};
   SurfaceId to{};
   SurfaceMask skipped{};
@@ -81,7 +81,7 @@ SurfaceGraphBuildResult SurfaceGraphBuilder::build() const
 
   SurfaceGraph graph{gsl::span<const SurfaceDescriptor>{mCatalog.surfaces, mCatalog.nSurfaces}, mDefinition.seedingSurfaces};
   graph.setOrderedSurfaces(mDefinition.orderedSurfaces);
-  std::vector<BuiltLink> links;
+  std::vector<BuiltEdge> edges;
   for (size_t posFrom = 0; posFrom < mDefinition.orderedSurfaces.size(); ++posFrom) {
     bool connected = true;
     for (size_t posTo = posFrom + 1; posTo < mDefinition.orderedSurfaces.size(); ++posTo) {
@@ -98,17 +98,17 @@ SurfaceGraphBuildResult SurfaceGraphBuilder::build() const
       }
       const auto from = mDefinition.orderedSurfaces[posFrom];
       const auto to = mDefinition.orderedSurfaces[posTo];
-      const auto id = graph.addLink(SurfaceLink{from, to, skipped, 0});
+      const auto id = graph.addEdge(Edge{from, to, skipped, 0});
       if (!id.isValid()) {
         result.error = SurfaceGraphBuildError::TopologyRejected;
         result.topologyError = graph.getTopologyError();
         return result;
       }
-      links.push_back(BuiltLink{id, from, to, skipped});
+      edges.push_back(BuiltEdge{id, from, to, skipped});
     }
   }
-  for (const auto& first : links) {
-    for (const auto& second : links) {
+  for (const auto& first : edges) {
+    for (const auto& second : edges) {
       if (first.to != second.from || (first.skipped | second.skipped).count() > mDefinition.maxHoles) {
         continue;
       }
