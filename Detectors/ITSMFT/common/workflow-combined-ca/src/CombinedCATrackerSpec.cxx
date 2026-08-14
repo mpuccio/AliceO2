@@ -28,7 +28,6 @@
 #include "ITSMFTTracking/IOUtils.h"
 #include "ITSMFTTracking/SurfaceTiming.h"
 #include "ITSMFTTracking/ITSMFTDetectorDefinitions.h"
-#include "ITSMFTTracking/detail/SurfacePlanBinding.h"
 #include "ITSMFTTracking/TrackingConfigParam.h"
 #include "MFTBase/GeometryTGeo.h"
 #include "MFTTracking/MFTTrackingParam.h"

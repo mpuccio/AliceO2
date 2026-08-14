@@ -100,16 +100,18 @@ class CombinedCATrackerDPL : public o2::framework::Task
   }
   gsl::span<const o2::itsmft::tracking::SurfaceId> getITSOrderedSurfaces() const noexcept
   {
-    const auto* binding = mFrame.getBinding(0);
-    return binding == nullptr ? gsl::span<const o2::itsmft::tracking::SurfaceId>{}
-                              : binding->getOrderedSurfaces().first(o2::itsmft::tracking::ITSNLayers);
+    if (mFrame.getNIterations() == 0) {
+      return {};
+    }
+    return gsl::span<const o2::itsmft::tracking::SurfaceId>{mFrame.getGraph(0).getOrderedSurfaces()}.first(o2::itsmft::tracking::ITSNLayers);
   }
   gsl::span<const o2::itsmft::tracking::SurfaceId> getMFTOrderedSurfaces() const noexcept
   {
-    const auto* binding = mFrame.getBinding(0);
-    return binding == nullptr ? gsl::span<const o2::itsmft::tracking::SurfaceId>{}
-                              : binding->getOrderedSurfaces().subspan(o2::itsmft::tracking::ITSNLayers,
-                                                                      o2::itsmft::tracking::MFTNLayers);
+    if (mFrame.getNIterations() == 0) {
+      return {};
+    }
+    return gsl::span<const o2::itsmft::tracking::SurfaceId>{mFrame.getGraph(0).getOrderedSurfaces()}.subspan(
+      o2::itsmft::tracking::ITSNLayers, o2::itsmft::tracking::MFTNLayers);
   }
 
   std::shared_ptr<o2::base::GRPGeomRequest> mGGCCDBRequest;

@@ -235,8 +235,8 @@ void CATrackerDPL::initialiseTracking()
     &o2::itsmft::tracking::detail::refitSurfaceSeed);
   const auto result = mTracker->initialize(mFrame, configuration);
   if (!result.ok()) {
-    LOGP(fatal, "MFT CA tracker failed to initialize static configuration (error={} iteration={} graph={} binding={})",
-         static_cast<int>(result.error), result.failedIteration, static_cast<int>(result.graphError), static_cast<int>(result.bindingError));
+    LOGP(fatal, "MFT CA tracker failed to initialize static configuration (error={} iteration={} graph={})",
+         static_cast<int>(result.error), result.failedIteration, static_cast<int>(result.graphError));
   }
 }
 
@@ -265,13 +265,7 @@ o2::itsmft::tracking::TrackingOutcome CATrackerDPL::processTimeFrame(
         o2::itsmft::tracking::TimeFrameLoadFailureReason::DictionaryNotConfigured,
         "MFT CA tracker cluster dictionary is not available"};
     }
-    const auto* binding = mFrame.getBinding(0);
-    if (binding == nullptr) {
-      throw o2::itsmft::tracking::TimeFrameLoadException{
-        o2::itsmft::tracking::TimeFrameLoadFailureReason::DictionaryNotConfigured,
-        "MFT CA tracker has no configured surface binding"};
-    }
-    const auto orderedSurfaces = binding->getOrderedSurfaces();
+    const auto& orderedSurfaces = mFrame.getGraph(0).getOrderedSurfaces();
     const auto rofViews = getScratch().getROFViews();
     if (rofViews.overlap.mLayerCount <= 0) {
       throw o2::itsmft::tracking::TimeFrameLoadException{
