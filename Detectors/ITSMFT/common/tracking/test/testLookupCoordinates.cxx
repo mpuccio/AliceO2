@@ -66,6 +66,14 @@ BOOST_AUTO_TEST_CASE(CylinderTransformUsesPhiAndZWithCorrelation)
   BOOST_CHECK_NE(coordinates.covariance[1], 0.f);
 }
 
+BOOST_AUTO_TEST_CASE(CylinderLongitudinalChartFailsClosedOutsideSurface)
+{
+  LookupCoordinates coordinates;
+  const auto& surface = kITSStaticSurfaceCatalog[0];
+  BOOST_CHECK(!makeLookupCoordinates(surface, measurement(3.f, 4.f, surface.chartRange.max + 0.1f, {}), coordinates));
+  BOOST_CHECK(!makeLookupCoordinates(surface, measurement(3.f, 4.f, surface.chartRange.min - 0.1f, {}), coordinates));
+}
+
 BOOST_AUTO_TEST_CASE(DiskRadialChartAndUndefinedSurfaceFailClosed)
 {
   LookupCoordinates coordinates;
@@ -87,6 +95,13 @@ BOOST_AUTO_TEST_CASE(WindowWrapsPhiAndClampsToDescriptorRange)
   BOOST_CHECK(window.wrapsPhi);
   BOOST_CHECK_EQUAL(window.transverseMin, kMFTStaticSurfaceCatalog[0].chartRange.min);
   BOOST_CHECK_LT(window.transverseMax, kMFTStaticSurfaceCatalog[0].chartRange.max);
+}
+
+BOOST_AUTO_TEST_CASE(WindowWithOnlyBoundaryContactIsEmpty)
+{
+  LookupCoordinates coordinates{0.5f, kMFTStaticSurfaceCatalog[0].chartRange.max + 1.f, {1.f, 0.f, 0.01f}};
+  LookupWindow window;
+  BOOST_CHECK(!makeLookupWindow(coordinates, kMFTStaticSurfaceCatalog[0].chartRange, 1.f, window));
 }
 
 BOOST_AUTO_TEST_CASE(LookupTransformDoesNotDispatchOnDetectorIdentity)

@@ -52,8 +52,9 @@ GPUhdi() bool makeLookupCoordinates(const SurfaceDescriptor& surface,
     return false;
   }
   const float r = o2::gpu::GPUCommonMath::Sqrt(r2);
-  if (surface.kind == SurfaceKind::Disk &&
-      (!surface.chartRange.isValid() || r < surface.chartRange.min || r > surface.chartRange.max)) {
+  const float transverse = surface.kind == SurfaceKind::Cylinder ? measurement.position.z : r;
+  if (!surface.chartRange.isValid() || !o2::gpu::GPUCommonMath::Finite(transverse) ||
+      transverse < surface.chartRange.min || transverse > surface.chartRange.max) {
     return false;
   }
   const float inverseR = 1.f / r;
@@ -67,8 +68,7 @@ GPUhdi() bool makeLookupCoordinates(const SurfaceDescriptor& surface,
   }
   if (surface.kind == SurfaceKind::Cylinder) {
     const float covZPhi = c.xz * phiX + c.yz * phiY;
-    if (!o2::gpu::GPUCommonMath::Finite(measurement.position.z) ||
-        !o2::gpu::GPUCommonMath::Finite(covZPhi) || !o2::gpu::GPUCommonMath::Finite(c.zz)) {
+    if (!o2::gpu::GPUCommonMath::Finite(covZPhi) || !o2::gpu::GPUCommonMath::Finite(c.zz)) {
       return false;
     }
     out = {normalizeLookupPhi(o2::gpu::GPUCommonMath::ATan2(y, x)), measurement.position.z, {c.zz, covZPhi, varPhi}};
@@ -103,7 +103,7 @@ inline bool makeLookupWindow(const LookupCoordinates& coordinates, SurfaceChartR
   }
   out.transverseMin = std::max(range.min, coordinates.transverse - transverseHalfWidth);
   out.transverseMax = std::min(range.max, coordinates.transverse + transverseHalfWidth);
-  if (!(out.transverseMin <= out.transverseMax)) {
+  if (!(out.transverseMin < out.transverseMax)) {
     return false;
   }
   if (phiHalfWidth >= o2::constants::math::PI) {
