@@ -57,7 +57,7 @@ class TrackerTraits
   virtual void findRoads(const int iteration);
 
   template <typename InputSeed>
-  void processNeighbours(int iteration, int defaultCellTopologyId, int iLevel, const bounded_vector<InputSeed>& currentCellSeed, const bounded_vector<int>& currentCellId, const bounded_vector<int>& currentCellTopologyId, bounded_vector<TrackSeedN>& updatedCellSeed, bounded_vector<int>& updatedCellId, bounded_vector<int>& updatedCellTopologyId);
+  void processNeighbours(int iteration, int defaultcellIndex, int iLevel, const bounded_vector<InputSeed>& currentCellSeed, const bounded_vector<int>& currentCellId, const bounded_vector<int>& currentcellIndex, bounded_vector<TrackSeedN>& updatedCellSeed, bounded_vector<int>& updatedCellId, bounded_vector<int>& updatedcellIndex);
 
   void acceptTracks(int iteration, bounded_vector<TrackITSExt>& tracks, const bounded_vector<int>& trackIndices, bounded_vector<bounded_vector<int>>& firstClusters);
   void markTracks(int iteration);

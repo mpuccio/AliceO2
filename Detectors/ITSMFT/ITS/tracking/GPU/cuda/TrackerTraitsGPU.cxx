@@ -172,33 +172,33 @@ void TrackerTraitsGPU<NLayers>::computeLayerCells(const int iteration)
     mTimeFrameGPU->recordEvent(iLayer);
   }
 
-  for (int cellTopologyId{hostTopology.nCells}; cellTopologyId--;) {
-    const auto cellTopology = hostTopology.getCell(cellTopologyId);
+  for (int cellIndex{hostTopology.nCells}; cellIndex--;) {
+    const auto cellTopology = hostTopology.getCell(cellIndex);
     const auto first = hostTopology.getLink(cellTopology.firstLink);
     const auto second = hostTopology.getLink(cellTopology.secondLink);
     const int currentLayerTrackletsNum{static_cast<int>(mTimeFrameGPU->getNTracklets()[cellTopology.firstLink])};
     if (!currentLayerTrackletsNum || !mTimeFrameGPU->getNTracklets()[cellTopology.secondLink]) {
-      mTimeFrameGPU->getNCells()[cellTopologyId] = 0;
+      mTimeFrameGPU->getNCells()[cellIndex] = 0;
       continue;
     }
 
-    mTimeFrameGPU->createCellsLUTDevice(cellTopologyId);
-    mTimeFrameGPU->waitEvent(cellTopologyId, cellTopology.firstLink);
-    mTimeFrameGPU->waitEvent(cellTopologyId, cellTopology.secondLink);
-    mTimeFrameGPU->waitEvent(cellTopologyId, first.fromLayer);
-    mTimeFrameGPU->waitEvent(cellTopologyId, first.toLayer);
-    mTimeFrameGPU->waitEvent(cellTopologyId, second.toLayer);
+    mTimeFrameGPU->createCellsLUTDevice(cellIndex);
+    mTimeFrameGPU->waitEvent(cellIndex, cellTopology.firstLink);
+    mTimeFrameGPU->waitEvent(cellIndex, cellTopology.secondLink);
+    mTimeFrameGPU->waitEvent(cellIndex, first.fromLayer);
+    mTimeFrameGPU->waitEvent(cellIndex, first.toLayer);
+    mTimeFrameGPU->waitEvent(cellIndex, second.toLayer);
     countCellsHandler<NLayers>(mTimeFrameGPU->getDeviceArrayClusters(),
                                mTimeFrameGPU->getDeviceArrayUnsortedClusters(),
                                mTimeFrameGPU->getDeviceArrayTrackingFrameInfo(),
                                mTimeFrameGPU->getDeviceArrayTracklets(),
                                mTimeFrameGPU->getDeviceArrayTrackletsLUT(),
                                currentLayerTrackletsNum,
-                               cellTopologyId,
+                               cellIndex,
                                topology,
                                nullptr,
                                mTimeFrameGPU->getDeviceArrayCellsLUT(),
-                               mTimeFrameGPU->getDeviceCellLUTs()[cellTopologyId],
+                               mTimeFrameGPU->getDeviceCellLUTs()[cellIndex],
                                this->mBz,
                                this->mTrkParams[iteration].MaxChi2ClusterAttachment,
                                this->mTrkParams[iteration].CellDeltaTanLambdaSigma,
@@ -206,9 +206,9 @@ void TrackerTraitsGPU<NLayers>::computeLayerCells(const int iteration)
                                this->mTrkParams[iteration].LayerxX0,
                                mTimeFrameGPU->getFrameworkAllocator(),
                                mTimeFrameGPU->getStreams());
-    mTimeFrameGPU->createCellsBuffers(cellTopologyId);
-    if (mTimeFrameGPU->getNCells()[cellTopologyId] == 0) {
-      mTimeFrameGPU->recordEvent(cellTopologyId);
+    mTimeFrameGPU->createCellsBuffers(cellIndex);
+    if (mTimeFrameGPU->getNCells()[cellIndex] == 0) {
+      mTimeFrameGPU->recordEvent(cellIndex);
       continue;
     }
     computeCellsHandler<NLayers>(mTimeFrameGPU->getDeviceArrayClusters(),
@@ -217,18 +217,18 @@ void TrackerTraitsGPU<NLayers>::computeLayerCells(const int iteration)
                                  mTimeFrameGPU->getDeviceArrayTracklets(),
                                  mTimeFrameGPU->getDeviceArrayTrackletsLUT(),
                                  currentLayerTrackletsNum,
-                                 cellTopologyId,
+                                 cellIndex,
                                  topology,
-                                 mTimeFrameGPU->getDeviceCells()[cellTopologyId],
+                                 mTimeFrameGPU->getDeviceCells()[cellIndex],
                                  mTimeFrameGPU->getDeviceArrayCellsLUT(),
-                                 mTimeFrameGPU->getDeviceCellLUTs()[cellTopologyId],
+                                 mTimeFrameGPU->getDeviceCellLUTs()[cellIndex],
                                  this->mBz,
                                  this->mTrkParams[iteration].MaxChi2ClusterAttachment,
                                  this->mTrkParams[iteration].CellDeltaTanLambdaSigma,
                                  this->mTrkParams[iteration].NSigmaCut,
                                  this->mTrkParams[iteration].LayerxX0,
                                  mTimeFrameGPU->getStreams());
-    mTimeFrameGPU->recordEvent(cellTopologyId);
+    mTimeFrameGPU->recordEvent(cellIndex);
   }
   mTimeFrameGPU->syncStreams(false);
 }
@@ -238,68 +238,68 @@ void TrackerTraitsGPU<NLayers>::findCellsNeighbours(const int iteration)
 {
   const auto hostTopology = mTimeFrameGPU->getTrackingTopologyView();
   for (int outerLayer{0}; outerLayer < NLayers; ++outerLayer) {
-    for (int targetCellTopologyId{0}; targetCellTopologyId < hostTopology.nCells; ++targetCellTopologyId) {
-      const auto targetCellTopology = hostTopology.getCell(targetCellTopologyId);
+    for (int targetcellIndex{0}; targetcellIndex < hostTopology.nCells; ++targetcellIndex) {
+      const auto targetCellTopology = hostTopology.getCell(targetcellIndex);
       if (targetCellTopology.hitLayerMask.last() != outerLayer) {
         continue;
       }
-      const int targetCellsNum{static_cast<int>(mTimeFrameGPU->getNCells()[targetCellTopologyId])};
+      const int targetCellsNum{static_cast<int>(mTimeFrameGPU->getNCells()[targetcellIndex])};
       if (!targetCellsNum) {
-        mTimeFrameGPU->getNNeighbours()[targetCellTopologyId] = 0;
-        mTimeFrameGPU->recordEvent(targetCellTopologyId);
+        mTimeFrameGPU->getNNeighbours()[targetcellIndex] = 0;
+        mTimeFrameGPU->recordEvent(targetcellIndex);
         continue;
       }
-      mTimeFrameGPU->createNeighboursIndexTablesDevice(targetCellTopologyId);
-      mTimeFrameGPU->createNeighboursLUTDevice(targetCellTopologyId, targetCellsNum);
+      mTimeFrameGPU->createNeighboursIndexTablesDevice(targetcellIndex);
+      mTimeFrameGPU->createNeighboursLUTDevice(targetcellIndex, targetCellsNum);
 
-      for (int sourceCellTopologyId{0}; sourceCellTopologyId < hostTopology.nCells; ++sourceCellTopologyId) {
-        const auto sourceCellTopology = hostTopology.getCell(sourceCellTopologyId);
-        const int sourceCellsNum{static_cast<int>(mTimeFrameGPU->getNCells()[sourceCellTopologyId])};
+      for (int sourcecellIndex{0}; sourcecellIndex < hostTopology.nCells; ++sourcecellIndex) {
+        const auto sourceCellTopology = hostTopology.getCell(sourcecellIndex);
+        const int sourceCellsNum{static_cast<int>(mTimeFrameGPU->getNCells()[sourcecellIndex])};
         if (!sourceCellsNum || sourceCellTopology.secondLink != targetCellTopology.firstLink) {
           continue;
         }
-        mTimeFrameGPU->waitEvent(targetCellTopologyId, sourceCellTopologyId);
+        mTimeFrameGPU->waitEvent(targetcellIndex, sourcecellIndex);
         countCellNeighboursHandler<NLayers>(mTimeFrameGPU->getDeviceArrayCells(),
-                                            mTimeFrameGPU->getDeviceNeighboursIndexTables(targetCellTopologyId),
+                                            mTimeFrameGPU->getDeviceNeighboursIndexTables(targetcellIndex),
                                             mTimeFrameGPU->getDeviceArrayCellsLUT(),
-                                            sourceCellTopologyId,
-                                            targetCellTopologyId,
+                                            sourcecellIndex,
+                                            targetcellIndex,
                                             this->mTrkParams[iteration].MaxChi2ClusterAttachment,
                                             this->mBz,
                                             sourceCellsNum,
-                                            mTimeFrameGPU->getStream(targetCellTopologyId));
+                                            mTimeFrameGPU->getStream(targetcellIndex));
       }
 
-      scanCellNeighboursHandler(mTimeFrameGPU->getDeviceNeighboursIndexTables(targetCellTopologyId),
-                                mTimeFrameGPU->getDeviceNeighboursLUT(targetCellTopologyId),
+      scanCellNeighboursHandler(mTimeFrameGPU->getDeviceNeighboursIndexTables(targetcellIndex),
+                                mTimeFrameGPU->getDeviceNeighboursLUT(targetcellIndex),
                                 targetCellsNum,
                                 mTimeFrameGPU->getFrameworkAllocator(),
-                                mTimeFrameGPU->getStream(targetCellTopologyId));
+                                mTimeFrameGPU->getStream(targetcellIndex));
 
-      mTimeFrameGPU->createNeighboursDevice(targetCellTopologyId);
-      if (mTimeFrameGPU->getNNeighbours()[targetCellTopologyId] == 0) {
-        mTimeFrameGPU->recordEvent(targetCellTopologyId);
+      mTimeFrameGPU->createNeighboursDevice(targetcellIndex);
+      if (mTimeFrameGPU->getNNeighbours()[targetcellIndex] == 0) {
+        mTimeFrameGPU->recordEvent(targetcellIndex);
         continue;
       }
 
-      for (int sourceCellTopologyId{0}; sourceCellTopologyId < hostTopology.nCells; ++sourceCellTopologyId) {
-        const auto sourceCellTopology = hostTopology.getCell(sourceCellTopologyId);
-        const int sourceCellsNum{static_cast<int>(mTimeFrameGPU->getNCells()[sourceCellTopologyId])};
+      for (int sourcecellIndex{0}; sourcecellIndex < hostTopology.nCells; ++sourcecellIndex) {
+        const auto sourceCellTopology = hostTopology.getCell(sourcecellIndex);
+        const int sourceCellsNum{static_cast<int>(mTimeFrameGPU->getNCells()[sourcecellIndex])};
         if (!sourceCellsNum || sourceCellTopology.secondLink != targetCellTopology.firstLink) {
           continue;
         }
         computeCellNeighboursHandler<NLayers>(mTimeFrameGPU->getDeviceArrayCells(),
-                                              mTimeFrameGPU->getDeviceNeighboursIndexTables(targetCellTopologyId),
+                                              mTimeFrameGPU->getDeviceNeighboursIndexTables(targetcellIndex),
                                               mTimeFrameGPU->getDeviceArrayCellsLUT(),
-                                              mTimeFrameGPU->getDeviceNeighbours(targetCellTopologyId),
-                                              sourceCellTopologyId,
-                                              targetCellTopologyId,
+                                              mTimeFrameGPU->getDeviceNeighbours(targetcellIndex),
+                                              sourcecellIndex,
+                                              targetcellIndex,
                                               this->mTrkParams[iteration].MaxChi2ClusterAttachment,
                                               this->mBz,
                                               sourceCellsNum,
-                                              mTimeFrameGPU->getStream(targetCellTopologyId));
+                                              mTimeFrameGPU->getStream(targetcellIndex));
       }
-      mTimeFrameGPU->recordEvent(targetCellTopologyId);
+      mTimeFrameGPU->recordEvent(targetcellIndex);
     }
   }
   mTimeFrameGPU->syncStreams(false);
@@ -316,15 +316,15 @@ void TrackerTraitsGPU<NLayers>::findRoads(const int iteration)
   const bool extendTracks = extendTop || extendBot;
   for (int startLevel{this->mTrkParams[iteration].CellsPerRoad()}; startLevel >= this->mTrkParams[iteration].CellMinimumLevel(); --startLevel) {
     bounded_vector<TrackSeed<NLayers>> trackSeeds(this->getMemoryPool().get());
-    for (int startCellTopologyId{0}; startCellTopologyId < hostTopology.nCells; ++startCellTopologyId) {
-      const int startLayer = hostTopology.getCell(startCellTopologyId).hitLayerMask.last();
-      if (!(this->mTrkParams[iteration].StartLayerMask.has(startLayer)) || mTimeFrameGPU->getNCells()[startCellTopologyId] == 0) {
+    for (int startcellIndex{0}; startcellIndex < hostTopology.nCells; ++startcellIndex) {
+      const int startLayer = hostTopology.getCell(startcellIndex).hitLayerMask.last();
+      if (!(this->mTrkParams[iteration].StartLayerMask.has(startLayer)) || mTimeFrameGPU->getNCells()[startcellIndex] == 0) {
         continue;
       }
       processNeighboursHandler<NLayers>(startLevel,
-                                        startCellTopologyId,
+                                        startcellIndex,
                                         mTimeFrameGPU->getDeviceArrayCells(),
-                                        mTimeFrameGPU->getDeviceCells()[startCellTopologyId],
+                                        mTimeFrameGPU->getDeviceCells()[startcellIndex],
                                         nullptr,
                                         nullptr,
                                         mTimeFrameGPU->getArrayNCells().data(),

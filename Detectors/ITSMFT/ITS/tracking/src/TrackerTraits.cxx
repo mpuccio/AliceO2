@@ -257,17 +257,17 @@ template <int NLayers>
 void TrackerTraits<NLayers>::computeLayerCells(const int iteration)
 {
   const auto topology = mTimeFrame->getTrackingTopologyView();
-  for (int cellTopologyId = 0; cellTopologyId < topology.nCells; ++cellTopologyId) {
-    deepVectorClear(mTimeFrame->getCells()[cellTopologyId]);
-    deepVectorClear(mTimeFrame->getCellsLookupTable()[cellTopologyId]);
+  for (int cellIndex = 0; cellIndex < topology.nCells; ++cellIndex) {
+    deepVectorClear(mTimeFrame->getCells()[cellIndex]);
+    deepVectorClear(mTimeFrame->getCellsLookupTable()[cellIndex]);
     if (mTimeFrame->hasMCinformation() && mTrkParams[iteration].CreateArtefactLabels) {
-      deepVectorClear(mTimeFrame->getCellsLabel(cellTopologyId));
+      deepVectorClear(mTimeFrame->getCellsLabel(cellIndex));
     }
   }
 
   mTaskArena->execute([&] {
-    auto forTrackletCells = [&](auto Tag, int cellTopologyId, bounded_vector<CellSeed>& layerCells, int iTracklet, int offset = 0) -> int {
-      const auto& cellTopology = topology.getCell(cellTopologyId);
+    auto forTrackletCells = [&](auto Tag, int cellIndex, bounded_vector<CellSeed>& layerCells, int iTracklet, int offset = 0) -> int {
+      const auto& cellTopology = topology.getCell(cellIndex);
       const auto& firstLink = topology.getLink(cellTopology.firstLink);
       const auto& secondLink = topology.getLink(cellTopology.secondLink);
       const Tracklet& currentTracklet{mTimeFrame->getTracklets()[cellTopology.firstLink][iTracklet]};
@@ -348,30 +348,30 @@ void TrackerTraits<NLayers>::computeLayerCells(const int iteration)
       return foundCells;
     };
 
-    for (int cellTopologyId = 0; cellTopologyId < topology.nCells; ++cellTopologyId) {
-      const auto& cellTopology = topology.getCell(cellTopologyId);
+    for (int cellIndex = 0; cellIndex < topology.nCells; ++cellIndex) {
+      const auto& cellTopology = topology.getCell(cellIndex);
       if (mTimeFrame->getTracklets()[cellTopology.firstLink].empty() ||
           mTimeFrame->getTracklets()[cellTopology.secondLink].empty()) {
         continue;
       }
 
-      auto& layerCells = mTimeFrame->getCells()[cellTopologyId];
+      auto& layerCells = mTimeFrame->getCells()[cellIndex];
       const int currentLayerTrackletsNum{static_cast<int>(mTimeFrame->getTracklets()[cellTopology.firstLink].size())};
       bounded_vector<int> perTrackletCount(currentLayerTrackletsNum + 1, 0, mMemoryPool.get());
       if (mTaskArena->max_concurrency() <= 1) {
         for (int iTracklet{0}; iTracklet < currentLayerTrackletsNum; ++iTracklet) {
-          perTrackletCount[iTracklet] = forTrackletCells(PassMode::OnePass{}, cellTopologyId, layerCells, iTracklet);
+          perTrackletCount[iTracklet] = forTrackletCells(PassMode::OnePass{}, cellIndex, layerCells, iTracklet);
         }
         std::exclusive_scan(perTrackletCount.begin(), perTrackletCount.end(), perTrackletCount.begin(), 0);
       } else {
         tbb::parallel_for(0, currentLayerTrackletsNum, [&](const int iTracklet) {
-          perTrackletCount[iTracklet] = forTrackletCells(PassMode::TwoPassCount{}, cellTopologyId, layerCells, iTracklet);
+          perTrackletCount[iTracklet] = forTrackletCells(PassMode::TwoPassCount{}, cellIndex, layerCells, iTracklet);
         });
 
         std::exclusive_scan(perTrackletCount.begin(), perTrackletCount.end(), perTrackletCount.begin(), 0);
         auto totalCells{perTrackletCount.back()};
         if (totalCells == 0) {
-          auto& lut = mTimeFrame->getCellsLookupTable()[cellTopologyId];
+          auto& lut = mTimeFrame->getCellsLookupTable()[cellIndex];
           lut.resize(currentLayerTrackletsNum + 1);
           std::fill(lut.begin(), lut.end(), 0);
           continue;
@@ -383,16 +383,16 @@ void TrackerTraits<NLayers>::computeLayerCells(const int iteration)
           if (offset == perTrackletCount[iTracklet + 1]) {
             return;
           }
-          forTrackletCells(PassMode::TwoPassInsert{}, cellTopologyId, layerCells, iTracklet, offset);
+          forTrackletCells(PassMode::TwoPassInsert{}, cellIndex, layerCells, iTracklet, offset);
         });
       }
 
-      auto& lut = mTimeFrame->getCellsLookupTable()[cellTopologyId];
+      auto& lut = mTimeFrame->getCellsLookupTable()[cellIndex];
       lut.resize(currentLayerTrackletsNum + 1);
       std::copy_n(perTrackletCount.begin(), currentLayerTrackletsNum + 1, lut.begin());
 
       if (mTimeFrame->hasMCinformation() && mTrkParams[iteration].CreateArtefactLabels) {
-        auto& labels = mTimeFrame->getCellsLabel(cellTopologyId);
+        auto& labels = mTimeFrame->getCellsLabel(cellIndex);
         labels.reserve(layerCells.size());
         for (const auto& cell : layerCells) {
           MCCompLabel currentLab{mTimeFrame->getTrackletsLabel(cellTopology.firstLink)[cell.getFirstTrackletIndex()]};
@@ -416,18 +416,18 @@ void TrackerTraits<NLayers>::findCellsNeighbours(const int iteration)
   mTaskArena->execute([&] {
     std::vector<bounded_vector<CellNeighbour>> cellsNeighboursByTarget;
     cellsNeighboursByTarget.reserve(topology.nCells);
-    for (int cellTopologyId{0}; cellTopologyId < topology.nCells; ++cellTopologyId) {
-      deepVectorClear(mTimeFrame->getCellsNeighbours()[cellTopologyId]);
-      deepVectorClear(mTimeFrame->getCellsNeighboursTopology()[cellTopologyId]);
-      deepVectorClear(mTimeFrame->getCellsNeighboursLUT()[cellTopologyId]);
+    for (int cellIndex{0}; cellIndex < topology.nCells; ++cellIndex) {
+      deepVectorClear(mTimeFrame->getCellsNeighbours()[cellIndex]);
+      deepVectorClear(mTimeFrame->getCellsNeighboursTopology()[cellIndex]);
+      deepVectorClear(mTimeFrame->getCellsNeighboursLUT()[cellIndex]);
       cellsNeighboursByTarget.emplace_back(mMemoryPool.get());
     }
 
     for (int outerLayer{0}; outerLayer < NLayers; ++outerLayer) {
-      for (int cellTopologyId{0}; cellTopologyId < topology.nCells; ++cellTopologyId) {
-        const auto& cellTopology = topology.getCell(cellTopologyId);
+      for (int cellIndex{0}; cellIndex < topology.nCells; ++cellIndex) {
+        const auto& cellTopology = topology.getCell(cellIndex);
         if (cellTopology.hitLayerMask.last() != outerLayer ||
-            mTimeFrame->getCells()[cellTopologyId].empty()) {
+            mTimeFrame->getCells()[cellIndex].empty()) {
           continue;
         }
         const auto successors = topology.getCellsStartingWithLink(cellTopology.secondLink);
@@ -436,29 +436,29 @@ void TrackerTraits<NLayers>::findCellsNeighbours(const int iteration)
         }
 
         tbb::enumerable_thread_specific<bounded_vector<CellNeighbour>> sourceNeighbours([&]() { return bounded_vector<CellNeighbour>{mMemoryPool.get()}; });
-        tbb::parallel_for(0, static_cast<int>(mTimeFrame->getCells()[cellTopologyId].size()), [&](const int iCell) {
+        tbb::parallel_for(0, static_cast<int>(mTimeFrame->getCells()[cellIndex].size()), [&](const int iCell) {
           auto& localNeighbours = sourceNeighbours.local();
-          const auto& currentCellSeed{mTimeFrame->getCells()[cellTopologyId][iCell]};
+          const auto& currentCellSeed{mTimeFrame->getCells()[cellIndex][iCell]};
           const int nextLayerTrackletIndex{currentCellSeed.getSecondTrackletIndex()};
           for (int iSuccessor{0}; iSuccessor < successors.getEntries(); ++iSuccessor) {
-            const int nextCellTopologyId = topology.cellsByFirstLink[successors.getFirstEntry() + iSuccessor];
-            if (mTimeFrame->getCells()[nextCellTopologyId].empty() ||
-                mTimeFrame->getCellsLookupTable()[nextCellTopologyId].empty()) {
+            const int nextcellIndex = topology.cellsByFirstLink[successors.getFirstEntry() + iSuccessor];
+            if (mTimeFrame->getCells()[nextcellIndex].empty() ||
+                mTimeFrame->getCellsLookupTable()[nextcellIndex].empty()) {
               continue;
             }
-            const auto& nextCellLUT = mTimeFrame->getCellsLookupTable()[nextCellTopologyId];
+            const auto& nextCellLUT = mTimeFrame->getCellsLookupTable()[nextcellIndex];
             if (nextLayerTrackletIndex + 1 >= static_cast<int>(nextCellLUT.size())) {
               continue;
             }
             const int nextLayerFirstCellIndex{nextCellLUT[nextLayerTrackletIndex]};
             const int nextLayerLastCellIndex{nextCellLUT[nextLayerTrackletIndex + 1]};
             for (int iNextCell{nextLayerFirstCellIndex}; iNextCell < nextLayerLastCellIndex; ++iNextCell) {
-              const auto& nextCellSeedRef{mTimeFrame->getCells()[nextCellTopologyId][iNextCell]};
+              const auto& nextCellSeedRef{mTimeFrame->getCells()[nextcellIndex][iNextCell]};
               if (nextCellSeedRef.getFirstTrackletIndex() != nextLayerTrackletIndex || !currentCellSeed.getTimeStamp().isCompatible(nextCellSeedRef.getTimeStamp())) {
                 break;
               }
 
-              auto nextCellSeed{mTimeFrame->getCells()[nextCellTopologyId][iNextCell]}; /// copy
+              auto nextCellSeed{mTimeFrame->getCells()[nextcellIndex][iNextCell]}; /// copy
               if (!nextCellSeed.rotate(currentCellSeed.getAlpha()) ||
                   !nextCellSeed.propagateTo(currentCellSeed.getX(), getBz())) {
                 continue;
@@ -470,7 +470,7 @@ void TrackerTraits<NLayers>::findCellsNeighbours(const int iteration)
               }
 
               const int nextLevel = currentCellSeed.getLevel() + 1;
-              localNeighbours.emplace_back(cellTopologyId, iCell, nextCellTopologyId, iNextCell, nextLevel);
+              localNeighbours.emplace_back(cellIndex, iCell, nextcellIndex, iNextCell, nextLevel);
             }
           }
         });
@@ -495,8 +495,8 @@ void TrackerTraits<NLayers>::findCellsNeighbours(const int iteration)
       }
     }
 
-    for (int cellTopologyId{0}; cellTopologyId < topology.nCells; ++cellTopologyId) {
-      auto& cellsNeighbours = cellsNeighboursByTarget[cellTopologyId];
+    for (int cellIndex{0}; cellIndex < topology.nCells; ++cellIndex) {
+      auto& cellsNeighbours = cellsNeighboursByTarget[cellIndex];
       if (cellsNeighbours.empty()) {
         continue;
       }
@@ -505,17 +505,17 @@ void TrackerTraits<NLayers>::findCellsNeighbours(const int iteration)
         return a.nextCell < b.nextCell;
       });
 
-      auto& cellsNeighbourLUT = mTimeFrame->getCellsNeighboursLUT()[cellTopologyId];
-      cellsNeighbourLUT.assign(mTimeFrame->getCells()[cellTopologyId].size(), 0);
+      auto& cellsNeighbourLUT = mTimeFrame->getCellsNeighboursLUT()[cellIndex];
+      cellsNeighbourLUT.assign(mTimeFrame->getCells()[cellIndex].size(), 0);
       for (const auto& neigh : cellsNeighbours) {
         ++cellsNeighbourLUT[neigh.nextCell];
       }
       std::inclusive_scan(cellsNeighbourLUT.begin(), cellsNeighbourLUT.end(), cellsNeighbourLUT.begin());
 
-      mTimeFrame->getCellsNeighbours()[cellTopologyId].reserve(cellsNeighbours.size());
-      mTimeFrame->getCellsNeighboursTopology()[cellTopologyId].reserve(cellsNeighbours.size());
-      std::ranges::transform(cellsNeighbours, std::back_inserter(mTimeFrame->getCellsNeighbours()[cellTopologyId]), [](const auto& neigh) { return neigh.cell; });
-      std::ranges::transform(cellsNeighbours, std::back_inserter(mTimeFrame->getCellsNeighboursTopology()[cellTopologyId]), [](const auto& neigh) { return neigh.cellTopology; });
+      mTimeFrame->getCellsNeighbours()[cellIndex].reserve(cellsNeighbours.size());
+      mTimeFrame->getCellsNeighboursTopology()[cellIndex].reserve(cellsNeighbours.size());
+      std::ranges::transform(cellsNeighbours, std::back_inserter(mTimeFrame->getCellsNeighbours()[cellIndex]), [](const auto& neigh) { return neigh.cell; });
+      std::ranges::transform(cellsNeighbours, std::back_inserter(mTimeFrame->getCellsNeighboursTopology()[cellIndex]), [](const auto& neigh) { return neigh.cellTopology; });
     }
 
     // clean up LUTs
@@ -527,14 +527,14 @@ void TrackerTraits<NLayers>::findCellsNeighbours(const int iteration)
 
 template <int NLayers>
 template <typename InputSeed>
-void TrackerTraits<NLayers>::processNeighbours(int iteration, int defaultCellTopologyId, int iLevel, const bounded_vector<InputSeed>& currentCellSeed, const bounded_vector<int>& currentCellId, const bounded_vector<int>& currentCellTopologyId, bounded_vector<TrackSeedN>& updatedCellSeeds, bounded_vector<int>& updatedCellsIds, bounded_vector<int>& updatedCellsTopologyIds)
+void TrackerTraits<NLayers>::processNeighbours(int iteration, int defaultcellIndex, int iLevel, const bounded_vector<InputSeed>& currentCellSeed, const bounded_vector<int>& currentCellId, const bounded_vector<int>& currentcellIndex, bounded_vector<TrackSeedN>& updatedCellSeeds, bounded_vector<int>& updatedCellsIds, bounded_vector<int>& updatedCellsTopologyIds)
 {
   auto propagator = o2::base::Propagator::Instance();
 
   mTaskArena->execute([&] {
     auto forCellNeighbours = [&](auto Tag, int iCell, int offset = 0) -> int {
       const auto& currentCell{currentCellSeed[iCell]};
-      const int cellTopologyId = currentCellTopologyId.empty() ? defaultCellTopologyId : currentCellTopologyId[iCell];
+      const int cellIndex = currentcellIndex.empty() ? defaultcellIndex : currentcellIndex[iCell];
 
       if constexpr (decltype(Tag)::value != PassMode::TwoPassInsert::value) {
         if (currentCell.getLevel() != iLevel) {
@@ -551,16 +551,16 @@ void TrackerTraits<NLayers>::processNeighbours(int iteration, int defaultCellTop
       }
 
       const int cellId = currentCellId.empty() ? iCell : currentCellId[iCell];
-      if (cellTopologyId < 0 || mTimeFrame->getCellsNeighboursLUT()[cellTopologyId].empty()) {
+      if (cellIndex < 0 || mTimeFrame->getCellsNeighboursLUT()[cellIndex].empty()) {
         return 0;
       }
-      const int startNeighbourId{cellId ? mTimeFrame->getCellsNeighboursLUT()[cellTopologyId][cellId - 1] : 0};
-      const int endNeighbourId{mTimeFrame->getCellsNeighboursLUT()[cellTopologyId][cellId]};
+      const int startNeighbourId{cellId ? mTimeFrame->getCellsNeighboursLUT()[cellIndex][cellId - 1] : 0};
+      const int endNeighbourId{mTimeFrame->getCellsNeighboursLUT()[cellIndex][cellId]};
       int foundSeeds{0};
       for (int iNeighbourCell{startNeighbourId}; iNeighbourCell < endNeighbourId; ++iNeighbourCell) {
-        const int neighbourCellTopologyId = mTimeFrame->getCellsNeighboursTopology()[cellTopologyId][iNeighbourCell];
-        const int neighbourCellId = mTimeFrame->getCellsNeighbours()[cellTopologyId][iNeighbourCell];
-        const auto& neighbourCell = mTimeFrame->getCells()[neighbourCellTopologyId][neighbourCellId];
+        const int neighbourcellIndex = mTimeFrame->getCellsNeighboursTopology()[cellIndex][iNeighbourCell];
+        const int neighbourCellId = mTimeFrame->getCellsNeighbours()[cellIndex][iNeighbourCell];
+        const auto& neighbourCell = mTimeFrame->getCells()[neighbourcellIndex][neighbourCellId];
         if (neighbourCell.getSecondTrackletIndex() != currentCell.getFirstTrackletIndex()) {
           continue;
         }
@@ -618,13 +618,13 @@ void TrackerTraits<NLayers>::processNeighbours(int iteration, int defaultCellTop
         if constexpr (decltype(Tag)::value == PassMode::OnePass::value) {
           updatedCellSeeds.push_back(seed);
           updatedCellsIds.push_back(neighbourCellId);
-          updatedCellsTopologyIds.push_back(neighbourCellTopologyId);
+          updatedCellsTopologyIds.push_back(neighbourcellIndex);
         } else if constexpr (decltype(Tag)::value == PassMode::TwoPassCount::value) {
           ++foundSeeds;
         } else if constexpr (decltype(Tag)::value == PassMode::TwoPassInsert::value) {
           updatedCellSeeds[offset] = seed;
           updatedCellsIds[offset] = neighbourCellId;
-          updatedCellsTopologyIds[offset++] = neighbourCellTopologyId;
+          updatedCellsTopologyIds[offset++] = neighbourcellIndex;
         } else {
           static_assert(false, "Unknown mode!");
         }
@@ -773,30 +773,30 @@ void TrackerTraits<NLayers>::findRoads(const int iteration)
     const track::TrackSeedSelector<NLayers> seedFilter{constants::MaxTrackSeedQ2Pt, mTrkParams[iteration].MaxChi2NDF, startLevel, mTrkParams[iteration].MaxHoles, mTrkParams[iteration].getMinSeedingClusters(), mTrkParams[iteration].HoleLayerMask, mTrkParams[iteration].getNonSeedingLayerMask()};
 
     bounded_vector<TrackSeedN> trackSeeds(mMemoryPool.get());
-    for (int startCellTopologyId{0}; startCellTopologyId < topology.nCells; ++startCellTopologyId) {
-      const int startLayer = topology.getCell(startCellTopologyId).hitLayerMask.last();
-      if (!(mTrkParams[iteration].StartLayerMask.has(startLayer)) || mTimeFrame->getCells()[startCellTopologyId].empty()) {
+    for (int startcellIndex{0}; startcellIndex < topology.nCells; ++startcellIndex) {
+      const int startLayer = topology.getCell(startcellIndex).hitLayerMask.last();
+      if (!(mTrkParams[iteration].StartLayerMask.has(startLayer)) || mTimeFrame->getCells()[startcellIndex].empty()) {
         continue;
       }
 
       bounded_vector<int> lastCellId(mMemoryPool.get()), updatedCellId(mMemoryPool.get());
-      bounded_vector<int> lastCellTopologyId(mMemoryPool.get()), updatedCellTopologyId(mMemoryPool.get());
+      bounded_vector<int> lastcellIndex(mMemoryPool.get()), updatedcellIndex(mMemoryPool.get());
       bounded_vector<TrackSeedN> lastCellSeed(mMemoryPool.get()), updatedCellSeed(mMemoryPool.get());
 
-      processNeighbours(iteration, startCellTopologyId, startLevel, mTimeFrame->getCells()[startCellTopologyId], lastCellId, lastCellTopologyId, updatedCellSeed, updatedCellId, updatedCellTopologyId);
+      processNeighbours(iteration, startcellIndex, startLevel, mTimeFrame->getCells()[startcellIndex], lastCellId, lastcellIndex, updatedCellSeed, updatedCellId, updatedcellIndex);
 
       int level = startLevel;
       while (level > 2 && !updatedCellSeed.empty()) {
         lastCellSeed.swap(updatedCellSeed);
         lastCellId.swap(updatedCellId);
-        lastCellTopologyId.swap(updatedCellTopologyId);
+        lastcellIndex.swap(updatedcellIndex);
         deepVectorClear(updatedCellSeed); /// tame the memory peaks
         deepVectorClear(updatedCellId);   /// tame the memory peaks
-        deepVectorClear(updatedCellTopologyId);
-        processNeighbours(iteration, constants::UnusedIndex, --level, lastCellSeed, lastCellId, lastCellTopologyId, updatedCellSeed, updatedCellId, updatedCellTopologyId);
+        deepVectorClear(updatedcellIndex);
+        processNeighbours(iteration, constants::UnusedIndex, --level, lastCellSeed, lastCellId, lastcellIndex, updatedCellSeed, updatedCellId, updatedcellIndex);
       }
       deepVectorClear(lastCellId);         /// tame the memory peaks
-      deepVectorClear(lastCellTopologyId); /// tame the memory peaks
+      deepVectorClear(lastcellIndex);      /// tame the memory peaks
       deepVectorClear(lastCellSeed);       /// tame the memory peaks
 
       if (!updatedCellSeed.empty()) {

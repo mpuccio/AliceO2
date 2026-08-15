@@ -463,7 +463,7 @@ std::vector<DecodedCluster> buildMftChainClusters(const TrackingParameters& para
 /// production plan always builds a single-component, single-kind layout
 /// from a duplicate-free orderedSurfaces span (the layout validator already
 /// rejects a duplicate SurfaceId within one graph definition, and
-/// buildSurfaceGraphs() has no way to author a combined/mixed-kind
+/// buildTraversalPlans() has no way to author a combined/mixed-kind
 /// layout at all). To directly exercise TrackerTraits::initialiseTimeFrame()'s
 /// own fail-closed checks (SurfaceLayerMappingMismatch, MixedSurfaceKindLayout)
 /// against inputs that cannot arise through that production path, the two
@@ -473,9 +473,9 @@ std::vector<DecodedCluster> buildMftChainClusters(const TrackingParameters& para
 /// longer TimeFrame-owned state to smuggle in.
 
 /// A valid, identity-ordered chain layout for `detector`/`kind`
-/// (same shape buildSurfaceGraphs() would build for that detector), built
+/// (same shape buildTraversalPlans() would build for that detector), built
 /// directly via the layout API so it can be installed with a
-/// deliberately-corrupted SurfaceGraphConfigurationKey::orderedSurfaces
+/// deliberately-corrupted SurfaceLayoutConfigurationKey::orderedSurfaces
 /// afterwards.
 /// Disconnected catalog spanning [0, nCylinders) as Cylinder/ITS surfaces and
 /// [nCylinders, nCylinders + nDisks) as Disk/MFT surfaces, in one shared
@@ -776,13 +776,13 @@ BOOST_AUTO_TEST_CASE(ItsHoleEdgeTrackletResolvesCorrectLegacyLayerEndpoints)
 
 BOOST_AUTO_TEST_CASE(DuplicateSurfaceIdMappingFailsClosedBeforeTrackletProcessing)
 {
-  // buildSurfaceGraphs() -- the production path -- always builds its
+  // buildTraversalPlans() -- the production path -- always builds its
   // graph definition from the caller-supplied orderedSurfaces, and
   // SurfaceLayout already rejects a duplicate SurfaceId within it
   // (DuplicateSurface), so a duplicate mapping can never reach
   // TrackerTraits::initialiseTimeFrame() through that path. This test
   // constructs an otherwise-valid, identity-topology layout
-  // directly, with a SurfaceGraphConfigurationKey::orderedSurfaces that
+  // directly, with a SurfaceLayoutConfigurationKey::orderedSurfaces that
   // duplicates SurfaceId{0} at legacy layers 0 and 1, then passes it to
   // initialiseTimeFrame() as its explicit plan argument -- exercising
   // exactly (and only) the mSurfaceToLegacyLayer bijectivity preflight,

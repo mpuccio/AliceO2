@@ -96,7 +96,7 @@ BOOST_AUTO_TEST_CASE(HoleAndSeedPoliciesProduceSparseTopology)
   definition.orderedSurfaces = order(0, 4);
   definition.maxHoles = 1;
   definition.holeSurfaces = mask({1});
-  definition.seedingSurfaces = mask({2});
+  definition.seedingSurfaces = mask({3});
   const std::vector<SurfaceDescriptor> surfaces = catalog(4);
   const auto layout = SurfaceLayout{surfaces, std::move(definition)};
   const auto result = deriveTraversalTopology(layout, mask({1}));

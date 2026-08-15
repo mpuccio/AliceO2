@@ -19,7 +19,7 @@
 //    re-typed literals);
 //  - exercises cylinder and disk cells through the same public orchestration
 //    entry point, with coordinate differences confined to cell-seed leaves;
-//  - leaves cellTopologyId indexing, the LUT, MC-label construction, and
+//  - leaves cellIndex indexing, the LUT, MC-label construction, and
 //    one-pass/two-pass ordering untouched;
 //  - fails closed (TraversalException::InvalidTraversalSchedule) through the
 //    existing public API alone, with no test-only seam into private
@@ -384,7 +384,7 @@ TraversalWorkspaceView prepare(Rig<NLayers>& rig)
 
 // Loads exactly the three supplied {cluster, hit} candidates at legacy
 // layers {0, 1, 2} (every test in this file locates its candidate cell via
-// findCellTopologyId(topology, 0, 1, 2), so the layer mapping is always this
+// findCellIndex(topology, 0, 1, 2), so the layer mapping is always this
 // identity triple) through the real loadNormalizedSource() path, via
 // FixedMeasurementDecoder -- so the normalized frame and every legacy
 // compatibility structure are populated together, in lockstep, exactly as
@@ -417,11 +417,11 @@ void loadCandidateClusters(Rig<NLayers>& rig,
   BOOST_REQUIRE(result.ok());
 }
 
-// Finds the cellTopologyId whose two edges span exactly
+// Finds the cellIndex whose two edges span exactly
 // inner->middle->outer, without assuming any particular enumeration order
 // out of the sparse topology's builder enumeration.
 template <typename TopologyView>
-int findCellTopologyId(const TopologyView& topology, int inner, int middle, int outer)
+int findCellIndex(const TopologyView& topology, int inner, int middle, int outer)
 {
   for (int i = 0; i < topology.nPaths; ++i) {
     const auto& cell = topology.getPath(CellPathId{static_cast<uint16_t>(i)});
@@ -442,14 +442,14 @@ int findCellTopologyId(const TopologyView& topology, int inner, int middle, int 
 // sorting real content into it. This helper assigns the real sorted-cluster
 // entry at index 0 directly (matching loadCandidateClusters()'s own
 // unsorted-index-0 cluster on each layer) and injects exactly one synthetic
-// tracklet per edge of cellTopologyId, wired so
+// tracklet per edge of cellIndex, wired so
 // computeLayerCellsForKind<Tag>'s tracklet-pairing loop finds exactly one
 // candidate pair.
 template <int NLayers>
-void injectCandidateTracklets(Rig<NLayers>& rig, int cellTopologyId, const std::array<o2::its::Cluster, 3>& clusters)
+void injectCandidateTracklets(Rig<NLayers>& rig, int cellIndex, const std::array<o2::its::Cluster, 3>& clusters)
 {
   const auto topology = rig.frame.getWorkspace().getTraversalWorkspace(0).getTopologyView();
-  const auto& cell = topology.getPath(CellPathId{static_cast<uint16_t>(cellTopologyId)});
+  const auto& cell = topology.getPath(CellPathId{static_cast<uint16_t>(cellIndex)});
   const auto& first = topology.getEdge(cell.first);
   const auto& second = topology.getEdge(cell.second);
   const int layers[3] = {first.from.value(), first.to.value(), second.to.value()};
@@ -509,7 +509,7 @@ void loadCandidateClustersAtLayers(Rig<NLayers>& rig,
 }
 
 // Finds the edgeId spanning exactly from->to, mirroring
-// findCellTopologyId()'s linear-search style over the legacy view.
+// findCellIndex()'s linear-search style over the legacy view.
 template <typename TopologyView>
 int findEdgeId(const TopologyView& topology, int from, int to)
 {
@@ -578,30 +578,30 @@ BOOST_AUTO_TEST_CASE(CylinderComputeLayerCellsMatchesBuildCellSeedOracle)
   auto view = TrackerTestAccess::prepare(rig.tracker, rig.frame, 0);
 
   const auto topology = rig.frame.getWorkspace().getTraversalWorkspace(0).getTopologyView();
-  const int cellTopologyId = findCellTopologyId(topology, 0, 1, 2);
-  BOOST_REQUIRE_GE(cellTopologyId, 0);
+  const int cellIndex = findCellIndex(topology, 0, 1, 2);
+  BOOST_REQUIRE_GE(cellIndex, 0);
 
-  injectCandidateTracklets(rig, cellTopologyId, clusters);
+  injectCandidateTracklets(rig, cellIndex, clusters);
 
-  // Any other cellTopologyId keeps its empty-edge early-continue
+  // Any other cellIndex keeps its empty-edge early-continue
   // path: cleared once up front, never touched again.
-  int otherCellTopologyId = -1;
+  int othercellIndex = -1;
   for (int i = 0; i < topology.nPaths; ++i) {
-    if (i != cellTopologyId) {
-      otherCellTopologyId = i;
+    if (i != cellIndex) {
+      othercellIndex = i;
       break;
     }
   }
-  BOOST_REQUIRE_GE(otherCellTopologyId, 0);
+  BOOST_REQUIRE_GE(othercellIndex, 0);
 
   TrackerTestAccess::computeCells(rig.traits, view);
 
-  BOOST_CHECK(rig.tf->getCells()[otherCellTopologyId].empty());
-  BOOST_CHECK(rig.tf->getCellsLookupTable()[otherCellTopologyId].empty());
-  BOOST_CHECK(rig.tf->getCellsLabel(otherCellTopologyId).empty());
+  BOOST_CHECK(rig.tf->getCells()[othercellIndex].empty());
+  BOOST_CHECK(rig.tf->getCellsLookupTable()[othercellIndex].empty());
+  BOOST_CHECK(rig.tf->getCellsLabel(othercellIndex).empty());
 
-  BOOST_REQUIRE_EQUAL(rig.tf->getCells()[cellTopologyId].size(), 1u);
-  const auto& producedCell = rig.tf->getCells()[cellTopologyId][0];
+  BOOST_REQUIRE_EQUAL(rig.tf->getCells()[cellIndex].size(), 1u);
+  const auto& producedCell = rig.tf->getCells()[cellIndex][0];
   BOOST_CHECK(producedCell.tripletFactor().isValid());
   for (int slot = 0; slot < 3; ++slot) {
     const auto reference = producedCell.getClusterReference(slot);
@@ -609,13 +609,13 @@ BOOST_AUTO_TEST_CASE(CylinderComputeLayerCellsMatchesBuildCellSeedOracle)
     BOOST_CHECK_EQUAL(reference.clusterIndex, producedCell.getClusters()[slot]);
   }
 
-  BOOST_REQUIRE_EQUAL(rig.tf->getCellsLookupTable()[cellTopologyId].size(), 2u);
-  BOOST_CHECK_EQUAL(rig.tf->getCellsLookupTable()[cellTopologyId][0], 0);
-  BOOST_CHECK_EQUAL(rig.tf->getCellsLookupTable()[cellTopologyId][1], 1);
+  BOOST_REQUIRE_EQUAL(rig.tf->getCellsLookupTable()[cellIndex].size(), 2u);
+  BOOST_CHECK_EQUAL(rig.tf->getCellsLookupTable()[cellIndex][0], 0);
+  BOOST_CHECK_EQUAL(rig.tf->getCellsLookupTable()[cellIndex][1], 1);
 
   // hasMCinformation() is false (no labels were loaded), so label
   // construction is skipped, exactly as before this change.
-  BOOST_CHECK(rig.tf->getCellsLabel(cellTopologyId).empty());
+  BOOST_CHECK(rig.tf->getCellsLabel(cellIndex).empty());
 
   // Oracle: independently refetch the same measurements through
   // TrackerTraits::getLayerMeasurements() (never re-typed literals) and use
@@ -666,11 +666,11 @@ BOOST_AUTO_TEST_CASE(CylinderCellCombinationUsesTrackletMinPtScattering)
 
     auto view = prepare(rig);
     const auto topology = rig.frame.getWorkspace().getTraversalWorkspace(0).getTopologyView();
-    const int cellTopologyId = findCellTopologyId(topology, 0, 1, 2);
-    BOOST_REQUIRE_GE(cellTopologyId, 0);
-    injectCandidateTracklets(rig, cellTopologyId, clusters);
+    const int cellIndex = findCellIndex(topology, 0, 1, 2);
+    BOOST_REQUIRE_GE(cellIndex, 0);
+    injectCandidateTracklets(rig, cellIndex, clusters);
     TrackerTestAccess::computeCells(rig.traits, view);
-    return rig.tf->getCells()[cellTopologyId].size();
+    return rig.tf->getCells()[cellIndex].size();
   };
 
   BOOST_CHECK_EQUAL(acceptedCells(0.3f), 1u);
@@ -700,15 +700,15 @@ BOOST_AUTO_TEST_CASE(DiskComputeLayerCellsMatchesBuildCellSeedOracle)
   auto view = prepare(rig);
 
   const auto topology = rig.frame.getWorkspace().getTraversalWorkspace(0).getTopologyView();
-  const int cellTopologyId = findCellTopologyId(topology, 0, 1, 2);
-  BOOST_REQUIRE_GE(cellTopologyId, 0);
+  const int cellIndex = findCellIndex(topology, 0, 1, 2);
+  BOOST_REQUIRE_GE(cellIndex, 0);
 
-  injectCandidateTracklets(rig, cellTopologyId, clusters);
+  injectCandidateTracklets(rig, cellIndex, clusters);
 
   TrackerTestAccess::computeCells(rig.traits, view);
 
-  BOOST_REQUIRE_EQUAL(rig.tf->getCells()[cellTopologyId].size(), 1u);
-  const auto& producedCell = rig.tf->getCells()[cellTopologyId][0];
+  BOOST_REQUIRE_EQUAL(rig.tf->getCells()[cellIndex].size(), 1u);
+  const auto& producedCell = rig.tf->getCells()[cellIndex][0];
   BOOST_CHECK(producedCell.tripletFactor().isValid());
   for (int slot = 0; slot < 3; ++slot) {
     const auto reference = producedCell.getClusterReference(slot);
@@ -743,7 +743,7 @@ BOOST_AUTO_TEST_CASE(DiskComputeLayerCellsMatchesBuildCellSeedOracle)
 BOOST_AUTO_TEST_CASE(CylinderComputeLayerCellsOnePassAndTwoPassAgree)
 {
   struct Result {
-    int cellTopologyId{-1};
+    int cellIndex{-1};
     std::vector<int> lut;
     float chi2{0.f};
     int cl0{-1}, cl1{-1}, cl2{-1};
@@ -767,19 +767,19 @@ BOOST_AUTO_TEST_CASE(CylinderComputeLayerCellsOnePassAndTwoPassAgree)
     auto view = prepare(rig);
 
     const auto topology = rig.frame.getWorkspace().getTraversalWorkspace(0).getTopologyView();
-    const int cellTopologyId = findCellTopologyId(topology, 0, 1, 2);
-    BOOST_REQUIRE_GE(cellTopologyId, 0);
+    const int cellIndex = findCellIndex(topology, 0, 1, 2);
+    BOOST_REQUIRE_GE(cellIndex, 0);
 
-    injectCandidateTracklets(rig, cellTopologyId, clusters);
+    injectCandidateTracklets(rig, cellIndex, clusters);
 
     TrackerTestAccess::computeCells(rig.traits, view);
 
     Result r;
-    r.cellTopologyId = cellTopologyId;
-    const auto& lut = rig.tf->getCellsLookupTable()[cellTopologyId];
+    r.cellIndex = cellIndex;
+    const auto& lut = rig.tf->getCellsLookupTable()[cellIndex];
     r.lut.assign(lut.begin(), lut.end());
-    BOOST_REQUIRE_EQUAL(rig.tf->getCells()[cellTopologyId].size(), 1u);
-    const auto& cell = rig.tf->getCells()[cellTopologyId][0];
+    BOOST_REQUIRE_EQUAL(rig.tf->getCells()[cellIndex].size(), 1u);
+    const auto& cell = rig.tf->getCells()[cellIndex][0];
     r.chi2 = cell.getChi2();
     r.cl0 = cell.getFirstClusterIndex();
     r.cl1 = cell.getSecondClusterIndex();
@@ -790,7 +790,7 @@ BOOST_AUTO_TEST_CASE(CylinderComputeLayerCellsOnePassAndTwoPassAgree)
   const auto onePass = run(1);
   const auto twoPass = run(4);
 
-  BOOST_CHECK_EQUAL(onePass.cellTopologyId, twoPass.cellTopologyId);
+  BOOST_CHECK_EQUAL(onePass.cellIndex, twoPass.cellIndex);
   BOOST_CHECK_EQUAL_COLLECTIONS(onePass.lut.begin(), onePass.lut.end(), twoPass.lut.begin(), twoPass.lut.end());
   BOOST_CHECK_EQUAL(onePass.chi2, twoPass.chi2);
   BOOST_CHECK_EQUAL(onePass.cl0, twoPass.cl0);
@@ -801,7 +801,7 @@ BOOST_AUTO_TEST_CASE(CylinderComputeLayerCellsOnePassAndTwoPassAgree)
 BOOST_AUTO_TEST_CASE(DiskComputeLayerCellsOnePassAndTwoPassAgree)
 {
   struct Result {
-    int cellTopologyId{-1};
+    int cellIndex{-1};
     std::vector<int> lut;
     float chi2{0.f};
     int cl0{-1}, cl1{-1}, cl2{-1};
@@ -824,19 +824,19 @@ BOOST_AUTO_TEST_CASE(DiskComputeLayerCellsOnePassAndTwoPassAgree)
     auto view = prepare(rig);
 
     const auto topology = rig.frame.getWorkspace().getTraversalWorkspace(0).getTopologyView();
-    const int cellTopologyId = findCellTopologyId(topology, 0, 1, 2);
-    BOOST_REQUIRE_GE(cellTopologyId, 0);
+    const int cellIndex = findCellIndex(topology, 0, 1, 2);
+    BOOST_REQUIRE_GE(cellIndex, 0);
 
-    injectCandidateTracklets(rig, cellTopologyId, clusters);
+    injectCandidateTracklets(rig, cellIndex, clusters);
 
     TrackerTestAccess::computeCells(rig.traits, view);
 
     Result r;
-    r.cellTopologyId = cellTopologyId;
-    const auto& lut = rig.tf->getCellsLookupTable()[cellTopologyId];
+    r.cellIndex = cellIndex;
+    const auto& lut = rig.tf->getCellsLookupTable()[cellIndex];
     r.lut.assign(lut.begin(), lut.end());
-    BOOST_REQUIRE_EQUAL(rig.tf->getCells()[cellTopologyId].size(), 1u);
-    const auto& cell = rig.tf->getCells()[cellTopologyId][0];
+    BOOST_REQUIRE_EQUAL(rig.tf->getCells()[cellIndex].size(), 1u);
+    const auto& cell = rig.tf->getCells()[cellIndex][0];
     r.chi2 = cell.getChi2();
     r.cl0 = cell.getFirstClusterIndex();
     r.cl1 = cell.getSecondClusterIndex();
@@ -847,7 +847,7 @@ BOOST_AUTO_TEST_CASE(DiskComputeLayerCellsOnePassAndTwoPassAgree)
   const auto onePass = run(1);
   const auto twoPass = run(4);
 
-  BOOST_CHECK_EQUAL(onePass.cellTopologyId, twoPass.cellTopologyId);
+  BOOST_CHECK_EQUAL(onePass.cellIndex, twoPass.cellIndex);
   BOOST_CHECK_EQUAL_COLLECTIONS(onePass.lut.begin(), onePass.lut.end(), twoPass.lut.begin(), twoPass.lut.end());
   BOOST_CHECK_EQUAL(onePass.chi2, twoPass.chi2);
   BOOST_CHECK_EQUAL(onePass.cl0, twoPass.cl0);
@@ -873,14 +873,14 @@ BOOST_AUTO_TEST_CASE(RepeatedComputeLayerCellsCallsDoNotRebindOrIncreaseCounts)
   auto view = prepare(rig);
 
   const auto topology = rig.frame.getWorkspace().getTraversalWorkspace(0).getTopologyView();
-  const int cellTopologyId = findCellTopologyId(topology, 0, 1, 2);
-  BOOST_REQUIRE_GE(cellTopologyId, 0);
+  const int cellIndex = findCellIndex(topology, 0, 1, 2);
+  BOOST_REQUIRE_GE(cellIndex, 0);
 
-  injectCandidateTracklets(rig, cellTopologyId, clusters);
+  injectCandidateTracklets(rig, cellIndex, clusters);
 
   TrackerTestAccess::computeCells(rig.traits, view);
-  BOOST_REQUIRE_EQUAL(rig.tf->getCells()[cellTopologyId].size(), 1u);
-  const auto firstChi2 = rig.tf->getCells()[cellTopologyId][0].getChi2();
+  BOOST_REQUIRE_EQUAL(rig.tf->getCells()[cellIndex].size(), 1u);
+  const auto firstChi2 = rig.tf->getCells()[cellIndex][0].getChi2();
 
   TrackerTestAccess::computeCells(rig.traits, view);
   TrackerTestAccess::computeCells(rig.traits, view);
@@ -891,11 +891,11 @@ BOOST_AUTO_TEST_CASE(RepeatedComputeLayerCellsCallsDoNotRebindOrIncreaseCounts)
   // initialiseTimeFrame() call to re-resolve it, which is not what this test
   // checks): a fresh call after the tracklets were consumed must still
   // reproduce the identical chi2 through the same cache.
-  injectCandidateTracklets(rig, cellTopologyId, clusters);
+  injectCandidateTracklets(rig, cellIndex, clusters);
   TrackerTestAccess::computeCells(rig.traits, view);
 
-  BOOST_REQUIRE_EQUAL(rig.tf->getCells()[cellTopologyId].size(), 1u);
-  BOOST_CHECK_EQUAL(rig.tf->getCells()[cellTopologyId][0].getChi2(), firstChi2);
+  BOOST_REQUIRE_EQUAL(rig.tf->getCells()[cellIndex].size(), 1u);
+  BOOST_CHECK_EQUAL(rig.tf->getCells()[cellIndex][0].getChi2(), firstChi2);
 }
 
 // Material-correction preflight has its own focused test target; this file
@@ -909,7 +909,7 @@ BOOST_AUTO_TEST_CASE(CylinderComputeLayerCellsMultiCellChainProducesCorrectCells
   // (1,2,3), (2,3,4) -- each resolved through the migrated
   // computeLayerCellsForKind() via a fresh mSurfaceToLegacyLayer lookup
   // per derived path -- not just the single path the tests above check,
-  // while every non-participating cellTopologyId stays empty.
+  // while every non-participating cellIndex stays empty.
   Rig<ITSNLayers> rig{o2::detectors::DetID::ITS, SurfaceKind::Cylinder};
   rig.params[0].MaxChi2ClusterAttachment = 1.e6f;
   for (int layer = 0; layer < ITSNLayers; ++layer) {
@@ -947,21 +947,21 @@ BOOST_AUTO_TEST_CASE(CylinderComputeLayerCellsMultiCellChainProducesCorrectCells
   std::vector<bool> participating(topology.nPaths, false);
   for (size_t i = 0; i < triples.size(); ++i) {
     const auto& triple = triples[i];
-    const int cellTopologyId = findCellTopologyId(topology, triple[0], triple[1], triple[2]);
-    BOOST_REQUIRE_GE(cellTopologyId, 0);
-    topologyIds[i] = cellTopologyId;
-    participating[cellTopologyId] = true;
+    const int cellIndex = findCellIndex(topology, triple[0], triple[1], triple[2]);
+    BOOST_REQUIRE_GE(cellIndex, 0);
+    topologyIds[i] = cellIndex;
+    participating[cellIndex] = true;
 
-    BOOST_REQUIRE_EQUAL(rig.tf->getCells()[cellTopologyId].size(), 1u);
-    const auto& producedCell = rig.tf->getCells()[cellTopologyId][0];
+    BOOST_REQUIRE_EQUAL(rig.tf->getCells()[cellIndex].size(), 1u);
+    const auto& producedCell = rig.tf->getCells()[cellIndex][0];
     BOOST_CHECK_EQUAL(producedCell.getFirstClusterIndex(), 0);
     BOOST_CHECK_EQUAL(producedCell.getSecondClusterIndex(), 0);
     BOOST_CHECK_EQUAL(producedCell.getThirdClusterIndex(), 0);
     BOOST_CHECK_EQUAL(producedCell.getHitLayerMask().value(), LayerMask(triple[0], triple[1], triple[2]).value());
 
-    BOOST_REQUIRE_EQUAL(rig.tf->getCellsLookupTable()[cellTopologyId].size(), 2u);
-    BOOST_CHECK_EQUAL(rig.tf->getCellsLookupTable()[cellTopologyId][0], 0);
-    BOOST_CHECK_EQUAL(rig.tf->getCellsLookupTable()[cellTopologyId][1], 1);
+    BOOST_REQUIRE_EQUAL(rig.tf->getCellsLookupTable()[cellIndex].size(), 2u);
+    BOOST_CHECK_EQUAL(rig.tf->getCellsLookupTable()[cellIndex][0], 0);
+    BOOST_CHECK_EQUAL(rig.tf->getCellsLookupTable()[cellIndex][1], 1);
   }
 
   for (int i = 0; i < topology.nPaths; ++i) {
@@ -1019,18 +1019,18 @@ BOOST_AUTO_TEST_CASE(DiskComputeLayerCellsMultiCellChainProducesCorrectCellsAndO
   std::vector<bool> participating(topology.nPaths, false);
   for (size_t i = 0; i < triples.size(); ++i) {
     const auto& triple = triples[i];
-    const int cellTopologyId = findCellTopologyId(topology, triple[0], triple[1], triple[2]);
-    BOOST_REQUIRE_GE(cellTopologyId, 0);
-    topologyIds[i] = cellTopologyId;
-    participating[cellTopologyId] = true;
+    const int cellIndex = findCellIndex(topology, triple[0], triple[1], triple[2]);
+    BOOST_REQUIRE_GE(cellIndex, 0);
+    topologyIds[i] = cellIndex;
+    participating[cellIndex] = true;
 
-    BOOST_REQUIRE_EQUAL(rig.tf->getCells()[cellTopologyId].size(), 1u);
-    const auto& producedCell = rig.tf->getCells()[cellTopologyId][0];
+    BOOST_REQUIRE_EQUAL(rig.tf->getCells()[cellIndex].size(), 1u);
+    const auto& producedCell = rig.tf->getCells()[cellIndex][0];
     BOOST_CHECK_EQUAL(producedCell.getHitLayerMask().value(), LayerMask(triple[0], triple[1], triple[2]).value());
 
-    BOOST_REQUIRE_EQUAL(rig.tf->getCellsLookupTable()[cellTopologyId].size(), 2u);
-    BOOST_CHECK_EQUAL(rig.tf->getCellsLookupTable()[cellTopologyId][0], 0);
-    BOOST_CHECK_EQUAL(rig.tf->getCellsLookupTable()[cellTopologyId][1], 1);
+    BOOST_REQUIRE_EQUAL(rig.tf->getCellsLookupTable()[cellIndex].size(), 2u);
+    BOOST_CHECK_EQUAL(rig.tf->getCellsLookupTable()[cellIndex][0], 0);
+    BOOST_CHECK_EQUAL(rig.tf->getCellsLookupTable()[cellIndex][1], 1);
   }
 
   for (int i = 0; i < topology.nPaths; ++i) {
@@ -1085,18 +1085,18 @@ BOOST_AUTO_TEST_CASE(CylinderComputeLayerCellsHoleCellReconstructsCorrectLayerMa
 
   TrackerTestAccess::computeCells(rig.traits, view);
 
-  const int cellTopologyId = findCellTopologyId(topology, 0, 2, 3);
-  BOOST_REQUIRE_GE(cellTopologyId, 0);
-  BOOST_REQUIRE_EQUAL(rig.tf->getCells()[cellTopologyId].size(), 1u);
-  const auto& producedCell = rig.tf->getCells()[cellTopologyId][0];
+  const int cellIndex = findCellIndex(topology, 0, 2, 3);
+  BOOST_REQUIRE_GE(cellIndex, 0);
+  BOOST_REQUIRE_EQUAL(rig.tf->getCells()[cellIndex].size(), 1u);
+  const auto& producedCell = rig.tf->getCells()[cellIndex][0];
   BOOST_CHECK_EQUAL(producedCell.getHitLayerMask().value(), LayerMask(0, 2, 3).value());
 
-  BOOST_REQUIRE_EQUAL(rig.tf->getCellsLookupTable()[cellTopologyId].size(), 2u);
-  BOOST_CHECK_EQUAL(rig.tf->getCellsLookupTable()[cellTopologyId][0], 0);
-  BOOST_CHECK_EQUAL(rig.tf->getCellsLookupTable()[cellTopologyId][1], 1);
+  BOOST_REQUIRE_EQUAL(rig.tf->getCellsLookupTable()[cellIndex].size(), 2u);
+  BOOST_CHECK_EQUAL(rig.tf->getCellsLookupTable()[cellIndex][0], 0);
+  BOOST_CHECK_EQUAL(rig.tf->getCellsLookupTable()[cellIndex][1], 1);
 
   for (int i = 0; i < topology.nPaths; ++i) {
-    if (i != cellTopologyId) {
+    if (i != cellIndex) {
       BOOST_CHECK(rig.tf->getCells()[i].empty());
     }
   }
@@ -1110,7 +1110,7 @@ BOOST_AUTO_TEST_CASE(ComputeLayerCellsFailsClosedOnCellStorageSizeMismatch)
   // (that loop is no longer definitionally safe once its bound is
   // sparse-derived rather than mTimeFrame's own legacy-shaped storage size).
   // Desyncing a public container after a genuinely successful
-  // initialiseTimeFrame() -- mirroring testTimeFrameSurfaceGraphs.cxx's
+  // initialiseTimeFrame() -- mirroring testTimeFramethe retired topology owners.cxx's
   // established legacy-cell-container-size-mismatch seam -- exercises this
   // exactly, through computeLayerCells()'s own public contract, with no
   // private-state bypass.

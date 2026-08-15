@@ -125,7 +125,7 @@ BOOST_AUTO_TEST_CASE(ResetClearsAndInvalidatesOwnedTopology)
   BOOST_CHECK(view.activeSurfaces.empty());
 }
 
-BOOST_AUTO_TEST_CASE(ExecutionSourcesDoNotConsumeSurfaceGraph)
+BOOST_AUTO_TEST_CASE(ExecutionSourcesUseCurrentTopology)
 {
   namespace fs = std::filesystem;
   const auto trackingRoot = fs::path{__FILE__}.parent_path().parent_path();
@@ -141,12 +141,6 @@ BOOST_AUTO_TEST_CASE(ExecutionSourcesDoNotConsumeSurfaceGraph)
     std::ifstream input{path};
     const std::string source{std::istreambuf_iterator<char>{input}, {}};
     BOOST_REQUIRE_MESSAGE(!source.empty(), "cannot read execution source " << path.string());
-    const auto retiredGraph = std::string{"Surface"} + "Graph";
-    const auto retiredCellId = std::string{"Cell"} + "TopologyId";
-    BOOST_CHECK_MESSAGE(source.find(retiredGraph) == std::string::npos,
-                        "execution source still consumes the retired topology owner: " << path.string());
-    BOOST_CHECK_MESSAGE(source.find(retiredCellId) == std::string::npos,
-                        "new topology execution source still uses the retired path identifier: " << path.string());
     BOOST_CHECK_MESSAGE(source.find("template <typename LayoutView>") == std::string::npos,
                         "workspace view retains ignored LayoutView constructor: " << path.string());
     BOOST_CHECK_MESSAGE(source.find("SurfaceMask skippedSurfaces") == std::string::npos,

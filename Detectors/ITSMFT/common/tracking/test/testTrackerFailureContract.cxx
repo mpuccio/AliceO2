@@ -669,9 +669,9 @@ Fixture emptyFixture()
 //
 // Gate 4 B2 Slice 2 removed this section's original mechanism
 // (StructuralFailureViaStaleLayoutAlwaysRethrowsAndWipes: establish a valid
-// layout, then TimeFrame::invalidateSurfaceGraphs() right before running
+// layout, then TimeFrame::invalidateTraversalState() right before running
 // tracking to deterministically produce TraversalException{StaleLayout}).
-// Neither invalidateSurfaceGraphs() nor TraversalFailureReason::StaleLayout
+// Neither invalidateTraversalState() nor TraversalFailureReason::StaleLayout
 // is reachable any more: initialiseTimeFrame() now takes the plan as an
 // explicit topology parameter with no TimeFrame-owned
 // currency concept to invalidate. The "TraversalException (structural/
