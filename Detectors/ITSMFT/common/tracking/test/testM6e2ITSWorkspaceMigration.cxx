@@ -42,7 +42,6 @@
 #include "Framework/InputSpec.h"
 #include "ITSMFTTracking/IOUtils.h"
 #include "ITSMFTTracking/Configuration.h"
-#include "ITSMFTTracking/SurfaceGraphBuilder.h"
 #include "ITSMFTTracking/IOUtils.h"
 #include "ITSMFTTracking/IOUtils.h"
 #include "ITSMFTTracking/ITSMFTDetectorDefinitions.h"
@@ -283,31 +282,35 @@ BOOST_AUTO_TEST_CASE(StandaloneAndCombinedITSGraphsAgreeByRelativePosition)
   for (uint16_t i = 0; i < ITSNLayers; ++i) {
     standaloneOrder.push_back(SurfaceId{i});
   }
-  const auto standaloneResult = buildSurfaceGraphs(
-    SurfaceCatalogView{kITSStaticSurfaceCatalog.data(), static_cast<uint32_t>(kITSStaticSurfaceCatalog.size())},
-    gsl::span<const SurfaceId>{standaloneOrder}, standaloneParams);
-  BOOST_REQUIRE(standaloneResult.ok());
+  const auto standaloneLayout = SurfaceLayout{
+    gsl::span<const SurfaceDescriptor>{kITSStaticSurfaceCatalog.data(), kITSStaticSurfaceCatalog.size()},
+    makeSurfaceLayoutChain(standaloneOrder, standaloneParams.front().MaxHoles,
+                           positionalSurfaceMask(standaloneParams.front().HoleLayerMask, standaloneOrder, ITSNLayers),
+                           positionalSurfaceMask(standaloneParams.front().StartLayerMask, standaloneOrder, ITSNLayers))};
+  const auto standaloneTopology = deriveTraversalTopology(standaloneLayout);
+  BOOST_REQUIRE(standaloneTopology.ok());
 
   // Combined: real ITS+MFT combined static catalog, ITS half only.
   const auto combinedParams = standaloneParams;
   const auto combinedOrder = orderedRange(0, ITSNLayers);
-  const auto combinedResult = buildSurfaceGraphs(
-    SurfaceCatalogView{kITSMFTCombinedStaticSurfaceCatalog.data(), static_cast<uint32_t>(kITSMFTCombinedStaticSurfaceCatalog.size())},
-    gsl::span<const SurfaceId>{combinedOrder}, combinedParams);
-  BOOST_REQUIRE(combinedResult.ok());
-  const auto standaloneView = standaloneResult.graphs.front().getView();
-  const auto combinedView = combinedResult.graphs.front().getView();
-  BOOST_CHECK_EQUAL(standaloneView.nEdges, combinedView.nEdges);
-  BOOST_CHECK_EQUAL(standaloneView.nCells, combinedView.nCells);
+  const auto combinedLayout = SurfaceLayout{
+    gsl::span<const SurfaceDescriptor>{kITSMFTCombinedStaticSurfaceCatalog.data(), kITSMFTCombinedStaticSurfaceCatalog.size()},
+    makeSurfaceLayoutChain(combinedOrder, combinedParams.front().MaxHoles,
+                           positionalSurfaceMask(combinedParams.front().HoleLayerMask, combinedOrder, ITSNLayers),
+                           positionalSurfaceMask(combinedParams.front().StartLayerMask, combinedOrder, ITSNLayers))};
+  const auto combinedTopology = deriveTraversalTopology(combinedLayout);
+  BOOST_REQUIRE(combinedTopology.ok());
+  BOOST_CHECK_EQUAL(standaloneTopology.topology->edges.size(), combinedTopology.topology->edges.size());
+  BOOST_CHECK_EQUAL(standaloneTopology.topology->paths.size(), combinedTopology.topology->paths.size());
   for (uint16_t k = 0; k < ITSNLayers; ++k) {
-    BOOST_CHECK(standaloneResult.graphs.front().getOrderedSurfaces()[k] == combinedResult.graphs.front().getOrderedSurfaces()[k]);
+    BOOST_CHECK(standaloneLayout.getOrderedSurfaces()[k] == combinedLayout.getOrderedSurfaces()[k]);
   }
 
   // A separately constructed standalone scratch remains independent. The
   // workflow participant accessors below, in contrast, must alias the one
   // global workspace.
   SurfaceTrackingScratch standaloneScratch;
-  standaloneScratch.adoptPlan(standaloneOrder.size(), standaloneView.nEdges, standaloneView.nCells);
+  standaloneScratch.adoptPlan(standaloneOrder.size(), standaloneTopology.topology->edges.size(), standaloneTopology.topology->paths.size());
   auto participants = makeSet();
   TimeFrame frame;
   participants.adoptFrame(frame);

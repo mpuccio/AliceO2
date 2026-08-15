@@ -19,7 +19,6 @@
 #include "ITSMFTTracking/IOUtils.h"
 #include "ITSMFTTracking/Configuration.h"
 #include "ITSMFTTracking/detail/DetectorPublicationAdapter.h"
-#include "ITSMFTTracking/SurfaceGraphBuilder.h"
 #include "ITSMFTTracking/detail/ITSSharedClusterCompatibility.h"
 #include "ITSMFTTracking/detail/MFTPublicationCompatibility.h"
 #include "ITSMFTTracking/IOUtils.h"
@@ -68,27 +67,23 @@ inline TrackerInitialization makeCombinedConfiguration(const TrackingParameters&
   TrackerIterationConfiguration iteration;
   const auto itsSurfaces = orderedSurfaceRange(0, ITSNLayers);
   const auto mftSurfaces = orderedSurfaceRange(ITSNLayers, MFTNLayers);
-  auto itsDefinition = makeSurfaceChain(
+  auto itsDefinition = makeSurfaceLayoutChain(
     itsSurfaces, itsParams.MaxHoles,
     positionalSurfaceMask(itsParams.HoleLayerMask, itsSurfaces, static_cast<uint32_t>(itsSurfaces.size())),
     positionalSurfaceMask(itsParams.StartLayerMask, itsSurfaces, static_cast<uint32_t>(itsSurfaces.size())));
-  auto mftDefinition = makeSurfaceChain(
+  auto mftDefinition = makeSurfaceLayoutChain(
     mftSurfaces, mftParams.MaxHoles,
     positionalSurfaceMask(mftParams.HoleLayerMask, mftSurfaces, static_cast<uint32_t>(mftSurfaces.size())),
     positionalSurfaceMask(mftParams.StartLayerMask, mftSurfaces, static_cast<uint32_t>(mftSurfaces.size())));
-  SurfaceGraphDefinition definition;
+  SurfaceLayoutDefinition definition;
   definition.orderedSurfaces = std::move(itsDefinition.orderedSurfaces);
-  definition.basePairs = std::move(itsDefinition.basePairs);
   const auto offset = static_cast<uint16_t>(definition.orderedSurfaces.size());
   definition.orderedSurfaces.insert(definition.orderedSurfaces.end(), mftDefinition.orderedSurfaces.begin(), mftDefinition.orderedSurfaces.end());
-  for (const auto pair : mftDefinition.basePairs) {
-    definition.basePairs.push_back(SurfaceAdjacencyPair{static_cast<uint16_t>(pair.fromIndex + offset),
-                                                        static_cast<uint16_t>(pair.toIndex + offset)});
-  }
+  definition.componentOffsets = {0, offset};
   definition.maxHoles = itsDefinition.maxHoles;
   definition.holeSurfaces = itsDefinition.holeSurfaces | mftDefinition.holeSurfaces;
   definition.seedingSurfaces = surfaceRangeMask(0, ITSNLayers + MFTNLayers);
-  iteration.graph = std::move(definition);
+  iteration.layout = std::move(definition);
   const auto combine = [&] {
     auto parameters = itsParams;
     parameters.NLayers = ITSNLayers + MFTNLayers;
@@ -275,8 +270,8 @@ class CombinedTrackingPlan
 
   const SurfaceTrackingScratch& getITSScratch() const noexcept { return mFrame->getWorkspace(); }
   const SurfaceTrackingScratch& getMFTScratch() const noexcept { return mFrame->getWorkspace(); }
-  gsl::span<const SurfaceId> getITSOrderedSurfaces() const noexcept { return {mFrame->getGraph(0).getOrderedSurfaces().data(), ITSNLayers}; }
-  gsl::span<const SurfaceId> getMFTOrderedSurfaces() const noexcept { return {mFrame->getGraph(0).getOrderedSurfaces().data() + ITSNLayers, MFTNLayers}; }
+  gsl::span<const SurfaceId> getITSOrderedSurfaces() const noexcept { return mFrame->getLayout(0).getOrderedSurfaces().first(ITSNLayers); }
+  gsl::span<const SurfaceId> getMFTOrderedSurfaces() const noexcept { return mFrame->getLayout(0).getOrderedSurfaces().subspan(ITSNLayers, MFTNLayers); }
   const ITSSharedClusterCompatibility& getITSSharedClusterCompatibility() const noexcept
   {
     return mITSCompatibility;
@@ -285,8 +280,11 @@ class CombinedTrackingPlan
   {
     return mMFTCompatibility;
   }
-  SurfaceGraphView getITSLayoutView() const noexcept { return mFrame != nullptr && mFrame->isConfigured() ? mFrame->getGraph(0).getView() : SurfaceGraphView{}; }
-  SurfaceGraphView getMFTLayoutView() const noexcept { return getITSLayoutView(); }
+  TraversalTopologyView getITSLayoutView() const noexcept
+  {
+    return mFrame != nullptr && mFrame->isConfigured() ? mFrame->getWorkspace().getTraversalWorkspace(0).getTopologyView() : TraversalTopologyView{};
+  }
+  TraversalTopologyView getMFTLayoutView() const noexcept { return getITSLayoutView(); }
 
  private:
   TrackerInitialization mConfiguration;
