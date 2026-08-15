@@ -37,7 +37,7 @@
 #include "ITSMFTTracking/SurfaceMeasurement.h"
 #include "ITSMFTTracking/TimeFrame.h"
 #include "ITSMFTTracking/ROFViews.h"
-#include "ITSMFTTracking/SurfaceGraph.h"
+#include "ITSMFTTracking/TraversalTopology.h"
 #include "ITSMFTTracking/detail/TrackingKernelParameters.h"
 #include "ITStracking/BoundedAllocator.h"
 #include "ITStracking/Cluster.h"
@@ -90,11 +90,14 @@ struct TraversalWorkspace {
   std::vector<CellTopologyId> roadStartCells;
   std::vector<uint32_t> roadStartComponentOffsets;
   std::vector<CellTopologyId> scheduledCells;
+  SurfaceCatalogView topologyCatalog{};
+  TraversalTopology topology;
   bool valid{false};
 
   std::optional<uint16_t> getSurfaceSlot(SurfaceId id) const noexcept;
   std::optional<uint16_t> getEdgeSlot(EdgeId id) const noexcept;
   std::optional<uint16_t> getCellSlot(CellTopologyId id) const noexcept;
+  TraversalTopologyView getTopologyView() const noexcept { return topology.getView(topologyCatalog); }
 
   void reset(std::pmr::memory_resource* resource) noexcept
   {
@@ -116,6 +119,8 @@ struct TraversalWorkspace {
     roadStartCells.clear();
     roadStartComponentOffsets.clear();
     scheduledCells.clear();
+    topologyCatalog = {};
+    topology = {};
     valid = false;
   }
 };
@@ -313,12 +318,12 @@ class SurfaceTrackingScratch
   auto& getCellsLabel(int layer) { return mCellLabels[layer]; }
 
   void initialise(const TimeFrame& frame, const TrackingParameters& trkParam, int maxLayers, int iteration,
-                  const IndexTableUtilsCore& indexTableConfig, SurfaceGraphView topology,
+                  const IndexTableUtilsCore& indexTableConfig, TraversalTopologyView topology,
                   gsl::span<const EdgeId> edgeIds, gsl::span<const CellTopologyId> cellIds,
                   gsl::span<const SurfaceId> orderedSurfaces,
                   gsl::span<const gsl::span<const GlobalMeasurement>> layerMeasurements);
   void initialise(const TimeFrame& frame, const TrackingParameters& trkParam, int maxLayers, int iteration,
-                  gsl::span<const IndexTableUtilsCore> indexTableConfigs, SurfaceGraphView topology,
+                  gsl::span<const IndexTableUtilsCore> indexTableConfigs, TraversalTopologyView topology,
                   gsl::span<const EdgeId> edgeIds, gsl::span<const CellTopologyId> cellIds,
                   gsl::span<const SurfaceId> orderedSurfaces,
                   gsl::span<const gsl::span<const GlobalMeasurement>> layerMeasurements);

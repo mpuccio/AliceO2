@@ -27,7 +27,6 @@
 
 #include "ITSMFTTracking/Configuration.h"
 #include "ITSMFTTracking/GenericTrack.h"
-#include "ITSMFTTracking/SurfaceGraph.h"
 #include "ITSMFTTracking/detail/SurfaceTrackingScratch.h"
 #include "ITSMFTTracking/SurfaceDescriptor.h"
 #include "ITSMFTTracking/SurfaceMeasurement.h"
@@ -61,10 +60,18 @@ struct TraversalWorkspaceView {
   int iteration{-1};
   TimeFrame& frame;
   SurfaceTrackingScratch& scratch;
-  SurfaceGraphView graph{};
+  TraversalTopologyView topology{};
   gsl::span<const TrackingParameters> parameters;
   float bz{0.f};
   TraversalWorkspace& workspace;
+
+  template <typename LayoutView>
+  TraversalWorkspaceView(int iterationValue, TimeFrame& frameValue, SurfaceTrackingScratch& scratchValue,
+                         LayoutView, gsl::span<const TrackingParameters> parametersValue,
+                         float bzValue, TraversalWorkspace& workspaceValue)
+    : iteration{iterationValue}, frame{frameValue}, scratch{scratchValue}, topology{workspaceValue.getTopologyView()}, parameters{parametersValue}, bz{bzValue}, workspace{workspaceValue}
+  {
+  }
 };
 
 enum class TraversalFailureReason : uint8_t {

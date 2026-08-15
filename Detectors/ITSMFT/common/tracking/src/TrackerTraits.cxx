@@ -220,7 +220,7 @@ void TrackerTraits::computeLayerTrackletsImpl(
   auto* mFrame = &context.frame;
   const auto mTrkParams = context.parameters;
   const auto mBz = context.bz;
-  const auto& mTraversalGraph = context.graph;
+  const auto& mTraversalGraph = context.topology;
   auto& mKernelParameters = context.workspace.kernelParameters;
   const auto& mDiskLayerReferenceZ = context.workspace.diskLayerReferenceZView;
   const auto& mLayerGlobalMeasurements = context.workspace.layerGlobalMeasurements;
@@ -515,7 +515,7 @@ void TrackerTraits::computeLayerCellsImpl(
   const auto& mMemoryPool = mScratch->getMemoryPool();
   const auto mTrkParams = context.parameters;
   const auto mBz = context.bz;
-  const auto& mTraversalGraph = context.graph;
+  const auto& mTraversalGraph = context.topology;
   const auto& mKernelParameters = context.workspace.kernelParameters;
   const auto& mAttachHitConfig = context.workspace.attachHitConfig;
   const auto& mLayerMaterial = context.workspace.layerMaterial;
@@ -530,8 +530,8 @@ void TrackerTraits::computeLayerCellsImpl(
     };
 
     auto resolveCellHitBinding = [&](const auto& cellTopology) -> CellHitBinding {
-      const auto& firstEdge = topology.getEdge(cellTopology.firstEdge);
-      const auto& secondEdge = topology.getEdge(cellTopology.secondEdge);
+      const auto& firstEdge = topology.getEdge(cellTopology.first);
+      const auto& secondEdge = topology.getEdge(cellTopology.second);
       const std::array<SurfaceId, 3> surfaces{firstEdge.from, firstEdge.to, secondEdge.to};
       CellHitBinding binding;
       for (int i = 0; i < 3; ++i) {
@@ -648,10 +648,10 @@ void TrackerTraits::computeLayerCellsImpl(
 
     for (const auto typedCellId : cellIds) {
       const int cellTopologyId = requireScratchCellSlot(context, iteration, typedCellId);
-      const auto& cellTopology = topology.getCell(typedCellId);
-      const auto kind = topology.getSurface(topology.getEdge(cellTopology.firstEdge).from).kind;
-      const int firstEdgeId = requireScratchEdgeSlot(context, iteration, cellTopology.firstEdge);
-      const int secondEdgeId = requireScratchEdgeSlot(context, iteration, cellTopology.secondEdge);
+      const auto& cellTopology = topology.getPath(typedCellId);
+      const auto kind = topology.getSurface(topology.getEdge(cellTopology.first).from).kind;
+      const int firstEdgeId = requireScratchEdgeSlot(context, iteration, cellTopology.first);
+      const int secondEdgeId = requireScratchEdgeSlot(context, iteration, cellTopology.second);
       if (mScratch->getTracklets()[firstEdgeId].empty() ||
           mScratch->getTracklets()[secondEdgeId].empty()) {
         continue;
@@ -736,7 +736,7 @@ void TrackerTraits::findCellsNeighboursForSchedule(
 {
   auto* mScratch = &context.scratch;
   const auto& mMemoryPool = mScratch->getMemoryPool();
-  const auto& mTraversalGraph = context.graph;
+  const auto& mTraversalGraph = context.topology;
   const auto& mLayerMaterial = context.workspace.layerMaterial;
   const auto& mLayerGlobalMeasurements = context.workspace.layerGlobalMeasurements;
   const auto topology = mTraversalGraph;
@@ -760,14 +760,14 @@ void TrackerTraits::findCellsNeighboursForSchedule(
           static_cast<size_t>(cellTopologyId) >= mScratch->getCellsLookupTable().size()) {
         throw TraversalException{iteration, TraversalFailureReason::SparseTopologyMismatch};
       }
-      const auto& cellTopology = topology.getCell(scheduledId);
-      const int currentProcessEdge = requireScratchEdgeSlot(context, iteration, cellTopology.secondEdge);
+      const auto& cellTopology = topology.getPath(scheduledId);
+      const int currentProcessEdge = requireScratchEdgeSlot(context, iteration, cellTopology.second);
       const double currentMSAngle = mScratch->getEdgeMSAngle(currentProcessEdge);
       const double currentAngularVariance = currentMSAngle * currentMSAngle;
       if (mScratch->getCells()[cellTopologyId].empty()) {
         continue;
       }
-      const auto successors = topology.getCellsStartingWithEdge(cellTopology.secondEdge);
+      const auto successors = topology.getPathsStartingWithEdge(cellTopology.second);
       if (!successors.getEntries()) {
         continue;
       }
@@ -780,10 +780,10 @@ void TrackerTraits::findCellsNeighboursForSchedule(
         for (uint32_t iSuccessor = 0; iSuccessor < successors.getEntries(); ++iSuccessor) {
           // Translate dynamically discovered neighbours from the global CSR
           // topology before accessing scratch.
-          const auto nextTopologyId = topology.cellsByFirstEdge[successors.getFirstEntry() + iSuccessor];
+          const auto nextTopologyId = topology.pathsByFirstEdge[successors.getFirstEntry() + iSuccessor];
           const int nextCellTopologyId = requireScratchCellSlot(context, iteration, nextTopologyId);
-          const auto& nextCellTopology = topology.getCell(nextTopologyId);
-          const int nextProcessEdge = requireScratchEdgeSlot(context, iteration, nextCellTopology.secondEdge);
+          const auto& nextCellTopology = topology.getPath(nextTopologyId);
+          const int nextProcessEdge = requireScratchEdgeSlot(context, iteration, nextCellTopology.second);
           const double nextMSAngle = mScratch->getEdgeMSAngle(nextProcessEdge);
           const double nextAngularVariance = nextMSAngle * nextMSAngle;
           if (static_cast<size_t>(nextCellTopologyId) >= mScratch->getCells().size() ||
@@ -1053,7 +1053,7 @@ void TrackerTraits::findRoadsImpl(TraversalWorkspaceView& context, const int ite
   const auto& mMemoryPool = mScratch->getMemoryPool();
   const auto mTrkParams = context.parameters;
   const auto mBz = context.bz;
-  const auto& mTraversalGraph = context.graph;
+  const auto& mTraversalGraph = context.topology;
   const auto& mKernelParameters = context.workspace.kernelParameters;
   const auto& mLayerMeasurements = context.workspace.layerMeasurements;
   const auto& mLayerGlobalMeasurements = context.workspace.layerGlobalMeasurements;

@@ -650,7 +650,7 @@ void SurfaceTrackingScratch::prepareClusters(const TimeFrame& frame, const Track
   }
 }
 void SurfaceTrackingScratch::initialise(const TimeFrame& frame, const TrackingParameters& trkParam, const int maxLayers, const int iteration,
-                                        const IndexTableUtilsCore& indexTableConfig, SurfaceGraphView topology,
+                                        const IndexTableUtilsCore& indexTableConfig, TraversalTopologyView topology,
                                         gsl::span<const EdgeId> edgeIds, gsl::span<const CellTopologyId> cellIds,
                                         gsl::span<const SurfaceId> orderedSurfaces,
                                         gsl::span<const gsl::span<const GlobalMeasurement>> layerMeasurements)
@@ -661,7 +661,7 @@ void SurfaceTrackingScratch::initialise(const TimeFrame& frame, const TrackingPa
 }
 
 void SurfaceTrackingScratch::initialise(const TimeFrame& frame, const TrackingParameters& trkParam, const int maxLayers, const int iteration,
-                                        gsl::span<const IndexTableUtilsCore> indexTableConfigs, SurfaceGraphView topology,
+                                        gsl::span<const IndexTableUtilsCore> indexTableConfigs, TraversalTopologyView topology,
                                         gsl::span<const EdgeId> edgeIds, gsl::span<const CellTopologyId> cellIds,
                                         gsl::span<const SurfaceId> orderedSurfaces,
                                         gsl::span<const gsl::span<const GlobalMeasurement>> layerMeasurements)
@@ -669,9 +669,9 @@ void SurfaceTrackingScratch::initialise(const TimeFrame& frame, const TrackingPa
   (void)iteration;
   if (orderedSurfaces.size() != mNOwnedSurfaces || indexTableConfigs.size() != mNOwnedSurfaces ||
       edgeIds.size() != mNEdges || cellIds.size() != mNCells ||
-      edgeIds.size() > topology.nEdges || cellIds.size() > topology.nCells ||
-      (topology.nEdges != 0 && (topology.edges == nullptr || topology.cellsByFirstEdgeOffsets == nullptr)) ||
-      (topology.nCells != 0 && (topology.cells == nullptr || topology.cellsByFirstEdge == nullptr))) {
+      edgeIds.size() > topology.nEdges || cellIds.size() > topology.nPaths ||
+      (topology.nEdges != 0 && (topology.edges == nullptr || topology.pathsByFirstEdgeOffsets == nullptr)) ||
+      (topology.nPaths != 0 && (topology.paths == nullptr || topology.pathsByFirstEdge == nullptr))) {
     throw std::logic_error{"SurfaceTrackingScratch::initialise(): plan/sparse-topology extent mismatch"};
   }
   const auto surfaceSlot = [&](SurfaceId surface) {
@@ -691,12 +691,12 @@ void SurfaceTrackingScratch::initialise(const TimeFrame& frame, const TrackingPa
     (void)surfaceSlot(edge.to);
   }
   for (const auto cellId : cellIds) {
-    if (!cellId.isValid() || cellId.value() >= topology.nCells) {
+    if (!cellId.isValid() || cellId.value() >= topology.nPaths) {
       throw std::logic_error{"SurfaceTrackingScratch::initialise(): invalid sparse cell binding"};
     }
-    const auto& cell = topology.getCell(cellId);
-    if (!cell.firstEdge.isValid() || !cell.secondEdge.isValid() ||
-        cell.firstEdge.value() >= topology.nEdges || cell.secondEdge.value() >= topology.nEdges) {
+    const auto& path = topology.getPath(cellId);
+    if (!path.first.isValid() || !path.second.isValid() ||
+        path.first.value() >= topology.nEdges || path.second.value() >= topology.nEdges) {
       throw std::logic_error{"SurfaceTrackingScratch::initialise(): sparse cell references an invalid edge"};
     }
   }

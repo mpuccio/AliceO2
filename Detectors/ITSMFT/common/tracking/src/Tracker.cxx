@@ -72,6 +72,12 @@ void buildTraversalPlanImpl(TraversalWorkspace& workspace, const SurfaceGraphVie
   if (workspace.orderedSurfaces.empty()) {
     fail();
   }
+  workspace.topologyCatalog = graph.getSurfaceCatalogView();
+  workspace.topology.orderedSurfaces = workspace.orderedSurfaces;
+  workspace.topology.surfacePositionById.assign(MaxLayoutSurfaces, -1);
+  for (uint16_t position = 0; position < workspace.orderedSurfaces.size(); ++position) {
+    workspace.topology.surfacePositionById[workspace.orderedSurfaces[position].value()] = static_cast<int16_t>(position);
+  }
   workspace.surfaceSlotById.assign(graph.nSurfaces, -1);
   for (uint16_t position = 0; position < workspace.orderedSurfaces.size(); ++position) {
     const auto surface = workspace.orderedSurfaces[position];
@@ -87,6 +93,14 @@ void buildTraversalPlanImpl(TraversalWorkspace& workspace, const SurfaceGraphVie
   if (workspace.activeSurfaces.empty()) {
     fail();
   }
+  workspace.topology.activeSurfaces = workspace.activeSurfaces;
+  workspace.topology.activeSurfaceList.clear();
+  for (const auto surface : workspace.orderedSurfaces) {
+    if (workspace.activeSurfaces.has(surface)) {
+      workspace.topology.activeSurfaceList.push_back(surface);
+    }
+  }
+  workspace.topology.seedingSurfaces = graph.seedingSurfaces;
 
   std::vector<uint32_t> indegree(graph.nSurfaces, 0);
   std::vector<uint32_t> rank(graph.nSurfaces, 0);
@@ -146,8 +160,9 @@ void buildTraversalPlanImpl(TraversalWorkspace& workspace, const SurfaceGraphVie
     componentOrder[root] = std::min(componentOrder[root], position);
   }
 
-  workspace.edgeSlotById.assign(graph.nEdges, -1);
-  workspace.cellSlotById.assign(graph.nCells, -1);
+  workspace.edgeSlotById.clear();
+  workspace.cellSlotById.clear();
+  std::vector<int16_t> selectedEdgeByGraphId(graph.nEdges, -1);
   for (uint32_t rawId = 0; rawId < graph.nEdges; ++rawId) {
     const auto id = EdgeId{static_cast<uint16_t>(rawId)};
     const auto& edge = graph.getEdge(id);
@@ -156,8 +171,11 @@ void buildTraversalPlanImpl(TraversalWorkspace& workspace, const SurfaceGraphVie
     if (!fromActive || !toActive) {
       continue;
     }
-    workspace.edgeSlotById[id.value()] = static_cast<int16_t>(workspace.edges.size());
-    workspace.edges.push_back(id);
+    const auto selectedId = EdgeId{static_cast<uint16_t>(workspace.topology.edges.size())};
+    selectedEdgeByGraphId[id.value()] = static_cast<int16_t>(selectedId.value());
+    workspace.topology.edges.push_back(edge);
+    workspace.edgeSlotById.push_back(static_cast<int16_t>(workspace.edges.size()));
+    workspace.edges.push_back(selectedId);
   }
   if (workspace.edges.empty()) {
     fail();
@@ -168,17 +186,21 @@ void buildTraversalPlanImpl(TraversalWorkspace& workspace, const SurfaceGraphVie
     if (!cell.firstEdge.isValid() || !cell.secondEdge.isValid() || cell.firstEdge.value() >= graph.nEdges || cell.secondEdge.value() >= graph.nEdges) {
       fail();
     }
-    const bool firstActive = workspace.getEdgeSlot(cell.firstEdge).has_value();
-    const bool secondActive = workspace.getEdgeSlot(cell.secondEdge).has_value();
+    const auto firstSelected = selectedEdgeByGraphId[cell.firstEdge.value()];
+    const auto secondSelected = selectedEdgeByGraphId[cell.secondEdge.value()];
+    const bool firstActive = firstSelected >= 0;
+    const bool secondActive = secondSelected >= 0;
     if (!firstActive || !secondActive || !cell.hitSurfaces.isSubsetOf(workspace.activeSurfaces)) {
       continue;
     }
-    workspace.cellSlotById[id.value()] = static_cast<int16_t>(workspace.cells.size());
-    workspace.cells.push_back(id);
+    const auto selectedId = CellTopologyId{static_cast<uint16_t>(workspace.topology.paths.size())};
+    workspace.topology.paths.push_back(CellPath{EdgeId{static_cast<uint16_t>(firstSelected)}, EdgeId{static_cast<uint16_t>(secondSelected)}});
+    workspace.cellSlotById.push_back(static_cast<int16_t>(workspace.cells.size()));
+    workspace.cells.push_back(selectedId);
   }
   const auto scheduleOrder = [&](CellTopologyId lhs, CellTopologyId rhs) {
-    const auto lhsTarget = graph.getEdge(graph.getCell(lhs).secondEdge).to;
-    const auto rhsTarget = graph.getEdge(graph.getCell(rhs).secondEdge).to;
+    const auto lhsTarget = workspace.topology.edges[workspace.topology.paths[lhs.value()].second.value()].to;
+    const auto rhsTarget = workspace.topology.edges[workspace.topology.paths[rhs.value()].second.value()].to;
     const auto lhsComponent = componentOrder[componentRoot(lhsTarget.value())];
     const auto rhsComponent = componentOrder[componentRoot(rhsTarget.value())];
     if (lhsComponent != rhsComponent) {
@@ -189,7 +211,7 @@ void buildTraversalPlanImpl(TraversalWorkspace& workspace, const SurfaceGraphVie
   workspace.scheduledCells = workspace.cells;
   std::sort(workspace.scheduledCells.begin(), workspace.scheduledCells.end(), scheduleOrder);
   for (const auto id : workspace.cells) {
-    if (graph.seedingSurfaces.has(graph.getEdge(graph.getCell(id).secondEdge).to)) {
+    if (workspace.topology.seedingSurfaces.has(workspace.topology.edges[workspace.topology.paths[id.value()].second.value()].to)) {
       workspace.roadStartCells.push_back(id);
     }
   }
@@ -197,7 +219,7 @@ void buildTraversalPlanImpl(TraversalWorkspace& workspace, const SurfaceGraphVie
   workspace.roadStartComponentOffsets.push_back(0);
   uint32_t previousComponent = std::numeric_limits<uint32_t>::max();
   for (uint32_t offset = 0; offset < workspace.roadStartCells.size(); ++offset) {
-    const auto target = graph.getEdge(graph.getCell(workspace.roadStartCells[offset]).secondEdge).to;
+    const auto target = workspace.topology.edges[workspace.topology.paths[workspace.roadStartCells[offset].value()].second.value()].to;
     const auto component = componentOrder[componentRoot(target.value())];
     if (component != previousComponent && offset != 0) {
       workspace.roadStartComponentOffsets.push_back(offset);
@@ -205,25 +227,41 @@ void buildTraversalPlanImpl(TraversalWorkspace& workspace, const SurfaceGraphVie
     previousComponent = component;
   }
   workspace.roadStartComponentOffsets.push_back(static_cast<uint32_t>(workspace.roadStartCells.size()));
+
+  workspace.topology.pathsByFirstEdgeOffsets.assign(workspace.topology.edges.size() + 1, 0);
+  for (const auto& path : workspace.topology.paths) {
+    ++workspace.topology.pathsByFirstEdgeOffsets[path.first.value() + 1];
+  }
+  for (size_t offset = 1; offset < workspace.topology.pathsByFirstEdgeOffsets.size(); ++offset) {
+    workspace.topology.pathsByFirstEdgeOffsets[offset] += workspace.topology.pathsByFirstEdgeOffsets[offset - 1];
+  }
+  workspace.topology.pathsByFirstEdge.resize(workspace.topology.paths.size());
+  auto cursor = workspace.topology.pathsByFirstEdgeOffsets;
+  for (uint32_t path = 0; path < workspace.topology.paths.size(); ++path) {
+    workspace.topology.pathsByFirstEdge[cursor[workspace.topology.paths[path].first.value()]++] = CellTopologyId{static_cast<uint16_t>(path)};
+  }
+  workspace.topology.scheduledPaths = workspace.scheduledCells;
+  workspace.topology.roadStartPaths = workspace.roadStartCells;
+  workspace.topology.roadStartComponentOffsets = workspace.roadStartComponentOffsets;
 }
 
 namespace
 {
-void validateSparsePlan(const TraversalWorkspaceView& context, int iteration, const SurfaceGraphView& layout)
+void validateSparsePlan(const TraversalWorkspaceView& context, int iteration, const TraversalTopologyView& layout)
 {
   const auto& workspace = context.workspace;
   const auto parameters = context.parameters;
   const auto fail = [iteration]() { throw TraversalException{iteration, TraversalFailureReason::SparseTopologyMismatch}; };
   const auto& topology = layout;
-  if (layout.surfaces == nullptr || layout.nSurfaces == 0 ||
-      (topology.nEdges != 0 && (topology.edges == nullptr || topology.cellsByFirstEdgeOffsets == nullptr)) ||
-      (topology.nCells != 0 && (topology.cells == nullptr || topology.cellsByFirstEdge == nullptr))) {
+  if (layout.catalog.surfaces == nullptr || layout.catalog.nSurfaces == 0 ||
+      (topology.nEdges != 0 && (topology.edges == nullptr || topology.pathsByFirstEdgeOffsets == nullptr)) ||
+      (topology.nPaths != 0 && (topology.paths == nullptr || topology.pathsByFirstEdge == nullptr))) {
     fail();
   }
 
   const auto& edges = workspace.edges;
   const auto& cells = workspace.cells;
-  if (edges.empty() || edges.size() > topology.nEdges || cells.size() > topology.nCells) {
+  if (edges.empty() || edges.size() > topology.nEdges || cells.size() > topology.nPaths) {
     fail();
   }
   for (const auto id : edges) {
@@ -236,13 +274,15 @@ void validateSparsePlan(const TraversalWorkspaceView& context, int iteration, co
     }
   }
   for (const auto id : cells) {
-    if (!id.isValid() || id.value() >= topology.nCells || !workspace.getCellSlot(id)) {
+    if (!id.isValid() || id.value() >= topology.nPaths || !workspace.getCellSlot(id)) {
       fail();
     }
-    const auto& cell = topology.getCell(id);
-    if (!workspace.getEdgeSlot(cell.firstEdge) ||
-        !workspace.getEdgeSlot(cell.secondEdge) ||
-        !cell.hitSurfaces.isSubsetOf(workspace.activeSurfaces)) {
+    const auto& path = topology.getPath(id);
+    const auto& firstEdge = topology.getEdge(path.first);
+    const auto& secondEdge = topology.getEdge(path.second);
+    if (!workspace.getEdgeSlot(path.first) || !workspace.getEdgeSlot(path.second) ||
+        !workspace.activeSurfaces.has(firstEdge.from) || !workspace.activeSurfaces.has(firstEdge.to) ||
+        !workspace.activeSurfaces.has(secondEdge.to)) {
       fail();
     }
   }
@@ -267,7 +307,7 @@ void prepareTraversalEdgeTolerances(
 {
   auto& scratch = context.scratch;
   const auto parameters = context.parameters;
-  const auto& graph = context.graph;
+  const auto& graph = context.topology;
   const auto& attachHitConfig = context.workspace.attachHitConfig;
   const auto& trkParam = parameters[iteration];
   const auto& topology = graph;
@@ -322,6 +362,8 @@ void Tracker::buildTraversalPlan(TraversalWorkspace& workspace, const SurfaceGra
   TraversalWorkspace staged;
   buildTraversalPlanImpl(staged, graph, inactiveLayers, iteration);
   workspace.activeSurfaces = staged.activeSurfaces;
+  workspace.topologyCatalog = staged.topologyCatalog;
+  workspace.topology = std::move(staged.topology);
   workspace.orderedSurfaces = std::move(staged.orderedSurfaces);
   workspace.surfaceSlotById = std::move(staged.surfaceSlotById);
   workspace.edgeSlotById = std::move(staged.edgeSlotById);
@@ -339,7 +381,8 @@ void Tracker::initializeTraversalWorkspace(TraversalWorkspaceView& context) cons
   auto* mFrame = &context.frame;
   const auto& mMemoryPool = mScratch->getMemoryPool();
   const auto mTrkParams = context.parameters;
-  const auto& mTraversalGraph = context.graph;
+  const auto layout = mFrame->getGraph(static_cast<std::size_t>(context.iteration)).getView();
+  const auto& mTraversalGraph = layout;
   auto& mTraversalCacheValid = context.workspace.valid;
   auto& mKernelParameters = context.workspace.kernelParameters;
   auto& mDiskLayerReferenceZ = context.workspace.diskLayerReferenceZView;
@@ -356,9 +399,9 @@ void Tracker::initializeTraversalWorkspace(TraversalWorkspaceView& context) cons
   if (iteration < 0 || static_cast<size_t>(iteration) >= mTrkParams.size()) {
     throw TraversalException{iteration, TraversalFailureReason::IterationOutOfRange};
   }
-  const auto layout = mTraversalGraph;
   context.workspace.reset(mMemoryPool.get());
-  buildTraversalPlan(context.workspace, layout, mTrkParams[iteration].InactiveLayerMask, iteration);
+  buildTraversalPlan(context.workspace, mTraversalGraph, mTrkParams[iteration].InactiveLayerMask, iteration);
+  context.topology = context.workspace.getTopologyView();
   const auto& boundEdges = context.workspace.edges;
 
   for (const auto surface : context.workspace.orderedSurfaces) {
@@ -479,7 +522,7 @@ void Tracker::initializeTraversalWorkspace(TraversalWorkspaceView& context) cons
   // remaining sorted-ROF validation. If that validation fails, Tracker::run()
   // resets the whole TimeFrame before returning or propagating the error.
   mScratch->initialise(*mFrame, mTrkParams[iteration], activeSurfaceCount, iteration,
-                       stagedIndexTableConfigView, layout, edgeIds, cellIds,
+                       stagedIndexTableConfigView, context.topology, edgeIds, cellIds,
                        orderedSurfaces, stagedLayerGlobalMeasurementView);
 
   // Sorted clusters are a locator cache. Validate every enabled ROF that can
@@ -546,7 +589,7 @@ void Tracker::initializeTraversalWorkspace(TraversalWorkspaceView& context) cons
     }
   }
 
-  validateSparsePlan(context, iteration, layout);
+  validateSparsePlan(context, iteration, context.topology);
 
   // Bind the bounded preflight material; rebind to frame-owned workspace storage at commit.
   auto attachHitConfig = bindAttachHitConfig(

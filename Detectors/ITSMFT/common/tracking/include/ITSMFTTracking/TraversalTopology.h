@@ -64,6 +64,7 @@ struct TraversalTopologyView {
   SurfaceMask seedingSurfaces{};
 
   const SurfaceDescriptor& getSurface(SurfaceId id) const { return catalog.surfaces[catalog.getSurfaceIndex(id)]; }
+  SurfaceCatalogView getSurfaceCatalogView() const noexcept { return catalog; }
   const Edge& getEdge(EdgeId id) const { return edges[id.value()]; }
   const CellPath& getPath(CellTopologyId id) const { return paths[id.value()]; }
   TopologyRange getPathsStartingWithEdge(EdgeId edge) const
