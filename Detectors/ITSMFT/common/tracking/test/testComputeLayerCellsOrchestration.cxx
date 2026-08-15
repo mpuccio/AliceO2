@@ -908,7 +908,7 @@ BOOST_AUTO_TEST_CASE(CylinderComputeLayerCellsMultiCellChainProducesCorrectCells
   // cell-level parity across three simultaneously-populated cells (0,1,2),
   // (1,2,3), (2,3,4) -- each resolved through the migrated
   // computeLayerCellsForKind() via a fresh mSurfaceToLegacyLayer lookup
-  // per CellTopologyId -- not just the single cell the tests above check,
+  // per derived path -- not just the single path the tests above check,
   // while every non-participating cellTopologyId stays empty.
   Rig<ITSNLayers> rig{o2::detectors::DetID::ITS, SurfaceKind::Cylinder};
   rig.params[0].MaxChi2ClusterAttachment = 1.e6f;

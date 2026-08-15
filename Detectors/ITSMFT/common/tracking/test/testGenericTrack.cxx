@@ -47,7 +47,7 @@
 #include "DataFormatsITSMFT/TopologyDictionary.h"
 #include "DetectorsCommonDataFormats/DetID.h"
 #include "ITSMFTTracking/GenericTrack.h"
-#include "ITSMFTTracking/SurfaceGraphBuilder.h"
+#include "ITSMFTTracking/SurfaceLayout.h"
 #include "ITSMFTTracking/MeasurementView.h"
 #include "ITSMFTTracking/IOUtils.h"
 #include "ITSMFTTracking/ClusterDecoding.h"
@@ -110,7 +110,7 @@ BOOST_AUTO_TEST_CASE(GenericTrackLayoutAndDeviceCompatibilityTraits)
   // that is consistent across host/device compilation. Both properties are
   // asserted, on all three types, matching every other device-facing type
   // in this library (SurfaceMeasurement, StaticSurfaceDescriptor,
-  // SurfaceGraphView, ...).
+  // TraversalTopologyView, ...).
   static_assert(std::is_standard_layout_v<GenericTrack>);
   static_assert(std::is_trivially_copyable_v<GenericTrack>);
   static_assert(std::is_standard_layout_v<TrackClusterReference>);
@@ -264,13 +264,12 @@ class FakeClusterDecoder final : public ClusterDecoder
 };
 
 struct BuiltLayout {
-  SurfaceGraph layout;
+  SurfaceLayout layout;
   std::vector<SurfaceDescriptor> surfaces;
 
-  SurfaceGraphView getView() const noexcept
+  SurfaceCatalogView getCatalog() const noexcept
   {
-    const auto masks = computeSurfaceKindMasks(surfaces);
-    return layout.getView();
+    return layout.getSurfaceCatalog();
   }
 };
 
@@ -278,14 +277,15 @@ struct BuiltLayout {
 // this file's fixtures below.
 BuiltLayout makeCombinedLayout()
 {
-  SurfaceGraph topology{4};
-  topology.finalize();
   std::vector<SurfaceDescriptor> surfaces;
   surfaces.push_back(SurfaceDescriptor{SurfaceId{0}, 0, static_cast<uint8_t>(o2::detectors::DetID::ITS), SurfaceKind::Cylinder});
   surfaces.push_back(SurfaceDescriptor{SurfaceId{1}, 1, static_cast<uint8_t>(o2::detectors::DetID::ITS), SurfaceKind::Cylinder});
   surfaces.push_back(SurfaceDescriptor{SurfaceId{2}, 2, static_cast<uint8_t>(o2::detectors::DetID::ITS), SurfaceKind::Cylinder});
   surfaces.push_back(SurfaceDescriptor{SurfaceId{3}, 0, static_cast<uint8_t>(o2::detectors::DetID::MFT), SurfaceKind::Disk});
-  return BuiltLayout{SurfaceGraph{surfaces, std::move(topology)}, std::move(surfaces)};
+  SurfaceLayoutDefinition definition;
+  definition.orderedSurfaces = {SurfaceId{0}, SurfaceId{1}, SurfaceId{2}, SurfaceId{3}};
+  definition.componentOffsets = {0, 3};
+  return BuiltLayout{SurfaceLayout{surfaces, std::move(definition)}, std::move(surfaces)};
 }
 
 constexpr std::array<unsigned char, 3> onePixelPattern{1, 1, 0x80};
@@ -349,7 +349,7 @@ void loadThreeMeasurementFrame(TimeFrame& frame, const BuiltLayout& layout)
   sources[1].timing = ROFTimingConfig{50, 0, 0, 0};
   sources[1].decoder = &mftDecoder;
 
-  BOOST_REQUIRE(loadSources(frame, layout.getView().getSurfaceCatalogView(), gsl::span<const ClusterSourceInput>(sources), {0, 0}).ok());
+  BOOST_REQUIRE(loadSources(frame, layout.getCatalog(), gsl::span<const ClusterSourceInput>(sources), {0, 0}).ok());
 }
 
 } // namespace
@@ -604,7 +604,7 @@ struct TimeFrameFixture {
   // Keep the catalog with the graph fixture so initialization inputs have one
   // explicit owner.
   std::vector<SurfaceDescriptor> catalog{makeITSTestCatalog()};
-  std::optional<std::vector<SurfaceGraph>> plan;
+  std::optional<std::vector<SurfaceLayout>> plan;
   LegacyLikeDecoder decoder{o2::detectors::DetID::ITS};
   o2::InteractionRecord origin{50, 5};
   ROFTimingConfig timing{40, 0, 0, 0};
@@ -612,9 +612,8 @@ struct TimeFrameFixture {
   TimeFrameFixture()
   {
     const auto orderedSurfaces = identitySurfaces(ITSNLayers);
-    SurfaceGraph graph{gsl::span<const SurfaceDescriptor>{catalog}};
-    graph.setOrderedSurfaces(orderedSurfaces);
-    BOOST_REQUIRE(graph.finalize());
+    SurfaceLayout graph{gsl::span<const SurfaceDescriptor>{catalog}, makeSurfaceLayoutChain(orderedSurfaces)};
+    BOOST_REQUIRE(graph.valid());
     plan.emplace();
     plan->push_back(std::move(graph));
     scratch.setMemoryPool(std::make_shared<BoundedMemoryResource>());

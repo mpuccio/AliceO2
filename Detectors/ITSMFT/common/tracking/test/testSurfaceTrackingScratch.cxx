@@ -22,8 +22,8 @@
 #include <string>
 #include <vector>
 
-#include "ITSMFTTracking/SurfaceGraphBuilder.h"
 #include "ITSMFTTracking/detail/SurfaceTrackingScratch.h"
+#include "ITSMFTTracking/TraversalTopology.h"
 #include "ITSMFTTracking/TimeFrame.h"
 #include "ITStracking/BoundedAllocator.h"
 
@@ -55,17 +55,17 @@ SurfaceDescriptor surfaceWithOwner(uint16_t id, SurfaceKind kind, uint8_t detect
 // counts exposed directly by the graph.
 struct SyntheticChain {
   std::vector<SurfaceDescriptor> surfaces;
-  SurfaceGraph layout;
-  SurfaceGraphView view;
+  SurfaceLayout layout;
+  TraversalTopology topology;
 
   explicit SyntheticChain(uint16_t n)
-    : surfaces{makeSurfaces(n)}, layout{build(surfaces)}, view{layout.getView()}
+    : surfaces{makeSurfaces(n)}, layout{buildLayout(surfaces)}, topology{buildTopology(layout)}
   {
   }
 
   std::size_t nOwnedSurfaces() const { return layout.getOrderedSurfaces().size(); }
-  std::size_t nEdges() const { return view.nEdges; }
-  std::size_t nCells() const { return view.nCells; }
+  std::size_t nEdges() const { return topology.edges.size(); }
+  std::size_t nCells() const { return topology.paths.size(); }
 
  private:
   static std::vector<SurfaceDescriptor> makeSurfaces(uint16_t n)
@@ -77,16 +77,20 @@ struct SyntheticChain {
     }
     return result;
   }
-  static SurfaceGraph build(const std::vector<SurfaceDescriptor>& surfaces)
+  static SurfaceLayout buildLayout(const std::vector<SurfaceDescriptor>& surfaces)
   {
     SurfaceMask seed;
     seed.set(SurfaceId{static_cast<uint16_t>(surfaces.size() - 1)});
     const auto orderedSurfaces = ordered(0, static_cast<uint16_t>(surfaces.size()));
-    SurfaceGraphBuilder builder{SurfaceCatalogView{surfaces.data(), static_cast<uint32_t>(surfaces.size())},
-                                makeSurfaceChain(orderedSurfaces, 0, SurfaceMask{}, seed)};
-    auto built = builder.build();
+    return SurfaceLayout{gsl::span<const SurfaceDescriptor>{surfaces.data(), surfaces.size()},
+                         makeSurfaceLayoutChain(orderedSurfaces, 0, SurfaceMask{}, seed)};
+  }
+
+  static TraversalTopology buildTopology(const SurfaceLayout& layout)
+  {
+    auto built = deriveTraversalTopology(layout);
     BOOST_REQUIRE(built.ok());
-    return std::move(*built.graph);
+    return std::move(*built.topology);
   }
 };
 

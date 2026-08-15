@@ -107,7 +107,7 @@ TraversalTopologyBuildResult deriveTraversalTopology(const SurfaceLayout& layout
       if (skipped.count() > maxHoles || !skipped.isSubsetOf(holeSurfaces)) {
         continue;
       }
-      if (topology.paths.size() >= MaxLayoutCellTopologies) {
+      if (topology.paths.size() >= MaxLayoutPaths) {
         result.error = TraversalTopologyError::TooManyPaths;
         return result;
       }

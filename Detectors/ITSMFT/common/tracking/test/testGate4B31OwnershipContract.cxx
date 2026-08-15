@@ -51,7 +51,6 @@
 #include "Field/MagneticField.h"
 #include "ITSMFTTracking/GenericTrack.h"
 #include "ITSMFTTracking/IOUtils.h"
-#include "ITSMFTTracking/SurfaceGraphBuilder.h"
 #include "ITSMFTTracking/detail/SurfaceTrackingScratch.h"
 #include "ITSMFTTracking/SurfaceDescriptor.h"
 #include "ITSMFTTracking/ClusterDecoding.h"
@@ -305,9 +304,6 @@ BOOST_AUTO_TEST_CASE(InjectedScratchBackfillFailureAfterNormalizedStagingLeavesB
   frame.setMemoryPool(pool);
   scratch.setMemoryPool(pool);
 
-  std::vector<TrackingParameters> noIterations;
-  auto planResult = buildSurfaceGraphs(catalogView, orderedSurfaces, noIterations);
-  BOOST_REQUIRE(planResult.ok());
   scratch.adoptPlan(orderedSurfaces.size(), 0, 0);
   const gsl::span<const SurfaceId> planOrderedSurfaces{orderedSurfaces};
 

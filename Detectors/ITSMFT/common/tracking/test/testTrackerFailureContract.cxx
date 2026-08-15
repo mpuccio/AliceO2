@@ -673,7 +673,7 @@ Fixture emptyFixture()
 // tracking to deterministically produce TraversalException{StaleLayout}).
 // Neither invalidateSurfaceGraphs() nor TraversalFailureReason::StaleLayout
 // is reachable any more: initialiseTimeFrame() now takes the plan as an
-// explicit `const std::vector<SurfaceGraph>&` parameter with no TimeFrame-owned
+// explicit topology parameter with no TimeFrame-owned
 // currency concept to invalidate. The "TraversalException (structural/
 // configuration failure): TimeFrame is wiped, then the exception always
 // rethrows, regardless of DropTFUponFailure" contract this test protected is

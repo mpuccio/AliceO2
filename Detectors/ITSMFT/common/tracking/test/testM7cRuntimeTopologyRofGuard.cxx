@@ -20,8 +20,8 @@
 #include <boost/test/unit_test.hpp>
 
 #include "ITSMFTTracking/ROFViews.h"
-#include "ITSMFTTracking/SurfaceGraph.h"
 #include "ITSMFTTracking/detail/SurfaceTrackingScratch.h"
+#include "ITSMFTTracking/TraversalTopology.h"
 #include "ITStracking/ROFLookupTables.h"
 
 namespace fs = std::filesystem;
@@ -181,25 +181,24 @@ BOOST_AUTO_TEST_CASE(CommonProductionUsesOnlySparseTopologyAndRuntimeROFViews)
 
 BOOST_AUTO_TEST_CASE(SparseTopologyViewRetainsExplicitNonIdentityOrder)
 {
-  SurfaceGraph topology{8};
-  const auto first = topology.addEdge(Edge{SurfaceId{5}, SurfaceId{2}});
-  const auto second = topology.addEdge(Edge{SurfaceId{2}, SurfaceId{7}});
-  BOOST_REQUIRE(first.isValid());
-  BOOST_REQUIRE(second.isValid());
-  const auto cell = topology.addCell(first, second);
-  BOOST_REQUIRE(cell.isValid());
-  BOOST_REQUIRE(topology.finalize());
-
-  const auto view = topology.getView();
-  BOOST_REQUIRE_EQUAL(view.nEdges, 2u);
-  BOOST_REQUIRE_EQUAL(view.nCells, 1u);
-  BOOST_CHECK(view.getEdge(first).from == SurfaceId{5});
-  BOOST_CHECK(view.getEdge(first).to == SurfaceId{2});
-  BOOST_CHECK(view.getEdge(second).from == SurfaceId{2});
-  BOOST_CHECK(view.getEdge(second).to == SurfaceId{7});
-  BOOST_CHECK(view.getCell(cell).hitSurfaces.has(SurfaceId{5}));
-  BOOST_CHECK(view.getCell(cell).hitSurfaces.has(SurfaceId{2}));
-  BOOST_CHECK(view.getCell(cell).hitSurfaces.has(SurfaceId{7}));
+  std::vector<SurfaceDescriptor> surfaces;
+  for (uint16_t id = 0; id < 8; ++id) {
+    surfaces.emplace_back(SurfaceId{id}, id, 0, SurfaceKind::Cylinder);
+  }
+  const std::vector<SurfaceId> ordered{SurfaceId{5}, SurfaceId{2}, SurfaceId{7}};
+  const auto layout = SurfaceLayout{surfaces, makeSurfaceLayoutChain(ordered)};
+  const auto result = deriveTraversalTopology(layout);
+  BOOST_REQUIRE(result.ok());
+  const auto& topology = *result.topology;
+  BOOST_REQUIRE_EQUAL(topology.edges.size(), 2u);
+  BOOST_REQUIRE_EQUAL(topology.paths.size(), 1u);
+  BOOST_CHECK(topology.edges[0].from == SurfaceId{5});
+  BOOST_CHECK(topology.edges[0].to == SurfaceId{2});
+  BOOST_CHECK(topology.edges[1].from == SurfaceId{2});
+  BOOST_CHECK(topology.edges[1].to == SurfaceId{7});
+  const auto& path = topology.paths.front();
+  BOOST_CHECK(path.first == EdgeId{0});
+  BOOST_CHECK(path.second == EdgeId{1});
 }
 
 BOOST_AUTO_TEST_CASE(RuntimeROFViewsMatchITSAndMFTFixedBuilders)

@@ -26,7 +26,6 @@
 #include "DataFormatsITSMFT/TopologyDictionary.h"
 #include "DetectorsCommonDataFormats/DetID.h"
 #include "ITSMFTTracking/Configuration.h"
-#include "ITSMFTTracking/SurfaceGraphBuilder.h"
 #include "ITSMFTTracking/detail/MFTFwdTrackHelpers.h"
 #include "ITSMFTTracking/IOUtils.h"
 #include "ITSMFTTracking/ITSMFTDetectorDefinitions.h"
@@ -462,58 +461,25 @@ std::vector<DecodedCluster> buildMftChainClusters(const TrackingParameters& para
 
 /// Gate 4 Slice 0a fail-closed coverage, revised for Gate 4 B2 Slice 2: a
 /// production plan always builds a single-component, single-kind layout
-/// from a duplicate-free orderedSurfaces span (SurfaceGraphBuilder already
+/// from a duplicate-free orderedSurfaces span (the layout validator already
 /// rejects a duplicate SurfaceId within one graph definition, and
 /// buildSurfaceGraphs() has no way to author a combined/mixed-kind
 /// layout at all). To directly exercise TrackerTraits::initialiseTimeFrame()'s
 /// own fail-closed checks (SurfaceLayerMappingMismatch, MixedSurfaceKindLayout)
 /// against inputs that cannot arise through that production path, the two
-/// tests below construct a deliberately-corrupted std::vector<SurfaceGraph> directly
+/// tests below construct a deliberately-corrupted layout directly
 /// and pass it to initialiseTimeFrame() as its explicit plan parameter -- no
 /// TimeFrame-subclass injection hack is needed any more, since the plan is no
 /// longer TimeFrame-owned state to smuggle in.
 
-/// A valid, identity-ordered chain SurfaceGraph for `detector`/`kind`
+/// A valid, identity-ordered chain layout for `detector`/`kind`
 /// (same shape buildSurfaceGraphs() would build for that detector), built
-/// directly via SurfaceGraphBuilder so it can be installed with a
+/// directly via the layout API so it can be installed with a
 /// deliberately-corrupted SurfaceGraphConfigurationKey::orderedSurfaces
 /// afterwards.
-std::pair<SurfaceGraph, std::vector<SurfaceDescriptor>> buildIdentityChainLayout(uint16_t nSurfaces, o2::detectors::DetID::ID detector, SurfaceKind kind)
-{
-  auto surfaces = makeCatalog(nSurfaces, detector, kind);
-  SurfaceGraphBuilder builder{SurfaceCatalogView{surfaces.data(), static_cast<uint32_t>(surfaces.size())},
-                              makeSurfaceChain(identitySurfaces(nSurfaces))};
-  auto result = builder.build();
-  BOOST_REQUIRE(result.ok());
-  return {std::move(*result.graph), std::move(surfaces)};
-}
-
-std::vector<SurfaceId> rangeSurfaces(uint16_t first, uint16_t count)
-{
-  std::vector<SurfaceId> ids;
-  ids.reserve(count);
-  for (uint16_t i = 0; i < count; ++i) {
-    ids.push_back(SurfaceId{static_cast<uint16_t>(first + i)});
-  }
-  return ids;
-}
-
 /// Disconnected catalog spanning [0, nCylinders) as Cylinder/ITS surfaces and
 /// [nCylinders, nCylinders + nDisks) as Disk/MFT surfaces, in one shared
 /// global SurfaceId space.
-std::vector<SurfaceDescriptor> combinedCatalog(uint16_t nCylinders, uint16_t nDisks)
-{
-  std::vector<SurfaceDescriptor> surfaces;
-  for (uint16_t s = 0; s < nCylinders; ++s) {
-    surfaces.push_back(SurfaceDescriptor{SurfaceId{s}, s, static_cast<uint8_t>(o2::detectors::DetID::ITS), SurfaceKind::Cylinder});
-  }
-  for (uint16_t s = 0; s < nDisks; ++s) {
-    const auto id = SurfaceId{static_cast<uint16_t>(nCylinders + s)};
-    surfaces.push_back(SurfaceDescriptor{id, s, static_cast<uint8_t>(o2::detectors::DetID::MFT), SurfaceKind::Disk});
-  }
-  return surfaces;
-}
-
 } // namespace
 
 BOOST_AUTO_TEST_CASE(CylinderOnePassAndTwoPassProduceIdenticalTracklets)
@@ -812,55 +778,41 @@ BOOST_AUTO_TEST_CASE(DuplicateSurfaceIdMappingFailsClosedBeforeTrackletProcessin
 {
   // buildSurfaceGraphs() -- the production path -- always builds its
   // graph definition from the caller-supplied orderedSurfaces, and
-  // SurfaceGraphBuilder already rejects a duplicate SurfaceId within it
+  // SurfaceLayout already rejects a duplicate SurfaceId within it
   // (DuplicateSurface), so a duplicate mapping can never reach
   // TrackerTraits::initialiseTimeFrame() through that path. This test
-  // constructs an otherwise-valid, identity-topology std::vector<SurfaceGraph>
+  // constructs an otherwise-valid, identity-topology layout
   // directly, with a SurfaceGraphConfigurationKey::orderedSurfaces that
   // duplicates SurfaceId{0} at legacy layers 0 and 1, then passes it to
   // initialiseTimeFrame() as its explicit plan argument -- exercising
   // exactly (and only) the mSurfaceToLegacyLayer bijectivity preflight,
   // through that method's own public contract.
-  auto built = buildIdentityChainLayout(static_cast<uint16_t>(ITSNLayers), o2::detectors::DetID::ITS, SurfaceKind::Cylinder);
-  const std::vector<SurfaceDescriptor> surfaces = std::move(built.second);
-
-  auto planGraph = std::move(built.first);
-  planGraph.setOrderedSurfaces({SurfaceId{0}, SurfaceId{0}, SurfaceId{2}, SurfaceId{3}, SurfaceId{4}, SurfaceId{5}, SurfaceId{6}});
-  std::vector<SurfaceGraph> plan;
-  plan.push_back(std::move(planGraph));
-
-  const auto result = SurfaceGraphBuilder{
-    SurfaceCatalogView{surfaces.data(), static_cast<uint32_t>(surfaces.size())},
-    makeSurfaceChain(plan.front().getOrderedSurfaces())}
-                        .build();
-  BOOST_CHECK(!result.ok());
+  const auto surfaces = makeCatalog(static_cast<uint16_t>(ITSNLayers), o2::detectors::DetID::ITS, SurfaceKind::Cylinder);
+  SurfaceLayoutDefinition definition;
+  definition.orderedSurfaces = identitySurfaces(static_cast<uint16_t>(ITSNLayers));
+  definition.orderedSurfaces[1] = definition.orderedSurfaces[0];
+  const auto layout = SurfaceLayout{surfaces, std::move(definition)};
+  BOOST_CHECK(layout.getError() == SurfaceLayoutError::DuplicateSurface);
 }
 
 BOOST_AUTO_TEST_CASE(CombinedCylinderAndDiskLayoutBindsAsOneDisconnectedPlan)
 {
-  // The absent cylinder-to-disk base pair keeps the two families disconnected
-  // while one binding owns their shared rank space.
   const auto nCylinders = static_cast<uint16_t>(ITSNLayers);
   const auto nDisks = static_cast<uint16_t>(MFTNLayers);
-  const std::vector<SurfaceDescriptor> surfaces = combinedCatalog(nCylinders, nDisks);
-  const SurfaceCatalogView catalogView{surfaces.data(), static_cast<uint32_t>(surfaces.size())};
-
-  auto cylinderDefinition = makeSurfaceChain(rangeSurfaces(0, nCylinders));
-  const auto diskDefinition = makeSurfaceChain(rangeSurfaces(nCylinders, nDisks));
-  SurfaceGraphDefinition definition;
-  definition.orderedSurfaces = std::move(cylinderDefinition.orderedSurfaces);
-  definition.basePairs = std::move(cylinderDefinition.basePairs);
-  const auto offset = static_cast<uint16_t>(definition.orderedSurfaces.size());
-  definition.orderedSurfaces.insert(definition.orderedSurfaces.end(), diskDefinition.orderedSurfaces.begin(), diskDefinition.orderedSurfaces.end());
-  for (const auto pair : diskDefinition.basePairs) {
-    definition.basePairs.push_back(SurfaceAdjacencyPair{static_cast<uint16_t>(pair.fromIndex + offset),
-                                                        static_cast<uint16_t>(pair.toIndex + offset)});
+  auto surfaces = makeCatalog(nCylinders, o2::detectors::DetID::ITS, SurfaceKind::Cylinder);
+  auto disks = makeCatalog(nDisks, o2::detectors::DetID::MFT, SurfaceKind::Disk);
+  for (auto& surface : disks) {
+    surface.id = SurfaceId{static_cast<uint16_t>(surface.id.value() + nCylinders)};
   }
-  SurfaceGraphBuilder builder{catalogView, std::move(definition)};
-  auto result = builder.build();
+  surfaces.insert(surfaces.end(), disks.begin(), disks.end());
+  SurfaceLayoutDefinition definition;
+  definition.orderedSurfaces = identitySurfaces(nCylinders);
+  for (uint16_t i = 0; i < nDisks; ++i) {
+    definition.orderedSurfaces.emplace_back(static_cast<uint16_t>(nCylinders + i));
+  }
+  definition.componentOffsets = {0, nCylinders};
+  const auto layout = SurfaceLayout{surfaces, std::move(definition)};
+  const auto result = deriveTraversalTopology(layout);
   BOOST_REQUIRE(result.ok());
-
-  const auto view = result.graph->getView();
-  BOOST_CHECK_EQUAL(view.nEdges, static_cast<uint32_t>(nCylinders + nDisks - 2));
-  BOOST_CHECK_EQUAL(view.nCells, static_cast<uint32_t>(nCylinders + nDisks - 4));
+  BOOST_CHECK_EQUAL(result.topology->edges.size(), static_cast<std::size_t>(nCylinders + nDisks - 2));
 }

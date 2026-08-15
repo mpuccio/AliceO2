@@ -50,7 +50,7 @@
 #include "DataFormatsITSMFT/ROFRecord.h"
 #include "DataFormatsITSMFT/TopologyDictionary.h"
 #include "DetectorsCommonDataFormats/DetID.h"
-#include "ITSMFTTracking/SurfaceGraphBuilder.h"
+#include "ITSMFTTracking/SurfaceLayout.h"
 #include "ITSMFTTracking/detail/SurfaceTrackingScratch.h"
 #include "ITSMFTTracking/MeasurementView.h"
 #include "ITSMFTTracking/IOUtils.h"
@@ -170,12 +170,10 @@ std::vector<SurfaceId> identitySurfaces(uint16_t nLayers)
   return mapping;
 }
 
-SurfaceGraph catalogGraph(SurfaceCatalogView catalog, gsl::span<const SurfaceId> ordered)
+SurfaceLayout catalogLayout(SurfaceCatalogView catalog, gsl::span<const SurfaceId> ordered)
 {
-  SurfaceGraph topology{catalog.nSurfaces};
-  topology.setOrderedSurfaces({ordered.begin(), ordered.end()});
-  BOOST_REQUIRE(topology.finalize());
-  return SurfaceGraph{gsl::span<const SurfaceDescriptor>{catalog.surfaces, catalog.nSurfaces}, std::move(topology)};
+  return SurfaceLayout{gsl::span<const SurfaceDescriptor>{catalog.surfaces, catalog.nSurfaces},
+                       makeSurfaceLayoutChain(ordered)};
 }
 
 GlobalPoint3F expectedGlobal(int sensorID, int row, int col)
@@ -385,7 +383,7 @@ BOOST_AUTO_TEST_CASE(WipeClearsNormalizedFrameButPreservesDetId)
   TimeFrame frame;
   SurfaceTrackingScratch tf;
   std::vector<TrackingParameters> noIterations;
-  const auto plan = catalogGraph(catalogView, orderedSurfaces);
+  const auto plan = catalogLayout(catalogView, orderedSurfaces);
   tf.setMemoryPool(std::make_shared<BoundedMemoryResource>());
   tf.adoptPlan(plan.getOrderedSurfaces().size(), 0, 0);
 
@@ -440,7 +438,7 @@ BOOST_AUTO_TEST_CASE(BackfillAllocationFailureLeavesNormalizedAndLegacyStateAtBa
   tf.setMemoryPool(pool);
 
   std::vector<TrackingParameters> noIterations;
-  const auto plan = catalogGraph(catalogView, orderedSurfaces);
+  const auto plan = catalogLayout(catalogView, orderedSurfaces);
   tf.adoptPlan(plan.getOrderedSurfaces().size(), 0, 0);
   const gsl::span<const SurfaceId> planOrderedSurfaces{plan.getOrderedSurfaces()};
 
@@ -521,7 +519,7 @@ BOOST_AUTO_TEST_CASE(ScratchOutlivesSoleOwnershipOfItsMemoryPool)
   const auto f = makeFixture();
 
   std::vector<TrackingParameters> noIterations;
-  const auto plan = catalogGraph(catalogView, orderedSurfaces);
+  const auto plan = catalogLayout(catalogView, orderedSurfaces);
 
   {
     auto pool = std::make_shared<BoundedMemoryResource>();

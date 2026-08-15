@@ -15,7 +15,6 @@
 
 #include "ITSCommonTracking/CommonTrackingParameters.h"
 #include "ITSMFTTracking/Tracker.h"
-#include "ITSMFTTracking/SurfaceGraphBuilder.h"
 #include "ITSMFTTracking/ITSMFTDetectorDefinitions.h"
 #include "ITSMFTTracking/SurfaceDescriptor.h"
 #include "ITSMFTTracking/detail/CandidateFinding.h"

@@ -27,7 +27,7 @@ using o2::itsmft::tracking::SurfaceMask;
 
 /// Gate 4 C5: focused coverage for the shared positionalSurfaceMask() helper
 /// that replaced the equivalent private copies formerly duplicated in
-/// SurfaceGraphBuilder.cxx and the combined workflow application plan. Each set bit
+/// the common tracking topology builder and the combined workflow application plan. Each set bit
 /// in `layerMask` is a *position* in `orderedSurfaces`, never a numeric
 /// comparison against the SurfaceId values it holds.
 
