@@ -24,7 +24,6 @@
 #include "GPUCommonDef.h"
 #include "ITSMFTTracking/SurfaceDescriptor.h"
 #include "ITSMFTTracking/TraversalTopology.h"
-#include "ITSMFTTracking/SurfaceDescriptor.h"
 #include "ITSMFTTracking/IdTypes.h"
 #include "ITSMFTTracking/SurfaceMask.h"
 

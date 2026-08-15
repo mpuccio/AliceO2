@@ -43,6 +43,7 @@ o2_add_library(ITSMFTTracking
                        src/MaterialPhysics.cxx
                        src/FamilyMaterialOperations.cxx
                        src/IndexTableConfiguration.cxx
+                       src/TraversalTopology.cxx
                        src/SurfaceGraphBuilder.cxx
                        src/Tracker.cxx
                PUBLIC_LINK_LIBRARIES

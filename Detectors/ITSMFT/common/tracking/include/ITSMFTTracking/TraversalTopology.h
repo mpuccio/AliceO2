@@ -4,8 +4,13 @@
 #define ALICEO2_ITSMFT_TRACKING_TRAVERSALTOPOLOGY_H_
 
 #include <cstdint>
+#include <type_traits>
 
-#include <gsl/span>
+#ifndef GPUCA_GPUCODE
+#include <optional>
+#include <vector>
+#include "ITSMFTTracking/SurfaceLayout.h"
+#endif
 
 #include "ITSMFTTracking/IdTypes.h"
 #include "ITSMFTTracking/SurfaceDescriptor.h"
@@ -37,14 +42,25 @@ struct TopologyRange {
 
 struct TraversalTopologyView {
   SurfaceCatalogView catalog{};
-  gsl::span<const SurfaceId> orderedSurfaces{};
-  gsl::span<const Edge> edges{};
-  gsl::span<const CellPath> paths{};
-  gsl::span<const uint32_t> pathsByFirstEdgeOffsets{};
-  gsl::span<const CellTopologyId> pathsByFirstEdge{};
-  gsl::span<const CellTopologyId> scheduledPaths{};
-  gsl::span<const CellTopologyId> roadStartPaths{};
-  gsl::span<const uint32_t> roadStartComponentOffsets{};
+  const SurfaceId* orderedSurfaces{nullptr};
+  uint32_t nOrderedSurfaces{0};
+  const SurfaceId* activeSurfaceList{nullptr};
+  uint32_t nActiveSurfaces{0};
+  const int16_t* surfacePositionById{nullptr};
+  uint32_t nSurfacePositions{0};
+  SurfaceMask activeSurfaces{};
+  const Edge* edges{nullptr};
+  uint32_t nEdges{0};
+  const CellPath* paths{nullptr};
+  uint32_t nPaths{0};
+  const uint32_t* pathsByFirstEdgeOffsets{nullptr};
+  const CellTopologyId* pathsByFirstEdge{nullptr};
+  const CellTopologyId* scheduledPaths{nullptr};
+  uint32_t nScheduledPaths{0};
+  const CellTopologyId* roadStartPaths{nullptr};
+  uint32_t nRoadStartPaths{0};
+  const uint32_t* roadStartComponentOffsets{nullptr};
+  uint32_t nRoadStartComponentOffsets{0};
   SurfaceMask seedingSurfaces{};
 
   const SurfaceDescriptor& getSurface(SurfaceId id) const { return catalog.surfaces[catalog.getSurfaceIndex(id)]; }
@@ -57,7 +73,62 @@ struct TraversalTopologyView {
   }
 };
 
+#ifndef GPUCA_GPUCODE
+struct TraversalTopology {
+  std::vector<SurfaceId> orderedSurfaces;
+  std::vector<SurfaceId> activeSurfaceList;
+  std::vector<int16_t> surfacePositionById;
+  SurfaceMask activeSurfaces{};
+  SurfaceMask seedingSurfaces{};
+  std::vector<Edge> edges;
+  std::vector<CellPath> paths;
+  std::vector<uint32_t> pathsByFirstEdgeOffsets;
+  std::vector<CellTopologyId> pathsByFirstEdge;
+  std::vector<CellTopologyId> scheduledPaths;
+  std::vector<CellTopologyId> roadStartPaths;
+  std::vector<uint32_t> roadStartComponentOffsets;
+
+  TraversalTopologyView getView(SurfaceCatalogView catalog) const noexcept
+  {
+    return {catalog,
+            orderedSurfaces.data(), static_cast<uint32_t>(orderedSurfaces.size()),
+            activeSurfaceList.data(), static_cast<uint32_t>(activeSurfaceList.size()),
+            surfacePositionById.data(), static_cast<uint32_t>(surfacePositionById.size()),
+            activeSurfaces,
+            edges.data(), static_cast<uint32_t>(edges.size()),
+            paths.data(), static_cast<uint32_t>(paths.size()),
+            pathsByFirstEdgeOffsets.data(), pathsByFirstEdge.data(),
+            scheduledPaths.data(), static_cast<uint32_t>(scheduledPaths.size()),
+            roadStartPaths.data(), static_cast<uint32_t>(roadStartPaths.size()),
+            roadStartComponentOffsets.data(), static_cast<uint32_t>(roadStartComponentOffsets.size()),
+            seedingSurfaces};
+  }
+};
+
+enum class TraversalTopologyError : uint8_t {
+  None,
+  InvalidLayout,
+  DisabledSurfaceOutsideLayout,
+  NoActiveSurfaces,
+  TooManyEdges,
+  TooManyPaths
+};
+
+struct TraversalTopologyBuildResult {
+  std::optional<TraversalTopology> topology;
+  TraversalTopologyError error{TraversalTopologyError::None};
+
+  bool ok() const noexcept { return topology.has_value(); }
+};
+
+// Derive one pass's topology from immutable layout policy and disabled
+// surfaces. The result is transactional: failed derivation has no topology.
+TraversalTopologyBuildResult deriveTraversalTopology(const SurfaceLayout& layout, SurfaceMask disabledSurfaces = {});
+
+#endif // GPUCA_GPUCODE
+
 static_assert(sizeof(CellPath) == 4);
+static_assert(std::is_standard_layout_v<TraversalTopologyView> && std::is_trivially_copyable_v<TraversalTopologyView>);
 
 } // namespace o2::itsmft::tracking
 
