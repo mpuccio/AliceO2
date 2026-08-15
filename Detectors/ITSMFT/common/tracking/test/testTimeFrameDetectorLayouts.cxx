@@ -164,7 +164,7 @@ BOOST_AUTO_TEST_CASE(configuration_retains_the_selected_workspace_plan)
   const auto ordered = order(10);
   configure(frame, tracker, pool, surfaces, ordered, {params});
   auto& workspace = frame.getWorkspace().getTraversalWorkspace(0);
-  TrackerTestAccess::preparePlan(tracker, workspace, frame.getGraph(0).getView());
+  TrackerTestAccess::preparePlan(tracker, workspace, frame.getLayout(0));
   BOOST_CHECK_EQUAL(workspace.orderedSurfaces.size(), 10u);
   for (size_t position = 0; position < ordered.size(); ++position) {
     BOOST_CHECK_EQUAL(workspace.orderedSurfaces[position].value(), ordered[position].value());
@@ -183,7 +183,7 @@ BOOST_AUTO_TEST_CASE(empty_road_start_is_represented_by_the_workspace_plan)
   const auto ordered = order(10);
   configure(frame, tracker, pool, surfaces, ordered, {params});
   auto& workspace = frame.getWorkspace().getTraversalWorkspace(0);
-  TrackerTestAccess::preparePlan(tracker, workspace, frame.getGraph(0).getView());
+  TrackerTestAccess::preparePlan(tracker, workspace, frame.getLayout(0));
   BOOST_CHECK(workspace.roadStartCells.empty());
   BOOST_CHECK(frame.getGenericTracks().empty());
 }

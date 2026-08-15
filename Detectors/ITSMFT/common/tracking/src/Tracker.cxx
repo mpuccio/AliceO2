@@ -388,24 +388,6 @@ void prepareTraversalEdgeTolerances(
 }
 } // namespace
 
-void Tracker::buildTraversalPlan(TraversalWorkspace& workspace, const SurfaceGraphView& graph, LayerMask inactiveLayers, int iteration) const
-{
-  TraversalWorkspace staged;
-  buildTraversalPlanImpl(staged, graph, inactiveLayers, iteration);
-  workspace.activeSurfaces = staged.activeSurfaces;
-  workspace.topologyCatalog = staged.topologyCatalog;
-  workspace.topology = std::move(staged.topology);
-  workspace.orderedSurfaces = std::move(staged.orderedSurfaces);
-  workspace.surfaceSlotById = std::move(staged.surfaceSlotById);
-  workspace.edgeSlotById = std::move(staged.edgeSlotById);
-  workspace.cellSlotById = std::move(staged.cellSlotById);
-  workspace.edges = std::move(staged.edges);
-  workspace.cells = std::move(staged.cells);
-  workspace.roadStartCells = std::move(staged.roadStartCells);
-  workspace.roadStartComponentOffsets = std::move(staged.roadStartComponentOffsets);
-  workspace.scheduledCells = std::move(staged.scheduledCells);
-}
-
 void Tracker::buildTraversalPlan(TraversalWorkspace& workspace, const SurfaceLayout& layout, SurfaceMask disabledSurfaces, int iteration) const
 {
   TraversalWorkspace staged;

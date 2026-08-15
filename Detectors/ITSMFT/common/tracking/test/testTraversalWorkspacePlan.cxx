@@ -13,7 +13,6 @@
 #include <string>
 #include <vector>
 
-#include "ITSMFTTracking/SurfaceGraphBuilder.h"
 #include "ITSMFTTracking/Tracker.h"
 
 #include "TraversalTestSupport.h"
@@ -22,7 +21,7 @@ using namespace o2::itsmft::tracking;
 
 namespace
 {
-SurfaceGraph makeGraph()
+SurfaceLayout makeLayout()
 {
   std::array<SurfaceDescriptor, 4> catalog{};
   std::vector<SurfaceId> ordered;
@@ -30,22 +29,24 @@ SurfaceGraph makeGraph()
     catalog[id] = SurfaceDescriptor{SurfaceId{id}, id, 0, SurfaceKind::Cylinder};
     ordered.push_back(SurfaceId{id});
   }
-  const auto definition = makeSurfaceChain(ordered, 1, SurfaceMask{uint32_t{1} << 1}, SurfaceMask{uint32_t{1} << 3});
-  const auto result = SurfaceGraphBuilder{SurfaceCatalogView{catalog.data(), static_cast<uint32_t>(catalog.size())}, definition}.build();
-  BOOST_REQUIRE(result.ok());
-  return *result.graph;
+  SurfaceLayoutDefinition definition;
+  definition.orderedSurfaces = std::move(ordered);
+  definition.maxHoles = 1;
+  definition.holeSurfaces = SurfaceMask{uint32_t{1} << 1};
+  definition.seedingSurfaces = SurfaceMask{uint32_t{1} << 3};
+  return SurfaceLayout{gsl::span<const SurfaceDescriptor>{catalog.data(), catalog.size()}, std::move(definition)};
 }
 } // namespace
 
-BOOST_AUTO_TEST_CASE(PassWorkspaceDerivesSelectedTopologyFromTheStaticGraph)
+BOOST_AUTO_TEST_CASE(PassWorkspaceDerivesSelectedTopologyFromTheStaticLayout)
 {
-  const auto graph = makeGraph();
+  const auto layout = makeLayout();
   Tracker tracker;
   TraversalWorkspace first;
   TraversalWorkspace second;
 
-  TrackerTestAccess::preparePlan(tracker, first, graph.getView());
-  TrackerTestAccess::preparePlan(tracker, second, graph.getView(), LayerMask{uint32_t{1} << 1});
+  TrackerTestAccess::preparePlan(tracker, first, layout);
+  TrackerTestAccess::preparePlan(tracker, second, layout, SurfaceMask{uint32_t{1} << 1});
 
   BOOST_CHECK_EQUAL(first.orderedSurfaces.size(), 4u);
   BOOST_CHECK_EQUAL(first.edges.size(), 4u);
@@ -63,7 +64,7 @@ BOOST_AUTO_TEST_CASE(FailedPlanPreparationLeavesTheWorkspaceInvalidAndEmpty)
 {
   Tracker tracker;
   TraversalWorkspace workspace;
-  const SurfaceGraphView invalid{};
+  const SurfaceLayout invalid{};
   BOOST_CHECK_THROW(TrackerTestAccess::preparePlan(tracker, workspace, invalid), TraversalException);
   BOOST_CHECK(!workspace.valid);
   BOOST_CHECK(workspace.orderedSurfaces.empty());
