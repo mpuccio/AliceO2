@@ -424,7 +424,7 @@ template <typename TopologyView>
 int findCellTopologyId(const TopologyView& topology, int inner, int middle, int outer)
 {
   for (int i = 0; i < topology.nPaths; ++i) {
-    const auto& cell = topology.getPath(CellTopologyId{static_cast<uint16_t>(i)});
+    const auto& cell = topology.getPath(CellPathId{static_cast<uint16_t>(i)});
     const auto& first = topology.getEdge(cell.first);
     const auto& second = topology.getEdge(cell.second);
     if (first.from.value() == inner && first.to.value() == middle && second.from.value() == middle && second.to.value() == outer) {
@@ -449,7 +449,7 @@ template <int NLayers>
 void injectCandidateTracklets(Rig<NLayers>& rig, int cellTopologyId, const std::array<o2::its::Cluster, 3>& clusters)
 {
   const auto topology = rig.frame.getWorkspace().getTraversalWorkspace(0).getTopologyView();
-  const auto& cell = topology.getPath(CellTopologyId{static_cast<uint16_t>(cellTopologyId)});
+  const auto& cell = topology.getPath(CellPathId{static_cast<uint16_t>(cellTopologyId)});
   const auto& first = topology.getEdge(cell.first);
   const auto& second = topology.getEdge(cell.second);
   const int layers[3] = {first.from.value(), first.to.value(), second.to.value()};

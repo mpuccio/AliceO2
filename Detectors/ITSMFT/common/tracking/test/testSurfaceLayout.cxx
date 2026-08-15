@@ -18,7 +18,7 @@ using namespace o2::itsmft::tracking;
 
 Edge adjacent(uint16_t from, uint16_t to)
 {
-  return Edge{SurfaceId{from}, SurfaceId{to}, SurfaceMask{}, 0};
+  return Edge{SurfaceId{from}, SurfaceId{to}};
 }
 
 SurfaceDescriptor surface(uint16_t id, SurfaceKind kind)

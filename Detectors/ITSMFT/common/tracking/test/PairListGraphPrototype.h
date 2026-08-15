@@ -63,9 +63,6 @@ struct PairListComponentSequences {
 
 struct PairListGraph {
   std::vector<Edge> edges;
-  // Kept separately to make skipped-surface witnesses an explicit parity
-  // output, even though each witness is also in Edge.
-  std::vector<SurfaceMask> skippedWitnesses;
   std::vector<SurfaceCellTopology> cells;
   std::vector<uint32_t> cellsByFirstEdgeOffsets;
   std::vector<CellTopologyId> cellsByFirstEdge;
@@ -143,6 +140,7 @@ inline PairListGraphBuildResult derivePairListGraph(const PairListGraphInput& in
     size_t component{0};
     uint16_t fromRank{0};
     uint16_t toRank{0};
+    SurfaceMask skipped{};
   };
   std::vector<EdgeInfo> edgeInfo;
   for (size_t componentIndex = 0; componentIndex < input.components.size(); ++componentIndex) {
@@ -162,12 +160,10 @@ inline PairListGraphBuildResult derivePairListGraph(const PairListGraphInput& in
             !skipped.isSubsetOf(componentHoleMasks[componentIndex])) {
           continue;
         }
-        graph.edges.push_back(Edge{component.activeSurfaces[fromRank],
-                                   component.activeSurfaces[toRank], skipped, 0});
-        graph.skippedWitnesses.push_back(skipped);
+        graph.edges.push_back(Edge{component.activeSurfaces[fromRank], component.activeSurfaces[toRank]});
         graph.components[componentIndex].edges.push_back(
           EdgeId{static_cast<uint16_t>(graph.edges.size() - 1)});
-        edgeInfo.push_back(EdgeInfo{componentIndex, fromRank, toRank});
+        edgeInfo.push_back(EdgeInfo{componentIndex, fromRank, toRank, skipped});
       }
     }
   }
@@ -182,8 +178,7 @@ inline PairListGraphBuildResult derivePairListGraph(const PairListGraphInput& in
       const auto& firstEdge = graph.edges[first];
       const auto& secondEdge = graph.edges[second];
       if (firstEdge.to != secondEdge.from ||
-          (firstEdge.skippedSurfaces | secondEdge.skippedSurfaces).count() >
-            input.holePolicy.maxSkipped) {
+          (edgeInfo[first].skipped | edgeInfo[second].skipped).count() > input.holePolicy.maxSkipped) {
         continue;
       }
       const auto componentIndex = edgeInfo[first].component;

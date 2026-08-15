@@ -318,7 +318,7 @@ BOOST_AUTO_TEST_CASE(TraversalWorkspaceOwnsPassTopologyAndTrackerBuildsIt)
   BOOST_CHECK(timeFrame.find("SurfacePlanBinding") == std::string::npos);
   BOOST_CHECK(timeFrame.find("mBindings") == std::string::npos);
   BOOST_CHECK(workspace.find("std::vector<EdgeId> edges") != std::string::npos);
-  BOOST_CHECK(workspace.find("std::vector<CellTopologyId> cells") != std::string::npos);
+  BOOST_CHECK(workspace.find("std::vector<CellPathId> cells") != std::string::npos);
   BOOST_CHECK(workspace.find("roadStartCells") != std::string::npos);
   BOOST_CHECK(tracker.find("buildTraversalPlan") != std::string::npos);
   BOOST_CHECK(trackerSource.find("buildTraversalPlan(context.workspace") != std::string::npos);

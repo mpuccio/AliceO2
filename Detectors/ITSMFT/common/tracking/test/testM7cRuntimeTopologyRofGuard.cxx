@@ -182,8 +182,8 @@ BOOST_AUTO_TEST_CASE(CommonProductionUsesOnlySparseTopologyAndRuntimeROFViews)
 BOOST_AUTO_TEST_CASE(SparseTopologyViewRetainsExplicitNonIdentityOrder)
 {
   SurfaceGraph topology{8};
-  const auto first = topology.addEdge(Edge{SurfaceId{5}, SurfaceId{2}, {}, 0});
-  const auto second = topology.addEdge(Edge{SurfaceId{2}, SurfaceId{7}, {}, 0});
+  const auto first = topology.addEdge(Edge{SurfaceId{5}, SurfaceId{2}});
+  const auto second = topology.addEdge(Edge{SurfaceId{2}, SurfaceId{7}});
   BOOST_REQUIRE(first.isValid());
   BOOST_REQUIRE(second.isValid());
   const auto cell = topology.addCell(first, second);

@@ -77,7 +77,7 @@ int initializeCommonITSTracker()
   configuration.catalog = SurfaceCatalogView{kITSStaticSurfaceCatalog.data(), static_cast<uint32_t>(kITSStaticSurfaceCatalog.size())};
   configuration.memoryPool = pool;
   TrackerIterationConfiguration iteration;
-  iteration.graph = makeSurfaceChain(
+  iteration.layout = makeSurfaceLayoutChain(
     orderedSurfaces, parameters.front().MaxHoles,
     positionalSurfaceMask(parameters.front().HoleLayerMask, orderedSurfaces, ITSNLayers),
     positionalSurfaceMask(parameters.front().StartLayerMask, orderedSurfaces, ITSNLayers));

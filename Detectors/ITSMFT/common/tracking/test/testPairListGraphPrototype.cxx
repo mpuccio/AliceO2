@@ -37,26 +37,8 @@ void checkBytes(gsl::span<const T> actual, gsl::span<const T> expected)
     for (size_t i = 0; i < actual.size(); ++i) {
       BOOST_CHECK(actual[i].from == expected[i].from);
       BOOST_CHECK(actual[i].to == expected[i].to);
-      BOOST_CHECK(actual[i].skippedSurfaces == expected[i].skippedSurfaces);
-      BOOST_CHECK_EQUAL(actual[i].flags, expected[i].flags);
     }
-    // Edge has two tail padding bytes (its value fields total
-    // ten bytes). Normalize those unspecified bytes before the raw comparison;
-    // all value fields above are still checked and the type is asserted
-    // trivially copyable at file scope.
-    std::vector<Edge> canonicalActual(actual.size());
-    std::vector<Edge> canonicalExpected(expected.size());
-    for (size_t i = 0; i < actual.size(); ++i) {
-      canonicalActual[i].from = actual[i].from;
-      canonicalActual[i].to = actual[i].to;
-      canonicalActual[i].skippedSurfaces = actual[i].skippedSurfaces;
-      canonicalActual[i].flags = actual[i].flags;
-      canonicalExpected[i].from = expected[i].from;
-      canonicalExpected[i].to = expected[i].to;
-      canonicalExpected[i].skippedSurfaces = expected[i].skippedSurfaces;
-      canonicalExpected[i].flags = expected[i].flags;
-    }
-    BOOST_CHECK_EQUAL(std::memcmp(canonicalActual.data(), canonicalExpected.data(), canonicalActual.size() * sizeof(Edge)), 0);
+    BOOST_CHECK_EQUAL(std::memcmp(actual.data(), expected.data(), actual.size() * sizeof(Edge)), 0);
     return;
   }
   BOOST_CHECK_EQUAL(std::memcmp(actual.data(), expected.data(), actual.size_bytes()), 0);
@@ -145,12 +127,7 @@ void compareTopology(const PairListGraph& prototype, const SurfaceGraphView& cur
       checkBytes(prototype.edges, std::vector<Edge>(current.edges, current.edges + current.nEdges));
     }
   }
-  std::vector<SurfaceMask> expectedWitnesses;
-  for (uint32_t id = 0; id < current.nEdges; ++id) {
-    expectedWitnesses.push_back(current.getEdge(EdgeId{static_cast<uint16_t>(id)}).skippedSurfaces);
-  }
   {
-    BOOST_TEST_CONTEXT("witnesses") { checkBytes(prototype.skippedWitnesses, expectedWitnesses); }
     BOOST_TEST_CONTEXT("cells") { checkBytes(prototype.cells, std::vector<SurfaceCellTopology>(current.cells, current.cells + current.nCells)); }
     BOOST_TEST_CONTEXT("offsets")
     {

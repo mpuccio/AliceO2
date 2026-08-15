@@ -10,12 +10,29 @@ legacy graph remains only for unconverted test/support code pending Phase 2d.
 Validation used the pinned package `daily-20260717-0700-local1` and build
 directory
 `/Users/mpuccio/alice/run3/O2-worktree-builds/triplet-tracking-rnd-scratch`.
-The full serial gate passed **90/90**:
+The existing build cache was verified to point at this scratch worktree, and a
+full Ninja rebuild completed successfully after refreshing stale test
+consumers of the lean `Edge`, `CellPathId`, and
+`TrackerIterationConfiguration::layout` APIs. The normal Ninja output was
+captured in `/private/tmp/triplet-tracking-rnd-scratch-ninja-rebuild-after-onboarding-layout-fix.log`.
+
+The requested detached full serial CTest command was run exactly as follows:
 
 ```text
 ctest --test-dir /Users/mpuccio/alice/run3/O2-worktree-builds/triplet-tracking-rnd-scratch \
   -L itsmft --output-on-failure -j1
 ```
+
+It produced a PID file but the process disappeared without creating either a
+CTest log or exit-status file. This is a runner/process-supervision
+termination, not a test result; it was not interpreted as pass or fail. The
+labelled list obtained with `ctest -N -L itsmft` contained exactly 90 tests.
+The complete gate was therefore established with 18 serial CTest index shards,
+`-I 1,5,1` through `-I 86,90,1`, each with `-j1`. Every shard returned exit
+status 0 and reported `100% tests passed, 0 tests failed out of 5`; aggregate
+coverage was 90 passed, 0 failed, 0 Not Run, with the ranges forming the exact
+disjoint partition 1--90. Final shard logs and status files are retained as
+`/private/tmp/triplet-tracking-rnd-scratch-ctest-final-shard-{01..18}.{log,status}`.
 
 The strict preflight passed with:
 
@@ -27,7 +44,17 @@ The strict preflight passed with:
 The read-only fixture is
 `/Users/mpuccio/alice/run3/O2-validation-data/itsmft/fixtures/pp-20ev-run303000-seed20260716-daily20260717`.
 `shasum -a 256 -c checksums.sha256` passed **43/43** both before and after
-the replay campaign.
+the replay campaign; the closure logs are
+`/private/tmp/triplet-tracking-rnd-scratch-checksums-{before,after}.log`.
+
+The closure also ran `git diff --check` and the pinned
+`git clang-format --diff HEAD`. The latter required permission to create its
+temporary linked-worktree index, then passed without a diff.
+
+The lean ABI cleanup left several test-only consumers with retired aggregate
+initializers, `CellTopologyId` path lookups, or the old textual workspace
+spelling. Those consumers were updated to the current lean API; no production
+topology storage or test registration was weakened.
 
 ## Replay and parity
 
@@ -42,15 +69,17 @@ timestamp `1784207296000`, static diamond `(0,0,0)`, `pvRes=0.05`, and
 | ITS combined | 189 | `6343211326990c75370a76b06aad5840` |
 | MFT combined | 94 | `96f4c632b7e0111501a63660774480ef` |
 
-Fresh outputs and logs are retained under
-`/private/tmp/itsmft-workspace-plan-20260814/`:
+Fresh closure outputs, logs, metrics, and comparisons are retained under
+`/private/tmp/itsmft-lean-topology-closure-20260815/`:
 
-- `its/o2trac_its_ca.root`, `its/its_ca_replay.log`, and
-  `its/its_ca_replay.time.log`;
-- `mft/mfttracks.root`, `mft/mft_ca_replay.log`, and
-  `mft/mft_ca_replay.time.log`;
-- `combined/o2trac_its_ca.root`, `combined/mfttracks.root`, and
-  `combined/combined.log`.
+- `its-standalone-run2/` contains `o2trac_its_ca.root`, replay logs, and
+  explicitly extracted `metrics.json`;
+- `mft-standalone-run2/` contains `mfttracks.root`, replay logs, and
+  explicitly extracted `metrics.json`;
+- `combined-run3/` contains both output ROOT files, replay logs, and separate
+  ITS/MFT metric JSON files;
+- `metrics-extraction.log` and `field-comparisons.log` retain the explicit
+  ROOT macro evidence.
 
 The retained corresponding parent products are under
 `/private/tmp/itsmft-target-z-interval-replay/` in `its/`, `mft/`, and

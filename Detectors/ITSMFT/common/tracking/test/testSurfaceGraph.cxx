@@ -30,8 +30,8 @@ SurfaceGraph buildGraph(const std::vector<SurfaceDescriptor>& surfaces, std::vec
 {
   SurfaceGraph graph{gsl::span<const SurfaceDescriptor>{surfaces}};
   graph.setOrderedSurfaces(std::move(order));
-  BOOST_REQUIRE(graph.addEdge(Edge{SurfaceId{3}, SurfaceId{2}, {}, 0}).isValid());
-  BOOST_REQUIRE(graph.addEdge(Edge{SurfaceId{1}, SurfaceId{0}, {}, 0}).isValid());
+  BOOST_REQUIRE(graph.addEdge(Edge{SurfaceId{3}, SurfaceId{2}}).isValid());
+  BOOST_REQUIRE(graph.addEdge(Edge{SurfaceId{1}, SurfaceId{0}}).isValid());
   BOOST_REQUIRE(graph.finalize());
   return graph;
 }
