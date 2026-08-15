@@ -13,7 +13,6 @@
 #include <vector>
 
 #include "ITSMFTTracking/Configuration.h"
-#include "ITSMFTTracking/SurfaceGraphBuilder.h"
 #include "ITSMFTTracking/TimeFrame.h"
 #include "ITSMFTTracking/Tracker.h"
 
@@ -41,7 +40,7 @@ TrackerInitialization makeConfiguration(const std::vector<SurfaceDescriptor>& ca
     TrackerIterationConfiguration iteration;
     TrackingParameters parameters;
     parameters.NLayers = 0;
-    iteration.graph = makeSurfaceChain(ordered, 1, SurfaceMask{holes}, SurfaceMask{seeds});
+    iteration.layout = makeSurfaceLayoutChain(ordered, 1, SurfaceMask{holes}, SurfaceMask{seeds});
     iteration.parameters = parameters;
     configuration.iterations.push_back(std::move(iteration));
   }
@@ -66,17 +65,17 @@ BOOST_AUTO_TEST_CASE(ConfigurationCommitIsAtomic)
   auto configuration = makeConfiguration(catalog, pool);
   const auto initialResult = tracker.initialize(frame, configuration);
   BOOST_REQUIRE_MESSAGE(initialResult.ok(), "initial configuration error=" << static_cast<int>(initialResult.error)
-                                                                           << " graph=" << static_cast<int>(initialResult.graphError));
+                                                                           << " layout=" << static_cast<int>(initialResult.layoutError));
   BOOST_REQUIRE(frame.isConfigured());
   BOOST_REQUIRE_EQUAL(frame.getNIterations(), 2u);
-  BOOST_CHECK(frame.getGraph(0).getOrderedSurfaces()[0] == SurfaceId{2});
-  BOOST_CHECK(frame.getGraph(1).getOrderedSurfaces()[0] == SurfaceId{2});
-  BOOST_CHECK(frame.getGraph(0).getView().seedingSurfaces.has(SurfaceId{2}));
-  BOOST_CHECK(frame.getGraph(1).getView().seedingSurfaces.has(SurfaceId{0}));
+  BOOST_CHECK(frame.getLayout(0).getOrderedSurfaces()[0] == SurfaceId{2});
+  BOOST_CHECK(frame.getLayout(1).getOrderedSurfaces()[0] == SurfaceId{2});
+  BOOST_CHECK(frame.getLayout(0).getSeedingSurfaces().has(SurfaceId{2}));
+  BOOST_CHECK(frame.getLayout(1).getSeedingSurfaces().has(SurfaceId{0}));
   BOOST_CHECK_EQUAL(frame.getWorkspace().getNTraversalWorkspaces(), 2u);
   BOOST_CHECK(!frame.getWorkspace().getTraversalWorkspace(0).valid);
   BOOST_CHECK(!frame.getWorkspace().getTraversalWorkspace(1).valid);
-  const auto* oldGraph = &frame.getGraph(0);
+  const auto* oldLayout = &frame.getLayout(0);
   const auto* oldPool = frame.getMemoryPool().get();
 
   TrackerInitialization invalid;
@@ -85,12 +84,12 @@ BOOST_AUTO_TEST_CASE(ConfigurationCommitIsAtomic)
   invalid.iterations.push_back(TrackerIterationConfiguration{});
   BOOST_CHECK(!tracker.initialize(frame, invalid).ok());
   BOOST_CHECK(frame.isConfigured());
-  BOOST_CHECK(&frame.getGraph(0) == oldGraph);
+  BOOST_CHECK(&frame.getLayout(0) == oldLayout);
   BOOST_CHECK(frame.getMemoryPool().get() == oldPool);
 
   auto replacement = makeConfiguration(catalog, std::make_shared<BoundedMemoryResource>());
   BOOST_REQUIRE(tracker.initialize(frame, replacement).ok());
-  BOOST_CHECK(&frame.getGraph(0) != oldGraph);
+  BOOST_CHECK(&frame.getLayout(0) != oldLayout);
 }
 
 BOOST_AUTO_TEST_CASE(ResetPreservesStaticConfigurationAndCapacity)
@@ -101,14 +100,14 @@ BOOST_AUTO_TEST_CASE(ResetPreservesStaticConfigurationAndCapacity)
   auto configuration = makeConfiguration(catalog, std::make_shared<BoundedMemoryResource>());
   const auto initialResult = tracker.initialize(frame, configuration);
   BOOST_REQUIRE_MESSAGE(initialResult.ok(), "initial configuration error=" << static_cast<int>(initialResult.error)
-                                                                           << " graph=" << static_cast<int>(initialResult.graphError));
-  const auto* graph = &frame.getGraph(0);
+                                                                           << " layout=" << static_cast<int>(initialResult.layoutError));
+  const auto* layout = &frame.getLayout(0);
   const auto capacity = *frame.getWorkspaceCapacity(0);
   BOOST_CHECK_EQUAL(frame.getWorkspace().getNTraversalWorkspaces(), 2u);
   frame.getGenericTracks().push_back(GenericTrack{});
   frame.resetEvent();
   BOOST_CHECK(frame.isConfigured());
-  BOOST_CHECK(&frame.getGraph(0) == graph);
+  BOOST_CHECK(&frame.getLayout(0) == layout);
   BOOST_CHECK_EQUAL(frame.getWorkspaceCapacity(0)->cells, capacity.cells);
   BOOST_CHECK(frame.getGenericTracks().empty());
 }
