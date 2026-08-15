@@ -85,12 +85,12 @@ BOOST_AUTO_TEST_CASE(KernelViewBorrowsWorkspaceTopology)
   workspace.topology.surfacePositionById[0] = 0;
   workspace.topology.surfacePositionById[1] = 1;
   workspace.topology.activeSurfaces = SurfaceMask{uint32_t{0b11}};
-  workspace.topology.edges.push_back(Edge{SurfaceId{0}, SurfaceId{1}, {}, 0});
+  workspace.topology.edges.push_back(Edge{SurfaceId{0}, SurfaceId{1}});
   workspace.topology.paths.push_back(CellPath{EdgeId{0}, EdgeId{0}});
   workspace.topology.pathsByFirstEdgeOffsets = {0, 1};
-  workspace.topology.pathsByFirstEdge.push_back(CellTopologyId{0});
-  workspace.topology.scheduledPaths.push_back(CellTopologyId{0});
-  workspace.topology.roadStartPaths.push_back(CellTopologyId{0});
+  workspace.topology.pathsByFirstEdge.push_back(CellPathId{0});
+  workspace.topology.scheduledPaths.push_back(CellPathId{0});
+  workspace.topology.roadStartPaths.push_back(CellPathId{0});
   workspace.topology.roadStartComponentOffsets = {0, 1};
 
   const auto view = workspace.getTopologyView();
@@ -109,7 +109,7 @@ BOOST_AUTO_TEST_CASE(ResetClearsAndInvalidatesOwnedTopology)
 {
   TraversalWorkspace workspace;
   workspace.valid = true;
-  workspace.topology.edges.push_back(Edge{SurfaceId{0}, SurfaceId{1}, {}, 0});
+  workspace.topology.edges.push_back(Edge{SurfaceId{0}, SurfaceId{1}});
   workspace.topology.paths.push_back(CellPath{EdgeId{0}, EdgeId{0}});
   workspace.topology.activeSurfaces = SurfaceMask{uint32_t{0b11}};
 
@@ -129,16 +129,27 @@ BOOST_AUTO_TEST_CASE(ExecutionSourcesDoNotConsumeSurfaceGraph)
 {
   namespace fs = std::filesystem;
   const auto trackingRoot = fs::path{__FILE__}.parent_path().parent_path();
-  const std::array<fs::path, 4> sources{
+  const std::array<fs::path, 7> sources{
     trackingRoot / "include/ITSMFTTracking/TrackerTraits.h",
     trackingRoot / "src/TrackerTraits.cxx",
     trackingRoot / "include/ITSMFTTracking/detail/SurfaceTrackingScratch.h",
-    trackingRoot / "src/SurfaceTrackingScratch.cxx"};
+    trackingRoot / "src/SurfaceTrackingScratch.cxx",
+    trackingRoot / "include/ITSMFTTracking/TraversalTopology.h",
+    trackingRoot / "src/TraversalTopology.cxx",
+    trackingRoot / "src/Tracker.cxx"};
   for (const auto& path : sources) {
     std::ifstream input{path};
     const std::string source{std::istreambuf_iterator<char>{input}, {}};
     BOOST_REQUIRE_MESSAGE(!source.empty(), "cannot read execution source " << path.string());
     BOOST_CHECK_MESSAGE(source.find("SurfaceGraph") == std::string::npos,
                         "execution source still consumes SurfaceGraph: " << path.string());
+    BOOST_CHECK_MESSAGE(source.find("CellTopologyId") == std::string::npos,
+                        "new topology execution source still uses legacy CellTopologyId: " << path.string());
+    BOOST_CHECK_MESSAGE(source.find("template <typename LayoutView>") == std::string::npos,
+                        "workspace view retains ignored LayoutView constructor: " << path.string());
+    BOOST_CHECK_MESSAGE(source.find("SurfaceMask skippedSurfaces") == std::string::npos,
+                        "lean Edge contract retains skipped-surface storage: " << path.string());
+    BOOST_CHECK_MESSAGE(source.find("uint16_t flags") == std::string::npos,
+                        "lean Edge contract retains unused flags storage: " << path.string());
   }
 }

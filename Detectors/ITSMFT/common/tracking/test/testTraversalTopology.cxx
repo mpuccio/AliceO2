@@ -80,6 +80,16 @@ BOOST_AUTO_TEST_CASE(CellPathContainsOnlyTwoEdgeIds)
   BOOST_CHECK_EQUAL(sizeof(CellPath), 4u);
 }
 
+BOOST_AUTO_TEST_CASE(EdgeContainsOnlySurfaceEndpoints)
+{
+  static_assert(std::is_standard_layout_v<Edge>);
+  static_assert(std::is_trivially_copyable_v<Edge>);
+  static_assert(std::is_same_v<decltype(Edge::from), SurfaceId>);
+  static_assert(std::is_same_v<decltype(Edge::to), SurfaceId>);
+  static_assert(sizeof(Edge) == sizeof(SurfaceId) + sizeof(SurfaceId));
+  BOOST_CHECK_EQUAL(sizeof(Edge), 4u);
+}
+
 BOOST_AUTO_TEST_CASE(ComponentBoundariesRejectCrossComponentEdges)
 {
   const auto layout = makeLayout(chain({0, 1, 2, 3}), {0, 2});
@@ -122,7 +132,9 @@ BOOST_AUTO_TEST_CASE(DisabledMiddleSurfaceRetainsAdmittedBridge)
   BOOST_CHECK_EQUAL(topology.paths.size(), 1u);
   const auto* bridge = findEdge(topology, SurfaceId{0}, SurfaceId{2});
   BOOST_REQUIRE(bridge != nullptr);
-  BOOST_CHECK(bridge->skippedSurfaces == mask({1}));
+  BOOST_CHECK(bridge->from == SurfaceId{0});
+  BOOST_CHECK(bridge->to == SurfaceId{2});
+  BOOST_CHECK(topology.orderedSurfaces[1] == SurfaceId{1});
   BOOST_CHECK(topology.paths[0].first == EdgeId{0});
   BOOST_CHECK(topology.paths[0].second == EdgeId{1});
 }

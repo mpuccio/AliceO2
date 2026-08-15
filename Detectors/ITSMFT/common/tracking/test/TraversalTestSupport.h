@@ -27,13 +27,14 @@ struct TrackerTestAccess {
       throw std::out_of_range{"test traversal iteration"};
     }
     auto& scratch = frame.getWorkspace();
+    auto& workspace = scratch.getTraversalWorkspace(static_cast<std::size_t>(iteration));
     TraversalWorkspaceView view{iteration,
                                 frame,
                                 scratch,
-                                frame.getLayout(static_cast<std::size_t>(iteration)).getSurfaceCatalog(),
+                                workspace.getTopologyView(),
                                 frame.getTrackingParameters(),
                                 frame.getBz(),
-                                scratch.getTraversalWorkspace(static_cast<std::size_t>(iteration))};
+                                workspace};
     tracker.initializeTraversalWorkspace(view);
     return view;
   }
