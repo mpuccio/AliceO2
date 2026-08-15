@@ -12,7 +12,7 @@ M7e adapter refit/output: [typed refit and output at the adapter boundary](desig
 M7f final cleanup: [redundant runtime-core bridge retirement](design/0008-m7f-final-runtime-core-cleanup.md)
 Post-M7 cleanup audit: [intentionality, ownership, and duplication audit](design/0009-post-m7-intentionality-cleanup-audit.md) — complete; bounded first slice is dead typed-MFT refit/export retirement.
 Post-M7 cleanup implementation: [sequential Luna execution plan](design/0010-post-m7-cleanup-implementation-plan.md) — L9+L10 implementation complete; final replay gate open. [L10 operation-tail validation](validation/l10-operation-tail.md) records the refit-only seam, deleted compatibility paths, and final campaign requirements; [L9 TrackingInterface-retirement validation](validation/l9-retire-interface.md) records direct standalone composition; [L8 Tracker-orchestration validation](validation/l8-retire-engine.md) records engine/participant retirement and direct combined composition.
-Header/graph follow-up: [header intentionality and SurfaceGraph simplification audit](design/0011-header-intentionality-and-surface-graph-audit.md) — documentation-only inventory and staged design; implementation not started.
+Header/topology follow-up: [header intentionality and SurfaceGraph simplification audit](design/0011-header-intentionality-and-surface-graph-audit.md) — historical audit; its staged implementation is complete through the SurfaceLayout and pass-local traversal-topology migration.
 Atomic loader cleanup: [direct TimeFrame-source loading](validation/p1-direct-atomic-loader.md).
 
 L6 makes `TimeFrame` the sole live owner of generic configuration, workspace,
@@ -488,8 +488,11 @@ has no CUDA/HIP/device tools.
 
 `SurfacePlanBinding` has been deleted. `Tracker` now derives each pass's
 active surfaces, selected edges/cells, compact slots, and road schedules into
-`TraversalWorkspace`; `SurfaceGraph` remains immutable static configuration.
-The focused migration record is [workspace-owned traversal plan](validation/workspace-owned-traversal-plan.md).
+`TraversalWorkspace`. Immutable `SurfaceLayout` provides ordered surfaces,
+component boundaries, and static hole/seed policy; `Tracker` derives pass-local
+edges, cell paths, compact slots, and road schedules into the workspace. The
+focused migration records are [workspace-owned traversal plan](validation/workspace-owned-traversal-plan.md)
+and [Phase 2d topology deletion](design/0023-phase2d-topology-deletion-validation.md).
 
 ## Not safe to delete yet
 

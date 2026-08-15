@@ -1,6 +1,6 @@
 # Shared ITS/MFT Cellular Automaton Tracking Architecture
 
-Status: Draft RFC  
+Status: Draft RFC; current topology terminology follows `SurfaceLayout` and pass-local `TraversalTopology`
 Owners: ITSMFT tracking maintainers  
 Scope: CPU tracking first, with GPU-compatible data views retained  
 
@@ -39,7 +39,7 @@ The following are mandatory design rules.
 2. The common CA core must not depend on ITS or MFT workflow code.
 3. Geometry decoding must terminate at an input adapter; the core consumes normalized measurements.
 4. Hits must be addressed by a global `SurfaceId` and a detector-qualified `ClusterRef`.
-5. Tracking topology must be an explicit, sparse, directed graph.
+5. Tracking topology must be an explicit, sparse, directed pass-local structure derived from an immutable layout.
 6. Indexing and timing are surface properties.
 7. Projection, compatibility, attachment, and fitting behavior are transition or tracking-policy properties.
 8. `TrackITS` and `TrackMFT` are adapter outputs, not core storage types.
@@ -66,8 +66,9 @@ During migration, temporary adapters may call the existing ITS or MFT refitter. 
 ## 5. Terminology
 
 - **Surface**: a logical tracking measurement surface. It may be cylindrical, disk-like, or another future geometry.
-- **Layout**: the ordered collection of surfaces and the allowed directed transitions between them.
-- **Transition**: an allowed search and propagation step from one surface to another.
+- **Layout**: the immutable ordered collection of surfaces, component boundaries, and static hole/seed policy.
+- **Edge**: one pass-local allowed search step from one surface to another.
+- **Cell path**: two connected pass-local edges used to construct cells.
 - **Cluster source**: one detector-qualified input stream containing clusters, patterns, ROFs, dictionary, and optional labels.
 - **Tracking policy**: operations required by CA construction and fitting for one state/geometry combination.
 - **External track**: a detector data-format object such as `TrackITS` or `TrackMFT`.
@@ -82,8 +83,8 @@ Identifiers must be explicit and strongly typed where practical:
 
 ```cpp
 using SurfaceId = uint16_t;
-using TransitionId = uint16_t;
-using CellTopologyId = uint16_t;
+using EdgeId = uint16_t;
+using CellPathId = uint16_t;
 using ClusterSourceId = uint16_t;
 
 struct ClusterRef {
