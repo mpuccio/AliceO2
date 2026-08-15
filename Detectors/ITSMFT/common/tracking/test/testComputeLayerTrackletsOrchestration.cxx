@@ -176,7 +176,7 @@ struct TrackletSnapshot {
 /// of this slice).
 template <int NLayers>
 void computeLegacyEdgeMSAndPhiCut(const TrackingParameters& trkParam, float bz, bool isDisk,
-                                  const SurfaceGraphView& topology,
+                                  const TraversalTopologyView& topology,
                                   gsl::span<const float> positionResolution,
                                   std::vector<float>& msAnglesOut, std::vector<float>& phiCutsOut)
 {
@@ -251,7 +251,7 @@ TrackletSnapshot runFixture(o2::detectors::DetID::ID detector,
   configuration.catalog = catalogView;
   configuration.memoryPool = pool;
   TrackerIterationConfiguration iteration;
-  iteration.graph = makeSurfaceChain(
+  iteration.layout = makeSurfaceLayoutChain(
     orderedSurfaces, params[0].MaxHoles,
     positionalSurfaceMask(params[0].HoleLayerMask, orderedSurfaces, NLayers),
     positionalSurfaceMask(params[0].StartLayerMask, orderedSurfaces, NLayers));
@@ -259,8 +259,7 @@ TrackletSnapshot runFixture(o2::detectors::DetID::ID detector,
   configuration.iterations.push_back(std::move(iteration));
   BOOST_REQUIRE(tracker.initialize(frame, configuration).ok());
   auto& tf = frame.getWorkspace();
-  const auto& graph = frame.getGraph(0);
-  const auto layoutView = graph.getView();
+  const auto& layout = frame.getLayout(0);
 
   std::vector<CompClusterExt> compactClusters;
   std::vector<unsigned char> patterns;
@@ -274,7 +273,7 @@ TrackletSnapshot runFixture(o2::detectors::DetID::ID detector,
   PrescribedDecoder decoder{detector, kind, std::move(decoded)};
   const auto load = tf.loadNormalizedSource(frame, decoder, o2::InteractionRecord{50, 5}, ROFTimingConfig{40, 0, 0, 0},
                                             compactClusters, patterns, rofs, &dict(), nullptr, detector,
-                                            gsl::span<const SurfaceId>{graph.getOrderedSurfaces()}, graph.getSurfaceCatalog());
+                                            gsl::span<const SurfaceId>{layout.getOrderedSurfaces()}, layout.getSurfaceCatalog());
   BOOST_REQUIRE(load.ok());
 
   o2::its::LayerTiming layerTiming{};
@@ -304,6 +303,7 @@ TrackletSnapshot runFixture(o2::detectors::DetID::ID detector,
   tf.setROFViews(RuntimeROFViews{rofTable.getView(), vtxTable.getView(), mask.getView(), {}});
 
   auto view = TrackerTestAccess::prepare(tracker, frame, 0);
+  const auto layoutView = view.topology;
 
   // Gate 3 edge-preparation slice: successful initialisation must fill
   // every edge entry (relocated from TimeFrame::initialise() into
@@ -593,7 +593,7 @@ BOOST_AUTO_TEST_CASE(InitialiseTimeFrameFailureLeavesEdgeArraysZeroFilledNotPart
   configuration.catalog = catalogView;
   configuration.memoryPool = pool;
   TrackerIterationConfiguration iteration;
-  iteration.graph = makeSurfaceChain(
+  iteration.layout = makeSurfaceLayoutChain(
     orderedSurfaces, params[0].MaxHoles,
     positionalSurfaceMask(params[0].HoleLayerMask, orderedSurfaces, ITSNLayers),
     positionalSurfaceMask(params[0].StartLayerMask, orderedSurfaces, ITSNLayers));
@@ -601,8 +601,10 @@ BOOST_AUTO_TEST_CASE(InitialiseTimeFrameFailureLeavesEdgeArraysZeroFilledNotPart
   configuration.iterations.push_back(std::move(iteration));
   BOOST_REQUIRE(tracker.initialize(frame, configuration).ok());
   auto& tf = frame.getWorkspace();
-  const auto& graph = frame.getGraph(0);
-  const auto layoutView = graph.getView();
+  const auto& layout = frame.getLayout(0);
+  const auto topologyBuild = deriveTraversalTopology(layout);
+  BOOST_REQUIRE(topologyBuild.ok());
+  const auto layoutView = topologyBuild.topology->getView(layout.getSurfaceCatalog());
 
   // Same minimal cluster/ROF/mask setup as runFixture(): TimeFrame::initialise()
   // (called unconditionally, before any of this test's induced failure) needs
@@ -621,7 +623,7 @@ BOOST_AUTO_TEST_CASE(InitialiseTimeFrameFailureLeavesEdgeArraysZeroFilledNotPart
   PrescribedDecoder decoder{o2::detectors::DetID::ITS, SurfaceKind::Cylinder, decoded};
   const auto load = tf.loadNormalizedSource(frame, decoder, o2::InteractionRecord{50, 5}, ROFTimingConfig{40, 0, 0, 0},
                                             compactClusters, patterns, rofs, &dict(), nullptr, o2::detectors::DetID::ITS,
-                                            gsl::span<const SurfaceId>{graph.getOrderedSurfaces()}, graph.getSurfaceCatalog());
+                                            gsl::span<const SurfaceId>{layout.getOrderedSurfaces()}, layout.getSurfaceCatalog());
   BOOST_REQUIRE(load.ok());
 
   o2::its::LayerTiming layerTiming{};

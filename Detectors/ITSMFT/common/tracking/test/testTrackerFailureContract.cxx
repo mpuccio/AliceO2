@@ -31,7 +31,7 @@
 // boundary. This keeps the failure classification test at Tracker::run()
 // without restoring a virtual traversal-stage injection seam.
 //
-// Every fixture below establishes a real layout/plan (buildSurfaceGraphs())
+// Every fixture below establishes a real layout/plan and selected workspace
 // and then loads a normalized source -- even the structural-failure cases,
 // and even when that source carries zero clusters/ROFs -- before running
 // tracking. This is load-bearing, not incidental: TimeFrame::initialise()
@@ -46,7 +46,7 @@
 // through an invalid TrackingParameters/index-table configuration, not
 // through a missing/stale plan: Gate 4 B2 Slice 2 removed the plan-currency
 // concept entirely (initialiseTimeFrame() now takes the plan as an explicit
-// `const std::vector<SurfaceGraph>&` parameter, so "no plan" is no longer a state a
+// layout/topology view parameter, so "no plan" is no longer a state a
 // caller can even construct) -- see the removed
 // StructuralFailureViaStaleLayoutAlwaysRethrowsAndWipes test's replacement
 // note below for what covers the "always rethrows and wipes" contract now.
@@ -79,7 +79,6 @@
 #include "DetectorsCommonDataFormats/DetID.h"
 #include "ITSMFTTracking/Tracker.h"
 #include "ITSMFTTracking/Configuration.h"
-#include "ITSMFTTracking/SurfaceGraphBuilder.h"
 #include "ITSMFTTracking/detail/ITSSharedClusterCompatibility.h"
 #include "ITSMFTTracking/MeasurementView.h"
 #include "ITSMFTTracking/IOUtils.h"
@@ -384,7 +383,7 @@ struct Rig {
     configuration.iterations.reserve(params.size());
     for (const auto& parameter : params) {
       TrackerIterationConfiguration iteration;
-      iteration.graph = makeSurfaceChain(
+      iteration.layout = makeSurfaceLayoutChain(
         orderedSurfaces, parameter.MaxHoles,
         positionalSurfaceMask(parameter.HoleLayerMask, orderedSurfaces, ITSNLayers),
         positionalSurfaceMask(parameter.StartLayerMask, orderedSurfaces, ITSNLayers));
@@ -413,12 +412,12 @@ struct Rig {
     LegacyLikeDecoder decoder{o2::detectors::DetID::ITS};
     const o2::InteractionRecord origin{50, 5};
     const ROFTimingConfig timing{40, 0, 0, 0};
-    const auto& graph = frame.getGraph(0);
-    const auto& orderedSurfaces = graph.getOrderedSurfaces();
+    const auto& layout = frame.getLayout(0);
+    const auto& orderedSurfaces = layout.getOrderedSurfaces();
     auto& workspace = frame.getWorkspace();
     const auto result = workspace.loadNormalizedSource(frame, decoder, origin, timing, f.clusters, f.patterns, f.rofs, &dict(),
                                                        f.labels.getIndexedSize() > 0 ? &f.labels : nullptr, o2::detectors::DetID::ITS,
-                                                       gsl::span<const SurfaceId>{orderedSurfaces}, graph.getSurfaceCatalog());
+                                                       gsl::span<const SurfaceId>{orderedSurfaces}, layout.getSurfaceCatalog());
     BOOST_REQUIRE(result.ok());
 
     // TrackerTraits::computeLayerTracklets() reads per-layer ROF counts
@@ -573,9 +572,9 @@ struct MftFailureRig {
     const auto surfaces = identitySurfaces(MFTNLayers);
     for (std::size_t index = 0; index < iterations; ++index) {
       TrackerIterationConfiguration iteration;
-      iteration.graph = makeSurfaceChain(surfaces, parameters.MaxHoles,
-                                         positionalSurfaceMask(parameters.HoleLayerMask, surfaces, MFTNLayers),
-                                         positionalSurfaceMask(parameters.StartLayerMask, surfaces, MFTNLayers));
+      iteration.layout = makeSurfaceLayoutChain(surfaces, parameters.MaxHoles,
+                                                positionalSurfaceMask(parameters.HoleLayerMask, surfaces, MFTNLayers),
+                                                positionalSurfaceMask(parameters.StartLayerMask, surfaces, MFTNLayers));
       iteration.parameters = parameters;
       configuration.iterations.push_back(std::move(iteration));
     }
@@ -596,10 +595,10 @@ struct MftFailureRig {
     const std::vector<ROFRecord> rofs{ROFRecord{{100, 5}, 0, 0, static_cast<int>(compact.size())}};
     MftRoadDecoder decoder{decoded};
     auto& scratch = frame.getWorkspace();
-    const auto& graph = frame.getGraph(0);
+    const auto& layout = frame.getLayout(0);
     BOOST_REQUIRE(scratch.loadNormalizedSource(frame, decoder, o2::InteractionRecord{50, 5}, ROFTimingConfig{40, 0, 0, 0},
                                                compact, patterns, rofs, &dict(), nullptr, o2::detectors::DetID::MFT,
-                                               gsl::span<const SurfaceId>{graph.getOrderedSurfaces()}, graph.getSurfaceCatalog())
+                                               gsl::span<const SurfaceId>{layout.getOrderedSurfaces()}, layout.getSurfaceCatalog())
                     .ok());
     o2::its::LayerTiming timing{};
     timing.mNROFsTF = 1;
