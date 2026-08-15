@@ -7,6 +7,10 @@
 #include <boost/test/unit_test.hpp>
 
 #include <array>
+#include <filesystem>
+#include <fstream>
+#include <iterator>
+#include <string>
 #include <vector>
 
 #include "ITSMFTTracking/SurfaceGraphBuilder.h"
@@ -65,4 +69,75 @@ BOOST_AUTO_TEST_CASE(FailedPlanPreparationLeavesTheWorkspaceInvalidAndEmpty)
   BOOST_CHECK(workspace.orderedSurfaces.empty());
   BOOST_CHECK(workspace.edges.empty());
   BOOST_CHECK(workspace.cells.empty());
+  BOOST_CHECK(workspace.topology.edges.empty());
+  BOOST_CHECK(workspace.topology.paths.empty());
+  BOOST_CHECK_EQUAL(workspace.getTopologyView().nEdges, 0u);
+  BOOST_CHECK_EQUAL(workspace.getTopologyView().nPaths, 0u);
+}
+
+BOOST_AUTO_TEST_CASE(KernelViewBorrowsWorkspaceTopology)
+{
+  TraversalWorkspace workspace;
+  workspace.topology.orderedSurfaces = {SurfaceId{0}, SurfaceId{1}};
+  workspace.topology.activeSurfaceList = workspace.topology.orderedSurfaces;
+  workspace.topology.surfacePositionById.assign(MaxLayoutSurfaces, -1);
+  workspace.topology.surfacePositionById[0] = 0;
+  workspace.topology.surfacePositionById[1] = 1;
+  workspace.topology.activeSurfaces = SurfaceMask{uint32_t{0b11}};
+  workspace.topology.edges.push_back(Edge{SurfaceId{0}, SurfaceId{1}, {}, 0});
+  workspace.topology.paths.push_back(CellPath{EdgeId{0}, EdgeId{0}});
+  workspace.topology.pathsByFirstEdgeOffsets = {0, 1};
+  workspace.topology.pathsByFirstEdge.push_back(CellTopologyId{0});
+  workspace.topology.scheduledPaths.push_back(CellTopologyId{0});
+  workspace.topology.roadStartPaths.push_back(CellTopologyId{0});
+  workspace.topology.roadStartComponentOffsets = {0, 1};
+
+  const auto view = workspace.getTopologyView();
+  BOOST_CHECK(view.orderedSurfaces == workspace.topology.orderedSurfaces.data());
+  BOOST_CHECK(view.edges == workspace.topology.edges.data());
+  BOOST_CHECK(view.paths == workspace.topology.paths.data());
+  BOOST_CHECK(view.pathsByFirstEdgeOffsets == workspace.topology.pathsByFirstEdgeOffsets.data());
+  BOOST_CHECK(view.pathsByFirstEdge == workspace.topology.pathsByFirstEdge.data());
+  BOOST_CHECK(view.scheduledPaths == workspace.topology.scheduledPaths.data());
+  BOOST_CHECK(view.roadStartPaths == workspace.topology.roadStartPaths.data());
+  BOOST_CHECK_EQUAL(view.nEdges, 1u);
+  BOOST_CHECK_EQUAL(view.nPaths, 1u);
+}
+
+BOOST_AUTO_TEST_CASE(ResetClearsAndInvalidatesOwnedTopology)
+{
+  TraversalWorkspace workspace;
+  workspace.valid = true;
+  workspace.topology.edges.push_back(Edge{SurfaceId{0}, SurfaceId{1}, {}, 0});
+  workspace.topology.paths.push_back(CellPath{EdgeId{0}, EdgeId{0}});
+  workspace.topology.activeSurfaces = SurfaceMask{uint32_t{0b11}};
+
+  workspace.reset(nullptr);
+
+  BOOST_CHECK(!workspace.valid);
+  BOOST_CHECK(workspace.topology.edges.empty());
+  BOOST_CHECK(workspace.topology.paths.empty());
+  BOOST_CHECK(workspace.topology.activeSurfaces.empty());
+  const auto view = workspace.getTopologyView();
+  BOOST_CHECK_EQUAL(view.nEdges, 0u);
+  BOOST_CHECK_EQUAL(view.nPaths, 0u);
+  BOOST_CHECK(view.activeSurfaces.empty());
+}
+
+BOOST_AUTO_TEST_CASE(ExecutionSourcesDoNotConsumeSurfaceGraph)
+{
+  namespace fs = std::filesystem;
+  const auto trackingRoot = fs::path{__FILE__}.parent_path().parent_path();
+  const std::array<fs::path, 4> sources{
+    trackingRoot / "include/ITSMFTTracking/TrackerTraits.h",
+    trackingRoot / "src/TrackerTraits.cxx",
+    trackingRoot / "include/ITSMFTTracking/detail/SurfaceTrackingScratch.h",
+    trackingRoot / "src/SurfaceTrackingScratch.cxx"};
+  for (const auto& path : sources) {
+    std::ifstream input{path};
+    const std::string source{std::istreambuf_iterator<char>{input}, {}};
+    BOOST_REQUIRE_MESSAGE(!source.empty(), "cannot read execution source " << path.string());
+    BOOST_CHECK_MESSAGE(source.find("SurfaceGraph") == std::string::npos,
+                        "execution source still consumes SurfaceGraph: " << path.string());
+  }
 }
