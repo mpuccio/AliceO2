@@ -60,7 +60,7 @@ std::optional<uint16_t> TraversalWorkspace::getEdgeSlot(EdgeId id) const noexcep
   return traversalSlot(edgeSlotById, id);
 }
 
-std::optional<uint16_t> TraversalWorkspace::getCellSlot(CellTopologyId id) const noexcept
+std::optional<uint16_t> TraversalWorkspace::getCellSlot(CellPathId id) const noexcept
 {
   return traversalSlot(cellSlotById, id);
 }
@@ -651,7 +651,7 @@ void SurfaceTrackingScratch::prepareClusters(const TimeFrame& frame, const Track
 }
 void SurfaceTrackingScratch::initialise(const TimeFrame& frame, const TrackingParameters& trkParam, const int maxLayers, const int iteration,
                                         const IndexTableUtilsCore& indexTableConfig, TraversalTopologyView topology,
-                                        gsl::span<const EdgeId> edgeIds, gsl::span<const CellTopologyId> cellIds,
+                                        gsl::span<const EdgeId> edgeIds, gsl::span<const CellPathId> cellIds,
                                         gsl::span<const SurfaceId> orderedSurfaces,
                                         gsl::span<const gsl::span<const GlobalMeasurement>> layerMeasurements)
 {
@@ -662,7 +662,7 @@ void SurfaceTrackingScratch::initialise(const TimeFrame& frame, const TrackingPa
 
 void SurfaceTrackingScratch::initialise(const TimeFrame& frame, const TrackingParameters& trkParam, const int maxLayers, const int iteration,
                                         gsl::span<const IndexTableUtilsCore> indexTableConfigs, TraversalTopologyView topology,
-                                        gsl::span<const EdgeId> edgeIds, gsl::span<const CellTopologyId> cellIds,
+                                        gsl::span<const EdgeId> edgeIds, gsl::span<const CellPathId> cellIds,
                                         gsl::span<const SurfaceId> orderedSurfaces,
                                         gsl::span<const gsl::span<const GlobalMeasurement>> layerMeasurements)
 {

@@ -98,7 +98,7 @@ SurfaceGraphBuildResult SurfaceGraphBuilder::build() const
       }
       const auto from = mDefinition.orderedSurfaces[posFrom];
       const auto to = mDefinition.orderedSurfaces[posTo];
-      const auto id = graph.addEdge(Edge{from, to, skipped, 0});
+      const auto id = graph.addEdge(Edge{from, to});
       if (!id.isValid()) {
         result.error = SurfaceGraphBuildError::TopologyRejected;
         result.topologyError = graph.getTopologyError();

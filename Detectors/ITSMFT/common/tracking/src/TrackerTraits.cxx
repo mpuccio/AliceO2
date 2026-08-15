@@ -170,7 +170,7 @@ int requireScratchEdgeSlot(const TraversalWorkspaceView& context, int iteration,
   return static_cast<int>(*slot);
 }
 
-int requireScratchCellSlot(const TraversalWorkspaceView& context, int iteration, CellTopologyId id)
+int requireScratchCellSlot(const TraversalWorkspaceView& context, int iteration, CellPathId id)
 {
   const auto slot = context.workspace.getCellSlot(id);
   if (!slot) {
@@ -482,11 +482,11 @@ void TrackerTraits::computeLayerCells(TraversalWorkspaceView& context, const int
   if (scratch.getCellsLookupTable().size() != scratchCellCount) {
     throw TraversalException{iteration, TraversalFailureReason::SparseTopologyMismatch};
   }
-  for (size_t cellTopologyId = 0; cellTopologyId < scratchCellCount; ++cellTopologyId) {
-    deepVectorClear(scratch.getCells()[cellTopologyId]);
-    deepVectorClear(scratch.getCellsLookupTable()[cellTopologyId]);
+  for (size_t cellPathId = 0; cellPathId < scratchCellCount; ++cellPathId) {
+    deepVectorClear(scratch.getCells()[cellPathId]);
+    deepVectorClear(scratch.getCellsLookupTable()[cellPathId]);
     if (scratch.hasMCinformation() && context.parameters[iteration].CreateArtefactLabels) {
-      deepVectorClear(scratch.getCellsLabel(cellTopologyId));
+      deepVectorClear(scratch.getCellsLabel(cellPathId));
     }
   }
 
@@ -509,7 +509,7 @@ void TrackerTraits::computeLayerCells(TraversalWorkspaceView& context, const int
 void TrackerTraits::computeLayerCellsImpl(
   TraversalWorkspaceView& context,
   const int iteration,
-  gsl::span<const CellTopologyId> cellIds)
+  gsl::span<const CellPathId> cellIds)
 {
   auto* mScratch = &context.scratch;
   const auto& mMemoryPool = mScratch->getMemoryPool();
@@ -647,7 +647,7 @@ void TrackerTraits::computeLayerCellsImpl(
     };
 
     for (const auto typedCellId : cellIds) {
-      const int cellTopologyId = requireScratchCellSlot(context, iteration, typedCellId);
+      const int cellPathId = requireScratchCellSlot(context, iteration, typedCellId);
       const auto& cellTopology = topology.getPath(typedCellId);
       const auto kind = topology.getSurface(topology.getEdge(cellTopology.first).from).kind;
       const int firstEdgeId = requireScratchEdgeSlot(context, iteration, cellTopology.first);
@@ -658,7 +658,7 @@ void TrackerTraits::computeLayerCellsImpl(
       }
       const auto hitBinding = resolveCellHitBinding(cellTopology);
 
-      auto& layerCells = mScratch->getCells()[cellTopologyId];
+      auto& layerCells = mScratch->getCells()[cellPathId];
       const int currentLayerTrackletsNum{static_cast<int>(mScratch->getTracklets()[firstEdgeId].size())};
       bounded_vector<int> perTrackletCount(currentLayerTrackletsNum + 1, 0, mMemoryPool.get());
       if (mTaskArena->max_concurrency() <= 1) {
@@ -674,7 +674,7 @@ void TrackerTraits::computeLayerCellsImpl(
         std::exclusive_scan(perTrackletCount.begin(), perTrackletCount.end(), perTrackletCount.begin(), 0);
         auto totalCells{perTrackletCount.back()};
         if (totalCells == 0) {
-          auto& lut = mScratch->getCellsLookupTable()[cellTopologyId];
+          auto& lut = mScratch->getCellsLookupTable()[cellPathId];
           lut.resize(currentLayerTrackletsNum + 1);
           std::fill(lut.begin(), lut.end(), 0);
           continue;
@@ -690,12 +690,12 @@ void TrackerTraits::computeLayerCellsImpl(
         });
       }
 
-      auto& lut = mScratch->getCellsLookupTable()[cellTopologyId];
+      auto& lut = mScratch->getCellsLookupTable()[cellPathId];
       lut.resize(currentLayerTrackletsNum + 1);
       std::copy_n(perTrackletCount.begin(), currentLayerTrackletsNum + 1, lut.begin());
 
       if (mScratch->hasMCinformation() && mTrkParams[iteration].CreateArtefactLabels) {
-        auto& labels = mScratch->getCellsLabel(cellTopologyId);
+        auto& labels = mScratch->getCellsLabel(cellPathId);
         labels.reserve(layerCells.size());
         for (const auto& cell : layerCells) {
           MCCompLabel currentLab{mScratch->getTrackletsLabel(firstEdgeId)[cell.getFirstTrackletIndex()]};
@@ -731,7 +731,7 @@ void TrackerTraits::findCellsNeighbours(TraversalWorkspaceView& context, const i
 void TrackerTraits::findCellsNeighboursForSchedule(
   TraversalWorkspaceView& context,
   int iteration,
-  gsl::span<const CellTopologyId> scheduledCells,
+  gsl::span<const CellPathId> scheduledCells,
   const TrackingKernelParameters& params)
 {
   auto* mScratch = &context.scratch;
@@ -750,21 +750,21 @@ void TrackerTraits::findCellsNeighboursForSchedule(
   mTaskArena->execute([&] {
     std::vector<bounded_vector<CellNeighbour>> cellsNeighboursByTarget;
     cellsNeighboursByTarget.reserve(scratchCellCount);
-    for (size_t cellTopologyId = 0; cellTopologyId < scratchCellCount; ++cellTopologyId) {
+    for (size_t cellPathId = 0; cellPathId < scratchCellCount; ++cellPathId) {
       cellsNeighboursByTarget.emplace_back(mMemoryPool.get());
     }
 
     for (const auto scheduledId : scheduledCells) {
-      const int cellTopologyId = requireScratchCellSlot(context, iteration, scheduledId);
-      if (static_cast<size_t>(cellTopologyId) >= scratchCellCount ||
-          static_cast<size_t>(cellTopologyId) >= mScratch->getCellsLookupTable().size()) {
+      const int cellPathId = requireScratchCellSlot(context, iteration, scheduledId);
+      if (static_cast<size_t>(cellPathId) >= scratchCellCount ||
+          static_cast<size_t>(cellPathId) >= mScratch->getCellsLookupTable().size()) {
         throw TraversalException{iteration, TraversalFailureReason::SparseTopologyMismatch};
       }
       const auto& cellTopology = topology.getPath(scheduledId);
       const int currentProcessEdge = requireScratchEdgeSlot(context, iteration, cellTopology.second);
       const double currentMSAngle = mScratch->getEdgeMSAngle(currentProcessEdge);
       const double currentAngularVariance = currentMSAngle * currentMSAngle;
-      if (mScratch->getCells()[cellTopologyId].empty()) {
+      if (mScratch->getCells()[cellPathId].empty()) {
         continue;
       }
       const auto successors = topology.getPathsStartingWithEdge(cellTopology.second);
@@ -773,39 +773,39 @@ void TrackerTraits::findCellsNeighboursForSchedule(
       }
 
       tbb::enumerable_thread_specific<bounded_vector<CellNeighbour>> sourceNeighbours([&]() { return bounded_vector<CellNeighbour>{mMemoryPool.get()}; });
-      tbb::parallel_for(0, static_cast<int>(mScratch->getCells()[cellTopologyId].size()), [&](const int iCell) {
+      tbb::parallel_for(0, static_cast<int>(mScratch->getCells()[cellPathId].size()), [&](const int iCell) {
         auto& localNeighbours = sourceNeighbours.local();
-        const auto& currentCellSeed{mScratch->getCells()[cellTopologyId][iCell]};
+        const auto& currentCellSeed{mScratch->getCells()[cellPathId][iCell]};
         const int nextLayerTrackletIndex{currentCellSeed.getSecondTrackletIndex()};
         for (uint32_t iSuccessor = 0; iSuccessor < successors.getEntries(); ++iSuccessor) {
           // Translate dynamically discovered neighbours from the global CSR
           // topology before accessing scratch.
           const auto nextTopologyId = topology.pathsByFirstEdge[successors.getFirstEntry() + iSuccessor];
-          const int nextCellTopologyId = requireScratchCellSlot(context, iteration, nextTopologyId);
+          const int nextCellPathId = requireScratchCellSlot(context, iteration, nextTopologyId);
           const auto& nextCellTopology = topology.getPath(nextTopologyId);
           const int nextProcessEdge = requireScratchEdgeSlot(context, iteration, nextCellTopology.second);
           const double nextMSAngle = mScratch->getEdgeMSAngle(nextProcessEdge);
           const double nextAngularVariance = nextMSAngle * nextMSAngle;
-          if (static_cast<size_t>(nextCellTopologyId) >= mScratch->getCells().size() ||
-              static_cast<size_t>(nextCellTopologyId) >= mScratch->getCellsLookupTable().size()) {
+          if (static_cast<size_t>(nextCellPathId) >= mScratch->getCells().size() ||
+              static_cast<size_t>(nextCellPathId) >= mScratch->getCellsLookupTable().size()) {
             throw TraversalException{iteration, TraversalFailureReason::SparseTopologyMismatch};
           }
-          if (mScratch->getCells()[nextCellTopologyId].empty() ||
-              mScratch->getCellsLookupTable()[nextCellTopologyId].empty()) {
+          if (mScratch->getCells()[nextCellPathId].empty() ||
+              mScratch->getCellsLookupTable()[nextCellPathId].empty()) {
             continue;
           }
-          const auto& nextCellLUT = mScratch->getCellsLookupTable()[nextCellTopologyId];
+          const auto& nextCellLUT = mScratch->getCellsLookupTable()[nextCellPathId];
           if (nextLayerTrackletIndex < 0 || nextLayerTrackletIndex + 1 >= static_cast<int>(nextCellLUT.size())) {
             continue;
           }
           const int nextLayerFirstCellIndex{nextCellLUT[nextLayerTrackletIndex]};
           const int nextLayerLastCellIndex{nextCellLUT[nextLayerTrackletIndex + 1]};
           if (nextLayerFirstCellIndex < 0 || nextLayerLastCellIndex < nextLayerFirstCellIndex ||
-              nextLayerLastCellIndex > static_cast<int>(mScratch->getCells()[nextCellTopologyId].size())) {
+              nextLayerLastCellIndex > static_cast<int>(mScratch->getCells()[nextCellPathId].size())) {
             throw TraversalException{iteration, TraversalFailureReason::SparseTopologyMismatch};
           }
           for (int iNextCell{nextLayerFirstCellIndex}; iNextCell < nextLayerLastCellIndex; ++iNextCell) {
-            const auto& nextCellSeedRef{mScratch->getCells()[nextCellTopologyId][iNextCell]};
+            const auto& nextCellSeedRef{mScratch->getCells()[nextCellPathId][iNextCell]};
             if (nextCellSeedRef.getFirstTrackletIndex() != nextLayerTrackletIndex || !currentCellSeed.getTimeStamp().isCompatible(nextCellSeedRef.getTimeStamp())) {
               break;
             }
@@ -848,7 +848,7 @@ void TrackerTraits::findCellsNeighboursForSchedule(
             }
 
             const int nextLevel = currentCellSeed.getLevel() + 1;
-            localNeighbours.emplace_back(cellTopologyId, iCell, nextCellTopologyId, iNextCell, nextLevel);
+            localNeighbours.emplace_back(cellPathId, iCell, nextCellPathId, iNextCell, nextLevel);
           }
         }
       });
@@ -872,8 +872,8 @@ void TrackerTraits::findCellsNeighboursForSchedule(
       }
     }
 
-    for (size_t cellTopologyId = 0; cellTopologyId < scratchCellCount; ++cellTopologyId) {
-      auto& cellsNeighbours = cellsNeighboursByTarget[cellTopologyId];
+    for (size_t cellPathId = 0; cellPathId < scratchCellCount; ++cellPathId) {
+      auto& cellsNeighbours = cellsNeighboursByTarget[cellPathId];
       if (cellsNeighbours.empty()) {
         continue;
       }
@@ -882,23 +882,23 @@ void TrackerTraits::findCellsNeighboursForSchedule(
         return a.nextCell < b.nextCell;
       });
 
-      auto& cellsNeighbourLUT = mScratch->getCellsNeighboursLUT()[cellTopologyId];
-      cellsNeighbourLUT.assign(mScratch->getCells()[cellTopologyId].size(), 0);
+      auto& cellsNeighbourLUT = mScratch->getCellsNeighboursLUT()[cellPathId];
+      cellsNeighbourLUT.assign(mScratch->getCells()[cellPathId].size(), 0);
       for (const auto& neigh : cellsNeighbours) {
         ++cellsNeighbourLUT[neigh.nextCell];
       }
       std::inclusive_scan(cellsNeighbourLUT.begin(), cellsNeighbourLUT.end(), cellsNeighbourLUT.begin());
 
-      mScratch->getCellsNeighbours()[cellTopologyId].reserve(cellsNeighbours.size());
-      mScratch->getCellsNeighboursTopology()[cellTopologyId].reserve(cellsNeighbours.size());
-      std::ranges::transform(cellsNeighbours, std::back_inserter(mScratch->getCellsNeighbours()[cellTopologyId]), [](const auto& neigh) { return neigh.cell; });
-      std::ranges::transform(cellsNeighbours, std::back_inserter(mScratch->getCellsNeighboursTopology()[cellTopologyId]), [](const auto& neigh) { return neigh.cellTopology; });
+      mScratch->getCellsNeighbours()[cellPathId].reserve(cellsNeighbours.size());
+      mScratch->getCellsNeighboursTopology()[cellPathId].reserve(cellsNeighbours.size());
+      std::ranges::transform(cellsNeighbours, std::back_inserter(mScratch->getCellsNeighbours()[cellPathId]), [](const auto& neigh) { return neigh.cell; });
+      std::ranges::transform(cellsNeighbours, std::back_inserter(mScratch->getCellsNeighboursTopology()[cellPathId]), [](const auto& neigh) { return neigh.cellTopology; });
     }
   });
 }
 
 template <typename InputSeed>
-void TrackerTraits::processNeighbours(TraversalWorkspaceView& context, int iteration, int defaultCellTopologyId, int iLevel, const bounded_vector<InputSeed>& currentCellSeed, const bounded_vector<int>& currentCellId, const bounded_vector<int>& currentCellTopologyId, bounded_vector<TrackSeed>& updatedCellSeeds, bounded_vector<int>& updatedCellsIds, bounded_vector<int>& updatedCellsTopologyIds, const TrackingKernelParameters& params)
+void TrackerTraits::processNeighbours(TraversalWorkspaceView& context, int iteration, int defaultCellPathId, int iLevel, const bounded_vector<InputSeed>& currentCellSeed, const bounded_vector<int>& currentCellId, const bounded_vector<int>& currentCellPathId, bounded_vector<TrackSeed>& updatedCellSeeds, bounded_vector<int>& updatedCellsIds, bounded_vector<int>& updatedCellsPathIds, const TrackingKernelParameters& params)
 {
   auto* mScratch = &context.scratch;
   const auto& mMemoryPool = mScratch->getMemoryPool();
@@ -911,7 +911,7 @@ void TrackerTraits::processNeighbours(TraversalWorkspaceView& context, int itera
   mTaskArena->execute([&] {
     auto forCellNeighbours = [&](auto Mode, int iCell, int offset = 0) -> int {
       const auto& currentCell{currentCellSeed[iCell]};
-      const int cellTopologyId = currentCellTopologyId.empty() ? defaultCellTopologyId : currentCellTopologyId[iCell];
+      const int cellPathId = currentCellPathId.empty() ? defaultCellPathId : currentCellPathId[iCell];
 
       if constexpr (decltype(Mode)::value != PassMode::TwoPassInsert::value) {
         if (currentCell.getLevel() != iLevel) {
@@ -928,16 +928,16 @@ void TrackerTraits::processNeighbours(TraversalWorkspaceView& context, int itera
       }
 
       const int cellId = currentCellId.empty() ? iCell : currentCellId[iCell];
-      if (cellTopologyId < 0 || mScratch->getCellsNeighboursLUT()[cellTopologyId].empty()) {
+      if (cellPathId < 0 || mScratch->getCellsNeighboursLUT()[cellPathId].empty()) {
         return 0;
       }
-      const int startNeighbourId{cellId ? mScratch->getCellsNeighboursLUT()[cellTopologyId][cellId - 1] : 0};
-      const int endNeighbourId{mScratch->getCellsNeighboursLUT()[cellTopologyId][cellId]};
+      const int startNeighbourId{cellId ? mScratch->getCellsNeighboursLUT()[cellPathId][cellId - 1] : 0};
+      const int endNeighbourId{mScratch->getCellsNeighboursLUT()[cellPathId][cellId]};
       int foundSeeds{0};
       for (int iNeighbourCell{startNeighbourId}; iNeighbourCell < endNeighbourId; ++iNeighbourCell) {
-        const int neighbourCellTopologyId = mScratch->getCellsNeighboursTopology()[cellTopologyId][iNeighbourCell];
-        const int neighbourCellId = mScratch->getCellsNeighbours()[cellTopologyId][iNeighbourCell];
-        const auto& neighbourCell = mScratch->getCells()[neighbourCellTopologyId][neighbourCellId];
+        const int neighbourCellPathId = mScratch->getCellsNeighboursTopology()[cellPathId][iNeighbourCell];
+        const int neighbourCellId = mScratch->getCellsNeighbours()[cellPathId][iNeighbourCell];
+        const auto& neighbourCell = mScratch->getCells()[neighbourCellPathId][neighbourCellId];
         if (neighbourCell.getSecondTrackletIndex() != currentCell.getFirstTrackletIndex()) {
           continue;
         }
@@ -991,13 +991,13 @@ void TrackerTraits::processNeighbours(TraversalWorkspaceView& context, int itera
         if constexpr (decltype(Mode)::value == PassMode::OnePass::value) {
           updatedCellSeeds.push_back(seed);
           updatedCellsIds.push_back(neighbourCellId);
-          updatedCellsTopologyIds.push_back(neighbourCellTopologyId);
+          updatedCellsPathIds.push_back(neighbourCellPathId);
         } else if constexpr (decltype(Mode)::value == PassMode::TwoPassCount::value) {
           ++foundSeeds;
         } else if constexpr (decltype(Mode)::value == PassMode::TwoPassInsert::value) {
           updatedCellSeeds[offset] = seed;
           updatedCellsIds[offset] = neighbourCellId;
-          updatedCellsTopologyIds[offset++] = neighbourCellTopologyId;
+          updatedCellsPathIds[offset++] = neighbourCellPathId;
         } else {
           static_assert(false, "Unknown mode!");
         }
@@ -1023,7 +1023,7 @@ void TrackerTraits::processNeighbours(TraversalWorkspaceView& context, int itera
       }
       updatedCellSeeds.resize(totalNeighbours);
       updatedCellsIds.resize(totalNeighbours);
-      updatedCellsTopologyIds.resize(totalNeighbours);
+      updatedCellsPathIds.resize(totalNeighbours);
 
       tbb::parallel_for(0, nCells, [&](const int iCell) {
         int offset = perCellCount[iCell];
@@ -1057,12 +1057,12 @@ void TrackerTraits::findRoadsImpl(TraversalWorkspaceView& context, const int ite
   const auto& mKernelParameters = context.workspace.kernelParameters;
   const auto& mLayerMeasurements = context.workspace.layerMeasurements;
   const auto& mLayerGlobalMeasurements = context.workspace.layerGlobalMeasurements;
-  const gsl::span<const CellTopologyId> roadStartCells = context.workspace.roadStartCells;
+  const gsl::span<const CellPathId> roadStartCells = context.workspace.roadStartCells;
   const int activeSurfaceCount = static_cast<int>(context.workspace.orderedSurfaces.size());
   bounded_vector<bounded_vector<int>> firstClusters(activeSurfaceCount, bounded_vector<int>(mMemoryPool.get()), mMemoryPool.get());
   firstClusters.resize(activeSurfaceCount);
   // Road starts are the binding's seeding-eligible sparse-plan subsequence.
-  // CellTopologyId values use compact slots; SurfaceId is never a vector index.
+  // CellPathId values use compact slots; SurfaceId is never a vector index.
   // Filter roads by absolute q/pT in parameters[4]'s units, identically for
   // both families. Non-finite values fail the finite-bound comparison.
   constexpr float maxAbsQOverPt = 1.e3f;
@@ -1086,31 +1086,31 @@ void TrackerTraits::findRoadsImpl(TraversalWorkspaceView& context, const int ite
       // The binding supplies the ownership-filtered road-start span.
       for (const auto startId : componentRoadStarts) {
         // Translate the road-start cell to its compact slot once.
-        const int startCellTopologyId = requireScratchCellSlot(context, iteration, startId);
+        const int startCellPathId = requireScratchCellSlot(context, iteration, startId);
         // Cell population is per-event/per-vertex data, so check it against
         // the current vertex rather than caching it in the pass plan.
-        if (mScratch->getCells()[startCellTopologyId].empty()) {
+        if (mScratch->getCells()[startCellPathId].empty()) {
           continue;
         }
 
         bounded_vector<int> lastCellId(mMemoryPool.get()), updatedCellId(mMemoryPool.get());
-        bounded_vector<int> lastCellTopologyId(mMemoryPool.get()), updatedCellTopologyId(mMemoryPool.get());
+        bounded_vector<int> lastCellPathId(mMemoryPool.get()), updatedCellPathId(mMemoryPool.get());
         bounded_vector<TrackSeed> lastCellSeed(mMemoryPool.get()), updatedCellSeed(mMemoryPool.get());
 
-        processNeighbours(context, iteration, startCellTopologyId, startLevel, mScratch->getCells()[startCellTopologyId], lastCellId, lastCellTopologyId, updatedCellSeed, updatedCellId, updatedCellTopologyId, mKernelParameters);
+        processNeighbours(context, iteration, startCellPathId, startLevel, mScratch->getCells()[startCellPathId], lastCellId, lastCellPathId, updatedCellSeed, updatedCellId, updatedCellPathId, mKernelParameters);
 
         int level = startLevel;
         while (level > 2 && !updatedCellSeed.empty()) {
           lastCellSeed.swap(updatedCellSeed);
           lastCellId.swap(updatedCellId);
-          lastCellTopologyId.swap(updatedCellTopologyId);
+          lastCellPathId.swap(updatedCellPathId);
           deepVectorClear(updatedCellSeed); /// tame the memory peaks
           deepVectorClear(updatedCellId);   /// tame the memory peaks
-          deepVectorClear(updatedCellTopologyId);
-          processNeighbours(context, iteration, o2::its::constants::UnusedIndex, --level, lastCellSeed, lastCellId, lastCellTopologyId, updatedCellSeed, updatedCellId, updatedCellTopologyId, mKernelParameters);
+          deepVectorClear(updatedCellPathId);
+          processNeighbours(context, iteration, o2::its::constants::UnusedIndex, --level, lastCellSeed, lastCellId, lastCellPathId, updatedCellSeed, updatedCellId, updatedCellPathId, mKernelParameters);
         }
         deepVectorClear(lastCellId);         /// tame the memory peaks
-        deepVectorClear(lastCellTopologyId); /// tame the memory peaks
+        deepVectorClear(lastCellPathId);     /// tame the memory peaks
         deepVectorClear(lastCellSeed);       /// tame the memory peaks
 
         if (!updatedCellSeed.empty()) {

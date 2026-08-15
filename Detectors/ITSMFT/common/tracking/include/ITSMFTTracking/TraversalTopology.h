@@ -22,8 +22,6 @@ namespace o2::itsmft::tracking
 struct Edge {
   SurfaceId from{};
   SurfaceId to{};
-  SurfaceMask skippedSurfaces{};
-  uint16_t flags{0};
 };
 
 struct CellPath {
@@ -54,10 +52,10 @@ struct TraversalTopologyView {
   const CellPath* paths{nullptr};
   uint32_t nPaths{0};
   const uint32_t* pathsByFirstEdgeOffsets{nullptr};
-  const CellTopologyId* pathsByFirstEdge{nullptr};
-  const CellTopologyId* scheduledPaths{nullptr};
+  const CellPathId* pathsByFirstEdge{nullptr};
+  const CellPathId* scheduledPaths{nullptr};
   uint32_t nScheduledPaths{0};
-  const CellTopologyId* roadStartPaths{nullptr};
+  const CellPathId* roadStartPaths{nullptr};
   uint32_t nRoadStartPaths{0};
   const uint32_t* roadStartComponentOffsets{nullptr};
   uint32_t nRoadStartComponentOffsets{0};
@@ -66,7 +64,7 @@ struct TraversalTopologyView {
   const SurfaceDescriptor& getSurface(SurfaceId id) const { return catalog.surfaces[catalog.getSurfaceIndex(id)]; }
   SurfaceCatalogView getSurfaceCatalogView() const noexcept { return catalog; }
   const Edge& getEdge(EdgeId id) const { return edges[id.value()]; }
-  const CellPath& getPath(CellTopologyId id) const { return paths[id.value()]; }
+  const CellPath& getPath(CellPathId id) const { return paths[id.value()]; }
   TopologyRange getPathsStartingWithEdge(EdgeId edge) const
   {
     const auto index = edge.value();
@@ -84,9 +82,9 @@ struct TraversalTopology {
   std::vector<Edge> edges;
   std::vector<CellPath> paths;
   std::vector<uint32_t> pathsByFirstEdgeOffsets;
-  std::vector<CellTopologyId> pathsByFirstEdge;
-  std::vector<CellTopologyId> scheduledPaths;
-  std::vector<CellTopologyId> roadStartPaths;
+  std::vector<CellPathId> pathsByFirstEdge;
+  std::vector<CellPathId> scheduledPaths;
+  std::vector<CellPathId> roadStartPaths;
   std::vector<uint32_t> roadStartComponentOffsets;
 
   TraversalTopologyView getView(SurfaceCatalogView catalog) const noexcept

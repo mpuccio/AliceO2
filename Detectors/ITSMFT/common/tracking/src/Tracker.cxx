@@ -200,7 +200,7 @@ void Tracker::buildTraversalPlan(TraversalWorkspace& workspace, const SurfaceLay
   staged.cells.reserve(staged.topology.paths.size());
   for (uint16_t path = 0; path < staged.topology.paths.size(); ++path) {
     staged.cellSlotById.push_back(static_cast<int16_t>(path));
-    staged.cells.push_back(CellTopologyId{path});
+    staged.cells.push_back(CellPathId{path});
   }
   staged.scheduledCells = staged.topology.scheduledPaths;
   staged.roadStartCells = staged.topology.roadStartPaths;
@@ -580,7 +580,7 @@ TrackingResult Tracker::run(TimeFrame& frame, TrackerTraits& traits)
       }
 
       auto& workspace = scratch.getTraversalWorkspace(static_cast<std::size_t>(iteration));
-      TraversalWorkspaceView view{iteration, frame, scratch, frame.getLayout(iteration).getSurfaceCatalog(),
+      TraversalWorkspaceView view{iteration, frame, scratch, workspace.getTopologyView(),
                                   trkParams, frame.getBz(), workspace};
       initializeTraversalWorkspace(view);
       traits.runTraversal(view, mRefitFunction);

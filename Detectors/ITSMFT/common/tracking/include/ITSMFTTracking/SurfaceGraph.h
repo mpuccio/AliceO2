@@ -80,12 +80,10 @@ static_assert(std::is_standard_layout_v<Edge> && std::is_trivially_copyable_v<Ed
 static_assert(std::is_standard_layout_v<SurfaceCellTopology> && std::is_trivially_copyable_v<SurfaceCellTopology>);
 static_assert(std::is_standard_layout_v<TopologyRange> && std::is_trivially_copyable_v<TopologyRange>);
 static_assert(std::is_standard_layout_v<SurfaceGraphView> && std::is_trivially_copyable_v<SurfaceGraphView>);
-static_assert(sizeof(Edge) == 12);
+static_assert(sizeof(Edge) == 4);
 static_assert(sizeof(SurfaceCellTopology) == 8);
 static_assert(offsetof(Edge, from) == 0);
 static_assert(offsetof(Edge, to) == 2);
-static_assert(offsetof(Edge, skippedSurfaces) == 4);
-static_assert(offsetof(Edge, flags) == 8);
 
 #ifndef GPUCA_GPUCODE
 
@@ -180,9 +178,7 @@ class SurfaceGraph
     if (!canModify()) {
       return EdgeId::invalid();
     }
-    if (!isSurfaceInGraph(edge.from) || !isSurfaceInGraph(edge.to) ||
-        !edge.skippedSurfaces.isSubsetOf(activeSurfaceMask()) ||
-        edge.skippedSurfaces.has(edge.from) || edge.skippedSurfaces.has(edge.to)) {
+    if (!isSurfaceInGraph(edge.from) || !isSurfaceInGraph(edge.to)) {
       mTopologyError = SurfaceGraphTopologyError::InvalidSurface;
       return EdgeId::invalid();
     }

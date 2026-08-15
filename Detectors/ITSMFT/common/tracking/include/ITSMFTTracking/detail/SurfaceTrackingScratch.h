@@ -86,17 +86,17 @@ struct TraversalWorkspace {
   std::vector<int16_t> edgeSlotById;
   std::vector<int16_t> cellSlotById;
   std::vector<EdgeId> edges;
-  std::vector<CellTopologyId> cells;
-  std::vector<CellTopologyId> roadStartCells;
+  std::vector<CellPathId> cells;
+  std::vector<CellPathId> roadStartCells;
   std::vector<uint32_t> roadStartComponentOffsets;
-  std::vector<CellTopologyId> scheduledCells;
+  std::vector<CellPathId> scheduledCells;
   SurfaceCatalogView topologyCatalog{};
   TraversalTopology topology;
   bool valid{false};
 
   std::optional<uint16_t> getSurfaceSlot(SurfaceId id) const noexcept;
   std::optional<uint16_t> getEdgeSlot(EdgeId id) const noexcept;
-  std::optional<uint16_t> getCellSlot(CellTopologyId id) const noexcept;
+  std::optional<uint16_t> getCellSlot(CellPathId id) const noexcept;
   TraversalTopologyView getTopologyView() const noexcept { return topology.getView(topologyCatalog); }
 
   void reset(std::pmr::memory_resource* resource) noexcept
@@ -319,12 +319,12 @@ class SurfaceTrackingScratch
 
   void initialise(const TimeFrame& frame, const TrackingParameters& trkParam, int maxLayers, int iteration,
                   const IndexTableUtilsCore& indexTableConfig, TraversalTopologyView topology,
-                  gsl::span<const EdgeId> edgeIds, gsl::span<const CellTopologyId> cellIds,
+                  gsl::span<const EdgeId> edgeIds, gsl::span<const CellPathId> cellIds,
                   gsl::span<const SurfaceId> orderedSurfaces,
                   gsl::span<const gsl::span<const GlobalMeasurement>> layerMeasurements);
   void initialise(const TimeFrame& frame, const TrackingParameters& trkParam, int maxLayers, int iteration,
                   gsl::span<const IndexTableUtilsCore> indexTableConfigs, TraversalTopologyView topology,
-                  gsl::span<const EdgeId> edgeIds, gsl::span<const CellTopologyId> cellIds,
+                  gsl::span<const EdgeId> edgeIds, gsl::span<const CellPathId> cellIds,
                   gsl::span<const SurfaceId> orderedSurfaces,
                   gsl::span<const gsl::span<const GlobalMeasurement>> layerMeasurements);
 

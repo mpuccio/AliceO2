@@ -65,11 +65,10 @@ struct TraversalWorkspaceView {
   float bz{0.f};
   TraversalWorkspace& workspace;
 
-  template <typename LayoutView>
   TraversalWorkspaceView(int iterationValue, TimeFrame& frameValue, SurfaceTrackingScratch& scratchValue,
-                         LayoutView, gsl::span<const TrackingParameters> parametersValue,
+                         TraversalTopologyView topologyValue, gsl::span<const TrackingParameters> parametersValue,
                          float bzValue, TraversalWorkspace& workspaceValue)
-    : iteration{iterationValue}, frame{frameValue}, scratch{scratchValue}, topology{workspaceValue.getTopologyView()}, parameters{parametersValue}, bz{bzValue}, workspace{workspaceValue}
+    : iteration{iterationValue}, frame{frameValue}, scratch{scratchValue}, topology{topologyValue}, parameters{parametersValue}, bz{bzValue}, workspace{workspaceValue}
   {
   }
 };
@@ -149,10 +148,10 @@ class TrackerTraits
                                  gsl::span<const EdgeId> edgeIds);
   void computeLayerCells(TraversalWorkspaceView& context, int iteration);
   void computeLayerCellsImpl(TraversalWorkspaceView& context, int iteration,
-                             gsl::span<const CellTopologyId> cellIds);
+                             gsl::span<const CellPathId> cellIds);
   void findCellsNeighbours(TraversalWorkspaceView& context, int iteration);
   void findCellsNeighboursForSchedule(TraversalWorkspaceView& context, int iteration,
-                                      gsl::span<const CellTopologyId> scheduledCells,
+                                      gsl::span<const CellPathId> scheduledCells,
                                       const TrackingKernelParameters& params);
 
   void findRoads(TraversalWorkspaceView& context, int iteration, SeedRefitFunction refitFunction);
@@ -160,7 +159,7 @@ class TrackerTraits
 
   // Neighbour processing helper; it does not encode a detector layer count.
   template <typename InputSeed>
-  void processNeighbours(TraversalWorkspaceView& context, int iteration, int defaultCellTopologyId, int iLevel, const bounded_vector<InputSeed>& currentCellSeed, const bounded_vector<int>& currentCellId, const bounded_vector<int>& currentCellTopologyId, bounded_vector<TrackSeed>& updatedCellSeed, bounded_vector<int>& updatedCellId, bounded_vector<int>& updatedCellTopologyId, const TrackingKernelParameters& params);
+  void processNeighbours(TraversalWorkspaceView& context, int iteration, int defaultCellPathId, int iLevel, const bounded_vector<InputSeed>& currentCellSeed, const bounded_vector<int>& currentCellId, const bounded_vector<int>& currentCellPathId, bounded_vector<TrackSeed>& updatedCellSeed, bounded_vector<int>& updatedCellId, bounded_vector<int>& updatedCellPathIds, const TrackingKernelParameters& params);
 
   std::shared_ptr<tbb::task_arena> mTaskArena;
 };
