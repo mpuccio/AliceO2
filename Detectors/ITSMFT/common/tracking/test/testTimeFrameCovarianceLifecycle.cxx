@@ -32,7 +32,6 @@
 #include "GPUCommonMath.h"
 #include "ITSMFTTracking/Configuration.h"
 #include "ITSMFTTracking/IOUtils.h"
-#include "ITSMFTTracking/SurfaceGraphBuilder.h"
 #include "ITSMFTTracking/detail/SurfaceTrackingScratch.h"
 #include "ITSMFTTracking/ITSMFTDetectorDefinitions.h"
 #include "ITSMFTTracking/ClusterDecoding.h"
@@ -232,7 +231,7 @@ struct Rig {
     configuration.memoryPool = pool;
     for (const auto& parameter : parameters) {
       TrackerIterationConfiguration iteration;
-      iteration.graph = makeSurfaceChain(
+      iteration.layout = makeSurfaceLayoutChain(
         orderedSurfaces, parameter.MaxHoles,
         positionalSurfaceMask(parameter.HoleLayerMask, orderedSurfaces, NLayers),
         positionalSurfaceMask(parameter.StartLayerMask, orderedSurfaces, NLayers));
@@ -249,12 +248,12 @@ struct Rig {
       CompClusterExt{10, 20, CompCluster::InvalidPatternID, 0}};
     const std::vector<unsigned char> patterns{OnePixelPattern.begin(), OnePixelPattern.end()};
     const std::vector<ROFRecord> rofs{ROFRecord{{100, 5}, 0, 0, 1}};
-    const auto& graph = frame.getGraph(0);
-    const auto& orderedSurfaces = graph.getOrderedSurfaces();
+    const auto& layout = frame.getLayout(0);
+    const auto& orderedSurfaces = layout.getOrderedSurfaces();
     const auto result = tf->loadNormalizedSource(
       frame, decoder, o2::InteractionRecord{50, 5}, ROFTimingConfig{40, 0, 0, 0},
       clusters, patterns, rofs, &dictionary(), nullptr, detector,
-      gsl::span<const SurfaceId>{orderedSurfaces}, graph.getSurfaceCatalog(), applySysErrors);
+      gsl::span<const SurfaceId>{orderedSurfaces}, layout.getSurfaceCatalog(), applySysErrors);
     BOOST_REQUIRE(result.ok());
 
     o2::its::LayerTiming timing{};

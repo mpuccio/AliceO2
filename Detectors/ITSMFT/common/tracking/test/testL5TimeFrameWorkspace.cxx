@@ -38,7 +38,7 @@ TrackerInitialization makeConfiguration(const std::vector<SurfaceDescriptor>& ca
   TrackerIterationConfiguration iteration;
   TrackingParameters parameters;
   parameters.NLayers = 0;
-  iteration.graph = makeSurfaceChain(ordered, 1, SurfaceMask{1u << 1}, SurfaceMask{1u << 2});
+  iteration.layout = makeSurfaceLayoutChain(ordered, 1, SurfaceMask{1u << 1}, SurfaceMask{1u << 2});
   iteration.parameters = parameters;
   configuration.iterations.push_back(std::move(iteration));
   return configuration;

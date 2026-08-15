@@ -14,10 +14,10 @@
 
 #include "ITSMFTTracking/Configuration.h"
 #include "ITSMFTTracking/ITSMFTDetectorDefinitions.h"
-#include "ITSMFTTracking/SurfaceGraphBuilder.h"
 #include "ITSMFTTracking/TimeFrame.h"
 #include "ITSMFTTracking/Tracker.h"
 #include "ITSMFTTracking/TrackerTraits.h"
+#include "ITSMFTTracking/TraversalTopology.h"
 #include "ITStracking/Constants.h"
 
 #include "TraversalTestSupport.h"
@@ -79,9 +79,9 @@ void configure(TimeFrame& frame, Tracker& tracker, const std::shared_ptr<Bounded
   configuration.memoryPool = pool;
   for (const auto& params : parameters) {
     TrackerIterationConfiguration iteration;
-    iteration.graph = makeSurfaceChain(ordered, params.MaxHoles,
-                                       positionalSurfaceMask(params.HoleLayerMask, ordered, params.NLayers),
-                                       positionalSurfaceMask(params.StartLayerMask, ordered, params.NLayers));
+    iteration.layout = makeSurfaceLayoutChain(ordered, params.MaxHoles,
+                                              positionalSurfaceMask(params.HoleLayerMask, ordered, params.NLayers),
+                                              positionalSurfaceMask(params.StartLayerMask, ordered, params.NLayers));
     iteration.parameters = params;
     configuration.iterations.push_back(std::move(iteration));
   }
@@ -89,28 +89,24 @@ void configure(TimeFrame& frame, Tracker& tracker, const std::shared_ptr<Bounded
 }
 } // namespace
 
-BOOST_AUTO_TEST_CASE(buildSurfaceGraphsRejectsInvalidDefinitions)
+BOOST_AUTO_TEST_CASE(surfaceLayoutsRejectInvalidDefinitions)
 {
   const auto surfaces = catalog(7, SurfaceKind::Cylinder, o2::detectors::DetID::ITS);
   const SurfaceCatalogView view{surfaces.data(), static_cast<uint32_t>(surfaces.size())};
+  const gsl::span<const SurfaceDescriptor> catalogSpan{surfaces.data(), surfaces.size()};
   const auto ordered = order(7);
-  auto invalidCount = parameters(o2::detectors::DetID::ITS);
-  invalidCount.NLayers = 8;
-  const std::vector<TrackingParameters> countParameters{invalidCount};
-  const auto countResult = buildSurfaceGraphs(view, ordered, countParameters);
-  BOOST_CHECK(!countResult.ok());
-  BOOST_CHECK_EQUAL(countResult.failedIteration, 0u);
+  auto invalidOrder = ordered;
+  invalidOrder.push_back(SurfaceId{7});
+  const auto invalidSurface = SurfaceLayout{catalogSpan, makeSurfaceLayoutChain(invalidOrder)};
+  BOOST_CHECK(!invalidSurface.valid());
+  BOOST_CHECK_EQUAL(static_cast<int>(invalidSurface.getError()), static_cast<int>(SurfaceLayoutError::InvalidSurface));
 
-  auto invalidHoles = parameters(o2::detectors::DetID::ITS);
-  invalidHoles.NLayers = 7;
-  invalidHoles.MaxHoles = -1;
-  const std::vector<TrackingParameters> holeParameters{invalidHoles};
-  const auto holeResult = buildSurfaceGraphs(view, ordered, holeParameters);
-  BOOST_CHECK(!holeResult.ok());
-  BOOST_CHECK_EQUAL(holeResult.failedIteration, 0u);
+  const auto invalidHoleLayout = SurfaceLayout{catalogSpan, makeSurfaceLayoutChain(ordered, -1)};
+  BOOST_CHECK(!invalidHoleLayout.valid());
+  BOOST_CHECK_EQUAL(static_cast<int>(invalidHoleLayout.getError()), static_cast<int>(SurfaceLayoutError::NegativeMaxHoles));
 }
 
-BOOST_AUTO_TEST_CASE(nonidentity_surface_order_builds_the_expected_graph)
+BOOST_AUTO_TEST_CASE(nonidentity_surface_order_builds_the_expected_topology)
 {
   const std::vector<SurfaceId> ordered{SurfaceId{3}, SurfaceId{0}, SurfaceId{6}, SurfaceId{2}, SurfaceId{5}, SurfaceId{1}, SurfaceId{4}};
   auto params = parameters(o2::detectors::DetID::ITS);
@@ -120,16 +116,20 @@ BOOST_AUTO_TEST_CASE(nonidentity_surface_order_builds_the_expected_graph)
   params.StartLayerMask = (uint16_t{1} << 0) | (uint16_t{1} << 4);
   const auto surfaces = catalog(7, SurfaceKind::Cylinder, o2::detectors::DetID::ITS);
   const SurfaceCatalogView view{surfaces.data(), static_cast<uint32_t>(surfaces.size())};
-  const std::vector<TrackingParameters> graphParameters{params};
-  const auto result = buildSurfaceGraphs(view, ordered, graphParameters);
+  const auto layout = SurfaceLayout{gsl::span<const SurfaceDescriptor>{surfaces.data(), surfaces.size()},
+                                    makeSurfaceLayoutChain(ordered, params.MaxHoles,
+                                                           positionalSurfaceMask(params.HoleLayerMask, ordered, params.NLayers),
+                                                           positionalSurfaceMask(params.StartLayerMask, ordered, params.NLayers))};
+  BOOST_REQUIRE(layout.valid());
+  const auto result = deriveTraversalTopology(layout);
   BOOST_REQUIRE(result.ok());
-  const auto& graph = result.graphs.front();
-  BOOST_CHECK_EQUAL(graph.getOrderedSurfaces().size(), 7u);
+  const auto& topology = *result.topology;
+  BOOST_CHECK_EQUAL(topology.orderedSurfaces.size(), 7u);
   for (size_t position = 0; position < ordered.size(); ++position) {
-    BOOST_CHECK_EQUAL(graph.getOrderedSurfaces()[position].value(), ordered[position].value());
+    BOOST_CHECK_EQUAL(topology.orderedSurfaces[position].value(), ordered[position].value());
   }
-  BOOST_CHECK(graph.getView().nEdges > 0);
-  BOOST_CHECK(graph.getView().nCells > 0);
+  BOOST_CHECK(!topology.edges.empty());
+  BOOST_CHECK(!topology.paths.empty());
 }
 
 BOOST_AUTO_TEST_CASE(traversal_configuration_allocates_one_workspace_per_iteration)
@@ -146,12 +146,15 @@ BOOST_AUTO_TEST_CASE(traversal_configuration_allocates_one_workspace_per_iterati
   const auto ordered = order(10);
   configure(frame, tracker, pool, surfaces, ordered, {first, second});
 
-  const auto& workspace = frame.getWorkspace();
+  auto& workspace = frame.getWorkspace();
   BOOST_CHECK_EQUAL(frame.getNIterations(), 2u);
   BOOST_CHECK(!workspace.getTraversalWorkspace(0).valid);
   BOOST_CHECK(!workspace.getTraversalWorkspace(1).valid);
   BOOST_CHECK_NE(&workspace.getTraversalWorkspace(0), &workspace.getTraversalWorkspace(1));
-  BOOST_CHECK_NE(frame.getGraph(0).getView().nEdges, frame.getGraph(1).getView().nEdges);
+  TrackerTestAccess::preparePlan(tracker, workspace.getTraversalWorkspace(0), frame.getLayout(0));
+  TrackerTestAccess::preparePlan(tracker, workspace.getTraversalWorkspace(1), frame.getLayout(1));
+  BOOST_CHECK_NE(workspace.getTraversalWorkspace(0).getTopologyView().nEdges,
+                 workspace.getTraversalWorkspace(1).getTopologyView().nEdges);
 }
 
 BOOST_AUTO_TEST_CASE(configuration_retains_the_selected_workspace_plan)

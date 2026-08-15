@@ -47,7 +47,6 @@
 #include "DataFormatsITSMFT/TopologyDictionary.h"
 #include "DetectorsCommonDataFormats/DetID.h"
 #include "ITSMFTTracking/Configuration.h"
-#include "ITSMFTTracking/SurfaceGraphBuilder.h"
 #include "ITSMFTTracking/IndexTableConfiguration.h"
 #include "ITSMFTTracking/IndexTableUtils.h"
 #include "ITSMFTTracking/ITSMFTDetectorDefinitions.h"
@@ -250,7 +249,7 @@ struct Rig {
     configuration.memoryPool = pool;
     for (const auto& parameter : params) {
       TrackerIterationConfiguration iteration;
-      iteration.graph = makeSurfaceChain(
+      iteration.layout = makeSurfaceLayoutChain(
         orderedSurfaces, parameter.MaxHoles,
         positionalSurfaceMask(parameter.HoleLayerMask, orderedSurfaces, ITSNLayers),
         positionalSurfaceMask(parameter.StartLayerMask, orderedSurfaces, ITSNLayers));
@@ -275,11 +274,11 @@ struct Rig {
     LegacyLikeDecoder decoder{o2::detectors::DetID::ITS};
     const o2::InteractionRecord origin{50, 5};
     const ROFTimingConfig timing{40, 0, 0, 0};
-    const auto& graph = frame.getGraph(0);
-    const auto& orderedSurfaces = graph.getOrderedSurfaces();
+    const auto& layout = frame.getLayout(0);
+    const auto& orderedSurfaces = layout.getOrderedSurfaces();
     const auto result = tf->loadNormalizedSource(frame, decoder, origin, timing, f.clusters, f.patterns, f.rofs, &dict(),
                                                  f.labels.getIndexedSize() > 0 ? &f.labels : nullptr, o2::detectors::DetID::ITS,
-                                                 gsl::span<const SurfaceId>{orderedSurfaces}, graph.getSurfaceCatalog());
+                                                 gsl::span<const SurfaceId>{orderedSurfaces}, layout.getSurfaceCatalog());
     BOOST_REQUIRE(result.ok());
 
     o2::its::LayerTiming timing2{};
@@ -325,8 +324,8 @@ BOOST_AUTO_TEST_CASE(FirstPassCommitsValidatedConfigurationIntoTimeFrame)
   auto params = makeOneIterationITSParams();
   rig.establishValidLayout(params);
   rig.loadSource(makeFixture());
-  BOOST_TEST(rig.frame.getGraph(0).getSurfaceCatalog().getSurface(SurfaceId{0}).chartRange.min == -20.f);
-  BOOST_TEST(rig.frame.getGraph(0).getSurfaceCatalog().getSurface(SurfaceId{0}).chartRange.max == 20.f);
+  BOOST_TEST(rig.frame.getLayout(0).getSurfaceCatalog().getSurface(SurfaceId{0}).chartRange.min == -20.f);
+  BOOST_TEST(rig.frame.getLayout(0).getSurfaceCatalog().getSurface(SurfaceId{0}).chartRange.max == 20.f);
   BOOST_CHECK_NO_THROW(TrackerTestAccess::prepare(rig.tracker, rig.frame, 0));
 
   IndexTableUtilsCore expected;
@@ -455,7 +454,7 @@ BOOST_AUTO_TEST_CASE(FirstPassWithRebuildClusterLUTLegitimatelyChangesConfigurat
 
 // Gate 4 B2 Slice 2 removed the MissingLayout reordering-regression test that
 // used to live here: initialiseTimeFrame() now takes the plan as an explicit
-// `const std::vector<SurfaceGraph>&` reference parameter, so "no layout established"
+// layout/topology view, so "no layout established"
 // is no longer a state a caller can even construct -- there is no longer a
 // TimeFrame-owned "missing layout" condition for TraversalFailureReason::
 // MissingLayout to classify. The reordering property this test protected

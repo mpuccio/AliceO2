@@ -26,7 +26,6 @@
 
 #include "ITSMFTTracking/Cell.h"
 #include "ITSMFTTracking/Configuration.h"
-#include "ITSMFTTracking/SurfaceGraphBuilder.h"
 #include "ITSMFTTracking/IndexTableConfiguration.h"
 #include "ITSMFTTracking/ITSMFTDetectorDefinitions.h"
 #include "ITSMFTTracking/detail/SurfaceTrackingScratch.h"
@@ -34,6 +33,8 @@
 #include "ITSMFTTracking/Tracker.h"
 #include "ITSMFTTracking/TrackerTraits.h"
 #include "ITStracking/Constants.h"
+
+#include "TraversalTestSupport.h"
 
 using namespace o2::itsmft::tracking;
 
@@ -181,22 +182,24 @@ BOOST_AUTO_TEST_CASE(NonSevenOrTenPlanExecutesTheNonTemplatedCore)
   configuration.catalog = {catalog.data(), static_cast<uint32_t>(catalog.size())};
   configuration.memoryPool = pool;
   TrackerIterationConfiguration iteration;
-  iteration.graph = makeSurfaceChain(ordered, parameters.MaxHoles,
-                                     positionalSurfaceMask(parameters.HoleLayerMask, ordered, ordered.size()),
-                                     positionalSurfaceMask(parameters.StartLayerMask, ordered, ordered.size()));
+  iteration.layout = makeSurfaceLayoutChain(ordered, parameters.MaxHoles,
+                                            positionalSurfaceMask(parameters.HoleLayerMask, ordered, ordered.size()),
+                                            positionalSurfaceMask(parameters.StartLayerMask, ordered, ordered.size()));
   iteration.parameters = parameters;
   configuration.iterations.push_back(std::move(iteration));
   const auto configured = tracker.initialize(frame, configuration);
   BOOST_REQUIRE(configured.ok());
 
-  const auto& graph = frame.getGraph(0);
-  const auto& layout = graph.getView();
+  const auto& layout = frame.getLayout(0);
+  auto& workspace = frame.getWorkspace().getTraversalWorkspace(0);
+  TrackerTestAccess::preparePlan(tracker, workspace, layout);
+  const auto topology = workspace.getTopologyView();
   TrackerTraits traits;
   std::shared_ptr<tbb::task_arena> arena;
   traits.setNThreads(1, arena);
   BOOST_REQUIRE_EQUAL(frame.getWorkspace().getNOwnedSurfaces(), 4u);
-  BOOST_CHECK(layout.orderedSurfaces[0] == SurfaceId{1});
-  BOOST_CHECK(layout.orderedSurfaces[2] == SurfaceId{7});
+  BOOST_CHECK(topology.orderedSurfaces[0] == SurfaceId{1});
+  BOOST_CHECK(topology.orderedSurfaces[2] == SurfaceId{7});
 
   TrackSeed seed;
   SurfaceMask activePositions;
@@ -208,9 +211,9 @@ BOOST_AUTO_TEST_CASE(NonSevenOrTenPlanExecutesTheNonTemplatedCore)
   BOOST_CHECK_EQUAL(seed.getActiveSurfaceCount(), 4);
   BOOST_CHECK_EQUAL(seed.getCluster(0), 100);
   BOOST_CHECK_EQUAL(seed.getCluster(3), 103);
-  // Static graph configuration retains the sparse, non-identity order. The
-  // Tracker derives the pass-local workspace from it at traversal time.
-  BOOST_CHECK_EQUAL(graph.getOrderedSurfaces().size(), ordered.size());
+  // Static layout configuration retains the sparse, non-identity order. The
+  // Tracker derives the pass-local workspace topology from it at traversal time.
+  BOOST_CHECK_EQUAL(topology.nOrderedSurfaces, ordered.size());
 }
 
 } // namespace
