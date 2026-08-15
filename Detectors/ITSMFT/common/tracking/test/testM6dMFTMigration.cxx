@@ -35,7 +35,6 @@
 #include "ITSMFTTracking/IOUtils.h"
 #include "ITSMFTTracking/GenericTrackOutputAdapter.h"
 #include "ITSMFTTracking/Configuration.h"
-#include "ITSMFTTracking/SurfaceGraphBuilder.h"
 #include "ITSMFTTracking/IOUtils.h"
 #include "ITSMFTTracking/ITSMFTDetectorDefinitions.h"
 #include "ITSMFTTracking/detail/SurfaceTrackingScratch.h"

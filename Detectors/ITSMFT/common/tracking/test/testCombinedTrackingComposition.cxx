@@ -38,7 +38,6 @@
 #include "DetectorsCommonDataFormats/DetID.h"
 #include "ITSMFTTracking/Tracker.h"
 #include "ITSMFTTracking/Configuration.h"
-#include "ITSMFTTracking/SurfaceGraphBuilder.h"
 #include "ITSMFTTracking/detail/ITSSharedClusterCompatibility.h"
 #include "ITSMFTTracking/detail/SurfaceTrackingScratch.h"
 #include "ITSMFTTracking/detail/MFTFwdTrackHelpers.h"
@@ -347,7 +346,7 @@ struct StandaloneRun {
     configuration.catalog = catalogView;
     configuration.memoryPool = pool;
     TrackerIterationConfiguration iteration;
-    iteration.graph = makeSurfaceChain(
+    iteration.layout = makeSurfaceLayoutChain(
       orderedSurfaces, singleParams.MaxHoles,
       positionalSurfaceMask(singleParams.HoleLayerMask, orderedSurfaces, NLayers),
       positionalSurfaceMask(singleParams.StartLayerMask, orderedSurfaces, NLayers));
@@ -369,8 +368,8 @@ struct StandaloneRun {
     PrescribedDecoder decoder{det, kind, decoded};
     const auto load = scratch->loadNormalizedSource(frame, decoder, o2::InteractionRecord{50, 5}, ROFTimingConfig{rofLength, 0, 0, 0},
                                                     compact, patterns, rofs, &dict(), nullptr, det,
-                                                    gsl::span<const SurfaceId>{frame.getGraph(0).getOrderedSurfaces()},
-                                                    frame.getGraph(0).getSurfaceCatalog());
+                                                    gsl::span<const SurfaceId>{frame.getLayout(0).getOrderedSurfaces()},
+                                                    frame.getLayout(0).getSurfaceCatalog());
     BOOST_REQUIRE(load.ok());
 
     o2::its::LayerTiming layerTiming{};
@@ -616,19 +615,19 @@ BOOST_AUTO_TEST_CASE(CombinedLoadingBackfillsOneGlobalWorkspace)
   const auto& mftColExtent = mftParams.LayerColHalfExtent.empty() ? mftParams.LayerZ : mftParams.LayerColHalfExtent;
   checkConcatenated(combined.LayerColHalfExtent, itsColExtent, mftColExtent);
 
-  const auto graph = frame.getGraph(0).getView();
-  BOOST_CHECK_EQUAL(graph.seedingSurfaces.value(), allCombinedSurfaces);
-  BOOST_REQUIRE_EQUAL(graph.nEdges, static_cast<uint32_t>(ITSNLayers + MFTNLayers - 2));
-  for (uint16_t edgeId = 0; edgeId < graph.nEdges; ++edgeId) {
-    const auto& edge = graph.getEdge(EdgeId{edgeId});
+  const auto result = composer.process(itsSource, mftSource, o2::InteractionRecord{50, 5});
+  BOOST_REQUIRE(result.outcome == TrackingOutcome::Success);
+
+  const auto topology = frame.getWorkspace().getTraversalWorkspace(0).getTopologyView();
+  BOOST_CHECK_EQUAL(topology.seedingSurfaces.value(), allCombinedSurfaces);
+  BOOST_REQUIRE_EQUAL(topology.nEdges, static_cast<uint32_t>(ITSNLayers + MFTNLayers - 2));
+  for (uint16_t edgeId = 0; edgeId < topology.nEdges; ++edgeId) {
+    const auto& edge = topology.getEdge(EdgeId{edgeId});
     const bool fromITS = edge.from.value() < ITSNLayers;
     const bool toITS = edge.to.value() < ITSNLayers;
     BOOST_CHECK_EQUAL(fromITS, toITS);
     BOOST_CHECK(!(edge.from == SurfaceId{ITSNLayers - 1} && edge.to == SurfaceId{ITSNLayers}));
   }
-
-  const auto result = composer.process(itsSource, mftSource, o2::InteractionRecord{50, 5});
-  BOOST_REQUIRE(result.outcome == TrackingOutcome::Success);
 
   BOOST_CHECK_EQUAL(composer.getITSScratch().getTotalClusters(),
                     static_cast<int>(itsClusters.size() + mftClusters.size()));

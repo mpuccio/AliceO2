@@ -23,12 +23,9 @@
 // normalized measurements.
 //
 // Gate 2 (Slice B3): loadNormalizedSource() no longer accepts an externally
-// supplied SurfaceGraphView or layer-to-surface mapping. Gate 4 B2 Slice 2
-// went further: TimeFrame owns no catalog/plan of its own at all any more.
-// Every test below builds its own std::vector<SurfaceGraph> directly via
-// buildSurfaceGraphs() (a plain local, owned by the test) and passes its
-// SurfaceCatalogView and orderedSurfaces to loadNormalizedSource() explicitly,
-// exactly as the standalone workflow does in production.
+// supplied topology view or layer-to-surface mapping. TimeFrame owns no
+// catalog/plan of its own; every test passes the immutable catalog/order
+// explicitly to loadNormalizedSource().
 //
 // Deterministic adapter parity (this test) vs. real decode parity: like
 // every other Gate 1 test in this directory (see testMultiSourceLoading.cxx),
@@ -72,7 +69,7 @@
 #include "DataFormatsITSMFT/ROFRecord.h"
 #include "DataFormatsITSMFT/TopologyDictionary.h"
 #include "DetectorsCommonDataFormats/DetID.h"
-#include "ITSMFTTracking/SurfaceGraphBuilder.h"
+#include "ITSMFTTracking/SurfaceLayout.h"
 #include "ITSMFTTracking/detail/SurfaceTrackingScratch.h"
 #include "ITSMFTTracking/MeasurementView.h"
 #include "ITSMFTTracking/IOUtils.h"
@@ -89,12 +86,10 @@ using namespace o2::itsmft::tracking;
 
 namespace
 {
-SurfaceGraph catalogGraph(SurfaceCatalogView catalog, gsl::span<const SurfaceId> ordered)
+SurfaceLayout catalogGraph(SurfaceCatalogView catalog, gsl::span<const SurfaceId> ordered)
 {
-  SurfaceGraph topology{catalog.nSurfaces};
-  topology.setOrderedSurfaces({ordered.begin(), ordered.end()});
-  BOOST_REQUIRE(topology.finalize());
-  return SurfaceGraph{gsl::span<const SurfaceDescriptor>{catalog.surfaces, catalog.nSurfaces}, std::move(topology)};
+  return SurfaceLayout{gsl::span<const SurfaceDescriptor>{catalog.surfaces, catalog.nSurfaces},
+                       makeSurfaceLayoutChain(ordered)};
 }
 
 // Deterministic, geometry-free stand-in for GeometryClusterDecoder<DetId>:
@@ -306,12 +301,12 @@ BOOST_AUTO_TEST_CASE(combined_owner_load_keeps_detector_backfills_separate)
   const SurfaceCatalogView view{catalog.data(), static_cast<uint32_t>(catalog.size())};
   std::vector<SurfaceId> combinedSurfaces{itsSurfaces.begin(), itsSurfaces.end()};
   combinedSurfaces.insert(combinedSurfaces.end(), mftSurfaces.begin(), mftSurfaces.end());
-  auto graph = catalogGraph(view, combinedSurfaces);
-  std::vector<SurfaceGraph> graphs;
-  graphs.push_back(std::move(graph));
+  auto layout = catalogGraph(view, combinedSurfaces);
+  std::vector<SurfaceLayout> layouts;
+  layouts.push_back(std::move(layout));
   std::vector<TrackingParameters> parameters(1);
   std::vector<TrackingWorkspaceCapacity> capacities{{combinedSurfaces.size(), 0, 0}};
-  BOOST_REQUIRE(frame.commitConfiguration(std::move(graphs), std::move(parameters),
+  BOOST_REQUIRE(frame.commitConfiguration(std::move(layouts), std::move(parameters),
                                           std::move(capacities), std::make_shared<BoundedMemoryResource>()));
   const std::array<ClusterSourceInput, 2> sources{itsSource, mftSource};
   BOOST_REQUIRE(loadTimeFrameSources(frame, gsl::span<const ClusterSourceInput>{sources}, view, {50, 5}).ok());
@@ -510,7 +505,7 @@ void checkParity(std::vector<SurfaceDescriptor> catalog, const Fixture& f)
   }
 }
 
-// A caller can no longer supply an unrelated SurfaceGraphView or
+// A caller can no longer supply an unrelated topology view or
 // layer-to-surface mapping by API construction: taking the current member
 // function's address is unambiguous (there is exactly one overload), so
 // checking its invocability against the removed Gate 1 argument list proves
@@ -518,7 +513,7 @@ void checkParity(std::vector<SurfaceDescriptor> catalog, const Fixture& f)
 static_assert(!std::is_invocable_v<decltype(&SurfaceTrackingScratch::loadNormalizedSource),
                                    SurfaceTrackingScratch&,
                                    TimeFrame&,
-                                   const SurfaceGraphView&,
+                                   const TraversalTopologyView&,
                                    gsl::span<const SurfaceId>,
                                    const ClusterDecoder&,
                                    const o2::InteractionRecord&,
@@ -584,7 +579,7 @@ BOOST_AUTO_TEST_CASE(EmptyInputsAreLegalForBothDetectors)
 }
 
 // Focused test: a canonical catalog configured with zero tracking iterations
-// (no SurfaceGraph ever built) must still support normalized loading --
+// (no tracking layout ever committed) must still support normalized loading --
 // loadNormalizedSource() never selects or requires any tracking-iteration
 // layout.
 BOOST_AUTO_TEST_CASE(ZeroIterationCatalogOnlyLoadingSucceeds)
@@ -599,8 +594,7 @@ BOOST_AUTO_TEST_CASE(ZeroIterationCatalogOnlyLoadingSucceeds)
   std::vector<TrackingParameters> noIterations;
   const auto plan = catalogGraph(catalogView, orderedSurfaces);
   configureScratchFromPlan(tf, plan.getOrderedSurfaces().size());
-  const auto emptyPlan = buildSurfaceGraphs(catalogView, orderedSurfaces, noIterations);
-  BOOST_CHECK(emptyPlan.graphs.empty());
+  BOOST_CHECK_EQUAL(frame.getNIterations(), 0u);
 
   LegacyLikeDecoder decoder{o2::detectors::DetID::ITS, false};
   const std::vector<CompClusterExt> clusters{{1, 1, CompCluster::InvalidPatternID, 0}};
@@ -637,7 +631,7 @@ BOOST_AUTO_TEST_CASE(NeverConfiguredCatalogIsRejected)
 }
 
 // Gate 4 B2 Slice 2 removed the StaleCatalogAfterInvalidationIsRejected test
-// that used to live here (TimeFrame::invalidateSurfaceGraphs() +
+// that used to live here (TimeFrame graph invalidation +
 // MultiSourceLoadError::SurfaceCatalogStale): loadNormalizedSource() now
 // receives its SurfaceCatalogView explicitly from the caller on every call,
 // with no TimeFrame-owned currency concept to invalidate -- SurfaceCatalogStale
@@ -837,7 +831,7 @@ BOOST_AUTO_TEST_CASE(DuplicateMappedSurfaceIsRejected)
 // check in loadNormalizedSource() is genuinely per-surface (against the
 // caller-supplied SurfaceCatalogView), not a blanket catalog-level check.
 // Gate 4 B2 Slice 2 removed the runtime catalog-request validation window
-// this test used to route around (buildSurfaceGraphs() performs no
+// this test used to route around (layout derivation performs no
 // runtime catalog validation at all -- see its own doc comment), so the
 // combined MFT+ITS catalog below needs no firstSurface/count bookkeeping any
 // more; it is built and used directly.

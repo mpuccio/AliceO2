@@ -23,7 +23,7 @@
 #include "ITSMFTTracking/IOUtils.h"
 #include "ITSMFTTracking/detail/SurfaceTrackingScratch.h"
 #include "ITSMFTTracking/ITSMFTDetectorDefinitions.h"
-#include "ITSMFTTracking/SurfaceGraph.h"
+#include "ITSMFTTracking/SurfaceLayout.h"
 #include "ITSMFTTracking/ClusterDecoding.h"
 #include "ITSMFTTracking/IOUtils.h"
 #include "ITSMFTTracking/TimeFrame.h"
@@ -109,7 +109,7 @@ struct OneClusterSource {
 };
 
 struct ThreeSourceConfiguration {
-  SurfaceGraph graph;
+  SurfaceLayout layout;
   std::vector<SurfaceDescriptor> catalog;
 };
 
@@ -119,25 +119,26 @@ ThreeSourceConfiguration makeConfiguration()
   for (uint16_t id = 0; id < 6; ++id) {
     catalog.push_back(SurfaceDescriptor{SurfaceId{id}, static_cast<uint8_t>(id % 2), static_cast<uint8_t>(o2::detectors::DetID::ITS), SurfaceKind::Cylinder});
   }
-  SurfaceGraph topology{6};
-  topology.finalize();
-  return {SurfaceGraph{catalog, std::move(topology)}, std::move(catalog)};
+  std::vector<SurfaceId> ordered;
+  for (uint16_t id = 0; id < 6; ++id) {
+    ordered.push_back(SurfaceId{id});
+  }
+  return {SurfaceLayout{gsl::span<const SurfaceDescriptor>{catalog.data(), catalog.size()}, makeSurfaceLayoutChain(ordered)}, std::move(catalog)};
 }
 
-void configureFrame(TimeFrame& frame, const SurfaceGraph& graph)
+void configureFrame(TimeFrame& frame, const SurfaceLayout& layout)
 {
-  const auto view = graph.getView();
   std::vector<SurfaceId> ordered;
   for (uint16_t id = 0; id < 3; ++id) {
     for (const auto surface : {SurfaceId{static_cast<uint16_t>(id * 2)}, SurfaceId{static_cast<uint16_t>(id * 2 + 1)}}) {
       ordered.push_back(surface);
     }
   }
-  std::vector<SurfaceGraph> graphs;
-  graphs.push_back(graph);
+  std::vector<SurfaceLayout> layouts;
+  layouts.push_back(layout);
   std::vector<TrackingParameters> parameters(1);
   std::vector<TrackingWorkspaceCapacity> capacities{{ordered.size(), 0, 0}};
-  BOOST_REQUIRE(frame.commitConfiguration(std::move(graphs), std::move(parameters),
+  BOOST_REQUIRE(frame.commitConfiguration(std::move(layouts), std::move(parameters),
                                           std::move(capacities), std::make_shared<BoundedMemoryResource>()));
 }
 
@@ -151,11 +152,11 @@ BOOST_AUTO_TEST_CASE(DirectThreeSourceTransactionInstallsAllSources)
 {
   auto configuration = makeConfiguration();
   TimeFrame frame;
-  configureFrame(frame, configuration.graph);
+  configureFrame(frame, configuration.layout);
   const std::array<OneClusterSource, 3> inputs{OneClusterSource{SurfaceId{0}}, OneClusterSource{SurfaceId{2}}, OneClusterSource{SurfaceId{4}}};
   const auto sources = makeSources(inputs);
 
-  const auto result = loadTimeFrameSources(frame, sources, configuration.graph.getView().getSurfaceCatalogView(), {50, 5});
+  const auto result = loadTimeFrameSources(frame, sources, configuration.layout.getSurfaceCatalog(), {50, 5});
   BOOST_REQUIRE_MESSAGE(result.ok(), "load error=" << static_cast<int>(result.error) << " source=" << result.source.value());
   BOOST_CHECK_EQUAL(frame.getEventResetCount(), 1u);
   for (uint16_t id = 0; id < 3; ++id) {
@@ -168,23 +169,23 @@ BOOST_AUTO_TEST_CASE(FailedSourcePartitionLeavesPriorEventAndRetrySucceeds)
 {
   auto configuration = makeConfiguration();
   TimeFrame frame;
-  configureFrame(frame, configuration.graph);
+  configureFrame(frame, configuration.layout);
   const std::array<OneClusterSource, 3> inputs{OneClusterSource{SurfaceId{0}}, OneClusterSource{SurfaceId{2}}, OneClusterSource{SurfaceId{4}}};
   auto sources = makeSources(inputs);
-  const auto baseline = loadTimeFrameSources(frame, sources, configuration.graph.getView().getSurfaceCatalogView(), {50, 5});
+  const auto baseline = loadTimeFrameSources(frame, sources, configuration.layout.getSurfaceCatalog(), {50, 5});
   BOOST_REQUIRE_MESSAGE(baseline.ok(), "baseline load error=" << static_cast<int>(baseline.error) << " source=" << baseline.source.value());
   const auto resetCount = frame.getEventResetCount();
 
   auto malformedInputs = inputs;
   malformedInputs[2].layerToSurface[0] = SurfaceId{0};
   const auto malformedSources = makeSources(malformedInputs);
-  const auto failed = loadTimeFrameSources(frame, malformedSources, configuration.graph.getView().getSurfaceCatalogView(), {50, 5});
+  const auto failed = loadTimeFrameSources(frame, malformedSources, configuration.layout.getSurfaceCatalog(), {50, 5});
   BOOST_CHECK(failed.error == MultiSourceLoadError::InvalidLayerMapping);
   BOOST_CHECK_EQUAL(frame.getEventResetCount(), resetCount);
   BOOST_CHECK_EQUAL(frame.getSurfaceMeasurements(SurfaceId{4}).size(), 1u);
   BOOST_CHECK_EQUAL(frame.getWorkspace().getTotalClusters(), 3);
 
-  BOOST_REQUIRE(loadTimeFrameSources(frame, sources, configuration.graph.getView().getSurfaceCatalogView(), {50, 5}).ok());
+  BOOST_REQUIRE(loadTimeFrameSources(frame, sources, configuration.layout.getSurfaceCatalog(), {50, 5}).ok());
   BOOST_CHECK_EQUAL(frame.getEventResetCount(), resetCount + 1);
 }
 
@@ -194,13 +195,13 @@ BOOST_AUTO_TEST_CASE(UnconfiguredFrameAndSourceQualificationFailBeforeCommit)
   TimeFrame frame;
   const std::array<OneClusterSource, 3> inputs{OneClusterSource{SurfaceId{0}}, OneClusterSource{SurfaceId{2}}, OneClusterSource{SurfaceId{4}}};
   const auto sources = makeSources(inputs);
-  BOOST_CHECK(loadTimeFrameSources(frame, sources, configuration.graph.getView().getSurfaceCatalogView(), {50, 5}).error ==
+  BOOST_CHECK(loadTimeFrameSources(frame, sources, configuration.layout.getSurfaceCatalog(), {50, 5}).error ==
               MultiSourceLoadError::FrameNotConfigured);
 
-  configureFrame(frame, configuration.graph);
+  configureFrame(frame, configuration.layout);
   auto wrong = sources;
   wrong[1].id = ClusterSourceId{5};
-  const auto result = loadTimeFrameSources(frame, wrong, configuration.graph.getView().getSurfaceCatalogView(), {50, 5});
+  const auto result = loadTimeFrameSources(frame, wrong, configuration.layout.getSurfaceCatalog(), {50, 5});
   BOOST_CHECK(result.error == MultiSourceLoadError::NonDenseSourceIds);
   BOOST_CHECK_EQUAL(frame.getTotalMeasurements(), 0u);
   BOOST_CHECK_EQUAL(frame.getEventResetCount(), 0u);
