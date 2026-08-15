@@ -39,6 +39,12 @@ o2_add_test(surface-layout-contract
             LABELS "itsmft;tracking"
             PUBLIC_LINK_LIBRARIES O2::ITSMFTTracking)
 
+o2_add_test(traversal-topology
+            SOURCES testTraversalTopology.cxx
+            COMPONENT_NAME itsmft-tracking
+            LABELS "itsmft;tracking"
+            PUBLIC_LINK_LIBRARIES O2::ITSMFTTracking)
+
 o2_add_test(lookup-coordinates
             SOURCES testLookupCoordinates.cxx
             COMPONENT_NAME itsmft-tracking
