@@ -114,7 +114,7 @@ std::size_t directHeaderCount(const fs::path& directory)
 BOOST_AUTO_TEST_CASE(FinalHeaderInventoryIsExact)
 {
   const auto include = trackingRoot() / "include/ITSMFTTracking";
-  BOOST_CHECK_EQUAL(directHeaderCount(include), 33U);
+  BOOST_CHECK_EQUAL(directHeaderCount(include), 31U);
   BOOST_CHECK_EQUAL(directHeaderCount(include / "detail"), 13U);
   BOOST_CHECK(fs::is_regular_file(include / "TripletFitting.h"));
 
@@ -123,14 +123,52 @@ BOOST_AUTO_TEST_CASE(FinalHeaderInventoryIsExact)
   const auto layoutText = withoutComments(readFile(surfaceLayout));
   BOOST_CHECK(layoutText.find("class SurfaceLayout") != std::string::npos);
   BOOST_CHECK(layoutText.find("SurfaceLayoutDefinition") != std::string::npos);
-  BOOST_CHECK(layoutText.find("SurfaceGraph") == std::string::npos);
+  const auto retiredGraph = std::string{"Surface"} + "Graph";
+  BOOST_CHECK(layoutText.find(retiredGraph) == std::string::npos);
 
   const auto traversalTopology = include / "TraversalTopology.h";
   BOOST_REQUIRE_MESSAGE(fs::is_regular_file(traversalTopology), "TraversalTopology must remain a direct topology header");
   const auto topologyText = withoutComments(readFile(traversalTopology));
   BOOST_CHECK(topologyText.find("struct CellPath") != std::string::npos);
   BOOST_CHECK(topologyText.find("struct TraversalTopologyView") != std::string::npos);
-  BOOST_CHECK(topologyText.find("SurfaceCellTopology") == std::string::npos);
+  const auto retiredCell = std::string{"Surface"} + "CellTopology";
+  BOOST_CHECK(topologyText.find(retiredCell) == std::string::npos);
+}
+
+BOOST_AUTO_TEST_CASE(ObsoleteTopologyModelIsAbsentFromLiveSource)
+{
+  const auto root = trackingRoot();
+  const std::vector<std::string> retiredFiles{
+    std::string{"Surface"} + "Graph.h",
+    std::string{"Surface"} + "GraphBuilder.h",
+    std::string{"Surface"} + "GraphBuilder.cxx"};
+  for (const auto& relative : retiredFiles) {
+    BOOST_CHECK_MESSAGE(!fs::exists(root / "include/ITSMFTTracking" / relative) &&
+                          !fs::exists(root / "src" / relative),
+                        "obsolete topology file remains: " << relative);
+  }
+
+  const std::vector<std::string> retiredSpellings{
+    std::string{"Surface"} + "Graph",
+    std::string{"Surface"} + "GraphBuilder",
+    std::string{"Surface"} + "GraphView",
+    std::string{"Surface"} + "GraphDefinition",
+    std::string{"Surface"} + "GraphBuildResult",
+    std::string{"Surface"} + "GraphBatchResult",
+    std::string{"Surface"} + "CellTopology",
+    std::string{"Cell"} + "TopologyId"};
+  for (const auto& directory : {root / "include", root / "src", root / "test"}) {
+    for (const auto& entry : fs::recursive_directory_iterator(directory)) {
+      if (!entry.is_regular_file() || !isSourceFile(entry.path())) {
+        continue;
+      }
+      const auto source = readFile(entry.path());
+      for (const auto& spelling : retiredSpellings) {
+        BOOST_CHECK_MESSAGE(source.find(spelling) == std::string::npos,
+                            entry.path().string() << " retains obsolete topology spelling " << spelling);
+      }
+    }
+  }
 }
 
 BOOST_AUTO_TEST_CASE(RetiredAndRelocatedPublicPathsAreAbsent)
@@ -274,8 +312,6 @@ BOOST_AUTO_TEST_CASE(GenericPlanTypesHaveNoDetectorOrLayerCountAuthority)
   const auto root = trackingRoot();
   const std::vector<std::string_view> genericPlanFiles{
     "include/ITSMFTTracking/SurfaceDescriptor.h",
-    "include/ITSMFTTracking/SurfaceGraph.h",
-    "include/ITSMFTTracking/SurfaceGraphBuilder.h",
     "include/ITSMFTTracking/IdTypes.h",
     "include/ITSMFTTracking/SurfaceKinematicState.h",
     "include/ITSMFTTracking/SurfaceMeasurement.h",

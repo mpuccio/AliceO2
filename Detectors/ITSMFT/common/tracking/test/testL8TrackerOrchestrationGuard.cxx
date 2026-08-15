@@ -79,7 +79,7 @@ BOOST_AUTO_TEST_CASE(TrackerIsStatelessAndOwnsOnlyTheOperationEdge)
   BOOST_CHECK(header.find("TimeFrame*") == std::string::npos);
   BOOST_CHECK(header.find("TrackerTraits*") == std::string::npos);
   BOOST_CHECK(header.find("SurfaceTrackingScratch m") == std::string::npos);
-  BOOST_CHECK(header.find("std::vector<SurfaceGraph>") == std::string::npos);
+  BOOST_CHECK(header.find("std::vector<" + std::string{"Surface"} + "Graph>") == std::string::npos);
 }
 
 BOOST_AUTO_TEST_CASE(TraversalTestAccessIsConfinedToTestSupport)

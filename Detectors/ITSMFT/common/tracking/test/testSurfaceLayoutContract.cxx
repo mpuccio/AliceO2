@@ -98,7 +98,8 @@ BOOST_AUTO_TEST_CASE(LayoutHasNoStaticExpandedTopology)
   const std::string source{std::istreambuf_iterator<char>{input}, {}};
   BOOST_REQUIRE(!source.empty());
   BOOST_CHECK(source.find("std::vector<Edge>") == std::string::npos);
-  BOOST_CHECK(source.find("SurfaceCellTopology") == std::string::npos);
+  const auto retiredCell = std::string{"Surface"} + "CellTopology";
+  BOOST_CHECK(source.find(retiredCell) == std::string::npos);
   BOOST_CHECK(source.find("pathsByFirstEdge") == std::string::npos);
   BOOST_CHECK(source.find("roadStart") == std::string::npos);
 }
