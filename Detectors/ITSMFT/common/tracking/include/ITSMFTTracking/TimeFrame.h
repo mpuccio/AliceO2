@@ -33,7 +33,6 @@
 #include "ITSMFTTracking/Configuration.h"
 #include "ITSMFTTracking/MeasurementView.h"
 #include "ITSMFTTracking/SurfaceLayout.h"
-#include "ITSMFTTracking/SurfaceGraph.h"
 #include "ITStracking/BoundedAllocator.h"
 #include "ITStracking/Cluster.h"
 
@@ -111,21 +110,14 @@ struct TimeFrame {
   SurfaceTrackingScratch& getWorkspace();
   const SurfaceTrackingScratch& getWorkspace() const;
 
-  bool commitConfiguration(std::vector<SurfaceGraph>&& graphs,
-                           std::vector<TrackingParameters>&& parameters,
-                           std::vector<TrackingWorkspaceCapacity>&& capacities,
-                           std::shared_ptr<BoundedMemoryResource> memoryPool);
   bool commitConfiguration(std::vector<SurfaceLayout>&& layouts,
-                           std::vector<SurfaceGraph>&& graphs,
                            std::vector<TrackingParameters>&& parameters,
                            std::vector<TrackingWorkspaceCapacity>&& capacities,
                            std::shared_ptr<BoundedMemoryResource> memoryPool);
   bool isConfigured() const noexcept { return mConfigurationValid; }
-  std::size_t getNIterations() const noexcept { return mGraphs.size(); }
+  std::size_t getNIterations() const noexcept { return mLayouts.size(); }
   const SurfaceLayout& getLayout(std::size_t iteration) const { return mLayouts.at(iteration); }
-  const std::vector<SurfaceGraph>& getGraphs() const noexcept { return mGraphs; }
   const std::vector<TrackingParameters>& getTrackingParameters() const noexcept;
-  const SurfaceGraph& getGraph(std::size_t iteration) const { return mGraphs.at(iteration); }
   const TrackingParameters* getTrackingParameters(std::size_t iteration) const noexcept;
   const TrackingWorkspaceCapacity* getWorkspaceCapacity(std::size_t iteration) const noexcept;
 
@@ -165,7 +157,6 @@ struct TimeFrame {
 
   bool mConfigurationValid = false;
   std::vector<SurfaceLayout> mLayouts;
-  std::vector<SurfaceGraph> mGraphs;
   std::vector<TrackingParameters> mTrackingParameters;
   std::vector<TrackingWorkspaceCapacity> mWorkspaceCapacities;
   struct WorkspaceDeleter {

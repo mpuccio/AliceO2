@@ -188,7 +188,7 @@ void CATrackerDPL::initialiseTracking()
   for (const auto& params : parameters) {
     o2::itsmft::tracking::TrackerIterationConfiguration iteration;
     iteration.parameters = params;
-    iteration.graph = o2::itsmft::tracking::makeSurfaceChain(
+    iteration.layout = o2::itsmft::tracking::makeSurfaceLayoutChain(
       ordered, params.MaxHoles,
       o2::itsmft::tracking::positionalSurfaceMask(params.HoleLayerMask, ordered, o2::itsmft::tracking::ITSNLayers),
       o2::itsmft::tracking::positionalSurfaceMask(params.StartLayerMask, ordered, o2::itsmft::tracking::ITSNLayers));
@@ -199,8 +199,8 @@ void CATrackerDPL::initialiseTracking()
     &o2::itsmft::tracking::detail::refitSurfaceSeed);
   const auto result = mTracker->initialize(mFrame, configuration);
   if (!result.ok()) {
-    LOGP(fatal, "ITS CA tracker failed to initialize static configuration (error={} iteration={} graph={})",
-         static_cast<int>(result.error), result.failedIteration, static_cast<int>(result.graphError));
+    LOGP(fatal, "ITS CA tracker failed to initialize static configuration (error={} iteration={} layout={})",
+         static_cast<int>(result.error), result.failedIteration, static_cast<int>(result.layoutError));
   }
 }
 
@@ -228,7 +228,7 @@ o2::itsmft::tracking::TrackingOutcome CATrackerDPL::processTimeFrame(
         o2::itsmft::tracking::TimeFrameLoadFailureReason::DictionaryNotConfigured,
         "ITS CA tracker cluster dictionary is not available"};
     }
-    const auto& orderedSurfaces = mFrame.getGraph(0).getOrderedSurfaces();
+    const auto orderedSurfaces = mFrame.getLayout(0).getOrderedSurfaces();
     const auto rofViews = getScratch().getROFViews();
     if (rofViews.overlap.mLayerCount <= 0) {
       throw o2::itsmft::tracking::TimeFrameLoadException{
@@ -250,7 +250,7 @@ o2::itsmft::tracking::TrackingOutcome CATrackerDPL::processTimeFrame(
     source.rofViews = rofViews;
     const auto origin = rofs.empty() ? o2::InteractionRecord{} : rofs.front().getBCData();
     const auto loaded = o2::itsmft::tracking::loadTimeFrameSources(
-      mFrame, gsl::span<const o2::itsmft::tracking::ClusterSourceInput>{&source, 1}, mFrame.getGraph(0).getSurfaceCatalog(), origin);
+      mFrame, gsl::span<const o2::itsmft::tracking::ClusterSourceInput>{&source, 1}, mFrame.getLayout(0).getSurfaceCatalog(), origin);
     if (!loaded.ok()) {
       if (o2::itsmft::tracking::isRecoverableLoadError(loaded.error, loaded.timingDetail)) {
         throw o2::itsmft::tracking::RecoverableLoadFailure{loaded};
@@ -375,7 +375,7 @@ void CATrackerDPL::run(ProcessingContext& pc)
       const o2::itsmft::tracking::GenericTrackPublicationContext context{
         o2::detectors::DetID::ITS, o2::itsmft::tracking::ClusterSourceId{0},
         gsl::span<const o2::itsmft::ROFRecord>{rofsinput.data(), rofsinput.size()}, *mPublicationClock,
-        gsl::span<const o2::itsmft::tracking::SurfaceId>{mFrame.getGraph(0).getOrderedSurfaces()}};
+        gsl::span<const o2::itsmft::tracking::SurfaceId>{mFrame.getLayout(0).getOrderedSurfaces()}};
       o2::itsmft::tracking::GenericTrackOutputAdapterError error = o2::itsmft::tracking::GenericTrackOutputAdapterError::None;
       const auto staged = o2::itsmft::tracking::stageITSGenericTrackOutput(mFrame, context, mCompatibility, mUseMC, error);
       if (!staged) {

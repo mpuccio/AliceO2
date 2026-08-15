@@ -39,6 +39,19 @@ struct SurfaceLayoutDefinition {
   SurfaceMask seedingSurfaces{};
 };
 
+inline SurfaceLayoutDefinition makeSurfaceLayoutChain(gsl::span<const SurfaceId> orderedSurfaces,
+                                                      int maxHoles = 0,
+                                                      SurfaceMask holeSurfaces = {},
+                                                      SurfaceMask seedingSurfaces = {})
+{
+  SurfaceLayoutDefinition definition;
+  definition.orderedSurfaces.assign(orderedSurfaces.begin(), orderedSurfaces.end());
+  definition.maxHoles = maxHoles;
+  definition.holeSurfaces = holeSurfaces;
+  definition.seedingSurfaces = seedingSurfaces;
+  return definition;
+}
+
 // Immutable layout configuration. Runtime-expanded topology belongs to a
 // future TraversalWorkspace; this type intentionally owns no edges, paths,
 // adjacency, schedules, or mutable pass state.

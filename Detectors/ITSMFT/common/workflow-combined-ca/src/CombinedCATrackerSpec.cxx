@@ -24,7 +24,6 @@
 #include "ITSMFTCombinedCAWorkflow/ConfigPreflight.h"
 #include "ITSMFTTracking/GenericTrackOutputAdapter.h"
 #include "ITSMFTTracking/detail/DetectorRefitSupport.h"
-#include "ITSMFTTracking/SurfaceGraphBuilder.h"
 #include "ITSMFTTracking/IOUtils.h"
 #include "ITSMFTTracking/SurfaceTiming.h"
 #include "ITSMFTTracking/ITSMFTDetectorDefinitions.h"
@@ -141,28 +140,18 @@ o2::itsmft::tracking::SurfaceMask surfaceRangeMask(uint16_t first, uint16_t coun
   return result;
 }
 
-o2::itsmft::tracking::SurfaceGraphDefinition combinedGraphDefinition(
+o2::itsmft::tracking::SurfaceLayoutDefinition combinedLayoutDefinition(
   gsl::span<const o2::itsmft::tracking::SurfaceId> itsSurfaces,
   const o2::itsmft::TrackingParameters& itsParams,
   gsl::span<const o2::itsmft::tracking::SurfaceId> mftSurfaces,
   const o2::itsmft::TrackingParameters& mftParams)
 {
-  o2::itsmft::tracking::SurfaceGraphDefinition definition;
+  o2::itsmft::tracking::SurfaceLayoutDefinition definition;
   definition.orderedSurfaces.reserve(itsSurfaces.size() + mftSurfaces.size());
   definition.orderedSurfaces.insert(definition.orderedSurfaces.end(), itsSurfaces.begin(), itsSurfaces.end());
   definition.orderedSurfaces.insert(definition.orderedSurfaces.end(), mftSurfaces.begin(), mftSurfaces.end());
 
-  // Keep one flat rank space, but deliberately omit the ITS-to-MFT edge.
-  // SurfaceGraphBuilder then creates two disconnected components in the one
-  // graph, while retaining the detector order in every global rank.
-  definition.basePairs.reserve(definition.orderedSurfaces.size() >= 2 ? definition.orderedSurfaces.size() - 2 : 0);
-  for (uint16_t i = 0; i + 1 < itsSurfaces.size(); ++i) {
-    definition.basePairs.push_back({i, static_cast<uint16_t>(i + 1)});
-  }
-  const auto mftOffset = static_cast<uint16_t>(itsSurfaces.size());
-  for (uint16_t i = 0; i + 1 < mftSurfaces.size(); ++i) {
-    definition.basePairs.push_back({static_cast<uint16_t>(mftOffset + i), static_cast<uint16_t>(mftOffset + i + 1)});
-  }
+  definition.componentOffsets = {0, static_cast<uint16_t>(itsSurfaces.size())};
 
   // MaxHoles is a graph-wide scalar. The combined workflow's scalar baseline
   // is the ITS Sync configuration; detector-local masks are projected into
@@ -255,7 +244,7 @@ void CombinedCATrackerDPL::buildParticipantsOnce()
   configuration.memoryPool = std::make_shared<o2::itsmft::tracking::BoundedMemoryResource>(
     std::min(itsParams[0].MaxMemory, mftParams[0].MaxMemory));
   o2::itsmft::tracking::TrackerIterationConfiguration iteration;
-  iteration.graph = combinedGraphDefinition(itsSurfaces, itsParams[0], mftSurfaces, mftParams[0]);
+  iteration.layout = combinedLayoutDefinition(itsSurfaces, itsParams[0], mftSurfaces, mftParams[0]);
   iteration.parameters = combinedParams;
   configuration.iterations.push_back(std::move(iteration));
 

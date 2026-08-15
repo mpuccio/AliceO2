@@ -35,7 +35,6 @@
 #include "ITSMFTTracking/detail/DetectorPublicationAdapter.h"
 #include "ITSMFTTracking/Configuration.h"
 #include "ITSMFTTracking/IOUtils.h"
-#include "ITSMFTTracking/SurfaceGraph.h"
 #include "ITSMFTTracking/Tracker.h"
 #include "ITSMFTTracking/TrackerTraits.h"
 #include "ITSMFTTracking/TimeFrame.h"
@@ -103,14 +102,14 @@ class CombinedCATrackerDPL : public o2::framework::Task
     if (mFrame.getNIterations() == 0) {
       return {};
     }
-    return gsl::span<const o2::itsmft::tracking::SurfaceId>{mFrame.getGraph(0).getOrderedSurfaces()}.first(o2::itsmft::tracking::ITSNLayers);
+    return mFrame.getLayout(0).getOrderedSurfaces().first(o2::itsmft::tracking::ITSNLayers);
   }
   gsl::span<const o2::itsmft::tracking::SurfaceId> getMFTOrderedSurfaces() const noexcept
   {
     if (mFrame.getNIterations() == 0) {
       return {};
     }
-    return gsl::span<const o2::itsmft::tracking::SurfaceId>{mFrame.getGraph(0).getOrderedSurfaces()}.subspan(
+    return mFrame.getLayout(0).getOrderedSurfaces().subspan(
       o2::itsmft::tracking::ITSNLayers, o2::itsmft::tracking::MFTNLayers);
   }
 

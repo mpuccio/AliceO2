@@ -52,25 +52,6 @@ TrackingKernelParameters bindTrackingKernelParameters(const TrackingParameters& 
   return out;
 }
 
-SurfaceLayoutDefinition makeSurfaceLayoutDefinition(const SurfaceGraphDefinition& graph)
-{
-  SurfaceLayoutDefinition layout;
-  layout.orderedSurfaces = graph.orderedSurfaces;
-  layout.maxHoles = graph.maxHoles;
-  layout.holeSurfaces = graph.holeSurfaces;
-  layout.seedingSurfaces = graph.seedingSurfaces;
-  layout.componentOffsets = {0};
-  for (uint16_t cut = 0; cut + 1 < graph.orderedSurfaces.size(); ++cut) {
-    const auto crossesCut = std::any_of(graph.basePairs.begin(), graph.basePairs.end(), [cut](const auto pair) {
-      return pair.fromIndex <= cut && pair.toIndex > cut;
-    });
-    if (!crossesCut) {
-      layout.componentOffsets.push_back(static_cast<uint16_t>(cut + 1));
-    }
-  }
-  return layout;
-}
-
 SurfaceMask disabledSurfaceMask(const SurfaceLayout& layout, LayerMask inactiveLayers)
 {
   SurfaceMask disabled;
@@ -84,197 +65,6 @@ SurfaceMask disabledSurfaceMask(const SurfaceLayout& layout, LayerMask inactiveL
 }
 
 } // namespace
-
-void buildTraversalPlanImpl(TraversalWorkspace& workspace, const SurfaceGraphView& graph, LayerMask inactiveLayers, int iteration)
-{
-  const auto fail = [iteration]() {
-    throw TraversalException{iteration, TraversalFailureReason::SparseTopologyMismatch};
-  };
-  if (graph.surfaces == nullptr || graph.nSurfaces == 0 || graph.orderedSurfaces == nullptr || graph.nOrderedSurfaces == 0 ||
-      (graph.nEdges != 0 && graph.edges == nullptr) || (graph.nCells != 0 && graph.cells == nullptr)) {
-    fail();
-  }
-
-  workspace.orderedSurfaces.clear();
-  workspace.orderedSurfaces.reserve(graph.nOrderedSurfaces);
-  for (uint32_t position = 0; position < graph.nOrderedSurfaces; ++position) {
-    workspace.orderedSurfaces.push_back(graph.orderedSurfaces[position]);
-  }
-  if (workspace.orderedSurfaces.empty()) {
-    fail();
-  }
-  workspace.topologyCatalog = graph.getSurfaceCatalogView();
-  workspace.topology.orderedSurfaces = workspace.orderedSurfaces;
-  workspace.topology.surfacePositionById.assign(MaxLayoutSurfaces, -1);
-  for (uint16_t position = 0; position < workspace.orderedSurfaces.size(); ++position) {
-    workspace.topology.surfacePositionById[workspace.orderedSurfaces[position].value()] = static_cast<int16_t>(position);
-  }
-  workspace.surfaceSlotById.assign(graph.nSurfaces, -1);
-  for (uint16_t position = 0; position < workspace.orderedSurfaces.size(); ++position) {
-    const auto surface = workspace.orderedSurfaces[position];
-    if (!surface.isValid() || surface.value() >= graph.nSurfaces || workspace.activeSurfaces.has(surface) ||
-        workspace.surfaceSlotById[surface.value()] >= 0) {
-      fail();
-    }
-    if (!inactiveLayers.has(static_cast<int>(position))) {
-      workspace.activeSurfaces.set(surface);
-    }
-    workspace.surfaceSlotById[surface.value()] = static_cast<int16_t>(position);
-  }
-  if (workspace.activeSurfaces.empty()) {
-    fail();
-  }
-  workspace.topology.activeSurfaces = workspace.activeSurfaces;
-  workspace.topology.activeSurfaceList.clear();
-  for (const auto surface : workspace.orderedSurfaces) {
-    if (workspace.activeSurfaces.has(surface)) {
-      workspace.topology.activeSurfaceList.push_back(surface);
-    }
-  }
-  workspace.topology.seedingSurfaces = graph.seedingSurfaces;
-
-  std::vector<uint32_t> indegree(graph.nSurfaces, 0);
-  std::vector<uint32_t> rank(graph.nSurfaces, 0);
-  for (uint32_t rawId = 0; rawId < graph.nEdges; ++rawId) {
-    const auto& edge = graph.getEdge(EdgeId{static_cast<uint16_t>(rawId)});
-    if (!edge.from.isValid() || !edge.to.isValid() || edge.from.value() >= graph.nSurfaces || edge.to.value() >= graph.nSurfaces) {
-      fail();
-    }
-    ++indegree[edge.to.value()];
-  }
-  const auto laterSurface = [](SurfaceId lhs, SurfaceId rhs) { return rhs < lhs; };
-  std::priority_queue<SurfaceId, std::vector<SurfaceId>, decltype(laterSurface)> ready{laterSurface};
-  for (uint16_t surface = 0; surface < graph.nSurfaces; ++surface) {
-    if (indegree[surface] == 0) {
-      ready.push(SurfaceId{surface});
-    }
-  }
-  uint32_t visited = 0;
-  while (!ready.empty()) {
-    const auto surface = ready.top();
-    ready.pop();
-    ++visited;
-    for (uint32_t rawId = 0; rawId < graph.nEdges; ++rawId) {
-      const auto& edge = graph.getEdge(EdgeId{static_cast<uint16_t>(rawId)});
-      if (edge.from != surface) {
-        continue;
-      }
-      rank[edge.to.value()] = std::max(rank[edge.to.value()], rank[surface.value()] + 1);
-      if (--indegree[edge.to.value()] == 0) {
-        ready.push(edge.to);
-      }
-    }
-  }
-  if (visited != graph.nSurfaces) {
-    fail();
-  }
-  std::vector<uint16_t> componentParent(graph.nSurfaces);
-  std::iota(componentParent.begin(), componentParent.end(), uint16_t{0});
-  const auto componentRoot = [&componentParent](uint16_t surface) {
-    while (componentParent[surface] != surface) {
-      componentParent[surface] = componentParent[componentParent[surface]];
-      surface = componentParent[surface];
-    }
-    return surface;
-  };
-  for (uint32_t rawId = 0; rawId < graph.nEdges; ++rawId) {
-    const auto& edge = graph.getEdge(EdgeId{static_cast<uint16_t>(rawId)});
-    const auto fromRoot = componentRoot(edge.from.value());
-    const auto toRoot = componentRoot(edge.to.value());
-    if (fromRoot != toRoot) {
-      componentParent[toRoot] = fromRoot;
-    }
-  }
-  std::vector<uint32_t> componentOrder(graph.nSurfaces, std::numeric_limits<uint32_t>::max());
-  for (uint32_t position = 0; position < workspace.orderedSurfaces.size(); ++position) {
-    const auto root = componentRoot(workspace.orderedSurfaces[position].value());
-    componentOrder[root] = std::min(componentOrder[root], position);
-  }
-
-  workspace.edgeSlotById.clear();
-  workspace.cellSlotById.clear();
-  std::vector<int16_t> selectedEdgeByGraphId(graph.nEdges, -1);
-  for (uint32_t rawId = 0; rawId < graph.nEdges; ++rawId) {
-    const auto id = EdgeId{static_cast<uint16_t>(rawId)};
-    const auto& edge = graph.getEdge(id);
-    const bool fromActive = workspace.activeSurfaces.has(edge.from);
-    const bool toActive = workspace.activeSurfaces.has(edge.to);
-    if (!fromActive || !toActive) {
-      continue;
-    }
-    const auto selectedId = EdgeId{static_cast<uint16_t>(workspace.topology.edges.size())};
-    selectedEdgeByGraphId[id.value()] = static_cast<int16_t>(selectedId.value());
-    workspace.topology.edges.push_back(edge);
-    workspace.edgeSlotById.push_back(static_cast<int16_t>(workspace.edges.size()));
-    workspace.edges.push_back(selectedId);
-  }
-  if (workspace.edges.empty()) {
-    fail();
-  }
-  for (uint32_t rawId = 0; rawId < graph.nCells; ++rawId) {
-    const auto id = CellTopologyId{static_cast<uint16_t>(rawId)};
-    const auto& cell = graph.getCell(id);
-    if (!cell.firstEdge.isValid() || !cell.secondEdge.isValid() || cell.firstEdge.value() >= graph.nEdges || cell.secondEdge.value() >= graph.nEdges) {
-      fail();
-    }
-    const auto firstSelected = selectedEdgeByGraphId[cell.firstEdge.value()];
-    const auto secondSelected = selectedEdgeByGraphId[cell.secondEdge.value()];
-    const bool firstActive = firstSelected >= 0;
-    const bool secondActive = secondSelected >= 0;
-    if (!firstActive || !secondActive || !cell.hitSurfaces.isSubsetOf(workspace.activeSurfaces)) {
-      continue;
-    }
-    const auto selectedId = CellTopologyId{static_cast<uint16_t>(workspace.topology.paths.size())};
-    workspace.topology.paths.push_back(CellPath{EdgeId{static_cast<uint16_t>(firstSelected)}, EdgeId{static_cast<uint16_t>(secondSelected)}});
-    workspace.cellSlotById.push_back(static_cast<int16_t>(workspace.cells.size()));
-    workspace.cells.push_back(selectedId);
-  }
-  const auto scheduleOrder = [&](CellTopologyId lhs, CellTopologyId rhs) {
-    const auto lhsTarget = workspace.topology.edges[workspace.topology.paths[lhs.value()].second.value()].to;
-    const auto rhsTarget = workspace.topology.edges[workspace.topology.paths[rhs.value()].second.value()].to;
-    const auto lhsComponent = componentOrder[componentRoot(lhsTarget.value())];
-    const auto rhsComponent = componentOrder[componentRoot(rhsTarget.value())];
-    if (lhsComponent != rhsComponent) {
-      return lhsComponent < rhsComponent;
-    }
-    return rank[lhsTarget.value()] != rank[rhsTarget.value()] ? rank[lhsTarget.value()] < rank[rhsTarget.value()] : lhs < rhs;
-  };
-  workspace.scheduledCells = workspace.cells;
-  std::sort(workspace.scheduledCells.begin(), workspace.scheduledCells.end(), scheduleOrder);
-  for (const auto id : workspace.cells) {
-    if (workspace.topology.seedingSurfaces.has(workspace.topology.edges[workspace.topology.paths[id.value()].second.value()].to)) {
-      workspace.roadStartCells.push_back(id);
-    }
-  }
-  std::sort(workspace.roadStartCells.begin(), workspace.roadStartCells.end(), scheduleOrder);
-  workspace.roadStartComponentOffsets.push_back(0);
-  uint32_t previousComponent = std::numeric_limits<uint32_t>::max();
-  for (uint32_t offset = 0; offset < workspace.roadStartCells.size(); ++offset) {
-    const auto target = workspace.topology.edges[workspace.topology.paths[workspace.roadStartCells[offset].value()].second.value()].to;
-    const auto component = componentOrder[componentRoot(target.value())];
-    if (component != previousComponent && offset != 0) {
-      workspace.roadStartComponentOffsets.push_back(offset);
-    }
-    previousComponent = component;
-  }
-  workspace.roadStartComponentOffsets.push_back(static_cast<uint32_t>(workspace.roadStartCells.size()));
-
-  workspace.topology.pathsByFirstEdgeOffsets.assign(workspace.topology.edges.size() + 1, 0);
-  for (const auto& path : workspace.topology.paths) {
-    ++workspace.topology.pathsByFirstEdgeOffsets[path.first.value() + 1];
-  }
-  for (size_t offset = 1; offset < workspace.topology.pathsByFirstEdgeOffsets.size(); ++offset) {
-    workspace.topology.pathsByFirstEdgeOffsets[offset] += workspace.topology.pathsByFirstEdgeOffsets[offset - 1];
-  }
-  workspace.topology.pathsByFirstEdge.resize(workspace.topology.paths.size());
-  auto cursor = workspace.topology.pathsByFirstEdgeOffsets;
-  for (uint32_t path = 0; path < workspace.topology.paths.size(); ++path) {
-    workspace.topology.pathsByFirstEdge[cursor[workspace.topology.paths[path].first.value()]++] = CellTopologyId{static_cast<uint16_t>(path)};
-  }
-  workspace.topology.scheduledPaths = workspace.scheduledCells;
-  workspace.topology.roadStartPaths = workspace.roadStartCells;
-  workspace.topology.roadStartComponentOffsets = workspace.roadStartComponentOffsets;
-}
 
 namespace
 {
@@ -717,11 +507,9 @@ TrackerInitializationResult Tracker::initialize(TimeFrame& frame, const TrackerI
     return result;
   }
 
-  std::vector<SurfaceGraph> graphs;
   std::vector<SurfaceLayout> layouts;
   std::vector<TrackingParameters> parameters;
   std::vector<TrackingWorkspaceCapacity> capacities;
-  graphs.reserve(configuration.iterations.size());
   layouts.reserve(configuration.iterations.size());
   parameters.reserve(configuration.iterations.size());
   capacities.reserve(configuration.iterations.size());
@@ -729,39 +517,37 @@ TrackerInitializationResult Tracker::initialize(TimeFrame& frame, const TrackerI
   for (std::size_t iteration = 0; iteration < configuration.iterations.size(); ++iteration) {
     const auto& input = configuration.iterations[iteration];
     SurfaceLayout layout{gsl::span<const SurfaceDescriptor>{configuration.catalog.surfaces, configuration.catalog.nSurfaces},
-                         makeSurfaceLayoutDefinition(input.graph)};
+                         input.layout};
     if (!layout.valid()) {
-      result.error = TrackerInitializationError::TraversalPlanBuildFailed;
+      result.error = TrackerInitializationError::LayoutInvalid;
       result.failedIteration = iteration;
-      return result;
-    }
-    const auto graphResult = SurfaceGraphBuilder{configuration.catalog, input.graph}.build();
-    if (!graphResult.ok()) {
-      result.error = TrackerInitializationError::GraphBuildFailed;
-      result.failedIteration = iteration;
-      result.graphError = graphResult.error;
+      result.layoutError = layout.getError();
       return result;
     }
 
-    if (input.graph.orderedSurfaces.empty()) {
+    if (input.layout.orderedSurfaces.empty()) {
       result.error = TrackerInitializationError::TraversalPlanBuildFailed;
       result.failedIteration = iteration;
       return result;
     }
-    if (input.parameters.NLayers != 0 && input.parameters.NLayers != input.graph.orderedSurfaces.size()) {
+    if (input.parameters.NLayers != 0 && input.parameters.NLayers != input.layout.orderedSurfaces.size()) {
       result.error = TrackerInitializationError::CapacityMismatch;
       result.failedIteration = iteration;
       return result;
     }
+    const auto topology = deriveTraversalTopology(layout);
+    if (!topology.ok()) {
+      result.error = TrackerInitializationError::TraversalPlanBuildFailed;
+      result.failedIteration = iteration;
+      return result;
+    }
     capacities.push_back(TrackingWorkspaceCapacity{
-      input.graph.orderedSurfaces.size(), graphResult.graph->getEdges().size(),
-      graphResult.graph->getCells().size()});
+      input.layout.orderedSurfaces.size(), topology.topology->edges.size(), topology.topology->paths.size()});
     layouts.push_back(std::move(layout));
-    graphs.push_back(*graphResult.graph);
     parameters.push_back(input.parameters);
   }
 
-  if (!frame.commitConfiguration(std::move(layouts), std::move(graphs), std::move(parameters),
+  if (!frame.commitConfiguration(std::move(layouts), std::move(parameters),
                                  std::move(capacities), configuration.memoryPool)) {
     result.error = TrackerInitializationError::CapacityMismatch;
     return result;

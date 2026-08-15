@@ -26,8 +26,6 @@
 
 #include "ITSMFTTracking/Configuration.h"
 #include "ITSMFTTracking/SurfaceLayout.h"
-#include "ITSMFTTracking/SurfaceGraph.h"
-#include "ITSMFTTracking/SurfaceGraphBuilder.h"
 #include "ITSMFTTracking/detail/SurfaceTrackingScratch.h"
 #include "ITSMFTTracking/TimeFrame.h"
 #include "ITSMFTTracking/TrackerTraits.h"
@@ -58,7 +56,7 @@ struct TrackingResult {
 };
 
 struct TrackerIterationConfiguration {
-  SurfaceGraphDefinition graph;
+  SurfaceLayoutDefinition layout;
   TrackingParameters parameters;
 };
 
@@ -73,7 +71,7 @@ enum class TrackerInitializationError : uint8_t {
   EmptyConfiguration,
   MissingCatalog,
   MissingMemoryPool,
-  GraphBuildFailed,
+  LayoutInvalid,
   TraversalPlanBuildFailed,
   DuplicateSource,
   CapacityMismatch
@@ -82,7 +80,7 @@ enum class TrackerInitializationError : uint8_t {
 struct TrackerInitializationResult {
   TrackerInitializationError error{TrackerInitializationError::None};
   std::size_t failedIteration{static_cast<std::size_t>(-1)};
-  SurfaceGraphBuildError graphError{SurfaceGraphBuildError::None};
+  SurfaceLayoutError layoutError{SurfaceLayoutError::None};
   bool ok() const noexcept { return error == TrackerInitializationError::None; }
 };
 
