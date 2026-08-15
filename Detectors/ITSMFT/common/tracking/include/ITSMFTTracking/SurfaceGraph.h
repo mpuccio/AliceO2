@@ -36,7 +36,6 @@ struct SurfaceCellTopology {
   SurfaceMask hitSurfaces{};
 };
 
-
 // Device-facing graph representation containing the surface catalog,
 // traversal order, sparse adjacency, and seed mask in one POD view.
 // All pointers are borrowed from one immutable SurfaceGraph owner.
