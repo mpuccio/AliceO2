@@ -52,6 +52,37 @@ TrackingKernelParameters bindTrackingKernelParameters(const TrackingParameters& 
   return out;
 }
 
+SurfaceLayoutDefinition makeSurfaceLayoutDefinition(const SurfaceGraphDefinition& graph)
+{
+  SurfaceLayoutDefinition layout;
+  layout.orderedSurfaces = graph.orderedSurfaces;
+  layout.maxHoles = graph.maxHoles;
+  layout.holeSurfaces = graph.holeSurfaces;
+  layout.seedingSurfaces = graph.seedingSurfaces;
+  layout.componentOffsets = {0};
+  for (uint16_t cut = 0; cut + 1 < graph.orderedSurfaces.size(); ++cut) {
+    const auto crossesCut = std::any_of(graph.basePairs.begin(), graph.basePairs.end(), [cut](const auto pair) {
+      return pair.fromIndex <= cut && pair.toIndex > cut;
+    });
+    if (!crossesCut) {
+      layout.componentOffsets.push_back(static_cast<uint16_t>(cut + 1));
+    }
+  }
+  return layout;
+}
+
+SurfaceMask disabledSurfaceMask(const SurfaceLayout& layout, LayerMask inactiveLayers)
+{
+  SurfaceMask disabled;
+  const auto ordered = layout.getOrderedSurfaces();
+  for (uint16_t position = 0; position < ordered.size(); ++position) {
+    if (inactiveLayers.has(static_cast<int>(position))) {
+      disabled.set(ordered[position]);
+    }
+  }
+  return disabled;
+}
+
 } // namespace
 
 void buildTraversalPlanImpl(TraversalWorkspace& workspace, const SurfaceGraphView& graph, LayerMask inactiveLayers, int iteration)
@@ -375,14 +406,55 @@ void Tracker::buildTraversalPlan(TraversalWorkspace& workspace, const SurfaceGra
   workspace.scheduledCells = std::move(staged.scheduledCells);
 }
 
+void Tracker::buildTraversalPlan(TraversalWorkspace& workspace, const SurfaceLayout& layout, SurfaceMask disabledSurfaces, int iteration) const
+{
+  TraversalWorkspace staged;
+  const auto derived = deriveTraversalTopology(layout, disabledSurfaces);
+  if (!derived.ok()) {
+    throw TraversalException{iteration, TraversalFailureReason::SparseTopologyMismatch};
+  }
+  staged.topology = *derived.topology;
+  staged.topologyCatalog = layout.getSurfaceCatalog();
+  staged.activeSurfaces = staged.topology.activeSurfaces;
+  staged.orderedSurfaces = staged.topology.orderedSurfaces;
+  staged.surfaceSlotById = staged.topology.surfacePositionById;
+  staged.edgeSlotById.reserve(staged.topology.edges.size());
+  staged.edges.reserve(staged.topology.edges.size());
+  for (uint16_t edge = 0; edge < staged.topology.edges.size(); ++edge) {
+    staged.edgeSlotById.push_back(static_cast<int16_t>(edge));
+    staged.edges.push_back(EdgeId{edge});
+  }
+  staged.cellSlotById.reserve(staged.topology.paths.size());
+  staged.cells.reserve(staged.topology.paths.size());
+  for (uint16_t path = 0; path < staged.topology.paths.size(); ++path) {
+    staged.cellSlotById.push_back(static_cast<int16_t>(path));
+    staged.cells.push_back(CellTopologyId{path});
+  }
+  staged.scheduledCells = staged.topology.scheduledPaths;
+  staged.roadStartCells = staged.topology.roadStartPaths;
+  staged.roadStartComponentOffsets = staged.topology.roadStartComponentOffsets;
+
+  workspace.activeSurfaces = staged.activeSurfaces;
+  workspace.topologyCatalog = staged.topologyCatalog;
+  workspace.topology = std::move(staged.topology);
+  workspace.orderedSurfaces = std::move(staged.orderedSurfaces);
+  workspace.surfaceSlotById = std::move(staged.surfaceSlotById);
+  workspace.edgeSlotById = std::move(staged.edgeSlotById);
+  workspace.cellSlotById = std::move(staged.cellSlotById);
+  workspace.edges = std::move(staged.edges);
+  workspace.cells = std::move(staged.cells);
+  workspace.roadStartCells = std::move(staged.roadStartCells);
+  workspace.roadStartComponentOffsets = std::move(staged.roadStartComponentOffsets);
+  workspace.scheduledCells = std::move(staged.scheduledCells);
+}
+
 void Tracker::initializeTraversalWorkspace(TraversalWorkspaceView& context) const
 {
   auto* mScratch = &context.scratch;
   auto* mFrame = &context.frame;
   const auto& mMemoryPool = mScratch->getMemoryPool();
   const auto mTrkParams = context.parameters;
-  const auto layout = mFrame->getGraph(static_cast<std::size_t>(context.iteration)).getView();
-  const auto& mTraversalGraph = layout;
+  const auto& surfaceLayout = mFrame->getLayout(static_cast<std::size_t>(context.iteration));
   auto& mTraversalCacheValid = context.workspace.valid;
   auto& mKernelParameters = context.workspace.kernelParameters;
   auto& mDiskLayerReferenceZ = context.workspace.diskLayerReferenceZView;
@@ -400,8 +472,9 @@ void Tracker::initializeTraversalWorkspace(TraversalWorkspaceView& context) cons
     throw TraversalException{iteration, TraversalFailureReason::IterationOutOfRange};
   }
   context.workspace.reset(mMemoryPool.get());
-  buildTraversalPlan(context.workspace, mTraversalGraph, mTrkParams[iteration].InactiveLayerMask, iteration);
+  buildTraversalPlan(context.workspace, surfaceLayout, disabledSurfaceMask(surfaceLayout, mTrkParams[iteration].InactiveLayerMask), iteration);
   context.topology = context.workspace.getTopologyView();
+  const auto& layout = context.topology;
   const auto& boundEdges = context.workspace.edges;
 
   for (const auto surface : context.workspace.orderedSurfaces) {
@@ -428,7 +501,7 @@ void Tracker::initializeTraversalWorkspace(TraversalWorkspaceView& context) cons
   std::array<NominalSurfaceMaterial, MaxLayoutSurfaces> stagedLayerMaterial{};
   for (int surfacePosition = 0; surfacePosition < activeSurfaceCount; ++surfacePosition) {
     const auto surfaceId = orderedSurfaces[surfacePosition];
-    if (!surfaceId.isValid() || surfaceId.value() >= layout.nSurfaces) {
+    if (!surfaceId.isValid() || surfaceId.value() >= layout.catalog.nSurfaces) {
       throw TraversalException{iteration, TraversalFailureReason::LegacyMaterialMismatch};
     }
     if (std::find(orderedSurfaces.begin(), orderedSurfaces.begin() + surfacePosition, surfaceId) != orderedSurfaces.begin() + surfacePosition) {
@@ -663,14 +736,23 @@ TrackerInitializationResult Tracker::initialize(TimeFrame& frame, const TrackerI
   }
 
   std::vector<SurfaceGraph> graphs;
+  std::vector<SurfaceLayout> layouts;
   std::vector<TrackingParameters> parameters;
   std::vector<TrackingWorkspaceCapacity> capacities;
   graphs.reserve(configuration.iterations.size());
+  layouts.reserve(configuration.iterations.size());
   parameters.reserve(configuration.iterations.size());
   capacities.reserve(configuration.iterations.size());
 
   for (std::size_t iteration = 0; iteration < configuration.iterations.size(); ++iteration) {
     const auto& input = configuration.iterations[iteration];
+    SurfaceLayout layout{gsl::span<const SurfaceDescriptor>{configuration.catalog.surfaces, configuration.catalog.nSurfaces},
+                         makeSurfaceLayoutDefinition(input.graph)};
+    if (!layout.valid()) {
+      result.error = TrackerInitializationError::TraversalPlanBuildFailed;
+      result.failedIteration = iteration;
+      return result;
+    }
     const auto graphResult = SurfaceGraphBuilder{configuration.catalog, input.graph}.build();
     if (!graphResult.ok()) {
       result.error = TrackerInitializationError::GraphBuildFailed;
@@ -692,11 +774,12 @@ TrackerInitializationResult Tracker::initialize(TimeFrame& frame, const TrackerI
     capacities.push_back(TrackingWorkspaceCapacity{
       input.graph.orderedSurfaces.size(), graphResult.graph->getEdges().size(),
       graphResult.graph->getCells().size()});
+    layouts.push_back(std::move(layout));
     graphs.push_back(*graphResult.graph);
     parameters.push_back(input.parameters);
   }
 
-  if (!frame.commitConfiguration(std::move(graphs), std::move(parameters),
+  if (!frame.commitConfiguration(std::move(layouts), std::move(graphs), std::move(parameters),
                                  std::move(capacities), configuration.memoryPool)) {
     result.error = TrackerInitializationError::CapacityMismatch;
     return result;
@@ -729,7 +812,7 @@ TrackingResult Tracker::run(TimeFrame& frame, TrackerTraits& traits)
       }
 
       auto& workspace = scratch.getTraversalWorkspace(static_cast<std::size_t>(iteration));
-      TraversalWorkspaceView view{iteration, frame, scratch, frame.getGraph(iteration).getView(),
+      TraversalWorkspaceView view{iteration, frame, scratch, frame.getLayout(iteration).getSurfaceCatalog(),
                                   trkParams, frame.getBz(), workspace};
       initializeTraversalWorkspace(view);
       traits.runTraversal(view, mRefitFunction);

@@ -199,6 +199,48 @@ bool TimeFrame::commitConfiguration(std::vector<SurfaceGraph>&& graphs,
   return true;
 }
 
+bool TimeFrame::commitConfiguration(std::vector<SurfaceLayout>&& layouts,
+                                    std::vector<SurfaceGraph>&& graphs,
+                                    std::vector<TrackingParameters>&& parameters,
+                                    std::vector<TrackingWorkspaceCapacity>&& capacities,
+                                    std::shared_ptr<BoundedMemoryResource> memoryPool)
+{
+  if (!memoryPool || layouts.empty() || layouts.size() != graphs.size() || layouts.size() != parameters.size() ||
+      layouts.size() != capacities.size()) {
+    return false;
+  }
+  for (std::size_t iteration = 0; iteration < layouts.size(); ++iteration) {
+    if (!layouts[iteration].valid() || !graphs[iteration].valid() || capacities[iteration].ownedSurfaces == 0) {
+      return false;
+    }
+  }
+
+  TrackingWorkspaceCapacity capacity{};
+  for (const auto& iterationCapacity : capacities) {
+    capacity.ownedSurfaces = std::max(capacity.ownedSurfaces, iterationCapacity.ownedSurfaces);
+    capacity.edges = std::max(capacity.edges, iterationCapacity.edges);
+    capacity.cells = std::max(capacity.cells, iterationCapacity.cells);
+  }
+  std::unique_ptr<SurfaceTrackingScratch, WorkspaceDeleter> workspace;
+  try {
+    workspace.reset(new SurfaceTrackingScratch);
+    workspace->setMemoryPool(memoryPool);
+    workspace->adoptPlan(capacity.ownedSurfaces, capacity.edges, capacity.cells);
+    workspace->configureTraversalWorkspaces(parameters.size());
+  } catch (const std::exception&) {
+    return false;
+  }
+
+  setMemoryPool(memoryPool);
+  mLayouts = std::move(layouts);
+  mGraphs = std::move(graphs);
+  mTrackingParameters = std::move(parameters);
+  mWorkspaceCapacities = std::move(capacities);
+  mWorkspace = std::move(workspace);
+  mConfigurationValid = true;
+  return true;
+}
+
 SurfaceTrackingScratch& TimeFrame::getWorkspace()
 {
   if (!mWorkspace) {

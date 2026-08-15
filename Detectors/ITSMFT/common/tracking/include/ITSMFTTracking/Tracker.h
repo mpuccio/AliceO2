@@ -25,6 +25,7 @@
 #include <oneapi/tbb/task_arena.h>
 
 #include "ITSMFTTracking/Configuration.h"
+#include "ITSMFTTracking/SurfaceLayout.h"
 #include "ITSMFTTracking/SurfaceGraph.h"
 #include "ITSMFTTracking/SurfaceGraphBuilder.h"
 #include "ITSMFTTracking/detail/SurfaceTrackingScratch.h"
@@ -106,6 +107,7 @@ class Tracker
  private:
   friend struct TrackerTestAccess;
   void buildTraversalPlan(TraversalWorkspace& workspace, const SurfaceGraphView& graph, LayerMask inactiveLayers, int iteration) const;
+  void buildTraversalPlan(TraversalWorkspace& workspace, const SurfaceLayout& layout, SurfaceMask disabledSurfaces, int iteration) const;
   void initializeTraversalWorkspace(TraversalWorkspaceView& view) const;
   SeedRefitFunction mRefitFunction = nullptr;
 };
