@@ -27,8 +27,8 @@ namespace o2::itsmft::tracking
 
 // Measurement indices are local to their surface and resolve through TimeFrame.
 struct TrackClusterReference {
-  SurfaceId surface{};
-  SurfaceMeasurementIndex index{};
+  LayerId surface{};
+  MeasurementIndex index{};
 };
 
 static_assert(std::is_standard_layout_v<TrackClusterReference>);

@@ -21,12 +21,12 @@ std::vector<SurfaceDescriptor> catalog(uint16_t count)
   std::vector<SurfaceDescriptor> result;
   result.reserve(count);
   for (uint16_t id = 0; id < count; ++id) {
-    result.push_back(SurfaceDescriptor{SurfaceId{id}, id, 0, SurfaceKind::Cylinder});
+    result.push_back(SurfaceDescriptor{LayerId{id}, id, 0, SurfaceKind::Cylinder});
   }
   return result;
 }
 
-SurfaceLayout makeLayout(std::vector<SurfaceId> ordered,
+SurfaceLayout makeLayout(std::vector<LayerId> ordered,
                          std::vector<uint16_t> componentOffsets = {0},
                          int maxHoles = 0,
                          SurfaceMask holeSurfaces = {},
@@ -42,9 +42,9 @@ SurfaceLayout makeLayout(std::vector<SurfaceId> ordered,
   return SurfaceLayout{surfaces, std::move(definition)};
 }
 
-std::vector<SurfaceId> chain(std::initializer_list<uint16_t> ids)
+std::vector<LayerId> chain(std::initializer_list<uint16_t> ids)
 {
-  std::vector<SurfaceId> result;
+  std::vector<LayerId> result;
   result.reserve(ids.size());
   for (const auto id : ids) {
     result.emplace_back(id);
@@ -56,12 +56,12 @@ SurfaceMask mask(std::initializer_list<uint16_t> ids)
 {
   SurfaceMask result;
   for (const auto id : ids) {
-    result.set(SurfaceId{id});
+    result.set(LayerId{id});
   }
   return result;
 }
 
-const Edge* findEdge(const TraversalTopology& topology, SurfaceId from, SurfaceId to)
+const Edge* findEdge(const TraversalTopology& topology, LayerId from, LayerId to)
 {
   const auto edge = std::find_if(topology.edges.begin(), topology.edges.end(), [&](const auto& candidate) {
     return candidate.from == from && candidate.to == to;
@@ -84,9 +84,9 @@ BOOST_AUTO_TEST_CASE(EdgeContainsOnlySurfaceEndpoints)
 {
   static_assert(std::is_standard_layout_v<Edge>);
   static_assert(std::is_trivially_copyable_v<Edge>);
-  static_assert(std::is_same_v<decltype(Edge::from), SurfaceId>);
-  static_assert(std::is_same_v<decltype(Edge::to), SurfaceId>);
-  static_assert(sizeof(Edge) == sizeof(SurfaceId) + sizeof(SurfaceId));
+  static_assert(std::is_same_v<decltype(Edge::from), LayerId>);
+  static_assert(std::is_same_v<decltype(Edge::to), LayerId>);
+  static_assert(sizeof(Edge) == sizeof(LayerId) + sizeof(LayerId));
   BOOST_CHECK_EQUAL(sizeof(Edge), 4u);
 }
 
@@ -96,7 +96,7 @@ BOOST_AUTO_TEST_CASE(ComponentBoundariesRejectCrossComponentEdges)
   const auto result = deriveTraversalTopology(layout);
   BOOST_REQUIRE(result.ok());
   BOOST_CHECK_EQUAL(result.topology->edges.size(), 2u);
-  BOOST_CHECK(findEdge(*result.topology, SurfaceId{1}, SurfaceId{2}) == nullptr);
+  BOOST_CHECK(findEdge(*result.topology, LayerId{1}, LayerId{2}) == nullptr);
 }
 
 BOOST_AUTO_TEST_CASE(AllActiveChainDerivesEdgesAndCellPaths)
@@ -109,12 +109,12 @@ BOOST_AUTO_TEST_CASE(AllActiveChainDerivesEdgesAndCellPaths)
   BOOST_CHECK_EQUAL(topology.activeSurfaceList.size(), 4u);
   BOOST_CHECK_EQUAL(topology.edges.size(), 3u);
   BOOST_CHECK_EQUAL(topology.paths.size(), 2u);
-  BOOST_CHECK(topology.edges[0].from == SurfaceId{0});
-  BOOST_CHECK(topology.edges[0].to == SurfaceId{1});
-  BOOST_CHECK(topology.edges[1].from == SurfaceId{1});
-  BOOST_CHECK(topology.edges[1].to == SurfaceId{2});
-  BOOST_CHECK(topology.edges[2].from == SurfaceId{2});
-  BOOST_CHECK(topology.edges[2].to == SurfaceId{3});
+  BOOST_CHECK(topology.edges[0].from == LayerId{0});
+  BOOST_CHECK(topology.edges[0].to == LayerId{1});
+  BOOST_CHECK(topology.edges[1].from == LayerId{1});
+  BOOST_CHECK(topology.edges[1].to == LayerId{2});
+  BOOST_CHECK(topology.edges[2].from == LayerId{2});
+  BOOST_CHECK(topology.edges[2].to == LayerId{3});
   BOOST_CHECK(topology.paths[0].first == EdgeId{0});
   BOOST_CHECK(topology.paths[0].second == EdgeId{1});
   BOOST_CHECK(topology.paths[1].first == EdgeId{1});
@@ -130,11 +130,11 @@ BOOST_AUTO_TEST_CASE(DisabledMiddleSurfaceRetainsAdmittedBridge)
   BOOST_CHECK_EQUAL(topology.activeSurfaceList.size(), 3u);
   BOOST_CHECK_EQUAL(topology.edges.size(), 2u);
   BOOST_CHECK_EQUAL(topology.paths.size(), 1u);
-  const auto* bridge = findEdge(topology, SurfaceId{0}, SurfaceId{2});
+  const auto* bridge = findEdge(topology, LayerId{0}, LayerId{2});
   BOOST_REQUIRE(bridge != nullptr);
-  BOOST_CHECK(bridge->from == SurfaceId{0});
-  BOOST_CHECK(bridge->to == SurfaceId{2});
-  BOOST_CHECK(topology.orderedSurfaces[1] == SurfaceId{1});
+  BOOST_CHECK(bridge->from == LayerId{0});
+  BOOST_CHECK(bridge->to == LayerId{2});
+  BOOST_CHECK(topology.orderedSurfaces[1] == LayerId{1});
   BOOST_CHECK(topology.paths[0].first == EdgeId{0});
   BOOST_CHECK(topology.paths[0].second == EdgeId{1});
 }
@@ -145,10 +145,10 @@ BOOST_AUTO_TEST_CASE(DisabledEndpointOmitsItsEdges)
   const auto result = deriveTraversalTopology(layout, mask({0}));
   BOOST_REQUIRE(result.ok());
   for (const auto& edge : result.topology->edges) {
-    BOOST_CHECK(edge.from != SurfaceId{0});
-    BOOST_CHECK(edge.to != SurfaceId{0});
+    BOOST_CHECK(edge.from != LayerId{0});
+    BOOST_CHECK(edge.to != LayerId{0});
   }
-  BOOST_CHECK(findEdge(*result.topology, SurfaceId{1}, SurfaceId{2}) != nullptr);
+  BOOST_CHECK(findEdge(*result.topology, LayerId{1}, LayerId{2}) != nullptr);
 }
 
 BOOST_AUTO_TEST_CASE(InvalidDerivationIsTransactional)

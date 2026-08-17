@@ -20,8 +20,8 @@ namespace o2::itsmft::tracking
 {
 
 struct Edge {
-  SurfaceId from{};
-  SurfaceId to{};
+  LayerId from{};
+  LayerId to{};
 };
 
 struct CellPath {
@@ -40,9 +40,9 @@ struct TopologyRange {
 
 struct TraversalTopologyView {
   SurfaceCatalogView catalog{};
-  const SurfaceId* orderedSurfaces{nullptr};
+  const LayerId* orderedSurfaces{nullptr};
   uint32_t nOrderedSurfaces{0};
-  const SurfaceId* activeSurfaceList{nullptr};
+  const LayerId* activeSurfaceList{nullptr};
   uint32_t nActiveSurfaces{0};
   const int16_t* surfacePositionById{nullptr};
   uint32_t nSurfacePositions{0};
@@ -61,7 +61,7 @@ struct TraversalTopologyView {
   uint32_t nRoadStartComponentOffsets{0};
   SurfaceMask seedingSurfaces{};
 
-  const SurfaceDescriptor& getSurface(SurfaceId id) const { return catalog.surfaces[catalog.getSurfaceIndex(id)]; }
+  const SurfaceDescriptor& getSurface(LayerId id) const { return catalog.surfaces[catalog.getSurfaceIndex(id)]; }
   SurfaceCatalogView getSurfaceCatalogView() const noexcept { return catalog; }
   const Edge& getEdge(EdgeId id) const { return edges[id.value()]; }
   const CellPath& getPath(CellPathId id) const { return paths[id.value()]; }
@@ -74,8 +74,8 @@ struct TraversalTopologyView {
 
 #ifndef GPUCA_GPUCODE
 struct TraversalTopology {
-  std::vector<SurfaceId> orderedSurfaces;
-  std::vector<SurfaceId> activeSurfaceList;
+  std::vector<LayerId> orderedSurfaces;
+  std::vector<LayerId> activeSurfaceList;
   std::vector<int16_t> surfacePositionById;
   SurfaceMask activeSurfaces{};
   SurfaceMask seedingSurfaces{};

@@ -23,15 +23,15 @@ namespace
 {
 std::vector<SurfaceDescriptor> makeCatalog()
 {
-  return {SurfaceDescriptor{SurfaceId{0}, 0, 0, SurfaceKind::Cylinder},
-          SurfaceDescriptor{SurfaceId{1}, 1, 0, SurfaceKind::Cylinder},
-          SurfaceDescriptor{SurfaceId{2}, 2, 0, SurfaceKind::Cylinder}};
+  return {SurfaceDescriptor{LayerId{0}, 0, 0, SurfaceKind::Cylinder},
+          SurfaceDescriptor{LayerId{1}, 1, 0, SurfaceKind::Cylinder},
+          SurfaceDescriptor{LayerId{2}, 2, 0, SurfaceKind::Cylinder}};
 }
 
 TrackerInitialization makeConfiguration(const std::vector<SurfaceDescriptor>& catalog,
                                         std::shared_ptr<BoundedMemoryResource> pool)
 {
-  const std::vector<SurfaceId> ordered{SurfaceId{2}, SurfaceId{0}, SurfaceId{1}};
+  const std::vector<LayerId> ordered{LayerId{2}, LayerId{0}, LayerId{1}};
   TrackerInitialization configuration;
   configuration.catalog = SurfaceCatalogView{catalog.data(), static_cast<uint32_t>(catalog.size())};
   configuration.memoryPool = std::move(pool);
@@ -68,10 +68,10 @@ BOOST_AUTO_TEST_CASE(ConfigurationCommitIsAtomic)
                                                                            << " layout=" << static_cast<int>(initialResult.layoutError));
   BOOST_REQUIRE(frame.isConfigured());
   BOOST_REQUIRE_EQUAL(frame.getNIterations(), 2u);
-  BOOST_CHECK(frame.getLayout(0).getOrderedSurfaces()[0] == SurfaceId{2});
-  BOOST_CHECK(frame.getLayout(1).getOrderedSurfaces()[0] == SurfaceId{2});
-  BOOST_CHECK(frame.getLayout(0).getSeedingSurfaces().has(SurfaceId{2}));
-  BOOST_CHECK(frame.getLayout(1).getSeedingSurfaces().has(SurfaceId{0}));
+  BOOST_CHECK(frame.getLayout(0).getOrderedSurfaces()[0] == LayerId{2});
+  BOOST_CHECK(frame.getLayout(1).getOrderedSurfaces()[0] == LayerId{2});
+  BOOST_CHECK(frame.getLayout(0).getSeedingSurfaces().has(LayerId{2}));
+  BOOST_CHECK(frame.getLayout(1).getSeedingSurfaces().has(LayerId{0}));
   BOOST_CHECK_EQUAL(frame.getWorkspace().getNTraversalWorkspaces(), 2u);
   BOOST_CHECK(!frame.getWorkspace().getTraversalWorkspace(0).valid);
   BOOST_CHECK(!frame.getWorkspace().getTraversalWorkspace(1).valid);

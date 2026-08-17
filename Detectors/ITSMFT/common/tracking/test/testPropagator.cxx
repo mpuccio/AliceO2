@@ -95,7 +95,7 @@ constexpr float BarrelBz = 5.f;
 SurfaceDescriptor cylinderDescriptor(NominalSurfaceMaterial material)
 {
   SurfaceDescriptor descriptor{};
-  descriptor.id = SurfaceId{0};
+  descriptor.id = LayerId{0};
   descriptor.kind = SurfaceKind::Cylinder;
   descriptor.referenceCoordinate = 2.5f;
   descriptor.material = material;
@@ -147,7 +147,7 @@ constexpr float DiskBz = 5.f;
 SurfaceDescriptor diskDescriptor(NominalSurfaceMaterial material)
 {
   SurfaceDescriptor descriptor{};
-  descriptor.id = SurfaceId{0};
+  descriptor.id = LayerId{0};
   descriptor.kind = SurfaceKind::Disk;
   descriptor.referenceCoordinate = -50.f;
   descriptor.material = material;
@@ -390,10 +390,10 @@ BOOST_AUTO_TEST_CASE(RefitDriverSkipsHoleSlots)
   const auto measurement = barrelMeasurement();
 
   std::array<SurfaceDescriptor, 1> surfaces{cylinderDescriptor(NominalSurfaceMaterial{0.f, 0.f})};
-  surfaces[0].id = SurfaceId{0};
+  surfaces[0].id = LayerId{0};
   SurfaceCatalogView catalog{surfaces.data(), static_cast<uint32_t>(surfaces.size())};
 
-  const detail::RefitMeasurementSlot present{measurement, SurfaceId{0}, true};
+  const detail::RefitMeasurementSlot present{measurement, LayerId{0}, true};
   const detail::RefitMeasurementSlot hole{};
 
   std::array<detail::RefitMeasurementSlot, 3> slots{hole, present, hole};

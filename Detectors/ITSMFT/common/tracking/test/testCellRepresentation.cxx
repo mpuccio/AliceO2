@@ -127,7 +127,7 @@ BOOST_AUTO_TEST_CASE(TrackSeedUsesOneFixedCapacity)
 
   TrackSeed seed;
   SurfaceMask mask;
-  mask.set(SurfaceId{static_cast<uint16_t>(TrackSeed::MaxSurfaces - 1)});
+  mask.set(LayerId{static_cast<uint16_t>(TrackSeed::MaxSurfaces - 1)});
   seed.setSurfaceMask(mask);
   seed.setCluster(TrackSeed::MaxSurfaces - 1, 42);
 

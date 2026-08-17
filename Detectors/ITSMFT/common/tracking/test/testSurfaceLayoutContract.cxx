@@ -20,7 +20,7 @@ std::vector<SurfaceDescriptor> catalog(uint16_t count)
 {
   std::vector<SurfaceDescriptor> result;
   for (uint16_t id = 0; id < count; ++id) {
-    result.push_back({SurfaceId{id}, id, 0, id < 7 ? SurfaceKind::Cylinder : SurfaceKind::Disk});
+    result.push_back({LayerId{id}, id, 0, id < 7 ? SurfaceKind::Cylinder : SurfaceKind::Disk});
   }
   return result;
 }
@@ -29,7 +29,7 @@ SurfaceLayoutDefinition ordered(uint16_t count)
 {
   SurfaceLayoutDefinition result;
   for (uint16_t id = 0; id < count; ++id) {
-    result.orderedSurfaces.push_back(SurfaceId{id});
+    result.orderedSurfaces.push_back(LayerId{id});
   }
   return result;
 }
@@ -40,12 +40,12 @@ BOOST_AUTO_TEST_CASE(ValidOrderedLayoutProvidesValidatedCatalog)
   const auto surfaces = catalog(4);
   auto definition = ordered(4);
   definition.maxHoles = 1;
-  definition.holeSurfaces.set(SurfaceId{1});
-  definition.seedingSurfaces.set(SurfaceId{2});
+  definition.holeSurfaces.set(LayerId{1});
+  definition.seedingSurfaces.set(LayerId{2});
   const SurfaceLayout layout{surfaces, definition};
   BOOST_REQUIRE(layout.valid());
   BOOST_CHECK_EQUAL(layout.getOrderedSurfaces().size(), 4u);
-  BOOST_CHECK_EQUAL(layout.getSurfaceCatalog().getSurface(SurfaceId{3}).id.value(), 3u);
+  BOOST_CHECK_EQUAL(layout.getSurfaceCatalog().getSurface(LayerId{3}).id.value(), 3u);
   BOOST_CHECK(layout.sameComponent(0, 3));
 }
 
@@ -65,10 +65,10 @@ BOOST_AUTO_TEST_CASE(RejectsInvalidSurfacesAndBoundaries)
 {
   const auto surfaces = catalog(4);
   auto duplicate = ordered(4);
-  duplicate.orderedSurfaces[3] = SurfaceId{2};
+  duplicate.orderedSurfaces[3] = LayerId{2};
   BOOST_CHECK((SurfaceLayout{surfaces, duplicate}.getError() == SurfaceLayoutError::DuplicateSurface));
   auto outside = ordered(4);
-  outside.orderedSurfaces[3] = SurfaceId{7};
+  outside.orderedSurfaces[3] = LayerId{7};
   BOOST_CHECK((SurfaceLayout{surfaces, outside}.getError() == SurfaceLayoutError::InvalidSurface));
   auto missingZero = ordered(4);
   missingZero.componentOffsets = {1};
@@ -82,10 +82,10 @@ BOOST_AUTO_TEST_CASE(PoliciesMustBeSubsetsOfTheLayout)
 {
   const auto surfaces = catalog(3);
   auto holes = ordered(3);
-  holes.holeSurfaces.set(SurfaceId{7});
+  holes.holeSurfaces.set(LayerId{7});
   BOOST_CHECK((SurfaceLayout{surfaces, holes}.getError() == SurfaceLayoutError::HoleSurfacesOutsideLayout));
   auto seeds = ordered(3);
-  seeds.seedingSurfaces.set(SurfaceId{7});
+  seeds.seedingSurfaces.set(LayerId{7});
   BOOST_CHECK((SurfaceLayout{surfaces, seeds}.getError() == SurfaceLayoutError::SeedingSurfacesOutsideLayout));
 }
 

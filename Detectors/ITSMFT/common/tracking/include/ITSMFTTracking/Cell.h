@@ -133,7 +133,7 @@ static_assert(std::is_trivially_copyable_v<CellSeed>);
 /// device use, where heap allocation is unavailable.
 ///
 /// TrackSeed uses SurfaceMask rather than CellSeed's positional LayerMask:
-/// each set bit is a position in its fixed array, not a global SurfaceId.
+/// each set bit is a position in its fixed array, not a global LayerId.
 ///
 /// This fixed-capacity value is the sole common-CA whole-track seed
 /// representation.
@@ -158,7 +158,7 @@ class TrackSeed final
     for (int position = 0; position < MaxSurfaces; ++position) {
       if (hitMask.has(position)) {
         mClusters[position] = cs.getClusters()[slot++];
-        mSurfaceMask.set(SurfaceId{static_cast<uint16_t>(position)});
+        mSurfaceMask.set(LayerId{static_cast<uint16_t>(position)});
       }
     }
   }
@@ -169,7 +169,7 @@ class TrackSeed final
   GPUhd() int getInnerLayer() const noexcept { return mSurfaceMask.first(); }
   GPUhd() bool hasCluster(int position) const noexcept
   {
-    return position >= 0 && position < MaxSurfaces && mSurfaceMask.has(SurfaceId{static_cast<uint16_t>(position)});
+    return position >= 0 && position < MaxSurfaces && mSurfaceMask.has(LayerId{static_cast<uint16_t>(position)});
   }
 
   // Bounds-checked: an out-of-[0, MaxSurfaces) position safely

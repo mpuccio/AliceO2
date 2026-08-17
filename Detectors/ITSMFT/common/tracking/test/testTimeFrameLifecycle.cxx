@@ -82,7 +82,7 @@ class LegacyLikeDecoder final : public ClusterDecoder
     const CompClusterExt& cluster,
     BoundedPatternCursor& patterns,
     const TopologyDictionary* dict,
-    gsl::span<const SurfaceId> layerToSurface,
+    gsl::span<const LayerId> layerToSurface,
     ClusterSourceId source,
     uint32_t externalIndex,
     uint32_t sourceROF,
@@ -154,22 +154,22 @@ std::vector<SurfaceDescriptor> makeITSTestCatalog()
   std::vector<SurfaceDescriptor> surfaces;
   surfaces.reserve(ITSNLayers);
   for (uint16_t i = 0; i < ITSNLayers; ++i) {
-    surfaces.push_back(SurfaceDescriptor{SurfaceId{i}, i, static_cast<uint8_t>(o2::detectors::DetID::ITS), SurfaceKind::Cylinder});
+    surfaces.push_back(SurfaceDescriptor{LayerId{i}, i, static_cast<uint8_t>(o2::detectors::DetID::ITS), SurfaceKind::Cylinder});
   }
   return surfaces;
 }
 
-std::vector<SurfaceId> identitySurfaces(uint16_t nLayers)
+std::vector<LayerId> identitySurfaces(uint16_t nLayers)
 {
-  std::vector<SurfaceId> mapping;
+  std::vector<LayerId> mapping;
   mapping.reserve(nLayers);
   for (uint16_t i = 0; i < nLayers; ++i) {
-    mapping.push_back(SurfaceId{i});
+    mapping.push_back(LayerId{i});
   }
   return mapping;
 }
 
-SurfaceLayout catalogLayout(SurfaceCatalogView catalog, gsl::span<const SurfaceId> ordered)
+SurfaceLayout catalogLayout(SurfaceCatalogView catalog, gsl::span<const LayerId> ordered)
 {
   return SurfaceLayout{gsl::span<const SurfaceDescriptor>{catalog.surfaces, catalog.nSurfaces},
                        makeSurfaceLayoutChain(ordered)};
@@ -260,30 +260,21 @@ const std::vector<Expected> expectedClusters{
 // call that must have left both owners untouched. `frame` owns the
 // normalized measurements; `tf` owns every legacy per-layer compatibility
 // structure (Gate 4 B3.1 split).
-void verifyFixtureLoaded(const TimeFrame& frame, TimeFrameScratch& tf, const Fixture& f, const o2::InteractionRecord& origin, const ROFTimingConfig& timing)
+void verifyFixtureLoaded(const TimeFrame& frame, TimeFrameScratch& tf, const Fixture& f)
 {
   constexpr ClusterSourceId kSourceId{0};
-
-  BOOST_CHECK_EQUAL(frame.getSurfaceMeasurements(SurfaceId{0}).size(), 2u);
-  BOOST_CHECK_EQUAL(frame.getSurfaceMeasurements(SurfaceId{1}).size(), 1u);
-  BOOST_CHECK_EQUAL(frame.getSurfaceMeasurements(SurfaceId{2}).size(), 1u);
+  BOOST_CHECK_EQUAL(frame.getSurfaceMeasurements(LayerId{0}).size(), 2u);
+  BOOST_CHECK_EQUAL(frame.getSurfaceMeasurements(LayerId{1}).size(), 1u);
+  BOOST_CHECK_EQUAL(frame.getSurfaceMeasurements(LayerId{2}).size(), 1u);
   BOOST_CHECK_EQUAL(tf.getUnsortedClustersOnLayer(0, 0).size() + tf.getUnsortedClustersOnLayer(1, 0).size(), 2u);
   BOOST_CHECK_EQUAL(tf.getUnsortedClustersOnLayer(0, 1).size(), 1u);
   BOOST_CHECK_EQUAL(tf.getUnsortedClustersOnLayer(2, 2).size(), 1u);
   for (int l = 3; l < ITSNLayers; ++l) {
-    BOOST_CHECK_EQUAL(frame.getSurfaceMeasurements(SurfaceId{static_cast<uint16_t>(l)}).size(), 0u);
+    BOOST_CHECK_EQUAL(frame.getSurfaceMeasurements(LayerId{static_cast<uint16_t>(l)}).size(), 0u);
     BOOST_CHECK_EQUAL(tf.getNrof(l), static_cast<int>(f.rofs.size()));
   }
 
   BOOST_CHECK_EQUAL(tf.getNrof(0), static_cast<int>(f.rofs.size()));
-  BOOST_CHECK_EQUAL(frame.getSourceIntervals(kSourceId).size(), f.rofs.size());
-  const auto intervals = frame.getSourceIntervals(kSourceId);
-  BOOST_REQUIRE_EQUAL(intervals.size(), f.rofs.size());
-  for (uint32_t r = 0; r < f.rofs.size(); ++r) {
-    BOOST_CHECK_EQUAL(intervals[r].sourceROF, r);
-    BOOST_CHECK_EQUAL(intervals[r].begin, f.rofs[r].getBCData().differenceInBC(origin));
-    BOOST_CHECK_EQUAL(intervals[r].length(), static_cast<uint64_t>(timing.rofLength));
-  }
 
   for (const auto& e : expectedClusters) {
     const o2::its::Cluster* legacyCluster = nullptr;
@@ -304,7 +295,7 @@ void verifyFixtureLoaded(const TimeFrame& frame, TimeFrameScratch& tf, const Fix
 
     const GlobalMeasurement* globalMeasurement = nullptr;
     const SurfaceMeasurement* measurement = nullptr;
-    const auto surface = SurfaceId{static_cast<uint16_t>(e.layer)};
+    const auto surface = LayerId{static_cast<uint16_t>(e.layer)};
     const auto globals = frame.getGlobalMeasurements(surface);
     const auto locals = frame.getSurfaceMeasurements(surface);
     for (size_t index = 0; index < globals.size(); ++index) {
@@ -350,7 +341,7 @@ void verifyFixtureLoaded(const TimeFrame& frame, TimeFrameScratch& tf, const Fix
     BOOST_CHECK(globalMeasurement->cluster.source == kSourceId);
     BOOST_CHECK(globalMeasurement->sensor.detector == static_cast<uint32_t>(o2::detectors::DetID::ITS));
     BOOST_CHECK_EQUAL(globalMeasurement->sensor.sensor, static_cast<uint32_t>(e.sensorID));
-    BOOST_CHECK(globalMeasurement->surface == SurfaceId{static_cast<uint16_t>(e.layer)});
+    BOOST_CHECK(globalMeasurement->surface == LayerId{static_cast<uint16_t>(e.layer)});
     BOOST_CHECK_EQUAL(globalMeasurement->sourceROF, e.sourceROF);
 
     BOOST_CHECK_EQUAL(static_cast<uint32_t>(tf.getClusterSize(e.layer, clId)), e.nPixels);
@@ -387,11 +378,11 @@ BOOST_AUTO_TEST_CASE(WipeClearsNormalizedFrameButPreservesDetId)
 
   const auto f = makeFixture();
   const auto result = tf.loadNormalizedSource(frame, decoder, origin, timing, f.clusters, f.patterns, f.rofs, &dict(), &f.labels, o2::detectors::DetID::ITS,
-                                              gsl::span<const SurfaceId>{plan.getOrderedSurfaces()}, plan.getSurfaceCatalog());
+                                              gsl::span<const LayerId>{plan.getOrderedSurfaces()}, plan.getSurfaceCatalog());
   BOOST_REQUIRE(result.ok());
   // Sanity: the successful load itself has the expected content, matching
   // the accepted parity coverage in testTimeFrameNormalizedSource.cxx.
-  verifyFixtureLoaded(frame, tf, f, origin, timing);
+  verifyFixtureLoaded(frame, tf, f);
 
   frame.resetTimeFrame();
 
@@ -399,9 +390,8 @@ BOOST_AUTO_TEST_CASE(WipeClearsNormalizedFrameButPreservesDetId)
   BOOST_CHECK_EQUAL(frame.getTotalMeasurements(), 0u);
   BOOST_CHECK_EQUAL(frame.getNMeasurementSurfaces(), 0u);
   for (uint16_t s = 0; s < ITSNLayers; ++s) {
-    BOOST_CHECK(frame.getSurfaceMeasurements(SurfaceId{s}).empty());
+    BOOST_CHECK(frame.getSurfaceMeasurements(LayerId{s}).empty());
   }
-  BOOST_CHECK(frame.getSourceIntervals(ClusterSourceId{0}).empty());
   BOOST_CHECK(frame.getLabels(ClusterRef{ClusterSourceId{0}, 0}).empty());
 
   // Gate 4 B3.1: neither owner stores mDetId any more -- the plan lives on
@@ -434,7 +424,7 @@ BOOST_AUTO_TEST_CASE(BackfillAllocationFailureLeavesNormalizedAndLegacyStateAtBa
   std::vector<TrackingParameters> noIterations;
   const auto plan = catalogLayout(catalogView, orderedSurfaces);
   tf.adoptPlan(plan.getOrderedSurfaces().size(), 0, 0);
-  const gsl::span<const SurfaceId> planOrderedSurfaces{plan.getOrderedSurfaces()};
+  const gsl::span<const LayerId> planOrderedSurfaces{plan.getOrderedSurfaces()};
 
   const auto f = makeFixture();
   const auto replacement = makeReplacementFixture();
@@ -445,7 +435,7 @@ BOOST_AUTO_TEST_CASE(BackfillAllocationFailureLeavesNormalizedAndLegacyStateAtBa
                                                 planOrderedSurfaces, plan.getSurfaceCatalog());
   BOOST_REQUIRE(baseline.ok());
   BOOST_CHECK_EQUAL(decoder.decodeCount, static_cast<int>(f.clusters.size()));
-  verifyFixtureLoaded(frame, tf, f, origin, timing);
+  verifyFixtureLoaded(frame, tf, f);
 
   // Remove all BoundedMemoryResource headroom: any further allocation from
   // this pool must now throw.
@@ -478,7 +468,7 @@ BOOST_AUTO_TEST_CASE(BackfillAllocationFailureLeavesNormalizedAndLegacyStateAtBa
   // state -- not even partially replaced by the distinct replacement
   // fixture's data. This is the owner-level load's all-or-nothing contract:
   // a failed stage leaves both live owners unchanged.
-  verifyFixtureLoaded(frame, tf, f, origin, timing);
+  verifyFixtureLoaded(frame, tf, f);
 }
 
 // --- C. TimeFrameScratch as sole owner of its BoundedMemoryResource -
@@ -526,7 +516,7 @@ BOOST_AUTO_TEST_CASE(ScratchOutlivesSoleOwnershipOfItsMemoryPool)
     // mTrackingFrameInfo, mClusterExternalIndices, mClusterSize,
     // mROFramesClusters) with real content.
     const auto result = tf.loadNormalizedSource(frame, decoder, origin, timing, f.clusters, f.patterns, f.rofs, &dict(), &f.labels, o2::detectors::DetID::ITS,
-                                                gsl::span<const SurfaceId>{plan.getOrderedSurfaces()}, plan.getSurfaceCatalog());
+                                                gsl::span<const LayerId>{plan.getOrderedSurfaces()}, plan.getSurfaceCatalog());
     BOOST_REQUIRE(result.ok());
     BOOST_REQUIRE(tf.getUnsortedClustersOnLayer(0, 0).size() + tf.getUnsortedClustersOnLayer(1, 0).size() > 0);
 

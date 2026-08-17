@@ -19,7 +19,7 @@ uint16_t componentForPosition(gsl::span<const uint16_t> componentOffsets, uint16
   return static_cast<uint16_t>(std::distance(componentOffsets.begin(), upper) - 1);
 }
 
-SurfaceMask skippedBetween(gsl::span<const SurfaceId> orderedSurfaces, uint16_t fromPosition, uint16_t toPosition) noexcept
+SurfaceMask skippedBetween(gsl::span<const LayerId> orderedSurfaces, uint16_t fromPosition, uint16_t toPosition) noexcept
 {
   SurfaceMask skipped;
   for (uint16_t position = fromPosition + 1; position < toPosition; ++position) {

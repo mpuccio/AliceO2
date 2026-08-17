@@ -80,7 +80,7 @@ class LegacyLikeDecoder final : public ClusterDecoder
     const CompClusterExt& cluster,
     BoundedPatternCursor& patterns,
     const TopologyDictionary* dict,
-    gsl::span<const SurfaceId> layerToSurface,
+    gsl::span<const LayerId> layerToSurface,
     ClusterSourceId source,
     uint32_t externalIndex,
     uint32_t sourceROF,
@@ -145,7 +145,7 @@ std::vector<SurfaceDescriptor> makeITSTestCatalog()
   std::vector<SurfaceDescriptor> surfaces;
   surfaces.reserve(ITSNLayers);
   for (uint16_t i = 0; i < ITSNLayers; ++i) {
-    surfaces.push_back(SurfaceDescriptor{SurfaceId{i}, i, static_cast<uint8_t>(o2::detectors::DetID::ITS), SurfaceKind::Cylinder});
+    surfaces.push_back(SurfaceDescriptor{LayerId{i}, i, static_cast<uint8_t>(o2::detectors::DetID::ITS), SurfaceKind::Cylinder});
     surfaces.back().chartRange = {-20.f, 20.f};
     // Matches o2::itsmft::resetDetectorDefaults(..., DetID::ITS)'s LayerxX0
     // default, so TrackerTraits::initialiseTimeFrame()'s LegacyMaterialMismatch
@@ -157,12 +157,12 @@ std::vector<SurfaceDescriptor> makeITSTestCatalog()
   return surfaces;
 }
 
-std::vector<SurfaceId> identitySurfaces(uint16_t nLayers)
+std::vector<LayerId> identitySurfaces(uint16_t nLayers)
 {
-  std::vector<SurfaceId> mapping;
+  std::vector<LayerId> mapping;
   mapping.reserve(nLayers);
   for (uint16_t i = 0; i < nLayers; ++i) {
-    mapping.push_back(SurfaceId{i});
+    mapping.push_back(LayerId{i});
   }
   return mapping;
 }
@@ -278,7 +278,7 @@ struct Rig {
     const auto& orderedSurfaces = layout.getOrderedSurfaces();
     const auto result = tf->loadNormalizedSource(frame, decoder, origin, timing, f.clusters, f.patterns, f.rofs, &dict(),
                                                  f.labels.getIndexedSize() > 0 ? &f.labels : nullptr, o2::detectors::DetID::ITS,
-                                                 gsl::span<const SurfaceId>{orderedSurfaces}, layout.getSurfaceCatalog());
+                                                 gsl::span<const LayerId>{orderedSurfaces}, layout.getSurfaceCatalog());
     BOOST_REQUIRE(result.ok());
 
     o2::its::LayerTiming timing2{};
@@ -324,8 +324,8 @@ BOOST_AUTO_TEST_CASE(FirstPassCommitsValidatedConfigurationIntoTimeFrame)
   auto params = makeOneIterationITSParams();
   rig.establishValidLayout(params);
   rig.loadSource(makeFixture());
-  BOOST_TEST(rig.frame.getLayout(0).getSurfaceCatalog().getSurface(SurfaceId{0}).chartRange.min == -20.f);
-  BOOST_TEST(rig.frame.getLayout(0).getSurfaceCatalog().getSurface(SurfaceId{0}).chartRange.max == 20.f);
+  BOOST_TEST(rig.frame.getLayout(0).getSurfaceCatalog().getSurface(LayerId{0}).chartRange.min == -20.f);
+  BOOST_TEST(rig.frame.getLayout(0).getSurfaceCatalog().getSurface(LayerId{0}).chartRange.max == 20.f);
   BOOST_CHECK_NO_THROW(TrackerTestAccess::prepare(rig.tracker, rig.frame, 0));
 
   IndexTableUtilsCore expected;

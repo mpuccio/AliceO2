@@ -85,7 +85,7 @@ std::optional<uint32_t> appendGenericTrack(TimeFrame& frame,
       return std::nullopt;
     }
     const auto& measurement = layerMeasurements[position][localIndex];
-    const TrackClusterReference reference{measurement.surface, SurfaceMeasurementIndex{static_cast<uint32_t>(localIndex)}};
+    const TrackClusterReference reference{measurement.surface, MeasurementIndex{static_cast<uint32_t>(localIndex)}};
     const auto* resolved = frame.getGlobalMeasurement(reference.surface, reference.index);
     if (!reference.surface.isValid() || measurement.surface != reference.surface || !measurement.cluster.isValid() ||
         resolved == nullptr || resolved != &measurement || resolved->surface != reference.surface || !resolved->cluster.isValid()) {
@@ -179,7 +179,7 @@ int requireScratchCellSlot(const TraversalWorkspaceView& context, int iteration,
   return static_cast<int>(*slot);
 }
 
-int requireSurfacePosition(const TraversalWorkspaceView& context, int iteration, SurfaceId id)
+int requireSurfacePosition(const TraversalWorkspaceView& context, int iteration, LayerId id)
 {
   if (!id.isValid()) {
     throw TraversalException{iteration, TraversalFailureReason::SparseTopologyMismatch};
@@ -519,7 +519,7 @@ void TrackerTraits::computeLayerCellsImpl(
   const auto& mKernelParameters = context.workspace.kernelParameters;
   const auto& mAttachHitConfig = context.workspace.attachHitConfig;
   const auto& mLayerMaterial = context.workspace.layerMaterial;
-  const auto& mLayerMeasurements = context.workspace.layerMeasurements;
+  const auto& mLayerSurfaceMeasurements = context.workspace.layerMeasurements;
   const auto& mLayerGlobalMeasurements = context.workspace.layerGlobalMeasurements;
   const auto& topology = mTraversalGraph;
 
@@ -532,12 +532,12 @@ void TrackerTraits::computeLayerCellsImpl(
     auto resolveCellHitBinding = [&](const auto& cellTopology) -> CellHitBinding {
       const auto& firstEdge = topology.getEdge(cellTopology.first);
       const auto& secondEdge = topology.getEdge(cellTopology.second);
-      const std::array<SurfaceId, 3> surfaces{firstEdge.from, firstEdge.to, secondEdge.to};
+      const std::array<LayerId, 3> surfaces{firstEdge.from, firstEdge.to, secondEdge.to};
       CellHitBinding binding;
       for (int i = 0; i < 3; ++i) {
-        const auto surfaceId = surfaces[i];
-        binding.layers[i] = requireSurfacePosition(context, iteration, surfaceId);
-        binding.surfaces[i] = topology.getSurface(surfaceId);
+        const auto LayerId = surfaces[i];
+        binding.layers[i] = requireSurfacePosition(context, iteration, LayerId);
+        binding.surfaces[i] = topology.getSurface(LayerId);
       }
       return binding;
     };
@@ -564,9 +564,9 @@ void TrackerTraits::computeLayerCellsImpl(
           mScratch->getClusters()[hitLayers[1]][nextTracklet.firstClusterIndex].clusterId,
           mScratch->getClusters()[hitLayers[2]][nextTracklet.secondClusterIndex].clusterId};
 
-        const auto& measurementInner = mLayerMeasurements[hitLayers[0]][clusId[0]];
-        const auto& measurementMiddle = mLayerMeasurements[hitLayers[1]][clusId[1]];
-        const auto& measurementOuter = mLayerMeasurements[hitLayers[2]][clusId[2]];
+        const auto& measurementInner = mLayerSurfaceMeasurements[hitLayers[0]][clusId[0]];
+        const auto& measurementMiddle = mLayerSurfaceMeasurements[hitLayers[1]][clusId[1]];
+        const auto& measurementOuter = mLayerSurfaceMeasurements[hitLayers[2]][clusId[2]];
         const auto& globalInner = mLayerGlobalMeasurements[hitLayers[0]][clusId[0]];
         const auto& globalMiddle = mLayerGlobalMeasurements[hitLayers[1]][clusId[1]];
         const auto& globalOuter = mLayerGlobalMeasurements[hitLayers[2]][clusId[2]];
@@ -904,7 +904,7 @@ void TrackerTraits::processNeighbours(TraversalWorkspaceView& context, int itera
   const auto& mMemoryPool = mScratch->getMemoryPool();
   const auto mBz = context.bz;
   const auto& mAttachHitConfig = context.workspace.attachHitConfig;
-  const auto& mLayerMeasurements = context.workspace.layerMeasurements;
+  const auto& mLayerSurfaceMeasurements = context.workspace.layerMeasurements;
   const auto layerMaterial = mAttachHitConfig.layerMaterial;
   const int activeSurfaceCount = static_cast<int>(context.workspace.orderedSurfaces.size());
 
@@ -958,7 +958,7 @@ void TrackerTraits::processNeighbours(TraversalWorkspaceView& context, int itera
         seed.getTimeStamp() = currentCell.getTimeStamp();
         seed.getTimeStamp() += neighbourCell.getTimeStamp();
 
-        const auto& measurement = mLayerMeasurements[neighbourLayer][neighbourCluster];
+        const auto& measurement = mLayerSurfaceMeasurements[neighbourLayer][neighbourCluster];
         float chi2 = seed.getChi2();
         OperationFailureReason attachReason{};
         const bool attached = Propagator::attachMeasurement(seed.state(), measurement, layerMaterial[neighbourLayer], mBz,
@@ -976,12 +976,12 @@ void TrackerTraits::processNeighbours(TraversalWorkspaceView& context, int itera
           }
           // TrackSeed::SurfaceMask is the fixed-capacity compact plan
           // position space used by the CA acceptance/refit loops. Global
-          // SurfaceIds stay on normalized measurements and GenericTrack
+          // LayerIds stay on normalized measurements and GenericTrack
           // references; mixing them into this local mask would make a
           // combined sparse binding look like extra holes. The binding's
           // ordered position is already `neighbourLayer` here.
           auto surfaceMask = seed.getSurfaceMask();
-          surfaceMask.set(SurfaceId{static_cast<uint16_t>(neighbourLayer)});
+          surfaceMask.set(LayerId{static_cast<uint16_t>(neighbourLayer)});
           seed.setSurfaceMask(surfaceMask);
           seed.setLevel(neighbourCell.getLevel());
           seed.setFirstTrackletIndex(neighbourCell.getFirstTrackletIndex());
@@ -1055,14 +1055,14 @@ void TrackerTraits::findRoadsImpl(TraversalWorkspaceView& context, const int ite
   const auto mBz = context.bz;
   const auto& mTraversalGraph = context.topology;
   const auto& mKernelParameters = context.workspace.kernelParameters;
-  const auto& mLayerMeasurements = context.workspace.layerMeasurements;
+  const auto& mLayerSurfaceMeasurements = context.workspace.layerMeasurements;
   const auto& mLayerGlobalMeasurements = context.workspace.layerGlobalMeasurements;
   const gsl::span<const CellPathId> roadStartCells = context.workspace.roadStartCells;
   const int activeSurfaceCount = static_cast<int>(context.workspace.orderedSurfaces.size());
   bounded_vector<bounded_vector<int>> firstClusters(activeSurfaceCount, bounded_vector<int>(mMemoryPool.get()), mMemoryPool.get());
   firstClusters.resize(activeSurfaceCount);
   // Road starts are the binding's seeding-eligible sparse-plan subsequence.
-  // CellPathId values use compact slots; SurfaceId is never a vector index.
+  // CellPathId values use compact slots; LayerId is never a vector index.
   // Filter roads by absolute q/pT in parameters[4]'s units, identically for
   // both families. Non-finite values fail the finite-bound comparison.
   constexpr float maxAbsQOverPt = 1.e3f;
@@ -1133,7 +1133,7 @@ void TrackerTraits::findRoadsImpl(TraversalWorkspaceView& context, const int ite
                                                   mBz,
                                                   *mScratch,
                                                   mLayerGlobalMeasurements,
-                                                  mLayerMeasurements,
+                                                  mLayerSurfaceMeasurements,
                                                   mTraversalGraph.getSurfaceCatalogView(),
                                                   context.workspace.orderedSurfaces,
                                                   temporaryTrack);

@@ -90,7 +90,7 @@ BOOST_AUTO_TEST_CASE(ITSFixturePreservesCylinderConventionAndMetadata)
     Shape,
     ITSSensor.sensor,
     3};
-  const auto decodedMeasurement = makeCylinderMeasurementDecodeResult(decoded, ITSSensor, SurfaceId{3}, ITSCluster, 17);
+  const auto decodedMeasurement = makeCylinderMeasurementDecodeResult(decoded, ITSSensor, LayerId{3}, ITSCluster, 17);
   const auto& global = decodedMeasurement.global;
   const auto& measurement = decodedMeasurement.measurement;
 
@@ -107,7 +107,7 @@ BOOST_AUTO_TEST_CASE(ITSFixturePreservesCylinderConventionAndMetadata)
   BOOST_CHECK_EQUAL(measurement.covariance.vv, 0.3f);
   BOOST_CHECK(global.sensor == ITSSensor);
   BOOST_CHECK(global.cluster == ITSCluster);
-  BOOST_CHECK(global.surface == SurfaceId{3});
+  BOOST_CHECK(global.surface == LayerId{3});
   BOOST_CHECK_EQUAL(global.flags, 0u);
   BOOST_CHECK_EQUAL(global.sourceROF, 17u);
   BOOST_CHECK_EQUAL(global.shape.nPixels, Shape.nPixels);
@@ -122,7 +122,7 @@ BOOST_AUTO_TEST_CASE(MFTFixtureUsesExplicitDiskCoordinatesAndXYCovariance)
   constexpr DetectorSensorId sensor{o2::detectors::DetID::MFT, 73};
   constexpr ClusterRef cluster{ClusterSourceId{1}, 0};
   const DecodedCluster decoded{global, {}, covarianceXY, Shape, sensor.sensor, 9};
-  const auto decodedMeasurement = makeDiskMeasurementDecodeResult(decoded, sensor, SurfaceId{9}, cluster, 23);
+  const auto decodedMeasurement = makeDiskMeasurementDecodeResult(decoded, sensor, LayerId{9}, cluster, 23);
   const auto& globalMeasurement = decodedMeasurement.global;
   const auto& measurement = decodedMeasurement.measurement;
 
@@ -135,7 +135,7 @@ BOOST_AUTO_TEST_CASE(MFTFixtureUsesExplicitDiskCoordinatesAndXYCovariance)
   BOOST_CHECK_EQUAL(measurement.covariance.vv, covarianceXY.vv);
   BOOST_CHECK(globalMeasurement.sensor == sensor);
   BOOST_CHECK(globalMeasurement.cluster == cluster);
-  BOOST_CHECK(globalMeasurement.surface == SurfaceId{9});
+  BOOST_CHECK(globalMeasurement.surface == LayerId{9});
   BOOST_CHECK_EQUAL(globalMeasurement.flags, 0u);
   BOOST_CHECK_EQUAL(globalMeasurement.sourceROF, 23u);
   BOOST_CHECK_EQUAL(globalMeasurement.shape.nPixels, Shape.nPixels);

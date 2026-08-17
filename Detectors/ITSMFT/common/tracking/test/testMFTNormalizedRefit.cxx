@@ -67,7 +67,7 @@ struct RefitFixture {
   std::vector<gsl::span<const SurfaceMeasurement>> layerMeasurements = std::vector<gsl::span<const SurfaceMeasurement>>(NLayers);
   std::vector<gsl::span<const GlobalMeasurement>> layerGlobals = std::vector<gsl::span<const GlobalMeasurement>>(NLayers);
   std::vector<SurfaceDescriptor> catalogSurfaces;
-  std::vector<SurfaceId> orderedSurfaces;
+  std::vector<LayerId> orderedSurfaces;
   SurfaceCatalogView catalog{};
   TrackSeed seed;
   o2::itsmft::TrackingParameters params;
@@ -83,7 +83,7 @@ struct RefitFixture {
     catalogSurfaces.resize(NLayers);
     orderedSurfaces.reserve(NLayers);
     for (int layer = 0; layer < NLayers; ++layer) {
-      catalogSurfaces[layer].id = SurfaceId{static_cast<uint16_t>(layer)};
+      catalogSurfaces[layer].id = LayerId{static_cast<uint16_t>(layer)};
       catalogSurfaces[layer].detectorSurfaceIndex = static_cast<uint16_t>(layer);
       catalogSurfaces[layer].kind = SurfaceKind::Disk;
       catalogSurfaces[layer].material = NominalSurfaceMaterial{0.f, 0.f};
@@ -129,7 +129,7 @@ struct RefitFixture {
     global.radius = std::hypot(x, y);
     global.covariance = {uu, uv, 0.f, vv, 0.f, 0.f};
     global.cluster = ClusterRef{ClusterSourceId{0}, clusterIndex};
-    global.surface = SurfaceId{static_cast<uint16_t>(layer)};
+    global.surface = LayerId{static_cast<uint16_t>(layer)};
     storage[layer].assign(1, m);
     globalStorage[layer].assign(1, global);
     layerMeasurements[layer] = storage[layer];
@@ -339,7 +339,7 @@ BOOST_AUTO_TEST_CASE(IdentityMismatchFailsCleanly)
   // TrackerTraits::initialiseTimeFrame() would normally have already enforced.
   auto m = fx.globalStorage[3].front();
   m.cluster = ClusterRef{ClusterSourceId{0}, 12345u};
-  m.surface = SurfaceId{3};
+  m.surface = LayerId{3};
   fx.globalStorage[3].assign(1, m);
   fx.layerGlobals[3] = fx.globalStorage[3];
 
@@ -374,8 +374,8 @@ BOOST_AUTO_TEST_CASE(PreservesSeedMembershipForGenericRefit)
   fx.seed.getClusters()[2] = o2::its::constants::UnusedIndex;
   fx.seed.getClusters()[7] = o2::its::constants::UnusedIndex;
   SurfaceMask mask = fx.seed.getSurfaceMask();
-  mask.reset(SurfaceId{2});
-  mask.reset(SurfaceId{7});
+  mask.reset(LayerId{2});
+  mask.reset(LayerId{7});
   fx.seed.setSurfaceMask(mask);
 
   TrackingCandidate track;
@@ -441,7 +441,7 @@ BOOST_AUTO_TEST_CASE(GenericRefitValidatesExternalClusterIdentity)
   std::vector<gsl::span<const GlobalMeasurement>> layerGlobals = std::vector<gsl::span<const GlobalMeasurement>>(NLayers);
   std::vector<SurfaceDescriptor> catalogSurfaces(NLayers);
   for (int layer = 0; layer < NLayers; ++layer) {
-    catalogSurfaces[layer].id = SurfaceId{static_cast<uint16_t>(layer)};
+    catalogSurfaces[layer].id = LayerId{static_cast<uint16_t>(layer)};
     catalogSurfaces[layer].kind = SurfaceKind::Disk;
     catalogSurfaces[layer].material = NominalSurfaceMaterial{0.f, 0.f};
   }
@@ -468,7 +468,7 @@ BOOST_AUTO_TEST_CASE(GenericRefitValidatesExternalClusterIdentity)
     global.radius = std::hypot(geometry.x[layer], geometry.y[layer]);
     global.covariance = {DefaultSigma2, 0.f, 0.f, DefaultSigma2, 0.f, 0.f};
     global.cluster = ClusterRef{ClusterSourceId{0}, static_cast<uint32_t>(1000 + layer)};
-    global.surface = SurfaceId{static_cast<uint16_t>(layer)};
+    global.surface = LayerId{static_cast<uint16_t>(layer)};
     storage[layer].assign(1, m);
     globalStorage[layer].assign(1, global);
     layerMeasurements[layer] = storage[layer];
@@ -486,10 +486,10 @@ BOOST_AUTO_TEST_CASE(GenericRefitValidatesExternalClusterIdentity)
                                            /*absCharge=*/1, o2::track::PID::Pion, seed.state(), seedReason));
 
   TrackingCandidate track;
-  std::vector<SurfaceId> orderedSurfaces;
+  std::vector<LayerId> orderedSurfaces;
   orderedSurfaces.reserve(NLayers);
   for (int layer = 0; layer < NLayers; ++layer) {
-    orderedSurfaces.push_back(SurfaceId{static_cast<uint16_t>(layer)});
+    orderedSurfaces.push_back(LayerId{static_cast<uint16_t>(layer)});
   }
   BOOST_REQUIRE(detail::refitSurfaceSeed(seed, params, Bz, tf, layerGlobals,
                                          layerMeasurements, catalog, orderedSurfaces, track));

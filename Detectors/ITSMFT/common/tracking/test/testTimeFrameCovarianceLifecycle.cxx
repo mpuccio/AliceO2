@@ -86,7 +86,7 @@ class SystematicContractDecoder final : public ClusterDecoder
     const CompClusterExt& cluster,
     BoundedPatternCursor& patterns,
     const TopologyDictionary* dict,
-    gsl::span<const SurfaceId> layerToSurface,
+    gsl::span<const LayerId> layerToSurface,
     ClusterSourceId source,
     uint32_t externalIndex,
     uint32_t sourceROF,
@@ -138,9 +138,9 @@ class SystematicContractDecoder final : public ClusterDecoder
 };
 
 template <int NLayers>
-std::vector<SurfaceId> identitySurfaces()
+std::vector<LayerId> identitySurfaces()
 {
-  std::vector<SurfaceId> result;
+  std::vector<LayerId> result;
   result.reserve(NLayers);
   for (uint16_t layer = 0; layer < NLayers; ++layer) {
     result.emplace_back(layer);
@@ -155,7 +155,7 @@ std::vector<SurfaceDescriptor> makeCatalog(o2::detectors::DetID::ID detector, Su
   result.reserve(NLayers);
   for (uint16_t layer = 0; layer < NLayers; ++layer) {
     result.push_back(SurfaceDescriptor{
-      SurfaceId{layer}, layer, static_cast<uint8_t>(detector), kind, 0,
+      LayerId{layer}, layer, static_cast<uint8_t>(detector), kind, 0,
       static_cast<float>(layer + 1), 0.f, 100.f});
     result.back().chartRange = kind == SurfaceKind::Disk ? SurfaceChartRange{0.1f, 20.f} : SurfaceChartRange{-20.f, 20.f};
     const float xOverX0 = detector == o2::detectors::DetID::ITS
@@ -193,7 +193,7 @@ struct CovarianceSnapshot {
 
 CovarianceSnapshot snapshotCovariance(const TimeFrame& frame, const TimeFrameScratch& tf)
 {
-  const auto measurements = frame.getSurfaceMeasurements(SurfaceId{0});
+  const auto measurements = frame.getSurfaceMeasurements(LayerId{0});
   BOOST_REQUIRE_EQUAL(measurements.size(), 1u);
   const auto& compatibility = tf.getTrackingFrameInfoOnLayer(0);
   BOOST_REQUIRE_EQUAL(compatibility.size(), 1u);
@@ -253,7 +253,7 @@ struct Rig {
     const auto result = tf->loadNormalizedSource(
       frame, decoder, o2::InteractionRecord{50, 5}, ROFTimingConfig{40, 0, 0, 0},
       clusters, patterns, rofs, &dictionary(), nullptr, detector,
-      gsl::span<const SurfaceId>{orderedSurfaces}, layout.getSurfaceCatalog(), applySysErrors);
+      gsl::span<const LayerId>{orderedSurfaces}, layout.getSurfaceCatalog(), applySysErrors);
     BOOST_REQUIRE(result.ok());
 
     o2::its::LayerTiming timing{};

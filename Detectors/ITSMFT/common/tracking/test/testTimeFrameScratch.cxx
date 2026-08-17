@@ -33,19 +33,19 @@ namespace
 {
 using namespace o2::itsmft::tracking;
 
-std::vector<SurfaceId> ordered(uint16_t first, uint16_t count)
+std::vector<LayerId> ordered(uint16_t first, uint16_t count)
 {
-  std::vector<SurfaceId> result;
+  std::vector<LayerId> result;
   result.reserve(count);
   for (uint16_t i = 0; i < count; ++i) {
-    result.push_back(SurfaceId{static_cast<uint16_t>(first + i)});
+    result.push_back(LayerId{static_cast<uint16_t>(first + i)});
   }
   return result;
 }
 
 SurfaceDescriptor surfaceWithOwner(uint16_t id, SurfaceKind kind, uint8_t detectorId)
 {
-  return SurfaceDescriptor{SurfaceId{id}, id, detectorId, kind};
+  return SurfaceDescriptor{LayerId{id}, id, detectorId, kind};
 }
 
 // A synthetic, detector-neutral Cylinder chain of `n` surfaces. Deliberately
@@ -80,7 +80,7 @@ struct SyntheticChain {
   static SurfaceLayout buildLayout(const std::vector<SurfaceDescriptor>& surfaces)
   {
     SurfaceMask seed;
-    seed.set(SurfaceId{static_cast<uint16_t>(surfaces.size() - 1)});
+    seed.set(LayerId{static_cast<uint16_t>(surfaces.size() - 1)});
     const auto orderedSurfaces = ordered(0, static_cast<uint16_t>(surfaces.size()));
     return SurfaceLayout{gsl::span<const SurfaceDescriptor>{surfaces.data(), surfaces.size()},
                          makeSurfaceLayoutChain(orderedSurfaces, 0, SurfaceMask{}, seed)};

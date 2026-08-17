@@ -51,23 +51,17 @@ void TimeFrame::resetBeamXY(const float x, const float y, const float w)
 
 void TimeFrame::swapMeasurements(TimeFrame& other) noexcept
 {
-  mPerSurfaceGlobalMeasurements.swap(other.mPerSurfaceGlobalMeasurements);
-  mPerSurfaceMeasurements.swap(other.mPerSurfaceMeasurements);
-  mROFIntervals.swap(other.mROFIntervals);
-  mSourceROFOffsets.swap(other.mSourceROFOffsets);
+  mLayerGlobalMeasurements.swap(other.mLayerGlobalMeasurements);
+  mLayerSurfaceMeasurements.swap(other.mLayerSurfaceMeasurements);
   mLabelSources.swap(other.mLabelSources);
 }
 
 void TimeFrame::assignLoadedMeasurements(std::vector<std::vector<GlobalMeasurement>>&& globals,
                                          std::vector<std::vector<SurfaceMeasurement>>&& measurements,
-                                         std::vector<ROFIntervalBC>&& intervals,
-                                         std::vector<uint32_t>&& offsets,
                                          std::vector<const o2::dataformats::MCTruthContainer<o2::MCCompLabel>*>&& labels)
 {
-  mPerSurfaceGlobalMeasurements = std::move(globals);
-  mPerSurfaceMeasurements = std::move(measurements);
-  mROFIntervals = std::move(intervals);
-  mSourceROFOffsets = std::move(offsets);
+  mLayerGlobalMeasurements = std::move(globals);
+  mLayerSurfaceMeasurements = std::move(measurements);
   mLabelSources = std::move(labels);
 }
 
@@ -77,40 +71,32 @@ void TimeFrame::commitMeasurements(TimeFrame& staged) noexcept
   swapMeasurements(staged);
 }
 
-gsl::span<const SurfaceMeasurement> TimeFrame::getSurfaceMeasurements(SurfaceId surface) const
+gsl::span<const SurfaceMeasurement> TimeFrame::getSurfaceMeasurements(LayerId surface) const
 {
-  return surface.isValid() && surface.value() < mPerSurfaceMeasurements.size() ? gsl::make_span(mPerSurfaceMeasurements[surface.value()]) : gsl::span<const SurfaceMeasurement>{};
+  return surface.isValid() && surface.value() < mLayerSurfaceMeasurements.size() ? gsl::make_span(mLayerSurfaceMeasurements[surface.value()]) : gsl::span<const SurfaceMeasurement>{};
 }
 
-gsl::span<const GlobalMeasurement> TimeFrame::getGlobalMeasurements(SurfaceId surface) const
+gsl::span<const GlobalMeasurement> TimeFrame::getGlobalMeasurements(LayerId surface) const
 {
-  return surface.isValid() && surface.value() < mPerSurfaceGlobalMeasurements.size() ? gsl::make_span(mPerSurfaceGlobalMeasurements[surface.value()]) : gsl::span<const GlobalMeasurement>{};
+  return surface.isValid() && surface.value() < mLayerGlobalMeasurements.size() ? gsl::make_span(mLayerGlobalMeasurements[surface.value()]) : gsl::span<const GlobalMeasurement>{};
 }
 
-const GlobalMeasurement* TimeFrame::getGlobalMeasurement(SurfaceId surface, SurfaceMeasurementIndex index) const noexcept
+const GlobalMeasurement* TimeFrame::getGlobalMeasurement(LayerId surface, MeasurementIndex index) const noexcept
 {
-  if (!surface.isValid() || surface.value() >= mPerSurfaceGlobalMeasurements.size() || !index.isValid()) {
+  if (!surface.isValid() || surface.value() >= mLayerGlobalMeasurements.size() || !index.isValid()) {
     return nullptr;
   }
-  const auto& measurements = mPerSurfaceGlobalMeasurements[surface.value()];
+  const auto& measurements = mLayerGlobalMeasurements[surface.value()];
   return index.value() < measurements.size() ? &measurements[index.value()] : nullptr;
 }
 
-const SurfaceMeasurement* TimeFrame::getSurfaceMeasurement(SurfaceId surface, SurfaceMeasurementIndex index) const noexcept
+const SurfaceMeasurement* TimeFrame::getSurfaceMeasurement(LayerId surface, MeasurementIndex index) const noexcept
 {
-  if (!surface.isValid() || surface.value() >= mPerSurfaceMeasurements.size() || !index.isValid()) {
+  if (!surface.isValid() || surface.value() >= mLayerSurfaceMeasurements.size() || !index.isValid()) {
     return nullptr;
   }
-  const auto& measurements = mPerSurfaceMeasurements[surface.value()];
+  const auto& measurements = mLayerSurfaceMeasurements[surface.value()];
   return index.value() < measurements.size() ? &measurements[index.value()] : nullptr;
-}
-
-gsl::span<const ROFIntervalBC> TimeFrame::getSourceIntervals(ClusterSourceId source) const
-{
-  if (!source.isValid() || source.value() + 1 >= mSourceROFOffsets.size()) {
-    return {};
-  }
-  return gsl::make_span(mROFIntervals).subspan(mSourceROFOffsets[source.value()], mSourceROFOffsets[source.value() + 1] - mSourceROFOffsets[source.value()]);
 }
 
 gsl::span<const o2::MCCompLabel> TimeFrame::getLabels(ClusterRef cluster) const
@@ -124,7 +110,7 @@ gsl::span<const o2::MCCompLabel> TimeFrame::getLabels(ClusterRef cluster) const
 std::size_t TimeFrame::getTotalMeasurements() const noexcept
 {
   std::size_t total = 0;
-  for (const auto& measurements : mPerSurfaceMeasurements) {
+  for (const auto& measurements : mLayerSurfaceMeasurements) {
     total += measurements.size();
   }
   return total;
@@ -214,10 +200,8 @@ void TimeFrame::resetTimeFrame() noexcept
   // normalized event, so clear both together.
   deepVectorClear(mGenericTracks);
   deepVectorClear(mTrackClusterIndices);
-  mPerSurfaceGlobalMeasurements.clear();
-  mPerSurfaceMeasurements.clear();
-  mROFIntervals.clear();
-  mSourceROFOffsets.clear();
+  mLayerGlobalMeasurements.clear();
+  mLayerSurfaceMeasurements.clear();
   mLabelSources.clear();
   ++mEventResetCount;
 }

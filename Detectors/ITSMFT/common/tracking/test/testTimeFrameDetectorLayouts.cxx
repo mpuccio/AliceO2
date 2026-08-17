@@ -30,14 +30,14 @@ namespace
 bool noopSeedRefit(const TrackSeed&, const TrackingParameters&, float, TimeFrameScratch&,
                    gsl::span<const gsl::span<const GlobalMeasurement>>,
                    gsl::span<const gsl::span<const SurfaceMeasurement>>, SurfaceCatalogView,
-                   gsl::span<const SurfaceId>, TrackingCandidate&)
+                   gsl::span<const LayerId>, TrackingCandidate&)
 {
   return false;
 }
 
-std::vector<SurfaceId> order(size_t count)
+std::vector<LayerId> order(size_t count)
 {
-  std::vector<SurfaceId> result;
+  std::vector<LayerId> result;
   for (uint16_t id = 0; id < count; ++id) {
     result.emplace_back(id);
   }
@@ -55,7 +55,7 @@ std::vector<SurfaceDescriptor> catalog(size_t count, SurfaceKind kind, o2::detec
   result.reserve(count);
   for (uint16_t id = 0; id < count; ++id) {
     const float xOverX0 = nominalXOverX0(detector, id);
-    SurfaceDescriptor descriptor{SurfaceId{id}, id, static_cast<uint8_t>(detector), kind, 0, static_cast<float>(id + 1), 0.f, 100.f};
+    SurfaceDescriptor descriptor{LayerId{id}, id, static_cast<uint8_t>(detector), kind, 0, static_cast<float>(id + 1), 0.f, 100.f};
     descriptor.material.xOverX0 = xOverX0;
     descriptor.material.arealDensityGPerCm2 = xOverX0 * o2::its::constants::Radl * o2::its::constants::Rho;
     result.push_back(descriptor);
@@ -71,7 +71,7 @@ TrackingParameters parameters(o2::detectors::DetID::ID detector)
 }
 
 void configure(TimeFrame& frame, Tracker& tracker, const std::shared_ptr<BoundedMemoryResource>& pool,
-               gsl::span<const SurfaceDescriptor> surfaces, gsl::span<const SurfaceId> ordered,
+               gsl::span<const SurfaceDescriptor> surfaces, gsl::span<const LayerId> ordered,
                const std::vector<TrackingParameters>& parameters)
 {
   TrackerInitialization configuration;
@@ -96,7 +96,7 @@ BOOST_AUTO_TEST_CASE(surfaceLayoutsRejectInvalidDefinitions)
   const gsl::span<const SurfaceDescriptor> catalogSpan{surfaces.data(), surfaces.size()};
   const auto ordered = order(7);
   auto invalidOrder = ordered;
-  invalidOrder.push_back(SurfaceId{7});
+  invalidOrder.push_back(LayerId{7});
   const auto invalidSurface = SurfaceLayout{catalogSpan, makeSurfaceLayoutChain(invalidOrder)};
   BOOST_CHECK(!invalidSurface.valid());
   BOOST_CHECK_EQUAL(static_cast<int>(invalidSurface.getError()), static_cast<int>(SurfaceLayoutError::InvalidSurface));
@@ -108,7 +108,7 @@ BOOST_AUTO_TEST_CASE(surfaceLayoutsRejectInvalidDefinitions)
 
 BOOST_AUTO_TEST_CASE(nonidentity_surface_order_builds_the_expected_topology)
 {
-  const std::vector<SurfaceId> ordered{SurfaceId{3}, SurfaceId{0}, SurfaceId{6}, SurfaceId{2}, SurfaceId{5}, SurfaceId{1}, SurfaceId{4}};
+  const std::vector<LayerId> ordered{LayerId{3}, LayerId{0}, LayerId{6}, LayerId{2}, LayerId{5}, LayerId{1}, LayerId{4}};
   auto params = parameters(o2::detectors::DetID::ITS);
   params.NLayers = 7;
   params.MaxHoles = 1;

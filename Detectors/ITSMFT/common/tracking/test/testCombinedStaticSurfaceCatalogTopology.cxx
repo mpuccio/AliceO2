@@ -15,9 +15,9 @@ namespace
 {
 using namespace o2::itsmft::tracking;
 
-std::vector<SurfaceId> ordered(uint16_t first, uint16_t count)
+std::vector<LayerId> ordered(uint16_t first, uint16_t count)
 {
-  std::vector<SurfaceId> result;
+  std::vector<LayerId> result;
   for (uint16_t i = 0; i < count; ++i) {
     result.emplace_back(static_cast<uint16_t>(first + i));
   }
@@ -30,7 +30,7 @@ BOOST_AUTO_TEST_CASE(CombinedStaticCatalogHasDenseGlobalIdsAndQualifiedIdentity)
   BOOST_REQUIRE_EQUAL(kITSMFTCombinedStaticSurfaceCatalog.size(), static_cast<std::size_t>(ITSNLayers + MFTNLayers));
   for (uint16_t i = 0; i < kITSMFTCombinedStaticSurfaceCatalog.size(); ++i) {
     const auto& surface = kITSMFTCombinedStaticSurfaceCatalog[i];
-    BOOST_CHECK(surface.id == SurfaceId{i});
+    BOOST_CHECK(surface.id == LayerId{i});
     if (i < ITSNLayers) {
       BOOST_CHECK_EQUAL(surface.detectorId, static_cast<uint8_t>(o2::detectors::DetID::ITS));
       BOOST_CHECK(surface.kind == SurfaceKind::Cylinder);
@@ -50,8 +50,8 @@ BOOST_AUTO_TEST_CASE(CombinedStaticCatalogDerivesDisconnectedHoleTopology)
   definition.orderedSurfaces.insert(definition.orderedSurfaces.end(), mft.begin(), mft.end());
   definition.componentOffsets = {0, ITSNLayers};
   definition.maxHoles = 1;
-  definition.holeSurfaces.set(SurfaceId{3});
-  definition.holeSurfaces.set(SurfaceId{static_cast<uint16_t>(ITSNLayers + 5)});
+  definition.holeSurfaces.set(LayerId{3});
+  definition.holeSurfaces.set(LayerId{static_cast<uint16_t>(ITSNLayers + 5)});
 
   const auto layout = SurfaceLayout{kITSMFTCombinedStaticSurfaceCatalog, std::move(definition)};
   const auto result = deriveTraversalTopology(layout);

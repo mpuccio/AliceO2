@@ -29,7 +29,7 @@ enum class OperationFailureReason : uint8_t {
   // Finite-input forward seed with z-ordering or transverse separation at or
   // below the strict 1e-6f geometry boundary; distinct from numeric failures.
   SeedGeometryDegenerate = 12,
-  // A present (non-hole) measurement has an invalid SurfaceId/catalog
+  // A present (non-hole) measurement has an invalid LayerId/catalog
   // association; no propagation, material, or chi2 arithmetic ran.
   InvalidSurfaceCatalogAssociation = 14,
   // A completed refit leg failed `|Q2Pt| < maxQoverPt && chi2 <

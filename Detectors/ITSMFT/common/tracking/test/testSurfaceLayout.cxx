@@ -18,14 +18,14 @@ std::vector<SurfaceDescriptor> catalog(uint16_t count, SurfaceKind kind = Surfac
 {
   std::vector<SurfaceDescriptor> result;
   for (uint16_t id = 0; id < count; ++id) {
-    result.emplace_back(SurfaceId{id}, id, 0, kind);
+    result.emplace_back(LayerId{id}, id, 0, kind);
   }
   return result;
 }
 
-std::vector<SurfaceId> order(uint16_t first, uint16_t count)
+std::vector<LayerId> order(uint16_t first, uint16_t count)
 {
-  std::vector<SurfaceId> result;
+  std::vector<LayerId> result;
   for (uint16_t id = 0; id < count; ++id) {
     result.emplace_back(static_cast<uint16_t>(first + id));
   }
@@ -36,7 +36,7 @@ SurfaceMask mask(std::initializer_list<uint16_t> ids)
 {
   SurfaceMask result;
   for (const auto id : ids) {
-    result.set(SurfaceId{id});
+    result.set(LayerId{id});
   }
   return result;
 }
@@ -45,12 +45,12 @@ SurfaceMask mask(std::initializer_list<uint16_t> ids)
 BOOST_AUTO_TEST_CASE(SurfaceMaskCoversThirtyTwoGlobalSurfaces)
 {
   SurfaceMask surfaces;
-  surfaces.set(SurfaceId{0});
-  surfaces.set(SurfaceId{16});
-  surfaces.set(SurfaceId{31});
-  BOOST_CHECK(surfaces.has(SurfaceId{0}));
-  BOOST_CHECK(surfaces.has(SurfaceId{16}));
-  BOOST_CHECK(surfaces.has(SurfaceId{31}));
+  surfaces.set(LayerId{0});
+  surfaces.set(LayerId{16});
+  surfaces.set(LayerId{31});
+  BOOST_CHECK(surfaces.has(LayerId{0}));
+  BOOST_CHECK(surfaces.has(LayerId{16}));
+  BOOST_CHECK(surfaces.has(LayerId{31}));
   BOOST_CHECK_EQUAL(surfaces.count(), 3);
 }
 
@@ -60,20 +60,20 @@ BOOST_AUTO_TEST_CASE(LayoutValidatesLimitsAndNonContiguousCatalogIds)
   const auto layout = SurfaceLayout{surfaces, makeSurfaceLayoutChain(order(0, 33))};
   BOOST_CHECK(layout.getError() == SurfaceLayoutError::TooManySurfaces);
 
-  const std::vector<SurfaceDescriptor> sparse{{SurfaceId{0}, 0, 0, SurfaceKind::Cylinder},
-                                               {SurfaceId{2}, 1, 0, SurfaceKind::Cylinder}};
-  const std::vector<SurfaceId> sparseOrder{SurfaceId{0}, SurfaceId{2}};
+  const std::vector<SurfaceDescriptor> sparse{{LayerId{0}, 0, 0, SurfaceKind::Cylinder},
+                                               {LayerId{2}, 1, 0, SurfaceKind::Cylinder}};
+  const std::vector<LayerId> sparseOrder{LayerId{0}, LayerId{2}};
   const auto valid = SurfaceLayout{sparse, makeSurfaceLayoutChain(sparseOrder)};
   BOOST_CHECK(valid.valid());
-  BOOST_CHECK(valid.getSurfaceCatalog().getSurface(SurfaceId{2}).id == SurfaceId{2});
+  BOOST_CHECK(valid.getSurfaceCatalog().getSurface(LayerId{2}).id == LayerId{2});
 }
 
 BOOST_AUTO_TEST_CASE(ComponentBoundariesAndKindIndependentCatalogs)
 {
-  const auto mixed = std::vector<SurfaceDescriptor>{{SurfaceId{0}, 0, 0, SurfaceKind::Cylinder},
-                                                     {SurfaceId{1}, 1, 0, SurfaceKind::Cylinder},
-                                                     {SurfaceId{2}, 0, 8, SurfaceKind::Disk},
-                                                     {SurfaceId{3}, 1, 8, SurfaceKind::Disk}};
+  const auto mixed = std::vector<SurfaceDescriptor>{{LayerId{0}, 0, 0, SurfaceKind::Cylinder},
+                                                     {LayerId{1}, 1, 0, SurfaceKind::Cylinder},
+                                                     {LayerId{2}, 0, 8, SurfaceKind::Disk},
+                                                     {LayerId{3}, 1, 8, SurfaceKind::Disk}};
   SurfaceLayoutDefinition definition;
   definition.orderedSurfaces = order(0, 4);
   definition.componentOffsets = {0, 2};
@@ -105,8 +105,8 @@ BOOST_AUTO_TEST_CASE(HoleAndSeedPoliciesProduceSparseTopology)
   BOOST_CHECK_EQUAL(topology.activeSurfaceList.size(), 3u);
   BOOST_CHECK_EQUAL(topology.edges.size(), 2u);
   BOOST_CHECK_EQUAL(topology.paths.size(), 1u);
-  BOOST_CHECK(topology.edges[0].from == SurfaceId{0});
-  BOOST_CHECK(topology.edges[0].to == SurfaceId{2});
+  BOOST_CHECK(topology.edges[0].from == LayerId{0});
+  BOOST_CHECK(topology.edges[0].to == LayerId{2});
   BOOST_REQUIRE_EQUAL(topology.roadStartPaths.size(), 1u);
   BOOST_CHECK(topology.getView(layout.getSurfaceCatalog()).getPath(topology.roadStartPaths.front()).first == EdgeId{0});
 }

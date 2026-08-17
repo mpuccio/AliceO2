@@ -50,7 +50,7 @@ std::optional<uint16_t> traversalSlot(const std::vector<int16_t>& slots, Id id) 
 }
 } // namespace
 
-std::optional<uint16_t> TraversalWorkspace::getSurfaceSlot(SurfaceId id) const noexcept
+std::optional<uint16_t> TraversalWorkspace::getSurfaceSlot(LayerId id) const noexcept
 {
   return traversalSlot(surfaceSlotById, id);
 }
@@ -652,7 +652,7 @@ void TimeFrameScratch::prepareClusters(const TimeFrame& frame, const TrackingPar
 void TimeFrameScratch::initialise(const TimeFrame& frame, const TrackingParameters& trkParam, const int maxLayers, const int iteration,
                                         const IndexTableUtilsCore& indexTableConfig, TraversalTopologyView topology,
                                         gsl::span<const EdgeId> edgeIds, gsl::span<const CellPathId> cellIds,
-                                        gsl::span<const SurfaceId> orderedSurfaces,
+                                        gsl::span<const LayerId> orderedSurfaces,
                                         gsl::span<const gsl::span<const GlobalMeasurement>> layerMeasurements)
 {
   std::vector<IndexTableUtilsCore> configs(mNOwnedSurfaces, indexTableConfig);
@@ -663,7 +663,7 @@ void TimeFrameScratch::initialise(const TimeFrame& frame, const TrackingParamete
 void TimeFrameScratch::initialise(const TimeFrame& frame, const TrackingParameters& trkParam, const int maxLayers, const int iteration,
                                         gsl::span<const IndexTableUtilsCore> indexTableConfigs, TraversalTopologyView topology,
                                         gsl::span<const EdgeId> edgeIds, gsl::span<const CellPathId> cellIds,
-                                        gsl::span<const SurfaceId> orderedSurfaces,
+                                        gsl::span<const LayerId> orderedSurfaces,
                                         gsl::span<const gsl::span<const GlobalMeasurement>> layerMeasurements)
 {
   (void)iteration;
@@ -674,7 +674,7 @@ void TimeFrameScratch::initialise(const TimeFrame& frame, const TrackingParamete
       (topology.nPaths != 0 && (topology.paths == nullptr || topology.pathsByFirstEdge == nullptr))) {
     throw std::logic_error{"TimeFrameScratch::initialise(): plan/sparse-topology extent mismatch"};
   }
-  const auto surfaceSlot = [&](SurfaceId surface) {
+  const auto surfaceSlot = [&](LayerId surface) {
     const auto it = std::find(orderedSurfaces.begin(), orderedSurfaces.end(), surface);
     if (it == orderedSurfaces.end()) {
       throw std::logic_error{"TimeFrameScratch::initialise(): sparse topology surface is not bound"};

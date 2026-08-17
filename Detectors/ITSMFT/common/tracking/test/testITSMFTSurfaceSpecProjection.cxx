@@ -117,7 +117,7 @@ void checkIdentityAndKind(const std::vector<ExpectedSurface>& expected)
 {
   for (const auto& row : expected) {
     const auto& authored = Spec::surfaces[row.index];
-    BOOST_CHECK(authored.id == SurfaceId{row.index});
+    BOOST_CHECK(authored.id == LayerId{row.index});
     BOOST_CHECK_EQUAL(authored.identity.detectorId, row.detectorId);
     BOOST_CHECK_EQUAL(authored.identity.detectorSurfaceIndex, row.index);
     BOOST_CHECK(authored.kind == row.kind);

@@ -34,7 +34,6 @@
 #include "ITSMFTTracking/GlobalMeasurement.h"
 #include "ITSMFTTracking/SurfaceMeasurement.h"
 #include "ITSMFTTracking/SurfaceLayout.h"
-#include "ITSMFTTracking/SurfaceTiming.h"
 #include "ITStracking/BoundedAllocator.h"
 #include "ITStracking/Cluster.h"
 
@@ -83,20 +82,17 @@ struct TimeFrame {
   void setBz(float bz) { mBz = bz; }
   float getBz() const { return mBz; }
 
-  gsl::span<const SurfaceMeasurement> getSurfaceMeasurements(SurfaceId surface) const;
-  gsl::span<const GlobalMeasurement> getGlobalMeasurements(SurfaceId surface) const;
-  const GlobalMeasurement* getGlobalMeasurement(SurfaceId surface, SurfaceMeasurementIndex index) const noexcept;
-  const SurfaceMeasurement* getSurfaceMeasurement(SurfaceId surface, SurfaceMeasurementIndex index) const noexcept;
-  gsl::span<const ROFIntervalBC> getSourceIntervals(ClusterSourceId source) const;
+  gsl::span<const SurfaceMeasurement> getSurfaceMeasurements(LayerId surface) const;
+  gsl::span<const GlobalMeasurement> getGlobalMeasurements(LayerId surface) const;
+  const GlobalMeasurement* getGlobalMeasurement(LayerId surface, MeasurementIndex index) const noexcept;
+  const SurfaceMeasurement* getSurfaceMeasurement(LayerId surface, MeasurementIndex index) const noexcept;
   gsl::span<const o2::MCCompLabel> getLabels(ClusterRef cluster) const;
-  uint32_t getNMeasurementSurfaces() const noexcept { return static_cast<uint32_t>(mPerSurfaceMeasurements.size()); }
+  uint32_t getNMeasurementSurfaces() const noexcept { return static_cast<uint32_t>(mLayerSurfaceMeasurements.size()); }
   std::size_t getTotalMeasurements() const noexcept;
 
   // Loader staging; committed only after decoding and workspace backfill.
   void assignLoadedMeasurements(std::vector<std::vector<GlobalMeasurement>>&& perSurfaceGlobalMeasurements,
                                 std::vector<std::vector<SurfaceMeasurement>>&& perSurfaceMeasurements,
-                                std::vector<ROFIntervalBC>&& rofIntervals,
-                                std::vector<uint32_t>&& sourceROFOffsets,
                                 std::vector<const o2::dataformats::MCTruthContainer<o2::MCCompLabel>*>&& labelSources);
   void commitMeasurements(TimeFrame& staged) noexcept;
 
@@ -149,10 +145,8 @@ struct TimeFrame {
   bounded_vector<GenericTrack> mGenericTracks;
   bounded_vector<TrackClusterReference> mTrackClusterIndices;
 
-  std::vector<std::vector<GlobalMeasurement>> mPerSurfaceGlobalMeasurements;
-  std::vector<std::vector<SurfaceMeasurement>> mPerSurfaceMeasurements;
-  std::vector<ROFIntervalBC> mROFIntervals;
-  std::vector<uint32_t> mSourceROFOffsets;
+  std::vector<std::vector<GlobalMeasurement>> mLayerGlobalMeasurements;
+  std::vector<std::vector<SurfaceMeasurement>> mLayerSurfaceMeasurements;
   std::vector<const o2::dataformats::MCTruthContainer<o2::MCCompLabel>*> mLabelSources;
 
   bool mConfigurationValid = false;

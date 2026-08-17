@@ -24,7 +24,7 @@ namespace
 constexpr StaticSurfaceDescriptor cylinder(uint16_t id, uint8_t detector, uint16_t local, float radius = 2.f,
                                            float material = 0.01f, float arealDensity = 0.f)
 {
-  return {SurfaceId{id},
+  return {LayerId{id},
           {detector, local},
           SurfaceKind::Cylinder,
           radius,
@@ -34,7 +34,7 @@ constexpr StaticSurfaceDescriptor cylinder(uint16_t id, uint8_t detector, uint16
 constexpr StaticSurfaceDescriptor disk(uint16_t id, uint8_t detector, uint16_t local, float z = -40.f,
                                        float material = 0.02f, float arealDensity = 0.f)
 {
-  return {SurfaceId{id},
+  return {LayerId{id},
           {detector, local},
           SurfaceKind::Disk,
           z,
@@ -92,8 +92,8 @@ struct MutatedCylinders {
   }();
 };
 
-constexpr auto duplicateId = [](auto& surfaces) { surfaces[1].id = SurfaceId{0}; };
-constexpr auto sparseId = [](auto& surfaces) { surfaces[1].id = SurfaceId{2}; };
+constexpr auto duplicateId = [](auto& surfaces) { surfaces[1].id = LayerId{0}; };
+constexpr auto sparseId = [](auto& surfaces) { surfaces[1].id = LayerId{2}; };
 constexpr auto duplicateIdentity = [](auto& surfaces) { surfaces[1].identity = surfaces[0].identity; };
 constexpr auto sparseLocalIdentity = [](auto& surfaces) { surfaces[1].identity.detectorSurfaceIndex = 2; };
 constexpr auto invalidKind = [](auto& surfaces) { surfaces[0].kind = static_cast<SurfaceKind>(0xff); };
@@ -178,20 +178,20 @@ static_assert(!SurfaceSpecsCanBeConcatenated<ThirtyTwoSurfaces, OneSurface>);
 static_assert(SurfaceSpec<ThirtyTwoCombined>);
 static_assert(SurfaceCount<ThirtyTwoCombined> == 32);
 
-static_assert(std::is_standard_layout_v<DetectorSurfaceIdentity>);
-static_assert(std::is_trivially_copyable_v<DetectorSurfaceIdentity>);
+static_assert(std::is_standard_layout_v<DetectorLayerIdentity>);
+static_assert(std::is_trivially_copyable_v<DetectorLayerIdentity>);
 static_assert(std::is_standard_layout_v<StaticSurfaceDescriptor>);
 static_assert(std::is_trivially_copyable_v<StaticSurfaceDescriptor>);
-static_assert(std::is_standard_layout_v<SurfaceMeasurementIndex>);
-static_assert(std::is_trivially_copyable_v<SurfaceMeasurementIndex>);
+static_assert(std::is_standard_layout_v<MeasurementIndex>);
+static_assert(std::is_trivially_copyable_v<MeasurementIndex>);
 
-static_assert(!std::is_convertible_v<uint32_t, SurfaceMeasurementIndex>);
-static_assert(!SurfaceMeasurementIndex{}.isValid());
-static_assert(SurfaceMeasurementIndex{0}.isValid());
-static_assert(SurfaceMeasurementIndex{0xfffffffeu}.isValid());
-static_assert(!SurfaceMeasurementIndex{0xffffffffu}.isValid());
-static_assert(SurfaceMeasurementIndex{7} == SurfaceMeasurementIndex{7});
-static_assert(SurfaceMeasurementIndex{7} != SurfaceMeasurementIndex{8});
+static_assert(!std::is_convertible_v<uint32_t, MeasurementIndex>);
+static_assert(!MeasurementIndex{}.isValid());
+static_assert(MeasurementIndex{0}.isValid());
+static_assert(MeasurementIndex{0xfffffffeu}.isValid());
+static_assert(!MeasurementIndex{0xffffffffu}.isValid());
+static_assert(MeasurementIndex{7} == MeasurementIndex{7});
+static_assert(MeasurementIndex{7} != MeasurementIndex{8});
 
 } // namespace
 
@@ -232,10 +232,10 @@ BOOST_AUTO_TEST_CASE(ConcatenationRebasesAndPreservesFields)
   BOOST_CHECK_EQUAL(Combined::surfaces[1].id.value(), 1);
   BOOST_CHECK_EQUAL(Combined::surfaces[2].id.value(), 2);
   BOOST_CHECK_EQUAL(Combined::surfaces[3].id.value(), 3);
-  BOOST_CHECK((Combined::surfaces[0].identity == DetectorSurfaceIdentity{37, 0}));
-  BOOST_CHECK((Combined::surfaces[1].identity == DetectorSurfaceIdentity{37, 1}));
-  BOOST_CHECK((Combined::surfaces[2].identity == DetectorSurfaceIdentity{201, 0}));
-  BOOST_CHECK((Combined::surfaces[3].identity == DetectorSurfaceIdentity{201, 1}));
+  BOOST_CHECK((Combined::surfaces[0].identity == DetectorLayerIdentity{37, 0}));
+  BOOST_CHECK((Combined::surfaces[1].identity == DetectorLayerIdentity{37, 1}));
+  BOOST_CHECK((Combined::surfaces[2].identity == DetectorLayerIdentity{201, 0}));
+  BOOST_CHECK((Combined::surfaces[3].identity == DetectorLayerIdentity{201, 1}));
   BOOST_CHECK(Combined::surfaces[2].kind == Disks::surfaces[0].kind);
   BOOST_CHECK_EQUAL(Combined::surfaces[2].nominalReferenceCoordinate, Disks::surfaces[0].nominalReferenceCoordinate);
   BOOST_CHECK_EQUAL(Combined::surfaces[2].material.xOverX0, Disks::surfaces[0].material.xOverX0);
@@ -244,7 +244,7 @@ BOOST_AUTO_TEST_CASE(ConcatenationRebasesAndPreservesFields)
 BOOST_AUTO_TEST_CASE(RuntimeProjectionHasIdealStaticSemantics)
 {
   const auto projectedCylinder = toRuntimeSurfaceDescriptor(Cylinders::surfaces[1]);
-  BOOST_CHECK(projectedCylinder.id == SurfaceId{1});
+  BOOST_CHECK(projectedCylinder.id == LayerId{1});
   BOOST_CHECK_EQUAL(projectedCylinder.detectorId, 37);
   BOOST_CHECK_EQUAL(projectedCylinder.detectorSurfaceIndex, 1);
   BOOST_CHECK(projectedCylinder.kind == SurfaceKind::Cylinder);
@@ -254,7 +254,7 @@ BOOST_AUTO_TEST_CASE(RuntimeProjectionHasIdealStaticSemantics)
   BOOST_CHECK_EQUAL(projectedCylinder.material.arealDensityGPerCm2, Cylinders::surfaces[1].material.arealDensityGPerCm2);
 
   const auto projectedDisk = toRuntimeSurfaceDescriptor(Disks::surfaces[0]);
-  BOOST_CHECK(projectedDisk.id == SurfaceId{0});
+  BOOST_CHECK(projectedDisk.id == LayerId{0});
   BOOST_CHECK_EQUAL(projectedDisk.detectorId, 201);
   BOOST_CHECK_EQUAL(projectedDisk.detectorSurfaceIndex, 0);
   BOOST_CHECK(projectedDisk.kind == SurfaceKind::Disk);
@@ -282,11 +282,11 @@ BOOST_AUTO_TEST_CASE(StaticToRuntimeMaterialProjectionCopiesBothFieldsIndependen
   BOOST_CHECK_EQUAL(projectedZeroArealDensity.material.arealDensityGPerCm2, 0.f);
 }
 
-BOOST_AUTO_TEST_CASE(SurfaceMeasurementIndexBoundaries)
+BOOST_AUTO_TEST_CASE(MeasurementIndexBoundaries)
 {
-  BOOST_CHECK(!SurfaceMeasurementIndex{}.isValid());
-  BOOST_CHECK_EQUAL(SurfaceMeasurementIndex{}.value(), SurfaceMeasurementIndex::InvalidValue);
-  BOOST_CHECK(SurfaceMeasurementIndex{0}.isValid());
-  BOOST_CHECK(SurfaceMeasurementIndex{0xfffffffeu}.isValid());
-  BOOST_CHECK(!SurfaceMeasurementIndex{0xffffffffu}.isValid());
+  BOOST_CHECK(!MeasurementIndex{}.isValid());
+  BOOST_CHECK_EQUAL(MeasurementIndex{}.value(), MeasurementIndex::InvalidValue);
+  BOOST_CHECK(MeasurementIndex{0}.isValid());
+  BOOST_CHECK(MeasurementIndex{0xfffffffeu}.isValid());
+  BOOST_CHECK(!MeasurementIndex{0xffffffffu}.isValid());
 }

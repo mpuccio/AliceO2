@@ -63,8 +63,8 @@ struct Fixture {
     for (int layer = 0; layer < NLayers; ++layer) {
       storage[layer] = {makeMeasurement(layer, 0), makeMeasurement(layer, 1)};
       globalStorage[layer].resize(2);
-      globalStorage[layer][0].surface = SurfaceId{static_cast<uint16_t>(layer)};
-      globalStorage[layer][1].surface = SurfaceId{static_cast<uint16_t>(layer)};
+      globalStorage[layer][0].surface = LayerId{static_cast<uint16_t>(layer)};
+      globalStorage[layer][1].surface = LayerId{static_cast<uint16_t>(layer)};
       layerMeasurements[layer] = gsl::span<const SurfaceMeasurement>(storage[layer]);
       layerGlobals[layer] = gsl::span<const GlobalMeasurement>(globalStorage[layer]);
     }

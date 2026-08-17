@@ -137,7 +137,7 @@ class OneLayerDecoder final : public ClusterDecoder
     const CompClusterExt& cluster,
     BoundedPatternCursor& patterns,
     const TopologyDictionary* dict,
-    gsl::span<const SurfaceId> layerToSurface,
+    gsl::span<const LayerId> layerToSurface,
     ClusterSourceId source,
     uint32_t externalIndex,
     uint32_t sourceROF,
@@ -189,17 +189,17 @@ std::vector<SurfaceDescriptor> makeITSTestCatalog()
   std::vector<SurfaceDescriptor> surfaces;
   surfaces.reserve(ITSNLayers);
   for (uint16_t i = 0; i < ITSNLayers; ++i) {
-    surfaces.push_back(SurfaceDescriptor{SurfaceId{i}, i, static_cast<uint8_t>(o2::detectors::DetID::ITS), SurfaceKind::Cylinder});
+    surfaces.push_back(SurfaceDescriptor{LayerId{i}, i, static_cast<uint8_t>(o2::detectors::DetID::ITS), SurfaceKind::Cylinder});
   }
   return surfaces;
 }
 
-std::vector<SurfaceId> identitySurfaces()
+std::vector<LayerId> identitySurfaces()
 {
-  std::vector<SurfaceId> mapping;
+  std::vector<LayerId> mapping;
   mapping.reserve(ITSNLayers);
   for (uint16_t i = 0; i < ITSNLayers; ++i) {
-    mapping.push_back(SurfaceId{i});
+    mapping.push_back(LayerId{i});
   }
   return mapping;
 }
@@ -305,7 +305,7 @@ BOOST_AUTO_TEST_CASE(InjectedScratchBackfillFailureAfterNormalizedStagingLeavesB
   scratch.setMemoryPool(pool);
 
   scratch.adoptPlan(orderedSurfaces.size(), 0, 0);
-  const gsl::span<const SurfaceId> planOrderedSurfaces{orderedSurfaces};
+  const gsl::span<const LayerId> planOrderedSurfaces{orderedSurfaces};
 
   const std::vector<CompClusterExt> clusters{CompClusterExt{10, 20, CompCluster::InvalidPatternID, 0}};
   const auto patterns = std::vector<unsigned char>(onePixelPattern.begin(), onePixelPattern.end());

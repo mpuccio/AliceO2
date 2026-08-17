@@ -233,7 +233,7 @@ void Tracker::initializeTraversalWorkspace(TraversalWorkspaceView& context) cons
   auto& mDiskLayerReferenceZStorage = context.workspace.diskLayerReferenceZ;
   auto& mAttachHitConfig = context.workspace.attachHitConfig;
   auto& mLayerMaterial = context.workspace.layerMaterial;
-  auto& mLayerMeasurements = context.workspace.layerMeasurements;
+  auto& mLayerSurfaceMeasurements = context.workspace.layerMeasurements;
   auto& mLayerGlobalMeasurements = context.workspace.layerGlobalMeasurements;
   const int iteration = context.iteration;
   // Invalidate before preflight so no failed preparation can leave a reusable
@@ -272,14 +272,14 @@ void Tracker::initializeTraversalWorkspace(TraversalWorkspaceView& context) cons
   const auto activeCount = static_cast<std::size_t>(activeSurfaceCount);
   std::array<NominalSurfaceMaterial, MaxLayoutSurfaces> stagedLayerMaterial{};
   for (int surfacePosition = 0; surfacePosition < activeSurfaceCount; ++surfacePosition) {
-    const auto surfaceId = orderedSurfaces[surfacePosition];
-    if (!surfaceId.isValid() || surfaceId.value() >= layout.catalog.nSurfaces) {
+    const auto LayerId = orderedSurfaces[surfacePosition];
+    if (!LayerId.isValid() || LayerId.value() >= layout.catalog.nSurfaces) {
       throw TraversalException{iteration, TraversalFailureReason::LegacyMaterialMismatch};
     }
-    if (std::find(orderedSurfaces.begin(), orderedSurfaces.begin() + surfacePosition, surfaceId) != orderedSurfaces.begin() + surfacePosition) {
+    if (std::find(orderedSurfaces.begin(), orderedSurfaces.begin() + surfacePosition, LayerId) != orderedSurfaces.begin() + surfacePosition) {
       throw TraversalException{iteration, TraversalFailureReason::SurfaceLayerMappingMismatch};
     }
-    stagedLayerMaterial[surfacePosition] = layout.getSurface(surfaceId).material;
+    stagedLayerMaterial[surfacePosition] = layout.getSurface(LayerId).material;
   }
   if (mTrkParams[iteration].LayerxX0.size() != static_cast<size_t>(activeSurfaceCount)) {
     throw TraversalException{iteration, TraversalFailureReason::LegacyMaterialMismatch};
@@ -296,9 +296,9 @@ void Tracker::initializeTraversalWorkspace(TraversalWorkspaceView& context) cons
   std::array<gsl::span<const SurfaceMeasurement>, MaxLayoutSurfaces> stagedLayerMeasurements{};
   std::array<gsl::span<const GlobalMeasurement>, MaxLayoutSurfaces> stagedLayerGlobalMeasurements{};
   for (int surfacePosition = 0; surfacePosition < activeSurfaceCount; ++surfacePosition) {
-    const auto surfaceId = orderedSurfaces[surfacePosition];
-    const auto measurements = mFrame->getSurfaceMeasurements(surfaceId);
-    const auto globals = mFrame->getGlobalMeasurements(surfaceId);
+    const auto LayerId = orderedSurfaces[surfacePosition];
+    const auto measurements = mFrame->getSurfaceMeasurements(LayerId);
+    const auto globals = mFrame->getGlobalMeasurements(LayerId);
     const auto& clusters = mScratch->getUnsortedClusters()[surfacePosition];
     const auto& hits = mScratch->getTrackingFrameInfoOnLayer(surfacePosition);
     if (measurements.size() != globals.size() || globals.size() != clusters.size() || hits.size() != clusters.size() ||
@@ -307,7 +307,7 @@ void Tracker::initializeTraversalWorkspace(TraversalWorkspaceView& context) cons
     }
     for (size_t i = 0; i < measurements.size(); ++i) {
       const auto& global = globals[i];
-      if (global.surface != surfaceId || !global.cluster.isValid() ||
+      if (global.surface != LayerId || !global.cluster.isValid() ||
           global.cluster.index > static_cast<uint32_t>(std::numeric_limits<int>::max()) ||
           clusters[i].clusterId != static_cast<int>(i)) {
         throw TraversalException{iteration, TraversalFailureReason::NormalizedMeasurementMismatch};
@@ -447,7 +447,7 @@ void Tracker::initializeTraversalWorkspace(TraversalWorkspaceView& context) cons
   }
   DiskReferenceCoordinateView referenceCoordinateView{};
   std::array<float, MaxLayoutSurfaces> stagedDiskLayerReferenceZ{};
-  const auto hasDiskSurface = std::ranges::any_of(orderedSurfaces, [&layout](SurfaceId id) {
+  const auto hasDiskSurface = std::ranges::any_of(orderedSurfaces, [&layout](LayerId id) {
     return layout.getSurface(id).kind == SurfaceKind::Disk;
   });
   if (hasDiskSurface) {
@@ -481,7 +481,7 @@ void Tracker::initializeTraversalWorkspace(TraversalWorkspaceView& context) cons
   attachHitConfig.layerMaterial = gsl::span<const NominalSurfaceMaterial>(mLayerMaterial.data(), mLayerMaterial.size());
   mAttachHitConfig = attachHitConfig;
   // Commit normalized measurements with the other traversal caches.
-  mLayerMeasurements.assign(stagedLayerMeasurements.begin(), stagedLayerMeasurements.begin() + activeSurfaceCount);
+  mLayerSurfaceMeasurements.assign(stagedLayerMeasurements.begin(), stagedLayerMeasurements.begin() + activeSurfaceCount);
   mLayerGlobalMeasurements.assign(stagedLayerGlobalMeasurements.begin(), stagedLayerGlobalMeasurements.begin() + activeSurfaceCount);
   mTraversalCacheValid = true;
 

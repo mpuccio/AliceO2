@@ -67,7 +67,7 @@ class FakeClusterDecoder final : public ClusterDecoder
     const CompClusterExt& cluster,
     BoundedPatternCursor& patterns,
     const TopologyDictionary* dict,
-    gsl::span<const SurfaceId> layerToSurface,
+    gsl::span<const LayerId> layerToSurface,
     ClusterSourceId source,
     uint32_t externalIndex,
     uint32_t sourceROF,
@@ -125,7 +125,7 @@ class FakeClusterDecoder final : public ClusterDecoder
 
     switch (mCorruption) {
       case Corruption::WrongSurface:
-        result.global.surface = SurfaceId{static_cast<uint16_t>(surface.value() == 0 ? 1 : 0)};
+        result.global.surface = LayerId{static_cast<uint16_t>(surface.value() == 0 ? 1 : 0)};
         break;
       case Corruption::WrongSource:
         result.global.cluster.source = ClusterSourceId{static_cast<uint16_t>(source.value() + 7)};
@@ -172,7 +172,7 @@ class PatternContractDecoder final : public ClusterDecoder
     const CompClusterExt& cluster,
     BoundedPatternCursor& patterns,
     const TopologyDictionary* dictionary,
-    gsl::span<const SurfaceId> layerToSurface,
+    gsl::span<const LayerId> layerToSurface,
     ClusterSourceId source,
     uint32_t externalIndex,
     uint32_t sourceROF,
@@ -234,12 +234,12 @@ struct BuiltLayout {
 BuiltLayout makeCombinedLayout()
 {
   std::vector<SurfaceDescriptor> surfaces;
-  surfaces.push_back(SurfaceDescriptor{SurfaceId{0}, 0, static_cast<uint8_t>(o2::detectors::DetID::ITS), SurfaceKind::Cylinder});
-  surfaces.push_back(SurfaceDescriptor{SurfaceId{1}, 1, static_cast<uint8_t>(o2::detectors::DetID::ITS), SurfaceKind::Cylinder});
-  surfaces.push_back(SurfaceDescriptor{SurfaceId{2}, 0, static_cast<uint8_t>(o2::detectors::DetID::MFT), SurfaceKind::Disk});
-  surfaces.push_back(SurfaceDescriptor{SurfaceId{3}, 1, static_cast<uint8_t>(o2::detectors::DetID::MFT), SurfaceKind::Disk});
+  surfaces.push_back(SurfaceDescriptor{LayerId{0}, 0, static_cast<uint8_t>(o2::detectors::DetID::ITS), SurfaceKind::Cylinder});
+  surfaces.push_back(SurfaceDescriptor{LayerId{1}, 1, static_cast<uint8_t>(o2::detectors::DetID::ITS), SurfaceKind::Cylinder});
+  surfaces.push_back(SurfaceDescriptor{LayerId{2}, 0, static_cast<uint8_t>(o2::detectors::DetID::MFT), SurfaceKind::Disk});
+  surfaces.push_back(SurfaceDescriptor{LayerId{3}, 1, static_cast<uint8_t>(o2::detectors::DetID::MFT), SurfaceKind::Disk});
   SurfaceLayoutDefinition definition;
-  definition.orderedSurfaces = {SurfaceId{0}, SurfaceId{1}, SurfaceId{2}, SurfaceId{3}};
+  definition.orderedSurfaces = {LayerId{0}, LayerId{1}, LayerId{2}, LayerId{3}};
   definition.componentOffsets = {0, 2};
   return BuiltLayout{SurfaceLayout{surfaces, std::move(definition)}, std::move(surfaces)};
 }
@@ -264,8 +264,8 @@ const TopologyDictionary& dict()
   return d;
 }
 
-const std::array<SurfaceId, 2> itsLayerToSurface{SurfaceId{0}, SurfaceId{1}};
-const std::array<SurfaceId, 2> mftLayerToSurface{SurfaceId{2}, SurfaceId{3}};
+const std::array<LayerId, 2> itsLayerToSurface{LayerId{0}, LayerId{1}};
+const std::array<LayerId, 2> mftLayerToSurface{LayerId{2}, LayerId{3}};
 
 } // namespace
 
@@ -300,11 +300,10 @@ BOOST_AUTO_TEST_CASE(SingleITSSourceLoadsIntoExpectedSurfaces)
   // meaningful when error == TimingError.
   BOOST_CHECK(result.timingDetail == TimingBuildError::None);
 
-  BOOST_CHECK_EQUAL(frame.getSurfaceMeasurements(SurfaceId{0}).size(), 1u);
-  BOOST_CHECK_EQUAL(frame.getSurfaceMeasurements(SurfaceId{1}).size(), 1u);
-  BOOST_CHECK_EQUAL(frame.getSurfaceMeasurements(SurfaceId{2}).size(), 0u);
-  BOOST_CHECK_EQUAL(frame.getSourceIntervals(ClusterSourceId{0}).size(), 1u);
-  BOOST_CHECK_EQUAL(frame.getGlobalMeasurements(SurfaceId{0})[0].sensor.detector, static_cast<uint32_t>(o2::detectors::DetID::ITS));
+  BOOST_CHECK_EQUAL(frame.getSurfaceMeasurements(LayerId{0}).size(), 1u);
+  BOOST_CHECK_EQUAL(frame.getSurfaceMeasurements(LayerId{1}).size(), 1u);
+  BOOST_CHECK_EQUAL(frame.getSurfaceMeasurements(LayerId{2}).size(), 0u);
+  BOOST_CHECK_EQUAL(frame.getGlobalMeasurements(LayerId{0})[0].sensor.detector, static_cast<uint32_t>(o2::detectors::DetID::ITS));
 }
 
 BOOST_AUTO_TEST_CASE(InvalidTimingConfigurationIsReportedWithBuildErrorDetail)
@@ -372,9 +371,9 @@ BOOST_AUTO_TEST_CASE(SingleMFTSourceLoadsIntoExpectedSurfaces)
   const auto result = loadSources(frame, layout.getCatalog(), gsl::span<const ClusterSourceInput>(&src, 1), {0, 0});
   BOOST_REQUIRE(result.ok());
 
-  BOOST_CHECK_EQUAL(frame.getSurfaceMeasurements(SurfaceId{2}).size(), 1u);
-  BOOST_CHECK_EQUAL(frame.getSurfaceMeasurements(SurfaceId{3}).size(), 1u);
-  BOOST_CHECK_EQUAL(frame.getGlobalMeasurements(SurfaceId{2})[0].sensor.detector, static_cast<uint32_t>(o2::detectors::DetID::MFT));
+  BOOST_CHECK_EQUAL(frame.getSurfaceMeasurements(LayerId{2}).size(), 1u);
+  BOOST_CHECK_EQUAL(frame.getSurfaceMeasurements(LayerId{3}).size(), 1u);
+  BOOST_CHECK_EQUAL(frame.getGlobalMeasurements(LayerId{2})[0].sensor.detector, static_cast<uint32_t>(o2::detectors::DetID::MFT));
 }
 
 BOOST_AUTO_TEST_CASE(CombinedITSAndMFTSourcesLoadTogether)
@@ -417,8 +416,8 @@ BOOST_AUTO_TEST_CASE(CombinedITSAndMFTSourcesLoadTogether)
   const auto result = loadSources(frame, layout.getCatalog(), gsl::span<const ClusterSourceInput>(sources), {0, 0});
   BOOST_REQUIRE(result.ok());
 
-  BOOST_CHECK_EQUAL(frame.getSurfaceMeasurements(SurfaceId{0}).size(), 1u);
-  BOOST_CHECK_EQUAL(frame.getSurfaceMeasurements(SurfaceId{3}).size(), 1u);
+  BOOST_CHECK_EQUAL(frame.getSurfaceMeasurements(LayerId{0}).size(), 1u);
+  BOOST_CHECK_EQUAL(frame.getSurfaceMeasurements(LayerId{3}).size(), 1u);
 }
 
 BOOST_AUTO_TEST_CASE(TwoSourcesOfSameDetectorBothAppendToOneSurface)
@@ -461,7 +460,7 @@ BOOST_AUTO_TEST_CASE(TwoSourcesOfSameDetectorBothAppendToOneSurface)
   const auto result = loadSources(frame, layout.getCatalog(), gsl::span<const ClusterSourceInput>(sources), {0, 0});
   BOOST_REQUIRE(result.ok());
 
-  const auto onSurfaceZero = frame.getGlobalMeasurements(SurfaceId{0});
+  const auto onSurfaceZero = frame.getGlobalMeasurements(LayerId{0});
   BOOST_REQUIRE_EQUAL(onSurfaceZero.size(), 2u);
   BOOST_CHECK(onSurfaceZero[0].cluster.source != onSurfaceZero[1].cluster.source);
 }
@@ -513,7 +512,7 @@ BOOST_AUTO_TEST_CASE(IdenticalExternalIndicesInDifferentSourcesDoNotCollide)
   const auto result = loadSources(frame, layout.getCatalog(), gsl::span<const ClusterSourceInput>(sources), {0, 0});
   BOOST_REQUIRE(result.ok());
 
-  const auto onSurfaceZero = frame.getGlobalMeasurements(SurfaceId{0});
+  const auto onSurfaceZero = frame.getGlobalMeasurements(LayerId{0});
   BOOST_REQUIRE_EQUAL(onSurfaceZero.size(), 2u);
   for (const auto& m : onSurfaceZero) {
     BOOST_CHECK_EQUAL(m.cluster.index, 0u);
@@ -578,7 +577,7 @@ BOOST_AUTO_TEST_CASE(ClusterRefFlagsDoNotAffectIdentityOrLabelLookup)
   // The measurement's own stored cluster ref -- produced by the production
   // decode path -- must also compare equal regardless of any flags a caller
   // later probes it with.
-  const auto measurement = frame.getGlobalMeasurements(SurfaceId{0})[0];
+  const auto measurement = frame.getGlobalMeasurements(LayerId{0})[0];
   BOOST_CHECK(measurement.cluster == flagged);
 }
 
@@ -630,10 +629,7 @@ BOOST_AUTO_TEST_CASE(IndependentROFCountsAcrossSourcesAreAllowed)
   const auto result = loadSources(frame, layout.getCatalog(), gsl::span<const ClusterSourceInput>(sources), {0, 0});
   BOOST_REQUIRE(result.ok());
 
-  BOOST_CHECK_EQUAL(frame.getSourceIntervals(ClusterSourceId{0}).size(), 3u);
-  BOOST_CHECK_EQUAL(frame.getSourceIntervals(ClusterSourceId{1}).size(), 1u);
-  BOOST_CHECK_EQUAL(frame.getSourceIntervals(ClusterSourceId{0}).size(), 3u);
-  BOOST_CHECK_EQUAL(frame.getSourceIntervals(ClusterSourceId{1}).size(), 1u);
+  BOOST_CHECK_EQUAL(frame.getTotalMeasurements(), 4u);
 }
 
 BOOST_AUTO_TEST_CASE(OverlappingAndNonOverlappingSourceTimingIntervals)
@@ -693,11 +689,7 @@ BOOST_AUTO_TEST_CASE(OverlappingAndNonOverlappingSourceTimingIntervals)
   const auto result = loadSources(frame, layout.getCatalog(), gsl::span<const ClusterSourceInput>(sources), {0, 0});
   BOOST_REQUIRE(result.ok());
 
-  const auto a = frame.getSourceIntervals(ClusterSourceId{0})[0];
-  const auto b = frame.getSourceIntervals(ClusterSourceId{1})[0];
-  const auto c = frame.getSourceIntervals(ClusterSourceId{2})[0];
-  BOOST_CHECK(intersects(a, b));
-  BOOST_CHECK(!intersects(a, c));
+  BOOST_CHECK_EQUAL(frame.getTotalMeasurements(), 3u);
 }
 
 BOOST_AUTO_TEST_CASE(TriggeredAndContinuousReadoutAreBothSupportedTogether)
@@ -764,28 +756,7 @@ BOOST_AUTO_TEST_CASE(TriggeredAndContinuousReadoutAreBothSupportedTogether)
   const auto result = loadSources(frame, layout.getCatalog(), gsl::span<const ClusterSourceInput>(sources), {0, 0});
   BOOST_REQUIRE(result.ok());
 
-  const auto continuousIntervals = frame.getSourceIntervals(ClusterSourceId{0});
-  BOOST_REQUIRE_EQUAL(continuousIntervals.size(), 3u);
-  for (size_t i = 1; i < continuousIntervals.size(); ++i) {
-    BOOST_CHECK_EQUAL(continuousIntervals[i].begin - continuousIntervals[i - 1].begin, continuousRofLength);
-  }
-
-  const auto triggeredIntervals = frame.getSourceIntervals(ClusterSourceId{1});
-  BOOST_REQUIRE_EQUAL(triggeredIntervals.size(), 3u);
-  // The triggered ROFs' own irregular real BCs are reproduced exactly (5,
-  // 137, 812), not forced onto a uniform cadence.
-  BOOST_CHECK_EQUAL(triggeredIntervals[0].begin, 5);
-  BOOST_CHECK_EQUAL(triggeredIntervals[1].begin, 137);
-  BOOST_CHECK_EQUAL(triggeredIntervals[2].begin, 812);
-  for (const auto& interval : triggeredIntervals) {
-    BOOST_CHECK_EQUAL(interval.length(), triggeredRofLength);
-  }
-
-  // Cross-checked overlap: the continuous source's second ROF spans [40,80);
-  // it must not spuriously overlap the nearby-but-disjoint triggered ROF at
-  // [137,141), and must correctly not overlap the far-away one at [812,816).
-  BOOST_CHECK(!intersects(continuousIntervals[1], triggeredIntervals[1]));
-  BOOST_CHECK(!intersects(continuousIntervals[0], triggeredIntervals[2]));
+  BOOST_CHECK_EQUAL(frame.getTotalMeasurements(), 6u);
 }
 
 BOOST_AUTO_TEST_CASE(SourceSpecificPatternCursorsAreIndependent)
@@ -833,7 +804,7 @@ BOOST_AUTO_TEST_CASE(SourceSpecificPatternCursorsAreIndependent)
   BOOST_REQUIRE(result.ok());
 
   // Every cluster consumed exactly one 1-pixel pattern regardless of source.
-  for (const auto& m : frame.getGlobalMeasurements(SurfaceId{0})) {
+  for (const auto& m : frame.getGlobalMeasurements(LayerId{0})) {
     BOOST_CHECK_EQUAL(m.shape.nPixels, 1u);
   }
 }
@@ -862,9 +833,9 @@ BOOST_AUTO_TEST_CASE(CommonDictionaryPatternDoesNotConsumeExplicitBytes)
   TimeFrame frame;
   const auto result = loadSources(frame, layout.getCatalog(), gsl::span<const ClusterSourceInput>(&src, 1), {0, 0});
   BOOST_REQUIRE(result.ok());
-  BOOST_REQUIRE_EQUAL(frame.getSurfaceMeasurements(SurfaceId{0}).size(), 2u);
-  BOOST_CHECK_EQUAL(frame.getGlobalMeasurements(SurfaceId{0})[0].shape.nPixels, 1u);
-  BOOST_CHECK_EQUAL(frame.getGlobalMeasurements(SurfaceId{0})[1].shape.nPixels, 1u);
+  BOOST_REQUIRE_EQUAL(frame.getSurfaceMeasurements(LayerId{0}).size(), 2u);
+  BOOST_CHECK_EQUAL(frame.getGlobalMeasurements(LayerId{0})[0].shape.nPixels, 1u);
+  BOOST_CHECK_EQUAL(frame.getGlobalMeasurements(LayerId{0})[1].shape.nPixels, 1u);
 }
 
 BOOST_AUTO_TEST_CASE(ExplicitAndGroupedPatternTruncationIsTypedAndContextual)
@@ -971,7 +942,7 @@ BOOST_AUTO_TEST_CASE(MissingDictionaryIsTypedBeforeProductionGeometryDecode)
   ITSGeometryClusterDecoder decoder;
   const CompClusterExt cluster{1, 1, CompCluster::InvalidPatternID, 0};
   BoundedPatternCursor patterns{onePixelPattern};
-  const std::array<SurfaceId, 1> mapping{SurfaceId{0}};
+  const std::array<LayerId, 1> mapping{LayerId{0}};
   const auto decoded = decoder.decode(cluster, patterns, nullptr, mapping, ClusterSourceId{0}, 0, 0, false);
   BOOST_CHECK(decoded.error == ClusterDecodeError::MissingDictionary);
   BOOST_CHECK_EQUAL(patterns.consumed(), 0u);
@@ -1183,7 +1154,7 @@ BOOST_AUTO_TEST_CASE(InvalidLayerToSurfaceMappingIsRejected)
   src.patterns = patterns;
   src.rofs = rofs;
   src.dictionary = &dict();
-  src.layerToSurface = gsl::span<const SurfaceId>(itsLayerToSurface.data(), 1); // too short: only covers layer 0
+  src.layerToSurface = gsl::span<const LayerId>(itsLayerToSurface.data(), 1); // too short: only covers layer 0
   src.timing = ROFTimingConfig{40, 0, 0, 0};
   src.decoder = &decoder;
 
@@ -1210,7 +1181,7 @@ BOOST_AUTO_TEST_CASE(DetectorSurfaceMismatchIsRejected)
   src.rofs = rofs;
   src.dictionary = &dict();
   // Deliberately mapped to an MFT surface: ITS source, MFT surface.
-  const std::array<SurfaceId, 1> wrongMapping{SurfaceId{2}};
+  const std::array<LayerId, 1> wrongMapping{LayerId{2}};
   src.layerToSurface = wrongMapping;
   src.timing = ROFTimingConfig{40, 0, 0, 0};
   src.decoder = &decoder;
@@ -1384,12 +1355,9 @@ BOOST_AUTO_TEST_CASE(FailedLoadAfterFirstSourceStagedLeavesNoPartialState)
 
   // Baseline content before the failing call.
   const std::vector<SurfaceMeasurement> baselineMeasurements(
-    frame.getSurfaceMeasurements(SurfaceId{0}).begin(), frame.getSurfaceMeasurements(SurfaceId{0}).end());
+    frame.getSurfaceMeasurements(LayerId{0}).begin(), frame.getSurfaceMeasurements(LayerId{0}).end());
   const std::vector<GlobalMeasurement> baselineGlobals(
-    frame.getGlobalMeasurements(SurfaceId{0}).begin(), frame.getGlobalMeasurements(SurfaceId{0}).end());
-  const std::vector<ROFIntervalBC> baselineIntervals(
-    frame.getSourceIntervals(ClusterSourceId{0}).begin(), frame.getSourceIntervals(ClusterSourceId{0}).end());
-  const auto baselineROFCount = frame.getSourceIntervals(ClusterSourceId{0}).size();
+    frame.getGlobalMeasurements(LayerId{0}).begin(), frame.getGlobalMeasurements(LayerId{0}).end());
   const auto baselineLabel = frame.getLabels(ClusterRef{ClusterSourceId{0}, 0});
   BOOST_REQUIRE_EQUAL(baselineLabel.size(), 1u);
 
@@ -1409,7 +1377,7 @@ BOOST_AUTO_TEST_CASE(FailedLoadAfterFirstSourceStagedLeavesNoPartialState)
   srcB.patterns = patterns;
   srcB.rofs = rofs;
   srcB.dictionary = &dict();
-  const std::array<SurfaceId, 1> wrongMapping{SurfaceId{2}}; // MFT surface for an ITS source
+  const std::array<LayerId, 1> wrongMapping{LayerId{2}}; // MFT surface for an ITS source
   srcB.layerToSurface = wrongMapping;
   srcB.timing = ROFTimingConfig{40, 0, 0, 0};
   srcB.decoder = &decoderB;
@@ -1420,10 +1388,10 @@ BOOST_AUTO_TEST_CASE(FailedLoadAfterFirstSourceStagedLeavesNoPartialState)
   BOOST_CHECK(result.error == MultiSourceLoadError::DetectorSurfaceMismatch);
   BOOST_CHECK(result.source == ClusterSourceId{1});
 
-  // ...and identical measurements, identities, timing intervals, source
-  // metadata, and label lookup.
-  const auto afterMeasurements = frame.getSurfaceMeasurements(SurfaceId{0});
-  const auto afterGlobals = frame.getGlobalMeasurements(SurfaceId{0});
+  // ...and identical measurements, identities, source metadata, and label
+  // lookup.
+  const auto afterMeasurements = frame.getSurfaceMeasurements(LayerId{0});
+  const auto afterGlobals = frame.getGlobalMeasurements(LayerId{0});
   BOOST_REQUIRE_EQUAL(afterMeasurements.size(), baselineMeasurements.size());
   BOOST_REQUIRE_EQUAL(afterGlobals.size(), baselineGlobals.size());
   for (size_t i = 0; i < afterMeasurements.size(); ++i) {
@@ -1432,13 +1400,6 @@ BOOST_AUTO_TEST_CASE(FailedLoadAfterFirstSourceStagedLeavesNoPartialState)
     BOOST_CHECK(afterGlobals[i].surface == baselineGlobals[i].surface);
     BOOST_CHECK_EQUAL(afterGlobals[i].sourceROF, baselineGlobals[i].sourceROF);
   }
-  const auto afterIntervals = frame.getSourceIntervals(ClusterSourceId{0});
-  BOOST_REQUIRE_EQUAL(afterIntervals.size(), baselineIntervals.size());
-  for (size_t i = 0; i < afterIntervals.size(); ++i) {
-    BOOST_CHECK_EQUAL(afterIntervals[i].begin, baselineIntervals[i].begin);
-    BOOST_CHECK_EQUAL(afterIntervals[i].end, baselineIntervals[i].end);
-  }
-  BOOST_CHECK_EQUAL(frame.getSourceIntervals(ClusterSourceId{0}).size(), baselineROFCount);
   const auto afterLabel = frame.getLabels(ClusterRef{ClusterSourceId{0}, 0});
   BOOST_REQUIRE_EQUAL(afterLabel.size(), 1u);
   BOOST_CHECK(afterLabel[0] == baselineLabel[0]);
@@ -1450,20 +1411,19 @@ BOOST_AUTO_TEST_CASE(EmptyFrameAccessorsAvoidNullPointerArithmetic)
 {
   TimeFrame frame;
 
-  BOOST_CHECK(frame.getSurfaceMeasurements(SurfaceId{0}).empty());
-  BOOST_CHECK(frame.getSourceIntervals(ClusterSourceId{0}).empty());
+  BOOST_CHECK(frame.getSurfaceMeasurements(LayerId{0}).empty());
   BOOST_CHECK(frame.getLabels(ClusterRef{ClusterSourceId{0}, 0}).empty());
 
   // Loading zero sources into a layout with surfaces is legal and must
-  // leave every per-surface bucket and per-source interval list empty.
+  // leave every per-surface bucket empty.
   const auto layout = makeCombinedLayout();
   BOOST_REQUIRE(layout.valid());
   const auto result = loadSources(frame, layout.getCatalog(), gsl::span<const ClusterSourceInput>{}, {0, 0});
   BOOST_REQUIRE(result.ok());
   BOOST_CHECK_EQUAL(frame.getTotalMeasurements(), 0u);
 
-  BOOST_CHECK(frame.getSurfaceMeasurements(SurfaceId{0}).empty());
-  BOOST_CHECK(frame.getGlobalMeasurement(SurfaceId{0}, SurfaceMeasurementIndex{0}) == nullptr);
+  BOOST_CHECK(frame.getSurfaceMeasurements(LayerId{0}).empty());
+  BOOST_CHECK(frame.getGlobalMeasurement(LayerId{0}, MeasurementIndex{0}) == nullptr);
 }
 
 BOOST_AUTO_TEST_CASE(EmptyLayoutWithZeroSourcesLoadsSuccessfully)

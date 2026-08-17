@@ -99,13 +99,13 @@ constexpr float DefClusError2Col = DefClusErrorCol * DefClusErrorCol;
 
 void fillMatrixCache(o2::detectors::DetID::ID detId);
 
-/// Decode a cluster and map its local layer to a global `SurfaceId`.
+/// Decode a cluster and map its local layer to a global `LayerId`.
 template <o2::detectors::DetID::ID DetId>
 o2::itsmft::tracking::SurfaceMeasurementDecodeResult loadClusterSurfaceMeasurement(
   const CompClusterExt& c,
   o2::itsmft::tracking::BoundedPatternCursor& patterns,
   const TopologyDictionary* dict,
-  gsl::span<const o2::itsmft::tracking::SurfaceId> layerToSurface,
+  gsl::span<const o2::itsmft::tracking::LayerId> layerToSurface,
   o2::itsmft::tracking::ClusterSourceId source,
   uint32_t externalClusterIndex,
   uint32_t sourceROF,
@@ -233,7 +233,7 @@ struct ClusterSourceInput {
   gsl::span<const o2::itsmft::ROFRecord> rofs{};
   const o2::itsmft::TopologyDictionary* dictionary{nullptr};
   const o2::dataformats::MCTruthContainer<o2::MCCompLabel>* labels{nullptr};
-  gsl::span<const SurfaceId> layerToSurface{};
+  gsl::span<const LayerId> layerToSurface{};
   ROFTimingConfig timing{};
   const ClusterDecoder* decoder{nullptr};
   bool applySysErrors{true};

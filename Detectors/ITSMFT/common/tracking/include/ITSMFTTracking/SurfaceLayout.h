@@ -31,7 +31,7 @@ enum class SurfaceLayoutError : uint8_t {
 };
 
 struct SurfaceLayoutDefinition {
-  std::vector<SurfaceId> orderedSurfaces;
+  std::vector<LayerId> orderedSurfaces;
   // First position of each component. Position zero is always required.
   std::vector<uint16_t> componentOffsets{0};
   int maxHoles{0};
@@ -39,7 +39,7 @@ struct SurfaceLayoutDefinition {
   SurfaceMask seedingSurfaces{};
 };
 
-inline SurfaceLayoutDefinition makeSurfaceLayoutChain(gsl::span<const SurfaceId> orderedSurfaces,
+inline SurfaceLayoutDefinition makeSurfaceLayoutChain(gsl::span<const LayerId> orderedSurfaces,
                                                       int maxHoles = 0,
                                                       SurfaceMask holeSurfaces = {},
                                                       SurfaceMask seedingSurfaces = {})
@@ -67,7 +67,7 @@ class SurfaceLayout
 
   bool valid() const noexcept { return mError == SurfaceLayoutError::None; }
   SurfaceLayoutError getError() const noexcept { return mError; }
-  gsl::span<const SurfaceId> getOrderedSurfaces() const noexcept { return mOrderedSurfaces; }
+  gsl::span<const LayerId> getOrderedSurfaces() const noexcept { return mOrderedSurfaces; }
   gsl::span<const uint16_t> getComponentOffsets() const noexcept { return mComponentOffsets; }
   int getMaxHoles() const noexcept { return mMaxHoles; }
   SurfaceMask getHoleSurfaces() const noexcept { return mHoleSurfaces; }
@@ -147,7 +147,7 @@ class SurfaceLayout
   }
 
   std::vector<SurfaceDescriptor> mCatalog;
-  std::vector<SurfaceId> mOrderedSurfaces;
+  std::vector<LayerId> mOrderedSurfaces;
   std::vector<uint16_t> mComponentOffsets;
   int mMaxHoles{0};
   SurfaceMask mHoleSurfaces{};

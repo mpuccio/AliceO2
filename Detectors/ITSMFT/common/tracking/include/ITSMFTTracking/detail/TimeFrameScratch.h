@@ -81,7 +81,7 @@ struct TraversalWorkspace {
   // Per-pass traversal plan. The graph remains immutable configuration; the
   // tracker derives this selected topology and its compact scratch mapping.
   SurfaceMask activeSurfaces{};
-  std::vector<SurfaceId> orderedSurfaces;
+  std::vector<LayerId> orderedSurfaces;
   std::vector<int16_t> surfaceSlotById;
   std::vector<int16_t> edgeSlotById;
   std::vector<int16_t> cellSlotById;
@@ -94,7 +94,7 @@ struct TraversalWorkspace {
   TraversalTopology topology;
   bool valid{false};
 
-  std::optional<uint16_t> getSurfaceSlot(SurfaceId id) const noexcept;
+  std::optional<uint16_t> getSurfaceSlot(LayerId id) const noexcept;
   std::optional<uint16_t> getEdgeSlot(EdgeId id) const noexcept;
   std::optional<uint16_t> getCellSlot(CellPathId id) const noexcept;
   TraversalTopologyView getTopologyView() const noexcept { return topology.getView(topologyCatalog); }
@@ -192,12 +192,12 @@ class TimeFrameScratch
                                          const itsmft::TopologyDictionary* dictionary,
                                          const dataformats::MCTruthContainer<MCCompLabel>* labels,
                                          o2::detectors::DetID::ID detId,
-                                         gsl::span<const SurfaceId> orderedSurfaces,
+                                         gsl::span<const LayerId> orderedSurfaces,
                                          SurfaceCatalogView catalogView,
                                          bool applySysErrors = true);
   LoadSourcesResult backfillNormalizedSources(const TimeFrame& measurements,
                                               gsl::span<const ClusterSourceInput> sources,
-                                              gsl::span<const SurfaceId> orderedSurfaces,
+                                              gsl::span<const LayerId> orderedSurfaces,
                                               SurfaceCatalogView catalog);
 #endif
 
@@ -320,12 +320,12 @@ class TimeFrameScratch
   void initialise(const TimeFrame& frame, const TrackingParameters& trkParam, int maxLayers, int iteration,
                   const IndexTableUtilsCore& indexTableConfig, TraversalTopologyView topology,
                   gsl::span<const EdgeId> edgeIds, gsl::span<const CellPathId> cellIds,
-                  gsl::span<const SurfaceId> orderedSurfaces,
+                  gsl::span<const LayerId> orderedSurfaces,
                   gsl::span<const gsl::span<const GlobalMeasurement>> layerMeasurements);
   void initialise(const TimeFrame& frame, const TrackingParameters& trkParam, int maxLayers, int iteration,
                   gsl::span<const IndexTableUtilsCore> indexTableConfigs, TraversalTopologyView topology,
                   gsl::span<const EdgeId> edgeIds, gsl::span<const CellPathId> cellIds,
-                  gsl::span<const SurfaceId> orderedSurfaces,
+                  gsl::span<const LayerId> orderedSurfaces,
                   gsl::span<const gsl::span<const GlobalMeasurement>> layerMeasurements);
 
   bool isClusterUsed(int layer, int clusterId) const { return mUsedClusters[layer][clusterId]; }

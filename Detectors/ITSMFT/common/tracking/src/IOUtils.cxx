@@ -112,7 +112,7 @@ void fillMatrixCache(o2::detectors::DetID::ID detId)
 template <o2::detectors::DetID::ID DetId>
 o2::itsmft::tracking::SurfaceMeasurementDecodeResult loadClusterSurfaceMeasurement(
   const CompClusterExt& cluster, o2::itsmft::tracking::BoundedPatternCursor& patterns,
-  const TopologyDictionary* dict, gsl::span<const o2::itsmft::tracking::SurfaceId> layerToSurface,
+  const TopologyDictionary* dict, gsl::span<const o2::itsmft::tracking::LayerId> layerToSurface,
   o2::itsmft::tracking::ClusterSourceId source, uint32_t externalClusterIndex,
   uint32_t sourceROF, bool applySysErrors)
 {
@@ -153,10 +153,10 @@ o2::itsmft::tracking::SurfaceMeasurementDecodeResult loadClusterSurfaceMeasureme
 
 template o2::itsmft::tracking::SurfaceMeasurementDecodeResult loadClusterSurfaceMeasurement<o2::detectors::DetID::ITS>(
   const CompClusterExt&, o2::itsmft::tracking::BoundedPatternCursor&, const TopologyDictionary*,
-  gsl::span<const o2::itsmft::tracking::SurfaceId>, o2::itsmft::tracking::ClusterSourceId, uint32_t, uint32_t, bool);
+  gsl::span<const o2::itsmft::tracking::LayerId>, o2::itsmft::tracking::ClusterSourceId, uint32_t, uint32_t, bool);
 template o2::itsmft::tracking::SurfaceMeasurementDecodeResult loadClusterSurfaceMeasurement<o2::detectors::DetID::MFT>(
   const CompClusterExt&, o2::itsmft::tracking::BoundedPatternCursor&, const TopologyDictionary*,
-  gsl::span<const o2::itsmft::tracking::SurfaceId>, o2::itsmft::tracking::ClusterSourceId, uint32_t, uint32_t, bool);
+  gsl::span<const o2::itsmft::tracking::LayerId>, o2::itsmft::tracking::ClusterSourceId, uint32_t, uint32_t, bool);
 
 } // namespace o2::itsmft::ioutils
 
@@ -350,7 +350,6 @@ LoadSourcesResult loadSources(TimeFrame& frame,
 
   std::vector<std::vector<GlobalMeasurement>> perSurfaceGlobal(catalog.nSurfaces);
   std::vector<std::vector<SurfaceMeasurement>> perSurface(catalog.nSurfaces);
-  std::vector<std::vector<ROFIntervalBC>> perSourceIntervals(nSources);
   std::vector<const o2::dataformats::MCTruthContainer<o2::MCCompLabel>*> labelSources(nSources, nullptr);
 
   for (const auto& src : sources) {
@@ -374,14 +373,11 @@ LoadSourcesResult loadSources(TimeFrame& frame,
       return {MultiSourceLoadError::InvalidROFRange, src.id, static_cast<uint32_t>(src.rofs.size())};
     }
 
-    auto& intervals = perSourceIntervals[srcIdx];
-    intervals.reserve(src.rofs.size());
     for (uint32_t r = 0; r < src.rofs.size(); ++r) {
       const auto built = computeROFIntervalBC(src.rofs[r].getBCData(), origin, src.timing, r);
       if (!built.ok()) {
         return LoadSourcesResult{.error = MultiSourceLoadError::TimingError, .source = src.id, .rof = r, .timingDetail = built.error};
       }
-      intervals.push_back(built.interval);
     }
 
     src.decoder->prepare();
@@ -435,18 +431,8 @@ LoadSourcesResult loadSources(TimeFrame& frame,
     }
   }
 
-  std::vector<uint32_t> sourceOffsets(nSources + 1, 0);
-  for (uint32_t s = 0; s < nSources; ++s) {
-    sourceOffsets[s + 1] = sourceOffsets[s] + static_cast<uint32_t>(perSourceIntervals[s].size());
-  }
-  std::vector<ROFIntervalBC> flatIntervals;
-  flatIntervals.reserve(sourceOffsets.back());
-  for (uint32_t s = 0; s < nSources; ++s) {
-    flatIntervals.insert(flatIntervals.end(), perSourceIntervals[s].begin(), perSourceIntervals[s].end());
-  }
-
   frame.assignLoadedMeasurements(std::move(perSurfaceGlobal), std::move(perSurface),
-                                 std::move(flatIntervals), std::move(sourceOffsets), std::move(labelSources));
+                                 std::move(labelSources));
   return {};
 }
 
@@ -473,7 +459,7 @@ LoadSourcesResult TimeFrameScratch::loadNormalizedSource(
   const itsmft::TopologyDictionary* dictionary,
   const dataformats::MCTruthContainer<MCCompLabel>* labels,
   o2::detectors::DetID::ID detId,
-  gsl::span<const SurfaceId> orderedSurfaces,
+  gsl::span<const LayerId> orderedSurfaces,
   SurfaceCatalogView catalogView,
   bool applySysErrors)
 {
@@ -489,22 +475,22 @@ LoadSourcesResult TimeFrameScratch::loadNormalizedSource(
     return {MultiSourceLoadError::InvalidLayerMapping, kSourceId};
   }
   SurfaceMask mappedSurfaceSeen{};
-  for (const auto& surfaceId : orderedSurfaces) {
-    if (!surfaceId.isValid() || surfaceId.value() >= catalogView.nSurfaces) {
+  for (const auto& LayerId : orderedSurfaces) {
+    if (!LayerId.isValid() || LayerId.value() >= catalogView.nSurfaces) {
       return {MultiSourceLoadError::InvalidLayerMapping, kSourceId};
     }
-    if (mappedSurfaceSeen.has(surfaceId)) {
+    if (mappedSurfaceSeen.has(LayerId)) {
       return {MultiSourceLoadError::InvalidLayerMapping, kSourceId};
     }
-    mappedSurfaceSeen.set(surfaceId);
+    mappedSurfaceSeen.set(LayerId);
   }
-  for (const auto& surfaceId : orderedSurfaces) {
-    if (catalogView.getSurface(surfaceId).detectorId != static_cast<uint8_t>(detId)) {
+  for (const auto& LayerId : orderedSurfaces) {
+    if (catalogView.getSurface(LayerId).detectorId != static_cast<uint8_t>(detId)) {
       return {MultiSourceLoadError::DetectorSurfaceMismatch, kSourceId};
     }
   }
 
-  const gsl::span<const SurfaceId> layerToSurface = orderedSurfaces;
+  const gsl::span<const LayerId> layerToSurface = orderedSurfaces;
   const std::size_t nOwnedSurfaces = orderedSurfaces.size();
 
   TimeFrame staged;
@@ -650,7 +636,7 @@ LoadSourcesResult TimeFrameScratch::loadNormalizedSource(
 LoadSourcesResult TimeFrameScratch::backfillNormalizedSources(
   const TimeFrame& measurements,
   gsl::span<const ClusterSourceInput> sources,
-  gsl::span<const SurfaceId> orderedSurfaces,
+  gsl::span<const LayerId> orderedSurfaces,
   SurfaceCatalogView catalog)
 {
   if (orderedSurfaces.size() != mNOwnedSurfaces || sources.empty()) {

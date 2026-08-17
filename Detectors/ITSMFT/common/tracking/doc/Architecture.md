@@ -251,14 +251,11 @@ cursors and ROF ordinals are maintained independently per source.
 
 ### 7.2 Timing
 
-Per-source/per-surface ROF timing is stored independently as checked, signed 64-bit
-TimeFrame-relative bunch-crossing intervals. Intervals are half-open and incorporate
-the source's readout length and configured delay/bias; uncertainty handling must be
-explicit in the compatibility policy. Overlap queries compare intervals, never ROF
-ordinals. Loading must not require equal ROF counts, lengths, or delays across
-detectors. A measurement's `sourceROF` is interpreted together with the source in its
-`ClusterRef`. Checked 32-bit rebasing is allowed only in a device view whose complete
-extent fits.
+Per-source ROF timing is validated at the loading boundary as checked, signed 64-bit
+TimeFrame-relative bunch-crossing intervals. The intervals are not stored in
+`TimeFrame`; raw ROFs and timing tables remain workflow-owned. Loading must not
+require equal ROF counts, lengths, or delays across detectors. A measurement's
+`sourceROF` is interpreted together with the source in its `ClusterRef`.
 
 Cluster and track timestamps must remain convertible to detector-specific output ROF records. Tests must cover triggered and continuous readout configurations.
 

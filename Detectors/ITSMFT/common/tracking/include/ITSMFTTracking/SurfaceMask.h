@@ -118,17 +118,17 @@ struct SurfaceMask {
   GPUhdi() constexpr ValueType value() const noexcept { return mBits; }
   GPUhdi() constexpr bool empty() const noexcept { return mBits == 0; }
 
-  GPUhdi() constexpr bool has(SurfaceId surface) const noexcept
+  GPUhdi() constexpr bool has(LayerId surface) const noexcept
   {
     return surface.isValid() && surface.value() < MaxLayoutSurfaces && (mBits & (ValueType{1} << surface.value()));
   }
-  GPUhdi() constexpr void set(SurfaceId surface) noexcept
+  GPUhdi() constexpr void set(LayerId surface) noexcept
   {
     if (surface.isValid() && surface.value() < MaxLayoutSurfaces) {
       mBits |= ValueType{1} << surface.value();
     }
   }
-  GPUhdi() constexpr void reset(SurfaceId surface) noexcept
+  GPUhdi() constexpr void reset(LayerId surface) noexcept
   {
     if (surface.isValid() && surface.value() < MaxLayoutSurfaces) {
       mBits &= ~(ValueType{1} << surface.value());
@@ -173,7 +173,7 @@ static_assert(alignof(SurfaceMask) == alignof(uint32_t));
 // Converts positional LayerMask bits to the corresponding global surfaces.
 // Only the first activeCount positions are considered; activeCount must not
 // exceed orderedSurfaces.size().
-inline SurfaceMask positionalSurfaceMask(LayerMask layerMask, gsl::span<const SurfaceId> orderedSurfaces, uint32_t activeCount) noexcept
+inline SurfaceMask positionalSurfaceMask(LayerMask layerMask, gsl::span<const LayerId> orderedSurfaces, uint32_t activeCount) noexcept
 {
   SurfaceMask result;
   for (uint32_t position = 0; position < activeCount; ++position) {

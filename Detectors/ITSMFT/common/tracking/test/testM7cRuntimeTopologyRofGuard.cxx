@@ -183,19 +183,19 @@ BOOST_AUTO_TEST_CASE(SparseTopologyViewRetainsExplicitNonIdentityOrder)
 {
   std::vector<SurfaceDescriptor> surfaces;
   for (uint16_t id = 0; id < 8; ++id) {
-    surfaces.emplace_back(SurfaceId{id}, id, 0, SurfaceKind::Cylinder);
+    surfaces.emplace_back(LayerId{id}, id, 0, SurfaceKind::Cylinder);
   }
-  const std::vector<SurfaceId> ordered{SurfaceId{5}, SurfaceId{2}, SurfaceId{7}};
+  const std::vector<LayerId> ordered{LayerId{5}, LayerId{2}, LayerId{7}};
   const auto layout = SurfaceLayout{surfaces, makeSurfaceLayoutChain(ordered)};
   const auto result = deriveTraversalTopology(layout);
   BOOST_REQUIRE(result.ok());
   const auto& topology = *result.topology;
   BOOST_REQUIRE_EQUAL(topology.edges.size(), 2u);
   BOOST_REQUIRE_EQUAL(topology.paths.size(), 1u);
-  BOOST_CHECK(topology.edges[0].from == SurfaceId{5});
-  BOOST_CHECK(topology.edges[0].to == SurfaceId{2});
-  BOOST_CHECK(topology.edges[1].from == SurfaceId{2});
-  BOOST_CHECK(topology.edges[1].to == SurfaceId{7});
+  BOOST_CHECK(topology.edges[0].from == LayerId{5});
+  BOOST_CHECK(topology.edges[0].to == LayerId{2});
+  BOOST_CHECK(topology.edges[1].from == LayerId{2});
+  BOOST_CHECK(topology.edges[1].to == LayerId{7});
   const auto& path = topology.paths.front();
   BOOST_CHECK(path.first == EdgeId{0});
   BOOST_CHECK(path.second == EdgeId{1});

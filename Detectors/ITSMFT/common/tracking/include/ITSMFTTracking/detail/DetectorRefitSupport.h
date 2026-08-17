@@ -67,7 +67,7 @@ inline bool refitSurfaceSeed(const TrackSeed& seed,
                              gsl::span<const gsl::span<const GlobalMeasurement>> layerGlobals,
                              gsl::span<const gsl::span<const SurfaceMeasurement>> layerMeasurements,
                              SurfaceCatalogView surfaceCatalog,
-                             gsl::span<const SurfaceId> orderedSurfaces,
+                             gsl::span<const LayerId> orderedSurfaces,
                              TrackingCandidate& candidate)
 {
   if (layerGlobals.size() != layerMeasurements.size() || orderedSurfaces.size() != layerMeasurements.size()) {

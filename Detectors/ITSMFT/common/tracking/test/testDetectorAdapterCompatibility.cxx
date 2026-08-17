@@ -47,7 +47,7 @@ struct MixedRefitFixture {
   std::vector<gsl::span<const SurfaceMeasurement>> measurements{3};
   std::vector<gsl::span<const GlobalMeasurement>> globals{3};
   std::array<SurfaceDescriptor, 3> surfaces{};
-  std::array<SurfaceId, 3> ordered{SurfaceId{0}, SurfaceId{1}, SurfaceId{2}};
+  std::array<LayerId, 3> ordered{LayerId{0}, LayerId{1}, LayerId{2}};
   TrackSeed seed{};
   o2::itsmft::TrackingParameters parameters{};
 
@@ -183,7 +183,7 @@ BOOST_AUTO_TEST_CASE(native_refit_rejects_invalid_generic_state)
   const std::vector<gsl::span<const SurfaceMeasurement>> layerMeasurements(7);
   const SurfaceCatalogView surfaceCatalog{};
   TimeFrameScratch scratch;
-  const std::vector<SurfaceId> orderedSurfaces(7);
+  const std::vector<LayerId> orderedSurfaces(7);
   BOOST_CHECK(!detail::refitSurfaceSeed(seed, params, 0.5f, scratch, layerGlobals, layerMeasurements, surfaceCatalog, orderedSurfaces, candidate));
 }
 
@@ -224,7 +224,7 @@ BOOST_AUTO_TEST_CASE(generic_refit_validates_each_measurement_before_commit)
 
   {
     MixedRefitFixture fixture;
-    fixture.globalsStorage[1][0].surface = SurfaceId{0};
+    fixture.globalsStorage[1][0].surface = LayerId{0};
     fixture.globals[1] = fixture.globalsStorage[1];
     rejects(fixture);
   }

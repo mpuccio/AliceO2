@@ -51,17 +51,17 @@ class Identifier
 };
 } // namespace detail
 
-struct SurfaceIdTag;
+struct LayerIdTag;
 struct EdgeIdTag;
 struct CellPathIdTag;
 struct ClusterSourceIdTag;
 struct ClusterIndexTag;
 
-using SurfaceId = detail::Identifier<SurfaceIdTag, uint16_t>;
+using LayerId = detail::Identifier<LayerIdTag, uint16_t>;
 using EdgeId = detail::Identifier<EdgeIdTag, uint16_t>;
 using CellPathId = detail::Identifier<CellPathIdTag, uint16_t>;
 using ClusterSourceId = detail::Identifier<ClusterSourceIdTag, uint16_t>;
-using SurfaceMeasurementIndex = detail::Identifier<ClusterIndexTag, uint32_t>;
+using MeasurementIndex = detail::Identifier<ClusterIndexTag, uint32_t>;
 
 GPUhdi() constexpr bool isRecognizedSurfaceKind(SurfaceKind kind) noexcept
 {

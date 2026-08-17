@@ -79,22 +79,22 @@ BOOST_AUTO_TEST_CASE(UnadoptedScratchRejectsLoadInsteadOfMisbehaving)
    public:
     o2::itsmft::tracking::SurfaceMeasurementDecodeResult decode(
       const o2::itsmft::CompClusterExt&, BoundedPatternCursor&, const o2::itsmft::TopologyDictionary*,
-      gsl::span<const SurfaceId>, ClusterSourceId, uint32_t, uint32_t, bool) const override
+      gsl::span<const LayerId>, ClusterSourceId, uint32_t, uint32_t, bool) const override
     {
       return {};
     }
   };
   RejectDecoder decoder;
 
-  std::vector<SurfaceId> layerToSurface;
+  std::vector<LayerId> layerToSurface;
   for (uint16_t i = 0; i < ITSNLayers; ++i) {
-    layerToSurface.push_back(SurfaceId{i});
+    layerToSurface.push_back(LayerId{i});
   }
   TimeFrame frame;
   const auto result = scratch.loadNormalizedSource(
     frame, decoder, o2::InteractionRecord{0, 0}, ROFTimingConfig{40, 0, 0, 0},
     gsl::span<const o2::itsmft::CompClusterExt>{}, gsl::span<const unsigned char>{}, gsl::span<const o2::itsmft::ROFRecord>{},
-    nullptr, nullptr, o2::detectors::DetID::ITS, gsl::span<const SurfaceId>{layerToSurface},
+    nullptr, nullptr, o2::detectors::DetID::ITS, gsl::span<const LayerId>{layerToSurface},
     SurfaceCatalogView{kITSStaticSurfaceCatalog.data(), static_cast<uint32_t>(kITSStaticSurfaceCatalog.size())});
 
   BOOST_CHECK(!result.ok());
@@ -127,12 +127,12 @@ test::CombinedTrackingPlan makeSet()
                                     std::vector<TrackingParameters>{makeMftParams()}};
 }
 
-std::vector<SurfaceId> orderedRange(uint16_t first, uint16_t count)
+std::vector<LayerId> orderedRange(uint16_t first, uint16_t count)
 {
-  std::vector<SurfaceId> result;
+  std::vector<LayerId> result;
   result.reserve(count);
   for (uint16_t i = 0; i < count; ++i) {
-    result.push_back(SurfaceId{static_cast<uint16_t>(first + i)});
+    result.push_back(LayerId{static_cast<uint16_t>(first + i)});
   }
   return result;
 }
@@ -142,7 +142,7 @@ class StubDecoder final : public ClusterDecoder
  public:
   o2::itsmft::tracking::SurfaceMeasurementDecodeResult decode(
     const o2::itsmft::CompClusterExt&, BoundedPatternCursor&, const o2::itsmft::TopologyDictionary*,
-    gsl::span<const SurfaceId>, ClusterSourceId, uint32_t, uint32_t, bool) const override
+    gsl::span<const LayerId>, ClusterSourceId, uint32_t, uint32_t, bool) const override
   {
     return {};
   }
@@ -155,7 +155,7 @@ StubDecoder& stubDecoder()
 }
 
 ClusterSourceInput makeEmptySource(ClusterSourceId id, o2::detectors::DetID::ID det, uint16_t surfaceOffset, uint16_t nLayers,
-                                   std::vector<SurfaceId>& layerToSurfaceStorage, int corruptLayerToSurfaceSize = -1)
+                                   std::vector<LayerId>& layerToSurfaceStorage, int corruptLayerToSurfaceSize = -1)
 {
   ClusterSourceInput input{};
   input.id = id;
@@ -183,8 +183,8 @@ BOOST_AUTO_TEST_CASE(AtomicITSLoadFailureLeavesSharedTimeFrameAndBothParticipant
   // (staged first), this proves the failure is caught before any commit,
   // not only when the malformed source happens to be staged last (the
   // paired MFT-source failure test).
-  std::vector<SurfaceId> itsLayerToSurfaceStorage;
-  std::vector<SurfaceId> mftLayerToSurfaceStorage;
+  std::vector<LayerId> itsLayerToSurfaceStorage;
+  std::vector<LayerId> mftLayerToSurfaceStorage;
   const auto itsSource = makeEmptySource(ClusterSourceId{0}, o2::detectors::DetID::ITS, 0, ITSNLayers, itsLayerToSurfaceStorage, ITSNLayers - 1);
   const auto mftSource = makeEmptySource(ClusterSourceId{1}, o2::detectors::DetID::MFT, ITSNLayers, MFTNLayers, mftLayerToSurfaceStorage);
 
@@ -278,9 +278,9 @@ BOOST_AUTO_TEST_CASE(ITSSharedClusterCompatibilitySidecarRemainsFunctionalAfterM
 BOOST_AUTO_TEST_CASE(StandaloneAndCombinedITSGraphsAgreeByRelativePosition)
 {
   const auto standaloneParams = o2::itsmft::TrackingMode::getTrackingParameters(o2::detectors::DetID::ITS, o2::itsmft::TrackingMode::Sync);
-  std::vector<SurfaceId> standaloneOrder;
+  std::vector<LayerId> standaloneOrder;
   for (uint16_t i = 0; i < ITSNLayers; ++i) {
-    standaloneOrder.push_back(SurfaceId{i});
+    standaloneOrder.push_back(LayerId{i});
   }
   const auto standaloneLayout = SurfaceLayout{
     gsl::span<const SurfaceDescriptor>{kITSStaticSurfaceCatalog.data(), kITSStaticSurfaceCatalog.size()},

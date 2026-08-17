@@ -87,7 +87,7 @@ class NeverDecodedDecoder final : public ClusterDecoder
 
   o2::itsmft::tracking::SurfaceMeasurementDecodeResult decode(
     const CompClusterExt&, BoundedPatternCursor&, const TopologyDictionary*,
-    gsl::span<const SurfaceId>, ClusterSourceId, uint32_t, uint32_t, bool) const override
+    gsl::span<const LayerId>, ClusterSourceId, uint32_t, uint32_t, bool) const override
   {
     return {};
   }
@@ -97,7 +97,7 @@ class NeverDecodedDecoder final : public ClusterDecoder
 };
 
 // Stage-B normalized-CA-measurements slice: computeLayerCells() now reads
-// TrackerTraits::mLayerMeasurements, resolved once per initialiseTimeFrame()
+// TrackerTraits::mLayerSurfaceMeasurements, resolved once per initialiseTimeFrame()
 // from the TimeFrame's already-loaded normalized frame. Candidate fixtures
 // therefore load their three clusters through the real loadNormalizedSource()
 // path -- backfilling both the normalized frame and every legacy
@@ -124,7 +124,7 @@ class FixedMeasurementDecoder final : public ClusterDecoder
     const CompClusterExt& cluster,
     BoundedPatternCursor&,
     const TopologyDictionary*,
-    gsl::span<const SurfaceId> layerToSurface,
+    gsl::span<const LayerId> layerToSurface,
     ClusterSourceId source,
     uint32_t externalIndex,
     uint32_t sourceROF,
@@ -162,12 +162,12 @@ const TopologyDictionary& dict()
   return d;
 }
 
-std::vector<SurfaceId> identitySurfaces(uint16_t nLayers)
+std::vector<LayerId> identitySurfaces(uint16_t nLayers)
 {
-  std::vector<SurfaceId> mapping;
+  std::vector<LayerId> mapping;
   mapping.reserve(nLayers);
   for (uint16_t i = 0; i < nLayers; ++i) {
-    mapping.push_back(SurfaceId{i});
+    mapping.push_back(LayerId{i});
   }
   return mapping;
 }
@@ -183,7 +183,7 @@ std::vector<SurfaceDescriptor> makeCatalog(uint16_t nLayers, o2::detectors::DetI
   std::vector<SurfaceDescriptor> surfaces;
   surfaces.reserve(nLayers);
   for (uint16_t i = 0; i < nLayers; ++i) {
-    surfaces.push_back(SurfaceDescriptor{SurfaceId{i}, i, static_cast<uint8_t>(det), kind});
+    surfaces.push_back(SurfaceDescriptor{LayerId{i}, i, static_cast<uint8_t>(det), kind});
     surfaces.back().chartRange = kind == SurfaceKind::Disk ? SurfaceChartRange{0.1f, 20.f} : SurfaceChartRange{-20.f, 20.f};
     surfaces.back().referenceCoordinate = kind == SurfaceKind::Cylinder
                                             ? 3.f + static_cast<float>(i)
@@ -354,7 +354,7 @@ struct Rig : RigFrameStorage {
     const std::vector<ROFRecord> noRofs;
     const auto& loadOrderedSurfaces = layout.getOrderedSurfaces();
     const auto loadResult = tf->loadNormalizedSource(frame, decoder, origin, timing, noClusters, noPatterns, noRofs, &dict(), nullptr, mDet,
-                                                     gsl::span<const SurfaceId>{loadOrderedSurfaces}, layout.getSurfaceCatalog());
+                                                     gsl::span<const LayerId>{loadOrderedSurfaces}, layout.getSurfaceCatalog());
     BOOST_REQUIRE(loadResult.ok());
   }
 
@@ -413,7 +413,7 @@ void loadCandidateClusters(Rig<NLayers>& rig,
   const ROFTimingConfig timing{40, 0, 0, 0};
   const auto& orderedSurfaces = rig.frame.getLayout(0).getOrderedSurfaces();
   const auto result = rig.tf->loadNormalizedSource(rig.frame, decoder, origin, timing, compClusters, noPatterns, rofs, &dict(), nullptr, rig.detector(),
-                                                   gsl::span<const SurfaceId>{orderedSurfaces}, rig.frame.getLayout(0).getSurfaceCatalog());
+                                                   gsl::span<const LayerId>{orderedSurfaces}, rig.frame.getLayout(0).getSurfaceCatalog());
   BOOST_REQUIRE(result.ok());
 }
 
@@ -504,7 +504,7 @@ void loadCandidateClustersAtLayers(Rig<NLayers>& rig,
   const ROFTimingConfig timing{40, 0, 0, 0};
   const auto& orderedSurfaces = rig.frame.getLayout(0).getOrderedSurfaces();
   const auto result = rig.tf->loadNormalizedSource(rig.frame, decoder, origin, timing, compClusters, noPatterns, rofs, &dict(), nullptr, rig.detector(),
-                                                   gsl::span<const SurfaceId>{orderedSurfaces}, rig.frame.getLayout(0).getSurfaceCatalog());
+                                                   gsl::span<const LayerId>{orderedSurfaces}, rig.frame.getLayout(0).getSurfaceCatalog());
   BOOST_REQUIRE(result.ok());
 }
 
@@ -887,7 +887,7 @@ BOOST_AUTO_TEST_CASE(RepeatedComputeLayerCellsCallsDoNotRebindOrIncreaseCounts)
 
   // Re-inject tracklets and recompute (the underlying candidate clusters/
   // measurements loaded above are untouched -- reloading them here would
-  // invalidate TrackerTraits::mLayerMeasurements without a fresh
+  // invalidate TrackerTraits::mLayerSurfaceMeasurements without a fresh
   // initialiseTimeFrame() call to re-resolve it, which is not what this test
   // checks): a fresh call after the tracklets were consumed must still
   // reproduce the identical chi2 through the same cache.

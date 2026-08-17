@@ -24,14 +24,14 @@ namespace
 using namespace o2::itsmft::tracking;
 
 // kITSStaticSurfaceCatalog is dense and local (ITSMFTDetectorDefinitions.h):
-// surface i's id is always SurfaceId{i}. Mirrors identitySurfaceOrder() in
+// surface i's id is always LayerId{i}. Mirrors identitySurfaceOrder() in
 // TrackingInterface.cxx, the production plan builder this link-only proof
 // exercises the same way.
-constexpr std::array<SurfaceId, ITSNLayers> identityOrder()
+constexpr std::array<LayerId, ITSNLayers> identityOrder()
 {
-  std::array<SurfaceId, ITSNLayers> order{};
+  std::array<LayerId, ITSNLayers> order{};
   for (int i = 0; i < ITSNLayers; ++i) {
-    order[i] = SurfaceId{static_cast<uint16_t>(i)};
+    order[i] = LayerId{static_cast<uint16_t>(i)};
   }
   return order;
 }
@@ -47,8 +47,8 @@ int initializeCommonITSTracker()
   const auto& orderedSurfaces = kOrderedSurfaces;
   std::array<NominalSurfaceMaterial, ITSNLayers> layerMaterial{};
   for (int layer = 0; layer < ITSNLayers; ++layer) {
-    const auto surfaceId = orderedSurfaces[layer];
-    if (!surfaceId.isValid()) {
+    const auto LayerId = orderedSurfaces[layer];
+    if (!LayerId.isValid()) {
       return 4;
     }
     layerMaterial[layer] = kITSStaticSurfaceCatalog[layer].material;

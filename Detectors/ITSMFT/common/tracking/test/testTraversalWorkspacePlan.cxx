@@ -24,10 +24,10 @@ namespace
 SurfaceLayout makeLayout()
 {
   std::array<SurfaceDescriptor, 4> catalog{};
-  std::vector<SurfaceId> ordered;
+  std::vector<LayerId> ordered;
   for (uint16_t id = 0; id < catalog.size(); ++id) {
-    catalog[id] = SurfaceDescriptor{SurfaceId{id}, id, 0, SurfaceKind::Cylinder};
-    ordered.push_back(SurfaceId{id});
+    catalog[id] = SurfaceDescriptor{LayerId{id}, id, 0, SurfaceKind::Cylinder};
+    ordered.push_back(LayerId{id});
   }
   SurfaceLayoutDefinition definition;
   definition.orderedSurfaces = std::move(ordered);
@@ -55,7 +55,7 @@ BOOST_AUTO_TEST_CASE(PassWorkspaceDerivesSelectedTopologyFromTheStaticLayout)
   BOOST_CHECK_EQUAL(second.activeSurfaces.count(), 3);
   BOOST_CHECK_EQUAL(second.edges.size(), 2u);
   BOOST_CHECK_EQUAL(second.cells.size(), 1u);
-  BOOST_CHECK(second.getSurfaceSlot(SurfaceId{1}).has_value());
+  BOOST_CHECK(second.getSurfaceSlot(LayerId{1}).has_value());
   BOOST_CHECK(second.getEdgeSlot(EdgeId{1}).has_value()); // 0 -> 2, skipping disabled surface 1
   BOOST_CHECK_EQUAL(second.scheduledCells.size(), second.cells.size());
 }
@@ -79,13 +79,13 @@ BOOST_AUTO_TEST_CASE(FailedPlanPreparationLeavesTheWorkspaceInvalidAndEmpty)
 BOOST_AUTO_TEST_CASE(KernelViewBorrowsWorkspaceTopology)
 {
   TraversalWorkspace workspace;
-  workspace.topology.orderedSurfaces = {SurfaceId{0}, SurfaceId{1}};
+  workspace.topology.orderedSurfaces = {LayerId{0}, LayerId{1}};
   workspace.topology.activeSurfaceList = workspace.topology.orderedSurfaces;
   workspace.topology.surfacePositionById.assign(MaxLayoutSurfaces, -1);
   workspace.topology.surfacePositionById[0] = 0;
   workspace.topology.surfacePositionById[1] = 1;
   workspace.topology.activeSurfaces = SurfaceMask{uint32_t{0b11}};
-  workspace.topology.edges.push_back(Edge{SurfaceId{0}, SurfaceId{1}});
+  workspace.topology.edges.push_back(Edge{LayerId{0}, LayerId{1}});
   workspace.topology.paths.push_back(CellPath{EdgeId{0}, EdgeId{0}});
   workspace.topology.pathsByFirstEdgeOffsets = {0, 1};
   workspace.topology.pathsByFirstEdge.push_back(CellPathId{0});
@@ -109,7 +109,7 @@ BOOST_AUTO_TEST_CASE(ResetClearsAndInvalidatesOwnedTopology)
 {
   TraversalWorkspace workspace;
   workspace.valid = true;
-  workspace.topology.edges.push_back(Edge{SurfaceId{0}, SurfaceId{1}});
+  workspace.topology.edges.push_back(Edge{LayerId{0}, LayerId{1}});
   workspace.topology.paths.push_back(CellPath{EdgeId{0}, EdgeId{0}});
   workspace.topology.activeSurfaces = SurfaceMask{uint32_t{0b11}};
 

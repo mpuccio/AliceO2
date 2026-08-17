@@ -121,12 +121,12 @@ o2::itsmft::tracking::SurfaceCatalogView combinedCatalogView()
           static_cast<uint32_t>(o2::itsmft::tracking::kITSMFTCombinedStaticSurfaceCatalog.size())};
 }
 
-std::vector<o2::itsmft::tracking::SurfaceId> orderedSurfaceRange(uint16_t first, uint16_t count)
+std::vector<o2::itsmft::tracking::LayerId> orderedSurfaceRange(uint16_t first, uint16_t count)
 {
-  std::vector<o2::itsmft::tracking::SurfaceId> result;
+  std::vector<o2::itsmft::tracking::LayerId> result;
   result.reserve(count);
   for (uint16_t i = 0; i < count; ++i) {
-    result.push_back(o2::itsmft::tracking::SurfaceId{static_cast<uint16_t>(first + i)});
+    result.push_back(o2::itsmft::tracking::LayerId{static_cast<uint16_t>(first + i)});
   }
   return result;
 }
@@ -135,15 +135,15 @@ o2::itsmft::tracking::SurfaceMask surfaceRangeMask(uint16_t first, uint16_t coun
 {
   o2::itsmft::tracking::SurfaceMask result;
   for (uint16_t i = 0; i < count; ++i) {
-    result.set(o2::itsmft::tracking::SurfaceId{static_cast<uint16_t>(first + i)});
+    result.set(o2::itsmft::tracking::LayerId{static_cast<uint16_t>(first + i)});
   }
   return result;
 }
 
 o2::itsmft::tracking::SurfaceLayoutDefinition combinedLayoutDefinition(
-  gsl::span<const o2::itsmft::tracking::SurfaceId> itsSurfaces,
+  gsl::span<const o2::itsmft::tracking::LayerId> itsSurfaces,
   const o2::itsmft::TrackingParameters& itsParams,
-  gsl::span<const o2::itsmft::tracking::SurfaceId> mftSurfaces,
+  gsl::span<const o2::itsmft::tracking::LayerId> mftSurfaces,
   const o2::itsmft::TrackingParameters& mftParams)
 {
   o2::itsmft::tracking::SurfaceLayoutDefinition definition;

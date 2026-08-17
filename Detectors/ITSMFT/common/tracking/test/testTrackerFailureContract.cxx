@@ -113,7 +113,7 @@ class LegacyLikeDecoder final : public ClusterDecoder
     const CompClusterExt& cluster,
     BoundedPatternCursor& patterns,
     const TopologyDictionary* dict,
-    gsl::span<const SurfaceId> layerToSurface,
+    gsl::span<const LayerId> layerToSurface,
     ClusterSourceId source,
     uint32_t externalIndex,
     uint32_t sourceROF,
@@ -203,7 +203,7 @@ std::vector<SurfaceDescriptor> makeITSTestCatalog()
   std::vector<SurfaceDescriptor> surfaces;
   surfaces.reserve(ITSNLayers);
   for (uint16_t i = 0; i < ITSNLayers; ++i) {
-    surfaces.push_back(SurfaceDescriptor{SurfaceId{i}, i, static_cast<uint8_t>(o2::detectors::DetID::ITS), SurfaceKind::Cylinder});
+    surfaces.push_back(SurfaceDescriptor{LayerId{i}, i, static_cast<uint8_t>(o2::detectors::DetID::ITS), SurfaceKind::Cylinder});
     surfaces.back().chartRange = {-20.f, 20.f};
     // Matches o2::itsmft::resetDetectorDefaults(..., DetID::ITS)'s LayerxX0
     // default, so TrackerTraits::initialiseTimeFrame()'s LegacyMaterialMismatch
@@ -215,12 +215,12 @@ std::vector<SurfaceDescriptor> makeITSTestCatalog()
   return surfaces;
 }
 
-std::vector<SurfaceId> identitySurfaces(uint16_t nLayers)
+std::vector<LayerId> identitySurfaces(uint16_t nLayers)
 {
-  std::vector<SurfaceId> mapping;
+  std::vector<LayerId> mapping;
   mapping.reserve(nLayers);
   for (uint16_t i = 0; i < nLayers; ++i) {
-    mapping.push_back(SurfaceId{i});
+    mapping.push_back(LayerId{i});
   }
   return mapping;
 }
@@ -294,7 +294,7 @@ int gThrowOnRefitCall = 1;
 bool controlledSeedRefit(const TrackSeed&, const TrackingParameters&, float, TimeFrameScratch&,
                          gsl::span<const gsl::span<const GlobalMeasurement>>,
                          gsl::span<const gsl::span<const SurfaceMeasurement>>, SurfaceCatalogView,
-                         gsl::span<const SurfaceId>, TrackingCandidate&)
+                         gsl::span<const LayerId>, TrackingCandidate&)
 {
   ++gRefitCalls;
   if (gRefitCalls < gThrowOnRefitCall) {
@@ -316,7 +316,7 @@ bool controlledSeedRefit(const TrackSeed&, const TrackingParameters&, float, Tim
 bool testSeedRefit(const TrackSeed&, const TrackingParameters&, float, TimeFrameScratch&,
                    gsl::span<const gsl::span<const GlobalMeasurement>>,
                    gsl::span<const gsl::span<const SurfaceMeasurement>>, SurfaceCatalogView,
-                   gsl::span<const SurfaceId>, TrackingCandidate&)
+                   gsl::span<const LayerId>, TrackingCandidate&)
 {
   return false;
 }
@@ -346,7 +346,7 @@ struct Rig {
     txn.append(0);
     BOOST_REQUIRE_EQUAL(sidecar.pendingSize(), 1u);
 
-    frame.getTrackClusterIndices().push_back(TrackClusterReference{SurfaceId{0}, SurfaceMeasurementIndex{0}});
+    frame.getTrackClusterIndices().push_back(TrackClusterReference{LayerId{0}, MeasurementIndex{0}});
     GenericTrack track{};
     track.clusterRefEnd = static_cast<uint32_t>(frame.getTrackClusterIndices().size());
     frame.getGenericTracks().push_back(track);
@@ -416,7 +416,7 @@ struct Rig {
     auto& workspace = frame.getWorkspace();
     const auto result = workspace.loadNormalizedSource(frame, decoder, origin, timing, f.clusters, f.patterns, f.rofs, &dict(),
                                                        f.labels.getIndexedSize() > 0 ? &f.labels : nullptr, o2::detectors::DetID::ITS,
-                                                       gsl::span<const SurfaceId>{orderedSurfaces}, layout.getSurfaceCatalog());
+                                                       gsl::span<const LayerId>{orderedSurfaces}, layout.getSurfaceCatalog());
     BOOST_REQUIRE(result.ok());
 
     // TrackerTraits::computeLayerTracklets() reads per-layer ROF counts
@@ -473,7 +473,7 @@ class MftRoadDecoder final : public ClusterDecoder
   explicit MftRoadDecoder(std::vector<DecodedCluster> clusters) : mClusters{std::move(clusters)} {}
 
   SurfaceMeasurementDecodeResult decode(const CompClusterExt& cluster, BoundedPatternCursor& patterns,
-                                        const TopologyDictionary* dictionary, gsl::span<const SurfaceId> layerToSurface,
+                                        const TopologyDictionary* dictionary, gsl::span<const LayerId> layerToSurface,
                                         ClusterSourceId source, uint32_t externalIndex, uint32_t sourceROF, bool) const final
   {
     const auto clusterData = ioutils::extractClusterDataBounded(cluster, patterns, dictionary);
@@ -536,7 +536,7 @@ std::vector<SurfaceDescriptor> makeMftCatalog()
   std::vector<SurfaceDescriptor> catalog;
   catalog.reserve(MFTNLayers);
   for (uint16_t layer = 0; layer < MFTNLayers; ++layer) {
-    SurfaceDescriptor surface{SurfaceId{layer}, layer, static_cast<uint8_t>(o2::detectors::DetID::MFT), SurfaceKind::Disk};
+    SurfaceDescriptor surface{LayerId{layer}, layer, static_cast<uint8_t>(o2::detectors::DetID::MFT), SurfaceKind::Disk};
     surface.chartRange = {kMFTLookupRMin[layer], kMFTLookupRMax[layer]};
     surface.referenceCoordinate = detail::mftLayerZ(layer);
     const float xOverX0 = kNominalMFTLayerX0[layer];
@@ -597,7 +597,7 @@ struct MftFailureRig {
     const auto& layout = frame.getLayout(0);
     BOOST_REQUIRE(scratch.loadNormalizedSource(frame, decoder, o2::InteractionRecord{50, 5}, ROFTimingConfig{40, 0, 0, 0},
                                                compact, patterns, rofs, &dict(), nullptr, o2::detectors::DetID::MFT,
-                                               gsl::span<const SurfaceId>{layout.getOrderedSurfaces()}, layout.getSurfaceCatalog())
+                                               gsl::span<const LayerId>{layout.getOrderedSurfaces()}, layout.getSurfaceCatalog())
                     .ok());
     o2::its::LayerTiming timing{};
     timing.mNROFsTF = 1;
@@ -636,7 +636,7 @@ struct MftFailureRig {
     BOOST_REQUIRE(txn.validate(0));
     txn.reserve();
     txn.append(0);
-    frame.getTrackClusterIndices().push_back(TrackClusterReference{SurfaceId{0}, SurfaceMeasurementIndex{0}});
+    frame.getTrackClusterIndices().push_back(TrackClusterReference{LayerId{0}, MeasurementIndex{0}});
     GenericTrack track{};
     track.clusterRefEnd = static_cast<uint32_t>(frame.getTrackClusterIndices().size());
     frame.getGenericTracks().push_back(track);

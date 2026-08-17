@@ -34,7 +34,7 @@ namespace detail
 
 struct RefitMeasurementSlot {
   SurfaceMeasurement measurement{};
-  SurfaceId surface{};
+  LayerId surface{};
   bool present{false};
 };
 

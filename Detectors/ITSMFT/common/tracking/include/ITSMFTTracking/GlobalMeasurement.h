@@ -76,7 +76,7 @@ struct GlobalMeasurement {
   ClusterRef cluster{};
   ClusterShape shape{};
   uint32_t sourceROF{std::numeric_limits<uint32_t>::max()};
-  SurfaceId surface{};
+  LayerId surface{};
   uint16_t flags{0};
 };
 

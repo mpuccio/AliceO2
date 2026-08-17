@@ -79,12 +79,12 @@ void ensureTrivialMagneticFieldIsSet()
   (void)done;
 }
 
-std::vector<SurfaceId> ordered(uint16_t first, uint16_t count)
+std::vector<LayerId> ordered(uint16_t first, uint16_t count)
 {
-  std::vector<SurfaceId> result;
+  std::vector<LayerId> result;
   result.reserve(count);
   for (uint16_t i = 0; i < count; ++i) {
-    result.push_back(SurfaceId{static_cast<uint16_t>(first + i)});
+    result.push_back(LayerId{static_cast<uint16_t>(first + i)});
   }
   return result;
 }
@@ -101,7 +101,7 @@ class PrescribedDecoder final : public ClusterDecoder
     const CompClusterExt& cluster,
     BoundedPatternCursor& patterns,
     const TopologyDictionary* dictionary,
-    gsl::span<const SurfaceId> layerToSurface,
+    gsl::span<const LayerId> layerToSurface,
     ClusterSourceId source,
     uint32_t externalIndex,
     uint32_t sourceROF,
@@ -264,7 +264,7 @@ TrackingParameters makeMftParams()
 /// ClusterSourceInput referencing `decoder`/`compactOut`/`patternsOut`/
 /// `rofsOut` (kept alive by the caller for the lifetime of every process()
 /// call that uses it).
-ClusterSourceInput makeSource(ClusterSourceId id, o2::detectors::DetID::ID det, const std::vector<SurfaceId>& surfaces,
+ClusterSourceInput makeSource(ClusterSourceId id, o2::detectors::DetID::ID det, const std::vector<LayerId>& surfaces,
                               const PrescribedDecoder& decoder, std::vector<CompClusterExt>& compactOut,
                               std::vector<unsigned char>& patternsOut, std::vector<ROFRecord>& rofsOut,
                               const std::vector<DecodedCluster>& decoded)
@@ -293,7 +293,7 @@ ClusterSourceInput makeSource(ClusterSourceId id, o2::detectors::DetID::ID det, 
 /// A source that is valid (dense-empty ROF, zero clusters) but describes no
 /// hits at all -- the composition's own required "the other detector may be
 /// empty" shape, matching the standalone workflow's zero-cluster path.
-ClusterSourceInput makeEmptySource(ClusterSourceId id, o2::detectors::DetID::ID det, const std::vector<SurfaceId>& surfaces,
+ClusterSourceInput makeEmptySource(ClusterSourceId id, o2::detectors::DetID::ID det, const std::vector<LayerId>& surfaces,
                                    const PrescribedDecoder& decoder)
 {
   ClusterSourceInput source{};
@@ -308,7 +308,7 @@ ClusterSourceInput makeEmptySource(ClusterSourceId id, o2::detectors::DetID::ID 
 
 /// Independent, non-combined, single-detector reference run: the same shape
 /// the standalone path already uses -- global
-/// SurfaceIds equal compact scratch slots, with the same plan-driven binding
+/// LayerIds equal compact scratch slots, with the same plan-driven binding
 /// model as the combined path. Used as the "reproduce the standalone oracle
 /// count" reference for the combined composition.
 template <o2::detectors::DetID::ID DetId, int NLayers>
@@ -331,7 +331,7 @@ struct StandaloneRun {
     const auto orderedSurfaces = ordered(0, NLayers);
     catalog.reserve(NLayers);
     for (uint16_t i = 0; i < NLayers; ++i) {
-      SurfaceDescriptor surface{SurfaceId{i}, i, static_cast<uint8_t>(det), kind};
+      SurfaceDescriptor surface{LayerId{i}, i, static_cast<uint8_t>(det), kind};
       surface.chartRange = kind == SurfaceKind::Disk ? SurfaceChartRange{kMFTLookupRMin[i], kMFTLookupRMax[i]} : SurfaceChartRange{-20.f, 20.f};
       surface.referenceCoordinate = kind == SurfaceKind::Cylinder
                                       ? singleParams.LayerRadii[i]
@@ -368,7 +368,7 @@ struct StandaloneRun {
     PrescribedDecoder decoder{det, kind, decoded};
     const auto load = scratch->loadNormalizedSource(frame, decoder, o2::InteractionRecord{50, 5}, ROFTimingConfig{rofLength, 0, 0, 0},
                                                     compact, patterns, rofs, &dict(), nullptr, det,
-                                                    gsl::span<const SurfaceId>{frame.getLayout(0).getOrderedSurfaces()},
+                                                    gsl::span<const LayerId>{frame.getLayout(0).getOrderedSurfaces()},
                                                     frame.getLayout(0).getSurfaceCatalog());
     BOOST_REQUIRE(load.ok());
 
@@ -514,19 +514,19 @@ struct CombinedTrackingComposer {
     }
 
     markPublicationValid();
-    const auto countFor = [this](SurfaceId first) {
+    const auto countFor = [this](LayerId first) {
       return static_cast<size_t>(std::count_if(this->frame->getGenericTracks().begin(), this->frame->getGenericTracks().end(),
                                                [first](const auto& track) { return track.hitSurfaces.has(first); }));
     };
-    return {TrackingOutcome::Success, countFor(SurfaceId{0}), countFor(SurfaceId{ITSNLayers})};
+    return {TrackingOutcome::Success, countFor(LayerId{0}), countFor(LayerId{ITSNLayers})};
   }
 
   const TimeFrameScratch& getITSScratch() const noexcept { return plan.getITSScratch(); }
   const TimeFrameScratch& getMFTScratch() const noexcept { return plan.getMFTScratch(); }
   const ITSSharedClusterCompatibility& getITSSharedClusterCompatibility() const noexcept { return plan.getITSSharedClusterCompatibility(); }
   const MFTPublicationCompatibility& getMFTPublicationCompatibility() const noexcept { return plan.getMFTPublicationCompatibility(); }
-  gsl::span<const SurfaceId> getITSOrderedSurfaces() const noexcept { return plan.getITSOrderedSurfaces(); }
-  gsl::span<const SurfaceId> getMFTOrderedSurfaces() const noexcept { return plan.getMFTOrderedSurfaces(); }
+  gsl::span<const LayerId> getITSOrderedSurfaces() const noexcept { return plan.getITSOrderedSurfaces(); }
+  gsl::span<const LayerId> getMFTOrderedSurfaces() const noexcept { return plan.getMFTOrderedSurfaces(); }
 };
 
 CombinedTrackingComposer makeComposer(const TrackingParameters& itsParams, const TrackingParameters& mftParams)
@@ -626,7 +626,7 @@ BOOST_AUTO_TEST_CASE(CombinedLoadingBackfillsOneGlobalWorkspace)
     const bool fromITS = edge.from.value() < ITSNLayers;
     const bool toITS = edge.to.value() < ITSNLayers;
     BOOST_CHECK_EQUAL(fromITS, toITS);
-    BOOST_CHECK(!(edge.from == SurfaceId{ITSNLayers - 1} && edge.to == SurfaceId{ITSNLayers}));
+    BOOST_CHECK(!(edge.from == LayerId{ITSNLayers - 1} && edge.to == LayerId{ITSNLayers}));
   }
 
   BOOST_CHECK_EQUAL(composer.getITSScratch().getTotalClusters(),
@@ -664,7 +664,7 @@ BOOST_AUTO_TEST_CASE(MftGlobalIdsWorkEndToEndThroughRefitUnderCombinedPolicy)
   const auto result = composer.process(itsSource, mftSource, o2::InteractionRecord{50, 5});
   BOOST_REQUIRE(result.outcome == TrackingOutcome::Success);
   BOOST_CHECK_EQUAL(result.nITSTracks, 0u);
-  // Global MFT SurfaceIds 7..16 plus source 1 work end to end through the
+  // Global MFT LayerIds 7..16 plus source 1 work end to end through the
   // disk leaves and refit while the one combined selection policy is active.
   BOOST_CHECK_GT(result.nMFTTracks, 0u);
 }
@@ -797,11 +797,11 @@ BOOST_AUTO_TEST_CASE(CombinedComponentsUseOwnROFTimingInOneCombinedPass)
   BOOST_CHECK(itsExport->detector == o2::detectors::DetID::ITS);
   BOOST_CHECK(itsExport->source == ClusterSourceId{0});
   BOOST_CHECK_EQUAL(itsExport->orderedSurfaces.size(), static_cast<size_t>(ITSNLayers));
-  BOOST_CHECK(itsExport->orderedSurfaces[0] == SurfaceId{0});
+  BOOST_CHECK(itsExport->orderedSurfaces[0] == LayerId{0});
   BOOST_CHECK(mftExport->detector == o2::detectors::DetID::MFT);
   BOOST_CHECK(mftExport->source == ClusterSourceId{1});
   BOOST_CHECK_EQUAL(mftExport->orderedSurfaces.size(), static_cast<size_t>(MFTNLayers));
-  BOOST_CHECK(mftExport->orderedSurfaces[0] == SurfaceId{ITSNLayers});
+  BOOST_CHECK(mftExport->orderedSurfaces[0] == LayerId{ITSNLayers});
 }
 
 BOOST_AUTO_TEST_CASE(LoadFailureResetsWholeCombinedTFExactlyOnceAndInvalidatesPublication)
@@ -900,8 +900,8 @@ namespace
 /// A minimal, always-valid ITS+MFT source pair sharing the two-cluster
 /// fixture already used by CombinedLoadingBackfillsIndependentCompactScratches.
 struct MinimalFixture {
-  std::vector<SurfaceId> itsSurfaces = ordered(0, ITSNLayers);
-  std::vector<SurfaceId> mftSurfaces = ordered(ITSNLayers, MFTNLayers);
+  std::vector<LayerId> itsSurfaces = ordered(0, ITSNLayers);
+  std::vector<LayerId> mftSurfaces = ordered(ITSNLayers, MFTNLayers);
   std::vector<DecodedCluster> itsClusters{cylinderCluster(3.f, 0.2f, 0.1f, 0), cylinderCluster(4.f, 0.2f, 0.1f, 1)};
   std::vector<DecodedCluster> mftClusters{diskCluster(1.f, 0.5f, detail::mftLayerZ(0), 0), diskCluster(1.f, 0.5f, detail::mftLayerZ(1), 1)};
   PrescribedDecoder itsDecoder{o2::detectors::DetID::ITS, SurfaceKind::Cylinder, itsClusters};
@@ -1134,8 +1134,8 @@ BOOST_AUTO_TEST_CASE(OrderedSurfaceGettersAreAlwaysValidUnlikePublicationExports
   const auto mftSurfacesBefore = composer.getMFTOrderedSurfaces();
   BOOST_REQUIRE_EQUAL(itsSurfacesBefore.size(), static_cast<size_t>(ITSNLayers));
   BOOST_REQUIRE_EQUAL(mftSurfacesBefore.size(), static_cast<size_t>(MFTNLayers));
-  BOOST_CHECK(itsSurfacesBefore[0] == SurfaceId{0});
-  BOOST_CHECK(mftSurfacesBefore[0] == SurfaceId{ITSNLayers});
+  BOOST_CHECK(itsSurfacesBefore[0] == LayerId{0});
+  BOOST_CHECK(mftSurfacesBefore[0] == LayerId{ITSNLayers});
   BOOST_CHECK(!composer.getITSPublicationExport().has_value());
   BOOST_CHECK(!composer.getMFTPublicationExport().has_value());
 

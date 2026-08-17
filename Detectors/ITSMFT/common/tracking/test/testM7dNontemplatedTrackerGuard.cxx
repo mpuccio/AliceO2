@@ -104,7 +104,7 @@ bool noopSeedRefit(const TrackSeed&,
                    gsl::span<const gsl::span<const GlobalMeasurement>>,
                    gsl::span<const gsl::span<const SurfaceMeasurement>>,
                    SurfaceCatalogView,
-                   gsl::span<const SurfaceId>,
+                   gsl::span<const LayerId>,
                    TrackingCandidate&)
 {
   return false;
@@ -153,7 +153,7 @@ BOOST_AUTO_TEST_CASE(NonSevenOrTenPlanExecutesTheNonTemplatedCore)
   std::vector<SurfaceDescriptor> catalog;
   catalog.reserve(12);
   for (uint16_t id = 0; id < 12; ++id) {
-    SurfaceDescriptor surface{SurfaceId{id}, id, static_cast<uint8_t>(o2::detectors::DetID::MFT), SurfaceKind::Disk,
+    SurfaceDescriptor surface{LayerId{id}, id, static_cast<uint8_t>(o2::detectors::DetID::MFT), SurfaceKind::Disk,
                               0, static_cast<float>(id + 1), 0.f, 100.f};
     const auto position = std::find(orderedIds.begin(), orderedIds.end(), id);
     if (position != orderedIds.end()) {
@@ -174,7 +174,7 @@ BOOST_AUTO_TEST_CASE(NonSevenOrTenPlanExecutesTheNonTemplatedCore)
     parameters.LayerxX0[position] = catalog[orderedIds[position]].material.xOverX0;
   }
   parameters.LayerxX0.resize(orderedIds.size());
-  const std::vector<SurfaceId> ordered{SurfaceId{1}, SurfaceId{4}, SurfaceId{7}, SurfaceId{10}};
+  const std::vector<LayerId> ordered{LayerId{1}, LayerId{4}, LayerId{7}, LayerId{10}};
   auto pool = std::make_shared<BoundedMemoryResource>();
   TimeFrame frame;
   Tracker tracker{noopSeedRefit};
@@ -198,13 +198,13 @@ BOOST_AUTO_TEST_CASE(NonSevenOrTenPlanExecutesTheNonTemplatedCore)
   std::shared_ptr<tbb::task_arena> arena;
   traits.setNThreads(1, arena);
   BOOST_REQUIRE_EQUAL(frame.getWorkspace().getNOwnedSurfaces(), 4u);
-  BOOST_CHECK(topology.orderedSurfaces[0] == SurfaceId{1});
-  BOOST_CHECK(topology.orderedSurfaces[2] == SurfaceId{7});
+  BOOST_CHECK(topology.orderedSurfaces[0] == LayerId{1});
+  BOOST_CHECK(topology.orderedSurfaces[2] == LayerId{7});
 
   TrackSeed seed;
   SurfaceMask activePositions;
   for (uint16_t position = 0; position < ordered.size(); ++position) {
-    activePositions.set(SurfaceId{position});
+    activePositions.set(LayerId{position});
     seed.setCluster(position, static_cast<int>(100 + position));
   }
   seed.setSurfaceMask(activePositions);

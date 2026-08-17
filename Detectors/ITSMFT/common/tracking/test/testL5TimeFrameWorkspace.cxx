@@ -23,15 +23,15 @@ namespace
 {
 std::vector<SurfaceDescriptor> makeCatalog()
 {
-  return {SurfaceDescriptor{SurfaceId{0}, 0, 0, SurfaceKind::Cylinder},
-          SurfaceDescriptor{SurfaceId{1}, 1, 0, SurfaceKind::Cylinder},
-          SurfaceDescriptor{SurfaceId{2}, 2, 0, SurfaceKind::Cylinder}};
+  return {SurfaceDescriptor{LayerId{0}, 0, 0, SurfaceKind::Cylinder},
+          SurfaceDescriptor{LayerId{1}, 1, 0, SurfaceKind::Cylinder},
+          SurfaceDescriptor{LayerId{2}, 2, 0, SurfaceKind::Cylinder}};
 }
 
 TrackerInitialization makeConfiguration(const std::vector<SurfaceDescriptor>& catalog,
                                         const std::shared_ptr<BoundedMemoryResource>& pool)
 {
-  const std::vector<SurfaceId> ordered{SurfaceId{2}, SurfaceId{0}, SurfaceId{1}};
+  const std::vector<LayerId> ordered{LayerId{2}, LayerId{0}, LayerId{1}};
   TrackerInitialization configuration;
   configuration.catalog = SurfaceCatalogView{catalog.data(), static_cast<uint32_t>(catalog.size())};
   configuration.memoryPool = pool;

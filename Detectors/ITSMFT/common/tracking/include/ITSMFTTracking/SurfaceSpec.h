@@ -22,20 +22,20 @@ namespace o2::itsmft::tracking
 
 // Detector-qualified identity of a logical tracking surface. The detector ID
 // remains open to every detector representable by the existing uint8_t field.
-struct DetectorSurfaceIdentity {
+struct DetectorLayerIdentity {
   uint8_t detectorId{0};
   uint16_t detectorSurfaceIndex{0};
 
-  GPUhdi() friend constexpr bool operator==(DetectorSurfaceIdentity lhs, DetectorSurfaceIdentity rhs) noexcept
+  GPUhdi() friend constexpr bool operator==(DetectorLayerIdentity lhs, DetectorLayerIdentity rhs) noexcept
   {
     return lhs.detectorId == rhs.detectorId && lhs.detectorSurfaceIndex == rhs.detectorSurfaceIndex;
   }
-  GPUhdi() friend constexpr bool operator!=(DetectorSurfaceIdentity lhs, DetectorSurfaceIdentity rhs) noexcept { return !(lhs == rhs); }
+  GPUhdi() friend constexpr bool operator!=(DetectorLayerIdentity lhs, DetectorLayerIdentity rhs) noexcept { return !(lhs == rhs); }
 };
 
 struct StaticSurfaceDescriptor {
-  SurfaceId id{};
-  DetectorSurfaceIdentity identity{};
+  LayerId id{};
+  DetectorLayerIdentity identity{};
   SurfaceKind kind{SurfaceKind::Undefined};
   float nominalReferenceCoordinate{0.f};
   NominalSurfaceMaterial material{};
@@ -64,11 +64,11 @@ GPUhdi() constexpr SurfaceDescriptor toRuntimeSurfaceDescriptor(const StaticSurf
   static_assert(sizeof(Type) == Size);                              \
   static_assert(alignof(Type) == Alignment)
 
-O2_ITSMFT_ASSERT_STATIC_SURFACE_TYPE(DetectorSurfaceIdentity, 4, 2);
+O2_ITSMFT_ASSERT_STATIC_SURFACE_TYPE(DetectorLayerIdentity, 4, 2);
 O2_ITSMFT_ASSERT_STATIC_SURFACE_TYPE(StaticSurfaceDescriptor, 28, 4);
 
-static_assert(offsetof(DetectorSurfaceIdentity, detectorId) == 0);
-static_assert(offsetof(DetectorSurfaceIdentity, detectorSurfaceIndex) == 2);
+static_assert(offsetof(DetectorLayerIdentity, detectorId) == 0);
+static_assert(offsetof(DetectorLayerIdentity, detectorSurfaceIndex) == 2);
 static_assert(offsetof(StaticSurfaceDescriptor, id) == 0);
 static_assert(offsetof(StaticSurfaceDescriptor, identity) == 2);
 static_assert(offsetof(StaticSurfaceDescriptor, kind) == 6);
@@ -206,12 +206,12 @@ consteval auto concatenateAndRebase()
   std::size_t output = 0;
   for (const auto& surface : A::surfaces) {
     result[output] = surface;
-    result[output].id = SurfaceId{static_cast<uint16_t>(output)};
+    result[output].id = LayerId{static_cast<uint16_t>(output)};
     ++output;
   }
   for (const auto& surface : B::surfaces) {
     result[output] = surface;
-    result[output].id = SurfaceId{static_cast<uint16_t>(output)};
+    result[output].id = LayerId{static_cast<uint16_t>(output)};
     ++output;
   }
   return result;

@@ -42,7 +42,7 @@ class FakeClusterDecoder final : public ClusterDecoder
 
   o2::itsmft::tracking::SurfaceMeasurementDecodeResult decode(
     const CompClusterExt& cluster, BoundedPatternCursor& patterns, const TopologyDictionary* dictionary,
-    gsl::span<const SurfaceId> layerToSurface, ClusterSourceId source, uint32_t externalIndex,
+    gsl::span<const LayerId> layerToSurface, ClusterSourceId source, uint32_t externalIndex,
     uint32_t sourceROF, bool) const override
   {
     const auto decodedPattern = o2::itsmft::ioutils::extractClusterDataBounded(cluster, patterns, dictionary);
@@ -87,10 +87,10 @@ struct OneClusterSource {
   std::vector<CompClusterExt> clusters{{0, 1, CompCluster::InvalidPatternID, 0}};
   std::vector<unsigned char> patterns{onePixelPattern.begin(), onePixelPattern.end()};
   std::vector<ROFRecord> rofs{ROFRecord{{100, 5}, 0, 0, 1}};
-  std::array<SurfaceId, 2> layerToSurface;
+  std::array<LayerId, 2> layerToSurface;
   FakeClusterDecoder decoder;
 
-  explicit OneClusterSource(SurfaceId surface) : layerToSurface{surface, SurfaceId{static_cast<uint16_t>(surface.value() + 1)}}, decoder{o2::detectors::DetID::ITS} {}
+  explicit OneClusterSource(LayerId surface) : layerToSurface{surface, LayerId{static_cast<uint16_t>(surface.value() + 1)}}, decoder{o2::detectors::DetID::ITS} {}
 
   ClusterSourceInput input(ClusterSourceId source) const
   {
@@ -117,20 +117,20 @@ ThreeSourceConfiguration makeConfiguration()
 {
   std::vector<SurfaceDescriptor> catalog;
   for (uint16_t id = 0; id < 6; ++id) {
-    catalog.push_back(SurfaceDescriptor{SurfaceId{id}, static_cast<uint8_t>(id % 2), static_cast<uint8_t>(o2::detectors::DetID::ITS), SurfaceKind::Cylinder});
+    catalog.push_back(SurfaceDescriptor{LayerId{id}, static_cast<uint8_t>(id % 2), static_cast<uint8_t>(o2::detectors::DetID::ITS), SurfaceKind::Cylinder});
   }
-  std::vector<SurfaceId> ordered;
+  std::vector<LayerId> ordered;
   for (uint16_t id = 0; id < 6; ++id) {
-    ordered.push_back(SurfaceId{id});
+    ordered.push_back(LayerId{id});
   }
   return {SurfaceLayout{gsl::span<const SurfaceDescriptor>{catalog.data(), catalog.size()}, makeSurfaceLayoutChain(ordered)}, std::move(catalog)};
 }
 
 void configureFrame(TimeFrame& frame, const SurfaceLayout& layout)
 {
-  std::vector<SurfaceId> ordered;
+  std::vector<LayerId> ordered;
   for (uint16_t id = 0; id < 3; ++id) {
-    for (const auto surface : {SurfaceId{static_cast<uint16_t>(id * 2)}, SurfaceId{static_cast<uint16_t>(id * 2 + 1)}}) {
+    for (const auto surface : {LayerId{static_cast<uint16_t>(id * 2)}, LayerId{static_cast<uint16_t>(id * 2 + 1)}}) {
       ordered.push_back(surface);
     }
   }
@@ -153,14 +153,14 @@ BOOST_AUTO_TEST_CASE(DirectThreeSourceTransactionInstallsAllSources)
   auto configuration = makeConfiguration();
   TimeFrame frame;
   configureFrame(frame, configuration.layout);
-  const std::array<OneClusterSource, 3> inputs{OneClusterSource{SurfaceId{0}}, OneClusterSource{SurfaceId{2}}, OneClusterSource{SurfaceId{4}}};
+  const std::array<OneClusterSource, 3> inputs{OneClusterSource{LayerId{0}}, OneClusterSource{LayerId{2}}, OneClusterSource{LayerId{4}}};
   const auto sources = makeSources(inputs);
 
   const auto result = loadTimeFrameSources(frame, sources, configuration.layout.getSurfaceCatalog(), {50, 5});
   BOOST_REQUIRE_MESSAGE(result.ok(), "load error=" << static_cast<int>(result.error) << " source=" << result.source.value());
   BOOST_CHECK_EQUAL(frame.getEventResetCount(), 1u);
   for (uint16_t id = 0; id < 3; ++id) {
-    BOOST_CHECK_EQUAL(frame.getSurfaceMeasurements(SurfaceId{static_cast<uint16_t>(id * 2)}).size(), 1u);
+    BOOST_CHECK_EQUAL(frame.getSurfaceMeasurements(LayerId{static_cast<uint16_t>(id * 2)}).size(), 1u);
   }
   BOOST_CHECK_EQUAL(frame.getWorkspace().getTotalClusters(), 3);
 }
@@ -170,19 +170,19 @@ BOOST_AUTO_TEST_CASE(FailedSourcePartitionLeavesPriorEventAndRetrySucceeds)
   auto configuration = makeConfiguration();
   TimeFrame frame;
   configureFrame(frame, configuration.layout);
-  const std::array<OneClusterSource, 3> inputs{OneClusterSource{SurfaceId{0}}, OneClusterSource{SurfaceId{2}}, OneClusterSource{SurfaceId{4}}};
+  const std::array<OneClusterSource, 3> inputs{OneClusterSource{LayerId{0}}, OneClusterSource{LayerId{2}}, OneClusterSource{LayerId{4}}};
   auto sources = makeSources(inputs);
   const auto baseline = loadTimeFrameSources(frame, sources, configuration.layout.getSurfaceCatalog(), {50, 5});
   BOOST_REQUIRE_MESSAGE(baseline.ok(), "baseline load error=" << static_cast<int>(baseline.error) << " source=" << baseline.source.value());
   const auto resetCount = frame.getEventResetCount();
 
   auto malformedInputs = inputs;
-  malformedInputs[2].layerToSurface[0] = SurfaceId{0};
+  malformedInputs[2].layerToSurface[0] = LayerId{0};
   const auto malformedSources = makeSources(malformedInputs);
   const auto failed = loadTimeFrameSources(frame, malformedSources, configuration.layout.getSurfaceCatalog(), {50, 5});
   BOOST_CHECK(failed.error == MultiSourceLoadError::InvalidLayerMapping);
   BOOST_CHECK_EQUAL(frame.getEventResetCount(), resetCount);
-  BOOST_CHECK_EQUAL(frame.getSurfaceMeasurements(SurfaceId{4}).size(), 1u);
+  BOOST_CHECK_EQUAL(frame.getSurfaceMeasurements(LayerId{4}).size(), 1u);
   BOOST_CHECK_EQUAL(frame.getWorkspace().getTotalClusters(), 3);
 
   BOOST_REQUIRE(loadTimeFrameSources(frame, sources, configuration.layout.getSurfaceCatalog(), {50, 5}).ok());
@@ -193,7 +193,7 @@ BOOST_AUTO_TEST_CASE(UnconfiguredFrameAndSourceQualificationFailBeforeCommit)
 {
   auto configuration = makeConfiguration();
   TimeFrame frame;
-  const std::array<OneClusterSource, 3> inputs{OneClusterSource{SurfaceId{0}}, OneClusterSource{SurfaceId{2}}, OneClusterSource{SurfaceId{4}}};
+  const std::array<OneClusterSource, 3> inputs{OneClusterSource{LayerId{0}}, OneClusterSource{LayerId{2}}, OneClusterSource{LayerId{4}}};
   const auto sources = makeSources(inputs);
   BOOST_CHECK(loadTimeFrameSources(frame, sources, configuration.layout.getSurfaceCatalog(), {50, 5}).error ==
               MultiSourceLoadError::FrameNotConfigured);

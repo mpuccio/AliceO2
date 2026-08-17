@@ -108,7 +108,7 @@ BOOST_AUTO_TEST_CASE(SupportsHolesAndAllActiveSlotsAtFullCapacity)
   for (int position = 0; position < TrackSeed::MaxSurfaces; ++position) {
     if (position % 2 == 0) {
       seed.setCluster(position, position * 10);
-      mask.set(SurfaceId{static_cast<uint16_t>(position)});
+      mask.set(LayerId{static_cast<uint16_t>(position)});
     } else {
       seed.setCluster(position, o2::its::constants::UnusedIndex); // explicit hole
     }
@@ -131,7 +131,7 @@ BOOST_AUTO_TEST_CASE(SupportsHolesAndAllActiveSlotsAtFullCapacity)
   SurfaceMask full;
   for (int position = 0; position < TrackSeed::MaxSurfaces; ++position) {
     seed.setCluster(position, position);
-    full.set(SurfaceId{static_cast<uint16_t>(position)});
+    full.set(LayerId{static_cast<uint16_t>(position)});
   }
   seed.setSurfaceMask(full);
   BOOST_CHECK_EQUAL(seed.getActiveSurfaceCount(), TrackSeed::MaxSurfaces);

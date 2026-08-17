@@ -55,11 +55,11 @@ namespace
 using namespace o2::itsmft::tracking;
 
 template <int NLayers>
-constexpr std::array<SurfaceId, NLayers> identitySurfaceOrder()
+constexpr std::array<LayerId, NLayers> identitySurfaceOrder()
 {
-  std::array<SurfaceId, NLayers> order{};
+  std::array<LayerId, NLayers> order{};
   for (int i = 0; i < NLayers; ++i) {
-    order[i] = SurfaceId{static_cast<uint16_t>(i)};
+    order[i] = LayerId{static_cast<uint16_t>(i)};
   }
   return order;
 }
@@ -375,7 +375,7 @@ void CATrackerDPL::run(ProcessingContext& pc)
       const o2::itsmft::tracking::GenericTrackPublicationContext context{
         o2::detectors::DetID::ITS, o2::itsmft::tracking::ClusterSourceId{0},
         gsl::span<const o2::itsmft::ROFRecord>{rofsinput.data(), rofsinput.size()}, *mPublicationClock,
-        gsl::span<const o2::itsmft::tracking::SurfaceId>{mFrame.getLayout(0).getOrderedSurfaces()}};
+        gsl::span<const o2::itsmft::tracking::LayerId>{mFrame.getLayout(0).getOrderedSurfaces()}};
       o2::itsmft::tracking::GenericTrackOutputAdapterError error = o2::itsmft::tracking::GenericTrackOutputAdapterError::None;
       const auto staged = o2::itsmft::tracking::stageITSGenericTrackOutput(mFrame, context, mCompatibility, mUseMC, error);
       if (!staged) {

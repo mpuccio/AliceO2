@@ -39,12 +39,12 @@ inline SurfaceCatalogView combinedCatalogView()
   return {kITSMFTCombinedStaticSurfaceCatalog.data(), static_cast<uint32_t>(kITSMFTCombinedStaticSurfaceCatalog.size())};
 }
 
-inline std::vector<SurfaceId> orderedSurfaceRange(uint16_t first, uint16_t count)
+inline std::vector<LayerId> orderedSurfaceRange(uint16_t first, uint16_t count)
 {
-  std::vector<SurfaceId> result;
+  std::vector<LayerId> result;
   result.reserve(count);
   for (uint16_t i = 0; i < count; ++i) {
-    result.push_back(SurfaceId{static_cast<uint16_t>(first + i)});
+    result.push_back(LayerId{static_cast<uint16_t>(first + i)});
   }
   return result;
 }
@@ -53,7 +53,7 @@ inline SurfaceMask surfaceRangeMask(uint16_t first, uint16_t count)
 {
   SurfaceMask result;
   for (uint16_t i = 0; i < count; ++i) {
-    result.set(SurfaceId{static_cast<uint16_t>(first + i)});
+    result.set(LayerId{static_cast<uint16_t>(first + i)});
   }
   return result;
 }
@@ -270,8 +270,8 @@ class CombinedTrackingPlan
 
   const TimeFrameScratch& getITSScratch() const noexcept { return mFrame->getWorkspace(); }
   const TimeFrameScratch& getMFTScratch() const noexcept { return mFrame->getWorkspace(); }
-  gsl::span<const SurfaceId> getITSOrderedSurfaces() const noexcept { return mFrame->getLayout(0).getOrderedSurfaces().first(ITSNLayers); }
-  gsl::span<const SurfaceId> getMFTOrderedSurfaces() const noexcept { return mFrame->getLayout(0).getOrderedSurfaces().subspan(ITSNLayers, MFTNLayers); }
+  gsl::span<const LayerId> getITSOrderedSurfaces() const noexcept { return mFrame->getLayout(0).getOrderedSurfaces().first(ITSNLayers); }
+  gsl::span<const LayerId> getMFTOrderedSurfaces() const noexcept { return mFrame->getLayout(0).getOrderedSurfaces().subspan(ITSNLayers, MFTNLayers); }
   const ITSSharedClusterCompatibility& getITSSharedClusterCompatibility() const noexcept
   {
     return mITSCompatibility;

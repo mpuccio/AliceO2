@@ -97,14 +97,14 @@ class CombinedCATrackerDPL : public o2::framework::Task
   {
     return mMFTCompatibility;
   }
-  gsl::span<const o2::itsmft::tracking::SurfaceId> getITSOrderedSurfaces() const noexcept
+  gsl::span<const o2::itsmft::tracking::LayerId> getITSOrderedSurfaces() const noexcept
   {
     if (mFrame.getNIterations() == 0) {
       return {};
     }
     return mFrame.getLayout(0).getOrderedSurfaces().first(o2::itsmft::tracking::ITSNLayers);
   }
-  gsl::span<const o2::itsmft::tracking::SurfaceId> getMFTOrderedSurfaces() const noexcept
+  gsl::span<const o2::itsmft::tracking::LayerId> getMFTOrderedSurfaces() const noexcept
   {
     if (mFrame.getNIterations() == 0) {
       return {};

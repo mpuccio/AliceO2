@@ -103,7 +103,7 @@ struct DecodedCluster {
   int layer{0};
 };
 
-// Decode result with the detector-local layer and its mapped SurfaceId. The
+// Decode result with the detector-local layer and its mapped LayerId. The
 // measurement and kind are valid only when layerMapped is true; other fields
 // are valid only on success, except layer on InvalidLayerMapping.
 struct SurfaceMeasurementDecodeResult {
@@ -120,7 +120,7 @@ struct SurfaceMeasurementDecodeResult {
 // Project decoded ITS facts into the accepted cylindrical convention.
 inline GlobalMeasurement makeCylinderGlobalMeasurement(const DecodedCluster& decoded,
                                                        DetectorSensorId sensor,
-                                                       SurfaceId surface,
+                                                       LayerId surface,
                                                        ClusterRef cluster,
                                                        uint32_t sourceROF)
 {
@@ -148,7 +148,7 @@ inline GlobalMeasurement makeCylinderGlobalMeasurement(const DecodedCluster& dec
 // geometry decoder. No legacy TrackingFrameInfo participates in this mapping.
 inline GlobalMeasurement makeDiskGlobalMeasurement(const DecodedCluster& decoded,
                                                    DetectorSensorId sensor,
-                                                   SurfaceId surface,
+                                                   LayerId surface,
                                                    ClusterRef cluster,
                                                    uint32_t sourceROF)
 {
@@ -176,7 +176,7 @@ inline SurfaceMeasurement makeDiskSurfaceMeasurement(const DecodedCluster& decod
 }
 
 inline SurfaceMeasurementDecodeResult makeCylinderMeasurementDecodeResult(
-  const DecodedCluster& decoded, DetectorSensorId sensor, SurfaceId surface,
+  const DecodedCluster& decoded, DetectorSensorId sensor, LayerId surface,
   ClusterRef cluster, uint32_t sourceROF)
 {
   return {makeCylinderGlobalMeasurement(decoded, sensor, surface, cluster, sourceROF),
@@ -185,7 +185,7 @@ inline SurfaceMeasurementDecodeResult makeCylinderMeasurementDecodeResult(
 }
 
 inline SurfaceMeasurementDecodeResult makeDiskMeasurementDecodeResult(
-  const DecodedCluster& decoded, DetectorSensorId sensor, SurfaceId surface,
+  const DecodedCluster& decoded, DetectorSensorId sensor, LayerId surface,
   ClusterRef cluster, uint32_t sourceROF)
 {
   return {makeDiskGlobalMeasurement(decoded, sensor, surface, cluster, sourceROF),
@@ -204,7 +204,7 @@ o2::itsmft::tracking::SurfaceMeasurementDecodeResult loadClusterSurfaceMeasureme
   const o2::itsmft::CompClusterExt& c,
   o2::itsmft::tracking::BoundedPatternCursor& patterns,
   const o2::itsmft::TopologyDictionary* dict,
-  gsl::span<const o2::itsmft::tracking::SurfaceId> layerToSurface,
+  gsl::span<const o2::itsmft::tracking::LayerId> layerToSurface,
   o2::itsmft::tracking::ClusterSourceId source,
   uint32_t externalClusterIndex,
   uint32_t sourceROF,
@@ -229,7 +229,7 @@ class ClusterDecoder
     const o2::itsmft::CompClusterExt& cluster,
     BoundedPatternCursor& patterns,
     const o2::itsmft::TopologyDictionary* dict,
-    gsl::span<const SurfaceId> layerToSurface,
+    gsl::span<const LayerId> layerToSurface,
     ClusterSourceId source,
     uint32_t externalIndex,
     uint32_t sourceROF,
@@ -238,7 +238,7 @@ class ClusterDecoder
 
 // Geometry-backed decoder. It performs the established single-pass geometry,
 // pattern, covariance, and systematic-error operations, then maps the decoded
-// detector layer to a global SurfaceId.
+// detector layer to a global LayerId.
 template <o2::detectors::DetID::ID DetId>
 class GeometryClusterDecoder final : public ClusterDecoder
 {
@@ -249,7 +249,7 @@ class GeometryClusterDecoder final : public ClusterDecoder
     const o2::itsmft::CompClusterExt& cluster,
     BoundedPatternCursor& patterns,
     const o2::itsmft::TopologyDictionary* dict,
-    gsl::span<const SurfaceId> layerToSurface,
+    gsl::span<const LayerId> layerToSurface,
     ClusterSourceId source,
     uint32_t externalIndex,
     uint32_t sourceROF,

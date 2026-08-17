@@ -84,12 +84,12 @@ test::CombinedTrackingPlan makeSet()
                                     std::vector<TrackingParameters>{makeMftParams()}};
 }
 
-std::vector<SurfaceId> orderedRange(uint16_t first, uint16_t count)
+std::vector<LayerId> orderedRange(uint16_t first, uint16_t count)
 {
-  std::vector<SurfaceId> result;
+  std::vector<LayerId> result;
   result.reserve(count);
   for (uint16_t i = 0; i < count; ++i) {
-    result.push_back(SurfaceId{static_cast<uint16_t>(first + i)});
+    result.push_back(LayerId{static_cast<uint16_t>(first + i)});
   }
   return result;
 }
@@ -102,7 +102,7 @@ class StubDecoder final : public ClusterDecoder
  public:
   o2::itsmft::tracking::SurfaceMeasurementDecodeResult decode(
     const o2::itsmft::CompClusterExt&, BoundedPatternCursor&, const o2::itsmft::TopologyDictionary*,
-    gsl::span<const SurfaceId>, ClusterSourceId, uint32_t, uint32_t, bool) const override
+    gsl::span<const LayerId>, ClusterSourceId, uint32_t, uint32_t, bool) const override
   {
     return {};
   }
@@ -123,7 +123,7 @@ StubDecoder& stubDecoder()
 // site needs its own distinct storage, never a shared/static buffer that a
 // second call would silently overwrite out from under the first.
 ClusterSourceInput makeEmptySource(ClusterSourceId id, o2::detectors::DetID::ID det, uint16_t surfaceOffset, uint16_t nLayers,
-                                   std::vector<SurfaceId>& layerToSurfaceStorage, int corruptLayerToSurfaceSize = -1)
+                                   std::vector<LayerId>& layerToSurfaceStorage, int corruptLayerToSurfaceSize = -1)
 {
   ClusterSourceInput input{};
   input.id = id;
@@ -153,8 +153,8 @@ BOOST_AUTO_TEST_CASE(AtomicMFTLoadFailureLeavesSharedTimeFrameAndBothParticipant
   // TimeFrameScratch::loadNormalizedSource()'s own preflight
   // (orderedSurfaces.size() != mNOwnedSurfaces) must reject it before any
   // commit.
-  std::vector<SurfaceId> itsLayerToSurfaceStorage;
-  std::vector<SurfaceId> mftLayerToSurfaceStorage;
+  std::vector<LayerId> itsLayerToSurfaceStorage;
+  std::vector<LayerId> mftLayerToSurfaceStorage;
   const auto itsSource = makeEmptySource(ClusterSourceId{0}, o2::detectors::DetID::ITS, 0, ITSNLayers, itsLayerToSurfaceStorage);
   const auto mftSource = makeEmptySource(ClusterSourceId{1}, o2::detectors::DetID::MFT, ITSNLayers, MFTNLayers, mftLayerToSurfaceStorage, MFTNLayers - 1);
 
@@ -238,8 +238,8 @@ BOOST_AUTO_TEST_CASE(MFTSidecarAndPublicationExportRemainValidAfterMigration)
   TimeFrame frame;
   participants.adoptFrame(frame);
 
-  std::vector<SurfaceId> itsLayerToSurfaceStorage;
-  std::vector<SurfaceId> mftLayerToSurfaceStorage;
+  std::vector<LayerId> itsLayerToSurfaceStorage;
+  std::vector<LayerId> mftLayerToSurfaceStorage;
   const auto itsSource = makeEmptySource(ClusterSourceId{0}, o2::detectors::DetID::ITS, 0, ITSNLayers, itsLayerToSurfaceStorage);
   const auto mftSource = makeEmptySource(ClusterSourceId{1}, o2::detectors::DetID::MFT, ITSNLayers, MFTNLayers, mftLayerToSurfaceStorage);
 

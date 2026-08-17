@@ -112,7 +112,7 @@ struct GenericTrackPublicationExport {
   o2::detectors::DetID::ID detector{};
   ClusterSourceId source{};
   ClockTimingPublicationView clock;
-  gsl::span<const SurfaceId> orderedSurfaces;
+  gsl::span<const LayerId> orderedSurfaces;
 };
 
 struct GenericTrackPublicationContext {
@@ -120,7 +120,7 @@ struct GenericTrackPublicationContext {
   ClusterSourceId source{};
   gsl::span<const o2::itsmft::ROFRecord> inputROFs;
   ClockTimingPublicationView clock;
-  gsl::span<const SurfaceId> orderedSurfaces;
+  gsl::span<const LayerId> orderedSurfaces;
 };
 
 struct ITSGenericTrackOutput {
@@ -262,7 +262,7 @@ inline void setOutputClusterRange(o2::mft::TrackMFT& track, int first, int count
 }
 
 template <typename OutputTrack>
-inline bool collectReferences(const TimeFrame& frame, const GenericTrack& common, gsl::span<const SurfaceId> orderedSurfaces,
+inline bool collectReferences(const TimeFrame& frame, const GenericTrack& common, gsl::span<const LayerId> orderedSurfaces,
                               uint32_t maxLayers, std::vector<int>& outputIndices, OutputTrack& output,
                               MCLabelAccumulator* labels, uint32_t& pattern, GenericTrackOutputAdapterError& error)
 {
@@ -311,7 +311,7 @@ inline bool collectReferences(const TimeFrame& frame, const GenericTrack& common
 }
 
 inline std::optional<ITSGenericTrackOutput> stageITSGenericTrackOutput(const TimeFrame& frame, ClusterSourceId source,
-                                                                       gsl::span<const SurfaceId> surfaces,
+                                                                       gsl::span<const LayerId> surfaces,
                                                                        const GenericTrackOutputTimingContext& context,
                                                                        const ITSSharedClusterCompatibility& compatibility,
                                                                        bool withMC, GenericTrackOutputAdapterError& error)
@@ -365,7 +365,7 @@ inline std::optional<ITSGenericTrackOutput> stageITSGenericTrackOutput(const Tim
 }
 
 inline std::optional<MFTGenericTrackOutput> stageMFTGenericTrackOutput(const TimeFrame& frame, ClusterSourceId source,
-                                                                       gsl::span<const SurfaceId> surfaces,
+                                                                       gsl::span<const LayerId> surfaces,
                                                                        const GenericTrackOutputTimingContext& context,
                                                                        const MFTPublicationCompatibility& compatibility,
                                                                        bool withMC, GenericTrackOutputAdapterError& error)

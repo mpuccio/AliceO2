@@ -43,7 +43,7 @@ static_assert(sizeof(SurfaceChartRange) == 8);
 
 // Immutable surface identity, geometry and nominal material.
 struct SurfaceDescriptor {
-  SurfaceId id{};
+  LayerId id{};
   uint16_t detectorSurfaceIndex{0};
   uint8_t detectorId{0};
   SurfaceKind kind{SurfaceKind::Undefined};
@@ -74,7 +74,7 @@ struct SurfaceCatalogView {
   // Optional lookup for non-dense IDs; null keeps dense catalog indexing.
   const uint8_t* surfaceIndicesById{nullptr};
 
-  GPUhdi() uint32_t getSurfaceIndex(SurfaceId id) const
+  GPUhdi() uint32_t getSurfaceIndex(LayerId id) const
   {
     if (!id.isValid() || id.value() >= MaxLayoutSurfaces) {
       return nSurfaces;
@@ -93,8 +93,8 @@ struct SurfaceCatalogView {
     return nSurfaces;
   }
 
-  GPUhdi() bool hasSurface(SurfaceId id) const { return getSurfaceIndex(id) < nSurfaces; }
-  GPUhdi() const SurfaceDescriptor& getSurface(SurfaceId id) const { return surfaces[getSurfaceIndex(id)]; }
+  GPUhdi() bool hasSurface(LayerId id) const { return getSurfaceIndex(id) < nSurfaces; }
+  GPUhdi() const SurfaceDescriptor& getSurface(LayerId id) const { return surfaces[getSurfaceIndex(id)]; }
 };
 
 static_assert(std::is_standard_layout_v<SurfaceCatalogView>);
