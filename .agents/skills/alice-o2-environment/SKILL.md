@@ -21,6 +21,8 @@ Codex's display metadata; it does not change behavior.
 
 - `scripts/run-in-o2-env.zsh` -- source the O2 profile and exec a command,
   or `--check`/`--help`.
+- `scripts/format-before-build.zsh` -- apply `git clang-format` to tracked
+  edits without staging them, format new C/C++ files, and verify the result.
 - `scripts/configure-worktree-build.zsh` -- deterministically configure (or
   safely reuse) a CMake/Ninja build for a source worktree.
 - `scripts/simulation-preflight.zsh` -- verify AliEn token, aliBuild
@@ -31,6 +33,48 @@ Codex's display metadata; it does not change behavior.
   logic in a new script, source this rather than re-deriving it.
 
 Every script supports `--help`.
+
+## Mandatory formatting gate before builds and tests
+
+Run `format-before-build.zsh` in the selected O2 environment immediately
+before **every** source configure/build command (`cmake`, `cmake --build`, or
+`ninja`) and before **every** compiled test command (`ctest` or a test
+executable). Do this before spending time compiling or testing; formatting
+after validation invalidates that validation and forces an avoidable rebuild
+and retest.
+
+```bash
+O2_BUILD_DIR=/path/to/build \
+  .agents/skills/alice-o2-environment/scripts/run-in-o2-env.zsh -- \
+  .agents/skills/alice-o2-environment/scripts/format-before-build.zsh
+
+O2_BUILD_DIR=/path/to/build \
+  .agents/skills/alice-o2-environment/scripts/run-in-o2-env.zsh -- \
+  ninja -C /path/to/build O2lib-ITSMFTTracking
+
+# Repeat the cheap formatting gate immediately before the test invocation.
+O2_BUILD_DIR=/path/to/build \
+  .agents/skills/alice-o2-environment/scripts/run-in-o2-env.zsh -- \
+  .agents/skills/alice-o2-environment/scripts/format-before-build.zsh
+
+O2_BUILD_DIR=/path/to/build \
+  .agents/skills/alice-o2-environment/scripts/run-in-o2-env.zsh -- \
+  ctest --test-dir /path/to/build --output-on-failure -R 'testLayerMask'
+```
+
+The helper applies the `git clang-format --diff HEAD` patch to the working
+tree, never to the index, so it does not stage or unstage user changes. Since
+`git clang-format` cannot see untracked files, the helper also formats new
+C/C++ files directly and then verifies that a second git-clang-format pass is
+clean. If the pre-test invocation reports that formatting was applied, do not
+run stale test binaries: rebuild the affected targets first, repeat the gate,
+then test. Read-only discovery such as `ctest -N`, environment checks, and
+installed-binary simulation/reconstruction runs that do not compile or test
+the active checkout do not require this gate.
+
+`git clang-format` creates a temporary index in Git's common worktree
+metadata. If a sandbox blocks that write, rerun the helper with the narrowly
+scoped repository permission it requests; do not skip or replace the gate.
 
 ## Environment / package check
 
