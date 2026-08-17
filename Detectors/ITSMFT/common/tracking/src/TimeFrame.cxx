@@ -21,6 +21,7 @@
 #include <new>
 #include <numeric>
 #include <stdexcept>
+#include <type_traits>
 
 #include "ITSMFTTracking/IndexTableConfiguration.h"
 #include "ITStracking/MathUtils.h"
@@ -29,6 +30,19 @@ namespace o2::itsmft::tracking
 {
 
 using o2::its::deepVectorClear;
+
+namespace
+{
+
+template <typename T>
+void replaceBoundedVector(bounded_vector<T>& destination, bounded_vector<T>& source) noexcept
+{
+  static_assert(std::is_nothrow_move_constructible_v<bounded_vector<T>>);
+  destination.~bounded_vector<T>();
+  new (&destination) bounded_vector<T>(std::move(source));
+}
+
+} // namespace
 
 TimeFrame::~TimeFrame() = default;
 
@@ -375,24 +389,68 @@ bool TimeFrame::commitConfiguration(std::vector<SurfaceLayout>&& layouts,
     capacity.edges = std::max(capacity.edges, iterationCapacity.edges);
     capacity.cells = std::max(capacity.cells, iterationCapacity.cells);
   }
-  std::unique_ptr<TimeFrameScratch, WorkspaceDeleter> workspace;
+
+  TimeFrame staged;
   try {
-    workspace.reset(new TimeFrameScratch);
-    workspace->setMemoryPool(memoryPool);
-    workspace->adoptPlan(capacity.ownedSurfaces, capacity.edges, capacity.cells);
-    workspace->configureTraversalWorkspaces(parameters.size());
-  } catch (const std::exception&) {
+    staged.mWorkspace.reset(new TimeFrameScratch);
+    staged.mWorkspace->setMemoryPool(memoryPool);
+    staged.mWorkspace->adoptPlan(capacity.ownedSurfaces, capacity.edges, capacity.cells);
+    staged.mWorkspace->configureTraversalWorkspaces(parameters.size());
+
+    staged.mROFramesClusters = mROFramesClusters;
+    staged.setMemoryPool(memoryPool);
+    staged.configureEventStorage(capacity.ownedSurfaces);
+  } catch (const std::bad_alloc&) {
     return false;
   }
 
-  setMemoryPool(memoryPool);
-  configureEventStorage(capacity.ownedSurfaces);
-  mLayouts = std::move(layouts);
-  mTrackingParameters = std::move(parameters);
-  mWorkspaceCapacities = std::move(capacities);
-  mWorkspace = std::move(workspace);
-  mConfigurationValid = true;
+  staged.mLayouts = std::move(layouts);
+  staged.mTrackingParameters = std::move(parameters);
+  staged.mWorkspaceCapacities = std::move(capacities);
+  staged.mConfigurationValid = true;
+  publishConfiguration(staged);
   return true;
+}
+
+void TimeFrame::publishConfiguration(TimeFrame& staged) noexcept
+{
+  static_assert(std::is_nothrow_move_assignable_v<decltype(mClusters)>);
+  static_assert(std::is_nothrow_move_assignable_v<decltype(mROFramesClusters)>);
+  static_assert(std::is_nothrow_move_assignable_v<decltype(mIndexTables)>);
+  static_assert(std::is_nothrow_move_assignable_v<decltype(mUsedClusters)>);
+  static_assert(std::is_nothrow_move_assignable_v<decltype(mIndexTableUtils)>);
+  static_assert(std::is_nothrow_move_assignable_v<decltype(mLayouts)>);
+  static_assert(std::is_nothrow_move_assignable_v<decltype(mTrackingParameters)>);
+  static_assert(std::is_nothrow_move_assignable_v<decltype(mWorkspaceCapacities)>);
+
+  // Destroy every object backed by the old pool while the frame still owns
+  // that pool. PMR vectors cannot be swapped across unequal resources, but
+  // their allocator-preserving move construction is noexcept.
+  mWorkspace.reset();
+  replaceBoundedVector(mPrimaryVertices, staged.mPrimaryVertices);
+  replaceBoundedVector(mPrimaryVerticesLabels, staged.mPrimaryVerticesLabels);
+  replaceBoundedVector(mGenericTracks, staged.mGenericTracks);
+  replaceBoundedVector(mTrackClusterIndices, staged.mTrackClusterIndices);
+  replaceBoundedVector(mBogusClusters, staged.mBogusClusters);
+
+  mClusters = std::move(staged.mClusters);
+  mROFramesClusters = std::move(staged.mROFramesClusters);
+  mIndexTables = std::move(staged.mIndexTables);
+  mUsedClusters = std::move(staged.mUsedClusters);
+  mIndexTableUtils = std::move(staged.mIndexTableUtils);
+  mMinR = std::move(staged.mMinR);
+  mMaxR = std::move(staged.mMaxR);
+  mMinZ = std::move(staged.mMinZ);
+  mMaxZ = std::move(staged.mMaxZ);
+  mLayouts = std::move(staged.mLayouts);
+  mTrackingParameters = std::move(staged.mTrackingParameters);
+  mWorkspaceCapacities = std::move(staged.mWorkspaceCapacities);
+  mWorkspace = std::move(staged.mWorkspace);
+  mConfigurationValid = staged.mConfigurationValid;
+
+  // All objects using the old resource are gone. Publish the new owner last;
+  // staged keeps the old resource alive until its moved-from members die.
+  mMemoryPool.swap(staged.mMemoryPool);
 }
 
 TimeFrameScratch& TimeFrame::getWorkspace()

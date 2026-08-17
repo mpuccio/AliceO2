@@ -244,6 +244,7 @@ struct TimeFrame {
   std::size_t mEventResetCount{0};
 
   void swapMeasurements(TimeFrame& other) noexcept;
+  void publishConfiguration(TimeFrame& staged) noexcept;
   void configureEventStorage(std::size_t nOwnedSurfaces);
   void prepareClusters(int maxLayers,
                        gsl::span<const gsl::span<const GlobalMeasurement>> layerMeasurements);
