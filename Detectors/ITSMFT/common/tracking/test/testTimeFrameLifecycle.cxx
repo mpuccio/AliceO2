@@ -5,9 +5,7 @@
 // This software is distributed under the terms of the GNU General Public
 // License v3 (GPL Version 3), copied verbatim in the file "COPYING".
 
-// Gate 2 correction, updated for Gate 4 B3.1's TimeFrame /
-// TimeFrameScratch split: TimeFrame lifecycle and
-// transactional legacy backfill.
+// TimeFrame lifecycle and transactional configuration/load publication.
 //
 // A. Reset lifecycle: TimeFrame::resetTimeFrame() must unconditionally clear the
 //    normalized owner (mNormalizedFrame) associated by
@@ -20,18 +18,15 @@
 //    it -- so there is nothing detector-identity-shaped left for resetTimeFrame() to
 //    preserve or clear.)
 //
-// B. Strong exception transactionality: the owner-level load operation
-//    TimeFrameScratch::loadNormalizedSource(TimeFrame&, ...)
-//    stages both the shared TimeFrame's normalized update and its own
-//    legacy backfill (unsorted clusters, TrackingFrameInfo, external
-//    indices, cluster sizes, ROF boundaries, label pointers) before
-//    touching either live owner. If a BoundedMemoryResource allocation
-//    fails while building the staged legacy backfill -- after loadSources()
-//    has already decoded a valid normalized frame into local, not-yet-
-//    committed storage -- the thrown MemoryLimitExceeded must leave both
-//    the TimeFrame's normalized owner and every legacy layer's
-//    compatibility structures on the scratch exactly at their pre-call
-//    baseline: a failed stage commits to neither owner.
+// B. Strong configuration transactionality: a BoundedMemoryResource failure
+//    while staging a valid replacement must preserve the live configuration,
+//    workspace, allocator and capacities, as well as an already loaded event,
+//    its allocator-backed storage, navigation, and results.
+//
+// C. Event loading decodes into heap-backed staging and publishes through the
+//    no-throw TimeFrame::commitLoadedEvent(). Malformed replacement input is
+//    therefore validation coverage: rejection before publication must leave
+//    the loaded event unchanged.
 
 #define BOOST_TEST_MODULE ITSMFT TimeFrame lifecycle
 #define BOOST_TEST_MAIN
@@ -363,7 +358,129 @@ BOOST_AUTO_TEST_CASE(WipeClearsNormalizedFrameButPreservesDetId)
   // so resetTimeFrame() has no detector-identity state to preserve or clear.
 }
 
-BOOST_AUTO_TEST_CASE(FailedReplacementLeavesLoadedEventUnchanged)
+BOOST_AUTO_TEST_CASE(FailedConfigurationAllocationPreservesLoadedFrame)
+{
+  const auto catalog = makeITSTestCatalog();
+  const auto orderedSurfaces = identitySurfaces(ITSNLayers);
+  const SurfaceCatalogView catalogView{catalog.data(), static_cast<uint32_t>(catalog.size())};
+  LegacyLikeDecoder decoder{o2::detectors::DetID::ITS};
+  const o2::InteractionRecord origin{50, 5};
+  const ROFTimingConfig timing{40, 0, 0, 0};
+  const auto fixture = makeFixture();
+  const auto plan = catalogLayout(catalogView, orderedSurfaces);
+  auto livePool = std::make_shared<BoundedMemoryResource>();
+  TimeFrame frame;
+  configureFrame(frame, catalogView, orderedSurfaces, livePool);
+
+  const auto loaded = loadTimeFrameSource(frame, decoder, origin, timing, fixture.clusters,
+                                          fixture.patterns, fixture.rofs, &dict(),
+                                          &fixture.labels, o2::detectors::DetID::ITS,
+                                          gsl::span<const LayerId>{plan.getOrderedSurfaces()}, plan.getSurfaceCatalog());
+  BOOST_REQUIRE(loaded.ok());
+
+  frame.getWorkspace().getPositionResolutions().resize(ITSNLayers);
+  frame.getWorkspace().getPositionResolutions()[0] = 17.f;
+  BOOST_REQUIRE_EQUAL(frame.getClusters().size(), ITSNLayers);
+  for (uint16_t layer = 0; layer < ITSNLayers; ++layer) {
+    const auto globals = frame.getGlobalMeasurements(LayerId{layer});
+    for (std::size_t index = 0; index < globals.size(); ++index) {
+      const auto& position = globals[index].position;
+      frame.getClusters()[layer].emplace_back(position.x, position.y, position.z, static_cast<int>(index));
+    }
+  }
+  BOOST_REQUIRE(!frame.getClusters()[0].empty());
+
+  GenericTrack result{};
+  result.chi2 = 42.f;
+  result.firstClusterRef = 0;
+  result.clusterRefEnd = 1;
+  frame.getGenericTracks().push_back(result);
+  frame.getTrackClusterIndices().push_back(TrackClusterReference{LayerId{0}, MeasurementIndex{0}});
+  frame.addPrimaryVertex(Vertex{});
+
+  verifyFixtureLoaded(frame, fixture);
+  const auto* const liveLayout = &frame.getLayout(0);
+  const auto* const liveParameters = frame.getTrackingParameters(0);
+  const auto liveCapacity = *frame.getWorkspaceCapacity(0);
+  const auto* const liveWorkspace = &frame.getWorkspace();
+  const auto* const liveWorkspacePool = frame.getWorkspace().getMemoryPool().get();
+  const auto liveWorkspaceSurfaces = frame.getWorkspace().getNOwnedSurfaces();
+  const auto liveWorkspaceEdges = frame.getWorkspace().getNEdges();
+  const auto liveWorkspaceCells = frame.getWorkspace().getNCells();
+  const auto liveTraversalWorkspaces = frame.getWorkspace().getNTraversalWorkspaces();
+  const auto livePositionResolution = frame.getWorkspace().getPositionResolution(0);
+  const auto livePoolUsed = livePool->getUsedMemory();
+  const auto livePoolMax = livePool->getMaxMemory();
+  const auto liveResetCount = frame.getEventResetCount();
+  const auto* const liveGlobalMeasurements = frame.getGlobalMeasurements(LayerId{0}).data();
+  const auto* const liveSurfaceMeasurements = frame.getSurfaceMeasurements(LayerId{0}).data();
+  const auto* const liveClusters = frame.getClusters()[0].data();
+  const auto liveClusterCount = frame.getClusters()[0].size();
+  const auto liveClusterId = frame.getClusters()[0][0].clusterId;
+  const auto liveUsedClusters = frame.getUsedClusters(0);
+  const auto* const liveUsedClusterData = liveUsedClusters.data();
+  const auto liveROFBoundaries = frame.getROFrameClusters(0);
+  const std::vector<int> expectedROFBoundaries{liveROFBoundaries.begin(), liveROFBoundaries.end()};
+  const auto* const liveROFBoundaryData = liveROFBoundaries.data();
+  const auto* const liveGenericTracks = frame.getGenericTracks().data();
+  const auto* const liveTrackClusterIndices = frame.getTrackClusterIndices().data();
+  const auto* const livePrimaryVertices = frame.getPrimaryVertices().data();
+
+  std::vector<SurfaceLayout> replacementLayouts;
+  replacementLayouts.push_back(catalogLayout(catalogView, orderedSurfaces));
+  std::vector<TrackingParameters> replacementParameters(1);
+  std::vector<TrackingWorkspaceCapacity> replacementCapacities{{ITSNLayers, 1, 1}};
+  auto failingPool = std::make_shared<BoundedMemoryResource>(0);
+
+  BOOST_CHECK(!frame.commitConfiguration(std::move(replacementLayouts), std::move(replacementParameters),
+                                         std::move(replacementCapacities), failingPool));
+  BOOST_CHECK_EQUAL(failingPool->getThrowCount(), 1u);
+  BOOST_CHECK_EQUAL(failingPool->getUsedMemory(), 0u);
+
+  BOOST_CHECK(frame.isConfigured());
+  BOOST_CHECK_EQUAL(frame.getNIterations(), 1u);
+  BOOST_CHECK(&frame.getLayout(0) == liveLayout);
+  BOOST_CHECK(frame.getTrackingParameters(0) == liveParameters);
+  BOOST_REQUIRE(frame.getWorkspaceCapacity(0) != nullptr);
+  BOOST_CHECK_EQUAL(frame.getWorkspaceCapacity(0)->ownedSurfaces, liveCapacity.ownedSurfaces);
+  BOOST_CHECK_EQUAL(frame.getWorkspaceCapacity(0)->edges, liveCapacity.edges);
+  BOOST_CHECK_EQUAL(frame.getWorkspaceCapacity(0)->cells, liveCapacity.cells);
+  BOOST_CHECK(&frame.getWorkspace() == liveWorkspace);
+  BOOST_CHECK(frame.getMemoryPool().get() == livePool.get());
+  BOOST_CHECK(frame.getWorkspace().getMemoryPool().get() == liveWorkspacePool);
+  BOOST_CHECK_EQUAL(frame.getWorkspace().getNOwnedSurfaces(), liveWorkspaceSurfaces);
+  BOOST_CHECK_EQUAL(frame.getWorkspace().getNEdges(), liveWorkspaceEdges);
+  BOOST_CHECK_EQUAL(frame.getWorkspace().getNCells(), liveWorkspaceCells);
+  BOOST_CHECK_EQUAL(frame.getWorkspace().getNTraversalWorkspaces(), liveTraversalWorkspaces);
+  BOOST_CHECK_EQUAL(frame.getWorkspace().getPositionResolution(0), livePositionResolution);
+  BOOST_CHECK_EQUAL(livePool->getUsedMemory(), livePoolUsed);
+  BOOST_CHECK_EQUAL(livePool->getMaxMemory(), livePoolMax);
+  BOOST_CHECK_EQUAL(frame.getEventResetCount(), liveResetCount);
+
+  verifyFixtureLoaded(frame, fixture);
+  BOOST_CHECK(frame.getGlobalMeasurements(LayerId{0}).data() == liveGlobalMeasurements);
+  BOOST_CHECK(frame.getSurfaceMeasurements(LayerId{0}).data() == liveSurfaceMeasurements);
+  BOOST_CHECK(frame.getClusters()[0].data() == liveClusters);
+  BOOST_CHECK_EQUAL(frame.getClusters()[0].size(), liveClusterCount);
+  BOOST_CHECK_EQUAL(frame.getClusters()[0][0].clusterId, liveClusterId);
+  BOOST_CHECK(frame.getUsedClusters(0).data() == liveUsedClusterData);
+  BOOST_CHECK(frame.getUsedClusters(0).empty());
+  const auto preservedROFBoundaries = frame.getROFrameClusters(0);
+  BOOST_CHECK(preservedROFBoundaries.data() == liveROFBoundaryData);
+  BOOST_CHECK_EQUAL_COLLECTIONS(preservedROFBoundaries.begin(), preservedROFBoundaries.end(),
+                                expectedROFBoundaries.begin(), expectedROFBoundaries.end());
+  BOOST_REQUIRE_EQUAL(frame.getGenericTracks().size(), 1u);
+  BOOST_CHECK(frame.getGenericTracks().data() == liveGenericTracks);
+  BOOST_CHECK_EQUAL(frame.getGenericTracks()[0].chi2, 42.f);
+  BOOST_REQUIRE_EQUAL(frame.getTrackClusterIndices().size(), 1u);
+  BOOST_CHECK(frame.getTrackClusterIndices().data() == liveTrackClusterIndices);
+  BOOST_CHECK(frame.getTrackClusterIndices()[0].surface == LayerId{0});
+  BOOST_CHECK(frame.getTrackClusterIndices()[0].index == MeasurementIndex{0});
+  BOOST_REQUIRE_EQUAL(frame.getPrimaryVerticesNum(), 1u);
+  BOOST_CHECK(frame.getPrimaryVertices().data() == livePrimaryVertices);
+}
+
+BOOST_AUTO_TEST_CASE(MalformedReplacementValidationLeavesLoadedEventUnchanged)
 {
   const auto catalog = makeITSTestCatalog();
   const auto orderedSurfaces = identitySurfaces(ITSNLayers);
