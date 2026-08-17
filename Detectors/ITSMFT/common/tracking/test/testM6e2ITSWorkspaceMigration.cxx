@@ -61,15 +61,10 @@ BOOST_AUTO_TEST_CASE(CompileTimeTypeProofsHoldAtRuntimeToo)
   BOOST_CHECK(true); // compile-time proofs above; case exists so it appears in test output.
 }
 
-// --- 2: a scratch that never adopted a plan fails closed ---------------------
+// --- 2: event loading is independent of an unrelated scratch -----------------
 
-BOOST_AUTO_TEST_CASE(UnadoptedScratchRejectsLoadInsteadOfMisbehaving)
+BOOST_AUTO_TEST_CASE(UnadoptedScratchDoesNotParticipateInLoading)
 {
-  // No adoptPlan() call anywhere: mNOwnedSurfaces stays 0. A structurally
-  // valid ITS source with a real (nonzero) layerToSurface must then fail
-  // loadNormalizedSource()'s own orderedSurfaces.size() != mNOwnedSurfaces
-  // preflight -- a clean, typed error, not an out-of-bounds access into an
-  // unsized Group A container.
   TimeFrameScratch scratch;
   scratch.setMemoryPool(std::make_shared<o2::its::BoundedMemoryResource>());
   BOOST_CHECK_EQUAL(scratch.getNOwnedSurfaces(), 0u);
@@ -91,15 +86,22 @@ BOOST_AUTO_TEST_CASE(UnadoptedScratchRejectsLoadInsteadOfMisbehaving)
     layerToSurface.push_back(LayerId{i});
   }
   TimeFrame frame;
-  const auto result = scratch.loadNormalizedSource(
-    frame, decoder, o2::InteractionRecord{0, 0}, ROFTimingConfig{40, 0, 0, 0},
-    gsl::span<const o2::itsmft::CompClusterExt>{}, gsl::span<const unsigned char>{}, gsl::span<const o2::itsmft::ROFRecord>{},
-    nullptr, nullptr, o2::detectors::DetID::ITS, gsl::span<const LayerId>{layerToSurface},
-    SurfaceCatalogView{kITSStaticSurfaceCatalog.data(), static_cast<uint32_t>(kITSStaticSurfaceCatalog.size())});
+  std::vector<SurfaceLayout> layouts;
+  const SurfaceCatalogView catalog{kITSStaticSurfaceCatalog.data(), static_cast<uint32_t>(kITSStaticSurfaceCatalog.size())};
+  layouts.emplace_back(gsl::span<const SurfaceDescriptor>{catalog.surfaces, catalog.nSurfaces},
+                       makeSurfaceLayoutChain(layerToSurface));
+  std::vector<TrackingParameters> parameters(1);
+  std::vector<TrackingWorkspaceCapacity> capacities{{layerToSurface.size(), 0, 0}};
+  BOOST_REQUIRE(frame.commitConfiguration(std::move(layouts), std::move(parameters),
+                                          std::move(capacities), std::make_shared<o2::its::BoundedMemoryResource>()));
+  const auto result = loadTimeFrameSource(frame, decoder, o2::InteractionRecord{0, 0}, ROFTimingConfig{40, 0, 0, 0},
+                                          gsl::span<const o2::itsmft::CompClusterExt>{}, gsl::span<const unsigned char>{}, gsl::span<const o2::itsmft::ROFRecord>{},
+                                          nullptr, nullptr, o2::detectors::DetID::ITS, gsl::span<const LayerId>{layerToSurface},
+                                          catalog);
 
-  BOOST_CHECK(!result.ok());
-  BOOST_CHECK(result.error == MultiSourceLoadError::InvalidLayerMapping);
-  BOOST_CHECK_EQUAL(scratch.getTotalClusters(), 0);
+  BOOST_CHECK(result.ok());
+  BOOST_CHECK_EQUAL(frame.getTotalMeasurements(), 0u);
+  BOOST_CHECK_EQUAL(scratch.getNumberOfTracklets(), 0);
 }
 
 // --- shared fixtures (combined-participant coverage) -------------------------
@@ -203,8 +205,8 @@ BOOST_AUTO_TEST_CASE(AtomicITSLoadFailureLeavesSharedTimeFrameAndBothParticipant
   BOOST_CHECK(result.error == MultiSourceLoadError::InvalidLayerMapping);
 
   BOOST_CHECK_EQUAL(frame.getTotalMeasurements(), 0u);
-  BOOST_CHECK_EQUAL(participants.getITSScratch().getTotalClusters(), 0);
-  BOOST_CHECK_EQUAL(participants.getMFTScratch().getTotalClusters(), 0);
+  BOOST_CHECK_EQUAL(participants.getITSScratch().getNumberOfTracklets(), 0);
+  BOOST_CHECK_EQUAL(participants.getMFTScratch().getNumberOfTracklets(), 0);
 }
 
 // --- 4: shared-workspace reset -----------------------------------------------
@@ -223,19 +225,19 @@ BOOST_AUTO_TEST_CASE(TimeFrameResetClearsSharedWorkspaceAndPreservesFrameState)
   BOOST_CHECK_EQUAL(itsParticipantScratch.getNOwnedSurfaces(), 17u);
   BOOST_CHECK_EQUAL(itsParticipantScratch.getNEdges(), 15u);
   BOOST_CHECK_EQUAL(itsParticipantScratch.getNCells(), 13u);
-  BOOST_REQUIRE(!itsParticipantScratch.getUnsortedClusters().empty());
-  itsParticipantScratch.getUnsortedClusters()[0].emplace_back(1.f, 2.f, 3.f, 0);
-  BOOST_CHECK_EQUAL(mftParticipantScratch.getTotalClusters(), 1);
-  mftParticipantScratch.getUnsortedClusters()[7].emplace_back(4.f, 5.f, 6.f, 7);
-  BOOST_CHECK_EQUAL(itsParticipantScratch.getTotalClusters(), 2);
+  BOOST_REQUIRE(!itsParticipantScratch.getTracklets().empty());
+  itsParticipantScratch.getTracklets()[0].emplace_back();
+  BOOST_CHECK_EQUAL(mftParticipantScratch.getNumberOfTracklets(), 1);
+  mftParticipantScratch.getTracklets()[7].emplace_back();
+  BOOST_CHECK_EQUAL(itsParticipantScratch.getNumberOfTracklets(), 2);
 
   const auto resetCount = frame.getEventResetCount();
   frame.resetTimeFrame();
 
   BOOST_CHECK_EQUAL(frame.getEventResetCount(), resetCount + 1);
-  BOOST_CHECK_EQUAL(itsParticipantScratch.getTotalClusters(), 0);
+  BOOST_CHECK_EQUAL(itsParticipantScratch.getNumberOfTracklets(), 0);
   BOOST_CHECK_EQUAL(itsParticipantScratch.getNOwnedSurfaces(), 17u);
-  BOOST_CHECK_EQUAL(mftParticipantScratch.getTotalClusters(), 0);
+  BOOST_CHECK_EQUAL(mftParticipantScratch.getNumberOfTracklets(), 0);
   BOOST_CHECK_EQUAL(frame.getBz(), 5.f);
   BOOST_CHECK_EQUAL(frame.getBeamX(), 1.f);
 }

@@ -207,7 +207,7 @@ BOOST_AUTO_TEST_CASE(RuntimeROFViewsMatchITSAndMFTFixedBuilders)
   checkRuntimeROFViewMatchesFrozenBuilder<o2::itsmft::tracking::MFTNLayers>();
 }
 
-BOOST_AUTO_TEST_CASE(ScratchResetInvalidatesRuntimeROFContext)
+BOOST_AUTO_TEST_CASE(TimeFrameResetInvalidatesRuntimeROFContext)
 {
   o2::its::LayerTiming timing{};
   timing.mNROFsTF = 1;
@@ -223,14 +223,14 @@ BOOST_AUTO_TEST_CASE(ScratchResetInvalidatesRuntimeROFContext)
   o2::its::ROFMaskTable<o2::itsmft::tracking::ITSNLayers> mask{overlap};
   mask.setROFsEnabled(0, 0, 1, 1);
 
-  TimeFrameScratch scratch;
-  scratch.setROFViews(RuntimeROFViews{overlap.getView(), vertexLookup.getView(), mask.getView(), mask.getView()});
-  scratch.useUPCMask();
-  BOOST_CHECK_EQUAL(scratch.getROFOverlapView().mLayerCount, o2::itsmft::tracking::ITSNLayers);
-  BOOST_CHECK(scratch.getROFMaskView().mFlatMask != nullptr);
+  TimeFrame frame;
+  frame.setROFViews(RuntimeROFViews{overlap.getView(), vertexLookup.getView(), mask.getView(), mask.getView()});
+  frame.useUPCMask();
+  BOOST_CHECK_EQUAL(frame.getROFOverlapView().mLayerCount, o2::itsmft::tracking::ITSNLayers);
+  BOOST_CHECK(frame.getROFMaskView().mFlatMask != nullptr);
 
-  scratch.reset();
-  const auto& views = scratch.getROFViews();
+  frame.resetTimeFrame();
+  const auto& views = frame.getROFViews();
   BOOST_CHECK_EQUAL(views.overlap.mLayerCount, 0);
   BOOST_CHECK_EQUAL(views.vertexLookup.mLayerCount, 0);
   BOOST_CHECK_EQUAL(views.mask.mLayerCount, 0);

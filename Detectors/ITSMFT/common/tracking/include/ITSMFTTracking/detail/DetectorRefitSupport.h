@@ -13,7 +13,6 @@
 #include "ITSMFTTracking/GenericTrack.h"
 #include "ITSMFTTracking/RefitDriver.h"
 #include "ITSMFTTracking/TimeFrame.h"
-#include "ITSMFTTracking/detail/TimeFrameScratch.h"
 #include "ITStracking/Constants.h"
 
 namespace o2::itsmft::tracking::detail
@@ -63,7 +62,6 @@ inline bool fillCandidateKinematics(TrackingCandidate& candidate) noexcept
 inline bool refitSurfaceSeed(const TrackSeed& seed,
                              const TrackingParameters& params,
                              float bz,
-                             TimeFrameScratch& scratch,
                              gsl::span<const gsl::span<const GlobalMeasurement>> layerGlobals,
                              gsl::span<const gsl::span<const SurfaceMeasurement>> layerMeasurements,
                              SurfaceCatalogView surfaceCatalog,
@@ -85,14 +83,8 @@ inline bool refitSurfaceSeed(const TrackSeed& seed,
     }
     const auto& global = layerGlobals[position][clusterIndex];
     const auto& measurement = layerMeasurements[position][clusterIndex];
-    const auto expectedSource = scratch.getSurfaceSource(position);
-    if (!scratch.hasClusterExternalIndex(position, clusterIndex)) {
-      return false;
-    }
-    const int externalIndex = scratch.getClusterExternalIndex(position, clusterIndex);
-    if (!expectedSource || global.surface != orderedSurfaces[position] || !surfaceCatalog.hasSurface(global.surface) ||
-        !global.cluster.isValid() || global.cluster.source != *expectedSource || externalIndex < 0 ||
-        global.cluster.index != static_cast<uint32_t>(externalIndex) ||
+    if (global.surface != orderedSurfaces[position] || !surfaceCatalog.hasSurface(global.surface) ||
+        !global.cluster.isValid() ||
         !std::isfinite(measurement.frame.u) || !std::isfinite(measurement.frame.v) || !std::isfinite(measurement.frame.q) ||
         !std::isfinite(measurement.covariance.uu) || !std::isfinite(measurement.covariance.uv) || !std::isfinite(measurement.covariance.vv) ||
         measurement.covariance.uu < 0.f || measurement.covariance.vv < 0.f) {

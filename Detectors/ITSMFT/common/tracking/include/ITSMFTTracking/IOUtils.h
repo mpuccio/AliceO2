@@ -279,9 +279,17 @@ LoadSourcesResult loadSources(TimeFrame&, const SurfaceCatalogView&,
                               gsl::span<const ClusterSourceInput>,
                               const o2::InteractionRecord&);
 
-/// Atomically decode, normalize, backfill, and commit all sources into a configured frame.
+/// Atomically decode, normalize, and commit all sources into a configured frame.
 LoadSourcesResult loadTimeFrameSources(TimeFrame&, gsl::span<const ClusterSourceInput>,
                                        SurfaceCatalogView, const o2::InteractionRecord&);
+
+/// Convenience wrapper for a single detector source.
+LoadSourcesResult loadTimeFrameSource(
+  TimeFrame&, const ClusterDecoder&, const o2::InteractionRecord&, const ROFTimingConfig&,
+  gsl::span<const itsmft::CompClusterExt>, gsl::span<const unsigned char>,
+  gsl::span<const o2::itsmft::ROFRecord>, const itsmft::TopologyDictionary*,
+  const dataformats::MCTruthContainer<MCCompLabel>*, o2::detectors::DetID::ID,
+  gsl::span<const LayerId>, SurfaceCatalogView, bool applySysErrors = true);
 
 #ifndef GPUCA_GPUCODE
 class RecoverableLoadFailure final : public std::runtime_error

@@ -291,7 +291,7 @@ int gThrowOnRefitCall = 1;
 // Deliberately a plain function pointer: production itself reaches this
 // seam only after candidate formation and road finding have produced a real
 // seed. Tests reset the process-local controls before every invocation.
-bool controlledSeedRefit(const TrackSeed&, const TrackingParameters&, float, TimeFrameScratch&,
+bool controlledSeedRefit(const TrackSeed&, const TrackingParameters&, float,
                          gsl::span<const gsl::span<const GlobalMeasurement>>,
                          gsl::span<const gsl::span<const SurfaceMeasurement>>, SurfaceCatalogView,
                          gsl::span<const LayerId>, TrackingCandidate&)
@@ -313,7 +313,7 @@ bool controlledSeedRefit(const TrackSeed&, const TrackingParameters&, float, Tim
 
 // The core's typed refit/publication work is deliberately not part of this
 // failure-contract fixture. This narrow test function supplies only refit.
-bool testSeedRefit(const TrackSeed&, const TrackingParameters&, float, TimeFrameScratch&,
+bool testSeedRefit(const TrackSeed&, const TrackingParameters&, float,
                    gsl::span<const gsl::span<const GlobalMeasurement>>,
                    gsl::span<const gsl::span<const SurfaceMeasurement>>, SurfaceCatalogView,
                    gsl::span<const LayerId>, TrackingCandidate&)
@@ -413,10 +413,9 @@ struct Rig {
     const ROFTimingConfig timing{40, 0, 0, 0};
     const auto& layout = frame.getLayout(0);
     const auto& orderedSurfaces = layout.getOrderedSurfaces();
-    auto& workspace = frame.getWorkspace();
-    const auto result = workspace.loadNormalizedSource(frame, decoder, origin, timing, f.clusters, f.patterns, f.rofs, &dict(),
-                                                       f.labels.getIndexedSize() > 0 ? &f.labels : nullptr, o2::detectors::DetID::ITS,
-                                                       gsl::span<const LayerId>{orderedSurfaces}, layout.getSurfaceCatalog());
+    const auto result = loadTimeFrameSource(frame, decoder, origin, timing, f.clusters, f.patterns, f.rofs, &dict(),
+                                            f.labels.getIndexedSize() > 0 ? &f.labels : nullptr, o2::detectors::DetID::ITS,
+                                            gsl::span<const LayerId>{orderedSurfaces}, layout.getSurfaceCatalog());
     BOOST_REQUIRE(result.ok());
 
     // TrackerTraits::computeLayerTracklets() reads per-layer ROF counts
@@ -450,7 +449,7 @@ struct Rig {
     for (int iLayer = 0; iLayer < ITSNLayers; ++iLayer) {
       mask->setROFsEnabled(iLayer, 0, timing2.mNROFsTF, 1);
     }
-    workspace.setROFViews(RuntimeROFViews{rofTable->getView(), vertexTable->getView(), mask->getView(), {}});
+    frame.setROFViews(RuntimeROFViews{rofTable->getView(), vertexTable->getView(), mask->getView(), {}});
   }
 
   // Set the event-local budget at the current usage; the next allocation is
@@ -593,11 +592,10 @@ struct MftFailureRig {
     }
     const std::vector<ROFRecord> rofs{ROFRecord{{100, 5}, 0, 0, static_cast<int>(compact.size())}};
     MftRoadDecoder decoder{decoded};
-    auto& scratch = frame.getWorkspace();
     const auto& layout = frame.getLayout(0);
-    BOOST_REQUIRE(scratch.loadNormalizedSource(frame, decoder, o2::InteractionRecord{50, 5}, ROFTimingConfig{40, 0, 0, 0},
-                                               compact, patterns, rofs, &dict(), nullptr, o2::detectors::DetID::MFT,
-                                               gsl::span<const LayerId>{layout.getOrderedSurfaces()}, layout.getSurfaceCatalog())
+    BOOST_REQUIRE(loadTimeFrameSource(frame, decoder, o2::InteractionRecord{50, 5}, ROFTimingConfig{40, 0, 0, 0},
+                                      compact, patterns, rofs, &dict(), nullptr, o2::detectors::DetID::MFT,
+                                      gsl::span<const LayerId>{layout.getOrderedSurfaces()}, layout.getSurfaceCatalog())
                     .ok());
     o2::its::LayerTiming timing{};
     timing.mNROFsTF = 1;
@@ -615,7 +613,7 @@ struct MftFailureRig {
     for (int layer = 0; layer < MFTNLayers; ++layer) {
       mask->setROFsEnabled(layer, 0, 1, 1);
     }
-    scratch.setROFViews(RuntimeROFViews{rofTable->getView(), vertexTable->getView(), mask->getView(), {}});
+    frame.setROFViews(RuntimeROFViews{rofTable->getView(), vertexTable->getView(), mask->getView(), {}});
   }
 
   void assertReset() const

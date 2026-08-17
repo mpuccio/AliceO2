@@ -255,44 +255,20 @@ const std::vector<Expected> expectedClusters{
   {3, 2, 2, 13, 23, 2, 3},
 };
 
-// Full parity check between the Fixture and every observable legacy/normalized
-// accessor -- reused both right after a successful load and after a later
-// call that must have left both owners untouched. `frame` owns the
-// normalized measurements; `tf` owns every legacy per-layer compatibility
-// structure (Gate 4 B3.1 split).
-void verifyFixtureLoaded(const TimeFrame& frame, TimeFrameScratch& tf, const Fixture& f)
+void verifyFixtureLoaded(const TimeFrame& frame, const Fixture& f)
 {
   constexpr ClusterSourceId kSourceId{0};
   BOOST_CHECK_EQUAL(frame.getSurfaceMeasurements(LayerId{0}).size(), 2u);
   BOOST_CHECK_EQUAL(frame.getSurfaceMeasurements(LayerId{1}).size(), 1u);
   BOOST_CHECK_EQUAL(frame.getSurfaceMeasurements(LayerId{2}).size(), 1u);
-  BOOST_CHECK_EQUAL(tf.getUnsortedClustersOnLayer(0, 0).size() + tf.getUnsortedClustersOnLayer(1, 0).size(), 2u);
-  BOOST_CHECK_EQUAL(tf.getUnsortedClustersOnLayer(0, 1).size(), 1u);
-  BOOST_CHECK_EQUAL(tf.getUnsortedClustersOnLayer(2, 2).size(), 1u);
   for (int l = 3; l < ITSNLayers; ++l) {
     BOOST_CHECK_EQUAL(frame.getSurfaceMeasurements(LayerId{static_cast<uint16_t>(l)}).size(), 0u);
-    BOOST_CHECK_EQUAL(tf.getNrof(l), static_cast<int>(f.rofs.size()));
+    BOOST_CHECK_EQUAL(frame.getNrof(l), static_cast<int>(f.rofs.size()));
   }
 
-  BOOST_CHECK_EQUAL(tf.getNrof(0), static_cast<int>(f.rofs.size()));
+  BOOST_CHECK_EQUAL(frame.getNrof(0), static_cast<int>(f.rofs.size()));
 
   for (const auto& e : expectedClusters) {
-    const o2::its::Cluster* legacyCluster = nullptr;
-    int clId = -1;
-    for (int rof = 0; rof < tf.getNrof(e.layer); ++rof) {
-      for (const auto& c : tf.getUnsortedClustersOnLayer(rof, e.layer)) {
-        if (tf.getClusterExternalIndex(e.layer, c.clusterId) == static_cast<int>(e.externalIndex)) {
-          legacyCluster = &c;
-          clId = c.clusterId;
-          break;
-        }
-      }
-      if (legacyCluster != nullptr) {
-        break;
-      }
-    }
-    BOOST_REQUIRE(legacyCluster != nullptr);
-
     const GlobalMeasurement* globalMeasurement = nullptr;
     const SurfaceMeasurement* measurement = nullptr;
     const auto surface = LayerId{static_cast<uint16_t>(e.layer)};
@@ -309,34 +285,19 @@ void verifyFixtureLoaded(const TimeFrame& frame, TimeFrameScratch& tf, const Fix
     BOOST_REQUIRE(measurement != nullptr);
 
     const auto g = expectedGlobal(e.sensorID, e.row, e.col);
-    BOOST_CHECK_EQUAL(legacyCluster->xCoordinate, g.x);
-    BOOST_CHECK_EQUAL(legacyCluster->yCoordinate, g.y);
-    BOOST_CHECK_EQUAL(legacyCluster->zCoordinate, g.z);
     BOOST_CHECK_EQUAL(globalMeasurement->position.x, g.x);
     BOOST_CHECK_EQUAL(globalMeasurement->position.y, g.y);
     BOOST_CHECK_EQUAL(globalMeasurement->position.z, g.z);
 
-    const auto& tfInfo = tf.getClusterTrackingFrameInfo(e.layer, *legacyCluster);
-    BOOST_CHECK_EQUAL(tfInfo.xCoordinate, g.x);
-    BOOST_CHECK_EQUAL(tfInfo.yCoordinate, g.y);
-    BOOST_CHECK_EQUAL(tfInfo.zCoordinate, g.z);
-    BOOST_CHECK_EQUAL(tfInfo.xTrackingFrame, static_cast<float>(e.sensorID) + 100.f);
-    BOOST_CHECK_EQUAL(tfInfo.alphaTrackingFrame, 0.01f * e.sensorID);
-    BOOST_CHECK_EQUAL(tfInfo.positionTrackingFrame[0], static_cast<float>(e.row) + 1.f);
-    BOOST_CHECK_EQUAL(tfInfo.positionTrackingFrame[1], static_cast<float>(e.col) + 2.f);
-    BOOST_CHECK_EQUAL(measurement->frame.q, tfInfo.xTrackingFrame);
-    BOOST_CHECK_EQUAL(measurement->frame.u, tfInfo.positionTrackingFrame[0]);
-    BOOST_CHECK_EQUAL(measurement->frame.v, tfInfo.positionTrackingFrame[1]);
-    BOOST_CHECK_EQUAL(measurement->frame.frameAngle, tfInfo.alphaTrackingFrame);
+    BOOST_CHECK_EQUAL(measurement->frame.q, static_cast<float>(e.sensorID) + 100.f);
+    BOOST_CHECK_EQUAL(measurement->frame.u, static_cast<float>(e.row) + 1.f);
+    BOOST_CHECK_EQUAL(measurement->frame.v, static_cast<float>(e.col) + 2.f);
+    BOOST_CHECK_EQUAL(measurement->frame.frameAngle, 0.01f * e.sensorID);
 
-    BOOST_CHECK_EQUAL(tfInfo.covarianceTrackingFrame[0], o2::itsmft::ioutils::DefClusError2Row);
-    BOOST_CHECK_EQUAL(tfInfo.covarianceTrackingFrame[1], 0.f);
-    BOOST_CHECK_EQUAL(tfInfo.covarianceTrackingFrame[2], o2::itsmft::ioutils::DefClusError2Col);
     BOOST_CHECK_EQUAL(measurement->covariance.uu, o2::itsmft::ioutils::DefClusError2Row);
     BOOST_CHECK_EQUAL(measurement->covariance.uv, 0.f);
     BOOST_CHECK_EQUAL(measurement->covariance.vv, o2::itsmft::ioutils::DefClusError2Col);
 
-    BOOST_CHECK_EQUAL(tf.getClusterExternalIndex(e.layer, clId), static_cast<int>(e.externalIndex));
     BOOST_CHECK_EQUAL(globalMeasurement->cluster.index, e.externalIndex);
     BOOST_CHECK(globalMeasurement->cluster.source == kSourceId);
     BOOST_CHECK(globalMeasurement->sensor.detector == static_cast<uint32_t>(o2::detectors::DetID::ITS));
@@ -344,16 +305,22 @@ void verifyFixtureLoaded(const TimeFrame& frame, TimeFrameScratch& tf, const Fix
     BOOST_CHECK(globalMeasurement->surface == LayerId{static_cast<uint16_t>(e.layer)});
     BOOST_CHECK_EQUAL(globalMeasurement->sourceROF, e.sourceROF);
 
-    BOOST_CHECK_EQUAL(static_cast<uint32_t>(tf.getClusterSize(e.layer, clId)), e.nPixels);
     BOOST_CHECK_EQUAL(globalMeasurement->shape.nPixels, e.nPixels);
 
-    const auto legacyLabels = tf.getClusterLabels(e.layer, clId);
     const auto normalizedLabels = frame.getLabels(ClusterRef{kSourceId, e.externalIndex});
-    BOOST_REQUIRE_EQUAL(legacyLabels.size(), 1u);
     BOOST_REQUIRE_EQUAL(normalizedLabels.size(), 1u);
-    BOOST_CHECK(legacyLabels[0] == normalizedLabels[0]);
-    BOOST_CHECK(legacyLabels[0] == o2::MCCompLabel(static_cast<int>(e.externalIndex) + 1, 0, 0));
+    BOOST_CHECK(normalizedLabels[0] == o2::MCCompLabel(static_cast<int>(e.externalIndex) + 1, 0, 0));
   }
+}
+
+void configureFrame(TimeFrame& frame, SurfaceCatalogView catalog, gsl::span<const LayerId> orderedSurfaces,
+                    std::shared_ptr<BoundedMemoryResource> pool = std::make_shared<BoundedMemoryResource>())
+{
+  std::vector<SurfaceLayout> layouts;
+  layouts.push_back(catalogLayout(catalog, orderedSurfaces));
+  std::vector<TrackingParameters> parameters(1);
+  std::vector<TrackingWorkspaceCapacity> capacities{{orderedSurfaces.size(), 0, 0}};
+  BOOST_REQUIRE(frame.commitConfiguration(std::move(layouts), std::move(parameters), std::move(capacities), std::move(pool)));
 }
 
 } // namespace
@@ -370,19 +337,16 @@ BOOST_AUTO_TEST_CASE(WipeClearsNormalizedFrameButPreservesDetId)
   const ROFTimingConfig timing{40, 0, 0, 0};
 
   TimeFrame frame;
-  TimeFrameScratch tf;
-  std::vector<TrackingParameters> noIterations;
   const auto plan = catalogLayout(catalogView, orderedSurfaces);
-  tf.setMemoryPool(std::make_shared<BoundedMemoryResource>());
-  tf.adoptPlan(plan.getOrderedSurfaces().size(), 0, 0);
+  configureFrame(frame, catalogView, orderedSurfaces);
 
   const auto f = makeFixture();
-  const auto result = tf.loadNormalizedSource(frame, decoder, origin, timing, f.clusters, f.patterns, f.rofs, &dict(), &f.labels, o2::detectors::DetID::ITS,
-                                              gsl::span<const LayerId>{plan.getOrderedSurfaces()}, plan.getSurfaceCatalog());
+  const auto result = loadTimeFrameSource(frame, decoder, origin, timing, f.clusters, f.patterns, f.rofs, &dict(), &f.labels, o2::detectors::DetID::ITS,
+                                          gsl::span<const LayerId>{plan.getOrderedSurfaces()}, plan.getSurfaceCatalog());
   BOOST_REQUIRE(result.ok());
   // Sanity: the successful load itself has the expected content, matching
   // the accepted parity coverage in testTimeFrameNormalizedSource.cxx.
-  verifyFixtureLoaded(frame, tf, f);
+  verifyFixtureLoaded(frame, f);
 
   frame.resetTimeFrame();
 
@@ -399,9 +363,7 @@ BOOST_AUTO_TEST_CASE(WipeClearsNormalizedFrameButPreservesDetId)
   // so resetTimeFrame() has no detector-identity state to preserve or clear.
 }
 
-// --- B. Strong exception transactionality ------------------------------
-
-BOOST_AUTO_TEST_CASE(BackfillAllocationFailureLeavesNormalizedAndLegacyStateAtBaseline)
+BOOST_AUTO_TEST_CASE(FailedReplacementLeavesLoadedEventUnchanged)
 {
   const auto catalog = makeITSTestCatalog();
   const auto orderedSurfaces = identitySurfaces(ITSNLayers);
@@ -409,130 +371,24 @@ BOOST_AUTO_TEST_CASE(BackfillAllocationFailureLeavesNormalizedAndLegacyStateAtBa
   LegacyLikeDecoder decoder{o2::detectors::DetID::ITS};
   const o2::InteractionRecord origin{50, 5};
   const ROFTimingConfig timing{40, 0, 0, 0};
-
-  // Declared before `frame`/`tf`, so it is destroyed after both at scope
-  // exit: local destruction order is the reverse of declaration order, and
-  // the pool-backed bounded_vector members on both owners must be destroyed
-  // (returning their memory to the pool) before the pool itself can safely
-  // go away.
-  auto pool = std::make_shared<BoundedMemoryResource>();
+  const auto baselineFixture = makeFixture();
+  auto malformedReplacement = makeReplacementFixture();
+  const auto plan = catalogLayout(catalogView, orderedSurfaces);
   TimeFrame frame;
-  TimeFrameScratch tf;
-  frame.setMemoryPool(pool);
-  tf.setMemoryPool(pool);
-
-  std::vector<TrackingParameters> noIterations;
-  const auto plan = catalogLayout(catalogView, orderedSurfaces);
-  tf.adoptPlan(plan.getOrderedSurfaces().size(), 0, 0);
-  const gsl::span<const LayerId> planOrderedSurfaces{plan.getOrderedSurfaces()};
-
-  const auto f = makeFixture();
-  const auto replacement = makeReplacementFixture();
-
-  // Baseline: a successful normalized load, with real content in both the
-  // normalized owner and every legacy compatibility structure.
-  const auto baseline = tf.loadNormalizedSource(frame, decoder, origin, timing, f.clusters, f.patterns, f.rofs, &dict(), &f.labels, o2::detectors::DetID::ITS,
-                                                planOrderedSurfaces, plan.getSurfaceCatalog());
+  configureFrame(frame, catalogView, orderedSurfaces);
+  const auto baseline = loadTimeFrameSource(frame, decoder, origin, timing, baselineFixture.clusters,
+                                            baselineFixture.patterns, baselineFixture.rofs, &dict(),
+                                            &baselineFixture.labels, o2::detectors::DetID::ITS,
+                                            gsl::span<const LayerId>{plan.getOrderedSurfaces()}, plan.getSurfaceCatalog());
   BOOST_REQUIRE(baseline.ok());
-  BOOST_CHECK_EQUAL(decoder.decodeCount, static_cast<int>(f.clusters.size()));
-  verifyFixtureLoaded(frame, tf, f);
+  verifyFixtureLoaded(frame, baselineFixture);
 
-  // Remove all BoundedMemoryResource headroom: any further allocation from
-  // this pool must now throw.
-  pool->setMaxMemory(pool->getUsedMemory());
-
-  // A second, independently valid normalized load of a *distinct* fixture
-  // (different sensors/layers, coordinates, pattern shapes, ROF partition
-  // and MC labels -- see makeReplacementFixture()): loadSources() itself
-  // runs on plain heap storage and succeeds, decoding every one of this
-  // fixture's clusters, before the load deterministically throws while
-  // building the staged legacy backfill, which allocates from the
-  // now-exhausted bounded pool.
-  bool threw = false;
-  try {
-    tf.loadNormalizedSource(frame, decoder, origin, timing, replacement.clusters, replacement.patterns, replacement.rofs, &dict(), &replacement.labels, o2::detectors::DetID::ITS,
-                            planOrderedSurfaces, plan.getSurfaceCatalog());
-  } catch (const BoundedMemoryResource::MemoryLimitExceeded&) {
-    threw = true;
-  }
-  BOOST_REQUIRE(threw);
-  // All of the replacement fixture's clusters were successfully decoded
-  // (loadSources() ran to completion) before the staged legacy backfill
-  // allocation failed: the decoder was called exactly once per baseline
-  // cluster plus once per replacement cluster, never partially.
-  BOOST_CHECK_EQUAL(decoder.decodeCount, static_cast<int>(f.clusters.size() + replacement.clusters.size()));
-
-  // Every normalized measurement/source/timing/label on `frame`, and every
-  // legacy layer's clusters/tracking information/external indices/sizes/ROF
-  // boundaries/label pointers on `tf`, remain exactly at their baseline
-  // state -- not even partially replaced by the distinct replacement
-  // fixture's data. This is the owner-level load's all-or-nothing contract:
-  // a failed stage leaves both live owners unchanged.
-  verifyFixtureLoaded(frame, tf, f);
-}
-
-// --- C. TimeFrameScratch as sole owner of its BoundedMemoryResource -
-//
-// Exercises the member-destruction-order contract directly (see the
-// mExtMemoryPool/mMemoryPool declaration-order comment in
-// TimeFrameScratch.h): the pool owner is declared before every
-// pmr/bounded_vector member, so LegacyTrackerScratch destroys every
-// pool-backed vector -- returning its memory to the pool -- before
-// releasing its own shared_ptr to that pool. Here the caller's shared_ptr
-// is released first, making the scratch the *sole* remaining owner of the
-// BoundedMemoryResource while its pool-backed vectors (mUnsortedClusters,
-// mTrackingFrameInfo, mClusterExternalIndices, mClusterSize,
-// mROFramesClusters) are still populated; a regression in that member order
-// would have the scratch free the pool while those vectors still reference
-// it, then crash or corrupt memory when they are destroyed. A sanitizer
-// build (e.g. ASan) would catch such a regression far more reliably than
-// this plain host run can -- a use-after-free here is not guaranteed to
-// crash every time -- but this test still documents and exercises the
-// ordering contract this correction depends on. (Gate 4 B3.1: these
-// pool-backed vectors moved from the old split owner to
-// TimeFrameScratch, so this test now targets the scratch's own
-// memory-pool ownership; TimeFrame itself no longer holds any of them.)
-BOOST_AUTO_TEST_CASE(ScratchOutlivesSoleOwnershipOfItsMemoryPool)
-{
-  const auto catalog = makeITSTestCatalog();
-  const auto orderedSurfaces = identitySurfaces(ITSNLayers);
-  const SurfaceCatalogView catalogView{catalog.data(), static_cast<uint32_t>(catalog.size())};
-  LegacyLikeDecoder decoder{o2::detectors::DetID::ITS};
-  const o2::InteractionRecord origin{50, 5};
-  const ROFTimingConfig timing{40, 0, 0, 0};
-  const auto f = makeFixture();
-
-  std::vector<TrackingParameters> noIterations;
-  const auto plan = catalogLayout(catalogView, orderedSurfaces);
-
-  {
-    auto pool = std::make_shared<BoundedMemoryResource>();
-    TimeFrame frame;
-    TimeFrameScratch tf;
-    tf.setMemoryPool(pool);
-    tf.adoptPlan(plan.getOrderedSurfaces().size(), 0, 0);
-
-    // Populate every pool-backed vector (mUnsortedClusters,
-    // mTrackingFrameInfo, mClusterExternalIndices, mClusterSize,
-    // mROFramesClusters) with real content.
-    const auto result = tf.loadNormalizedSource(frame, decoder, origin, timing, f.clusters, f.patterns, f.rofs, &dict(), &f.labels, o2::detectors::DetID::ITS,
-                                                gsl::span<const LayerId>{plan.getOrderedSurfaces()}, plan.getSurfaceCatalog());
-    BOOST_REQUIRE(result.ok());
-    BOOST_REQUIRE(tf.getUnsortedClustersOnLayer(0, 0).size() + tf.getUnsortedClustersOnLayer(1, 0).size() > 0);
-
-    // tf.mMemoryPool holds a second reference at this point (frame never
-    // received a copy of `pool` in this test, since the vectors under test
-    // all live on the scratch).
-    BOOST_REQUIRE_EQUAL(pool.use_count(), 2);
-    // Release the caller's reference: tf is now the sole owner of this
-    // BoundedMemoryResource, while its pool-backed vectors above are still
-    // fully populated and alive.
-    pool.reset();
-    // Falling off this scope destroys `tf` -- and, per the member-order
-    // contract, every pool-backed vector before the pool's own last
-    // shared_ptr -- without any of them touching already-freed memory.
-    // `frame` is declared before `tf`, so it is destroyed after `tf`, per
-    // the Gate 4 B3.1 lifetime contract (TimeFrame outlives every scratch
-    // bound to it).
-  }
+  malformedReplacement.rofs.front().setFirstEntry(1);
+  const auto failed = loadTimeFrameSource(frame, decoder, origin, timing, malformedReplacement.clusters,
+                                          malformedReplacement.patterns, malformedReplacement.rofs, &dict(),
+                                          &malformedReplacement.labels, o2::detectors::DetID::ITS,
+                                          gsl::span<const LayerId>{plan.getOrderedSurfaces()}, plan.getSurfaceCatalog());
+  BOOST_CHECK(!failed.ok());
+  BOOST_CHECK(failed.error == MultiSourceLoadError::InvalidROFRange);
+  verifyFixtureLoaded(frame, baselineFixture);
 }

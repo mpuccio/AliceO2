@@ -177,8 +177,8 @@ BOOST_AUTO_TEST_CASE(AtomicMFTLoadFailureLeavesSharedTimeFrameAndBothParticipant
   // Nothing committed anywhere: not the shared normalized frame nor the
   // staged global workspace.
   BOOST_CHECK_EQUAL(frame.getTotalMeasurements(), 0u);
-  BOOST_CHECK_EQUAL(participants.getITSScratch().getTotalClusters(), 0);
-  BOOST_CHECK_EQUAL(participants.getMFTScratch().getTotalClusters(), 0);
+  BOOST_CHECK_EQUAL(participants.getITSScratch().getNumberOfTracklets(), 0);
+  BOOST_CHECK_EQUAL(participants.getMFTScratch().getNumberOfTracklets(), 0);
 }
 
 // --- 4: shared-workspace reset -----------------------------------------------
@@ -200,19 +200,19 @@ BOOST_AUTO_TEST_CASE(TimeFrameResetClearsSharedWorkspaceAndPreservesFrameState)
   BOOST_CHECK_EQUAL(itsParticipantScratch.getNOwnedSurfaces(), 17u);
   BOOST_CHECK_EQUAL(itsParticipantScratch.getNEdges(), 15u);
   BOOST_CHECK_EQUAL(itsParticipantScratch.getNCells(), 13u);
-  itsParticipantScratch.getUnsortedClusters()[0].emplace_back(1.f, 2.f, 3.f, 0);
-  BOOST_CHECK_EQUAL(mftParticipantScratch.getTotalClusters(), 1);
-  mftParticipantScratch.getUnsortedClusters()[7].emplace_back(4.f, 5.f, 6.f, 7);
-  BOOST_CHECK_EQUAL(itsParticipantScratch.getTotalClusters(), 2);
+  itsParticipantScratch.getTracklets()[0].emplace_back();
+  BOOST_CHECK_EQUAL(mftParticipantScratch.getNumberOfTracklets(), 1);
+  mftParticipantScratch.getTracklets()[7].emplace_back();
+  BOOST_CHECK_EQUAL(itsParticipantScratch.getNumberOfTracklets(), 2);
 
   const auto resetCount = frame.getEventResetCount();
   frame.resetTimeFrame();
 
-  BOOST_CHECK_EQUAL(mftParticipantScratch.getTotalClusters(), 0);
+  BOOST_CHECK_EQUAL(mftParticipantScratch.getNumberOfTracklets(), 0);
   BOOST_CHECK_EQUAL(mftParticipantScratch.getNOwnedSurfaces(), 17u);
 
   BOOST_CHECK_EQUAL(frame.getEventResetCount(), resetCount + 1);
-  BOOST_CHECK(itsParticipantScratch.getUnsortedClusters()[0].empty());
+  BOOST_CHECK(itsParticipantScratch.getTracklets()[0].empty());
   BOOST_CHECK_EQUAL(frame.getBz(), 5.f);
   BOOST_CHECK_EQUAL(frame.getBeamX(), 1.f);
 }
@@ -254,7 +254,7 @@ BOOST_AUTO_TEST_CASE(MFTSidecarAndPublicationExportRemainValidAfterMigration)
   // the application-plan fixture.
   std::optional<ClockTimingPublicationView> mftClock;
   bool publicationValid = false;
-  mftClock.emplace(participants.getMFTScratch().getROFOverlapView().getClockLayer());
+  mftClock.emplace(participants.getMFTROFViews().overlap.getClockLayer());
   publicationValid = true;
   std::optional<GenericTrackPublicationExport> mftExport;
   if (publicationValid && mftClock) {
@@ -286,15 +286,15 @@ BOOST_AUTO_TEST_CASE(CombinedExecutionUsesOneSharedWorkspace)
   BOOST_CHECK_EQUAL(itsScratch.getNOwnedSurfaces(), 17u);
   BOOST_CHECK_EQUAL(itsScratch.getNEdges(), 15u);
   BOOST_CHECK_EQUAL(itsScratch.getNCells(), 13u);
-  itsScratch.getUnsortedClusters()[0].emplace_back(1.f, 1.f, 1.f, 0);
-  BOOST_CHECK_EQUAL(mftScratch.getTotalClusters(), 1);
-  mftScratch.getUnsortedClusters()[7].emplace_back(2.f, 2.f, 2.f, 7);
-  BOOST_CHECK_EQUAL(itsScratch.getTotalClusters(), 2);
+  itsScratch.getTracklets()[0].emplace_back();
+  BOOST_CHECK_EQUAL(mftScratch.getNumberOfTracklets(), 1);
+  mftScratch.getTracklets()[7].emplace_back();
+  BOOST_CHECK_EQUAL(itsScratch.getNumberOfTracklets(), 2);
 
   frame.setBz(9.f);
   frame.resetTimeFrame();
-  BOOST_CHECK_EQUAL(itsScratch.getTotalClusters(), 0);
-  BOOST_CHECK_EQUAL(mftScratch.getTotalClusters(), 0);
+  BOOST_CHECK_EQUAL(itsScratch.getNumberOfTracklets(), 0);
+  BOOST_CHECK_EQUAL(mftScratch.getNumberOfTracklets(), 0);
   BOOST_CHECK_EQUAL(mftScratch.getNOwnedSurfaces(), 17u);
   BOOST_CHECK_EQUAL(frame.getBz(), 9.f);
 }

@@ -97,21 +97,12 @@ static_assert(std::is_default_constructible_v<TimeFrameScratch>,
 static_assert(!std::is_same_v<TimeFrame, TimeFrameScratch>,
               "TimeFrame and TimeFrameScratch must remain two distinct owner types");
 
-// Cheap, direct scratch population for tests 1-3: writes one cluster's worth
-// of scratch-owned legacy state on layer 0 via the same public append API
-// testMFTNormalizedRefit.cxx's fixtures use, without needing a full decoder/
-// catalog/loadNormalizedSource() round trip.
+// Cheap, direct scratch population for tests 1-3.
 void populateScratch(TimeFrameScratch& scratch, float tag)
 {
   scratch.setMemoryPool(std::make_shared<BoundedMemoryResource>());
-  scratch.adoptPlan(ITSNLayers, 0, 0);
-  scratch.addClusterToLayer(0, tag, tag, tag, 0);
-  scratch.addTrackingFrameInfoToLayer(0, o2::its::TrackingFrameInfo{
-                                           tag, tag, tag, tag, tag, {tag, tag}, {1.f, 0.f, 1.f}});
-  scratch.addClusterExternalIndexToLayer(0, 0);
-  bounded_vector<uint8_t> sizes;
-  sizes.resize(1, uint8_t{1});
-  scratch.setClusterSize(0, sizes);
+  scratch.adoptPlan(ITSNLayers, 1, 0);
+  scratch.getTracklets()[0].emplace_back(0, 1, tag, tag, o2::its::TimeEstBC{});
 }
 
 // Cheap, direct frame population: one vertex, one GenericTrack -- enough to
@@ -217,13 +208,13 @@ BOOST_AUTO_TEST_CASE(ResetScratchClearsScratchOnlyTimeFrameContentSurvives)
   populateFrame(frame);
   populateScratch(scratch, 1.f);
 
-  BOOST_REQUIRE_GT(scratch.getTotalClusters(), 0);
+  BOOST_REQUIRE_GT(scratch.getNumberOfTracklets(), 0);
   BOOST_REQUIRE_EQUAL(frame.getPrimaryVertices().size(), 1u);
   BOOST_REQUIRE_EQUAL(frame.getGenericTracks().size(), 1u);
 
   scratch.reset();
 
-  BOOST_CHECK_EQUAL(scratch.getTotalClusters(), 0);
+  BOOST_CHECK_EQUAL(scratch.getNumberOfTracklets(), 0);
   // reset() must never wipe or mutate TimeFrame: its populated
   // content survives exactly, byte for byte.
   BOOST_CHECK_EQUAL(frame.getPrimaryVertices().size(), 1u);
@@ -242,14 +233,14 @@ BOOST_AUTO_TEST_CASE(ResetTimeFrameEventClearsBothOwners)
   populateFrame(frame);
   populateScratch(scratch, 2.f);
 
-  BOOST_REQUIRE_GT(scratch.getTotalClusters(), 0);
+  BOOST_REQUIRE_GT(scratch.getNumberOfTracklets(), 0);
   BOOST_REQUIRE_EQUAL(frame.getPrimaryVertices().size(), 1u);
   BOOST_REQUIRE_EQUAL(frame.getGenericTracks().size(), 1u);
 
   scratch.reset();
   frame.resetTimeFrame();
 
-  BOOST_CHECK_EQUAL(scratch.getTotalClusters(), 0);
+  BOOST_CHECK_EQUAL(scratch.getNumberOfTracklets(), 0);
   BOOST_CHECK(frame.getPrimaryVertices().empty());
   BOOST_CHECK(frame.getGenericTracks().empty());
 }
@@ -268,85 +259,19 @@ BOOST_AUTO_TEST_CASE(TwoScratchesOneFrameResettingOneLeavesTheOtherAndTheFrameUn
   populateScratch(itsScratch, 3.f);
   populateScratch(mftScratch, 4.f);
 
-  BOOST_REQUIRE_GT(itsScratch.getTotalClusters(), 0);
-  BOOST_REQUIRE_GT(mftScratch.getTotalClusters(), 0);
+  BOOST_REQUIRE_GT(itsScratch.getNumberOfTracklets(), 0);
+  BOOST_REQUIRE_GT(mftScratch.getNumberOfTracklets(), 0);
 
   itsScratch.reset();
 
-  BOOST_CHECK_EQUAL(itsScratch.getTotalClusters(), 0);
+  BOOST_CHECK_EQUAL(itsScratch.getNumberOfTracklets(), 0);
   // The MFT scratch, bound to the SAME shared TimeFrame, is completely
   // unaffected: this is exactly the hazard the accepted design's combined-
   // owner reset rule guards against -- "resetting ITS scratch cannot erase
   // MFT event data".
-  BOOST_CHECK_GT(mftScratch.getTotalClusters(), 0);
+  BOOST_CHECK_GT(mftScratch.getNumberOfTracklets(), 0);
   BOOST_CHECK_EQUAL(frame.getPrimaryVertices().size(), 1u);
   BOOST_CHECK_EQUAL(frame.getGenericTracks().size(), 1u);
-}
-
-// ---------------------------------------------------------------------
-// 4. Injected scratch-backfill failure after the TimeFrame-side normalized
-//    decode has already succeeded leaves both owners at their pre-load
-//    state.
-// ---------------------------------------------------------------------
-
-BOOST_AUTO_TEST_CASE(InjectedScratchBackfillFailureAfterNormalizedStagingLeavesBothOwnersUnchanged)
-{
-  const auto catalog = makeITSTestCatalog();
-  const auto orderedSurfaces = identitySurfaces();
-  const SurfaceCatalogView catalogView{catalog.data(), static_cast<uint32_t>(catalog.size())};
-  OneLayerDecoder decoder{o2::detectors::DetID::ITS};
-  const o2::InteractionRecord origin{50, 5};
-  const ROFTimingConfig timing{40, 0, 0, 0};
-
-  auto pool = std::make_shared<BoundedMemoryResource>();
-  TimeFrame frame;
-  TimeFrameScratch scratch;
-  frame.setMemoryPool(pool);
-  scratch.setMemoryPool(pool);
-
-  scratch.adoptPlan(orderedSurfaces.size(), 0, 0);
-  const gsl::span<const LayerId> planOrderedSurfaces{orderedSurfaces};
-
-  const std::vector<CompClusterExt> clusters{CompClusterExt{10, 20, CompCluster::InvalidPatternID, 0}};
-  const auto patterns = std::vector<unsigned char>(onePixelPattern.begin(), onePixelPattern.end());
-  const std::vector<ROFRecord> rofs{ROFRecord{{100, 5}, 0, 0, 1}};
-
-  // Baseline: a real, successful owner-level load, giving both owners
-  // genuine content to check "unchanged" against below.
-  const auto baseline = scratch.loadNormalizedSource(frame, decoder, origin, timing, clusters, patterns, rofs,
-                                                     &dict(), nullptr, o2::detectors::DetID::ITS,
-                                                     planOrderedSurfaces, catalogView);
-  BOOST_REQUIRE(baseline.ok());
-  const auto baselineMeasurements = frame.getTotalMeasurements();
-  const auto baselineClusters = scratch.getTotalClusters();
-  BOOST_REQUIRE_EQUAL(baselineMeasurements, 1u);
-  BOOST_REQUIRE_EQUAL(baselineClusters, 1);
-
-  // Exhaust the shared pool. loadSources() -- the normalized decode, staged
-  // into plain heap-owned local storage, not the bounded pool -- still
-  // succeeds; it is the scratch-side legacy backfill staging that follows
-  // it (still entirely local, not yet committed to either live owner) that
-  // allocates from the pool and is where this throws.
-  pool->setMaxMemory(pool->getUsedMemory());
-
-  bool threw = false;
-  try {
-    scratch.loadNormalizedSource(frame, decoder, origin, timing, clusters, patterns, rofs,
-                                 &dict(), nullptr, o2::detectors::DetID::ITS,
-                                 planOrderedSurfaces, catalogView);
-  } catch (const BoundedMemoryResource::MemoryLimitExceeded&) {
-    threw = true;
-  }
-  BOOST_REQUIRE(threw);
-
-  // Both owners retain exactly their pre-load (baseline) state: the
-  // owner-level load's all-or-nothing contract. See
-  // TimeFrameScratch::loadNormalizedSource()'s own doc comment
-  // and testTimeFrameLifecycle.cxx's
-  // BackfillAllocationFailureLeavesNormalizedAndLegacyStateAtBaseline for
-  // the equivalent proof exercised through a larger, multi-cluster fixture.
-  BOOST_CHECK_EQUAL(frame.getTotalMeasurements(), baselineMeasurements);
-  BOOST_CHECK_EQUAL(scratch.getTotalClusters(), baselineClusters);
 }
 
 // ---------------------------------------------------------------------

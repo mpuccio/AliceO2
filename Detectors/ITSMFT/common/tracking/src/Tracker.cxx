@@ -299,25 +299,18 @@ void Tracker::initializeTraversalWorkspace(TraversalWorkspaceView& context) cons
     const auto LayerId = orderedSurfaces[surfacePosition];
     const auto measurements = mFrame->getSurfaceMeasurements(LayerId);
     const auto globals = mFrame->getGlobalMeasurements(LayerId);
-    const auto& clusters = mScratch->getUnsortedClusters()[surfacePosition];
-    const auto& hits = mScratch->getTrackingFrameInfoOnLayer(surfacePosition);
-    if (measurements.size() != globals.size() || globals.size() != clusters.size() || hits.size() != clusters.size() ||
+    if (measurements.size() != globals.size() ||
         measurements.size() > static_cast<size_t>(std::numeric_limits<int>::max())) {
       throw TraversalException{iteration, TraversalFailureReason::NormalizedMeasurementMismatch};
     }
     for (size_t i = 0; i < measurements.size(); ++i) {
       const auto& global = globals[i];
       if (global.surface != LayerId || !global.cluster.isValid() ||
-          global.cluster.index > static_cast<uint32_t>(std::numeric_limits<int>::max()) ||
-          clusters[i].clusterId != static_cast<int>(i)) {
-        throw TraversalException{iteration, TraversalFailureReason::NormalizedMeasurementMismatch};
-      }
-      const int externalIndex = mScratch->getClusterExternalIndex(surfacePosition, static_cast<int>(i));
-      if (externalIndex < 0 || static_cast<uint32_t>(externalIndex) != global.cluster.index) {
+          global.cluster.index > static_cast<uint32_t>(std::numeric_limits<int>::max())) {
         throw TraversalException{iteration, TraversalFailureReason::NormalizedMeasurementMismatch};
       }
     }
-    const auto rofBoundaries = mScratch->getROFrameClusters(surfacePosition);
+    const auto rofBoundaries = mFrame->getROFrameClusters(surfacePosition);
     if (rofBoundaries.empty() || rofBoundaries.front() != 0 || rofBoundaries.back() != static_cast<int>(measurements.size())) {
       throw TraversalException{iteration, TraversalFailureReason::NormalizedMeasurementMismatch};
     }
@@ -352,7 +345,7 @@ void Tracker::initializeTraversalWorkspace(TraversalWorkspaceView& context) cons
 
   if (!mTrkParams[iteration].PassFlags[IterationStep::FirstPass]) {
     for (int position = 0; position < activeSurfaceCount; ++position) {
-      if (!indexTableConfigurationsMatch(stagedIndexTableConfigs[position], mScratch->getIndexTableUtils(position), activeSurfaceCount)) {
+      if (!indexTableConfigurationsMatch(stagedIndexTableConfigs[position], mFrame->getIndexTableUtils(position), activeSurfaceCount)) {
         throw TraversalException{iteration, TraversalFailureReason::IndexTableConfigurationMismatch};
       }
     }
@@ -389,18 +382,18 @@ void Tracker::initializeTraversalWorkspace(TraversalWorkspaceView& context) cons
       continue;
     }
     const auto measurements = stagedLayerMeasurements[layer];
-    const auto rofBoundaries = mScratch->getROFrameClusters(layer);
-    const auto rofMask = mScratch->getROFViews(layer).mask;
+    const auto rofBoundaries = mFrame->getROFrameClusters(layer);
+    const auto rofMask = mFrame->getROFViews(layer).mask;
     // Orchestration-only users may omit the mask; without it no ROF is reachable.
     if (rofMask.mFlatMask == nullptr || rofMask.mLayerROFOffsets == nullptr) {
       continue;
     }
-    for (int rof = 0; rof < mScratch->getNrof(layer); ++rof) {
-      const auto sorted = mScratch->getClustersOnLayer(rof, layer);
+    for (int rof = 0; rof < mFrame->getNrof(layer); ++rof) {
+      const auto sorted = mFrame->getClustersOnLayer(rof, layer);
       if (sorted.empty()) {
         continue;
       }
-      if (!mScratch->isROFEnabled(layer, rof)) {
+      if (!mFrame->isROFEnabled(layer, rof)) {
         continue;
       }
       const int first = rofBoundaries[rof];
@@ -421,10 +414,8 @@ void Tracker::initializeTraversalWorkspace(TraversalWorkspaceView& context) cons
         }
         seen[localId] = 1;
         const auto& measurement = stagedLayerGlobalMeasurements[layer][clusterId];
-        const int externalIndex = mScratch->getClusterExternalIndex(layer, clusterId);
         if (measurement.surface != orderedSurfaces[layer] || measurement.sourceROF != static_cast<uint32_t>(rof) || !measurement.cluster.isValid() ||
-            externalIndex < 0 ||
-            static_cast<uint32_t>(externalIndex) != measurement.cluster.index) {
+            measurement.cluster.index > static_cast<uint32_t>(std::numeric_limits<int>::max())) {
           throw TraversalException{iteration, TraversalFailureReason::NormalizedMeasurementMismatch};
         }
       }
@@ -576,7 +567,7 @@ TrackingResult Tracker::run(TimeFrame& frame, TrackerTraits& traits)
         memoryPool->setMaxMemory(trkParams[iteration].MaxMemory);
       }
       if (trkParams[iteration].PassFlags[IterationStep::UseUPCMask]) {
-        scratch.useUPCMask();
+        frame.useUPCMask();
       }
 
       auto& workspace = scratch.getTraversalWorkspace(static_cast<std::size_t>(iteration));

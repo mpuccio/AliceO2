@@ -69,7 +69,6 @@
 #include "DataFormatsITSMFT/TopologyDictionary.h"
 #include "DetectorsCommonDataFormats/DetID.h"
 #include "ITSMFTTracking/SurfaceLayout.h"
-#include "ITSMFTTracking/detail/TimeFrameScratch.h"
 #include "ITSMFTTracking/IOUtils.h"
 #include "ITSMFTTracking/SurfaceDescriptor.h"
 #include "ITSMFTTracking/ClusterDecoding.h"
@@ -161,10 +160,14 @@ const TopologyDictionary& dict()
   return d;
 }
 
-void configureScratchFromPlan(TimeFrameScratch& scratch, std::size_t nOwnedSurfaces)
+void configureFrame(TimeFrame& frame, SurfaceCatalogView catalog, gsl::span<const LayerId> orderedSurfaces)
 {
-  scratch.setMemoryPool(std::make_shared<o2::its::BoundedMemoryResource>());
-  scratch.adoptPlan(nOwnedSurfaces, 0, 0);
+  std::vector<SurfaceLayout> layouts;
+  layouts.push_back(catalogGraph(catalog, orderedSurfaces));
+  std::vector<TrackingParameters> parameters(1);
+  std::vector<TrackingWorkspaceCapacity> capacities{{orderedSurfaces.size(), 0, 0}};
+  BOOST_REQUIRE(frame.commitConfiguration(std::move(layouts), std::move(parameters),
+                                          std::move(capacities), std::make_shared<o2::its::BoundedMemoryResource>()));
 }
 
 // Explicit (non-grouped, InvalidPatternID) patterns: header {rowSpan,columnSpan}
@@ -310,16 +313,16 @@ BOOST_AUTO_TEST_CASE(combined_owner_load_keeps_detector_backfills_separate)
   BOOST_REQUIRE(loadTimeFrameSources(frame, gsl::span<const ClusterSourceInput>{sources}, view, {50, 5}).ok());
   BOOST_CHECK_EQUAL(frame.getSurfaceMeasurements(LayerId{0}).size(), 2u);
   BOOST_CHECK_EQUAL(frame.getSurfaceMeasurements(LayerId{static_cast<uint16_t>(ITSNLayers)}).size(), 2u);
-  BOOST_CHECK_EQUAL(frame.getWorkspace().getTotalClusters(), static_cast<int>(its.clusters.size() + mft.clusters.size()));
+  BOOST_CHECK_EQUAL(frame.getTotalClusters(), static_cast<int>(its.clusters.size() + mft.clusters.size()));
   BOOST_CHECK(frame.getGlobalMeasurements(LayerId{0})[0].cluster.source == ClusterSourceId{0});
   BOOST_CHECK(frame.getGlobalMeasurements(LayerId{static_cast<uint16_t>(ITSNLayers)})[0].cluster.source == ClusterSourceId{1});
-  BOOST_CHECK(frame.getWorkspace().getSurfaceSource(0) == ClusterSourceId{0});
-  BOOST_CHECK(frame.getWorkspace().getSurfaceSource(ITSNLayers) == ClusterSourceId{1});
+  BOOST_CHECK(frame.getSurfaceSource(0) == ClusterSourceId{0});
+  BOOST_CHECK(frame.getSurfaceSource(ITSNLayers) == ClusterSourceId{1});
 
   // Frame reset clears the workspace and normalized ownership together.
   frame.resetTimeFrame();
-  BOOST_CHECK(frame.getWorkspace().empty());
-  BOOST_CHECK(!frame.getWorkspace().getSurfaceSource(0));
+  BOOST_CHECK(frame.empty());
+  BOOST_CHECK(!frame.getSurfaceSource(0));
 
   // A malformed replacement is rejected before the no-throw three-owner
   // commit; the still-live MFT scratch and shared normalized owner survive.
@@ -327,9 +330,9 @@ BOOST_AUTO_TEST_CASE(combined_owner_load_keeps_detector_backfills_separate)
   malformedMFT.patterns = {};
   const std::array<ClusterSourceInput, 2> retrySources{itsSource, malformedMFT};
   BOOST_CHECK(!loadTimeFrameSources(frame, gsl::span<const ClusterSourceInput>{retrySources}, view, {50, 5}).ok());
-  BOOST_CHECK(frame.getWorkspace().empty());
+  BOOST_CHECK(frame.empty());
   frame.resetTimeFrame();
-  BOOST_CHECK(frame.getWorkspace().empty());
+  BOOST_CHECK(frame.empty());
 }
 
 template <int NLayers>
@@ -350,63 +353,27 @@ void checkParity(std::vector<SurfaceDescriptor> catalog, const Fixture& f)
 
   TimeFrame frame;
 
-  TimeFrameScratch tf;
-  std::vector<TrackingParameters> noIterations;
   const auto plan = catalogGraph(catalogView, orderedSurfaces);
-  configureScratchFromPlan(tf, plan.getOrderedSurfaces().size());
+  configureFrame(frame, catalogView, orderedSurfaces);
 
-  const auto result = tf.loadNormalizedSource(frame, decoder, origin, timing,
-                                              f.clusters, f.patterns, f.rofs, &dict(), &f.labels, f.detector,
-                                              gsl::span<const LayerId>{plan.getOrderedSurfaces()}, plan.getSurfaceCatalog());
+  const auto result = loadTimeFrameSource(frame, decoder, origin, timing,
+                                          f.clusters, f.patterns, f.rofs, &dict(), &f.labels, f.detector,
+                                          gsl::span<const LayerId>{plan.getOrderedSurfaces()}, plan.getSurfaceCatalog());
   BOOST_REQUIRE(result.ok());
 
-  // --- cluster counts per legacy layer == normalized surface (identity layout) ---
+  // --- cluster counts per normalized surface (identity layout) ---
   BOOST_CHECK_EQUAL(frame.getSurfaceMeasurements(LayerId{0}).size(), 2u); // clusters 0,2
   BOOST_CHECK_EQUAL(frame.getSurfaceMeasurements(LayerId{1}).size(), 1u); // cluster 1
   BOOST_CHECK_EQUAL(frame.getSurfaceMeasurements(LayerId{2}).size(), 1u); // cluster 3
-  BOOST_CHECK_EQUAL(tf.getUnsortedClustersOnLayer(0, 0).size() + tf.getUnsortedClustersOnLayer(1, 0).size(), 2u);
-  BOOST_CHECK_EQUAL(tf.getUnsortedClustersOnLayer(0, 1).size(), 1u);
-  BOOST_CHECK_EQUAL(tf.getUnsortedClustersOnLayer(2, 2).size(), 1u);
-
-  // loadROFrameData() has always sized mNTrackletsPerCluster/
-  // mNTrackletsPerClusterSum (both 2-element, not per-layer, consumed by
-  // computeTrackletsPerROFScans() on the CA hot path) from layer 1's total
-  // cluster count; loadNormalizedSource() must do the same, or a TF loaded
-  // through this path would silently carry stale/empty tracklet-per-cluster
-  // scratch into tracking.
-  const auto nClustersLayer1 = tf.mUnsortedClusters[1].size();
-  for (int i = 0; i < 2; ++i) {
-    BOOST_CHECK_EQUAL(tf.mNTrackletsPerCluster[i].size(), nClustersLayer1);
-    BOOST_CHECK_EQUAL(tf.mNTrackletsPerClusterSum[i].size(), nClustersLayer1 + 1);
-  }
   for (int l = 3; l < NLayers; ++l) {
     BOOST_CHECK_EQUAL(frame.getSurfaceMeasurements(LayerId{static_cast<uint16_t>(l)}).size(), 0u);
-    BOOST_CHECK_EQUAL(tf.getNrof(l), static_cast<int>(f.rofs.size()));
+    BOOST_CHECK_EQUAL(frame.getNrof(l), static_cast<int>(f.rofs.size()));
   }
 
-  // --- per-ROF counts in the legacy compatibility structure ---
-  BOOST_CHECK_EQUAL(tf.getNrof(0), static_cast<int>(f.rofs.size()));
+  BOOST_CHECK_EQUAL(frame.getNrof(0), static_cast<int>(f.rofs.size()));
 
   for (const auto& e : expectedClusters) {
-    // Find this cluster on its expected layer via the legacy unsorted-cluster
-    // accessor (using cumulative ROF boundaries to scan every ROF on that layer).
-    const o2::its::Cluster* legacyCluster = nullptr;
-    int clId = -1;
-    for (int rof = 0; rof < tf.getNrof(e.layer); ++rof) {
-      for (const auto& c : tf.getUnsortedClustersOnLayer(rof, e.layer)) {
-        if (tf.getClusterExternalIndex(e.layer, c.clusterId) == static_cast<int>(e.externalIndex)) {
-          legacyCluster = &c;
-          clId = c.clusterId;
-          break;
-        }
-      }
-      if (legacyCluster != nullptr) {
-        break;
-      }
-    }
-    BOOST_REQUIRE(legacyCluster != nullptr);
-
-    // Find the matching normalized measurement independently.
+    // Find the matching normalized measurement.
     const GlobalMeasurement* globalMeasurement = nullptr;
     const SurfaceMeasurement* measurement = nullptr;
     const auto surface = LayerId{static_cast<uint16_t>(e.layer)};
@@ -422,51 +389,32 @@ void checkParity(std::vector<SurfaceDescriptor> catalog, const Fixture& f)
     BOOST_REQUIRE(globalMeasurement != nullptr);
     BOOST_REQUIRE(measurement != nullptr);
 
-    // --- global position: legacy accessor vs. normalized owner vs. independently expected ---
+    // --- global position ---
     const auto g = expectedGlobal(e.sensorID, e.row, e.col);
-    BOOST_CHECK_EQUAL(legacyCluster->xCoordinate, g.x);
-    BOOST_CHECK_EQUAL(legacyCluster->yCoordinate, g.y);
-    BOOST_CHECK_EQUAL(legacyCluster->zCoordinate, g.z);
     BOOST_CHECK_EQUAL(globalMeasurement->position.x, g.x);
     BOOST_CHECK_EQUAL(globalMeasurement->position.y, g.y);
     BOOST_CHECK_EQUAL(globalMeasurement->position.z, g.z);
 
-    // --- tracking-frame coordinates and covariance: legacy TrackingFrameInfo vs. normalized owner ---
-    const auto& tfInfo = tf.getClusterTrackingFrameInfo(e.layer, *legacyCluster);
-    BOOST_CHECK_EQUAL(tfInfo.xCoordinate, g.x);
-    BOOST_CHECK_EQUAL(tfInfo.yCoordinate, g.y);
-    BOOST_CHECK_EQUAL(tfInfo.zCoordinate, g.z);
+    // --- tracking-frame coordinates and covariance ---
     if (f.disk) {
-      // Established synthetic legacy MFT representation: global position +
-      // row/column covariance, never disk-frame (z,x,y) coordinates.
-      BOOST_CHECK_EQUAL(tfInfo.xTrackingFrame, g.x);
-      BOOST_CHECK_EQUAL(tfInfo.alphaTrackingFrame, 0.f);
-      BOOST_CHECK_EQUAL(tfInfo.positionTrackingFrame[0], g.y);
-      BOOST_CHECK_EQUAL(tfInfo.positionTrackingFrame[1], g.z);
+      BOOST_CHECK_EQUAL(measurement->frame.q, g.z);
+      BOOST_CHECK_EQUAL(measurement->frame.u, g.x);
+      BOOST_CHECK_EQUAL(measurement->frame.v, g.y);
     } else {
-      BOOST_CHECK_EQUAL(tfInfo.xTrackingFrame, static_cast<float>(e.sensorID) + 100.f);
-      BOOST_CHECK_EQUAL(tfInfo.alphaTrackingFrame, 0.01f * e.sensorID);
-      BOOST_CHECK_EQUAL(tfInfo.positionTrackingFrame[0], static_cast<float>(e.row) + 1.f);
-      BOOST_CHECK_EQUAL(tfInfo.positionTrackingFrame[1], static_cast<float>(e.col) + 2.f);
-      // The normalized owner's cylinder frame carries the identical q/u/v/frameAngle.
-      BOOST_CHECK_EQUAL(measurement->frame.q, tfInfo.xTrackingFrame);
-      BOOST_CHECK_EQUAL(measurement->frame.u, tfInfo.positionTrackingFrame[0]);
-      BOOST_CHECK_EQUAL(measurement->frame.v, tfInfo.positionTrackingFrame[1]);
-      BOOST_CHECK_EQUAL(measurement->frame.frameAngle, tfInfo.alphaTrackingFrame);
+      BOOST_CHECK_EQUAL(measurement->frame.q, static_cast<float>(e.sensorID) + 100.f);
+      BOOST_CHECK_EQUAL(measurement->frame.u, static_cast<float>(e.row) + 1.f);
+      BOOST_CHECK_EQUAL(measurement->frame.v, static_cast<float>(e.col) + 2.f);
+      BOOST_CHECK_EQUAL(measurement->frame.frameAngle, 0.01f * e.sensorID);
     }
     // With CompCluster::InvalidPatternID, extractClusterData always returns
     // the fixed default half-pixel covariance regardless of pattern shape or
     // detector -- the same constants the legacy per-detector loaders fall
     // back to.
-    BOOST_CHECK_EQUAL(tfInfo.covarianceTrackingFrame[0], o2::itsmft::ioutils::DefClusError2Row);
-    BOOST_CHECK_EQUAL(tfInfo.covarianceTrackingFrame[1], 0.f);
-    BOOST_CHECK_EQUAL(tfInfo.covarianceTrackingFrame[2], o2::itsmft::ioutils::DefClusError2Col);
     BOOST_CHECK_EQUAL(measurement->covariance.uu, o2::itsmft::ioutils::DefClusError2Row);
     BOOST_CHECK_EQUAL(measurement->covariance.uv, 0.f);
     BOOST_CHECK_EQUAL(measurement->covariance.vv, o2::itsmft::ioutils::DefClusError2Col);
 
     // --- external indices and source-qualified references ---
-    BOOST_CHECK_EQUAL(tf.getClusterExternalIndex(e.layer, clId), static_cast<int>(e.externalIndex));
     BOOST_CHECK_EQUAL(globalMeasurement->cluster.index, e.externalIndex);
     BOOST_CHECK(globalMeasurement->cluster.source == kSourceId);
     BOOST_CHECK(globalMeasurement->sensor.detector == static_cast<uint32_t>(f.detector));
@@ -474,42 +422,17 @@ void checkParity(std::vector<SurfaceDescriptor> catalog, const Fixture& f)
     BOOST_CHECK(globalMeasurement->surface == LayerId{static_cast<uint16_t>(e.layer)});
     BOOST_CHECK_EQUAL(globalMeasurement->sourceROF, e.sourceROF);
 
-    // --- cluster shape / sizes: legacy vs. normalized, explicit pattern consumed exactly once ---
-    BOOST_CHECK_EQUAL(static_cast<uint32_t>(tf.getClusterSize(e.layer, clId)), e.nPixels);
+    // --- cluster shape / sizes: explicit pattern consumed exactly once ---
     BOOST_CHECK_EQUAL(globalMeasurement->shape.nPixels, e.nPixels);
     BOOST_CHECK_EQUAL(globalMeasurement->shape.rowSpan, e.rowSpan);
     BOOST_CHECK_EQUAL(globalMeasurement->shape.columnSpan, e.columnSpan);
 
-    // --- labels: legacy lookup vs. normalized ClusterRef lookup ---
-    const auto legacyLabels = tf.getClusterLabels(e.layer, clId);
+    // --- labels ---
     const auto normalizedLabels = frame.getLabels(ClusterRef{kSourceId, e.externalIndex});
-    BOOST_REQUIRE_EQUAL(legacyLabels.size(), 1u);
     BOOST_REQUIRE_EQUAL(normalizedLabels.size(), 1u);
-    BOOST_CHECK(legacyLabels[0] == normalizedLabels[0]);
-    BOOST_CHECK(legacyLabels[0] == o2::MCCompLabel(static_cast<int>(e.externalIndex) + 1, 0, 0));
+    BOOST_CHECK(normalizedLabels[0] == o2::MCCompLabel(static_cast<int>(e.externalIndex) + 1, 0, 0));
   }
 }
-
-// A caller can no longer supply an unrelated topology view or
-// layer-to-surface mapping by API construction: taking the current member
-// function's address is unambiguous (there is exactly one overload), so
-// checking its invocability against the removed Gate 1 argument list proves
-// the parameters are gone from the signature itself, not merely unused.
-static_assert(!std::is_invocable_v<decltype(&TimeFrameScratch::loadNormalizedSource),
-                                   TimeFrameScratch&,
-                                   TimeFrame&,
-                                   const TraversalTopologyView&,
-                                   gsl::span<const LayerId>,
-                                   const ClusterDecoder&,
-                                   const o2::InteractionRecord&,
-                                   const ROFTimingConfig&,
-                                   gsl::span<const o2::itsmft::CompClusterExt>,
-                                   gsl::span<const unsigned char>,
-                                   gsl::span<const o2::itsmft::ROFRecord>,
-                                   const o2::itsmft::TopologyDictionary*,
-                                   const o2::dataformats::MCTruthContainer<o2::MCCompLabel>*,
-                                   o2::detectors::DetID::ID>,
-              "loadNormalizedSource must no longer accept an externally supplied layout or layer-to-surface mapping");
 
 } // namespace
 
@@ -531,16 +454,14 @@ BOOST_AUTO_TEST_CASE(EmptyInputsAreLegalForBothDetectors)
     const SurfaceCatalogView catalogView{catalog.data(), static_cast<uint32_t>(catalog.size())};
     LegacyLikeDecoder decoder{o2::detectors::DetID::ITS, false};
     TimeFrame frame;
-    TimeFrameScratch tf;
-    std::vector<TrackingParameters> noIterations;
     const auto plan = catalogGraph(catalogView, identitySurfaces(ITSNLayers));
-    configureScratchFromPlan(tf, plan.getOrderedSurfaces().size());
-    const auto result = tf.loadNormalizedSource(frame, decoder, {0, 0},
-                                                ROFTimingConfig{40, 0, 0, 0}, {}, {}, {}, &dict(), nullptr, o2::detectors::DetID::ITS,
-                                                gsl::span<const LayerId>{orderedSurfaces}, plan.getSurfaceCatalog());
+    configureFrame(frame, catalogView, plan.getOrderedSurfaces());
+    const auto result = loadTimeFrameSource(frame, decoder, {0, 0},
+                                            ROFTimingConfig{40, 0, 0, 0}, {}, {}, {}, &dict(), nullptr, o2::detectors::DetID::ITS,
+                                            gsl::span<const LayerId>{orderedSurfaces}, plan.getSurfaceCatalog());
     BOOST_CHECK(result.ok());
     BOOST_CHECK_EQUAL(frame.getTotalMeasurements(), 0u);
-    BOOST_CHECK_EQUAL(tf.getNrof(0), 0);
+    BOOST_CHECK_EQUAL(frame.getNrof(0), 0);
   }
   {
     const auto orderedSurfaces = identitySurfaces(MFTNLayers);
@@ -548,24 +469,19 @@ BOOST_AUTO_TEST_CASE(EmptyInputsAreLegalForBothDetectors)
     const SurfaceCatalogView catalogView{catalog.data(), static_cast<uint32_t>(catalog.size())};
     LegacyLikeDecoder decoder{o2::detectors::DetID::MFT, true};
     TimeFrame frame;
-    TimeFrameScratch tf;
-    std::vector<TrackingParameters> noIterations;
     const auto plan = catalogGraph(catalogView, identitySurfaces(MFTNLayers));
-    configureScratchFromPlan(tf, plan.getOrderedSurfaces().size());
-    const auto result = tf.loadNormalizedSource(frame, decoder, {0, 0},
-                                                ROFTimingConfig{40, 0, 0, 0}, {}, {}, {}, &dict(), nullptr, o2::detectors::DetID::MFT,
-                                                gsl::span<const LayerId>{orderedSurfaces}, plan.getSurfaceCatalog());
+    configureFrame(frame, catalogView, plan.getOrderedSurfaces());
+    const auto result = loadTimeFrameSource(frame, decoder, {0, 0},
+                                            ROFTimingConfig{40, 0, 0, 0}, {}, {}, {}, &dict(), nullptr, o2::detectors::DetID::MFT,
+                                            gsl::span<const LayerId>{orderedSurfaces}, plan.getSurfaceCatalog());
     BOOST_CHECK(result.ok());
     BOOST_CHECK_EQUAL(frame.getTotalMeasurements(), 0u);
-    BOOST_CHECK_EQUAL(tf.getNrof(0), 0);
+    BOOST_CHECK_EQUAL(frame.getNrof(0), 0);
   }
 }
 
-// Focused test: a canonical catalog configured with zero tracking iterations
-// (no tracking layout ever committed) must still support normalized loading --
-// loadNormalizedSource() never selects or requires any tracking-iteration
-// layout.
-BOOST_AUTO_TEST_CASE(ZeroIterationCatalogOnlyLoadingSucceeds)
+// A configured frame owns both its catalog/layout and normalized event data.
+BOOST_AUTO_TEST_CASE(ConfiguredCatalogLoadingSucceeds)
 {
   const auto orderedSurfaces = identitySurfaces(ITSNLayers);
   const auto catalog = makeITSTestCatalog();
@@ -573,23 +489,21 @@ BOOST_AUTO_TEST_CASE(ZeroIterationCatalogOnlyLoadingSucceeds)
 
   TimeFrame frame;
 
-  TimeFrameScratch tf;
-  std::vector<TrackingParameters> noIterations;
   const auto plan = catalogGraph(catalogView, orderedSurfaces);
-  configureScratchFromPlan(tf, plan.getOrderedSurfaces().size());
-  BOOST_CHECK_EQUAL(frame.getNIterations(), 0u);
+  configureFrame(frame, catalogView, plan.getOrderedSurfaces());
+  BOOST_CHECK_EQUAL(frame.getNIterations(), 1u);
 
   LegacyLikeDecoder decoder{o2::detectors::DetID::ITS, false};
   const std::vector<CompClusterExt> clusters{{1, 1, CompCluster::InvalidPatternID, 0}};
   const auto patterns = std::vector<unsigned char>(onePixelPattern.begin(), onePixelPattern.end());
   const std::vector<ROFRecord> rofs{ROFRecord{{0, 0}, 0, 0, 1}};
 
-  const auto result = tf.loadNormalizedSource(frame, decoder, {0, 0}, ROFTimingConfig{40, 0, 0, 0},
-                                              clusters, patterns, rofs, &dict(), nullptr, o2::detectors::DetID::ITS,
-                                              gsl::span<const LayerId>{plan.getOrderedSurfaces()}, plan.getSurfaceCatalog());
+  const auto result = loadTimeFrameSource(frame, decoder, {0, 0}, ROFTimingConfig{40, 0, 0, 0},
+                                          clusters, patterns, rofs, &dict(), nullptr, o2::detectors::DetID::ITS,
+                                          gsl::span<const LayerId>{plan.getOrderedSurfaces()}, plan.getSurfaceCatalog());
   BOOST_CHECK(result.ok());
   BOOST_CHECK_EQUAL(frame.getTotalMeasurements(), 1u);
-  BOOST_CHECK_EQUAL(tf.getUnsortedClustersOnLayer(0, 0).size(), 1u);
+  BOOST_CHECK_EQUAL(frame.getGlobalMeasurements(LayerId{0}).size(), 1u);
 }
 
 BOOST_AUTO_TEST_CASE(NeverConfiguredCatalogIsRejected)
@@ -598,15 +512,14 @@ BOOST_AUTO_TEST_CASE(NeverConfiguredCatalogIsRejected)
   // configured" is now expressed by the caller passing an empty/default
   // SurfaceCatalogView explicitly, not by TimeFrame's own internal state.
   TimeFrame frame;
-  TimeFrameScratch tf;
   LegacyLikeDecoder decoder{o2::detectors::DetID::ITS, false};
   const std::vector<CompClusterExt> clusters{{1, 1, CompCluster::InvalidPatternID, 0}};
   const auto patterns = std::vector<unsigned char>(onePixelPattern.begin(), onePixelPattern.end());
   const std::vector<ROFRecord> rofs{ROFRecord{{0, 0}, 0, 0, 1}};
 
-  const auto result = tf.loadNormalizedSource(frame, decoder, {0, 0}, ROFTimingConfig{40, 0, 0, 0},
-                                              clusters, patterns, rofs, &dict(), nullptr, o2::detectors::DetID::ITS,
-                                              gsl::span<const LayerId>{}, SurfaceCatalogView{});
+  const auto result = loadTimeFrameSource(frame, decoder, {0, 0}, ROFTimingConfig{40, 0, 0, 0},
+                                          clusters, patterns, rofs, &dict(), nullptr, o2::detectors::DetID::ITS,
+                                          gsl::span<const LayerId>{}, SurfaceCatalogView{});
   BOOST_CHECK(!result.ok());
   BOOST_CHECK(result.error == MultiSourceLoadError::SurfaceCatalogNotConfigured);
   BOOST_CHECK(result.source == ClusterSourceId{0});
@@ -643,19 +556,17 @@ BOOST_AUTO_TEST_CASE(CatalogRequestDetectorMismatchIsRejected)
 
   TimeFrame frame;
 
-  TimeFrameScratch tf;
-  std::vector<TrackingParameters> noIterations;
   const auto plan = catalogGraph(catalogView, orderedSurfaces);
-  configureScratchFromPlan(tf, plan.getOrderedSurfaces().size());
+  configureFrame(frame, catalogView, plan.getOrderedSurfaces());
 
   LegacyLikeDecoder decoder{o2::detectors::DetID::ITS, false};
   const std::vector<CompClusterExt> clusters{{1, 1, CompCluster::InvalidPatternID, 0}};
   const auto patterns = std::vector<unsigned char>(onePixelPattern.begin(), onePixelPattern.end());
   const std::vector<ROFRecord> rofs{ROFRecord{{0, 0}, 0, 0, 1}};
 
-  const auto result = tf.loadNormalizedSource(frame, decoder, {0, 0}, ROFTimingConfig{40, 0, 0, 0},
-                                              clusters, patterns, rofs, &dict(), nullptr, o2::detectors::DetID::ITS,
-                                              gsl::span<const LayerId>{plan.getOrderedSurfaces()}, plan.getSurfaceCatalog());
+  const auto result = loadTimeFrameSource(frame, decoder, {0, 0}, ROFTimingConfig{40, 0, 0, 0},
+                                          clusters, patterns, rofs, &dict(), nullptr, o2::detectors::DetID::ITS,
+                                          gsl::span<const LayerId>{plan.getOrderedSurfaces()}, plan.getSurfaceCatalog());
   BOOST_CHECK(!result.ok());
   BOOST_CHECK(result.error == MultiSourceLoadError::DetectorSurfaceMismatch);
   BOOST_CHECK_EQUAL(frame.getTotalMeasurements(), 0u);
@@ -670,15 +581,14 @@ BOOST_AUTO_TEST_CASE(CatalogRequestDetectorMismatchIsRejected)
 BOOST_AUTO_TEST_CASE(UnsupportedDetectorWinsOverSharedNLayers)
 {
   TimeFrame frame;
-  TimeFrameScratch tf;
   LegacyLikeDecoder decoder{o2::detectors::DetID::TPC, false};
   const std::vector<CompClusterExt> clusters{{1, 1, CompCluster::InvalidPatternID, 0}};
   const auto patterns = std::vector<unsigned char>(onePixelPattern.begin(), onePixelPattern.end());
   const std::vector<ROFRecord> rofs{ROFRecord{{0, 0}, 0, 0, 1}};
 
-  const auto result = tf.loadNormalizedSource(frame, decoder, {0, 0}, ROFTimingConfig{40, 0, 0, 0},
-                                              clusters, patterns, rofs, &dict(), nullptr, o2::detectors::DetID::TPC,
-                                              gsl::span<const LayerId>{}, SurfaceCatalogView{});
+  const auto result = loadTimeFrameSource(frame, decoder, {0, 0}, ROFTimingConfig{40, 0, 0, 0},
+                                          clusters, patterns, rofs, &dict(), nullptr, o2::detectors::DetID::TPC,
+                                          gsl::span<const LayerId>{}, SurfaceCatalogView{});
   BOOST_CHECK(!result.ok());
   BOOST_CHECK(result.error == MultiSourceLoadError::UnsupportedDetector);
   BOOST_CHECK(result.source == ClusterSourceId{0});
@@ -691,15 +601,14 @@ BOOST_AUTO_TEST_CASE(UnsupportedDetectorWinsOverSharedNLayers)
 BOOST_AUTO_TEST_CASE(SupportedDetectorRequiresConfiguredSurfacePlan)
 {
   TimeFrame frame;
-  TimeFrameScratch tf;
   LegacyLikeDecoder decoder{o2::detectors::DetID::MFT, true};
   const std::vector<CompClusterExt> clusters{{1, 1, CompCluster::InvalidPatternID, 0}};
   const auto patterns = std::vector<unsigned char>(onePixelPattern.begin(), onePixelPattern.end());
   const std::vector<ROFRecord> rofs{ROFRecord{{0, 0}, 0, 0, 1}};
 
-  const auto result = tf.loadNormalizedSource(frame, decoder, {0, 0}, ROFTimingConfig{40, 0, 0, 0},
-                                              clusters, patterns, rofs, &dict(), nullptr, o2::detectors::DetID::MFT,
-                                              gsl::span<const LayerId>{}, SurfaceCatalogView{});
+  const auto result = loadTimeFrameSource(frame, decoder, {0, 0}, ROFTimingConfig{40, 0, 0, 0},
+                                          clusters, patterns, rofs, &dict(), nullptr, o2::detectors::DetID::MFT,
+                                          gsl::span<const LayerId>{}, SurfaceCatalogView{});
   BOOST_CHECK(!result.ok());
   BOOST_CHECK(result.error == MultiSourceLoadError::SurfaceCatalogNotConfigured);
   BOOST_CHECK_EQUAL(frame.getTotalMeasurements(), 0u);
@@ -716,21 +625,19 @@ BOOST_AUTO_TEST_CASE(WrongMappingCardinalityIsRejected)
 
   TimeFrame frame;
 
-  TimeFrameScratch tf;
-  std::vector<TrackingParameters> noIterations;
   const auto plan = catalogGraph(catalogView, shortOrderedSurfaces);
   // The scratch is intentionally configured for the canonical seven-surface
   // ITS plan; the six-surface mapping below must therefore be rejected.
-  configureScratchFromPlan(tf, catalog.size());
+  configureFrame(frame, catalogView, identitySurfaces(ITSNLayers));
 
   LegacyLikeDecoder decoder{o2::detectors::DetID::ITS, false};
   const std::vector<CompClusterExt> clusters{{1, 1, CompCluster::InvalidPatternID, 0}};
   const auto patterns = std::vector<unsigned char>(onePixelPattern.begin(), onePixelPattern.end());
   const std::vector<ROFRecord> rofs{ROFRecord{{0, 0}, 0, 0, 1}};
 
-  const auto result = tf.loadNormalizedSource(frame, decoder, {0, 0}, ROFTimingConfig{40, 0, 0, 0},
-                                              clusters, patterns, rofs, &dict(), nullptr, o2::detectors::DetID::ITS,
-                                              gsl::span<const LayerId>{plan.getOrderedSurfaces()}, plan.getSurfaceCatalog());
+  const auto result = loadTimeFrameSource(frame, decoder, {0, 0}, ROFTimingConfig{40, 0, 0, 0},
+                                          clusters, patterns, rofs, &dict(), nullptr, o2::detectors::DetID::ITS,
+                                          gsl::span<const LayerId>{plan.getOrderedSurfaces()}, plan.getSurfaceCatalog());
   BOOST_CHECK(!result.ok());
   BOOST_CHECK(result.error == MultiSourceLoadError::InvalidLayerMapping);
 }
@@ -744,18 +651,16 @@ BOOST_AUTO_TEST_CASE(InvalidOrOutOfRangeMappedSurfaceIsRejected)
     const auto catalog = makeITSTestCatalog();
     const SurfaceCatalogView catalogView{catalog.data(), static_cast<uint32_t>(catalog.size())};
     TimeFrame frame;
-    TimeFrameScratch tf;
-    std::vector<TrackingParameters> noIterations;
     const auto plan = catalogGraph(catalogView, identitySurfaces(ITSNLayers));
-    configureScratchFromPlan(tf, plan.getOrderedSurfaces().size());
+    configureFrame(frame, catalogView, plan.getOrderedSurfaces());
 
     LegacyLikeDecoder decoder{o2::detectors::DetID::ITS, false};
     const std::vector<CompClusterExt> clusters{{1, 1, CompCluster::InvalidPatternID, 0}};
     const auto patterns = std::vector<unsigned char>(onePixelPattern.begin(), onePixelPattern.end());
     const std::vector<ROFRecord> rofs{ROFRecord{{0, 0}, 0, 0, 1}};
-    const auto result = tf.loadNormalizedSource(frame, decoder, {0, 0}, ROFTimingConfig{40, 0, 0, 0},
-                                                clusters, patterns, rofs, &dict(), nullptr, o2::detectors::DetID::ITS,
-                                                gsl::span<const LayerId>{orderedSurfaces}, plan.getSurfaceCatalog());
+    const auto result = loadTimeFrameSource(frame, decoder, {0, 0}, ROFTimingConfig{40, 0, 0, 0},
+                                            clusters, patterns, rofs, &dict(), nullptr, o2::detectors::DetID::ITS,
+                                            gsl::span<const LayerId>{orderedSurfaces}, plan.getSurfaceCatalog());
     BOOST_CHECK(!result.ok());
     BOOST_CHECK(result.error == MultiSourceLoadError::InvalidLayerMapping);
   }
@@ -766,18 +671,16 @@ BOOST_AUTO_TEST_CASE(InvalidOrOutOfRangeMappedSurfaceIsRejected)
     const auto catalog = makeITSTestCatalog();
     const SurfaceCatalogView catalogView{catalog.data(), static_cast<uint32_t>(catalog.size())};
     TimeFrame frame;
-    TimeFrameScratch tf;
-    std::vector<TrackingParameters> noIterations;
     const auto plan = catalogGraph(catalogView, identitySurfaces(ITSNLayers));
-    configureScratchFromPlan(tf, plan.getOrderedSurfaces().size());
+    configureFrame(frame, catalogView, plan.getOrderedSurfaces());
 
     LegacyLikeDecoder decoder{o2::detectors::DetID::ITS, false};
     const std::vector<CompClusterExt> clusters{{1, 1, CompCluster::InvalidPatternID, 0}};
     const auto patterns = std::vector<unsigned char>(onePixelPattern.begin(), onePixelPattern.end());
     const std::vector<ROFRecord> rofs{ROFRecord{{0, 0}, 0, 0, 1}};
-    const auto result = tf.loadNormalizedSource(frame, decoder, {0, 0}, ROFTimingConfig{40, 0, 0, 0},
-                                                clusters, patterns, rofs, &dict(), nullptr, o2::detectors::DetID::ITS,
-                                                gsl::span<const LayerId>{orderedSurfaces}, plan.getSurfaceCatalog());
+    const auto result = loadTimeFrameSource(frame, decoder, {0, 0}, ROFTimingConfig{40, 0, 0, 0},
+                                            clusters, patterns, rofs, &dict(), nullptr, o2::detectors::DetID::ITS,
+                                            gsl::span<const LayerId>{orderedSurfaces}, plan.getSurfaceCatalog());
     BOOST_CHECK(!result.ok());
     BOOST_CHECK(result.error == MultiSourceLoadError::InvalidLayerMapping);
   }
@@ -792,19 +695,17 @@ BOOST_AUTO_TEST_CASE(DuplicateMappedSurfaceIsRejected)
 
   TimeFrame frame;
 
-  TimeFrameScratch tf;
-  std::vector<TrackingParameters> noIterations;
   const auto plan = catalogGraph(catalogView, identitySurfaces(ITSNLayers));
-  configureScratchFromPlan(tf, plan.getOrderedSurfaces().size());
+  configureFrame(frame, catalogView, plan.getOrderedSurfaces());
 
   LegacyLikeDecoder decoder{o2::detectors::DetID::ITS, false};
   const std::vector<CompClusterExt> clusters{{1, 1, CompCluster::InvalidPatternID, 0}};
   const auto patterns = std::vector<unsigned char>(onePixelPattern.begin(), onePixelPattern.end());
   const std::vector<ROFRecord> rofs{ROFRecord{{0, 0}, 0, 0, 1}};
 
-  const auto result = tf.loadNormalizedSource(frame, decoder, {0, 0}, ROFTimingConfig{40, 0, 0, 0},
-                                              clusters, patterns, rofs, &dict(), nullptr, o2::detectors::DetID::ITS,
-                                              gsl::span<const LayerId>{orderedSurfaces}, plan.getSurfaceCatalog());
+  const auto result = loadTimeFrameSource(frame, decoder, {0, 0}, ROFTimingConfig{40, 0, 0, 0},
+                                          clusters, patterns, rofs, &dict(), nullptr, o2::detectors::DetID::ITS,
+                                          gsl::span<const LayerId>{orderedSurfaces}, plan.getSurfaceCatalog());
   BOOST_CHECK(!result.ok());
   BOOST_CHECK(result.error == MultiSourceLoadError::InvalidLayerMapping);
 }
@@ -837,19 +738,17 @@ BOOST_AUTO_TEST_CASE(MappedDescriptorDetectorMismatchIsRejected)
 
   TimeFrame frame;
 
-  TimeFrameScratch tf;
-  std::vector<TrackingParameters> noIterations;
   const auto plan = catalogGraph(catalogView, orderedSurfaces);
-  configureScratchFromPlan(tf, plan.getOrderedSurfaces().size());
+  configureFrame(frame, catalogView, plan.getOrderedSurfaces());
 
   LegacyLikeDecoder decoder{o2::detectors::DetID::ITS, false};
   const std::vector<CompClusterExt> clusters{{1, 1, CompCluster::InvalidPatternID, 0}};
   const auto patterns = std::vector<unsigned char>(onePixelPattern.begin(), onePixelPattern.end());
   const std::vector<ROFRecord> rofs{ROFRecord{{0, 0}, 0, 0, 1}};
 
-  const auto result = tf.loadNormalizedSource(frame, decoder, {0, 0}, ROFTimingConfig{40, 0, 0, 0},
-                                              clusters, patterns, rofs, &dict(), nullptr, o2::detectors::DetID::ITS,
-                                              gsl::span<const LayerId>{plan.getOrderedSurfaces()}, plan.getSurfaceCatalog());
+  const auto result = loadTimeFrameSource(frame, decoder, {0, 0}, ROFTimingConfig{40, 0, 0, 0},
+                                          clusters, patterns, rofs, &dict(), nullptr, o2::detectors::DetID::ITS,
+                                          gsl::span<const LayerId>{plan.getOrderedSurfaces()}, plan.getSurfaceCatalog());
   BOOST_CHECK(!result.ok());
   BOOST_CHECK(result.error == MultiSourceLoadError::DetectorSurfaceMismatch);
 }
@@ -864,10 +763,8 @@ BOOST_AUTO_TEST_CASE(FailedNormalizedLoadLeavesBothRepresentationsUnchanged)
 
   TimeFrame frame;
 
-  TimeFrameScratch tf;
-  std::vector<TrackingParameters> noIterations;
   const auto plan = catalogGraph(catalogView, orderedSurfaces);
-  configureScratchFromPlan(tf, plan.getOrderedSurfaces().size());
+  configureFrame(frame, catalogView, plan.getOrderedSurfaces());
   const gsl::span<const LayerId> planOrderedSurfaces{plan.getOrderedSurfaces()};
 
   // First, a valid baseline load to give the TimeFrame real content in both
@@ -876,14 +773,14 @@ BOOST_AUTO_TEST_CASE(FailedNormalizedLoadLeavesBothRepresentationsUnchanged)
   const auto goodPatterns = std::vector<unsigned char>(onePixelPattern.begin(), onePixelPattern.end());
   const std::vector<ROFRecord> goodRofs{ROFRecord{{0, 0}, 0, 0, 1}};
 
-  const auto baseline = tf.loadNormalizedSource(frame, decoder, {0, 0},
-                                                timing, goodClusters, goodPatterns, goodRofs, &dict(), nullptr, o2::detectors::DetID::ITS,
-                                                planOrderedSurfaces, plan.getSurfaceCatalog());
+  const auto baseline = loadTimeFrameSource(frame, decoder, {0, 0},
+                                            timing, goodClusters, goodPatterns, goodRofs, &dict(), nullptr, o2::detectors::DetID::ITS,
+                                            planOrderedSurfaces, plan.getSurfaceCatalog());
   BOOST_REQUIRE(baseline.ok());
   BOOST_REQUIRE_EQUAL(frame.getTotalMeasurements(), 1u);
-  BOOST_REQUIRE_EQUAL(tf.getUnsortedClustersOnLayer(0, 0).size(), 1u);
-  BOOST_REQUIRE_EQUAL(tf.getNrof(0), 1);
-  BOOST_REQUIRE(tf.getSurfaceSource(0) == ClusterSourceId{0});
+  BOOST_REQUIRE_EQUAL(frame.getGlobalMeasurements(LayerId{0}).size(), 1u);
+  BOOST_REQUIRE_EQUAL(frame.getNrof(0), 1);
+  BOOST_REQUIRE(frame.getSurfaceSource(0) == ClusterSourceId{0});
 
   // Then a malformed ROF partition (leading gap): firstEntry != 0. This
   // fails inside loadSources() itself, after the preflight above has passed.
@@ -891,19 +788,19 @@ BOOST_AUTO_TEST_CASE(FailedNormalizedLoadLeavesBothRepresentationsUnchanged)
   const auto badPatterns = std::vector<unsigned char>(onePixelPattern.begin(), onePixelPattern.end());
   const std::vector<ROFRecord> badRofs{ROFRecord{{0, 0}, 0, 1, 1}}; // gap: cluster 0 unreferenced
 
-  const auto failed = tf.loadNormalizedSource(frame, decoder, {0, 0},
-                                              timing, badClusters, badPatterns, badRofs, &dict(), nullptr, o2::detectors::DetID::ITS,
-                                              planOrderedSurfaces, plan.getSurfaceCatalog());
+  const auto failed = loadTimeFrameSource(frame, decoder, {0, 0},
+                                          timing, badClusters, badPatterns, badRofs, &dict(), nullptr, o2::detectors::DetID::ITS,
+                                          planOrderedSurfaces, plan.getSurfaceCatalog());
   BOOST_CHECK(!failed.ok());
   BOOST_CHECK(failed.error == MultiSourceLoadError::InvalidROFRange);
 
   // Both the normalized owner and the legacy compatibility structures retain
   // exactly their pre-failure (baseline) content.
   BOOST_CHECK_EQUAL(frame.getTotalMeasurements(), 1u);
-  BOOST_CHECK_EQUAL(tf.getUnsortedClustersOnLayer(0, 0).size(), 1u);
-  BOOST_CHECK_EQUAL(tf.getNrof(0), 1);
-  BOOST_CHECK_EQUAL(tf.getClusterExternalIndex(0, 0), 0);
-  BOOST_CHECK(tf.getSurfaceSource(0) == ClusterSourceId{0});
+  BOOST_CHECK_EQUAL(frame.getGlobalMeasurements(LayerId{0}).size(), 1u);
+  BOOST_CHECK_EQUAL(frame.getNrof(0), 1);
+  BOOST_CHECK_EQUAL(frame.getGlobalMeasurements(LayerId{0})[0].cluster.index, 0);
+  BOOST_CHECK(frame.getSurfaceSource(0) == ClusterSourceId{0});
 }
 
 // Every preflight failure -- not only a loadSources()-internal one -- must
@@ -927,31 +824,29 @@ BOOST_AUTO_TEST_CASE(PreflightFailureAfterBaselineLoadPreservesState)
 
   TimeFrame frame;
 
-  TimeFrameScratch tf;
-  std::vector<TrackingParameters> noIterations;
   const auto plan = catalogGraph(catalogView, orderedSurfaces);
-  configureScratchFromPlan(tf, plan.getOrderedSurfaces().size());
+  configureFrame(frame, catalogView, plan.getOrderedSurfaces());
 
   const std::vector<CompClusterExt> goodClusters{{1, 1, CompCluster::InvalidPatternID, 0}};
   const auto goodPatterns = std::vector<unsigned char>(onePixelPattern.begin(), onePixelPattern.end());
   const std::vector<ROFRecord> goodRofs{ROFRecord{{0, 0}, 0, 0, 1}};
-  const auto baseline = tf.loadNormalizedSource(frame, decoder, {0, 0},
-                                                timing, goodClusters, goodPatterns, goodRofs, &dict(), nullptr, o2::detectors::DetID::ITS,
-                                                gsl::span<const LayerId>{plan.getOrderedSurfaces()}, plan.getSurfaceCatalog());
+  const auto baseline = loadTimeFrameSource(frame, decoder, {0, 0},
+                                            timing, goodClusters, goodPatterns, goodRofs, &dict(), nullptr, o2::detectors::DetID::ITS,
+                                            gsl::span<const LayerId>{plan.getOrderedSurfaces()}, plan.getSurfaceCatalog());
   BOOST_REQUIRE(baseline.ok());
   BOOST_REQUIRE_EQUAL(frame.getTotalMeasurements(), 1u);
-  BOOST_REQUIRE_EQUAL(tf.getUnsortedClustersOnLayer(0, 0).size(), 1u);
+  BOOST_REQUIRE_EQUAL(frame.getGlobalMeasurements(LayerId{0}).size(), 1u);
 
-  const auto failed = tf.loadNormalizedSource(frame, decoder, {0, 0},
-                                              timing, goodClusters, goodPatterns, goodRofs, &dict(), nullptr, o2::detectors::DetID::ITS,
-                                              gsl::span<const LayerId>{}, SurfaceCatalogView{});
+  const auto failed = loadTimeFrameSource(frame, decoder, {0, 0},
+                                          timing, goodClusters, goodPatterns, goodRofs, &dict(), nullptr, o2::detectors::DetID::ITS,
+                                          gsl::span<const LayerId>{}, SurfaceCatalogView{});
   BOOST_CHECK(!failed.ok());
   BOOST_CHECK(failed.error == MultiSourceLoadError::SurfaceCatalogNotConfigured);
 
   BOOST_CHECK_EQUAL(frame.getTotalMeasurements(), 1u);
-  BOOST_CHECK_EQUAL(tf.getUnsortedClustersOnLayer(0, 0).size(), 1u);
-  BOOST_CHECK_EQUAL(tf.getNrof(0), 1);
-  BOOST_CHECK_EQUAL(tf.getClusterExternalIndex(0, 0), 0);
+  BOOST_CHECK_EQUAL(frame.getGlobalMeasurements(LayerId{0}).size(), 1u);
+  BOOST_CHECK_EQUAL(frame.getNrof(0), 1);
+  BOOST_CHECK_EQUAL(frame.getGlobalMeasurements(LayerId{0})[0].cluster.index, 0);
 }
 
 // Normalized loading must match the configured covariance default and honor
@@ -970,13 +865,11 @@ BOOST_AUTO_TEST_CASE(ApplySysErrorsDefaultsTrueAndPropagatesToTheDecoder)
     const SurfaceCatalogView catalogView{catalog.data(), static_cast<uint32_t>(catalog.size())};
     LegacyLikeDecoder decoder{o2::detectors::DetID::ITS, false};
     TimeFrame frame;
-    TimeFrameScratch tf;
-    std::vector<TrackingParameters> noIterations;
     const auto plan = catalogGraph(catalogView, orderedSurfaces);
-    configureScratchFromPlan(tf, plan.getOrderedSurfaces().size());
-    const auto result = tf.loadNormalizedSource(frame, decoder, {0, 0}, timing,
-                                                clusters, patterns, rofs, &dict(), nullptr, o2::detectors::DetID::ITS,
-                                                gsl::span<const LayerId>{plan.getOrderedSurfaces()}, plan.getSurfaceCatalog());
+    configureFrame(frame, catalogView, plan.getOrderedSurfaces());
+    const auto result = loadTimeFrameSource(frame, decoder, {0, 0}, timing,
+                                            clusters, patterns, rofs, &dict(), nullptr, o2::detectors::DetID::ITS,
+                                            gsl::span<const LayerId>{plan.getOrderedSurfaces()}, plan.getSurfaceCatalog());
     BOOST_REQUIRE(result.ok());
     BOOST_CHECK(decoder.lastApplySysErrors);
   }
@@ -986,13 +879,11 @@ BOOST_AUTO_TEST_CASE(ApplySysErrorsDefaultsTrueAndPropagatesToTheDecoder)
     const SurfaceCatalogView catalogView{catalog.data(), static_cast<uint32_t>(catalog.size())};
     LegacyLikeDecoder decoder{o2::detectors::DetID::ITS, false};
     TimeFrame frame;
-    TimeFrameScratch tf;
-    std::vector<TrackingParameters> noIterations;
     const auto plan = catalogGraph(catalogView, orderedSurfaces);
-    configureScratchFromPlan(tf, plan.getOrderedSurfaces().size());
-    const auto result = tf.loadNormalizedSource(frame, decoder, {0, 0}, timing,
-                                                clusters, patterns, rofs, &dict(), nullptr, o2::detectors::DetID::ITS,
-                                                gsl::span<const LayerId>{plan.getOrderedSurfaces()}, plan.getSurfaceCatalog(), false);
+    configureFrame(frame, catalogView, plan.getOrderedSurfaces());
+    const auto result = loadTimeFrameSource(frame, decoder, {0, 0}, timing,
+                                            clusters, patterns, rofs, &dict(), nullptr, o2::detectors::DetID::ITS,
+                                            gsl::span<const LayerId>{plan.getOrderedSurfaces()}, plan.getSurfaceCatalog(), false);
     BOOST_REQUIRE(result.ok());
     BOOST_CHECK(!decoder.lastApplySysErrors);
   }

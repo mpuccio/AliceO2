@@ -66,7 +66,7 @@ BOOST_AUTO_TEST_CASE(TimeFrameOwnsWorkspaceAndResetsItOnce)
   const auto capacity = workspace.getNOwnedSurfaces();
   BOOST_CHECK_EQUAL(frame.getEventResetCount(), 0u);
   BOOST_REQUIRE(!workspace.getTracklets().empty());
-  workspace.getTracklets().front().push_back(o2::its::Tracklet{});
+  workspace.getTracklets().front().push_back(Tracklet{});
   frame.getGenericTracks().push_back(GenericTrack{});
 
   frame.resetTimeFrame();

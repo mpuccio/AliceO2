@@ -366,10 +366,10 @@ struct StandaloneRun {
     }
     const std::vector<ROFRecord> rofs{ROFRecord{{100, 5}, 0, 0, static_cast<int>(compact.size())}};
     PrescribedDecoder decoder{det, kind, decoded};
-    const auto load = scratch->loadNormalizedSource(frame, decoder, o2::InteractionRecord{50, 5}, ROFTimingConfig{rofLength, 0, 0, 0},
-                                                    compact, patterns, rofs, &dict(), nullptr, det,
-                                                    gsl::span<const LayerId>{frame.getLayout(0).getOrderedSurfaces()},
-                                                    frame.getLayout(0).getSurfaceCatalog());
+    const auto load = loadTimeFrameSource(frame, decoder, o2::InteractionRecord{50, 5}, ROFTimingConfig{rofLength, 0, 0, 0},
+                                          compact, patterns, rofs, &dict(), nullptr, det,
+                                          gsl::span<const LayerId>{frame.getLayout(0).getOrderedSurfaces()},
+                                          frame.getLayout(0).getSurfaceCatalog());
     BOOST_REQUIRE(load.ok());
 
     o2::its::LayerTiming layerTiming{};
@@ -390,7 +390,7 @@ struct StandaloneRun {
     for (int layer = 0; layer < NLayers; ++layer) {
       mask.setROFsEnabled(layer, 0, 1, 1);
     }
-    scratch->setROFViews(RuntimeROFViews{rofTable.getView(), vtxTable.getView(), mask.getView(), {}});
+    frame.setROFViews(RuntimeROFViews{rofTable.getView(), vtxTable.getView(), mask.getView(), {}});
     const auto tracking = tracker.run(frame, traits);
     result.outcome = tracking.outcome;
   }
@@ -440,8 +440,8 @@ struct CombinedTrackingComposer {
   }
   void markPublicationValid() noexcept
   {
-    itsClock.emplace(plan.getITSScratch().getROFOverlapView().getClockLayer());
-    mftClock.emplace(plan.getMFTScratch().getROFOverlapView().getClockLayer());
+    itsClock.emplace(plan.getITSROFViews().overlap.getClockLayer());
+    mftClock.emplace(plan.getMFTROFViews().overlap.getClockLayer());
     publicationValid = true;
   }
   std::optional<GenericTrackPublicationExport> getITSPublicationExport() const
@@ -629,12 +629,12 @@ BOOST_AUTO_TEST_CASE(CombinedLoadingBackfillsOneGlobalWorkspace)
     BOOST_CHECK(!(edge.from == LayerId{ITSNLayers - 1} && edge.to == LayerId{ITSNLayers}));
   }
 
-  BOOST_CHECK_EQUAL(composer.getITSScratch().getTotalClusters(),
+  BOOST_CHECK_EQUAL(composer.frame->getTotalClusters(),
                     static_cast<int>(itsClusters.size() + mftClusters.size()));
   BOOST_CHECK_EQUAL(&composer.getITSScratch(), &composer.getMFTScratch());
   // The one workspace keeps source-local ROF numbering per global surface.
-  BOOST_CHECK_EQUAL(composer.getITSScratch().getNrof(0), 1);
-  BOOST_CHECK_EQUAL(composer.getMFTScratch().getNrof(ITSNLayers), 1);
+  BOOST_CHECK_EQUAL(composer.frame->getNrof(0), 1);
+  BOOST_CHECK_EQUAL(composer.frame->getNrof(ITSNLayers), 1);
 }
 
 BOOST_AUTO_TEST_CASE(MftGlobalIdsWorkEndToEndThroughRefitUnderCombinedPolicy)
@@ -848,8 +848,8 @@ BOOST_AUTO_TEST_CASE(LoadFailureResetsWholeCombinedTFExactlyOnceAndInvalidatesPu
   BOOST_CHECK_EQUAL(second.nITSTracks, 0u);
   BOOST_CHECK_EQUAL(second.nMFTTracks, 0u);
 
-  BOOST_CHECK_EQUAL(composer.getITSScratch().getTotalClusters(), 0);
-  BOOST_CHECK_EQUAL(composer.getMFTScratch().getTotalClusters(), 0);
+  BOOST_CHECK_EQUAL(composer.frame->getTotalClusters(), 0);
+  BOOST_CHECK_EQUAL(composer.frame->getTotalClusters(), 0);
   BOOST_CHECK(frame.getGenericTracks().empty());
   BOOST_CHECK(frame.getTrackClusterIndices().empty());
   BOOST_CHECK(!composer.getITSPublicationExport().has_value());
@@ -887,7 +887,7 @@ BOOST_AUTO_TEST_CASE(CombinedTrackingResourceFailureUsesSharedPolicyAndResetsWor
 
   const auto result = composer.process(itsSource, mftSource, o2::InteractionRecord{50, 5});
   BOOST_CHECK(result.outcome == TrackingOutcome::RecoverableDropped);
-  BOOST_CHECK_EQUAL(composer.getITSScratch().getTotalClusters(), 0);
+  BOOST_CHECK_EQUAL(composer.frame->getTotalClusters(), 0);
   BOOST_CHECK_EQUAL(&composer.getITSScratch(), &composer.getMFTScratch());
   BOOST_CHECK(frame.getGenericTracks().empty());
   BOOST_CHECK(!composer.getITSPublicationExport().has_value());
@@ -954,8 +954,8 @@ BOOST_AUTO_TEST_CASE(RecoverableITSLoadFailureIsDroppedOnlyWhenITSDropTFAllows)
     // Every non-success path still performs exactly one whole reset:
     // both scratches, the shared TimeFrame's GenericTracks, and both
     // publication exports are empty/invalid regardless of classification.
-    BOOST_CHECK_EQUAL(composer.getITSScratch().getTotalClusters(), 0);
-    BOOST_CHECK_EQUAL(composer.getMFTScratch().getTotalClusters(), 0);
+    BOOST_CHECK_EQUAL(composer.frame->getTotalClusters(), 0);
+    BOOST_CHECK_EQUAL(composer.frame->getTotalClusters(), 0);
     BOOST_CHECK(frame.getGenericTracks().empty());
     BOOST_CHECK(!composer.getITSPublicationExport().has_value());
     BOOST_CHECK(!composer.getMFTPublicationExport().has_value());
@@ -984,8 +984,8 @@ BOOST_AUTO_TEST_CASE(RecoverableMFTLoadFailureUsesSharedCombinedDropPolicy)
     const auto result = composer.process(fixture.itsSource, fixture.mftSource, o2::InteractionRecord{50, 5});
     const auto expected = combinedDropTF ? TrackingOutcome::RecoverableDropped : TrackingOutcome::Structural;
     BOOST_CHECK_MESSAGE(result.outcome == expected, "combined DropTFUponFailure=" << combinedDropTF);
-    BOOST_CHECK_EQUAL(composer.getITSScratch().getTotalClusters(), 0);
-    BOOST_CHECK_EQUAL(composer.getMFTScratch().getTotalClusters(), 0);
+    BOOST_CHECK_EQUAL(composer.frame->getTotalClusters(), 0);
+    BOOST_CHECK_EQUAL(composer.frame->getTotalClusters(), 0);
     BOOST_CHECK(frame.getGenericTracks().empty());
     BOOST_CHECK(!composer.getITSPublicationExport().has_value());
     BOOST_CHECK(!composer.getMFTPublicationExport().has_value());
@@ -1061,8 +1061,8 @@ BOOST_AUTO_TEST_CASE(StructuralTrackingExceptionIsClassifiedStructuralAfterWhole
 
   const auto result = composer.process(fixture.itsSource, fixture.mftSource, o2::InteractionRecord{50, 5});
   BOOST_CHECK(result.outcome == TrackingOutcome::Structural);
-  BOOST_CHECK_EQUAL(composer.getITSScratch().getTotalClusters(), 0);
-  BOOST_CHECK_EQUAL(composer.getMFTScratch().getTotalClusters(), 0);
+  BOOST_CHECK_EQUAL(composer.frame->getTotalClusters(), 0);
+  BOOST_CHECK_EQUAL(composer.frame->getTotalClusters(), 0);
   BOOST_CHECK(frame.getGenericTracks().empty());
   BOOST_CHECK(!composer.getITSPublicationExport().has_value());
   BOOST_CHECK(!composer.getMFTPublicationExport().has_value());
@@ -1117,7 +1117,7 @@ BOOST_AUTO_TEST_CASE(SequentialSuccessfulTFsReplaceStateWithoutStaleAccumulation
   BOOST_CHECK_EQUAL(secondResult.nITSTracks, firstResult.nITSTracks);
   BOOST_CHECK_EQUAL(secondResult.nMFTTracks, firstResult.nMFTTracks);
   BOOST_CHECK_EQUAL(frame.getGenericTracks().size(), firstGenericTrackCount);
-  BOOST_CHECK_EQUAL(composer.getITSScratch().getTotalClusters(),
+  BOOST_CHECK_EQUAL(composer.frame->getTotalClusters(),
                     static_cast<int>(itsClusters.size() + mftClusters.size()));
   BOOST_CHECK_EQUAL(&composer.getITSScratch(), &composer.getMFTScratch());
 }
@@ -1280,8 +1280,8 @@ BOOST_AUTO_TEST_CASE(AtomicLoadFailureInvokesEngineResetOnlyAndLeavesNoParticipa
   BOOST_CHECK_EQUAL(result.nITSTracks, 0u);
   BOOST_CHECK_EQUAL(result.nMFTTracks, 0u);
 
-  BOOST_CHECK_EQUAL(composer.getITSScratch().getTotalClusters(), 0);
-  BOOST_CHECK_EQUAL(composer.getMFTScratch().getTotalClusters(), 0);
+  BOOST_CHECK_EQUAL(composer.frame->getTotalClusters(), 0);
+  BOOST_CHECK_EQUAL(composer.frame->getTotalClusters(), 0);
   BOOST_CHECK(frame.getGenericTracks().empty());
   BOOST_CHECK(frame.getTrackClusterIndices().empty());
   // Neither sidecar was ever sealed/populated by this process() call --

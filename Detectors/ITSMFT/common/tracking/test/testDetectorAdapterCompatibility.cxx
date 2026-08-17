@@ -41,7 +41,6 @@ o2::track::TrackParCovFwd makeForwardState(double invQPt)
 }
 
 struct MixedRefitFixture {
-  TimeFrameScratch scratch;
   std::array<std::vector<SurfaceMeasurement>, 3> measurementsStorage;
   std::array<std::vector<GlobalMeasurement>, 3> globalsStorage;
   std::vector<gsl::span<const SurfaceMeasurement>> measurements{3};
@@ -53,10 +52,7 @@ struct MixedRefitFixture {
 
   MixedRefitFixture()
   {
-    scratch.setMemoryPool(std::make_shared<o2::its::BoundedMemoryResource>());
-    scratch.adoptPlan(3, 0, 0);
     const std::array<ClusterSourceId, 3> sources{ClusterSourceId{0}, ClusterSourceId{1}, ClusterSourceId{0}};
-    BOOST_REQUIRE(scratch.setSurfaceSources(sources));
     for (int position = 0; position < 3; ++position) {
       surfaces[position].id = ordered[position];
       surfaces[position].kind = position == 1 ? SurfaceKind::Disk : SurfaceKind::Cylinder;
@@ -78,7 +74,6 @@ struct MixedRefitFixture {
       globalsStorage[position].push_back(global);
       measurements[position] = measurementsStorage[position];
       globals[position] = globalsStorage[position];
-      scratch.addClusterExternalIndexToLayer(position, 100 + position);
       seed.getClusters()[position] = 0;
     }
     seed.setSurfaceMask(SurfaceMask{0x7});
@@ -135,8 +130,8 @@ BOOST_AUTO_TEST_CASE(its_compatibility_consumes_generic_results)
   DetectorPublicationAdapter<ITSNLayers> adapter;
   adapter.adoptITSSharedClusterCompatibility(&sidecar);
   o2::itsmft::TrackingParameters params;
-  TimeFrameScratch scratch;
-  BOOST_REQUIRE(adapter.completeAccepted(results, params, scratch, true));
+  TimeFrame frame;
+  BOOST_REQUIRE(adapter.completeAccepted(results, params, frame, true));
   BOOST_REQUIRE_EQUAL(sidecar.entries().size(), 2);
   BOOST_CHECK_EQUAL(sidecar.entries()[0].genericTrackIndex, 4);
   BOOST_CHECK(!sidecar.entries()[0].hasSharedClusters);
@@ -161,8 +156,8 @@ BOOST_AUTO_TEST_CASE(mft_compatibility_consumes_seed_and_common_result)
   DetectorPublicationAdapter<MFTNLayers> adapter;
   adapter.adoptMFTPublicationCompatibility(&sidecar);
   o2::itsmft::TrackingParameters params;
-  TimeFrameScratch scratch;
-  BOOST_REQUIRE(adapter.completeAccepted(results, params, scratch, true));
+  TimeFrame frame;
+  BOOST_REQUIRE(adapter.completeAccepted(results, params, frame, true));
   BOOST_REQUIRE_EQUAL(sidecar.entries().size(), 1);
   BOOST_CHECK_EQUAL(sidecar.entries()[0].genericTrackIndex, 7);
   BOOST_CHECK_EQUAL(sidecar.entries()[0].invQPtSeed, -0.25);
@@ -182,33 +177,19 @@ BOOST_AUTO_TEST_CASE(native_refit_rejects_invalid_generic_state)
   const std::vector<gsl::span<const GlobalMeasurement>> layerGlobals(7);
   const std::vector<gsl::span<const SurfaceMeasurement>> layerMeasurements(7);
   const SurfaceCatalogView surfaceCatalog{};
-  TimeFrameScratch scratch;
   const std::vector<LayerId> orderedSurfaces(7);
-  BOOST_CHECK(!detail::refitSurfaceSeed(seed, params, 0.5f, scratch, layerGlobals, layerMeasurements, surfaceCatalog, orderedSurfaces, candidate));
+  BOOST_CHECK(!detail::refitSurfaceSeed(seed, params, 0.5f, layerGlobals, layerMeasurements, surfaceCatalog, orderedSurfaces, candidate));
 }
 
 BOOST_AUTO_TEST_CASE(generic_refit_accepts_mixed_family_and_source_seed)
 {
   MixedRefitFixture fixture;
   TrackingCandidate candidate;
-  BOOST_REQUIRE(detail::refitSurfaceSeed(fixture.seed, fixture.parameters, 0.5f, fixture.scratch,
+  BOOST_REQUIRE(detail::refitSurfaceSeed(fixture.seed, fixture.parameters, 0.5f,
                                          fixture.globals, fixture.measurements, fixture.catalog(), fixture.ordered, candidate));
   BOOST_CHECK(candidate.track.innerState.hasRecognizedKind());
   BOOST_CHECK(candidate.track.outerState.hasRecognizedKind());
   BOOST_CHECK_EQUAL(candidate.getNumberOfClusters(), 3);
-}
-
-BOOST_AUTO_TEST_CASE(generic_refit_rejects_foreign_per_surface_source_before_commit)
-{
-  MixedRefitFixture fixture;
-  fixture.globalsStorage[1][0].cluster.source = ClusterSourceId{0};
-  fixture.globals[1] = fixture.globalsStorage[1];
-  TrackingCandidate before{};
-  TrackingCandidate candidate = before;
-  BOOST_CHECK(!detail::refitSurfaceSeed(fixture.seed, fixture.parameters, 0.5f, fixture.scratch,
-                                        fixture.globals, fixture.measurements, fixture.catalog(), fixture.ordered, candidate));
-  BOOST_CHECK_EQUAL(candidate.track.chi2, before.track.chi2);
-  BOOST_CHECK_EQUAL(candidate.seed.getSurfaceMask().value(), before.seed.getSurfaceMask().value());
 }
 
 BOOST_AUTO_TEST_CASE(generic_refit_validates_each_measurement_before_commit)
@@ -216,7 +197,7 @@ BOOST_AUTO_TEST_CASE(generic_refit_validates_each_measurement_before_commit)
   const auto rejects = [](MixedRefitFixture& fixture) {
     TrackingCandidate candidate;
     const TrackingCandidate before = candidate;
-    BOOST_CHECK(!detail::refitSurfaceSeed(fixture.seed, fixture.parameters, 0.5f, fixture.scratch,
+    BOOST_CHECK(!detail::refitSurfaceSeed(fixture.seed, fixture.parameters, 0.5f,
                                           fixture.globals, fixture.measurements, fixture.catalog(), fixture.ordered, candidate));
     BOOST_CHECK_EQUAL(candidate.track.chi2, before.track.chi2);
     BOOST_CHECK_EQUAL(candidate.seed.getSurfaceMask().value(), before.seed.getSurfaceMask().value());
@@ -238,18 +219,6 @@ BOOST_AUTO_TEST_CASE(generic_refit_validates_each_measurement_before_commit)
     MixedRefitFixture fixture;
     fixture.seed.getClusters()[1] = 1;
     rejects(fixture);
-  }
-  {
-    MixedRefitFixture fixture;
-    TimeFrameScratch missingMapping;
-    missingMapping.setMemoryPool(std::make_shared<o2::its::BoundedMemoryResource>());
-    missingMapping.adoptPlan(3, 0, 0);
-    for (int position = 0; position < 3; ++position) {
-      missingMapping.addClusterExternalIndexToLayer(position, 100 + position);
-    }
-    TrackingCandidate candidate;
-    BOOST_CHECK(!detail::refitSurfaceSeed(fixture.seed, fixture.parameters, 0.5f, missingMapping,
-                                          fixture.globals, fixture.measurements, fixture.catalog(), fixture.ordered, candidate));
   }
 }
 

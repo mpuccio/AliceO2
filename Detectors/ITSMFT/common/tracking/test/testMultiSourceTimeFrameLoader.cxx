@@ -162,7 +162,7 @@ BOOST_AUTO_TEST_CASE(DirectThreeSourceTransactionInstallsAllSources)
   for (uint16_t id = 0; id < 3; ++id) {
     BOOST_CHECK_EQUAL(frame.getSurfaceMeasurements(LayerId{static_cast<uint16_t>(id * 2)}).size(), 1u);
   }
-  BOOST_CHECK_EQUAL(frame.getWorkspace().getTotalClusters(), 3);
+  BOOST_CHECK_EQUAL(frame.getTotalClusters(), 3);
 }
 
 BOOST_AUTO_TEST_CASE(FailedSourcePartitionLeavesPriorEventAndRetrySucceeds)
@@ -183,7 +183,7 @@ BOOST_AUTO_TEST_CASE(FailedSourcePartitionLeavesPriorEventAndRetrySucceeds)
   BOOST_CHECK(failed.error == MultiSourceLoadError::InvalidLayerMapping);
   BOOST_CHECK_EQUAL(frame.getEventResetCount(), resetCount);
   BOOST_CHECK_EQUAL(frame.getSurfaceMeasurements(LayerId{4}).size(), 1u);
-  BOOST_CHECK_EQUAL(frame.getWorkspace().getTotalClusters(), 3);
+  BOOST_CHECK_EQUAL(frame.getTotalClusters(), 3);
 
   BOOST_REQUIRE(loadTimeFrameSources(frame, sources, configuration.layout.getSurfaceCatalog(), {50, 5}).ok());
   BOOST_CHECK_EQUAL(frame.getEventResetCount(), resetCount + 1);

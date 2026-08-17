@@ -30,6 +30,7 @@
 #include "ITStracking/BoundedAllocator.h"
 #include "ITSMFTTracking/Cell.h"
 #include "ITStracking/Constants.h"
+#include "ITStracking/MathUtils.h"
 #include "ITSMFTTracking/Configuration.h"
 #include "ITSMFTTracking/IndexTableConfiguration.h"
 #include "ITSMFTTracking/Propagator.h"
@@ -42,7 +43,6 @@
 #include "ITSMFTTracking/TrackerTraits.h"
 #include "ITSMFTTracking/detail/CandidateFinding.h"
 #include "ITSMFTTracking/detail/DirectionCompatibility.h"
-#include "ITStracking/Tracklet.h"
 #include "SimulationDataFormat/MCCompLabel.h"
 
 namespace o2::itsmft::tracking
@@ -150,7 +150,7 @@ void TrackerTraits::runTraversal(TraversalWorkspaceView view, SeedRefitFunction 
   }
   int maxNvertices{-1};
   if (view.parameters[0].PerPrimaryVertexProcessing) {
-    maxNvertices = view.scratch.getMaxVerticesPerROF();
+    maxNvertices = view.frame.getMaxVerticesPerROF();
   }
   int iVertex = std::min(maxNvertices, 0);
   do {
@@ -236,7 +236,7 @@ void TrackerTraits::computeLayerTrackletsImpl(
 
     auto forTracklets = [&](auto Mode, int edgeId, int fromLayer, int toLayer, SurfaceKind kind,
                             const TrackletProjectionCache& edgeCache, int pivotROF, int base, int& offset) -> int {
-      if (!mScratch->isROFEnabled(fromLayer, pivotROF)) {
+      if (!mFrame->isROFEnabled(fromLayer, pivotROF)) {
         return 0;
       }
       // Derive a diamond vertex for this pivot ROF; each invocation owns its
@@ -244,11 +244,11 @@ void TrackerTraits::computeLayerTrackletsImpl(
       Vertex diamondForROF{};
       gsl::span<const Vertex> primaryVertices;
       if (mTrkParams[iteration].UseDiamond) {
-        diamondForROF = diamondVertexForROF(diamondVert, mScratch->getROFViews(fromLayer).overlap,
-                                            mScratch->getROFLocalLayer(fromLayer), pivotROF);
+        diamondForROF = diamondVertexForROF(diamondVert, mFrame->getROFViews(fromLayer).overlap,
+                                            mFrame->getROFLocalLayer(fromLayer), pivotROF);
         primaryVertices = gsl::span<const Vertex>(&diamondForROF, 1);
       } else {
-        primaryVertices = mScratch->getPrimaryVertices(*mFrame, fromLayer, pivotROF);
+        primaryVertices = mFrame->getPrimaryVertices(fromLayer, pivotROF);
       }
       if (primaryVertices.empty()) {
         return 0;
@@ -259,29 +259,29 @@ void TrackerTraits::computeLayerTrackletsImpl(
         return 0;
       }
 
-      const auto& rofOverlap = mScratch->getROFOverlap(fromLayer, toLayer, pivotROF);
+      const auto& rofOverlap = mFrame->getROFOverlap(fromLayer, toLayer, pivotROF);
       if (!rofOverlap.getEntries()) {
         return 0;
       }
 
       int localCount = 0;
       auto& tracklets = mScratch->getTracklets()[edgeId];
-      auto layer0 = mScratch->getClustersOnLayer(pivotROF, fromLayer);
+      auto layer0 = mFrame->getClustersOnLayer(pivotROF, fromLayer);
       if (layer0.empty()) {
         return 0;
       }
 
       for (int iCluster = 0; iCluster < int(layer0.size()); ++iCluster) {
-        const o2::its::Cluster& currentCluster = layer0[iCluster];
-        const int currentSortedIndex = mScratch->getSortedIndex(pivotROF, fromLayer, iCluster);
-        if (mScratch->isClusterUsed(fromLayer, currentCluster.clusterId)) {
+        const MeasurementLocator& currentCluster = layer0[iCluster];
+        const int currentSortedIndex = mFrame->getSortedIndex(pivotROF, fromLayer, iCluster);
+        if (mFrame->isClusterUsed(fromLayer, currentCluster.clusterId)) {
           continue;
         }
         const auto& sourceMeasurement = mLayerGlobalMeasurements[fromLayer][currentCluster.clusterId];
 
         for (int iV = startVtx; iV < endVtx; ++iV) {
           const auto& pv = primaryVertices[iV];
-          if (!mScratch->isVertexCompatible(fromLayer, pivotROF, pv)) {
+          if (!mFrame->isVertexCompatible(fromLayer, pivotROF, pv)) {
             continue;
           }
           if (pv.isFlagSet(Vertex::Flags::UPCMode) != mTrkParams[iteration].PassFlags[IterationStep::SelectUPCVertices]) {
@@ -290,13 +290,13 @@ void TrackerTraits::computeLayerTrackletsImpl(
           TrackletSearchWindow searchWindow{};
           const bool projected = projectTrackletSearchWindow(sourceMeasurement, currentCluster, pv,
                                                              kind, edgeCache, mBz,
-                                                             mScratch->getIndexTableUtils(toLayer),
+                                                             mFrame->getIndexTableUtils(toLayer),
                                                              mKernelParameters, searchWindow);
           if (!projected) {
             continue;
           }
           const auto bins = searchWindow.bins;
-          const auto& indexTableUtils = mScratch->getIndexTableUtils(toLayer);
+          const auto& indexTableUtils = mFrame->getIndexTableUtils(toLayer);
           int rowBinsNum = bins.w - bins.y + 1;
           const bool periodicPhi = indexTableUtils.getCoordType() == IndexTableCoordType::PhiZ ||
                                    indexTableUtils.getCoordType() == IndexTableCoordType::PhiR;
@@ -306,18 +306,18 @@ void TrackerTraits::computeLayerTrackletsImpl(
           rowBinsNum = std::max(0, rowBinsNum);
 
           for (int targetROF = rofOverlap.getFirstEntry(); targetROF < rofOverlap.getEntriesBound(); ++targetROF) {
-            if (!mScratch->isROFEnabled(toLayer, targetROF)) {
+            if (!mFrame->isROFEnabled(toLayer, targetROF)) {
               continue;
             }
-            auto layer1 = mScratch->getClustersOnLayer(targetROF, toLayer);
+            auto layer1 = mFrame->getClustersOnLayer(targetROF, toLayer);
             if (layer1.empty()) {
               continue;
             }
-            const auto ts = mScratch->getROFTimeStamp(fromLayer, pivotROF, toLayer, targetROF);
+            const auto ts = mFrame->getROFTimeStamp(fromLayer, pivotROF, toLayer, targetROF);
             if (!ts.isCompatible(pv.getTimeStamp())) {
               continue;
             }
-            const auto& targetIndexTable = mScratch->getIndexTable(targetROF, toLayer);
+            const auto& targetIndexTable = mFrame->getIndexTable(targetROF, toLayer);
             const int colBinRange = (bins.z - bins.x) + 1;
             for (int iRow = 0; iRow < rowBinsNum; ++iRow) {
               int iRowBin = bins.y + iRow;
@@ -335,8 +335,8 @@ void TrackerTraits::computeLayerTrackletsImpl(
                 if (iNext >= int(layer1.size())) {
                   break;
                 }
-                const o2::its::Cluster& nextCluster = layer1[iNext];
-                if (mScratch->isClusterUsed(toLayer, nextCluster.clusterId)) {
+                const MeasurementLocator& nextCluster = layer1[iNext];
+                if (mFrame->isClusterUsed(toLayer, nextCluster.clusterId)) {
                   continue;
                 }
                 const auto& targetMeasurement = mLayerGlobalMeasurements[toLayer][nextCluster.clusterId];
@@ -349,12 +349,12 @@ void TrackerTraits::computeLayerTrackletsImpl(
                   const float phi{o2::gpu::GPUCommonMath::ATan2(sourceMeasurement.position.y - targetMeasurement.position.y,
                                                                 sourceMeasurement.position.x - targetMeasurement.position.x)};
                   if constexpr (decltype(Mode)::value == PassMode::OnePass::value) {
-                    tracklets.emplace_back(currentSortedIndex, mScratch->getSortedIndex(targetROF, toLayer, iNext), tanL, phi, ts);
+                    tracklets.emplace_back(currentSortedIndex, mFrame->getSortedIndex(targetROF, toLayer, iNext), tanL, phi, ts);
                   } else if constexpr (decltype(Mode)::value == PassMode::TwoPassCount::value) {
                     ++localCount;
                   } else if constexpr (decltype(Mode)::value == PassMode::TwoPassInsert::value) {
                     const int idx = base + offset++;
-                    tracklets[idx] = o2::its::Tracklet(currentSortedIndex, mScratch->getSortedIndex(targetROF, toLayer, iNext), tanL, phi, ts);
+                    tracklets[idx] = Tracklet(currentSortedIndex, mFrame->getSortedIndex(targetROF, toLayer, iNext), tanL, phi, ts);
                   }
                 }
               }
@@ -376,14 +376,14 @@ void TrackerTraits::computeLayerTrackletsImpl(
         const auto layerRadii = gsl::span<const float>{mTrkParams[iteration].LayerRadii.data(),
                                                        mTrkParams[iteration].LayerRadii.size()};
         if (!bindTrackletProjectionCache(fromLayer, toLayer, layerRadii, mDiskLayerReferenceZ,
-                                         mScratch->getMinR(toLayer), mScratch->getMaxR(toLayer),
-                                         mScratch->getMinZ(toLayer), mScratch->getMaxZ(toLayer),
+                                         mFrame->getMinR(toLayer), mFrame->getMaxR(toLayer),
+                                         mFrame->getMinZ(toLayer), mFrame->getMaxZ(toLayer),
                                          mScratch->getPositionResolution(fromLayer),
                                          mScratch->getEdgeMSAngle(scratchEdgeId),
                                          mScratch->getEdgePhiCut(scratchEdgeId), edgeCache)) {
           throw TraversalException{iteration, TraversalFailureReason::InvalidSurfaceParameters};
         }
-        const int startROF = 0, endROF = mScratch->getROFTiming(fromLayer).mNROFsTF;
+        const int startROF = 0, endROF = mFrame->getROFTiming(fromLayer).mNROFsTF;
         for (int pivotROF{startROF}; pivotROF < endROF; ++pivotROF) {
           forTracklets(PassMode::OnePass{}, scratchEdgeId, fromLayer, toLayer, kind, edgeCache, pivotROF, 0, dummy);
         }
@@ -399,14 +399,14 @@ void TrackerTraits::computeLayerTrackletsImpl(
         const auto layerRadii = gsl::span<const float>{mTrkParams[iteration].LayerRadii.data(),
                                                        mTrkParams[iteration].LayerRadii.size()};
         if (!bindTrackletProjectionCache(fromLayer, toLayer, layerRadii, mDiskLayerReferenceZ,
-                                         mScratch->getMinR(toLayer), mScratch->getMaxR(toLayer),
-                                         mScratch->getMinZ(toLayer), mScratch->getMaxZ(toLayer),
+                                         mFrame->getMinR(toLayer), mFrame->getMaxR(toLayer),
+                                         mFrame->getMinZ(toLayer), mFrame->getMaxZ(toLayer),
                                          mScratch->getPositionResolution(fromLayer),
                                          mScratch->getEdgeMSAngle(scratchEdgeId),
                                          mScratch->getEdgePhiCut(scratchEdgeId), edgeCache)) {
           throw TraversalException{iteration, TraversalFailureReason::InvalidSurfaceParameters};
         }
-        const int startROF = 0, endROF = mScratch->getROFTiming(fromLayer).mNROFsTF;
+        const int startROF = 0, endROF = mFrame->getROFTiming(fromLayer).mNROFsTF;
         bounded_vector<int> perROFCount((endROF - startROF) + 1, mMemoryPool.get());
         tbb::parallel_for(startROF, endROF, [&](const int pivotROF) {
           perROFCount[pivotROF - startROF] = forTracklets(PassMode::TwoPassCount{}, scratchEdgeId, fromLayer, toLayer, kind, edgeCache, pivotROF, 0, dummy);
@@ -446,7 +446,7 @@ void TrackerTraits::computeLayerTrackletsImpl(
     });
 
     /// Create tracklets labels
-    if (mScratch->hasMCinformation() && mTrkParams[iteration].CreateArtefactLabels) {
+    if (mFrame->hasMCinformation() && mTrkParams[iteration].CreateArtefactLabels) {
       tbb::parallel_for(0, static_cast<int>(edgeIds.size()), [&](const int edgeIndex) {
         const auto typedEdgeId = edgeIds[edgeIndex];
         const int edgeId = typedEdgeId.value();
@@ -454,10 +454,10 @@ void TrackerTraits::computeLayerTrackletsImpl(
         const auto [fromLayer, toLayer] = resolveEdgeLayers(edgeId);
         for (auto& trk : mScratch->getTracklets()[scratchEdgeId]) {
           MCCompLabel label;
-          int currentId{mScratch->getClusters()[fromLayer][trk.firstClusterIndex].clusterId};
-          int nextId{mScratch->getClusters()[toLayer][trk.secondClusterIndex].clusterId};
-          for (const auto& lab1 : mScratch->getClusterLabels(fromLayer, currentId)) {
-            for (const auto& lab2 : mScratch->getClusterLabels(toLayer, nextId)) {
+          int currentId{mFrame->getClusters()[fromLayer][trk.firstClusterIndex].clusterId};
+          int nextId{mFrame->getClusters()[toLayer][trk.secondClusterIndex].clusterId};
+          for (const auto& lab1 : mFrame->getClusterLabels(fromLayer, currentId)) {
+            for (const auto& lab2 : mFrame->getClusterLabels(toLayer, nextId)) {
               if (lab1 == lab2 && lab1.isValid()) {
                 label = lab1;
                 break;
@@ -485,7 +485,7 @@ void TrackerTraits::computeLayerCells(TraversalWorkspaceView& context, const int
   for (size_t cellPathId = 0; cellPathId < scratchCellCount; ++cellPathId) {
     deepVectorClear(scratch.getCells()[cellPathId]);
     deepVectorClear(scratch.getCellsLookupTable()[cellPathId]);
-    if (scratch.hasMCinformation() && context.parameters[iteration].CreateArtefactLabels) {
+    if (context.frame.hasMCinformation() && context.parameters[iteration].CreateArtefactLabels) {
       deepVectorClear(scratch.getCellsLabel(cellPathId));
     }
   }
@@ -544,13 +544,13 @@ void TrackerTraits::computeLayerCellsImpl(
 
     auto forTrackletCells = [&](auto Mode, SurfaceKind kind, int firstEdgeId, int secondEdgeId, const CellHitBinding& hitBinding, bounded_vector<CellSeed>& layerCells, int iTracklet, int offset = 0) -> int {
       const auto& hitLayers = hitBinding.layers;
-      const o2::its::Tracklet& currentTracklet{mScratch->getTracklets()[firstEdgeId][iTracklet]};
+      const Tracklet& currentTracklet{mScratch->getTracklets()[firstEdgeId][iTracklet]};
       const int nextLayerClusterIndex{currentTracklet.secondClusterIndex};
       const int nextLayerFirstTrackletIndex{mScratch->getTrackletsLookupTable()[secondEdgeId][nextLayerClusterIndex]};
       const int nextLayerLastTrackletIndex{mScratch->getTrackletsLookupTable()[secondEdgeId][nextLayerClusterIndex + 1]};
       int foundCells{0};
       for (int iNextTracklet{nextLayerFirstTrackletIndex}; iNextTracklet < nextLayerLastTrackletIndex; ++iNextTracklet) {
-        const o2::its::Tracklet& nextTracklet{mScratch->getTracklets()[secondEdgeId][iNextTracklet]};
+        const Tracklet& nextTracklet{mScratch->getTracklets()[secondEdgeId][iNextTracklet]};
         if (nextTracklet.firstClusterIndex != nextLayerClusterIndex) {
           break;
         }
@@ -560,9 +560,9 @@ void TrackerTraits::computeLayerCellsImpl(
 
         /// Prepare the track seed; clusters are numbered from inner to outer.
         const int clusId[3]{
-          mScratch->getClusters()[hitLayers[0]][currentTracklet.firstClusterIndex].clusterId,
-          mScratch->getClusters()[hitLayers[1]][nextTracklet.firstClusterIndex].clusterId,
-          mScratch->getClusters()[hitLayers[2]][nextTracklet.secondClusterIndex].clusterId};
+          context.frame.getClusters()[hitLayers[0]][currentTracklet.firstClusterIndex].clusterId,
+          context.frame.getClusters()[hitLayers[1]][nextTracklet.firstClusterIndex].clusterId,
+          context.frame.getClusters()[hitLayers[2]][nextTracklet.secondClusterIndex].clusterId};
 
         const auto& measurementInner = mLayerSurfaceMeasurements[hitLayers[0]][clusId[0]];
         const auto& measurementMiddle = mLayerSurfaceMeasurements[hitLayers[1]][clusId[1]];
@@ -694,7 +694,7 @@ void TrackerTraits::computeLayerCellsImpl(
       lut.resize(currentLayerTrackletsNum + 1);
       std::copy_n(perTrackletCount.begin(), currentLayerTrackletsNum + 1, lut.begin());
 
-      if (mScratch->hasMCinformation() && mTrkParams[iteration].CreateArtefactLabels) {
+      if (context.frame.hasMCinformation() && mTrkParams[iteration].CreateArtefactLabels) {
         auto& labels = mScratch->getCellsLabel(cellPathId);
         labels.reserve(layerCells.size());
         for (const auto& cell : layerCells) {
@@ -920,7 +920,7 @@ void TrackerTraits::processNeighbours(TraversalWorkspaceView& context, int itera
         if (currentCellId.empty()) {
           for (int layer = 0; layer < activeSurfaceCount; ++layer) {
             const int clusterIndex = currentCell.getCluster(layer);
-            if (clusterIndex != o2::its::constants::UnusedIndex && mScratch->isClusterUsed(layer, clusterIndex)) {
+            if (clusterIndex != o2::its::constants::UnusedIndex && context.frame.isClusterUsed(layer, clusterIndex)) {
               return 0; /// this we do only on the first iteration, hence the check on currentCellId
             }
           }
@@ -949,7 +949,7 @@ void TrackerTraits::processNeighbours(TraversalWorkspaceView& context, int itera
         }
         const int neighbourLayer = neighbourCell.getInnerLayer();
         const int neighbourCluster = neighbourCell.getFirstClusterIndex();
-        if (mScratch->isClusterUsed(neighbourLayer, neighbourCluster)) {
+        if (context.frame.isClusterUsed(neighbourLayer, neighbourCluster)) {
           continue;
         }
 
@@ -1109,9 +1109,9 @@ void TrackerTraits::findRoadsImpl(TraversalWorkspaceView& context, const int ite
           deepVectorClear(updatedCellPathId);
           processNeighbours(context, iteration, o2::its::constants::UnusedIndex, --level, lastCellSeed, lastCellId, lastCellPathId, updatedCellSeed, updatedCellId, updatedCellPathId, mKernelParameters);
         }
-        deepVectorClear(lastCellId);         /// tame the memory peaks
-        deepVectorClear(lastCellPathId);     /// tame the memory peaks
-        deepVectorClear(lastCellSeed);       /// tame the memory peaks
+        deepVectorClear(lastCellId);     /// tame the memory peaks
+        deepVectorClear(lastCellPathId); /// tame the memory peaks
+        deepVectorClear(lastCellSeed);   /// tame the memory peaks
 
         if (!updatedCellSeed.empty()) {
           trackSeeds.reserve(trackSeeds.size() + std::count_if(updatedCellSeed.begin(), updatedCellSeed.end(), seedFilter));
@@ -1131,7 +1131,6 @@ void TrackerTraits::findRoadsImpl(TraversalWorkspaceView& context, const int ite
           const bool refitSuccess = refitFunction(trackSeeds[iSeed],
                                                   mTrkParams[iteration],
                                                   mBz,
-                                                  *mScratch,
                                                   mLayerGlobalMeasurements,
                                                   mLayerSurfaceMeasurements,
                                                   mTraversalGraph.getSurfaceCatalogView(),
@@ -1212,7 +1211,7 @@ void TrackerTraits::acceptTracks(TraversalWorkspaceView& context, int iteration,
       if (track.getClusterIndex(iLayer) == o2::its::constants::UnusedIndex) {
         continue;
       }
-      bool isShared = mScratch->isClusterUsed(iLayer, track.getClusterIndex(iLayer));
+      bool isShared = mFrame->isClusterUsed(iLayer, track.getClusterIndex(iLayer));
       nShared += int(isShared);
       if (firstLayer < 0) {
         firstCluster = track.getClusterIndex(iLayer);
@@ -1233,11 +1232,11 @@ void TrackerTraits::acceptTracks(TraversalWorkspaceView& context, int iteration,
       if (track.getClusterIndex(iLayer) == o2::its::constants::UnusedIndex) {
         continue;
       }
-      smallestROFHalf = std::min(smallestROFHalf, mScratch->getROFTiming(iLayer).mROFLength * 0.5f);
-      mScratch->markUsedCluster(iLayer, track.getClusterIndex(iLayer));
-      int currentROF = mScratch->getClusterROF(iLayer, track.getClusterIndex(iLayer));
-      const auto nominalROFTS = mScratch->getROFTiming(iLayer).getROFTimeBounds(currentROF);
-      const auto expandedROFTS = mScratch->getROFTiming(iLayer).getROFTimeBounds(currentROF, true);
+      smallestROFHalf = std::min(smallestROFHalf, mFrame->getROFTiming(iLayer).mROFLength * 0.5f);
+      mFrame->markUsedCluster(iLayer, track.getClusterIndex(iLayer));
+      int currentROF = mFrame->getClusterROF(iLayer, track.getClusterIndex(iLayer));
+      const auto nominalROFTS = mFrame->getROFTiming(iLayer).getROFTimeBounds(currentROF);
+      const auto expandedROFTS = mFrame->getROFTiming(iLayer).getROFTimeBounds(currentROF, true);
       if (firstCls) {
         firstCls = false;
         nominalTS = nominalROFTS;

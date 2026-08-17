@@ -18,6 +18,7 @@
 #include "ITSMFTTracking/SurfaceKinematicState.h"
 #include "ITSMFTTracking/SurfaceMeasurement.h"
 #include "ITSMFTTracking/SurfaceStateOperationResult.h"
+#include "ITSMFTTracking/TrackingPrimitives.h"
 #include "ITSMFTTracking/detail/TrackingKernelParameters.h"
 #endif
 
@@ -31,7 +32,6 @@ namespace o2::its
 {
 class TimeEstBC;
 using Vertex = o2::dataformats::Vertex<TimeEstBC>;
-struct Cluster;
 } // namespace o2::its
 #endif
 
@@ -71,7 +71,7 @@ bool bindTrackletProjectionCache(int fromLayer, int toLayer,
                                  TrackletProjectionCache& out) noexcept;
 
 bool projectTrackletSearchWindow(const GlobalMeasurement& sourceMeasurement,
-                                 const o2::its::Cluster& sourceLocator,
+                                 const MeasurementLocator& sourceLocator,
                                  const o2::its::Vertex& vertex,
                                  SurfaceKind kind,
                                  const TrackletProjectionCache& edgeCache,
@@ -81,9 +81,9 @@ bool projectTrackletSearchWindow(const GlobalMeasurement& sourceMeasurement,
 
 bool acceptTrackletCandidate(const TrackletSearchWindow& window,
                              const GlobalMeasurement& sourceMeasurement,
-                             const o2::its::Cluster& sourceLocator,
+                             const MeasurementLocator& sourceLocator,
                              const GlobalMeasurement& targetMeasurement,
-                             const o2::its::Cluster& targetLocator,
+                             const MeasurementLocator& targetLocator,
                              SurfaceKind kind, float nSigmaCut,
                              float& tanLambdaOut) noexcept;
 

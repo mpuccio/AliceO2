@@ -21,11 +21,9 @@
 #include <boost/test/unit_test.hpp>
 
 #include "ITSMFTTracking/detail/SurfaceStateOperations.h"
-#include "ITSMFTTracking/detail/TimeFrameScratch.h"
 #include "ITSMFTTracking/detail/DetectorRefitSupport.h"
 #include "ITSMFTTracking/SurfaceDescriptor.h"
 #include "ITSMFTTracking/TimeFrame.h"
-#include "ITStracking/Cluster.h"
 #include "ITStracking/Constants.h"
 #include "MFTTracking/Constants.h"
 
@@ -38,7 +36,6 @@ constexpr int NLayers = o2::mft::constants::mft::LayersNumber;
 // Field-off exercises the native linear propagation model deterministically.
 constexpr float Bz = 0.f;
 constexpr float DefaultSigma2 = 2.5e-7f; // (~0.5 micron)^2, MFT-scale resolution
-constexpr float PoisonCoordinate = 9999.f;
 
 // A straight track through every MFT disk.
 struct StraightTrackGeometry {
@@ -61,7 +58,6 @@ struct StraightTrackGeometry {
 
 // Owns one normalized refit fixture.
 struct RefitFixture {
-  TimeFrameScratch tf;
   std::array<std::vector<SurfaceMeasurement>, NLayers> storage;
   std::array<std::vector<GlobalMeasurement>, NLayers> globalStorage;
   std::vector<gsl::span<const SurfaceMeasurement>> layerMeasurements = std::vector<gsl::span<const SurfaceMeasurement>>(NLayers);
@@ -90,17 +86,11 @@ struct RefitFixture {
       orderedSurfaces.push_back(catalogSurfaces[layer].id);
     }
     catalog = SurfaceCatalogView{catalogSurfaces.data(), static_cast<uint32_t>(catalogSurfaces.size())};
-    tf.setMemoryPool(std::make_shared<o2::its::BoundedMemoryResource>());
-    tf.adoptPlan(NLayers, 0, 0);
-    std::array<ClusterSourceId, NLayers> validSources{};
-    validSources.fill(ClusterSourceId{0});
-    BOOST_REQUIRE(tf.setSurfaceSources(validSources));
 
     uint16_t mask = 0;
     for (int layer = 0; layer < hits; ++layer) {
       setMeasurement(layer, geometry.x[layer], geometry.y[layer], geometry.z[layer],
                      DefaultSigma2, DefaultSigma2, static_cast<uint32_t>(layer));
-      tf.addClusterExternalIndexToLayer(layer, layer); // extIdx == layer, clIdx == 0
       seed.getClusters()[layer] = 0;
       mask |= static_cast<uint16_t>(uint16_t(1) << layer);
     }
@@ -135,21 +125,11 @@ struct RefitFixture {
     layerMeasurements[layer] = storage[layer];
     layerGlobals[layer] = globalStorage[layer];
   }
-
-  // Legacy backfill must not influence normalized refit.
-  void poisonLegacyBackfill()
-  {
-    for (int layer = 0; layer < nHitLayers; ++layer) {
-      tf.addClusterToLayer(layer, PoisonCoordinate, PoisonCoordinate, PoisonCoordinate, 0);
-      tf.addTrackingFrameInfoToLayer(layer, o2::its::TrackingFrameInfo{
-                                              PoisonCoordinate, PoisonCoordinate, PoisonCoordinate, PoisonCoordinate, PoisonCoordinate, {PoisonCoordinate, PoisonCoordinate}, {1.f, 0.f, 1.f}});
-    }
-  }
 };
 
 bool refit(RefitFixture& fixture, TrackingCandidate& candidate)
 {
-  return detail::refitSurfaceSeed(fixture.seed, fixture.params, Bz, fixture.tf,
+  return detail::refitSurfaceSeed(fixture.seed, fixture.params, Bz,
                                   fixture.layerGlobals, fixture.layerMeasurements, fixture.catalog, fixture.orderedSurfaces, candidate);
 }
 
@@ -179,27 +159,7 @@ void checkTrackUnchanged(const TrackingCandidate& before, const TrackingCandidat
 
 } // namespace
 
-// --- A. Normalized authority over poisoned legacy backfill ------------------
-
-BOOST_AUTO_TEST_CASE(NormalizedAuthorityOverridesPoisonedLegacyBackfill)
-{
-  const StraightTrackGeometry geometry(0.3f);
-
-  RefitFixture reference(geometry);
-  TrackingCandidate referenceTrack;
-  BOOST_REQUIRE(refit(reference, referenceTrack));
-
-  RefitFixture poisoned(geometry);
-  poisoned.poisonLegacyBackfill();
-  TrackingCandidate poisonedTrack;
-  BOOST_REQUIRE(refit(poisoned, poisonedTrack));
-
-  // Identical normalized input, poisoned vs. untouched legacy backfill: byte-
-  // identical output proves the refit path never reads the legacy structures.
-  checkTrackUnchanged(referenceTrack, poisonedTrack);
-}
-
-// --- B. Inverse authority: normalized data drives the output ----------------
+// --- Normalized data drives the output --------------------------------------
 
 BOOST_AUTO_TEST_CASE(NormalizedGlobalCoordinateChangeAltersOutput)
 {
@@ -330,25 +290,6 @@ BOOST_AUTO_TEST_CASE(OutOfRangeClusterIndexFailsCleanly)
   checkTrackUnchanged(before, track);
 }
 
-BOOST_AUTO_TEST_CASE(IdentityMismatchFailsCleanly)
-{
-  const StraightTrackGeometry geometry(0.3f);
-  RefitFixture fx(geometry);
-  // ClusterRef.index no longer agrees with tf.getClusterExternalIndex(layer, clIdx)
-  // (== layer, per RefitFixture's construction) -- the ClusterRef contract
-  // TrackerTraits::initialiseTimeFrame() would normally have already enforced.
-  auto m = fx.globalStorage[3].front();
-  m.cluster = ClusterRef{ClusterSourceId{0}, 12345u};
-  m.surface = LayerId{3};
-  fx.globalStorage[3].assign(1, m);
-  fx.layerGlobals[3] = fx.globalStorage[3];
-
-  TrackingCandidate before;
-  TrackingCandidate track = before;
-  BOOST_CHECK(!refit(fx, track));
-  checkTrackUnchanged(before, track);
-}
-
 BOOST_AUTO_TEST_CASE(InvalidClusterRefFailsCleanly)
 {
   const StraightTrackGeometry geometry(0.3f);
@@ -431,10 +372,9 @@ BOOST_AUTO_TEST_CASE(GenericRefitValidatesExternalClusterIdentity)
 {
   // Every hit layer has a layer-local seed index of zero but a deliberately
   // large, non-monotonic source-qualified external cluster index. The generic
-  // refit must validate that identity through the scratch mapping without
+  // refit must validate that identity through normalized measurement metadata without
   // treating the external index as a local measurement position.
   const StraightTrackGeometry geometry(0.3f);
-  TimeFrameScratch tf;
   std::array<std::vector<SurfaceMeasurement>, NLayers> storage;
   std::array<std::vector<GlobalMeasurement>, NLayers> globalStorage;
   std::vector<gsl::span<const SurfaceMeasurement>> layerMeasurements = std::vector<gsl::span<const SurfaceMeasurement>>(NLayers);
@@ -446,11 +386,6 @@ BOOST_AUTO_TEST_CASE(GenericRefitValidatesExternalClusterIdentity)
     catalogSurfaces[layer].material = NominalSurfaceMaterial{0.f, 0.f};
   }
   SurfaceCatalogView catalog{catalogSurfaces.data(), static_cast<uint32_t>(catalogSurfaces.size())};
-  tf.setMemoryPool(std::make_shared<o2::its::BoundedMemoryResource>());
-  tf.adoptPlan(NLayers, 0, 0);
-  std::array<ClusterSourceId, NLayers> sources{};
-  sources.fill(ClusterSourceId{0});
-  BOOST_REQUIRE(tf.setSurfaceSources(sources));
   TrackSeed seed;
   o2::itsmft::TrackingParameters params;
   params.MinTrackLength = 5;
@@ -474,7 +409,6 @@ BOOST_AUTO_TEST_CASE(GenericRefitValidatesExternalClusterIdentity)
     layerMeasurements[layer] = storage[layer];
     layerGlobals[layer] = globalStorage[layer];
 
-    tf.addClusterExternalIndexToLayer(layer, 1000 + layer); // clIdx 0 -> large, non-monotonic extIdx
     seed.getClusters()[layer] = 0;
     mask |= static_cast<uint16_t>(uint16_t(1) << layer);
   }
@@ -491,7 +425,7 @@ BOOST_AUTO_TEST_CASE(GenericRefitValidatesExternalClusterIdentity)
   for (int layer = 0; layer < NLayers; ++layer) {
     orderedSurfaces.push_back(LayerId{static_cast<uint16_t>(layer)});
   }
-  BOOST_REQUIRE(detail::refitSurfaceSeed(seed, params, Bz, tf, layerGlobals,
+  BOOST_REQUIRE(detail::refitSurfaceSeed(seed, params, Bz, layerGlobals,
                                          layerMeasurements, catalog, orderedSurfaces, track));
 
   for (int layer = 0; layer < NLayers; ++layer) {

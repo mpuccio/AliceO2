@@ -168,7 +168,7 @@ class CombinedTrackingPlan
           }
         }
         if (!mITSPublicationAdapter.completeAccepted(
-              selected, params[i], scratch, i + 1 == params.size())) {
+              selected, params[i], *mFrame, i + 1 == params.size())) {
           throw std::runtime_error{"failed to seal ITS tracking compatibility"};
         }
       }
@@ -198,7 +198,7 @@ class CombinedTrackingPlan
           }
         }
         if (!mMFTPublicationAdapter.completeAccepted(
-              selected, params[i], scratch, i + 1 == params.size())) {
+              selected, params[i], *mFrame, i + 1 == params.size())) {
           throw std::runtime_error{"failed to seal MFT tracking compatibility"};
         }
       }

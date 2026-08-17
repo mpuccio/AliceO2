@@ -72,9 +72,9 @@ o2::its::Vertex makeVertex(float x, float y, float z,
   return o2::its::Vertex{position, covariance, contributors, 1.f};
 }
 
-o2::its::Cluster makeGlobalCluster(float x, float y, float z, int id = 0)
+MeasurementLocator makeGlobalCluster(float x, float y, float z, int id = 0)
 {
-  return o2::its::Cluster{x, y, z, id};
+  return MeasurementLocator{x, y, z, id};
 }
 
 GlobalMeasurement makeMeasurement(float x, float y, float z, float uu = 1.e-4f, float vv = 1.e-4f, float uv = 0.f)
@@ -86,7 +86,7 @@ GlobalMeasurement makeMeasurement(float x, float y, float z, float uu = 1.e-4f, 
   return measurement;
 }
 
-GlobalMeasurement makeMeasurement(const o2::its::Cluster& cluster, float uu = 1.e-4f, float vv = 1.e-4f, float uv = 0.f)
+GlobalMeasurement makeMeasurement(const MeasurementLocator& cluster, float uu = 1.e-4f, float vv = 1.e-4f, float uv = 0.f)
 {
   return makeMeasurement(cluster.xCoordinate, cluster.yCoordinate, cluster.zCoordinate, uu, vv, uv);
 }
@@ -110,7 +110,7 @@ TrackletProjectionCache makeDiskProjectionCache(int fromLayer, int toLayer, floa
 // CandidateFinding exposes one descriptor-selected projection operation.
 // Keep the numerical fixtures readable without exporting coordinate leaves.
 bool projectCylinderSearchWindow(const GlobalMeasurement& sourceMeasurement,
-                                 const o2::its::Cluster& sourceLocator,
+                                 const MeasurementLocator& sourceLocator,
                                  const o2::its::Vertex& vertex,
                                  const TrackletProjectionCache& edgeCache,
                                  float bz, const o2::itsmft::IndexTableUtilsCore& indexUtils,
@@ -122,7 +122,7 @@ bool projectCylinderSearchWindow(const GlobalMeasurement& sourceMeasurement,
 }
 
 bool projectDiskSearchWindow(const GlobalMeasurement& sourceMeasurement,
-                             const o2::its::Cluster& sourceLocator,
+                             const MeasurementLocator& sourceLocator,
                              const o2::its::Vertex& vertex,
                              const TrackletProjectionCache& edgeCache,
                              float bz, const o2::itsmft::IndexTableUtilsCore& indexUtils,

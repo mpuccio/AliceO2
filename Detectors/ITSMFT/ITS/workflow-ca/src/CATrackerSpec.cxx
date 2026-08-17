@@ -78,7 +78,7 @@ bool completePublication(DetectorPublicationAdapter<NLayers>& publication,
       return false;
     }
     const gsl::span<const TrackingCandidate> iterationCandidates{candidates.data(), result.acceptedTrackCounts[iteration]};
-    if (!publication.completeAccepted(iterationCandidates, parameters[iteration], scratch, iteration + 1 == parameters.size())) {
+    if (!publication.completeAccepted(iterationCandidates, parameters[iteration], frame, iteration + 1 == parameters.size())) {
       return false;
     }
   }
@@ -145,7 +145,7 @@ void CATrackerDPL::configureROFViews(gsl::span<const o2::itsmft::ROFRecord> rofs
   mROFVertexLookupTable = std::move(vertex);
   mMultiplicityMask = std::move(mask);
   mPublicationAdapter.reset();
-  getScratch().setROFViews({mROFOverlapTable.getView(), mROFVertexLookupTable.getView(), mMultiplicityMask.getView(), mUPCMask.getView()});
+  mFrame.setROFViews({mROFOverlapTable.getView(), mROFVertexLookupTable.getView(), mMultiplicityMask.getView(), mUPCMask.getView()});
   (void)rofs;
 }
 
@@ -153,7 +153,7 @@ void CATrackerDPL::invalidatePublication() noexcept
 {
   mPublicationAdapter.reset();
   mPublicationClock.reset();
-  getScratch().setROFViews({});
+  mFrame.setROFViews({});
 }
 
 void CATrackerDPL::initialiseTracking()
@@ -217,7 +217,7 @@ o2::itsmft::tracking::TrackingOutcome CATrackerDPL::processTimeFrame(
   const auto& params = mFrame.getTrackingParameters().front();
   mFrame.setBz(o2::base::Propagator::Instance()->getNominalBz());
   o2::itsmft::tracking::detail::configureITSBeamPosition(mFrame, params, nullptr, false);
-  const auto views = getScratch().getROFViews();
+  const auto views = mFrame.getROFViews();
   if (views.overlap.mLayerCount > 0 && rofs.size() != views.overlap.getLayer(0).mNROFsTF) {
     LOGP(warn, "ITS CA ROF count differs from continuous timing expectation: received {} expected {}",
          rofs.size(), views.overlap.getLayer(0).mNROFsTF);
@@ -229,7 +229,7 @@ o2::itsmft::tracking::TrackingOutcome CATrackerDPL::processTimeFrame(
         "ITS CA tracker cluster dictionary is not available"};
     }
     const auto orderedSurfaces = mFrame.getLayout(0).getOrderedSurfaces();
-    const auto rofViews = getScratch().getROFViews();
+    const auto rofViews = mFrame.getROFViews();
     if (rofViews.overlap.mLayerCount <= 0) {
       throw o2::itsmft::tracking::TimeFrameLoadException{
         o2::itsmft::tracking::TimeFrameLoadFailureReason::NonUniformROFTiming,

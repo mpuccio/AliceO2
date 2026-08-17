@@ -44,7 +44,6 @@ namespace o2::itsmft::tracking
 using SeedRefitFunction = bool (*)(const TrackSeed& seed,
                                    const TrackingParameters& params,
                                    float bz,
-                                   TimeFrameScratch& scratch,
                                    gsl::span<const gsl::span<const GlobalMeasurement>> layerGlobals,
                                    gsl::span<const gsl::span<const SurfaceMeasurement>> layerMeasurements,
                                    SurfaceCatalogView surfaceCatalog,

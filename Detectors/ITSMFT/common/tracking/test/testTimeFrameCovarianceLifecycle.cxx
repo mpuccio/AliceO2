@@ -186,30 +186,18 @@ std::vector<TrackingParameters> makeLifecycleParameters(o2::detectors::DetID::ID
 
 struct CovarianceSnapshot {
   std::array<uint32_t, 3> normalized{};
-  std::array<uint32_t, 3> compatibility{};
 
   friend bool operator==(const CovarianceSnapshot&, const CovarianceSnapshot&) = default;
 };
 
-CovarianceSnapshot snapshotCovariance(const TimeFrame& frame, const TimeFrameScratch& tf)
+CovarianceSnapshot snapshotCovariance(const TimeFrame& frame)
 {
   const auto measurements = frame.getSurfaceMeasurements(LayerId{0});
   BOOST_REQUIRE_EQUAL(measurements.size(), 1u);
-  const auto& compatibility = tf.getTrackingFrameInfoOnLayer(0);
-  BOOST_REQUIRE_EQUAL(compatibility.size(), 1u);
   return {
     {floatBits(measurements[0].covariance.uu),
      floatBits(measurements[0].covariance.uv),
-     floatBits(measurements[0].covariance.vv)},
-    {floatBits(compatibility[0].covarianceTrackingFrame[0]),
-     floatBits(compatibility[0].covarianceTrackingFrame[1]),
-     floatBits(compatibility[0].covarianceTrackingFrame[2])}};
-}
-
-void checkRepresentationsAligned(const TimeFrame& frame, const TimeFrameScratch& tf)
-{
-  const auto snapshot = snapshotCovariance(frame, tf);
-  BOOST_CHECK(snapshot.normalized == snapshot.compatibility);
+     floatBits(measurements[0].covariance.vv)}};
 }
 
 template <int NLayers>
@@ -250,10 +238,9 @@ struct Rig {
     const std::vector<ROFRecord> rofs{ROFRecord{{100, 5}, 0, 0, 1}};
     const auto& layout = frame.getLayout(0);
     const auto& orderedSurfaces = layout.getOrderedSurfaces();
-    const auto result = tf->loadNormalizedSource(
-      frame, decoder, o2::InteractionRecord{50, 5}, ROFTimingConfig{40, 0, 0, 0},
-      clusters, patterns, rofs, &dictionary(), nullptr, detector,
-      gsl::span<const LayerId>{orderedSurfaces}, layout.getSurfaceCatalog(), applySysErrors);
+    const auto result = loadTimeFrameSource(frame, decoder, o2::InteractionRecord{50, 5}, ROFTimingConfig{40, 0, 0, 0},
+                                            clusters, patterns, rofs, &dictionary(), nullptr, detector,
+                                            gsl::span<const LayerId>{orderedSurfaces}, layout.getSurfaceCatalog(), applySysErrors);
     BOOST_REQUIRE(result.ok());
 
     o2::its::LayerTiming timing{};
@@ -275,7 +262,7 @@ struct Rig {
     for (int layer = 0; layer < NLayers; ++layer) {
       mask->setROFsEnabled(layer, 0, 1, 1);
     }
-    tf->setROFViews(RuntimeROFViews{rofTable->getView(), vertexTable->getView(), mask->getView(), {}});
+    frame.setROFViews(RuntimeROFViews{rofTable->getView(), vertexTable->getView(), mask->getView(), {}});
   }
 
   o2::detectors::DetID::ID detector;
@@ -313,14 +300,12 @@ void exerciseDisabled(o2::detectors::DetID::ID detector, SurfaceKind kind)
   Rig<NLayers> rig{detector, kind, 0.f, 0.f};
   rig.configure(parameters);
   rig.load(true);
-  const auto before = snapshotCovariance(rig.frame, *rig.tf);
+  const auto before = snapshotCovariance(rig.frame);
   checkBitIdentical(std::bit_cast<float>(before.normalized[0]), o2::itsmft::ioutils::DefClusError2Row);
   checkBitIdentical(std::bit_cast<float>(before.normalized[2]), o2::itsmft::ioutils::DefClusError2Col);
-  checkRepresentationsAligned(rig.frame, *rig.tf);
 
   BOOST_REQUIRE_NO_THROW(TrackerTestAccess::prepare(rig.tracker, rig.frame, 0));
-  BOOST_CHECK(snapshotCovariance(rig.frame, *rig.tf) == before);
-  checkRepresentationsAligned(rig.frame, *rig.tf);
+  BOOST_CHECK(snapshotCovariance(rig.frame) == before);
 }
 
 template <int NLayers>
@@ -335,41 +320,38 @@ void exerciseEnabledLifecycle(o2::detectors::DetID::ID detector, SurfaceKind kin
   BOOST_REQUIRE(rig.decoder.lastApplySysErrors);
   const float expectedRow = o2::itsmft::ioutils::DefClusError2Row + ConfiguredRowIncrement;
   const float expectedColumn = o2::itsmft::ioutils::DefClusError2Col + ConfiguredColumnIncrement;
-  const auto loaded = snapshotCovariance(rig.frame, *rig.tf);
+  const auto loaded = snapshotCovariance(rig.frame);
   checkBitIdentical(std::bit_cast<float>(loaded.normalized[0]), expectedRow);
   checkBitIdentical(std::bit_cast<float>(loaded.normalized[2]), expectedColumn);
-  checkRepresentationsAligned(rig.frame, *rig.tf);
 
   // FirstPass + LUT rebuild.
   BOOST_REQUIRE_NO_THROW(TrackerTestAccess::prepare(rig.tracker, rig.frame, 0));
-  BOOST_CHECK(snapshotCovariance(rig.frame, *rig.tf) == loaded);
+  BOOST_CHECK(snapshotCovariance(rig.frame) == loaded);
   checkPositionResolution(rig, parameters[0], ConfiguredRowIncrement, ConfiguredColumnIncrement);
 
   // Later iteration + LUT reuse.
   BOOST_REQUIRE_NO_THROW(TrackerTestAccess::prepare(rig.tracker, rig.frame, 1));
-  BOOST_CHECK(snapshotCovariance(rig.frame, *rig.tf) == loaded);
+  BOOST_CHECK(snapshotCovariance(rig.frame) == loaded);
 
   // Later iteration + LUT rebuild.
   BOOST_REQUIRE_NO_THROW(TrackerTestAccess::prepare(rig.tracker, rig.frame, 2));
-  BOOST_CHECK(snapshotCovariance(rig.frame, *rig.tf) == loaded);
+  BOOST_CHECK(snapshotCovariance(rig.frame) == loaded);
 
   // Repeated FirstPass initialization is bit-identical.
   BOOST_REQUIRE_NO_THROW(TrackerTestAccess::prepare(rig.tracker, rig.frame, 0));
-  BOOST_CHECK(snapshotCovariance(rig.frame, *rig.tf) == loaded);
+  BOOST_CHECK(snapshotCovariance(rig.frame) == loaded);
   BOOST_REQUIRE_NO_THROW(TrackerTestAccess::prepare(rig.tracker, rig.frame, 0));
-  BOOST_CHECK(snapshotCovariance(rig.frame, *rig.tf) == loaded);
-  checkRepresentationsAligned(rig.frame, *rig.tf);
+  BOOST_CHECK(snapshotCovariance(rig.frame) == loaded);
 
   // The frame-owned reset clears event state but preserves the configured
   // layout. Reloading and initializing the same event starts again from one
   // decoded increment, never from the previous compatibility copy.
   rig.frame.resetTimeFrame();
   rig.load(true);
-  const auto reloaded = snapshotCovariance(rig.frame, *rig.tf);
+  const auto reloaded = snapshotCovariance(rig.frame);
   BOOST_CHECK(reloaded == loaded);
   BOOST_REQUIRE_NO_THROW(TrackerTestAccess::prepare(rig.tracker, rig.frame, 0));
-  BOOST_CHECK(snapshotCovariance(rig.frame, *rig.tf) == loaded);
-  checkRepresentationsAligned(rig.frame, *rig.tf);
+  BOOST_CHECK(snapshotCovariance(rig.frame) == loaded);
 }
 
 template <int NLayers>
@@ -382,23 +364,21 @@ void exerciseExplicitFalse(o2::detectors::DetID::ID detector, SurfaceKind kind)
   rig.configure(parameters);
   rig.load(false);
   BOOST_REQUIRE(!rig.decoder.lastApplySysErrors);
-  const auto loaded = snapshotCovariance(rig.frame, *rig.tf);
+  const auto loaded = snapshotCovariance(rig.frame);
   checkBitIdentical(std::bit_cast<float>(loaded.normalized[0]), o2::itsmft::ioutils::DefClusError2Row);
   checkBitIdentical(std::bit_cast<float>(loaded.normalized[2]), o2::itsmft::ioutils::DefClusError2Col);
-  checkRepresentationsAligned(rig.frame, *rig.tf);
 
   BOOST_REQUIRE_NO_THROW(TrackerTestAccess::prepare(rig.tracker, rig.frame, 0));
-  BOOST_CHECK(snapshotCovariance(rig.frame, *rig.tf) == loaded);
+  BOOST_CHECK(snapshotCovariance(rig.frame) == loaded);
   BOOST_REQUIRE_NO_THROW(TrackerTestAccess::prepare(rig.tracker, rig.frame, 1));
-  BOOST_CHECK(snapshotCovariance(rig.frame, *rig.tf) == loaded);
+  BOOST_CHECK(snapshotCovariance(rig.frame) == loaded);
   BOOST_REQUIRE_NO_THROW(TrackerTestAccess::prepare(rig.tracker, rig.frame, 2));
-  BOOST_CHECK(snapshotCovariance(rig.frame, *rig.tf) == loaded);
+  BOOST_CHECK(snapshotCovariance(rig.frame) == loaded);
 
   // Position-resolution preparation intentionally still consumes configured
   // systematic contributions even when this explicit loading override keeps
   // cluster covariance at its base value.
   checkPositionResolution(rig, parameters[2], ConfiguredRowIncrement, ConfiguredColumnIncrement);
-  checkRepresentationsAligned(rig.frame, *rig.tf);
 }
 
 } // namespace

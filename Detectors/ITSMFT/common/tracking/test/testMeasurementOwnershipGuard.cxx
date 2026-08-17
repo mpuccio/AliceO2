@@ -34,7 +34,8 @@ BOOST_AUTO_TEST_CASE(ProductionUsesTimeFrameMeasurementsAndDescriptorBackfill)
 
   const auto loader = readFile(root / "src/IOUtils.cxx");
   BOOST_CHECK(loader.find("owner->detector") == std::string::npos);
-  BOOST_CHECK(loader.find("catalog.getSurface(surface).kind") != std::string::npos);
+  BOOST_CHECK(loader.find("surfaceDescriptor.kind") != std::string::npos);
+  BOOST_CHECK(loader.find("surfaceDescriptor.detectorId") != std::string::npos);
   BOOST_CHECK(loader.find("MultiSourceTimeFrameLoader") == std::string::npos);
   BOOST_CHECK(loader.find("loadTimeFrameSources") != std::string::npos);
 }

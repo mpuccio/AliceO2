@@ -16,8 +16,8 @@
 #include "DetectorsCommonDataFormats/DetID.h"
 #include "ITSMFTTracking/detail/ITSSharedClusterCompatibility.h"
 #include "ITSMFTTracking/detail/MFTPublicationCompatibility.h"
-#include "ITSMFTTracking/detail/TimeFrameScratch.h"
 #include "ITSMFTTracking/GenericTrack.h"
+#include "ITSMFTTracking/TimeFrame.h"
 #include "ITStracking/MathUtils.h"
 #include "MFTTracking/Constants.h"
 
@@ -37,7 +37,7 @@ class DetectorPublicationAdapter
 
   bool completeAccepted(gsl::span<const TrackingCandidate>,
                         const TrackingParameters&,
-                        const TimeFrameScratch&,
+                        const TimeFrame&,
                         bool) const noexcept
   {
     return true;
@@ -56,13 +56,13 @@ class DetectorPublicationAdapter<ITSNLayers>
 
   bool completeAccepted(gsl::span<const TrackingCandidate> candidates,
                         const TrackingParameters& params,
-                        const TimeFrameScratch& scratch,
+                        const TimeFrame& frame,
                         bool final)
   {
     if (mSidecar == nullptr) {
       return true;
     }
-    if (!stageSharedClusterFlags(candidates, params, scratch)) {
+    if (!stageSharedClusterFlags(candidates, params, frame)) {
       return false;
     }
     return !final || mSidecar->replaceFromAcceptedResults(candidates, mSharedClusterFlags);
@@ -79,7 +79,7 @@ class DetectorPublicationAdapter<ITSNLayers>
  private:
   bool stageSharedClusterFlags(gsl::span<const TrackingCandidate> candidates,
                                const TrackingParameters& params,
-                               const TimeFrameScratch& scratch)
+                               const TimeFrame& frame)
   {
     uint32_t maxIndex = 0;
     for (const auto& candidate : candidates) {
@@ -107,7 +107,7 @@ class DetectorPublicationAdapter<ITSNLayers>
         if (secondLayer != firstLayer || secondCandidate.getClusterIndex(secondLayer) != firstCluster) {
           continue;
         }
-        if (scratch.getClusterROF(firstLayer, firstCluster) != scratch.getClusterROF(secondLayer, secondCandidate.getClusterIndex(secondLayer))) {
+        if (frame.getClusterROF(firstLayer, firstCluster) != frame.getClusterROF(secondLayer, secondCandidate.getClusterIndex(secondLayer))) {
           continue;
         }
         if (!o2::its::math_utils::isPhiDifferenceBelow(firstCandidate.phi, secondCandidate.phi, params.SharedClusterMaxDeltaPhi)) {
@@ -141,7 +141,7 @@ class DetectorPublicationAdapter<o2::mft::constants::mft::LayersNumber>
 
   bool completeAccepted(gsl::span<const TrackingCandidate> candidates,
                         const TrackingParameters&,
-                        const TimeFrameScratch&,
+                        const TimeFrame&,
                         bool) const
   {
     if (mSidecar == nullptr) {

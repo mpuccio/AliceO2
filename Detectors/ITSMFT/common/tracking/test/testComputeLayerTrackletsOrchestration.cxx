@@ -40,7 +40,6 @@
 #include "ITStracking/Constants.h"
 #include "ITStracking/MathUtils.h"
 #include "ITStracking/ROFLookupTables.h"
-#include "ITStracking/Tracklet.h"
 #include "MFTTracking/Constants.h"
 #include "CommonConstants/MathConstants.h"
 
@@ -140,7 +139,7 @@ class PrescribedDecoder final : public ClusterDecoder
 
 struct TrackletSnapshot {
   int edgeId{-1};
-  std::vector<o2::its::Tracklet> tracklets;
+  std::vector<Tracklet> tracklets;
   std::vector<int> lookup;
   o2::its::TimeEstBC expectedTimestamp;
   bool nonparticipatingEdgesEmpty{false};
@@ -151,7 +150,7 @@ struct TrackletSnapshot {
   // 1:1, in ascending legacy edgeId order.
   std::vector<int> allEdgeFromLayer;
   std::vector<int> allEdgeToLayer;
-  std::vector<std::vector<o2::its::Tracklet>> allTracklets;
+  std::vector<std::vector<Tracklet>> allTracklets;
   std::vector<std::vector<int>> allLookups;
 };
 
@@ -270,9 +269,9 @@ TrackletSnapshot runFixture(o2::detectors::DetID::ID detector,
   }
   const std::vector<ROFRecord> rofs{ROFRecord{{100, 5}, 0, 0, static_cast<int>(compactClusters.size())}};
   PrescribedDecoder decoder{detector, kind, std::move(decoded)};
-  const auto load = tf.loadNormalizedSource(frame, decoder, o2::InteractionRecord{50, 5}, ROFTimingConfig{40, 0, 0, 0},
-                                            compactClusters, patterns, rofs, &dict(), nullptr, detector,
-                                            gsl::span<const LayerId>{layout.getOrderedSurfaces()}, layout.getSurfaceCatalog());
+  const auto load = loadTimeFrameSource(frame, decoder, o2::InteractionRecord{50, 5}, ROFTimingConfig{40, 0, 0, 0},
+                                        compactClusters, patterns, rofs, &dict(), nullptr, detector,
+                                        gsl::span<const LayerId>{layout.getOrderedSurfaces()}, layout.getSurfaceCatalog());
   BOOST_REQUIRE(load.ok());
 
   o2::its::LayerTiming layerTiming{};
@@ -299,7 +298,7 @@ TrackletSnapshot runFixture(o2::detectors::DetID::ID detector,
   for (int layer = 0; layer < NLayers; ++layer) {
     mask.setROFsEnabled(layer, 0, 1, 1);
   }
-  tf.setROFViews(RuntimeROFViews{rofTable.getView(), vtxTable.getView(), mask.getView(), {}});
+  frame.setROFViews(RuntimeROFViews{rofTable.getView(), vtxTable.getView(), mask.getView(), {}});
 
   auto view = TrackerTestAccess::prepare(tracker, frame, 0);
   const auto layoutView = view.topology;
@@ -356,7 +355,7 @@ TrackletSnapshot runFixture(o2::detectors::DetID::ID detector,
 
   TrackletSnapshot result;
   result.edgeId = edgeId;
-  result.expectedTimestamp = tf.getROFOverlapView().getTimeStamp(0, 0, 1, 0);
+  result.expectedTimestamp = frame.getROFOverlapView().getTimeStamp(0, 0, 1, 0);
   const auto& tracklets = tf.getTracklets()[edgeId];
   result.tracklets.assign(tracklets.begin(), tracklets.end());
   const auto& lookup = tf.getTrackletsLookupTable()[edgeId];
@@ -587,9 +586,9 @@ BOOST_AUTO_TEST_CASE(InitialiseTimeFrameFailureLeavesEdgeArraysZeroFilledNotPart
   }
   const std::vector<ROFRecord> rofs{ROFRecord{{100, 5}, 0, 0, static_cast<int>(compactClusters.size())}};
   PrescribedDecoder decoder{o2::detectors::DetID::ITS, SurfaceKind::Cylinder, decoded};
-  const auto load = tf.loadNormalizedSource(frame, decoder, o2::InteractionRecord{50, 5}, ROFTimingConfig{40, 0, 0, 0},
-                                            compactClusters, patterns, rofs, &dict(), nullptr, o2::detectors::DetID::ITS,
-                                            gsl::span<const LayerId>{layout.getOrderedSurfaces()}, layout.getSurfaceCatalog());
+  const auto load = loadTimeFrameSource(frame, decoder, o2::InteractionRecord{50, 5}, ROFTimingConfig{40, 0, 0, 0},
+                                        compactClusters, patterns, rofs, &dict(), nullptr, o2::detectors::DetID::ITS,
+                                        gsl::span<const LayerId>{layout.getOrderedSurfaces()}, layout.getSurfaceCatalog());
   BOOST_REQUIRE(load.ok());
 
   o2::its::LayerTiming layerTiming{};
@@ -610,7 +609,7 @@ BOOST_AUTO_TEST_CASE(InitialiseTimeFrameFailureLeavesEdgeArraysZeroFilledNotPart
   for (int layer = 0; layer < ITSNLayers; ++layer) {
     mask.setROFsEnabled(layer, 0, 1, 1);
   }
-  tf.setROFViews(RuntimeROFViews{rofTable.getView(), vtxTable.getView(), mask.getView(), {}});
+  frame.setROFViews(RuntimeROFViews{rofTable.getView(), vtxTable.getView(), mask.getView(), {}});
 
   BOOST_CHECK_EXCEPTION(TrackerTestAccess::prepare(tracker, frame, 0), TraversalException, [](const TraversalException& error) {
     return error.getReason() == TraversalFailureReason::InvalidSurfaceParameters;

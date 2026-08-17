@@ -27,7 +27,7 @@ using o2::itsmft::TrackingParameters;
 
 namespace
 {
-bool noopSeedRefit(const TrackSeed&, const TrackingParameters&, float, TimeFrameScratch&,
+bool noopSeedRefit(const TrackSeed&, const TrackingParameters&, float,
                    gsl::span<const gsl::span<const GlobalMeasurement>>,
                    gsl::span<const gsl::span<const SurfaceMeasurement>>, SurfaceCatalogView,
                    gsl::span<const LayerId>, TrackingCandidate&)

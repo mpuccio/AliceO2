@@ -12,9 +12,9 @@
 /// \file TimeFrame.h
 /// \brief Passive common event owner.
 ///
-/// TimeFrame owns configuration, event measurements, generic results, one
-/// tracking workspace, and allocator/capacity state. The application owns
-/// raw ROFs, timing tables, publication state, sidecars, and workflow state.
+/// TimeFrame owns configuration, event measurements and navigation, generic
+/// results, one tracking workspace, and allocator/capacity state. The
+/// application owns raw ROFs, publication state, and workflow state.
 
 #ifndef ALICEO2_ITSMFT_TRACKING_TIMEFRAME_H_
 #define ALICEO2_ITSMFT_TRACKING_TIMEFRAME_H_
@@ -22,6 +22,7 @@
 #include <memory>
 #include <array>
 #include <cstddef>
+#include <optional>
 #include <vector>
 
 #include <gsl/gsl>
@@ -34,8 +35,10 @@
 #include "ITSMFTTracking/GlobalMeasurement.h"
 #include "ITSMFTTracking/SurfaceMeasurement.h"
 #include "ITSMFTTracking/SurfaceLayout.h"
+#include "ITSMFTTracking/TrackingPrimitives.h"
+#include "ITSMFTTracking/IndexTableUtils.h"
+#include "ITSMFTTracking/ROFViews.h"
 #include "ITStracking/BoundedAllocator.h"
-#include "ITStracking/Cluster.h"
 
 namespace o2::itsmft::tracking
 {
@@ -90,15 +93,78 @@ struct TimeFrame {
   uint32_t getNMeasurementSurfaces() const noexcept { return static_cast<uint32_t>(mLayerSurfaceMeasurements.size()); }
   std::size_t getTotalMeasurements() const noexcept;
 
-  // Loader staging; committed only after decoding and workspace backfill.
+  int getTotalClusters() const { return static_cast<int>(getTotalMeasurements()); }
+  bool empty() const { return getTotalMeasurements() == 0; }
+  int getSortedIndex(int rofId, int layer, int idx) const { return mROFramesClusters[layer][rofId] + idx; }
+  int getSortedStartIndex(int rofId, int layer) const { return mROFramesClusters[layer][rofId]; }
+  int getNrof(int layer) const
+  {
+    return mROFramesClusters[layer].empty() ? 0 : static_cast<int>(mROFramesClusters[layer].size()) - 1;
+  }
+  gsl::span<MeasurementLocator> getClustersOnLayer(int rofId, int layer);
+  gsl::span<const MeasurementLocator> getClustersOnLayer(int rofId, int layer) const;
+  auto& getClusters() noexcept { return mClusters; }
+  const auto& getClusters() const noexcept { return mClusters; }
+  gsl::span<const MeasurementLocator> getClustersPerROFrange(int rofMin, int range, int layer) const;
+  gsl::span<const int> getROFramesClustersPerROFrange(int rofMin, int range, int layer) const;
+  gsl::span<const int> getROFrameClusters(int layer) const;
+  gsl::span<int> getIndexTable(int rofId, int layer);
+  int getClusterROF(int layer, int cluster) const;
+  int getTotalClustersPerROFrange(int rofMin, int range, int layer) const;
+
+  bool isClusterUsed(int layer, int cluster) const { return mUsedClusters[layer][cluster]; }
+  void markUsedCluster(int layer, int cluster) { mUsedClusters[layer][cluster] = true; }
+  gsl::span<unsigned char> getUsedClusters(int layer);
+  gsl::span<uint8_t> getUsedClustersROF(int rofId, int layer);
+  gsl::span<const uint8_t> getUsedClustersROF(int rofId, int layer) const;
+  std::size_t getNumberOfClusters() const;
+  std::size_t getNumberOfUsedClusters() const;
+
+  float getMinR(int layer) const { return mMinR[layer]; }
+  float getMaxR(int layer) const { return mMaxR[layer]; }
+  float getMinZ(int layer) const { return mMinZ[layer]; }
+  float getMaxZ(int layer) const { return mMaxZ[layer]; }
+  int hasBogusClusters() const;
+  const auto& getIndexTableUtils() const { return mIndexTableUtils.front(); }
+  const auto& getIndexTableUtils(int layer) const { return mIndexTableUtils[layer]; }
+
+  void setROFViews(RuntimeROFViews views) noexcept;
+  const RuntimeROFViews& getROFViews() const noexcept { return mROFViews; }
+  const RuntimeROFViews& getROFViews(int layer) const noexcept { return mROFViewsBySurface.empty() ? mROFViews : mROFViewsBySurface[layer]; }
+  int getROFLocalLayer(int layer) const noexcept { return mROFLocalLayerBySurface.empty() ? layer : mROFLocalLayerBySurface[layer]; }
+  const ROFTimingLayer& getROFTiming(int layer) const noexcept { return getROFViews(layer).overlap.getLayer(getROFLocalLayer(layer)); }
+  const RuntimeROFTableEntry& getROFOverlap(int fromLayer, int toLayer, int rof) const noexcept;
+  bool isROFEnabled(int layer, int rof) const noexcept;
+  bool isVertexCompatible(int layer, int rof, const Vertex& vertex) const noexcept;
+  o2::its::TimeEstBC getROFTimeStamp(int fromLayer, int fromROF, int toLayer, int toROF) const noexcept;
+  int getMaxVerticesPerROF() const noexcept;
+  const RuntimeROFOverlapView& getROFOverlapView() const noexcept { return mROFViews.overlap; }
+  const RuntimeROFVertexLookupView& getROFVertexLookupView() const noexcept { return mROFViews.vertexLookup; }
+  const RuntimeROFMaskView& getROFMaskView() const noexcept { return mUseUPC ? mROFViews.upcMask : mROFViews.mask; }
+  void useUPCMask() noexcept { mUseUPC = true; }
+  gsl::span<const Vertex> getPrimaryVertices(int layer, int rofId) const;
+
+  std::optional<ClusterSourceId> getSurfaceSource(int layer) const noexcept;
+  bool setSurfaceSources(gsl::span<const ClusterSourceId> sources);
+  bool hasMCinformation() const noexcept;
+  gsl::span<const MCCompLabel> getClusterLabels(int layer, int cluster) const;
+  bool hasClusterExternalIndex(int layer, int cluster) const noexcept;
+  int getClusterExternalIndex(int layer, int cluster) const;
+  int getClusterSize(int layer, int cluster) const;
+
+  // Loader staging; committed only after complete decoding and validation.
   void assignLoadedMeasurements(std::vector<std::vector<GlobalMeasurement>>&& perSurfaceGlobalMeasurements,
                                 std::vector<std::vector<SurfaceMeasurement>>&& perSurfaceMeasurements,
                                 std::vector<const o2::dataformats::MCTruthContainer<o2::MCCompLabel>*>&& labelSources);
+  void assignLoadedEventNavigation(std::vector<std::vector<int>>&& rofBoundaries,
+                                   RuntimeROFViews defaultViews,
+                                   std::vector<RuntimeROFViews>&& viewsBySurface,
+                                   std::vector<uint16_t>&& localLayerBySurface,
+                                   std::vector<ClusterSourceId>&& sourceBySurface);
   void commitMeasurements(TimeFrame& staged) noexcept;
 
   // Atomically replace the event after preflight.
-  bool commitLoadedEvent(TimeFrame& staged,
-                         std::unique_ptr<TimeFrameScratch>&& stagedWorkspace) noexcept;
+  bool commitLoadedEvent(TimeFrame& staged) noexcept;
 
   // Clear event state while preserving configuration and allocator identity.
   void resetTimeFrame() noexcept;
@@ -129,10 +195,28 @@ struct TimeFrame {
   void setMemoryPool(std::shared_ptr<BoundedMemoryResource> pool);
   auto& getMemoryPool() const noexcept { return mMemoryPool; }
 
+ private:
   // Must outlive containers allocated from it (reverse destruction order).
   std::shared_ptr<BoundedMemoryResource> mMemoryPool;
 
- private:
+  // Event and cross-iteration tracking state.
+  std::vector<bounded_vector<MeasurementLocator>> mClusters;
+  std::vector<std::vector<int>> mROFramesClusters;
+  std::vector<bounded_vector<int>> mIndexTables;
+  std::vector<bounded_vector<uint8_t>> mUsedClusters;
+  std::vector<IndexTableUtilsCore> mIndexTableUtils;
+  std::vector<float> mMinR;
+  std::vector<float> mMaxR;
+  std::vector<float> mMinZ;
+  std::vector<float> mMaxZ;
+  bounded_vector<int> mBogusClusters;
+
+  RuntimeROFViews mROFViews{};
+  std::vector<RuntimeROFViews> mROFViewsBySurface;
+  std::vector<uint16_t> mROFLocalLayerBySurface;
+  std::vector<ClusterSourceId> mSourceBySurface;
+  bool mUseUPC{false};
+
   float mBz = 5.;
   unsigned int mNTotalLowPtVertices = 0;
   int mBeamPosWeight = 0;
@@ -160,6 +244,10 @@ struct TimeFrame {
   std::size_t mEventResetCount{0};
 
   void swapMeasurements(TimeFrame& other) noexcept;
+  void configureEventStorage(std::size_t nOwnedSurfaces);
+  void prepareClusters(int maxLayers,
+                       gsl::span<const gsl::span<const GlobalMeasurement>> layerMeasurements);
+  friend class TimeFrameScratch;
 };
 
 } // namespace o2::itsmft::tracking

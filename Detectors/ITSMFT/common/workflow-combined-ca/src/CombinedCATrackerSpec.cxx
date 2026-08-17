@@ -65,7 +65,7 @@ bool completePublication(o2::itsmft::tracking::DetectorPublicationAdapter<NLayer
         selected.push_back(candidates[index]);
       }
     }
-    if (!publication.completeAccepted(selected, parameters[iteration], scratch, iteration + 1 == parameters.size())) {
+    if (!publication.completeAccepted(selected, parameters[iteration], frame, iteration + 1 == parameters.size())) {
       return false;
     }
   }
@@ -323,7 +323,7 @@ void CombinedCATrackerDPL::clearPublicationSidecars() noexcept
 
 void CombinedCATrackerDPL::clearRofViews() noexcept
 {
-  mFrame.getWorkspace().setROFViews({});
+  mFrame.setROFViews({});
 }
 
 void CombinedCATrackerDPL::invalidatePublication() noexcept

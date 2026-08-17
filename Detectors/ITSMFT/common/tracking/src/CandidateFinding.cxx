@@ -26,7 +26,6 @@
 #include "ITSMFTTracking/detail/MFTFwdTrackHelpers.h"
 #include "ITSMFTTracking/IndexTableUtils.h"
 #include "ITSMFTTracking/MaterialPhysics.h"
-#include "ITStracking/Cluster.h"
 #include "ITStracking/Constants.h"
 #include "ITStracking/MathUtils.h"
 #include "ITStracking/TrackHelpers.h"
@@ -51,7 +50,7 @@ bool acceptNormalizedResidual(const std::array<float, 2>& residual,
 }
 
 bool cylinderTrackletCoordinates(const GlobalMeasurement& targetMeasurement,
-                                 const o2::its::Cluster& targetLocator,
+                                 const MeasurementLocator& targetLocator,
                                  std::array<float, 2>& coordinates) noexcept
 {
   coordinates = {targetMeasurement.position.z, targetLocator.phi};
@@ -90,7 +89,7 @@ namespace
 {
 
 bool projectCylinderSearchWindow(const GlobalMeasurement& sourceMeasurement,
-                                 const o2::its::Cluster& sourceLocator,
+                                 const MeasurementLocator& sourceLocator,
                                  const o2::its::Vertex& vertex,
                                  const TrackletProjectionCache& edgeCache,
                                  float /*bz*/, const o2::itsmft::IndexTableUtilsCore& indexUtils,
@@ -122,7 +121,7 @@ bool projectCylinderSearchWindow(const GlobalMeasurement& sourceMeasurement,
 }
 
 bool projectDiskSearchWindow(const GlobalMeasurement& sourceMeasurement,
-                             const o2::its::Cluster& sourceLocator,
+                             const MeasurementLocator& sourceLocator,
                              const o2::its::Vertex& vertex,
                              const TrackletProjectionCache& edgeCache,
                              float bz, const o2::itsmft::IndexTableUtilsCore& indexUtils,
@@ -230,7 +229,7 @@ bool bindTrackletProjectionCache(
 
 bool projectTrackletSearchWindow(
   const GlobalMeasurement& sourceMeasurement,
-  const o2::its::Cluster& sourceLocator,
+  const MeasurementLocator& sourceLocator,
   const o2::its::Vertex& vertex,
   SurfaceKind kind,
   const TrackletProjectionCache& edgeCache,
@@ -252,9 +251,9 @@ bool projectTrackletSearchWindow(
 bool acceptTrackletCandidate(
   const TrackletSearchWindow& window,
   const GlobalMeasurement& sourceMeasurement,
-  const o2::its::Cluster& sourceLocator,
+  const MeasurementLocator& sourceLocator,
   const GlobalMeasurement& targetMeasurement,
-  const o2::its::Cluster& targetLocator,
+  const MeasurementLocator& targetLocator,
   SurfaceKind kind, float nSigmaCut, float& tanLambdaOut) noexcept
 {
   std::array<float, 2> residual{};

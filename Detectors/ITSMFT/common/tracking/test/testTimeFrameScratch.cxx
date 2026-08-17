@@ -126,7 +126,7 @@ BOOST_AUTO_TEST_CASE(AdoptsPlansWithDistinctRuntimeCountsWithoutDetectorOrLayerC
   BOOST_CHECK_EQUAL(scratch.getNOwnedSurfaces(), 4u);
   BOOST_CHECK_EQUAL(scratch.getNEdges(), 3u);
   BOOST_CHECK_EQUAL(scratch.getNCells(), 2u);
-  BOOST_CHECK_EQUAL(scratch.mClusters.size(), 4u);
+  BOOST_CHECK_EQUAL(scratch.mPositionResolution.size(), 4u);
   BOOST_CHECK_EQUAL(scratch.mTracklets.size(), 3u);
   BOOST_CHECK_EQUAL(scratch.mCells.size(), 2u);
 
@@ -136,7 +136,7 @@ BOOST_AUTO_TEST_CASE(AdoptsPlansWithDistinctRuntimeCountsWithoutDetectorOrLayerC
   BOOST_CHECK_EQUAL(scratch.getNOwnedSurfaces(), 6u);
   BOOST_CHECK_EQUAL(scratch.getNEdges(), 5u);
   BOOST_CHECK_EQUAL(scratch.getNCells(), 4u);
-  BOOST_CHECK_EQUAL(scratch.mClusters.size(), 6u);
+  BOOST_CHECK_EQUAL(scratch.mPositionResolution.size(), 6u);
   BOOST_CHECK_EQUAL(scratch.mTracklets.size(), 5u);
   BOOST_CHECK_EQUAL(scratch.mCells.size(), 4u);
 }
@@ -152,20 +152,7 @@ BOOST_AUTO_TEST_CASE(PerSurfaceAndEdgeCellContainersHaveExpectedRuntimeSizes)
   const auto nTr = chain.nEdges();
   const auto nCe = chain.nCells();
 
-  // Group A: one slot per owned surface.
-  BOOST_CHECK_EQUAL(scratch.mClusters.size(), nSurf);
-  BOOST_CHECK_EQUAL(scratch.mUnsortedClusters.size(), nSurf);
-  BOOST_CHECK_EQUAL(scratch.mTrackingFrameInfo.size(), nSurf);
-  BOOST_CHECK_EQUAL(scratch.mClusterExternalIndices.size(), nSurf);
-  BOOST_CHECK_EQUAL(scratch.mClusterSize.size(), nSurf);
-  BOOST_CHECK_EQUAL(scratch.mROFramesClusters.size(), nSurf);
-  BOOST_CHECK_EQUAL(scratch.mClusterLabels.size(), nSurf);
-  BOOST_CHECK_EQUAL(scratch.mIndexTables.size(), nSurf);
-  BOOST_CHECK_EQUAL(scratch.mUsedClusters.size(), nSurf);
-  BOOST_CHECK_EQUAL(scratch.mNClustersPerROF.size(), nSurf);
-  BOOST_CHECK_EQUAL(scratch.mMinR.size(), nSurf);
-  BOOST_CHECK_EQUAL(scratch.mMaxR.size(), nSurf);
-  BOOST_CHECK_EQUAL(scratch.mBogusClusters.size(), nSurf);
+  // Per-surface state is limited to values recomputed for each iteration.
   BOOST_CHECK_EQUAL(scratch.mPositionResolution.size(), nSurf);
 
   // Group B: sparse edge/cell counts.
@@ -180,10 +167,6 @@ BOOST_AUTO_TEST_CASE(PerSurfaceAndEdgeCellContainersHaveExpectedRuntimeSizes)
   BOOST_CHECK_EQUAL(scratch.mCellsNeighboursTopology.size(), nCe);
   BOOST_CHECK_EQUAL(scratch.mCellsNeighboursLUT.size(), nCe);
   BOOST_CHECK_EQUAL(scratch.mCellLabels.size(), nCe);
-
-  // Group D: never plan-sized, unaffected by adoptPlan().
-  BOOST_CHECK_EQUAL(scratch.mLines.size(), 0u);
-  BOOST_CHECK_EQUAL(scratch.mTrackletClusters.size(), 0u);
 }
 
 BOOST_AUTO_TEST_CASE(ResetClearsWorkingStateWithoutMutatingAPopulatedTimeFrameOrTheAdoptedPlanSize)
@@ -194,10 +177,9 @@ BOOST_AUTO_TEST_CASE(ResetClearsWorkingStateWithoutMutatingAPopulatedTimeFrameOr
   scratch.adoptPlan(chain.nOwnedSurfaces(), chain.nEdges(), chain.nCells());
 
   // Populate a handful of containers with observable content.
-  scratch.mClusters[0].emplace_back(1.f, 2.f, 3.f, 0);
+  scratch.mTracklets[0].emplace_back();
   scratch.mCells[0].emplace_back();
-  scratch.mBogusClusters[0] = 7;
-  BOOST_REQUIRE_EQUAL(scratch.mBogusClusters.size(), chain.nOwnedSurfaces());
+  scratch.mPositionResolution[0] = 7.f;
 
   // An unrelated, populated TimeFrame: reset() takes no TimeFrame parameter
   // at all, so it structurally cannot reach it -- this proves that
@@ -208,77 +190,24 @@ BOOST_AUTO_TEST_CASE(ResetClearsWorkingStateWithoutMutatingAPopulatedTimeFrameOr
 
   scratch.reset();
 
-  // Vector-of-bounded_vector (Group A/B outer) containers: outer element
+  // Vector-of-bounded_vector containers: outer element
   // count -- the adopted plan size -- survives reset(); only each element's
   // *contents* are cleared. Mirrors TimeFrameScratch::reset()
   // exactly (it never shrinks its own NLayers-wide outer arrays either).
-  BOOST_CHECK_EQUAL(scratch.mClusters.size(), chain.nOwnedSurfaces());
-  BOOST_CHECK(scratch.mClusters[0].empty());
+  BOOST_CHECK_EQUAL(scratch.mTracklets.size(), chain.nEdges());
+  BOOST_CHECK(scratch.mTracklets[0].empty());
   BOOST_CHECK_EQUAL(scratch.mCells.size(), chain.nCells());
   BOOST_CHECK(scratch.mCells[0].empty());
   BOOST_CHECK_EQUAL(scratch.getNOwnedSurfaces(), chain.nOwnedSurfaces());
   BOOST_CHECK_EQUAL(scratch.getNEdges(), chain.nEdges());
   BOOST_CHECK_EQUAL(scratch.getNCells(), chain.nCells());
 
-  // Flat bounded_vector (Group A) containers: fully cleared to empty, not
+  // Flat bounded_vector containers are fully cleared to empty, not
   // preserved at the adopted plan size -- mirrors reset()'s
-  // deepVectorClear(mBogusClusters) exactly.
-  BOOST_CHECK_EQUAL(scratch.mBogusClusters.size(), 0u);
   BOOST_CHECK_EQUAL(scratch.mPositionResolution.size(), 0u);
 
   BOOST_CHECK_EQUAL(frame.getBz(), 5.f);
   BOOST_CHECK_EQUAL(frame.getBeamX(), 1.f);
-}
-
-BOOST_AUTO_TEST_CASE(AllocatorsMatchDetectsSharedVersusDistinctPools)
-{
-  SyntheticChain chain{4};
-  auto poolA = makePool();
-  auto poolB = makePool();
-
-  TimeFrameScratch live;
-  live.setMemoryPool(poolA);
-  live.adoptPlan(chain.nOwnedSurfaces(), chain.nEdges(), chain.nCells());
-
-  TimeFrameScratch stagedSamePool;
-  stagedSamePool.setMemoryPool(poolA);
-  stagedSamePool.adoptPlan(chain.nOwnedSurfaces(), chain.nEdges(), chain.nCells());
-  BOOST_CHECK(live.allocatorsMatch(stagedSamePool));
-
-  TimeFrameScratch stagedDifferentPool;
-  stagedDifferentPool.setMemoryPool(poolB);
-  stagedDifferentPool.adoptPlan(chain.nOwnedSurfaces(), chain.nEdges(), chain.nCells());
-  BOOST_CHECK(!live.allocatorsMatch(stagedDifferentPool));
-}
-
-BOOST_AUTO_TEST_CASE(SwapExchangesContentAndPreservesLiveAllocatorIdentity)
-{
-  SyntheticChain chain{4};
-  auto poolA = makePool();
-
-  TimeFrameScratch live;
-  live.setMemoryPool(poolA);
-  live.adoptPlan(chain.nOwnedSurfaces(), chain.nEdges(), chain.nCells());
-  live.mBogusClusters[0] = 1;
-
-  TimeFrameScratch staged;
-  staged.setMemoryPool(poolA); // same resource -- allocatorsMatch() precondition for swap().
-  staged.adoptPlan(chain.nOwnedSurfaces(), chain.nEdges(), chain.nCells());
-  staged.mBogusClusters[0] = 42;
-  staged.mClusters[0].emplace_back(9.f, 8.f, 7.f, 0);
-
-  BOOST_REQUIRE(live.allocatorsMatch(staged));
-  live.swap(staged);
-
-  BOOST_CHECK_EQUAL(live.mBogusClusters[0], 42);
-  BOOST_CHECK_EQUAL(live.mClusters[0].size(), 1u);
-  BOOST_CHECK_EQUAL(staged.mBogusClusters[0], 1);
-  BOOST_CHECK(staged.mClusters[0].empty());
-
-  // Allocator identity is owner-bound, never staged data: both sides still
-  // report the exact same pool object after swap().
-  BOOST_CHECK(live.getMemoryPool() == poolA);
-  BOOST_CHECK(staged.getMemoryPool() == poolA);
 }
 
 namespace

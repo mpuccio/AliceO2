@@ -581,14 +581,7 @@ std::vector<LayerId> identitySurfaces(uint16_t nLayers)
 }
 
 struct TimeFrameFixture {
-  // Gate 4 B3.1: `tf` (the permanent, non-templated TimeFrame, owning
-  // GenericTrack/TrackClusterReference/normalized-frame state) is declared
-  // before `scratch` (the temporary TimeFrameScratch) so it
-  // is constructed first and destroyed last -- see TimeFrameScratch's
-  // own lifetime-contract doc. Neither owns or stores a reference to the
-  // other; this fixture is what binds both for the load() call below.
   TimeFrame tf;
-  TimeFrameScratch scratch;
   // Keep the catalog with the graph fixture so initialization inputs have one
   // explicit owner.
   std::vector<SurfaceDescriptor> catalog{makeITSTestCatalog()};
@@ -604,8 +597,12 @@ struct TimeFrameFixture {
     BOOST_REQUIRE(graph.valid());
     plan.emplace();
     plan->push_back(std::move(graph));
-    scratch.setMemoryPool(std::make_shared<BoundedMemoryResource>());
-    scratch.adoptPlan(plan->front().getOrderedSurfaces().size(), 0, 0);
+    std::vector<SurfaceLayout> layouts;
+    layouts.emplace_back(gsl::span<const SurfaceDescriptor>{catalog}, makeSurfaceLayoutChain(orderedSurfaces));
+    std::vector<TrackingParameters> parameters(1);
+    std::vector<TrackingWorkspaceCapacity> capacities{{orderedSurfaces.size(), 0, 0}};
+    BOOST_REQUIRE(tf.commitConfiguration(std::move(layouts), std::move(parameters),
+                                         std::move(capacities), std::make_shared<BoundedMemoryResource>()));
   }
 
   // One cluster on layer 0, one ROF: the minimal input that succeeds.
@@ -615,15 +612,15 @@ struct TimeFrameFixture {
     const auto patterns = makePatternBytes(clusters.size());
     const std::vector<ROFRecord> rofs{ROFRecord{{100, 5}, 0, 0, 1}};
     const auto& orderedSurfaces = plan->front().getOrderedSurfaces();
-    return scratch.loadNormalizedSource(tf, decoder, origin, timing, clusters, patterns, rofs, &dict(), nullptr, o2::detectors::DetID::ITS,
-                                        gsl::span<const LayerId>{orderedSurfaces}, plan->front().getSurfaceCatalog());
+    return loadTimeFrameSource(tf, decoder, origin, timing, clusters, patterns, rofs, &dict(), nullptr, o2::detectors::DetID::ITS,
+                               gsl::span<const LayerId>{orderedSurfaces}, plan->front().getSurfaceCatalog());
   }
 };
 
 o2::its::LayerTiming makeFixtureClockTiming()
 {
   // TimeFrameFixture::load() deliberately passes a temporary ROF vector to
-  // the scratch loader. Its overlap-table view is therefore not a retained
+  // the frame loader. Its overlap-table view is therefore not a retained
   // publication input. Build the same immutable clock timing explicitly for
   // output-boundary tests rather than dereferencing that non-owning view.
   o2::its::LayerTiming timing{};
@@ -722,7 +719,7 @@ BOOST_AUTO_TEST_CASE(MFTPublicationCompatibilityIsSparseOrderedAndTransactional)
   // Scratch-only reset has no authority over the shared TimeFrame or this
   // MFT bridge-owned sidecar; a future combined owner decides detector-local
   // GenericTrack removal/marking separately.
-  fixture.scratch.reset();
+  fixture.tf.getWorkspace().reset();
   BOOST_CHECK_EQUAL(fixture.tf.getGenericTracks().size(), 1u);
   BOOST_CHECK_EQUAL(sidecar.entries().size(), 1u);
 }
@@ -769,7 +766,7 @@ BOOST_AUTO_TEST_CASE(ITSSharedClusterCompatibilityUsesExplicitPreSortAssociation
 
   // Scratch-only reset has no authority over TimeFrame-owned GenericTracks
   // or the bridge-owned compatibility result they index.
-  fixture.scratch.reset();
+  fixture.tf.getWorkspace().reset();
   BOOST_CHECK_EQUAL(fixture.tf.getGenericTracks().size(), 3u);
   BOOST_CHECK_EQUAL(sidecar.entries().size(), 3u);
 
@@ -822,15 +819,15 @@ BOOST_AUTO_TEST_CASE(FailedLoadPreservesGenericTrackAndTrackClusterIndicesUnchan
   const auto measurementsBefore = fixture.tf.getTotalMeasurements();
   BOOST_REQUIRE(measurementsBefore > 0u);
 
-  // Deliberately fail: this TimeFrameScratch preflight-rejects an
+  // Deliberately fail: the frame loader preflight rejects an
   // unsupported detector before touching anything.
   const std::vector<CompClusterExt> clusters{{0, 1, CompCluster::InvalidPatternID, 0}};
   const auto patterns = makePatternBytes(clusters.size());
   const std::vector<ROFRecord> rofs{ROFRecord{{200, 5}, 0, 0, 1}};
   const auto& orderedSurfaces = fixture.plan->front().getOrderedSurfaces();
-  const auto failed = fixture.scratch.loadNormalizedSource(fixture.tf, fixture.decoder, fixture.origin, fixture.timing, clusters, patterns, rofs,
-                                                           &dict(), nullptr, o2::detectors::DetID::TPC,
-                                                           gsl::span<const LayerId>{orderedSurfaces}, fixture.plan->front().getSurfaceCatalog());
+  const auto failed = loadTimeFrameSource(fixture.tf, fixture.decoder, fixture.origin, fixture.timing, clusters, patterns, rofs,
+                                          &dict(), nullptr, o2::detectors::DetID::TPC,
+                                          gsl::span<const LayerId>{orderedSurfaces}, fixture.plan->front().getSurfaceCatalog());
   BOOST_REQUIRE(!failed.ok());
   BOOST_CHECK(failed.error == MultiSourceLoadError::UnsupportedDetector);
 
