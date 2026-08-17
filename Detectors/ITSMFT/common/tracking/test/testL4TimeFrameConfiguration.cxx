@@ -105,7 +105,7 @@ BOOST_AUTO_TEST_CASE(ResetPreservesStaticConfigurationAndCapacity)
   const auto capacity = *frame.getWorkspaceCapacity(0);
   BOOST_CHECK_EQUAL(frame.getWorkspace().getNTraversalWorkspaces(), 2u);
   frame.getGenericTracks().push_back(GenericTrack{});
-  frame.resetEvent();
+  frame.resetTimeFrame();
   BOOST_CHECK(frame.isConfigured());
   BOOST_CHECK(&frame.getLayout(0) == layout);
   BOOST_CHECK_EQUAL(frame.getWorkspaceCapacity(0)->cells, capacity.cells);

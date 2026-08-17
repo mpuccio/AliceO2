@@ -206,7 +206,7 @@ BOOST_AUTO_TEST_CASE(TimeFrameResetClearsSharedWorkspaceAndPreservesFrameState)
   BOOST_CHECK_EQUAL(itsParticipantScratch.getTotalClusters(), 2);
 
   const auto resetCount = frame.getEventResetCount();
-  frame.resetEvent();
+  frame.resetTimeFrame();
 
   BOOST_CHECK_EQUAL(mftParticipantScratch.getTotalClusters(), 0);
   BOOST_CHECK_EQUAL(mftParticipantScratch.getNOwnedSurfaces(), 17u);
@@ -292,7 +292,7 @@ BOOST_AUTO_TEST_CASE(CombinedExecutionUsesOneSharedWorkspace)
   BOOST_CHECK_EQUAL(itsScratch.getTotalClusters(), 2);
 
   frame.setBz(9.f);
-  frame.resetEvent();
+  frame.resetTimeFrame();
   BOOST_CHECK_EQUAL(itsScratch.getTotalClusters(), 0);
   BOOST_CHECK_EQUAL(mftScratch.getTotalClusters(), 0);
   BOOST_CHECK_EQUAL(mftScratch.getNOwnedSurfaces(), 17u);

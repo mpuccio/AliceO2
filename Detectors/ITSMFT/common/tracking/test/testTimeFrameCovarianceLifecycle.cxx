@@ -363,7 +363,7 @@ void exerciseEnabledLifecycle(o2::detectors::DetID::ID detector, SurfaceKind kin
   // The frame-owned reset clears event state but preserves the configured
   // layout. Reloading and initializing the same event starts again from one
   // decoded increment, never from the previous compatibility copy.
-  rig.frame.resetEvent();
+  rig.frame.resetTimeFrame();
   rig.load(true);
   const auto reloaded = snapshotCovariance(rig.frame, *rig.tf);
   BOOST_CHECK(reloaded == loaded);

@@ -1,12 +1,13 @@
 # TimeFrame measurement ownership
 
 `TimeFrame` owns per-surface event measurements, source ROF intervals, and
-non-owning MC-label lookup pointers. `MeasurementView` is the POD kernel view.
-`loadTimeFrameSources()` decodes into a non-movable staged `TimeFrame` and
-swaps only its measurement payload after workspace backfill succeeds. Source
-identity is the dense source index; source ROF ranges are addressed through
-the offsets held by the measurement view. Detector identity remains input
-validation provenance; tracking dispatch uses surface kind.
+non-owning MC-label lookup pointers. Per-surface measurement access returns
+non-owning spans directly over the owning vectors. `loadTimeFrameSources()`
+decodes into a non-movable staged `TimeFrame` and swaps only its measurement
+payload after workspace backfill succeeds. Source identity is the dense source
+index; source ROF ranges are addressed through the owner's offset table.
+Detector identity remains input validation provenance; tracking dispatch uses
+surface kind.
 
 The reusable macro-off build completed after the follow-up correction. Its
 serial ITS/MFT CTest gate passed 87/87 tests (split into 44 and 43 tests only

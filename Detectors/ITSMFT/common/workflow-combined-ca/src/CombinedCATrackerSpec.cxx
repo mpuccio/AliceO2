@@ -401,7 +401,7 @@ TrackingOutcome CombinedCATrackerDPL::trackFrame(const ClusterSourceInput& itsSo
          outcome == TrackingOutcome::RecoverableDropped ? "RecoverableDropped" : "Structural");
     mITSPublicationAdapter.reset();
     mMFTPublicationAdapter.reset();
-    mFrame.resetEvent();
+    mFrame.resetTimeFrame();
     invalidatePublication();
     return outcome;
   }
@@ -561,13 +561,13 @@ void CombinedCATrackerDPL::run(ProcessingContext& pc)
     }
     mITSPublicationAdapter.reset();
     mMFTPublicationAdapter.reset();
-    mFrame.resetEvent();
+    mFrame.resetTimeFrame();
     invalidatePublication();
   } catch (...) {
     if (mFrame.getEventResetCount() == resetCount) {
       mITSPublicationAdapter.reset();
       mMFTPublicationAdapter.reset();
-      mFrame.resetEvent();
+      mFrame.resetTimeFrame();
     }
     invalidatePublication();
     throw;

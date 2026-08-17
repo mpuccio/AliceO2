@@ -486,7 +486,7 @@ struct CombinedTrackingComposer {
                              ? TrackingOutcome::RecoverableDropped
                              : TrackingOutcome::Structural;
       plan.clearPublicationSidecars();
-      frame->resetEvent();
+      frame->resetTimeFrame();
       invalidatePublication();
       return {outcome, 0, 0};
     }
@@ -495,20 +495,20 @@ struct CombinedTrackingComposer {
       const auto itsResult = plan.runITS();
       if (itsResult.outcome != TrackingOutcome::Success) {
         plan.clearPublicationSidecars();
-        frame->resetEvent();
+        frame->resetTimeFrame();
         invalidatePublication();
         return {itsResult.outcome, 0, 0};
       }
       const auto mftResult = plan.runMFT();
       if (mftResult.outcome != TrackingOutcome::Success) {
         plan.clearPublicationSidecars();
-        frame->resetEvent();
+        frame->resetTimeFrame();
         invalidatePublication();
         return {mftResult.outcome, 0, 0};
       }
     } catch (const std::exception&) {
       plan.clearPublicationSidecars();
-      frame->resetEvent();
+      frame->resetTimeFrame();
       invalidatePublication();
       return {TrackingOutcome::Structural, 0, 0};
     }

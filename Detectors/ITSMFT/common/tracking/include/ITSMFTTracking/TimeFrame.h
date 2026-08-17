@@ -31,8 +31,10 @@
 #include "SimulationDataFormat/MCTruthContainer.h"
 #include "ITSMFTTracking/GenericTrack.h"
 #include "ITSMFTTracking/Configuration.h"
-#include "ITSMFTTracking/MeasurementView.h"
+#include "ITSMFTTracking/GlobalMeasurement.h"
+#include "ITSMFTTracking/SurfaceMeasurement.h"
 #include "ITSMFTTracking/SurfaceLayout.h"
+#include "ITSMFTTracking/SurfaceTiming.h"
 #include "ITStracking/BoundedAllocator.h"
 #include "ITStracking/Cluster.h"
 
@@ -81,7 +83,6 @@ struct TimeFrame {
   void setBz(float bz) { mBz = bz; }
   float getBz() const { return mBz; }
 
-  MeasurementView getMeasurementView() const noexcept;
   gsl::span<const SurfaceMeasurement> getSurfaceMeasurements(SurfaceId surface) const;
   gsl::span<const GlobalMeasurement> getGlobalMeasurements(SurfaceId surface) const;
   const GlobalMeasurement* getGlobalMeasurement(SurfaceId surface, SurfaceMeasurementIndex index) const noexcept;
@@ -104,7 +105,7 @@ struct TimeFrame {
                          std::unique_ptr<SurfaceTrackingScratch>&& stagedWorkspace) noexcept;
 
   // Clear event state while preserving configuration and allocator identity.
-  void resetEvent() noexcept;
+  void resetTimeFrame() noexcept;
   std::size_t getEventResetCount() const noexcept { return mEventResetCount; }
 
   SurfaceTrackingScratch& getWorkspace();
@@ -150,7 +151,6 @@ struct TimeFrame {
 
   std::vector<std::vector<GlobalMeasurement>> mPerSurfaceGlobalMeasurements;
   std::vector<std::vector<SurfaceMeasurement>> mPerSurfaceMeasurements;
-  std::vector<SurfaceMeasurementSpan> mMeasurementSpans;
   std::vector<ROFIntervalBC> mROFIntervals;
   std::vector<uint32_t> mSourceROFOffsets;
   std::vector<const o2::dataformats::MCTruthContainer<o2::MCCompLabel>*> mLabelSources;
@@ -165,9 +165,6 @@ struct TimeFrame {
   std::unique_ptr<SurfaceTrackingScratch, WorkspaceDeleter> mWorkspace;
   std::size_t mEventResetCount{0};
 
-  void clearEventData() noexcept;
-  void clearMeasurements() noexcept;
-  void rebuildMeasurementSpans();
   void swapMeasurements(TimeFrame& other) noexcept;
 };
 

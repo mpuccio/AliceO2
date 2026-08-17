@@ -312,7 +312,7 @@ o2::itsmft::tracking::TrackingOutcome CATrackerDPL::processTimeFrame(
 void CATrackerDPL::resetEvent() noexcept
 {
   mPublicationAdapter.reset();
-  mFrame.resetEvent();
+  mFrame.resetTimeFrame();
 }
 
 CATrackerPublicationAction decideCATrackerPublicationAction(bool trackerActive, o2::itsmft::tracking::TrackingOutcome outcome) noexcept

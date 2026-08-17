@@ -21,7 +21,6 @@
 #include "DetectorsCommonDataFormats/DetID.h"
 #include "ITSMFTTracking/SurfaceLayout.h"
 #include "ITSMFTTracking/IOUtils.h"
-#include "ITSMFTTracking/MeasurementView.h"
 #include "ITSMFTTracking/IOUtils.h"
 #include "ITSMFTTracking/TimeFrame.h"
 #include "ITSMFTTracking/ClusterDecoding.h"
@@ -304,7 +303,6 @@ BOOST_AUTO_TEST_CASE(SingleITSSourceLoadsIntoExpectedSurfaces)
   BOOST_CHECK_EQUAL(frame.getSurfaceMeasurements(SurfaceId{0}).size(), 1u);
   BOOST_CHECK_EQUAL(frame.getSurfaceMeasurements(SurfaceId{1}).size(), 1u);
   BOOST_CHECK_EQUAL(frame.getSurfaceMeasurements(SurfaceId{2}).size(), 0u);
-  BOOST_REQUIRE_EQUAL(frame.getMeasurementView().nSources, 1u);
   BOOST_CHECK_EQUAL(frame.getSourceIntervals(ClusterSourceId{0}).size(), 1u);
   BOOST_CHECK_EQUAL(frame.getGlobalMeasurements(SurfaceId{0})[0].sensor.detector, static_cast<uint32_t>(o2::detectors::DetID::ITS));
 }
@@ -421,71 +419,6 @@ BOOST_AUTO_TEST_CASE(CombinedITSAndMFTSourcesLoadTogether)
 
   BOOST_CHECK_EQUAL(frame.getSurfaceMeasurements(SurfaceId{0}).size(), 1u);
   BOOST_CHECK_EQUAL(frame.getSurfaceMeasurements(SurfaceId{3}).size(), 1u);
-  BOOST_REQUIRE_EQUAL(frame.getMeasurementView().nSources, 2u);
-}
-
-// Hardening regression test (TimeFrame cached-span safety): proves
-// MeasurementView's cached per-surface spans (mSurfaceSpans) resolve
-// correctly, on more than one populated surface, immediately after a real,
-// successful load -- not just via the owner-side accessors every other
-// test above already exercises. Also cross-checks the view's resolution
-// against the owner's own per-surface accessor, proving the cache and the
-// underlying storage never diverge after a real commit.
-BOOST_AUTO_TEST_CASE(ViewResolvesMeasurementsOnMultipleSurfacesAfterSuccessfulLoad)
-{
-  const auto layout = makeCombinedLayout();
-  BOOST_REQUIRE(layout.valid());
-
-  const std::vector<CompClusterExt> itsClusters{{1, 1, CompCluster::InvalidPatternID, 0}};
-  const auto itsPatterns = makePatternBytes(itsClusters.size());
-  const std::vector<ROFRecord> itsRofs{ROFRecord{{0, 0}, 0, 0, 1}};
-  FakeClusterDecoder itsDecoder{o2::detectors::DetID::ITS, {0}, false};
-
-  const std::vector<CompClusterExt> mftClusters{{2, 2, CompCluster::InvalidPatternID, 0}};
-  const auto mftPatterns = makePatternBytes(mftClusters.size());
-  const std::vector<ROFRecord> mftRofs{ROFRecord{{0, 0}, 0, 0, 1}};
-  FakeClusterDecoder mftDecoder{o2::detectors::DetID::MFT, {1}, true}; // sensor 0 -> layer 1 -> surface 3
-
-  std::array<ClusterSourceInput, 2> sources{};
-  sources[0].id = ClusterSourceId{0};
-  sources[0].detector = o2::detectors::DetID::ITS;
-  sources[0].clusters = itsClusters;
-  sources[0].patterns = itsPatterns;
-  sources[0].rofs = itsRofs;
-  sources[0].dictionary = &dict();
-  sources[0].layerToSurface = itsLayerToSurface;
-  sources[0].timing = ROFTimingConfig{40, 0, 0, 0};
-  sources[0].decoder = &itsDecoder;
-
-  sources[1].id = ClusterSourceId{1};
-  sources[1].detector = o2::detectors::DetID::MFT;
-  sources[1].clusters = mftClusters;
-  sources[1].patterns = mftPatterns;
-  sources[1].rofs = mftRofs;
-  sources[1].dictionary = &dict();
-  sources[1].layerToSurface = mftLayerToSurface;
-  sources[1].timing = ROFTimingConfig{50, 0, 0, 0};
-  sources[1].decoder = &mftDecoder;
-
-  TimeFrame frame;
-  BOOST_REQUIRE(loadSources(frame, layout.getCatalog(), gsl::span<const ClusterSourceInput>(sources), {0, 0}).ok());
-
-  const auto view = frame.getMeasurementView();
-  BOOST_REQUIRE_EQUAL(view.nSurfaces, 4u);
-  BOOST_CHECK_EQUAL(view.getSurfaceMeasurementCount(SurfaceId{0}), 1u);
-  BOOST_CHECK_EQUAL(view.getSurfaceMeasurementCount(SurfaceId{3}), 1u);
-
-  const auto* onITS = view.getGlobalMeasurement(SurfaceId{0}, SurfaceMeasurementIndex{0});
-  const auto* onMFT = view.getGlobalMeasurement(SurfaceId{3}, SurfaceMeasurementIndex{0});
-  BOOST_REQUIRE(onITS != nullptr);
-  BOOST_REQUIRE(onMFT != nullptr);
-  BOOST_CHECK(onITS->surface == SurfaceId{0});
-  BOOST_CHECK(onMFT->surface == SurfaceId{3});
-  BOOST_CHECK(onITS->sensor.detector == static_cast<uint32_t>(o2::detectors::DetID::ITS));
-  BOOST_CHECK(onMFT->sensor.detector == static_cast<uint32_t>(o2::detectors::DetID::MFT));
-
-  BOOST_CHECK_EQUAL(onITS->position.x, frame.getGlobalMeasurements(SurfaceId{0})[0].position.x);
-  BOOST_CHECK_EQUAL(onMFT->position.x, frame.getGlobalMeasurements(SurfaceId{3})[0].position.x);
 }
 
 BOOST_AUTO_TEST_CASE(TwoSourcesOfSameDetectorBothAppendToOneSurface)
@@ -1416,7 +1349,6 @@ BOOST_AUTO_TEST_CASE(FailedLoadLeavesNoPartialState)
   BOOST_REQUIRE(!result.ok());
 
   BOOST_CHECK_EQUAL(frame.getTotalMeasurements(), totalBefore);
-  BOOST_REQUIRE_EQUAL(frame.getMeasurementView().nSources, 1u);
 }
 
 BOOST_AUTO_TEST_CASE(FailedLoadAfterFirstSourceStagedLeavesNoPartialState)
@@ -1450,18 +1382,16 @@ BOOST_AUTO_TEST_CASE(FailedLoadAfterFirstSourceStagedLeavesNoPartialState)
   TimeFrame frame;
   BOOST_REQUIRE(loadSources(frame, layout.getCatalog(), gsl::span<const ClusterSourceInput>(&goodSrc, 1), {0, 0}).ok());
 
-  // Baseline: content and view pointer identity before the failing call.
+  // Baseline content before the failing call.
   const std::vector<SurfaceMeasurement> baselineMeasurements(
     frame.getSurfaceMeasurements(SurfaceId{0}).begin(), frame.getSurfaceMeasurements(SurfaceId{0}).end());
   const std::vector<GlobalMeasurement> baselineGlobals(
     frame.getGlobalMeasurements(SurfaceId{0}).begin(), frame.getGlobalMeasurements(SurfaceId{0}).end());
   const std::vector<ROFIntervalBC> baselineIntervals(
     frame.getSourceIntervals(ClusterSourceId{0}).begin(), frame.getSourceIntervals(ClusterSourceId{0}).end());
-  const auto baselineSourceCount = frame.getMeasurementView().nSources;
   const auto baselineROFCount = frame.getSourceIntervals(ClusterSourceId{0}).size();
   const auto baselineLabel = frame.getLabels(ClusterRef{ClusterSourceId{0}, 0});
   BOOST_REQUIRE_EQUAL(baselineLabel.size(), 1u);
-  const auto baselineView = frame.getMeasurementView();
 
   // Second source: dense/unique id (so id-level validation passes and the
   // decoder actually runs for source 0), but fails once ITS is asked to map
@@ -1490,19 +1420,6 @@ BOOST_AUTO_TEST_CASE(FailedLoadAfterFirstSourceStagedLeavesNoPartialState)
   BOOST_CHECK(result.error == MultiSourceLoadError::DetectorSurfaceMismatch);
   BOOST_CHECK(result.source == ClusterSourceId{1});
 
-  // The frame must be exactly as it was: same view pointers (proving the
-  // owning vectors were never touched, not just left with equal content).
-  // `surfaces` is the per-surface pointer/count span cache; its own address
-  // only changes when assignLoadedData()/clear() actually reassigns the
-  // underlying per-surface storage, so pointer identity here is exactly as
-  // strong a proof as the old flattened `measurements` pointer used to be.
-  const auto afterView = frame.getMeasurementView();
-  BOOST_CHECK(afterView.surfaces == baselineView.surfaces);
-  BOOST_CHECK(afterView.rofIntervals == baselineView.rofIntervals);
-  BOOST_CHECK(afterView.sourceROFOffsets == baselineView.sourceROFOffsets);
-  BOOST_CHECK_EQUAL(afterView.nSurfaces, baselineView.nSurfaces);
-  BOOST_CHECK_EQUAL(afterView.nSources, baselineView.nSources);
-
   // ...and identical measurements, identities, timing intervals, source
   // metadata, and label lookup.
   const auto afterMeasurements = frame.getSurfaceMeasurements(SurfaceId{0});
@@ -1521,7 +1438,6 @@ BOOST_AUTO_TEST_CASE(FailedLoadAfterFirstSourceStagedLeavesNoPartialState)
     BOOST_CHECK_EQUAL(afterIntervals[i].begin, baselineIntervals[i].begin);
     BOOST_CHECK_EQUAL(afterIntervals[i].end, baselineIntervals[i].end);
   }
-  BOOST_REQUIRE_EQUAL(frame.getMeasurementView().nSources, baselineSourceCount);
   BOOST_CHECK_EQUAL(frame.getSourceIntervals(ClusterSourceId{0}).size(), baselineROFCount);
   const auto afterLabel = frame.getLabels(ClusterRef{ClusterSourceId{0}, 0});
   BOOST_REQUIRE_EQUAL(afterLabel.size(), 1u);
@@ -1546,11 +1462,6 @@ BOOST_AUTO_TEST_CASE(EmptyFrameAccessorsAvoidNullPointerArithmetic)
   BOOST_REQUIRE(result.ok());
   BOOST_CHECK_EQUAL(frame.getTotalMeasurements(), 0u);
 
-  const auto view = frame.getMeasurementView();
-  BOOST_CHECK_EQUAL(view.nSources, 0u);
-  BOOST_CHECK_EQUAL(view.getSurfaceMeasurementCount(SurfaceId{0}), 0u);
-  BOOST_CHECK(view.getSurfaceMeasurements(SurfaceId{0}) == nullptr);
-  BOOST_CHECK(view.getGlobalMeasurement(SurfaceId{0}, SurfaceMeasurementIndex{0}) == nullptr);
   BOOST_CHECK(frame.getSurfaceMeasurements(SurfaceId{0}).empty());
   BOOST_CHECK(frame.getGlobalMeasurement(SurfaceId{0}, SurfaceMeasurementIndex{0}) == nullptr);
 }
@@ -1567,17 +1478,4 @@ BOOST_AUTO_TEST_CASE(EmptyLayoutWithZeroSourcesLoadsSuccessfully)
   BOOST_CHECK(result.ok());
   BOOST_CHECK_EQUAL(frame.getTotalMeasurements(), 0u);
   BOOST_CHECK_EQUAL(frame.getNMeasurementSurfaces(), 0u);
-  BOOST_CHECK_EQUAL(frame.getMeasurementView().nSources, 0u);
-}
-
-BOOST_AUTO_TEST_CASE(ViewsAreStandardLayoutAndTriviallyCopyable)
-{
-  static_assert(!std::is_move_constructible_v<TimeFrame>);
-  static_assert(!std::is_move_assignable_v<TimeFrame>);
-  static_assert(std::is_standard_layout_v<MeasurementView>);
-  static_assert(std::is_trivially_copyable_v<MeasurementView>);
-  static_assert(std::is_standard_layout_v<SurfaceMeasurementSpan>);
-  static_assert(std::is_trivially_copyable_v<SurfaceMeasurementSpan>);
-  BOOST_CHECK(std::is_standard_layout_v<MeasurementView>);
-  BOOST_CHECK(std::is_trivially_copyable_v<MeasurementView>);
 }

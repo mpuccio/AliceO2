@@ -334,7 +334,7 @@ and partial-configuration rejection tests.
 TrackerInitialization&)` now builds and validates each graph locally, builds
 one source-qualified binding per graph subgraph, and commits graphs,
 source-qualified parameters/bindings, workspace capacities, and the allocator
-identity to `TimeFrame` in one fallible operation. `TimeFrame::resetEvent()` retains
+identity to `TimeFrame` in one fallible operation. `TimeFrame::resetTimeFrame()` retains
 that configuration while clearing event-derived data. The combined workflow
 supplies declarations and uses one frame configuration; it does not build an
 operational graph. Participants retain only physical scratch and adapter
@@ -358,7 +358,7 @@ device build was claimed because neither pinned compiler was available.
 source-qualified workspace entry for each configured binding during the atomic
 configuration commit. `Tracker`, `TrackingInterface`, participants, and the
 loader target borrow those workspaces; none owns an independent generic
-workspace or reset authority. `TimeFrame::resetEvent()` is the single generic
+workspace or reset authority. `TimeFrame::resetTimeFrame()` is the single generic
 event reset: it clears normalized measurements, runtime ROF views, CA working
 storage, results, labels, and other event-derived state while preserving the
 complete static configuration, allocator identity, and reserved capacities.

@@ -50,7 +50,7 @@ classified as temporary. The milestone plan implementing this ADR is
    contract, which M2 generalizes into a participant-count-agnostic event
    loader) is a distinct, prior, whole-event transactional step a caller
    completes before calling `executeEvent()`; the engine additionally exposes
-   `resetEvent()` so a caller whose own atomic load failed can reach the same
+   `resetTimeFrame()` so a caller whose own atomic load failed can reach the same
    all-participant/shared-`TimeFrame` reset contract without duplicating it
    or calling `executeEvent()` at all.
 
@@ -66,7 +66,7 @@ classified as temporary. The milestone plan implementing this ADR is
    live inside concrete participant implementations or adapters. A
    participant's `eventReset()` clears only that participant's own
    scratch/compatibility state; it must never wipe or otherwise own any of
-   the shared `TimeFrame`'s storage -- see decision 3's `resetEvent()`.
+   the shared `TimeFrame`'s storage -- see decision 3's `resetTimeFrame()`.
 
 6. **Participant execution order is explicit plan/schedule data.** The engine
    consumes an ordered schedule supplied with the plan. Ordering is *not* an

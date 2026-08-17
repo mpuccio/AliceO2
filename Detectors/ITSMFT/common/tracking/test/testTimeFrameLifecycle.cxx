@@ -9,15 +9,15 @@
 // SurfaceTrackingScratch split: TimeFrame lifecycle and
 // transactional legacy backfill.
 //
-// A. Reset lifecycle: TimeFrame::resetEvent() must unconditionally clear the
+// A. Reset lifecycle: TimeFrame::resetTimeFrame() must unconditionally clear the
 //    normalized owner (mNormalizedFrame) associated by
 //    SurfaceTrackingScratch::loadNormalizedSource() -- every
-//    normalized accessor obtained *after* resetEvent() must report empty/zero
-//    content. This test never dereferences a view obtained before resetEvent():
+//    normalized accessor obtained *after* resetTimeFrame() must report empty/zero
+//    content. This test never dereferences a view obtained before resetTimeFrame():
 //    every post-wipe check re-obtains its accessor. (Gate 4 B3.1: neither
 //    TimeFrame nor SurfaceTrackingScratch stores mDetId at all any
 //    more -- callers pass the detector explicitly to every call that needs
-//    it -- so there is nothing detector-identity-shaped left for resetEvent() to
+//    it -- so there is nothing detector-identity-shaped left for resetTimeFrame() to
 //    preserve or clear.)
 //
 // B. Strong exception transactionality: the owner-level load operation
@@ -52,7 +52,6 @@
 #include "DetectorsCommonDataFormats/DetID.h"
 #include "ITSMFTTracking/SurfaceLayout.h"
 #include "ITSMFTTracking/detail/SurfaceTrackingScratch.h"
-#include "ITSMFTTracking/MeasurementView.h"
 #include "ITSMFTTracking/IOUtils.h"
 #include "ITSMFTTracking/SurfaceDescriptor.h"
 #include "ITSMFTTracking/ClusterDecoding.h"
@@ -277,7 +276,6 @@ void verifyFixtureLoaded(const TimeFrame& frame, SurfaceTrackingScratch& tf, con
   }
 
   BOOST_CHECK_EQUAL(tf.getNrof(0), static_cast<int>(f.rofs.size()));
-  BOOST_REQUIRE_EQUAL(frame.getMeasurementView().nSources, 1u);
   BOOST_CHECK_EQUAL(frame.getSourceIntervals(kSourceId).size(), f.rofs.size());
   const auto intervals = frame.getSourceIntervals(kSourceId);
   BOOST_REQUIRE_EQUAL(intervals.size(), f.rofs.size());
@@ -395,24 +393,20 @@ BOOST_AUTO_TEST_CASE(WipeClearsNormalizedFrameButPreservesDetId)
   // the accepted parity coverage in testTimeFrameNormalizedSource.cxx.
   verifyFixtureLoaded(frame, tf, f, origin, timing);
 
-  frame.resetEvent();
+  frame.resetTimeFrame();
 
   // --- inspect only freshly obtained normalized accessors/views ---
   BOOST_CHECK_EQUAL(frame.getTotalMeasurements(), 0u);
-  BOOST_CHECK_EQUAL(frame.getMeasurementView().nSources, 0u);
   BOOST_CHECK_EQUAL(frame.getNMeasurementSurfaces(), 0u);
   for (uint16_t s = 0; s < ITSNLayers; ++s) {
     BOOST_CHECK(frame.getSurfaceMeasurements(SurfaceId{s}).empty());
   }
   BOOST_CHECK(frame.getSourceIntervals(ClusterSourceId{0}).empty());
   BOOST_CHECK(frame.getLabels(ClusterRef{ClusterSourceId{0}, 0}).empty());
-  const auto freshView = frame.getMeasurementView();
-  BOOST_CHECK_EQUAL(freshView.nSurfaces, 0u);
-  BOOST_CHECK_EQUAL(freshView.nSources, 0u);
 
   // Gate 4 B3.1: neither owner stores mDetId any more -- the plan lives on
   // `plan` above, entirely outside both TimeFrame and LegacyTrackerScratch,
-  // so resetEvent() has no detector-identity state to preserve or clear.
+  // so resetTimeFrame() has no detector-identity state to preserve or clear.
 }
 
 // --- B. Strong exception transactionality ------------------------------

@@ -80,7 +80,6 @@
 #include "ITSMFTTracking/Tracker.h"
 #include "ITSMFTTracking/Configuration.h"
 #include "ITSMFTTracking/detail/ITSSharedClusterCompatibility.h"
-#include "ITSMFTTracking/MeasurementView.h"
 #include "ITSMFTTracking/IOUtils.h"
 #include "ITSMFTTracking/ITSMFTDetectorDefinitions.h"
 #include "ITSMFTTracking/detail/MFTFwdTrackHelpers.h"
@@ -337,7 +336,7 @@ struct Rig {
 
   // Stages one pending sidecar entry and one GenericTrack/TrackClusterReference
   // pair directly on `frame` -- deliberately not through a real CA seed (out
-  // of scope here): only frame.resetEvent()'s unconditional clear of these two
+  // of scope here): only frame.resetTimeFrame()'s unconditional clear of these two
   // containers and the workflow-edge sidecar reset are under test.
   void stageStaleState()
   {

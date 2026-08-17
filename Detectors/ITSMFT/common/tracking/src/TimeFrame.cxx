@@ -49,21 +49,10 @@ void TimeFrame::resetBeamXY(const float x, const float y, const float w)
   mBeamPosWeight = w;
 }
 
-void TimeFrame::rebuildMeasurementSpans()
-{
-  mMeasurementSpans.resize(mPerSurfaceMeasurements.size());
-  for (std::size_t surface = 0; surface < mMeasurementSpans.size(); ++surface) {
-    const auto& local = mPerSurfaceMeasurements[surface];
-    const auto& global = mPerSurfaceGlobalMeasurements[surface];
-    mMeasurementSpans[surface] = {global.empty() ? nullptr : global.data(), local.empty() ? nullptr : local.data(), static_cast<uint32_t>(local.size())};
-  }
-}
-
 void TimeFrame::swapMeasurements(TimeFrame& other) noexcept
 {
   mPerSurfaceGlobalMeasurements.swap(other.mPerSurfaceGlobalMeasurements);
   mPerSurfaceMeasurements.swap(other.mPerSurfaceMeasurements);
-  mMeasurementSpans.swap(other.mMeasurementSpans);
   mROFIntervals.swap(other.mROFIntervals);
   mSourceROFOffsets.swap(other.mSourceROFOffsets);
   mLabelSources.swap(other.mLabelSources);
@@ -80,20 +69,12 @@ void TimeFrame::assignLoadedMeasurements(std::vector<std::vector<GlobalMeasureme
   mROFIntervals = std::move(intervals);
   mSourceROFOffsets = std::move(offsets);
   mLabelSources = std::move(labels);
-  rebuildMeasurementSpans();
 }
 
 void TimeFrame::commitMeasurements(TimeFrame& staged) noexcept
 {
-  resetEvent();
+  resetTimeFrame();
   swapMeasurements(staged);
-}
-
-MeasurementView TimeFrame::getMeasurementView() const noexcept
-{
-  return {mMeasurementSpans.empty() ? nullptr : mMeasurementSpans.data(), static_cast<uint32_t>(mMeasurementSpans.size()),
-          mROFIntervals.empty() ? nullptr : mROFIntervals.data(), mSourceROFOffsets.empty() ? nullptr : mSourceROFOffsets.data(),
-          mSourceROFOffsets.empty() ? 0u : static_cast<uint32_t>(mSourceROFOffsets.size() - 1)};
 }
 
 gsl::span<const SurfaceMeasurement> TimeFrame::getSurfaceMeasurements(SurfaceId surface) const
@@ -108,12 +89,20 @@ gsl::span<const GlobalMeasurement> TimeFrame::getGlobalMeasurements(SurfaceId su
 
 const GlobalMeasurement* TimeFrame::getGlobalMeasurement(SurfaceId surface, SurfaceMeasurementIndex index) const noexcept
 {
-  return getMeasurementView().getGlobalMeasurement(surface, index);
+  if (!surface.isValid() || surface.value() >= mPerSurfaceGlobalMeasurements.size() || !index.isValid()) {
+    return nullptr;
+  }
+  const auto& measurements = mPerSurfaceGlobalMeasurements[surface.value()];
+  return index.value() < measurements.size() ? &measurements[index.value()] : nullptr;
 }
 
 const SurfaceMeasurement* TimeFrame::getSurfaceMeasurement(SurfaceId surface, SurfaceMeasurementIndex index) const noexcept
 {
-  return getMeasurementView().getSurfaceMeasurement(surface, index);
+  if (!surface.isValid() || surface.value() >= mPerSurfaceMeasurements.size() || !index.isValid()) {
+    return nullptr;
+  }
+  const auto& measurements = mPerSurfaceMeasurements[surface.value()];
+  return index.value() < measurements.size() ? &measurements[index.value()] : nullptr;
 }
 
 gsl::span<const ROFIntervalBC> TimeFrame::getSourceIntervals(ClusterSourceId source) const
@@ -152,7 +141,7 @@ bool TimeFrame::commitLoadedEvent(TimeFrame& staged,
     return false;
   }
 
-  resetEvent();
+  resetTimeFrame();
   swapMeasurements(staged);
   mWorkspace->swapLoadedEvent(*stagedWorkspace);
   return true;
@@ -214,12 +203,22 @@ const SurfaceTrackingScratch& TimeFrame::getWorkspace() const
   return *mWorkspace;
 }
 
-void TimeFrame::resetEvent() noexcept
+void TimeFrame::resetTimeFrame() noexcept
 {
   if (mWorkspace) {
     mWorkspace->reset();
   }
-  clearEventData();
+  deepVectorClear(mPrimaryVertices);
+  deepVectorClear(mPrimaryVerticesLabels);
+  // Common tracks and their cluster references are valid only for the current
+  // normalized event, so clear both together.
+  deepVectorClear(mGenericTracks);
+  deepVectorClear(mTrackClusterIndices);
+  mPerSurfaceGlobalMeasurements.clear();
+  mPerSurfaceMeasurements.clear();
+  mROFIntervals.clear();
+  mSourceROFOffsets.clear();
+  mLabelSources.clear();
   ++mEventResetCount;
 }
 
@@ -253,27 +252,6 @@ void TimeFrame::setMemoryPool(std::shared_ptr<BoundedMemoryResource> pool)
   initVector(mPrimaryVerticesLabels);
   initVector(mGenericTracks);
   initVector(mTrackClusterIndices);
-}
-
-void TimeFrame::clearEventData() noexcept
-{
-  deepVectorClear(mPrimaryVertices);
-  deepVectorClear(mPrimaryVerticesLabels);
-  // Common tracks and their cluster references are valid only for the current
-  // normalized event, so clear both together.
-  deepVectorClear(mGenericTracks);
-  deepVectorClear(mTrackClusterIndices);
-  clearMeasurements();
-}
-
-void TimeFrame::clearMeasurements() noexcept
-{
-  mPerSurfaceGlobalMeasurements.clear();
-  mPerSurfaceMeasurements.clear();
-  mMeasurementSpans.clear();
-  mROFIntervals.clear();
-  mSourceROFOffsets.clear();
-  mLabelSources.clear();
 }
 
 } // namespace o2::itsmft::tracking

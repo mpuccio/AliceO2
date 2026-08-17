@@ -590,13 +590,13 @@ TrackingResult Tracker::run(TimeFrame& frame, TrackerTraits& traits)
     // Structural/configuration failures are not per-TF data failures, so
     // DropTFUponFailure does not apply. Reset before propagating.
     LOGP(error, "CA tracker hit a structural traversal failure: {}", err.what());
-    frame.resetEvent();
+    frame.resetTimeFrame();
     throw;
   } catch (const BoundedMemoryResource::MemoryLimitExceeded& err) {
     // Recoverable per-TF resource failure: the bounded pool budget was
     // exceeded for this TimeFrame.
     LOGP(error, "CA tracker exceeded memory limit: {}", err.what());
-    frame.resetEvent();
+    frame.resetTimeFrame();
     if (trkParams[0].DropTFUponFailure) {
       return TrackingResult{TrackingOutcome::RecoverableDropped, 0.f};
     }
@@ -605,7 +605,7 @@ TrackingResult Tracker::run(TimeFrame& frame, TrackerTraits& traits)
     // Some CA scratch containers use the plain heap instead of the bounded
     // pool, so memory pressure can surface as bad_alloc. Handle it likewise.
     LOGP(error, "CA tracker allocation failed: {}", err.what());
-    frame.resetEvent();
+    frame.resetTimeFrame();
     if (trkParams[0].DropTFUponFailure) {
       return TrackingResult{TrackingOutcome::RecoverableDropped, 0.f};
     }
@@ -614,7 +614,7 @@ TrackingResult Tracker::run(TimeFrame& frame, TrackerTraits& traits)
     // Unclassified exceptions are treated as structural and always propagate;
     // recoverability is not inferred from std::exception alone.
     LOGP(error, "CA tracker failed with an unclassified exception; treating as structural: {}", err.what());
-    frame.resetEvent();
+    frame.resetTimeFrame();
     throw;
   }
 

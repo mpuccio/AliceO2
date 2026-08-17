@@ -69,7 +69,7 @@ BOOST_AUTO_TEST_CASE(TimeFrameOwnsWorkspaceAndResetsItOnce)
   workspace.getTracklets().front().push_back(o2::its::Tracklet{});
   frame.getGenericTracks().push_back(GenericTrack{});
 
-  frame.resetEvent();
+  frame.resetTimeFrame();
   BOOST_CHECK_EQUAL(frame.getEventResetCount(), 1u);
   BOOST_CHECK_EQUAL(&frame.getWorkspace(), workspaceAddress);
   BOOST_CHECK_EQUAL(frame.getMemoryPool().get(), allocator);
@@ -78,10 +78,10 @@ BOOST_AUTO_TEST_CASE(TimeFrameOwnsWorkspaceAndResetsItOnce)
   BOOST_CHECK(frame.getGenericTracks().empty());
   BOOST_CHECK(frame.isConfigured());
 
-  // A frame-owned workspace is reset only through TimeFrame::resetEvent().
+  // A frame-owned workspace is reset only through TimeFrame::resetTimeFrame().
   BOOST_CHECK_EQUAL(frame.getEventResetCount(), 1u);
 
-  frame.resetEvent();
+  frame.resetTimeFrame();
   BOOST_CHECK_EQUAL(frame.getEventResetCount(), 2u);
   BOOST_CHECK(frame.isConfigured());
 }
@@ -119,7 +119,7 @@ BOOST_AUTO_TEST_CASE(ProductionHasOneFrameResetAndNoIndependentLiveScratchOwner)
     BOOST_CHECK_MESSAGE(!contains(source, "SurfaceTrackingScratch* mScratch"), source.string());
     BOOST_CHECK_MESSAGE(!contains(source, "resetTimeFrameEvent"), source.string());
   }
-  BOOST_CHECK(contains(trackingRoot / "src/Tracker.cxx", "frame.resetEvent();"));
+  BOOST_CHECK(contains(trackingRoot / "src/Tracker.cxx", "frame.resetTimeFrame();"));
   BOOST_CHECK(contains(trackingRoot / "include/ITSMFTTracking/TimeFrame.h", "mWorkspace"));
   BOOST_CHECK(!contains(trackingRoot / "include/ITSMFTTracking/TimeFrame.h", "virtual void wipe"));
 }

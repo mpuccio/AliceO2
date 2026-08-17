@@ -16,7 +16,7 @@
 // testMFTNormalizedRefit.cxx):
 //   1. reset() clears a standalone scratch fixture only; TimeFrame content
 //      (GenericTracks, vertices) is untouched.
-//   2. TimeFrame::resetEvent() is the owner-level operation that clears frame
+//   2. TimeFrame::resetTimeFrame() is the owner-level operation that clears frame
 //      event data and configured workspaces.
 //   3. Two standalone scratch fixtures can be isolated while testing the
 //      lower-level kernel seam; production configured workspaces are grouped
@@ -247,7 +247,7 @@ BOOST_AUTO_TEST_CASE(ResetTimeFrameEventClearsBothOwners)
   BOOST_REQUIRE_EQUAL(frame.getGenericTracks().size(), 1u);
 
   scratch.reset();
-  frame.resetEvent();
+  frame.resetTimeFrame();
 
   BOOST_CHECK_EQUAL(scratch.getTotalClusters(), 0);
   BOOST_CHECK(frame.getPrimaryVertices().empty());

@@ -8,7 +8,7 @@ L6 makes `MultiSourceTimeFrameLoader::load(TimeFrame&, ...)` the direct,
 non-owning loading component. It stages all decoded normalized input and
 workspace backfills before one `TimeFrame` event commit. The live frame is not
 changed by a decode, source-qualification, allocator, or capacity failure.
-`TimeFrame::resetEvent()` is invoked once by a successful replacement. Runtime
+`TimeFrame::resetTimeFrame()` is invoked once by a successful replacement. Runtime
 ROF views are copied into frame-owned event state, while raw ROFs and the table
 storage behind those views remain owned by the adapter/workflow.
 

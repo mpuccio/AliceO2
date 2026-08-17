@@ -80,7 +80,7 @@ BOOST_AUTO_TEST_CASE(StandaloneWorkflowsUseDirectComposition)
     BOOST_CHECK(text.find("TimeFrame mFrame") != std::string::npos);
     BOOST_CHECK(source.find("loadTimeFrameSources") != std::string::npos);
     BOOST_CHECK(source.find("mTracker->run(mFrame") != std::string::npos);
-    BOOST_CHECK(source.find("mFrame.resetEvent()") != std::string::npos);
+    BOOST_CHECK(source.find("mFrame.resetTimeFrame()") != std::string::npos);
     BOOST_CHECK(source.find("stage") != std::string::npos);
   }
 }

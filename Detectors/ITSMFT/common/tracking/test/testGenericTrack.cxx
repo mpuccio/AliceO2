@@ -11,15 +11,14 @@
 //  - isValidTrackRange()'s exact validity condition (empty/default, single-,
 //    multi- and hole-containing ranges, out-of-range and reversed ranges);
 //  - per-surface measurement storage and surface-local index bounds
-//    (TimeFrame/MeasurementView::getGlobalMeasurement(SurfaceId,
-//    SurfaceMeasurementIndex));
+//    (TimeFrame::getGlobalMeasurement(SurfaceId, SurfaceMeasurementIndex));
 //  - cross-surface and cross-source TrackClusterReference resolution;
 //  - that a completed track's hitSurfaces is the union of the SurfaceId of
 //    every measurement its range references, and that each resolved
 //    measurement's own surface matches the reference it was resolved from;
 //  - that a successful TimeFrame::loadNormalizedSource() reload clears
 //    GenericTrack/trackClusterIndices storage, and a failed one preserves it;
-//  - that TimeFrame::resetEvent() invalidates GenericTrack/trackClusterIndices
+//  - that TimeFrame::resetTimeFrame() invalidates GenericTrack/trackClusterIndices
 //    storage together;
 //  - that GenericTrack itself has no detector/public-output dependency.
 //
@@ -48,7 +47,6 @@
 #include "DetectorsCommonDataFormats/DetID.h"
 #include "ITSMFTTracking/GenericTrack.h"
 #include "ITSMFTTracking/SurfaceLayout.h"
-#include "ITSMFTTracking/MeasurementView.h"
 #include "ITSMFTTracking/IOUtils.h"
 #include "ITSMFTTracking/ClusterDecoding.h"
 #include "ITSMFTTracking/IOUtils.h"
@@ -392,16 +390,6 @@ BOOST_AUTO_TEST_CASE(PerSurfaceMeasurementStorageAndSurfaceLocalIndexBounds)
   BOOST_CHECK(frame.getGlobalMeasurement(SurfaceId{4}, SurfaceMeasurementIndex{0}) == nullptr);
   // Invalid/default index sentinel.
   BOOST_CHECK(frame.getGlobalMeasurement(SurfaceId{0}, SurfaceMeasurementIndex{}) == nullptr);
-
-  // Same contract on the device-facing view.
-  const auto view = frame.getMeasurementView();
-  BOOST_REQUIRE_EQUAL(view.nSurfaces, 4u);
-  BOOST_CHECK(view.getGlobalMeasurement(SurfaceId{0}, SurfaceMeasurementIndex{0}) != nullptr);
-  BOOST_CHECK(view.getGlobalMeasurement(SurfaceId{0}, SurfaceMeasurementIndex{1}) == nullptr);
-  BOOST_CHECK(view.getGlobalMeasurement(SurfaceId{2}, SurfaceMeasurementIndex{0}) == nullptr);
-  BOOST_CHECK(view.getGlobalMeasurement(SurfaceId{4}, SurfaceMeasurementIndex{0}) == nullptr);
-  BOOST_CHECK_EQUAL(view.getSurfaceMeasurementCount(SurfaceId{0}), 1u);
-  BOOST_CHECK_EQUAL(view.getSurfaceMeasurementCount(SurfaceId{2}), 0u);
 }
 
 BOOST_AUTO_TEST_CASE(CrossSurfaceAndCrossSourceTrackClusterReferenceResolution)
@@ -817,7 +805,7 @@ BOOST_AUTO_TEST_CASE(ITSSharedClusterCompatibilityUsesExplicitPreSortAssociation
   BOOST_REQUIRE_EQUAL(sealingFailure.entries().size(), 1u);
 
   sidecar.clear();
-  fixture.tf.resetEvent();
+  fixture.tf.resetTimeFrame();
   BOOST_CHECK(fixture.tf.getGenericTracks().empty());
   BOOST_CHECK_EQUAL(sidecar.pendingSize(), 0u);
   BOOST_CHECK(sidecar.entries().empty());
@@ -866,14 +854,14 @@ BOOST_AUTO_TEST_CASE(TimeFrameWipeInvalidatesGenericTracksAndTrackClusterIndices
   BOOST_REQUIRE_EQUAL(tf.getTrackClusterIndices().size(), 2u);
   BOOST_REQUIRE(isValidTrackRange(tf.getGenericTracks()[0], static_cast<uint32_t>(tf.getTrackClusterIndices().size())));
 
-  tf.resetEvent();
+  tf.resetTimeFrame();
 
   BOOST_CHECK(tf.getGenericTracks().empty());
   BOOST_CHECK(tf.getTrackClusterIndices().empty());
 
   // Reload after wipe: both containers accept new content independently of
   // whatever they held before, confirming they are ordinary per-event state
-  // rather than something resetEvent() leaves in a half-cleared condition.
+  // rather than something resetTimeFrame() leaves in a half-cleared condition.
   tf.getTrackClusterIndices().push_back(TrackClusterReference{SurfaceId{2}, SurfaceMeasurementIndex{0}});
   GenericTrack reloaded{};
   reloaded.firstClusterRef = 0;

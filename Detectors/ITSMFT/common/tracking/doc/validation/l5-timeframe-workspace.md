@@ -41,7 +41,7 @@ configuration, or reset authority. `SurfaceTrackingScratch` remains an
 implementation type for kernels and loader staging, but its live configured
 instances are frame-owned. L6 removed the loader-target indirection.
 
-`TimeFrame::resetEvent()` is the single generic event reset. It clears
+`TimeFrame::resetTimeFrame()` is the single generic event reset. It clears
 normalized measurements, runtime ROF views, CA working storage, CommonTracks,
 references, labels, and event-derived support state. It preserves graphs,
 per-iteration parameters, source-qualified partitions, allocator identity, and

@@ -10,7 +10,7 @@
 // It proves:
 //  - both ITS workflow accessors expose the same shared kernel workspace;
 //  - an unconfigured workspace fails closed before loading;
-//  - ITS load failure and TimeFrame::resetEvent() preserve the
+//  - ITS load failure and TimeFrame::resetTimeFrame() preserve the
 //    GenericTrack/sidecar/workspace contracts;
 //  - the ITS shared-cluster compatibility sidecar (pending/sealed) still
 //    works correctly backed by the new scratch storage;
@@ -230,7 +230,7 @@ BOOST_AUTO_TEST_CASE(TimeFrameResetClearsSharedWorkspaceAndPreservesFrameState)
   BOOST_CHECK_EQUAL(itsParticipantScratch.getTotalClusters(), 2);
 
   const auto resetCount = frame.getEventResetCount();
-  frame.resetEvent();
+  frame.resetTimeFrame();
 
   BOOST_CHECK_EQUAL(frame.getEventResetCount(), resetCount + 1);
   BOOST_CHECK_EQUAL(itsParticipantScratch.getTotalClusters(), 0);
