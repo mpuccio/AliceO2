@@ -21,7 +21,7 @@
 #include <boost/test/unit_test.hpp>
 
 #include "ITSMFTTracking/detail/SurfaceStateOperations.h"
-#include "ITSMFTTracking/detail/SurfaceTrackingScratch.h"
+#include "ITSMFTTracking/detail/TimeFrameScratch.h"
 #include "ITSMFTTracking/detail/DetectorRefitSupport.h"
 #include "ITSMFTTracking/SurfaceDescriptor.h"
 #include "ITSMFTTracking/TimeFrame.h"
@@ -61,7 +61,7 @@ struct StraightTrackGeometry {
 
 // Owns one normalized refit fixture.
 struct RefitFixture {
-  SurfaceTrackingScratch tf;
+  TimeFrameScratch tf;
   std::array<std::vector<SurfaceMeasurement>, NLayers> storage;
   std::array<std::vector<GlobalMeasurement>, NLayers> globalStorage;
   std::vector<gsl::span<const SurfaceMeasurement>> layerMeasurements = std::vector<gsl::span<const SurfaceMeasurement>>(NLayers);
@@ -434,7 +434,7 @@ BOOST_AUTO_TEST_CASE(GenericRefitValidatesExternalClusterIdentity)
   // refit must validate that identity through the scratch mapping without
   // treating the external index as a local measurement position.
   const StraightTrackGeometry geometry(0.3f);
-  SurfaceTrackingScratch tf;
+  TimeFrameScratch tf;
   std::array<std::vector<SurfaceMeasurement>, NLayers> storage;
   std::array<std::vector<GlobalMeasurement>, NLayers> globalStorage;
   std::vector<gsl::span<const SurfaceMeasurement>> layerMeasurements = std::vector<gsl::span<const SurfaceMeasurement>>(NLayers);

@@ -41,7 +41,7 @@
 namespace o2::itsmft::tracking
 {
 
-class SurfaceTrackingScratch;
+class TimeFrameScratch;
 
 using BoundedMemoryResource = o2::its::BoundedMemoryResource;
 using Vertex = o2::its::Vertex;
@@ -102,14 +102,14 @@ struct TimeFrame {
 
   // Atomically replace the event after preflight.
   bool commitLoadedEvent(TimeFrame& staged,
-                         std::unique_ptr<SurfaceTrackingScratch>&& stagedWorkspace) noexcept;
+                         std::unique_ptr<TimeFrameScratch>&& stagedWorkspace) noexcept;
 
   // Clear event state while preserving configuration and allocator identity.
   void resetTimeFrame() noexcept;
   std::size_t getEventResetCount() const noexcept { return mEventResetCount; }
 
-  SurfaceTrackingScratch& getWorkspace();
-  const SurfaceTrackingScratch& getWorkspace() const;
+  TimeFrameScratch& getWorkspace();
+  const TimeFrameScratch& getWorkspace() const;
 
   bool commitConfiguration(std::vector<SurfaceLayout>&& layouts,
                            std::vector<TrackingParameters>&& parameters,
@@ -160,9 +160,9 @@ struct TimeFrame {
   std::vector<TrackingParameters> mTrackingParameters;
   std::vector<TrackingWorkspaceCapacity> mWorkspaceCapacities;
   struct WorkspaceDeleter {
-    void operator()(SurfaceTrackingScratch* workspace) const noexcept;
+    void operator()(TimeFrameScratch* workspace) const noexcept;
   };
-  std::unique_ptr<SurfaceTrackingScratch, WorkspaceDeleter> mWorkspace;
+  std::unique_ptr<TimeFrameScratch, WorkspaceDeleter> mWorkspace;
   std::size_t mEventResetCount{0};
 
   void swapMeasurements(TimeFrame& other) noexcept;

@@ -87,8 +87,8 @@ class CombinedCATrackerDPL : public o2::framework::Task
   std::optional<o2::itsmft::tracking::GenericTrackPublicationExport> getITSPublicationExport() const;
   std::optional<o2::itsmft::tracking::GenericTrackPublicationExport> getMFTPublicationExport() const;
 
-  const o2::itsmft::tracking::SurfaceTrackingScratch& getITSScratch() const noexcept { return mFrame.getWorkspace(); }
-  const o2::itsmft::tracking::SurfaceTrackingScratch& getMFTScratch() const noexcept { return mFrame.getWorkspace(); }
+  const o2::itsmft::tracking::TimeFrameScratch& getITSScratch() const noexcept { return mFrame.getWorkspace(); }
+  const o2::itsmft::tracking::TimeFrameScratch& getMFTScratch() const noexcept { return mFrame.getWorkspace(); }
   const o2::itsmft::tracking::ITSSharedClusterCompatibility& getITSSharedClusterCompatibility() const noexcept
   {
     return mITSCompatibility;

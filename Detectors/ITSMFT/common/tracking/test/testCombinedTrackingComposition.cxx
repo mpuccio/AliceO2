@@ -39,7 +39,7 @@
 #include "ITSMFTTracking/Tracker.h"
 #include "ITSMFTTracking/Configuration.h"
 #include "ITSMFTTracking/detail/ITSSharedClusterCompatibility.h"
-#include "ITSMFTTracking/detail/SurfaceTrackingScratch.h"
+#include "ITSMFTTracking/detail/TimeFrameScratch.h"
 #include "ITSMFTTracking/detail/MFTFwdTrackHelpers.h"
 #include "ITSMFTTracking/detail/MFTPublicationCompatibility.h"
 #include "ITSMFTTracking/IOUtils.h"
@@ -319,7 +319,7 @@ struct StandaloneRun {
   Tracker tracker{&detail::refitSurfaceSeed};
   TrackerTraits traits;
   std::shared_ptr<tbb::task_arena> arena;
-  SurfaceTrackingScratch* scratch = nullptr;
+  TimeFrameScratch* scratch = nullptr;
   std::vector<SurfaceDescriptor> catalog;
   TrackingResult result;
 
@@ -521,8 +521,8 @@ struct CombinedTrackingComposer {
     return {TrackingOutcome::Success, countFor(SurfaceId{0}), countFor(SurfaceId{ITSNLayers})};
   }
 
-  const SurfaceTrackingScratch& getITSScratch() const noexcept { return plan.getITSScratch(); }
-  const SurfaceTrackingScratch& getMFTScratch() const noexcept { return plan.getMFTScratch(); }
+  const TimeFrameScratch& getITSScratch() const noexcept { return plan.getITSScratch(); }
+  const TimeFrameScratch& getMFTScratch() const noexcept { return plan.getMFTScratch(); }
   const ITSSharedClusterCompatibility& getITSSharedClusterCompatibility() const noexcept { return plan.getITSSharedClusterCompatibility(); }
   const MFTPublicationCompatibility& getMFTPublicationCompatibility() const noexcept { return plan.getMFTPublicationCompatibility(); }
   gsl::span<const SurfaceId> getITSOrderedSurfaces() const noexcept { return plan.getITSOrderedSurfaces(); }

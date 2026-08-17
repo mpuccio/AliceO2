@@ -32,7 +32,7 @@
 #include "GPUCommonMath.h"
 #include "ITSMFTTracking/Configuration.h"
 #include "ITSMFTTracking/IOUtils.h"
-#include "ITSMFTTracking/detail/SurfaceTrackingScratch.h"
+#include "ITSMFTTracking/detail/TimeFrameScratch.h"
 #include "ITSMFTTracking/ITSMFTDetectorDefinitions.h"
 #include "ITSMFTTracking/ClusterDecoding.h"
 #include "ITSMFTTracking/IOUtils.h"
@@ -191,7 +191,7 @@ struct CovarianceSnapshot {
   friend bool operator==(const CovarianceSnapshot&, const CovarianceSnapshot&) = default;
 };
 
-CovarianceSnapshot snapshotCovariance(const TimeFrame& frame, const SurfaceTrackingScratch& tf)
+CovarianceSnapshot snapshotCovariance(const TimeFrame& frame, const TimeFrameScratch& tf)
 {
   const auto measurements = frame.getSurfaceMeasurements(SurfaceId{0});
   BOOST_REQUIRE_EQUAL(measurements.size(), 1u);
@@ -206,7 +206,7 @@ CovarianceSnapshot snapshotCovariance(const TimeFrame& frame, const SurfaceTrack
      floatBits(compatibility[0].covarianceTrackingFrame[2])}};
 }
 
-void checkRepresentationsAligned(const TimeFrame& frame, const SurfaceTrackingScratch& tf)
+void checkRepresentationsAligned(const TimeFrame& frame, const TimeFrameScratch& tf)
 {
   const auto snapshot = snapshotCovariance(frame, tf);
   BOOST_CHECK(snapshot.normalized == snapshot.compatibility);
@@ -283,7 +283,7 @@ struct Rig {
   SystematicContractDecoder decoder;
   std::shared_ptr<BoundedMemoryResource> pool;
   TimeFrame frame;
-  SurfaceTrackingScratch* tf{nullptr};
+  TimeFrameScratch* tf{nullptr};
   Tracker tracker;
   TrackerTraits traits;
   // Scratch carries non-owning runtime ROF views. Keep these adapter-edge

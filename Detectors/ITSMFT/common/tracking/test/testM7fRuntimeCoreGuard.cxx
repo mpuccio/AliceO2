@@ -316,8 +316,8 @@ BOOST_AUTO_TEST_CASE(RuntimePlanAndFixedCapacityAuthoritiesRemainExplicit)
 {
   const auto root = trackingRoot();
   const auto traits = readFile(root / "src/TrackerTraits.cxx");
-  const auto scratch = readFile(root / "include/ITSMFTTracking/detail/SurfaceTrackingScratch.h");
-  const auto workspace = readFile(root / "include/ITSMFTTracking/detail/SurfaceTrackingScratch.h");
+  const auto scratch = readFile(root / "include/ITSMFTTracking/detail/TimeFrameScratch.h");
+  const auto workspace = readFile(root / "include/ITSMFTTracking/detail/TimeFrameScratch.h");
   const auto tracker = readFile(root / "src/Tracker.cxx");
   const auto seed = readFile(root / "include/ITSMFTTracking/Cell.h");
   BOOST_CHECK(traits.find("context.workspace.orderedSurfaces") != std::string::npos);

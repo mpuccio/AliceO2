@@ -37,7 +37,7 @@
 #include "ITSMFTTracking/Configuration.h"
 #include "ITSMFTTracking/IOUtils.h"
 #include "ITSMFTTracking/ITSMFTDetectorDefinitions.h"
-#include "ITSMFTTracking/detail/SurfaceTrackingScratch.h"
+#include "ITSMFTTracking/detail/TimeFrameScratch.h"
 #include "ITSMFTTracking/TimeFrame.h"
 
 using namespace o2::itsmft;
@@ -47,8 +47,8 @@ using namespace o2::itsmft::tracking;
 
 // getScratch() itself proves the actual member type and keeps the production
 // class free of a compatibility alias.
-static_assert(std::is_same_v<decltype(std::declval<const test::CombinedTrackingPlan&>().getMFTScratch()), const SurfaceTrackingScratch&>);
-static_assert(std::is_same_v<decltype(std::declval<const test::CombinedTrackingPlan&>().getITSScratch()), const SurfaceTrackingScratch&>);
+static_assert(std::is_same_v<decltype(std::declval<const test::CombinedTrackingPlan&>().getMFTScratch()), const TimeFrameScratch&>);
+static_assert(std::is_same_v<decltype(std::declval<const test::CombinedTrackingPlan&>().getITSScratch()), const TimeFrameScratch&>);
 static_assert(std::is_invocable_v<decltype(&Tracker::run), Tracker&, TimeFrame&, TrackerTraits&>);
 
 BOOST_AUTO_TEST_CASE(CompileTimeTypeProofsHoldAtRuntimeToo)
@@ -150,7 +150,7 @@ BOOST_AUTO_TEST_CASE(AtomicMFTLoadFailureLeavesSharedTimeFrameAndBothParticipant
 
   // ITS's own source is structurally valid (correctly-sized layerToSurface);
   // MFT's is deliberately malformed (9 entries instead of MFTNLayers=10) --
-  // SurfaceTrackingScratch::loadNormalizedSource()'s own preflight
+  // TimeFrameScratch::loadNormalizedSource()'s own preflight
   // (orderedSurfaces.size() != mNOwnedSurfaces) must reject it before any
   // commit.
   std::vector<SurfaceId> itsLayerToSurfaceStorage;
@@ -194,8 +194,8 @@ BOOST_AUTO_TEST_CASE(TimeFrameResetClearsSharedWorkspaceAndPreservesFrameState)
   // The two workflow accessors are aliases of one global workspace. Only the
   // const accessor is exposed by the fixture, so const_cast is limited to
   // this direct reset probe.
-  auto& itsParticipantScratch = const_cast<SurfaceTrackingScratch&>(participants.getITSScratch());
-  auto& mftParticipantScratch = const_cast<SurfaceTrackingScratch&>(participants.getMFTScratch());
+  auto& itsParticipantScratch = const_cast<TimeFrameScratch&>(participants.getITSScratch());
+  auto& mftParticipantScratch = const_cast<TimeFrameScratch&>(participants.getMFTScratch());
   BOOST_CHECK_EQUAL(&itsParticipantScratch, &mftParticipantScratch);
   BOOST_CHECK_EQUAL(itsParticipantScratch.getNOwnedSurfaces(), 17u);
   BOOST_CHECK_EQUAL(itsParticipantScratch.getNEdges(), 15u);
@@ -280,8 +280,8 @@ BOOST_AUTO_TEST_CASE(CombinedExecutionUsesOneSharedWorkspace)
   TimeFrame frame;
   participants.adoptFrame(frame);
 
-  auto& itsScratch = const_cast<SurfaceTrackingScratch&>(participants.getITSScratch());
-  auto& mftScratch = const_cast<SurfaceTrackingScratch&>(participants.getMFTScratch());
+  auto& itsScratch = const_cast<TimeFrameScratch&>(participants.getITSScratch());
+  auto& mftScratch = const_cast<TimeFrameScratch&>(participants.getMFTScratch());
   BOOST_CHECK_EQUAL(&itsScratch, &mftScratch);
   BOOST_CHECK_EQUAL(itsScratch.getNOwnedSurfaces(), 17u);
   BOOST_CHECK_EQUAL(itsScratch.getNEdges(), 15u);

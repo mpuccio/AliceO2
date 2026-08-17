@@ -132,8 +132,8 @@ BOOST_AUTO_TEST_CASE(ExecutionSourcesUseCurrentTopology)
   const std::array<fs::path, 7> sources{
     trackingRoot / "include/ITSMFTTracking/TrackerTraits.h",
     trackingRoot / "src/TrackerTraits.cxx",
-    trackingRoot / "include/ITSMFTTracking/detail/SurfaceTrackingScratch.h",
-    trackingRoot / "src/SurfaceTrackingScratch.cxx",
+    trackingRoot / "include/ITSMFTTracking/detail/TimeFrameScratch.h",
+    trackingRoot / "src/TimeFrameScratch.cxx",
     trackingRoot / "include/ITSMFTTracking/TraversalTopology.h",
     trackingRoot / "src/TraversalTopology.cxx",
     trackingRoot / "src/Tracker.cxx"};

@@ -9,13 +9,13 @@
 // granted to it by virtue of its status as an Intergovernmental Organization
 // or submit itself to any jurisdiction.
 ///
-/// \file SurfaceTrackingScratch.h
+/// \file TimeFrameScratch.h
 /// \brief Runtime-plan-owned, detector-neutral CA workspace.
 ///
 /// Host storage follows the runtime surface graph; device capacities remain
 /// fixed. TimeFrame owns the workspace, while adapters own raw ROFs.
-#ifndef ALICEO2_ITSMFT_TRACKING_SURFACETRACKINGSCRATCH_H_
-#define ALICEO2_ITSMFT_TRACKING_SURFACETRACKINGSCRATCH_H_
+#ifndef ALICEO2_ITSMFT_TRACKING_TimeFrameScratch_H_
+#define ALICEO2_ITSMFT_TRACKING_TimeFrameScratch_H_
 
 #include <algorithm>
 #include <array>
@@ -126,7 +126,7 @@ struct TraversalWorkspace {
 };
 
 /// Detector-neutral CA working state with current-event views.
-class SurfaceTrackingScratch
+class TimeFrameScratch
 {
  private:
   // Pools must outlive allocator-backed members.
@@ -136,12 +136,12 @@ class SurfaceTrackingScratch
   bool mIsStaggered{false};
 
  public:
-  SurfaceTrackingScratch() = default;
-  ~SurfaceTrackingScratch() = default;
-  SurfaceTrackingScratch(const SurfaceTrackingScratch&) = delete;
-  SurfaceTrackingScratch& operator=(const SurfaceTrackingScratch&) = delete;
-  SurfaceTrackingScratch(SurfaceTrackingScratch&&) = delete;
-  SurfaceTrackingScratch& operator=(SurfaceTrackingScratch&&) = delete;
+  TimeFrameScratch() = default;
+  ~TimeFrameScratch() = default;
+  TimeFrameScratch(const TimeFrameScratch&) = delete;
+  TimeFrameScratch& operator=(const TimeFrameScratch&) = delete;
+  TimeFrameScratch(TimeFrameScratch&&) = delete;
+  TimeFrameScratch& operator=(TimeFrameScratch&&) = delete;
 
   /// Size surface, edge and cell storage; setMemoryPool() comes first.
   void adoptPlan(std::size_t nOwnedSurfaces, std::size_t nEdges, std::size_t nCells);
@@ -175,10 +175,10 @@ class SurfaceTrackingScratch
 
   /// Atomic-load staging requires matching flat-container allocators; nested
   /// vector swaps preserve their own allocator identity.
-  bool allocatorsMatch(const SurfaceTrackingScratch& staged) const noexcept;
+  bool allocatorsMatch(const TimeFrameScratch& staged) const noexcept;
 
   /// Precondition: allocatorsMatch(other); owner-bound allocators are retained.
-  void swap(SurfaceTrackingScratch& other) noexcept;
+  void swap(TimeFrameScratch& other) noexcept;
 
   // ---- Read-in data: loops use the runtime ordered-surface span.
 #ifndef GPUCA_GPUCODE
@@ -432,7 +432,7 @@ class SurfaceTrackingScratch
  private:
   friend struct TimeFrame;
 
-  void swapLoadedEvent(SurfaceTrackingScratch& other) noexcept;
+  void swapLoadedEvent(TimeFrameScratch& other) noexcept;
 
   void prepareClusters(const TimeFrame& frame, const TrackingParameters& trkParam, int maxLayers,
                        gsl::span<const gsl::span<const GlobalMeasurement>> layerMeasurements);
@@ -450,4 +450,4 @@ class SurfaceTrackingScratch
 
 } // namespace o2::itsmft::tracking
 
-#endif /* ALICEO2_ITSMFT_TRACKING_SURFACETRACKINGSCRATCH_H_ */
+#endif /* ALICEO2_ITSMFT_TRACKING_TimeFrameScratch_H_ */

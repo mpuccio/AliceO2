@@ -38,7 +38,7 @@
 #include "ITSMFTTracking/IndexTableUtils.h"
 #include "ITSMFTTracking/SurfaceMask.h"
 #include "ITSMFTTracking/TripletFitting.h"
-#include "ITSMFTTracking/detail/SurfaceTrackingScratch.h"
+#include "ITSMFTTracking/detail/TimeFrameScratch.h"
 #include "ITSMFTTracking/TrackerTraits.h"
 #include "ITSMFTTracking/detail/CandidateFinding.h"
 #include "ITSMFTTracking/detail/DirectionCompatibility.h"

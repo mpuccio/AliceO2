@@ -11,7 +11,7 @@
 #include <memory>
 #include <vector>
 
-#include "ITSMFTTracking/detail/SurfaceTrackingScratch.h"
+#include "ITSMFTTracking/detail/TimeFrameScratch.h"
 #include "ITSMFTTracking/SurfaceMask.h"
 #include "ITSMFTTracking/TimeFrame.h"
 #include "Framework/Logger.h"
@@ -218,7 +218,7 @@ LoadSourcesResult loadTimeFrameSources(TimeFrame& frame, gsl::span<const Cluster
     return {MultiSourceLoadError::InvalidLayerMapping};
   }
 
-  auto staged = std::make_unique<SurfaceTrackingScratch>();
+  auto staged = std::make_unique<TimeFrameScratch>();
   auto& live = frame.getWorkspace();
   if (live.hasFrameworkAllocator()) {
     staged->setFrameworkAllocator(live.getFrameworkAllocator());
@@ -456,13 +456,13 @@ class NormalizedBackfillAllocatorMismatch final : public std::logic_error
 {
  public:
   explicit NormalizedBackfillAllocatorMismatch(int layer)
-    : std::logic_error("SurfaceTrackingScratch::loadNormalizedSource(): staged/live memory-resource mismatch on layer " + std::to_string(layer))
+    : std::logic_error("TimeFrameScratch::loadNormalizedSource(): staged/live memory-resource mismatch on layer " + std::to_string(layer))
   {
   }
 };
 } // namespace
 
-LoadSourcesResult SurfaceTrackingScratch::loadNormalizedSource(
+LoadSourcesResult TimeFrameScratch::loadNormalizedSource(
   TimeFrame& frame,
   const ClusterDecoder& decoder,
   const o2::InteractionRecord& origin,
@@ -647,7 +647,7 @@ LoadSourcesResult SurfaceTrackingScratch::loadNormalizedSource(
   return result;
 }
 
-LoadSourcesResult SurfaceTrackingScratch::backfillNormalizedSources(
+LoadSourcesResult TimeFrameScratch::backfillNormalizedSources(
   const TimeFrame& measurements,
   gsl::span<const ClusterSourceInput> sources,
   gsl::span<const SurfaceId> orderedSurfaces,

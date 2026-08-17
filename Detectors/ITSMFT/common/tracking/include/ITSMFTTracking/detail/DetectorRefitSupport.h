@@ -13,7 +13,7 @@
 #include "ITSMFTTracking/GenericTrack.h"
 #include "ITSMFTTracking/RefitDriver.h"
 #include "ITSMFTTracking/TimeFrame.h"
-#include "ITSMFTTracking/detail/SurfaceTrackingScratch.h"
+#include "ITSMFTTracking/detail/TimeFrameScratch.h"
 #include "ITStracking/Constants.h"
 
 namespace o2::itsmft::tracking::detail
@@ -63,7 +63,7 @@ inline bool fillCandidateKinematics(TrackingCandidate& candidate) noexcept
 inline bool refitSurfaceSeed(const TrackSeed& seed,
                              const TrackingParameters& params,
                              float bz,
-                             SurfaceTrackingScratch& scratch,
+                             TimeFrameScratch& scratch,
                              gsl::span<const gsl::span<const GlobalMeasurement>> layerGlobals,
                              gsl::span<const gsl::span<const SurfaceMeasurement>> layerMeasurements,
                              SurfaceCatalogView surfaceCatalog,

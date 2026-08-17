@@ -28,7 +28,7 @@
 #include "ITSMFTTracking/Configuration.h"
 #include "ITSMFTTracking/IndexTableConfiguration.h"
 #include "ITSMFTTracking/ITSMFTDetectorDefinitions.h"
-#include "ITSMFTTracking/detail/SurfaceTrackingScratch.h"
+#include "ITSMFTTracking/detail/TimeFrameScratch.h"
 #include "ITSMFTTracking/TimeFrame.h"
 #include "ITSMFTTracking/Tracker.h"
 #include "ITSMFTTracking/TrackerTraits.h"
@@ -100,7 +100,7 @@ std::filesystem::path trackingRoot()
 bool noopSeedRefit(const TrackSeed&,
                    const o2::itsmft::TrackingParameters&,
                    float,
-                   SurfaceTrackingScratch&,
+                   TimeFrameScratch&,
                    gsl::span<const gsl::span<const GlobalMeasurement>>,
                    gsl::span<const gsl::span<const SurfaceMeasurement>>,
                    SurfaceCatalogView,

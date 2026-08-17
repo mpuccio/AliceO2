@@ -268,8 +268,8 @@ class CombinedTrackingPlan
     configure(mMFTROFOverlapTable, mMFTROFVertexLookupTable, mMFTMultiplicityMask, mftSource.timing, static_cast<uint32_t>(mftSource.rofs.size()), MFTNLayers);
   }
 
-  const SurfaceTrackingScratch& getITSScratch() const noexcept { return mFrame->getWorkspace(); }
-  const SurfaceTrackingScratch& getMFTScratch() const noexcept { return mFrame->getWorkspace(); }
+  const TimeFrameScratch& getITSScratch() const noexcept { return mFrame->getWorkspace(); }
+  const TimeFrameScratch& getMFTScratch() const noexcept { return mFrame->getWorkspace(); }
   gsl::span<const SurfaceId> getITSOrderedSurfaces() const noexcept { return mFrame->getLayout(0).getOrderedSurfaces().first(ITSNLayers); }
   gsl::span<const SurfaceId> getMFTOrderedSurfaces() const noexcept { return mFrame->getLayout(0).getOrderedSurfaces().subspan(ITSNLayers, MFTNLayers); }
   const ITSSharedClusterCompatibility& getITSSharedClusterCompatibility() const noexcept

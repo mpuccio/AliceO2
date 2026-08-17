@@ -26,7 +26,7 @@
 
 #include "ITSMFTTracking/Configuration.h"
 #include "ITSMFTTracking/SurfaceLayout.h"
-#include "ITSMFTTracking/detail/SurfaceTrackingScratch.h"
+#include "ITSMFTTracking/detail/TimeFrameScratch.h"
 #include "ITSMFTTracking/TimeFrame.h"
 #include "ITSMFTTracking/TrackerTraits.h"
 

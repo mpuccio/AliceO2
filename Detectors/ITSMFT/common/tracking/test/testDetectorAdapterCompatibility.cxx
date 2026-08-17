@@ -41,7 +41,7 @@ o2::track::TrackParCovFwd makeForwardState(double invQPt)
 }
 
 struct MixedRefitFixture {
-  SurfaceTrackingScratch scratch;
+  TimeFrameScratch scratch;
   std::array<std::vector<SurfaceMeasurement>, 3> measurementsStorage;
   std::array<std::vector<GlobalMeasurement>, 3> globalsStorage;
   std::vector<gsl::span<const SurfaceMeasurement>> measurements{3};
@@ -135,7 +135,7 @@ BOOST_AUTO_TEST_CASE(its_compatibility_consumes_generic_results)
   DetectorPublicationAdapter<ITSNLayers> adapter;
   adapter.adoptITSSharedClusterCompatibility(&sidecar);
   o2::itsmft::TrackingParameters params;
-  SurfaceTrackingScratch scratch;
+  TimeFrameScratch scratch;
   BOOST_REQUIRE(adapter.completeAccepted(results, params, scratch, true));
   BOOST_REQUIRE_EQUAL(sidecar.entries().size(), 2);
   BOOST_CHECK_EQUAL(sidecar.entries()[0].genericTrackIndex, 4);
@@ -161,7 +161,7 @@ BOOST_AUTO_TEST_CASE(mft_compatibility_consumes_seed_and_common_result)
   DetectorPublicationAdapter<MFTNLayers> adapter;
   adapter.adoptMFTPublicationCompatibility(&sidecar);
   o2::itsmft::TrackingParameters params;
-  SurfaceTrackingScratch scratch;
+  TimeFrameScratch scratch;
   BOOST_REQUIRE(adapter.completeAccepted(results, params, scratch, true));
   BOOST_REQUIRE_EQUAL(sidecar.entries().size(), 1);
   BOOST_CHECK_EQUAL(sidecar.entries()[0].genericTrackIndex, 7);
@@ -182,7 +182,7 @@ BOOST_AUTO_TEST_CASE(native_refit_rejects_invalid_generic_state)
   const std::vector<gsl::span<const GlobalMeasurement>> layerGlobals(7);
   const std::vector<gsl::span<const SurfaceMeasurement>> layerMeasurements(7);
   const SurfaceCatalogView surfaceCatalog{};
-  SurfaceTrackingScratch scratch;
+  TimeFrameScratch scratch;
   const std::vector<SurfaceId> orderedSurfaces(7);
   BOOST_CHECK(!detail::refitSurfaceSeed(seed, params, 0.5f, scratch, layerGlobals, layerMeasurements, surfaceCatalog, orderedSurfaces, candidate));
 }
@@ -241,7 +241,7 @@ BOOST_AUTO_TEST_CASE(generic_refit_validates_each_measurement_before_commit)
   }
   {
     MixedRefitFixture fixture;
-    SurfaceTrackingScratch missingMapping;
+    TimeFrameScratch missingMapping;
     missingMapping.setMemoryPool(std::make_shared<o2::its::BoundedMemoryResource>());
     missingMapping.adoptPlan(3, 0, 0);
     for (int position = 0; position < 3; ++position) {

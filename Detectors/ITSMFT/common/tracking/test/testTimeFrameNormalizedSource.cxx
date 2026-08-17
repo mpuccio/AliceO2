@@ -8,13 +8,13 @@
 // Gate 1/2 compatibility-boundary parity tests (AgentCoordination.md / Wave 1
 // exit criteria: "Current single-detector TimeFrames still load and expose
 // equivalent clusters"), updated for the Gate 4 B3.1 TimeFrame /
-// SurfaceTrackingScratch split. These instantiate the actual common
+// TimeFrameScratch split. These instantiate the actual common
 // o2::itsmft::tracking::TimeFrame (the detector-neutral normalized owner)
-// together with o2::itsmft::tracking::SurfaceTrackingScratch/
+// together with o2::itsmft::tracking::TimeFrameScratch/
 // <MFTNLayers> (the legacy per-detector compatibility scratch, already
 // shared with MFT production via CATrackerSpec.cxx, and compiled -- though
 // not yet workflow-wired -- for ITS) and exercise
-// SurfaceTrackingScratch::loadNormalizedSource(TimeFrame&, ...), the
+// TimeFrameScratch::loadNormalizedSource(TimeFrame&, ...), the
 // owner-level load operation which loads one single-detector cluster stream
 // through TimeFrame event measurement storage (ITSMFTTracking/
 // IOUtils.h) and then backfills the scratch's existing legacy
@@ -45,7 +45,7 @@
 // parity, the explicit separation of MFT's legacy synthetic coordinates from
 // normalized disk coordinates, and ITS-only, MFT-only and combined
 // normalized loading. This test suite instead covers what that validation
-// does not: the common TimeFrame/SurfaceTrackingScratch compatibility
+// does not: the common TimeFrame/TimeFrameScratch compatibility
 // boundary itself (loadNormalizedSource() and its backfill of legacy
 // compatibility structures from the normalized owner), which is unaffected
 // by which decoder produced the measurements.
@@ -69,7 +69,7 @@
 #include "DataFormatsITSMFT/TopologyDictionary.h"
 #include "DetectorsCommonDataFormats/DetID.h"
 #include "ITSMFTTracking/SurfaceLayout.h"
-#include "ITSMFTTracking/detail/SurfaceTrackingScratch.h"
+#include "ITSMFTTracking/detail/TimeFrameScratch.h"
 #include "ITSMFTTracking/IOUtils.h"
 #include "ITSMFTTracking/SurfaceDescriptor.h"
 #include "ITSMFTTracking/ClusterDecoding.h"
@@ -161,7 +161,7 @@ const TopologyDictionary& dict()
   return d;
 }
 
-void configureScratchFromPlan(SurfaceTrackingScratch& scratch, std::size_t nOwnedSurfaces)
+void configureScratchFromPlan(TimeFrameScratch& scratch, std::size_t nOwnedSurfaces)
 {
   scratch.setMemoryPool(std::make_shared<o2::its::BoundedMemoryResource>());
   scratch.adoptPlan(nOwnedSurfaces, 0, 0);
@@ -350,7 +350,7 @@ void checkParity(std::vector<SurfaceDescriptor> catalog, const Fixture& f)
 
   TimeFrame frame;
 
-  SurfaceTrackingScratch tf;
+  TimeFrameScratch tf;
   std::vector<TrackingParameters> noIterations;
   const auto plan = catalogGraph(catalogView, orderedSurfaces);
   configureScratchFromPlan(tf, plan.getOrderedSurfaces().size());
@@ -503,8 +503,8 @@ void checkParity(std::vector<SurfaceDescriptor> catalog, const Fixture& f)
 // function's address is unambiguous (there is exactly one overload), so
 // checking its invocability against the removed Gate 1 argument list proves
 // the parameters are gone from the signature itself, not merely unused.
-static_assert(!std::is_invocable_v<decltype(&SurfaceTrackingScratch::loadNormalizedSource),
-                                   SurfaceTrackingScratch&,
+static_assert(!std::is_invocable_v<decltype(&TimeFrameScratch::loadNormalizedSource),
+                                   TimeFrameScratch&,
                                    TimeFrame&,
                                    const TraversalTopologyView&,
                                    gsl::span<const SurfaceId>,
@@ -539,7 +539,7 @@ BOOST_AUTO_TEST_CASE(EmptyInputsAreLegalForBothDetectors)
     const SurfaceCatalogView catalogView{catalog.data(), static_cast<uint32_t>(catalog.size())};
     LegacyLikeDecoder decoder{o2::detectors::DetID::ITS, false};
     TimeFrame frame;
-    SurfaceTrackingScratch tf;
+    TimeFrameScratch tf;
     std::vector<TrackingParameters> noIterations;
     const auto plan = catalogGraph(catalogView, identitySurfaces(ITSNLayers));
     configureScratchFromPlan(tf, plan.getOrderedSurfaces().size());
@@ -557,7 +557,7 @@ BOOST_AUTO_TEST_CASE(EmptyInputsAreLegalForBothDetectors)
     const SurfaceCatalogView catalogView{catalog.data(), static_cast<uint32_t>(catalog.size())};
     LegacyLikeDecoder decoder{o2::detectors::DetID::MFT, true};
     TimeFrame frame;
-    SurfaceTrackingScratch tf;
+    TimeFrameScratch tf;
     std::vector<TrackingParameters> noIterations;
     const auto plan = catalogGraph(catalogView, identitySurfaces(MFTNLayers));
     configureScratchFromPlan(tf, plan.getOrderedSurfaces().size());
@@ -582,7 +582,7 @@ BOOST_AUTO_TEST_CASE(ZeroIterationCatalogOnlyLoadingSucceeds)
 
   TimeFrame frame;
 
-  SurfaceTrackingScratch tf;
+  TimeFrameScratch tf;
   std::vector<TrackingParameters> noIterations;
   const auto plan = catalogGraph(catalogView, orderedSurfaces);
   configureScratchFromPlan(tf, plan.getOrderedSurfaces().size());
@@ -607,7 +607,7 @@ BOOST_AUTO_TEST_CASE(NeverConfiguredCatalogIsRejected)
   // configured" is now expressed by the caller passing an empty/default
   // SurfaceCatalogView explicitly, not by TimeFrame's own internal state.
   TimeFrame frame;
-  SurfaceTrackingScratch tf;
+  TimeFrameScratch tf;
   LegacyLikeDecoder decoder{o2::detectors::DetID::ITS, false};
   const std::vector<CompClusterExt> clusters{{1, 1, CompCluster::InvalidPatternID, 0}};
   const auto patterns = std::vector<unsigned char>(onePixelPattern.begin(), onePixelPattern.end());
@@ -652,7 +652,7 @@ BOOST_AUTO_TEST_CASE(CatalogRequestDetectorMismatchIsRejected)
 
   TimeFrame frame;
 
-  SurfaceTrackingScratch tf;
+  TimeFrameScratch tf;
   std::vector<TrackingParameters> noIterations;
   const auto plan = catalogGraph(catalogView, orderedSurfaces);
   configureScratchFromPlan(tf, plan.getOrderedSurfaces().size());
@@ -670,7 +670,7 @@ BOOST_AUTO_TEST_CASE(CatalogRequestDetectorMismatchIsRejected)
   BOOST_CHECK_EQUAL(frame.getTotalMeasurements(), 0u);
 }
 
-// A SurfaceTrackingScratch probed with detId=TPC shares NLayers==7 with the
+// A TimeFrameScratch probed with detId=TPC shares NLayers==7 with the
 // scratch. The detector-identity preflight must still reject it as
 // UnsupportedDetector, and it must do so before catalog ownership is ever
 // inspected: no catalog is configured here at all, so a result of
@@ -679,7 +679,7 @@ BOOST_AUTO_TEST_CASE(CatalogRequestDetectorMismatchIsRejected)
 BOOST_AUTO_TEST_CASE(UnsupportedDetectorWinsOverSharedNLayers)
 {
   TimeFrame frame;
-  SurfaceTrackingScratch tf;
+  TimeFrameScratch tf;
   LegacyLikeDecoder decoder{o2::detectors::DetID::TPC, false};
   const std::vector<CompClusterExt> clusters{{1, 1, CompCluster::InvalidPatternID, 0}};
   const auto patterns = std::vector<unsigned char>(onePixelPattern.begin(), onePixelPattern.end());
@@ -700,7 +700,7 @@ BOOST_AUTO_TEST_CASE(UnsupportedDetectorWinsOverSharedNLayers)
 BOOST_AUTO_TEST_CASE(SupportedDetectorRequiresConfiguredSurfacePlan)
 {
   TimeFrame frame;
-  SurfaceTrackingScratch tf;
+  TimeFrameScratch tf;
   LegacyLikeDecoder decoder{o2::detectors::DetID::MFT, true};
   const std::vector<CompClusterExt> clusters{{1, 1, CompCluster::InvalidPatternID, 0}};
   const auto patterns = std::vector<unsigned char>(onePixelPattern.begin(), onePixelPattern.end());
@@ -725,7 +725,7 @@ BOOST_AUTO_TEST_CASE(WrongMappingCardinalityIsRejected)
 
   TimeFrame frame;
 
-  SurfaceTrackingScratch tf;
+  TimeFrameScratch tf;
   std::vector<TrackingParameters> noIterations;
   const auto plan = catalogGraph(catalogView, shortOrderedSurfaces);
   // The scratch is intentionally configured for the canonical seven-surface
@@ -753,7 +753,7 @@ BOOST_AUTO_TEST_CASE(InvalidOrOutOfRangeMappedSurfaceIsRejected)
     const auto catalog = makeITSTestCatalog();
     const SurfaceCatalogView catalogView{catalog.data(), static_cast<uint32_t>(catalog.size())};
     TimeFrame frame;
-    SurfaceTrackingScratch tf;
+    TimeFrameScratch tf;
     std::vector<TrackingParameters> noIterations;
     const auto plan = catalogGraph(catalogView, identitySurfaces(ITSNLayers));
     configureScratchFromPlan(tf, plan.getOrderedSurfaces().size());
@@ -775,7 +775,7 @@ BOOST_AUTO_TEST_CASE(InvalidOrOutOfRangeMappedSurfaceIsRejected)
     const auto catalog = makeITSTestCatalog();
     const SurfaceCatalogView catalogView{catalog.data(), static_cast<uint32_t>(catalog.size())};
     TimeFrame frame;
-    SurfaceTrackingScratch tf;
+    TimeFrameScratch tf;
     std::vector<TrackingParameters> noIterations;
     const auto plan = catalogGraph(catalogView, identitySurfaces(ITSNLayers));
     configureScratchFromPlan(tf, plan.getOrderedSurfaces().size());
@@ -801,7 +801,7 @@ BOOST_AUTO_TEST_CASE(DuplicateMappedSurfaceIsRejected)
 
   TimeFrame frame;
 
-  SurfaceTrackingScratch tf;
+  TimeFrameScratch tf;
   std::vector<TrackingParameters> noIterations;
   const auto plan = catalogGraph(catalogView, identitySurfaces(ITSNLayers));
   configureScratchFromPlan(tf, plan.getOrderedSurfaces().size());
@@ -846,7 +846,7 @@ BOOST_AUTO_TEST_CASE(MappedDescriptorDetectorMismatchIsRejected)
 
   TimeFrame frame;
 
-  SurfaceTrackingScratch tf;
+  TimeFrameScratch tf;
   std::vector<TrackingParameters> noIterations;
   const auto plan = catalogGraph(catalogView, orderedSurfaces);
   configureScratchFromPlan(tf, plan.getOrderedSurfaces().size());
@@ -873,7 +873,7 @@ BOOST_AUTO_TEST_CASE(FailedNormalizedLoadLeavesBothRepresentationsUnchanged)
 
   TimeFrame frame;
 
-  SurfaceTrackingScratch tf;
+  TimeFrameScratch tf;
   std::vector<TrackingParameters> noIterations;
   const auto plan = catalogGraph(catalogView, orderedSurfaces);
   configureScratchFromPlan(tf, plan.getOrderedSurfaces().size());
@@ -937,7 +937,7 @@ BOOST_AUTO_TEST_CASE(PreflightFailureAfterBaselineLoadPreservesState)
 
   TimeFrame frame;
 
-  SurfaceTrackingScratch tf;
+  TimeFrameScratch tf;
   std::vector<TrackingParameters> noIterations;
   const auto plan = catalogGraph(catalogView, orderedSurfaces);
   configureScratchFromPlan(tf, plan.getOrderedSurfaces().size());
@@ -980,7 +980,7 @@ BOOST_AUTO_TEST_CASE(ApplySysErrorsDefaultsTrueAndPropagatesToTheDecoder)
     const SurfaceCatalogView catalogView{catalog.data(), static_cast<uint32_t>(catalog.size())};
     LegacyLikeDecoder decoder{o2::detectors::DetID::ITS, false};
     TimeFrame frame;
-    SurfaceTrackingScratch tf;
+    TimeFrameScratch tf;
     std::vector<TrackingParameters> noIterations;
     const auto plan = catalogGraph(catalogView, orderedSurfaces);
     configureScratchFromPlan(tf, plan.getOrderedSurfaces().size());
@@ -996,7 +996,7 @@ BOOST_AUTO_TEST_CASE(ApplySysErrorsDefaultsTrueAndPropagatesToTheDecoder)
     const SurfaceCatalogView catalogView{catalog.data(), static_cast<uint32_t>(catalog.size())};
     LegacyLikeDecoder decoder{o2::detectors::DetID::ITS, false};
     TimeFrame frame;
-    SurfaceTrackingScratch tf;
+    TimeFrameScratch tf;
     std::vector<TrackingParameters> noIterations;
     const auto plan = catalogGraph(catalogView, orderedSurfaces);
     configureScratchFromPlan(tf, plan.getOrderedSurfaces().size());

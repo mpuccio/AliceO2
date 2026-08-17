@@ -6,22 +6,22 @@
 // License v3 (GPL Version 3), copied verbatim in the file "COPYING".
 
 // Gate 2 correction, updated for Gate 4 B3.1's TimeFrame /
-// SurfaceTrackingScratch split: TimeFrame lifecycle and
+// TimeFrameScratch split: TimeFrame lifecycle and
 // transactional legacy backfill.
 //
 // A. Reset lifecycle: TimeFrame::resetTimeFrame() must unconditionally clear the
 //    normalized owner (mNormalizedFrame) associated by
-//    SurfaceTrackingScratch::loadNormalizedSource() -- every
+//    TimeFrameScratch::loadNormalizedSource() -- every
 //    normalized accessor obtained *after* resetTimeFrame() must report empty/zero
 //    content. This test never dereferences a view obtained before resetTimeFrame():
 //    every post-wipe check re-obtains its accessor. (Gate 4 B3.1: neither
-//    TimeFrame nor SurfaceTrackingScratch stores mDetId at all any
+//    TimeFrame nor TimeFrameScratch stores mDetId at all any
 //    more -- callers pass the detector explicitly to every call that needs
 //    it -- so there is nothing detector-identity-shaped left for resetTimeFrame() to
 //    preserve or clear.)
 //
 // B. Strong exception transactionality: the owner-level load operation
-//    SurfaceTrackingScratch::loadNormalizedSource(TimeFrame&, ...)
+//    TimeFrameScratch::loadNormalizedSource(TimeFrame&, ...)
 //    stages both the shared TimeFrame's normalized update and its own
 //    legacy backfill (unsorted clusters, TrackingFrameInfo, external
 //    indices, cluster sizes, ROF boundaries, label pointers) before
@@ -51,7 +51,7 @@
 #include "DataFormatsITSMFT/TopologyDictionary.h"
 #include "DetectorsCommonDataFormats/DetID.h"
 #include "ITSMFTTracking/SurfaceLayout.h"
-#include "ITSMFTTracking/detail/SurfaceTrackingScratch.h"
+#include "ITSMFTTracking/detail/TimeFrameScratch.h"
 #include "ITSMFTTracking/IOUtils.h"
 #include "ITSMFTTracking/SurfaceDescriptor.h"
 #include "ITSMFTTracking/ClusterDecoding.h"
@@ -260,7 +260,7 @@ const std::vector<Expected> expectedClusters{
 // call that must have left both owners untouched. `frame` owns the
 // normalized measurements; `tf` owns every legacy per-layer compatibility
 // structure (Gate 4 B3.1 split).
-void verifyFixtureLoaded(const TimeFrame& frame, SurfaceTrackingScratch& tf, const Fixture& f, const o2::InteractionRecord& origin, const ROFTimingConfig& timing)
+void verifyFixtureLoaded(const TimeFrame& frame, TimeFrameScratch& tf, const Fixture& f, const o2::InteractionRecord& origin, const ROFTimingConfig& timing)
 {
   constexpr ClusterSourceId kSourceId{0};
 
@@ -379,7 +379,7 @@ BOOST_AUTO_TEST_CASE(WipeClearsNormalizedFrameButPreservesDetId)
   const ROFTimingConfig timing{40, 0, 0, 0};
 
   TimeFrame frame;
-  SurfaceTrackingScratch tf;
+  TimeFrameScratch tf;
   std::vector<TrackingParameters> noIterations;
   const auto plan = catalogLayout(catalogView, orderedSurfaces);
   tf.setMemoryPool(std::make_shared<BoundedMemoryResource>());
@@ -427,7 +427,7 @@ BOOST_AUTO_TEST_CASE(BackfillAllocationFailureLeavesNormalizedAndLegacyStateAtBa
   // go away.
   auto pool = std::make_shared<BoundedMemoryResource>();
   TimeFrame frame;
-  SurfaceTrackingScratch tf;
+  TimeFrameScratch tf;
   frame.setMemoryPool(pool);
   tf.setMemoryPool(pool);
 
@@ -481,11 +481,11 @@ BOOST_AUTO_TEST_CASE(BackfillAllocationFailureLeavesNormalizedAndLegacyStateAtBa
   verifyFixtureLoaded(frame, tf, f, origin, timing);
 }
 
-// --- C. SurfaceTrackingScratch as sole owner of its BoundedMemoryResource -
+// --- C. TimeFrameScratch as sole owner of its BoundedMemoryResource -
 //
 // Exercises the member-destruction-order contract directly (see the
 // mExtMemoryPool/mMemoryPool declaration-order comment in
-// SurfaceTrackingScratch.h): the pool owner is declared before every
+// TimeFrameScratch.h): the pool owner is declared before every
 // pmr/bounded_vector member, so LegacyTrackerScratch destroys every
 // pool-backed vector -- returning its memory to the pool -- before
 // releasing its own shared_ptr to that pool. Here the caller's shared_ptr
@@ -500,7 +500,7 @@ BOOST_AUTO_TEST_CASE(BackfillAllocationFailureLeavesNormalizedAndLegacyStateAtBa
 // crash every time -- but this test still documents and exercises the
 // ordering contract this correction depends on. (Gate 4 B3.1: these
 // pool-backed vectors moved from the old split owner to
-// SurfaceTrackingScratch, so this test now targets the scratch's own
+// TimeFrameScratch, so this test now targets the scratch's own
 // memory-pool ownership; TimeFrame itself no longer holds any of them.)
 BOOST_AUTO_TEST_CASE(ScratchOutlivesSoleOwnershipOfItsMemoryPool)
 {
@@ -518,7 +518,7 @@ BOOST_AUTO_TEST_CASE(ScratchOutlivesSoleOwnershipOfItsMemoryPool)
   {
     auto pool = std::make_shared<BoundedMemoryResource>();
     TimeFrame frame;
-    SurfaceTrackingScratch tf;
+    TimeFrameScratch tf;
     tf.setMemoryPool(pool);
     tf.adoptPlan(plan.getOrderedSurfaces().size(), 0, 0);
 

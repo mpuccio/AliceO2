@@ -27,7 +27,7 @@
 
 #include "ITSMFTTracking/Configuration.h"
 #include "ITSMFTTracking/GenericTrack.h"
-#include "ITSMFTTracking/detail/SurfaceTrackingScratch.h"
+#include "ITSMFTTracking/detail/TimeFrameScratch.h"
 #include "ITSMFTTracking/SurfaceDescriptor.h"
 #include "ITSMFTTracking/SurfaceMeasurement.h"
 #include "ITSMFTTracking/TimeFrame.h"
@@ -44,7 +44,7 @@ namespace o2::itsmft::tracking
 using SeedRefitFunction = bool (*)(const TrackSeed& seed,
                                    const TrackingParameters& params,
                                    float bz,
-                                   SurfaceTrackingScratch& scratch,
+                                   TimeFrameScratch& scratch,
                                    gsl::span<const gsl::span<const GlobalMeasurement>> layerGlobals,
                                    gsl::span<const gsl::span<const SurfaceMeasurement>> layerMeasurements,
                                    SurfaceCatalogView surfaceCatalog,
@@ -59,13 +59,13 @@ struct TrackerTestAccess;
 struct TraversalWorkspaceView {
   int iteration{-1};
   TimeFrame& frame;
-  SurfaceTrackingScratch& scratch;
+  TimeFrameScratch& scratch;
   TraversalTopologyView topology{};
   gsl::span<const TrackingParameters> parameters;
   float bz{0.f};
   TraversalWorkspace& workspace;
 
-  TraversalWorkspaceView(int iterationValue, TimeFrame& frameValue, SurfaceTrackingScratch& scratchValue,
+  TraversalWorkspaceView(int iterationValue, TimeFrame& frameValue, TimeFrameScratch& scratchValue,
                          TraversalTopologyView topologyValue, gsl::span<const TrackingParameters> parametersValue,
                          float bzValue, TraversalWorkspace& workspaceValue)
     : iteration{iterationValue}, frame{frameValue}, scratch{scratchValue}, topology{topologyValue}, parameters{parametersValue}, bz{bzValue}, workspace{workspaceValue}

@@ -32,7 +32,7 @@ o2_add_library(ITSMFTTracking
                        src/Propagator.cxx
                        src/Configuration.cxx
                        src/TimeFrame.cxx
-                       src/SurfaceTrackingScratch.cxx
+                       src/TimeFrameScratch.cxx
                        src/TrackerTraits.cxx
                        src/CandidateFinding.cxx
                        src/TrackerTraversalPreparation.cxx

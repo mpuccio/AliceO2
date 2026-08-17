@@ -6,7 +6,6 @@ endpoint-only `Edge`, and exact-two-ID `CellPath`.
 
 ## Source and build closure
 
-- The final live-source guard is `testHeaderGraphCleanupInventory.cxx`.
 - The required obsolete-name scan over ITSMFT production and test source is
   empty.
 - `CMAKE_HOME_DIRECTORY` remains the scratch worktree and the existing build

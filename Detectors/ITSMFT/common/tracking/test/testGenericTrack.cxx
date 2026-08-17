@@ -50,7 +50,7 @@
 #include "ITSMFTTracking/IOUtils.h"
 #include "ITSMFTTracking/ClusterDecoding.h"
 #include "ITSMFTTracking/IOUtils.h"
-#include "ITSMFTTracking/detail/SurfaceTrackingScratch.h"
+#include "ITSMFTTracking/detail/TimeFrameScratch.h"
 #include "ITSMFTTracking/detail/ITSSharedClusterCompatibility.h"
 #include "ITSMFTTracking/GenericTrackOutputAdapter.h"
 #include "ITSMFTTracking/detail/MFTPublicationCompatibility.h"
@@ -583,12 +583,12 @@ std::vector<SurfaceId> identitySurfaces(uint16_t nLayers)
 struct TimeFrameFixture {
   // Gate 4 B3.1: `tf` (the permanent, non-templated TimeFrame, owning
   // GenericTrack/TrackClusterReference/normalized-frame state) is declared
-  // before `scratch` (the temporary SurfaceTrackingScratch) so it
-  // is constructed first and destroyed last -- see SurfaceTrackingScratch's
+  // before `scratch` (the temporary TimeFrameScratch) so it
+  // is constructed first and destroyed last -- see TimeFrameScratch's
   // own lifetime-contract doc. Neither owns or stores a reference to the
   // other; this fixture is what binds both for the load() call below.
   TimeFrame tf;
-  SurfaceTrackingScratch scratch;
+  TimeFrameScratch scratch;
   // Keep the catalog with the graph fixture so initialization inputs have one
   // explicit owner.
   std::vector<SurfaceDescriptor> catalog{makeITSTestCatalog()};
@@ -822,7 +822,7 @@ BOOST_AUTO_TEST_CASE(FailedLoadPreservesGenericTrackAndTrackClusterIndicesUnchan
   const auto measurementsBefore = fixture.tf.getTotalMeasurements();
   BOOST_REQUIRE(measurementsBefore > 0u);
 
-  // Deliberately fail: this SurfaceTrackingScratch preflight-rejects an
+  // Deliberately fail: this TimeFrameScratch preflight-rejects an
   // unsupported detector before touching anything.
   const std::vector<CompClusterExt> clusters{{0, 1, CompCluster::InvalidPatternID, 0}};
   const auto patterns = makePatternBytes(clusters.size());

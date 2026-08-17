@@ -115,8 +115,8 @@ BOOST_AUTO_TEST_CASE(ProductionHasOneFrameResetAndNoIndependentLiveScratchOwner)
     trackingRoot / "src/Tracker.cxx"};
   for (const auto& source : sources) {
     BOOST_REQUIRE_MESSAGE(std::filesystem::exists(source), source.string());
-    BOOST_CHECK_MESSAGE(!contains(source, "SurfaceTrackingScratch mScratch"), source.string());
-    BOOST_CHECK_MESSAGE(!contains(source, "SurfaceTrackingScratch* mScratch"), source.string());
+    BOOST_CHECK_MESSAGE(!contains(source, "TimeFrameScratch mScratch"), source.string());
+    BOOST_CHECK_MESSAGE(!contains(source, "TimeFrameScratch* mScratch"), source.string());
     BOOST_CHECK_MESSAGE(!contains(source, "resetTimeFrameEvent"), source.string());
   }
   BOOST_CHECK(contains(trackingRoot / "src/Tracker.cxx", "frame.resetTimeFrame();"));

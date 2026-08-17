@@ -78,7 +78,7 @@ BOOST_AUTO_TEST_CASE(TrackerIsStatelessAndOwnsOnlyTheOperationEdge)
   BOOST_CHECK(header.find("TrackingResult run(TimeFrame& frame, TrackerTraits& traits)") != std::string::npos);
   BOOST_CHECK(header.find("TimeFrame*") == std::string::npos);
   BOOST_CHECK(header.find("TrackerTraits*") == std::string::npos);
-  BOOST_CHECK(header.find("SurfaceTrackingScratch m") == std::string::npos);
+  BOOST_CHECK(header.find("TimeFrameScratch m") == std::string::npos);
   BOOST_CHECK(header.find("std::vector<" + std::string{"Surface"} + "Graph>") == std::string::npos);
 }
 

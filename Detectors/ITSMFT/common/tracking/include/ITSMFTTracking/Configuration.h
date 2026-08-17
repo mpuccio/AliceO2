@@ -78,7 +78,7 @@ struct TrackingParameters {
     return effectiveMinClusters - ClustersPerCell + 1;
   }
   // Compatibility accessors for frozen ITStracking/GPU consumers; the common
-  // runtime derives its road start level from SurfaceTrackingScratch.
+  // runtime derives its road start level from TimeFrameScratch.
   int NeighboursPerRoad() const noexcept { return NLayers - 3; }
   int CellsPerRoad() const noexcept { return NLayers - 2; }
   int TrackletsPerRoad() const noexcept { return NLayers - 1; }

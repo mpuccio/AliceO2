@@ -4,12 +4,12 @@
 
 // M6f (Detectors/ITSMFT/common/tracking/doc/design/0002-m6-generic-workspace-migration.md
 // Sec 9, 10): focused coverage for the sole detector-neutral
-// SurfaceTrackingScratch after the temporary workspace/binding bridge was
+// TimeFrameScratch after the temporary workspace/binding bridge was
 // retired. This file keeps container, dependency-boundary, and deleted-file
 // assertions; production traffic and replay coverage live in the participant,
 // workflow, and validation tests.
 
-#define BOOST_TEST_MODULE ITSMFT SurfaceTrackingScratch
+#define BOOST_TEST_MODULE ITSMFT TimeFrameScratch
 #define BOOST_TEST_MAIN
 #define BOOST_TEST_DYN_LINK
 #include <boost/test/unit_test.hpp>
@@ -22,7 +22,7 @@
 #include <string>
 #include <vector>
 
-#include "ITSMFTTracking/detail/SurfaceTrackingScratch.h"
+#include "ITSMFTTracking/detail/TimeFrameScratch.h"
 #include "ITSMFTTracking/TraversalTopology.h"
 #include "ITSMFTTracking/TimeFrame.h"
 #include "ITStracking/BoundedAllocator.h"
@@ -50,7 +50,7 @@ SurfaceDescriptor surfaceWithOwner(uint16_t id, SurfaceKind kind, uint8_t detect
 
 // A synthetic, detector-neutral Cylinder chain of `n` surfaces. Deliberately
 // uses a synthetic detectorId (250), never
-// o2::detectors::DetID::ITS/MFT, and never touches SurfaceTrackingScratch
+// o2::detectors::DetID::ITS/MFT, and never touches TimeFrameScratch
 // itself with a detector identity of any kind -- only the three plain
 // counts exposed directly by the graph.
 struct SyntheticChain {
@@ -108,7 +108,7 @@ BOOST_AUTO_TEST_CASE(AdoptsPlansWithDistinctRuntimeCountsWithoutDetectorOrLayerC
   // edges, 4 cells) -- adopted in turn by the *same* scratch instance,
   // proving sizing tracks whatever plan was last adopted rather than any
   // baked-in constant (no NLayers, no ITS/MFT-shaped assumption anywhere in
-  // this test or in SurfaceTrackingScratch itself).
+  // this test or in TimeFrameScratch itself).
   SyntheticChain small{4};
   SyntheticChain large{6};
   BOOST_CHECK_EQUAL(small.nOwnedSurfaces(), 4u);
@@ -119,7 +119,7 @@ BOOST_AUTO_TEST_CASE(AdoptsPlansWithDistinctRuntimeCountsWithoutDetectorOrLayerC
   BOOST_CHECK_EQUAL(large.nCells(), 4u);
   BOOST_REQUIRE_NE(small.nOwnedSurfaces(), large.nOwnedSurfaces());
 
-  SurfaceTrackingScratch scratch;
+  TimeFrameScratch scratch;
   scratch.setMemoryPool(makePool());
 
   scratch.adoptPlan(small.nOwnedSurfaces(), small.nEdges(), small.nCells());
@@ -144,7 +144,7 @@ BOOST_AUTO_TEST_CASE(AdoptsPlansWithDistinctRuntimeCountsWithoutDetectorOrLayerC
 BOOST_AUTO_TEST_CASE(PerSurfaceAndEdgeCellContainersHaveExpectedRuntimeSizes)
 {
   SyntheticChain chain{5};
-  SurfaceTrackingScratch scratch;
+  TimeFrameScratch scratch;
   scratch.setMemoryPool(makePool());
   scratch.adoptPlan(chain.nOwnedSurfaces(), chain.nEdges(), chain.nCells());
 
@@ -189,7 +189,7 @@ BOOST_AUTO_TEST_CASE(PerSurfaceAndEdgeCellContainersHaveExpectedRuntimeSizes)
 BOOST_AUTO_TEST_CASE(ResetClearsWorkingStateWithoutMutatingAPopulatedTimeFrameOrTheAdoptedPlanSize)
 {
   SyntheticChain chain{4};
-  SurfaceTrackingScratch scratch;
+  TimeFrameScratch scratch;
   scratch.setMemoryPool(makePool());
   scratch.adoptPlan(chain.nOwnedSurfaces(), chain.nEdges(), chain.nCells());
 
@@ -210,7 +210,7 @@ BOOST_AUTO_TEST_CASE(ResetClearsWorkingStateWithoutMutatingAPopulatedTimeFrameOr
 
   // Vector-of-bounded_vector (Group A/B outer) containers: outer element
   // count -- the adopted plan size -- survives reset(); only each element's
-  // *contents* are cleared. Mirrors SurfaceTrackingScratch::reset()
+  // *contents* are cleared. Mirrors TimeFrameScratch::reset()
   // exactly (it never shrinks its own NLayers-wide outer arrays either).
   BOOST_CHECK_EQUAL(scratch.mClusters.size(), chain.nOwnedSurfaces());
   BOOST_CHECK(scratch.mClusters[0].empty());
@@ -236,16 +236,16 @@ BOOST_AUTO_TEST_CASE(AllocatorsMatchDetectsSharedVersusDistinctPools)
   auto poolA = makePool();
   auto poolB = makePool();
 
-  SurfaceTrackingScratch live;
+  TimeFrameScratch live;
   live.setMemoryPool(poolA);
   live.adoptPlan(chain.nOwnedSurfaces(), chain.nEdges(), chain.nCells());
 
-  SurfaceTrackingScratch stagedSamePool;
+  TimeFrameScratch stagedSamePool;
   stagedSamePool.setMemoryPool(poolA);
   stagedSamePool.adoptPlan(chain.nOwnedSurfaces(), chain.nEdges(), chain.nCells());
   BOOST_CHECK(live.allocatorsMatch(stagedSamePool));
 
-  SurfaceTrackingScratch stagedDifferentPool;
+  TimeFrameScratch stagedDifferentPool;
   stagedDifferentPool.setMemoryPool(poolB);
   stagedDifferentPool.adoptPlan(chain.nOwnedSurfaces(), chain.nEdges(), chain.nCells());
   BOOST_CHECK(!live.allocatorsMatch(stagedDifferentPool));
@@ -256,12 +256,12 @@ BOOST_AUTO_TEST_CASE(SwapExchangesContentAndPreservesLiveAllocatorIdentity)
   SyntheticChain chain{4};
   auto poolA = makePool();
 
-  SurfaceTrackingScratch live;
+  TimeFrameScratch live;
   live.setMemoryPool(poolA);
   live.adoptPlan(chain.nOwnedSurfaces(), chain.nEdges(), chain.nCells());
   live.mBogusClusters[0] = 1;
 
-  SurfaceTrackingScratch staged;
+  TimeFrameScratch staged;
   staged.setMemoryPool(poolA); // same resource -- allocatorsMatch() precondition for swap().
   staged.adoptPlan(chain.nOwnedSurfaces(), chain.nEdges(), chain.nCells());
   staged.mBogusClusters[0] = 42;
@@ -298,7 +298,7 @@ void checkNoForbiddenToken(const fs::path& path, const std::string& token, const
 }
 } // namespace
 
-// M6d revision: SurfaceTrackingScratch is now wired into production for
+// M6d revision: TimeFrameScratch is now wired into production for
 // MFT specifically (SurfacePlanTrackingParticipantMFT), so it legitimately
 // knows a handful of things M6c's own additive-only version could not yet:
 // o2::detectors::DetID::MFT (loadNormalizedSource()'s own detector
@@ -313,11 +313,11 @@ void checkNoForbiddenToken(const fs::path& path, const std::string& token, const
 //
 // M6e2 revision: this scratch type became shared by ITS too (the combined
 // and standalone ITS common-CA participants now both back onto
-// SurfaceTrackingScratch, not just MFT's), so o2::detectors::DetID::ITS is
+// TimeFrameScratch, not just MFT's), so o2::detectors::DetID::ITS is
 // now a legitimate mention too (loadNormalizedSource()'s preflight accepts
 // both), removed from the forbidden list below. What remains genuinely
 // forbidden: workflow/DPL/output-layer naming, and the detail/-confined
-// SurfaceKind/SurfaceKind dispatch-key types -- SurfaceTrackingScratch
+// SurfaceKind/SurfaceKind dispatch-key types -- TimeFrameScratch
 // itself must still never reintroduce those, and no detector-specific
 // *switch* (as opposed to a DetID::ITS/DetID::MFT preflight/comparison) may
 // appear here.
@@ -328,8 +328,8 @@ BOOST_AUTO_TEST_CASE(NewHeadersPullNoITSWorkflowOutputOrSurfaceKindDependency)
   const fs::path trackingRoot = fs::path(testDirectory) / "..";
 
   const std::vector<fs::path> newFiles = {
-    trackingRoot / "include/ITSMFTTracking/detail/SurfaceTrackingScratch.h",
-    trackingRoot / "src/SurfaceTrackingScratch.cxx"};
+    trackingRoot / "include/ITSMFTTracking/detail/TimeFrameScratch.h",
+    trackingRoot / "src/TimeFrameScratch.cxx"};
   for (const auto& path : newFiles) {
     BOOST_REQUIRE_MESSAGE(fs::is_regular_file(path), "cannot find " << path.string());
   }
@@ -379,6 +379,6 @@ BOOST_AUTO_TEST_CASE(RetiredLegacyWorkspaceFilesAreAbsentAfterMigration)
   BOOST_CHECK(!fs::exists(trackingRoot / "include/ITSMFTTracking/LegacyTrackerScratch.h"));
   BOOST_CHECK(!fs::exists(trackingRoot / "include/ITSMFTTracking/detail/DetectorTraversalBinding.h"));
   BOOST_CHECK(!fs::exists(trackingRoot / "src/LegacyTrackerScratch.cxx"));
-  BOOST_CHECK(fs::is_regular_file(trackingRoot / "include/ITSMFTTracking/detail/SurfaceTrackingScratch.h"));
+  BOOST_CHECK(fs::is_regular_file(trackingRoot / "include/ITSMFTTracking/detail/TimeFrameScratch.h"));
   BOOST_CHECK(!fs::exists(trackingRoot / "include/ITSMFTTracking/detail/SurfacePlanBinding.h"));
 }

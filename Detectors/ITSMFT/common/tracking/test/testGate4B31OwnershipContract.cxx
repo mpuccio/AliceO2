@@ -51,7 +51,7 @@
 #include "Field/MagneticField.h"
 #include "ITSMFTTracking/GenericTrack.h"
 #include "ITSMFTTracking/IOUtils.h"
-#include "ITSMFTTracking/detail/SurfaceTrackingScratch.h"
+#include "ITSMFTTracking/detail/TimeFrameScratch.h"
 #include "ITSMFTTracking/SurfaceDescriptor.h"
 #include "ITSMFTTracking/ClusterDecoding.h"
 #include "ITSMFTTracking/IOUtils.h"
@@ -79,7 +79,7 @@ struct FieldFixture {
 BOOST_GLOBAL_FIXTURE(FieldFixture);
 
 // --- Compile-time proof (test 5): TimeFrame is a plain, non-templated
-// type; SurfaceTrackingScratch remains the plan-sized kernel workspace
+// type; TimeFrameScratch remains the plan-sized kernel workspace
 // implementation type. If a `template <int NLayers> struct TimeFrame` regression were
 // ever reintroduced, a bare `TimeFrame` (used here and by every migrated
 // production/test call site, e.g. testTimeFrameLifecycle.cxx) would no
@@ -92,16 +92,16 @@ BOOST_GLOBAL_FIXTURE(FieldFixture);
 // validation sweep and is recorded in its handoff notes.
 static_assert(std::is_default_constructible_v<TimeFrame>,
               "TimeFrame must be a plain, non-templated, default-constructible type (Gate 4 B3.1)");
-static_assert(std::is_default_constructible_v<SurfaceTrackingScratch>,
-              "SurfaceTrackingScratch must remain the plan-sized scratch owner");
-static_assert(!std::is_same_v<TimeFrame, SurfaceTrackingScratch>,
-              "TimeFrame and SurfaceTrackingScratch must remain two distinct owner types");
+static_assert(std::is_default_constructible_v<TimeFrameScratch>,
+              "TimeFrameScratch must remain the plan-sized scratch owner");
+static_assert(!std::is_same_v<TimeFrame, TimeFrameScratch>,
+              "TimeFrame and TimeFrameScratch must remain two distinct owner types");
 
 // Cheap, direct scratch population for tests 1-3: writes one cluster's worth
 // of scratch-owned legacy state on layer 0 via the same public append API
 // testMFTNormalizedRefit.cxx's fixtures use, without needing a full decoder/
 // catalog/loadNormalizedSource() round trip.
-void populateScratch(SurfaceTrackingScratch& scratch, float tag)
+void populateScratch(TimeFrameScratch& scratch, float tag)
 {
   scratch.setMemoryPool(std::make_shared<BoundedMemoryResource>());
   scratch.adoptPlan(ITSNLayers, 0, 0);
@@ -213,7 +213,7 @@ std::vector<SurfaceId> identitySurfaces()
 BOOST_AUTO_TEST_CASE(ResetScratchClearsScratchOnlyTimeFrameContentSurvives)
 {
   TimeFrame frame;
-  SurfaceTrackingScratch scratch;
+  TimeFrameScratch scratch;
   populateFrame(frame);
   populateScratch(scratch, 1.f);
 
@@ -238,7 +238,7 @@ BOOST_AUTO_TEST_CASE(ResetScratchClearsScratchOnlyTimeFrameContentSurvives)
 BOOST_AUTO_TEST_CASE(ResetTimeFrameEventClearsBothOwners)
 {
   TimeFrame frame;
-  SurfaceTrackingScratch scratch;
+  TimeFrameScratch scratch;
   populateFrame(frame);
   populateScratch(scratch, 2.f);
 
@@ -262,8 +262,8 @@ BOOST_AUTO_TEST_CASE(ResetTimeFrameEventClearsBothOwners)
 BOOST_AUTO_TEST_CASE(TwoScratchesOneFrameResettingOneLeavesTheOtherAndTheFrameUntouched)
 {
   TimeFrame frame;
-  SurfaceTrackingScratch itsScratch;
-  SurfaceTrackingScratch mftScratch;
+  TimeFrameScratch itsScratch;
+  TimeFrameScratch mftScratch;
   populateFrame(frame);
   populateScratch(itsScratch, 3.f);
   populateScratch(mftScratch, 4.f);
@@ -300,7 +300,7 @@ BOOST_AUTO_TEST_CASE(InjectedScratchBackfillFailureAfterNormalizedStagingLeavesB
 
   auto pool = std::make_shared<BoundedMemoryResource>();
   TimeFrame frame;
-  SurfaceTrackingScratch scratch;
+  TimeFrameScratch scratch;
   frame.setMemoryPool(pool);
   scratch.setMemoryPool(pool);
 
@@ -341,7 +341,7 @@ BOOST_AUTO_TEST_CASE(InjectedScratchBackfillFailureAfterNormalizedStagingLeavesB
 
   // Both owners retain exactly their pre-load (baseline) state: the
   // owner-level load's all-or-nothing contract. See
-  // SurfaceTrackingScratch::loadNormalizedSource()'s own doc comment
+  // TimeFrameScratch::loadNormalizedSource()'s own doc comment
   // and testTimeFrameLifecycle.cxx's
   // BackfillAllocationFailureLeavesNormalizedAndLegacyStateAtBaseline for
   // the equivalent proof exercised through a larger, multi-cluster fixture.

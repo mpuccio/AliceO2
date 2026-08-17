@@ -54,7 +54,7 @@
 #include "ITSMFTTracking/ClusterDecoding.h"
 #include "ITSMFTTracking/IOUtils.h"
 #include "ITSMFTTracking/IOUtils.h"
-#include "ITSMFTTracking/detail/SurfaceTrackingScratch.h"
+#include "ITSMFTTracking/detail/TimeFrameScratch.h"
 #include "ITSMFTTracking/TimeFrame.h"
 #include "ITSMFTTracking/TrackerTraits.h"
 #include "TraversalTestSupport.h"
@@ -229,7 +229,7 @@ struct Rig {
 
   std::shared_ptr<BoundedMemoryResource> pool;
   TimeFrame frame;
-  SurfaceTrackingScratch* tf{nullptr};
+  TimeFrameScratch* tf{nullptr};
   Tracker tracker;
   TrackerTraits traits;
   // Scratch carries non-owning runtime ROF views. Keep these adapter-edge
@@ -304,7 +304,7 @@ struct Rig {
   }
 };
 
-std::vector<int> snapshotIndexTable(SurfaceTrackingScratch& tf, int layer)
+std::vector<int> snapshotIndexTable(TimeFrameScratch& tf, int layer)
 {
   std::vector<int> flat;
   for (int rof = 0; rof < tf.getNrof(layer); ++rof) {

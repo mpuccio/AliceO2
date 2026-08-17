@@ -16,7 +16,7 @@
 #include "DetectorsCommonDataFormats/DetID.h"
 #include "ITSMFTTracking/detail/ITSSharedClusterCompatibility.h"
 #include "ITSMFTTracking/detail/MFTPublicationCompatibility.h"
-#include "ITSMFTTracking/detail/SurfaceTrackingScratch.h"
+#include "ITSMFTTracking/detail/TimeFrameScratch.h"
 #include "ITSMFTTracking/GenericTrack.h"
 #include "ITStracking/MathUtils.h"
 #include "MFTTracking/Constants.h"
@@ -37,7 +37,7 @@ class DetectorPublicationAdapter
 
   bool completeAccepted(gsl::span<const TrackingCandidate>,
                         const TrackingParameters&,
-                        const SurfaceTrackingScratch&,
+                        const TimeFrameScratch&,
                         bool) const noexcept
   {
     return true;
@@ -56,7 +56,7 @@ class DetectorPublicationAdapter<ITSNLayers>
 
   bool completeAccepted(gsl::span<const TrackingCandidate> candidates,
                         const TrackingParameters& params,
-                        const SurfaceTrackingScratch& scratch,
+                        const TimeFrameScratch& scratch,
                         bool final)
   {
     if (mSidecar == nullptr) {
@@ -79,7 +79,7 @@ class DetectorPublicationAdapter<ITSNLayers>
  private:
   bool stageSharedClusterFlags(gsl::span<const TrackingCandidate> candidates,
                                const TrackingParameters& params,
-                               const SurfaceTrackingScratch& scratch)
+                               const TimeFrameScratch& scratch)
   {
     uint32_t maxIndex = 0;
     for (const auto& candidate : candidates) {
@@ -141,7 +141,7 @@ class DetectorPublicationAdapter<o2::mft::constants::mft::LayersNumber>
 
   bool completeAccepted(gsl::span<const TrackingCandidate> candidates,
                         const TrackingParameters&,
-                        const SurfaceTrackingScratch&,
+                        const TimeFrameScratch&,
                         bool) const
   {
     if (mSidecar == nullptr) {

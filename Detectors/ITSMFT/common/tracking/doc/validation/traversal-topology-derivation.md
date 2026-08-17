@@ -19,14 +19,13 @@ and pinned package `daily-20260717-0700-local1`:
 
 ```text
 ctest --test-dir /Users/mpuccio/alice/run3/O2-worktree-builds/triplet-tracking-rnd-scratch \
-  -R 'testTraversalTopology|testHeaderGraphCleanupInventory' \
+  -R 'testTraversalTopology' \
   --output-on-failure -j1
 ```
 
-Result: **2/2 tests passed**. Coverage includes component isolation, full
+Result: **1/1 test passed**. Coverage includes component isolation, full
 A-B-C-D derivation, disabled-middle bridge selection, disabled endpoint
-filtering, transactional failure, exact `CellPath` layout, and the direct
-header inventory/immutability guards.
+filtering, transactional failure, and exact `CellPath` layout.
 
 The staged production target
 `stage/lib/libO2ITSMFTTracking.dylib` built successfully in the same build

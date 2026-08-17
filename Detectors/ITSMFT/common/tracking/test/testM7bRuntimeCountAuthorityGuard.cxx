@@ -140,9 +140,9 @@ void checkNoRuntimeSizedTemplateUse(const fs::path& path, std::string_view code)
     BOOST_CHECK_MESSAGE(text.find("< NLayers") == std::string::npos,
                         "TrackerTraits contains an NLayers-bounded hot loop");
   }
-  if (path.filename() == "SurfaceTrackingScratch.cxx") {
+  if (path.filename() == "TimeFrameScratch.cxx") {
     BOOST_CHECK_MESSAGE(text.find(".NLayers") == std::string::npos,
-                        "SurfaceTrackingScratch uses TrackingParameters::NLayers as a count authority");
+                        "TimeFrameScratch uses TrackingParameters::NLayers as a count authority");
   }
   BOOST_CHECK_MESSAGE(text.find("std::array<SurfaceMeasurement, NLayers>") == std::string::npos,
                       "common refit production code retains a plan-sized host measurement buffer");
@@ -196,7 +196,7 @@ BOOST_AUTO_TEST_CASE(RuntimePlanAndFixedCapacityContractsAreVisibleInProductionS
 {
   const auto root = trackingRoot();
   const auto traits = readFile(root / "src/TrackerTraits.cxx");
-  const auto scratch = readFile(root / "src/SurfaceTrackingScratch.cxx");
+  const auto scratch = readFile(root / "src/TimeFrameScratch.cxx");
   const auto refit = readFile(root / "include/ITSMFTTracking/RefitDriver.h");
   BOOST_CHECK(traits.find("context.workspace.orderedSurfaces") != std::string::npos);
   BOOST_CHECK(traits.find("context.workspace.edges") != std::string::npos);

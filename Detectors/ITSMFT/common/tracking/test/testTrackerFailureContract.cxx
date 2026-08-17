@@ -84,7 +84,7 @@
 #include "ITSMFTTracking/ITSMFTDetectorDefinitions.h"
 #include "ITSMFTTracking/detail/MFTFwdTrackHelpers.h"
 #include "ITSMFTTracking/SurfaceDescriptor.h"
-#include "ITSMFTTracking/detail/SurfaceTrackingScratch.h"
+#include "ITSMFTTracking/detail/TimeFrameScratch.h"
 #include "ITSMFTTracking/ClusterDecoding.h"
 #include "ITSMFTTracking/IOUtils.h"
 #include "ITSMFTTracking/TimeFrame.h"
@@ -291,7 +291,7 @@ int gThrowOnRefitCall = 1;
 // Deliberately a plain function pointer: production itself reaches this
 // seam only after candidate formation and road finding have produced a real
 // seed. Tests reset the process-local controls before every invocation.
-bool controlledSeedRefit(const TrackSeed&, const TrackingParameters&, float, SurfaceTrackingScratch&,
+bool controlledSeedRefit(const TrackSeed&, const TrackingParameters&, float, TimeFrameScratch&,
                          gsl::span<const gsl::span<const GlobalMeasurement>>,
                          gsl::span<const gsl::span<const SurfaceMeasurement>>, SurfaceCatalogView,
                          gsl::span<const SurfaceId>, TrackingCandidate&)
@@ -313,7 +313,7 @@ bool controlledSeedRefit(const TrackSeed&, const TrackingParameters&, float, Sur
 
 // The core's typed refit/publication work is deliberately not part of this
 // failure-contract fixture. This narrow test function supplies only refit.
-bool testSeedRefit(const TrackSeed&, const TrackingParameters&, float, SurfaceTrackingScratch&,
+bool testSeedRefit(const TrackSeed&, const TrackingParameters&, float, TimeFrameScratch&,
                    gsl::span<const gsl::span<const GlobalMeasurement>>,
                    gsl::span<const gsl::span<const SurfaceMeasurement>>, SurfaceCatalogView,
                    gsl::span<const SurfaceId>, TrackingCandidate&)

@@ -117,11 +117,11 @@ class CATrackerDPL : public o2::framework::Task
     const o2::dataformats::MCTruthContainer<MCCompLabel>* labels);
   void resetEvent() noexcept;
   bool isActive() const noexcept { return mFrame.isConfigured() && !mFrame.getTrackingParameters().empty(); }
-  const o2::itsmft::tracking::SurfaceTrackingScratch& getScratch() const noexcept
+  const o2::itsmft::tracking::TimeFrameScratch& getScratch() const noexcept
   {
     return mFrame.getWorkspace();
   }
-  o2::itsmft::tracking::SurfaceTrackingScratch& getScratch() noexcept
+  o2::itsmft::tracking::TimeFrameScratch& getScratch() noexcept
   {
     return mFrame.getWorkspace();
   }

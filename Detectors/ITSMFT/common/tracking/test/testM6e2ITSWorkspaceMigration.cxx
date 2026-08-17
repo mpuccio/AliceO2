@@ -46,7 +46,7 @@
 #include "ITSMFTTracking/IOUtils.h"
 #include "ITSMFTTracking/ITSMFTDetectorDefinitions.h"
 #include "ITSMFTTracking/ClusterDecoding.h"
-#include "ITSMFTTracking/detail/SurfaceTrackingScratch.h"
+#include "ITSMFTTracking/detail/TimeFrameScratch.h"
 #include "ITSMFTTracking/TimeFrame.h"
 
 using namespace o2::itsmft;
@@ -70,7 +70,7 @@ BOOST_AUTO_TEST_CASE(UnadoptedScratchRejectsLoadInsteadOfMisbehaving)
   // loadNormalizedSource()'s own orderedSurfaces.size() != mNOwnedSurfaces
   // preflight -- a clean, typed error, not an out-of-bounds access into an
   // unsized Group A container.
-  SurfaceTrackingScratch scratch;
+  TimeFrameScratch scratch;
   scratch.setMemoryPool(std::make_shared<o2::its::BoundedMemoryResource>());
   BOOST_CHECK_EQUAL(scratch.getNOwnedSurfaces(), 0u);
 
@@ -217,8 +217,8 @@ BOOST_AUTO_TEST_CASE(TimeFrameResetClearsSharedWorkspaceAndPreservesFrameState)
   frame.setBz(5.f);
   frame.setBeamPosition(1.f, 2.f, 0.1f);
 
-  auto& itsParticipantScratch = const_cast<SurfaceTrackingScratch&>(participants.getITSScratch());
-  auto& mftParticipantScratch = const_cast<SurfaceTrackingScratch&>(participants.getMFTScratch());
+  auto& itsParticipantScratch = const_cast<TimeFrameScratch&>(participants.getITSScratch());
+  auto& mftParticipantScratch = const_cast<TimeFrameScratch&>(participants.getMFTScratch());
   BOOST_CHECK_EQUAL(&itsParticipantScratch, &mftParticipantScratch);
   BOOST_CHECK_EQUAL(itsParticipantScratch.getNOwnedSurfaces(), 17u);
   BOOST_CHECK_EQUAL(itsParticipantScratch.getNEdges(), 15u);
@@ -309,7 +309,7 @@ BOOST_AUTO_TEST_CASE(StandaloneAndCombinedITSGraphsAgreeByRelativePosition)
   // A separately constructed standalone scratch remains independent. The
   // workflow participant accessors below, in contrast, must alias the one
   // global workspace.
-  SurfaceTrackingScratch standaloneScratch;
+  TimeFrameScratch standaloneScratch;
   standaloneScratch.adoptPlan(standaloneOrder.size(), standaloneTopology.topology->edges.size(), standaloneTopology.topology->paths.size());
   auto participants = makeSet();
   TimeFrame frame;

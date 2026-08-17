@@ -49,7 +49,7 @@
 #include "ITSMFTTracking/ClusterDecoding.h"
 #include "ITSMFTTracking/IOUtils.h"
 #include "ITSMFTTracking/SurfaceDescriptor.h"
-#include "ITSMFTTracking/detail/SurfaceTrackingScratch.h"
+#include "ITSMFTTracking/detail/TimeFrameScratch.h"
 #include "ITSMFTTracking/TimeFrame.h"
 #include "ITSMFTTracking/Tracker.h"
 #include "ITSMFTTracking/TrackerTraits.h"
@@ -363,8 +363,8 @@ struct Rig : RigFrameStorage {
 
   std::vector<TrackingParameters> params;
   // Gate 4 B3.1: `frame` declared before `tf` so it is constructed first and
-  // destroyed last (see SurfaceTrackingScratch's own lifetime-contract doc).
-  SurfaceTrackingScratch* tf{nullptr};
+  // destroyed last (see TimeFrameScratch's own lifetime-contract doc).
+  TimeFrameScratch* tf{nullptr};
   Tracker tracker;
   TrackerTraits traits;
   std::shared_ptr<tbb::task_arena> arena;

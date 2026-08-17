@@ -20,7 +20,7 @@
 #include <boost/test/unit_test.hpp>
 
 #include "ITSMFTTracking/ROFViews.h"
-#include "ITSMFTTracking/detail/SurfaceTrackingScratch.h"
+#include "ITSMFTTracking/detail/TimeFrameScratch.h"
 #include "ITSMFTTracking/TraversalTopology.h"
 #include "ITStracking/ROFLookupTables.h"
 
@@ -223,7 +223,7 @@ BOOST_AUTO_TEST_CASE(ScratchResetInvalidatesRuntimeROFContext)
   o2::its::ROFMaskTable<o2::itsmft::tracking::ITSNLayers> mask{overlap};
   mask.setROFsEnabled(0, 0, 1, 1);
 
-  SurfaceTrackingScratch scratch;
+  TimeFrameScratch scratch;
   scratch.setROFViews(RuntimeROFViews{overlap.getView(), vertexLookup.getView(), mask.getView(), mask.getView()});
   scratch.useUPCMask();
   BOOST_CHECK_EQUAL(scratch.getROFOverlapView().mLayerCount, o2::itsmft::tracking::ITSNLayers);

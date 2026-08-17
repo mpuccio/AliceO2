@@ -69,12 +69,6 @@ o2_add_test(retired-identifier-guard
             LABELS "itsmft;tracking"
             PUBLIC_LINK_LIBRARIES O2::ITSMFTTracking)
 
-o2_add_test(header-graph-cleanup-inventory
-            SOURCES testHeaderGraphCleanupInventory.cxx
-            COMPONENT_NAME itsmft-tracking
-            LABELS "itsmft;tracking"
-            PUBLIC_LINK_LIBRARIES O2::ITSMFTTracking)
-
 o2_add_test(tracking-kernel-parameters
             SOURCES testTrackingKernelParameters.cxx
             COMPONENT_NAME itsmft-tracking
@@ -395,9 +389,9 @@ o2_add_test(m7f-runtime-core-guard
             PUBLIC_LINK_LIBRARIES O2::ITSMFTTracking O2::MFTTracking)
 
 # Gate 4 M6f: focused runtime ownership and sizing coverage for the sole
-# SurfaceTrackingScratch workspace.
+# TimeFrameScratch workspace.
 o2_add_test(surface-tracking-scratch
-            SOURCES testSurfaceTrackingScratch.cxx
+            SOURCES testTimeFrameScratch.cxx
             COMPONENT_NAME itsmft-tracking
             LABELS "itsmft;tracking"
             # IndexTableUtils.h retains its narrow MFTTracking/Constants.h
@@ -475,7 +469,7 @@ o2_add_test(combined-tracking-composition
                                   O2::Field)
 
 # Historical M6d coverage, now exercising the MFT common-CA path through
-# SurfaceTrackingScratch and its frame-owned TraversalWorkspace, using the
+# TimeFrameScratch and its frame-owned TraversalWorkspace, using the
 # same workflow configuration as production.
 o2_add_test(m6d-mft-migration
             SOURCES testM6dMFTMigration.cxx

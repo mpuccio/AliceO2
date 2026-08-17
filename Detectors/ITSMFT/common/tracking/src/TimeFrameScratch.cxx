@@ -9,11 +9,11 @@
 // granted to it by virtue of its status as an Intergovernmental Organization
 // or submit itself to any jurisdiction.
 ///
-/// \file SurfaceTrackingScratch.cxx
-/// \brief SurfaceTrackingScratch implementation.
+/// \file TimeFrameScratch.cxx
+/// \brief TimeFrameScratch implementation.
 ///
 
-#include "ITSMFTTracking/detail/SurfaceTrackingScratch.h"
+#include "ITSMFTTracking/detail/TimeFrameScratch.h"
 
 #include <algorithm>
 #include <limits>
@@ -65,7 +65,7 @@ std::optional<uint16_t> TraversalWorkspace::getCellSlot(CellPathId id) const noe
   return traversalSlot(cellSlotById, id);
 }
 
-void SurfaceTrackingScratch::adoptPlan(std::size_t nOwnedSurfaces, std::size_t nEdges, std::size_t nCells)
+void TimeFrameScratch::adoptPlan(std::size_t nOwnedSurfaces, std::size_t nEdges, std::size_t nCells)
 {
   mNOwnedSurfaces = nOwnedSurfaces;
   mNEdges = nEdges;
@@ -104,7 +104,7 @@ void SurfaceTrackingScratch::adoptPlan(std::size_t nOwnedSurfaces, std::size_t n
   clearResizeBoundedVector(mCellLabels, nCells, mMemoryPool.get());
 }
 
-void SurfaceTrackingScratch::configureTraversalWorkspaces(std::size_t nIterations)
+void TimeFrameScratch::configureTraversalWorkspaces(std::size_t nIterations)
 {
   mTraversalWorkspaces.resize(nIterations);
   for (auto& workspace : mTraversalWorkspaces) {
@@ -112,7 +112,7 @@ void SurfaceTrackingScratch::configureTraversalWorkspaces(std::size_t nIteration
   }
 }
 
-void SurfaceTrackingScratch::reset()
+void TimeFrameScratch::reset()
 {
   // Drop the non-owning event view at each event boundary.
   mROFViews = {};
@@ -173,7 +173,7 @@ void SurfaceTrackingScratch::reset()
   std::fill(mClusterLabels.begin(), mClusterLabels.end(), nullptr);
 }
 
-void SurfaceTrackingScratch::setMemoryPool(std::shared_ptr<o2::its::BoundedMemoryResource> pool)
+void TimeFrameScratch::setMemoryPool(std::shared_ptr<o2::its::BoundedMemoryResource> pool)
 {
   mMemoryPool = std::move(pool);
 
@@ -218,7 +218,7 @@ void SurfaceTrackingScratch::setMemoryPool(std::shared_ptr<o2::its::BoundedMemor
   initContainers(mROFramesClusters, hasFrameworkAllocator());
 }
 
-void SurfaceTrackingScratch::setFrameworkAllocator(o2::its::ExternalAllocator* ext)
+void TimeFrameScratch::setFrameworkAllocator(o2::its::ExternalAllocator* ext)
 {
   mExternalAllocator = ext;
   mExtMemoryPool = std::make_shared<o2::its::BoundedMemoryResource>(mExternalAllocator);
@@ -244,7 +244,7 @@ bool flatArrayAllocatorMatches(const std::array<bounded_vector<T>, N>& a, const 
 }
 } // namespace
 
-bool SurfaceTrackingScratch::allocatorsMatch(const SurfaceTrackingScratch& staged) const noexcept
+bool TimeFrameScratch::allocatorsMatch(const TimeFrameScratch& staged) const noexcept
 {
   // Flat bounded_vector<T> swaps require equal allocators. Outer
   // std::vector<bounded_vector<T>> swaps do not, so they are not checked.
@@ -257,7 +257,7 @@ bool SurfaceTrackingScratch::allocatorsMatch(const SurfaceTrackingScratch& stage
          flatArrayAllocatorMatches(mTrackletsIndexROF, staged.mTrackletsIndexROF);
 }
 
-void SurfaceTrackingScratch::swapLoadedEvent(SurfaceTrackingScratch& other) noexcept
+void TimeFrameScratch::swapLoadedEvent(TimeFrameScratch& other) noexcept
 {
   // Swap only data loaded by loadNormalizedSource(); plan sizes, allocators,
   // and edge/cell capacity stay with the live workspace.
@@ -278,7 +278,7 @@ void SurfaceTrackingScratch::swapLoadedEvent(SurfaceTrackingScratch& other) noex
   std::swap(mUseUPC, other.mUseUPC);
 }
 
-void SurfaceTrackingScratch::swap(SurfaceTrackingScratch& other) noexcept
+void TimeFrameScratch::swap(TimeFrameScratch& other) noexcept
 {
   static_assert(noexcept(std::declval<bounded_vector<float>&>().swap(std::declval<bounded_vector<float>&>())));
   static_assert(noexcept(std::declval<bounded_vector<int>&>().swap(std::declval<bounded_vector<int>&>())));
@@ -341,12 +341,12 @@ void SurfaceTrackingScratch::swap(SurfaceTrackingScratch& other) noexcept
 
 // Accessors and runtime-plan operations.
 
-gsl::span<const int> SurfaceTrackingScratch::getROFrameClusters(int layerId) const
+gsl::span<const int> TimeFrameScratch::getROFrameClusters(int layerId) const
 {
   return {&mROFramesClusters[layerId][0], static_cast<gsl::span<const int>::size_type>(mROFramesClusters[layerId].size())};
 }
 
-gsl::span<o2::its::Cluster> SurfaceTrackingScratch::getClustersOnLayer(int rofId, int layerId)
+gsl::span<o2::its::Cluster> TimeFrameScratch::getClustersOnLayer(int rofId, int layerId)
 {
   if (rofId < 0 || rofId >= getNrof(layerId)) {
     return {};
@@ -355,7 +355,7 @@ gsl::span<o2::its::Cluster> SurfaceTrackingScratch::getClustersOnLayer(int rofId
   return {&mClusters[layerId][startIdx], static_cast<gsl::span<o2::its::Cluster>::size_type>(mROFramesClusters[layerId][rofId + 1] - startIdx)};
 }
 
-gsl::span<const o2::its::Cluster> SurfaceTrackingScratch::getClustersOnLayer(int rofId, int layerId) const
+gsl::span<const o2::its::Cluster> TimeFrameScratch::getClustersOnLayer(int rofId, int layerId) const
 {
   if (rofId < 0 || rofId >= getNrof(layerId)) {
     return {};
@@ -364,7 +364,7 @@ gsl::span<const o2::its::Cluster> SurfaceTrackingScratch::getClustersOnLayer(int
   return {&mClusters[layerId][startIdx], static_cast<gsl::span<const o2::its::Cluster>::size_type>(mROFramesClusters[layerId][rofId + 1] - startIdx)};
 }
 
-gsl::span<uint8_t> SurfaceTrackingScratch::getUsedClustersROF(int rofId, int layerId)
+gsl::span<uint8_t> TimeFrameScratch::getUsedClustersROF(int rofId, int layerId)
 {
   if (rofId < 0 || rofId >= getNrof(layerId)) {
     return {};
@@ -373,7 +373,7 @@ gsl::span<uint8_t> SurfaceTrackingScratch::getUsedClustersROF(int rofId, int lay
   return {&mUsedClusters[layerId][startIdx], static_cast<gsl::span<uint8_t>::size_type>(mROFramesClusters[layerId][rofId + 1] - startIdx)};
 }
 
-gsl::span<const uint8_t> SurfaceTrackingScratch::getUsedClustersROF(int rofId, int layerId) const
+gsl::span<const uint8_t> TimeFrameScratch::getUsedClustersROF(int rofId, int layerId) const
 {
   if (rofId < 0 || rofId >= getNrof(layerId)) {
     return {};
@@ -382,7 +382,7 @@ gsl::span<const uint8_t> SurfaceTrackingScratch::getUsedClustersROF(int rofId, i
   return {&mUsedClusters[layerId][startIdx], static_cast<gsl::span<const uint8_t>::size_type>(mROFramesClusters[layerId][rofId + 1] - startIdx)};
 }
 
-gsl::span<const o2::its::Cluster> SurfaceTrackingScratch::getClustersPerROFrange(int rofMin, int range, int layerId) const
+gsl::span<const o2::its::Cluster> TimeFrameScratch::getClustersPerROFrange(int rofMin, int range, int layerId) const
 {
   if (rofMin < 0 || rofMin >= getNrof(layerId)) {
     return {};
@@ -392,31 +392,31 @@ gsl::span<const o2::its::Cluster> SurfaceTrackingScratch::getClustersPerROFrange
   return {&mClusters[layerId][startIdx], static_cast<gsl::span<o2::its::Cluster>::size_type>(endIdx - startIdx)};
 }
 
-gsl::span<const int> SurfaceTrackingScratch::getROFramesClustersPerROFrange(int rofMin, int range, int layerId) const
+gsl::span<const int> TimeFrameScratch::getROFramesClustersPerROFrange(int rofMin, int range, int layerId) const
 {
   int chkdRange{o2::gpu::CAMath::Min(range, getNrof(layerId) - rofMin)};
   return {&mROFramesClusters[layerId][rofMin], static_cast<gsl::span<int>::size_type>(chkdRange)};
 }
 
-gsl::span<const int> SurfaceTrackingScratch::getNClustersROFrange(int rofMin, int range, int layerId) const
+gsl::span<const int> TimeFrameScratch::getNClustersROFrange(int rofMin, int range, int layerId) const
 {
   int chkdRange{o2::gpu::CAMath::Min(range, getNrof(layerId) - rofMin)};
   return {&mNClustersPerROF[layerId][rofMin], static_cast<gsl::span<int>::size_type>(chkdRange)};
 }
 
-int SurfaceTrackingScratch::getTotalClustersPerROFrange(int rofMin, int range, int layerId) const
+int TimeFrameScratch::getTotalClustersPerROFrange(int rofMin, int range, int layerId) const
 {
   int startIdx{rofMin};
   int endIdx{o2::gpu::CAMath::Min(rofMin + range, getNrof(layerId))};
   return mROFramesClusters[layerId][endIdx] - mROFramesClusters[layerId][startIdx];
 }
 
-int SurfaceTrackingScratch::getClusterROF(int iLayer, int iCluster) const
+int TimeFrameScratch::getClusterROF(int iLayer, int iCluster) const
 {
   return static_cast<int>(std::lower_bound(mROFramesClusters[iLayer].begin(), mROFramesClusters[iLayer].end(), iCluster + 1) - mROFramesClusters[iLayer].begin() - 1);
 }
 
-gsl::span<const o2::its::Cluster> SurfaceTrackingScratch::getUnsortedClustersOnLayer(int rofId, int layerId) const
+gsl::span<const o2::its::Cluster> TimeFrameScratch::getUnsortedClustersOnLayer(int rofId, int layerId) const
 {
   if (rofId < 0 || rofId >= getNrof(layerId)) {
     return {};
@@ -425,7 +425,7 @@ gsl::span<const o2::its::Cluster> SurfaceTrackingScratch::getUnsortedClustersOnL
   return {&mUnsortedClusters[layerId][startIdx], static_cast<gsl::span<o2::its::Cluster>::size_type>(mROFramesClusters[layerId][rofId + 1] - startIdx)};
 }
 
-gsl::span<int> SurfaceTrackingScratch::getIndexTable(int rofId, int layer)
+gsl::span<int> TimeFrameScratch::getIndexTable(int rofId, int layer)
 {
   if (rofId < 0 || rofId >= getNrof(layer)) {
     return {};
@@ -435,12 +435,12 @@ gsl::span<int> SurfaceTrackingScratch::getIndexTable(int rofId, int layer)
   return {&mIndexTables[layer][rofId * tableSize], static_cast<gsl::span<int>::size_type>(tableSize)};
 }
 
-gsl::span<unsigned char> SurfaceTrackingScratch::getUsedClusters(const int layer)
+gsl::span<unsigned char> TimeFrameScratch::getUsedClusters(const int layer)
 {
   return {&mUsedClusters[layer][0], static_cast<gsl::span<unsigned char>::size_type>(mUsedClusters[layer].size())};
 }
 
-gsl::span<int> SurfaceTrackingScratch::getNTrackletsCluster(int rofId, int combId)
+gsl::span<int> TimeFrameScratch::getNTrackletsCluster(int rofId, int combId)
 {
   if (rofId < 0 || rofId >= getNrof(1)) {
     return {};
@@ -449,7 +449,7 @@ gsl::span<int> SurfaceTrackingScratch::getNTrackletsCluster(int rofId, int combI
   return {&mNTrackletsPerCluster[combId][startIdx], static_cast<gsl::span<int>::size_type>(mROFramesClusters[1][rofId + 1] - startIdx)};
 }
 
-gsl::span<int> SurfaceTrackingScratch::getExclusiveNTrackletsCluster(int rofId, int combId)
+gsl::span<int> TimeFrameScratch::getExclusiveNTrackletsCluster(int rofId, int combId)
 {
   if (rofId < 0 || rofId >= getNrof(1)) {
     return {};
@@ -458,7 +458,7 @@ gsl::span<int> SurfaceTrackingScratch::getExclusiveNTrackletsCluster(int rofId, 
   return {&mNTrackletsPerClusterSum[combId][clusStartIdx], static_cast<gsl::span<int>::size_type>(mROFramesClusters[1][rofId + 1] - clusStartIdx)};
 }
 
-gsl::span<o2::its::Tracklet> SurfaceTrackingScratch::getFoundTracklets(int rofId, int combId)
+gsl::span<o2::its::Tracklet> TimeFrameScratch::getFoundTracklets(int rofId, int combId)
 {
   if (rofId < 0 || rofId >= getNrof(1) || mTracklets[combId].empty()) {
     return {};
@@ -467,7 +467,7 @@ gsl::span<o2::its::Tracklet> SurfaceTrackingScratch::getFoundTracklets(int rofId
   return {&mTracklets[combId][startIdx], static_cast<gsl::span<o2::its::Tracklet>::size_type>(mNTrackletsPerROF[combId][rofId + 1] - startIdx)};
 }
 
-gsl::span<const o2::its::Tracklet> SurfaceTrackingScratch::getFoundTracklets(int rofId, int combId) const
+gsl::span<const o2::its::Tracklet> TimeFrameScratch::getFoundTracklets(int rofId, int combId) const
 {
   if (rofId < 0 || rofId >= getNrof(1)) {
     return {};
@@ -476,7 +476,7 @@ gsl::span<const o2::its::Tracklet> SurfaceTrackingScratch::getFoundTracklets(int
   return {&mTracklets[combId][startIdx], static_cast<gsl::span<o2::its::Tracklet>::size_type>(mNTrackletsPerROF[combId][rofId + 1] - startIdx)};
 }
 
-gsl::span<const MCCompLabel> SurfaceTrackingScratch::getLabelsFoundTracklets(int rofId, int combId) const
+gsl::span<const MCCompLabel> TimeFrameScratch::getLabelsFoundTracklets(int rofId, int combId) const
 {
   if (rofId < 0 || rofId >= getNrof(1) || !hasMCinformation()) {
     return {};
@@ -485,7 +485,7 @@ gsl::span<const MCCompLabel> SurfaceTrackingScratch::getLabelsFoundTracklets(int
   return {&mTrackletLabels[combId][startIdx], static_cast<gsl::span<o2::its::Tracklet>::size_type>(mNTrackletsPerROF[combId][rofId + 1] - startIdx)};
 }
 
-int SurfaceTrackingScratch::getTotalClusters() const
+int TimeFrameScratch::getTotalClusters() const
 {
   size_t totalClusters{0};
   for (const auto& clusters : mUnsortedClusters) {
@@ -494,7 +494,7 @@ int SurfaceTrackingScratch::getTotalClusters() const
   return static_cast<int>(totalClusters);
 }
 
-size_t SurfaceTrackingScratch::getNumberOfClusters() const
+size_t TimeFrameScratch::getNumberOfClusters() const
 {
   size_t nClusters{0};
   for (const auto& layer : mClusters) {
@@ -503,7 +503,7 @@ size_t SurfaceTrackingScratch::getNumberOfClusters() const
   return nClusters;
 }
 
-size_t SurfaceTrackingScratch::getNumberOfCells() const
+size_t TimeFrameScratch::getNumberOfCells() const
 {
   size_t nCells{0};
   for (const auto& layer : mCells) {
@@ -512,7 +512,7 @@ size_t SurfaceTrackingScratch::getNumberOfCells() const
   return nCells;
 }
 
-size_t SurfaceTrackingScratch::getNumberOfTracklets() const
+size_t TimeFrameScratch::getNumberOfTracklets() const
 {
   size_t nTracklets{0};
   for (const auto& layer : mTracklets) {
@@ -521,7 +521,7 @@ size_t SurfaceTrackingScratch::getNumberOfTracklets() const
   return nTracklets;
 }
 
-size_t SurfaceTrackingScratch::getNumberOfNeighbours() const
+size_t TimeFrameScratch::getNumberOfNeighbours() const
 {
   size_t neigh{0};
   for (const auto& l : mCellsNeighbours) {
@@ -530,7 +530,7 @@ size_t SurfaceTrackingScratch::getNumberOfNeighbours() const
   return neigh;
 }
 
-size_t SurfaceTrackingScratch::getNumberOfUsedClusters() const
+size_t TimeFrameScratch::getNumberOfUsedClusters() const
 {
   size_t nClusters = 0;
   for (const auto& layer : mUsedClusters) {
@@ -539,12 +539,12 @@ size_t SurfaceTrackingScratch::getNumberOfUsedClusters() const
   return nClusters;
 }
 
-const o2::its::TrackingFrameInfo& SurfaceTrackingScratch::getClusterTrackingFrameInfo(int layerId, const o2::its::Cluster& cl) const
+const o2::its::TrackingFrameInfo& TimeFrameScratch::getClusterTrackingFrameInfo(int layerId, const o2::its::Cluster& cl) const
 {
   return mTrackingFrameInfo[layerId][cl.clusterId];
 }
 
-gsl::span<const Vertex> SurfaceTrackingScratch::getPrimaryVertices(const TimeFrame& frame, int layer, int rofId) const
+gsl::span<const Vertex> TimeFrameScratch::getPrimaryVertices(const TimeFrame& frame, int layer, int rofId) const
 {
   if (rofId < 0 || rofId >= getNrof(layer)) {
     return {};
@@ -555,7 +555,7 @@ gsl::span<const Vertex> SurfaceTrackingScratch::getPrimaryVertices(const TimeFra
   return {&vertices[entry.getFirstEntry()], static_cast<gsl::span<const Vertex>::size_type>(entry.getEntries())};
 }
 
-void SurfaceTrackingScratch::computeTrackletsPerROFScans()
+void TimeFrameScratch::computeTrackletsPerROFScans()
 {
   for (int iLayer = 0; iLayer < 2; ++iLayer) {
     for (unsigned int iRof{0}; iRof < static_cast<unsigned int>(getNrof(1)); ++iRof) {
@@ -567,7 +567,7 @@ void SurfaceTrackingScratch::computeTrackletsPerROFScans()
     std::exclusive_scan(mNTrackletsPerCluster[iLayer].begin(), mNTrackletsPerCluster[iLayer].end(), mNTrackletsPerClusterSum[iLayer].begin(), 0);
   }
 }
-void SurfaceTrackingScratch::prepareClusters(const TimeFrame& frame, const TrackingParameters& trkParam, const int maxLayers,
+void TimeFrameScratch::prepareClusters(const TimeFrame& frame, const TrackingParameters& trkParam, const int maxLayers,
                                              gsl::span<const gsl::span<const GlobalMeasurement>> layerMeasurements)
 {
   struct ClusterHelper {
@@ -649,7 +649,7 @@ void SurfaceTrackingScratch::prepareClusters(const TimeFrame& frame, const Track
     }
   }
 }
-void SurfaceTrackingScratch::initialise(const TimeFrame& frame, const TrackingParameters& trkParam, const int maxLayers, const int iteration,
+void TimeFrameScratch::initialise(const TimeFrame& frame, const TrackingParameters& trkParam, const int maxLayers, const int iteration,
                                         const IndexTableUtilsCore& indexTableConfig, TraversalTopologyView topology,
                                         gsl::span<const EdgeId> edgeIds, gsl::span<const CellPathId> cellIds,
                                         gsl::span<const SurfaceId> orderedSurfaces,
@@ -660,7 +660,7 @@ void SurfaceTrackingScratch::initialise(const TimeFrame& frame, const TrackingPa
              orderedSurfaces, layerMeasurements);
 }
 
-void SurfaceTrackingScratch::initialise(const TimeFrame& frame, const TrackingParameters& trkParam, const int maxLayers, const int iteration,
+void TimeFrameScratch::initialise(const TimeFrame& frame, const TrackingParameters& trkParam, const int maxLayers, const int iteration,
                                         gsl::span<const IndexTableUtilsCore> indexTableConfigs, TraversalTopologyView topology,
                                         gsl::span<const EdgeId> edgeIds, gsl::span<const CellPathId> cellIds,
                                         gsl::span<const SurfaceId> orderedSurfaces,
@@ -672,19 +672,19 @@ void SurfaceTrackingScratch::initialise(const TimeFrame& frame, const TrackingPa
       edgeIds.size() > topology.nEdges || cellIds.size() > topology.nPaths ||
       (topology.nEdges != 0 && (topology.edges == nullptr || topology.pathsByFirstEdgeOffsets == nullptr)) ||
       (topology.nPaths != 0 && (topology.paths == nullptr || topology.pathsByFirstEdge == nullptr))) {
-    throw std::logic_error{"SurfaceTrackingScratch::initialise(): plan/sparse-topology extent mismatch"};
+    throw std::logic_error{"TimeFrameScratch::initialise(): plan/sparse-topology extent mismatch"};
   }
   const auto surfaceSlot = [&](SurfaceId surface) {
     const auto it = std::find(orderedSurfaces.begin(), orderedSurfaces.end(), surface);
     if (it == orderedSurfaces.end()) {
-      throw std::logic_error{"SurfaceTrackingScratch::initialise(): sparse topology surface is not bound"};
+      throw std::logic_error{"TimeFrameScratch::initialise(): sparse topology surface is not bound"};
     }
     return static_cast<std::size_t>(std::distance(orderedSurfaces.begin(), it));
   };
 
   for (const auto edgeId : edgeIds) {
     if (!edgeId.isValid() || edgeId.value() >= topology.nEdges) {
-      throw std::logic_error{"SurfaceTrackingScratch::initialise(): invalid sparse edge binding"};
+      throw std::logic_error{"TimeFrameScratch::initialise(): invalid sparse edge binding"};
     }
     const auto& edge = topology.getEdge(edgeId);
     (void)surfaceSlot(edge.from);
@@ -692,12 +692,12 @@ void SurfaceTrackingScratch::initialise(const TimeFrame& frame, const TrackingPa
   }
   for (const auto cellId : cellIds) {
     if (!cellId.isValid() || cellId.value() >= topology.nPaths) {
-      throw std::logic_error{"SurfaceTrackingScratch::initialise(): invalid sparse cell binding"};
+      throw std::logic_error{"TimeFrameScratch::initialise(): invalid sparse cell binding"};
     }
     const auto& path = topology.getPath(cellId);
     if (!path.first.isValid() || !path.second.isValid() ||
         path.first.value() >= topology.nEdges || path.second.value() >= topology.nEdges) {
-      throw std::logic_error{"SurfaceTrackingScratch::initialise(): sparse cell references an invalid edge"};
+      throw std::logic_error{"TimeFrameScratch::initialise(): sparse cell references an invalid edge"};
     }
   }
 

@@ -14,7 +14,7 @@
 ///
 
 #include "ITSMFTTracking/TimeFrame.h"
-#include "ITSMFTTracking/detail/SurfaceTrackingScratch.h"
+#include "ITSMFTTracking/detail/TimeFrameScratch.h"
 
 #include <algorithm>
 #include <stdexcept>
@@ -26,7 +26,7 @@ using o2::its::deepVectorClear;
 
 TimeFrame::~TimeFrame() = default;
 
-void TimeFrame::WorkspaceDeleter::operator()(SurfaceTrackingScratch* workspace) const noexcept
+void TimeFrame::WorkspaceDeleter::operator()(TimeFrameScratch* workspace) const noexcept
 {
   delete workspace;
 }
@@ -131,7 +131,7 @@ std::size_t TimeFrame::getTotalMeasurements() const noexcept
 }
 
 bool TimeFrame::commitLoadedEvent(TimeFrame& staged,
-                                  std::unique_ptr<SurfaceTrackingScratch>&& stagedWorkspace) noexcept
+                                  std::unique_ptr<TimeFrameScratch>&& stagedWorkspace) noexcept
 {
   if (!mConfigurationValid || !mWorkspace || !stagedWorkspace) {
     return false;
@@ -168,9 +168,9 @@ bool TimeFrame::commitConfiguration(std::vector<SurfaceLayout>&& layouts,
     capacity.edges = std::max(capacity.edges, iterationCapacity.edges);
     capacity.cells = std::max(capacity.cells, iterationCapacity.cells);
   }
-  std::unique_ptr<SurfaceTrackingScratch, WorkspaceDeleter> workspace;
+  std::unique_ptr<TimeFrameScratch, WorkspaceDeleter> workspace;
   try {
-    workspace.reset(new SurfaceTrackingScratch);
+    workspace.reset(new TimeFrameScratch);
     workspace->setMemoryPool(memoryPool);
     workspace->adoptPlan(capacity.ownedSurfaces, capacity.edges, capacity.cells);
     workspace->configureTraversalWorkspaces(parameters.size());
@@ -187,7 +187,7 @@ bool TimeFrame::commitConfiguration(std::vector<SurfaceLayout>&& layouts,
   return true;
 }
 
-SurfaceTrackingScratch& TimeFrame::getWorkspace()
+TimeFrameScratch& TimeFrame::getWorkspace()
 {
   if (!mWorkspace) {
     throw std::logic_error{"TimeFrame workspace is not configured"};
@@ -195,7 +195,7 @@ SurfaceTrackingScratch& TimeFrame::getWorkspace()
   return *mWorkspace;
 }
 
-const SurfaceTrackingScratch& TimeFrame::getWorkspace() const
+const TimeFrameScratch& TimeFrame::getWorkspace() const
 {
   if (!mWorkspace) {
     throw std::logic_error{"TimeFrame workspace is not configured"};
